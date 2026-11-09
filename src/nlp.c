@@ -8067,6 +8067,7 @@ next_code_block(const char *src, struct sbuf *piece)
 }
 
 static void run_text_plain(const char *src, const char *file, int echo);
+#include "nlp_img.inc"	/* a shader run, with its image inputs, in English */
 
 /* the block looks like GLSL source (and is tagged so, or untagged) */
 int
@@ -8513,8 +8514,10 @@ run_text(const char *src, const char *file, int echo)
 				    notes.p ? notes.p : "");
 			free(notes.p);
 		}
-		if (code_block && spv_like(code_block))
+		if (code_block && spv_like(code_block)) {
+			shader_piece(&piece);
 			simplify_piece(&piece);
+		}
 		/* earlier pieces' lines come first, as empty lines */
 		sb_clear(&pad);
 		sb_puts(&pad, "");

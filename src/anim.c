@@ -1870,6 +1870,12 @@ image_option(struct P *p, const char *w)
 		img_opt.any = 1;
 		return 1;
 	}
+	if (!strcasecmp(w, "images") || !strcasecmp(w, "gallery") ||
+	    !strcasecmp(w, "pictures")) {	/* the request's images */
+		img_opt.use_gallery = 1;
+		img_opt.any = 1;
+		return 1;
+	}
 	if (!strcasecmp(w, "sampler") || !strcasecmp(w, "sampling") ||
 	    !strcasecmp(w, "filter") || !strcasecmp(w, "filtering")) {
 		sampler_words(p);

@@ -87,10 +87,11 @@ LDADD+=	-lm
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
 nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_xform.inc \
-    nlp_words.awk
+    nlp_img.inc nlp_words.awk
 	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
 	    ${.CURDIR}/src/nlp_calc2.inc ${.CURDIR}/src/nlp_hyper.inc \
-	    ${.CURDIR}/src/nlp_alg.inc ${.CURDIR}/src/nlp_xform.inc > ${.TARGET}
+	    ${.CURDIR}/src/nlp_alg.inc ${.CURDIR}/src/nlp_xform.inc \
+	    ${.CURDIR}/src/nlp_img.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 
