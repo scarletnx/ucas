@@ -596,12 +596,16 @@ solve1(nid g, nid x, int slot, const char *xn, const char *eqt)
 		if (n.d < 0) {
 			printf("  every %s is a solution (where the equation is "
 			    "defined)\n", xn);
+			rep_end();
+			rep_bool("every_value", 1);
 			ar_release(mk);
 			return;
 		}
 		if (n.d == 0) {
 			printf("  no solution: the equation reduces to %s = 0\n",
 			    fq(n.c[0]));
+			rep_end();
+			rep_bool("inconsistent", 1);
 			ar_release(mk);
 			return;
 		}
@@ -683,6 +687,11 @@ solve1(nid g, nid x, int slot, const char *xn, const char *eqt)
 			if (dg == 1) {
 				sols[ns++] = rf_node(rf_norm((struct rf){mp_neg(C), B}), 0);
 				printf("  %s = %s\n", xn, node_str(sols[0]));
+				rep_obj(NULL);
+				rep_expr(xn, sols[0]);
+				rep_end();
+				if (!mp_isconst(B, NULL))
+					rep_cond("%s != 0", mp_str(B));
 				if (!mp_isconst(B, NULL))
 					printf("  where %s != 0\n", mp_str(B));
 			} else {
@@ -692,10 +701,19 @@ solve1(nid g, nid x, int slot, const char *xn, const char *eqt)
 				nid nb = mp_node(mp_neg(B)), den = mp_node(mp_scale(A, qi(2)));
 				for (s = 0; s < 2; s++)
 					sols[ns++] = DIV(s ? SUB(nb, sq) : ADD(nb, sq), den);
-				for (s = 0; s < 2; s++)
+				for (s = 0; s < 2; s++) {
 					printf("  %s = (%s %s %s)/%s%s%s\n", xn, node_str(nb),
 					    s ? "-" : "+", node_str(sq), N.op[den] == O_MUL ? "(" :
 					    "", node_str(den), N.op[den] == O_MUL ? ")" : "");
+					rep_obj(NULL);
+					rep_strf(xn, "(%s %s %s)/%s%s%s", node_str(nb),
+					    s ? "-" : "+", node_str(sq), N.op[den] == O_MUL ? "(" :
+					    "", node_str(den), N.op[den] == O_MUL ? ")" : "");
+					rep_end();
+				}
+				if (!mp_isconst(A, NULL))
+					rep_cond("%s != 0", mp_str(A));
+				rep_cond("%s >= 0 (real solutions)", mp_str(D));
 				if (!mp_isconst(A, NULL))
 					printf("  where %s != 0 (else the equation is linear)\n",
 					    mp_str(A));
@@ -708,6 +726,7 @@ solve1(nid g, nid x, int slot, const char *xn, const char *eqt)
 				memset(mapx, 0, sizeof mapx);
 				mapx[slot] = sols[s];
 				n = alg_check(subst(g, mapx, NSLOT), KR(0), &w, NULL);
+				rep_check("substitution", n, w, w <= 1e-8, NULL);
 				printf("  check: %s = %s substituted, the equation holds at %d "
 				    "sample points of the other variables (residual %.2g)\n",
 				    xn, ns == 1 ? "it" : s ? "the second" : "the first", n, w);
@@ -854,6 +873,16 @@ print_sols(nid g, int slot, const char *xn)
 			continue;
 		any = 1;
 		printf("  %s = %s", xn, S[i].text);
+		rep_obj(NULL);
+		rep_str(xn, S[i].text);
+		rep_num("value", S[i].v);
+		rep_bool("exact", S[i].general != -1);
+		if (S[i].general == 1) {
+			rep_num("period", S[i].per);
+			rep_str("general", "k any integer");
+		}
+		rep_int("multiplicity", S[i].mult);
+		rep_end();
 		if (S[i].general == 1)
 			printf("   (k any integer)");
 		if (S[i].mult == 2)
@@ -867,6 +896,10 @@ print_sols(nid g, int slot, const char *xn)
 			printf("   (= %.10g)", S[i].v);
 		printf("\n");
 	}
+	rep_end();
+	if (excl[0])
+		rep_str("excluded", excl);
+	rep_int("complex_solutions", complex_n);
 	if (excl[0])
 		printf("  excluded: %s (a denominator vanishes there)\n", excl);
 	if (!any)
@@ -896,6 +929,8 @@ print_sols(nid g, int slot, const char *xn)
 					worst = fabs(v);
 			}
 		}
+		rep_check("substitution", n, worst, worst <= 1e-8, "each solution "
+		    "substituted back");
 		printf("  check: %s substituted (%d value%s%s): residual %.2g%s\n",
 		    "each solution", n, n == 1 ? "" : "s", nS && S[0].general == 1 ?
 		    ", k = -2..2" : "", worst, worst <= 1e-8 ? "" :
@@ -982,6 +1017,8 @@ solve_linear(const nid *eq, int neq, const nid *vars, int nv)
 	}
 	for (i = rank; i < neq; i++)
 		if (M[i][nv].n) {
+			rep_end();
+			rep_bool("inconsistent", 1);
 			printf("  no solution: the equations are inconsistent (rank %d, "
 			    "the augmented system has rank %d)\n", rank, rank + 1);
 			return;
@@ -993,6 +1030,7 @@ solve_linear(const nid *eq, int neq, const nid *vars, int nv)
 			isfree[j] = 1;
 		for (i = 0; i < rank; i++)
 			isfree[piv[i]] = 0;
+		rep_obj(NULL);	/* one solution: every unknown */
 		for (i = 0; i < rank; i++) {
 			struct sbuf b = {0};
 			int any = 0;
@@ -1017,8 +1055,15 @@ solve_linear(const nid *eq, int neq, const nid *vars, int nv)
 			if (!any)
 				sb_puts(&b, "0");
 			printf("  %s = %s\n", node_str(vars[piv[i]]), b.p);
+			rep_str(node_str(vars[piv[i]]), b.p);
 			free(b.p);
 		}
+		for (j = 0; j < nv; j++)
+			if (isfree[j])
+				rep_str(node_str(vars[j]), "free");
+		rep_end();
+		rep_end();
+		rep_int("free_unknowns", nv - rank);
 		for (j = 0; j < nv; j++)
 			if (isfree[j])
 				printf("  %s is free (any value)\n", node_str(vars[j]));
@@ -1050,6 +1095,7 @@ solve_linear(const nid *eq, int neq, const nid *vars, int nv)
 						worst = fabs(v);
 				}
 			}
+			rep_check("substitution", 2, worst, worst <= 1e-8, NULL);
 			printf("  check: substituted into every equation%s: residual %.2g\n",
 			    rank < nv ? " (free unknowns at two values)" : "", worst);
 		}
@@ -1119,6 +1165,10 @@ solve_poly2(const nid *eq, const nid *vars)
 					continue;
 				printf("  %s = %s, %s = %s\n", xn, xs[i].text, yn,
 				    c2_fnum(rr[j].re));
+				rep_obj(NULL);
+				rep_str(xn, xs[i].text);
+				rep_str(yn, c2_fnum(rr[j].re));
+				rep_end();
 				worst = fmax(worst, fabs(pv) + fabs(qv));
 				n++;
 			}
@@ -1128,6 +1178,8 @@ solve_poly2(const nid *eq, const nid *vars)
 	if (n == 0)
 		printf("  no real solution\n");
 	else
+		rep_check("substitution", n, worst, worst <= 1e-6, NULL);
+	if (n)
 		printf("  check: %d solution%s substituted into both equations: "
 		    "residual %.2g\n", n, n > 1 ? "s" : "", worst);
 }
@@ -1152,6 +1204,19 @@ alg_solve(const nid *eq, const char *const *eqtext, int neq,
 	for (i = 0; i < nvars; i++)
 		printf("%s %s", i ? "," : "", node_str(vars[i]));
 	printf("\n");
+	rep_begin("solve");
+	rep_list("equations");
+	for (i = 0; i < neq; i++)
+		if (eqtext && eqtext[i])
+			rep_str(NULL, eqtext[i]);
+		else
+			rep_strf(NULL, "%s = 0", node_str(eq[i]));
+	rep_end();
+	rep_list("unknowns");
+	for (i = 0; i < nvars; i++)
+		rep_expr(NULL, vars[i]);
+	rep_end();
+	rep_list("solutions");
 	(void)eqtext;
 	if (nvars == 0) {
 		printf("  nothing to solve for: no variable\n");

@@ -495,8 +495,13 @@ rep_answer(const char *key, const char *what, const char *const *opt,
 			free(b.p);
 			return NULL;
 		}
+		{
+			char t[600];
+			snprintf(t, sizeof t, "%s: %s (args.assume.%s)", what, opt[i],
+			    k);
+			rep_note("assumed", t);
+		}
 		snprintf(buf, sizeof buf, "%d", i + 1);
-		rep_note("assumed", what);
 		return buf;
 	}
 	if (R.defaults) {
