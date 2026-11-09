@@ -92,6 +92,8 @@ static struct {
 	char err[256];
 	uint64_t rng;
 	int seeded;
+	long oob;		/* accesses outside a variable */
+	char oobvar[40];	/* the first one's variable */
 } V;
 
 static void
@@ -873,6 +875,53 @@ init_var(int v, int lane, uint64_t *mem)
 	}
 }
 
+static uint64_t alu(const char *op, int rt, int at, uint64_t a, uint64_t b,
+    uint64_t c, int *ok);
+
+/*
+ * OpSpecConstantOp: an instruction on constants, folded once (the spec
+ * constants keep their default values)
+ */
+static void
+spec_op(const struct sins *I, struct sid *d)
+{
+	char op[48];
+	int rt = d->type, n, i, ok = 1;
+
+	if (I->nop < 3)
+		die("short OpSpecConstantOp: \"%s\"", I->text);
+	snprintf(op, sizeof op, "Op%s", I->opnd[1]);
+	n = T(rt)->k == S_VEC ? T(rt)->n : 1;
+	d->nc = n;
+	if (!strcmp(op, "OpCompositeExtract")) {
+		struct sid *c = &V.id[opid(I, 2)];
+		int k = I->nop > 3 ? atoi(I->opnd[3]) : 0;
+		d->c[0] = k >= 0 && k < MAXCOMP ? c->c[k] : 0;
+		return;
+	}
+	if (!strcmp(op, "OpSelect")) {
+		struct sid *c = &V.id[opid(I, 2)], *a = &V.id[opid(I, 3)],
+		    *b = &V.id[opid(I, 4)];
+		for (i = 0; i < n; i++)
+			d->c[i] = (c->nc > 1 ? c->c[i] : c->c[0]) ? a->c[i] : b->c[i];
+		return;
+	}
+	{
+		struct sid *a = &V.id[opid(I, 2)];
+		struct sid *b = I->nop > 3 ? &V.id[opid(I, 3)] : a;
+		struct sid *c = I->nop > 4 ? &V.id[opid(I, 4)] : a;
+		int at = a->type >= 0 ? (T(a->type)->k == S_VEC ? T(a->type)->e :
+		    a->type) : rt;
+		int st = T(rt)->k == S_VEC ? T(rt)->e : rt;
+		for (i = 0; i < n; i++) {
+			d->c[i] = alu(op, st, at, a->c[a->nc > 1 ? i : 0],
+			    b->c[b->nc > 1 ? i : 0], c->c[c->nc > 1 ? i : 0], &ok);
+			if (!ok)
+				die("unsupported OpSpecConstantOp: \"%s\"", I->text);
+		}
+	}
+}
+
 static void
 declare(void)
 {
@@ -941,10 +990,22 @@ declare(void)
 				for (i = 0; i < d->nc; i++)
 					d->c[i] = 0;
 			} else if (!strcmp(o, "Composite")) {
-				for (i = 1; i < I->nop && d->nc < MAXCOMP; i++)
-					d->c[d->nc++] = V.id[opid(I, i)].c[0];
-			} else if (o[0] == 0)
+				/* every component of each constituent, in order */
+				for (i = 1; i < I->nop; i++) {
+					struct sid *e = &V.id[opid(I, i)];
+					int j;
+					for (j = 0; j < (e->nc ? e->nc : 1) && d->nc < MAXCOMP;
+					    j++)
+						d->c[d->nc++] = e->c[j];
+				}
+			} else if (!strcmp(o, "Op"))
+				spec_op(I, d);
+			else if (o[0] == 0)
 				d->c[0] = parse_literal(d->type, I->opnd[1]), d->nc = 1;
+		} else if (!strcmp(I->op, "OpUndef")) {
+			d->kind = K_CONST;	/* any value will do: zero */
+			d->type = opid(I, 0);
+			d->nc = T(d->type)->k == S_VEC ? T(d->type)->n : 1;
 		} else if (!strcmp(I->op, "OpVariable")) {
 			int pt = opid(I, 0);
 			d->kind = K_VAR;
@@ -1027,8 +1088,17 @@ slot(int var, int lane, int off)
 {
 	struct sid *d = &V.id[var];
 
-	if (off < 0 || off >= d->nslots)
-		fail("SPIR-V: access outside %s", d->name);
+	if (off < 0 || off >= d->nslots) {
+		/*
+		 * outside the variable: like robustBufferAccess, a read gives
+		 * 0 and a write goes nowhere; counted for a note
+		 */
+		static uint64_t scratch;
+		if (V.oob++ == 0)
+			snprintf(V.oobvar, sizeof V.oobvar, "%s", d->name);
+		scratch = 0;
+		return &scratch;
+	}
 	if (shared_sc(d->sc))
 		return &d->mem[off];
 	return &d->mem[(size_t)lane * d->nslots + off];
@@ -1068,6 +1138,16 @@ fmt(char *buf, size_t n, int t, const struct lval *v)
 	}
 	if (nc > 1 && (size_t)at < n)
 		snprintf(buf + at, n - (size_t)at, ")");
+}
+
+/* components of an operand (a constant or a computed value) */
+static int
+vcomp(int id)
+{
+	int t = V.id[id].type;
+
+	return t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_VEC ?
+	    T(t)->n : 1;
 }
 
 /* ---- costs ---- */
@@ -1122,8 +1202,10 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	if (!strncmp(op, "OpBitwise", 9) || !strcmp(op, "OpNot") ||
 	    !strncmp(op, "OpLogical", 9))
 		return C_LOGIC;
-	if (!strcmp(op, "OpBitCount"))
+	if (!strcmp(op, "OpBitCount") || !strcmp(op, "OpBitReverse"))
 		return C_BITCNT;
+	if (!strncmp(op, "OpBitField", 10))
+		return C_SHIFT;
 	if (strstr(op, "Equal") || strstr(op, "Less") || strstr(op, "Greater") ||
 	    !strcmp(op, "OpIsNan") || !strcmp(op, "OpIsInf"))
 		return fl ? C_CMP : C_CMP;
@@ -1143,8 +1225,6 @@ emit(const struct sins *I, int kind, int cls, double cost, uint32_t mask)
 
 	if (I->res >= 0)
 		snprintf(dst, sizeof dst, "%.15s", V.id[I->res].name);
-	if (xr_count() >= 1000)
-		fail("SPIR-V: more than 1000 instructions executed (a long loop?)");
 	return xr_add(kind, I->text, cls, cost, mask, dst);
 }
 
@@ -1174,7 +1254,6 @@ alu(const char *op, int rt, int at, uint64_t a, uint64_t b, uint64_t c,
 	int64_t ia = fl ? 0 : geti(at, a), ib = fl ? 0 : geti(at, b);
 	uint64_t ua = a & wmask(T(at)->w), ub = b & wmask(T(at)->w);
 
-	(void)c;
 #define OP(n) (!strcmp(op, n))
 	if (OP("OpIAdd")) return puti(rt, ia + ib);
 	if (OP("OpISub")) return puti(rt, ia - ib);
@@ -1207,6 +1286,26 @@ alu(const char *op, int rt, int at, uint64_t a, uint64_t b, uint64_t c,
 	if (OP("OpBitwiseOr")) return puti(rt, (int64_t)(ua | ub));
 	if (OP("OpBitwiseXor")) return puti(rt, (int64_t)(ua ^ ub));
 	if (OP("OpNot")) return puti(rt, (int64_t)~ua);
+	if (OP("OpBitFieldUExtract") || OP("OpBitFieldSExtract")) {
+		int off = (int)(b & 63), cnt = (int)(c & 127);
+		uint64_t v;
+		if (cnt == 0)
+			return 0;
+		if (cnt > 64 - off)
+			cnt = 64 - off;
+		v = (ua >> off) & wmask(cnt);
+		if (OP("OpBitFieldSExtract") && (v >> (cnt - 1) & 1))
+			v |= ~wmask(cnt);
+		return puti(rt, (int64_t)v);
+	}
+	if (OP("OpBitReverse")) {
+		uint64_t r = 0;
+		int k, w = T(at)->w;
+		for (k = 0; k < w; k++)
+			if (ua >> k & 1)
+				r |= 1ULL << (w - 1 - k);
+		return puti(rt, (int64_t)r);
+	}
 	if (OP("OpBitCount")) {
 		int n = 0;
 		for (; ua; ua &= ua - 1)
@@ -1306,6 +1405,36 @@ glsl(const char *f, int rt, int at, uint64_t a, uint64_t b, uint64_t c,
 	if (F("FMix")) return putf(rt, x * (1 - z) + y * z);
 	if (F("Step")) return putf(rt, y < x ? 0 : 1);
 	if (F("Fma")) return putf(rt, fma(x, y, z));
+	if (F("FindILsb")) {
+		int k;
+		for (k = 0; k < T(at)->w; k++)
+			if (ua >> k & 1)
+				return puti(rt, k);
+		return puti(rt, -1);
+	}
+	if (F("FindUMsb") || F("FindSMsb")) {
+		int k;
+		uint64_t v = F("FindSMsb") && ia < 0 ? ~ua & wmask(T(at)->w) : ua;
+		for (k = T(at)->w - 1; k >= 0; k--)
+			if (v >> k & 1)
+				return puti(rt, k);
+		return puti(rt, -1);
+	}
+	if (F("Radians")) return putf(rt, x * 0.017453292519943295);
+	if (F("Degrees")) return putf(rt, x * 57.29577951308232);
+	if (F("Sinh")) return putf(rt, sinh(x));
+	if (F("Cosh")) return putf(rt, cosh(x));
+	if (F("Tanh")) return putf(rt, tanh(x));
+	if (F("Asinh")) return putf(rt, asinh(x));
+	if (F("Acosh")) return putf(rt, acosh(x));
+	if (F("Atanh")) return putf(rt, atanh(x));
+	if (F("SmoothStep")) {
+		double t = (z - x) / (y - x);
+		t = t < 0 ? 0 : t > 1 ? 1 : t;
+		return putf(rt, t * t * (3 - 2 * t));
+	}
+	if (F("Ldexp")) return putf(rt, ldexp(x, (int)(int32_t)b));
+	if (F("IMix")) return puti(rt, c ? ib : ia);
 #undef F
 	*ok = 0;
 	return 0;
@@ -1342,8 +1471,8 @@ exec_one(const struct sins *I, uint32_t mask)
 	const char *ext = NULL;
 	int first = 1;
 
-	if (++V.steps > 100000)
-		fail("SPIR-V: too many steps");
+	if (++V.steps > 4000000)
+		fail("SPIR-V: more than 4000000 steps (an endless loop?)");
 	if (!strcmp(I->op, "OpLine") || !strcmp(I->op, "OpNoLine") ||
 	    !strcmp(I->op, "OpSelectionMerge") || !strcmp(I->op, "OpLoopMerge") ||
 	    !strcmp(I->op, "OpVariable") || !strcmp(I->op, "OpFunctionParameter")
@@ -1361,6 +1490,12 @@ exec_one(const struct sins *I, uint32_t mask)
 		}
 	}
 
+	if (!strcmp(I->op, "OpUndef")) {
+		for (l = 0; l < V.lanes; l++)
+			if (mask >> l & 1)
+				memset(LV(I->res, l), 0, sizeof(struct lval));
+		return;
+	}
 	if (!strcmp(I->op, "OpStore")) {
 		int p = opid(I, 0), v = opid(I, 1), sc;
 		struct lval pv = val(p, 0);
@@ -1653,19 +1788,41 @@ exec_one(const struct sins *I, uint32_t mask)
 		}
 		ar = I->nop - base;
 		for (l = 0; l < V.lanes; l++) {
-			struct lval x, y, z, *r;
+			struct lval x, y, z, w4, *r;
 			int at;
 			if (!(mask >> l & 1))
 				continue;
 			x = val(opid(I, base), l);
 			y = ar > 1 ? val(opid(I, base + 1), l) : x;
 			z = ar > 2 ? val(opid(I, base + 2), l) : x;
+			w4 = ar > 3 ? val(opid(I, base + 3), l) : x;
+			/* a scalar operand next to vectors applies to each component */
+			if (nc > 1) {
+				int j;
+				if (ar > 1 && vcomp(opid(I, base + 1)) == 1)
+					for (j = 1; j < nc; j++)
+						y.b[j] = y.b[0];
+				if (ar > 2 && vcomp(opid(I, base + 2)) == 1)
+					for (j = 1; j < nc; j++)
+						z.b[j] = z.b[0];
+				if (ar > 3 && vcomp(opid(I, base + 3)) == 1)
+					for (j = 1; j < nc; j++)
+						w4.b[j] = w4.b[0];
+			}
 			at = type_of(opid(I, base)) >= 0 ? type_of(opid(I, base)) :
 			    V.id[opid(I, base)].type;
 			at = scalar_of(at);
 			r = LV(I->res, l);
 			memset(r, 0, sizeof *r);
 			for (i = 0; i < nc; i++) {
+				if (!ext && !strcmp(I->op, "OpBitFieldInsert")) {
+					/* base, insert, offset, count */
+					int off = (int)(z.b[i] & 63), cnt = (int)(w4.b[i] & 127);
+					uint64_t m = cnt >= 64 ? ~0ULL : wmask(cnt) << off;
+					r->b[i] = puti(st, (int64_t)((x.b[i] & ~m) |
+					    (y.b[i] << off & m)));
+					continue;
+				}
 				r->b[i] = ext ? glsl(ext, st, at, x.b[i], y.b[i], z.b[i], &ok) :
 				    alu(I->op, st, at, x.b[i], y.b[i], z.b[i], &ok);
 				if (!ok && first)
@@ -2030,9 +2187,26 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 	    sym_str(model_active()->name));
 	printf("  buffers start with random values (seed %llu)\n",
 	    (unsigned long long)seed);
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 5 &&
+		    !strcmp(V.in[k].opnd[1], "LocalSize")) {
+			long wg = atol(V.in[k].opnd[2]) * atol(V.in[k].opnd[3]) *
+			    atol(V.in[k].opnd[4]);
+			if (wg > lanes)
+				printf("  note: the workgroup has %ld invocations (LocalSize "
+				    "%s %s %s); these are the first %d%s, so shared memory "
+				    "the others would write stays as it started\n", wg,
+				    V.in[k].opnd[2], V.in[k].opnd[3], V.in[k].opnd[4], lanes,
+				    lanes < 32 ? " (add `lanes 32` for a warp)" : "");
+		}
 	dump_buffers("before:");
 	region(lb, V.all, -1, -1, NULL);
 	dump_buffers("after: ");
+	if (V.oob)
+		printf("  note: %ld access%s outside a variable (first: %s): read "
+		    "as 0 and writes dropped, as with robustBufferAccess; random "
+		    "inputs may not be valid data for this shader\n", V.oob,
+		    V.oob == 1 ? "" : "es", V.oobvar);
 	for (k = 0; k < ninps; k++) {
 		struct sid *d;
 		char v[48];

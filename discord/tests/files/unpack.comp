@@ -1,0 +1,25 @@
+#version 450
+// bit unpacking like a texture-block decoder: bitfield ops, spec
+// constant expressions, a loop longer than 1000 instructions
+layout(local_size_x = 64) in;
+layout(constant_id = 0) const uint BW = 4;
+layout(constant_id = 1) const uint BH = 4;
+const uint TEXELS = BW * BH;
+layout(std430, binding = 0) buffer In { uint words[]; };
+layout(std430, binding = 1) buffer Out { uint texels[]; };
+shared uint tile[TEXELS * 4];
+void main() {
+	uint i = gl_LocalInvocationIndex;
+	uint w = words[i] * 0x9e3779b9u;
+	uint acc = 0u;
+	for (uint t = 0u; t < TEXELS * 4u; t++) {
+		uint f = bitfieldExtract(w, int(t & 31u), 3);
+		int sf = bitfieldExtract(int(w), int(t & 15u), 4);
+		w = bitfieldInsert(w, f, int((t * 7u) & 28u), 2);
+		acc += f + uint(sf) + bitfieldReverse(t) >> 28;
+	}
+	tile[i] = acc;
+	barrier();
+	texels[i] = tile[(i + 1u) & (TEXELS * 4u - 1u)] ^ uint(findMSB(acc));
+	texels[i + 64u] = tile[i + 200u];   // outside the tile: robust 0
+}

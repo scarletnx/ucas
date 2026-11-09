@@ -1,0 +1,2 @@
+# session 11: an attached shader that unpacks bits (bitfield ops, spec constant ops, a long run, an access outside shared memory)
+{"op": 0, "s": 4001, "t": "MESSAGE_CREATE", "d": {"id": "4001", "channel_id": "46", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> pls animate exec of this thing", "type": 0, "attachments": [{"id": "4", "filename": "unpack.spv", "size": 3000, "url": "test:tests/files/unpack.spv"}]}}

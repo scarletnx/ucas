@@ -39,7 +39,8 @@
 #define MAXN 100
 #define MAXCELLS 128		/* Blelloch pads to a power of two */
 #define MAXLV MAXN		/* sequential: one per element; parallel: 2 log n + 1 */
-#define MAXGIF (700 << 10)	/* fits the bot's 1 MiB output as base64 */
+#define MAXGIF (6 << 20)	/* fits the bot's 8 MiB output as base64, and
+				 * Discord's 10 MB attachments */
 
 enum { AL_HILLIS, AL_BLELLOCH, AL_SEQ };
 static const char *const alname[] = {"Hillis-Steele", "Blelloch",
@@ -616,7 +617,8 @@ static void deliver(struct gif *gp, const char *name, int nofile);
  * agree, only the taken side runs.  barrier() stalls every lane; an
  * atomic is serialized, one lane after another.
  */
-#define MAXINS 1024
+#define MAXINS 100000	/* executed instructions recorded */
+#define MAXREG 1024	/* expression registers */
 #define MAXLANE 32
 
 struct ins {
@@ -624,16 +626,16 @@ struct ins {
 	int kind, cls, lane, reg;
 	char text[96];
 	char dst[16];			/* the register it writes, "t3" or "%20" */
-	char val[MAXLANE][24];		/* each lane's value after it */
+	char (*val)[24];		/* each lane's value after it (X.nl) */
 	double cost, t0, t1;
 	uint32_t mask;
 };
 
 static struct {
-	struct ins in[MAXINS];
-	int nins, nregs, nl, cols, rows;
-	nid rnode[MAXINS];
-	int rreg[MAXINS];
+	struct ins *in;
+	int nins, incap, nregs, nl, cols, rows;
+	nid rnode[MAXREG];
+	int rreg[MAXREG];
 	int nr;
 	struct func *f;
 	struct plan p;
@@ -659,7 +661,7 @@ xreg(nid n)
 static void
 xsetreg(nid n, int r)
 {
-	if (X.nr < MAXINS) {
+	if (X.nr < MAXREG) {
 		X.rnode[X.nr] = n;
 		X.rreg[X.nr++] = r;
 	}
@@ -727,9 +729,14 @@ xadd(int kind, nid n, double cost, int cls, uint32_t mask)
 	struct ins *I;
 
 	if (X.nins == MAXINS)
-		fail("animate exec: more than %d instructions", MAXINS);
+		fail("animate exec: more than %d instructions executed", MAXINS);
+	if (X.nins == X.incap) {
+		X.incap = X.incap ? X.incap * 2 : 256;
+		X.in = xrealloc(X.in, (size_t)X.incap * sizeof *X.in);
+	}
 	I = &X.in[X.nins++];
 	memset(I, 0, sizeof *I);
+	I->val = xcalloc((size_t)(X.nl > 0 ? X.nl : 1), sizeof *I->val);
 	I->kind = kind;
 	I->n = n;
 	I->cost = cost;
@@ -1044,6 +1051,18 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 		X.in[k].t1 = t;
 	}
 	X.T = t;
+	/* busy and idle over every instruction, printed or not */
+	for (k = 0; k < X.nins; k++) {
+		const struct ins *I = &X.in[k];
+		int pc = 0;
+		for (i = 0; i < X.nl; i++)
+			pc += I->mask >> i & 1;
+		if (I->cost > 0 && I->kind != I_BARRIER) {
+			busy += I->cost * pc;
+			if ((I->kind == I_OP || I->kind == I_ATOMIC) && pc < X.nl)
+				keep += I->cost * (X.nl - pc);
+		}
+	}
 	printf("  serial form:\n");
 	for (k = 0; k < X.nins; k++) {
 		const struct ins *I = &X.in[k];
@@ -1052,11 +1071,6 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 		lanes_text(lt, sizeof lt, I->mask);
 		for (i = 0; i < X.nl; i++)
 			pc += I->mask >> i & 1;
-		if (I->cost > 0 && I->kind != I_BARRIER) {
-			busy += I->cost * pc;
-			if ((I->kind == I_OP || I->kind == I_ATOMIC) && pc < X.nl)
-				keep += I->cost * (X.nl - pc);
-		}
 		if (X.nins > 200 && k == 160) {
 			printf("    ... %d more\n", X.nins - 180);
 			k = X.nins - 21;
@@ -1076,6 +1090,30 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 	printf("  time %g for every lane; lanes busy %.0f%% (%g lane-units "
 	    "idle: masked, or waiting for an atomic)\n", X.T, X.T > 0 ?
 	    100 * busy / (X.nl * X.T) : 100.0, keep);
+	if (X.nins > 200) {
+		/* where a long run's time goes */
+		double by[C_NCLASS + 1] = {0};
+		int ord[C_NCLASS + 1], n = 0, j;
+		for (k = 0; k < X.nins; k++)
+			if (X.in[k].cost > 0)
+				by[X.in[k].cls >= 0 ? X.in[k].cls : C_NCLASS] +=
+				    X.in[k].cost;
+		for (k = 0; k <= C_NCLASS; k++)
+			if (by[k] > 0)
+				ord[n++] = k;
+		for (k = 1; k < n; k++)   /* largest first */
+			for (j = k; j > 0 && by[ord[j]] > by[ord[j - 1]]; j--) {
+				int tmp = ord[j];
+				ord[j] = ord[j - 1];
+				ord[j - 1] = tmp;
+			}
+		printf("  %d instructions executed; time by class:", X.nins);
+		for (k = 0; k < n && k < 8; k++)
+			printf("%s %s %g (%.0f%%)", k ? "," : "", ord[k] < C_NCLASS ?
+			    cclass_name[ord[k]] : "other", by[ord[k]],
+			    100 * by[ord[k]] / X.T);
+		printf("\n");
+	}
 	if (X.T <= 0) {
 		printf("  nothing to execute\n");
 		return;
@@ -1098,18 +1136,29 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 	h2 = X.rows * (LBH + 8);
 	D.H = top + (h1 > h2 ? h1 : h2) + 70;
 	D.px = xmalloc((size_t)D.W * D.H);
-	nframes = (int)(fps * seconds + 0.5);
-	hold = (int)(fps * 1.5 + 0.5);
-	per = X.T / (nframes - 1);
-	gif_begin(&g, D.W, D.H, pal, 16);
-	for (fr = 0; fr < nframes + hold; fr++) {
-		double tt = fr < nframes ? fr * per : X.T;
-		int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
-		    (int)(fr * 100.0 / fps + 0.5);
-		xdraw(tt, 8, listw, gridx, top);
-		gif_frame(&g, D.px, d);
+	for (;;) {
+		nframes = (int)(fps * seconds + 0.5);
+		if (nframes < 2)
+			nframes = 2;
+		hold = (int)(fps * 1.5 + 0.5);
+		per = X.T / (nframes - 1);
+		gif_begin(&g, D.W, D.H, pal, 16);
+		for (fr = 0; fr < nframes + hold; fr++) {
+			double tt = fr < nframes ? fr * per : X.T;
+			int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
+			    (int)(fr * 100.0 / fps + 0.5);
+			xdraw(tt, 8, listw, gridx, top);
+			gif_frame(&g, D.px, d);
+		}
+		gif_end(&g);
+		/* too large for the chat: fewer frames rather than none */
+		if (!nlp_defer || g.out.n <= MAXGIF || fps <= 5)
+			break;
+		printf("  note: at %d fps the GIF is %zu bytes, over the chat's "
+		    "limit: rendering at %d fps\n", fps, g.out.n, fps / 2);
+		fps /= 2;
+		free(g.out.p);
 	}
-	gif_end(&g);
 	free(D.px);
 	printf("  animation: %dx%d, %d frames at %d fps (%.1f s, then the result "
 	    "for 1.5 s), 1 s = %.1f cost units; %zu bytes\n", D.W, D.H,
@@ -1118,12 +1167,24 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 	free(g.out.p);
 }
 
+/* forget the last recording */
+static void
+xreset(void)
+{
+	int k;
+
+	for (k = 0; k < X.nins; k++)
+		free(X.in[k].val);
+	free(X.in);
+	memset(&X, 0, sizeof X);
+}
+
 /* ---- the API spirv.c uses ---- */
 
 void
 xr_begin(int lanes, const char *title)
 {
-	memset(&X, 0, sizeof X);
+	xreset();
 	X.nl = lanes;
 	X.m = model_active();
 	X.cols = lanes == 4 ? 2 : lanes == 8 ? 4 : lanes == 16 ? 4 : 8;
@@ -1176,7 +1237,7 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 	int i, j, k;
 	uint64_t r = seed * 0x9e3779b97f4a7c15ULL + 1;
 
-	memset(&X, 0, sizeof X);
+	xreset();
 	X.f = f;
 	X.nl = lanes;
 	X.m = model_active();

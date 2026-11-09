@@ -137,7 +137,7 @@ sup_limits_env(struct sup_limits *l)
 	l->mem_mb = (int)envnum("UCAS_DISCORD_MEM", 1024, 64, 65536);
 	l->max_chan = (int)envnum("UCAS_DISCORD_CHANNELS", 64, 1, 4096);
 	l->max_queue = (int)envnum("UCAS_DISCORD_QUEUE", 4, 1, 100);
-	l->max_out = (size_t)envnum("UCAS_DISCORD_MAXOUT", 1 << 20, 4096,
+	l->max_out = (size_t)envnum("UCAS_DISCORD_MAXOUT", 8 << 20, 4096,
 	    16 << 20);
 }
 
