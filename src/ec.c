@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ec.c - the shared elliptic-curve core (ec.h): fields behind an
  * operation table, curves in general Weierstrass form with their

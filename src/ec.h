@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ec.h - elliptic curves: the shared core (elip.md).
  *

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecq.h - elliptic curves over Q and Diophantine equations (E1's
  * internal header; the shared core is ec.h).

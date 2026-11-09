@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecq.c - elliptic curves over Q: integral and minimal models, Tate's
  * algorithm, the conductor, a_p, torsion (reduction bound + Nagell-Lutz),

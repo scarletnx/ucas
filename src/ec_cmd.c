@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ec_cmd.c - the elliptic-curve commands over Q (parse.c calls
  * ec_command):

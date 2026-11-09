@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecan.h - the analytic side of elliptic curves over Q (ecan.c).
  * Floating point, with the error bounds stated next to each value.
