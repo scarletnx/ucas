@@ -32,6 +32,7 @@
 #include "prove.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7272,6 +7273,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* abstract algebra (absalg_cmd.c) */
+		const char *r = absalg_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7708,6 +7718,11 @@ nlp_is_english(const char *s, size_t n)
 		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
 	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
 		return 0;
+	{
+		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */
