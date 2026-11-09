@@ -238,10 +238,11 @@ ir_eval(const struct ir *r, ld x)
 		case I_DIV: v[i] = w ? rnd(w, (double)a / (double)b) : a / b;
 			break;
 		case I_FMA:
-			if (w == 32)
-				v[i] = (double)(float)(a * b + v[r->c[i]]);
+			if (w == 32)	/* correctly rounded (eval.c) */
+				v[i] = fma32((double)a, (double)b,
+				    (double)v[r->c[i]]);
 			else if (w == 64)
-				v[i] = fma((double)a, (double)b,
+				v[i] = fma64((double)a, (double)b,
 				    (double)v[r->c[i]]);
 			else
 				v[i] = a * b + v[r->c[i]];

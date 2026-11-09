@@ -1649,10 +1649,12 @@ host_feats(void)
  * target intrinsic (llvm.x86.*) cannot run on a core without the
  * feature: its body becomes `ret void` and it is marked not runnable.
  * Generic vector IR (what clang's headers lower most intrinsics to)
- * compiles for the host's AVX2 after the target features are replaced.
+ * compiles for the host's AVX2 after the target features are replaced,
+ * and so do the host's own intrinsics (llvm.x86.avx2.* ...).
  */
 static void
-strip_ir(const char *ll, struct sbuf *out, struct ck_test *ct, int nt)
+strip_ir(const char *ll, struct sbuf *out, struct ck_test *ct, int nt,
+    xfeat host)
 {
 	const char *s = ll;
 
@@ -1667,7 +1669,8 @@ strip_ir(const char *ll, struct sbuf *out, struct ck_test *ct, int nt)
 			if (!end)
 				break;
 			for (x = s; x < end; x++)
-				if (!strncmp(x, "@llvm.x86.", 10)) {
+				if (!strncmp(x, "@llvm.x86.", 10) &&
+				    (I.feat[ct[t].id] & ~host)) {
 					bad = 1;
 					break;
 				}
@@ -1691,7 +1694,7 @@ strip_ir(const char *ll, struct sbuf *out, struct ck_test *ct, int nt)
 			for (; s < a; s++)
 				sb_putc(out, *s);
 			sb_puts(out, "\"target-features\"=\"+avx2,+avx,+fma,+bmi,+bmi2,"
-			    "+popcnt,+lzcnt,+sse4.2,+aes,+pclmul,+f16c,+adx\"");
+			    "+popcnt,+lzcnt,+sse4.2,+crc32,+movbe,+aes,+pclmul,+f16c,+adx\"");
 			s = b + 1;
 			continue;
 		}
@@ -1755,6 +1758,277 @@ load_inputs(int id, const unsigned char *pt, int64_t *in_i, double *in_r,
 	}
 }
 
+/*
+ * The AVX-512 cross-check: an AVX-512 intrinsic that could not run here
+ * (it calls an llvm.x86.avx512.* builtin) against the narrower form of
+ * the same name (_mm512_X against _mm256_X, _mm256_X against _mm_X)
+ * that did run and agree.  Lane i of the wide form, in half h = i / n,
+ * must equal lane i - h n of the narrow form applied to half h of each
+ * vector operand (and the mask bits of that half).  Equal node DAGs
+ * (hash-consed: the same id) are a proof; otherwise the two are
+ * evaluated on random and edge points: a difference means the wide form
+ * moves data across halves (or a catalogue error), agreement without
+ * equal DAGs is only sampled.
+ */
+struct half_ctx {
+	int wide, narrow, h;
+};
+
+static nid
+half_fn(void *c, int k, int lane)
+{
+	struct half_ctx *hc = c;
+	int n = hc->narrow, e = I.oe[n][k];
+
+	switch (I.ok[n][k]) {
+	case OK_V:	/* a full-width operand: half h; a same-width one
+			 * (a shift count in an xmm): as it is */
+		if (I.obits[hc->wide][k] == I.obits[n][k])
+			return var_lane(&hc->wide, k, lane);
+		return var_lane(&hc->wide, k, lane + hc->h *
+		    lanes_of(I.obits[n][k], e));
+	case OK_K: {
+		int nb = I.obits[n][k] <= 8 ? 8 : I.obits[n][k];
+		nid v = var_lane(&hc->wide, k, 0);
+		if (hc->h)
+			v = mk_bin(O_SHR, v, mk_const_i(N.ty[v],
+			    (int64_t)hc->h * rlanes(n)));
+		return mk_cast(TY(K_UINT, nb), v);
+	}
+	}
+	return var_lane(&hc->wide, k, 0);
+}
+
+static const char *
+narrow_name(const char *w, char *buf, size_t nb)
+{
+	if (!strncmp(w, "_mm512_", 7))
+		snprintf(buf, nb, "_mm256_%s", w + 7);
+	else if (!strncmp(w, "_mm256_", 7))
+		snprintf(buf, nb, "_mm_%s", w + 7);
+	else
+		return NULL;
+	return buf;
+}
+
+/* same operands, every vector twice as wide (but an xmm count operand
+ * after the first) */
+static int
+half_shape(int w, int n)
+{
+	int k;
+
+	if (I.nop[w] != I.nop[n] || I.rk[w] != OK_V || I.rk[n] != OK_V ||
+	    I.re[w] != I.re[n] || I.rbits[w] != 2 * I.rbits[n] ||
+	    I.imax[w] != I.imax[n])
+		return 0;
+	for (k = 0; k < I.nop[w]; k++) {
+		if (I.ok[w][k] != I.ok[n][k] || I.oe[w][k] != I.oe[n][k])
+			return 0;
+		if (I.ok[w][k] == OK_V && I.obits[w][k] != 2 * I.obits[n][k] &&
+		    (I.obits[w][k] != 128 || I.obits[n][k] != 128 || !k))
+			return 0;
+		if (I.ok[w][k] == OK_P)
+			return 0;
+	}
+	return 1;
+}
+
+#define AVX512_BITS (XB(XF_AVX512F) | XB(XF_AVX512BW) | XB(XF_AVX512DQ) | \
+	XB(XF_AVX512VL) | XB(XF_AVX512CD) | XB(XF_AVX512VBMI) | \
+	XB(XF_AVX512VPOPCNTDQ) | XB(XF_AVX512BITALG))
+
+/* 0 proved (equal DAGs), 1 agree on samples, 2 differ */
+static int
+cross_one(int w, int n, int64_t *in_i, double *in_r, int npts)
+{
+	const int *im;
+	int verdict = 0, wctx = w;
+
+	for (im = imm_list; *im >= 0; im++) {
+		int lanes = rlanes(w), l, p, nroot = 0;
+		nid roots[128];
+		if (*im > I.imax[w] || (!has_imm(w) && im != imm_list))
+			break;
+		for (l = 0; l < lanes; l++) {
+			struct half_ctx hc;
+			nid a, b;
+			hc.wide = w;
+			hc.narrow = n;
+			hc.h = l / rlanes(n);
+			a = xi_lane(w, l, *im, var_lane, &wctx);
+			b = xi_lane(n, l % rlanes(n), *im, half_fn, &hc);
+			if (a != b) {
+				roots[nroot++] = a;
+				roots[nroot++] = b;
+			}
+		}
+		if (nroot) {
+			struct plan pl;
+			unsigned char pt[CK_PT];
+			if (verdict < 1)
+				verdict = 1;
+			memset(in_i, 0, (size_t)MAXOP * 64 * CH * sizeof *in_i);
+			memset(in_r, 0, (size_t)MAXOP * 64 * CH * sizeof *in_r);
+			for (p = 0; p < npts; p++) {
+				gen_point(w, pt);
+				load_inputs(w, pt, in_i, in_r, p);
+			}
+			plan_build(&pl, roots, (uint32_t)nroot, 0);
+			plan_run(&pl, (uint32_t)npts, in_i, in_r);
+			for (l = 0; l < nroot; l += 2) {
+				uint32_t x = pl.root[l], y = pl.root[l + 1];
+				for (p = 0; p < npts; p++) {
+					double u = COLR(&pl, x)[p], v = COLR(&pl, y)[p];
+					if ((COLF(&pl, x)[p] ^ COLF(&pl, y)[p]) & F_UNDEF)
+						verdict = 2;
+					else if (TY_FP(N.ty[roots[l]]) ? !(u == v ||
+					    (u != u && v != v) ) || (u == 0 && v == 0 &&
+					    signbit(u) != signbit(v)) :
+					    COLI(&pl, x)[p] != COLI(&pl, y)[p])
+						verdict = 2;
+				}
+			}
+			plan_free(&pl);
+		}
+		if (verdict == 2)
+			break;
+	}
+	return verdict;
+}
+
+/* idst per intrinsic: 1 a test agreed, 2 a test differed, 4 not run */
+static void
+ck_cross(const uint8_t *idst, const char *filter, int fk)
+{
+	int64_t *in_i = xcalloc((size_t)MAXOP * 64 * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXOP * 64 * CH, sizeof *in_r);
+	uint32_t id;
+	int nnot = 0, nproved = 0, nsampled = 0, ndiffer = 0, nnone = 0,
+	    nmask = 0, shown = 0, nonone = 0;
+	struct sbuf diff = {0}, none = {0};
+
+	/* vst: 1 proved, 2 sampled, 3 differ, 5 no narrower form */
+	uint8_t *vst = xcalloc(I.n, 1);
+	int pass;
+
+	for (pass = 0; pass < 2; pass++)
+	for (id = 0; id < I.n; id++) {
+		char nb[96];
+		int n, v;
+		if (!(I.feat[id] & AVX512_BITS) || idst[id] != 4)
+			continue;
+		if (filter && fk < 0 && !strstr(I.name[id], filter))
+			continue;
+		if (fk >= 0 && !(I.feat[id] & XB(fk)))
+			continue;
+		if (pass == 1) {
+			/* sel(k bit i, base, src) over its base (xi_lane) */
+			uint32_t b = I.base[id];
+			if (!I.mmode[id])
+				continue;
+			nnot++;
+			if (idst[b] == 1 || vst[b] == 1)
+				nmask++;
+			else {
+				nnone++;
+				if (nonone++ < 40)
+					sb_printf(&none, " %s", I.name[id]);
+			}
+			continue;
+		}
+		if (I.mmode[id])
+			continue;
+		nnot++;
+		if (!narrow_name(I.name[id], nb, sizeof nb) ||
+		    (n = xi_find(nb)) < 0 || idst[n] != 1 || !half_shape(id, n)) {
+			vst[id] = 5;
+			nnone++;
+			if (nonone++ < 40)
+				sb_printf(&none, " %s", I.name[id]);
+			continue;
+		}
+		ck_rng = 0x2545f4914f6cdd1dULL ^ id;
+		{
+			jmp_buf saved;
+			memcpy(saved, fail_jmp, sizeof saved);
+			if (setjmp(fail_jmp)) {
+				memcpy(fail_jmp, saved, sizeof saved);
+				v = 2;
+			} else {
+				v = cross_one((int)id, n, in_i, in_r, 64);
+				memcpy(fail_jmp, saved, sizeof saved);
+			}
+		}
+		vst[id] = (uint8_t)(v + 1);
+		if (v == 0)
+			nproved++;
+		else if (v == 1)
+			nsampled++;
+		else {
+			ndiffer++;
+			if (shown++ < 40)
+				sb_printf(&diff, " %s", I.name[id]);
+		}
+	}
+	free(vst);
+	{
+		int nran = 0;
+		for (id = 0; id < I.n; id++)
+			if ((I.feat[id] & AVX512_BITS) && idst[id] == 1 &&
+			    (!filter || (fk < 0 ? strstr(I.name[id], filter) != NULL :
+			    (I.feat[id] & XB(fk)) != 0)))
+				nran++;
+		printf("  AVX-512: %d intrinsics ran as clang's header definitions "
+		    "lowered to generic vector IR and executed as AVX2 code here: "
+		    "checked against clang, not against AVX-512 hardware\n", nran);
+		rep_int("avx512_ran_lowered", nran);
+	}
+	printf("  AVX-512 cross-check of the %d intrinsics that could not "
+	    "run (wide form against the run-validated narrower form, half by "
+	    "half):\n", nnot);
+	printf("    %d proved lane by lane (equal DAGs), %d agree on 64 sampled "
+	    "points only, %d differ (they move data across halves)%s\n",
+	    nproved, nsampled, ndiffer, ndiffer ? ":" : "");
+	if (ndiffer)
+		printf("     %s%s\n", sb_str(&diff), ndiffer > 40 ? " ..." : "");
+	printf("    %d mask/maskz forms whose base ran or is proved above: "
+	    "sel(k bit i, base, src) by construction; the operand order of each "
+	    "mask kind is checked by the tests that ran\n", nmask);
+	printf("    %d without a run-validated narrower form (not validated):%s%s\n",
+	    nnone, sb_str(&none), nnone > 40 ? " ..." : "");
+	rep_int("avx512_not_run", nnot);
+	rep_int("avx512_cross_proved", nproved);
+	rep_int("avx512_cross_sampled", nsampled);
+	rep_int("avx512_cross_differ", ndiffer);
+	rep_int("avx512_mask_forms", nmask);
+	rep_int("avx512_unvalidated", nnone);
+	free(diff.p);
+	free(none.p);
+	free(in_i);
+	free(in_r);
+}
+
+/* a mismatch's inputs: each operand's lane (or the scalar, the mask) */
+static void
+ck_show_inputs(int id, const unsigned char *pt, int lane)
+{
+	int k;
+
+	printf("    inputs:");
+	for (k = 0; k < I.nop[id]; k++) {
+		const unsigned char *o = pt + k * CK_OPB;
+		int e = I.oe[id][k], bits = ebits[e], j = 0;
+		if (I.ok[id][k] == OK_K)
+			bits = I.obits[id][k];
+		else if (I.ok[id][k] == OK_V && lane < I.obits[id][k] / bits)
+			j = lane;
+		printf(" %c%s=0x%llx", 'a' + k, I.ok[id][k] == OK_V ? "[lane]" : "",
+		    (unsigned long long)get_bits(o + j * bits / 8, bits));
+	}
+	printf("\n");
+}
+
 static int
 same_val(ty_t t, int64_t vi, double vr, uint8_t fl, uint64_t cbits, int fa,
     double *relerr)
@@ -1814,6 +2088,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 	long cmp_lanes = 0;
 	double worst_rel = 0;
 	uint32_t id;
+	uint8_t *idst = NULL;
 
 	x86_intr_init();
 	ck_semerr = 0;
@@ -1959,7 +2234,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		ll.p[ll.n] = 0;
 		ll.cap = (size_t)sz + 1;
 		fclose(f);
-		strip_ir(ll.p, &st, ct, nt);
+		strip_ir(ll.p, &st, ct, nt, host);
 		snprintf(path, sizeof path, "%s/u.ll", dir);
 		f = fopen(path, "w");
 		fwrite(st.p, 1, st.n, f);
@@ -2005,6 +2280,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 	/* compare with the lane semantics, evaluated */
 	in_i = xcalloc((size_t)MAXOP * 64 * CH, sizeof *in_i);
 	in_r = xcalloc((size_t)MAXOP * 64 * CH, sizeof *in_r);
+	idst = xcalloc(I.n, 1);
 	for (t = 0; t < nt; t++) {
 		int id2 = ct[t].id, lanes, nroot, p, l, bad = 0;
 		nid roots[65];
@@ -2020,6 +2296,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		}
 		if (ct[t].dropped == 2) {
 			nnorun++;
+			idst[ct[t].id] |= 4;
 			continue;
 		}
 		lanes = rlanes(id2);
@@ -2077,11 +2354,14 @@ cmd_x86check(const char *filter, int npts, int avx512)
 					    " (undefined)" : "", (unsigned long long)cb);
 					printf("    lane semantics: %s\n",
 					    shared_str(roots[l], 300));
+					ck_show_inputs(id2, in + ((size_t)t * npts + p) *
+					    CK_PT, l);
 					free(vb.p);
 				}
 			}
 		}
 		plan_free(&pl);
+		idst[id2] |= bad ? 2 : 1;
 		if (bad)
 			nbad++;
 		else
@@ -2144,6 +2424,8 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		rep_int("rejected_by_cc", nrej);
 		rep_int("immediates_out_of_range", nrange);
 		rep_int("not_runnable", nnorun);
+		if (avx512 && nnorun)
+			ck_cross(idst, filter, fk);
 		rep_check("cc", cmp_lanes, 0, nbad == 0 && !nrej, "lane semantics against "
 		    "the C compiler's intrinsics on this host");
 	}
@@ -2155,6 +2437,7 @@ done:
 	free(in);
 	free(res);
 	free(ct);
+	free(idst);
 }
 
 /* names cc rejects outright (for the catalogue's own consistency) */
