@@ -2,3 +2,4 @@
 {"id": 2, "cmd": "equiv", "args": {"f": "q", "g": "q0"}}
 {"id": 3, "cmd": "equiv", "args": {"f": "q0", "g": "q"}}
 {"id": 4, "cmd": "equiv", "args": {"f": "widen", "g": "widen2"}}
+{"id": 5, "cmd": "find", "args": {"f": {"name": "cl", "body": "min(max(u32(x) >> s, 0), 255) & 0xFF", "params": [{"name": "x", "type": "u8"}, {"name": "s", "type": "u8", "range": [0, 3]}]}, "n": 1}}

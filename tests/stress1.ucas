@@ -38,3 +38,14 @@ equiv t1 t2
 m1(x: u32, y: u32) = x * y
 m2(x: u32, y: u32) = y * x
 equiv m1 m2
+
+# 2. find tries dropping operations of the function itself: the & 0xFF is
+# dead (the result is below 256 already)
+wb(v: u8, n: u8 in 5..8) = ((u32(v) << (8 - n)) | (u32(v) >> (2*n - 8))) & 0xFF where v < 1 << n
+find wb
+# clamps that never bite, dropped one after another (a fixpoint)
+cl(x: u8, s: u8 in 0..3) = min(max(u32(x) >> s, 0), 255) & 0xFF
+find cl 1
+# a ?: whose condition always holds; proved by SAT on a sampled domain
+big(x: u32, n: u32 in 1..4) = n > 0 ? min((x >> 28) << n, 1000) & 0xFFFF : 7
+find big 1

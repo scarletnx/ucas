@@ -295,6 +295,8 @@ fail_quiet(void)
 	longjmp(fail_jmp, 1);
 }
 
+int note_mute;   /* > 0: notes are dropped (trial rewrites) */
+
 void
 note(const char *fmt, ...)
 {
@@ -302,6 +304,8 @@ note(const char *fmt, ...)
 	char tmp[512];
 	struct sbuf line = {0};
 
+	if (note_mute > 0)
+		return;
 	va_start(ap, fmt);
 	vsnprintf(tmp, sizeof tmp, fmt, ap);
 	va_end(ap);

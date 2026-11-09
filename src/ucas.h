@@ -50,6 +50,7 @@ extern const char *diag_file;
 void fail(const char *fmt, ...);
 void fail_quiet(void);    /* end the statement: a question was asked */
 void note(const char *fmt, ...);
+extern int note_mute;      /* > 0: note() does nothing */
 void notes_flush(void);
 void notes_drop(void);
 int ilog2u(uint64_t v);       /* floor(log2(v)), -1 for 0 */

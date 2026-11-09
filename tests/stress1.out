@@ -36,3 +36,30 @@ t1 and t2 are equal on the domain of t1 (proved by SAT: 531 AIG nodes, 126 confl
 > m2(x: u32, y: u32) = y * x
 > equiv m1 m2
 m1 and m2 are equal on the domain of m1 (sampled, not proved; SAT gave up on 9326 AIG nodes within its budget of 100000 conflicts or 2 s)
+> wb(v: u8, n: u8 in 5..8) = ((u32(v) << (8 - n)) | (u32(v) >> (2*n - 8))) & 0xFF where v < 1 << n
+> find wb
+find wb: 224 points, computing in u32, costs from gt1030
+  dropping operations of wb (cost 10 as written; each checked on the whole domain):
+  cost 9   u32(v) << 8 - n | u32(v) >> 2n - 8       drops & 255 (exhaustive)
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 74898 distinct columns, bank full; 'more' continues]
+> cl(x: u8, s: u8 in 0..3) = min(max(u32(x) >> s, 0), 255) & 0xFF
+> find cl 1
+find cl: 1024 points, computing in u32, costs from gt1030
+  dropping operations of cl (cost 7 as written; each checked on the whole domain):
+  cost 5   max(u32(x) >> s, 0) & 0xff               drops min with 255 (exhaustive)
+  cost 5   min(u32(x) >> s, 255) & 0xff             drops max with 0 (exhaustive)
+  cost 6   min(max(u32(x) >> s, 0), 255)            drops & 255 (exhaustive)
+  cost 2   u32(x) >> s                              all of them: drops min with 255, then max with 0, then & 255 (exhaustive)
+  cost 2   u32(x) >> u32(s)                         exact
+  [searched every term up to cost 2: 2059 distinct columns; 'more' continues]
+> big(x: u32, n: u32 in 1..4) = n > 0 ? min((x >> 28) << n, 1000) & 0xFFFF : 7
+> find big 1
+find big: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of big (cost 10 as written; each checked on the whole domain):
+  cost 7   min(x >> 0x1c << n, 1000) & 0xffff       drops the ?: on n > 0 (it always takes the first arm) (proved by SAT)
+  cost 8   n > 0 ? x >> 0x1c << n & 0xffff : 7      drops min with 1000 (proved by SAT)
+  cost 9   n > 0 ? min(x >> 0x1c << n, 1000) : 7    drops & 65535 (proved by SAT)
+  cost 4   x >> 0x1c << n                           all of them: drops the ?: on n > 0 (it always takes the first arm), then min with 1000, then & 65535 (proved by SAT)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
