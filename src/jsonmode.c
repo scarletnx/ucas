@@ -123,6 +123,7 @@ struct jcmd {
 #define TX(n, fr, d) {n, P_TEXT, 1, fr, d, NULL}
 #define TXO(n, fr, d) {n, P_TEXT, 0, fr, d, NULL}
 #define RING(fr, d) {"ring", P_RING, 1, fr, d, NULL}
+#define RINGO(fr, d) {"ring", P_RING, 0, fr, d, NULL}
 #define RMOD {"modulus", P_RINGMOD, 0, "", "N (mod N); with a GF(q) ring " \
 	"its polynomial or name (aes, crc32)", NULL}
 #define FN F("f", " %s", "the function: a defined name, an expression " \
@@ -373,7 +374,7 @@ static const struct jcmd cmds[] = {
 	    "n")}},
 	{"primroot", "primroot", 1, 0, "the smallest primitive root mod n, or "
 	    "whether a is one", {NUO("a", " %s", "a candidate (with modulus)"),
-	    NUO("n", " %s", "n (alone)"), RING(" in %s", "the ring"), RMOD}},
+	    NUO("n", " %s", "n (alone)"), RINGO(" in %s", "the ring"), RMOD}},
 	{"dlog", "dlog", 1, 0, "the discrete logarithm", {TX("a", " %s",
 	    "the value"), TXO("base", " base %s", "the base (default a "
 	    "primitive root)"), RING(" in %s", "the ring"), RMOD}},
