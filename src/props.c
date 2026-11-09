@@ -5505,7 +5505,9 @@ cmd_identify(struct P *p)
 	printf("identify %s%s%s:\n", buf, rhs ? " = " : "", rhs ? rhs : "");
 	rep_begin("identify");
 	rep_strf("input", "%s%s%s", buf, rhs ? " = " : "", rhs ? rhs : "");
-	rep_text_list("properties");
+	rep_obj("properties");	/* "label: value [proof]" lines as fields */
+	rep_text_fields();
+	rep_end();
 	if (prim) {
 		for (j = 0; j < fn.np; j++)
 			fn.p[j].ty = TY_REAL;

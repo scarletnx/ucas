@@ -52,6 +52,9 @@ void rep_file(const char *name, const char *mime, const char *data, size_t n);
 void rep_lines(const char *key, const char *text);
 /* the lines printed from here to the end of the command, as a list */
 void rep_text_list(const char *key);
+/* the lines printed from here on, read as labelled fields ("  label:
+ * value" -> "label": value, "check: ..." -> checks, "how:" -> method) */
+void rep_text_fields(void);
 void rep_text_fill(const char *text);	/* jsonmode.c */
 
 /* hooks for util.c, nlp.c, anim.c */

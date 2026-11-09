@@ -20,6 +20,7 @@
 
 int rep_on;
 static int ntl;		/* rep_text_list's pending lists */
+static void spans_close(void);
 
 static struct {
 	struct jv *results;	/* every result object of the request */
@@ -120,6 +121,7 @@ rep_begin(const char *kind)
 
 	if (!rep_on)
 		return;
+	spans_close();
 	/* an empty object is reused; a later command gets a new one */
 	if (R.sp > 0 && R.stack[0]->n == 0) {
 		if (kind)
@@ -219,6 +221,12 @@ rep_list(const char *key)
 
 	if (!rep_on)
 		return;
+	/* a list already there under key is continued */
+	if (key && R.sp > 0 && R.stack[R.sp - 1]->t == J_OBJ &&
+	    (v = jv_get(R.stack[R.sp - 1], key)) != NULL && v->t == J_ARR) {
+		push(v);
+		return;
+	}
 	v = jv_new(J_ARR);
 	add(key, v);
 	push(v);
@@ -335,34 +343,251 @@ rep_note(const char *kind, const char *text)
 }
 
 /*
- * The lines a command prints from here on, as a list of strings under key
- * (filled when the request ends): for output that is a list of findings
- * in words (identify's properties).
+ * The lines a command prints from here on (to the next rep_begin or the
+ * end of the request), filled in when the request ends: as a list of
+ * strings under key (rep_text_list), or read as labelled findings
+ * (rep_text_fields): most commands print "  label: value" lines, so
+ * those become fields of the result, "check: ..." lines checks, "how:"
+ * the method, "assuming ..." conditions, and a trailing "[proved]" tag
+ * the field's proof.
  */
 static struct {
 	struct jv *obj;
 	char key[32];
-	long off;
-} tl[8];
+	long off, end;
+	int fields;
+} tl[16];
 
-void
-rep_text_list(const char *key)
+static long
+out_offset(void)
+{
+	fflush(stdout);
+	return (long)lseek(1, 0, SEEK_CUR);
+}
+
+/* the spans still open end here (a new command starts) */
+static void
+spans_close(void)
+{
+	int i;
+	long o = -1;
+
+	for (i = 0; i < ntl; i++)
+		if (tl[i].end < 0) {
+			if (o < 0)
+				o = out_offset();
+			tl[i].end = o;
+		}
+}
+
+static void
+span_open(const char *key, int fields)
 {
 	struct jv *c;
 
-	if (!rep_on || ntl == 8)
+	if (!rep_on || ntl == 16)
 		return;
 	if (R.sp == 0)
 		rep_begin(NULL);
 	c = R.stack[R.sp - 1];
 	if (c->t != J_OBJ)
 		return;
-	fflush(stdout);
 	tl[ntl].obj = c;
-	snprintf(tl[ntl].key, sizeof tl[ntl].key, "%s", key);
-	tl[ntl].off = (long)lseek(1, 0, SEEK_CUR);
+	snprintf(tl[ntl].key, sizeof tl[ntl].key, "%s", key ? key : "");
+	tl[ntl].off = out_offset();
+	tl[ntl].end = -1;
+	tl[ntl].fields = fields;
 	if (tl[ntl].off >= 0)
 		ntl++;
+}
+
+void
+rep_text_list(const char *key)
+{
+	span_open(key, 0);
+}
+
+void
+rep_text_fields(void)
+{
+	span_open(NULL, 1);
+}
+
+/* "region of convergence" -> "region_of_convergence" */
+static void
+field_key(char *k, size_t n, const char *s, size_t len)
+{
+	size_t i, j = 0;
+	int us = 0;
+
+	for (i = 0; i < len && j + 1 < n; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (isalnum(c)) {
+			if (us && j)
+				k[j++] = '_';
+			us = 0;
+			if (j + 1 < n)
+				k[j++] = (char)tolower(c);
+		} else
+			us = 1;
+	}
+	k[j] = 0;
+}
+
+/* the label of "  label: value", or 0 */
+static size_t
+label_len(const char *s, size_t len)
+{
+	size_t i;
+
+	if (len == 0 || !isalnum((unsigned char)s[0]))
+		return 0;
+	for (i = 0; i < len && i < 48; i++) {
+		char c = s[i];
+		if (c == ':')
+			return i > 0 && i + 1 < len && s[i + 1] == ' ' ? i : 0;
+		if (!(isalnum((unsigned char)c) || c == ' ' || c == '_' ||
+		    c == '-' || c == '\'' || c == '(' || c == ')' || c == '/' ||
+		    c == '^' || c == '.' || c == ','))
+			return 0;
+	}
+	return 0;
+}
+
+static void
+field_add(struct jv *o, const char *key, struct jv *v)
+{
+	struct jv *old = jv_get(o, key), *a;
+	int i;
+
+	if (old == NULL) {
+		jv_set(o, key, v);
+		return;
+	}
+	/* a repeated label: a list (a field set by the command stays) */
+	if (old->t == J_ARR && old->k == NULL && old->n && old->v[0]->t ==
+	    v->t && strcmp(key, "values")) {
+		jv_push(old, v);
+		return;
+	}
+	if (old->t == J_STR || (old->t == J_OBJ && jv_get(old, "tag"))) {
+		a = jv_new(J_ARR);
+		for (i = 0; i < o->n; i++)
+			if (!strcmp(o->k[i], key)) {
+				jv_push(a, o->v[i]);
+				o->v[i] = a;
+				break;
+			}
+		jv_push(a, v);
+		return;
+	}
+	jv_free(v);
+}
+
+/* "text [proved: why]": {"text", "tag", "proof"}, or NULL */
+static struct jv *
+tagged(const char *s, size_t n)
+{
+	static const char *const tags[] = {"proved", "symbolic", "exhaustive",
+	    "exact", "witness", "numeric", "sampled", "checked", NULL};
+	static const char *const kinds[] = {"symbolic", "symbolic",
+	    "exhaustive", "symbolic", "witness", "numeric", "numeric",
+	    "numeric"};
+	const char *t = NULL, *te;
+	struct jv *f;
+	size_t i;
+	int k;
+
+	if (n < 4 || s[n - 1] != ']')
+		return NULL;
+	for (i = n - 1; i-- > 0;)
+		if (s[i] == '[') {
+			t = s + i;
+			break;
+		}
+	if (t == NULL || t == s || t[-1] != ' ')
+		return NULL;
+	for (k = 0; tags[k]; k++)
+		if (!strncmp(t + 1, tags[k], strlen(tags[k])))
+			break;
+	if (!tags[k])
+		return NULL;
+	te = t;
+	while (te > s && te[-1] == ' ')
+		te--;
+	f = jv_new(J_OBJ);
+	jv_set(f, "text", jv_strn(s, (size_t)(te - s)));
+	jv_set(f, "tag", jv_strn(t + 1, (size_t)(s + n - t - 2)));
+	jv_set(f, "proof", jv_str(kinds[k]));
+	return f;
+}
+
+static void
+fill_fields(struct jv *o, const char *p, const char *end)
+{
+	const char *e, *s, *q;
+	struct jv *det = jv_new(J_ARR), *heads = jv_new(J_ARR), *f;
+	char key[64];
+	size_t ll;
+
+	while (p < end && *p) {
+		e = strchr(p, '\n');
+		if (e == NULL || e > end)
+			e = end;
+		for (s = p; s < e && *s == ' '; s++)
+			;
+		q = e;
+		while (q > s && (q[-1] == ' ' || q[-1] == '\r'))
+			q--;
+		if (q <= s || (s == p && q - s > 1 && s[0] == '>' && s[1] == ' ') ||
+		    (q - s > 6 && !strncmp(s, "note: ", 6)))
+			;	/* empty, an echo, a note */
+		else if (s == p)
+			jv_push(heads, jv_strn(s, (size_t)(q - s)));
+		else if (q - s > 9 && !strncmp(s, "assuming ", 9))
+			rep_cond("%.*s", (int)(q - s - 9), s + 9);
+		else if ((ll = label_len(s, (size_t)(q - s))) != 0) {
+			const char *v = s + ll + 2;
+			size_t vl = (size_t)(q - v);
+			field_key(key, sizeof key, s, ll);
+			if (!strncmp(key, "check", 5)) {
+				char vb[600];
+				snprintf(vb, sizeof vb, "%.*s", (int)vl, v);
+				rep_check(key[5] == '_' && strcmp(key, "check_failed") ?
+				    key + 6 : "check", -1, -1, strstr(key, "failed") ==
+				    NULL && strstr(vb, "FAILED") == NULL &&
+				    strstr(vb, "DISAGREES") == NULL &&
+				    strstr(vb, "LARGE") == NULL, vb);
+			} else if (!strcmp(key, "how") || !strcmp(key, "method"))
+				field_add(o, "method", jv_strn(v, vl));
+			else if ((f = tagged(v, vl)) != NULL)
+				field_add(o, key, f);
+			else
+				field_add(o, key, jv_strn(v, vl));
+		} else if ((f = tagged(s, (size_t)(q - s))) != NULL) {
+			jv_push(det, f);
+		} else
+			jv_push(det, jv_strn(s, (size_t)(q - s)));
+		p = e < end && *e ? e + 1 : end;
+	}
+	if (heads->n && !jv_get(o, "headline")) {
+		jv_set(o, "headline", heads->v[0]);
+		heads->v[0] = jv_new(J_NULL);
+		if (heads->n > 1) {
+			struct jv *rest = jv_new(J_ARR);
+			int i;
+			for (i = 1; i < heads->n; i++) {
+				jv_push(rest, heads->v[i]);
+				heads->v[i] = jv_new(J_NULL);
+			}
+			field_add(o, "more", rest);
+		}
+	}
+	jv_free(heads);
+	if (det->n && !jv_get(o, "details"))
+		jv_set(o, "details", det);
+	else
+		jv_free(det);
 }
 
 /* jsonmode.c: the request's text, before rep_collect */
@@ -373,13 +598,19 @@ rep_text_fill(const char *text)
 	int i;
 
 	for (i = 0; i < ntl; i++) {
-		struct jv *a = jv_new(J_ARR);
 		const char *p = (size_t)tl[i].off <= n ? text + tl[i].off : "",
-		    *e, *s, *q;
-		while (*p) {
+		    *end = tl[i].end >= 0 && (size_t)tl[i].end <= n ?
+		    text + tl[i].end : text + n, *e, *s, *q;
+		struct jv *a;
+		if (tl[i].fields) {
+			fill_fields(tl[i].obj, p, end);
+			continue;
+		}
+		a = jv_new(J_ARR);
+		while (p < end && *p) {
 			e = strchr(p, '\n');
-			if (e == NULL)
-				e = p + strlen(p);
+			if (e == NULL || e > end)
+				e = end;
 			for (s = p; s < e && *s == ' '; s++)
 				;
 			q = e;
@@ -387,7 +618,7 @@ rep_text_fill(const char *text)
 				q--;
 			if (q > s)
 				jv_push(a, jv_strn(s, (size_t)(q - s)));
-			p = *e ? e + 1 : e;
+			p = e < end && *e ? e + 1 : end;
 		}
 		jv_set(tl[i].obj, tl[i].key, a);
 	}

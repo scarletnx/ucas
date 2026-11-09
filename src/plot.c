@@ -3695,11 +3695,34 @@ add_piece(int a, int b)
 
 /* ---- ranges ---- */
 
+/* an axis' range as data: {"var", "lo", "hi", "why"} in result.axes */
+static void
+rep_axis(const char *vn, double lo, double hi, const char *why, double vlo,
+    double vhi)
+{
+	if (!rep_on)
+		return;
+	rep_obj(NULL);
+	rep_str("var", vn);
+	rep_num("lo", lo);
+	rep_num("hi", hi);
+	if (why)
+		rep_str("why", why);
+	if (vlo < vhi) {
+		rep_num("values_lo", vlo);
+		rep_num("values_hi", vhi);
+	}
+	rep_end();
+}
+
 static void
 range_line(const char *vn, double lo, double hi, const char *why)
 {
 	printf("  %s in [%s, %s]%s%s\n", vn, gpi(lo), gpi(hi), why && why[0] ?
 	    ": " : "", why ? why : "");
+	rep_list("axes");
+	rep_axis(vn, lo, hi, why, 0, 0);
+	rep_end();
 }
 
 /* the default value of an unplotted slot: the middle of its range */
@@ -4191,6 +4214,14 @@ finish_gif(struct gif *g, int W, int H, int nfr, int fps)
 	else
 		printf("  animation: %dx%d, %d frames at %d fps (%.1f s), %zu "
 		    "bytes\n", W, H, nfr, fps, (double)nfr / fps, g->out.n);
+	rep_obj("image");
+	rep_int("width", W);
+	rep_int("height", H);
+	rep_int("frames", nfr <= 1 ? 1 : nfr);
+	if (nfr > 1)
+		rep_int("fps", fps);
+	rep_int("bytes", (long long)g->out.n);
+	rep_end();
 	gif_deliver(g, O.name, O.nofile);
 	free(g->out.p);
 	free(g->prev);
@@ -4562,6 +4593,9 @@ plot_2d(uint32_t av)
 		else
 			printf("  %s in [%s, %s]: the values\n", sym_str(yn),
 			    g4(A.lo[1]), g4(A.hi[1]));
+		rep_list("axes");
+		rep_axis(sym_str(yn), A.lo[1], A.hi[1], "the values", vmin, vmax);
+		rep_end();
 		free(vals);
 		yset = 1;
 	}
@@ -4738,6 +4772,9 @@ zrange(int si, const struct ax2 *A, const int *vs, const double *vv, int nv,
 		    "%s])\n", zn, g4(*zlo), g4(*zhi), g4(vmin), g4(vmax));
 	else
 		printf("  %s in [%s, %s]: the values\n", zn, g4(*zlo), g4(*zhi));
+	rep_list("axes");
+	rep_axis(zn, *zlo, *zhi, "the values", vmin, vmax);
+	rep_end();
 	free(vals);
 }
 
@@ -5278,7 +5315,7 @@ cmd_plot(struct P *p, int mode)
 	nrc = 0;
 	snprintf(O.name, sizeof O.name, "plot");
 	rep_begin(mode == 0 ? "plot" : mode == 1 ? "plot3d" : "neighbourhood");
-	rep_text_list("findings");
+	rep_text_fields();
 	if (!cmdp_rest(p, O.text, sizeof O.text, NULL))
 		fail("%s what? e.g. %s", mode == 0 ? "plot" : mode == 1 ? "plot3d" :
 		    "neighbourhood", mode == 2 ? "neighbourhood sin(x)/x" :
