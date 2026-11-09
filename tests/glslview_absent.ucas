@@ -1,0 +1,26 @@
+# simplify without spirv-cross (UCAS_SPIRV_CROSS names one that is not
+# there): a note, and the rest as before
+SAT simplify n in [1, 32) nofile
+```glsl
+void Skip(uint n) {
+    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));
+    s.w >>= n;
+}
+```
+# an ES shader comes back as ES (#version 310 es)
+make it faster nofile
+```glsl
+#version 310 es
+layout(local_size_x = 1) in;
+layout(std430, binding = 0) buffer B { uint v[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    v[i] = (v[i] * 16u) / 8u + (v[i] & 255u) % 256u;
+}
+```
+# nothing rewritten: no view
+simplify nofile
+```spv
+%a = OpIAdd %uint %x %y
+OpStore %out %a
+```

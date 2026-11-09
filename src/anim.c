@@ -28,6 +28,7 @@
  */
 #include "ucas.h"
 #include "gif.h"
+#include "img.h"
 #include "font6x10.h"
 
 #include <ctype.h>
@@ -531,7 +532,8 @@ static const char *const stopw[] = {
 	"to", "hillis", "steele", "blelloch", "sequential", "serial", "scan",
 	"prefix", "sum", "sums", "f32", "u32", "for", "frames", "per", "and",
 	"on", "of", "a", "the", "in", "nofile", "blelloch", "sequential",
-	"efficient", "work", "values", "seconds", NULL
+	"efficient", "work", "values", "seconds", "input", "inputs", "output",
+	"size", "sampler", "texture", "textures", "lanes", "quad", "warp", NULL
 };
 static const char *const filler[] = {
 	"a", "an", "the", "of", "prefix", "sum", "sums", "scan", "scans",
@@ -1035,6 +1037,246 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 }
 
 /*
+ * Image panels above the trace (animate exec of a shader with images):
+ * each input, then the outputs, which fill in quad row by quad row as
+ * the trace's time runs, a marker on the quad being filled, and a box on
+ * the traced lanes' pixels.  Colours: a 6x8x5 cube after the 14 diagram
+ * colours, with a 4x4 ordered dither; alpha over a checkerboard; index
+ * 255 stays free for the GIF's "unchanged" pixels.
+ */
+#define MAXPANEL 8
+#define PANEL_SIDE 192		/* the larger side on screen */
+#define CUBE0 14		/* the cube's first index */
+
+static struct {
+	int n;
+	struct {
+		char label[100];
+		int w, h, dw, dh, output, x, y;
+		unsigned char *full;	/* display indices, dw * dh */
+		unsigned char *cover;	/* image pixels written (outputs) */
+	} p[MAXPANEL];
+	int qx, qy, qw, qh, iw, ih;	/* the traced lanes; the run's size */
+	int height;			/* the strip's height */
+	unsigned char pal[256][3];
+} XP;
+
+static void
+xp_reset(void)
+{
+	int i;
+
+	for (i = 0; i < XP.n; i++) {
+		free(XP.p[i].full);
+		free(XP.p[i].cover);
+	}
+	memset(&XP, 0, sizeof XP);
+}
+
+static int
+cube_index(double r, double g, double b, int x, int y)
+{
+	static const int bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9,
+	    15, 7, 13, 5};
+	double d = (bayer[(y & 3) * 4 + (x & 3)] + 0.5) / 16 - 0.5;
+	int ri = (int)floor(r / 255 * 5 + 0.5 + d),
+	    gi = (int)floor(g / 255 * 7 + 0.5 + d),
+	    bi = (int)floor(b / 255 * 4 + 0.5 + d);
+
+	ri = ri < 0 ? 0 : ri > 5 ? 5 : ri;
+	gi = gi < 0 ? 0 : gi > 7 ? 7 : gi;
+	bi = bi < 0 ? 0 : bi > 4 ? 4 : bi;
+	return CUBE0 + (ri * 8 + gi) * 5 + bi;
+}
+
+/* the checkerboard behind transparent pixels, in display pixels */
+static double
+checker(int x, int y)
+{
+	return ((x >> 3) + (y >> 3)) & 1 ? 204 : 255;
+}
+
+void
+xr_panel(const char *label, int w, int h, const unsigned char *rgba,
+    const unsigned char *cover, int output)
+{
+	int i, x, y, side;
+
+	if (XP.n == MAXPANEL || w <= 0 || h <= 0)
+		return;
+	i = XP.n++;
+	snprintf(XP.p[i].label, sizeof XP.p[i].label, "%s", label);
+	XP.p[i].w = w;
+	XP.p[i].h = h;
+	XP.p[i].output = output;
+	side = w > h ? w : h;
+	if (side <= PANEL_SIDE) {	/* whole multiples: crisp pixels */
+		int s = PANEL_SIDE / side;
+		XP.p[i].dw = w * s;
+		XP.p[i].dh = h * s;
+	} else {
+		XP.p[i].dw = (int)((long)w * PANEL_SIDE / side);
+		XP.p[i].dh = (int)((long)h * PANEL_SIDE / side);
+	}
+	if (XP.p[i].dw < 1)
+		XP.p[i].dw = 1;
+	if (XP.p[i].dh < 1)
+		XP.p[i].dh = 1;
+	XP.p[i].full = xmalloc((size_t)XP.p[i].dw * XP.p[i].dh);
+	if (cover) {
+		XP.p[i].cover = xmalloc((size_t)w * h);
+		memcpy(XP.p[i].cover, cover, (size_t)w * h);
+	}
+	for (y = 0; y < XP.p[i].dh; y++)
+		for (x = 0; x < XP.p[i].dw; x++) {
+			int sx = (int)((long)x * w / XP.p[i].dw),
+			    sy = (int)((long)y * h / XP.p[i].dh);
+			const unsigned char *s = rgba + 4 * ((size_t)sy * w + sx);
+			double a = cover && !cover[(size_t)sy * w + sx] ? 0 :
+			    s[3] / 255.0, bg = checker(x, y);
+			XP.p[i].full[(size_t)y * XP.p[i].dw + x] = (unsigned char)
+			    cube_index(s[0] * a + bg * (1 - a), s[1] * a + bg * (1 - a),
+			    s[2] * a + bg * (1 - a), x, y);
+		}
+}
+
+void
+xr_quad(int x, int y, int w, int h, int iw, int ih)
+{
+	XP.qx = x;
+	XP.qy = y;
+	XP.qw = w;
+	XP.qh = h;
+	XP.iw = iw;
+	XP.ih = ih;
+}
+
+/* lay the panels out from (x0, y0) in a strip of width maxw; its height */
+static int
+xp_layout(int x0, int y0, int maxw)
+{
+	int i, x = x0, y = y0, rowh = 0;
+
+	for (i = 0; i < XP.n; i++) {
+		int pw = XP.p[i].dw;
+		int lw = (int)strlen(XP.p[i].label) * FONT_6X10_W;
+		if (lw > pw)
+			pw = lw < PANEL_SIDE + 40 ? lw : PANEL_SIDE + 40;
+		if (x > x0 && x + pw > maxw) {
+			x = x0;
+			y += rowh + 8;
+			rowh = 0;
+		}
+		XP.p[i].x = x;
+		XP.p[i].y = y + 14;
+		if (XP.p[i].dh + 14 > rowh)
+			rowh = XP.p[i].dh + 14;
+		x += pw + 16;
+	}
+	return y + rowh - y0 + 10;
+}
+
+/* the strip's width, laid out in one row */
+static int
+xp_width(void)
+{
+	int i, w = 8;
+
+	for (i = 0; i < XP.n; i++) {
+		int pw = XP.p[i].dw;
+		int lw = (int)strlen(XP.p[i].label) * FONT_6X10_W;
+		if (lw > pw)
+			pw = lw < PANEL_SIDE + 40 ? lw : PANEL_SIDE + 40;
+		w += pw + 16;
+	}
+	return w;
+}
+
+static void
+xp_box(int i, int x, int y, int w, int h, int col)
+{
+	/* image pixels (x, y, w, h) of the run, scaled to panel i */
+	double sx = (double)XP.p[i].dw / (XP.iw > 0 ? XP.iw : XP.p[i].w),
+	    sy = (double)XP.p[i].dh / (XP.ih > 0 ? XP.ih : XP.p[i].h);
+	int bx = XP.p[i].x + (int)floor(x * sx), by = XP.p[i].y + (int)floor(y *
+	    sy), bw = (int)ceil(w * sx), bh = (int)ceil(h * sy);
+
+	if (bw < 4) {
+		bx -= (4 - bw) / 2;
+		bw = 4;
+	}
+	if (bh < 4) {
+		by -= (4 - bh) / 2;
+		bh = 4;
+	}
+	frame_rect(bx - 1, by - 1, bw + 2, bh + 2, col);
+	frame_rect(bx - 2, by - 2, bw + 4, bh + 4, C_BG);
+}
+
+/* the panels at time t of T: outputs revealed up to the moving quad */
+static void
+xp_draw(double t, double T)
+{
+	int i, x, y;
+	double f = T > 0 ? t / T : 1;
+	long nq, at;
+	int qcols, fx = -1, fy = -1;
+
+	if (f > 1)
+		f = 1;
+	qcols = (XP.iw + 1) / 2;
+	nq = (long)qcols * ((XP.ih + 1) / 2);
+	at = (long)(f * nq);
+	if (at < nq) {
+		fx = (int)(at % qcols) * 2;
+		fy = (int)(at / qcols) * 2;
+	}
+	for (i = 0; i < XP.n; i++) {
+		const unsigned char *s = XP.p[i].full;
+		int dw = XP.p[i].dw, dh = XP.p[i].dh;
+		text(XP.p[i].x, XP.p[i].y - 13, XP.p[i].label, XP.p[i].output ?
+		    C_TEXT : C_GRAY);
+		for (y = 0; y < dh; y++) {
+			unsigned char *o = D.px + (size_t)(XP.p[i].y + y) * D.W +
+			    XP.p[i].x;
+			int iy = (int)((long)y * XP.p[i].h / dh);
+			if (XP.p[i].y + y >= D.H)
+				break;
+			if (!XP.p[i].output || fy < 0 || iy < fy) {
+				memcpy(o, s + (size_t)y * dw, (size_t)dw);
+				continue;
+			}
+			for (x = 0; x < dw; x++) {
+				int ix = (int)((long)x * XP.p[i].w / dw);
+				o[x] = iy < fy + 2 && ix < fx ? s[(size_t)y * dw + x] :
+				    C_TLBG;
+			}
+		}
+		frame_rect(XP.p[i].x - 1, XP.p[i].y - 1, dw + 2, dh + 2, C_GRID);
+		if (XP.qw > 0)
+			xp_box(i, XP.qx, XP.qy, XP.qw, XP.qh, C_ARROW);
+		if (XP.p[i].output && fy >= 0)
+			xp_box(i, fx, fy, 2, 2, C_BAR_ORANGE);
+	}
+}
+
+static void
+xp_palette(void)
+{
+	int r, g, b;
+
+	memcpy(XP.pal, pal, sizeof pal);
+	for (r = 0; r < 6; r++)
+		for (g = 0; g < 8; g++)
+			for (b = 0; b < 5; b++) {
+				unsigned char *c = XP.pal[CUBE0 + (r * 8 + g) * 5 + b];
+				c[0] = (unsigned char)(r * 255 / 5);
+				c[1] = (unsigned char)(g * 255 / 7);
+				c[2] = (unsigned char)(b * 255 / 4);
+			}
+}
+
+/*
  * The shared back end: X.in[] holds the executed instructions with their
  * costs, masks and per-lane values; this times them, prints the serial
  * form and renders the animation.
@@ -1133,6 +1375,14 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 	top = 36;
 	gridx = 8 + listw + 16;
 	D.W = gridx + X.cols * (LBW + 8) + 4;
+	if (XP.n) {	/* the images above the trace */
+		int sw = xp_width();
+		if (sw > D.W)
+			D.W = sw < 1200 ? sw : 1200;
+		XP.height = xp_layout(8, 20, D.W);
+		top += XP.height;
+		xp_palette();
+	}
 	h1 = (X.nins < LISTMAX ? X.nins : LISTMAX) * (FONT_6X10_H + 3);
 	h2 = X.rows * (LBH + 8);
 	D.H = top + (h1 > h2 ? h1 : h2) + 70;
@@ -1143,12 +1393,19 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 			nframes = 2;
 		hold = (int)(fps * 1.5 + 0.5);
 		per = X.T / (nframes - 1);
-		gif_begin(&g, D.W, D.H, pal, 16);
+		if (XP.n) {
+			gif_begin(&g, D.W, D.H, (const unsigned char (*)[3])XP.pal,
+			    256);
+			gif_transparent(&g, 255);
+		} else
+			gif_begin(&g, D.W, D.H, pal, 16);
 		for (fr = 0; fr < nframes + hold; fr++) {
 			double tt = fr < nframes ? fr * per : X.T;
 			int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
 			    (int)(fr * 100.0 / fps + 0.5);
 			xdraw(tt, 8, listw, gridx, top);
+			if (XP.n)
+				xp_draw(tt, X.T);
 			gif_frame(&g, D.px, d);
 		}
 		gif_end(&g);
@@ -1178,6 +1435,7 @@ xreset(void)
 		free(X.in[k].val);
 	free(X.in);
 	memset(&X, 0, sizeof X);
+	xp_reset();
 }
 
 /* ---- the API spirv.c uses ---- */
@@ -1381,7 +1639,14 @@ deliver_file(const char *name, const char *type, const char *data, size_t n,
 		rep_deliver(name, type, data, n, 0);
 	} else if (nlp_defer) {
 		b64(&out, (const unsigned char *)data, n);
-		printf("  the rewritten module is attached as %s\n", name);
+		const char *x = strrchr(name, '.');
+		if (x && !strcmp(x, ".c"))
+			printf("  the rewritten C is attached as %s\n", name);
+		else if (x && !strcmp(x, ".glsl"))
+			printf("  spirv-cross's GLSL of it is attached as %s\n",
+			    name);
+		else
+			printf("  the rewritten module is attached as %s\n", name);
 		printf("\x1e" "file %s %s %zu\n%s\x1e" "end\n", name, type, n,
 		    out.p);
 	} else {
@@ -1395,6 +1660,245 @@ deliver_file(const char *name, const char *type, const char *data, size_t n,
 		printf("  wrote %s\n", name);
 	}
 	free(out.p);
+}
+
+/* ---- animate exec's image options ---- */
+
+/* "128x128", "128 x 128", "128 by 128", "128*128" (the number is next) */
+static int
+size_option(struct P *p, int *w, int *h)
+{
+	uint32_t pos = cmdp_pos(p);
+	int64_t a, b;
+	char wd[32];
+
+	if (!cmdp_int(p, &a))
+		return 0;
+	if (cmdp_at(p, T_ID)) {
+		uint32_t p2 = cmdp_pos(p);
+		cmdp_word(p, wd, sizeof wd);
+		if ((wd[0] == 'x' || wd[0] == 'X') && isdigit((unsigned char)wd[1])) {
+			*w = (int)a;
+			*h = atoi(wd + 1);
+			return 1;
+		}
+		if (!strcmp(wd, "x") || !strcmp(wd, "X") || !strcmp(wd, "by")) {
+			if (cmdp_int(p, &b)) {
+				*w = (int)a;
+				*h = (int)b;
+				return 1;
+			}
+		}
+		cmdp_seek(p, p2);
+	}
+	if (cmdp_tok(p, T_STAR) && cmdp_int(p, &b)) {
+		*w = (int)a;
+		*h = (int)b;
+		return 1;
+	}
+	cmdp_seek(p, pos);
+	return 0;
+}
+
+static void
+check_size(int w, int h)
+{
+	if (w < 1 || h < 1 || w > 1024 || h > 1024)
+		fail("animate exec: an image size from 1x1 to 1024x1024");
+}
+
+/* rgb(255, 0, 0) / rgba(1, 0, 0, 0.5) after the word: into in */
+static int
+rgb_option(struct P *p, const char *w, struct imgin *in)
+{
+	char b[96];
+	int n = 0, at;
+
+	if (strcasecmp(w, "rgb") && strcasecmp(w, "rgba"))
+		return 0;
+	if (!cmdp_tok(p, T_LP))
+		return 0;
+	at = snprintf(b, sizeof b, "%s(", w);
+	while (!cmdp_tok(p, T_RP) && n < 4) {
+		double v = cmdp_number(p, NULL);
+		at += snprintf(b + at, sizeof b - (size_t)at, "%s%.17g", n ? "," : "",
+		    v);
+		n++;
+		cmdp_tok(p, T_COMMA);
+	}
+	snprintf(b + at, sizeof b - (size_t)at, ")");
+	if (!img_color(b, in->rgba))
+		fail("animate exec: %s is not a colour", b);
+	in->kind = IK_COLOR;
+	return 1;
+}
+
+/* the words of one input's choice: noise, a colour, a format, a file */
+static void
+input_words(struct P *p, struct imgin *in)
+{
+	char w[200];
+
+	for (;;) {
+		uint32_t pos = cmdp_pos(p);
+		int sw, sh;
+		if (cmdp_at(p, T_NUM) && size_option(p, &sw, &sh)) {
+			check_size(sw, sh);
+			in->w = sw;
+			in->h = sh;
+			continue;
+		}
+		if (!cmdp_word(p, w, sizeof w))
+			break;
+		if (!strcasecmp(w, "gallery") && cmdp_at(p, T_NUM)) {
+			int64_t g;
+			cmdp_int(p, &g);
+			if (g < 1 || g > IMG_MAXGAL)
+				fail("animate exec: gallery 1 to %d", IMG_MAXGAL);
+			in->kind = IK_GALLERY;
+			in->gal = (int)g;
+			continue;
+		}
+		if (!strcasecmp(w, "file") || !strcasecmp(w, "path")) {
+			if (!cmdp_raw(p, in->file, sizeof in->file))
+				fail("animate exec: input N file PATH");
+			in->kind = IK_FILE;
+			continue;
+		}
+		if (!strcasecmp(w, "pure") || !strcasecmp(w, "solid") ||
+		    !strcasecmp(w, "is") || !strcasecmp(w, "a") ||
+		    !strcasecmp(w, "an") || !strcasecmp(w, "colour") ||
+		    !strcasecmp(w, "color") || !strcasecmp(w, "image") ||
+		    !strcasecmp(w, "format"))
+			continue;
+		if (rgb_option(p, w, in) || img_in_word(in, w))
+			continue;
+		cmdp_seek(p, pos);
+		break;
+	}
+}
+
+/* the sampler's words: nearest, linear, repeat, clamp, mirror, border */
+static void
+sampler_words(struct P *p)
+{
+	char w[40];
+
+	for (;;) {
+		uint32_t pos = cmdp_pos(p);
+		if (!cmdp_word(p, w, sizeof w))
+			break;
+		if (!strcasecmp(w, "nearest") || !strcasecmp(w, "point"))
+			img_opt.filt = SF_NEAREST;
+		else if (!strcasecmp(w, "linear") || !strcasecmp(w, "bilinear"))
+			img_opt.filt = SF_LINEAR;
+		else if (!strcasecmp(w, "trilinear"))
+			img_opt.filt = img_opt.mipf = SF_LINEAR;
+		else if (!strcasecmp(w, "repeat") || !strcasecmp(w, "wrap"))
+			img_opt.addr = SA_REPEAT;
+		else if (!strcasecmp(w, "clamp") || !strcasecmp(w, "edge"))
+			img_opt.addr = SA_CLAMP;
+		else if (!strcasecmp(w, "mirror") || !strcasecmp(w, "mirrored"))
+			img_opt.addr = SA_MIRROR;
+		else if (!strcasecmp(w, "border")) {
+			img_opt.addr = SA_BORDER;
+			if (cmdp_at(p, T_ID)) {
+				uint32_t p2 = cmdp_pos(p);
+				cmdp_word(p, w, sizeof w);
+				if (!strcasecmp(w, "white"))
+					img_opt.border = SB_WHITE;
+				else if (!strcasecmp(w, "black"))
+					img_opt.border = SB_BLACK;
+				else if (!strcasecmp(w, "transparent"))
+					img_opt.border = SB_TRANSPARENT;
+				else
+					cmdp_seek(p, p2);
+			}
+		} else if (!strcasecmp(w, "to") || !strcasecmp(w, "and"))
+			;
+		else {
+			cmdp_seek(p, pos);
+			break;
+		}
+	}
+}
+
+/*
+ * One image option at word w (consumed): input N ..., inputs ...,
+ * output FMT, size WxH, sampler ...; 0 if w is not one
+ */
+static int
+image_option(struct P *p, const char *w)
+{
+	int64_t k;
+
+	if (!strcasecmp(w, "input") || !strcasecmp(w, "texture") ||
+	    !strcasecmp(w, "inputs") || !strcasecmp(w, "textures")) {
+		uint32_t pos = cmdp_pos(p);
+		char w2[32];
+		int all = w[strlen(w) - 1] == 's';
+		if (!all && cmdp_at(p, T_ID)) {
+			cmdp_word(p, w2, sizeof w2);
+			if (strcasecmp(w2, "all") && strcasecmp(w2, "every"))
+				cmdp_seek(p, pos);
+			else
+				all = 1;
+		}
+		if (all) {
+			img_opt.all = 1;
+			img_opt.any = 1;
+			input_words(p, &img_opt.in[0]);
+			return 1;
+		}
+		if (!cmdp_int(p, &k)) {
+			cmdp_seek(p, pos);
+			return 0;
+		}
+		if (k < 1 || k > IMG_MAXIN)
+			fail("animate exec: input 1 to %d", IMG_MAXIN);
+		img_opt.any = 1;
+		cmdp_tok(p, T_COLON);
+		cmdp_tok(p, T_ASSIGN);
+		input_words(p, &img_opt.in[k - 1]);
+		return 1;
+	}
+	if (!strcasecmp(w, "output")) {
+		char w2[32];
+		uint32_t pos = cmdp_pos(p);
+		int f;
+		if (cmdp_word(p, w2, sizeof w2) && !strcasecmp(w2, "format"))
+			pos = cmdp_pos(p), cmdp_word(p, w2, sizeof w2);
+		if ((f = tex_fmt_find(w2)) < 0) {
+			cmdp_seek(p, pos);
+			return 0;
+		}
+		img_opt.outfmt = f;
+		img_opt.any = 1;
+		return 1;
+	}
+	if (!strcasecmp(w, "size") || !strcasecmp(w, "resolution")) {
+		int sw, sh;
+		if (!size_option(p, &sw, &sh))
+			return 0;
+		check_size(sw, sh);
+		img_opt.w = sw;
+		img_opt.h = sh;
+		img_opt.any = 1;
+		return 1;
+	}
+	if (!strcasecmp(w, "images") || !strcasecmp(w, "gallery") ||
+	    !strcasecmp(w, "pictures")) {	/* the request's images */
+		img_opt.use_gallery = 1;
+		img_opt.any = 1;
+		return 1;
+	}
+	if (!strcasecmp(w, "sampler") || !strcasecmp(w, "sampling") ||
+	    !strcasecmp(w, "filter") || !strcasecmp(w, "filtering")) {
+		sampler_words(p);
+		img_opt.any = 1;
+		return 1;
+	}
+	return 0;
 }
 
 void
@@ -1415,6 +1919,7 @@ cmd_animate(struct P *p)
 
 	S.fp = 0;
 	nspv_set = 0;
+	img_opt_reset();
 	while (!cmdp_eos(p)) {
 		if (cmdp_at(p, T_NUM) || cmdp_at(p, T_MINUS)) {
 			num = cmdp_number(p, stopw);
@@ -1482,11 +1987,15 @@ cmd_animate(struct P *p)
 		for (k = 0; w[k]; k++)
 			w[k] = (char)tolower((unsigned char)w[k]);
 word:
+		if (image_option(p, w))
+			continue;
 		if (!strcmp(w, "exec") || !strcmp(w, "execute") ||
 		    !strcmp(w, "execution") || !strcmp(w, "run")) {
 			static const char *const exstop[] = {"at", "fps", "lanes",
 			    "lane", "using", "with", "random", "seed", "seconds",
-			    "to", "nofile", "on", "quad", "warp", "under", "for", NULL};
+			    "to", "nofile", "on", "quad", "warp", "under", "for",
+			    "input", "inputs", "output", "size", "sampler", "texture",
+			    "textures", "resolution", NULL};
 			ty_t ty = 0;
 			int sign = 0, bits = 0, fpw = 0, asked_ty = 0;
 			exec = 1;
@@ -1509,7 +2018,8 @@ word:
 				/* animate's own options end the request; "with" does not */
 				static const char *const apstop[] = {"at", "fps", "lanes",
 				    "lane", "random", "seed", "seconds", "nofile", "quad",
-				    "warp", "to", NULL};
+				    "warp", "to", "input", "inputs", "output", "sampler",
+				    NULL};
 				char rest[512], req[600], *r = rest;
 				uint32_t pos = cmdp_pos(p);
 				int approx_req = 0;

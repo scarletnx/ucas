@@ -85,6 +85,7 @@ def main():
     total_cs = 0
     delay = 0
     disposal = 0
+    transp = -1
     loop = False
     while True:
         b = d[p]
@@ -96,8 +97,9 @@ def main():
             p += 1
             if label == 0xf9:
                 assert d[p] == 4
-                packed, delay, _ = struct.unpack_from("<BHB", d, p + 1)
+                packed, delay, tidx = struct.unpack_from("<BHB", d, p + 1)
                 disposal = (packed >> 2) & 7
+                transp = tidx if packed & 1 else -1
                 p += 6
                 assert d[p - 1] == 0
                 continue
@@ -122,7 +124,13 @@ def main():
         pix = lzw_decode(data, min_size, iw * ih)
         assert max(pix) < ncol
         for r in range(ih):
-            canvas[(y + r) * w + x:(y + r) * w + x + iw] = pix[r * iw:(r + 1) * iw]
+            if transp < 0:
+                canvas[(y + r) * w + x:(y + r) * w + x + iw] = \
+                    pix[r * iw:(r + 1) * iw]
+                continue
+            for c in range(iw):     # the transparent index keeps the canvas
+                if pix[r * iw + c] != transp:
+                    canvas[(y + r) * w + x + c] = pix[r * iw + c]
         if frames in want:
             rows = [[c for i in canvas[r * w:(r + 1) * w] for c in pal[i]]
                     for r in range(h)]
@@ -130,6 +138,7 @@ def main():
             png(out, w, h, rows)
             print("wrote", out)
         assert disposal in (0, 1), "unexpected disposal %d" % disposal
+        transp = -1
         frames += 1
         total_cs += delay
     print("%s: %dx%d, %d colours, %d frames, %.2f s, %.2f fps on average, "

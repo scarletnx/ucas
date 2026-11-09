@@ -3,7 +3,7 @@
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c sat.c glslc.c \
-	plot.c fsimp.c nodesat.c bound.c
+	plot.c fsimp.c nodesat.c bound.c codelang.c spvcross.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 # complex, polar and trig forms; asin acos atan2 sinh cosh tanh ...
@@ -76,6 +76,11 @@ glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
 # x86-64: cost models per µarch, mca, intrinsics, vectoriser (cfront F2)
 SRCS+=	x86.c x86data.c x86mca.c x86intr.c
 x86intr.o x86intr.pieo: x86intr_tab.inc
+# images for animate exec: textures and sampling (tex.c), image files by
+# stb_image (src/third_party, unmodified; its warnings are not ours)
+SRCS+=	tex.c img.c
+img.o img.pieo: img.c img.h third_party/stb_image.h
+	${CC} ${CFLAGS:N-W*} -w -fPIE -c ${.CURDIR}/src/img.c -o ${.TARGET}
 # homological algebra: spaces, (co)homology, exact couples (homalg.h)
 SRCS+=	simp.c cx.c excouple.c homalg_cmd.c reduce.c
 .PATH:	${.CURDIR}/src
@@ -92,22 +97,36 @@ LDADD+=	-lm
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
 nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_xform.inc \
-    nlp_words.awk
+    nlp_img.inc nlp_words.awk
 	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
 	    ${.CURDIR}/src/nlp_calc2.inc ${.CURDIR}/src/nlp_hyper.inc \
-	    ${.CURDIR}/src/nlp_alg.inc ${.CURDIR}/src/nlp_xform.inc > ${.TARGET}
+	    ${.CURDIR}/src/nlp_alg.inc ${.CURDIR}/src/nlp_xform.inc \
+	    ${.CURDIR}/src/nlp_img.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 
 TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
+
+# Each test runs without spirv-cross (simplify's GLSL view), so that the
+# outputs do not depend on what is installed: UCAS_SPIRV_CROSS=none.
+# DIR/NAME.env, when present, replaces that environment; DIR/NAME.needs
+# names a tool the test needs (spirv-cross): without it the test is
+# skipped.
+TESTPRE=	e="UCAS_SPIRV_CROSS=none"; \
+		[ -f ${.CURDIR}/DIR/$$n.env ] && e=$$(cat ${.CURDIR}/DIR/$$n.env); \
+		if [ -f ${.CURDIR}/DIR/$$n.needs ] && ! command -v \
+		    $$(cat ${.CURDIR}/DIR/$$n.needs) >/dev/null 2>&1; then \
+			echo "skip $$n (no $$(cat ${.CURDIR}/DIR/$$n.needs))"; \
+			continue; \
+		fi
 
 # Each tests/NAME.ucas runs and must print exactly tests/NAME.out.
 # `make accept` rewrites the .out files from the current output.
 test: ${PROG}
 	@${.OBJDIR}/${PROG} --sat-selftest || exit 1
 	@fail=0; for t in ${TESTS}; do \
-		n=$${t%.ucas}; \
-		(cd ${.CURDIR}/tests && ${.OBJDIR}/${PROG} $$t) > $$n.got 2>&1; \
+		n=$${t%.ucas}; ${TESTPRE:S,DIR,tests,}; \
+		(cd ${.CURDIR}/tests && env $$e ${.OBJDIR}/${PROG} $$t) > $$n.got 2>&1; \
 		if diff -u ${.CURDIR}/tests/$$n.out $$n.got > $$n.diff; then \
 			echo "ok   $$n"; rm -f $$n.got $$n.diff; \
 		else echo "FAIL $$n (see $$n.diff)"; fail=1; fi; \
@@ -117,8 +136,8 @@ test: ${PROG}
 
 accept: ${PROG}
 	@for t in ${TESTS}; do \
-		n=$${t%.ucas}; \
-		(cd ${.CURDIR}/tests && ${.OBJDIR}/${PROG} $$t) > \
+		n=$${t%.ucas}; ${TESTPRE:S,DIR,tests,}; \
+		(cd ${.CURDIR}/tests && env $$e ${.OBJDIR}/${PROG} $$t) > \
 		    ${.CURDIR}/tests/$$n.out 2>&1; \
 		echo "wrote tests/$$n.out"; \
 	done
@@ -133,8 +152,9 @@ JTESTS!=	cd ${.CURDIR}/tests/json && ls *.jsonl 2>/dev/null || true
 
 json-test: ${PROG}
 	@fail=0; for t in ${JTESTS}; do \
-		n=$${t%.jsonl}; \
-		(cd ${.CURDIR}/tests/json && ${.OBJDIR}/${PROG} --json --files none \
+		n=$${t%.jsonl}; ${TESTPRE:S,DIR,tests/json,}; \
+		(cd ${.CURDIR}/tests/json && env $$e ${.OBJDIR}/${PROG} --json \
+		    --files none \
 		    < $$t) > json-$$n.got 2>&1; \
 		if diff -u ${.CURDIR}/tests/json/$$n.out json-$$n.got > \
 		    json-$$n.diff; then \
@@ -144,8 +164,9 @@ json-test: ${PROG}
 
 json-accept: ${PROG}
 	@for t in ${JTESTS}; do \
-		n=$${t%.jsonl}; \
-		(cd ${.CURDIR}/tests/json && ${.OBJDIR}/${PROG} --json --files none \
+		n=$${t%.jsonl}; ${TESTPRE:S,DIR,tests/json,}; \
+		(cd ${.CURDIR}/tests/json && env $$e ${.OBJDIR}/${PROG} --json \
+		    --files none \
 		    < $$t) > ${.CURDIR}/tests/json/$$n.out 2>&1; \
 		echo "wrote tests/json/$$n.out"; \
 	done
@@ -160,7 +181,8 @@ mcp-test: ${PROG}
 	@fail=0; for t in ${MTESTS}; do \
 		n=$${t%.jsonl}; \
 		fl=`cat ${.CURDIR}/tests/mcp/$$n.flags 2>/dev/null || true`; \
-		(cd ${.CURDIR}/tests/mcp && ${.OBJDIR}/${PROG} --mcp $$fl \
+		${TESTPRE:S,DIR,tests/mcp,}; \
+		(cd ${.CURDIR}/tests/mcp && env $$e ${.OBJDIR}/${PROG} --mcp $$fl \
 		    < $$t) > mcp-$$n.got 2>&1; \
 		if diff -u ${.CURDIR}/tests/mcp/$$n.out mcp-$$n.got > \
 		    mcp-$$n.diff; then \
@@ -172,7 +194,8 @@ mcp-accept: ${PROG}
 	@for t in ${MTESTS}; do \
 		n=$${t%.jsonl}; \
 		fl=`cat ${.CURDIR}/tests/mcp/$$n.flags 2>/dev/null || true`; \
-		(cd ${.CURDIR}/tests/mcp && ${.OBJDIR}/${PROG} --mcp $$fl \
+		${TESTPRE:S,DIR,tests/mcp,}; \
+		(cd ${.CURDIR}/tests/mcp && env $$e ${.OBJDIR}/${PROG} --mcp $$fl \
 		    < $$t) > ${.CURDIR}/tests/mcp/$$n.out 2>&1; \
 		echo "wrote tests/mcp/$$n.out"; \
 	done

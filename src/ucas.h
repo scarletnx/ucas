@@ -428,6 +428,12 @@ void xr_val(int k, int lane, const char *v);
 void xr_lanein(int lane, const char *v);
 int xr_count(void);
 void xr_done(int fps, double seconds, const char *name, int nofile);
+/* an image beside the trace (8-bit RGBA; cover: NULL, or which pixels
+ * were written, the rest discarded); outputs fill in as the trace runs */
+void xr_panel(const char *label, int w, int h, const unsigned char *rgba,
+    const unsigned char *cover, int output);
+/* the traced lanes' pixels (x, y, w, h) in the image run's (iw, ih) */
+void xr_quad(int x, int y, int w, int h, int iw, int ih);
 /* spirv.c: run SPIR-V assembly on the lanes */
 struct spvset {			/* "animate exec %19 = 2.5": an input's value */
 	char name[40];		/* without the % */
@@ -446,6 +452,17 @@ void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
 int glsl_like(const char *code, const char *lang);
+/* codelang.c: a code block's language, from its tag and its content;
+ * *unclear: 1 untagged and could be either, 2 a ```c block of GLSL */
+enum { CL_NONE, CL_SPV, CL_GLSL, CL_C };
+int code_lang(const char *code, const char *lang, int *unclear);
+/* spvcross.c: spirv-cross's GLSL of a module before and after simplify */
+const char *spvcross_tool(int *silent);
+int spvcross_view(const char *orig, const char *simp, struct sbuf *report,
+    struct sbuf *oglsl, struct sbuf *sglsl);
+void spvcross_after_simplify(const char *orig, const char *simp, int nofile);
+void text_udiff(const char *a, const char *b, const char *na,
+    const char *nb, int maxlines, struct sbuf *out);
 int spv_disassemble(const char *data, size_t n, struct sbuf *out);
 int tool_run(char *const argv[], struct sbuf *out);
 int tool_tmp(char *tmpl, const char *data, size_t n);
@@ -467,6 +484,7 @@ int cmdp_rest(struct P *p, char *buf, size_t n,
 double cmdp_number(struct P *p, const char *const *stop);
 void cmdp_fail_here(struct P *p);
 int cmdp_word(struct P *p, char *buf, size_t n);
+int cmdp_raw(struct P *p, char *buf, size_t n);	/* "a/b.png" */
 /* ---- calc: loops and calculus (loop.c; the rest in calc.h) ---- */
 nid mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl);
 void loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,

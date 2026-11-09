@@ -23,10 +23,11 @@ MAN=
 # nlp.c includes a word list generated from its own strings
 CFLAGS+=	-I${.OBJDIR}
 nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_xform.inc \
-    nlp_words.awk
+    nlp_img.inc nlp_words.awk
 	awk -f ${.CURDIR}/../src/nlp_words.awk ${.CURDIR}/../src/nlp.c \
 	    ${.CURDIR}/../src/nlp_calc2.inc ${.CURDIR}/../src/nlp_hyper.inc \
-	    ${.CURDIR}/../src/nlp_alg.inc ${.CURDIR}/../src/nlp_xform.inc > ${.TARGET}
+	    ${.CURDIR}/../src/nlp_alg.inc ${.CURDIR}/../src/nlp_xform.inc \
+	    ${.CURDIR}/../src/nlp_img.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 # the proof library (prove_cmd.c), as ../Makefile embeds it
@@ -35,6 +36,11 @@ thy_absalg.inc: thy_absalg.thy
 	    ${.ALLSRC} > ${.TARGET}
 kscript.o kscript.pieo: thy_absalg.inc
 CLEANFILES+=	thy_absalg.inc
+
+# img.c compiles stb_image (../src/third_party, unmodified): its warnings
+# are not ours
+img.o img.pieo: img.c img.h third_party/stb_image.h
+	${CC} ${CFLAGS:N-W*} -w -fPIE -c ${.CURDIR}/../src/img.c -o ${.TARGET}
 
 CSTD=	c99
 CFLAGS+=	-O2 -I${.CURDIR}/../src -I${.CURDIR}
@@ -75,17 +81,24 @@ ${CONCORD_LIB}:
 # Each tests/NAME.jsonl is a list of gateway events; --stdin must print
 # exactly tests/NAME.out.  A short CPU limit keeps the timeout case
 # quick (the wall clock is long, so a busy host still hits CPU first);
-# tests/NAME.env, when present, replaces them.
+# tests/NAME.env, when present, replaces them.  spirv-cross (simplify's
+# GLSL view) is off unless NAME.env sets UCAS_SPIRV_CROSS; a test that
+# needs a tool names it in NAME.needs and is skipped without it.
 TESTENV=	UCAS_DISCORD_CPU=2 UCAS_DISCORD_WALL=60 UCAS_DISCORD_MAXOUT=65536
+TESTPRE=	e="${TESTENV}"; [ -f ${.CURDIR}/tests/$$n.env ] && \
+		    e=$$(cat ${.CURDIR}/tests/$$n.env); \
+		if [ -f ${.CURDIR}/tests/$$n.needs ] && ! command -v \
+		    $$(cat ${.CURDIR}/tests/$$n.needs) >/dev/null 2>&1; then \
+			echo "skip discord/$$n (no $$(cat ${.CURDIR}/tests/$$n.needs))"; \
+			continue; \
+		fi
 DTESTS!=	cd ${.CURDIR}/tests && ls *.jsonl 2>/dev/null || true
 
 test: ${PROG}
 	@${.OBJDIR}/${PROG} --selftest
 	@fail=0; for t in ${DTESTS}; do \
-		n=$${t%.jsonl}; \
-		e="${TESTENV}"; [ -f ${.CURDIR}/tests/$$n.env ] && \
-		    e=$$(cat ${.CURDIR}/tests/$$n.env); \
-		env $$e ${.OBJDIR}/${PROG} --stdin \
+		n=$${t%.jsonl}; ${TESTPRE}; \
+		env UCAS_SPIRV_CROSS=none $$e ${.OBJDIR}/${PROG} --stdin \
 		    < ${.CURDIR}/tests/$$t > $$n.got 2>&1; \
 		if diff -u ${.CURDIR}/tests/$$n.out $$n.got > $$n.diff; then \
 			echo "ok   discord/$$n"; rm -f $$n.got $$n.diff; \
@@ -94,10 +107,8 @@ test: ${PROG}
 
 accept: ${PROG}
 	@for t in ${DTESTS}; do \
-		n=$${t%.jsonl}; \
-		e="${TESTENV}"; [ -f ${.CURDIR}/tests/$$n.env ] && \
-		    e=$$(cat ${.CURDIR}/tests/$$n.env); \
-		env $$e ${.OBJDIR}/${PROG} --stdin \
+		n=$${t%.jsonl}; ${TESTPRE}; \
+		env UCAS_SPIRV_CROSS=none $$e ${.OBJDIR}/${PROG} --stdin \
 		    < ${.CURDIR}/tests/$$t > ${.CURDIR}/tests/$$n.out 2>&1; \
 		echo "wrote discord/tests/$$n.out"; \
 	done

@@ -31,6 +31,7 @@
 #include "ucas.h"
 #include "json.h"
 #include "jsonmode.h"
+#include "img.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -77,14 +78,16 @@ enum {
 			 * polynomial or a name (aes, crc32) */
 	P_MATRIX,	/* [[1, 2], [3, 4]] (or the text) */
 	P_VALUES,	/* [x0, x1, ...]: numbers or "1+2i" */
-	P_CONGS		/* [{"residue": 2, "modulus": 3}, ...] or "x = 2 mod 3" */
+	P_CONGS,	/* [{"residue": 2, "modulus": 3}, ...] or "x = 2 mod 3" */
+	P_INPUTS	/* animate exec's image inputs: [{"color": "black"},
+			 * {"png_base64": ...}, "noise", ...] */
 };
 
 static const char *const ptype_name[] = {"function", "expression",
 	"expressions", "name", "names", "names", "integer", "number",
 	"boolean", "enum", "string", "interval", "substitutions",
 	"parameters", "strings", "object", "source", "ring", "modulus",
-	"matrix", "values", "congruences"};
+	"matrix", "values", "congruences", "image inputs"};
 
 struct jparam {
 	const char *name;
@@ -161,7 +164,11 @@ static const struct jcmd cmds[] = {
 	    "translated statements are returned",
 	    {{"text", P_TEXT, 1, "", "one English request", NULL},
 	    {"answers", P_STRS, 0, "", "replies to follow-up questions "
-	    "(needs_input), in order", NULL}}},
+	    "(needs_input), in order", NULL},
+	    {"code", P_SOURCE, 0, "", "a code block the request is about "
+	    "(\"SAT simplify\" on SPIR-V, GLSL or C)", NULL},
+	    {"lang", P_ENUM, 0, "", "the code block's language (by default "
+	    "from the code)", "spv|glsl|c"}}},
 	{"help", "help", 0, 0, "the command summary", {{0}}},
 	{"funcs", "funcs", 0, 0, "every defined function", {{0}}},
 	{"models", "models", 0, 0, "the cost models", {{0}}},
@@ -341,10 +348,30 @@ static const struct jcmd cmds[] = {
 	    "interesting part (files)", {FN, NUO("at", " at %s", "the point"),
 	    BO("nofile", " nofile", "a checksum instead of the file")}},
 	{"animate", "animate", 0, 0, "an animated GIF: scans, lockstep "
-	    "execution (files)", {TO("spec", " %s", "as in the CLI: \"hillis "
-	    "scan n 8\", \"exec of 32-bit x*x + 1\""),
-	    {"code", P_SOURCE, 0, "", "SPIR-V assembly for animate exec",
-	    NULL}}},
+	    "execution, a shader over images (files)", {TO("spec", " %s",
+	    "as in the CLI: \"hillis scan n 8\", \"exec of 32-bit x*x + 1\"; "
+	    "with code, \"exec\" (the default)"),
+	    {"code", P_SOURCE, 0, "", "SPIR-V assembly or GLSL for animate "
+	    "exec", NULL},
+	    {"inputs", P_INPUTS, 0, "%s", "the shader's image inputs, in "
+	    "(set, binding) order: each a colour name, #rrggbb, \"noise\", "
+	    "\"gradient\", \"checker\", or {\"color\" | \"pattern\" | "
+	    "\"png_base64\" (any PNG/JPEG/GIF/BMP/PPM, base64) | \"file\", "
+	    "\"format\": \"R8\", \"width\", \"height\", \"filter\": "
+	    "\"nearest\", \"address\": \"clamp\"}; inputs not given are "
+	    "noise", NULL},
+	    {"output_format", P_TEXT, 0, " output %s", "the colour target's "
+	    "format: RGBA8 (default), RGB8, RG8, R8, SRGB8_A8, RGBA16F, R32F, "
+	    "RGBA32F ...", NULL},
+	    TO("size", " size %s", "the image run's size, \"128x128\" (the "
+	    "first input's, at most 256x256)"),
+	    TO("sampler", " sampler %s", "the sampler state SPIR-V does not "
+	    "carry: \"nearest clamp\", \"linear mirror\", \"border white\" "
+	    "(linear repeat)"),
+	    IO("seed", " seed %s", "the random inputs' seed"),
+	    IO("lanes", " lanes %s", "4 (a 2x2 quad), 8, 16 or 32"),
+	    NMO("to", " to %s", "the file's name (exec)"),
+	    BO("nofile", " nofile", "a checksum instead of the file")}},
 	{"symmetry", "symmetry", 1, 0, "axes x = c, centres, f(x, y) = f(y, "
 	    "x)", {FN}},
 	/* rings and finite fields (ring.c) */
@@ -532,9 +559,10 @@ static const struct jcmd cmds[] = {
 	    "t")}},
 	{"spirv_simplify", NULL, 1, 1, "cheaper forms of a SPIR-V module's "
 	    "integer instructions, each proved by SAT",
-	    {{"code", P_SOURCE, 1, "", "SPIR-V assembly or GLSL", NULL},
+	    {{"code", P_SOURCE, 1, "", "SPIR-V assembly, GLSL, or C (run as "
+	    "c_optimize)", NULL},
 	    {"lang", P_ENUM, 0, "", "the code's language (by default from "
-	    "the code)", "spv|glsl"},
+	    "the code; c: the C frontend, as c_optimize)", "spv|glsl|c"},
 	    NUO("budget", "", "seconds (6)"),
 	    {"ranges", P_OBJ, 0, "", "{\"n\": [lo, hi]}: values assumed for "
 	    "an input", NULL},
@@ -1336,6 +1364,9 @@ enum_ok(const struct jparam *p, const char *s)
 }
 
 /* one argument's value as ucas text */
+static int render_inputs(struct req *r, struct sbuf *b, const struct jv *v,
+    const char *name);
+
 static int
 render_arg(struct req *r, struct sbuf *b, const struct jparam *p,
     const struct jv *v)
@@ -1481,6 +1512,8 @@ render_arg(struct req *r, struct sbuf *b, const struct jparam *p,
 		if (v->t != J_OBJ)
 			return bad(r, "bad_request", "%s: an object", p->name);
 		return 1;
+	case P_INPUTS:
+		return render_inputs(r, b, v, p->name);
 	case P_SOURCE:
 		if (v->t != J_STR || !v->s[0])
 			return bad(r, "bad_request", "%s: a string", p->name);
@@ -1490,6 +1523,130 @@ render_arg(struct req *r, struct sbuf *b, const struct jparam *p,
 		return 1;
 	}
 	return bad(r, "internal", "parameter type");
+}
+
+/*
+ * animate exec's inputs: " input K WORDS" for each; images in base64
+ * go to the gallery and are named by their place in it
+ */
+static int
+render_inputs(struct req *r, struct sbuf *b, const struct jv *v,
+    const char *name)
+{
+	static const char *const keys[] = {"color", "colour", "pattern",
+	    "format", "file", "png_base64", "base64", "image_base64", "name",
+	    "width", "height", "filter", "address", NULL};
+	int k, j;
+
+	if (v->t != J_ARR)
+		return bad(r, "bad_request", "%s: an array of inputs", name);
+	if (v->n > IMG_MAXIN)
+		return bad(r, "bad_request", "%s: at most %d inputs", name,
+		    IMG_MAXIN);
+	img_gallery_clear();	/* checked, then built: added once */
+	for (k = 0; k < v->n; k++) {
+		const struct jv *e = v->v[k], *x;
+		struct imgin in;
+		unsigned char c[4];
+		const char *s;
+		memset(&in, 0, sizeof in);
+		in.fmt = in.filt = in.addr = -1;
+		sb_printf(b, " input %d", k + 1);
+		if (e->t == J_STR) {
+			if (!img_in_word(&in, e->s) || strchr(e->s, ' '))
+				return bad(r, "bad_request", "%s[%d]: \"%s\" is not a "
+				    "colour, pattern or format", name, k, e->s);
+			if (in.kind == IK_COLOR)
+				sb_printf(b, " #%02x%02x%02x%02x", in.rgba[0],
+				    in.rgba[1], in.rgba[2], in.rgba[3]);
+			else
+				sb_printf(b, " %s", e->s);
+			continue;
+		}
+		if (e->t == J_NULL)
+			continue;	/* noise */
+		if (e->t != J_OBJ)
+			return bad(r, "bad_request", "%s[%d]: a string or an object",
+			    name, k);
+		for (j = 0; j < e->n; j++) {
+			int q;
+			for (q = 0; keys[q] && strcmp(keys[q], e->k[j]); q++)
+				;
+			if (!keys[q])
+				return bad(r, "bad_request", "%s[%d]: unknown field "
+				    "\"%s\"", name, k, e->k[j]);
+		}
+		if ((s = jv_gets(e, "color")) != NULL ||
+		    (s = jv_gets(e, "colour")) != NULL) {
+			if (!img_color(s, c))
+				return bad(r, "bad_request", "%s[%d].color: \"%s\" is "
+				    "not a colour (a name, #rrggbb, rgba(...))", name, k, s);
+			sb_printf(b, " #%02x%02x%02x%02x", c[0], c[1], c[2], c[3]);
+		}
+		if ((s = jv_gets(e, "pattern")) != NULL) {
+			if (strcmp(s, "noise") && strcmp(s, "gradient") &&
+			    strcmp(s, "checker") && strcmp(s, "checkerboard"))
+				return bad(r, "bad_request", "%s[%d].pattern: noise, "
+				    "gradient or checker", name, k);
+			sb_printf(b, " %s", s);
+		}
+		if ((s = jv_gets(e, "file")) != NULL) {
+			if (!s[0] || strpbrk(s, " \t\n\x1e"))
+				return bad(r, "bad_request", "%s[%d].file: a path "
+				    "without blanks", name, k);
+			sb_printf(b, " file %s", s);
+		}
+		if ((s = jv_gets(e, "png_base64")) != NULL ||
+		    (s = jv_gets(e, "base64")) != NULL ||
+		    (s = jv_gets(e, "image_base64")) != NULL) {
+			size_t n = strlen(s);
+			unsigned char *d = xmalloc(n * 3 / 4 + 4);
+			const char *nm = jv_gets(e, "name");
+			char lab[64];
+			size_t dn = img_b64(s, n, d);
+			snprintf(lab, sizeof lab, "%s", nm ? nm : "");
+			if (!lab[0])
+				snprintf(lab, sizeof lab, "image %d", img_opt.ngal + 1);
+			if (img_sniff(d, dn) == NULL || !img_gallery_add(lab, d, dn)) {
+				free(d);
+				return bad(r, "bad_request", "%s[%d]: the base64 is not "
+				    "an image file I can read, or there are more than %d",
+				    name, k, IMG_MAXGAL);
+			}
+			free(d);
+			sb_printf(b, " gallery %d", img_opt.ngal);
+		}
+		if ((s = jv_gets(e, "format")) != NULL) {
+			if (tex_fmt_find(s) < 0)
+				return bad(r, "bad_request", "%s[%d].format: \"%s\" is "
+				    "not a format (R8, RG8, RGB8, RGBA8, RGBA16F ...)",
+				    name, k, s);
+			sb_printf(b, " %s", tex_fmts[tex_fmt_find(s)].name);
+		}
+		if ((x = jv_get(e, "width")) != NULL || jv_get(e, "height")) {
+			const struct jv *y = jv_get(e, "height");
+			int w = x && x->t == J_NUM ? (int)x->num : 64,
+			    h = y && y->t == J_NUM ? (int)y->num : w;
+			if (w < 1 || h < 1 || w > 1024 || h > 1024)
+				return bad(r, "bad_request", "%s[%d]: width and height "
+				    "from 1 to 1024", name, k);
+			sb_printf(b, " %dx%d", w, h);
+		}
+		if ((s = jv_gets(e, "filter")) != NULL) {
+			if (strcmp(s, "nearest") && strcmp(s, "linear"))
+				return bad(r, "bad_request", "%s[%d].filter: nearest or "
+				    "linear", name, k);
+			sb_printf(b, " %s", s);
+		}
+		if ((s = jv_gets(e, "address")) != NULL) {
+			if (strcmp(s, "repeat") && strcmp(s, "clamp") &&
+			    strcmp(s, "mirror") && strcmp(s, "border"))
+				return bad(r, "bad_request", "%s[%d].address: repeat, "
+				    "clamp, mirror or border", name, k);
+			sb_printf(b, " %s", s);
+		}
+	}
+	return 1;
 }
 
 static const struct jparam *
@@ -1877,6 +2034,21 @@ type_schema(const struct jparam *p)
 		jv_set(o, "type", jv_str("array"));
 		jv_set(o, "items", parse_const("{\"$ref\": \"#/$defs/number\"}"));
 		break;
+	case P_INPUTS:
+		jv_set(o, "type", jv_str("array"));
+		jv_set(o, "items", parse_const("{\"oneOf\": [{\"type\": "
+		    "\"string\"}, {\"type\": \"null\"}, {\"type\": \"object\", "
+		    "\"properties\": {\"color\": {\"type\": \"string\"}, "
+		    "\"pattern\": {\"enum\": [\"noise\", \"gradient\", "
+		    "\"checker\"]}, \"png_base64\": {\"type\": \"string\"}, "
+		    "\"name\": {\"type\": \"string\"}, \"file\": {\"type\": "
+		    "\"string\"}, \"format\": {\"type\": \"string\"}, "
+		    "\"width\": {\"type\": \"integer\"}, \"height\": "
+		    "{\"type\": \"integer\"}, \"filter\": {\"enum\": "
+		    "[\"nearest\", \"linear\"]}, \"address\": {\"enum\": "
+		    "[\"repeat\", \"clamp\", \"mirror\", \"border\"]}}, "
+		    "\"additionalProperties\": false}]}"));
+		break;
 	case P_CONGS:
 		jv_set(o, "type", jv_str("array"));
 		jv_set(o, "items", parse_const("{\"oneOf\": [{\"type\": "
@@ -2128,6 +2300,9 @@ cmd_limit(struct req *r)
 	return 1;
 }
 
+/* spirv_simplify given C (lang "c", or C by its content): c optimize */
+static int spirv_is_c;
+
 static int
 cmd_spirv(struct req *r, const char **code)
 {
@@ -2136,6 +2311,30 @@ cmd_spirv(struct req *r, const char **code)
 	int k;
 
 	*code = jv_gets(r->args, "code");
+	spirv_is_c = (lang && !strcmp(lang, "c")) || (!lang && *code &&
+	    code_lang(*code, "", NULL) == CL_C);
+	if (spirv_is_c) {
+		/* the options that mean the same; target, check: c_optimize */
+		sb_puts(&r->stmt, "c optimize");
+		if ((v = jv_get(r->args, "budget")) != NULL) {
+			sb_puts(&r->stmt, " budget ");
+			if (!render_num(r, &r->stmt, v, "budget"))
+				return 0;
+		}
+		if ((v = jv_get(r->args, "ranges")) != NULL)
+			for (k = 0; k < v->n; k++) {
+				rg = v->v[k];
+				if (!is_ident(v->k[k]) || rg->t != J_ARR || rg->n != 2 ||
+				    rg->v[0]->t != J_NUM || rg->v[1]->t != J_NUM)
+					return bad(r, "bad_request", "ranges: {\"name\": "
+					    "[lo, hi]} with integers");
+				sb_printf(&r->stmt, " assume %s %lld %lld", v->k[k],
+				    (long long)rg->v[0]->num, (long long)rg->v[1]->num);
+			}
+		if ((v = jv_get(r->args, "nofile")) != NULL && v->t == J_TRUE)
+			sb_puts(&r->stmt, " nofile");
+		return 1;
+	}
 	sb_puts(&r->stmt, "spvsimplify");
 	if ((v = jv_get(r->args, "budget")) != NULL) {
 		sb_puts(&r->stmt, " budget ");
@@ -2385,6 +2584,7 @@ handle(const struct jv *rq)
 	rep_request(jv_get(a, "assume"), session, defaults, fmode, outdir);
 	nlp_interactive = 0;
 	nlp_asked = 0;
+	img_gallery_clear();
 	check_args(&r);
 	if (!r.ecode) {
 		code_block = NULL;
@@ -2411,10 +2611,25 @@ handle(const struct jv *rq)
 			for (k = 0; ans && k < ans->n; k++)
 				sb_printf(&r.stmt, "\x1e" "answer %s\n", ans->v[k]->s);
 			sb_puts(&r.stmt, jv_gets(a, "text"));
+			if (jv_gets(a, "code") != NULL)	/* as a fenced block */
+			{
+				sb_printf(&r.stmt, "\n```%s\n", jv_gets(a, "lang") ?
+				    jv_gets(a, "lang") : "");
+				sb_puts(&r.stmt, jv_gets(a, "code"));
+				sb_puts(&r.stmt, "\n```");
+			}
 		} else if (!r.c->special) {
 			build(&r);
 			if (!strncmp(cmd, "c_", 2))	/* cfront: C source */
 				code = jv_gets(a, "code");
+			if (!strcmp(cmd, "animate") && (code = jv_gets(a, "code")) &&
+			    !r.ecode && !jv_get(a, "spec")) {
+				/* a shader: exec is what it can be */
+				struct sbuf t = {0};
+				sb_printf(&t, "animate exec%s", r.stmt.p + 7);
+				free(r.stmt.p);
+				r.stmt = t;
+			}
 		}
 	}
 	if (r.ecode) {
@@ -2459,7 +2674,13 @@ handle(const struct jv *rq)
 		res = NULL;
 		if (code) {
 			code_block = code;
-			if (strncmp(cmd, "c_", 2) && glsl_like(code, "")) {
+			int as_c = !strncmp(cmd, "c_", 2) ||
+			    (!strcmp(cmd, "spirv_simplify") && spirv_is_c);
+			if (as_c && strncmp(cmd, "c_", 2))
+				printf("  note: the code is C: optimised by the C frontend "
+				    "(c optimize; the c_optimize tool also takes a target "
+				    "and check)\n");
+			if (!as_c && glsl_like(code, "")) {
 				struct sbuf nt = {0};
 				sb_clear(&glsl);
 				if (glsl_to_spvasm(code, &glsl, &nt)) {
@@ -2471,7 +2692,8 @@ handle(const struct jv *rq)
 					    nt.p ? nt.p : "");
 				free(nt.p);
 			}
-			snprintf(code_block_lang, sizeof code_block_lang, "%s", strncmp(cmd, "c_", 2) ? "spv" : "c");
+			snprintf(code_block_lang, sizeof code_block_lang, "%s", as_c ?
+			    "c" : "spv");
 		}
 		jv_set(resp, "ucas", jv_str(sb_str(&src)));
 		if (!strcmp(cmd, "english")) {

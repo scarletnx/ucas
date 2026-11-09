@@ -1,0 +1,41 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Skip: called from a compute shader's main(), its arguments read from a buffer
+  s is not declared: assumed `uvec4 s;` (a global in a buffer, so the optimizer keeps what is written to it; from its swizzles)
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume n 1 31
+simplify: 72 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
+  assuming n in [1, 31] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 10 -> 8 (-20.0%)
+  by kind:
+       1  a shift of a shift is one shift by the sum    -2
+  rewrites:
+    %60 = OpShiftLeftLogical %uint %57 %59
+      ->  OpShiftLeftLogical %uint %56 (OpISub %ucas_uint_32 %46)   (a shift of a shift is one shift by the sum; -2)
+      (line 2: s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2419 bytes, checksum 04d83716)
+  GLSL view: spirv-cross not found (install it, pkg install spirv-cross, or put it on PATH): skipped
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 63 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 30 -> 6 (-80.0%)
+  counting the strength reductions any driver also does: 53 -> 6 (-88.7%)
+  also done by any driver compiler (2 rewrites, -23; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+  by kind:
+       1  equals its operand                            -24
+  rewrites:
+    %38 = OpUMod %uint %36 %uint_256
+      ->  %36   (equals its operand; -24)
+      (line 6: v[i] = (v[i] * 16u) / 8u + (v[i] & 255u) % 256u;)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2148 bytes, checksum f714b49d)
+  GLSL view: spirv-cross not found (install it, pkg install spirv-cross, or put it on PATH): skipped
+> spvsimplify nofile
+  input %x: uint
+  input %y: uint
+  output %out: uint (stored to; its values are listed after the run)
+simplify: 14 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

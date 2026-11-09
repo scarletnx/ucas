@@ -35,6 +35,7 @@
 #include "props.h"
 #include "ring.h"
 #include "absalg.h"
+#include "img.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7943,11 +7944,67 @@ static struct sbuf code_buf;
  * the return value points after the closing fence (NULL: no block).  Lines
  * taken out are kept as empty lines so later line numbers stay right.
  */
+/*
+ * An image travelling as text: a ```image NAME block of base64 (the bot's
+ * attachments, a test's picture), from the line after the fence (p) to
+ * the closing fence; into the gallery (animate exec's inputs).  Returns
+ * the position after the closing fence's line.
+ */
+static const char *
+image_block(const char *name, const char *p)
+{
+	const char *e = p, *q;
+	unsigned char *d;
+	size_t n = 0;
+
+	for (;;) {
+		const char *le = strchr(e, '\n');
+		for (q = e; *q == ' ' || *q == '\t'; q++)
+			;
+		if (*e == 0 || !strncmp(q, "```", 3))
+			break;
+		e = le ? le + 1 : e + strlen(e);
+	}
+	d = xmalloc((size_t)(e - p) * 3 / 4 + 4);
+	n = img_b64(p, (size_t)(e - p), d);
+	if (!img_gallery_add(name, d, n))
+		printf("  note: the image %s was not kept (more than %d images, or "
+		    "over %u MiB)\n", name, IMG_MAXGAL, IMG_MAXFILE >> 20);
+	free(d);
+	if (*e) {
+		e = strchr(e, '\n');
+		e = e ? e + 1 : q + strlen(q);
+	}
+	return e;
+}
+
+/* the block at p (a fence line) is an ```image block: its name */
+static int
+is_image_fence(const char *p, const char *e, char *name, size_t n)
+{
+	const char *q;
+
+	while (p < e && (*p == ' ' || *p == '\t'))
+		p++;
+	if (e - p < 8 || strncmp(p, "```image", 8) || (p[8] != ' ' &&
+	    p + 8 != e && p[8] != '\r'))
+		return 0;
+	for (q = p + 8; q < e && (*q == ' ' || *q == '\t'); q++)
+		;
+	snprintf(name, n, "%.*s", (int)(e - q), q);
+	while (*name && isspace((unsigned char)name[strlen(name) - 1]))
+		name[strlen(name) - 1] = 0;
+	if (!*name)
+		snprintf(name, n, "image %d", img_opt.ngal + 1);
+	return 1;
+}
+
 static const char *
 next_code_block(const char *src, struct sbuf *piece)
 {
 	const char *p = src, *e, *q;
 	int in = 0;
+	char iname[96];
 
 	sb_clear(piece);
 	sb_puts(piece, "");
@@ -7955,12 +8012,22 @@ next_code_block(const char *src, struct sbuf *piece)
 	code_block = NULL;
 	code_block_lang[0] = 0;
 	code_block_used = 0;
+	img_gallery_clear();	/* a statement's pictures are its own */
 	while (*p) {
 		e = strchr(p, '\n');
 		if (e == NULL)
 			e = p + strlen(p);
 		for (q = p; q < e && (*q == ' ' || *q == '\t'); q++)
 			;
+		if (!in && is_image_fence(p, e, iname, sizeof iname)) {
+			/* a picture: the gallery; its lines stay as empty lines */
+			const char *after = image_block(iname, *e ? e + 1 : e), *c;
+			for (c = p; c < after; c++)
+				if (*c == '\n')
+					sb_putc(piece, '\n');
+			p = after;
+			continue;
+		}
 		if (!in && e - q >= 3 && !strncmp(q, "```", 3)) {
 			size_t n = 0;
 			q += 3;
@@ -7973,8 +8040,26 @@ next_code_block(const char *src, struct sbuf *piece)
 		} else if (in) {
 			sb_putc(piece, '\n');
 			if (e - q >= 3 && !strncmp(q, "```", 3)) {
+				const char *r = *e ? e + 1 : e;
 				code_block = code_buf.p ? code_buf.p : "";
-				return *e ? e + 1 : e;
+				/* pictures right after the block go with it */
+				for (;;) {
+					const char *b = r, *be, *c;
+					while (*b == '\n' || *b == ' ' || *b == '\t' ||
+					    *b == '\r')
+						b++;
+					be = strchr(b, '\n');
+					if (be == NULL)
+						be = b + strlen(b);
+					if (!is_image_fence(b, be, iname, sizeof iname))
+						break;
+					b = image_block(iname, *be ? be + 1 : be);
+					for (c = r; c < b; c++)
+						if (*c == '\n')
+							sb_putc(piece, '\n');
+					r = b;
+				}
+				return r;
 			}
 			sb_printf(&code_buf, "%.*s\n", (int)(e - p), p);
 		} else
@@ -7989,25 +8074,14 @@ next_code_block(const char *src, struct sbuf *piece)
 }
 
 static void run_text_plain(const char *src, const char *file, int echo);
+#include "nlp_img.inc"	/* a shader run, with its image inputs, in English */
 
-/* the block looks like GLSL source (and is tagged so, or untagged) */
+/* the block looks like GLSL source (tagged so, or untagged and not C:
+ * codelang.c) */
 int
 glsl_like(const char *c, const char *lang)
 {
-	static const char *const tags[] = {"", "glsl", "comp", "frag", "vert",
-	    "c", "cpp", "c++", "hlsl", "shader", "geom", "tesc", "tese", NULL};
-	int k, tagged = 0;
-
-	if (c == NULL)
-		return 0;
-	for (k = 0; tags[k]; k++)
-		if (!strcmp(lang ? lang : "", tags[k]))
-			tagged = 1;
-	if (!tagged || strstr(c, "= Op") || strstr(c, "OpFunction"))
-		return 0;
-	return strchr(c, '{') && strchr(c, ';') && (strstr(c, "uint") ||
-	    strstr(c, "vec") || strstr(c, "float") || strstr(c, "int ") ||
-	    strstr(c, "void ") || strstr(c, "#version"));
+	return code_lang(c, lang, NULL) == CL_GLSL;
 }
 
 /* the block looks like SPIR-V assembly */
@@ -8106,6 +8180,8 @@ float_range(const char *name, const char *q, struct sbuf *opt)
  * "n in [0, 32)", "n in (a, b]", "n in 0..31", "0 <= n < 32", "n < 32"
  * (0 <= n), "n <= 31".
  */
+static int assume_ints_only;	/* C: no float ranges for SPIR-V */
+
 static void
 find_assumptions(const char *t, struct sbuf *opt)
 {
@@ -8136,7 +8212,8 @@ find_assumptions(const char *t, struct sbuf *opt)
 		if (!strncmp(q, "in", 2) && !isalnum((unsigned char)q[2])) {
 			char open, close;
 			q += 2;
-			float_range(name, q, opt);
+			if (!assume_ints_only)
+				float_range(name, q, opt);
 			while (*q == ' ')
 				q++;
 			open = *q;
@@ -8221,23 +8298,27 @@ find_assumptions(const char *t, struct sbuf *opt)
 /*
  * "SAT simplify", "optimize this shader", "peephole it with smt" next to
  * a SPIR-V block: the text lines become one `spvsimplify` statement
- * (directive lines and the line count stay), options carried over
+ * (directive lines and the line count stay), options carried over.  With
+ * c set (a C block) the statement is `c optimize` (cf_cmd.c): the budget,
+ * the ranges ("n in [0, 32)"), a target named, check, bench, wrapv.
  */
 static int
-simplify_piece(struct sbuf *piece)
+simplify_piece(struct sbuf *piece, int c)
 {
 	static const char *const w[] = {"simplify", "simplified",
 	    "simplification", "simplifications", "simp", "optimize", "optimise",
 	    "optimized", "optimised", "optimization", "optimisation",
 	    "superoptimize", "superoptimise", "superoptimization", "peephole",
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
-	    NULL};
+	    "faster", "speed", "speedup", "quicker", NULL};
 	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
 	char ulp[32] = "", num[32] = "", fl[96] = "";
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
 				 * function level": 2 */
+	int c_check = 0, c_bench = 0, c_wrapv = 0, c_trace = 0;
+	char c_target[48] = "";
 	char prevw[64] = "", lastw[64] = "";
 	struct sbuf out = {0};
 
@@ -8298,6 +8379,18 @@ simplify_piece(struct sbuf *piece)
 				anim = 1;
 			if (!strcmp(lw, "nofile"))
 				nofile = 1;
+			/* C: "and check it", "with tests", "benchmark it" */
+			if (!strcmp(lw, "check") || !strcmp(lw, "checked") ||
+			    !strcmp(lw, "test") || !strcmp(lw, "tests") ||
+			    !strcmp(lw, "tested") || !strcmp(lw, "verify"))
+				c_check = 1;
+			if (!strcmp(lw, "bench") || !strcmp(lw, "benchmark") ||
+			    !strcmp(lw, "benchmarked"))
+				c_bench = 1;
+			if (!strcmp(lw, "wrapv"))
+				c_wrapv = 1;
+			if (!strcmp(lw, "trace"))
+				c_trace = 1;
 			/* float simplify: "with floats", "bit-exact only", "allow
 			 * approximations within 2 ulp", "per component" */
 			if (cmt) {
@@ -8368,9 +8461,24 @@ simplify_piece(struct sbuf *piece)
 			size_t ln = e ? (size_t)(e - q0) : strlen(q0);
 			if (*q0 != '\x1e' && *q0 != '#') {	/* not comments */
 				char *line = xmalloc(ln + 1);
+				int t;
+				const struct cf_target *tg;
 				memcpy(line, q0, ln);
 				line[ln] = 0;
+				assume_ints_only = c;
 				find_assumptions(line, &as);
+				assume_ints_only = 0;
+				/* C: a target named ("for zen4", "on skylake") */
+				for (t = 0; c && !c_target[0] &&
+				    (tg = cf_target_nth(t)) != NULL; t++) {
+					const char *m = strstr(line, tg->name);
+					size_t tl = strlen(tg->name);
+					if (m && (m == line || !(isalnum((unsigned char)m[-1]) ||
+					    m[-1] == '-')) && !isalnum((unsigned char)m[tl]) &&
+					    m[tl] != '-')
+						snprintf(c_target, sizeof c_target, " target %s",
+						    tg->name);
+				}
 				free(line);
 			}
 			q0 += ln + (e != NULL);
@@ -8385,7 +8493,14 @@ simplify_piece(struct sbuf *piece)
 				e = q + strlen(q);
 			if (*q == '\x1e')
 				sb_printf(&out, "%.*s\n", (int)(e - q), q);
-			else if (first && e > q) {
+			else if (first && e > q && c) {
+				sb_printf(&out, "c optimize%s%s%s%s%s%s%s%s%s\n",
+				    c_target, budget[0] ? " budget " : "", budget,
+				    assume_opts ? assume_opts : "", c_check ? " check" : "",
+				    c_bench ? " bench" : "", c_wrapv ? " wrapv" : "",
+				    c_trace ? " trace" : "", nofile ? " nofile" : "");
+				first = 0;
+			} else if (first && e > q) {
 				sb_printf(&out, "spvsimplify%s%s%s%s%s\n", budget[0] ?
 				    " budget " : "", budget, nofile ? " nofile" : "",
 				    assume_opts ? assume_opts : "", fl);
@@ -8411,13 +8526,27 @@ run_text(const char *src, const char *file, int echo)
 
 	/* one run: the questions' answers are queued once, for all pieces */
 	nlp_asked = 0;
+	img_gallery_clear();
 	while (nans > 0)
 		free(answers[--nans]);
 	ansi = 0;
 	for (;;) {
 		const char *c;
+		int unclear = 0, cl;
 		next = next_code_block(rest, &piece);
-		if (code_block && cfront_claims(piece.p, code_block_lang)) {
+		cl = code_block ? code_lang(code_block, code_block_lang, &unclear) :
+		    CL_NONE;
+		if (cl == CL_C && !cfront_claims(piece.p, "") &&
+		    simplify_piece(&piece, 1)) {
+			/* "SAT simplify", "make it faster" on C: cfront */
+			if (unclear)
+				printf("  note: the untagged block could be GLSL or C: "
+				    "read as C (tag it ```glsl for a shader)\n");
+			printf("  note: the code is C: optimised by the C frontend "
+			    "(c optimize)\n");
+			snprintf(code_block_lang, sizeof code_block_lang, "c");
+		} else if (code_block && cfront_claims(piece.p, cl == CL_C ? "c" :
+		    code_block_lang)) {
 			/* C for cfront (cf_cmd.c): English becomes the command */
 			struct sbuf cmd = {0};
 			if (cfront_english(piece.p, &cmd)) {
@@ -8427,11 +8556,18 @@ run_text(const char *src, const char *file, int echo)
 			}
 			free(cmd.p);
 			snprintf(code_block_lang, sizeof code_block_lang, "c");
-		} else if (code_block && glsl_like(code_block, code_block_lang)) {
+		} else if (cl == CL_GLSL) {
 			/* GLSL: compiled to SPIR-V (the command line; the bot
 			 * converts before it sends) */
 			static struct sbuf spv;
 			struct sbuf notes = {0};
+			if (unclear == 1)
+				printf("  note: the untagged block could be GLSL or C: "
+				    "read as GLSL (tag it ```c for the C frontend)\n");
+			else if (unclear == 2)
+				printf("  note: the ```%s block reads as GLSL (GLSL's "
+				    "types or qualifiers, none of C's): compiled as GLSL; "
+				    "tag it ```glsl\n", code_block_lang);
 			sb_clear(&spv);
 			if (glsl_to_spvasm(code_block, &spv, &notes)) {
 				printf("  note: the ```%s block was compiled to SPIR-V with "
@@ -8444,8 +8580,10 @@ run_text(const char *src, const char *file, int echo)
 				    notes.p ? notes.p : "");
 			free(notes.p);
 		}
-		if (code_block && spv_like(code_block))
-			simplify_piece(&piece);
+		if (code_block && spv_like(code_block)) {
+			shader_piece(&piece);
+			simplify_piece(&piece, 0);
+		}
 		/* earlier pieces' lines come first, as empty lines */
 		sb_clear(&pad);
 		sb_puts(&pad, "");
