@@ -78,6 +78,20 @@ prop01 K_s mod 2
 prop01 L(4) x L(8) mod 2
 bockstein T^2_s mod 3 check
 
+# big simplicial complexes: reduced first (unit pivots cancelled, the
+# equivalence checked), so these take well under a second
+bockstein RP^3_s mod 2
+prop01 RP^3_s mod 2
+bockstein RP^4_s mod 2
+prop01 RP^4_s mod 2
+bockstein RP^3_s mod 2 trace 3
+cohomology RP^4_s with Z/2
+
+# the same without the reduction: the space's own cochains
+homology T^2_s unreduced generators
+bockstein K_s mod 2 unreduced
+prop01 RP^2_s mod 2 unreduced
+
 # errors
 homology foo
 bockstein RP^4 mod 4

@@ -112,11 +112,34 @@ enum {
 	HK_UCT,		/* a universal coefficient isomorphism (a degree) */
 	HK_SNAKE,	/* the connecting map's lifts solved and verified */
 	HK_STABLE,	/* a stable page: d = 0 and the next page equal (degree) */
+	HK_REDUCE,	/* a reduction: f, g chain maps, f g = 1, 1 - g f = dh + hd */
 	HK_NKIND
 };
 extern long hal_checks[HK_NKIND];
 extern const char *const hal_check_name[HK_NKIND];
 void hal_checks_reset(void);
+
+/* ---- reductions (reduce.c) ---- */
+
+/*
+ * The chain complex of a space made small by cancelling every unit pivot
+ * (elementary collapses, algebraic Morse theory), with the chain homotopy
+ * equivalence kept: g: C' -> C, f: C -> C', h: C -> C (degree +1) with f g
+ * = 1 and 1 - g f = d h + h d.  hred_space checks all of that sparsely on
+ * the original cells (and that f and g are chain maps), so the cohomology
+ * of C' is that of the space, with f^* and g^* mutually inverse.
+ */
+typedef uint32_t hcx;		/* a cochain complex (cx.c, below) */
+typedef uint32_t hred;
+hred hred_space(hspace s);
+hspace hred_space_of(hred r);
+uint32_t hred_ncells(hred r, int k);	/* surviving k-cells */
+hcx hred_cochains(hred r);		/* Hom(C', Z), degrees 0..top */
+hcx hred_chains(hred r);		/* C' in degrees -top..0 */
+/* f^*: a cochain of C' (ncells entries) to the original cells' cochain */
+void hred_cochain_back(hred r, int n, const zint *x, zint *y);
+/* g: a chain of C' to a chain of the original cells */
+void hred_chain_back(hred r, int n, const zint *x, zint *y);
 
 /* ---- cochain complexes (cx.c) ---- */
 
@@ -132,8 +155,6 @@ void hal_checks_reset(void);
  * Chain complexes are cochain complexes with negated degrees: C_n sits in
  * degree -n and d_n: C_n -> C_{n-1} is d^{-n}, so H_n = H^{-n}.
  */
-typedef uint32_t hcx;
-
 hcx hcx_new(const char *name, int lo, int hi, const int *g,
     const struct zmat *d, const struct zmat *R);   /* arrays by n - lo;
 						    * R NULL: free */

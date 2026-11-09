@@ -660,7 +660,10 @@ static const struct jcmd cmds[] = {
 #define HSPACE TX("space", " %s", "a space: S^n, T^n, RP^n, CP^n, K (Klein " \
 	"bottle), L(m) or L(m,q), pt; _s for a simplicial model (RP^2_s, " \
 	"T^2_s, K_s, S^3_s); X x Y, X v Y, susp(X); cells([[d1]], [[d2]], " \
-	"...) by boundary matrices, facets([[0,1,2], ...])")
+	"...) by boundary matrices, facets([[0,1,2], ...])"), \
+	BO("unreduced", " unreduced", "use the space's own cells (by " \
+	"default unit pivots are cancelled first, with the homotopy " \
+	"equivalence checked)")
 	{"space", "space", 1, 0, "a cell complex: its cells, Euler "
 	    "characteristic and boundaries (d o d = 0 checked)", {HSPACE}},
 	{"homology", "homology", 1, 0, "H_n(X; G) for every n, exactly, with "

@@ -36,14 +36,14 @@ static const struct {
 };
 
 static const char *const kws[] = {"with", "mod", "pages", "trace", "page",
-	"check", "generators", NULL};
+	"check", "generators", "unreduced", NULL};
 
 /* ---- options ---- */
 
 struct hopt {
 	char space[2048];
 	char with[256];
-	int has_with, has_mod, gens, check, has_trace, has_page;
+	int has_with, has_mod, gens, check, has_trace, has_page, unreduced;
 	long long mod, pages, tdeg, page;
 	char tvec[512];
 };
@@ -125,12 +125,15 @@ parse_opts(struct hopt *o, const char *text)
 				o->page = opt_int(arg, "page");
 				o->has_page = 1;
 			} else if (!strcmp(cur, "check") ||
-			    !strcmp(cur, "generators")) {
+			    !strcmp(cur, "generators") ||
+			    !strcmp(cur, "unreduced")) {
 				if (arg[0])
 					fail("homalg: \"%s\" takes no argument",
 					    cur);
 				if (cur[0] == 'c')
 					o->check = 1;
+				else if (cur[0] == 'u')
+					o->unreduced = 1;
 				else
 					o->gens = 1;
 			} else if (!strcmp(cur, "trace")) {
@@ -170,6 +173,80 @@ get_space(const char *text)
 	if (s == HNONE)
 		fail("homalg: \"%s\": %s", text, err ? err : "not a space");
 	return s;
+}
+
+/*
+ * The command's space and, unless "unreduced", its reduction: every
+ * complex below is the reduced one, and cocycles and cycles go back to
+ * the space's own cells through f^* and g.
+ */
+static hspace cur_s;
+static hred cur_red = HNONE;
+
+static hspace
+use_space(const struct hopt *o)
+{
+	cur_s = get_space(o->space);
+	cur_red = o->unreduced ? HNONE : hred_space(cur_s);
+	return cur_s;
+}
+
+static hcx
+cochains(void)
+{
+	return cur_red == HNONE ? hcx_cochains(cur_s) : hred_cochains(cur_red);
+}
+
+static hcx
+chains(void)
+{
+	return cur_red == HNONE ? hcx_chains(cur_s) : hred_chains(cur_red);
+}
+
+/* a (co)cycle of the complex in use, as a vector over the space's cells
+ * (y: hs_ncells(k) entries) */
+static void
+to_cells(int k, int coh, const zint *x, zint *y)
+{
+	uint32_t c, n = hs_ncells(cur_s, k);
+
+	if (cur_red == HNONE) {
+		for (c = 0; c < n; c++)
+			y[c] = x[c];
+	} else if (coh)
+		hred_cochain_back(cur_red, k, x, y);
+	else
+		hred_chain_back(cur_red, k, x, y);
+}
+
+static void
+print_reduced(void)
+{
+	int k, top = hs_top(cur_s);
+	struct sbuf a = {0}, b = {0};
+
+	if (cur_red == HNONE)
+		return;
+	rep_obj("reduced");
+	rep_list("cells_before");
+	for (k = 0; k <= top; k++) {
+		sb_printf(&a, "%s%u", k ? " " : "", (unsigned)hs_ncells(cur_s, k));
+		rep_int(NULL, hs_ncells(cur_s, k));
+	}
+	rep_end();
+	rep_list("cells_after");
+	for (k = 0; k <= top; k++) {
+		sb_printf(&b, "%s%u", k ? " " : "",
+		    (unsigned)hred_ncells(cur_red, k));
+		rep_int(NULL, hred_ncells(cur_red, k));
+	}
+	rep_end();
+	rep_end();
+	printf("  reduced: cells %s -> %s (unit pivots cancelled; f g = 1, "
+	    "1 - g f = dh + hd and both chain maps checked on every cell)\n",
+	    sb_str(&a), sb_str(&b));
+	free(a.p);
+	free(b.p);
 }
 
 /* ---- printing ---- */
@@ -266,6 +343,7 @@ print_checks(void)
 	int k;
 	struct sbuf b = {0};
 
+	print_reduced();
 	sb_puts(&b, "  check:");
 	for (k = 0; k < HK_NKIND; k++)
 		if (hal_checks[k]) {
@@ -370,15 +448,15 @@ ucheck(const struct fgab *X, const struct fgab *Y, const char *what, int n)
 static void
 cmd_homology(const struct hopt *o, int coh)
 {
-	hspace s = get_space(o->space);
+	hspace s = use_space(o);
 	int top = hs_top(s), n;
 	struct fgab G = {0}, *H, *HZ;
-	hcx cz = hcx_chains(s), c, cc;
+	hcx cz = chains(), c, cc;
 	char gname[64];
 
 	coeff_group(&G, o);
 	snprintf(gname, sizeof gname, "%s", ab_str(&G));
-	cc = coh ? hcx_cochains(s) : cz;
+	cc = coh ? cochains() : cz;
 	c = o->has_with ? hcx_tensor(cc, &G) : cc;
 	H = xcalloc((size_t)top + 2, sizeof *H);
 	HZ = xcalloc((size_t)top + 2, sizeof *HZ);
@@ -408,16 +486,19 @@ cmd_homology(const struct hopt *o, int coh)
 		if (o->gens && H[n].ninv > 0 && G.a <= 1) {
 			int k;
 			zint *x = xcalloc((size_t)H[n].n + 1, sizeof *x);
+			zint *y = xcalloc((size_t)hs_ncells(s, n) + 1, sizeof *y);
 			rep_list("generators");
 			for (k = 0; k < H[n].ninv; k++) {
 				sb_clear(&b);
 				ab_gen(&H[n], k, x);
-				chain_text(&b, s, n, x, H[n].n);
+				to_cells(n, coh, x, y);
+				chain_text(&b, s, n, y, (int)hs_ncells(s, n));
 				printf("    generator %d: %s\n", k + 1, sb_str(&b));
 				rep_str(NULL, sb_str(&b));
 			}
 			rep_end();
 			free(x);
+			free(y);
 		}
 		rep_end();
 		free(b.p);
@@ -485,8 +566,8 @@ cmd_homology(const struct hopt *o, int coh)
 static void
 cmd_les(const struct hopt *o)
 {
-	hspace s = get_space(o->space);
-	hcx c = hcx_cochains(s), cm;
+	hspace s = use_space(o);
+	hcx c = cochains(), cm;
 	struct fgab Zm = {0};
 	struct hles L;
 	hmap f, g;
@@ -571,7 +652,7 @@ rep_groups(const char *key, const struct hcouple *P, int D)
 static void
 bss_setup(struct hss *S, hspace *sp, const struct hopt *o)
 {
-	hspace s = get_space(o->space);
+	hspace s = use_space(o);
 	long long maxp = o->pages ? o->pages : 64;
 
 	if (!o->has_mod)
@@ -579,7 +660,7 @@ bss_setup(struct hss *S, hspace *sp, const struct hopt *o)
 	if (maxp < 1 || maxp > 1000)
 		fail("homalg: pages: 1..1000");
 	*sp = s;
-	hss_bockstein(S, hcx_cochains(s), z_from_i64(o->mod), (int)maxp);
+	hss_bockstein(S, cochains(), z_from_i64(o->mod), (int)maxp);
 }
 
 static void
@@ -783,7 +864,13 @@ cmd_trace(const struct hopt *o)
 		rep_obj(NULL);
 		rep_str("coordinates", sb_str(&b));
 		sb_clear(&b);
-		chain_text(&b, s, n, x, H->n);
+		{
+			zint *yc = xcalloc((size_t)hs_ncells(s, n) + 1,
+			    sizeof *yc);
+			to_cells(n, 1, x, yc);
+			chain_text(&b, s, n, yc, (int)hs_ncells(s, n));
+			free(yc);
+		}
 		printf("%s)\n", sb_str(&b));
 		rep_str("cocycle", sb_str(&b));
 		rep_list("pages");
@@ -921,6 +1008,7 @@ homalg_command(struct P *p)
 	parse_opts(&o, text);
 	notes_flush();
 	hal_checks_reset();
+	cur_red = HNONE;
 	/* the integers of this command die with it (the complexes and
 	 * couples it made are not used by later statements) */
 	m = z_mark();

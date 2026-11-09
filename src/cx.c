@@ -19,7 +19,8 @@ const char *const hal_check_name[HK_NKIND] = {
 	"d o d = 0", "d maps relations to relations", "chain map commutes with d",
 	"induced map well defined", "exact", "short exact (degree)",
 	"universal coefficients", "snake lemma lift",
-	"stable page: d = 0, next page equal"
+	"stable page: d = 0, next page equal",
+	"reduction: f g = 1, 1 - g f = dh + hd, chain maps"
 };
 
 void

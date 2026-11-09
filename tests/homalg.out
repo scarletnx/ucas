@@ -53,7 +53,8 @@ H^*(RP^4; Z)
   H^3 = 0
   H^4 = Z/2
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..4
-  check: d o d = 0 (6), universal coefficients (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (6), universal coefficients (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology RP^4
 H_*(RP^4; Z)
   H_0 = Z
@@ -62,7 +63,8 @@ H_*(RP^4; Z)
   H_3 = Z/2
   H_4 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..4
-  check: d o d = 0 (3), universal coefficients (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (3), universal coefficients (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology RP^4 with Z/2
 H^*(RP^4; Z/2)
   H^0 = Z/2
@@ -72,7 +74,8 @@ H^*(RP^4; Z/2)
   H^4 = Z/2
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..4
   universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..4
-  check: d o d = 0 (9), d maps relations to relations (4), universal coefficients (10)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (4), universal coefficients (10), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology RP^4 with Z/3
 H^*(RP^4; Z/3)
   H^0 = Z/3
@@ -82,7 +85,8 @@ H^*(RP^4; Z/3)
   H^4 = 0
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..4
   universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..4
-  check: d o d = 0 (9), d maps relations to relations (4), universal coefficients (10)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (4), universal coefficients (10), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology RP^5
 H^*(RP^5; Z)
   H^0 = Z
@@ -92,28 +96,32 @@ H^*(RP^5; Z)
   H^4 = Z/2
   H^5 = Z
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..5
-  check: d o d = 0 (8), universal coefficients (6)
+  reduced: cells 1 1 1 1 1 1 -> 1 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (8), universal coefficients (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology K
 H_*(K; Z)
   H_0 = Z
   H_1 = Z/2 + Z
   H_2 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology K_s
 H_*(K_s; Z)
   H_0 = Z
   H_1 = Z/2 + Z
   H_2 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 9 27 18 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology T^2_s
 H_*(T^2_s; Z)
   H_0 = Z
   H_1 = Z^2
   H_2 = Z
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 7 21 14 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology T^3
 H^*(T^3; Z)
   H^0 = Z
@@ -121,14 +129,16 @@ H^*(T^3; Z)
   H^2 = Z^3
   H^3 = Z
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..3
-  check: d o d = 0 (4), universal coefficients (4)
+  reduced: cells 1 3 3 1 -> 1 3 3 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (4), universal coefficients (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology RP^2_s
 H_*(RP^2_s; Z)
   H_0 = Z
   H_1 = Z/2
   H_2 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 6 15 10 -> 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology RP^3_s
 H_*(RP^3_s; Z)
   H_0 = Z
@@ -136,7 +146,8 @@ H_*(RP^3_s; Z)
   H_2 = 0
   H_3 = Z
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..3
-  check: d o d = 0 (2), universal coefficients (4)
+  reduced: cells 40 232 384 192 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (2), universal coefficients (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology S^4_s
 H_*(S^4_s; Z)
   H_0 = Z
@@ -145,7 +156,8 @@ H_*(S^4_s; Z)
   H_3 = 0
   H_4 = Z
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..4
-  check: d o d = 0 (3), universal coefficients (5)
+  reduced: cells 6 15 20 15 6 -> 1 0 0 0 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (3), universal coefficients (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology CP^2
 H^*(CP^2; Z)
   H^0 = Z
@@ -154,7 +166,8 @@ H^*(CP^2; Z)
   H^3 = 0
   H^4 = Z
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..4
-  check: d o d = 0 (6), universal coefficients (5)
+  reduced: cells 1 0 1 0 1 -> 1 0 1 0 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (6), universal coefficients (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology L(9)
 H^*(L(9,1); Z)
   H^0 = Z
@@ -162,7 +175,8 @@ H^*(L(9,1); Z)
   H^2 = Z/9
   H^3 = Z
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..3
-  check: d o d = 0 (4), universal coefficients (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (4), universal coefficients (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology L(9,2) with Z/3
 H^*(L(9,2); Z/3)
   H^0 = Z/3
@@ -171,7 +185,8 @@ H^*(L(9,2); Z/3)
   H^3 = Z/3
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..3
   universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..3
-  check: d o d = 0 (6), d maps relations to relations (3), universal coefficients (8)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (6), d maps relations to relations (3), universal coefficients (8), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology S^2 x RP^3
 H^*(S^2 x RP^3; Z)
   H^0 = Z
@@ -181,14 +196,16 @@ H^*(S^2 x RP^3; Z)
   H^4 = Z/2
   H^5 = Z
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..5
-  check: d o d = 0 (8), universal coefficients (6)
+  reduced: cells 1 1 2 2 1 1 -> 1 1 2 2 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (8), universal coefficients (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology RP^2 v S^1 v T^2
 H_*(RP^2 v S^1 v T^2; Z)
   H_0 = Z
   H_1 = Z/2 + Z^3
   H_2 = Z
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 1 4 2 -> 1 4 2 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology susp(RP^2)
 H_*(susp(RP^2); Z)
   H_0 = Z
@@ -196,7 +213,8 @@ H_*(susp(RP^2); Z)
   H_2 = Z/2
   H_3 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..3
-  check: d o d = 0 (2), universal coefficients (4)
+  reduced: cells 2 1 1 1 -> 1 0 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (2), universal coefficients (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology susp(susp(K))
 H_*(susp(susp(K)); Z)
   H_0 = Z
@@ -205,21 +223,24 @@ H_*(susp(susp(K)); Z)
   H_3 = Z/2 + Z
   H_4 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..4
-  check: d o d = 0 (3), universal coefficients (5)
+  reduced: cells 2 2 1 2 1 -> 1 0 0 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (3), universal coefficients (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology cells(1, 1, 1: [], [[3]])
 H_*(cells(...); Z)
   H_0 = Z
   H_1 = Z/3
   H_2 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 1 1 1 -> 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology facets([[0,1,2], [0,2,3], [3,4]])
 H_*(facets(...); Z)
   H_0 = Z
   H_1 = 0
   H_2 = 0
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 5 6 2 -> 1 0 0 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology K with Z/4 + Z
 H^*(K; Z/4 + Z)
   H^0 = Z/4 + Z
@@ -227,7 +248,8 @@ H^*(K; Z/4 + Z)
   H^2 = Z/2 + Z/2
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..2
   universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..2
-  check: d o d = 0 (3), d maps relations to relations (2), universal coefficients (6)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (3), d maps relations to relations (2), universal coefficients (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > cohomology K with Z/2 generators
 H^*(K; Z/2)
   H^0 = Z/2
@@ -239,18 +261,20 @@ H^*(K; Z/2)
     generator 1: e2
   universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..2
   universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..2
-  check: d o d = 0 (3), d maps relations to relations (2), universal coefficients (6)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (3), d maps relations to relations (2), universal coefficients (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > homology T^2_s generators
 H_*(T^2_s; Z)
   H_0 = Z
-    generator 1: [6]
+    generator 1: [3]
   H_1 = Z^2
-    generator 1: [2,5] - [2,6] + [5,6]
-    generator 2: [4,5] - [4,6] + [5,6]
+    generator 1: [1,3] - [1,4] - [2,3] + [2,4]
+    generator 2: [1,4] - [1,5] + [4,5]
   H_2 = Z
-    generator 1: [0,1,3] - [0,1,5] - [0,2,3] + [0,2,6] + [0,4,5] - [0,4,6] + [1,2,4] - [1,2,6] + ...
+    generator 1: -[0,1,3] + [0,1,5] + [0,2,3] - [0,2,6] - [0,4,5] + [0,4,6] - [1,2,4] + [1,2,6] + ...
   universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
-  check: d o d = 0 (1), universal coefficients (3)
+  reduced: cells 7 21 14 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (1), universal coefficients (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > les RP^2 mod 2
 long exact sequence of 0 -> C^*(RP^2) -2-> C^*(RP^2) -> C^*(RP^2; Z/2) -> 0
   H^0(Z) = Z -[[2]]-> H^0(Z) = Z -[[1]]-> H^0(Z/2) = Z/2 -delta 0->
@@ -258,7 +282,8 @@ long exact sequence of 0 -> C^*(RP^2) -2-> C^*(RP^2) -> C^*(RP^2; Z/2) -> 0
   H^2(Z) = Z/2 -0-> H^2(Z) = Z/2 -[[1]]-> H^2(Z/2) = Z/2 -delta 0->
   (maps in the groups' canonical generators; delta by the snake lemma: lift, apply d, divide by 2)
   exact at all 9 spots (0 -> H^0 ... H^2(Z/2) -> 0)
-  check: d o d = 0 (2), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (6), exact (9), short exact (degree) (3), snake lemma lift (2)
+  reduced: cells 1 1 1 -> 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (2), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (6), exact (9), short exact (degree) (3), snake lemma lift (2), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > les L(4) mod 2
 long exact sequence of 0 -> C^*(L(4,1)) -2-> C^*(L(4,1)) -> C^*(L(4,1); Z/2) -> 0
   H^0(Z) = Z -[[2]]-> H^0(Z) = Z -[[1]]-> H^0(Z/2) = Z/2 -delta 0->
@@ -267,7 +292,8 @@ long exact sequence of 0 -> C^*(L(4,1)) -2-> C^*(L(4,1)) -> C^*(L(4,1); Z/2) -> 
   H^3(Z) = Z -[[2]]-> H^3(Z) = Z -[[1]]-> H^3(Z/2) = Z/2 -delta 0->
   (maps in the groups' canonical generators; delta by the snake lemma: lift, apply d, divide by 2)
   exact at all 12 spots (0 -> H^0 ... H^3(Z/2) -> 0)
-  check: d o d = 0 (4), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (9), exact (12), short exact (degree) (4), snake lemma lift (3)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (4), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (9), exact (12), short exact (degree) (4), snake lemma lift (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > les K mod 4
 long exact sequence of 0 -> C^*(K) -4-> C^*(K) -> C^*(K; Z/4) -> 0
   H^0(Z) = Z -[[4]]-> H^0(Z) = Z -[[1]]-> H^0(Z/4) = Z/4 -delta 0->
@@ -275,7 +301,8 @@ long exact sequence of 0 -> C^*(K) -4-> C^*(K) -> C^*(K; Z/4) -> 0
   H^2(Z) = Z/2 -0-> H^2(Z) = Z/2 -[[1]]-> H^2(Z/4) = Z/2 -delta 0->
   (maps in the groups' canonical generators; delta by the snake lemma: lift, apply d, divide by 4)
   exact at all 9 spots (0 -> H^0 ... H^2(Z/4) -> 0)
-  check: d o d = 0 (2), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (8), exact (9), short exact (degree) (3), snake lemma lift (3)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (2), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (8), exact (9), short exact (degree) (3), snake lemma lift (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein RP^4 mod 2
 Bockstein spectral sequence of RP^4 at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(RP^4; Z), E_1 = H^*(RP^4; Z/2), i = 2, j = reduction, k = Bockstein)
@@ -287,7 +314,8 @@ Bockstein spectral sequence of RP^4 at p = 2
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (38), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (38), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein RP^5 mod 2
 Bockstein spectral sequence of RP^5 at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(RP^5; Z), E_1 = H^*(RP^5; Z/2), i = 2, j = reduction, k = Bockstein)
@@ -299,7 +327,8 @@ Bockstein spectral sequence of RP^5 at p = 2
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (49), exact (72), short exact (degree) (6), snake lemma lift (5), stable page: d = 0, next page equal (6)
+  reduced: cells 1 1 1 1 1 1 -> 1 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (49), exact (72), short exact (degree) (6), snake lemma lift (5), stable page: d = 0, next page equal (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein RP^2_s mod 2
 Bockstein spectral sequence of RP^2_s at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(RP^2_s; Z), E_1 = H^*(RP^2_s; Z/2), i = 2, j = reduction, k = Bockstein)
@@ -311,7 +340,8 @@ Bockstein spectral sequence of RP^2_s at p = 2
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (21), stable page: d = 0, next page equal (3)
+  reduced: cells 6 15 10 -> 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (24), exact (36), short exact (degree) (3), snake lemma lift (2), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein RP^4 mod 3
 Bockstein spectral sequence of RP^4 at p = 3
   (the exact couple of 0 -> C -3-> C -> C (x) Z/3 -> 0: D_1 = H^*(RP^4; Z), E_1 = H^*(RP^4; Z/3), i = 3, j = reduction, k = Bockstein)
@@ -320,7 +350,8 @@ Bockstein spectral sequence of RP^4 at p = 3
   d_1: 0
   stable from page 1: i_1 is injective in every degree, so k_1 = 0, d_r = 0 and E_r = E_1 for every r >= 1 (E_inf = E_1)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (19), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (24), exact (45), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (19), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (24), exact (45), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(9) mod 3
 Bockstein spectral sequence of L(9,1) at p = 3
   (the exact couple of 0 -> C -3-> C -> C (x) Z/3 -> 0: D_1 = H^*(L(9,1); Z), E_1 = H^*(L(9,1); Z/3), i = 3, j = reduction, k = Bockstein)
@@ -335,7 +366,8 @@ Bockstein spectral sequence of L(9,1) at p = 3
   d_3: 0
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(9) mod 2
 Bockstein spectral sequence of L(9,1) at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(L(9,1); Z), E_1 = H^*(L(9,1); Z/2), i = 2, j = reduction, k = Bockstein)
@@ -344,7 +376,8 @@ Bockstein spectral sequence of L(9,1) at p = 2
   d_1: 0
   stable from page 1: i_1 is injective in every degree, so k_1 = 0, d_r = 0 and E_r = E_1 for every r >= 1 (E_inf = E_1)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (14), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (22), exact (36), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (14), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (22), exact (36), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(8) mod 2
 Bockstein spectral sequence of L(8,1) at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(L(8,1); Z), E_1 = H^*(L(8,1); Z/2), i = 2, j = reduction, k = Bockstein)
@@ -362,7 +395,8 @@ Bockstein spectral sequence of L(8,1) at p = 2
   d_4: 0
   stable from page 4: i_4 is injective in every degree, so k_4 = 0, d_r = 0 and E_r = E_4 for every r >= 4 (E_inf = E_4)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (61), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (61), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(27) mod 3
 Bockstein spectral sequence of L(27,1) at p = 3
   (the exact couple of 0 -> C -3-> C -> C (x) Z/3 -> 0: D_1 = H^*(L(27,1); Z), E_1 = H^*(L(27,1); Z/3), i = 3, j = reduction, k = Bockstein)
@@ -380,7 +414,8 @@ Bockstein spectral sequence of L(27,1) at p = 3
   d_4: 0
   stable from page 4: i_4 is injective in every degree, so k_4 = 0, d_r = 0 and E_r = E_4 for every r >= 4 (E_inf = E_4)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (61), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (61), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(12) mod 2
 Bockstein spectral sequence of L(12,1) at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(L(12,1); Z), E_1 = H^*(L(12,1); Z/2), i = 2, j = reduction, k = Bockstein)
@@ -395,7 +430,8 @@ Bockstein spectral sequence of L(12,1) at p = 2
   d_3: 0
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein K mod 2
 Bockstein spectral sequence of K at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(K; Z), E_1 = H^*(K; Z/2), i = 2, j = reduction, k = Bockstein)
@@ -407,19 +443,21 @@ Bockstein spectral sequence of K at p = 2
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein K_s mod 2
 Bockstein spectral sequence of K_s at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(K_s; Z), E_1 = H^*(K_s; Z/2), i = 2, j = reduction, k = Bockstein)
   D_1 = Z, Z, Z/2   (degrees 0..2)
   E_1 = Z/2, Z/2 + Z/2, Z/2   (degrees 0..2)
-  d_1: E^1 -> E^2 [[0, 1]]
+  d_1: E^1 -> E^2 [[1, 0]]
   D_2 = Z, Z, 0   (degrees 0..2)
   E_2 = Z/2, Z/2, 0   (degrees 0..2)
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (36), stable page: d = 0, next page equal (3)
+  reduced: cells 9 27 18 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein S^2 x RP^3 mod 2
 Bockstein spectral sequence of S^2 x RP^3 at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(S^2 x RP^3; Z), E_1 = H^*(S^2 x RP^3; Z/2), i = 2, j = reduction, k = Bockstein)
@@ -431,7 +469,8 @@ Bockstein spectral sequence of S^2 x RP^3 at p = 2
   d_2: 0
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (57), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6)
+  reduced: cells 1 1 2 2 1 1 -> 1 1 2 2 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (57), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(4) x L(8) mod 2
 Bockstein spectral sequence of L(4,1) x L(8,1) at p = 2
   (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(L(4,1) x L(8,1); Z), E_1 = H^*(L(4,1) x L(8,1); Z/2), i = 2, j = reduction, k = Bockstein)
@@ -449,14 +488,16 @@ Bockstein spectral sequence of L(4,1) x L(8,1) at p = 2
   d_4: 0
   stable from page 4: i_4 is injective in every degree, so k_4 = 0, d_r = 0 and E_r = E_4 for every r >= 4 (E_inf = E_4)
   (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
-  check: d o d = 0 (68), d maps relations to relations (6), chain map commutes with d (14), induced map well defined (118), exact (126), short exact (degree) (7), snake lemma lift (15), stable page: d = 0, next page equal (7)
+  reduced: cells 1 2 3 4 3 2 1 -> 1 2 3 4 3 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (68), d maps relations to relations (6), chain map commutes with d (14), induced map well defined (118), exact (126), short exact (degree) (7), snake lemma lift (15), stable page: d = 0, next page equal (7), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein RP^4 mod 2 trace 2
 Bockstein spectral sequence of RP^4 at p = 2: tracing H^2(RP^4; Z) = Z/2
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
   a = [1] (canonical coordinates in Z/2; cocycle e2)
     r = 1: j_1(2^0 a) = [1] in E_1^2 = Z/2; in ker d_1, in im d_1^1: = d_1 [1]
     r = 2: j_2(2^1 a) = 0 in E_2^2 = 0; in ker d_2, zero (so in im d_2^1)
-  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (38), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (38), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(9) mod 3 trace 2
 Bockstein spectral sequence of L(9,1) at p = 3: tracing H^2(L(9,1); Z) = Z/9
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
@@ -464,7 +505,8 @@ Bockstein spectral sequence of L(9,1) at p = 3: tracing H^2(L(9,1); Z) = Z/9
     r = 1: j_1(3^0 a) = [1] in E_1^2 = Z/3; in ker d_1, not in im d_1^1
     r = 2: j_2(3^1 a) = [1] in E_2^2 = Z/3; in ker d_2, in im d_2^1: = d_2 [1]
     r = 3: j_3(3^2 a) = 0 in E_3^2 = 0; in ker d_3, zero (so in im d_3^1)
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(9) mod 3 trace 3
 Bockstein spectral sequence of L(9,1) at p = 3: tracing H^3(L(9,1); Z) = Z
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
@@ -472,20 +514,23 @@ Bockstein spectral sequence of L(9,1) at p = 3: tracing H^3(L(9,1); Z) = Z
     r = 1: j_1(3^0 a) = [1] in E_1^3 = Z/3; in ker d_1, not in im d_1^2
     r = 2: j_2(3^1 a) = [1] in E_2^3 = Z/3; in ker d_2, not in im d_2^2
     r = 3: j_3(3^2 a) = [1] in E_3^3 = Z/3; in ker d_3, not in im d_3^2
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein L(9) mod 3 trace 0 [1] page 5
 Bockstein spectral sequence of L(9,1) at p = 3: tracing H^0(L(9,1); Z) = Z
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
   a = [1] (canonical coordinates in Z; cocycle e0)
     r = 5: j_5(3^4 a) = [1] in E_5^0 = Z/3; in ker d_5, not in im d_5^-1
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (48), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein T^2 mod 2 trace 1 [1, 1]
 Bockstein spectral sequence of T^2 at p = 2: tracing H^1(T^2; Z) = Z^2
   stable from page 1: i_1 is injective in every degree, so k_1 = 0, d_r = 0 and E_r = E_1 for every r >= 1 (E_inf = E_1)
   a = [1, 1] (canonical coordinates in Z^2; cocycle e1.1 + e1.2)
     r = 1: j_1(2^0 a) = [1, 1] in E_1^1 = Z/2 + Z/2; in ker d_1, not in im d_1^0
     r = 2: j_2(2^1 a) = [1, 1] in E_2^1 = Z/2 + Z/2; in ker d_2, not in im d_2^0
-  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (20), exact (27), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (20), exact (27), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein S^2 x RP^3 mod 2 trace 2
 Bockstein spectral sequence of S^2 x RP^3 at p = 2: tracing H^2(S^2 x RP^3; Z) = Z/2 + Z
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
@@ -495,7 +540,8 @@ Bockstein spectral sequence of S^2 x RP^3 at p = 2: tracing H^2(S^2 x RP^3; Z) =
   a = [0, 1] (canonical coordinates in Z/2 + Z; cocycle e2.2)
     r = 1: j_1(2^0 a) = [0, 1] in E_1^2 = Z/2 + Z/2; in ker d_1, not in im d_1^1
     r = 2: j_2(2^1 a) = [1] in E_2^2 = Z/2; in ker d_2, not in im d_2^1
-  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (57), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6)
+  reduced: cells 1 1 2 2 1 1 -> 1 1 2 2 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (57), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 T^2 mod 2
 Proposition 0.1 on T^2 at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 1: i_1 is injective in every degree, so k_1 = 0, d_r = 0 and E_r = E_1 for every r >= 1 (E_inf = E_1)
@@ -508,7 +554,8 @@ Proposition 0.1 on T^2 at p = 2: if a in H^n(X; Z) generates a Z summand, then a
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 1: page 1 is stable (i_1 injective: k = 0, and i_1 is an isomorphism of exact couples onto page 2 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 1
   holds for every n and every r >= 1
-  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (23), exact (27), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3)
+  reduced: cells 1 2 1 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (23), exact (27), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 S^2 x RP^3 mod 2
 Proposition 0.1 on S^2 x RP^3 at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
@@ -533,7 +580,8 @@ Proposition 0.1 on S^2 x RP^3 at p = 2: if a in H^n(X; Z) generates a Z summand,
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
   holds for every n and every r >= 1
-  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (67), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6)
+  reduced: cells 1 1 2 2 1 1 -> 1 1 2 2 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (5), chain map commutes with d (12), induced map well defined (67), exact (72), short exact (degree) (6), snake lemma lift (7), stable page: d = 0, next page equal (6), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 L(9) mod 3
 Proposition 0.1 on L(9,1) at p = 3: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
@@ -556,7 +604,8 @@ Proposition 0.1 on L(9,1) at p = 3: if a in H^n(X; Z) generates a Z summand, the
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 3: page 3 is stable (i_3 injective: k = 0, and i_3 is an isomorphism of exact couples onto page 4 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 3
   holds for every n and every r >= 1
-  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (57), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (57), exact (60), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 L(27) mod 3
 Proposition 0.1 on L(27,1) at p = 3: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 4: i_4 is injective in every degree, so k_4 = 0, d_r = 0 and E_r = E_4 for every r >= 4 (E_inf = E_4)
@@ -583,7 +632,8 @@ Proposition 0.1 on L(27,1) at p = 3: if a in H^n(X; Z) generates a Z summand, th
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 4: page 4 is stable (i_4 injective: k = 0, and i_4 is an isomorphism of exact couples onto page 5 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 4
   holds for every n and every r >= 1
-  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (73), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4)
+  reduced: cells 1 1 1 1 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (35), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (73), exact (72), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 RP^4 mod 2
 Proposition 0.1 on RP^4 at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
@@ -605,7 +655,8 @@ Proposition 0.1 on RP^4 at p = 2: if a in H^n(X; Z) generates a Z summand, then 
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
   holds for every n and every r >= 1
-  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (44), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5)
+  reduced: cells 1 1 1 1 1 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (44), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 K_s mod 2
 Proposition 0.1 on K_s at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
@@ -621,7 +672,8 @@ Proposition 0.1 on K_s at p = 2: if a in H^n(X; Z) generates a Z summand, then a
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
   holds for every n and every r >= 1
-  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (38), exact (36), short exact (degree) (3), snake lemma lift (36), stable page: d = 0, next page equal (3)
+  reduced: cells 9 27 18 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (38), exact (36), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > prop01 L(4) x L(8) mod 2
 Proposition 0.1 on L(4,1) x L(8,1) at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 4: i_4 is injective in every degree, so k_4 = 0, d_r = 0 and E_r = E_4 for every r >= 4 (E_inf = E_4)
@@ -663,7 +715,8 @@ Proposition 0.1 on L(4,1) x L(8,1) at p = 2: if a in H^n(X; Z) generates a Z sum
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 4: page 4 is stable (i_4 injective: k = 0, and i_4 is an isomorphism of exact couples onto page 5 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 4
   holds for every n and every r >= 1
-  check: d o d = 0 (68), d maps relations to relations (6), chain map commutes with d (14), induced map well defined (142), exact (126), short exact (degree) (7), snake lemma lift (15), stable page: d = 0, next page equal (7)
+  reduced: cells 1 2 3 4 3 2 1 -> 1 2 3 4 3 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (68), d maps relations to relations (6), chain map commutes with d (14), induced map well defined (142), exact (126), short exact (degree) (7), snake lemma lift (15), stable page: d = 0, next page equal (7), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
 > bockstein T^2_s mod 3 check
 Proposition 0.1 on T^2_s at p = 3: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
   stable from page 1: i_1 is injective in every degree, so k_1 = 0, d_r = 0 and E_r = E_1 for every r >= 1 (E_inf = E_1)
@@ -676,34 +729,162 @@ Proposition 0.1 on T^2_s at p = 3: if a in H^n(X; Z) generates a Z summand, then
   why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
   r > 1: page 1 is stable (i_1 injective: k = 0, and i_1 is an isomorphism of exact couples onto page 2 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 1
   holds for every n and every r >= 1
-  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (23), exact (27), short exact (degree) (3), snake lemma lift (28), stable page: d = 0, next page equal (3)
+  reduced: cells 7 21 14 -> 1 2 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (23), exact (27), short exact (degree) (3), snake lemma lift (3), stable page: d = 0, next page equal (3), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> bockstein RP^3_s mod 2
+Bockstein spectral sequence of RP^3_s at p = 2
+  (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(RP^3_s; Z), E_1 = H^*(RP^3_s; Z/2), i = 2, j = reduction, k = Bockstein)
+  D_1 = Z, 0, Z/2, Z   (degrees 0..3)
+  E_1 = Z/2, Z/2, Z/2, Z/2   (degrees 0..3)
+  d_1: E^1 -> E^2 [[1]]
+  D_2 = Z, 0, 0, Z   (degrees 0..3)
+  E_2 = Z/2, 0, 0, Z/2   (degrees 0..3)
+  d_2: 0
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
+  reduced: cells 40 232 384 192 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (21), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (35), exact (48), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> prop01 RP^3_s mod 2
+Proposition 0.1 on RP^3_s at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  n = 0: H^0 = Z
+    r = 1: d_1 j_1 2^0 = 0 on H^0 [ok]; ker(H^0 -> E_1^0 / im d_1) has content 2 != 1 [ok]
+    r = 2: d_2 j_2 2^1 = 0 on H^0 [ok]; ker(H^0 -> E_2^0 / im d_2) has content 2 != 1 [ok]
+  n = 1: H^1 = 0 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^1 [ok]; ker(H^1 -> E_1^1 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^1 [ok]; ker(H^1 -> E_2^1 / im d_2) has content 0 [vacuous]
+  n = 2: H^2 = Z/2 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^2 [ok]; ker(H^2 -> E_1^2 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^2 [ok]; ker(H^2 -> E_2^2 / im d_2) has content 0 [vacuous]
+  n = 3: H^3 = Z
+    r = 1: d_1 j_1 2^0 = 0 on H^3 [ok]; ker(H^3 -> E_1^3 / im d_1) has content 2 != 1 [ok]
+    r = 2: d_2 j_2 2^1 = 0 on H^3 [ok]; ker(H^3 -> E_2^3 / im d_2) has content 2 != 1 [ok]
+  why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
+  r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
+  holds for every n and every r >= 1
+  reduced: cells 40 232 384 192 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (21), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (41), exact (48), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> bockstein RP^4_s mod 2
+Bockstein spectral sequence of RP^4_s at p = 2
+  (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(RP^4_s; Z), E_1 = H^*(RP^4_s; Z/2), i = 2, j = reduction, k = Bockstein)
+  D_1 = Z, 0, Z/2, 0, Z/2   (degrees 0..4)
+  E_1 = Z/2, Z/2, Z/2, Z/2, Z/2   (degrees 0..4)
+  d_1: E^1 -> E^2 [[1]], E^3 -> E^4 [[1]]
+  D_2 = Z, 0, 0, 0, 0   (degrees 0..4)
+  E_2 = Z/2, 0, 0, 0, 0   (degrees 0..4)
+  d_2: 0
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
+  reduced: cells 121 1320 4080 4800 1920 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (38), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> prop01 RP^4_s mod 2
+Proposition 0.1 on RP^4_s at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  n = 0: H^0 = Z
+    r = 1: d_1 j_1 2^0 = 0 on H^0 [ok]; ker(H^0 -> E_1^0 / im d_1) has content 2 != 1 [ok]
+    r = 2: d_2 j_2 2^1 = 0 on H^0 [ok]; ker(H^0 -> E_2^0 / im d_2) has content 2 != 1 [ok]
+  n = 1: H^1 = 0 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^1 [ok]; ker(H^1 -> E_1^1 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^1 [ok]; ker(H^1 -> E_2^1 / im d_2) has content 0 [vacuous]
+  n = 2: H^2 = Z/2 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^2 [ok]; ker(H^2 -> E_1^2 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^2 [ok]; ker(H^2 -> E_2^2 / im d_2) has content 0 [vacuous]
+  n = 3: H^3 = 0 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^3 [ok]; ker(H^3 -> E_1^3 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^3 [ok]; ker(H^3 -> E_2^3 / im d_2) has content 0 [vacuous]
+  n = 4: H^4 = Z/2 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^4 [ok]; ker(H^4 -> E_1^4 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^4 [ok]; ker(H^4 -> E_2^4 / im d_2) has content 0 [vacuous]
+  why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
+  r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
+  holds for every n and every r >= 1
+  reduced: cells 121 1320 4080 4800 1920 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (28), d maps relations to relations (4), chain map commutes with d (10), induced map well defined (44), exact (60), short exact (degree) (5), snake lemma lift (4), stable page: d = 0, next page equal (5), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> bockstein RP^3_s mod 2 trace 3
+Bockstein spectral sequence of RP^3_s at p = 2: tracing H^3(RP^3_s; Z) = Z
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  a = [1] (canonical coordinates in Z; cocycle [67,76,79,80])
+    r = 1: j_1(2^0 a) = [1] in E_1^3 = Z/2; in ker d_1, not in im d_1^2
+    r = 2: j_2(2^1 a) = [1] in E_2^3 = Z/2; in ker d_2, not in im d_2^2
+  reduced: cells 40 232 384 192 -> 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (21), d maps relations to relations (3), chain map commutes with d (8), induced map well defined (35), exact (48), short exact (degree) (4), snake lemma lift (3), stable page: d = 0, next page equal (4), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> cohomology RP^4_s with Z/2
+H^*(RP^4_s; Z/2)
+  H^0 = Z/2
+  H^1 = Z/2
+  H^2 = Z/2
+  H^3 = Z/2
+  H^4 = Z/2
+  universal coefficients: H^n(X; G) = Hom(H_n X, G) + Ext(H_{n-1} X, G) for n = 0..4
+  universal coefficients: H^n(X; G) = H^n(X) (x) G + Tor(H^{n+1}(X), G) for n = 0..4
+  reduced: cells 121 1320 4080 4800 1920 -> 1 1 1 1 1 (unit pivots cancelled; f g = 1, 1 - g f = dh + hd and both chain maps checked on every cell)
+  check: d o d = 0 (9), d maps relations to relations (4), universal coefficients (10), reduction: f g = 1, 1 - g f = dh + hd, chain maps (1)
+> homology T^2_s unreduced generators
+H_*(T^2_s; Z)
+  H_0 = Z
+    generator 1: [6]
+  H_1 = Z^2
+    generator 1: [2,5] - [2,6] + [5,6]
+    generator 2: [4,5] - [4,6] + [5,6]
+  H_2 = Z
+    generator 1: [0,1,3] - [0,1,5] - [0,2,3] + [0,2,6] + [0,4,5] - [0,4,6] + [1,2,4] - [1,2,6] + ...
+  universal coefficients: H_n(X; G) = H_n X (x) G + Tor(H_{n-1} X, G) for n = 0..2
+  check: d o d = 0 (1), universal coefficients (3)
+> bockstein K_s mod 2 unreduced
+Bockstein spectral sequence of K_s at p = 2
+  (the exact couple of 0 -> C -2-> C -> C (x) Z/2 -> 0: D_1 = H^*(K_s; Z), E_1 = H^*(K_s; Z/2), i = 2, j = reduction, k = Bockstein)
+  D_1 = Z, Z, Z/2   (degrees 0..2)
+  E_1 = Z/2, Z/2 + Z/2, Z/2   (degrees 0..2)
+  d_1: E^1 -> E^2 [[0, 1]]
+  D_2 = Z, Z, 0   (degrees 0..2)
+  E_2 = Z/2, Z/2, 0   (degrees 0..2)
+  d_2: 0
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  (d_r in the canonical generators of E_r^n; every page derived exactly: D' = i D, E' = ker d / im d, i' j' k' checked well defined, each couple checked exact)
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (32), exact (36), short exact (degree) (3), snake lemma lift (36), stable page: d = 0, next page equal (3)
+> prop01 RP^2_s mod 2 unreduced
+Proposition 0.1 on RP^2_s at p = 2: if a in H^n(X; Z) generates a Z summand, then abar = j_r(p^(r-1) a) is in ker d_r^n and not in im d_r^(n-1), for every r >= 1
+  stable from page 2: i_2 is injective in every degree, so k_2 = 0, d_r = 0 and E_r = E_2 for every r >= 2 (E_inf = E_2)
+  n = 0: H^0 = Z
+    r = 1: d_1 j_1 2^0 = 0 on H^0 [ok]; ker(H^0 -> E_1^0 / im d_1) has content 2 != 1 [ok]
+    r = 2: d_2 j_2 2^1 = 0 on H^0 [ok]; ker(H^0 -> E_2^0 / im d_2) has content 2 != 1 [ok]
+  n = 1: H^1 = 0 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^1 [ok]; ker(H^1 -> E_1^1 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^1 [ok]; ker(H^1 -> E_2^1 / im d_2) has content 0 [vacuous]
+  n = 2: H^2 = Z/2 (no Z summand: nothing to prove; checked anyway)
+    r = 1: d_1 j_1 2^0 = 0 on H^2 [ok]; ker(H^2 -> E_1^2 / im d_1) has content 0 [vacuous]
+    r = 2: d_2 j_2 2^1 = 0 on H^2 [ok]; ker(H^2 -> E_2^2 / im d_2) has content 0 [vacuous]
+  why this is complete: a generates a Z summand of H iff its class in H/T(H) is primitive; psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1) vanishes iff a is in K = ker psi_r, and the image of K in the free group H/T(H) contains a primitive vector iff the gcd of its coordinates (the content) is 1
+  r > 2: page 2 is stable (i_2 injective: k = 0, and i_2 is an isomorphism of exact couples onto page 3 with j_(r+1)(p^r a) = j_r(p^(r-1) a)), so every later page and every abar is the one at r = 2
+  holds for every n and every r >= 1
+  check: d o d = 0 (14), d maps relations to relations (2), chain map commutes with d (6), induced map well defined (38), exact (36), short exact (degree) (3), snake lemma lift (21), stable page: d = 0, next page equal (3)
 > homology foo
-homalg.ucas:82:10: error: homalg: "foo": a space: S^n, T^n, RP^n, CP^n, K, L(m,q), pt, susp(X), X x Y, X v Y
+homalg.ucas:96:10: error: homalg: "foo": a space: S^n, T^n, RP^n, CP^n, K, L(m,q), pt, susp(X), X x Y, X v Y
     homology foo
              ^
 > bockstein RP^4 mod 4
-homalg.ucas:83:11: error: homalg: the Bockstein spectral sequence needs a prime, not 4
+homalg.ucas:97:11: error: homalg: the Bockstein spectral sequence needs a prime, not 4
     bockstein RP^4 mod 4
               ^
 > bockstein RP^4
-homalg.ucas:84:11: error: homalg: bockstein X mod p
+homalg.ucas:98:11: error: homalg: bockstein X mod p
     bockstein RP^4
               ^
 > les RP^2 mod 1
-homalg.ucas:85:5: error: homalg: les X mod m (m >= 2)
+homalg.ucas:99:5: error: homalg: les X mod m (m >= 2)
     les RP^2 mod 1
         ^
 > bockstein L(9) mod 3 trace 3 [1, 2]
 Bockstein spectral sequence of L(9,1) at p = 3: tracing H^3(L(9,1); Z) = Z
   stable from page 3: i_3 is injective in every degree, so k_3 = 0, d_r = 0 and E_r = E_3 for every r >= 3 (E_inf = E_3)
-homalg.ucas:86:11: error: homalg: the element needs 1 coordinates
+homalg.ucas:100:11: error: homalg: the element needs 1 coordinates
     bockstein L(9) mod 3 trace 3 [1, 2]
               ^
 > homology cells([[1]], [[1]])
-homalg.ucas:87:10: error: homalg: cells(...): d1 d2 != 0 (cell 0 of dimension 2)
+homalg.ucas:101:10: error: homalg: cells(...): d1 d2 != 0 (cell 0 of dimension 2)
     homology cells([[1]], [[1]])
              ^
 > homology facets([[0, 0, 1]])
-homalg.ucas:88:10: error: homalg: facet 0 repeats vertex 0
+homalg.ucas:102:10: error: homalg: facet 0 repeats vertex 0
     homology facets([[0, 0, 1]])
              ^

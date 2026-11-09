@@ -1809,7 +1809,7 @@ is printed (the `check:` line counts each kind; JSON `checks`).
 
 | command | what | checked |
 |---------|------|---------|
-| `space X` | cells per dimension, Euler characteristic, small boundaries | d o d = 0 |
+| `space X` | cells per dimension, Euler characteristic, small boundaries (not reduced) | d o d = 0 |
 | `homology X [with G] [generators]` | H_n(X; G), G any f.g. abelian group (`Z/2`, `Z/4 + Z`) | universal coefficients: H_n(X; G) = H_n (x) G + Tor(H_{n-1}, G) |
 | `cohomology X [with G] [generators]` | H^n(X; G) = H^n(Hom(C_*, Z) (x) G) | both UCTs: Hom(H_n, G) + Ext(H_{n-1}, G), and H^n (x) G + Tor(H^{n+1}, G) |
 | `les X mod m` | the long exact sequence of 0 -> C^* -m-> C^* -> C^* (x) Z/m -> 0, maps in canonical generators | short exactness per degree, each snake-lemma lift solved and verified, exactness at every spot (with 0 at both ends) |
@@ -1856,12 +1856,36 @@ short exact sequence of complexes to its long exact sequence;
 its derived couple, `hc_stable`; `struct hss` the pages of a spectral
 sequence, `hss_bockstein`, `hss_trace`, `hss_prop01`.
 
-Limits: the dense core makes big simplicial complexes slow (homology of
-the 192-tetrahedron `RP^3_s` takes 2 s, with Z/2 coefficients 16 s, and
-its Bockstein sequence did not finish in 10 minutes: every group keeps the
-full cochain ambient Z^g); there is no reduction to a small homotopy-equivalent complex
-yet, no cup products (so no Sq^1 = d_1 identification beyond the
-numbers), and only cellular models for lens spaces and CP^n.
+**Reduction first.**  Every command except `space` works on a reduced
+complex: each boundary entry +-1 cancels its pair of cells (an elementary
+collapse; algebraic Morse theory), sparsely, until none is left, keeping
+the chain homotopy equivalence g: C' -> C, f: C -> C', h with f g = 1 and
+1 - g f = d h + h d.  All four identities (f and g chain maps, f g = 1,
+the homotopy) are checked on every cell of the original complex before
+anything is computed, and the output says `reduced: cells 40 232 384 192
+-> 1 1 1 1`.  So H^*(C') is H^*(X) with f^*, g^* inverse to each other,
+and cocycles and cycles are printed back on the space's own cells (f^*
+for cochains, g for chains: `generators`, the cocycle of a trace).  The
+Bockstein sequence 0 -> C' -p-> C' -> C' (x) Z/p -> 0 is built on the
+reduced cochain complex, which is still free of finite type: the
+statement of Proposition 0.1 is about H^*(X; Z) and H^*(X; Z/p), which
+the checked equivalence identifies with those of C' (and, since f is a
+chain map of free complexes, with the whole exact couple: the couple is
+natural).  `unreduced` (JSON `"unreduced": true`) uses the space's own
+cells.
+
+| (FreeBSD, -O2) | unreduced | reduced |
+|---|---|---|
+| `homology RP^3_s` (40 232 384 192 cells) | 2.0 s | < 0.01 s |
+| `cohomology RP^3_s with Z/2` | 16.6 s | < 0.01 s |
+| `bockstein RP^3_s mod 2`, `prop01 RP^3_s mod 2` | > 10 min (stopped) | < 0.01 s each |
+| `bockstein`, `prop01`, `cohomology` of `RP^4_s` (121 1320 4080 4800 1920 cells) | not tried | 0.8 s for the three |
+| `tests/homalg.ucas` (about 70 statements) | | 1 s |
+
+Limits: the reduction cancels unit pivots only, so a complex whose
+remaining boundaries have no +-1 entry (RP^n's cellular 2s) stays as it
+is (they are small); no cup products (so no Sq^1 = d_1 identification
+beyond the numbers); only cellular models for lens spaces and CP^n.
 
 ## Design
 
