@@ -342,7 +342,12 @@ What it does, in order:
   `e*ln2 + m*P(m)`; sqrt and 1/sqrt by halving the exponent, with a
   polynomial or a short polynomial seed and one Newton step, and the
   bit-hack seed with one or two Newton steps; atan of |x| > 1 as
-  `pi/2 - atan(1/|x|)` with `copysign`.
+  `pi/2 - atan(1/|x|)` with `copysign`; cosh as `(e + 1/e)/2` with `e =
+  exp(|x|)`, sinh and tanh as an odd polynomial below a cut and `(e -
+  1/e)/2`, `1 - 2/(exp(2|x|) + 1)` above it.  asin acos atan2 asinh
+  acosh atanh (and sinh cosh tanh) are fitted like any builtin: the long
+  double reference, Taylor jets (so `cheb econ` and Padé) and the
+  symmetry check know them.
 
 Errors are measured on a sample of the format's values in the interval
 (half evenly spaced in value, half evenly spaced in bit pattern, plus
@@ -426,7 +431,12 @@ behind it.  English only; the translator is a hand-written parser
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
   Number words, `90deg`, `90 degrees`, `90°` (angles, converted to
-  radians), `1.5r`/`rad`.  Greek letter names (`theta`, `alpha`, or
+  radians), `1.5r`/`rad`.  Primes after a name are ucas notation and
+  pass through: `what is f'(3)`, `f''`, `the slope field of y' = t -
+  y`, `solve y' = -2y + 1 with y(0) = 3` (defines the ODE and its
+  initial values, then `dsolve`; also systems, `x' = y and y' = -x`);
+  contractions (`what's`, `f's`) are words.  A comma before a sign
+  starts a new item: `(y, -x)`, `at (1, -2)`.  Greek letter names (`theta`, `alpha`, or
   `θ`) are variables; one or two letters are variables; `it`/`its`
   refer to the last function.
 - **Variables**: `for a signed byte x`, `where x is between 1 and 12`,
@@ -759,7 +769,7 @@ samples, poles, jumps, undefined stretches), so the text is a test.
 | `plot (x(t), y(t))`, `plot r = f(theta)`, `plot polar f` | parametric and polar curves (t in [0, 2pi] by default; a polar curve runs until it closes) |
 | `plot (x(t), y(t), z(t))` | a space curve in a box, coloured along t |
 | `plot (P, Q)` | a vector field: arrows coloured by length |
-| `plot y' = f(t, y)`, `plot y` (a defined ODE), `plot F field` | a slope field with nine RK4 solutions; through the initial value `y(0) = ...` when the ODE has one |
+| `plot y' = f(t, y)`, `plot y` (a defined ODE), `plot F field` | a slope field with nine RK4 solutions; through the initial value `y(0) = ...` when the ODE has one or the plot says `with y(0) = 1` |
 | `plot F` of two variables, `plot3d F` | a surface: a z-buffered, shaded and height-coloured 65x65 grid with grid lines, back panes, labelled axes and a colour bar.  `contour`, `heatmap`, `wireframe` are the other views; `rotate` turns it once (36 frames) |
 | three or more variables | one is animated (`t` if there is one, else the third), x and y form a heat map (`3d`/`plot3d`: a surface); with four, small multiples (3x3) over a third and frames over the fourth; the rest are fixed at the middle of their range, with a note.  `slices`: small multiples instead of frames; `parallel`: parallel coordinates of 400 random points |
 | `plot F animate t` | frames over t of whatever the other variables make |
@@ -777,7 +787,13 @@ animation); else the zeros, extrema and inflection points
 [-10, 10] (else [-100, 100]), with a margin, not past a domain edge, the
 eight nearest 0 when there are many, rounded to a twentieth of the
 span.  With several variables each is sliced at a few values of the
-others.  `neighbourhood F` (also `plot F around a`, `at a`) prints the
+others, and a range from the features is widened to another variable's
+when f is symmetric in the two up to sign (checked at 32 points: `x^2 -
+y^2` gets a square) or when both are around 0 with spans within 1.5x
+(the features do not set them apart).  Integer inputs (and integer
+values) get integer ticks.  A log axis whose range reaches 0 starts two
+decades below the first positive zero or extremum (sampled on a log
+grid), else three decades below the top decade.  `neighbourhood F` (also `plot F around a`, `at a`) prints the
 features it found; `at a` takes a window reaching the nearest feature
 on each side, or the radius of curvature when there is none.
 
@@ -787,7 +803,8 @@ neighbourhood`, `plot F near its interesting part`, `what does F look
 like`, `and|with its derivative`, `and its tangent at 2`, `in 3d`, `as a
 heatmap`, `rotating`, `animated over t`, `as t goes from 0 to 1`, `on a
 log scale` (y, with a note), `log-log`, `in polar coordinates`, `the
-slope field of ...`, `the vector field (P, Q)`, `as small multiples`,
+slope field of ...` (or `the direction field y' = ...`, `... with y(0) = 1`),
+`the vector field (P, Q)`, `(P, Q) as arrows`, `as small multiples`,
 `in parallel coordinates`, `at 30 fps`, `save it as NAME`.
 
 ## Discord bot (optional)

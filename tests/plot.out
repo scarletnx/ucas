@@ -33,15 +33,15 @@ plot of isqrt(x)
   x in [0, 255]: every u8 value
   y in [-0.75, 15.75]: the values
   isqrt(x): 256 integer inputs (steps), values in [0, 15]
-  image: 640x440, 6896 bytes
-  (nofile: GIF checksum aa11e0b5)
+  image: 640x440, 6732 bytes
+  (nofile: GIF checksum 7b18db94)
 > plot x % 7 x in -10..10 nofile
 plot of x % 7
   x in [-10, 10]: given
   y in [-6.6, 6.6]: the values
   x % 7: 21 points, values in [-6, 6]
-  image: 640x440, 7496 bytes
-  (nofile: GIF checksum 2a3d8ead)
+  image: 640x440, 8159 bytes
+  (nofile: GIF checksum 4bb77e9a)
 > plot sin x x in 0..2pi deriv tangent 1 nofile
 plot of 3 functions
   x in [0, 6.283 (2pi)]: given
@@ -130,10 +130,10 @@ surface: z = f(x, y)
 > plot x^2 - y^2 + x*y contour nofile
 contour plot: z = f(x, y)
   x in [-5, 5]: covering the 3 features found in [-10, 10]
-  y in [-4, 4]: covering the 3 features found in [-10, 10]
-  z in [-22.56, 33.81]: the values
-  image: 640x500, 35752 bytes
-  (nofile: GIF checksum e997d298)
+  y in [-5, 5]: covering the 3 features found in [-10, 10]; as for x (alike: the features do not set them apart)
+  z in [-34.38, 34.38]: the values
+  image: 640x500, 34196 bytes
+  (nofile: GIF checksum 198f48dc)
 > plot sin(x)*cos(y) heatmap nofile
   ucas: plot sin(x)*cos(y) heatmap nofile
 heat map: z = f(x, y)
@@ -153,12 +153,12 @@ wireframe surface: z = f(x, y)
 > plot3d x^2 - y^2 rotate frames 12 nofile
 surface: z = f(x, y)
   x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
-  y in [-3, 3]: covering the 3 features found in [-10, 10]
-  z in [-10.06, 13.31]: the values
+  y in [-3.5, 3.5]: covering the 3 features found in [-10, 10]; as for x (f(y, x) = ±f(x, y))
+  z in [-13.47, 13.47]: the values
   rotating once around the vertical axis
   65x65 grid
-  animation: 560x440, 12 frames at 12 fps (1.0 s), 247793 bytes
-  (nofile: GIF checksum fdbdb6a7)
+  animation: 560x440, 12 frames at 12 fps (1.0 s), 244225 bytes
+  (nofile: GIF checksum e7c7e96f)
 > plot (cos(t), sin(t), t/5) t in 0..4pi nofile
 space curve:
   t in [0, 12.57 (4pi)]: given
@@ -188,14 +188,14 @@ sin(x - t)*cos(y) of 3 variables: a heat map over x, y; frames over t
   (nofile: GIF checksum 4e1ca507)
 > plot x*y + z*w - z frames 4 nofile
 x*y + z*w - z of 4 variables: a heat map over x, y; small multiples over z; frames over w
-  x in [-3.8, 3.8]: covering the 1 feature found in [-10, 10]
+  x in [-4.4, 4.4]: covering the 1 feature found in [-10, 10]; as for y (f(x, y) = ±f(y, x))
   y in [-4.4, 4.4]: covering the 1 feature found in [-10, 10]
-  z in [-3.6, 3.6]: covering the 1 feature found in [-10, 10]
+  z in [-4.4, 4.4]: covering the 1 feature found in [-10, 10]; as for y (alike: the features do not set them apart)
   w in [-6.8, 6.8]: covering the 1 feature found in [-10, 10]
-  f in [-49.28, 49.28]: the values
+  f in [-59.05, 59.05]: the values
   frames over w in [-6.8, 6.8]
-  animation: 780x640, 4 frames at 8 fps (0.5 s), 87549 bytes
-  (nofile: GIF checksum 7e11fe94)
+  animation: 780x640, 4 frames at 8 fps (0.5 s), 86199 bytes
+  (nofile: GIF checksum d59cafc4)
 > plot sin(x + y + z) slices nofile
 sin(x + y + z) of 3 variables: a heat map over x, y; small multiples over z
   x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
@@ -206,12 +206,12 @@ sin(x + y + z) of 3 variables: a heat map over x, y; small multiples over z
   (nofile: GIF checksum 72984ae9)
 > plot x*y + z parallel nofile
 parallel coordinates: x*y + z
-  x in [-3.6, 3.6]: covering the 1 feature found in [-10, 10]
+  x in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]; as for y (f(x, y) = ±f(y, x))
   y in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]
-  z in [-4.2, 4.2]: covering the 1 feature found in [-10, 10]
-  400 random points, 400 defined, f in [-20.52, 21.96] (colour)
-  image: 480x440, 48178 bytes
-  (nofile: GIF checksum e9b5d734)
+  z in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]; as for y (alike: the features do not set them apart)
+  400 random points, 400 defined, f in [-31.31, 33.39] (colour)
+  image: 480x440, 48361 bytes
+  (nofile: GIF checksum 546137e3)
 > neighbourhood x^3 - 3x nofile
 neighbourhood: bounds from declared ranges, else the function's features
 plot of x^3 - 3x
@@ -283,11 +283,11 @@ plot of 2 functions
   ucas: plot3d x^2 - y^2 nofile
 surface: z = f(x, y)
   x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
-  y in [-3, 3]: covering the 3 features found in [-10, 10]
-  z in [-10.06, 13.31]: the values
+  y in [-3.5, 3.5]: covering the 3 features found in [-10, 10]; as for x (f(y, x) = ±f(x, y))
+  z in [-13.47, 13.47]: the values
   65x65 grid
-  image: 640x500, 30307 bytes
-  (nofile: GIF checksum efaab15a)
+  image: 640x500, 30525 bytes
+  (nofile: GIF checksum 596f2db0)
 > draw the circle x^2 + y^2 = 4 nofile
   ucas: plot x^2 + y^2 = 4 nofile
 implicit curve: x^2 + y^2 = 4
@@ -347,10 +347,10 @@ plot of sin(x)/x
   ucas: plot x^2 - y^2 heatmap nofile
 heat map: z = f(x, y)
   x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
-  y in [-3, 3]: covering the 3 features found in [-10, 10]
-  z in [-10.06, 13.31]: the values
-  image: 640x500, 28976 bytes
-  (nofile: GIF checksum 50a81ee5)
+  y in [-3.5, 3.5]: covering the 3 features found in [-10, 10]; as for x (f(y, x) = ±f(x, y))
+  z in [-13.47, 13.47]: the values
+  image: 640x500, 26468 bytes
+  (nofile: GIF checksum a36388ad)
 > plot 1 + cos theta in polar coordinates nofile
   ucas: plot 1 + cos(theta) polar nofile
 polar curve: r = cos(theta) + 1
@@ -381,8 +381,8 @@ plot of isqrt(x)
   x in [0, 255]: every u8 value
   y in [-0.75, 15.75]: the values
   isqrt(x): 256 integer inputs (steps), values in [0, 15]
-  image: 640x440, 6896 bytes
-  (nofile: GIF checksum aa11e0b5)
+  image: 640x440, 6732 bytes
+  (nofile: GIF checksum 7b18db94)
 > plot nofile
 plot.ucas:56:6: error: plot what? (a function or an expression)
     plot nofile

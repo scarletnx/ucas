@@ -35,6 +35,9 @@ lsupported(int op)
 	case O_GE: case O_LAND: case O_LOR: case O_LNOT: case O_SEL:
 	case O_BARRIER: case O_SEC: case O_CSC: case O_COT: case O_ATAN:
 	case O_COPYSIGN: case O_FMA: case O_LAMBERTW: case O_LAMBERTWM1:
+	/* forms.c */
+	case O_ASIN: case O_ACOS: case O_ATAN2: case O_SINH: case O_COSH:
+	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:
 		return 1;
 	}
 	return 0;
@@ -156,6 +159,18 @@ lref_eval(struct lref *r, ld x)
 		case O_CSC: v[k] = 1 / sinl(a); break;
 		case O_COT: v[k] = cosl(a) / sinl(a); break;
 		case O_ATAN: v[k] = atanl(a); break;
+		/* forms.c's functions, with forms_scalar's domains */
+		case O_ASIN: v[k] = a >= -1 && a <= 1 ? asinl(a) : NAN; break;
+		case O_ACOS: v[k] = a >= -1 && a <= 1 ? acosl(a) : NAN; break;
+		case O_ATAN2:
+			v[k] = a == 0 && b == 0 ? NAN : atan2l(a == 0 ? 0 : a, b);
+			break;
+		case O_SINH: v[k] = sinhl(a); break;
+		case O_COSH: v[k] = coshl(a); break;
+		case O_TANH: v[k] = tanhl(a); break;
+		case O_ASINH: v[k] = asinhl(a); break;
+		case O_ACOSH: v[k] = a >= 1 ? acoshl(a) : NAN; break;
+		case O_ATANH: v[k] = a > -1 && a < 1 ? atanhl(a) : NAN; break;
 		case O_LAMBERTW: v[k] = lambert_w((double)a, 0); break;
 		case O_LAMBERTWM1: v[k] = lambert_w((double)a, 1); break;
 		case O_FLOOR: v[k] = floorl(a); break;
@@ -248,13 +263,65 @@ jsincos(const ld *a, ld *s, ld *c, int n)
 }
 
 /*
+ * o = f(a) where f'(a) = 1/sqrt(q) (sq) or 1/q, q a jet of a: o' = a'/..,
+ * integrated term by term; o[0] = f0.  t1..t3 are scratch.
+ */
+static int
+jinv(const ld *a, const ld *q, int sq, ld f0, ld *o, int n, ld *t1,
+    ld *t2, ld *t3)
+{
+	int i, j;
+
+	if (sq) {
+		if (q[0] <= 0)
+			return 0;
+		t1[0] = sqrtl(q[0]);
+		for (j = 1; j < n; j++) {
+			ld s = q[j];
+			for (i = 1; i < j; i++)
+				s -= t1[i] * t1[j - i];
+			t1[j] = s / (2 * t1[0]);
+		}
+	} else
+		memcpy(t1, q, n * sizeof *t1);
+	for (i = 0; i + 1 < n; i++)
+		t2[i] = (i + 1) * a[i + 1];
+	t2[n - 1] = 0;
+	if (!jdiv(t2, t1, t3, n))
+		return 0;
+	o[0] = f0;
+	for (i = 1; i < n; i++)
+		o[i] = t3[i - 1] / i;
+	return 1;
+}
+
+/* sinh and cosh of a jet: s' = c a', c' = s a' */
+static void
+jsinhcosh(const ld *a, ld *s, ld *c, int n)
+{
+	int k, i;
+
+	s[0] = sinhl(a[0]);
+	c[0] = coshl(a[0]);
+	for (k = 1; k < n; k++) {
+		ld ss = 0, cc = 0;
+		for (i = 1; i <= k; i++) {
+			ss += i * a[i] * c[k - i];
+			cc += i * a[i] * s[k - i];
+		}
+		s[k] = ss / k;
+		c[k] = cc / k;
+	}
+}
+
+/*
  * Taylor coefficients of the body at c, a[0..n-1].  Returns 0 when an
  * operation has no series rule there (bit operations, a kink at c).
  */
 int
 lref_taylor(struct lref *r, ld c, int n, ld *out)
 {
-	ld *v, *t1, *t2, *t3;
+	ld *v, *t1, *t2, *t3, *t4, *t5;
 	uint32_t k;
 	int i, j, ok = 1;
 
@@ -264,6 +331,8 @@ lref_taylor(struct lref *r, ld c, int n, ld *out)
 	t1 = xcalloc(AMAXJ, sizeof *t1);
 	t2 = xcalloc(AMAXJ, sizeof *t2);
 	t3 = xcalloc(AMAXJ, sizeof *t3);
+	t4 = xcalloc(AMAXJ, sizeof *t4);
+	t5 = xcalloc(AMAXJ, sizeof *t5);
 #define S(q) (v + (size_t)(q) * AMAXJ)
 	for (k = 0; k < r->n && ok; k++) {
 		ld *o = S(k), *a = S(r->a[k]), *b = S(r->b[k]);
@@ -368,6 +437,75 @@ lref_taylor(struct lref *r, ld c, int n, ld *out)
 			for (i = 1; i < n; i++)
 				o[i] = t3[i - 1] / i;
 			break;
+		/* forms.c's functions */
+		case O_SINH:
+		case O_COSH:
+		case O_TANH:
+			jsinhcosh(a, t1, t2, n);
+			if (r->op[k] == O_SINH)
+				memcpy(o, t1, n * sizeof *o);
+			else if (r->op[k] == O_COSH)
+				memcpy(o, t2, n * sizeof *o);
+			else
+				ok = jdiv(t1, t2, o, n);
+			break;
+		case O_ASIN:
+		case O_ACOS:
+		case O_ASINH:
+		case O_ACOSH:
+		case O_ATANH: {
+			/* asin' = 1/sqrt(1 - a^2), asinh' = 1/sqrt(a^2 + 1), ... */
+			int op = r->op[k], sq = op != O_ATANH;
+			ld f0;
+			jmul(a, a, t4, n);
+			if (op == O_ASINH)
+				t4[0] += 1;
+			else if (op == O_ACOSH)
+				t4[0] -= 1;
+			else {
+				for (i = 0; i < n; i++)
+					t4[i] = -t4[i];
+				t4[0] += 1;
+			}
+			if (op == O_ASIN || op == O_ACOS || op == O_ATANH)
+				ok = a[0] > -1 && a[0] < 1;
+			else if (op == O_ACOSH)
+				ok = a[0] > 1;
+			if (!ok)
+				break;
+			f0 = op == O_ASIN ? asinl(a[0]) : op == O_ACOS ? acosl(a[0]) :
+			    op == O_ASINH ? asinhl(a[0]) : op == O_ACOSH ?
+			    acoshl(a[0]) : atanhl(a[0]);
+			ok = jinv(a, t4, sq, f0, o, n, t1, t2, t3);
+			if (ok && op == O_ACOS)
+				for (i = 1; i < n; i++)
+					o[i] = -o[i];
+			break;
+		}
+		case O_ATAN2:
+			/* atan2(y, x)' = (x y' - y x')/(x^2 + y^2) */
+			if (a[0] == 0 && b[0] <= 0) {
+				ok = 0;
+				break;
+			}
+			for (i = 0; i + 1 < n; i++) {
+				t1[i] = (i + 1) * a[i + 1];
+				t2[i] = (i + 1) * b[i + 1];
+			}
+			t1[n - 1] = t2[n - 1] = 0;
+			jmul(b, t1, t3, n);
+			jmul(a, t2, t4, n);
+			for (i = 0; i < n; i++)
+				t3[i] -= t4[i];
+			jmul(a, a, t4, n);
+			jmul(b, b, t5, n);
+			for (i = 0; i < n; i++)
+				t4[i] += t5[i];
+			ok = jdiv(t3, t4, t5, n);
+			o[0] = atan2l(a[0], b[0]);
+			for (i = 1; i < n; i++)
+				o[i] = t5[i - 1] / i;
+			break;
 		case O_POW:
 			if (r->b[k] && r->op[r->b[k]] == O_CONST &&
 			    b[0] == floorl(b[0]) && b[0] >= 0 && b[0] <= 64) {
@@ -465,6 +603,8 @@ lref_taylor(struct lref *r, ld c, int n, ld *out)
 	free(t1);
 	free(t2);
 	free(t3);
+	free(t4);
+	free(t5);
 	return ok;
 }
 

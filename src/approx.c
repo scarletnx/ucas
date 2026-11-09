@@ -1622,11 +1622,11 @@ piecewise(void)
 
 enum {
 	F_SIN = 1, F_COS, F_TAN, F_SEC, F_CSC, F_COT, F_EXP, F_LOG, F_SQRT,
-	F_RSQRT, F_ATAN
+	F_RSQRT, F_ATAN, F_SINH, F_COSH, F_TANH
 };
 static const char *const fnames[] = {
 	"", "sin", "cos", "tan", "sec", "csc", "cot", "exp", "log", "sqrt",
-	"rsqrt", "atan"
+	"rsqrt", "atan", "sinh", "cosh", "tanh"
 };
 
 static ld l_sin(void *c, ld x) { (void)c; return sinl(x); }
@@ -1637,6 +1637,8 @@ static ld l_log1p(void *c, ld x) { (void)c; return log1pl(x); }
 static ld l_sqrt(void *c, ld x) { (void)c; return sqrtl(x); }
 static ld l_rsqrt(void *c, ld x) { (void)c; return 1 / sqrtl(x); }
 static ld l_atan(void *c, ld x) { (void)c; return atanl(x); }
+static ld l_sinh(void *c, ld x) { (void)c; return sinhl(x); }
+static ld l_tanh(void *c, ld x) { (void)c; return tanhl(x); }
 
 static ld
 libm_of(int fn, ld x)
@@ -1653,6 +1655,9 @@ libm_of(int fn, ld x)
 	case F_SQRT: return sqrtl(x);
 	case F_RSQRT: return 1 / sqrtl(x);
 	case F_ATAN: return atanl(x);
+	case F_SINH: return sinhl(x);
+	case F_COSH: return coshl(x);
+	case F_TANH: return tanhl(x);
 	}
 	return NAN;
 }
@@ -1683,6 +1688,9 @@ recognise(nid body)
 	case O_LOG: fn = F_LOG; break;
 	case O_SQRT: fn = F_SQRT; break;
 	case O_ATAN: fn = F_ATAN; break;
+	case O_SINH: fn = F_SINH; break;
+	case O_COSH: fn = F_COSH; break;
+	case O_TANH: fn = F_TANH; break;
 	case O_DIV:
 		if (is_const(strip(N.a[b])) && const_is(strip(N.a[b]), 1) &&
 		    N.op[strip(N.b[b])] == O_SQRT) {
@@ -1802,7 +1810,7 @@ core_make(struct core *k, ldfn f, ld a, ld b, int k0, int step, ld c,
 
 enum {
 	R_QUAD, R_COSSHIFT, R_COSHALF, R_SINCOS, R_TANHALF, R_EXP, R_LOG,
-	R_SQRT, R_NEWTON1, R_NEWTON2, R_ATAN, R_SQRTN, R_NRED
+	R_SQRT, R_NEWTON1, R_NEWTON2, R_ATAN, R_SQRTN, R_HYP, R_NRED
 };
 
 struct fmtc {
@@ -2090,6 +2098,42 @@ reduction(int r, int L, struct sbuf *full, char *shape, size_t ns)
 		snprintf(shape, ns, "|x|>1: pi/2 - atan(1/|x|), copysign");
 		deg = 2 * L + 1;
 		break;
+	case R_HYP:
+		/*
+		 * through e = exp(|x|): cosh = (e + 1/e)/2; sinh = (e - 1/e)/2
+		 * and tanh = 1 - 2/(e^2 + 1) cancel near 0, so an odd
+		 * polynomial below a cut (sign by copysign)
+		 */
+		bl_add(&l, "a", "abs(x)");
+		if (A.fn == F_COSH) {
+			if (L > 1)
+				goto fail;
+			bl_add(&l, "e", "exp(a)");
+			sb_puts(&body, "0.5*(e + 1.0/e)");
+			snprintf(shape, ns, "(e + 1/e)/2, e = exp(|x|)");
+			deg = 0;
+			goto out;
+		}
+		R = A.fn == F_TANH ? 0.55L : 0.5L;
+		if (!core_make(&k1, A.fn == F_TANH ? l_tanh : l_sinh, 0,
+		    R * 1.0001L, 1, 2, 0, L + 1, "a", "s"))
+			goto fail;
+		core_text(&k1, &l, &b1);
+		bl_add(&l, "p", sb_str(&b1));
+		kfmt(s1, sizeof s1, rnd(wb, R), wb);
+		if (A.fn == F_TANH) {
+			bl_add(&l, "e", "exp(2.0*a)");
+			sb_printf(&body, "copysign(a < %s ? p : 1.0 - 2.0/(e + 1.0), "
+			    "x)", s1);
+			snprintf(shape, ns, "P | 1 - 2/(exp(2|x|) + 1)");
+		} else {
+			bl_add(&l, "e", "exp(a)");
+			sb_printf(&body, "copysign(a < %s ? p : 0.5*(e - 1.0/e), x)",
+			    s1);
+			snprintf(shape, ns, "P | (e - 1/e)/2, e = exp(|x|)");
+		}
+		deg = 2 * L + 1;
+		break;
 	default:
 		goto fail;
 	}
@@ -2165,6 +2209,14 @@ reductions(void)
 		if (M > 1)
 			list[n++] = R_ATAN;
 		break;
+	case F_SINH:
+	case F_TANH:
+		if (M > 0.6L)
+			list[n++] = R_HYP;
+		break;
+	case F_COSH:
+		list[n++] = R_HYP;
+		break;
 	}
 	for (i = 0; i < n; i++) {
 		double prev = INFINITY;
@@ -2178,7 +2230,8 @@ reductions(void)
 				free(full.p);
 				break;
 			}
-			c = submit(deg < 0 ? "bithack" : list[i] == R_SINCOS ||
+			c = submit(list[i] == R_HYP ? "identity" : deg < 0 ?
+			    "bithack" : list[i] == R_SINCOS ||
 			    list[i] == R_COSSHIFT || list[i] == R_COSHALF ||
 			    list[i] == R_TANHALF ? "identity" : list[i] == R_SQRTN ?
 			    "seed+nwt" : "reduced", shape,

@@ -415,6 +415,8 @@ nid loop_diff(nid n, uint32_t slot);
 /* ---- forms.c: complex, polar and trig forms; the ops it adds ---- */
 int forms_scalar(int op, double a, double b, double *r);  /* 0: undefined */
 nid forms_diff(nid e, uint32_t slot);
+/* sin^2 + cos^2 = 1 ...; the factors it cancelled (x/x) */
+nid forms_norm(nid e, nid *cancelled, int max, int *ncancelled);
 const char *forms_cond(nid n);    /* an op's domain condition, or NULL */
 int forms_command(struct P *p);
 

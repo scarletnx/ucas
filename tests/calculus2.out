@@ -197,7 +197,7 @@ Hessian of x^3 - 3x*y^2 (row i, column j: ∂²/∂j∂i):
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
   [ cos(y)   -(x*sin(y)) ]
   [ sin(y)   x*cos(y)    ]
-  det = x*cos(y)^2 + x*sin(y)^2
+  det = x
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)
   at (x = 2, y = 0):
@@ -227,8 +227,8 @@ D_u x^2*y = 6x*y + 4x^2
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian exp(x), exp(2x), exp(3x)
@@ -237,6 +237,7 @@ Wronskian matrix of exp(x), exp(2x), exp(3x) (row k: the k-th derivatives wrt x)
   [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
   [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
   W = det = 2exp(6x)
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-13)
   linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian 1, x, x^2
@@ -245,6 +246,7 @@ Wronskian matrix of 1, x, x^2 (row k: the k-th derivatives wrt x)
   [ 0   1   2x  ]   d/dx
   [ 0   0   2   ]   d²/dx²
   W = det = 2
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-15)
   linearly independent: W(-1/20) = 2 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian x, 2x
@@ -252,6 +254,7 @@ Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
   [ x   2x ]   the functions
   [ 1   2  ]   d/dx
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 1e-15)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -2*(x) + (2x) = 0
@@ -267,10 +270,11 @@ Wronskian matrix of x^2, x*abs(x) (row k: the k-th derivatives wrt x)
   W = 0 does not prove dependence for functions that are not analytic (x^2 and x*abs(x) have W = 0 and are independent), and no linear relation fits their values: independent on [-10, 10]
 > wronskian sin(x)^2, cos(x)^2, 1
 Wronskian matrix of sin(x)^2, cos(x)^2, 1 (row k: the k-th derivatives wrt x)
-  [ sin(x)^2                cos(x)^2                1 ]   the functions
-  [ 2sin(x)*cos(x)          -(2sin(x)*cos(x))       0 ]   d/dx
-  [ 2cos(x)^2 - 2sin(x)^2   2sin(x)^2 - 2cos(x)^2   0 ]   d²/dx²
+  [ sin(x)^2         cos(x)^2            1 ]   the functions
+  [ 2sin(x)*cos(x)   -(2sin(x)*cos(x))   0 ]   d/dx
+  [ 2 - 4sin(x)^2    4sin(x)^2 - 2       0 ]   d²/dx²
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 3e-14)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -(sin(x)^2) - (cos(x)^2) + (1) = 0
@@ -693,7 +697,7 @@ Hessian of it (row i, column j: ∂²/∂j∂i):
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
   [ cos(y)   -(x*sin(y)) ]
   [ sin(y)   x*cos(y)    ]
-  det = x*cos(y)^2 + x*sin(y)^2
+  det = x
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)
 > directional derivative of x^2 y along (3, 4) at (1, 1)
@@ -709,8 +713,8 @@ D_u it = 6x*y/5 + 4x^2/5
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > wronkian matrix of e^x, e^2x, e^3x
@@ -721,6 +725,7 @@ Wronskian matrix of e^x, e^(2x), e^(3x) (row k: the k-th derivatives wrt x)
   [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
   [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
   W = det = 2exp(6x)
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-13)
   linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
 > are sin x and cos x linearly independent?
@@ -728,8 +733,8 @@ Wronskian matrix of e^x, e^(2x), e^(3x) (row k: the k-th derivatives wrt x)
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > is x and 2x linearly dependent?
@@ -738,6 +743,7 @@ Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
   [ x   2x ]   the functions
   [ 1   2  ]   d/dx
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 1e-15)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -2*(x) + (2x) = 0

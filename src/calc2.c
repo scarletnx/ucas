@@ -622,8 +622,16 @@ ss_node(const struct ssum *s)
 			t[i].nf = -1 - g;
 		}
 		for (g = 0; g < nd; g++) {
-			nid term = DIV(nums[g], dens[g]);
-			r = r ? ADD(r, term) : term;
+			nid term = DIV(nums[g], dens[g]), nm = nums[g];
+			double cv;
+			/* a + -1/d is a - 1/d */
+			if (r && N.op[nm] == O_NEG)
+				term = SUB(r, DIV(N.a[nm], dens[g]));
+			else if (r && num_of(nm, &cv) && cv < 0)
+				term = SUB(r, DIV(KR(-cv), dens[g]));
+			else if (r)
+				term = ADD(r, term);
+			r = term;
 		}
 	}
 	for (i = 0; i < n; i++) {
@@ -704,6 +712,202 @@ simp_node(nid e, int agg)
 }
 
 static nid
+simp_loop(nid e, int agg)
+{
+	nid r = tidy(e);
+	int k;
+
+	for (k = 0; k < 3; k++) {
+		nid r2 = simp_node(tidy(r), agg);
+		if (r2 == r)
+			break;
+		r = r2;
+	}
+	return r;
+}
+
+/* sin cos tan sec csc cot sinh cosh tanh anywhere in e */
+static int
+has_trig(nid e)
+{
+	uint8_t *mark = xcalloc(N.n, 1);
+	nid *st = xmalloc(N.n * sizeof *st), g;
+	uint32_t sp = 0;
+	int found = 0;
+
+	st[sp++] = e;
+	mark[e] = 1;
+	while (sp && !found) {
+		g = st[--sp];
+		switch (N.op[g]) {
+		case O_SIN: case O_COS: case O_TAN: case O_SEC: case O_CSC:
+		case O_COT: case O_SINH: case O_COSH: case O_TANH:
+			found = 1;
+			break;
+		}
+		if (N.a[g] && !mark[N.a[g]])
+			mark[N.a[g]] = 1, st[sp++] = N.a[g];
+		if (N.b[g] && !mark[N.b[g]])
+			mark[N.b[g]] = 1, st[sp++] = N.b[g];
+		if (N.c[g] && !mark[N.c[g]])
+			mark[N.c[g]] = 1, st[sp++] = N.c[g];
+	}
+	free(mark);
+	free(st);
+	return found;
+}
+
+/* a and b agree (and are defined at the same points) at 32 sample points */
+static int
+same_values(nid a, nid b)
+{
+	struct mev ma, mb;
+	double x[MAXP];
+	int i, k, oa, ob, n = 0, bad = 0;
+	uint32_t s = 12345;
+
+	mev_open(&ma, a);
+	mev_open(&mb, b);
+	for (i = 0; i < 32 && !bad; i++) {
+		double va, vb;
+		for (k = 0; k < MAXP; k++) {
+			s = s * 1103515245u + 12345u;
+			x[k] = -2.9 + 5.8 * ((s >> 8) & 0xffff) / 65536.0;
+		}
+		va = mev_at(&ma, x, MAXP, &oa);
+		vb = mev_at(&mb, x, MAXP, &ob);
+		if (oa != ob)
+			bad = 1;
+		else if (oa) {
+			n++;
+			if (fabs(va - vb) > 1e-9 * fmax(1, fmax(fabs(va), fabs(vb))))
+				bad = 1;
+		}
+	}
+	mev_close(&ma);
+	mev_close(&mb);
+	return !bad && n >= 8;
+}
+
+/*
+ * The identities forms.c knows (sin^2 + cos^2 = 1, cosh^2 - sinh^2 = 1):
+ * taken when the result is shorter and agrees numerically
+ */
+/* is f a factor of the divisor of a quotient in e (so e needs f != 0)? */
+static int
+factor_of(nid d, nid f)
+{
+	while (N.op[d] == O_NEG || N.op[d] == O_CAST ||
+	    (N.op[d] == O_POW && is_const(N.b[d])))
+		d = N.a[d];
+	if (d == f)
+		return 1;
+	return N.op[d] == O_MUL && (factor_of(N.a[d], f) ||
+	    factor_of(N.b[d], f));
+}
+
+static int
+in_divisor(nid e, nid f)
+{
+	uint8_t *mark = xcalloc(N.n, 1);
+	nid *st = xmalloc(N.n * sizeof *st), g;
+	uint32_t sp = 0;
+	int found = 0;
+
+	st[sp++] = e;
+	mark[e] = 1;
+	while (sp && !found) {
+		g = st[--sp];
+		if (N.op[g] == O_DIV && factor_of(N.b[g], f))
+			found = 1;
+		if (N.a[g] && !mark[N.a[g]])
+			mark[N.a[g]] = 1, st[sp++] = N.a[g];
+		if (N.b[g] && !mark[N.b[g]])
+			mark[N.b[g]] = 1, st[sp++] = N.b[g];
+	}
+	free(mark);
+	free(st);
+	return found;
+}
+
+/*
+ * cos(u)^2k -> (1 - sin(u)^2)^k (to_sin) or sin(u)^2k -> (1 - cos(u)^2)^k,
+ * cosh^2 = 1 + sinh^2 likewise: one function per argument, so that
+ * sin^2 x cos^2 y - cos^2 x sin^2 y can fold to sin^2 x - sin^2 y.
+ * *budget bounds the walk (a DAG is walked as a tree).
+ */
+static nid
+pyth_sub(nid e, int to_sin, int *budget)
+{
+	int op = N.op[e];
+	double p;
+
+	if (--*budget < 0)
+		return e;
+	if (op == O_POW && num_of(N.b[e], &p) && p >= 2 && p <= 8 &&
+	    p == 2 * floor(p / 2)) {
+		nid b = N.a[e], u = N.a[b], t = 0;
+		int bo = N.op[b];
+		if (to_sin && bo == O_COS)
+			t = SUB(KR(1), POW(mk_un(O_SIN, u), KI(2)));
+		else if (!to_sin && bo == O_SIN)
+			t = SUB(KR(1), POW(mk_un(O_COS, u), KI(2)));
+		else if (to_sin && bo == O_COSH)
+			t = ADD(KR(1), POW(mk_un(O_SINH, u), KI(2)));
+		else if (!to_sin && bo == O_SINH)
+			t = SUB(POW(mk_un(O_COSH, u), KI(2)), KR(1));
+		if (t)
+			return p == 2 ? t : POW(t, KI((int64_t)(p / 2)));
+	}
+	switch (op) {
+	case O_ADD: case O_SUB: case O_MUL: case O_DIV:
+		return mk_bin(op, pyth_sub(N.a[e], to_sin, budget),
+		    pyth_sub(N.b[e], to_sin, budget));
+	case O_NEG:
+		return mk_un(op, pyth_sub(N.a[e], to_sin, budget));
+	case O_POW:
+		return mk_bin(op, pyth_sub(N.a[e], to_sin, budget), N.b[e]);
+	}
+	return e;
+}
+
+static nid
+trig_simp(nid e)
+{
+	nid r, can[8];
+	int nc, k, v;
+
+	if (!TY_FP(N.ty[e]) || !has_trig(e))
+		return e;
+	r = forms_norm(e, can, 8, &nc);
+	/* also all in sin (or all in cos): keep the shortest */
+	for (v = 1; v >= 0; v--) {
+		int budget = 4000;
+		nid e2 = pyth_sub(e, v, &budget), r2, can2[8];
+		int nc2;
+		if (e2 == e || budget < 0)
+			continue;
+		r2 = forms_norm(e2, can2, 8, &nc2);
+		if (r2 && (r == 0 || strlen(node_str(r2)) < strlen(node_str(r)))) {
+			r = r2;
+			nc = nc2;
+			memcpy(can, can2, sizeof can);
+		}
+	}
+	if (r == 0 || r == e)
+		return e;
+	/* x/x only where e already divides by x: no point is gained */
+	for (k = 0; k < nc; k++)
+		if (!in_divisor(e, can[k]))
+			return e;
+	r = simp_loop(r, 0);
+	if (r == e || strlen(node_str(r)) >= strlen(node_str(e)) ||
+	    !same_values(e, r))
+		return e;
+	return r;
+}
+
+static nid
 simp(nid e, int agg)
 {
 	jmp_buf saved;
@@ -711,13 +915,12 @@ simp(nid e, int agg)
 
 	memcpy(saved, fail_jmp, sizeof saved);
 	if (setjmp(fail_jmp) == 0) {
-		int k;
-		r = tidy(e);
-		for (k = 0; k < 3; k++) {
-			nid r2 = simp_node(tidy(r), agg);
-			if (r2 == r)
-				break;
-			r = r2;
+		r = simp_loop(e, agg);
+		if (agg >= 0) {
+			nid r0 = r;
+			r = trig_simp(r);
+			if (r != r0)
+				r = simp_loop(r, agg);
 		}
 	}
 	memcpy(fail_jmp, saved, sizeof saved);
@@ -2284,6 +2487,7 @@ c2_wronskian(struct func *f, const nid *fs, int nf, int slot)
 	const char *lab[C2MAXF];
 	char lb[C2MAXF][32];
 	int i, j, k, ok = 1, npts, all = 0, m = 0, o, nzero = 0, okv;
+	int detbad = 0;
 	double worst = 0, mr, lo, hi, xs[256], ws[256], x[MAXP], wmax = 0,
 	    xw = 0, wv = 0;
 	struct mev mw;
@@ -2342,7 +2546,6 @@ c2_wronskian(struct func *f, const nid *fs, int nf, int slot)
 	mev_open(&mw, W);
 	{
 		struct mev me[C2MAXF * C2MAXF];
-		int detbad = 0;
 		for (i = 0; i < nf * nf; i++)
 			mev_open(&me[i], M[i]);
 		for (i = 0; i < 200; i++) {
@@ -2388,10 +2591,13 @@ c2_wronskian(struct func *f, const nid *fs, int nf, int slot)
 	mev_close(&mw);
 	if (f->np == 1 && m >= 8) {
 		nid sw = recognize(xs, ws, m, mk_var(0, f->p[0].name, TY_REAL));
-		if (sw && sw != W)
+		if (sw && sw != W && strcmp(node_str(sw), node_str(W)))
 			printf("  W = %s  (equal to the determinant at all %d sample "
 			    "points of [%s, %s])\n", node_str(sw), m, fnum(lo),
 			    fnum(hi));
+		else if (sw && !detbad)
+			printf("  (W equals the numeric determinant at all %d sample "
+			    "points of [%s, %s])\n", m, fnum(lo), fnum(hi));
 	}
 	check_report(ok, all, worst);
 	if (m == 0) {

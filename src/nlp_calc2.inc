@@ -52,7 +52,7 @@ c2_juxt(int i)
 	if (W[i + 1].k == W_SYM && (!strcmp(W[i + 1].s, "=") ||
 	    !strcmp(W[i + 1].s, ":")))
 		return 0;
-	if (in_list(fns, W[i].s))
+	if (in_list(fns, W[i].s) || W[i].prime)
 		return 1;
 	return varlike(i) && !isw(i + 1, "is") && !isw(i + 1, "are") &&
 	    !isw(i + 1, "be") && !isw(i + 1, "and");
@@ -162,14 +162,23 @@ c2_addvar(const char *v)
 }
 
 /* "at (1, 2)", "at x = 1, y = 2", "at x=1 and y=2", "at the origin" */
+static int c2_at_value(void);
+
 static int
 c2_at(void)
+{
+	if (!mat("at|in"))
+		return 0;
+	return c2_at_value();
+}
+
+/* the point after "at" (or "f prime of") */
+static int
+c2_at_value(void)
 {
 	struct sbuf sb = {0};
 	int n = 0, br;
 
-	if (!mat("at|in"))
-		return 0;
 	mat("?the ?point");
 	if (mat("origin")) {
 		snprintf(C2.at, sizeof C2.at, "origin");
@@ -193,6 +202,22 @@ c2_at(void)
 	snprintf(C2.at, sizeof C2.at, "%s", sb.p ? sb.p : "");
 	free(sb.p);
 	return 1;
+}
+
+/*
+ * The function of a derivative: a defined function named before "at" is
+ * itself ("the derivative of f at 3" is f'(3), not of f(3) = 27)
+ */
+static void
+c2_fn_target(struct tgt *t)
+{
+	if (W[wi].k == W_WORD && user_fn(W[wi].o) && !var_find(W[wi].o) &&
+	    isw(wi + 1, "at")) {
+		named_target(t, W[wi].o);
+		wi++;
+		return;
+	}
+	target(t, P_TERN);
 }
 
 /* a vector: (3, 4), <3, 4>, 3i + 4j is not read */
@@ -484,7 +509,22 @@ c2_sentence(void)
 	mat("?the|a|an");
 	k = wi;
 
-	/* the range: "what values does F take", "the set of values of F" */
+	/* "f prime of 3", "f double prime", "f prime at x = 2": f'(3) */
+	if (W[wi].k == W_WORD && user_fn(W[wi].o) && !var_find(W[wi].o) &&
+	    (isw(wi + 1, "prime") || (isw(wi + 1, "double") &&
+	    isw(wi + 2, "prime")) || (isw(wi + 1, "triple") &&
+	    isw(wi + 2, "prime")))) {
+		named_target(&C2.f[0], W[wi].o);
+		C2.order = isw(wi + 1, "double") ? 2 : isw(wi + 1, "triple") ? 3 : 1;
+		wi += C2.order > 1 ? 3 : 2;
+		C2.kind = K2_DIFF;
+		if (mat("of") && !c2_at_value())
+			nfail("%s prime of what?", C2.f[0].fn);
+		goto done;
+	}
+	wi = k;
+
+	/* the range: "what values does F take"), "the set of values of F" */
 	wi = s;
 	if (mat("what|which values|outputs does|do|can|will") ||
 	    mat("what values|outputs can") ) {
@@ -831,7 +871,7 @@ c2_sentence(void)
 	if (c2_dnotation()) {
 		mat("?of");
 		cur_mask = 1;
-		target(&C2.f[0], P_TERN);
+		c2_fn_target(&C2.f[0]);
 		C2.kind = K2_DIFF;
 		goto done;
 	}
@@ -844,14 +884,15 @@ c2_sentence(void)
 		if (mat("partial|partials"))
 			part = 1;
 		if (mat("derivative|derivatives|derivate|derivates|derivitive|"
-		    "deriv") || part || mat("?instantaneous rate of change")) {
+		    "deriv") || part || mat("?instantaneous rate of change") ||
+		    (isw(wi, "slope") && isw(wi + 1, "of") && ++wi)) {
 			C2.kind = K2_DIFF;
 			if (ord > 0)
 				C2.order = ord;
 			mat("?of|for");
 			mat("?the ?function");
 			cur_mask = 1;
-			target(&C2.f[0], P_TERN);
+			c2_fn_target(&C2.f[0]);
 			c2_wrt();
 			if (mixed && C2.nvars < 2)
 				nfail("mixed partials need two variables: with respect "
@@ -867,7 +908,7 @@ c2_sentence(void)
 	if (mat("differentiate|derive")) {
 		mat("?the ?function");
 		cur_mask = 1;
-		target(&C2.f[0], P_TERN);
+		c2_fn_target(&C2.f[0]);
 		c2_times();
 		c2_wrt();
 		c2_times();
