@@ -5969,7 +5969,8 @@ search_expr(int f)
 					/* b - a already somewhere else? */
 					int k, sub = G.x[G.x[opt[j]].k == X_CALL ?
 					    G.xarg[G.x[opt[j]].a] : opt[j]].b;
-					sub = G.x[G.x[sub].a].b;	/* int(b) - int(a) */
+					/* sub is (w (b - a) + C) >> S: its b - a */
+					sub = G.x[G.x[G.x[sub].a].a].b;
 					for (k = 0; k < xfn_n; k++)
 						if (xfn[k] >= 0 && xfn[k] != f && G.x[k].k == X_BIN &&
 						    G.x[k].op == OP_SUB && same_text(k, sub)) {

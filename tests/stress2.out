@@ -56,7 +56,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
     cost under gt1030 (a loop priced per iteration times its trips): 236 -> 139 per call
     relies on: t in 0..255; p in 0..1; sh_cb in {5, 6, 7, 8}; sh_pk in {0, 1, 2} at every call: QuantWord (line 79)
   TexelError (line 82), called from Eval (lines 120, 122, 129)
-    line 86: an interpolation with one multiply
+    line 86: an interpolation with one multiply; int(Ch(q1, c)) - int(Ch(q0, c)) is already computed in Step (line 93)
       int(((64u - w) * Ch(q0, c) + w * Ch(q1, c) + 32u) >> 6u)
         ->  int(Ch(q0, c)) + ((int(w) * (int(Ch(q1, c)) - int(Ch(q0, c))) + 32) >> 6)
       proof: exhaustive: ucas equiv on every recorded value of its leaves (4259840 points)
