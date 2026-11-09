@@ -2824,6 +2824,242 @@ cf_geom_node(nid T, uint64_t r, int w, char *why, size_t nwhy)
 	return o == 1 ? P : mk_bin(O_MUL, P, mk_const_i(u, (int64_t)inv));
 }
 
+
+/* ================================================================
+ * loops into integrals: float sums proposed in closed form (opt-in)
+ * ================================================================ */
+
+/* a rational as a C double literal */
+static void
+qlit(struct sbuf *b, aq c)
+{
+	if (c.d == 1)
+		sb_printf(b, "%lld.0", (long long)c.n);
+	else
+		sb_printf(b, "(%lld.0 / %lld.0)", (long long)c.n, (long long)c.d);
+}
+
+/* an alg polynomial in the atoms (but atom ia) as C, atoms by their text */
+static int
+mp_c(struct sbuf *b, struct mp a, int ia, const char *const *atxt)
+{
+	int k, j, i;
+
+	if (a.n == 0) {
+		sb_puts(b, "0.0");
+		return 1;
+	}
+	sb_puts(b, "(");
+	for (k = 0; k < a.n; k++) {
+		sb_puts(b, k ? " + " : "");
+		qlit(b, a.t[k].c);
+		for (j = 0; j < nat; j++) {
+			if (j == ia && a.t[k].e[j])
+				return 0;
+			for (i = 0; i < a.t[k].e[j]; i++)
+				sb_printf(b, " * (double)(%s)", atxt[j]);
+		}
+	}
+	sb_puts(b, ")");
+	return 1;
+}
+
+static int
+loop_hook(struct cf_unit *u, uint32_t fn, uint32_t loop, struct cf_emit *em)
+{
+	struct cf_loop l;
+	struct cf_iter it;
+	const char *why = NULL;
+	nid g, acc, rn;
+	struct mp P;
+	int ia = -1, d, k, j, ok = 0, top;
+	size_t mark;
+	jmp_buf saved;
+	const char *atxt[AV];
+	char abuf[AV][100];
+	struct sbuf code = {0}, cl = {0}, b2 = {0};
+	uint32_t from, to;
+	const struct cf_opts *o = cf_run_opts();
+	struct cf_rewrite *w;
+	int termops = 0;
+
+	(void)em;
+	if (u->A.kind[loop] != CA_FOR || !cf_engine_on(CF_ENG_LOOPS) ||
+	    !cf_span(u, loop, &from, &to))
+		return 0;
+	memset(&l, 0, sizeof l);
+	if (!cf_extract_loop(u, fn, loop, &l, &it, &why) || l.nred != 1 ||
+	    l.nload || l.nstore || l.step != 1 || !l.idecl)
+		goto out;
+	rn = l.rnext[0];
+	if (TYK(N.ty[rn]) != K_FLOAT || N.op[rn] != O_ADD || l.rslot[0] < 0)
+		goto out;
+	acc = N.a[rn];
+	g = N.b[rn];
+	if (!(N.op[acc] == O_VAR && N.ki[acc] == l.rslot[0])) {
+		acc = N.b[rn];
+		g = N.a[rn];
+		if (!(N.op[acc] == O_VAR && N.ki[acc] == l.rslot[0]))
+			goto out;
+	}
+	if (has_slot(g, l.rslot[0]) || !has_slot(g, l.islot))
+		goto out;
+	{
+		/* the term's float operations, for the rounding bound */
+		struct bx Bt;
+		memset(&Bt, 0, sizeof Bt);
+		(void)Bt;
+		termops = 0;
+		{
+			nid st[256];
+			int sp = 0;
+			uint8_t *seen = xcalloc(N.n, 1);
+			st[sp++] = g;
+			while (sp) {
+				nid x = st[--sp];
+				if (seen[x] || N.op[x] == O_CONST || N.op[x] == O_VAR)
+					continue;
+				seen[x] = 1;
+				if (TYK(N.ty[x]) == K_FLOAT && N.op[x] != O_CAST)
+					termops++;
+				if (N.a[x] && sp < 250)
+					st[sp++] = N.a[x];
+				if (N.b[x] && sp < 250)
+					st[sp++] = N.b[x];
+			}
+			free(seen);
+		}
+	}
+	mark = ar_mark();
+	memcpy(saved, fail_jmp, sizeof saved);
+	note_mute++;
+	if (setjmp(fail_jmp) == 0) {
+		atoms_reset();
+		if (mp_of(g, &P)) {
+			for (k = 0; k < nat; k++) {
+				nid a = at_node[k];
+				if (has_slot(a, l.islot)) {
+					if (ia >= 0 || !(N.op[a] == O_CAST && N.op[N.a[a]] == O_VAR &&
+					    N.ki[N.a[a]] == l.islot))
+						ia = -2;
+					else
+						ia = k;
+				}
+				if (N.op[a] == O_VAR && N.ki[a] < l.nleaf)
+					snprintf(abuf[k], sizeof abuf[k], "%s", l.leaf[N.ki[a]]);
+				else if (N.op[a] == O_CAST && N.op[N.a[a]] == O_VAR &&
+				    N.ki[N.a[a]] < l.nleaf)
+					snprintf(abuf[k], sizeof abuf[k], "%s", l.leaf[N.ki[N.a[a]]]);
+				else
+					ia = -2;
+				atxt[k] = abuf[k];
+			}
+			d = ia >= 0 ? mp_deg(P, ia) : -1;
+			if (ia >= 0 && d >= 0 && d <= 6) {
+				/* sum_{i=lo}^{hi-1} i^k = F_k(hi - 1) - F_k(lo - 1) */
+				ok = 1;
+				sb_printf(&code, "if ((%s) > (%s)) {\n\t\tconst double cf_m1 = "
+				    "(double)(%s) - 1.0, cf_m0 = (double)(%s) - 1.0;\n\t\t%s += "
+				    "0.0", l.hi_text, l.lo_text, l.hi_text, l.lo_text,
+				    l.rname[0]);
+				for (k = 0; k <= d && ok; k++) {
+					struct q c[16];
+					struct mp ck = mp_coef(P, ia, k);
+					int nc;
+					if (mp_iszero(ck))
+						continue;
+					nc = faulhaber(k, c) ? k + 2 : 0;
+					if (!nc) {
+						ok = 0;
+						break;
+					}
+					sb_puts(&code, " + ");
+					ok = mp_c(&code, ck, ia, atxt);
+					sb_puts(&code, " * ((0.0");
+					for (j = 0; j < nc; j++) {
+						aq qq;
+						qq.n = c[j].n;
+						qq.d = c[j].d;
+						if (!c[j].n)
+							continue;
+						sb_puts(&code, " + ");
+						qlit(&code, qq);
+						for (top = 0; top < j; top++)
+							sb_puts(&code, " * cf_m1");
+					}
+					sb_puts(&code, ") - (0.0");
+					for (j = 0; j < nc; j++) {
+						aq qq;
+						qq.n = c[j].n;
+						qq.d = c[j].d;
+						if (!c[j].n)
+							continue;
+						sb_puts(&code, " + ");
+						qlit(&code, qq);
+						for (top = 0; top < j; top++)
+							sb_puts(&code, " * cf_m0");
+					}
+					sb_puts(&code, "))");
+				}
+				sb_puts(&code, ";\n\t}");
+				sb_printf(&cl, "%s", mp_str(P));
+			}
+		}
+	}
+	note_mute--;
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	ar_release(mark);
+	if (!ok)
+		goto out;
+	/* the rounding of the loop itself: each term from exact inputs by
+	 * termops roundings, then N additions (Higham, recursive summation) */
+	w = cf_run_rewrite(o && o->approx && !(o->error > 0) ?
+	    "approximation applied" : "proposed, not applied",
+	    (int)u->tk.line[u->A.t0[loop]]);
+	w->before = strdup("");
+	w->after = strdup("");
+	sb_printf(&b2, "a float sum as its exact real value: the term %s is a "
+	    "polynomial of degree %d in %s, so the sum is a left Riemann sum of "
+	    "a polynomial F and Euler-Maclaurin terminates (the integral of F "
+	    "plus the h/2, h^2/12 ... corrections: Faulhaber's sums); not "
+	    "bit-exact: the loop rounds, |loop - exact| <= g(N + %d) (|%s0| + "
+	    "sum |terms|), g(k) = k u/(1 - k u), u = 2^-53, N the trip count, and "
+	    "the closed form's own rounding is a few ulps of its terms; %s",
+	    cl.p ? cl.p : "?", mp_deg(P, ia), l.iname, termops, l.rname[0],
+	    o && o->approx ? "applied (approx)" : "'approx' applies it");
+	snprintf(w->proof_text, sizeof w->proof_text, "%.399s", b2.p);
+	w->proof = CF_PROOF_APPROX;
+	snprintf(w->engine, sizeof w->engine, "loops");
+	snprintf(w->cert_kind, sizeof w->cert_kind, "error bound");
+	w->cert = strdup("Euler-Maclaurin remainder 0 (F is a polynomial); "
+	    "the loop's rounding by the standard model");
+	if (o && o->approx && !(o->error > 0)) {
+		struct sbuf full = {0};
+		sb_printf(&full, "{ %s }", code.p);
+		w->info = 0;
+		w->applied = 1;
+		w->after = strdup(full.p);
+		cf_run_replace(from, to, full.p);
+		free(full.p);
+	} else {
+		w->info = 1;
+		w->code = strdup(code.p);
+	}
+	free(code.p);
+	free(cl.p);
+	free(b2.p);
+	free((char *)l.lo_text);
+	free((char *)l.hi_text);
+	free((char *)l.init_text);
+	return w->applied;
+out:
+	free((char *)l.lo_text);
+	free((char *)l.hi_text);
+	free((char *)l.init_text);
+	return 0;
+}
+
 /* ================================================================
  * registration
  * ================================================================ */
@@ -2885,4 +3121,5 @@ void
 cf_bridge_init(void)
 {
 	cf_add_value_hook(value_hook);
+	cf_set_loop_hook(loop_hook);
 }
