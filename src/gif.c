@@ -102,6 +102,12 @@ put_code(struct bits *b, int code, int width)
 
 #define HSIZE 8192
 
+void
+gif_transparent(struct gif *g, int idx)
+{
+	g->transp = 1 + idx;
+}
+
 static void
 lzw(struct gif *g, const unsigned char *pix, int x0, int y0, int w, int h)
 {
@@ -119,6 +125,9 @@ lzw(struct gif *g, const unsigned char *pix, int x0, int y0, int w, int h)
 	for (y = y0; y < y0 + h; y++)
 		for (x = x0; x < x0 + w; x++) {
 			int k = pix[(size_t)y * g->w + x], key, slot;
+			if (g->transp && g->nframes > 0 &&
+			    k == g->prev[(size_t)y * g->w + x])
+				k = g->transp - 1;
 			if (prefix < 0) {
 				prefix = k;
 				continue;
@@ -194,10 +203,10 @@ gif_frame(struct gif *g, const unsigned char *pix, int delay_cs)
 	put8(g, 0x21);
 	put8(g, 0xf9);
 	put8(g, 4);
-	put8(g, 1 << 2);
+	put8(g, 1 << 2 | (g->transp && g->nframes > 0));
 	g->delay_at = g->out.n;
 	put16(g, delay_cs);
-	put8(g, 0);
+	put8(g, g->transp && g->nframes > 0 ? g->transp - 1 : 0);
 	put8(g, 0);
 	/* image descriptor: the changed rectangle, no local palette */
 	put8(g, 0x2c);
