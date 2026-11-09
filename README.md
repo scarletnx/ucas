@@ -1010,6 +1010,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
 | homological | `space homology cohomology les bockstein bockstein_trace prop01` |
+| C frontend | `c_optimize c_lower c_targets` |
 
 A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
 reduction polynomial or its name: `aes`, `crc32` ...), `{"ring": "Z/12"}`,
@@ -1193,6 +1194,7 @@ an `op` and the op's `args`:
 | `elliptic` | elliptic diophantine weierstrass congruent mordell cubesum |
 | `session` | define state assume reset schema funcs models use help |
 | `homological` | space homology cohomology les bockstein bockstein_trace prop01 |
+| `c` | c_optimize c_lower c_targets |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
 
 ```json
@@ -2140,6 +2142,200 @@ Limits: no SEA (no Elkies or Atkin primes), so Schoof takes about 40 s at
 160 bits and random 256-bit curves are impractical (named and CM curves
 are fine); no Ed448; rho only for orders up to 64 bits; the `ec.h`
 `ECF_USER` adapter for these fields is not done.
+
+## C frontend
+
+`c optimize` takes C99 (a file or a ```` ```c ```` block) and writes the
+same file with the functions it could prove faster forms for rewritten,
+for one x86-64 target.  Everything else stays byte for byte.
+
+```
+> c optimize tests/cfront/k1.c nofile
+c optimize: 4 functions, 4 rewrites proved (1 exhaustive, 2 by SAT, 1 by algebra) for x86-64-v3
+  popcount_loop (line 4): popcount(x)
+    proof: sat (proved by SAT: 2017 AIG nodes, 0 conflicts); cost 94.0 -> 1.0
+  classify (line 12): switch on c: a range check and the bit mask 0x1104111
+    proof: sat (proved by SAT: 586 AIG nodes, 57 conflicts); cost 25.5 -> 6.0
+  ...
+> c optimize tests/cfront/mem.c nofile
+  brighten (line 8): store 0: a table of 256 values indexed by src[i]
+    proof: sat (proved by SAT: 2960 AIG nodes, 349 conflicts; per stored value, over the loads); cost 9.8 -> 4.2 per element (loads and stores kept, in order)
+  my_strlen (line 34): a scan for the terminating zero: n += strlen(s + n)
+    proof: structural (C99 7.21.6.3: strlen counts the characters before the first null; ...)
+```
+
+| command | |
+|---|---|
+| `c optimize FILE\|block [target T] [budget S] [assume NAME LO HI] [wrapv] [check] [bench] [nofile] [timed] [trace] [vecstub] [keep]` | rewrite; `FILE.opt.c` is written unless `nofile` (or a block) |
+| `c lower FILE\|block [wrapv]` | each function as one ucas value of its parameters, with C's UB as a domain; for the others, each counted loop's IR |
+| `c targets` | the targets and their instruction-set features |
+
+Options: `target` (default `x86-64-v3`; `zen3`, `zen4`, `skylake`,
+`skylake-avx512`, `icelake`, `alderlake`, `raptorlake`,
+`sapphirerapids`, `x86-64`, `-v2`, `-v4`; it picks the costs and the
+intrinsics the output may use under feature macros); `budget` (CPU
+seconds for proofs, 10); `assume x 0 1000` (a contract on an input,
+reported with each rewrite that uses it); `wrapv` (signed overflow
+wraps: no UB is exploited); `check` (compile both versions with the host
+cc and compare them on edge and random inputs, inputs on which the
+original has UB skipped by UBSan); `bench` (also time both with rdtsc);
+`timed` (print the seconds); `trace` (every candidate and why it was not
+taken); `vecstub` (the stub vectoriser, below); `keep` (keep `check`'s
+build directory).  English works too: "optimize this C for zen4 and test
+it" before a ```` ```c ```` block.  JSON `c_optimize`, `c_lower`,
+`c_targets` (an input range is `range`: `"x 0 1000"`); MCP tool `c`.
+
+**Pipeline** (`src/cfront.h`, `cf_*.c`):
+
+1. Preprocess (macros, `#if`, the user's includes; system headers are
+   built-in declarations) and parse C99 with LP64 types.
+2. Lower each function to one node value of its parameters by a
+   predicated symbolic execution: promotions and the usual conversions
+   explicit, unsigned wrap, signed overflow, division by zero,
+   `INT_MIN / -1`, oversized shifts and float-to-integer conversions
+   out of range as a domain condition (C UB), `>>` of a negative value
+   arithmetic and narrowing conversions modulo 2^N (GCC's and clang's
+   implementation-defined choices).  `float` and `double` are IEEE
+   binary32/64, each operation rounded in its own type (x86-64 SSE:
+   `FLT_EVAL_METHOD` 0).  Loops with a constant trip count unroll (up to
+   66 iterations); other loops leave the obligation "still running after
+   66 iterations", which must be proved false.  Calls of functions of the
+   same file are inlined.
+3. Generate candidates and keep the cheapest proved one under the
+   target's costs (the x86 side's scheduler replaces the default costs
+   when it is built in): bit idioms (popcount, clz, ctz, bit length,
+   x & -x, parity, abs), a switch as a range check plus a table, a bit
+   mask or a line, small-input tables, polynomials of a bounded input,
+   dropped operations that never bite (masks, clamps, `?:` arms,
+   conversions), divisions narrowed or made unsigned or turned into a
+   multiply and shift on a bounded dividend, and IEEE rewrites.
+4. Emit C with no UB of its own (wrapping arithmetic through unsigned
+   types, a signed division only by a constant other than -1, `?:`,
+   `&&`, `||` kept lazy, partial operations never hoisted) and
+   feature-guarded intrinsics with portable fallbacks; only the replaced
+   spans change.  Float output gets `#pragma STDC FP_CONTRACT OFF`: the
+   proofs are about each operation rounded on its own.
+5. Optionally, `check` and `bench`.  A rewrite that compiles to the same
+   instructions as `clang -O2` makes of the original is listed with
+   `[same code as clang -O2]`.
+
+**Proofs.**  Each rewrite says which:
+
+| proof | what was shown |
+|---|---|
+| exhaustive | every input of the (possibly assumed or call-site) domain evaluated, both sides |
+| sat | the miter bit-blasted, the SAT solver found it unsatisfiable |
+| algebra | a stated lemma: a derivation (IEEE rewrites below) or an interval argument (a 64-bit division whose operands fit 32 bits, a magic-number division) when SAT gives up; the sample is then only a check of the lemma's premises |
+| induction | a loop summed in closed form (below), then the rest proved as above |
+| structural | a rewrite of the program's structure: a strlen scan, a loop rebuilt from its IR |
+| lanes, tested | reserved for the x86 side (intrinsics per lane) and for opted-in, only tested rewrites (none are applied now) |
+
+A static function whose address does not escape is entered only from
+this file's calls, so its parameters range over what the calls pass
+(bounded by intervals over each argument's own inputs); its rewrites are
+proved over that domain and say so (`over: v in [0, 510] (from the
+call sites)`).
+
+**Loops in closed form.**  `for (i = lo; i < hi; i++) { s += P(i); t -=
+Q(i); }`, with P and Q polynomials of degree at most 2 in i over the
+loop's invariants and `hi` read once (no side effects, nothing the loop
+writes), becomes s + d0 T + d1 C(T,2) + d2 C(T,3), T = max(0, hi - lo),
+d_k the forward differences of P at lo.  The derivation is the proof:
+P(lo + j) = sum_k d_k C(j, k) in any commutative ring when the third
+difference vanishes (Newton's forward formula), sum_{j<T} C(j, k) =
+C(T, k+1) (the hockey stick), and C(T, k) is computed exactly mod 2^64
+by halving the even one of T and T - 1 and multiplying by 3^-1 mod
+2^64.  The index must be at least `int`, compared in its own type, and
+step by 1, so it never wraps; the summand may only use `+ - *` and
+conversions that keep its value mod 2^w (w the accumulator's width).
+Signed overflow inside the sum is not a domain condition there (the
+closed form is defined where the loop is; that is a refinement).
+`clang -O2` already turns such simple sums into closed forms itself
+(SCEV), so this mostly matters for what follows it (the closed form is
+then optimised further) and for compilers without it.
+
+**Functions with memory.**  Pointers and stores are not lowered into a
+function value; their loops are handled one iteration at a time
+(`cf_lower_iter`: the variables an iteration reads before writing and
+its loads are inputs, its stores recorded in order):
+
+- *element-wise bodies*: a loop whose body only stores (no other
+  variable written, no store under a condition), each stored value a
+  function of what the same iteration loaded, has each stored value
+  optimised and proved as a function of those loads (`brighten`: a
+  256-byte table).  Loads and stores keep their addresses and their
+  order: a load that a later store now uses is read into a temporary at
+  its original place.  So the rewrite holds whatever the arrays alias,
+  and the loop's control is not touched.
+- *strlen scans*: `while (s[n]) n++;`, `while (*p != '\0') ++p;` and the
+  same as a `for` with an empty body become `n += strlen(s + n)` and
+  `p += strlen(p)` (C99 7.21.6.3), for `char`, `signed char` and
+  `unsigned char` data and a 64-bit or signed counter (an unsigned
+  32-bit counter could wrap and rescan; it is left alone).
+- *the vectoriser's IR*: a counted `for` (`i = lo; i < hi; i += c`)
+  becomes a `struct cf_loop`: index, bounds, each array with its alias
+  fact (`restrict`, or two distinct arrays: "no alias"), loads and
+  stores with their element index, type and order, reductions
+  `acc = next(acc, ...)`.  `c lower` prints it.  When a vectoriser is
+  registered (`cf_set_vectoriser`, the x86 side) it is offered every such
+  loop and may replace it; `vecstub` registers a stub that rebuilds the
+  loop from the IR as scalar C, so `check` validates the extraction.
+  Whether a load is from before or after a store is part of the IR, so
+  aliasing a vectoriser cannot rule out is visible to it.
+
+**Floats.**  Float-valued results are rewritten only by derivations
+(the proof engines compare floats by value, not by bits), and a bitwise
+sample checks each derivation's premises: `float(double(x) op
+double(y)) = x op y` for `+ - * /` when both are float values (double
+rounding is innocuous since 53 >= 2 * 24 + 2; so `x * 0.5` with a float
+x is a float multiply), `x / 2^k = x * 2^-k` when 2^-k is representable,
+float to double and back, an integer through a float that holds it
+exactly and back, and comparisons of such integers.  Integer-valued
+functions with float inside are proved exhaustively or by SAT as usual
+when their inputs allow (`(int)(float)c` for a byte `c` is `c`).
+
+Measured on this host (i5-9400, Skylake; cycles per call through a
+non-inlined wrapper, about 5 of which is the call; median of 15 runs,
+other builds were running):
+
+| function | before | after | |
+|---|---|---|---|
+| popcount loop (k1) | 21.7 | 5.5 | x3.9 |
+| clz loop | 24.8 | 5.6 | x4.4 |
+| lowest set bit loop | 27.5 | 5.6 | x4.9 |
+| parity loop | 42.9 | 5.7 | x7.5 |
+| `tri` (capped loop -> table) | 8.5 | 5.9 | x1.4 |
+| `table_month` (dropped mask) | 6.7 | 5.8 | x1.2 |
+| `use2` (static callee over its call sites -> table) | 6.6 | 5.7 | x1.2 |
+| `classify` (switch -> bit mask) | 5.7 | 6.3 | x0.9 |
+| `ilog2_loop` (31 - clz) | 5.9 | 6.3 | x0.9 |
+
+The last two are slower: clang already makes a lookup of the switch and
+recognises the shift loop, and the proved form costs less only under the
+default cost model.  `check` agreed on every call (k1: 80000 calls; k2:
+379687 calls, 313 inputs skipped for UB in the original; k3, mem.c).
+The harness does not time functions that take pointers, and does not
+call functions with float parameters.
+
+Not lowered (the code stays as written, and the report says why): K&R
+definitions, `_Complex`, `long double`, `asm`, `goto`, case labels
+inside nested statements (Duff's device), VLAs, bit-field layout,
+`volatile`, calls to functions outside the file, and more than 8 inputs
+per value.  Loops that are neither unrollable, nor sums of the form
+above, nor element-wise or strlen scans keep their code (a reduction
+such as `s += a[i] & 1` is in the IR but not rewritten here); stores
+under a condition, pointers that move, `break` and `return` inside a
+loop stop the iteration lowering.
+
+Limits: a `while` loop whose proved form is long (more than 96
+operations unrolled) is kept, and SAT may give up on a while loop's
+equivalence (a `while (x)` popcount is sampled, not proved, and kept);
+induction over loop invariants is not done.  Closed forms stop at
+degree 2.  Float rewrites are the listed exact identities; there is no
+`fma` contraction or reassociation (they change results).
+`check`'s harness passes random values to parameters other than
+lengths, so loops whose trip count is a random parameter take too long
+for it (tests/cfront/loops.c is checked by hand).
 
 ## Design
 

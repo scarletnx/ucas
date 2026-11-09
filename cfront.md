@@ -79,3 +79,23 @@ inputs, benchmark with rdtsc).  Each area: tests, JSON commands, MCP group
 - `gates`/`find` bases for x86 (add `x86` bases: andn, blsr, blsi, bzhi,
   pdep, pext, vpternlog as a 1-op 3-input gate) so the existing searches
   pick x86 instructions.
+
+## Status (F1)
+
+Done: preprocessor, parser, lowering (integers, float/double with IEEE
+semantics, UB as domain conditions), the candidate pipeline and proofs,
+the emitter, `check`/`bench`, loops summed in closed form (degree <= 2,
+proved by derivation), element-wise loop bodies and strlen scans in
+functions with memory, the loop IR (`cf_lower_iter`, `cf_extract_loop`)
+and the vectoriser call (`cf_set_vectoriser`; `vecstub` for tests).
+README "C frontend" is the user documentation.
+
+For F2: the vectoriser gets a `struct cf_loop` per counted for loop of a
+function that does not lower whole; loads and stores carry `epoch` (the
+stores before them in the body), so their order is explicit; `leafty`
+gives each leaf's type; `noalias` is per base (restrict, or distinct
+arrays).  Reductions have `rinit` 0 (the variable's value before the
+loop) and `rslot` -1 when the body never reads the variable.  Costs:
+`cf_set_cost_hook` replaces the default per-op table, which prices
+SSE scalar float ops too.  Conditional stores and gathers through a
+loaded index are not in the IR yet (the extraction refuses them).
