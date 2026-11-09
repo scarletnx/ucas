@@ -363,6 +363,25 @@ void cmd_error(struct func *g, struct func *f);
 nid diff_node(nid e, uint32_t slot);
 int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
     int *sampled);
+/* equiv_decide: b refines a on f's domain, by enumeration or SAT */
+enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED };
+struct nsat_res {          /* nodesat.c */
+	int status;         /* 0 proved, 1 counterexample, -1 gave up, -2 unsupported */
+	const char *why;    /* -2: what could not be bit-blasted */
+	int nodes;          /* AIG nodes */
+	long conflicts;
+	int64_t in[MAXP];   /* 1: the counterexample's parameters */
+};
+struct eqproof {
+	int how;              /* EQ_* */
+	uint64_t points;      /* compared points */
+	int sat_status;       /* nsat_equiv's status when it ran; -3 not reproduced */
+	const char *sat_why;
+	struct nsat_res sat;
+};
+int equiv_decide(const struct func *f, nid a, nid b, struct sbuf *witness,
+    struct eqproof *pr);
+void eqproof_text(struct sbuf *b, const struct eqproof *pr);
 
 /* ---- parse.c ---- */
 void run_source(const char *src, const char *file, int echo);

@@ -1,0 +1,38 @@
+> widen(v: u32, n: u32 in 5..8) = n == 8 ? v : ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n
+> widen2(v: u32, n: u32 in 5..8) = ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n
+> equiv widen widen2
+widen and widen2 are equal on the domain of widen (exhaustive)
+  domain: v in 0..255 by the where clause (1024 points enumerated)
+> w16(v: u32, n: u32 in 5..8) = ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFFFF where v < 1 << (n + 16)
+> w16b(v: u32, n: u32 in 5..8) = ((v << (8 - n)) & 0xFFFF) | ((v >> (2*n - 8)) & 0xFFFF) where v < 1 << (n + 16)
+> equiv w16 w16b
+w16 and w16b are equal on the domain of w16 (proved by SAT: 1630 AIG nodes, 0 conflicts)
+> w16c(v: u32, n: u32 in 5..8) = ((v << (8 - n)) & 0xFFFF) | (v >> (2*n - 8)) where v < 1 << (n + 16)
+> equiv w16 w16c
+w16 and w16c differ at 8791 points of the sample, e.g. v=1551033, n=5: 65518 vs 393198
+> needle(x: u32) = x == 123456789 ? 1 : 0
+> zero(x: u32) = 0
+> equiv needle zero
+needle and zero differ, e.g. x=123456789: 1 vs 0 (found by SAT, checked by evaluation)
+> q(x: i32, y: i32) = x / y
+> q0(x: i32, y: i32) = y == 0 ? 7 : x / y
+> equiv q q0
+q and q0 are equal on the domain of q (proved by SAT: 17166 AIG nodes, 90 conflicts)
+> equiv q0 q
+q0 and q differ at 1 point of the sample, e.g. x=2147483647, y=0: 7 vs undefined
+> sh(x: u32, n: u32 in 0..31) = (x << n) >> n
+> sh2(x: u32, n: u32 in 0..31) = x & (0xFFFFFFFF >> n)
+> equiv sh sh2
+sh and sh2 are equal on the domain of sh (proved by SAT: 1314 AIG nodes, 1327 conflicts)
+> s1(x: i32) = { s: i32 = 0; for i in 0..3 { s += x << i }; s }
+> s3(x: i32) = (x << 4) - x
+> equiv s1 s3
+s1 and s3 are equal on the domain of s1 (proved by SAT: 1208 AIG nodes, 8389 conflicts)
+> t1(x: u32, y: u32) = [3, 5, x, y][x & 3]
+> t2(x: u32, y: u32) = (x & 3) == 0 ? 3 : (x & 3) == 1 ? 5 : (x & 3) == 2 ? x : y
+> equiv t1 t2
+t1 and t2 are equal on the domain of t1 (proved by SAT: 531 AIG nodes, 126 conflicts)
+> m1(x: u32, y: u32) = x * y
+> m2(x: u32, y: u32) = y * x
+> equiv m1 m2
+m1 and m2 are equal on the domain of m1 (sampled, not proved; SAT gave up on 9326 AIG nodes within its budget of 100000 conflicts or 2 s)

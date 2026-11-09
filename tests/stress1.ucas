@@ -1,0 +1,40 @@
+# Found while optimising a BC7 encoder with ucas (stress test 1).
+
+# 1. equiv on machine integers: the where clause narrows the enumeration
+# (v < 1 << n with n <= 8 gives v <= 255: 1024 points, not 2^32 * 4)
+widen(v: u32, n: u32 in 5..8) = n == 8 ? v : ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n
+widen2(v: u32, n: u32 in 5..8) = ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n
+equiv widen widen2
+
+# too big to enumerate: bit-blasted and proved by SAT, or a counterexample
+# found by SAT and re-checked by the evaluator
+w16(v: u32, n: u32 in 5..8) = ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFFFF where v < 1 << (n + 16)
+w16b(v: u32, n: u32 in 5..8) = ((v << (8 - n)) & 0xFFFF) | ((v >> (2*n - 8)) & 0xFFFF) where v < 1 << (n + 16)
+equiv w16 w16b
+w16c(v: u32, n: u32 in 5..8) = ((v << (8 - n)) & 0xFFFF) | (v >> (2*n - 8)) where v < 1 << (n + 16)
+equiv w16 w16c
+needle(x: u32) = x == 123456789 ? 1 : 0
+zero(x: u32) = 0
+equiv needle zero
+# definedness: g undefined where f is defined is a difference; the other
+# way round is not (f's undefined points are outside its domain)
+q(x: i32, y: i32) = x / y
+q0(x: i32, y: i32) = y == 0 ? 7 : x / y
+equiv q q0
+equiv q0 q
+# shifts by the width or more are undefined
+sh(x: u32, n: u32 in 0..31) = (x << n) >> n
+sh2(x: u32, n: u32 in 0..31) = x & (0xFFFFFFFF >> n)
+equiv sh sh2
+# loops with constant bounds are unrolled
+s1(x: i32) = { s: i32 = 0; for i in 0..3 { s += x << i }; s }
+s3(x: i32) = (x << 4) - x
+equiv s1 s3
+# a table index, clz and popcount
+t1(x: u32, y: u32) = [3, 5, x, y][x & 3]
+t2(x: u32, y: u32) = (x & 3) == 0 ? 3 : (x & 3) == 1 ? 5 : (x & 3) == 2 ? x : y
+equiv t1 t2
+# a multiplier against a commuted one is hard for SAT: it gives up and says so
+m1(x: u32, y: u32) = x * y
+m2(x: u32, y: u32) = y * x
+equiv m1 m2

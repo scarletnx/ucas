@@ -8,6 +8,7 @@
  * enumerated; larger ones are sampled and the report says so.
  */
 #include "ucas.h"
+#include "nodesat.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -1826,13 +1827,20 @@ same_val(ty_t t, int64_t a, double ar, int64_t b, double br)
 	return a == b;
 }
 
-int
-equiv_check(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled)
+/*
+ * Compare a and b on f's domain.  refine: points where a is undefined are
+ * outside the domain (b may be anything there); otherwise both must be
+ * undefined together.
+ */
+static int
+equiv_scan(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled,
+    int refine, uint64_t *npts)
 {
 	struct run r;
 	nid roots[2];
 	uint32_t np, i, la, lb;
 	int64_t mism = 0;
+	uint64_t seen = 0;
 	ty_t t;
 
 	roots[0] = a;
@@ -1848,8 +1856,9 @@ equiv_check(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled)
 				continue;
 			ua = COLF(&r.p, la)[i] & F_UNDEF;
 			ub = COLF(&r.p, lb)[i] & F_UNDEF;
-			if (ua && ub)
+			if (ua && (ub || refine))
 				continue;
+			seen++;
 			if (ua != ub || !same_val(t, COLI(&r.p, la)[i],
 			    COLR(&r.p, la)[i], COLI(&r.p, lb)[i],
 			    COLR(&r.p, lb)[i])) {
@@ -1873,38 +1882,200 @@ equiv_check(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled)
 	}
 	if (sampled)
 		*sampled = !r.d.exhaustive;
+	if (npts)
+		*npts = seen;
 	run_close(&r);
 	return (int)(mism > 0x7fffffff ? 0x7fffffff : mism);
+}
+
+int
+equiv_check(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled)
+{
+	return equiv_scan(f, a, b, wit, sampled, 0, NULL);
+}
+
+/*
+ * One point: does b fail to refine a there?  The SAT counterexample is
+ * re-checked here with the evaluator, so a reported difference never
+ * rests on the circuit alone.
+ */
+static int
+point_differs(const struct func *f, nid a, nid b, const int64_t *in,
+    struct sbuf *wit)
+{
+	struct plan p;
+	nid roots[3];
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	uint8_t ok[CH];
+	int j, bad = 0;
+	uint32_t la, lb;
+	ty_t t = N.ty[a];
+
+	roots[0] = a;
+	roots[1] = mk_cast(t, b);
+	roots[2] = f->where;
+	plan_build(&p, roots, 3, 0);
+	for (j = 0; j < f->np; j++)
+		in_i[(size_t)j * CH] = int_norm(f->p[j].ty, in[j]);
+	plan_run(&p, 1, in_i, in_r);
+	valid_mask(&p, f->where ? p.root[2] : NOTOK, 1, ok);
+	la = p.root[0];
+	lb = p.root[1];
+	if (ok[0] && !(COLF(&p, la)[0] & F_UNDEF)) {
+		int ub = COLF(&p, lb)[0] & F_UNDEF;
+		if (ub || COLI(&p, la)[0] != COLI(&p, lb)[0]) {
+			bad = 1;
+			if (wit) {
+				fmt_point(wit, f, in_i, in_r, 0);
+				sb_puts(wit, ": ");
+				fmt_val(wit, t, COLI(&p, la)[0], 0);
+				sb_puts(wit, " vs ");
+				if (ub)
+					sb_puts(wit, "undefined");
+				else
+					fmt_val(wit, t, COLI(&p, lb)[0], 0);
+			}
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	return bad;
+}
+
+/*
+ * Equivalence (b refines a on f's domain), settled as well as it can be:
+ * exhaustively when the domain is small enough; otherwise sampled, then
+ * bit-blasted and proved by SAT when the circuit is supported and the
+ * solver finishes within its budget.
+ */
+int
+equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
+    struct eqproof *pr)
+{
+	int sampled, m;
+
+	memset(pr, 0, sizeof *pr);
+	m = equiv_scan(f, a, b, wit, &sampled, 1, &pr->points);
+	pr->how = sampled ? EQ_SAMPLED : EQ_EXHAUSTIVE;
+	if (m || !sampled)
+		return m;
+	if (!nsat_supported(f) || !TY_ISINT(N.ty[a])) {
+		pr->sat_status = -2;
+		pr->sat_why = "a float or real value";
+		return 0;
+	}
+	nsat_equiv(f, a, b, NSAT_BUDGET, &pr->sat);
+	pr->sat_status = pr->sat.status;
+	pr->sat_why = pr->sat.why;
+	if (pr->sat.status == 0)
+		pr->how = EQ_SAT;
+	else if (pr->sat.status == 1) {
+		if (point_differs(f, a, b, pr->sat.in, wit))
+			return 1;
+		/* the evaluator disagrees with the circuit: not a proof
+		 * either way; say so */
+		pr->sat_status = -3;
+		pr->sat_why = "its counterexample did not reproduce";
+	}
+	return 0;
+}
+
+/* " (exhaustive)", " (proved by SAT: ...)", " (sampled, not proved ...)" */
+void
+eqproof_text(struct sbuf *b, const struct eqproof *pr)
+{
+	switch (pr->how) {
+	case EQ_EXHAUSTIVE:
+		sb_puts(b, "exhaustive");
+		break;
+	case EQ_SAT:
+		sb_printf(b, "proved by SAT: %d AIG nodes, %ld conflicts",
+		    pr->sat.nodes, pr->sat.conflicts);
+		break;
+	default:
+		sb_puts(b, "sampled, not proved");
+		if (pr->sat_status == -1)
+			sb_printf(b, "; SAT gave up on %d AIG nodes within its "
+			    "budget of %d conflicts or %g s", pr->sat.nodes,
+			    NSAT_BUDGET, NSAT_SECONDS);
+		else if (pr->sat_status == -2)
+			sb_printf(b, "; no SAT proof: %s", pr->sat_why ?
+			    pr->sat_why : "unsupported");
+		else if (pr->sat_status == -3)
+			sb_printf(b, "; no SAT proof: %s", pr->sat_why);
+	}
 }
 
 void
 cmd_equiv(struct func *f, struct func *g)
 {
-	struct sbuf w = {0};
-	int sampled, m;
+	struct sbuf w = {0}, how = {0};
+	struct eqproof pr;
+	int m, j;
 	nid gb = rebind(f, g);
 
 	if (g->np != f->np)
 		fail("%s and %s take different numbers of parameters", fname(f),
 		    fname(g));
-	m = equiv_check(f, f->body, gb, &w, &sampled);
+	m = equiv_decide(f, f->body, gb, &w, &pr);
+	eqproof_text(&how, &pr);
 	rep_begin("equiv");
 	rep_bool("equal", m == 0);
-	rep_bool("exhaustive", !sampled);
+	rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
 	rep_int("mismatch_points", m);
+	rep_str("method", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
+	    pr.how == EQ_SAT ? "sat" : pr.sat_status == 1 ? "sat_counterexample" :
+	    "sampled");
+	if (pr.sat_status != 0 || pr.how == EQ_SAT) {
+		rep_obj("sat");
+		rep_str("result", pr.how == EQ_SAT ? "proved" :
+		    pr.sat_status == 1 ? "counterexample" : pr.sat_status == -1 ?
+		    "gave_up" : "unsupported");
+		if (pr.sat_status != -2 || pr.sat.nodes)
+			rep_int("aig_nodes", pr.sat.nodes);
+		if (pr.sat_status >= 0 || pr.how == EQ_SAT)
+			rep_int("conflicts", pr.sat.conflicts);
+		if (pr.sat_why)
+			rep_str("why", pr.sat_why);
+		rep_end();
+	}
 	if (m)
 		rep_str("counterexample", sb_str(&w));
 	if (m == 0)
-		rep_proof(sampled ? "numeric" : "exhaustive", sampled ?
-		    "sampled, not proved" : "every point of the domain");
+		rep_proof(pr.how == EQ_SAMPLED ? "numeric" : pr.how == EQ_SAT ?
+		    "sat" : "exhaustive", pr.how == EQ_EXHAUSTIVE ?
+		    "every point of the domain" : sb_str(&how));
 	if (m == 0)
-		printf("%s and %s are equal on the domain of %s%s\n", fname(f),
-		    fname(g), fname(f), sampled ? " (sampled, not proved)" :
-		    " (exhaustive)");
+		printf("%s and %s are equal on the domain of %s (%s)\n",
+		    fname(f), fname(g), fname(f), sb_str(&how));
+	else if (pr.how == EQ_SAMPLED && pr.sat_status == 1)
+		printf("%s and %s differ, e.g. %s (found by SAT, checked by "
+		    "evaluation)\n", fname(f), fname(g), sb_str(&w));
 	else
-		printf("%s and %s differ at %d points, e.g. %s\n", fname(f),
-		    fname(g), m, sb_str(&w));
+		printf("%s and %s differ at %d point%s%s, e.g. %s\n", fname(f),
+		    fname(g), m, m == 1 ? "" : "s", pr.how == EQ_SAMPLED ?
+		    " of the sample" : "", sb_str(&w));
+	if (pr.how == EQ_EXHAUSTIVE) {
+		struct sbuf nb = {0};
+		struct diter d;
+		diter_init(&d, f, EXH, 2, 0);
+		for (j = 0; j < f->np; j++)
+			if (d.narrowed[j])
+				sb_printf(&nb, "%s%s in %lld..%lld", nb.n ? ", " :
+				    "", sym_str(f->p[j].name), (long long)d.lo[j],
+				    (long long)d.hi[j]);
+		if (nb.n) {
+			printf("  domain: %s by the where clause (%llu points "
+			    "enumerated)\n", sb_str(&nb),
+			    (unsigned long long)d.total);
+			rep_str("narrowed", sb_str(&nb));
+		}
+		free(nb.p);
+	}
 	free(w.p);
+	free(how.p);
 }
 
 struct errst {

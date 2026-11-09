@@ -1,0 +1,4 @@
+{"id": 1, "cmd": "ucas", "args": {"source": "q(x: i32, y: i32) = x / y\nq0(x: i32, y: i32) = y == 0 ? 7 : x / y\nwiden(v: u32, n: u32 in 5..8) = n == 8 ? v : ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n\nwiden2(v: u32, n: u32 in 5..8) = ((v << (8 - n)) | (v >> (2*n - 8))) & 0xFF where v < 1 << n"}}
+{"id": 2, "cmd": "equiv", "args": {"f": "q", "g": "q0"}}
+{"id": 3, "cmd": "equiv", "args": {"f": "q0", "g": "q"}}
+{"id": 4, "cmd": "equiv", "args": {"f": "widen", "g": "widen2"}}
