@@ -114,11 +114,12 @@ int z_val(zint a, zint p, zint *rest);
 u64 z_mod_u64(zint a, u64 m);      /* Euclidean residue, m > 0 */
 size_t z_bits(zint a);             /* bits of |a| (0 for 0) */
 int z_isprime(zint a);   /* exact below 2^64 (deterministic Miller-Rabin);
-			  * above: Miller-Rabin with 20 fixed bases plus a
-			  * strong Lucas test (BPSW), documented as probable */
+			  * above: Miller-Rabin to the first 24 prime bases,
+			  * a probable-prime test */
 /* the prime factors of |a| (a != 0) with exponents, increasing; returns
- * the count, or -1 when a cofactor above 2^64 could not be split (then
- * the last entry is that composite with exponent 1 and *complete = 0) */
+ * the count.  *complete (may be NULL) = 0 when a cofactor above 2^64
+ * could not be split by Pollard rho: it is listed with exponent 1 as if
+ * it were prime */
 int z_factor(zint a, zint *p, int *e, int max, int *complete);
 
 /* text: decimal with optional sign, 0x hex; *end after the number */
@@ -353,6 +354,10 @@ void ab_gen(const struct fgab *G, int i, zint *x);  /* i-th canonical generator 
 int ab_elem_eq(const struct fgab *G, const zint *x, const zint *y);
 int ab_elem_is_zero(const struct fgab *G, const zint *x);
 zint ab_elem_order(const struct fgab *G, const zint *x);    /* 0: infinite */
+/* reduce x (in A) modulo B in place: the representative whose entries at
+ * the pivot rows of B's Hermite basis lie in [0, pivot); equal elements
+ * give equal vectors */
+void ab_reduce(const struct fgab *G, zint *x);
 /* x in B, with x = B w (w: b entries) as the certificate */
 int ab_elem_zero_witness(const struct fgab *G, const zint *x, zint *w);
 
@@ -378,7 +383,7 @@ void ab_inclusion(struct zmat *M, const struct fgab *S, const struct fgab *G);
 int ab_hom_check(const struct fgab *G, const struct fgab *H,
     const struct zmat *M);
 /* from ambient images: imgs is H.n x G.a (column j = f(A_G e_j)); 0 if an
- * image is not in A_H */
+ * image is not in A_H or the map is not well defined */
 int ab_hom_from_images(struct zmat *M, const struct fgab *G,
     const struct fgab *H, const struct zmat *imgs);
 /* induced by an ambient map F: Z^{G.n} -> Z^{H.n} (H.n x G.n) with
@@ -575,6 +580,7 @@ struct mpl {
 	uint32_t n, cap;
 	uint32_t *e;
 	zint *cn, *cd;
+	int nv;          /* exponents per term (set by the ring operations) */
 };
 void mring_init(struct mring *R, int nv, const char *const *names, int order,
     u64 p);
