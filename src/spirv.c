@@ -7200,6 +7200,8 @@ float_pass(const char *text, int *changed)
 	return out.p;
 }
 
+static char *orig_mod;	/* the module before the rewrites */
+
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
@@ -7269,7 +7271,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		for (i = 0; i < (int)nsymmap; i++)
 			symmap[i] = -1;
 		parse(full);
-		free(full);
+		free(orig_mod);
+		orig_mod = full;	/* for the GLSL view (spvcross.c) */
 		if (said.n)
 			fputs(said.p, stdout);
 		free(said.p);
@@ -7768,7 +7771,12 @@ spirv_simplify(const char *src, double budget, int nofile)
 		else if (nrw + ndead > 0)
 			deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
 			    nofile);
+		/* spirv-cross's GLSL of it, beside spirv-opt -O's */
+		if (fch || nrw + ndead > 0)
+			spvcross_after_simplify(orig_mod, fch ? ft : out.p, nofile);
 		free(ft);
+		free(orig_mod);
+		orig_mod = NULL;
 	}
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0);
