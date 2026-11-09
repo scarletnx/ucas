@@ -4,7 +4,7 @@
  * simplification and constant folding before interning, so equal
  * expressions get equal ids.
  */
-#include "ucas.h"
+#include "calc.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -1028,6 +1028,8 @@ subst(nid root, const nid *map, int nmap)
 
 /* ---- printing ---- */
 
+static const char *sh_name(const struct pctx *pc, nid n);
+
 static int
 is_jux(nid n, const struct pctx *pc)
 {
@@ -1037,6 +1039,8 @@ is_jux(nid n, const struct pctx *pc)
 		return 0;
 	a = N.a[n];
 	b = N.b[n];
+	if (sh_name(pc, b))
+		return 0;
 	if (!is_const(a) || const_val(a) < 0 || is_const(b))
 		return 0;
 	if (TYK(N.ty[a]) == K_REAL && (N.kr[a] == M_PI || N.kr[a] == M_E))
@@ -1053,6 +1057,8 @@ is_jux(nid n, const struct pctx *pc)
 static int
 prec(nid n, const struct pctx *pc)
 {
+	if (sh_name(pc, n))
+		return 15;
 	switch (N.op[n]) {
 	case O_SEL: return 1;
 	case O_LOR: return 2;
@@ -1172,6 +1178,10 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 	uint32_t i;
 	const char *s;
 
+	if ((s = sh_name(pc, n)) != NULL) {
+		sb_puts(b, s);
+		return;
+	}
 	if (p < minp)
 		sb_putc(b, '(');
 	switch (op) {
@@ -1464,4 +1474,388 @@ print_paren(struct sbuf *b, nid n)
 	sb_printf(b, " %s ", opinfo[op].name);
 	print_paren(b, N.b[n]);
 	sb_putc(b, ')');
+}
+
+/* ---- printing with shared subterms named ---- */
+
+struct shmap {
+	nid *key;        /* open addressing over the reachable nodes */
+	uint32_t *idx;
+	uint32_t cap;
+	nid *node;       /* reachable nodes */
+	uint32_t *refs, *size;
+	char **name;     /* NULL: printed inline */
+	uint32_t n, ncap;
+	nid *order, root;
+	int nnamed;
+};
+
+static uint32_t
+sh_find(const struct shmap *m, nid n)
+{
+	uint32_t j;
+
+	if (m->cap == 0)
+		return NOTOK;
+	j = (n * 2654435761u) & (m->cap - 1);
+	while (m->key[j]) {
+		if (m->key[j] == n)
+			return m->idx[j];
+		j = (j + 1) & (m->cap - 1);
+	}
+	return NOTOK;
+}
+
+static const char *
+sh_name(const struct pctx *pc, nid n)
+{
+	uint32_t i;
+
+	if (pc->sh == NULL || n == pc->self || n == 0)
+		return NULL;
+	i = sh_find(pc->sh, n);
+	return i == NOTOK ? NULL : pc->sh->name[i];
+}
+
+static void sh_visit(struct shmap *m, nid n);
+
+static void
+sh_grow(struct shmap *m)
+{
+	nid *ok = m->key;
+	uint32_t *oi = m->idx, oc = m->cap, i, j;
+
+	m->cap = m->cap ? m->cap * 2 : 256;
+	m->key = xcalloc(m->cap, sizeof *m->key);
+	m->idx = xcalloc(m->cap, sizeof *m->idx);
+	for (i = 0; i < oc; i++)
+		if (ok[i]) {
+			j = (ok[i] * 2654435761u) & (m->cap - 1);
+			while (m->key[j])
+				j = (j + 1) & (m->cap - 1);
+			m->key[j] = ok[i];
+			m->idx[j] = oi[i];
+		}
+	free(ok);
+	free(oi);
+}
+
+/* count one more reference to n; visit it the first time */
+static void
+sh_ref(struct shmap *m, nid n)
+{
+	uint32_t i, j;
+
+	if (n == 0)
+		return;
+	if ((i = sh_find(m, n)) != NOTOK) {
+		m->refs[i]++;
+		return;
+	}
+	if ((m->n + 1) * 2 > m->cap)
+		sh_grow(m);
+	if (m->n == m->ncap) {
+		m->ncap = m->ncap ? m->ncap * 2 : 64;
+		m->node = xrealloc(m->node, m->ncap * sizeof *m->node);
+		m->refs = xrealloc(m->refs, m->ncap * sizeof *m->refs);
+		m->size = xrealloc(m->size, m->ncap * sizeof *m->size);
+		m->name = xrealloc(m->name, m->ncap * sizeof *m->name);
+	}
+	i = m->n++;
+	m->node[i] = n;
+	m->refs[i] = 1;
+	m->size[i] = 0;
+	m->name[i] = NULL;
+	j = (n * 2654435761u) & (m->cap - 1);
+	while (m->key[j])
+		j = (j + 1) & (m->cap - 1);
+	m->key[j] = n;
+	m->idx[j] = i;
+	sh_visit(m, n);
+}
+
+static void
+sh_visit(struct shmap *m, nid n)
+{
+	uint32_t j;
+
+	switch (N.op[n]) {
+	case O_CONST:
+	case O_VAR:
+	case O_UNDEF:
+		return;
+	case O_TABLE:
+		for (j = 0; j < N.b[n]; j++)
+			sh_ref(m, N.lst[N.a[n] + j]);
+		return;
+	case O_LOOP: {
+		uint32_t e = loop_ent(n), s = loops.st[e], k;
+		sh_ref(m, N.a[n]);
+		sh_ref(m, N.b[n]);
+		for (k = 0; k < loops.nst[e]; k++) {
+			sh_ref(m, loops.init[s + k]);
+			sh_ref(m, loops.next[s + k]);
+		}
+		sh_ref(m, loops.cond[e]);
+		return;
+	}
+	}
+	sh_ref(m, N.a[n]);
+	sh_ref(m, N.b[n]);
+	sh_ref(m, N.c[n]);
+}
+
+/* name hints: what the source called a value */
+static struct {
+	nid *key;
+	uint32_t *sym;
+	uint32_t cap, n;
+} H;
+
+void
+name_hint(nid n, uint32_t sym)
+{
+	uint32_t j, i;
+
+	if (n == 0 || N.op[n] == O_CONST || N.op[n] == O_VAR)
+		return;
+	if ((H.n + 1) * 2 > H.cap) {
+		nid *ok = H.key;
+		uint32_t *os = H.sym, oc = H.cap;
+		H.cap = H.cap ? H.cap * 2 : 256;
+		H.key = xcalloc(H.cap, sizeof *H.key);
+		H.sym = xcalloc(H.cap, sizeof *H.sym);
+		for (i = 0; i < oc; i++)
+			if (ok[i]) {
+				j = (ok[i] * 2654435761u) & (H.cap - 1);
+				while (H.key[j])
+					j = (j + 1) & (H.cap - 1);
+				H.key[j] = ok[i];
+				H.sym[j] = os[i];
+			}
+		free(ok);
+		free(os);
+	}
+	j = (n * 2654435761u) & (H.cap - 1);
+	while (H.key[j]) {
+		if (H.key[j] == n)
+			return;    /* the first name stays */
+		j = (j + 1) & (H.cap - 1);
+	}
+	H.key[j] = n;
+	H.sym[j] = sym;
+	H.n++;
+}
+
+static uint32_t
+hint_of(nid n)
+{
+	uint32_t j;
+
+	if (H.cap == 0)
+		return 0;
+	j = (n * 2654435761u) & (H.cap - 1);
+	while (H.key[j]) {
+		if (H.key[j] == n)
+			return H.sym[j];
+		j = (j + 1) & (H.cap - 1);
+	}
+	return 0;
+}
+
+static int
+cmp_nid(const void *x, const void *y)
+{
+	nid a = *(const nid *)x, b = *(const nid *)y;
+
+	return a < b ? -1 : a > b;
+}
+
+/* "… (N more characters)" past cap bytes of b counted from `from` */
+void
+cap_text(struct sbuf *b, size_t from, size_t cap)
+{
+	size_t len = b->n - from, cut;
+	char tail[64];
+
+	if (len <= cap)
+		return;
+	cut = from + cap;
+	while (cut > from && ((unsigned char)b->p[cut] & 0xC0) == 0x80)
+		cut--;   /* not inside a UTF-8 sequence */
+	snprintf(tail, sizeof tail, "… (%zu more characters)", b->n - cut);
+	b->n = cut;
+	b->p[b->n] = 0;
+	sb_puts(b, tail);
+}
+
+static int
+name_used(const struct shmap *m, const char *s)
+{
+	uint32_t i;
+
+	for (i = 0; i < m->n; i++)
+		if (m->name[i] && !strcmp(m->name[i], s))
+			return 1;
+	return 0;
+}
+
+static int
+var_named(const struct shmap *m, const char *s)
+{
+	uint32_t i;
+
+	for (i = 0; i < m->n; i++)
+		if (N.op[m->node[i]] == O_VAR && !strcmp(sym_str(N.a[m->node[i]]), s))
+			return 1;
+	return 0;
+}
+
+/* the shared subterms of root, named; free with shmap_free */
+struct shmap *
+shmap_new(nid root)
+{
+	struct shmap *mp = xcalloc(1, sizeof *mp), m;
+	nid *order;
+	uint32_t i, k;
+	int tn = 0;
+
+	memset(&m, 0, sizeof m);
+	sh_ref(&m, root);
+	/* sizes bottom-up (operands have smaller ids), names where shared */
+	order = xmalloc((m.n + 1) * sizeof *order);
+	for (i = 0; i < m.n; i++)
+		order[i] = m.node[i];
+	qsort(order, m.n, sizeof *order, cmp_nid);
+	for (k = 0; k < m.n; k++) {
+		nid n = order[k];
+		uint32_t s = 1, j, ch[3];
+		int nch = 0;
+		i = sh_find(&m, n);
+		if (N.op[n] == O_TABLE) {
+			for (j = 0; j < N.b[n]; j++) {
+				uint32_t c = sh_find(&m, N.lst[N.a[n] + j]);
+				s += c == NOTOK ? 1 : m.name[c] ? 1 : m.size[c];
+			}
+		} else if (N.op[n] != O_CONST && N.op[n] != O_VAR &&
+		    N.op[n] != O_UNDEF) {
+			ch[nch++] = N.a[n];
+			ch[nch++] = N.b[n];
+			ch[nch++] = N.c[n];
+			for (j = 0; j < (uint32_t)nch; j++) {
+				uint32_t c = ch[j] ? sh_find(&m, ch[j]) : NOTOK;
+				if (c != NOTOK)
+					s += m.name[c] ? 1 : m.size[c];
+			}
+			if (N.op[n] == O_LOOP)
+				s += 8;
+		}
+		m.size[i] = s;
+		if (n != root && m.refs[i] >= 2 && s >= 4 &&
+		    N.op[n] != O_TABLE) {
+			uint32_t h = hint_of(n);
+			char nm[64];
+			if (h && !name_used(&m, sym_str(h)) &&
+			    !var_named(&m, sym_str(h)))
+				snprintf(nm, sizeof nm, "%s", sym_str(h));
+			else {
+				do
+					snprintf(nm, sizeof nm, "t%d", ++tn);
+				while (name_used(&m, nm) || var_named(&m, nm));
+			}
+			m.name[i] = xmalloc(strlen(nm) + 1);
+			strcpy(m.name[i], nm);
+			m.size[i] = 1;
+			m.nnamed++;
+		}
+	}
+	m.order = order;
+	m.root = root;
+	*mp = m;
+	return mp;
+}
+
+void
+shmap_free(struct shmap *m)
+{
+	uint32_t i;
+
+	if (m == NULL)
+		return;
+	for (i = 0; i < m->n; i++)
+		free(m->name[i]);
+	free(m->order);
+	free(m->key);
+	free(m->idx);
+	free(m->node);
+	free(m->refs);
+	free(m->size);
+	free(m->name);
+	free(m);
+}
+
+int
+shmap_count(const struct shmap *m)
+{
+	return m ? m->nnamed : 0;
+}
+
+/* e with m's names (e itself in full) */
+void
+print_with(struct sbuf *b, nid e, const struct shmap *m, size_t cap)
+{
+	struct pctx pc = {PM_UCAS, NULL, NULL, 0};
+	size_t from = b->n;
+
+	pc.sh = m;
+	pc.self = e;
+	print_node(b, e, &pc);
+	if (cap)
+		cap_text(b, from, cap);
+}
+
+/* "t1 = ..., t2 = ..." in dependency order, each binding capped */
+void
+shmap_bindings(struct sbuf *b, const struct shmap *m, const char *sep,
+    size_t cap)
+{
+	uint32_t k, i;
+	int first = 1;
+
+	for (k = 0; k < m->n; k++) {
+		i = sh_find(m, m->order[k]);
+		if (!m->name[i])
+			continue;
+		sb_printf(b, "%s%s = ", first ? "" : sep, m->name[i]);
+		print_with(b, m->order[k], m, cap);
+		first = 0;
+	}
+}
+
+void
+print_shared(struct sbuf *b, nid root, size_t cap)
+{
+	struct shmap *m = shmap_new(root);
+	size_t from = b->n;
+
+	print_with(b, root, m, 0);
+	if (m->nnamed) {
+		sb_puts(b, " where ");
+		shmap_bindings(b, m, ", ", 0);
+	}
+	if (cap)
+		cap_text(b, from, cap);
+	shmap_free(m);
+}
+
+const char *
+shared_str(nid root, size_t cap)
+{
+	static struct sbuf buf[8];
+	static int k;
+	struct sbuf *b = &buf[k++ & 7];
+
+	sb_clear(b);
+	print_shared(b, root, cap);
+	return sb_str(b);
 }

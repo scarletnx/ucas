@@ -9,9 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "ucas.h"
 #include "sat.h"
+
+extern long aig_conflicts;
+double aig_seconds;	/* > 0: also stop after this much CPU time */
 
 /* ---- the graph ---- */
 
@@ -456,6 +460,7 @@ solve(struct solver *s, long budget)
 {
 	long confl = 0;
 	int restarts = 0, limit = 100 * luby(0), since = 0;
+	clock_t t0 = clock();
 	lit *learnt = xmalloc((size_t)(s->nv + 1) * sizeof *learnt);
 	int r = -1;
 
@@ -484,6 +489,9 @@ solve(struct solver *s, long budget)
 			s->inc *= 1.05;
 			if (budget > 0 && confl >= budget)
 				break;
+			if (aig_seconds > 0 && (confl & 255) == 0 &&
+			    (double)(clock() - t0) / CLOCKS_PER_SEC > aig_seconds)
+				break;
 			continue;
 		}
 		if (since >= limit) {	/* restart */
@@ -509,8 +517,11 @@ solve(struct solver *s, long budget)
 		}
 	}
 	free(learnt);
+	aig_conflicts = confl;
 	return r;
 }
+
+long aig_conflicts;
 
 int
 aig_sat(struct aig *g, lit goal, long budget)
@@ -519,6 +530,7 @@ aig_sat(struct aig *g, lit goal, long budget)
 	int i, r, top = 0, *stack;
 	char *in;
 
+	aig_conflicts = 0;
 	if (goal == L_FALSE)
 		return 0;
 	memset(&s, 0, sizeof s);
