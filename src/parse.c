@@ -1375,7 +1375,7 @@ static const char prelude[] =
     "  select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0,\n"
     "  fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32,\n"
     "  load: 8, branch: 2, diverge: 6, barrier: 20,\n"
-    "  atomic_shared: 8, atomic_global: 64\n"
+    "  atomic_shared: 8, atomic_global: 64, store: 8\n"
     "}\n";
 
 static void
@@ -1457,7 +1457,7 @@ parse_model(struct P *p)
 	struct model *m, *parent;
 	size_t n;
 	const char *s;
-	int k;
+	int k, inherited = 0, store_given = 0;
 	nid v;
 
 	adv(p);
@@ -1470,6 +1470,7 @@ parse_model(struct P *p)
 			fail("unknown model");
 		adv(p);
 		memcpy(m->c, parent->c, sizeof m->c);
+		inherited = 1;
 	}
 	skip_nl(p);
 	expect(p, T_LC);
@@ -1492,10 +1493,16 @@ parse_model(struct P *p)
 			for (k = 0; k < C_NCLASS; k++)
 				m->c[k] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
 				    (float)N.ki[v];
-		} else
+		} else {
 			m->c[k] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
 			    (float)N.ki[v];
+			if (k == C_STORE)
+				store_given = 1;
+		}
 	}
+	/* a model that does not price stores: as dear as its loads */
+	if (!inherited && !store_given)
+		m->c[C_STORE] = m->c[C_LOAD];
 	expect_eos(p);
 }
 

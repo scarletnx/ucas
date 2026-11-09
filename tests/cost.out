@@ -1,5 +1,5 @@
 > models
-model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5, cmp: 2, select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32, load: 8, branch: 2, diverge: 6, barrier: 20, atomic_shared: 8, atomic_global: 64 }
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5, cmp: 2, select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32, load: 8, branch: 2, diverge: 6, barrier: 20, atomic_shared: 8, atomic_global: 64, store: 8 }
 > rsqrt(x: f32) = 1/sqrt(x)
 > cost rsqrt
 cost of rsqrt under gt1030: 18 (2 operations, shared subterms counted once)

@@ -14,7 +14,7 @@ exec of SPIR-V (38 instructions), entry %main, 4 lanes in lockstep, cost model g
     %29 = OpBitcast %int %28                                    0  t = 17..17  -> 1 1 1 1
     %30 = OpConvertSToF %float %29               conv           4  t = 17..21  -> 1 1 1 1
     %31 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_1                0  t = 21..21  -> &%_[1] &%_[1] &%_[1] &%_[1]
-    OpStore %31 %30                              load           8  t = 21..29
+    OpStore %31 %30                              store          8  t = 21..29
   time 29 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   animation: 710x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 4.8 cost units; 145710 bytes
   (nofile: GIF checksum 24ef331a)

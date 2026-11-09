@@ -15,7 +15,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"minmax", "bitcnt", "conv", "bitcast",
 	"fadd", "fmul", "fdiv", "fsqrt", "ftrans", "fpow", "f64",
 	"load", "branch", "diverge", "barrier", "atomic_shared",
-	"atomic_global",
+	"atomic_global", "store",
 };
 
 #define MAXMODEL 16

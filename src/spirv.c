@@ -1376,8 +1376,8 @@ exec_one(const struct sins *I, uint32_t mask)
 			for (i = 0; i < (pt >= 0 && T(pt)->k == S_VEC ? T(pt)->n : 1); i++)
 				*slot(a.var, l, a.off + i) = x.b[i];
 		}
-		k = emit(I, I_OP, sc == SC_SHARED || sc == SC_WG ? C_LOAD : -1,
-		    sc == SC_SHARED || sc == SC_WG ? model_active()->c[C_LOAD] : 0,
+		k = emit(I, I_OP, sc == SC_SHARED || sc == SC_WG ? C_STORE : -1,
+		    sc == SC_SHARED || sc == SC_WG ? model_active()->c[C_STORE] : 0,
 		    mask);
 		(void)k;
 		return;
