@@ -126,13 +126,17 @@ static const struct group groups[] = {
 	    "finitely generated abelian groups (\"Z/4 + Z/6\", \"coker "
 	    "[[2, 0], [0, 3]]\"): invariants, isomorphisms with explicit maps, "
 	    "Hom, tensor, Tor, Ext, homomorphisms with kernel/image/cokernel, "
-	    "subgroups, element orders, exactness.  Every claim is checked "
+	    "subgroups, element orders, exactness; permutation groups by "
+	    "Schreier-Sims (\"S4\", \"(1 2 3), (1 2)\": order, orbits, "
+	    "solvable, nilpotent, centre, membership, subgroups, cosets, "
+	    "homomorphisms) and Cayley tables.  Every claim is checked "
 	    "(U A V = D, preimages, inverse maps) and the check is reported.  "
 	    "For instance {\"op\": \"abiso\", \"args\": {\"g\": \"Z/4 + "
 	    "Z/6\", \"h\": \"Z/2 + Z/12\"}} or {\"op\": \"snf\", \"args\": "
 	    "{\"matrix\": [[2, 4], [6, 8]]}}.",
 	    "bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom "
-	    "abtensor abtor abext abmap abelem absub abexact"},
+	    "abtensor abtor abext abmap abelem absub abexact permgroup permelem "
+	    "permsub permhom cayley"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "

@@ -603,6 +603,29 @@ static const struct jcmd cmds[] = {
 	    GRP("g2", " -> %s"), GRP("g3", " -> %s"), TX("f", " by %s", "f as "
 	    "a matrix ([[...]]; \"[]\" from 0)"), TX("g", ", %s", "g as a "
 	    "matrix")}},
+#define PGRP(n, fr) TX(n, fr, "a permutation group: \"S4\", \"A5\", " \
+	"\"C6\", \"D8\" (order 8), or generators in cycle notation " \
+	"\"(1 2 3 4), (1 2)\"")
+	{"permgroup", "permgroup", 1, 0, "a permutation group by Schreier-Sims: "
+	    "order (exact, any size), base and strong generators, orbits, "
+	    "abelian, derived and lower central series, solvable, nilpotent, "
+	    "centre", {PGRP("group", " %s")}},
+	{"permelem", "permelem", 1, 0, "is a permutation in the group (sifting, "
+	    "with the word in the transversals as the certificate); its order",
+	    {PGRP("group", " %s"), TX("perm", ", %s", "the permutation: "
+	    "\"(1 2 3)(4 5)\" or \"()\"")}},
+	{"permsub", "permsub", 1, 0, "H in G: subgroup?, normal?, index, normal "
+	    "closure, coset representatives", {PGRP("h", " %s"), PGRP("g",
+	    " in %s")}},
+	{"permhom", "permhom", 1, 0, "does sending G's generators to the given "
+	    "permutations define a homomorphism G -> H", {PGRP("from", " %s"),
+	    PGRP("to", " -> %s"), TX("images", " by %s", "the images of G's "
+	    "generators, in order: \"(), (1 2)\"")}},
+	{"cayley", "cayley", 1, 0, "a finite group by its Cayley table (entries "
+	    "0..n-1): the axioms checked, abelian, element orders, solvable, "
+	    "nilpotent", {ZM_("table", " %s", "the n x n table: row a, column "
+	    "b holds a*b")}},
+#undef PGRP
 #undef GRP
 #undef ZM_
 };
