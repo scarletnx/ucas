@@ -1238,11 +1238,16 @@ basis spirv : c {}
 basis a64 : c    { bic(x, y) = x & ~y; orn(x, y) = x | ~y; eon(x, y) = x xor ~y }
 basis a64sha : a64 { bsl(s, x, y) = (s & x) | (~s & y); eor3(...); bcax(...) }
 basis x86bmi : c { andn(x, y) = ~x & y }
+basis avx512 : x86bmi { ternlog(x, y, z) = lut }
 basis nand   { nand(x, y) = ~(x & y) }
 ```
 
 A gate is declared by its expression over 1-bit inputs, optionally with
-`cost n`.  ucas derives its truth table and which arguments commute from
+`cost n`.  `= lut` declares a truth-table instruction (vpternlog, LOP3):
+any function of its inputs in one step, the table chosen per use and
+printed as vpternlog's immediate (bit `a<<2 | b<<1 | c`).  So `gates maj
+basis avx512` is one `ternlog(a, b, c, 0xe8)`, a 2-bit adder 3 steps and
+a 4:1 multiplexer 3 steps, each proved minimal (README "x86-64").  ucas derives its truth table and which arguments commute from
 the expression; nothing else has to be stated.  `gates` takes functions
 of up to 6 input bits.  It runs iterative deepening on cost with the
 pruning rules of basis.md §5.2 (no duplicate or constant values, ordered
@@ -2228,7 +2233,8 @@ it" before a ```` ```c ```` block.  JSON `c_optimize`, `c_lower`,
 | algebra | a stated lemma: a derivation (IEEE rewrites below) or an interval argument (a 64-bit division whose operands fit 32 bits, a magic-number division) when SAT gives up; the sample is then only a check of the lemma's premises |
 | induction | a loop summed in closed form (below), then the rest proved as above |
 | structural | a rewrite of the program's structure: a strlen scan, a loop rebuilt from its IR |
-| lanes, tested | reserved for the x86 side (intrinsics per lane) and for opted-in, only tested rewrites (none are applied now) |
+| lanes | the vectoriser (below and "x86-64"): every lane of every stored vector proved equal to the scalar value of its iteration, from the intrinsics' lane semantics |
+| tested | reserved for opted-in, only tested rewrites (none are applied now) |
 
 A static function whose address does not escape is entered only from
 this file's calls, so its parameters range over what the calls pass
@@ -2276,10 +2282,11 @@ its loads are inputs, its stores recorded in order):
   becomes a `struct cf_loop`: index, bounds, each array with its alias
   fact (`restrict`, or two distinct arrays: "no alias"), loads and
   stores with their element index, type and order, reductions
-  `acc = next(acc, ...)`.  `c lower` prints it.  When a vectoriser is
-  registered (`cf_set_vectoriser`, the x86 side) it is offered every such
-  loop and may replace it; `vecstub` registers a stub that rebuilds the
-  loop from the IR as scalar C, so `check` validates the extraction.
+  `acc = next(acc, ...)`.  `c lower` prints it.  The x86 vectoriser
+  (`src/cfx86.c`, README "x86-64") is offered every such loop and
+  replaces it with intrinsics when it can prove every lane, or says why
+  not; `vecstub` registers a stub that rebuilds the loop from the IR as
+  scalar C instead, so `check` validates the extraction.
   Whether a load is from before or after a store is part of the IR, so
   aliasing a vectoriser cannot rule out is visible to it.
 
@@ -2314,8 +2321,11 @@ The last two are slower: clang already makes a lookup of the switch and
 recognises the shift loop, and the proved form costs less only under the
 default cost model.  `check` agreed on every call (k1: 80000 calls; k2:
 379687 calls, 313 inputs skipped for UB in the original; k3, mem.c).
-The harness does not time functions that take pointers, and does not
-call functions with float parameters.
+`bench` times functions that take pointers over 4096-element buffers
+(lengths 4096) and the original without the UBSan checks `check` adds
+(they kept clang from vectorising it); the harness does not call
+functions with float parameters (the vectoriser's float loops were
+checked by hand, "x86-64").
 
 Not lowered (the code stays as written, and the report says why): K&R
 definitions, `_Complex`, `long double`, `asm`, `goto`, case labels
@@ -2336,6 +2346,168 @@ degree 2.  Float rewrites are the listed exact identities; there is no
 `check`'s harness passes random values to parameters other than
 lengths, so loops whose trip count is a random parameter take too long
 for it (tests/cfront/loops.c is checked by hand).
+
+## x86-64
+
+Cost models for x86-64 cores, a throughput simulator, an intrinsics
+catalogue with exact lane semantics, x86 gate bases, and the C
+frontend's vectoriser.  Code: `src/x86data.c` (µarchs and costs),
+`x86mca.c`, `x86intr.c` + `x86intr_tab.inc` (the catalogue and
+`x86check`), `x86.c` (commands), `cfx86.c` (the vectoriser),
+`tools/x86bench.c` (the measurements).
+
+| command | |
+|---|---|
+| `x86 models` | the µarchs: `skl` (Skylake client; this host), `skx` (Skylake-X), `glc` (Golden Cove, Sapphire Rapids), `rpl` (Raptor/Alder Lake P-core), `zen4`, and the levels `x86v2`, `x86v3`, `x86v4` |
+| `model NAME` | one µarch: features, ports, and per instruction class (77) latency, reciprocal throughput, uops and ports at xmm, ymm and zmm, each row tagged with its source |
+| `mca F [on M]` | a cycle-level estimate of F's x86 code: critical path, port pressure, front end; loops per iteration |
+| `intrinsic NAME [on M]` | signature, features, class, lane semantics (as ucas expressions, the first and last lane shown), costs |
+| `intrinsics [FILTER] [on M]` | count per feature, or the names matching a substring, a feature or a class |
+| `x86check [FILTER] [n N] [avx512]` | the lane semantics against the host cc's intrinsics |
+
+Each µarch is also an ordinary cost model (`use zen4`, `cost F model
+skl`, `find` under it; its scalar classes are the latencies).  JSON:
+`x86_models`, `x86_model`, `mca`, `intrinsic`, `intrinsics`,
+`x86check`; MCP group `x86`.
+
+**Where the numbers come from.**  The cost tables were typed in from
+uops.info, Agner Fog's instruction tables and the Intel and AMD
+optimisation manuals **from memory, not scraped or copied**: treat
+every number as approximate.  Each row carries a tag (`U` uops.info,
+`A` Agner Fog, `I` Intel, `D` AMD's Zen 4 guide, `M` measured, `E`
+estimate, `V` derived from the ymm row, `G` the worst of the level's
+cores).  About 10 rows were measured on this host (i5-9400, Skylake)
+with `tools/x86bench.c`; Zen 4 and Golden Cove rows tagged `E` are
+estimates.  `mca` does not model caches, mispredictions or memory
+dependences: it is a bound, not a measurement.
+
+**The intrinsics catalogue**: 2585 intrinsics (SSE2 to AVX-512
+F/BW/DQ/VL/CD/VBMI/VPOPCNTDQ/BITALG, FMA, BMI1/2, POPCNT, LZCNT, GFNI,
+PCLMUL, AES), generated from family rows plus irregular ones.  Each has
+its semantics per result lane in a small lane language compiled to ucas
+nodes (so rewrites into intrinsics can be proved), its features and its
+instruction class (whose costs are the µarch's).  AVX-512 masked forms
+are `k[i] ? base : src` (or 0) over the unmasked one.  Memory forms
+(loads, stores, masked ones, gathers) see the pointer as the 64 bytes
+it points at, lanes of its element type; a store's result is that
+memory after it (so the lanes it must not touch are checked too); a
+gather reads element `index * scale / size` (scales below the element
+size are not modelled).  Floating point is IEEE round to nearest even;
+`rcp`/`rsqrt` are the exact values checked within their documented
+error (and `rsqrtps` reads a denormal as a signed zero).
+
+**x86check** compiles every intrinsic with the host cc (one test per
+immediate) and compares its lanes with the semantics evaluated on 64
+random and edge points.  What is validated where:
+
+| | how | result |
+|---|---|---|
+| non-AVX-512 intrinsics | run on this host's hardware (AVX2) | 579 intrinsics, 1955 tests: all agree |
+| AVX-512, most | `x86check avx512`: compiled for every feature, clang's header definitions lowered to generic vector IR and run as AVX2 code here | 1468 intrinsics agree with **clang's definitions**, not with AVX-512 hardware |
+| AVX-512 that call an `llvm.x86.avx512.*` builtin | proved equal, half by half, to the run-validated narrower form of the same name | 42 proved (equal DAGs), 2 only sampled |
+| their mask/maskz forms | composed from a validated base | 268 |
+| the rest | | **201 not validated** (compress/expand, permutexvar, 16-bit and 64-bit variable shifts, 512-bit gathers, ...) |
+
+No AVX-512 hardware or emulator is available: this host is an i5-9400,
+QEMU 11.1's TCG has no AVX-512, and Intel SDE is not installed.  Before
+this work the f32 FMA forms differed in 7 tests: ucas's evaluator
+rounded an f32 fma twice.  `fma32` (src/eval.c) now rounds once (the
+exact product in double, the sum rounded to odd through an exact
+TwoSum, then to float; the derivation is in the comment), and so does
+`fma64`, in integer arithmetic: FreeBSD's libm `fma()` is not
+correctly rounded (`x86check avx512` found
+`fma(-0x1.5af1d78b58c4p+66, -0x1.b428a02b5f643p-121, -1)`, and 2213 of
+10^8 hard cases differ from `vfmadd`).
+
+**Gate bases and find.**  `basis avx512` has vpternlog as a one-step
+gate of 3 inputs (Bases above; basis.md has the LOP3 analysis this
+generalises).  Under an x86 model with BMI1, `find` counts `andn`,
+`blsr`, `blsi`, `blsmsk` as one operation each, and with BMI2 it solves
+`y = pext(x, K)` and `y = pdep(x, K)` for a parameter exactly (a
+subsequence match; a dynamic program), each match proved like every
+other:
+
+```
+> e(x: u16) = ((x >> 3) & 7) | ((x >> 6) & 0x38)
+> use skl
+> find e
+  cost 3   x >> 3 & 7 | x >> 6 & 0x38               pext(x, 0xe38)
+```
+
+**The vectoriser** (`src/cfx86.c`; `c optimize` uses it on every
+counted loop the C frontend extracts):
+
+- *What it takes*: `for (i = lo; i < hi; i++)` with an int-or-wider
+  index and a bound of the index's type that the loop does not change;
+  loads and stores at `i + c`; element-wise values of integer or
+  float/double type; integer reductions `acc = acc op g` (`+ - ^ | &`,
+  min, max, and the `?:` forms of min and max); AVX2/AVX-512 gathers
+  `t[e(i)]` of 32-bit elements.
+- *How*: one intrinsic per node, in lanes of W bits, the narrowest W
+  for which every lane is proved (bytes computed in 16-bit lanes when
+  the C int arithmetic needs more than 8 bits), loads widened with
+  pmovzx/pmovsx and stores narrowed with packs or vpmov; clamps become
+  min/max, `(a + b + 1) >> 1` pavg, multiplies by 2^k±1 shifts and
+  adds.  The vector width is the target's widest (512 with AVX-512F,
+  and BW for 8/16-bit lanes; 256 with AVX2; 128 otherwise); the code is
+  guarded by the features' macros, unrolled by 4, and followed by the
+  scalar loop (rebuilt from the IR) for the remainder and for builds
+  without the features.
+- *Proof* (`lanes`): each vector value carries its lanes as ucas nodes
+  built from the catalogue's lane semantics, operand by operand (the
+  bitwise si forms act on every lane view; reinterpreting a register as
+  other lane widths is a bit cut).  Loads give every lane its own input,
+  so data moving between lanes would show.  Lane j of every store and
+  reduction operand is proved equal to the scalar value at iteration
+  `i + j`: equal DAGs, exhaustively, or by SAT.  A gather's index lanes
+  are proved equal to the scalar index; a min or max read off a `?:` is
+  proved to be one.  Integer reductions are reassociated, which is exact
+  mod 2^n (signed sums are computed unsigned; where C's sum is defined it
+  is that sum).
+- *Memory*: arrays are disjoint by `restrict` or by being distinct
+  arrays (the IR's facts); otherwise the output tests the byte ranges at
+  run time and falls back to the scalar loop.  A store that feeds a
+  later iteration's load, a load after a store to its array, two stores
+  to one array, strided loads, and gathers from an array that may
+  overlap a written one are refused.
+- *Refused, with the reason in the report*: float reductions
+  (reassociation changes the rounding; there is no opt-in), conditional
+  loads and stores (not in the IR), loop-carried dependences, strided
+  access.
+
+`check` compared every vectorised function with the original on 20000
+calls each (tests/cfront/mem.c, vec.c) at x86-64-v3 and x86-64-v2;
+the float loops (`check`'s harness skips float parameters) were
+compared by hand on 20000 random calls with bit-exact results, the
+original compiled with `-ffp-contract=off`: ucas proves each operation
+rounded on its own and its output says `FP_CONTRACT OFF`, while clang's
+default fuses `a * x[i] + y[i]` in the original into an fma (C99 allows
+either), so with the default flags the two differ in the last bit.  For
+AVX-512 targets this host only compiles the vector code (`check` says
+so) and tests the scalar fallback.
+
+Measured with `bench` (i5-9400, cycles per element over 4096 elements,
+median of 15, three runs agreeing within 0.01; other builds were
+running).  The "before" is the original compiled by clang 19 `-O2
+-march=x86-64-v3`, so it is clang's own autovectoriser:
+
+| loop | clang -O2 | vectoriser | |
+|---|---|---|---|
+| `brighten` (u8, `*3/2+10`, clamp) | 0.39 | 0.14 | x2.8: 16-bit lanes where clang uses 32 |
+| `gath` (`t[idx[i] & 63]`) | 0.87 | 0.67 | x1.3: clang does not gather on Skylake |
+| `avg8` (`(a+b+1)>>1`) | 0.05 | 0.04 | pavgb, as clang |
+| `maxv`, `sum64`, `split`, `shift_left` | | | the same |
+| `sum8`, `xorsum` (reductions) | 0.10 | 0.11 | |
+| `add32` (`a + b*3`) | 0.33 | 0.38 | |
+| `invert_low` (`p < 16 ? 15 - p : p`) | 0.05 | 0.06 | |
+| `iota` (`2i + 1`) | 0.16 | 0.22 | |
+| `sat16` (`s*2` saturated to int16) | 0.19 | 0.47 | clang finds `paddsw`; this does it in 32-bit lanes |
+
+So it is mostly no better than `clang -O2 -march=native`'s
+autovectoriser, sometimes worse; it wins where its proofs let it pick
+narrower lanes than C's promotions suggest, and on gathers.  Its cost
+estimates (`cost ... -> ...` in the report) are reciprocal throughputs
+from the model, not measurements.
 
 ## Design
 
