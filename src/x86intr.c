@@ -1239,6 +1239,9 @@ int xi_nops(int id) { return I.nop[id]; }
 int xi_cls(int id) { return I.cls[id]; }
 xfeat xi_feat(int id) { return I.feat[id]; }
 const char *xi_name(int id) { return I.name[id]; }
+/* operand k's kind: 'v' vector, 's' scalar, 'i' immediate, 'k' mask, 'p'
+ * pointer */
+int xi_okind(int id, int k) { return "?vsikp"[I.ok[id][k]]; }
 uint32_t xi_count(void) { x86_intr_init(); return I.n; }
 
 int

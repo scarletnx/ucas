@@ -367,6 +367,7 @@ static struct {
 	char fname[64];
 	int nproofs;
 	uint32_t fnstart;
+	int intrinsics;		/* a vectorised loop: <immintrin.h> */
 } R;
 
 static double
@@ -2021,6 +2022,8 @@ cf_vec_stub(const struct cf_loop *l, const struct cf_target *t,
 			    l->load[k].index, ct_basic(TYK(N.ty[l->load[k].index]) ==
 			    K_UINT ? CT_ULONG : CT_LONG), &ix);
 			sb_printf(&out->text, "\t\tconst %s %s = (%s)[%s];\n",
+			    TYK(l->load[k].ety) == K_FLOAT ? (l->load[k].esize == 4 ?
+			    "float" : "double") :
 			    ty_str(l->load[k].ety)[0] == 'u' ? (l->load[k].esize == 1 ?
 			    "uint8_t" : l->load[k].esize == 2 ? "uint16_t" :
 			    l->load[k].esize == 4 ? "uint32_t" : "uint64_t") :
@@ -2051,6 +2054,7 @@ cf_vec_stub(const struct cf_loop *l, const struct cf_target *t,
 		ok = emit_over(&em, l->nleaf, text, l->leafty, l->rnext[j],
 		    ct_of_ty(rt), &v);
 		sb_printf(&out->text, "\t\tconst %s cf_rn%d = %s;\n",
+		    TYK(rt) == K_FLOAT ? (TYW(rt) == 32 ? "float" : "double") :
 		    TYK(rt) == K_UINT ? (TYW(rt) <= 8 ? "uint8_t" : TYW(rt) <= 16 ?
 		    "uint16_t" : TYW(rt) <= 32 ? "uint32_t" : "uint64_t") :
 		    (TYW(rt) <= 8 ? "int8_t" : TYW(rt) <= 16 ? "int16_t" :
@@ -2133,6 +2137,19 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 		add_repl(from, to, o.text.p ? o.text.p : "", R.fnstart);
 		R.r->cost_before += o.cost_before;
 		R.r->cost_after += o.cost_after;
+		if (o.proof == CF_PROOF_LANES)
+			R.intrinsics = 1;
+		{
+			/* float code: each operation rounded on its own, as
+			 * the proofs assume (no fused a*b + c) */
+			int q;
+			for (q = 0; q < l.nload; q++)
+				if (TYK(l.load[q].ety) == K_FLOAT)
+					em->floats = 1;
+			for (q = 0; q < l.nstore; q++)
+				if (TYK(l.store[q].ety) == K_FLOAT)
+					em->floats = 1;
+		}
 	}
 	free(o.text.p);
 	free_loop(&l);
@@ -2600,6 +2617,8 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 		if (!has_stdint)
 			sb_puts(&r->out, "#include <stdint.h>\n");
 	}
+	if (R.intrinsics)
+		sb_puts(&r->out, "#include <immintrin.h>\n");
 	if (em.need_string && !strstr(u->includes.p ? u->includes.p : "",
 	    "<string.h>"))
 		sb_puts(&r->out, "#include <string.h>\n");

@@ -145,6 +145,7 @@ int xi_cls(int id);
 int xi_vw(int id);
 xfeat xi_feat(int id);
 const char *xi_name(int id);
+int xi_okind(int id, int k);
 
 /* ---- parse.c hook ---- */
 struct P;
