@@ -780,6 +780,63 @@ solve1(nid g, nid x, int slot, const char *xn, const char *eqt)
 			goto numeric;
 		}
 	}
+	/* one square root of a polynomial: isolate, square, drop what squaring added */
+	{
+		int sv = -1, cnt = 0;
+		for (i = 0; i < nat; i++)
+			if ((vs & (1u << i)) && i != xv && has_slot(at_node[i], slot)) {
+				sv = i;
+				cnt++;
+			}
+		if (cnt == 1 && N.op[at_node[sv]] == O_SQRT &&
+		    !((mp_vars(r.d) | mp_vars(dall)) & (1u << sv))) {
+			struct mp qm, P = mp_zero(), A, B, E;
+			struct up e;
+			struct rf qr;
+			atom_of(x);
+			if (rf_of(N.a[at_node[sv]], &qr, NULL) && mp_isconst(qr.d, NULL)) {
+				aq dq;
+				int t;
+				mp_isconst(qr.d, &dq);
+				qm = mp_scale(qr.n, qdiv(qi(1), dq));
+				for (t = 0; t < r.n.n; t++) {
+					struct mp mo;
+					int ex = r.n.t[t].e[sv];
+					mo.n = 1;
+					mo.t = &r.n.t[t];
+					mo = mp_copy(mo);
+					mo.t[0].e[sv] = (uint8_t)(ex & 1);
+					P = mp_add(P, mp_mul(mo, mp_pow(qm, ex / 2)));
+				}
+				A = mp_coef(P, sv, 0);
+				B = mp_coef(P, sv, 1);
+				E = mp_sub(mp_mul(A, A), mp_mul(mp_mul(B, B), qm));
+				if (!alg_ovf && up_of_mp(E, xv, &e) && e.d >= 1) {
+					int j;
+					ar_release(mk);
+					printf("  isolating %s and squaring: %s = 0\n",
+					    node_str(at_node[sv]), up_str(&e, x));
+					roots_up(&e);
+					for (j = 0; j < nS; j++) {
+						int ok;
+						double v = eval_const_at(g, slot, S[j].v, &ok);
+						if (!ok || fabs(v) > 1e-9 * (1 + fabs(S[j].v))) {
+							snprintf(excl + strlen(excl), sizeof excl -
+							    strlen(excl), "%s%s = %s", excl[0] ? ", " : "",
+							    xn, S[j].text);
+							S[j].mult = 0;
+						}
+					}
+					if (excl[0]) {
+						printf("  extraneous (from squaring, the original "
+						    "equation fails): %s\n", excl);
+						excl[0] = 0;
+					}
+					return;
+				}
+			}
+		}
+	}
 	ar_release(mk);
 numeric:
 	printf("  note: no exact method applies; sign changes in [-100, 100], "

@@ -1451,6 +1451,57 @@ factor_sqf(const struct up *g0, struct up *f, int max, int *partial)
 			up_set(&f[n++], &g);
 		return n;
 	}
+	/* cyclotomic factors (x^n - 1 and its kin): Phi_m, irreducible */
+	{
+		static struct up cyc[UD + 1];
+		static int have;
+		int m;
+		if (!have) {
+			int so = alg_ovf;
+			for (m = 1; m <= UD; m++) {
+				struct up xm;
+				int d;
+				xm.d = m;
+				for (d = 0; d <= m; d++)
+					xm.c[d] = qi(0);
+				xm.c[m] = qi(1);
+				xm.c[0] = qi(-1);
+				for (d = 1; d < m; d++)
+					if (m % d == 0)
+						up_divmod(&xm, &cyc[d], &xm, NULL);
+				up_set(&cyc[m], &xm);
+			}
+			alg_ovf = so;
+			have = 1;
+		}
+		for (m = 3; m <= UD && g.d >= 4; m++) {
+			struct up q2, r2;
+			if (cyc[m].d < 2 || cyc[m].d >= g.d)
+				continue;
+			up_divmod(&g, &cyc[m], &q2, &r2);
+			if (r2.d < 0 && !alg_ovf) {
+				if (n < max)
+					up_set(&f[n++], &cyc[m]);
+				up_set(&g, &q2);
+			}
+		}
+		if (g.d <= 3) {
+			if (g.d >= 1 && n < max)
+				up_set(&f[n++], &g);
+			return n;
+		}
+		/* g itself cyclotomic? */
+		for (m = 3; m <= UD; m++)
+			if (cyc[m].d == g.d) {
+				struct up t;
+				up_sub(&t, &g, &cyc[m]);
+				if (t.d < 0) {
+					if (n < max)
+						up_set(&f[n++], &g);
+					return n;
+				}
+			}
+	}
 	for (k = 2; k <= g.d / 2; k++) {
 		struct up h, q;
 		int r = kronecker(&g, k, &h);

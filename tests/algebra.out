@@ -33,6 +33,11 @@ factor x^4 + 1
   = x^4 + 1
   check: exact (both sides have the same normal form)
   (factors are irreducible over the rationals)
+> factor x^30 - 1
+factor x^30 - 1
+  = (x - 1)*(x + 1)*(x^2 + x + 1)*(x^2 - x + 1)*(x^4 + x^3 + x^2 + x + 1)*(x^4 - x^3 + x^2 - x + 1)*(x^8 - x^7 + x^5 - x^4 + x^3 - x + 1)*(x^8 + x^7 - x^5 - x^4 - x^3 + x + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
 > factor x^3 + y^3
 factor x^3 + y^3
   = (x + y)*(x^2 - x*y + y^2)
@@ -259,8 +264,13 @@ x^2 + y with x = 2, y = 3
 > integrate x*cos(x)^2
 ∫ x*cos(x)^2 dx
   = x^2/4 + x*sin(2x)/4 + cos(2x)/8 + C
-  method: product to sum (x/2 + x*cos(2x)/2), then by parts
+  method: product to sum: x/2 + x*cos(2x)/2, then by parts
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-15)
+> integrate sin(x)*cos(2x)
+∫ sin(x)*cos(2x) dx
+  = cos(x)/2 - cos(3x)/6 + C
+  method: product to sum: sin(3x)/2 - sin(x)/2
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 9.4e-16)
 > integrate 1/(1+exp(x))
 ∫ 1/(exp(x) + 1) dx
   = x - log(abs(exp(x) + 1)) + C
@@ -422,6 +432,19 @@ solve exp(x^2) = 3 for x
   ucas: solve sin(x) = 2
 solve sin(x) = 2 for x
   no real solution: sin(x) never takes the value 2
+> solve sqrt(x+1) = x - 1
+  ucas: solve sqrt(x+1) = x - 1
+solve sqrt(x+1) = x - 1 for x
+  isolating sqrt(x + 1) and squaring: x^2 - 3x = 0
+  extraneous (from squaring, the original equation fails): x = 0
+  x = 3
+  check: each solution substituted (1 value): residual 0
+> solve abs(x - 2) = 3
+  ucas: solve abs(x - 2) = 3
+solve abs(x - 2) = 3 for x
+  x = 5
+  x = -1
+  check: each solution substituted (2 values): residual 0
 > solve x + y = 3, x - y = 1
   ucas: solve x + y = 3, x - y = 1
 solve x + y = 3, x - y = 1 for x, y

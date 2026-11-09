@@ -931,6 +931,8 @@ walk(nid e, nid *c, int *nc, int max, int depth)
 	walk(N.b[e], c, nc, max, depth + 1);
 }
 
+static nid multi_angle(nid f, int *mixed);
+
 /* R(sin u, cos u) with u = a x + b: Bioche */
 static nid
 trig_int(nid f, nid x)
@@ -943,6 +945,10 @@ trig_int(nid f, nid x)
 	nid T = x, res = 0;
 	const char *how = NULL;
 
+	{
+		int mixed;
+		f = multi_angle(f, &mixed);
+	}
 	walk(f, fn, &nf, 24, 0);
 	for (i = 0; i < nf; i++) {
 		int op = N.op[fn[i]];
@@ -1141,6 +1147,85 @@ out:
 	return res;
 }
 
+/*
+ * sin(k u), cos(k u) ... (k integer) written in sin u, cos u with u = g x,
+ * g the gcd of the slopes: sin x cos 2x -> sin x (cos^2 x - sin^2 x).
+ * Returns f unchanged when every argument is the same.
+ */
+static nid
+multi_angle(nid f, int *mixed)
+{
+	nid fn[24], g = f;
+	int nf = 0, i, nt = 0;
+	aq gq = qi(0), sl[24];
+	double a0 = 0;
+
+	*mixed = 0;
+	walk(f, fn, &nf, 24, 0);
+	for (i = 0; i < nf; i++) {
+		int op = N.op[fn[i]];
+		double a, b;
+		if (op != O_SIN && op != O_COS && op != O_TAN && op != O_SEC &&
+		    op != O_CSC && op != O_COT)
+			continue;
+		if (!lin_in(N.a[fn[i]], &a, &b) || b != 0 || !qexact(a, &sl[i]))
+			return f;
+		if (nt++ && a != a0)
+			*mixed = 1;
+		a0 = a;
+		if (gq.n == 0)
+			gq = sl[i];
+		else {
+			int64_t L = lcm64(gq.d, sl[i].d);
+			gq = qmk(gcd64(gq.n * (L / gq.d), sl[i].n * (L / sl[i].d)), L);
+		}
+	}
+	if (!*mixed)
+		return f;
+	{
+		nid u = qmul_node(gq, I_x), S = mk_un(O_SIN, u), C = mk_un(O_COS, u);
+		int sn = nat;
+		nid sa[AV];
+		size_t mk = ar_mark();
+		memcpy(sa, at_node, sizeof sa);
+		atoms_reset();
+		atom_of(S);
+		atom_of(C);
+		for (i = 0; i < nf; i++) {
+			int op = N.op[fn[i]], k, j;
+			struct mp re, im, t;
+			nid sn2, cn2, rep;
+			aq kq;
+			if (op != O_SIN && op != O_COS && op != O_TAN && op != O_SEC &&
+			    op != O_CSC && op != O_COT)
+				continue;
+			kq = qdiv(sl[i], gq);
+			k = (int)kq.n;
+			if (kq.d != 1 || llabs(kq.n) > 12)
+				continue;
+			re = mp_const(qi(1));
+			im = mp_zero();
+			for (j = 0; j < (k < 0 ? -k : k); j++) {
+				t = mp_sub(mp_mul(re, mp_atom(1)), mp_mul(im, mp_atom(0)));
+				im = mp_add(mp_mul(re, mp_atom(0)), mp_mul(im, mp_atom(1)));
+				re = t;
+			}
+			if (k < 0)
+				im = mp_neg(im);
+			sn2 = mp_node(im);
+			cn2 = mp_node(re);
+			rep = op == O_SIN ? sn2 : op == O_COS ? cn2 : op == O_TAN ?
+			    DIV(sn2, cn2) : op == O_SEC ? DIV(KR(1), cn2) : op == O_CSC ?
+			    DIV(KR(1), sn2) : DIV(cn2, sn2);
+			g = rsub(g, fn[i], rep, 0);
+		}
+		ar_release(mk);
+		nat = sn;
+		memcpy(at_node, sa, sizeof sa);
+	}
+	return g;
+}
+
 /* P(x) times a polynomial in sin u, cos u: product to sum, then by parts */
 #define TK 24
 struct tpoly {
@@ -1181,12 +1266,13 @@ static nid
 triglin_int(nid f, nid x)
 {
 	nid fn[24], u = 0, S, C, sum = 0;
-	int nf = 0, i, sv, cv, xv, ii, k;
+	int nf = 0, i, sv, cv, xv, ii, k, mixed;
 	double a, b;
 	struct rf r;
 	size_t mk;
 	aq dc;
 
+	f = multi_angle(f, &mixed);
 	walk(f, fn, &nf, 24, 0);
 	for (i = 0; i < nf; i++) {
 		int op = N.op[fn[i]];
@@ -1195,7 +1281,7 @@ triglin_int(nid f, nid x)
 				u = N.a[fn[i]];
 			else if (N.a[fn[i]] != u)
 				return 0;
-		} else
+		} else if (op != O_NEG)
 			return 0;
 	}
 	if (u == 0 || !lin_in(u, &a, &b))
@@ -1208,41 +1294,57 @@ triglin_int(nid f, nid x)
 	sv = atom_of(S);
 	cv = atom_of(C);
 	if (!rf_of(f, &r, NULL) || !mp_isconst(r.d, &dc) ||
-	    !(mp_vars(r.n) & (1u << xv)) || (mp_vars(r.n) & ~7u)) {
+	    (!(mp_vars(r.n) & (1u << xv)) && !mixed) || (mp_vars(r.n) & ~7u)) {
 		ar_release(mk);
 		return 0;
 	}
-	for (ii = 0; ii < r.n.n; ii++) {
-		struct tpoly t;
-		int e0 = r.n.t[ii].e[xv];
-		if (r.n.t[ii].e[sv] + r.n.t[ii].e[cv] >= TK) {
-			ar_release(mk);
-			return 0;
+	{
+		static struct tpoly acc[16];
+		int e0max = -1, e0;
+		for (ii = 0; ii < r.n.n; ii++) {
+			struct tpoly t;
+			e0 = r.n.t[ii].e[xv];
+			if (r.n.t[ii].e[sv] + r.n.t[ii].e[cv] >= TK || e0 >= 16) {
+				ar_release(mk);
+				return 0;
+			}
+			for (; e0max < e0; e0max++)
+				for (k = 0; k <= TK; k++)
+					acc[e0max + 1].c[k] = acc[e0max + 1].s[k] = qi(0);
+			for (k = 0; k <= TK; k++)
+				t.c[k] = t.s[k] = qi(0);
+			t.c[0] = qdiv(r.n.t[ii].c, dc);
+			for (k = 0; k < r.n.t[ii].e[sv]; k++)
+				tp_mul1(&t, 1);
+			for (k = 0; k < r.n.t[ii].e[cv]; k++)
+				tp_mul1(&t, 0);
+			for (k = 0; k <= TK; k++) {
+				acc[e0].c[k] = qadd(acc[e0].c[k], t.c[k]);
+				acc[e0].s[k] = qadd(acc[e0].s[k], t.s[k]);
+			}
 		}
-		for (k = 0; k <= TK; k++)
-			t.c[k] = t.s[k] = qi(0);
-		t.c[0] = qdiv(r.n.t[ii].c, dc);
-		for (k = 0; k < r.n.t[ii].e[sv]; k++)
-			tp_mul1(&t, 1);
-		for (k = 0; k < r.n.t[ii].e[cv]; k++)
-			tp_mul1(&t, 0);
-		for (k = 0; k <= TK; k++) {
-			nid xp = e0 == 0 ? KR(1) : e0 == 1 ? x : POW(x, KI(e0));
-			nid arg = k == 1 ? u : MUL(KR(k), u);
-			if (t.c[k].n)
-				sum = sum ? ADD(sum, qmul_node(t.c[k], k ? MUL(xp,
-				    mk_un(O_COS, arg)) : xp)) : qmul_node(t.c[k], k ? MUL(xp,
-				    mk_un(O_COS, arg)) : xp);
-			if (k && t.s[k].n)
-				sum = sum ? ADD(sum, qmul_node(t.s[k], MUL(xp, mk_un(O_SIN,
-				    arg)))) : qmul_node(t.s[k], MUL(xp, mk_un(O_SIN, arg)));
-		}
+		for (e0 = e0max; e0 >= 0; e0--)
+			for (k = 0; k <= TK; k++) {
+				nid xp = e0 == 0 ? KR(1) : e0 == 1 ? x : POW(x, KI(e0));
+				nid arg = k == 1 ? u : MUL(KR(k), u), t;
+				if (acc[e0].c[k].n) {
+					t = qmul_node(acc[e0].c[k], k ? (e0 ? MUL(xp,
+					    mk_un(O_COS, arg)) : mk_un(O_COS, arg)) : xp);
+					sum = sum ? ADD(sum, t) : t;
+				}
+				if (k && acc[e0].s[k].n) {
+					t = qmul_node(acc[e0].s[k], e0 ? MUL(xp, mk_un(O_SIN,
+					    arg)) : mk_un(O_SIN, arg));
+					sum = sum ? ADD(sum, t) : t;
+				}
+			}
 	}
 	ar_release(mk);
 	if (sum == 0 || alg_ovf || I_depth > 3)
 		return 0;
-	snprintf(notebuf, sizeof notebuf, "product to sum (%s), then by parts",
-	    node_str(sum));
+	snprintf(notebuf, sizeof notebuf, "product to sum: %s%s",
+	    node_str(sum), has_x(sum) && (mp_vars(r.n) & (1u << xv)) ?
+	    ", then by parts" : "");
 	{
 		nid F = antideriv(sum, I_slot, NULL);
 		if (F)
