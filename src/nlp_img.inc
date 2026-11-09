@@ -100,7 +100,8 @@ si_wanted(struct si_tok *t, int n, int animate)
 	    "colored", "coloured", NULL};
 	static const char *const no[] = {"simplify", "simplified", "optimize",
 	    "optimise", "optimized", "optimised", "peephole", "cheaper",
-	    "prove", "simplification", "optimization", "superoptimize", NULL};
+	    "prove", "simplification", "optimization", "superoptimize",
+	    "faster", "quicker", "speedup", "smt", "sat", NULL};
 	int i, verb = 0, eng = 0;
 
 	for (i = 0; i < n; i++) {

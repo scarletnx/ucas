@@ -1,0 +1,51 @@
+# "SAT simplify" (and the other simplify phrasings) on C: the C frontend
+# (c optimize), not SPIR-V; options from the words
+SAT simplify
+```c
+unsigned f(unsigned x) { return (x * 8) / 4; }
+```
+make it faster for zen4 with n in [0, 32)
+```C
+unsigned rot(unsigned x, unsigned n) { return (x >> n) | (x << ((32 - n) & 31)); }
+unsigned shr(unsigned x, unsigned n) { return n < 32 ? x >> n : 0; }
+```
+peephole with smt, budget 20
+```h
+static inline unsigned char lo4(unsigned x) { return (unsigned char)(x & 15); }
+```
+# untagged: C by its types
+simplify this
+```
+#include <stdint.h>
+uint32_t div7(uint32_t x) { return x / 7; }
+```
+# untagged, either language: GLSL, with a note
+simplify this nofile
+```
+int twice(int x) { return x + x; }
+```
+# GLSL tagged ```c for its colours stays GLSL
+SAT simplify nofile
+```c
+uint Unorm16To8(uint c) {
+    return (c * 255u + 32895u) >> 16u;
+}
+```
+# ```glsl is GLSL
+optimize this nofile
+```glsl
+uint f(uint x) { return (x * 8u) / 4u; }
+```
+# a bare block, no words: not used (as for SPIR-V and GLSL)
+```c
+unsigned g(unsigned x) { return x / 2; }
+```
+```spv
+%a = OpUDiv %uint %x %uint_2
+OpStore %out %a
+```
+# "lower" still lowers
+lower this C
+```c
+int avg(int a, int b) { return (a + b) / 2; }
+```

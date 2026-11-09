@@ -448,6 +448,10 @@ void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
 int glsl_like(const char *code, const char *lang);
+/* codelang.c: a code block's language, from its tag and its content;
+ * *unclear: 1 untagged and could be either, 2 a ```c block of GLSL */
+enum { CL_NONE, CL_SPV, CL_GLSL, CL_C };
+int code_lang(const char *code, const char *lang, int *unclear);
 int spv_disassemble(const char *data, size_t n, struct sbuf *out);
 int tool_run(char *const argv[], struct sbuf *out);
 int tool_tmp(char *tmpl, const char *data, size_t n);
