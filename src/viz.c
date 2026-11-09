@@ -492,8 +492,12 @@ recog(double v)
 			snprintf(b, 64, "0");
 			return b;
 		}
-		if (!q_from_double(u, &q) || q.d > 1000 || fabs((double)q.n / q.d -
-		    u) > 1e-10 * fmax(1, fabs(u)))
+		for (q.d = 1; q.d <= 1000; q.d++) {
+			q.n = (int64_t)llround(u * q.d);
+			if (fabs((double)q.n / q.d - u) <= 1e-10 * fmax(1, fabs(u)))
+				break;
+		}
+		if (q.d > 1000)
 			continue;
 		if (k == 0 && q.d == 1)
 			snprintf(b, 64, "%lld", (long long)q.n);
@@ -605,6 +609,10 @@ defined_on(nid e, double a, double b)
 struct integ {
 	double v, err;		/* numeric */
 	int good, nev;
+	int trim;		/* singular at an end: the ends trimmed */
+	int improper;		/* F's limit at an end */
+	int diverge;		/* F grows without bound at a (1) or b (2) */
+	double tdiff;
 	int exact;		/* from the antiderivative */
 	double ve;
 	nid F;
@@ -616,19 +624,58 @@ integrate(nid e, double a, double b, struct integ *I, int want_exact)
 {
 	memset(I, 0, sizeof *I);
 	I->good = gk_integrate(&R.f, e, 0, a, b, &I->v, &I->err, &I->nev);
+	if (!I->good) {
+		/*
+		 * sqrt(1 - x^2)' at 1: an end that is singular but integrable
+		 * gives the same value with the ends trimmed by 1e-6 and 1e-9 of
+		 * the interval; a divergent one or one inside does not
+		 */
+		double v6, v9, e6, e9, d6 = 1e-6 * (b - a), d9 = 1e-9 * (b - a);
+		int n6, n9, g6 = gk_integrate(&R.f, e, 0, a + d6, b - d6, &v6, &e6,
+		    &n6), g9 = gk_integrate(&R.f, e, 0, a + d9, b - d9, &v9, &e9,
+		    &n9);
+		if (g6 && g9 && fabs(v9 - v6) <= 1e-2 * fabs(v9) + 1e-12) {
+			I->good = 1;
+			I->trim = 1;
+			I->v = v9;
+			I->tdiff = fabs(v9 - v6);
+			I->err = e9 + I->tdiff;
+			I->nev = n6 + n9;
+		}
+	}
 	if (!want_exact)
 		return;
 	I->F = antideriv(e, 0, NULL);
 	notes_drop();
-	if (I->F && defined_on(e, a, b)) {
-		int o1, o2;
-		double fa = eval_const_at(I->F, 0, a, &o1);
-		double fb = eval_const_at(I->F, 0, b, &o2);
-		if (o1 && o2) {
+	if (I->F && (defined_on(e, a, b) || defined_on(e, a + 1e-9 * (b - a),
+	    b - 1e-9 * (b - a)))) {
+		double fe[2], x[2] = {a, b};
+		int k, ok = 1;
+		/* an end where F is undefined: its limit, or the integral diverges */
+		for (k = 0; k < 2; k++) {
+			int o, o6, o9;
+			double s = k ? -1 : 1, f6, f9;
+			fe[k] = eval_const_at(I->F, 0, x[k], &o);
+			if (o)
+				continue;
+			f6 = eval_const_at(I->F, 0, x[k] + s * 1e-6 * (b - a), &o6);
+			f9 = eval_const_at(I->F, 0, x[k] + s * 1e-12 * (b - a), &o9);
+			if (o6 && o9 && fabs(f9 - f6) <= 1e-3 * (1 + fabs(f6))) {
+				fe[k] = f9;
+				I->improper = 1;
+				continue;
+			}
+			ok = 0;
+			if (o6 && o9 && fabs(f9) > fabs(f6)) {
+				I->diverge = k + 1;
+				I->good = 0;
+			}
+		}
+		if (ok) {
 			I->exact = 1;
-			I->ve = fb - fa;
+			I->ve = fe[1] - fe[0];
 			/* sin(2pi) is 2.4e-16: rounding, not a value */
-			if (fabs(I->ve) < 1e-13 * fmax(fabs(fa) + fabs(fb), last_max *
+			if (fabs(I->ve) < 1e-13 * fmax(fabs(fe[0]) + fabs(fe[1]), last_max *
 			    fabs(b - a)))
 				I->ve = 0;
 		}
@@ -649,21 +696,29 @@ print_integ(const char *indent, const struct integ *I, double a, double b,
 	if (I->F)
 		printf("%santiderivative: %s\n", indent, node_str(I->F));
 	if (I->exact)
-		printf("%sexact: F(%s) - F(%s) = %s\n", indent, btxt(b), btxt(a),
-		    full(I->ve));
-	else if (I->F)
+		printf("%sexact: F(%s) - F(%s) = %s%s\n", indent, btxt(b), btxt(a),
+		    full(I->ve), I->improper ? " (an improper integral: F's limit "
+		    "at the end where it is undefined)" : "");
+	else if (I->diverge)
+		printf("%sdiverges: F = %s grows without bound towards %s = %s\n",
+		    indent, node_str(I->F), xname(), btxt(I->diverge == 1 ? a : b));
+	else if (I->F && !I->diverge)
 		printf("%s(the antiderivative is not defined across the interval: "
 		    "numeric only)\n", indent);
 	else
 		printf("%sno antiderivative found: numeric only\n", indent);
 	if (I->good) {
+		if (I->trim)
+			printf("%s(singular at an end but integrable: the ends trimmed by "
+			    "1e-6 and 1e-9 of the interval give values %.2g apart)\n",
+			    indent, I->tdiff);
 		printf("%snumeric (adaptive Gauss-Kronrod 7-15, %d evaluations): "
 		    "%.15g, estimated error %.2g\n", indent, I->nev, I->v * scale,
 		    I->err * fabs(scale));
 		if (I->exact)
 			printf("%sthe two agree to %.2g\n", indent, fabs(I->v - I->ve) *
 			    fabs(scale));
-	} else
+	} else if (!I->diverge)
 		printf("%snumeric: the integrand is undefined or infinite inside "
 		    "the interval (singular or divergent)\n", indent);
 }
@@ -1018,6 +1073,14 @@ r_sum(int n, int kind, const double *fv)
 		for (i = 0; i + 2 <= n; i += 2)
 			s += (fv[i] + 4 * fv[i + 1] + fv[i + 2]) / 3;
 	}
+	{	/* -1.7e-16 for a sum of +1 and -1: rounding, 0 */
+		double m = 0;
+		for (i = 0; i < 2 * n + 1; i++)
+			if (isfinite(fv[i]))
+				m = fmax(m, fabs(fv[i]));
+		if (fabs(s) < 1e-13 * m * n)
+			s = 0;
+	}
 	return s * h;
 }
 
@@ -1195,7 +1258,13 @@ area_chart(struct pr_ax *A, int x0, int y0, int w, int h, const char *title,
 	snprintf(lab[nl], 80, "%s", R.fl);
 	col[nl] = 0;
 	sty[nl++] = 0;
-	if (R.ng) {
+	if (isnan(ac->pos)) {
+		if (R.ng) {
+			snprintf(lab[nl], 80, "%s", R.gl);
+			col[nl] = 1;
+			sty[nl++] = 0;
+		}
+	} else if (R.ng) {
 		snprintf(lab[nl], 80, "%s", R.gl);
 		col[nl] = 1;
 		sty[nl++] = 0;
@@ -1210,13 +1279,16 @@ area_chart(struct pr_ax *A, int x0, int y0, int w, int h, const char *title,
 			sty[nl++] = 2;
 		}
 	} else if (ac->sweep) {
+		/* the running area */
 		snprintf(lab[nl], 80, "A(%s) = %s", pr_g4(cut), pr_g4(ac->run));
 		col[nl] = ac->run < 0 ? 3 : 0;
 		sty[nl++] = 2;
 	} else if (!ac->rn) {
-		snprintf(lab[nl], 80, "above the axis: %s", pr_g4(ac->pos));
-		col[nl] = 0;
-		sty[nl++] = 2;
+		if (ac->pos != 0 || ac->neg == 0) {
+			snprintf(lab[nl], 80, "above the axis: %s", pr_g4(ac->pos));
+			col[nl] = 0;
+			sty[nl++] = 2;
+		}
 		if (ac->neg != 0) {
 			snprintf(lab[nl], 80, "below the axis: %s", pr_g4(ac->neg));
 			col[nl] = 3;
@@ -1261,6 +1333,19 @@ area_cmd(void)
 	integrate(e, R.a, R.b, &I, 1);
 	print_integ("  ", &I, R.a, R.b, 1);
 	exact_v = ival(&I);
+	if (!I.good && !I.exact) {
+		if (!I.diverge)
+			printf("  the integral does not exist as a number: %s is singular "
+			    "or undefined inside [%s, %s]\n", R.ng ? "f - g" : R.fl,
+			    btxt(R.a), btxt(R.b));
+		if (R.rkind || R.accum) {
+			printf("  note: no Riemann sums or accumulation of a divergent "
+			    "integral\n");
+			R.rkind = RM_NONE;
+			R.accum = 0;
+		}
+		exact_v = NAN;
+	}
 	/* the parts above and below */
 	nz = zeros_of(e, R.a, R.b, z, 64);
 	npts = 0;
@@ -1298,12 +1383,14 @@ area_cmd(void)
 			pos += v;
 		else
 			neg += v;
-		if (npts > 2)
+		if (npts > 2 && exact_v == exact_v)
 			printf("    on [%s, %s]: %s\n", btxt(pts[k]), btxt(pts[k + 1]),
 			    val_text(v, ex));
 	}
 	abs_area = pos - neg;
-	if (R.ng) {
+	if (!(exact_v == exact_v)) {
+		pos = neg = abs_area = NAN;
+	} else if (R.ng) {
 		printf("  %s above %s: %s; %s above %s: %s\n", R.fl, R.gl,
 		    val_text(pos, allexact), R.gl, R.fl, val_text(-neg, allexact));
 		printf("  area between the curves (∫ |f - g|): %s; signed integral "
@@ -1506,7 +1593,10 @@ area_cmd(void)
 		return;
 	}
 	pr_clear();
-	if (R.ng)
+	if (!(exact_v == exact_v))
+		snprintf(title, sizeof title, "%s from %s to %s: singular, no value",
+		    R.ng ? "f - g" : R.fl, btxt(R.a), btxt(R.b));
+	else if (R.ng)
 		snprintf(title, sizeof title, "between %s and %s from %s to %s: area "
 		    "%s", R.fl, R.gl, btxt(R.a), btxt(R.b), val_text(abs_area,
 		    allexact));
@@ -1786,6 +1876,10 @@ sq(nid e, int dom)
 		    mk_un(O_COS, MUL(KR(2), mk_cast(TY_REAL, a)))));
 	if (op == O_EXP)
 		return mk_un(O_EXP, MUL(KR(2), mk_cast(TY_REAL, a)));
+	if (op == O_ADD || op == O_SUB) {	/* (a + b)^2, term by term */
+		nid b = N.b[e];
+		return mk_bin(op, ADD(sq(a, dom), sq(b, dom)), MUL(KR(2), MUL(a, b)));
+	}
 	return MUL(e, e);
 }
 
@@ -1939,14 +2033,17 @@ solid_numbers(struct solid *so, int print, int what)
 	so->Vo = vol_grid_other();
 	if (use_shell && so->straddle)
 		so->V = so->Vo, so->exact = 0;
-	if (print) {
+	if (print && use_shell && so->straddle)
+		printf("  the solid (the union of the two sides), by washers in y on "
+		    "a grid: V ≈ %.6g\n", so->V);
+	else if (print) {
 		double rel = fabs(so->Vo - so->V) / fmax(fabs(so->V), 1e-300);
 		printf("  check: %s on a grid: V ≈ %.6g (relative difference %.1g%s)\n",
 		    use_shell ? "washers in y" : "shells in the radius", so->Vo, rel,
 		    rel < 2e-3 ? ", the grid's resolution" : ": MORE than the grid's "
 		    "resolution");
-		if (use_shell && so->straddle)
-			printf("  volume (the union, from the grid): %.6g\n", so->V);
+	}
+	if (print) {
 		printf("  volume: %s%s\n", val_text(so->V, so->exact), so->exact ?
 		    " (exact)" : " (numeric)");
 	}
@@ -1975,6 +2072,7 @@ surface:
 
 static int ramp0;
 static int VW, VH;		/* the canvas */
+static double light_turn;	/* the view's turn since the start */
 
 static void
 ramps(unsigned char pal[256][3])
@@ -2184,6 +2282,11 @@ solid_draw(const struct view *v, const struct bnd *B, double th1)
 
 	for (k = 0; k < 3; k++)
 		L[k] = L0[k] / ll;
+	{	/* the light turns with the eye (rotate) */
+		double c = cos(light_turn), sn = sin(light_turn), lx = L[0], lz = L[2];
+		L[0] = lx * c + lz * sn;
+		L[2] = -lx * sn + lz * c;
+	}
 	for (i = 0; i + 1 < B->n; i++) {
 		int part = B->part[i + 1] == 2 || B->part[i] != B->part[i + 1] ? 2 :
 		    B->part[i];
@@ -2615,6 +2718,7 @@ revolve_cmd(int what)
 	gif_begin(&g, VW, VH, (const unsigned char (*)[3])pal, np);
 	fps = R.fps ? R.fps : 12;
 	K = R.frames ? R.frames : 36;
+	light_turn = 0;
 	if (R.still) {
 		revolve_frame(&v, B, &S, 2 * M_PI, 0, NULL);
 		gif_frame(&g, pr_pixels(), 0);
@@ -2636,6 +2740,7 @@ revolve_cmd(int what)
 			for (k = 1; k <= K; k++) {
 				int d = k == K ? 150 : delay_cs(k, fps);
 				v.V.az = az0 + 2 * M_PI * k / K;
+				light_turn = 2 * M_PI * k / K;
 				revolve_frame(&v, B, &S, 2 * M_PI, 0, "turning");
 				gif_frame(&g, pr_pixels(), d);
 				nfr++;
