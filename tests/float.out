@@ -6,7 +6,7 @@ fit guess to rsqrt (max relative error, 4096 sample points):
   objective 0.0342066
   asfloat(1597465581 - (asuint(x) >> 1))
   max abs error 0.341896 at x=0.0100000007
-  max rel error 0.0342164 (3.422%) at x=59.6959572
+  max rel error 0.0342164 (3.42%) at x=59.6959572
   mean rel error 0.0231791 over 65536 points
   max 564234 ulp
 > find rsqrt 2

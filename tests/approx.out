@@ -43,7 +43,7 @@ approx sin(x) on [-1.57079637, 1.57079637] as f32, fma
 > error ap3 ~ s
 error of ap3 against s:
   max abs error 5.96046e-08 at x=0.814775467
-  max rel error 1.18475e-07 (0.000%) at x=0.527182758
+  max rel error 1.18475e-07 (1.18e-05%) at x=0.527182758
   mean rel error 1.54859e-10 over 65536 points
   max 1 ulp
 > cost ap3

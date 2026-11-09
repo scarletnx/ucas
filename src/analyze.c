@@ -1545,7 +1545,7 @@ print_err(const struct errst *e, ty_t ta)
 {
 	printf("  max abs error %.6g at %s\n", e->maxabs,
 	    e->wabs.n ? e->wabs.p : "-");
-	printf("  max rel error %.6g (%.3f%%) at %s\n", e->maxrel,
+	printf("  max rel error %.6g (%.3g%%) at %s\n", e->maxrel,
 	    e->maxrel * 100, e->wrel.n ? e->wrel.p : "-");
 	printf("  mean rel error %.6g over %llu points\n",
 	    e->n ? e->sumrel / (double)e->n : 0, (unsigned long long)e->n);

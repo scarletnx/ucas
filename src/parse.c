@@ -999,6 +999,10 @@ infer_param_type(struct P *p, uint32_t from, int *why)
 			depth--;
 		if ((k == T_NL && depth <= 0) || k == T_EOF)
 			break;
+		/* in a command, '~' and option words end the expression */
+		if (p->cmdargs && depth <= 0 && (k == T_TILDE ||
+		    word_in(p, i, stopwords)))
+			break;
 		if (k == T_AMP || k == T_XOR || k == T_SHL || k == T_SHR ||
 		    k == T_PCT || k == T_TILDE || k == T_LB) {
 			*why = 1;
@@ -1015,24 +1019,21 @@ infer_param_type(struct P *p, uint32_t from, int *why)
 static void
 parse_bound(struct P *p, int64_t *iv, double *rv, int *isreal)
 {
-	int neg = accept(p, T_MINUS);
+	/* any constant expression: -pi/2, 1e-3, 2^16 - 1 */
+	struct func *saved = p->fn;
 	nid v;
 
-	if (pk(p) == T_ID && (is_kw(p, "inf") || is_kw(p, "pi"))) {
-		v = value_name(p, ttext(p, p->i, &(size_t){0}),
-		    p->t->len[p->i]);
-		adv(p);
-	} else {
-		if (pk(p) != T_NUM)
-			fail("expected a number for the range bound");
-		v = number(p);
-	}
+	p->fn = NULL;
+	v = parse_expr(p, BP_CMP + 1);
+	p->fn = saved;
+	if (!is_const(v))
+		fail("a range bound must be a constant expression");
 	if (TY_FP(N.ty[v])) {
 		*isreal = 1;
-		*rv = neg ? -N.kr[v] : N.kr[v];
+		*rv = N.kr[v];
 		*iv = (int64_t)*rv;
 	} else {
-		*iv = neg ? -N.ki[v] : N.ki[v];
+		*iv = N.ki[v];
 		*rv = (double)*iv;
 	}
 }
@@ -1225,6 +1226,7 @@ static struct func *
 cmd_func(struct P *p)
 {
 	static uint32_t anon;
+	static unsigned anon_turn;
 	struct func *f, tmp;
 	uint32_t at = p->i;
 	int why;
@@ -1237,15 +1239,15 @@ cmd_func(struct P *p)
 		adv(p);
 		return f;
 	}
-	if (!anon)
-		anon = sym_cstr("_");
+	/* a command takes at most two anonymous functions: alternate slots */
+	anon = sym_cstr(anon_turn++ & 1 ? "_2" : "_");
 	memset(&tmp, 0, sizeof tmp);
 	tmp.name = anon;
 	tmp.anon = 1;
 	p->fn = &tmp;
 	p->autop = 1;
-	p->autoty = infer_param_type(p, p->i, &why);
 	p->cmdargs = 1;
+	p->autoty = infer_param_type(p, p->i, &why);
 	tmp.body = parse_expr(p, 0);
 	p->cmdargs = 0;
 	p->autop = 0;
