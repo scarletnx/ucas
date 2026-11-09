@@ -24,6 +24,7 @@
 #include "prove.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 #include "viz.h"
 #include "xform.h"
 
@@ -1873,6 +1874,8 @@ statement(struct P *p)
 	if (pk(p) == T_ID && ring_command(p))
 		return;
 	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */
+		return;
+	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
 		return;
 	if (hyper_hook(p))
 		return;
