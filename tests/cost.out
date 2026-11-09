@@ -9,6 +9,8 @@ cost of rsqrt under gt1030: 18 (2 operations, shared subterms counted once)
     where y = asfloat(0x5f3759df - (asuint(x) >> 1))
 > cost quake
 cost of quake under gt1030: 8 (9 operations, shared subterms counted once)
+  shared subterms (named once, used below):
+    y = asfloat(1597463007 - (asuint(x) >> 1))
   iadd             1 x 1     = 1
   shift            1 x 2     = 2
   bitcast          2 x 0     = 0

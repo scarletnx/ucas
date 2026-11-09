@@ -27,6 +27,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* notes (from parsing) come before the answer */
 #define printf(...) (notes_flush(), printf(__VA_ARGS__))
@@ -1375,13 +1376,49 @@ cmd_selftest(char *s)
 		}
 		z_release(mk);
 	}
+	/* integers: identities on random numbers of 1 .. 600 bits */
+	for (t = 0; t < n; t++) {
+		zmark mk = z_mark();
+		zint a = 0, b = 0, q, r, g, x, y;
+		const char *e;
+		int i, la = 1 + rnd(20), lb = 1 + rnd(20);
+		for (i = 0; i < la; i++)
+			a = z_add(z_mul(a, z_from_i64(1 << 30)), z_from_i64(rnd(1 <<
+			    30)));
+		for (i = 0; i < lb; i++)
+			b = z_add(z_mul(b, z_from_i64(1 << 30)), z_from_i64(rnd(1 <<
+			    30)));
+		if (rnd(2))
+			a = z_neg(a);
+		if (rnd(2))
+			b = z_neg(b);
+		if (b == 0)
+			b = Z_ONE;
+		if (!z_eq(z_sub(z_add(a, b), b), a))
+			bad++, printf("  FAIL a + b - b\n");
+		if (!z_eq(z_divexact(z_mul(a, b), b), a))
+			bad++, printf("  FAIL a b / b\n");
+		z_divmod_floor(a, b, &q, &r);
+		if (!z_eq(z_add(z_mul(q, b), r), a) || (r != 0 && z_sign(r) !=
+		    z_sign(b)) || z_cmpabs(r, b) >= 0)
+			bad++, printf("  FAIL floor division\n");
+		g = z_xgcd(a, b, &x, &y);
+		if (!z_eq(z_add(z_mul(x, a), z_mul(y, b)), g) || !z_divides(g, a) ||
+		    !z_divides(g, b))
+			bad++, printf("  FAIL xgcd\n");
+		if (!z_parse(z_str(a), &q, &e) || *e || !z_eq(q, a))
+			bad++, printf("  FAIL print/parse\n");
+		z_release(mk);
+	}
 	printf("abselftest: %d random pairs of groups, %d random "
-	    "homomorphisms: %s\n", n, homs, bad ? "FAILED" : "all identities "
-	    "hold");
+	    "homomorphisms, %d random integer pairs: %s\n", n, homs, n, bad ?
+	    "FAILED" : "all identities hold");
 	printf("  checked: Hom, tensor, Tor, Ext against the cyclic formulas; "
 	    "G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> "
 	    "0 exact (with preimages); G/ker = im; explicit isomorphisms with "
-	    "the invariant-factor form; orders of the canonical generators\n");
+	    "the invariant-factor form; orders of the canonical generators; "
+	    "for integers a + b - b, a b / b, floor division, xgcd, printing "
+	    "and parsing back\n");
 	ab_free(&G);
 	ab_free(&H);
 	ab_free(&R);
@@ -2016,6 +2053,9 @@ cmd_groebner(char *s)
 	struct gbasis gb;
 	int k, i, j;
 
+	s = trim(s);
+	if (!strncmp(s, "basis of ", 9) || !strncmp(s, "basis for ", 10))
+		s += s[6] == 'o' ? 9 : 10;	/* "groebner basis of ..." */
 	s = popts(s, &o, "grevlex");
 	ring_of(&R, &o);
 	k = need_polys(&R, s, &f, "groebner");
@@ -2343,4 +2383,165 @@ absalg_cmd2(const char *w, char *s)
 		cmd_pmsnf(s);
 		break;
 	}
+}
+
+/* ==== English (nlp.c): a few phrasings, read as the commands ==== */
+
+static int
+ci_prefix(const char *s, const char *w)
+{
+	size_t n = strlen(w);
+
+	return !strncasecmp(s, w, n) && !isalnum((unsigned char)s[n]);
+}
+
+/* a group spec: permutation (S4, A5, cycles) or abelian (Z/.., 0, coker) */
+static int
+looks_perm(const char *g)
+{
+	return (strchr("SACD", g[0]) && isdigit((unsigned char)g[1])) ||
+	    g[0] == '(' || !strncmp(g, "Sym(", 4) || !strncmp(g, "Alt(", 4);
+}
+
+static int
+looks_ab(const char *g)
+{
+	return g[0] == 'Z' || (g[0] == '0' && !g[1]) || !strncmp(g, "coker", 5);
+}
+
+/* "find X" -> X; between the two words a and b */
+static int
+between(char *s, const char *a, const char *b, char **x, char **y)
+{
+	char *p = NULL, *q;
+	size_t la = strlen(a);
+
+	if (strncasecmp(s, a, la))
+		return 0;
+	*x = s + la;
+	if (!b) {
+		*x = trim(*x);
+		return **x != 0;
+	}
+	for (q = *x; *q; q++)
+		if (ci_prefix(q, b) && q > *x && q[-1] == ' ') {
+			p = q;
+			break;
+		}
+	if (!p)
+		return 0;
+	*p = 0;
+	*y = trim(p + strlen(b));
+	*x = trim(*x);
+	return **x && **y;
+}
+
+const char *
+absalg_nlp_raw(const char *sent)
+{
+	static char buf[8192], out[8300];
+	static const char *const lead[] = {"what is ", "whats ", "what's ",
+		"compute ", "find ", "give me ", "show me ", "show ", "the ",
+		"please ", NULL};
+	char *s = buf, *x, *y;
+	size_t n;
+	int k, again = 1;
+
+	snprintf(buf, sizeof buf, "%s", sent);
+	s = trim(s);
+	n = strlen(s);
+	while (n && (s[n - 1] == '?' || s[n - 1] == '.' || s[n - 1] == '!'))
+		s[--n] = 0;
+	s = trim(s);
+	while (again) {
+		again = 0;
+		for (k = 0; lead[k]; k++)
+			if (!strncasecmp(s, lead[k], strlen(lead[k]))) {
+				s = trim(s + strlen(lead[k]));
+				again = 1;
+			}
+	}
+	if (between(s, "smith normal form of", NULL, &x, &y) ||
+	    between(s, "smith form of", NULL, &x, &y))
+		return snprintf(out, sizeof out, "snf %s", x), out;
+	if (between(s, "hermite normal form of", NULL, &x, &y) ||
+	    between(s, "hermite form of", NULL, &x, &y))
+		return snprintf(out, sizeof out, "hnf %s", x), out;
+	if ((between(s, "reduced groebner basis of", NULL, &x, &y) ||
+	    between(s, "groebner basis of", NULL, &x, &y) ||
+	    between(s, "groebner basis for", NULL, &x, &y) ||
+	    between(s, "gröbner basis of", NULL, &x, &y)))
+		return snprintf(out, sizeof out, "groebner %s", x), out;
+	if (between(s, "is", "isomorphic to", &x, &y) && (looks_ab(x) ||
+	    x[0] == '['))
+		return snprintf(out, sizeof out, "abiso %s, %s", x, y), out;
+	if (between(s, "tensor product of", "and", &x, &y) && looks_ab(x))
+		return snprintf(out, sizeof out, "abtensor %s, %s", x, y), out;
+	if (between(s, "tor of", "and", &x, &y) && looks_ab(x))
+		return snprintf(out, sizeof out, "abtor %s, %s", x, y), out;
+	if (between(s, "ext of", "and", &x, &y) && looks_ab(x))
+		return snprintf(out, sizeof out, "abext %s, %s", x, y), out;
+	if (between(s, "is", "in the ideal generated by", &x, &y) ||
+	    between(s, "is", "in the ideal", &x, &y))
+		return snprintf(out, sizeof out, "idealmember %s in %s", x, y), out;
+	if (between(s, "invariant factors of", NULL, &x, &y) ||
+	    between(s, "structure of", NULL, &x, &y) ||
+	    between(s, "order of", NULL, &x, &y) ||
+	    between(s, "is", NULL, &x, &y)) {
+		/* "is A5 solvable": the group, then a property word */
+		char *sp = x + strlen(x);
+		static const char *const props[] = {"solvable", "soluble",
+			"nilpotent", "abelian", "cyclic", "finite", "free", NULL};
+		if (!strncasecmp(s, "is", 2)) {
+			int ok = 0;
+			size_t l = strlen(x);
+			if (l > 6 && !strcasecmp(x + l - 6, " group"))
+				x[l - 6] = 0;
+			sp = x + strlen(x);
+			while (sp > x && sp[-1] != ' ')
+				sp--;
+			for (k = 0; props[k]; k++)
+				if (!strcasecmp(sp, props[k]))
+					ok = 1;
+			if (!ok || sp == x)
+				return NULL;
+			sp[-1] = 0;
+			x = trim(x);
+			l = strlen(x);
+			if (l > 2 && (x[l - 1] == 'a' || x[l - 1] == 'A') &&
+			    x[l - 2] == ' ')
+				x[l - 2] = 0;
+			x = trim(x);
+		}
+		if (looks_perm(x))
+			return snprintf(out, sizeof out, "permgroup %s", x), out;
+		if (looks_ab(x))
+			return snprintf(out, sizeof out, "abgroup %s", x), out;
+	}
+	return NULL;
+}
+
+/* is this line (one of) our English phrasings: 1, ucas: 0, else -1 */
+int
+absalg_nlp_english(const char *s, unsigned long n)
+{
+	char line[2048], w[48];
+	size_t k = 0;
+	int c;
+
+	if (n >= sizeof line)
+		return -1;
+	memcpy(line, s, n);
+	line[n] = 0;
+	while (k < n && k + 1 < sizeof w && (isalnum((unsigned char)line[k]) ||
+	    line[k] == '_'))
+		k++;
+	memcpy(w, line, k);
+	w[k] = 0;
+	for (c = 0; acmds[c].w; c++)
+		if (!strcmp(acmds[c].w, w))
+			return 0;
+	if (absalg_is_cmd2(w))
+		return 0;
+	return absalg_nlp_raw(line) ? 1 : -1;
 }

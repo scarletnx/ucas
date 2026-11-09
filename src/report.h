@@ -57,6 +57,9 @@ void rep_text_list(const char *key);
  * value" -> "label": value, "check: ..." -> checks, "how:" -> method) */
 void rep_text_fields(void);
 void rep_text_fill(const char *text);	/* jsonmode.c */
+#define REP_TEXT_MAX (64 << 10)	/* bytes of "text" in a response */
+#define REP_TEXT_TAIL (4 << 10)	/* of which the last lines */
+char *rep_text_cap(char *text);	/* cut a long text (jsonmode.c) */
 
 /* hooks for util.c, nlp.c, anim.c */
 void rep_fail(const char *msg, unsigned line, unsigned col);
