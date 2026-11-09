@@ -1,0 +1,13 @@
+== event 1: channel 42, author 99: $k = 5
+POST /channels/42/messages
+{"content":"(no output)","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"601","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 2: channel 42, author 99: $f(x: u6) = x * x * 37 + (x >> 2) xor 21
+gates f max 40 nodes 100000000000
+POST /channels/42/messages
+{"content":"timed out after 2 s; this channel's state is unchanged\n```\n> f(x: u6) = x * x * 37 + (x >> 2) xor 21\n> gates f max 40 nodes 100000000000\ngates for f: 6 input bits -> 6 output bits, basis c\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"602","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 3: channel 42, author 99: $k + 1
+POST /channels/42/messages
+{"content":"```\n6\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"603","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+

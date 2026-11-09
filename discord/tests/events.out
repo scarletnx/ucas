@@ -1,0 +1,79 @@
+== event 1: channel 42, author 99: $1 + 2
+POST /channels/42/messages
+{"content":"```\n3\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"601","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 2: channel 42, author 55 (bot): $2 + 2
+(ignored)
+
+== event 3: channel 42, author 1000: $3 + 3
+(ignored)
+
+== event 4: channel 42, author 99: just chatting, 1 + 2
+(ignored)
+
+== event 5: TYPING_START (not handled)
+
+== event 6: channel 42, author 99: $```ucas
+sq(x: u4) = x*x
+range sq
+```
+POST /channels/42/messages
+{"content":"```\n> sq(x: u4) = x*x\n> range sq\nrange of sq -> u4:\n  0..9   (4 distinct values)\n  values: 0..1, 4, 9\n  fits in u4\n  over all 16 points of the domain\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"605","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 7: channel 42, author 99: $`table sq max 4`
+POST /channels/42/messages
+{"content":"```\n  x=0  ->  0\n  x=1  ->  1\n  x=2  ->  4\n  x=3  ->  9\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"606","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 8: channel 43, author 99: $show sq
+POST /channels/43/messages
+{"content":"```\n  note: 'sq' read as s*q (single-letter variables)\n_(s: real, q: real) = s*q\n  -> real\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"607","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 9: channel 42, author 99: $range nosuch(x
+POST /channels/42/messages
+{"content":"```\ninput:1:15: error: expected ')', found 'end'\n    range nosuch(x\n                  ^\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"608","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 10: channel 42, author 99: $f(x: u6) = x * x * 37 + (x >> 2) xor 21
+gates f max 40 nodes 100000000000
+POST /channels/42/messages
+{"content":"timed out (CPU limit 2 s); this channel's state is unchanged\n```\n> f(x: u6) = x * x * 37 + (x >> 2) xor 21\n> gates f max 40 nodes 100000000000\ngates for f: 6 input bits -> 6 output bits, basis c\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"609","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 11: channel 42, author 99: $show sq
+POST /channels/42/messages
+{"content":"```\nsq(x: u4) = x*x\n  -> u4\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"610","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 12: channel 42, author 99: $days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+find days 1
+POST /channels/42/messages
+{"content":"```\n> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }\n> find days 1\n  note: the result is int: searching in u8\nfind days: 12 points, computing in u8, costs from gt1030\n  cost 6   u8(0x3bbeecc >> (u32(m) << 1) & 3) + 28  packed table in one constant\n  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"611","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 13: channel 42, author 99: $more 1
+POST /channels/42/messages
+{"content":"```\nmore for days:\n  cost 9   [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] lookup table (baseline)\n  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"612","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 14: channel 42, author 99: $reset
+POST /channels/42/messages
+{"content":"state reset for this channel","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"613","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 15: channel 42, author 99: $show sq
+POST /channels/42/messages
+{"content":"```\n  note: 'sq' read as s*q (single-letter variables)\n_(s: real, q: real) = s*q\n  -> real\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"614","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 16: channel 42, author 99: $  g(x: u10) = x
+table g max 200
+POST /channels/42/messages
+{"content":"```\n> g(x: u10) = x\n> table g max 200\n  x=0  ->  0\n  x=1  ->  1\n  x=2  ->  2\n  x=3  ->  3\n  x=4  ->  4\n  x=5  ->  5\n  x=6  ->  6\n  x=7  ->  7\n  x=8  ->  8\n  x=9  ->  9\n  x=10  ->  10\n  x=11  ->  11\n  x=12  ->  12\n  x=13  ->  13\n  x=14  ->  14\n  x=15  ->  15\n  x=16  ->  16\n  x=17  ->  17\n  x=18  ->  18\n  x=19  ->  19\n  x=20  ->  20\n  x=21  ->  21\n  x=22  ->  22\n  x=23  ->  23\n  x=24  ->  24\n  x=25  ->  25\n  x=26  ->  26\n  x=27  ->  27\n  x=28  ->  28\n  x=29  ->  29\n  x=30  ->  30\n  x=31  ->  31\n  x=32  ->  32\n  x=33  ->  33\n  x=34  ->  34\n  x=35  ->  35\n  x=36  ->  36\n  x=37  ->  37\n  x=38  ->  38\n  x=39  ->  39\n  x=40  ->  40\n  x=41  ->  41\n  x=42  ->  42\n  x=43  ->  43\n  x=44  ->  44\n  x=45  ->  45\n  x=46  ->  46\n  x=47  ->  47\n  x=48  ->  48\n  x=49  ->  49\n  x=50  ->  50\n  x=51  ->  51\n  x=52  ->  52\n  x=53  ->  53\n  x=54  ->  54\n  x=55  ->  55\n  x=56  ->  56\n  x=57  ->  57\n  x=58  ->  58\n  x=59  ->  59\n  x=60  ->  60\n  x=61  ->  61\n  x=62  ->  62\n  x=63  ->  63\n  x=64  ->  64\n  x=65  ->  65\n  x=66  ->  66\n  x=67  ->  67\n  x=68  ->  68\n  x=69  ->  69\n  x=70  ->  70\n  x=71  ->  71\n  x=72  ->  72\n  x=73  ->  73\n  x=74  ->  74\n  x=75  ->  75\n  x=76  ->  76\n  x=77  ->  77\n  x=78  ->  78\n  x=79  ->  79\n  x=80  ->  80\n  x=81  ->  81\n  x=82  ->  82\n  x=83  ->  83\n  x=84  ->  84\n  x=85  ->  85\n  x=86  ->  86\n  x=87  ->  87\n  x=88  ->  88\n  x=89  ->  89\n  x=90  ->  90\n  x=91  ->  91\n  x=92  ->  92\n  x=93  ->  93\n  x=94  ->  94\n  x=95  ->  95\n  x=96  ->  96\n  x=97  ->  97\n  x=98  ->  98\n  x=99  ->  99\n  x=100  ->  100\n  x=101  ->  101\n  x=102  ->  102\n  x=103  ->  103\n  x=104  ->  104\n  x=105  ->  105\n  x=106  ->  106\n  x=107  ->  107\n  x=108  ->  108\n  x=109  ->  109\n  x=110  ->  110\n  x=111  ->  111\n  x=112  ->  112\n  x=113  ->  113\n  x=114  ->  114\n  x=115  ->  115\n  x=116  ->  116\n  x=117  ->  117\n  x=118  ->  118\n  x=119  ->  119\n  x=120  ->  120\n  x=121  ->  121\n  x=122  ->  122\n  x=123  ->  123\n  x=124  ->  124\n  x=125  ->  125\n  x=126  ->  126\n  x=127  ->  127\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"615","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+POST /channels/42/messages
+{"content":"```\n  x=128  ->  128\n  x=129  ->  129\n  x=130  ->  130\n  x=131  ->  131\n  x=132  ->  132\n  x=133  ->  133\n  x=134  ->  134\n  x=135  ->  135\n  x=136  ->  136\n  x=137  ->  137\n  x=138  ->  138\n  x=139  ->  139\n  x=140  ->  140\n  x=141  ->  141\n  x=142  ->  142\n  x=143  ->  143\n  x=144  ->  144\n  x=145  ->  145\n  x=146  ->  146\n  x=147  ->  147\n  x=148  ->  148\n  x=149  ->  149\n  x=150  ->  150\n  x=151  ->  151\n  x=152  ->  152\n  x=153  ->  153\n  x=154  ->  154\n  x=155  ->  155\n  x=156  ->  156\n  x=157  ->  157\n  x=158  ->  158\n  x=159  ->  159\n  x=160  ->  160\n  x=161  ->  161\n  x=162  ->  162\n  x=163  ->  163\n  x=164  ->  164\n  x=165  ->  165\n  x=166  ->  166\n  x=167  ->  167\n  x=168  ->  168\n  x=169  ->  169\n  x=170  ->  170\n  x=171  ->  171\n  x=172  ->  172\n  x=173  ->  173\n  x=174  ->  174\n  x=175  ->  175\n  x=176  ->  176\n  x=177  ->  177\n  x=178  ->  178\n  x=179  ->  179\n  x=180  ->  180\n  x=181  ->  181\n  x=182  ->  182\n  x=183  ->  183\n  x=184  ->  184\n  x=185  ->  185\n  x=186  ->  186\n  x=187  ->  187\n  x=188  ->  188\n  x=189  ->  189\n  x=190  ->  190\n  x=191  ->  191\n  x=192  ->  192\n  x=193  ->  193\n  x=194  ->  194\n  x=195  ->  195\n  x=196  ->  196\n  x=197  ->  197\n  x=198  ->  198\n  x=199  ->  199\n  ... (table max 200)\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"615","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 17: channel 42, author 99: $table g max 1024
+POST /channels/42/messages (multipart)
+{"content":"1024 lines (17236 bytes); the full output is attached as ucas-output.txt\n```\n  x=0  ->  0\n  x=1  ->  1\n  x=2  ->  2\n  x=3  ->  3\n  x=4  ->  4\n  x=5  ->  5\n  x=6  ->  6\n  x=7  ->  7\n  x=8  ->  8\n  x=9  ->  9\n  x=10  ->  10\n  x=11  ->  11\n  x=12  ->  12\n  x=13  ->  13\n  x=14  ->  14\n  x=15  ->  15\n  x=16  ->  16\n  x=17  ->  17\n  x=18  ->  18\n  x=19  ->  19\n  x=20  ->  20\n  x=21  ->  21\n  x=22  ->  22\n  x=23  ->  23\n  x=24  ->  24\n  x=25  ->  25\n  x=26  ->  26\n  x=27  ->  27\n  x=28  ->  28\n  x=29  ->  29\n  x=30  ->  30\n  x=31  ->  31\n  x=32  ->  32\n  x=33  ->  33\n  x=34  ->  34\n  x=35  ->  35\n  x=36  ->  36\n  x=37  ->  37\n  x=38  ->  38\n  x=39  ->  39\n  x=40  ->  40\n  x=41  ->  41\n  x=42  ->  42\n  x=43  ->  43\n  x=44  ->  44\n  x=45  ->  45\n  x=46  ->  46\n  x=47  ->  47\n  x=48  ->  48\n  x=49  ->  49\n  x=50  ->  50\n  x=51  ->  51\n  x=52  ->  52\n  x=53  ->  53\n  x=54  ->  54\n  x=55  ->  55\n  x=56  ->  56\n  x=57  ->  57\n  x=58  ->  58\n  x=59  ->  59\n  x=60  ->  60\n  x=61  ->  61\n  x=62  ->  62\n  x=63  ->  63\n  x=64  ->  64\n  x=65  ->  65\n  x=66  ->  66\n  x=67  ->  67\n  x=68  ->  68\n  x=69  ->  69\n  x=70  ->  70\n  x=71  ->  71\n  x=72  ->  72\n  x=73  ->  73\n  x=74  ->  74\n  x=75  ->  75\n  x=76  ->  76\n  x=77  ->  77\n  x=78  ->  78\n  x=79  ->  79\n  x=80  ->  80\n  x=81  ->  81\n  x=82  ->  82\n  x=83  ->  83\n  x=84  ->  84\n  x=85  ->  85\n  x=86  ->  86\n  x=87  ->  87\n  x=88  ->  88\n  x=89  ->  89\n  x=90  ->  90\n  x=91  ->  91\n  x=92  ->  92\n  x=93  ->  93\n  x=94  ->  94\n  x=95  ->  95\n  x=96  ->  96\n  x=97  ->  97\n  x=98  ->  98\n  x=99  ->  99\n  x=100  ->  100\n  x=101  ->  101\n  x=102  ->  102\n  x=103  ->  103\n  x=104  ->  104\n  x=105  ->  105\n  x=106  ->  106\n  x=107  ->  107\n  x=108  ->  108\n  x=109  ->  109\n  x=110  ->  110\n  x=111  ->  111\n  x=112  ->  112\n  x=113  ->  113\n  x=114  ->  114\n  x=115  ->  115\n  x=116  ->  116\n  x=117  ->  117\n  x=118  ->  118\n  x=119  ->  119\n  x=120  ->  120\n  x=121  ->  121\n  x=122  ->  122\n  x=123  ->  123\n  x=124  ->  124\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"616","channel_id":"42","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"ucas-output.txt","description":"","content_type":"text/plain; charset=utf-8","size":17236,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: ucas-output.txt, 17236 bytes
+
+== event 18: channel 42, author 99: $hello ``` world
+POST /channels/42/messages
+{"content":"```\ninput:1:7: error: unexpected character '`'\n    hello ``​` world\n          ^\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"617","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 19: channel 42, author 99: $
+(ignored)
+

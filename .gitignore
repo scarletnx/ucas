@@ -7,3 +7,5 @@ ucas.debug
 *.o
 *.pieo
 .depend*
+*.orig
+*.rej

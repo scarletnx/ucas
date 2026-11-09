@@ -1,0 +1,78 @@
+# ucas-discord - the optional Discord front end.  BSD make.
+#
+#   make            fetch and build Concord, then ucas-discord
+#   make test       unit checks and fake gateway events (no network)
+#
+# Needs libcurl (pkg curl) and, for Concord's own build, git and gmake.
+# The core ucas binary (../Makefile) does not depend on any of this.
+
+CONCORD_REPO?=	https://github.com/Cogmasters/concord
+CONCORD_REV?=	fb0f834d07d65048a6afde177e318fe9659a9494	# v2.4.0
+CONCORD=	${.CURDIR}/third_party/concord
+CONCORD_LIB=	${CONCORD}/lib/libdiscord.a
+LOCALBASE?=	/usr/local
+
+PROG=	ucas-discord
+# every engine source except the CLI's main.c, so new engine files
+# (and the commands in them) come along without edits here
+ENGINE!=	cd ${.CURDIR}/../src && ls *.c | grep -v '^main\.c$$'
+SRCS=	bot.c sup.c text.c selftest.c ${ENGINE}
+.PATH:	${.CURDIR}/../src
+MAN=
+
+CSTD=	c99
+CFLAGS+=	-O2 -I${.CURDIR}/../src -I${.CURDIR}
+CFLAGS+=	-isystem ${CONCORD}/include -isystem ${CONCORD}/core \
+		-isystem ${CONCORD}/gencodecs -isystem ${LOCALBASE}/include
+CWARNFLAGS+=	-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
+		-Wno-missing-field-initializers
+WARNS?=	2
+MK_WERROR=	no
+LDADD+=	${CONCORD_LIB} -L${LOCALBASE}/lib -lcurl -lpthread -lm
+DPADD+=	${CONCORD_LIB}
+
+${CONCORD_LIB}:
+	@if [ ! -d ${CONCORD}/.git ]; then \
+		mkdir -p ${.CURDIR}/third_party && \
+		git clone -q ${CONCORD_REPO} ${CONCORD} && \
+		git -C ${CONCORD} checkout -q ${CONCORD_REV}; \
+	fi
+	cd ${CONCORD} && env CFLAGS="-O2 -fPIC -w -I${LOCALBASE}/include" \
+	    gmake -s CC=${CC} static >/dev/null
+
+# Each tests/NAME.jsonl is a list of gateway events; --stdin must print
+# exactly tests/NAME.out.  A short CPU limit keeps the timeout case
+# quick (the wall clock is long, so a busy host still hits CPU first);
+# tests/NAME.env, when present, replaces them.
+TESTENV=	UCAS_DISCORD_CPU=2 UCAS_DISCORD_WALL=60 UCAS_DISCORD_MAXOUT=65536
+DTESTS!=	cd ${.CURDIR}/tests && ls *.jsonl 2>/dev/null || true
+
+test: ${PROG}
+	@${.OBJDIR}/${PROG} --selftest
+	@fail=0; for t in ${DTESTS}; do \
+		n=$${t%.jsonl}; \
+		e="${TESTENV}"; [ -f ${.CURDIR}/tests/$$n.env ] && \
+		    e=$$(cat ${.CURDIR}/tests/$$n.env); \
+		env $$e ${.OBJDIR}/${PROG} --stdin \
+		    < ${.CURDIR}/tests/$$t > $$n.got 2>&1; \
+		if diff -u ${.CURDIR}/tests/$$n.out $$n.got > $$n.diff; then \
+			echo "ok   discord/$$n"; rm -f $$n.got $$n.diff; \
+		else echo "FAIL discord/$$n (see $$n.diff)"; fail=1; fi; \
+	done; exit $$fail
+
+accept: ${PROG}
+	@for t in ${DTESTS}; do \
+		n=$${t%.jsonl}; \
+		e="${TESTENV}"; [ -f ${.CURDIR}/tests/$$n.env ] && \
+		    e=$$(cat ${.CURDIR}/tests/$$n.env); \
+		env $$e ${.OBJDIR}/${PROG} --stdin \
+		    < ${.CURDIR}/tests/$$t > ${.CURDIR}/tests/$$n.out 2>&1; \
+		echo "wrote discord/tests/$$n.out"; \
+	done
+
+CLEANFILES+=	*.got *.diff
+
+.include <bsd.prog.mk>
+
+# Concord's generated headers must exist before anything includes them
+${OBJS}: ${CONCORD_LIB}

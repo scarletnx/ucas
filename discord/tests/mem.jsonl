@@ -1,0 +1,5 @@
+# a 100 MiB address-space limit: find's term bank does not fit
+{"op": 0, "s": 601, "t": "MESSAGE_CREATE", "d": {"id": "601", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$k = 5", "type": 0}}
+{"op": 0, "s": 602, "t": "MESSAGE_CREATE", "d": {"id": "602", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }\nfind days 1", "type": 0}}
+{"op": 0, "s": 603, "t": "MESSAGE_CREATE", "d": {"id": "603", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$k + 1", "type": 0}}
+{"op": 0, "s": 604, "t": "MESSAGE_CREATE", "d": {"id": "604", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$show days", "type": 0}}

@@ -37,4 +37,12 @@ accept: ${PROG}
 
 CLEANFILES+=	*.got *.diff
 
+# Optional Discord front end (README, "Discord bot"): its own Makefile in
+# discord/, needs libcurl.  Never built by `make` or `make test`.
+.PHONY: discord discord-test
+discord:
+	cd ${.CURDIR}/discord && ${MAKE}
+discord-test:
+	cd ${.CURDIR}/discord && ${MAKE} test
+
 .include <bsd.prog.mk>

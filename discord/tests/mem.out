@@ -1,0 +1,17 @@
+== event 1: channel 42, author 99: $k = 5
+POST /channels/42/messages
+{"content":"(no output)","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"601","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 2: channel 42, author 99: $days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+find days 1
+POST /channels/42/messages
+{"content":"out of memory (limit 100 MiB); this channel's state is unchanged\n```\n> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }\n> find days 1\n  note: the result is int: searching in u8\nfind days: 12 points, computing in u8, costs from gt1030\nucas: out of memory\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"602","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 3: channel 42, author 99: $k + 1
+POST /channels/42/messages
+{"content":"```\n6\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"603","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+
+== event 4: channel 42, author 99: $show days
+POST /channels/42/messages
+{"content":"```\n_(days: real) = days\n  -> real\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"604","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+

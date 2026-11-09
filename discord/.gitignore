@@ -1,0 +1,9 @@
+third_party/
+ucas-discord
+ucas-discord.full
+ucas-discord.debug
+*.pieo
+*.o
+.depend*
+*.got
+*.diff

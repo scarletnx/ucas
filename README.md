@@ -246,3 +246,106 @@ Data-oriented throughout (see `src/ucas.h`):
 - `find` builds terms of up to about 5-6 operations before the bank
   (128 MB) fills; constants come from a small pool plus solved holes.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
+
+## Discord bot (optional)
+
+`discord/` holds `ucas-discord`, a bot that runs messages starting with
+`$` as if they were typed at the `ucas>` prompt and replies with the
+output.  It is a separate program with its own BSD Makefile; the `ucas`
+binary and `make test` do not depend on it.
+
+```
+$range isqrt(x: u4)
+$```
+sq(x: u4) = x*x
+table sq max 4
+```
+$reset
+```
+
+Everything after the `$` goes to the engine unchanged (a surrounding
+```` ``` ```` fence with an optional language tag, or single backticks,
+is removed), so new commands work without changes to the bot.  When the
+input has more than one line, each statement is echoed as `> stmt`
+before its output, as with `ucas file`.  Output comes back as a reply
+in a code block that mentions nobody.  Up to 3 messages are used,
+split at line breaks under Discord's 2000-character limit; anything
+longer is sent as a preview plus the whole output attached as
+`ucas-output.txt`.  Messages from bots (including itself), webhooks and
+system users are ignored.
+
+### Setup
+
+1. In the Discord Developer Portal, create an application, add a Bot,
+   and copy its token.
+2. Under Bot → Privileged Gateway Intents, enable **Message Content
+   Intent** (without it the bot sees empty messages in servers).
+3. Invite it (OAuth2 → URL Generator, scope `bot`, permissions *View
+   Channels*, *Send Messages*, *Send Messages in Threads*, *Read Message
+   History*, *Attach Files*).
+4. Build and run on the host:
+
+```sh
+pkg install curl git gmake    # libcurl; git and gmake build Concord
+make discord                  # or: cd discord && make
+make discord-test             # no network or token needed
+DISCORD_TOKEN=... discord/ucas-discord
+```
+
+The token is read only from the `DISCORD_TOKEN` environment variable,
+which the bot wipes from its environment before evaluating anything;
+it is never logged or written to a file.
+
+The Gateway and REST client is [Concord](https://github.com/Cogmasters/concord)
+v2.4.0 (commit `fb0f834d07d65048a6afde177e318fe9659a9494`).  The first
+`make` clones it into `discord/third_party/concord` (ignored by git)
+and builds its static library with gmake.  Concord handles identify,
+heartbeats, resume/reconnect and the REST rate limits (429
+`retry_after`).
+
+### State and limits
+
+State is **per channel** (a thread is its own channel): functions,
+bases, models, the active model and the `find`/`more` search belong to
+the channel and persist across messages.  `$reset` drops them.
+
+Each channel has a worker process that holds its state.  Every message
+is run in a fresh `fork` of that worker; when the evaluation ends
+normally the child *becomes* the channel's worker and the old one
+exits.  So whatever a message defines persists, with no list of
+"defining" commands, and a message that times out, runs out of memory
+or crashes leaves the state exactly as it was before it.  Messages in
+one channel run in order (up to 4 waiting); channels run in parallel.
+At most 64 channels have a worker; beyond that the least recently used
+idle one is dropped (its state is lost).  If the bot restarts, all state
+is lost.
+
+| variable | default | |
+|----------|---------|--|
+| `UCAS_DISCORD_CPU` | 10 | CPU seconds per message (`RLIMIT_CPU`) |
+| `UCAS_DISCORD_WALL` | 20 | wall-clock seconds per message, then SIGKILL |
+| `UCAS_DISCORD_MEM` | 1024 | MiB of address space (`RLIMIT_AS`) per worker |
+| `UCAS_DISCORD_CHANNELS` | 64 | channel workers kept |
+| `UCAS_DISCORD_QUEUE` | 4 | messages waiting per channel |
+| `UCAS_DISCORD_MAXOUT` | 1048576 | output bytes kept per message |
+
+A message over a limit is answered with e.g. `timed out after 20 s;
+this channel's state is unchanged` and the output it printed so far.
+
+Sandbox: the language has no command that reads or writes files or
+runs programs (only the CLI's `main.c` opens files, and the bot does
+not link it).  The worker and its children also run in Capsicum
+capability mode (`cap_enter`, checked at start-up: no file system
+access, no new sockets, no `exec`), with no core dumps, a zero file-size
+limit, stdin on `/dev/null` and no descriptors except their output pipe
+and control socket.  The process that talks to Discord never runs
+engine code.
+
+### Test mode
+
+`ucas-discord --stdin` reads gateway events, one JSON object per line
+(`{"op":0,"t":"MESSAGE_CREATE","d":{...}}` or a bare message object),
+passes them through the same handler as the live bot and prints each
+REST request it would make.  `ucas-discord --selftest` checks the
+prefix and fence handling, message splitting and the JSON codecs.
+`make discord-test` runs both against `discord/tests/*.jsonl`.

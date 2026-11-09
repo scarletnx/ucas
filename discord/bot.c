@@ -1,0 +1,354 @@
+/*
+ * ucas-discord: run `$`-prefixed Discord messages through ucas.
+ *
+ *   DISCORD_TOKEN=... ucas-discord      connect to the Gateway (Concord)
+ *   ucas-discord --stdin                read gateway events (JSON, one per
+ *                                       line) and print the REST requests
+ *                                       that would be sent
+ *   ucas-discord --selftest             unit checks
+ *
+ * Both modes pass every message through handle_message(); only post()
+ * differs.  Evaluation happens in the supervisor process (sup.c).
+ */
+#include <sys/types.h>
+#include <sys/wait.h>
+
+#include <inttypes.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "discord.h"
+
+#define JSMN_STRICT
+#define JSMN_HEADER
+#include "jsmn.h"
+#include "jsmn-find.h"
+
+#include "ucas.h"
+#include "sup.h"
+#include "text.h"
+
+int dc_selftest(void);
+
+struct pend {
+	uint64_t id;
+	u64snowflake chan, msg, guild;
+};
+
+static struct discord *client;	/* NULL in --stdin mode */
+static struct sup_limits limits;
+static int supfd = -1;
+static u64snowflake self_id;
+static struct pend *pend;
+static int npend, cappend;
+static uint64_t nextid;
+
+/* ---- outgoing ---- */
+
+static void
+post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
+    const char *content, const char *file, size_t filelen)
+{
+	char *noparse[1] = {NULL};
+	struct strings parse = {0, noparse, 0};
+	struct discord_allowed_mention am = {0};
+	struct discord_message_reference ref = {0};
+	struct discord_attachment att = {0};
+	struct discord_attachments atts = {0};
+	struct discord_create_message p = {0};
+	char buf[16384];
+	size_t n;
+
+	/* a reply that pings nobody, not even the author */
+	am.parse = &parse;
+	am.replied_user = false;
+	ref.message_id = msg;
+	ref.channel_id = chan;
+	ref.guild_id = guild;
+	ref.fail_if_not_exists = false;
+	p.content = (char *)content;
+	p.allowed_mentions = &am;
+	p.message_reference = &ref;
+	if (file != NULL) {
+		att.content = (char *)file;
+		att.size = filelen;
+		att.filename = DC_FILENAME;
+		att.content_type = "text/plain; charset=utf-8";
+		atts.size = 1;
+		atts.array = &att;
+		p.attachments = &atts;
+	}
+	if (client != NULL) {
+		discord_create_message(client, chan, &p, NULL);
+		return;
+	}
+	n = discord_create_message_to_json(buf, sizeof buf, &p);
+	printf("POST /channels/%" PRIu64 "/messages%s\n%.*s\n", chan,
+	    file ? " (multipart)" : "", (int)n, buf);
+	if (file != NULL)
+		printf("  files[0]: %s, %zu bytes\n", DC_FILENAME, filelen);
+}
+
+/* ---- requests ---- */
+
+static int
+send_req(uint32_t type, const struct discord_message *m, const char *text,
+    int echo)
+{
+	struct sframe h;
+	struct pend *pp;
+
+	memset(&h, 0, sizeof h);
+	h.type = type;
+	h.id = ++nextid;
+	h.chan = m->channel_id;
+	h.arg = (uint32_t)echo;
+	h.len = text ? (uint32_t)strlen(text) : 0;
+	if (frame_write(supfd, &h, text) < 0)
+		return -1;
+	if (npend == cappend) {
+		cappend = cappend ? cappend * 2 : 16;
+		pend = xrealloc(pend, (size_t)cappend * sizeof *pend);
+	}
+	pp = &pend[npend++];
+	pp->id = h.id;
+	pp->chan = m->channel_id;
+	pp->msg = m->id;
+	pp->guild = m->guild_id;
+	return 0;
+}
+
+/* returns DC_IGNORE, DC_EVAL or DC_RESET */
+static int
+handle_message(const struct discord_message *m)
+{
+	struct sbuf code = {0};
+	int kind, echo;
+
+	if (m->author == NULL || m->author->bot || m->author->System ||
+	    m->author->id == self_id || m->webhook_id != 0)
+		return DC_IGNORE;
+	kind = dc_command(m->content, &code, &echo);
+	if (kind == DC_EVAL)
+		send_req(SF_EVAL, m, code.p, echo);
+	else if (kind == DC_RESET)
+		send_req(SF_RESET, m, NULL, 0);
+	free(code.p);
+	return kind;
+}
+
+static void
+on_response(const struct sframe *h, const char *out)
+{
+	struct dc_reply r;
+	struct pend pp;
+	char sbuf[256];
+	const char *head;
+	int i;
+
+	for (i = 0; i < npend; i++)
+		if (pend[i].id == h->id)
+			break;
+	if (i == npend)
+		return;
+	pp = pend[i];
+	pend[i] = pend[--npend];
+	head = dc_status(h->status, h->arg, &limits, sbuf, sizeof sbuf);
+	dc_format(&r, head, out, h->len);
+	for (i = 0; i < r.n; i++)
+		post(pp.chan, pp.msg, pp.guild, r.msg[i],
+		    i == 0 ? r.file : NULL, r.filelen);
+	dc_reply_free(&r);
+}
+
+/* 1 handled, 0 the supervisor is gone */
+static int
+read_response(void)
+{
+	struct sframe h;
+	char *out;
+
+	if (frame_read(supfd, &h, &out) != 1)
+		return 0;
+	if (h.type == SF_RESP)
+		on_response(&h, out);
+	free(out);
+	return 1;
+}
+
+/* ---- live mode (Concord) ---- */
+
+static void
+on_ready(struct discord *c, const struct discord_ready *ev)
+{
+	self_id = ev->user->id;
+	fprintf(stderr, "ucas-discord: connected as %s (%" PRIu64 ")\n",
+	    ev->user->username ? ev->user->username : "?", self_id);
+}
+
+static void
+on_message(struct discord *c, const struct discord_message *m)
+{
+	handle_message(m);
+}
+
+static void
+on_sup(struct io_poller *io, enum io_poller_events ev, void *data)
+{
+	if (!read_response()) {
+		fprintf(stderr, "ucas-discord: evaluator process died\n");
+		io_poller_socket_del(io, supfd);
+		discord_shutdown(client);
+	}
+}
+
+static int
+run_live(void)
+{
+	const struct discord_user *me;
+	char *env, *tok;
+	CCORDcode rc;
+
+	if ((env = getenv("DISCORD_TOKEN")) == NULL || *env == 0) {
+		fprintf(stderr, "ucas-discord: DISCORD_TOKEN is not set\n");
+		return 1;
+	}
+	tok = strdup(env);
+	memset(env, 0, strlen(env));
+	unsetenv("DISCORD_TOKEN");
+	ccord_global_init();
+	client = discord_init(tok);
+	memset(tok, 0, strlen(tok));
+	free(tok);
+	if (client == NULL) {
+		fprintf(stderr, "ucas-discord: cannot initialise the client\n");
+		return 1;
+	}
+	if ((me = discord_get_self(client)) != NULL)
+		self_id = me->id;
+	discord_add_intents(client, DISCORD_GATEWAY_GUILD_MESSAGES |
+	    DISCORD_GATEWAY_DIRECT_MESSAGES | DISCORD_GATEWAY_MESSAGE_CONTENT);
+	discord_set_on_ready(client, on_ready);
+	discord_set_on_message_create(client, on_message);
+	io_poller_socket_add(discord_get_io_poller(client), supfd,
+	    IO_POLLER_IN, on_sup, NULL);
+	rc = discord_run(client);
+	discord_cleanup(client);
+	ccord_global_cleanup();
+	return rc == CCORD_OK ? 0 : 1;
+}
+
+/* ---- test mode: gateway events on stdin ---- */
+
+static int
+run_stdin(void)
+{
+	char *line = NULL;
+	size_t cap = 0;
+	ssize_t len;
+	int ev = 0;
+
+	self_id = 1000;		/* the bot's own user id in test events */
+	while ((len = getline(&line, &cap, stdin)) > 0) {
+		jsmn_parser parser;
+		jsmntok_t *toks = NULL;
+		unsigned ntoks = 0, npairs = 0;
+		jsmnf_loader loader;
+		jsmnf_pair *pairs = NULL, *t, *d;
+		struct discord_message m;
+		const char *js = line;
+		size_t jl = (size_t)len;
+		int kind;
+
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+			line[--len] = 0;
+		if (len == 0 || line[0] == '#')
+			continue;
+		ev++;
+		jsmn_init(&parser);
+		if (jsmn_parse_auto(&parser, line, (size_t)len, &toks,
+		    &ntoks) <= 0) {
+			printf("== event %d: bad JSON\n\n", ev);
+			free(toks);
+			continue;
+		}
+		jsmnf_init(&loader);
+		if (jsmnf_load_auto(&loader, line, toks, parser.toknext, &pairs,
+		    &npairs) <= 0) {
+			printf("== event %d: bad JSON\n\n", ev);
+			free(toks);
+			free(pairs);
+			continue;
+		}
+		/* a full dispatch {"op":0,"t":...,"d":{...}} or a bare message */
+		t = jsmnf_find(pairs, line, "t", 1);
+		d = jsmnf_find(pairs, line, "d", 1);
+		if (t != NULL && d != NULL) {
+			if (t->v.len != 14 ||
+			    memcmp(line + t->v.pos, "MESSAGE_CREATE", 14) != 0) {
+				printf("== event %d: %.*s (not handled)\n\n", ev,
+				    (int)t->v.len, line + t->v.pos);
+				free(toks);
+				free(pairs);
+				continue;
+			}
+			js = line + d->v.pos;
+			jl = d->v.len;
+		} else {
+			jl = (size_t)len;
+		}
+		memset(&m, 0, sizeof m);
+		discord_message_from_json(js, jl, &m);
+		printf("== event %d: channel %" PRIu64 ", author %" PRIu64
+		    "%s: %s\n", ev, m.channel_id, m.author ? m.author->id : 0,
+		    m.author && m.author->bot ? " (bot)" : "",
+		    m.content ? m.content : "(no content)");
+		kind = handle_message(&m);
+		if (kind == DC_IGNORE)
+			printf("(ignored)\n");
+		discord_message_cleanup(&m);
+		free(toks);
+		free(pairs);
+		/* wait for the answer, so the output is in a fixed order */
+		while (npend > 0)
+			if (!read_response()) {
+				printf("evaluator process died\n");
+				return 1;
+			}
+		printf("\n");
+		fflush(stdout);
+	}
+	free(line);
+	return 0;
+}
+
+int
+main(int argc, char **argv)
+{
+	int rc, st, mode = 0;
+	pid_t sup;
+
+	if (argc == 2 && !strcmp(argv[1], "--selftest"))
+		return dc_selftest();
+	if (argc == 2 && !strcmp(argv[1], "--stdin"))
+		mode = 1;
+	else if (argc != 1) {
+		fprintf(stderr, "usage: ucas-discord [--stdin | --selftest]\n");
+		return 2;
+	}
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	signal(SIGPIPE, SIG_IGN);
+	sup_limits_env(&limits);
+	/* before any thread exists: the supervisor only ever forks */
+	if ((sup = sup_start(&limits, &supfd)) < 0) {
+		perror("ucas-discord: supervisor");
+		return 1;
+	}
+	rc = mode ? run_stdin() : run_live();
+	close(supfd);
+	waitpid(sup, &st, 0);
+	return rc;
+}
