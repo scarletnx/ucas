@@ -27,6 +27,8 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# simplify's function-level pass over a shader's GLSL source
+SRCS+=	glslfn.c
 # ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its
 # parser gives glslfn.c the syntax tree.  Its glslc.c would clash with
 # ours as an object, so its files build into a library of their own.

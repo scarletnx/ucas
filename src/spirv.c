@@ -169,6 +169,7 @@ T(int t)
 
 /* ---- parsing ---- */
 
+void glslfn_pass(const char *src, double budget, int only);
 static char *src_text;	/* OpSource's text, when there is one */
 
 static void
@@ -6060,6 +6061,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "16 levels, the rest (loads, loop phis, spec constants) are "
 		    "free inputs\n", tb);
 	}
+	/* the function level: the GLSL source's functions (glslfn.c) */
+	if (src_text != NULL)
+		glslfn_pass(src_text, budget, 0);
 	free(list.p);
 	free(rl);
 	free(SP.dl);
