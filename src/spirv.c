@@ -177,7 +177,9 @@ static void
 parse(const char *src)
 {
 	const char *p = src, *e;
-	char line[1024], *q, *tok;
+	static char *line;	/* one instruction: a table's constant can be long */
+	static size_t linecap;
+	char *q, *tok;
 	int n;
 
 	while (*p) {
@@ -218,8 +220,11 @@ parse(const char *src)
 				memcpy(src_text, q + 1, (size_t)(z > q ? z - q - 1 : 0));
 				src_text[z > q ? z - q - 1 : 0] = 0;
 			}
-			n = (int)(end - p) < (int)sizeof line - 1 ? (int)(end - p) :
-			    (int)sizeof line - 1;
+			n = (int)(end - p);
+			if ((size_t)n + 1 > linecap) {
+				linecap = (size_t)n + 1024;
+				line = xrealloc(line, linecap);
+			}
 			memcpy(line, p, (size_t)n);
 			line[n] = 0;
 		}
