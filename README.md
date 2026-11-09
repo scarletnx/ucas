@@ -23,6 +23,7 @@ make test       # tests/*.ucas must print tests/*.out
 ./ucas file.ucas    # run a file (each statement is echoed)
 ./ucas -e 'range isqrt(x: u4)'
 ./ucas          # interactive
+./ucas --json   # JSON Lines for programs and agents (see "JSON frontend")
 ```
 
 ## A tour
@@ -777,6 +778,215 @@ minimax` (which fit seeds the machine candidates; minimax by default)
 and `keep crit` (exact at the function's critical points inside the
 interval, so its extrema survive).  `it`, `that`, `lhs` and `rhs` are
 the names the translator defines.
+
+## JSON frontend for agents and programs
+
+```sh
+ucas --json [--dir DIR] [--files write|base64|both|none]   # JSON Lines
+ucas --json -e '{"cmd": "range", "args": {"f": "isqrt(x: u4)"}}'
+ucas --json-schema          # the interface as JSON Schema, every command
+python3 tools/ucas_client.py # a client and a short agent session
+```
+
+`ucas --json` reads one request per line on stdin and writes one
+response per line on stdout, in order, nothing else (diagnostics are
+inside the responses; stderr is untouched).  It never prompts, never
+parses English unless asked to, and never guesses silently: where the
+text frontends take a reading and print a `note:`, JSON mode either
+follows a fixed rule (listed below) or answers with an `ambiguous` error
+that lists the readings and the key that picks one.
+
+### Requests
+
+```json
+{"id": 7, "cmd": "integrate", "args": {"f": "x^2 sin(x)", "var": "x", "from": "0", "to": "pi"}}
+```
+
+`id` is any JSON value and comes back as it was; `cmd` names a command;
+`args` holds its named, typed arguments.  Unknown fields, unknown
+arguments, missing required ones and wrong types are `bad_request`
+errors.  `{"cmd": "schema"}` (or `--json-schema`) lists every command
+with its parameters (`commands`), the request and response schemas
+(`$defs`) and the request-wide options; `tools/ucas_client.py` reads it.
+
+Each command is a template: the arguments become one ucas statement,
+which is run as if typed and returned as `ucas` in the response (error
+positions refer to it).  So the language is the one documented above,
+and what ran is never in doubt.  Argument types:
+
+| type | JSON | becomes |
+|------|------|---------|
+| expression | a string of ucas syntax (one line: no newline or `#`), a number, or the AST form below | the text, or the AST fully parenthesised |
+| function | a defined name, an expression with inline types (`"isqrt(x: u4)"`), or `{"body": expr, "params": [...], "name"?}` | the name; an object is defined first (as `it`, `that`, or its `name`) |
+| expressions, names | an array (a single value is one element) | joined with `, ` |
+| number | a JSON number, or a constant expression as a string (`"pi/2"`, `"inf"`) | the number |
+| interval | `[lo, hi]` | `lo..hi` |
+| params (define) | `[{"name": "x", "type": "u8", "range": [0, 10], "uniform": false}]` | `x: u8 in 0..10` |
+
+The AST form needs no precedence or juxtaposition rules:
+`{"op": "+", "args": [a, b, ...]}` (binary `+ - * / ^ % mod & | xor <<
+>> == != < <= > >= && || =`, n-ary for `+ * & | xor && ||`), `{"op":
+"neg"|"not"|"~", "args": [a]}`, `{"op": "?:", "args": [c, a, b]}`, any
+other `op` a function call (`{"op": "atan2", "args": [y, x]}`), `{"var":
+"x"}`, `{"num": "1/3"}` (an exact fraction), `{"expr": "ucas text"}`.
+
+Options accepted by every command, in `args`:
+
+| option | |
+|--------|--|
+| `assume` | answers to ambiguities: `{"caret": "power", "z": "complex", "log": "ln"}`; a reading's text, a unique prefix or word of it, or its 1-based index |
+| `defaults` | `true`: take the reading the CLI would take (noted as kind `default`) instead of an error |
+| `timeout_s` | wall-clock limit; the request runs in a forked child, and on a timeout or a crash the state is as it was |
+| `files` | `write` (to `--dir`, default the working directory), `base64` (inline, nothing written), `both`, `none` |
+| `answers` | replies to follow-up questions (`english` asking for an interval), in order |
+
+### Responses
+
+```json
+{"id": 7, "ok": true, "cmd": "integrate", "ucas": "integrate x/x from -1 to 1", "structured": true,
+ "result": {"kind": "integrate", "var": "x", "integrand": "x/x", "antiderivative": "x",
+            "definite": {"from": -1, "to": 1, "symbolic": 2, "numeric": 2, "error_estimate": 0,
+                         "evaluations": 15, "value": 2}},
+ "notes": [{"kind": "info", "text": "x/x = 1 where x != 0; the result holds there"}],
+ "conditions": ["x != 0"],
+ "checks": [{"kind": "derivative", "points": 400, "max_diff": 0, "passed": true, "text": "..."},
+            {"kind": "numeric_integral", "points": 15, "max_diff": 0, "passed": true, "text": "..."}],
+ "files": [], "text": "∫ x/x dx\n  note: x/x = 1 where x != 0; ...\n  = x + C\n  ..."}
+```
+
+| field | |
+|-------|--|
+| `ok` | false when there is an `error` |
+| `ucas` | the statements that ran |
+| `result` | the command's fields, with `kind`; exact values as `{"value": 0.333.., "exact": "1/3"}`; expressions as ucas strings that parse back; a command not (yet) structured gives `{"text": ...}` and `"structured": false` |
+| `results` | every result, when the request ran several commands (`ucas`, `funcs`) |
+| `notes` | `{"kind", "text"}`: `rule` (a fixed reading of the syntax, e.g. `1/2x read as 1/(2x)`), `info`, `assumed` (args.assume answered it), `default` (args.defaults) |
+| `conditions` | where the answer holds (`x != 0`, `a != 0`, `b^2 - 4a*c >= 0 (real solutions)`) |
+| `checks` | independent checks: `{"kind", "points", "max_diff", "passed", "text"}` |
+| `proof` | `{"kind": "symbolic"/"exhaustive"/"sat"/"numeric", "text"}`: how far the answer is established |
+| `files` | `{"name", "mime", "bytes", "path"?, "base64"?}` (plots, animations, rewritten SPIR-V) |
+| `text` | the output as the CLI prints it |
+| `error` | `{"code", "message", "pos"?: {"line", "col"}, "key"?, "readings"?, "how"?}` |
+
+Error codes: `bad_json`, `bad_request`, `unknown_command`,
+`parse_error`, `domain_error`, `unsupported`, `failed` (the command
+reported an error), `ambiguous`, `needs_input`, `not_understood`
+(English), `timeout`, `internal` (the evaluation crashed; the state is
+unchanged when it ran under `timeout_s`).  A `fail()` inside a command
+becomes the error and the process carries on; a failure that a command
+catches and works around is not an error.  Numbers that are not finite
+are `null` (an unbounded interval end, a limit's value is a `kind`).
+
+```json
+{"id": 4, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1"}}
+{"id": 4, "ok": false, "cmd": "ucas", "ucas": "k = 3 ^ 5 & 1", ..., "error": {"code": "ambiguous",
+ "message": "\"^\" between integers, next to bitwise operators", "key": "caret",
+ "readings": [{"index": 1, "reading": "xor (bitwise exclusive or)", "default": true},
+              {"index": 2, "reading": "power", "default": false}],
+ "how": "repeat the request with args.assume.caret set to a reading (or its index), or args.defaults = true ..."}}
+```
+
+### Ambiguity: rules, and what is asked
+
+Expressions are ucas syntax, so its grammar applies as written, and the
+readings in "How ambiguities are resolved" are rules, not guesses: `2x`,
+`sin x^2`, `1/2x` = `1/(2x)`, `^` is power (`xor` is exclusive or), `a <
+b < c`, `x = 0` inside an expression, `a & b == c`, `|x|`, `log` is the
+natural log (English `log` is asked), `i` is the imaginary unit in the
+complex commands and the other variables are real.  They come back as
+notes of kind `rule`.  Anything else is a decision, and JSON mode makes
+none: it answers `ambiguous` with the readings and an `args.assume` key.
+Two sources:
+
+- **Questions** the terminal would ask (`nlp_can_ask` is true in JSON
+  mode; the answer comes from `args.assume`, never stdin): `caret` (`^`
+  between integers next to bitwise operators), `solve_for` (one equation,
+  several variables), `wrt` (an integrand with no variable), `keep_ends`
+  (approx: special points at the interval's ends), `anim_type`,
+  `spv_type`, `spv_value`, `i_param` (a parameter named `i`), and in
+  English `log`, `byte`, `char`, `int`, `integer`, `word`, `sqrt`, `not`,
+  `andor`, `scope` (what "of" applies to), `unknown_word`.  Others have
+  the key `question`.
+- **Noted guesses** (a `note:` in the CLI): `z` (z, w are complex unless
+  x or y appear), `untyped` (a parameter's type inferred from integer
+  operators), `juxtaposition` (`xy` read as `x*y`), `isqrt` (`sqrt` of an
+  integer), `j` (j as the imaginary unit), `angle` (degrees), `free_vars`
+  (a definition without parameters), `e_units` (`2e1` as `2*e1`).  The
+  assume value can only confirm the reading taken; the other readings
+  carry a `how` (annotate `z: real`, give `params`), since they need
+  different input rather than a flag.
+- `define` needs a type for every parameter (or a range): otherwise
+  `param_type` (`real` or `int`) is asked.
+
+`{"cmd": "assume", "args": {"set": {...}, "clear": true}}` keeps answers
+for the session (each request's `args.assume` comes first).
+
+### Sessions
+
+Definitions (functions, models, bases, the `find`/`approx` searches)
+persist across requests.  `define` returns the function as data
+(`signature`, `params`, `body`); `state` lists the functions, models,
+the active model, bases and the session's assumptions; `reset` answers
+and then re-executes the binary (so nothing survives; stdin is read
+unbuffered, so no request is lost).  `ucas` runs raw statements (several
+lines allowed, with an optional `code` block for SPIR-V/GLSL): the escape
+hatch for recurrences, ODEs, bases, models and everything without a
+template.  `english` is the explicit opt-in to the translator: its result
+has the translated `statements` and the `results` they produced; a
+question is `ambiguous` (`assume`) or `needs_input` (`answers`).
+
+`timeout_s` forks: the child answers and, if it finishes, carries on as
+the server with the new state; on a timeout it is killed and the parent
+answers `timeout` with its state untouched.  The first such request turns
+the original process into a waiter that exits when the last worker has
+(so a client sees one process, one pipe, throughout).
+
+### Structured commands
+
+`show table parse range domain wrap crit diff grad hessian laplacian
+jacobian wronskian limit taylor integrate antiderivative equiv fit error
+cost gates find more approx approx_more closed dsolve complex re im conj
+modulus arg polar trig holomorphic residue poles monotonic period
+identify zeros (real and complex) expand factor simplify together cancel
+collect apart gcd lcm resultant discriminant quo rem divide solve
+substitute plot plot3d neighbourhood spirv_simplify define state assume
+reset english schema`.  The rest (`parity`, `bounded`, `injective`,
+`continuity`, `convexity`, `asymptotes`, `scheme`, `continuous`,
+`nthroots`, `unity`, `implicit`, `animate`, contour integrals, `help`,
+`funcs`, `models`, the hypercomplex algebra commands through `ucas`) work
+and return their text with `"structured": false`.
+
+### For developers: the report API
+
+`src/report.h`.  A command calls `rep_begin("kind")` and a field per
+printed result next to its `printf`: `rep_str`, `rep_num`, `rep_int`,
+`rep_bool`, `rep_exact(key, value, "1/3")`, `rep_expr(key, nid)`,
+`rep_list`/`rep_obj` ... `rep_end` for nesting (key `NULL` inside a
+list), `rep_cond`, `rep_check`, `rep_proof`, `rep_note`, `rep_file`, and
+`rep_text_list(key)` for findings printed as lines (identify's
+properties, plot's findings).  Outside a JSON request every call returns
+at once, so the text output is unchanged (`make test`).  A new command
+gets a template line in `src/jsonmode.c`'s table (name, statement words,
+typed parameters with their fragments) and works at once, unstructured;
+a few `rep_` calls make it structured.  Hooks: `fail()` records its
+message (util.c) and the statement loop commits it only when the
+statement ended in it (parse.c); `note()` checks the guesses table
+(report.c); `clarify` and the follow-up question in nlp.c ask
+`rep_answer`; `deliver` in anim.c hands files over.  Text is captured by
+pointing fd 1 at a temporary file for the request, so child tools
+(glslangValidator, spirv-dis) are captured too.
+
+Why a template per command rather than a second parser: one grammar, one
+implementation, and the response shows the exact statement, so an agent
+can learn the text language from the JSON one.  Why JSON Lines: one
+request in flight, no framing beyond newlines, trivially driven from any
+language.  The Discord bot still uses its `\x1e` directives (`defer`,
+`ask`, `answer`, `file`); JSON mode carries the same events as data
+(`ambiguous`/`needs_input` errors, `files`) and could replace them.
+
+`tests/json/*.jsonl` (with `.out`) cover every structured command,
+the errors, ambiguities, state, reset, timeouts and the schema;
+`make json-test` (part of `make test`), `make json-accept`.
 
 ## Bases and exact synthesis
 

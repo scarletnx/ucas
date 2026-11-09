@@ -957,12 +957,14 @@ run_stmts(const char *src, int echo)
 
 /* functions as data (define, state) */
 static struct jv *
-func_json(const struct func *f)
+func_json(const struct func *f, const char *kind)
 {
 	struct jv *o = jv_new(J_OBJ), *ps = jv_new(J_ARR), *p, *rg;
 	struct sbuf sig = {0};
 	int k;
 
+	if (kind)
+		jv_set(o, "kind", jv_str(kind));
 	jv_set(o, "name", jv_str(sym_str(f->name)));
 	sb_printf(&sig, "%s(", sym_str(f->name));
 	for (k = 0; k < f->np; k++) {
@@ -1607,7 +1609,7 @@ handle(const struct jv *rq)
 		jv_set(res, "kind", jv_str("state"));
 		for (k = 0; k < nfuncs; k++)
 			if (!funcs[k].anon && sym_str(funcs[k].name)[0] != '_')
-				jv_push(fs, func_json(&funcs[k]));
+				jv_push(fs, func_json(&funcs[k], NULL));
 		jv_set(res, "functions", fs);
 		for (k = 0; (m = model_nth(k)) != NULL; k++)
 			jv_push(ms, jv_str(sym_str(m->name)));
@@ -1647,10 +1649,8 @@ handle(const struct jv *rq)
 		reset_wanted = 1;
 	} else if (!strcmp(cmd, "define")) {
 		struct func *f = func_find(sym_cstr(jv_gets(a, "name")));
-		if (f && !jv_get(pieces, "error")) {
-			res = func_json(f);
-			jv_set(res, "kind", jv_str("define"));
-		}
+		if (f && !jv_get(pieces, "error"))
+			res = func_json(f, "define");
 	} else if (!strcmp(cmd, "english")) {
 		/* the translated statements, as data */
 		const char *p = text, *e, *s;
