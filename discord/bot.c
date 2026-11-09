@@ -1,7 +1,9 @@
 /*
  * ucas-discord: run `$`-prefixed Discord messages through ucas.
  *
- *   DISCORD_TOKEN=... ucas-discord      connect to the Gateway (Concord)
+ *   ucas-discord [--token-file PATH]   connect to the Gateway (Concord)
+ *   ucas-discord --check-token         find and load the token, say where
+ *                                       it came from (never print it)
  *   ucas-discord --stdin                read gateway events (JSON, one per
  *                                       line) and print the REST requests
  *                                       that would be sent
@@ -11,7 +13,16 @@
  * differs.  Evaluation happens in the supervisor process (sup.c).
  */
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#endif
+
+#include <errno.h>
+#include <fcntl.h>
+#include <libgen.h>
+#include <limits.h>
 
 #include <inttypes.h>
 #include <signal.h>
@@ -205,20 +216,156 @@ on_sup(struct io_poller *io, enum io_poller_events ev, void *data)
 	}
 }
 
+
+/*
+ * The token, in order of precedence:
+ *   --token-file PATH
+ *   DISCORD_TOKEN in the environment
+ *   <directory of this executable>/secrets/token.txt
+ *   <directory of this executable>/../secrets/token.txt  (in-tree build:
+ *       the binary is in discord/, secrets/ is at the top of the tree)
+ * The token is never printed; errors name the file only.
+ */
+static const char *token_file_opt;
+
+static int
+self_dir(char *dir, size_t n)
+{
+	char path[PATH_MAX];
+	size_t len = sizeof path;
+
+#ifdef __FreeBSD__
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+	if (sysctl(mib, 4, path, &len, NULL, 0) != 0)
+		return 0;
+#else
+	ssize_t r = readlink("/proc/self/exe", path, sizeof path - 1);
+	if (r <= 0)
+		return 0;
+	path[r] = 0;
+	(void)len;
+#endif
+	snprintf(dir, n, "%s", dirname(path));
+	return 1;
+}
+
+/* read a token file into a malloc'd string; NULL with a message on error */
+static char *
+read_token_file(const char *path, int quiet_missing)
+{
+	struct stat st;
+	char buf[512];
+	ssize_t r;
+	size_t n;
+	int fd;
+
+	if ((fd = open(path, O_RDONLY)) < 0) {
+		if (!(quiet_missing && errno == ENOENT))
+			fprintf(stderr, "ucas-discord: %s: %s\n", path,
+			    strerror(errno));
+		return NULL;
+	}
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    st.st_size >= (off_t)sizeof buf) {
+		fprintf(stderr, "ucas-discord: %s: not a regular file of a "
+		    "token's size\n", path);
+		close(fd);
+		return NULL;
+	}
+	if (st.st_mode & (S_IRWXG | S_IRWXO))
+		fprintf(stderr, "ucas-discord: warning: %s is readable by "
+		    "others; chmod 600 it\n", path);
+	r = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if (r < 0) {
+		fprintf(stderr, "ucas-discord: %s: %s\n", path, strerror(errno));
+		return NULL;
+	}
+	n = (size_t)r;
+	while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' ||
+	    buf[n - 1] == ' ' || buf[n - 1] == '\t'))
+		n--;
+	buf[n] = 0;
+	if (n == 0) {
+		fprintf(stderr, "ucas-discord: %s is empty\n", path);
+		return NULL;
+	}
+	{
+		char *tok = strdup(buf);
+		memset(buf, 0, sizeof buf);
+		return tok;
+	}
+}
+
+/* *from says where the token came from (a path or "DISCORD_TOKEN") */
+static char *
+load_token(char *from, size_t n)
+{
+	char dir[PATH_MAX], path[PATH_MAX + 32], *env, *tok;
+	int i;
+
+	if (token_file_opt != NULL) {
+		snprintf(from, n, "%s", token_file_opt);
+		return read_token_file(token_file_opt, 0);
+	}
+	if ((env = getenv("DISCORD_TOKEN")) != NULL && *env != 0) {
+		tok = strdup(env);
+		memset(env, 0, strlen(env));
+		unsetenv("DISCORD_TOKEN");
+		snprintf(from, n, "the DISCORD_TOKEN environment variable");
+		return tok;
+	}
+	if (!self_dir(dir, sizeof dir)) {
+		fprintf(stderr, "ucas-discord: cannot find this executable's "
+		    "path; use --token-file\n");
+		return NULL;
+	}
+	for (i = 0; i < 2; i++) {
+		snprintf(path, sizeof path, "%s/%ssecrets/token.txt", dir,
+		    i ? "../" : "");
+		if ((tok = read_token_file(path, 1)) != NULL) {
+			char real[PATH_MAX];
+			snprintf(from, n, "%s", realpath(path, real) ? real : path);
+			return tok;
+		}
+		if (access(path, F_OK) == 0)
+			return NULL;   /* exists but unusable: already reported */
+	}
+	fprintf(stderr, "ucas-discord: no token: tried %s/secrets/token.txt "
+	    "and %s/../secrets/token.txt; or use --token-file PATH or "
+	    "DISCORD_TOKEN\n", dir, dir);
+	return NULL;
+}
+
+static int
+check_token(void)
+{
+	char from[PATH_MAX + 64], *tok, *p;
+	size_t len, dots = 0;
+
+	if ((tok = load_token(from, sizeof from)) == NULL)
+		return 1;
+	len = strlen(tok);
+	for (p = tok; *p; p++)
+		dots += *p == '.';
+	printf("token from %s: %zu characters, %s\n", from, len,
+	    dots == 2 ? "shaped like a bot token (three dot-separated parts)" :
+	    "NOT shaped like a bot token (expected three dot-separated parts)");
+	memset(tok, 0, len);
+	free(tok);
+	return dots == 2 ? 0 : 1;
+}
+
 static int
 run_live(void)
 {
 	const struct discord_user *me;
-	char *env, *tok;
+	char from[PATH_MAX + 64], *tok;
 	CCORDcode rc;
 
-	if ((env = getenv("DISCORD_TOKEN")) == NULL || *env == 0) {
-		fprintf(stderr, "ucas-discord: DISCORD_TOKEN is not set\n");
+	if ((tok = load_token(from, sizeof from)) == NULL)
 		return 1;
-	}
-	tok = strdup(env);
-	memset(env, 0, strlen(env));
-	unsetenv("DISCORD_TOKEN");
+	fprintf(stderr, "ucas-discord: token from %s\n", from);
 	ccord_global_init();
 	client = discord_init(tok);
 	memset(tok, 0, strlen(tok));
@@ -333,10 +480,15 @@ main(int argc, char **argv)
 
 	if (argc == 2 && !strcmp(argv[1], "--selftest"))
 		return dc_selftest();
+	if (argc == 2 && !strcmp(argv[1], "--check-token"))
+		return check_token();
 	if (argc == 2 && !strcmp(argv[1], "--stdin"))
 		mode = 1;
+	else if (argc == 3 && !strcmp(argv[1], "--token-file"))
+		token_file_opt = argv[2];
 	else if (argc != 1) {
-		fprintf(stderr, "usage: ucas-discord [--stdin | --selftest]\n");
+		fprintf(stderr, "usage: ucas-discord [--token-file PATH] | "
+		    "--check-token | --stdin | --selftest\n");
 		return 2;
 	}
 	setvbuf(stdout, NULL, _IOLBF, 0);

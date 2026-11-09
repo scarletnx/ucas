@@ -529,12 +529,28 @@ system users are ignored.
 pkg install curl git gmake    # libcurl; git and gmake build Concord
 make discord                  # or: cd discord && make
 make discord-test             # no network or token needed
-DISCORD_TOKEN=... discord/ucas-discord
+mkdir -p secrets && chmod 700 secrets
+$EDITOR secrets/token.txt     # the bot token, one line; chmod 600 it
+discord/ucas-discord --check-token   # where it was found; never prints it
+discord/ucas-discord
 ```
 
-The token is read only from the `DISCORD_TOKEN` environment variable,
-which the bot wipes from its environment before evaluating anything;
-it is never logged or written to a file.
+The token is looked up in this order:
+
+1. `--token-file PATH`;
+2. the `DISCORD_TOKEN` environment variable (wiped from the environment
+   once read);
+3. `secrets/token.txt` next to the executable;
+4. `../secrets/token.txt` from the executable.  The in-tree binary is in
+   `discord/`, so this finds `secrets/token.txt` at the top of the tree.
+
+The executable's path comes from the kernel (`KERN_PROC_PATHNAME` on
+FreeBSD, `/proc/self/exe` elsewhere), not the working directory.
+`secrets/` is in `.gitignore`.  The bot warns if the file is readable
+by group or others.  The token is read after the evaluation supervisor
+has forked, so the sandboxed workers never have it in memory.  It is
+never logged: errors name the file, and `--check-token` reports only
+its length and whether it has a bot token's three dot-separated parts.
 
 The Gateway and REST client is [Concord](https://github.com/Cogmasters/concord)
 v2.4.0 (commit `fb0f834d07d65048a6afde177e318fe9659a9494`).  The first
