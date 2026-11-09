@@ -603,6 +603,15 @@ ss_node(const struct ssum *s)
 				}
 			if (!any || fabs(u.c) < 1e-300)
 				continue;
+			{
+				/* a coefficient p/q: q joins the denominator, 1/(2sqrt(x)) */
+				struct q cq;
+				if (fabs(u.c) != floor(fabs(u.c)) &&
+				    q_from_double(fabs(u.c), &cq) && cq.d <= 1000) {
+					den = MUL(KR((double)cq.d), den);
+					u.c = u.c < 0 ? -(double)cq.n : (double)cq.n;
+				}
+			}
 			for (g = 0; g < nd; g++)
 				if (dens[g] == den)
 					break;
