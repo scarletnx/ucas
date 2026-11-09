@@ -175,6 +175,42 @@ xf_num(double v)
 		return "0";
 	if (num_parts(v, &n, &d, &bn))
 		return parts_text(n, d, bn);
+	{
+		/* (a + b sqrt(m))/d */
+		static const int ms[] = {2, 3, 5, 6, 7, 10, 0};
+		int mi, dd, bb;
+		for (mi = 0; ms[mi]; mi++)
+			for (dd = 1; dd <= 12; dd++)
+				for (bb = -12; bb <= 12; bb++) {
+					double a, r;
+					if (bb == 0)
+						continue;
+					a = v * dd - bb * sqrt((double)ms[mi]);
+					if (!near_int(a, &r) || fabs(r) > 200 || r == 0)
+						continue;
+					if (fabs(r + bb * sqrt((double)ms[mi]) - v * dd) >
+					    1e-11 * fmax(1, fabs(v * dd)))
+						continue;
+					{
+						int64_t g = gcd64(gcd64((int64_t)fabs(r), abs(bb)), dd);
+						char *o = rbuf();
+						int64_t A = (int64_t)r / g, B = bb / g, D = dd / g;
+						char sb[32];
+						if (B == 1 || B == -1)
+							snprintf(sb, sizeof sb, "sqrt(%d)", ms[mi]);
+						else
+							snprintf(sb, sizeof sb, "%lldsqrt(%d)",
+							    (long long)(B < 0 ? -B : B), ms[mi]);
+						if (D == 1)
+							snprintf(o, 96, "%lld %c %s", (long long)A,
+							    B < 0 ? '-' : '+', sb);
+						else
+							snprintf(o, 96, "(%lld %c %s)/%lld", (long long)A,
+							    B < 0 ? '-' : '+', sb, (long long)D);
+						return o;
+					}
+				}
+	}
 	b = rbuf();
 	snprintf(b, 96, "%.10g", v);
 	return b;
@@ -548,6 +584,8 @@ pr_str(struct sbuf *b, nid n, int minp)
 static int
 const_prec(const char *s)
 {
+	if (strstr(s, " + ") || strstr(s, " - "))
+		return s[0] == '(' && strchr(s, '/') ? PS_PROD : PS_SUM;
 	if (s[0] == '-')
 		return PS_NEG;
 	if (strchr(s, '/') || strchr(s, '*'))

@@ -125,6 +125,20 @@ has_ident(const char *s, const char *w)
 	return 0;
 }
 
+static int
+builtin_name(const char *w)
+{
+	static const char *const b[] = {"min", "max", "atan2", "fma",
+		"copysign", "heaviside", "dirac", "kron", "fact", "binom", "u",
+		"delta", "H", "step", NULL};
+	int k;
+
+	for (k = 0; b[k]; k++)
+		if (!strcmp(b[k], w))
+			return 1;
+	return 0;
+}
+
 static const char *const unary_fns[] = {"sin", "cos", "tan", "exp", "log",
 	"ln", "sqrt", "abs", "sinh", "cosh", "tanh", "sec", "csc", "cot",
 	"atan", "asin", "acos", "floor", "ceil", "sign", "arctan", "arcsin",
@@ -1552,6 +1566,9 @@ cmd_ilaplace(char *text)
  * (y[n + k]) into placeholder names __d<k> (k + 16 for shifts, so that
  * negative shifts are names too); returns the unknown's name in nm.
  */
+static char upre = 'd';   /* placeholder prefix: __d1, __e1 */
+static const char *uxname = "x";   /* never the unknown (tf's input) */
+
 static void
 unknowns(const char *in, struct sbuf *o, char *nm, size_t nmn, int shifts,
     const char *idx, int *kmin, int *kmax, const char *xname)
@@ -1613,7 +1630,7 @@ unknowns(const char *in, struct sbuf *o, char *nm, size_t nmn, int shifts,
 						if (o->n && (isdigit((unsigned char)o->p[o->n - 1]) ||
 						    o->p[o->n - 1] == ')'))
 							sb_putc(o, '*');
-						sb_printf(o, "__d%d", ord);
+						sb_printf(o, "__%c%d", upre, ord);
 						if (ord > *kmax)
 							*kmax = ord;
 						if (ord < *kmin)
@@ -1686,7 +1703,7 @@ unknowns(const char *in, struct sbuf *o, char *nm, size_t nmn, int shifts,
 				if (o->n && (isdigit((unsigned char)o->p[o->n - 1]) ||
 				    o->p[o->n - 1] == ')'))
 					sb_putc(o, '*');
-				sb_printf(o, "__d%d", ord + (shifts ? 16 : 0));
+				sb_printf(o, "__%c%d", upre, ord + (shifts ? 16 : 0));
 				if (ord > *kmax)
 					*kmax = ord;
 				if (ord < *kmin)
@@ -1741,7 +1758,7 @@ lineq_of(struct lineq *L, const char *eqtext, int shifts)
 	rhs = p + 1;
 	sb_printf(&t, "(%s) - (%s)", lhs, rhs);
 	unknowns(t.p, &o, L->nm, sizeof L->nm, shifts, L->xn, &kmin, &kmax,
-	    "x");
+	    uxname);
 	if (!L->nm[0] || kmax < kmin)
 		fail("no unknown function (y'' + y = 0, y[n+1] = 2y[n])");
 	if (kmax - kmin > MAXORD)
@@ -2104,6 +2121,1408 @@ cmd_lsolve(char *text)
 	free(assume.p);
 }
 
+/* ---- Z transform ---- */
+
+enum {
+	ZR_LIN = 1, ZR_SCALE = 2, ZR_N = 4, ZR_TRIG = 8, ZR_DELAY = 16,
+	ZR_DELTA = 32, ZR_P2S = 64, ZR_POLY = 128, ZR_FACT = 256,
+	ZR_PIECE = 512, ZR_POWRED = 1024
+};
+static const char *const zr_names[] = {"linearity",
+	"a^n x[n] -> X(z/a)", "n x[n] -> -z X'(z)", "cos/sin table",
+	"x[n - k] u[n - k] -> z^-k X(z)", "delta[n - k] -> z^-k",
+	"product to sum", "polynomial expanded", "a^n/n! -> e^(a/z)",
+	"piecewise as steps", "power reduction", NULL};
+
+struct zctx {
+	int ns, zs;
+	nid n, z;
+	nid X;
+	nid roc;            /* max |r|: |z| > roc */
+	int hasroc;
+	unsigned rules;
+	int depth;
+};
+
+static void
+zc_roc(struct zctx *C, nid r)
+{
+	double v;
+	nid a = xnum(r, &v) ? xk(fabs(v)) : mk_un(O_ABS, r);
+
+	C->roc = C->hasroc ? mk_bin(O_MAX, C->roc, a) : a;
+	C->hasroc = 1;
+}
+
+/* the discrete indicator of a condition on n: steps u[n - k] */
+static nid
+indicator_d(nid c, int slot, nid x)
+{
+	int op;
+	double c1, c0, a;
+
+	c = unc(c);
+	op = N.op[c];
+	if (op == O_LAND) {
+		nid A = indicator_d(N.a[c], slot, x), B = A ? indicator_d(N.b[c],
+		    slot, x) : 0;
+		return A && B ? xmul(A, B) : 0;
+	}
+	if (op == O_LNOT) {
+		nid A = indicator_d(N.a[c], slot, x);
+		return A ? xsub(xk(1), A) : 0;
+	}
+	if (!(opinfo[op].fl & OF_CMP))
+		return 0;
+	if (!lin_num(xsub(N.a[c], N.b[c]), slot, &c1, &c0))
+		return 0;
+	a = -c0 / c1;
+	if (c1 < 0) {
+		/* flip: -n + c > 0 is n < c */
+		op = op == O_GE ? O_LE : op == O_GT ? O_LT : op == O_LE ? O_GE :
+		    op == O_LT ? O_GT : op;
+	}
+	switch (op) {
+	case O_GE:
+		return xheav(xsub(x, xk(ceil(a))));
+	case O_GT:
+		return xheav(xsub(x, xk(floor(a) + 1)));
+	case O_LT:
+		return xsub(xk(1), xheav(xsub(x, xk(ceil(a)))));
+	case O_LE:
+		return xsub(xk(1), xheav(xsub(x, xk(floor(a) + 1))));
+	case O_EQ:
+		return a == floor(a) ? xkron(xsub(x, xk(a))) : xk(0);
+	case O_NE:
+		return a == floor(a) ? xsub(xk(1), xkron(xsub(x, xk(a)))) : xk(1);
+	}
+	return 0;
+}
+
+/* Eulerian numbers E(k, j) */
+static double
+euler_num(int k, int j)
+{
+	static double E[16][16];
+	static int done;
+
+	if (!done) {
+		int a, b;
+		E[0][0] = 1;
+		for (a = 1; a < 16; a++)
+			for (b = 0; b < a; b++)
+				E[a][b] = (b + 1) * E[a - 1][b] +
+				    (a - b) * (b > 0 ? E[a - 1][b - 1] : 0);
+		done = 1;
+	}
+	return k < 16 && j < 16 && j >= 0 ? E[k][j] : 0;
+}
+
+/* Z{n^k r^n} */
+static nid
+z_npow(nid z, nid r, int k)
+{
+	nid num = xk(0);
+	int j;
+
+	if (k == 0)
+		return xdiv(z, xsub(z, r));
+	for (j = 0; j < k; j++)
+		num = xadd(num, xmul(xk(euler_num(k, j)), xmul(xpow(r, xk(j + 1)),
+		    xpow(z, xk(k - j)))));
+	return xdiv(num, xpow(xsub(z, r), xk(k + 1)));
+}
+
+static void zt_rec(struct zctx *C, nid e, int delay);
+
+/* Z{c n^k r^n trig(b n + phi)} */
+static nid
+zt_core(struct zctx *C, int k, nid r, int trig, nid beta, nid phi)
+{
+	nid z = C->z;
+	double ph = 0, rv, bv;
+
+	zc_roc(C, r);
+	if (k > 0)
+		C->rules |= ZR_N;
+	if (trig == 0)
+		return z_npow(z, r, k);
+	C->rules |= ZR_TRIG;
+	if (trig == O_SINH || trig == O_COSH) {
+		/* (r e^b)^n and (r e^-b)^n */
+		nid r1 = xmul(r, xexp(beta)), r2 = xmul(r, xexp(xneg(beta)));
+		nid A = z_npow(z, r1, k), B = z_npow(z, r2, k), R;
+		zc_roc(C, r1);
+		zc_roc(C, r2);
+		if (phi && !(xnum(phi, &ph) && ph == 0)) {
+			A = xmul(xexp(phi), A);
+			B = xmul(xexp(xneg(phi)), B);
+		}
+		R = trig == O_SINH ? xdiv(xsub(A, B), xk(2)) :
+		    xdiv(xadd(A, B), xk(2));
+		return R;
+	}
+	if (k > 0 && xnum(r, &rv) && xnum(beta, &bv)) {
+		/* numeric: n^k w^n, w = r e^(ib), as a complex rational */
+		double complex w = rv * cexp(I * bv), Nc[XD + 1], Dc[XD + 1];
+		struct xpoly Pr, Pi, Dd;
+		int j, i, nd = 0;
+		double complex ph1 = 1;
+		/* numerator sum_j E(k, j) w^(j+1) z^(k-j), denominator (z-w)^(k+1) */
+		for (i = 0; i <= XD; i++)
+			Nc[i] = Dc[i] = 0;
+		for (j = 0; j < k; j++)
+			Nc[k - j] += euler_num(k, j) * cpow(w, j + 1);
+		Dc[0] = 1;
+		for (j = 0; j <= k; j++) {
+			for (i = nd + 1; i >= 1; i--)
+				Dc[i] = Dc[i - 1] - w * Dc[i];
+			Dc[0] = -w * Dc[0];
+			nd++;
+		}
+		/* N/D = N conj(D) / |D|^2 for real z */
+		xp_zero(&Pr);
+		xp_zero(&Pi);
+		xp_zero(&Dd);
+		for (i = 0; i <= k; i++)
+			for (j = 0; j <= nd; j++) {
+				double complex t = Nc[i] * conj(Dc[j]);
+				Pr.c[i + j] += creal(t);
+				Pi.c[i + j] += cimag(t);
+			}
+		for (i = 0; i <= nd; i++)
+			for (j = 0; j <= nd; j++)
+				Dd.c[i + j] += creal(Dc[i] * conj(Dc[j]));
+		Pr.deg = Pi.deg = k + nd;
+		Dd.deg = 2 * nd;
+		xp_trim(&Pr);
+		xp_trim(&Pi);
+		xp_trim(&Dd);
+		if (phi)
+			xnum(phi, &ph);
+		ph1 = cexp(I * ph);
+		{
+			/* cos(bn + ph) = Re(e^(i ph) w^n), sin = Im */
+			struct xpoly num;
+			double cr = creal(ph1), ci = cimag(ph1);
+			xp_zero(&num);
+			for (i = 0; i <= XD; i++)
+				num.c[i] = trig == O_COS ? cr * Pr.c[i] - ci * Pi.c[i] :
+				    ci * Pr.c[i] + cr * Pi.c[i];
+			num.deg = XD;
+			xp_trim(&num);
+			return xdiv(xp_node(&num, z), xp_node(&Dd, z));
+		}
+	}
+	{
+		nid cb = mk_un(O_COS, beta), sb = mk_un(O_SIN, beta);
+		nid den = xadd(xsub(xpow(z, xk(2)), xmul(xmul(xk(2), r),
+		    xmul(z, cb))), xpow(r, xk(2)));
+		nid Zc = xdiv(xmul(z, xsub(z, xmul(r, cb))), den);
+		nid Zs = xdiv(xmul(xmul(r, z), sb), den);
+		nid R;
+		if (phi && !(xnum(phi, &ph) && ph == 0)) {
+			nid cp = mk_un(O_COS, phi), sp = mk_un(O_SIN, phi);
+			R = trig == O_COS ? xsub(xmul(cp, Zc), xmul(sp, Zs)) :
+			    xadd(xmul(cp, Zs), xmul(sp, Zc));
+		} else
+			R = trig == O_COS ? Zc : Zs;
+		for (; k > 0; k--)
+			R = xneg(xmul(z, diff_node(R, (uint32_t)C->zs)));
+		return R;
+	}
+}
+
+static void
+zt_term(struct zctx *C, nid term, int delay)
+{
+	struct facs F;
+	double pw = 0, v, c1, c0;
+	nid r = xk(1), beta = 0, phi = 0, u, arg;
+	int k, trig = 0, trigk = -1, fact = 0;
+	int64_t step = 0;
+	uint32_t steps = 0;
+
+	memset(&F, 0, sizeof F);
+	F.coef = xk(1);
+	fac_rec(term, C->ns, 1, &F);
+	for (k = 0; k < F.nf; k++) {
+		nid f = unc(F.f[k]);
+		double p = F.pw[k];
+		int op = N.op[f];
+		if (is_var(f, C->ns)) {
+			pw += p;
+			continue;
+		}
+		if (op == O_POW && !has_slot(N.a[f], C->ns) &&
+		    lin_of(N.b[f], C->ns, &u, &arg)) {
+			/* a^(c1 n + c0) */
+			r = xmul(r, xpow(N.a[f], xmul(xk(p), u)));
+			F.coef = xmul(F.coef, xpow(N.a[f], xmul(xk(p), arg)));
+			C->rules |= ZR_SCALE;
+			continue;
+		}
+		if (xis_exp(f, &u) && lin_of(u, C->ns, &beta, &arg)) {
+			r = xmul(r, xexp(xmul(xk(p), beta)));
+			F.coef = xmul(F.coef, xexp(xmul(xk(p), arg)));
+			beta = 0;
+			C->rules |= ZR_SCALE;
+			continue;
+		}
+		if (trig_op(op) && p == 1 && lin_of(N.a[f], C->ns, &u, &arg)) {
+			if (trig) {
+				nid g = facs_except(&F, (1u << k) | (1u << trigk));
+				C->rules |= ZR_P2S;
+				zt_rec(C, xmul(g, prod2sum(N.op[unc(F.f[trigk])],
+				    N.a[unc(F.f[trigk])], op, N.a[f])), delay);
+				return;
+			}
+			trig = op;
+			trigk = k;
+			beta = u;
+			phi = arg;
+			continue;
+		}
+		if (trig_op(op) && p == floor(p) && p >= 2 && p <= 6) {
+			nid w = N.a[f], red, rest;
+			nid c2 = mk_un(op == O_SIN || op == O_COS ? O_COS : O_COSH,
+			    xmul(xk(2), w));
+			if (op == O_SIN)
+				red = xdiv(xsub(xk(1), c2), xk(2));
+			else if (op == O_COS)
+				red = xdiv(xadd(xk(1), c2), xk(2));
+			else if (op == O_SINH)
+				red = xdiv(xsub(c2, xk(1)), xk(2));
+			else
+				red = xdiv(xadd(c2, xk(1)), xk(2));
+			rest = facs_except(&F, 1u << k);
+			if (p > 2)
+				rest = xmul(rest, xpow(f, xk(p - 2)));
+			C->rules |= ZR_POWRED;
+			zt_rec(C, xmul(rest, red), delay);
+			return;
+		}
+		if (xis_heav(f, &arg) && p == 1 && lin_num(arg, C->ns, &c1, &c0)) {
+			double a = -c0 / c1;
+			if (c1 > 0) {
+				int64_t s2 = (int64_t)ceil(a - 1e-12);
+				if (s2 > step)
+					step = s2;
+				steps |= 1u << k;
+				continue;
+			}
+			{
+				/* u[a - n] = 1 - u[n - floor(a) - 1] */
+				nid g = facs_except(&F, 1u << k);
+				C->rules |= ZR_DELAY;
+				zt_rec(C, xsub(g, xmul(g, xheav(xsub(C->n,
+				    xk(floor(a) + 1))))), delay);
+				return;
+			}
+		}
+		if (xis_kron(f, &arg) && p == 1 && lin_num(arg, C->ns, &c1, &c0)) {
+			double a = -c0 / c1;
+			nid g = facs_except(&F, 1u << k);
+			C->rules |= ZR_DELTA;
+			if (a != floor(a) || a < 0)
+				return;
+			C->X = xadd(C->X, xmul(xsubst1(g, C->ns, xk(a)),
+			    xpow(C->z, xk(-(a + delay)))));
+			if (!C->hasroc) {
+				C->roc = xk(0);
+				C->hasroc = 1;
+			}
+			return;
+		}
+		if (op == O_SEL && p == 1) {
+			nid H = indicator_d(N.a[f], C->ns, C->n);
+			if (H) {
+				nid g = facs_except(&F, 1u << k);
+				C->rules |= ZR_PIECE;
+				zt_rec(C, xmul(g, xadd(N.c[f], xmul(xsub(N.b[f], N.c[f]),
+				    H))), delay);
+				return;
+			}
+		}
+		if (xis_fact(f, &arg) && p == -1 && is_var(arg, C->ns)) {
+			fact = 1;
+			continue;
+		}
+		if (p > 0 && p == floor(p) && p <= 12) {
+			struct npoly np;
+			nid fp = p == 1 ? f : xpow(f, xk(p));
+			if (npoly_of(fp, C->ns, &np, 12) && np.deg >= 1) {
+				nid g = facs_except(&F, 1u << k);
+				int j;
+				C->rules |= ZR_POLY;
+				for (j = 0; j <= np.deg; j++)
+					if (!(is_const(np.c[j]) && const_is(np.c[j], 0)))
+						zt_rec(C, xmul(xmul(g, xadd(xk(0), np.c[j])),
+						    xpow(C->n, xk(j))), delay);
+				return;
+			}
+		}
+		fail("ztrans: no rule for the factor %s", xf_str(F.pw[k] == 1 ?
+		    F.f[k] : xpow(F.f[k], xk(F.pw[k]))));
+	}
+	if (step > 0) {
+		nid g = facs_except(&F, steps);
+		C->rules |= ZR_DELAY;
+		zt_rec(C, xsubst1(g, C->ns, xadd(C->n, xk((double)step))),
+		    delay + (int)step);
+		return;
+	}
+	if (pw != floor(pw) || pw < 0)
+		fail("ztrans: n^%s: no rule (powers n^k, k = 0, 1, 2, ...)",
+		    xf_num(pw));
+	{
+		nid R;
+		if (fact) {
+			if (pw != 0 || trig)
+				fail("ztrans: n^k or a sine times 1/n!: no rule");
+			C->rules |= ZR_FACT;
+			R = xexp(xdiv(r, C->z));
+			if (!C->hasroc) {
+				C->roc = xk(0);
+				C->hasroc = 1;
+			}
+		} else
+			R = zt_core(C, (int)pw, r, trig, beta, phi);
+		R = xmul(F.coef, R);
+		if (delay)
+			R = xmul(R, xpow(C->z, xk(-delay)));
+		C->X = xadd(C->X, R);
+	}
+}
+
+static void
+zt_rec(struct zctx *C, nid e, int delay)
+{
+	struct terms T;
+	int i;
+
+	if (++C->depth > 40)
+		fail("ztrans: the expression is too deep");
+	terms_of(e, &T);
+	if (T.n > 1)
+		C->rules |= ZR_LIN;
+	for (i = 0; i < T.n; i++)
+		zt_term(C, T.t[i], delay);
+	C->depth--;
+}
+
+/* a coefficient before z^-k: 1 omitted, 1/2 in parentheses */
+static const char *
+zcoef(double c, int before)
+{
+	const char *t = xf_num(c);
+	static char buf[4][64];
+	static int k;
+	char *b = buf[k++ & 3];
+
+	if (!before)
+		return t;
+	if (c == 1)
+		return "";
+	if (c == -1)
+		return "-";
+	if (strchr(t, '/') || strchr(t, ' ') || strchr(t, '^')) {
+		snprintf(b, 64, "(%s)", t);
+		return b;
+	}
+	return t;
+}
+
+/* X(z) in z^-1: (b0 + b1 z^-1 ...)/(1 + a1 z^-1 ...) as text */
+static void
+zinv_text(struct sbuf *b, const struct xrat *r)
+{
+	int dd = r->d.deg, i, first;
+	double a0 = r->d.c[dd];
+
+	for (i = 0, first = 1; i <= dd; i++) {
+		/* numerator coefficient of z^(dd - i): z^-i */
+		double c = dd - i <= r->n.deg && dd - i >= 0 ? r->n.c[dd - i] /
+		    a0 : 0;
+		if (c == 0)
+			continue;
+		sb_printf(b, "%s%s", first ? "" : c < 0 ? " - " : " + ",
+		    zcoef(first ? c : fabs(c), i > 0));
+		if (i)
+			sb_printf(b, "z^-%d", i);
+		first = 0;
+	}
+	if (first)
+		sb_puts(b, "0");
+	{
+		struct sbuf d = {0};
+		for (i = 0, first = 1; i <= dd; i++) {
+			double c = r->d.c[dd - i] / a0;
+			if (c == 0)
+				continue;
+			sb_printf(&d, "%s%s", first ? "" : c < 0 ? " - " : " + ",
+			    zcoef(first ? c : fabs(c), i > 0));
+			if (i)
+				sb_printf(&d, "z^-%d", i);
+			first = 0;
+		}
+		if (strcmp(d.p, "1")) {
+			const char *num = b->p;
+			int paren = strstr(num, " + ") || strstr(num + 1, " - ");
+			char *nb = xstrdup(num);
+			sb_clear(b);
+			sb_printf(b, paren ? "(%s)/(%s)" : "%s/(%s)", nb, d.p);
+			free(nb);
+		}
+		free(d.p);
+	}
+}
+
+static double
+roc_value(nid roc, const int *sl, const double *vals, int ns)
+{
+	double r;
+	int ok;
+	nid v = with_samples(roc, sl, vals, ns);
+
+	if (xnum(v, &r))
+		return r;
+	r = xf_eval(v, NULL, NULL, 0, &ok);
+	return ok ? r : 1;
+}
+
+/* sum x[n] z0^-n numerically; 0 when it did not settle */
+static int
+zsum(nid x, int ns, double z0, double *val, int *nterms)
+{
+	int n, chunk = 256, quiet = 0, total = 0;
+	double xs[256], out[256], S = 0, zp = 1;
+	uint8_t ok[256];
+
+	for (n = 0; n < 20000; n += chunk) {
+		int i;
+		for (i = 0; i < chunk; i++)
+			xs[i] = n + i;
+		xf_evalv(x, ns, xs, chunk, NULL, NULL, 0, out, ok);
+		for (i = 0; i < chunk; i++) {
+			double t;
+			if (!ok[i] || !isfinite(out[i]))
+				return 0;
+			t = out[i] * zp;
+			S += t;
+			zp /= z0;
+			total++;
+			if (fabs(t) <= 1e-18 * fmax(fabs(S), 1e-300) || zp == 0)
+				quiet++;
+			else
+				quiet = 0;
+			if (quiet > 40) {
+				*val = S;
+				*nterms = total;
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+static void
+zt_check(const struct func *f, nid body, struct zctx *C, nid X)
+{
+	int skip[2] = {C->ns, C->zs}, sl[MAXP], ns, i, ok, good = 1, nt = 0;
+	double vals[MAXP], R, worst = 0, z0[3];
+	struct sbuf txt = {0};
+	nid xb, Xb;
+
+	ns = samples(f, skip, 2, sl, vals, &txt);
+	xb = with_samples(body, sl, vals, ns);
+	Xb = with_samples(X, sl, vals, ns);
+	R = C->hasroc ? roc_value(C->roc, sl, vals, ns) : 0;
+	z0[0] = R + 1;
+	z0[1] = 2 * R + 2;
+	z0[2] = 3 * R + 5;
+	for (i = 0; i < 3; i++) {
+		double S, Xv;
+		int n;
+		if (!zsum(xb, C->ns, z0[i], &S, &n)) {
+			good = 0;
+			break;
+		}
+		nt = n > nt ? n : nt;
+		Xv = xf_eval1(Xb, C->zs, z0[i], &ok);
+		if (!ok) {
+			good = 0;
+			break;
+		}
+		worst = fmax(worst, reldiff(S, Xv));
+	}
+	if (!good)
+		printf("  check: the series could not be summed numerically\n");
+	else
+		printf("  check: %s sum_n x[n] z^-n (%d terms) at z = %s, %s, %s%s%s: "
+		    "max relative difference %.2g\n", worst < 1e-9 ? "matches" :
+		    "DIFFERS FROM", nt, xf_num(z0[0]), xf_num(z0[1]),
+		    xf_num(z0[2]), ns ? " with " : "", ns ? txt.p : "", worst);
+	free(txt.p);
+}
+
+static void
+zrules_line(unsigned rules)
+{
+	int k, n = 0;
+
+	printf("  rules:");
+	for (k = 0; zr_names[k]; k++)
+		if (rules & (1u << k))
+			printf("%s %s", n++ ? "," : "", zr_names[k]);
+	if (n == 0)
+		printf(" a^n -> z/(z - a)");
+	printf("\n");
+}
+
+/* the Z transform of body in slot ns; zs the slot of z */
+static nid
+zt_of(nid body, struct zctx *C)
+{
+	C->X = xk(0);
+	zt_rec(C, body, 0);
+	return polish(C->X, C->zs, C->z);
+}
+
+static void
+roc_print(struct zctx *C, const char *zn)
+{
+	double r;
+
+	if (!C->hasroc)
+		printf("  region of convergence: every z\n");
+	else if (xnum(C->roc, &r))
+		printf("  region of convergence: |%s| > %s\n", zn, xf_num(r));
+	else
+		printf("  region of convergence: |%s| > %s\n", zn, xf_str(C->roc));
+}
+
+static void
+cmd_ztrans(char *text)
+{
+	static const char *const outs[] = {"z", "w", NULL};
+	static const char *const npref[] = {"n", "k", NULL};
+	char nv[32] = "", zv[32] = "";
+	struct func *f;
+	struct zctx C;
+	struct xrat r;
+	nid X;
+
+	trail_vars(text, nv, sizeof nv, zv, sizeof zv, outs);
+	f = xf_parse(text);
+	memset(&C, 0, sizeof C);
+	C.ns = pick_slot(f, nv, npref);
+	if (C.ns < 0 && f->np > 0)
+		fail("ztrans: which variable is n?  (ztrans X n z)");
+	if (C.ns < 0)
+		C.ns = max_slot(f);
+	C.n = xv(C.ns, C.ns < f->np ? sym_str(f->p[C.ns].name) : "n");
+	C.zs = C.ns == f->np ? f->np + 1 : f->np;
+	if (C.zs >= MAXP)
+		fail("too many variables");
+	if (!zv[0])
+		snprintf(zv, sizeof zv, "%s", xf_slot(f, "z") >= 0 ? "w" : "z");
+	C.z = xv(C.zs, zv);
+	xf_discrete = 1;
+	X = zt_of(f->body, &C);
+	printf("Z{%s}(%s) = %s\n", fname_of(f), zv, xf_str(X));
+	if (!(node_slots(X) & ~(1ULL << C.zs)) && xq_of(X, C.zs, &r) &&
+	    r.d.deg > 0) {
+		struct sbuf b = {0};
+		zinv_text(&b, &r);
+		printf("  in powers of %s^-1: %s\n", zv, b.p);
+		free(b.p);
+	}
+	roc_print(&C, zv);
+	printf("  one-sided: x[%s] for %s >= 0\n", sym_str(N.a[C.n]),
+	    sym_str(N.a[C.n]));
+	zrules_line(C.rules);
+	zt_check(f, f->body, &C, X);
+	xf_discrete = 0;
+}
+
+/* ---- inverse Z ---- */
+
+/* the sequence of a partial fraction expansion of X(z)/z */
+static nid
+pf_seq(const struct xpf *pf, nid n)
+{
+	nid x = xk(0);
+	int i, k, j;
+
+	for (i = 0; i < pf->np; i++) {
+		const struct xpole *P = &pf->pole[i];
+		double complex p = P->p;
+		if (cabs(p) == 0) {
+			/* a_k / z^k in X/z: a_k delta[n - (k - 1)] */
+			for (k = 1; k <= P->m; k++)
+				if (creal(P->a[k]) != 0)
+					x = xadd(x, xmul(xk(creal(P->a[k])), xkron(xsub(n,
+					    xk(k - 1)))));
+			continue;
+		}
+		{
+			/* sum_k a_k C(n, k-1) p^(n-k+1) = Q(n) p^n */
+			double complex Qc[XD + 1];
+			struct xpoly Qr, Qi;
+			for (j = 0; j <= XD; j++)
+				Qc[j] = 0;
+			for (k = 1; k <= P->m; k++) {
+				/* C(n, k-1) as a polynomial in n */
+				double complex bc[XD + 1];
+				int d = 0;
+				for (j = 0; j <= XD; j++)
+					bc[j] = 0;
+				bc[0] = 1;
+				for (j = 0; j < k - 1; j++) {
+					int i2;
+					/* times (n - j)/(j + 1) */
+					for (i2 = d + 1; i2 >= 1; i2--)
+						bc[i2] = (bc[i2 - 1] - j * bc[i2]) / (j + 1);
+					bc[0] = -j * bc[0] / (j + 1);
+					d++;
+				}
+				for (j = 0; j <= d; j++)
+					Qc[j] += P->a[k] * cpow(p, 1 - k) * bc[j];
+			}
+			xp_zero(&Qr);
+			xp_zero(&Qi);
+			for (j = 0; j < P->m; j++) {
+				Qr.c[j] = creal(Qc[j]);
+				Qi.c[j] = cimag(Qc[j]);
+			}
+			Qr.deg = Qi.deg = P->m - 1;
+			xp_trim(&Qr);
+			xp_trim(&Qi);
+			if (cimag(p) == 0) {
+				nid term = xp_node(&Qr, n);
+				if (creal(p) != 1)
+					term = xmul(term, xpow(xk(creal(p)), n));
+				x = xadd(x, term);
+			} else {
+				/* 2 Re(Q(n) p^n) = 2 rho^n (Re Q cos - Im Q sin)(theta n) */
+				double rho = cabs(p), th = carg(p);
+				nid tn = xmul(xk(th), n), term;
+				xp_scale(&Qr, 2);
+				xp_scale(&Qi, -2);
+				term = xadd(xmul(xp_node(&Qr, n), mk_un(O_COS, tn)),
+				    xmul(xp_node(&Qi, n), mk_un(O_SIN, tn)));
+				if (fabs(rho - 1) > 1e-14)
+					term = xmul(xpow(xk(rho), n), term);
+				x = xadd(x, term);
+			}
+		}
+	}
+	return x;
+}
+
+/* long division: x[0..cnt-1] of N(z)/D(z), deg N <= deg D */
+static int
+long_div(const struct xrat *r, double *x, int cnt)
+{
+	int dd = r->d.deg, n, j;
+	double a[XD + 1], b[XD + 1];
+
+	if (r->n.deg > dd)
+		return 0;
+	for (j = 0; j <= dd; j++) {
+		a[j] = r->d.c[dd - j];
+		b[j] = dd - j <= r->n.deg ? r->n.c[dd - j] : 0;
+	}
+	for (n = 0; n < cnt; n++) {
+		double v = n <= dd ? b[n] : 0;
+		for (j = 1; j <= dd && j <= n; j++)
+			v -= a[j] * x[n - j];
+		x[n] = v / a[0];
+	}
+	return 1;
+}
+
+/* x[n] from a rational X(z) in slot zs (numeric): 0 if not rational */
+static nid
+iz_rational(nid X, int zs, nid n, struct xrat *r, struct sbuf *poles,
+    double *R)
+{
+	struct xrat xz, zz;
+	struct xpf pf;
+	int i;
+
+	if ((node_slots(X) & ~(1ULL << zs)) || !xq_of(X, zs, r))
+		return 0;
+	if (r->n.deg > r->d.deg)
+		fail("iztrans: X grows like z^%d: not the transform of a causal "
+		    "sequence", r->n.deg - r->d.deg);
+	xp_const(&zz.n, 1);
+	xp_zero(&zz.d);
+	zz.d.c[1] = 1;
+	zz.d.deg = 1;
+	if (!xq_mul(r, &zz, &xz) || !xf_apart(&xz, &pf))
+		fail("iztrans: the roots of the denominator were not found");
+	*R = 0;
+	for (i = 0; i < pf.np; i++) {
+		*R = fmax(*R, cabs(pf.pole[i].p));
+	}
+	if (poles) {
+		struct xpf p2;
+		if (xf_apart(r, &p2))
+			poles_text(poles, &p2, "z");
+	}
+	return pf_seq(&pf, n);
+}
+
+/* c z^k/(z - a)^m and e^(a/z), symbolically */
+static nid
+iz_symbolic(nid X, int zs, nid n)
+{
+	struct terms T;
+	nid x = xk(0);
+	int i, k;
+
+	terms_of(X, &T);
+	for (i = 0; i < T.n; i++) {
+		struct facs F;
+		nid den = 0, u;
+		double m = 0, zk = 0, v;
+		int ok = 1;
+		memset(&F, 0, sizeof F);
+		F.coef = xk(1);
+		fac_rec(T.t[i], zs, 1, &F);
+		for (k = 0; k < F.nf && ok; k++) {
+			nid f = unc(F.f[k]);
+			if (is_var(f, zs))
+				zk += F.pw[k];
+			else if (F.pw[k] < 0 && !den)
+				den = f, m = -F.pw[k];
+			else if (xis_exp(f, &u) && F.nf == 1 && F.pw[k] == 1) {
+				/* e^(c/z): c^n/n! */
+				struct facs G;
+				memset(&G, 0, sizeof G);
+				G.coef = xk(1);
+				fac_rec(u, zs, 1, &G);
+				if (G.nf != 1 || !is_var(G.f[0], zs) || G.pw[0] != -1)
+					return 0;
+				x = xadd(x, xmul(F.coef, xdiv(xpow(G.coef, n), xfact(n))));
+				ok = 2;
+			} else
+				ok = 0;
+		}
+		if (ok == 2)
+			continue;
+		if (!ok || !den || m != floor(m))
+			return 0;
+		{
+			struct npoly D;
+			nid a, c1;
+			if (!npoly_of(den, zs, &D, 1) || D.deg != 1)
+				return 0;
+			c1 = xadd(xk(0), D.c[1]);
+			a = xneg(xdiv(xadd(xk(0), D.c[0]), c1));
+			if (m == 1 && zk == 1)
+				x = xadd(x, xmul(xdiv(F.coef, c1), xpow(a, n)));
+			else if (m == 1 && zk == 0)
+				x = xadd(x, xmul(xdiv(F.coef, c1), xmul(xpow(a, xsub(n,
+				    xk(1))), xheav(xsub(n, xk(1))))));
+			else if (m == 2 && zk == 1)
+				x = xadd(x, xmul(xdiv(F.coef, xpow(c1, xk(2))), xmul(n,
+				    xpow(a, xsub(n, xk(1))))));
+			else
+				return 0;
+			(void)v;
+		}
+	}
+	return x;
+}
+
+static void
+cmd_iztrans(char *text)
+{
+	static const char *const outs[] = {"n", "k", NULL};
+	static const char *const zpref[] = {"z", NULL};
+	char zv[32] = "", nv[32] = "";
+	struct func *f;
+	struct xrat r;
+	struct sbuf poles = {0};
+	int zs, ns, i, ok;
+	double R = 0;
+	nid z, n, x;
+
+	trail_vars(text, zv, sizeof zv, nv, sizeof nv, outs);
+	f = xf_parse(text);
+	zs = pick_slot(f, zv, zpref);
+	if (zs < 0 && f->np > 0)
+		fail("iztrans: which variable is z?  (iztrans X z n)");
+	if (zs < 0)
+		zs = max_slot(f);
+	z = xv(zs, zs < f->np ? sym_str(f->p[zs].name) : "z");
+	ns = zs == f->np ? f->np + 1 : f->np;
+	if (ns >= MAXP)
+		fail("too many variables");
+	if (!nv[0])
+		snprintf(nv, sizeof nv, "n");
+	n = xv(ns, nv);
+	xf_discrete = 1;
+	x = iz_rational(f->body, zs, n, &r, &poles, &R);
+	if (!x) {
+		x = iz_symbolic(f->body, zs, n);
+		if (!x)
+			fail("iztrans: no rule for %s (rational functions of z; "
+			    "c z/(z - a), e^(a/z))", xf_str(f->body));
+		printf("Z^-1{%s}[%s] = %s    for %s >= 0\n", fname_of(f), nv,
+		    xf_str(x), nv);
+		printf("  taken as causal (right-sided): region of convergence "
+		    "outside every pole\n");
+	} else {
+		double ld[32];
+		printf("Z^-1{%s}[%s] = %s    for %s >= 0\n", fname_of(f), nv,
+		    xf_str(x), nv);
+		if (poles.n)
+			printf("  poles: %s = %s\n", sym_str(N.a[z]), poles.p);
+		printf("  taken as causal (right-sided): region of convergence "
+		    "|%s| > %s\n", sym_str(N.a[z]), xf_num(R));
+		if (long_div(&r, ld, 32)) {
+			double worst = 0, sc = 0;
+			printf("  long division in %s^-1: ", sym_str(N.a[z]));
+			for (i = 0; i < 8; i++)
+				printf("%s%s", i ? ", " : "", xf_num(ld[i]));
+			printf(", ...\n");
+			for (i = 0; i < 32; i++) {
+				double v = xf_eval1(x, ns, i, &ok);
+				worst = fmax(worst, ok ? fabs(v - ld[i]) : INFINITY);
+				sc = fmax(sc, fabs(ld[i]));
+			}
+			printf("  check: the closed form %s the long division for "
+			    "%s = 0..31 (max difference %.2g)\n",
+			    worst <= 1e-9 * fmax(1, sc) ? "equals" : "DIFFERS FROM", nv,
+			    worst);
+		}
+	}
+	free(poles.p);
+	xf_discrete = 0;
+}
+
+/* ---- recurrences by Z ---- */
+
+/* the solution of a linear recurrence: y[n] as a node; prints the steps */
+static nid
+zsolve_core(char *text, int quiet, nid *Yout, struct zctx *Cout,
+    struct lineq *Lout)
+{
+	char *part[16];
+	int np, k, have[MAXORD] = {0}, i, zs;
+	double iv[MAXORD] = {0};
+	struct lineq L;
+	struct zctx C;
+	struct xpoly P, Q;
+	struct xrat Yr;
+	struct sbuf missing = {0}, poles = {0};
+	nid Pn, Qn, G, Y, y, z;
+	double R;
+
+	np = split_list(text, part, 16);
+	memset(&L, 0, sizeof L);
+	snprintf(L.xn, sizeof L.xn, "n");
+	if (!strchr(part[0], '['))
+		fail("zsolve: expected a recurrence like y[n+1] = 2y[n] + 1");
+	{
+		/* the index: the name inside the first [ ] */
+		const char *b = strchr(part[0], '[');
+		size_t l = 0;
+		b++;
+		while (*b == ' ')
+			b++;
+		while (isalpha((unsigned char)b[l]))
+			l++;
+		if (l && l < sizeof L.xn)
+			snprintf(L.xn, sizeof L.xn, "%.*s", (int)l, b);
+	}
+	upre = 'd';
+	uxname = "";
+	lineq_of(&L, part[0], 1);
+	uxname = "x";
+	initial_values(part + 1, np - 1, L.nm, 1, iv, have, L.order);
+	for (k = 0; k < L.order; k++)
+		if (!have[k])
+			sb_printf(&missing, "%s%s[%d]", missing.n ? ", " : "", L.nm, k);
+	/* m = n + kmin: sum_k a_k y[m + k] = g(m - kmin) for m >= 0 */
+	memset(&C, 0, sizeof C);
+	C.ns = L.xs;
+	C.n = L.x;
+	zs = L.f->np > L.xs ? L.f->np : L.xs + 1;
+	if (zs >= MAXP)
+		fail("too many variables");
+	C.zs = zs;
+	C.z = z = xv(zs, "z");
+	{
+		nid g = L.kmin ? xsubst1(L.g, L.xs, xsub(L.x, xk(L.kmin))) : L.g;
+		L.g = g;
+		G = is_const(g) && const_is(g, 0) ? xk(0) : zt_of(g, &C);
+	}
+	xp_zero(&P);
+	xp_zero(&Q);
+	for (k = 0; k <= L.order; k++) {
+		int j;
+		P.c[k] = L.a[k];
+		for (j = 0; j < k; j++)
+			Q.c[k - j] += L.a[k] * iv[j];
+	}
+	P.deg = L.order;
+	Q.deg = L.order;
+	xp_trim(&P);
+	xp_trim(&Q);
+	Pn = xp_node(&P, z);
+	Qn = xp_node(&Q, z);
+	Y = polish(xdiv(xadd(G, Qn), Pn), zs, z);
+	if (!quiet) {
+		printf("%s", part[0]);
+		for (k = 0; k < L.order; k++)
+			printf(", %s[%d] = %s", L.nm, k, xf_num(iv[k]));
+		printf("\n");
+		if (missing.n)
+			printf("  note: %s not given: taken as 0\n", missing.p);
+		if (L.kmin)
+			printf("  the recurrence holds for %s >= %d\n", L.xn, -L.kmin);
+		printf("  transformed: (%s)Y(z)%s%s%s = %s\n", xf_str(Pn),
+		    Q.deg >= 0 ? " - (" : "", Q.deg >= 0 ? xf_str(Qn) : "",
+		    Q.deg >= 0 ? ")" : "", xf_str(G));
+		printf("  Y(z) = %s\n", xf_str(Y));
+	}
+	y = iz_rational(Y, zs, L.x, &Yr, &poles, &R);
+	if (!y)
+		fail("zsolve: Y(z) is not a rational function of z");
+	if (!quiet) {
+		printf("  %s[%s] = %s    for %s >= 0\n", L.nm, L.xn, xf_str(y), L.xn);
+		if (poles.n)
+			printf("  poles of Y: %s\n", poles.p);
+	}
+	{
+		/* iterate the recurrence */
+		double it[64], worst = 0, sc = 0;
+		int ok, nn = 40;
+		for (i = 0; i < L.order; i++)
+			it[i] = iv[i];
+		for (i = 0; i + L.order < nn; i++) {
+			double v = xf_eval1(L.g, L.xs, i, &ok);
+			int j;
+			if (!ok)
+				v = 0;
+			for (j = 0; j < L.order; j++)
+				v -= L.a[j] * it[i + j];
+			it[i + L.order] = v / L.a[L.order];
+		}
+		for (i = 0; i < nn; i++) {
+			double v = xf_eval1(y, L.xs, i, &ok);
+			worst = fmax(worst, ok ? fabs(v - it[i]) / fmax(1,
+			    fabs(it[i])) : INFINITY);
+			sc = fmax(sc, fabs(it[i]));
+		}
+		if (!quiet)
+			printf("  check: iterating the recurrence gives the same %s[0..%d] "
+			    "(max relative difference %.2g)%s\n", L.nm, nn - 1, worst,
+			    worst <= 1e-9 ? "" : "  DIFFERS");
+	}
+	if (Yout)
+		*Yout = Y;
+	if (Cout)
+		*Cout = C;
+	if (Lout)
+		*Lout = L;
+	free(missing.p);
+	free(poles.p);
+	return y;
+}
+
+static void
+cmd_zsolve(char *text)
+{
+	xf_discrete = 1;
+	zsolve_core(text, 0, NULL, NULL, NULL);
+	xf_discrete = 0;
+}
+
+/* ---- transfer functions ---- */
+
+/* the names used as sequences (x[...]) or functions (y', y(t)) */
+static int
+seq_names(const char *s, int discrete, char names[4][32])
+{
+	size_t i = 0, n = strlen(s);
+	int k = 0, j;
+
+	while (i < n && k < 4) {
+		if (isalpha((unsigned char)s[i]) && (i == 0 ||
+		    !wch((unsigned char)s[i - 1]) || isdigit((unsigned char)s[i - 1]))) {
+			size_t e = i;
+			char w[32];
+			while (e < n && wch((unsigned char)s[e]))
+				e++;
+			snprintf(w, sizeof w, "%.*s", (int)(e - i), s + i);
+			if ((discrete && s[e] == '[') || (!discrete && (s[e] == '\'' ||
+			    (s[e] == '(' && !in_list(unary_fns, w) &&
+			    !builtin_name(w))))) {
+				for (j = 0; j < k; j++)
+					if (!strcmp(names[j], w))
+						break;
+				if (j == k)
+					snprintf(names[k++], 32, "%s", w);
+			}
+			i = e;
+			continue;
+		}
+		i++;
+	}
+	return k;
+}
+
+static void
+freq_table(const struct xrat *H, int discrete)
+{
+	static const double wd[] = {0, M_PI / 8, M_PI / 4, M_PI / 2,
+		3 * M_PI / 4, M_PI};
+	double wc[6], w0 = 1;
+	int i;
+
+	if (!discrete) {
+		double complex z[XD];
+		int m[XD], nz = xf_roots(&H->d, z, m);
+		double mx = 0;
+		for (i = 0; i < nz; i++)
+			mx = fmax(mx, cabs(z[i]));
+		if (mx > 0)
+			w0 = pow(10, floor(log10(mx) + 0.5));
+		wc[0] = 0;
+		wc[1] = w0 / 10;
+		wc[2] = w0 / 2;
+		wc[3] = w0;
+		wc[4] = 2 * w0;
+		wc[5] = 10 * w0;
+	}
+	printf("  frequency response %s:\n", discrete ? "H(e^(iw)), w in "
+	    "radians per sample" : "H(iw)");
+	printf("    %-10s %-12s %-10s %s\n", "w", "|H|", "dB", "phase (deg)");
+	for (i = 0; i < 6; i++) {
+		double w = discrete ? wd[i] : wc[i];
+		double complex h = xq_ceval(H, discrete ? cexp(I * w) : I * w);
+		double mag = cabs(h), ph = carg(h) * 180 / M_PI;
+		if (fabs(ph) < 1e-9)
+			ph = 0;
+		if (!isfinite(mag) || isnan(mag))
+			printf("    %-10s %-12s %-10s %s\n", xf_num(w), "inf", "inf",
+			    "(a pole)");
+		else
+			printf("    %-10s %-12.6g %-10.4g %.4g\n", xf_num(w), mag,
+			    mag > 0 ? 20 * log10(mag) : -INFINITY, ph);
+	}
+	/* -3 dB point when the gain falls monotonically from w = 0 */
+	{
+		double lo = 0, hi = discrete ? M_PI : wc[5] * 10;
+		double g0 = cabs(xq_ceval(H, discrete ? 1 : 0)), it;
+		double gh = cabs(xq_ceval(H, discrete ? cexp(I * hi) : I * hi));
+		if (g0 > 0 && isfinite(g0) && gh < g0 / sqrt(2)) {
+			for (it = 0; it < 80; it++) {
+				double mid = (lo + hi) / 2;
+				double g = cabs(xq_ceval(H, discrete ? cexp(I * mid) :
+				    I * mid));
+				if (g > g0 / sqrt(2))
+					lo = mid;
+				else
+					hi = mid;
+			}
+			printf("  -3 dB (gain %s/sqrt(2)) at w = %.6g%s\n", xf_num(g0), lo,
+			    discrete ? " rad/sample" : " rad/s");
+			if (discrete)
+				printf("    = %.6g of the sample rate\n", lo / (2 * M_PI));
+		}
+	}
+}
+
+/* y[n] = sum b_i x[n-i] - sum a_i y[n-i] as C */
+static void
+c_filter(const double *b, int nb, const double *a, int na)
+{
+	struct sbuf e = {0};
+	int i;
+
+	for (i = 0; i < nb; i++) {
+		if (b[i] == 0)
+			continue;
+		if (e.n)
+			sb_puts(&e, b[i] < 0 ? " - " : " + ");
+		else if (b[i] < 0)
+			sb_putc(&e, '-');
+		if (fabs(b[i]) != 1)
+			sb_printf(&e, "%.9gf*", fabs(b[i]));
+		sb_printf(&e, i ? "x%d" : "x", i);
+	}
+	for (i = 1; i < na; i++) {
+		if (a[i] == 0)
+			continue;
+		sb_puts(&e, -a[i] < 0 ? " - " : " + ");
+		if (fabs(a[i]) != 1)
+			sb_printf(&e, "%.9gf*", fabs(a[i]));
+		sb_printf(&e, "y%d", i);
+	}
+	printf("  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):\n");
+	printf("    float y = %s;\n", e.n ? e.p : "0");
+	if (nb > 1 || na > 1) {
+		printf("   ");
+		for (i = nb - 1; i >= 1; i--)
+			printf(" x%d = %s;", i, i == 1 ? "x" : (char[8]){'x',
+			    (char)('0' + i - 1), 0});
+		for (i = na - 1; i >= 1; i--)
+			printf(" y%d = %s;", i, i == 1 ? "y" : (char[8]){'y',
+			    (char)('0' + i - 1), 0});
+		printf("\n");
+	}
+	free(e.p);
+}
+
+static void
+tf_analyse(struct xrat *H, int discrete, const char *vn, struct func *f)
+{
+	struct xpf pf;
+	double complex z[XD];
+	int m[XD], nz, i;
+	double maxp = -INFINITY;
+	nid v = xv(f ? f->np : 0, vn), Hn;
+	int vs = f ? f->np : 0;
+
+	xq_reduce(H);
+	Hn = xq_node(H, v);
+	printf("  H(%s) = %s\n", vn, xf_str(Hn));
+	if (discrete && H->d.deg > 0) {
+		struct sbuf b = {0};
+		zinv_text(&b, H);
+		printf("       = %s\n", b.p);
+		free(b.p);
+	}
+	nz = xf_roots(&H->d, z, m);
+	if (nz > 0) {
+		struct sbuf b = {0};
+		if (xf_apart(H, &pf))
+			poles_text(&b, &pf, vn);
+		printf("  poles: %s\n", b.p ? b.p : "none");
+		free(b.p);
+	} else
+		printf("  poles: none\n");
+	for (i = 0; i < nz; i++)
+		maxp = fmax(maxp, discrete ? cabs(z[i]) : creal(z[i]));
+	{
+		double complex zz[XD];
+		int mm[XD], k = H->n.deg > 0 ? xf_roots(&H->n, zz, mm) : 0;
+		struct sbuf b = {0};
+		for (i = 0; i < k; i++) {
+			if (cimag(zz[i]) == 0)
+				sb_printf(&b, "%s%s", i ? ", " : "", xf_num(creal(zz[i])));
+			else
+				sb_printf(&b, "%s%s +- %s", i ? ", " : "",
+				    xf_num(creal(zz[i])), xf_cnum(I * cimag(zz[i])));
+			if (mm[i] > 1)
+				sb_printf(&b, " (x%d)", mm[i]);
+		}
+		printf("  zeros: %s\n", k > 0 ? b.p : "none");
+		free(b.p);
+	}
+	if (discrete) {
+		if (nz <= 0)
+			printf("  stable: FIR (no poles but at 0)\n");
+		else if (maxp < 1 - 1e-12)
+			printf("  stable (BIBO): every pole inside the unit circle "
+			    "(max |p| = %s)\n", xf_num(maxp));
+		else if (maxp <= 1 + 1e-12)
+			printf("  marginally stable at best: a pole on the unit circle "
+			    "(|p| = 1): bounded input can give unbounded output\n");
+		else
+			printf("  UNSTABLE: a pole outside the unit circle (|p| = %s)\n",
+			    xf_num(maxp));
+		printf("  causal: %s\n", H->n.deg <= H->d.deg ? "yes (deg numerator "
+		    "<= deg denominator)" : "no (it needs future inputs)");
+	} else {
+		if (nz <= 0)
+			printf("  stable: no poles\n");
+		else if (maxp < -1e-12)
+			printf("  stable (BIBO): every pole in the left half-plane "
+			    "(max Re(p) = %s)\n", xf_num(maxp));
+		else if (maxp <= 1e-12)
+			printf("  marginally stable at best: a pole on the imaginary "
+			    "axis\n");
+		else
+			printf("  UNSTABLE: a pole in the right half-plane (Re(p) = "
+			    "%s)\n", xf_num(maxp));
+		printf("  proper: %s\n", H->n.deg <= H->d.deg ? "yes" : "no");
+	}
+	/* impulse response */
+	{
+		jmp_buf saved;
+		memcpy(saved, fail_jmp, sizeof saved);
+		if (setjmp(fail_jmp) == 0) {
+			if (discrete) {
+				struct xrat r2;
+				double R;
+				nid n = xv(vs + 1, "n"), h;
+				xf_discrete = 1;
+				h = iz_rational(Hn, vs, n, &r2, NULL, &R);
+				if (h)
+					printf("  impulse response h[n] = %s    for n >= 0\n",
+					    xf_str(h));
+				xf_discrete = 0;
+			} else if (H->n.deg < H->d.deg || H->n.deg == H->d.deg) {
+				double sg;
+				int nd;
+				nid t = xv(vs + 1, "t"), h;
+				h = ilap_node(Hn, vs, t, vs + 1, &sg, NULL, NULL, &nd);
+				printf("  impulse response h(t) = %s    for t >= 0\n",
+				    xf_str(h));
+			}
+		}
+		memcpy(fail_jmp, saved, sizeof saved);
+		xf_discrete = 0;
+	}
+	{
+		double complex g = xq_ceval(H, discrete ? 1 : 0);
+		if (isfinite(creal(g)))
+			printf("  DC gain H(%s) = %s\n", discrete ? "1" : "0",
+			    xf_cnum(g));
+	}
+	freq_table(H, discrete);
+	if (discrete && H->n.deg <= H->d.deg && H->d.deg <= 8) {
+		double b[XD + 1], a[XD + 1];
+		int dd = H->d.deg;
+		for (i = 0; i <= dd; i++) {
+			a[i] = H->d.c[dd - i] / H->d.c[dd];
+			b[i] = dd - i <= H->n.deg ? H->n.c[dd - i] / H->d.c[dd] : 0;
+		}
+		{
+			int nb = dd + 1, na = dd + 1;
+			while (nb > 1 && b[nb - 1] == 0)
+				nb--;
+			while (na > 1 && a[na - 1] == 0)
+				na--;
+			c_filter(b, nb, a, na);
+		}
+	}
+}
+
+static void
+cmd_tf(char *text)
+{
+	struct xrat H;
+	int discrete;
+
+	if (strchr(text, '=') && !strstr(text, "==")) {
+		char names[4][32], out[32] = "", in[32] = "";
+		int nn, k, kminy, kmaxy, kminx, kmaxx;
+		struct sbuf t = {0}, o1 = {0}, o2 = {0};
+		char *eq = xstrdup(text), *p;
+		struct func *f;
+		struct xpoly A, B;
+		int lo;
+		discrete = strchr(text, '[') != NULL;
+		nn = seq_names(text, discrete, names);
+		for (k = 0; k < nn; k++) {
+			if (!strcmp(names[k], "y"))
+				snprintf(out, sizeof out, "y");
+			if (!strcmp(names[k], "x") || !strcmp(names[k], "u"))
+				snprintf(in, sizeof in, "%s", names[k]);
+		}
+		if (!discrete && !in[0]) {
+			static const char *const ins[] = {"x", "u", "f", "r", NULL};
+			for (k = 0; ins[k]; k++)
+				if (has_ident(text, ins[k]) && strcmp(ins[k], out)) {
+					snprintf(in, sizeof in, "%s", ins[k]);
+					break;
+				}
+		}
+		for (k = 0; k < nn && (!out[0] || !in[0]); k++) {
+			if (!out[0] && strcmp(names[k], in))
+				snprintf(out, sizeof out, "%s", names[k]);
+			else if (!in[0] && strcmp(names[k], out))
+				snprintf(in, sizeof in, "%s", names[k]);
+		}
+		if (!out[0] || !in[0])
+			fail("tf: expected an output and an input, y[n] = 0.9y[n-1] + "
+			    "x[n] or y'' + y' = x");
+		p = strchr(eq, '=');
+		*p = 0;
+		sb_printf(&t, "(%s) - (%s)", eq, p + 1);
+		upre = 'd';
+		uxname = in;
+		unknowns(t.p, &o1, out, sizeof out, discrete, discrete ? "n" : "t",
+		    &kminy, &kmaxy, in);
+		upre = 'e';
+		uxname = "";
+		unknowns(o1.p, &o2, in, sizeof in, discrete, discrete ? "n" : "t",
+		    &kminx, &kmaxx, "");
+		upre = 'd';
+		uxname = "x";
+		f = xf_parse(o2.p);
+		xp_zero(&A);
+		xp_zero(&B);
+		lo = kminy < kminx ? kminy : kminx;
+		if (kmaxy < kminy)
+			fail("tf: %s does not occur", out);
+		if (kmaxx < kminx)
+			fail("tf: %s does not occur", in);
+		if ((kmaxy > kmaxx ? kmaxy : kmaxx) - lo > XD)
+			fail("tf: order too high");
+		for (k = 0; k < f->np; k++) {
+			const char *nm = sym_str(f->p[k].name);
+			double v;
+			int off;
+			nid d;
+			if (strncmp(nm, "__", 2) || (nm[2] != 'd' && nm[2] != 'e'))
+				fail("tf: %s is neither %s nor %s", nm, out, in);
+			off = atoi(nm + 3) - (discrete ? 16 : 0);
+			d = diff_node(f->body, (uint32_t)k);
+			if (!xnum(d, &v))
+				fail("tf: not linear with constant coefficients (%s)",
+				    xf_str(d));
+			if (nm[2] == 'd')
+				A.c[off - lo] += v;
+			else
+				B.c[off - lo] -= v;
+		}
+		A.deg = B.deg = XD;
+		xp_trim(&A);
+		xp_trim(&B);
+		H.n = B;
+		H.d = A;
+		printf("transfer function of %s (zero initial state)\n", text);
+		printf("  input %s, output %s: H(%s) = %c(%s)/%c(%s)\n", in, out,
+		    discrete ? "z" : "s", toupper((unsigned char)out[0]),
+		    discrete ? "z" : "s", toupper((unsigned char)in[0]),
+		    discrete ? "z" : "s");
+		tf_analyse(&H, discrete, discrete ? "z" : "s", NULL);
+		free(eq);
+		free(t.p);
+		free(o1.p);
+		free(o2.p);
+		return;
+	}
+	{
+		struct func *f = xf_parse(text);
+		int zs = xf_slot(f, "z"), ss = xf_slot(f, "s"), vs;
+		if (zs >= 0)
+			discrete = 1, vs = zs;
+		else if (ss >= 0)
+			discrete = 0, vs = ss;
+		else if (f->np == 1)
+			discrete = 0, vs = 0;
+		else
+			fail("tf: H should be a function of z (discrete) or s");
+		if (f->np > 1)
+			fail("tf: H has symbols besides %s", sym_str(f->p[vs].name));
+		if (!xq_of(f->body, vs, &H))
+			fail("tf: %s is not a rational function", xf_str(f->body));
+		printf("transfer function %s\n", fname_of(f));
+		tf_analyse(&H, discrete, sym_str(f->p[vs].name), f);
+	}
+}
+
 /* ---- the command dispatcher ---- */
 
 static const char *const xcmds[] = {"laplace", "ilaplace", "ztrans",
@@ -2149,6 +3568,14 @@ xform_command(struct P *p)
 			cmd_laplace(text);
 	} else if (!strcmp(w, "ilaplace"))
 		cmd_ilaplace(text);
+	else if (!strcmp(w, "ztrans"))
+		cmd_ztrans(text);
+	else if (!strcmp(w, "iztrans"))
+		cmd_iztrans(text);
+	else if (!strcmp(w, "zsolve"))
+		cmd_zsolve(text);
+	else if (!strcmp(w, "tf"))
+		cmd_tf(text);
 	else {
 		free(text);
 		cmdp_seek(p, at);
