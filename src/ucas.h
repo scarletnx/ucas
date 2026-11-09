@@ -314,6 +314,7 @@ struct diter {
 	int64_t lo[MAXP], hi[MAXP];  /* integer bounds, or IEEE keys */
 	double rlo[MAXP], rhi[MAXP];
 	uint8_t real[MAXP];          /* 1 real grid, 2 f32 keys, 3 f64 keys */
+	uint8_t narrowed[MAXP];      /* bounds tightened by the where clause */
 	int exhaustive;
 	uint64_t total, pos, limit;
 	uint32_t rsteps;
@@ -323,6 +324,8 @@ void diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
     uint32_t rsteps, uint64_t nsample);
 uint32_t diter_next(struct diter *d, int64_t *in_i, double *in_r);
 void param_bounds(const struct param *p, int64_t *lo, int64_t *hi);
+int where_bounds(const struct func *f, int64_t *lo, int64_t *hi,
+    uint8_t *narrowed);
 void valid_mask(const struct plan *p, uint32_t wloc, uint32_t np, uint8_t *ok);
 void fmt_point(struct sbuf *b, const struct func *f, const int64_t *in_i,
     const double *in_r, uint32_t i);
