@@ -30,6 +30,8 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# elliptic curves: the shared core (ec.h), curves over Q, Diophantine
+SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
 # elliptic curves over finite fields, crypto and algorithms (ecff.h)
 SRCS+=	ecmp.c ecfp.c ecw.c ecnamed.c eccount.c ecpoly.c ecschoof.c ecalg.c \
 	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c \

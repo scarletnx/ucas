@@ -724,8 +724,10 @@ cop_addmul(struct rt *t, int k, int i, zint q)
 }
 
 /*
- * Clear column c below row k (rows k+1 ..), leaving gcd at (k, c), by
- * 2x2 Euclid steps: [s t; -b/g a/g] [a; b] = [g; 0].
+ * Clear column c below row k (rows k+1 ..), leaving gcd at (k, c): Euclid
+ * across the rows, the smallest entry as the pivot and the others reduced
+ * by rounded quotients, which keeps the numbers far smaller than chained
+ * 2x2 gcd steps.
  */
 static void
 clear_col(struct rt *t, int k, int c)
@@ -733,38 +735,56 @@ clear_col(struct rt *t, int k, int c)
 	struct zmat *a = t->a;
 	int i;
 
-	for (i = k + 1; i < a->r; i++) {
-		zint x = ZM(a, k, c), y = ZM(a, i, c), s, tt, g;
-		if (y == 0)
-			continue;
-		if (x != 0 && z_divides(x, y)) {
-			rop_addmul(t, i, k, z_divexact(y, x));
-			continue;
+	for (;;) {
+		int p = -1, more = 0;
+		for (i = k; i < a->r; i++)
+			if (ZM(a, i, c) != 0 && (p < 0 || z_cmpabs(ZM(a, i, c),
+			    ZM(a, p, c)) < 0))
+				p = i;
+		if (p < 0)
+			return;
+		if (p != k)
+			rop_swap(t, k, p);
+		for (i = k + 1; i < a->r; i++) {
+			zint y = ZM(a, i, c);
+			if (y == 0)
+				continue;
+			rop_addmul(t, i, k, z_div_round(y, ZM(a, k, c)));
+			if (ZM(a, i, c) != 0)
+				more = 1;
 		}
-		g = z_xgcd(x, y, &s, &tt);
-		rop(t, k, i, s, tt, z_neg(z_divexact(y, g)), z_divexact(x, g));
+		if (!more)
+			return;
 	}
 }
 
-/* clear row k right of column c (columns c+1 ..) */
+/* clear row k right of column c, the same way with columns */
 static void
 clear_row(struct rt *t, int k, int c)
 {
 	struct zmat *a = t->a;
 	int j;
 
-	for (j = c + 1; j < a->c; j++) {
-		zint x = ZM(a, k, c), y = ZM(a, k, j), s, tt, g;
-		if (y == 0)
-			continue;
-		if (x != 0 && z_divides(x, y)) {
-			cop_addmul(t, j, c, z_divexact(y, x));
-			continue;
+	for (;;) {
+		int p = -1, more = 0;
+		for (j = c; j < a->c; j++)
+			if (ZM(a, k, j) != 0 && (p < 0 || z_cmpabs(ZM(a, k, j),
+			    ZM(a, k, p)) < 0))
+				p = j;
+		if (p < 0)
+			return;
+		if (p != c)
+			cop_swap(t, c, p);
+		for (j = c + 1; j < a->c; j++) {
+			zint y = ZM(a, k, j);
+			if (y == 0)
+				continue;
+			cop_addmul(t, j, c, z_div_round(y, ZM(a, k, c)));
+			if (ZM(a, k, j) != 0)
+				more = 1;
 		}
-		g = z_xgcd(x, y, &s, &tt);
-		/* new col c = s col c + t col j; new col j = -y/g col c + x/g
-		 * col j: F[c][c] = s, F[j][c] = t, F[c][j] = -y/g, F[j][j] = x/g */
-		cop(t, c, j, s, z_neg(z_divexact(y, g)), tt, z_divexact(x, g));
+		if (!more)
+			return;
 	}
 }
 
@@ -936,8 +956,12 @@ zm_snf(const struct zmat *a, struct zsnf *s)
 	t.ui = &Ui;
 	t.v = &V;
 	t.vi = &Vi;
+	/* Hermite first: echelon form with reduced entries keeps the numbers
+	 * (and the transforms) small, and leaves most pivots at 1 */
+	hnf_core(&t, NULL);
 	for (k = 0; k < n; k++) {
-		/* the smallest nonzero entry of the lower right block */
+		/* the smallest nonzero entry of the lower right block (the
+		 * diagonal one on ties) */
 		int pi = -1, pj = -1;
 		for (i = k; i < D.r; i++)
 			for (j = k; j < D.c; j++)

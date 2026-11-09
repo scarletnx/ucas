@@ -32,6 +32,7 @@
 #include "ucas.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7272,6 +7273,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* abstract algebra (absalg_cmd.c) */
+		const char *r = absalg_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7681,6 +7691,8 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int ec_word(const char *w);	/* ec_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7703,6 +7715,11 @@ nlp_is_english(const char *s, size_t n)
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
+	{
+		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
 	}
@@ -7763,6 +7780,9 @@ nlp_is_english(const char *s, size_t n)
 			    word_at(s, n, &j2, w2, sizeof w2) && !strcmp(w2, "prime"))))
 				return 1;
 		}
+		/* ec_cmd.c: elliptic-curve and Diophantine commands are ucas */
+		if (ec_word(w1) && !user_fn(w1))
+			return 0;
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;

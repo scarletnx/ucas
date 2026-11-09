@@ -1,0 +1,36 @@
+# elliptic curves over Q (ec.c, ecq.c, ecan.c) and Diophantine equations
+# (ecdio.c): every point checked on its curve, maps composed with their
+# inverses, solutions substituted into the equation
+ec [0,0,1,-1,0]
+ec [0,-1,1,-10,-20]
+ec [0,1,1,-2,0] rank
+ec y^2 + x*y + y = x^3 - x^2 - 10*x - 20 local
+ec [0,0,0,0,-432] local
+ec [1,2,3,4,5] minimal
+ec [0,0,1,-1,0] add (0,0) (1,0)
+ec [0,0,1,-1,0] mul 7 (0,0)
+ec [0,0,1,-1,0] height (0,0)
+ec [0,0,1,-1,0] order (0,0)
+ec [0,-1,1,-10,-20] torsion
+ec [0,0,1,-1,0] points 20
+ec [0,0,1,-1,0] ap 1009
+ec [0,0,1,-1,0] periods
+ec [0,0,1,-1,0] wp 0.3+0.1i
+ec [0,5,0,1,0] model montgomery
+ec [0,5,0,1,0] model twisted_edwards
+ec [0,0,0,-1,0] model legendre
+ec [0,0,0,-11,14] model short
+ec [0,0,0,0,-2] integral 1000
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 4 positive
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 3 positive
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 19 positive maxmult 4
+diophantine x^4 + y^4 = z^2 nonzero
+diophantine x^4 - y^4 = z^2 nonzero
+diophantine y^2 = x^3 - 2 integer count 2
+weierstrass y^2 = x^4 + 3*x^2 + 1
+cubesum 7 positive
+cubesum 6
+congruent 5
+congruent 1
+congruent 24
+mordell 17 bound 6000

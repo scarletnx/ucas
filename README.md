@@ -1006,6 +1006,8 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | transforms, series | `laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic` |
 | solids | `area revolve volume surfacearea arclength centroid` |
 | pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
+| abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
+| elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
 
 A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
@@ -1169,7 +1171,7 @@ of a call:
   error whose `structuredContent.error` has `key` and `readings`: call
   again with `args.assume.KEY`.
 
-**Tools: grouped by default.**  There are about 120 commands.  As one
+**Tools: grouped by default.**  There are about 150 commands.  As one
 tool each they make a 340 KB `tools/list`, and several clients cap or
 truncate the tool list, so by default there is one tool per area, with
 an `op` and the op's `args`:
@@ -1186,6 +1188,8 @@ an `op` and the op's `args`:
 | `transforms` | laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic |
 | `solids` | area revolve volume surfacearea arclength centroid |
 | `plot` | plot plot3d neighbourhood animate |
+| `abstract_algebra` | bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf |
+| `elliptic` | elliptic diophantine weierstrass congruent mordell cubesum |
 | `session` | define state assume reset schema funcs models use help |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
 
@@ -1197,7 +1201,7 @@ Each grouped tool's description lists its ops with their parameters
 (`integrate(f*, var, from, to, around)`, `*` required) and what they
 compute, about 4 KB a tool and 60 KB in all; the exact schema of every
 op is the `session` tool's `schema` op or the `ucas://schema` resource.
-The trade: a model picks among 14 tools and reads one description,
+The trade: a model picks among 15 tools and reads one description,
 instead of scanning 120; the price is that an op's arguments are checked
 by ucas (a precise `bad_request` error) rather than by the client.
 `--flat` gives one tool per command with its exact `inputSchema` (no
@@ -1809,6 +1813,181 @@ small and matches one family at a time (sums of two families are not
 split); asymptotic expansions need an antiderivative of the term;
 infinite products are exact for rational factors only; Laurent series
 and Mellin or two-sided Laplace transforms are not done.
+
+## Abstract algebra, exactly
+
+```
+bigint factor 2^200 + 1
+snf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+abiso Z/4 + Z/6, Z/2 + Z/12
+abtor Z/12 + Z, Z/8 + Z/3
+abmap Z/12 -> Z/4 by [[1]]
+permgroup A5
+groebner x + y + z, x*y + y*z + z*x, x*y*z - 1 order lex
+idealmember x^3 - 1 in x + y + z, x*y + y*z + z*x, x*y*z - 1
+fxmodule [[2, 1, 0], [0, 2, 0], [0, 0, 2]]
+```
+
+An exact framework (`src/absalg.h`, the API that the homological
+algebra and proof layers build on): no floating point anywhere,
+integers that never wrap, and every claimed fact computed with a
+certificate that is checked before it is printed (`check:` lines, the
+`checks` of a JSON response).
+
+| command | what | certificate |
+|---------|------|-------------|
+| `bigint EXPR`, `bigint factor N` | integers of any size (`+ - * ^ !`, `/` exact, `div`, `%`, `gcd lcm abs isprime binomial`); factoring by trial division and Pollard-Brent rho | the product of the factors; Miller-Rabin (deterministic below 2^64, probable above) |
+| `snf M`, `hnf M` | Smith form U A V = D with U, V, U^-1, V^-1; row Hermite form H = U A | the products multiplied out; U U^-1 = I |
+| `zmat [det\|rank\|kernel\|image\|inverse\|cokernel\|solve] M[, b]` | integer linear algebra: saturated kernel bases, lattice bases, A x = b over Z (over Q when Z has no solution) | A K = 0, A x = b, the lattice equality |
+| `qmat [rref\|det\|rank\|inverse\|nullspace\|solve] M[, b]` | matrices over Q (`1/2`) | A A^-1 = I, A x = b |
+| `abgroup G` | invariant factors, primary decomposition, order, rank, exponent, torsion, generators | the Smith form of the relations |
+| `abiso G, H` | isomorphic?, with an explicit isomorphism and its inverse | both well defined, both composites the identity |
+| `abhom`, `abtensor`, `abtor`, `abext` `G, H` | Hom, tensor, Tor, Ext, computed from presentations (not from formulas) | `abselftest N` compares them with the cyclic formulas |
+| `abmap G -> H by M` | well defined?, kernel, image, cokernel, injective, surjective, inverse | relations to relations; G/ker = im |
+| `abelem G, x`, `absub G, x1, x2, ...` | canonical form and order of an element; a subgroup, its quotient and index | n x is a combination of relations; membership witnesses |
+| `abexact G1 -> G2 -> G3 by f, g` | exactness at G2 | g f = 0 and preimages of generators of ker g |
+| `permgroup G`, `permelem G, p`, `permsub H in G`, `permhom G -> H by ...` | permutation groups by Schreier-Sims: order, base, orbits, derived and lower central series, solvable, nilpotent, centre, membership, normality, cosets, homomorphisms | sifting words that rebuild the permutation; orbit-stabiliser; the graph subgroup has order abs(G) |
+| `cayley T` | a group by its Cayley table | all axioms (n^3 associativity) |
+| `groebner F [order lex\|grlex\|grevlex] [mod p] [vars x, y]` | reduced Groebner basis over Q or F_p, each element as a combination of the generators | cofactors multiplied out; every S-pair of the basis reduces to 0 |
+| `idealmember h in F`, `idealeq F = G` | ideal membership, inclusion, equality | h = sum c_j f_j multiplied out; else the nonzero normal form |
+| `fxmodule M`, `pmsnf [[x, 1], [0, x]]` | modules over the PID F[x]: invariant factors of xI - M (minimal and characteristic polynomial, rational canonical form), Smith form of polynomial matrices | U A V = D with U, V inverted |
+
+Groups are written `Z/4 + Z/6`, `Z^2 + Z/3`, `(Z/2)^3`, `Z/2^3` (= Z/8),
+`0`, or as a presentation: `coker [[2, 0], [0, 3]]` is Z^rows modulo
+the columns.  Permutation groups are `S4`, `A5`, `C6`, `D8` (order 8)
+or generators in cycle notation `(1 2 3 4), (1 2)` (1-based).  JSON:
+the commands of the same names (`zmatrix`, `qmatrix` for `zmat`,
+`qmat`; `bigint_factor`), and the `abstract_algebra` MCP tool.
+
+How it is built (data-oriented, like the rest of ucas):
+
+- **zint** (`zint.c`): a 64-bit handle; values below 2^61 are inline,
+  others index one arena of three columns (sign, length, offset) over
+  one array of 32-bit limbs.  Zeroed memory is the integer 0.  Knuth's
+  division; `z_mark`/`z_release_keep` scope temporaries, and every
+  elimination compacts the arena to its live entries after each pivot.
+- **zmat** (`zmat.c`): dense row-major handle arrays.  Hermite and Smith
+  forms by Euclid across rows and columns (the smallest entry as pivot,
+  rounded quotients), applied to the matrix and its transforms and
+  their inverses together; Smith starts from Hermite.  A random 30x30
+  integer matrix takes 0.03 s.
+- **fgab** (`fgab.c`): a group is a subquotient A/B of Z^n (a
+  presentation Z^g/R is A = Z^g; homology is cycles/boundaries), A and
+  B kept as column-Hermite bases so coordinates are a triangular solve;
+  R = B in A-coordinates and its Smith form give the invariants and
+  canonical coordinates.  Homomorphisms are coordinate matrices; kernels,
+  images, cokernels, sums, meets, m G, G[m], T_p are lattice operations;
+  Hom is the lattice of well-defined matrices modulo the zero maps;
+  Tor and Ext come from the free resolution 0 -> Z^b -R-> Z^a.
+- **pgrp** (`pgrp.c`): deterministic Schreier-Sims (every Schreier
+  generator sifted), explicit transversals in one flat array per level.
+  The centre and centralisers enumerate (groups up to 10^5 elements in
+  the command).
+- **ideal** (`ideal.c`): polynomials as SoA term arrays (exponents,
+  numerator and denominator columns); Buchberger with the normal
+  strategy, the product and chain criteria, cofactors carried through
+  every S-polynomial and reduction.
+
+Limits: factoring above 2^64 is Pollard rho only (a composite with two
+large factors may stay unsplit, and is reported as such); polynomial
+arithmetic is schoolbook; Groebner bases use Buchberger, not F4; the
+centre of a permutation group is found by enumeration.  English covers
+only a few phrasings: "is A5 solvable?", "is Z/4 + Z/6 isomorphic to
+Z/2 + Z/12?", "smith normal form of [[...]]", "groebner basis of ...",
+"is h in the ideal generated by ...?", "tensor product of G and H",
+"order of S5".
+
+## Elliptic curves and Diophantine equations
+
+```
+ec [0,0,1,-1,0]                       # the summary of 37a1
+ec y^2 + y = x^3 - x^2 - 10*x - 20 local
+ec [0,0,1,-1,0] mul 7 (0,0)
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 4 positive
+congruent 157
+cubesum 7 positive
+mordell 17 bound 6000
+```
+
+`src/ec.h` is the shared core (the finite-field side, branch `elip-ff`,
+builds on it): a field behind a table of operations with elements as
+fixed-size values (`fe`): Q with `zint` rationals, F_p for any p, Z/n (a
+failed inversion yields a factor), GF(p^k) through `ring.h`, and room for
+other implementations; curves in general Weierstrass form with b2..b8,
+c4, c6, the discriminant and j; points and the chord-and-tangent law; a
+struct-of-arrays point table; the isomorphisms [u, r, s, t] with
+composition and inverse; models (short, Montgomery, Edwards, twisted
+Edwards, Legendre, twisted Hessian) with their maps to and from
+Weierstrass form in both directions; plane cubics with a rational flex
+to Weierstrass form.
+
+Over Q (`ecq.c`): integral and global minimal models (Laska-Kraus-
+Connell), Tate's algorithm at every bad prime (Kodaira symbol, c_p,
+conductor exponent, split or non-split), torsion (bounded by gcd
+#E(F_p), found by Nagell-Lutz, checked against Mazur's list), naive and
+canonical heights (Tate's series at infinity, Silverman's formulas at the
+bad primes; normalised as h(x(nP))/n^2, the BSD regulator's convention),
+a sieved point search, 2-isogeny descent (local solubility of the
+quartics over Q_p and R, both Selmer groups, global points on the
+quartics mapped back through the dual isogeny) giving proved rank
+bounds, independence by the height pairing, the lattice enlarged by any
+found point outside it (Hermite form), saturation at p <= 7 (by
+reduction, and at 2 exactly by the descent map when the 2-torsion is
+rational).
+
+The analytic side (`ecan.c`, floating point with the bound stated):
+periods by AGM, Weierstrass p by q-series (checked against p'^2 = 4p^3 -
+g2 p - g3), a_n, the root number from the functional equation (the
+mismatch for both signs is printed: a wrong conductor or a_p would show
+there), L(E, 1) up to L'''(E, 1), the analytic rank, and #Sha_an =
+L^(r)(1)/r! #T^2 / (Omega R prod c_p).  With analytic rank 0 or 1 the
+rank is a theorem (Gross-Zagier, Kolyvagin).  On 80 random curves the
+functional-equation mismatch stayed below 1e-9 and #Sha_an came out an
+integer for every curve whose generators were found.
+
+`diophantine` (`ecdio.c`) parses a rational equation in up to six
+variables (denominators cleared, their spurious factors divided out and
+remembered: a solution must not make one vanish) and recognises a plane
+cubic (homogeneous in 3 variables, or affine in 2 and homogenised), a
+curve quadratic in one variable with a quartic discriminant (s = 2Ay +
+B, s^2 = B^2 - 4AC), or z^2 = a quartic form.  It finds a rational
+point; from a flex, the tangent goes to the line at infinity; otherwise
+the pencil of lines through the point turns the cubic into w^2 =
+quartic(t) with a known point (the tangent direction), and Washington's
+map (or the root case) gives Weierstrass form.  Each step is data with a
+forward and a backward map; then the minimal model and the group.
+Combinations sum n_i P_i + T are taken in order of height, mapped back,
+the composed maps checked to return the same point, the side conditions
+(`positive`, `integer`, `nonzero`) applied, and the solution substituted
+into the original equation exactly.  With no solution it says why when
+it can: E(Q) finite (rank 0 by descent) and every point mapped; or, for
+positivity on a cubic, the positive real points lie on the bounded
+component of E(R) and the 2-isogeny Selmer group at the largest
+2-torsion point is all positive, so no rational point lies there.
+
+For a/(b+c) + b/(a+c) + c/(a+b) = N: N = 4 gives the 80-digit solution
+(from -9P + T on y^2 + xy + y = x^3 - 234x + 1352, conductor 910), N = 6
+a 134-digit and N = 10 a 190-digit one, N = 2 gives (3, 1, 1); N = 1, 3,
+5, 7, 9, 11, 13, 15, 17 have rank 0 (no solution, proved), and N = 19,
+21, 23, 29, 35, 39 have rank 1 but no positive solution, proved by the
+component argument.  `x^4 + y^4 = z^2 nonzero` reproves Fermat's case.
+`congruent n` gives a triangle (checked: a^2 + b^2 = c^2, ab/2 = n) or a
+proof that none exists (rank 0), else the bounds and Tunnell's counts.
+`cubesum k` solves x^3 + y^3 = k z^3; `mordell k` gives the summary and
+the integral points of y^2 = x^3 + k up to a bound.
+
+JSON: `elliptic` (curve, op, args), `diophantine` (equation, positive,
+integer, nonzero, count, maxmult, search), `weierstrass`, `congruent`,
+`mordell`, `cubesum`; the MCP tool `elliptic`.  Tests: `tests/elip.ucas`,
+`tests/json/elip.jsonl`, `tests/mcp/elliptic.jsonl`.
+
+Not done yet: a full 2-descent for curves without rational 2-torsion
+(their rank's upper bound is the analytic rank, a theorem only up to
+rank 1), second descents (`congruent 157`, whose generator is huge, is
+left open with its bounds), integral points beyond a search bound (no
+elliptic logarithms or Baker bounds), saturation only at p <= 7 and
+without an index bound, Hessian models from Weierstrass form (they need
+a 3-torsion point), theta-congruent numbers.
 
 ## Design
 
