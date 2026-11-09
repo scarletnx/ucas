@@ -175,6 +175,8 @@ nid mk_index(nid tab, nid i);
 nid mk_barrier(nid a);
 nid mk_atomic(int kind, nid a, nid v);
 nid mk_fma(nid a, nid b, nid c);
+double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
+double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
 int atomic_lookup(const char *s, size_t n, int *kind);
 nid subst(nid root, const nid *map, int nmap);
 int is_const(nid n);
@@ -242,6 +244,8 @@ extern int nfuncs;
 struct gate {
 	uint32_t name;
 	uint8_t arity, tt, cost, symm; /* symm bit (i*3+j): args i,j interchangeable */
+	uint8_t lut;    /* "= lut": any function of its inputs, the table per use
+			 * (vpternlog, LOP3) */
 	nid body;
 	uint32_t pname[3];
 };

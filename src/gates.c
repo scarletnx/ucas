@@ -112,24 +112,37 @@ struct gs {
 	uint8_t active[MAXV];
 	uint64_t val[MAXV];
 	int nval;
-	uint8_t sg[MAXSTEP], sa[MAXSTEP][3];
-	uint32_t key[MAXSTEP];
+	/* a step: gate sg, arguments sa[0..2], sa[3] the truth table of a
+	 * lut gate (any function of its inputs: vpternlog, LOP3) */
+	uint8_t sg[MAXSTEP], sa[MAXSTEP][4];
+	uint64_t key[MAXSTEP];
 	int nstep;
 	int sat[MAXV];
 	int nunsat;
 	int bound, mincost;
 	uint64_t nodes, limit;
 	int aborted, found;
-	uint8_t bsg[MAXSTEP], bsa[MAXSTEP][3];
+	uint8_t bsg[MAXSTEP], bsa[MAXSTEP][4];
 	int bnstep;
 };
 
 static uint64_t
-gapply(const struct gate *g, const uint64_t *x, uint64_t full)
+gapply(const struct gate *g, const uint64_t *x, uint64_t full, int lt)
 {
 	uint64_t r = 0, t;
-	uint32_t m, i;
+	uint32_t m, i, tt = g->lut ? (uint32_t)lt : g->tt;
 
+	if (g->lut) {
+		for (m = 0; m < (1u << g->arity); m++) {
+			if (!((tt >> m) & 1))
+				continue;
+			t = full;
+			for (i = 0; i < g->arity; i++)
+				t &= ((m >> i) & 1) ? x[i] : ~x[i];
+			r |= t;
+		}
+		return r & full;
+	}
 	switch (g->arity == 2 ? g->tt & 15 : 0x100) {
 	case 0x8: return x[0] & x[1];
 	case 0xe: return x[0] | x[1];
@@ -169,18 +182,20 @@ record(struct gs *s)
 }
 
 static int dfs(struct gs *s, int cost);
+static int lut_steps(struct gs *s, int cost, int gi);
 
 static int
 try_step(struct gs *s, int cost, int gi, const uint8_t *args)
 {
 	const struct gate *g = &s->bs->g[gi];
 	uint64_t x[3], v, vc;
-	uint32_t key;
+	uint64_t key;
 	int i, t, ns = 0, uses_last = 0, r;
 
-	key = (uint32_t)gi << 24 | (uint32_t)args[0] << 16 |
-	    (uint32_t)(g->arity > 1 ? args[1] : 0) << 8 |
-	    (uint32_t)(g->arity > 2 ? args[2] : 0);
+	key = (uint64_t)gi << 40 | (uint64_t)args[0] << 32 |
+	    (uint64_t)(g->arity > 1 ? args[1] : 0) << 24 |
+	    (uint64_t)(g->arity > 2 ? args[2] : 0) << 16 |
+	    (uint64_t)(g->lut ? args[3] : 0);
 	for (i = 0; i < g->arity; i++) {
 		x[i] = s->val[args[i]];
 		if (args[i] == s->nval - 1 && s->nstep > 0)
@@ -192,7 +207,7 @@ try_step(struct gs *s, int cost, int gi, const uint8_t *args)
 		s->aborted = 1;
 		return 0;
 	}
-	v = gapply(g, x, s->full);
+	v = gapply(g, x, s->full, args[3]);
 	vc = v & s->care;
 	if (vc == 0 || vc == s->care)
 		return 0;
@@ -209,7 +224,7 @@ try_step(struct gs *s, int cost, int gi, const uint8_t *args)
 	/* push */
 	s->val[s->nval++] = v;
 	s->sg[s->nstep] = (uint8_t)gi;
-	memcpy(s->sa[s->nstep], args, 3);
+	memcpy(s->sa[s->nstep], args, 4);
 	s->key[s->nstep++] = key;
 	for (t = 0; t < s->ntg; t++)
 		if (s->active[t] && covers(s, v, t) && !s->sat[t]++)
@@ -223,11 +238,136 @@ try_step(struct gs *s, int cost, int gi, const uint8_t *args)
 	return r;
 }
 
+/*
+ * A lut gate (any function of up to 3 inputs, one instruction: vpternlog,
+ * LOP3): every set of distinct arguments a < b < c (the table absorbs the
+ * order) with every table.  When this must be the last step (no room for
+ * another), the only useful table is the one that makes it a missing
+ * output: it is read off the target, and the step is tried only when the
+ * target is a function of the arguments on the care set.
+ */
+/*
+ * A table that ignores some of its arguments gives a value the other
+ * arguments determine; it is tried only with the ignored arguments the
+ * smallest indices outside the ones it depends on (so each such value
+ * is built once).
+ */
+static int
+lut_canonical(int tt, int n, const uint8_t *args)
+{
+	int k, m, dep = 0, need = 0, next = 0, j;
+	uint8_t used[256] = {0};
+
+	for (k = 0; k < n; k++)
+		for (m = 0; m < (1 << n); m++)
+			if (((tt >> m) & 1) != ((tt >> (m ^ (1 << k))) & 1))
+				dep |= 1 << k;
+	if (dep == (1 << n) - 1)
+		return 1;
+	for (k = 0; k < n; k++)
+		if ((dep >> k) & 1)
+			used[args[k]] = 1;
+		else
+			need++;
+	/* the ignored arguments must be the `need` smallest unused indices */
+	for (k = 0; k < n; k++) {
+		if ((dep >> k) & 1)
+			continue;
+		while (used[next])
+			next++;
+		for (j = 0; j < n; j++)
+			if (!((dep >> j) & 1) && args[j] == next)
+				break;
+		if (j == n)
+			return 0;
+		used[next] = 1;
+	}
+	(void)need;
+	return 1;
+}
+
+static int
+lut_steps(struct gs *s, int cost, int gi)
+{
+	const struct gate *g = &s->bs->g[gi];
+	int n = g->arity, a, b, c, tt, t, last;
+	uint8_t args[4];
+
+	last = cost + g->cost + s->mincost > s->bound;
+	if (last && s->nunsat > 1)
+		return 0;
+	for (a = 0; a < s->nval; a++)
+		for (b = n > 1 ? a + 1 : a; b < (n > 1 ? s->nval : a + 1); b++)
+			for (c = n > 2 ? b + 1 : b; c < (n > 2 ? s->nval : b + 1);
+			    c++) {
+				args[0] = (uint8_t)a;
+				args[1] = (uint8_t)b;
+				args[2] = (uint8_t)c;
+				if (last) {
+					uint64_t x[3];
+					int m, ok, want[8];
+					x[0] = s->val[a], x[1] = s->val[b], x[2] = s->val[c];
+					for (t = 0; t < s->ntg; t++)
+						if (s->active[t] && !s->sat[t])
+							break;
+					for (m = 0; m < 8; m++)
+						want[m] = -1;
+					ok = 1;
+					for (m = 0; m < 64 && ok; m++) {
+						int idx = 0, k;
+						if (!((s->care >> m) & 1))
+							continue;
+						for (k = 0; k < n; k++)
+							idx |= (int)((x[k] >> m) & 1) << k;
+						k = (int)((s->tg[t] >> m) & 1);
+						if (want[idx] >= 0 && want[idx] != k)
+							ok = 0;
+						want[idx] = k;
+					}
+					if (!ok)
+						continue;
+					for (tt = 0, m = 0; m < (1 << n); m++)
+						if (want[m] == 1)
+							tt |= 1 << m;
+					args[3] = (uint8_t)tt;
+					if (try_step(s, cost, gi, args))
+						return 1;
+					if (s->aborted)
+						return 0;
+					continue;
+				}
+				for (tt = 1; tt < (1 << (1 << n)) - 1; tt++) {
+					if (!lut_canonical(tt, n, args))
+						continue;
+					args[3] = (uint8_t)tt;
+					if (try_step(s, cost, gi, args))
+						return 1;
+					if (s->aborted)
+						return 0;
+				}
+			}
+	return 0;
+}
+
+/* a gate a lut gate of the basis replaces at no more cost (any step by it
+ * is one step of the lut: skipping it keeps a minimal program) */
+static int
+subsumed(const struct basis *bs, const struct gate *g)
+{
+	int i;
+
+	for (i = 0; i < bs->ng; i++)
+		if (bs->g[i].lut && bs->g[i].arity >= g->arity &&
+		    bs->g[i].cost <= g->cost)
+			return 1;
+	return 0;
+}
+
 static int
 dfs(struct gs *s, int cost)
 {
 	int gi, a, b, c;
-	uint8_t args[3];
+	uint8_t args[4] = {0, 0, 0, 0};
 
 	if (s->nunsat == 0) {
 		record(s);
@@ -238,6 +378,15 @@ dfs(struct gs *s, int cost)
 	for (gi = 0; gi < s->bs->ng; gi++) {
 		const struct gate *g = &s->bs->g[gi];
 		if (cost + g->cost > s->bound)
+			continue;
+		if (g->lut) {
+			if (lut_steps(s, cost, gi))
+				return 1;
+			if (s->aborted)
+				return 0;
+			continue;
+		}
+		if (subsumed(s->bs, g))
 			continue;
 		for (a = 0; a < s->nval; a++) {
 			args[0] = (uint8_t)a;
@@ -346,7 +495,7 @@ combine(struct gs *s, const int *idx, int n, uint64_t tgt, uint64_t care,
 		for (i = 0; i < m->bnstep; i++) {
 			const struct gate *g = &s->bs->g[m->bsg[i]];
 			uint64_t x[3];
-			uint8_t a[3] = {0, 0, 0};
+			uint8_t a[4] = {0, 0, 0, 0};
 			if (s->nval >= MAXV || s->bnstep >= MAXSTEP) {
 				free(m);
 				return -1;
@@ -357,7 +506,8 @@ combine(struct gs *s, const int *idx, int n, uint64_t tgt, uint64_t care,
 				a[k] = (uint8_t)map[m->bsa[i][k]];
 				x[k] = s->val[a[k]];
 			}
-			v = gapply(g, x, s->full);
+			a[3] = m->bsa[i][3];
+			v = gapply(g, x, s->full, a[3]);
 			for (j = 0; j < s->nval; j++)
 				if (s->val[j] == v) {
 					dup = j;
@@ -368,7 +518,7 @@ combine(struct gs *s, const int *idx, int n, uint64_t tgt, uint64_t care,
 				continue;
 			}
 			s->bsg[s->bnstep] = m->bsg[i];
-			memcpy(s->bsa[s->bnstep], a, 3);
+			memcpy(s->bsa[s->bnstep], a, 4);
 			s->bnstep++;
 			map[n + i] = s->nval;
 			s->val[s->nval++] = v;
@@ -422,6 +572,47 @@ shannon(struct gs *s, uint64_t tgt, uint64_t care)
 	return combine(s, idx, n, tgt, care, 1u << 22, 8);
 }
 
+/*
+ * The table as vpternlog's immediate (and LOP3's): for ternlog(a, b, c)
+ * bit (a << 2 | b << 1 | c) is the result.  Internally argument k is bit k
+ * of the minterm index.
+ */
+static int
+lut_imm(int tt, int n)
+{
+	int m, imm = 0, r, k;
+
+	for (m = 0; m < (1 << n); m++) {
+		for (r = 0, k = 0; k < n; k++)
+			r |= ((m >> k) & 1) << (n - 1 - k);
+		imm |= ((tt >> m) & 1) << r;
+	}
+	return imm;
+}
+
+/* a lut step as a sum of minterms (ucas, or C on bit-sliced words) */
+static void
+lut_text(struct sbuf *b, int tt, int n, const char *const *vn, int c)
+{
+	int m, k, any = 0;
+
+	if (c)
+		sb_puts(b, "(");
+	for (m = 0; m < (1 << n); m++) {
+		if (!((tt >> m) & 1))
+			continue;
+		sb_printf(b, "%s(", any++ ? " | " : "");
+		for (k = n; k-- > 0;)
+			sb_printf(b, "%s%s%s", k < n - 1 ? " & " : "",
+			    ((m >> k) & 1) ? "" : "~", vn[k]);
+		sb_puts(b, ")");
+	}
+	if (!any)
+		sb_puts(b, "0");
+	if (c)
+		sb_puts(b, ") & 1");
+}
+
 static int
 gate_cost_sum(const struct gs *s, int nstep, const uint8_t *sg)
 {
@@ -434,7 +625,7 @@ gate_cost_sum(const struct gs *s, int nstep, const uint8_t *sg)
 
 static void
 print_program(const struct gs *s, const struct func *f, int nstep,
-    const uint8_t *sg, uint8_t (*sa)[3], const int *outv, const int *outk,
+    const uint8_t *sg, uint8_t (*sa)[4], const int *outv, const int *outk,
     int nout, int width, const uint64_t *constbits, int emit)
 {
 	char **names = xcalloc(MAXV, sizeof *names);
@@ -470,13 +661,18 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 		pc.mode = emit ? PM_CBITS : PM_UCAS;
 		pc.vn = vn;
 		sb_clear(&b);
-		print_node(&b, g->body, &pc);
+		if (g->lut)
+			lut_text(&b, sa[i][3], g->arity, vn, emit);
+		else
+			print_node(&b, g->body, &pc);
 		if (emit)
 			printf("\tuint32_t t%d = %s;\n", i, sb_str(&b));
 		else {
 			printf("  t%d = %s(", i, sym_str(g->name));
 			for (k = 0; k < g->arity; k++)
 				printf("%s%s", k ? ", " : "", vn[k]);
+			if (g->lut)
+				printf(", 0x%02x", lut_imm(sa[i][3], g->arity));
 			printf(")");
 			if (g->arity >= 2 || strcmp(sb_str(&b), "") != 0)
 				printf("%*s= %s", 26 - (int)strlen(sym_str(g->name)) -
@@ -491,6 +687,9 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 				rep_str(NULL, vn[k]);
 			rep_end();
 			rep_str("expr", sb_str(&b));
+			if (g->lut)
+				rep_strf("table", "0x%02x", lut_imm(sa[i][3],
+				    g->arity));
 			rep_end();
 		}
 	}
@@ -739,6 +938,7 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 				s->bsg[ns] = s->bsg[at];
 				for (k = 0; k < g->arity; k++)
 					s->bsa[ns][k] = (uint8_t)remap[s->bsa[at][k]];
+				s->bsa[ns][3] = s->bsa[at][3];
 				s->val[nin + ns] = s->val[nin + at];
 				remap[nin + at] = nin + ns;
 				ns++;
@@ -767,7 +967,7 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 			uint64_t x[3];
 			for (k = 0; k < g->arity; k++)
 				x[k] = v[s->bsa[i][k]];
-			v[nv++] = gapply(g, x, s->full);
+			v[nv++] = gapply(g, x, s->full, s->bsa[i][3]);
 		}
 		for (t = 0; t < nout; t++) {
 			vout[t] = -1;

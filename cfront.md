@@ -100,3 +100,26 @@ loop) and `rslot` -1 when the body never reads the variable.  Costs:
 SSE scalar float ops too.  A gather (`a[idx[i]]`) is in the IR: its
 index node reads the leaf of the load `idx[i]`.  Conditional loads and
 stores are not (the extraction refuses them, as it does breaks).
+
+## Status (F2)
+
+Done: cost models for skl skx glc rpl zen4 x86-64-v2/v3/v4 (typed from
+memory, about 10 rows measured; README "x86-64" says which), `mca`,
+the intrinsics catalogue (2585, lane semantics including loads, stores
+and gathers) and `x86check` (host: all agree; AVX-512 checked against
+clang's definitions and cross-checked, 201 not validated), x86 gate
+bases (`avx512`: vpternlog as a lut gate) and BMI/pdep/pext in `find`,
+and the vectoriser (`src/cfx86.c`, proof kind LANES; its loops are
+proposed by default, applied where `bench` measures them faster than
+clang's own code, or with `vectorize`).  The same rule holds for the
+element-wise loop-body rewrites: one that leaves a table lookup or a call
+in a loop the vectoriser can prove is proposed, not applied by default
+(`invert_low`'s table: 0.80 vs clang's 0.05 cycles/element), measured
+by `bench`.  The vectorisability test is the vectoriser's own: a loop
+it cannot prove (strided, conditional stores) keeps the table rewrite,
+though clang might still vectorise it.  Not done: the
+scheduler as cfront's cost hook (`cf_set_cost_hook` is not set; the
+default per-op table still prices scalar code), candidate generators
+(`cf_add_cand_hook`), strided loads, conditional loads and stores
+(masked forms), float reductions (refused; no opt-in), saturating
+idioms (paddsw, packs), SLP of straight-line code.

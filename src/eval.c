@@ -602,6 +602,280 @@ fromkey(int w, int64_t k)
 }
 
 /*
+ * fma64(a, b, c): the f64 fused multiply-add, correctly rounded (round to
+ * nearest even), in integer arithmetic.  The host libm's fma() is not
+ * trusted: FreeBSD 15's software fma rounds
+ * fma(-0x1.5af1d78b58c4p+66, -0x1.b428a02b5f643p-121, -1) to -1, where
+ * the exact value -1 + 6.41e-17 is nearer to -1 + 2^-53 (x86check
+ * found it against vfmadd).
+ *
+ * Derivation.  Finite a = ma 2^ea, b = mb 2^eb, c = mc 2^ec with integer
+ * significands below 2^53 (subnormals included).
+ * 1. If a*b = 0 the exact result is 0 + c with IEEE's sign rule for a
+ *    zero sum; double p + c with p = a*b (an exact signed zero) is that.
+ * 2. Otherwise X = ma mb (below 2^106, exact in 128 bits) times 2^(ea+eb)
+ *    and Y = mc 2^ec.  Both are shifted left so their leading bit is bit
+ *    125 (exact), the larger exponent first; the smaller is shifted right
+ *    by d, the bits shifted out ORed into bit 0 (sticky).  If d <= 1
+ *    nothing is shifted out: a significand has at most 106 bits, so its
+ *    lowest set bit is at 20 or above, and the sum or difference R is
+ *    exact.  If d >= 2 and bits were shifted out, the larger operand's
+ *    bit 0 is 0 (lowest set bit >= 20), so R is odd and the exact value
+ *    lies strictly between R - 1 and R + 1 on the side of R it was
+ *    truncated from: R is the exact value rounded to odd at bit 0.  R is
+ *    at least 2^125 - 2^124, so its leading bit is at 124 or higher and
+ *    rounding keeps bits s >= 72 and up.  As in fma32 (step 5), every
+ *    rounding boundary (multiples of 2^(s-1)) is an even integer, and
+ *    round to nearest of R equals round to nearest of the exact value.
+ * 3. Rounding: the kept bits q = R >> s and the remainder r = R mod 2^s,
+ *    with s chosen for 53 bits, or for the 2^-1074 grid when the value
+ *    is subnormal; q + 1 when r > 2^(s-1), or r = 2^(s-1) and q is odd.
+ *    q * 2^(e+s) is then exact in double by ldexp (q <= 2^53, and on the
+ *    subnormal grid when below 2^-1022), or inf: the overflow of RN.
+ * Inf and NaN operands: no rounding, a*b + c is IEEE's fma except when
+ * a and b are finite and c is not (a*b may overflow): then c.
+ */
+struct u128 {
+	uint64_t hi, lo;
+};
+
+static struct u128
+mul64(uint64_t a, uint64_t b)
+{
+	uint64_t al = a & 0xffffffffu, ah = a >> 32, bl = b & 0xffffffffu,
+	    bh = b >> 32, ll = al * bl, lh = al * bh, hl = ah * bl, hh = ah * bh,
+	    mid = (ll >> 32) + (lh & 0xffffffffu) + (hl & 0xffffffffu);
+	struct u128 r;
+
+	r.lo = (mid << 32) | (ll & 0xffffffffu);
+	r.hi = hh + (lh >> 32) + (hl >> 32) + (mid >> 32);
+	return r;
+}
+
+static int
+lead128(struct u128 x)	/* the leading bit's index; -1 for 0 */
+{
+	int k;
+
+	for (k = 127; k >= 0; k--)
+		if (k >= 64 ? (x.hi >> (k - 64)) & 1 : (x.lo >> k) & 1)
+			return k;
+	return -1;
+}
+
+static struct u128
+shl128(struct u128 x, int n)
+{
+	struct u128 r;
+
+	if (n <= 0)
+		return x;
+	if (n >= 64) {
+		r.hi = x.lo << (n - 64);
+		r.lo = 0;
+	} else {
+		r.hi = x.hi << n | x.lo >> (64 - n);
+		r.lo = x.lo << n;
+	}
+	return r;
+}
+
+/* x >> n; *rest: whether nonzero bits were shifted out */
+static struct u128
+shr128(struct u128 x, int n, int *rest)
+{
+	struct u128 r;
+
+	*rest = 0;
+	if (n <= 0)
+		return x;
+	if (n >= 128) {
+		*rest = (x.hi | x.lo) != 0;
+		r.hi = r.lo = 0;
+		return r;
+	}
+	if (n >= 64) {
+		*rest = x.lo != 0 || (n > 64 && (x.hi << (128 - n)) != 0);
+		r.lo = x.hi >> (n - 64);
+		r.hi = 0;
+	} else {
+		*rest = (x.lo << (64 - n)) != 0;
+		r.lo = x.lo >> n | x.hi << (64 - n);
+		r.hi = x.hi >> n;
+	}
+	return r;
+}
+
+static void
+split_double(double x, uint64_t *m, int *e)	/* finite x != 0: |x| = m 2^e */
+{
+	uint64_t u;
+	int be;
+
+	memcpy(&u, &x, sizeof u);
+	be = (int)((u >> 52) & 0x7ff);
+	*m = u & 0xfffffffffffffULL;
+	if (be) {
+		*m |= 1ULL << 52;
+		*e = be - 1075;
+	} else
+		*e = -1074;
+}
+
+double
+fma64(double a, double b, double c)
+{
+	uint64_t ma, mb, mc;
+	int ea, eb, ec, sx, sy, ex, ey, rest, L, s, sticky = 0;
+	struct u128 X, Y, R;
+	double r;
+
+	if (!isfinite(a) || !isfinite(b))
+		return a * b + c;
+	if (!isfinite(c))
+		return c;
+	if (a == 0 || b == 0)
+		return a * b + c;
+	split_double(a, &ma, &ea);
+	split_double(b, &mb, &eb);
+	X = mul64(ma, mb);
+	ex = ea + eb;
+	sx = (a < 0) != (b < 0);
+	if (c == 0)
+		Y.hi = Y.lo = 0, ey = ex, sy = sx;
+	else {
+		split_double(c, &mc, &ec);
+		Y.hi = 0;
+		Y.lo = mc;
+		ey = ec;
+		sy = c < 0;
+	}
+	/* leading bits at 125 */
+	L = lead128(X);
+	X = shl128(X, 125 - L);
+	ex -= 125 - L;
+	if (Y.lo) {
+		L = lead128(Y);
+		Y = shl128(Y, 125 - L);
+		ey -= 125 - L;
+	} else
+		ey = ex;
+	if (ey > ex || (ey == ex && (Y.hi > X.hi || (Y.hi == X.hi &&
+	    Y.lo > X.lo)))) {
+		struct u128 t = X;
+		int ti = ex;
+		X = Y, Y = t, ex = ey, ey = ti;
+		ti = sx, sx = sy, sy = ti;
+	}
+	Y = shr128(Y, ex - ey, &rest);
+	if (rest)
+		Y.lo |= 1;
+	if (sx == sy) {
+		R.lo = X.lo + Y.lo;
+		R.hi = X.hi + Y.hi + (R.lo < X.lo);
+	} else {
+		R.lo = X.lo - Y.lo;
+		R.hi = X.hi - Y.hi - (X.lo < Y.lo);
+	}
+	if (!R.hi && !R.lo)
+		return 0.0;	/* exact cancellation: +0 in round to nearest */
+	L = lead128(R);
+	/* the kept bits: 53, or down to the 2^-1074 grid */
+	s = L - 52;
+	if (ex + L < -1022)
+		s = -1074 - ex;
+	if (s <= 0)
+		return (sx ? -1.0 : 1.0) * ldexp((double)R.lo, ex);
+	if (s > L + 1)		/* below half the smallest subnormal */
+		return sx ? -0.0 : 0.0;
+	{
+		struct u128 q = shr128(R, s, &sticky), back = shl128(q, s);
+		/* r = R - back, compared with 2^(s-1) */
+		struct u128 rr, half;
+		rr.lo = R.lo - back.lo;
+		rr.hi = R.hi - back.hi - (R.lo < back.lo);
+		half.hi = s - 1 >= 64 ? 1ULL << (s - 1 - 64) : 0;
+		half.lo = s - 1 < 64 ? 1ULL << (s - 1) : 0;
+		if (rr.hi > half.hi || (rr.hi == half.hi && rr.lo > half.lo) ||
+		    (rr.hi == half.hi && rr.lo == half.lo && (q.lo & 1)))
+			q.lo++;
+		r = ldexp((double)q.lo, ex + s);
+	}
+	return sx ? -r : r;
+}
+
+/*
+ * fma32(a, b, c): the f32 fused multiply-add, correctly rounded (round to
+ * nearest even), for f32 operands a, b, c held in doubles.
+ *
+ * Derivation.  Let D be the binary64 grid, F the binary32 grid
+ * (including its overflow threshold 2^128 (1 - 2^-25), where rounding
+ * changes to inf), and RN_F rounding to nearest even on F.
+ *
+ * 1. p = a * b is exact in double: a and b have 24-bit significands, so
+ *    the product has at most 48 <= 53 significant bits, and |p| lies in
+ *    [2^-298, 2^256] or is 0, inside binary64's normal range (no
+ *    overflow, no underflow).
+ *
+ * 2. s = p + c rounded to D, and e = (p + c) - s by Knuth's TwoSum (six
+ *    operations, exact in binary64 round to nearest for any finite
+ *    operands without overflow; there is none, |p + c| < 2^257).  So
+ *    the exact sum is x = s + e.
+ *
+ * 3. Round to odd: y = s if e = 0 or the last significand bit of s is 1;
+ *    otherwise y is the neighbour of s in D on the side of x (bits of s
+ *    plus or minus 1, by the signs of s and e; s != 0 here, since a sum
+ *    that rounds to 0 is exact).  Then y is the point of D nearest x
+ *    whose last bit is odd among the two D-points d1 < x < d2 enclosing
+ *    x when x is not in D, and y = x when x is in D.
+ *
+ * 4. Every point of F and every midpoint between neighbouring points of
+ *    F (the decision boundaries of RN_F, and the overflow threshold) is
+ *    an even point of D: in a binade [2^k, 2^(k+1)) with k >= -126,
+ *    F-midpoints are multiples of 2^(k-24), and D's spacing there is
+ *    2^(k-52), so they are multiples of 2^(k-51) = 2 ulp_D; below
+ *    2^-126 they are multiples of 2^-150, and there ulp_D <= 2^-179, a
+ *    power of two, so 2^-150 is a multiple of 2 ulp_D.  (An "even" point
+ *    of D is a multiple of 2 ulp_D in its binade: last bit 0.)
+ *
+ * 5. RN_F is constant on every interval between consecutive boundaries
+ *    (4).  If x is in D, y = x.  Otherwise x is strictly inside (d1, d2),
+ *    which holds no point of D and so no boundary; y is d1 or d2 and is
+ *    odd, so it is not a boundary either.  Hence the closed segment
+ *    between x and y holds no boundary, and RN_F(y) = RN_F(x): rounding
+ *    y to float (one rounding, the cast) is the correctly rounded fma.
+ *    (Boldo and Melquiond's round-to-odd theorem, here with 29 spare
+ *    bits where 2 suffice.)
+ *
+ * Signed zeros: x = 0 gives e = 0 and s = p + c with IEEE's sign rule,
+ * as fma's.  Infinite or NaN operands: no rounding question, s is the
+ * IEEE result (inf * 0 and inf - inf give NaN) and step 3 is skipped.
+ */
+double
+fma32(double a, double b, double c)
+{
+	double p = a * b, s = p + c, bb, e;
+	uint64_t u;
+
+	if (!isfinite(s))
+		return (double)(float)s;
+	bb = s - p;
+	e = (p - (s - bb)) + (c - bb);
+	if (e != 0) {
+		memcpy(&u, &s, sizeof u);
+		if (!(u & 1)) {
+			/* away from zero when e has s's sign */
+			if ((e > 0) == (s > 0))
+				u++;
+			else
+				u--;
+			memcpy(&s, &u, sizeof s);
+		}
+	}
+	return (double)(float)s;
+}
+
+/*
  * IEEE semantics: computed in double, then rounded to the width (for f32
  * this is the correctly rounded result for + - * / sqrt).  NaN and inf are
  * ordinary values; the flags only record where they first appear.
@@ -705,10 +979,9 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 		return 0;
 	if (op == O_FMA) {
 		if (TYK(t) == K_FLOAT && TYW(t) == 32)
-			*rr = (double)(float)((long double)N.kr[a] * N.kr[b] +
-			    N.kr[c]);
+			*rr = fma32(N.kr[a], N.kr[b], N.kr[c]);
 		else
-			*rr = fma(N.kr[a], N.kr[b], N.kr[c]);
+			*rr = fma64(N.kr[a], N.kr[b], N.kr[c]);
 		return isfinite(*rr);
 	}
 	ity_of(&it, t, 0);
@@ -951,9 +1224,8 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 		}
 		case O_FMA: {
 			/*
-			 * f64: fma().  f32: the product is exact in long
-			 * double and the sum rounds there first (64 bits),
-			 * so a double rounding is possible but very rare.
+			 * fma64 and fma32, correctly rounded (the
+			 * derivations are at fma64 and fma32).
 			 */
 			const double *av = COLR(p, a), *bv = COLR(p, b);
 			const double *cv = COLR(p, c);
@@ -966,8 +1238,8 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					orr[i] = 0;
 					continue;
 				}
-				orr[i] = fw == 32 ? (double)(float)((long double)av[i] *
-				    bv[i] + cv[i]) : fma(av[i], bv[i], cv[i]);
+				orr[i] = fw == 32 ? fma32(av[i], bv[i], cv[i]) :
+				    fma64(av[i], bv[i], cv[i]);
 				if (fw && isnan(orr[i]) && !isnan(av[i]) &&
 				    !isnan(bv[i]) && !isnan(cv[i]))
 					f |= F_NAN;

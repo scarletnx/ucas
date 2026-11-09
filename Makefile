@@ -73,6 +73,9 @@ DPADD+=	libsnxglslc.a
 ${PROG}.full ${PROG}: libsnxglslc.a
 CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
 glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+# x86-64: cost models per µarch, mca, intrinsics, vectoriser (cfront F2)
+SRCS+=	x86.c x86data.c x86mca.c x86intr.c
+x86intr.o x86intr.pieo: x86intr_tab.inc
 # images for animate exec: textures and sampling (tex.c), image files by
 # stb_image (src/third_party, unmodified; its warnings are not ours)
 SRCS+=	tex.c img.c

@@ -178,8 +178,115 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	int k, napplied = 0, nex = 0, nsat = 0, ntriv = 0, nkind[CF_PROOF_TESTED + 1];
 	int checked = 0;
 
+	struct cf_opts oo = *o;
+
 	memset(nkind, 0, sizeof nkind);
 
+	if (o->bench && !o->vectorize && !o->vecstub) {
+		/*
+		 * bench decides the vectorised loops and the loop-body
+		 * rewrites that block vectorisation: each kind applied in a
+		 * build of its own, timed against the original as clang
+		 * compiles it (3 runs); a function keeps one only if it was
+		 * faster by more than 5% in every run, the faster one if both
+		 */
+		struct cf_opts o1 = *o, o2 = *o;
+		struct cf_result r1, r2;
+		struct sbuf rep1 = {0};
+		int any1 = 0, any2 = 0, q;
+		struct {
+			char fn[64];
+			int has, win;
+			double c0, c1;
+		} vt[16], bt[16];
+		int nvt = 0, nbt = 0, ne, wins, runs, i;
+		double c0, c1;
+
+		o1.vectorize = 1;
+		if (!load(&u, src, path, o->t))
+			return;
+		cf_optimize(&u, &o1, &r1);
+		for (k = 0; k < r1.nrw; k++)
+			any1 |= r1.rw[k].applied && r1.rw[k].proof == CF_PROOF_LANES;
+		if (any1)
+			cf_check_all(&u, src, r1.out.p, &o1, &rep1, 1, &r1);
+		for (k = 0; k < r1.nrw && nvt < 16; k++) {
+			if (!r1.rw[k].applied || r1.rw[k].proof != CF_PROOF_LANES)
+				continue;
+			for (i = 0; i < nvt && strcmp(vt[i].fn, r1.rw[k].func); i++)
+				;
+			if (i < nvt)
+				continue;
+			snprintf(vt[nvt].fn, sizeof vt[0].fn, "%s", r1.rw[k].func);
+			ne = cf_bench_get(r1.rw[k].func, &c0, &c1, &wins, &runs);
+			vt[nvt].has = ne > 0;
+			vt[nvt].win = ne && runs && wins == runs;
+			vt[nvt].c0 = ne ? c0 / ne : -1;
+			vt[nvt].c1 = ne ? c1 / ne : -1;
+			nvt++;
+		}
+		cf_result_free(&r1);
+		cf_unit_free(&u);
+		sb_clear(&rep1);
+		/* the loop-body rewrites, with the vectoriser out */
+		o2.novec = 1;
+		o2.bodyall = 1;
+		if (!load(&u, src, path, o->t))
+			return;
+		cf_optimize(&u, &o2, &r2);
+		for (k = 0; k < r2.nrw; k++)
+			any2 |= r2.rw[k].applied && !strcmp(r2.rw[k].kind, "loop body");
+		if (any2)
+			cf_check_all(&u, src, r2.out.p, &o2, &rep1, 1, &r2);
+		for (k = 0; k < r2.nrw && nbt < 16; k++) {
+			if (!r2.rw[k].applied || strcmp(r2.rw[k].kind, "loop body"))
+				continue;
+			for (i = 0; i < nbt && strcmp(bt[i].fn, r2.rw[k].func); i++)
+				;
+			if (i < nbt)
+				continue;
+			snprintf(bt[nbt].fn, sizeof bt[0].fn, "%s", r2.rw[k].func);
+			ne = cf_bench_get(r2.rw[k].func, &c0, &c1, &wins, &runs);
+			bt[nbt].has = ne > 0;
+			bt[nbt].win = ne && runs && wins == runs;
+			bt[nbt].c0 = ne ? c0 / ne : -1;
+			bt[nbt].c1 = ne ? c1 / ne : -1;
+			nbt++;
+		}
+		free(rep1.p);
+		cf_result_free(&r2);
+		cf_unit_free(&u);
+		oo.vectorize = 1;
+		oo.bjudged = 1;
+		for (i = 0; i < nbt; i++) {
+			int vwin = 0;
+			for (q = 0; q < nvt; q++)
+				if (!strcmp(vt[q].fn, bt[i].fn) && vt[q].win)
+					vwin = vt[q].c1 <= bt[i].c1 ? 2 : 1;
+			if (bt[i].win && vwin != 2 && oo.nbapply < 16)
+				snprintf(oo.bapply[oo.nbapply++], sizeof oo.bapply[0], "%s",
+				    bt[i].fn);
+			else if (oo.nbveto < 16) {
+				snprintf(oo.bveto[oo.nbveto], sizeof oo.bveto[0], "%s",
+				    bt[i].fn);
+				oo.bveto_c[oo.nbveto][0] = bt[i].c0;
+				oo.bveto_c[oo.nbveto][1] = bt[i].c1;
+				oo.nbveto++;
+			}
+		}
+		for (q = 0; q < nvt && oo.nvveto < 16; q++) {
+			int bwin = 0;
+			for (i = 0; i < oo.nbapply; i++)
+				bwin |= !strcmp(oo.bapply[i], vt[q].fn);
+			if (vt[q].win && !bwin)
+				continue;
+			snprintf(oo.vveto[oo.nvveto], sizeof oo.vveto[0], "%s", vt[q].fn);
+			oo.vveto_c[oo.nvveto][0] = vt[q].c0;
+			oo.vveto_c[oo.nvveto][1] = vt[q].c1;
+			oo.nvveto++;
+		}
+		o = &oo;
+	}
 	if (!load(&u, src, path, o->t))
 		return;
 	cf_optimize(&u, o, &r);
@@ -247,6 +354,11 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 					    w->kind, w->proof_text);
 					rep_str("status", w->kind);
 					rep_str("why", w->proof_text);
+					if (w->code) {
+						printf("    code (not applied):\n");
+						print_lines("      ", w->code, 400);
+						rep_str("code", w->code);
+					}
 					rep_end();
 					continue;
 				}
@@ -404,6 +516,8 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			o->timed = 1;
 		else if (!strcmp(w, "vecstub"))
 			o->vecstub = 1;
+		else if (!strcmp(w, "vectorize") || !strcmp(w, "vectorise"))
+			o->vectorize = 1;
 		else if (!strcmp(w, "lower"))
 			*lower = 1;
 		else if (!strcmp(w, "this") || !strcmp(w, "code") ||
