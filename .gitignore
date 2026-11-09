@@ -1,0 +1,9 @@
+work/
+*.got
+*.diff
+ucas
+ucas.full
+ucas.debug
+*.o
+*.pieo
+.depend*

@@ -1,0 +1,69 @@
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5, cmp: 2, select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32, load: 8, branch: 2, diverge: 6, barrier: 20, atomic_shared: 8, atomic_global: 64 }
+> rsqrt(x: f32) = 1/sqrt(x)
+> cost rsqrt
+cost of rsqrt under gt1030: 18 (2 operations, shared subterms counted once)
+  fdiv             1 x 10    = 10
+  fsqrt            1 x 8     = 8
+> quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
+    where y = asfloat(0x5f3759df - (asuint(x) >> 1))
+> cost quake
+cost of quake under gt1030: 8 (9 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  shift            1 x 2     = 2
+  bitcast          2 x 0     = 0
+  fadd             1 x 1     = 1
+  fmul             4 x 1     = 4
+> d(x: f64) = x * x + 1
+> cost d
+cost of d under gt1030: 64 (2 operations, shared subterms counted once)
+  fadd             1 x 32    = 32
+  fmul             1 x 32    = 32
+> k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+> cost k
+cost of k under gt1030: 17 (6 operations, shared subterms counted once)
+  cmp              1 x 2     = 2
+  select           1 x 1     = 1
+  fadd             1 x 1     = 1
+  fmul             1 x 1     = 1
+  fsqrt            1 x 8     = 8
+  ftrans           1 x 4     = 4
+  ?: on x > 0  (arms cost 14 and 0)
+      select: +1   uniform branch: +2   divergent branch: +8
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 17
+> ku(x: f32 uniform, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+> cost ku
+cost of ku under gt1030: 17 (6 operations, shared subterms counted once)
+  cmp              1 x 2     = 2
+  select           1 x 1     = 1
+  fadd             1 x 1     = 1
+  fmul             1 x 1     = 1
+  fsqrt            1 x 8     = 8
+  ftrans           1 x 4     = 4
+  ?: on x > 0  (arms cost 14 and 0)
+      select: +1   uniform branch: +2   divergent branch: +8  (condition is uniform)
+      -> select
+  estimate with the best form per ?: : 17
+> w(i: u32, v: u32) = barrier(atomic_add_shared(i, v) + 1)
+> cost w
+cost of w under gt1030: 29 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  barrier          1 x 20    = 20
+  atomic_shared    1 x 8     = 8
+> wg(i: u32, v: u32) = atomic_max(i, v)
+> cost wg
+cost of wg under gt1030: 64 (1 operations, shared subterms counted once)
+  atomic_global    1 x 64    = 64
+> div(a: u32, b: u32) = a / b
+> cost div
+cost of div under gt1030: 24 (1 operations, shared subterms counted once)
+  idiv             1 x 24    = 24
+> div7(a: u32) = a / 7
+> cost div7
+cost of div7 under gt1030: 5 (1 operations, shared subterms counted once)
+  idivk            1 x 5     = 5
+> model mine : gt1030 { imul: 1, idiv: 4 }
+> cost div model mine
+cost of div under mine: 4 (1 operations, shared subterms counted once)
+  idiv             1 x 4     = 4

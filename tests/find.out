@@ -1,0 +1,36 @@
+> g(x: u8 in 0..3) = match x { 0 => 3, 1 => 5, 2 => 7, 3 => 9 }
+  note: match has no default arm: other values are outside the domain
+> find g 3
+  note: the result is int: searching in u8
+find g: 4 points, computing in u8, costs from gt1030
+  cost 2   x + x + 3                                affine fit
+  cost 3   2x + 3                                   affine fit
+  cost 3   3 - (-x - x)                             exact
+  [searched every term up to cost 3: 5096 distinct columns; 'more' continues]
+> equiv g 2x + 3
+g and 2x + 3 are equal on the domain of g (exhaustive)
+> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+> find days 2
+  note: the result is int: searching in u8
+find days: 12 points, computing in u8, costs from gt1030
+  cost 6   u8(0x3bbeecc >> (u32(m) << 1) & 3) + 28  packed table in one constant
+  cost 9   [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] lookup table (baseline)
+  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]
+> isprime(n: u8 in 0..31) = match n { 2 | 3 | 5 | 7 | 11 | 13 | 17 | 19 | 23 | 29 | 31 => 1, _ => 0 }
+> find isprime 2
+  note: the result is int: searching in u8
+find isprime: 32 points, computing in u8, costs from gt1030
+  cost 3   u8(0xa08a28ac >> u32(n) & 1)             packed table in one constant
+  cost 8   [0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1][n] lookup table (baseline)
+  [searched every term up to cost 5: 524288 distinct columns, bank full; 'more' continues]
+> sq(x: u8 in 0..15) = x * x
+> find sq 2
+find sq: 16 points, computing in u8, costs from gt1030
+  cost 3   x*x                                      exact
+  cost 5   x + (x*x - x)                            exact
+  [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]
+> more 2
+more for sq:
+  cost 8   [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225][x] lookup table (baseline)
+  cost 8   x^2                                      polynomial (Horner)
+  [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]

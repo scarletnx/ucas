@@ -1,0 +1,109 @@
+> isqrt4(x: u4) = isqrt(x)
+> gates isqrt4
+gates for isqrt4: 4 input bits -> 4 output bits (2 constant), basis c
+  minimal: cost 5, 5 steps (no program of cost <= 4 exists; 660213 candidates searched)
+  checked: the program reproduces every output bit on all 16 care inputs
+  t0 = or(x0, x1)                = x0 | x1
+  t1 = or(x2, x3)                = x2 | x3
+  t2 = or(x2, t0)                = x2 | t0
+  t3 = xor(x3, t1)               = x3 xor t1
+  t4 = xor(t2, t3)               = t2 xor t3
+  r3 = 0
+  r2 = 0
+  r1 = t1
+  r0 = t4
+> gates isqrt4 basis a64sha
+gates for isqrt4: 4 input bits -> 4 output bits (2 constant), basis a64sha
+  minimal: cost 3, 3 steps (no program of cost <= 2 exists; 4576 candidates searched)
+  checked: the program reproduces every output bit on all 16 care inputs
+  t0 = or(x0, x1)                = x0 | x1
+  t1 = or(x2, x3)                = x2 | x3
+  t2 = bsl(x2, x3, t0)           = x2 & x3 | ~x2 & t0
+  r3 = 0
+  r2 = 0
+  r1 = t1
+  r0 = t2
+> gates isqrt4 as c
+gates for isqrt4: 4 input bits -> 4 output bits (2 constant), basis c
+  minimal: cost 5, 5 steps (no program of cost <= 4 exists; 660213 candidates searched)
+  checked: the program reproduces every output bit on all 16 care inputs
+  t0 = or(x0, x1)                = x0 | x1
+  t1 = or(x2, x3)                = x2 | x3
+  t2 = or(x2, t0)                = x2 | t0
+  t3 = xor(x3, t1)               = x3 xor t1
+  t4 = xor(t2, t3)               = t2 xor t3
+  r3 = 0
+  r2 = 0
+  r1 = t1
+  r0 = t4
+
+/* isqrt4, basis c: bits are independent lanes, so the same code also
+   runs bit-sliced on whole words */
+static inline uint32_t
+isqrt4_gates(uint32_t x)
+{
+	uint32_t x0 = x >> 0 & 1;
+	uint32_t x1 = x >> 1 & 1;
+	uint32_t x2 = x >> 2 & 1;
+	uint32_t x3 = x >> 3 & 1;
+	uint32_t t0 = x0 | x1;
+	uint32_t t1 = x2 | x3;
+	uint32_t t2 = x2 | t0;
+	uint32_t t3 = x3 ^ t1;
+	uint32_t t4 = t2 ^ t3;
+	return (t4 & 1) << 0 | (t1 & 1) << 1;
+}
+> mux(a: bool, b: bool, c: bool) = a ? b : c
+> gates mux
+gates for mux: 3 input bits -> 1 output bit, basis c
+  minimal: cost 3, 3 steps (no program of cost <= 2 exists; 2714 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = xor(b, c)               = b xor c
+  t1 = and(a, t0)               = a & t0
+  t2 = xor(c, t1)               = c xor t1
+  r0 = t2
+> gates mux basis a64sha
+gates for mux: 3 input bits -> 1 output bit, basis a64sha
+  minimal: cost 1, 1 step (no program of cost <= 0 exists; 28 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = bsl(a, b, c)           = a & b | ~a & c
+  r0 = t0
+> minority(a: bool, b: bool, c: bool) = !(a & b | a & c | b & c)
+> gates minority basis spirv
+gates for minority: 3 input bits -> 1 output bit, basis spirv
+  minimal: cost 5, 5 steps (no program of cost <= 4 exists; 120565 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = and(a, b)               = a & b
+  t1 = or(a, b)                = a | b
+  t2 = and(c, t1)               = c & t1
+  t3 = or(t0, t2)                = t0 | t2
+  t4 = not(t3)                   = ~t3
+  r0 = t4
+> gates minority basis a64
+gates for minority: 3 input bits -> 1 output bit, basis a64
+  minimal: cost 4, 4 steps (no program of cost <= 3 exists; 82213 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = and(a, b)               = a & b
+  t1 = xor(a, b)               = a xor b
+  t2 = and(c, t1)               = c & t1
+  t3 = eon(t0, t2)               = t0 xor ~t2
+  r0 = t3
+> sega(d: u4 in 0..9) = [1, 0, 1, 1, 0, 1, 1, 1, 1, 1][d]
+> gates sega
+gates for sega: 4 input bits -> 1 output bit, basis c
+  6 of 16 input combinations are don't-cares (outside the domain)
+  minimal: cost 4, 4 steps (no program of cost <= 3 exists; 165202 candidates searched)
+  checked: the program reproduces every output bit on all 10 care inputs
+  t0 = or(d1, d3)                = d1 | d3
+  t1 = xor(d0, d2)               = d0 xor d2
+  t2 = not(t1)                   = ~t1
+  t3 = or(t0, t2)                = t0 | t2
+  r0 = t3
+> basis maj3 { maj(x, y, z) = x & y | x & z | y & z; not(x) = ~x }
+> gates minority basis maj3
+gates for minority: 3 input bits -> 1 output bit, basis maj3
+  minimal: cost 2, 2 steps (no program of cost <= 1 exists; 12 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = maj(a, b, c)           = a & b | a & c | b & c
+  t1 = not(t0)                   = ~t0
+  r0 = t1

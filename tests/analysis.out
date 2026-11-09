@@ -1,0 +1,124 @@
+> avg(a: u8, b: u8) = (a + b) / 2
+> wrap avg
+wrap analysis of avg:
+  a + b   (u8)
+      nuw fails: unsigned wrap at 32640 points, e.g. a=255, b=1
+      nsw fails: signed wrap at 16384 points, e.g. a=127, b=1
+  end to end: differs from the mathematical result at 32640 points, e.g. a=255, b=1
+  over all 65536 points of the domain
+> avg2(a: u8, b: u8) = (a & b) + ((a xor b) >> 1)
+> wrap avg2
+wrap analysis of avg2:
+  (a & b) + ((a xor b) >> 1)   (u8)
+      nuw holds
+      nsw fails: signed wrap at 16256 points, e.g. a=255, b=1
+  end to end: equals the mathematical (unbounded) result everywhere
+  over all 65536 points of the domain
+> equiv avg avg2
+avg and avg2 differ at 32640 points, e.g. a=255, b=1: 0 vs 128
+> s(x: i8) = x * 2 + 1
+> wrap s
+wrap analysis of s:
+  2x   (i8)
+      nuw fails: unsigned wrap at 128 points, e.g. x=-128
+      nsw fails: signed wrap at 128 points, e.g. x=-128  <- UB in C; a compiler assumes it cannot happen
+  2x + 1   (i8)
+      nuw holds
+      nsw holds (C requires it: signed overflow is UB)
+  end to end: differs from the mathematical result at 128 points, e.g. x=-128
+      exact for: -64..63
+  over all 256 points of the domain
+> domain s
+domain of s:
+  x: i8, -128..127
+  C assumes 2x + 1 does not overflow i8  (signed overflow)
+  C assumes 2x does not overflow i8  (signed overflow)
+  defined at 256 of 256 points
+  C undefined behaviour at 128 points, e.g. x=-128
+  over all 256 points of the domain
+> dec(x: u8) = x > 0 ? x - 1 : 0
+> wrap dec
+wrap analysis of dec:
+  x - 1   (u8)
+      nuw holds
+      nsw fails: signed wrap at 1 points, e.g. x=128
+  end to end: equals the mathematical (unbounded) result everywhere
+  over all 256 points of the domain
+> q(x: u8) = 100 / (x - 3)
+> domain q
+domain of q:
+  x: u8, 0..255
+  requires x - 3 != 0  (in 100/(x - 3))
+  defined at 255 of 256 points
+  defined for: 0..2, 4..255
+  undefined e.g. at x=3
+  C undefined behaviour at 1 points, e.g. x=3
+  over all 256 points of the domain
+> range q
+range of q -> u8:
+  0..100   (20 distinct values)
+  values: 0..12, 14, 16, 20, 25, 33, 50, 100
+  fits in u7
+  undefined at 1 points
+  over all 256 points of the domain
+> h(x) = x^3 - 3x
+> crit h
+critical points of h:
+  h' = 3x^2 - 3
+  x ≈ -1: local maximum, h = 2
+  x ≈ 1: local minimum, h = -2
+  searched [-10, 10] (default; give x a range)
+> diff h
+d/dx h = 3x^2 - 3
+> range h
+range of h:
+  [-970, 970]   min at x ≈ -10, max at x ≈ 10
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> r(x) = log(x) / (x - 1)
+> domain r
+domain of r:
+  x: real (default [-10, 10])
+  requires x - 1 != 0  (in log(x)/(x - 1))
+  requires x > 0
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in (0, 1)
+    x in (1, 10]
+    except x ≈ 1  (x - 1 = 0)
+> c(x: real in -3..3) = |x| + x^2
+> crit c
+critical points of c:
+  c' = sign(x) + 2x
+  x ≈ 0: local minimum, c = 0
+> seg(x: u8 in 0..20) = x < 5 ? 2x + 1 : x < 12 ? 11 : 40 - 2x
+> crit seg
+critical points of seg:
+  piecewise-affine segments (consecutive x with a constant step):
+    x in 0..5: seg = 2x + 1
+    x in 5..11: seg = 11
+    x in 11..12: seg = 5x - 44
+    x in 12..20: seg = -2x + 40
+  local extrema (where the step changes sign):
+    x = 12: local maximum, seg = 16
+> diff seg
+forward difference over x: seg(x+1) - seg(x) = (x + 1 < 5 ? 2(x + 1) + 1 : x + 1 < 12 ? 11 : 40 - 2(x + 1)) - (x < 5 ? 2x + 1 : x < 12 ? 11 : 40 - 2x)
+> big(a: u32, b: u32) = a * b
+> wrap big
+wrap analysis of big:
+  a*b   (u32)
+      nuw fails: unsigned wrap at 65528 points, e.g. a=200494509, b=40788086
+      nsw fails: signed wrap at 65528 points, e.g. a=200494509, b=40788086
+  end to end: differs from the mathematical result at 55574 points, e.g. a=200494509, b=40788086
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+> p(x: u16 in 0..1000) = x * 60
+> wrap p
+wrap analysis of p:
+  60x   (u16)
+      nuw holds
+      nsw fails: signed wrap at 454 points, e.g. x=547
+  end to end: equals the mathematical (unbounded) result everywhere
+  over all 1001 points of the domain
+> range p
+range of p -> u16:
+  0..60000   (1001 distinct values)
+  fits in u16
+  over all 1001 points of the domain

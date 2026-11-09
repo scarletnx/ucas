@@ -1,0 +1,24 @@
+# The gt1030 model: floats are cheap, divides and fp64 are not, branches
+# that diverge run both arms, barriers and atomics are expensive.
+models
+rsqrt(x: f32) = 1/sqrt(x)
+cost rsqrt
+quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
+  where y = asfloat(0x5f3759df - (asuint(x) >> 1))
+cost quake
+d(x: f64) = x * x + 1
+cost d
+k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+cost k
+ku(x: f32 uniform, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+cost ku
+w(i: u32, v: u32) = barrier(atomic_add_shared(i, v) + 1)
+cost w
+wg(i: u32, v: u32) = atomic_max(i, v)
+cost wg
+div(a: u32, b: u32) = a / b
+cost div
+div7(a: u32) = a / 7
+cost div7
+model mine : gt1030 { imul: 1, idiv: 4 }
+cost div model mine

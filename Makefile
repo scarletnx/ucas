@@ -1,0 +1,40 @@
+# ucas - BSD make (FreeBSD make or bmake)
+
+PROG=	ucas
+SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
+	find.c model.c
+.PATH:	${.CURDIR}/src
+MAN=
+
+CSTD=	c99
+CFLAGS+=	-O2 -I${.CURDIR}/src
+CWARNFLAGS+=	-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
+		-Wno-missing-field-initializers
+WARNS?=	2
+MK_WERROR=	no
+LDADD+=	-lm
+
+TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
+
+# Each tests/NAME.ucas runs and must print exactly tests/NAME.out.
+# `make accept` rewrites the .out files from the current output.
+test: ${PROG}
+	@fail=0; for t in ${TESTS}; do \
+		n=$${t%.ucas}; \
+		(cd ${.CURDIR}/tests && ${.OBJDIR}/${PROG} $$t) > $$n.got 2>&1; \
+		if diff -u ${.CURDIR}/tests/$$n.out $$n.got > $$n.diff; then \
+			echo "ok   $$n"; rm -f $$n.got $$n.diff; \
+		else echo "FAIL $$n (see $$n.diff)"; fail=1; fi; \
+	done; exit $$fail
+
+accept: ${PROG}
+	@for t in ${TESTS}; do \
+		n=$${t%.ucas}; \
+		(cd ${.CURDIR}/tests && ${.OBJDIR}/${PROG} $$t) > \
+		    ${.CURDIR}/tests/$$n.out 2>&1; \
+		echo "wrote tests/$$n.out"; \
+	done
+
+CLEANFILES+=	*.got *.diff
+
+.include <bsd.prog.mk>

@@ -1,0 +1,38 @@
+# Domains, ranges, wrapping and critical points.
+avg(a: u8, b: u8) = (a + b) / 2
+wrap avg
+avg2(a: u8, b: u8) = (a & b) + ((a xor b) >> 1)
+wrap avg2
+equiv avg avg2
+
+s(x: i8) = x * 2 + 1
+wrap s
+domain s
+
+dec(x: u8) = x > 0 ? x - 1 : 0
+wrap dec
+
+q(x: u8) = 100 / (x - 3)
+domain q
+range q
+
+h(x) = x^3 - 3x
+crit h
+diff h
+range h
+
+r(x) = log(x) / (x - 1)
+domain r
+
+c(x: real in -3..3) = |x| + x^2
+crit c
+
+seg(x: u8 in 0..20) = x < 5 ? 2x + 1 : x < 12 ? 11 : 40 - 2x
+crit seg
+diff seg
+
+big(a: u32, b: u32) = a * b
+wrap big
+p(x: u16 in 0..1000) = x * 60
+wrap p
+range p

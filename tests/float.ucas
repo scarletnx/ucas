@@ -1,0 +1,21 @@
+# IEEE floats: rounding, NaN/inf, bit casts, and the fast inverse square
+# root found by fitting its magic constant.
+rsqrt(x: f32 in 0.01..100) = 1/sqrt(x)
+guess(x: f32, K: u32) = asfloat(K - (asuint(x) >> 1))
+fit guess ~ rsqrt
+find rsqrt 2
+
+quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
+  where y = asfloat(0x5f3759df - (asuint(x) >> 1))
+error quake ~ rsqrt
+
+# real is the number line, f32 rounds
+sum(x: f32 in 1..2) = x + 1e-8 - x
+range sum
+wrap rsqrt
+
+# IEEE totality: x/0 is inf, 0/0 is NaN
+d(x: f32 in -1..1) = 1 / x
+wrap d
+z(x: f32 in -1..1) = sqrt(x)
+wrap z

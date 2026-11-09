@@ -1,0 +1,17 @@
+# A switch that is secretly one linear operation.
+g(x: u8 in 0..3) = match x { 0 => 3, 1 => 5, 2 => 7, 3 => 9 }
+find g 3
+equiv g 2x + 3
+
+# Days in a month: the packed-constant form.
+days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+find days 2
+
+# A membership test is a bit in a constant.
+isprime(n: u8 in 0..31) = match n { 2 | 3 | 5 | 7 | 11 | 13 | 17 | 19 | 23 | 29 | 31 => 1, _ => 0 }
+find isprime 2
+
+# Lazy: more continues where find stopped.
+sq(x: u8 in 0..15) = x * x
+find sq 2
+more 2

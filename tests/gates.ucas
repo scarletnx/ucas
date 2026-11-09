@@ -1,0 +1,24 @@
+# Exact gate synthesis: the 4-bit square root from the task statement,
+# and LOP3 tables from basis.md.
+isqrt4(x: u4) = isqrt(x)
+gates isqrt4
+gates isqrt4 basis a64sha
+gates isqrt4 as c
+
+# 0xca, the mux a ? b : c: 3 ops in SPIR-V's basis, 1 with bsl
+mux(a: bool, b: bool, c: bool) = a ? b : c
+gates mux
+gates mux basis a64sha
+
+# 0x17 minority: 5 ops in SPIR-V's basis, 4 with AArch64's bic/orn/eon
+minority(a: bool, b: bool, c: bool) = !(a & b | a & c | b & c)
+gates minority basis spirv
+gates minority basis a64
+
+# don't-cares: a digit (0..9) to its 7-segment "a" segment
+sega(d: u4 in 0..9) = [1, 0, 1, 1, 0, 1, 1, 1, 1, 1][d]
+gates sega
+
+# a user basis
+basis maj3 { maj(x, y, z) = x & y | x & z | y & z; not(x) = ~x }
+gates minority basis maj3
