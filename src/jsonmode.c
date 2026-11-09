@@ -705,6 +705,110 @@ static const struct jcmd cmds[] = {
 	{"cubesum", "cubesum", 1, 0, "k as a sum of two rational cubes: "
 	    "x^3 + y^3 = k z^3 solved through its curve", {TX("k", " %s",
 	    "a positive integer"), BO("positive", " positive", "x, y > 0")}},
+	/* elliptic curves over finite fields, crypto, algorithms (ecff) */
+	{"ec_info", "ec", 1, 0, "a curve over F_p: discriminant, j, #E "
+	    "(certified by point orders), trace, group structure (certified "
+	    "by a Weil pairing), twist, embedding degree, weaknesses",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\"")}},
+	{"ec_order", "ecorder", 1, 0, "#E(F_p) by a chosen method, with the "
+	    "certificate (points whose orders leave one candidate in the "
+	    "Hasse interval)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), {"method", P_ENUM, 0, " using %s",
+	    "naive, baby-step giant-step (Mestre), CM (j = 0, 1728), Schoof, "
+	    "SEA (Schoof with splitting here)", "auto|naive|bsgs|cm|schoof|sea"},
+	    BO("timed", " timed", "print timings")}},
+	{"ec_points", "ecpoints", 1, 0, "the points of E(F_p), p <= 100000",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\"")}},
+	{"ec_add", "ecadd", 1, 0, "P + Q", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y), "
+	    "G or O"), TX("Q", " + %s", "(x, y), G or O")}},
+	{"ec_mul", "ecmul", 1, 0, "k P by wNAF/Jacobian, checked against "
+	    "affine double-and-add, the Montgomery ladder and plain NAF",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("k", " %s", "the scalar (an integer expression)"),
+	    TX("P", " %s", "(x, y), G, random"), {"method", P_ENUM, 0,
+	    " using %s", "only this cross-check", "affine|wnaf|ladder"}}},
+	{"ecm", "ecm", 1, 0, "factor an integer (up to 576 bits): trial "
+	    "division, Pollard rho, Lenstra ECM stage 1 + 2; with B1 one ECM "
+	    "run", {TX("n", " %s", "the number (\"2^128 + 1\")"),
+	    TXO("B1", " B1 %s", "stage 1 bound"), TXO("B2", " B2 %s",
+	    "stage 2 bound")}},
+	{"ecdsa_sign", "ecdsa sign", 1, 0, "ECDSA signature with RFC 6979 "
+	    "deterministic nonce (variable-time code: mathematics, not a "
+	    "hardened implementation)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("key", " key %s",
+	    "the private key d"), {"hash", P_ENUM, 0, " hash %s", "default by "
+	    "the order's size", "sha256|sha384|sha512"}, TXO("nonce", " k %s",
+	    "a given nonce instead of RFC 6979"), TX("msg", " msg %s",
+	    "the message (text)")}},
+	{"ecdsa_verify", "ecdsa verify", 1, 0, "verify an ECDSA signature",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("pub", " pub %s", "(x, y) or SEC 1 hex"), TX("r",
+	    " r %s", "r"), TX("s", " s %s", "s"), {"hash", P_ENUM, 0,
+	    " hash %s", "the hash", "sha256|sha384|sha512"}, TX("msg",
+	    " msg %s", "the message (text)")}},
+	{"ecdh", "ecdh", 1, 0, "Diffie-Hellman on a named curve: both sides "
+	    "from two private keys, or one key and a peer's point (validated)",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("a", " a %s", "a private key"), TXO("b", " b %s",
+	    "the other private key"), TXO("pub", " pub %s", "the peer's "
+	    "point (x, y)")}},
+	{"x25519", "x25519", 1, 0, "RFC 7748 X25519 (hex, little-endian)",
+	    {TX("k", " %s", "the scalar, 32 bytes hex"), TXO("u", " %s",
+	    "u, 32 bytes hex (default the base point 9)")}},
+	{"x448", "x448", 1, 0, "RFC 7748 X448 (hex, little-endian)",
+	    {TX("k", " %s", "the scalar, 56 bytes hex"), TXO("u", " %s",
+	    "u, 56 bytes hex (default the base point 5)")}},
+	{"ed25519_sign", "ed25519 sign", 1, 0, "RFC 8032 Ed25519 signature "
+	    "(and the public key)", {TX("secret", " %s", "32 bytes hex"),
+	    TX("msghex", " msghex %s", "the message as hex bytes")}},
+	{"ed25519_verify", "ed25519 verify", 1, 0, "verify an Ed25519 "
+	    "signature", {TX("pub", " %s", "32 bytes hex"), TX("sig", " %s",
+	    "64 bytes hex"), TX("msghex", " msghex %s", "the message as hex")}},
+	{"ec_compress", "eccompress", 1, 0, "SEC 1 encodings of a point",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y) or G")}},
+	{"ec_decompress", "ecdecompress", 1, 0, "decode a SEC 1 point",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("hex", " %s", "02/03/04 ...")}},
+	{"ec_validate", "ecvalidate", 1, 0, "public-key validation (SEC 1 "
+	    "3.2.2.1)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y)")}},
+	{"ec_vectors", "ecvectors", 1, 0, "run the built-in RFC/FIPS test "
+	    "vectors and the named curves' parameter checks", {{0}}},
+	{"ec_dlog", "ecdlog", 1, 0, "a discrete logarithm k with k P = Q: "
+	    "Pohlig-Hellman, BSGS, rho, MOV (pairing transfer), Smart "
+	    "(anomalous); checked by k P = Q", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s",
+	    "(x, y) or random"), TXO("Q", " %s", "(x, y)"), TXO("secret",
+	    " secret %s", "instead of Q: Q = secret P"), {"method", P_ENUM, 0,
+	    " using %s", "default: by the curve", "bsgs|rho|ph|mov|smart"}}},
+	{"ec_weak", "ecweak", 1, 0, "generate a weak curve (anomalous: #E = "
+	    "p; supersingular: embedding degree 2); \"anomalous 64\" also "
+	    "works as the curve of ec_dlog", {{"kind", P_ENUM, 1, " %s",
+	    "which weakness", "anomalous|supersingular"}, IR("bits", " %s",
+	    "the size of p")}},
+	{"ec_pairing", "ecpairing", 1, 0, "Weil or reduced Tate pairing by "
+	    "Miller's algorithm with bilinearity checks; on bn254/bls12_381 "
+	    "alone: e(G1, G2) in F_p^12", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TXO("P", " %s", "(x, y)"),
+	    TXO("Q", " %s", "(x, y)"), TXO("n", " %s", "the order n"),
+	    {"kind", P_ENUM, 0, " %s", "default weil", "weil|tate"}}},
+	{"hilbert", "hilbert", 1, 0, "the Hilbert class polynomial H_D (CM "
+	    "j-invariants), rounding error bounded", {TX("D", " %s",
+	    "a negative discriminant")}},
+	{"ec_cm", "eccm", 1, 0, "a CM curve with discriminant D over F_p, or "
+	    "a random prime-order CM curve of a given size", {TX("D", " %s",
+	    "the discriminant"), TXO("p", " mod %s", "the prime"),
+	    IO("bits", " bits %s", "instead of p: random p and prime #E")}},
+	{"ecpp", "ecpp", 1, 0, "an Atkin-Morain ECPP primality certificate, "
+	    "verified by an independent checker", {TX("n", " %s", "the "
+	    "number (\"2^127 - 1\")")}},
+	{"modpoly", "modpoly", 1, 0, "the classical modular polynomial Phi_l "
+	    "(over Z, or mod p)", {IR("l", " %s", "a prime <= 31"), TXO("p",
+	    " mod %s", "a prime modulus")}},
+	{"ec_isogeny", "ecisogeny", 1, 0, "an isogeny from a kernel point "
+	    "(Velu, Kohel, checked as a homomorphism), or the rational "
+	    "l-isogenies (roots of Phi_l)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TXO("kernel", " kernel %s",
+	    "a point (x, y) of small order"), TXO("l", " %s", "a prime l")}},
+	{"ec_volcano", "ecvolcano", 1, 0, "the l-isogeny graph around j(E)",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), IR("l", " %s", "a prime <= 13")}},
+	{"ec_divpoly", "ecdivpoly", 1, 0, "the division polynomial psi_n, its "
+	    "roots and factor degrees (the torsion field)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), IR("n",
+	    " %s", "2 .. 60")}},
+	{"ec_binary", "ecb2", 1, 0, "a binary curve y^2 + xy = x^3 + a x^2 + "
+	    "b over GF(2^m): count (Koblitz, naive), FIPS parameters checked",
+	    {TX("curve", " %s", "K-163, B-163, K-233, or \"[a, b] over "
+	    "GF(2^13) poly 4 3 1 0\""), TXO("mul", " mul %s", "k: k G")}},
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 
