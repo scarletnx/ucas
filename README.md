@@ -2179,3 +2179,98 @@ passes them through the same handler as the live bot and prints each
 REST request it would make.  `ucas-discord --selftest` checks the
 prefix and fence handling, message splitting and the JSON codecs.
 `make discord-test` runs both against `discord/tests/*.jsonl`.
+
+## Proofs
+
+```
+theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+prove bockstein      # two proofs (the paper's, and by coordinates), each re-checked
+proof bockstein      # each route's script, the tree of lemmas, the axioms used
+check bockstein      # the independent checker again
+axioms               # every axiom; lemmas: the library
+```
+
+`theorem NAME: FORMULA` states a theorem in many-sorted first-order logic
+(`forall x y:el, n:int: ...`, `exists`, `and or not -> <->`, `= != <= <
+in`, terms with `+ - *` and `^` on integers; sorts `int`, `el`, `set`,
+`cpl`, `cx`, `hom`).  `prove NAME [using L ...]` proves it: by a library
+theorem with the same statement (every such route, each re-checked), else
+by replaying the library's theorem proofs on it (a false variant fails at
+the step that needs the missing hypothesis, which is printed), else by the
+automation; when all fail it looks for a counterexample in a concrete
+model (standard spaces' cochains, homalg's exact Bockstein spectral
+sequences, small integers) and says that this is a computation, not a
+proof.  JSON: `theorem prove proof proof_check axioms lemmas`; MCP tool
+`proofs`.
+
+**Kernel** (`src/prove.h`, `kernel.c`).  Terms and formulas are one
+hash-consed DAG in SoA columns with de Bruijn binders; theorems are
+sequents in kernel.c's own SoA table and only its rules make them:
+assume, axiom, imp/and/or/not/iff introduction and elimination,
+false_elim, raa, all_intro (eigenvariable checked), all_elim, ex_intro,
+ex_elim (freshness checked), refl, subst (Leibniz), conv (equal normal
+forms: commutative-ring polynomials over Z, Z-module linear combinations,
+symbols marked hom additive and Z-linear, numerals compared), lin (a
+linear combination of equations, with nonnegative numerals on
+inequalities), induct (over Z from a base) and hom_decl (a symbol becomes
+a homomorphism once both laws are theorems without hypotheses).  Every
+theorem records its rule, premises and terms, so a proof is a DAG.
+`kcheck.c` replays it in id order with its own substitution, hypothesis
+sets and normal forms (canonical strings, not the kernel's id-ordered
+DAG).  Integers in normal forms are int64 with overflow checks (an
+overflow fails the step; nothing wraps).
+
+**Axioms** (`src/thy_absalg.thy`, the only `def`/`arith` lines): the
+ordered ring Z (`int_discrete` n <= 0 or 1 <= n, `le_antisym`,
+`mul_nonneg`, `int_domain`, `pow_zero`, `pow_succ`); definitions of
+subgroups, the sum and intersection of subgroups, direct summands, a
+generating a Z (or Z/p^k) direct summand, exact couples, i^m, the
+derived couple construction (D_1..E_1 and D_(r+1), Z_(r+1), B_(r+1),
+j_(r+1) from page r: D' = i D, E' = ker d / im d with representatives in
+E, j'(i x) = [j x], k'[e] = k e), d_r [e] = 0 and [e] in im d_r^m,
+primes, and the Bockstein couple of a complex of finite type (an exact
+couple with D = H*(C;Z), i = p, H^n a direct summand of H*).  Nothing
+else: every lemma, including all facts about derived couples, is proved.
+
+**Automation** (`kauto.c`, results are kernel theorems): linear integer
+arithmetic by Fourier-Motzkin with the multipliers as a `lin`
+certificate, products of two hypotheses and case splits n <= 0 or 1 <= n
+when the rational relaxation is not enough; abelian-group equalities by
+elimination on unit pivots (monomials divided, equations lifted through
+applications by congruence, integer coefficients that vanish modulo the
+integer equations); subgroup membership of linear combinations; and
+goal-directed chaining through facts and lemmas with unification modulo
+the normal forms (metavariables solved through linear terms), with
+existentials opened and arguments rewritten by congruence: enough for
+diagram chases.
+
+**Library** (`thy_absalg.thy`, scripts in an Isar-like language: `fix
+intro have obtain show contra cases induct`): the closed forms of the
+r-th derived couple by induction on r (D_r = i^(r-1) D, Z_r =
+k^-1(i^(r-1) D), B_r = j(ker i^(r-1)), j_r(i^(r-1) x) = [j x]); every
+derived couple is exact (`derived_exact`: ker j_r = im i_r, im k_r =
+ker i_r, ...), d_r d_r = 0, j_r additive and well defined; i^m = p^m on
+the Bockstein couple; `bockstein_paper` (the paper's argument: D_r =
+p^(r-1)H, j_r(p^(r-1)a) = a-bar, ker j_r = im i_r, im k_r = ker i_r =
+p-torsion of D_r, and the valuation argument p^(r-1) = p^r n is
+impossible) and `bockstein_coords` (B_(r+1) = j(H[p^r]), so a-bar in
+im d_r puts a in H[p^r] + pH, and a's coordinate in H = <a> (+) M gives
+1 in pZ); `bockstein_torsion` (a Z/p^k summand's a-bar is nonzero on
+E_1..E_k and zero on E_(k+1)); `cyclic_order` (symbolic exponents);
+`modular_law`; `short_five_mono`; `snake_ker_exact`.
+
+The statement is proved in a slightly stronger form than the paper's:
+d_r and im d_r^(n-1) are those of the total graded couple, with
+`Edeg(c,m,e)` (e of degree m) uninterpreted, so the result holds for any
+grading; i_r and k_r are by the definition of the derived couple the
+restrictions of i and k (only j_r is new, as a relation on
+representatives).  Exactness of the long exact sequence of 0 -> C -p->
+C -> C/p -> 0 is part of the definition of the Bockstein couple (the
+snake lemma's computation is homalg's; the kernel proves
+`snake_ker_exact` only for one spot of the snake).
+
+Tests: `tests/prove.ucas` (the two routes, re-checks, the other theorems,
+automation, and four false variants: no summand hypothesis, a Z/p
+summand, a Z/p^k summand dying on E_k, an integer inequality; each fails
+with the failing step and a counterexample), `tests/json/prove.jsonl`,
+`tests/mcp/prove.jsonl`.
