@@ -509,6 +509,11 @@ by(struct ps *P, kt f, const char *refs)
 		ka_add(c, th, 0);
 	}
 	th = ka_prove(c, f);
+	if (!th && getenv("KDEBUG")) {
+		int i;
+		for (i = 0; i < c->n; i++)
+			fprintf(stderr, "  fact: %s\n", kt_str(kthm_concl(c->fact[i])));
+	}
 	free(c);
 	if (!th)
 		serr(P->S, "%s", ka_why);

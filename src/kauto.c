@@ -399,6 +399,41 @@ app_atoms(kt t, kt *out, int n, int max)
 
 static kthm eqsolve_int(struct kctx *c, kt g);
 
+/* m = d * q for int monomials (products of atoms): q, or KNONE */
+static kt
+mono_div(kt m, kt d)
+{
+	kt a[64], b[64];
+	int na = 0, nb = 0, i, j, used[64];
+	kt q = KNONE;
+
+	if (d == kt_num(1))
+		return m;
+	while (KOP(m) == KO_MUL && na < 63) {
+		a[na++] = KA(m, 1);
+		m = KA(m, 0);
+	}
+	a[na++] = m;
+	while (KOP(d) == KO_MUL && nb < 63) {
+		b[nb++] = KA(d, 1);
+		d = KA(d, 0);
+	}
+	b[nb++] = d;
+	memset(used, 0, sizeof used);
+	for (j = 0; j < nb; j++) {
+		for (i = 0; i < na; i++)
+			if (!used[i] && a[i] == b[j])
+				break;
+		if (i == na)
+			return KNONE;
+		used[i] = 1;
+	}
+	for (i = 0; i < na; i++)
+		if (!used[i])
+			q = q == KNONE ? a[i] : kt_mul(q, a[i]);
+	return q == KNONE ? kt_num(1) : q;
+}
+
 /* a = b from the equations in context: Gaussian elimination on unit
  * pivots, equations lifted through applications (congruence), and
  * coefficients that vanish modulo the integer equations */
@@ -406,6 +441,7 @@ static kthm
 eqsolve2(struct kctx *c, kt g, int lift)
 {
 	kthm fth[96];
+	kt pv[96], pu[96];
 	kt T[96], prov[96][96], R, M[96], fa[64], fc[64], ra[64], rc[64];
 	int nf = 0, i, j, k, q, sort, ge, done[96];
 
@@ -414,8 +450,13 @@ eqsolve2(struct kctx *c, kt g, int lift)
 	sort = KSORT(KA(g, 0));
 	for (i = c->n - 1; i >= 0 && nf < 64; i--) {
 		kt f = kthm_concl(c->fact[i]);
-		if (KOP(f) == KO_EQ && KSORT(KA(f, 0)) == sort)
-			fth[nf++] = c->fact[i];
+		if (KOP(f) == KO_EQ && KSORT(KA(f, 0)) == sort) {
+			for (j = 0; j < nf; j++)
+				if (kn_norm(kthm_concl(fth[j])) == kn_norm(f))
+					break;
+			if (j == nf)
+				fth[nf++] = c->fact[i];
+		}
 	}
 	R = kn_norm(kt_sub(KA(g, 0), KA(g, 1)));
 	if (lift && sort == KS_EL) {
@@ -457,6 +498,7 @@ eqsolve2(struct kctx *c, kt g, int lift)
 			prov[i][j] = kt_num(i == j);
 		M[i] = kt_num(0);
 		done[i] = 0;
+		pv[i] = KNONE;
 	}
 	for (;;) {
 		int progress = 0;
@@ -478,7 +520,9 @@ eqsolve2(struct kctx *c, kt g, int lift)
 				    fa[j] == kt_num(1)))
 					continue;
 				for (q = 0; q < nr; q++)
-					inR |= ra[q] == fa[j];
+					inR |= ra[q] == fa[j] || (sort == KS_INT &&
+					    ra[q] != kt_num(1) &&
+					    mono_div(ra[q], fa[j]) != KNONE);
 				for (k = 0; k < nf && !inO; k++)
 					if (k != i && !done[k])
 						inO = has_atom(T[k], fa[j]);
@@ -494,6 +538,11 @@ eqsolve2(struct kctx *c, kt g, int lift)
 			done[i] = 1;
 			progress = 1;
 			u = fc[piv];
+			pv[i] = fa[piv];
+			pu[i] = u;
+			if (getenv("KDEBUG2"))
+				fprintf(stderr, "eq: R=%s pivot %s in %s\n", kt_str(R),
+				    kt_str(fa[piv]), kt_str(T[i]));
 			cR = KNONE;
 			for (q = 0; q < nr; q++)
 				if (ra[q] == fa[piv])
@@ -503,6 +552,27 @@ eqsolve2(struct kctx *c, kt g, int lift)
 				R = kn_norm(kt_sub(R, kt_mul(m, T[i])));
 				for (k = 0; k < nf; k++)
 					M[k] = kn_norm(kt_add(M[k], kt_mul(m, prov[i][k])));
+			}
+			/* int: the pivot also divides monomials of R */
+			if (sort == KS_INT) {
+				int guard;
+				for (guard = 0; guard < 16; guard++) {
+					kt qm = KNONE, cq = KNONE;
+					nr = kn_split(R, ra, rc, 64);
+					for (q = 0; q < nr && !qm; q++)
+						if (ra[q] != kt_num(1) && ra[q] != fa[piv] &&
+						    (qm = mono_div(ra[q], fa[piv])) != KNONE)
+							cq = rc[q];
+					if (!qm)
+						break;
+					{
+						kt m = kn_norm(kt_mul(kt_mul(cq, u), qm));
+						R = kn_norm(kt_sub(R, kt_mul(m, T[i])));
+						for (k = 0; k < nf; k++)
+							M[k] = kn_norm(kt_add(M[k], kt_mul(m,
+							    prov[i][k])));
+					}
+				}
 			}
 			for (j = 0; j < nf; j++) {
 				int n2;
@@ -522,6 +592,38 @@ eqsolve2(struct kctx *c, kt g, int lift)
 		}
 		if (!progress)
 			break;
+	}
+	/* reduce R again by every pivot (one may divide a later monomial) */
+	{
+		int pass, ch = 1;
+		for (pass = 0; pass < 8 && ch; pass++) {
+			ch = 0;
+			for (i = 0; i < nf; i++) {
+				int nr, guard;
+				if (!done[i] || !pv[i])
+					continue;
+				for (guard = 0; guard < 16; guard++) {
+					kt qm = KNONE, cq = KNONE, m;
+					nr = kn_split(R, ra, rc, 64);
+					for (q = 0; q < nr && !qm; q++) {
+						if (ra[q] == pv[i])
+							qm = kt_num(1);
+						else if (sort == KS_INT && ra[q] != kt_num(1))
+							qm = mono_div(ra[q], pv[i]);
+						if (qm)
+							cq = rc[q];
+					}
+					if (!qm)
+						break;
+					m = kn_norm(kt_mul(kt_mul(cq, pu[i]), qm));
+					R = kn_norm(kt_sub(R, kt_mul(m, T[i])));
+					for (k = 0; k < nf; k++)
+						M[k] = kn_norm(kt_add(M[k], kt_mul(m,
+						    prov[i][k])));
+					ch = 1;
+				}
+			}
+		}
 	}
 	/* what is left may be +-1 times a remaining equation */
 	if (kn_split(R, ra, rc, 64) != 0)

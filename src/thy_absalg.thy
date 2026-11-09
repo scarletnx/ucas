@@ -1037,3 +1037,262 @@ proof
   qed
   show by s1 s2 s3
 qed
+
+# ---- exponents: symbolic p^k ----
+lemma pow_add: forall p a:int: 0 <= a -> forall b:int: 0 <= b -> p^(a+b) = p^a*p^b
+proof
+  fix p a
+  intro ha
+  induct b from 0
+  base
+  proof
+    show by pow_zero[p]
+  qed
+  step
+  proof
+    fix b
+    intro hb ih
+    have e1: p^(a+b+1) = p^(a+b)*p by pow_succ[p, a+b] ha hb
+    have e2: p^(b+1) = p^b*p by pow_succ[p, b] hb
+    show by e1 e2 ih
+  qed
+qed
+
+# no multiple of p is 1
+lemma unit_p: forall p z:int: 2 <= p and 1 = p*z -> false
+proof
+  fix p z
+  intro hp hz
+  show false by hp hz
+qed
+
+lemma zpk_mem: forall a:el, S:set, p k:int: zpksummand(a,S,p,k) -> a in S and subgroup(S) and p^k*a = 0
+proof
+  fix a S p k
+  intro hz
+  obtain M:set st aS sS hM pka hMS hdec hind: a in S and subgroup(S) and subgroup(M) and p^k*a = 0 and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> exists q:int: n = p^k*q) by zpksummand_def hz
+  show by aS sS pka
+qed
+
+lemma zpksummand_trans: forall a:el, S T:set, p k:int: zpksummand(a,S,p,k) and summand(S,T) -> zpksummand(a,T,p,k)
+proof
+  fix a S T p k
+  intro hz hs
+  obtain M:set st aS sS hM pka hMS hdec hind: a in S and subgroup(S) and subgroup(M) and p^k*a = 0 and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> exists q:int: n = p^k*q) by zpksummand_def hz
+  obtain N:set st sS2 sT hN hST hNT hdec2 hind2: subgroup(S) and subgroup(T) and subgroup(N) and (forall x:el: x in S -> x in T) and (forall x:el: x in N -> x in T) and (forall x:el: x in T -> exists s m:el: s in S and m in N and x = s + m) and (forall s m:el: s in S and m in N and s + m = 0 -> s = 0) by summand_def hs
+  have hMN: subgroup(ssum(M,N)) by ssum_sub hM hN
+  have aT: a in T by hST aS
+  have sub: forall x:el: x in ssum(M,N) -> x in T
+  proof
+    fix x
+    intro hx
+    obtain m n:el st mM nN e: m in M and n in N and x = m + n by ssum_def hx
+    have mS: m in S by hMS mM
+    have mT: m in T by hST mS
+    have nT: n in T by hNT nN
+    have mn: m + n in T by sT mT nT
+    show x in T by e mn
+  qed
+  have dec: forall x:el: x in T -> exists q:int, w:el: w in ssum(M,N) and x = q*a + w
+  proof
+    fix x
+    intro hx
+    obtain s n:el st sS3 nN e: s in S and n in N and x = s + n by hdec2 hx
+    obtain q:int, m:el st mM e2: m in M and s = q*a + m by hdec sS3
+    have w: m + n in ssum(M,N) by ssum_def mM nN with m, n
+    show by w e e2 with q, m + n
+  qed
+  have ind: forall q:int, w:el: w in ssum(M,N) and q*a + w = 0 -> exists t:int: q = p^k*t
+  proof
+    fix q w
+    intro hw h0
+    obtain m n:el st mM nN e: m in M and n in N and w = m + n by ssum_def hw
+    have mS: m in S by hMS mM
+    have qa: q*a in S by sub_smul[S, q, a] sS aS
+    have s1: q*a + m in S by sS qa mS
+    have s2: (q*a + m) + n = 0 by h0 e
+    have s3: q*a + m = 0 by hind2[q*a + m, n] s1 nN s2
+    show by hind[q, m] mM s3
+  qed
+  show zpksummand(a,T,p,k) by zpksummand_def aT sT hMN pka sub dec ind with ssum(M,N)
+qed
+
+# in S = <a> (+) M with a of order p^k: a is not in S[p^(r-1)] + pS for
+# 1 <= r <= k (symbolic exponents: p^k = p^(r-1) p^(k-r+1))
+lemma zpk_unit: forall a:el, S:set, p k r:int, x y:el: zpksummand(a,S,p,k) and 2 <= p and 1 <= r and r <= k and x in S and y in S and p^(r-1)*x = 0 and a = x + p*y -> false
+proof
+  fix a S p k r x y
+  intro hz hp hr hrk hx hy hpx ha
+  obtain M:set st aS sS hM pka hMS hdec hind: a in S and subgroup(S) and subgroup(M) and p^k*a = 0 and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> exists q:int: n = p^k*q) by zpksummand_def hz
+  obtain s:int, m1:el st m1M xe: m1 in M and x = s*a + m1 by hdec hx
+  obtain u:int, m2:el st m2M ye: m2 in M and y = u*a + m2 by hdec hy
+  have r0: 0 <= r - 1 by hr
+  have pm: p^(r-1)*m1 in M by hM m1M
+  have e0: (p^(r-1)*s)*a + p^(r-1)*m1 = 0 by hpx xe
+  obtain q:int st hq: p^(r-1)*s = p^k*q by hind[p^(r-1)*s, p^(r-1)*m1] pm e0
+  have pk: p^k = p^(r-1)*p^(k-r+1) by pow_add[p, r-1] r0 hrk
+  have pq: p^(r-1)*(s - p^(k-r+1)*q) = 0 by hq pk
+  have p1: 1 <= p by hp
+  have P1: 1 <= p^(r-1) by pow_pos p1 r0
+  have s1: s = p^(k-r+1)*q
+  proof
+    cases hc: p^(r-1) = 0 or s - p^(k-r+1)*q = 0 by int_domain[p^(r-1), s - p^(k-r+1)*q] pq
+    case h1
+    proof
+      show by h1 P1
+    qed
+    case h2
+    proof
+      show by h2
+    qed
+  qed
+  have kr: 0 <= k - r by hrk
+  have b1: p^(k-r+1) = p^(k-r)*p by pow_succ[p, k-r] kr
+  have mm: -m1 - p*m2 in M by hM m1M m2M
+  have co: (1 - s - p*u)*a + (-m1 - p*m2) = 0 by ha xe ye
+  obtain q2:int st hq2: 1 - s - p*u = p^k*q2 by hind[1 - s - p*u, -m1 - p*m2] mm co
+  have k0: 0 <= k - 1 by hr hrk
+  have b2: p^k = p^(k-1)*p by pow_succ[p, k-1] k0
+  have z: 1 = p*(p^(k-r)*q + u + p^(k-1)*q2) by hq2 s1 b1 b2
+  show false by unit_p[p, p^(k-r)*q + u + p^(k-1)*q2] hp z
+qed
+
+# the order of a generator of a Z/p^e summand is exactly p^e
+theorem cyclic_order: forall a:el, S:set, p e k:int: zpksummand(a,S,p,e) and 2 <= p and 0 <= k and k < e -> p^k*a != 0
+proof
+  fix a S p e k
+  intro hz hp hk hke
+  intro h0
+  obtain M:set st aS sS hM pka hMS hdec hind: a in S and subgroup(S) and subgroup(M) and p^e*a = 0 and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> exists q:int: n = p^e*q) by zpksummand_def hz
+  have z0: 0 in M by sub_zero hM
+  have c0: p^k*a + 0 = 0 by h0
+  obtain q:int st hq: p^k = p^e*q by hind[p^k, 0] z0 c0
+  have pk: p^e = p^k*p^(e-k) by pow_add[p, k] hk hke
+  have ek: 0 <= e - k - 1 by hke
+  have b: p^(e-k) = p^(e-k-1)*p by pow_succ[p, e-k-1] ek
+  have pq: p^k*(1 - p*(p^(e-k-1)*q)) = 0 by hq pk b
+  have p1: 1 <= p by hp
+  have P1: 1 <= p^k by pow_pos p1 hk
+  cases hc: p^k = 0 or 1 - p*(p^(e-k-1)*q) = 0 by int_domain[p^k, 1 - p*(p^(e-k-1)*q)] pq
+  case h1
+  proof
+    show by h1 P1
+  qed
+  case h2
+  proof
+    have z: 1 = p*(p^(e-k-1)*q) by h2
+    show false by unit_p[p, p^(e-k-1)*q] hp z
+  qed
+qed
+
+# The Bockstein of a Z/p^k summand dies exactly at d_k: a-bar is nonzero
+# on the pages E_1 .. E_k and zero on E_(k+1) (a-bar is in im d_k)
+theorem bockstein_torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))) and Br(bock(C,p),k+1,j(bock(C,p),a))
+proof
+  fix C p n k a
+  intro hC hp hk ha hz
+  have ec: excouple(bock(C,p)) by bock_couple hC hp
+  have p2: 2 <= p by prime_ge2 hp
+  have hzT: zpksummand(a,Htot(C),p,k) by zpksummand_trans[a, H(C,n), Htot(C), p, k] hz H_summand
+  have am: a in Htot(C) and subgroup(Htot(C)) and p^k*a = 0 by zpk_mem hzT
+  have aD: a in D(bock(C,p)) by bock_D am
+  have sD: subgroup(D(bock(C,p))) by ec_subD ec
+  have part1: forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))
+  proof
+    fix r
+    intro hr hrk
+    intro hb
+    have r0: 0 <= r - 1 by hr
+    obtain x:el st xD xi xj: x in D(bock(C,p)) and ipow(bock(C,p),r-1,x) = 0 and j(bock(C,p),a) = j(bock(C,p),x) by cf_B[bock(C,p), r, j(bock(C,p),a)] ec hr hb
+    have dD: a - x in D(bock(C,p)) by sD aD xD
+    have jd: j(bock(C,p),a - x) = 0 by xj
+    obtain y:el st yD yi: y in D(bock(C,p)) and a - x = i(bock(C,p),y) by ec_kerj ec dD jd
+    have e1: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock r0
+    have e2: i(bock(C,p),y) = p*y by bock_i
+    have wx: p^(r-1)*x = 0 by xi e1
+    have ax: a = x + p*y by yi e2
+    have xH: x in Htot(C) by bock_D xD
+    have yH: y in Htot(C) by bock_D yD
+    show false by zpk_unit[a, Htot(C), p, k, r, x, y] hzT p2 hr hrk xH yH wx ax
+  qed
+  have k0: 0 <= k by hk
+  have k1: 1 <= k + 1 by hk
+  have ek: ipow(bock(C,p),k,a) = p^k*a by ipow_bock k0
+  have part2: Br(bock(C,p),k+1,j(bock(C,p),a)) by cf_B[bock(C,p), k+1, j(bock(C,p),a)] ec k1 aD ek am with a
+  show by part1 part2
+qed
+
+# ---- subgroup lattices ----
+func inter(set, set): set
+def inter_def: forall A B:set, x:el: x in inter(A,B) <-> (x in A and x in B)
+
+# Dedekind's modular law: A <= C implies A + (B n C) = (A + B) n C
+theorem modular_law: forall A B C:set: subgroup(A) and subgroup(B) and subgroup(C) and (forall x:el: x in A -> x in C) -> (forall x:el: x in ssum(A,inter(B,C)) <-> (x in ssum(A,B) and x in C))
+proof
+  fix A B C
+  intro ha hb hc hac
+  fix x
+  have l: x in ssum(A,inter(B,C)) -> x in ssum(A,B) and x in C
+  proof
+    intro h
+    obtain a b:el st aA bBC e: a in A and b in inter(B,C) and x = a + b by ssum_def h
+    have bB: b in B by inter_def bBC
+    have bC: b in C by inter_def bBC
+    have aC: a in C by hac aA
+    have s1: x in ssum(A,B) by ssum_def aA bB e with a, b
+    have ab: a + b in C by hc aC bC
+    have s2: x in C by e ab
+    show by s1 s2
+  qed
+  have rr: x in ssum(A,B) and x in C -> x in ssum(A,inter(B,C))
+  proof
+    intro h xC
+    obtain a b:el st aA bB e: a in A and b in B and x = a + b by ssum_def h
+    have aC: a in C by hac aA
+    have xa: x - a in C by hc xC aC
+    have bC: b in C by xa e
+    have bBC: b in inter(B,C) by inter_def bB bC
+    show by ssum_def aA bBC e with a, b
+  qed
+  show by l rr
+qed
+
+# ---- diagram chases with arbitrary homomorphisms ----
+sort hom
+func ap(hom, el): el hom
+
+# the short five lemma, injective half: rows A -f-> B -g-> C exact at B
+# and A2 -f2-> B2 with f2 injective, squares commuting, alpha and gamma
+# injective: then beta is injective
+theorem short_five_mono: forall f g f2 g2 al be ga:hom, A B C A2:set: (forall x:el: x in A -> ap(f,x) in B) and (forall y:el: y in B -> ap(g,y) in C) and (forall x:el: x in A -> ap(al,x) in A2) and (forall y:el: y in B and ap(g,y) = 0 -> exists x:el: x in A and y = ap(f,x)) and (forall x:el: x in A2 and ap(f2,x) = 0 -> x = 0) and (forall x:el: x in A -> ap(be,ap(f,x)) = ap(f2,ap(al,x))) and (forall y:el: y in B -> ap(ga,ap(g,y)) = ap(g2,ap(be,y))) and (forall x:el: x in A and ap(al,x) = 0 -> x = 0) and (forall z:el: z in C and ap(ga,z) = 0 -> z = 0) -> (forall y:el: y in B and ap(be,y) = 0 -> y = 0)
+proof
+  fix f g f2 g2 al be ga A B C A2
+  intro hf hg hal ex mf2 sq1 sq2 ial iga
+  fix y
+  intro yB by0
+  have gC: ap(g,y) in C by hg yB
+  have s: ap(ga,ap(g,y)) = 0 by sq2[y] yB by0
+  have gy: ap(g,y) = 0 by iga gC s
+  obtain x:el st xA yx: x in A and y = ap(f,x) by ex yB gy
+  have aA2: ap(al,x) in A2 by hal xA
+  have t: ap(f2,ap(al,x)) = 0 by sq1[x] xA yx by0
+  have ax: ap(al,x) = 0 by mf2 aA2 t
+  have x0: x = 0 by ial xA ax
+  show by yx x0
+qed
+
+# the snake lemma's first exactness: in a commutative diagram with exact
+# top row A -f-> B -g-> C and an injective f2: A2 -> B2, the induced
+# ker alpha -> ker beta -> ker gamma is exact at ker beta
+theorem snake_ker_exact: forall f g f2 g2 al be ga:hom, A B A2:set: (forall y:el: y in B and ap(g,y) = 0 -> exists x:el: x in A and y = ap(f,x)) and (forall x:el: x in A -> ap(al,x) in A2) and (forall x:el: x in A2 and ap(f2,x) = 0 -> x = 0) and (forall x:el: x in A -> ap(be,ap(f,x)) = ap(f2,ap(al,x))) -> (forall y:el: y in B and ap(be,y) = 0 and ap(g,y) = 0 -> exists x:el: x in A and ap(al,x) = 0 and y = ap(f,x))
+proof
+  fix f g f2 g2 al be ga A B A2
+  intro ex hal mf2 sq
+  fix y
+  intro yB by0 gy
+  obtain x:el st xA yx: x in A and y = ap(f,x) by ex yB gy
+  have aA2: ap(al,x) in A2 by hal xA
+  have t: ap(f2,ap(al,x)) = 0 by sq[x] xA yx by0
+  have ax: ap(al,x) = 0 by mf2 aA2 t
+  show by xA ax yx with x
+qed

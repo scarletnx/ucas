@@ -553,6 +553,14 @@ pm_refute(kt phi, struct sbuf *out)
 	budget = 200000;
 	sb_clear(out);
 	r = search(phi, out, 0);
+	/* the computations' zints die with the command: drop the cache */
+	{
+		int i;
+		for (i = 0; i < nbc; i++)
+			if (bc[i].ok)
+				hss_free(&bc[i].S);
+		nbc = 0;
+	}
 	if (r && out->n >= 2)
 		out->p[out->n -= 2] = 0;
 	return r;
