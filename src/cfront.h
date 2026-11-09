@@ -131,6 +131,8 @@ struct cf_mem {
 	int esize;		/* bytes */
 	int slot;		/* loads: the leaf slot holding the value */
 	nid value;		/* stores: the value stored */
+	int epoch;		/* stores before this access in the body:
+				 * the order of loads and stores */
 };
 struct cf_loop {
 	const char *func;	/* the enclosing function */
@@ -147,12 +149,18 @@ struct cf_loop {
 	uint8_t readonly[CF_MAXMEM];
 	int nload, nstore;
 	struct cf_mem load[CF_MAXMEM], store[CF_MAXMEM];
-	int nred;		/* reductions: acc = next(acc, ...) */
+	int nred;		/* reductions: acc = next(acc, ...); rslot is
+				 * acc's leaf (-1 when the loop never reads
+				 * it), rinit 0: its value before the loop */
 	int rslot[MAXST];
 	const char *rname[MAXST];
 	nid rinit[MAXST], rnext[MAXST];
 	int nleaf;		/* slots below nleaf are leaves (C text) */
 	const char *leaf[NSLOT];
+	/* added: */
+	int idecl;		/* the for statement declares the index */
+	const char *init_text;	/* the for statement's first clause */
+	ty_t leafty[NSLOT];	/* the leaves' types */
 };
 
 /*
@@ -171,6 +179,12 @@ struct cf_loopout {
 typedef int (*cf_vec_fn)(const struct cf_loop *l, const struct cf_target *t,
     struct cf_loopout *out);
 void cf_set_vectoriser(cf_vec_fn f);
+/* the IR as text (c lower prints it) */
+void cf_loop_print(const struct cf_loop *l, struct sbuf *b);
+/* a stub vectoriser for tests (option vecstub): rebuilds the loop from
+ * its IR, scalar, so a differential check validates the extraction */
+int cf_vec_stub(const struct cf_loop *l, const struct cf_target *t,
+    struct cf_loopout *out);
 
 /*
  * The x86 side's entry point (src/cfx86.c, when it exists: the Makefile
@@ -210,6 +224,7 @@ struct cf_rewrite {
 	char *steps;		/* every step's description */
 	int trivial;		/* clang -O2 already produces the same code */
 	char *domain;		/* input ranges assumed or from call sites */
+	char *cost_note;	/* what the costs measure, when not per call */
 };
 
 /* ================================================================
@@ -392,12 +407,59 @@ int cf_lower_expr(struct cf_unit *u, uint32_t fn, uint32_t ex,
 /* a struct func for the proof engines over v's leaves */
 void cf_value_func(const struct cf_value *v, struct func *f);
 
+/*
+ * One iteration of a loop, lowered on its own (the vectoriser's IR, body
+ * rewrites, closed forms): a variable read before it is written is a
+ * leaf (its value at the start of the iteration), so is each load (keyed
+ * by its text and the number of stores before it: two reads of the same
+ * address with no store between are one value).  Stores are recorded in
+ * order; a load or store under a condition, a pointer that moves, a
+ * break, a return, a nested loop or a call that touches memory is not
+ * lowered.  The condition is lowered before the body (it must have no
+ * side effects); the body as if the condition held.
+ */
+struct cf_memref {
+	uint32_t node;		/* the AST node (CA_INDEX, CA_DEREF) */
+	uint32_t base;		/* the base symbol */
+	nid index;		/* the element index, over the leaves */
+	uint32_t cty;		/* the element's C type */
+	int epoch;		/* stores before it in the iteration */
+	int slot;		/* loads: the leaf */
+	nid value;		/* stores: the value stored */
+};
+#define CF_MAXSET 16
+#define CF_MAXX 4
+struct cf_iter {
+	struct cf_value v;	/* v.e unused; v.where: the iteration's UB */
+	uint32_t leafsym[CF_MAXLEAF];	/* symbol + 1, or 0 (a load) */
+	int leafload[CF_MAXLEAF];	/* the load of a leaf, or -1 */
+	nid cond;		/* the condition at the start, 0 none */
+	int nset;		/* variables declared outside the body that
+				 * the body (and step) write: their values
+				 * at the end of the iteration */
+	uint32_t setsym[CF_MAXSET];
+	nid setval[CF_MAXSET];
+	int nload, nstore;
+	struct cf_memref load[CF_MAXMEM], store[CF_MAXMEM];
+	int nx;			/* extra expressions lowered in the same
+				 * leaves (before the body): x[k] -> xval[k] */
+	uint32_t x[CF_MAXX];
+	nid xval[CF_MAXX];
+};
+int cf_lower_iter(struct cf_unit *u, uint32_t fn, uint32_t loop,
+    int with_step, struct cf_iter *it);
+/* the loop in the vectoriser's form (cf_loop), from a for statement;
+ * 0 and why when it does not fit */
+int cf_extract_loop(struct cf_unit *u, uint32_t fn, uint32_t loop,
+    struct cf_loop *l, struct cf_iter *it, const char **why);
+
 /* cf_emit.c: nodes to C */
 struct cf_emit {
 	struct sbuf helpers;	/* static inline helpers, tables */
 	uint64_t used;		/* helpers already emitted */
 	int ntab;
 	const struct cf_target *t;
+	int need_string;	/* the output calls strlen: <string.h> */
 };
 /* the C text of e, with leaves printed from v; 0 if it cannot be
  * printed without introducing UB */
@@ -418,6 +480,12 @@ struct cf_opts {
 		char name[48];
 		int64_t lo, hi;
 	} assume[16];
+	/* added after the first version (cfront.md: changes are additive) */
+	int trace;		/* print every candidate and why it was not
+				 * taken (to stdout, "trace:" lines) */
+	int keep;		/* check/bench: keep the build directory */
+	int timed;		/* print the seconds spent */
+	int vecstub;		/* register the stub vectoriser (tests) */
 };
 struct cf_result {
 	struct sbuf out;		/* the emitted C */

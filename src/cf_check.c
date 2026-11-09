@@ -642,8 +642,8 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 		}
 	}
 done:
-	if (getenv("CF_KEEP"))
-		fprintf(stderr, "cfront: kept %s\n", dir);
+	if (o->keep)
+		sb_printf(rep, "  check: kept the build directory %s\n", dir);
 	else {
 		char *rm[] = {"rm", "-rf", dir, NULL};
 		run(rm, &out);

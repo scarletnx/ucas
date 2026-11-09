@@ -1026,18 +1026,6 @@ gen_local(const struct cf_value *v, nid e, struct cf_cands *cs)
 		int64_t alo, ahi, blo, bhi;
 		if (!TY_SIZED(t) || t == TY_BOOL)
 			goto drops;
-		if (getenv("CF_DEBUG") && (op == O_DIV || op == O_MOD)) {
-			uint32_t la = plan_loc(&I.p, a), lb = plan_loc(&I.p, b);
-			fprintf(stderr, "cfront: div %s: a [%lld, %lld] top %d wrap %d, "
-			    "b [%lld, %lld] top %d wrap %d\n", shared_str(n, 100),
-			    la == NOTOK ? 0LL : (long long)I.iv[la].lo,
-			    la == NOTOK ? 0LL : (long long)I.iv[la].hi,
-			    la == NOTOK ? -1 : I.iv[la].top, la == NOTOK ? -1 :
-			    I.iv[la].wrap, lb == NOTOK ? 0LL : (long long)I.iv[lb].lo,
-			    lb == NOTOK ? 0LL : (long long)I.iv[lb].hi,
-			    lb == NOTOK ? -1 : I.iv[lb].top, lb == NOTOK ? -1 :
-			    I.iv[lb].wrap);
-		}
 		if ((op == O_DIV || op == O_MOD) && ival_of(&I, a, &alo, &ahi) &&
 		    alo >= 0) {
 			int have_b = ival_of(&I, b, &blo, &bhi);
@@ -1176,13 +1164,9 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 		gen_local(v, cur, &cs);
 		for (k = 0; k < cs.n; k++)
 			cs.c[k].cost = cf_cost(t, cs.c[k].sem);
-		if (getenv("CF_DEBUG"))
-			fprintf(stderr, "cfront: round %d: %d candidates, cost %.1f\n",
-			    round, cs.n, ccur);
-		if (getenv("CF_DEBUG") && atoi(getenv("CF_DEBUG")) > 1)
-			for (k = 0; k < cs.n; k++)
-				fprintf(stderr, "cfront:   %.1f %s\n", cs.c[k].cost,
-				    cs.c[k].what);
+		if (R.o->trace)
+			printf("  trace: %s round %d: %d candidates, cost %.1f\n",
+			    R.fname, round, cs.n, ccur);
 		qsort(cs.c, (size_t)cs.n, sizeof *cs.c, cmp_cand);
 		for (k = 0; k < cs.n && !out_of_time(); k++) {
 			struct proof pf;
@@ -1198,9 +1182,9 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 				pr = 1;
 			}
 			if (pr != 1) {
-				if (getenv("CF_DEBUG"))
-					fprintf(stderr, "cfront: %s: %s [%s]\n",
-					    cs.c[k].what, pf.text, shared_str(cs.c[k].sem, 200));
+				if (R.o->trace)
+					printf("  trace:   %s (cost %.1f): %s\n",
+					    cs.c[k].what, cs.c[k].cost, pf.text);
 				continue;
 			}
 			snprintf(steps[*nsteps].what, sizeof steps[*nsteps].what, "%s",
@@ -1519,6 +1503,39 @@ fn_line(uint32_t n)
 	return R.u->tk.line[R.u->A.t0[n]];
 }
 
+/* a loop anywhere in the statement */
+static int
+has_loop(uint32_t n)
+{
+	struct cf_unit *u = R.u;
+	uint32_t k;
+
+	if (n == 0 || n >= u->A.n)
+		return 0;
+	switch (u->A.kind[n]) {
+	case CA_WHILE:
+	case CA_DO:
+	case CA_FOR:
+		return 1;
+	case CA_BLOCK:
+		for (k = 0; k < u->A.b[n]; k++)
+			if (has_loop(u->A.lst[u->A.a[n] + k]))
+				return 1;
+		return 0;
+	case CA_IF:
+		return has_loop(u->A.b[n]) || has_loop(u->A.c[n]);
+	case CA_SWITCH:
+		return has_loop(u->A.b[n]);
+	case CA_CASE:
+	case CA_DEFAULT:
+	case CA_LABEL:
+		return has_loop(u->A.a[n]);
+	}
+	return 0;
+}
+
+#define CF_MAXUNROLLED 96
+
 /* the whole function: one value */
 static int
 whole_function(uint32_t fn, struct cf_emit *em)
@@ -1557,6 +1574,23 @@ whole_function(uint32_t fn, struct cf_emit *em)
 		w->info = 1;
 		free(before.p);
 		return 1;
+	}
+	if (has_loop(body)) {
+		/* a loop that unrolled into a long straight-line form is not
+		 * worth replacing: the proved form is the loop itself, unrolled */
+		nid *rn;
+		uint32_t nr = reach(best, &rn);
+		free(rn);
+		if (nr > CF_MAXUNROLLED) {
+			struct cf_rewrite *w = add_rw("kept the loop", fn_line(fn));
+			w->before = strdup("");
+			w->after = strdup("");
+			snprintf(w->proof_text, sizeof w->proof_text, "the cheapest "
+			    "proved form is the loop unrolled (%u operations)", nr);
+			w->info = 1;
+			free(before.p);
+			return 1;
+		}
 	}
 	if (!cf_emit_body(em, &v, best, CT.base[u->S.ty[s]], &out)) {
 		struct cf_rewrite *w = add_rw("not emitted", fn_line(fn));
@@ -1662,6 +1696,572 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 	}
 }
 
+/* ---- loops: the vectoriser's IR, strlen scans, element-wise bodies ---- */
+
+/* the C type of a ucas integer type */
+static uint32_t
+ct_of_ty(ty_t t)
+{
+	int w = TYW(t);
+
+	if (t == TY_BOOL)
+		return ct_basic(CT_BOOL);
+	if (TYK(t) == K_UINT)
+		return ct_basic(w <= 8 ? CT_UCHAR : w <= 16 ? CT_USHORT : w <= 32 ?
+		    CT_UINT : CT_ULONG);
+	return ct_basic(w <= 8 ? CT_SCHAR : w <= 16 ? CT_SHORT : w <= 32 ?
+	    CT_INT : CT_LONG);
+}
+
+/* e as C, its leaves printed as text[] */
+static int
+emit_over(struct cf_emit *em, int nleaf, const char *const *text,
+    const ty_t *ty, nid e, uint32_t cty, struct sbuf *out)
+{
+	struct cf_value v;
+	int k;
+
+	memset(&v, 0, sizeof v);
+	v.nleaf = nleaf;
+	for (k = 0; k < nleaf && k < CF_MAXLEAF; k++) {
+		snprintf(v.leaf[k].text, sizeof v.leaf[k].text, "%s", text[k]);
+		v.leaf[k].cty = ct_of_ty(ty[k]);
+	}
+	v.e = e;
+	return cf_emit_expr(em, &v, e, cty, out);
+}
+
+void
+cf_loop_print(const struct cf_loop *l, struct sbuf *b)
+{
+	int k;
+
+	sb_printf(b, "for %s = %s while %s < %s step %lld (index %s, slot %d)\n",
+	    l->iname, l->lo_text, l->iname, l->hi_text, (long long)l->step,
+	    ty_str(l->ity), l->islot);
+	for (k = 0; k < l->nbase; k++)
+		sb_printf(b, "  array %s: %s, %s\n", l->base[k], l->readonly[k] ?
+		    "read only" : "written", l->noalias[k] ? "no alias "
+		    "(restrict or a distinct array)" : "may alias");
+	for (k = 0; k < l->nload; k++)
+		sb_printf(b, "  load  %s[%s] -> leaf %d (%s, %d bytes, after %d "
+		    "stores)\n", l->base[l->load[k].base], shared_str(l->load[k].index,
+		    200), l->load[k].slot, ty_str(l->load[k].ety), l->load[k].esize,
+		    l->load[k].epoch);
+	for (k = 0; k < l->nstore; k++)
+		sb_printf(b, "  store %s[%s] = %s (%s, after %d stores)\n",
+		    l->base[l->store[k].base], shared_str(l->store[k].index, 200),
+		    shared_str(l->store[k].value, 400), ty_str(l->store[k].ety),
+		    l->store[k].epoch);
+	for (k = 0; k < l->nred; k++)
+		sb_printf(b, "  reduction %s = %s (leaf %d)\n", l->rname[k],
+		    shared_str(l->rnext[k], 400), l->rslot[k]);
+	sb_puts(b, "  leaves:");
+	for (k = 0; k < l->nleaf; k++)
+		sb_printf(b, " %d %s: %s%s", k, l->leaf[k], ty_str(l->leafty[k]),
+		    k + 1 < l->nleaf ? "," : "");
+	sb_puts(b, "\n");
+}
+
+/*
+ * The stub vectoriser: the loop rebuilt from its IR as scalar C (each
+ * load into a temporary, in the order of the stores; reductions through
+ * temporaries).  It vectorises nothing; it shows that the IR is the
+ * loop, and `check` compares it with the original.
+ */
+int
+cf_vec_stub(const struct cf_loop *l, const struct cf_target *t,
+    struct cf_loopout *out)
+{
+	struct cf_emit em;
+	const char *text[NSLOT];
+	char ld[CF_MAXMEM][16];
+	int k, e, j, maxep = 0, ok = 1;
+	double c = 0;
+
+	(void)t;
+	memset(&em, 0, sizeof em);
+	em.t = t;
+	for (k = 0; k < l->nleaf; k++)
+		text[k] = l->leaf[k];
+	for (k = 0; k < l->nload; k++) {
+		snprintf(ld[k], sizeof ld[k], "cf_ld%d", k);
+		text[l->load[k].slot] = ld[k];
+	}
+	for (k = 0; k < l->nstore; k++)
+		if (l->store[k].epoch > maxep)
+			maxep = l->store[k].epoch;
+	sb_printf(&out->text, "for (%s", l->init_text);
+	if (out->text.n && out->text.p[out->text.n - 1] != ';')
+		sb_puts(&out->text, ";");
+	sb_printf(&out->text, " %s < (%s); %s += %lld) {\n", l->iname,
+	    l->hi_text, l->iname, (long long)l->step);
+	for (e = 0; e <= maxep + 1 && ok; e++) {
+		for (k = 0; k < l->nload && ok; k++) {
+			struct sbuf ix = {0};
+			if (l->load[k].epoch != e)
+				continue;
+			ok = emit_over(&em, l->nleaf, text, l->leafty,
+			    l->load[k].index, ct_basic(TYK(N.ty[l->load[k].index]) ==
+			    K_UINT ? CT_ULONG : CT_LONG), &ix);
+			sb_printf(&out->text, "\t\tconst %s %s = (%s)[%s];\n",
+			    ty_str(l->load[k].ety)[0] == 'u' ? (l->load[k].esize == 1 ?
+			    "uint8_t" : l->load[k].esize == 2 ? "uint16_t" :
+			    l->load[k].esize == 4 ? "uint32_t" : "uint64_t") :
+			    (l->load[k].esize == 1 ? "int8_t" : l->load[k].esize == 2 ?
+			    "int16_t" : l->load[k].esize == 4 ? "int32_t" : "int64_t"),
+			    ld[k], l->base[l->load[k].base], ix.p ? ix.p : "0");
+			free(ix.p);
+		}
+		for (k = 0; k < l->nstore && ok; k++) {
+			struct sbuf ix = {0}, v = {0};
+			if (l->store[k].epoch != e)
+				continue;
+			ok = emit_over(&em, l->nleaf, text, l->leafty,
+			    l->store[k].index, ct_basic(TYK(N.ty[l->store[k].index]) ==
+			    K_UINT ? CT_ULONG : CT_LONG), &ix) &&
+			    emit_over(&em, l->nleaf, text, l->leafty, l->store[k].value,
+			    ct_of_ty(l->store[k].ety), &v);
+			sb_printf(&out->text, "\t\t(%s)[%s] = %s;\n",
+			    l->base[l->store[k].base], ix.p ? ix.p : "0", v.p ? v.p : "0");
+			c += cf_cost(t, l->store[k].value);
+			free(ix.p);
+			free(v.p);
+		}
+	}
+	for (j = 0; j < l->nred && ok; j++) {
+		struct sbuf v = {0};
+		ty_t rt = N.ty[l->rnext[j]];
+		ok = emit_over(&em, l->nleaf, text, l->leafty, l->rnext[j],
+		    ct_of_ty(rt), &v);
+		sb_printf(&out->text, "\t\tconst %s cf_rn%d = %s;\n",
+		    TYK(rt) == K_UINT ? (TYW(rt) <= 8 ? "uint8_t" : TYW(rt) <= 16 ?
+		    "uint16_t" : TYW(rt) <= 32 ? "uint32_t" : "uint64_t") :
+		    (TYW(rt) <= 8 ? "int8_t" : TYW(rt) <= 16 ? "int16_t" :
+		    TYW(rt) <= 32 ? "int32_t" : "int64_t"), j, v.p ? v.p : "0");
+		c += cf_cost(t, l->rnext[j]);
+		free(v.p);
+	}
+	for (j = 0; j < l->nred && ok; j++)
+		sb_printf(&out->text, "\t\t%s = cf_rn%d;\n", l->rname[j], j);
+	sb_puts(&out->text, "\t}");
+	if (!ok || em.helpers.n) {
+		/* a helper (popcount, a table) would need the file's prologue */
+		free(em.helpers.p);
+		return 0;
+	}
+	snprintf(out->what, sizeof out->what, "stub vectoriser: the loop "
+	    "rebuilt from its IR (%d loads, %d stores, %d reductions)",
+	    l->nload, l->nstore, l->nred);
+	out->proof = CF_PROOF_STRUCT;
+	out->cost_before = c;
+	out->cost_after = c;
+	return 1;
+}
+
+static void
+free_loop(struct cf_loop *l)
+{
+	free((char *)l->lo_text);
+	free((char *)l->hi_text);
+	free((char *)l->init_text);
+	l->lo_text = l->hi_text = l->init_text = NULL;
+}
+
+/* the vectoriser (cfront-x86, or the stub) on a for loop */
+static int
+try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
+{
+	struct cf_unit *u = R.u;
+	struct cf_loop l;
+	struct cf_iter it;
+	struct cf_loopout o;
+	const char *why;
+	cf_vec_fn f = R.o->vecstub ? cf_vec_stub : vec_hook;
+	uint32_t from, to;
+	int r;
+
+	if (f == NULL || !cf_span(u, n, &from, &to))
+		return 0;
+	if (!cf_extract_loop(u, fn, n, &l, &it, &why)) {
+		if (R.o->vecstub) {
+			struct cf_rewrite *w = add_rw("not vectorised",
+			    (int)fn_line(n));
+			w->before = strdup("");
+			w->after = strdup("");
+			snprintf(w->proof_text, sizeof w->proof_text, "%s",
+			    why ? why : "?");
+			w->info = 1;
+		}
+		free_loop(&l);
+		return 0;
+	}
+	memset(&o, 0, sizeof o);
+	r = f(&l, R.o->t, &o);
+	if (r) {
+		struct cf_rewrite *w = add_rw("vectorised", (int)fn_line(n));
+		struct sbuf before = {0};
+		sb_printf(&before, "%.*s", (int)(to - from), u->ftext[0] + from);
+		w->before = before.p ? before.p : strdup("");
+		w->after = strdup(o.text.p ? o.text.p : "");
+		w->steps = strdup(o.what);
+		w->proof = o.proof;
+		snprintf(w->proof_text, sizeof w->proof_text, "%s",
+		    o.proof == CF_PROOF_STRUCT ? "the loop as its IR states it, "
+		    "statement for statement" : o.proof == CF_PROOF_LANES ?
+		    "lane semantics of each intrinsic, per lane" :
+		    "the vectoriser's claim");
+		w->cost_before = o.cost_before;
+		w->cost_after = o.cost_after;
+		w->applied = 1;
+		add_repl(from, to, o.text.p ? o.text.p : "", R.fnstart);
+		R.r->cost_before += o.cost_before;
+		R.r->cost_after += o.cost_after;
+	}
+	free(o.text.p);
+	free_loop(&l);
+	return r;
+}
+
+/* n++, ++n, n += 1 or n = n + 1 on a variable: its symbol */
+static int
+inc_of(uint32_t e, uint32_t *sym)
+{
+	struct cf_ast *A = &R.u->A;
+	uint32_t l, r;
+
+	while (e && A->kind[e] == CA_CAST && A->iv[e] == 1)
+		e = A->a[e];
+	if (e == 0)
+		return 0;
+	if (A->kind[e] == CA_POSTINC || A->kind[e] == CA_PREINC)
+		l = A->a[e];
+	else if (A->kind[e] == CA_ASSIGN && A->iv[e] == '+') {
+		r = A->b[e];
+		while (A->kind[r] == CA_CAST && A->iv[r] == 1)
+			r = A->a[r];
+		if (A->kind[r] != CA_NUM || A->iv[r] != 1)
+			return 0;
+		l = A->a[e];
+	} else if (A->kind[e] == CA_ASSIGN && A->iv[e] == '=') {
+		uint32_t a, b;
+		r = A->b[e];
+		while (A->kind[r] == CA_CAST && A->iv[r] == 1)
+			r = A->a[r];
+		if (A->kind[r] != CA_BIN || A->iv[r] != '+')
+			return 0;
+		a = A->a[r];
+		b = A->b[r];
+		while (A->kind[a] == CA_CAST && A->iv[a] == 1)
+			a = A->a[a];
+		while (A->kind[b] == CA_CAST && A->iv[b] == 1)
+			b = A->a[b];
+		l = A->a[e];
+		if (A->kind[b] != CA_NUM || A->iv[b] != 1 || A->kind[a] != CA_ID ||
+		    A->kind[l] != CA_ID || A->iv[a] != A->iv[l])
+			return 0;
+	} else
+		return 0;
+	while (A->kind[l] == CA_CAST && A->iv[l] == 1)
+		l = A->a[l];
+	if (A->kind[l] != CA_ID)
+		return 0;
+	*sym = (uint32_t)A->iv[l];
+	return 1;
+}
+
+static int
+char_type(uint32_t t)
+{
+	int k = CT.kind[ct_unqual(t)];
+
+	return (k == CT_CHAR || k == CT_SCHAR || k == CT_UCHAR) &&
+	    !(CT.qual[t] & CQ_VOLATILE);
+}
+
+/* a variable usable as a scan's counter or pointer */
+static int
+plain_var(uint32_t s)
+{
+	struct cf_unit *u = R.u;
+
+	return (u->S.kind[s] == CS_LOCAL || u->S.kind[s] == CS_PARAM) &&
+	    !u->S.addr_taken[s] && !(CT.qual[u->S.ty[s]] & CQ_VOLATILE) &&
+	    !cf_is_macro(u, u->S.name[s]);
+}
+
+/*
+ * strlen-style scans: while (s[n]) n++;  while (*p) p++;  (or != 0,
+ * != '\0', and the same as a for with an empty body) become
+ * n += strlen(s + n) and p += strlen(p).
+ */
+static int
+try_strlen(uint32_t fn, uint32_t n, struct cf_emit *em)
+{
+	struct cf_unit *u = R.u;
+	struct cf_ast *A = &u->A;
+	uint32_t cond, body, step = 0, init = 0, x, ctr = 0, ptr = 0, from, to,
+	    k, fs, ft;
+	struct sbuf out = {0}, before = {0};
+	struct cf_rewrite *w;
+	int index_form;
+
+	(void)fn;
+	if (A->kind[n] == CA_WHILE) {
+		cond = A->a[n];
+		body = A->b[n];
+	} else if (A->kind[n] == CA_FOR) {
+		init = A->a[n];
+		cond = A->b[n];
+		step = A->c[n];
+		body = A->d[n];
+	} else
+		return 0;
+	if (cond == 0)
+		return 0;
+	/* the counter's increment: the body, or the for's step */
+	if (step) {
+		if (!(A->kind[body] == CA_EMPTY || (A->kind[body] == CA_BLOCK &&
+		    A->b[body] == 0)) || !inc_of(step, &ctr))
+			return 0;
+		if (init && A->kind[init] != CA_EXPR)
+			return 0;
+	} else {
+		uint32_t b = body;
+		if (A->kind[b] == CA_BLOCK && A->b[b] == 1)
+			b = A->lst[A->a[b]];
+		if (A->kind[b] != CA_EXPR || !inc_of(A->a[b], &ctr))
+			return 0;
+	}
+	/* the condition: x, x != 0 or 0 != x, x a char load */
+	x = cond;
+	while (A->kind[x] == CA_CAST && A->iv[x] == 1)
+		x = A->a[x];
+	if (A->kind[x] == CA_BIN && A->iv[x] == CO_NE) {
+		uint32_t a = A->a[x], b = A->b[x];
+		while (A->kind[a] == CA_CAST && A->iv[a] == 1)
+			a = A->a[a];
+		while (A->kind[b] == CA_CAST && A->iv[b] == 1)
+			b = A->a[b];
+		if ((A->kind[b] == CA_NUM || A->kind[b] == CA_CHARLIT) &&
+		    A->iv[b] == 0)
+			x = a;
+		else if ((A->kind[a] == CA_NUM || A->kind[a] == CA_CHARLIT) &&
+		    A->iv[a] == 0)
+			x = b;
+		else
+			return 0;
+	}
+	if (!char_type(A->ty[x]))
+		return 0;
+	if (A->kind[x] == CA_INDEX) {
+		uint32_t b = A->a[x], i = A->b[x];
+		while (A->kind[b] == CA_CAST && A->iv[b] == 1)
+			b = A->a[b];
+		while (A->kind[i] == CA_CAST && A->iv[i] == 1)
+			i = A->a[i];
+		if (A->kind[b] != CA_ID || A->kind[i] != CA_ID ||
+		    (uint32_t)A->iv[i] != ctr)
+			return 0;
+		ptr = (uint32_t)A->iv[b];
+		index_form = 1;
+	} else if (A->kind[x] == CA_DEREF) {
+		uint32_t p = A->a[x];
+		while (A->kind[p] == CA_CAST && A->iv[p] == 1)
+			p = A->a[p];
+		if (A->kind[p] != CA_ID || (uint32_t)A->iv[p] != ctr)
+			return 0;
+		ptr = ctr;
+		index_form = 0;
+	} else
+		return 0;
+	if (!plain_var(ctr) || (index_form && ptr == ctr))
+		return 0;
+	if (index_form) {
+		uint32_t t = u->S.ty[ctr];
+		/* a 64-bit counter, or a signed one (overflow is UB): an
+		 * unsigned 32-bit counter would wrap and rescan */
+		if (!ct_is_int(t) || (CT.size[ct_unqual(t)] < 8 && !ct_is_signed(t)) ||
+		    (CT.kind[ct_unqual(u->S.ty[ptr])] != CT_PTR &&
+		    CT.kind[ct_unqual(u->S.ty[ptr])] != CT_ARRAY) ||
+		    cf_is_macro(u, u->S.name[ptr]))
+			return 0;
+	} else if (CT.kind[ct_unqual(u->S.ty[ctr])] != CT_PTR)
+		return 0;
+	/* strlen must be the library's */
+	for (k = 0; k < u->S.n; k++)
+		if (u->S.kind[k] == CS_FUNC && !strcmp(sym_str(u->S.name[k]),
+		    "strlen") && u->S.decl[k] && A->kind[u->S.decl[k]] == CA_FUNC)
+			return 0;
+	if (cf_is_macro(u, sym_cstr("strlen")) || !cf_span(u, n, &from, &to))
+		return 0;
+	if (init) {
+		if (!cf_span(u, A->a[init], &fs, &ft))
+			return 0;
+		sb_printf(&out, "{ %.*s; ", (int)(ft - fs), u->ftext[0] + fs);
+	}
+	if (index_form)
+		sb_printf(&out, "%s += strlen((const char *)%s + %s);",
+		    sym_str(u->S.name[ctr]), sym_str(u->S.name[ptr]),
+		    sym_str(u->S.name[ctr]));
+	else
+		sb_printf(&out, "%s += strlen((const char *)%s);",
+		    sym_str(u->S.name[ctr]), sym_str(u->S.name[ctr]));
+	if (init)
+		sb_puts(&out, " }");
+	sb_printf(&before, "%.*s", (int)(to - from), u->ftext[0] + from);
+	em->need_string = 1;
+	w = add_rw("strlen", (int)fn_line(n));
+	w->before = before.p;
+	w->after = strdup(out.p);
+	w->steps = strdup(index_form ? "a scan for the terminating zero: "
+	    "n += strlen(s + n)" : "a scan for the terminating zero: "
+	    "p += strlen(p)");
+	w->proof = CF_PROOF_STRUCT;
+	snprintf(w->proof_text, sizeof w->proof_text, "C99 7.21.6.3: strlen "
+	    "counts the characters before the first null; the loop steps over "
+	    "exactly those, reading the same bytes%s", index_form &&
+	    CT.size[ct_unqual(u->S.ty[ctr])] < 8 ? " (a signed counter past "
+	    "its maximum is UB)" : "");
+	w->cost_before = 2 * R.o->t->c_alu + R.o->t->c_load;
+	w->cost_after = 0;
+	w->applied = 1;
+	snprintf(w->kind, sizeof w->kind, "strlen");
+	w->cost_note = strdup("a byte loop -> the C library's strlen");
+	add_repl(from, to, out.p, R.fnstart);
+	free(out.p);
+	return 1;
+}
+
+/*
+ * A loop whose body only stores, each value a pure function of what the
+ * same iteration loaded (image loops): each stored value is optimised
+ * and proved as a value of those loads; loads and stores keep their
+ * addresses and their order (a load read before a store that it is now
+ * used after is kept in a temporary at its place), so the rewrite holds
+ * whatever the arrays alias.
+ */
+static int
+try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
+{
+	struct cf_unit *u = R.u;
+	struct cf_iter it;
+	uint32_t body = u->A.kind[n] == CA_FOR ? u->A.d[n] : u->A.b[n], from, to;
+	nid best[CF_MAXMEM];
+	struct step steps[CF_MAXMEM][16];
+	int ns[CF_MAXMEM], k, j, any = 0, worst = CF_PROOF_EXHAUSTIVE;
+	double cb = 0, ca = 0;
+	struct sbuf out = {0}, what = {0}, before = {0};
+	uint8_t temp[CF_MAXMEM];
+	char tname[CF_MAXMEM][16];
+	const char *text[CF_MAXLEAF];
+	ty_t lty[CF_MAXLEAF];
+	struct cf_rewrite *w;
+
+	if (!cf_span(u, body, &from, &to) || u->A.kind[body] != CA_BLOCK)
+		return 0;
+	if (!cf_lower_iter(u, fn, n, 0, &it)) {
+		free((char *)it.v.why);
+		return 0;
+	}
+	if (it.nset || it.nstore == 0)
+		return 0;
+	/* addresses read only variables the body does not write */
+	for (k = 0; k < it.nload + it.nstore; k++) {
+		nid ix = k < it.nload ? it.load[k].index :
+		    it.store[k - it.nload].index;
+		for (j = 0; j < it.v.nleaf; j++)
+			if (has_slot(ix, j) && it.leafload[j] >= 0)
+				return 0;
+	}
+	for (k = 0; k < it.nstore; k++) {
+		struct cf_value v = it.v;
+		v.e = it.store[k].value;
+		v.where = it.v.where;
+		apply_assumptions(&v);
+		best[k] = optimize_value(&v, steps[k], &ns[k], 16, 1);
+		cb += cf_cost(R.o->t, v.e);
+		if (best[k] != v.e && ns[k] > 0) {
+			any = 1;
+			ca += steps[k][ns[k] - 1].after;
+			if (steps[k][ns[k] - 1].pf.kind == CF_PROOF_SAT ||
+			    worst == CF_PROOF_SAT)
+				worst = steps[k][ns[k] - 1].pf.kind == CF_PROOF_ALGEBRA ?
+				    CF_PROOF_ALGEBRA : CF_PROOF_SAT;
+			else if (steps[k][ns[k] - 1].pf.kind != CF_PROOF_EXHAUSTIVE)
+				worst = steps[k][ns[k] - 1].pf.kind;
+			sb_printf(&what, "%sstore %d: ", what.n ? "; " : "", k);
+			for (j = 0; j < ns[k]; j++)
+				sb_printf(&what, "%s%s", j ? ", " : "", steps[k][j].what);
+		} else {
+			best[k] = v.e;
+			ca += cf_cost(R.o->t, v.e);
+		}
+	}
+	if (!any)
+		return 0;
+	/* temporaries: loads used by a store after an earlier store */
+	memset(temp, 0, sizeof temp);
+	for (j = 0; j < it.nload; j++)
+		snprintf(tname[j], sizeof tname[j], "cf_ld%d", j);
+	for (k = 0; k < it.nstore; k++)
+		for (j = 0; j < it.nload; j++)
+			if (has_slot(best[k], it.load[j].slot) &&
+			    it.load[j].epoch < it.store[k].epoch)
+				temp[j] = 1;
+	sb_puts(&out, "{\n");
+	for (k = 0; k < it.nstore; k++) {
+		struct sbuf v = {0};
+		uint32_t a, b;
+		for (j = 0; j < it.nload; j++) {
+			char lt[96];
+			struct sbuf d = {0};
+			if (!temp[j] || it.load[j].epoch != it.store[k].epoch)
+				continue;
+			snprintf(lt, sizeof lt, "%s", it.v.leaf[it.load[j].slot].text);
+			ct_str(&d, it.load[j].cty, tname[j]);
+			sb_printf(&out, "\t\tconst %s = %s;\n", d.p, lt);
+			free(d.p);
+		}
+		for (j = 0; j < it.v.nleaf; j++) {
+			int ld = it.leafload[j];
+			text[j] = ld >= 0 && temp[ld] ? tname[ld] : it.v.leaf[j].text;
+			lty[j] = ct_to_ucas(it.v.leaf[j].cty);
+		}
+		if (!emit_over(em, it.v.nleaf, text, lty, best[k], it.store[k].cty,
+		    &v) || !cf_span(u, it.store[k].node, &a, &b)) {
+			free(v.p);
+			free(out.p);
+			free(what.p);
+			return 0;
+		}
+		sb_printf(&out, "\t\t%.*s = %s;\n", (int)(b - a), u->ftext[0] + a,
+		    v.p);
+		free(v.p);
+	}
+	sb_puts(&out, "\t}");
+	sb_printf(&before, "%.*s", (int)(to - from), u->ftext[0] + from);
+	w = add_rw("loop body", (int)fn_line(n));
+	w->before = before.p;
+	w->after = strdup(out.p);
+	w->steps = what.p;
+	w->proof = worst;
+	for (k = 0; k < it.nstore && best[k] == it.store[k].value; k++)
+		;
+	snprintf(w->proof_text, sizeof w->proof_text, "each stored value as a "
+	    "function of the iteration's loads (%.80s); addresses and the "
+	    "order of loads and stores unchanged", steps[k][ns[k] - 1].pf.text);
+	w->cost_before = cb;
+	w->cost_after = ca;
+	w->applied = 1;
+	w->cost_note = strdup("per element");
+	add_repl(from, to, out.p, R.fnstart);
+	R.r->cost_before += cb;
+	R.r->cost_after += ca;
+	free(out.p);
+	return 1;
+}
+
 static void
 visit_stmt(uint32_t fn, uint32_t n, struct cf_emit *em)
 {
@@ -1689,18 +2289,24 @@ visit_stmt(uint32_t fn, uint32_t n, struct cf_emit *em)
 		visit_stmt(fn, u->A.c[n], em);
 		return;
 	case CA_WHILE:
+		if (try_strlen(fn, n, em))
+			return;
 		visit_expr(fn, u->A.a[n], em);
-		visit_stmt(fn, u->A.b[n], em);
+		if (!try_body(fn, n, em))
+			visit_stmt(fn, u->A.b[n], em);
 		return;
 	case CA_DO:
 		visit_stmt(fn, u->A.a[n], em);
 		visit_expr(fn, u->A.b[n], em);
 		return;
 	case CA_FOR:
+		if (try_strlen(fn, n, em) || try_vectorise(fn, n, em))
+			return;
 		visit_stmt(fn, u->A.a[n], em);
 		visit_expr(fn, u->A.b[n], em);
 		visit_expr(fn, u->A.c[n], em);
-		visit_stmt(fn, u->A.d[n], em);
+		if (!try_body(fn, n, em))
+			visit_stmt(fn, u->A.d[n], em);
 		return;
 	case CA_SWITCH:
 		visit_expr(fn, u->A.a[n], em);
@@ -1777,6 +2383,9 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 		if (!has_stdint)
 			sb_puts(&r->out, "#include <stdint.h>\n");
 	}
+	if (em.need_string && !strstr(u->includes.p ? u->includes.p : "",
+	    "<string.h>"))
+		sb_puts(&r->out, "#include <string.h>\n");
 	for (k = 0; k < nreps; k++) {
 		if (reps[k].from < pos)
 			continue;	/* overlapping: the outer one won */
@@ -1814,6 +2423,7 @@ cf_result_free(struct cf_result *r)
 		free(r->rw[k].after);
 		free(r->rw[k].steps);
 		free(r->rw[k].domain);
+		free(r->rw[k].cost_note);
 	}
 	free(r->rw);
 	free(r->out.p);

@@ -68,6 +68,62 @@ print_lines(const char *pfx, const char *s, int max)
 		printf("%s...\n", pfx);
 }
 
+/* each for loop's IR for the vectoriser, or why it has none */
+static void
+print_loops(struct cf_unit *u, uint32_t fn, uint32_t n)
+{
+	uint32_t k;
+
+	if (n == 0 || n >= u->A.n)
+		return;
+	switch (u->A.kind[n]) {
+	case CA_FOR: {
+		struct cf_loop l;
+		struct cf_iter it;
+		const char *why;
+		struct sbuf b = {0};
+		rep_obj(NULL);
+		rep_int("line", (int)u->tk.line[u->A.t0[n]]);
+		if (cf_extract_loop(u, fn, n, &l, &it, &why)) {
+			cf_loop_print(&l, &b);
+			printf("    loop (line %u): %.*s\n", u->tk.line[u->A.t0[n]],
+			    (int)(strchr(b.p, '\n') - b.p), b.p);
+			print_lines("    ", strchr(b.p, '\n') + 1, 40);
+			rep_str("ir", b.p);
+		} else {
+			printf("    loop (line %u): no IR: %s\n",
+			    u->tk.line[u->A.t0[n]], why ? why : "?");
+			rep_str("no_ir", why ? why : "?");
+		}
+		rep_end();
+		free(b.p);
+		free((char *)l.lo_text);
+		free((char *)l.hi_text);
+		free((char *)l.init_text);
+		print_loops(u, fn, u->A.d[n]);
+		return;
+	}
+	case CA_BLOCK:
+		for (k = 0; k < u->A.b[n]; k++)
+			print_loops(u, fn, u->A.lst[u->A.a[n] + k]);
+		return;
+	case CA_IF:
+		print_loops(u, fn, u->A.b[n]);
+		print_loops(u, fn, u->A.c[n]);
+		return;
+	case CA_WHILE:
+	case CA_SWITCH:
+		print_loops(u, fn, u->A.b[n]);
+		return;
+	case CA_DO:
+	case CA_CASE:
+	case CA_DEFAULT:
+	case CA_LABEL:
+		print_loops(u, fn, u->A.a[n]);
+		return;
+	}
+}
+
 static void
 cmd_lower(const char *src, const char *path, const struct cf_opts *o)
 {
@@ -103,6 +159,9 @@ cmd_lower(const char *src, const char *path, const struct cf_opts *o)
 			printf("  %s: not lowered: %s\n", nm, v.why);
 			rep_str("not_lowered", v.why);
 			free((char *)v.why);
+			rep_list("loops");
+			print_loops(&u, fn, u.A.a[fn]);
+			rep_end();
 		}
 		rep_end();
 	}
@@ -116,8 +175,10 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	struct cf_unit u;
 	struct cf_result r;
 	struct sbuf rep = {0};
-	int k, napplied = 0, nex = 0, nsat = 0, ntriv = 0;
+	int k, napplied = 0, nex = 0, nsat = 0, ntriv = 0, nkind[CF_PROOF_TESTED + 1];
 	int checked = 0;
+
+	memset(nkind, 0, sizeof nkind);
 
 	if (!load(&u, src, path, o->t))
 		return;
@@ -129,14 +190,27 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 			napplied++;
 			nex += r.rw[k].proof == CF_PROOF_EXHAUSTIVE;
 			nsat += r.rw[k].proof == CF_PROOF_SAT;
+			if (r.rw[k].proof >= 0 && r.rw[k].proof <= CF_PROOF_TESTED)
+				nkind[r.rw[k].proof]++;
 			ntriv += r.rw[k].trivial;
 		}
 	rep_begin("c_optimize");
 	rep_str("target", o->t->name);
 	printf("c optimize: %d function%s, %d rewrite%s proved (%d exhaustive, "
-	    "%d by SAT) for %s in %.1f s\n", u.nfn, u.nfn == 1 ? "" : "s",
-	    napplied, napplied == 1 ? "" : "s", nex, nsat, o->t->name,
-	    r.seconds);
+	    "%d by SAT", u.nfn, u.nfn == 1 ? "" : "s",
+	    napplied, napplied == 1 ? "" : "s", nex, nsat);
+	if (nkind[CF_PROOF_ALGEBRA])
+		printf(", %d by algebra", nkind[CF_PROOF_ALGEBRA]);
+	if (nkind[CF_PROOF_INDUCTION])
+		printf(", %d by induction", nkind[CF_PROOF_INDUCTION]);
+	if (nkind[CF_PROOF_STRUCT])
+		printf(", %d structural", nkind[CF_PROOF_STRUCT]);
+	if (nkind[CF_PROOF_LANES])
+		printf(", %d by lanes", nkind[CF_PROOF_LANES]);
+	printf(") for %s", o->t->name);
+	if (o->timed)
+		printf(" in %.1f s", r.seconds);
+	printf("\n");
 	if (napplied)
 		printf("  estimated cost of the rewritten values on %s: %.1f -> "
 		    "%.1f cycles\n", o->t->name, r.cost_before, r.cost_after);
@@ -146,6 +220,9 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	rep_int("rewrites", napplied);
 	rep_int("exhaustive", nex);
 	rep_int("sat", nsat);
+	rep_int("algebra", nkind[CF_PROOF_ALGEBRA]);
+	rep_int("induction", nkind[CF_PROOF_INDUCTION]);
+	rep_int("structural", nkind[CF_PROOF_STRUCT]);
 	rep_int("same_as_clang", ntriv);
 	rep_num("cost_before", r.cost_before);
 	rep_num("cost_after", r.cost_after);
@@ -174,9 +251,15 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 				printf("  %s (line %d)%s: %s\n", w->func, w->line,
 				    w->trivial ? " [same code as clang -O2]" : "",
 				    w->steps ? w->steps : w->kind);
-				printf("    proof: %s (%s); cost %.1f -> %.1f\n",
-				    cf_proof_name(w->proof), w->proof_text,
-				    w->cost_before, w->cost_after);
+				if (w->cost_note && w->cost_after == 0)
+					printf("    proof: %s (%s); cost: %s\n",
+					    cf_proof_name(w->proof), w->proof_text,
+					    w->cost_note);
+				else
+					printf("    proof: %s (%s); cost %.1f -> %.1f%s%s\n",
+					    cf_proof_name(w->proof), w->proof_text,
+					    w->cost_before, w->cost_after, w->cost_note ?
+					    " " : "", w->cost_note ? w->cost_note : "");
 				if (w->domain) {
 					printf("    over: %s\n", w->domain);
 					rep_str("domain", w->domain);
@@ -190,6 +273,8 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 				rep_str("what", w->steps ? w->steps : w->kind);
 				rep_str("proof", cf_proof_name(w->proof));
 				rep_str("proof_text", w->proof_text);
+				if (w->cost_note)
+					rep_str("cost_note", w->cost_note);
 				rep_num("cost_before", w->cost_before);
 				rep_num("cost_after", w->cost_after);
 				rep_str("before", w->before);
@@ -299,6 +384,14 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			o->bench = 1;
 		else if (!strcmp(w, "nofile"))
 			o->nofile = 1;
+		else if (!strcmp(w, "trace"))
+			o->trace = 1;
+		else if (!strcmp(w, "keep"))
+			o->keep = 1;
+		else if (!strcmp(w, "timed"))
+			o->timed = 1;
+		else if (!strcmp(w, "vecstub"))
+			o->vecstub = 1;
 		else if (!strcmp(w, "lower"))
 			*lower = 1;
 		else if (!strcmp(w, "this") || !strcmp(w, "code") ||

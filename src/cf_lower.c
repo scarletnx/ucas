@@ -66,6 +66,11 @@ static struct {
 	uint32_t leafkey[CF_MAXLEAF];	/* symbol + 1, or ~AST node */
 	nid leafnode[CF_MAXLEAF];
 	uint32_t fnsym;
+	/* mode 2: one loop iteration */
+	struct cf_iter *it;
+	uint8_t *bodylocal;
+	int epoch;
+	uint8_t uncond[CF_MAXMEM];
 } L;
 
 #define AU (L.u->A)
@@ -309,6 +314,142 @@ sym_assigned_in(uint32_t n)
 	return 0;
 }
 
+/* mode 2: the base symbol and the index of an access, or 0 */
+static int
+mem_addr(uint32_t n, uint32_t *base, uint32_t *ix)
+{
+	uint32_t b;
+
+	*ix = 0;
+	if (AU.kind[n] == CA_INDEX) {
+		b = AU.a[n];
+		*ix = AU.b[n];
+	} else if (AU.kind[n] == CA_DEREF) {
+		b = AU.a[n];
+		while (AU.kind[b] == CA_CAST && AU.iv[b] == 1)
+			b = AU.a[b];
+		if (AU.kind[b] == CA_BIN && AU.iv[b] == '+') {
+			uint32_t l = AU.a[b], r = AU.b[b];
+			while (AU.kind[l] == CA_CAST && AU.iv[l] == 1)
+				l = AU.a[l];
+			if (CT.kind[ct_unqual(AU.ty[l])] == CT_PTR ||
+			    CT.kind[ct_unqual(AU.ty[l])] == CT_ARRAY) {
+				b = l;
+				*ix = r;
+			} else {
+				b = r;
+				*ix = l;
+			}
+		}
+	} else
+		return 0;
+	while (AU.kind[b] == CA_CAST && AU.iv[b] == 1)
+		b = AU.a[b];
+	if (AU.kind[b] != CA_ID)
+		return 0;
+	*base = (uint32_t)AU.iv[b];
+	if (SU.kind[*base] != CS_PARAM && SU.kind[*base] != CS_LOCAL &&
+	    SU.kind[*base] != CS_GLOBAL)
+		return 0;
+	if (CT.kind[ct_unqual(SU.ty[*base])] != CT_PTR &&
+	    CT.kind[ct_unqual(SU.ty[*base])] != CT_ARRAY)
+		return 0;
+	return 1;
+}
+
+static nid
+iter_index(uint32_t ix, uint32_t at)
+{
+	nid i;
+
+	if (ix == 0)
+		return mk_const_i(TY(K_SINT, 64), 0);
+	if (!ct_is_int(AU.ty[ix]))
+		lfail(at, "an index that is not an integer%s", "");
+	i = ex(ix, L.alive);
+	return mk_cast(TYK(N.ty[i]) == K_UINT || N.ty[i] == TY_BOOL ?
+	    TY(K_UINT, 64) : TY(K_SINT, 64), i);
+}
+
+/* mode 2: a load is a leaf, keyed by its text and the stores before it */
+static nid
+iter_load(uint32_t n, nid g)
+{
+	struct cf_iter *it = L.it;
+	uint32_t base, ix;
+	char text[96];
+	int k;
+	nid idx;
+
+	if (L.depth)
+		lfail(n, "a call that reads memory%s", "");
+	if (!mem_addr(n, &base, &ix))
+		lfail(n, "a load through a computed pointer%s", "");
+	if (L.set[base])
+		lfail(n, "a load through a pointer the loop changes%s", "");
+	if (!node_text(n, text, sizeof text))
+		lfail(n, "a load from a macro%s", "");
+	idx = iter_index(ix, n);
+	for (k = 0; k < it->nload; k++)
+		if (it->load[k].epoch == L.epoch && it->load[k].base == base &&
+		    it->load[k].index == idx && it->load[k].cty == ct_unqual(AU.ty[n])) {
+			if (g == T1)
+				L.uncond[k] = 1;
+			return L.leafnode[it->load[k].slot];
+		}
+	if (it->nload == CF_MAXMEM)
+		lfail(n, "more than 16 loads%s", "");
+	k = it->nload++;
+	it->load[k].node = n;
+	it->load[k].base = base;
+	it->load[k].index = idx;
+	it->load[k].cty = ct_unqual(AU.ty[n]);
+	it->load[k].epoch = L.epoch;
+	it->load[k].value = 0;
+	L.uncond[k] = g == T1;
+	{
+		nid x = leaf(~n, AU.ty[n], text, n);
+		int j;
+		for (j = 0; j < L.v->nleaf; j++)
+			if (L.leafnode[j] == x)
+				it->load[k].slot = j;
+		it->leafload[it->load[k].slot] = k;
+		it->leafsym[it->load[k].slot] = 0;
+		return x;
+	}
+}
+
+/* mode 2: a store, recorded in order */
+static void
+iter_store(uint32_t lv, nid v)
+{
+	struct cf_iter *it = L.it;
+	uint32_t base, ix;
+	int k;
+
+	if (L.depth)
+		lfail(lv, "a call that writes memory%s", "");
+	if (L.alive != T1)
+		lfail(lv, "a store under a condition%s", "");
+	if (!mem_addr(lv, &base, &ix))
+		lfail(lv, "a store through a computed pointer%s", "");
+	if (L.set[base])
+		lfail(lv, "a store through a pointer the loop changes%s", "");
+	if (CT.qual[AU.ty[lv]] & CQ_VOLATILE)
+		lfail(lv, "a volatile store%s", "");
+	if (it->nstore == CF_MAXMEM)
+		lfail(lv, "more than 16 stores%s", "");
+	k = it->nstore++;
+	it->store[k].node = lv;
+	it->store[k].base = base;
+	it->store[k].index = iter_index(ix, lv);
+	it->store[k].cty = ct_unqual(AU.ty[lv]);
+	it->store[k].epoch = L.epoch;
+	it->store[k].slot = -1;
+	it->store[k].value = v;
+	L.epoch++;
+}
+
 /* a load: a table in the whole-function mode, a leaf in expression mode */
 static nid
 load(uint32_t n, nid g)
@@ -338,6 +479,8 @@ load(uint32_t n, nid g)
 	}
 	if (L.mode == 0)
 		lfail(n, "a memory access%s", "");
+	if (L.mode == 2)
+		return iter_load(n, g);
 	if (g != T1)
 		lfail(n, "a load under a condition%s", "");
 	if (sym_assigned_in(n))
@@ -369,12 +512,25 @@ read_var(uint32_t n)
 		(void)uty(ty, n);
 	if (L.mode == 0 && SU.kind[s] != CS_PARAM && SU.kind[s] != CS_GLOBAL)
 		return mk_undef(uty(ty, n));	/* uninitialised */
-	if (L.mode == 0 && SU.kind[s] == CS_GLOBAL)
+	if ((L.mode == 0 || L.mode == 2) && SU.kind[s] == CS_GLOBAL)
 		lfail(n, "a global variable%s", "");
+	if (L.mode == 2 && L.depth)
+		lfail(n, "a call that reads a variable of the caller%s", "");
 	snprintf(text, sizeof text, "%s", sym_str(SU.name[s]));
 	if (cf_is_macro(L.u, SU.name[s]))
 		lfail(n, "a variable whose name is a macro%s", "");
-	return leaf(s + 1, ty, text, n);
+	{
+		nid x = leaf(s + 1, ty, text, n);
+		if (L.mode == 2) {
+			int j;
+			for (j = 0; j < L.v->nleaf; j++)
+				if (L.leafnode[j] == x) {
+					L.it->leafsym[j] = s + 1;
+					L.it->leafload[j] = -1;
+				}
+		}
+		return x;
+	}
 }
 
 static void
@@ -382,6 +538,10 @@ write_var(uint32_t lv, nid v)
 {
 	uint32_t s;
 
+	if (AU.kind[lv] != CA_ID && L.mode == 2) {
+		iter_store(lv, v);
+		return;
+	}
 	if (AU.kind[lv] != CA_ID)
 		lfail(lv, "a store to memory%s", "");
 	s = (uint32_t)AU.iv[lv];
@@ -391,7 +551,7 @@ write_var(uint32_t lv, nid v)
 		lfail(lv, "an assignment inside the expression%s", "");
 	if (!L.set[s]) {
 		/* a parameter keeps its leaf as the old value */
-		nid old = SU.kind[s] == CS_PARAM ? read_var(lv) :
+		nid old = SU.kind[s] == CS_PARAM || L.mode == 2 ? read_var(lv) :
 		    mk_undef(uty(SU.ty[s], lv));
 		L.env[s] = old;
 		L.set[s] = 1;
@@ -694,6 +854,8 @@ decl(uint32_t n)
 		    "taken (%s)", sym_str(SU.name[s]));
 	if (L.mode == 1)
 		lfail(n, "a declaration%s", "");
+	if (L.mode == 2)
+		L.bodylocal[s] = 1;
 	/* a new object each time the declaration is reached */
 	if (!L.set[s]) {
 		L.env[s] = mk_undef(uty(ty, n));
@@ -735,6 +897,8 @@ loop(uint32_t cond, uint32_t body, uint32_t step, int dofirst, uint32_t at)
 
 	if (L.nlc == 32)
 		lfail(at, "loops nested too deeply%s", "");
+	if (L.mode == 2)
+		lfail(at, "a nested loop%s", "");
 	for (it = 0; it <= CF_UNROLL; it++) {
 		nid c;
 		if (L.alive == F0)
@@ -910,12 +1074,17 @@ st(uint32_t n)
 		loop(AU.b[n], AU.d[n], AU.c[n], 0, n);
 		return;
 	case CA_RETURN:
+		if (L.mode == 2 && L.depth == 0)
+			lfail(n, "a return inside the loop%s", "");
 		ret(n);
 		return;
 	case CA_BREAK:
 	case CA_CONTINUE:
 		if (L.nlc == 0)
 			lfail(n, "break or continue outside a loop%s", "");
+		if (L.mode == 2 && AU.kind[n] == CA_BREAK && L.nlc == 1 &&
+		    L.depth == 0)
+			lfail(n, "a break out of the loop%s", "");
 		if (AU.kind[n] == CA_BREAK)
 			L.lc[L.nlc - 1].brk = bor(L.lc[L.nlc - 1].brk, L.alive);
 		else
@@ -956,6 +1125,7 @@ lower_begin(struct cf_unit *u, struct cf_value *v, int mode, int ub)
 	L.alive = T1;
 	L.env = xcalloc(u->S.n + 1, sizeof *L.env);
 	L.set = xcalloc(u->S.n + 1, 1);
+	L.bodylocal = xcalloc(u->S.n + 1, 1);
 }
 
 static void
@@ -963,8 +1133,10 @@ lower_end(void)
 {
 	free(L.env);
 	free(L.set);
+	free(L.bodylocal);
 	L.env = NULL;
 	L.set = NULL;
+	L.bodylocal = NULL;
 }
 
 void
@@ -1063,5 +1235,348 @@ cf_lower_expr(struct cf_unit *u, uint32_t fn, uint32_t e, struct cf_value *v)
 	v->e = ex(e, T1);
 	v->where = 0;
 	lower_end();
+	return 1;
+}
+
+/* ---- one iteration of a loop (mode 2) ---- */
+
+/* an expression with a side effect (or a call) */
+static int
+has_effect(uint32_t n)
+{
+	int k;
+
+	if (n == 0)
+		return 0;
+	k = AU.kind[n];
+	if (k == CA_ASSIGN || k == CA_CALL || k == CA_POSTINC ||
+	    k == CA_POSTDEC || k == CA_PREINC || k == CA_PREDEC ||
+	    k == CA_COMPOUND || k == CA_INIT)
+		return 1;
+	if (k == CA_NUM || k == CA_FNUM || k == CA_CHARLIT || k == CA_STR ||
+	    k == CA_ID || k == CA_SIZEOF_T)
+		return 0;
+	if (has_effect(AU.a[n]))
+		return 1;
+	if (k == CA_MEMBER || k == CA_ARROW || k == CA_CAST || k == CA_SIZEOF_E)
+		return 0;
+	return has_effect(AU.b[n]) || (k == CA_COND && has_effect(AU.c[n]));
+}
+
+int
+cf_lower_iter(struct cf_unit *u, uint32_t fn, uint32_t lp, int with_step,
+    struct cf_iter *it)
+{
+	uint32_t cond = 0, body = 0, step = 0, k;
+	int j;
+
+	{
+		/* the caller's extra expressions survive the reset */
+		int nx = it->nx;
+		uint32_t x[CF_MAXX];
+		memcpy(x, it->x, sizeof x);
+		memset(it, 0, sizeof *it);
+		it->nx = nx < CF_MAXX ? nx : CF_MAXX;
+		memcpy(it->x, x, sizeof x);
+	}
+	lower_begin(u, &it->v, 2, 0);
+	L.it = it;
+	for (j = 0; j < CF_MAXLEAF; j++)
+		it->leafload[j] = -1;
+	if (setjmp(L.jb)) {
+		it->v.e = 0;
+		it->v.why = strdup(L.why);
+		lower_end();
+		return 0;
+	}
+	L.fnsym = (uint32_t)u->A.iv[fn];
+	switch (AU.kind[lp]) {
+	case CA_FOR:
+		cond = AU.b[lp];
+		step = AU.c[lp];
+		body = AU.d[lp];
+		break;
+	case CA_WHILE:
+		cond = AU.a[lp];
+		body = AU.b[lp];
+		break;
+	default:
+		lfail(lp, "not a for or while loop%s", "");
+	}
+	if (has_label(body))
+		lfail(lp, "a label inside the loop%s", "");
+	if (cond && has_effect(cond))
+		lfail(cond, "a loop condition with a side effect%s", "");
+	it->cond = cond ? truth(cond, T1) : 0;
+	for (j = 0; j < it->nx; j++) {
+		if (has_effect(it->x[j]) || !ct_is_int(AU.ty[it->x[j]]))
+			lfail(it->x[j], "a loop bound with a side effect%s", "");
+		it->xval[j] = ex(it->x[j], T1);
+	}
+	L.lc[0].brk = F0;
+	L.lc[0].cont = F0;
+	L.lc[0].isswitch = 0;
+	L.nlc = 1;
+	st(body);
+	L.alive = bor(L.alive, L.lc[0].cont);
+	L.nlc = 0;
+	if (L.alive != T1)
+		lfail(lp, "a body that does not always reach its end%s", "");
+	if (with_step && step)
+		(void)ex(step, L.alive);
+	for (j = 0; j < it->nload; j++)
+		if (!L.uncond[j])
+			lfail(it->load[j].node, "a load only under a "
+			    "condition%s", "");
+	for (k = 0; k < SU.n; k++)
+		if (L.set[k] && !L.bodylocal[k]) {
+			if (it->nset == CF_MAXSET)
+				lfail(lp, "more than 16 variables written%s", "");
+			it->setsym[it->nset] = k;
+			it->setval[it->nset] = L.env[k];
+			it->nset++;
+		}
+	it->v.where = L.where;
+	it->v.e = it->cond ? it->cond : T1;
+	lower_end();
+	return 1;
+}
+
+/* ---- the vectoriser's form of a counted for loop ---- */
+
+static uint32_t
+strip_cast(uint32_t n)
+{
+	while (n && AU.kind[n] == CA_CAST && AU.iv[n] == 1)
+		n = AU.a[n];
+	return n;
+}
+
+/* the increment of i in a step expression, or 0 */
+static int64_t
+step_of(uint32_t st, uint32_t isym)
+{
+	uint32_t l;
+
+	if (st == 0)
+		return 0;
+	if (AU.kind[st] == CA_POSTINC || AU.kind[st] == CA_PREINC) {
+		l = strip_cast(AU.a[st]);
+		return AU.kind[l] == CA_ID && (uint32_t)AU.iv[l] == isym ? 1 : 0;
+	}
+	if (AU.kind[st] == CA_ASSIGN) {
+		uint32_t r = strip_cast(AU.b[st]);
+		l = strip_cast(AU.a[st]);
+		if (AU.kind[l] != CA_ID || (uint32_t)AU.iv[l] != isym)
+			return 0;
+		if (AU.iv[st] == '+' && (AU.kind[r] == CA_NUM ||
+		    AU.kind[r] == CA_CHARLIT) && AU.iv[r] > 0)
+			return AU.iv[r];
+		if (AU.iv[st] == '=' && AU.kind[r] == CA_BIN && AU.iv[r] == '+') {
+			uint32_t a = strip_cast(AU.a[r]), b = strip_cast(AU.b[r]);
+			if (AU.kind[a] == CA_ID && (uint32_t)AU.iv[a] == isym &&
+			    AU.kind[b] == CA_NUM && AU.iv[b] > 0)
+				return AU.iv[b];
+		}
+	}
+	return 0;
+}
+
+static const char *
+span_dup(struct cf_unit *u, uint32_t n)
+{
+	uint32_t a, b;
+	char *r;
+
+	if (n == 0 || !cf_span(u, n, &a, &b))
+		return NULL;
+	r = xmalloc(b - a + 1);
+	memcpy(r, u->ftext[0] + a, b - a);
+	r[b - a] = 0;
+	return r;
+}
+
+int
+cf_extract_loop(struct cf_unit *u, uint32_t fn, uint32_t lp,
+    struct cf_loop *l, struct cf_iter *it, const char **why)
+{
+	struct cf_ast *A = &u->A;
+	uint32_t init, cond, isym = 0, lo = 0, hi = 0, l0, r0;
+	int64_t step;
+	int k, j, nptr = 0;
+
+	memset(l, 0, sizeof *l);
+	*why = NULL;
+	if (A->kind[lp] != CA_FOR) {
+		*why = "not a for loop";
+		return 0;
+	}
+	init = A->a[lp];
+	cond = A->b[lp];
+	/* for (i = lo; ...) or for (T i = lo; ...) */
+	if (init && A->kind[init] == CA_DECL && A->a[init] &&
+	    u->S.kind[A->iv[init]] == CS_LOCAL) {
+		isym = (uint32_t)A->iv[init];
+		lo = A->a[init];
+	} else if (init && A->kind[init] == CA_EXPR &&
+	    A->kind[A->a[init]] == CA_ASSIGN && A->iv[A->a[init]] == '=' &&
+	    A->kind[strip_cast(A->a[A->a[init]])] == CA_ID) {
+		isym = (uint32_t)A->iv[strip_cast(A->a[A->a[init]])];
+		lo = A->b[A->a[init]];
+	}
+	if (isym == 0 || !ct_is_int(u->S.ty[isym]) || u->S.addr_taken[isym]) {
+		*why = "no index initialised in the for statement";
+		return 0;
+	}
+	/* i < hi or hi > i */
+	if (cond == 0 || A->kind[cond] != CA_BIN) {
+		*why = "no i < n condition";
+		return 0;
+	}
+	l0 = strip_cast(A->a[cond]);
+	r0 = strip_cast(A->b[cond]);
+	if (A->iv[cond] == '<' && A->kind[l0] == CA_ID &&
+	    (uint32_t)A->iv[l0] == isym)
+		hi = A->b[cond];
+	else if (A->iv[cond] == '>' && A->kind[r0] == CA_ID &&
+	    (uint32_t)A->iv[r0] == isym)
+		hi = A->a[cond];
+	if (hi == 0) {
+		*why = "no i < n condition";
+		return 0;
+	}
+	if ((step = step_of(A->c[lp], isym)) == 0) {
+		*why = "no i++ or i += constant step";
+		return 0;
+	}
+	it->nx = 2;
+	it->x[0] = lo;
+	it->x[1] = hi;
+	if (!cf_lower_iter(u, fn, lp, 0, it)) {
+		*why = it->v.why;
+		return 0;
+	}
+	for (k = 0; k < it->nset; k++)
+		if (it->setsym[k] == isym) {
+			*why = "the body changes the index";
+			return 0;
+		}
+	l->func = sym_str(u->S.name[A->iv[fn]]);
+	l->stmt = lp;
+	l->ity = ct_to_ucas(u->S.ty[isym]);
+	l->iname = sym_str(u->S.name[isym]);
+	l->islot = -1;
+	for (j = 0; j < it->v.nleaf; j++)
+		if (it->leafsym[j] == isym + 1)
+			l->islot = j;
+	l->lo = it->xval[0];
+	l->hi = it->xval[1];
+	l->step = step;
+	l->lo_text = span_dup(u, lo);
+	l->hi_text = span_dup(u, hi);
+	l->idecl = A->kind[init] == CA_DECL;
+	l->init_text = span_dup(u, init);
+	/* the bounds read no variable the loop writes */
+	for (k = 0; k < it->nset; k++)
+		for (j = 0; j < it->v.nleaf; j++)
+			if (it->leafsym[j] == it->setsym[k] + 1 &&
+			    (has_slot(l->hi, j) || has_slot(l->lo, j))) {
+				*why = "a bound the loop changes";
+				return 0;
+			}
+	/* bases */
+	for (k = 0; k < it->nload + it->nstore; k++) {
+		struct cf_memref *m = k < it->nload ? &it->load[k] :
+		    &it->store[k - it->nload];
+		for (j = 0; j < l->nbase; j++)
+			if (!strcmp(l->base[j], sym_str(u->S.name[m->base])))
+				break;
+		if (j == l->nbase) {
+			if (l->nbase == CF_MAXMEM) {
+				*why = "more than 16 arrays";
+				return 0;
+			}
+			l->base[l->nbase] = sym_str(u->S.name[m->base]);
+			l->readonly[l->nbase] = 1;
+			l->nbase++;
+		}
+		if (k >= it->nload)
+			l->readonly[j] = 0;
+		if (k < it->nload) {
+			struct cf_mem *d = &l->load[l->nload++];
+			d->base = j;
+			d->index = m->index;
+			d->ety = ct_to_ucas(m->cty);
+			d->esize = (int)CT.size[m->cty];
+			d->slot = m->slot;
+			d->value = 0;
+			d->epoch = m->epoch;
+		} else {
+			struct cf_mem *d = &l->store[l->nstore++];
+			d->base = j;
+			d->index = m->index;
+			d->ety = ct_to_ucas(m->cty);
+			d->esize = (int)CT.size[m->cty];
+			d->slot = -1;
+			d->value = m->value;
+			d->epoch = m->epoch;
+		}
+	}
+	/* aliasing: base b overlaps no other base when b or every other
+	 * base is a restrict pointer, or both are (distinct) arrays */
+	{
+		uint32_t bs[CF_MAXMEM];
+		int isr[CF_MAXMEM], isa[CF_MAXMEM], o;
+		for (j = 0; j < l->nbase; j++) {
+			uint32_t t;
+			bs[j] = 0;
+			for (k = 0; k < it->nload + it->nstore; k++) {
+				struct cf_memref *m = k < it->nload ? &it->load[k] :
+				    &it->store[k - it->nload];
+				if (!strcmp(l->base[j], sym_str(u->S.name[m->base])))
+					bs[j] = m->base;
+			}
+			t = u->S.ty[bs[j]];
+			isa[j] = CT.kind[ct_unqual(t)] == CT_ARRAY;
+			isr[j] = !isa[j] && (CT.qual[t] & CQ_RESTRICT) != 0;
+		}
+		for (j = 0; j < l->nbase; j++) {
+			l->noalias[j] = 1;
+			if (isr[j])
+				continue;
+			for (o = 0; o < l->nbase; o++)
+				if (o != j && !isr[o] && !(isa[o] && isa[j]))
+					l->noalias[j] = 0;
+		}
+		(void)nptr;
+	}
+	/* reductions: every other variable the body writes */
+	for (k = 0; k < it->nset; k++) {
+		if (l->nred == MAXST) {
+			*why = "more than 8 reductions";
+			return 0;
+		}
+		l->rname[l->nred] = sym_str(u->S.name[it->setsym[k]]);
+		l->rslot[l->nred] = -1;
+		for (j = 0; j < it->v.nleaf; j++)
+			if (it->leafsym[j] == it->setsym[k] + 1)
+				l->rslot[l->nred] = j;
+		l->rinit[l->nred] = 0;
+		l->rnext[l->nred] = it->setval[k];
+		l->nred++;
+	}
+	l->nleaf = it->v.nleaf;
+	for (j = 0; j < it->v.nleaf; j++) {
+		l->leaf[j] = it->v.leaf[j].text;
+		l->leafty[j] = ct_to_ucas(it->v.leaf[j].cty);
+	}
+	if (!l->lo_text || !l->hi_text || !l->init_text) {
+		*why = "a bound written with a macro";
+		return 0;
+	}
+	if (l->islot < 0) {
+		*why = "the body never reads the index";
+		return 0;
+	}
 	return 1;
 }
