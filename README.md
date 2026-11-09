@@ -782,7 +782,13 @@ animation); else the zeros, extrema and inflection points
 [-10, 10] (else [-100, 100]), with a margin, not past a domain edge, the
 eight nearest 0 when there are many, rounded to a twentieth of the
 span.  With several variables each is sliced at a few values of the
-others.  `neighbourhood F` (also `plot F around a`, `at a`) prints the
+others, and a range from the features is widened to another variable's
+when f is symmetric in the two up to sign (checked at 32 points: `x^2 -
+y^2` gets a square) or when both are around 0 with spans within 1.5x
+(the features do not set them apart).  Integer inputs (and integer
+values) get integer ticks.  A log axis whose range reaches 0 starts two
+decades below the first positive zero or extremum (sampled on a log
+grid), else three decades below the top decade.  `neighbourhood F` (also `plot F around a`, `at a`) prints the
 features it found; `at a` takes a window reaching the nearest feature
 on each side, or the radius of curvature when there is none.
 
