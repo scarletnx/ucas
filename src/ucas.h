@@ -431,7 +431,8 @@ int forms_reim(const char *text, struct sbuf *re, struct sbuf *im);
 
 /* ---- hyper.c: complex, quaternion, octonion, Cayley-Dickson ---- */
 int hyper_statement(const char *stmt);  /* 1: it was hypercomplex, and ran */
-int hyper_scalar(int op, double a, double *r);  /* conj re im arg on reals */
+int hyper_scalar(int op, double a, double *r);
+int hyper_text_lg(const char *text);   /* nlp.c: the algebra text needs, 0 real */  /* conj re im arg on reals */
 nid hyper_diff(nid e, uint32_t slot);
 
 /* ---- nlp.c: English in, ucas statements out ---- */

@@ -41,6 +41,8 @@ typedef double complex cplx;
 
 static const char *const alg_name[] = {"real", "complex", "quaternion",
 	"octonion", "sedenion", "cd(32)"};
+static const char *const alg_pl[] = {"reals", "complex numbers",
+	"quaternions", "octonions", "sedenions", "cd(32) numbers"};
 
 /* ---- the algebra ---- */
 
@@ -864,7 +866,17 @@ hv_text(struct sbuf *b, const double *x0, int d, int lg)
 			sb_puts(b, u);
 		else if (plain_num(nb))
 			sb_printf(b, "%s%s%s", nb, lg >= 3 ? " " : "", u);
-		else
+		else if (strchr(nb, '/') && digits_only(strchr(nb, '/') + 1)) {
+			/* 3/2 -> 3i/2 */
+			const char *sl = strchr(nb, '/');
+			char num[64];
+			snprintf(num, sizeof num, "%.*s", (int)(sl - nb), nb);
+			if (plain_num(num))
+				sb_printf(b, "%s%s%s%s", strcmp(num, "1") ? num : "",
+				    lg >= 3 && strcmp(num, "1") ? " " : "", u, sl);
+			else
+				sb_printf(b, "%s*%s", u, nb);
+		} else
 			sb_printf(b, "%s*%s", u, nb);
 	}
 	if (first)
@@ -884,13 +896,10 @@ hv_str(const double *x, int d, int lg)
 }
 
 static const char *const cut_desc_ops[][2] = {
-	{"log", "log z = log|z| + i arg z, -pi < arg z <= pi: the cut (-inf, 0] "
-	    "takes the value from above"},
-	{"sqrt", "sqrt z = e^(log(z)/2), cut along the negative reals: the "
-	    "root with Re > 0, or i sqrt|z| on the cut (the other root is its "
-	    "negative)"},
-	{"^", "z^w = e^(w log z) with the principal log (cut along the "
-	    "negative reals)"},
+	{"log", "log z = log|z| + i arg z with -pi < arg z <= pi"},
+	{"sqrt", "sqrt z = e^(log(z)/2): i sqrt|z| on the negative reals (the "
+	    "other root is its negative)"},
+	{"^", "z^w = e^(w log z) with the principal log"},
 	{"asin", "asin z = -i log(iz + sqrt(1 - z^2)) (cuts (-inf, -1) and "
 	    "(1, inf))"},
 	{"acos", "acos z = pi/2 - asin z (cuts (-inf, -1) and (1, inf))"},
@@ -914,14 +923,14 @@ hn_flush(int d)
 		for (k = 0; cut_desc_ops[k][0]; k++)
 			if (!strcmp(cut_desc_ops[k][0], nm))
 				break;
-		note("a real argument on the branch cut of %s: the principal "
-		    "value, %s", hn_cutop == O_POW ? "a power" : nm,
+		note("on the branch cut of %s: the principal value, %s",
+		    hn_cutop == O_POW ? "a power" : nm,
 		    cut_desc_ops[k][1] ? cut_desc_ops[k][1] : "");
 	}
 	if (hn & HN_DIR)
-		note("a function of a negative real number in the %s numbers: "
-		    "every unit u with u^2 = -1 gives a root; i was taken",
-		    alg_name[d >= 32 ? 5 : ilog2u((uint64_t)d)]);
+		note("a function of a negative real number in the %s: every unit "
+		    "u with u^2 = -1 gives a value; u = i was taken",
+		    alg_pl[d >= 32 ? 5 : ilog2u((uint64_t)d)]);
 	if (hn & HN_RDIV)
 		note("a/b is a b^-1 (right division); b^-1 a differs here, "
 		    "since a b != b a");
@@ -956,6 +965,7 @@ struct hscan {
 	uint32_t params[MAXP];	/* explicit parameters (not units) */
 	int np;
 	int hfun;		/* calls a hyper function */
+	int keepk;		/* k is a unit even alone (a list of quaternions) */
 };
 
 static int
@@ -1098,6 +1108,8 @@ known_fn(const char *s)
 	return in_list(fns, s);
 }
 
+static uint32_t shadow;	/* a defined function named i, j or e1 */
+
 /*
  * Scans tokens [a, b) of t.  Returns 0 when the statement must not be
  * read as hypercomplex (sums, loops, code blocks, ODEs).
@@ -1164,6 +1176,9 @@ hy_scan(const struct toks *t, uint32_t a, uint32_t b, struct hscan *S)
 			continue;
 		{
 			struct func *g = func_find(sym_cstr(w));
+			if (g && !g->halg && !is_param(S, w) && (!strcmp(w, "i") ||
+			    !strcmp(w, "j") || e_unit(w) > 0))
+				shadow = g->name;
 			if (g && !is_param(S, w)) {
 				if (g->halg) {
 					S->hfun = 1;
@@ -1202,7 +1217,7 @@ hy_decide(struct hscan *S, const struct toks *t, uint32_t a, uint32_t b)
 	int k;
 
 	/* k alone is a variable; with i or j a quaternion unit */
-	if (S->unit_k && !S->unit_i && !S->unit_j)
+	if (S->unit_k && !S->unit_i && !S->unit_j && !S->keepk)
 		S->unit_k = 0;
 	if (S->emax > 0) {
 		int lg = 1;
@@ -1254,7 +1269,7 @@ hy_notes(const struct hscan *S)
 	if (S->lg == 1 && S->unit_j && !S->unit_i)
 		note("j is read as the imaginary unit (j^2 = -1)");
 	if (S->lg >= 3 && (S->unit_i || S->unit_j || S->unit_k))
-		note("i, j, k are read as e1, e2, e3 in the %s", alg_name[S->lg]);
+		note("i, j, k are read as e1, e2, e3 in the %s", alg_pl[S->lg]);
 	if (S->lg >= 3 && S->oct_num)
 		note("2e1 is read as 2*e1 (a unit), not the number 20; write "
 		    "20 or 2.0e1 for the number");
@@ -1265,7 +1280,7 @@ hy_notes(const struct hscan *S)
 		note("i, j are quaternion units: ij = k = -ji");
 	if (S->lg >= 4)
 		note("the %s have zero divisors: a b = 0 with a, b != 0 is "
-		    "possible, and |ab| != |a||b|", alg_name[S->lg]);
+		    "possible, and |ab| != |a||b|", alg_pl[S->lg]);
 	free(b.p);
 }
 
@@ -1901,6 +1916,7 @@ hyper_statement(const char *stmt)
 	int r = 0;
 
 	lex(t, text);
+	shadow = 0;
 	for (b = 0; b < t->n && t->kind[b] != T_EOF && t->kind[b] != T_NL; b++)
 		;
 	if (b == 0)
@@ -1928,6 +1944,11 @@ hyper_statement(const char *stmt)
 		goto out;
 	r = hy_bare(t, b);
 out:
+	if (!r && shadow)
+		note("%s is defined (%s), so it is that here, not a unit; rename "
+		    "it to use %s as the imaginary unit", sym_str(shadow),
+		    func_find(shadow) ? "a function or value" : "", sym_str(shadow));
+	shadow = 0;
 	toks_free(t);
 	free(t);
 	free(text);
@@ -2065,6 +2086,7 @@ hy_const(const struct toks *t, uint32_t a, uint32_t b, int lgmin,
 	int ok;
 
 	memset(&S, 0, sizeof S);
+	S.keepk = lgmin >= 2;
 	if (a >= b)
 		fail("a number is missing");
 	if (!hy_scan(t, a, b, &S))
@@ -2181,6 +2203,7 @@ vname(void)
 }
 
 static uint64_t hrng = 0x9e3779b97f4a7c15ULL;
+static cplx snap(cplx z);
 
 static double
 hrand(void)
@@ -2261,6 +2284,31 @@ frac_pow(nid e, uint8_t *seen)
 	return r;
 }
 
+/* z^-2: a pole */
+static int
+neg_pow(nid e, uint8_t *seen)
+{
+	int ar, r = 0;
+	double v;
+
+	if (seen[e])
+		return 0;
+	seen[e] = 1;
+	if (N.op[e] == O_CONST || N.op[e] == O_VAR)
+		return 0;
+	if (N.op[e] == O_POW && (N.fl[N.a[e]] & NF_VAR) &&
+	    !(num_of(N.b[e], &v) && v >= 0))
+		return 1;
+	ar = opinfo[N.op[e]].arity;
+	if (ar >= 1)
+		r |= neg_pow(N.a[e], seen);
+	if (ar >= 2)
+		r |= neg_pow(N.b[e], seen);
+	if (ar >= 3)
+		r |= neg_pow(N.c[e], seen);
+	return r;
+}
+
 /* where holomorphy can fail: "the branch cut of log", "poles" */
 static void
 where_not(nid body, struct sbuf *b)
@@ -2279,9 +2327,11 @@ where_not(nid body, struct sbuf *b)
 	free(seen);
 	if (m)
 		sb_puts(b, " (the branch cuts of the principal values)");
-	if (uses(body, O_DIV) || uses(body, O_TAN) || uses(body, O_SEC) ||
-	    uses(body, O_CSC) || uses(body, O_COT) || uses(body, O_TANH) ||
-	    uses(body, O_POW))
+	seen = xcalloc(N.n, 1);
+	k = neg_pow(body, seen);
+	free(seen);
+	if (k || uses(body, O_DIV) || uses(body, O_TAN) || uses(body, O_SEC) ||
+	    uses(body, O_CSC) || uses(body, O_COT) || uses(body, O_TANH))
 		sb_printf(b, "%sthe points where it is undefined (poles)",
 		    m ? "; " : "");
 }
@@ -2415,8 +2465,17 @@ cmd_holo(struct func *f, int deriv)
 		if (nh.n)
 			printf("  (it uses %s, which %s not holomorphic)\n", nh.p,
 			    strchr(nh.p, ',') ? "are" : "is");
-		printf("  Wirtinger derivatives there: df/dz = %s, df/dconj(z) "
-		    "= %s\n", zs((wx + wy) / 2), zs((wx - wy) / 2));
+		{
+			cplx a = (wx + wy) / 2, b = (wx - wy) / 2;
+			double m = cabs(a) + cabs(b);
+			if (cabs(a) < 1e-8 * m)
+				a = 0;
+			if (cabs(b) < 1e-8 * m)
+				b = 0;
+			printf("  Wirtinger derivatives there: df/dz = %s, df/dconj(z) "
+			    "= %s (holomorphic means df/dconj(z) = 0)\n", zs(snap(a)),
+			    zs(snap(b)));
+		}
 	}
 	free(b.p);
 	free(nh.p);
@@ -2469,12 +2528,15 @@ poly_of(cplx *c, int maxdeg)
 	}
 	hrng = 777;
 	for (k = 0; k < 8; k++) {
-		cplx z = (3 * hrand() + 0.2) * cexp(2 * M_PI * I * hrand()), p = 0;
+		cplx z = (4.5 * hrand() + 0.5) * cexp(2 * M_PI * I * hrand()), p = 0;
+		double sc = 0;
 		if (!fz(z, &w))
 			return -1;
-		for (j = deg; j >= 0; j--)
+		for (j = deg; j >= 0; j--) {
 			p = p * z + c[j];
-		if (cabs(p - w) > 1e-8 * (cabs(w) + 1) * pow(cabs(z) + 1, deg))
+			sc = sc * cabs(z) + cabs(c[j]);
+		}
+		if (cabs(p - w) > 1e-9 * (cabs(w) + sc))
 			return -1;
 	}
 	return deg;
@@ -2565,7 +2627,7 @@ static int
 newton_zeros(double R, int inv, struct zr *out, int max)
 {
 	int n = 0, a, b, it;
-	const int G = 13;
+	const int G = R > 5 ? 21 : 13;
 
 	for (a = 0; a < G; a++)
 		for (b = 0; b < G; b++) {
@@ -2632,8 +2694,13 @@ cmd_zeros(struct func *f)
 		return;
 	}
 	if (deg > 0) {
-		double used[MAXZ] = {0};
 		dk(c, deg, z);
+		for (k = 0; k < deg; k++)
+			if (!isfinite(creal(z[k])) || !isfinite(cimag(z[k])))
+				deg = -1;
+	}
+	if (deg > 0) {
+		double used[MAXZ] = {0};
 		/* group near-equal roots: multiplicity */
 		for (k = 0; k < deg; k++) {
 			cplx s;
@@ -2647,24 +2714,55 @@ cmd_zeros(struct func *f)
 					s += z[j];
 					m++;
 				}
-			r[n].z = snap(s / m);
+			s /= m;
+			if (m > 1) {
+				/* Newton on the (m-1)-th derivative, where the root is
+				 * simple */
+				cplx dc[MAXZ + 1];
+				int dd = deg - (m - 1), q, it;
+				for (q = 0; q <= dd; q++) {
+					double fac = 1;
+					int u;
+					for (u = 1; u < m; u++)
+						fac *= q + u;
+					dc[q] = c[q + m - 1] * fac;
+				}
+				for (it = 0; it < 20; it++) {
+					cplx pv = 0, pd = 0;
+					for (q = dd; q >= 0; q--) {
+						pd = pd * s + pv;
+						pv = pv * s + dc[q];
+					}
+					if (pd == 0)
+						break;
+					s -= pv / pd;
+				}
+			}
+			r[n].z = snap(s);
 			r[n++].mult = m;
 		}
 		qsort(r, (size_t)n, sizeof *r, zr_cmp);
 		printf("  %d root%s (a polynomial of degree %d):\n", deg,
 		    deg == 1 ? "" : "s", deg);
 		for (k = 0; k < n; k++)
-			printf("    %s = %s%s\n", vname(), zs(r[k].z), r[k].mult > 1 ?
-			    (r[k].mult == 2 ? "  (double)" : "  (multiple)") : "");
+			if (r[k].mult > 1)
+				printf("    %s = %s  (%s)\n", vname(), zs(r[k].z),
+				    r[k].mult == 2 ? "double" : r[k].mult == 3 ? "triple" :
+				    "multiple");
+			else
+				printf("    %s = %s\n", vname(), zs(r[k].z));
 		{
 			double mx = 0;
 			cplx w;
 			for (k = 0; k < n; k++)
 				if (fz(r[k].z, &w) && cabs(w) > mx)
 					mx = cabs(w);
-			printf("  check: |%s| <= %.0e at the roots; the polynomial's "
-			    "coefficients come from 64 samples and were checked at 8 "
-			    "other points\n", fname(f), mx > 0 ? mx : 0.0);
+			if (mx > 0)
+				printf("  check: |%s| <= %.0e at the roots", fname(f), mx);
+			else
+				printf("  check: %s = 0 at the roots", fname(f));
+			printf("; the polynomial's coefficients come from 64 samples and "
+			    "were checked at 8 other points\n");
 		}
 		printf("  a polynomial of degree %d has %d complex roots counted "
 		    "with multiplicity (the fundamental theorem of algebra)\n",
@@ -2672,15 +2770,15 @@ cmd_zeros(struct func *f)
 		fz_close();
 		return;
 	}
-	n = newton_zeros(4, 0, r, MAXZ);
+	n = newton_zeros(7, 0, r, MAXZ);
 	if (n == 0)
-		printf("  none found in |Re %s|, |Im %s| <= 4\n", vname(), vname());
+		printf("  none found in |Re %s|, |Im %s| <= 7\n", vname(), vname());
 	else
-		printf("  %d zero%s in |Re %s|, |Im %s| <= 4:\n", n, n == 1 ? "" :
+		printf("  %d zero%s in |Re %s|, |Im %s| <= 7:\n", n, n == 1 ? "" :
 		    "s", vname(), vname());
 	for (k = 0; k < n; k++)
 		printf("    %s = %s\n", vname(), zs(r[k].z));
-	printf("  numerically: Newton's method from a 13x13 grid, each zero "
+	printf("  numerically: Newton's method from a 21x21 grid, each zero "
 	    "checked (|f| < 1e-8); not a proof that there are no others\n");
 	fz_close();
 }
@@ -2748,7 +2846,7 @@ cmd_limit(struct func *f, cplx a, int inf)
 		}
 		if (got < 3)
 			continue;
-		if (cabs(v2) > 1e8 && cabs(v2) > 100 * cabs(v1)) {
+		if (cabs(v2) > 1e6 && cabs(v2) > 2 * cabs(v1)) {
 			ninf++;
 			continue;
 		}
@@ -2898,10 +2996,10 @@ cmd_poles(struct func *f)
 	int n, k;
 
 	fz_open(f, "poles");
-	n = newton_zeros(4, 1, p, MAXZ);
+	n = newton_zeros(7, 1, p, MAXZ);
 	printf("poles of %s:\n", fname(f));
 	if (n == 0)
-		printf("  none in |Re %s|, |Im %s| <= 4\n", vname(), vname());
+		printf("  none in |Re %s|, |Im %s| <= 7\n", vname(), vname());
 	for (k = 0; k < n; k++) {
 		cplx r;
 		int o = sing_order(p[k].z), ok = residue_at(p[k].z, &r);
@@ -2915,7 +3013,7 @@ cmd_poles(struct func *f)
 		printf("\n");
 	}
 	printf("  numerically: zeros of 1/f by Newton's method from a grid in "
-	    "|Re %s|, |Im %s| <= 4; orders from the growth of |f| on circles "
+	    "|Re %s|, |Im %s| <= 7; orders from the growth of |f| on circles "
 	    "of radius 1e-2..1e-4, residues by circle integrals\n", vname(),
 	    vname());
 	fz_close();
@@ -2938,17 +3036,7 @@ cmd_contour(struct func *f, cplx c, double r, int cw)
 	printf("integral of %s around |%s%s%s| = %g (%s):\n", fname(f), vname(),
 	    c == 0 ? "" : " - ", c == 0 ? "" : zs(c), r, cw ? "clockwise" :
 	    "counterclockwise");
-	printf("  = %s", zs(val));
-	if (cimag(val) != 0 || creal(val) != 0) {
-		double v[2] = {creal(val), cimag(val)};
-		char nb[64];
-		if (!forms_num(v[1], nb, sizeof nb) || !forms_num(v[0], nb,
-		    sizeof nb))
-			;
-		else
-			printf("  (%s)", fabs(v[0]) > 0 ? hv_str(v, 2, 1) : "");
-	}
-	printf("\n");
+	printf("  = %s\n", zs(val));
 	printf("  numerically: the trapezoid rule on the circle with 1024 and "
 	    "2048 points (difference %.0e)\n", cabs(v1 - v2) * 2 * M_PI);
 	/* the residue theorem as a check */
@@ -3060,7 +3148,7 @@ cmd_forms(const char *cmd, const struct func *f)
 		    alg_name[f->halg]);
 	text = xy_text(f, &say);
 	if (say.n)
-		note("%s with real parts and imaginary parts real", say.p);
+		note("%s (real and imaginary parts real)", say.p);
 	notes_flush();
 	sb_printf(&st, "%s %s\n", cmd, text);
 	run_source(st.p, "<hyper>", 0);
@@ -3276,7 +3364,7 @@ cmd_cayley(int lg)
 	char cell[16];
 
 	printf("multiplication table of the %s (row times column)%s:\n",
-	    alg_name[lg], lg >= 2 ? ", not symmetric: the product does not "
+	    alg_pl[lg], lg >= 2 ? ", not symmetric: the product does not "
 	    "commute" : "");
 	printf("  %*s |", w, "");
 	for (b = 0; b < d; b++)
@@ -3375,11 +3463,10 @@ cmd_algebra(int lg, const char *which)
 	int d = 1 << lg, j, ok, a, b, c, s, c2, s2;
 	double x[HM], y[HM], z[HM], u[HM], v[HM], t[HM];
 	int A, B, S1, C, D, S2;
-	const char *nm = alg_name[lg];
 	int all = which == NULL;
 #define WANT(w) (all || !strcmp(which, w))
 
-	printf("the %s: dimension %d over the reals, basis %s", nm, d,
+	printf("the %s: dimension %d over the reals, basis %s", alg_pl[lg], d,
 	    unit_str(0, lg));
 	for (j = 1; j < d && j < 8; j++)
 		printf(", %s", unit_str(j, lg));
@@ -3523,7 +3610,7 @@ cmd_zerodiv(int lg)
 
 	if (lg <= 3) {
 		printf("the %s have no zero divisors: |ab| = |a||b|, so ab = 0 "
-		    "only when a = 0 or b = 0\n", alg_name[lg]);
+		    "only when a = 0 or b = 0\n", alg_pl[lg]);
 		return;
 	}
 	if (!zero_div(d, &A, &B, &S1, &C, &D, &S2)) {
@@ -3532,13 +3619,13 @@ cmd_zerodiv(int lg)
 	}
 	x[A] = 1, x[B] = S1, y[C] = 1, y[D] = S2;
 	h_mul(x, y, r, d);
-	printf("zero divisors in the %s:\n", alg_name[lg]);
+	printf("zero divisors in the %s:\n", alg_pl[lg]);
 	printf("  (%s)(%s) = %s, although |%s| = |%s| = sqrt(2)\n",
 	    pair_str(A, B, S1, lg), pair_str(C, D, S2, lg), hv_str(r, d, lg),
 	    pair_str(A, B, S1, lg), pair_str(C, D, S2, lg));
 	printf("  so |ab| = |a||b| fails and the %s are not a division "
 	    "algebra (from dimension 16 on, every Cayley-Dickson algebra has "
-	    "them)\n", alg_name[lg]);
+	    "them)\n", alg_pl[lg]);
 }
 
 /* comma-separated constants in [a, b) */
@@ -3546,7 +3633,7 @@ static int
 const_list(const struct toks *t, uint32_t a, uint32_t b, double v[][HM],
     int max, int *lg)
 {
-	int n = 0, depth = 0, l;
+	int n = 0, depth = 0, l, lgall = 1;
 	uint32_t s = a, i;
 
 	if (a < b && t->kind[a] == T_LP && tok_close(t, a, b) == b) {
@@ -3555,6 +3642,15 @@ const_list(const struct toks *t, uint32_t a, uint32_t b, double v[][HM],
 		s = a;
 	}
 	*lg = 0;
+	{
+		/* the algebra of the whole list: "i, j" are quaternions */
+		struct hscan S;
+		memset(&S, 0, sizeof S);
+		if (hy_scan(t, a, b, &S)) {
+			hy_decide(&S, t, a, b);
+			lgall = S.lg;
+		}
+	}
 	for (i = a; i <= b; i++) {
 		if (i < b && (t->kind[i] == T_LP || t->kind[i] == T_LB))
 			depth++;
@@ -3564,7 +3660,7 @@ const_list(const struct toks *t, uint32_t a, uint32_t b, double v[][HM],
 		    (t->kind[i] == T_ID && tok_is(t, i, "and"))))) {
 			if (n == max)
 				fail("too many values");
-			if (!hy_const(t, s, i, 1, v[n], &l))
+			if (!hy_const(t, s, i, lgall > 1 ? lgall : 1, v[n], &l))
 				fail("value %d is undefined", n + 1);
 			if (l > *lg)
 				*lg = l;
@@ -3609,7 +3705,7 @@ cmd_assoc(const struct toks *t, uint32_t a, uint32_t b, int comm)
 	    hv_str(r2, d, lg), hv_str(r, d, lg));
 	printf("  %s (in the %s)\n", h_n2(r, d) < 1e-24 ? "the product of "
 	    "these three is associative" : "not associative: the grouping "
-	    "changes the product", alg_name[lg]);
+	    "changes the product", alg_pl[lg]);
 }
 
 /* ---- rotations ---- */
@@ -4369,6 +4465,10 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 		int j, cv = 0;
 		if ((f = hy_funarg(t, 1, b, 0)) == NULL)
 			return 0;
+		if (f->halg >= 2 && f->np == 0) {
+			notes_drop();
+			return hy_bare(t, b);	/* conj(1 + 2i + 3j): a value */
+		}
 		for (j = 0; j < f->np; j++)
 			if (f->hk[j])
 				cv = 1;
@@ -4384,4 +4484,31 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 		    "modulus or arg to get a real one, or define it with real "
 		    "parameters)", w0, "this one");
 	return 0;
+}
+
+/* nlp.c: does text need complex (1), quaternion (2) ... numbers? */
+int
+hyper_text_lg(const char *text)
+{
+	struct toks *t = xcalloc(1, sizeof *t);
+	struct hscan S;
+	jmp_buf saved;
+	uint32_t b;
+	int lg = 0;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	if (setjmp(fail_jmp) == 0) {
+		lex(t, text);
+		for (b = 0; b < t->n && t->kind[b] != T_EOF; b++)
+			;
+		memset(&S, 0, sizeof S);
+		if (hy_scan(t, 0, b, &S)) {
+			hy_decide(&S, t, 0, b);
+			lg = S.lg;
+		}
+	}
+	memcpy(fail_jmp, saved, sizeof saved);
+	toks_free(t);
+	free(t);
+	return lg;
 }

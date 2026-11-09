@@ -5486,6 +5486,7 @@ no:
 
 #include "calc2.h"
 #include "nlp_calc2.inc"   /* derivatives, limits, series ... (calc2) */
+#include "nlp_hyper.inc"   /* complex, quaternion, octonion (hyper.c) */
 
 static void
 sentence(void)
@@ -5500,6 +5501,8 @@ sentence(void)
 	if (meta())
 		return;
 	if (definition())
+		return;
+	if (hy_sentence())	/* holomorphic, residues, quaternions (hyper.c) */
 		return;
 	if (c2_sentence())	/* derivatives, limits, series (calc2) */
 		return;
@@ -6380,6 +6383,12 @@ finish(void)
 		for (k = 0; k < nv; k++)
 			if (!V[k].ty[0] && V[k].lo[0] && (V[k].uses & 1))
 				snprintf(V[k].ty, sizeof V[k].ty, "real");
+	/* hyper.c: (1+2i)*(3-i), i^i are values, i is not a parameter */
+	if ((Q.cmd == C_EVAL || Q.cmd == C_SHOW) && !Q.a.named && Q.a.e.s &&
+	    hyper_text_lg(Q.a.e.s) > 0) {
+		emit(Q.a.e.s);
+		return;
+	}
 	a = target_fn(&Q.a, 1, "it", !(Q.cmd == C_DIFF && Q.wrt[0]), 1, 1);
 	switch (Q.cmd) {
 	case C_EVAL:
@@ -7044,6 +7053,10 @@ nlp_is_english(const char *s, size_t n)
 	if (s[i] == '?')
 		return 1;
 	if (s[n - 1] == '?')
+		return 1;
+	if (hy_formula(s + i, n - i))	/* i^i, i*j: a formula (hyper.c) */
+		return 0;
+	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */
 		return 1;
 	/* calc2: d/dx F, d²/dx² F, d^2/dx^2 F, dy/dx, ∂f/∂x, ∇f */
 	if (s[i] == 'd' && i + 4 < n && isalpha((unsigned char)s[i + 1]) &&
