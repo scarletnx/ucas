@@ -171,12 +171,148 @@ inline annotations: `range isqrt(x: u4)`.
 | `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
 | `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
 | `nthroots N F`, `unity N` | the N complex N-th roots (of 1), each raised back to the N-th power |
+| `expand F`, `factor F`, `collect F [in x]`, `simplify F`, `together F`, `cancel F`, `apart F [in x]` | polynomials and rational functions over Q (see "Symbolic algebra"); a cancelled factor is stated as a condition (`holds where x - 1 != 0`) |
+| `gcd P, Q`, `lcm P, Q`, `resultant P, Q [in x]`, `discriminant P [in x]`, `quo P, Q [in x]`, `rem P, Q [in x]`, `divide P by Q [in x]` | polynomial gcd (multivariate), resultants and discriminants with symbolic coefficients, division with remainder |
+| `solve L = R [, L2 = R2 ...] [for x [, y]]` | polynomial equations (exact roots: rational, surds, cubics in trigonometric or hyperbolic form, quartics that split over Q(sqrt d); otherwise numeric with a note), rational equations (poles excluded), `sin u = c` and other invertible functions with the general solution in k, one square root (squared, extraneous roots named), linear systems (unique, a family with free unknowns, or none), two polynomial equations by the resultant; every solution substituted back |
+| `substitute x = a [, y = b] in F` (`subst`) | F at those values, simplified |
 | `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
 sampled (65536 points, edge values first), and the output says so.
 `wrap` and `range` add interval bounds when sampling, which can prove
 that an operation never wraps.
+
+## Symbolic algebra
+
+```
+> factor x^6 - 1
+  = (x - 1)*(x + 1)*(x^2 + x + 1)*(x^2 - x + 1)
+  check: exact (both sides have the same normal form)
+> simplify (x^2-1)/(x-1)
+  = x + 1
+  holds where x - 1 != 0 (cancelled there)
+> integrate 1/(x^3+1)
+  = log(abs(x + 1))/3 - log(x^2 - x + 1)/6 + atan((2x - 1)/sqrt(3))/sqrt(3) + C
+> integrate 1/(x^4+1)
+  = sqrt(2)*log(x^2 + sqrt(2)*x + 1)/8 - sqrt(2)*log(x^2 - sqrt(2)*x + 1)/8
+    + sqrt(2)*atan(sqrt(2)*x - 1)/4 + sqrt(2)*atan(sqrt(2)*x + 1)/4 + C
+> solve sin x = 1/2
+  x = pi/6 + 2pi*k   (k any integer)
+  x = 5*pi/6 + 2pi*k   (k any integer)
+  check: each solution substituted (10 values, k = -2..2): residual 9.4e-16
+> solve sqrt(x+1) = x - 1
+  isolating sqrt(x + 1) and squaring: x^2 - 3x = 0
+  extraneous (from squaring, the original equation fails): x = 0
+  x = 3
+```
+
+The core (`src/poly.c`) is exact: rationals with 64-bit numerators and
+denominators and 128-bit intermediates (a result that does not fit
+stops the computation and says so), sparse multivariate polynomials over
+Q in *atoms* (variables, and opaque subterms such as `sin(x)` or
+`sqrt(x + 1)`), their gcd (primitive pseudo-remainder sequences with
+recursive contents), exact division, resultants (fraction-free
+elimination of the Sylvester matrix) and discriminants, factorisation
+(content and monomial factors, square-free decomposition, rational
+roots, cyclotomic factors, Kronecker's method for the other factors of
+small degree; in two variables homogeneous polynomials through x/y;
+otherwise several variables get their contents and square-free parts,
+with a note), and rational functions kept as p/q with the gcd
+cancelled.  An expression is taken apart over sums, products, integer
+powers and quotients (`x^(3/2)` is `x*sqrt(x)`); a constant that is
+exactly a fraction as a double (0.25, 1/3) is that fraction, and `pi`,
+`e` are atoms.  The product of every denominator met is kept, so a
+factor that cancels is reported as a condition.  Printing stays exact:
+`x^3/3`, `1/(2(x + 1))`, `sqrt(3)` (an unevaluated surd), `x^(1/3)`;
+coefficients beyond 2^53 cannot be represented in an expression and are
+printed rounded, with a note.
+
+`simplify` simplifies the arguments of functions (`sqrt(u^2) = |u|`,
+`sqrt` of any perfect square, `exp(log u) = u` for `u > 0`, `log(exp u)
+= u`, `exp(u)^k = exp(k u)`, products of exponentials joined), then
+takes the shortest of the expanded and factored normal forms, also with
+`sin^2 = 1 - cos^2` and `cosh^2 = 1 + sinh^2` applied when both functions
+of the same argument occur.  `log(a b)` is not split (that holds only
+for a, b > 0).  Trigonometric rewriting is `trig`'s (forms.c): in
+English, "simplify" or "expand" of a trig expression goes there.
+
+Checks: the normal forms of input and result are compared exactly when
+both convert (`check: exact`), otherwise at 64 sample points; gcd and lcm
+by exact division (and coprime cofactors); resultants and discriminants
+numerically through the roots; every solution of `solve` by
+substitution (for k = -2..2 in a general solution).
+
+### Integration
+
+`integrate` tries, in order: rational functions (exact, below), the
+older rules (polynomials, linear arguments, by parts with exp/sin/cos,
+atan forms), and then the methods of `src/rint.c`, each result
+differentiated back and compared before it is used:
+
+- **rational functions**, completely: the polynomial part, Hermite
+  reduction for repeated factors (the rational part), then partial
+  fractions over the irreducible factors of the square-free rest:
+  `c log|x - r|`, `c log|f|` when the numerator is `c f'`, log and atan
+  for quadratics (a log of a quotient with surds when the roots are real
+  but irrational), quartics that split into quadratics over Q(sqrt d)
+  (`x^4 + 1`), and otherwise numeric roots (residues paired into log and
+  atan terms, with a note that the coefficients are decimals);
+- linearity; `sinh`, `cosh`, `tanh`;
+- `R(e^(a x))` through `u = e^(g x)`;
+- products of sines and cosines (multiple angles rewritten first: `sin x
+  cos 2x`), times a polynomial: product to sum, then by parts;
+- rational functions of `sin u`, `cos u` (`tan`, `sec`, ... rewritten):
+  even powers by power reduction, else Bioche's rules (`t = cos u`, `sin
+  u`, `tan u`), else the Weierstrass substitution `t = tan(u/2)` (with a
+  note: it holds between the poles of the tangent);
+- `R(x, sqrt(a x + b))` by `t = sqrt(a x + b)`; `R(x, sqrt(quadratic))`:
+  a rational part plus `P(x)/sqrt(q)` and terms `c/((x - a)^k sqrt(q))`;
+  the first is `Q(x) sqrt(q) + c * integral of dx/sqrt(q)` (Ostrogradsky:
+  a linear system for Q), the base integral `asin`, `asinh` or `log|2a x
+  + b + 2 sqrt(a) sqrt(q)|`, the others through `t = 1/(x - a)` (hence
+  `sign(x - a)`);
+- by parts: `log`, `atan`, `asin`, `acos`, `asinh`, `acosh`, `atanh`
+  (and their powers) times an integrable factor; `e^(a x) sin|cos(b x)`
+  by the closed form of parts twice;
+- substitution `u = g(x)` for every subterm g whose derivative divides
+  the integrand (up to a constant; `x^k` in the rest is rewritten through
+  `u = a x^k + b`).
+
+A definite integral uses F(b) - F(a) only after F is scanned on the
+interval: where F jumps but the integrand is continuous (the Weierstrass
+form at x = pi), the jump is located by bisection, measured by one-sided
+values extrapolated to the point, printed and taken out.
+
+Not done: integrands with symbolic parameters in a denominator
+(`1/(x^2 + a^2)`), algebraic functions beyond one square root of a
+polynomial of degree 1 or 2, the Risch algorithm (`exp(x^2)` and
+`sin(x)/x` are reported as not found; a definite integral is still
+computed numerically), denesting radicals beyond Q(sqrt d).
+
+### Solving
+
+`solve` takes one or more equations (`F` alone means `F = 0`) and the
+unknowns after `for` (default: all variables; for one equation in
+several variables, x, or the question is asked on a terminal).  One
+equation in one unknown: the numerator of the rational normal form is
+factored over Q and each factor solved exactly when it can be (linear
+and quadratic factors, `x^n = c`, cubics with three real roots as `2
+sqrt(..) cos(acos(..)/3 - 2k pi/3)` and with one as a `cosh`/`sinh` form,
+quartics that split over Q(sqrt d)); higher degrees are numeric
+(Durand-Kerner), marked `(numeric)`.  Roots of a denominator are
+excluded and named.  Complex roots are counted, not listed (`nthroots`
+lists them).  A polynomial in one function of x, `f(u) = c` with f in
+sin cos tan exp log sqrt abs sinh cosh tanh atan asin acos and `b^u`, is
+inverted: periodic functions give `x = x0 + p*k (k any integer)` with
+exact angles where they exist (pi/6).  One square root: isolated and
+squared, and the roots that squaring added are named as extraneous.
+Symbolic coefficients: degree 1 and 2 by formula, with `a != 0` and the
+discriminant's sign stated.  Systems: linear ones by exact Gauss-Jordan
+elimination (a unique solution, a family in the free unknowns, or "no
+solution" with the ranks); two polynomial equations in two unknowns by
+eliminating the second unknown with the resultant.  Anything else: sign
+changes on [-100, 100], refined by bisection, with a note that
+solutions may be missed.
 
 ## Complex numbers and trig forms
 
@@ -242,8 +378,7 @@ form that holds only under a condition (`atan u = pi/2 - atan(1/u)` for
 where it differs are counted, which shows that the condition is needed.
 Limits: variables are real (no complex variables); `polar` of a symbolic
 z uses `atan2`, recognising `R cos u + i R sin u` with R > 0 (then theta
-= u for -pi < u <= pi); there is no polynomial gcd, so rational
-functions are combined but not always reduced.
+= u for -pi < u <= pi).
 
 ## Approximations
 
@@ -414,7 +549,17 @@ behind it.  English only; the translator is a hand-written parser
   and cos`, `simplify sin x cos x`, `expand sin(a+b)`, `product to sum
   of sin x cos y`, `write 3 sin x + 4 cos x in the form R sin(x + phi)`,
   `rewrite acos x in terms of asin`; see "Complex numbers and trig
-  forms"); properties answered by props.c (`is f monotonic`, `is
+  forms"); algebra (`factor x^4 - 1`, `factorise ...`, `what are the
+  factors of x^2 - 4`, `expand (x+1)^5`, `simplify (x^2-1)/(x-1)` (not
+  trig: that is `trig`'s), `cancel ...`, `partial fraction decomposition
+  of 1/(x^2-1)`, `decompose F into partial fractions`, `put 1/x + 1/(x+1)
+  over a common denominator`, `combine F into a single fraction`,
+  `collect the terms of F in x`, `solve x^2 - 5x + 6 = 0`, `solve sin x =
+  1/2`, `solve the system x + y = 3, x - y = 1 [for x and y]`, `gcd of
+  x^2-1 and x^2+2x+1`, `the lcm of ...`, `the resultant of P and Q in x`,
+  `the discriminant of a x^2 + b x + c`, `divide P by Q`, `the quotient
+  of P divided by Q`, `the remainder when P is divided by Q`, `plug in x
+  = 2 into F`, `substitute x = 2 in F`; see "Symbolic algebra"); properties answered by props.c (`is f monotonic`, `is
   it strictly increasing`, `where is f decreasing`, `is sin(2x)
   periodic`, `find the period of`, `does f repeat`, `is x squared even`,
   `is f bounded`, `one to one`, `a bijection`, `where is 1/x
@@ -633,13 +778,12 @@ listed as "may fail where u = 0".  Derivatives are simplified (like
 terms, coefficients, exp(a)exp(b)), never by cancelling a factor that
 could be 0; limits do cancel (a limit does not see one point).
 
-`integrate` also knows c/(quadratic without real roots) (atan),
-c/sqrt(quadratic) (asin written with atan, or log), P'/P (log|P|),
-P(x)·log(ax + b) by parts, and e^u as exp(u).
+`integrate` also knows rational functions completely, substitution,
+by parts, trigonometric and square-root integrands (see "Symbolic
+algebra").
 
 Not done: limits of several variables, Taylor series of several variables
-beyond symbolic coefficients, partial fractions, the n-th derivative of
-products.
+beyond symbolic coefficients, the n-th derivative of products.
 
 ### What is checked, and what is approximate
 
@@ -678,9 +822,8 @@ matrix power is exact).
   `continuous`), Collatz-like loops, or nonlinear maps other than those
   listed.  Products of a polynomial with integer roots are reported as
   Gamma-like.
-- `integrate` knows the rules listed above; it does not do substitution
-  beyond linear arguments, rational functions other than `c/u^n`, or
-  `exp(x) sin(x)`-type products.  Unknown cases fall back to numbers.
+- `integrate` knows the methods of "Symbolic algebra"; it is not the
+  Risch algorithm, and unknown cases fall back to numbers.
 - `dsolve` is symbolic only for linear systems with constant
   coefficients and forcing by polynomials, exponentials and sines; the
   independent variable is the one free name in the equations (`t` if
