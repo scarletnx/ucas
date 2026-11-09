@@ -3,6 +3,8 @@
 > find g 3
   note: the result is int: searching in u8
 find g: 4 points, computing in u8, costs from gt1030
+  dropping operations of g (cost 12 as written; each checked on the whole domain):
+  cost 9   x == 0 ? 3 : x == 1 ? 5 : x == 2 ? 7 : 9 drops the ?: on x == 3 (it always takes the first arm) (exhaustive)
   cost 2   x + x + 3                                affine fit
   cost 3   2x + 3                                   affine fit
   cost 3   3 - (-x - x)                             exact

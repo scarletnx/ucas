@@ -50,6 +50,7 @@ extern const char *diag_file;
 void fail(const char *fmt, ...);
 void fail_quiet(void);    /* end the statement: a question was asked */
 void note(const char *fmt, ...);
+extern int note_mute;      /* > 0: note() does nothing */
 void notes_flush(void);
 void notes_drop(void);
 int ilog2u(uint64_t v);       /* floor(log2(v)), -1 for 0 */
@@ -179,13 +180,34 @@ int is_const(nid n);
 int const_is(nid n, double v);
 
 enum { PM_UCAS, PM_C, PM_CBITS };
+struct shmap;
 struct pctx {
 	int mode;
 	const char *const *vn;  /* optional names per param slot */
+	const struct shmap *sh; /* shared subterms printed by name */
+	nid self;               /* the binding being defined (not by name) */
 };
 void print_node(struct sbuf *b, nid n, const struct pctx *pc);
 const char *node_str(nid n);   /* static buffer, rotated; ucas syntax */
 void print_paren(struct sbuf *b, nid n);
+/*
+ * Shared subterms named: a subterm used more than once and larger than a
+ * few nodes is printed once as a binding, `e where t1 = ..., t2 = ...`
+ * (a name from the source's let or where when there is one), and the
+ * whole is capped at cap bytes with "… (N more characters)".
+ */
+#define EXPR_CAP 2000
+#define NOTE_CAP 600
+void print_shared(struct sbuf *b, nid root, size_t cap);
+const char *shared_str(nid root, size_t cap);   /* static, rotated */
+void name_hint(nid n, uint32_t sym);           /* the source named n */
+struct shmap *shmap_new(nid root);   /* names for root's shared subterms */
+void shmap_free(struct shmap *m);
+int shmap_count(const struct shmap *m);
+void print_with(struct sbuf *b, nid e, const struct shmap *m, size_t cap);
+void shmap_bindings(struct sbuf *b, const struct shmap *m, const char *sep,
+    size_t cap);
+void cap_text(struct sbuf *b, size_t from, size_t cap);
 
 /* ---- functions ---- */
 struct param {
@@ -314,6 +336,7 @@ struct diter {
 	int64_t lo[MAXP], hi[MAXP];  /* integer bounds, or IEEE keys */
 	double rlo[MAXP], rhi[MAXP];
 	uint8_t real[MAXP];          /* 1 real grid, 2 f32 keys, 3 f64 keys */
+	uint8_t narrowed[MAXP];      /* bounds tightened by the where clause */
 	int exhaustive;
 	uint64_t total, pos, limit;
 	uint32_t rsteps;
@@ -323,6 +346,8 @@ void diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
     uint32_t rsteps, uint64_t nsample);
 uint32_t diter_next(struct diter *d, int64_t *in_i, double *in_r);
 void param_bounds(const struct param *p, int64_t *lo, int64_t *hi);
+int where_bounds(const struct func *f, int64_t *lo, int64_t *hi,
+    uint8_t *narrowed);
 void valid_mask(const struct plan *p, uint32_t wloc, uint32_t np, uint8_t *ok);
 void fmt_point(struct sbuf *b, const struct func *f, const int64_t *in_i,
     const double *in_r, uint32_t i);
@@ -360,6 +385,25 @@ void cmd_error(struct func *g, struct func *f);
 nid diff_node(nid e, uint32_t slot);
 int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
     int *sampled);
+/* equiv_decide: b refines a on f's domain, by enumeration or SAT */
+enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED };
+struct nsat_res {          /* nodesat.c */
+	int status;         /* 0 proved, 1 counterexample, -1 gave up, -2 unsupported */
+	const char *why;    /* -2: what could not be bit-blasted */
+	int nodes;          /* AIG nodes */
+	long conflicts;
+	int64_t in[MAXP];   /* 1: the counterexample's parameters */
+};
+struct eqproof {
+	int how;              /* EQ_* */
+	uint64_t points;      /* compared points */
+	int sat_status;       /* nsat_equiv's status when it ran; -3 not reproduced */
+	const char *sat_why;
+	struct nsat_res sat;
+};
+int equiv_decide(const struct func *f, nid a, nid b, struct sbuf *witness,
+    struct eqproof *pr);
+void eqproof_text(struct sbuf *b, const struct eqproof *pr);
 
 /* ---- parse.c ---- */
 void run_source(const char *src, const char *file, int echo);

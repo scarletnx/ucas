@@ -343,9 +343,17 @@ wrap analysis of f:
   end to end: equals the mathematical (unbounded) result everywhere
   over all 21 points of the domain
 > cost f
-cost of f under gt1030: 9 (1 operations, shared subterms counted once)
-  branch           1 x 9     = 9
-  note: loop sum(i, 0, n, i^3) priced per iteration (9, listed under branch); multiply by the trip count; see 'scheme'
+cost of f under gt1030: 252 (worst case; 0 operations outside loops and 1 loop, shared subterms counted once)
+  average over the domain: 132
+  iadd            42 x 1     = 42
+  imul            21 x 6     = 126
+  cmp             21 x 2     = 42
+  branch          21 x 2     = 42
+  loop i in 0..n:
+    per iteration: body 7 + overhead 5 (index add, compare, branch) = 12
+    trip count: at most 21, average 11 over all 21 points
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 252 worst case, 132 on average
 > bad[0] = 1
 > closed bad[n]
 calc.ucas:147:8: error: bad is not complete: it needs a step rule and initial values

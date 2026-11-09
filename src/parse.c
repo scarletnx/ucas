@@ -1224,7 +1224,9 @@ parse_where(struct P *p, uint32_t w, nid *cond)
 			p->bname[p->nb] = tsym(p, p->i);
 			adv(p);
 			adv(p);
-			p->bval[p->nb++] = parse_expr(p, 0);
+			p->bval[p->nb] = parse_expr(p, 0);
+			name_hint(p->bval[p->nb], p->bname[p->nb]);
+			p->nb++;
 		} else {
 			nid c = mk_bool(parse_expr(p, 0));
 			*cond = *cond ? mk_bin(O_LAND, *cond, c) : c;
