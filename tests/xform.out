@@ -329,7 +329,7 @@ transfer function of y[n] - 1.5y[n-1] + 0.5y[n-2] = x[n] (zero initial state)
     pi/2       0.632456     -3.979     -71.57
     3pi/4      0.386854     -8.249     -37.14
     pi         0.333333     -9.542     0
-  (an unstable system has no steady state: this is H on the unit circle, not what the system settles to)
+  (not BIBO stable, so no steady state: this is H on the unit circle, not what the system settles to)
   as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
     float y = x + 1.5f*y1 - 0.5f*y2;
     y2 = y1; y1 = y;
@@ -806,7 +806,7 @@ transfer function of y[n] = 1.1 y[n-1] + x[n] (zero initial state)
     pi/2       0.672673     -3.444     -47.73
     3pi/4      0.515325     -5.758     -23.63
     pi         0.47619      -6.444     0
-  (an unstable system has no steady state: this is H on the unit circle, not what the system settles to)
+  (not BIBO stable, so no steady state: this is H on the unit circle, not what the system settles to)
   as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
     float y = x + 1.1f*y1;
     y1 = y;
