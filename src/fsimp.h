@@ -112,6 +112,7 @@ struct fiv fx_range(const struct fxg *g, int node, const struct fiv *dom);
 /* the rewrites of the graph's nodes under root, at most max */
 int fx_rewrites(struct fxg *g, int root, const struct fxopt *o,
     struct fxrw *rw, int max);
+int fx_accept(const struct fxrw *r, const struct fxopt *o);
 void fx_free(struct fxrw *rw, int n);
 /* "%.9g" with -0, inf, nan spelt */
 const char *fx_str(float v, char *b, size_t n);

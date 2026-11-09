@@ -4109,6 +4109,1196 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
 	}
 }
 
+/* ---- float simplify (fsimp.c does the mathematics) ---- */
+
+#include "fsimp.h"
+
+static struct {
+	char name[40];
+	float lo, hi;
+} pend_fas[8];
+static int npend_fas;
+static struct fxopt fopt;
+static int fopt_percomp, fopt_only;
+
+void
+spirv_assume_float(const char *name, double lo, double hi, int lo_open,
+    int hi_open)
+{
+	float l = (float)lo, h = (float)hi;
+
+	if (npend_fas >= 8)
+		return;
+	/* "c in [0, 1]": 0 includes -0 (they compare equal) */
+	if (l == 0 && !lo_open)
+		l = -0.0f;
+	if (lo_open)
+		l = nextafterf(l == 0 ? 0.0f : l, INFINITY);
+	if (hi_open)
+		h = nextafterf(h, -INFINITY);
+	snprintf(pend_fas[npend_fas].name, sizeof pend_fas[0].name, "%s",
+	    name[0] == '%' ? name + 1 : name);
+	pend_fas[npend_fas].lo = l;
+	pend_fas[npend_fas++].hi = h;
+}
+
+void
+spirv_float_opts(int mode, double ulp, int approx, int percomp, int only)
+{
+	fopt.mode = mode;
+	fopt.ulp = ulp;
+	fopt.approx = approx;
+	fopt_percomp = percomp;
+	fopt_only = only;
+}
+
+static int
+is_float_t(int t)
+{
+	return t >= 0 && V.id[t].kind == K_TYPE && (T(t)->k == S_FLOAT ||
+	    (T(t)->k == S_VEC && T(T(t)->e)->k == S_FLOAT));
+}
+
+/* the input name of a load (its variable or buffer member), else NULL */
+static const char *
+load_name(int id, char *buf, size_t n)
+{
+	int k = SP.def[id], ptr;
+	const char *mn, *nm;
+
+	if (k < 0 || strcmp(V.in[k].op, "OpLoad") != 0 || V.in[k].nop < 2)
+		return NULL;
+	ptr = idx(V.in[k].opnd[1]);
+	mn = member_name(ptr);
+	if (mn != NULL) {	/* "decode_c": the parameter c */
+		const char *u = strrchr(mn, '_');
+		snprintf(buf, n, "%s", u && u[1] ? u + 1 : mn);
+		return buf;
+	}
+	nm = V.id[ptr].name;
+	snprintf(buf, n, "%s", nm[0] == '%' ? nm + 1 : nm);
+	return buf;
+}
+
+static int
+fx_input(struct fxg *g, int sid, int lane, int op, const char *name,
+    float lo, float hi, int nan)
+{
+	int i;
+
+	for (i = 0; i < g->nin; i++)
+		if (g->in[i].sid == sid && g->in[i].lane == lane)
+			return i;
+	if (g->nin >= FX_MAXIN)
+		return -1;
+	memset(&g->in[i], 0, sizeof g->in[i]);
+	snprintf(g->in[i].name, sizeof g->in[i].name, "%s", name);
+	g->in[i].sid = sid;
+	g->in[i].lane = lane;
+	g->in[i].lo = lo;
+	g->in[i].hi = hi;
+	g->in[i].nan = nan;
+	if (op == FX_IN) {
+		int j;
+		for (j = 0; j < npend_fas; j++)
+			if (name_is(name, pend_fas[j].name) ||
+			    !strcmp(name, pend_fas[j].name)) {
+				g->in[i].lo = pend_fas[j].lo;
+				g->in[i].hi = pend_fas[j].hi;
+				g->in[i].nan = 0;
+				g->in[i].assumed = 1;
+			}
+	}
+	g->nin++;
+	return i;
+}
+
+static int fxmemo_id[FX_MAXN], fxmemo_lane[FX_MAXN], fxmemo_node[FX_MAXN];
+static int nfxmemo;
+
+static int
+fx_new(struct fxg *g, int op, int a, int b, int c, int ins, int sid)
+{
+	struct fxn *n;
+
+	if (g->nn >= FX_MAXN)
+		return -1;
+	n = &g->n[g->nn];
+	memset(n, 0, sizeof *n);
+	n->op = op;
+	n->a = a;
+	n->b = b;
+	n->c = c;
+	n->d = -1;
+	n->ins = ins;
+	n->sid = sid;
+	n->uses = sid >= 0 && SP.uses ? SP.uses[sid] : 0;
+	return g->nn++;
+}
+
+static int fx_build(struct fxg *g, int id, int lane, int depth);
+
+static int
+fx_leaf(struct fxg *g, int id, int lane)
+{
+	char nb[48];
+	const char *nm = load_name(id, nb, sizeof nb);
+	int k = SP.def[id], in, n;
+
+	if (k >= 0 && (!strcmp(V.in[k].op, "OpConvertUToF") ||
+	    !strcmp(V.in[k].op, "OpConvertSToF"))) {
+		int u = V.in[k].op[9] == 'U';
+		char cn[48];
+		snprintf(cn, sizeof cn, "%s", V.id[idx(V.in[k].opnd[1])].name);
+		in = fx_input(g, id, lane, FX_CVT, cn[0] == '%' ? cn + 1 : cn,
+		    u ? 0.0f : -2147483648.0f, u ? 4294967296.0f : 2147483648.0f,
+		    0);
+		if (in < 0)
+			return -1;
+		n = fx_new(g, FX_CVT, -1, -1, -1, k, id);
+	} else {
+		if (nm == NULL) {
+			snprintf(nb, sizeof nb, "%s", V.id[id].name[0] == '%' ?
+			    V.id[id].name + 1 : V.id[id].name);
+			nm = nb;
+		}
+		in = fx_input(g, id, lane, nm ? FX_IN : FX_OPQ, nm, -INFINITY,
+		    INFINITY, 1);
+		if (in < 0)
+			return -1;
+		n = fx_new(g, FX_IN, -1, -1, -1, -1, id);
+	}
+	if (n >= 0)
+		g->n[n].in = in;
+	return n;
+}
+
+static const struct {
+	const char *ext;
+	int op, na;
+} fx_ext[] = {
+	{"Pow", FX_POW, 2}, {"Exp2", FX_EXP2, 1}, {"Log2", FX_LOG2, 1},
+	{"Sqrt", FX_SQRT, 1}, {"InverseSqrt", FX_ISQRT, 1},
+	{"Step", FX_STEP, 2}, {"FMix", FX_MIX, 3}, {"Fma", FX_FMA, 3},
+	{"FMin", FX_MIN, 2}, {"FMax", FX_MAX, 2}, {"FAbs", FX_ABS, 1},
+	{NULL, 0, 0}
+};
+
+/* an operand's lane: a scalar operand of a vector op is the same in
+ * every lane */
+static int
+fx_opnd(struct fxg *g, const char *o, int lane, int depth)
+{
+	int id = idx(o), t = V.id[id].type;
+
+	if (t >= 0 && V.id[t].kind == K_TYPE && T(t)->k != S_VEC)
+		lane = 0;
+	return fx_build(g, id, lane, depth + 1);
+}
+
+static int
+fx_build(struct fxg *g, int id, int lane, int depth)
+{
+	int k = SP.def[id], i, r = -1, op = -1, base = 1, na = 0;
+	const struct sins *I;
+
+	for (i = 0; i < nfxmemo; i++)
+		if (fxmemo_id[i] == id && fxmemo_lane[i] == lane)
+			return fxmemo_node[i];
+	if (depth > 24)
+		return -1;
+	if (V.id[id].kind == K_CONST && !V.id[id].spec) {
+		int t = V.id[id].type, st;
+		if (!is_float_t(t))
+			return -1;
+		st = T(t)->k == S_VEC ? T(t)->e : t;
+		r = fx_new(g, FX_K, -1, -1, -1, -1, id);
+		if (r >= 0)
+			g->n[r].k = (float)getf(st, V.id[id].c[T(t)->k == S_VEC &&
+			    lane < V.id[id].nc ? lane : 0]);
+		goto done;
+	}
+	if (k < 0)
+		return fx_leaf(g, id, lane);
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpCopyObject") && I->nop >= 2) {
+		r = fx_opnd(g, I->opnd[1], lane, depth);
+		goto done;
+	}
+	if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3) {
+		r = fx_build(g, idx(I->opnd[1]), atoi(I->opnd[2]), depth + 1);
+		goto done;
+	}
+	if (!strcmp(I->op, "OpCompositeConstruct") && is_float_t(idx(I->opnd[0]))) {
+		int at = 0, j;
+		for (j = 1; j < I->nop; j++) {
+			int cid = idx(I->opnd[j]), n = vcomp(cid);
+			if (lane < at + n) {
+				r = n > 1 ? fx_build(g, cid, lane - at, depth + 1) :
+				    fx_build(g, cid, 0, depth + 1);
+				break;
+			}
+			at += n;
+		}
+		goto done;
+	}
+	if (!strcmp(I->op, "OpVectorShuffle") && I->nop >= 4) {
+		int a = idx(I->opnd[1]), b = idx(I->opnd[2]), na2 = vcomp(a), s;
+		if (3 + lane >= I->nop)
+			return -1;
+		s = atoi(I->opnd[3 + lane]);
+		r = s < na2 ? fx_build(g, a, s, depth + 1) : fx_build(g, b, s - na2,
+		    depth + 1);
+		goto done;
+	}
+	if (!is_float_t(idx(I->opnd[0])))
+		return fx_leaf(g, id, lane);
+	if (!strcmp(I->op, "OpFAdd"))
+		op = FX_ADD, na = 2;
+	else if (!strcmp(I->op, "OpFSub"))
+		op = FX_SUB, na = 2;
+	else if (!strcmp(I->op, "OpFMul") || !strcmp(I->op, "OpVectorTimesScalar"))
+		op = FX_MUL, na = 2;
+	else if (!strcmp(I->op, "OpFDiv"))
+		op = FX_DIV, na = 2;
+	else if (!strcmp(I->op, "OpFNegate"))
+		op = FX_NEG, na = 1;
+	else if (!strcmp(I->op, "OpExtInst") && I->nop >= 4 &&
+	    idx(I->opnd[1]) == V.glsl) {
+		for (i = 0; fx_ext[i].ext; i++)
+			if (!strcmp(I->opnd[2], fx_ext[i].ext))
+				op = fx_ext[i].op, na = fx_ext[i].na;
+		base = 3;
+	}
+	if (op < 0 || I->nop < base + na)
+		return fx_leaf(g, id, lane);
+	{
+		int o[3] = {-1, -1, -1};
+		for (i = 0; i < na; i++)
+			if ((o[i] = fx_opnd(g, I->opnd[base + i], lane, depth)) < 0)
+				return -1;
+		r = fx_new(g, op, o[0], o[1], o[2], k, id);
+	}
+done:
+	if (r >= 0 && nfxmemo < FX_MAXN) {
+		fxmemo_id[nfxmemo] = id;
+		fxmemo_lane[nfxmemo] = lane;
+		fxmemo_node[nfxmemo++] = r;
+	}
+	return r;
+}
+
+static int
+fx_same(const struct fxg *a, const struct fxg *b)
+{
+	int i;
+
+	if (a->nn != b->nn || a->nin != b->nin)
+		return 0;
+	for (i = 0; i < a->nn; i++) {
+		const struct fxn *x = &a->n[i], *y = &b->n[i];
+		uint32_t kx, ky;
+		memcpy(&kx, &x->k, 4);
+		memcpy(&ky, &y->k, 4);
+		if (x->op != y->op || x->a != y->a || x->b != y->b || x->c != y->c ||
+		    x->in != y->in || x->ins != y->ins || (x->op == FX_K && kx != ky))
+			return 0;
+	}
+	for (i = 0; i < a->nin; i++)
+		if (a->in[i].sid != b->in[i].sid)
+			return 0;
+	return 1;
+}
+
+/* per component cost of a SPIR-V instruction, as lowered (0: not float) */
+static double
+fprice_ins(const char *op, const char *ext, int rt)
+{
+	const float *c = model_active()->c;
+	int i, n = rt >= 0 && V.id[rt].kind == K_TYPE ? ncomp(rt) : 1;
+	double p = -1;
+
+	/* a bool vector declared here: "%ucas_v3bool" */
+	if (rt >= 0 && V.id[rt].kind != K_TYPE &&
+	    !strncmp(V.id[rt].name, "%ucas_v", 7))
+		n = atoi(V.id[rt].name + 7);
+
+	if (!strcmp(op, "OpFAdd") || !strcmp(op, "OpFSub") ||
+	    !strcmp(op, "OpFNegate"))
+		p = c[C_FADD];
+	else if (!strcmp(op, "OpFMul") || !strcmp(op, "OpVectorTimesScalar"))
+		p = c[C_FMUL];
+	else if (!strcmp(op, "OpFDiv"))
+		p = c[C_FDIV];
+	else if (!strncmp(op, "OpFOrd", 6) || !strncmp(op, "OpFUnord", 8))
+		p = c[C_CMP];
+	else if (!strcmp(op, "OpSelect") && is_float_t(rt))
+		p = c[C_SELECT];
+	else if (!strcmp(op, "OpExtInst") && ext) {
+		for (i = 0; fx_ext[i].ext; i++)
+			if (!strcmp(ext, fx_ext[i].ext))
+				p = fx_price(fx_ext[i].op);
+		if (p < 0 && is_float_t(rt))
+			p = !strcmp(ext, "Exp") || !strcmp(ext, "Log") ?
+			    c[C_FTRANS] : c[C_MINMAX];
+	}
+	return p < 0 ? 0 : p * n;
+}
+
+/* the float pure instructions dead code removal may take */
+static int
+fpure(const struct sins *I)
+{
+	static const char *const ops[] = {"OpFAdd", "OpFSub", "OpFMul", "OpFDiv",
+		"OpFNegate", "OpVectorTimesScalar", "OpCompositeExtract",
+		"OpCompositeConstruct", "OpVectorShuffle", "OpCopyObject", NULL};
+
+	if (I->res < 0)
+		return 0;
+	if (!strncmp(I->op, "OpFOrd", 6) || !strncmp(I->op, "OpFUnord", 8))
+		return 1;
+	if (!strcmp(I->op, "OpExtInst"))
+		return I->nop >= 3 && idx(I->opnd[1]) == V.glsl;
+	if (!strcmp(I->op, "OpSelect"))
+		return 1;
+	return in_list(I->op, ops);
+}
+
+/* a constant of the float type rt (scalar or vector) with these lane
+ * values: its declaration added to decl, its name returned */
+static const char *
+fconst(struct sbuf *decl, int rt, const float *v, int n)
+{
+	static char names[64][96];
+	static int at;
+	int st = T(rt)->k == S_VEC ? T(rt)->e : rt, i;
+	char *nm = names[at++ & 63], sn[4][48];
+
+	for (i = 0; i < n; i++) {
+		uint32_t b;
+		char d[40];
+		memcpy(&b, &v[i], 4);
+		snprintf(sn[i], sizeof sn[i], "%%ucas_%.10s_%08x", V.id[st].tok + 1, b);
+		if (decl->p == NULL || !strstr(decl->p, sn[i])) {
+			snprintf(d, sizeof d, "%.9g", (double)v[i]);
+			sb_printf(decl, "%s = OpConstant %s %s\n", sn[i], V.id[st].tok,
+			    d);
+		}
+	}
+	if (n == 1) {
+		snprintf(nm, 96, "%s", sn[0]);
+		return nm;
+	}
+	snprintf(nm, 96, "%%ucas_k%d", n);
+	for (i = 0; i < n; i++)
+		snprintf(nm + strlen(nm), 96 - strlen(nm), "_%s", sn[i] + strlen(sn[i])
+		    - 8);
+	if (!strstr(decl->p, nm) || strstr(decl->p, nm)[strlen(nm)] != ' ') {
+		sb_printf(decl, "%s = OpConstantComposite %s", nm, V.id[rt].tok);
+		for (i = 0; i < n; i++)
+			sb_printf(decl, " %s", sn[i]);
+		sb_putc(decl, '\n');
+	}
+	return nm;
+}
+
+/* a bool type with n components: an existing one, or declared */
+static const char *
+bool_type(struct sbuf *decl, int n)
+{
+	static char nm[48];
+	int i, b = -1;
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_BOOL) {
+			b = i;
+			break;
+		}
+	if (b < 0) {
+		if (decl->p == NULL || !strstr(decl->p, "%ucas_bool = "))
+			sb_puts(decl, "%ucas_bool = OpTypeBool\n");
+	}
+	if (n == 1) {
+		snprintf(nm, sizeof nm, "%s", b >= 0 ? V.id[b].tok : "%ucas_bool");
+		return nm;
+	}
+	if (b >= 0)
+		for (i = 0; i < V.nid; i++)
+			if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_VEC &&
+			    V.id[i].t.e == b && V.id[i].t.n == n) {
+				snprintf(nm, sizeof nm, "%s", V.id[i].tok);
+				return nm;
+			}
+	snprintf(nm, sizeof nm, "%%ucas_v%dbool", n);
+	if (decl->p == NULL || !strstr(decl->p, nm))
+		sb_printf(decl, "%s = OpTypeVector %s %d\n", nm, b >= 0 ?
+		    V.id[b].tok : "%ucas_bool", n);
+	return nm;
+}
+
+struct fplan {
+	int k;			/* the instruction */
+	int kind, deg;
+	struct fxrw *rw[4];	/* one per lane group */
+	int ng;
+	double gain;		/* per instruction (lanes counted) */
+	int applied;
+	int line;
+};
+
+static void
+pr_lines(struct sbuf *o, const char *text, const char *ind)
+{
+	const char *p = text ? text : "";
+
+	while (*p) {
+		const char *e = strchr(p, '\n');
+		size_t n = e ? (size_t)(e - p) : strlen(p);
+		sb_printf(o, "%s%.*s\n", ind, (int)n, p);
+		p += n + (e != NULL);
+	}
+}
+
+static const char *
+kind_text(int kind)
+{
+	switch (kind) {
+	case FXR_SELECT: return "mix by a step as a select";
+	case FXR_RECIP: return "divide by a constant as a multiply";
+	case FXR_FMA: return "add and multiply as one fma";
+	case FXR_FMA2: return "multiply-add as one fma";
+	case FXR_POWEXP: return "pow as exp2(y * log2 x)";
+	case FXR_SQRT: return "sqrt as x * inversesqrt(x)";
+	case FXR_POLY: return "pow as a polynomial";
+	}
+	return "?";
+}
+
+static const char *
+proof_kind(const struct fxrw *r)
+{
+	if (r->exact && r->kind == FXR_SELECT)
+		return "bit-exact where the original is defined (derived)";
+	if (r->exact)
+		return "bit-exact (derived)";
+	if (r->vulkan && r->approx == 0)
+		return "within the original's Vulkan precision (derived), not "
+		    "bit-exact";
+	return "an approximation (derived bound)";
+}
+
+/*
+ * Float simplify of a complete module's text: the report on stdout, the
+ * rewritten module returned (NULL when nothing changed).
+ */
+static char *
+float_pass(const char *text, int *changed)
+{
+	struct fxg *G = xcalloc(64, sizeof *G);	/* lane graphs */
+	struct fxrw *RW = xcalloc(64 * 48, sizeof *RW);
+	int nrw_g[64], root_g[64], grp[64], lane_of[64], ngr = 0, ng = 0, k, i,
+	    j;
+	struct fplan *pl = xcalloc(256, sizeof *pl);
+	int npl = 0, preserve = 0, nroots = 0, napplied = 0;
+	char **repl, *dead;
+	struct sbuf decl = {0}, out = {0}, rep = {0}, lanes_txt = {0};
+	double before = 0, after = 0;
+	int nlanes_total = 0;
+	clock_t t0 = clock();
+
+	*changed = 0;
+	memset(&V, 0, sizeof V);
+	symmap_reset();
+	V.glsl = -1;
+	V.lanes = 1;
+	V.rng = 1;
+	cols = 1;
+	parse(text);
+	declare();
+	SP.def = xmalloc((size_t)(V.nid + 64) * sizeof *SP.def);
+	SP.uses = xcalloc((size_t)(V.nid + 64), sizeof *SP.uses);
+	for (i = 0; i < V.nid + 64; i++)
+		SP.def[i] = -1;
+	{
+		int inbody = 0;
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			if (!strcmp(I->op, "OpFunction"))
+				inbody = 1;
+			if (!strcmp(I->op, "OpExecutionMode") && I->nop >= 2 &&
+			    !strcmp(I->opnd[1], "SignedZeroInfNanPreserve"))
+				preserve = 1;
+			if (inbody && I->res >= 0) {
+				SP.def[I->res] = k;
+				if (I->nop >= 1 && I->opnd[0][0] == '%' &&
+				    V.id[idx(I->opnd[0])].kind == K_TYPE)
+					V.id[I->res].type = idx(I->opnd[0]);
+			}
+			if (!strncmp(I->op, "OpName", 6) || !strncmp(I->op,
+			    "OpMemberName", 12) || !strncmp(I->op, "OpDecorate", 10) ||
+			    !strncmp(I->op, "OpMemberDecorate", 16))
+				continue;
+			for (i = 0; i < I->nop; i++)
+				if (I->opnd[i][0] == '%')
+					SP.uses[idx(I->opnd[i])]++;
+		}
+	}
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *ext = !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
+		    I->opnd[2] : NULL;
+		if (I->res >= 0 && SP.def[I->res] == k && I->nop >= 1 &&
+		    I->opnd[0][0] == '%')
+			before += fprice_ins(I->op, ext, idx(I->opnd[0]));
+	}
+	/* the roots: stored and returned float values */
+	for (k = 0; k < V.nin && ngr < 60; k++) {
+		const struct sins *I = &V.in[k];
+		int v = -1, n, l, r0;
+		if (!strcmp(I->op, "OpStore") && I->nop >= 2)
+			v = idx(I->opnd[1]);
+		else if (!strcmp(I->op, "OpReturnValue") && I->nop >= 1)
+			v = idx(I->opnd[0]);
+		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
+		    fprice_ins(V.in[SP.def[v]].op, !strcmp(V.in[SP.def[v]].op,
+		    "OpExtInst") ? V.in[SP.def[v]].opnd[2] : NULL,
+		    V.id[v].type) <= 0)
+			continue;
+		n = ncomp(V.id[v].type);
+		nroots++;
+		r0 = ngr;
+		for (l = 0; l < n && ngr < 64; l++) {
+			struct fxg *g = &G[ngr];
+			int root;
+			memset(g, 0, sizeof *g);
+			nfxmemo = 0;
+			g->preserve = preserve;
+			root = fx_build(g, v, l, 0);
+			if (root < 0)
+				continue;
+			{
+				static char sl[200];
+				src_line(ins_line(SP.def[v]), sl, sizeof sl);
+				{
+					char *c = strchr(sl, ':');
+					g->srcline = c ? strdup(c + 1) : NULL;
+				}
+			}
+			root_g[ngr] = root;
+			lane_of[ngr] = l;
+			/* the same scalar function as an earlier lane? */
+			grp[ngr] = ngr;
+			if (!fopt_percomp)
+				for (j = r0; j < ngr; j++)
+					if (grp[j] == j && fx_same(&G[j], g)) {
+						grp[ngr] = j;
+						break;
+					}
+			ngr++;
+		}
+		{
+			int ngroups = 0, gl[4] = {0, 0, 0, 0};
+			for (j = r0; j < ngr; j++)
+				if (grp[j] == j)
+					ngroups++;
+			for (j = r0; j < ngr; j++)
+				gl[j - r0 < 4 ? j - r0 : 3] = grp[j] - r0;
+			nlanes_total += ngr - r0;
+			if (ngr - r0 > 1) {
+				char ln[200];
+				src_line(ins_line(SP.def[v]), ln, sizeof ln);
+				if (ngroups == 1)
+					sb_printf(&lanes_txt, "  %s: %d lanes (%s) compute one "
+					    "scalar function (splat constants): analysed once, "
+					    "applied to every lane%s\n", V.id[v].name, ngr - r0,
+					    ngr - r0 == 2 ? "x, y" : ngr - r0 == 3 ?
+					    "x, y, z" : "x, y, z, w", ngr - r0 < 4 ? "; any "
+					    "width is lanes of a vec4, so the same search covers "
+					    "it" : "");
+				else
+					sb_printf(&lanes_txt, "  %s: %d lanes, %d different "
+					    "scalar functions (%s): analysed per component; a "
+					    "rewrite applies when every lane's analysis allows "
+					    "it\n", V.id[v].name, ngr - r0, ngroups,
+					    fopt_percomp ? "per component, as asked" :
+					    "the constants differ per component");
+			}
+			(void)gl;
+		}
+	}
+	if (ngr == 0) {
+		free(G);
+		free(RW);
+		free(pl);
+		free(SP.def);
+		free(SP.uses);
+		SP.def = NULL;
+		SP.uses = NULL;
+		for (k = 0; k < V.nin; k++) {
+			for (i = 0; i < V.in[k].nop; i++)
+				free(V.in[k].opnd[i]);
+			free(V.in[k].text);
+		}
+		free(V.in);
+		memset(&V, 0, sizeof V);
+		npend_fas = 0;
+		if (fopt_only)
+			printf("float simplify: no float arithmetic reaches a store "
+			    "or a return\n");
+		return NULL;
+	}
+	/* the analyses, per lane group */
+	for (j = 0; j < ngr; j++) {
+		nrw_g[j] = 0;
+		if (grp[j] != j)
+			continue;
+		nrw_g[j] = fx_rewrites(&G[j], root_g[j], &fopt, RW + j * 48, 48);
+		ng++;
+	}
+	/* plans per instruction: every group of the root has the rewrite */
+	for (j = 0; j < ngr; j++) {
+		int q;
+		if (grp[j] != j)
+			continue;
+		for (q = 0; q < nrw_g[j]; q++) {
+			struct fxrw *r = &RW[j * 48 + q];
+			int ins = G[j].n[r->node].ins, p;
+			for (p = 0; p < npl; p++)
+				if (pl[p].k == ins && pl[p].kind == r->kind &&
+				    pl[p].deg == r->deg)
+					break;
+			if (p == npl) {
+				if (npl >= 256)
+					continue;
+				memset(&pl[p], 0, sizeof pl[p]);
+				pl[p].k = ins;
+				pl[p].kind = r->kind;
+				pl[p].deg = r->deg;
+				pl[p].line = ins_line(ins);
+				npl++;
+			}
+			if (pl[p].ng < 4)
+				pl[p].rw[pl[p].ng++] = r;
+		}
+	}
+	/* accepted: every lane group of the instruction allows it, and what
+	 * it depends on is applied; one rewrite per instruction (the most
+	 * gain) */
+	{
+		int pass;
+		for (pass = 0; pass < 3; pass++)
+			for (i = 0; i < npl; i++) {
+				struct fplan *P = &pl[i];
+				int ok = 1, q, groups = 0, rt;
+				if (P->applied || P->k < 0)
+					continue;
+				rt = idx(V.in[P->k].opnd[0]);
+				for (j = 0; j < ngr; j++)
+					if (grp[j] == j)
+						for (q = 0; q < G[j].nn; q++)
+							if (G[j].n[q].ins == P->k) {
+								groups++;
+								break;
+							}
+				if (P->ng < groups)
+					ok = 0;
+				for (q = 0; q < P->ng && ok; q++) {
+					struct fxrw *r = P->rw[q];
+					if (!fx_accept(r, &fopt))
+						ok = 0;
+					if (r->dep >= 0) {
+						/* the select it relies on, in the same group */
+						struct fxrw *d = NULL;
+						int gj = (int)((r - RW) / 48), p2, found = 0;
+						d = &RW[gj * 48 + r->dep];
+						for (p2 = 0; p2 < npl; p2++)
+							if (pl[p2].applied && pl[p2].kind == d->kind &&
+							    pl[p2].k == G[gj].n[d->node].ins)
+								found = 1;
+						if (!found)
+							ok = 0;
+					}
+				}
+				for (q = 0; q < npl && ok; q++)
+					if (q != i && pl[q].applied && pl[q].k == P->k)
+						ok = 0;
+				if (!ok)
+					continue;
+				/* the best of the alternatives on this instruction */
+				for (q = 0; q < npl; q++)
+					if (q != i && pl[q].k == P->k && !pl[q].applied &&
+					    pl[q].rw[0] && fx_accept(pl[q].rw[0], &fopt) &&
+					    pl[q].rw[0]->gain > P->rw[0]->gain &&
+					    pl[q].ng >= groups)
+						ok = 0;
+				if (!ok)
+					continue;
+				P->applied = 1;
+				P->gain = P->rw[0]->gain * ncomp(rt);
+				napplied++;
+			}
+	}
+	/* the rewritten module */
+	repl = xcalloc((size_t)V.nin, sizeof *repl);
+	dead = xcalloc((size_t)V.nin, 1);
+	for (i = 0; i < npl; i++) {
+		struct fplan *P = &pl[i];
+		const struct sins *I;
+		const char *R, *RT, *GL;
+		struct sbuf s = {0};
+		int rt, n, q;
+		float lv[FX_MAXK][4];
+		static int tmp;
+		if (!P->applied)
+			continue;
+		I = &V.in[P->k];
+		R = V.id[I->res].tok;
+		RT = I->opnd[0];
+		rt = idx(RT);
+		n = ncomp(rt);
+		GL = V.glsl >= 0 ? V.id[V.glsl].tok : "%1";
+		/* lane values of the new constants */
+		for (q = 0; q < FX_MAXK; q++) {
+			int l;
+			for (l = 0; l < n && l < 4; l++) {
+				/* the graph built for lane l that has the instruction:
+				 * its group's rewrite */
+				int gi = -1, jj, rr, z;
+				for (jj = 0; jj < ngr && gi < 0; jj++) {
+					if (lane_of[jj] != l)
+						continue;
+					for (z = 0; z < G[jj].nn; z++)
+						if (G[jj].n[z].ins == P->k)
+							gi = grp[jj];
+				}
+				for (rr = 0; rr < P->ng; rr++)
+					if ((int)((P->rw[rr] - RW) / 48) == gi)
+						break;
+				if (rr == P->ng)
+					rr = 0;
+				lv[q][l] = P->rw[rr]->k[q];
+			}
+		}
+		switch (P->kind) {
+		case FXR_SELECT: {
+			int t = idx(I->opnd[5]), sk = SP.def[t];
+			const char *bt = bool_type(&decl, n);
+			if (sk < 0)
+				break;
+			sb_printf(&s, "%%ucas_f%d = OpFUnordGreaterThanEqual %s %s %s\n",
+			    ++tmp, bt, V.in[sk].opnd[4], V.in[sk].opnd[3]);
+			sb_printf(&s, "%s = OpSelect %s %%ucas_f%d %s %s\n", R, RT, tmp,
+			    I->opnd[4], I->opnd[3]);
+			break;
+		}
+		case FXR_RECIP:
+			sb_printf(&s, "%s = OpFMul %s %s %s\n", R, RT, I->opnd[1],
+			    fconst(&decl, rt, lv[0], n));
+			break;
+		case FXR_FMA: {
+			int a = idx(I->opnd[1]), b = idx(I->opnd[2]), ak, x;
+			int s1 = SP.def[a] >= 0 && !strcmp(V.in[SP.def[a]].op, "OpFAdd") ?
+			    a : b;
+			const char *k1 = fconst(&decl, rt, lv[0], n);
+			const char *k2 = fconst(&decl, rt, lv[1], n);
+			ak = SP.def[s1];
+			x = V.id[idx(V.in[ak].opnd[1])].kind == K_CONST ? 2 : 1;
+			sb_printf(&s, "%s = OpExtInst %s %s Fma %s %s %s\n", R, RT, GL,
+			    V.in[ak].opnd[x], k1, k2);
+			break;
+		}
+		case FXR_FMA2: {
+			int a = idx(I->opnd[1]), m, x, kk;
+			int mi = SP.def[a] >= 0 && !strcmp(V.in[SP.def[a]].op, "OpFMul") ?
+			    1 : 2;
+			m = SP.def[idx(I->opnd[mi])];
+			x = V.id[idx(V.in[m].opnd[1])].kind == K_CONST ? 2 : 1;
+			kk = 3 - x;
+			sb_printf(&s, "%s = OpExtInst %s %s Fma %s %s %s\n", R, RT, GL,
+			    V.in[m].opnd[x], V.in[m].opnd[kk], I->opnd[3 - mi]);
+			break;
+		}
+		case FXR_POWEXP:
+			tmp++;
+			sb_printf(&s, "%%ucas_f%dl = OpExtInst %s %s Log2 %s\n", tmp, RT,
+			    GL, I->opnd[3]);
+			sb_printf(&s, "%%ucas_f%dm = OpFMul %s %%ucas_f%dl %s\n", tmp, RT,
+			    tmp, I->opnd[4]);
+			sb_printf(&s, "%s = OpExtInst %s %s Exp2 %%ucas_f%dm\n", R, RT,
+			    GL, tmp);
+			break;
+		case FXR_SQRT:
+			tmp++;
+			sb_printf(&s, "%%ucas_f%dz = OpExtInst %s %s InverseSqrt %s\n",
+			    tmp, RT, GL, I->opnd[3]);
+			sb_printf(&s, "%s = OpFMul %s %s %%ucas_f%dz\n", R, RT,
+			    I->opnd[3], tmp);
+			break;
+		case FXR_POLY: {
+			int d = P->deg, e;
+			char prev[48];
+			tmp++;
+			sb_printf(&s, "%%ucas_f%dt = OpFSub %s %s %s\n", tmp, RT,
+			    I->opnd[3], fconst(&decl, rt, lv[0], n));
+			snprintf(prev, sizeof prev, "%s", fconst(&decl, rt, lv[1], n));
+			for (e = 1; e <= d; e++) {
+				const char *ce = fconst(&decl, rt, lv[1 + e], n);
+				if (e == d)
+					sb_printf(&s, "%s = OpExtInst %s %s Fma %s %%ucas_f%dt "
+					    "%s\n", R, RT, GL, prev, tmp, ce);
+				else {
+					sb_printf(&s, "%%ucas_f%dh%d = OpExtInst %s %s Fma %s "
+					    "%%ucas_f%dt %s\n", tmp, e, RT, GL, prev, tmp, ce);
+					snprintf(prev, sizeof prev, "%%ucas_f%dh%d", tmp, e);
+				}
+			}
+			break;
+		}
+		}
+		repl[P->k] = s.p;
+	}
+	/* dead float instructions: no uses left */
+	{
+		int *uses = xcalloc((size_t)V.nid + 64, sizeof *uses), ch = 1;
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			if (!strncmp(I->op, "OpName", 6) || !strncmp(I->op,
+			    "OpMemberName", 12) || !strncmp(I->op, "OpDecorate", 10) ||
+			    !strncmp(I->op, "OpMemberDecorate", 16))
+				continue;
+			if (repl[k]) {	/* the replacement's operands */
+				const char *p = repl[k];
+				while ((p = strchr(p, '%')) != NULL) {
+					char nm[64];
+					int ln = 0;
+					while (p[ln] && !isspace((unsigned char)p[ln]) && ln < 63)
+						ln++;
+					memcpy(nm, p, (size_t)ln);
+					nm[ln] = 0;
+					/* ids after the '=' only */
+					{
+						const char *ls = p;
+						while (ls > repl[k] && ls[-1] != '\n')
+							ls--;
+						if (strchr(ls, '=') && strchr(ls, '=') < p &&
+						    nm[1] != 'u')
+							uses[idx(nm)]++;
+					}
+					p += ln;
+				}
+				continue;
+			}
+			for (i = 0; i < I->nop; i++)
+				if (I->opnd[i][0] == '%')
+					uses[idx(I->opnd[i])]++;
+		}
+		while (ch) {
+			ch = 0;
+			for (k = 0; k < V.nin; k++) {
+				const struct sins *I = &V.in[k];
+				if (dead[k] || repl[k] || I->res < 0 || SP.def[I->res] != k ||
+				    uses[I->res] || !fpure(I))
+					continue;
+				dead[k] = 1;
+				ch = 1;
+				for (i = 0; i < I->nop; i++)
+					if (I->opnd[i][0] == '%')
+						uses[idx(I->opnd[i])]--;
+			}
+		}
+		free(uses);
+	}
+	/* the text, and the cost after */
+	{
+		int first_fn = -1;
+		for (k = 0; k < V.nin; k++)
+			if (!strcmp(V.in[k].op, "OpFunction")) {
+				first_fn = k;
+				break;
+			}
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			if (k == first_fn && decl.p)
+				sb_puts(&out, decl.p);
+			if (dead[k])
+				continue;
+			if ((!strcmp(I->op, "OpName") || !strncmp(I->op, "OpDecorate",
+			    10)) && I->nop >= 1 && I->opnd[0][0] == '%') {
+				int t = idx(I->opnd[0]);
+				if (SP.def[t] >= 0 && dead[SP.def[t]])
+					continue;
+			}
+			if (repl[k]) {
+				const char *p = repl[k];
+				sb_puts(&out, p);
+				while (*p) {	/* each new line's price */
+					char op[40] = "", ext[24] = "", rtn[64] = "";
+					const char *e = strchr(p, '\n'), *q = strchr(p, '=');
+					if (q && (!e || q < e))
+						sscanf(q + 1, " %39s %63s", op, rtn);
+					if (!strcmp(op, "OpExtInst"))
+						sscanf(q + 1, " %*s %*s %*s %23s", ext);
+					if (op[0])
+						after += fprice_ins(op, ext[0] ? ext : NULL,
+						    idx(rtn));
+					p = e ? e + 1 : p + strlen(p);
+				}
+				continue;
+			}
+			sb_printf(&out, "%s\n", I->text);
+			if (I->res >= 0 && SP.def[I->res] == k && I->nop >= 1 &&
+			    I->opnd[0][0] == '%')
+				after += fprice_ins(I->op, !strcmp(I->op, "OpExtInst") &&
+				    I->nop >= 3 ? I->opnd[2] : NULL, idx(I->opnd[0]));
+		}
+	}
+	/* the report */
+	{
+		int nd = 0, nap = 0, nrej = 0, napx = 0, q;
+		int ord[256], no = 0;
+		for (i = 0; i < npl; i++) {
+			if (pl[i].kind == FXR_DIVNOTE)
+				nd++;
+			else if (pl[i].applied)
+				ord[no++] = i;
+			else if (pl[i].kind == FXR_POLY)
+				napx++;
+			else
+				nrej++;
+		}
+		for (i = 1; i < no; i++) {	/* largest savings first */
+			int x = ord[i];
+			for (j = i; j > 0 && pl[ord[j - 1]].gain < pl[x].gain; j--)
+				ord[j] = ord[j - 1];
+			ord[j] = x;
+		}
+		nap = no;
+		sb_printf(&rep, "float simplify: %d rewrite%s of float instructions "
+		    "applied, each with a derivation (no sampling)", nap,
+		    nap == 1 ? "" : "s");
+		if (nd)
+			sb_printf(&rep, "; %d done already by spirv-opt -O, checked "
+			    "the same way", nd);
+		sb_puts(&rep, "\n");
+		if (lanes_txt.p)
+			sb_puts(&rep, lanes_txt.p);
+		for (j = 0; j < ngr; j++) {
+			int z;
+			if (grp[j] != j)
+				continue;
+			for (z = 0; z < G[j].nin; z++)
+				if (G[j].in[z].assumed && G[j].in[z].lane == 0) {
+					char a[40], b[40];
+					sb_printf(&rep, "  assuming %s in [%s, %s] (each "
+					    "component; no NaN)\n", G[j].in[z].name,
+					    fx_str(G[j].in[z].lo, a, sizeof a),
+					    fx_str(G[j].in[z].hi, b, sizeof b));
+				}
+			break;
+		}
+		sb_printf(&rep, "  reference: IEEE binary32, round to nearest even;"
+		    " pow, exp2, log2 correctly rounded (long double, then f32); NaN "
+		    "payloads ignored, -0 and +0 distinct; GLSL's undefined results "
+		    "(pow of x < 0, log2 of x <= 0 ...) may become anything\n");
+		sb_printf(&rep, "  float cost under %s (per component; step = "
+		    "compare + select, mix = subtract + fma): %g -> %g",
+		    sym_str(model_active()->name), before, after);
+		if (before > 0)
+			sb_printf(&rep, " (%+.1f%%)", 100 * (after - before) / before);
+		sb_puts(&rep, "\n");
+		if (fopt.mode == 1)
+			sb_puts(&rep, "  mode: bit-exact only\n");
+		else if (fopt.mode == 2)
+			sb_printf(&rep, "  mode: within %g ulp of the reference%s\n",
+			    fopt.ulp, fopt.approx ? " (approximations too)" : "");
+		for (q = 0; q < no; q++) {
+			struct fplan *P = &pl[ord[q]];
+			char sl[200];
+			struct fxrw *r = P->rw[0];
+			int g2;
+			src_line(P->line, sl, sizeof sl);
+			if (q == 0)
+				sb_printf(&rep, "  rewrites, the largest savings first:\n");
+			sb_printf(&rep, "    %s\n", V.in[P->k].text);
+			{
+				const char *p = repl[P->k];
+				int first = 1;
+				while (p && *p) {
+					const char *e = strchr(p, '\n');
+					size_t ln = e ? (size_t)(e - p) : strlen(p);
+					sb_printf(&rep, "      %s %.*s\n", first ? "->" : "  ",
+					    (int)ln, p);
+					first = 0;
+					p += ln + (e != NULL);
+				}
+			}
+			sb_printf(&rep, "      (%s; -%g)\n", kind_text(P->kind), P->gain);
+			sb_printf(&rep, "      proof: %s\n", proof_kind(r));
+			for (g2 = 0; g2 < P->ng; g2++) {
+				struct fxrw *rr = P->rw[g2];
+				if (P->ng > 1)
+					sb_printf(&rep, "      lane group %d:%s\n", g2 + 1,
+					    rr->exact ? " bit-exact" : "");
+				pr_lines(&rep, rr->proof.p, P->ng > 1 ? "        " :
+				    "        ");
+				if (!rr->exact && rr->exc[0])
+					sb_printf(&rep, "        not bit-exact at %s\n",
+					    rr->exc);
+				else if (!rr->exact && rr->wit[0])
+					sb_printf(&rep, "        not bit-exact: %s\n", rr->wit);
+				if (rr->ulp > 0)
+					sb_printf(&rep, "        bound against the reference: "
+					    "%g ulp\n", rr->ulp);
+			}
+			if (sl[0])
+				sb_printf(&rep, "  %s", sl);
+		}
+		if (no == 0)
+			sb_printf(&rep, "  nothing applied: no cheaper float form could "
+			    "be proved%s\n", fopt.mode == 1 ? " bit-exact" : "");
+		if (nd) {
+			sb_printf(&rep, "  done already by spirv-opt -O (the GLSL "
+			    "divides, the module multiplies):\n");
+			for (i = 0; i < npl; i++) {
+				struct fxrw *r = pl[i].rw[0];
+				char sl[200];
+				if (pl[i].kind != FXR_DIVNOTE)
+					continue;
+				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
+				    r->why);
+				pr_lines(&rep, r->proof.p, "        ");
+				if (r->wit[0])
+					sb_printf(&rep, "        not bit-exact: %s\n", r->wit);
+				src_line(pl[i].line, sl, sizeof sl);
+				if (sl[0])
+					sb_printf(&rep, "  %s", sl);
+			}
+		}
+		if (napx) {
+			sb_printf(&rep, "  approximations (cheaper, %s):\n",
+			    fopt.approx ? "applied only within `ulp N`" : "not applied: "
+			    "say `approx ulp N` to allow one");
+			for (i = 0; i < npl; i++) {
+				struct fxrw *r = pl[i].rw[0];
+				int c, any = 0;
+				if (pl[i].kind != FXR_POLY || pl[i].applied)
+					continue;
+				for (c = 0; c < pl[i].ng; c++)
+					any |= pl[i].rw[c]->approx;
+				sb_printf(&rep, "    %s, cost %g (-%g): %s, under %g ulp\n",
+				    r->why, r->cost, r->gain, any ? "exceeds the original's "
+				    "precision" : "within the original's precision",
+				    r->ulp);
+				if (i == npl - 1 || pl[i + 1].kind != FXR_POLY ||
+				    pl[i + 1].k != pl[i].k) {
+					pr_lines(&rep, r->proof.p, "        ");
+					{
+						int e;
+						sb_printf(&rep, "        P(t) = ");
+						for (e = 0; e < r->deg; e++)
+							sb_printf(&rep, "fma(");
+						sb_printf(&rep, "%.9g", (double)r->k[1]);
+						for (e = 1; e <= r->deg; e++)
+							sb_printf(&rep, ", t, %.9g)", (double)r->k[1 + e]);
+						sb_printf(&rep, ", t = q - %.9g\n", (double)r->k[0]);
+					}
+				}
+			}
+		}
+		if (nrej) {
+			sb_printf(&rep, "  not applied:\n");
+			for (i = 0; i < npl; i++) {
+				struct fxrw *r = NULL;
+				int c;
+				if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
+				    pl[i].kind == FXR_POLY)
+					continue;
+				for (c = 0; c < pl[i].ng; c++)
+					if (!fx_accept(pl[i].rw[c], &fopt))
+						r = pl[i].rw[c];
+				if (r == NULL)
+					r = pl[i].rw[0];
+				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
+				    kind_text(pl[i].kind));
+				if (r->gain <= 0)
+					sb_printf(&rep, "        not cheaper under %s\n",
+					    sym_str(model_active()->name));
+				else if (!r->refine)
+					sb_printf(&rep, "        not a refinement: %s\n",
+					    r->fail);
+				else if (r->fail[0])
+					sb_printf(&rep, "        %s\n", r->fail);
+				else if (fopt.mode == 1 && !r->exact)
+					sb_printf(&rep, "        not bit-exact%s%s\n",
+					    r->exc[0] || r->wit[0] ? ": " : "", r->exc[0] ?
+					    r->exc : r->wit);
+				else if (fopt.mode == 2)
+					sb_printf(&rep, "        its bound (%g ulp) exceeds %g "
+					    "ulp\n", r->ulp, fopt.ulp);
+				else
+					sb_printf(&rep, "        a lane or what it relies on "
+					    "is not allowed\n");
+				if (r->kind == FXR_FMA && r->wit[0] && r->fail[0] == 0)
+					sb_printf(&rep, "        %s\n", r->wit);
+			}
+		}
+		/* the select still runs both sides; a branch would not */
+		for (i = 0; i < npl; i++)
+			if (pl[i].applied && pl[i].kind == FXR_SELECT) {
+				const float *mc = model_active()->c;
+				sb_printf(&rep, "  the select still computes both sides (no "
+				    "divergence); a branch on the compare would skip the "
+				    "unused side: under %s it costs a branch (%g) when the "
+				    "lanes agree, and both sides plus %g when they diverge "
+				    "(keep-up)\n", sym_str(model_active()->name),
+				    mc[C_BRANCH], mc[C_DIVERGE]);
+				break;
+			}
+		{
+			double el = (double)(clock() - t0) / CLOCKS_PER_SEC;
+			if (el >= 0.5)
+				sb_printf(&rep, "  derived in %.1f s\n", el);
+		}
+		fputs(rep.p, stdout);
+	}
+	*changed = napplied > 0;
+	for (i = 0; i < ngr; i++)
+		free((void *)G[i].srcline);
+	for (j = 0; j < ngr; j++)
+		if (grp[j] == j)
+			fx_free(RW + j * 48, nrw_g[j]);
+	for (k = 0; k < V.nin; k++)
+		free(repl[k]);
+	free(repl);
+	free(dead);
+	free(decl.p);
+	free(rep.p);
+	free(lanes_txt.p);
+	free(G);
+	free(RW);
+	free(pl);
+	free(SP.def);
+	free(SP.uses);
+	SP.def = NULL;
+	SP.uses = NULL;
+	for (k = 0; k < V.nin; k++) {
+		for (i = 0; i < V.in[k].nop; i++)
+			free(V.in[k].opnd[i]);
+		free(V.in[k].text);
+	}
+	free(V.in);
+	memset(&V, 0, sizeof V);
+	npend_fas = 0;
+	(void)nroots;
+	(void)nlanes_total;
+	(void)ng;
+	if (!*changed) {
+		free(out.p);
+		return NULL;
+	}
+	return out.p;
+}
+
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
@@ -4524,10 +5714,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "16 levels, the rest (loads, loop phis, spec constants) are "
 		    "free inputs\n", tb);
 	}
-	if (nrw + ndead > 0)
-		deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
-		    nofile);
-	free(out.p);
 	free(list.p);
 	free(rl);
 	free(SP.dl);
@@ -4550,4 +5736,18 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	free(V.in);
 	memset(&V, 0, sizeof V);
+	/* the float instructions, on the module as the integer part left it */
+	{
+		int fch = 0;
+		char *ft = float_pass(out.p ? out.p : "", &fch);
+		if (fch)
+			deliver_file("simplified.spvasm", "text/plain", ft, strlen(ft),
+			    nofile);
+		else if (nrw + ndead > 0)
+			deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
+			    nofile);
+		free(ft);
+	}
+	free(out.p);
+	spirv_float_opts(0, 0, 0, 0, 0);
 }

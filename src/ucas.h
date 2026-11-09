@@ -387,6 +387,10 @@ extern struct spvset spv_set[16];
 extern int nspv_set;
 void spirv_simplify(const char *src, double budget, int nofile);
 void spirv_assume(const char *name, int64_t lo, int64_t hi);
+void spirv_assume_float(const char *name, double lo, double hi, int lo_open,
+    int hi_open);
+void spirv_float_opts(int mode, double ulp, int approx, int percomp,
+    int only);
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
 int glsl_like(const char *code, const char *lang);

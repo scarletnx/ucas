@@ -1505,10 +1505,17 @@ an_fma(struct fxg *g, const struct fiv *dom, struct fxrw *r, int x, float A,
 	    "%s: at most (1 + %.3g) ulp = %.3g ulp\n", me, 0.5 + me * 0x1p24,
 	    vk_fma, me * 0x1p24, 1 + me * 0x1p24);
 	if (haveD) {
-		r->vulkan = 1 + me * 0x1p24 <= 2.5;
-		P("  the original divides: allowed (as %s) 2.5 ulp on top of the "
-		    "add's rounding, so %.3g <= 2.5 %s\n", vk_div,
-		    1 + me * 0x1p24, r->vulkan ? "holds: within" : "fails");
+		/* the original may return anything within 2.5 ulp of s/d, s =
+		 * fl(x + A): |r - s/d| <= |r - T| + |x + A - s|/d, and
+		 * |x + A - s| <= ulp(s)/2 <= 2^ceil(log2 d) ulp(T)/2 */
+		double f = ldexp(1, (int)ceil(log2((double)D))) / (2 * D);
+		double tot = 1 + me * 0x1p24 + f;
+		r->vulkan = tot <= 2.5;
+		P("  the original divides s = fl(x + A) by d: allowed anything "
+		    "within 2.5 ulp of s/d (%s); |r - s/d| <= |r - T| + |x + A - s|/d"
+		    " <= %.3g + ulp(s)/(2d) <= %.3g + 2^ceil(log2 d)/(2d) = %.3g ulp, "
+		    "%s 2.5: %s\n", vk_div, 1 + me * 0x1p24, 1 + me * 0x1p24, tot,
+		    r->vulkan ? "<=" : ">", r->vulkan ? "within" : "not within");
 	} else {
 		r->vulkan = 0;
 		P("  the original is an add and a multiply, both correctly rounded "
