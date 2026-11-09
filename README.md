@@ -171,6 +171,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
 | `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
 | `nthroots N F`, `unity N` | the N complex N-th roots (of 1), each raised back to the N-th power |
+| `laplace`, `ilaplace`, `ztrans`, `iztrans`, `zsolve`, `tf`, `fourier`, `ifourier`, `dft`, `dtft`, `genfunc`, `egf`, `sum(n, 1, inf, ...)`, `prod(...)`, `converge`, `radius`, `powerseries`, `asymptotic` | transforms, series and sums (see "Transforms, series and sums") |
 | `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
@@ -421,7 +422,21 @@ behind it.  English only; the translator is a hand-written parser
   discontinuous`, `where is x^3 concave`, `the asymptotes of`, `the
   roots of`, `where does f cross zero`, `identify the equation x^2 + y^2
   = 1`, `what kind of equation is y'' + y = 0`, `classify`, `what type
-  of function is`, `what properties does f have`).
+  of function is`, `what properties does f have`); transforms, series
+  and sums (src/nlp_xform.inc: `the laplace transform of t^2 e^-t`,
+  `inverse laplace of 1/(s^2+1)`, `solve y'' + y = 0 with y(0) = 1,
+  y'(0) = 0 using laplace`, `the z transform of a^n u[n]`, `inverse z
+  transform of z/(z - 0.5)`, `solve y[n+1] = 2y[n], y[0] = 1 using the z
+  transform`, `transfer function of y[n] = 0.9 y[n-1] + x[n]`, `the
+  frequency response of ...`, `is the filter ... stable`, `fourier series
+  of a square wave` (also sawtooth, triangle wave; `on -1 to 1`),
+  `fourier transform of e^(-x^2)`, `the dft of [1, 2, 3, 4]`, `does the
+  sum of 1/n^2 converge`, `what is the sum of 1/n^2 from 1 to infinity`,
+  `the infinite sum of 1/2^n`, `the product of 1 - 1/n^2 for n from 2 to
+  infinity`, `radius of convergence of the sum of x^n/n!`, `the
+  generating function of fibonacci`, `the exponential generating
+  function of 2^n`, `the power series of e^(2x)`, `the asymptotic
+  expansion of the sum of 1/k`; see "Transforms, series and sums").
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
@@ -638,8 +653,8 @@ c/sqrt(quadratic) (asin written with atan, or log), P'/P (log|P|),
 P(x)·log(ax + b) by parts, and e^u as exp(u).
 
 Not done: limits of several variables, Taylor series of several variables
-beyond symbolic coefficients, partial fractions, the n-th derivative of
-products.
+beyond symbolic coefficients, partial fractions (the transforms carry a
+small one, xfrat.c), the n-th derivative of products.
 
 ### What is checked, and what is approximate
 
@@ -687,6 +702,123 @@ matrix power is exact).
   none).
 - PDEs: one space dimension, linear, constant coefficients; Dirichlet,
   periodic or (for advection) outflow boundaries.
+
+## Transforms, series and sums
+
+```
+> laplace t^2 e^-t
+L{t^2*e^(-t)}(s) = 2/(s + 1)^3
+  region of convergence: Re(s) > -1
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: ...
+> ilaplace 1/(s^2 + 2s + 5)
+L^-1{1/(s^2 + 2s + 5)}(t) = e^(-t)*sin(2t)/2
+  poles: s = -1 +- 2i
+> laplace solve y'' + y = sin(t), y(0) = 0, y'(0) = 1
+  Y(s) = (s^2 + 2)/(s^2 + 1)^2
+  y(t) = -t*cos(t)/2 + 3sin(t)/2    for t >= 0
+> tf y[n] = 0.9 y[n-1] + x[n]
+  H(z) = 10z/(10z - 9)
+       = 1/(1 - (9/10)z^-1)
+  stable (BIBO): every pole inside the unit circle (max |p| = 9/10)
+  -3 dB (gain 10/sqrt(2)) at w = 0.105458 rad/sample
+    float y = x + 0.9f*y1;
+> sum(n, 1, inf, 1/n^2)
+  converges absolutely: p-series 1/n^2 with p = 2 > 1
+  = pi^2/6
+  numeric: 1.644934066848226 (the first 128 terms plus an Euler-Maclaurin tail ...)
+> asymptotic sum(k, 1, n, 1/k)
+sum(k, 1, n, 1/k) ~ log(n) + gamma + 1/(2n) - 1/(12n^2) + 1/(120n^4) + ...
+```
+
+`src/xform.c` (transforms), `src/series.c` (sums and products),
+`src/xfrat.c` (shared: exact-looking numbers, the printer, polynomials
+and rational functions, partial fractions), English in
+`src/nlp_xform.inc`.  `tests/xform.ucas` runs every command.
+
+| command | |
+|---------|--|
+| `laplace F [t] [s] [period T]` | L{f}(s) = int_0^inf f(t) e^(-st) dt, one-sided.  Table: t^n, t^p (Gamma), e^(at), sin, cos, sinh, cosh (of bt + c); rules: linearity, e^(at) f -> F(s - a), t^n f, product to sum, powers of sin/cos, polynomials expanded, u(t - a) (also `H`, `step`, `heaviside`, `theta`) as e^(-as) shifts, delta(t - a), piecewise `{... if t < 1, ...}` and \|t - a\| as steps, `period T` (F_T(s)/(1 - e^(-Ts))).  Symbolic constants are allowed (`e^(a t)`, `sin(w t)`).  Prints the region of convergence Re(s) > a and the rules used |
+| `ilaplace F [s] [t]` | partial fractions (complex pairs as e^(at)(cos, sin), ±r pairs as cosh/sinh when that is shorter), e^(-as) factors as u(t - a) shifts, a constant part as delta(t), (s - a)^(-p) with p not an integer (Gamma), and symbolic c/(s - a)^m and (b s + c)/(A s^2 + B s + C) (with the assumption printed).  The right-sided inverse: Re(s) > the largest pole's real part |
+| `laplace solve ODE, ICs` | `y'' + 3y' + 2y = u(t - 1), y(0) = 1, y'(0) = 0` (also `dy/dt`, `d^2y/dt^2`, `y(t)`; conditions joined by `,` `and` `with`): linear, constant coefficients; prints the transformed equation, Y(s) and y(t); missing initial values are 0 with a note |
+| `ztrans X [n] [z]` | Z{x}(z) = sum_{n>=0} x[n] z^-n.  a^n, n^k a^n (Eulerian numbers), cos/sin(bn + c), delays u[n - k] and delta[n - k], 1/n! (e^(1/z)), piecewise; the z^-1 form; ROC \|z\| > r |
+| `iztrans X [z] [n]` | partial fractions of X(z)/z: p^n times binomials in n, complex pairs as r^n (cos, sin), poles at 0 as delta[n - k]; e^(a/z); causal (ROC outside every pole, stated); the first terms by long division in z^-1 |
+| `zsolve REC, ICs` | `y[n+2] = y[n+1] + y[n], y[0] = 0, y[1] = 1` (backward shifts y[n-1] too): Y(z), y[n] |
+| `tf EQ` \| `tf H` | the transfer function of a difference equation (`y[n] = 0.9 y[n-1] + x[n]`, input x, output y) or of an ODE (`y'' + 3y' + 2y = x`), or H(z)/H(s) itself: poles, zeros, BIBO stability, causality, impulse response, DC gain, a frequency response table, the -3 dB point, and (discrete) the filter as C in direct form I |
+| `fourier series F [x] [on a..b \| on [a, b] \| on a to b \| period P] [terms N]` | default [-pi, pi]; a_n, b_n with closed forms (A + B(-1)^n)/n^k recognised, finite trigonometric series, the first terms, the L2 error of S_N, the midpoint at a jump and the Gibbs overshoot (measured; it tends to 8.95% of the jump) |
+| `fourier F [x] [w]`, `ifourier F [w] [x]` | F(w) = int f(x) e^(-iwx) dx (angular frequency, no 1/sqrt(2pi); the inverse has 1/(2pi)).  e^(-ax^2), e^(-a\|x\|), e^(-ax) u(x), 1/(x^2 + a^2), boxes, sin(ax)/x, delta(x - c), 1 and cos/sin as deltas, x^n f (derivatives), cos/sin(bx) f (shifts).  Complex results print as `a + i*b` |
+| `dft [x0, x1, ...]`, `fft`, `idft`, `ifft` | a radix-2 FFT when N is a power of two, else the direct sum; `a + bi` entries; the table of X[k], \|X[k]\| and arg; the inverse and Parseval as checks |
+| `dtft [x0, ...]` \| `dtft X` | a finite list in closed form; a sequence through its Z transform on the unit circle (refused when the ROC excludes it) |
+| `genfunc A [n]`, `egf A` | the ordinary generating function sum a_n x^n = X(1/x) from the Z transform, the power-series library for the rest (Catalan, central binomials), recurrences (`genfunc a[n+1] = 3a[n] + 1, a[0] = 0`) and named sequences (fibonacci, lucas, pell, tribonacci, catalan, squares, cubes, triangular, powers of 2, factorials); the EGF sum a_n x^n/n! for sums of n^k r^n (Stirling numbers), r^n cos/sin, deltas, n! |
+| `sum(n, lo, inf, a)`, `sum(n in lo..inf, a)` | an infinite sum (a finite `sum(...)` is evaluated as before): the convergence test that decides, a closed form, an accelerated numeric value, and the two compared |
+| `prod(n, lo, inf, a)` | an infinite product: rational factors as Gamma quotients (Wallis: pi/2, prod (1 + 1/n^2) = sinh(pi)/pi), divergence from the factors' expansion |
+| `converge A \| sum(...)` | the convergence tests alone, and partial sums |
+| `radius A \| sum(...)` | a power series in one variable, `x^n/n!`, `(x - 2)^n/(n 3^n)`: center, radius (ratio or root test), both endpoints tested, the interval, and the sum when the library knows it |
+| `powerseries F [x] [at a]` (`coeffs`) | the general term: rational F exactly (partial fractions), others by Taylor coefficients matched against the library; the radius |
+| `asymptotic sum(k, 1, n, f)` | Euler-Maclaurin: int f + C + f(n)/2 + B2/2! f'(n) + B4/4! f'''(n), the constant C computed and recognised (gamma, log(2pi)/2) |
+
+Input words: `u(t - a)` and `u[n - k]` are steps, `delta(t)` is Dirac's
+delta (a marker that evaluates to 0 except at 0), `delta[n]` the
+Kronecker delta; `n!` and `binom(n, k)` (also `choose`, `C(n, k)`) work
+in these commands (the helpers `heaviside`, `dirac`, `kron`, `fact`,
+`binom` are defined, hidden, on first use).  The variables are guessed
+(t, then x, for time; n, k, i for an index) or named after the
+expression: `laplace e^(a x) x p`.
+
+How sums are decided, in order: a rational term exactly (the degree
+difference: nth-term test, the harmonic series, limit comparison with a
+p-series); the nth-term test numerically; the ratio test (a steady ratio,
+Richardson-extrapolated; a ratio tending to 0 or infinity is recognised);
+the alternating series test with the absolute series tested apart
+(conditional convergence); comparison with p-series through the envelope
+max \|a_n\| over windows at 10^4, 10^5, 10^6 (so sin(n)/n^2 compares with
+1/n^2); the integral test, symbolic (an antiderivative and its limit) or
+numeric (over x = e^u, whether the pieces shrink per doubling of u: this
+separates 1/(n log n) from 1/(n log^2 n)); the root test.
+
+Closed forms: polynomial times r^n (Eulerian numbers); rational terms by
+partial fractions with poles at integers and half-integers: zeta(k),
+eta(k) = (1 - 2^(1-k)) zeta(k), Dirichlet beta (pi/4, Catalan's G,
+pi^3/32), digamma differences (the first-order residues must cancel);
+1/(n^2 + a^2) as pi a coth(pi a); a library of power series (exp, cosh,
+sinh, geometric 1/(1 - u)^k, -log(1 - u), atanh/atan, 1/sqrt(1 - 4u),
+Catalan, sqrt(1 + u)) matched with a scale and a shift (`sum 2^k/k!` =
+e^2 - 1); telescoping g(n) - g(n + k).  Numeric values: geometric-like
+terms summed until negligible (Aitken as the check), alternating ones by
+the Cohen-Villegas-Zagier transform, the rest by the first terms plus an
+Euler-Maclaurin tail (the integral, if need be over x = e^u), or
+Richardson on partial sums; each with an error estimate.  A value with no
+closed form is matched against constants (pi, gamma, zeta(3), Catalan,
+log 2, ...) and reported as "recognised numerically (not proved)".
+
+What is checked: a Laplace transform against the integral computed at
+three s right of the abscissa (symbols get sample values, printed); an
+inverse by transforming the result back numerically; a Z transform by
+summing its series at three z outside the ROC; an inverse Z transform
+against long division (32 terms); ODE and recurrence solutions by their
+residual and initial values, by RK4 and by iterating the recurrence (the
+test file also runs `dsolve` and `closed` on the same problems); Fourier
+coefficients' closed forms against the quadrature for n <= 48; a Fourier
+transform against the integral (with its truncation error for slowly
+decaying f); generating functions by summing the series inside the
+radius; sums and products by the accelerated numeric value.
+
+Seams: these commands work on real nodes: s, z and w are real variables,
+complex values are computed in C99 `double complex` and printed as
+`a + i*b`; the complex type being added elsewhere can take them over.
+Every inverse transform goes through `xf_apart()` (xfrat.c), a small
+partial-fraction routine with double coefficients and exact rational or
+quadratic-surd roots (cnum.c's `poly_roots` on the square-free part); it
+is meant to be replaced by alg.c's `apart` once that is merged.
+
+Limits: numeric coefficients for the inverse transforms and partial
+fractions (symbolic only for first and second order denominators); no
+Laplace rule for t^p times sin/cos with p not an integer, log t, or
+general products; Fourier transforms by table (no shift rule for f(x - c)
+beyond deltas and boxes, no convolution); the power-series library is
+small and matches one family at a time (sums of two families are not
+split); asymptotic expansions need an antiderivative of the term;
+infinite products are exact for rational factors only; Laurent series
+and Mellin or two-sided Laplace transforms are not done.
 
 ## Design
 

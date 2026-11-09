@@ -3237,7 +3237,7 @@ freq_table(const struct xrat *H, int discrete, int stable)
 			    mag > 0 ? 20 * log10(mag) : -INFINITY, ph);
 	}
 	if (!stable) {
-		printf("  (an unstable system has no steady state: this is H on the "
+		printf("  (not BIBO stable, so no steady state: this is H on the "
 		    "%s, not what the system settles to)\n", discrete ?
 		    "unit circle" : "imaginary axis");
 		return;
