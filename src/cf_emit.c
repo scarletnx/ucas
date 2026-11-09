@@ -140,7 +140,7 @@ konst(struct sbuf *b, ty_t t, int64_t v)
 
 /* helpers, emitted once each */
 enum {
-	H_POP32, H_POP64, H_CLZ32, H_CLZ64, H_CTZ32, H_CTZ64, H_NH
+	H_POP32, H_POP64, H_CLZ32, H_CLZ64, H_CTZ32, H_CTZ64, H_POW64, H_NH
 };
 
 static void
@@ -199,7 +199,150 @@ need(struct em *E, int h)
 		    "#else\n\tuint64_t n = 0;\n\tif (!x) return 64;\n"
 		    "\twhile (!(x & 1)) { x >>= 1; n++; }\n\treturn n;\n#endif\n}\n");
 		break;
+	case H_POW64:
+		/* b^e mod 2^64 by squaring: the ring identities b^(2k) =
+		 * (b^2)^k and b^(2k+1) = b (b^2)^k hold mod 2^64 */
+		sb_puts(o, "static inline uint64_t cf_powu64(uint64_t b, uint64_t e)\n"
+		    "{\n\tuint64_t r = 1;\n\twhile (e) {\n\t\tif (e & 1)\n"
+		    "\t\t\tr *= b;\n\t\tb *= b;\n\t\te >>= 1;\n\t}\n"
+		    "\treturn r;\n}\n");
+		break;
 	}
+}
+
+static void fail_e(struct em *E, const char *why);
+
+/* ---- overrides: a node printed as a helper with intrinsics ---- */
+
+static struct ov {
+	nid sem, fb;
+	char *text;
+	uint64_t feat;
+	int id;
+} *ovs;
+static int nov, ovcap, ovoff, ovids;
+
+void
+cf_emit_override(nid sem, const char *text, uint64_t feat, nid fb)
+{
+	int k;
+
+	for (k = 0; k < nov; k++)
+		if (ovs[k].sem == sem)
+			return;
+	if (nov == ovcap) {
+		ovcap = ovcap ? ovcap * 2 : 8;
+		ovs = xrealloc(ovs, (size_t)ovcap * sizeof *ovs);
+	}
+	ovs[nov].sem = sem;
+	ovs[nov].fb = fb ? fb : sem;
+	ovs[nov].text = strdup(text);
+	ovs[nov].feat = feat;
+	ovs[nov].id = ovids++;
+	nov++;
+}
+
+void
+cf_emit_reset(void)
+{
+	while (nov > 0)
+		free(ovs[--nov].text);
+	ovids = 0;
+}
+
+static int
+ov_find(nid n)
+{
+	int k;
+
+	if (ovoff)
+		return -1;
+	for (k = 0; k < nov; k++)
+		if (ovs[k].sem == n)
+			return k;
+	return -1;
+}
+
+/* the helper for override k (once per output), and its call */
+static void
+ov_call(struct em *E, struct sbuf *b, int k)
+{
+	struct ov *o = &ovs[k];
+	uint64_t slots = node_slots(o->sem);
+	char sig[32];
+	int s, f, any;
+	const char *RT = cty(N.ty[o->sem]);
+
+	snprintf(sig, sizeof sig, " cf_b%d(", o->id);
+	if (!E->em->helpers.p || !strstr(E->em->helpers.p, sig)) {
+		struct sbuf h = {0}, fb = {0};
+		struct cf_value fv;
+		const char *p;
+		memset(&fv, 0, sizeof fv);
+		fv.nleaf = E->v->nleaf;
+		sb_printf(&h, "static inline %s cf_b%d(", RT, o->id);
+		any = 0;
+		for (s = 0; s < E->v->nleaf && s < 64; s++) {
+			snprintf(fv.leaf[s].text, sizeof fv.leaf[s].text, "a%d", s);
+			fv.leaf[s].cty = E->v->leaf[s].cty;
+			if (!(slots >> s & 1))
+				continue;
+			sb_printf(&h, "%s%s a%d", any++ ? ", " : "",
+			    cty(ct_to_ucas(E->v->leaf[s].cty)), s);
+		}
+		if (!any)
+			sb_puts(&h, "void");
+		sb_puts(&h, ")\n{\n#if ");
+		for (f = 0, any = 0; f < CF_NFEAT; f++)
+			if (o->feat & CF_F(f))
+				sb_printf(&h, "%sdefined(%s)", any++ ? " && " : "",
+				    cf_feat_macro(f));
+		if (!any)
+			sb_puts(&h, "1");
+		sb_puts(&h, "\n");
+		/* the text, $k -> ak */
+		{
+			struct sbuf t = {0};
+			for (p = o->text; *p; p++)
+				if (*p == '$' && p[1] >= '0' && p[1] <= '9') {
+					sb_printf(&t, "a%c", p[1]);
+					p++;
+				} else
+					sb_putc(&t, *p);
+			if (t.p && t.p[0] == '{')
+				sb_printf(&h, "\t%s\n", t.p);
+			else
+				sb_printf(&h, "\treturn (%s)(%s);\n", RT, t.p ? t.p : "0");
+			free(t.p);
+		}
+		sb_puts(&h, "#else\n");
+		{
+			struct em F;
+			memset(&F, 0, sizeof F);
+			F.em = E->em;
+			F.v = &fv;
+			ovoff++;
+			pe(&F, &fb, o->fb);
+			ovoff--;
+			if (F.bad) {
+				fail_e(E, F.why);
+				free(h.p);
+				free(fb.p);
+				return;
+			}
+		}
+		sb_printf(&h, "\treturn (%s)%s;\n#endif\n}\n", RT, fb.p);
+		sb_puts(&E->em->helpers, h.p);
+		E->em->intrin = 1;
+		free(h.p);
+		free(fb.p);
+	}
+	sb_printf(b, "((%s)cf_b%d(", RT, o->id);
+	for (s = 0, any = 0; s < E->v->nleaf && s < 64; s++)
+		if (slots >> s & 1)
+			sb_printf(b, "%s(%s)(%s)", any++ ? ", " : "",
+			    cty(ct_to_ucas(E->v->leaf[s].cty)), E->v->leaf[s].text);
+	sb_puts(b, "))");
 }
 
 static void
@@ -244,6 +387,13 @@ pe(struct em *E, struct sbuf *b, nid n)
 	}
 	if (E->bad)
 		return;
+	if (nov && op != O_VAR && op != O_CONST) {
+		int k = ov_find(n);
+		if (k >= 0 && T) {
+			ov_call(E, b, k);
+			return;
+		}
+	}
 	if (T == NULL || !std_width(t)) {
 		fail_e(E, "a value of a non-standard width");
 		return;
@@ -454,6 +604,18 @@ pe(struct em *E, struct sbuf *b, nid n)
 		sb_puts(b, "))");
 		return;
 	}
+	case O_POW:
+		if (TYK(t) != K_UINT || TYK(N.ty[c]) != K_UINT) {
+			fail_e(E, "a power of signed integers");
+			return;
+		}
+		need(E, H_POW64);
+		sb_printf(b, "((%s)cf_powu64((uint64_t)(", T);
+		pe(E, b, a);
+		sb_puts(b, "), (uint64_t)(");
+		pe(E, b, c);
+		sb_puts(b, ")))");
+		return;
 	case O_INDEX: {
 		nid tab = a;
 		uint32_t cnt = N.b[tab], k;
@@ -603,7 +765,8 @@ count_uses(nid n, uint32_t *cnt, uint8_t *seen)
 	if (seen[n])
 		return;
 	seen[n] = 1;
-	if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_TABLE)
+	if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_TABLE ||
+	    (nov && ov_find(n) >= 0))
 		return;
 	if (N.op[n] == O_INDEX) {
 		count_uses(N.b[n], cnt, seen);

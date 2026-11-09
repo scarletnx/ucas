@@ -326,6 +326,41 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	if (ntriv)
 		printf("  of these, %d give the same machine code as clang -O2 "
 		    "makes of the original (listed apart)\n", ntriv);
+	{
+		/* what ucas's engines contributed (the bridge, cf_bridge.c) */
+		int e, na[CF_ENG_N], np[CF_ENG_N], any = 0;
+		memset(na, 0, sizeof na);
+		memset(np, 0, sizeof np);
+		for (k = 0; k < r.nrw; k++)
+			for (e = 0; e < CF_ENG_N; e++) {
+				const char *q = strstr(r.rw[k].engine, cf_engine_name(e));
+				size_t l = strlen(cf_engine_name(e));
+				if (!q || (q[l] && q[l] != '+'))
+					continue;
+				if (r.rw[k].applied)
+					na[e]++;
+				else if (r.rw[k].info)
+					np[e]++;
+				any = 1;
+			}
+		if (any) {
+			printf("  engines:");
+			rep_obj("engines");
+			for (e = 0; e < CF_ENG_N; e++) {
+				if (!na[e] && !np[e])
+					continue;
+				printf(" %s %d", cf_engine_name(e), na[e]);
+				if (np[e])
+					printf(" (+%d proposed)", np[e]);
+				rep_obj(cf_engine_name(e));
+				rep_int("applied", na[e]);
+				rep_int("proposed", np[e]);
+				rep_end();
+			}
+			rep_end();
+			printf("\n");
+		}
+	}
 	rep_int("rewrites", napplied);
 	rep_int("exhaustive", nex);
 	rep_int("sat", nsat);
@@ -354,6 +389,15 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 					    w->kind, w->proof_text);
 					rep_str("status", w->kind);
 					rep_str("why", w->proof_text);
+					if (w->engine[0]) {
+						printf("    engine: %s%s%s\n", w->engine, w->cert ?
+						    "; " : "", w->cert ? w->cert : "");
+						rep_str("engine", w->engine);
+						if (w->cert_kind[0])
+							rep_str("certificate_kind", w->cert_kind);
+						if (w->cert)
+							rep_str("certificate", w->cert);
+					}
 					if (w->code) {
 						printf("    code (not applied):\n");
 						print_lines("      ", w->code, 400);
@@ -374,6 +418,15 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 					    cf_proof_name(w->proof), w->proof_text,
 					    w->cost_before, w->cost_after, w->cost_note ?
 					    " " : "", w->cost_note ? w->cost_note : "");
+				if (w->engine[0]) {
+					printf("    engine: %s%s%s\n", w->engine, w->cert ?
+					    "; " : "", w->cert ? w->cert : "");
+					rep_str("engine", w->engine);
+					if (w->cert_kind[0])
+						rep_str("certificate_kind", w->cert_kind);
+					if (w->cert)
+						rep_str("certificate", w->cert);
+				}
 				if (w->domain) {
 					printf("    over: %s\n", w->domain);
 					rep_str("domain", w->domain);
@@ -518,6 +571,54 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			o->vecstub = 1;
 		else if (!strcmp(w, "vectorize") || !strcmp(w, "vectorise"))
 			o->vectorize = 1;
+		else if (!strcmp(w, "approx"))
+			o->approx = 1;
+		else if (!strcmp(w, "error")) {
+			w = strtok_r(NULL, " \t", &save);
+			o->error = w ? atof(w) : 0;
+			o->approx = 1;
+			if (!w || !(o->error > 0)) {
+				printf("error: c: error E (a positive bound)\n");
+				rep_error("c_option", "c: error E (a positive bound)");
+				return 0;
+			}
+		} else if (!strcmp(w, "steps")) {
+			w = strtok_r(NULL, " \t", &save);
+			o->synth_steps = w ? atol(w) : 0;
+		} else if (!strcmp(w, "ebudget")) {
+			w = strtok_r(NULL, " \t", &save);
+			o->ebudget = w ? atof(w) : 0;
+			if (o->ebudget < 0)
+				o->ebudget = 0;
+			if (o->ebudget > 600)
+				o->ebudget = 600;
+		} else if (!strcmp(w, "engines") || !strcmp(w, "engine")) {
+			char *list = strtok_r(NULL, " \t", &save), *e, *s2 = NULL;
+			o->engines_set = 1;
+			o->engines = 0;
+			if (list && !strcmp(list, "none"))
+				o->engines = 1u << CF_ENG_N;	/* none of them */
+			else if (list && strcmp(list, "all"))
+				for (e = strtok_r(list, ",", &s2); e;
+				    e = strtok_r(NULL, ",", &s2)) {
+					int k = cf_engine_find(e);
+					if (k < 0) {
+						char m[200];
+						snprintf(m, sizeof m, "c: unknown engine '%.40s' "
+						    "(all, none, or a list of find gates alg ring dio "
+						    "gf2 loops float bound synth)", e);
+						printf("error: %s\n", m);
+						rep_error("c_option", m);
+						return 0;
+					}
+					o->engines |= 1u << k;
+				}
+			else if (!list) {
+				printf("error: c: engines all|none|find,gates,...\n");
+				rep_error("c_option", "c: engines all|none|find,gates,...");
+				return 0;
+			}
+		}
 		else if (!strcmp(w, "lower"))
 			*lower = 1;
 		else if (!strcmp(w, "this") || !strcmp(w, "code") ||

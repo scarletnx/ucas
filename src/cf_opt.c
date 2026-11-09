@@ -158,7 +158,45 @@ cf_feat_name(int f)
 static cf_cost_fn cost_hook;
 static cf_cand_fn cand_hooks[8];
 static int ncand_hooks;
+static cf_value_fn value_hooks[8];
+static int nvalue_hooks;
 static cf_vec_fn vec_hook;
+static cf_loop_fn loop_hook;
+
+void
+cf_add_value_hook(cf_value_fn f)
+{
+	if (nvalue_hooks < 8)
+		value_hooks[nvalue_hooks++] = f;
+}
+
+void
+cf_set_loop_hook(cf_loop_fn f)
+{
+	loop_hook = f;
+}
+
+static const char *const eng_names[CF_ENG_N] = {
+	"find", "gates", "alg", "ring", "dio", "gf2", "loops", "float",
+	"bound", "synth"
+};
+
+const char *
+cf_engine_name(int k)
+{
+	return k >= 0 && k < CF_ENG_N ? eng_names[k] : "?";
+}
+
+int
+cf_engine_find(const char *name)
+{
+	int k;
+
+	for (k = 0; k < CF_ENG_N; k++)
+		if (!strcmp(eng_names[k], name))
+			return k;
+	return -1;
+}
 
 void
 cf_set_cost_hook(cf_cost_fn f)
@@ -200,6 +238,27 @@ cf_cand_add(struct cf_cands *cs, nid sem, const char *text,
 	snprintf(c->what, sizeof c->what, "%s", what ? what : "");
 	c->lemma[0] = 0;
 	c->derived = 0;
+	c->engine[0] = 0;
+	c->cert_kind[0] = 0;
+	c->cert[0] = 0;
+	c->fixcost = 0;
+}
+
+void
+cf_cand_cert(struct cf_cands *cs, const char *engine, const char *kind,
+    const char *fmt, ...)
+{
+	va_list ap;
+	struct cf_cand *c;
+
+	if (cs->n == 0)
+		return;
+	c = &cs->c[cs->n - 1];
+	snprintf(c->engine, sizeof c->engine, "%s", engine ? engine : "");
+	snprintf(c->cert_kind, sizeof c->cert_kind, "%s", kind ? kind : "");
+	va_start(ap, fmt);
+	vsnprintf(c->cert, sizeof c->cert, fmt, ap);
+	va_end(ap);
 }
 
 static void
@@ -232,9 +291,10 @@ const char *
 cf_proof_name(int k)
 {
 	static const char *const n[] = {"not proved", "exhaustive", "sat",
-	    "algebra", "induction", "structural", "lanes", "tested"};
+	    "algebra", "induction", "structural", "lanes", "tested",
+	    "approximation"};
 
-	return k >= 0 && k <= CF_PROOF_TESTED ? n[k] : "?";
+	return k >= 0 && k <= CF_PROOF_APPROX ? n[k] : "?";
 }
 
 /* ---- costs ---- */
@@ -381,6 +441,30 @@ static int
 out_of_time(void)
 {
 	return elapsed() > R.deadline;
+}
+
+const struct cf_opts *
+cf_run_opts(void)
+{
+	return R.o;
+}
+
+struct cf_unit *
+cf_run_unit(void)
+{
+	return R.u;
+}
+
+double
+cf_run_elapsed(void)
+{
+	return elapsed();
+}
+
+int
+cf_engine_on(int k)
+{
+	return R.o && (R.o->engines == 0 || (R.o->engines >> k & 1));
 }
 
 /* ---- proofs ---- */
@@ -1279,6 +1363,9 @@ struct step {
 	char what[120];
 	struct proof pf;
 	double before, after;
+	char engine[16];
+	char cert_kind[32];
+	char cert[240];
 };
 
 static int
@@ -1327,20 +1414,43 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 				cand_hooks[k](t, cur, v->nleaf, lt, &cs);
 			}
 		}
+		if (round == 0 || (*nsteps > 0 && steps[*nsteps - 1].engine[0] &&
+		    round < 3))
+			for (k = 0; k < nvalue_hooks; k++)
+				value_hooks[k](t, v, cur, &cs);
 		if (!TY_FP(N.ty[cur])) {
 			gen_local(v, cur, &cs);
 			gen_float(v, cur, &cs);
 		}
 		for (k = 0; k < cs.n; k++)
-			cs.c[k].cost = cf_cost(t, cs.c[k].sem);
+			if (!cs.c[k].fixcost)
+				cs.c[k].cost = cf_cost(t, cs.c[k].sem);
+		/* the same form from two generators: the one with an engine's
+		 * certificate is kept (it says more) */
+		for (k = 0; k < cs.n; k++) {
+			int j;
+			if (!cs.c[k].engine[0])
+				continue;
+			for (j = 0; j < cs.n; j++)
+				if (j != k && cs.c[j].sem == cs.c[k].sem &&
+				    !cs.c[j].engine[0] && !cs.c[j].text &&
+				    !cs.c[k].text)
+					cs.c[j].cost = 1e30;
+		}
 		if (R.o->trace)
 			printf("  trace: %s round %d: %d candidates, cost %.1f\n",
 			    R.fname, round, cs.n, ccur);
 		qsort(cs.c, (size_t)cs.n, sizeof *cs.c, cmp_cand);
 		for (k = 0; k < cs.n && !out_of_time(); k++) {
 			struct proof pf;
-			if (cs.c[k].cost >= ccur - 0.01 || cs.c[k].sem == cur)
+			if (cs.c[k].cost >= ccur - 0.01 || (cs.c[k].sem == cur &&
+			    !cs.c[k].text)) {
+				if (R.o->trace && cs.c[k].engine[0] && cs.c[k].cost < 1e29)
+					printf("  trace:   %s: %s (cost %.1f): not cheaper "
+					    "than %.1f\n", cs.c[k].engine, cs.c[k].what,
+					    cs.c[k].cost, ccur);
 				continue;
+			}
 			int pr;
 			if (TY_FP(N.ty[cur])) {
 				/* the derivation is the proof; the sample is a
@@ -1368,12 +1478,22 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 			}
 			if (pr != 1) {
 				if (R.o->trace)
-					printf("  trace:   %s (cost %.1f): %s\n",
+					printf("  trace:   %s%s%s (cost %.1f): %s\n",
+					    cs.c[k].engine, cs.c[k].engine[0] ? ": " : "",
 					    cs.c[k].what, cs.c[k].cost, pf.text);
 				continue;
 			}
 			snprintf(steps[*nsteps].what, sizeof steps[*nsteps].what, "%s",
 			    cs.c[k].what);
+			snprintf(steps[*nsteps].engine, sizeof steps[*nsteps].engine,
+			    "%s", cs.c[k].engine);
+			snprintf(steps[*nsteps].cert_kind,
+			    sizeof steps[*nsteps].cert_kind, "%s", cs.c[k].cert_kind);
+			snprintf(steps[*nsteps].cert, sizeof steps[*nsteps].cert, "%s",
+			    cs.c[k].cert);
+			if (cs.c[k].text)
+				cf_emit_override(cs.c[k].sem, cs.c[k].text, cs.c[k].feat,
+				    cur);
 			steps[*nsteps].pf = pf;
 			steps[*nsteps].before = ccur;
 			steps[*nsteps].after = cs.c[k].cost;
@@ -1385,6 +1505,11 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 		}
 		cands_free(&cs);
 		if (!took)
+			break;
+		/* an intrinsic's form is final: rewriting its semantics
+		 * further would lose the instruction */
+		if (*nsteps > 0 && steps[*nsteps - 1].engine[0] &&
+		    !strncmp(steps[*nsteps - 1].what, "intrinsic", 9))
 			break;
 	}
 	return cur;
@@ -1431,6 +1556,18 @@ add_rw(const char *kind, int line)
 	snprintf(w->kind, sizeof w->kind, "%s", kind);
 	w->line = line;
 	return w;
+}
+
+struct cf_rewrite *
+cf_run_rewrite(const char *kind, int line)
+{
+	return add_rw(kind, line);
+}
+
+void
+cf_run_replace(uint32_t from, uint32_t to, const char *text)
+{
+	add_repl(from, to, text, R.fnstart);
 }
 
 static void
@@ -1652,6 +1789,28 @@ record_steps(const struct step *s, int ns, nid from, nid to, int line,
 	w->steps = what.p ? strdup(what.p) : NULL;
 	free(what.p);
 	(void)best;
+	/* the engines that found the steps, with their certificates */
+	{
+		struct sbuf c = {0};
+		for (k = 0; k < ns; k++) {
+			if (!s[k].engine[0])
+				continue;
+			if (!w->engine[0]) {
+				snprintf(w->engine, sizeof w->engine, "%s", s[k].engine);
+				snprintf(w->cert_kind, sizeof w->cert_kind, "%s",
+				    s[k].cert_kind);
+			} else if (!strstr(w->engine, s[k].engine) &&
+			    strlen(w->engine) + strlen(s[k].engine) + 2 <
+			    sizeof w->engine) {
+				strcat(w->engine, "+");
+				strcat(w->engine, s[k].engine);
+			}
+			if (s[k].cert[0])
+				sb_printf(&c, "%s%s%s%s", c.n ? "; " : "", s[k].cert_kind,
+				    s[k].cert_kind[0] ? ": " : "", s[k].cert);
+		}
+		w->cert = c.p;
+	}
 }
 
 /* the inputs' ranges that did not come from their types */
@@ -1746,16 +1905,30 @@ whole_function(uint32_t fn, struct cf_emit *em)
 	}
 	apply_assumptions(&v);
 	apply_callsites(&v, 1);
+	memset(steps, 0, sizeof steps);
 	best = optimize_value(&v, steps + (v.closed[0] != 0), &ns, 15, 1);
 	if (v.closed[0]) {
 		/* the lowering summed loops in closed form: that is the first
 		 * step, proved by its derivation (cf_lower.c, closed_for) */
+		int ext = strstr(v.closed, "geometric") != NULL ||
+		    strstr(v.closed, "degree 3") || strstr(v.closed, "degree 4") ||
+		    strstr(v.closed, "degree 5") || strstr(v.closed, "degree 6") ||
+		    strstr(v.closed, "degree 7");
 		snprintf(steps[0].what, sizeof steps[0].what, "loop in closed "
 		    "form: %.100s", v.closed);
 		steps[0].pf.kind = CF_PROOF_INDUCTION;
-		snprintf(steps[0].pf.text, sizeof steps[0].pf.text, "sum of a "
+		snprintf(steps[0].pf.text, sizeof steps[0].pf.text, "%s", ext ?
+		    "sums by forward differences and C(T,k), geometric sums by "
+		    "r^T, exact mod 2^w" : "sum of a "
 		    "polynomial of degree <= 2 by forward differences and "
 		    "C(T,k), exact mod 2^w");
+		if (ext) {
+			snprintf(steps[0].engine, sizeof steps[0].engine, "loops");
+			snprintf(steps[0].cert_kind, sizeof steps[0].cert_kind,
+			    "derivation");
+			snprintf(steps[0].cert, sizeof steps[0].cert, "%.239s",
+			    v.closed_why);
+		}
 		steps[0].before = v.iter_cost;
 		steps[0].after = cf_cost(R.o->t, v.e);
 		if (ns > 0)
@@ -2708,6 +2881,8 @@ visit_stmt(uint32_t fn, uint32_t n, struct cf_emit *em)
 		visit_stmt(fn, u->A.c[n], em);
 		return;
 	case CA_WHILE:
+		if (loop_hook && loop_hook(R.u, fn, n, em))
+			return;
 		if (try_strlen(fn, n, em))
 			return;
 		visit_expr(fn, u->A.a[n], em);
@@ -2719,6 +2894,8 @@ visit_stmt(uint32_t fn, uint32_t n, struct cf_emit *em)
 		visit_expr(fn, u->A.b[n], em);
 		return;
 	case CA_FOR:
+		if (loop_hook && loop_hook(R.u, fn, n, em))
+			return;
 		if (try_strlen(fn, n, em) || try_vectorise(fn, n, em))
 			return;
 		visit_stmt(fn, u->A.a[n], em);
@@ -2763,6 +2940,12 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 			cfx86_init();
 	}
 #endif
+	{
+		static int binited;
+		if (!binited++)
+			cf_bridge_init();
+	}
+	cf_emit_reset();
 	memset(r, 0, sizeof *r);
 	memset(&R, 0, sizeof R);
 	memset(&em, 0, sizeof em);
@@ -2802,7 +2985,7 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 		if (!has_stdint)
 			sb_puts(&r->out, "#include <stdint.h>\n");
 	}
-	if (R.intrinsics)
+	if (R.intrinsics || em.intrin)
 		sb_puts(&r->out, "#include <immintrin.h>\n");
 	if (em.need_string && !strstr(u->includes.p ? u->includes.p : "",
 	    "<string.h>"))

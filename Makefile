@@ -31,7 +31,8 @@ SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
 # cfront: C99 in, proved and x86-64-optimised C out (cfront.md)
-SRCS+=	cf_pp.c cf_parse.c cf_lower.c cf_emit.c cf_opt.c cf_check.c cf_cmd.c
+SRCS+=	cf_pp.c cf_parse.c cf_lower.c cf_emit.c cf_opt.c cf_check.c cf_cmd.c \
+	cf_bridge.c cf_synth.c
 # the x86 side (branch cfront-x86): cost models, intrinsics, vectoriser
 .if exists(${.CURDIR}/src/cfx86.c)
 SRCS+=	cfx86.c

@@ -99,6 +99,14 @@ struct cf_cand {
 	char lemma[120];
 	int derived;	/* added: lemma is a derivation (a proof of its own,
 			 * e.g. IEEE float identities), not a hint */
+	/* added (the bridge, cf_bridge.c): the engine that found it and
+	 * its own certificate (a witness, an inverse checked, a residue
+	 * table, a GF(2) linearity proof ...), stated with the rewrite;
+	 * cfront still proves sem against the value as usual */
+	char engine[16];
+	char cert_kind[32];
+	char cert[240];
+	int fixcost;	/* cost is the generator's (intrinsics in text) */
 };
 struct cf_cands {
 	struct cf_cand *c;
@@ -109,6 +117,15 @@ void cf_cand_add(struct cf_cands *cs, nid sem, const char *text,
 typedef void (*cf_cand_fn)(const struct cf_target *t, nid e, int nleaf,
     const char *const *leaf, struct cf_cands *out);
 void cf_add_cand_hook(cf_cand_fn f);	/* up to 8 generators */
+/* added: a generator that sees the whole value (the leaves' C types and
+ * ranges, the domain where it is defined); e is the current form */
+struct cf_value;
+typedef void (*cf_value_fn)(const struct cf_target *t,
+    const struct cf_value *v, nid e, struct cf_cands *out);
+void cf_add_value_hook(cf_value_fn f);	/* up to 8 */
+/* the last candidate added: its engine and certificate */
+void cf_cand_cert(struct cf_cands *cs, const char *engine,
+    const char *kind, const char *fmt, ...);
 
 /* ================================================================
  * Loops for the vectoriser
@@ -174,7 +191,7 @@ struct cf_loop {
  */
 struct cf_loopout {
 	struct sbuf text;
-	char what[160];
+	char what[400];
 	int proof;
 	double cost_before, cost_after;	/* per iteration, cycles */
 };
@@ -209,7 +226,9 @@ enum {
 	CF_PROOF_STRUCT,	/* by construction (a semantics-preserving
 				 * rewrite of the program's structure) */
 	CF_PROOF_LANES,		/* intrinsics: lane semantics, per lane */
-	CF_PROOF_TESTED		/* only differential testing (opt-in) */
+	CF_PROOF_TESTED,	/* only differential testing (opt-in) */
+	CF_PROOF_APPROX		/* added: an approximation with a derived
+				 * error bound (opt-in: approx) */
 };
 const char *cf_proof_name(int k);
 
@@ -228,6 +247,10 @@ struct cf_rewrite {
 	char *domain;		/* input ranges assumed or from call sites */
 	char *cost_note;	/* what the costs measure, when not per call */
 	char *code;		/* info: code proposed but not applied */
+	/* added (the bridge): which engine found it, and its certificate */
+	char engine[16];
+	char cert_kind[32];
+	char *cert;
 };
 
 /* ================================================================
@@ -407,6 +430,9 @@ struct cf_value {
 	 * iteration of those loops */
 	char closed[240];
 	double iter_cost;
+	/* added: the derivation of closed forms beyond degree 2 (the
+	 * bridge's loops engine: any degree, geometric sums) */
+	char closed_why[240];
 };
 /* the whole function as one value (scalar parameters, no memory) */
 int cf_lower_func(struct cf_unit *u, uint32_t fn, struct cf_value *v,
@@ -471,6 +497,8 @@ struct cf_emit {
 	const struct cf_target *t;
 	int need_string;	/* the output calls strlen: <string.h> */
 	int floats;		/* float arithmetic emitted: FP_CONTRACT OFF */
+	int intrin;		/* added: a helper uses intrinsics (overrides):
+				 * <immintrin.h> */
 };
 /* the C text of e, with leaves printed from v; 0 if it cannot be
  * printed without introducing UB */
@@ -478,6 +506,17 @@ int cf_emit_expr(struct cf_emit *em, const struct cf_value *v, nid e,
     uint32_t cty, struct sbuf *out);
 int cf_emit_body(struct cf_emit *em, const struct cf_value *v, nid e,
     uint32_t cty, struct sbuf *out);	/* { temps; return e; } */
+/*
+ * added: a node printed as a call of a helper whose body is text (C
+ * with $0..$7 the leaves, an expression, or statements in { } that
+ * return) under #if of the features' macros, and the node's own C
+ * otherwise.  For intrinsics (gf2p8affine, pclmul, pext ...): the node
+ * is their exact semantics (from the catalogue's lanes), the text the
+ * instruction; fb, an equal node printed as the portable fallback (the
+ * value as it was).  Cleared by cf_emit_reset.
+ */
+void cf_emit_override(nid sem, const char *text, uint64_t feat, nid fb);
+void cf_emit_reset(void);
 
 /* cf_opt.c: the rewrite pipeline */
 struct cf_opts {
@@ -517,7 +556,28 @@ struct cf_opts {
 	int nbapply, nbveto;
 	char bapply[16][64], bveto[16][64];
 	double bveto_c[16][2];
+	/* added (the bridge, cf_bridge.c): which of ucas's engines generate
+	 * candidates (CF_ENG_* bits; 0 means all), their total CPU budget
+	 * in seconds (shared by the values of the run), and the error an
+	 * approximation may have to be applied (with approx; 0: any bound
+	 * that was derived) */
+	unsigned engines;
+	int engines_set;
+	double ebudget;
+	double error;
+	long synth_steps;	/* sketches the synthesis may try per value */
 };
+
+/* the bridge's engines (option engines all|find,gates,...) */
+enum {
+	CF_ENG_FIND, CF_ENG_GATES, CF_ENG_ALG, CF_ENG_RING, CF_ENG_DIO,
+	CF_ENG_GF2, CF_ENG_LOOPS, CF_ENG_FLOAT, CF_ENG_BOUND, CF_ENG_SYNTH,
+	CF_ENG_N
+};
+const char *cf_engine_name(int k);
+int cf_engine_find(const char *name);	/* -1 */
+/* the engine is on in this run */
+int cf_engine_on(int k);
 struct cf_result {
 	struct sbuf out;		/* the emitted C */
 	struct cf_rewrite *rw;
@@ -531,6 +591,77 @@ struct cf_result {
 int cf_optimize(struct cf_unit *u, const struct cf_opts *o,
     struct cf_result *r);
 void cf_result_free(struct cf_result *r);
+
+/* for the bridge: the run's options, a rewrite record, a replacement of
+ * main-file text [from, to) (helpers go before the current function),
+ * the emitter's state, and a CPU-time check */
+const struct cf_opts *cf_run_opts(void);
+struct cf_unit *cf_run_unit(void);
+struct cf_rewrite *cf_run_rewrite(const char *kind, int line);
+void cf_run_replace(uint32_t from, uint32_t to, const char *text);
+double cf_run_elapsed(void);
+/* a loop hook: a for or while statement offered before the loop
+ * passes; it records its rewrites and returns 1 when it replaced the
+ * loop */
+typedef int (*cf_loop_fn)(struct cf_unit *u, uint32_t fn, uint32_t loop,
+    struct cf_emit *em);
+void cf_set_loop_hook(cf_loop_fn f);
+
+/* cf_synth.c: CEGIS over the intrinsics catalogue (see there) */
+#define SY_MAXLEN 3
+#define SY_MAXBEAT 4
+struct cf_synth_step {
+	int tpl;		/* template */
+	int a, b;		/* operands: -1 the input, else a step */
+	int k;			/* an enumerated amount */
+};
+struct cf_synth_prog {
+	int n;
+	struct cf_synth_step s[SY_MAXLEN];
+	uint64_t h[8];		/* the solved 64-bit holes, in step order */
+	int hb[8];		/* the solved byte holes */
+	double cost;
+};
+struct cf_synth_stats {
+	long space;		/* sketches within the cost bound */
+	long sketches;		/* tried (cheapest first) */
+	long sat_calls, cex, linear, verified, unknown;
+	int cached;
+	int exhausted;		/* every sketch under the bound was tried */
+	double seconds;		/* not printed in tests: not deterministic */
+};
+struct cf_synth_res {
+	struct cf_synth_prog best;
+	struct cf_synth_prog beat[SY_MAXBEAT];
+	int nbeat;
+	struct cf_synth_stats st;
+};
+int cf_synth_ua(const struct cf_target *t);
+/* every byte maps by f (a node over slot, u8): the cheapest program */
+int cf_synth_bytes(const struct cf_target *t, nid f, int slot, double bound,
+    long steps, struct cf_synth_res *r);
+/* a scalar function of one word (slot, of type ity) */
+int cf_synth_scalar(const struct cf_target *t, nid f, int slot, ty_t ity,
+    double bound, long steps, struct cf_synth_res *r);
+int cf_synth_sem(const struct cf_synth_prog *p, const nid *in16, nid *out16);
+void cf_synth_code(const struct cf_synth_prog *p, int vb, const char *in,
+    const char *pfx, const char *out, struct sbuf *b);
+void cf_synth_text(const struct cf_synth_prog *p, struct sbuf *b);
+uint64_t cf_synth_feat(const struct cf_synth_prog *p);
+/* the program's reciprocal throughput at vb bits on µarch ua, and the
+ * features (x86.h's xfeat bits) of its intrinsics at that width */
+double cf_synth_names(const struct cf_synth_prog *p, int vb, int ua,
+    uint64_t *xneed);
+void cf_synth_reset(void);
+
+/* cf_bridge.c: ucas's engines as candidate generators (registered on
+ * the first optimisation) */
+void cf_bridge_init(void);
+/* the closed forms of cf_lower beyond degree 2: C(T, m) mod 2^64 for any
+ * m <= 8, T a u64 node (exact); the geometric sum sum_{j<T} r^j mod 2^w
+ * for a constant r (0 when it cannot be exact in 64-bit arithmetic) */
+nid cf_binom_node(nid T, int m);
+nid cf_geom_node(nid T, uint64_t r, int w, char *why, size_t nwhy);
 
 /* cf_check.c: the host cc, differential tests and benchmarks */
 int cf_have_cc(void);

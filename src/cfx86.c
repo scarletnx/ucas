@@ -1557,6 +1557,81 @@ struct vplan {
 	struct lproof lp;
 };
 
+/*
+ * A byte map synthesised (cf_synth.c): a store value of u8 lanes that is
+ * a function of one u8 load alone (the post's per-byte shifts, rotates,
+ * bit reversal, a popcount per byte ...).  The program is the cheapest
+ * the CEGIS search finds over the catalogue at this target, below the
+ * cost of the 8-bit translation (or 12 when there is none: the 16-bit
+ * lane path pays two halves and a pack); its lanes are the catalogue's
+ * semantics per 128-bit chunk, proved per lane like every other value.
+ */
+static int synth_info_ok;
+static char synth_info[200];
+
+static int
+vsynth(nid value, double bound)
+{
+	uint64_t sl = node_slots(value);
+	int s, k, ld = -1, r, c, j;
+	struct cf_synth_res R;
+	const struct cf_opts *o = cf_run_opts();
+	long steps = o && o->synth_steps > 0 ? o->synth_steps : 3000;
+	struct sbuf code = {0}, txt = {0};
+	char pfx[16];
+	xfeat need = 0;
+
+	if (X.W != 8 || X.flt || __builtin_popcountll(sl) != 1)
+		return -1;
+	s = __builtin_ctzll(sl);
+	for (k = 0; k < X.l->nload; k++)
+		if (X.l->load[k].slot == s && !X.gather[k] &&
+		    X.l->load[k].esize == 1)
+			ld = k;
+	if (ld < 0 || !cf_engine_on(CF_ENG_SYNTH))
+		return -1;
+	if (!cf_synth_bytes(X.t, mk_cast(TY(K_UINT, 8), value), s, bound, steps,
+	    &R))
+		return -1;
+	/* the program's features at this width */
+	for (k = 0; k < R.best.n; k++)
+		;
+	if ((ld = vload(ld)) < 0)
+		return -1;
+	if ((r = new_vv('i', 8, X.VL)) < 0)
+		return -1;
+	for (c = 0; c < X.VL / 16; c++) {
+		nid in[16], out[16];
+		for (j = 0; j < 16; j++)
+			in[j] = mk_cast(TY(K_UINT, 8), X.v[ld].lane[16 * c + j]);
+		if (!cf_synth_sem(&R.best, in, out))
+			return -1;
+		for (j = 0; j < 16; j++)
+			X.v[r].lane[16 * c + j] = mk_cast(TY(K_SINT, 8), out[j]);
+	}
+	snprintf(pfx, sizeof pfx, "%s_", X.v[r].nm);
+	cf_synth_code(&R.best, X.VB, X.v[ld].nm, pfx, X.v[r].nm, &code);
+	{
+		const char *p = code.p;
+		while (p && *p) {
+			const char *e = strchr(p, '\n');
+			sb_printf(&X.body, "\t\t%.*s\n", (int)(e ? e - p : (long)strlen(p)),
+			    p);
+			p = e ? e + 1 : NULL;
+		}
+	}
+	X.cost += cf_synth_names(&R.best, X.VB, X.ua, &need);
+	X.need |= need;
+	cf_synth_text(&R.best, &txt);
+	snprintf(synth_info, sizeof synth_info, "synthesised %.80s (CEGIS: %ld "
+	    "of %ld sketches, %ld SAT calls, %ld counterexamples)", txt.p,
+	    R.st.sketches, R.st.space, R.st.sat_calls, R.st.cex);
+	synth_info_ok = 1;
+	free(code.p);
+	free(txt.p);
+	return r;
+}
+
 /* one attempt at vector bits VB and lane bits W */
 static int
 attempt(int VB, int W, struct vplan *pl)
@@ -1567,6 +1642,7 @@ attempt(int VB, int W, struct vplan *pl)
 	X.VB = VB;
 	X.W = W;
 	X.VL = VB / W;
+	synth_info_ok = 0;
 	X.nv = 0;
 	X.nmemo = 0;
 	X.need = 0;
@@ -1584,7 +1660,35 @@ attempt(int VB, int W, struct vplan *pl)
 		if (vload(k) < 0)
 			return 0;
 	for (k = 0; k < l->nstore; k++) {
-		int v = tr(l->store[k].value), E = l->store[k].esize * 8;
+		int v = -1, E = l->store[k].esize * 8;
+		if (W == 8 && !X.flt && l->store[k].esize == 1) {
+			/* the 8-bit translation, then the synthesis below its cost */
+			int nv = X.nv, nm = X.nmemo;
+			size_t bn = X.body.n;
+			double c0 = X.cost;
+			xfeat nd = X.need;
+			char w0[sizeof X.why];
+			int ldv0[CF_MAXMEM];
+			memcpy(ldv0, X.ldv, sizeof ldv0);
+			memcpy(w0, X.why, sizeof w0);
+			v = tr(l->store[k].value);
+			{
+				double ctr = v >= 0 ? X.cost - c0 : 12;
+				int v2;
+				X.nv = nv;
+				X.nmemo = nm;
+				X.body.n = bn;
+				if (X.body.p)
+					X.body.p[bn] = 0;
+				X.cost = c0;
+				X.need = nd;
+				memcpy(X.ldv, ldv0, sizeof ldv0);
+				memcpy(X.why, w0, sizeof w0);
+				v2 = vsynth(l->store[k].value, ctr);
+				v = v2 >= 0 ? v2 : tr(l->store[k].value);
+			}
+		} else
+			v = tr(l->store[k].value);
 		if (v < 0)
 			return 0;
 		if (!X.flt && (v = vnarrow(v, E)) < 0)
@@ -2002,6 +2106,11 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		    needcheck ? ", run-time overlap test" : "",
 		    l->nred ? ", reductions reassociated (exact mod 2^n)" : "",
 		    pl.lp.lanes, pl.lp.dag, pl.lp.exh, pl.lp.sat);
+		if (synth_info_ok) {
+			size_t n = strlen(out->what);
+			snprintf(out->what + n, sizeof out->what - n, "; %s",
+			    synth_info);
+		}
 		free(f.p);
 	}
 	out->proof = CF_PROOF_LANES;

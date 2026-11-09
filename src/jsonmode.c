@@ -100,7 +100,7 @@ struct jparam {
 	const char *values;	/* P_ENUM: "a|b|c" */
 };
 
-#define MAXJP 14
+#define MAXJP 20
 struct jcmd {
 	const char *name;
 	const char *stmt;	/* the statement's leading words */
@@ -604,7 +604,19 @@ static const struct jcmd cmds[] = {
 	    "counted loop from its IR (tests the loop extraction)"),
 	    BO("vectorize", " vectorize", "apply the proved vectorised loops "
 	    "(by default they are proposed; with bench, applied where they "
-	    "beat clang's own code)")}},
+	    "beat clang's own code)"),
+	    TO("engines", " engines %s", "which of ucas's engines generate "
+	    "candidates: all (default), none, or a comma list of find gates "
+	    "alg ring dio gf2 loops float bound synth"),
+	    NUO("steps", " steps %s", "sketches the synthesis may try per value "
+	    "(a deterministic budget; default 3000)"),
+	    NUO("ebudget", " ebudget %s", "CPU seconds for the engines' own "
+	    "searches, in total (default: a quarter of budget)"),
+	    BO("approx", " approx", "apply approximations (loops as integrals, "
+	    "minimax) whose derived error bound is stated; by default they "
+	    "are proposed"),
+	    NUO("error", " error %s", "with approx: apply an approximation "
+	    "only when its derived error bound is at most this")}},
 	{"c_lower", "c lower", 1, 0, "each C function as one ucas value of "
 	    "its parameters (with the C UB as a domain condition), or why not; "
 	    "for the others, each counted loop in the vectoriser's IR",
