@@ -99,19 +99,60 @@ luni(kt p, kt t)
 	}
 	if (nm == 0)
 		return kn_norm(kf_eq(p, t)) == kf_true();
-	/* one bare metavariable with coefficient +-1: solve for it */
-	if (nm == 1 && KOP(pa[mi]) == KO_META && KOP(pc[mi]) == KO_NUM &&
-	    (KT.num[pc[mi]] == 1 || KT.num[pc[mi]] == -1) &&
-	    KSORT(pa[mi]) == KSORT(t) && !mval[KT.aux[pa[mi]]]) {
-		kt v = ground == KNONE ? t : kt_sub(t, ground);
-		if (KT.num[pc[mi]] == -1)
-			v = kt_neg(v);
-		v = kn_norm(v);
-		if (KT.lb[v])
-			return 0;
-		bindm(KT.aux[pa[mi]], v);
-		return 1;
+	/* a bare metavariable with coefficient +-1: match the other
+	 * metavariable summands, then solve for it */
+	{
+		int bi = -1;
+		for (i = 0; i < np; i++)
+			if (KOP(pa[i]) == KO_META && KOP(pc[i]) == KO_NUM &&
+			    (KT.num[pc[i]] == 1 || KT.num[pc[i]] == -1) &&
+			    KSORT(pa[i]) == KSORT(t) && !mval[KT.aux[pa[i]]]) {
+				bi = i;
+				break;
+			}
+		if (bi >= 0) {
+			kt rest = KNONE, v;
+			int ok = 1;
+			memset(used, 0, sizeof used);
+			for (i = 0; i < np && ok; i++) {
+				if (i == bi || !pm[i])
+					continue;
+				ok = 0;
+				for (j = 0; j < nt && !ok; j++) {
+					int m2 = ntrail;
+					if (used[j])
+						continue;
+					if (uni(pa[i], ta[j]) && uni(pc[i], tc[j])) {
+						used[j] = 1;
+						ok = 1;
+					} else
+						undo(m2);
+				}
+			}
+			if (ok) {
+				for (i = 0; i < np; i++) {
+					kt sterm;
+					if (i == bi)
+						continue;
+					sterm = KSORT(t) == KS_INT && pa[i] == kt_num(1) ?
+					    pc[i] : kt_mul(pc[i], pa[i]);
+					sterm = resolve(sterm);
+					rest = rest == KNONE ? sterm : kt_add(rest, sterm);
+				}
+				v = rest == KNONE ? t : kt_sub(t, rest);
+				if (KT.num[pc[bi]] == -1)
+					v = kt_neg(v);
+				v = kn_norm(v);
+				if (!KT.lb[v] && !kt_hasmeta(v)) {
+					bindm(KT.aux[pa[bi]], v);
+					return 1;
+				}
+			}
+			undo(mark);
+		}
 	}
+	(void)mi;
+	(void)ground;
 	/* match the ground summands exactly, the rest pairwise */
 	memset(used, 0, sizeof used);
 	for (i = 0; i < np; i++) {
@@ -1504,6 +1545,8 @@ prove(struct kctx *c, kt g, int depth)
 		return chain(c, g, depth, 1);
 	case KO_FALSE:
 		if ((th = refute(c, depth > 1 ? 2 : 1)) != KNONE)
+			return th;
+		if ((th = chain(c, g, depth, 1)) != KNONE)
 			return th;
 		/* a negated fact whose positive form we can prove */
 		{

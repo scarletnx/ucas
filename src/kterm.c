@@ -1190,9 +1190,15 @@ pterm(struct kp *p, int want)
 	while (p->tk == PT_PLUS || p->tk == PT_MINUS) {
 		neg = p->tk == PT_MINUS;
 		next(p);
-		b = pprod(p, KSORT(a));
+		b = pprod(p, KOP(a) == KO_NUM ? -1 : KSORT(a));
 		if (p->failed)
 			return KNONE;
+		if (KSORT(a) != KSORT(b) && KOP(a) == KO_NUM && KT.num[a] == 0 &&
+		    KSORT(b) == KS_EL)
+			a = kt_zero();
+		if (KSORT(a) != KSORT(b))
+			return perr(p, "%s", "the terms of a sum have different "
+			    "sorts");
 		if (KSORT(a) != KS_INT && KSORT(a) != KS_EL)
 			return perr(p, "%s", "cannot add that");
 		a = neg ? kt_sub(a, b) : kt_add(a, b);

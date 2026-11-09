@@ -173,12 +173,10 @@ qed
 
 # coordinates in S = <a> (+) M, a of infinite order: no element of the
 # form q*a with q >= 1 lies in S[p] + p*q*S (the valuation argument)
-lemma zsum_val: forall a:el, S:set: zsummand(a,S) -> forall p q:int, t x:el: 2 <= p and 1 <= q and t in S and x in S and p*t = 0 and q*a = t + (p*q)*x -> false
+lemma zsum_val: forall a:el, S:set, p q:int, t x:el: zsummand(a,S) and 2 <= p and 1 <= q and t in S and x in S and p*t = 0 and q*a = t + (p*q)*x -> false
 proof
-  fix a S
-  intro hz
-  fix p q t x
-  intro hp hq ht hx hpt hqa
+  fix a S p q t x
+  intro hz hp hq ht hx hpt hqa
   obtain M:set st aS sS hM hMS hdec hind: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0) by zsummand_def hz
   obtain s:int, m1:el st m1M te: m1 in M and t = s*a + m1 by hdec ht
   obtain u:int, m2:el st m2M xe: m2 in M and x = u*a + m2 by hdec hx
@@ -214,12 +212,10 @@ qed
 
 # the same coordinates: a is not in S[w] + p*S for w >= 1 (a unit
 # argument instead of a valuation)
-lemma zsum_unit: forall a:el, S:set: zsummand(a,S) -> forall p w:int, x y:el: 2 <= p and 1 <= w and x in S and y in S and w*x = 0 and a = x + p*y -> false
+lemma zsum_unit: forall a:el, S:set, p w:int, x y:el: zsummand(a,S) and 2 <= p and 1 <= w and x in S and y in S and w*x = 0 and a = x + p*y -> false
 proof
-  fix a S
-  intro hz
-  fix p w x y
-  intro hp hw hx hy hwx ha
+  fix a S p w x y
+  intro hz hp hw hx hy hwx ha
   obtain M:set st aS sS hM hMS hdec hind: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0) by zsummand_def hz
   obtain s:int, m1:el st m1M xe: m1 in M and x = s*a + m1 by hdec hx
   obtain u:int, m2:el st m2M ye: m2 in M and y = u*a + m2 by hdec hy
@@ -259,23 +255,23 @@ lemma ec_subD: forall c:cpl: excouple(c) -> subgroup(D(c))
 by excouple_def
 lemma ec_subE: forall c:cpl: excouple(c) -> subgroup(E(c))
 by excouple_def
-lemma ec_iD: forall c:cpl: excouple(c) -> forall x:el: x in D(c) -> i(c,x) in D(c)
+lemma ec_iD: forall c:cpl, x:el: excouple(c) and x in D(c) -> i(c,x) in D(c)
 by excouple_def
-lemma ec_jE: forall c:cpl: excouple(c) -> forall x:el: x in D(c) -> j(c,x) in E(c)
+lemma ec_jE: forall c:cpl, x:el: excouple(c) and x in D(c) -> j(c,x) in E(c)
 by excouple_def
-lemma ec_kD: forall c:cpl: excouple(c) -> forall e:el: e in E(c) -> k(c,e) in D(c)
+lemma ec_kD: forall c:cpl, e:el: excouple(c) and e in E(c) -> k(c,e) in D(c)
 by excouple_def
-lemma ec_kerj: forall c:cpl: excouple(c) -> forall x:el: x in D(c) and j(c,x) = 0 -> exists y:el: y in D(c) and x = i(c,y)
+lemma ec_kerj: forall c:cpl, x:el: excouple(c) and x in D(c) and j(c,x) = 0 -> exists y:el: y in D(c) and x = i(c,y)
 by excouple_def
-lemma ec_ji: forall c:cpl: excouple(c) -> forall x:el: x in D(c) -> j(c,i(c,x)) = 0
+lemma ec_ji: forall c:cpl, x:el: excouple(c) and x in D(c) -> j(c,i(c,x)) = 0
 by excouple_def
-lemma ec_kerk: forall c:cpl: excouple(c) -> forall e:el: e in E(c) and k(c,e) = 0 -> exists x:el: x in D(c) and e = j(c,x)
+lemma ec_kerk: forall c:cpl, e:el: excouple(c) and e in E(c) and k(c,e) = 0 -> exists x:el: x in D(c) and e = j(c,x)
 by excouple_def
-lemma ec_kj: forall c:cpl: excouple(c) -> forall x:el: x in D(c) -> k(c,j(c,x)) = 0
+lemma ec_kj: forall c:cpl, x:el: excouple(c) and x in D(c) -> k(c,j(c,x)) = 0
 by excouple_def
-lemma ec_keri: forall c:cpl: excouple(c) -> forall x:el: x in D(c) and i(c,x) = 0 -> exists e:el: e in E(c) and x = k(c,e)
+lemma ec_keri: forall c:cpl, x:el: excouple(c) and x in D(c) and i(c,x) = 0 -> exists e:el: e in E(c) and x = k(c,e)
 by excouple_def
-lemma ec_ik: forall c:cpl: excouple(c) -> forall e:el: e in E(c) -> i(c,k(c,e)) = 0
+lemma ec_ik: forall c:cpl, e:el: excouple(c) and e in E(c) -> i(c,k(c,e)) = 0
 by excouple_def
 
 # ---- iterates of i (i^m; 0 for m < 0 by convention) ----
@@ -660,4 +656,384 @@ proof
     qed
     show by pD pZ pB pJ
   qed
+qed
+
+# the closed forms one at a time
+lemma cf_D: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r -> (Dr(c,r,y) <-> (exists x:el: x in D(c) and y = ipow(c,r-1,x)))
+by closed_forms
+lemma cf_Z: forall c:cpl, r:int, e:el: excouple(c) and 1 <= r -> (Zr(c,r,e) <-> (e in E(c) and exists x:el: x in D(c) and k(c,e) = ipow(c,r-1,x)))
+by closed_forms
+lemma cf_B: forall c:cpl, r:int, e:el: excouple(c) and 1 <= r -> (Br(c,r,e) <-> (exists x:el: x in D(c) and ipow(c,r-1,x) = 0 and e = j(c,x)))
+by closed_forms
+lemma cf_J: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r -> (Jr(c,r,y,e) <-> (exists x:el: x in D(c) and y = ipow(c,r-1,x) and Br(c,r,e - j(c,x))))
+by closed_forms
+
+# ---- the r-th derived couple, as the paper uses it ----
+lemma dc_B0: forall c:cpl, r:int: excouple(c) and 1 <= r -> Br(c,r,0)
+proof
+  fix c r
+  intro ec hr
+  have z: 0 in D(c) by sub_zero ec_subD ec
+  show by cf_B ec hr z with 0
+qed
+
+lemma dc_Bsub: forall c:cpl, r:int, u v:el: excouple(c) and 1 <= r and Br(c,r,u) and Br(c,r,v) -> Br(c,r,u - v)
+proof
+  fix c r u v
+  intro ec hr hu hv
+  have sD: subgroup(D(c)) by ec_subD ec
+  obtain x1:el st x1D i1 e1: x1 in D(c) and ipow(c,r-1,x1) = 0 and u = j(c,x1) by cf_B ec hr hu
+  obtain x2:el st x2D i2 e2: x2 in D(c) and ipow(c,r-1,x2) = 0 and v = j(c,x2) by cf_B ec hr hv
+  have d: x1 - x2 in D(c) by sD x1D x2D
+  show by cf_B ec hr d i1 i2 e1 e2 with x1 - x2
+qed
+
+# D_r = i^(r-1) D (= p^(r-1) H for the Bockstein couple)
+lemma dc_Dr: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r -> (Dr(c,r,y) <-> (exists x:el: x in D(c) and y = ipow(c,r-1,x)))
+by cf_D
+
+lemma dc_DD: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r and Dr(c,r,y) -> y in D(c)
+proof
+  fix c r y
+  intro ec hr hd
+  obtain x:el st xD yx: x in D(c) and y = ipow(c,r-1,x) by cf_D ec hr hd
+  have a: ipow(c,r-1,x) in D(c) by ipow_D ec xD
+  show by a yx
+qed
+
+# i_r maps D_r into D_r (i_r is i restricted)
+lemma dc_iD: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r and Dr(c,r,y) -> Dr(c,r,i(c,y))
+proof
+  fix c r y
+  intro ec hr hd
+  have r0: 0 <= r - 1 by hr
+  obtain x:el st xD yx: x in D(c) and y = ipow(c,r-1,x) by cf_D ec hr hd
+  have ixD: i(c,x) in D(c) by ec_iD ec xD
+  have s1: ipow(c,r,x) = i(c,ipow(c,r-1,x)) by ipow_succ[c, r-1, x] r0
+  have s2: ipow(c,r,x) = ipow(c,r-1,i(c,x)) by ipow_shift[c, r-1] r0
+  show by cf_D ec hr ixD yx s1 s2 with i(c,x)
+qed
+
+# j_r(i^(r-1) x) = [j x]  (j_r(p^(r-1) a) = a-bar)
+lemma dc_jr: forall c:cpl, r:int, x:el: excouple(c) and 1 <= r and x in D(c) -> Jr(c,r,ipow(c,r-1,x),j(c,x))
+proof
+  fix c r x
+  intro ec hr hx
+  have b: Br(c,r,j(c,x) - j(c,x)) by dc_B0 ec hr
+  show by cf_J ec hr hx b with x
+qed
+
+# j_r is additive and well defined on classes, with values in Z_r
+lemma dc_Jsub: forall c:cpl, r:int, y1 y2 e1 e2:el: excouple(c) and 1 <= r and Jr(c,r,y1,e1) and Jr(c,r,y2,e2) -> Jr(c,r,y1 - y2,e1 - e2)
+proof
+  fix c r y1 y2 e1 e2
+  intro ec hr h1 h2
+  have sD: subgroup(D(c)) by ec_subD ec
+  obtain x1:el st x1D y1e b1: x1 in D(c) and y1 = ipow(c,r-1,x1) and Br(c,r,e1 - j(c,x1)) by cf_J ec hr h1
+  obtain x2:el st x2D y2e b2: x2 in D(c) and y2 = ipow(c,r-1,x2) and Br(c,r,e2 - j(c,x2)) by cf_J ec hr h2
+  have d: x1 - x2 in D(c) by sD x1D x2D
+  have b: Br(c,r,(e1 - e2) - j(c,x1 - x2)) by dc_Bsub[c, r, e1 - j(c,x1), e2 - j(c,x2)] ec hr b1 b2
+  show by cf_J ec hr d y1e y2e b with x1 - x2
+qed
+
+lemma dc_Jwd: forall c:cpl, r:int, y e1 e2:el: excouple(c) and 1 <= r and Jr(c,r,y,e1) and Jr(c,r,y,e2) -> Br(c,r,e1 - e2)
+proof
+  fix c r y e1 e2
+  intro ec hr h1 h2
+  have j0: Jr(c,r,y - y,e1 - e2) by dc_Jsub[c, r, y, y, e1, e2] ec hr h1 h2
+  obtain x:el st xD x0 b: x in D(c) and y - y = ipow(c,r-1,x) and Br(c,r,(e1 - e2) - j(c,x)) by cf_J ec hr j0
+  have bx: Br(c,r,j(c,x)) by cf_B ec hr xD x0 with x
+  have b0: Br(c,r,0) by dc_B0 ec hr
+  have nx: Br(c,r,0 - j(c,x)) by dc_Bsub[c, r, 0, j(c,x)] ec hr b0 bx
+  have s: Br(c,r,((e1 - e2) - j(c,x)) - (0 - j(c,x))) by dc_Bsub[c, r, (e1 - e2) - j(c,x), 0 - j(c,x)] ec hr b nx
+  show by s
+qed
+
+# exactness of the r-th derived couple
+# ker j_r = im i_r
+lemma dc_kerj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c,r,y,e) and Br(c,r,e) -> exists y2:el: Dr(c,r,y2) and y = i(c,y2)
+proof
+  fix c r y e
+  intro ec hr hj hb
+  have sD: subgroup(D(c)) by ec_subD ec
+  have r0: 0 <= r - 1 by hr
+  obtain x:el st xD yx b1: x in D(c) and y = ipow(c,r-1,x) and Br(c,r,e - j(c,x)) by cf_J ec hr hj
+  obtain x2:el st x2D i2 e2: x2 in D(c) and ipow(c,r-1,x2) = 0 and e = j(c,x2) by cf_B ec hr hb
+  obtain x3:el st x3D i3 e3: x3 in D(c) and ipow(c,r-1,x3) = 0 and e - j(c,x) = j(c,x3) by cf_B ec hr b1
+  have zD: x - x2 + x3 in D(c) by sD xD x2D x3D
+  have jz: j(c,x - x2 + x3) = 0 by e2 e3
+  obtain w:el st wD wz: w in D(c) and x - x2 + x3 = i(c,w) by ec_kerj ec zD jz
+  have d: Dr(c,r,ipow(c,r-1,w)) by cf_D ec hr wD with w
+  have s1: ipow(c,r,w) = i(c,ipow(c,r-1,w)) by ipow_succ[c, r-1, w] r0
+  have s2: ipow(c,r,w) = ipow(c,r-1,i(c,w)) by ipow_shift[c, r-1] r0
+  have yy: y = i(c,ipow(c,r-1,w)) by s1 s2 wz yx i2 i3
+  show by d yy with ipow(c,r-1,w)
+qed
+
+lemma dc_imi: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r and Dr(c,r,y) -> Jr(c,r,i(c,y),0)
+proof
+  fix c r y
+  intro ec hr hd
+  have r0: 0 <= r - 1 by hr
+  obtain x:el st xD yx: x in D(c) and y = ipow(c,r-1,x) by cf_D ec hr hd
+  have ixD: i(c,x) in D(c) by ec_iD ec xD
+  have jj: Jr(c,r,ipow(c,r-1,i(c,x)),j(c,i(c,x))) by dc_jr ec hr ixD
+  have ji: j(c,i(c,x)) = 0 by ec_ji ec xD
+  have s1: ipow(c,r,x) = i(c,ipow(c,r-1,x)) by ipow_succ[c, r-1, x] r0
+  have s2: ipow(c,r,x) = ipow(c,r-1,i(c,x)) by ipow_shift[c, r-1] r0
+  have iy: i(c,y) = ipow(c,r-1,i(c,x)) by yx s1 s2
+  show by jj ji iy
+qed
+
+# ker k_r = im j_r
+lemma dc_kerk: forall c:cpl, r:int, e:el: excouple(c) and 1 <= r and Zr(c,r,e) and k(c,e) = 0 -> exists y:el: Jr(c,r,y,e)
+proof
+  fix c r e
+  intro ec hr hz hk
+  have eE: e in E(c) by cf_Z ec hr hz
+  obtain x:el st xD ex: x in D(c) and e = j(c,x) by ec_kerk ec eE hk
+  have jj: Jr(c,r,ipow(c,r-1,x),j(c,x)) by dc_jr ec hr xD
+  show by jj ex with ipow(c,r-1,x)
+qed
+
+lemma dc_imj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c,r,y,e) -> k(c,e) = 0
+proof
+  fix c r y e
+  intro ec hr hj
+  have sD: subgroup(D(c)) by ec_subD ec
+  obtain x:el st xD yx b: x in D(c) and y = ipow(c,r-1,x) and Br(c,r,e - j(c,x)) by cf_J ec hr hj
+  obtain x3:el st x3D i3 e3: x3 in D(c) and ipow(c,r-1,x3) = 0 and e - j(c,x) = j(c,x3) by cf_B ec hr b
+  have sD2: x + x3 in D(c) by sD xD x3D
+  have kj: k(c,j(c,x + x3)) = 0 by ec_kj[c, x + x3] ec sD2
+  show by kj e3
+qed
+
+lemma dc_JZ: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c,r,y,e) -> Zr(c,r,e)
+proof
+  fix c r y e
+  intro ec hr hj
+  have sD: subgroup(D(c)) by ec_subD ec
+  have sE: subgroup(E(c)) by ec_subE ec
+  have ke: k(c,e) = 0 by dc_imj ec hr hj
+  obtain x:el st xD yx b: x in D(c) and y = ipow(c,r-1,x) and Br(c,r,e - j(c,x)) by cf_J ec hr hj
+  obtain x3:el st x3D i3 e3: x3 in D(c) and ipow(c,r-1,x3) = 0 and e - j(c,x) = j(c,x3) by cf_B ec hr b
+  have sD2: x + x3 in D(c) by sD xD x3D
+  have jE: j(c,x + x3) in E(c) by ec_jE ec sD2
+  have eE: e in E(c) by jE e3
+  have z: 0 in D(c) by sub_zero sD
+  show by cf_Z ec hr eE ke z with 0
+qed
+
+# ker i_r = im k_r
+lemma dc_keri: forall c:cpl, r:int, y:el: excouple(c) and 1 <= r and Dr(c,r,y) and i(c,y) = 0 -> exists e:el: Zr(c,r,e) and y = k(c,e)
+proof
+  fix c r y
+  intro ec hr hd hi
+  obtain x:el st xD yx: x in D(c) and y = ipow(c,r-1,x) by cf_D ec hr hd
+  have yD: y in D(c) by dc_DD ec hr hd
+  obtain e:el st eE ye: e in E(c) and y = k(c,e) by ec_keri ec yD hi
+  have z: Zr(c,r,e) by cf_Z ec hr eE xD ye yx with x
+  show by z ye with e
+qed
+
+lemma dc_imk: forall c:cpl, r:int, e:el: excouple(c) and 1 <= r and Zr(c,r,e) -> Dr(c,r,k(c,e)) and i(c,k(c,e)) = 0
+proof
+  fix c r e
+  intro ec hr hz
+  have eE: e in E(c) by cf_Z ec hr hz
+  obtain x:el st xD kx: x in D(c) and k(c,e) = ipow(c,r-1,x) by cf_Z ec hr hz
+  have d: Dr(c,r,k(c,e)) by cf_D ec hr xD kx with x
+  have i0: i(c,k(c,e)) = 0 by ec_ik ec eE
+  show by d i0
+qed
+
+# the derived couple of an exact couple is exact, at every page r
+theorem derived_exact: forall c:cpl, r:int: excouple(c) and 1 <= r -> (forall y e:el: Jr(c,r,y,e) and Br(c,r,e) -> exists y2:el: Dr(c,r,y2) and y = i(c,y2)) and (forall y:el: Dr(c,r,y) -> Jr(c,r,i(c,y),0)) and (forall e:el: Zr(c,r,e) and k(c,e) = 0 -> exists y:el: Jr(c,r,y,e)) and (forall y e:el: Jr(c,r,y,e) -> k(c,e) = 0) and (forall y:el: Dr(c,r,y) and i(c,y) = 0 -> exists e:el: Zr(c,r,e) and y = k(c,e)) and (forall e:el: Zr(c,r,e) -> Dr(c,r,k(c,e)) and i(c,k(c,e)) = 0)
+proof
+  fix c r
+  intro ec hr
+  have a1: forall y e:el: Jr(c,r,y,e) and Br(c,r,e) -> exists y2:el: Dr(c,r,y2) and y = i(c,y2) by dc_kerj ec hr
+  have a2: forall y:el: Dr(c,r,y) -> Jr(c,r,i(c,y),0) by dc_imi ec hr
+  have a3: forall e:el: Zr(c,r,e) and k(c,e) = 0 -> exists y:el: Jr(c,r,y,e) by dc_kerk ec hr
+  have a4: forall y e:el: Jr(c,r,y,e) -> k(c,e) = 0 by dc_imj ec hr
+  have a5: forall y:el: Dr(c,r,y) and i(c,y) = 0 -> exists e:el: Zr(c,r,e) and y = k(c,e) by dc_keri ec hr
+  have a6: forall e:el: Zr(c,r,e) -> Dr(c,r,k(c,e)) and i(c,k(c,e)) = 0 by dc_imk ec hr
+  show by a1 a2 a3 a4 a5 a6
+qed
+
+# d_r d_r = 0
+theorem dd_zero: forall c:cpl, r:int, e f:el: excouple(c) and 1 <= r and Zr(c,r,e) and Jr(c,r,k(c,e),f) -> dzero(c,r,f)
+proof
+  fix c r e f
+  intro ec hr hz hj
+  have kf: k(c,f) = 0 by dc_imj ec hr hj
+  have z: 0 in D(c) by sub_zero ec_subD ec
+  have j0: Jr(c,r,0,0) by dc_jr[c, r, 0] ec hr z
+  have b0: Br(c,r,0) by dc_B0 ec hr
+  have j1: Jr(c,r,k(c,f),0) by j0 kf
+  show by dzero_def j1 b0 with 0
+qed
+
+# ---- the Bockstein spectral sequence ----
+# For a cochain complex C of finite type over Z and a prime p, the short
+# exact sequence 0 -> C --p--> C -> C/p -> 0 (exact because C is free)
+# gives the long exact sequence, i.e. the exact couple with
+# D = H*(C;Z) (Htot), E = H*(C;Z/p), i = multiplication by p, j the
+# reduction, k the connecting map.  H(C,n) = H^n(C;Z), a direct summand
+# of H*(C;Z) = (+)_n H^n.  These four lines define the couple.
+func bock(cx, int): cpl
+func Htot(cx): set
+func H(cx, int): set
+pred fintype(cx)
+pred prime(int)
+def prime_def: forall p:int: prime(p) <-> (2 <= p and (forall d q:int: 1 <= d and p = d*q -> d = 1 or d = p))
+def bock_couple: forall C:cx, p:int: fintype(C) and prime(p) -> excouple(bock(C,p))
+def bock_D: forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Htot(C)
+def bock_i: forall C:cx, p:int, x:el: i(bock(C,p),x) = p*x
+def H_summand: forall C:cx, n:int: summand(H(C,n), Htot(C))
+
+lemma prime_ge2: forall p:int: prime(p) -> 2 <= p
+by prime_def
+
+lemma zs_mem: forall a:el, S:set: zsummand(a,S) -> a in S and subgroup(S)
+proof
+  fix a S
+  intro hz
+  obtain M:set st aS sS hM hMS hdec hind: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0) by zsummand_def hz
+  show by aS sS
+qed
+
+# i^m = p^m on the Bockstein couple
+lemma ipow_bock: forall C:cx, p:int: forall m:int: 0 <= m -> forall x:el: ipow(bock(C,p),m,x) = p^m*x
+proof
+  fix C p
+  induct m from 0
+  base
+  proof
+    fix x
+    show by ipow_zero[bock(C,p), x]
+  qed
+  step
+  proof
+    fix m
+    intro hm ih
+    fix x
+    have s: ipow(bock(C,p),m+1,x) = i(bock(C,p),ipow(bock(C,p),m,x)) by ipow_succ[bock(C,p), m, x] hm
+    have a: ipow(bock(C,p),m,x) = p^m*x by ih
+    have b: i(bock(C,p),x) = p*x by bock_i
+    have e: p^(m+1) = p^m*p by pow_succ[p, m] hm
+    show by s a b e
+  qed
+qed
+
+# Proposition 0.1, following the paper: a-bar = j_1(a) lies in im j_r,
+# so in ker k_r, so in ker d_r; D_r = p^(r-1) H, j_r(p^(r-1) a) = a-bar,
+# ker j_r = im i_r, i_r = p on D_r, im k_r = ker i_r (p-torsion of
+# D_r); a-bar in im d_r would put p^(r-1) a in (p-torsion) + p^r H, which
+# the valuation argument rules out for a generator of a Z summand.
+theorem bockstein_paper: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+proof
+  fix C p n r a
+  intro hC hp hn hr ha hs
+  have ec: excouple(bock(C,p)) by bock_couple hC hp
+  have p2: 2 <= p by prime_ge2 hp
+  have hsT: zsummand(a,Htot(C)) by zsummand_trans[a, H(C,n), Htot(C)] hs H_summand
+  have aT: a in Htot(C) by zs_mem hsT
+  have aD: a in D(bock(C,p)) by bock_D aT
+  have r0: 0 <= r - 1 by hr
+  # j_r(p^(r-1) a) = a-bar
+  have jr: Jr(bock(C,p),r,ipow(bock(C,p),r-1,a),j(bock(C,p),a)) by dc_jr ec hr aD
+  # a-bar in im j_r = ker k_r, and it is a class of E_r
+  have kj: k(bock(C,p),j(bock(C,p),a)) = 0 by dc_imj ec hr jr
+  have s1: Zr(bock(C,p),r,j(bock(C,p),a)) by dc_JZ ec hr jr
+  # d_r a-bar = j_r k_r a-bar = j_r 0 = 0
+  have s2: dzero(bock(C,p),r,j(bock(C,p),a))
+  proof
+    have z: 0 in D(bock(C,p)) by sub_zero ec_subD ec
+    have j0: Jr(bock(C,p),r,0,0) by dc_jr[bock(C,p), r, 0] ec hr z
+    have b0: Br(bock(C,p),r,0) by dc_B0 ec hr
+    have j1: Jr(bock(C,p),r,k(bock(C,p),j(bock(C,p),a)),0) by j0 kj
+    show by dzero_def j1 b0 with 0
+  qed
+  # a-bar is not in im d_r^(n-1)
+  have s3: not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+  proof
+    intro h
+    obtain e0 f:el st z0 dg jf bf: Zr(bock(C,p),r,e0) and Edeg(bock(C,p),n-1,e0) and Jr(bock(C,p),r,k(bock(C,p),e0),f) and Br(bock(C,p),r,j(bock(C,p),a) - f) by dimg_def h
+    # j_r(p^(r-1) a - k_r e0) = a-bar - d_r e0 = 0 in E_r
+    have j2: Jr(bock(C,p),r,ipow(bock(C,p),r-1,a) - k(bock(C,p),e0),j(bock(C,p),a) - f) by dc_Jsub[bock(C,p), r, ipow(bock(C,p),r-1,a), k(bock(C,p),e0), j(bock(C,p),a), f] ec hr jr jf
+    # ker j_r = im i_r
+    obtain y:el st yd yi: Dr(bock(C,p),r,y) and ipow(bock(C,p),r-1,a) - k(bock(C,p),e0) = i(bock(C,p),y) by dc_kerj ec hr j2 bf
+    # D_r = p^(r-1) H
+    obtain x:el st xD yx: x in D(bock(C,p)) and y = ipow(bock(C,p),r-1,x) by dc_Dr ec hr yd
+    # im k_r = ker i_r: k_r e0 is p-torsion in D_r
+    have tk: Dr(bock(C,p),r,k(bock(C,p),e0)) and i(bock(C,p),k(bock(C,p),e0)) = 0 by dc_imk ec hr z0
+    have tD: k(bock(C,p),e0) in D(bock(C,p)) by dc_DD ec hr tk
+    # i = p, i^(r-1) = p^(r-1)
+    have e1: ipow(bock(C,p),r-1,a) = p^(r-1)*a by ipow_bock r0
+    have e2: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock r0
+    have e3: i(bock(C,p),y) = p*y by bock_i
+    have e4: i(bock(C,p),k(bock(C,p),e0)) = p*k(bock(C,p),e0) by bock_i
+    have pt: p*k(bock(C,p),e0) = 0 by tk e4
+    # p^(r-1) a = t + p^r x with p t = 0
+    have key: p^(r-1)*a = k(bock(C,p),e0) + (p*p^(r-1))*x by yi yx e1 e2 e3
+    have p1: 1 <= p by p2
+    have q1: 1 <= p^(r-1) by pow_pos p1 r0
+    have tH: k(bock(C,p),e0) in Htot(C) by bock_D tD
+    have xH: x in Htot(C) by bock_D xD
+    show false by zsum_val[a, Htot(C), p, p^(r-1), k(bock(C,p),e0), x] hsT p2 q1 tH xH pt key
+  qed
+  show by s1 s2 s3
+qed
+
+# Proposition 0.1 by another route: the closed forms Z_(r+1) =
+# k^-1(p^r H) and B_(r+1) = j(H[p^r]) and the coordinates of a direct sum
+# H = <a> (+) M; a-bar in im d_r would mean a in H[p^r] + pH, and the
+# a-coordinate gives 1 in pZ.
+theorem bockstein_coords: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+proof
+  fix C p n r a
+  intro hC hp hn hr ha hs
+  have ec: excouple(bock(C,p)) by bock_couple hC hp
+  have p2: 2 <= p by prime_ge2 hp
+  have hsT: zsummand(a,Htot(C)) by zsummand_trans[a, H(C,n), Htot(C)] hs H_summand
+  have aT: a in Htot(C) by zs_mem hsT
+  have aD: a in D(bock(C,p)) by bock_D aT
+  have sD: subgroup(D(bock(C,p))) by ec_subD ec
+  have rr: 0 <= r by hr
+  have r1: 1 <= r + 1 by hr
+  have kj: k(bock(C,p),j(bock(C,p),a)) = 0 by ec_kj ec aD
+  have jaE: j(bock(C,p),a) in E(bock(C,p)) by ec_jE ec aD
+  have z0: 0 in D(bock(C,p)) by sub_zero sD
+  # a-bar in Z_(r+1) = k^-1(p^r H): it survives, and d_r a-bar = 0
+  have zr1: Zr(bock(C,p),r+1,j(bock(C,p),a)) by cf_Z[bock(C,p), r+1, j(bock(C,p),a)] ec r1 jaE kj z0 with 0
+  have s1: Zr(bock(C,p),r,j(bock(C,p),a)) by Zsucc_def zr1 hr
+  have s2: dzero(bock(C,p),r,j(bock(C,p),a))
+  proof
+    obtain f:el st jf bf: Jr(bock(C,p),r,k(bock(C,p),j(bock(C,p),a)),f) and Br(bock(C,p),r,f) by Zsucc_def zr1 hr
+    show by dzero_def jf bf with f
+  qed
+  have s3: not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+  proof
+    intro h
+    obtain e0 f:el st z1 dg jf bf: Zr(bock(C,p),r,e0) and Edeg(bock(C,p),n-1,e0) and Jr(bock(C,p),r,k(bock(C,p),e0),f) and Br(bock(C,p),r,j(bock(C,p),a) - f) by dimg_def h
+    # a-bar in im d_r: a-bar = 0 in E_(r+1)
+    have b: Br(bock(C,p),r+1,j(bock(C,p),a)) by Bsucc_def hr z1 jf bf with e0, f
+    # B_(r+1) = j(ker i^r) = j(H[p^r])
+    obtain x:el st xD xi xj: x in D(bock(C,p)) and ipow(bock(C,p),r,x) = 0 and j(bock(C,p),a) = j(bock(C,p),x) by cf_B[bock(C,p), r+1, j(bock(C,p),a)] ec r1 b
+    have dD: a - x in D(bock(C,p)) by sD aD xD
+    have jd: j(bock(C,p),a - x) = 0 by xj
+    # ker j = im i = pH
+    obtain y:el st yD yi: y in D(bock(C,p)) and a - x = i(bock(C,p),y) by ec_kerj ec dD jd
+    have e1: ipow(bock(C,p),r,x) = p^r*x by ipow_bock rr
+    have e2: i(bock(C,p),y) = p*y by bock_i
+    have p1: 1 <= p by p2
+    have w1: 1 <= p^r by pow_pos p1 rr
+    have wx: p^r*x = 0 by xi e1
+    have ax: a = x + p*y by yi e2
+    have xH: x in Htot(C) by bock_D xD
+    have yH: y in Htot(C) by bock_D yD
+    show false by zsum_unit[a, Htot(C), p, p^r, x, y] hsT p2 w1 xH yH wx ax
+  qed
+  show by s1 s2 s3
 qed

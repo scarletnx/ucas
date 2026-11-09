@@ -87,12 +87,15 @@ deps_of(int li, struct deps *d)
 				d->ax[d->na++] = a;
 		}
 		if (r == KR_CONV) {
+			/* a conversion may use a declared homomorphism */
 			uint32_t s;
-			for (s = 1; s < nksyms; s++)
-				if (ksyms[s].homthm && ksyms[s].homthm < th &&
-				    lemma_of[kthm_prem(ksyms[s].homthm, 0)]) {
-					/* conversions use the hom declaration */
+			for (s = 1; s < nksyms; s++) {
+				kthm h = ksyms[s].homthm;
+				if (h && h < th && !mark[h]) {
+					mark[h] = 1;
+					st[ns++] = h;
 				}
+			}
 		}
 		for (i = 0; i < kthm_nprem(th); i++) {
 			kthm q = kthm_prem(th, i);
