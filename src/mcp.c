@@ -142,6 +142,36 @@ static const struct group groups[] = {
 	    "abtensor abtor abext abmap abelem absub abexact permgroup permelem "
 	    "permsub permhom cayley groebner idealmember idealeq fxmodule "
 	    "pmsnf"},
+	{"elliptic", "Elliptic curves and Diophantine equations",
+	    "Elliptic curves over Q, exactly (analytic values with error "
+	    "bounds): invariants, minimal models, Tate's algorithm, conductor, "
+	    "torsion, rank by 2-isogeny descent, generators, canonical "
+	    "heights, the group law, models (Montgomery, Edwards, Legendre) "
+	    "with their maps, periods, L-values, BSD; Diophantine equations "
+	    "reduced to elliptic curves (\"a/(b+c) + b/(a+c) + c/(a+b) = 4\" "
+	    "positive), congruent numbers, Mordell curves, sums of two cubes.  "
+	    "A curve is \"[a1, a2, a3, a4, a6]\", \"[a4, a6]\" or \"y^2 = x^3 "
+	    "- x\".  For instance {\"op\": \"diophantine\", \"args\": "
+	    "{\"equation\": \"a/(b+c) + b/(a+c) + c/(a+b) = 4\", \"positive\": "
+	    "true}}.",
+	    "elliptic diophantine weierstrass congruent mordell cubesum"},
+	{"elliptic_ff", "Elliptic curves over finite fields and cryptography",
+	    "Curves over F_p (any size to 521 bits; named: secp256k1, P-256, "
+	    "P-384, P-521, Curve25519, Ed25519, Curve448, BN254, BLS12-381) and "
+	    "GF(2^m): #E by naive/BSGS/CM/Schoof with a certificate, group "
+	    "structure, twists, embedding degrees, scalar multiplication, "
+	    "ECDSA (RFC 6979), ECDH, X25519/X448, Ed25519, SEC 1 encodings, "
+	    "test vectors; discrete logs (Pohlig-Hellman, rho, MOV, Smart); "
+	    "Weil/Tate pairings; CM and Hilbert class polynomials; modular "
+	    "polynomials, Velu isogenies, isogeny graphs, division "
+	    "polynomials; ECM factoring and ECPP certificates.  A curve is "
+	    "a name, \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\".  "
+	    "Mathematics, not hardened (constant-time) cryptography.",
+	    "ec_info ec_order ec_points ec_add ec_mul ecm ecdsa_sign "
+	    "ecdsa_verify ecdh x25519 x448 ed25519_sign ed25519_verify "
+	    "ec_compress ec_decompress ec_validate ec_vectors ec_dlog ec_weak "
+	    "ec_pairing hilbert ec_cm ecpp modpoly ec_isogeny ec_volcano "
+	    "ec_divpoly ec_binary"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "

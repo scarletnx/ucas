@@ -1007,6 +1007,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | solids | `area revolve volume surfacearea arclength centroid` |
 | pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
 | abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
+| elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
 | homological | `space homology cohomology les bockstein bockstein_trace prop01` |
 
@@ -1189,6 +1190,7 @@ an `op` and the op's `args`:
 | `solids` | area revolve volume surfacearea arclength centroid |
 | `plot` | plot plot3d neighbourhood animate |
 | `abstract_algebra` | bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf |
+| `elliptic` | elliptic diophantine weierstrass congruent mordell cubesum |
 | `session` | define state assume reset schema funcs models use help |
 | `homological` | space homology cohomology les bockstein bockstein_trace prop01 |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
@@ -1994,6 +1996,150 @@ Limits: the reduction cancels unit pivots only, so a complex whose
 remaining boundaries have no +-1 entry (RP^n's cellular 2s) stays as it
 is (they are small); no cup products (so no Sq^1 = d_1 identification
 beyond the numbers); only cellular models for lens spaces and CP^n.
+
+## Elliptic curves and Diophantine equations
+
+```
+ec [0,0,1,-1,0]                       # the summary of 37a1
+ec y^2 + y = x^3 - x^2 - 10*x - 20 local
+ec [0,0,1,-1,0] mul 7 (0,0)
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 4 positive
+congruent 157
+cubesum 7 positive
+mordell 17 bound 6000
+```
+
+`src/ec.h` is the shared core (the finite-field side, branch `elip-ff`,
+builds on it): a field behind a table of operations with elements as
+fixed-size values (`fe`): Q with `zint` rationals, F_p for any p, Z/n (a
+failed inversion yields a factor), GF(p^k) through `ring.h`, and room for
+other implementations; curves in general Weierstrass form with b2..b8,
+c4, c6, the discriminant and j; points and the chord-and-tangent law; a
+struct-of-arrays point table; the isomorphisms [u, r, s, t] with
+composition and inverse; models (short, Montgomery, Edwards, twisted
+Edwards, Legendre, twisted Hessian) with their maps to and from
+Weierstrass form in both directions; plane cubics with a rational flex
+to Weierstrass form.
+
+Over Q (`ecq.c`): integral and global minimal models (Laska-Kraus-
+Connell), Tate's algorithm at every bad prime (Kodaira symbol, c_p,
+conductor exponent, split or non-split), torsion (bounded by gcd
+#E(F_p), found by Nagell-Lutz, checked against Mazur's list), naive and
+canonical heights (Tate's series at infinity, Silverman's formulas at the
+bad primes; normalised as h(x(nP))/n^2, the BSD regulator's convention),
+a sieved point search, 2-isogeny descent (local solubility of the
+quartics over Q_p and R, both Selmer groups, global points on the
+quartics mapped back through the dual isogeny) giving proved rank
+bounds, independence by the height pairing, the lattice enlarged by any
+found point outside it (Hermite form), saturation at p <= 7 (by
+reduction, and at 2 exactly by the descent map when the 2-torsion is
+rational).
+
+The analytic side (`ecan.c`, floating point with the bound stated):
+periods by AGM, Weierstrass p by q-series (checked against p'^2 = 4p^3 -
+g2 p - g3), a_n, the root number from the functional equation (the
+mismatch for both signs is printed: a wrong conductor or a_p would show
+there), L(E, 1) up to L'''(E, 1), the analytic rank, and #Sha_an =
+L^(r)(1)/r! #T^2 / (Omega R prod c_p).  With analytic rank 0 or 1 the
+rank is a theorem (Gross-Zagier, Kolyvagin).  On 80 random curves the
+functional-equation mismatch stayed below 1e-9 and #Sha_an came out an
+integer for every curve whose generators were found.
+
+`diophantine` (`ecdio.c`) parses a rational equation in up to six
+variables (denominators cleared, their spurious factors divided out and
+remembered: a solution must not make one vanish) and recognises a plane
+cubic (homogeneous in 3 variables, or affine in 2 and homogenised), a
+curve quadratic in one variable with a quartic discriminant (s = 2Ay +
+B, s^2 = B^2 - 4AC), or z^2 = a quartic form.  It finds a rational
+point; from a flex, the tangent goes to the line at infinity; otherwise
+the pencil of lines through the point turns the cubic into w^2 =
+quartic(t) with a known point (the tangent direction), and Washington's
+map (or the root case) gives Weierstrass form.  Each step is data with a
+forward and a backward map; then the minimal model and the group.
+Combinations sum n_i P_i + T are taken in order of height, mapped back,
+the composed maps checked to return the same point, the side conditions
+(`positive`, `integer`, `nonzero`) applied, and the solution substituted
+into the original equation exactly.  With no solution it says why when
+it can: E(Q) finite (rank 0 by descent) and every point mapped; or, for
+positivity on a cubic, the positive real points lie on the bounded
+component of E(R) and the 2-isogeny Selmer group at the largest
+2-torsion point is all positive, so no rational point lies there.
+
+For a/(b+c) + b/(a+c) + c/(a+b) = N: N = 4 gives the 80-digit solution
+(from -9P + T on y^2 + xy + y = x^3 - 234x + 1352, conductor 910), N = 6
+a 134-digit and N = 10 a 190-digit one, N = 2 gives (3, 1, 1); N = 1, 3,
+5, 7, 9, 11, 13, 15, 17 have rank 0 (no solution, proved), and N = 19,
+21, 23, 29, 35, 39 have rank 1 but no positive solution, proved by the
+component argument.  `x^4 + y^4 = z^2 nonzero` reproves Fermat's case.
+`congruent n` gives a triangle (checked: a^2 + b^2 = c^2, ab/2 = n) or a
+proof that none exists (rank 0), else the bounds and Tunnell's counts.
+`cubesum k` solves x^3 + y^3 = k z^3; `mordell k` gives the summary and
+the integral points of y^2 = x^3 + k up to a bound.
+
+JSON: `elliptic` (curve, op, args), `diophantine` (equation, positive,
+integer, nonzero, count, maxmult, search), `weierstrass`, `congruent`,
+`mordell`, `cubesum`; the MCP tool `elliptic`.  Tests: `tests/elip.ucas`,
+`tests/json/elip.jsonl`, `tests/mcp/elliptic.jsonl`.
+
+Not done yet: a full 2-descent for curves without rational 2-torsion
+(their rank's upper bound is the analytic rank, a theorem only up to
+rank 1), second descents (`congruent 157`, whose generator is huge, is
+left open with its bounds), integral points beyond a search bound (no
+elliptic logarithms or Baker bounds), saturation only at p <= 7 and
+without an index bound, Hessian models from Weierstrass form (they need
+a 3-torsion point), theta-congruent numbers.
+
+## Elliptic curves over finite fields
+
+```
+> ecorder y^2 = x^3 + 2x + 3 mod 97
+#E = 100
+  trace: t = p + 1 - #E = -2
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (73, 83) has order 10 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (46, 72) has order 25 ...
+  check: N = 100 is the only multiple of 50 in the Hasse interval [79, 117]
+> ecpp 2^255 - 19
+57896...19949 is prime
+  how: Atkin-Morain ECPP, 6 steps down to 3425690484314565209
+> ecm 2^128 + 1
+340282366920938463463374607431768211457 = 59649589127497217 * 5704689200685129054721
+> ecvectors
+  check: RFC 8032 7.1 test 3 (ed25519): pass        (30 of 30)
+```
+
+Curves over F_p (fixed-width Montgomery arithmetic up to 521 bits),
+F_{p^k} (k <= 12) and binary fields GF(2^m), with their own arithmetic
+(`src/ecff.h`).  A curve is a name (`secp256k1`, `P-256`, `P-384`,
+`P-521`, `Curve25519`, `Ed25519`, `Curve448`, `BN254`, `BLS12-381`,
+`K-163`, `B-163`, `K-233`), an equation (`y^2 = x^3 + 2x + 3 mod 97`, also
+`over F_97`, `over GF(97)`; a general Weierstrass equation is moved to
+short form and the map printed) or coefficients (`[2, 3] mod 97`); a
+point is `(x, y)`, `G`, `O` or `random`.  Every answer prints how it was
+found and `check:` lines; JSON fields come from its `label: value` lines.
+
+| command | |
+|---------|--|
+| `ec C` | the curve: discriminant, j, order (named curves: standard), trace, embedding degree, supersingular / anomalous, twist |
+| `ecorder C [method naive\|bsgs\|schoof\|cm]` | #E: naive, baby-step giant-step with Mestre, CM for j = 0 or 1728, Schoof; certified by point orders (the only multiple of the exponent in the Hasse interval) |
+| `ecpoints C`, `ecadd C P Q`, `ecmul C k P` | points, the group law, scalar multiples (group structure Z/m x Z/mn by the Weil pairing) |
+| `ecdh`, `ecdsa`, `x25519`, `x448`, `ed25519`, `eccompress`, `ecdecompress`, `ecvalidate` | the protocols on the named curves; RFC 6979 nonces for ECDSA |
+| `ecvectors` | the known-answer tests: SHA-2 (FIPS), RFC 6979 (P-256), RFC 5903, RFC 7748 (X25519, X448), RFC 8032 (Ed25519); ECDSA on secp256k1, P-384, P-521 cross-checked against OpenSSL |
+| `ecdlog C Q P`, `ecweak anomalous\|supersingular BITS` | discrete logs: Pohlig-Hellman, BSGS, rho (orders up to 64 bits), MOV, Smart's anomalous attack; weak curves to try them on |
+| `ecpairing C` | Weil and reduced Tate pairings (Miller), including BN254 and BLS12-381 in F_p^12, with non-degeneracy, e^r = 1 and bilinearity checked |
+| `hilbert D`, `eccm D BITS`, `modpoly l`, `ecisogeny C l`, `ecvolcano C l`, `ecdivpoly C n` | Hilbert class polynomials (coefficients up to 1152 bits), prime-order CM curves, modular polynomials, Velu and Kohel isogenies, isogeny graphs, division polynomials |
+| `ecb2 C [mul k]` | binary curves over GF(2^m): Koblitz counting, FIPS parameters checked (non-Koblitz counted only for m <= 24) |
+| `ecm N`, `ecpp N` | Lenstra's ECM (stage 1 + 2); Atkin-Morain ECPP with an independent checker of the certificate |
+
+Append `timed` to any of them for timings.  MCP tool `elliptic_ff`.  This
+is variable-time mathematics, not hardened cryptography: use it to check
+and explore, not to protect secrets.
+
+Limits: no SEA (no Elkies or Atkin primes), so Schoof takes about 40 s at
+160 bits and random 256-bit curves are impractical (named and CM curves
+are fine); no Ed448; rho only for orders up to 64 bits; the `ec.h`
+`ECF_USER` adapter for these fields is not done.
 
 ## Design
 

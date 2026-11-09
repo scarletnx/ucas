@@ -7502,6 +7502,8 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 
 /* ---- telling English from ucas ---- */
 
+int ecff_is_cmd(const char *s, size_t n);	/* ecff_cmd.c */
+
 static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
@@ -7691,6 +7693,7 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 }
 
 int homalg_line(const char *s, size_t n);	/* homalg_cmd.c */
+int ec_word(const char *w);	/* ec_cmd.c */
 
 int
 nlp_is_english(const char *s, size_t n)
@@ -7709,6 +7712,8 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	if (ecff_is_cmd(s + i, n - i))
+		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
@@ -7781,6 +7786,9 @@ nlp_is_english(const char *s, size_t n)
 			    word_at(s, n, &j2, w2, sizeof w2) && !strcmp(w2, "prime"))))
 				return 1;
 		}
+		/* ec_cmd.c: elliptic-curve and Diophantine commands are ucas */
+		if (ec_word(w1) && !user_fn(w1))
+			return 0;
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;
