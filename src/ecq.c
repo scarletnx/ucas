@@ -1105,13 +1105,55 @@ lambda_bad(const struct ec *E, const struct ecpt *P, zint p)
 	return -(vc / 8.0) * lp;
 }
 
+/* a cache keyed by the curve's a-invariants (text, so it survives the
+ * arena): is the model minimal, and the primes of its discriminant */
+static struct {
+	char key[512];
+	int minimal;
+	int np;
+	char primes[64][64];
+} hc;
+
+static int
+hcache(const struct ec *E)
+{
+	struct sbuf s = {0};
+	int same;
+
+	ec_print_ainv(&s, E);
+	same = strlen(sb_str(&s)) < sizeof hc.key && !strcmp(hc.key, sb_str(&s));
+	if (!same && strlen(sb_str(&s)) < sizeof hc.key) {
+		struct ec Em;
+		struct eciso m;
+		zint p[64];
+		int e[64], comp, j;
+		zmark mk = z_mark();
+		snprintf(hc.key, sizeof hc.key, "%s", sb_str(&s));
+		hc.minimal = 0;
+		hc.np = 0;
+		if (ecq_is_integral(E)) {
+			ecq_minimal(E, &Em, &m);
+			hc.minimal = fe_is_one(E->F, &m.u);
+		}
+		if (hc.minimal) {
+			hc.np = z_factor(ZA(E, disc), p, e, 64, &comp);
+			for (j = 0; j < hc.np; j++)
+				snprintf(hc.primes[j], sizeof hc.primes[j], "%s",
+				    z_str(p[j]));
+		}
+		z_release(mk);
+		same = 1;
+	}
+	free(s.p);
+	return same && hc.minimal;
+}
+
 /* the canonical height on a minimal model (BSD normalisation: twice
  * Silverman's sum of local heights, h^(P) ~ h(x(P))) */
 static double
 height_min(const struct ec *E, const struct ecpt *P, double *err)
 {
-	zint p[64];
-	int e[64], n, j, comp;
+	int j;
 	double h, er = 0;
 	struct zq x;
 	zmark m = z_mark();
@@ -1125,10 +1167,12 @@ height_min(const struct ec *E, const struct ecpt *P, double *err)
 	h = lambda_inf(E, P, &er);
 	x = fe_q(&P->x);
 	h += 0.5 * zx_log(x.d);
-	n = z_factor(ZA(E, disc), p, e, 64, &comp);
-	for (j = 0; j < n; j++)
-		if (!z_divides(p[j], x.d))
-			h += lambda_bad(E, P, p[j]);
+	for (j = 0; j < hc.np; j++) {
+		zint p;
+		z_parse(hc.primes[j], &p, NULL);
+		if (!z_divides(p, x.d))
+			h += lambda_bad(E, P, p);
+	}
 	z_release(m);
 	if (err)
 		*err = 2 * er;
@@ -1141,18 +1185,16 @@ ecq_height(const struct ec *E, const struct ecpt *P, double *err)
 	struct ec Em;
 	struct eciso m;
 	struct ecpt Q;
-	int minimal = ecq_is_integral(E);
+	double h;
 
-	if (minimal) {
-		/* a model already minimal (and integral) is used as is */
-		ecq_minimal(E, &Em, &m);
-		minimal = fe_is_one(E->F, &m.u);
-	}
-	if (minimal)
+	if (hcache(E))
 		return height_min(E, P, err);
 	ecq_minimal(E, &Em, &m);
 	eciso_pt(E, &m, &Q, P);
-	return height_min(&Em, &Q, err);
+	if (!hcache(&Em))
+		fail("internal: the minimal model is not minimal");
+	h = height_min(&Em, &Q, err);
+	return h;
 }
 
 double
@@ -2002,6 +2044,115 @@ ecq_saturate(const struct ec *E, struct ecpts *G, int pmax)
 	return all;
 }
 
+/* if Q is not in the lattice spanned by G (modulo torsion), replace G by
+ * a basis of G + Z Q: Q = sum (a_j / b) P_j numerically (Gram matrix),
+ * then the Hermite form of [b I; a] with its unimodular transform gives
+ * the new basis as integer combinations of the P_j and Q */
+int
+ecq_enlarge(const struct ec *E, struct ecpts *G, const struct ecpt *Q)
+{
+	int r = (int)G->n, i, j, k;
+	double A[64], rhs[8], c[8];
+	int64_t b, an[8];
+	struct ecpt P[8];
+
+	if (r == 0 || r > 8 || Q->inf || ec_order_upto(E, Q, 12) > 0)
+		return 0;
+	for (i = 0; i < r; i++)
+		ecpts_get(G, (uint32_t)i, &P[i]);
+	for (i = 0; i < r; i++) {
+		for (j = 0; j < r; j++)
+			A[i * r + j] = i == j ? ecq_height(E, &P[i], NULL) :
+			    ecq_height_pairing(E, &P[i], &P[j]);
+		rhs[i] = ecq_height_pairing(E, Q, &P[i]);
+	}
+	/* solve A c = rhs (Gauss, partial pivoting) */
+	for (i = 0; i < r; i++) {
+		int piv = i;
+		for (j = i + 1; j < r; j++)
+			if (fabs(A[j * r + i]) > fabs(A[piv * r + i]))
+				piv = j;
+		for (k = 0; k < r; k++) {
+			double t = A[i * r + k];
+			A[i * r + k] = A[piv * r + k];
+			A[piv * r + k] = t;
+		}
+		{
+			double t = rhs[i];
+			rhs[i] = rhs[piv];
+			rhs[piv] = t;
+		}
+		for (j = i + 1; j < r; j++) {
+			double f = A[j * r + i] / A[i * r + i];
+			for (k = i; k < r; k++)
+				A[j * r + k] -= f * A[i * r + k];
+			rhs[j] -= f * rhs[i];
+		}
+	}
+	for (i = r - 1; i >= 0; i--) {
+		double s = rhs[i];
+		for (k = i + 1; k < r; k++)
+			s -= A[i * r + k] * c[k];
+		c[i] = s / A[i * r + i];
+	}
+	for (b = 1; b <= 1000; b++) {
+		int ok = 1;
+		for (i = 0; i < r && ok; i++) {
+			double v = c[i] * (double)b;
+			an[i] = (int64_t)floor(v + 0.5);
+			if (fabs(v - (double)an[i]) > 1e-5 * (1 + fabs(v)))
+				ok = 0;
+		}
+		if (ok)
+			break;
+	}
+	if (b > 1000 || b == 1)
+		return 0;
+	{
+		struct zmat M, H, U;
+		int64_t *rows = xmalloc(sizeof(int64_t) * (size_t)((r + 1) * r));
+		struct ecpt N[8];
+		for (i = 0; i < r; i++)
+			for (j = 0; j < r; j++)
+				rows[i * r + j] = i == j ? b : 0;
+		for (j = 0; j < r; j++)
+			rows[r * r + j] = an[j];
+		memset(&M, 0, sizeof M);
+		memset(&H, 0, sizeof H);
+		memset(&U, 0, sizeof U);
+		zm_from_i64(&M, r + 1, r, rows);
+		zm_hnf(&M, &H, &U, NULL);
+		for (i = 0; i < r; i++) {
+			struct ecpt S, T;
+			ec_O(&S);
+			for (k = 0; k <= r; k++) {
+				zint u = ZM(&U, i, k);
+				if (z_is_zero(u))
+					continue;
+				ec_mul(E, &T, u, k < r ? &P[k] : Q);
+				ec_add(E, &S, &S, &T);
+			}
+			N[i] = S;
+		}
+		zm_free(&M);
+		zm_free(&H);
+		zm_free(&U);
+		free(rows);
+		/* the new points must be independent (the HNF rows i < r) */
+		{
+			double r0 = ecq_regulator(E, P, r), r1 = ecq_regulator(E, N, r);
+			if (!(r1 > 0) || fabs(r1 * (double)b * (double)b / (r0 > 0 ?
+			    r0 : 1) - 1) > 1e-3 * (double)b * (double)b)
+				;   /* the index check below decides */
+			if (!(r1 > 1e-12) || r1 >= r0 * (1 - 1e-9))
+				return 0;
+		}
+		for (i = 0; i < r; i++)
+			ecpts_set(G, (uint32_t)i, &N[i]);
+	}
+	return 1;
+}
+
 void
 ecq_mw_compute(const struct ec *E0, struct ecq_mw *M, int64_t search)
 {
@@ -2035,10 +2186,11 @@ ecq_mw_compute(const struct ec *E0, struct ecq_mw *M, int64_t search)
 		if (fits)
 			ecq_search(&M->E, H, &cand, 4000);
 	}
-	/* by naive height */
+	/* by canonical height (the first 400 by naive height) */
 	{
-		uint32_t a, b;
-		for (a = 1; a < cand.n; a++)
+		uint32_t a, b, n = cand.n;
+		double *h;
+		for (a = 1; a < n; a++)
 			for (b = a; b > 0; b--) {
 				struct ecpt P, Q;
 				ecpts_get(&cand, b - 1, &P);
@@ -2049,6 +2201,26 @@ ecq_mw_compute(const struct ec *E0, struct ecq_mw *M, int64_t search)
 				ecpts_set(&cand, b - 1, &Q);
 				ecpts_set(&cand, b, &P);
 			}
+		if (n > 400)
+			n = cand.n = 400;
+		h = xmalloc(sizeof(double) * (n + 1));
+		for (a = 0; a < n; a++) {
+			struct ecpt P;
+			ecpts_get(&cand, a, &P);
+			h[a] = ecq_height(&M->E, &P, NULL);
+		}
+		for (a = 1; a < n; a++)
+			for (b = a; b > 0 && h[b - 1] > h[b]; b--) {
+				struct ecpt P, Q;
+				double t = h[b];
+				h[b] = h[b - 1];
+				h[b - 1] = t;
+				ecpts_get(&cand, b - 1, &P);
+				ecpts_get(&cand, b, &Q);
+				ecpts_set(&cand, b - 1, &Q);
+				ecpts_set(&cand, b, &P);
+			}
+		free(h);
 	}
 	for (i = 0; i < cand.n; i++) {
 		struct ecpt P;
@@ -2056,6 +2228,13 @@ ecq_mw_compute(const struct ec *E0, struct ecq_mw *M, int64_t search)
 			break;
 		ecpts_get(&cand, i, &P);
 		ecq_add_indep(&M->E, &M->gens, &P);
+	}
+	/* every candidate must lie in the lattice of the generators: enlarge
+	 * it where one does not (Q = sum (a_j / b) P_j modulo torsion) */
+	for (i = 0; i < cand.n && M->gens.n > 0; i++) {
+		struct ecpt Q;
+		ecpts_get(&cand, i, &Q);
+		ecq_enlarge(&M->E, &M->gens, &Q);
 	}
 	ecpts_free(&cand);
 	if ((int)M->gens.n > M->rank_lo)

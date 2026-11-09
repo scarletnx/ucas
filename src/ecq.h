@@ -163,6 +163,8 @@ void ecq_mw_compute(const struct ec *E, struct ecq_mw *M, int64_t search);
 void ecq_mw_free(struct ecq_mw *M);
 /* add a point to an independent set if it is independent (heights) */
 int ecq_add_indep(const struct ec *E, struct ecpts *G, const struct ecpt *P);
+/* enlarge G by Q when Q lies outside its lattice (modulo torsion) */
+int ecq_enlarge(const struct ec *E, struct ecpts *G, const struct ecpt *Q);
 /* p-saturation of the generators for p <= pmax by reduction; returns 1 if
  * saturated at every p checked (else replaces gens by a larger lattice) */
 int ecq_saturate(const struct ec *E, struct ecpts *G, int pmax);
