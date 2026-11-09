@@ -602,6 +602,77 @@ fromkey(int w, int64_t k)
 }
 
 /*
+ * fma32(a, b, c): the f32 fused multiply-add, correctly rounded (round to
+ * nearest even), for f32 operands a, b, c held in doubles.
+ *
+ * Derivation.  Let D be the binary64 grid, F the binary32 grid
+ * (including its overflow threshold 2^128 (1 - 2^-25), where rounding
+ * changes to inf), and RN_F rounding to nearest even on F.
+ *
+ * 1. p = a * b is exact in double: a and b have 24-bit significands, so
+ *    the product has at most 48 <= 53 significant bits, and |p| lies in
+ *    [2^-298, 2^256] or is 0, inside binary64's normal range (no
+ *    overflow, no underflow).
+ *
+ * 2. s = p + c rounded to D, and e = (p + c) - s by Knuth's TwoSum (six
+ *    operations, exact in binary64 round to nearest for any finite
+ *    operands without overflow; there is none, |p + c| < 2^257).  So
+ *    the exact sum is x = s + e.
+ *
+ * 3. Round to odd: y = s if e = 0 or the last significand bit of s is 1;
+ *    otherwise y is the neighbour of s in D on the side of x (bits of s
+ *    plus or minus 1, by the signs of s and e; s != 0 here, since a sum
+ *    that rounds to 0 is exact).  Then y is the point of D nearest x
+ *    whose last bit is odd among the two D-points d1 < x < d2 enclosing
+ *    x when x is not in D, and y = x when x is in D.
+ *
+ * 4. Every point of F and every midpoint between neighbouring points of
+ *    F (the decision boundaries of RN_F, and the overflow threshold) is
+ *    an even point of D: in a binade [2^k, 2^(k+1)) with k >= -126,
+ *    F-midpoints are multiples of 2^(k-24), and D's spacing there is
+ *    2^(k-52), so they are multiples of 2^(k-51) = 2 ulp_D; below
+ *    2^-126 they are multiples of 2^-150, and there ulp_D <= 2^-179, a
+ *    power of two, so 2^-150 is a multiple of 2 ulp_D.  (An "even" point
+ *    of D is a multiple of 2 ulp_D in its binade: last bit 0.)
+ *
+ * 5. RN_F is constant on every interval between consecutive boundaries
+ *    (4).  If x is in D, y = x.  Otherwise x is strictly inside (d1, d2),
+ *    which holds no point of D and so no boundary; y is d1 or d2 and is
+ *    odd, so it is not a boundary either.  Hence the closed segment
+ *    between x and y holds no boundary, and RN_F(y) = RN_F(x): rounding
+ *    y to float (one rounding, the cast) is the correctly rounded fma.
+ *    (Boldo and Melquiond's round-to-odd theorem, here with 29 spare
+ *    bits where 2 suffice.)
+ *
+ * Signed zeros: x = 0 gives e = 0 and s = p + c with IEEE's sign rule,
+ * as fma's.  Infinite or NaN operands: no rounding question, s is the
+ * IEEE result (inf * 0 and inf - inf give NaN) and step 3 is skipped.
+ */
+double
+fma32(double a, double b, double c)
+{
+	double p = a * b, s = p + c, bb, e;
+	uint64_t u;
+
+	if (!isfinite(s))
+		return (double)(float)s;
+	bb = s - p;
+	e = (p - (s - bb)) + (c - bb);
+	if (e != 0) {
+		memcpy(&u, &s, sizeof u);
+		if (!(u & 1)) {
+			/* away from zero when e has s's sign */
+			if ((e > 0) == (s > 0))
+				u++;
+			else
+				u--;
+			memcpy(&s, &u, sizeof s);
+		}
+	}
+	return (double)(float)s;
+}
+
+/*
  * IEEE semantics: computed in double, then rounded to the width (for f32
  * this is the correctly rounded result for + - * / sqrt).  NaN and inf are
  * ordinary values; the flags only record where they first appear.
@@ -705,8 +776,7 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 		return 0;
 	if (op == O_FMA) {
 		if (TYK(t) == K_FLOAT && TYW(t) == 32)
-			*rr = (double)(float)((long double)N.kr[a] * N.kr[b] +
-			    N.kr[c]);
+			*rr = fma32(N.kr[a], N.kr[b], N.kr[c]);
 		else
 			*rr = fma(N.kr[a], N.kr[b], N.kr[c]);
 		return isfinite(*rr);
@@ -951,9 +1021,8 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 		}
 		case O_FMA: {
 			/*
-			 * f64: fma().  f32: the product is exact in long
-			 * double and the sum rounds there first (64 bits),
-			 * so a double rounding is possible but very rare.
+			 * f64: fma().  f32: fma32, correctly rounded (the
+			 * derivation is at fma32).
 			 */
 			const double *av = COLR(p, a), *bv = COLR(p, b);
 			const double *cv = COLR(p, c);
@@ -966,8 +1035,8 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					orr[i] = 0;
 					continue;
 				}
-				orr[i] = fw == 32 ? (double)(float)((long double)av[i] *
-				    bv[i] + cv[i]) : fma(av[i], bv[i], cv[i]);
+				orr[i] = fw == 32 ? fma32(av[i], bv[i], cv[i]) :
+				    fma(av[i], bv[i], cv[i]);
 				if (fw && isnan(orr[i]) && !isnan(av[i]) &&
 				    !isnan(bv[i]) && !isnan(cv[i]))
 					f |= F_NAN;

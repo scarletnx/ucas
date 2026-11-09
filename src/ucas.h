@@ -175,6 +175,7 @@ nid mk_index(nid tab, nid i);
 nid mk_barrier(nid a);
 nid mk_atomic(int kind, nid a, nid v);
 nid mk_fma(nid a, nid b, nid c);
+double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
 int atomic_lookup(const char *s, size_t n, int *kind);
 nid subst(nid root, const nid *map, int nmap);
 int is_const(nid n);
