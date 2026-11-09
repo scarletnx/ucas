@@ -28,6 +28,7 @@
 #include <stdint.h>
 
 extern int rep_on;		/* a JSON request is being answered */
+extern int rep_small_files;	/* files travel inline (MCP): keep them small */
 
 void rep_begin(const char *kind);
 void rep_str(const char *key, const char *s);

@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 int rep_on;
+int rep_small_files;	/* mcp.c: files go inline, so keep them small */
 static int ntl;		/* rep_text_list's pending lists */
 static void spans_close(void);
 

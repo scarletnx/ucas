@@ -25,6 +25,8 @@ SRCS+=	viz.c
 SRCS+=	xfrat.c xform.c series.c
 # the JSON frontend: a JSON Lines protocol, structured results
 SRCS+=	json.c report.c jsonmode.c
+# an MCP server over stdio, on top of the JSON frontend
+SRCS+=	mcp.c
 .PATH:	${.CURDIR}/src
 MAN=
 

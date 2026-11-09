@@ -29,6 +29,7 @@
  */
 #include "ucas.h"
 #include "json.h"
+#include "jsonmode.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -1581,7 +1582,7 @@ schema(void)
 			struct jv *areq = jv_new(J_ARR);
 			for (i = 0; i < MAXJP && cmds[k].p[i].name; i++) {
 				jv_set(ps, cmds[k].p[i].name, type_schema(&cmds[k].p[i]));
-				if (cmds[k].p[i].req)
+				if (cmds[k].p[i].req && cmds[k].p[i].type != P_RING)
 					jv_push(areq, jv_str(cmds[k].p[i].name));
 			}
 			for (i = 0; i < NOPTS; i++)
@@ -1856,11 +1857,18 @@ scan_notes(struct jv *notes, const char *text)
 	}
 }
 
+/* mcp.c: responses go through it (a JSON-RPC result instead) */
+void (*json_respond_hook)(struct jv *resp);
+
 static void
 respond(struct jv *resp)
 {
 	struct sbuf b = {0};
 
+	if (json_respond_hook) {
+		json_respond_hook(resp);
+		return;
+	}
 	jv_write(&b, resp);
 	sb_putc(&b, '\n');
 	fputs(b.p, jout);
@@ -2328,12 +2336,35 @@ run_with_timeout(const struct jv *rq, double secs)
 	}
 }
 
+/*
+ * One request, answered through respond (under timeout_s in a forked
+ * child, which then carries on as the server).  rq stays the caller's.
+ */
+void
+json_serve(const struct jv *rq)
+{
+	struct jv *resp, *t, *a;
+
+	a = jv_get(rq, "args");
+	t = jv_get(a, "timeout_s");
+	if (t && t->t == J_NUM && t->num > 0) {
+		if (run_with_timeout(rq, t->num) >= 0)
+			return;
+	}
+	resp = handle(rq);
+	respond(resp);
+	jv_free(resp);
+	if (reset_wanted && !oneshot)
+		self_exec();
+	reset_wanted = 0;
+}
+
 static void
 serve_line(const char *line)
 {
 	char err[160];
 	size_t pos;
-	struct jv *rq, *resp, *t, *a;
+	struct jv *rq, *resp;
 
 	rq = jv_parse(line, err, sizeof err, &pos);
 	if (rq == NULL) {
@@ -2344,26 +2375,13 @@ serve_line(const char *line)
 		jv_free(resp);
 		return;
 	}
-	a = jv_get(rq, "args");
-	t = jv_get(a, "timeout_s");
-	if (t && t->t == J_NUM && t->num > 0) {
-		if (run_with_timeout(rq, t->num) >= 0) {
-			jv_free(rq);
-			return;
-		}
-	}
-	resp = handle(rq);
-	respond(resp);
-	jv_free(resp);
+	json_serve(rq);
 	jv_free(rq);
-	if (reset_wanted && !oneshot)
-		self_exec();
-	reset_wanted = 0;
 }
 
 /* a line from fd 0, unbuffered: nothing is read ahead (fork, exec) */
-static char *
-read_line(void)
+char *
+json_read_line(void)
 {
 	static struct sbuf b;
 	char c;
@@ -2429,7 +2447,7 @@ json_main(int argc, char **argv, int i)
 		serve_line(one);
 		return 0;
 	}
-	while ((line = read_line()) != NULL) {
+	while ((line = json_read_line()) != NULL) {
 		const char *s = line;
 		while (*s == ' ' || *s == '\t' || *s == '\r')
 			s++;
@@ -2438,4 +2456,100 @@ json_main(int argc, char **argv, int i)
 		serve_line(line);
 	}
 	return 0;
+}
+
+/* ---- for mcp.c: the server's setup and the commands as data ---- */
+
+/* the process' setup for serving: argv for reset, stdout for answers */
+int
+json_setup(int argc, char **argv, int fmode)
+{
+	int fd;
+
+	sargc = argc;
+	sargv = argv;
+	session = jv_new(J_OBJ);
+	default_fmode = fmode;
+	fd = dup(1);
+	jout = fdopen(fd, "w");
+	if (jout == NULL)
+		return -1;
+	nlp_interactive = 0;
+	signal(SIGPIPE, SIG_DFL);
+	run_source("", "<prelude>", 0);
+	return 0;
+}
+
+FILE *
+json_out(void)
+{
+	return jout;
+}
+
+int
+json_ncmds(void)
+{
+	return NCMDS;
+}
+
+const char *
+json_cmd_name(int k)
+{
+	return cmds[k].name;
+}
+
+const char *
+json_cmd_desc(int k)
+{
+	return cmds[k].desc;
+}
+
+/* "f*, var, from, to": the parameters, * when required */
+void
+json_cmd_params(int k, struct sbuf *b)
+{
+	int i;
+
+	for (i = 0; i < MAXJP && cmds[k].p[i].name; i++)
+		sb_printf(b, "%s%s%s", i ? ", " : "", cmds[k].p[i].name,
+		    cmds[k].p[i].req && cmds[k].p[i].type != P_RING ? "*" : "");
+}
+
+/* a command's args as a JSON Schema object; with defs, self-contained */
+struct jv *
+json_cmd_schema(int k, int defs)
+{
+	struct jv *a = jv_new(J_OBJ), *ps = jv_new(J_OBJ),
+	    *areq = jv_new(J_ARR);
+	int i;
+
+	jv_set(a, "type", jv_str("object"));
+	for (i = 0; i < MAXJP && cmds[k].p[i].name; i++) {
+		jv_set(ps, cmds[k].p[i].name, type_schema(&cmds[k].p[i]));
+		if (cmds[k].p[i].req && cmds[k].p[i].type != P_RING)
+			jv_push(areq, jv_str(cmds[k].p[i].name));
+	}
+	for (i = 0; i < NOPTS; i++)
+		jv_set(ps, opts[i].name, type_schema(&opts[i]));
+	jv_set(a, "properties", ps);
+	if (areq->n)
+		jv_set(a, "required", areq);
+	else
+		jv_free(areq);
+	jv_set(a, "additionalProperties", jv_bool(0));
+	if (defs)
+		jv_set(a, "$defs", parse_const(schema_defs));
+	return a;
+}
+
+struct jv *
+json_response_schema(void)
+{
+	return parse_const(schema_response);
+}
+
+struct jv *
+json_schema(void)
+{
+	return schema();
 }

@@ -1152,7 +1152,7 @@ xr_finish(int fps, double seconds, const char *name, int nofile)
 		}
 		gif_end(&g);
 		/* too large for the chat: fewer frames rather than none */
-		if (!nlp_defer || g.out.n <= MAXGIF || fps <= 5)
+		if (!(nlp_defer || rep_small_files) || g.out.n <= MAXGIF || fps <= 5)
 			break;
 		printf("  note: at %d fps the GIF is %zu bytes, over the chat's "
 		    "limit: rendering at %d fps\n", fps, g.out.n, fps / 2);
