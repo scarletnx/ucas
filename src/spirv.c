@@ -5136,7 +5136,7 @@ float_pass(const char *text, int *changed)
 		    " pow, exp2, log2 correctly rounded (long double, then f32); NaN "
 		    "payloads ignored, -0 and +0 distinct; GLSL's undefined results "
 		    "(pow of x < 0, log2 of x <= 0 ...) may become anything\n");
-		sb_printf(&rep, "  float cost under %s (per component; step = "
+		sb_printf(&rep, "  float cost under %s (each component counted; step = "
 		    "compare + select, mix = subtract + fma): %g -> %g",
 		    sym_str(model_active()->name), before, after);
 		if (before > 0)

@@ -9,7 +9,7 @@ simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 3 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v3bool %44 %29
@@ -93,7 +93,7 @@ float simplify: 3 rewrites of float instructions applied, each with a derivation
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v3bool %44 %29
@@ -187,7 +187,7 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 54 -> 54 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 54 (+0.0%)
   mode: bit-exact only
   nothing applied: no cheaper float form could be proved bit-exact
   done already by spirv-opt -O (the GLSL divides, the module multiplies):
@@ -237,7 +237,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 54 -> 45 (-16.7%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 45 (-16.7%)
   mode: within 4 ulp of the reference (approximations too)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
@@ -318,7 +318,7 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec2 %50: its lanes x, y compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 28 -> 18 (-35.7%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 28 -> 18 (-35.7%)
   rewrites, the largest savings first:
     %47 = OpExtInst %v2float %2 Sqrt %35
       -> %ucas_f2z = OpExtInst %v2float %2 InverseSqrt %35
@@ -378,7 +378,7 @@ simplify: 68 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal f
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 6 -> 4 (-33.3%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 4 (-33.3%)
   rewrites, the largest savings first:
     %67 = OpExtInst %float %2 FMix %61 %64 %66
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_bool %48 %float_0_5
@@ -416,7 +416,7 @@ simplify: 61 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
   the vec3 %47: 3 different scalar functions over its lanes (per component, as asked): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
   nothing applied: no cheaper float form could be proved
   done already by spirv-opt -O (the GLSL divides, the module multiplies):
     %47 = OpFMul %v3float %46 %51   (spirv-opt -O: x / 2 as x * 0.5)
@@ -449,7 +449,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
   the vec3 %47: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (per component; step = compare + select, mix = subtract + fma): 6 -> 3 (-50.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 3 (-50.0%)
   rewrites, the largest savings first:
     %47 = OpFMul %v3float %46 %51
       -> %47 = OpExtInst %v3float %2 Fma %36 %ucas_k3_3f000000_3e800000_3f2aaaab %ucas_k3_3d4ccccd_3d4ccccd_3e4ccccd
