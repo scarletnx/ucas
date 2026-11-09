@@ -639,6 +639,14 @@ order, and nothing waits inside the sandboxed evaluator meanwhile.
 (Engine side: `\x1edefer` / `\x1eanswer` directive lines, see `nlp.c`;
 the bot strips `\x1e` from user text.)
 
+`--log PATH` appends a JSON line for every `$` message received
+(author, channel, text, and whether it was a request, an answer, a
+cancel or a reset) and for every reply (the engine's full output,
+including the `ucas:` translations and any question asked).  It holds
+user messages; `logs/` is in `.gitignore`.  `--one-session` shuts the bot
+down once a message and its follow-up questions are done (no requests
+or questions left open), for reviewing usage one session at a time.
+
 The bot keeps running until SIGINT/SIGTERM/SIGHUP.  If the gateway
 connection ends it reconnects with exponential backoff (2 s doubling to
 5 minutes).  It gives up only if Discord rejects the token (4004) or the

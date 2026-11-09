@@ -176,6 +176,87 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 
 /* ---- requests ---- */
 
+/*
+ * Session log (--log PATH): one JSON object per line, appended and flushed,
+ * for reading afterwards how people use the bot.  "in" is a `$` message as
+ * received (with what the bot made of it), "out" the engine's full output
+ * for a request.  It holds user messages: keep it out of git (logs/).
+ */
+static FILE *slog;
+static int one_session, sessions_done;
+
+static void
+jstr(FILE *f, const char *s, size_t n)
+{
+	size_t i;
+
+	fputc('"', f);
+	for (i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (c == '"' || c == '\\')
+			fprintf(f, "\\%c", c);
+		else if (c == '\n')
+			fputs("\\n", f);
+		else if (c == '\t')
+			fputs("\\t", f);
+		else if (c < 0x20 || c == 0x7f)
+			fprintf(f, "\\u%04x", c);
+		else
+			fputc(c, f);
+	}
+	fputc('"', f);
+}
+
+static void
+log_ts(FILE *f)
+{
+	char ts[32];
+	time_t now = time(NULL);
+
+	strftime(ts, sizeof ts, "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+	fprintf(f, "\"ts\":\"%s\"", ts);
+}
+
+static void
+log_in(const struct discord_message *m, const char *as, uint64_t req)
+{
+	const char *name = m->author && m->author->username ?
+	    m->author->username : "?";
+
+	if (slog == NULL)
+		return;
+	fputc('{', slog);
+	log_ts(slog);
+	fprintf(slog, ",\"ev\":\"in\",\"as\":\"%s\",\"req\":%" PRIu64
+	    ",\"chan\":\"%" PRIu64 "\",\"guild\":\"%" PRIu64 "\",\"msg\":\"%"
+	    PRIu64 "\",\"author\":\"%" PRIu64 "\",\"name\":", as, req,
+	    m->channel_id, m->guild_id, m->id, m->author ? m->author->id : 0);
+	jstr(slog, name, strlen(name));
+	fputs(",\"content\":", slog);
+	jstr(slog, m->content ? m->content : "", m->content ?
+	    strlen(m->content) : 0);
+	fputs("}\n", slog);
+	fflush(slog);
+}
+
+static void
+log_out(uint64_t req, int status, int question, const char *out, size_t n)
+{
+	if (slog == NULL)
+		return;
+	fputc('{', slog);
+	log_ts(slog);
+	fprintf(slog, ",\"ev\":\"out\",\"req\":%" PRIu64 ",\"status\":%d,"
+	    "\"question\":%s,\"output\":", req, status, question ? "true" :
+	    "false");
+	jstr(slog, out ? out : "", out ? n : 0);
+	fputs("}\n", slog);
+	fflush(slog);
+}
+
+/* --one-session: stop once a message and its questions are done */
+static void maybe_end_session(void);
+
 static int
 send_req(uint32_t type, const struct discord_message *m, const char *text,
     int echo, const char *orig, const char *answers)
@@ -253,6 +334,7 @@ handle_message(const struct discord_message *m)
 	if (kind == DC_RESET) {
 		ask_drop_chan(m->channel_id);
 		send_req(SF_RESET, m, NULL, 0, NULL, NULL);
+		log_in(m, "reset", nextid);
 		free(code.p);
 		return kind;
 	}
@@ -262,8 +344,10 @@ handle_message(const struct discord_message *m)
 		char *orig;
 		if (!strcmp(c, "cancel")) {
 			ask_drop((int)(q - asks));
+			log_in(m, "cancel", 0);
 			post(m->channel_id, m->id, m->guild_id,
 			    "question cancelled", NULL, 0);
+			maybe_end_session();
 			free(code.p);
 			return DC_EVAL;
 		}
@@ -279,6 +363,7 @@ handle_message(const struct discord_message *m)
 		echo = q->echo;
 		ask_drop((int)(q - asks));
 		send_req(SF_EVAL, m, req.p, echo, orig, ans.p);
+		log_in(m, "answer", nextid);
 		free(orig);
 		free(code.p);
 		free(req.p);
@@ -289,6 +374,7 @@ handle_message(const struct discord_message *m)
 		strip_directives(code.p);
 		sb_printf(&req, "\x1e" "defer\n%s", code.p);
 		send_req(SF_EVAL, m, req.p, echo, code.p, "");
+		log_in(m, "request", nextid);
 	}
 	free(code.p);
 	free(req.p);
@@ -354,8 +440,12 @@ on_response(const struct sframe *h, const char *out)
 		} else
 			dc_format(&r, head, out, h->len);
 	}
+	log_out(h->id, (int)h->status, out && memmem(out, h->len, "\x1e" "ask ",
+	    5) != NULL, out, h->len);
 	free(pp.orig);
 	free(pp.answers);
+	sessions_done++;
+	maybe_end_session();
 	for (i = 0; i < r.n; i++)
 		post(pp.chan, pp.msg, pp.guild, r.msg[i],
 		    i == 0 ? r.file : NULL, r.filelen);
@@ -648,6 +738,18 @@ backoff_sleep(unsigned secs)
  * application), the bot says how to enable it and carries on without
  * it: it then sees the text of DMs and of messages that mention it.
  */
+static void
+maybe_end_session(void)
+{
+	if (!one_session || sessions_done == 0 || npend > 0 || nasks > 0)
+		return;
+	fprintf(stderr, "ucas-discord: session complete (--one-session): "
+	    "shutting down\n");
+	stop_requested = 1;
+	if (client != NULL)
+		discord_shutdown(client);
+}
+
 static int
 run_live(void)
 {
@@ -755,7 +857,7 @@ run_stdin(void)
 	int ev = 0;
 
 	self_id = 1000;		/* the bot's own user id in test events */
-	while ((len = getline(&line, &cap, stdin)) > 0) {
+	while (!stop_requested && (len = getline(&line, &cap, stdin)) > 0) {
 		jsmn_parser parser;
 		jsmntok_t *toks = NULL;
 		unsigned ntoks = 0, npairs = 0;
@@ -834,18 +936,32 @@ main(int argc, char **argv)
 	int rc, st, mode = 0;
 	pid_t sup;
 
-	if (argc == 2 && !strcmp(argv[1], "--selftest"))
-		return dc_selftest();
-	if (argc == 2 && !strcmp(argv[1], "--check-token"))
-		return check_token();
-	if (argc == 2 && !strcmp(argv[1], "--stdin"))
-		mode = 1;
-	else if (argc == 3 && !strcmp(argv[1], "--token-file"))
-		token_file_opt = argv[2];
-	else if (argc != 1) {
-		fprintf(stderr, "usage: ucas-discord [--token-file PATH] | "
-		    "--check-token | --stdin | --selftest\n");
-		return 2;
+	int i;
+	const char *logpath = NULL;
+
+	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--selftest"))
+			return dc_selftest();
+		else if (!strcmp(argv[i], "--check-token"))
+			return check_token();
+		else if (!strcmp(argv[i], "--stdin"))
+			mode = 1;
+		else if (!strcmp(argv[i], "--token-file") && i + 1 < argc)
+			token_file_opt = argv[++i];
+		else if (!strcmp(argv[i], "--log") && i + 1 < argc)
+			logpath = argv[++i];
+		else if (!strcmp(argv[i], "--one-session"))
+			one_session = 1;
+		else {
+			fprintf(stderr, "usage: ucas-discord [--token-file PATH] "
+			    "[--log PATH] [--one-session] [--stdin]\n"
+			    "       ucas-discord --check-token | --selftest\n");
+			return 2;
+		}
+	}
+	if (logpath != NULL && (slog = fopen(logpath, "a")) == NULL) {
+		perror(logpath);
+		return 1;
 	}
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	signal(SIGPIPE, SIG_IGN);
