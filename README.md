@@ -967,18 +967,78 @@ the original process into a waiter that exits when the last worker has
 
 ### Structured commands
 
-`show table parse range domain wrap crit diff grad hessian laplacian
-jacobian wronskian limit taylor integrate antiderivative equiv fit error
-cost gates find more approx approx_more closed dsolve complex re im conj
-modulus arg polar trig holomorphic residue poles monotonic period
-identify zeros (real and complex) expand factor simplify together cancel
-collect apart gcd lcm resultant discriminant quo rem divide solve
-substitute plot plot3d neighbourhood spirv_simplify define state assume
-reset english schema`.  The rest (`parity`, `bounded`, `injective`,
-`continuity`, `convexity`, `asymptotes`, `scheme`, `continuous`,
-`nthroots`, `unity`, `implicit`, `animate`, contour integrals, `help`,
-`funcs`, `models`, the hypercomplex algebra commands through `ucas`) work
-and return their text with `"structured": false`.
+Every command in the schema returns `"structured": true` except `help`,
+`funcs`, `models`, `use`, `scheme`, `continuous`, `animate` (its GIF is
+still in `files`) and raw `ucas`/`english` statements of those.  By area:
+
+| area | commands |
+|------|----------|
+| look, analysis | `show table parse range domain wrap crit equiv fit error cost gates find more approx approx_more` |
+| calculus | `diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed dsolve` |
+| algebra | `expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute` |
+| properties | `monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes` |
+| complex | `complex re im conj modulus arg polar trig nthroots unity holomorphic residue poles` and `integrate` with `around` (`kind: contour_integral`) |
+| hypercomplex | `multiplication_table algebra zerodivisors associator commutator rotate axisangle rotmatrix frommatrix slerp` |
+| rings, finite fields | `ring inverse_mod order_mod phi carmichael factorint legendre jacobi sqrtmod qr primroot dlog crt congruence magic ring_factor irreducible primitive ring_roots ring_poly ring_gcd ring_norm matrix gf2matrix` |
+| transforms, series | `laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic` |
+| solids | `area revolve volume surfacearea arclength centroid` |
+| pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
+| session | `define state assume reset english schema` |
+
+A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
+reduction polynomial or its name: `aes`, `crc32` ...), `{"ring": "Z/12"}`,
+`{"ring": "Z[i]"}`, or `{"modulus": 256}` alone for Z/256 (`mod 256`).
+Other typed arguments: `matrix` (`[[1, 2], [3, 4]]`), `values` (`[1,
+"-2+2i"]`), `congruences` (`[{"residue": 2, "modulus": 3}, ...]`).
+Examples:
+
+```json
+{"cmd": "inverse_mod", "args": {"a": "0x53", "ring": "GF(2^8)", "modulus": "aes"}}
+{"cmd": "crt", "args": {"congruences": [{"residue": 2, "modulus": 3}, {"residue": 3, "modulus": 5}]}}
+{"cmd": "matrix", "args": {"matrix": [[1, 2], [3, 4]], "op": "solve", "rhs": [1, 0], "modulus": 7}}
+{"cmd": "laplace", "args": {"f": "t^2 e^-t"}}
+{"cmd": "infinite_sum", "args": {"index": "n", "f": "1/n^2"}}
+{"cmd": "revolve", "args": {"f": "sqrt(x)", "from": 0, "to": 4, "about": "x"}}
+{"cmd": "spirv_simplify", "args": {"code": "vec3 decode(vec3 c) { ... }", "float_only": true, "float_ranges": {"c": [0, 1]}}}
+```
+
+What the results hold beyond the common fields:
+
+- **Rings**: the answer's parts from its headline (`lhs`, `value`,
+  `value_int` when it is an integer that fits a double exactly,
+  `modulus`/`in`/`over`), typed lists where there are several answers
+  (`roots` of sqrtmod, `solutions` and `modulus` of crt/congruence, dlog's
+  `value`/`modulus`/`base`, primroot's `primitive_root`/`order`/`phi`),
+  and the ring's properties as fields (`units`, `unit_group`,
+  `zero_divisors`, `ideals` ...).
+- **Transforms**: `lhs`, `value`, `roc` (the region of convergence),
+  `poles`, `rules`, `valid_for` (`t >= 0`), lines such as `Y(s) = ...`,
+  `y(t) = ...`, `H(z) = ...`, `G(x) = ...` as fields under their own
+  names, DFT `values` as `{exact, re, im, abs, arg}`, radius `radius` and
+  `center`; assumptions (`assuming w > 0`) are `conditions`, and each
+  check (transformed back, Parseval, Gauss-Kronrod) is in `checks`.
+- **Solids**: `area`, `signed_integral`, `volume`, `surface_area`,
+  `arc_length`, `region_area`, `centroid` as `{value, exact, is_exact}`
+  (`exact` the recognised form, `8pi`, `64/3`); `integral` with the
+  antiderivative, symbolic and numeric values and the error estimate;
+  `method`; the GIF in `files`; the image size in `image`.
+- **Float simplify** (`result.float`): `cost_before`, `cost_after`,
+  `mode` (`vulkan_precision`, `exact`, `ulp`), and `rewrites`,
+  `approximations`, `not_applied`, each with the `instruction`, its
+  `replacement` lines, `kind`, `cost_delta`, `proof` (`bit_exact`,
+  `bit_exact_where_defined`, `vulkan_precision`, `approximation`) and
+  per lane group `lanes`: `exact`, `proof`, `ulp_bound`, `rel_error`,
+  `not_exact_at`, `witness`, `fail`, `cost`, `gain`, `derivation` (the
+  proof's lines).  The arguments `exact`, `ulp`, `approx`, `percomp`,
+  `float_only` and `float_ranges` are the CLI's options.
+- **Identify**: `properties` with a field per property, each `{text,
+  tag, proof}` when it carries a tag (`proved`, `numeric`, `witness`).
+- **Plots**: `axes` (`{var, lo, hi, why, values_lo, values_hi}`),
+  `image` (`{width, height, frames, fps, bytes}`), the GIF in `files`.
+- **Property family, hypercomplex algebras, nthroots, implicit**: the
+  findings as fields (`injective`, `witness`, `vertical`, `oblique`,
+  `commutative`, `associative` ...); nthroots' `roots` typed (`re`, `im`,
+  `exact`, `polar`), implicit's `derivative`.
 
 ### For developers: the report API
 
@@ -986,9 +1046,17 @@ and return their text with `"structured": false`.
 printed result next to its `printf`: `rep_str`, `rep_num`, `rep_int`,
 `rep_bool`, `rep_exact(key, value, "1/3")`, `rep_expr(key, nid)`,
 `rep_list`/`rep_obj` ... `rep_end` for nesting (key `NULL` inside a
-list), `rep_cond`, `rep_check`, `rep_proof`, `rep_note`, `rep_file`, and
-`rep_text_list(key)` for findings printed as lines (identify's
-properties, plot's findings).  Outside a JSON request every call returns
+list; a `rep_list` under a key already there continues it), `rep_cond`,
+`rep_check`, `rep_proof`, `rep_note`, `rep_file`, `rep_text_list(key)`
+for lines as a list, and `rep_text_fields()`: the lines the command
+prints from there on become fields when the request ends (`  label:
+value` -> `"label": value`, a trailing `[proved]` tag -> `{text, tag,
+proof}`, `check:` -> `checks`, `how:` -> `method`, `assuming ...` ->
+`conditions`, `y(t) = ...` -> `"y(t)"`, the first unindented line ->
+`headline` and its `lhs = value mod m` parts).  Most of the commands
+added after the first JSON release use it at their dispatcher (ring.c,
+xform.c, series.c, viz.c, hyper.c, props.c) and typed calls for their
+main values; it is the quickest way to make a new command structured.  Outside a JSON request every call returns
 at once, so the text output is unchanged (`make test`).  A new command
 gets a template line in `src/jsonmode.c`'s table (name, statement words,
 typed parameters with their fragments) and works at once, unstructured;
