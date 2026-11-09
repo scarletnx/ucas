@@ -12,6 +12,8 @@ SRCS+=	forms.c
 SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
+# viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
+SRCS+=	viz.c
 .PATH:	${.CURDIR}/src
 MAN=
 

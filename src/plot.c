@@ -5188,3 +5188,218 @@ cmd_plot(struct P *p, int mode)
 	plot_free();
 	memcpy(fail_jmp, saved, sizeof saved);
 }
+
+/* ---- the renderer, exported for viz.c (viz.h) ---- */
+
+#include "viz.h"
+
+void
+pr_begin(int w, int h)
+{
+	pal_init();
+	if (C.px)
+		cv_close();
+	cv_open(w, h);
+	memset(C.px, P_BG, (size_t)w * h);
+}
+
+void
+pr_end(void)
+{
+	if (C.px)
+		cv_close();
+}
+
+void
+pr_clear(void)
+{
+	size_t q;
+
+	memset(C.px, P_BG, (size_t)C.W * C.H);
+	for (q = 0; q < (size_t)C.W * C.H; q++)
+		C.zb[q] = 1e30f;
+	cv_clip(0, 0, C.W - 1, C.H - 1);
+}
+
+unsigned char *
+pr_pixels(void)
+{
+	return C.px;
+}
+
+float *
+pr_zbuf(void)
+{
+	return C.zb;
+}
+
+int
+pr_palette(unsigned char out[256][3], int *ramp0, int *nramp)
+{
+	memcpy(out, pal, sizeof pal);
+	*ramp0 = P_CM;		/* the colour map's entries are free to reuse */
+	*nramp = NCM * NSH;
+	return NPAL;
+}
+
+int
+pr_ink(int role)
+{
+	static const int m[] = {P_BG, P_TEXT, P_GRID, P_AXIS, P_FRAME, P_DIM,
+		P_ZERO, P_MARK, P_PANE, P_PANEGRID, P_LEGBG, P_LEGBORDER, P_UNDEF,
+		P_ASYM, P_WIRE};
+
+	return role >= 0 && role < (int)(sizeof m / sizeof m[0]) ? m[role] : P_TEXT;
+}
+
+int
+pr_ser(int s, int tint)
+{
+	return P_SER + (s % NSER) * 4 + (tint & 3);
+}
+
+void pr_clip(int x0, int y0, int x1, int y1) { cv_clip(x0, y0, x1, y1); }
+void pr_put(int x, int y, int c) { put(x, y, c); }
+int pr_get(int x, int y) { return get(x, y); }
+void pr_fill(int x, int y, int w, int h, int c) { fill(x, y, w, h, c); }
+void pr_rect(int x, int y, int w, int h, int c) { rect(x, y, w, h, c); }
+void pr_line1(int x0, int y0, int x1, int y1, int c) { line1(x0, y0, x1, y1, c); }
+int pr_text(int x, int y, const char *s, int c) { return text(x, y, s, c); }
+int pr_textw(const char *s) { return textw(s); }
+void pr_text_bg(int x, int y, const char *s, int c, int bg) { text_bg(x, y, s, c, bg); }
+void pr_ascii(char *dst, size_t n, const char *s) { ascii_of(dst, n, s); }
+void pr_title(int cx, int y, const char *s, int maxw) { title_at(cx, y, s, maxw); }
+void pr_seg(double x0, double y0, double x1, double y1, double w) { cov_seg(x0, y0, x1, y1, w); }
+void pr_disc(double x, double y, double r) { cov_disc(x, y, r); }
+void pr_ink_ser(int s) { cov_ser(s); }
+void pr_ink_solid(int c) { cov_solid(c); }
+void pr_ink_tints(const int *t) { cov_put(t); }
+const char *pr_g4(double v) { return g4(v); }
+const char *pr_gpi(double v) { return gpi(v); }
+
+int
+pr_ticks(double lo, double hi, int maxn, double *v, char (*lab)[20])
+{
+	struct ticks t;
+	int k;
+
+	mkticks(&t, lo, hi, 0, maxn);
+	for (k = 0; k < t.n; k++) {
+		v[k] = t.v[k];
+		memcpy(lab[k], t.lab[k], 20);
+	}
+	return t.n;
+}
+
+static void
+ax_from(struct ax2 *a, const struct pr_ax *p)
+{
+	memset(a, 0, sizeof *a);
+	a->lo[0] = p->lo[0];
+	a->hi[0] = p->hi[0];
+	a->lo[1] = p->lo[1];
+	a->hi[1] = p->hi[1];
+	a->L = p->L;
+	a->T = p->T;
+	a->R = p->R;
+	a->B = p->B;
+}
+
+void
+pr_layout(struct pr_ax *p, int x0, int y0, int w, int h, int small)
+{
+	struct ax2 a;
+
+	ax_from(&a, p);
+	layout2(&a, x0, y0, w, h, 0, small);
+	p->L = a.L;
+	p->T = a.T;
+	p->R = a.R;
+	p->B = a.B;
+}
+
+void
+pr_axes(const struct pr_ax *p, const char *xn, const char *yn, int small)
+{
+	struct ax2 a;
+
+	ax_from(&a, p);
+	axes2(&a, xn, yn, small, 1, 1);
+}
+
+void
+pr_legend(int n, const char (*lab)[80], const int *col, const int *style,
+    const struct pr_ax *p)
+{
+	struct legend lg;
+	struct ax2 a;
+	int k;
+
+	memset(&lg, 0, sizeof lg);
+	for (k = 0; k < n && k < MAXSER + 2; k++) {
+		snprintf(lg.lab[k], sizeof lg.lab[0], "%s", lab[k]);
+		lg.col[k] = col[k];
+		lg.style[k] = style[k];
+	}
+	lg.n = k;
+	ax_from(&a, p);
+	legend_draw(&lg, &a);
+}
+
+void
+pr_proj(const struct pr_v3 *P, double X, double Y, double Z, double *sx,
+    double *sy, double *dep)
+{
+	struct v3 V;
+
+	V.az = P->az;
+	V.el = P->el;
+	V.cx = P->cx;
+	V.cy = P->cy;
+	V.S = P->S;
+	V.h = 1;
+	proj(&V, X, Y, Z, sx, sy, dep);
+}
+
+void
+pr_tri(const double *x, const double *y, const double *z, int col, int zt)
+{
+	tri(x, y, z, col, zt);
+}
+
+/* the values of f (one variable) at xs: ok 0 undefined, 1 a value, 2 infinite */
+void
+pr_eval1(const struct func *f, nid body, int n, const double *xs, double *ys,
+    uint8_t *ok)
+{
+	struct ev e;
+
+	ev_open(&e, f, body);
+	ev_run(&e, n, f->np ? xs : NULL, ys, ok);
+	ev_close(&e);
+}
+
+/* plot's automatic bounds for f's slot 0 (auto1), with the reason */
+void
+pr_auto_range(const struct func *f, double *lo, double *hi, char *why,
+    size_t n)
+{
+	struct ev e;
+	struct sbuf w = {0};
+	double base[MAXP];
+
+	memset(&O, 0, sizeof O);
+	base_of(f, base, 0.7);
+	ev_open(&e, f, f->body);
+	auto1(&e, base, 0, 0, 0, lo, hi, &w, 0);
+	ev_close(&e);
+	snprintf(why, n, "%s", w.p ? w.p : "");
+	free(w.p);
+}
+
+int
+pr_vrange(double *v, int n, double *lo, double *hi, double *vmin,
+    double *vmax)
+{
+	return vrange(v, n, 0, 0, lo, hi, vmin, vmax);
+}

@@ -22,6 +22,7 @@
  */
 #include "ucas.h"
 #include "props.h"
+#include "viz.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1856,6 +1857,9 @@ statement(struct P *p)
 			cmd_plot(p, mode);
 			return;
 		}
+		/* area, revolve, volume, arclength ... (viz.c) */
+		if (viz_command(p))
+			return;
 		/* animate (anim.c) */
 		if (is_kw(p, "animate") && !func_find(tsym(p, p->i))) {
 			adv(p);
