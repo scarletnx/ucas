@@ -1250,8 +1250,10 @@ division is emulated, the SFU ops are quarter rate, fp64 is 1/32 rate
 (`f64` multiplies the cost of every f64 float operation).  They are
 estimates, not measurements.
 
-`cost F` counts each shared subterm once and prices every `?:` three
-ways:
+`cost F` counts each shared subterm once (and prints the body's shared
+subterms once, named, so the rest of the report can refer to them) and
+prices every `?:` three ways (at most 12 are listed; the rest are
+counted in the estimate):
 
 - as a select (both arms run);
 - as a uniform branch (branch cost plus the dearer arm);
@@ -1264,7 +1266,49 @@ Barriers and atomics have value semantics for one invocation
 appear in expressions and be priced.  They are never merged by
 hash-consing.
 
+A loop is priced as it runs: its initial values and the loop-invariant
+subterms of its body once (hoisted), the rest of the body plus the loop
+overhead per iteration (a `for`: the index add, the compare and the
+branch; a `while`: the branch, its compare being part of the condition)
+times the trip count.  The trip count is exact for constant bounds;
+otherwise the worst case over the parameters' ranges (a sound interval
+bound, or the maximum when the domain is enumerated) and the average over
+the domain; a `while` loop's trip count is measured by running it.
+
+```
+> quant(v: i32 in 0..255) = { best = 0; berr = 100000; q0 = (v*31 + 127)/255
+    for d in -2..2 { q = q0 + d; qc = q < 0 ? 0 : q > 31 ? 31 : q
+      r = (qc << 3) | (qc >> 2); e = (r - v)*(r - v)
+      if e < berr { berr = e; best = qc } }; best }
+> cost quant
+cost of quant under gt1030: 134 (0 operations outside loops and 1 loop, ...)
+  shared subterms (named once, used below):
+    q = int((31v + 127)/255) + d
+    qc = q < 0 ? 0 : q > 31 ? 31 : q
+    ...
+  loop d in -2..2:
+    per iteration: body 20 + overhead 5 (index add, compare, branch) = 25
+    trip count: 5 (constant bounds)
+    once: 9 (initial values and loop-invariant subterms, hoisted)
+    loop total: 134
+  ?: on q > 31  (arms cost 0 and 0)  [in a loop body: per iteration]
+  ...
+```
+
 `find` takes its operation costs from the active model.
+
+### Long expressions
+
+Reports print an expression with its shared subterms named: a subterm
+used more than once and larger than a few nodes becomes a binding, `e
+where t1 = ..., t2 = ...` (the source's own name from a `where` or a
+block assignment when it has one).  A reported expression is cut at
+2000 characters (a note at 600, a line of `cost` or `find` at a few
+hundred) with "… (N more characters)".  In JSON and MCP responses a list
+longer than 500 entries is cut (`KEY_omitted` says how many) and the
+`text` field is cut past 64 KiB, keeping the head and the last lines;
+when files are written (`--dir`), the full text goes to a file named in
+the marker.
 
 ## Float simplify
 
