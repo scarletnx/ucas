@@ -2458,12 +2458,17 @@ cmd_holo(struct func *f, int deriv)
 	fz_open(f, deriv ? "diff" : "holomorphic");
 	nonhol_ops(f->body, &nh);
 	r = cr_test(&n, &wz, &wx, &wy, &maxd);
+	rep_begin(deriv ? "diff" : "holomorphic");
+	rep_str("var", vname());
+	rep_bool("holomorphic", r == 1 || r == 2);
 	if (deriv) {
 		struct sbuf t = {0};
 		d = tidy(diff_node(f->body, (uint32_t)fp_slot));
 		print_node(&t, d, NULL);
 		if (r)
 			printf("d/d%s %s = %s\n", vname(), fname(f), t.p);
+		if (r == 1 || r == 2)
+			rep_str("derivative", t.p);
 		free(t.p);
 	}
 	if (r == 1 || r == 2) {
@@ -2474,6 +2479,11 @@ cmd_holo(struct func *f, int deriv)
 		    maxd > 0 ? "" : "");
 		if (r == 2)
 			printf("  (except a few points next to a cut or a pole)\n");
+		rep_check("cauchy_riemann", n, maxd, 1, "df/dx = df/(i dy) at "
+		    "sample points of [-2, 2] x [-2, 2]");
+		rep_bool("entire", !b.n);
+		if (b.n)
+			rep_str("except", b.p);
 		if (b.n)
 			printf("  holomorphic except at %s\n", b.p);
 		else
@@ -2509,6 +2519,7 @@ cmd_holo(struct func *f, int deriv)
 			printf("  check: equals the difference quotient at %d of %d "
 			    "sample points (max relative difference %.0e)\n", ok, tot,
 			    md);
+			rep_check("difference_quotient", tot, md, ok == tot, NULL);
 		}
 	} else if (n == 0)
 		printf("%s: no sample point where %s is defined\n", fname(f),
@@ -2521,6 +2532,13 @@ cmd_holo(struct func *f, int deriv)
 			printf("%s is not holomorphic\n", fname(f));
 		printf("  Cauchy-Riemann fails: at %s = %s, df/dx = %s but "
 		    "df/(i dy) = %s\n", vname(), zs(wz), zs(wx), zs(wy));
+		rep_obj("counterexample");
+		rep_str("at", zs(wz));
+		rep_str("df_dx", zs(wx));
+		rep_str("df_idy", zs(wy));
+		rep_end();
+		if (nh.n)
+			rep_str("non_holomorphic_parts", nh.p);
 		if (nh.n)
 			printf("  (it uses %s, which %s not holomorphic)\n", nh.p,
 			    strchr(nh.p, ',') ? "are" : "is");
@@ -2803,6 +2821,23 @@ cmd_zeros(struct func *f)
 		qsort(r, (size_t)n, sizeof *r, zr_cmp);
 		printf("  %d root%s (a polynomial of degree %d):\n", deg,
 		    deg == 1 ? "" : "s", deg);
+		rep_begin("zeros");
+		rep_str("var", vname());
+		rep_bool("polynomial", 1);
+		rep_int("degree", deg);
+		rep_list("zeros");
+		for (k = 0; k < n; k++) {
+			rep_obj(NULL);
+			rep_str("value", zs(r[k].z));
+			rep_num("re", creal(r[k].z));
+			rep_num("im", cimag(r[k].z));
+			rep_int("multiplicity", r[k].mult);
+			rep_end();
+		}
+		rep_end();
+		rep_proof("numeric", "Durand-Kerner on the polynomial's "
+		    "coefficients (from 64 samples, checked at 8 other points); "
+		    "the degree counts the roots");
 		for (k = 0; k < n; k++)
 			if (r[k].mult > 1)
 				printf("    %s = %s  (%s)\n", vname(), zs(r[k].z),
@@ -2830,6 +2865,21 @@ cmd_zeros(struct func *f)
 		return;
 	}
 	n = newton_zeros(7, 0, r, MAXZ);
+	rep_begin("zeros");
+	rep_str("var", vname());
+	rep_bool("polynomial", 0);
+	rep_list("zeros");
+	for (k = 0; k < n; k++) {
+		rep_obj(NULL);
+		rep_str("value", zs(r[k].z));
+		rep_num("re", creal(r[k].z));
+		rep_num("im", cimag(r[k].z));
+		rep_end();
+	}
+	rep_end();
+	rep_str("searched", "|Re|, |Im| <= 7");
+	rep_proof("numeric", "Newton's method from a 21x21 grid; not a proof "
+	    "that there are no others");
 	if (n == 0)
 		printf("  none found in |Re %s|, |Im %s| <= 7\n", vname(), vname());
 	else
@@ -3026,6 +3076,22 @@ cmd_residue(struct func *f, cplx a)
 	o = sing_order(a);
 	ok = residue_at(a, &r);
 	printf("residue of %s at %s = %s:\n", fname(f), vname(), zs(a));
+	rep_begin("residue");
+	rep_str("var", vname());
+	rep_str("at", zs(a));
+	rep_bool("found", ok > 0);
+	if (ok > 0) {
+		rep_str("residue", zs(r));
+		rep_num("re", creal(r));
+		rep_num("im", cimag(r));
+	}
+	rep_str("singularity", o > 0 ? "pole" : o == 0 ? "regular" :
+	    "essential");
+	if (o > 0)
+		rep_int("order", o);
+	if (ok > 0)
+		rep_check("circle_integrals", 1024, -1, 1, "radius 0.01 and "
+		    "0.005 agree");
 	if (ok <= 0) {
 		printf("  the integral around small circles does not settle (an "
 		    "essential singularity or a branch point)\n");
@@ -3057,12 +3123,24 @@ cmd_poles(struct func *f)
 	fz_open(f, "poles");
 	n = newton_zeros(7, 1, p, MAXZ);
 	printf("poles of %s:\n", fname(f));
+	rep_begin("poles");
+	rep_str("var", vname());
+	rep_list("poles");
 	if (n == 0)
 		printf("  none in |Re %s|, |Im %s| <= 7\n", vname(), vname());
 	for (k = 0; k < n; k++) {
 		cplx r;
 		int o = sing_order(p[k].z), ok = residue_at(p[k].z, &r);
 		printf("    %s = %s", vname(), zs(p[k].z));
+		rep_obj(NULL);
+		rep_str("at", zs(p[k].z));
+		if (o > 0)
+			rep_int("order", o);
+		else if (o < 0)
+			rep_str("singularity", "essential");
+		if (ok > 0)
+			rep_str("residue", zs(r));
+		rep_end();
 		if (o > 0)
 			printf("  order %d", o);
 		else if (o < 0)
@@ -3071,6 +3149,8 @@ cmd_poles(struct func *f)
 			printf(", residue %s", zs(r));
 		printf("\n");
 	}
+	rep_end();
+	rep_proof("numeric", "zeros of 1/f by Newton's method from a grid");
 	printf("  numerically: zeros of 1/f by Newton's method from a grid in "
 	    "|Re %s|, |Im %s| <= 7; orders from the growth of |f| on circles "
 	    "of radius 1e-2..1e-4, residues by circle integrals\n", vname(),
