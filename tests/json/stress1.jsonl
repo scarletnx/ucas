@@ -3,3 +3,7 @@
 {"id": 3, "cmd": "equiv", "args": {"f": "q0", "g": "q"}}
 {"id": 4, "cmd": "equiv", "args": {"f": "widen", "g": "widen2"}}
 {"id": 5, "cmd": "find", "args": {"f": {"name": "cl", "body": "min(max(u32(x) >> s, 0), 255) & 0xFF", "params": [{"name": "x", "type": "u8"}, {"name": "s", "type": "u8", "range": [0, 3]}]}, "n": 1}}
+{"id": 6, "cmd": "ucas", "args": {"source": "quant(v: i32 in 0..255) = { best = 0; berr = 100000; q0 = (v * 31 + 127) / 255; for d in -2..2 { q = q0 + d; qc = q < 0 ? 0 : q > 31 ? 31 : q; r = (qc << 3) | (qc >> 2); e = (r - v) * (r - v); if e < berr { berr = e; best = qc } }; best }"}}
+{"id": 7, "cmd": "cost", "args": {"f": "quant"}}
+{"id": 8, "cmd": "cost", "args": {"f": {"name": "tri", "body": "{ s: u32 = 0; for i in 1..n/k { s += i*i }; s }", "params": [{"name": "n", "type": "u32", "range": [0, 1000]}, {"name": "k", "type": "u32", "range": [1, 4]}]}}}
+{"id": 9, "cmd": "table", "args": {"f": "(x: u16)*3+1", "max": 4000}}
