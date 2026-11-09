@@ -19,6 +19,9 @@ SRCS+=	poly.c alg.c rint.c solve.c
 # rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them
 SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
 ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
+# absalg: exact abstract algebra (absalg.h): integers, integer matrices,
+# abelian groups, permutation groups, Groebner bases
+SRCS+=	zint.c zmat.c fgab.c
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
 # transforms (Laplace, Z, Fourier, DFT), series and infinite sums
