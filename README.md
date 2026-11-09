@@ -171,7 +171,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
-| `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
+| `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to.  A shader with images (textures, samplers, storage images) also runs over a whole image, with image inputs you choose: see [Shaders on images](#shaders-on-images) |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
 | `plot F, ...`, `plot3d F`, `neighbourhood F [at a]` | GIF plots, bounds chosen from the function when not given (see Plots) |
 | `area F [and G]`, `revolve F [and G]`, `volume`, `surfacearea`, `arclength`, `centroid` | integrals shaded (Riemann sums, the accumulation function) and solids of revolution, measured and drawn (see "Integrals and solids of revolution") |
@@ -1005,7 +1005,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | rings, finite fields | `ring inverse_mod order_mod phi carmichael factorint legendre jacobi sqrtmod qr primroot dlog crt congruence magic ring_factor irreducible primitive ring_roots ring_poly ring_gcd ring_norm matrix gf2matrix` |
 | transforms, series | `laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic` |
 | solids | `area revolve volume surfacearea arclength centroid` |
-| pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
+| pictures, shaders | `plot plot3d neighbourhood animate spirv_simplify` |
 | abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
 | elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
@@ -1026,7 +1026,17 @@ Examples:
 {"cmd": "infinite_sum", "args": {"index": "n", "f": "1/n^2"}}
 {"cmd": "revolve", "args": {"f": "sqrt(x)", "from": 0, "to": 4, "about": "x"}}
 {"cmd": "spirv_simplify", "args": {"code": "vec3 decode(vec3 c) { ... }", "float_only": true, "float_ranges": {"c": [0, 1]}}}
+{"cmd": "animate", "args": {"code": "#version 450 ...", "inputs": [{"png_base64": "iVBORw0..."}, {"color": "black"}, "checker"], "output_format": "RG8", "size": "128x128", "sampler": "nearest clamp", "seed": 1}}
 ```
+
+`animate` with `code` (SPIR-V assembly or GLSL) runs `exec` on it; its
+image arguments (see [Shaders on images](#shaders-on-images)): `inputs`
+in binding order, each a string (a colour name, `#rrggbb`, `noise`,
+`gradient`, `checker`, a format), `null` (noise) or an object with
+`color`, `pattern`, `png_base64` (any PNG, JPEG, GIF, BMP or PPM file in
+base64, with an optional `name`), `file` (a path), `format`, `width`,
+`height`, `filter` and `address`; `output_format`, `size`, `sampler`,
+`seed`, `lanes`, `to`, `nofile`.  The GIF comes back in `files`.
 
 What the results hold beyond the common fields:
 
@@ -2349,6 +2359,163 @@ of ...`, `the centroid of the region between ...`, `in 12 frames`, `at
 20 fps`.  A definition in the sentence (`f(x) = x^2`, `y = x^2`) gives
 the function and is not kept.
 
+## Shaders on images
+
+`animate exec` runs a shader's image instructions, and a shader with
+images is shown working on whole images: its inputs, its outputs filling
+in, and the 2x2 quad's trace.  The user's own pictures can be the
+inputs.
+
+```
+animate exec of this seed 1                     (a ```glsl block follows)
+animate exec of this input 1 gradient input 2 #ff8800 output R8 size 128x128
+animate exec of this input 1 file photo.jpg sampler nearest clamp
+run this on my images, for input 1 use pure black      (English)
+use a red image for the second input, with an RG8 output
+```
+
+**Instructions.**  `OpTypeImage` (1D, 2D, 3D, Cube, Rect, Buffer;
+arrayed; depth; sampled or storage; its format), `OpTypeSampler`,
+`OpTypeSampledImage`; `OpSampledImage`, `OpImage`, `OpImageSample*`
+(implicit and explicit LOD, with `Bias`, `Lod`, `Grad`, `ConstOffset`,
+`Offset`, `MinLod`; the `Dref` and `Proj` forms), `OpImageFetch`,
+`OpImageGather`, `OpImageDrefGather`, `OpImageRead`, `OpImageWrite`,
+`OpImageQuerySize`, `SizeLod`, `Levels`, `Samples`, `Lod`,
+`OpImageTexelPointer` with the atomics on it.  `OpDPdx`, `OpDPdy`,
+their `Fine` and `Coarse` forms and `OpFwidth*` come from the 2x2 quad,
+as the hardware does: the lanes are laid out in rows, the x neighbour of
+lane l is l ^ 1 and the y neighbour l ^ cols; `Fine` uses the lane's own
+row (column), `Coarse` the quad's top-left pixel's, and the plain forms
+are `Fine`.  A neighbour that is masked off (divergent control flow, a
+discarded pixel) counts as equal (a difference of 0), counted in a note.
+Matrices (`OpTypeMatrix`, `OpTranspose`, the matrix products,
+`OpOuterProduct`, composites of up to 16 components) and the
+GLSL.std.450 vector functions (`Length`, `Distance`, `Normalize`,
+`Cross`, `Reflect`, `Refract`, `FaceForward`, `Determinant`,
+`MatrixInverse`, the `Pack`/`Unpack` family) are there too.  An image
+handle is a value like any other (its variable's memory holds the
+texture's and sampler's numbers), so arrays of textures, phis and calls
+carry images.  Texture operations are priced as loads, derivatives as
+float adds.
+
+**Inputs.**  Every image, sampled image and texture binding is an input
+slot, in (set, binding) order, then as declared; each element of an
+array is one.  A separate `sampler` binding is a sampler, not an input;
+a write-only storage image (`writeonly`, NonReadable) is an output that
+starts clear.  An input is, by default, random noise in every channel
+(RGBA8, 64x64, seeded: `seed K`, so tests are deterministic), or what
+the request says:
+
+| option | meaning |
+|--------|---------|
+| `input N noise` / `gradient` / `checker` | a pattern (the gradient: red across, green down) |
+| `input N black` / `#rrggbb` / `#rrggbbaa` / `rgba(1, 0, 0, 0.5)` | one colour; names are CSS's (`purple`, `orange`, `teal` ...), except `green`, which is pure green (CSS's green is `darkgreen` here) |
+| `input N file PATH` | a PNG, JPEG, GIF (the first frame), BMP or PPM/PGM file (the command line and JSON only) |
+| `input N gallery K` | the K-th picture that came with the request |
+| `input N R8` (`RG8`, `RGB8`, `RGBA8`, `SRGB8_A8`, `RGBA16F`, `R32F`, `R32UI` ...) | its format; the pixels are converted to it as an upload would |
+| `input N 32x32`, `input N nearest mirror` | a pattern's size; this input's sampler |
+| `inputs white` | every input |
+| `output RG8` | the colour target's format (RGBA8 by default, unorm, clamped) |
+| `size WxH` | the image run's size |
+| `sampler nearest clamp` | the sampler state (also `linear`, `trilinear`, `repeat`, `mirror`, `border white`) |
+| `images` | the request's pictures, asked for |
+
+Pictures that come with the request (Discord attachments, the replied-to
+message's gallery, ```` ```image NAME ```` blocks of base64 after the
+shader, JSON's `png_base64`) fill the inputs not given otherwise, in
+order; the rest are noise.  A storage image declared with a format keeps
+it; an integer sampled type (`usampler2D`) gets `RGBA8UI` by default.
+Pictures larger than 1024 pixels a side are box-filtered down; files are
+decoded by stb_image v2.30 (`src/third_party`, unmodified, compiled once
+in `src/img.c` from memory, PNG, JPEG baseline and progressive, GIF, BMP
+and PNM only), with the size, dimensions (16384 a side) and pixel count
+(24 M) checked before anything is decoded.  QOI and WebP are refused.
+
+In English (`src/nlp_img.inc`), the line before a shader's code block is
+read as a request to run it when it says so ("run", "execute", "apply",
+"show", "render" ...) or names its inputs: "for input 1 use pure black",
+"use a red image for the second input", "input 2 is a checkerboard",
+"use white for all inputs", "with an RG8 output", "show it on a 128x128
+image", "use my images", "on these pictures", "with nearest sampling".
+Clauses (split at commas and "and") pair the inputs they name with what
+they say; a colour alone is for every input; a format next to "output",
+or with no input named, is the output's.  Misspelt words are corrected
+("purpel" is "purple").  The statement it becomes is shown (`note: read
+as: animate exec of this input 1 black`).
+
+**The image run.**  A fragment shader (or a compute shader with storage
+images) is also run over every pixel of an image: the first input's
+size, scaled down to at most 256x256, or `size WxH` (up to 1024x1024),
+8x4 lanes at a time so that every 2x2 quad is together for derivatives
+(lanes past the edge run as helpers and write nothing).  `FragCoord` is
+the pixel's centre; the `location 0` input that is a `vec2` or `vec3`
+float (else the first such input) is the pixel's uv, its centre over
+the image's size, 0..1 (a note says which input was taken); other inputs
+are random per pixel, or set (`%name = 0.5`).  Each `Output` variable is
+an image: `location 0` in the chosen format, integer outputs as RGBA32I
+or RGBA32UI; a discarded pixel stays clear.  A compute shader runs one
+invocation per pixel (`GlobalInvocationId` = the pixel,
+`LocalInvocationId` and `WorkgroupId` from its `LocalSize`); shared
+memory and barriers across more than 32 invocations are not modelled.
+The trace (as before) is of the lanes at the image's centre.  The report
+gives each input's and output's checksum (FNV-1a over the stored
+texels).  The run stops, with a note, after 20 million instructions.
+
+**The GIF.**  Above the trace: each input ("input 1: noise RGBA8
+64x64", or the file's name), then each output, and each storage image
+the run wrote ("..., after").  An image is shown at 192 pixels on its
+longer side (whole multiples for small ones), alpha over a checkerboard,
+in a 6x8x5 colour cube with a 4x4 ordered dither.  The outputs fill in
+quad by quad, in rows, as the trace's time runs, an orange box on the
+quad being filled; a blue box marks the traced lanes' pixels on every
+panel.  The GIF uses 256 colours and writes the pixels a frame does not
+change as transparent, so it stays small; the 6 MiB cap and its lower
+frame rates apply as before.
+
+**Formats and rounding.**  Texels are stored as the format holds them,
+then read as Vulkan specifies ("Fixed-Point Data Conversions", "sRGB"):
+
+- unorm: c / (2^b - 1); a write clamps to [0, 1] and rounds to nearest
+  (floor(v * (2^b - 1) + 0.5)).  snorm: max(c / (2^(b-1) - 1), -1).
+- sRGB: decoded per texel before filtering, c <= 0.04045 ? c / 12.92 :
+  ((c + 0.055) / 1.055)^2.4; alpha linear.  A file's bytes are taken as
+  encoded sRGB for an sRGB format and as linear values for a unorm one
+  (as an upload of the same bytes would).
+- 16-bit floats round to nearest even (overflow to infinity); R11G11B10F
+  has no sign; integer writes keep the low bits.
+- a format's missing channels read as 0, 0, 0 and 1.
+- outputs: unorm clamped and rounded as above.
+
+**Sampling.**  The sampler's state is not in SPIR-V, so it is assumed:
+linear filtering, linear mipmaps, repeat (a note says so, and how to
+change it).  Mipmaps are made by a 2x2 (2x2x2) box filter of the level
+above, in linear space for sRGB.  The LOD: lambda = log2(rho) plus the
+sampler's and the instruction's bias, rho the larger of the lengths of
+the coordinate's x and y derivatives in texels (Vulkan's scale factor,
+from the quad's fine derivatives for implicit LOD), clamped to [minLod,
+maxLod]; lambda <= 0 magnifies.  Nearest mip: level ceil(d + 0.5) - 1;
+linear: a blend of floor(d) and the next.  Nearest filtering takes
+floor(u); linear the 2, 4 or 8 texels around u - 0.5, weighted by the
+fraction.  Addressing: repeat, mirrored repeat, clamp to edge, clamp to
+border (transparent black, opaque black or white), mirror clamp to
+edge.  Integer formats are never filtered (nearest).  Gather returns the
+footprint's texels in Vulkan's order (i0,j1) (i1,j1) (i1,j0) (i0,j0)
+from level 0.  Dref compares (less or equal by default) each texel
+before filtering.  A fetch, read or write outside the image (or its
+levels and layers) reads 0, 0, 0 and 1 (alpha 0 when the format has
+alpha) and drops the write, as robustImageAccess2 does, counted in a
+note.
+
+**Differences from a GPU.**  Filter weights and coordinates are in
+double precision; GPUs use 8 bits of sub-texel precision for the
+weights (and fixed point for the coordinates), so their results can
+differ in the last bit of an 8-bit value, more at texel boundaries.
+GPUs pick the LOD per quad or per pixel pair with approximations of
+rho (and may use anisotropic filtering, off here); the LOD here is per
+lane and exact.  Cube maps are not filtered across faces (no seamless
+filtering), and their LOD uses the face's 2D derivatives.  Mipmaps a
+driver or an application generates may use other filters.
+
 ## Discord bot (optional)
 
 `discord/` holds `ucas-discord`, a bot that runs messages addressed to
@@ -2394,10 +2561,17 @@ so `@Wimsy animate exec of this` works on a posted shader.  Binary
 SPIR-V goes through `spirv-dis`; GLSL (`.comp`, `.frag`, `.vert`,
 `.glsl` ..., the stage from the extension or what the code uses)
 through `glslangValidator -V` and then `spirv-dis`; SPIR-V assembly and
-other text are added as they are.  Images can't be read (the bot asks
-for the code as text).  Files come only from Discord's CDN, at most
-256 KiB and 4 per message, and the tools run with CPU and memory
-limits.  A short note says what was done with each file.
+other text are added as they are.  Images (PNG, JPEG, GIF, BMP, PPM)
+are the shader's image inputs, in attachment order (see [Shaders on
+images](#shaders-on-images)): a gallery posted by someone, replied to
+with `@Wimsy run this on these, for input 1 use pure black` and the
+shader in a code block (or the shader posted, replied to with the
+pictures attached).  They travel to the engine as ```` ```image NAME ````
+blocks of base64.  Files come only from Discord's CDN, code at most
+256 KiB and images at most 8 MiB (decoded, at most 24 Mpixels, and
+scaled down to 1024 pixels a side), at most 10 per message, and the
+tools run with CPU and memory limits.  A short note says what was done
+with each file.
 
 ### Setup
 
