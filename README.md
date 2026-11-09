@@ -196,6 +196,8 @@ defined as `ap1`, `ap2`, ... (`name p` changes the prefix), so `error`,
 | `keep endpoints`, `keep x1, x2, ...` | points where the approximation must be exact (in real arithmetic; after rounding the list says whether the machine result equals the rounded value there) |
 | `keep crit` | also exact at the critical points of F inside the interval (found from the derivative), so the extrema survive |
 | `method cheb`, `method econ`, `method minimax` | which real-arithmetic fit seeds the machine candidates: Chebyshev interpolation, Chebyshev-economised Taylor, or minimax (the default) |
+| `compare` | with a named `method`: also search the other shapes (rational, piecewise, range reductions); without it a named method gets a focused report: its polynomial as an expression and in the Chebyshev basis, for the requested degree or the lowest one reaching the precision |
+| `free` | do not ask about (or note) special points at the interval's ends |
 | `weight W` | an extra weight function of x for the minimax error |
 | `at c` | expansion point for a non-symmetric fit (default: 0 when inside, a zero at an endpoint, else the midpoint) |
 | `fma`, `nofma` | Horner/Estrin with or without `fma` (default with) |
@@ -630,7 +632,11 @@ channel instead of on a terminal.  Two kinds of question:
 - **Missing details:** an interval for `approx`.  Answer something like
   `$0 to pi/4 degree 5 crit`.
 
-`$` alone takes the default, and `$cancel` drops the question.  While a
+`$` alone takes the default, and `$cancel` drops the question.
+A reply that looks like a new request instead of an answer (`approx
+…`, `what is …`, a definition, a command), or a long reply to a
+numbered choice, drops the open question and runs as a new request;
+the reply says so.  While a
 question is open, the asker's next `$` message in that channel is the
 answer; other users are unaffected.  Questions expire after 15 minutes.
 Each answer re-runs the original message with all answers so far.

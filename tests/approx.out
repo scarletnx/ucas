@@ -162,6 +162,7 @@ approx 1/sqrt(x) on [0.00999999978, 100] as f32, fma
       bit hack + 2 Newton steps: y2 where y0 = asfloat(0x5f375a86 - (asuint(x) >> 1)), h = 0.5*x, y1 = y0*(1.5 - h*y0*y0), y2 = y1*(1.5 - h*y1*y1)
   24 more: 'approx more [n]'
 > approx cos(x) in 0..pi/2 relative norational nosplit list 3
+  note: cos(x) has special points at the interval's ends (at x = 0 a maximum, at x = 1.57079633 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx cos(x) on [0, 1.57079637] as f32, fma
   checked: cos(x) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.57079637]
   metric: relative error
@@ -259,6 +260,7 @@ approx exp(-(x*x)) on [-2, 2] as f32, fma
   3   minimax   6     estrin+fma  1.19e+06 ulp             0.0709        0.0709        5    at x=0.000204538315
       P(x^2): fma(fma(-0.0183976851, s, 0.194773912), s2, fma(-0.712761343, s, 0.929132402)) where s = x*x, s2 = s*s
 > approx sqrt(x) in 0..1 degree 2 nosplit norational noreduce
+  note: sqrt(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sqrt(x) on [0, 1] as f32, fma
   checked: zero at x = 0 is not simple (f(x)/(x - c) is unbounded): no factor
   metric: absolute error (a zero that a polynomial factor cannot match)
@@ -267,9 +269,9 @@ approx sqrt(x) on [0, 1] as f32, fma
     deg  cheb interp  cheb econ    minimax
     2    0.173        -            0.0676       
   candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
-  measured on 130809 f32 in [0, 1]; ulp against the exact value (naive rounding in parentheses)
+  measured on 130809 f32 in [0, 1]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   minimax   2     horner+fma                           inf           0.0676        2    at x=0.603784263
+  1   minimax   2     horner+fma  0.0676 abs               inf           0.0676        2    at x=0.603784263
       P(x): fma(fma(-1.06554115, x, 1.9302994), x, 0.0676208958)
 > approx sin(x) in -100..100 as f64 ulp 2 nosplit norational list 1
 approx sin(x) on [-100, 100] as f64, fma

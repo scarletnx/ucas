@@ -61,6 +61,24 @@ next_answer(void)
 	return ansi < nans ? answers[ansi++] : NULL;
 }
 
+static int clarify(const char *key, const char *what,
+    const char *const *opt, int nopt, int dflt, const char *hint);
+static int interactive(void);
+static int dry, quiet;
+
+/* for commands that need a decision at run time (approx's endpoints) */
+int
+nlp_can_ask(void)
+{
+	return !dry && !quiet && (nlp_defer || interactive());
+}
+
+int
+nlp_ask_choice(const char *what, const char *const *opt, int nopt, int dflt)
+{
+	return clarify(NULL, what, opt, nopt, dflt, NULL);
+}
+
 /* a reply to a numbered question: a number, a prefix of an option, or
  * empty for the default; -1 if it is none of these */
 static int
@@ -1400,6 +1418,8 @@ static struct {
 	const char *ilo, *ihi; /* "on [a, b]" for the only variable */
 	int prop;             /* C_PROP: which property */
 	char degree[32], aty[8];
+	char acc[32];          /* approx: "error 1e-6" or "ulp 2" */
+	int ends;              /* approx: 1 keep endpoints, -1 free */
 	char method[16];       /* approx: cheb, econ, minimax */
 	int crit;             /* critical points asked for explicitly */
 	int steps;            /* dsolve: output steps */
@@ -3080,6 +3100,56 @@ parse_option(void)
 		return 1;
 	}
 	wi = s;
+	/* approx: accuracy, "within 1e-6", "error of 1e-6", "2 ulp" */
+	{
+		int kw = 0;
+		if (mat("within|below|under"))
+			kw = 1;
+		else if (mat("?to|with|at ?an|a|the ?max|maximum|absolute|relative "
+		    "error|accuracy|tolerance|precision|tol")) {
+			kw = 1;
+			mat("?of|below|under|at|within");
+		} else {
+			wi = s;
+			/* "to 2 ulp": unambiguous with the unit after it */
+			if (!mat("?to|at|in"))
+				wi = s;
+		}
+		if (W[wi].k == W_NUM) {
+			const char *num = W[wi].s;
+			wi++;
+			if (mat("ulp|ulps")) {
+				snprintf(Q.acc, sizeof Q.acc, "ulp %s", num);
+				return 1;
+			}
+			if (kw) {
+				snprintf(Q.acc, sizeof Q.acc, "error %s", num);
+				return 1;
+			}
+		}
+	}
+	wi = s;
+	/* approx: special endpoints kept exact or not */
+	if (mat("?keep|keeping|preserve|preserving|with|exact ?the|its|both "
+	    "endpoints|ends|edges ?exact|fixed")) {
+		Q.ends = 1;
+		return 1;
+	}
+	wi = s;
+	if (mat("free|loose|nokeep ?the ?endpoints|ends|edges")) {
+		Q.ends = -1;
+		return 1;
+	}
+	wi = s;
+	/* a bare whole number answering "which degree?" */
+	if (Q.cmd == C_APPROX && W[wi].k == W_NUM && is_int(W[wi].s) &&
+	    (W[wi + 1].k == W_END || (W[wi + 1].k == W_SYM &&
+	    !strcmp(W[wi + 1].s, ",")))) {
+		snprintf(Q.degree, sizeof Q.degree, "%s", W[wi].s);
+		wi++;
+		return 1;
+	}
+	wi = s;
 	if (mat("?as|in|using|with|for|at f32|f64|float|floats|single|double|"
 	    "doubles|real|reals ?precision") && (isw(wi - 1, "precision") ||
 	    !varlike(wi))) {
@@ -3365,6 +3435,21 @@ noun_cmd(void)
 				strcpy(Q.method, "econ");
 		}
 		return C_APPROX;
+	}
+	/* a method alone: "minimax of sin ...", "chebyshev for exp ..." */
+	{
+		int s1 = wi;
+		if (mat("chebyshev|cheby|cheb|tschebyscheff|minimax|remez|taylor") &&
+		    (isw(wi, "of") || isw(wi, "for") || isw(wi, "on"))) {
+			if (isw(wi - 1, "minimax") || isw(wi - 1, "remez"))
+				strcpy(Q.method, "minimax");
+			else if (isw(wi - 1, "taylor"))
+				strcpy(Q.method, "econ");
+			else
+				strcpy(Q.method, "cheb");
+			return C_APPROX;
+		}
+		wi = s1;
 	}
 	if (mat("cheaper|faster|better|alternative|other|equivalent|different|"
 	    "simpler|cheapest|fastest|best ?ways|way|implementations|"
@@ -4724,6 +4809,15 @@ emit_approx(void)
 			printf("  note: no interval given: using %s to %s (say \"on a "
 			    "to b\")\n", lo, hi);
 	}
+	if (!Q.degree[0] && !Q.acc[0] && !no_more_prompts &&
+	    (interactive() || nlp_defer) && !dry) {
+		need_more = S(
+"how precise should the approximation of %s be?\n"
+"    Reply with a degree (6, degree 6, degree 4 to 8) or an accuracy\n"
+"    (within 1e-6, 2 ulp); empty: every degree up to the format's precision",
+		    body);
+		longjmp(nl_jmp, 1);
+	}
 	sb_printf(&sb, "approx %s", F);
 	if (lo)
 		sb_printf(&sb, " in %s..%s", lo, hi);
@@ -4731,6 +4825,12 @@ emit_approx(void)
 		sb_printf(&sb, " method %s", Q.method);
 	if (Q.degree[0])
 		sb_printf(&sb, " degree %s", Q.degree);
+	if (Q.acc[0])
+		sb_printf(&sb, " %s", Q.acc);
+	if (Q.ends > 0)
+		sb_printf(&sb, " keep endpoints");
+	else if (Q.ends < 0)
+		sb_printf(&sb, " free");
 	if (Q.aty[0] || Q.emit_c)
 		sb_printf(&sb, " as%s%s", Q.aty[0] ? S(" %s", Q.aty) : "",
 		    Q.emit_c ? " c" : "");

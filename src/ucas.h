@@ -370,7 +370,10 @@ nid loop_diff(nid n, uint32_t slot);
 /* ---- nlp.c: English in, ucas statements out ---- */
 extern int nlp_interactive;
 extern int nlp_defer;        /* questions go to the front end, not a tty */
-extern int nlp_asked;        /* a deferred question is waiting */  /* -1: ask only when stdin and stdout are ttys */
+extern int nlp_asked;        /* a deferred question is waiting */
+int nlp_can_ask(void);
+int nlp_ask_choice(const char *what, const char *const *opt, int nopt,
+    int dflt);  /* -1: ask only when stdin and stdout are ttys */
 int nlp_is_english(const char *line, size_t n);
 void nlp_run(const char *line, size_t n, const char *file, int echo);
 void run_text(const char *src, const char *file, int echo);

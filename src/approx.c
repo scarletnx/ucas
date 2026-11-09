@@ -54,6 +54,9 @@ struct aopt {
 	int haswt;
 	int method;		/* fit that seeds the machine forms: FM_* */
 	int keep_crit;		/* exact at the critical points too */
+	int method_given;	/* `method` named: report that method's fit */
+	int compare;		/* ...but still search every other shape */
+	int ends_free;		/* do not ask about special endpoints */
 };
 
 struct cand {
@@ -101,6 +104,7 @@ static const char *const optwords[] = {
 	"in", "degree", "error", "ulp", "as", "relative", "absolute", "odd",
 	"even", "nosym", "keep", "weight", "at", "fma", "nofma", "norefine",
 	"list", "name", "points", "norational", "noreduce", "nosplit", "method",
+	"compare", "free",
 	NULL
 };
 
@@ -1191,6 +1195,25 @@ degree_of(int nt)
 static ld taylor[AMAXJ];
 static int ntay;
 
+/* the named method's real fit per degree, for focus_report */
+static struct {
+	struct fitprob pb;
+	struct fitres fr;
+	int deg;
+} focus[AMAXC];
+static int nfocus;
+
+static const char *
+S_pow(int pw)
+{
+	static char buf[4][16];
+	static int k;
+	char *b = buf[k++ & 3];
+
+	snprintf(b, 16, "^%d", pw);
+	return b;
+}
+
 static void
 direct_polys(void)
 {
@@ -1210,6 +1233,7 @@ direct_polys(void)
 	}
 	memset(&k, 0, sizeof k);
 	k.w = A.w;
+	nfocus = 0;
 	for (nt = 1; nt <= ntmax && !stop; nt++) {
 		int deg = degree_of(nt);
 		double fe = -1;
@@ -1261,6 +1285,17 @@ direct_polys(void)
 		    A.nkeep ? cs[3] : "");
 		if (!rr.ok)
 			continue;
+		if (nfocus < AMAXC) {
+			struct fitres *ch = A.o.method == FM_CHEB ? &rc :
+			    A.o.method == FM_ECON ? &re : &rr;
+			if (ch->ok) {
+				focus[nfocus].pb = pb;
+				focus[nfocus].pb.method = A.o.method;
+				focus[nfocus].fr = *ch;
+				focus[nfocus].deg = deg;
+				nfocus++;
+			}
+		}
 		k.pb = pb;
 		k.fr = rr;
 		if (A.o.method == FM_CHEB && rc.ok) {
@@ -1293,6 +1328,108 @@ direct_polys(void)
 	if (!printed)
 		printf("  no polynomial fit in the degree range\n");
 	core_free(&k);
+}
+
+/*
+ * The report for a named method: the polynomial itself, as an expression
+ * and in the Chebyshev basis on the interval, for one degree: the one
+ * asked for, else the lowest that reaches the format's precision.
+ */
+static const char *
+method_name(int m)
+{
+	return m == FM_CHEB ? "Chebyshev interpolation" : m == FM_ECON ?
+	    "Chebyshev-economised Taylor" : "minimax";
+}
+
+static void
+focus_report(void)
+{
+	double goal;
+	int i, pick = -1, k, j, N;
+	struct sbuf b = {0};
+	ld mid = (A.hi + A.lo) / 2, half = (A.hi - A.lo) / 2, ck[AMAXC * 2 + 2];
+	ld big = 0;
+
+	if (nfocus == 0)
+		return;
+	goal = A.o.tol_err > 0 ? A.o.tol_err : A.w == 32 ? 6e-8 : A.w == 64 ?
+	    1.2e-16 : 1e-12;
+	if (!A.rel)
+		goal *= (double)(A.fmax > 0 ? A.fmax : 1);
+	for (i = 0; i < nfocus; i++)
+		if (metric_of_fit(&focus[i].fr) <= goal) {
+			pick = i;
+			break;
+		}
+	if (A.o.dmin > 0 && A.o.dmin == A.o.dmax)
+		pick = nfocus - 1;
+	if (pick < 0)
+		pick = nfocus - 1;
+	printf("  %s polynomial of %s, degree %d (max %s error %.3g in real "
+	    "arithmetic%s):\n", method_name(A.o.method), A.fname,
+	    focus[pick].deg, A.rel ? "relative" : "absolute",
+	    metric_of_fit(&focus[pick].fr), A.o.dmin > 0 &&
+	    A.o.dmin == A.o.dmax ? "" : A.o.tol_err > 0 ?
+	    ", the lowest degree within the error asked" :
+	    ", the lowest degree that reaches the format's precision");
+	/* as an expression in x (or x - c) */
+	for (j = focus[pick].fr.nn; j-- > 0;) {
+		ld cf = focus[pick].fr.num[j];
+		int pw = A.k0 + A.step * j;
+		char v[48];
+		if (cf == 0)
+			continue;
+		if (A.c != 0)
+			snprintf(v, sizeof v, "(x - %.9g)", (double)A.c);
+		else
+			snprintf(v, sizeof v, "x");
+		if (b.n)
+			sb_puts(&b, cf < 0 ? " - " : " + ");
+		else if (cf < 0)
+			sb_puts(&b, "-");
+		if (pw == 0)
+			sb_printf(&b, "%.10Lg", fabsl(cf));
+		else
+			sb_printf(&b, "%.10Lg*%s%s", fabsl(cf), v, pw == 1 ? "" :
+			    S_pow(pw));
+	}
+	printf("    %s(x) = %s\n", A.fname, b.n ? b.p : "0");
+	/* in the Chebyshev basis on the whole interval: exact for degree < N */
+	N = focus[pick].deg + 1;
+	for (k = 0; k < N; k++) {
+		ld sum = 0;
+		for (j = 0; j < N; j++) {
+			ld th = PI_L * ((ld)j + 0.5L) / N;
+			ld x = mid + half * cosl(th);
+			sum += fit_eval(&focus[pick].pb, &focus[pick].fr, x) *
+			    cosl((ld)k * th);
+		}
+		ck[k] = sum * 2 / N / (k == 0 ? 2 : 1);
+		if (fabsl(ck[k]) > big)
+			big = fabsl(ck[k]);
+	}
+	sb_clear(&b);
+	for (k = 0; k < N; k++) {
+		if (fabsl(ck[k]) <= big * 1e-13L)
+			continue;
+		if (b.n)
+			sb_puts(&b, ck[k] < 0 ? " - " : " + ");
+		else if (ck[k] < 0)
+			sb_puts(&b, "-");
+		sb_printf(&b, "%.10Lg*T%d(u)", fabsl(ck[k]), k);
+	}
+	printf("    in the Chebyshev basis: %s\n      where u = ", b.p);
+	if (mid == 0 && half == 1)
+		printf("x");
+	else if (mid == 0)
+		printf("x/%.10g", (double)half);
+	else
+		printf("(x - %.10g)/%.10g", (double)mid, (double)half);
+	printf(" maps [%.9g, %.9g] to [-1, 1]\n", (double)A.lo, (double)A.hi);
+	printf("    other degrees: add `degree n`; the other methods and "
+	    "shapes: add `compare`\n");
+	free(b.p);
 }
 
 static void
@@ -2339,6 +2476,8 @@ print_rows(int from, int to)
 			    c->naive);
 		else if (A.w && A.rel)
 			snprintf(ulp, sizeof ulp, "%.3g ulp", c->eulp);
+		else if (A.w)
+			snprintf(ulp, sizeof ulp, "%.3g abs", c->eabs);
 		else
 			ulp[0] = 0;
 		printf("  %-3d %-9s %-5s %-11s %-24s %-13.3g %-13.3g %-4g at "
@@ -2379,16 +2518,23 @@ print_list(void)
 			n = mt + 2 < 6 ? mt + 2 : 6;
 		if (n == 0)
 			n = 3;
+		if (nlp_defer && n > 3)
+			n = 3;   /* chat: the best three; 'approx more' for the rest */
 	}
 	printf("  candidates ranked by %s and cost under %s (%s%s); defined "
 	    "as %s1..:\n", metric_name(), sym_str(model_active()->name),
 	    A.w ? (A.exhaustive ? "every float" : "sampled floats") :
 	    "real arithmetic", A.w ? "" : ", no rounding", A.o.name);
-	if (A.w)
+	if (A.w && A.rel)
 		printf("  measured on %u %s in [%.9g, %.9g]%s; ulp against the "
 		    "exact value (naive rounding in parentheses)\n", A.ns,
 		    fmt_name(A.w), (double)A.lo, (double)A.hi, A.exhaustive ?
 		    " (all of them)" : "");
+	else if (A.w)
+		printf("  measured on %u %s in [%.9g, %.9g]%s; absolute error: "
+		    "the target reaches 0 here, where relative error and ulp "
+		    "are unbounded\n", A.ns, fmt_name(A.w), (double)A.lo,
+		    (double)A.hi, A.exhaustive ? " (all of them)" : "");
 	printf("  #   kind      deg   form        %-24s %-13s %-13s cost\n",
 	    A.w ? "error (naive)" : "", "max rel", "max abs");
 	print_rows(0, n);
@@ -2577,15 +2723,81 @@ run(void)
 	}
 	build_sample();
 	direct_polys();
-	if (A.o.rational && !A.stalled)
-		direct_rationals();
-	if (A.o.split && !A.stalled)
-		piecewise();
-	if (A.o.reduce)
-		reductions();
+	if (A.o.method_given && !A.o.compare) {
+		focus_report();
+	} else {
+		if (A.o.rational && !A.stalled)
+			direct_rationals();
+		if (A.o.split && !A.stalled)
+			piecewise();
+		if (A.o.reduce)
+			reductions();
+	}
 	rank();
 	A.valid = 1;
 	print_list();
+}
+
+/*
+ * Zeros or extrema of F at the interval's ends.  A zero makes relative
+ * error unbounded there; an extremum is a bound callers may rely on
+ * (|sin| <= 1).  Keeping them exact costs a little error elsewhere.  The
+ * user decides: asked on a terminal or in the bot (via nlp.c's
+ * questions), otherwise a note says how to choose.
+ */
+static void
+ask_endpoints(double lo, double hi)
+{
+	static const char *const yn[] = {"yes, keep them exact (keep endpoints)",
+	    "no, fit freely"};
+	ld e[2], v[2], d[2], fm = 0, h = (hi - lo) * 1e-6;
+	int i, zero[2], ext[2], any = 0, z = 0, dflt;
+	char what[320];
+	struct sbuf b = {0};
+
+	e[0] = lo;
+	e[1] = hi;
+	for (i = 0; i <= 32; i++) {
+		ld y = lref_eval(&A.ref, lo + (hi - lo) * i / 32);
+		if (isfinite(y) && fabsl(y) > fm)
+			fm = fabsl(y);
+	}
+	if (fm == 0)
+		return;
+	for (i = 0; i < 2; i++) {
+		v[i] = lref_eval(&A.ref, e[i]);
+		d[i] = (lref_eval(&A.ref, e[i] + h) - lref_eval(&A.ref, e[i] - h)) /
+		    (2 * h);
+		zero[i] = isfinite(v[i]) && fabsl(v[i]) <= fm * 1e-12L;
+		ext[i] = !zero[i] && isfinite(d[i]) &&
+		    fabsl(d[i]) * (hi - lo) <= fm * 1e-9L;
+		if (zero[i] || ext[i]) {
+			sb_printf(&b, "%sat x = %.9g %s", any ? ", " : "",
+			    (double)e[i], zero[i] ? "it is 0" : v[i] > 0 ?
+			    "a maximum" : "a minimum");
+			any = 1;
+			z |= zero[i];
+		}
+	}
+	if (!any) {
+		free(b.p);
+		return;
+	}
+	/* fitting freely is cheaper; keeping them is the user's call */
+	dflt = 1;
+	snprintf(what, sizeof what, "%s has special points at the interval's "
+	    "ends (%s)%s; keep them exact (costs some error elsewhere)",
+	    A.fname, b.p, z ? ": near a zero, relative error is unbounded "
+	    "unless the zero is exact" : ": bounds a caller may rely on");
+	free(b.p);
+	if (nlp_can_ask()) {
+		if (nlp_ask_choice(what, yn, 2, dflt) == 0)
+			A.o.keep_ends = 1;
+		return;
+	}
+	if (z)
+		printf("  note: %s? not by default: say `keep endpoints` to keep "
+		    "them\n", what);
 }
 
 void
@@ -2710,6 +2922,7 @@ cmd_approx(struct P *p)
 			if (!cmdp_word(p, o->name, sizeof o->name))
 				fail("name needs an identifier");
 		} else if (cmdp_kw(p, "method")) {
+			o->method_given = 1;
 			if (cmdp_kw(p, "cheb") || cmdp_kw(p, "chebyshev"))
 				o->method = FM_CHEB;
 			else if (cmdp_kw(p, "econ"))
@@ -2718,7 +2931,11 @@ cmd_approx(struct P *p)
 				o->method = FM_REMEZ;
 			else
 				fail("method is cheb, econ or minimax");
-		} else if (cmdp_kw(p, "norational"))
+		} else if (cmdp_kw(p, "compare") || cmdp_kw(p, "all"))
+			o->compare = 1;
+		else if (cmdp_kw(p, "free"))
+			o->ends_free = 1;
+		else if (cmdp_kw(p, "norational"))
 			o->rational = 0;
 		else if (cmdp_kw(p, "noreduce"))
 			o->reduce = 0;
@@ -2762,6 +2979,10 @@ cmd_approx(struct P *p)
 		}
 		putchar('\n');
 	}
+	if (!o->keep_ends && !o->ends_free && !o->haswt)
+		ask_endpoints(lo, hi);
+	if (nlp_asked)
+		return;   /* the answer comes back with the message (nlp.c) */
 	A.nkeep = 0;
 	if (o->keep_ends) {
 		A.keep[A.nkeep++] = A.lo;

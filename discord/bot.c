@@ -20,6 +20,7 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
@@ -54,6 +55,7 @@ struct pend {
 	char *orig;      /* the user's code, for a follow-up question */
 	char *answers;   /* "\x1eanswer ...\n" lines sent with it */
 	int echo;
+	int dropped;     /* it replaced an open question */
 };
 
 /*
@@ -70,8 +72,55 @@ struct ask {
 	char *orig;
 	char *answers;
 	int echo;
+	int nopt;        /* a numbered choice; 0 for a free-text question */
 	time_t when;
 };
+
+/*
+ * Is this reply an answer, or has the user moved on to a new request?
+ * A choice takes a short reply (a number, an option's name); a free-text
+ * question takes anything that does not start like a new request.
+ */
+static int
+looks_like_answer(const char *c, int nopt)
+{
+	static const char *const starts[] = {
+		"approx", "approximate", "what", "whats", "how", "is", "are",
+		"does", "do", "can", "show", "range", "domain", "wrap", "crit",
+		"diff", "equiv", "gates", "find", "more", "fit", "error", "cost",
+		"table", "let", "define", "integrate", "closed", "scheme",
+		"continuous", "dsolve", "solve", "help", "alt", "parse", "use",
+		"models", "funcs", "assume", "forget", "compute", "evaluate",
+		"simplify", "plot", NULL
+	};
+	char w[24];
+	size_t n = 0;
+	int words = 0, k, inw = 0;
+	const char *p;
+
+	while (*c == ' ')
+		c++;
+	if (*c == 0)
+		return 1;
+	for (p = c; *p; p++) {
+		if (*p == '=' || *p == '{')
+			return 0;   /* a definition or a block */
+		if (*p != ' ' && !inw)
+			words++;
+		inw = *p != ' ';
+	}
+	while (c[n] && c[n] != ' ' && c[n] != '?' && n + 1 < sizeof w) {
+		w[n] = (char)tolower((unsigned char)c[n]);
+		n++;
+	}
+	w[n] = 0;
+	for (k = 0; starts[k]; k++)
+		if (!strcmp(w, starts[k]))
+			return 0;
+	if (nopt > 0)
+		return words <= 3;
+	return 1;
+}
 static struct ask asks[MAXASK];
 static int nasks;
 
@@ -285,6 +334,7 @@ send_req(uint32_t type, const struct discord_message *m, const char *text,
 	pp->orig = orig ? strdup(orig) : NULL;
 	pp->answers = answers ? strdup(answers) : NULL;
 	pp->echo = echo;
+	pp->dropped = 0;
 	return 0;
 }
 
@@ -322,7 +372,7 @@ handle_message(const struct discord_message *m)
 	struct sbuf code = {0}, req = {0}, ans = {0};
 	const char *content;
 	struct ask *q;
-	int kind, echo;
+	int kind, echo, dropped = 0;
 
 	if (m->author == NULL || m->author->bot || m->author->System ||
 	    m->author->id == self_id || m->webhook_id != 0)
@@ -338,7 +388,16 @@ handle_message(const struct discord_message *m)
 		free(code.p);
 		return kind;
 	}
-	if ((q = ask_find(m->channel_id, m->author->id)) != NULL) {
+	if ((q = ask_find(m->channel_id, m->author->id)) != NULL &&
+	    !looks_like_answer(kind == DC_EVAL ? code.p : "", q->nopt) &&
+	    strcmp(kind == DC_EVAL ? code.p : "", "cancel") != 0) {
+		/* a new request: the open question is dropped */
+		ask_drop((int)(q - asks));
+		log_in(m, "dropped-question", 0);
+		q = NULL;
+		dropped = 1;
+	}
+	if (q != NULL) {
 		/* this author's next $ message answers the open question */
 		const char *c = kind == DC_EVAL ? code.p : "";
 		char *orig;
@@ -374,6 +433,7 @@ handle_message(const struct discord_message *m)
 		strip_directives(code.p);
 		sb_printf(&req, "\x1e" "defer\n%s", code.p);
 		send_req(SF_EVAL, m, req.p, echo, code.p, "");
+		pend[npend - 1].dropped = dropped;
 		log_in(m, "request", nextid);
 	}
 	free(code.p);
@@ -425,6 +485,7 @@ on_response(const struct sframe *h, const char *out)
 			q->orig = pp.orig;
 			q->answers = pp.answers ? pp.answers : strdup("");
 			q->echo = pp.echo;
+			q->nopt = nopt;
 			q->when = time(NULL);
 			pp.orig = pp.answers = NULL;
 			if (nopt > 0)
@@ -438,7 +499,9 @@ on_response(const struct sframe *h, const char *out)
 			dc_format(&r, hbuf, o.p ? o.p : "", o.n);
 			free(o.p);
 		} else
-			dc_format(&r, head, out, h->len);
+			dc_format(&r, head == NULL && pp.dropped ? "(your open "
+			    "question was dropped: this looked like a new request)" :
+			    head, out, h->len);
 	}
 	log_out(h->id, (int)h->status, out && memmem(out, h->len, "\x1e" "ask ",
 	    5) != NULL, out, h->len);
