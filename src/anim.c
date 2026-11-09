@@ -1324,6 +1324,7 @@ deliver(struct gif *gp, const char *name, int nofile)
 {
 	struct gif g = *gp;
 	struct sbuf out = {0};
+	char gname[80];
 
 	if (nofile) {
 		uint32_t hsh = 2166136261u;
@@ -1331,6 +1332,9 @@ deliver(struct gif *gp, const char *name, int nofile)
 		for (q = 0; q < g.out.n; q++)
 			hsh = (hsh ^ (unsigned char)g.out.p[q]) * 16777619u;
 		printf("  (nofile: GIF checksum %08x)\n", hsh);
+	} else if (rep_on) {	/* JSON: into the response's files */
+		snprintf(gname, sizeof gname, "%s.gif", name);
+		rep_deliver(gname, "image/gif", g.out.p, g.out.n, 0);
 	} else if (nlp_defer) {
 		if (g.out.n > MAXGIF) {
 			printf("  the GIF is too large for the chat (%zu bytes): ask "
@@ -1372,6 +1376,8 @@ deliver_file(const char *name, const char *type, const char *data, size_t n,
 		for (q = 0; q < n; q++)
 			hsh = (hsh ^ (unsigned char)data[q]) * 16777619u;
 		printf("  (nofile: %s, %zu bytes, checksum %08x)\n", name, n, hsh);
+	} else if (rep_on) {	/* JSON: into the response's files */
+		rep_deliver(name, type, data, n, 0);
 	} else if (nlp_defer) {
 		b64(&out, (const unsigned char *)data, n);
 		printf("  the rewritten module is attached as %s\n", name);

@@ -38,6 +38,13 @@ basis_find(uint32_t name)
 	return NULL;
 }
 
+/* the i-th basis, NULL past the last (jsonmode.c's state) */
+struct basis *
+basis_nth(int i)
+{
+	return i >= 0 && i < nbases ? &bases[i] : NULL;
+}
+
 struct basis *
 basis_new(uint32_t name)
 {

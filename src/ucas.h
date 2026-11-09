@@ -229,6 +229,7 @@ struct basis {
 };
 struct basis *basis_find(uint32_t name);
 struct basis *basis_new(uint32_t name);
+struct basis *basis_nth(int i);
 void basis_finish_gate(struct basis *b, struct gate *g);
 
 /* ---- model.c: cost models ---- */
@@ -249,6 +250,7 @@ extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
 struct model *model_new(uint32_t name);
 struct model *model_active(void);
+struct model *model_nth(int i);
 void model_set_active(struct model *m);
 int cclass_find(const char *s, size_t n);
 float node_cost(const struct model *m, nid n, int *cls);
@@ -453,5 +455,7 @@ void run_text(const char *src, const char *file, int echo);
 extern const char *code_block;     /* a fenced block after the statement */
 extern char code_block_lang[24];
 extern int code_block_used;
+
+#include "report.h"	/* structured results for the JSON frontend */
 
 #endif

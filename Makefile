@@ -16,6 +16,8 @@ SRCS+=	calc2.c
 SRCS+=	hyper.c
 # symbolic algebra: polynomials, rational functions, integration, solve
 SRCS+=	poly.c alg.c rint.c solve.c
+# the JSON frontend: a JSON Lines protocol, structured results
+SRCS+=	json.c report.c jsonmode.c
 .PATH:	${.CURDIR}/src
 MAN=
 

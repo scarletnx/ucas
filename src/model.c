@@ -54,6 +54,13 @@ model_new(uint32_t name)
 	return m;
 }
 
+/* the i-th model, NULL past the last (jsonmode.c's state) */
+struct model *
+model_nth(int i)
+{
+	return i >= 0 && i < nmodels ? &models[i] : NULL;
+}
+
 struct model *
 model_active(void)
 {
