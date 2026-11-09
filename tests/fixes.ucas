@@ -70,3 +70,6 @@ graph the direction field y' = t - y nofile
 plot the slope field of y' = t - y with y(0) = 1 nofile
 plot y' = y - y^2 with y(0) = 0.1 t in 0..8 nofile
 plot y' = t - y with x(0) = 1 nofile
+# a negated product prints without parentheses
+what is x divided by -2y when x is 1 and y is 3?
+what is x - -2y when x is 1 and y is 3?

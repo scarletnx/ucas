@@ -911,6 +911,29 @@ mkun(const char *op, struct ex a)
 
 	if (x == a.s && (a.s[0] == '-' || a.s[0] == '!' || a.s[0] == '~'))
 		x = S("(%s)", a.s);
+	{
+		/* -(2*y) is -2*y: a product without / or % at the top */
+		const char *p;
+		int d = 0, plain = op[0] == '-' && !op[1] && a.prec == P_MUL &&
+		    a.s[0] != '-';
+		for (p = a.s; plain && *p; p++) {
+			if (*p == '(' || *p == '[')
+				d++;
+			else if (*p == ')' || *p == ']')
+				d--;
+			else if (d == 0 && (*p == '/' || *p == '%'))
+				plain = 0;
+		}
+		if (plain) {
+			r = mkatom(S("-%s", a.s), a.ity, a.lit);
+			r.prec = P_MUL;
+			if (a.hv) {
+				r.hv = 1;
+				r.v = -a.v;
+			}
+			return r;
+		}
+	}
 	r = mkatom(S("%s%s", op, x), a.ity, a.lit);
 	r.prec = P_UNARY;
 	r.isbool = op[0] == '!';

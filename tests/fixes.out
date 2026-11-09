@@ -40,10 +40,10 @@ slope field: y' = t - y
   image: 640x440, 20027 bytes
   (nofile: GIF checksum b6dee34c)
 > solve y' = -2y + 1 with y(0) = 3 from 0 to 2 in 2 steps
-  ucas: y' = -(2*y) + 1
+  ucas: y' = -2*y + 1
   ucas: y(0) = 3
   ucas: dsolve y from 0 to 2 steps 2
-y' = -(2*y) + 1, y(0) = 3
+y' = -2*y + 1, y(0) = 3
   linear with constant coefficients: eigenvalues -2; forcing by undetermined coefficients
   y(t) = 2.5exp(-2*t) + 0.5
   check: satisfies the equations at 201 points of [0, 2] (max relative residual 7.4e-17) and the initial values
@@ -531,3 +531,9 @@ slope field: y' = t - y
   y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
   image: 640x440, 20027 bytes
   (nofile: GIF checksum b6dee34c)
+> what is x divided by -2y when x is 1 and y is 3?
+  ucas: 1/(-2*3)
+-0.166667
+> what is x - -2y when x is 1 and y is 3?
+  ucas: 1 - (-2*3)
+7
