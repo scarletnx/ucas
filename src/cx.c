@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * cx.c - cochain complexes of presented f.g. abelian groups, chain maps,
  * cohomology as fgab subquotients, short exact sequences of complexes and

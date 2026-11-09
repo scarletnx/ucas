@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * excouple.c - exact couples, derived couples, spectral sequences, the
  * Bockstein spectral sequence, element tracing and the concrete check of

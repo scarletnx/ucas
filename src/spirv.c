@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * SPIR-V assembly (spirv-dis text) executed on a group of SIMT lanes, for
  * "animate exec" followed by a ```spv block.
@@ -168,13 +169,17 @@ T(int t)
 
 /* ---- parsing ---- */
 
+void glslfn_pass(const char *src, double budget, int only);
+static int fnl_mode;	/* the function level: 0 too, 1 alone, 2 not */
 static char *src_text;	/* OpSource's text, when there is one */
 
 static void
 parse(const char *src)
 {
 	const char *p = src, *e;
-	char line[1024], *q, *tok;
+	static char *line;	/* one instruction: a table's constant can be long */
+	static size_t linecap;
+	char *q, *tok;
 	int n;
 
 	while (*p) {
@@ -215,8 +220,11 @@ parse(const char *src)
 				memcpy(src_text, q + 1, (size_t)(z > q ? z - q - 1 : 0));
 				src_text[z > q ? z - q - 1 : 0] = 0;
 			}
-			n = (int)(end - p) < (int)sizeof line - 1 ? (int)(end - p) :
-			    (int)sizeof line - 1;
+			n = (int)(end - p);
+			if ((size_t)n + 1 > linecap) {
+				linecap = (size_t)n + 1024;
+				line = xrealloc(line, linecap);
+			}
 			memcpy(line, p, (size_t)n);
 			line[n] = 0;
 		}
@@ -3762,6 +3770,78 @@ cand_text(char *b, size_t n, const struct cand *c, const struct sins *I)
 			    V.id[c->a[i]].tok);
 }
 
+/*
+ * A rewrite any driver's back end makes on its own: a strength reduction
+ * by a constant (a multiply, unsigned divide or remainder by a power of
+ * two, an extract at bit 0, a shift then a mask, two constant shifts), an
+ * operation with an identity operand (x + 0, x * 1, x & ~0, x | 0, x ^ 0,
+ * x << 0, x >> 0, x / 1), one whose operands are all constants, or x - x
+ * and x ^ x.  These cost the GPU nothing to leave in the source, so they
+ * are listed apart and kept out of the headline saving.
+ */
+static int
+driver_trivial(int k, const struct cand *c)
+{
+	static const char *const red[] = {
+		"a multiply by a power of two is a shift",
+		"a divide by a power of two is a shift",
+		"a remainder by a power of two is a mask",
+		"an extract at bit 0 is a mask",
+		"a shift then a mask is one bitfield extract",
+		"two shifts by constants are one", NULL
+	};
+	const struct sins *I = &V.in[k];
+	int base = first_arg(I), na = I->nop - base, i, nk = 0, w;
+	uint64_t cv[2];
+	int isk[2] = {0, 0};
+
+	for (i = 0; red[i]; i++)
+		if (c->why == red[i] || !strcmp(c->why, red[i]))
+			return 1;
+	if (c->kind == RW_INS || na < 1 || na > 2)
+		return 0;
+	w = int_width(idx(I->opnd[0]));
+	for (i = 0; i < na; i++)
+		if (const_of(res_of(idx(I->opnd[base + i])), &cv[i])) {
+			isk[i] = 1;
+			nk++;
+		}
+	if (nk == na)
+		return 1;	/* constant folding */
+	if (na == 2 && res_of(idx(I->opnd[base])) ==
+	    res_of(idx(I->opnd[base + 1])) && (!strcmp(I->op, "OpISub") ||
+	    !strcmp(I->op, "OpBitwiseXor")))
+		return 1;
+	if (na != 2 || nk != 1)
+		return 0;
+	if (c->kind == RW_ID) {
+		uint64_t v = isk[0] ? cv[0] : cv[1];
+		int right = isk[1];	/* the constant is the second operand */
+		if ((!strcmp(I->op, "OpIAdd") || !strcmp(I->op, "OpBitwiseOr") ||
+		    !strcmp(I->op, "OpBitwiseXor")) && v == 0)
+			return 1;
+		if ((!strcmp(I->op, "OpISub") || !strncmp(I->op, "OpShift", 7)) &&
+		    right && v == 0)
+			return 1;
+		if (!strcmp(I->op, "OpIMul") && v == 1)
+			return 1;
+		if ((!strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpSDiv")) &&
+		    right && v == 1)
+			return 1;
+		if (!strcmp(I->op, "OpBitwiseAnd") && w > 0 && v == wmask(w))
+			return 1;
+	}
+	if (c->kind == RW_CONST) {
+		uint64_t v = isk[0] ? cv[0] : cv[1];
+		if ((!strcmp(I->op, "OpIMul") || !strcmp(I->op, "OpBitwiseAnd")) &&
+		    v == 0)
+			return 1;
+		if (!strcmp(I->op, "OpBitwiseOr") && w > 0 && v == wmask(w))
+			return 1;
+	}
+	return 0;
+}
+
 /* apply: alias, constant alias, or the instruction rewritten in place */
 static void
 apply(int k, const struct cand *c)
@@ -3855,8 +3935,12 @@ src_line(int ln, char *b, size_t n)
 	b[0] = 0;
 	if (t == NULL || ln <= 0 || ln >= 10000)
 		return;
-	if ((m = strstr(t, "#line 1\n")) != NULL)
-		t = m + 8;
+	/* glslc.c's "#line N" before the source: the line after it is N */
+	if ((m = strstr(t, "#line ")) != NULL && atoi(m + 6) > 0 &&
+	    atoi(m + 6) < 10000) {
+		at = atoi(m + 6);
+		t = strchr(m, '\n') ? strchr(m, '\n') + 1 : m + strlen(m);
+	}
 	while (*t && at < ln) {
 		if (*t == '\n')
 			at++;
@@ -4140,6 +4224,12 @@ spirv_assume_float(const char *name, double lo, double hi, int lo_open,
 	    name[0] == '%' ? name + 1 : name);
 	pend_fas[npend_fas].lo = l;
 	pend_fas[npend_fas++].hi = h;
+}
+
+void
+spirv_fn_opts(int mode)
+{
+	fnl_mode = mode;
 }
 
 void
@@ -5473,13 +5563,15 @@ void
 spirv_simplify(const char *src, double budget, int nofile)
 {
 	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0, nfwd = 0, ndst = 0;
+	int ntriv = 0;
+	double tgain = 0;
 	char *range_report = NULL;
 #define MAXLOG 4096
 	struct rwlog {
 		char from[160], to[160];
 		const char *why;
 		double gain;
-		int line, algebra;
+		int line, algebra, trivial;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	double before = 0, after = 0;
 	struct sbuf out = {0}, list = {0};
@@ -5495,6 +5587,25 @@ spirv_simplify(const char *src, double budget, int nofile)
 	V.rng = 1;
 	cols = 1;
 	parse(src);
+	if (fnl_mode == 1) {
+		/* the function level alone (glslfn.c) */
+		rep_begin("spirv_simplify");
+		if (src_text != NULL)
+			glslfn_pass(src_text, budget, 1);
+		else
+			printf("function level: the module carries no GLSL source "
+			    "(OpSource): give the GLSL, or compile it with -g\n");
+		for (k = 0; k < V.nin; k++) {
+			for (i = 0; i < V.in[k].nop; i++)
+				free(V.in[k].opnd[i]);
+			free(V.in[k].text);
+		}
+		free(V.in);
+		memset(&V, 0, sizeof V);
+		spirv_float_opts(0, 0, 0, 0, 0);
+		fnl_mode = 0;
+		return;
+	}
 	{
 		/* a snippet: complete it (types only), then read it afresh */
 		struct sbuf said = {0};
@@ -5659,6 +5770,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 			L->why = cs[best].why;
 			L->gain = gain;
 			L->algebra = cs[best].algebra;
+			L->trivial = driver_trivial(k, &cs[best]);
 			L->line = ins_line(k);
 		}
 		apply(k, &cs[best]);
@@ -5808,12 +5920,27 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (!as_float_only(SP.as[i].name))
 			printf("  assuming %s in [%lld, %lld] (every load of it)\n",
 		    SP.as[i].name, (long long)SP.as[i].lo, (long long)SP.as[i].hi);
+	{
+		ntriv = 0;
+		tgain = 0;
+		for (i = 0; i < nlog; i++)
+			if (rl[i].trivial) {
+				ntriv++;
+				tgain += rl[i].gain;
+			}
+	}
 	rep_begin("spirv_simplify");
 	rep_int("instructions", SP.orig_nin);
 	rep_int("dead_removed", ndead);
 	rep_str("model", sym_str(model_active()->name));
 	rep_num("cost_before", before);
 	rep_num("cost_after", after);
+	if (ntriv) {
+		/* what a driver's back end would make of the input anyway */
+		rep_num("cost_driver_baseline", before - tgain);
+		rep_int("driver_trivial_count", ntriv);
+		rep_num("driver_trivial_gain", tgain);
+	}
 	rep_list("assumptions");
 	for (i = 0; i < SP.nas; i++) {
 		rep_obj(NULL);
@@ -5832,23 +5959,66 @@ spirv_simplify(const char *src, double budget, int nofile)
 		rep_num("gain", rl[i].gain);
 		rep_int("line", rl[i].line);
 		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : "sat");
+		if (ntriv)
+			rep_bool("driver_trivial", rl[i].trivial);
 		rep_end();
 	}
 	rep_end();
 	if (nlog)
 		rep_proof("sat", "each rewrite bit-blasted and proved equal for "
 		    "every input (refinement)");
-	printf("  integer arithmetic cost under %s (each instruction once): "
-	    "%g -> %g", sym_str(model_active()->name), before, after);
-	if (before > 0)
-		printf(" (%+.1f%%)", 100 * (after - before) / before);
-	printf("\n");
-	if (nlog > 0) {
+	if (ntriv) {
+		/* the headline: beyond spirv-opt -O and a driver's back end */
+		double b2 = before - tgain;
+		printf("  integer arithmetic cost under %s (each instruction once), "
+		    "beyond what spirv-opt -O and a driver's back end do: %g -> %g",
+		    sym_str(model_active()->name), b2, after);
+		if (b2 > 0)
+			printf(" (%+.1f%%)", 100 * (after - b2) / b2);
+		printf("\n  counting the strength reductions any driver also does: "
+		    "%g -> %g", before, after);
+		if (before > 0)
+			printf(" (%+.1f%%)", 100 * (after - before) / before);
+		printf("\n");
+	} else {
+		printf("  integer arithmetic cost under %s (each instruction once): "
+		    "%g -> %g", sym_str(model_active()->name), before, after);
+		if (before > 0)
+			printf(" (%+.1f%%)", 100 * (after - before) / before);
+		printf("\n");
+	}
+	if (ntriv) {
+		/* one line: the kinds and how many, kept in the module */
+		const char *kinds[16];
+		int cnt[16], nk = 0, j;
+		for (i = 0; i < nlog; i++) {
+			if (!rl[i].trivial)
+				continue;
+			for (j = 0; j < nk; j++)
+				if (!strcmp(kinds[j], rl[i].why))
+					break;
+			if (j == nk && nk < 16) {
+				kinds[nk] = rl[i].why;
+				cnt[nk++] = 0;
+			}
+			if (j < 16)
+				cnt[j]++;
+		}
+		printf("  also done by any driver compiler (%d rewrite%s, -%g; kept in "
+		    "the written module, not counted above):", ntriv, ntriv == 1 ?
+		    "" : "s", tgain);
+		for (j = 0; j < nk; j++)
+			printf("%s %d %s", j ? ";" : "", cnt[j], kinds[j]);
+		printf("\n");
+	}
+	if (nlog - ntriv > 0) {
 		/* by kind, then the largest savings first */
 		const char *kinds[32];
 		int cnt[32], nk = 0, j, shown;
 		double sum[32];
 		for (i = 0; i < nlog; i++) {
+			if (rl[i].trivial)
+				continue;
 			for (j = 0; j < nk; j++)
 				if (kinds[j] == rl[i].why)
 					break;
@@ -5865,14 +6035,18 @@ spirv_simplify(const char *src, double budget, int nofile)
 		printf("  by kind:\n");
 		for (j = 0; j < nk; j++)
 			printf("    %4d  %-44s  -%g\n", cnt[j], kinds[j], sum[j]);
-		for (i = 1; i < nlog; i++) {	/* stable: by gain, then order */
+		/* stable: the driver's own last, then by gain, then order */
+		for (i = 1; i < nlog; i++) {
 			struct rwlog x = rl[i];
-			for (j = i; j > 0 && rl[j - 1].gain < x.gain; j--)
+			for (j = i; j > 0 && (rl[j - 1].trivial > x.trivial ||
+			    (rl[j - 1].trivial == x.trivial && rl[j - 1].gain <
+			    x.gain)); j--)
 				rl[j] = rl[j - 1];
 			rl[j] = x;
 		}
-		shown = nlog < 25 ? nlog : 25;
-		printf("  %s:\n", shown < nlog ? "the largest savings" : "rewrites");
+		shown = nlog - ntriv < 25 ? nlog - ntriv : 25;
+		printf("  %s:\n", shown < nlog - ntriv ? "the largest savings" :
+		    "rewrites");
 		for (i = 0; i < shown; i++) {
 			char sl[160];
 			src_line(rl[i].line, sl, sizeof sl);
@@ -5880,11 +6054,14 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain, rl[i].algebra ?
 			    "; by algebra mod 2^w, not SAT" : "", sl);
 		}
-		if (shown < nlog)
+		if (shown < nlog - ntriv)
 			sb_printf(&list, "    ... %d more (all in the attached "
-			    "module)\n", nlog - shown);
+			    "module)\n", nlog - ntriv - shown);
 		fputs(list.p, stdout);
-	} else
+	} else if (ntriv)
+		printf("  beyond those, no cheaper form of an integer instruction "
+		    "could be proved\n");
+	else
 		printf("  nothing to rewrite: no cheaper form of an integer "
 		    "instruction could be proved\n");
 	if (range_report) {
@@ -5915,6 +6092,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "16 levels, the rest (loads, loop phis, spec constants) are "
 		    "free inputs\n", tb);
 	}
+	/* the function level: the GLSL source's functions (glslfn.c) */
+	if (src_text != NULL && fnl_mode != 2)
+		glslfn_pass(src_text, budget, 0);
 	free(list.p);
 	free(rl);
 	free(SP.dl);
@@ -5951,4 +6131,5 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0);
+	fnl_mode = 0;
 }

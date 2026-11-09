@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * simp.c - finite cell complexes for homalg (homalg.h, "spaces").
  *

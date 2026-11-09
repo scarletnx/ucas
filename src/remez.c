@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Numerics for approx: a long double reference evaluator with Taylor
  * jets, Chebyshev interpolation and economisation, Pade, and the Remez

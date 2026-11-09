@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Integrals.  Symbolic antiderivatives for the elementary cases that can
  * be done reliably (polynomials, powers, exp/sin/cos/tan/log of a linear

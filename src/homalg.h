@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * homalg.h - exact homological algebra over Z (part B of absalg.md).
  *

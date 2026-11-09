@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * reduce.c - shrink the chain complex of a space by cancelling unit
  * pivots (elementary collapses / algebraic Morse theory), keeping the

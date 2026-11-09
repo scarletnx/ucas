@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * homalg_cmd.c - the homological algebra commands (README, "Homological
  * algebra").  parse.c calls homalg_command; the JSON frontend's templates
