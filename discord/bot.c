@@ -179,6 +179,35 @@ static uint64_t nextid;
 
 /* ---- outgoing ---- */
 
+/*
+ * Replies go out asynchronously.  Count them until Discord answers, so
+ * --one-session does not shut the connection down before the reply has
+ * been sent, and report the ones Discord refuses.
+ */
+static int outstanding;
+static void maybe_end_session(void);
+
+static void
+post_done(struct discord *c, struct discord_response *resp,
+    const struct discord_message *ret)
+{
+	(void)c;
+	(void)resp;
+	(void)ret;
+	outstanding--;
+	maybe_end_session();
+}
+
+static void
+post_fail(struct discord *c, struct discord_response *resp)
+{
+	(void)c;
+	fprintf(stderr, "ucas-discord: a reply was not sent: %s (code %d)\n",
+	    discord_strerror(resp->code, NULL), (int)resp->code);
+	outstanding--;
+	maybe_end_session();
+}
+
 static void
 post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
     const char *content, const char *file, size_t filelen)
@@ -213,7 +242,11 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 		p.attachments = &atts;
 	}
 	if (client != NULL) {
-		discord_create_message(client, chan, &p, NULL);
+		struct discord_ret_message ret = {0};
+		ret.done = post_done;
+		ret.fail = post_fail;
+		outstanding++;
+		discord_create_message(client, chan, &p, &ret);
 		return;
 	}
 	n = discord_create_message_to_json(buf, sizeof buf, &p);
@@ -303,8 +336,6 @@ log_out(uint64_t req, int status, int question, const char *out, size_t n)
 	fflush(slog);
 }
 
-/* --one-session: stop once a message and its questions are done */
-static void maybe_end_session(void);
 
 static int
 send_req(uint32_t type, const struct discord_message *m, const char *text,
@@ -804,7 +835,8 @@ backoff_sleep(unsigned secs)
 static void
 maybe_end_session(void)
 {
-	if (!one_session || sessions_done == 0 || npend > 0 || nasks > 0)
+	if (!one_session || sessions_done == 0 || npend > 0 || nasks > 0 ||
+	    outstanding > 0)
 		return;
 	fprintf(stderr, "ucas-discord: session complete (--one-session): "
 	    "shutting down\n");
