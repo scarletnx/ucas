@@ -407,6 +407,11 @@ tokenize(const char *s)
 		{"\xe2\x89\xa4", "<=", W_SYM}, {"\xe2\x89\xa5", ">=", W_SYM},
 		{"\xe2\x89\xa0", "!=", W_SYM}, {"\xe2\x88\x92", "-", W_SYM},
 		{"\xc2\xb0", "deg", W_WORD}, {"\xe2\x88\xa0", "\xe2\x88\xa0", W_SYM},
+		/* calc2: ∂ ∇ → ∞ */
+		{"\xe2\x88\x82", "\xe2\x88\x82", W_SYM},
+		{"\xe2\x88\x87", "\xe2\x88\x87", W_SYM},
+		{"\xe2\x86\x92", "\xe2\x86\x92", W_SYM},
+		{"\xe2\x88\x9e", "infinity", W_WORD},
 		{NULL, NULL, 0}
 	};
 	static const char *const greeku[] = {"alpha", "beta", "gamma",
@@ -2441,6 +2446,8 @@ fraction:
 	return num("0");
 }
 
+static int c2_juxt(int i);	/* nlp_calc2.inc */
+
 static struct ex
 parse_postfix(struct ex e, int minprec)
 {
@@ -2486,6 +2493,12 @@ parse_postfix(struct ex e, int minprec)
 		if (e.lit && e.prec == P_ATOM && !W[wi].sp && ((varlike(wi) &&
 		    !peek("th|st|nd|rd")) || issym("("))) {
 			x = parse_expr(P_POW);
+			e = mkbin(e, "*", x, P_MUL);
+			continue;
+		}
+		/* x^2 y, x sin x, x e^x: juxtaposition multiplies (calc2) */
+		if (minprec <= P_MUL && W[wi].sp && c2_juxt(wi)) {
+			x = parse_expr(P_MUL + 1);
 			e = mkbin(e, "*", x, P_MUL);
 			continue;
 		}
@@ -3216,7 +3229,7 @@ parse_option(void)
 		return 1;
 	}
 	wi = s;
-	if (mat("with respect to|wrt") || mat("w . r . t ?.")) {
+	if (mat("with respect to") || mat("wrt") || mat("w . r . t ?.")) {
 		if (!varlike(wi))
 			nfail("with respect to which variable?");
 		snprintf(Q.wrt, sizeof Q.wrt, "%s", W[wi].o);
@@ -4756,6 +4769,9 @@ no:
 	return 0;
 }
 
+#include "calc2.h"
+#include "nlp_calc2.inc"   /* derivatives, limits, series ... (calc2) */
+
 static void
 sentence(void)
 {
@@ -4769,6 +4785,8 @@ sentence(void)
 	if (meta())
 		return;
 	if (definition())
+		return;
+	if (c2_sentence())	/* derivatives, limits, series (calc2) */
 		return;
 	if (forms_sentence())	/* polar form of 1 + i, expand sin(a + b) */
 		return;
@@ -5254,6 +5272,14 @@ apply_interval(void)
 	only->bc = 3;
 	only->decl = 1;
 	Q.interval = 1;
+	/* [0, 1] is an interval of reals, not the integers 0 and 1 */
+	if (!only->ty[0] && only->ity != 1 && is_int(Q.ilo) && is_int(Q.ihi)) {
+		snprintf(only->ty, sizeof only->ty, "real");
+		if (!dry)
+			printf("  note: %s taken as real on [%s, %s] (say \"integer "
+			    "%s\" for whole numbers)\n", only->name, Q.ilo, Q.ihi,
+			    only->name);
+	}
 }
 
 /* a sensible interval for a function nobody gave one for */
@@ -5494,6 +5520,8 @@ finish(void)
 	fn_used = NULL;
 	if (Q.why && !dry)
 		printf("  note: %s\n", Q.why);
+	if (c2_finish())
+		return;
 	if (Q.cmd == C_DSOLVE) {
 		sb_printf(&sb, "dsolve %s", Q.ode);
 		if (Q.ilo)
@@ -6290,6 +6318,15 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	/* calc2: d/dx F, d²/dx² F, d^2/dx^2 F, dy/dx, ∂f/∂x, ∇f */
+	if (s[i] == 'd' && i + 4 < n && isalpha((unsigned char)s[i + 1]) &&
+	    s[i + 2] == '/' && s[i + 3] == 'd' && isalpha((unsigned char)s[i + 4]))
+		return 1;
+	if ((s[i] == 'd' && i + 2 < n && (s[i + 1] == '/' || s[i + 1] == '^' ||
+	    !strncmp(s + i + 1, "\xc2\xb2", 2) || (isdigit((unsigned char)s[i + 1])
+	    && s[i + 2] == '/'))) || !strncmp(s + i, "\xe2\x88\x82", 3) ||
+	    !strncmp(s + i, "\xe2\x88\x87", 3))
+		return 1;
 	for (j = i; j < n; j++) {
 		if (s[j] == '#')
 			break;
@@ -6335,7 +6372,13 @@ nlp_is_english(const char *s, size_t n)
 			return word_at(s, n, &j2, w2, sizeof w2) &&
 			    in_list(forms_followers, w2);
 		}
-		if (in_list(ucas_cmds, w1)) {
+		if ((in_list(c2_cmds, w1) || !strcmp(w1, "range")) &&
+		    word_at(s, n, &(size_t){j}, w2,
+		    sizeof w2) && (!strcmp(w2, "of") || !strcmp(w2, "matrix") ||
+		    !strcmp(w2, "series") || !strcmp(w2, "derivative") ||
+		    !strcmp(w2, "as") || !strcmp(w2, "expansion")))
+			return 1;   /* calc2: "limit of", "taylor series of" */
+		if (in_list(ucas_cmds, w1) || in_list(c2_cmds, w1)) {
 			size_t j2 = j, j3;
 			/* "find 2 cheaper ways": look past a count */
 			for (j3 = j2; j3 < n && (s[j3] == ' ' ||

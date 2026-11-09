@@ -70,6 +70,8 @@ critical points of h:
   searched [-10, 10] (default; give x a range)
 > diff h
 d/dx h = 3x^2 - 3
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 2e-15)
 > range h
 range of h:
   [-970, 970]   min at x ≈ -10, max at x ≈ 10

@@ -7,6 +7,7 @@
  * pending intervals' nodes go through the plan together.
  */
 #include "calc.h"
+#include "calc2.h"   /* c2_antideriv: atan, asin, log|P|, P log(u) */
 
 #include <math.h>
 #include <stdlib.h>
@@ -137,7 +138,7 @@ ad(nid f, int s, nid x)
 					return r;
 			}
 		}
-		return 0;
+		return c2_antideriv(f, s, x);
 	case O_DIV:
 		if (!has_slot(N.b[f], s)) {
 			r = ad(N.a[f], s, x);
@@ -158,7 +159,7 @@ ad(nid f, int s, nid x)
 				    KR(a * (1 - k)));
 			}
 		}
-		return 0;
+		return c2_antideriv(f, s, x);
 	case O_POW:
 		u = N.a[f];
 		if (has_slot(N.b[f], s)) {

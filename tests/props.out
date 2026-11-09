@@ -815,6 +815,7 @@ discontinuities of it:
   x = 0: infinite (a pole): -inf from the left, +inf from the right
   proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
 > what are the discontinuities of floor(x) on [0, 3]?
+  note: x taken as real on [0, 3] (say "integer x" for whole numbers)
   ucas: it(x: real in 0..3) = floor(x)
   ucas: discontinuities it
 discontinuities of it:
@@ -861,6 +862,7 @@ zeros of it:
     x = 3
   proved: a polynomial of degree 2 has 2 roots counted with multiplicity
 > find the zeros of sin(x) on [0, 7]
+  note: x taken as real on [0, 7] (say "integer x" for whole numbers)
   ucas: it(x: real in 0..7) = sin(x)
   ucas: zeros it
 zeros of it:

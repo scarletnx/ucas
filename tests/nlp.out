@@ -30,7 +30,9 @@ critical points of it:
 > the derivative of sin x squared with respect to x
   ucas: it(x) = sin(x^2)
   ucas: diff it x
-d/dx it = cos(x^2)*2x
+d/dx it = 2x*cos(x^2)
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 3e-10)
 > what is 2 to the 10th?
   ucas: 2^10
 1024
@@ -175,6 +177,10 @@ myabs(x: real) = x > 0 ? x : -x
 > what is the derivative of myabs?
   ucas: diff myabs
 d/dx myabs = x > 0 ? 1 : -1
+  holds for x != 0
+    at x = 0 myabs has a corner (slope -1 from the left, 1 from the right)
+    (points looked for in [-10, 10])
+  check: matches central differences at 201 points (max relative difference 1e-15)
 > cos of pi/2 to -pi/2 w/o crit. points
   note: read the interval as [-pi/2, pi/2]
   ucas: it(x in -pi/2..pi/2) = cos(x)

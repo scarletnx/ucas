@@ -9,6 +9,8 @@ SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 SRCS+=	forms.c
 # properties: monotonic, period, identify, zeros, ...
 SRCS+=	props.c
+# calc2: derivatives and their conditions, limits, series, Wronskians
+SRCS+=	calc2.c
 .PATH:	${.CURDIR}/src
 MAN=
 
@@ -22,8 +24,9 @@ LDADD+=	-lm
 
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
-nlp_words.h: nlp.c nlp_words.awk
-	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c > ${.TARGET}
+nlp_words.h: nlp.c nlp_calc2.inc nlp_words.awk
+	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
+	    ${.CURDIR}/src/nlp_calc2.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 

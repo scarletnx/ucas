@@ -526,8 +526,18 @@ trig forms of atanh(x)
   simplest: atanh(x)  (as given)
 > diff asin(x)
 d/dx asin(x) = 1/sqrt(1 - x^2)
+  holds for 1 - x^2 >= 0 and x != -1 and x != 1
+    at x = -1 (an end of the domain) asin(x) has an infinite one-sided slope
+    at x = 1 (an end of the domain) asin(x) has an infinite one-sided slope
+    (points looked for in [-10, 10])
+  check: matches central differences at 20 points (max relative difference 6e-09)
 > diff atan2(y, x)
-d/dy atan2(y, x) = x/(x^2 + y^2)
+  note: atan2(y, x) has 2 variables (y, x): all first partial derivatives, the gradient (say `diff F y` for one)
+∇ atan2(y, x) = (x/(x^2 + y^2), -y/(x^2 + y^2))
+  ∂/∂y atan2(y, x) = x/(x^2 + y^2)
+  ∂/∂x atan2(y, x) = -y/(x^2 + y^2)
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 2e-11)
 > domain acos(x/2)
 domain of acos(x/2):
   x: real (default [-10, 10])
@@ -1028,7 +1038,11 @@ commands (F is a function name or an expression like isqrt(x: u4))
 loops and calculus
   sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }
   closed F | scheme F [model m] | continuous F
-  integrate F [wrt x] [from a to b]
+  integrate F [wrt x] [from a to b] | antiderivative F [wrt x]
+  diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)
+  jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]
+  limit F x -> a[+|-] [from left|right] | lim x->a F | wronskian F, G, ...
+  taylor F [x] [at a] [order n] | implicit L = R [for y] [wrt x] [order 2]
   y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] [steps n]
 complex numbers (i is the unit) and trig forms
   complex F | re F | im F | conj F | modulus F | arg F | polar F

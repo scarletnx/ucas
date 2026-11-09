@@ -48,7 +48,8 @@
   the two agree to 0
 > integrate 1/(1 + x^2) from -inf to inf
 ∫ 1/(x^2 + 1) dx
-  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)
+  = atan(x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
   numeric (adaptive Gauss-Kronrod 7-15, 105 evaluations): 3.14159265358979, estimated error 3.5e-14
 > integrate a*x + b wrt b
 ∫ a*x + b db

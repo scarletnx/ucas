@@ -1272,8 +1272,14 @@ calc_command(struct P *p)
 			cmd_continuous(f);
 		return 1;
 	}
-	if (is_kw(p, "integrate") || tok_is(p->t, p->i, "\xe2\x88\xab")) {
+	if (is_kw(p, "integrate") || tok_is(p->t, p->i, "\xe2\x88\xab") ||
+	    is_kw(p, "antiderivative") || is_kw(p, "primitive")) {
+		/* antiderivative F [wrt x]: integrate without bounds */
+		int anti = !is_kw(p, "integrate") && !tok_is(p->t, p->i,
+		    "\xe2\x88\xab");
 		adv(p);
+		if (anti)
+			accept_kw(p, "of");
 		f = cmd_func(p);
 		for (;;) {
 			if (accept_kw(p, "wrt")) {
@@ -1301,6 +1307,9 @@ calc_command(struct P *p)
 				break;
 		}
 		expect_eos(p);
+		if (anti && a)
+			fail("an antiderivative is indefinite: for the definite "
+			    "integral say integrate F from a to b");
 		if (f->np == 0 && f->anon) {
 			/* "integrate 1": the integrand names no variable */
 			static const char *const vars[] = {"x (dx)", "t (dt)",
