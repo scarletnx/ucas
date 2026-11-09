@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * viz: integrals and solids of revolution, drawn and measured.
  *

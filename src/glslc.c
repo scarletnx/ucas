@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * GLSL to SPIR-V assembly through glslangValidator and spirv-dis, with a
  * snippet completed first: a #version line; when there is no main(), a

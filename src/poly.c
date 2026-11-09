@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * poly: the algebra core (alg.h).  Rationals with 128-bit intermediates,
  * an arena, sparse multivariate polynomials over Q in atoms, their gcd

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * alg: the algebra commands (syntax in alg_syntax.inc) and the
  * simplifier.  Every result is compared with its input at sample
