@@ -1185,8 +1185,8 @@ area_chart(struct pr_ax *A, int x0, int y0, int w, int h, const char *title,
 		for (i = 0; i <= n; i++) {
 			int step = R.rkind == RM_SIMP ? 2 : 1;
 			double x = R.a + (R.b - R.a) * i / n, hl, hr;
-			if (i % step)
-				continue;
+			if (i % step || (n > 24 && i > 0 && i < n))
+				continue;	/* many: the tops show the pieces */
 			hl = i > 0 ? r_piece(x - 1e-9 * (R.b - R.a), n, R.rkind, ac->fv,
 			    &xl, &xr) : 0;
 			hr = i < n ? r_piece(x + 1e-9 * (R.b - R.a), n, R.rkind, ac->fv,
@@ -1202,7 +1202,7 @@ area_chart(struct pr_ax *A, int x0, int y0, int w, int h, const char *title,
 		pr_ink_ser(2);
 		if (R.rkind == RM_MID || R.rkind == RM_LEFT || R.rkind == RM_RIGHT) {
 			double hh = (R.b - R.a) / n;
-			if (n <= 64)
+			if (n <= 16)
 				for (i = 0; i < n; i++) {
 					double x = R.a + hh * (i + (R.rkind == RM_LEFT ? 0 :
 					    R.rkind == RM_RIGHT ? 1 : 0.5));

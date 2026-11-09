@@ -5794,6 +5794,11 @@ viz_sentence(void)
 			continue;
 		}
 		wi = s2;
+		if (isw(wi, "to") && W[wi + 1].k == W_WORD && W[wi + 2].k == W_END) {
+			nm = W[wi + 1].o;	/* to NAME, the last words */
+			wi += 2;
+			continue;
+		}
 		if (mat("save|call|name ?it|that ?as") && W[wi].k == W_WORD) {
 			nm = W[wi].o;
 			wi++;

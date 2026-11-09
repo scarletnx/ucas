@@ -124,8 +124,8 @@ area under x^2
     n = 16: 21.3125, error -0.0208
     n = 32: 21.328125, error -0.00521
     n = 64: 21.33203125, error -0.0013
-  animation: 640x440, 7 frames (7.9 s), 41608 bytes
-  (nofile: GIF checksum 0d03ef28)
+  animation: 640x440, 7 frames (7.9 s), 37671 bytes
+  (nofile: GIF checksum e81d459e)
 > area sin x from 0 to 2pi riemann 12 trapezoid nofile
 area under sin(x)
   x in [0, 6.283 (2pi)]: given
@@ -514,8 +514,8 @@ area under sin(x)
     n = 16: 2.003216378, error 0.00322
     n = 32: 2.000803416, error 0.000803
     n = 64: 2.000200812, error 0.000201
-  animation: 640x440, 7 frames (7.9 s), 53506 bytes
-  (nofile: GIF checksum 10cc1267)
+  animation: 640x440, 7 frames (7.9 s), 46753 bytes
+  (nofile: GIF checksum 6f68bc13)
 > the accumulation function of cos x from 0 to 2pi frames 6 nofile
   ucas: area cos(x) from 0 to 2*pi accumulate frames 6 nofile
 area under cos(x)
