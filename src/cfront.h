@@ -397,6 +397,11 @@ struct cf_value {
 	int nleaf;
 	struct cf_leaf leaf[CF_MAXLEAF];
 	const char *why;	/* when e == 0: why it could not be lowered */
+	/* added: loops summed in closed form (cf_lower_func), each a
+	 * derivation (see closed_for in cf_lower.c), and the cost of one
+	 * iteration of those loops */
+	char closed[240];
+	double iter_cost;
 };
 /* the whole function as one value (scalar parameters, no memory) */
 int cf_lower_func(struct cf_unit *u, uint32_t fn, struct cf_value *v,

@@ -211,9 +211,10 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	if (o->timed)
 		printf(" in %.1f s", r.seconds);
 	printf("\n");
-	if (napplied)
+	if (r.cost_before > 0)
 		printf("  estimated cost of the rewritten values on %s: %.1f -> "
-		    "%.1f cycles\n", o->t->name, r.cost_before, r.cost_after);
+		    "%.1f cycles (loops in closed form not counted)\n", o->t->name,
+		    r.cost_before, r.cost_after);
 	if (ntriv)
 		printf("  of these, %d give the same machine code as clang -O2 "
 		    "makes of the original (listed apart)\n", ntriv);

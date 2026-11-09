@@ -63,6 +63,8 @@ static struct {
 	uint32_t nbase;		/* N.n at the start */
 	jmp_buf jb;
 	char why[200];
+	struct sbuf closed;	/* loops summed in closed form */
+	double iter_cost;
 	uint32_t leafkey[CF_MAXLEAF];	/* symbol + 1, or ~AST node */
 	nid leafnode[CF_MAXLEAF];
 	uint32_t fnsym;
@@ -281,6 +283,10 @@ const_table(uint32_t s)
 
 static nid ex(uint32_t n, nid g);
 static void st(uint32_t n);
+static uint32_t strip_cast(uint32_t n);
+static int64_t step_of(uint32_t st, uint32_t isym);
+static int has_effect(uint32_t n);
+static int closed_for(uint32_t n);
 
 static int
 sym_assigned_in(uint32_t n)
@@ -1071,7 +1077,8 @@ st(uint32_t n)
 		if (has_label(AU.d[n]))
 			lfail(n, "a case label inside a loop%s", "");
 		st(AU.a[n]);
-		loop(AU.b[n], AU.d[n], AU.c[n], 0, n);
+		if (!closed_for(n))
+			loop(AU.b[n], AU.d[n], AU.c[n], 0, n);
 		return;
 	case CA_RETURN:
 		if (L.mode == 2 && L.depth == 0)
@@ -1131,6 +1138,8 @@ lower_begin(struct cf_unit *u, struct cf_value *v, int mode, int ub)
 static void
 lower_end(void)
 {
+	free(L.closed.p);
+	memset(&L.closed, 0, sizeof L.closed);
 	free(L.env);
 	free(L.set);
 	free(L.bodylocal);
@@ -1198,6 +1207,9 @@ cf_lower_func(struct cf_unit *u, uint32_t fn, struct cf_value *v, int ub)
 	r = L.ret;
 	v->e = r;
 	v->where = L.where;
+	if (L.closed.n)
+		snprintf(v->closed, sizeof v->closed, "%s", L.closed.p);
+	v->iter_cost = L.iter_cost;
 	if (L.obl) {
 		/* every loop must have finished within the unrolled count */
 		struct func f;
@@ -1578,5 +1590,289 @@ cf_extract_loop(struct cf_unit *u, uint32_t fn, uint32_t lp,
 		*why = "the body never reads the index";
 		return 0;
 	}
+	return 1;
+}
+
+/* ---- counted loops summed in closed form ---- */
+
+#define IVSLOT 60	/* the index while a summand is lowered */
+
+/* the degree of e in the index (as an integer polynomial mod 2^w), or
+ * -1: +, -, * and negation of the index and of terms without it;
+ * conversions only where they keep the value mod 2^w (to w bits or
+ * more, from w bits or more, or of the index itself, whose values are
+ * true integers: it never wraps) */
+static int
+poly_deg(nid e, nid iv, int w)
+{
+	int a, b;
+
+	if (!has_slot(e, IVSLOT))
+		return 0;
+	if (e == iv)
+		return 1;
+	switch (N.op[e]) {
+	case O_ADD:
+	case O_SUB:
+		a = poly_deg(N.a[e], iv, w);
+		b = poly_deg(N.b[e], iv, w);
+		return a < 0 || b < 0 ? -1 : a > b ? a : b;
+	case O_MUL:
+		a = poly_deg(N.a[e], iv, w);
+		b = poly_deg(N.b[e], iv, w);
+		return a < 0 || b < 0 ? -1 : a + b;
+	case O_NEG:
+		return poly_deg(N.a[e], iv, w);
+	case O_CAST:
+		if (!TY_SIZED(N.ty[e]) || N.ty[e] == TY_BOOL || TYW(N.ty[e]) < w)
+			return -1;
+		if (N.a[e] != iv && TYW(N.ty[N.a[e]]) < w)
+			return -1;
+		return poly_deg(N.a[e], iv, w);
+	}
+	return -1;
+}
+
+static nid
+cf_subst(nid root, nid from, nid to)
+{
+	jmp_buf saved;
+	nid r = 0;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	note_mute++;
+	if (setjmp(fail_jmp) == 0)
+		r = xreplace(root, from, to);
+	note_mute--;
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	if (r == 0)
+		lfail(0, "a closed form that cannot be built%s", "");
+	return r;
+}
+
+/* the AST reads one of the symbols */
+static int
+reads_any(uint32_t n, const uint32_t *sym, int ns)
+{
+	int k;
+
+	if (n == 0)
+		return 0;
+	if (AU.kind[n] == CA_ID) {
+		for (k = 0; k < ns; k++)
+			if ((uint32_t)AU.iv[n] == sym[k])
+				return 1;
+		return 0;
+	}
+	if (AU.kind[n] == CA_NUM || AU.kind[n] == CA_FNUM ||
+	    AU.kind[n] == CA_CHARLIT || AU.kind[n] == CA_STR ||
+	    AU.kind[n] == CA_SIZEOF_T)
+		return 0;
+	if (reads_any(AU.a[n], sym, ns))
+		return 1;
+	if (AU.kind[n] == CA_CAST || AU.kind[n] == CA_MEMBER ||
+	    AU.kind[n] == CA_ARROW || AU.kind[n] == CA_SIZEOF_E)
+		return 0;
+	if (AU.kind[n] == CA_CALL || AU.kind[n] == CA_INIT ||
+	    AU.kind[n] == CA_BLOCK)
+		return 1;	/* not looked into: assume it does */
+	return reads_any(AU.b[n], sym, ns) || (AU.kind[n] == CA_COND &&
+	    reads_any(AU.c[n], sym, ns));
+}
+
+/* C(T, m) mod 2^64 for m <= 3, T a u64 node: exact */
+static nid
+binom(nid T, int m)
+{
+	ty_t u = TY(K_UINT, 64);
+	nid one = mk_const_i(u, 1), c2;
+
+	if (m == 1)
+		return T;
+	/* T(T-1)/2: halve the even one of T, T - 1 */
+	c2 = mk_sel(mk_bin(O_EQ, mk_bin(O_AND, T, one), mk_const_i(u, 0)),
+	    mk_bin(O_MUL, mk_bin(O_SHR, T, one), mk_bin(O_SUB, T, one)),
+	    mk_bin(O_MUL, T, mk_bin(O_SHR, mk_bin(O_SUB, T, one), one)));
+	if (m == 2)
+		return c2;
+	/* C(T,2)(T-2) = 3 C(T,3) in Z, and 3 is a unit mod 2^64 */
+	return mk_bin(O_MUL, mk_bin(O_MUL, c2, mk_bin(O_SUB, T,
+	    mk_const_i(u, 2))), mk_const_i(u, (int64_t)0xaaaaaaaaaaaaaaabULL));
+}
+
+/*
+ * for (...; i < hi; i++) { s += P(i); t -= Q(i); ... } with P, Q
+ * polynomials of degree <= 2 in i (over the loop's invariants), hi read
+ * once (no side effects, nothing the loop writes): every s is
+ *   s + sum_{j < T} P(lo + j) = s + d0 T + d1 C(T,2) + d2 C(T,3),
+ * T = max(0, hi - lo), d_k the forward differences of P at lo.  Proof
+ * (stated with the result): P(lo + j) = sum_k d_k C(j, k) holds in any
+ * commutative ring for degree <= 2 (Newton's forward formula; the third
+ * difference is 0), sum_{j<T} C(j, k) = C(T, k+1) (the hockey stick),
+ * and C(T, k) is computed exactly mod 2^64 (halving the even factor;
+ * 3 is invertible mod 2^64).  The index must be at least int (it never
+ * wraps: it stops at hi) and the comparison done in its type.
+ */
+static int
+closed_for(uint32_t n)
+{
+	uint32_t cond = AU.b[n], step = AU.c[n], body = AU.d[n], isym = 0, hi = 0,
+	    l0, r0, items[16], ity, syms[17];
+	uint32_t asym[16], aexp[16];
+	int asub[16], na = 0, ni, k, j;
+	nid lo, hv, T, iv, gt;
+	ty_t it, u64 = TY(K_UINT, 64);
+	double ic = 3;
+
+	if (L.mode != 0 || cond == 0 || step == 0 || body == 0 ||
+	    AU.kind[cond] != CA_BIN)
+		return 0;
+	l0 = strip_cast(AU.a[cond]);
+	r0 = strip_cast(AU.b[cond]);
+	if (AU.iv[cond] == '<' && AU.kind[l0] == CA_ID) {
+		isym = (uint32_t)AU.iv[l0];
+		hi = AU.b[cond];
+	} else if (AU.iv[cond] == '>' && AU.kind[r0] == CA_ID) {
+		isym = (uint32_t)AU.iv[r0];
+		hi = AU.a[cond];
+	} else
+		return 0;
+	if (!is_local_scalar(isym) || step_of(step, isym) != 1 || !L.set[isym])
+		return 0;
+	ity = ct_unqual(SU.ty[isym]);
+	if (ct_promote(ity) != ity || ct_usual(ity, AU.ty[hi]) != ity ||
+	    !ct_is_int(AU.ty[hi]) || has_effect(hi))
+		return 0;
+	/* the body: s += e; s -= e; s = s + e; s = e + s; s = s - e; */
+	if (AU.kind[body] == CA_BLOCK) {
+		if (AU.b[body] > 16)
+			return 0;
+		ni = (int)AU.b[body];
+		for (k = 0; k < ni; k++)
+			items[k] = AU.lst[AU.a[body] + k];
+	} else {
+		ni = 1;
+		items[0] = body;
+	}
+	if (ni == 0)
+		return 0;
+	for (k = 0; k < ni; k++) {
+		uint32_t x = items[k], l, r, s, e = 0;
+		int sub = 0;
+		if (AU.kind[x] != CA_EXPR || AU.kind[AU.a[x]] != CA_ASSIGN)
+			return 0;
+		x = AU.a[x];
+		l = strip_cast(AU.a[x]);
+		if (AU.kind[l] != CA_ID)
+			return 0;
+		s = (uint32_t)AU.iv[l];
+		if (s == isym || !is_local_scalar(s))
+			return 0;
+		r = AU.b[x];
+		if (AU.iv[x] == '+' || AU.iv[x] == '-') {
+			e = r;
+			sub = AU.iv[x] == '-';
+		} else if (AU.iv[x] == '=') {
+			uint32_t a, b;
+			r = strip_cast(r);
+			if (AU.kind[r] != CA_BIN || (AU.iv[r] != '+' && AU.iv[r] != '-'))
+				return 0;
+			a = strip_cast(AU.a[r]);
+			b = strip_cast(AU.b[r]);
+			if (AU.kind[a] == CA_ID && (uint32_t)AU.iv[a] == s) {
+				e = AU.b[r];
+				sub = AU.iv[r] == '-';
+			} else if (AU.iv[r] == '+' && AU.kind[b] == CA_ID &&
+			    (uint32_t)AU.iv[b] == s)
+				e = AU.a[r];
+			else
+				return 0;
+		} else
+			return 0;
+		if (has_effect(e) || !ct_is_int(AU.ty[e]))
+			return 0;
+		for (j = 0; j < na; j++)
+			if (asym[j] == s)
+				return 0;
+		asym[na] = s;
+		aexp[na] = e;
+		asub[na] = sub;
+		na++;
+	}
+	/* nothing the loop writes is read by a summand or by hi */
+	for (k = 0; k < na; k++)
+		syms[k] = asym[k];
+	if (reads_any(hi, syms, na))
+		return 0;
+	syms[na] = isym;
+	if (reads_any(hi, syms, na + 1))
+		return 0;
+	for (k = 0; k < na; k++)
+		if (reads_any(aexp[k], syms, na))
+			return 0;
+	/* bounds and trip count */
+	it = uty(ity, n);
+	lo = mk_cast(it, L.env[isym]);
+	{
+		int ub = L.ub;
+		hv = conv(ex(hi, L.alive), ity, n);
+		L.ub = ub;
+	}
+	gt = mk_bin(TYK(it) == K_SINT ? O_GT : O_GT, hv, lo);
+	T = mk_sel(gt, mk_bin(O_SUB, mk_cast(u64, mk_cast(TY(TYK(it), 64), hv)),
+	    mk_cast(u64, mk_cast(TY(TYK(it), 64), lo))), mk_const_i(u64, 0));
+	iv = mk_var(IVSLOT, SU.name[isym], it);
+	for (k = 0; k < na; k++) {
+		uint32_t s = asym[k], at = ct_unqual(SU.ty[s]), rt;
+		nid P, p0, p1, p2, d1, d2, S, old, nv, saved_env = L.env[isym];
+		int saved_set = L.set[isym], ub = L.ub, deg, w;
+		rt = ct_usual(at, AU.ty[aexp[k]]);
+		/* the summand with the index as a variable; its UB (signed
+		 * overflow) is not a domain condition here: the closed form
+		 * is defined on a superset, which is sound */
+		L.env[isym] = iv;
+		L.set[isym] = 1;
+		L.ub = 0;
+		P = conv(ex(aexp[k], L.alive), rt, n);
+		L.ub = ub;
+		L.env[isym] = saved_env;
+		L.set[isym] = (uint8_t)saved_set;
+		/* everything ends mod 2^w, w the narrower of the sum's type
+		 * and s's */
+		w = TYW(N.ty[P]) < TYW(uty(at, n)) ? TYW(N.ty[P]) : TYW(uty(at, n));
+		deg = poly_deg(P, iv, w);
+		if (deg < 0 || deg > 2)
+			return 0;
+		ic += cf_cost_default(cf_target_default(), P);
+		p0 = cf_subst(P, iv, lo);
+		p1 = cf_subst(P, iv, mk_bin(O_ADD, lo, mk_const_i(it, 1)));
+		p2 = cf_subst(P, iv, mk_bin(O_ADD, lo, mk_const_i(it, 2)));
+		d1 = mk_bin(O_SUB, p1, p0);
+		d2 = mk_bin(O_ADD, mk_bin(O_SUB, p2, mk_bin(O_MUL, p1,
+		    mk_const_i(N.ty[P], 2))), p0);
+		S = mk_bin(O_MUL, p0, mk_cast(N.ty[P], binom(T, 1)));
+		if (deg >= 1)
+			S = mk_bin(O_ADD, S, mk_bin(O_MUL, d1, mk_cast(N.ty[P],
+			    binom(T, 2))));
+		if (deg >= 2)
+			S = mk_bin(O_ADD, S, mk_bin(O_MUL, d2, mk_cast(N.ty[P],
+			    binom(T, 3))));
+		if (!L.set[s]) {
+			L.env[s] = SU.kind[s] == CS_PARAM ? read_var(AU.a[AU.a[items[k]]]) :
+			    mk_undef(uty(SU.ty[s], n));
+			L.set[s] = 1;
+		}
+		old = L.env[s];
+		nv = conv(mk_bin(asub[k] ? O_SUB : O_ADD, mk_cast(N.ty[P], old), S),
+		    at, n);
+		L.env[s] = sel(L.alive, nv, old);
+		sb_printf(&L.closed, "%s%s %s= sum of degree %d in %s",
+		    L.closed.n ? ", " : "", sym_str(SU.name[s]), asub[k] ? "-" :
+		    "+", deg, sym_str(SU.name[isym]));
+	}
+	L.env[isym] = sel(L.alive, sel(gt, hv, lo), L.env[isym]);
+	L.iter_cost += ic;
+	budget();
 	return 1;
 }

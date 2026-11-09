@@ -1561,11 +1561,26 @@ whole_function(uint32_t fn, struct cf_emit *em)
 	}
 	apply_assumptions(&v);
 	apply_callsites(&v, 1);
-	best = optimize_value(&v, steps, &ns, 16, 1);
+	best = optimize_value(&v, steps + (v.closed[0] != 0), &ns, 15, 1);
+	if (v.closed[0]) {
+		/* the lowering summed loops in closed form: that is the first
+		 * step, proved by its derivation (cf_lower.c, closed_for) */
+		snprintf(steps[0].what, sizeof steps[0].what, "loop in closed "
+		    "form: %.100s", v.closed);
+		steps[0].pf.kind = CF_PROOF_INDUCTION;
+		snprintf(steps[0].pf.text, sizeof steps[0].pf.text, "sum of a "
+		    "polynomial of degree <= 2 by forward differences and "
+		    "C(T,k), exact mod 2^w");
+		steps[0].before = v.iter_cost;
+		steps[0].after = cf_cost(R.o->t, v.e);
+		if (ns > 0)
+			steps[1].before = steps[0].after;
+		ns++;
+	}
 	if (!cf_span(u, body, &from, &to) || !cf_span(u, fn, &ffrom, &fto))
 		return 1;
 	sb_printf(&before, "%.*s", (int)(to - from), u->ftext[0] + from);
-	if (best == v.e || ns == 0) {
+	if ((best == v.e && !v.closed[0]) || ns == 0) {
 		struct cf_rewrite *w = add_rw("no cheaper form", fn_line(fn));
 		w->before = strdup("");
 		w->after = strdup("");
@@ -1603,10 +1618,25 @@ whole_function(uint32_t fn, struct cf_emit *em)
 		return 1;
 	}
 	record_steps(steps, ns, v.e, best, (int)fn_line(fn), before.p, out.p, 1);
+	if (v.closed[0]) {
+		struct cf_rewrite *w = &R.r->rw[R.r->nrw - 1];
+		char pt[160];
+		w->proof = CF_PROOF_INDUCTION;
+		if (ns > 1)
+			snprintf(pt, sizeof pt, "closed form: forward differences, "
+			    "C(T,k) mod 2^64; then %.100s", steps[ns - 1].pf.text);
+		else
+			snprintf(pt, sizeof pt, "%s", steps[0].pf.text);
+		snprintf(w->proof_text, sizeof w->proof_text, "%s", pt);
+		w->cost_note = strdup("(before: per iteration of the loop)");
+	}
 	note_domain(&v);
 	add_repl(from, to, out.p, ffrom);
-	R.r->cost_before += steps[0].before;
-	R.r->cost_after += steps[ns - 1].after;
+	if (!v.closed[0]) {
+		/* (a loop's cost per call is not known) */
+		R.r->cost_before += steps[0].before;
+		R.r->cost_after += steps[ns - 1].after;
+	}
 	free(out.p);
 	free(before.p);
 	return 1;
