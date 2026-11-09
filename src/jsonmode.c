@@ -659,6 +659,49 @@ static const struct jcmd cmds[] = {
 #undef POPTS
 #undef GRP
 #undef ZM_
+	/* homological algebra (homalg_cmd.c) */
+#define HSPACE TX("space", " %s", "a space: S^n, T^n, RP^n, CP^n, K (Klein " \
+	"bottle), L(m) or L(m,q), pt; _s for a simplicial model (RP^2_s, " \
+	"T^2_s, K_s, S^3_s); X x Y, X v Y, susp(X); cells([[d1]], [[d2]], " \
+	"...) by boundary matrices, facets([[0,1,2], ...])"), \
+	BO("unreduced", " unreduced", "use the space's own cells (by " \
+	"default unit pivots are cancelled first, with the homotopy " \
+	"equivalence checked)")
+	{"space", "space", 1, 0, "a cell complex: its cells, Euler "
+	    "characteristic and boundaries (d o d = 0 checked)", {HSPACE}},
+	{"homology", "homology", 1, 0, "H_n(X; G) for every n, exactly, with "
+	    "the universal coefficient theorem as a check", {HSPACE,
+	    TXO("coefficients", " with %s", "an abelian group: Z/2, Z/4 + Z "
+	    "(default Z)"), BO("generators", " generators", "representative "
+	    "cycles")}},
+	{"cohomology", "cohomology", 1, 0, "H^n(X; G) for every n, exactly, "
+	    "with both universal coefficient theorems as checks", {HSPACE,
+	    TXO("coefficients", " with %s", "an abelian group: Z/2, Z/4 + Z "
+	    "(default Z)"), BO("generators", " generators", "representative "
+	    "cocycles")}},
+	{"les", "les", 1, 0, "the long exact sequence of 0 -> C -m-> C -> "
+	    "C (x) Z/m -> 0 on cochains, the connecting map by the snake "
+	    "lemma, exactness verified at every spot", {HSPACE, IR("modulus",
+	    " mod %s", "m >= 2")}},
+	{"bockstein", "bockstein", 1, 0, "the Bockstein spectral sequence: "
+	    "pages E_r, D_r and d_r of the exact couple of 0 -> C -p-> C -> "
+	    "C (x) Z/p -> 0, derived exactly until stable", {HSPACE, IR("p",
+	    " mod %s", "a prime"), IO("pages", " pages %s", "at most this "
+	    "many pages (64)")}},
+	{"bockstein_trace", "bockstein", 1, 0, "trace a in H^n(X; Z) "
+	    "through the Bockstein spectral sequence: j_r(p^(r-1) a) in E_r, "
+	    "in ker d_r?, in im d_r? (with a preimage)", {HSPACE, IR("p",
+	    " mod %s", "a prime"), IR("degree", " trace %s", "n"),
+	    TXO("element", " %s", "[c1, c2, ...]: canonical coordinates in "
+	    "H^n(X; Z) (default: each generator)"), IO("page", " page %s",
+	    "only page r")}},
+	{"prop01", "prop01", 1, 0, "check Proposition 0.1 of bockstein.pdf "
+	    "on a space: for a generating a Z summand of H^n(X; Z), "
+	    "j_r(p^(r-1) a) is in ker d_r and not in im d_r, for every n and "
+	    "every r (all r up to the stable page, which covers the rest)",
+	    {HSPACE, IR("p", " mod %s", "a prime"), IO("pages", " pages %s",
+	    "at most this many pages (64)")}},
+#undef HSPACE
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 

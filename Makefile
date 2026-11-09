@@ -49,6 +49,8 @@ DPADD+=	libsnxglslc.a
 ${PROG}.full ${PROG}: libsnxglslc.a
 CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
 glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+# homological algebra: spaces, (co)homology, exact couples (homalg.h)
+SRCS+=	simp.c cx.c excouple.c homalg_cmd.c reduce.c
 .PATH:	${.CURDIR}/src
 MAN=
 

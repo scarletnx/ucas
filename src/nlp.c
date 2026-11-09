@@ -7689,6 +7689,8 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int homalg_line(const char *s, size_t n);	/* homalg_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7712,6 +7714,8 @@ nlp_is_english(const char *s, size_t n)
 		if (r >= 0)
 			return r;
 	}
+	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
+		return 0;
 	{
 		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
