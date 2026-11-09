@@ -66,6 +66,11 @@ DPADD+=	libsnxglslc.a
 ${PROG}.full ${PROG}: libsnxglslc.a
 CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
 glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+# images for animate exec: textures and sampling (tex.c), image files by
+# stb_image (src/third_party, unmodified; its warnings are not ours)
+SRCS+=	tex.c img.c
+img.o img.pieo: img.c img.h third_party/stb_image.h
+	${CC} ${CFLAGS:N-W*} -w -fPIE -c ${.CURDIR}/src/img.c -o ${.TARGET}
 # homological algebra: spaces, (co)homology, exact couples (homalg.h)
 SRCS+=	simp.c cx.c excouple.c homalg_cmd.c reduce.c
 .PATH:	${.CURDIR}/src

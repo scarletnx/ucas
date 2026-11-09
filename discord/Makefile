@@ -36,6 +36,11 @@ thy_absalg.inc: thy_absalg.thy
 kscript.o kscript.pieo: thy_absalg.inc
 CLEANFILES+=	thy_absalg.inc
 
+# img.c compiles stb_image (../src/third_party, unmodified): its warnings
+# are not ours
+img.o img.pieo: img.c img.h third_party/stb_image.h
+	${CC} ${CFLAGS:N-W*} -w -fPIE -c ${.CURDIR}/../src/img.c -o ${.TARGET}
+
 CSTD=	c99
 CFLAGS+=	-O2 -I${.CURDIR}/../src -I${.CURDIR}
 CFLAGS+=	-isystem ${CONCORD}/include -isystem ${CONCORD}/core \
