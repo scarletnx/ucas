@@ -7549,6 +7549,67 @@ int_lit(const char **pp, int64_t *v)
 	return 1;
 }
 
+/* a real literal ("0.055", "-1e-3", "1"), not eating the ".." of a range */
+static int
+real_lit(const char **pp, double *v)
+{
+	const char *p = *pp;
+	char *e;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (!(isdigit((unsigned char)*p) || ((*p == '-' || *p == '+' ||
+	    *p == '.') && (isdigit((unsigned char)p[1]) || p[1] == '.'))))
+		return 0;
+	*v = strtod(p, &e);
+	if (e == p)
+		return 0;
+	if (e > p && e[-1] == '.' && *e == '.')
+		e--;
+	*pp = e;
+	return 1;
+}
+
+/*
+ * A float range for float simplify (spirv_assume_float; `fassume NAME LO
+ * HI LOOPEN HIOPEN` is the raw form)
+ * from "c in [0, 1]", "c in (0, 0.5]", "c in 0..1" (q after "in").
+ */
+static void
+float_range(const char *name, const char *q, struct sbuf *opt)
+{
+	double lo, hi;
+	char open = 0, close = 0;
+
+	while (*q == ' ')
+		q++;
+	if (*q == '[' || *q == '(')
+		open = *q++;
+	if (!real_lit(&q, &lo))
+		return;
+	while (*q == ' ')
+		q++;
+	if (*q == ',' && open)
+		q++;
+	else if (!strncmp(q, "..", 2))
+		q += 2;
+	else
+		return;
+	if (!real_lit(&q, &hi))
+		return;
+	while (*q == ' ')
+		q++;
+	if (open) {
+		close = *q;
+		if (close != ']' && close != ')')
+			return;
+	}
+	/* straight to float simplify (the statement keeps its integer form) */
+	if (lo <= hi)
+		spirv_assume_float(name, lo, hi, open == '(', close == ')');
+	(void)opt;
+}
+
 /*
  * Assumptions in the request, each as " assume NAME LO HI" (inclusive):
  * "n in [0, 32)", "n in (a, b]", "n in 0..31", "0 <= n < 32", "n < 32"
@@ -7584,6 +7645,7 @@ find_assumptions(const char *t, struct sbuf *opt)
 		if (!strncmp(q, "in", 2) && !isalnum((unsigned char)q[2])) {
 			char open, close;
 			q += 2;
+			float_range(name, q, opt);
 			while (*q == ' ')
 				q++;
 			open = *q;
@@ -7680,16 +7742,23 @@ simplify_piece(struct sbuf *piece)
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    NULL};
 	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
+	char ulp[32] = "", num[32] = "", fl[96] = "";
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
+	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	struct sbuf out = {0};
 
 	if (p == NULL)
 		return 0;
 	/* the words */
 	{
+		int cmt = 0;	/* a comment line: no float options */
 		const char *q = p;
 		while (*q) {
 			size_t n = 0;
+			if (*q == '#' && (q == p || q[-1] == '\n'))
+				cmt = 1;
+			else if (*q == '\n')
+				cmt = 0;
 			if (*q == '\x1e') {	/* directives */
 				while (*q && *q != '\n')
 					q++;
@@ -7702,6 +7771,21 @@ simplify_piece(struct sbuf *piece)
 					    b + 1 < sizeof budget)
 						budget[b++] = *q++;
 					budget[b] = 0;
+					continue;
+				}
+				/* "within 2 ulp", "ulp 2" */
+				if (isdigit((unsigned char)*q) && (q == p ||
+				    !isalnum((unsigned char)q[-1]))) {
+					size_t b = 0;
+					while ((isdigit((unsigned char)*q) || *q == '.') &&
+					    b + 1 < sizeof num)
+						num[b++] = *q++;
+					num[b] = 0;
+					if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) &&
+					    !ulp[0] && !cmt)
+						snprintf(ulp, sizeof ulp, "%s", num);
+					if (isalpha((unsigned char)*q))
+						num[0] = 0;	/* "2d", "vec3" */
 					continue;
 				}
 				q++;
@@ -7720,10 +7804,38 @@ simplify_piece(struct sbuf *piece)
 				anim = 1;
 			if (!strcmp(lw, "nofile"))
 				nofile = 1;
+			/* float simplify: "with floats", "bit-exact only", "allow
+			 * approximations within 2 ulp", "per component" */
+			if (cmt) {
+				per = 0;
+				num[0] = 0;
+				continue;
+			}
+			if (!strcmp(lw, "float") || !strcmp(lw, "floats") ||
+			    !strcmp(lw, "floating"))
+				f_float = 1;
+			if (!strcmp(lw, "exact") || !strcmp(lw, "bitexact") ||
+			    !strcmp(lw, "exactly"))
+				f_exact = 1;
+			if (!strncmp(lw, "approx", 6))
+				f_approx = 1;
+			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
+			    !ulp[0])
+				snprintf(ulp, sizeof ulp, "%s", num);
+			if (!strcmp(lw, "componentwise") || !strcmp(lw, "percomp") ||
+			    (per && (!strcmp(lw, "component") ||
+			    !strcmp(lw, "components") || !strcmp(lw, "lane"))))
+				f_percomp = 1;
+			per = !strcmp(lw, "per") || !strcmp(lw, "each");
+			if (strcmp(lw, "ulp") && strcmp(lw, "ulps"))
+				num[0] = 0;
 		}
 	}
 	if (!hit || anim)
 		return 0;
+	snprintf(fl, sizeof fl, "%s%s%s%s%s%s", f_float ? " float" : "",
+	    f_exact && !ulp[0] ? " exact" : "", ulp[0] ? " ulp " : "", ulp,
+	    f_approx ? " approx" : "", f_percomp ? " percomp" : "");
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		struct sbuf as = {0};
@@ -7752,9 +7864,9 @@ simplify_piece(struct sbuf *piece)
 			if (*q == '\x1e')
 				sb_printf(&out, "%.*s\n", (int)(e - q), q);
 			else if (first && e > q) {
-				sb_printf(&out, "spvsimplify%s%s%s%s\n", budget[0] ?
+				sb_printf(&out, "spvsimplify%s%s%s%s%s\n", budget[0] ?
 				    " budget " : "", budget, nofile ? " nofile" : "",
-				    assume_opts ? assume_opts : "");
+				    assume_opts ? assume_opts : "", fl);
 				first = 0;
 			} else
 				sb_putc(&out, '\n');

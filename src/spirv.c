@@ -4180,6 +4180,29 @@ load_name(int id, char *buf, size_t n)
 	return buf;
 }
 
+/* an assumption's name only loads floats (the float part reports it) */
+static int
+as_float_only(const char *name)
+{
+	int k, f = 0, n = 0;
+	char nb[48];
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *nm;
+		if (strcmp(I->op, "OpLoad") != 0 || I->res < 0)
+			continue;
+		nm = load_name(I->res, nb, sizeof nb);
+		if (nm == NULL || !(name_is(nm, name) || !strcmp(nm, name)))
+			continue;
+		if (is_float_t(idx(I->opnd[0])))
+			f = 1;
+		else
+			n = 1;
+	}
+	return f && !n;
+}
+
 static int
 fx_input(struct fxg *g, int sid, int lane, int op, const char *name,
     float lo, float hi, int nan)
@@ -4198,6 +4221,7 @@ fx_input(struct fxg *g, int sid, int lane, int op, const char *name,
 	g->in[i].lo = lo;
 	g->in[i].hi = hi;
 	g->in[i].nan = nan;
+	g->in[i].cvt = op == FX_CVT;
 	if (op == FX_IN) {
 		int j;
 		for (j = 0; j < npend_fas; j++)
@@ -4250,7 +4274,7 @@ fx_leaf(struct fxg *g, int id, int lane)
 		int u = V.in[k].op[9] == 'U';
 		char cn[48];
 		snprintf(cn, sizeof cn, "%s", V.id[idx(V.in[k].opnd[1])].name);
-		in = fx_input(g, id, lane, FX_CVT, cn[0] == '%' ? cn + 1 : cn,
+		in = fx_input(g, id, lane, FX_CVT, cn,
 		    u ? 0.0f : -2147483648.0f, u ? 4294967296.0f : 2147483648.0f,
 		    0);
 		if (in < 0)
@@ -4559,6 +4583,18 @@ pr_lines(struct sbuf *o, const char *text, const char *ind)
 	}
 }
 
+/* the lanes of a lane group: "xy" */
+static void
+glanes(char *b, size_t n, int gj, const int *grp, const int *lane_of, int ngr)
+{
+	int j, at = 0;
+
+	for (j = 0; j < ngr && (size_t)at + 1 < n; j++)
+		if (grp[j] == gj)
+			b[at++] = "xyzw"[lane_of[j] & 3];
+	b[at] = 0;
+}
+
 static const char *
 kind_text(int kind)
 {
@@ -4600,6 +4636,7 @@ float_pass(const char *text, int *changed)
 	    j;
 	struct fplan *pl = xcalloc(256, sizeof *pl);
 	int npl = 0, preserve = 0, nroots = 0, napplied = 0;
+	int tmp = 0;	/* names of new ids: %ucas_fN */
 	char **repl, *dead;
 	struct sbuf decl = {0}, out = {0}, rep = {0}, lanes_txt = {0};
 	double before = 0, after = 0;
@@ -4708,18 +4745,18 @@ float_pass(const char *text, int *changed)
 				char ln[200];
 				src_line(ins_line(SP.def[v]), ln, sizeof ln);
 				if (ngroups == 1)
-					sb_printf(&lanes_txt, "  %s: %d lanes (%s) compute one "
+					sb_printf(&lanes_txt, "  the vec%d %s: its lanes %s compute one "
 					    "scalar function (splat constants): analysed once, "
-					    "applied to every lane%s\n", V.id[v].name, ngr - r0,
+					    "applied to every lane%s\n", ngr - r0, V.id[v].name,
 					    ngr - r0 == 2 ? "x, y" : ngr - r0 == 3 ?
 					    "x, y, z" : "x, y, z, w", ngr - r0 < 4 ? "; any "
 					    "width is lanes of a vec4, so the same search covers "
 					    "it" : "");
 				else
-					sb_printf(&lanes_txt, "  %s: %d lanes, %d different "
-					    "scalar functions (%s): analysed per component; a "
+					sb_printf(&lanes_txt, "  the vec%d %s: %d different scalar functions "
+					    "over its lanes (%s): analysed per component; a "
 					    "rewrite applies when every lane's analysis allows "
-					    "it\n", V.id[v].name, ngr - r0, ngroups,
+					    "it\n", ngr - r0, V.id[v].name, ngroups,
 					    fopt_percomp ? "per component, as asked" :
 					    "the constants differ per component");
 			}
@@ -4848,7 +4885,6 @@ float_pass(const char *text, int *changed)
 		struct sbuf s = {0};
 		int rt, n, q;
 		float lv[FX_MAXK][4];
-		static int tmp;
 		if (!P->applied)
 			continue;
 		I = &V.in[P->k];
@@ -5133,12 +5169,19 @@ float_pass(const char *text, int *changed)
 				}
 			}
 			sb_printf(&rep, "      (%s; -%g)\n", kind_text(P->kind), P->gain);
+			for (g2 = 0; g2 < P->ng; g2++)
+				if (!P->rw[g2]->exact)
+					r = P->rw[g2];
 			sb_printf(&rep, "      proof: %s\n", proof_kind(r));
 			for (g2 = 0; g2 < P->ng; g2++) {
 				struct fxrw *rr = P->rw[g2];
-				if (P->ng > 1)
-					sb_printf(&rep, "      lane group %d:%s\n", g2 + 1,
-					    rr->exact ? " bit-exact" : "");
+				if (P->ng > 1) {
+					char lb[16];
+					glanes(lb, sizeof lb, (int)((rr - RW) / 48), grp, lane_of,
+					    ngr);
+					sb_printf(&rep, "      lane%s %s:%s\n", strlen(lb) > 1 ?
+					    "s" : "", lb, rr->exact ? " bit-exact" : "");
+				}
 				pr_lines(&rep, rr->proof.p, P->ng > 1 ? "        " :
 				    "        ");
 				if (!rr->exact && rr->exc[0])
@@ -5162,13 +5205,23 @@ float_pass(const char *text, int *changed)
 			for (i = 0; i < npl; i++) {
 				struct fxrw *r = pl[i].rw[0];
 				char sl[200];
+				int c;
 				if (pl[i].kind != FXR_DIVNOTE)
 					continue;
 				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
 				    r->why);
-				pr_lines(&rep, r->proof.p, "        ");
-				if (r->wit[0])
-					sb_printf(&rep, "        not bit-exact: %s\n", r->wit);
+				for (c = 0; c < pl[i].ng; c++) {
+					char lb[16];
+					r = pl[i].rw[c];
+					glanes(lb, sizeof lb, (int)((r - RW) / 48), grp, lane_of,
+					    ngr);
+					if (pl[i].ng > 1)
+						sb_printf(&rep, "      lane%s %s: %s\n", strlen(lb) > 1 ?
+						    "s" : "", lb, r->why);
+					pr_lines(&rep, r->proof.p, "        ");
+					if (r->wit[0])
+						sb_printf(&rep, "        not bit-exact: %s\n", r->wit);
+				}
 				src_line(pl[i].line, sl, sizeof sl);
 				if (sl[0])
 					sb_printf(&rep, "  %s", sl);
@@ -5185,10 +5238,9 @@ float_pass(const char *text, int *changed)
 					continue;
 				for (c = 0; c < pl[i].ng; c++)
 					any |= pl[i].rw[c]->approx;
-				sb_printf(&rep, "    %s, cost %g (-%g): %s, under %g ulp\n",
-				    r->why, r->cost, r->gain, any ? "exceeds the original's "
-				    "precision" : "within the original's precision",
-				    r->ulp);
+				sb_printf(&rep, "    %s, cost %g (-%g): relative error < %.3g (%g ulp), %s\n",
+				    r->why, r->cost, r->gain, r->rel, r->ulp, any ? "beyond the "
+				    "original's precision" : "within the original's precision");
 				if (i == npl - 1 || pl[i + 1].kind != FXR_POLY ||
 				    pl[i + 1].k != pl[i].k) {
 					pr_lines(&rep, r->proof.p, "        ");
@@ -5220,6 +5272,13 @@ float_pass(const char *text, int *changed)
 					r = pl[i].rw[0];
 				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
 				    kind_text(pl[i].kind));
+				if (pl[i].ng > 1) {
+					char lb[16];
+					glanes(lb, sizeof lb, (int)((r - RW) / 48), grp, lane_of,
+					    ngr);
+					sb_printf(&rep, "      lane%s %s:\n", strlen(lb) > 1 ? "s" :
+					    "", lb);
+				}
 				if (r->gain <= 0)
 					sb_printf(&rep, "        not cheaper under %s\n",
 					    sym_str(model_active()->name));
@@ -5238,7 +5297,8 @@ float_pass(const char *text, int *changed)
 				else
 					sb_printf(&rep, "        a lane or what it relies on "
 					    "is not allowed\n");
-				if (r->kind == FXR_FMA && r->wit[0] && r->fail[0] == 0)
+				if (r->kind == FXR_FMA && r->wit[0] && r->fail[0] == 0 &&
+				    fopt.mode != 1)
 					sb_printf(&rep, "        %s\n", r->wit);
 			}
 		}
@@ -5635,7 +5695,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "value; %d store%s overwritten before any read removed\n", nfwd,
 		    nfwd == 1 ? "" : "s", ndst, ndst == 1 ? "" : "s");
 	for (i = 0; i < SP.nas; i++)
-		printf("  assuming %s in [%lld, %lld] (every load of it)\n",
+		if (!as_float_only(SP.as[i].name))
+			printf("  assuming %s in [%lld, %lld] (every load of it)\n",
 		    SP.as[i].name, (long long)SP.as[i].lo, (long long)SP.as[i].hi);
 	printf("  integer arithmetic cost under %s (each instruction once): "
 	    "%g -> %g", sym_str(model_active()->name), before, after);

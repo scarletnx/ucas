@@ -650,6 +650,36 @@ preimage(const struct fxg *g, const struct fiv *dom, int node, int in,
 
 	if (a > b)
 		return 0;
+	/* the defined part first: for a monotone chain the undefined inputs
+	 * (sqrt, log2, pow of a negative operand) are a prefix or a suffix */
+	{
+		int u1 = 0, u2 = 0;
+		float f1 = eval_at(g, node, dom, in, lo, &u1);
+		float f2 = eval_at(g, node, dom, in, hi, &u2);
+		u1 |= isnan(f1);
+		u2 |= isnan(f2);
+		if (u1 && u2)
+			return 0;
+		if (u1 || u2) {
+			int64_t L = a, H = b + 1;
+			while (L < H) {	/* the first key with the other state */
+				int64_t m = L + (H - L) / 2, u = 0;
+				int uu = 0;
+				float f = eval_at(g, node, dom, in, funkey(m), &uu);
+				u = uu || isnan(f);
+				if (u == (u1 ? 0 : 1))
+					H = m;
+				else
+					L = m + 1;
+			}
+			if (u1)
+				a = L;
+			else
+				b = L - 1;
+			if (a > b)
+				return 0;
+		}
+	}
 	p.g = g;
 	p.dom = dom;
 	p.node = node;
@@ -975,8 +1005,8 @@ cands(const struct fiv *d, float *c, int max, const float *extra, int ne)
 	if (n < max) c[n++] = tprev(hi);
 	/* odd significands near the low end, then spread over the binades
 	 * between the ends */
-	if (lo > 0 && hi > lo) {
-		float v = lo;
+	if (hi > 0 && hi > lo) {
+		float v = lo > 0 ? lo : hi / 64;
 		for (i = 0; i < 24 && n < max; i++) {
 			uint32_t u;
 			memcpy(&u, &v, 4);
@@ -1270,6 +1300,21 @@ an_select(struct fxg *g, const struct fiv *dom, struct fxrw *r)
 			}
 			P("  by monotonicity in %s (each a preimage of a value class):"
 			    "\n", g->in[xi].name);
+			if (g->nin > 1) {
+				float bx[FX_MAXIN];
+				int z, any = 0;
+				base_inputs(g, dom, bx);
+				P("    (values shown with ");
+				for (z = 0; z < g->nin; z++)
+					if (z != xi) {
+						P("%s%s%s%s = %s", any ? ", " : "", g->in[z].cvt ?
+						    "float(" : "", g->in[z].name, g->in[z].cvt ? ")" : "",
+						    fs(bx[z]));
+						any = 1;
+					}
+				P("; the sets hold for every value of %s)\n", any > 1 ?
+				    "them" : "it");
+			}
 		}
 	}
 	/* the exceptions, each with both values at an end */
@@ -1334,8 +1379,10 @@ an_select(struct fxg *g, const struct fiv *dom, struct fxrw *r)
 		    u);
 	}
 	snprintf(r->exc, sizeof r->exc, "%s", t);
-	r->ulp = r->exact ? 0 : -1;
 	r->vulkan = !g->preserve;
+	/* finite nonzero results are identical: 0 ulp, -0 and +0 being one
+	 * value, an infinity against a NaN left to the float controls */
+	r->ulp = r->exact || r->vulkan ? 0 : -1;
 	if (r->exact)
 		P("  so the select is bit-exact wherever the original is "
 		    "defined\n");
@@ -1865,6 +1912,7 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 			pr->cost = cost;
 			pr->gain = cpow - cost;
 			pr->ulp = floor((tot + U24) * 0x1p24 * (1 + tot));
+			pr->rel = tot;
 			snprintf(pr->why, sizeof pr->why, "pow ~ degree-%d minimax "
 			    "polynomial", deg);
 			sb_printf(&pr->proof, "relative minimax of q^%s on [%s, %s] "

@@ -45,6 +45,7 @@ struct fxin {
 	float lo, hi;		/* in the total order (-0 < +0) */
 	int nan;		/* NaN possible */
 	int assumed;
+	int cvt;		/* float(an integer) */
 	int sid, lane;		/* where it came from (spirv.c) */
 };
 
@@ -91,6 +92,7 @@ struct fxrw {
 				 * the coefficients from the highest) */
 	double ulp;		/* derived bound against the reference, -1 */
 	double gain;		/* per component, under the model */
+	double rel;		/* FXR_POLY: certified relative error */
 	double cost;		/* of the replacement, per component */
 	char why[80];
 	char exc[400];		/* where it is not bit-exact (and why) */
