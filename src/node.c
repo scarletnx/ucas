@@ -1061,6 +1061,7 @@ prec(nid n, const struct pctx *pc)
 
 static void pr(struct sbuf *b, nid n, int minp, const struct pctx *pc,
     int hex);
+static int pr_bitwise;   /* the expression being printed uses & | << ... */
 
 static void
 pr_const(struct sbuf *b, nid n, int hex)
@@ -1208,8 +1209,9 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
 			sb_putc(b, ')');
-		} else
-			pr_bin(b, n, "^", 13, 14, 13, pc, 0);
+		} else   /* next to bitwise operators ^ would read as xor */
+			pr_bin(b, n, pr_bitwise && TY_ISINT(N.ty[n]) ? "**" : "^", 13,
+			    14, 13, pc, 0);
 		break;
 	case O_AND: pr_bin(b, n, " & ", 7, 7, 8, pc, 1); break;
 	case O_OR: pr_bin(b, n, " | ", 5, 5, 6, pc, 1); break;
@@ -1301,12 +1303,33 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		sb_putc(b, ')');
 }
 
+/* does the expression use a bitwise operator?  (bounded walk) */
+static int
+has_bitwise(nid n, int depth)
+{
+	int op;
+
+	if (n == 0 || depth > 64)
+		return 0;
+	op = N.op[n];
+	if (op == O_AND || op == O_OR || op == O_XOR || op == O_SHL ||
+	    op == O_SHR || op == O_NOT)
+		return 1;
+	if (op == O_CONST || op == O_VAR || op == O_UNDEF || op == O_TABLE)
+		return 0;
+	return has_bitwise(N.a[n], depth + 1) || has_bitwise(N.b[n], depth + 1) ||
+	    has_bitwise(N.c[n], depth + 1);
+}
+
 void
 print_node(struct sbuf *b, nid n, const struct pctx *pc)
 {
 	static const struct pctx def = {PM_UCAS, NULL};
+	int saved = pr_bitwise;
 
+	pr_bitwise = has_bitwise(n, 0);
 	pr(b, n, 0, pc ? pc : &def, 0);
+	pr_bitwise = saved;
 }
 
 const char *
