@@ -169,6 +169,18 @@ int qs_sqrt(struct qs x, struct qs *r);     /* exact square root in Q(sqrt d) */
 void sqrt_split(aq v, aq *k, int64_t *m);   /* sqrt(v) = k sqrt(m), m squarefree */
 
 /* ---- integration (rint.c) ---- */
+int quartic_split(const struct up *f, struct qs *p, struct qs *q);
+int up_apart(const struct up *n, const struct up *d, struct up *poly,
+    void *terms, int max, int *partial);
+int alg_check(nid a, nid b, double *worst, int *onlyone);
+void alg_vars_reset(void);
+nid alg_canon(struct func *f);
+nid alg_var_named(uint32_t name);
+void alg_cmd1(const char *cmd, nid e, nid var);
+void alg_cmd2(const char *cmd, nid a, nid b, nid var);
+void alg_subst(nid e, const nid *vars, const nid *vals, int n);
+void alg_solve(const nid *eq, const char *const *eqtext, int neq,
+    const nid *vars, int nvars);
 nid alg_antideriv(nid f, int s, nid x, int first, const char **how);
 extern const char *alg_int_note;          /* a note for the caller to print */
 

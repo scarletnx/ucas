@@ -339,7 +339,7 @@ qs_quad_int(struct qs al, struct qs be, struct qs p, struct qs q, nid x,
 }
 
 /* f monic irreducible quartic = (x^2 + p1 x + q1)(x^2 + p2 x + q2) over Q(sqrt d) */
-static int
+int
 quartic_split(const struct up *f, struct qs *p, struct qs *q)
 {
 	static const int pr[3][4] = {{0, 1, 2, 3}, {0, 2, 1, 3}, {0, 3, 1, 2}};

@@ -71,6 +71,13 @@ alg_canon(struct func *f)
 	return mk_cast(TY_REAL, subst(f->body, map, NSLOT));
 }
 
+int
+alg_nvars(uint32_t *names)
+{
+	memcpy(names, vname, sizeof vname[0] * nvname);
+	return nvname;
+}
+
 nid
 alg_var_named(uint32_t name)
 {
@@ -538,6 +545,17 @@ var_atom(nid var)
 }
 
 /* the variable to work in: given, or the only/first variable */
+static int pick_deg[AV];
+
+static void
+set_pick_deg(struct mp a)
+{
+	int k;
+
+	for (k = 0; k < AV; k++)
+		pick_deg[k] = k < nat ? mp_deg(a, k) : 0;
+}
+
 static int
 pick_var(nid var, uint32_t used, const char *cmd)
 {
@@ -549,9 +567,29 @@ pick_var(nid var, uint32_t used, const char *cmd)
 			printf("  note: %s does not occur\n", node_str(var));
 		return v;
 	}
+	/* x if it is there, else the variable of the highest degree */
 	for (k = 0; k < nat; k++)
-		if ((used & (1u << k)) && N.op[at_node[k]] == O_VAR)
+		if ((used & (1u << k)) && N.op[at_node[k]] == O_VAR &&
+		    !strcmp(sym_str(N.a[at_node[k]]), "x"))
 			return k;
+	{
+		int best = -1;
+		for (k = 0; k < nat; k++)
+			if ((used & (1u << k)) && N.op[at_node[k]] == O_VAR &&
+			    (best < 0 || pick_deg[k] > pick_deg[best]))
+				best = k;
+		if (best >= 0) {
+			int others = 0;
+			for (k = 0; k < nat; k++)
+				if (k != best && (used & (1u << k)) &&
+				    N.op[at_node[k]] == O_VAR)
+					others = 1;
+			if (others)
+				printf("  note: in %s (the variable of the highest degree; "
+				    "say \"in y\" for another)\n", node_str(at_node[best]));
+			return best;
+		}
+	}
 	for (k = 0; k < nat; k++)
 		if (used & (1u << k))
 			return k;
@@ -577,6 +615,7 @@ cmd_apart(nid e, nid var)
 
 	if (!conv_or_say(e, &r, &dall))
 		return;
+	set_pick_deg(r.d);
 	v = pick_var(var, mp_vars(r.n) | mp_vars(r.d), "apart");
 	if (v < 0) {
 		printf("  = %s (no variable)\n", node_str(rf_node(r, 0)));
@@ -729,7 +768,9 @@ alg_cmd1(const char *cmd, nid e, nid var)
 		else if (mp_tdeg(r.n) > 1 || mp_tdeg(r.d) > 1)
 			printf("  (factors are irreducible over the rationals)\n");
 	} else if (!strcmp(cmd, "collect")) {
-		int v = pick_var(var, mp_vars(r.n) | mp_vars(r.d), cmd);
+		int v;
+		set_pick_deg(r.n);
+		v = pick_var(var, mp_vars(r.n) | mp_vars(r.d), cmd);
 		if (v < 0)
 			out = rf_node(r, 0);
 		else if (mp_isconst(r.d, NULL))
@@ -761,8 +802,10 @@ alg_cmd1(const char *cmd, nid e, nid var)
 	} else if (!strcmp(cmd, "apart")) {
 		cmd_apart(e, var);
 	} else if (!strcmp(cmd, "discriminant")) {
-		int v = pick_var(var, mp_vars(r.n), cmd);
+		int v;
 		struct mp d;
+		set_pick_deg(r.n);
+		v = pick_var(var, mp_vars(r.n), cmd);
 		if (!mp_isconst(r.d, NULL) || v < 0) {
 			printf("  the discriminant needs a polynomial in a variable\n");
 			goto done;
@@ -781,10 +824,13 @@ alg_cmd1(const char *cmd, nid e, nid var)
 		} else {
 			aq c;
 			mp_isconst(d, &c);
-			printf("  %s\n", qsgn(c) > 0 ? (mp_deg(r.n, v) == 2 ?
-			    "> 0: two distinct real roots" : "> 0") : qsgn(c) < 0 ?
-			    (mp_deg(r.n, v) == 2 ? "< 0: two complex conjugate roots" :
-			    "< 0") : "= 0: a repeated root");
+			int dg = mp_deg(r.n, v);
+			printf("  %s\n", qsgn(c) > 0 ? (dg == 2 ?
+			    "> 0: two distinct real roots" : dg == 3 ?
+			    "> 0: three distinct real roots" : "> 0: distinct roots") :
+			    qsgn(c) < 0 ? (dg == 2 ? "< 0: two complex conjugate roots" :
+			    dg == 3 ? "< 0: one real root and two complex ones" :
+			    "< 0: distinct roots") : "= 0: a repeated root");
 		}
 		/* check: the discriminant of a quadratic is b^2 - 4ac etc.; check
 		 * by the product of squared root differences when numeric */
@@ -917,8 +963,8 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 			if (mp_divexact(ra.n, g, &qa) && mp_divexact(rb.n, g, &qb)) {
 				struct mp h = mp_gcd(qa, qb);
 				printf("  check: it divides both exactly, and the "
-				    "cofactors %s have gcd %s\n", mp_isconst(h, NULL) ?
-				    "are coprime:" : "are NOT coprime:", mp_str(h));
+				    "cofactors %s\n", mp_isconst(h, NULL) ?
+				    "are coprime" : "are NOT coprime");
 			} else
 				printf("  check FAILED: it does not divide both\n");
 			printf("  (normalized: integer coefficients without a common "
@@ -943,7 +989,8 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 		}
 	} else if (!strcmp(cmd, "resultant")) {
 		uint32_t both = mp_vars(ra.n) & mp_vars(rb.n);
-		int v = pick_var(var, both ? both : mp_vars(ra.n) | mp_vars(rb.n),
+		int v = (set_pick_deg(ra.n), 0);
+		v = pick_var(var, both ? both : mp_vars(ra.n) | mp_vars(rb.n),
 		    cmd);
 		struct mp res;
 		if (v < 0) {
@@ -1003,7 +1050,8 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 		}
 	} else if (!strcmp(cmd, "quo") || !strcmp(cmd, "rem") ||
 	    !strcmp(cmd, "divide")) {
-		int v = pick_var(var, mp_vars(ra.n) | mp_vars(rb.n), cmd);
+		int v = (set_pick_deg(ra.n), 0);
+		v = pick_var(var, mp_vars(ra.n) | mp_vars(rb.n), cmd);
 		struct mp q = mp_zero(), r = ra.n, lb;
 		int db2, it = 0;
 		nid qn, rn;

@@ -95,6 +95,7 @@ static nid calc_block(struct P *p);
 static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
 static int calc2_command(struct P *p);	/* calc2_syntax.inc */
+static int alg_command(struct P *p);	/* alg_syntax.inc */
 
 static int
 pk(struct P *p)
@@ -1808,6 +1809,8 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
+			return;
 		if (calc2_command(p))
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
@@ -2249,3 +2252,4 @@ run_source1(const char *src, const char *file, int echo)
 /* calc: loops, sums, recurrences, ODE/PDE statements and commands */
 #include "calc_syntax.inc"
 #include "calc2_syntax.inc"
+#include "alg_syntax.inc"
