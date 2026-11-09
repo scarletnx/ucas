@@ -73,3 +73,6 @@ plot y' = t - y with x(0) = 1 nofile
 # a negated product prints without parentheses
 what is x divided by -2y when x is 1 and y is 3?
 what is x - -2y when x is 1 and y is 3?
+# all in sin: the Hessian determinant of sin(x) cos(y)
+fh(x, y) = sin(x)*cos(y)
+hessian fh

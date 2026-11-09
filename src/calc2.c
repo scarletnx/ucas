@@ -830,15 +830,70 @@ in_divisor(nid e, nid f)
 	return found;
 }
 
+/*
+ * cos(u)^2k -> (1 - sin(u)^2)^k (to_sin) or sin(u)^2k -> (1 - cos(u)^2)^k,
+ * cosh^2 = 1 + sinh^2 likewise: one function per argument, so that
+ * sin^2 x cos^2 y - cos^2 x sin^2 y can fold to sin^2 x - sin^2 y.
+ * *budget bounds the walk (a DAG is walked as a tree).
+ */
+static nid
+pyth_sub(nid e, int to_sin, int *budget)
+{
+	int op = N.op[e];
+	double p;
+
+	if (--*budget < 0)
+		return e;
+	if (op == O_POW && num_of(N.b[e], &p) && p >= 2 && p <= 8 &&
+	    p == 2 * floor(p / 2)) {
+		nid b = N.a[e], u = N.a[b], t = 0;
+		int bo = N.op[b];
+		if (to_sin && bo == O_COS)
+			t = SUB(KR(1), POW(mk_un(O_SIN, u), KI(2)));
+		else if (!to_sin && bo == O_SIN)
+			t = SUB(KR(1), POW(mk_un(O_COS, u), KI(2)));
+		else if (to_sin && bo == O_COSH)
+			t = ADD(KR(1), POW(mk_un(O_SINH, u), KI(2)));
+		else if (!to_sin && bo == O_SINH)
+			t = SUB(POW(mk_un(O_COSH, u), KI(2)), KR(1));
+		if (t)
+			return p == 2 ? t : POW(t, KI((int64_t)(p / 2)));
+	}
+	switch (op) {
+	case O_ADD: case O_SUB: case O_MUL: case O_DIV:
+		return mk_bin(op, pyth_sub(N.a[e], to_sin, budget),
+		    pyth_sub(N.b[e], to_sin, budget));
+	case O_NEG:
+		return mk_un(op, pyth_sub(N.a[e], to_sin, budget));
+	case O_POW:
+		return mk_bin(op, pyth_sub(N.a[e], to_sin, budget), N.b[e]);
+	}
+	return e;
+}
+
 static nid
 trig_simp(nid e)
 {
 	nid r, can[8];
-	int nc, k;
+	int nc, k, v;
 
 	if (!TY_FP(N.ty[e]) || !has_trig(e))
 		return e;
 	r = forms_norm(e, can, 8, &nc);
+	/* also all in sin (or all in cos): keep the shortest */
+	for (v = 1; v >= 0; v--) {
+		int budget = 4000;
+		nid e2 = pyth_sub(e, v, &budget), r2, can2[8];
+		int nc2;
+		if (e2 == e || budget < 0)
+			continue;
+		r2 = forms_norm(e2, can2, 8, &nc2);
+		if (r2 && (r == 0 || strlen(node_str(r2)) < strlen(node_str(r)))) {
+			r = r2;
+			nc = nc2;
+			memcpy(can, can2, sizeof can);
+		}
+	}
 	if (r == 0 || r == e)
 		return e;
 	/* x/x only where e already divides by x: no point is gained */

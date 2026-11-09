@@ -537,3 +537,12 @@ slope field: y' = t - y
 > what is x - -2y when x is 1 and y is 3?
   ucas: 1 - (-2*3)
 7
+> fh(x, y) = sin(x)*cos(y)
+> hessian fh
+Hessian of fh (row i, column j: ∂²/∂j∂i):
+  [ -(sin(x)*cos(y))   -(cos(x)*sin(y)) ]   ∂/∂x
+  [ -(cos(x)*sin(y))   -(sin(x)*cos(y)) ]   ∂/∂y
+  det = sin(x)^2 - sin(y)^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs

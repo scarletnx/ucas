@@ -270,9 +270,9 @@ Wronskian matrix of x^2, x*abs(x) (row k: the k-th derivatives wrt x)
   W = 0 does not prove dependence for functions that are not analytic (x^2 and x*abs(x) have W = 0 and are independent), and no linear relation fits their values: independent on [-10, 10]
 > wronskian sin(x)^2, cos(x)^2, 1
 Wronskian matrix of sin(x)^2, cos(x)^2, 1 (row k: the k-th derivatives wrt x)
-  [ sin(x)^2                cos(x)^2                1 ]   the functions
-  [ 2sin(x)*cos(x)          -(2sin(x)*cos(x))       0 ]   d/dx
-  [ 2cos(x)^2 - 2sin(x)^2   2sin(x)^2 - 2cos(x)^2   0 ]   d²/dx²
+  [ sin(x)^2         cos(x)^2            1 ]   the functions
+  [ 2sin(x)*cos(x)   -(2sin(x)*cos(x))   0 ]   d/dx
+  [ 2 - 4sin(x)^2    4sin(x)^2 - 2       0 ]   d²/dx²
   W = det = 0
   (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 3e-14)
