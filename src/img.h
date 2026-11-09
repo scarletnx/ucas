@@ -154,5 +154,7 @@ int img_gallery_add(const char *name, const unsigned char *data, size_t n);
 /* "noise", "black", "#ff0000", "rgba(1,0,0,1)", "gradient", "checker",
  * a format ("R8") or a filter/address word: into *in; 0 if not one */
 int img_in_word(struct imgin *in, const char *w);
+/* base64 text (blanks skipped) to bytes; the count */
+size_t img_b64(const char *s, size_t n, unsigned char *out);
 
 #endif

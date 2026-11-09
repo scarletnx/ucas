@@ -34,6 +34,7 @@
 #include "props.h"
 #include "ring.h"
 #include "absalg.h"
+#include "img.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7937,11 +7938,67 @@ static struct sbuf code_buf;
  * the return value points after the closing fence (NULL: no block).  Lines
  * taken out are kept as empty lines so later line numbers stay right.
  */
+/*
+ * An image travelling as text: a ```image NAME block of base64 (the bot's
+ * attachments, a test's picture), from the line after the fence (p) to
+ * the closing fence; into the gallery (animate exec's inputs).  Returns
+ * the position after the closing fence's line.
+ */
+static const char *
+image_block(const char *name, const char *p)
+{
+	const char *e = p, *q;
+	unsigned char *d;
+	size_t n = 0;
+
+	for (;;) {
+		const char *le = strchr(e, '\n');
+		for (q = e; *q == ' ' || *q == '\t'; q++)
+			;
+		if (*e == 0 || !strncmp(q, "```", 3))
+			break;
+		e = le ? le + 1 : e + strlen(e);
+	}
+	d = xmalloc((size_t)(e - p) * 3 / 4 + 4);
+	n = img_b64(p, (size_t)(e - p), d);
+	if (!img_gallery_add(name, d, n))
+		printf("  note: the image %s was not kept (more than %d images, or "
+		    "over %u MiB)\n", name, IMG_MAXGAL, IMG_MAXFILE >> 20);
+	free(d);
+	if (*e) {
+		e = strchr(e, '\n');
+		e = e ? e + 1 : q + strlen(q);
+	}
+	return e;
+}
+
+/* the block at p (a fence line) is an ```image block: its name */
+static int
+is_image_fence(const char *p, const char *e, char *name, size_t n)
+{
+	const char *q;
+
+	while (p < e && (*p == ' ' || *p == '\t'))
+		p++;
+	if (e - p < 8 || strncmp(p, "```image", 8) || (p[8] != ' ' &&
+	    p + 8 != e && p[8] != '\r'))
+		return 0;
+	for (q = p + 8; q < e && (*q == ' ' || *q == '\t'); q++)
+		;
+	snprintf(name, n, "%.*s", (int)(e - q), q);
+	while (*name && isspace((unsigned char)name[strlen(name) - 1]))
+		name[strlen(name) - 1] = 0;
+	if (!*name)
+		snprintf(name, n, "image %d", img_opt.ngal + 1);
+	return 1;
+}
+
 static const char *
 next_code_block(const char *src, struct sbuf *piece)
 {
 	const char *p = src, *e, *q;
 	int in = 0;
+	char iname[96];
 
 	sb_clear(piece);
 	sb_puts(piece, "");
@@ -7955,6 +8012,15 @@ next_code_block(const char *src, struct sbuf *piece)
 			e = p + strlen(p);
 		for (q = p; q < e && (*q == ' ' || *q == '\t'); q++)
 			;
+		if (!in && is_image_fence(p, e, iname, sizeof iname)) {
+			/* a picture: the gallery; its lines stay as empty lines */
+			const char *after = image_block(iname, *e ? e + 1 : e), *c;
+			for (c = p; c < after; c++)
+				if (*c == '\n')
+					sb_putc(piece, '\n');
+			p = after;
+			continue;
+		}
 		if (!in && e - q >= 3 && !strncmp(q, "```", 3)) {
 			size_t n = 0;
 			q += 3;
@@ -7967,8 +8033,26 @@ next_code_block(const char *src, struct sbuf *piece)
 		} else if (in) {
 			sb_putc(piece, '\n');
 			if (e - q >= 3 && !strncmp(q, "```", 3)) {
+				const char *r = *e ? e + 1 : e;
 				code_block = code_buf.p ? code_buf.p : "";
-				return *e ? e + 1 : e;
+				/* pictures right after the block go with it */
+				for (;;) {
+					const char *b = r, *be, *c;
+					while (*b == '\n' || *b == ' ' || *b == '\t' ||
+					    *b == '\r')
+						b++;
+					be = strchr(b, '\n');
+					if (be == NULL)
+						be = b + strlen(b);
+					if (!is_image_fence(b, be, iname, sizeof iname))
+						break;
+					b = image_block(iname, *be ? be + 1 : be);
+					for (c = r; c < b; c++)
+						if (*c == '\n')
+							sb_putc(piece, '\n');
+					r = b;
+				}
+				return r;
 			}
 			sb_printf(&code_buf, "%.*s\n", (int)(e - p), p);
 		} else
@@ -8405,6 +8489,7 @@ run_text(const char *src, const char *file, int echo)
 
 	/* one run: the questions' answers are queued once, for all pieces */
 	nlp_asked = 0;
+	img_gallery_clear();
 	while (nans > 0)
 		free(answers[--nans]);
 	ansi = 0;

@@ -999,3 +999,36 @@ img_in_word(struct imgin *in, const char *w)
 	}
 	return 0;
 }
+
+size_t
+img_b64(const char *s, size_t n, unsigned char *out)
+{
+	uint32_t acc = 0;
+	int bits = 0;
+	size_t i, o = 0;
+
+	for (i = 0; i < n; i++) {
+		int c = (unsigned char)s[i], v;
+		if (c >= 'A' && c <= 'Z')
+			v = c - 'A';
+		else if (c >= 'a' && c <= 'z')
+			v = c - 'a' + 26;
+		else if (c >= '0' && c <= '9')
+			v = c - '0' + 52;
+		else if (c == '+' || c == '-')
+			v = 62;
+		else if (c == '/' || c == '_')
+			v = 63;
+		else if (c == '=')
+			break;
+		else
+			continue;
+		acc = acc << 6 | (uint32_t)v;
+		bits += 6;
+		if (bits >= 8) {
+			bits -= 8;
+			out[o++] = (unsigned char)(acc >> bits);
+		}
+	}
+	return o;
+}
