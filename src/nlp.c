@@ -5318,6 +5318,27 @@ translate_asking(const char *sent)
 	char *cur = strdup(sent), reply[512], *p;
 	int ok, tries;
 
+	{
+		/* conversational openers mean "what is" */
+		static const char *const open[] = {"what do you make of ",
+		    "what would you make of ", "what do you think of ",
+		    "what do you think about ", "what would you say about ",
+		    "what about ", "how about ", "tell me about ", NULL};
+		int k;
+		while (*cur == ' ')
+			memmove(cur, cur + 1, strlen(cur));
+		for (k = 0; open[k]; k++) {
+			size_t n = strlen(open[k]);
+			if (!strncasecmp(cur, open[k], n)) {
+				char *t = xmalloc(strlen(cur) - n + 9);
+				sprintf(t, "what is %s", cur + n);
+				free(cur);
+				cur = t;
+				break;
+			}
+		}
+	}
+
 	for (tries = 0;; tries++) {
 		no_more_prompts = tries >= 1;
 		spell_quiet = tries > 0;
@@ -5445,7 +5466,7 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
 	"model", "approx", "closed", "scheme", "continuous", "integrate",
-	"dsolve", "pde", NULL};
+	"dsolve", "pde", "animate", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -5661,6 +5682,9 @@ nlp_is_english(const char *s, size_t n)
 		}
 		if (k < n && s[k] == '=' && (k + 1 >= n || s[k + 1] != '=') &&
 		    !in_list(starters, w1))
+			return 0;
+		/* animate reads its own wordy options ("n=8 at 30 fps") */
+		if (!strcmp(w1, "animate"))
 			return 0;
 		if (in_list(ucas_cmds, w1)) {
 			size_t j2 = j, j3;

@@ -173,6 +173,7 @@ static struct discord *client;	/* NULL in --stdin mode */
 static struct sup_limits limits;
 static int supfd = -1;
 static u64snowflake self_id;
+static char self_name[64] = "Wimsy", self_disc[16] = "5388";
 static struct pend *pend;
 static int npend, cappend;
 static uint64_t nextid;
@@ -186,6 +187,8 @@ static uint64_t nextid;
  */
 static int outstanding;
 static void maybe_end_session(void);
+static void log_posted(u64snowflake chan, u64snowflake id, int code,
+    const char *err);
 
 static void
 post_done(struct discord *c, struct discord_response *resp,
@@ -193,7 +196,7 @@ post_done(struct discord *c, struct discord_response *resp,
 {
 	(void)c;
 	(void)resp;
-	(void)ret;
+	log_posted(ret ? ret->channel_id : 0, ret ? ret->id : 0, 0, NULL);
 	outstanding--;
 	maybe_end_session();
 }
@@ -204,19 +207,21 @@ post_fail(struct discord *c, struct discord_response *resp)
 	(void)c;
 	fprintf(stderr, "ucas-discord: a reply was not sent: %s (code %d)\n",
 	    discord_strerror(resp->code, NULL), (int)resp->code);
+	log_posted(0, 0, (int)resp->code, discord_strerror(resp->code, NULL));
 	outstanding--;
 	maybe_end_session();
 }
 
 static void
 post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
-    const char *content, const char *file, size_t filelen)
+    const char *content, const char *file, size_t filelen, const char *img,
+    size_t imglen, const char *imgname, const char *imgtype)
 {
 	char *noparse[1] = {NULL};
 	struct strings parse = {0, noparse, 0};
 	struct discord_allowed_mention am = {0};
 	struct discord_message_reference ref = {0};
-	struct discord_attachment att = {0};
+	struct discord_attachment att[2];
 	struct discord_attachments atts = {0};
 	struct discord_create_message p = {0};
 	char buf[16384];
@@ -232,13 +237,25 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	p.content = (char *)content;
 	p.allowed_mentions = &am;
 	p.message_reference = &ref;
+	memset(att, 0, sizeof att);
+	if (img != NULL) {
+		att[atts.size].id = atts.size;
+		att[atts.size].content = (char *)img;
+		att[atts.size].size = imglen;
+		att[atts.size].filename = (char *)imgname;
+		att[atts.size].content_type = (char *)imgtype;
+		atts.size++;
+	}
 	if (file != NULL) {
-		att.content = (char *)file;
-		att.size = filelen;
-		att.filename = DC_FILENAME;
-		att.content_type = "text/plain; charset=utf-8";
-		atts.size = 1;
-		atts.array = &att;
+		att[atts.size].id = atts.size;
+		att[atts.size].content = (char *)file;
+		att[atts.size].size = filelen;
+		att[atts.size].filename = DC_FILENAME;
+		att[atts.size].content_type = "text/plain; charset=utf-8";
+		atts.size++;
+	}
+	if (atts.size) {
+		atts.array = att;
 		p.attachments = &atts;
 	}
 	if (client != NULL) {
@@ -251,9 +268,12 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	}
 	n = discord_create_message_to_json(buf, sizeof buf, &p);
 	printf("POST /channels/%" PRIu64 "/messages%s\n%.*s\n", chan,
-	    file ? " (multipart)" : "", (int)n, buf);
+	    atts.size ? " (multipart)" : "", (int)n, buf);
+	if (img != NULL)
+		printf("  files[0]: %s, %s, %zu bytes\n", imgname, imgtype, imglen);
 	if (file != NULL)
-		printf("  files[0]: %s, %zu bytes\n", DC_FILENAME, filelen);
+		printf("  files[%d]: %s, %zu bytes\n", img != NULL, DC_FILENAME,
+		    filelen);
 }
 
 /* ---- requests ---- */
@@ -321,6 +341,26 @@ log_in(const struct discord_message *m, const char *as, uint64_t req)
 	fflush(slog);
 }
 
+/* what Discord answered to a reply: the message id, or the error */
+static void
+log_posted(u64snowflake chan, u64snowflake id, int code, const char *err)
+{
+	if (slog == NULL)
+		return;
+	fputc('{', slog);
+	log_ts(slog);
+	if (err == NULL)
+		fprintf(slog, ",\"ev\":\"posted\",\"chan\":\"%" PRIu64 "\","
+		    "\"id\":\"%" PRIu64 "\"}\n", chan, id);
+	else {
+		fprintf(slog, ",\"ev\":\"post-failed\",\"code\":%d,\"error\":",
+		    code);
+		jstr(slog, err, strlen(err));
+		fputs("}\n", slog);
+	}
+	fflush(slog);
+}
+
 static void
 log_out(uint64_t req, int status, int question, const char *out, size_t n)
 {
@@ -374,27 +414,49 @@ send_req(uint32_t type, const struct discord_message *m, const char *text,
  * "<@id> $expr" or "<@!id> $expr": without the Message Content intent,
  * Discord only delivers the text of server messages that mention the bot.
  */
-static const char *
-skip_mention(const char *s)
+static int
+word_end(char c)
 {
-	char id[32];
-	size_t n;
+	return !(isalnum((unsigned char)c) || c == '_');
+}
 
-	if (s == NULL || self_id == 0)
-		return s;
-	n = (size_t)snprintf(id, sizeof id, "%" PRIu64 ">", self_id);
-	if (!strncmp(s, "<@", 2)) {
-		const char *p = s + 2;
-		if (*p == '!')
-			p++;
-		if (!strncmp(p, id, n)) {
-			p += n;
-			while (*p == ' ' || *p == '\t' || *p == '\n')
-				p++;
-			return p;
-		}
+/*
+ * Is the message for the bot?  It is when it mentions the bot anywhere:
+ * <@id> or <@!id> (a real mention), or "@Name#1234" / "@Name" typed as
+ * text.  The text without the mentions goes to out.
+ */
+static int
+strip_mentions(const char *s, struct sbuf *out)
+{
+	char id1[40], id2[40], nm1[96], nm2[80];
+	size_t l1, l2, l3, l4;
+	int found = 0;
+
+	sb_clear(out);
+	sb_puts(out, "");
+	if (s == NULL)
+		return 0;
+	l1 = (size_t)snprintf(id1, sizeof id1, "<@%" PRIu64 ">", self_id);
+	l2 = (size_t)snprintf(id2, sizeof id2, "<@!%" PRIu64 ">", self_id);
+	l3 = (size_t)snprintf(nm1, sizeof nm1, "@%s#%s", self_name, self_disc);
+	l4 = (size_t)snprintf(nm2, sizeof nm2, "@%s", self_name);
+	while (*s) {
+		if (self_id && !strncmp(s, id1, l1)) {
+			s += l1;
+			found = 1;
+		} else if (self_id && !strncmp(s, id2, l2)) {
+			s += l2;
+			found = 1;
+		} else if (!strncasecmp(s, nm1, l3) && word_end(s[l3])) {
+			s += l3;
+			found = 1;
+		} else if (!strncasecmp(s, nm2, l4) && word_end(s[l4])) {
+			s += l4;
+			found = 1;
+		} else
+			sb_putc(out, *s++);
 	}
-	return s;
+	return found;
 }
 
 static int
@@ -408,10 +470,68 @@ handle_message(const struct discord_message *m)
 	if (m->author == NULL || m->author->bot || m->author->System ||
 	    m->author->id == self_id || m->webhook_id != 0)
 		return DC_IGNORE;
-	content = skip_mention(m->content);
-	if (content == NULL || content[0] != '$')
-		return DC_IGNORE;
-	kind = dc_command(content, &code, &echo);
+	{
+		/*
+		 * For the bot: a mention anywhere, or a Discord reply to one of
+		 * its messages.  The asker's short reply to an open numbered
+		 * question counts too, without a mention ("2", "ln").
+		 */
+		struct sbuf body = {0};
+		int addressed = strip_mentions(m->content, &body);
+		if (m->referenced_message && m->referenced_message->author &&
+		    m->referenced_message->author->id == self_id)
+			addressed = 1;
+		if (!addressed) {
+			q = ask_find(m->channel_id, m->author->id);
+			if (q == NULL || q->nopt == 0 ||
+			    !looks_like_answer(body.p, q->nopt)) {
+				free(body.p);
+				return DC_IGNORE;
+			}
+		}
+		/* dc_command reads the "$" form: code fences, reset, ... */
+		sb_clear(&req);
+		sb_printf(&req, "$%s", body.p);
+		free(body.p);
+		{
+			/* what addressing leaves behind: "hey <@id>, ..." */
+			static const char *const greet[] = {"hey", "hi", "hello",
+			    "yo", "ok", "okay", "so", "um", "hiya", "heya", NULL};
+			const char *t = req.p + 1;
+			int g, again = 1;
+			while (again) {
+				again = 0;
+				while (*t == ' ' || *t == '\t' || *t == '\n' ||
+				    *t == ',' || *t == ':' || *t == ';' || *t == '!' ||
+				    *t == '-')
+					t++;
+				for (g = 0; greet[g]; g++) {
+					size_t gl = strlen(greet[g]);
+					if (!strncasecmp(t, greet[g], gl) &&
+					    word_end(t[gl])) {
+						t += gl;
+						again = 1;
+						break;
+					}
+				}
+			}
+			if (*t == 0 && ask_find(m->channel_id, m->author->id) == NULL) {
+				post(m->channel_id, m->id, m->guild_id,
+				    "mention me with a question or ucas input, e.g. "
+				    "`@Wimsy what is the range of x squared for a signed "
+				    "byte x?` or `@Wimsy range isqrt(x: u4)`; `@Wimsy help` "
+				    "lists everything", NULL, 0, NULL, 0, NULL, NULL);
+				free(req.p);
+				return DC_IGNORE;
+			}
+			memmove(req.p + 1, t, strlen(t) + 1);
+		}
+		content = req.p;
+		kind = dc_command(content, &code, &echo);
+		req.p = NULL;
+		req.n = req.cap = 0;
+		free((char *)content);
+	}
 	if (kind == DC_RESET) {
 		ask_drop_chan(m->channel_id);
 		send_req(SF_RESET, m, NULL, 0, NULL, NULL);
@@ -436,7 +556,7 @@ handle_message(const struct discord_message *m)
 			ask_drop((int)(q - asks));
 			log_in(m, "cancel", 0);
 			post(m->channel_id, m->id, m->guild_id,
-			    "question cancelled", NULL, 0);
+			    "question cancelled", NULL, 0, NULL, 0, NULL, NULL);
 			maybe_end_session();
 			free(code.p);
 			return DC_EVAL;
@@ -472,10 +592,46 @@ handle_message(const struct discord_message *m)
 	return kind;
 }
 
+/* base64 to bytes, skipping newlines; returns the length */
+static size_t
+b64dec(const char *s, size_t n, char *out, size_t cap)
+{
+	unsigned v = 0;
+	int bits = 0;
+	size_t i, o = 0;
+
+	for (i = 0; i < n; i++) {
+		int c = (unsigned char)s[i], d;
+		if (c >= 'A' && c <= 'Z')
+			d = c - 'A';
+		else if (c >= 'a' && c <= 'z')
+			d = c - 'a' + 26;
+		else if (c >= '0' && c <= '9')
+			d = c - '0' + 52;
+		else if (c == '+')
+			d = 62;
+		else if (c == '/')
+			d = 63;
+		else
+			continue;
+		v = (v << 6) | (unsigned)d;
+		bits += 6;
+		if (bits >= 8) {
+			bits -= 8;
+			if (o < cap)
+				out[o++] = (char)(v >> bits & 0xff);
+		}
+	}
+	return o;
+}
+
 static void
 on_response(const struct sframe *h, const char *out)
 {
 	struct dc_reply r;
+	struct sbuf txt = {0};
+	char *img = NULL, imgname[64], imgtype[64];
+	size_t imglen = 0, olen = h->len;
 	struct pend pp;
 	char sbuf[256];
 	const char *head;
@@ -490,22 +646,56 @@ on_response(const struct sframe *h, const char *out)
 	pend[i] = pend[--npend];
 	head = dc_status(h->status, h->arg, &limits, sbuf, sizeof sbuf);
 	{
+		/*
+		 * "\x1efile NAME TYPE SIZE\n<base64>\x1eend\n": a file made by
+		 * the engine (animate's GIF).  Decode it, attach it, and keep
+		 * the block out of the text.
+		 */
+		const char *fb = out ? memmem(out, h->len, "\x1e" "file ", 6) : NULL;
+		const char *fe = fb ? memmem(fb, (size_t)(out + h->len - fb),
+		    "\x1e" "end\n", 5) : NULL;
+		if (fb && fe) {
+			char fname[64] = "file", ftype[64] = "application/octet-stream";
+			const char *q = fb + 6, *nl = memchr(fb, '\n',
+			    (size_t)(fe - fb));
+			size_t cap;
+			if (nl != NULL && sscanf(q, "%63s %63s", fname, ftype) >= 1) {
+				cap = (size_t)(fe - nl) * 3 / 4 + 4;
+				img = xmalloc(cap);
+				imglen = b64dec(nl + 1, (size_t)(fe - nl - 1), img, cap);
+				snprintf(imgname, sizeof imgname, "%s", fname);
+				snprintf(imgtype, sizeof imgtype, "%s", ftype);
+			}
+			sb_printf(&txt, "%.*s%.*s", (int)(fb - out), out,
+			    (int)(out + h->len - (fe + 5)), fe + 5);
+			out = txt.p ? txt.p : "";
+			olen = txt.n;
+		} else if (fb) {
+			/* cut by the output limit: drop the partial file */
+			sb_printf(&txt, "%.*s  (the generated file did not fit in "
+			    "the output limit of %zu bytes; ask for a smaller one)\n",
+			    (int)(fb - out), out, (size_t)limits.max_out);
+			out = txt.p;
+			olen = txt.n;
+		}
+	}
+	{
 		/* a follow-up question: remember it, say how to answer */
-		const char *mk = out ? memmem(out, h->len, "\x1e" "ask ", 5) : NULL;
+		const char *mk = out ? memmem(out, olen, "\x1e" "ask ", 5) : NULL;
 		struct sbuf o = {0};
 		char hbuf[320];
 		if (mk != NULL && pp.orig != NULL && pp.author != 0 &&
 		    h->status == 0) {
-			const char *eol = memchr(mk, '\n', (size_t)(out + h->len - mk));
+			const char *eol = memchr(mk, '\n', (size_t)(out + olen - mk));
 			int nopt = 0;
 			struct ask *q;
 			if (eol == NULL)
-				eol = out + h->len;
+				eol = out + olen;
 			if (!strncmp(mk + 5, "choice ", 7))
 				nopt = atoi(mk + 12);
 			sb_printf(&o, "%.*s%.*s", (int)(mk - out), out,
-			    (int)(out + h->len - (eol < out + h->len ? eol + 1 :
-			    eol)), eol < out + h->len ? eol + 1 : eol);
+			    (int)(out + olen - (eol < out + olen ? eol + 1 :
+			    eol)), eol < out + olen ? eol + 1 : eol);
 			if ((q = ask_find(pp.chan, pp.author)) != NULL)
 				ask_drop((int)(q - asks));
 			if (nasks == MAXASK)
@@ -521,29 +711,32 @@ on_response(const struct sframe *h, const char *out)
 			pp.orig = pp.answers = NULL;
 			if (nopt > 0)
 				snprintf(hbuf, sizeof hbuf, "a question first: answer "
-				    "with `$1`..`$%d` (or the option's name), `$` alone "
-				    "for the default, or `$cancel`", nopt);
+				    "1..%d (or the option's name), mention me alone for "
+				    "the default, or say cancel", nopt);
 			else
 				snprintf(hbuf, sizeof hbuf, "a question first: answer "
-				    "with `$` and your reply (`$` alone for the "
-				    "defaults), or `$cancel`");
+				    "with a mention or a Discord reply (mention me alone "
+				    "for the defaults), or say cancel");
 			dc_format(&r, hbuf, o.p ? o.p : "", o.n);
 			free(o.p);
 		} else
 			dc_format(&r, head == NULL && pp.dropped ? "(your open "
 			    "question was dropped: this looked like a new request)" :
-			    head, out, h->len);
+			    head, out, olen);
 	}
-	log_out(h->id, (int)h->status, out && memmem(out, h->len, "\x1e" "ask ",
-	    5) != NULL, out, h->len);
+	log_out(h->id, (int)h->status, out && memmem(out, olen, "\x1e" "ask ",
+	    5) != NULL, out, olen);
 	free(pp.orig);
 	free(pp.answers);
 	sessions_done++;
 	maybe_end_session();
 	for (i = 0; i < r.n; i++)
 		post(pp.chan, pp.msg, pp.guild, r.msg[i],
-		    i == 0 ? r.file : NULL, r.filelen);
+		    i == 0 ? r.file : NULL, r.filelen, i == 0 ? img : NULL, imglen,
+		    imgname, imgtype);
 	dc_reply_free(&r);
+	free(img);
+	free(txt.p);
 }
 
 /* 1 handled, 0 the supervisor is gone */
@@ -567,6 +760,11 @@ static void
 on_ready(struct discord *c, const struct discord_ready *ev)
 {
 	self_id = ev->user->id;
+	if (ev->user->username)
+		snprintf(self_name, sizeof self_name, "%s", ev->user->username);
+	if (ev->user->discriminator)
+		snprintf(self_disc, sizeof self_disc, "%s",
+		    ev->user->discriminator);
 	fprintf(stderr, "ucas-discord: connected as %s (%" PRIu64 ")\n",
 	    ev->user->username ? ev->user->username : "?", self_id);
 }

@@ -352,6 +352,7 @@ void run_source(const char *src, const char *file, int echo);
 /* ---- approx.c: function approximation; parse.c hooks it uses ---- */
 struct P;
 void cmd_approx(struct P *p);
+void cmd_animate(struct P *p);   /* anim.c: animated GIF of a scan */
 int cmdp_kw(struct P *p, const char *w);	/* accept a word */
 int cmdp_tok(struct P *p, int kind);		/* accept a token */
 int cmdp_at(struct P *p, int kind);		/* peek */

@@ -1,0 +1,12 @@
+# who the bot answers: a mention anywhere, @Wimsy#5388 typed as text, a Discord reply to it
+{"op": 0, "s": 1001, "t": "MESSAGE_CREATE", "d": {"id": "1001", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "hey <@1000>, what do you make of 2^10 + 1?", "type": 0}}
+{"op": 0, "s": 1011, "t": "MESSAGE_CREATE", "d": {"id": "1011", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "hi! <@1000> what is 7 times 6?", "type": 0}}
+{"op": 0, "s": 1002, "t": "MESSAGE_CREATE", "d": {"id": "1002", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "just chatting, 1 + 1", "type": 0}}
+{"op": 0, "s": 1003, "t": "MESSAGE_CREATE", "d": {"id": "1003", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "@Wimsy#5388 range isqrt(x: u4)", "type": 0}}
+{"op": 0, "s": 1004, "t": "MESSAGE_CREATE", "d": {"id": "1004", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "@wimsy integrate x/x", "type": 0}}
+{"op": 0, "s": 1005, "t": "MESSAGE_CREATE", "d": {"id": "1005", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "integrate 1 wrt t from 0 to 3", "type": 0, "referenced_message": {"id": "5", "channel_id": "43", "author": {"id": "1000", "username": "Wimsy", "bot": true}, "content": "..."}}}
+{"op": 0, "s": 1006, "t": "MESSAGE_CREATE", "d": {"id": "1006", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> what is the log of x for x from 1 to 8?", "type": 0}}
+{"op": 0, "s": 1007, "t": "MESSAGE_CREATE", "d": {"id": "1007", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "3", "type": 0}}
+{"op": 0, "s": 1008, "t": "MESSAGE_CREATE", "d": {"id": "1008", "channel_id": "43", "guild_id": "7", "author": {"id": "55", "username": "u55"}, "content": "3", "type": 0}}
+{"op": 0, "s": 1009, "t": "MESSAGE_CREATE", "d": {"id": "1009", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000>", "type": 0}}
+{"op": 0, "s": 1010, "t": "MESSAGE_CREATE", "d": {"id": "1010", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "@Wimsyx is not me", "type": 0}}

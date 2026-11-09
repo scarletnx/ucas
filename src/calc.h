@@ -137,6 +137,9 @@ struct npoly {
 	nid c[13];
 };
 int npoly_of(nid e, int slot, struct npoly *p, int maxdeg);
+/* cancel.c: x/x -> 1 etc., appending "f != 0" conditions to conds */
+nid cancel_quotients(nid e, int slot, nid x, struct sbuf *conds);
+nid antideriv_wrt(nid f, int s, nid xv, const char **how);
 int linear_form(nid e, const int *slot, int m, double *M, nid *rest);
 void charpoly(const double *M, int n, double *c);
 float loop_iter_cost(const struct model *m, nid n);

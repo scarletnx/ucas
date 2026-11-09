@@ -1,0 +1,42 @@
+== event 1: channel 43, author 99: hey <@1000>, what do you make of 2^10 + 1?
+POST /channels/43/messages
+{"content":"```\n  ucas: 2^10 + 1\n1025\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1001","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 2: channel 43, author 99: hi! <@1000> what is 7 times 6?
+POST /channels/43/messages
+{"content":"```\n  ucas: 7*6\n42\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1011","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 3: channel 43, author 99: just chatting, 1 + 1
+(ignored)
+
+== event 4: channel 43, author 99: @Wimsy#5388 range isqrt(x: u4)
+POST /channels/43/messages
+{"content":"```\nrange of isqrt(x) -> u4:\n  0..3   (4 distinct values)\n  values: 0..3\n  fits in u2\n  over all 16 points of the domain\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1003","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 5: channel 43, author 99: @wimsy integrate x/x
+POST /channels/43/messages
+{"content":"```\n∫ x/x dx\n  note: x/x = 1 where x != 0; the result holds there\n  = x + C\n  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 0)\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1004","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 6: channel 43, author 99: integrate 1 wrt t from 0 to 3
+POST /channels/43/messages
+{"content":"```\n∫ 1 dt\n  = t + C\n  check: d/dt of it equals the integrand at 401 points of [0, 3] (max difference 0)\n  from 0 to 3: F(3) - F(0) = 3\n  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 3, estimated error 0\n  the two agree to 0\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1005","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 7: channel 43, author 99: <@1000> what is the log of x for x from 1 to 8?
+POST /channels/43/messages
+{"content":"a question first: answer 1..3 (or the option's name), mention me alone for the default, or say cancel\n```\n? \"log\" without a base:\n  1) the natural log, ln  (default)\n  2) log base 2\n  3) log base 10\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1006","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 8: channel 43, author 99: 3
+POST /channels/43/messages
+{"content":"```\n  note: \"log\" without a base: log base 10 (kept for this session)\n  ucas: it(x in 1..8) = log(x)/log(10)\n  ucas: show it\nit(x: int in 1..8) = log(real(x))/2.302585093\n  -> real\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1007","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+
+== event 9: channel 43, author 55: 3
+(ignored)
+
+== event 10: channel 43, author 99: <@1000>
+POST /channels/43/messages
+{"content":"mention me with a question or ucas input, e.g. `@Wimsy what is the range of x squared for a signed byte x?` or `@Wimsy range isqrt(x: u4)`; `@Wimsy help` lists everything","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"1009","channel_id":"43","guild_id":"7","fail_if_not_exists":false}}
+(ignored)
+
+== event 11: channel 43, author 99: @Wimsyx is not me
+(ignored)
+

@@ -1,0 +1,13 @@
+# integrate (live session 3 and the follow-up): bare names, removable
+# singularities and their conditions, constants and their variable
+integrate W0
+integrate x/x
+integrate x/x from -1 to 1
+integrate (x^2-1)/(x-1) from 0 to 2
+integrate x*y/y
+integrate x^2/x^3 from 1 to e
+integrate 1/x from -1 to 1
+integrate 1
+integrate 5 wrt t from 0 to 2
+integrate W
+range exp

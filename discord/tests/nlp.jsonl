@@ -1,12 +1,12 @@
 # English requests and follow-up questions through the bot
-{"op": 0, "s": 701, "t": "MESSAGE_CREATE", "d": {"id": "701", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$what is the log of x for x from 1 to 8?", "type": 0}}
-{"op": 0, "s": 702, "t": "MESSAGE_CREATE", "d": {"id": "702", "channel_id": "42", "guild_id": "7", "author": {"id": "55", "username": "u55"}, "content": "$1 + 1", "type": 0}}
-{"op": 0, "s": 703, "t": "MESSAGE_CREATE", "d": {"id": "703", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$2", "type": 0}}
-{"op": 0, "s": 704, "t": "MESSAGE_CREATE", "d": {"id": "704", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$what is the log of 4?", "type": 0}}
-{"op": 0, "s": 705, "t": "MESSAGE_CREATE", "d": {"id": "705", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$approx sin using cheby poly", "type": 0}}
-{"op": 0, "s": 706, "t": "MESSAGE_CREATE", "d": {"id": "706", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$0 to pi/4 degree 4 nocrit", "type": 0}}
-{"op": 0, "s": 707, "t": "MESSAGE_CREATE", "d": {"id": "707", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$approx cos using minimax", "type": 0}}
-{"op": 0, "s": 708, "t": "MESSAGE_CREATE", "d": {"id": "708", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$cancel", "type": 0}}
-{"op": 0, "s": 709, "t": "MESSAGE_CREATE", "d": {"id": "709", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$2 + 2", "type": 0}}
-{"op": 0, "s": 710, "t": "MESSAGE_CREATE", "d": {"id": "710", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$approx tan using minimax", "type": 0}}
-{"op": 0, "s": 711, "t": "MESSAGE_CREATE", "d": {"id": "711", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "$", "type": 0}}
+{"op": 0, "s": 701, "t": "MESSAGE_CREATE", "d": {"id": "701", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> what is the log of x for x from 1 to 8?", "type": 0}}
+{"op": 0, "s": 702, "t": "MESSAGE_CREATE", "d": {"id": "702", "channel_id": "42", "guild_id": "7", "author": {"id": "55", "username": "u55"}, "content": "<@1000> 1 + 1", "type": 0}}
+{"op": 0, "s": 703, "t": "MESSAGE_CREATE", "d": {"id": "703", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> 2", "type": 0}}
+{"op": 0, "s": 704, "t": "MESSAGE_CREATE", "d": {"id": "704", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> what is the log of 4?", "type": 0}}
+{"op": 0, "s": 705, "t": "MESSAGE_CREATE", "d": {"id": "705", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> approx sin using cheby poly", "type": 0}}
+{"op": 0, "s": 706, "t": "MESSAGE_CREATE", "d": {"id": "706", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> 0 to pi/4 degree 4 nocrit", "type": 0}}
+{"op": 0, "s": 707, "t": "MESSAGE_CREATE", "d": {"id": "707", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> approx cos using minimax", "type": 0}}
+{"op": 0, "s": 708, "t": "MESSAGE_CREATE", "d": {"id": "708", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> cancel", "type": 0}}
+{"op": 0, "s": 709, "t": "MESSAGE_CREATE", "d": {"id": "709", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> 2 + 2", "type": 0}}
+{"op": 0, "s": 710, "t": "MESSAGE_CREATE", "d": {"id": "710", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> approx tan using minimax", "type": 0}}
+{"op": 0, "s": 711, "t": "MESSAGE_CREATE", "d": {"id": "711", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> ", "type": 0}}

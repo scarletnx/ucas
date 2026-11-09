@@ -1,0 +1,67 @@
+> integrate W0
+  note: W0 alone read as W(x)
+∫ W(x) dx
+  = x*(W(x) - 1) + exp(W(x)) + C
+  check: d/dx of it equals the integrand at 208 points of [-10, 10] (max difference 4.4e-16)
+> integrate x/x
+∫ x/x dx
+  note: x/x = 1 where x != 0; the result holds there
+  = x + C
+  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 0)
+> integrate x/x from -1 to 1
+∫ x/x dx
+  note: x/x = 1 where x != 0; the result holds there
+  = x + C
+  check: d/dx of it equals the integrand at 400 points of [-1, 1] (max difference 0)
+  (the excluded points are removable singularities: the definite integral does not depend on them)
+  from -1 to 1: F(1) - F(-1) = 2
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 2, estimated error 0
+  the two agree to 0
+> integrate (x^2-1)/(x-1) from 0 to 2
+∫ (x^2 - 1)/(x - 1) dx
+  note: (x^2 - 1)/(x - 1) = x + 1 where x - 1 != 0; the result holds there
+  = x + x^2/2 + C
+  check: d/dx of it equals the integrand at 400 points of [0, 2] (max difference 1.2e-14)
+  (the excluded points are removable singularities: the definite integral does not depend on them)
+  from 0 to 2: F(2) - F(0) = 4
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 4, estimated error 0
+  the two agree to 0
+> integrate x*y/y
+∫ x*y/y dx
+  note: x*y/y = x where y != 0; the result holds there
+  = x^2/2 + C
+  (several parameters: the derivative check needs values; checked symbolically only)
+> integrate x^2/x^3 from 1 to e
+∫ x^2/x^3 dx
+  = log(abs(x)) + C
+  check: d/dx of it equals the integrand at 401 points of [1, 2.71828] (max difference 2.2e-16)
+  from 1 to 2.71828: F(2.71828) - F(1) = 1
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1, estimated error 1.1e-14
+  the two agree to 0
+> integrate 1/x from -1 to 1
+∫ 1/x dx
+  = log(abs(x)) + C
+  check: d/dx of it equals the integrand at 400 points of [-1, 1] (max difference 0)
+  numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+> integrate 1
+  note: 1 names no variable: integrating with respect to x (say `wrt t` for another)
+∫ 1 dx
+  = x + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> integrate 5 wrt t from 0 to 2
+∫ 5 dt
+  = 5t + C
+  check: d/dt of it equals the integrand at 401 points of [0, 2] (max difference 0)
+  from 0 to 2: F(2) - F(0) = 10
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 10, estimated error 0
+  the two agree to 0
+> integrate W
+  note: W alone is a variable here; W(x) or W0 is the Lambert W function
+∫ W dW
+  = W^2/2 + C
+  check: d/dW of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> range exp
+  note: exp alone read as exp(x)
+range of exp(x):
+  [4.539992976e-05, 22026.46579]   min at x ≈ -10, max at x ≈ 10
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points

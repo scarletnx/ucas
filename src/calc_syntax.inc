@@ -1283,7 +1283,13 @@ calc_command(struct P *p)
 				for (slot = 0; slot < f->np; slot++)
 					if (f->p[slot].name == nm)
 						break;
-				if (slot == f->np)
+				if (slot == f->np && f->np == 0 && f->anon) {
+					/* a constant: integrate it over the variable named */
+					f->p[0].name = nm;
+					f->p[0].ty = TY_REAL;
+					f->np = 1;
+					slot = 0;
+				} else if (slot == f->np)
 					fail("no parameter %s", sym_str(nm));
 				adv(p);
 			} else if (accept_kw(p, "from")) {
@@ -1295,6 +1301,27 @@ calc_command(struct P *p)
 				break;
 		}
 		expect_eos(p);
+		if (f->np == 0 && f->anon) {
+			/* "integrate 1": the integrand names no variable */
+			static const char *const vars[] = {"x (dx)", "t (dt)",
+			    "y (dy)", "another: say `integrate ... wrt v`"};
+			static const char *const names[] = {"x", "t", "y", "x"};
+			char what[160];
+			int k = 0;
+			snprintf(what, sizeof what, "integrate %s with respect to which "
+			    "variable", node_str(f->body));
+			if (nlp_can_ask()) {
+				k = nlp_ask_choice(what, vars, 4, 0);
+				if (nlp_asked)
+					return 1;
+			} else
+				note("%s names no variable: integrating with respect to x "
+				    "(say `wrt t` for another)", node_str(f->body));
+			f->p[0].name = sym_cstr(names[k]);
+			f->p[0].ty = TY_REAL;
+			f->np = 1;
+			slot = 0;
+		}
 		notes_flush();
 		cmd_integrate(f, slot, a, b);
 		return 1;

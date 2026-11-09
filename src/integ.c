@@ -222,6 +222,19 @@ ad(nid f, int s, nid x)
 	return 0;
 }
 
+/* with the variable given: a constant c integrates to c x */
+nid
+antideriv_wrt(nid f, int s, nid xv, const char **how)
+{
+	if (xvar(f, s) == 0 && xv != 0) {
+		if (how)
+			*how = "";
+		return mk_bin(O_MUL, mk_cast(TY_REAL, f), TY_FP(N.ty[xv]) ? xv :
+		    mk_cast(TY_REAL, xv));
+	}
+	return antideriv(f, s, how);
+}
+
 nid
 antideriv(nid f, int s, const char **how)
 {
@@ -450,7 +463,8 @@ at_const(nid e, int s, double x)
 void
 cmd_integrate(struct func *f, int slot, nid an, nid bn)
 {
-	nid F, body = f->body;
+	nid F, body = f->body, ibody;
+	int removable = 0;
 	double a = 0, b = 0, lo, hi, maxres = 0, scale = 0;
 	int defd = an && bn, i, ok, checked = 0;
 	const char *xn;
@@ -463,8 +477,25 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		num_of(an, &a);
 		num_of(bn, &b);
 	}
-	F = antideriv(body, slot, NULL);
 	printf("∫ %s d%s\n", node_str(body), xn);
+	{
+		/* x/x is 1 where x != 0: integrate the simpler form, say so */
+		struct sbuf conds = {0};
+		nid xv = mk_var((uint32_t)slot, f->p[slot].name, f->p[slot].ty);
+		nid simpler = cancel_quotients(mk_cast(TY_REAL, body), slot,
+		    TY_FP(N.ty[xv]) ? xv : mk_cast(TY_REAL, xv), &conds);
+		if (conds.n)
+			printf("  note: %s = %s where %s; the result holds there\n",
+			    node_str(body), node_str(simpler), conds.p);
+		/*
+		 * the excluded points are removable: a definite integral does
+		 * not see them, so it uses the simpler form
+		 */
+		ibody = simpler;
+		removable = conds.n > 0;
+		F = antideriv_wrt(simpler, slot, xv, NULL);
+		free(conds.p);
+	}
 	/* where to check: the interval, the parameter's range, or -10..10 */
 	if (defd && isfinite(a) && isfinite(b))
 		lo = fmin(a, b), hi = fmax(a, b);
@@ -511,13 +542,16 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		printf("  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)\n");
 	if (!defd)
 		return;
+	if (removable)
+		printf("  (the excluded points are removable singularities: the "
+		    "definite integral does not depend on them)\n");
 	if (f->np != 1) {
 		printf("  a definite integral needs the other parameters fixed\n");
 		return;
 	}
 	{
 		double v, err, sv = 0;
-		int nev, good = gk_integrate(f, body, slot, a, b, &v, &err, &nev);
+		int nev, good = gk_integrate(f, ibody, slot, a, b, &v, &err, &nev);
 		int symok = 0;
 		if (F && isfinite(a) && isfinite(b)) {
 			nid fa = at_const(F, slot, a), fb = at_const(F, slot, b);
@@ -525,7 +559,7 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 			/* F(b) - F(a) holds only if the integrand is defined between */
 			int cont = 1;
 			for (i = 1; i < 400; i++) {
-				eval_const_at(mk_cast(TY_REAL, body), slot,
+				eval_const_at(mk_cast(TY_REAL, ibody), slot,
 				    lo + (hi - lo) * i / 400.0, &ok);
 				if (!ok)
 					cont = 0;

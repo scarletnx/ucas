@@ -1,20 +1,20 @@
 # fake gateway events for ucas-discord --stdin (one JSON per line)
-{"op": 0, "s": 601, "t": "MESSAGE_CREATE", "d": {"id": "601", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$1 + 2", "type": 0}}
-{"op": 0, "s": 602, "t": "MESSAGE_CREATE", "d": {"id": "602", "channel_id": "42", "guild_id": "7", "author": {"id": "55", "username": "u55", "bot": true}, "content": "$2 + 2", "type": 0}}
-{"op": 0, "s": 603, "t": "MESSAGE_CREATE", "d": {"id": "603", "channel_id": "42", "guild_id": "7", "author": {"id": "1000", "username": "u1000"}, "content": "$3 + 3", "type": 0}}
+{"op": 0, "s": 601, "t": "MESSAGE_CREATE", "d": {"id": "601", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> 1 + 2", "type": 0}}
+{"op": 0, "s": 602, "t": "MESSAGE_CREATE", "d": {"id": "602", "channel_id": "42", "guild_id": "7", "author": {"id": "55", "username": "u55", "bot": true}, "content": "<@1000> 2 + 2", "type": 0}}
+{"op": 0, "s": 603, "t": "MESSAGE_CREATE", "d": {"id": "603", "channel_id": "42", "guild_id": "7", "author": {"id": "1000", "username": "u1000"}, "content": "<@1000> 3 + 3", "type": 0}}
 {"op": 0, "s": 604, "t": "MESSAGE_CREATE", "d": {"id": "604", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "just chatting, 1 + 2", "type": 0}}
 {"op": 0, "t": "TYPING_START", "d": {"channel_id": "42", "user_id": "99"}}
-{"op": 0, "s": 605, "t": "MESSAGE_CREATE", "d": {"id": "605", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$```ucas\nsq(x: u4) = x*x\nrange sq\n```", "type": 0}}
-{"op": 0, "s": 606, "t": "MESSAGE_CREATE", "d": {"id": "606", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$`table sq max 4`", "type": 0}}
-{"op": 0, "s": 607, "t": "MESSAGE_CREATE", "d": {"id": "607", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$show sq", "type": 0}}
-{"op": 0, "s": 608, "t": "MESSAGE_CREATE", "d": {"id": "608", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$range nosuch(x", "type": 0}}
-{"op": 0, "s": 609, "t": "MESSAGE_CREATE", "d": {"id": "609", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$f(x: u6) = x * x * 37 + (x >> 2) xor 21\ngates f max 40 nodes 100000000000", "type": 0}}
-{"op": 0, "s": 610, "t": "MESSAGE_CREATE", "d": {"id": "610", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$show sq", "type": 0}}
-{"op": 0, "s": 611, "t": "MESSAGE_CREATE", "d": {"id": "611", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }\nfind days 1", "type": 0}}
-{"op": 0, "s": 612, "t": "MESSAGE_CREATE", "d": {"id": "612", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$more 1", "type": 0}}
-{"op": 0, "s": 613, "t": "MESSAGE_CREATE", "d": {"id": "613", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$reset", "type": 0}}
-{"op": 0, "s": 614, "t": "MESSAGE_CREATE", "d": {"id": "614", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$show sq", "type": 0}}
-{"op": 0, "s": 615, "t": "MESSAGE_CREATE", "d": {"id": "615", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$  g(x: u10) = x\ntable g max 200", "type": 0}}
-{"op": 0, "s": 616, "t": "MESSAGE_CREATE", "d": {"id": "616", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$table g max 1024", "type": 0}}
-{"id": "617", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$hello ``` world", "type": 0}
-{"op": 0, "s": 618, "t": "MESSAGE_CREATE", "d": {"id": "618", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "$", "type": 0}}
+{"op": 0, "s": 605, "t": "MESSAGE_CREATE", "d": {"id": "605", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> ```ucas\nsq(x: u4) = x*x\nrange sq\n```", "type": 0}}
+{"op": 0, "s": 606, "t": "MESSAGE_CREATE", "d": {"id": "606", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> `table sq max 4`", "type": 0}}
+{"op": 0, "s": 607, "t": "MESSAGE_CREATE", "d": {"id": "607", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> show sq", "type": 0}}
+{"op": 0, "s": 608, "t": "MESSAGE_CREATE", "d": {"id": "608", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> range nosuch(x", "type": 0}}
+{"op": 0, "s": 609, "t": "MESSAGE_CREATE", "d": {"id": "609", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> f(x: u6) = x * x * 37 + (x >> 2) xor 21\ngates f max 40 nodes 100000000000", "type": 0}}
+{"op": 0, "s": 610, "t": "MESSAGE_CREATE", "d": {"id": "610", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> show sq", "type": 0}}
+{"op": 0, "s": 611, "t": "MESSAGE_CREATE", "d": {"id": "611", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }\nfind days 1", "type": 0}}
+{"op": 0, "s": 612, "t": "MESSAGE_CREATE", "d": {"id": "612", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> more 1", "type": 0}}
+{"op": 0, "s": 613, "t": "MESSAGE_CREATE", "d": {"id": "613", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> reset", "type": 0}}
+{"op": 0, "s": 614, "t": "MESSAGE_CREATE", "d": {"id": "614", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> show sq", "type": 0}}
+{"op": 0, "s": 615, "t": "MESSAGE_CREATE", "d": {"id": "615", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000>   g(x: u10) = x\ntable g max 200", "type": 0}}
+{"op": 0, "s": 616, "t": "MESSAGE_CREATE", "d": {"id": "616", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> table g max 1024", "type": 0}}
+{"id": "617", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> say ``` world", "type": 0}
+{"op": 0, "s": 618, "t": "MESSAGE_CREATE", "d": {"id": "618", "channel_id": "42", "guild_id": "7", "author": {"id": "99", "username": "ann"}, "content": "<@1000> ", "type": 0}}

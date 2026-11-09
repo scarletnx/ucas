@@ -142,6 +142,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `domain F` | the conditions each partial operation imposes, the C assumptions (signed overflow, shift amounts, `__builtin_clz(0)`), and the inputs where the function is defined |
 | `wrap F` | per operation: whether LLVM's `nuw`/`nsw` hold (with a witness), C UB, truncating conversions; for floats `nnan`/`ninf` (fast-math) per operation; end to end: where the machine result equals the mathematical one, or the rounding error in ulp |
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
+| `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter |
 | `equiv F G` | equal on F's domain? (with a counterexample) |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
@@ -149,6 +150,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
+| `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
 | `approx F in a..b [options]`, `approx more [n]` | polynomial, rational and range-reduced approximations, measured as they run (see below) |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
@@ -579,21 +581,25 @@ Data-oriented throughout (see `src/ucas.h`):
 
 ## Discord bot (optional)
 
-`discord/` holds `ucas-discord`, a bot that runs messages starting with
-`$` as if they were typed at the `ucas>` prompt and replies with the
-output.  It is a separate program with its own BSD Makefile; the `ucas`
+`discord/` holds `ucas-discord`, a bot that runs messages addressed to
+it as if they were typed at the `ucas>` prompt and replies with the
+output.  A message is addressed to the bot when it mentions it anywhere
+(`<@id>`, or `@Name#1234` / `@Name` typed as text) or is a Discord reply
+to one of its messages; the text without the mention is the input, after
+leading greetings and punctuation (`hey @Wimsy, ...`) are dropped.  It is a separate program with its own BSD Makefile; the `ucas`
 binary and `make test` do not depend on it.
 
 ```
-$range isqrt(x: u4)
-$```
+@Wimsy range isqrt(x: u4)
+@Wimsy ```
 sq(x: u4) = x*x
 table sq max 4
 ```
-$reset
+@Wimsy reset
+hey @Wimsy, what is the integral of x/x from -1 to 1?
 ```
 
-Everything after the `$` goes to the engine unchanged (a surrounding
+The rest of the message goes to the engine unchanged (a surrounding
 ```` ``` ```` fence with an optional language tag, or single backticks,
 is removed), so new commands work without changes to the bot.  When the
 input has more than one line, each statement is echoed as `> stmt`
@@ -625,29 +631,32 @@ discord/ucas-discord --check-token   # where it was found; never prints it
 discord/ucas-discord
 ```
 
-English works in Discord too: `$what is the range of x squared for a
-signed byte x?`.  When the translator needs a decision, it asks in the
+English works in Discord too: `@Wimsy what is the range of x squared
+for a signed byte x?`.  When the translator needs a decision, it asks in the
 channel instead of on a terminal.  Two kinds of question:
 
-- **Choice:** which `log`, what a `byte` is.  Answer `$2` or with the
-  option's name.  The choice is kept for the channel's session.
-- **Missing details:** an interval for `approx`.  Answer something like
-  `$0 to pi/4 degree 5 crit`.
+- **Choice:** which `log`, what a `byte` is.  Answer `2` or with the
+  option's name; no mention is needed for this short answer.  The
+  choice is kept for the channel's session.
+- **Missing details:** an interval for `approx`.  Answer with a mention
+  or a Discord reply, e.g. `@Wimsy 0 to pi/4 degree 5 crit`.
 
-`$` alone takes the default, and `$cancel` drops the question.
+A mention alone takes the default, and `cancel` drops the question.
 A reply that looks like a new request instead of an answer (`approx
 …`, `what is …`, a definition, a command), or a long reply to a
 numbered choice, drops the open question and runs as a new request;
 the reply says so.  While a
-question is open, the asker's next `$` message in that channel is the
-answer; other users are unaffected.  Questions expire after 15 minutes.
+question is open, the asker's next message to the bot in that channel
+(or short reply, for a numbered choice) is the answer; other users are
+unaffected.  Questions expire after 15 minutes.
 Each answer re-runs the original message with all answers so far.
 Translation is deterministic, so the same questions come up in the same
 order, and nothing waits inside the sandboxed evaluator meanwhile.
 (Engine side: `\x1edefer` / `\x1eanswer` directive lines, see `nlp.c`;
 the bot strips `\x1e` from user text.)
 
-`--log PATH` appends a JSON line for every `$` message received
+`--log PATH` appends a JSON line for every message addressed to the bot
+(only those)
 (author, channel, text, and whether it was a request, an answer, a
 cancel or a reset) and for every reply (the engine's full output,
 including the `ucas:` translations and any question asked).  It holds

@@ -1261,6 +1261,37 @@ cmd_func(struct P *p)
 	}
 	/* a command takes at most two anonymous functions: alternate slots */
 	anon = sym_cstr(anon_turn++ & 1 ? "_2" : "_");
+	/*
+	 * A unary function's name alone, "integrate W0", "range exp": the
+	 * function of x.  (A bare one-letter W stays a variable.)
+	 */
+	if (pk(p) == T_ID && builtin(p, at) != NULL &&
+	    builtin(p, at)->arity == 1 && builtin(p, at)->op != O_BARRIER &&
+	    (at + 1 >= p->t->n || p->t->kind[at + 1] == T_NL ||
+	    p->t->kind[at + 1] == T_EOF || p->t->kind[at + 1] == T_TILDE ||
+	    word_in(p, at + 1, stopwords) ||
+	    (p->xstop && word_in(p, at + 1, p->xstop)))) {
+		const struct bfn *bf = builtin(p, at);
+		nid xv;
+		memset(&tmp, 0, sizeof tmp);
+		tmp.name = anon;
+		tmp.anon = 1;
+		tmp.np = 1;
+		tmp.p[0].name = sym_cstr("x");
+		tmp.p[0].ty = TY_REAL;
+		xv = mk_var(0, tmp.p[0].name, TY_REAL);
+		adv(p);
+		tmp.body = apply_builtin(p, bf, &xv, 1);
+		note("%s alone read as %s", bf->name, node_str(tmp.body));
+		f = func_new(anon);
+		*f = tmp;
+		return f;
+	}
+	if (tok_is(p->t, at, "W") && func_find(tsym(p, at)) == NULL &&
+	    (at + 1 >= p->t->n || p->t->kind[at + 1] == T_NL ||
+	    p->t->kind[at + 1] == T_EOF || word_in(p, at + 1, stopwords)))
+		note("W alone is a variable here; W(x) or W0 is the Lambert W "
+		    "function");
 	memset(&tmp, 0, sizeof tmp);
 	tmp.name = anon;
 	tmp.anon = 1;
@@ -1461,6 +1492,8 @@ help(void)
 "    [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]\n"
 "    [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]\n"
 "  approx more [n]\n"
+"  animate [hillis|blelloch|sequential] scan [n N] [fps F] [seconds S]\n"
+"    [random [seed K] | values a, b, ...] [f32] [MODEL] [to NAME]\n"
 "loops and calculus\n"
 "  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
 "  closed F | scheme F [model m] | continuous F\n"
@@ -1574,6 +1607,12 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		/* animate (anim.c) */
+		if (is_kw(p, "animate") && !func_find(tsym(p, p->i))) {
+			adv(p);
+			cmd_animate(p);
+			return;
+		}
 		/* approx (approx.c) */
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {
 			adv(p);
