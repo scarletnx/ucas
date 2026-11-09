@@ -1234,7 +1234,7 @@ word:
 			    "lane", "using", "with", "random", "seed", "seconds",
 			    "to", "nofile", "on", "quad", "warp", "under", "for", NULL};
 			ty_t ty = 0;
-			int sign = 0, bits = 0, fpw = 0;
+			int sign = 0, bits = 0, fpw = 0, asked_ty = 0;
 			exec = 1;
 			if (cmdp_at(p, T_ID)) {   /* "of", "for" */
 				uint32_t pos = cmdp_pos(p);
@@ -1279,6 +1279,27 @@ word:
 					break;
 				}
 			}
+			if (!ty && !fpw && !bits && !sign) {
+				/* no type: GPUs have no unbounded integers; ask */
+				static const char *const opts[] = {
+				    "u32 (32-bit unsigned, the GPU's int)",
+				    "i32 (32-bit signed)", "f32 (float)",
+				    "as written (mathematical int or real)"};
+				static const ty_t tys[] = {TY(K_UINT, 32), TY(K_SINT, 32),
+				    TY(K_FLOAT, 32), 0};
+				int k2 = 0;
+				if (nlp_can_ask()) {
+					k2 = nlp_ask_choice("animate exec: no type given for the "
+					    "variables; which", opts, 4, 0);
+					if (nlp_asked)
+						return;
+				} else
+					note("no type given: every variable is u32, a GPU's "
+					    "integer (say \"32-bit\", \"signed 32-bit\", "
+					    "\"f32\" ...)");
+				ty = tys[k2];
+				asked_ty = 1;
+			}
 			if (!ty && fpw)
 				ty = TY(K_FLOAT, bits ? bits : fpw);
 			if (!ty && bits) {
@@ -1290,7 +1311,7 @@ word:
 					    "%d-bit\" for i%d)", bits, bits, bits, bits);
 				else
 					note("%d-bit: every variable is %s", bits, ty_str(ty));
-			} else if (ty)
+			} else if (ty && !asked_ty)
 				note("every variable is %s", ty_str(ty));
 			xf = cmdp_func_typed(p, exstop, ty);
 			continue;

@@ -2003,6 +2003,8 @@ run_source(const char *src, const char *file, int echo)
 		statement(p);
 		notes_flush();
 		fflush(stdout);
+		if (nlp_asked)
+			break;   /* a question is out: the rest waits for the answer */
 		skip_nl(p);
 	}
 	toks_free(t);

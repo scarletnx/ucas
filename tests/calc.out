@@ -36,8 +36,8 @@ sum(i, 0, n, 2^i)
   but at 1 points the closed form is undefined (an intermediate leaves the 64-bit range) where iteration is not, e.g. n=62
 > closed sum(i, 0, n, i*2^i)
   note: n is a bound of sum: taken as int in 0..100
-sum(i, 0, n, i*int(2^i))
-  = int(2^(n + 1))*(n - 1) + 2
+sum(i, 0, n, i*2^i)
+  = 2^(n + 1)*(n - 1) + 2
   method: arithmetico-geometric
   check: equals direct iteration at all 57 points of the domain
 > closed sum(i, 0, n, x^i)
@@ -148,7 +148,7 @@ u[n]
 > aff[k+1] = 3 aff[k] + k^2
 > closed aff
 aff[n]
-  = (int(3^n) - n^2 - n - 1)/2
+  = (3^n - n^2 - n - 1)/2
   method: affine recurrence (particular solution)
   check: equals direct iteration at all 40 points of the domain
   but at 1 points the closed form is undefined (an intermediate leaves the 64-bit range) where iteration is not, e.g. n=40

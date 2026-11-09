@@ -10,3 +10,5 @@ animate exec of 32-bit x > 1 ? x*x*x : x + 7 nofile
 animate exec of 32-bit x < 100 ? x*3 : x/3 nofile
 animate exec of u32 barrier(atomic_add_shared(x, 1) + x) * 2 nofile
 animate exec of signed 16-bit x*x - 3 lanes 32 nofile
+# no type given: u32, with a note (the bot asks)
+animate exec of (1 << x) + x nofile

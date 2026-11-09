@@ -1162,6 +1162,11 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		pr(b, N.a[n], 11, pc, 0);
 		break;
 	case O_CAST:
+		if (!c && TYK(N.ty[N.a[n]]) == K_LIT && TYK(N.ty[n]) == K_INT) {
+			/* an untyped integer to int: nothing changes */
+			pr(b, N.a[n], minp, pc, hex);
+			break;
+		}
 		if (c)
 			sb_printf(b, "(%s)", c_type(N.ty[n]));
 		else
