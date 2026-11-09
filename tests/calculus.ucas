@@ -1,0 +1,102 @@
+# Integrals, differential equations, and the continuous view of loops.
+
+# antiderivatives are checked by differentiating them back; definite
+# integrals are also done numerically (adaptive Gauss-Kronrod)
+integrate x^2 sin(x) from 0 to pi
+integrate exp(-x^2) from 0 to inf
+integrate 1/x from 1 to e
+integrate x*exp(2x)
+integrate 1/(2x + 1)^2 from 0 to 1
+integrate tan(x) from 0 to 1
+integrate 1/x from -1 to 1
+integrate sin(x)^2 from 0 to pi
+integrate 1/(1 + x^2) from -inf to inf
+integrate a*x + b wrt b
+
+# ODEs: y' = f(t, y), initial values y(t0) = c, then dsolve
+y' = -2y + 1
+y(0) = 3
+dsolve y
+x'' = -x
+x(0) = 1
+x'(0) = 0
+dsolve x to 6.283185307 steps 4
+z'' = -z' - z + sin(t)
+z(0) = 0
+z'(0) = 1
+dsolve z to 5 steps 5
+q'' = -4q' - 4q
+q(0) = 1
+q'(0) = 0
+dsolve q to 3 steps 3
+p' = p*(1 - p)
+p(0) = 0.1
+dsolve p to 10 steps 5
+k = 0.5
+a' = -k*a + b
+b' = -b
+a(0) = 0
+b(0) = 1
+dsolve a to 4 steps 4
+dsolve w
+
+# the continuous view: sums become integrals, Euler steps become ODEs
+h(n: int in 1..1000) = sum(i, 1, n, 1/i)
+continuous h
+fac(n: int in 1..20) = prod(i, 1, n, i)
+continuous fac
+decay(n: int in 0..1000) = {
+  x = 1.0
+  for i in 1..n { x += 0.01 * (-2 * x) }
+  x
+}
+continuous decay
+osc(n: int in 0..1000) = {
+  x = 1.0; v = 0.0
+  for i in 1..n {
+    v += 0.01 * (-x)
+    x += 0.01 * v
+  }
+  x
+}
+continuous osc
+continuous x^2
+
+# PDEs by finite differences, checked by grid refinement and, where it
+# applies, against separation of variables or the exact solution
+pde heat {
+  u_t = 0.1 u_xx
+  u(x, 0) = sin(pi x)
+  x in 0..1
+  t in 0..0.5
+}
+dsolve heat steps 4
+pde wave {
+  u_tt = u_xx
+  u(x, 0) = sin(pi x) + 0.5 sin(3 pi x)
+  x in 0..1
+  t in 0..1
+}
+dsolve wave steps 4
+pde adv {
+  u_t = -u_x
+  u(x, 0) = exp(-100 (x - 0.3)^2)
+  x in 0..1
+  t in 0..0.4
+  periodic
+}
+dsolve adv steps 4
+pde src {
+  u_t = u_xx + 1
+  u(x, 0) = 0
+  u(0, t) = 0
+  u(1, t) = 0
+  x in 0..1
+  t in 0..2
+}
+dsolve src steps 4
+pde back {
+  u_t = -u_xx
+  u(x, 0) = sin(pi x)
+}
+dsolve back

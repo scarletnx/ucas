@@ -173,7 +173,15 @@ lex(struct toks *t, const char *src)
 		} else if (isalpha(c) || c == '_') {
 			while (isalnum(s[i]) || s[i] == '_')
 				i++;
+			while (s[i] == '\'')   /* calc: y' y'' (derivatives) */
+				i++;
 			push(t, T_ID, st, i - st, fl);
+		} else if ((c == 0xce && s[i + 1] == 0xa3) || (c == 0xe2 &&
+		    s[i + 1] == 0x88 && (s[i + 2] == 0x8f || s[i + 2] == 0xab))) {
+			/* calc: Σ ∏ ∫ are names (sum, prod, integral) */
+			n = c == 0xce ? 2 : 3;
+			i += (uint32_t)n;
+			push(t, T_ID, st, (uint32_t)n, fl);
 		} else if (c == 0xcf && s[i + 1] == 0x80) {   /* π */
 			i += 2;
 			push(t, T_ID, st, 2, fl);

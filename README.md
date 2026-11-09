@@ -211,6 +211,138 @@ hash-consing.
 
 `find` takes its operation costs from the active model.
 
+## Loops and calculus
+
+Iterative code is turned into mathematics that can be reduced, and back.
+
+```
+> closed sum(i, 1, n, i^2)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 1, n, i^2)
+  = n*(n + 1)*(2n + 1)/6
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at all 101 points of the domain
+
+> fib[0] = 0; fib[1] = 1; fib[n] = fib[n-1] + fib[n-2]
+> fb(n: int in 0..90) = fib[n]
+> scheme fb
+fib[n]
+  iterating: 3 per iteration, up to 90 iterations: 270
+  closed form: 36 (9 ops): int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+    but it differs from the loop at 20 of 91 points (e.g. n=71: 308061521170129 by iteration vs 308061521170130): not used
+  matrix form: state' = M state, M = [0 1; 1 1]; the answer is (M^k v0)[0]
+    M^k by squaring: at most 14 matrix products of 28 each: 392 (O(log k))
+    check: equals the loop at 91 points (in exact int64 arithmetic: no rounding, unlike the closed form's real powers)
+    cheaper than iterating once k > about 131
+
+> c(n: int in 1..1000) = { x = n; k = 0; while x > 1 { x = x / 2; k += 1 }; k }
+> closed c
+loop(while x > 1; x = n then x/2; k = 0 then k + 1).k
+  = n > 1 ? 63 - int(clz(u64(n))) : 0
+  method: constant body, accumulator, trip count
+  trip count n > 1 ? 63 - int(clz(u64(n))) : 0 (checked against the loop at 1000 points)
+  check: equals direct iteration at all 1000 points of the domain
+```
+
+### Syntax
+
+| form | meaning |
+|------|---------|
+| `sum(i, lo, hi, e)`, `sum(i in lo..hi, e)`, `sum(i in lo..hi) e`, `Σ(...)` | the index runs `lo..hi` inclusive; an empty range is 0 |
+| `prod(...)`, `∏(...)` | the same for products (empty is 1) |
+| `x[0] = 1` then `x[k+1] = a*x[k] + b` (or `x[n] = x[n-1] + x[n-2]`) | a recurrence: initial values and one step rule, in any order; `x` becomes a function `x(n, a, b)` with `n in 0..60`, and `x[e]` can be used in expressions |
+| `{ s = 0; for i in 1..n { s += i }; s }` | a code block: `=`, `+= -= *= /= %=`, `++ --`, `a, b = b, a + b`, `x: u32 = 0`, `for i in lo..hi { }`, `while c { }`, `if c { } else { }`, ending with an expression or `return e` |
+| `y' = -2y + 1`, `y(0) = 3` | an ODE (any order: `y''`, systems `x' = y; y' = -x`) and its initial values |
+| `pde name { u_t = 0.1 u_xx; u(x, 0) = sin(pi x); u(0, t) = 0; x in 0..1; t in 0..0.5 }` | a 1-D linear PDE (`u_t` or `u_tt`); also `periodic`, `grid n`, `u_t(x, 0) = ...` for waves |
+
+Inference, with notes: a free variable used as a bound is an `int` in
+`0..100`; a body that would divide integers by the index makes the index
+`real` (`sum(i, 1, n, 1/i)`); in recurrences the type comes from the
+initial values, and an integer division of the sequence makes it `real`.
+Code blocks are C-like: no such rewriting, variables first assigned
+inside a branch or loop body are local to it, and the loop body may not
+assign the index.  A loop is one node (`O_LOOP`) in the DAG, so `table`,
+`range`, `equiv`, `wrap`, `diff` (forward mode: the loop carries its
+derivative) and `cost` work on loops as on any expression.
+
+### Commands
+
+| command | |
+|---------|--|
+| `closed F` | closed forms of the loops in F, innermost first, each checked against direct iteration on F's domain; a form that disagrees is rejected and shown as such |
+| `scheme F [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
+| `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
+| `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
+| `dsolve y [from a] [to b] [steps n]` | ODEs: linear systems with constant coefficients symbolically, otherwise numerically (Dormand-Prince 5(4), adaptive); PDEs by finite differences |
+
+What is found:
+
+- sums: polynomial bodies (Faulhaber, factored over the rationals),
+  `r^i` times a polynomial (geometric and arithmetico-geometric, symbolic
+  `r` guarded by `r == 1 ? ...`), telescoping `g(i) - g(i+k)`, rational
+  bodies with integer poles whose residues cancel (partial fractions),
+  branches on `i % m` and on `i < c` (the sum is split), linearity;
+- products: constants, `r^e(i)`, `exp(e(i))`, telescoping ratios, ratios
+  of shifted linear factors;
+- recurrences and loops: affine steps with constant coefficients in any
+  number of variables (characteristic roots, including repeated and
+  complex ones; exact rational arithmetic when the roots are rational;
+  symbolic initial values and constants), `x' = a x + p(k)` with a
+  polynomial `p` (particular solutions; symbolic `a` for constant `p`),
+  accumulators (`s += f(i, other states)` becomes a sum), power maps
+  `x' = c x^p`, Mobius maps `x' = (a x + b)/(c x + d)` (2x2 matrix power),
+  quadratic maps conjugate to `y' = y^2` (e.g. `x' = 2x(1 - x)`);
+- while loops: the trip count of `v += d`, `v *= c`, `v /= c`, `v >>= k`
+  against a bound, and `v*v <= n` (isqrt); the other variables then
+  follow from the counted loop.  The trip count is checked on its own.
+
+### What is checked, and what is approximate
+
+Every closed form (`closed`, `scheme`) is evaluated against the loop
+itself on the function's domain, exhaustively up to 2^16 points and
+sampled beyond; integer forms must be equal, real forms equal within
+1e-9 relative (the report gives the largest difference).  When the closed
+form needs a guard for empty ranges, the unguarded form is tried first.
+Points where only one side leaves the 64-bit range are reported apart
+(`2^(n+1) - 1` overflows at `n = 62` where the sum still fits).  A loop
+needing more than 2^20 iterations at a point is not evaluated there, and
+the report counts those points.  Antiderivatives are differentiated back
+and compared on a grid; ODE solutions are checked by their residual on a
+grid, their initial values, and an independent numeric solution.
+
+Approximate by nature, with measured error: numeric integrals (error
+estimate from the Kronrod extension), numeric ODE solutions (the
+difference to a 1000x looser solve), PDEs (the difference between two
+grids, and against the series/exact solution where one applies),
+Euler-Maclaurin and Euler-step ODEs (the difference to the sum or loop
+is measured at domain points).  Closed forms of integer sequences with
+irrational roots (Fibonacci) are real-valued and rounded; they are exact
+only while doubles are (the check says where they stop matching; the
+matrix power is exact).
+
+### Limits
+
+- Loop bodies are compiled once per entry and run lane-parallel over the
+  chunk of domain points; deep nesting (more than ~50 bound variables) is
+  refused.
+- Recurrences have at most 8 terms of state; offsets in `x[k+d]` are
+  limited to -16..7; initial values must be `x[0]..x[m-1]`.  Evaluating
+  `x[n]` also computes `x[n+1]..x[n+m-1]`, so the iteration overflows a
+  little before the value it returns would.
+- No closed form for harmonic numbers, factorials (both are covered by
+  `continuous`), Collatz-like loops, or nonlinear maps other than those
+  listed.  Products of a polynomial with integer roots are reported as
+  Gamma-like.
+- `integrate` knows the rules listed above; it does not do substitution
+  beyond linear arguments, rational functions other than `c/u^n`, or
+  `exp(x) sin(x)`-type products.  Unknown cases fall back to numbers.
+- `dsolve` is symbolic only for linear systems with constant
+  coefficients and forcing by polynomials, exponentials and sines; the
+  independent variable is the one free name in the equations (`t` if
+  none).
+- PDEs: one space dimension, linear, constant coefficients; Dirichlet,
+  periodic or (for advection) outflow boundaries.
+
 ## Design
 
 Data-oriented throughout (see `src/ucas.h`):

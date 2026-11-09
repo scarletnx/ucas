@@ -113,6 +113,7 @@ enum {
 	O_ASUINT, O_ASINT, O_ASFLOAT,  /* bit casts float <-> int */
 	O_BARRIER,   /* barrier(e): e, after a workgroup barrier */
 	O_ATOMIC,    /* atomic_op(x, v): old value x; ki = AT_* | scope */
+	O_LOOP,      /* calc: loop over an entry (calc.h); a = lo, b = hi */
 	O_NOPS
 };
 #define OF_COMM 1
@@ -340,5 +341,14 @@ int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
 
 /* ---- parse.c ---- */
 void run_source(const char *src, const char *file, int echo);
+
+/* ---- calc: loops and calculus (loop.c; the rest in calc.h) ---- */
+nid mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl);
+void loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,
+    const double *in_r);
+void loop_print(struct sbuf *b, nid n, const struct pctx *pc);
+nid loop_remake(nid n, nid a, nid b, nid c, const nid *map, int nmap);
+float loop_cost(const struct model *m, nid n, int *cls);
+nid loop_diff(nid n, uint32_t slot);
 
 #endif

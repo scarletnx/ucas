@@ -1,0 +1,371 @@
+> sum(i, 1, 10, i^2)
+385
+> Σ(i in 1..100) i
+5050
+> prod(i, 1, 10, i)
+3628800
+> f(n: int in 0..20) = sum(i, 0, n, i^3)
+> table f max 4
+  n=0  ->  0
+  n=1  ->  1
+  n=2  ->  9
+  n=3  ->  36
+> closed f
+sum(i, 0, n, i^3)
+  = n^2*(n + 1)^2/4
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at all 21 points of the domain
+> closed sum(i, 1, n, i^2)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 1, n, i^2)
+  = n*(n + 1)*(2n + 1)/6
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at all 101 points of the domain
+> closed sum(i, 1, n, a*i + b)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 1, n, a*real(i) + b)
+  = b*real(n) + a*(real(n)*(real(n) + 1)/2)
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at 4096 points (sampled, not exhaustive), max relative difference 5.3e-15
+> closed sum(i, 0, n, 2^i)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 0, n, 2^i)
+  = 2^(n + 1) - 1
+  method: geometric
+  check: equals direct iteration at all 62 points of the domain
+  but at 1 points the closed form is undefined (an intermediate leaves the 64-bit range) where iteration is not, e.g. n=62
+> closed sum(i, 0, n, i*2^i)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 0, n, i*int(2^i))
+  = int(2^(n + 1))*(n - 1) + 2
+  method: arithmetico-geometric
+  check: equals direct iteration at all 57 points of the domain
+> closed sum(i, 0, n, x^i)
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 0, n, x^real(i))
+  = x == 1 ? real(n) + 1 : (x^(real(n) + 1) - 1)/(x - 1)
+  method: geometric
+  check: equals direct iteration at all 20301 points of the domain, max relative difference 6.1e-16
+> closed sum(i, 1, n, 1/(i*(i+1)))
+  note: n is a bound of sum: taken as int in 0..100
+  note: 1/(i*(i + 1)) would divide integers by the index i: i taken as real
+sum(i, 1, n, 1/(i*(i + 1)))
+  = 1 - 1/(real(n) + 1)
+  method: telescoping, partial fractions
+  check: equals direct iteration at all 101 points of the domain, max relative difference 5.6e-16
+> closed sum(i, 1, n, 1/i)
+  note: n is a bound of sum: taken as int in 0..100
+  note: 1/i would divide integers by the index i: i taken as real
+sum(i, 1, n, 1/i)
+  no closed form found
+  1/i has a harmonic part (residues do not cancel): no elementary closed form; see 'continuous'
+> closed sum(i, 1, n, sqrt(real(i + 1)) - sqrt(real(i)))
+  note: n is a bound of sum: taken as int in 0..100
+sum(i, 1, n, sqrt(real(i + 1)) - sqrt(real(i)))
+  = sqrt(real(n + 1)) - 1
+  method: telescoping
+  check: equals direct iteration at all 101 points of the domain
+> geo(n: int in 0..30, r: real in 0.5..0.9) = sum(i, 1, n, i * r^i)
+> closed geo
+sum(i, 1, n, real(i)*r^real(i))
+  = r == 1 ? real(n*(n + 1)/2) : r^(real(n) + 1)*(1/(r - 1)*real(n) + -(1/(r - 1))/(r - 1)) - r*(-(1/(r - 1))/(r - 1))
+  method: Faulhaber (polynomial in the index), arithmetico-geometric
+  check: equals direct iteration at all 6231 points of the domain, max relative difference 1.4e-14
+> thr(n: int in 0..40) = sum(i, 0, n, i < 10 ? i : 10)
+> closed thr
+sum(i, 0, n, i < 10 ? i : 10)
+  = max(min(n, 9), -1)*(max(min(n, 9), -1) + 1)/2 + 10(n - max(min(n, 9), -1))
+  method: constant body, Faulhaber (polynomial in the index), split at a threshold
+  check: equals direct iteration at all 41 points of the domain
+> closed prod(i, 2, n, 1 - 1/i^2)
+  note: n is a bound of prod: taken as int in 0..100
+  note: 1 - 1/i^2 would divide integers by the index i: i taken as real
+prod(i, 2, n, 1 - 1/i^2)
+  = n - 1 >= 0 ? 1/real(n)*(real(n) + 1)/2 : 1
+  method: ratio of shifted linear factors
+  check: equals direct iteration at all 101 points of the domain, max relative difference 2.2e-16
+> closed prod(i, 1, n, 2^i)
+  note: n is a bound of prod: taken as int in 0..100
+prod(i, 1, n, 2^i)
+  = 2^(n*(n + 1)/2)
+  method: Faulhaber (polynomial in the index), product of powers
+  check: equals direct iteration at all 11 points of the domain
+> closed prod(i, 1, n, i)
+  note: n is a bound of prod: taken as int in 0..100
+prod(i, 1, n, i)
+  no closed form found
+  prod of i: a factorial-like product (Gamma function); no elementary closed form; see 'continuous' for Stirling's approximation
+> x[0] = 1
+> x[k+1] = 2 x[k] + 1
+> table x max 5
+  n=0  ->  1
+  n=1  ->  3
+  n=2  ->  7
+  n=3  ->  15
+  n=4  ->  31
+> closed x
+x[n]
+  = 2*2^n - 1
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - 3x + 2, roots 1, 2
+  check: equals direct iteration at all 61 points of the domain
+> fib[0] = 0
+> fib[1] = 1
+> fib[n] = fib[n-1] + fib[n-2]
+> closed fib
+fib[n]
+  = int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - x - 1, roots (1 + √5)/2 = 1.618033989, (1 - √5)/2 = -0.6180339887
+  check: equals direct iteration at all 61 points of the domain
+> y[0] = 1
+> y[1] = 4
+> y[n] = 4 y[n-1] - 4 y[n-2]
+> closed y
+y[n]
+  = 2^n + n*2^n
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - 4x + 4, roots 2 (double)
+  check: equals direct iteration at all 56 points of the domain
+  (at 2 points the iteration itself is undefined or overflows, e.g. n=56; not compared)
+> rot[0] = 1
+> rot[1] = 0
+> rot[n] = -rot[n-2]
+> closed rot
+rot[n]
+  = int(floor(cos(pi*real(n)/2) + 0.5))
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 + 1, roots 0 ± 1i
+  check: equals direct iteration at all 61 points of the domain
+> u[0] = x0
+> u[k+1] = a*u[k] + b
+> closed u
+u[n]
+  = a == 1 ? x0 + real(n)*b : a^real(n)*x0 + b*(a^real(n) - 1)/(a - 1)
+  method: affine recurrence (particular solution)
+  check: equals direct iteration at 4096 points (sampled, not exhaustive), max relative difference 1.1e-12
+> aff[0] = 0
+> aff[k+1] = 3 aff[k] + k^2
+> closed aff
+aff[n]
+  = (int(3^n) - n^2 - n - 1)/2
+  method: affine recurrence (particular solution)
+  check: equals direct iteration at all 40 points of the domain
+  but at 1 points the closed form is undefined (an intermediate leaves the 64-bit range) where iteration is not, e.g. n=40
+> w[0] = 1.0
+> w[k+1] = w[k] / (1 + w[k])
+> closed w
+w[n]
+  = 1/(real(n) + 1)
+  method: Mobius map (2x2 matrix power)
+  characteristic polynomial x^2 - 2x + 1, roots 1 (double)
+  check: equals direct iteration at all 61 points of the domain, max relative difference 4.2e-17
+> sq[0] = 0.9
+> sq[k+1] = sq[k]^2
+> closed sq
+sq[n]
+  = 0.9^2^real(n)
+  method: power map
+  check: equals direct iteration at all 61 points of the domain, max relative difference 8.3e-17
+> lg[0] = 0.1
+> lg[k+1] = 2 lg[k] (1 - lg[k])
+> closed lg
+lg[n]
+  = (1 - 0.8^2^real(n))/2
+  method: quadratic map conjugate to y' = y^2
+  check: equals direct iteration at all 61 points of the domain, max relative difference 8.3e-17
+> h(m: int in 0..30) = fib[m] + 1
+> closed h
+fib[m]
+  = int(floor(0.4472135955*1.618033989^real(m) - 0.4472135955*(-0.6180339887)^real(m) + 0.5))
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - x - 1, roots (1 + √5)/2 = 1.618033989, (1 - √5)/2 = -0.6180339887
+  check: equals direct iteration at all 31 points of the domain
+h = int(floor(0.4472135955*1.618033989^real(m) - 0.4472135955*(-0.6180339887)^real(m) + 0.5)) + 1
+  check: equals direct iteration at all 31 points of the domain
+> s(n: int in 0..10) = {
+    s = 0
+    for i in 1..n {
+      if i % 2 == 0 { s += i } else { s -= 1 }
+    }
+    s
+  }
+> table s max 6
+  n=0  ->  0
+  n=1  ->  -1
+  n=2  ->  1
+  n=3  ->  0
+  n=4  ->  4
+  n=5  ->  3
+> show s
+s(n: int in 0..10) = loop(i in 1..n; s = 0 then i % 2 == 0 ? s + i : s - 1).s
+  -> int
+> closed s
+loop(i in 1..n; s = 0 then i % 2 == 0 ? s + i : s - 1).s
+  = ((n + 2)/2 - 1)*((n + 2)/2) - (n + 1)/2
+  method: constant body, Faulhaber (polynomial in the index), split by residue, accumulator
+  check: equals direct iteration at all 11 points of the domain
+> fb(n: int in 0..20) = {
+    a = 0; b = 1
+    for i in 1..n { a, b = b, a + b }
+    return a
+  }
+> closed fb
+loop(i in 1..n; a = 0 then b; b = 1 then a + b).a
+  = int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - x - 1, roots (1 + √5)/2 = 1.618033989, (1 - √5)/2 = -0.6180339887
+  check: equals direct iteration at all 21 points of the domain
+> tri(n: int in 0..30) = {
+    s = 0
+    for i in 1..n {
+      for j in 1..i { s += j }
+    }
+    s
+  }
+> closed tri
+loop(j in 1..i; s = s then s + j).s
+  = s + i*(i + 1)/2
+  method: Faulhaber (polynomial in the index), accumulator
+  (inside another loop: checked as part of it)
+loop(i in 1..n; s = 0 then loop(j in 1..i; s = s then s + j).s).s
+  = n*(n + 1)*(n + 2)/6
+  method: Faulhaber (polynomial in the index), accumulator
+  check: equals direct iteration at all 31 points of the domain
+tri = n*(n + 1)*(n + 2)/6
+  check: equals direct iteration at all 31 points of the domain
+> nest(n: int in 0..5) = sum(i, 1, n, sum(j, 1, i, i*j))
+> closed nest
+sum(j, 1, i, i*j)
+  = i*(i*(i + 1)/2)
+  method: Faulhaber (polynomial in the index)
+  (inside another loop: checked as part of it)
+sum(i, 1, n, sum(j, 1, i, i*j))
+  = n*(n + 1)*(3n + 1)*(n + 2)/24
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at all 6 points of the domain
+nest = n*(n + 1)*(3n + 1)*(n + 2)/24
+  check: equals direct iteration at all 6 points of the domain
+> c(n: int in 1..1000) = {
+    x = n
+    k = 0
+    while x > 1 {
+      x = x / 2
+      k += 1
+    }
+    k
+  }
+> closed c
+loop(while x > 1; x = n then x/2; k = 0 then k + 1).k
+  = n > 1 ? 63 - int(clz(u64(n))) : 0
+  method: constant body, accumulator, trip count
+  trip count n > 1 ? 63 - int(clz(u64(n))) : 0 (checked against the loop at 1000 points)
+  check: equals direct iteration at all 1000 points of the domain
+> dig(n: u32 in 1..100000) = {
+    d = 0
+    while n > 0 { n = n / 10; d += 1 }
+    d
+  }
+> closed dig
+loop(while n > 0; n = n then n/10; d = 0 then d + 1).d
+  = n > 0 ? int(floor(log(real(n))/2.302585093 + 1e-12)) + 1 : 0
+  method: constant body, accumulator, trip count
+  trip count n > 0 ? int(floor(log(real(n))/2.302585093 + 1e-12)) + 1 : 0 (checked against the loop at 4096 points)
+  check: equals direct iteration at 4096 points (sampled, not exhaustive)
+> cnt(n: int in 0..500) = {
+    i = 0
+    while i*i <= n { i += 1 }
+    i
+  }
+> closed cnt
+loop(while i*i <= n; i = 0 then i + 1).i
+  = max(isqrt(n) + 1, 0)
+  method: linear recurrence (characteristic roots), trip count
+  trip count max(isqrt(n) + 1, 0) (checked against the loop at 501 points)
+  characteristic polynomial x^2 - 2x + 1, roots 1 (double)
+  check: equals direct iteration at all 501 points of the domain
+> step(n: int in 0..1000) = {
+    x = 3; c = 0
+    while x < n { x += 7; c++ }
+    c
+  }
+> closed step
+loop(while x < n; x = 3 then x + 7; c = 0 then c + 1).c
+  = 3 < n ? (n + 3)/7 : 0
+  method: linear recurrence (characteristic roots), trip count
+  trip count 3 < n ? (n + 3)/7 : 0 (checked against the loop at 1001 points)
+  characteristic polynomial x^3 - 3x^2 + 3x - 1, roots 1 (x3)
+  check: equals direct iteration at all 1001 points of the domain
+> mulw(n: int in 1..10000) = {
+    x = 1; c = 0
+    while x < n { x *= 3; c++ }
+    c
+  }
+> closed mulw
+loop(while x < n; x = 1 then 3x; c = 0 then c + 1).c
+  = 1 < n ? int(ceil(log(real(n))/1.098612289 - 1e-12)) : 0
+  method: linear recurrence (characteristic roots), trip count
+  trip count 1 < n ? int(ceil(log(real(n))/1.098612289 - 1e-12)) : 0 (checked against the loop at 10000 points)
+  characteristic polynomial x^3 - 5x^2 + 7x - 3, roots 1 (double), 3
+  check: equals direct iteration at all 10000 points of the domain
+> collatz(n: int in 1..200) = {
+    c = 0
+    while n != 1 {
+      if n % 2 == 0 { n = n / 2 } else { n = 3n + 1 }
+      c += 1
+    }
+    c
+  }
+> closed collatz
+loop(while n != 1; n = n then n % 2 == 0 ? n/2 : 3n + 1; c = 0 then c + 1).c
+  no closed form found
+  no closed form for the trip count of the while loop
+> range collatz
+range of collatz -> int:
+  0..124
+  fits in u7
+  over all 200 points of the domain
+> equiv f sum(i, 0, n, i^3)
+  note: n is a bound of sum: taken as int in 0..100
+f and sum(i, 0, n, i^3) are equal on the domain of f (exhaustive)
+> g(x: real in 0..2) = sum(k, 0, 10, x^k/2^k)
+> range g
+range of g:
+  [1, 11]   min at x ≈ 0, max at x ≈ 2
+  grid of 20001 points over [0, 2], extrema refined at critical points
+> diff g
+d/dx g = sum(k, 0, 10, real(k)*x^(real(k) - 1)/real(2^k))
+> wrap f
+wrap analysis of f:
+  no wrapping or rounding operations
+  end to end: equals the mathematical (unbounded) result everywhere
+  over all 21 points of the domain
+> cost f
+cost of f under gt1030: 9 (1 operations, shared subterms counted once)
+  branch           1 x 9     = 9
+  note: loop sum(i, 0, n, i^3) priced per iteration (9, listed under branch); multiply by the trip count; see 'scheme'
+> bad[0] = 1
+> closed bad[n]
+calc.ucas:147:8: error: bad is not complete: it needs a step rule and initial values
+    closed bad[n]
+           ^
+> bad[k+1] = bad[k] + bad[k-1]
+  note: bad needs the initial value bad[1] before it can be used
+> spin(n: int in 0..3) = {
+    x = 1
+    while x > 0 { x += 1 }
+    x
+  }
+> table spin max 2
+  n=0  ->  undefined
+  n=1  ->  undefined
+> idx(n: int in 0..3) = { s = 0; for i in 1..n { i = 2 }; s }
+calc.ucas:155:46: error: the loop body assigns the index i
+    idx(n: int in 0..3) = { s = 0; for i in 1..n { i = 2 }; s }
+                                                 ^
+> ok(n: int in 0..3) = { s = 0; for i in 1..n { s += i }; s }
+> table ok
+  n=0  ->  0
+  n=1  ->  1
+  n=2  ->  3
+  n=3  ->  6
