@@ -1004,6 +1004,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | solids | `area revolve volume surfacearea arclength centroid` |
 | pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
 | abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
+| elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
 
 A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
@@ -1185,6 +1186,7 @@ an `op` and the op's `args`:
 | `solids` | area revolve volume surfacearea arclength centroid |
 | `plot` | plot plot3d neighbourhood animate |
 | `abstract_algebra` | bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf |
+| `elliptic` | elliptic diophantine weierstrass congruent mordell cubesum |
 | `session` | define state assume reset schema funcs models use help |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
 
@@ -1783,6 +1785,98 @@ large factors may stay unsplit, and is reported as such); polynomial
 arithmetic is schoolbook; Groebner bases use Buchberger, not F4; the
 centre of a permutation group is found by enumeration; no English
 phrasing for these commands yet.
+
+## Elliptic curves and Diophantine equations
+
+```
+ec [0,0,1,-1,0]                       # the summary of 37a1
+ec y^2 + y = x^3 - x^2 - 10*x - 20 local
+ec [0,0,1,-1,0] mul 7 (0,0)
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 4 positive
+congruent 157
+cubesum 7 positive
+mordell 17 bound 6000
+```
+
+`src/ec.h` is the shared core (the finite-field side, branch `elip-ff`,
+builds on it): a field behind a table of operations with elements as
+fixed-size values (`fe`): Q with `zint` rationals, F_p for any p, Z/n (a
+failed inversion yields a factor), GF(p^k) through `ring.h`, and room for
+other implementations; curves in general Weierstrass form with b2..b8,
+c4, c6, the discriminant and j; points and the chord-and-tangent law; a
+struct-of-arrays point table; the isomorphisms [u, r, s, t] with
+composition and inverse; models (short, Montgomery, Edwards, twisted
+Edwards, Legendre, twisted Hessian) with their maps to and from
+Weierstrass form in both directions; plane cubics with a rational flex
+to Weierstrass form.
+
+Over Q (`ecq.c`): integral and global minimal models (Laska-Kraus-
+Connell), Tate's algorithm at every bad prime (Kodaira symbol, c_p,
+conductor exponent, split or non-split), torsion (bounded by gcd
+#E(F_p), found by Nagell-Lutz, checked against Mazur's list), naive and
+canonical heights (Tate's series at infinity, Silverman's formulas at the
+bad primes; normalised as h(x(nP))/n^2, the BSD regulator's convention),
+a sieved point search, 2-isogeny descent (local solubility of the
+quartics over Q_p and R, both Selmer groups, global points on the
+quartics mapped back through the dual isogeny) giving proved rank
+bounds, independence by the height pairing, the lattice enlarged by any
+found point outside it (Hermite form), saturation at p <= 7 (by
+reduction, and at 2 exactly by the descent map when the 2-torsion is
+rational).
+
+The analytic side (`ecan.c`, floating point with the bound stated):
+periods by AGM, Weierstrass p by q-series (checked against p'^2 = 4p^3 -
+g2 p - g3), a_n, the root number from the functional equation (the
+mismatch for both signs is printed: a wrong conductor or a_p would show
+there), L(E, 1) up to L'''(E, 1), the analytic rank, and #Sha_an =
+L^(r)(1)/r! #T^2 / (Omega R prod c_p).  With analytic rank 0 or 1 the
+rank is a theorem (Gross-Zagier, Kolyvagin).  On 80 random curves the
+functional-equation mismatch stayed below 1e-9 and #Sha_an came out an
+integer for every curve whose generators were found.
+
+`diophantine` (`ecdio.c`) parses a rational equation in up to six
+variables (denominators cleared, their spurious factors divided out and
+remembered: a solution must not make one vanish) and recognises a plane
+cubic (homogeneous in 3 variables, or affine in 2 and homogenised), a
+curve quadratic in one variable with a quartic discriminant (s = 2Ay +
+B, s^2 = B^2 - 4AC), or z^2 = a quartic form.  It finds a rational
+point; from a flex, the tangent goes to the line at infinity; otherwise
+the pencil of lines through the point turns the cubic into w^2 =
+quartic(t) with a known point (the tangent direction), and Washington's
+map (or the root case) gives Weierstrass form.  Each step is data with a
+forward and a backward map; then the minimal model and the group.
+Combinations sum n_i P_i + T are taken in order of height, mapped back,
+the composed maps checked to return the same point, the side conditions
+(`positive`, `integer`, `nonzero`) applied, and the solution substituted
+into the original equation exactly.  With no solution it says why when
+it can: E(Q) finite (rank 0 by descent) and every point mapped; or, for
+positivity on a cubic, the positive real points lie on the bounded
+component of E(R) and the 2-isogeny Selmer group at the largest
+2-torsion point is all positive, so no rational point lies there.
+
+For a/(b+c) + b/(a+c) + c/(a+b) = N: N = 4 gives the 80-digit solution
+(from -9P + T on y^2 + xy + y = x^3 - 234x + 1352, conductor 910), N = 6
+a 134-digit and N = 10 a 190-digit one, N = 2 gives (3, 1, 1); N = 1, 3,
+5, 7, 9, 11, 13, 15, 17 have rank 0 (no solution, proved), and N = 19,
+21, 23, 29, 35, 39 have rank 1 but no positive solution, proved by the
+component argument.  `x^4 + y^4 = z^2 nonzero` reproves Fermat's case.
+`congruent n` gives a triangle (checked: a^2 + b^2 = c^2, ab/2 = n) or a
+proof that none exists (rank 0), else the bounds and Tunnell's counts.
+`cubesum k` solves x^3 + y^3 = k z^3; `mordell k` gives the summary and
+the integral points of y^2 = x^3 + k up to a bound.
+
+JSON: `elliptic` (curve, op, args), `diophantine` (equation, positive,
+integer, nonzero, count, maxmult, search), `weierstrass`, `congruent`,
+`mordell`, `cubesum`; the MCP tool `elliptic`.  Tests: `tests/elip.ucas`,
+`tests/json/elip.jsonl`, `tests/mcp/elliptic.jsonl`.
+
+Not done yet: a full 2-descent for curves without rational 2-torsion
+(their rank's upper bound is the analytic rank, a theorem only up to
+rank 1), second descents (`congruent 157`, whose generator is huge, is
+left open with its bounds), integral points beyond a search bound (no
+elliptic logarithms or Baker bounds), saturation only at p <= 7 and
+without an index bound, Hessian models from Weierstrass form (they need
+a 3-torsion point), theta-congruent numbers.
 
 ## Design
 
