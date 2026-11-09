@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"proofs","arguments":{"op":"theorem","args":{"name":"bockstein","statement":"forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))"}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"proofs","arguments":{"op":"prove","args":{"name":"bockstein"}}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"proofs","arguments":{"op":"proof_check","args":{"name":"bockstein"}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"proofs","arguments":{"op":"theorem","args":{"name":"zp","statement":"forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 1 <= r and a in H(C,n) and zpksummand(a,H(C,n),p,1) -> not dimg(bock(C,p),r,n-1,j(bock(C,p),a))"}}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"proofs","arguments":{"op":"prove","args":{"name":"zp"}}}}

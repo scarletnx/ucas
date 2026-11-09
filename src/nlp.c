@@ -30,6 +30,7 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
 #include "absalg.h"
@@ -7714,6 +7715,8 @@ nlp_is_english(const char *s, size_t n)
 		if (r >= 0)
 			return r;
 	}
+	if (prove_is_cmd(s + i, n - i))
+		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
 	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
 		return 0;
 	{
