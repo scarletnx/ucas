@@ -80,6 +80,51 @@ x86_command(struct P *p)
 		}
 		fail("x86: models");
 	}
+	if (!strcmp(w, "intrinsic") && !cmdp_eos(p)) {
+		char nm[96];
+		if (!cmdp_word(p, nm, sizeof nm))
+			fail("intrinsic NAME [on MODEL]");
+		ua = opt_uarch(p);
+		if (!cmdp_eos(p))
+			fail("intrinsic NAME [on MODEL]");
+		cmd_intrinsic(nm, ua);
+		return 1;
+	}
+	if (!strcmp(w, "intrinsics")) {
+		char flt[96];
+		int have = 0;
+		if (!cmdp_eos(p) && !cmdp_at(p, T_ID))
+			fail("intrinsics [FILTER] [on MODEL]");
+		ua = opt_uarch(p);
+		if (ua < 0 && cmdp_word(p, flt, sizeof flt))
+			have = 1;
+		if (ua < 0)
+			ua = opt_uarch(p);
+		if (!cmdp_eos(p))
+			fail("intrinsics [FILTER] [on MODEL]");
+		cmd_intrinsics(have ? flt : NULL, ua);
+		return 1;
+	}
+	if (!strcmp(w, "x86check")) {
+		char flt[96];
+		int have = 0, avx512 = 0;
+		int64_t npts = 64;
+		for (;;) {
+			if (cmdp_kw(p, "n")) {
+				if (!cmdp_int(p, &npts))
+					fail("x86check: n COUNT");
+			} else if (cmdp_kw(p, "avx512"))
+				avx512 = 1;
+			else if (!have && cmdp_word(p, flt, sizeof flt))
+				have = 1;
+			else
+				break;
+		}
+		if (!cmdp_eos(p))
+			fail("x86check [FILTER] [n POINTS] [avx512]");
+		cmd_x86check(have ? flt : NULL, (int)npts, avx512);
+		return 1;
+	}
 	if (!strcmp(w, "mca")) {
 		struct func *f;
 		if (cmdp_eos(p))
