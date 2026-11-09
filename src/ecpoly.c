@@ -220,6 +220,9 @@ mul_base(const struct mf *F, u64 *r, const u64 *a, int na, const u64 *b,
 }
 
 #define KARA 24
+int ntt_thresh = 300;    /* NTT above this length (both factors) */
+void px_mul_ntt(const struct mf *F, u64 *r, const u64 *a, int na,
+    const u64 *b, int nb);
 
 static void
 addv(const struct mf *F, u64 *r, const u64 *a, int na, const u64 *b, int nb)
@@ -297,8 +300,19 @@ px_mul(const struct mf *F, struct px *r, const struct px *a,
 	}
 	d = na + nb - 2;
 	out = xmalloc(sizeof(u64) * (size_t)n * (size_t)(d + 1));
+	{
+		static int init;
+		if (!init) {
+			const char *e = getenv("UCAS_NTT_THRESH");
+			if (e)
+				ntt_thresh = atoi(e);
+			init = 1;
+		}
+	}
 	if (na <= KARA || nb <= KARA)
 		mul_base(F, out, a->c, na, b->c, nb);
+	else if (na >= ntt_thresh && nb >= ntt_thresh)
+		px_mul_ntt(F, out, a->c, na, b->c, nb);
 	else {
 		int m = na > nb ? na : nb;
 		u64 *A = xcalloc((size_t)n * (size_t)m * 2, sizeof(u64));
