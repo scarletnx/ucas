@@ -378,5 +378,5 @@ y' = -2y + 1, y(0) = 3
   ucas: factor x^2 - 1
 factor x^2 - 1
   = (x - 1)*(x + 1)
-  check: equal at 64 sample points (max relative difference 2.2e-16)
+  check: exact (both sides have the same normal form)
   (factors are irreducible over the rationals)

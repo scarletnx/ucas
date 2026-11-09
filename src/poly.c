@@ -1284,7 +1284,7 @@ kronecker(const struct up *g, int k, struct up *h)
 	int64_t A[UD + 1], pts[16], val[16], dv[16][512];
 	int nd[16], d = g->d, np = 0, i, j, ok = 1;
 	long long combos = 1, it;
-	int idx[16];
+	int idx[16], saved_ovf;
 
 	if (!up_int(g, A))
 		return -1;
@@ -1328,6 +1328,7 @@ kronecker(const struct up *g, int k, struct up *h)
 			return -1;
 	}
 	memset(idx, 0, sizeof idx);
+	saved_ovf = alg_ovf;
 	for (it = 0; it < combos; it++) {
 		aq y[16], dd[16];
 		struct up p;
@@ -1364,8 +1365,10 @@ kronecker(const struct up *g, int k, struct up *h)
 			up_trim(&t);
 			up_set(&p, &t);
 		}
-		if (alg_ovf)
-			return -1;
+		if (alg_ovf) {
+			alg_ovf = saved_ovf;
+			continue;
+		}
 		if (p.d != k)
 			continue;
 		for (i = 0; i <= p.d; i++)
@@ -1382,8 +1385,10 @@ kronecker(const struct up *g, int k, struct up *h)
 				up_monic(h, &p);
 				return 1;
 			}
+			alg_ovf = saved_ovf;
 		}
 	}
+	alg_ovf = saved_ovf;
 	return 0;
 }
 
@@ -1421,8 +1426,13 @@ factor_sqf(const struct up *g0, struct up *f, int max, int *partial)
 					aq r;
 					if (gcd64(dp[i], dq[j]) != 1)
 						continue;
+					int so = alg_ovf;
 					r = qmk(s * dp[i], dq[j]);
-					if (up_evalq(&g, r).n == 0 && !alg_ovf) {
+					if (up_evalq(&g, r).n != 0 || alg_ovf) {
+						alg_ovf = so;
+						continue;
+					}
+					{
 						struct up lin;
 						lin.d = 1;
 						lin.c[1] = qi(1);

@@ -171,12 +171,38 @@ alg_check(nid a, nid b, double *worst, int *onlyone)
 	return n;
 }
 
+/* a and b have the same rational normal form (an exact proof) */
+static int
+exact_same(nid a, nid b)
+{
+	struct rf ra, rb;
+	size_t mk = ar_mark();
+	int r = 0, sn = nat;
+	nid sa[AV];
+
+	memcpy(sa, at_node, sizeof sa);
+	atoms_reset();
+	if (rf_of(a, &ra, NULL) && rf_of(b, &rb, NULL))
+		r = mp_eq(mp_mul(ra.n, rb.d), mp_mul(rb.n, ra.d)) && !alg_ovf;
+	ar_release(mk);
+	nat = sn;
+	memcpy(at_node, sa, sizeof sa);
+	return r;
+}
+
 static void
 print_check(nid a, nid b, const char *cond)
 {
 	double w;
-	int one, n = alg_check(a, b, &w, &one);
+	int one, n;
 	uint64_t m = 0;
+
+	if (exact_same(a, b)) {
+		printf("  check: exact (both sides have the same normal form)%s%s\n",
+		    cond && *cond ? "; where " : "", cond && *cond ? cond : "");
+		return;
+	}
+	n = alg_check(a, b, &w, &one);
 
 	slots_of(a, &m, 0);
 	slots_of(b, &m, 0);
@@ -520,10 +546,29 @@ conv_or_say(nid e, struct rf *r, struct mp *dall)
 	return 1;
 }
 
+static int big_coefs;   /* the result has integers past 2^53 */
+
+static int
+mp_big(struct mp a)
+{
+	int i;
+
+	for (i = 0; i < a.n; i++)
+		if (llabs(a.t[i].c.n) > ((int64_t)1 << 53) || a.t[i].c.d >
+		    ((int64_t)1 << 53))
+			return 1;
+	return 0;
+}
+
 static void
 show_result(nid in, nid out, struct sbuf *conds)
 {
 	printf("  = %s\n", node_str(out));
+	if (big_coefs && !exact_same(in, out)) {
+		printf("  note: coefficients beyond 2^53 are printed rounded (numbers "
+		    "in expressions are doubles), so no check is printed\n");
+		return;
+	}
 	if (conds && conds->n)
 		printf("  holds where %s (cancelled there)\n", conds->p);
 	print_check(in, out, conds ? conds->p : NULL);
@@ -734,6 +779,7 @@ alg_cmd1(const char *cmd, nid e, nid var)
 	nid out;
 
 	head(cmd, e);
+	big_coefs = 0;
 	if (!strcmp(cmd, "simplify")) {
 		out = alg_simplify(e, &conds);
 		show_result(e, out, &conds);
@@ -741,6 +787,7 @@ alg_cmd1(const char *cmd, nid e, nid var)
 	}
 	if (!conv_or_say(e, &r, &dall))
 		goto done;
+	big_coefs = mp_big(r.n) || mp_big(r.d);
 	if (strcmp(cmd, "expand"))
 		rf_conds(dall, r.d, &conds);
 	if (!strcmp(cmd, "expand") || !strcmp(cmd, "cancel")) {

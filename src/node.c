@@ -1088,6 +1088,8 @@ pr_const(struct sbuf *b, nid n, int hex)
 			sb_puts(b, "pi");
 		else if (v == M_E)
 			sb_puts(b, "e");
+		else if (v == floor(v) && fabs(v) >= 1e10 && fabs(v) < 9007199254740992.0)
+			sb_printf(b, "%.0f", v);   /* integers stay exact */
 		else
 			sb_printf(b, "%.10g", v);
 		return;
