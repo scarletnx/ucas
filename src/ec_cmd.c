@@ -302,7 +302,7 @@ print_mw(const struct ecq_mw *M)
 		printf("  regulator: %.12f\n", M->reg);
 		rep_num("regulator", M->reg);
 		if (M->saturated_to)
-			printf("  saturated at every prime <= %d (by reduction)\n",
+			printf("  saturated at every prime <= %d (reductions mod p; at 2 the descent map when the 2-torsion is rational)\n",
 			    M->saturated_to);
 		else
 			printf("  not proved saturated at the primes <= 7\n");

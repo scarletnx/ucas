@@ -796,8 +796,19 @@ q2w_back(const struct q2w *m, const struct ecpt *P, struct zq *t,
 	Y = fe_q(&P->y);
 	if (m->kind == 1) {
 		struct zq q = m->q;
-		if (zq_is_zero(Y))
-			return 0;
+		struct zq num = QSUB(QMUL(QMUL(Zq(2), q), QADD(X, m->c)),
+		    QDIV(QMUL(m->d, m->d), QMUL(Zq(2), q)));
+		if (zq_is_zero(Y) && zq_is_zero(num)) {
+			/* Washington: (0, -q) <-> (-a2, a1 a2 - a3) */
+			*t = m->t0;
+			*w = zq_neg(q);
+			return 1;
+		}
+		if (zq_is_zero(Y)) {
+			/* t = infinity: w / t^2 -> X / (2q) */
+			*w = QDIV(X, QMUL(Zq(2), q));
+			return 2;
+		}
 		u = QDIV(QSUB(QMUL(QMUL(Zq(2), q), QADD(X, m->c)),
 		    QDIV(QMUL(m->d, m->d), QMUL(Zq(2), q))), Y);
 		*w = QADD(zq_neg(q), QDIV(QMUL(u, QSUB(QMUL(u, X), m->d)),
@@ -805,8 +816,11 @@ q2w_back(const struct q2w *m, const struct ecpt *P, struct zq *t,
 		*t = QADD(u, m->t0);
 		return 1;
 	}
-	if (zq_is_zero(X))
-		return 0;
+	if (zq_is_zero(X)) {
+		/* t = infinity: w / t^2 -> Y / d */
+		*w = QDIV(Y, m->d);
+		return 2;
+	}
 	u = QDIV(m->d, X);
 	*w = QDIV(QMUL(Y, m->d), QMUL(X, X));
 	*t = QADD(u, m->t0);
@@ -1069,11 +1083,14 @@ map_fwd(const struct dio_map *m, const fe *X, struct ecpt *R)
 	}
 	{
 		/* DK_YQUAD: X = (x, y) affine (X[2] = 1) */
-		struct zq x = QDIV(feq(&X[0]), feq(&X[2]));
-		struct zq y = QDIV(feq(&X[1]), feq(&X[2]));
-		struct zq s = QADD(QMUL(QMUL(Zq(2), evall(m->PA, 5, x)), y),
+		struct zq x, y, sv;
+		if (fe_is_zero(QQd(), &X[2]))
+			return 0;
+		x = QDIV(feq(&X[0]), feq(&X[2]));
+		y = QDIV(feq(&X[1]), feq(&X[2]));
+		sv = QADD(QMUL(QMUL(Zq(2), evall(m->PA, 5, x)), y),
 		    evall(m->PB, 5, x));
-		return q2w_fwd(&m->qw, x, s, R);
+		return q2w_fwd(&m->qw, x, sv, R);
 	}
 }
 
@@ -1087,8 +1104,42 @@ map_back(const struct dio_map *m, const struct ecpt *P, fe *X)
 		ec_flexmap_back(&m->W, &m->fm, P, X);
 		return 1;
 	}
-	if (!q2w_back(&m->qw, P, &t, &w))
+	int at;
+
+	if (!(at = q2w_back(&m->qw, P, &t, &w)))
 		return 0;
+	if (at == 2) {
+		/* the quartic's point at infinity, w the limit of w / t^2 */
+		if (m->kind == DK_LINES) {
+			struct zq f1 = m->F1[0], f2 = m->F2[0], f3 = m->F3[0], lam;
+			int i, j;
+			struct zq U[3];
+			if (!zq_is_zero(f3))
+				lam = QDIV(QSUB(w, f2), QMUL(Zq(2), f3));
+			else if (!zq_is_zero(QADD(w, f2)))
+				lam = QDIV(QMUL(Zq(-2), f1), QADD(w, f2));
+			else
+				return 0;
+			U[0] = lam;
+			U[1] = Zq(0);
+			U[2] = Zq(1);
+			for (i = 0; i < 3; i++) {
+				struct zq s = Zq(0);
+				for (j = 0; j < 3; j++)
+					s = QADD(s, QMUL(feq(&m->Ainv[i * 3 + j]), U[j]));
+				X[i] = fe_from_q(s);
+			}
+			return 1;
+		}
+		if (m->kind == DK_YQUAD && m->weighted) {
+			/* (x : w : z) = (1 : 0 : s / (2a)) */
+			X[0] = fe_from_q(Zq(1));
+			X[1] = fe_from_q(QDIV(w, QMUL(Zq(2), m->PA[0])));
+			X[2] = fe_from_q(Zq(0));
+			return 1;
+		}
+		return 0;
+	}
 	if (m->kind == DK_LINES) {
 		struct zq f1 = evalh(m->F1, 2, t), f2 = evalh(m->F2, 3, t),
 		    f3 = evalh(m->F3, 4, t), lam, U[3];
@@ -1344,9 +1395,16 @@ point_values(const struct dio_map *m, const struct dio_eq *D, const fe *X,
 		if (m->weighted) {
 			/* (x : 1 : z) -> (p, q, z q^2) */
 			struct zq x = feq(&X[0]), z = feq(&X[1]);
+			if (fe_is_zero(QQd(), &X[2])) {
+				/* at infinity: (1 : 0 : z) */
+				val[m->vx] = Zq(1);
+				val[m->vw] = Zq(0);
+				val[m->vy] = z;
+				return 1;
+			}
 			val[m->vx] = zq_int(x.n);
-			val[m->vy] = zq_int(x.d);
-			val[m->vw] = QMUL(z, zq_int(z_mul(x.d, x.d)));
+			val[m->vw] = zq_int(x.d);
+			val[m->vy] = QMUL(z, zq_int(z_mul(x.d, x.d)));
 			return 1;
 		}
 		val[m->vx] = feq(&X[0]);
@@ -1447,6 +1505,8 @@ dio_maps(struct dio_eq *D, struct dio_map *m, const struct dio_opts *o,
 	int nv = D->V.nv, deg = qp_deg(F), k;
 
 	memset(m, 0, sizeof *m);
+	for (k = 0; k < 5; k++)
+		m->PA[k] = m->PB[k] = m->PC[k] = m->D[k] = Zq(0);
 	if (nv == 3 && deg == 3 && qp_homogeneous(F)) {
 		m->proj = 1;
 		m->vmap[0] = 0;
@@ -1558,10 +1618,10 @@ dio_maps(struct dio_eq *D, struct dio_map *m, const struct dio_opts *o,
 			print_zq_poly(&s, m->D, 5, D->V.name[m->vx]);
 			if (m->weighted)
 				sb_printf(out, "weighted homogeneous (%s, %s of weight "
-				    "1, %s of weight 2): set %s = 1, then %s^2 = %s / %s\n",
-				    D->V.name[m->vx], D->V.name[m->vw],
-				    D->V.name[m->vy], D->V.name[m->vw], "s", sb_str(&s),
-				    "1");
+				    "1, %s of weight 2): with %s = 1 and s = 2 a %s (a its "
+				    "coefficient), s^2 = %s\n", D->V.name[m->vx],
+				    D->V.name[m->vw], D->V.name[m->vy], D->V.name[m->vw],
+				    D->V.name[m->vy], sb_str(&s));
 			else
 				sb_printf(out, "quadratic in %s: s = 2 A(%s) %s + "
 				    "B(%s) gives s^2 = B^2 - 4AC = %s\n",

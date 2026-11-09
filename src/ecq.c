@@ -2019,6 +2019,49 @@ l_saturated(const struct ec *E, const struct ecpt *P, int r, int64_t l)
 	return 0;
 }
 
+/* 2-saturation with full rational 2-torsion, exactly: R is in 2E(Q) iff
+ * x(R) - e_i is a square for each root e_i of the 2-division polynomial
+ * (at R = (e_j, *) the j-th entry is (e_j - e_k)(e_j - e_l)); checked for
+ * every nonzero combination of the points mod 2.  -1: not full 2-torsion */
+static int
+two_saturated_full(const struct ec *E, const struct ecpt *P, int r)
+{
+	zint X[3];
+	struct zq e[3];
+	int nr, mask, i, j;
+
+	nr = zx_cubic_int_roots(ZA(E, b2), z_mul(I(8), ZA(E, b4)),
+	    z_mul(I(16), ZA(E, b6)), X);
+	if (nr < 3)
+		return -1;
+	for (i = 0; i < 3; i++)
+		e[i] = zq_make(X[i], I(4));
+	for (mask = 1; mask < (1 << r); mask++) {
+		struct ecpt R;
+		int in2 = 1;
+		ec_O(&R);
+		for (i = 0; i < r; i++)
+			if (mask >> i & 1)
+				ec_add(E, &R, &R, &P[i]);
+		if (R.inf)
+			return 0;
+		for (i = 0; i < 3 && in2; i++) {
+			struct zq v = zq_sub(fe_q(&R.x), e[i]);
+			if (zq_is_zero(v)) {
+				v = zq_int(Z_ONE);
+				for (j = 0; j < 3; j++)
+					if (j != i)
+						v = zq_mul(v, zq_sub(e[i], e[j]));
+			}
+			if (!zq_is_square(v, NULL))
+				in2 = 0;
+		}
+		if (in2)
+			return 0;
+	}
+	return 1;
+}
+
 int
 ecq_saturate(const struct ec *E, struct ecpts *G, int pmax)
 {
@@ -2037,6 +2080,14 @@ ecq_saturate(const struct ec *E, struct ecpts *G, int pmax)
 			int64_t o = ec_order_upto(E, &T.gen[i], 12);
 			if (o % l == 0)
 				P[n++] = T.gen[i];
+		}
+		if (l == 2) {
+			int t = two_saturated_full(E, P, n);
+			if (t >= 0) {
+				if (!t)
+					all = 0;
+				continue;
+			}
 		}
 		if (!l_saturated(E, P, n, l))
 			all = 0;
@@ -2326,8 +2377,8 @@ ecq_egg_empty(const struct ec *E, char *why, size_t n)
 		struct sbuf s = {0};
 		for (k = 0; k < (1 << nsel); k++)
 			sb_printf(&s, "%s%s", k ? ", " : "", z_str(sel[k]));
-		snprintf(why, n, "on y^2 = x^3 + %s x^2 + %s x (x = 4X - e3 shifted "
-		    "to the largest 2-torsion point) the 2-isogeny Selmer group "
+		snprintf(why, n, "on y^2 = x^3 + %s x^2 + %s x (X = 4x shifted by the "
+		    "largest root of the 2-division polynomial) the 2-isogeny Selmer group "
 		    "for x mod squares is {%s}: all positive, so every rational "
 		    "point has x >= 0, while the bounded component lies in x < 0",
 		    z_str(a), z_str(b), sb_str(&s));
