@@ -716,6 +716,10 @@ pr_prod(struct sbuf *b, nid n, int minp)
 		coef = xf_num(f.k);
 	if (neg)
 		prec = PS_NEG;
+	if (!neg && !coef && !dcoef && f.nd == 0 && f.nn == 1) {
+		pr(b, f.num[0], minp);
+		return;
+	}
 	if (prec < minp)
 		sb_putc(b, '(');
 	if (neg)

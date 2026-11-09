@@ -141,6 +141,8 @@ int series_command(struct P *p, const char *w);
 /* recognise a constant: "pi^2/6", NULL if nothing short */
 const char *xf_ident(double v);
 const char *xf_ident_tol(double v, double tol);
+nid xf_libsum(const double *c, int nm, int m0, nid u, double *R,
+    const char **name);
 
 /* ---- xform.c shared ---- */
 nid xf_polish(nid R, int slot, nid x);   /* rational: canonical */

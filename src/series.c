@@ -1469,6 +1469,24 @@ lib_match(const double *c, int nm, int m0, struct libm *L)
 				}
 				if (!good)
 					continue;
+				{
+					/* snap lam and K to nice values when they are */
+					int d;
+					for (d = 1; d <= 12; d++) {
+						double t = nearbyint(lam * d) / d;
+						if (fabs(t - lam) <= 1e-12 * fmax(1, fabs(lam))) {
+							lam = t;
+							break;
+						}
+					}
+					for (d = 1; d <= 1000; d++) {
+						double t = nearbyint(K * d) / d;
+						if (fabs(t - K) <= 1e-12 * fmax(1, fabs(K))) {
+							K = t;
+							break;
+						}
+					}
+				}
 				L->e = e;
 				L->j = j;
 				L->K = K;
@@ -1502,6 +1520,21 @@ static nid
 lib_closed(const struct libm *L, int m0, nid u, int neg)
 {
 	return lib_closed2(L, m0, u, neg, 0);
+}
+
+/* for xform.c's genfunc: sum_{m>=m0} c_m u^m from the library */
+nid
+xf_libsum(const double *c, int nm, int m0, nid u, double *R,
+    const char **name)
+{
+	struct libm L;
+
+	memset(&L, 0, sizeof L);
+	if (!lib_match(c, nm, m0, &L))
+		return 0;
+	*R = L.R;
+	*name = lib_name[L.e];
+	return lib_closed(&L, m0, u, L.lam < 0);
 }
 
 /* the library on a numeric sum: sum_{n>=lo} a(n) = closed form at u = 1 */

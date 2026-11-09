@@ -2124,6 +2124,24 @@ cmd_lsolve(char *text)
 
 /* ---- Z transform ---- */
 
+/* a failure that a probe (genfunc trying the Z transform) catches quietly */
+static int zquiet;
+static jmp_buf zjmp;
+
+static void
+zfail(const char *fmt, ...)
+{
+	va_list ap;
+	char buf[480];
+
+	if (zquiet)
+		longjmp(zjmp, 1);
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof buf, fmt, ap);
+	va_end(ap);
+	fail("%s", buf);
+}
+
 enum {
 	ZR_LIN = 1, ZR_SCALE = 2, ZR_N = 4, ZR_TRIG = 8, ZR_DELAY = 16,
 	ZR_DELTA = 32, ZR_P2S = 64, ZR_POLY = 128, ZR_FACT = 256,
@@ -2463,7 +2481,7 @@ zt_term(struct zctx *C, nid term, int delay)
 				return;
 			}
 		}
-		fail("ztrans: no rule for the factor %s", xf_str(F.pw[k] == 1 ?
+		zfail("ztrans: no rule for the factor %s", xf_str(F.pw[k] == 1 ?
 		    F.f[k] : xpow(F.f[k], xk(F.pw[k]))));
 	}
 	if (step > 0) {
@@ -2474,13 +2492,13 @@ zt_term(struct zctx *C, nid term, int delay)
 		return;
 	}
 	if (pw != floor(pw) || pw < 0)
-		fail("ztrans: n^%s: no rule (powers n^k, k = 0, 1, 2, ...)",
+		zfail("ztrans: n^%s: no rule (powers n^k, k = 0, 1, 2, ...)",
 		    xf_num(pw));
 	{
 		nid R;
 		if (fact) {
 			if (pw != 0 || trig)
-				fail("ztrans: n^k or a sine times 1/n!: no rule");
+				zfail("ztrans: n^k or a sine times 1/n!: no rule");
 			C->rules |= ZR_FACT;
 			R = xexp(xdiv(r, C->z));
 			if (!C->hasroc) {
@@ -2503,7 +2521,7 @@ zt_rec(struct zctx *C, nid e, int delay)
 	int i;
 
 	if (++C->depth > 40)
-		fail("ztrans: the expression is too deep");
+		zfail("ztrans: the expression is too deep");
 	terms_of(e, &T);
 	if (T.n > 1)
 		C->rules |= ZR_LIN;
@@ -4698,11 +4716,385 @@ cmd_dtft(char *text)
 	}
 }
 
+/* ---- generating functions ---- */
+
+/* c0 + c1 x + ... in ascending powers, as text */
+static void
+asc_text(struct sbuf *b, const struct xpoly *p, const char *x)
+{
+	int i, first = 1;
+
+	for (i = 0; i <= p->deg; i++) {
+		double c = p->c[i];
+		const char *cs;
+		if (c == 0)
+			continue;
+		cs = xf_num(fabs(c));
+		if (first)
+			sb_puts(b, c < 0 ? "-" : "");
+		else
+			sb_puts(b, c < 0 ? " - " : " + ");
+		if (i == 0)
+			sb_puts(b, cs);
+		else {
+			if (strcmp(cs, "1")) {
+				if (strchr(cs, '/') || strchr(cs, ' '))
+					sb_printf(b, "(%s)", cs);
+				else
+					sb_puts(b, cs);
+			}
+			sb_puts(b, x);
+			if (i > 1)
+				sb_printf(b, "^%d", i);
+		}
+		first = 0;
+	}
+	if (first)
+		sb_puts(b, "0");
+}
+
+/* a rational G(x) with G's denominator normalised to 1 + ... */
+static void
+gf_text(struct sbuf *b, struct xrat *r, const char *x)
+{
+	struct sbuf n = {0}, d = {0};
+	double c0;
+
+	xq_reduce(r);
+	c0 = r->d.deg >= 0 ? r->d.c[0] : 1;
+	if (c0 != 0 && r->d.deg > 0) {
+		xp_scale(&r->n, 1 / c0);
+		xp_scale(&r->d, 1 / c0);
+	}
+	asc_text(&n, &r->n, x);
+	if (r->d.deg <= 0) {
+		sb_puts(b, n.p);
+	} else {
+		asc_text(&d, &r->d, x);
+		sb_printf(b, top_sum(n.p) ? "(%s)/(%s)" : "%s/(%s)", n.p, d.p);
+	}
+	free(n.p);
+	free(d.p);
+}
+
+/* Stirling numbers of the second kind S(k, j) */
+static double
+stirling2(int k, int j)
+{
+	static double S[16][16];
+	static int done;
+
+	if (!done) {
+		int a, b;
+		S[0][0] = 1;
+		for (a = 1; a < 16; a++)
+			for (b = 1; b <= a; b++)
+				S[a][b] = b * S[a - 1][b] + S[a - 1][b - 1];
+		done = 1;
+	}
+	return k < 16 && j < 16 ? S[k][j] : 0;
+}
+
+/* the EGF of a(n) = sum of c n^k r^n [cos|sin(b n)], delta[n - k]: a node */
+static nid
+egf_of(nid a, int ns, nid x)
+{
+	struct terms T;
+	nid G = xk(0);
+	int i, k;
+
+	terms_of(a, &T);
+	for (i = 0; i < T.n; i++) {
+		struct facs F;
+		double pw = 0, c1, c0;
+		nid r = xk(1), u, arg;
+		int trig = 0;
+		nid beta = 0;
+		memset(&F, 0, sizeof F);
+		F.coef = xk(1);
+		fac_rec(T.t[i], ns, 1, &F);
+		for (k = 0; k < F.nf; k++) {
+			nid f = unc(F.f[k]);
+			if (is_var(f, ns) && F.pw[k] > 0 && F.pw[k] == floor(F.pw[k]))
+				pw += F.pw[k];
+			else if (N.op[f] == O_POW && !has_slot(N.a[f], ns) &&
+			    lin_of(N.b[f], ns, &u, &arg)) {
+				r = xmul(r, xpow(N.a[f], xmul(xk(F.pw[k]), u)));
+				F.coef = xmul(F.coef, xpow(N.a[f], xmul(xk(F.pw[k]), arg)));
+			} else if (xis_exp(f, &u) && lin_of(u, ns, &c1 == 0 ? &u : &u,
+			    &arg)) {
+				nid s1, s0;
+				lin_of(u, ns, &s1, &s0);
+				r = xmul(r, xexp(xmul(xk(F.pw[k]), s1)));
+				F.coef = xmul(F.coef, xexp(xmul(xk(F.pw[k]), s0)));
+			} else if ((N.op[f] == O_COS || N.op[f] == O_SIN) && !trig &&
+			    F.pw[k] == 1 && lin_of(N.a[f], ns, &u, &arg) &&
+			    xnum(arg, &c0) && c0 == 0) {
+				trig = N.op[f];
+				beta = u;
+			} else if (xis_kron(f, &arg) && F.pw[k] == 1 &&
+			    lin_num(arg, ns, &c1, &c0)) {
+				/* delta[n - m]: x^m/m! */
+				double m = -c0 / c1;
+				pw = -1;
+				G = xadd(G, xmul(F.coef, xdiv(xpow(x, xk(m)), xk(factd(
+				    (int)m)))));
+				break;
+			} else
+				fail("egf: no rule for %s", xf_str(f));
+		}
+		if (pw < 0)
+			continue;
+		if (pw > 15)
+			fail("egf: n^%d: too high a power", (int)pw);
+		{
+			/* sum n^k (r x)^n/n! = e^(rx) sum_j S(k, j) (rx)^j */
+			int kk = (int)pw, j;
+			nid rx, poly = xk(0), e;
+			if (trig) {
+				/* r^n cos(b n): Re e^(r e^(ib) x) = e^(r cos b x) cos(r sin b x) */
+				nid rc = xmul(r, mk_un(O_COS, beta)), rs = xmul(r, mk_un(O_SIN,
+				    beta));
+				if (kk)
+					fail("egf: n^k times a sine: no rule");
+				e = xmul(xexp(xmul(rc, x)), mk_un(trig, xmul(rs, x)));
+				G = xadd(G, xmul(F.coef, e));
+				continue;
+			}
+			rx = xmul(r, x);
+			if (kk == 0)
+				poly = xk(1);
+			for (j = 1; j <= kk; j++)
+				poly = xadd(poly, xmul(xk(stirling2(kk, j)), xpow(rx, xk(j))));
+			G = xadd(G, xmul(F.coef, xmul(poly, xexp(rx))));
+		}
+	}
+	return G;
+}
+
+static const struct {
+	const char *name;
+	const char *def;
+} named_seq[] = {
+	{"fibonacci", "a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"fib", "a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"the fibonacci numbers", "a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"fibonacci numbers", "a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"lucas", "a[n+2] = a[n+1] + a[n], a[0] = 2, a[1] = 1"},
+	{"lucas numbers", "a[n+2] = a[n+1] + a[n], a[0] = 2, a[1] = 1"},
+	{"pell", "a[n+2] = 2a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"pell numbers", "a[n+2] = 2a[n+1] + a[n], a[0] = 0, a[1] = 1"},
+	{"tribonacci", "a[n+3] = a[n+2] + a[n+1] + a[n], a[0] = 0, a[1] = 0, "
+	    "a[2] = 1"},
+	{"catalan", "binom(2n, n)/(n + 1)"},
+	{"catalan numbers", "binom(2n, n)/(n + 1)"},
+	{"central binomial", "binom(2n, n)"},
+	{"central binomial coefficients", "binom(2n, n)"},
+	{"squares", "n^2"},
+	{"cubes", "n^3"},
+	{"triangular", "n(n + 1)/2"},
+	{"triangular numbers", "n(n + 1)/2"},
+	{"powers of 2", "2^n"},
+	{"powers of two", "2^n"},
+	{"natural numbers", "n"},
+	{"ones", "1"},
+	{"factorials", "n!"},
+	{NULL, NULL}
+};
+
+static void
+cmd_genfunc(char *text, int egf)
+{
+	char *t = text;
+	struct func *f = NULL;
+	nid a = 0, x, G = 0;
+	int ns, xsl, k, isrec = 0;
+	struct sbuf gtxt = {0};
+	double R = INFINITY;
+	struct xrat gr;
+	int rational = 0;
+	const char *libname = NULL;
+
+	trim(t);
+	for (k = 0; named_seq[k].name; k++)
+		if (!strcasecmp(t, named_seq[k].name)) {
+			printf("%s: %s\n", named_seq[k].name, named_seq[k].def);
+			t = xstrdup(named_seq[k].def);
+			break;
+		}
+	xf_discrete = 1;
+	if (strchr(t, '[') && strchr(t, '=')) {
+		/* a recurrence: Y(z) from zsolve, G(x) = Y(1/x) */
+		struct zctx C;
+		struct lineq L;
+		nid Y;
+		a = zsolve_core(t, 1, &Y, &C, &L);
+		ns = L.xs;
+		xsl = C.zs;
+		x = xv(xsl, "x");
+		isrec = 1;
+		printf("  a[%s] = %s\n", L.xn, xf_str(a));
+		if (!egf) {
+			nid Gx = xsubst1(Y, C.zs, xdiv(xk(1), x));
+			if (xq_of(Gx, xsl, &gr)) {
+				rational = 1;
+				G = Gx;
+			}
+		}
+	} else {
+		static const char *const npref[] = {"n", "k", "i", NULL};
+		f = xf_parse(t);
+		ns = pick_slot(f, NULL, npref);
+		if (ns < 0)
+			ns = f->np;
+		if (f->np > (xf_slot(f, sym_str(f->np ? f->p[0].name : 0)) >= 0 &&
+		    ns < f->np ? 1 : 0))
+			fail("genfunc: the terms have other variables");
+		a = f->body;
+		xsl = ns + 1;
+		if (xsl >= MAXP)
+			fail("too many variables");
+		x = xv(xsl, "x");
+		if (!egf) {
+			jmp_buf saved;
+			struct zctx C;
+			memset(&C, 0, sizeof C);
+			C.ns = ns;
+			C.n = xv(ns, f->np ? sym_str(f->p[ns].name) : "n");
+			C.zs = xsl;
+			C.z = xv(xsl, "z");
+			(void)saved;
+			zquiet = 1;
+			if (setjmp(zjmp) == 0) {
+				nid X = zt_of(a, &C);
+				nid Gx = xsubst1(X, xsl, xdiv(xk(1), x));
+				if (xq_of(Gx, xsl, &gr)) {
+					rational = 1;
+					G = Gx;
+				} else
+					G = Gx;
+			}
+			zquiet = 0;
+			notes_drop();
+		}
+	}
+	if (!egf) {
+		if (rational) {
+			double complex z[XD];
+			int m[XD], nz = xf_roots(&gr.d, z, m), i;
+			for (i = 0; i < nz; i++)
+				R = fmin(R, cabs(z[i]));
+			gf_text(&gtxt, &gr, "x");
+		} else if (!G) {
+			/* the library on the terms */
+			double c[30];
+			int i, ok;
+			for (i = 0; i < 30; i++) {
+				c[i] = xf_eval1(a, ns, i, &ok);
+				if (!ok || !isfinite(c[i]))
+					fail("genfunc: a_%d is undefined", i);
+			}
+			G = xf_libsum(c, 30, 0, x, &R, &libname);
+			if (!G) {
+				/* radius 0? */
+				double r1 = fabs(c[29] / c[28]);
+				if (r1 > 20)
+					printf("  the ordinary generating function has radius of "
+					    "convergence 0 (a_n grows faster than any r^n); try "
+					    "egf\n");
+				else
+					printf("  no closed form recognised (C-finite sequences, "
+					    "and the library: exp, log, atan, binomial, Catalan)\n");
+				xf_discrete = 0;
+				return;
+			}
+			sb_puts(&gtxt, xf_str(G));
+		} else
+			sb_puts(&gtxt, xf_str(G));
+		printf("  G(x) = sum_{n>=0} a_n x^n = %s", gtxt.p);
+		if (isinf(R))
+			printf("    for every x\n");
+		else
+			printf("    for |x| < %s\n", xf_num(R));
+		if (libname)
+			printf("  from the library: %s\n", libname);
+		{
+			/* check: sum a_n x^n at x = R/2 */
+			double x0 = isinf(R) ? 0.5 : R / 2, s = 0, xp = 1, gv;
+			int i, ok, okg;
+			for (i = 0; i < 400; i++, xp *= x0) {
+				double v = xf_eval1(a, ns, i, &ok);
+				if (!ok || !isfinite(v))
+					break;
+				s += v * xp;
+				if (fabs(v * xp) < 1e-18 * fabs(s) && i > 20)
+					break;
+			}
+			gv = xf_eval1(G, xsl, x0, &okg);
+			printf("  check: sum_n a_n x^n at x = %s is %.15g, G = %.15g "
+			    "(difference %.2g)\n", xf_num(x0), s, gv, fabs(s - gv));
+		}
+	} else {
+		nid E;
+		{
+			/* the closed form of a_n first */
+			jmp_buf saved;
+			memcpy(saved, fail_jmp, sizeof saved);
+			if (!isrec && setjmp(fail_jmp) == 0) {
+				struct zctx C;
+				struct xrat r2;
+				double R2;
+				nid X;
+				memset(&C, 0, sizeof C);
+				C.ns = ns;
+				C.n = xv(ns, f && f->np ? sym_str(f->p[ns].name) : "n");
+				C.zs = xsl;
+				C.z = xv(xsl, "z");
+				(void)X;
+				(void)r2;
+				(void)R2;
+			}
+			memcpy(fail_jmp, saved, sizeof saved);
+		}
+		{
+			/* n!: 1/(1 - x) */
+			nid fa;
+			if (xis_fact(a, &fa) && is_var(fa, ns))
+				E = xdiv(xk(1), xsub(xk(1), x));
+			else
+				E = egf_of(a, ns, x);
+		}
+		printf("  E(x) = sum_{n>=0} a_n x^n/n! = %s\n", xf_str(E));
+		{
+			double xs2[2] = {0.25, 0.5};
+			int j, i, ok;
+			double worst = 0;
+			for (j = 0; j < 2; j++) {
+				double s = 0, xp = 1, fct = 1, ev;
+				for (i = 0; i < 160; i++) {
+					double v = xf_eval1(a, ns, i, &ok);
+					if (!ok || !isfinite(v))
+						break;
+					s += v * xp / fct;
+					xp *= xs2[j];
+					fct *= i + 1;
+				}
+				ev = xf_eval1(E, xsl, xs2[j], &ok);
+				worst = fmax(worst, fabs(s - ev) / fmax(1, fabs(ev)));
+			}
+			printf("  check: the series at x = 1/4 and 1/2 matches E (max "
+			    "relative difference %.2g)\n", worst);
+		}
+	}
+	free(gtxt.p);
+	xf_discrete = 0;
+}
+
 /* ---- the command dispatcher ---- */
 
 static const char *const xcmds[] = {"laplace", "ilaplace", "ztrans",
 	"iztrans", "zsolve", "tf", "fourier", "ifourier", "fseries", "dft",
-	"idft", "fft", "ifft", "dtft", "genfunc", "egf", "converge",
+	"idft", "fft", "ifft", "dtft", "genfunc", "ogf", "egf", "converge",
 	"converges", "radius", "powerseries", "coeffs", "asymptotic", NULL};
 
 int
@@ -4767,6 +5159,10 @@ xform_command(struct P *p)
 		cmd_dft(text, 1);
 	else if (!strcmp(w, "dtft"))
 		cmd_dtft(text);
+	else if (!strcmp(w, "genfunc") || !strcmp(w, "ogf"))
+		cmd_genfunc(text, 0);
+	else if (!strcmp(w, "egf"))
+		cmd_genfunc(text, 1);
 	else {
 		free(text);
 		cmdp_seek(p, at);
