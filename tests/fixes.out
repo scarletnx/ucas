@@ -439,3 +439,15 @@ plot of h(n) = n*n
   h(n) = n*n: 21 points, values in [0, 225]
   image: 640x440, 8196 bytes
   (nofile: GIF checksum 567e60de)
+> ch(x: f32 in -0.9..0.9) = sin(x) - x
+> crit ch
+critical points of ch:
+  ch' = cos(x) - 1
+  x ≈ 0: stationary inflection, ch = 0
+    (ch' is 0 to f32 rounding within 0.000203 of it: one point)
+> cp(x: f32 in -3..3) = x^3 - 3x
+> crit cp
+critical points of cp:
+  cp' = 3x^2 - (0x + 3)
+  x ≈ -1.000000022: local maximum, cp = 2
+  x ≈ 1.000000037: local minimum, cp = -2

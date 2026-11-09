@@ -47,3 +47,8 @@ plot log(x) logx nofile
 plot x^2 logx nofile
 h(n: u8 in 0..20) = n*n
 plot h nofile
+# crit: an f32 rounding plateau is one point
+ch(x: f32 in -0.9..0.9) = sin(x) - x
+crit ch
+cp(x: f32 in -3..3) = x^3 - 3x
+crit cp
