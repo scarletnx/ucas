@@ -581,6 +581,8 @@ val_text(double v, int exact)
 }
 
 /* the integrand e (slot 0) defined at 400 points inside [a, b] */
+static double last_max;		/* defined_on: the largest |e| seen */
+
 static int
 defined_on(nid e, double a, double b)
 {
@@ -588,12 +590,15 @@ defined_on(nid e, double a, double b)
 	uint8_t ok[401];
 	int i;
 
+	last_max = 0;
 	for (i = 0; i <= 400; i++)
 		xs[i] = a + (b - a) * i / 400.0;
 	eval_node(e, 401, xs, ys, ok);
-	for (i = 0; i <= 400; i++)
+	for (i = 0; i <= 400; i++) {
 		if (ok[i] != 1)
 			return 0;
+		last_max = fmax(last_max, fabs(ys[i]));
+	}
 	return 1;
 }
 
@@ -622,6 +627,10 @@ integrate(nid e, double a, double b, struct integ *I, int want_exact)
 		if (o1 && o2) {
 			I->exact = 1;
 			I->ve = fb - fa;
+			/* sin(2pi) is 2.4e-16: rounding, not a value */
+			if (fabs(I->ve) < 1e-13 * fmax(fabs(fa) + fabs(fb), last_max *
+			    fabs(b - a)))
+				I->ve = 0;
 		}
 	}
 }
@@ -680,8 +689,10 @@ zeros_of(nid e, double a, double b, double *z, int max)
 		uint8_t o;
 		if (ok[i] != 1 || ok[i + 1] != 1)
 			continue;
-		if (fl == 0 && i > 0) {
-			if (n == 0 || fabs(z[n - 1] - l) > 1e-12 * (1 + fabs(l)))
+		if (fl == 0) {	/* on a sample: a crossing, not a touch */
+			if (i > 0 && ok[i - 1] == 1 && ((ys[i - 1] < 0 && ys[i + 1] > 0) ||
+			    (ys[i - 1] > 0 && ys[i + 1] < 0)) && (n == 0 ||
+			    fabs(z[n - 1] - l) > 1e-12 * (1 + fabs(l))))
 				z[n++] = l;
 			continue;
 		}
@@ -779,6 +790,39 @@ default_bounds(int crossings)
 		}
 	}
 	clip_defined(&lo, &hi);
+	if (!R.ng && R.cmd != VC_ARCLEN && !(R.cmd != VC_AREA && R.cmd !=
+	    VC_CENTROID && R.axis == AX_V)) {
+		/* one lobe: between two crossings of the axis, the one nearest 0 */
+		double c = R.cmd == VC_AREA || R.cmd == VC_CENTROID ? 0 : R.c;
+		int k, best = -1;
+		nz = zeros_of(minus_c(body_of(&R.f), c), lo, hi, z, 64);
+		for (k = 0; k + 1 < nz; k++) {
+			double m = (z[k] + z[k + 1]) / 2;
+			if (best < 0 || fabs(m) - 1e-9 * m < fabs((z[best] +
+			    z[best + 1]) / 2) - 1e-9 * (z[best] + z[best + 1]) / 2)
+				best = k;
+		}
+		if (best >= 0) {
+			R.a = z[best];
+			R.b = z[best + 1];
+			R.bounds = 1;
+			printf("  %s in [%s, %s]: between two crossings of %s, the lobe "
+			    "nearest 0 (in plot's bounds [%s, %s])\n", xname(),
+			    pr_gpi(R.a), pr_gpi(R.b), c == 0 ? "the x-axis" : "the axis",
+			    btxt(lo), btxt(hi));
+			printf("  note: no bounds given: one lobe of the region (say "
+			    "from a to b for another)\n");
+			return;
+		}
+	}
+	if (R.cmd != VC_AREA && R.cmd != VC_CENTROID && R.cmd != VC_ARCLEN &&
+	    R.axis == AX_V && lo < R.c && hi > R.c) {
+		/* about a vertical axis: one side of it, the right one */
+		printf("  note: plot's bounds [%s, %s] straddle %s: the side %s >= "
+		    "%s (say from a to b for the other)\n", btxt(lo), btxt(hi),
+		    R.c == 0 ? "the y-axis" : "the axis", xname(), pr_g4(R.c));
+		lo = R.c;
+	}
 	R.a = lo;
 	R.b = hi;
 	R.bounds = 1;
@@ -1797,6 +1841,9 @@ solid_numbers(struct solid *so, int print, int what)
 		sf = sign_on(SUB(fb, KR(R.c)));
 		sg = sign_on(SUB(gb, KR(R.c)));
 		so->straddle = sf * sg < 0 || sf == 0 || sg == 0;
+		/* one curve: disks of radius |f - c| whatever its sign */
+		if (gconst && !R.ng)
+			so->straddle = sf == 0 ? 2 : 0;
 	} else {
 		so->straddle = (R.a < R.c && R.b > R.c);
 	}
@@ -1819,7 +1866,7 @@ solid_numbers(struct solid *so, int print, int what)
 		nid u = minus_c(fb, R.c), v = minus_c(gb, R.c);
 		int dom = defined_on(fb, R.a, R.b) && defined_on(gb, R.a, R.b);
 		method = gconst && R.ng == 0 ? "disks" : "washers";
-		if (!so->straddle) {
+		if (so->straddle != 1) {
 			/* the outer is the one further from the axis */
 			s1 = sign_on(SUB(mk_un(O_ABS, u), mk_un(O_ABS, v)));
 			e = s1 >= 0 ? SUB(sq(u, dom), sq(v, dom)) : SUB(sq(v, dom),
@@ -1843,7 +1890,7 @@ solid_numbers(struct solid *so, int print, int what)
 				printf("  method: %s, V = pi ∫ (R^2 - r^2) d%s, R and r the "
 				    "outer and inner distances to the axis\n", method,
 				    xname());
-			if (so->straddle)
+			if (so->straddle == 1)
 				printf("  note: the region crosses %s: each slice is a disk "
 				    "out to the further curve (the two sides overlap)\n",
 				    axis_text());
