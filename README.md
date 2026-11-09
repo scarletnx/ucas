@@ -431,7 +431,12 @@ behind it.  English only; the translator is a hand-written parser
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
   Number words, `90deg`, `90 degrees`, `90°` (angles, converted to
-  radians), `1.5r`/`rad`.  Greek letter names (`theta`, `alpha`, or
+  radians), `1.5r`/`rad`.  Primes after a name are ucas notation and
+  pass through: `what is f'(3)`, `f''`, `the slope field of y' = t -
+  y`, `solve y' = -2y + 1 with y(0) = 3` (defines the ODE and its
+  initial values, then `dsolve`; also systems, `x' = y and y' = -x`);
+  contractions (`what's`, `f's`) are words.  A comma before a sign
+  starts a new item: `(y, -x)`, `at (1, -2)`.  Greek letter names (`theta`, `alpha`, or
   `θ`) are variables; one or two letters are variables; `it`/`its`
   refer to the last function.
 - **Variables**: `for a signed byte x`, `where x is between 1 and 12`,
