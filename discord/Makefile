@@ -39,6 +39,22 @@ MK_WERROR=	no
 LDADD+=	${CONCORD_LIB} -L${LOCALBASE}/lib -lcurl -lpthread -lm
 DPADD+=	${CONCORD_LIB}
 
+# ScarletNX's GLSL ES compiler (../src/snxglslc), as ../Makefile builds
+# it: a library of its own, as its glslc.c would clash with ours
+SNXGLSLC=	lexer parser emit builtins glslc
+SNXDIR=	${.CURDIR}/../src/snxglslc
+.for f in ${SNXGLSLC}
+snx_${f}.o: ${SNXDIR}/${f}.c ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+	${CC} ${CFLAGS} -fPIE -c ${SNXDIR}/${f}.c -o ${.TARGET}
+.endfor
+libsnxglslc.a: ${SNXGLSLC:S/^/snx_/:S/$/.o/}
+	rm -f ${.TARGET}
+	${AR} rcs ${.TARGET} ${.ALLSRC}
+LDADD+=	libsnxglslc.a
+DPADD+=	libsnxglslc.a
+${PROG}.full ${PROG}: libsnxglslc.a
+CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
+
 ${CONCORD_LIB}:
 	@if [ ! -d ${CONCORD}/.git ]; then \
 		mkdir -p ${.CURDIR}/third_party && \

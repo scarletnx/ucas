@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Loops in the expression DAG: the entry table, the O_LOOP node, its
  * evaluation, printing and substitution.

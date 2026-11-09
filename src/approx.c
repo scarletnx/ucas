@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * approx: cheap polynomial and rational approximations of a function on
  * an interval, measured as they will run.

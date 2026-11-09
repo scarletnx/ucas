@@ -14,3 +14,5 @@ nlp_words.h
 secrets/
 # bot session logs: user messages, never commit
 logs/
+libsnxglslc.a
+snx_*.o

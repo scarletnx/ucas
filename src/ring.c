@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Rings and finite fields: the commands.  A command's arguments are taken
  * as text (the rest of the statement) and read here with a small scanner,

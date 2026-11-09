@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * rint: integration.  Rational functions completely (polynomial part,
  * Hermite reduction for the rational part, partial fractions over the
