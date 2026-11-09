@@ -853,6 +853,14 @@ ce1(nid e)
 		return a;
 	case O_FMA:
 		return a * b + ce(N.c[e]);
+	/* hyper.c's conj re im arg */
+	case O_CONJ: return conj(a);
+	case O_RE: return creal(a);
+	case O_IM: return cimag(a);
+	case O_ARG:
+		if (a == 0)
+			return cnan();
+		return atan2(cimag(a) == 0 ? 0.0 : cimag(a), creal(a));
 	}
 	/* real-only operations */
 	if (!re || cimag(a) != 0)
@@ -2098,6 +2106,16 @@ zof1(nid e)
 		return zinv(op, zof(N.a[e]));
 	case O_CAST:
 		return zof(N.a[e]);
+	/* hyper.c's conj re im arg */
+	case O_CONJ:
+		a = zof(N.a[e]);
+		return Z(a.re, nneg(a.im));
+	case O_RE:
+		return zre(zof(N.a[e]).re);
+	case O_IM:
+		return zre(zof(N.a[e]).im);
+	case O_ARG:
+		return zre(norm(zarg(zof(N.a[e]))));
 	case O_SEL:
 		a = zof(N.b[e]);
 		b = zof(N.c[e]);
@@ -2295,7 +2313,7 @@ prep(const char *in, struct sbuf *o)
 			;
 		n = j - i;
 		if ((n == 1 && (in[i] == 'i' || in[i] == 'j' || in[i] == 'I')) ||
-		    (n == 2 && !strncmp(in + i, "im", 2))) {
+		    (n == 2 && !strncmp(in + i, "im", 2) && in[j] != '(')) {
 			if (in[i] == 'j')
 				saw_j = 1;
 			saw_unit = 1;
@@ -4865,4 +4883,57 @@ forms_command(struct P *p)
 	lc_reset();
 	z_reset();
 	return 1;
+}
+
+/* ---- for hyper.c: exact constants ---- */
+
+/* v as forms prints it ("sqrt(2)/2", "pi/3", "exp(-pi/2)"); 1 when exact */
+int
+forms_num(double v, char *buf, size_t n)
+{
+	struct cf c;
+
+	cfmt(v, &c);
+	snprintf(buf, n, "%s%s%s%s", c.neg ? "-" : "", c.num, c.den[0] ? "/" : "",
+	    c.den);
+	return c.exact;
+}
+
+/* re + i im as forms prints a constant ("1/10 + 7i/10") */
+void
+forms_ztext(double re, double im, struct sbuf *out)
+{
+	zfmt(out, mk_const_r(fabs(re) < 1e-14 * (fabs(im) + 1e-300) ? 0 : re),
+	    mk_const_r(fabs(im) < 1e-14 * (fabs(re) + 1e-300) ? 0 : im));
+}
+
+/*
+ * The real and imaginary parts of text (i the unit, other variables
+ * real), normalised, as ucas text; 0 when forms cannot split it.  Errors
+ * and notes stay inside.
+ */
+int
+forms_reim(const char *text, struct sbuf *re, struct sbuf *im)
+{
+	jmp_buf saved;
+	struct inp *in = xcalloc(1, sizeof *in);
+	int ok = 0;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	lc_reset();
+	z_reset();
+	if (setjmp(fail_jmp) == 0) {
+		struct cz z;
+		get_input(text, in, 0);
+		z = zof(in->body);
+		pr(re, norm(z.re), 0);
+		pr(im, norm(z.im), 0);
+		ok = 1;
+	}
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	lc_reset();
+	z_reset();
+	free(in);
+	return ok;
 }

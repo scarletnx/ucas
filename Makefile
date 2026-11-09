@@ -12,6 +12,8 @@ SRCS+=	forms.c
 SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
+# complex, quaternion, octonion and Cayley-Dickson numbers
+SRCS+=	hyper.c
 .PATH:	${.CURDIR}/src
 MAN=
 

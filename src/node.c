@@ -80,6 +80,10 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_ACOSH] = {"acosh", 1, OF_REALFN | OF_PARTIAL},
 	[O_ATANH] = {"atanh", 1, OF_REALFN | OF_PARTIAL},
 	[O_LOOP] = {"loop", 2, 0},
+	[O_CONJ] = {"conj", 1, OF_REALFN},
+	[O_RE] = {"re", 1, OF_REALFN},
+	[O_IM] = {"im", 1, OF_REALFN},
+	[O_ARG] = {"arg", 1, OF_REALFN | OF_PARTIAL},
 };
 
 static const char *const atomic_names[] = {

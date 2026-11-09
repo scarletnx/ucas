@@ -121,6 +121,8 @@ enum {
 	/* forms.c: inverse trig, atan2(y, x), hyperbolic and their inverses */
 	O_ASIN, O_ACOS, O_ATAN2, O_SINH, O_COSH, O_TANH, O_ASINH, O_ACOSH,
 	O_ATANH,
+	/* hyper.c: conj(z), re(z), im(z), arg(z); on reals x, x, 0, 0 or pi */
+	O_CONJ, O_RE, O_IM, O_ARG,
 	O_NOPS
 };
 #define OF_COMM 1
@@ -200,6 +202,12 @@ struct func {
 	struct param p[MAXP];
 	nid body, where;
 	int anon;
+	/*
+	 * hyper.c: a complex/quaternion/octonion function.  halg is log2 of
+	 * the algebra's dimension (0: an ordinary real function), hk[j] that
+	 * of parameter j; hf32: c64, every operation rounded to f32 parts.
+	 */
+	uint8_t halg, hf32, hk[MAXP];
 };
 struct func *func_find(uint32_t name);
 struct func *func_new(uint32_t name);
@@ -417,6 +425,14 @@ int forms_scalar(int op, double a, double b, double *r);  /* 0: undefined */
 nid forms_diff(nid e, uint32_t slot);
 const char *forms_cond(nid n);    /* an op's domain condition, or NULL */
 int forms_command(struct P *p);
+int forms_num(double v, char *buf, size_t n);   /* for hyper.c */
+void forms_ztext(double re, double im, struct sbuf *out);
+int forms_reim(const char *text, struct sbuf *re, struct sbuf *im);
+
+/* ---- hyper.c: complex, quaternion, octonion, Cayley-Dickson ---- */
+int hyper_statement(const char *stmt);  /* 1: it was hypercomplex, and ran */
+int hyper_scalar(int op, double a, double *r);  /* conj re im arg on reals */
+nid hyper_diff(nid e, uint32_t slot);
 
 /* ---- nlp.c: English in, ucas statements out ---- */
 extern int nlp_interactive;
