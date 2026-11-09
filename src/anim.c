@@ -1743,6 +1743,15 @@ input_words(struct P *p, struct imgin *in)
 		}
 		if (!cmdp_word(p, w, sizeof w))
 			break;
+		if (!strcasecmp(w, "gallery") && cmdp_at(p, T_NUM)) {
+			int64_t g;
+			cmdp_int(p, &g);
+			if (g < 1 || g > IMG_MAXGAL)
+				fail("animate exec: gallery 1 to %d", IMG_MAXGAL);
+			in->kind = IK_GALLERY;
+			in->gal = (int)g;
+			continue;
+		}
 		if (!strcasecmp(w, "file") || !strcasecmp(w, "path")) {
 			if (!cmdp_raw(p, in->file, sizeof in->file))
 				fail("animate exec: input N file PATH");

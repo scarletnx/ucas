@@ -8006,6 +8006,7 @@ next_code_block(const char *src, struct sbuf *piece)
 	code_block = NULL;
 	code_block_lang[0] = 0;
 	code_block_used = 0;
+	img_gallery_clear();	/* a statement's pictures are its own */
 	while (*p) {
 		e = strchr(p, '\n');
 		if (e == NULL)

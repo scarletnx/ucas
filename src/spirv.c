@@ -3204,6 +3204,8 @@ read_file(const char *path, size_t *n)
  * One input slot's pixels: a file, a gallery image, or a pattern, as
  * 8-bit RGBA (w, h); the label says which
  */
+static unsigned gal_used;	/* the gallery's images taken */
+
 static unsigned char *
 input_pixels(int slot, const struct imgin *in, int *gal, uint64_t seed,
     int *w, int *h, char *what, size_t wn, struct sbuf *said)
@@ -3213,6 +3215,9 @@ input_pixels(int slot, const struct imgin *in, int *gal, uint64_t seed,
 	char err[160];
 	int kind = in->kind;
 
+	if (kind == IK_GALLERY && in->gal > 0 && in->gal > img_opt.ngal)
+		fail("animate exec: input %d: there is no image %d", slot + 1,
+		    in->gal);
 	if (kind == IK_DEFAULT && *gal < img_opt.ngal)
 		kind = IK_GALLERY;
 	if (kind == IK_FILE || kind == IK_GALLERY) {
@@ -3224,10 +3229,16 @@ input_pixels(int slot, const struct imgin *in, int *gal, uint64_t seed,
 			own = read_file(in->file, &n);
 			d = own;
 			nm = in->file;
+		} else if (in->gal > 0) {	/* a given one of the gallery */
+			gal_used |= 1u << (in->gal - 1);
+			d = img_opt.gal[in->gal - 1].data;
+			n = img_opt.gal[in->gal - 1].n;
+			nm = img_opt.gal[in->gal - 1].name;
 		} else {
 			d = img_opt.gal[*gal].data;
 			n = img_opt.gal[*gal].n;
 			nm = img_opt.gal[*gal].name;
+			gal_used |= 1u << *gal;
 			(*gal)++;
 		}
 		if (!img_decode(d, n, &im, err, sizeof err)) {
@@ -3292,6 +3303,7 @@ img_setup(uint64_t seed, int frag, struct sbuf *said)
 
 	memset(&G, 0, sizeof G);
 	G.uv = -1;
+	gal_used = 0;
 	for (i = 0; i < V.nid && nv < 64; i++) {
 		int cnt;
 		if (V.id[i].kind == K_VAR && binding_elem(i, &cnt) >= 0)
@@ -3418,10 +3430,15 @@ img_setup(uint64_t seed, int frag, struct sbuf *said)
 	if (img_opt.use_gallery && img_opt.ngal == 0)
 		sb_printf(said, "  note: no images came with the request: the inputs "
 		    "are noise\n");
-	if (gal < img_opt.ngal)
-		sb_printf(said, "  note: %d image%s not used (the shader has %d "
-		    "image input%s)\n", img_opt.ngal - gal, img_opt.ngal - gal == 1 ?
-		    "" : "s", slot, slot == 1 ? "" : "s");
+	{
+		int unused = 0;
+		for (i = 0; i < img_opt.ngal; i++)
+			unused += !(gal_used >> i & 1);
+		if (unused)
+			sb_printf(said, "  note: %d image%s not used (the shader has "
+			    "%d image input%s)\n", unused, unused == 1 ? "" : "s", slot,
+			    slot == 1 ? "" : "s");
+	}
 	for (i = 0; img_opt.any && i < IMG_MAXIN; i++)
 		if (i >= slot && !img_opt.all && (img_opt.in[i].kind != IK_DEFAULT ||
 		    img_opt.in[i].fmt >= 0)) {
@@ -3654,12 +3671,17 @@ image_report(int frag, int stopped)
 		    "" : "s");
 	if (G.nsample) {
 		struct samp d;
+		int given = img_opt.filt >= 0 || img_opt.addr >= 0 ||
+		    img_opt.mipf >= 0, k;
+		for (k = 0; k < IMG_MAXIN; k++)
+			given |= img_opt.in[k].filt >= 0 || img_opt.in[k].addr >= 0;
 		samp_from_opts(&d, NULL);
-		printf("  sampling: %s (the sampler's state is not in SPIR-V: "
-		    "assumed; say `sampler nearest clamp`, or `input 1 nearest "
-		    "mirror`); implicit LOD from the quad's fine derivatives, mips "
-		    "by a 2x2 box filter, filter weights in double precision\n",
-		    samp_text(G.ns > 0 ? &G.s[0] : &d));
+		printf("  sampling: %s%s; implicit LOD from the quad's fine "
+		    "derivatives, mips by a 2x2 box filter, filter weights in "
+		    "double precision\n", samp_text(G.ns > 0 ? &G.s[0] : &d),
+		    given ? " (as given)" : " (the sampler's state is not in "
+		    "SPIR-V: assumed; say `sampler nearest clamp`, or `input 1 "
+		    "nearest mirror`)");
 	}
 	(void)frag;
 }
@@ -3875,7 +3897,14 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 		    !strcmp(V.in[k].opnd[1], "LocalSize")) {
 			long wg = atol(V.in[k].opnd[2]) * atol(V.in[k].opnd[3]) *
 			    atol(V.in[k].opnd[4]);
-			if (wg > lanes)
+			if (wg > lanes && G.on)
+				printf("  note: the workgroup has %ld invocations (LocalSize "
+				    "%s %s %s); the trace shows %d of them, the image run "
+				    "every one, 32 at a time (shared memory and barriers "
+				    "across more than 32 are not modelled there)\n", wg,
+				    V.in[k].opnd[2], V.in[k].opnd[3], V.in[k].opnd[4],
+				    lanes);
+			else if (wg > lanes)
 				printf("  note: the workgroup has %ld invocations (LocalSize "
 				    "%s %s %s); these are the first %d%s, so shared memory "
 				    "the others would write stays as it started\n", wg,

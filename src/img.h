@@ -130,6 +130,7 @@ struct imgin {			/* one input slot */
 	char file[200];		/* IK_FILE: a path */
 	int w, h;		/* 0: 64 x 64 (or the gallery image's size) */
 	int filt, addr;		/* -1: the sampler's defaults */
+	int gal;		/* IK_GALLERY: the gallery's image gal - 1 */
 };
 struct imggal {			/* an image the front end handed over */
 	char name[96];

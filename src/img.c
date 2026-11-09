@@ -25,6 +25,28 @@
 #define STBI_MAX_DIMENSIONS IMG_MAXDIM
 #include "third_party/stb_image.h"
 
+/* stb_image's terse reasons, said in words */
+static const char *
+why(void)
+{
+	static const struct { const char *a, *b; } t[] = {
+		{"outofdata", "the file is truncated"},
+		{"outofmem", "out of memory"},
+		{"bad huffman code", "corrupt data (a bad Huffman code)"},
+		{"bad zlib header", "corrupt data (a bad zlib header)"},
+		{"bad codelengths", "corrupt data (bad code lengths)"},
+		{"too large", "the image is too large"},
+		{"unknown image type", "not an image I can read"},
+	};
+	const char *r = stbi_failure_reason();
+	size_t i;
+
+	for (i = 0; r && i < sizeof t / sizeof t[0]; i++)
+		if (!strcmp(r, t[i].a))
+			return t[i].b;
+	return r ? r : "cannot decode it";
+}
+
 const char *
 img_sniff(const unsigned char *p, size_t n)
 {
@@ -71,7 +93,7 @@ img_decode(const unsigned char *p, size_t n, struct imgdec *out, char *err,
 		return 0;
 	}
 	if (!stbi_info_from_memory(p, (int)n, &w, &h, &c)) {
-		snprintf(err, errn, "%s: %s", f, stbi_failure_reason());
+		snprintf(err, errn, "%s: %s", f, why());
 		return 0;
 	}
 	if (w <= 0 || h <= 0 || w > IMG_MAXDIM || h > IMG_MAXDIM ||
@@ -82,7 +104,7 @@ img_decode(const unsigned char *p, size_t n, struct imgdec *out, char *err,
 	}
 	px = stbi_load_from_memory(p, (int)n, &w, &h, &c, 4);
 	if (px == NULL) {
-		snprintf(err, errn, "%s: %s", f, stbi_failure_reason());
+		snprintf(err, errn, "%s: %s", f, why());
 		return 0;
 	}
 	out->w = w;
