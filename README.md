@@ -3058,8 +3058,9 @@ before its output, as with `ucas file`.  Output comes back as a reply
 in a code block that mentions nobody.  Up to 3 messages are used,
 split at line breaks under Discord's 2000-character limit; anything
 longer is sent as a preview plus the whole output attached as
-`ucas-output.txt`.  Messages from bots (including itself), webhooks and
-system users are ignored.
+`ucas-output.txt`.  Messages from itself, webhooks and system users are
+ignored, and so are other bots' except those on an allowlist (see [Bots
+and programs](#bots-and-programs)).
 
 Attachments and replies count as input.  A message's attached files,
 and for a Discord reply to someone else's message that message's
@@ -3169,6 +3170,102 @@ and builds its static library with gmake.  Concord handles identify,
 heartbeats, resume/reconnect and the REST rate limits (429
 `retry_after`).
 
+### Bots and programs
+
+Another bot (an AI agent on Discord, say) can use the bot as a person
+does, and has a JSON path made for programs.  `@Wimsy explain AI usage`
+(also "explain ai use", "how do bots use you", "AI usage", "usage for
+AI", "help for bots", "bot usage", misspellings tolerated) answers anyone
+with the guide written for such a bot: a short version in the message
+and the whole of it attached as `wimsy-ai-usage.md`.  Its source is
+`discord/ai_usage.md` (and `ai_usage_short.md`), embedded at build time;
+`{MENTION}`, `{ID}`, `{RATE}`, `{BURST}`, `{CHAIN}`, `{CPU}` and `{WALL}`
+are filled in at run time.  `@Wimsy help` points at it.
+
+**Which bots.**  Only bot accounts on the allowlist are served, by
+default the one bot `1562594665109393468`; every other bot and every
+webhook is ignored, silently.  There is no setting that serves every
+bot.  A bot must address the bot explicitly: a real mention (`<@id>`,
+not the name typed as text) or a Discord reply to one of its messages.
+A bare reply to one of its notices (the rate limit, the chain limit,
+the help) is not a request.
+
+**Safeguards**, for loops and abuse:
+
+- a rate limit per bot (a token bucket): `UCAS_DISCORD_BOT_BURST`
+  requests at once, refilled at `UCAS_DISCORD_BOT_RATE` a minute.  The
+  first request over it is answered with `rate limited: retry in N s
+  (...)`; the rest are ignored until a request is taken again.
+- a cap on reply chains: a bot's request that is a Discord reply to the
+  bot deepens its chain in that channel, a fresh mention starts a new
+  one, and any human message in the channel ends them all.  Past
+  `UCAS_DISCORD_BOT_CHAIN` the bot says `reply-chain limit: ...` once
+  and ignores the chain.
+- replies never ping: `allowed_mentions` is empty and the reply
+  reference does not notify (as for everyone).
+- the log (`--log`) marks bot authors (`"bot":true`) and records each
+  refusal (`bot-rate-limited`, `bot-chain-cap`, `bot-notice-reply`) and
+  each JSON request (`json-request`, `json-reset`, `json-schema`,
+  `json-refused`).
+
+| variable | default | |
+|----------|---------|--|
+| `UCAS_DISCORD_BOTS` | `1562594665109393468` | bot user ids served, comma separated; `deny` (or empty) for none |
+| `UCAS_DISCORD_BOT_RATE` | 6 | requests a minute per bot |
+| `UCAS_DISCORD_BOT_BURST` | 3 | requests at once per bot |
+| `UCAS_DISCORD_BOT_CHAIN` | 5 | replies in a row to the bot without a human message |
+
+**JSON over Discord.**  A message addressed to the bot that holds a
+```` ```json ```` block is a request of the [JSON frontend](#json-frontend-for-agents-and-programs)
+(the protocol of `ucas --json`: `{"id", "cmd", "args"}`, or an array of
+up to 8 run in order); text outside the block is ignored.  Anyone may
+use it, not only bots.
+
+````
+@Wimsy ```json
+{"id": 1, "cmd": "integrate", "args": {"f": "x^2 sin(x)"}}
+```
+````
+
+The reply is a ```` ```json ```` block with the response (or the array
+of them), as `ucas --json` gives it, and the usual reaction (a check
+mark when every response is `ok`, else a cross):
+
+```json
+{"id": 1, "ok": true, "cmd": "integrate", "ucas": "integrate x^2 sin(x)", "structured": true,
+ "result": {"kind": "integrate", "var": "x", "integrand": "x^2*sin(x)",
+ "antiderivative": "2x*sin(x) + 2cos(x) - x^2*cos(x)"}, "notes": [], "conditions": [],
+ "checks": [{"kind": "derivative", "points": 401, "max_diff": 7.105427357601002e-15, "passed": true, ...}],
+ "files": [], "text": "∫ x^2*sin(x) dx\n  = 2x*sin(x) + 2cos(x) - x^2*cos(x) + C\n  check: ..."}
+```
+
+- Requests run in the channel's worker, through the JSON frontend's own
+  request handling (`json_bot_serve` in `jsonmode.c`, the same `handle`
+  as `ucas --json`), so they share the channel's state with the text
+  path.  The answers are deterministic: an ambiguity is an error
+  (`"code": "ambiguous"`, `key`, `readings`), never a question; repeat
+  the request with `args.assume` or `args.defaults`.
+- What the sandbox cannot do happens in the bot, around the worker:
+  GLSL in `args.code` is compiled to SPIR-V (a note says so),
+  spirv-cross's GLSL view goes into `text` and `result.glsl_view`, and
+  `{"attachment": N}` (the message's N-th attachment, from 1) can stand
+  for `args.code` or an entry of `args.inputs` (an image).
+- Files (`exec.gif`, `simplified.spvasm`, `simplified.glsl`,
+  `simplified.c`, plots) are attached to the reply and listed in `files`
+  as `{"name", "mime", "bytes", "attached"}`, without base64.
+  `args.files` other than `"none"` and `timeout_s` are not used (the
+  limits below apply).
+- A response that does not fit in a message is attached whole as
+  `response.json`; the message holds it with `text` cut
+  (`"text_truncated": true`) or, if that is still too long, a summary
+  (`id`, `ok`, `cmd`, `headline`: the first lines of the text, `error`,
+  `files`), with `"full": "response.json"` either way.
+- `{"cmd": "schema"}` attaches `schema.json`; `{"cmd": "reset"}` resets
+  the channel.  Both go alone in a message.  Malformed JSON, a missing
+  attachment or GLSL that does not compile is answered with an error
+  response (`bad_json`, `bad_attachment`, `bad_code`); in an array, the
+  refused request has the error and the others `not_run`.
+
 ### State and limits
 
 State is **per channel** (a thread is its own channel): functions,
@@ -3212,8 +3309,12 @@ engine code.
 `ucas-discord --stdin` reads gateway events, one JSON object per line
 (`{"op":0,"t":"MESSAGE_CREATE","d":{...}}` or a bare message object),
 passes them through the same handler as the live bot and prints each
-REST request it would make.  `ucas-discord --selftest` checks the
-prefix and fence handling, message splitting and the JSON codecs.
+REST request it would make (and the content of an attached
+`response.json`).  An event's `author` may carry `"bot": true`, and its
+`timestamp` is the clock of the bots' rate limit in this mode.
+`ucas-discord --selftest` checks the prefix and fence handling, message
+splitting, the JSON codecs, the allowlist, the rate limit, the chain
+cap and the "explain AI usage" phrases.
 `make discord-test` runs both against `discord/tests/*.jsonl`, with
 `UCAS_SPIRV_CROSS=none` unless `NAME.env` sets it; a test with a
 `NAME.needs` file is skipped when that tool is missing.
