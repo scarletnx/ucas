@@ -2171,7 +2171,7 @@ c optimize: 4 functions, 4 rewrites proved (1 exhaustive, 2 by SAT, 1 by algebra
 
 | command | |
 |---|---|
-| `c optimize FILE\|block [target T] [budget S] [assume NAME LO HI] [wrapv] [check] [bench] [nofile] [timed] [trace] [vecstub] [keep]` | rewrite; `FILE.opt.c` is written unless `nofile` (or a block) |
+| `c optimize FILE\|block [target T] [budget S] [assume NAME LO HI] [wrapv] [check] [bench] [vectorize] [nofile] [timed] [trace] [vecstub] [keep]` | rewrite; `FILE.opt.c` is written unless `nofile` (or a block) |
 | `c lower FILE\|block [wrapv]` | each function as one ucas value of its parameters, with C's UB as a domain; for the others, each counted loop's IR |
 | `c targets` | the targets and their instruction-set features |
 
@@ -2233,7 +2233,7 @@ it" before a ```` ```c ```` block.  JSON `c_optimize`, `c_lower`,
 | algebra | a stated lemma: a derivation (IEEE rewrites below) or an interval argument (a 64-bit division whose operands fit 32 bits, a magic-number division) when SAT gives up; the sample is then only a check of the lemma's premises |
 | induction | a loop summed in closed form (below), then the rest proved as above |
 | structural | a rewrite of the program's structure: a strlen scan, a loop rebuilt from its IR |
-| lanes | the vectoriser (below and "x86-64"): every lane of every stored vector proved equal to the scalar value of its iteration, from the intrinsics' lane semantics |
+| lanes | the vectoriser (below and "x86-64"): every lane of every stored vector proved equal to the scalar value of its iteration, from the intrinsics' lane semantics; applied only with `bench` (where measured faster than clang) or `vectorize` |
 | tested | reserved for opted-in, only tested rewrites (none are applied now) |
 
 A static function whose address does not escape is entered only from
@@ -2284,8 +2284,8 @@ its loads are inputs, its stores recorded in order):
   stores with their element index, type and order, reductions
   `acc = next(acc, ...)`.  `c lower` prints it.  The x86 vectoriser
   (`src/cfx86.c`, README "x86-64") is offered every such loop and
-  replaces it with intrinsics when it can prove every lane, or says why
-  not; `vecstub` registers a stub that rebuilds the loop from the IR as
+  proposes intrinsics when it can prove every lane (applied with `bench`
+  where they beat clang, or with `vectorize`), or says why not; `vecstub` registers a stub that rebuilds the loop from the IR as
   scalar C instead, so `check` validates the extraction.
   Whether a load is from before or after a store is part of the IR, so
   aliasing a vectoriser cannot rule out is visible to it.
@@ -2323,7 +2323,8 @@ default cost model.  `check` agreed on every call (k1: 80000 calls; k2:
 379687 calls, 313 inputs skipped for UB in the original; k3, mem.c).
 `bench` times functions that take pointers over 4096-element buffers
 (lengths 4096) and the original without the UBSan checks `check` adds
-(they kept clang from vectorising it); the harness does not call
+(they kept clang from vectorising it), in 3 runs of the harness, each
+the median of 15; the harness does not call
 functions with float parameters (the vectoriser's float loops were
 checked by hand, "x86-64").
 
@@ -2434,8 +2435,26 @@ other:
   cost 3   x >> 3 & 7 | x >> 6 & 0x38               pext(x, 0xe38)
 ```
 
-**The vectoriser** (`src/cfx86.c`; `c optimize` uses it on every
-counted loop the C frontend extracts):
+**The vectoriser** (`src/cfx86.c`; `c optimize` offers it every
+counted loop the C frontend extracts).  It must not make code slower,
+and `clang -O2` vectorises such loops itself, so:
+
+- by default its loops are **proposed, not applied**: the report gives
+  the proof and the code ("proposed, not applied"), and the loop keeps
+  what the rest of the pipeline does with it;
+- with `bench`, every proposed loop is applied, the functions are timed
+  against the original compiled by clang at the same target and flags
+  (3 runs, each the median of 15), and a function keeps its vector loops
+  only if it was faster by more than 5% in every run; otherwise the
+  report says "proved, not applied: clang's own vectorisation is as fast
+  or faster (N vs M cycles/element)" and the loop stays as written (a
+  scalar body rewrite there would only undo clang's vectorisation);
+  functions the harness cannot call (float parameters) are not applied;
+- `vectorize` applies them all.
+
+There is no default estimate of "the scalar loop as clang would
+vectorise it": the scheduler (`mca`) prices ucas's own code, and
+guessing clang's would not be honest.
 
 - *What it takes*: `for (i = lo; i < hi; i++)` with an int-or-wider
   index and a bound of the index's type that the loop does not change;
@@ -2447,7 +2466,9 @@ counted loop the C frontend extracts):
   for which every lane is proved (bytes computed in 16-bit lanes when
   the C int arithmetic needs more than 8 bits), loads widened with
   pmovzx/pmovsx and stores narrowed with packs or vpmov; clamps become
-  min/max, `(a + b + 1) >> 1` pavg, multiplies by 2^k±1 shifts and
+  min/max, a clamp of `a + b`, `a - b` or `2a` to the 8/16-bit range a
+  saturating add or subtract (padds, paddus, psubs, psubus),
+  `(a + b + 1) >> 1` pavg, multiplies by 2^k±1 shifts and
   adds.  The vector width is the target's widest (512 with AVX-512F,
   and BW for 8/16-bit lanes; 256 with AVX2; 128 otherwise); the code is
   guarded by the features' macros, unrolled by 4, and followed by the
@@ -2487,25 +2508,29 @@ AVX-512 targets this host only compiles the vector code (`check` says
 so) and tests the scalar fallback.
 
 Measured with `bench` (i5-9400, cycles per element over 4096 elements,
-median of 15, three runs agreeing within 0.01; other builds were
-running).  The "before" is the original compiled by clang 19 `-O2
--march=x86-64-v3`, so it is clang's own autovectoriser:
+3 runs each the median of 15, other builds were running).  "clang" is the
+original compiled by clang 19 `-O2 -march=x86-64-v3`, so it is clang's
+own autovectoriser; "applied" is what `bench` decides:
 
-| loop | clang -O2 | vectoriser | |
+| loop | clang | vectoriser | applied |
 |---|---|---|---|
-| `brighten` (u8, `*3/2+10`, clamp) | 0.39 | 0.14 | x2.8: 16-bit lanes where clang uses 32 |
-| `gath` (`t[idx[i] & 63]`) | 0.87 | 0.67 | x1.3: clang does not gather on Skylake |
-| `avg8` (`(a+b+1)>>1`) | 0.05 | 0.04 | pavgb, as clang |
-| `maxv`, `sum64`, `split`, `shift_left` | | | the same |
-| `sum8`, `xorsum` (reductions) | 0.10 | 0.11 | |
-| `add32` (`a + b*3`) | 0.33 | 0.38 | |
-| `invert_low` (`p < 16 ? 15 - p : p`) | 0.05 | 0.06 | |
-| `iota` (`2i + 1`) | 0.16 | 0.22 | |
-| `sat16` (`s*2` saturated to int16) | 0.19 | 0.47 | clang finds `paddsw`; this does it in 32-bit lanes |
+| `sat16` (`s*2` saturated to int16) | 0.18 | 0.06 | yes, x3.3: one `vpaddsw` |
+| `brighten` (u8, `*3/2+10`, clamp) | 0.39 | 0.14 | yes, x2.7: 16-bit lanes where clang uses 32 |
+| `gath` (`t[idx[i] & 63]`) | 0.83 | 0.63 | yes, x1.3: clang does not gather on Skylake |
+| `avg8` (`(a+b+1)>>1`) | 0.05 | 0.04 | no (not 5% faster in every run; both use pavgb) |
+| `add32` (`a + b*3`) | 0.33 | 0.38 | no |
+| `iota` (`2i + 1`) | 0.16 | 0.22 | no |
+| `sum8`, `xorsum` (reductions) | 0.09 | 0.11 | no |
+| `invert_low` (`p < 16 ? 15 - p : p`) | 0.05 | 0.06 | no (the default table rewrite of its body is 0.80: bench keeps the loop as written) |
+| `maxv`, `sum64`, `shift_left` | | the same | no |
+| `saxpy`, `dscale` (float parameters) | | not timed | no |
 
 So it is mostly no better than `clang -O2 -march=native`'s
-autovectoriser, sometimes worse; it wins where its proofs let it pick
-narrower lanes than C's promotions suggest, and on gathers.  Its cost
+autovectoriser, sometimes worse, and those loops are not applied; it
+wins where its proofs let it pick narrower lanes than C's promotions
+suggest, on saturating clamps, and on gathers.  Code placement alone
+moved one unchanged function by up to 25% between the two builds, which
+is why one run is not enough to decide.  Its cost
 estimates (`cost ... -> ...` in the report) are reciprocal throughputs
 from the model, not measurements.
 

@@ -109,7 +109,13 @@ the intrinsics catalogue (2585, lane semantics including loads, stores
 and gathers) and `x86check` (host: all agree; AVX-512 checked against
 clang's definitions and cross-checked, 201 not validated), x86 gate
 bases (`avx512`: vpternlog as a lut gate) and BMI/pdep/pext in `find`,
-and the vectoriser (`src/cfx86.c`, proof kind LANES).  Not done: the
+and the vectoriser (`src/cfx86.c`, proof kind LANES; its loops are
+proposed by default, applied where `bench` measures them faster than
+clang's own code, or with `vectorize`).  The pipeline's element-wise
+table rewrite still applies by default where the vectoriser is not
+applied, and can be much slower than clang's vectorised original
+(`invert_low`: 0.80 vs 0.05 cycles/element); `bench` keeps such a loop
+as written, the default does not know.  Not done: the
 scheduler as cfront's cost hook (`cf_set_cost_hook` is not set; the
 default per-op table still prices scalar code), candidate generators
 (`cf_add_cand_hook`), strided loads, conditional loads and stores
