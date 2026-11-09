@@ -1,0 +1,12 @@
+== event 1: channel 45, author 98: <@1000> slice of integral f(x) = x^2 at 0 till 4
+POST /channels/45/messages (multipart)
+{"content":"```\n  ucas: area x^2 from 0 to 4\narea under x^2\n  x in [0, 4]: given\n  ∫ x^2 dx from 0 to 4\n  antiderivative: x^3/3\n  exact: F(4) - F(0) = 21.3333333333333 = 64/3\n  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13\n  the two agree to 0\n  above the axis everywhere: the area is 64/3 = 21.33\n  image: 640x440, 8281 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3101","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"area.gif","description":"","content_type":"image/gif","size":8281,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: area.gif, image/gif, 8281 bytes
+PUT /channels/45/messages/3101/reactions/check/@me
+
+== event 2: channel 45, author 98: <@1000> revolve sqrt(x) from 0 to 4 about x frames 8 to bowl
+POST /channels/45/messages (multipart)
+{"content":"```\nsolid of revolution: the region between sqrt(x) and the x-axis about the x-axis\n  x in [0, 4]: given\n  method: disks, V = pi ∫ (sqrt(x))^2 dx from 0 to 4\n    antiderivative of the integrand: x^2/2\n    exact: V = 25.1327412287183 = 8pi\n    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 0\n    the two agree to 0\n  check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)\n  volume: 8pi = 25.13 (exact)\n  region: area 16/3 = 5.333, centroid (2.4, 0.75)\n  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)\n  surface area (the curves swept around the x-axis, without the end disks):\n    sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx\n      numeric: 36.176903197278, estimated error 2.6e-12\n  the region sweeps from 0 to 2pi in 8 steps\n  animation: 600x500, 9 frames (2.9 s), 80906 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3102","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"bowl.gif","description":"","content_type":"image/gif","size":80906,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: bowl.gif, image/gif, 80906 bytes
+PUT /channels/45/messages/3102/reactions/check/@me
+
