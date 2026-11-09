@@ -72,7 +72,7 @@ static int dry, quiet;
 int
 nlp_can_ask(void)
 {
-	return !dry && !quiet && (nlp_defer || interactive());
+	return !dry && !quiet && (nlp_defer || rep_on || interactive());
 }
 
 int
@@ -217,15 +217,23 @@ clarify(const char *key, const char *what, const char *const *opt, int nopt,
 		return v;
 	if (dry || quiet)
 		return dflt;
-	if (nlp_defer) {
+	if (nlp_defer || rep_on) {
 		const char *a;
 		if (nlp_asked)
 			return dflt;   /* one question at a time */
+		/* JSON mode: args.assume answers, else an ambiguity */
+		a = rep_on ? rep_answer(key, what, opt, nopt, dflt) : NULL;
+		if (a != NULL)
+			return atoi(a) - 1;
 		if ((a = next_answer()) == NULL) {
-			printf("\x1e" "ask choice %d\n? %s:\n", nopt, what);
-			for (k = 0; k < nopt; k++)
-				printf("  %d) %s%s\n", k + 1, opt[k],
-				    k == dflt ? "  (default)" : "");
+			if (rep_on)
+				rep_ask(key, what, opt, nopt, dflt, hint);
+			else {
+				printf("\x1e" "ask choice %d\n? %s:\n", nopt, what);
+				for (k = 0; k < nopt; k++)
+					printf("  %d) %s%s\n", k + 1, opt[k],
+					    k == dflt ? "  (default)" : "");
+			}
 			nlp_asked = 1;
 			return dflt;
 		}
@@ -7334,8 +7342,14 @@ translate_asking(const char *sent)
 		}
 		if (ok || need_more == NULL)
 			break;
-		if (nlp_defer) {
+		if (nlp_defer || rep_on) {
 			const char *a = next_answer();
+			if (a == NULL && rep_on) {
+				rep_ask_text(need_more);
+				nlp_asked = 1;
+				ok = 0;
+				break;
+			}
 			if (a == NULL) {
 				printf("\x1e" "ask text\n? %s\n", need_more);
 				nlp_asked = 1;

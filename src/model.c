@@ -54,6 +54,13 @@ model_new(uint32_t name)
 	return m;
 }
 
+/* the i-th model, NULL past the last (jsonmode.c's state) */
+struct model *
+model_nth(int i)
+{
+	return i >= 0 && i < nmodels ? &models[i] : NULL;
+}
+
 struct model *
 model_active(void)
 {
@@ -328,10 +335,24 @@ cmd_cost(struct func *f, struct model *m)
 	printf("cost of %s under %s: %g (%d operations, shared subterms "
 	    "counted once)\n", f->anon ? node_str(f->body) : sym_str(f->name),
 	    sym_str(m->name), (double)total, nops);
+	rep_begin("cost");
+	rep_str("model", sym_str(m->name));
+	rep_num("total", total);
+	rep_int("operations", nops);
+	rep_list("by_class");
 	for (k = 0; k < C_NCLASS; k++)
-		if (cnt[k])
+		if (cnt[k]) {
 			printf("  %-14s %3d x %-5g = %g\n", cclass_name[k], cnt[k],
 			    (double)(bycls[k] / (float)cnt[k]), (double)bycls[k]);
+			rep_obj(NULL);
+			rep_str("class", cclass_name[k]);
+			rep_int("count", cnt[k]);
+			rep_num("each", bycls[k] / (float)cnt[k]);
+			rep_num("cost", bycls[k]);
+			rep_end();
+		}
+	rep_end();
+	rep_list("selects");
 	best_total = total;
 	for (g = 1; g < lim; g++) {
 		nid s = g, arm[2];
@@ -373,11 +394,21 @@ cmd_cost(struct func *f, struct model *m)
 			    "divergent branch") : (sel <= uni ? "select" :
 			    "uniform branch");
 			best_total += pick - sel;
+			rep_obj(NULL);
+			rep_expr("condition", N.a[s]);
+			rep_num("select", sel);
+			rep_num("uniform_branch", uni);
+			rep_num("divergent_branch", div);
+			rep_bool("uniform_condition", !nonuni);
+			rep_str("best", name);
+			rep_end();
 			printf("      -> %s%s\n", name, nonuni ?
 			    " (condition varies per invocation; mark "
 			    "parameters 'uniform' if it does not)" : "");
 		}
 	}
+	rep_end();
+	rep_num("best_total", best_total);
 	if (nsel)
 		printf("  estimate with the best form per ?: : %g\n",
 		    (double)best_total);

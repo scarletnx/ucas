@@ -199,9 +199,14 @@ print_check(nid a, nid b, const char *cond)
 
 	if (exact_same(a, b)) {
 		printf("  check: exact (both sides have the same normal form)\n");
+		rep_check("normal_form", -1, -1, 1, "both sides have the same "
+		    "normal form");
+		rep_proof("symbolic", "both sides have the same normal form over "
+		    "Q");
 		return;
 	}
 	n = alg_check(a, b, &w, &one);
+	rep_check("numeric", n, w, n > 0 && w <= 1e-9, NULL);
 
 	slots_of(a, &m, 0);
 	slots_of(b, &m, 0);
@@ -528,6 +533,8 @@ static void
 head(const char *what, nid e)
 {
 	printf("%s %s\n", what, node_str(e));
+	rep_begin(what);
+	rep_expr("input", e);
 }
 
 static int
@@ -563,6 +570,7 @@ static void
 show_result(nid in, nid out, struct sbuf *conds)
 {
 	printf("  = %s\n", node_str(out));
+	rep_expr("result", out);
 	if (big_coefs && !exact_same(in, out)) {
 		printf("  note: coefficients beyond 2^53 are printed rounded (numbers "
 		    "in expressions are doubles), so no check is printed\n");
@@ -570,6 +578,8 @@ show_result(nid in, nid out, struct sbuf *conds)
 	}
 	if (conds && conds->n)
 		printf("  holds where %s (cancelled there)\n", conds->p);
+	if (conds && conds->n)
+		rep_cond("%s", conds->p);
 	print_check(in, out, conds ? conds->p : NULL);
 }
 
@@ -758,11 +768,14 @@ cmd_apart(nid e, nid var)
 		struct sbuf conds = {0};
 		rf_conds(dall, r.d, &conds);
 		printf("  = %s\n", node_str(acc));
+		rep_expr("result", acc);
 		if (partial)
 			printf("  note: the denominator may factor further (the search "
 			    "for factors was cut short)\n");
 		if (conds.n)
 			printf("  holds where %s (cancelled there)\n", conds.p);
+		if (conds.n)
+			rep_cond("%s", conds.p);
 		print_check(e, acc, conds.p);
 		free(conds.p);
 	}
@@ -863,6 +876,9 @@ alg_cmd1(const char *cmd, nid e, nid var)
 		}
 		printf("  in %s (degree %d): %s\n", node_str(at_node[v]),
 		    mp_deg(r.n, v), node_str(mp_node(d)));
+		rep_expr("var", at_node[v]);
+		rep_int("degree", mp_deg(r.n, v));
+		rep_expr("result", mp_node(d));
 		if (mp_vars(d) && !mp_isconst(d, NULL)) {
 			nid fd = mp_fnode(d);
 			if (strcmp(node_str(fd), node_str(mp_node(d))))
@@ -871,6 +887,7 @@ alg_cmd1(const char *cmd, nid e, nid var)
 			aq c;
 			mp_isconst(d, &c);
 			int dg = mp_deg(r.n, v);
+			rep_int("sign", qsgn(c));
 			printf("  %s\n", qsgn(c) > 0 ? (dg == 2 ?
 			    "> 0: two distinct real roots" : dg == 3 ?
 			    "> 0: three distinct real roots" : "> 0: distinct roots") :
@@ -969,6 +986,9 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 	aq ca, cb;
 
 	printf("%s %s, %s\n", cmd, node_str(a), node_str(b));
+	rep_begin(cmd);
+	rep_expr("p", a);
+	rep_expr("q", b);
 	atoms_reset();
 	if (!rf_of(a, &ra, &da) || !rf_of(b, &rb, &db)) {
 		printf("  not rational expressions in at most %d atoms\n", AV);
@@ -987,11 +1007,15 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 		if (mp_isconst(ra.n, &x) && mp_isconst(rb.n, &y) && x.d == 1 &&
 		    y.d == 1) {
 			int64_t gg = gcd64(x.n, y.n);
-			if (!strcmp(cmd, "gcd"))
+			if (!strcmp(cmd, "gcd")) {
 				printf("  = %lld\n", (long long)gg);
-			else
+				rep_strf("result", "%lld", (long long)gg);
+			} else {
 				printf("  = %lld\n", (long long)(gg ? llabs(x.n / gg *
 				    y.n) : 0));
+				rep_strf("result", "%lld", (long long)(gg ?
+				    llabs(x.n / gg * y.n) : 0));
+			}
 			goto done;
 		}
 		g = mp_gcd(ra.n, rb.n);
@@ -1003,11 +1027,16 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 			struct mp qa, qb;
 			out = mp_fnode(g);
 			printf("  = %s\n", node_str(out));
+			rep_expr("result", out);
 			if (strcmp(node_str(out), mp_str(g)))
 				printf("    = %s\n", mp_str(g));
 			/* check: g divides both, the cofactors are coprime */
 			if (mp_divexact(ra.n, g, &qa) && mp_divexact(rb.n, g, &qb)) {
 				struct mp h = mp_gcd(qa, qb);
+				rep_check("exact_division", -1, -1,
+				    mp_isconst(h, NULL), "divides both, cofactors "
+				    "coprime");
+				rep_proof("symbolic", "exact division");
 				printf("  check: it divides both exactly, and the "
 				    "cofactors %s\n", mp_isconst(h, NULL) ?
 				    "are coprime" : "are NOT coprime");
@@ -1024,6 +1053,7 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 			l = mp_prim(q);
 			out = mp_fnode(l);
 			printf("  = %s\n", node_str(out));
+			rep_expr("result", out);
 			if (strcmp(node_str(out), mp_str(l)))
 				printf("    = %s\n", mp_str(l));
 			{
@@ -1049,6 +1079,8 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 			goto done;
 		}
 		printf("  in %s: %s\n", node_str(at_node[v]), mp_str(res));
+		rep_expr("var", at_node[v]);
+		rep_str("result", mp_str(res));
 		if (!mp_isconst(res, NULL)) {
 			nid fr = mp_fnode(res);
 			if (strcmp(node_str(fr), mp_str(res)))
@@ -1131,6 +1163,9 @@ alg_cmd2(const char *cmd, nid a, nid b, nid var)
 		}
 		qn = mp_node_in(q, v);
 		rn = mp_node_in(r, v);
+		rep_expr("var", at_node[v]);
+		rep_expr("quotient", qn);
+		rep_expr("remainder", rn);
 		if (!strcmp(cmd, "quo"))
 			printf("  = %s\n", node_str(qn));
 		else if (!strcmp(cmd, "rem"))
@@ -1169,8 +1204,13 @@ alg_subst(nid e, const nid *vars, const nid *vals, int n)
 	r = subst(e, map, NSLOT);
 	s = alg_simplify(r, &conds);
 	printf("  = %s\n", node_str(s));
+	rep_begin("substitute");
+	rep_expr("input", e);
+	rep_expr("result", s);
 	if (conds.n)
 		printf("  holds where %s\n", conds.p);
+	if (conds.n)
+		rep_cond("%s", conds.p);
 	print_check(r, s, NULL);
 	free(conds.p);
 }

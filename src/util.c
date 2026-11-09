@@ -216,6 +216,25 @@ location(struct sbuf *b)
 	(void)i;
 }
 
+/* the line and column of the token in error (0 when there is none) */
+static void
+where(uint32_t *line, uint32_t *col)
+{
+	const char *src, *ls, *p;
+	uint32_t off;
+
+	if (diag_toks == NULL || diag_tok == NOTOK || diag_tok >= diag_toks->n)
+		return;
+	src = diag_toks->src;
+	off = diag_toks->off[diag_tok];
+	ls = src;
+	*line = 1;
+	for (p = src; p < src + off; p++)
+		if (*p == '\n')
+			++*line, ls = p + 1;
+	*col = (uint32_t)(src + off - ls) + 1;
+}
+
 static void
 caret(struct sbuf *b)
 {
@@ -252,6 +271,11 @@ fail(const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(tmp, sizeof tmp, fmt, ap);
 	va_end(ap);
+	if (rep_on) {
+		uint32_t line = 0, col = 0;
+		where(&line, &col);
+		rep_fail(tmp, line, col);
+	}
 	sb_printf(&b, "error: %s\n", tmp);
 	caret(&b);
 	fputs(sb_str(&b), stdout);
@@ -281,6 +305,8 @@ note(const char *fmt, ...)
 	va_start(ap, fmt);
 	vsnprintf(tmp, sizeof tmp, fmt, ap);
 	va_end(ap);
+	if (rep_on)
+		rep_note_hook(tmp);	/* a guess: an ambiguity in JSON mode */
 	sb_printf(&line, "  note: %s\n", tmp);
 	if (notes.p == NULL || strstr(notes.p, line.p) == NULL)
 		sb_puts(&notes, line.p);

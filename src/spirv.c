@@ -4447,6 +4447,36 @@ spirv_simplify(const char *src, double budget, int nofile)
 	for (i = 0; i < SP.nas; i++)
 		printf("  assuming %s in [%lld, %lld] (every load of it)\n",
 		    SP.as[i].name, (long long)SP.as[i].lo, (long long)SP.as[i].hi);
+	rep_begin("spirv_simplify");
+	rep_int("instructions", SP.orig_nin);
+	rep_int("dead_removed", ndead);
+	rep_str("model", sym_str(model_active()->name));
+	rep_num("cost_before", before);
+	rep_num("cost_after", after);
+	rep_list("assumptions");
+	for (i = 0; i < SP.nas; i++) {
+		rep_obj(NULL);
+		rep_str("name", SP.as[i].name);
+		rep_int("lo", SP.as[i].lo);
+		rep_int("hi", SP.as[i].hi);
+		rep_end();
+	}
+	rep_end();
+	rep_list("rewrites");
+	for (i = 0; i < nlog; i++) {
+		rep_obj(NULL);
+		rep_str("from", rl[i].from);
+		rep_str("to", rl[i].to);
+		rep_str("why", rl[i].why);
+		rep_num("gain", rl[i].gain);
+		rep_int("line", rl[i].line);
+		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : "sat");
+		rep_end();
+	}
+	rep_end();
+	if (nlog)
+		rep_proof("sat", "each rewrite bit-blasted and proved equal for "
+		    "every input (refinement)");
 	printf("  integer arithmetic cost under %s (each instruction once): "
 	    "%g -> %g", sym_str(model_active()->name), before, after);
 	if (before > 0)

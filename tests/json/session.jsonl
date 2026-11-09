@@ -1,0 +1,21 @@
+{"id": 1, "cmd": "state"}
+{"id": 2, "cmd": "define", "args": {"name": "days", "params": [{"name": "m", "type": "u8", "range": [1, 12]}], "body": "match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }"}}
+{"id": 3, "cmd": "define", "args": {"name": "s", "params": [{"name": "x", "type": "i8"}], "body": "x * 2 + 1"}}
+{"id": 4, "cmd": "define", "args": {"name": "h", "params": [{"name": "x", "type": "real", "range": ["-pi", "pi"]}, {"name": "w", "type": "u32", "uniform": true}], "body": "y*w", "where": ["y = sin(x)", "x != 0"]}}
+{"id": 5, "cmd": "define", "args": {"name": "bad", "params": [{"name": "x", "type": "u8", "colour": "red"}], "body": "x"}}
+{"id": 6, "cmd": "state"}
+{"id": 7, "cmd": "table", "args": {"f": "days", "max": 3}}
+{"id": 8, "cmd": "wrap", "args": {"f": "s"}}
+{"id": 9, "cmd": "range", "args": {"f": {"body": "x*x", "params": [{"name": "x", "type": "u4"}]}}}
+{"id": 10, "cmd": "range", "args": {"f": {"name": "sq", "body": "x*x", "params": [{"name": "x", "type": "u4"}]}}}
+{"id": 11, "cmd": "funcs"}
+{"id": 12, "cmd": "assume", "args": {"set": {"caret": "power"}}}
+{"id": 13, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1"}}
+{"id": 14, "cmd": "assume", "args": {"clear": true}}
+{"id": 15, "cmd": "ucas", "args": {"source": "isqrt4(x: u4) = isqrt(x)\nrange isqrt4\nshow isqrt4"}}
+{"id": 16, "cmd": "english", "args": {"text": "what is the range of the integer square root of a 4-bit unsigned x?"}}
+{"id": 17, "cmd": "english", "args": {"text": "flibber the gnorp"}}
+{"id": 18, "cmd": "reset"}
+{"id": 19, "cmd": "state"}
+{"id": 20, "cmd": "models"}
+{"id": 21, "cmd": "use", "args": {"model": "gt1030"}}

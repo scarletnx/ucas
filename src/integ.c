@@ -570,15 +570,20 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		num_of(bn, &b);
 	}
 	printf("∫ %s d%s\n", node_str(body), xn);
+	rep_begin("integrate");
+	rep_str("var", xn);
+	rep_expr("integrand", body);
 	{
 		/* x/x is 1 where x != 0: integrate the simpler form, say so */
 		struct sbuf conds = {0};
 		nid xv = mk_var((uint32_t)slot, f->p[slot].name, f->p[slot].ty);
 		nid simpler = cancel_quotients(mk_cast(TY_REAL, body), slot,
 		    TY_FP(N.ty[xv]) ? xv : mk_cast(TY_REAL, xv), &conds);
-		if (conds.n)
+		if (conds.n) {
 			printf("  note: %s = %s where %s; the result holds there\n",
 			    node_str(body), node_str(simpler), conds.p);
+			rep_cond("%s", conds.p);
+		}
 		/*
 		 * the excluded points are removable: a definite integral does
 		 * not see them, so it uses the simpler form
@@ -608,8 +613,11 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		memcpy(fail_jmp, saved, sizeof saved);
 		notes_drop();
 		printf("  = %s + C\n", node_str(F));
+		rep_expr("antiderivative", F);
 		if (how && *how)
 			printf("  method: %s\n", how);
+		if (how && *how)
+			rep_str("method", how);
 		if (f->np == 1 && d) {
 			for (i = 0; i <= 400; i++) {
 				double x = lo + (hi - lo) * i / 400.0, fv, dv;
@@ -622,6 +630,10 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 				scale = fmax(scale, fabs(fv));
 				maxres = fmax(maxres, fabs(fv - dv));
 			}
+			if (checked)
+				rep_check("derivative", checked, maxres,
+				    maxres <= 1e-9 * fmax(1, scale), "d/dx of the "
+				    "antiderivative against the integrand");
 			if (checked && maxres <= 1e-9 * fmax(1, scale))
 				printf("  check: d/d%s of it equals the integrand at %d "
 				    "points of [%g, %g] (max difference %.2g)\n", xn,
@@ -633,6 +645,8 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 			printf("  (several parameters: the derivative check needs "
 			    "values; checked symbolically only)\n");
 	} else
+		rep_null("antiderivative");
+	if (!F)
 		printf("  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)\n");
 	if (!defd)
 		return;
@@ -643,6 +657,9 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		printf("  a definite integral needs the other parameters fixed\n");
 		return;
 	}
+	rep_obj("definite");
+	rep_num("from", a);
+	rep_num("to", b);
 	{
 		double v, err, sv = 0;
 		int nev, good = gk_integrate(f, ibody, slot, a, b, &v, &err, &nev);
@@ -667,12 +684,29 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 					double jt = f_jumps(F, mk_cast(TY_REAL, ibody), slot, lo,
 					    hi, a > b ? -1 : 1, xn);
 					if (jt != 0) {
+						rep_num("jumps", jt);
 						sv -= jt;
 						printf("  F(b) - F(a) minus the jumps = %.15g\n", sv);
 					}
 				}
 			}
 		}
+		if (symok)
+			rep_num("symbolic", sv);
+		if (good) {
+			rep_num("numeric", v);
+			rep_num("error_estimate", err);
+			rep_int("evaluations", nev);
+		}
+		if (symok || good)
+			rep_num("value", symok ? sv : v);
+		else
+			rep_null("value");
+		if (symok && good)
+			rep_check("numeric_integral", nev, fabs(v - sv),
+			    fabs(v - sv) <= 10 * err + 1e-12 * fabs(sv),
+			    "F(b) - F(a) against adaptive Gauss-Kronrod");
+		rep_end();
 		if (good) {
 			printf("  numeric (adaptive Gauss-Kronrod 7-15, %d evaluations): "
 			    "%.15g, estimated error %.2g\n", nev, v, err);

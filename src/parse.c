@@ -2294,6 +2294,7 @@ run_source1(const char *src, const char *file, int echo)
 	diag_toks = t;
 	p->t = t;
 	if (setjmp(fail_jmp)) {   /* lexer error */
+		rep_failed();
 		toks_free(t);
 		free(t);
 		free(p);
@@ -2312,6 +2313,7 @@ run_source1(const char *src, const char *file, int echo)
 			p->fnarg = 0;
 			p->nb = 0;
 			fflush(stdout);
+			rep_failed();
 			if (nlp_asked)
 				break;   /* a question is out (fail_quiet) */
 			skip_stmt(p);

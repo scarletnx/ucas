@@ -127,6 +127,10 @@ print_header(const struct func *f)
 		print_node(&b, f->where, NULL);
 	}
 	printf("%s\n  -> %s\n", sb_str(&b), ty_str(N.ty[f->body]));
+	rep_begin("show");
+	rep_str("definition", sb_str(&b));
+	rep_expr("body", f->body);
+	rep_str("type", ty_str(N.ty[f->body]));
 	free(b.p);
 }
 
@@ -144,15 +148,19 @@ cmd_table(struct func *f, int max)
 	uint32_t np, i, loc;
 	int shown = 0;
 	nid root = f->body;
+	size_t at;
 
 	run_open(&r, f, &root, 1, 0, EXH, 21, 64);
 	loc = r.p.root[0];
+	rep_begin("table");
+	rep_list("rows");
 	while ((np = run_next(&r)) != 0 && shown < max) {
 		for (i = 0; i < np && shown < max; i++) {
 			if (!r.ok[i])
 				continue;
 			sb_clear(&b);
 			fmt_point(&b, f, r.in_i, r.in_r, i);
+			at = b.n;
 			sb_puts(&b, "  ->  ");
 			if (COLF(&r.p, loc)[i] & F_UNDEF)
 				sb_puts(&b, "undefined");
@@ -160,9 +168,16 @@ cmd_table(struct func *f, int max)
 				fmt_val(&b, N.ty[root], COLI(&r.p, loc)[i],
 				    COLR(&r.p, loc)[i]);
 			printf("  %s\n", sb_str(&b));
+			rep_obj(NULL);
+			rep_strf("at", "%.*s", (int)at, b.p);
+			rep_str("value", b.p + at + 6);
+			rep_bool("defined", !(COLF(&r.p, loc)[i] & F_UNDEF));
+			rep_end();
 			shown++;
 		}
 	}
+	rep_end();
+	rep_bool("truncated", shown == max && (np || r.d.pos < r.d.limit));
 	if (shown == max && (np || r.d.pos < r.d.limit))
 		printf("  ... (table max %d)\n", max);
 	free(b.p);
@@ -373,6 +388,9 @@ cmd_diff(struct func *f, int slot)
 		d = diff_node(f->body, (uint32_t)slot);
 		printf("d/d%s %s = %s\n", sym_str(f->p[slot].name), fname(f),
 		    node_str(d));
+		rep_begin("diff");
+		rep_str("var", sym_str(f->p[slot].name));
+		rep_expr("derivative", d);
 	} else {
 		nid map[MAXP] = {0}, x = mk_var((uint32_t)slot,
 		    f->p[slot].name, f->p[slot].ty);
@@ -382,6 +400,10 @@ cmd_diff(struct func *f, int slot)
 		    sym_str(f->p[slot].name), fname(f),
 		    sym_str(f->p[slot].name), fname(f),
 		    sym_str(f->p[slot].name), node_str(d));
+		rep_begin("diff");
+		rep_str("var", sym_str(f->p[slot].name));
+		rep_str("method", "forward difference");
+		rep_expr("derivative", d);
 	}
 }
 
@@ -516,6 +538,22 @@ range_real1(struct func *f)
 	if (nnan || ninf)
 		printf("  IEEE: NaN at %llu points, ±inf at %llu points\n",
 		    (unsigned long long)nnan, (unsigned long long)ninf);
+	rep_begin("range");
+	rep_bool("empty", lo > hi);
+	if (lo <= hi) {
+		rep_num("min", lo);
+		rep_num("max", hi);
+		rep_num("argmin", xlo);
+		rep_num("argmax", xhi);
+	}
+	rep_int("points", (long long)seen);
+	rep_int("undefined_points", (long long)nund);
+	rep_int("nan_points", (long long)nnan);
+	rep_int("inf_points", (long long)ninf);
+	rep_str("method", have_d ? "grid, extrema refined at critical points" :
+	    "grid");
+	rep_proof("numeric", have_d ? "a grid of points, extrema refined "
+	    "where the derivative changes sign" : "a grid of points");
 	if (TYK(f->p[0].ty) == K_REAL)
 		printf("  grid of %d points over [%g, %g]%s, %s\n", GRID,
 		    r.d.rlo[0], r.d.rhi[0], f->p[0].ranged ? "" :
@@ -601,6 +639,24 @@ cmd_range(struct func *f)
 		}
 	}
 	printf("range of %s -> %s:\n", fname(f), ty_str(t));
+	rep_begin("range");
+	rep_str("type", ty_str(t));
+	rep_bool("empty", !any);
+	rep_bool("exhaustive", r.d.exhaustive);
+	rep_int("points", (long long)seen);
+	rep_int("undefined_points", (long long)nund);
+	if (TY_FP(t)) {
+		rep_int("nan_points", (long long)nnan);
+		rep_int("inf_points", (long long)ninf);
+	}
+	if (r.d.exhaustive)
+		rep_proof("exhaustive", "every point of the domain evaluated");
+	else
+		rep_proof("numeric", "a sample of the domain");
+	if (any && TY_FP(t)) {
+		rep_num("min", rmn);
+		rep_num("max", rmx);
+	}
 	if (!any)
 		printf("  empty (undefined everywhere)\n");
 	else if (TY_FP(t))
@@ -608,9 +664,17 @@ cmd_range(struct func *f)
 	else {
 		struct sbuf b = {0};
 		fmt_val(&b, t, mn, 0);
+		rep_exact("min", (double)mn, sb_str(&b));
 		sb_puts(&b, "..");
-		fmt_val(&b, t, mx, 0);
+		{
+			size_t q = b.n;
+			fmt_val(&b, t, mx, 0);
+			rep_exact("max", int_unsigned(t) ? (double)(uint64_t)mx :
+			    (double)mx, b.p + q);
+		}
 		printf("  %s", sb_str(&b));
+		if (bm)
+			rep_int("distinct", (long long)ndist);
 		if (bm)
 			printf("   (%llu distinct values)",
 			    (unsigned long long)ndist);
@@ -622,14 +686,20 @@ cmd_range(struct func *f)
 				if (bm[k >> 3] & (1 << (k & 7)))
 					vals[n++] = (int64_t)k + base;
 			print_runs("  values: ", vals, n, 24);
+			rep_list("values");
+			for (k = 0; k < n; k++)
+				rep_int(NULL, vals[k]);
+			rep_end();
 			free(vals);
 		}
-		if (int_unsigned(t) || mn >= 0)
+		if (int_unsigned(t) || mn >= 0) {
 			printf("  fits in u%d\n", bits_for((uint64_t)mx));
-		else {
+			rep_strf("fits", "u%d", bits_for((uint64_t)mx));
+		} else {
 			int bb = bits_for((uint64_t)(mn < 0 ? ~mn : mn));
 			int bb2 = bits_for((uint64_t)(mx < 0 ? ~mx : mx));
 			printf("  fits in i%d\n", (bb > bb2 ? bb : bb2) + 1);
+			rep_strf("fits", "i%d", (bb > bb2 ? bb : bb2) + 1);
 		}
 		free(b.p);
 	}
@@ -642,9 +712,14 @@ cmd_range(struct func *f)
 	if (!r.d.exhaustive && TY_ISINT(t)) {
 		struct ival *iv = xcalloc(r.p.n, sizeof *iv);
 		plan_ival(&r.p, f, iv);
-		if (!iv[loc].top)
+		if (!iv[loc].top) {
 			printf("  sound bound (intervals): %lld..%lld\n",
 			    (long long)iv[loc].lo, (long long)iv[loc].hi);
+			rep_list("sound_bound");
+			rep_int(NULL, (long long)iv[loc].lo);
+			rep_int(NULL, (long long)iv[loc].hi);
+			rep_end();
+		}
 		free(iv);
 	}
 	free(bm);
@@ -705,10 +780,14 @@ list_conditions(const struct func *f, int *nc)
 			mark[N.c[n]] = 1, st[sp++] = N.c[n];
 		if (TYK(N.ty[n]) == K_FLOAT)
 			continue;
-#define COND(...) do { printf("  requires "); printf(__VA_ARGS__); \
-		printf("\n"); (*nc)++; } while (0)
-#define UB(...) do { printf("  C assumes "); printf(__VA_ARGS__); \
-		printf("\n"); (*nc)++; } while (0)
+#define COND(...) do { char cb_[512]; snprintf(cb_, sizeof cb_, \
+		__VA_ARGS__); printf("  requires %s\n", cb_); (*nc)++; \
+		rep_obj(NULL); rep_str("kind", "requires"); \
+		rep_str("text", cb_); rep_end(); } while (0)
+#define UB(...) do { char cb_[512]; snprintf(cb_, sizeof cb_, \
+		__VA_ARGS__); printf("  C assumes %s\n", cb_); (*nc)++; \
+		rep_obj(NULL); rep_str("kind", "c_assumes"); \
+		rep_str("text", cb_); rep_end(); } while (0)
 		switch (N.op[n]) {
 		case O_DIV:
 		case O_MOD:
@@ -838,6 +917,8 @@ domain_real1(struct func *f)
 	    r.d.rlo[0], r.d.rhi[0]);
 	if (nint == 0)
 		printf("    nowhere\n");
+	rep_str("method", "numeric: a grid, boundaries by bisection");
+	rep_list("intervals");
 	for (i = 0; i < (uint32_t)nint; i++) {
 		/* snap to a short decimal, then test whether it is included */
 		double a = snap(starts[i], r.d.rhi[0] - r.d.rlo[0]);
@@ -846,7 +927,15 @@ domain_real1(struct func *f)
 		int inb = eval_at(&dp, dp.root[0], b, &v);
 		printf("    %s in %c%.10g, %.10g%c\n", sym_str(f->p[0].name),
 		    ina ? '[' : '(', a, b, inb ? ']' : ')');
+		rep_obj(NULL);
+		rep_num("lo", a);
+		rep_num("hi", b);
+		rep_bool("lo_closed", ina);
+		rep_bool("hi_closed", inb);
+		rep_end();
 	}
+	rep_end();
+	rep_list("except");
 	/* isolated singularities: a denominator crossing zero */
 	{
 		uint8_t *mark = xcalloc(N.n, 1);
@@ -879,12 +968,14 @@ domain_real1(struct func *f)
 					printf("    except %s ≈ %.10g  (%s = 0)\n",
 					    sym_str(f->p[0].name), z,
 					    node_str(den));
+					rep_num(NULL, z);
 				}
 			}
 			plan_free(&pp);
 		}
 		free(mark);
 	}
+	rep_end();
 	plan_free(&dp);
 	run_close(&r);
 }
@@ -917,7 +1008,10 @@ cmd_domain(struct func *f)
 	}
 	if (f->where)
 		printf("  where %s\n", node_str(f->where));
+	rep_begin("domain");
+	rep_list("conditions");
 	list_conditions(f, &nc);
+	rep_end();
 	if (nc == 0)
 		printf("  no conditions: total on its parameter types\n");
 	if (f->np == 1 && TYK(f->p[0].ty) == K_REAL) {
@@ -964,6 +1058,14 @@ cmd_domain(struct func *f)
 	}
 	printf("  defined at %llu of %llu points\n", (unsigned long long)ndef,
 	    (unsigned long long)seen);
+	rep_int("defined_points", (long long)ndef);
+	rep_int("points", (long long)seen);
+	rep_bool("exhaustive", r.d.exhaustive);
+	rep_int("c_ub_points", (long long)nub);
+	if (w.n)
+		rep_str("undefined_example", sb_str(&w));
+	if (nub)
+		rep_str("c_ub_example", sb_str(&wub));
 	if (defv && ndef < seen)
 		print_runs("  defined for: ", defv, nv, 16);
 	if (w.n)
@@ -1090,6 +1192,9 @@ cmd_wrap(struct func *f)
 		}
 	}
 	printf("wrap analysis of %s:\n", fname(f));
+	rep_begin("wrap");
+	rep_bool("exhaustive", r.d.exhaustive);
+	rep_list("operations");
 	iv = xcalloc(r.p.n, sizeof *iv);
 	plan_ival(&r.p, f, iv);
 	for (k = 0; k < r.p.n; k++) {
@@ -1102,6 +1207,18 @@ cmd_wrap(struct func *f)
 		    op == O_POW || op == O_EXP || op == O_ASFLOAT ||
 		    op == O_CAST || op == O_TAN)) {
 			printf("  %s   (%s)\n", node_str(g), ty_str(tk));
+			rep_obj(NULL);
+			rep_expr("op", g);
+			rep_str("type", ty_str(tk));
+			rep_bool("nnan", !s->nan);
+			rep_int("nan_points", (long long)s->nan);
+			if (s->nan)
+				rep_str("nan_example", sb_str(&s->wn));
+			rep_bool("ninf", !s->inf);
+			rep_int("inf_points", (long long)s->inf);
+			if (s->inf)
+				rep_str("inf_example", sb_str(&s->wi));
+			rep_end();
 			if (s->nan)
 				printf("      nnan fails: NaN at %llu points, e.g. %s\n",
 				    (unsigned long long)s->nan, sb_str(&s->wn));
@@ -1120,6 +1237,21 @@ cmd_wrap(struct func *f)
 		if (op == O_ADD || op == O_SUB || op == O_MUL || op == O_NEG ||
 		    op == O_SHL || op == O_ABS) {
 			printf("  %s   (%s)\n", node_str(g), ty_str(tk));
+			rep_obj(NULL);
+			rep_expr("op", g);
+			rep_str("type", ty_str(tk));
+			rep_bool("nuw", !s->uw);
+			rep_int("unsigned_wrap_points", (long long)s->uw);
+			if (s->uw)
+				rep_str("unsigned_wrap_example", sb_str(&s->wu));
+			rep_bool("nsw", !s->sw);
+			rep_int("signed_wrap_points", (long long)s->sw);
+			if (s->sw)
+				rep_str("signed_wrap_example", sb_str(&s->ws));
+			rep_bool("c_ub", s->sw && TYK(tk) == K_SINT);
+			if (!r.d.exhaustive && !s->uw)
+				rep_bool("nuw_proved_by_intervals", !iv[k].wrap);
+			rep_end();
 			if (s->uw)
 				printf("      nuw fails: unsigned wrap at %llu "
 				    "points, e.g. %s\n", (unsigned long long)s->uw,
@@ -1140,6 +1272,12 @@ cmd_wrap(struct func *f)
 			printed++;
 		} else if (op == O_CAST && s->tr) {
 			printf("  %s   (%s)\n", node_str(g), ty_str(tk));
+			rep_obj(NULL);
+			rep_expr("op", g);
+			rep_str("type", ty_str(tk));
+			rep_int("truncating_points", (long long)s->tr);
+			rep_str("truncating_example", sb_str(&s->wt));
+			rep_end();
 			printf("      truncates at %llu points, e.g. %s\n",
 			    (unsigned long long)s->tr, sb_str(&s->wt));
 			printed++;
@@ -1147,6 +1285,38 @@ cmd_wrap(struct func *f)
 	}
 	if (!printed)
 		printf("  no wrapping or rounding operations\n");
+	rep_end();
+	rep_obj("end_to_end");
+	if (TY_FP(t)) {
+		rep_num("max_abs_error", maxabs);
+		rep_num("max_rel_error", maxrel);
+		if (TYK(t) == K_FLOAT)
+			rep_num("max_ulp", maxulp);
+		if (wr.n)
+			rep_str("worst_at", sb_str(&wr));
+		rep_int("overflow_points", (long long)novf);
+	} else {
+		rep_bool("exact", mism == 0 && !nmis_def);
+		rep_int("mismatch_points", (long long)mism);
+		if (wm.n)
+			rep_str("mismatch_example", sb_str(&wm));
+		if (exact && nex && mism) {
+			/* as runs [lo, hi] */
+			uint64_t q, q0;
+			rep_list("exact_for");
+			for (q = 0; q < nex; q = q0) {
+				for (q0 = q + 1; q0 < nex &&
+				    exact[q0] == exact[q0 - 1] + 1; q0++)
+					;
+				rep_list(NULL);
+				rep_int(NULL, exact[q]);
+				rep_int(NULL, exact[q0 - 1]);
+				rep_end();
+			}
+			rep_end();
+		}
+	}
+	rep_end();
 	if (TY_FP(t)) {
 		printf("  end to end vs the real-number result: max abs error "
 		    "%.3g, max rel error %.3g", maxabs, maxrel);
@@ -1390,6 +1560,7 @@ cmd_crit(struct func *f)
 	int prevok = 0, prevfdef = -1, nfound = 0, j;
 
 	printf("critical points of %s:\n", fname(f));
+	rep_begin("crit");
 	if (f->np == 0) {
 		printf("  constant\n");
 		return;
@@ -1404,9 +1575,17 @@ cmd_crit(struct func *f)
 			return;
 		}
 		printf("  gradient (solve all = 0):\n");
-		for (j = 0; j < f->np; j++)
+		rep_list("gradient");
+		for (j = 0; j < f->np; j++) {
+			nid dj = diff_node(f->body, (uint32_t)j);
 			printf("    d/d%s = %s\n", sym_str(f->p[j].name),
-			    node_str(diff_node(f->body, (uint32_t)j)));
+			    node_str(dj));
+			rep_obj(NULL);
+			rep_str("var", sym_str(f->p[j].name));
+			rep_expr("derivative", dj);
+			rep_end();
+		}
+		rep_end();
 		return;
 	}
 	if (!TY_FP(f->p[0].ty)) {
@@ -1415,6 +1594,7 @@ cmd_crit(struct func *f)
 	}
 	d = diff_node(f->body, 0);
 	printf("  %s' = %s\n", fname(f), node_str(d));
+	rep_expr("derivative", d);
 	roots[0] = f->body;
 	roots[1] = d;
 	run_open(&r, f, roots, 2, 0, EXH, 4001, 4001);
@@ -1580,6 +1760,17 @@ cmd_crit(struct func *f)
 			}
 			nc = o;
 		}
+		rep_list("points");
+		for (k2 = 0; k2 < nc; k2++) {
+			rep_obj(NULL);
+			rep_num("x", cx[k2]);
+			rep_str("kind", ck[k2]);
+			rep_num("value", cf[k2]);
+			rep_end();
+		}
+		rep_end();
+		rep_proof("numeric", "sign changes of the derivative on a grid, "
+		    "refined by bisection");
 		for (k2 = 0; k2 < nc && k2 < 32; k2++) {
 			if (!strcmp(ck[k2], "not differentiable"))
 				printf("  %s ≈ %.10g: not differentiable, %s = %.10g\n",
@@ -1697,6 +1888,15 @@ cmd_equiv(struct func *f, struct func *g)
 		fail("%s and %s take different numbers of parameters", fname(f),
 		    fname(g));
 	m = equiv_check(f, f->body, gb, &w, &sampled);
+	rep_begin("equiv");
+	rep_bool("equal", m == 0);
+	rep_bool("exhaustive", !sampled);
+	rep_int("mismatch_points", m);
+	if (m)
+		rep_str("counterexample", sb_str(&w));
+	if (m == 0)
+		rep_proof(sampled ? "numeric" : "exhaustive", sampled ?
+		    "sampled, not proved" : "every point of the domain");
 	if (m == 0)
 		printf("%s and %s are equal on the domain of %s%s\n", fname(f),
 		    fname(g), fname(f), sampled ? " (sampled, not proved)" :
@@ -1771,6 +1971,17 @@ measure(const struct func *f, nid approx, struct errst *e, int ideal_target)
 static void
 print_err(const struct errst *e, ty_t ta)
 {
+	rep_num("max_abs_error", e->maxabs);
+	if (e->wabs.n)
+		rep_str("max_abs_at", e->wabs.p);
+	rep_num("max_rel_error", e->maxrel);
+	if (e->wrel.n)
+		rep_str("max_rel_at", e->wrel.p);
+	rep_num("mean_rel_error", e->n ? e->sumrel / (double)e->n : 0);
+	rep_int("points", (long long)e->n);
+	if (TYK(ta) == K_FLOAT)
+		rep_num("max_ulp", e->maxulp);
+	rep_int("bad_points", (long long)e->bad);
 	printf("  max abs error %.6g at %s\n", e->maxabs,
 	    e->wabs.n ? e->wabs.p : "-");
 	printf("  max rel error %.6g (%.3g%%) at %s\n", e->maxrel,
@@ -1797,6 +2008,7 @@ cmd_error(struct func *g, struct func *f)
 	a = rebind(f, g);
 	measure(f, a, &e, 0);
 	printf("error of %s against %s:\n", fname(g), fname(f));
+	rep_begin("error");
 	print_err(&e, N.ty[a]);
 	free(e.wabs.p);
 	free(e.wrel.p);
@@ -2043,19 +2255,34 @@ cmd_fit(struct func *g, struct func *f, int metric)
 	}
 	printf("fit %s to %s (%s error, %u sample points):\n", fname(g),
 	    fname(f), mname[metric], c.npts);
+	rep_begin("fit");
+	rep_str("metric", mname[metric]);
+	rep_int("sample_points", c.npts);
+	rep_list("constants");
 	for (j = 0; j < c.nk; j++) {
 		const struct param *p = &g->p[f->np + j];
 		if (isint[j]) {
 			uint64_t u = (uint64_t)(int64_t)k[j];
 			printf("  %s = %lld  (0x%llx)\n", sym_str(p->name),
 			    (long long)(int64_t)k[j], (unsigned long long)u);
+			rep_obj(NULL);
+			rep_str("name", sym_str(p->name));
+			rep_int("value", (long long)(int64_t)k[j]);
+			rep_strf("hex", "0x%llx", (unsigned long long)u);
+			rep_end();
 			consts[j] = mk_const_i(p->ty, (int64_t)k[j]);
 		} else {
 			printf("  %s = %.10g\n", sym_str(p->name), k[j]);
+			rep_obj(NULL);
+			rep_str("name", sym_str(p->name));
+			rep_num("value", k[j]);
+			rep_end();
 			consts[j] = mk_cast(p->ty, mk_const_r(k[j]));
 		}
 	}
 	printf("  objective %.6g\n", best);
+	rep_end();
+	rep_num("objective", best);
 	for (j = 0; j < c.nk; j++)
 		map[f->np + j] = consts[j];
 	fitted = subst(g->body, map, g->np);
@@ -2064,6 +2291,7 @@ cmd_fit(struct func *g, struct func *f, int metric)
 		struct pctx pc = {PM_UCAS, NULL};
 		print_node(&b, fitted, &pc);
 		printf("  %s\n", sb_str(&b));
+		rep_str("fitted", sb_str(&b));
 		free(b.p);
 	}
 	measure(f, fitted, &e, 0);

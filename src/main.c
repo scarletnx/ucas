@@ -2,6 +2,8 @@
  * ucas [file ...]     run files (echoing each statement), or
  * ucas                read statements from standard input
  * ucas -e 'stmt'      run one statement
+ * ucas --json         JSON Lines requests and responses (jsonmode.c)
+ * ucas --json-schema  the JSON interface as JSON Schema
  *
  * A line that reads as English is translated to ucas statements first
  * (nlp.c).  -y never asks about ambiguous words (the default reading is
@@ -75,6 +77,9 @@ main(int argc, char **argv)
 			printf("sat selftest: %s\n", bad ? "FAILED" : "ok");
 			return bad != 0;
 		}
+		if (!strcmp(argv[i], "--json") ||
+		    !strcmp(argv[i], "--json-schema"))
+			return json_main(argc, argv, i);
 		if (!strcmp(argv[i], "-q")) {
 			echo = 0;
 		} else if (!strcmp(argv[i], "-y")) {

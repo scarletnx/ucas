@@ -181,6 +181,8 @@ alg_command(struct P *p)
 				}
 				k = nlp_ask_choice("solve for which variable?", opt, nn,
 				    dflt);
+				if (nlp_asked)
+					return 1;
 				vars[nv++] = alg_var_named(names[k]);
 			} else
 				for (k = 0; k < nn && nv < 8; k++)

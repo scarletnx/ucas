@@ -1,0 +1,24 @@
+{"id": 1, "cmd": "show", "args": {"f": "isqrt(x: u4)"}}
+{"id": 2, "cmd": "table", "args": {"f": "isqrt(x: u4)", "max": 4}}
+{"id": 3, "cmd": "range", "args": {"f": "isqrt(x: u4)"}}
+{"id": 4, "cmd": "range", "args": {"f": "sin(x)*x", "nocrit": true}}
+{"id": 5, "cmd": "domain", "args": {"f": "sqrt(x) + 1/(x - 2)"}}
+{"id": 6, "cmd": "domain", "args": {"f": "100 / (x: i8)"}}
+{"id": 7, "cmd": "wrap", "args": {"f": {"body": "x * 2 + 1", "params": [{"name": "x", "type": "i8"}]}}}
+{"id": 8, "cmd": "wrap", "args": {"f": "(x: f32) * 3 + 1"}}
+{"id": 9, "cmd": "crit", "args": {"f": "x^3 - 3x"}}
+{"id": 10, "cmd": "crit", "args": {"f": "x^2 + x*y"}}
+{"id": 11, "cmd": "equiv", "args": {"f": {"body": "x * 2", "params": [{"name": "x", "type": "u8"}]}, "g": {"body": "x << 1", "params": [{"name": "x", "type": "u8"}]}}}
+{"id": 12, "cmd": "equiv", "args": {"f": {"body": "x / 2", "params": [{"name": "x", "type": "i8"}]}, "g": {"body": "x >> 1", "params": [{"name": "x", "type": "i8"}]}}}
+{"id": 13, "cmd": "define", "args": {"name": "rsqrt", "params": [{"name": "x", "type": "f32", "range": [0.01, 100]}], "body": "1/sqrt(x)"}}
+{"id": 14, "cmd": "define", "args": {"name": "guess", "params": [{"name": "x", "type": "f32"}, {"name": "K", "type": "u32"}], "body": "asfloat(K - (asuint(x) >> 1))"}}
+{"id": 15, "cmd": "fit", "args": {"g": "guess", "f": "rsqrt"}}
+{"id": 16, "cmd": "ucas", "args": {"source": "quake(x: f32) = y * (1.5f - 0.5f * x * y * y)\n    where y = asfloat(0x5f3759df - (asuint(x) >> 1))"}}
+{"id": 17, "cmd": "error", "args": {"g": "quake", "f": "rsqrt"}}
+{"id": 18, "cmd": "cost", "args": {"f": "(x: u32) > 3 ? x*x : x/7"}}
+{"id": 19, "cmd": "gates", "args": {"f": "isqrt(x: u4)"}}
+{"id": 20, "cmd": "gates", "args": {"f": "isqrt(x: u4)", "basis": "a64sha", "as_c": true}}
+{"id": 21, "cmd": "find", "args": {"f": {"body": "match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }", "params": [{"name": "m", "type": "u8", "range": [1, 12]}]}, "n": 2}}
+{"id": 22, "cmd": "more", "args": {"n": 1}}
+{"id": 23, "cmd": "approx", "args": {"f": "sin(x)", "in": ["-pi/2", "pi/2"], "options": "degree 5..7 norational nosplit noreduce", "defaults": true}}
+{"id": 24, "cmd": "approx_more", "args": {"n": 1}}

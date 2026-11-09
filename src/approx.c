@@ -2545,6 +2545,28 @@ print_rows(int from, int to)
 		printf("\n");
 		snprintf(nm, sizeof nm, "%s%d", A.o.name, i + 1);
 		printf("      %s: %s\n", c->shape, c->text);
+		rep_obj(NULL);
+		rep_int("rank", i + 1);
+		rep_str("name", nm);
+		rep_str("kind", c->kind);
+		rep_str("degree", deg);
+		rep_str("form", c->form);
+		rep_str("shape", c->shape);
+		rep_str("expr", c->text);
+		rep_num("max_rel_error", c->erel);
+		rep_num("max_abs_error", c->eabs);
+		if (A.w && A.rel && !c->bad)
+			rep_num("max_ulp", c->eulp);
+		if (A.w && A.rel && !c->bad && c->naive >= 0)
+			rep_num("naive_ulp", c->naive);
+		rep_num("worst_at", c->xw);
+		rep_num("cost", c->cost);
+		if (c->keepok >= 0)
+			rep_bool("exact_points_kept", c->keepok);
+		if (c->bad)
+			rep_int("bad_points", c->bad);
+		rep_bool("meets_target", c->meets);
+		rep_end();
 		f = define(nm, c->text);
 		if (f && A.o.emitc)
 			emit_c(f, nm);
@@ -2590,7 +2612,19 @@ print_list(void)
 		    (double)A.hi, A.exhaustive ? " (all of them)" : "");
 	printf("  #   kind      deg   form        %-24s %-13s %-13s cost\n",
 	    A.w ? "error (naive)" : "", "max rel", "max abs");
+	rep_begin("approx");
+	rep_str("function", A.fname);
+	rep_num("lo", (double)A.lo);
+	rep_num("hi", (double)A.hi);
+	rep_str("metric", metric_name());
+	rep_str("model", sym_str(model_active()->name));
+	rep_str("format", A.w ? fmt_name(A.w) : "real");
+	rep_int("sample_points", A.ns);
+	rep_bool("exhaustive", A.exhaustive);
+	rep_list("candidates");
 	print_rows(0, n);
+	rep_end();
+	rep_int("more", A.nc - A.shown);
 	if (A.shown < A.nc)
 		printf("  %d more: 'approx more [n]'%s\n", A.nc - A.shown,
 		    fr > A.shown ? "" : " (dominated or worse)");
@@ -2605,7 +2639,11 @@ approx_more(int n)
 		printf("no more candidates\n");
 		return;
 	}
+	rep_begin("approx");
+	rep_list("candidates");
 	print_rows(A.shown, A.shown + n);
+	rep_end();
+	rep_int("more", A.nc - A.shown);
 	if (A.shown < A.nc)
 		printf("  %d more\n", A.nc - A.shown);
 }

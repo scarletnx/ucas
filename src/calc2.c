@@ -1684,15 +1684,18 @@ print_holds(const struct func *f, const struct cond *cs, int nc,
 		if (strstr(sb.p ? sb.p : "", t))
 			continue;
 		sb_printf(&sb, "%s%s", nterm++ ? " and " : "", t);
+		rep_cond("%s", t);
 	}
 	for (j = 0; j < nb; j++) {
 		if (dropped[j])
 			continue;
 		if (isnan(bp[j].x))
 			sb_printf(&sb, "%s%s", nterm++ ? " and " : "", bp[j].why);
-		else
+		else {
 			sb_printf(&sb, "%s%s != %s", nterm++ ? " and " : "",
 			    pname(f, 0), fnum(bp[j].x));
+			rep_cond("%s != %s", pname(f, 0), fnum(bp[j].x));
+		}
 	}
 	if (nterm)
 		printf("  %s for %s\n", lead, sb.p);
@@ -1745,6 +1748,13 @@ c2_deriv(struct func *f, const int *slots, int n)
 	g[0] = mk_cast(TY_REAL, f->body);
 	for (k = 0; k < n; k++)
 		g[k + 1] = dif(g[k], slots[k]);
+	rep_begin("diff");
+	rep_list("vars");
+	for (k = 0; k < n; k++)
+		rep_str(NULL, pname(f, slots[k]));
+	rep_end();
+	rep_int("order", n);
+	rep_expr("derivative", g[n]);
 	/* the intermediate orders of one variable, then the result */
 	for (k = 1; k <= n; k++) {
 		if (k < n && (f->np > 1 || n > 4))
@@ -1809,6 +1819,8 @@ c2_deriv(struct func *f, const int *slots, int n)
 			worst = fmax(worst, maxrel);
 		}
 	}
+	if (allpts)
+		rep_check("central_differences", allpts, worst, ok, NULL);
 	if (allpts == 0)
 		printf("  check: no sample point where it is defined\n");
 	else if (ok)
@@ -1880,6 +1892,24 @@ det_num(const double *m0, int n)
 	return d;
 }
 
+/* a matrix of expressions as data: rows of strings */
+static void
+rep_matrix(const char *key, const nid *m, int rows, int cols)
+{
+	int i, j;
+
+	if (!rep_on)
+		return;
+	rep_list(key);
+	for (i = 0; i < rows; i++) {
+		rep_list(NULL);
+		for (j = 0; j < cols; j++)
+			rep_expr(NULL, m[i * cols + j]);
+		rep_end();
+	}
+	rep_end();
+}
+
 /* print rows of node entries as an aligned matrix */
 static void
 print_matrix(const nid *m, int rows, int cols, const char *const *rowlab)
@@ -1936,6 +1966,8 @@ val_at(nid e, const struct func *f, const double *at, int *ok)
 static void
 check_report(int ok, int npts, double worst)
 {
+	if (npts)
+		rep_check("central_differences", npts, worst, ok, NULL);
 	if (npts == 0)
 		printf("  check: no sample point where it is defined\n");
 	else if (ok)
@@ -1956,9 +1988,11 @@ holds_line(const struct func *f, nid extra)
 	int nc = domain_conds(f->body, cs, 0), ncand, i;
 
 	ncand = kink_cands(extra ? extra : f->body, c, 0);
-	for (i = 0; i < nc; i++)
+	for (i = 0; i < nc; i++) {
 		sb_printf(&sb, "%s%s", i ? " and " : "", cond_text(f, &cs[i],
 		    NULL, NULL));
+		rep_cond("%s", cond_text(f, &cs[i], NULL, NULL));
+	}
 	printf("  holds %s%s\n", nc ? "for " : "wherever ", nc ? sb.p :
 	    "the formulas are defined");
 	for (i = 0; i < ncand; i++)
@@ -2009,6 +2043,15 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 		for (i = 0; i < n; i++)
 			sb_printf(&sb, "%s%s", i ? ", " : "", node_str(g[i]));
 		printf("\xe2\x88\x87 %s = (%s)\n", fname2(f), sb.p);
+		rep_begin("grad");
+		rep_list("gradient");
+		for (i = 0; i < n; i++) {
+			rep_obj(NULL);
+			rep_str("var", pname(f, i));
+			rep_expr("derivative", g[i]);
+			rep_end();
+		}
+		rep_end();
 		if (n > 1)
 			for (i = 0; i < n; i++)
 				printf("  %s %s = %s\n", dname(f, &i, 1), fname2(f),
@@ -2025,11 +2068,18 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 			printf("  at ");
 			print_point(f, at, n);
 			printf(": (");
+			rep_list("at_value");
 			for (i = 0; i < n; i++) {
 				v = val_at(g[i], f, at, &o);
 				printf("%s%s", i ? ", " : "", o ? fnum(v) : "undefined");
+				if (o)
+					rep_num(NULL, v);
+				else
+					rep_null(NULL);
 				len += v * v;
 			}
+			rep_end();
+			rep_num("at_norm", sqrt(len));
 			printf("), |\xe2\x88\x87| = %s\n", fnum(sqrt(len)));
 		}
 		free(sb.p);
@@ -2043,6 +2093,8 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 			lap = lap ? ADD(lap, H[i * n + i]) : H[i * n + i];
 		lap = simp(lap, 0);
 		printf("\xe2\x88\x87\xc2\xb2 %s = %s\n", fname2(f), node_str(lap));
+		rep_begin("laplacian");
+		rep_expr("laplacian", lap);
 		for (i = 0; i < n; i++) {
 			int s2[2] = {i, i};
 			printf("  %s %s = %s\n", dname(f, s2, 2), fname2(f),
@@ -2074,6 +2126,7 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 				}
 			}
 			mev_close(&m);
+			rep_bool("harmonic", cnt && mx <= 1e-12);
 			if (cnt && mx <= 1e-12)
 				printf("  %s is harmonic: its Laplacian is 0 at all %d "
 				    "sample points (and symbolically %s)\n", fname2(f), cnt,
@@ -2084,6 +2137,10 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 			printf("  at ");
 			print_point(f, at, n);
 			printf(": %s\n", o ? fnum(v) : "undefined");
+			if (o)
+				rep_num("at_value", v);
+			else
+				rep_null("at_value");
 		}
 		return;
 	}
@@ -2101,9 +2158,12 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 		printf("Hessian of %s (row i, column j: \xe2\x88\x82\xc2\xb2/"
 		    "\xe2\x88\x82j\xe2\x88\x82i):\n", fname2(f));
 		print_matrix(H, n, n, n > 1 ? lab : NULL);
+		rep_begin("hessian");
+		rep_matrix("matrix", H, n, n);
 		if (n > 1 && n <= 4) {
 			nid d = simp(det_node(H, n, n), 0);
 			printf("  det = %s\n", node_str(d));
+			rep_expr("det", d);
 		}
 		holds_line(f, 0);
 		for (i = 0; i < n; i++)
@@ -2172,6 +2232,11 @@ c2_grad(struct func *f, int what, const double *at, int hasat)
 				    minor[k - 1] > 1e-12))
 					neg = 0;
 			}
+			rep_str("at_classification", gl > 1e-9 ? "not a critical "
+			    "point" : pos ? "local minimum" : neg ? "local maximum" :
+			    fabs(det_num(M, n)) > 1e-12 ? "saddle point" :
+			    "inconclusive");
+			rep_num("at_det", det_num(M, n));
 			if (gl > 1e-9)
 				printf("  the gradient is not 0 there (largest component "
 				    "%s): not a critical point\n", fnum(gl));
@@ -2222,8 +2287,17 @@ c2_jacobian(struct func *f, const nid *fs, int nf, const int *vars, int nv,
 		printf("%s%s", j ? ", " : "", pname(f, vars[j]));
 	printf("): row i = the gradient of function i\n");
 	print_matrix(J, nf, nv, lab);
-	if (nf == nv && nf > 1 && nf <= 4)
-		printf("  det = %s\n", node_str(simp(det_node(J, nf, nv), 0)));
+	rep_begin("jacobian");
+	rep_list("wrt");
+	for (j = 0; j < nv; j++)
+		rep_str(NULL, pname(f, vars[j]));
+	rep_end();
+	rep_matrix("matrix", J, nf, nv);
+	if (nf == nv && nf > 1 && nf <= 4) {
+		nid dj = simp(det_node(J, nf, nv), 0);
+		printf("  det = %s\n", node_str(dj));
+		rep_expr("det", dj);
+	}
 	{
 		struct func tmp = *f;
 		nid all_b = fs[0];
@@ -2543,6 +2617,10 @@ c2_wronskian(struct func *f, const nid *fs, int nf, int slot)
 	print_matrix(M, nf, nf, lab);
 	W = simp(det_node(M, nf, nf), 0);
 	printf("  W = det = %s\n", node_str(W));
+	rep_begin("wronskian");
+	rep_str("var", pname(f, slot));
+	rep_matrix("matrix", M, nf, nf);
+	rep_expr("wronskian", W);
 	for (k = 1; k < nf; k++)
 		for (j = 0; j < nf; j++) {
 			ok &= check_any(f, M[(k - 1) * nf + j], M[k * nf + j], slot,
@@ -2611,9 +2689,14 @@ c2_wronskian(struct func *f, const nid *fs, int nf, int slot)
 	check_report(ok, all, worst);
 	if (m == 0) {
 		printf("  W is undefined at every sample point\n");
+		rep_null("independent");
 		return;
 	}
+	rep_bool("independent", nzero < m);
 	if (nzero < m) {
+		rep_num("witness_x", xw);
+		rep_num("witness_w", wv);
+		rep_proof("numeric", "W != 0 at a sample point");
 		printf("  linearly independent: W(%s) = %s != 0, so the functions "
 		    "are independent on every interval containing %s = %s\n",
 		    fnum(xw), fnum(wv), pname(f, slot), fnum(xw));
@@ -2843,6 +2926,20 @@ c2_taylor(struct func *f, int slot, double a, int n)
 		    fnum(a), n);
 		printf("  %s = %s + O(%s%s%s^%d)\n", fname2(f), sb.p ? sb.p : "0",
 		    a == 0 ? "" : "(", dx, a == 0 ? "" : ")", n + 1);
+		rep_begin("taylor");
+		rep_str("var", x);
+		rep_num("at", a);
+		rep_int("order", n);
+		rep_str("polynomial", sb.p ? sb.p : "0");
+		if (rep_on && cl.p && allnum) {	/* " c0 c1 ...": numbers */
+			char *cp = xmalloc(strlen(cl.p) + 1), *t;
+			strcpy(cp, cl.p);
+			rep_list("coefficients");
+			for (t = strtok(cp, " "); t; t = strtok(NULL, " "))
+				rep_str(NULL, t);
+			rep_end();
+			free(cp);
+		}
 		printf("  as %s -> %s; coefficients c_k = f^(k)(%s)/k!:%s\n", x,
 		    fnum(a), fnum(a), cl.p);
 		free(sb.p);
@@ -2863,6 +2960,8 @@ c2_taylor(struct func *f, int slot, double a, int n)
 			for (k = 0; k <= n; k++)
 				md = fmax(md, fabs((double)jet[k] - cv[k]) /
 				    fmax(1, fabs(cv[k])));
+			rep_check("taylor_jet", n + 1, md, md <= 1e-9, "coefficients "
+			    "against long double Taylor-jet arithmetic");
 			if (md <= 1e-9)
 				printf("  check: the coefficients agree with Taylor-jet "
 				    "arithmetic (long double) to %.1g\n", md);
@@ -3977,6 +4076,23 @@ limit_side(nid e, int slot, double a, int side, struct side_res *s)
 		s->l = LK(LV_UNKNOWN);
 }
 
+/* a limit's value as data: {"kind", "value", "text"} */
+static void
+rep_lv(const char *key, struct lv l)
+{
+	static const char *const kinds[] = {"number", "+inf", "-inf",
+	    "oscillates", "does not exist", "undefined", "unknown"};
+
+	if (!rep_on)
+		return;
+	rep_obj(key);
+	rep_str("kind", kinds[l.k]);
+	if (l.k == LV_NUM)
+		rep_num("value", l.v);
+	rep_str("text", lv_str(l));
+	rep_end();
+}
+
 static void
 limit_numeric_line(const char *x, double a, int side, struct side_res *s)
 {
@@ -4004,6 +4120,12 @@ limit_numeric_line(const char *x, double a, int side, struct side_res *s)
 	default:
 		printf("    undefined at the sample points");
 	}
+	if (s->nk == LV_NUM)
+		rep_check(side < 0 ? "numeric_left" : side > 0 ? "numeric_right" :
+		    "numeric", 22, s->l.k == LV_NUM ? fabs(s->est - s->l.v) : -1,
+		    s->l.k != LV_NUM || fabs(s->est - s->l.v) <= fmax(10 * s->err,
+		    1e-7 * (1 + fabs(s->l.v))), "Richardson-extrapolated values "
+		    "approaching the point");
 	switch (s->l.k) {
 	case LV_NUM:
 		if (s->nk == LV_NUM && fabs(s->est - s->l.v) <= fmax(10 * s->err,
@@ -4065,11 +4187,16 @@ c2_limit(struct func *f, int slot, double a, int side)
 	printf("limit of %s as %s -> %s%s:\n", fname2(f), x, fnum(a),
 	    isinf(a) ? "" : side > 0 ? "+ (from the right)" : side < 0 ?
 	    "- (from the left)" : "");
+	rep_begin("limit");
+	rep_str("var", x);
+	rep_strf("at", "%s", fnum(a));
+	rep_str("side", isinf(a) || two ? "both" : side > 0 ? "+" : "-");
 	if (!two) {
 		limit_side(e, slot, a, side, &R);
 		if (R.log.p)
 			fputs(R.log.p, stdout);
 		printf("  = %s\n", lv_str(R.l));
+		rep_lv("limit", R.l);
 		if (R.l.k == LV_OSC || R.l.k == LV_DNE)
 			printf("  the limit does not exist\n");
 		limit_numeric_line(x, a, side, &R);
@@ -4085,6 +4212,7 @@ c2_limit(struct func *f, int slot, double a, int side)
 		if (R.log.p)
 			fputs(R.log.p, stdout);
 		printf("  = %s\n", lv_str(R.l));
+		rep_lv("limit", R.l);
 		limit_numeric_line(x, a, 1, &R);
 	} else if (R.l.k == LV_UNDEF && L.l.k != LV_UNDEF) {
 		printf("  %s is undefined just right of %s = %s: the limit is the "
@@ -4092,6 +4220,7 @@ c2_limit(struct func *f, int slot, double a, int side)
 		if (L.log.p)
 			fputs(L.log.p, stdout);
 		printf("  = %s\n", lv_str(L.l));
+		rep_lv("limit", L.l);
 		limit_numeric_line(x, a, -1, &L);
 	} else if (lv_eq(L.l, R.l) || (L.l.k == R.l.k && (L.l.k == LV_UNKNOWN ||
 	    L.l.k == LV_UNDEF || L.l.k == LV_DNE))) {
@@ -4101,6 +4230,7 @@ c2_limit(struct func *f, int slot, double a, int side)
 			fputs(L.log.p, stdout);
 		printf("  = %s%s\n", lv_str(R.l), R.l.k == LV_NUM ||
 		    isinfl_(R.l) ? " (from both sides)" : "");
+		rep_lv("limit", R.l);
 		if (R.l.k == LV_DNE)
 			printf("  the limit does not exist\n");
 		limit_numeric_line(x, a, -1, &L);
@@ -4110,6 +4240,7 @@ c2_limit(struct func *f, int slot, double a, int side)
 			fputs(R.log.p, stdout);
 		printf("  = %s\n", lv_str(R.l));
 		printf("  the limit does not exist\n");
+		rep_lv("limit", R.l);
 		limit_numeric_line(x, a, -1, &L);
 		limit_numeric_line(x, a, 1, &R);
 	} else {
@@ -4121,6 +4252,16 @@ c2_limit(struct func *f, int slot, double a, int side)
 		if (R.log.p)
 			fputs(R.log.p, stdout);
 		printf("  = %s\n", lv_str(R.l));
+		rep_lv("left", L.l);
+		rep_lv("right", R.l);
+		if (L.l.k == LV_UNKNOWN || R.l.k == LV_UNKNOWN)
+			rep_lv("limit", LK(LV_UNKNOWN));
+		else if (rep_on) {
+			rep_obj("limit");
+			rep_str("kind", "does not exist");
+			rep_str("text", "the one-sided limits differ");
+			rep_end();
+		}
 		if (L.l.k == LV_UNKNOWN || R.l.k == LV_UNKNOWN)
 			printf("  (one side was not found symbolically)\n");
 		else

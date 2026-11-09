@@ -1,0 +1,23 @@
+{"id": 1, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1"}}
+{"id": 2, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1", "assume": {"caret": "power"}}}
+{"id": 3, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1", "assume": {"caret": 1}}}
+{"id": 4, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1", "assume": {"caret": "maybe"}}}
+{"id": 5, "cmd": "ucas", "args": {"source": "k = 3 ^ 5 & 1", "defaults": true}}
+{"id": 6, "cmd": "show", "args": {"f": "z^2 + 1"}}
+{"id": 7, "cmd": "show", "args": {"f": "z^2 + 1", "assume": {"z": "complex"}}}
+{"id": 8, "cmd": "show", "args": {"f": "z^2 + 1", "assume": {"z": "real"}}}
+{"id": 9, "cmd": "show", "args": {"f": "(z: real)^2 + 1"}}
+{"id": 10, "cmd": "define", "args": {"name": "g", "params": ["x"], "body": "x + 1"}}
+{"id": 11, "cmd": "define", "args": {"name": "g", "params": ["x"], "body": "x + 1", "assume": {"param_type": "int"}}}
+{"id": 12, "cmd": "define", "args": {"name": "g2", "body": "x + y"}}
+{"id": 13, "cmd": "ucas", "args": {"source": "m(n) = n & 3"}}
+{"id": 14, "cmd": "show", "args": {"f": "ab + 1"}}
+{"id": 15, "cmd": "show", "args": {"f": "ab + 1", "assume": {"juxtaposition": "product"}}}
+{"id": 16, "cmd": "integrate", "args": {"f": "1"}}
+{"id": 17, "cmd": "integrate", "args": {"f": "1", "var": "t"}}
+{"id": 18, "cmd": "integrate", "args": {"f": "1", "assume": {"wrt": "t (dt)"}}}
+{"id": 19, "cmd": "solve", "args": {"equations": "x*y = 1"}}
+{"id": 20, "cmd": "solve", "args": {"equations": "x*y = 1", "for": ["y"]}}
+{"id": 21, "cmd": "english", "args": {"text": "what is the log of 8?"}}
+{"id": 22, "cmd": "english", "args": {"text": "what is the log of 8?", "assume": {"log": "log base 10"}}}
+{"id": 23, "cmd": "approx", "args": {"f": "sin(x)", "in": ["-pi/2", "pi/2"], "options": "degree 5 norational nosplit noreduce"}}

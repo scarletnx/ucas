@@ -716,12 +716,19 @@ print_table(const struct osys *S, int which, const double *ts, int nt,
 
 	printf("      %-12s %s(%s)\n", sym_str(S->tname), sym_str(S->name[which]),
 	    sym_str(S->tname));
+	rep_str("function", sym_str(S->name[which]));
+	rep_list("table");
 	for (k = 0; k < nt; k++) {
 		double v = num[k * S->n + which];
 		if (sym)
 			v = eval_const_at(sym, 0, ts[k], &ok);
 		printf("      %-12.6g %.10g\n", ts[k], v);
+		rep_list(NULL);
+		rep_num(NULL, ts[k]);
+		rep_num(NULL, v);
+		rep_end();
 	}
+	rep_end();
 }
 
 static void
@@ -737,8 +744,20 @@ solve_and_report(const struct osys *S, int which, double t1, int steps)
 	if (steps > 256)
 		steps = 256;
 	sym = osys_symbolic(S, t1, Z, &res, &info);
+	rep_begin("dsolve");
+	rep_str("var", sym_str(S->tname));
+	rep_num("from", S->t0);
+	rep_num("to", t1);
+	rep_bool("symbolic", sym);
 	if (sym) {
 		printf("  linear with constant coefficients: %s\n", sb_str(&info));
+		rep_str("method", sb_str(&info));
+		rep_obj("solution");
+		for (i = 0; i < S->n; i++)
+			rep_expr(sym_str(S->name[i]), Z[i]);
+		rep_end();
+		rep_check("residual", 201, res, 1, "satisfies the equations and "
+		    "the initial values");
 		for (i = 0; i < S->n; i++)
 			if (i == which || S->n <= 3)
 				printf("  %s(%s) = %s\n", sym_str(S->name[i]),
@@ -777,10 +796,14 @@ solve_and_report(const struct osys *S, int which, double t1, int steps)
 			}
 			printf("  numeric (Dormand-Prince 5(4), adaptive, %d steps) "
 			    "agrees with it to %.2g\n", nsteps, maxd);
+			rep_check("numeric_solution", steps + 1, maxd, maxd <= 1e-6,
+			    "Dormand-Prince 5(4) against the symbolic solution");
 		} else
 			printf("  numeric (Dormand-Prince 5(4), adaptive, %d steps, "
 			    "tolerance 1e-10); a 1000x looser solve differs by %.2g\n",
 			    nsteps, ed);
+		if (!sym)
+			rep_num("numeric_error_estimate", ed);
 		free(loose);
 	}
 	if (steps >= 0)
