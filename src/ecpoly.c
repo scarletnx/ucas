@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecpoly.c - polynomials over F_p (px): coefficient i of a at a->c + i*n
  * (n = F->n limbs, Montgomery form), one flat array per polynomial.

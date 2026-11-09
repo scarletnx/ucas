@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * eccrypto.c - elliptic-curve cryptography as mathematics: ECDSA with
  * RFC 6979 deterministic nonces, ECDH, X25519 and X448 (RFC 7748),

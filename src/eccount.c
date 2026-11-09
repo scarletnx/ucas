@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * eccount.c - #E(F_p): naive counting, baby-step giant-step with Mestre's
  * twist trick, CM for j = 0 and 1728 (Cornacchia), and the certificate

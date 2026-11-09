@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* ecff_cmd.c, part 3: discrete logs, weak curves, pairings */
 
 /* class-number-1 discriminants and their j (for anomalous curves) */

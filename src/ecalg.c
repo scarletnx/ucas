@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecalg.c - algorithms that use elliptic curves: Lenstra's ECM (stage 1
  * and the standard stage 2 continuation) on Montgomery curves with

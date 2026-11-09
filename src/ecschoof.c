@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecschoof.c - division polynomials and Schoof's algorithm: for small
  * primes l, t mod l from the Frobenius (x^p, y^p) on the l-torsion,

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecw.c - short Weierstrass curves over F_p (ecp_*, Montgomery limbs)
  * and over F_{p^k} (eck_*), from one template (ecw_impl.inc).

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecsha.c - SHA-256, SHA-384/512 (FIPS 180-4) and HMAC (RFC 2104), for
  * ECDSA, RFC 6979 nonces and EdDSA.

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* ecff_cmd.c, part 5: modular polynomials, isogenies, division
  * polynomials */
 

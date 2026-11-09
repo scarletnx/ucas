@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecff.h - elliptic curves over finite fields: arithmetic, point counting,
  * cryptography and algorithms (E2 of elip.md).

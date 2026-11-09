@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecnamed.c - named curves (SEC 2, FIPS 186-4, RFC 7748/8032, pairing
  * curves), as data.  Every entry is checked when used: the generator is

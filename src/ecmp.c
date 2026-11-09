@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecmp.c - fixed-width naturals (nn), signed (zz), parsing and printing,
  * BPSW primality and factorisation, on top of length-generic limb

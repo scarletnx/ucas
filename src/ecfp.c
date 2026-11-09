@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecfp.c - Z/n in Montgomery form (mf), up to FW limbs, and the
  * extension fields F_{p^k} = F_p[x]/(m) (fk).  See ecff.h.

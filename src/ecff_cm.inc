@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* ecff_cmd.c, part 4: CM, Hilbert class polynomials, prime-order curves */
 
 static int64_t

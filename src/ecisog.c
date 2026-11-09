@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecisog.c - isogenies: classical modular polynomials Phi_l (mod p by
  * linear algebra on q-expansions of j, over Z by CRT on several primes,

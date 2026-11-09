@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecw_impl.inc - short Weierstrass curves y^2 = x^3 + a x + b over a
  * field, as a template: ecw.c includes it once for F_p (mf, prefix ecp_)

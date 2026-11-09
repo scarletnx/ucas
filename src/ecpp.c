@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecpp.c - elliptic curve primality proving (Atkin-Morain) and its
  * independent checker.

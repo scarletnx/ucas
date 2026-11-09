@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ecff_cmd.c - the commands of elliptic curves over finite fields
  * (parse.c calls ecff_command).  A curve is

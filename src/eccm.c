@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * eccm.c - complex multiplication: reduced binary quadratic forms of
  * discriminant D < 0 (the class group), Hilbert class polynomials H_D
