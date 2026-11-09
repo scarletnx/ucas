@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * forms.c - complex numbers, polar form, trig rewrites.
  *

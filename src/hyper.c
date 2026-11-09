@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * hyper.c - complex, quaternion, octonion and Cayley-Dickson numbers.
  *

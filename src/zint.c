@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * zint.c - arbitrary-precision integers in one arena, and rationals.
  *

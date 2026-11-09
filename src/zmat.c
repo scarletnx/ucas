@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * zmat.c - integer matrices: products, Bareiss determinant and rank,
  * Hermite and Smith normal forms with unimodular transforms, kernels,

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Tokenizer.  One pass over the source into four parallel arrays; numbers
  * and identifiers are kept as (offset, length) and decoded on demand.

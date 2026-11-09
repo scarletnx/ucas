@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Bit-precise proofs about expression DAGs: a node DAG on machine
  * integers is bit-blasted into the and-inverter graph of sat.c, with the

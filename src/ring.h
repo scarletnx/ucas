@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Rings and finite fields: Z/n, GF(p^n), polynomials and matrices over
  * them (ntheory.c, gfield.c), the commands (ring.c) and their English

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * json.h - a small JSON value, parser and writer (for jsonmode.c and
  * report.c).  Values are trees; objects keep their keys in order.

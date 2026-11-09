@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * pgrp.c - finite permutation groups (deterministic Schreier-Sims) and
  * finite groups given by Cayley tables.

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * absalg_cmd.c - the ucas commands of the abstract-algebra core (absalg.h).
  *

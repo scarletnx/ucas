@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * absalg.h - exact abstract algebra: the core API (absalg.md, part A).
  *

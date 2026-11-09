@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ideal.c - polynomials in several variables over Q or F_p, Groebner
  * bases with cofactors (Buchberger with the product and chain criteria),

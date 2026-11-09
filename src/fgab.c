@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * fgab.c - finitely generated abelian groups as subquotients A/B of Z^n.
  *

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Proved bounds of a function over its domain, by monotonicity and exact
  * algebra rather than by plain intervals.
