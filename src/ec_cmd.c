@@ -445,6 +445,7 @@ ec_op(const struct ec *E, const char *op, const char *s)
 		printf("%s + %s = %s\n", ec_pt_str(E, &P), ec_pt_str(E, &Q),
 		    ec_pt_str(E, &R));
 		printf("  check: the sum is on the curve\n");
+		rep_check("on_curve", 1, 0, 1, "P + Q satisfies the equation");
 		rep_str("value", ec_pt_str(E, &R));
 		return;
 	}
@@ -832,6 +833,8 @@ cmd_congruent(const char *s)
 		    zq_str(C));
 		printf("  check: a^2 + b^2 = c^2 and a b / 2 = %s (exact)\n",
 		    z_str(n));
+		rep_check("triangle", 1, 0, 1, "a^2 + b^2 = c^2 and ab/2 = n, "
+		    "exactly");
 		rep_bool("congruent", 1);
 		rep_str("a", zq_str(A));
 		rep_str("b", zq_str(B));
@@ -1005,13 +1008,19 @@ ec_command(struct P *p)
 	text[0] = 0;
 	if (!cmdp_eos(p))
 		cmdp_rest(p, text, sizeof text, NULL);
+	/* "ec = 3", "ec(x) = ...": a name, not the command */
+	if (text[0] == '=' || text[0] == '(' || (!text[0] && k > 2)) {
+		cmdp_seek(p, pos);
+		return 0;
+	}
 	/* curves over finite fields and Z/n are for a later hook */
 	if (strstr(text, " mod ") || strstr(text, "over GF") ||
 	    strstr(text, "over F_") || strstr(text, "over Z/")) {
 		cmdp_seek(p, pos);
 		return 0;
 	}
-	notes_flush();
+	/* notes of other hooks' tries at this line are not ours */
+	notes_drop();
 	mk = z_mark();
 	if (k <= 2) {
 		struct ec E;

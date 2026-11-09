@@ -656,6 +656,52 @@ static const struct jcmd cmds[] = {
 #undef POPTS
 #undef GRP
 #undef ZM_
+	/* elliptic curves over Q, Diophantine equations (ec_cmd.c) */
+	{"elliptic", "ec", 1, 0, "an elliptic curve over Q: by default the "
+	    "summary (invariants, minimal model, Tate's algorithm: Kodaira "
+	    "symbols, c_p, conductor; torsion; rank bounds by 2-isogeny "
+	    "descent; generators and heights; periods, root number, L-values, "
+	    "analytic rank, BSD quotient), or one operation",
+	    {TX("curve", " %s", "[a1, a2, a3, a4, a6], [a4, a6], or "
+	    "\"y^2 + x*y = x^3 - x + 1\""), {"op", P_ENUM, 0, " %s", "what "
+	    "(default: the summary)", "info|points|torsion|rank|local|minimal|"
+	    "analytic|periods|on|height|add|mul|order|wp|ap|model|integral"},
+	    TXO("args", " %s", "the op's arguments: a point \"(x, y)\" (on, "
+	    "height, order), two points (add), \"k (x, y)\" (mul), a height "
+	    "bound (points, rank), a bound on |x| (integral), a prime (ap), z "
+	    "as \"a+bi\" (wp), a model: short, montgomery, edwards, "
+	    "twisted_edwards, legendre")}},
+	{"diophantine", "diophantine", 1, 0, "solve a Diophantine equation "
+	    "through an elliptic curve: a plane cubic (homogeneous in 3 "
+	    "variables, or affine in 2), a curve quadratic in one variable "
+	    "with a quartic discriminant, or z^2 = quartic(x, y); rational "
+	    "point, birational map to Weierstrass form (kept with its "
+	    "inverse), the group, combinations of generators mapped back, "
+	    "each solution substituted into the equation; with no solution, "
+	    "a proof where one is found (rank 0, or no rational point on the "
+	    "real component the conditions need)",
+	    {TX("equation", " %s", "\"a/(b+c) + b/(a+c) + c/(a+b) = 4\""),
+	    BO("positive", " positive", "every variable > 0"),
+	    BO("integer", " integer", "integer values (affine equations)"),
+	    BO("nonzero", " nonzero", "every variable != 0"),
+	    IO("count", " count %s", "solutions wanted (default 1)"),
+	    IO("maxmult", " maxmult %s", "largest |coefficient| of a "
+	    "generator (default 30 for rank 1)"),
+	    IO("search", " search %s", "point search bound")}},
+	{"weierstrass", "weierstrass", 1, 0, "the maps from a cubic or quartic "
+	    "curve to Weierstrass form, the minimal model and the group",
+	    {TX("equation", " %s", "\"x^3 + y^3 = 7*z^3\"")}},
+	{"congruent", "congruent", 1, 0, "is n the area of a right triangle "
+	    "with rational sides: the curve y^2 = x^3 - n^2 x, its rank by "
+	    "descent, a triangle (checked) or a proof that none exists, "
+	    "Tunnell's counts", {TX("n", " %s", "a positive integer")}},
+	{"mordell", "mordell", 1, 0, "the Mordell curve y^2 = x^3 + k: the "
+	    "summary and its integral points up to a bound",
+	    {TX("k", " %s", "a nonzero integer"), IO("bound", " bound %s",
+	    "|x| <= bound (default 100000)")}},
+	{"cubesum", "cubesum", 1, 0, "k as a sum of two rational cubes: "
+	    "x^3 + y^3 = k z^3 solved through its curve", {TX("k", " %s",
+	    "a positive integer"), BO("positive", " positive", "x, y > 0")}},
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 

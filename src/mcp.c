@@ -141,6 +141,19 @@ static const struct group groups[] = {
 	    "abtensor abtor abext abmap abelem absub abexact permgroup permelem "
 	    "permsub permhom cayley groebner idealmember idealeq fxmodule "
 	    "pmsnf"},
+	{"elliptic", "Elliptic curves and Diophantine equations",
+	    "Elliptic curves over Q, exactly (analytic values with error "
+	    "bounds): invariants, minimal models, Tate's algorithm, conductor, "
+	    "torsion, rank by 2-isogeny descent, generators, canonical "
+	    "heights, the group law, models (Montgomery, Edwards, Legendre) "
+	    "with their maps, periods, L-values, BSD; Diophantine equations "
+	    "reduced to elliptic curves (\"a/(b+c) + b/(a+c) + c/(a+b) = 4\" "
+	    "positive), congruent numbers, Mordell curves, sums of two cubes.  "
+	    "A curve is \"[a1, a2, a3, a4, a6]\", \"[a4, a6]\" or \"y^2 = x^3 "
+	    "- x\".  For instance {\"op\": \"diophantine\", \"args\": "
+	    "{\"equation\": \"a/(b+c) + b/(a+c) + c/(a+b) = 4\", \"positive\": "
+	    "true}}.",
+	    "elliptic diophantine weierstrass congruent mordell cubesum"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "

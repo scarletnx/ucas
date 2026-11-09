@@ -1829,6 +1829,7 @@ dio_solve_eq(struct dio_eq *D, const struct dio_opts *o)
 	struct sbuf out = {0};
 	struct eciso toE;
 	int r, i, nsol = 0, tried = 0, unmapped = 0;
+	char fromtxt[256] = "";
 	zmark mk;
 
 	{
@@ -1979,19 +1980,23 @@ dio_solve_eq(struct dio_eq *D, const struct dio_opts *o)
 				nsol++;
 				printf("solution %d, from ", nsol);
 				{
+					struct sbuf fr = {0};
 					int first = 1;
 					for (a = 0; a < r; a++)
 						if (vec[idx * r + a]) {
-							printf("%s%lld*P%d", first ? "" : " + ",
+							sb_printf(&fr, "%s%lld*P%d", first ? "" : " + ",
 							    (long long)vec[idx * r + a], a + 1);
 							first = 0;
 						}
 					if (M.T.pts[ti].inf) {
 						if (first)
-							printf("O");
+							sb_puts(&fr, "O");
 					} else
-						printf("%s%s", first ? "" : " + ",
+						sb_printf(&fr, "%s%s", first ? "" : " + ",
 						    ec_pt_str(&M.E, &M.T.pts[ti]));
+					printf("%s", sb_str(&fr));
+					snprintf(fromtxt, sizeof fromtxt, "%s", sb_str(&fr));
+					free(fr.p);
 				}
 				printf(":\n");
 				rep_obj(NULL);
@@ -2002,10 +2007,14 @@ dio_solve_eq(struct dio_eq *D, const struct dio_opts *o)
 					printf("\n");
 					rep_str(D->V.name[a], zq_str(val[a]));
 				}
-				rep_str("from", "");
+				rep_str("from", fromtxt);
 				rep_end();
 				printf("  check: substituted into the equation, both sides "
 				    "are equal\n");
+				rep_check("substitution", 1, 0, 1, "the solution substituted "
+				    "into the original equation: both sides equal (exact)");
+				rep_check("maps", 1, 0, 1, "the point mapped back to the "
+				    "curve model and forward again gives the same point");
 			}
 			z_release(mk);
 		}
@@ -2023,6 +2032,8 @@ dio_solve_eq(struct dio_eq *D, const struct dio_opts *o)
 				    "every point of it was mapped back and fails the "
 				    "conditions\n");
 				rep_str("conclusion", "none (proved)");
+				rep_proof("exhaustive", "E(Q) is finite (rank 0 by "
+				    "2-isogeny descent); every point mapped back fails");
 			} else if (o->positive && m.proj && !m.affine &&
 			    m.kind != DK_YQUAD) {
 				int ne, ni, nt;
@@ -2041,6 +2052,7 @@ dio_solve_eq(struct dio_eq *D, const struct dio_opts *o)
 						    "lies on the egg: %s\n", why);
 						rep_str("conclusion", "no positive solutions "
 						    "(egg empty by 2-descent)");
+						rep_proof("symbolic", why);
 					} else
 						printf("whether the egg has rational points is "
 						    "open here: %s\n", why);

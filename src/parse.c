@@ -1875,6 +1875,10 @@ statement(struct P *p)
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
 		return;
+	/* elliptic curves, Diophantine equations (ec_cmd.c): before
+	 * hyper.c tries the line ("ec y^2 = x^3 - x" as e*c ...) */
+	if (pk(p) == T_ID && ec_command(p))
+		return;
 	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
 		return;
 	if (hyper_hook(p))
@@ -1901,8 +1905,6 @@ statement(struct P *p)
 		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
 			return;
 		if (calc2_command(p))
-			return;
-		if (ec_command(p))	/* elliptic curves, Diophantine (ec_cmd.c) */
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
 		if (is_kw(p, "spvsimplify")) {

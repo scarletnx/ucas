@@ -1158,7 +1158,10 @@ height_min(const struct ec *E, const struct ecpt *P, double *err)
 	struct zq x;
 	zmark m = z_mark();
 
-	if (P->inf || ec_order_upto(E, P, 12) > 0) {
+	/* torsion points have x with denominator dividing 4 on an integral
+	 * model: only those need the order test */
+	if (P->inf || (z_divides(fe_q(&P->x).d, I(4)) &&
+	    ec_order_upto(E, P, 12) > 0)) {
 		if (err)
 			*err = 0;
 		z_release(m);
@@ -2273,16 +2276,47 @@ ecq_mw_compute(const struct ec *E0, struct ecq_mw *M, int64_t search)
 			}
 		free(h);
 	}
-	for (i = 0; i < cand.n; i++) {
-		struct ecpt P;
-		if (M->rank_hi >= 0 && (int)M->gens.n >= M->rank_hi)
-			break;
-		ecpts_get(&cand, i, &P);
-		ecq_add_indep(&M->E, &M->gens, &P);
+	{
+		/* greedy, with the Gram matrix kept: a candidate is added when
+		 * the regulator grows by more than 1e-9 of its height */
+		double gram[81], hq;
+		int n = 0, a, b;
+		for (i = 0; i < cand.n && i < 150; i++) {
+			struct ecpt Q;
+			double t[81], r0, r1;
+			if (M->rank_hi >= 0 && n >= M->rank_hi)
+				break;
+			if (n >= 8)
+				break;
+			ecpts_get(&cand, i, &Q);
+			hq = ecq_height(&M->E, &Q, NULL);
+			if (hq < 1e-9)
+				continue;
+			for (a = 0; a < n; a++) {
+				struct ecpt P, S;
+				ecpts_get(&M->gens, (uint32_t)a, &P);
+				ec_add(&M->E, &S, &P, &Q);
+				gram[a * 9 + n] = gram[n * 9 + a] = (ecq_height(&M->E, &S,
+				    NULL) - gram[a * 9 + a] - hq) / 2;
+			}
+			gram[n * 9 + n] = hq;
+			for (a = 0; a < n; a++)
+				for (b = 0; b < n; b++)
+					t[a * n + b] = gram[a * 9 + b];
+			r0 = n ? det_sym(t, n) : 1;
+			for (a = 0; a <= n; a++)
+				for (b = 0; b <= n; b++)
+					t[a * (n + 1) + b] = gram[a * 9 + b];
+			r1 = det_sym(t, n + 1);
+			if (r1 <= 1e-9 * r0 * hq)
+				continue;
+			ecpts_push(&M->gens, &Q);
+			n++;
+		}
 	}
 	/* every candidate must lie in the lattice of the generators: enlarge
 	 * it where one does not (Q = sum (a_j / b) P_j modulo torsion) */
-	for (i = 0; i < cand.n && M->gens.n > 0; i++) {
+	for (i = 0; i < cand.n && i < 60 && M->gens.n > 0; i++) {
 		struct ecpt Q;
 		ecpts_get(&cand, i, &Q);
 		ecq_enlarge(&M->E, &M->gens, &Q);
