@@ -1902,8 +1902,11 @@ statement(struct P *p)
 			int nofile = 0, fmode = 0, fapprox = 0, fpercomp = 0, fonly = 0;
 			adv(p);
 			while (!at_eos(p)) {
-				if (accept_kw(p, "budget") && pk(p) == T_NUM)
-					budget = cmdp_number(p, NULL);
+				if (accept_kw(p, "budget") && pk(p) == T_NUM) {
+					/* one number: "budget 60 nofile" is not 60 * nofile */
+					nid nn = number(p);
+					budget = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+				}
 				else if (accept_kw(p, "nofile"))
 					nofile = 1;
 				else if (accept_kw(p, "assume") && pk(p) == T_ID) {
