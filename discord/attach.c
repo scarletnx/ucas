@@ -499,3 +499,14 @@ attach_gather(const struct discord_message *m, uint64_t self,
 	}
 	return blocks->n > before;
 }
+
+int
+attach_block(const struct discord_message *m, int k, struct sbuf *block,
+    struct sbuf *notes)
+{
+	if (m->attachments == NULL || k < 0 || k >= m->attachments->size ||
+	    k >= AT_MAXFILES)
+		return 0;
+	one_attachment(&m->attachments->array[k], block, notes);
+	return block->n > 0;
+}

@@ -44,9 +44,12 @@
 #include "jsmn-find.h"
 
 #include "ucas.h"
+#include "json.h"
 #include "sup.h"
 #include "text.h"
 #include "attach.h"
+#include "botuse.h"
+#include "dcjson.h"
 
 int dc_selftest(void);
 
@@ -57,6 +60,8 @@ struct pend {
 	char *answers;   /* "\x1eanswer ...\n" lines sent with it */
 	int echo;
 	int dropped;     /* it replaced an open question */
+	int helpnote;    /* "help": say how bots use the bot too */
+	struct djreq *dj; /* a ```json request */
 };
 
 /*
@@ -271,14 +276,6 @@ output_failed(const char *out, size_t n)
 	return 0;
 }
 
-/* a file the engine made (animate's GIF, simplified.spvasm, ...) */
-struct dfile {
-	char name[64], type[64];
-	char *data;
-	size_t len;
-};
-#define MAXDFILES 6
-
 static void
 post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
     const char *content, const char *file, size_t filelen,
@@ -288,7 +285,7 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	struct strings parse = {0, noparse, 0};
 	struct discord_allowed_mention am = {0};
 	struct discord_message_reference ref = {0};
-	struct discord_attachment att[MAXDFILES + 1];
+	struct discord_attachment att[MAXPOST + 1];
 	struct discord_attachments atts = {0};
 	struct discord_create_message p = {0};
 	char buf[16384];
@@ -306,7 +303,7 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	p.allowed_mentions = &am;
 	p.message_reference = &ref;
 	memset(att, 0, sizeof att);
-	for (k = 0; k < nfs && k < MAXDFILES; k++) {
+	for (k = 0; k < nfs && k < MAXPOST; k++) {
 		att[atts.size].id = atts.size;
 		att[atts.size].content = fs[k].data;
 		att[atts.size].size = fs[k].len;
@@ -337,9 +334,13 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	n = discord_create_message_to_json(buf, sizeof buf, &p);
 	printf("POST /channels/%" PRIu64 "/messages%s\n%.*s\n", chan,
 	    atts.size ? " (multipart)" : "", (int)n, buf);
-	for (k = 0; k < nfs && k < MAXDFILES; k++)
+	for (k = 0; k < nfs && k < MAXPOST; k++) {
 		printf("  files[%d]: %s, %s, %zu bytes\n", k, fs[k].name,
 		    fs[k].type, fs[k].len);
+		/* the whole JSON response: what a program reads */
+		if (!strcmp(fs[k].name, DJ_FULL))
+			printf("  %.*s", (int)fs[k].len, fs[k].data);
+	}
 	if (file != NULL)
 		printf("  files[%d]: %s, %zu bytes\n", k, DC_FILENAME, filelen);
 }
@@ -402,6 +403,8 @@ log_in(const struct discord_message *m, const char *as, uint64_t req)
 	    PRIu64 "\",\"author\":\"%" PRIu64 "\",\"name\":", as, req,
 	    m->channel_id, m->guild_id, m->id, m->author ? m->author->id : 0);
 	jstr(slog, name, strlen(name));
+	if (m->author && m->author->bot)
+		fputs(",\"bot\":true", slog);
 	fputs(",\"content\":", slog);
 	jstr(slog, m->content ? m->content : "", m->content ?
 	    strlen(m->content) : 0);
@@ -488,7 +491,187 @@ send_req(uint32_t type, const struct discord_message *m, const char *text,
 	pp->answers = answers ? strdup(answers) : NULL;
 	pp->echo = echo;
 	pp->dropped = 0;
+	pp->helpnote = 0;
+	pp->dj = NULL;
 	return 0;
+}
+
+/* ---- other bots, JSON over Discord, "explain AI usage" ---- */
+
+#define HELP_NOTE BU_HELP_HEAD "`explain AI usage` for how another bot " \
+	"or a program uses me (JSON requests, limits)"
+
+/* now for the rate limit: the clock, or in --stdin the event's timestamp */
+static int64_t
+msg_now_ms(const struct discord_message *m)
+{
+	struct timespec ts;
+
+	if (client == NULL)
+		return (int64_t)m->timestamp;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+/*
+ * A message from an allowlisted bot: served when it mentions the bot
+ * (a real mention) or is a Discord reply to one of its messages, other
+ * than a bare reply to a notice, within the reply-chain cap and the rate
+ * limit.  Each refusal is told once, then the rest are ignored.
+ */
+static int
+bot_gate(const struct discord_message *m, int mentioned, int reply_self)
+{
+	char msg[300];
+	int notify, wait;
+
+	if (!mentioned && !reply_self)
+		return 0;
+	if (!mentioned && bu_is_notice(m->referenced_message->content)) {
+		log_in(m, "bot-notice-reply", 0);
+		return 0;
+	}
+	if (!bu_chain(m->channel_id, m->author->id, reply_self, &notify)) {
+		log_in(m, "bot-chain-cap", 0);
+		if (notify) {
+			snprintf(msg, sizeof msg, BU_CHAIN_NOTICE "%d replies in a "
+			    "row with no human message in between; this chain is "
+			    "not answered any more. Mention me in a new message "
+			    "(not a reply) to start another.", bu_conf.chain);
+			post(m->channel_id, m->id, m->guild_id, msg, NULL, 0, NULL,
+			    0);
+		}
+		return 0;
+	}
+	if ((wait = bu_rate(m->author->id, msg_now_ms(m), &notify)) > 0) {
+		log_in(m, "bot-rate-limited", 0);
+		if (notify) {
+			snprintf(msg, sizeof msg, BU_RATE_NOTICE "retry in %d s "
+			    "(%d requests at once, then %d a minute; until then "
+			    "your messages are ignored)", wait, bu_conf.burst,
+			    bu_conf.rate);
+			post(m->channel_id, m->id, m->guild_id, msg, NULL, 0, NULL,
+			    0);
+		}
+		return 0;
+	}
+	return 1;
+}
+
+/* the help for bots: short, with the whole of it attached if it is long */
+static void
+ai_usage(const struct discord_message *m)
+{
+	char *full = bu_help(1, self_id, self_name, limits.cpu_s,
+	    limits.wall_s);
+
+	log_in(m, "ai-usage", 0);
+	if (strlen(full) <= DC_LIMIT)
+		post(m->channel_id, m->id, m->guild_id, full, NULL, 0, NULL, 0);
+	else {
+		char *brief = bu_help(0, self_id, self_name, limits.cpu_s,
+		    limits.wall_s);
+		struct dfile f;
+		memset(&f, 0, sizeof f);
+		snprintf(f.name, sizeof f.name, "wimsy-ai-usage.md");
+		snprintf(f.type, sizeof f.type, "text/markdown; charset=utf-8");
+		f.data = full;
+		f.len = strlen(full);
+		post(m->channel_id, m->id, m->guild_id, brief, NULL, 0, &f, 1);
+		free(brief);
+	}
+	free(full);
+	react(m->channel_id, m->id, RX_OK);
+	sessions_done++;
+	maybe_end_session();
+}
+
+/* a ```json reply: the block, files attached (fs has room for MAXPOST) */
+static void
+json_post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
+    const struct jv *resp, struct dfile *fs, int nfs)
+{
+	struct sbuf b = {0};
+	int k, n0 = nfs;
+
+	dj_format(resp, &b, fs, &nfs, MAXPOST);
+	post(chan, msg, guild, b.p, NULL, 0, fs, nfs);
+	react(chan, msg, dj_all_ok(resp) ? RX_OK : RX_FAIL);
+	for (k = n0; k < nfs; k++)	/* response.json */
+		free(fs[k].data);
+	free(b.p);
+}
+
+/* a ```json block of JSON frontend requests */
+static void
+json_request(const struct discord_message *m, const char *body)
+{
+	struct djreq *r = xcalloc(1, sizeof *r);
+	struct dfile fs[MAXPOST];
+	struct jv *reply = NULL;
+	struct sbuf w = {0};
+	int kind = dj_prepare(m, body, r, &reply);
+
+	memset(fs, 0, sizeof fs);
+	switch (kind) {
+	case DJ_RESET:
+		ask_drop_chan(m->channel_id);
+		if (send_req(SF_RESET, m, NULL, 0, NULL, NULL) == 0) {
+			pend[npend - 1].dj = r;
+			log_in(m, "json-reset", nextid);
+			return;
+		}
+		break;
+	case DJ_WORKER:
+		jv_write(&w, r->rq);
+		if (send_req(SF_EVAL, m, w.p, SF_JSON, NULL, NULL) == 0) {
+			pend[npend - 1].dj = r;
+			log_in(m, "json-request", nextid);
+			free(w.p);
+			return;
+		}
+		free(w.p);
+		break;
+	case DJ_SCHEMA:
+		log_in(m, "json-schema", 0);
+		reply = dj_schema_response(r, &fs[0]);
+		json_post(m->channel_id, m->id, m->guild_id, reply, fs, 1);
+		free(fs[0].data);
+		break;
+	default:
+		log_in(m, "json-refused", 0);
+		json_post(m->channel_id, m->id, m->guild_id, reply, fs, 0);
+		break;
+	}
+	jv_free(reply);
+	dj_free(r);
+	free(r);
+	sessions_done++;
+	maybe_end_session();
+}
+
+/* the worker's answer to a ```json request */
+static void
+json_response(const struct sframe *h, const struct pend *pp, const char *out,
+    const char *head)
+{
+	struct dfile fs[MAXPOST];
+	int nf = 0, k;
+	struct jv *resp;
+
+	memset(fs, 0, sizeof fs);
+	if ((h->status & SR_MASK) == SR_RESET)
+		resp = dj_reset_response(pp->dj);
+	else
+		resp = dj_result(pp->dj, h->status, head, out, h->len, fs, &nf,
+		    MAXPOST - 1);
+	log_out(h->id, (int)h->status, 0, out, h->len);
+	json_post(pp->chan, pp->msg, pp->guild, resp, fs, nf);
+	for (k = 0; k < nf; k++)
+		free(fs[k].data);
+	jv_free(resp);
+	dj_free(pp->dj);
+	free(pp->dj);
 }
 
 /* returns DC_IGNORE, DC_EVAL or DC_RESET */
@@ -504,8 +687,8 @@ word_end(char c)
 
 /*
  * Is the message for the bot?  It is when it mentions the bot anywhere:
- * <@id> or <@!id> (a real mention), or "@Name#1234" / "@Name" typed as
- * text.  The text without the mentions goes to out.
+ * <@id> or <@!id> (a real mention: bit 2), or "@Name#1234" / "@Name"
+ * typed as text (bit 1).  The text without the mentions goes to out.
  */
 static int
 strip_mentions(const char *s, struct sbuf *out)
@@ -525,16 +708,16 @@ strip_mentions(const char *s, struct sbuf *out)
 	while (*s) {
 		if (self_id && !strncmp(s, id1, l1)) {
 			s += l1;
-			found = 1;
+			found |= 2;
 		} else if (self_id && !strncmp(s, id2, l2)) {
 			s += l2;
-			found = 1;
+			found |= 2;
 		} else if (!strncasecmp(s, nm1, l3) && word_end(s[l3])) {
 			s += l3;
-			found = 1;
+			found |= 1;
 		} else if (!strncasecmp(s, nm2, l4) && word_end(s[l4])) {
 			s += l4;
-			found = 1;
+			found |= 1;
 		} else
 			sb_putc(out, *s++);
 	}
@@ -547,10 +730,15 @@ handle_message(const struct discord_message *m)
 	struct sbuf code = {0}, req = {0}, ans = {0};
 	const char *content;
 	struct ask *q;
-	int kind, echo, dropped = 0;
+	int kind, echo, dropped = 0, isbot;
 
-	if (m->author == NULL || m->author->bot || m->author->System ||
+	if (m->author == NULL || m->author->System ||
 	    m->author->id == self_id || m->webhook_id != 0)
+		return DC_IGNORE;
+	isbot = m->author->bot;
+	if (!isbot)
+		bu_human(m->channel_id);	/* a human: bots' chains end */
+	else if (!bu_allowed(m->author->id))
 		return DC_IGNORE;
 	{
 		/*
@@ -560,8 +748,18 @@ handle_message(const struct discord_message *m)
 		 */
 		struct sbuf body = {0};
 		int addressed = strip_mentions(m->content, &body);
-		if (m->referenced_message && m->referenced_message->author &&
-		    m->referenced_message->author->id == self_id)
+		int reply_self = m->referenced_message &&
+		    m->referenced_message->author &&
+		    m->referenced_message->author->id == self_id;
+		if (isbot) {
+			/* explicitly: a real mention or a reply, nothing less */
+			if (!bot_gate(m, addressed & 2, reply_self)) {
+				free(body.p);
+				return DC_IGNORE;
+			}
+			addressed = 1;
+		}
+		if (reply_self)
 			addressed = 1;
 		if (!addressed) {
 			q = ask_find(m->channel_id, m->author->id);
@@ -607,6 +805,20 @@ handle_message(const struct discord_message *m)
 				react(m->channel_id, m->id, RX_ASK);
 				free(req.p);
 				return DC_IGNORE;
+			}
+			if (bu_is_ai_usage(t)) {
+				ai_usage(m);
+				free(req.p);
+				return DC_EVAL;
+			}
+			{
+				struct sbuf jb = {0};
+				if (dj_find(t, &jb)) {
+					json_request(m, jb.p);
+					free(jb.p);
+					free(req.p);
+					return DC_EVAL;
+				}
 			}
 			memmove(req.p + 1, t, strlen(t) + 1);
 		}
@@ -683,44 +895,12 @@ handle_message(const struct discord_message *m)
 		sb_printf(&req, "\x1e" "defer\n%s", code.p);
 		send_req(SF_EVAL, m, req.p, echo, code.p, "");
 		pend[npend - 1].dropped = dropped;
+		pend[npend - 1].helpnote = !strcasecmp(code.p, "help");
 		log_in(m, "request", nextid);
 	}
 	free(code.p);
 	free(req.p);
 	return kind;
-}
-
-/* base64 to bytes, skipping newlines; returns the length */
-static size_t
-b64dec(const char *s, size_t n, char *out, size_t cap)
-{
-	unsigned v = 0;
-	int bits = 0;
-	size_t i, o = 0;
-
-	for (i = 0; i < n; i++) {
-		int c = (unsigned char)s[i], d;
-		if (c >= 'A' && c <= 'Z')
-			d = c - 'A';
-		else if (c >= 'a' && c <= 'z')
-			d = c - 'a' + 26;
-		else if (c >= '0' && c <= '9')
-			d = c - '0' + 52;
-		else if (c == '+')
-			d = 62;
-		else if (c == '/')
-			d = 63;
-		else
-			continue;
-		v = (v << 6) | (unsigned)d;
-		bits += 6;
-		if (bits >= 8) {
-			bits -= 8;
-			if (o < cap)
-				out[o++] = (char)(v >> bits & 0xff);
-		}
-	}
-	return o;
 }
 
 static void
@@ -745,6 +925,12 @@ on_response(const struct sframe *h, const char *out)
 	pp = pend[i];
 	pend[i] = pend[--npend];
 	head = dc_status(h->status, h->arg, &limits, sbuf, sizeof sbuf);
+	if (pp.dj != NULL) {
+		json_response(h, &pp, out, head);
+		sessions_done++;
+		maybe_end_session();
+		return;
+	}
 	/*
 	 * "\x1efile NAME TYPE SIZE\n<base64>\x1eend\n": a file made by the
 	 * engine (animate's GIF, simplified.spvasm, simplified.c).  Decode
@@ -767,7 +953,7 @@ on_response(const struct sframe *h, const char *out)
 				struct dfile *f = &files[nfiles++];
 				cap = (size_t)(fe - nl) * 3 / 4 + 4;
 				f->data = xmalloc(cap);
-				f->len = b64dec(nl + 1, (size_t)(fe - nl - 1), f->data,
+				f->len = dj_b64dec(nl + 1, (size_t)(fe - nl - 1), f->data,
 				    cap);
 				snprintf(f->name, sizeof f->name, "%s", fname);
 				snprintf(f->type, sizeof f->type, "%s", ftype);
@@ -792,60 +978,8 @@ on_response(const struct sframe *h, const char *out)
 	 * report in the block's place and simplified.glsl attached.
 	 */
 	if (out != NULL) {
-		const char *xs = memmem(out, olen, "\x1e" "xspv ", 6);
-		const char *xa = xs ? memmem(xs, (size_t)(out + olen - xs),
-		    "\x1e" "and\n", 5) : NULL;
-		const char *xe = xa ? memmem(xa, (size_t)(out + olen - xa),
-		    "\x1e" "end\n", 5) : NULL;
 		struct sbuf t = {0};
-		if (xs != NULL && xe != NULL) {
-			struct sbuf rep = {0}, og = {0}, sg = {0};
-			const char *b1 = memchr(xs, '\n', (size_t)(xa - xs));
-			size_t c1 = (size_t)(xa - xs) * 3 / 4 + 4,
-			    c2 = (size_t)(xe - xa) * 3 / 4 + 4, n1 = 0, n2;
-			char *om = xmalloc(c1 + 1), *sm = xmalloc(c2 + 1);
-			int nofile = atoi(xs + 6);
-			if (b1 != NULL)
-				n1 = b64dec(b1 + 1, (size_t)(xa - b1 - 1), om, c1);
-			n2 = b64dec(xa + 5, (size_t)(xe - xa - 5), sm, c2);
-			om[n1] = 0;
-			sm[n2] = 0;
-			sb_printf(&t, "%.*s", (int)(xs - out), out);
-			spvcross_view(n1 ? om : NULL, sm, &rep, &og, &sg);
-			sb_puts(&t, rep.p ? rep.p : "");
-			if (sg.n && nofile) {
-				const struct sbuf *g[2] = {&sg, &og};
-				const char *gn[2] = {"simplified.glsl", "original.glsl"};
-				int k;
-				for (k = 0; k < 2; k++) {
-					uint32_t hsh = 2166136261u;
-					size_t q;
-					if (g[k]->n == 0)
-						continue;
-					for (q = 0; q < g[k]->n; q++)
-						hsh = (hsh ^ (unsigned char)g[k]->p[q]) * 16777619u;
-					sb_printf(&t, "  (nofile: %s, %zu bytes, checksum "
-					    "%08x)\n", gn[k], g[k]->n, hsh);
-				}
-			} else if (sg.n && nfiles < MAXDFILES) {
-				struct dfile *f = &files[nfiles++];
-				snprintf(f->name, sizeof f->name, "simplified.glsl");
-				snprintf(f->type, sizeof f->type, "text/plain");
-				f->data = sg.p;
-				f->len = sg.n;
-				sg.p = NULL;
-				sb_puts(&t, "  spirv-cross's GLSL of it is attached as "
-				    "simplified.glsl\n");
-			}
-			sb_printf(&t, "%.*s", (int)(out + olen - (xe + 5)), xe + 5);
-			free(rep.p);
-			free(og.p);
-			free(sg.p);
-			free(om);
-			free(sm);
-		} else if (xs != NULL)	/* cut by the output limit */
-			sb_printf(&t, "%.*s", (int)(xs - out), out);
-		if (xs != NULL) {
+		if (xspv_expand(out, olen, &t, files, &nfiles, MAXDFILES, NULL)) {
 			free(txt.p);
 			txt = t;
 			out = txt.p ? txt.p : "";
@@ -895,7 +1029,8 @@ on_response(const struct sframe *h, const char *out)
 		} else
 			dc_format(&r, head == NULL && pp.dropped ? "(your open "
 			    "question was dropped: this looked like a new request)" :
-			    head, out, olen);
+			    head == NULL && pp.helpnote ? HELP_NOTE : head, out,
+			    olen);
 	}
 	asked = out && memmem(out, olen, "\x1e" "ask ", 5) != NULL;
 	log_out(h->id, (int)h->status, asked, out, olen);
@@ -1439,6 +1574,7 @@ main(int argc, char **argv)
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	signal(SIGPIPE, SIG_IGN);
 	sup_limits_env(&limits);
+	bu_conf_env();
 	/* before any thread exists: the supervisor only ever forks */
 	if ((sup = sup_start(&limits, &supfd)) < 0) {
 		perror("ucas-discord: supervisor");

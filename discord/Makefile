@@ -16,7 +16,7 @@ PROG=	ucas-discord
 # every engine source except the CLI's main.c, so new engine files
 # (and the commands in them) come along without edits here
 ENGINE!=	cd ${.CURDIR}/../src && ls *.c | grep -v '^main\.c$$'
-SRCS=	bot.c attach.c sup.c text.c selftest.c ${ENGINE}
+SRCS=	bot.c attach.c sup.c text.c selftest.c botuse.c dcjson.c ${ENGINE}
 .PATH:	${.CURDIR}/../src
 MAN=
 
@@ -36,6 +36,14 @@ thy_absalg.inc: thy_absalg.thy
 	    ${.ALLSRC} > ${.TARGET}
 kscript.o kscript.pieo: thy_absalg.inc
 CLEANFILES+=	thy_absalg.inc
+# the help for bots ("explain AI usage"), from its Markdown
+.for f in ai_usage ai_usage_short
+${f}.inc: ${f}.md
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    ${.ALLSRC} > ${.TARGET}
+CLEANFILES+=	${f}.inc
+.endfor
+botuse.o botuse.pieo: ai_usage.inc ai_usage_short.inc
 
 # img.c compiles stb_image (../src/third_party, unmodified): its warnings
 # are not ours

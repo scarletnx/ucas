@@ -17,3 +17,5 @@ logs/
 thy_absalg.inc
 libsnxglslc.a
 snx_*.o
+ai_usage.inc
+ai_usage_short.inc
