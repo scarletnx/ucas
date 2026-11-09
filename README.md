@@ -620,6 +620,18 @@ longer is sent as a preview plus the whole output attached as
 `ucas-output.txt`.  Messages from bots (including itself), webhooks and
 system users are ignored.
 
+Attachments and replies count as input.  A message's attached files,
+and for a Discord reply to someone else's message that message's
+```` ``` ```` blocks and files, are added to the request as code blocks,
+so `@Wimsy animate exec of this` works on a posted shader.  Binary
+SPIR-V goes through `spirv-dis`; GLSL (`.comp`, `.frag`, `.vert`,
+`.glsl` ..., the stage from the extension or what the code uses)
+through `glslangValidator -V` and then `spirv-dis`; SPIR-V assembly and
+other text are added as they are.  Images can't be read (the bot asks
+for the code as text).  Files come only from Discord's CDN, at most
+256 KiB and 4 per message, and the tools run with CPU and memory
+limits.  A short note says what was done with each file.
+
 ### Setup
 
 1. In the Discord Developer Portal, create an application, add a Bot,

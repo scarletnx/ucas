@@ -46,6 +46,7 @@
 #include "ucas.h"
 #include "sup.h"
 #include "text.h"
+#include "attach.h"
 
 int dc_selftest(void);
 
@@ -399,6 +400,20 @@ log_in(const struct discord_message *m, const char *as, uint64_t req)
 	fflush(slog);
 }
 
+/* what the attachments and the replied-to message added */
+static void
+log_attach(const char *notes, size_t bytes)
+{
+	if (slog == NULL || (notes == NULL && bytes == 0))
+		return;
+	fputc('{', slog);
+	log_ts(slog);
+	fprintf(slog, ",\"ev\":\"attach\",\"bytes\":%zu,\"notes\":", bytes);
+	jstr(slog, notes ? notes : "", notes ? strlen(notes) : 0);
+	fputs("}\n", slog);
+	fflush(slog);
+}
+
 /* what Discord answered to a reply: the message id, or the error */
 static void
 log_posted(u64snowflake chan, u64snowflake id, int code, const char *err)
@@ -554,7 +569,8 @@ handle_message(const struct discord_message *m)
 		{
 			/* what addressing leaves behind: "hey <@id>, ..." */
 			static const char *const greet[] = {"hey", "hi", "hello",
-			    "yo", "ok", "okay", "so", "um", "hiya", "heya", NULL};
+			    "yo", "ok", "okay", "so", "um", "hiya", "heya", "please",
+			    "pls", "plz", "kindly", NULL};
 			const char *t = req.p + 1;
 			int g, again = 1;
 			while (again) {
@@ -641,6 +657,18 @@ handle_message(const struct discord_message *m)
 		return DC_EVAL;
 	}
 	if (kind == DC_EVAL) {
+		/* attachments, and what a reply points at, as code blocks */
+		struct sbuf blocks = {0}, notes = {0};
+		attach_gather(m, self_id, code.p && strstr(code.p, "```") != NULL,
+		    &blocks, &notes);
+		if (blocks.n)
+			sb_puts(&code, blocks.p);
+		if (notes.n)
+			post(m->channel_id, m->id, m->guild_id, notes.p, NULL, 0,
+			    NULL, 0, NULL, NULL);
+		log_attach(notes.p, blocks.n);
+		free(blocks.p);
+		free(notes.p);
 		strip_directives(code.p);
 		sb_printf(&req, "\x1e" "defer\n%s", code.p);
 		send_req(SF_EVAL, m, req.p, echo, code.p, "");
@@ -1306,7 +1334,7 @@ main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--check-token"))
 			return check_token();
 		else if (!strcmp(argv[i], "--stdin"))
-			mode = 1;
+			mode = 1, attach_allow_file = 1;
 		else if (!strcmp(argv[i], "--token-file") && i + 1 < argc)
 			token_file_opt = argv[++i];
 		else if (!strcmp(argv[i], "--log") && i + 1 < argc)

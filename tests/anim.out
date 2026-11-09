@@ -219,3 +219,17 @@ exec of 0.5sin(x), cost model gt1030, 4 lanes in lockstep; x: f32
 anim.ucas:22:17: error: animate exec: could not read "blorp qq" as an approximation request
     animate exec of best found blorp qq nofile
                     ^
+> animate exec of this thing nofile
+anim.ucas:24:28: error: animate exec: I see no code to run here: attach the file (.spv, .spvasm, .comp/.frag GLSL), paste it in a ``` block, or reply to the message that has it
+    animate exec of this thing nofile
+                               ^
+> h(x: f32) = x*x - 1
+> animate exec of h nofile
+exec of x*x - 1, cost model gt1030, 4 lanes in lockstep; x: f32
+  result per lane: -1 0 3 8
+  serial form:
+    t0 = x * x                                   fmul           1  t = 0..1  -> 0 1 4 9
+    t1 = t0 - 1                                  fadd           1  t = 1..2  -> -1 0 3 8
+  time 2 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.3 cost units; 27006 bytes
+  (nofile: GIF checksum 7bbc4ac0)

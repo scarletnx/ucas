@@ -1331,7 +1331,7 @@ static const char *const reserved[] = {
 	"square", "cube", "divided", "multiplied", "mod", "modulo", "xor",
 	"bitwise", "shifted", "left", "right", "true", "false", "pi",
 	"range", "domain", "derivative", "function", "expression", "formula",
-	"please", "also", "only", "just", "always", "ever", "never", "same",
+	"please", "pls", "plz", "also", "only", "just", "always", "ever", "never", "same",
 	"defined", "undefined", "overflow", "wrap", "using", "via", "where",
 	"given", "assuming", "such", "type", "unsigned", "signed", "byte",
 	"bytes", "integer", "integers", "float", "double", "real", "bits",
@@ -4137,7 +4137,8 @@ static void
 fillers(void)
 {
 	for (;;) {
-		if (mat("please|kindly|hey|hi|hello|ok|okay|so|now|also|and|then|"
+		if (mat("please|pls|plz|plox|pleas|kindly|hey|hi|hello|ok|okay|so|"
+		    "now|also|and|then|"
 		    "next|well|alright|right|hmm|um|uh|ucas|quick|question") ||
 		    mat("can|could|would|will you ?please") ||
 		    mat("i|we ?would|really|just like|want|need|wanna|wish ?you ?to "
@@ -5507,7 +5508,8 @@ static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"does", "do", "can", "could", "would", "will", "which", "why", "who",
 	"compute", "calculate", "evaluate", "simplify", "solve", "let",
-	"define", "suppose", "assume", "give", "tell", "please", "i", "we",
+	"define", "suppose", "assume", "give", "tell", "please", "pls", "plz",
+	"i", "we",
 	"differentiate", "derive", "check", "list", "explain", "write",
 	"express", "determine", "prove", "plot", "graph", "optimize",
 	"optimise", "estimate", "convert", "tabulate", "enumerate", "compare",

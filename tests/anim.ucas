@@ -20,3 +20,8 @@ animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly nofile
 animate exec of sin(x) * 0.5 nofile
 # a failed approximation request is an error, not a crash
 animate exec of best found blorp qq nofile
+# session 10: "this thing" with nothing attached says what would work
+animate exec of this thing nofile
+# a defined function by name keeps its parameters' types (no type question)
+h(x: f32) = x*x - 1
+animate exec of h nofile

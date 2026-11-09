@@ -16,7 +16,7 @@ PROG=	ucas-discord
 # every engine source except the CLI's main.c, so new engine files
 # (and the commands in them) come along without edits here
 ENGINE!=	cd ${.CURDIR}/../src && ls *.c | grep -v '^main\.c$$'
-SRCS=	bot.c sup.c text.c selftest.c ${ENGINE}
+SRCS=	bot.c attach.c sup.c text.c selftest.c ${ENGINE}
 .PATH:	${.CURDIR}/../src
 MAN=
 

@@ -543,6 +543,17 @@ static const char *const filler[] = {
 
 static int in_words(const char *w, const char *const *list);
 
+/* an unseeded sample's seed: the clock, or UCAS_SEED (tests) */
+static uint64_t
+time_seed(void)
+{
+	const char *e = getenv("UCAS_SEED");
+
+	if (e != NULL && *e)
+		return strtoull(e, NULL, 10);
+	return (uint64_t)time(NULL) % 100000 + 1;
+}
+
 /* the next token is a word from list (it is not consumed) */
 static int
 in_words_at(struct P *p, const char *const *list)
@@ -1461,6 +1472,37 @@ word:
 				}
 				cmdp_seek(p, pos);
 			}
+			/*
+			 * "exec of this thing", "of the attached shader", "of the
+			 * code above": the code block (the bot adds attachments and
+			 * the replied-to message's code as blocks)
+			 */
+			{
+				static const char *const deict[] = {"this", "that",
+				    "these", "those", "it", "thing", "things", "stuff",
+				    "code", "shader", "snippet", "file", "attachment",
+				    "attached", "above", "below", "here", "one", "the",
+				    "my", "following", "program", "kernel", "spirv",
+				    "embedded", "embed", "posted", NULL};
+				int nd = 0;
+				while (cmdp_at(p, T_ID) && in_words_at(p, deict)) {
+					uint32_t pos = cmdp_pos(p);
+					cmdp_word(p, w, sizeof w);
+					/* a function named "it" (approx's target) is itself */
+					if (code_block == NULL && func_find(sym_cstr(w)) !=
+					    NULL) {
+						cmdp_seek(p, pos);
+						break;
+					}
+					nd++;
+				}
+				if (nd && code_block == NULL && (cmdp_eos(p) ||
+				    (cmdp_at(p, T_ID) && in_words_at(p, exstop))))
+					fail("animate exec: I see no code to run here: attach "
+					    "the file (.spv, .spvasm, .comp/.frag GLSL), paste "
+					    "it in a ``` block, or reply to the message that "
+					    "has it");
+			}
 			/* nothing after it but a code block: run the SPIR-V */
 			if (code_block != NULL && (cmdp_eos(p) || cmdp_at(p, T_PCT) ||
 			    cmdp_at(p, T_NUM) || (cmdp_at(p, T_ID) &&
@@ -1504,6 +1546,17 @@ word:
 					cmdp_seek(p, pos);
 					break;
 				}
+			}
+			{
+				/* a defined function by name keeps its parameters' types */
+				uint32_t pos = cmdp_pos(p);
+				if (!ty && cmdp_word(p, w, sizeof w) &&
+				    (xf = func_find(sym_cstr(w))) != NULL &&
+				    (cmdp_eos(p) || (cmdp_at(p, T_ID) &&
+				    in_words_at(p, exstop))))
+					continue;
+				xf = NULL;
+				cmdp_seek(p, pos);
 			}
 			if (!ty && !fpw && !bits && !sign) {
 				/* no type: GPUs have no unbounded integers; ask */
@@ -1659,11 +1712,11 @@ word:
 	if (unk[0])
 		note("animate: ignored %s", unk);
 	if (random && !seeded)   /* a new sample each time; the seed is shown */
-		seed = (uint64_t)time(NULL) % 100000 + 1;
+		seed = time_seed();
 	if (exec && !strcmp(name, "scan"))
 		snprintf(name, sizeof name, "exec");
 	if (exec && spirv && !seeded)   /* buffers: a new sample each run */
-		seed = (uint64_t)time(NULL) % 100000 + 1;
+		seed = time_seed();
 	if (exec && spirv) {
 		if (lanes != 4 && lanes != 8 && lanes != 16 && lanes != 32)
 			fail("animate exec: lanes 4 (a 2x2 quad), 8, 16 or 32 (a warp)");
