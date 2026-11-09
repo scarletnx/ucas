@@ -3759,6 +3759,16 @@ cmd_fseries(char *text)
 		char *dd = strstr(on, ".."), *l = on, *r;
 		struct func *fa, *fb2;
 		if (!dd) {
+			/* a to b */
+			static const char *const to[] = {"to", NULL};
+			long at2 = find_word(on, to, 0);
+			if (at2 > 0) {
+				on[at2] = '.';
+				on[at2 + 1] = '.';
+				dd = on + at2;
+			}
+		}
+		if (!dd) {
 			/* [a, b] */
 			char *c = strchr(on, ',');
 			if (!c)
