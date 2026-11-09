@@ -27,6 +27,7 @@
 #include "absalg.h"
 #include "viz.h"
 #include "xform.h"
+int homalg_command(struct P *p);	/* homalg.h */
 
 #include <ctype.h>
 #include <math.h>
@@ -1876,6 +1877,8 @@ statement(struct P *p)
 	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */
 		return;
 	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
+		return;
+	if (pk(p) == T_ID && homalg_command(p))	/* homology ... (homalg) */
 		return;
 	if (hyper_hook(p))
 		return;

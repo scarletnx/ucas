@@ -146,6 +146,16 @@ static const struct group groups[] = {
 	    "state, keep answers to ambiguities (assume), reset, the interface "
 	    "schema, the cost models.",
 	    "define state assume reset schema funcs models use help"},
+	{"homological", "Homological algebra",
+	    "Exact homology and cohomology of spaces (spheres, tori, RP^n, "
+	    "CP^n, Klein bottle, lens spaces L(m,q), products, wedges, "
+	    "suspensions, simplicial or cellular complexes you give) with any "
+	    "f.g. abelian coefficients; long exact sequences with the snake "
+	    "lemma; the Bockstein spectral sequence (pages, d_r, E_inf), "
+	    "element tracing, and the check of bockstein.pdf's Proposition "
+	    "0.1.  Every claim carries its checks (d o d = 0, exactness, "
+	    "well-defined induced maps, universal coefficients).",
+	    "space homology cohomology les bockstein bockstein_trace prop01"},
 };
 #define NGROUPS (int)(sizeof groups / sizeof groups[0])
 

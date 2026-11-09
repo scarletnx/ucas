@@ -7679,6 +7679,8 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int homalg_line(const char *s, size_t n);	/* homalg_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7704,6 +7706,8 @@ nlp_is_english(const char *s, size_t n)
 	}
 	if (prove_is_cmd(s + i, n - i))
 		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
+	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
+		return 0;
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */

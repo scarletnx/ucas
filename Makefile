@@ -37,6 +37,8 @@ thy_absalg.inc: thy_absalg.thy
 	    ${.ALLSRC} > ${.TARGET}
 kscript.o kscript.pieo: thy_absalg.inc
 CLEANFILES+=	thy_absalg.inc
+# homological algebra: spaces, (co)homology, exact couples (homalg.h)
+SRCS+=	simp.c cx.c excouple.c homalg_cmd.c
 .PATH:	${.CURDIR}/src
 MAN=
 
