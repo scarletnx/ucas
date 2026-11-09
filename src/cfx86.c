@@ -1545,9 +1545,9 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 			affine(l->store[s].index, &so);
 			/* a later element read before it is written is fine;
 			 * an earlier one carries a dependence */
-			if (off < so || (off > so && l->load[k].epoch >
-			    l->store[s].epoch))
-				return 0;
+			if (off < so || l->load[k].epoch > l->store[s].epoch)
+				return 0;	/* (a load after the store: refused,
+						 * all loads are issued first) */
 			if (l->load[k].esize != l->store[s].esize)
 				return 0;
 		}
