@@ -92,6 +92,17 @@ enum { OK_NONE, OK_V, OK_S, OK_I, OK_K, OK_P };
 #define FA_MEM 4	/* reads or writes memory: semantics in words only */
 #define FA_PTROUT 8	/* a second result through the last (pointer) operand */
 #define FA_NOEXEC 16	/* no lane semantics (memory) */
+/*
+ * Memory (FA_MEM with semantics): a pointer operand is the 64-byte
+ * window at the pointer, its lanes the elements of the pointer's type
+ * (a[3]: the fourth element; a alone: lane i).  A store's result is the
+ * window after the store (FA_STORE); a gather's index operand stays
+ * inside the window in the tests (FA_GATHER), and its semantics needs a
+ * scale that is a multiple of the element size.
+ */
+#define FA_STORE 32
+#define FA_GATHER 64
+#define MEMBYTES 64
 /* AVX-512 masking: r = k bit i ? base : src (or 0) */
 enum { MM_NONE, MM_MASK, MM_MASKZ, MM_MASKA, MM_MASK3, MM_KMASK };
 
@@ -409,6 +420,12 @@ opnd(struct tp *t, int k, int lane)
 	switch (I.ok[id][k]) {
 	case OK_I:
 		return K(t->imm);
+	case OK_P:
+		if (!(I.fl[id] & FA_MEM))
+			return t->fn(t->ctx, k, 0);
+		if (lane < 0 || lane >= MEMBYTES * 8 / ebits[I.oe[id][k]])
+			terr(t, "memory lane outside the 64-byte window");
+		return t->fn(t->ctx, k, lane);
 	case OK_V:
 		if (lane < 0 || lane >= lanes_of(I.obits[id][k], I.oe[id][k]))
 			terr(t, "lane out of range");
@@ -805,10 +822,13 @@ primary(struct tp *t)
 				return K(0);
 			if (isk(ix, &lv))
 				return opnd(t, k, (int)lv);
-			if (I.ok[t->id][k] != OK_V)
+			if (I.ok[t->id][k] != OK_V && (I.ok[t->id][k] != OK_P ||
+			    !(I.fl[t->id] & FA_MEM)))
 				terr(t, "indexing a scalar");
 			{
-				int nl = lanes_of(I.obits[t->id][k], I.oe[t->id][k]), j;
+				int nl = I.ok[t->id][k] == OK_P ? MEMBYTES * 8 /
+				    ebits[I.oe[t->id][k]] : lanes_of(I.obits[t->id][k],
+				    I.oe[t->id][k]), j;
 				nid *e = xcalloc((size_t)nl, sizeof *e), r;
 				for (j = 0; j < nl; j++)
 					e[j] = opnd(t, k, j);
@@ -817,7 +837,8 @@ primary(struct tp *t)
 				return r;
 			}
 		}
-		return opnd(t, k, I.ok[t->id][k] == OK_V ? t->lane : 0);
+		return opnd(t, k, I.ok[t->id][k] == OK_V || (I.ok[t->id][k] ==
+		    OK_P && (I.fl[t->id] & FA_MEM)) ? t->lane : 0);
 	}
 	/* functions */
 	if (!strcmp(w, "or") || !strcmp(w, "xor") || !strcmp(w, "add")) {

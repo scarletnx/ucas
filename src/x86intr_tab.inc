@@ -456,7 +456,10 @@ static const struct fam fams[] = {
 	    "sse4.1 avx avx512f", 0, 0, 0},
 	{"rcp_%s", "ps", "v:* = v:*", "f32(1.0) / a", C(VRCP), 0,
 	    "sse2 avx -", 0, 0, FA_APPROX12},
-	{"rsqrt_%s", "ps", "v:* = v:*", "f32(1.0) / sqrt(a)", C(VRCP), 0,
+	/* rsqrtps reads a denormal as 0 of its sign: -denormal gives -inf */
+	{"rsqrt_%s", "ps", "v:* = v:*",
+	    "(asu(a) & 0x7f800000) == 0 ? f32(1.0) / sqrt(copysign(f32(0.0), a)) "
+	    ": f32(1.0) / sqrt(a)", C(VRCP), 0,
 	    "sse2 avx -", 0, 0, FA_APPROX12},
 	{"rcp14_%s", "ps pd", "v:* = v:*", "1.0 / a", C(VRCP), 0,
 	    "vl vl avx512f", FM_MASK, 0, FA_APPROX14},
@@ -778,35 +781,124 @@ static const struct xrow1 xrows[] = {
 	    "gfmul(a[c + r], 14) ^ gfmul(a[c + (r + 1) % 4], 11) ^ "
 	    "gfmul(a[c + (r + 2) % 4], 13) ^ gfmul(a[c + (r + 3) % 4], 9)",
 	    NULL, C(AES), 0, 0},
-	/* memory: costs and features; semantics in words */
-	{"_mm_loadu_si128", "sse2", "x:i64 = p:i64", NULL, NULL, C(VLOAD), 0,
-	    FA_MEM | FA_NOEXEC},
-	{"_mm256_loadu_si256", "avx", "y:i64 = p:i64", NULL, NULL, C(VLOAD), 0,
-	    FA_MEM | FA_NOEXEC},
-	{"_mm512_loadu_si512", "avx512f", "z:i64 = p:i64", NULL, NULL, C(VLOAD),
-	    0, FA_MEM | FA_NOEXEC},
-	{"_mm_storeu_si128", "sse2", "s:i32 = p:i64 x:i64", NULL, NULL,
-	    C(VSTORE), 0, FA_MEM | FA_NOEXEC},
-	{"_mm256_storeu_si256", "avx", "s:i32 = p:i64 y:i64", NULL, NULL,
-	    C(VSTORE), 0, FA_MEM | FA_NOEXEC},
-	{"_mm512_storeu_si512", "avx512f", "s:i32 = p:i64 z:i64", NULL, NULL,
-	    C(VSTORE), 0, FA_MEM | FA_NOEXEC},
-	{"_mm_maskload_epi32", "avx2", "x:i32 = p:i32 x:i32", NULL, NULL,
-	    C(VMASKLD), 0, FA_MEM | FA_NOEXEC},
-	{"_mm256_maskload_epi32", "avx2", "y:i32 = p:i32 y:i32", NULL, NULL,
-	    C(VMASKLD), 0, FA_MEM | FA_NOEXEC},
-	{"_mm256_maskstore_epi32", "avx2", "s:i32 = p:i32 y:i32 y:i32", NULL,
-	    NULL, C(VMASKST), 0, FA_MEM | FA_NOEXEC},
-	{"_mm256_i32gather_epi32", "avx2", "y:i32 = p:i32 y:i32 i", NULL, NULL,
-	    C(VGATHERD), 8, FA_MEM | FA_NOEXEC},
-	{"_mm256_i64gather_epi64", "avx2", "y:i64 = p:i64 y:i64 i", NULL, NULL,
-	    C(VGATHERQ), 8, FA_MEM | FA_NOEXEC},
-	{"_mm512_i32gather_epi32", "avx512f", "z:i32 = z:i32 p:i32 i", NULL,
-	    NULL, C(VGATHERD), 8, FA_MEM | FA_NOEXEC},
-	{"_mm512_maskz_loadu_epi32", "avx512f", "z:i32 = k16 p:i32", NULL, NULL,
-	    C(VLOAD), 0, FA_MEM | FA_NOEXEC},
-	{"_mm512_mask_storeu_epi32", "avx512f", "s:i32 = p:i32 k16 z:i32", NULL,
-	    NULL, C(VSTORE), 0, FA_MEM | FA_NOEXEC},
+	/*
+	 * memory: a pointer operand is the 64-byte window at the pointer (its
+	 * lanes the elements); a store's result is the window after it; a
+	 * gather reads element index * scale / element size (scales below
+	 * the element size are not modelled: misaligned elements)
+	 */
+	{"_mm_loadu_si128", "sse2", "x:i64 = p:i64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_loadu_ps", "sse2", "x:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_loadu_pd", "sse2", "x:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_load_ps", "sse2", "x:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_load_pd", "sse2", "x:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm256_loadu_si256", "avx", "y:i64 = p:i64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm256_loadu_ps", "avx", "y:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm256_loadu_pd", "avx", "y:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm256_load_ps", "avx", "y:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm256_load_pd", "avx", "y:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_loadu_si512", "avx512f", "z:i64 = p:i64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_loadu_ps", "avx512f", "z:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_loadu_pd", "avx512f", "z:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_load_ps", "avx512f", "z:f32 = p:f32", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_load_pd", "avx512f", "z:f64 = p:f64", "a", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_storeu_si128", "sse2", "z:i64 = p:i64 x:i64", "i < 2 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_storeu_ps", "sse2", "z:f32 = p:f32 x:f32", "i < 4 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_storeu_pd", "sse2", "z:f64 = p:f64 x:f64", "i < 2 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_store_ps", "sse2", "z:f32 = p:f32 x:f32", "i < 4 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_store_pd", "sse2", "z:f64 = p:f64 x:f64", "i < 2 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm256_storeu_si256", "avx", "z:i64 = p:i64 y:i64", "i < 4 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm256_storeu_ps", "avx", "z:f32 = p:f32 y:f32", "i < 8 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm256_storeu_pd", "avx", "z:f64 = p:f64 y:f64", "i < 4 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm256_store_ps", "avx", "z:f32 = p:f32 y:f32", "i < 8 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm256_store_pd", "avx", "z:f64 = p:f64 y:f64", "i < 4 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_storeu_si512", "avx512f", "z:i64 = p:i64 z:i64", "i < 8 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_storeu_ps", "avx512f", "z:f32 = p:f32 z:f32", "i < 16 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_storeu_pd", "avx512f", "z:f64 = p:f64 z:f64", "i < 8 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_store_ps", "avx512f", "z:f32 = p:f32 z:f32", "i < 16 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_store_pd", "avx512f", "z:f64 = p:f64 z:f64", "i < 8 ? b : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_loadl_epi64", "sse2", "x:i64 = p:i64", "i == 0 ? a : 0", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_storel_epi64", "sse2", "z:i64 = p:i64 x:i64", "i == 0 ? b[0] : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_load_ss", "sse2", "x:f32 = p:f32", "i == 0 ? a : 0.0", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_store_ss", "sse2", "z:f32 = p:f32 x:f32", "i == 0 ? b[0] : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_load_sd", "sse2", "x:f64 = p:f64", "i == 0 ? a : 0.0", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm_store_sd", "sse2", "z:f64 = p:f64 x:f64", "i == 0 ? b[0] : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm_maskload_epi32", "avx2", "x:i32 = p:i32 x:i32", "b < 0 ? a : 0", NULL,
+	    C(VMASKLD), 0, FA_MEM},
+	{"_mm256_maskload_epi32", "avx2", "y:i32 = p:i32 y:i32", "b < 0 ? a : 0", NULL,
+	    C(VMASKLD), 0, FA_MEM},
+	{"_mm256_maskload_ps", "avx", "y:f32 = p:f32 y:i32", "b < 0 ? a : 0.0", NULL,
+	    C(VMASKLD), 0, FA_MEM},
+	{"_mm256_maskstore_epi32", "avx2", "z:i32 = p:i32 y:i32 y:i32", "i < 8 ? (b < 0 ? c : a) : a", NULL,
+	    C(VMASKST), 0, FA_MEM | FA_STORE},
+	{"_mm256_maskstore_ps", "avx", "z:f32 = p:f32 y:i32 y:f32", "i < 8 ? (b < 0 ? c : a) : a", NULL,
+	    C(VMASKST), 0, FA_MEM | FA_STORE},
+	{"_mm_i32gather_epi32", "avx2", "x:i32 = p:i32 x:i32 i", "a[int(b) * imm / 4]", NULL,
+	    C(VGATHERD), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i32gather_epi32", "avx2", "y:i32 = p:i32 y:i32 i", "a[int(b) * imm / 4]", NULL,
+	    C(VGATHERD), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i32gather_ps", "avx2", "y:f32 = p:f32 y:i32 i", "a[int(b) * imm / 4]", NULL,
+	    C(VGATHERD), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i32gather_pd", "avx2", "y:f64 = p:f64 x:i32 i", "a[int(b) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i32gather_epi64", "avx2", "y:i64 = p:i64 x:i32 i", "a[int(b) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i64gather_epi64", "avx2", "y:i64 = p:i64 y:i64 i", "a[int(b) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm256_i64gather_pd", "avx2", "y:f64 = p:f64 y:i64 i", "a[int(b) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm512_i32gather_epi32", "avx512f", "z:i32 = z:i32 p:i32 i", "b[int(a) * imm / 4]", NULL,
+	    C(VGATHERD), 8, FA_MEM | FA_GATHER},
+	{"_mm512_i32gather_ps", "avx512f", "z:f32 = z:i32 p:f32 i", "b[int(a) * imm / 4]", NULL,
+	    C(VGATHERD), 8, FA_MEM | FA_GATHER},
+	{"_mm512_i64gather_pd", "avx512f", "z:f64 = z:i64 p:f64 i", "b[int(a) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm512_i32gather_pd", "avx512f", "z:f64 = y:i32 p:f64 i", "b[int(a) * imm / 8]", NULL,
+	    C(VGATHERQ), 8, FA_MEM | FA_GATHER},
+	{"_mm512_maskz_loadu_epi32", "avx512f", "z:i32 = k16 p:i32", "bit(a, i) != 0 ? b : 0", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_mask_storeu_epi32", "avx512f", "z:i32 = p:i32 k16 z:i32", "bit(b, i) != 0 ? c : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
+	{"_mm512_maskz_loadu_ps", "avx512f", "z:f32 = k16 p:f32", "bit(a, i) != 0 ? b : 0.0", NULL,
+	    C(VLOAD), 0, FA_MEM},
+	{"_mm512_mask_storeu_ps", "avx512f", "z:f32 = p:f32 k16 z:f32", "bit(b, i) != 0 ? c : a", NULL,
+	    C(VSTORE), 0, FA_MEM | FA_STORE},
 	{NULL, NULL, NULL, NULL, NULL, 0, 0, 0}
 };
 #undef C
@@ -1194,7 +1286,9 @@ sig_text(struct sbuf *b, int id)
 {
 	int k;
 
-	if (I.rk[id] == OK_V)
+	if (I.fl[id] & FA_STORE)
+		sb_puts(b, "void ");
+	else if (I.rk[id] == OK_V)
 		sb_printf(b, "%s ", ctype_v(I.rbits[id], I.re[id]));
 	else if (I.rk[id] == OK_K)
 		sb_printf(b, "%s ", ctype_k(I.rbits[id]));
@@ -1230,6 +1324,8 @@ var_lane(void *ctx, int k, int lane)
 		t = ety(I.oe[id][k]);
 	if (I.ok[id][k] == OK_V)
 		snprintf(nm, sizeof nm, "%c%d", 'a' + k, lane);
+	else if (I.ok[id][k] == OK_P && (I.fl[id] & FA_MEM))
+		snprintf(nm, sizeof nm, "%c[%d]", 'a' + k, lane);
 	else
 		snprintf(nm, sizeof nm, "%c", 'a' + k);
 	return mk_var((uint32_t)(k * 64 + lane), sym_cstr(nm), t);
@@ -1277,6 +1373,8 @@ cmd_intrinsic(const char *name, int ua)
 		fail("unknown intrinsic %s%s%s", name, n ? "; similar: " : "",
 		    sb_str(&b));
 	}
+	if (I.fl[id] & FA_GATHER)	/* the scale: the element size */
+		imm = ebits[I.re[id]] / 8;
 	rep_begin("intrinsic");
 	sig_text(&b, id);
 	printf("%s\n", sb_str(&b));
@@ -1288,10 +1386,24 @@ cmd_intrinsic(const char *name, int ua)
 	rep_str("features", sb_str(&b));
 	printf("  class: %s (%s)\n", xc_name[I.cls[id]], xc_desc[I.cls[id]]);
 	rep_str("class", xc_name[I.cls[id]]);
-	if (I.fl[id] & FA_MEM)
+	if ((I.fl[id] & FA_MEM) && !I.sem[id])
 		printf("  memory: reads or writes memory; no lane semantics, "
 		    "costs only\n");
 	else {
+		if (I.fl[id] & FA_MEM) {
+			int k;
+			for (k = 0; I.ok[id][k] != OK_P; k++)
+				;
+			printf("  memory: %c is the 64 bytes at the pointer, its "
+			    "lanes %c[0] .. %c[%d] (%s)%s\n", 'a' + k, 'a' + k,
+			    'a' + k, MEMBYTES * 8 / ebits[I.oe[id][k]] - 1,
+			    ename[I.oe[id][k]], I.fl[id] & FA_STORE ? "; the result "
+			    "r is that memory after the store" : I.fl[id] & FA_GATHER ?
+			    "; a gather's scale must be a multiple of the element "
+			    "size" : "");
+			rep_str("memory", I.fl[id] & FA_STORE ? "store" :
+			    I.fl[id] & FA_GATHER ? "gather" : "load");
+		}
 		lanes = rlanes(id);
 		if (I.mmode[id]) {
 			static const char *const mt[] = {"", "r = k[i] ? base : src (the first operand)", "r = k[i] ? base : 0",
@@ -1317,8 +1429,9 @@ cmd_intrinsic(const char *name, int ua)
 			    "semantics is the exact value\n", I.fl[id] & FA_APPROX12 ?
 			    "1.5 * 2^-12" : "2^-14");
 		if (has_imm(id))
-			printf("  lanes with imm = 0x1b (operand lanes named a0, "
-			    "b3 ...):\n");
+			printf("  lanes with imm = %s (operand lanes named a0, "
+			    "b3 ...):\n", imm == 0x1b ? "0x1b" : imm == 4 ? "4" :
+			    "8");
 		else
 			printf("  lanes (operand lanes named a0, b3 ...):\n");
 		rep_list("lanes");
@@ -1530,11 +1643,23 @@ gen_point(int id, unsigned char *pt)
 		case OK_V: {
 			int e = I.oe[id][k], n = I.obits[id][k] / ebits[e];
 			for (j = 0; j < n; j++)
-				put_elem(o + j * ebits[e] / 8, ebits[e], gen_elem(e));
+				/* a gather's indices: inside the window at any
+				 * scale up to 8 */
+				put_elem(o + j * ebits[e] / 8, ebits[e],
+				    (I.fl[id] & FA_GATHER) ? rnd64() % 8 :
+				    gen_elem(e));
 			break;
 		}
 		case OK_S:
 			put_elem(o, ebits[I.oe[id][k]], gen_elem(I.oe[id][k]));
+			break;
+		case OK_P:
+			if (I.fl[id] & FA_MEM) {
+				int e = I.oe[id][k];
+				for (j = 0; j < MEMBYTES * 8 / ebits[e]; j++)
+					put_elem(o + j * ebits[e] / 8, ebits[e],
+					    gen_elem(e));
+			}
 			break;
 		case OK_K: {
 			uint64_t v = rnd64();
@@ -1568,21 +1693,35 @@ c_test_fn(struct sbuf *b, int t, const struct ck_test *ct)
 		if (ty)
 			sb_printf(b, "  %s o%d; memcpy(&o%d, in + %d, sizeof o%d);\n",
 			    ty, k, k, k * CK_OPB, k);
+		else if (I.ok[id][k] == OK_P && (I.fl[id] & FA_MEM))
+			sb_printf(b, "  unsigned char __attribute__((aligned(64))) "
+			    "o%d[%d]; memcpy(o%d, in + %d, %d);\n", k, MEMBYTES, k,
+			    k * CK_OPB, MEMBYTES);
 		else if (I.ok[id][k] == OK_P)
 			sb_printf(b, "  %s o%d = 0;\n", ctype_s(I.oe[id][k]), k);
 	}
 	rt = I.rk[id] == OK_V ? ctype_v(I.rbits[id], I.re[id]) :
 	    I.rk[id] == OK_K ? ctype_k(I.rbits[id]) : ctype_s(I.re[id]);
-	sb_printf(b, "  %s r = %s(", rt, I.name[id]);
+	if (I.fl[id] & FA_STORE)
+		sb_printf(b, "  %s(", I.name[id]);
+	else
+		sb_printf(b, "  %s r = %s(", rt, I.name[id]);
 	for (k = 0; k < I.nop[id]; k++) {
 		if (I.ok[id][k] == OK_I)
 			sb_printf(b, "%s%d", k ? ", " : "", ct->imm);
+		else if (I.ok[id][k] == OK_P && (I.fl[id] & FA_MEM))
+			sb_printf(b, "%s(void *)o%d", k ? ", " : "", k);
 		else if (I.ok[id][k] == OK_P)
 			sb_printf(b, "%s&o%d", k ? ", " : "", k);
 		else
 			sb_printf(b, "%so%d", k ? ", " : "", k);
 	}
-	sb_puts(b, ");\n  memcpy(out, &r, sizeof r);\n");
+	if (I.fl[id] & FA_STORE) {
+		for (k = 0; I.ok[id][k] != OK_P; k++)
+			;
+		sb_printf(b, ");\n  memcpy(out, o%d, %d);\n", k, MEMBYTES);
+	} else
+		sb_puts(b, ");\n  memcpy(out, &r, sizeof r);\n");
 	if (I.fl[id] & FA_PTROUT)
 		sb_printf(b, "  memcpy(out + 64, &o%d, sizeof o%d);\n",
 		    I.nop[id] - 1, I.nop[id] - 1);
@@ -1734,6 +1873,8 @@ load_inputs(int id, const unsigned char *pt, int64_t *in_i, double *in_r,
 		int n = 1, e = I.oe[id][k], bits;
 		if (I.ok[id][k] == OK_V)
 			n = I.obits[id][k] / ebits[e];
+		if (I.ok[id][k] == OK_P && (I.fl[id] & FA_MEM))
+			n = MEMBYTES * 8 / ebits[e];
 		bits = I.ok[id][k] == OK_K ? I.obits[id][k] : ebits[e];
 		for (j = 0; j < n; j++) {
 			size_t slot = (size_t)(k * 64 + j) * CH + (size_t)p;
@@ -2084,6 +2225,7 @@ cmd_x86check(const char *filter, int npts, int avx512)
 	unsigned char *in = NULL, *res = NULL;
 	int64_t *in_i;
 	double *in_r;
+	int nscale = 0;
 	int nrej = 0, nrange = 0, nnorun = 0, nok = 0, nbad = 0, nnosem = 0, shownbad = 0;
 	long cmp_lanes = 0;
 	double worst_rel = 0;
@@ -2115,6 +2257,15 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		for (im = imm_list; *im >= 0; im++) {
 			if (*im > I.imax[id] || (!has_imm(id) && im != imm_list))
 				break;
+			if ((I.fl[id] & FA_GATHER) && (*im == 0 || *im % (ebits[
+			    I.rk[id] == OK_V ? I.re[id] : E_I32] / 8))) {
+				/* scales 1 2 4 8 below the element size:
+				 * misaligned elements, not modelled; others
+				 * cc rejects */
+				if (*im == 1 || *im == 2 || *im == 4)
+					nscale++;
+				continue;
+			}
 			if (nt == capt) {
 				capt = capt ? capt * 2 : 256;
 				ct = xrealloc(ct, (size_t)capt * sizeof *ct);
@@ -2411,6 +2562,9 @@ cmd_x86check(const char *filter, int npts, int avx512)
 		if (nnosem)
 			printf("  %d memory intrinsics have no lane semantics (not "
 			    "run)\n", nnosem);
+		if (nscale)
+			printf("  %d gather scales below the element size (misaligned "
+			    "elements: not modelled, not run)\n", nscale);
 		if (worst_rel > 0)
 			printf("  approximations: worst relative error %.3g\n",
 			    worst_rel);
