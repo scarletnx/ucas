@@ -1593,7 +1593,9 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"ring", "inverse", "order", "phi", "carmichael", "factorint",
 	"congruence", "crt", "legendre", "jacobi", "sqrtmod", "qr", "primroot",
 	"dlog", "magic", "irreducible", "det", "rank", "nullspace", "matinv",
-	"matsolve", "gf2matrix", "matrix",
+	"matsolve", "gf2matrix", "matrix", "norm", "poly",
+	"zmod", "gf", "GF", "totient", "multorder", "invmod",
+	"modinv", "primroots", "gf2map", "kernel", "inv", "ord",
 	"derivative", "series",
 	/* xform.c (z, s, w are the transforms' own variables there) */
 	"laplace", "ilaplace", "ztrans", "iztrans", "zsolve", "tf", "fourier",
@@ -4392,6 +4394,8 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 	/* the algebras */
 	if (!strcmp(w0, "table") && (lg = alg_word(t, 1, b, &n)) >= 1 &&
 	    n == b && !func_find(sym_cstr("quaternion"))) {
+		rep_begin("multiplication_table");
+		rep_text_fields();
 		cmd_cayley(lg);
 		return 1;
 	}
@@ -4403,6 +4407,8 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 			fail("%s complex|quaternion|octonion|sedenion|cd N", w0);
 		if (n < b && t->kind[n] == T_ID)
 			tok_text(t, n, prop, sizeof prop);
+		rep_begin(w0[0] == 'z' ? "zerodivisors" : "algebra");
+		rep_text_fields();
 		if (w0[0] == 'z')
 			cmd_zerodiv(lg);
 		else
@@ -4410,6 +4416,8 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 		return 1;
 	}
 	if (!strcmp(w0, "associator") || !strcmp(w0, "commutator")) {
+		rep_begin(w0[0] == 'c' ? "commutator" : "associator");
+		rep_text_fields();
 		cmd_assoc(t, 1, b, w0[0] == 'c');
 		hn = 0;
 		return 1;
@@ -4417,26 +4425,36 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 	if (!strcmp(w0, "rotate") && !func_find(sym_cstr("rotate")) &&
 	    find_word(t, 1, b, (const char *const[]){"by", NULL}) < b) {
 		/* without "by": a solid of revolution, English (viz.c) */
+		rep_begin("rotate");
+		rep_text_fields();
 		cmd_rotate(t, 1, b);
 		hn = 0;
 		return 1;
 	}
 	if (!strcmp(w0, "slerp")) {
+		rep_begin("slerp");
+		rep_text_fields();
 		cmd_slerp(t, 1, b);
 		hn = 0;
 		return 1;
 	}
 	if (!strcmp(w0, "axisangle")) {
+		rep_begin("axisangle");
+		rep_text_fields();
 		cmd_axisangle2(t, 1, b);
 		hn = 0;
 		return 1;
 	}
 	if (!strcmp(w0, "rotmatrix")) {
+		rep_begin("rotmatrix");
+		rep_text_fields();
 		cmd_rotmatrix(t, 1, b);
 		hn = 0;
 		return 1;
 	}
 	if (!strcmp(w0, "frommatrix")) {
+		rep_begin("frommatrix");
+		rep_text_fields();
 		cmd_frommatrix(t, 1, b);
 		hn = 0;
 		return 1;
@@ -4579,6 +4597,8 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 			za = tok_point(t, e + 1, to, &inf);
 			zb = tok_point(t, to + 1, b, &inf);
 			notes_flush();
+			rep_begin("segment_integral");
+			rep_text_fields();
 			cmd_segment(f, za, zb);
 			return 1;
 		}
@@ -4645,6 +4665,8 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 			} else
 				fail("integrate F around |z - c| = r (or the unit circle)");
 			notes_flush();
+			rep_begin("contour_integral");
+			rep_text_fields();
 			cmd_contour(f, c, r, cw);
 		}
 		return 1;

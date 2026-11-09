@@ -3249,6 +3249,17 @@ cmd_nthroots(int n, const char *text)
 				    t < 0 ? "-" : "", pstr_at(mk_const_r(fabs(t)),
 				    PS_PROD));
 			printf("  w%d = ", k);
+			rep_list("roots");
+			rep_obj(NULL);
+			rep_int("k", k);
+			rep_num("re", wr);
+			rep_num("im", wi);
+			rep_str("polar", ex.p);
+			if (c1.exact && c2.exact)
+				rep_str("exact", zstr(mk_const_r(wr), mk_const_r(wi)));
+			rep_bool("principal", k == 0);
+			rep_end();
+			rep_end();
 			if (c1.exact && c2.exact) {
 				const char *s = zstr(mk_const_r(wr), mk_const_r(wi));
 				printf("%-22s = %s", s, ex.p);
@@ -4925,6 +4936,8 @@ forms_command(struct P *p)
 	z_reset();
 	if (!strcmp(w, "nthroots") || !strcmp(w, "unity")) {
 		char *s = rest, *e;
+		rep_begin(w);
+		rep_text_fields();
 		while (isspace((unsigned char)*s))
 			s++;
 		n = (int)strtol(s, &e, 10);

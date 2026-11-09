@@ -25,6 +25,8 @@ SRCS+=	viz.c
 SRCS+=	xfrat.c xform.c series.c
 # the JSON frontend: a JSON Lines protocol, structured results
 SRCS+=	json.c report.c jsonmode.c
+# an MCP server over stdio, on top of the JSON frontend
+SRCS+=	mcp.c
 .PATH:	${.CURDIR}/src
 MAN=
 
@@ -60,6 +62,7 @@ test: ${PROG}
 		else echo "FAIL $$n (see $$n.diff)"; fail=1; fi; \
 	done; exit $$fail
 	@cd ${.CURDIR} && ${MAKE} json-test
+	@cd ${.CURDIR} && ${MAKE} mcp-test
 
 accept: ${PROG}
 	@for t in ${TESTS}; do \
@@ -69,6 +72,7 @@ accept: ${PROG}
 		echo "wrote tests/$$n.out"; \
 	done
 	@cd ${.CURDIR} && ${MAKE} json-accept
+	@cd ${.CURDIR} && ${MAKE} mcp-accept
 
 CLEANFILES+=	*.got *.diff
 
@@ -96,6 +100,33 @@ json-accept: ${PROG}
 	done
 
 .PHONY: json-test json-accept
+
+# The MCP server: tests/mcp/NAME.jsonl (JSON-RPC lines) must answer
+# exactly tests/mcp/NAME.out; NAME.flags holds extra arguments (--flat).
+MTESTS!=	cd ${.CURDIR}/tests/mcp && ls *.jsonl 2>/dev/null || true
+
+mcp-test: ${PROG}
+	@fail=0; for t in ${MTESTS}; do \
+		n=$${t%.jsonl}; \
+		fl=`cat ${.CURDIR}/tests/mcp/$$n.flags 2>/dev/null || true`; \
+		(cd ${.CURDIR}/tests/mcp && ${.OBJDIR}/${PROG} --mcp $$fl \
+		    < $$t) > mcp-$$n.got 2>&1; \
+		if diff -u ${.CURDIR}/tests/mcp/$$n.out mcp-$$n.got > \
+		    mcp-$$n.diff; then \
+			echo "ok   mcp/$$n"; rm -f mcp-$$n.got mcp-$$n.diff; \
+		else echo "FAIL mcp/$$n (see mcp-$$n.diff)"; fail=1; fi; \
+	done; exit $$fail
+
+mcp-accept: ${PROG}
+	@for t in ${MTESTS}; do \
+		n=$${t%.jsonl}; \
+		fl=`cat ${.CURDIR}/tests/mcp/$$n.flags 2>/dev/null || true`; \
+		(cd ${.CURDIR}/tests/mcp && ${.OBJDIR}/${PROG} --mcp $$fl \
+		    < $$t) > ${.CURDIR}/tests/mcp/$$n.out 2>&1; \
+		echo "wrote tests/mcp/$$n.out"; \
+	done
+
+.PHONY: mcp-test mcp-accept
 
 # Optional Discord front end (README, "Discord bot"): its own Makefile in
 # discord/, needs libcurl.  Never built by `make` or `make test`.

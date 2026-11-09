@@ -1,0 +1,38 @@
+{"id":1,"cmd":"inverse_mod","args":{"a":"3","modulus":256}}
+{"id":2,"cmd":"inverse_mod","args":{"a":"0x53","ring":"GF(2^8)","modulus":"aes"}}
+{"id":3,"cmd":"ring","args":{"ring":"GF(2^8)","modulus":"aes","what":"0x57 * 0x83"}}
+{"id":4,"cmd":"ring","args":{"modulus":12}}
+{"id":5,"cmd":"crt","args":{"congruences":[{"residue":2,"modulus":3},{"residue":3,"modulus":5}]}}
+{"id":6,"cmd":"magic","args":{"divisor":7,"type":"u32"}}
+{"id":7,"cmd":"ring_factor","args":{"p":"x^4 + 1","ring":"GF(2)"}}
+{"id":8,"cmd":"ring_factor","args":{"p":"5 + 10i","ring":"Z[i]"}}
+{"id":9,"cmd":"matrix","args":{"matrix":[[1,2],[3,4]],"op":"solve","rhs":[1,0],"modulus":7}}
+{"id":10,"cmd":"dlog","args":{"a":"3","base":"2","modulus":11}}
+{"id":11,"cmd":"sqrtmod","args":{"a":4,"modulus":15}}
+{"id":12,"cmd":"order_mod","args":{"a":"crc32","ring":"GF(2)"}}
+{"id":13,"cmd":"gf2matrix","args":{"f":"x ^ (x << 3)","type":"u8"}}
+{"id":14,"cmd":"phi","args":{"n":100}}
+{"id":15,"cmd":"primroot","args":{"a":2,"modulus":11}}
+{"id":16,"cmd":"congruence","args":{"equation":"3x = 4","modulus":7}}
+{"id":17,"cmd":"carmichael","args":{"n":561}}
+{"id":18,"cmd":"factorint","args":{"n":600851475143}}
+{"id":19,"cmd":"legendre","args":{"a":2,"p":7}}
+{"id":20,"cmd":"jacobi","args":{"a":2,"n":15}}
+{"id":21,"cmd":"qr","args":{"n":11}}
+{"id":22,"cmd":"primroot","args":{"n":11}}
+{"id":23,"cmd":"irreducible","args":{"p":"x^8 + x^4 + x^3 + x + 1","ring":"GF(2)"}}
+{"id":24,"cmd":"primitive","args":{"p":"x^8 + x^4 + x^3 + x^2 + 1","ring":"GF(2)"}}
+{"id":25,"cmd":"ring_roots","args":{"p":"x^2 + 1","modulus":5}}
+{"id":26,"cmd":"ring_poly","args":{"p":"(x + 1)^5","modulus":5}}
+{"id":27,"cmd":"ring_gcd","args":{"p":"x^4 - 1","q":"x^6 - 1","modulus":7}}
+{"id":28,"cmd":"ring_norm","args":{"a":"3 + 4i","ring":"Z[i]"}}
+{"id":29,"cmd":"matrix","args":{"matrix":[[2,3],[1,4]],"op":"det","modulus":12}}
+{"id":30,"cmd":"matrix","args":{"matrix":[[1,1,0],[0,1,1],[1,0,1]],"op":"nullspace","modulus":2}}
+{"id":31,"cmd":"matrix","args":{"matrix":[[1,2],[3,5]],"op":"inverse","modulus":12}}
+{"id":32,"cmd":"ring","args":{"ring":"Z/12","what":"units"}}
+{"id":33,"cmd":"ring","args":{"ring":"Q[x]/(x^2 - 2)","what":"1/(1 + x)"}}
+{"id":34,"cmd":"inverse_mod","args":{"a":"6","modulus":15}}
+{"id":35,"cmd":"inverse_mod","args":{"a":"3"}}
+{"id":36,"cmd":"inverse_mod","args":{"a":"3","ring":"Z/7","modulus":7}}
+{"id":37,"cmd":"matrix","args":{"matrix":[[1,2],[3,4]],"rhs":[1,0],"modulus":7}}
+{"id":38,"cmd":"magic","args":{"divisor":7,"type":"u31"}}

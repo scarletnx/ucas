@@ -1,0 +1,21 @@
+{"id":1,"cmd":"laplace","args":{"f":"t^2 e^-t"}}
+{"id":2,"cmd":"ilaplace","args":{"f":"1/(s^2 + 2s + 5)"}}
+{"id":3,"cmd":"laplace_solve","args":{"equations":["y'' + y = sin(t)","y(0) = 0","y'(0) = 1"]}}
+{"id":4,"cmd":"ztrans","args":{"f":"a^n u[n]"}}
+{"id":5,"cmd":"iztrans","args":{"f":"z/(z - 0.5)"}}
+{"id":6,"cmd":"zsolve","args":{"equations":["y[n+2] = y[n+1] + y[n]","y[0] = 0","y[1] = 1"]}}
+{"id":7,"cmd":"tf","args":{"f":"y[n] = 0.9 y[n-1] + x[n]"}}
+{"id":8,"cmd":"fourier","args":{"f":"e^(-x^2)"}}
+{"id":9,"cmd":"fourier_series","args":{"f":"x^2"}}
+{"id":10,"cmd":"dft","args":{"values":[1,2,3,4]}}
+{"id":11,"cmd":"idft","args":{"values":[10,"-2+2i",-2,"-2-2i"]}}
+{"id":12,"cmd":"dtft","args":{"values":[1,1,1]}}
+{"id":13,"cmd":"genfunc","args":{"a":"fibonacci"}}
+{"id":14,"cmd":"egf","args":{"a":"n"}}
+{"id":15,"cmd":"infinite_sum","args":{"index":"n","f":"1/n^2"}}
+{"id":16,"cmd":"infinite_product","args":{"index":"n","f":"1 - 1/n^2","from":2}}
+{"id":17,"cmd":"converge","args":{"a":"(-1)^n/n"}}
+{"id":18,"cmd":"radius","args":{"a":"x^n/n!"}}
+{"id":19,"cmd":"powerseries","args":{"f":"1/(1 - x - x^2)"}}
+{"id":20,"cmd":"asymptotic","args":{"sum":"sum(k, 1, n, 1/k)"}}
+{"id":21,"cmd":"ifourier","args":{"f":"e^(-w^2)"}}

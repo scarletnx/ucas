@@ -4643,6 +4643,18 @@ cmd_dft(char *text, int inverse)
 	    "radix-2 FFT, N log2 N operations" : "direct sum, N^2 operations");
 	printf("  %-4s %-28s %-14s %s\n", "k", inverse ? "x[k]" : "X[k]",
 	    "|.|", "arg");
+	rep_int("n", n);
+	rep_list("values");
+	for (k = 0; k < n; k++) {
+		rep_obj(NULL);
+		rep_str("exact", xf_cnum(X[k]));
+		rep_num("re", creal(X[k]));
+		rep_num("im", cimag(X[k]));
+		rep_num("abs", cabs(X[k]));
+		rep_num("arg", cabs(X[k]) == 0 ? 0 : carg(X[k]));
+		rep_end();
+	}
+	rep_end();
 	for (k = 0; k < n && k < 64; k++) {
 		double ph = carg(X[k]);
 		printf("  %-4d %-28s %-14s %s\n", k, xf_cnum(X[k]), xf_num(cabs(X[k])),
@@ -5148,6 +5160,18 @@ xform_command(struct P *p)
 		text[0] = 0;
 	xf_helpers();
 	notes_flush();
+	{	/* JSON: the kind, and the "label: value" lines as fields */
+		const char *r = text;
+		while (*r == ' ')
+			r++;
+		rep_begin(!strcmp(w, "laplace") && !strncmp(r, "solve ", 6) ?
+		    "laplace_solve" : (!strcmp(w, "fourier") ||
+		    !strcmp(w, "fseries")) && !strncmp(r, "series ", 7) ?
+		    "fourier_series" : !strcmp(w, "fseries") ? "fourier_series" :
+		    !strcmp(w, "fft") ? "dft" : !strcmp(w, "ifft") ? "idft" :
+		    !strcmp(w, "ogf") ? "genfunc" : w);
+		rep_text_fields();
+	}
 	if (!strcmp(w, "laplace")) {
 		char *r = text;
 		while (*r == ' ')

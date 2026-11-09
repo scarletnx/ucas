@@ -1,0 +1,8 @@
+{"id":1,"cmd":"area","args":{"f":"x^2","from":0,"to":4,"nofile":true}}
+{"id":2,"cmd":"area","args":{"f":"x and x^2","nofile":true}}
+{"id":3,"cmd":"revolve","args":{"f":"sqrt(x)","from":0,"to":4,"about":"x","nofile":true}}
+{"id":4,"cmd":"volume","args":{"f":"x","from":0,"to":1,"about":"y","method":"shell","nofile":true}}
+{"id":5,"cmd":"surfacearea","args":{"f":"sqrt(x)","from":0,"to":4,"about":"x","nofile":true}}
+{"id":6,"cmd":"arclength","args":{"f":"x^2","from":0,"to":1,"nofile":true}}
+{"id":7,"cmd":"centroid","args":{"f":"x^2 and x","nofile":true}}
+{"id":8,"cmd":"area","args":{"f":"sin(x)","from":0,"to":"pi","files":"base64"}}

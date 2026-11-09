@@ -4,6 +4,7 @@
  * ucas -e 'stmt'      run one statement
  * ucas --json         JSON Lines requests and responses (jsonmode.c)
  * ucas --json-schema  the JSON interface as JSON Schema
+ * ucas --mcp          a Model Context Protocol server on stdio (mcp.c)
  *
  * A line that reads as English is translated to ucas statements first
  * (nlp.c).  -y never asks about ambiguous words (the default reading is
@@ -11,6 +12,7 @@
  */
 #include "ucas.h"
 #include "sat.h"
+#include "jsonmode.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -77,6 +79,8 @@ main(int argc, char **argv)
 			printf("sat selftest: %s\n", bad ? "FAILED" : "ok");
 			return bad != 0;
 		}
+		if (!strcmp(argv[i], "--mcp"))
+			return mcp_main(argc, argv, i);
 		if (!strcmp(argv[i], "--json") ||
 		    !strcmp(argv[i], "--json-schema"))
 			return json_main(argc, argv, i);

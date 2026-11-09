@@ -1,0 +1,14 @@
+{"id":8,"cmd":"multiplication_table","args":{"algebra":"quaternion"}}
+{"id":9,"cmd":"algebra","args":{"algebra":"octonion"}}
+{"id":10,"cmd":"zerodivisors","args":{"algebra":"sedenion"}}
+{"id":11,"cmd":"associator","args":{"a":"e1","b":"e2","c":"e4"}}
+{"id":12,"cmd":"commutator","args":{"a":"i","b":"j"}}
+{"id":13,"cmd":"rotate","args":{"v":"(1, 0, 0)","by":"90 degrees","about":"z"}}
+{"id":14,"cmd":"slerp","args":{"q1":"1","q2":"k","t":"1/2"}}
+{"id":15,"cmd":"rotmatrix","args":{"q":"sqrt(2)/2 + k*sqrt(2)/2"}}
+{"id":16,"cmd":"axisangle","args":{"q":"(0, 0, 1), pi/2"}}
+{"id":17,"cmd":"frommatrix","args":{"matrix":[0,-1,0,1,0,0,0,0,1]}}
+{"id":26,"cmd":"nthroots","args":{"n":3,"f":"8"}}
+{"id":27,"cmd":"unity","args":{"n":4}}
+{"id":28,"cmd":"implicit","args":{"equation":"x^2 + y^2 = 1"}}
+{"id":29,"cmd":"integrate","args":{"f":"1/z","around":"|z| = 1","assume":{"z":"complex"}}}

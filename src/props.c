@@ -4244,6 +4244,21 @@ props_command(struct P *p)
 	}
 	parse_args(p, &a, w);
 	notes_flush();
+	{	/* JSON: these print findings in words, read as fields */
+		static const char *const fam[] = {"parity", "symmetry", "bounded",
+		    "injective", "surjective", "bijective", "continuity",
+		    "discontinuities", "convexity", "convex", "concave",
+		    "asymptotes", NULL};
+		int q;
+		for (q = 0; fam[q] && strcmp(fam[q], w); q++)
+			;
+		if (fam[q]) {
+			rep_begin(!strcmp(w, "discontinuities") ? "continuity" :
+			    !strcmp(w, "convex") || !strcmp(w, "concave") ?
+			    "convexity" : w);
+			rep_text_fields();
+		}
+	}
 	f = a.f;
 	s = a.slot;
 	if (f->np == 1 && (!strcmp(w, "continuity") || !strcmp(w,
@@ -5505,7 +5520,9 @@ cmd_identify(struct P *p)
 	printf("identify %s%s%s:\n", buf, rhs ? " = " : "", rhs ? rhs : "");
 	rep_begin("identify");
 	rep_strf("input", "%s%s%s", buf, rhs ? " = " : "", rhs ? rhs : "");
-	rep_text_list("properties");
+	rep_obj("properties");	/* "label: value [proof]" lines as fields */
+	rep_text_fields();
+	rep_end();
 	if (prim) {
 		for (j = 0; j < fn.np; j++)
 			fn.p[j].ty = TY_REAL;

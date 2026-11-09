@@ -1,0 +1,9 @@
+{"id":18,"cmd":"parity","args":{"f":"x^2"}}
+{"id":19,"cmd":"bounded","args":{"f":"1/(x^2+1)"}}
+{"id":20,"cmd":"injective","args":{"f":"x^3"}}
+{"id":21,"cmd":"surjective","args":{"f":"(x: u8) * 2"}}
+{"id":22,"cmd":"continuity","args":{"f":"floor(x)"}}
+{"id":23,"cmd":"convexity","args":{"f":"x^3"}}
+{"id":24,"cmd":"asymptotes","args":{"f":"(x^2+1)/x"}}
+{"id":25,"cmd":"symmetry","args":{"f":"x^2 + y^2"}}
+{"id":30,"cmd":"bijective","args":{"f":"x^3"}}

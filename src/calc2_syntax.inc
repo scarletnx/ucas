@@ -766,6 +766,8 @@ calc2_command(struct P *p)
 		int nb, xs = -1, ys = -1, order = 1;
 		uint32_t xn = 0, yn = 0;
 		adv(p);
+		rep_begin("implicit");
+		rep_text_fields();
 		E = c2_eos(p, p->i);
 		ke = c2_find_kw(p, p->i, E, (const char *const[]){"for", "wrt",
 		    "order", NULL});

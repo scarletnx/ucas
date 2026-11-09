@@ -3046,6 +3046,9 @@ c2_implicit(struct func *f, nid F, int xs, int ys, int order)
 	printf("on the curve %s = 0, %s as a function of %s:\n", node_str(F), y,
 	    x);
 	printf("  d%s/d%s = -F_%s/F_%s = %s\n", y, x, x, y, node_str(D1));
+	rep_str("var", x);
+	rep_str("function", y);
+	rep_expr("derivative", D1);
 	if (order >= 2) {
 		Fxx = dif(Fx, xs);
 		Fxy = dif(Fx, ys);
@@ -3054,6 +3057,7 @@ c2_implicit(struct func *f, nid F, int xs, int ys, int order)
 		    MUL(MUL(KR(2), Fxy), MUL(Fx, Fy))), MUL(Fyy, POW(Fx, KI(2)))),
 		    POW(Fy, KI(3)))), 0);
 		printf("  d\xc2\xb2%s/d%s\xc2\xb2 = %s\n", y, x, node_str(D2));
+		rep_expr("second_derivative", D2);
 	}
 	printf("  holds where F_%s = %s != 0 (the implicit function theorem: "
 	    "there %s is locally a differentiable function of %s)\n", y,

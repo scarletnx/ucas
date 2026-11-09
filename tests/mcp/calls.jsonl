@@ -1,0 +1,19 @@
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"analyze","arguments":{"op":"range","args":{"f":"isqrt(x: u4)"}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"session","arguments":{"op":"define","args":{"name":"s","params":[{"name":"x","type":"i8"}],"body":"x * 2 + 1"}}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"analyze","arguments":{"op":"wrap","args":{"f":"s"}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"calculus","arguments":{"op":"integrate","args":{"f":"x^2 sin(x)","var":"x","from":"0","to":"pi"}}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"algebra","arguments":{"op":"solve","args":{"equations":["x + y = 3","x - y = 1"]}}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"ucas","arguments":{"source":"k = 3 ^ 5 & 1"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"ucas","arguments":{"source":"k = 3 ^ 5 & 1","assume":{"caret":"power"}}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"rings","arguments":{"op":"inverse_mod","args":{"a":"0x53","ring":"GF(2^8)","modulus":"aes"}}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"transforms","arguments":{"op":"laplace","args":{"f":"t^2 e^-t"}}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"plot","arguments":{"op":"plot","args":{"fs":["sin x","cos x"]}}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"solids","arguments":{"op":"area","args":{"f":"x^2","from":0,"to":4}}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"analyze","arguments":{"op":"range","args":{"f":"x +"}}}}
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"analyze","arguments":{"op":"gates","args":{"f":"(x: u3) * (y: u3)","max":40,"nodes":100000000000,"timeout_s":1}}}}
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"english","arguments":{"text":"what is the range of x squared for a signed byte x?"}}}
+{"jsonrpc":"2.0","id":15,"method":"resources/read","params":{"uri":"ucas://state"}}
+{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"session","arguments":{"op":"reset"}}}
+{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"session","arguments":{"op":"state"}}}

@@ -471,6 +471,10 @@ ring_command(struct P *p)
 		}
 	}
 	notes_flush();
+	for (k = 0; rcmds[k].w && rcmds[k].c != c; k++)
+		;
+	rep_begin(rcmds[k].w ? (c == C_GF ? "ring_eval" : rcmds[k].w) : w);
+	rep_text_fields();
 	ring_dispatch(c, text);
 	return 1;
 }
