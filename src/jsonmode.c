@@ -1383,6 +1383,43 @@ cap_end(void)
 	return b.p;
 }
 
+/*
+ * Long lists in a result are cut at REP_LIST_MAX entries, with
+ * "KEY_omitted": the number left out (a 20000-row table is not useful to
+ * an agent and would flood an MCP client's context).
+ */
+#define REP_LIST_MAX 500
+
+static void
+cap_lists(struct jv *v)
+{
+	int i, n;
+	char key[200];
+
+	if (v == NULL)
+		return;
+	if (v->t == J_ARR) {
+		for (i = 0; i < v->n; i++)
+			cap_lists(v->v[i]);
+		return;
+	}
+	if (v->t != J_OBJ)
+		return;
+	n = v->n;
+	for (i = 0; i < n; i++) {
+		struct jv *a = v->v[i];
+		if (a->t == J_ARR && a->n > REP_LIST_MAX) {
+			int j, cut = a->n - REP_LIST_MAX;
+			for (j = REP_LIST_MAX; j < a->n; j++)
+				jv_free(a->v[j]);
+			a->n = REP_LIST_MAX;
+			snprintf(key, sizeof key, "%s_omitted", v->k[i]);
+			jv_set(v, key, jv_int(cut));
+		}
+		cap_lists(v->v[i]);
+	}
+}
+
 /* ---- running ---- */
 
 static void
@@ -2160,6 +2197,7 @@ handle(const struct jv *rq)
 		code_block = NULL;
 	}
 	text = cap_end();
+	text = rep_text_cap(text);
 	rep_text_fill(text);
 	pieces = rep_collect();
 	if (!strcmp(cmd, "schema"))
@@ -2260,8 +2298,10 @@ handle(const struct jv *rq)
 		res = jv_new(J_OBJ);
 		jv_set(res, "text", jv_str(text));
 	}
-	if (res)
+	if (res) {
+		cap_lists(res);
 		jv_set(resp, "result", res);
+	}
 	if (results && results->n > 1 && strcmp(cmd, "english")) {
 		struct sbuf b = {0};
 		jv_write(&b, results);

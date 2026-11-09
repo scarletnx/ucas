@@ -17,7 +17,8 @@ typedef uint32_t lit;
 #define L_TRUE 1u
 #define L_NOT(a) ((a) ^ 1u)
 
-#define WMAX 64
+/* 65: w_udivrem works in one bit more than its operands */
+#define WMAX 65
 struct word {
 	int w;
 	lit b[WMAX];	/* bit 0 first */
@@ -40,6 +41,8 @@ int aig_nodes(const struct aig *g);
  */
 int aig_sat(struct aig *g, lit goal, long budget);
 int aig_value(const struct aig *g, lit a);	/* after aig_sat == 1 */
+extern long aig_conflicts;	/* conflicts in the last aig_sat */
+extern double aig_seconds;	/* > 0: a CPU time limit for aig_sat too */
 uint64_t aig_word_value(const struct aig *g, const struct word *x);
 
 /* words */

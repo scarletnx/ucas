@@ -144,13 +144,13 @@ inline annotations: `range isqrt(x: u4)`.
 | command | |
 |---------|--|
 | `show F`, `table F [max n]`, `parse EXPR`, `funcs`, `help` | look |
-| `range F [nocrit]` | min/max (exhaustive for finite domains, distinct values, smallest type); for one real parameter a grid refined at the critical points; IEEE NaN/inf counts |
+| `range F [nocrit]` | min/max (exhaustive for finite domains, distinct values, smallest type); for one real parameter a grid refined at the critical points; IEEE NaN/inf counts.  A sampled integer range (and a real one in several parameters) also gets a proved bound: where the body does not decrease (increase) in a variable, by the structure of its operations (the derivative's sign by the chain rule), the maximum takes that variable at its largest, which is its range's end or the other side of a where relation (`t <= dd`: t = dd); integer quotients then simplify exactly, floor((k*d + r)/d) = k when 0 <= r < d (r < d proved from d/c, d >> s, d - c, x % d or intervals).  `(t*64 + dd/2)/dd where t <= dd` is proved to stay in 0..64, with the steps; when a proved end meets the sample's extreme, that end is exact.  Integer types must not wrap anywhere on the box, or nothing is claimed |
 | `domain F` | the conditions each partial operation imposes, the C assumptions (signed overflow, shift amounts, `__builtin_clz(0)`), and the inputs where the function is defined |
 | `wrap F` | per operation: whether LLVM's `nuw`/`nsw` hold (with a witness), C UB, truncating conversions; for floats `nnan`/`ninf` (fast-math) per operation; end to end: where the machine result equals the mathematical one, or the rounding error in ulp |
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter; higher, partial and mixed derivatives, gradient, limits, series: see "Derivatives, limits and series" |
-| `equiv F G` | equal on F's domain? (with a counterexample) |
+| `equiv F G` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" |
 | `monotonic F [x] [in a..b]` | increasing/decreasing (strictly or not), constant, or the maximal intervals of monotonicity with a witness pair x1 < x2; polynomials proved by the real roots of f', integer types exhaustively (and whether wrapping is what breaks it) |
 | `period F [x]`, `periodic F [x]` | the fundamental period: trigonometric subterms with linear arguments (2π/\|k\|, π/\|k\| for tan), `x % m`, `x & m`, combined by their lcm (proved), then the smaller fractions p/k (k <= 64) checked numerically; incommensurate periods (sin x + sin(√2 x)) are almost periodic, not periodic; integer domains searched exhaustively; otherwise a numeric search (not proved) |
 | `identify EXPR`, `identify LHS = RHS`, `identify F` | classify and list properties, each tagged proved/exhaustive/numeric: polynomials (degree, factors, roots), rational functions (poles, asymptotes), algebraic/transcendental/piecewise; equations in one variable (solutions), conics by B²-4AC and the 3x3 determinant (circle, ellipse, parabola, hyperbola, degenerate), lines, implicit curves; ODEs (`y'' + y = 0`, or `identify y` after `y' = ...`): order, linear, homogeneous, constant coefficients with the characteristic roots and solution basis, autonomous, separable, exact, Riccati |
@@ -161,7 +161,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `convexity F` (`convex`, `concave`) | intervals of convexity, inflection points, a chord witness |
 | `asymptotes F` | vertical, horizontal and oblique; exact for rational functions, from limits otherwise |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
-| `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search |
+| `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
@@ -187,8 +187,27 @@ inline annotations: `range isqrt(x: u4)`.
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
 sampled (65536 points, edge values first), and the output says so.
-`wrap` and `range` add interval bounds when sampling, which can prove
-that an operation never wraps.
+The where clause narrows an integer parameter first when a conjunct
+compares it with an expression whose interval is known: in
+`f(v: u32, n: u32 in 5..8) = ... where v < 1 << n`, v runs over 0..255
+(1024 points, enumerated).  `wrap` and `range` add interval bounds when
+sampling, which can prove that an operation never wraps.
+
+### Proofs on machine integers
+
+When a domain is too big to enumerate, `equiv` (and `find`, for its
+candidates) bit-blasts both expressions (src/nodesat.c) into the
+and-inverter graph of src/sat.c and asks the CDCL solver for an input
+within the ranges and the where clause where F is defined and G is
+undefined or different.  The circuit follows the evaluator exactly:
+`uN`/`iN` wrap; a shift by a negative amount or by the width or more,
+a division or remainder by zero, a table index out of range and `int`
+overflow are undefined; `INT_MIN / -1` in `iN` wraps; `?:`, `&&` and
+`||` look only at the taken side; loops with constant bounds are
+unrolled (up to 256 iterations).  Not bit-blasted: floats and reals,
+`int` multiplication, `isqrt`, while loops; those stay sampled.
+Multipliers are hard for SAT (x*y against y*x gives up), so the budget
+is 100000 conflicts or 2 s of CPU.
 
 ## Symbolic algebra
 
@@ -1033,6 +1052,17 @@ What the results hold beyond the common fields:
   `not_exact_at`, `witness`, `fail`, `cost`, `gain`, `derivation` (the
   proof's lines).  The arguments `exact`, `ulp`, `approx`, `percomp`,
   `float_only` and `float_ranges` are the CLI's options.
+- **Analysis** (stress test 1): `equiv` has `method` (`exhaustive`,
+  `sat`, `sat_counterexample`, `sampled`), `sat` (`result`, `aig_nodes`,
+  `conflicts`, `why`) and `narrowed` (the where clause's bounds); `find`
+  has `peephole` (each `{cost, expr, drops, proof}`), `peephole_fixpoint`
+  and `parametric` (`{cost, cost_per_use, expr, K, why, proof}`), and
+  each implementation's `proof`; `cost` has `shared` (the named
+  subterms), `loops` (`body`, `overhead`, `once`, `trips_worst`,
+  `trips_average`, `trips_known`, `trips_bound_sound`, `total_worst`,
+  `total_average`), `average_total` and `selects_not_listed`; `range` has
+  `proved_bound` (`min`, `max`, `min_exact`, `max_exact` and the steps).
+  Any result list is cut at 500 entries (`KEY_omitted`).
 - **Identify**: `properties` with a field per property, each `{text,
   tag, proof}` when it carries a tag (`proved`, `numeric`, `witness`).
 - **Plots**: `axes` (`{var, lo, hi, why, values_lo, values_hi}`),
@@ -1233,8 +1263,10 @@ division is emulated, the SFU ops are quarter rate, fp64 is 1/32 rate
 (`f64` multiplies the cost of every f64 float operation).  They are
 estimates, not measurements.
 
-`cost F` counts each shared subterm once and prices every `?:` three
-ways:
+`cost F` counts each shared subterm once (and prints the body's shared
+subterms once, named, so the rest of the report can refer to them) and
+prices every `?:` three ways (at most 12 are listed; the rest are
+counted in the estimate):
 
 - as a select (both arms run);
 - as a uniform branch (branch cost plus the dearer arm);
@@ -1247,7 +1279,49 @@ Barriers and atomics have value semantics for one invocation
 appear in expressions and be priced.  They are never merged by
 hash-consing.
 
+A loop is priced as it runs: its initial values and the loop-invariant
+subterms of its body once (hoisted), the rest of the body plus the loop
+overhead per iteration (a `for`: the index add, the compare and the
+branch; a `while`: the branch, its compare being part of the condition)
+times the trip count.  The trip count is exact for constant bounds;
+otherwise the worst case over the parameters' ranges (a sound interval
+bound, or the maximum when the domain is enumerated) and the average over
+the domain; a `while` loop's trip count is measured by running it.
+
+```
+> quant(v: i32 in 0..255) = { best = 0; berr = 100000; q0 = (v*31 + 127)/255
+    for d in -2..2 { q = q0 + d; qc = q < 0 ? 0 : q > 31 ? 31 : q
+      r = (qc << 3) | (qc >> 2); e = (r - v)*(r - v)
+      if e < berr { berr = e; best = qc } }; best }
+> cost quant
+cost of quant under gt1030: 134 (0 operations outside loops and 1 loop, ...)
+  shared subterms (named once, used below):
+    q = int((31v + 127)/255) + d
+    qc = q < 0 ? 0 : q > 31 ? 31 : q
+    ...
+  loop d in -2..2:
+    per iteration: body 20 + overhead 5 (index add, compare, branch) = 25
+    trip count: 5 (constant bounds)
+    once: 9 (initial values and loop-invariant subterms, hoisted)
+    loop total: 134
+  ?: on q > 31  (arms cost 0 and 0)  [in a loop body: per iteration]
+  ...
+```
+
 `find` takes its operation costs from the active model.
+
+### Long expressions
+
+Reports print an expression with its shared subterms named: a subterm
+used more than once and larger than a few nodes becomes a binding, `e
+where t1 = ..., t2 = ...` (the source's own name from a `where` or a
+block assignment when it has one).  A reported expression is cut at
+2000 characters (a note at 600, a line of `cost` or `find` at a few
+hundred) with "… (N more characters)".  In JSON and MCP responses a list
+longer than 500 entries is cut (`KEY_omitted` says how many) and the
+`text` field is cut past 64 KiB, keeping the head and the last lines;
+when files are written (`--dir`), the full text goes to a file named in
+the marker.
 
 ## Float simplify
 

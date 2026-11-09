@@ -14,11 +14,12 @@
  * Float targets.  Bit-level approximation families asfloat(K +/- (asuint(x)
  * >> s)) and friends get their magic constant fitted (see `fit`).
  */
-#include "ucas.h"
+#include "calc.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define FPTS 1024
 #define MAXOPS 10
@@ -498,23 +499,29 @@ show_new(int want)
 	qsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
 	for (i = 0; i < F.nm && shown < want; i++) {
 		int sampled, bad;
+		struct eqproof pr;
 		if (F.m[i].shown)
 			continue;
 		F.m[i].shown = 1;
 		sb_clear(&w);
-		bad = equiv_check(&F.f, F.f.body, F.m[i].e, &w, &sampled);
+		bad = equiv_decide(&F.f, F.f.body, F.m[i].e, &w, &pr);
 		if (bad) {
 			F.m[i].shown = 2;
 			continue;
 		}
-		printf("  cost %-3d %-40s %s%s\n", F.m[i].cost, node_str(F.m[i].e),
-		    F.m[i].why, sampled ? " (sampled)" : "");
+		sampled = pr.how == EQ_SAMPLED;
+		printf("  cost %-3d %-40s %s%s\n", F.m[i].cost,
+		    shared_str(F.m[i].e, 300),
+		    F.m[i].why, sampled ? " (sampled)" : pr.how == EQ_SAT ?
+		    " (proved by SAT)" : "");
 		rep_obj(NULL);
 		rep_num("cost", F.m[i].cost);
 		rep_expr("expr", F.m[i].e);
 		rep_str("why", F.m[i].why);
 		rep_bool("verified", 1);
-		rep_bool("exhaustive", !sampled);
+		rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
+		rep_str("proof", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
+		    pr.how == EQ_SAT ? "sat" : "sampled");
 		rep_end();
 		shown++;
 	}
@@ -811,6 +818,599 @@ find_float(struct func *f, int want)
 	    (double)expr_cost(f->body), sym_str(model_active()->name));
 }
 
+/* ---- peephole: operations of the function itself that never bite ---- */
+
+#define PEEP_ROUNDS 16
+#define PEEP_PROOFS 40      /* equivalence proofs per find */
+#define PEEP_SECONDS 8.0    /* and CPU time for them */
+#define PEEP_SHOWN 6        /* single drops listed */
+
+struct pcand {
+	nid e;
+	int cost;
+	char what[120];
+};
+
+static int
+icost(nid e)
+{
+	float c = expr_cost(e);
+
+	return (int)(c + 0.5f);
+}
+
+/* e refines f on the points find works with (a quick filter) */
+static int
+quick_refines(const struct func *f, nid e)
+{
+	struct diter d;
+	struct plan p;
+	nid roots[3];
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	uint32_t np, i;
+	int ok = 1;
+
+	roots[0] = f->body;
+	roots[1] = mk_cast(N.ty[f->body], e);
+	roots[2] = f->where;
+	plan_build(&p, roots, 3, 0);
+	diter_init(&d, f, FPTS, 2, FPTS);
+	while (ok && (np = diter_next(&d, in_i, in_r)) != 0) {
+		uint8_t v[CH];
+		plan_run(&p, np, in_i, in_r);
+		valid_mask(&p, f->where ? p.root[2] : NOTOK, np, v);
+		for (i = 0; i < np; i++) {
+			if (!v[i] || (COLF(&p, p.root[0])[i] & F_UNDEF))
+				continue;
+			if ((COLF(&p, p.root[1])[i] & F_UNDEF) ||
+			    COLI(&p, p.root[0])[i] != COLI(&p, p.root[1])[i]) {
+				ok = 0;
+				break;
+			}
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	return ok;
+}
+
+static void
+short_str(char *out, size_t n, nid e)
+{
+	const char *s = shared_str(e, 0);
+	size_t l = strlen(s);
+
+	if (l + 1 <= n && l <= 40)
+		snprintf(out, n, "%s", s);
+	else
+		snprintf(out, n, "%.36s...", s);
+}
+
+/* replace `from` by `to` in root; 0 when the rebuilt term is ill-typed */
+static nid
+try_replace(nid root, nid from, nid to)
+{
+	jmp_buf saved;
+	nid r = 0;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	note_mute++;
+	if (setjmp(fail_jmp) == 0)
+		r = xreplace(root, from, to);
+	note_mute--;
+	memcpy(fail_jmp, saved, sizeof saved);
+	return r;
+}
+
+static void
+cand_add(struct pcand **c, int *nc, int *cap, nid root, nid e,
+    const char *what)
+{
+	int i;
+
+	if (e == 0 || e == root || !TY_ISINT(N.ty[e]))
+		return;
+	for (i = 0; i < *nc; i++)
+		if ((*c)[i].e == e)
+			return;
+	if (*nc == *cap) {
+		*cap = *cap ? *cap * 2 : 32;
+		*c = xrealloc(*c, (size_t)*cap * sizeof **c);
+	}
+	(*c)[*nc].e = e;
+	(*c)[*nc].cost = icost(e);
+	snprintf((*c)[*nc].what, sizeof (*c)[*nc].what, "%s", what);
+	(*nc)++;
+}
+
+static int
+cmp_pcand(const void *x, const void *y)
+{
+	const struct pcand *a = x, *b = y;
+
+	if (a->cost != b->cost)
+		return a->cost - b->cost;
+	return (int)a->e - (int)b->e;
+}
+
+/*
+ * Every way to drop one operation of root: an and, or, min, max, ?: or
+ * conversion replaced by one of its operands, an operation with a
+ * constant or a shift replaced by its first operand, a unary operation
+ * by its operand.  Ill-typed results are skipped.
+ */
+static int
+peep_cands(nid root, struct pcand **out)
+{
+	uint8_t *mark = xcalloc(N.n, 1);
+	nid *st = xmalloc(N.n * sizeof *st), n;
+	uint32_t sp = 0, lim = N.n;
+	struct pcand *c = NULL;
+	int nc = 0, cap = 0;
+	char what[120], k1[48], k2[48];
+
+	st[sp++] = root;
+	while (sp) {
+		int op;
+		n = st[--sp];
+		if (n == 0 || n >= lim || mark[n])
+			continue;
+		mark[n] = 1;
+		op = N.op[n];
+		if (op == O_CONST || op == O_VAR || op == O_UNDEF ||
+		    op == O_TABLE || op == O_LOOP || op == O_BARRIER ||
+		    op == O_ATOMIC)
+			continue;
+		if (N.a[n])
+			st[sp++] = N.a[n];
+		if (N.b[n])
+			st[sp++] = N.b[n];
+		if (N.c[n])
+			st[sp++] = N.c[n];
+		if (!TY_ISINT(N.ty[n]) || op == O_INDEX)
+			continue;
+		switch (op) {
+		case O_SEL:
+			short_str(k1, sizeof k1, N.a[n]);
+			snprintf(what, sizeof what, "the ?: on %s (it always "
+			    "takes the first arm)", k1);
+			cand_add(&c, &nc, &cap, root, try_replace(root, n, N.b[n]),
+			    what);
+			snprintf(what, sizeof what, "the ?: on %s (it always "
+			    "takes the second arm)", k1);
+			cand_add(&c, &nc, &cap, root, try_replace(root, n, N.c[n]),
+			    what);
+			break;
+		case O_CAST:
+			if (!TY_ISINT(N.ty[N.a[n]]))
+				break;
+			snprintf(what, sizeof what, "the conversion %s(...)",
+			    ty_str(N.ty[n]));
+			cand_add(&c, &nc, &cap, root, try_replace(root, n, N.a[n]),
+			    what);
+			break;
+		default:
+			if (opinfo[op].arity == 1) {
+				snprintf(what, sizeof what, "%s(...)",
+				    opinfo[op].name);
+				cand_add(&c, &nc, &cap, root,
+				    try_replace(root, n, N.a[n]), what);
+				break;
+			}
+			if (opinfo[op].arity != 2 || (opinfo[op].fl & OF_CMP))
+				break;
+			short_str(k2, sizeof k2, N.b[n]);
+			snprintf(what, sizeof what, "%s %s", op == O_MIN ? "min with" :
+			    op == O_MAX ? "max with" : opinfo[op].name, k2);
+			if (op == O_AND || op == O_OR || op == O_MIN ||
+			    op == O_MAX || op == O_LAND || op == O_LOR ||
+			    is_const(N.b[n]) || op == O_SHL || op == O_SHR ||
+			    op == O_ADD || op == O_SUB || op == O_XOR)
+				cand_add(&c, &nc, &cap, root,
+				    try_replace(root, n, N.a[n]), what);
+			if (opinfo[op].fl & OF_COMM) {
+				short_str(k1, sizeof k1, N.a[n]);
+				snprintf(what, sizeof what, "%s %s", op == O_MIN ?
+				    "min with" : op == O_MAX ? "max with" :
+				    opinfo[op].name, k1);
+				cand_add(&c, &nc, &cap, root,
+				    try_replace(root, n, N.b[n]), what);
+			}
+		}
+	}
+	free(mark);
+	free(st);
+	notes_drop();
+	qsort(c, (size_t)nc, sizeof *c, cmp_pcand);
+	*out = c;
+	return nc;
+}
+
+static const char *
+proof_word(const struct eqproof *pr)
+{
+	return pr->how == EQ_EXHAUSTIVE ? "exhaustive" : pr->how == EQ_SAT ?
+	    "proved by SAT" : "sampled, not proved";
+}
+
+/*
+ * Peephole candidates from the function's own DAG, before the enumerative
+ * bank: each single drop that holds (cheapest first), then the drops
+ * applied repeatedly while a proved one remains (a fixpoint).
+ */
+static void
+peephole(const struct func *f)
+{
+	struct pcand *c;
+	int nc, i, shown = 0, proofs = 0, round, base = icost(f->body);
+	nid cur = f->body;
+	struct sbuf steps = {0}, w = {0};
+	int nsteps = 0, more = 0;
+	const char *last = "exhaustive";
+
+	clock_t t0 = clock();
+
+	if (!TY_ISINT(N.ty[f->body]))
+		return;
+	notes_flush();
+	nc = peep_cands(f->body, &c);
+	rep_list("peephole");
+	for (i = 0; i < nc && proofs < PEEP_PROOFS; i++) {
+		struct eqproof pr;
+		if (c[i].cost >= base || !quick_refines(f, c[i].e))
+			continue;
+		if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
+			break;
+		proofs++;
+		sb_clear(&w);
+		if (equiv_decide(f, f->body, c[i].e, &w, &pr))
+			continue;
+		if (!shown++)
+			printf("  dropping operations of %s (cost %d as written; "
+			    "each checked on the whole domain):\n", f->anon ?
+			    "the expression" : sym_str(f->name), base);
+		if (shown > PEEP_SHOWN) {
+			more++;
+			continue;
+		}
+		printf("  cost %-3d %-40s drops %s (%s)\n", c[i].cost,
+		    shared_str(c[i].e, 300), c[i].what, proof_word(&pr));
+		rep_obj(NULL);
+		rep_num("cost", c[i].cost);
+		rep_expr("expr", c[i].e);
+		rep_str("drops", c[i].what);
+		rep_str("proof", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
+		    pr.how == EQ_SAT ? "sat" : "sampled");
+		rep_end();
+	}
+	free(c);
+	if (more)
+		printf("  ... %d more single drops hold (not listed)\n", more);
+	/* the fixpoint: take the cheapest proved drop until none is left */
+	for (round = 0; round < PEEP_ROUNDS && proofs < PEEP_PROOFS; round++) {
+		int took = 0, cc = icost(cur);
+		nc = peep_cands(cur, &c);
+		for (i = 0; i < nc && proofs < PEEP_PROOFS; i++) {
+			struct eqproof pr;
+			if (c[i].cost >= cc || !quick_refines(f, c[i].e))
+				continue;
+			if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
+				break;
+			proofs++;
+			if (equiv_decide(f, f->body, c[i].e, NULL, &pr) ||
+			    pr.how == EQ_SAMPLED)
+				continue;
+			if (pr.how == EQ_SAT)
+				last = "proved by SAT";
+			sb_printf(&steps, "%s%s", nsteps ? ", then " : "",
+			    c[i].what);
+			nsteps++;
+			cur = c[i].e;
+			took = 1;
+			break;
+		}
+		free(c);
+		if (!took)
+			break;
+	}
+	rep_end();
+	if (nsteps >= 2) {
+		printf("  cost %-3d %-40s all of them: drops %s (%s)\n",
+		    icost(cur), shared_str(cur, 300), sb_str(&steps), last);
+		rep_obj("peephole_fixpoint");
+		rep_num("cost", icost(cur));
+		rep_expr("expr", cur);
+		rep_str("drops", sb_str(&steps));
+		rep_str("proof", strcmp(last, "exhaustive") ? "sat" : "exhaustive");
+		rep_end();
+	}
+	free(steps.p);
+	free(w.p);
+}
+
+/* ---- parametric forms: split on a parameter with few values ---- */
+
+#define PCASES 8
+#define PXMAX (1 << 16)
+
+struct pcase {
+	int64_t c;              /* the case value */
+	int64_t *x, *y;         /* the points */
+	uint32_t n;
+	int64_t klo, khi;       /* feasible multipliers for the chosen S, C */
+};
+
+static int64_t
+fdiv(int64_t a, int64_t b)      /* floor(a / b), b > 0 */
+{
+	int64_t q = a / b;
+
+	return (a % b != 0 && (a < 0)) ? q - 1 : q;
+}
+
+static int64_t
+cdiv(int64_t a, int64_t b)      /* ceil(a / b), b > 0 */
+{
+	return -fdiv(-a, b);
+}
+
+/* K with floor((K x + C) / 2^S) = y at every point: [*lo, *hi] or 0 */
+static int
+k_range(const struct pcase *pc, int S, int64_t C, int64_t *lo, int64_t *hi)
+{
+	int64_t P = (int64_t)1 << S, l = INT64_MIN / 4, h = INT64_MAX / 4;
+	uint32_t i;
+
+	for (i = 0; i < pc->n; i++) {
+		int64_t x = pc->x[i], y = pc->y[i];
+		int64_t a = y * P - C, b = (y + 1) * P - 1 - C;
+		if (x == 0) {
+			if (a > 0 || b < 0)
+				return 0;
+			continue;
+		}
+		if (cdiv(a, x) > l)
+			l = cdiv(a, x);
+		if (fdiv(b, x) < h)
+			h = fdiv(b, x);
+		if (l > h)
+			return 0;
+	}
+	if (l < 0)
+		l = 0;
+	*lo = l;
+	*hi = h;
+	return l <= h;
+}
+
+/* the smallest "nice" value in [lo, hi]: 2^k - 1, 2^k, or lo */
+static int64_t
+nice_in(int64_t lo, int64_t hi)
+{
+	int k;
+
+	for (k = 1; k < 62; k++) {
+		int64_t v = ((int64_t)1 << k) - 1;
+		if (v >= lo && v <= hi)
+			return v;
+		if (v + 1 >= lo && v + 1 <= hi)
+			return v + 1;
+	}
+	return lo;
+}
+
+static void
+parametric(const struct func *f)
+{
+	int s, xs, k, S, ncase = 0, found = 0;
+	int64_t lo[MAXP], hi[MAXP], C = 0, cv;
+	struct pcase pc[PCASES];
+	struct plan p;
+	nid roots[2];
+	int64_t *in_i;
+	double *in_r;
+	struct ity it;
+
+	if (f->np != 2 || !TY_ISINT(N.ty[f->body]) ||
+	    (F.it.k != K_UINT && F.it.k != K_SINT))
+		return;
+	for (k = 0; k < 2; k++) {
+		if (!TY_ISINT(f->p[k].ty))
+			return;
+		param_bounds(&f->p[k], &lo[k], &hi[k]);
+	}
+	where_bounds(f, lo, hi, NULL);
+	/* the case parameter: the one with few values */
+	if (hi[0] - lo[0] < PCASES && hi[0] >= lo[0] &&
+	    !(hi[1] - lo[1] < PCASES))
+		s = 0;
+	else if (hi[1] - lo[1] < PCASES && hi[1] >= lo[1] &&
+	    !(hi[0] - lo[0] < PCASES))
+		s = 1;
+	else
+		return;
+	xs = 1 - s;
+	if (lo[xs] < 0 || hi[xs] - lo[xs] >= PXMAX || hi[s] - lo[s] < 1)
+		return;
+	ity_of(&it, F.W, 0);
+	roots[0] = f->body;
+	roots[1] = f->where;
+	plan_build(&p, roots, 2, 0);
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	memset(pc, 0, sizeof pc);
+	for (cv = lo[s]; cv <= hi[s]; cv++) {
+		struct pcase *q = &pc[ncase++];
+		int64_t x = lo[xs];
+		q->c = cv;
+		q->x = xmalloc((size_t)(hi[xs] - lo[xs] + 1) * sizeof *q->x);
+		q->y = xmalloc((size_t)(hi[xs] - lo[xs] + 1) * sizeof *q->y);
+		while (x <= hi[xs]) {
+			uint32_t np = 0, i;
+			uint8_t ok[CH];
+			for (; np < CH && x <= hi[xs]; np++, x++) {
+				in_i[(size_t)s * CH + np] = cv;
+				in_i[(size_t)xs * CH + np] = x;
+			}
+			plan_run(&p, np, in_i, in_r);
+			valid_mask(&p, f->where ? p.root[1] : NOTOK, np, ok);
+			for (i = 0; i < np; i++) {
+				int64_t y = COLI(&p, p.root[0])[i];
+				if (!ok[i] || (COLF(&p, p.root[0])[i] & F_UNDEF))
+					continue;
+				if (y < 0 || y > ((int64_t)1 << 32))
+					goto done;
+				q->x[q->n] = in_i[(size_t)xs * CH + i];
+				q->y[q->n++] = y;
+			}
+		}
+	}
+	/* the smallest shift S with one C for every case */
+	for (S = 0; S <= 24 && !found; S++) {
+		int64_t cands[4];
+		int nc = 0, ci;
+		if (S > 0)
+			cands[nc++] = (int64_t)1 << (S - 1);
+		cands[nc++] = 0;
+		if (S > 0)
+			cands[nc++] = ((int64_t)1 << (S - 1)) - 1;
+		for (ci = 0; ci < nc && !found; ci++) {
+			int all = 1;
+			for (k = 0; k < ncase && all; k++)
+				if (pc[k].n && !k_range(&pc[k], S, cands[ci],
+				    &pc[k].klo, &pc[k].khi))
+					all = 0;
+			if (all) {
+				C = cands[ci];
+				found = 1;
+			}
+		}
+	}
+	S--;
+	if (!found)
+		goto done;
+	/* no overflow in the computing type at the largest x */
+	for (k = 0; k < ncase; k++) {
+		double top = (double)pc[k].khi * (double)hi[xs] + (double)C;
+		double tmax = it.k == K_SINT ? (double)it.smax : (double)it.mask;
+		if (pc[k].n && top > tmax) {
+			pc[k].khi = (int64_t)((tmax - (double)C) /
+			    (double)(hi[xs] ? hi[xs] : 1));
+			if (pc[k].khi < pc[k].klo)
+				goto done;
+		}
+	}
+	{
+		nid xv = mk_cast(F.W, mk_var((uint32_t)xs, f->p[xs].name,
+		    f->p[xs].ty));
+		nid cvar = mk_cast(F.W, mk_var((uint32_t)s, f->p[s].name,
+		    f->p[s].ty));
+		nid kform[4];
+		const char *kwhy[4];
+		int nf = 0, i;
+		int64_t Alo, Ahi, A;
+		char why[512];
+		/* K = A / (2^c - 1), A >> c, A / c, A*c + B */
+		static const char *const fam[3] = {
+			"a constant over 2^case - 1",
+			"a constant shifted by the case",
+			"a constant over the case" };
+		for (i = 0; i < 3; i++) {
+			int ok = 1;
+			Alo = 0, Ahi = INT64_MAX / 4;
+			for (k = 0; k < ncase && ok; k++) {
+				int64_t c = pc[k].c, m, l, h;
+				if (!pc[k].n)
+					continue;
+				if (i == 0) {
+					if (c < 1 || c > 30) { ok = 0; break; }
+					m = ((int64_t)1 << c) - 1;
+				} else if (i == 1) {
+					if (c < 0 || c > 30) { ok = 0; break; }
+					m = (int64_t)1 << c;
+				} else {
+					if (c < 1) { ok = 0; break; }
+					m = c;
+				}
+				l = pc[k].klo * m;
+				h = (pc[k].khi + 1) * m - 1;
+				if (l > Alo)
+					Alo = l;
+				if (h < Ahi)
+					Ahi = h;
+				if (Alo > Ahi)
+					ok = 0;
+			}
+			if (!ok || Ahi > (it.k == K_SINT ? it.smax : (int64_t)it.mask))
+				continue;
+			A = nice_in(Alo, Ahi);
+			if (i == 0)
+				kform[nf] = mk_bin(O_DIV, kconst(A), mk_bin(O_SUB,
+				    mk_bin(O_SHL, kconst(1), cvar), kconst(1)));
+			else if (i == 1)
+				kform[nf] = mk_bin(O_SHR, kconst(A), cvar);
+			else
+				kform[nf] = mk_bin(O_DIV, kconst(A), cvar);
+			kwhy[nf++] = fam[i];
+		}
+		/* the select chain: one K per case */
+		{
+			nid chain = 0;
+			for (k = ncase - 1; k >= 0; k--) {
+				nid kk;
+				if (!pc[k].n)
+					continue;
+				kk = kconst(nice_in(pc[k].klo, pc[k].khi));
+				chain = chain ? mk_sel(mk_bin(O_EQ, cvar,
+				    kconst(pc[k].c)), kk, chain) : kk;
+			}
+			kform[nf] = chain;
+			kwhy[nf++] = "one constant per case";
+		}
+		printf("  split on %s (%d values), fitted (%s*K + C) >> S per "
+		    "case: S = %d, C = %lld\n", sym_str(f->p[s].name), ncase,
+		    sym_str(f->p[xs].name), S, (long long)C);
+		rep_list("parametric");
+		for (i = 0; i < nf; i++) {
+			struct eqproof pr;
+			nid e = mk_bin(O_MUL, xv, kform[i]);
+			if (C)
+				e = mk_bin(O_ADD, e, kconst(C));
+			if (S)
+				e = mk_bin(O_SHR, e, kconst(S));
+			if (equiv_decide(f, f->body, e, NULL, &pr))
+				continue;
+			snprintf(why, sizeof why, "K = %s (%s) depends only on "
+			    "%s: compute it once where %s is set", shared_str(kform[i],
+			    100), kwhy[i], sym_str(f->p[s].name),
+			    sym_str(f->p[s].name));
+			printf("  cost %-3d %s\n           %s; %d per use once K "
+			    "is known (%s)\n", icost(e), shared_str(e, 300), why,
+			    icost(e) - icost(kform[i]), proof_word(&pr));
+			rep_obj(NULL);
+			rep_num("cost", icost(e));
+			rep_num("cost_per_use", icost(e) - icost(kform[i]));
+			rep_expr("expr", e);
+			rep_expr("K", kform[i]);
+			rep_str("why", why);
+			rep_str("proof", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
+			    pr.how == EQ_SAT ? "sat" : "sampled");
+			rep_end();
+		}
+		rep_end();
+	}
+done:
+	for (k = 0; k < ncase; k++) {
+		free(pc[k].x);
+		free(pc[k].y);
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+}
+
 /* ---- entry points ---- */
 
 void
@@ -960,6 +1560,8 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	rep_bool("sampled", F.sampled);
 	rep_str("type", ty_str(F.W));
 	rep_str("model", sym_str(model_active()->name));
+	peephole(&F.f);
+	parametric(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();

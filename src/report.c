@@ -205,7 +205,7 @@ void
 rep_expr(const char *key, uint32_t e)
 {
 	if (rep_on)
-		add(key, jv_str(node_str(e)));
+		add(key, jv_str(shared_str(e, EXPR_CAP)));
 }
 
 static void
@@ -1180,4 +1180,43 @@ rep_deliver(const char *name, const char *mime, const char *data, size_t n,
 	else
 		printf("  attached %s (%zu bytes)\n", name, n);
 	return 1;
+}
+
+/*
+ * The response's "text" is capped: an MCP client reads it into a model's
+ * context.  Past REP_TEXT_MAX bytes the middle is cut (the head and the
+ * last lines stay) with a marker; when files are written, the full text
+ * goes to a file in the output directory and the marker names it.
+ */
+char *
+rep_text_cap(char *text)
+{
+	static int seq;
+	size_t n = text ? strlen(text) : 0, head, tail;
+	struct sbuf b = {0};
+	char name[64];
+
+	if (!rep_on || n <= REP_TEXT_MAX)
+		return text;
+	head = REP_TEXT_MAX - REP_TEXT_TAIL;
+	while (head > 0 && text[head - 1] != '\n')
+		head--;     /* whole lines */
+	tail = n - REP_TEXT_TAIL;
+	while (tail < n && text[tail - 1] != '\n')
+		tail++;
+	sb_printf(&b, "%.*s\n[... %zu bytes of output omitted", (int)head, text,
+	    tail - head);
+	if (R.fmode & REP_FILES_WRITE) {
+		snprintf(name, sizeof name, "ucas-text-%d-%ld.txt", ++seq,
+		    (long)getpid());
+		int fm = R.fmode;
+		R.fmode = REP_FILES_WRITE;   /* never inline: it is too long */
+		rep_file(name, "text/plain", text, n);
+		R.fmode = fm;
+		sb_printf(&b, "; the full text (%zu bytes) is in %s/%s", n,
+		    R.outdir, name);
+	}
+	sb_printf(&b, " ...]\n%s", text + tail);
+	free(text);
+	return b.p;
 }
