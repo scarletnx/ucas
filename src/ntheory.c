@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Number theory on u64: modular arithmetic through 128-bit products,
  * Miller-Rabin (deterministic for 64 bits), Pollard-Brent factoring,

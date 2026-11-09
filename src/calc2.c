@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * calc2: derivatives and their conditions, gradient/Hessian/Jacobian/
  * Laplacian/directional derivatives, Wronskians, limits, Taylor series

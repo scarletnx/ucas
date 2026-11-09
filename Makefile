@@ -32,6 +32,25 @@ SRCS+=	json.c report.c jsonmode.c
 SRCS+=	mcp.c
 # elliptic curves: the shared core (ec.h), curves over Q, Diophantine
 SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
+# simplify's function-level pass over a shader's GLSL source
+SRCS+=	glslfn.c
+# ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its
+# parser gives glslfn.c the syntax tree.  Its glslc.c would clash with
+# ours as an object, so its files build into a library of their own.
+SNXGLSLC=	lexer parser emit builtins glslc
+SNXDIR=	${.CURDIR}/src/snxglslc
+.for f in ${SNXGLSLC}
+snx_${f}.o: ${SNXDIR}/${f}.c ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+	${CC} ${CFLAGS} -fPIE -c ${SNXDIR}/${f}.c -o ${.TARGET}
+.endfor
+libsnxglslc.a: ${SNXGLSLC:S/^/snx_/:S/$/.o/}
+	rm -f ${.TARGET}
+	${AR} rcs ${.TARGET} ${.ALLSRC}
+LDADD+=	libsnxglslc.a
+DPADD+=	libsnxglslc.a
+${PROG}.full ${PROG}: libsnxglslc.a
+CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
+glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
 .PATH:	${.CURDIR}/src
 MAN=
 
