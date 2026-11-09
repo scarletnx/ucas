@@ -25,6 +25,7 @@
  */
 #include "xform.h"
 #include "calc2.h"
+#include "props.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -3523,6 +3524,1180 @@ cmd_tf(char *text)
 	}
 }
 
+/* ---- Fourier series ---- */
+
+#define GLN 20
+static double glx[GLN], glw[GLN];
+
+static void
+gl_init(void)
+{
+	int i, j, it;
+
+	if (glw[0] != 0)
+		return;
+	for (i = 0; i < GLN; i++) {
+		double x = cos(M_PI * (i + 0.75) / (GLN + 0.5)), p0, p1, dp = 1;
+		for (it = 0; it < 100; it++) {
+			double dx;
+			p0 = 1;
+			p1 = x;
+			for (j = 2; j <= GLN; j++) {
+				double p2 = ((2 * j - 1) * x * p1 - (j - 1) * p0) / j;
+				p0 = p1;
+				p1 = p2;
+			}
+			dp = GLN * (x * p1 - p0) / (x * x - 1);
+			dx = p1 / dp;
+			x -= dx;
+			if (fabs(dx) < 1e-16)
+				break;
+		}
+		glx[i] = x;
+		glw[i] = 2 / ((1 - x * x) * dp * dp);
+	}
+}
+
+/* quadrature nodes and weights on [a, b] split at the points br[] */
+struct quad {
+	int n;
+	double *x, *w, *f;
+	uint8_t *ok;
+};
+
+static void
+quad_make(struct quad *Q, nid e, int slot, double a, double b,
+    const double *br, int nbr, int panels)
+{
+	double cut[80];
+	int nc = 0, i, j, k;
+
+	gl_init();
+	cut[nc++] = a;
+	for (i = 0; i < nbr && nc < 78; i++)
+		if (br[i] > a + 1e-12 * (b - a) && br[i] < b - 1e-12 * (b - a))
+			cut[nc++] = br[i];
+	cut[nc++] = b;
+	/* sort */
+	for (i = 1; i < nc; i++)
+		for (j = i; j > 0 && cut[j] < cut[j - 1]; j--) {
+			double t = cut[j];
+			cut[j] = cut[j - 1];
+			cut[j - 1] = t;
+		}
+	Q->n = 0;
+	Q->x = xmalloc((size_t)(panels + nc) * GLN * sizeof *Q->x);
+	Q->w = xmalloc((size_t)(panels + nc) * GLN * sizeof *Q->w);
+	for (i = 0; i + 1 < nc; i++) {
+		double L = cut[i + 1] - cut[i];
+		int m = (int)ceil(panels * L / (b - a));
+		if (m < 1)
+			m = 1;
+		for (k = 0; k < m; k++) {
+			double p = cut[i] + L * k / m, q = cut[i] + L * (k + 1) / m;
+			for (j = 0; j < GLN; j++) {
+				Q->x[Q->n] = (p + q) / 2 + (q - p) / 2 * glx[j];
+				Q->w[Q->n++] = (q - p) / 2 * glw[j];
+			}
+		}
+	}
+	Q->f = xmalloc((size_t)Q->n * sizeof *Q->f);
+	Q->ok = xmalloc((size_t)Q->n);
+	xf_evalv(e, slot, Q->x, Q->n, NULL, NULL, 0, Q->f, Q->ok);
+	for (i = 0; i < Q->n; i++)
+		if (!Q->ok[i] || !isfinite(Q->f[i]))
+			Q->f[i] = 0;
+}
+
+static void
+quad_free(struct quad *Q)
+{
+	free(Q->x);
+	free(Q->w);
+	free(Q->f);
+	free(Q->ok);
+}
+
+/* c_n ~ sum_k (A_k + B_k (-1)^n)/n^k, k = 1..4, with exact coefficients */
+static nid
+coef_form(const double *c, int nmax, nid n, double scale)
+{
+	double M[48 * 8], rhs[48], sol[8], snapv[8];
+	int m = 0, i, k;
+	nid r = xk(0);
+
+	for (i = 1; i <= 24 && i <= nmax; i++, m++) {
+		for (k = 0; k < 4; k++) {
+			M[m * 8 + 2 * k] = pow(i, -(k + 1));
+			M[m * 8 + 2 * k + 1] = (i & 1 ? -1 : 1) * pow(i, -(k + 1));
+		}
+		rhs[m] = c[i];
+	}
+	if (!solve_lsq(M, rhs, m, 8, sol))
+		return 0;
+	for (k = 0; k < 8; k++) {
+		const char *t;
+		if (fabs(sol[k]) <= 1e-9 * fmax(scale, 1e-300)) {
+			snapv[k] = 0;
+			continue;
+		}
+		t = xf_num(sol[k]);
+		if (strchr(t, 'e') && !strstr(t, "e^") && isdigit((unsigned char)t[0]))
+			return 0;   /* 1.234e-05 */
+		if (strchr(t, '.'))
+			return 0;
+		snapv[k] = sol[k];
+		/* re-read the exact value */
+		{
+			struct func *f = xf_parse(t);
+			double v;
+			if (!xnum(f->body, &v))
+				return 0;
+			snapv[k] = v;
+		}
+	}
+	for (i = 1; i <= nmax; i++) {
+		double v = 0;
+		for (k = 0; k < 4; k++)
+			v += (snapv[2 * k] + (i & 1 ? -1 : 1) * snapv[2 * k + 1]) *
+			    pow(i, -(k + 1));
+		if (fabs(v - c[i]) > 1e-8 * fmax(scale, 1e-300))
+			return 0;
+	}
+	for (k = 0; k < 4; k++) {
+		double A = snapv[2 * k], B = snapv[2 * k + 1];
+		nid num, pm = xpow(xk(-1), n);
+		if (A == 0 && B == 0)
+			continue;
+		if (A == 0)
+			num = xmul(xk(B), pm);
+		else if (B == 0)
+			num = xk(A);
+		else if (fabs(A + B) <= 1e-12 * fabs(A))
+			num = xmul(xk(A), xsub(xk(1), pm));
+		else if (fabs(A - B) <= 1e-12 * fabs(A))
+			num = xmul(xk(A), xadd(xk(1), pm));
+		else
+			num = xadd(xk(A), xmul(xk(B), pm));
+		r = xadd(r, xdiv(num, k == 0 ? n : xpow(n, xk(k + 1))));
+	}
+	return r;
+}
+
+#define FSN 48
+
+/* a one-sided limit at x0 from the side of h: 2 f(x0 + h) - f(x0 + 2h) */
+static double
+side_lim(nid e, int slot, double x0, double h, int *ok)
+{
+	int ok2;
+	double a = xf_eval1(e, slot, x0 + h, ok);
+	double b = xf_eval1(e, slot, x0 + 2 * h, &ok2);
+
+	if (!ok2)
+		return a;
+	{
+		double v = 2 * a - b;
+		struct q q;
+		if (q_from_double(v, &q) && q.d <= 1000)
+			v = q_val(q);
+		return v;
+	}
+}
+
+static void
+cmd_fseries(char *text)
+{
+	static const char *const opts[] = {"on", "over", "from", "period",
+		"terms", NULL};
+	static const char *const xpref[] = {"x", "t", "theta", NULL};
+	char xv_[32] = "", dummy[32] = "", on[96] = "", per[64] = "",
+	    terms[32] = "";
+	struct func *f;
+	int xs, i, nshow = 5, odd, even, nb = 0, kinds[64];
+	double a = -M_PI, b = M_PI, P, w, an[FSN + 1], bn[FSN + 1], scale = 0,
+	    br[64];
+	struct quad Q;
+	nid x, nn;
+
+	if (!take_opt(text, "on", opts, on, sizeof on))
+		take_opt(text, "over", opts, on, sizeof on);
+	if (!on[0] && take_opt(text, "from", opts, on, sizeof on)) {
+		/* from a to b */
+		static const char *const to[] = {"to", NULL};
+		long at = find_word(on, to, 0);
+		if (at > 0) {
+			on[at] = '.';
+			on[at + 1] = '.';
+		}
+	}
+	take_opt(text, "period", opts, per, sizeof per);
+	take_opt(text, "terms", opts, terms, sizeof terms);
+	{
+		static const char *const outs[] = {NULL};
+		trail_vars(text, xv_, sizeof xv_, dummy, sizeof dummy, outs);
+	}
+	if (on[0]) {
+		char *dd = strstr(on, ".."), *l = on, *r;
+		struct func *fa, *fb2;
+		if (!dd) {
+			/* [a, b] */
+			char *c = strchr(on, ',');
+			if (!c)
+				fail("fourier series: the interval is a..b or [a, b]");
+			*c = 0;
+			r = c + 1;
+			if (*l == '[' || *l == '(')
+				l++;
+			if (r[strlen(r) - 1] == ']' || r[strlen(r) - 1] == ')')
+				r[strlen(r) - 1] = 0;
+		} else {
+			*dd = 0;
+			r = dd + 2;
+		}
+		fa = xf_parse(l);
+		fb2 = xf_parse(r);
+		if (!xnum(fa->body, &a) || !xnum(fb2->body, &b) || b <= a)
+			fail("fourier series: the interval must be a..b with a < b");
+	} else if (per[0]) {
+		struct func *fp = xf_parse(per);
+		if (!xnum(fp->body, &P) || P <= 0)
+			fail("fourier series: the period must be positive");
+		a = -P / 2;
+		b = P / 2;
+	}
+	if (terms[0])
+		nshow = atoi(terms) > 0 && atoi(terms) <= 20 ? atoi(terms) : 5;
+	f = xf_parse(text);
+	xs = pick_slot(f, xv_, xpref);
+	if (xs < 0 && f->np > 0)
+		fail("fourier series: which variable?  (fourier series F x)");
+	if (f->np > 1)
+		fail("fourier series: give the other parameters values");
+	if (xs < 0)
+		xs = 0;
+	x = xv(xs, f->np ? sym_str(f->p[xs].name) : "x");
+	nn = xv(xs + 1, "n");
+	P = b - a;
+	w = 2 * M_PI / P;
+	if (f->np == 1) {
+		struct func t = *f;
+		t.p[0].ty = TY_REAL;
+		nb = fn_discontinuities(&t, a, b, br, kinds, 64);
+	}
+	quad_make(&Q, f->body, xs, a, b, br, nb, 256);
+	for (i = 0; i <= FSN; i++) {
+		double sa = 0, sb = 0;
+		int j;
+		for (j = 0; j < Q.n; j++) {
+			sa += Q.w[j] * Q.f[j] * cos(i * w * Q.x[j]);
+			sb += Q.w[j] * Q.f[j] * sin(i * w * Q.x[j]);
+		}
+		an[i] = 2 / P * sa;
+		bn[i] = 2 / P * sb;
+		scale = fmax(scale, fmax(fabs(an[i]), fabs(bn[i])));
+	}
+	for (i = 0; i <= FSN; i++) {
+		if (fabs(an[i]) < 1e-11 * scale)
+			an[i] = 0;
+		if (fabs(bn[i]) < 1e-11 * scale)
+			bn[i] = 0;
+	}
+	odd = 1;
+	even = 1;
+	for (i = 0; i <= FSN; i++) {
+		if (an[i] != 0)
+			odd = 0;
+		if (bn[i] != 0)
+			even = 0;
+	}
+	printf("Fourier series of %s on [%s, %s] (period %s):\n", fname_of(f),
+	    xf_num(a), xf_num(b), xf_num(P));
+	{
+		const char *wx = xf_str(xmul(xmul(xk(w), nn), x));
+		printf("  f(%s) ~ a0/2 + sum_{n>=1} a_n cos(%s) + b_n sin(%s)\n",
+		    sym_str(N.a[x]), wx, wx);
+		printf("  a_n = %s int f(%s) cos(%s) d%s over the period, b_n "
+		    "likewise with sin\n", xf_num(2 / P), sym_str(N.a[x]), wx,
+		    sym_str(N.a[x]));
+	}
+	printf("  a0 = %s\n", xf_num(an[0]));
+	{
+		int last = 0;
+		for (i = 1; i <= FSN; i++)
+			if (an[i] != 0 || bn[i] != 0)
+				last = i;
+		if (last <= 12) {
+			/* a trigonometric polynomial */
+			printf("  finite: every coefficient after n = %d is 0\n", last);
+			for (i = 1; i <= last; i++)
+				if (an[i] != 0 || bn[i] != 0)
+					printf("  a_%d = %s, b_%d = %s\n", i, xf_num(an[i]), i,
+					    xf_num(bn[i]));
+		} else {
+			nid fa = odd ? xk(0) : coef_form(an, FSN, nn, scale);
+			nid fb = even ? xk(0) : coef_form(bn, FSN, nn, scale);
+			if (odd)
+				printf("  a_n = 0 (f is odd)\n");
+			else if (fa)
+				printf("  a_n = %s\n", xf_str(fa));
+			else
+				printf("  a_n: no closed form recognised; a_1..a_4 = %s, %s, "
+				    "%s, %s\n", xf_num(an[1]), xf_num(an[2]), xf_num(an[3]),
+				    xf_num(an[4]));
+			if (even)
+				printf("  b_n = 0 (f is even)\n");
+			else if (fb)
+				printf("  b_n = %s\n", xf_str(fb));
+			else
+				printf("  b_n: no closed form recognised; b_1..b_4 = %s, %s, "
+				    "%s, %s\n", xf_num(bn[1]), xf_num(bn[2]), xf_num(bn[3]),
+				    xf_num(bn[4]));
+			if ((fa || odd) && (fb || even))
+				printf("  check: the closed forms equal the numeric "
+				    "coefficients (Gauss-Legendre, %d nodes) for n = 1..%d\n",
+				    Q.n, FSN);
+		}
+	}
+	{
+		/* the first terms */
+		nid S = xk(0);
+		int shown = 0;
+		for (i = 1; i <= FSN && shown < nshow; i++) {
+			nid arg = xmul(xk(i * w), x);
+			if (an[i] != 0)
+				S = xadd(S, xmul(xk(an[i]), mk_un(O_COS, arg)));
+			if (bn[i] != 0)
+				S = xadd(S, xmul(xk(bn[i]), mk_un(O_SIN, arg)));
+			if (an[i] != 0 || bn[i] != 0)
+				shown++;
+		}
+		{
+			const char *st = xf_str(S);
+			if (an[0] != 0 && !(xnum(S, &(double){0}) && shown == 0))
+				printf("  f(%s) ~ %s %s %s%s\n", sym_str(N.a[x]),
+				    xf_num(an[0] / 2), st[0] == '-' ? "-" : "+",
+				    st[0] == '-' ? st + 1 : st, shown == nshow ? " + ..." : "");
+			else
+				printf("  f(%s) ~ %s%s\n", sym_str(N.a[x]), shown ? st :
+				    xf_num(an[0] / 2), shown == nshow ? " + ..." : "");
+		}
+	}
+	{
+		/* L2 error of partial sums */
+		int Ns[2] = {5, FSN}, k2, j;
+		double nf = 0;
+		for (j = 0; j < Q.n; j++)
+			nf += Q.w[j] * Q.f[j] * Q.f[j];
+		printf("  partial sums S_N: ||f - S_N||/||f|| =");
+		for (k2 = 0; k2 < 2; k2++) {
+			double e2 = 0;
+			for (j = 0; j < Q.n; j++) {
+				double sv = an[0] / 2, d;
+				for (i = 1; i <= Ns[k2]; i++)
+					sv += an[i] * cos(i * w * Q.x[j]) + bn[i] * sin(i * w *
+					    Q.x[j]);
+				d = Q.f[j] - sv;
+				e2 += Q.w[j] * d * d;
+			}
+			printf("%s %.3g (N = %d)", k2 ? "," : "", nf > 0 ?
+			    sqrt(e2 / nf) : 0, Ns[k2]);
+		}
+		printf("\n");
+	}
+	{
+		/* jumps of the periodic extension and the Gibbs overshoot */
+		double jx[66], jsz[66];
+		int nj = 0, ok1, ok2;
+		double fa = side_lim(f->body, xs, a, 1e-7 * P, &ok1);
+		double fb = side_lim(f->body, xs, b, -1e-7 * P, &ok2);
+		for (i = 0; i < nb; i++)
+			if (kinds[i] == 2) {
+				double l = side_lim(f->body, xs, br[i], -1e-7 * P, &ok1);
+				double r = side_lim(f->body, xs, br[i], 1e-7 * P, &ok2);
+				jx[nj] = br[i];
+				jsz[nj++] = r - l;
+			}
+		if (ok1 && ok2 && fabs(fa - fb) > 1e-6 * fmax(1, scale)) {
+			jx[nj] = b;
+			jsz[nj++] = fa - fb;
+		}
+		if (nj == 0)
+			printf("  f is continuous as a periodic function: S_N -> f "
+			    "uniformly (no Gibbs overshoot)\n");
+		else {
+			double x0 = jx[0], J = jsz[0], mx = -INFINITY, at = x0, h;
+			int Nn = FSN, j;
+			double fl = side_lim(f->body, xs, x0, -1e-7 * P, &ok1);
+			double fr = x0 >= b ? fa : side_lim(f->body, xs, x0, 1e-7 * P,
+			    &ok2);
+			if (x0 >= b)
+				fl = fb;
+			printf("  converges to f where f is continuous, and to the "
+			    "midpoint of the jump where it jumps:\n");
+			for (j = 0; j < nj && j < 4; j++)
+				printf("    at %s = %s it jumps by %s: S_N -> %s\n",
+				    sym_str(N.a[x]), xf_num(jx[j]), xf_num(jsz[j]),
+				    j == 0 ? xf_num((fl + fr) / 2) : "the midpoint");
+			/* overshoot of S_48 on the high side of the first jump */
+			{
+				double hiv, side, top;
+				if (x0 >= b) {
+					fl = fb;
+					fr = fa;
+				}
+				side = fr > fl ? 1 : -1;
+				top = fmax(fl, fr);
+				hiv = -INFINITY;
+				h = P / (4.0 * Nn);
+				for (j = 1; j <= 400; j++) {
+					double xx = x0 + side * h * j / 100.0, sv;
+					sv = an[0] / 2;
+					for (i = 1; i <= Nn; i++)
+						sv += an[i] * cos(i * w * xx) + bn[i] * sin(i * w * xx);
+					if (sv > hiv) {
+						hiv = sv;
+						at = xx;
+					}
+				}
+				mx = hiv;
+				printf("  Gibbs: near %s = %s, S_%d overshoots by %.4g = %.1f%% "
+				    "of the jump (at %s = %.4g); the overshoot tends to "
+				    "8.95%% of the jump and does not shrink as N grows\n",
+				    sym_str(N.a[x]), xf_num(x0), Nn, mx - top,
+				    100 * (mx - top) / fabs(J), sym_str(N.a[x]), at);
+			}
+		}
+	}
+	quad_free(&Q);
+}
+
+/* ---- the continuous Fourier transform ---- */
+
+struct cpair {
+	nid re, im;
+};
+
+static struct cpair
+cp(nid re, nid im)
+{
+	struct cpair r;
+
+	r.re = re;
+	r.im = im;
+	return r;
+}
+
+static struct cpair
+cp_add(struct cpair a, struct cpair b)
+{
+	return cp(xadd(a.re, b.re), xadd(a.im, b.im));
+}
+
+static struct cpair
+cp_scale(struct cpair a, nid c)
+{
+	return cp(xmul(c, a.re), xmul(c, a.im));
+}
+
+/* times i */
+static struct cpair
+cp_i(struct cpair a)
+{
+	return cp(xneg(a.im), a.re);
+}
+
+static struct cpair
+cp_sub_w(struct cpair a, int ws, nid w, nid by)
+{
+	return cp(xsubst1(a.re, ws, xsub(w, by)), xsubst1(a.im, ws, xsub(w, by)));
+}
+
+struct fctx {
+	int xs, ws;
+	nid x, w;
+	int ndelta;
+	int depth;
+};
+
+static struct cpair ft_rec(struct fctx *C, nid e);
+
+/* an interval [c, d] where cond holds (c may be -inf, d inf) */
+static int
+cond_interval(nid c, int slot, double *lo, double *hi)
+{
+	int op;
+	double c1, c0, a;
+
+	c = unc(c);
+	op = N.op[c];
+	if (op == O_LAND) {
+		double l1, h1, l2, h2;
+		if (!cond_interval(N.a[c], slot, &l1, &h1) ||
+		    !cond_interval(N.b[c], slot, &l2, &h2))
+			return 0;
+		*lo = fmax(l1, l2);
+		*hi = fmin(h1, h2);
+		return 1;
+	}
+	if (!(opinfo[op].fl & OF_CMP) || op == O_EQ || op == O_NE)
+		return 0;
+	{
+		nid L = unc(N.a[c]), R = unc(N.b[c]);
+		/* |x| < a */
+		if (N.op[L] == O_ABS && is_var(N.a[L], slot) && xnum(R, &a) &&
+		    (op == O_LT || op == O_LE)) {
+			*lo = -a;
+			*hi = a;
+			return 1;
+		}
+	}
+	if (!lin_num(xsub(N.a[c], N.b[c]), slot, &c1, &c0))
+		return 0;
+	a = -c0 / c1;
+	if (c1 < 0)
+		op = op == O_GE ? O_LE : op == O_GT ? O_LT : op == O_LE ? O_GE :
+		    O_GT;
+	if (op == O_GE || op == O_GT) {
+		*lo = a;
+		*hi = INFINITY;
+	} else {
+		*lo = -INFINITY;
+		*hi = a;
+	}
+	return 1;
+}
+
+static struct cpair
+ft_term(struct fctx *C, nid term)
+{
+	struct facs F;
+	double pw = 0, v, c1, c0;
+	nid u, arg, w = C->w;
+	int k;
+
+	memset(&F, 0, sizeof F);
+	F.coef = xk(1);
+	fac_rec(term, C->xs, 1, &F);
+	if (F.nf == 0) {
+		/* a constant: 2 pi c delta(w) */
+		C->ndelta++;
+		return cp(xmul(xmul(xk(2 * M_PI), F.coef), xdirac(w)), xk(0));
+	}
+	/* x^k: i^k d^k/dw^k */
+	for (k = 0; k < F.nf; k++)
+		if (is_var(F.f[k], C->xs) && F.pw[k] > 0 && F.pw[k] == floor(F.pw[k]))
+			break;
+	if (k < F.nf) {
+		int m = (int)F.pw[k];
+		struct cpair G = ft_rec(C, facs_except(&F, 1u << k));
+		int j;
+		for (j = 0; j < m; j++)
+			G = cp_i(cp(diff_node(G.re, (uint32_t)C->ws),
+			    diff_node(G.im, (uint32_t)C->ws)));
+		return G;
+	}
+	if (F.nf == 2) {
+		/* sin(a x)/x */
+			for (k = 0; k < 2; k++) {
+				nid f = unc(F.f[k]), g = unc(F.f[1 - k]);
+				if (N.op[f] == O_SIN && F.pw[k] == 1 && is_var(g, C->xs) &&
+				    F.pw[1 - k] == -1 && lin_of(N.a[f], C->xs, &u, &arg) &&
+				    xnum(arg, &v) && v == 0) {
+					/* pi for |w| < a */
+					nid a = mk_un(O_ABS, u);
+					return cp(xmul(F.coef, mk_sel(mk_bin(O_LT, mk_un(O_ABS, w),
+					    a), xk(M_PI), xk(0))), xk(0));
+				}
+			}
+	}
+	/* modulation: cos(bx) g, sin(bx) g */
+	for (k = 0; k < F.nf; k++) {
+		nid f = unc(F.f[k]);
+		if ((N.op[f] == O_COS || N.op[f] == O_SIN) && F.pw[k] == 1 &&
+		    lin_of(N.a[f], C->xs, &u, &arg) && xnum(arg, &v) && v == 0 &&
+		    F.nf > 1) {
+			struct cpair G = ft_rec(C, facs_except(&F, 1u << k));
+			struct cpair A = cp_sub_w(G, C->ws, w, u),
+			    B = cp_sub_w(G, C->ws, w, xneg(u));
+			if (N.op[f] == O_COS)
+				return cp_scale(cp_add(A, B), xk(0.5));
+			/* (A - B)/(2i) = -i (A - B)/2 */
+			return cp_scale(cp_i(cp(xsub(A.re, B.re), xsub(A.im, B.im))),
+			    xk(-0.5));
+		}
+	}
+	if (F.nf == 1) {
+		nid f = unc(F.f[0]);
+		double p = F.pw[0];
+		/* e^(q(x)): gaussian, e^(-a|x|) */
+		if (xis_exp(f, &u) && p == 1) {
+			struct npoly q;
+			if (npoly_of(u, C->xs, &q, 2) && q.deg == 2 &&
+			    xnum(xadd(xk(0), q.c[1]), &v) && v == 0) {
+				nid A = xneg(xadd(xk(0), q.c[2]));   /* e^(-A x^2) */
+				nid c = xmul(F.coef, xexp(xadd(xk(0), q.c[0])));
+				return cp(xmul(c, xmul(mk_un(O_SQRT, xdiv(xk(M_PI), A)),
+				    xexp(xneg(xdiv(xpow(w, xk(2)), xmul(xk(4), A)))))),
+				    xk(0));
+			}
+			{
+				/* -a |x| */
+				struct facs G;
+				memset(&G, 0, sizeof G);
+				G.coef = xk(1);
+				fac_rec(u, C->xs, 1, &G);
+				if (G.nf == 1 && G.pw[0] == 1 && N.op[unc(G.f[0])] == O_ABS &&
+				    is_var(N.a[unc(G.f[0])], C->xs)) {
+					nid a = xneg(G.coef);
+					return cp(xmul(F.coef, xdiv(xmul(xk(2), a),
+					    xadd(xpow(a, xk(2)), xpow(w, xk(2))))), xk(0));
+				}
+			}
+		}
+		/* 1/(x^2 + a^2), x/(x^2 + a^2) */
+		if (p == -1) {
+			struct npoly q;
+			if (npoly_of(f, C->xs, &q, 2) && q.deg == 2 &&
+			    xnum(xadd(xk(0), q.c[1]), &v) && v == 0) {
+				nid A = xadd(xk(0), q.c[2]), B = xadd(xk(0), q.c[0]);
+				nid a = mk_un(O_SQRT, xdiv(B, A));
+				return cp(xmul(xdiv(F.coef, A), xmul(xdiv(xk(M_PI), a),
+				    xexp(xneg(xmul(a, mk_un(O_ABS, w)))))), xk(0));
+			}
+		}
+		/* sin(a x)/x */
+		if (N.op[f] == O_SIN && p == 1) {
+			/* only with a 1/x factor: handled below */
+		}
+		/* delta(x - c) */
+		if (xis_dirac(f, &arg) && p == 1 && lin_num(arg, C->xs, &c1, &c0)) {
+			double c = -c0 / c1;
+			nid cw = xmul(xk(c), w);
+			return cp(xmul(xdiv(F.coef, xk(fabs(c1))), mk_un(O_COS, cw)),
+			    xneg(xmul(xdiv(F.coef, xk(fabs(c1))), mk_un(O_SIN, cw))));
+		}
+		/* a box: [c, d] */
+		if (N.op[f] == O_SEL && p == 1 && xnum(N.c[f], &v) && v == 0 &&
+		    !has_slot(N.b[f], C->xs)) {
+			double lo, hi;
+			if (cond_interval(N.a[f], C->xs, &lo, &hi) && isfinite(lo) &&
+			    isfinite(hi)) {
+				nid c = xmul(F.coef, N.b[f]);
+				if (lo == -hi)
+					return cp(xmul(c, xdiv(xmul(xk(2), mk_un(O_SIN,
+					    xmul(xk(hi), w))), w)), xk(0));
+				/* (e^(-i w lo) - e^(-i w hi))/(i w) */
+				nid re = xdiv(xsub(mk_un(O_SIN, xmul(xk(hi), w)),
+				    mk_un(O_SIN, xmul(xk(lo), w))), w);
+				nid im = xdiv(xsub(mk_un(O_COS, xmul(xk(hi), w)),
+				    mk_un(O_COS, xmul(xk(lo), w))), w);
+				return cp(xmul(c, re), xmul(c, im));
+			}
+		}
+		/* cos(b x), sin(b x) alone: deltas */
+		if ((N.op[f] == O_COS || N.op[f] == O_SIN) && p == 1 &&
+		    lin_of(N.a[f], C->xs, &u, &arg) && xnum(arg, &v) && v == 0) {
+			nid d1 = xdirac(xsub(w, u)), d2 = xdirac(xadd(w, u));
+			C->ndelta++;
+			if (N.op[f] == O_COS)
+				return cp(xmul(xmul(F.coef, xk(M_PI)), xadd(d1, d2)), xk(0));
+			return cp(xk(0), xmul(xmul(F.coef, xk(M_PI)), xsub(d2, d1)));
+		}
+	}
+	if (F.nf == 2) {
+		/* e^(-a x) u(x) */
+		int ke = -1, kh = -1;
+		for (k = 0; k < 2; k++) {
+			nid f = unc(F.f[k]);
+			if (xis_exp(f, &u) && F.pw[k] == 1)
+				ke = k;
+			if (xis_heav(f, &arg) && F.pw[k] == 1)
+				kh = k;
+		}
+		if (ke >= 0 && kh >= 0) {
+			double h1, h0;
+			nid a, b0;
+			xis_exp(unc(F.f[ke]), &u);
+			xis_heav(unc(F.f[kh]), &arg);
+			if (lin_of(u, C->xs, &a, &b0) && lin_num(arg, C->xs, &h1, &h0) &&
+			    h0 == 0) {
+				/* e^(a x + b0): a < 0 with u(x), a > 0 with u(-x) */
+				nid c = xmul(F.coef, xexp(b0)), al = h1 > 0 ? xneg(a) : a;
+				nid den = xadd(xpow(al, xk(2)), xpow(w, xk(2)));
+				/* u(x): 1/(al + i w); u(-x): 1/(al - i w) */
+				return cp(xmul(c, xdiv(al, den)), xmul(c, xdiv(h1 > 0 ?
+				    xneg(w) : w, den)));
+			}
+		}
+	}
+	fail("fourier: no rule for %s (e^(-ax^2), e^(-a|x|), e^(-ax) u(x), "
+	    "1/(x^2 + a^2), boxes, sin(ax)/x, delta, x^n, cos/sin modulation)",
+	    xf_str(term));
+	return cp(0, 0);
+}
+
+static struct cpair
+ft_rec(struct fctx *C, nid e)
+{
+	struct terms T;
+	struct cpair r = cp(xk(0), xk(0));
+	int i;
+
+	if (++C->depth > 30)
+		fail("fourier: too deep");
+	terms_of(e, &T);
+	for (i = 0; i < T.n; i++)
+		r = cp_add(r, ft_term(C, T.t[i]));
+	C->depth--;
+	return r;
+}
+
+/* a top-level + or - in printed text (not inside parentheses) */
+static int
+top_sum(const char *s)
+{
+	int depth = 0;
+	size_t i;
+
+	for (i = 1; s[i]; i++) {
+		if (s[i] == '(' || s[i] == '[')
+			depth++;
+		else if (s[i] == ')' || s[i] == ']')
+			depth--;
+		else if (depth == 0 && s[i - 1] == ' ' && (s[i] == '+' ||
+		    s[i] == '-') && s[i + 1] == ' ')
+			return 1;
+	}
+	return 0;
+}
+
+static const char *
+cp_str(struct cpair z)
+{
+	double v;
+	int rz = xnum(z.re, &v) && v == 0, iz = xnum(z.im, &v) && v == 0;
+	static struct sbuf b[4];
+	static int k;
+	struct sbuf *o = &b[k++ & 3];
+
+	sb_clear(o);
+	if (iz)
+		sb_puts(o, xf_str(z.re));
+	else {
+		const char *is = xf_str(z.im);
+		int sum = top_sum(is);
+		int neg = is[0] == '-' && !sum;
+		const char *body = neg ? is + 1 : is;
+		int paren = sum;
+		if (!rz)
+			sb_printf(o, "%s %c ", xf_str(z.re), neg ? '-' : '+');
+		else if (neg)
+			sb_putc(o, '-');
+		sb_printf(o, paren ? "i*(%s)" : "i*%s", body);
+	}
+	return sb_str(o);
+}
+
+/* int f(x) e^(-iwx) dx numerically over [-X, X]: re and im */
+static void
+ft_numeric_on(nid e, int xs, double w0, double X, double *re, double *im)
+{
+	int j;
+	struct quad Q;
+	double brk[66];
+	int kinds[64], nb = 0, panels = (int)fmin(60000, 2 * X * fmax(2, w0));
+	struct func t;
+
+	memset(&t, 0, sizeof t);
+	t.np = xs + 1;
+	t.p[xs].ty = TY_REAL;
+	t.body = e;
+	if (xs == 0 && X <= 64)
+		nb = fn_discontinuities(&t, -X, X, brk, kinds, 64);
+	brk[nb++] = 0;
+	quad_make(&Q, e, xs, -X, X, brk, nb, panels);
+	*re = 0;
+	*im = 0;
+	for (j = 0; j < Q.n; j++) {
+		*re += Q.w[j] * Q.f[j] * cos(w0 * Q.x[j]);
+		*im -= Q.w[j] * Q.f[j] * sin(w0 * Q.x[j]);
+	}
+	quad_free(&Q);
+}
+
+/* the cut-off where |f| is negligible (at most 2^15) */
+static double
+ft_cutoff(nid e, int xs)
+{
+	double X = 8, mx = 0;
+	int k, ok;
+
+	for (k = 0; k < 13; k++, X *= 2) {
+		double v1 = fabs(xf_eval1(e, xs, X, &ok)), v2 = fabs(xf_eval1(e, xs,
+		    -X, &ok));
+		double v0 = fabs(xf_eval1(e, xs, 0.3, &ok));
+		mx = fmax(mx, v0);
+		if (fmax(v1, v2) < 1e-12 * fmax(mx, 1e-300))
+			break;
+	}
+	return X;
+}
+
+static int
+ft_numeric(nid e, int xs, double w0, double *re, double *im)
+{
+	double X = 8, mx = 0, cut[2];
+	int k, ok, j;
+	struct quad Q;
+
+	for (k = 0; k < 13; k++, X *= 2) {
+		double v1 = fabs(xf_eval1(e, xs, X, &ok)), v2 = fabs(xf_eval1(e, xs,
+		    -X, &ok));
+		double v0 = fabs(xf_eval1(e, xs, 0.3, &ok));
+		mx = fmax(mx, v0);
+		if (fmax(v1, v2) < 1e-12 * fmax(mx, 1e-300))
+			break;
+	}
+	{
+		double brk[66];
+		int kinds[64], nb = 0, panels = (int)fmin(40000, 2 * X * fmax(2, w0));
+		struct func t;
+		memset(&t, 0, sizeof t);
+		t.np = xs + 1;
+		t.p[xs].ty = TY_REAL;
+		t.body = e;
+		if (xs == 0)
+			nb = fn_discontinuities(&t, -X, X, brk, kinds, 64);
+		brk[nb++] = 0;
+		(void)cut;
+		quad_make(&Q, e, xs, -X, X, brk, nb, panels);
+	}
+	*re = 0;
+	*im = 0;
+	for (j = 0; j < Q.n; j++) {
+		*re += Q.w[j] * Q.f[j] * cos(w0 * Q.x[j]);
+		*im -= Q.w[j] * Q.f[j] * sin(w0 * Q.x[j]);
+	}
+	quad_free(&Q);
+	return 1;
+}
+
+static void
+cmd_fourier(char *text, int inverse)
+{
+	static const char *const outs[] = {"w", "k", "omega", "f", "x", "t",
+		NULL};
+	static const char *const xpref[] = {"x", "t", NULL};
+	static const char *const wpref[] = {"w", "omega", "k", NULL};
+	char xn[32] = "", wn[32] = "";
+	struct func *f;
+	struct fctx C;
+	struct cpair G;
+	int i;
+
+	trail_vars(text, xn, sizeof xn, wn, sizeof wn, outs);
+	f = xf_parse(text);
+	memset(&C, 0, sizeof C);
+	C.xs = pick_slot(f, xn, inverse ? wpref : xpref);
+	if (C.xs < 0 && f->np > 0)
+		fail("fourier: which variable?  (fourier F x w)");
+	if (C.xs < 0)
+		C.xs = max_slot(f);
+	C.x = xv(C.xs, C.xs < f->np ? sym_str(f->p[C.xs].name) : "x");
+	C.ws = C.xs == f->np ? f->np + 1 : f->np;
+	if (C.ws >= MAXP)
+		fail("too many variables");
+	if (!wn[0])
+		snprintf(wn, sizeof wn, "%s", inverse ? "x" : "w");
+	C.w = xv(C.ws, wn);
+	G = ft_rec(&C, f->body);
+	if (inverse) {
+		/* f(x) = (1/2pi) F{G}(-x) */
+		/* G real: F{G}(-x) = conj(F{G}(x)) */
+		G.re = xmul(xk(1 / (2 * M_PI)), G.re);
+		G.im = xmul(xk(-1 / (2 * M_PI)), G.im);
+	}
+	G.re = polish(G.re, C.ws, C.w);
+	G.im = polish(G.im, C.ws, C.w);
+	printf("%s{%s}(%s) = %s\n", inverse ? "F^-1" : "F", fname_of(f), wn,
+	    cp_str(G));
+	if (inverse)
+		printf("  convention: f(x) = (1/(2pi)) int F(w) e^(iwx) dw\n");
+	else
+		printf("  convention: F(w) = int f(x) e^(-iwx) dx over the real line "
+		    "(angular frequency; the inverse has 1/(2pi))\n");
+	if (C.ndelta) {
+		printf("  delta terms: f does not decay, the transform is a "
+		    "distribution (not checked numerically)\n");
+		return;
+	}
+	{
+		int skip[2] = {C.xs, C.ws}, sl[MAXP], ns, ok;
+		double vals[MAXP], worst = 0, ws[3] = {0.5, 1.3, 2.7};
+		struct sbuf txt = {0};
+		nid fb, Gr, Gi;
+		ns = samples(f, skip, 2, sl, vals, &txt);
+		fb = with_samples(f->body, sl, vals, ns);
+		Gr = with_samples(G.re, sl, vals, ns);
+		Gi = with_samples(G.im, sl, vals, ns);
+		{
+			double X = ft_cutoff(fb, C.xs), trunc = 0, gmax = 0;
+			for (i = 0; i < 3; i++) {
+				double re, im, re2, im2, gr, gi, sg = inverse ? -1 : 1;
+				ft_numeric_on(fb, C.xs, sg * ws[i], X, &re, &im);
+				ft_numeric_on(fb, C.xs, sg * ws[i], X / 2, &re2, &im2);
+				if (inverse) {
+					re /= 2 * M_PI;
+					im /= 2 * M_PI;
+					re2 /= 2 * M_PI;
+					im2 /= 2 * M_PI;
+				}
+				gr = xf_eval1(Gr, C.ws, ws[i], &ok);
+				gi = xf_eval1(Gi, C.ws, ws[i], &ok);
+				gmax = fmax(gmax, fmax(cabs(gr + I * gi), cabs(re + I * im)));
+				trunc = fmax(trunc, cabs((re + I * im) - (re2 + I * im2)));
+				worst = fmax(worst, cabs((re + I * im) - (gr + I * gi)));
+			}
+			worst /= fmax(gmax, 1e-300);
+			trunc /= fmax(gmax, 1e-300);
+			{
+				/* the tail beyond X: the difference between X/2 and X,
+				 * scaled by how much f fell from X/2 to X (envelopes) */
+				int ok2, j;
+				double eX = 0, eH = 0;
+				for (j = 0; j < 16; j++) {
+					double u = 0.9 + 0.1 * j / 15;
+					eX = fmax(eX, fabs(xf_eval1(fb, C.xs, u * X, &ok2)));
+					eX = fmax(eX, fabs(xf_eval1(fb, C.xs, -u * X, &ok2)));
+					eH = fmax(eH, fabs(xf_eval1(fb, C.xs, u * X / 2, &ok2)));
+					eH = fmax(eH, fabs(xf_eval1(fb, C.xs, -u * X / 2, &ok2)));
+				}
+				trunc *= eH > 0 ? fmin(1, eX / eH) : 0;
+			}
+			if (trunc > 1e-8)
+				printf("  check: %s the integral over [-%s, %s] computed "
+				    "numerically at %s = 1/2, 13/10, 27/10%s%s: max relative "
+				    "difference %.2g (f decays slowly: the numeric integral "
+				    "itself is uncertain by about %.2g)\n",
+				    worst < 10 * trunc + 1e-6 ? "consistent with" :
+				    "DIFFERS FROM", xf_num(X), xf_num(X), wn, ns ? " with " : "",
+				    ns ? txt.p : "", worst, trunc);
+			else
+				printf("  check: %s the integral computed numerically at %s = "
+				    "1/2, 13/10, 27/10%s%s: max relative difference %.2g\n",
+				    worst < 1e-6 ? "matches" : "DIFFERS FROM", wn,
+				    ns ? " with " : "", ns ? txt.p : "", worst);
+		}
+		free(txt.p);
+	}
+}
+
+/* ---- DFT ---- */
+
+/* the items of [a, b, ...]: complex values (a + bi allowed) */
+static int
+list_values(const char *text, double complex *v, int max)
+{
+	char *s = xstrdup(text), *p = s, *part[1024];
+	int n, k;
+
+	trim(p);
+	if (*p == '[' || *p == '(')
+		p++;
+	if (strlen(p) && (p[strlen(p) - 1] == ']' || p[strlen(p) - 1] == ')'))
+		p[strlen(p) - 1] = 0;
+	n = split_list(p, part, max < 1024 ? max : 1024);
+	for (k = 0; k < n; k++) {
+		struct func *f = xf_parse(part[k]);
+		double re, im, v1;
+		int ok;
+		if (f->np == 0 && xnum(f->body, &re)) {
+			v[k] = re;
+			continue;
+		}
+		if (f->np == 1 && (!strcmp(sym_str(f->p[0].name), "i") ||
+		    !strcmp(sym_str(f->p[0].name), "j"))) {
+			re = xf_eval1(f->body, 0, 0, &ok);
+			v1 = xf_eval1(f->body, 0, 1, &ok);
+			im = v1 - re;
+			if (fabs(xf_eval1(f->body, 0, 2, &ok) - (re + 2 * im)) > 1e-9 *
+			    fmax(1, fabs(re) + fabs(im)))
+				fail("%s is not a + bi", part[k]);
+			v[k] = re + I * im;
+			continue;
+		}
+		fail("dft: %s is not a number", part[k]);
+	}
+	free(s);
+	return n;
+}
+
+static void
+fft_rec(double complex *x, int n, int sign)
+{
+	double complex *e, *o;
+	int k;
+
+	if (n == 1)
+		return;
+	e = xmalloc((size_t)n / 2 * sizeof *e);
+	o = xmalloc((size_t)n / 2 * sizeof *o);
+	for (k = 0; k < n / 2; k++) {
+		e[k] = x[2 * k];
+		o[k] = x[2 * k + 1];
+	}
+	fft_rec(e, n / 2, sign);
+	fft_rec(o, n / 2, sign);
+	for (k = 0; k < n / 2; k++) {
+		double complex t = cexp(sign * 2 * M_PI * I * k / n) * o[k];
+		x[k] = e[k] + t;
+		x[k + n / 2] = e[k] - t;
+	}
+	free(e);
+	free(o);
+}
+
+static void
+dft(const double complex *x, double complex *X, int n, int inverse)
+{
+	int k, j;
+
+	if ((n & (n - 1)) == 0) {
+		memcpy(X, x, (size_t)n * sizeof *X);
+		fft_rec(X, n, inverse ? 1 : -1);
+	} else
+		for (k = 0; k < n; k++) {
+			double complex s = 0;
+			for (j = 0; j < n; j++)
+				s += x[j] * cexp((inverse ? 1 : -1) * 2 * M_PI * I *
+				    (double)((int64_t)k * j % n) / n);
+			X[k] = s;
+		}
+	if (inverse)
+		for (k = 0; k < n; k++)
+			X[k] /= n;
+	for (k = 0; k < n; k++) {
+		double sc = cabs(X[k]) + 1e-300;
+		if (fabs(creal(X[k])) < 1e-13 * fmax(sc, 1))
+			X[k] = I * cimag(X[k]);
+		if (fabs(cimag(X[k])) < 1e-13 * fmax(sc, 1))
+			X[k] = creal(X[k]);
+	}
+}
+
+static void
+cmd_dft(char *text, int inverse)
+{
+	double complex x[1024], X[1024], back[1024];
+	int n = list_values(text, x, 1024), k;
+	double worst = 0, p1 = 0, p2 = 0;
+
+	if (n < 1)
+		fail("dft: expected a list [x0, x1, ...]");
+	dft(x, X, n, inverse);
+	printf("%s of %d values (%s; %s)\n", inverse ? "inverse DFT" : "DFT", n,
+	    inverse ? "x[n] = (1/N) sum_k X[k] e^(2 pi i k n/N)" :
+	    "X[k] = sum_n x[n] e^(-2 pi i k n/N)", (n & (n - 1)) == 0 ?
+	    "radix-2 FFT, N log2 N operations" : "direct sum, N^2 operations");
+	printf("  %-4s %-28s %-14s %s\n", "k", inverse ? "x[k]" : "X[k]",
+	    "|.|", "arg");
+	for (k = 0; k < n && k < 64; k++) {
+		double ph = carg(X[k]);
+		printf("  %-4d %-28s %-14s %s\n", k, xf_cnum(X[k]), xf_num(cabs(X[k])),
+		    cabs(X[k]) == 0 ? "-" : xf_num(fabs(ph) < 1e-15 ? 0 : ph));
+	}
+	if (n > 64)
+		printf("  ... (%d more)\n", n - 64);
+	dft(X, back, n, !inverse);
+	for (k = 0; k < n; k++) {
+		worst = fmax(worst, cabs(back[k] - x[k]));
+		p1 += cabs(x[k]) * cabs(x[k]);
+		p2 += cabs(X[k]) * cabs(X[k]);
+	}
+	printf("  check: the %s transform gives the input back (max difference "
+	    "%.2g); Parseval: sum |x|^2 = %s, sum |X|^2/N = %s\n",
+	    inverse ? "forward" : "inverse", worst, xf_num(inverse ? p2 : p1),
+	    xf_num(inverse ? p1 / n : p2 / n));
+	if (!inverse)
+		printf("  bin k is the frequency k/N cycles per sample; k > N/2 are "
+		    "the negative frequencies k - N\n");
+}
+
+/* ---- DTFT ---- */
+
+static void
+cmd_dtft(char *text)
+{
+	static const double wd[] = {0, M_PI / 4, M_PI / 2, 3 * M_PI / 4, M_PI};
+	int i;
+
+	trim(text);
+	if (text[0] == '[') {
+		double complex x[1024];
+		int n = list_values(text, x, 1024), k;
+		nid w = xv(0, "w"), re = xk(0), im = xk(0);
+		for (k = 0; k < n; k++) {
+			if (cimag(x[k]) != 0)
+				fail("dtft: complex values in the list: use dft");
+			re = xadd(re, xmul(xk(creal(x[k])), k ? mk_un(O_COS, xmul(xk(k),
+			    w)) : xk(1)));
+			im = xsub(im, xmul(xk(creal(x[k])), mk_un(O_SIN, xmul(xk(k), w))));
+		}
+		printf("DTFT of %d values: X(w) = sum_n x[n] e^(-iwn)\n", n);
+		printf("  X(w) = %s\n", cp_str(cp(re, im)));
+		printf("  %-8s %-12s %s\n", "w", "|X|", "arg");
+		for (i = 0; i < 5; i++) {
+			double complex s = 0;
+			for (k = 0; k < n; k++)
+				s += x[k] * cexp(-I * wd[i] * k);
+			printf("  %-8s %-12.6g %.6g\n", xf_num(wd[i]), cabs(s),
+			    cabs(s) < 1e-14 || fabs(carg(s)) < 1e-12 ? 0 : carg(s));
+		}
+		printf("  periodic in w with period 2pi; the DFT samples it at w = "
+		    "2pi k/N\n");
+		return;
+	}
+	{
+		struct func *f = xf_parse(text);
+		static const char *const npref[] = {"n", "k", NULL};
+		struct zctx C;
+		struct xrat r;
+		nid X;
+		double R = 0;
+		memset(&C, 0, sizeof C);
+		C.ns = pick_slot(f, NULL, npref);
+		if (C.ns < 0)
+			C.ns = 0;
+		if (f->np > 1)
+			fail("dtft: give the other parameters values");
+		C.n = xv(C.ns, f->np ? sym_str(f->p[C.ns].name) : "n");
+		C.zs = C.ns + 1;
+		C.z = xv(C.zs, "z");
+		xf_discrete = 1;
+		X = zt_of(f->body, &C);
+		printf("DTFT of %s: X(e^(iw)) = X(z) at z = e^(iw)\n", fname_of(f));
+		printf("  X(z) = %s\n", xf_str(X));
+		if (C.hasroc)
+			xnum(C.roc, &R);
+		if (R >= 1) {
+			printf("  the region of convergence |z| > %s excludes the unit "
+			    "circle: the DTFT does not exist as a function\n", xf_num(R));
+			xf_discrete = 0;
+			return;
+		}
+		if (!xq_of(X, C.zs, &r))
+			fail("dtft: X(z) is not rational");
+		printf("  %-8s %-12s %s\n", "w", "|X|", "arg");
+		for (i = 0; i < 5; i++) {
+			double complex v = xq_ceval(&r, cexp(I * wd[i]));
+			printf("  %-8s %-12.6g %.6g\n", xf_num(wd[i]), cabs(v),
+			    fabs(carg(v)) < 1e-14 ? 0 : carg(v));
+		}
+		xf_discrete = 0;
+	}
+}
+
 /* ---- the command dispatcher ---- */
 
 static const char *const xcmds[] = {"laplace", "ilaplace", "ztrans",
@@ -3576,6 +4751,22 @@ xform_command(struct P *p)
 		cmd_zsolve(text);
 	else if (!strcmp(w, "tf"))
 		cmd_tf(text);
+	else if (!strcmp(w, "fseries"))
+		cmd_fseries(text);
+	else if (!strcmp(w, "fourier") || !strcmp(w, "ifourier")) {
+		char *r = text;
+		while (*r == ' ')
+			r++;
+		if (!strncmp(r, "series ", 7))
+			cmd_fseries(r + 7);
+		else
+			cmd_fourier(text, w[0] == 'i');
+	} else if (!strcmp(w, "dft") || !strcmp(w, "fft"))
+		cmd_dft(text, 0);
+	else if (!strcmp(w, "idft") || !strcmp(w, "ifft"))
+		cmd_dft(text, 1);
+	else if (!strcmp(w, "dtft"))
+		cmd_dtft(text);
 	else {
 		free(text);
 		cmdp_seek(p, at);

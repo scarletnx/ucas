@@ -2197,17 +2197,25 @@ xf_nodirac(nid e)
 	return r;
 }
 
+/*
+ * The parsed function is copied out of the function table: cmd_func
+ * reuses the anonymous entries "_" and "_2", and func_new may move the
+ * table, so a pointer into it does not survive the next parse.
+ */
 struct func *
 xf_parse(const char *text)
 {
+	static struct func pool[32];
+	static int k;
 	struct sbuf s = {0};
-	struct func *f;
+	struct func *f, *r = &pool[k++ & 31];
 
 	xf_prep(text, &s);
 	f = cmd_func_text(sb_str(&s));
 	free(s.p);
-	f->body = xf_fix(f->body);
-	return f;
+	*r = *f;
+	r->body = xf_fix(r->body);
+	return r;
 }
 
 int
