@@ -2272,7 +2272,16 @@ its loads are inputs, its stores recorded in order):
   256-byte table).  Loads and stores keep their addresses and their
   order: a load that a later store now uses is read into a temporary at
   its original place.  So the rewrite holds whatever the arrays alias,
-  and the loop's control is not touched.
+  and the loop's control is not touched.  A rewrite that leaves a table
+  lookup indexed by data or a helper call in a loop the vectoriser can
+  prove (so clang vectorises the original as written) is "proposed, not
+  applied" by default: `brighten`'s table runs 0.39 -> 0.80 and
+  `invert_low`'s 0.05 -> 0.80 cycles per element against clang's
+  vectorised loop (i5-9400; brighten's timed by hand, invert_low's by
+  `bench`).  `bench` measures it like the vector loops (below)
+  and keeps it where it wins; rewrites that keep the body vectorisable
+  (an unsigned division, `x * 0.5`), and table rewrites of loops the
+  vectoriser cannot prove, are applied as before.
 - *strlen scans*: `while (s[n]) n++;`, `while (*p != '\0') ++p;` and the
   same as a `for` with an empty body become `n += strlen(s + n)` and
   `p += strlen(p)` (C99 7.21.6.3), for `char`, `signed char` and
@@ -2442,10 +2451,13 @@ and `clang -O2` vectorises such loops itself, so:
 - by default its loops are **proposed, not applied**: the report gives
   the proof and the code ("proposed, not applied"), and the loop keeps
   what the rest of the pipeline does with it;
-- with `bench`, every proposed loop is applied, the functions are timed
+- with `bench`, every proposed loop is applied (and, in a build of their
+  own, the loop-body rewrites that block vectorisation), the functions
+  are timed
   against the original compiled by clang at the same target and flags
   (3 runs, each the median of 15), and a function keeps its vector loops
-  only if it was faster by more than 5% in every run; otherwise the
+  (or its body rewrite: the faster of the two) only if it was faster by
+  more than 5% in every run; otherwise the
   report says "proved, not applied: clang's own vectorisation is as fast
   or faster (N vs M cycles/element)" and the loop stays as written (a
   scalar body rewrite there would only undo clang's vectorisation);
@@ -2521,7 +2533,7 @@ own autovectoriser; "applied" is what `bench` decides:
 | `add32` (`a + b*3`) | 0.33 | 0.38 | no |
 | `iota` (`2i + 1`) | 0.16 | 0.22 | no |
 | `sum8`, `xorsum` (reductions) | 0.09 | 0.11 | no |
-| `invert_low` (`p < 16 ? 15 - p : p`) | 0.05 | 0.06 | no (the default table rewrite of its body is 0.80: bench keeps the loop as written) |
+| `invert_low` (`p < 16 ? 15 - p : p`) | 0.05 | 0.06 | no (its table rewrite, 0.80, is not applied either: kept as written) |
 | `maxv`, `sum64`, `shift_left` | | the same | no |
 | `saxpy`, `dscale` (float parameters) | | not timed | no |
 

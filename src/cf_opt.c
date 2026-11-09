@@ -2102,6 +2102,8 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 	uint32_t from, to;
 	int r;
 
+	char bnote[96];
+
 	if (R.o->novec && !R.o->vecstub)
 		return 0;
 	if (f == NULL || !cf_span(u, n, &from, &to))
@@ -2175,6 +2177,17 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 			w->before = strdup("");
 			w->after = strdup("");
 			w->code = strdup(o.text.p ? o.text.p : "");
+			{
+				int b3;
+				snprintf(bnote, sizeof bnote, "a scalar body rewrite would "
+				    "undo that");
+				for (b3 = 0; b3 < R.o->nbveto; b3++)
+					if (!strcmp(R.o->bveto[b3], R.fname) &&
+					    R.o->bveto_c[b3][0] >= 0)
+						snprintf(bnote, sizeof bnote, "its loop-body rewrite "
+						    "measured %.2f vs %.2f", R.o->bveto_c[b3][0],
+						    R.o->bveto_c[b3][1]);
+			}
 			if (R.o->vveto_c[q][0] < 0)
 				snprintf(w->proof_text, sizeof w->proof_text, "bench "
 				    "could not time it (the harness cannot make its "
@@ -2185,8 +2198,8 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 				    "vectorisation is as fast or faster (%.2f vs %.2f "
 				    "cycles/element, bench: not faster by 5%% in every "
 				    "run); the loop is kept as written (clang vectorises it; "
-				    "a scalar body rewrite would undo that); %s",
-				    R.o->vveto_c[q][0], R.o->vveto_c[q][1], o.what);
+				    "%s); %s", R.o->vveto_c[q][0], R.o->vveto_c[q][1],
+				    bnote, o.what);
 			w->info = 1;
 			free(o.text.p);
 			free_loop(&l);
