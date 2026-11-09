@@ -996,6 +996,7 @@ cmd_ecm(void)
 #include "ecff_dlp.inc"
 #include "ecff_cm.inc"
 #include "ecff_isog.inc"
+#include "ecff_b2.inc"
 
 static void
 cmd_x25519(void)
@@ -1039,6 +1040,7 @@ static const struct {
 	{"hilbert", cmd_hilbert, "hilbert"},
 	{"eccm", cmd_eccm, "ec_cm"},
 	{"ecpp", cmd_ecpp, "ecpp"},
+	{"ecb2", cmd_ecb2, "ec_binary"},
 	{"modpoly", cmd_modpoly, "modpoly"},
 	{"ecisogeny", cmd_ecisogeny, "ec_isogeny"},
 	{"ecvolcano", cmd_ecvolcano, "ec_volcano"},

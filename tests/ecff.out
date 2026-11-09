@@ -551,3 +551,46 @@ psi_3 = 3*x^4 + 12*x^2 + 36*x + 93
 > ecpp 2^256 + 1
 115792089237316195423570985008687907853269984665640564039457584007913129639937 is composite
   how: BPSW (a failed Fermat or Lucas test is a proof of compositeness)
+> ecb2 K-163
+y^2 + x y = x^3 + 0x1 x^2 + 0x1 over GF(2^163)
+  field: GF(2)[x]/(x^163 + x^7 + x^6 + x^3 + 1)
+  standard: FIPS 186-4 K-163
+  order: #E = 11692013098647223345629483507196896696658237148126
+  how: Koblitz curve (a, b in GF(2)): #E = 2^m + 1 - t_m, t_k+1 = t_1 t_k - 2 t_k-1 from #E(F_2); t_m = -4845466632539410776804317
+  G: (0x2fe13c0537bbc11acaa07d793de4e6d5e5c94eee8, 0x289070fb05d38ff58321f2e800536d538ccdaa3d9)
+  check: G on the curve: yes
+  check: n = 5846006549323611672814741753598448348329118574063 prime (BPSW): yes
+  check: n G = O: yes
+  check: #E = h n (h = 2): yes
+> ecb2 B-163 mul 12345
+y^2 + x y = x^3 + 0x1 x^2 + 0x20a601907b8c953ca1481eb10512f78744a3205fd over GF(2^163)
+  field: GF(2)[x]/(x^163 + x^7 + x^6 + x^3 + 1)
+  standard: FIPS 186-4 B-163
+  G: (0x3f0eba16286a2d57ea0991168d4994637e8343e36, 0xd51fbc6c71a0094fa2cdd545b11c5c0c797324f1)
+  check: G on the curve: yes
+  check: n = 5846006549323611672814742442876390689256843201587 prime (BPSW): yes
+  check: n G = O: yes
+  k G: (0x35a499086bb8d5cc0f803bb24202c4bae8c75d9b3, 0x327d48a1e478c35942b9cc0ecfff033de457a28d7)
+  check: k G on the curve: yes
+> ecb2 K-233
+y^2 + x y = x^3 + 0x0 x^2 + 0x1 over GF(2^233)
+  field: GF(2)[x]/(x^233 + x^74 + 1)
+  standard: FIPS 186-4 K-233
+  order: #E = 13803492693581127574869511724554051042283763955449008505312348098965372
+  how: Koblitz curve (a, b in GF(2)): #E = 2^m + 1 - t_m, t_k+1 = t_1 t_k - 2 t_k-1 from #E(F_2); t_m = -137381546011108235394987299651366779
+  G: (0x17232ba853a7e731af129f22ff4149563a419c26bf50a4c9d6eefad6126, 0x1db537dece819b7f70f555a67c427a8cd9bf18aeb9b56e0c11056fae6a3)
+  check: G on the curve: yes
+  check: n = 3450873173395281893717377931138512760570940988862252126328087024741343 prime (BPSW): yes
+  check: n G = O: yes
+  check: #E = h n (h = 4): yes
+> ecb2 [1, 1] over GF(2^13) poly 4 3 1 0
+y^2 + x y = x^3 + 0x1 x^2 + 0x1 over GF(2^13)
+  field: GF(2)[x]/(x^13 + x^4 + x^3 + x^1 + 1)
+  order: #E = 8374
+  how: Koblitz curve (a, b in GF(2)): #E = 2^m + 1 - t_m, t_k+1 = t_1 t_k - 2 t_k-1 from #E(F_2); t_m = -181
+  check: the naive count agrees: yes
+> ecb2 [0, 7] over GF(2^11) poly 2 0
+y^2 + x y = x^3 + 0x0 x^2 + 0x7 over GF(2^11)
+  field: GF(2)[x]/(x^11 + x^2 + 1)
+  order: #E = 2052
+  how: naive: 2 + 2 #{x != 0 : Tr(x + a + b/x^2) = 0}

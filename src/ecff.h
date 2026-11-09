@@ -482,6 +482,41 @@ struct ecppcert {
 int ecpp_prove(const nn *N, struct ecppcert *C, int maxsteps);
 int ecpp_check(const struct ecppcert *C, const nn *N, char *why, size_t wn);
 
+/* ---- ecb2.c: binary fields and curves ---- */
+struct b2f {
+	int m, n, nex;
+	int ex[5];          /* f = x^m + sum x^ex[i] */
+};
+struct b2c {
+	const struct b2f *K;
+	u64 a[FW], b[FW];   /* y^2 + x y = x^3 + a x^2 + b */
+};
+struct b2pt {
+	u64 x[FW], y[FW];
+	int inf;
+};
+struct b2named {
+	const char *name, *aliases;
+	int m, ex[5], nex;
+	const char *a, *b, *gx, *gy, *n, *h;
+};
+extern const struct b2named b2named_tab[];
+void b2_init(struct b2f *K, int m, const int *ex, int nex);
+void b2_mul(const struct b2f *K, u64 *r, const u64 *a, const u64 *b);
+void b2_sqr(const struct b2f *K, u64 *r, const u64 *a);
+int b2_is_zero(const struct b2f *K, const u64 *a);
+int b2_inv(const struct b2f *K, u64 *r, const u64 *a);
+int b2_trace(const struct b2f *K, const u64 *a);
+int b2_on(const struct b2c *E, const struct b2pt *P);
+void b2_add(const struct b2c *E, struct b2pt *R, const struct b2pt *P,
+    const struct b2pt *Q);
+void b2_mul_pt(const struct b2c *E, struct b2pt *R, const struct b2pt *P,
+    const nn *k);
+int b2_count_naive(const struct b2c *E, nn *N);
+int b2_count_koblitz(const struct b2c *E, nn *N, zz *tm);
+const struct b2named *b2named_find(const char *s);
+void b2_from_nn(const struct b2f *K, u64 *r, const nn *v);
+
 /* ---- ecalg.c: ECM ---- */
 size_t ecff_primes(u64 limit, const uint32_t **out);  /* primes <= limit */
 struct ecm_res {

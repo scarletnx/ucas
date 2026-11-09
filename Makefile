@@ -34,10 +34,10 @@ SRCS+=	mcp.c
 SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
 # elliptic curves over finite fields, crypto and algorithms (ecff.h)
 SRCS+=	ecmp.c ecfp.c ecw.c ecnamed.c eccount.c ecpoly.c ecschoof.c ecalg.c \
-	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c \
+	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c ecb2.c \
 	ecff_cmd.c
 ecff_cmd.o ecff_cmd.pieo: ecff_crypto.inc ecff_dlp.inc ecff_cm.inc \
-    ecff_isog.inc
+    ecff_isog.inc ecff_b2.inc
 ecw.o ecw.pieo: ecw_impl.inc
 # simplify's function-level pass over a shader's GLSL source
 SRCS+=	glslfn.c

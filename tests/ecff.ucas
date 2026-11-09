@@ -83,3 +83,10 @@ ecdivpoly y^2 = x^3 + 2x + 3 mod 97 3
 ecpp 2^127 - 1
 ecpp 2^255 - 19
 ecpp 2^256 + 1
+
+# binary curves: GF(2^m), Koblitz counting, FIPS curves checked
+ecb2 K-163
+ecb2 B-163 mul 12345
+ecb2 K-233
+ecb2 [1, 1] over GF(2^13) poly 4 3 1 0
+ecb2 [0, 7] over GF(2^11) poly 2 0
