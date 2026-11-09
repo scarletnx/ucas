@@ -9,6 +9,7 @@
  */
 #include "ucas.h"
 #include "nodesat.h"
+#include "bound.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -567,6 +568,70 @@ range_real1(struct func *f)
 	run_close(&r);
 }
 
+/*
+ * A sampled integer range: bounds proved by monotonicity and exact
+ * algebra (bound.c); when they meet the sample's extremes, the range is
+ * exact.
+ */
+static void
+range_proved(const struct func *f, double smn, double smx)
+{
+	struct pbound pb;
+	int exact_lo, exact_hi;
+	double tol = TY_FP(N.ty[f->body]) ? 1e-12 * fmax(1, fmax(fabs(smn),
+	    fabs(smx))) : 0;
+
+	if (!prove_bounds(f, &pb))
+		return;
+	exact_lo = pb.have_lo && fabs(pb.lo - smn) <= tol;
+	exact_hi = pb.have_hi && fabs(pb.hi - smx) <= tol;
+	printf("  proved bound (monotonicity, exact algebra): ");
+	if (pb.have_lo)
+		printf("%.17g", pb.lo);
+	else
+		printf("(none)");
+	printf("..");
+	if (pb.have_hi)
+		printf("%.17g", pb.hi);
+	else
+		printf("(none)");
+	printf("\n");
+	if (exact_lo && exact_hi)
+		printf("  the sample reaches both ends: the range is exactly "
+		    "%.17g..%.17g (proved%s)\n", pb.lo, pb.hi,
+		    TY_FP(N.ty[f->body]) ? "; the end values evaluated in double" :
+		    "");
+	else if (exact_hi)
+		printf("  the sample reaches the upper end: the maximum is "
+		    "exactly %.17g (proved)\n", pb.hi);
+	else if (exact_lo)
+		printf("  the sample reaches the lower end: the minimum is "
+		    "exactly %.17g (proved)\n", pb.lo);
+	if (pb.have_hi)
+		printf("    max: %s\n", sb_str(&pb.why_hi));
+	if (pb.have_lo)
+		printf("    min: %s\n", sb_str(&pb.why_lo));
+	if (!(exact_lo && exact_hi))
+		printf("    (a bound the sample does not reach may still be "
+		    "loose)\n");
+	rep_obj("proved_bound");
+	if (pb.have_lo) {
+		rep_num("min", pb.lo);
+		rep_bool("min_exact", exact_lo);
+		rep_str("min_steps", sb_str(&pb.why_lo));
+	}
+	if (pb.have_hi) {
+		rep_num("max", pb.hi);
+		rep_bool("max_exact", exact_hi);
+		rep_str("max_steps", sb_str(&pb.why_hi));
+	}
+	rep_end();
+	if (exact_lo && exact_hi)
+		rep_proof("symbolic", "monotonicity and exact algebra give "
+		    "bounds that the sample reaches");
+	pbound_free(&pb);
+}
+
 void
 cmd_range(struct func *f)
 {
@@ -722,7 +787,14 @@ cmd_range(struct func *f)
 			rep_end();
 		}
 		free(iv);
+		if (any)
+			range_proved(f, int_unsigned(t) ? (double)(uint64_t)mn :
+			    (double)mn, int_unsigned(t) ? (double)(uint64_t)mx :
+			    (double)mx);
 	}
+	/* several real parameters: a grid, so a proof is worth having */
+	if (any && TYK(t) == K_REAL && f->np >= 2)
+		range_proved(f, rmn, rmx);
 	free(bm);
 	run_close(&r);
 }

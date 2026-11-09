@@ -186,3 +186,61 @@ cost of lg under gt1030: 90 (worst case; 0 operations outside loops and 1 loop, 
     trip count: at most 9, average 7.987, measured by running it on all 1000 points
     once: 0 (initial values and loop-invariant subterms, hoisted)
     loop total: 90 worst case, 79.87 on average
+> t64(t: int in 0..260100, dd: int in 1..260100) = (t*64 + dd/2)/dd where t <= dd
+> range t64
+range of t64 -> int:
+  0..64
+  fits in u7
+  sampled 32803 points (domain has 67652270100 points); not exhaustive
+  sound bound (intervals): 0..16776450
+  proved bound (monotonicity, exact algebra): 0..64
+  the sample reaches both ends: the range is exactly 0..64 (proved)
+    max: t64 is nondecreasing in t; where t <= dd, so take t = dd:
+      (64dd + dd/2)/dd = 64 + (dd/2)/dd = 64, since 0 <= dd/2 < dd for dd >= 1
+    min: t64 is nondecreasing in t, so take t = 0:
+      dd/2/dd = 0, since 0 <= dd/2 < dd for dd >= 1
+> a4(t: u32 in 0..65535, d: u32 in 1..65535) = (t * 255 + d / 2) / d where t <= d
+> range a4
+range of a4 -> u32:
+  0..255
+  fits in u8
+  sampled 32708 points (domain has 4294901760 points); not exhaustive
+  sound bound (intervals): 0..16744192
+  proved bound (monotonicity, exact algebra): 0..255
+  the sample reaches both ends: the range is exactly 0..255 (proved)
+    max: a4 is nondecreasing in t; where t <= d, so take t = d:
+      (255d + d/2)/d = 255 + (d/2)/d = 255, since 0 <= d/2 < d for d >= 1
+    min: a4 is nondecreasing in t, so take t = 0:
+      d/2/d = 0, since 0 <= d/2 < d for d >= 1
+> sq(x: int in 0..100000, y: int in 0..100000) = x*x - y where y <= x
+> range sq
+range of sq -> int:
+  0..10000000000
+  fits in u34
+  sampled 32844 points (domain has 10000200001 points); not exhaustive
+  sound bound (intervals): -100000..10000000000
+  proved bound (monotonicity, exact algebra): -100000..10000000000
+  the sample reaches the upper end: the maximum is exactly 10000000000 (proved)
+    max: sq is nondecreasing in x, so take x = 100000:
+      10000000000 - y
+    then it is nonincreasing in y, so take y = 0:
+      10000000000
+    min: sq is nondecreasing in x; where y <= x, so take x = y:
+      y*y - y
+      in -100000..10000000000 by intervals
+    (a bound the sample does not reach may still be loose)
+> r2(x: real in 1..4, y: real in 0..2) = sqrt(x) + exp(-y) * x
+> range r2
+range of r2 -> real:
+  [1.13533528, 6]
+  over all 10201 points of the domain
+  proved bound (monotonicity, exact algebra): 1.1353352832366128..6
+  the sample reaches both ends: the range is exactly 1.1353352832366128..6 (proved; the end values evaluated in double)
+    max: r2 is nondecreasing in x, so take x = 4:
+      4exp(-y) + 2
+    then it is nonincreasing in y, so take y = 0:
+      6
+    min: r2 is nondecreasing in x, so take x = 1:
+      exp(-y) + 1
+    then it is nonincreasing in y, so take y = 2:
+      1.135335283

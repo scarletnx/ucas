@@ -7,3 +7,5 @@
 {"id": 7, "cmd": "cost", "args": {"f": "quant"}}
 {"id": 8, "cmd": "cost", "args": {"f": {"name": "tri", "body": "{ s: u32 = 0; for i in 1..n/k { s += i*i }; s }", "params": [{"name": "n", "type": "u32", "range": [0, 1000]}, {"name": "k", "type": "u32", "range": [1, 4]}]}}}
 {"id": 9, "cmd": "table", "args": {"f": "(x: u16)*3+1", "max": 4000}}
+{"id": 10, "cmd": "ucas", "args": {"source": "t64(t: int in 0..260100, dd: int in 1..260100) = (t*64 + dd/2)/dd where t <= dd"}}
+{"id": 11, "cmd": "range", "args": {"f": "t64"}}

@@ -92,3 +92,14 @@ cost tri
 # a while loop's trip count is measured on the domain
 lg(n: int in 1..1000) = { x = n; k = 0; while x > 1 { x = x / 2; k += 1 }; k }
 cost lg
+
+# 5. range proves bounds by monotonicity, the where clause's relations and
+# exact integer-quotient algebra; when they meet the sample, it is exact
+t64(t: int in 0..260100, dd: int in 1..260100) = (t*64 + dd/2)/dd where t <= dd
+range t64
+a4(t: u32 in 0..65535, d: u32 in 1..65535) = (t * 255 + d / 2) / d where t <= d
+range a4
+sq(x: int in 0..100000, y: int in 0..100000) = x*x - y where y <= x
+range sq
+r2(x: real in 1..4, y: real in 0..2) = sqrt(x) + exp(-y) * x
+range r2
