@@ -249,6 +249,24 @@ zm_is_identity(const struct zmat *m)
 
 /* ---- arithmetic ---- */
 
+/* bits of the largest entry when every entry is inline, else 1000 */
+static int
+small_bits(const struct zmat *m)
+{
+	size_t i, n = (size_t)m->r * (size_t)m->c;
+	uint64_t mx = 0;
+
+	for (i = 0; i < n; i++) {
+		int64_t v;
+		if (!Z_IS_SMALL(m->a[i]))
+			return 1000;
+		v = m->a[i] >> 1;
+		if ((uint64_t)(v < 0 ? -v : v) > mx)
+			mx = (uint64_t)(v < 0 ? -v : v);
+	}
+	return bits_for(mx);
+}
+
 void
 zm_mul(struct zmat *r, const struct zmat *a, const struct zmat *b)
 {
@@ -259,6 +277,27 @@ zm_mul(struct zmat *r, const struct zmat *a, const struct zmat *b)
 		fail("internal: matrix product %dx%d * %dx%d", a->r, a->c, b->r,
 		    b->c);
 	zm_init(&t, a->r, b->c);
+	if (small_bits(a) + small_bits(b) + bits_for((uint64_t)a->c) < 126) {
+		/* every entry inline and no sum can overflow 128 bits */
+		i128 *acc = xcalloc((size_t)b->c + 1, sizeof *acc);
+		for (i = 0; i < a->r; i++) {
+			memset(acc, 0, (size_t)b->c * sizeof *acc);
+			for (k = 0; k < a->c; k++) {
+				int64_t x = ZM(a, i, k) >> 1;
+				const zint *br = b->a + (size_t)k * b->c;
+				if (x == 0)
+					continue;
+				for (j = 0; j < b->c; j++)
+					if (br[j] != 0)
+						acc[j] += (i128)x * (br[j] >> 1);
+			}
+			for (j = 0; j < b->c; j++)
+				ZM(&t, i, j) = z_from_i128(acc[j]);
+		}
+		free(acc);
+		zm_move(r, &t);
+		return;
+	}
 	for (i = 0; i < a->r; i++)
 		for (k = 0; k < a->c; k++) {
 			zint x = ZM(a, i, k);
@@ -431,14 +470,36 @@ zm_col(zint *x, const struct zmat *a, int j)
 
 /* ---- keeping the live entries when the arena is compacted ---- */
 
+/*
+ * Compaction copies every live handle, so it is done lazily: only when
+ * the arena has grown past twice what was live after the last compaction
+ * under the same mark (plus 1M limbs), or when forced at the end of an
+ * elimination.  Small entries never touch the arena, so a matrix of small
+ * numbers is never copied at all.
+ */
+static struct {
+	uint64_t mn, ml;	/* the mark it refers to */
+	uint64_t live;		/* limbs above the mark after the last one */
+} kst;
+
 static void
-keep(zmark m, struct zmat **ms, int k)
+keep_force(zmark m, struct zmat **ms, int k, int force)
 {
 	static zint *buf;
 	static size_t cap;
 	size_t n = 0, o;
 	int i;
+	zmark now = z_mark();
 
+	if (kst.mn != m.n || kst.ml != m.limbs) {
+		kst.mn = m.n;
+		kst.ml = m.limbs;
+		kst.live = 0;
+	}
+	if (now.n == m.n)
+		return;		/* nothing was allocated */
+	if (!force && now.limbs - m.limbs < 2 * kst.live + ((uint64_t)1 << 20))
+		return;
 	for (i = 0; i < k; i++)
 		if (ms[i])
 			n += (size_t)ms[i]->r * (size_t)ms[i]->c;
@@ -459,6 +520,13 @@ keep(zmark m, struct zmat **ms, int k)
 			memcpy(ms[i]->a, buf + o, c * sizeof *buf);
 			o += c;
 		}
+	kst.live = z_mark().limbs - m.limbs;
+}
+
+static void
+keep(zmark m, struct zmat **ms, int k)
+{
+	keep_force(m, ms, k, 0);
 }
 
 /* ---- Bareiss: determinant and rank ---- */
@@ -540,40 +608,7 @@ zm_det(const struct zmat *a)
 
 /* ---- elementary operations, on a matrix and its transforms ---- */
 
-/* rows k, i <- [p q; r s] [row k; row i] */
-static void
-rows2(struct zmat *m, int k, int i, zint p, zint q, zint r, zint s)
-{
-	int j;
 
-	if (!m || !m->a)
-		return;
-	for (j = 0; j < m->c; j++) {
-		zint x = ZM(m, k, j), y = ZM(m, i, j);
-		if (x == 0 && y == 0)
-			continue;
-		ZM(m, k, j) = z_addmul(z_mul(p, x), q, y);
-		ZM(m, i, j) = z_addmul(z_mul(r, x), s, y);
-	}
-}
-
-/* M <- M F with F the identity but F[k][k] = fkk, F[k][i] = fki, F[i][k]
- * = fik, F[i][i] = fii */
-static void
-cols2(struct zmat *m, int k, int i, zint fkk, zint fki, zint fik, zint fii)
-{
-	int j;
-
-	if (!m || !m->a)
-		return;
-	for (j = 0; j < m->r; j++) {
-		zint x = ZM(m, j, k), y = ZM(m, j, i);
-		if (x == 0 && y == 0)
-			continue;
-		ZM(m, j, k) = z_addmul(z_mul(fkk, x), fik, y);
-		ZM(m, j, i) = z_addmul(z_mul(fki, x), fii, y);
-	}
-}
 
 static void
 swap_rows(struct zmat *m, int a, int b)
@@ -660,14 +695,6 @@ struct rt {
 	struct zmat *v, *vi;         /* column side */
 };
 
-static void
-rop(struct rt *t, int k, int i, zint p, zint q, zint r, zint s)
-{
-	rows2(t->a, k, i, p, q, r, s);
-	rows2(t->u, k, i, p, q, r, s);
-	/* E^-1 = [s -q; -r p] */
-	cols2(t->ui, k, i, s, z_neg(q), z_neg(r), p);
-}
 
 static void
 rop_swap(struct rt *t, int k, int i)
@@ -696,14 +723,6 @@ rop_addmul(struct rt *t, int k, int i, zint q)
 }
 
 /* column operation: a <- a F, v <- v F, vi <- F^-1 vi */
-static void
-cop(struct rt *t, int k, int i, zint fkk, zint fki, zint fik, zint fii)
-{
-	cols2(t->a, k, i, fkk, fki, fik, fii);
-	cols2(t->v, k, i, fkk, fki, fik, fii);
-	/* F^-1 = [fii -fki; -fik fkk] (as F's layout); on rows k, i of vi */
-	rows2(t->vi, k, i, fii, z_neg(fki), z_neg(fik), fkk);
-}
 
 static void
 cop_swap(struct rt *t, int k, int i)
@@ -789,7 +808,7 @@ clear_row(struct rt *t, int k, int c)
 }
 
 static void
-keep_rt(zmark m, struct rt *t)
+keep_rt_force(zmark m, struct rt *t, int force)
 {
 	struct zmat *ms[5];
 
@@ -798,7 +817,13 @@ keep_rt(zmark m, struct rt *t)
 	ms[2] = t->ui;
 	ms[3] = t->v;
 	ms[4] = t->vi;
-	keep(m, ms, 5);
+	keep_force(m, ms, 5, force);
+}
+
+static void
+keep_rt(zmark m, struct rt *t)
+{
+	keep_rt_force(m, t, 0);
 }
 
 /* ---- Hermite normal form ---- */
@@ -832,6 +857,7 @@ hnf_core(struct rt *t, int *pivcol)
 		k++;
 		keep_rt(mk, t);
 	}
+	keep_rt_force(mk, t, 1);
 	return k;
 }
 
@@ -938,6 +964,93 @@ zm_hnf_check(const struct zmat *a, const struct zmat *h, const struct zmat *u)
 
 /* ---- Smith normal form ---- */
 
+/*
+ * Unit pivots in (approximate) Markowitz order: the column with the
+ * fewest nonzeros that holds a +-1, then in it the +-1 whose row is
+ * sparsest.  Row and column counts are kept up to date from the support
+ * of the pivot row, so a pivot costs O(rows touched * its support), not a
+ * scan of the whole matrix.
+ */
+static void
+unit_pivots(struct rt *t, zmark mk)
+{
+	struct zmat *a = t->a;
+	int n = a->r < a->c ? a->r : a->c, k, i, j, q;
+	int *rn = xcalloc((size_t)a->r + 1, sizeof *rn);
+	int *cn = xcalloc((size_t)a->c + 1, sizeof *cn);
+	uint8_t *nounit = xcalloc((size_t)a->c + 1, 1);
+	int *sup = xcalloc((size_t)a->c + 1, sizeof *sup);
+	uint8_t *was = xcalloc((size_t)a->c + 1, 1);
+
+	for (i = 0; i < a->r; i++)
+		for (j = 0; j < a->c; j++)
+			if (ZM(a, i, j) != 0) {
+				rn[i]++;
+				cn[j]++;
+			}
+	for (k = 0; k < n; k++) {
+		int bi = -1, bj = -1, ns = 0;
+		/* the sparsest column with a unit */
+		for (;;) {
+			bj = -1;
+			for (j = k; j < a->c; j++)
+				if (cn[j] > 0 && !nounit[j] && (bj < 0 || cn[j] < cn[bj]))
+					bj = j;
+			if (bj < 0)
+				break;
+			bi = -1;
+			for (i = k; i < a->r; i++)
+				if (z_is_pm1(ZM(a, i, bj)) && (bi < 0 || rn[i] < rn[bi]))
+					bi = i;
+			if (bi >= 0)
+				break;
+			nounit[bj] = 1;
+		}
+		if (bj < 0)
+			break;
+		rop_swap(t, k, bi);
+		q = rn[k], rn[k] = rn[bi], rn[bi] = q;
+		cop_swap(t, k, bj);
+		q = cn[k], cn[k] = cn[bj], cn[bj] = q;
+		q = nounit[k], nounit[k] = nounit[bj], nounit[bj] = (uint8_t)q;
+		if (z_sign(ZM(a, k, k)) < 0)
+			rop_neg(t, k);
+		/* the support of the pivot row (columns > k) */
+		for (j = k + 1; j < a->c; j++)
+			if (ZM(a, k, j) != 0)
+				sup[ns++] = j;
+		for (i = k + 1; i < a->r; i++) {
+			int s2;
+			if (ZM(a, i, k) == 0)
+				continue;
+			for (s2 = 0; s2 < ns; s2++)
+				was[s2] = ZM(a, i, sup[s2]) != 0;
+			rop_addmul(t, i, k, ZM(a, i, k));
+			/* column k loses this entry */
+			cn[k]--;
+			rn[i]--;
+			for (s2 = 0; s2 < ns; s2++) {
+				int now = ZM(a, i, sup[s2]) != 0;
+				cn[sup[s2]] += now - was[s2];
+				rn[i] += now - was[s2];
+				nounit[sup[s2]] = 0;
+			}
+		}
+		/* the pivot row clears with column additions (column k is e_k) */
+		for (q = 0; q < ns; q++) {
+			j = sup[q];
+			cop_addmul(t, j, k, ZM(a, k, j));
+			cn[j]--;
+		}
+		keep_rt(mk, t);
+	}
+	free(rn);
+	free(cn);
+	free(nounit);
+	free(sup);
+	free(was);
+}
+
 int
 zm_snf(const struct zmat *a, struct zsnf *s)
 {
@@ -956,19 +1069,27 @@ zm_snf(const struct zmat *a, struct zsnf *s)
 	t.ui = &Ui;
 	t.v = &V;
 	t.vi = &Vi;
-	/* Hermite first: echelon form with reduced entries keeps the numbers
+	/* unit pivots first (boundary matrices are mostly +-1), in Markowitz
+	 * order to limit fill: a +-1 divides everything, so its row and
+	 * column clear with additions only */
+	unit_pivots(&t, mk);
+	/* then Hermite: echelon form with reduced entries keeps the numbers
 	 * (and the transforms) small, and leaves most pivots at 1 */
 	hnf_core(&t, NULL);
 	for (k = 0; k < n; k++) {
 		/* the smallest nonzero entry of the lower right block (the
 		 * diagonal one on ties) */
-		int pi = -1, pj = -1;
-		for (i = k; i < D.r; i++)
+		int pi = -1, pj = -1, unit = 0;
+		for (i = k; i < D.r && !unit; i++)
 			for (j = k; j < D.c; j++)
 				if (ZM(&D, i, j) != 0 && (pi < 0 ||
 				    z_cmpabs(ZM(&D, i, j), ZM(&D, pi, pj)) < 0)) {
 					pi = i;
 					pj = j;
+					if (z_is_pm1(ZM(&D, i, j))) {
+						unit = 1;	/* nothing is smaller */
+						break;
+					}
 				}
 		if (pi < 0)
 			break;
@@ -983,10 +1104,13 @@ zm_snf(const struct zmat *a, struct zsnf *s)
 					dirty = 1;
 			if (dirty)
 				continue;
-			/* divisibility: d_k must divide the rest */
+			/* divisibility: d_k must divide the rest (a unit does) */
+			if (z_is_pm1(ZM(&D, k, k)))
+				break;
 			for (i = k + 1; i < D.r && !dirty; i++)
 				for (j = k + 1; j < D.c; j++)
-					if (!z_divides(ZM(&D, k, k), ZM(&D, i, j))) {
+					if (ZM(&D, i, j) != 0 &&
+					    !z_divides(ZM(&D, k, k), ZM(&D, i, j))) {
 						/* row k += row i */
 						rop_addmul(&t, k, i, z_from_i64(-1));
 						dirty = 1;
@@ -1000,6 +1124,7 @@ zm_snf(const struct zmat *a, struct zsnf *s)
 		rank++;
 		keep_rt(mk, &t);
 	}
+	keep_rt_force(mk, &t, 1);
 	s->D = D;
 	s->U = U;
 	s->Ui = Ui;
@@ -1079,14 +1204,14 @@ zm_snf_diag(const struct zsnf *s, zint *d)
 
 /* ---- kernel, image, solving ---- */
 
-int
-zm_kernel(const struct zmat *a, struct zmat *k)
+/* dense: U A^T = H; the rows of U past the rank span the left kernel of
+ * A^T, i.e. ker A, saturated because U is unimodular */
+static int
+kernel_hnf(const struct zmat *a, struct zmat *k)
 {
 	struct zmat at, h, u, kt, kh;
 	int rank, dim, i, j;
 
-	/* U A^T = H: the rows of U past the rank span the left kernel of
-	 * A^T, i.e. ker A, and U unimodular makes it a saturated basis */
 	zm_init(&at, 0, 0);
 	memset(&h, 0, sizeof h);
 	memset(&u, 0, sizeof u);
@@ -1097,7 +1222,6 @@ zm_kernel(const struct zmat *a, struct zmat *k)
 	for (i = 0; i < dim; i++)
 		for (j = 0; j < a->c; j++)
 			ZM(&kt, i, j) = ZM(&u, rank + i, j);
-	/* canonical: the HNF of the basis rows */
 	memset(&kh, 0, sizeof kh);
 	zm_hnf(&kt, &kh, NULL, NULL);
 	zm_transpose(k, &kh);
@@ -1112,6 +1236,45 @@ zm_kernel(const struct zmat *a, struct zmat *k)
 	zm_free(&at);
 	zm_free(&h);
 	zm_free(&u);
+	zm_free(&kt);
+	zm_free(&kh);
+	return dim;
+}
+
+int
+zm_kernel(const struct zmat *a, struct zmat *k)
+{
+	struct zsnf S;
+	struct zmat kt, kh;
+	int dim, i, j;
+
+	size_t nz = 0, e, ne = (size_t)a->r * (size_t)a->c;
+
+	for (e = 0; e < ne; e++)
+		nz += a->a[e] != 0;
+	if (4 * nz > ne)
+		return kernel_hnf(a, k);
+	/* sparse: U A V = D, the columns of V past the rank span ker A, and V
+	 * unimodular makes the basis saturated; then the Hermite form of the
+	 * basis rows makes it canonical (the same basis as kernel_hnf) */
+	zm_snf(a, &S);
+	dim = a->c - S.rank;
+	zm_init(&kt, dim, a->c);
+	for (i = 0; i < dim; i++)
+		for (j = 0; j < a->c; j++)
+			ZM(&kt, i, j) = ZM(&S.V, j, S.rank + i);
+	memset(&kh, 0, sizeof kh);
+	zm_hnf(&kt, &kh, NULL, NULL);
+	zm_transpose(k, &kh);
+	{
+		struct zmat chk;
+		zm_init(&chk, 0, 0);
+		zm_mul(&chk, a, k);
+		if (!zm_is_zero(&chk))
+			fail("internal: kernel check failed");
+		zm_free(&chk);
+	}
+	zsnf_free(&S);
 	zm_free(&kt);
 	zm_free(&kh);
 	return dim;

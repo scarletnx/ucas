@@ -1292,23 +1292,23 @@ ab_hom_surjective(const struct fgab *G, const struct fgab *H,
 	return r;
 }
 
-/* c with M c = target (mod R_H): a preimage in coordinates; 0 if none */
+/* P (M.c x T.c) with M P = T (mod R_H), all columns with one Smith form;
+ * 0 if some column has no preimage */
 static int
-preimage(const struct fgab *G, const struct fgab *H, const struct zmat *M,
-    const zint *target, zint *c)
+preimages(const struct fgab *H, const struct zmat *M, const struct zmat *T,
+    struct zmat *P)
 {
-	struct zmat cat;
-	zint *x = xcalloc((size_t)G->a + (size_t)H->b + 1, sizeof *x);
+	struct zmat cat, X;
 	int ok;
 
-	(void)G;
 	zm_init(&cat, 0, 0);
 	zm_hcat(&cat, M, &H->R);
-	ok = zm_solve_vec(&cat, target, x);
+	memset(&X, 0, sizeof X);
+	ok = zm_solve(&cat, T, &X);
 	if (ok)
-		memcpy(c, x, (size_t)M->c * sizeof *c);
+		zm_sub_rows(P, &X, 0, M->c);
 	zm_free(&cat);
-	free(x);
+	zm_free(&X);
 	return ok;
 }
 
@@ -1325,21 +1325,13 @@ ab_hom_iso(const struct fgab *G, const struct fgab *H,
 		return 0;
 	if (!ab_hom_injective(G, H, M) || !ab_hom_surjective(G, H, M))
 		return 0;
-	e = xcalloc((size_t)H->a + 1, sizeof *e);
-	c = xcalloc((size_t)G->a + 1, sizeof *c);
-	zm_init(&N, G->a, H->a);
-	for (j = 0; j < H->a && ok; j++) {
-		int i;
-		for (i = 0; i < H->a; i++)
-			e[i] = i == j ? Z_ONE : 0;
-		if (!preimage(G, H, M, e, c))
-			ok = 0;
-		else
-			for (i = 0; i < G->a; i++)
-				ZM(&N, i, j) = c[i];
-	}
-	free(e);
-	free(c);
+	(void)e;
+	(void)c;
+	(void)j;
+	zm_identity(&id, H->a);
+	zm_init(&N, 0, 0);
+	ok = preimages(H, M, &id, &N);
+	zm_free(&id);
 	if (!ok)
 		fail("internal: a bijective homomorphism without a preimage");
 	/* the certificate: N well defined, N M = 1 on G, M N = 1 on H */
@@ -1662,7 +1654,7 @@ ab_exact_at(const struct fgab *G1, const struct fgab *G2,
 	struct zmat inc, gf, P;
 	zint *col, *c;
 	zmark m = z_mark();
-	int j, i, ok = 1;
+	int j, ok = 1;
 	const char *w = NULL;
 
 	if (!ab_hom_check(G1, G2, f)) {
@@ -1692,15 +1684,10 @@ ab_exact_at(const struct fgab *G1, const struct fgab *G2,
 	ab_kernel(&K, &inc, G2, G3, g);
 	col = xcalloc((size_t)G2->a + 1, sizeof *col);
 	c = xcalloc((size_t)G1->a + 1, sizeof *c);
-	zm_init(&P, G1->a, inc.c);
-	for (j = 0; j < inc.c && ok; j++) {
-		zm_col(col, &inc, j);
-		if (!preimage(G1, G2, f, col, c)) {
-			ok = 0;
-			w = "ker g is not inside im f";
-		} else
-			for (i = 0; i < G1->a; i++)
-				ZM(&P, i, j) = c[i];
+	zm_init(&P, 0, 0);
+	if (!preimages(G2, f, &inc, &P)) {
+		ok = 0;
+		w = "ker g is not inside im f";
 	}
 	if (ok) {
 		/* the certificate: f(P) = inc modulo R_G2 */
