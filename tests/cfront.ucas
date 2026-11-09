@@ -24,12 +24,14 @@ c optimize cfront/mem.c nofile budget 120
 # the vectoriser hook, with the stub that rebuilds each loop from its IR
 c optimize cfront/mem.c nofile vecstub
 #
-# the x86 vectoriser (cfx86.c): each lane proved against the scalar body;
-# AVX2, SSE (x86-64-v2) and AVX-512 (x86-64-v4) code
+# the x86 vectoriser (cfx86.c): each lane proved against the scalar body.
+# By default its loops are proposed, not applied (clang vectorises them
+# itself; bench measures, vectorize applies); then SSE (x86-64-v2) and
+# AVX-512 (x86-64-v4) code applied
 c lower cfront/vec.c
 c optimize cfront/vec.c nofile
-c optimize cfront/vec.c nofile target x86-64-v2
-c optimize cfront/vec.c nofile target x86-64-v4
+c optimize cfront/vec.c nofile target x86-64-v2 vectorize
+c optimize cfront/vec.c nofile target x86-64-v4 vectorize
 #
 # float and double: IEEE rewrites proved by derivation
 c optimize cfront/float.c nofile budget 120

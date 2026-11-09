@@ -95,7 +95,7 @@ struct jparam {
 	const char *values;	/* P_ENUM: "a|b|c" */
 };
 
-#define MAXJP 12
+#define MAXJP 14
 struct jcmd {
 	const char *name;
 	const char *stmt;	/* the statement's leading words */
@@ -571,7 +571,10 @@ static const struct jcmd cmds[] = {
 	    BO("trace", " trace", "list every candidate and why it was not "
 	    "taken"),
 	    BO("vecstub", " vecstub", "a stub vectoriser that rebuilds each "
-	    "counted loop from its IR (tests the loop extraction)")}},
+	    "counted loop from its IR (tests the loop extraction)"),
+	    BO("vectorize", " vectorize", "apply the proved vectorised loops "
+	    "(by default they are proposed; with bench, applied where they "
+	    "beat clang's own code)")}},
 	{"c_lower", "c lower", 1, 0, "each C function as one ucas value of "
 	    "its parameters (with the C UB as a domain condition), or why not; "
 	    "for the others, each counted loop in the vectoriser's IR",

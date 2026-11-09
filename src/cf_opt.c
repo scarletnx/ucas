@@ -2126,6 +2126,50 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 		snprintf(w->proof_text, sizeof w->proof_text, "%s", o.what);
 		w->info = 1;
 	}
+	if (r && f != cf_vec_stub && !R.o->vectorize) {
+		/* proved, but not applied by default: clang -O2 vectorises
+		 * such loops itself, and no model here says honestly how
+		 * fast its code is; bench measures, vectorize applies */
+		struct cf_rewrite *w = add_rw("proposed, not applied",
+		    (int)fn_line(n));
+		w->before = strdup("");
+		w->after = strdup("");
+		w->code = strdup(o.text.p ? o.text.p : "");
+		snprintf(w->proof_text, sizeof w->proof_text, "%s; proof: lanes "
+		    "(each lane of each store proved equal to the scalar body); "
+		    "clang -O2 vectorises such loops itself: 'bench' measures "
+		    "against it, 'vectorize' applies", o.what);
+		w->info = 1;
+		r = 0;
+	} else if (r && f != cf_vec_stub) {
+		int q;
+		for (q = 0; q < R.o->nvveto; q++)
+			if (!strcmp(R.o->vveto[q], R.fname))
+				break;
+		if (q < R.o->nvveto) {
+			struct cf_rewrite *w = add_rw("proved, not applied",
+			    (int)fn_line(n));
+			w->before = strdup("");
+			w->after = strdup("");
+			w->code = strdup(o.text.p ? o.text.p : "");
+			if (R.o->vveto_c[q][0] < 0)
+				snprintf(w->proof_text, sizeof w->proof_text, "bench "
+				    "could not time it (the harness cannot make its "
+				    "parameters), so it is not known to beat clang's own "
+				    "code; %s", o.what);
+			else
+				snprintf(w->proof_text, sizeof w->proof_text, "clang's own "
+				    "vectorisation is as fast or faster (%.2f vs %.2f "
+				    "cycles/element, bench: not faster by 5%% in every "
+				    "run); the loop is kept as written (clang vectorises it; "
+				    "a scalar body rewrite would undo that); %s",
+				    R.o->vveto_c[q][0], R.o->vveto_c[q][1], o.what);
+			w->info = 1;
+			free(o.text.p);
+			free_loop(&l);
+			return R.o->vveto_c[q][0] >= 0;	/* measured: leave it */
+		}
+	}
 	if (r) {
 		struct cf_rewrite *w = add_rw("vectorised", (int)fn_line(n));
 		struct sbuf before = {0};
@@ -2672,6 +2716,7 @@ cf_result_free(struct cf_result *r)
 		free(r->rw[k].steps);
 		free(r->rw[k].domain);
 		free(r->rw[k].cost_note);
+		free(r->rw[k].code);
 	}
 	free(r->rw);
 	free(r->out.p);

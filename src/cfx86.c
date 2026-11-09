@@ -154,6 +154,7 @@ new_vv(char kind, int w, int n)
 
 static int same_val(nid a, nid b);
 static int vgather(int k);
+static int vop2(const char *op, const char *sfx, char kind, int a, int b);
 static int node_uses(nid n, int slot);
 static int tr(nid n);
 static int memo_get(nid n);
@@ -811,6 +812,80 @@ same_val(nid a, nid b)
 	    TY_ISINT(N.ty[b]) && N.ki[a] == N.ki[b];
 }
 
+/*
+ * A clamp of a + b, a - b or 2a to the W-bit signed or unsigned range,
+ * a and b W-bit values: one saturating add or subtract (padds, paddus,
+ * psubs, psubus; W = 8, 16).  A guess from the shape; the proof checks.
+ */
+static int
+tr_sat(nid n)
+{
+	nid e = n, a, b, core;
+	int seen_lo = 0, seen_hi = 0, sgn = -1, op, va, vb;
+	int64_t smax = (1LL << (X.W - 1)) - 1, smin = -(1LL << (X.W - 1)),
+	    umax = (1LL << X.W) - 1;
+	char sfx[16];
+
+	if (X.W != 8 && X.W != 16)
+		return -1;
+	for (;;) {
+		nid x, y, k = 0, o = 0;
+		while (N.op[e] == O_CAST && TY_ISINT(N.ty[e]))
+			e = N.a[e];
+		if (N.op[e] != O_SEL)
+			break;
+		x = N.b[e];
+		y = N.c[e];
+		while (N.op[x] == O_CAST && TY_ISINT(N.ty[x]))
+			x = N.a[x];
+		while (N.op[y] == O_CAST && TY_ISINT(N.ty[y]))
+			y = N.a[y];
+		if (N.op[x] == O_CONST)
+			k = x, o = N.c[e];
+		else if (N.op[y] == O_CONST)
+			k = y, o = N.b[e];
+		else
+			return -1;
+		if (N.ki[k] == smax && sgn != 0)
+			sgn = 1, seen_hi = 1;
+		else if (N.ki[k] == smin && sgn != 0)
+			sgn = 1, seen_lo = 1;
+		else if (N.ki[k] == umax && sgn != 1)
+			sgn = 0, seen_hi = 1;
+		else if (N.ki[k] == 0 && sgn != 1)
+			sgn = 0, seen_lo = 1;
+		else
+			return -1;
+		e = o;
+	}
+	if (sgn < 0)
+		return -1;
+	core = e;
+	op = N.op[core];
+	if (op == O_ADD || op == O_SUB) {
+		a = N.a[core];
+		b = N.b[core];
+	} else if ((op == O_MUL && N.op[N.b[core]] == O_CONST &&
+	    N.ki[N.b[core]] == 2) || (op == O_SHL && N.op[N.b[core]] == O_CONST &&
+	    N.ki[N.b[core]] == 1)) {
+		a = b = N.a[core];
+		op = O_ADD;
+	} else if (op == O_MUL && N.op[N.a[core]] == O_CONST &&
+	    N.ki[N.a[core]] == 2) {
+		a = b = N.b[core];
+		op = O_ADD;
+	} else
+		return -1;
+	if (sgn == 1 && !(seen_lo && seen_hi))
+		return -1;
+	if (sgn == 0 && !(op == O_ADD ? seen_hi : seen_lo))
+		return -1;
+	if ((va = tr(a)) < 0 || (vb = tr(b)) < 0)
+		return -1;
+	snprintf(sfx, sizeof sfx, "ep%c%d", sgn ? 'i' : 'u', X.W);
+	return vop2(op == O_ADD ? "adds" : "subs", sfx, 'i', va, vb);
+}
+
 /* x op K == K ? K : x, K ? ... : the clamps as min / max */
 static int
 tr_sel(nid n)
@@ -818,6 +893,12 @@ tr_sel(nid n)
 	nid c = N.a[n], x = N.b[n], y = N.c[n];
 	int m, a, b, t, u;
 
+	{
+		int r = tr_sat(n);
+		if (r >= 0)
+			return r;
+		X.why[0] = 0;
+	}
 	/* (int)(cond) != 0 is cond */
 	while (N.op[c] == O_NE && N.op[N.b[c]] == O_CONST && N.ki[N.b[c]] == 0 &&
 	    N.op[N.a[c]] == O_CAST && (N.ty[N.a[N.a[c]]] == TY_BOOL ||

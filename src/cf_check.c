@@ -36,6 +36,57 @@
 
 static int have_cc = -1;
 
+/* the last bench, per function: BENCH_RUNS runs of the harness, each
+ * the median of 15 (cf_bench_get) */
+#define BENCH_RUNS 3
+static struct {
+	char fn[96];
+	double c0[BENCH_RUNS], c1[BENCH_RUNS];
+	int n, ne;
+} br[64];
+static int nbr;
+
+static double
+med3(const double *x, int n)
+{
+	double a[BENCH_RUNS], t;
+	int i, j;
+
+	for (i = 0; i < n; i++)
+		a[i] = x[i];
+	for (i = 0; i < n; i++)
+		for (j = i + 1; j < n; j++)
+			if (a[j] < a[i])
+				t = a[i], a[i] = a[j], a[j] = t;
+	return n ? a[n / 2] : 0;
+}
+
+/*
+ * fn's medians (per element when it has buffers) and in how many runs
+ * the output was faster by more than 5% (above the noise seen between
+ * runs here); 0 if fn was not timed
+ */
+int
+cf_bench_get(const char *fn, double *c0, double *c1, int *wins, int *runs)
+{
+	int b, j, w = 0;
+
+	for (b = 0; b < nbr; b++)
+		if (!strcmp(br[b].fn, fn))
+			break;
+	if (b == nbr)
+		return 0;
+	*c0 = med3(br[b].c0, br[b].n);
+	*c1 = med3(br[b].c1, br[b].n);
+	for (j = 0; j < br[b].n; j++)
+		w += br[b].c1[j] < 0.95 * br[b].c0[j];
+	if (wins)
+		*wins = w;
+	if (runs)
+		*runs = br[b].n;
+	return br[b].ne ? br[b].ne : 1;
+}
+
 int
 cf_have_cc(void)
 {
@@ -653,9 +704,15 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 		run(ax, &out);
 		snprintf(o0n, sizeof o0n, "%s/u0n.o", dir);
 		snprintf(p_bin2, sizeof p_bin2, "%s/hb", dir);
-		if (bench && (run(a0n, &bout) != 0 || run(al2, &bout) != 0 ||
-		    run(ax2, &bout) < 0))
+		if (bench && (run(a0n, &bout) != 0 || run(al2, &bout) != 0))
 			sb_clear(&bout);
+		else if (bench) {
+			/* repeated runs: a decision needs every one */
+			int q;
+			sb_clear(&bout);
+			for (q = 0; q < BENCH_RUNS; q++)
+				tool_run(ax2, &bout);	/* appends */
+		}
 		{
 			/* TEST name bad skipped / BENCH name c0 c1 / TOTAL n bad skip */
 			const char *p = out.p ? out.p : "";
@@ -685,42 +742,65 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 			rep_end();
 			if (bench) {
 				const char *q = bout.p ? bout.p : "";
-				p = q;
+				int b, j;
+				nbr = 0;
 				rep_list("bench");
-				while ((q = strstr(q, "BENCH ")) != NULL) {
+				/* BENCH name c0 c1 / BENCHN name c0 c1 n, once per run */
+				while ((q = strstr(q, "BENCH")) != NULL) {
 					char nm[96];
 					double c0, c1;
-					if (sscanf(q, "BENCH %95s %lf %lf", nm, &c0, &c1) == 3) {
-						sb_printf(rep, "  bench %s: %.2f -> %.2f cycles per "
-						    "call (rdtsc, median of 15; x%.2f)\n", nm, c0, c1,
-						    c1 > 0 ? c0 / c1 : 0);
-						rep_obj(NULL);
-						rep_str("function", nm);
-						rep_num("cycles_before", c0);
-						rep_num("cycles_after", c1);
-						rep_end();
+					int ne = 0, got;
+					if (q[5] == 'N')
+						got = sscanf(q, "BENCHN %95s %lf %lf %d", nm, &c0,
+						    &c1, &ne) == 4;
+					else
+						got = sscanf(q, "BENCH %95s %lf %lf", nm, &c0, &c1) ==
+						    3;
+					q += 5;
+					if (!got)
+						continue;
+					for (b = 0; b < nbr; b++)
+						if (!strcmp(br[b].fn, nm))
+							break;
+					if (b == nbr) {
+						if (nbr == 64)
+							continue;
+						snprintf(br[nbr].fn, sizeof br[nbr].fn, "%s", nm);
+						br[nbr].n = 0;
+						br[nbr].ne = ne;
+						nbr++;
 					}
-					q += 6;
+					if (br[b].n < BENCH_RUNS) {
+						br[b].c0[br[b].n] = c0;
+						br[b].c1[br[b].n] = c1;
+						br[b].n++;
+					}
 				}
-				q = p;
-				while ((q = strstr(q, "BENCHN ")) != NULL) {
-					char nm[96];
-					double c0, c1;
-					int ne;
-					if (sscanf(q, "BENCHN %95s %lf %lf %d", nm, &c0, &c1,
-					    &ne) == 4) {
-						sb_printf(rep, "  bench %s: %.0f -> %.0f cycles per "
-						    "call of %d elements (%.2f -> %.2f per element; "
-						    "rdtsc, median of 15; x%.2f)\n", nm, c0, c1, ne,
-						    c0 / ne, c1 / ne, c1 > 0 ? c0 / c1 : 0);
-						rep_obj(NULL);
-						rep_str("function", nm);
-						rep_num("cycles_before", c0);
-						rep_num("cycles_after", c1);
+				for (b = 0; b < nbr; b++) {
+					double m0, m1;
+					int ne = br[b].ne;
+					cf_bench_get(br[b].fn, &m0, &m1, NULL, NULL);
+					if (ne)
+						sb_printf(rep, "  bench %s: %.0f -> %.0f cycles per call "
+						    "of %d elements (%.2f -> %.2f per element; rdtsc, "
+						    "median of 15, %d runs:", br[b].fn, m0, m1, ne,
+						    m0 / ne, m1 / ne, br[b].n);
+					else
+						sb_printf(rep, "  bench %s: %.2f -> %.2f cycles per "
+						    "call (rdtsc, median of 15, %d runs:", br[b].fn, m0,
+						    m1, br[b].n);
+					for (j = 0; j < br[b].n; j++)
+						sb_printf(rep, " x%.2f", br[b].c1[j] > 0 ?
+						    br[b].c0[j] / br[b].c1[j] : 0);
+					sb_puts(rep, ")\n");
+					rep_obj(NULL);
+					rep_str("function", br[b].fn);
+					rep_num("cycles_before", m0);
+					rep_num("cycles_after", m1);
+					if (ne)
 						rep_int("elements", ne);
-						rep_end();
-					}
-					q += 7;
+					rep_int("runs", br[b].n);
+					rep_end();
 				}
 				rep_end();
 			}

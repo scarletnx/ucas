@@ -219,7 +219,7 @@ struct cf_rewrite {
 	char kind[48];		/* "switch to table", "drop clamp" ... */
 	char *before, *after;	/* C text */
 	int proof;
-	char proof_text[160];
+	char proof_text[400];
 	double cost_before, cost_after;
 	int applied;
 	int info;		/* not a rewrite: why nothing happened */
@@ -227,6 +227,7 @@ struct cf_rewrite {
 	int trivial;		/* clang -O2 already produces the same code */
 	char *domain;		/* input ranges assumed or from call sites */
 	char *cost_note;	/* what the costs measure, when not per call */
+	char *code;		/* info: code proposed but not applied */
 };
 
 /* ================================================================
@@ -496,6 +497,15 @@ struct cf_opts {
 	int keep;		/* check/bench: keep the build directory */
 	int timed;		/* print the seconds spent */
 	int vecstub;		/* register the stub vectoriser (tests) */
+	/* the x86 vectoriser's loops are proposed, not applied, unless
+	 * vectorize (the option), or bench measured them faster than the
+	 * original as clang compiles it: then every function but those in
+	 * vveto (slower or not clearly faster; their cycles per element,
+	 * original and vectorised) */
+	int vectorize;
+	int nvveto;
+	char vveto[16][64];
+	double vveto_c[16][2];
 };
 struct cf_result {
 	struct sbuf out;		/* the emitted C */
@@ -517,6 +527,11 @@ int cf_difftest(struct cf_unit *u, const char *orig, const char *opt,
     const struct cf_opts *o, struct sbuf *rep);
 int cf_bench(struct cf_unit *u, const char *orig, const char *opt,
     const struct cf_opts *o, struct sbuf *rep);
+/* the last bench's medians for a function, and in how many of its runs
+ * the output beat the original by more than 5%; the elements per call
+ * (1 without buffers), 0 if it was not timed */
+int cf_bench_get(const char *fn, double *c0, double *c1, int *wins,
+    int *runs);
 
 /* cf_cmd.c: commands */
 struct P;
