@@ -103,3 +103,10 @@ sq(x: int in 0..100000, y: int in 0..100000) = x*x - y where y <= x
 range sq
 r2(x: real in 1..4, y: real in 0..2) = sqrt(x) + exp(-y) * x
 range r2
+
+# 6. find splits on a parameter with few values and fits (x*K + C) >> S
+# per case; K as a function of the case, or one constant per case
+wref(i: u32 in 0..15, ib: u32 in 2..4) = (i * 64 + ((1 << ib) - 1) / 2) / ((1 << ib) - 1) where i < 1 << ib
+find wref 5
+dv(x: u32 in 0..1000, d: u32 in 1..6) = x / d
+find dv 1

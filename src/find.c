@@ -1115,6 +1115,285 @@ peephole(const struct func *f)
 	free(w.p);
 }
 
+/* ---- parametric forms: split on a parameter with few values ---- */
+
+#define PCASES 8
+#define PXMAX (1 << 16)
+
+struct pcase {
+	int64_t c;              /* the case value */
+	int64_t *x, *y;         /* the points */
+	uint32_t n;
+	int64_t klo, khi;       /* feasible multipliers for the chosen S, C */
+};
+
+static int64_t
+fdiv(int64_t a, int64_t b)      /* floor(a / b), b > 0 */
+{
+	int64_t q = a / b;
+
+	return (a % b != 0 && (a < 0)) ? q - 1 : q;
+}
+
+static int64_t
+cdiv(int64_t a, int64_t b)      /* ceil(a / b), b > 0 */
+{
+	return -fdiv(-a, b);
+}
+
+/* K with floor((K x + C) / 2^S) = y at every point: [*lo, *hi] or 0 */
+static int
+k_range(const struct pcase *pc, int S, int64_t C, int64_t *lo, int64_t *hi)
+{
+	int64_t P = (int64_t)1 << S, l = INT64_MIN / 4, h = INT64_MAX / 4;
+	uint32_t i;
+
+	for (i = 0; i < pc->n; i++) {
+		int64_t x = pc->x[i], y = pc->y[i];
+		int64_t a = y * P - C, b = (y + 1) * P - 1 - C;
+		if (x == 0) {
+			if (a > 0 || b < 0)
+				return 0;
+			continue;
+		}
+		if (cdiv(a, x) > l)
+			l = cdiv(a, x);
+		if (fdiv(b, x) < h)
+			h = fdiv(b, x);
+		if (l > h)
+			return 0;
+	}
+	if (l < 0)
+		l = 0;
+	*lo = l;
+	*hi = h;
+	return l <= h;
+}
+
+/* the smallest "nice" value in [lo, hi]: 2^k - 1, 2^k, or lo */
+static int64_t
+nice_in(int64_t lo, int64_t hi)
+{
+	int k;
+
+	for (k = 1; k < 62; k++) {
+		int64_t v = ((int64_t)1 << k) - 1;
+		if (v >= lo && v <= hi)
+			return v;
+		if (v + 1 >= lo && v + 1 <= hi)
+			return v + 1;
+	}
+	return lo;
+}
+
+static void
+parametric(const struct func *f)
+{
+	int s, xs, k, S, ncase = 0, found = 0;
+	int64_t lo[MAXP], hi[MAXP], C = 0, cv;
+	struct pcase pc[PCASES];
+	struct plan p;
+	nid roots[2];
+	int64_t *in_i;
+	double *in_r;
+	struct ity it;
+
+	if (f->np != 2 || !TY_ISINT(N.ty[f->body]) || F.it.k != K_UINT)
+		return;
+	for (k = 0; k < 2; k++) {
+		if (!TY_ISINT(f->p[k].ty))
+			return;
+		param_bounds(&f->p[k], &lo[k], &hi[k]);
+	}
+	where_bounds(f, lo, hi, NULL);
+	/* the case parameter: the one with few values */
+	if (hi[0] - lo[0] < PCASES && hi[0] >= lo[0] &&
+	    !(hi[1] - lo[1] < PCASES))
+		s = 0;
+	else if (hi[1] - lo[1] < PCASES && hi[1] >= lo[1] &&
+	    !(hi[0] - lo[0] < PCASES))
+		s = 1;
+	else
+		return;
+	xs = 1 - s;
+	if (lo[xs] < 0 || hi[xs] - lo[xs] >= PXMAX || hi[s] - lo[s] < 1)
+		return;
+	ity_of(&it, F.W, 0);
+	roots[0] = f->body;
+	roots[1] = f->where;
+	plan_build(&p, roots, 2, 0);
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	memset(pc, 0, sizeof pc);
+	for (cv = lo[s]; cv <= hi[s]; cv++) {
+		struct pcase *q = &pc[ncase++];
+		int64_t x = lo[xs];
+		q->c = cv;
+		q->x = xmalloc((size_t)(hi[xs] - lo[xs] + 1) * sizeof *q->x);
+		q->y = xmalloc((size_t)(hi[xs] - lo[xs] + 1) * sizeof *q->y);
+		while (x <= hi[xs]) {
+			uint32_t np = 0, i;
+			uint8_t ok[CH];
+			for (; np < CH && x <= hi[xs]; np++, x++) {
+				in_i[(size_t)s * CH + np] = cv;
+				in_i[(size_t)xs * CH + np] = x;
+			}
+			plan_run(&p, np, in_i, in_r);
+			valid_mask(&p, f->where ? p.root[1] : NOTOK, np, ok);
+			for (i = 0; i < np; i++) {
+				int64_t y = COLI(&p, p.root[0])[i];
+				if (!ok[i] || (COLF(&p, p.root[0])[i] & F_UNDEF))
+					continue;
+				if (y < 0 || y > ((int64_t)1 << 32))
+					goto done;
+				q->x[q->n] = in_i[(size_t)xs * CH + i];
+				q->y[q->n++] = y;
+			}
+		}
+	}
+	/* the smallest shift S with one C for every case */
+	for (S = 0; S <= 24 && !found; S++) {
+		int64_t cands[4];
+		int nc = 0, ci;
+		if (S > 0)
+			cands[nc++] = (int64_t)1 << (S - 1);
+		cands[nc++] = 0;
+		if (S > 0)
+			cands[nc++] = ((int64_t)1 << (S - 1)) - 1;
+		for (ci = 0; ci < nc && !found; ci++) {
+			int all = 1;
+			for (k = 0; k < ncase && all; k++)
+				if (pc[k].n && !k_range(&pc[k], S, cands[ci],
+				    &pc[k].klo, &pc[k].khi))
+					all = 0;
+			if (all) {
+				C = cands[ci];
+				found = 1;
+			}
+		}
+	}
+	S--;
+	if (!found)
+		goto done;
+	/* no overflow in the computing type at the largest x */
+	for (k = 0; k < ncase; k++) {
+		double top = (double)pc[k].khi * (double)hi[xs] + (double)C;
+		if (pc[k].n && top > (double)it.mask) {
+			pc[k].khi = (int64_t)(((double)it.mask - (double)C) /
+			    (double)(hi[xs] ? hi[xs] : 1));
+			if (pc[k].khi < pc[k].klo)
+				goto done;
+		}
+	}
+	{
+		nid xv = mk_cast(F.W, mk_var((uint32_t)xs, f->p[xs].name,
+		    f->p[xs].ty));
+		nid cvar = mk_cast(F.W, mk_var((uint32_t)s, f->p[s].name,
+		    f->p[s].ty));
+		nid kform[4];
+		const char *kwhy[4];
+		int nf = 0, i;
+		int64_t Alo, Ahi, A;
+		char why[512];
+		/* K = A / (2^c - 1), A >> c, A / c, A*c + B */
+		static const char *const fam[3] = {
+			"a constant over 2^case - 1",
+			"a constant shifted by the case",
+			"a constant over the case" };
+		for (i = 0; i < 3; i++) {
+			int ok = 1;
+			Alo = 0, Ahi = INT64_MAX / 4;
+			for (k = 0; k < ncase && ok; k++) {
+				int64_t c = pc[k].c, m, l, h;
+				if (!pc[k].n)
+					continue;
+				if (i == 0) {
+					if (c < 1 || c > 30) { ok = 0; break; }
+					m = ((int64_t)1 << c) - 1;
+				} else if (i == 1) {
+					if (c < 0 || c > 30) { ok = 0; break; }
+					m = (int64_t)1 << c;
+				} else {
+					if (c < 1) { ok = 0; break; }
+					m = c;
+				}
+				l = pc[k].klo * m;
+				h = (pc[k].khi + 1) * m - 1;
+				if (l > Alo)
+					Alo = l;
+				if (h < Ahi)
+					Ahi = h;
+				if (Alo > Ahi)
+					ok = 0;
+			}
+			if (!ok || Ahi > (int64_t)it.mask)
+				continue;
+			A = nice_in(Alo, Ahi);
+			if (i == 0)
+				kform[nf] = mk_bin(O_DIV, kconst(A), mk_bin(O_SUB,
+				    mk_bin(O_SHL, kconst(1), cvar), kconst(1)));
+			else if (i == 1)
+				kform[nf] = mk_bin(O_SHR, kconst(A), cvar);
+			else
+				kform[nf] = mk_bin(O_DIV, kconst(A), cvar);
+			kwhy[nf++] = fam[i];
+		}
+		/* the select chain: one K per case */
+		{
+			nid chain = 0;
+			for (k = ncase - 1; k >= 0; k--) {
+				nid kk;
+				if (!pc[k].n)
+					continue;
+				kk = kconst(nice_in(pc[k].klo, pc[k].khi));
+				chain = chain ? mk_sel(mk_bin(O_EQ, cvar,
+				    kconst(pc[k].c)), kk, chain) : kk;
+			}
+			kform[nf] = chain;
+			kwhy[nf++] = "one constant per case";
+		}
+		printf("  split on %s (%d values), fitted (%s*K + C) >> S per "
+		    "case: S = %d, C = %lld\n", sym_str(f->p[s].name), ncase,
+		    sym_str(f->p[xs].name), S, (long long)C);
+		rep_list("parametric");
+		for (i = 0; i < nf; i++) {
+			struct eqproof pr;
+			nid e = mk_bin(O_MUL, xv, kform[i]);
+			if (C)
+				e = mk_bin(O_ADD, e, kconst(C));
+			if (S)
+				e = mk_bin(O_SHR, e, kconst(S));
+			if (equiv_decide(f, f->body, e, NULL, &pr))
+				continue;
+			snprintf(why, sizeof why, "K = %s (%s) depends only on "
+			    "%s: compute it once where %s is set", shared_str(kform[i],
+			    100), kwhy[i], sym_str(f->p[s].name),
+			    sym_str(f->p[s].name));
+			printf("  cost %-3d %s\n           %s; %d per use once K "
+			    "is known (%s)\n", icost(e), shared_str(e, 300), why,
+			    icost(e) - icost(kform[i]), proof_word(&pr));
+			rep_obj(NULL);
+			rep_num("cost", icost(e));
+			rep_num("cost_per_use", icost(e) - icost(kform[i]));
+			rep_expr("expr", e);
+			rep_expr("K", kform[i]);
+			rep_str("why", why);
+			rep_str("proof", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
+			    pr.how == EQ_SAT ? "sat" : "sampled");
+			rep_end();
+		}
+		rep_end();
+	}
+done:
+	for (k = 0; k < ncase; k++) {
+		free(pc[k].x);
+		free(pc[k].y);
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+}
+
 /* ---- entry points ---- */
 
 void
@@ -1265,6 +1544,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	rep_str("type", ty_str(F.W));
 	rep_str("model", sym_str(model_active()->name));
 	peephole(&F.f);
+	parametric(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();

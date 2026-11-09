@@ -41,6 +41,11 @@ m1 and m2 are equal on the domain of m1 (sampled, not proved; SAT gave up on 932
 find wb: 224 points, computing in u32, costs from gt1030
   dropping operations of wb (cost 10 as written; each checked on the whole domain):
   cost 9   u32(v) << 8 - n | u32(v) >> 2n - 8       drops & 255 (exhaustive)
+  split on n (4 values), fitted (v*K + C) >> S per case: S = 6, C = 0
+  cost 32  u32(v)*(16383/((1 << u32(n)) - 1)) >> 6
+           K = 16383/((1 << u32(n)) - 1) (a constant over 2^case - 1) depends only on n: compute it once where n is set; 5 per use once K is known (exhaustive)
+  cost 11  u32(v)*(u32(n) == 5 ? 528 : u32(n) == 6 ? 260 : 129) >> 6
+           K = u32(n) == 5 ? 528 : u32(n) == 6 ? 260 : 129 (one constant per case) depends only on n: compute it once where n is set; 5 per use once K is known (exhaustive)
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 74898 distinct columns, bank full; 'more' continues]
 > cl(x: u8, s: u8 in 0..3) = min(max(u32(x) >> s, 0), 255) & 0xFF
@@ -51,6 +56,11 @@ find cl: 1024 points, computing in u32, costs from gt1030
   cost 5   min(u32(x) >> s, 255) & 0xff             drops max with 0 (exhaustive)
   cost 6   min(max(u32(x) >> s, 0), 255)            drops & 255 (exhaustive)
   cost 2   u32(x) >> s                              all of them: drops min with 255, then max with 0, then & 255 (exhaustive)
+  split on s (4 values), fitted (x*K + C) >> S per case: S = 3, C = 0
+  cost 7   u32(x)*(8 >> u32(s)) >> 3
+           K = 8 >> u32(s) (a constant shifted by the case) depends only on s: compute it once where s is set; 5 per use once K is known (exhaustive)
+  cost 14  u32(x)*(u32(s) == 0 ? 8 : u32(s) == 1 ? 4 : u32(s) == 2 ? 2 : 1) >> 3
+           K = u32(s) == 0 ? 8 : u32(s) == 1 ? 4 : u32(s) == 2 ? 2 : 1 (one constant per case) depends only on s: compute it once where s is set; 5 per use once K is known (exhaustive)
   cost 2   u32(x) >> u32(s)                         exact
   [searched every term up to cost 2: 2059 distinct columns; 'more' continues]
 > big(x: u32, n: u32 in 1..4) = n > 0 ? min((x >> 28) << n, 1000) & 0xFFFF : 7
@@ -244,3 +254,23 @@ range of r2 -> real:
       exp(-y) + 1
     then it is nonincreasing in y, so take y = 2:
       1.135335283
+> wref(i: u32 in 0..15, ib: u32 in 2..4) = (i * 64 + ((1 << ib) - 1) / 2) / ((1 << ib) - 1) where i < 1 << ib
+> find wref 5
+find wref: 28 points, computing in u32, costs from gt1030
+  split on ib (3 values), fitted (i*K + C) >> S per case: S = 3, C = 4
+  cost 33  i*(511/((1 << ib) - 1)) + 4 >> 3
+           K = 511/((1 << ib) - 1) (a constant over 2^case - 1) depends only on ib: compute it once where ib is set; 6 per use once K is known (exhaustive)
+  cost 12  i*(ib == 2 ? 170 : ib == 3 ? 73 : 34) + 4 >> 3
+           K = ib == 2 ? 170 : ib == 3 ? 73 : 34 (one constant per case) depends only on ib: compute it once where ib is set; 6 per use once K is known (exhaustive)
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 599186 distinct columns, bank full; 'more' continues]
+> dv(x: u32 in 0..1000, d: u32 in 1..6) = x / d
+> find dv 1
+find dv: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  split on d (6 values), fitted (x*K + C) >> S per case: S = 12, C = 0
+  cost 29  x*(4100/d) >> 12
+           K = 4100/d (a constant over the case) depends only on d: compute it once where d is set; 5 per use once K is known (exhaustive)
+  cost 20  x*(d == 1 ? 4096 : d == 2 ? 2048 : d == 3 ? 1366 : d == 4 ? 1024 : d == 5 ? 820 : 683) >> 12
+           K = d == 1 ? 4096 : d == 2 ? 2048 : d == 3 ? 1366 : d == 4 ? 1024 : d == 5 ? 820 : 683 (one constant per case) depends only on d: compute it once where d is set; 5 per use once K is known (exhaustive)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

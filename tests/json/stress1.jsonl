@@ -9,3 +9,5 @@
 {"id": 9, "cmd": "table", "args": {"f": "(x: u16)*3+1", "max": 4000}}
 {"id": 10, "cmd": "ucas", "args": {"source": "t64(t: int in 0..260100, dd: int in 1..260100) = (t*64 + dd/2)/dd where t <= dd"}}
 {"id": 11, "cmd": "range", "args": {"f": "t64"}}
+{"id": 12, "cmd": "ucas", "args": {"source": "wref(i: u32 in 0..15, ib: u32 in 2..4) = (i * 64 + ((1 << ib) - 1) / 2) / ((1 << ib) - 1) where i < 1 << ib"}}
+{"id": 13, "cmd": "find", "args": {"f": "wref", "n": 1}}
