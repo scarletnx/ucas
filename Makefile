@@ -31,7 +31,7 @@ SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
 # elliptic curves: the shared core (ec.h), curves over Q, Diophantine
-SRCS+=	ec.c ecq.c ecan.c
+SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
 .PATH:	${.CURDIR}/src
 MAN=
 

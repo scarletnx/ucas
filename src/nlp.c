@@ -7678,6 +7678,8 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int ec_word(const char *w);	/* ec_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7758,6 +7760,9 @@ nlp_is_english(const char *s, size_t n)
 			    word_at(s, n, &j2, w2, sizeof w2) && !strcmp(w2, "prime"))))
 				return 1;
 		}
+		/* ec_cmd.c: elliptic-curve and Diophantine commands are ucas */
+		if (ec_word(w1) && !user_fn(w1))
+			return 0;
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;

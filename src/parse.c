@@ -26,6 +26,7 @@
 #include "absalg.h"
 #include "viz.h"
 #include "xform.h"
+int ec_command(struct P *p);	/* ec.h (absalg.h names a parameter I) */
 
 #include <ctype.h>
 #include <math.h>
@@ -1898,6 +1899,8 @@ statement(struct P *p)
 		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
 			return;
 		if (calc2_command(p))
+			return;
+		if (ec_command(p))	/* elliptic curves, Diophantine (ec_cmd.c) */
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
 		if (is_kw(p, "spvsimplify")) {
