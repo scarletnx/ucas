@@ -1798,6 +1798,17 @@ hy_def(const struct toks *t, uint32_t b)
 			if (t->kind[a] != T_ID)
 				return 0;	/* y(0) = 3: an initial value */
 			tok_text(t, a, pn, sizeof pn);
+			/*
+			 * The translator's it(i) = i^i: an untyped i of a translated
+			 * definition is the unit, not a parameter.
+			 */
+			if (e == a + 1 && (!strcmp(name, "it") || !strcmp(name, "that") ||
+			    !strcmp(name, "lhs") || !strcmp(name, "rhs")) &&
+			    (!strcmp(pn, "i") || !strcmp(pn, "j") || !strcmp(pn, "k") ||
+			    e_unit(pn) > 0)) {
+				a = e + 1;
+				continue;
+			}
 			if (nexp == MAXP)
 				return 0;
 			S.params[S.np++] = sym_cstr(pn);
@@ -4484,9 +4495,32 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 					cw = 1, bb = i;
 			while (s < bb && (tok_is(t, s, "the") || tok_is(t, s, "a")))
 				s++;
+			if (s < bb && tok_is(t, s, "circle") && s + 1 < bb &&
+			    t->kind[s + 1] == T_BAR)
+				s++;
 			if (s < bb && tok_is(t, s, "unit"))
 				;	/* the unit circle */
-			else if (s < bb && t->kind[s] == T_BAR) {
+			else if (s < bb && tok_is(t, s, "circle")) {
+				/* circle of radius R [about | around | at | centred at C] */
+				static const char *const cw_[] = {"about", "around", "at",
+					"centered", "centred", "center", "centre", NULL};
+				uint32_t r0 = s + 1, r1;
+				int inf;
+				if (r0 < bb && tok_is(t, r0, "of"))
+					r0++;
+				if (r0 < bb && tok_is(t, r0, "radius"))
+					r0++;
+				r1 = find_word(t, r0, bb, cw_);
+				if (!hy_const(t, r0, r1, 1, v, NULL) || v[0] <= 0 || v[1] != 0)
+					fail("the radius must be a positive real");
+				r = v[0];
+				if (r1 < bb) {
+					uint32_t c0 = r1 + 1;
+					if (c0 < bb && tok_is(t, c0, "at"))
+						c0++;
+					c = tok_point(t, c0, bb, &inf);
+				}
+			} else if (s < bb && t->kind[s] == T_BAR) {
 				uint32_t c2;
 				struct func *g;
 				cplx g0, g1;

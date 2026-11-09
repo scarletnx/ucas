@@ -74,7 +74,9 @@ hy_own_cmd(const char *s, size_t n)
 	while (k < n && s[k] == ' ')
 		k++;
 	return strncmp(s + k, "of ", 3) && strncmp(s + k, "the ", 4) &&
-	    strncmp(s + k, "me ", 3);
+	    strncmp(s + k, "me ", 3) && strncmp(s + k, "between ", 8) &&
+	    strncmp(s + k, "from ", 5) && strncmp(s + k, "a ", 2) &&
+	    strncmp(s + k, "an ", 3);
 }
 
 /* English that starts like a command or not at all like ucas */
@@ -416,6 +418,7 @@ no:
 	wi = s;
 	return 0;
 done:
+	memset(&C2, 0, sizeof C2);	/* no calc2 request left from before */
 	Q.cmd = C_RAW;
 	Q.nraw = 1;
 	wi = nw;

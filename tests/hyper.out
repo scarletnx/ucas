@@ -588,3 +588,71 @@ limit of it as z -> 0:
   = 1
   checked numerically along 8 directions (arg(z - a) = 0, pi/4, ..., -pi/4), z -> a by factors of 4: all agree
   (it is undefined at 0 itself: a removable singularity)
+> where is 1/z holomorphic
+  ucas: holomorphic 1/z
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  holomorphic: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  holomorphic except at the points where it is undefined (poles)
+> the complex derivative of z^3
+  ucas: diff z^3
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+d/dz z^3 = 3z^2
+  the complex derivative: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  entire: holomorphic on the whole plane
+  check: equals the difference quotient at 64 of 64 sample points (max relative difference 1e-10)
+> integrate 1/(z-i) around the circle of radius 2 about i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of 1/(z - i) around |z - i| = 2 (counterclockwise):
+  = 2pi*i
+  numerically: the trapezoid rule on the circle with 1024 and 2048 points (difference 2e-18)
+  residue theorem: 2 pi i times the sum of the residues at the 1 pole inside = 2pi*i: agrees
+> the rotation matrix of 1 + i
+  ucas: rotmatrix 1 + i
+  note: q is not a unit quaternion (|q| = sqrt(2)): normalised
+the rotation matrix of sqrt(2)/2 + i*sqrt(2)/2 (v -> q v q^-1):
+  [1, 0, 0]
+  [0, 0, -1]
+  [0, 1, 0]
+> the quaternion for 90 degrees about the z axis
+  ucas: axisangle (0, 0, 1), 90 degrees
+the rotation by pi/2 about (0, 0, 1):
+  q = cos(theta/2) + sin(theta/2) u = sqrt(2)/2 + k*sqrt(2)/2
+  rotation matrix:
+    [0, -1, 0]
+    [1, 0, 0]
+    [0, 0, 1]
+> slerp between 1 and k at 1/2
+  ucas: slerp 1, k, 1/2
+slerp(1, k, 1/2) = sqrt(2)/2 + k*sqrt(2)/2
+  the arc between them on the unit sphere: a = pi/2 (a rotation by pi); slerp = (sin((1-t)a) q1 + sin(ta) q2)/sin(a)
+  check: |slerp| = 1, and q1 (q1^-1 q2)^t = sqrt(2)/2 + k*sqrt(2)/2: the same
+> is the sedenion algebra a division algebra
+  ucas: algebra sedenion division
+the sedenions: dimension 16 over the reals, basis 1, e1, e2, e3, e4, e5, e6, e7, ...
+  a division algebra: no, it has zero divisors: (e1 - e10)(e4 + e15) = 0
+> the associator of e1, e2 and e4
+  ucas: associator e1, e2, e4
+[a, b, c] = (ab)c - a(bc) = e7 - (-e7) = 2 e7
+  not associative: the grouping changes the product (in the octonions)
+> divide 1 by i
+  ucas: (1)/(i)
+-i
+> is complex multiplication commutative
+  ucas: algebra complex commutative
+the complex numbers: dimension 2 over the reals, basis 1, i
+  commutative: yes (checked on 200 random pairs)
+> what is i^i?
+  ucas: i^i
+exp(-pi/2)
+> the limit of (z^2+1)/(z-i) as z approaches i
+  ucas: it(z, i) = (z^2 + 1)/(z - i)
+  ucas: limit it z -> i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of it as z -> i:
+  = 2i
+  checked numerically along 8 directions (arg(z - a) = 0, pi/4, ..., -pi/4), z -> a by factors of 4: all agree
+  (it is undefined at i itself: a removable singularity)
+> i = 3
+> 2*i
+  note: i is defined (a function or value), so it is that here, not a unit; rename it to use i as the imaginary unit
+6
