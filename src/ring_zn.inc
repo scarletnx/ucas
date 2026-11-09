@@ -896,13 +896,17 @@ cmd_sqrtmod_int(i128 a0, u64 n)
 	} else if (nt_isprime(n) && n > 2)
 		printf("  check: Euler's criterion %llu^((%llu-1)/2) = %llu != 1",
 		    U(a), U(n), U(nt_powmod(a, (n - 1) / 2, n)));
+	else if (n <= (1u << 22))
+		printf("  check: ");
 	else
-		printf("  check:");
+		printf("  check: none (no roots, and %llu is too large to search)",
+		    U(n));
 	if (n <= (1u << 22)) {
 		u64 x, c = 0;
 		for (x = 0; x < n; x++)
 			c += nt_mulmod(x, x, n) == a;
-		printf("; brute force over 0..%llu: %llu solution%s", U(n - 1), U(c),
+		printf("%sbrute force over 0..%llu: %llu solution%s", k > 0 ||
+		    (nt_isprime(n) && n > 2) ? "; " : "", U(n - 1), U(c),
 		    c == 1 ? "" : "s");
 	}
 	printf("\n");
