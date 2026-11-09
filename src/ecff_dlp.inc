@@ -70,6 +70,8 @@ gen_anomalous(int bits)
 				ecp_mul(CE, &R, &P, &p);
 				if (R.inf) {
 					curve_desc();
+					cc.L.order = p;
+					cc.known = 1;
 					return;
 				}
 			}
@@ -105,6 +107,8 @@ gen_supersingular(int bits)
 		custom_curve(&z, &z, &z, &o, &z, &p);
 	}
 	curve_desc();
+	nn_add_u64(&cc.L.order, &p, 1);
+	cc.known = 1;
 }
 
 static int

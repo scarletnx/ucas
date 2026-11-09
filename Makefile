@@ -32,8 +32,10 @@ SRCS+=	json.c report.c jsonmode.c
 SRCS+=	mcp.c
 # elliptic curves over finite fields, crypto and algorithms (ecff.h)
 SRCS+=	ecmp.c ecfp.c ecw.c ecnamed.c eccount.c ecpoly.c ecschoof.c ecalg.c \
-	ecsha.c eccrypto.c ecpair.c ecff_cmd.c
-ecff_cmd.o ecff_cmd.pieo: ecff_crypto.inc ecff_dlp.inc
+	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c \
+	ecff_cmd.c
+ecff_cmd.o ecff_cmd.pieo: ecff_crypto.inc ecff_dlp.inc ecff_cm.inc \
+    ecff_isog.inc
 ecw.o ecw.pieo: ecw_impl.inc
 .PATH:	${.CURDIR}/src
 MAN=

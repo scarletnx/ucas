@@ -459,6 +459,28 @@ int ec_mov(const struct ecp_curve *E, const struct ecp_pt *P,
 int ec_smart(const struct ecp_curve *E, const struct ecp_pt *P,
     const struct ecp_pt *Q, nn *k);
 
+/* ---- eccm.c: complex multiplication ---- */
+int cm_forms(int64_t D, int64_t *fa, int64_t *fb, int max);
+int cm_classno(int64_t D);
+int cm_hilbert(int64_t D, zz *coef, int max, int *errbits);
+int cm_hilbert_mod(const struct mf *F, int64_t D, struct px *H);
+int cm_curve_for(const struct mf *F, const u64 *j, const zz *t,
+    struct ecp_curve *E);
+
+/* ---- ecpp.c: primality certificates ---- */
+#define ECPPMAX 200
+struct ecppstep {
+	nn N, a, b, m, q, x, y;   /* y^2 = x^3 + a x + b mod N, #E = m = k q */
+	int64_t D;
+};
+struct ecppcert {
+	int n;
+	struct ecppstep step[ECPPMAX];
+	nn last;                   /* the final q < 2^64 */
+};
+int ecpp_prove(const nn *N, struct ecppcert *C, int maxsteps);
+int ecpp_check(const struct ecppcert *C, const nn *N, char *why, size_t wn);
+
 /* ---- ecalg.c: ECM ---- */
 size_t ecff_primes(u64 limit, const uint32_t **out);  /* primes <= limit */
 struct ecm_res {

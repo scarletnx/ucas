@@ -355,7 +355,7 @@ y^2 = x^3 + 2592469188103234411x + 12679997811118790130 over F_13835058340471716
   curve: y^2 = x^3 + 2592469188103234411 x + 12679997811118790130 mod 13835058340471716373
   order: #E = 13835058340471716373
   weak: anomalous (#E = p): Smart's attack maps E(F_p) onto (F_p, +) through the p-adic logarithm
-  check: (7808924390736667001, 9969237459197053002) has order 13835058340471716373 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (3840741419012094145, 4802580855225249830) has order 13835058340471716373 (N P = O, and (N/q) P != O stepwise for each prime q of N)
   check: N = 13835058340471716373 is the only multiple of 13835058340471716373 in the Hasse interval [13835058333032614724, 13835058347910818024]
 > ecdlog anomalous 128 random secret 1234567890123456789
 k = 1234567890123456789
@@ -424,3 +424,130 @@ e(G1, G2) on BLS12-381: reduced Tate pairing in F_p^12
   check: e^r = 1: yes
   check: e(3 G1, G2) = e^3: yes
   check: e(G1, 5 G2) = e^5: yes
+> hilbert -15
+H_-15(x) = x^2 + 191025x - 121287375
+  class number: 2
+  reduced forms: (1, 1, 4), (2, 1, 2)
+  how: the product of x - j((-b + sqrt D)/(2a)) over the reduced forms, j = E4^3 / Delta by q-series in multiprecision fixed point
+  check: every coefficient within 2^-195 of an integer (imaginary parts too)
+> hilbert -23
+H_-23(x) = x^3 + 3491750x^2 - 5151296875x + 12771880859375
+  class number: 3
+  reduced forms: (1, 1, 6), (2, -1, 3), (2, 1, 3)
+  how: the product of x - j((-b + sqrt D)/(2a)) over the reduced forms, j = E4^3 / Delta by q-series in multiprecision fixed point
+  check: every coefficient within 2^-172 of an integer (imaginary parts too)
+> hilbert -71
+H_-71(x) = x^7 + 313645809715x^6 - 3091990138604570x^5 + 98394038810047812049302x^4 - 823534263439730779968091389x^3 + 5138800366453976780323726329446x^2 - 425319473946139603274605151187659x + 737707086760731113357714241006081263
+  class number: 7
+  reduced forms: (1, 1, 18), (2, -1, 9), (2, 1, 9), (3, -1, 6), (3, 1, 6), (4, -3, 5), (4, 3, 5)
+  how: the product of x - j((-b + sqrt D)/(2a)) over the reduced forms, j = E4^3 / Delta by q-series in multiprecision fixed point
+  check: every coefficient within 2^-188 of an integer (imaginary parts too)
+> eccm -15 mod 1000099
+y^2 = x^3 + 447753x + 298502 over F_1000099
+  curve: y^2 = x^3 + 447753 x + 298502 mod 1000099
+  CM: discriminant -15 (class number 2), j = 788529 a root of H_D mod p
+  trace: 1084
+  order: #E = 999016
+  factored: 2^3 * 151 * 827
+  how: 4p = t^2 + |D| v^2 (Cornacchia), j a root of H_D mod p, the twist with p + 1 - t points
+  check: (931048, 755029) has order 249754 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 999016 is the only multiple of 249754 in the Hasse interval [998100, 1002100]
+> eccm -3 bits 128
+y^2 = x^3 + 2 over F_0x870e0769a3ceb8468a9ffc099e8ef263
+  curve: y^2 = x^3 + 0 x + 2 mod 179518621933503385524675567642622227043
+  CM: discriminant -3 (class number 1), j = 0x0 a root of H_D mod p
+  trace: -26056172263703131355
+  order: #E = 179518621933503385550731739906325358399
+  factored: 179518621933503385550731739906325358399
+  how: CM method: random t, v with p = (t^2 + |D| v^2)/4 and #E = p + 1 - t both prime, then a root of H_D mod p and the twist with that trace
+  check: (0x614c6d097cadaebb4b960f877c5c9199, 0x4ac2064e26e78dde3516b8acfdfffaa3) has order 179518621933503385550731739906325358399 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 179518621933503385550731739906325358399 is the only multiple of 179518621933503385550731739906325358399 in the Hasse interval [179518621933503385497878655735948847414, 179518621933503385551472479549295606674]
+> eccm -43 bits 160
+y^2 = x^3 + 989511087264305613980831315969040356207633619643x + 1088375032544899582800073355570056509808732412065 over F_0xe146d981b7d4dc55d0422669ca22eb66444e946d
+  curve: y^2 = x^3 + 989511087264305613980831315969040356207633619643 x + 1088375032544899582800073355570056509808732412065 mod 1286102923106087520438557434772088817010929996909
+  CM: discriminant -43 (class number 1), j = 0xe146d981b7d4dc55d0422669ca22eb660f92946d a root of H_D mod p
+  trace: -506283553620302794923503
+  order: #E = 1286102923106087520438557941055642437313724920413
+  factored: 1286102923106087520438557941055642437313724920413
+  how: CM method: random t, v with p = (t^2 + |D| v^2)/4 and #E = p + 1 - t both prime, then a root of H_D mod p and the twist with that trace
+  check: (0x12e8afcb31874a1880d7c6bcff3606e37b59e67b, 0x874210bf87d60e723e63cc5e6f68b74158e4802b) has order 1286102923106087520438557941055642437313724920413 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 1286102923106087520438557941055642437313724920413 is the only multiple of 1286102923106087520438557941055642437313724920413 in the Hasse interval [1286102923106087520438555166642530695528734282879, 1286102923106087520438559702901646938493125710941]
+> modpoly 2
+Phi_2(X, Y) = (X^3 + Y^3) - X^2*Y^2 + 1488*(X^2*Y^1 + X^1*Y^2) - 162000*(X^2 + Y^2) + 40773375*X^1*Y^1 + 8748000000*(X^1 + Y^1) - 157464000000000
+  how: Phi_2 mod 2 primes of 62 bits (q-expansions of j, linear algebra), CRT with symmetric residues until stable
+  check: agrees mod 2^61 - 1 (an independent prime): yes
+> modpoly 3
+Phi_3(X, Y) = (X^4 + Y^4) - X^3*Y^3 + 2232*(X^3*Y^2 + X^2*Y^3) - 1069956*(X^3*Y^1 + X^1*Y^3) + 36864000*(X^3 + Y^3) + 2587918086*X^2*Y^2 + 8900222976000*(X^2*Y^1 + X^1*Y^2) + 452984832000000*(X^2 + Y^2) - 770845966336000000*X^1*Y^1 + 1855425871872000000000*(X^1 + Y^1)
+  how: Phi_3 mod 3 primes of 62 bits (q-expansions of j, linear algebra), CRT with symmetric residues until stable
+  check: agrees mod 2^61 - 1 (an independent prime): yes
+> modpoly 5 mod 101
+Phi_5(X, Y) mod 101 = 1*X^6*Y^0 + 100*X^5*Y^5 + 84*X^5*Y^4 + 19*X^5*Y^3 + 35*X^5*Y^2 + 60*X^5*Y^1 + 63*X^5*Y^0 + 84*X^4*Y^5 + 87*X^4*Y^4 + 81*X^4*Y^3 + 55*X^4*Y^2 + 16*X^4*Y^1 + 91*X^4*Y^0 + 19*X^3*Y^5 + 81*X^3*Y^4 + 100*X^3*Y^3 + 68*X^3*Y^2 + 25*X^3*Y^1 + 38*X^3*Y^0 + 35*X^2*Y^5 + 55*X^2*Y^4 + 68*X^2*Y^3 + 45*X^2*Y^2 + 74*X^2*Y^1 + 33*X^2*Y^0 + 60*X^1*Y^5 + 16*X^1*Y^4 + 25*X^1*Y^3 + 74*X^1*Y^2 + 77*X^1*Y^1 + 73*X^1*Y^0 + 1*X^0*Y^6 + 63*X^0*Y^5 + 91*X^0*Y^4 + 38*X^0*Y^3 + 33*X^0*Y^2 + 73*X^0*Y^1 + 89*X^0*Y^0
+  how: the unknown coefficients solve Phi(j(q), j(q^5)) = 0 for the q-expansion of j = E4^3/Delta mod p (linear algebra)
+> ecisogeny y^2 = x^3 + 2x + 3 mod 97 kernel (3, 6)
+E -> E' of degree 5 (Velu)
+  E: y^2 = x^3 + 2 x + 3 (j = 36)
+  E': y^2 = x^3 + 43 x + 39 (j = 48)
+  kernel: <(3, 6)> of order 5
+  kernel polynomial: x^2 + 14*x + 46
+  how: Velu: a' = a - 5v, b' = b - 7w, v and w sums over half the kernel
+  check: random points map onto E' and phi(A + B) = phi(A) + phi(B): yes
+  check: Kohel's formulas from the kernel polynomial give the same E': yes
+  check: #E' = #E (isogenous over F_p): yes (N R' = O on E')
+> ecisogeny y^2 = x^3 + 2x + 3 mod 1009 3
+1 rational 3-isogeny from j = 590
+  E: y^2 = x^3 + 2 x + 3 (j = 590)
+  j1: 601
+  how: the roots in F_p of Phi_3(X, j(E)) (the classical modular polynomial mod p)
+  structure: one rational kernel (l divides the discriminant t^2 - 4p)
+> ecisogeny y^2 = x^3 + 2x + 3 mod 1009 5
+0 rational 5-isogenies from j = 590
+  E: y^2 = x^3 + 2 x + 3 (j = 590)
+  how: the roots in F_p of Phi_5(X, j(E)) (the classical modular polynomial mod p)
+  structure: Frobenius has no eigenvalue mod l (an Atkin prime for SEA)
+> ecvolcano y^2 = x^3 + 2x + 3 mod 1009 2
+the 2-isogeny graph of j = 590 (breadth first, at most 60 vertices)
+  590: degree 1 -> 856
+  856: degree 3 -> 590, 779, 32
+  779: degree 3 -> 792, 542, 856
+  32: degree 1 -> 856
+  792: degree 1 -> 779
+  542: degree 1 -> 779
+  vertices: 6
+  shape: 2 of degree l + 1 = 3 (above the floor), 4 of degree <= 1 (the floor's leaves); an ordinary component is a volcano: a crater cycle with trees of depth d hanging
+> ecdivpoly y^2 = x^3 + 2x + 3 mod 97 5
+psi_5 = 5*x^12 + 27*x^10 + 73*x^9 + 65*x^8 + 82*x^7 + 96*x^6 + 87*x^5 + 9*x^4 + 82*x^3 + 42*x^2 + 22*x + 13
+  curve: y^2 = x^3 + 2x + 3 over F_97
+  degree: 12
+  rational roots: 2 (x-coordinates of points of order dividing 5 over F_p)
+  irreducible factors: 2 of degree 1, 1 of degree 2, 2 of degree 4
+  torsion field: the x-coordinates of E[5] lie in F_p^4 (the lcm of the factor degrees)
+  how: the recurrences psi_2m+1 = psi_m+2 psi_m^3 - psi_m-1 psi_m+1^3 and psi_2m = psi_m (psi_m+2 psi_m-1^2 - psi_m-2 psi_m+1^2)/(2y)
+> ecdivpoly y^2 = x^3 + 2x + 3 mod 97 3
+psi_3 = 3*x^4 + 12*x^2 + 36*x + 93
+  curve: y^2 = x^3 + 2x + 3 over F_97
+  degree: 4
+  rational roots: 1 (x-coordinates of points of order dividing 3 over F_p)
+  irreducible factors: 1 of degree 1, 1 of degree 3
+  torsion field: the x-coordinates of E[3] lie in F_p^3 (the lcm of the factor degrees)
+  how: the recurrences psi_2m+1 = psi_m+2 psi_m^3 - psi_m-1 psi_m+1^3 and psi_2m = psi_m (psi_m+2 psi_m-1^2 - psi_m-2 psi_m+1^2)/(2y)
+> ecpp 2^127 - 1
+170141183460469231731687303715884105727 is prime
+  how: Atkin-Morain ECPP, 4 steps down to 7896688651233807247
+  step 1: N = 170141183460469231731687303715884105727, D = -3, E: y^2 = x^3 + 0 x + 1, m = 170141183460469231750343946078829762524, q = 75874455923405965985765252862031, P = (137758575408570898741418747664325588699, 58829747580948719490999421357182351010)
+  step 2: N = 75874455923405965985765252862031, D = -3, E: y^2 = x^3 + 0 x + 1, m = 75874455923405961892523779207308, q = 47540385916921028754714147373, P = (8681776606141856441984401379769, 67859836245795605604590055503280)
+  step 3: N = 47540385916921028754714147373, D = -3, E: y^2 = x^3 + 0 x + 8, m = 47540385916920705219194071504, q = 215200559122730794249267, P = (31224084431476126770221292496, 41307325005810514163877062703)
+  step 4: N = 215200559122730794249267, D = -3, E: y^2 = x^3 + 0 x + 1, m = 215200559123423715095244, q = 7896688651233807247, P = (172691162118346694041236, 39249651997722541075003)
+  check: the certificate verifies (independent checker): 4 steps: each curve nonsingular, P on it, q > (N^(1/4) + 1)^2, k P != O and q k P = O with every denominator invertible mod N; the last q = 7896688651233807247 < 2^64 is prime (deterministic Miller-Rabin)
+> ecpp 2^255 - 19
+57896044618658097711785492504343953926634992332820282019728792003956564819949 is prime
+  how: Atkin-Morain ECPP, 6 steps down to 3425690484314565209
+  step 1: N = 57896044618658097711785492504343953926634992332820282019728792003956564819949, D = -3, E: y^2 = x^3 + 0 x + 4, m = 57896044618658097711785492504343953927019475418703754052020050365118886907013, q = 931218878435386497786796567938400535129069166394620456332928480626419, P = (14759842086505857140551278966295459245288748826719054790499425267253323340011, 18450389557510716425876289339728975036153439899613658013428338046170131828982)
+  step 2: N = 931218878435386497786796567938400535129069166394620456332928480626419, D = -67, E: y^2 = x^3 + 427344224535292519362711152018068354463452507239155886953363820467121 x + 569792299380390025816948202690757805951270009652207849271151760622828, m = 931218878435386497786796567938400520503384863852023093671202817049052, q = 71492833468529884551140057236241688996726528969781130708413, P = (784841356070841497468446947748790933807198029384968384852628104754097, 149559929492358593638221240069349341495972460730346114936153036928265)
+  step 3: N = 71492833468529884551140057236241688996726528969781130708413, D = -67, E: y^2 = x^3 + 39415104625583040885289247578078988734836957690280085285141 x + 2445791927545399073146145973305429490982462136926346620623, m = 71492833468529884551140057235910106127596102316312627535376, q = 25128341111821851704111054276985461987845691996807, P = (21581672592811269834635229875027761707344223189188153706785, 27025845751293337144147471632235738440084396577462054997774)
+  step 4: N = 25128341111821851704111054276985461987845691996807, D = -152, E: y^2 = x^3 + 7719299509476692654423006650107803156246100144719 x + 17354884660981691613373004074697523191538436483461, m = 25128341111821851704111064195652523565388261110774, q = 103154440084008728572435567478837, P = (15361209852590726782887064292603552029827456211939, 19948788800868514028081018371907337994973258685877)
+  step 5: N = 103154440084008728572435567478837, D = -4, E: y^2 = x^3 + 2 x + 0, m = 103154440084008744503892261751010, q = 1275083106549822386082653, P = (35336714798756187531143432740500, 6987604996249099991884958164087)
+  step 6: N = 1275083106549822386082653, D = -4, E: y^2 = x^3 + 1 x + 0, m = 1275083106547692945572308, q = 3425690484314565209, P = (967491752155673595076410, 1094962863740274497975317)
+  check: the certificate verifies (independent checker): 6 steps: each curve nonsingular, P on it, q > (N^(1/4) + 1)^2, k P != O and q k P = O with every denominator invertible mod N; the last q = 3425690484314565209 < 2^64 is prime (deterministic Miller-Rabin)
+> ecpp 2^256 + 1
+115792089237316195423570985008687907853269984665640564039457584007913129639937 is composite
+  how: BPSW (a failed Fermat or Lucas test is a proof of compositeness)

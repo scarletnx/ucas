@@ -338,31 +338,32 @@ px_divmod(const struct mf *F, struct px *q, struct px *r, const struct px *a,
 
 	if (b->d < 0)
 		fail("ecff: polynomial division by zero");
+	int da = a->d, db = b->d;
 	px_init(&t);
 	px_copy(F, &t, a);
 	if (q) {
-		px_reserve(F, q, a->d - b->d < 0 ? 0 : a->d - b->d);
-		q->d = a->d - b->d;
+		px_reserve(F, q, da - db < 0 ? 0 : da - db);
+		q->d = da - db;
 		for (i = 0; i <= q->d; i++)
 			mf_zero(F, CO(q, i));
 	}
-	if (!mf_inv(F, il, CO(b, b->d), NULL))
+	if (!mf_inv(F, il, CO(b, db), NULL))
 		fail("ecff: leading coefficient not invertible");
-	for (i = a->d; i >= b->d; i--) {
+	for (i = da; i >= db; i--) {
 		if (mf_is_zero(F, CO(&t, i)))
 			continue;
 		mf_mul(F, c, CO(&t, i), il);
 		if (q)
-			mf_copy(F, CO(q, i - b->d), c);
-		for (j = 0; j <= b->d; j++) {
+			mf_copy(F, CO(q, i - db), c);
+		for (j = 0; j <= db; j++) {
 			mf_mul(F, x, c, CO(b, j));
-			mf_sub(F, CO(&t, i - b->d + j), CO(&t, i - b->d + j), x);
+			mf_sub(F, CO(&t, i - db + j), CO(&t, i - db + j), x);
 		}
 	}
 	if (q)
 		px_norm(F, q);
 	if (r) {
-		t.d = t.d < b->d - 1 ? t.d : b->d - 1;
+		t.d = t.d < db - 1 ? t.d : db - 1;
 		px_norm(F, &t);
 		px_copy(F, r, &t);
 	}

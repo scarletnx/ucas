@@ -18,6 +18,7 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "ucas.h"
 #include "ring.h"
@@ -28,6 +29,7 @@
 static struct {
 	struct ecload L;        /* named, or custom (L.N == NULL) */
 	int named;
+	int known;              /* order known by construction (L.order) */
 	int mapped;             /* the input was not short Weierstrass */
 	int maptype;            /* 1: x + a2/3; 2: (36x + 3b2, 108(2y+a1x+a3)) */
 	u64 a1[FW], a2[FW], a3[FW], b2[FW];
@@ -553,6 +555,12 @@ count(int method, nn *N, struct eccert *C, char *how, size_t hn)
 			snprintf(how, hn, "the standard's n h, certified below");
 			return ec_certify(CE, N, C);
 		}
+		if (cc.known) {
+			*N = cc.L.order;
+			snprintf(how, hn, "known from the construction, certified "
+			    "below");
+			return ec_certify(CE, N, C);
+		}
 		if (F->bits <= 20)
 			method = CM_NAIVE;
 		else if (CE->a_zero || mf_is_zero(F, CE->b))
@@ -985,6 +993,8 @@ cmd_ecm(void)
 
 #include "ecff_crypto.inc"
 #include "ecff_dlp.inc"
+#include "ecff_cm.inc"
+#include "ecff_isog.inc"
 
 static void
 cmd_x25519(void)
@@ -1025,6 +1035,13 @@ static const struct {
 	{"ecdlog", cmd_ecdlog, "ec_dlog"},
 	{"ecweak", cmd_ecweak, "ec_weak"},
 	{"ecpairing", cmd_ecpairing, "ec_pairing"},
+	{"hilbert", cmd_hilbert, "hilbert"},
+	{"eccm", cmd_eccm, "ec_cm"},
+	{"ecpp", cmd_ecpp, "ecpp"},
+	{"modpoly", cmd_modpoly, "modpoly"},
+	{"ecisogeny", cmd_ecisogeny, "ec_isogeny"},
+	{"ecvolcano", cmd_ecvolcano, "ec_volcano"},
+	{"ecdivpoly", cmd_ecdivpoly, "ec_divpoly"},
 	{NULL, NULL, NULL}
 };
 

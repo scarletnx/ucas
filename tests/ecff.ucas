@@ -59,3 +59,27 @@ ecpairing y^2 = x^3 + 4 mod 10009 (0, 2) (2137, 4178) 3
 ecpairing y^2 = x^3 + 4 mod 10009 (6337, 10003) (4177, 8795) 6
 ecpairing bn254
 ecpairing bls12_381
+
+# complex multiplication: Hilbert class polynomials, CM curves
+hilbert -15
+hilbert -23
+hilbert -71
+eccm -15 mod 1000099
+eccm -3 bits 128
+eccm -43 bits 160
+
+# isogenies: Velu and Kohel, rational l-isogenies, an isogeny graph
+modpoly 2
+modpoly 3
+modpoly 5 mod 101
+ecisogeny y^2 = x^3 + 2x + 3 mod 97 kernel (3, 6)
+ecisogeny y^2 = x^3 + 2x + 3 mod 1009 3
+ecisogeny y^2 = x^3 + 2x + 3 mod 1009 5
+ecvolcano y^2 = x^3 + 2x + 3 mod 1009 2
+ecdivpoly y^2 = x^3 + 2x + 3 mod 97 5
+ecdivpoly y^2 = x^3 + 2x + 3 mod 97 3
+
+# ECPP: a certificate, verified by an independent checker
+ecpp 2^127 - 1
+ecpp 2^255 - 19
+ecpp 2^256 + 1
