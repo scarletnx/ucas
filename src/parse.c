@@ -74,6 +74,7 @@ struct P {
 	int top_paren;    /* the last operand was parenthesized */
 	int cmdargs;      /* stop at command option words */
 	const char *const *xstop;  /* approx: more option words; 'in' stops */
+	ty_t force_ty;    /* animate exec of 32-bit ...: free variables' type */
 	int nb;
 	uint32_t bname[MAXBIND];
 	nid bval[MAXBIND];
@@ -1299,6 +1300,8 @@ cmd_func(struct P *p)
 	p->autop = 1;
 	p->cmdargs = 1;
 	p->autoty = infer_param_type(p, p->i, &why);
+	if (p->force_ty)
+		p->autoty = p->force_ty;
 	tmp.body = parse_expr(p, 0);
 	p->cmdargs = 0;
 	p->autop = 0;
@@ -1559,6 +1562,49 @@ cmdp_func(struct P *p, const char *const *stop)
 
 	p->xstop = stop;
 	f = cmd_func(p);
+	p->xstop = NULL;
+	return f;
+}
+
+/* token position, to look ahead and back off ("32-bit" or "32*x") */
+uint32_t
+cmdp_pos(struct P *p)
+{
+	return p->i;
+}
+
+void
+cmdp_seek(struct P *p, uint32_t pos)
+{
+	p->i = pos;
+	diag_tok = pos;
+}
+
+/* a plain integer literal token, else 0 */
+int
+cmdp_int(struct P *p, int64_t *v)
+{
+	nid n;
+
+	if (pk(p) != T_NUM)
+		return 0;
+	n = number(p);
+	if (!is_const(n) || TY_FP(N.ty[n]))
+		return 0;
+	*v = N.ki[n];
+	return 1;
+}
+
+/* an anonymous function whose free variables all have type ty */
+struct func *
+cmdp_func_typed(struct P *p, const char *const *stop, ty_t ty)
+{
+	struct func *f;
+
+	p->xstop = stop;
+	p->force_ty = ty;
+	f = cmd_func(p);
+	p->force_ty = 0;
 	p->xstop = NULL;
 	return f;
 }
@@ -1941,6 +1987,7 @@ run_source(const char *src, const char *file, int echo)
 			p->autop = 0;
 			p->cmdargs = 0;
 			p->xstop = NULL;
+			p->force_ty = 0;
 			p->abs_depth = 0;
 			p->fnarg = 0;
 			p->nb = 0;

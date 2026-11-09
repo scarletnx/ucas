@@ -33,6 +33,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAXN 100
 #define MAXCELLS 128		/* Blelloch pads to a power of two */
@@ -282,6 +283,14 @@ text(int x, int y, const char *s, int c)
 	return x;
 }
 
+/* a legend entry: a colour swatch, then the label in grey */
+static int
+swatch(int x, int y, int col, const char *label)
+{
+	box(x, y + 2, 8, 7, col);
+	return text(x + 11, y, label, C_GRAY) + FONT_6X10_W;
+}
+
 static int
 row_y(int k)
 {
@@ -504,10 +513,10 @@ draw_frame(double t)
 	text(x1 - (int)strlen(buf) * FONT_6X10_W, ty + 12, buf, C_GRAY);
 	{
 		/* legend: what the colours of the timeline mean */
-		int lx = x0 + tlw / 2 - 12 * FONT_6X10_W;
-		lx = text(lx, ty + 12, "compute", C_BAR) + FONT_6X10_W;
-		lx = text(lx, ty + 12, "diverge", C_RED) + FONT_6X10_W;
-		text(lx, ty + 12, "barrier", C_BAR_ORANGE);
+		int lx = x0 + tlw / 2 - 15 * FONT_6X10_W;
+		lx = swatch(lx, ty + 12, C_BAR, "compute");
+		lx = swatch(lx, ty + 12, C_RED, "diverge");
+		swatch(lx, ty + 12, C_BAR_ORANGE, "barrier");
 	}
 }
 
@@ -527,6 +536,7 @@ static const char *const filler[] = {
 	"frames", "per", "second", "and", "on", "in", "gpu", "algorithm",
 	"animation", "animate", "show", "me", "please", "it", "inclusive",
 	"exclusive", "workgroup", "threads", "sample", "sampled", "data",
+	"of", "lanes",
 	"input", "array", "fps", "frame", "rate", "nofile", NULL
 };
 
@@ -565,6 +575,601 @@ b64(struct sbuf *out, const unsigned char *s, size_t n)
 		sb_putc(out, '\n');
 }
 
+static void deliver(struct gif *gp, const char *name, int nofile);
+
+/* ---- animate exec: an expression, instruction by instruction ---- */
+
+/*
+ * The expression is lowered to a serial instruction list (one per
+ * operation; casts that cost nothing alias their operand) and run on a
+ * group of lanes in lockstep, SIMT style: a 2x2 quad by default, up to a
+ * warp of 32.  Every instruction takes its cost under the model for all
+ * lanes at once.  A ?: whose lanes disagree is a branch: the "then" side
+ * runs with the other lanes masked, then the "else" side, then the lanes
+ * reconverge, so every lane pays for both sides (keep-up); when all lanes
+ * agree, only the taken side runs.  barrier() stalls every lane; an
+ * atomic is serialized, one lane after another.
+ */
+#define MAXINS 96
+#define MAXLANE 32
+enum { I_OP, I_BRANCH, I_RECONV, I_BARRIER, I_ATOMIC, I_MERGE };
+
+struct ins {
+	nid n;
+	int kind, cls, lane, reg;
+	char text[96];
+	double cost, t0, t1;
+	uint32_t mask;
+};
+
+static struct {
+	struct ins in[MAXINS];
+	int nins, nregs, nl, cols, rows;
+	nid rnode[MAXINS];
+	int rreg[MAXINS];
+	int nr;
+	struct func *f;
+	struct plan p;
+	double T;
+	const struct model *m;
+	int64_t vi[MAXP][MAXLANE];
+	double vr[MAXP][MAXLANE];
+} X;
+
+static int
+xreg(nid n)
+{
+	int i;
+
+	for (i = 0; i < X.nr; i++)
+		if (X.rnode[i] == n)
+			return X.rreg[i];
+	return -1;
+}
+
+static void
+xsetreg(nid n, int r)
+{
+	if (X.nr < MAXINS) {
+		X.rnode[X.nr] = n;
+		X.rreg[X.nr++] = r;
+	}
+}
+
+static void
+xoperand(struct sbuf *b, nid a)
+{
+	int r = xreg(a);
+
+	if (r >= 0)
+		sb_printf(b, "t%d", r);
+	else
+		print_node(b, a, NULL);
+}
+
+static void
+xtext(struct sbuf *b, nid n)
+{
+	int op = N.op[n], ar = opinfo[op].arity;
+
+	if (op == O_INDEX) {
+		sb_puts(b, "load table[");
+		xoperand(b, N.b[n]);
+		sb_puts(b, "]");
+	} else if (op == O_CAST) {
+		sb_printf(b, "%s(", ty_str(N.ty[n]));
+		xoperand(b, N.a[n]);
+		sb_puts(b, ")");
+	} else if (ar == 1) {
+		if (op == O_NEG || op == O_NOT || op == O_LNOT)
+			sb_puts(b, opinfo[op].name);
+		else
+			sb_printf(b, "%s(", opinfo[op].name);
+		xoperand(b, N.a[n]);
+		if (!(op == O_NEG || op == O_NOT || op == O_LNOT))
+			sb_puts(b, ")");
+	} else if (op == O_ATOMIC && xreg(N.a[n]) < 0 && xreg(N.b[n]) < 0) {
+		print_node(b, n, NULL);   /* atomic_add_shared(x, 1) */
+	} else if (ar == 2 && (op == O_MIN || op == O_MAX || op == O_COPYSIGN ||
+	    op == O_ATOMIC)) {
+		sb_printf(b, "%s(", op == O_ATOMIC ? "atomic" : opinfo[op].name);
+		xoperand(b, N.a[n]);
+		sb_puts(b, ", ");
+		xoperand(b, N.b[n]);
+		sb_puts(b, ")");
+	} else if (ar == 2) {
+		xoperand(b, N.a[n]);
+		sb_printf(b, " %s ", opinfo[op].name);
+		xoperand(b, N.b[n]);
+	} else if (ar == 3) {
+		sb_printf(b, "%s(", opinfo[op].name);
+		xoperand(b, N.a[n]);
+		sb_puts(b, ", ");
+		xoperand(b, N.b[n]);
+		sb_puts(b, ", ");
+		xoperand(b, N.c[n]);
+		sb_puts(b, ")");
+	}
+}
+
+static struct ins *
+xadd(int kind, nid n, double cost, int cls, uint32_t mask)
+{
+	struct ins *I;
+
+	if (X.nins == MAXINS)
+		fail("animate exec: more than %d instructions", MAXINS);
+	I = &X.in[X.nins++];
+	memset(I, 0, sizeof *I);
+	I->kind = kind;
+	I->n = n;
+	I->cost = cost;
+	I->cls = cls;
+	I->mask = mask;
+	I->reg = -1;
+	I->lane = -1;
+	return I;
+}
+
+static void
+lanes_text(char *buf, size_t n, uint32_t mask)
+{
+	int i, k = 0;
+
+	buf[0] = 0;
+	for (i = 0; i < X.nl; i++)
+		if (mask >> i & 1)
+			k += snprintf(buf + k, n - (size_t)k, "%s%d", k ? "," : "", i);
+}
+
+static void
+xemit(nid n, uint32_t mask)
+{
+	struct sbuf b = {0};
+	struct ins *I;
+	int cls, i;
+	double c;
+
+	if (n == 0 || xreg(n) >= 0)
+		return;
+	switch (N.op[n]) {
+	case O_CONST: case O_VAR: case O_UNDEF: case O_TABLE:
+		return;
+	}
+	if (N.op[n] == O_SEL) {
+		uint32_t mt = 0, mf;
+		uint32_t loc;
+		char lt[96], lf[96];
+		int rt, rf;
+		xemit(N.a[n], mask);
+		loc = plan_loc(&X.p, N.a[n]);
+		for (i = 0; i < X.nl; i++)
+			if ((mask >> i & 1) && loc != NOTOK && COLI(&X.p, loc)[i])
+				mt |= 1u << i;
+		mf = mask & ~mt;
+		lanes_text(lt, sizeof lt, mt);
+		lanes_text(lf, sizeof lf, mf);
+		I = xadd(I_BRANCH, n, X.m->c[C_BRANCH], C_BRANCH, mask);
+		xoperand(&b, N.a[n]);
+		snprintf(I->text, sizeof I->text, "branch on %s: then {%s} else {%s}%s",
+		    b.p, lt, lf, mt && mf ? " diverges" : " uniform");
+		if (mt)
+			xemit(N.b[n], mt);
+		if (mf)
+			xemit(N.c[n], mf);
+		if (mt && mf) {
+			I = xadd(I_RECONV, n, X.m->c[C_DIVERGE], C_DIVERGE, mask);
+			snprintf(I->text, sizeof I->text, "reconverge (keep-up)");
+		}
+		/* the result: each lane's side; a register, no instruction */
+		I = xadd(I_MERGE, n, 0, -1, mask);
+		I->reg = X.nregs++;
+		sb_clear(&b);
+		sb_printf(&b, "t%d = ", I->reg);
+		if (mt)
+			xoperand(&b, N.b[n]);
+		if (mt && mf)
+			sb_puts(&b, " | ");
+		if (mf)
+			xoperand(&b, N.c[n]);
+		snprintf(I->text, sizeof I->text, "%s  (per lane)", b.p);
+		xsetreg(n, I->reg);
+		(void)rt;
+		(void)rf;
+		free(b.p);
+		return;
+	}
+	xemit(N.a[n], mask);
+	if (opinfo[N.op[n]].arity >= 2)
+		xemit(N.b[n], mask);
+	if (opinfo[N.op[n]].arity >= 3)
+		xemit(N.c[n], mask);
+	c = node_cost(X.m, n, &cls);
+	if (N.op[n] == O_BARRIER) {
+		I = xadd(I_BARRIER, n, c, cls, mask);
+		snprintf(I->text, sizeof I->text, "barrier()");
+		xsetreg(n, xreg(N.a[n]));
+		return;
+	}
+	if (cls < 0 || c == 0) {   /* free: an alias of its operand */
+		if (xreg(N.a[n]) >= 0)
+			xsetreg(n, xreg(N.a[n]));
+		else if (N.op[n] != O_CAST) {
+			I = xadd(I_OP, n, 0, cls, mask);
+			I->reg = X.nregs++;
+			xtext(&b, n);
+			snprintf(I->text, sizeof I->text, "t%d = %s", I->reg, b.p);
+			xsetreg(n, I->reg);
+		}
+		free(b.p);
+		return;
+	}
+	xtext(&b, n);
+	if (N.op[n] == O_ATOMIC) {
+		int r = X.nregs++;
+		for (i = 0; i < X.nl; i++) {
+			if (!(mask >> i & 1))
+				continue;
+			I = xadd(I_ATOMIC, n, c, cls, 1u << i);
+			I->lane = i;
+			I->reg = r;
+			snprintf(I->text, sizeof I->text, "t%d = %s  (lane %d)", r, b.p,
+			    i);
+		}
+		xsetreg(n, r);
+		free(b.p);
+		return;
+	}
+	I = xadd(I_OP, n, c, cls, mask);
+	I->reg = X.nregs++;
+	snprintf(I->text, sizeof I->text, "t%d = %s", I->reg, b.p);
+	xsetreg(n, I->reg);
+	free(b.p);
+}
+
+/* lanes x instruction: the value lane i holds after instruction k */
+static void
+xvalue(char *buf, size_t n, nid g, int lane)
+{
+	uint32_t loc = plan_loc(&X.p, g);
+	struct sbuf b = {0};
+
+	if (loc == NOTOK) {
+		snprintf(buf, n, "?");
+		return;
+	}
+	if (COLF(&X.p, loc)[lane] & F_UNDEF)
+		snprintf(buf, n, "undef");
+	else {
+		fmt_val(&b, X.p.ty[loc], COLI(&X.p, loc)[lane], COLR(&X.p, loc)[lane]);
+		snprintf(buf, n, "%s", b.p);
+	}
+	free(b.p);
+}
+
+#define LBW 132		/* lane box */
+#define LBH 64
+
+static void
+xdraw(double t, int listx, int listw, int gridx, int top)
+{
+	int k, i, cur = -1, y, x0, x1, tlw, ty;
+	char buf[160], v[48];
+	const struct ins *I;
+
+	memset(D.px, C_BG, (size_t)D.W * D.H);
+	snprintf(buf, sizeof buf, "exec of %s on %d lanes (%s), cost model %s",
+	    node_str(X.f->body), X.nl, X.nl == 4 ? "a 2x2 quad" : X.nl == 32 ?
+	    "a warp" : "lockstep", sym_str(X.m->name));
+	text(4, 4, buf, C_TEXT);
+	for (k = 0; k < X.nins; k++)
+		if (X.in[k].cost > 0 && t >= X.in[k].t0 && t < X.in[k].t1)
+			cur = k;
+	/* the serial form */
+	text(listx, top - 14, "serial form", C_GRAY);
+	for (k = 0, y = top; k < X.nins; k++) {
+		int col;
+		I = &X.in[k];
+		col = k == cur ? C_ARROW : t >= I->t1 ? C_TEXT : C_GRAY;
+		if (I->kind == I_BRANCH || I->kind == I_RECONV)
+			col = k == cur ? C_RED : t >= I->t1 ? C_RED : C_GRAY;
+		if (I->kind == I_BARRIER)
+			col = k == cur ? C_BAR_ORANGE : t >= I->t1 ? C_BAR_ORANGE : C_GRAY;
+		if (k == cur)
+			box(listx - 2, y - 1, listw, FONT_6X10_H + 2, C_HI);
+		snprintf(buf, sizeof buf, "%c %s", t >= I->t1 && I->cost > 0 ? '*' :
+		    k == cur ? '>' : ' ', I->text);
+		buf[(listw - 40) / FONT_6X10_W] = 0;
+		text(listx, y, buf, col);
+		if (I->cost > 0) {
+			snprintf(buf, sizeof buf, "%g", I->cost);
+			text(listx + listw - 6 - (int)strlen(buf) * FONT_6X10_W, y, buf,
+			    C_GRAY);
+		}
+		y += FONT_6X10_H + 3;
+	}
+	/* the lanes */
+	for (i = 0; i < X.nl; i++) {
+		int bx = gridx + (i % X.cols) * (LBW + 8);
+		int by = top + (i / X.cols) * (LBH + 8);
+		int active = cur >= 0 && (X.in[cur].mask >> i & 1);
+		int stall = cur >= 0 && X.in[cur].kind == I_BARRIER;
+		int atom = cur >= 0 && X.in[cur].kind == I_ATOMIC;
+		int last = -1, line = 0, fill, j;
+		fill = cur < 0 ? C_CELL : stall ? C_TLBG : atom ? (active ? C_HI :
+		    C_TLBG) : active ? C_CELL : C_TLBG;
+		box(bx, by, LBW, LBH, fill);
+		frame_rect(bx, by, LBW, LBH, stall ? C_BAR_ORANGE : active && cur >= 0 ?
+		    C_ARROW : C_GRID);
+		snprintf(buf, sizeof buf, "lane %d", i);
+		text(bx + 4, by + 3, buf, C_TEXT);
+		/* inputs */
+		{
+			int kx = bx + 4 + 8 * FONT_6X10_W;
+			for (j = 0; j < X.f->np && j < 2; j++) {
+				struct sbuf b = {0};
+				fmt_val(&b, X.f->p[j].ty, X.vi[j][i], X.vr[j][i]);
+				snprintf(buf, sizeof buf, "%s=%s", sym_str(X.f->p[j].name), b.p);
+				free(b.p);
+				kx = text(kx, by + 3, buf, C_GRAY) + FONT_6X10_W;
+			}
+		}
+		/* the latest values this lane computed */
+		for (k = 0; k < X.nins; k++)
+			if (t >= X.in[k].t1 && X.in[k].reg >= 0 && (X.in[k].mask >> i & 1))
+				last = k;
+		for (k = last >= 0 ? last : 0, j = 0; last >= 0 && k >= 0 && j < 3;
+		    k--) {
+			I = &X.in[k];
+			if (I->reg < 0 || !(I->mask >> i & 1) || t < I->t1)
+				continue;
+			xvalue(v, sizeof v, I->n, i);
+			snprintf(buf, sizeof buf, "t%d = %s", I->reg, v);
+			buf[(LBW - 8) / FONT_6X10_W] = 0;
+			text(bx + 4, by + 16 + (2 - j) * 12, buf, j ? C_GRAY : C_TEXT);
+			j++;
+		}
+		line = 0;
+		if (cur >= 0 && !active && !stall) {
+			text(bx + LBW - 7 * FONT_6X10_W, by + 3, atom ? "waits" :
+			    "masked", C_RED);
+			line = 1;
+		}
+		if (stall)
+			text(bx + LBW - 7 * FONT_6X10_W, by + 3, "barrier", C_BAR_ORANGE);
+		(void)line;
+	}
+	/* timeline */
+	x0 = 46;
+	x1 = D.W - 10;
+	tlw = x1 - x0;
+	ty = D.H - 56;
+	box(x0, ty, tlw, 10, C_TLBG);
+	for (k = 0; k < X.nins; k++) {
+		int a, b2, col;
+		I = &X.in[k];
+		if (I->cost <= 0)
+			continue;
+		a = x0 + (int)(tlw * I->t0 / X.T);
+		b2 = x0 + (int)(tlw * I->t1 / X.T);
+		col = I->kind == I_BRANCH || I->kind == I_RECONV ? C_RED :
+		    I->kind == I_BARRIER ? C_BAR_ORANGE : I->kind == I_ATOMIC ? C_HI :
+		    C_BAR;
+		box(a, ty, b2 - a, 10, col);
+		box(a, ty, 1, 10, C_BG);
+	}
+	{
+		int cx = x0 + (int)(tlw * (t < X.T ? t : X.T) / X.T);
+		box(cx - 1, ty - 3, 2, 16, C_TEXT);
+	}
+	text(x0, ty + 12, "0", C_GRAY);
+	snprintf(buf, sizeof buf, "%g", X.T);
+	text(x1 - (int)strlen(buf) * FONT_6X10_W, ty + 12, buf, C_GRAY);
+	{
+		int lx = x0 + tlw / 2 - 22 * FONT_6X10_W;
+		lx = swatch(lx, ty + 12, C_BAR, "op");
+		lx = swatch(lx, ty + 12, C_RED, "branch/keep-up");
+		lx = swatch(lx, ty + 12, C_BAR_ORANGE, "barrier");
+		swatch(lx, ty + 12, C_HI, "atomic");
+	}
+	{
+		double busy = 0, tt = t < X.T ? t : X.T;
+		for (k = 0; k < X.nins; k++) {
+			double d;
+			I = &X.in[k];
+			if (I->cost <= 0 || tt <= I->t0)
+				continue;
+			d = (tt < I->t1 ? tt : I->t1) - I->t0;
+			for (i = 0; i < X.nl; i++)
+				if (I->mask >> i & 1 && I->kind != I_BARRIER)
+					busy += d;
+		}
+		snprintf(buf, sizeof buf, "time %6.1f / %g   lanes busy %3.0f%%", tt,
+		    X.T, tt > 0 ? 100 * busy / (X.nl * tt) : 100.0);
+		text(4, D.H - 26, buf, C_TEXT);
+	}
+	if (cur >= 0)
+		snprintf(buf, sizeof buf, "%s", X.in[cur].text);
+	else
+		snprintf(buf, sizeof buf, t >= X.T ? "done" : "start");
+	buf[(D.W - 8) / FONT_6X10_W] = 0;
+	text(4, D.H - 13, buf, cur < 0 ? C_DONE : C_ARROW);
+}
+
+static void
+animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
+    uint64_t seed, const char *name, int nofile)
+{
+	int64_t in_i[MAXP * CH];
+	double in_r[MAXP * CH];
+	nid root = f->body;
+	int i, j, k, nframes, hold, fr, listw, gridx, top, h1, h2;
+	uint64_t r = seed * 0x9e3779b97f4a7c15ULL + 1;
+	double t = 0, per;
+	struct gif g;
+
+	memset(&X, 0, sizeof X);
+	X.f = f;
+	X.nl = lanes;
+	X.m = model_active();
+	X.cols = lanes == 4 ? 2 : lanes == 8 ? 4 : lanes == 16 ? 4 : 8;
+	X.rows = (lanes + X.cols - 1) / X.cols;
+	/* each lane's inputs */
+	memset(in_i, 0, sizeof in_i);
+	memset(in_r, 0, sizeof in_r);
+	for (i = 0; i < lanes; i++)
+		for (j = 0; j < f->np; j++) {
+			int64_t lo, hi;
+			r ^= r << 13;
+			r ^= r >> 7;
+			r ^= r << 17;
+			if (TY_FP(f->p[j].ty)) {
+				double v = random ? (double)(r % 2001) / 100.0 - 10 :
+				    (double)(i + j);
+				X.vr[j][i] = in_r[(size_t)j * CH + i] = v;
+			} else {
+				int64_t v = random ? (int64_t)(r % 32) : i + j;
+				param_bounds(&f->p[j], &lo, &hi);
+				if (v < lo)
+					v = lo;
+				if (v > hi)
+					v = hi;
+				X.vi[j][i] = in_i[(size_t)j * CH + i] = v;
+			}
+		}
+	plan_build(&X.p, &root, 1, 0);
+	plan_run(&X.p, (uint32_t)lanes, in_i, in_r);
+	xemit(root, lanes == 32 ? 0xffffffffu : (1u << lanes) - 1);
+	for (k = 0; k < X.nins; k++) {
+		X.in[k].t0 = t;
+		t += X.in[k].cost;
+		X.in[k].t1 = t;
+	}
+	X.T = t;
+	/* report */
+	printf("exec of %s, cost model %s, %d lanes in lockstep", node_str(root),
+	    sym_str(X.m->name), lanes);
+	for (j = 0; j < f->np; j++)
+		printf("%s %s: %s", j ? "," : ";", sym_str(f->p[j].name),
+		    ty_str(f->p[j].ty));
+	printf("\n");
+	if (random)
+		printf("  random inputs (seed %llu)\n", (unsigned long long)seed);
+	printf("  serial form:\n");
+	{
+		double keep = 0, busy = 0;
+		for (k = 0; k < X.nins; k++) {
+			const struct ins *I = &X.in[k];
+			char lt[96];
+			int pc = 0;
+			lanes_text(lt, sizeof lt, I->mask);
+			for (i = 0; i < lanes; i++)
+				pc += I->mask >> i & 1;
+			if (I->cost > 0 && I->kind != I_BARRIER) {
+				busy += I->cost * pc;
+				if ((I->kind == I_OP || I->kind == I_ATOMIC) && pc < lanes)
+					keep += I->cost * (lanes - pc);
+			}
+			printf("    %-44s %-10s %5g  t = %g..%g%s%s%s\n", I->text,
+			    I->cls >= 0 ? cclass_name[I->cls] : "", I->cost, I->t0, I->t1,
+			    pc < lanes ? "  lanes {" : "", pc < lanes ? lt : "",
+			    pc < lanes ? "}" : "");
+		}
+		printf("  time %g for every lane; lanes busy %.0f%% (%g lane-units "
+		    "idle: masked, or waiting for an atomic)\n", X.T, X.T > 0 ? 100 * busy / (lanes * X.T) :
+		    100.0, keep);
+	}
+	printf("  result per lane:");
+	for (i = 0; i < lanes; i++) {
+		char v[48];
+		xvalue(v, sizeof v, root, i);
+		printf(" %s", v);
+	}
+	printf("\n");
+	if (X.T <= 0) {
+		printf("  nothing to execute: the expression is a constant or an "
+		    "input\n");
+		plan_free(&X.p);
+		return;
+	}
+	/* layout: the serial form on the left, the lanes on the right */
+	listw = 300;
+	{
+		int maxt = 0;
+		for (k = 0; k < X.nins; k++)
+			if ((int)strlen(X.in[k].text) > maxt)
+				maxt = (int)strlen(X.in[k].text);
+		if (maxt * FONT_6X10_W + 60 > listw)
+			listw = maxt * FONT_6X10_W + 60;
+		if (listw > 520)
+			listw = 520;
+	}
+	top = 36;
+	gridx = 8 + listw + 16;
+	D.W = gridx + X.cols * (LBW + 8) + 4;
+	h1 = X.nins * (FONT_6X10_H + 3);
+	h2 = X.rows * (LBH + 8);
+	D.H = top + (h1 > h2 ? h1 : h2) + 70;
+	D.px = xmalloc((size_t)D.W * D.H);
+	nframes = (int)(fps * seconds + 0.5);
+	hold = (int)(fps * 1.5 + 0.5);
+	per = X.T / (nframes - 1);
+	gif_begin(&g, D.W, D.H, pal, 16);
+	for (fr = 0; fr < nframes + hold; fr++) {
+		double tt = fr < nframes ? fr * per : X.T;
+		int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
+		    (int)(fr * 100.0 / fps + 0.5);
+		xdraw(tt, 8, listw, gridx, top);
+		gif_frame(&g, D.px, d);
+	}
+	gif_end(&g);
+	free(D.px);
+	plan_free(&X.p);
+	printf("  animation: %dx%d, %d frames at %d fps (%.1f s, then the result "
+	    "for 1.5 s), 1 s = %.1f cost units; %zu bytes\n", D.W, D.H,
+	    nframes + hold, fps, seconds, X.T / seconds, g.out.n);
+	deliver(&g, name, nofile);
+	free(g.out.p);
+}
+
+/* the GIF: a file on the command line, an attachment in the bot */
+static void
+deliver(struct gif *gp, const char *name, int nofile)
+{
+	struct gif g = *gp;
+	struct sbuf out = {0};
+
+	if (nofile) {
+		uint32_t hsh = 2166136261u;
+		size_t q;
+		for (q = 0; q < g.out.n; q++)
+			hsh = (hsh ^ (unsigned char)g.out.p[q]) * 16777619u;
+		printf("  (nofile: GIF checksum %08x)\n", hsh);
+	} else if (nlp_defer) {
+		if (g.out.n > MAXGIF) {
+			printf("  the GIF is too large for the chat (%zu bytes): ask "
+			    "for fewer seconds, a lower fps or a smaller n\n", g.out.n);
+		} else {
+			b64(&out, (const unsigned char *)g.out.p, g.out.n);
+			printf("\x1e" "file %s.gif image/gif %zu\n%s\x1e" "end\n", name,
+			    g.out.n, out.p);
+		}
+	} else {
+		char path[80];
+		FILE *fp;
+		snprintf(path, sizeof path, "%s.gif", name);
+		if ((fp = fopen(path, "wb")) == NULL ||
+		    fwrite(g.out.p, 1, g.out.n, fp) != g.out.n) {
+			if (fp)
+				fclose(fp);
+			fail("cannot write %s", path);
+		}
+		fclose(fp);
+		printf("  wrote %s\n", path);
+	}
+	free(out.p);
+}
+
 void
 cmd_animate(struct P *p)
 {
@@ -576,8 +1181,8 @@ cmd_animate(struct P *p)
 	int64_t vals[MAXN];
 	struct model *m = model_active(), *saved = model_active();
 	struct gif g;
-	int nframes, hold, f, nofile = 0;
-	struct sbuf out = {0};
+	int nframes, hold, f, nofile = 0, exec = 0, lanes = 4, seeded = 0;
+	struct func *xf = NULL;
 	double per;
 
 	S.fp = 0;
@@ -623,6 +1228,87 @@ cmd_animate(struct P *p)
 		for (k = 0; w[k]; k++)
 			w[k] = (char)tolower((unsigned char)w[k]);
 word:
+		if (!strcmp(w, "exec") || !strcmp(w, "execute") ||
+		    !strcmp(w, "execution") || !strcmp(w, "run")) {
+			static const char *const exstop[] = {"at", "fps", "lanes",
+			    "lane", "using", "with", "random", "seed", "seconds",
+			    "to", "nofile", "on", "quad", "warp", "under", "for", NULL};
+			ty_t ty = 0;
+			int sign = 0, bits = 0, fpw = 0;
+			exec = 1;
+			if (cmdp_at(p, T_ID)) {   /* "of", "for" */
+				uint32_t pos = cmdp_pos(p);
+				cmdp_word(p, w, sizeof w);
+				if (strcmp(w, "of") && strcmp(w, "for"))
+					cmdp_seek(p, pos);
+			}
+			/* the type: "32-bit", "signed 16-bit", "u32", "float" */
+			for (;;) {
+				uint32_t pos = cmdp_pos(p);
+				int64_t v;
+				ty_t t2;
+				if (cmdp_int(p, &v)) {
+					cmdp_tok(p, T_MINUS);
+					if (cmdp_word(p, w, sizeof w) && (!strcmp(w, "bit") ||
+					    !strcmp(w, "bits") || !strcmp(w, "wide"))) {
+						bits = (int)v;
+						continue;
+					}
+					cmdp_seek(p, pos);
+					break;
+				}
+				if (!cmdp_word(p, w, sizeof w))
+					break;
+				for (k = 0; w[k]; k++)
+					w[k] = (char)tolower((unsigned char)w[k]);
+				if (!strcmp(w, "signed"))
+					sign = 1;
+				else if (!strcmp(w, "unsigned"))
+					sign = 2;
+				else if (!strcmp(w, "float") || !strcmp(w, "floats"))
+					fpw = 32;
+				else if (!strcmp(w, "double") || !strcmp(w, "doubles"))
+					fpw = 64;
+				else if (!strcmp(w, "integer") || !strcmp(w, "integers") ||
+				    !strcmp(w, "int") || !strcmp(w, "ints"))
+					;
+				else if (ty_parse(w, strlen(w), &t2) && strcmp(w, "real"))
+					ty = t2;
+				else {
+					cmdp_seek(p, pos);
+					break;
+				}
+			}
+			if (!ty && fpw)
+				ty = TY(K_FLOAT, bits ? bits : fpw);
+			if (!ty && bits) {
+				if (bits < 1 || bits > 64)
+					fail("animate exec: %d-bit is not a type", bits);
+				ty = TY(sign == 1 ? K_SINT : K_UINT, bits);
+				if (sign == 0)
+					note("%d-bit: every variable is u%d (say \"signed "
+					    "%d-bit\" for i%d)", bits, bits, bits, bits);
+				else
+					note("%d-bit: every variable is %s", bits, ty_str(ty));
+			} else if (ty)
+				note("every variable is %s", ty_str(ty));
+			xf = cmdp_func_typed(p, exstop, ty);
+			continue;
+		}
+		if (!strcmp(w, "lanes") || !strcmp(w, "lane")) {
+			cmdp_tok(p, T_ASSIGN);
+			if (cmdp_at(p, T_NUM))
+				lanes = (int)cmdp_number(p, stopw);
+			continue;
+		}
+		if (!strcmp(w, "quad")) {
+			lanes = 4;
+			continue;
+		}
+		if (!strcmp(w, "warp")) {
+			lanes = 32;
+			continue;
+		}
 		if (!strcmp(w, "n") || !strcmp(w, "size") || !strcmp(w, "length")) {
 			last_n = 1;
 			continue;
@@ -663,6 +1349,7 @@ word:
 			cmdp_tok(p, T_ASSIGN);
 			seed = (uint64_t)cmdp_number(p, stopw);
 			random = 1;
+			seeded = 1;
 			continue;
 		}
 		if (!strcmp(w, "values")) {
@@ -708,6 +1395,23 @@ word:
 	}
 	if (unk[0])
 		note("animate: ignored %s", unk);
+	if (random && !seeded)   /* a new sample each time; the seed is shown */
+		seed = (uint64_t)time(NULL) % 100000 + 1;
+	if (exec) {
+		if (xf == NULL)
+			fail("animate exec of EXPR: which expression?");
+		if (lanes != 4 && lanes != 8 && lanes != 16 && lanes != 32)
+			fail("animate exec: lanes 4 (a 2x2 quad), 8, 16 or 32 (a warp)");
+		if (fps < 1 || fps > 60)
+			fail("animate: fps from 1 to 60");
+		if (seconds < 1 || seconds > 20)
+			fail("animate: seconds from 1 to 20");
+		notes_flush();
+		model_set_active(m);
+		animate_exec(xf, lanes, fps, seconds, random, seed, name, nofile);
+		model_set_active(saved);
+		return;
+	}
 	if (nvals)
 		n = nvals;
 	if (n < 2)
@@ -813,34 +1517,6 @@ word:
 	printf("  animation: %dx%d, %d frames at %d fps (%.1f s, then the result "
 	    "for 1.5 s), 1 s = %.1f cost units; %zu bytes\n", D.W, D.H,
 	    nframes + hold, fps, seconds, S.T / seconds, g.out.n);
-	if (nofile) {
-		uint32_t hsh = 2166136261u;
-		size_t q;
-		for (q = 0; q < g.out.n; q++)
-			hsh = (hsh ^ (unsigned char)g.out.p[q]) * 16777619u;
-		printf("  (nofile: GIF checksum %08x)\n", hsh);
-	} else if (nlp_defer) {
-		if (g.out.n > MAXGIF) {
-			printf("  the GIF is too large for the chat (%zu bytes): ask "
-			    "for fewer seconds, a lower fps or a smaller n\n", g.out.n);
-		} else {
-			b64(&out, (const unsigned char *)g.out.p, g.out.n);
-			printf("\x1e" "file %s.gif image/gif %zu\n%s\x1e" "end\n", name,
-			    g.out.n, out.p);
-		}
-	} else {
-		char path[80];
-		FILE *fp;
-		snprintf(path, sizeof path, "%s.gif", name);
-		if ((fp = fopen(path, "wb")) == NULL ||
-		    fwrite(g.out.p, 1, g.out.n, fp) != g.out.n) {
-			if (fp)
-				fclose(fp);
-			fail("cannot write %s", path);
-		}
-		fclose(fp);
-		printf("  wrote %s\n", path);
-	}
-	free(out.p);
+	deliver(&g, name, nofile);
 	free(g.out.p);
 }

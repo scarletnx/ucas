@@ -1,6 +1,12 @@
 # animate (live session 3): the exact request, the algorithms, the cap
-animate random sample prefix sum scan n=8 at 30 fps using gt1030 nofile
+animate random sample prefix sum scan n=8 at 30 fps using gt1030 seed 1 nofile
 animate blelloch scan n 8 fps 24 seconds 4 nofile
 animate sequential scan values 3, 1, 7, 0, 4, 1, 6, 3 nofile
 animate scan n 500 fps 30 seconds 2 nofile
 animate scan n 8 fps 90 nofile
+# animate exec (live session 5): the serial form on a 2x2 quad
+animate exec of 32-bit (1 << x) + x nofile
+animate exec of 32-bit x > 1 ? x*x*x : x + 7 nofile
+animate exec of 32-bit x < 100 ? x*3 : x/3 nofile
+animate exec of u32 barrier(atomic_add_shared(x, 1) + x) * 2 nofile
+animate exec of signed 16-bit x*x - 3 lanes 32 nofile

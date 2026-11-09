@@ -358,6 +358,10 @@ int cmdp_tok(struct P *p, int kind);		/* accept a token */
 int cmdp_at(struct P *p, int kind);		/* peek */
 int cmdp_eos(struct P *p);
 struct func *cmdp_func(struct P *p, const char *const *stop);
+struct func *cmdp_func_typed(struct P *p, const char *const *stop, ty_t ty);
+uint32_t cmdp_pos(struct P *p);
+void cmdp_seek(struct P *p, uint32_t pos);
+int cmdp_int(struct P *p, int64_t *v);
 double cmdp_number(struct P *p, const char *const *stop);
 void cmdp_fail_here(struct P *p);
 int cmdp_word(struct P *p, char *buf, size_t n);
