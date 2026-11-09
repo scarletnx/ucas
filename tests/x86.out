@@ -1,0 +1,303 @@
+> x86 models
+  skl    skylake        Intel Skylake/Kaby/Coffee Lake client core (this host's i5-9400 is one): AVX2, no AVX-512
+  skx    skylake-x      Intel Skylake-SP/X server core: AVX-512 F/CD/BW/DQ/VL, two 512-bit FMA units (ports 0+1 fused, 5)
+  glc    goldencove     Intel Golden Cove P-core as in Sapphire Rapids: AVX-512 with VBMI, VPOPCNTDQ, BITALG, GFNI
+  rpl    raptorlake     Intel Raptor Lake / Alder Lake P-core (Golden Cove/Raptor Cove): Golden Cove costs, AVX-512 fused off; GFNI, VAES and VPCLMULQDQ on xmm/ymm
+  zen4   znver4         AMD Zen 4: AVX-512 (VBMI, VPOPCNTDQ, BITALG, GFNI) on 256-bit pipes, 512-bit ops double-pumped
+  x86v2  x86-64-v2      generic x86-64-v2 (SSE4.2, POPCNT): the worst of Skylake, Golden Cove and Zen 4 per class
+  x86v3  x86-64-v3      generic x86-64-v3 (AVX2, FMA, BMI1/2, LZCNT, MOVBE): the worst of Skylake, Golden Cove and Zen 4
+  x86v4  x86-64-v4      generic x86-64-v4 (AVX-512 F/BW/CD/DQ/VL): the worst of Skylake-X, Golden Cove and Zen 4
+> model skl
+model skl (skylake): Intel Skylake/Kaby/Coffee Lake client core (this host's i5-9400 is one): AVX2, no AVX-512
+  features: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma f16c pclmul aes adx movbe
+  dispatch 4 uops/cycle, ROB 224, scheduler 97, branch mispredict 16 cycles
+  ports: p0 p1 p2 p3 p4 p5 p6 p7
+  class        xmm/scalar: lat rtp uops ports ymm                      
+  add             1  0.25  1 p0156     [M]
+  lea             3     1  1 p1        [U]
+  shl             1   0.5  1 p06       [U]
+  shlx            1   0.5  1 p06       [U]
+  shl cl          2   1.5  3 p06       [U]
+  imul            3     1  1 p1        [M]
+  mulx            4     1  2 p15       [U]
+  div r32        26     6 10 p0156     [U]
+  div r64        36    21 36 p0156     [M]
+  popcnt          3     1  1 p1        [M]
+  andn            1   0.5  1 p15       [U]
+  pext            3     1  1 p1        [M]
+  cmov            1   0.5  1 p06       [U]
+  setcc           1   0.5  1 p06       [U]
+  adc             1   0.5  1 p06       [U]
+  jcc             1   0.5  1 p06       [U]
+  load            5   0.5  1 p23       [U]
+  store           1     1  1 p4        [U]
+  crc32           3     1  1 p1        [U]
+  lock add       18    18  9 p0156     [A]
+  call libm      20    15 20 p0156     [E]
+  cvtsi2ss        5     1  2 p015      [U]
+  cvttss2si       6     1  2 p015      [U]
+  movd r,x        2     1  1 p0        [U]
+  movd x,r        2     1  1 p5        [U]
+  vpaddd          1  0.33  1 p015        1  0.33  1 p015      [M]
+  vpminsd         1   0.5  1 p01         1   0.5  1 p01       [U]
+  vpslld          1   0.5  1 p01         1   0.5  1 p01       [U]
+  vpsllw x        2     1  2 p015        4     1  2 p015      [U]
+  vpshufb         1     1  1 p5          1     1  1 p5        [M]
+  vpermd          3     1  1 p5          3     1  1 p5        [U]
+  vpblendd        1  0.33  1 p015        1  0.33  1 p015      [U]
+  vpblendvb       2     1  2 p015        2     1  2 p015      [U]
+  vpmullw         5   0.5  1 p01         5   0.5  1 p01       [U]
+  vpmulld        10     1  2 p01        10     1  2 p01       [U]
+  vpsadbw         3     1  1 p5          3     1  1 p5        [U]
+  vpcmpgtq        3     1  1 p5          3     1  1 p5        [U]
+  vpmovmskb       3     1  1 p0          3     1  1 p0        [U]
+  vptest          3     1  2 p05         3     1  2 p05       [U]
+  vpextrd         3     1  2 p05         3     1  2 p05       [U]
+  vpinsrd         3     2  2 p5          3     2  2 p5        [U]
+  vpmovzx         1     1  1 p5          3     1  1 p5        [U]
+  vphaddd         3     2  3 p015        3     2  3 p015      [U]
+  vaddps          4   0.5  1 p01         4   0.5  1 p01       [M]
+  vmulps          4   0.5  1 p01         4   0.5  1 p01       [U]
+  vfmadd          4   0.5  1 p01         4   0.5  1 p01       [M]
+  vdivps         11     3  1 p0         11     5  1 p0        [U]
+  vdivpd         14     4  1 p0         14     8  1 p0        [U]
+  vsqrtps        12     3  1 p0         12     6  1 p0        [U]
+  vsqrtpd        16     6  1 p0         16    12  1 p0        [U]
+  vrcpps          4     1  1 p0          4     1  1 p0        [U]
+  vroundps        8     1  2 p01         8     1  2 p01       [U]
+  vminps          4   0.5  1 p01         4   0.5  1 p01       [U]
+  vcmpps          4   0.5  1 p01         4   0.5  1 p01       [U]
+  vcvtdq2ps       4   0.5  1 p01         4   0.5  1 p01       [U]
+  vcvtps2pd       5     1  2 p015        7     1  2 p015      [U]
+  vpgatherdd     20     4  4 p0235      22     5  4 p0235     [U]
+  vpgatherqq     20     3  4 p0235      22     4  4 p0235     [U]
+  pclmulqdq       7     1  1 p5          7     1  1 p5        [U]
+  aesenc          4     1  1 p0          4     1  1 p0        [U]
+  mpsadbw         4     2  2 p5          4     2  2 p5        [U]
+  vmovdqu ld      6   0.5  1 p23         7   0.5  1 p23       [U]
+  vmovdqu st      1     1  1 p4          1     1  1 p4        [U]
+  vpmaskmovd ld    8   0.5  2 p01235      8   0.5  2 p01235    [U]
+  vpmaskmovd st    1     1  3 p0457       1     1  3 p0457     [U]
+  vpbroadcastd r    3     1  2 p5          3     1  2 p5        [U]
+  sources: U uops.info, A Agner Fog, I Intel manual, D AMD Zen 4 SOG, M measured here, E estimate, V derived from ymm, G worst of the level's cores
+  as a ucas cost model (scalar latencies; see `models`):
+    model skl {
+      iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1,
+      select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2,
+      fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1,
+      load: 5, branch: 1, diverge: 8, barrier: 33,
+      atomic_shared: 18, atomic_global: 18, store: 1
+    }
+> model x86v4
+model x86v4 (x86-64-v4): generic x86-64-v4 (AVX-512 F/BW/CD/DQ/VL): the worst of Skylake-X, Golden Cove and Zen 4
+  features: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma f16c movbe avx512f avx512bw avx512dq avx512vl avx512cd
+  dispatch 4 uops/cycle, ROB 224, scheduler 97, branch mispredict 17 cycles
+  ports: p0 p1 p2 p3 p4 p5 p6 p7
+  class        xmm/scalar: lat rtp uops ports ymm                       zmm
+  add             1  0.25  1 p0156     [G]
+  lea             3     1  1 p1        [G]
+  shl             1   0.5  1 p06       [G]
+  shlx            1   0.5  1 p06       [G]
+  shl cl          2   1.5  3 p06       [G]
+  imul            3     1  1 p1        [G]
+  mulx            4     1  2 p15       [G]
+  div r32        26     6 10 p0156     [G]
+  div r64        36    21 36 p0156     [G]
+  popcnt          3     1  1 p1        [G]
+  andn            1   0.5  1 p15       [G]
+  pext            3     1  1 p1        [G]
+  cmov            1   0.5  1 p06       [G]
+  setcc           1   0.5  1 p06       [G]
+  adc             1   0.5  1 p06       [G]
+  jcc             1   0.5  1 p06       [G]
+  load            5   0.5  1 p23       [G]
+  store           1     1  1 p4        [G]
+  crc32           3     1  1 p1        [G]
+  lock add       20    20  9 p0156     [G]
+  call libm      20    15 20 p0156     [G]
+  cvtsi2ss        5     1  2 p015      [G]
+  cvttss2si       6     1  2 p015      [G]
+  movd r,x        3     1  1 p0        [G]
+  movd x,r        3     1  1 p5        [G]
+  vpaddd          1  0.33  1 p015        1  0.33  1 p015        1   0.5  1 p05       [G]
+  vpminsd         1   0.5  1 p01         1   0.5  1 p01         1     1  1 p0        [G]
+  vpslld          1   0.5  1 p01         1   0.5  1 p01         1     1  1 p0        [G]
+  vpsllw x        2     1  2 p015        4     1  2 p015        4   1.5  2 p05       [G]
+  vpshufb         1     1  1 p5          1     1  1 p5          1     1  1 p5        [G]
+  vpermd          3     1  1 p5          4     1  1 p5          6     2  1 p5        [G]
+  vpblendd        1  0.33  1 p015        1  0.33  1 p015        1   0.5  1 p05       [G]
+  vpblendvb       3     1  2 p015        3     1  2 p015        3   1.5  2 p05       [G]
+  vpmullw         5   0.5  1 p01         5   0.5  1 p01         5     1  1 p0        [G]
+  vpmulld        10     1  2 p01        10     1  2 p01        10     2  2 p0        [G]
+  vpmullq        15   1.5  3 p01        15   1.5  3 p01        15   1.5  3 p0        [G]
+  vpsadbw         3     1  1 p5          3     1  1 p5          3     1  1 p5        [G]
+  vpcmpgtq        3     1  1 p5          3     1  1 p5          3     1  1 p5        [G]
+  vpmovmskb       5     1  1 p0          5     1  1 p0          5     2  1 p0        [G]
+  vptest          4     1  2 p05         4     1  2 p05         4     2  2 p05       [G]
+  vpextrd         4     1  2 p05         4     1  2 p05         4     2  2 p05       [G]
+  vpinsrd         4     2  2 p5          4     2  2 p5          4     2  2 p5        [G]
+  vpmovzx         1     1  1 p5          4     1  1 p5          4     2  1 p5        [G]
+  vpmovdb         4     2  2 p5          4     2  2 p5          4     4  2 p5        [G]
+  vphaddd         3     2  3 p015        3     2  3 p015        3     3  3 p05       [G]
+  vpcmpd k        3     1  1 p5          3     1  1 p5          3     1  1 p5        [G]
+  vaddps          4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vmulps          4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vfmadd          4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vdivps         11     3  1 p0         11     5  1 p0         18    10  3 p05       [G]
+  vdivpd         14     5  1 p0         14     8  1 p0         23    16  3 p05       [G]
+  vsqrtps        15     5  1 p0         15     8  1 p0         19    16  3 p05       [G]
+  vsqrtpd        21     9  1 p0         21    13  1 p0         25    26  3 p05       [G]
+  vrcpps          4     1  1 p0          4     1  1 p0          4     2  3 p05       [G]
+  vroundps        8     1  2 p01         8     1  2 p01         8     2  2 p0        [G]
+  vminps          4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vcmpps          4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vcvtdq2ps       4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  vcvtps2pd       5     1  2 p015        7     1  2 p015        7     2  2 p05       [G]
+  vpgatherdd     20     4  4 p0235      22     8  4 p0235      25    16  4 p0235     [G]
+  vpgatherqq     20     3  4 p0235      22     5  4 p0235      25     8  4 p0235     [G]
+  vpternlogd      1  0.33  1 p015        1  0.33  1 p015        1   0.5  1 p05       [G]
+  vplzcntd        4   0.5  1 p01         4   0.5  1 p01         4     1  1 p0        [G]
+  pclmulqdq       7     1  1 p5          7     1  1 p5          7     2  1 p5        [G]
+  aesenc          4     1  1 p0          4     1  1 p0          4     1  1 p0        [G]
+  vpcompressd     4     2  2 p5          4     2  2 p5          4     4  2 p5        [G]
+  kandw           1     1  1 p0          1     1  1 p0          1     1  1 p0        [G]
+  kmovw           3     1  1 p0          3     1  1 p0          3     2  1 p0        [G]
+  mpsadbw         4     2  2 p5          4     2  2 p5          4     4  2 p5        [G]
+  vmovdqu ld      7   0.5  1 p23         7   0.5  1 p23         8     1  1 p23       [G]
+  vmovdqu st      1     1  1 p4          1     1  1 p4          1     2  1 p4        [G]
+  vpmaskmovd ld    8   0.5  2 p01235      8   0.5  2 p01235      8     1  2 p0235     [G]
+  vpmaskmovd st    1     6  3 p0457       1     6  3 p0457       1    12  3 p0457     [G]
+  vpbroadcastd r    4     1  1 p5          4     1  1 p5          4     2  1 p5        [G]
+  sources: U uops.info, A Agner Fog, I Intel manual, D AMD Zen 4 SOG, M measured here, E estimate, V derived from ymm, G worst of the level's cores
+  as a ucas cost model (scalar latencies; see `models`):
+    model x86v4 {
+      iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1,
+      select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3,
+      fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1,
+      load: 5, branch: 1, diverge: 8.5, barrier: 33,
+      atomic_shared: 20, atomic_global: 20, store: 1
+    }
+> dot(x: u32, y: u32) = { s = 0; for i in 0..99 { s = s + (x + i) * (y xor i) }; s }
+> mca dot on skl
+mca of dot on skl (skylake)
+  loop body (per iteration): 6 instructions, 6 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  add       int(x) + i              1  0.25    1  p0156     4'
+     1  add       int(y) xor i            1  0.25    1  p0156     4'
+     2  imul      (int(x) + i)*(int(y) xor i)    3     1    1  p1        0 1
+     3  add       s + (int(x) + i)*(int(y) xor i… (1     1  0.25    1  p0156     3' 2
+     4  add       index, 1                1  0.25    1  p0156     4'
+     5  cmp+jcc   index, end              1   0.5    1  p06       4
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure per iteration: p0 1.50 p1 1.50 p5 1.50 p6 1.50
+  bounds: recurrence 1.00, ports 1.50 (p0), front end 1.50 (6 uops / 4)
+  simulated: 1.67 cycles per iteration (steady state over 120 iterations), limited by port pressure
+  total: about 167 cycles (100 iterations)
+> mca dot on zen4
+mca of dot on zen4 (znver4)
+  loop body (per iteration): 6 instructions, 6 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  add       int(x) + i              1  0.25    1  ALU0 ALU1 ALU2 ALU3 4'
+     1  add       int(y) xor i            1  0.25    1  ALU0 ALU1 ALU2 ALU3 4'
+     2  imul      (int(x) + i)*(int(y) xor i)    3     1    1  ALU1      0 1
+     3  add       s + (int(x) + i)*(int(y) xor i… (1     1  0.25    1  ALU0 ALU1 ALU2 ALU3 3' 2
+     4  add       index, 1                1  0.25    1  ALU0 ALU1 ALU2 ALU3 4'
+     5  cmp+jcc   index, end              1   0.5    1  ALU0 ALU3 4
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure per iteration: ALU0 1.50 ALU1 1.50 ALU2 1.50 ALU3 1.50
+  bounds: recurrence 1.00, ports 1.50 (ALU0), front end 1.00 (6 uops / 6)
+  simulated: 1.67 cycles per iteration (steady state over 120 iterations), limited by port pressure
+  total: about 167 cycles (100 iterations)
+> q(x: u32) = (x * 3 + 7) / 13 + popcnt(x)
+> mca q on skl
+mca of q on skl (skylake)
+  straight-line code: 6 instructions, 7 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  lea       3x                      3     1    1  p1        
+     1  add       3x + 7                  1  0.25    1  p0156     0
+     2  mulx      (3x + 7)/13             4     1    2  p15       1
+     3  shl       (3x + 7)/13             1   0.5    1  p06       2
+     4  popcnt    popcount(x)             3     1    1  p1        
+     5  add       (3x + 7)/13 + popcount(x)    1  0.25    1  p0156     3 4
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure: p0 1.50 p1 2.00 p5 2.00 p6 1.50
+  bounds: critical path 10.00, ports 2.00 (p1), front end 1.75 (7 uops / 4)
+  simulated: 10.00 cycles, limited by the critical path
+> mca q on glc
+mca of q on glc (goldencove)
+  straight-line code: 6 instructions, 7 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  lea       3x                      2   0.5    1  p15       
+     1  add       3x + 7                  1   0.2    1  p0156 p10 0
+     2  mulx      (3x + 7)/13             4     1    2  p15       1
+     3  shl       (3x + 7)/13             1   0.5    1  p06       2
+     4  popcnt    popcount(x)             3     1    1  p1        
+     5  add       (3x + 7)/13 + popcount(x)    1   0.2    1  p0156 p10 3 4
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure: p0 1.00 p1 2.00 p5 2.00 p6 1.00 p10 1.00
+  bounds: critical path 9.00, ports 2.00 (p1), front end 1.17 (7 uops / 6)
+  simulated: 9.00 cycles, limited by the critical path
+> cost q model zen4
+cost of q under zen4: 11 (5 operations, shared subterms counted once)
+  iadd             2 x 1     = 2
+  imul             1 x 3     = 3
+  idivk            1 x 5     = 5
+  bitcnt           1 x 1     = 1
+> h(x: f32, y: f32) = { a = x; for i in 1..64 { a = a * y + x }; a }
+> mca h on skl
+mca of h on skl (skylake)
+  loop body (per iteration): 4 instructions, 4 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  vmulps    a*y                     4   0.5    1  p01       1'
+     1  vaddps    a*y + x                 4   0.5    1  p01       0
+     2  add       index, 1                1  0.25    1  p0156     2'
+     3  cmp+jcc   index, end              1   0.5    1  p06       2
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure per iteration: p0 1.00 p1 1.00 p5 1.00 p6 1.00
+  bounds: recurrence 8.00, ports 1.00 (p0), front end 1.00 (4 uops / 4)
+  simulated: 8.00 cycles per iteration (steady state over 120 iterations), limited by the loop-carried recurrence
+  total: about 512 cycles (64 iterations)
+> mca h on glc
+mca of h on glc (goldencove)
+  loop body (per iteration): 4 instructions, 4 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  vmulps    a*y                     4   0.5    1  p01       1'
+     1  vaddps    a*y + x                 2   0.5    1  p15       0
+     2  add       index, 1                1   0.2    1  p0156 p10 2'
+     3  cmp+jcc   index, end              1   0.5    1  p06       2
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure per iteration: p0 0.81 p1 0.81 p5 0.81 p6 0.81 p10 0.75
+  bounds: recurrence 6.00, ports 0.81 (p0), front end 0.67 (4 uops / 6)
+  simulated: 6.00 cycles per iteration (steady state over 120 iterations), limited by the loop-carried recurrence
+  total: about 384 cycles (64 iterations)
+> d(x: u64, y: u64) = x / (y + 1) + x % 10
+> mca d on skl
+mca of d on skl (skylake)
+  straight-line code: 7 instructions, 43 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  add       y + 1                   1  0.25    1  p0156     
+     1  div r64   x/(y + 1)              36    21   36  p0156     0
+     2  mulx      x % 10                  4     1    2  p15       
+     3  shl       x % 10                  1   0.5    1  p06       2
+     4  imul      x % 10                  3     1    1  p1        3
+     5  add       x % 10                  1  0.25    1  p0156     4
+     6  add       x/(y + 1) + x % 10      1  0.25    1  p0156     1 5
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure: p0 22.00 p1 13.69 p5 13.69 p6 13.62
+  bounds: critical path 38.00, ports 22.00 (p0), front end 10.75 (43 uops / 4)
+  simulated: 49.00 cycles, limited by the critical path
+> mca d on zen4
+mca of d on zen4 (znver4)
+  straight-line code: 7 instructions, 9 uops
+     #  instruction                     lat   rtp uops  ports     inputs
+     0  add       y + 1                   1  0.25    1  ALU0 ALU1 ALU2 ALU3 
+     1  div r64   x/(y + 1)              14     9    2  ALU1      0
+     2  mulx      x % 10                  4     1    2  ALU1 ALU2 
+     3  shl       x % 10                  1   0.5    1  ALU1 ALU2 2
+     4  imul      x % 10                  3     1    1  ALU1      3
+     5  add       x % 10                  1  0.25    1  ALU0 ALU1 ALU2 ALU3 4
+     6  add       x/(y + 1) + x % 10      1  0.25    1  ALU0 ALU1 ALU2 ALU3 1 5
+    (inputs: instruction numbers; ' = from the previous iteration)
+  port pressure: ALU0 1.50 ALU1 11.00 ALU2 3.00 ALU3 1.50
+  bounds: critical path 16.00, ports 11.00 (ALU1), front end 1.50 (9 uops / 6)
+  simulated: 25.00 cycles, limited by the critical path

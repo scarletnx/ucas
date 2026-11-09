@@ -1,0 +1,17 @@
+# x86-64 cost models (src/x86data.c) and mca (src/x86mca.c)
+x86 models
+model skl
+model x86v4
+dot(x: u32, y: u32) = { s = 0; for i in 0..99 { s = s + (x + i) * (y xor i) }; s }
+mca dot on skl
+mca dot on zen4
+q(x: u32) = (x * 3 + 7) / 13 + popcnt(x)
+mca q on skl
+mca q on glc
+cost q model zen4
+h(x: f32, y: f32) = { a = x; for i in 1..64 { a = a * y + x }; a }
+mca h on skl
+mca h on glc
+d(x: u64, y: u64) = x / (y + 1) + x % 10
+mca d on skl
+mca d on zen4

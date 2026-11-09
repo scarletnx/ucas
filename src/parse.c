@@ -25,6 +25,7 @@
 #include "ring.h"
 #include "viz.h"
 #include "xform.h"
+#include "x86.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1869,6 +1870,8 @@ statement(struct P *p)
 	if (pk(p) == T_EOF)
 		return;
 	diag_tok = p->i;
+	if (x86_command(p))	/* model zen4, mca, intrinsic ... (x86.c) */
+		return;
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
@@ -2322,6 +2325,7 @@ run_source1(const char *src, const char *file, int echo)
 		prelude_done = 1;
 		run_source(prelude, "<prelude>", 0);
 		model_set_active(model_find(sym_cstr("gt1030")));
+		x86_prelude();	/* the x86 µarchs as cost models (x86data.c) */
 	}
 	diag_file = file;
 	diag_toks = t;

@@ -18,7 +18,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_global", "store",
 };
 
-#define MAXMODEL 16
+#define MAXMODEL 32
 static struct model models[MAXMODEL];
 static int nmodels;
 static struct model *active;

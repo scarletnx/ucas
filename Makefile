@@ -27,6 +27,8 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# x86-64: cost models per µarch, mca, intrinsics, vectoriser (cfront F2)
+SRCS+=	x86.c x86data.c x86mca.c
 .PATH:	${.CURDIR}/src
 MAN=
 
