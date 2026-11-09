@@ -157,6 +157,8 @@ void ode_equation(uint32_t var, int order, const char *rhs, uint32_t tok);
 void ode_initial(uint32_t var, int order, const char *t0, const char *val);
 void cmd_dsolve(uint32_t var, nid t0, nid t1, int steps);
 void cmd_continuous(struct func *f);
+const char *ode_rhs_text(uint32_t var, int *order);   /* plot.c */
+int ode_ic_text(uint32_t var, int order, const char **t0, const char **val);
 struct pde {
 	uint32_t u, x, t;         /* names */
 	int order_t;              /* 1: u_t = ..., 2: u_tt = ... */

@@ -1551,6 +1551,10 @@ help(void)
 "  approx more [n]\n"
 "  animate [hillis|blelloch|sequential] scan [n N] [fps F] [seconds S]\n"
 "    [random [seed K] | values a, b, ...] [f32] [MODEL] [to NAME]\n"
+"  plot F, G ... [x in a..b] [y in c..d] [deriv] [tangent a] [logx|logy]\n"
+"    [contour|heatmap|wireframe|3d] [rotate] [animate t] [slices|parallel]\n"
+"    [polar] [field] [fps F] [frames N] [to NAME]; plot3d F; neighbourhood F\n"
+"    [at a]\n"
 "loops and calculus\n"
 "  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
 "  closed F | scheme F [model m] | continuous F\n"
@@ -1737,6 +1741,46 @@ cmdp_number(struct P *p, const char *const *stop)
 	return TY_FP(N.ty[e]) ? N.kr[e] : (double)N.ki[e];
 }
 
+/*
+ * plot.c: a command's function argument given as text (a piece of a
+ * plot's list), read as cmd_func reads one; errors unwind to the caller
+ */
+struct func *
+cmd_func_text(const char *src)
+{
+	struct toks *const t = xcalloc(1, sizeof *t);
+	struct P *const q = xcalloc(1, sizeof *q);
+	struct toks *dt = diag_toks;
+	uint32_t di = diag_tok;
+	jmp_buf saved;
+	struct func *f;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	q->t = t;
+	diag_toks = t;
+	if (setjmp(fail_jmp)) {
+		memcpy(fail_jmp, saved, sizeof saved);
+		diag_toks = dt;
+		diag_tok = di;
+		toks_free(t);
+		free(t);
+		free(q);
+		longjmp(fail_jmp, 1);
+	}
+	lex(t, src);
+	f = cmd_func(q);
+	if (!at_eos(q))
+		fail("unexpected '%.*s' in %s", (int)t->len[q->i],
+		    t->src + t->off[q->i], src);
+	memcpy(fail_jmp, saved, sizeof saved);
+	diag_toks = dt;
+	diag_tok = di;
+	toks_free(t);
+	free(t);
+	free(q);
+	return f;
+}
+
 static void
 statement(struct P *p)
 {
@@ -1801,6 +1845,15 @@ statement(struct P *p)
 			if (budget > 60)
 				budget = 60;
 			spirv_simplify(code_block, budget, nofile);
+			return;
+		}
+		/* plot (plot.c) */
+		if ((is_kw(p, "plot") || is_kw(p, "plot3d") ||
+		    is_kw(p, "neighbourhood") || is_kw(p, "neighborhood")) &&
+		    !func_find(tsym(p, p->i))) {
+			int mode = is_kw(p, "plot") ? 0 : is_kw(p, "plot3d") ? 1 : 2;
+			adv(p);
+			cmd_plot(p, mode);
 			return;
 		}
 		/* animate (anim.c) */

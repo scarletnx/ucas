@@ -166,6 +166,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
+| `plot F, ...`, `plot3d F`, `neighbourhood F [at a]` | GIF plots, bounds chosen from the function when not given (see Plots) |
 | `approx F in a..b [options]`, `approx more [n]` | polynomial, rational and range-reduced approximations, measured as they run (see below) |
 | `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
 | `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
@@ -727,6 +728,67 @@ Data-oriented throughout (see `src/ucas.h`):
   is a local walk, not a lattice-based (fpminimax) search; range
   reductions are offered for builtins only, and the cost model prices
   throughput, not latency.  Piecewise approximations use two pieces.
+
+## Plots
+
+```
+> plot sin x, cos x
+plot of 2 functions
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-1.1, 1.1]: the values
+  ...
+  image: 640x440, 13072 bytes
+  wrote plot.gif
+> plot tan x
+  y in [-13.45, 13.4]: the bulk of the values (they reach [-191, 191])
+    poles at x ≈ -1.571 (-pi/2), 1.571 (pi/2)
+> neighbourhood sin(x)/x at 3
+  x in [1.714, 4.286]: around x = 3: features on both sides within 0.9184 (an inflection point at 2.082)
+```
+
+`plot` draws functions into a GIF (a still plot is one frame): NAME.gif
+on the command line (default `plot.gif`), an attachment in the bot, as
+`animate` does.  It also prints what it chose and found (bounds and why,
+samples, poles, jumps, undefined stretches), so the text is a test.
+
+| form | |
+|------|--|
+| `plot F, G, ...` | functions of one variable overlaid, with a legend.  The line breaks where F is undefined, at jumps and at poles (a jump that stays when the interval is halved 60 times; a pole when the values grow; poles get a dashed asymptote), and the y range keeps the bulk of the values when there are poles or far outliers.  Integer inputs are points (up to 160) or steps |
+| `plot x^2 + y^2 = 1`, `plot y = x^2`, `plot x = 3` | an equation: `y = ...` is a curve, anything else lhs - rhs = 0, drawn by marching squares (equal scales on both axes) |
+| `plot x^2 + y^2 < 4` | a region, shaded, with its boundary |
+| `plot (x(t), y(t))`, `plot r = f(theta)`, `plot polar f` | parametric and polar curves (t in [0, 2pi] by default; a polar curve runs until it closes) |
+| `plot (x(t), y(t), z(t))` | a space curve in a box, coloured along t |
+| `plot (P, Q)` | a vector field: arrows coloured by length |
+| `plot y' = f(t, y)`, `plot y` (a defined ODE), `plot F field` | a slope field with nine RK4 solutions; through the initial value `y(0) = ...` when the ODE has one |
+| `plot F` of two variables, `plot3d F` | a surface: a z-buffered, shaded and height-coloured 65x65 grid with grid lines, back panes, labelled axes and a colour bar.  `contour`, `heatmap`, `wireframe` are the other views; `rotate` turns it once (36 frames) |
+| three or more variables | one is animated (`t` if there is one, else the third), x and y form a heat map (`3d`/`plot3d`: a surface); with four, small multiples (3x3) over a third and frames over the fourth; the rest are fixed at the middle of their range, with a note.  `slices`: small multiples instead of frames; `parallel`: parallel coordinates of 400 random points |
+| `plot F animate t` | frames over t of whatever the other variables make |
+| `deriv`, `tangent a` | also F' (symbolic, `diff`'s) and the tangent at a |
+| `logx`, `logy`, `loglog` | logarithmic axes |
+| `x in a..b`, `x in [a, b]`, `x from a to b`, `y in c..d`, `z in ...` | ranges; `x` is the horizontal axis whatever the curve's variable is called |
+| `fps F`, `frames N`, `seconds S`, `points N`, `to NAME`, `nofile` | animation, sampling, the file (`nofile`: a checksum, for tests) |
+
+Bounds that are not given come from the parameter's declared range,
+then its type (`x: u8` is 0..255), then the function: a period found
+numerically (`guess_period`: multiples of pi/6, pi/4 and quarter units
+first, then a scan; two periods are shown, one period loops an
+animation); else the zeros, extrema and inflection points
+(`crit_roots` on F and F'), poles, jumps, holes and domain edges in
+[-10, 10] (else [-100, 100]), with a margin, not past a domain edge, the
+eight nearest 0 when there are many, rounded to a twentieth of the
+span.  With several variables each is sliced at a few values of the
+others.  `neighbourhood F` (also `plot F around a`, `at a`) prints the
+features it found; `at a` takes a window reaching the nearest feature
+on each side, or the radius of curvature when there is none.
+
+In English: `plot|graph|draw|sketch|visualize|chart|render ...`, `show
+me a surface plot of ...`, `a contour plot of ...`, `F as a
+neighbourhood`, `plot F near its interesting part`, `what does F look
+like`, `and|with its derivative`, `and its tangent at 2`, `in 3d`, `as a
+heatmap`, `rotating`, `animated over t`, `as t goes from 0 to 1`, `on a
+log scale` (y, with a note), `log-log`, `in polar coordinates`, `the
+slope field of ...`, `the vector field (P, Q)`, `as small multiples`,
+`in parallel coordinates`, `at 30 fps`, `save it as NAME`.
 
 ## Discord bot (optional)
 

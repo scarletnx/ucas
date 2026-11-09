@@ -1035,6 +1035,10 @@ commands (F is a function name or an expression like isqrt(x: u4))
   approx more [n]
   animate [hillis|blelloch|sequential] scan [n N] [fps F] [seconds S]
     [random [seed K] | values a, b, ...] [f32] [MODEL] [to NAME]
+  plot F, G ... [x in a..b] [y in c..d] [deriv] [tangent a] [logx|logy]
+    [contour|heatmap|wireframe|3d] [rotate] [animate t] [slices|parallel]
+    [polar] [field] [fps F] [frames N] [to NAME]; plot3d F; neighbourhood F
+    [at a]
 loops and calculus
   sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }
   closed F | scheme F [model m] | continuous F

@@ -5358,6 +5358,21 @@ cmd_identify(struct P *p)
 		fail("identify: what? (an expression, an equation lhs = rhs, a "
 		    "function's name or an ODE's unknown)");
 	trim(buf);
+	/* "identify equation x^2 + y^2 = 1": a noun before the expression */
+	{
+		static const char *const nouns[] = {"the equation ", "equation ",
+			"the function ", "function ", "the expression ", "expression ",
+			"the curve ", "curve ", "the ode ", "ode ", NULL};
+		size_t ln;
+		for (j = 0; nouns[j]; j++) {
+			ln = strlen(nouns[j]);
+			if (!strncmp(buf, nouns[j], ln)) {
+				memmove(buf, buf + ln, strlen(buf + ln) + 1);
+				trim(buf);
+				break;
+			}
+		}
+	}
 	/* a defined function or an ODE's unknown, by name */
 	for (q = buf; *q && (isalnum((unsigned char)*q) || *q == '_'); q++)
 		;

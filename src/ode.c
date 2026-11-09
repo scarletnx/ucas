@@ -1796,3 +1796,30 @@ cmd_pde(uint32_t name, nid tend, int rows)
 	free(xo);
 	free(so);
 }
+
+/* plot.c: a stored equation's right-hand side (NULL if none) */
+const char *
+ode_rhs_text(uint32_t var, int *order)
+{
+	struct odeq *q = eq_find(var);
+
+	if (q == NULL)
+		return NULL;
+	*order = q->order;
+	return q->rhs;
+}
+
+/* plot.c: a stored initial value var^(order)(t0) = val */
+int
+ode_ic_text(uint32_t var, int order, const char **t0, const char **val)
+{
+	int i;
+
+	for (i = 0; i < nics; i++)
+		if (ics[i].var == var && ics[i].order == order) {
+			*t0 = ics[i].t0;
+			*val = ics[i].val;
+			return 1;
+		}
+	return 0;
+}

@@ -39,6 +39,16 @@ c2_juxt(int i)
 		return 0;
 	if (W[i].s[0] == 'd' && strlen(W[i].s) == 2)
 		return 0;   /* dx */
+	{
+		/* plot's raw options (plot.c) are words, not factors */
+		static const char *const popts[] = {"nofile", "field", "polar",
+			"contour", "heatmap", "surface", "wireframe", "rotate",
+			"slices", "parallel", "deriv", "tangent", "logx", "logy",
+			"loglog", "frames", "fps", "points", "seconds", "animate",
+			"to", "3d", "2d", NULL};
+		if (in_list(popts, W[i].s))
+			return 0;
+	}
 	if (W[i + 1].k == W_SYM && (!strcmp(W[i + 1].s, "=") ||
 	    !strcmp(W[i + 1].s, ":")))
 		return 0;

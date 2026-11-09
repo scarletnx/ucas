@@ -495,7 +495,7 @@ pr_prod(struct sbuf *b, nid e, int prec)
 	double c = 1;
 	nid nu[32], de[32];
 	int nn = 0, nd = 0, paren;
-	struct cf cn, cd;
+	struct cf cn;
 	struct sbuf t = {0};
 
 	flat_prod(e, 0, &c, nu, &nn, de, &nd);
@@ -3678,7 +3678,7 @@ ang_node(const double *v, int sign)
 	}
 }
 
-/* the linearised form, or 0; *pw/*prod say what was there */
+/* the linearised form, or 0; *pw and *prod say what was there */
 static nid
 linearize(nid body, int *pw, int *prod)
 {
