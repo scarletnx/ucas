@@ -2934,7 +2934,7 @@ zer_print(struct func *f, int s, const struct zer *z)
 	rep_list("zeros");
 	for (k = 0; k < z->n; k++) {
 		rep_obj(NULL);
-		rep_exact("value", z->x[k], z->txt[k]);
+		rep_exact("value", z->x[k], z->proved ? z->txt[k] : NULL);
 		rep_int("multiplicity", z->mult[k] < 0 ? 2 : z->mult[k]);
 		if (z->mult[k] < 0)
 			rep_bool("touches", 1);

@@ -1,0 +1,23 @@
+{"id": "p1", "cmd": "parse", "args": {"expr": "1/2x + sin x^2"}}
+{"id": "p2", "cmd": "parse", "args": {"expr": {"op": "/", "args": [1, {"op": "*", "args": [2, {"var": "x"}]}]}}}
+{"id": "p3", "cmd": "factor", "args": {"f": {"op": "-", "args": [{"op": "^", "args": [{"var": "x"}, 4]}, {"num": "1"}]}}}
+{"id": "p4", "cmd": "simplify", "args": {"f": {"op": "+", "args": [{"op": "sin", "args": [{"var": "x"}]}, {"num": "1/3"}, {"expr": "x^2"}]}}}
+not json at all
+{"id": 1, "cmd": "range", "args": {"f": "isqrt(x: u4)"}
+["a", "request", "is", "an", "object"]
+{"id": 2}
+{"id": 3, "cmd": "frobnicate"}
+{"id": 4, "cmd": "range", "args": {"g": "x"}}
+{"id": 5, "cmd": "range"}
+{"id": 6, "cmd": "range", "args": {"f": "x\nfuncs"}}
+{"id": 7, "cmd": "table", "args": {"f": "x*x", "max": "three"}}
+{"id": 8, "cmd": "trig", "args": {"f": "sin x", "mode": "sideways"}}
+{"id": 9, "cmd": "range", "args": {"f": "x +"}}
+{"id": 10, "cmd": "range", "args": {"f": "isqrt(x: u4)"}, "extra": 1}
+{"id": 11, "cmd": "parse", "args": {"expr": {"op": "+", "args": [1]}}}
+{"id": 12, "cmd": "parse", "args": {"expr": {"op": "nope!", "args": [1, 2]}}}
+{"id": {"nested": [1, 2]}, "cmd": "integrate", "args": {"f": "x", "from": 0}}
+{"id": 13, "cmd": "ucas", "args": {"source": "1 +\n2"}}
+{"id": 14, "cmd": "gates", "args": {"f": "(x: u3) * (y: u3)", "max": 40, "nodes": 100000000000, "timeout_s": 1}}
+{"id": 15, "cmd": "range", "args": {"f": "isqrt(x: u4)", "timeout_s": 30}}
+{"id": 16, "cmd": "help"}

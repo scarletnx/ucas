@@ -4234,8 +4234,12 @@ c2_limit(struct func *f, int slot, double a, int side)
 		rep_lv("right", R.l);
 		if (L.l.k == LV_UNKNOWN || R.l.k == LV_UNKNOWN)
 			rep_lv("limit", LK(LV_UNKNOWN));
-		else
-			rep_lv("limit", LK(LV_DNE));
+		else if (rep_on) {
+			rep_obj("limit");
+			rep_str("kind", "does not exist");
+			rep_str("text", "the one-sided limits differ");
+			rep_end();
+		}
 		if (L.l.k == LV_UNKNOWN || R.l.k == LV_UNKNOWN)
 			printf("  (one side was not found symbolically)\n");
 		else

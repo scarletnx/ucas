@@ -51,6 +51,7 @@ test: ${PROG}
 			echo "ok   $$n"; rm -f $$n.got $$n.diff; \
 		else echo "FAIL $$n (see $$n.diff)"; fail=1; fi; \
 	done; exit $$fail
+	@cd ${.CURDIR} && ${MAKE} json-test
 
 accept: ${PROG}
 	@for t in ${TESTS}; do \
@@ -59,8 +60,34 @@ accept: ${PROG}
 		    ${.CURDIR}/tests/$$n.out 2>&1; \
 		echo "wrote tests/$$n.out"; \
 	done
+	@cd ${.CURDIR} && ${MAKE} json-accept
 
 CLEANFILES+=	*.got *.diff
+
+# The JSON frontend: tests/json/NAME.jsonl, one request per line, must
+# answer exactly tests/json/NAME.out (files inline or not written).
+JTESTS!=	cd ${.CURDIR}/tests/json && ls *.jsonl 2>/dev/null || true
+
+json-test: ${PROG}
+	@fail=0; for t in ${JTESTS}; do \
+		n=$${t%.jsonl}; \
+		(cd ${.CURDIR}/tests/json && ${.OBJDIR}/${PROG} --json --files none \
+		    < $$t) > json-$$n.got 2>&1; \
+		if diff -u ${.CURDIR}/tests/json/$$n.out json-$$n.got > \
+		    json-$$n.diff; then \
+			echo "ok   json/$$n"; rm -f json-$$n.got json-$$n.diff; \
+		else echo "FAIL json/$$n (see json-$$n.diff)"; fail=1; fi; \
+	done; exit $$fail
+
+json-accept: ${PROG}
+	@for t in ${JTESTS}; do \
+		n=$${t%.jsonl}; \
+		(cd ${.CURDIR}/tests/json && ${.OBJDIR}/${PROG} --json --files none \
+		    < $$t) > ${.CURDIR}/tests/json/$$n.out 2>&1; \
+		echo "wrote tests/json/$$n.out"; \
+	done
+
+.PHONY: json-test json-accept
 
 # Optional Discord front end (README, "Discord bot"): its own Makefile in
 # discord/, needs libcurl.  Never built by `make` or `make test`.

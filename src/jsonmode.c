@@ -979,7 +979,10 @@ func_json(const struct func *f)
 			if (TY_FP(pp->ty) || pp->ty == TY_REAL) {
 				jv_push(rg, jv_num(pp->rlo));
 				jv_push(rg, jv_num(pp->rhi));
-				sb_printf(&sig, " in %.17g..%.17g", pp->rlo, pp->rhi);
+				sb_puts(&sig, " in ");
+				json_num(&sig, pp->rlo);
+				sb_puts(&sig, "..");
+				json_num(&sig, pp->rhi);
 			} else {
 				jv_push(rg, jv_int(pp->lo));
 				jv_push(rg, jv_int(pp->hi));

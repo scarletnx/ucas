@@ -476,6 +476,7 @@ qkey(const char *key, const char *what)
 		{"what does \"", "apply to", "scope"},
 		{"", "is not a word I know", "spelling"},
 		{"the ", "derivative of", "derivative_var"},
+		{"I don't know the word", "", "unknown_word"},
 	};
 	size_t i;
 
@@ -497,6 +498,18 @@ assumed(const char *key, const char *what)
 		return v;
 	if ((v = jv_get(R.session, key)) || (v = jv_get(R.session, what)))
 		return v;
+	return NULL;
+}
+
+/* strcasestr, which C99 and POSIX do not have */
+static const char *
+ci_find(const char *h, const char *n)
+{
+	size_t l = strlen(n);
+
+	for (; *h; h++)
+		if (!strncasecmp(h, n, l))
+			return h;
 	return NULL;
 }
 
@@ -527,6 +540,24 @@ match_option(const struct jv *v, const char *const *opt, int nopt)
 		size_t l = strlen(s);
 		if (!strncasecmp(opt[k], s, l) && (opt[k][l] == 0 ||
 		    opt[k][l] == ' ' || opt[k][l] == '(' || opt[k][l] == ',')) {
+			if (hit >= 0)
+				return -1;
+			hit = k;
+		}
+	}
+	if (hit >= 0)
+		return hit;
+	/* a whole word of exactly one option ("ln", "power", "xor") */
+	for (k = 0; k < nopt; k++) {
+		const char *q = opt[k];
+		size_t l = strlen(s);
+		while ((q = ci_find(q, s)) != NULL) {
+			if ((q == opt[k] || !isalnum((unsigned char)q[-1])) &&
+			    !isalnum((unsigned char)q[l]))
+				break;
+			q++;
+		}
+		if (q) {
 			if (hit >= 0)
 				return -1;
 			hit = k;

@@ -552,8 +552,8 @@ range_real1(struct func *f)
 	rep_int("inf_points", (long long)ninf);
 	rep_str("method", have_d ? "grid, extrema refined at critical points" :
 	    "grid");
-	rep_proof("numeric", "a grid of points, extrema refined where the "
-	    "derivative changes sign");
+	rep_proof("numeric", have_d ? "a grid of points, extrema refined "
+	    "where the derivative changes sign" : "a grid of points");
 	if (TYK(f->p[0].ty) == K_REAL)
 		printf("  grid of %d points over [%g, %g]%s, %s\n", GRID,
 		    r.d.rlo[0], r.d.rhi[0], f->p[0].ranged ? "" :

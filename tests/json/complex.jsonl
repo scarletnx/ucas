@@ -1,0 +1,22 @@
+{"id": 1, "cmd": "complex", "args": {"f": "(1+2i)/(3-i)"}}
+{"id": 2, "cmd": "re", "args": {"f": "e^(i*x)"}}
+{"id": 3, "cmd": "modulus", "args": {"f": "3 + 4i"}}
+{"id": 4, "cmd": "arg", "args": {"f": "1 + i"}}
+{"id": 5, "cmd": "polar", "args": {"f": "x + i y"}}
+{"id": 6, "cmd": "trig", "args": {"f": "sin(x) cos(x)"}}
+{"id": 7, "cmd": "trig", "args": {"f": "3 sin x + 4 cos x", "mode": "harmonic"}}
+{"id": 8, "cmd": "holomorphic", "args": {"f": "z^2", "assume": {"z": "complex"}}}
+{"id": 9, "cmd": "holomorphic", "args": {"f": "conj(z)", "assume": {"z": "complex"}}}
+{"id": 10, "cmd": "zeros", "args": {"f": "z^2 + 1", "assume": {"z": "complex"}}}
+{"id": 11, "cmd": "residue", "args": {"f": "1/(z^2 + 1)", "at": "i", "assume": {"z": "complex"}}}
+{"id": 12, "cmd": "poles", "args": {"f": "1/(z^2 + 1)", "defaults": true}}
+{"id": 13, "cmd": "integrate", "args": {"f": "1/z", "around": "|z| = 1", "assume": {"z": "complex"}}}
+{"id": 14, "cmd": "monotonic", "args": {"f": "x^3 - 3x"}}
+{"id": 15, "cmd": "monotonic", "args": {"f": "(x: u8) * 3"}}
+{"id": 16, "cmd": "period", "args": {"f": "sin(2x) + cos(3x)"}}
+{"id": 17, "cmd": "period", "args": {"f": "x^2"}}
+{"id": 18, "cmd": "zeros", "args": {"f": "x^3 - x"}}
+{"id": 19, "cmd": "zeros", "args": {"f": "cos(x) - x"}}
+{"id": 20, "cmd": "identify", "args": {"f": "x^2 + y^2 = 1"}}
+{"id": 21, "cmd": "identify", "args": {"f": "x^2 - 1"}}
+{"id": 22, "cmd": "nthroots", "args": {"n": 3, "f": "8"}}
