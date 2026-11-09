@@ -387,6 +387,35 @@ hc_from_les(struct hcouple *C, const struct hles *L)
 
 /* ---- spectral sequences ---- */
 
+/*
+ * The concrete side of hc_stable: d = 0 on the stable page, and the next
+ * page, derived, has the same E (the same lattices A and B in every
+ * degree) and D_{r+1} = i(D_r) isomorphic to D_r (i injective).
+ */
+static void
+stable_check(const struct hcouple *C)
+{
+	struct hcouple N;
+	int n;
+
+	for (n = C->lo; n <= C->hi; n++)
+		if (!ab_hom_is_zero(hc_E(C, n), hc_E(C, n + C->dj + C->dk),
+		    &C->d[n - C->lo]))
+			fail("internal: homalg: page %d is stable but d != 0",
+			    C->page);
+	hc_derive(&N, C);
+	for (n = C->lo; n <= C->hi; n++) {
+		const struct fgab *a = hc_E(C, n), *b = hc_E(&N, n);
+		if (a->a != b->a || (a->a > 0 && !zm_lattice_eq(&a->A, &b->A)) ||
+		    !ab_isomorphic(a, b, NULL, NULL) ||
+		    !ab_isomorphic(hc_D(C, n), hc_D(&N, n), NULL, NULL))
+			fail("internal: homalg: page %d is stable but page %d "
+			    "differs in degree %d", C->page, N.page, n);
+		hal_checks[HK_STABLE]++;
+	}
+	hc_free(&N);
+}
+
 void
 hss_run(struct hss *S, const struct hcouple *C1, int maxpage)
 {
@@ -408,6 +437,7 @@ hss_run(struct hss *S, const struct hcouple *C1, int maxpage)
 	for (r = 1; ; r++) {
 		if (hc_stable(&S->pg[r - 1])) {
 			S->stable = r;
+			stable_check(&S->pg[r - 1]);
 			break;
 		}
 		if (r >= maxpage)

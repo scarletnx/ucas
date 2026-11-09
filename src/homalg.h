@@ -99,6 +99,7 @@ enum {
 	HK_SES,		/* a short exact sequence of groups (a degree) */
 	HK_UCT,		/* a universal coefficient isomorphism (a degree) */
 	HK_SNAKE,	/* the connecting map's lifts solved and verified */
+	HK_STABLE,	/* a stable page: d = 0 and the next page equal (degree) */
 	HK_NKIND
 };
 extern long hal_checks[HK_NKIND];
