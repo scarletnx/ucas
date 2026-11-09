@@ -869,8 +869,8 @@ lap_rec(struct lctx *C, nid e, double sh)
 /* ---- common: polishing, parameters, variables ---- */
 
 /* a rational function of slot: canonical (factored); else as is */
-static nid
-polish(nid R, int slot, nid x)
+nid
+xf_polish(nid R, int slot, nid x)
 {
 	struct xrat r;
 
@@ -966,7 +966,7 @@ lap_total(struct lctx *C, int nodelta, int *ndelta)
 			(*ndelta)++;
 		if (C->dl[k] && nodelta)
 			continue;
-		R = polish(C->R[k], C->ss, C->s);
+		R = xf_polish(C->R[k], C->ss, C->s);
 		if (C->sh[k] != 0)
 			R = xmul(R, xexp(xmul(xk(-C->sh[k]), C->s)));
 		total = xadd(total, R);
@@ -2007,18 +2007,18 @@ cmd_lsolve(char *text)
 		int g;
 		int any0 = 0;
 		for (g = 0; g < C.n; g++) {
-			nid R = polish(C.R[g], ss, s);
+			nid R = xf_polish(C.R[g], ss, s);
 			if (C.sh[g] == 0 && !C.dl[g]) {
 				R = xadd(R, Qn);
 				any0 = 1;
 			}
-			R = polish(xdiv(R, Pn), ss, s);
+			R = xf_polish(xdiv(R, Pn), ss, s);
 			if (C.sh[g] != 0)
 				R = xmul(R, xexp(xmul(xk(-C.sh[g]), s)));
 			Y = xadd(Y, R);
 		}
 		if (!any0 && Q.deg >= 0)
-			Y = xadd(polish(xdiv(Qn, Pn), ss, s), Y);
+			Y = xadd(xf_polish(xdiv(Qn, Pn), ss, s), Y);
 	}
 	printf("  Y(s) = %s\n", xf_str(Y));
 	y = ilap_node(Y, ss, L.x, L.xs, &sigma, &poles, &assume, &nd);
@@ -2687,7 +2687,7 @@ zt_of(nid body, struct zctx *C)
 {
 	C->X = xk(0);
 	zt_rec(C, body, 0);
-	return polish(C->X, C->zs, C->z);
+	return xf_polish(C->X, C->zs, C->z);
 }
 
 static void
@@ -3077,7 +3077,7 @@ zsolve_core(char *text, int quiet, nid *Yout, struct zctx *Cout,
 	xp_trim(&Q);
 	Pn = xp_node(&P, z);
 	Qn = xp_node(&Q, z);
-	Y = polish(xdiv(xadd(G, Qn), Pn), zs, z);
+	Y = xf_polish(xdiv(xadd(G, Qn), Pn), zs, z);
 	if (!quiet) {
 		printf("%s", part[0]);
 		for (k = 0; k < L.order; k++)
@@ -4418,8 +4418,8 @@ cmd_fourier(char *text, int inverse)
 		G.re = xmul(xk(1 / (2 * M_PI)), G.re);
 		G.im = xmul(xk(-1 / (2 * M_PI)), G.im);
 	}
-	G.re = polish(G.re, C.ws, C.w);
-	G.im = polish(G.im, C.ws, C.w);
+	G.re = xf_polish(G.re, C.ws, C.w);
+	G.im = xf_polish(G.im, C.ws, C.w);
 	printf("%s{%s}(%s) = %s\n", inverse ? "F^-1" : "F", fname_of(f), wn,
 	    cp_str(G));
 	if (inverse)
@@ -4703,7 +4703,7 @@ cmd_dtft(char *text)
 static const char *const xcmds[] = {"laplace", "ilaplace", "ztrans",
 	"iztrans", "zsolve", "tf", "fourier", "ifourier", "fseries", "dft",
 	"idft", "fft", "ifft", "dtft", "genfunc", "egf", "converge",
-	"converges", "radius", "powerseries", "asymptotic", NULL};
+	"converges", "radius", "powerseries", "coeffs", "asymptotic", NULL};
 
 int
 xform_command(struct P *p)
@@ -4770,7 +4770,6 @@ xform_command(struct P *p)
 	else {
 		free(text);
 		cmdp_seek(p, at);
-		cmdp_word(p, w, sizeof w);
 		return series_command(p, w);
 	}
 	free(text);

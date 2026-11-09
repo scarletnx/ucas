@@ -140,8 +140,10 @@ double xf_hurwitz(double s, double a);
 int series_command(struct P *p, const char *w);
 /* recognise a constant: "pi^2/6", NULL if nothing short */
 const char *xf_ident(double v);
+const char *xf_ident_tol(double v, double tol);
 
 /* ---- xform.c shared ---- */
+nid xf_polish(nid R, int slot, nid x);   /* rational: canonical */
 void xf_head(const char *fmt, ...);
 
 #endif

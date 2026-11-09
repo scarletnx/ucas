@@ -112,7 +112,7 @@ num_parts(double v, int64_t *n, int64_t *d, const char **bn)
 			const char *name;
 			double v;
 		} inv[] = {{"/pi", M_PI}, {"/sqrt(pi)", 1.77245385090551602730},
-			{"/pi^2", M_PI * M_PI}, {NULL, 0}};
+			{"/pi^2", M_PI * M_PI}, {"/e", M_E}, {NULL, 0}};
 		for (k = 0; inv[k].name; k++)
 			if (small_q(v * inv[k].v, 100, 100, n, d) && *n != 0) {
 				*bn = inv[k].name;
@@ -404,6 +404,8 @@ xpow(nid a, nid b)
 		if (xnum(a, &x))
 			return xk(pow(x, y));
 	}
+	if (xnum(a, &x) && x == 1)
+		return xk(1);
 	return mk_bin(O_POW, a, b);
 }
 
