@@ -1,0 +1,17 @@
+# Functions added with approx: sec csc cot atan copysign fma
+sec(0.5)
+csc(0.5) * sin(0.5)
+cot(1) * tan(1)
+atan(1) * 4
+copysign(2, -0.0)
+fma(2, 3, 1)
+f(x: f32) = fma(x, x, -1.0)
+show f
+diff atan(x)
+diff sec(x)
+diff cot(x)
+diff copysign(x, 2)
+cost fma(x: f32, x, 1.0f)
+h(x: f32 in -1..1) = copysign(abs(x), x)
+g(x: f32 in -1..1) = x
+equiv h g

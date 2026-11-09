@@ -113,6 +113,8 @@ enum {
 	O_ASUINT, O_ASINT, O_ASFLOAT,  /* bit casts float <-> int */
 	O_BARRIER,   /* barrier(e): e, after a workgroup barrier */
 	O_ATOMIC,    /* atomic_op(x, v): old value x; ki = AT_* | scope */
+	/* approx: more functions, sign transfer and fused multiply-add */
+	O_SEC, O_CSC, O_COT, O_ATAN, O_COPYSIGN, O_FMA,
 	O_NOPS
 };
 #define OF_COMM 1
@@ -162,6 +164,7 @@ nid mk_table(const nid *e, uint32_t n);
 nid mk_index(nid tab, nid i);
 nid mk_barrier(nid a);
 nid mk_atomic(int kind, nid a, nid v);
+nid mk_fma(nid a, nid b, nid c);
 int atomic_lookup(const char *s, size_t n, int *kind);
 nid subst(nid root, const nid *map, int nmap);
 int is_const(nid n);
@@ -340,5 +343,17 @@ int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
 
 /* ---- parse.c ---- */
 void run_source(const char *src, const char *file, int echo);
+
+/* ---- approx.c: function approximation; parse.c hooks it uses ---- */
+struct P;
+void cmd_approx(struct P *p);
+int cmdp_kw(struct P *p, const char *w);	/* accept a word */
+int cmdp_tok(struct P *p, int kind);		/* accept a token */
+int cmdp_at(struct P *p, int kind);		/* peek */
+int cmdp_eos(struct P *p);
+struct func *cmdp_func(struct P *p, const char *const *stop);
+double cmdp_number(struct P *p, const char *const *stop);
+void cmdp_fail_here(struct P *p);
+int cmdp_word(struct P *p, char *buf, size_t n);
 
 #endif

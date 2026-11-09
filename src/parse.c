@@ -73,6 +73,7 @@ struct P {
 	int top_jux;
 	int top_paren;    /* the last operand was parenthesized */
 	int cmdargs;      /* stop at command option words */
+	const char *const *xstop;  /* approx: more option words; 'in' stops */
 	int nb;
 	uint32_t bname[MAXBIND];
 	nid bval[MAXBIND];
@@ -266,6 +267,8 @@ static const struct bfn bfns[] = {
 	{"asuint", O_ASUINT, 1}, {"bits", O_ASUINT, 1},
 	{"asint", O_ASINT, 1}, {"asfloat", O_ASFLOAT, 1},
 	{"barrier", O_BARRIER, 1},
+	{"sec", O_SEC, 1}, {"csc", O_CSC, 1}, {"cot", O_COT, 1},
+	{"atan", O_ATAN, 1}, {"copysign", O_COPYSIGN, 2}, {"fma", O_FMA, 3},
 	{NULL, 0, 0}
 };
 
@@ -389,6 +392,8 @@ starts_operand(struct P *p)
 			return 0;
 		if (p->cmdargs && word_in(p, p->i, stopwords))
 			return 0;
+		if (p->xstop && word_in(p, p->i, p->xstop))
+			return 0;
 		return 1;
 	}
 	return 0;
@@ -424,6 +429,8 @@ apply_builtin(struct P *p, const struct bfn *b, nid *args, int n)
 		fail("%s takes %d argument%s", b->name, b->arity,
 		    b->arity == 1 ? "" : "s");
 	a = args[0];
+	if (b->arity == 3)
+		return mk_fma(args[0], args[1], args[2]);
 	if (b->arity == 2)
 		return mk_bin(b->op, args[0], args[1]);
 	if (b->op == O_BARRIER)
@@ -473,7 +480,7 @@ ident(struct P *p)
 	if ((b = builtin(p, at)) != NULL) {
 		adv(p);
 		if (pk(p) == T_LP) {
-			na = parse_args(p, args, 2);
+			na = parse_args(p, args, 3);
 			return apply_builtin(p, b, args, na);
 		}
 		if (b->arity != 1)
@@ -812,7 +819,7 @@ infix(struct P *p, int *op)
 		if (is_kw(p, "and")) { *op = O_LAND; return BP_AND; }
 		if (is_kw(p, "xor")) { *op = O_XOR; return BP_XOR; }
 		if (is_kw(p, "mod")) { *op = O_MOD; return BP_MUL; }
-		if (is_kw(p, "in")) { *op = O_NONE; return BP_CMP; }
+		if (is_kw(p, "in") && !p->xstop) { *op = O_NONE; return BP_CMP; }
 		return 0;
 	}
 	return 0;
@@ -1427,7 +1434,87 @@ help(void)
 "  equiv F G | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]\n"
 "  gates F [basis b] [max k] [nodes n] [as c]\n"
 "  find F [n] [max cost] | more [n]\n"
-"  cost F [model m] | use m");
+"  cost F [model m] | use m\n"
+"  approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]\n"
+"    [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]\n"
+"    [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]\n"
+"  approx more [n]");
+}
+
+/* ---- approx: parsing hooks (the command itself is in approx.c) ---- */
+
+int
+cmdp_kw(struct P *p, const char *w)
+{
+	return accept_kw(p, w);
+}
+
+int
+cmdp_tok(struct P *p, int kind)
+{
+	return accept(p, kind);
+}
+
+int
+cmdp_at(struct P *p, int kind)
+{
+	return pk(p) == kind;
+}
+
+int
+cmdp_eos(struct P *p)
+{
+	return at_eos(p);
+}
+
+void
+cmdp_fail_here(struct P *p)
+{
+	diag_tok = p->i;
+}
+
+/* an identifier, copied to buf */
+int
+cmdp_word(struct P *p, char *buf, size_t n)
+{
+	size_t len;
+	const char *s;
+
+	if (pk(p) != T_ID)
+		return 0;
+	s = ttext(p, p->i, &len);
+	snprintf(buf, n, "%.*s", (int)len, s);
+	adv(p);
+	return 1;
+}
+
+/* a function argument that also stops at 'in' and the words in stop[] */
+struct func *
+cmdp_func(struct P *p, const char *const *stop)
+{
+	struct func *f;
+
+	p->xstop = stop;
+	f = cmd_func(p);
+	p->xstop = NULL;
+	return f;
+}
+
+/* a constant expression such as -pi/2; stops at '..' and ',' */
+double
+cmdp_number(struct P *p, const char *const *stop)
+{
+	nid e;
+
+	diag_tok = p->i;
+	p->xstop = stop;
+	p->cmdargs = 1;
+	e = parse_expr(p, BP_CMP + 1);
+	p->cmdargs = 0;
+	p->xstop = NULL;
+	if (!is_const(e))
+		fail("expected a constant, found %s", node_str(e));
+	return TY_FP(N.ty[e]) ? N.kr[e] : (double)N.ki[e];
 }
 
 static void
@@ -1457,6 +1544,12 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		/* approx (approx.c) */
+		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {
+			adv(p);
+			cmd_approx(p);
+			return;
+		}
 		if (CMD("help")) {
 			help();
 			return;
@@ -1771,6 +1864,7 @@ run_source(const char *src, const char *file, int echo)
 			p->fn = NULL;
 			p->autop = 0;
 			p->cmdargs = 0;
+			p->xstop = NULL;
 			p->abs_depth = 0;
 			p->fnarg = 0;
 			p->nb = 0;

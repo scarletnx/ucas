@@ -150,6 +150,22 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_TAN:
 		*cls = C_FTRANS;
 		return 2 * m->c[C_FTRANS] + m->c[C_FDIV];
+	case O_SEC: case O_CSC:		/* SFU op and a divide */
+		*cls = C_FTRANS;
+		return m->c[C_FTRANS] + m->c[C_FDIV];
+	case O_COT:
+		*cls = C_FTRANS;
+		return 2 * m->c[C_FTRANS] + m->c[C_FDIV];
+	case O_ATAN:			/* no SFU instruction: a library call */
+		k = C_FTRANS;
+		mul = 4;
+		break;
+	case O_COPYSIGN:		/* one bitwise select */
+		k = C_LOGIC;
+		break;
+	case O_FMA:			/* full rate, like a multiply */
+		k = C_FMUL;
+		break;
 	case O_FLOOR: case O_CEIL:
 		k = C_CONV;
 		break;

@@ -93,7 +93,7 @@ Expressions: `+ - * / % ^` (power), `mod`, `& | xor ⊕ ~ << >>`,
 comparisons (chains allowed), `&& || ! and or not`, `c ? a : b`,
 `x in a..b`, `|x|`, `[t0, t1, ...][i]` (lookup table), `x²`,
 functions `sin cos tan exp log ln sqrt isqrt abs floor ceil sign min max
-clz ctz popcount`, conversions `u8(x) f32(x) real(n) int(x)`, bit casts
+clz ctz popcount sec csc cot atan copysign fma`, conversions `u8(x) f32(x) real(n) int(x)`, bit casts
 `asuint asint asfloat` (`bits` = `asuint`), effects `barrier(e)`,
 `atomic_{add,sub,min,max,and,or,xor,xchg}[_shared](x, v)`.  C float
 literals (`1.5f`) are `f32`.
@@ -147,11 +147,114 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
+| `approx F in a..b [options]`, `approx more [n]` | polynomial, rational and range-reduced approximations, measured as they run (see below) |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
 sampled (65536 points, edge values first), and the output says so.
 `wrap` and `range` add interval bounds when sampling, which can prove
 that an operation never wraps.
+
+## Approximations
+
+```
+> approx sin(x) in -pi/2..pi/2 degree 5..9 keep endpoints norational nosplit noreduce
+approx sin(x) on [-1.57079637, 1.57079637] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.57079637]
+  metric: relative error
+  exact at: x = -1.57079637 -> -1, x = 1.57079637 -> 1
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax      no exact pts
+    5    0.000348     -            0.000131     0.000108
+    7    3.02e-06     -            1.09e-06     9.39e-07
+    9    1.71e-08     -            5.98e-09     5.31e-09
+  ...
+  #   kind      deg   form        error (naive)     max rel    max abs    cost
+  3   minimax   9     horner+fma  1.53 ulp (1.81)   9.1e-08    9.09e-08   6    at x=-1.5408833  exact pts yes  keep +12%
+      x*P(x^2): fma(x*s, fma(fma(fma(2.59965395e-06, s, -0.000198068723), s,
+                0.00833303016), s, -0.166666582), x) where s = x*x
+```
+
+`approx F in a..b` looks for cheap approximations of F on the interval
+and ranks them by error and by cost under the active model.  F is any
+one-variable function ucas can evaluate: a builtin, an expression, or a
+named function (whose range and type are used when `in` is omitted).
+Every candidate is written as ucas source, parsed back, priced with
+`cost`'s rules (each shared subterm once, `?:` as a select) and measured
+with the IEEE evaluator against a long double reference, so the numbers
+are those of the expression as printed.  The listed candidates are
+defined as `ap1`, `ap2`, ... (`name p` changes the prefix), so `error`,
+`cost`, `wrap` and `show` work on them.
+
+| option | |
+|--------|--|
+| `as f32`, `as f64`, `as real` | target format (default: the parameter's float type, else f32); `real` fits without rounding |
+| `as c` | also print each listed candidate as a C function (`fmaf`, `copysignf`, `memcpy` bit casts) |
+| `degree n`, `degree a..b` | degree range (in x) for every kind of candidate |
+| `error e`, `ulp u` | a target: candidates that meet it are listed first, cheapest first, and the search stops at the first degree that meets it |
+| `relative`, `absolute` | the error to minimise; by default relative unless F has a zero that a polynomial factor cannot match |
+| `odd`, `even`, `nosym` | symmetry; by default detected numerically (64 points) |
+| `keep endpoints`, `keep x1, x2, ...` | points where the approximation must be exact (in real arithmetic; after rounding the list says whether the machine result equals the rounded value there) |
+| `weight W` | an extra weight function of x for the minimax error |
+| `at c` | expansion point for a non-symmetric fit (default: 0 when inside, a zero at an endpoint, else the midpoint) |
+| `fma`, `nofma` | Horner/Estrin with or without `fma` (default with) |
+| `norefine` | keep the naively rounded coefficients |
+| `norational`, `nosplit`, `noreduce` | skip rational fits, two-piece splits, range reductions |
+| `list n`, `points n` | how many to list (default: the Pareto front, at most 8); sample size (default 131072) |
+| `approx more [n]` | the next candidates of the last `approx` |
+
+What it does, in order:
+
+- **Shape.** Odd and even functions (checked at 64 points, not
+  assumed) are fitted as `x*P(x^2)` / `P(x^2)` on the folded interval.
+  Otherwise P is expanded at 0, a zero at an endpoint, or the midpoint;
+  a simple zero there (checked: f(x)/(x-c) settles) becomes a factor,
+  `(x-1)*P(x-1)` for log on [1, 2], so the relative error stays bounded.
+- **Fits in real arithmetic** (`src/remez.c`, long double): Chebyshev
+  interpolation, Chebyshev economisation of the Taylor series (computed
+  exactly by Taylor-jet arithmetic over the expression), Padé, and the
+  Remez exchange for weighted polynomial and rational minimax (absolute,
+  relative, user weight).  The table shows the starting points beside
+  the minimax result.  Exact points are folded in as
+  `P = L + Z*Q` (L interpolates, Z vanishes there), so the constrained
+  problem is an ordinary weighted one; the `keep +12%` column is the
+  extra minimax error the constraint costs.
+- **Machine form.** Coefficients are rounded to the format, then
+  re-optimised: one coefficient is rounded at a time and the higher ones
+  refitted, a leading coefficient near 1 is pinned to 1 (written as
+  `x + x*s*Q(s)`, which makes the leading term exact), then each
+  coefficient is walked by a few ulps while the measured error drops.
+  The naive rounding is measured the same way and shown in parentheses;
+  if refinement did not pay off on the full sample the naive one is
+  kept.  Horner and Estrin forms (with or without fma) are priced; under
+  a throughput model like gt1030 Estrin never costs less (it wins on
+  latency, which the model does not price), so it appears further down.
+- **Rational** fits P/Q compete at equal footing; they win only when
+  division is cheap (`model m : gt1030 { fdiv: 2 }` makes tan on
+  [-1.4, 1.4] rational).
+- **Piecewise:** two pieces with coefficients chosen by a select, on
+  |x| with `copysign(.., x)` for odd functions.
+- **Range reductions and identities** apply after the target is checked
+  numerically to be the builtin (33 points), and each is measured end
+  to end:
+  sin/cos by quadrant (`k` and the quadrant from the bits of
+  `x*2/pi + 1.5*2^23`, Cody-Waite constants in 2 or 3 parts, the sign
+  flipped by xor-ing bit 31 of `asuint`); `cos x = sin(pi/2 - x)` with
+  pi/2 in two parts; `cos x = 1 - 2 sin(x/2)^2`; `tan = sin/cos`,
+  `sec = 1/cos`, `csc = 1/sin`, `cot = cos/sin`; `tan x = 2t/(1-t^2)`
+  with `t = tan(x/2)`; exp as `2^k * P(r)` with 2^k built in the
+  exponent field (`asfloat((asuint(j) << 23) + 0x3f800000)`); log by
+  splitting exponent and mantissa (`m` in [sqrt(1/2), sqrt(2))) as
+  `e*ln2 + m*P(m)`; sqrt and 1/sqrt by halving the exponent, with a
+  polynomial or a short polynomial seed and one Newton step, and the
+  bit-hack seed with one or two Newton steps; atan of |x| > 1 as
+  `pi/2 - atan(1/|x|)` with `copysign`.
+
+Errors are measured on a sample of the format's values in the interval
+(half evenly spaced in value, half evenly spaced in bit pattern, plus
+the floats around each zero of F, the exact points and 0); the ulp is
+that of the exact value, so a correctly rounded result has at most 0.5.
+`error G ~ F` compares against F rounded to the format, so its ulp count
+can differ by about one half.
 
 ## Bases and exact synthesis
 
@@ -246,6 +349,11 @@ Data-oriented throughout (see `src/ucas.h`):
 - `find` builds terms of up to about 5-6 operations before the bank
   (128 MB) fills; constants come from a small pool plus solved holes.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
+- `approx` measures on a sample, not on every float (the C output can
+  show a slightly larger maximum); the coefficient search after rounding
+  is a local walk, not a lattice-based (fpminimax) search; range
+  reductions are offered for builtins only, and the cost model prices
+  throughput, not latency.  Piecewise approximations use two pieces.
 
 ## Discord bot (optional)
 

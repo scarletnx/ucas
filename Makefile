@@ -2,7 +2,7 @@
 
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
-	find.c model.c
+	find.c model.c remez.c approx.c
 .PATH:	${.CURDIR}/src
 MAN=
 

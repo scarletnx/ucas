@@ -427,6 +427,23 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 		}
 		r = tan(a);
 		break;
+	case O_SEC:
+		if (fabs(cos(a)) < 1e-15) {
+			*fl |= F_UNDEF;
+			return 0;
+		}
+		r = 1 / cos(a);
+		break;
+	case O_CSC:
+	case O_COT:
+		if (sin(a) == 0) {
+			*fl |= F_UNDEF;
+			return 0;
+		}
+		r = op == O_CSC ? 1 / sin(a) : cos(a) / sin(a);
+		break;
+	case O_ATAN: r = atan(a); break;
+	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
 	case O_MIN: r = a < b ? a : b; break;
@@ -534,6 +551,11 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 	case O_SIN: r = sin(a); break;
 	case O_COS: r = cos(a); break;
 	case O_TAN: r = tan(a); break;
+	case O_SEC: r = 1 / cos(a); break;
+	case O_CSC: r = 1 / sin(a); break;
+	case O_COT: r = cos(a) / sin(a); break;
+	case O_ATAN: r = atan(a); break;
+	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
 	case O_MIN: r = fmin(a, b); break;
@@ -587,11 +609,18 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 	uint8_t fl = 0;
 	ty_t ta = N.ty[a];
 
-	(void)c;
 	if (op == O_SEL || op == O_TABLE || op == O_INDEX || op == O_UNDEF)
 		return 0;
 	if (op == O_BARRIER || op == O_ATOMIC)
 		return 0;
+	if (op == O_FMA) {
+		if (TYK(t) == K_FLOAT && TYW(t) == 32)
+			*rr = (double)(float)((long double)N.kr[a] * N.kr[b] +
+			    N.kr[c]);
+		else
+			*rr = fma(N.kr[a], N.kr[b], N.kr[c]);
+		return isfinite(*rr);
+	}
 	ity_of(&it, t, 0);
 	ity_of(&ita, ta, 0);
 	if (TY_FP(t)) {
@@ -827,6 +856,39 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			}
 			continue;
 		}
+		case O_FMA: {
+			/*
+			 * f64: fma().  f32: the product is exact in long
+			 * double and the sum rounds there first (64 bits),
+			 * so a double rounding is possible but very rare.
+			 */
+			const double *av = COLR(p, a), *bv = COLR(p, b);
+			const double *cv = COLR(p, c);
+			int fw = t->k == K_FLOAT ? t->w : 0;
+			for (i = 0; i < np; i++) {
+				uint8_t f = 0;
+				if ((COLF(p, a)[i] | COLF(p, b)[i] | COLF(p, c)[i]) &
+				    F_UNDEF) {
+					of[i] = F_UNDEF;
+					orr[i] = 0;
+					continue;
+				}
+				orr[i] = fw == 32 ? (double)(float)((long double)av[i] *
+				    bv[i] + cv[i]) : fma(av[i], bv[i], cv[i]);
+				if (fw && isnan(orr[i]) && !isnan(av[i]) &&
+				    !isnan(bv[i]) && !isnan(cv[i]))
+					f |= F_NAN;
+				if (fw && isinf(orr[i]) && !isinf(av[i]) &&
+				    !isinf(bv[i]) && !isinf(cv[i]))
+					f |= F_INF;
+				if (!fw && !isfinite(orr[i])) {
+					f |= F_UNDEF;
+					orr[i] = 0;
+				}
+				of[i] = f;
+			}
+			continue;
+		}
 		case O_INDEX: {
 			const int64_t *iv = COLI(p, b);
 			const uint8_t *ifl = COLF(p, b);
@@ -1009,6 +1071,8 @@ plan_live(const struct plan *p, uint32_t np, uint8_t *lv)
 					la[i] = 1;
 					if (opinfo[p->op[k]].arity > 1)
 						lb[i] = 1;
+					if (opinfo[p->op[k]].arity > 2)
+						lc[i] = 1;
 				}
 		}
 	}

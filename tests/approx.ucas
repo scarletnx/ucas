@@ -1,0 +1,42 @@
+# Approximations: fits in real arithmetic, rounded and re-optimised
+# coefficients, measured as evaluated, ranked by error and cost.
+
+# sin on [-pi/2, pi/2] in f32: odd, so x*P(x^2); with and without
+# exact endpoints (sin(pi/2) = 1)
+approx sin(x) in -pi/2..pi/2 degree 5..9 norational nosplit noreduce
+approx sin(x) in -pi/2..pi/2 degree 5..9 keep endpoints norational nosplit noreduce
+s(x: f32 in -1.57079637..1.57079637) = sin(x)
+error ap3 ~ s
+cost ap3
+approx more 2
+
+# range reduction: exp as 2^k * P(r), 2^k built in the exponent field
+approx exp(x) in -10..10 ulp 2 nosplit norational list 2 as c
+
+# log by exponent/mantissa split; relative error through the zero at 1
+approx log(x) in 0.5..100 relative ulp 2 nosplit norational list 2
+
+# atan: odd, reciprocal for |x| > 1, sign by copysign
+approx atan(x) in -10..10 ulp 2 nosplit norational list 2
+
+# 1/sqrt: polynomial seed and a Newton step, and the bit hack
+approx 1/sqrt(x) in 0.01..100 ulp 2 nosplit norational list 3
+
+# cos near pi/2, relative: the identity sin(pi/2 - x) with pi/2 in two
+# parts is the one that keeps relative accuracy
+approx cos(x) in 0..pi/2 relative norational nosplit list 3
+
+# rational fits win when division is cheap
+model cheapdiv : gt1030 { fdiv: 2 }
+use cheapdiv
+approx tan(x) in -1.4..1.4 ulp 8 nosplit noreduce list 3
+use gt1030
+
+# any function; real arithmetic; a two-piece split
+g(x) = 1/(1 + x^2)
+approx g in -1..1 as real degree 2..4 list 3 nosplit
+approx exp(-x*x) in -2..2 degree 6 norational list 3
+approx sqrt(x) in 0..1 degree 2 nosplit norational noreduce
+
+# f64: sin by quadrant with a three-part pi/2 (33-bit pieces)
+approx sin(x) in -100..100 as f64 ulp 2 nosplit norational list 1

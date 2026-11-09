@@ -62,6 +62,12 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_ASFLOAT] = {"asfloat", 1, 0},
 	[O_BARRIER] = {"barrier", 1, 0},
 	[O_ATOMIC] = {"atomic", 2, 0},
+	[O_SEC] = {"sec", 1, OF_REALFN | OF_PARTIAL},
+	[O_CSC] = {"csc", 1, OF_REALFN | OF_PARTIAL},
+	[O_COT] = {"cot", 1, OF_REALFN | OF_PARTIAL},
+	[O_ATAN] = {"atan", 1, OF_REALFN},
+	[O_COPYSIGN] = {"copysign", 2, 0},
+	[O_FMA] = {"fma", 3, 0},
 };
 
 static const char *const atomic_names[] = {
@@ -652,6 +658,8 @@ mk_bin(int op, nid a, nid b)
 			b = conv(b, TY_REAL);
 		}
 		t = common(ta, tb, &mix);
+		if (op == O_COPYSIGN && !TY_FP(t))
+			t = TY_REAL;
 		if (t == TY_BOOL && !(opinfo[op].fl & OF_CMP) &&
 		    op != O_AND && op != O_OR && op != O_XOR &&
 		    op != O_MIN && op != O_MAX)
@@ -768,6 +776,27 @@ mk_bin(int op, nid a, nid b)
 	}
 #undef TOTAL
 	return node(op, rt, a, b, 0);
+}
+
+/* fma(a, b, c) = a*b + c with one rounding */
+nid
+mk_fma(nid a, nid b, nid c)
+{
+	int mix = 0;
+	ty_t t = common(common(N.ty[a], N.ty[b], &mix), N.ty[c], &mix);
+	nid r;
+
+	if (!TY_FP(t))
+		t = TY_REAL;
+	a = conv(a, t);
+	b = conv(b, t);
+	c = conv(c, t);
+	if (N.op[a] == O_UNDEF || N.op[b] == O_UNDEF || N.op[c] == O_UNDEF)
+		return mk_undef(t);
+	if (is_const(a) && is_const(b) && is_const(c) &&
+	    (r = folded(O_FMA, t, a, b, c)) != 0)
+		return r;
+	return node(O_FMA, t, a, b, c);
 }
 
 nid
@@ -937,6 +966,10 @@ rebuild(nid n, const nid *map, int nmap)
 	case O_ATOMIC:
 		r = mk_atomic((int)(N.ki[n] & 0xff), rebuild(N.a[n], map, nmap),
 		    rebuild(N.b[n], map, nmap));
+		break;
+	case O_FMA:
+		r = mk_fma(rebuild(N.a[n], map, nmap),
+		    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
 		break;
 	default:
 		if (opinfo[N.op[n]].arity == 1)
@@ -1228,9 +1261,13 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			s = "__builtin_popcountll";
 		sb_printf(b, "%s(", s);
 		pr(b, N.a[n], 0, pc, 0);
-		if (opinfo[op].arity == 2) {
+		if (opinfo[op].arity >= 2) {
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
+		}
+		if (opinfo[op].arity == 3) {
+			sb_puts(b, ", ");
+			pr(b, N.c[n], 0, pc, 0);
 		}
 		sb_putc(b, ')');
 	}
@@ -1313,11 +1350,15 @@ print_paren(struct sbuf *b, nid n)
 		}
 		return;
 	}
-	if (op == O_MIN || op == O_MAX) {
+	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
 		sb_puts(b, ", ");
 		print_paren(b, N.b[n]);
+		if (op == O_FMA) {
+			sb_puts(b, ", ");
+			print_paren(b, N.c[n]);
+		}
 		sb_putc(b, ')');
 		return;
 	}

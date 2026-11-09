@@ -295,6 +295,29 @@ d1(nid e, uint32_t slot)
 	case O_BARRIER:
 		r = d1(a, slot);
 		break;
+	case O_SEC:	/* sec' = sec tan */
+		r = mk_bin(O_MUL, mk_bin(O_MUL, e, mk_un(O_TAN, a)), d1(a, slot));
+		break;
+	case O_CSC:	/* csc' = -csc cot */
+		r = mk_un(O_NEG, mk_bin(O_MUL, mk_bin(O_MUL, e, mk_un(O_COT, a)),
+		    d1(a, slot)));
+		break;
+	case O_COT:	/* cot' = -1/sin^2 */
+		r = mk_un(O_NEG, mk_bin(O_DIV, d1(a, slot),
+		    mk_bin(O_POW, mk_un(O_SIN, a), C(2))));
+		break;
+	case O_ATAN:
+		r = mk_bin(O_DIV, d1(a, slot), mk_bin(O_ADD, C(1),
+		    mk_bin(O_POW, a, C(2))));
+		break;
+	case O_COPYSIGN:	/* |a| sign(b): sign(a) sign(b) a' */
+		r = mk_bin(O_MUL, mk_bin(O_MUL, mk_un(O_SIGN, a),
+		    mk_bin(O_COPYSIGN, C(1), b)), d1(a, slot));
+		break;
+	case O_FMA:
+		r = mk_bin(O_ADD, mk_bin(O_ADD, mk_bin(O_MUL, d1(a, slot), b),
+		    mk_bin(O_MUL, a, d1(b, slot))), d1(N.c[e], slot));
+		break;
 	default:
 		if (TY_ISINT(t) && !(N.fl[e] & NF_VAR))
 			r = C(0);

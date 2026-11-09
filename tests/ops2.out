@@ -1,0 +1,31 @@
+> sec(0.5)
+1.13949
+> csc(0.5) * sin(0.5)
+1
+> cot(1) * tan(1)
+1
+> atan(1) * 4
+3.14159
+> copysign(2, -0.0)
+-2
+> fma(2, 3, 1)
+7
+> f(x: f32) = fma(x, x, -1.0)
+> show f
+f(x: f32) = fma(x, x, -1)
+  -> f32
+> diff atan(x)
+d/dx atan(x) = 1/(x^2 + 1)
+> diff sec(x)
+d/dx sec(x) = sec(x)*tan(x)
+> diff cot(x)
+d/dx cot(x) = -(1/sin(x)^2)
+> diff copysign(x, 2)
+d/dx copysign(x, 2) = sign(x)
+> cost fma(x: f32, x, 1.0f)
+cost of fma(x, x, 1) under gt1030: 1 (1 operations, shared subterms counted once)
+  fmul             1 x 1     = 1
+> h(x: f32 in -1..1) = copysign(abs(x), x)
+> g(x: f32 in -1..1) = x
+> equiv h g
+h and g are equal on the domain of h (sampled, not proved)
