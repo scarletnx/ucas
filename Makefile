@@ -28,7 +28,7 @@ SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
 # homological algebra: spaces, (co)homology, exact couples (homalg.h)
-SRCS+=	simp.c
+SRCS+=	simp.c cx.c excouple.c homalg_cmd.c
 .PATH:	${.CURDIR}/src
 MAN=
 

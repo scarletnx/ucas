@@ -25,6 +25,7 @@
 #include "ring.h"
 #include "viz.h"
 #include "xform.h"
+int homalg_command(struct P *p);	/* homalg.h */
 
 #include <ctype.h>
 #include <math.h>
@@ -1870,6 +1871,8 @@ statement(struct P *p)
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
+		return;
+	if (pk(p) == T_ID && homalg_command(p))	/* homology ... (homalg) */
 		return;
 	if (hyper_hook(p))
 		return;

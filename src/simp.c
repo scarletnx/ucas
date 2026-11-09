@@ -20,7 +20,6 @@
 #include "ucas.h"
 #include "homalg.h"
 
-typedef __int128 i128;
 
 /* ---- the arena ---- */
 
@@ -751,14 +750,14 @@ hs_lens(uint64_t m, uint64_t q)
 	/* e0 .. e3; d e2 = m e1 (the 2-cell wraps m times), d e1 = d e3 = 0
 	 * (for every q prime to m) */
 	if (m < 1 || m >= (uint64_t)VMAX)
-		fail("homalg: L(m;q): 1 <= m < 2^40");
+		fail("homalg: L(m,q): 1 <= m < 2^40");
 	if (q == 0 || gcd64(m, q) != 1)
 		fail("homalg: L(%llu;%llu): q is prime to m",
 		    (unsigned long long)m, (unsigned long long)q);
 	b_reset(3, 0);
 	B.cnt[0] = B.cnt[1] = B.cnt[2] = B.cnt[3] = 1;
 	b_add(2, 0, 0, (int64_t)m);
-	snprintf(nbuf, sizeof nbuf, "L(%llu;%llu)", (unsigned long long)m,
+	snprintf(nbuf, sizeof nbuf, "L(%llu,%llu)", (unsigned long long)m,
 	    (unsigned long long)(q % m == 0 ? q : q % m));
 	return b_commit(nbuf);
 }
@@ -912,14 +911,108 @@ hs_suspension(hspace a)
 
 /* ---- names ---- */
 
+void
+hs_cell_name(struct sbuf *b, hspace s, int k, uint32_t c)
+{
+	if (hs_kind(s) == HS_SIMPLICIAL) {
+		int j;
+		sb_putc(b, '[');
+		for (j = 0; j <= k; j++)
+			sb_printf(b, "%s%u", j ? "," : "",
+			    (unsigned)hs_simplex_col(s, k, j)[c]);
+		sb_putc(b, ']');
+	} else if (hs_ncells(s, k) == 1)
+		sb_printf(b, "e%d", k);
+	else
+		sb_printf(b, "e%d.%u", k, (unsigned)c + 1);
+}
+
+/* [[1, 2], [3, 4]]: rows of int64 (|v| < 2^40); "[]" is empty.  Returns
+ * the row count (*cols the common length), -1 on a syntax error */
+static const char *ps;
+
+static int
+p_matrix(int64_t **out, uint32_t *rows, uint32_t *cols, uint32_t *cap)
+{
+	uint32_t r = 0, c = 0, n = 0;
+	int first = 1;
+
+	while (*ps == ' ')
+		ps++;
+	if (*ps++ != '[')
+		return -1;
+	while (*ps == ' ')
+		ps++;
+	if (*ps == ']') {
+		ps++;
+		*rows = *cols = 0;
+		return 0;
+	}
+	for (;;) {
+		uint32_t k = 0;
+		while (*ps == ' ')
+			ps++;
+		if (*ps++ != '[')
+			return -1;
+		for (;;) {
+			char *end;
+			long long v;
+			while (*ps == ' ')
+				ps++;
+			if (*ps == ']' && k == 0)
+				break;
+			v = strtoll(ps, &end, 10);
+			if (end == ps || v >= VMAX || v <= -VMAX)
+				return -1;
+			ps = end;
+			if (n == *cap) {
+				*cap = newcap(*cap, n + 1);
+				*out = xrealloc(*out, *cap * sizeof **out);
+			}
+			(*out)[n++] = v;
+			k++;
+			while (*ps == ' ')
+				ps++;
+			if (*ps == ',') {
+				ps++;
+				continue;
+			}
+			if (*ps == ']')
+				break;
+			return -1;
+		}
+		ps++;
+		if (first)
+			c = k;
+		else if (k != c)
+			return -1;
+		first = 0;
+		r++;
+		while (*ps == ' ')
+			ps++;
+		if (*ps == ',') {
+			ps++;
+			continue;
+		}
+		if (*ps == ']') {
+			ps++;
+			break;
+		}
+		return -1;
+	}
+	*rows = r;
+	*cols = c;
+	return (int)r;
+}
+
 /*
  * space := wedge ;  wedge := prod (("v" | "\/" | "wedge") prod)* ;
  * prod := unary (("x" | "*" | "×") unary)* ;
  * unary := "susp" "(" space ")" | "(" space ")" | atom ;
- * atom := S^n | T^n | RP^n | CP^n | K | Klein | L(m;q) | L(m) | pt,
+ * atom := S^n | T^n | RP^n | CP^n | K | Klein | L(m,q) | L(m) | pt,
  * with "_s" for the simplicial model (S^n_s, T^2_s, RP^n_s, K_s).
  */
-static const char *ps, *perr;
+static const char *perr;
 
 static void
 ws(void)
@@ -1008,6 +1101,145 @@ p_atom(void)
 	}
 	if (lit("pt") || lit("point"))
 		return hs_point();
+	if (lit("facets")) {
+		/* facets([[0,1,2], [0,2,3], [3,4]]): rows of any length */
+		static int64_t *m;
+		static uint32_t cap, *rl, rcap;
+		uint32_t nr = 0, i, *v, *off, tot = 0;
+		hspace s;
+		if (!lit("(") || !lit("["))
+			return perr = "facets([[0, 1, 2], [0, 2, 3], ...])", HNONE;
+		for (;;) {
+			uint32_t r1, c1;
+			const char *save = ps;
+			/* one row "[a, b, c]" read as the 1-row matrix [[a, b, c]] */
+			static char row[4096];
+			const char *e;
+			ws();
+			e = strchr(ps, ']');
+			if (*ps != '[' || e == NULL || (size_t)(e - ps) + 3 >
+			    sizeof row)
+				return perr = "facets: [[0, 1, 2], ...]", HNONE;
+			snprintf(row, sizeof row, "[%.*s]]", (int)(e - ps + 1) - 1,
+			    ps);
+			ps = row;
+			if (tot + MAXFACET > cap) {
+				cap = newcap(cap, tot + MAXFACET);
+				m = xrealloc(m, cap * sizeof *m);
+			}
+			{
+				int64_t *tmp = NULL;
+				uint32_t tcap = 0;
+				if (p_matrix(&tmp, &r1, &c1, &tcap) != 1 || c1 == 0 ||
+				    c1 > MAXFACET) {
+					free(tmp);
+					return perr = "facets: a facet is [v0, v1, "
+					    "...] with 1 to 14 vertices", HNONE;
+				}
+				memcpy(m + tot, tmp, c1 * sizeof *m);
+				free(tmp);
+			}
+			ps = e + 1;
+			(void)save;
+			if (nr + 1 >= rcap) {
+				rcap = newcap(rcap, nr + 2);
+				rl = xrealloc(rl, rcap * sizeof *rl);
+			}
+			rl[nr++] = c1;
+			tot += c1;
+			if (!lit(","))
+				break;
+		}
+		if (!lit("]") || !lit(")"))
+			return perr = "facets([[...], ...]): missing ] or )", HNONE;
+		v = xmalloc(((size_t)tot + 1) * sizeof *v);
+		off = xmalloc(((size_t)nr + 1) * sizeof *off);
+		for (i = 0; i < tot; i++) {
+			if (m[i] < 0 || m[i] > 100000000) {
+				free(v);
+				free(off);
+				return perr = "facets: vertices are 0, 1, 2, ...",
+				    HNONE;
+			}
+			v[i] = (uint32_t)m[i];
+		}
+		for (i = 0, off[0] = 0; i < nr; i++)
+			off[i + 1] = off[i] + rl[i];
+		s = hs_simplicial("facets(...)", v, off, nr);
+		free(v);
+		free(off);
+		return s;
+	}
+	if (lit("cells")) {
+		/* cells(d1, d2, ...) or cells(n0, n1, ...: d1, d2, ...); "[]"
+		 * is a zero matrix of the shape the counts give */
+		static int64_t *m[HMAXDIM + 1];
+		static uint32_t cap[HMAXDIM + 1];
+		uint32_t cnt0[HMAXDIM + 2], rr[HMAXDIM + 1], cc[HMAXDIM + 1];
+		uint32_t ncell[HMAXDIM + 1];
+		const int64_t *dd[HMAXDIM + 1];
+		int nc = 0, nm = 0, k;
+		const char *save;
+		if (!lit("("))
+			return perr = "cells([[...]], [[...]], ...)", HNONE;
+		ws();
+		save = ps;
+		if (isdigit((unsigned char)*ps)) {
+			uint64_t x;
+			while (nc <= HMAXDIM && num(&x)) {
+				if (x > 1000000)
+					return perr = "cells: counts", HNONE;
+				cnt0[nc++] = (uint32_t)x;
+				if (!lit(","))
+					break;
+			}
+			if (!lit(":")) {
+				ps = save;
+				nc = 0;
+			}
+		}
+		for (;;) {
+			if (nm >= HMAXDIM)
+				return perr = "cells: too many matrices", HNONE;
+			if (p_matrix(&m[nm], &rr[nm], &cc[nm], &cap[nm]) < 0)
+				return perr = "cells: d1, d2, ... as [[...], "
+				    "...] (rows: the (k-1)-cells)", HNONE;
+			nm++;
+			if (!lit(","))
+				break;
+		}
+		if (!lit(")"))
+			return perr = "cells(...): missing )", HNONE;
+		if (nc && nc != nm + 1)
+			return perr = "cells: one count per dimension 0..top",
+			    HNONE;
+		for (k = 0; k <= nm; k++) {
+			if (nc)
+				ncell[k] = cnt0[k];
+			else if (k < nm)
+				ncell[k] = rr[k];
+			else
+				ncell[k] = cc[nm - 1];
+		}
+		for (k = 0; k < nm; k++) {
+			size_t sz = (size_t)ncell[k] * ncell[k + 1];
+			if (rr[k] == 0 && cc[k] == 0) {
+				if (sz > 0 && !nc)
+					return perr = "cells: \"[]\" needs the "
+					    "counts: cells(n0, n1, ...: ...)", HNONE;
+				if (sz > cap[k]) {
+					cap[k] = (uint32_t)sz;
+					m[k] = xrealloc(m[k], sz * sizeof *m[k]);
+				}
+				if (sz)
+					memset(m[k], 0, sz * sizeof *m[k]);
+			} else if (rr[k] != ncell[k] || cc[k] != ncell[k + 1])
+				return perr = "cells: d_k is (number of (k-1)-cells) "
+				    "x (number of k-cells)", HNONE;
+			dd[k] = m[k];
+		}
+		return hs_cellular("cells(...)", nm, ncell, dd);
+	}
 	if (lit("Klein") || lit("klein"))
 		return hs_klein(suffix_s());
 	if (strncmp(ps, "RP", 2) == 0) {
@@ -1046,16 +1278,16 @@ p_atom(void)
 	if (*ps == 'L' && (ps[1] == '(' || ps[1] == ' ')) {
 		ps++;
 		if (!lit("(") || !num(&n))
-			return perr = "L(m;q)", HNONE;
+			return perr = "L(m,q)", HNONE;
 		q = 1;
 		if (lit(";") || lit(","))
 			if (!num(&q))
-				return perr = "L(m;q)", HNONE;
+				return perr = "L(m,q)", HNONE;
 		if (!lit(")"))
-			return perr = "L(m;q): missing )", HNONE;
+			return perr = "L(m,q): missing )", HNONE;
 		return hs_lens(n, q);
 	}
-	return perr = "a space: S^n, T^n, RP^n, CP^n, K, L(m;q), pt, "
+	return perr = "a space: S^n, T^n, RP^n, CP^n, K, L(m,q), pt, "
 	    "susp(X), X x Y, X v Y", HNONE;
 }
 
