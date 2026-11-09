@@ -3080,7 +3080,13 @@ apply(int k, const struct cand *c)
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
-	int k, i, nrw = 0, ndead = 0, shown = 0, inbody = 0;
+	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0;
+#define MAXLOG 4096
+	struct rwlog {
+		char from[160], to[160];
+		const char *why;
+		double gain;
+	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	double before = 0, after = 0;
 	struct sbuf out = {0}, list = {0};
 	clock_t t0 = clock();
@@ -3209,15 +3215,12 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 		if (best < 0)
 			continue;
-		{
-			char ct[200];
-			cand_text(ct, sizeof ct, &cs[best], &V.in[k]);
-			if (shown < 40)
-				sb_printf(&list, "    %-52.52s ->  %s   (%s; -%g)\n",
-				    V.in[k].text, ct, cs[best].why, gain);
-			else if (shown == 40)
-				sb_puts(&list, "    ...\n");
-			shown++;
+		if (nlog < MAXLOG) {
+			struct rwlog *L = &rl[nlog++];
+			cand_text(L->to, sizeof L->to, &cs[best], &V.in[k]);
+			snprintf(L->from, sizeof L->from, "%s", V.in[k].text);
+			L->why = cs[best].why;
+			L->gain = gain;
 		}
 		apply(k, &cs[best]);
 		nrw++;
@@ -3317,9 +3320,44 @@ spirv_simplify(const char *src, double budget, int nofile)
 	if (before > 0)
 		printf(" (-%.1f%%)", 100 * (before - after) / before);
 	printf("\n");
-	if (list.n)
+	if (nlog > 0) {
+		/* by kind, then the largest savings first */
+		const char *kinds[32];
+		int cnt[32], nk = 0, j, shown;
+		double sum[32];
+		for (i = 0; i < nlog; i++) {
+			for (j = 0; j < nk; j++)
+				if (kinds[j] == rl[i].why)
+					break;
+			if (j == nk && nk < 32) {
+				kinds[nk] = rl[i].why;
+				cnt[nk] = 0;
+				sum[nk++] = 0;
+			}
+			if (j < 32) {
+				cnt[j]++;
+				sum[j] += rl[i].gain;
+			}
+		}
+		printf("  by kind:\n");
+		for (j = 0; j < nk; j++)
+			printf("    %4d  %-44s  -%g\n", cnt[j], kinds[j], sum[j]);
+		for (i = 1; i < nlog; i++) {	/* stable: by gain, then order */
+			struct rwlog x = rl[i];
+			for (j = i; j > 0 && rl[j - 1].gain < x.gain; j--)
+				rl[j] = rl[j - 1];
+			rl[j] = x;
+		}
+		shown = nlog < 25 ? nlog : 25;
+		printf("  %s:\n", shown < nlog ? "the largest savings" : "rewrites");
+		for (i = 0; i < shown; i++)
+			sb_printf(&list, "    %s\n      ->  %s   (%s; -%g)\n",
+			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain);
+		if (shown < nlog)
+			sb_printf(&list, "    ... %d more (all in the attached "
+			    "module)\n", nlog - shown);
 		fputs(list.p, stdout);
-	else
+	} else
 		printf("  nothing to rewrite: no cheaper form of an integer "
 		    "instruction could be proved\n");
 	if (SP.undecided)
@@ -3336,6 +3374,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    nofile);
 	free(out.p);
 	free(list.p);
+	free(rl);
 	aig_free(SP.g);
 	free(SP.def);
 	free(SP.alias);

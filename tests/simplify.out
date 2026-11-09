@@ -4,15 +4,31 @@
   output %out: uint (stored to; its values are listed after the run)
 simplify: 35 SPIR-V instructions, 9 rewrites proved by SAT (bit-precise: equal for every input), 3 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 65 -> 3 (-95.4%)
-    %a = OpBitFieldUExtract %uint %x %uint_0 %uint_8     ->  OpBitwiseAnd %uint %x %uint_255   (an extract at bit 0 is a mask; -1)
-    %b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_2 ->  %a   (equals its operand; -4)
-    %c = OpIMul %uint %b %uint_4                         ->  OpShiftLeftLogical %uint %a %uint_2   (a multiply by a power of two is a shift; -1)
-    %d = OpUDiv %uint %c %uint_2                         ->  OpShiftRightLogical %uint %c %ucas_uint_1   (a divide by a power of two is a shift; -22)
-    %e = OpISub %uint %d %d                              ->  0   (always this value; -1)
-    %f = OpIAdd %uint %c %e                              ->  %c   (equals its operand; -1)
-    %i = OpUMod %uint %h %uint_32                        ->  %h   (equals its operand; -24)
-    %j = OpULessThan %bool %a %uint_256                  ->  true   (always this value; -2)
-    %k = OpSelect %uint %j %f %i                         ->  %c   (equals its operand; -1)
+  by kind:
+       1  an extract at bit 0 is a mask                 -1
+       4  equals its operand                            -30
+       1  a multiply by a power of two is a shift       -1
+       1  a divide by a power of two is a shift         -22
+       2  always this value                             -3
+  rewrites:
+    %i = OpUMod %uint %h %uint_32
+      ->  %h   (equals its operand; -24)
+    %d = OpUDiv %uint %c %uint_2
+      ->  OpShiftRightLogical %uint %c %ucas_uint_1   (a divide by a power of two is a shift; -22)
+    %b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_255
+      ->  %a   (equals its operand; -4)
+    %j = OpULessThan %bool %a %uint_256
+      ->  true   (always this value; -2)
+    %a = OpBitFieldUExtract %uint %x %uint_0 %uint_8
+      ->  OpBitwiseAnd %uint %x %uint_255   (an extract at bit 0 is a mask; -1)
+    %c = OpIMul %uint %b %uint_4
+      ->  OpShiftLeftLogical %uint %a %uint_2   (a multiply by a power of two is a shift; -1)
+    %e = OpISub %uint %d %d
+      ->  0   (always this value; -1)
+    %f = OpIAdd %uint %c %e
+      ->  %c   (equals its operand; -1)
+    %k = OpSelect %uint %j %f %i
+      ->  %c   (equals its operand; -1)
   proved in 0.00 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 758 bytes, checksum 56a82782)
 > spvsimplify nofile
@@ -24,9 +40,17 @@ simplify: 35 SPIR-V instructions, 9 rewrites proved by SAT (bit-precise: equal f
   output %out4: int (stored to; its values are listed after the run)
 simplify: 35 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 79 -> 54 (-31.6%)
-    %a = OpBitFieldUExtract %uint %x %uint_0 %uint_9     ->  OpBitwiseAnd %uint %x %ucas_uint_511   (an extract at bit 0 is a mask; -1)
-    %b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_2 ->  OpExtInst %uint %glsl UMin %a %uint_255   (never below the low bound: a min; -2)
-    %u = OpSDiv %int %st %int_4                          ->  OpShiftRightLogical %int %st %int_2   (the dividend is never negative: a shift; -22)
+  by kind:
+       1  an extract at bit 0 is a mask                 -1
+       1  never below the low bound: a min              -2
+       1  the dividend is never negative: a shift       -22
+  rewrites:
+    %u = OpSDiv %int %st %int_4
+      ->  OpShiftRightLogical %int %st %int_2   (the dividend is never negative: a shift; -22)
+    %b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_255
+      ->  OpExtInst %uint %glsl UMin %a %uint_255   (never below the low bound: a min; -2)
+    %a = OpBitFieldUExtract %uint %x %uint_0 %uint_9
+      ->  OpBitwiseAnd %uint %x %ucas_uint_511   (an extract at bit 0 is a mask; -1)
   proved in 0.00 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 1102 bytes, checksum dd544adf)
 > spvsimplify nofile
@@ -36,6 +60,10 @@ simplify: 35 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal f
   output %out: uint (stored to; its values are listed after the run)
 simplify: 28 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 5 -> 3 (-40.0%)
-    %w = OpExtInst %uint %glsl UMin %v %uint_255         ->  %v   (equals its operand; -2)
+  by kind:
+       1  equals its operand                            -2
+  rewrites:
+    %w = OpExtInst %uint %glsl UMin %v %uint_255
+      ->  %v   (equals its operand; -2)
   proved in 0.00 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 719 bytes, checksum 5ea34a25)
