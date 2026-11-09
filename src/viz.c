@@ -806,6 +806,23 @@ integrate(nid e, double a, double b, struct integ *I, int want_exact)
 	}
 }
 
+/* a value as data: {"value", "exact" (recognised form), "is_exact"} */
+static void
+rep_val(const char *key, double v, int exact)
+{
+	const char *q;
+
+	if (!rep_on)
+		return;
+	q = exact ? recog(v) : "";
+	rep_obj(key);
+	rep_num("value", v);
+	if (q[0])
+		rep_str("exact", q);
+	rep_bool("is_exact", exact);
+	rep_end();
+}
+
 static double
 ival(const struct integ *I)
 {
@@ -817,6 +834,27 @@ static void
 print_integ(const char *indent, const struct integ *I, double a, double b,
     double scale)
 {
+	rep_obj("integral");
+	if (I->F)
+		rep_expr("antiderivative", I->F);
+	rep_bool("exact", I->exact);
+	if (I->exact)
+		rep_val("symbolic", I->ve, 1);
+	if (I->good) {
+		rep_num("numeric", I->v * scale);
+		rep_num("error_estimate", I->err * fabs(scale));
+		rep_int("evaluations", I->nev);
+	}
+	if (I->diverge)
+		rep_bool("diverges", 1);
+	rep_end();
+	if (I->exact && I->good)
+		rep_check("numeric_integral", I->nev, fabs(I->v - I->ve) *
+		    fabs(scale), fabs(I->v - I->ve) <= 10 * I->err +
+		    1e-9 * fabs(I->ve), "the antiderivative's F(b) - F(a) "
+		    "against adaptive Gauss-Kronrod");
+	rep_str("method", I->exact ? "antiderivative, F(b) - F(a), checked "
+	    "numerically" : "numeric (adaptive Gauss-Kronrod 7-15)");
 	if (I->F)
 		printf("%santiderivative: %s\n", indent, node_str(I->F));
 	if (I->exact)
@@ -1512,6 +1550,12 @@ area_cmd(void)
 			    val_text(v, ex));
 	}
 	abs_area = pos - neg;
+	if (exact_v == exact_v) {
+		rep_val("area", abs_area, allexact);
+		rep_val("signed_integral", exact_v, I.exact);
+		rep_val("above", pos, allexact);
+		rep_val("below", -neg, allexact);
+	}
 	if (I.diverge)
 		printf("  no area: the integral diverges at %s = %s\n", xname(),
 		    btxt(I.diverge == 1 ? R.a : R.b));
@@ -2041,6 +2085,11 @@ region_centroid(struct solid *so, int print, int pappus)
 	printf("  region: area %s, centroid (%s, %s)%s\n", val_text(so->A,
 	    Ia.exact), val_text(so->xc, ex), val_text(so->yc, ex), ex ?
 	    " (exact)" : "");
+	rep_val("region_area", so->A, Ia.exact);
+	rep_obj("centroid");
+	rep_val("x", so->xc, ex);
+	rep_val("y", so->yc, ex);
+	rep_end();
 	if (!pappus)
 		return;
 	d = R.axis == AX_H ? fabs(so->yc - R.c) : fabs(so->xc - R.c);
@@ -2184,6 +2233,7 @@ solid_numbers(struct solid *so, int print, int what)
 	if (print) {
 		printf("  volume: %s%s\n", val_text(so->V, so->exact), so->exact ?
 		    " (exact)" : " (numeric)");
+		rep_val("volume", so->V, so->exact);
 	}
 	if (what == VC_VOLUME || what == VC_REVOLVE)
 		region_centroid(so, print, 1);
@@ -2197,6 +2247,9 @@ surface:
 	if (R.ng)
 		surface_of(&R.g, R.gl, &so->S[1], &so->Sok[1], &so->Sexact[1],
 		    print);
+	if (print && so->Sok[0])
+		rep_val("surface_area", R.ng && so->Sok[1] ? so->S[0] + so->S[1] :
+		    so->S[0], so->Sexact[0] && (!R.ng || so->Sexact[1]));
 	if (print && R.ng && so->Sok[0] && so->Sok[1])
 		printf("    both: %s\n", pr_g4(so->S[0] + so->S[1]));
 }
@@ -2958,6 +3011,7 @@ arclength_cmd(void)
 			    "shorter)\n", pr_g4(hypot(x1 - x0, y1 - y0)));
 	}
 	printf("  arc length: %s\n", val_text(ival(&I), I.exact));
+	rep_val("arc_length", ival(&I), I.exact);
 }
 
 static void
@@ -3027,6 +3081,8 @@ viz_command(struct P *p)
 		}
 	}
 	(void)rest;
+	rep_begin(w);
+	rep_text_fields();
 	memcpy(saved, fail_jmp, sizeof saved);
 	if (setjmp(fail_jmp)) {
 		pr_end();

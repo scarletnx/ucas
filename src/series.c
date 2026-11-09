@@ -2217,6 +2217,10 @@ cmd_radius(char *text)
 			    strchr(xf_str(base), ' ') ? ")" : "", xf_str(ex));
 			printf("  radius of convergence R = %s (%s: |a_(%s+1)/a_%s| -> %s",
 			    isinf(R) ? "inf" : xf_num(R), test, C.idx, C.idx, xf_num(L));
+			rep_exact("radius", R, isinf(R) ? "inf" : xf_num(R));
+			rep_exact("center", x0, xf_num(x0));
+			rep_str("coefficient", xf_str(a));
+			rep_str("test", test);
 			if (k1 != 1)
 				printf(", the power steps by %s", xf_num(k1));
 			printf(")\n");
@@ -2605,6 +2609,8 @@ series_command(struct P *p, const char *w)
 		}
 		xf_helpers();
 		notes_flush();
+		rep_begin(S.isprod ? "infinite_product" : "infinite_sum");
+		rep_text_fields();
 		if (S.isprod)
 			infinite_prod(&S);
 		else
@@ -2621,6 +2627,9 @@ series_command(struct P *p, const char *w)
 		text[0] = 0;
 	xf_helpers();
 	notes_flush();
+	rep_begin(!strcmp(word, "converges") ? "converge" : !strcmp(word,
+	    "coeffs") ? "powerseries" : word);
+	rep_text_fields();
 	if (!strcmp(word, "converge") || !strcmp(word, "converges"))
 		cmd_converge(text);
 	else if (!strcmp(word, "radius"))

@@ -522,6 +522,90 @@ tagged(const char *s, size_t n)
 	return f;
 }
 
+/* an integer literal (decimal or 0x), exactly representable: 1 */
+static int
+int_text(const char *s, size_t n, long long *v)
+{
+	char b[40], *e;
+	unsigned long long u;
+	int neg = 0;
+
+	if (n == 0 || n >= sizeof b)
+		return 0;
+	memcpy(b, s, n);
+	b[n] = 0;
+	if (b[0] == '-')
+		neg = 1;
+	errno = 0;
+	u = strtoull(b + neg, &e, 0);
+	if (*e || errno || e == b + neg || u > (1ULL << 53))
+		return 0;
+	*v = neg ? -(long long)u : (long long)u;
+	return 1;
+}
+
+static int
+balanced(const char *s, size_t n)
+{
+	size_t i;
+	int d = 0;
+
+	for (i = 0; i < n; i++) {
+		if (s[i] == '(' || s[i] == '[' || s[i] == '{')
+			d++;
+		else if ((s[i] == ')' || s[i] == ']' || s[i] == '}') && --d < 0)
+			return 0;
+	}
+	return d == 0;
+}
+
+/*
+ * A headline "LHS = VALUE [mod M | in R | over F] [(note)]": its parts
+ * as fields (lhs, value, modulus/in/over, value_int when an integer).
+ */
+static void
+headline_parts(struct jv *o, const char *h)
+{
+	const char *eq = strstr(h, " = "), *v, *end, *m;
+	static const char *const seps[] = {" mod ", " in ", " over ", NULL};
+	static const char *const keys[] = {"modulus", "in", "over"};
+	long long iv;
+	int k;
+
+	if (eq == NULL || jv_get(o, "value") || strchr(eq + 3, '=') ||
+	    !balanced(h, (size_t)(eq - h)) || !balanced(eq + 3, strlen(eq + 3)))
+		return;
+	if (!jv_get(o, "lhs"))
+		jv_set(o, "lhs", jv_strn(h, (size_t)(eq - h)));
+	v = eq + 3;
+	end = v + strlen(v);
+	/* a trailing parenthetical: another form of the value, or a remark */
+	if (end > v && end[-1] == ')') {
+		const char *p = end - 1;
+		int d = 0;
+		for (; p > v; p--) {
+			if (*p == ')')
+				d++;
+			if (*p == '(' && --d == 0)
+				break;
+		}
+		if (p > v + 1 && p[-1] == ' ') {
+			jv_set(o, "annotation", jv_strn(p + 1, (size_t)(end - p - 2)));
+			end = p - 1;
+		}
+	}
+	for (k = 0; seps[k]; k++)
+		if ((m = strstr(v, seps[k])) != NULL && m < end) {
+			jv_set(o, keys[k], jv_strn(m + strlen(seps[k]),
+			    (size_t)(end - m - strlen(seps[k]))));
+			end = m;
+			break;
+		}
+	jv_set(o, "value", jv_strn(v, (size_t)(end - v)));
+	if (int_text(v, (size_t)(end - v), &iv))
+		jv_set(o, "value_int", jv_int(iv));
+}
+
 static void
 fill_fields(struct jv *o, const char *p, const char *end)
 {
@@ -562,15 +646,34 @@ fill_fields(struct jv *o, const char *p, const char *end)
 				field_add(o, "method", jv_strn(v, vl));
 			else if ((f = tagged(v, vl)) != NULL)
 				field_add(o, key, f);
-			else
+			else {
 				field_add(o, key, jv_strn(v, vl));
+				if (!strcmp(key, "region_of_convergence"))
+					field_add(o, "roc", jv_strn(v, vl));
+			}
+		} else if (q - s > 2 && s[0] == '=' && s[1] == ' ' &&
+		    !jv_get(o, "value")) {
+			/* "  = pi^2/6": the value of the headline's expression */
+			long long iv;
+			jv_set(o, "value", jv_strn(s + 2, (size_t)(q - s - 2)));
+			if (int_text(s + 2, (size_t)(q - s - 2), &iv))
+				jv_set(o, "value_int", jv_int(iv));
 		} else if ((f = tagged(s, (size_t)(q - s))) != NULL) {
 			jv_push(det, f);
-		} else
+		} else {
+			const char *r = strstr(s, "region of convergence ");
+			if (r && r < q && !jv_get(o, "roc")) {
+				const char *re = r + 22, *pe = strstr(re, " (");
+				if (pe == NULL || pe > q)
+					pe = q;
+				jv_set(o, "roc", jv_strn(re, (size_t)(pe - re)));
+			}
 			jv_push(det, jv_strn(s, (size_t)(q - s)));
+		}
 		p = e < end && *e ? e + 1 : end;
 	}
 	if (heads->n && !jv_get(o, "headline")) {
+		headline_parts(o, heads->v[0]->s);
 		jv_set(o, "headline", heads->v[0]);
 		heads->v[0] = jv_new(J_NULL);
 		if (heads->n > 1) {

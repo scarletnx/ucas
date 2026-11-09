@@ -605,6 +605,9 @@ cmd_inverse(void)
 		}
 		printf("%s^-1 = %s in %s\n", el_code(&s.R, v), el_str(&s.R, r),
 		    s.name);
+		rep_str("value", el_code(&s.R, r));
+		rep_str("polynomial", el_str(&s.R, r));
+		rep_str("in", s.name);
 		printf("  how: %s\n", s.R.field ? "a^(q-2) (a^(q-1) = 1 for every "
 		    "nonzero a)" : "extended Euclid on the polynomials");
 		printf("  check: %s * %s = %s (shift-and-add multiplication)\n",
@@ -867,10 +870,16 @@ cmd_sqrtmod_int(i128 a0, u64 n)
 		return;
 	}
 	printf("x^2 = %llu mod %llu: ", U(a), U(n));
+	rep_strf("modulus", "%llu", U(n));
+	rep_int("solutions", k);
 	if (k == 0)
 		printf("no solution (%llu is not a square mod %llu)\n", U(a), U(n));
 	else {
 		printf("x = ");
+		rep_list("roots");
+		for (i = 0; i < k; i++)
+			rep_int(NULL, (long long)roots[i]);
+		rep_end();
 		for (i = 0; i < k && i < 32; i++)
 			printf("%s%llu", i ? ", " : "", U(roots[i]));
 		if (k > 32)
@@ -962,6 +971,9 @@ cmd_primroot_int(u64 n, int test, u64 a)
 	if (test) {
 		u64 o = nt_order(a, n);
 		a %= n;
+		rep_bool("primitive_root", o == ph);
+		rep_strf("order", "%llu", U(o));
+		rep_strf("phi", "%llu", U(ph));
 		printf("%s: %llu is %sa primitive root mod %llu (its order is %llu, "
 		    "phi(%llu) = %llu)\n", o == ph ? "yes" : "no", U(a),
 		    o == ph ? "" : "not ", U(n), U(o), U(n), U(ph));
@@ -976,6 +988,7 @@ cmd_primroot_int(u64 n, int test, u64 a)
 	} else {
 		g = nt_primroot(n);
 		printf("the smallest primitive root mod %llu is %llu\n", U(n), U(g));
+		rep_strf("value", "%llu", U(g));
 		printf("  how: (Z/%llu)* is cyclic of order phi = %llu = %s; g "
 		    "generates it iff g^(%llu/p) != 1 for each prime p | %llu\n",
 		    U(n), U(ph), fac_text(ph), U(ph), U(ph));
@@ -1037,6 +1050,9 @@ cmd_dlog_ring(const struct rspec *s, u64 a, u64 g, int gauto)
 	}
 	printf("%s^x = %s in %s: x = %llu (mod %llu, the order of %s)\n",
 	    el_code(R, g), el_code(R, a), s->name, U(x), U(ord), el_code(R, g));
+	rep_strf("value", "%llu", U(x));
+	rep_strf("modulus", "%llu", U(ord));
+	rep_str("base", el_code(R, g));
 	printf("  how: Pohlig-Hellman over %llu = %s, baby-step giant-step for "
 	    "each prime\n", U(ord), fac_text(ord));
 	printf("  check: %s^%llu = %s\n", el_code(R, g), U(x), el_code(R,
@@ -1370,6 +1386,12 @@ cmd_congruence(void)
 			    "solutions)");
 		cls_free(&c);
 	}
+	rep_list("solutions");
+	for (j = 0; j < acc.n; j++)
+		rep_strf(NULL, "%llu", U(acc.r[j]));
+	rep_end();
+	if (acc.n)
+		rep_strf("modulus", "%llu", U(acc.m));
 	if (acc.n == 0)
 		printf("no solution%s\n", ne > 1 ? ": the congruences contradict "
 		    "each other (CRT: the residues differ mod the gcd of the "

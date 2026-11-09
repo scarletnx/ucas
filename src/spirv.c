@@ -4610,6 +4610,46 @@ kind_text(int kind)
 	return "?";
 }
 
+/* report.h's short name of proof_kind */
+static const char *
+proof_key(const struct fxrw *r)
+{
+	if (r->exact && r->kind == FXR_SELECT)
+		return "bit_exact_where_defined";
+	if (r->exact)
+		return "bit_exact";
+	if (r->vulkan && r->approx == 0)
+		return "vulkan_precision";
+	return "approximation";
+}
+
+/* one lane group of a float rewrite as data */
+static void
+rep_lane(const struct fxrw *rr, const char *lanes)
+{
+	if (!rep_on)
+		return;
+	rep_obj(NULL);
+	if (lanes)
+		rep_str("lanes", lanes);
+	rep_bool("exact", rr->exact);
+	rep_str("proof", proof_key(rr));
+	if (rr->ulp > 0)
+		rep_num("ulp_bound", rr->ulp);
+	if (rr->kind == FXR_POLY)
+		rep_num("rel_error", rr->rel);
+	if (!rr->exact && rr->exc[0])
+		rep_str("not_exact_at", rr->exc);
+	if (rr->wit[0])
+		rep_str("witness", rr->wit);
+	if (rr->fail[0])
+		rep_str("fail", rr->fail);
+	rep_num("cost", rr->cost);
+	rep_num("gain", rr->gain);
+	rep_lines("derivation", rr->proof.p);
+	rep_end();
+}
+
 static const char *
 proof_kind(const struct fxrw *r)
 {
@@ -5142,6 +5182,76 @@ float_pass(const char *text, int *changed)
 		if (before > 0)
 			sb_printf(&rep, " (%+.1f%%)", 100 * (after - before) / before);
 		sb_puts(&rep, "\n");
+		rep_obj("float");
+		rep_num("cost_before", before);
+		rep_num("cost_after", after);
+		rep_str("mode", fopt.mode == 1 ? "exact" : fopt.mode == 2 ? "ulp" :
+		    "vulkan_precision");
+		if (fopt.mode == 2)
+			rep_num("ulp", fopt.ulp);
+		rep_bool("approx", fopt.approx);
+		rep_bool("percomp", fopt_percomp);
+		rep_list("rewrites");
+		for (q = 0; q < no; q++) {
+			struct fplan *P = &pl[ord[q]];
+			struct fxrw *r = P->rw[0];
+			int g2;
+			for (g2 = 0; g2 < P->ng; g2++)
+				if (!P->rw[g2]->exact)
+					r = P->rw[g2];
+			rep_obj(NULL);
+			rep_str("instruction", V.in[P->k].text);
+			rep_lines("replacement", repl[P->k]);
+			rep_str("kind", kind_text(P->kind));
+			rep_num("cost_delta", -P->gain);
+			rep_str("proof", proof_key(r));
+			rep_str("proof_text", proof_kind(r));
+			rep_int("line", P->line);
+			rep_list("lanes");
+			for (g2 = 0; g2 < P->ng; g2++) {
+				char lb[16] = "";
+				if (P->ng > 1)
+					glanes(lb, sizeof lb, (int)((P->rw[g2] - RW) / 48), grp,
+					    lane_of, ngr);
+				rep_lane(P->rw[g2], P->ng > 1 ? lb : NULL);
+			}
+			rep_end();
+			rep_end();
+		}
+		rep_end();
+		rep_list("approximations");
+		for (i = 0; i < npl; i++) {
+			int c;
+			if (pl[i].kind != FXR_POLY || pl[i].applied)
+				continue;
+			rep_obj(NULL);
+			rep_str("instruction", V.in[pl[i].k].text);
+			rep_str("why", pl[i].rw[0]->why);
+			rep_int("degree", pl[i].rw[0]->deg);
+			rep_list("lanes");
+			for (c = 0; c < pl[i].ng; c++)
+				rep_lane(pl[i].rw[c], NULL);
+			rep_end();
+			rep_end();
+		}
+		rep_end();
+		rep_list("not_applied");
+		for (i = 0; i < npl; i++) {
+			int c;
+			if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
+			    pl[i].kind == FXR_POLY)
+				continue;
+			rep_obj(NULL);
+			rep_str("instruction", V.in[pl[i].k].text);
+			rep_str("kind", kind_text(pl[i].kind));
+			rep_list("lanes");
+			for (c = 0; c < pl[i].ng; c++)
+				rep_lane(pl[i].rw[c], NULL);
+			rep_end();
+			rep_end();
+		}
+		rep_end();
+		rep_end();
 		if (fopt.mode == 1)
 			sb_puts(&rep, "  mode: bit-exact only\n");
 		else if (fopt.mode == 2)

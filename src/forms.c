@@ -4925,6 +4925,8 @@ forms_command(struct P *p)
 	z_reset();
 	if (!strcmp(w, "nthroots") || !strcmp(w, "unity")) {
 		char *s = rest, *e;
+		rep_begin(w);
+		rep_text_fields();
 		while (isspace((unsigned char)*s))
 			s++;
 		n = (int)strtol(s, &e, 10);

@@ -68,13 +68,21 @@ enum {
 	P_PARAMS,	/* define's parameter list */
 	P_STRS,		/* strings */
 	P_OBJ,		/* an object */
-	P_SOURCE	/* ucas source, several lines allowed */
+	P_SOURCE,	/* ucas source, several lines allowed */
+	P_RING,		/* a ring: "Z/12", "GF(2^8)", "Z[i]" (with "modulus":
+			 * GF's reduction polynomial, or alone: mod N) */
+	P_RINGMOD,	/* the modulus: a number, "2^61 - 1", or for GF(q) a
+			 * polynomial or a name (aes, crc32) */
+	P_MATRIX,	/* [[1, 2], [3, 4]] (or the text) */
+	P_VALUES,	/* [x0, x1, ...]: numbers or "1+2i" */
+	P_CONGS		/* [{"residue": 2, "modulus": 3}, ...] or "x = 2 mod 3" */
 };
 
 static const char *const ptype_name[] = {"function", "expression",
 	"expressions", "name", "names", "names", "integer", "number",
 	"boolean", "enum", "string", "interval", "substitutions",
-	"parameters", "strings", "object", "source"};
+	"parameters", "strings", "object", "source", "ring", "modulus",
+	"matrix", "values", "congruences"};
 
 struct jparam {
 	const char *name;
@@ -85,7 +93,7 @@ struct jparam {
 	const char *values;	/* P_ENUM: "a|b|c" */
 };
 
-#define MAXJP 8
+#define MAXJP 12
 struct jcmd {
 	const char *name;
 	const char *stmt;	/* the statement's leading words */
@@ -111,6 +119,12 @@ struct jcmd {
 #define TO(n, fr, d) {n, P_TEXT, 0, fr, d, NULL}
 #define IVO(n, fr, d) {n, P_INTERVAL, 0, fr, d, NULL}
 
+#define NUR(n, fr, d) {n, P_NUM, 1, fr, d, NULL}
+#define TX(n, fr, d) {n, P_TEXT, 1, fr, d, NULL}
+#define TXO(n, fr, d) {n, P_TEXT, 0, fr, d, NULL}
+#define RING(fr, d) {"ring", P_RING, 1, fr, d, NULL}
+#define RMOD {"modulus", P_RINGMOD, 0, "", "N (mod N); with a GF(q) ring " \
+	"its polynomial or name (aes, crc32)", NULL}
 #define FN F("f", " %s", "the function: a defined name, an expression " \
 	"(inline types allowed: \"isqrt(x: u4)\"), or {\"body\", \"params\"}")
 #define EXF E("f", " %s", "the expression")
@@ -189,7 +203,7 @@ static const struct jcmd cmds[] = {
 	{"taylor", "taylor", 1, 0, "Taylor polynomial, checked",
 	    {FN, VAR, NUO("at", " at %s", "expansion point (0)"),
 	    IO("order", " order %s", "the order")}},
-	{"implicit", "implicit", 0, 0, "dy/dx of an implicit curve",
+	{"implicit", "implicit", 1, 0, "dy/dx of an implicit curve",
 	    {E("equation", " %s", "L = R"), NMO("for", " for %s", "y"),
 	    NMO("wrt", " wrt %s", "x"), IO("order", " order %s", "1 or 2")}},
 	{"integrate", "integrate", 1, 0, "antiderivative (checked by "
@@ -252,9 +266,9 @@ static const struct jcmd cmds[] = {
 	    {FN, {"mode", P_ENUM, 0, " %s", "one kind of form", "simplify|"
 	    "sincos|exp|reduce|product|sum|expand|harmonic|half|weierstrass|"
 	    "inverse|double|all"}}},
-	{"nthroots", "nthroots", 0, 0, "the N complex N-th roots",
+	{"nthroots", "nthroots", 1, 0, "the N complex N-th roots",
 	    {IR("n", " %s", "N"), FN}},
-	{"unity", "unity", 0, 0, "the N-th roots of unity",
+	{"unity", "unity", 1, 0, "the N-th roots of unity",
 	    {IR("n", " %s", "N")}},
 	{"holomorphic", "holomorphic", 1, 0, "Cauchy-Riemann; the complex "
 	    "derivative", {FN}},
@@ -268,17 +282,17 @@ static const struct jcmd cmds[] = {
 	{"identify", "identify", 1, 0, "classify an expression, equation, "
 	    "conic or ODE", {E("f", " %s", "an expression, an equation L = "
 	    "R, or a name")}},
-	{"parity", "parity", 0, 0, "even/odd, symmetries", {FN}},
-	{"bounded", "bounded", 0, 0, "bounds, poles, growth", {FN}},
+	{"parity", "parity", 1, 0, "even/odd, symmetries", {FN}},
+	{"bounded", "bounded", 1, 0, "bounds, poles, growth", {FN}},
 	{"zeros", "zeros", 1, 0, "the zeros (exact for polynomials)", {FN}},
-	{"injective", "injective", 0, 0, "one to one? (with a witness)",
+	{"injective", "injective", 1, 0, "one to one? (with a witness)",
 	    {FN}},
-	{"surjective", "surjective", 0, 0, "onto? (with a value never taken)",
+	{"surjective", "surjective", 1, 0, "onto? (with a value never taken)",
 	    {FN, IVO("onto", " onto %s", "the codomain")}},
-	{"bijective", "bijective", 0, 0, "a bijection?", {FN}},
-	{"continuity", "continuity", 0, 0, "discontinuities by kind", {FN}},
-	{"convexity", "convexity", 0, 0, "convex/concave intervals", {FN}},
-	{"asymptotes", "asymptotes", 0, 0, "vertical, horizontal, oblique",
+	{"bijective", "bijective", 1, 0, "a bijection?", {FN}},
+	{"continuity", "continuity", 1, 0, "discontinuities by kind", {FN}},
+	{"convexity", "convexity", 1, 0, "convex/concave intervals", {FN}},
+	{"asymptotes", "asymptotes", 1, 0, "vertical, horizontal, oblique",
 	    {FN}},
 	/* algebra */
 	{"expand", "expand", 1, 0, "expanded over Q", {EXF}},
@@ -328,6 +342,192 @@ static const struct jcmd cmds[] = {
 	    "scan n 8\", \"exec of 32-bit x*x + 1\""),
 	    {"code", P_SOURCE, 0, "", "SPIR-V assembly for animate exec",
 	    NULL}}},
+	{"symmetry", "symmetry", 1, 0, "axes x = c, centres, f(x, y) = f(y, "
+	    "x)", {FN}},
+	/* rings and finite fields (ring.c) */
+	{"ring", "ring", 1, 0, "a ring's structure (units, zero divisors, "
+	    "ideals ...), an element of it, or a value computed in it",
+	    {RING(" %s", "Z/12, GF(2^8), GF(2)[x]/(x^4 + 1), Z[i], Q[x]/(x^2 "
+	    "- 2) ..."), RMOD,
+	    TO("what", " %s", "units | zero divisors | idempotents | table, an "
+	    "element (\"4\", \"0x53\"), or an expression (\"0x57 * 0x83\")")}},
+	{"inverse_mod", "inverse", 1, 0, "a multiplicative inverse (of a "
+	    "number, an element, a matrix)", {TX("a", " %s", "the element "
+	    "(\"3\", \"0x53\", \"[[1,2],[3,5]]\")"), RING(" in %s", "the ring"),
+	    RMOD}},
+	{"order_mod", "order", 1, 0, "multiplicative order (of a residue, an "
+	    "element, a polynomial over GF)", {TX("a", " %s", "the element"),
+	    RING(" over %s", "the ring"), RMOD}},
+	{"phi", "phi", 1, 0, "Euler's totient", {NUR("n", " %s", "n")}},
+	{"carmichael", "carmichael", 1, 0, "Carmichael's lambda",
+	    {NUR("n", " %s", "n")}},
+	{"factorint", "factorint", 1, 0, "integer factorisation (Pollard-Brent, "
+	    "Miller-Rabin)", {NUR("n", " %s", "n")}},
+	{"legendre", "legendre", 1, 0, "the Legendre symbol (a/p)",
+	    {NUR("a", " %s", "a"), NUR("p", " %s", "p (an odd prime)")}},
+	{"jacobi", "jacobi", 1, 0, "the Jacobi symbol (a/n)",
+	    {NUR("a", " %s", "a"), NUR("n", " %s", "n (odd)")}},
+	{"sqrtmod", "sqrtmod", 1, 0, "square roots mod n (Tonelli-Shanks, Hensel, "
+	    "CRT)", {NUR("a", " %s", "a"), RING(" in %s", "the ring"), RMOD}},
+	{"qr", "qr", 1, 0, "the quadratic residues mod n", {NUR("n", " %s",
+	    "n")}},
+	{"primroot", "primroot", 1, 0, "the smallest primitive root mod n, or "
+	    "whether a is one", {NUO("a", " %s", "a candidate (with modulus)"),
+	    NUO("n", " %s", "n (alone)"), RING(" in %s", "the ring"), RMOD}},
+	{"dlog", "dlog", 1, 0, "the discrete logarithm", {TX("a", " %s",
+	    "the value"), TXO("base", " base %s", "the base (default a "
+	    "primitive root)"), RING(" in %s", "the ring"), RMOD}},
+	{"crt", "crt", 1, 0, "the Chinese remainder theorem", {{"congruences",
+	    P_CONGS, 1, " %s", "[{\"residue\": 2, \"modulus\": 3}, ...]",
+	    NULL}}},
+	{"congruence", "congruence", 1, 0, "a linear or polynomial congruence",
+	    {TX("equation", " %s", "\"3x = 4\", \"x^2 + x + 1 = 0\""),
+	    RING(" in %s", "the ring"), RMOD}},
+	{"magic", "magic", 1, 0, "the multiply-shift for dividing by a constant",
+	    {IR("divisor", " %s", "the divisor"), {"type", P_ENUM, 1, " %s",
+	    "the integer type", "u8|u16|u32|u64|i8|i16|i32|i64"}}},
+	{"ring_factor", "factor", 1, 0, "factor a polynomial over a finite "
+	    "field or Z/n (or an element of Z[i])", {TX("p", " %s",
+	    "the polynomial (or crc16, crc32 ...)"), RING(" over %s",
+	    "GF(q), Z[i]"), RMOD}},
+	{"irreducible", "irreducible", 1, 0, "Rabin's irreducibility test",
+	    {TX("p", " %s", "the polynomial"), RING(" over %s", "GF(q)"), RMOD}},
+	{"primitive", "primitive", 1, 0, "is the polynomial primitive",
+	    {TX("p", " %s", "the polynomial"), RING(" over %s", "GF(q)"), RMOD}},
+	{"ring_roots", "roots", 1, 0, "roots of a polynomial in Z/n or GF(q)",
+	    {TX("p", " %s", "the polynomial"), RING(" over %s", "the ring"),
+	    RMOD}},
+	{"ring_poly", "poly", 1, 0, "a polynomial expression reduced over a "
+	    "ring", {TX("p", " %s", "the expression"), RING(" over %s",
+	    "the ring"), RMOD}},
+	{"ring_gcd", "gcd", 1, 0, "polynomial (or Gaussian integer) gcd over a "
+	    "ring", {TX("p", " %s", "P"), TX("q", ", %s", "Q"), RING(" over %s",
+	    "the ring"), RMOD}},
+	{"ring_norm", "norm", 1, 0, "the norm of a quadratic integer",
+	    {TX("a", " %s", "the element"), RING(" in %s", "Z[i], Z[sqrt(2)]"),
+	    RMOD}},
+	{"matrix", NULL, 1, 1, "a matrix over Z/n or GF(q): its properties, "
+	    "det, rank, nullspace, inverse, or a solve", {{"matrix", P_MATRIX, 1,
+	    " %s", "[[a, b], [c, d]]", NULL}, {"op", P_ENUM, 0, "", "what "
+	    "(default matrix: the summary)", "matrix|det|rank|nullspace|inverse|"
+	    "solve"}, {"rhs", P_VALUES, 0, "", "solve: M x = rhs", NULL},
+	    RING(" in %s", "the ring"), RMOD}},
+	{"gf2matrix", "gf2matrix", 1, 0, "a GF(2)-linear bit map as a matrix",
+	    {E("f", " %s", "the map of x (x ^ (x << 3))"), {"type", P_ENUM, 1,
+	    " %s", "the word", "u8|u16|u32|u64"}}},
+	/* transforms, series and sums (xform.c, series.c) */
+	{"laplace", "laplace", 1, 0, "the one-sided Laplace transform, with "
+	    "its region of convergence", {EXF, NMO("var", " %s", "t"),
+	    NMO("to_var", " %s", "s"), NUO("period", " period %s", "the period "
+	    "of a periodic f")}},
+	{"ilaplace", "ilaplace", 1, 0, "the inverse Laplace transform",
+	    {EXF, NMO("var", " %s", "s"), NMO("to_var", " %s", "t")}},
+	{"laplace_solve", "laplace solve", 1, 0, "a linear ODE with constant "
+	    "coefficients through the Laplace transform", {ES("equations", " %s",
+	    "the ODE and its initial values: [\"y'' + y = sin(t)\", \"y(0) = 0\","
+	    " \"y'(0) = 1\"]")}},
+	{"ztrans", "ztrans", 1, 0, "the one-sided Z transform, with its ROC",
+	    {EXF, NMO("var", " %s", "n"), NMO("to_var", " %s", "z")}},
+	{"iztrans", "iztrans", 1, 0, "the inverse Z transform (causal)",
+	    {EXF, NMO("var", " %s", "z"), NMO("to_var", " %s", "n")}},
+	{"zsolve", "zsolve", 1, 0, "a linear recurrence through the Z "
+	    "transform", {ES("equations", " %s", "[\"y[n+2] = y[n+1] + y[n]\", "
+	    "\"y[0] = 0\", \"y[1] = 1\"]")}},
+	{"tf", "tf", 1, 0, "a transfer function: poles, zeros, stability, "
+	    "impulse response", {E("f", " %s", "a difference equation, an ODE, "
+	    "or H(z)/H(s)")}},
+	{"fourier", "fourier", 1, 0, "the Fourier transform", {EXF,
+	    NMO("var", " %s", "x"), NMO("to_var", " %s", "w")}},
+	{"ifourier", "ifourier", 1, 0, "the inverse Fourier transform", {EXF,
+	    NMO("var", " %s", "w"), NMO("to_var", " %s", "x")}},
+	{"fourier_series", "fourier series", 1, 0, "a Fourier series", {EXF,
+	    NMO("var", " %s", "x"), IVO("on", " on %s", "the interval ([-pi, "
+	    "pi])"), NUO("period", " period %s", "the period"), IO("terms",
+	    " terms %s", "terms shown")}},
+	{"dft", "dft", 1, 0, "the discrete Fourier transform (FFT for powers "
+	    "of two)", {{"values", P_VALUES, 1, " %s", "[x0, x1, ...] (numbers "
+	    "or \"1+2i\")", NULL}}},
+	{"idft", "idft", 1, 0, "the inverse DFT", {{"values", P_VALUES, 1,
+	    " %s", "[X0, X1, ...]", NULL}}},
+	{"dtft", "dtft", 1, 0, "the discrete-time Fourier transform",
+	    {{"values", P_VALUES, 0, " %s", "a finite sequence", NULL},
+	    EO("f", " %s", "or a sequence x[n]")}},
+	{"genfunc", "genfunc", 1, 0, "the ordinary generating function",
+	    {TX("a", " %s", "a_n, a recurrence or a name (fibonacci, catalan)"),
+	    NMO("var", " %s", "n")}},
+	{"egf", "egf", 1, 0, "the exponential generating function",
+	    {TX("a", " %s", "a_n or a name")}},
+	{"infinite_sum", NULL, 1, 1, "an infinite sum: convergence test, "
+	    "closed form, numeric value", {NM("index", "", "n"), NUO("from", "",
+	    "the first index (1)"), E("f", "", "the term")}},
+	{"infinite_product", NULL, 1, 1, "an infinite product", {NM("index", "",
+	    "n"), NUO("from", "", "the first index (1)"), E("f", "",
+	    "the factor")}},
+	{"converge", "converge", 1, 0, "convergence tests of sum a_n",
+	    {E("a", " %s", "the term a_n (in n)")}},
+	{"radius", "radius", 1, 0, "the radius and interval of convergence of a "
+	    "power series", {E("a", " %s", "the term, x^n/n!")}},
+	{"powerseries", "powerseries", 1, 0, "the general term of a power "
+	    "series", {EXF, NMO("var", " %s", "x"), NUO("at", " at %s",
+	    "the centre")}},
+	{"asymptotic", "asymptotic", 1, 0, "Euler-Maclaurin asymptotics of a "
+	    "partial sum", {E("sum", " %s", "sum(k, 1, n, f)")}},
+	/* integrals and solids of revolution (viz.c) */
+	{"area", "area", 1, 0, "the area under or between curves (exact and "
+	    "numeric; a GIF)", {E("f", " %s", "F, or \"F and G\""),
+	    NUO("from", " from %s", "a"), NUO("to", " to %s", "b"),
+	    TO("options", " %s", "riemann left 8, accumulate ..."),
+	    BO("nofile", " nofile", "a checksum instead of the GIF")}},
+	{"revolve", "revolve", 1, 0, "the solid of revolution: volume, surface, "
+	    "centroid, Pappus (a GIF)", {E("f", " %s", "F, or \"F and G\""),
+	    NUO("from", " from %s", "a"), NUO("to", " to %s", "b"),
+	    TO("about", " about %s", "x, y, x = 2, y = -1"), {"method", P_ENUM, 0,
+	    " %s", "the slicing", "disk|washer|shell"}, TO("options", " %s",
+	    "still, rotate ..."), BO("nofile", " nofile", "no GIF")}},
+	{"volume", "volume", 1, 0, "the volume of the solid of revolution",
+	    {E("f", " %s", "F"), NUO("from", " from %s", "a"), NUO("to",
+	    " to %s", "b"), TO("about", " about %s", "the axis"),
+	    {"method", P_ENUM, 0, " %s", "the slicing", "disk|washer|shell"},
+	    BO("nofile", " nofile", "no GIF")}},
+	{"surfacearea", "surfacearea", 1, 0, "the lateral surface area of the "
+	    "solid", {E("f", " %s", "F"), NUO("from", " from %s", "a"),
+	    NUO("to", " to %s", "b"), TO("about", " about %s", "the axis"),
+	    BO("nofile", " nofile", "no GIF")}},
+	{"arclength", "arclength", 1, 0, "the arc length of a curve",
+	    {E("f", " %s", "F"), NUO("from", " from %s", "a"), NUO("to",
+	    " to %s", "b"), BO("nofile", " nofile", "no GIF")}},
+	{"centroid", "centroid", 1, 0, "the centroid of the region under or "
+	    "between curves", {E("f", " %s", "F, or \"F and G\""),
+	    NUO("from", " from %s", "a"), NUO("to", " to %s", "b"),
+	    BO("nofile", " nofile", "no GIF")}},
+	/* hypercomplex algebras (hyper.c) */
+	{"multiplication_table", "table", 1, 0, "an algebra's multiplication "
+	    "table (and the Fano plane)", {{"algebra", P_TEXT, 1, " %s",
+	    "complex | quaternion | octonion | sedenion | cd N", NULL}}},
+	{"algebra", "algebra", 1, 0, "an algebra's properties with "
+	    "counterexamples", {{"algebra", P_TEXT, 1, " %s", "complex | "
+	    "quaternion | octonion | sedenion | cd N", NULL}, TO("property",
+	    " %s", "one property: associative, alternative ...")}},
+	{"zerodivisors", "zerodivisors", 1, 0, "a pair of zero divisors",
+	    {TO("algebra", " %s", "sedenion (default) | cd N")}},
+	{"associator", "associator", 1, 0, "(ab)c - a(bc)", {E("a", " %s", "a"),
+	    E("b", ", %s", "b"), E("c", ", %s", "c")}},
+	{"commutator", "commutator", 1, 0, "ab - ba", {E("a", " %s", "a"),
+	    E("b", ", %s", "b")}},
+	{"rotate", "rotate", 1, 0, "rotate a vector by a quaternion or an "
+	    "angle about an axis", {TX("v", " %s", "(1, 0, 0)"), TX("by",
+	    " by %s", "a quaternion, or an angle (90 degrees, pi/2)"),
+	    TO("about", " about %s", "the axis: (0, 0, 1), x, y, z")}},
+	{"axisangle", "axisangle", 1, 0, "axis and angle to a unit quaternion, "
+	    "or back", {TX("q", " %s", "\"(0, 0, 1), pi/2\" or a quaternion")}},
+	{"rotmatrix", "rotmatrix", 1, 0, "a quaternion's 3x3 rotation matrix",
+	    {TX("q", " %s", "the quaternion")}},
+	{"frommatrix", "frommatrix", 1, 0, "the quaternion of a rotation "
+	    "matrix", {{"matrix", P_VALUES, 1, " %s", "m11, ..., m33 (9 "
+	    "numbers)", NULL}}},
+	{"slerp", "slerp", 1, 0, "spherical linear interpolation",
+	    {TX("q1", " %s", "q1"), TX("q2", ", %s", "q2"), NUR("t", ", %s",
+	    "t")}},
 	{"spirv_simplify", NULL, 1, 1, "cheaper forms of a SPIR-V module's "
 	    "integer instructions, each proved by SAT",
 	    {{"code", P_SOURCE, 1, "", "SPIR-V assembly or GLSL", NULL},
@@ -336,7 +536,14 @@ static const struct jcmd cmds[] = {
 	    NUO("budget", "", "seconds (6)"),
 	    {"ranges", P_OBJ, 0, "", "{\"n\": [lo, hi]}: values assumed for "
 	    "an input", NULL},
-	    BO("nofile", "", "a checksum instead of the rewritten module")}},
+	    BO("nofile", "", "a checksum instead of the rewritten module"),
+	    BO("float_only", "", "only the float instructions"),
+	    BO("exact", "", "float rewrites: bit-exact ones only"),
+	    NUO("ulp", "", "float rewrites: within N ulp of the reference"),
+	    BO("approx", "", "float rewrites: approximations too (with ulp)"),
+	    BO("percomp", "", "float rewrites: per vector component"),
+	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
+	    "range (closed)", NULL}}},
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 
@@ -804,6 +1011,74 @@ render_arg(struct req *r, struct sbuf *b, const struct jparam *p,
 		return 1;
 	case P_PARAMS:	/* checked as define renders them */
 		return 1;
+	case P_RING:
+		if (v->t != J_STR)
+			return bad(r, "bad_request", "%s: a ring, e.g. \"Z/12\", "
+			    "\"GF(2^8)\", \"Z[i]\"", p->name);
+		return text_ok(r, p->name, v->s) && (sb_puts(b, v->s), 1);
+	case P_RINGMOD:
+		return render_num(r, b, v, p->name);
+	case P_MATRIX:
+		if (v->t == J_STR)
+			return text_ok(r, p->name, v->s) && (sb_puts(b, v->s), 1);
+		if (v->t != J_ARR || v->n == 0)
+			return bad(r, "bad_request", "%s: [[a, b], [c, d]]", p->name);
+		sb_putc(b, '[');
+		for (k = 0; k < v->n; k++) {
+			int j;
+			const struct jv *row = v->v[k];
+			if (row->t != J_ARR || row->n == 0)
+				return bad(r, "bad_request", "%s[%d]: a row (an array)",
+				    p->name, k);
+			sb_printf(b, "%s[", k ? ", " : "");
+			for (j = 0; j < row->n; j++) {
+				if (j)
+					sb_puts(b, ", ");
+				if (!render_num(r, b, row->v[j], p->name))
+					return 0;
+			}
+			sb_putc(b, ']');
+		}
+		sb_putc(b, ']');
+		return 1;
+	case P_VALUES:
+		if (v->t != J_ARR || v->n == 0)
+			return bad(r, "bad_request", "%s: [x0, x1, ...]", p->name);
+		sb_putc(b, '[');
+		for (k = 0; k < v->n; k++) {
+			if (k)
+				sb_puts(b, ", ");
+			if (!render_num(r, b, v->v[k], p->name))
+				return 0;
+		}
+		sb_putc(b, ']');
+		return 1;
+	case P_CONGS:
+		if (v->t != J_ARR || v->n == 0)
+			return bad(r, "bad_request", "%s: [{\"residue\", "
+			    "\"modulus\"}, ...]", p->name);
+		for (k = 0; k < v->n; k++) {
+			const struct jv *c = v->v[k], *rr, *mm;
+			if (k)
+				sb_puts(b, ", ");
+			if (c->t == J_STR) {
+				if (!text_ok(r, p->name, c->s))
+					return 0;
+				sb_puts(b, c->s);
+				continue;
+			}
+			if ((rr = jv_get(c, "residue")) == NULL ||
+			    (mm = jv_get(c, "modulus")) == NULL)
+				return bad(r, "bad_request", "%s[%d]: {\"residue\", "
+				    "\"modulus\"} or \"x = r mod m\"", p->name, k);
+			sb_puts(b, "x = ");
+			if (!render_num(r, b, rr, p->name))
+				return 0;
+			sb_puts(b, " mod ");
+			if (!render_num(r, b, mm, p->name))
+				return 0;
+		}
+		return 1;
 	case P_OBJ:
 		if (v->t != J_OBJ)
 			return bad(r, "bad_request", "%s: an object", p->name);
@@ -854,10 +1129,61 @@ check_args(struct req *r)
 		}
 	}
 	for (k = 0; ok && k < MAXJP && c->p[k].name; k++)
-		if (c->p[k].req && jv_get(r->args, c->p[k].name) == NULL)
+		if (c->p[k].req && c->p[k].type != P_RING &&
+		    jv_get(r->args, c->p[k].name) == NULL)
 			ok = bad(r, "bad_request", "%s needs \"%s\" (%s)", c->name,
 			    c->p[k].name, c->p[k].desc);
 	free(tmp.p);
+	return ok;
+}
+
+/*
+ * A ring argument: "ring" (with "modulus" for GF's polynomial: GF(2^8,
+ * aes)), or "modulus" alone (mod N).  The fragment's preposition is used
+ * with a ring; Z/n and Z[i] style rings read better with "in".
+ */
+static int
+ring_arg(struct req *r, const struct jparam *p)
+{
+	const struct jv *rv = jv_get(r->args, p->name),
+	    *mv = jv_get(r->args, "modulus");
+	struct sbuf m = {0}, t = {0};
+	int ok = 1;
+
+	if (mv && !render_num(r, &m, mv, "modulus"))
+		ok = 0;
+	if (ok && rv) {
+		if (rv->t != J_STR || !text_ok(r, p->name, rv->s))
+			ok = rv->t == J_STR ? 0 : bad(r, "bad_request", "%s: a ring",
+			    p->name);
+		else {
+			size_t n = strlen(rv->s);
+			if (mv && !strncmp(rv->s, "GF(", 3) && rv->s[n - 1] == ')' &&
+			    !strchr(rv->s, ','))
+				sb_printf(&t, "%.*s, %s)", (int)(n - 1), rv->s, m.p);
+			else if (mv)
+				ok = bad(r, "bad_request", "modulus goes with a GF(q) ring "
+				    "(its polynomial), or alone (mod N)");
+			else
+				sb_puts(&t, rv->s);
+			if (ok) {
+				const char *fr = p->frag;
+				if (!strncmp(fr, " over ", 6) && strncmp(rv->s, "GF", 2) &&
+				    strncmp(rv->s, "gf", 2))
+					fr = " in %s";
+				sb_printf(&r->stmt, fr, t.p);
+			}
+		}
+	} else if (ok && mv) {
+		if (!strcmp(r->c->name, "ring"))
+			sb_printf(&r->stmt, " Z/%s", m.p);
+		else
+			sb_printf(&r->stmt, " mod %s", m.p);
+	} else if (ok && p->req)
+		ok = bad(r, "bad_request", "%s needs \"ring\" or \"modulus\"",
+		    r->c->name);
+	free(m.p);
+	free(t.p);
 	return ok;
 }
 
@@ -879,6 +1205,10 @@ build(struct req *r)
 	sb_puts(&r->stmt, c->stmt);
 	for (k = 0; k < MAXJP && c->p[k].name; k++) {
 		const struct jparam *p = &c->p[k];
+		if (p->type == P_RING && !ring_arg(r, p))
+			return 0;
+		if (p->type == P_RING)
+			continue;
 		if ((v = jv_get(r->args, p->name)) == NULL)
 			continue;
 		if (p->type == P_BOOL) {
@@ -886,6 +1216,8 @@ build(struct req *r)
 				sb_puts(&r->stmt, p->frag);
 			continue;
 		}
+		if (p->type == P_RINGMOD)
+			continue;	/* with the ring */
 		sb_clear(&val);
 		sb_puts(&val, "");
 		if (!render_arg(r, &val, p, v)) {
@@ -1017,6 +1349,8 @@ add_obj(struct jv *res, const char *key, struct jv *v)
 
 /* ---- the schema ---- */
 
+static struct jv *parse_const(const char *s);
+
 static struct jv *
 type_schema(const struct jparam *p)
 {
@@ -1086,6 +1420,35 @@ type_schema(const struct jparam *p)
 		break;
 	case P_OBJ:
 		jv_set(o, "type", jv_str("object"));
+		break;
+	}
+	switch (p->type) {
+	case P_RING:
+	case P_RINGMOD:
+		jv_set(o, "type", jv_str(p->type == P_RING ? "string" : "number"));
+		if (p->type == P_RINGMOD) {
+			a = jv_new(J_ARR);
+			jv_push(a, jv_str("number"));
+			jv_push(a, jv_str("string"));
+			jv_set(o, "type", a);
+		}
+		break;
+	case P_MATRIX:
+		jv_set(o, "type", jv_str("array"));
+		jv_set(o, "items", parse_const("{\"type\": \"array\", \"items\": "
+		    "{\"$ref\": \"#/$defs/number\"}}"));
+		break;
+	case P_VALUES:
+		jv_set(o, "type", jv_str("array"));
+		jv_set(o, "items", parse_const("{\"$ref\": \"#/$defs/number\"}"));
+		break;
+	case P_CONGS:
+		jv_set(o, "type", jv_str("array"));
+		jv_set(o, "items", parse_const("{\"oneOf\": [{\"type\": "
+		    "\"string\"}, {\"type\": \"object\", \"required\": "
+		    "[\"residue\", \"modulus\"], \"properties\": {\"residue\": "
+		    "{\"$ref\": \"#/$defs/number\"}, \"modulus\": {\"$ref\": "
+		    "\"#/$defs/number\"}}}]}"));
 		break;
 	}
 	jv_set(o, "description", jv_str(p->desc));
@@ -1356,8 +1719,85 @@ cmd_spirv(struct req *r, const char **code)
 			sb_printf(&r->stmt, " assume %s %lld %lld", v->k[k],
 			    (long long)rg->v[0]->num, (long long)rg->v[1]->num);
 		}
+	if ((v = jv_get(r->args, "float_only")) != NULL && v->t == J_TRUE)
+		sb_puts(&r->stmt, " float");
+	if ((v = jv_get(r->args, "exact")) != NULL && v->t == J_TRUE)
+		sb_puts(&r->stmt, " exact");
+	if ((v = jv_get(r->args, "ulp")) != NULL) {
+		sb_puts(&r->stmt, " ulp ");
+		if (!render_num(r, &r->stmt, v, "ulp"))
+			return 0;
+	}
+	if ((v = jv_get(r->args, "approx")) != NULL && v->t == J_TRUE)
+		sb_puts(&r->stmt, " approx");
+	if ((v = jv_get(r->args, "percomp")) != NULL && v->t == J_TRUE)
+		sb_puts(&r->stmt, " percomp");
+	if ((v = jv_get(r->args, "float_ranges")) != NULL)
+		for (k = 0; k < v->n; k++) {
+			rg = v->v[k];
+			if (!is_ident(v->k[k]) || rg->t != J_ARR || rg->n != 2 ||
+			    rg->v[0]->t != J_NUM || rg->v[1]->t != J_NUM)
+				return bad(r, "bad_request", "float_ranges: {\"name\": "
+				    "[lo, hi]}");
+			sb_printf(&r->stmt, " fassume %s ", v->k[k]);
+			json_num(&r->stmt, rg->v[0]->num);
+			sb_putc(&r->stmt, ' ');
+			json_num(&r->stmt, rg->v[1]->num);
+			sb_puts(&r->stmt, " 0 0");
+		}
 	if (lang && !strcmp(lang, "glsl"))
 		code_block_lang[0] = 0;
+	return 1;
+}
+
+/* matrix: "OP M [x = RHS]" and the ring */
+static int
+cmd_matrix(struct req *r)
+{
+	const char *op = jv_gets(r->args, "op");
+	const struct jv *rhs = jv_get(r->args, "rhs");
+	int k;
+
+	if (op == NULL)
+		op = "matrix";
+	if (!strcmp(op, "solve") != (rhs != NULL))
+		return bad(r, "bad_request", "matrix: rhs goes with op solve");
+	sb_puts(&r->stmt, op);
+	for (k = 0; k < MAXJP && r->c->p[k].name; k++) {
+		const struct jparam *p = &r->c->p[k];
+		if (p->type == P_RING) {
+			if (!ring_arg(r, p))
+				return 0;
+		} else if (!strcmp(p->name, "matrix")) {
+			sb_putc(&r->stmt, ' ');
+			if (!render_arg(r, &r->stmt, p, jv_get(r->args, "matrix")))
+				return 0;
+		} else if (!strcmp(p->name, "rhs") && rhs) {
+			sb_puts(&r->stmt, " x = ");
+			if (!render_arg(r, &r->stmt, p, rhs))
+				return 0;
+		}
+	}
+	return 1;
+}
+
+/* infinite_sum/product: sum(n, lo, inf, f) */
+static int
+cmd_infinite(struct req *r)
+{
+	const struct jv *lo = jv_get(r->args, "from");
+
+	sb_printf(&r->stmt, "%s(%s, ", r->c->name[9] == 's' ? "sum" : "prod",
+	    jv_gets(r->args, "index"));
+	if (lo) {
+		if (!render_num(r, &r->stmt, lo, "from"))
+			return 0;
+	} else
+		sb_puts(&r->stmt, "1");
+	sb_puts(&r->stmt, ", inf, ");
+	if (!render_expr(r, &r->stmt, jv_get(r->args, "f"), "f", 1))
+		return 0;
+	sb_putc(&r->stmt, ')');
 	return 1;
 }
 
@@ -1512,6 +1952,11 @@ handle(const struct jv *rq)
 			cmd_limit(&r);
 		else if (!strcmp(cmd, "spirv_simplify"))
 			cmd_spirv(&r, &code);
+		else if (!strcmp(cmd, "matrix"))
+			cmd_matrix(&r);
+		else if (!strcmp(cmd, "infinite_sum") ||
+		    !strcmp(cmd, "infinite_product"))
+			cmd_infinite(&r);
 		else if (!strcmp(cmd, "ucas")) {
 			const char *s = jv_gets(a, "source");
 			sb_puts(&r.stmt, s);
