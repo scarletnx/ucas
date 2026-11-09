@@ -329,12 +329,12 @@ domain colouring of (z^2 - 1)/(z^2 + 1), z in [-2, 2] x [-2, 2]i
   note: z = x + iy
   |f|(f) as a surface over the plane (z = x + iy):
 surface: z = f(x, y)
-  x in [-2, 2]: covering the 1 feature found in [-10, 10]
+  x in [-2.5, 2.5]: covering the 1 feature found in [-10, 10]; as for y (alike: the features do not set them apart)
   y in [-2.5, 2.5]: covering the 3 features found in [-10, 10]
-  z in [-0.4146, 10.58]: the values
+  z in [-0.5377, 13.16]: the values
   65x65 grid
-  image: 640x500, 31762 bytes
-  (nofile: GIF checksum d5fe5133)
+  image: 640x500, 30887 bytes
+  (nofile: GIF checksum 6c46fa47)
 > table quaternion
 multiplication table of the quaternions (row times column), not symmetric: the product does not commute:
       |   1   i   j   k
