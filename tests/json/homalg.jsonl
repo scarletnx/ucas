@@ -1,0 +1,16 @@
+{"id": 1, "cmd": "space", "args": {"space": "S^2 x RP^3"}}
+{"id": 2, "cmd": "cohomology", "args": {"space": "RP^4"}}
+{"id": 3, "cmd": "cohomology", "args": {"space": "RP^4", "coefficients": "Z/2"}}
+{"id": 4, "cmd": "homology", "args": {"space": "K_s", "generators": true}}
+{"id": 5, "cmd": "homology", "args": {"space": "T^2 v RP^2", "coefficients": "Z/4 + Z"}}
+{"id": 6, "cmd": "les", "args": {"space": "L(4)", "modulus": 2}}
+{"id": 7, "cmd": "bockstein", "args": {"space": "RP^4", "p": 2}}
+{"id": 8, "cmd": "bockstein", "args": {"space": "L(9,1)", "p": 3}}
+{"id": 9, "cmd": "bockstein_trace", "args": {"space": "L(9)", "p": 3, "degree": 2}}
+{"id": 10, "cmd": "bockstein_trace", "args": {"space": "S^2 x RP^3", "p": 2, "degree": 2, "element": "[1, 1]", "page": 2}}
+{"id": 11, "cmd": "prop01", "args": {"space": "L(9)", "p": 3}}
+{"id": 12, "cmd": "prop01", "args": {"space": "cells([[0, 0]], [[0], [2]])", "p": 2}}
+{"id": 13, "cmd": "homology", "args": {"space": "nope"}}
+{"id": 14, "cmd": "bockstein", "args": {"space": "RP^4", "p": 6}}
+{"id": 15, "cmd": "bockstein", "args": {"space": "RP^4"}}
+{"id": 16, "cmd": "ucas", "args": {"source": "cohomology L(8) with Z/4"}}

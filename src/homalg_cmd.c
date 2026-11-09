@@ -780,11 +780,12 @@ cmd_trace(const struct hopt *o)
 		canon_vec(&b, H, x);
 		printf("  a = %s (canonical coordinates in %s; cocycle ", sb_str(&b),
 		    ab_str(H));
+		rep_obj(NULL);
+		rep_str("coordinates", sb_str(&b));
 		sb_clear(&b);
 		chain_text(&b, s, n, x, H->n);
 		printf("%s)\n", sb_str(&b));
-		rep_obj(NULL);
-		rep_str("a", sb_str(&b));
+		rep_str("cocycle", sb_str(&b));
 		rep_list("pages");
 		if (o->has_page) {
 			if (o->page < 1 || o->page > 100000)
