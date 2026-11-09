@@ -7,6 +7,8 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 # complex, polar and trig forms; asin acos atan2 sinh cosh tanh ...
 SRCS+=	forms.c
+# properties: monotonic, period, identify, zeros, ...
+SRCS+=	props.c
 .PATH:	${.CURDIR}/src
 MAN=
 

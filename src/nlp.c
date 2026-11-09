@@ -29,6 +29,7 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "props.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1400,7 +1401,8 @@ varlike(int i)
 enum {
 	C_NONE, C_EVAL, C_SHOW, C_TABLE, C_RANGE, C_DOMAIN, C_WRAP, C_CRIT,
 	C_DIFF, C_EQUIV, C_GATES, C_FIND, C_FIT, C_ERROR, C_COST, C_DEF,
-	C_RAW, C_PROP, C_APPROX, C_INTEG, C_CLOSED, C_SCHEME, C_CONT, C_DSOLVE
+	C_RAW, C_PROP, C_APPROX, C_INTEG, C_CLOSED, C_SCHEME, C_CONT, C_DSOLVE,
+	C_PCMD
 };
 enum { PR_COMM, PR_ASSOC, PR_ADD, PR_IDEM, PR_ODD, PR_EVEN, PR_ODDV,
 	PR_EVENV };
@@ -1435,6 +1437,7 @@ static struct {
 	int crit;             /* critical points asked for explicitly */
 	int steps;            /* dsolve: output steps */
 	char ode[32];         /* dsolve: the unknown */
+	const char *pcmd;     /* C_PCMD: monotonic, period, ... (props.c) */
 } Q;
 
 /* a question the sentence leaves open; asked on a terminal (nlp_run) */
@@ -3384,6 +3387,135 @@ target(struct tgt *t, int minprec)
 
 /* ---- requests ---- */
 
+/*
+ * Properties props.c answers: the command for a noun ("the period of"),
+ * an adjective ("is f periodic") or a where-question ("where is f
+ * decreasing").
+ */
+static const char *
+props_noun(void)
+{
+	if (mat("?fundamental|smallest|least|minimal|primitive|prime|basic "
+	    "period|periods|wavelength"))
+		return "period";
+	if (mat("periodicity"))
+		return "periodic";
+	if (mat("intervals|regions|parts of increase and|or decrease") ||
+	    mat("intervals|regions|parts of monotonicity|increase|decrease") ||
+	    mat("increasing and|or decreasing intervals|regions|parts") ||
+	    mat("monotonicity|monotony"))
+		return "monotonic";
+	if (mat("parity|evenness|oddness"))
+		return "parity";
+	if (mat("symmetry|symmetries") || mat("axis|axes|centre|center|centres|"
+	    "centers of symmetry"))
+		return "symmetry";
+	if (mat("?real zeros|zeroes|roots|zero|root|x-intercepts|intercepts") ||
+	    mat("x - intercepts|intercept"))
+		return "zeros";
+	if (mat("?vertical|horizontal|oblique|slant asymptote|asymptotes"))
+		return "asymptotes";
+	if (mat("discontinuities|discontinuity|singularities|singularity|poles|"
+	    "pole|jumps|jump"))
+		return "discontinuities";
+	if (mat("continuity"))
+		return "continuity";
+	if (mat("intervals|regions of convexity|concavity") ||
+	    mat("convexity|concavity"))
+		return "convexity";
+	if (mat("boundedness"))
+		return "bounded";
+	if (mat("injectivity"))
+		return "injective";
+	if (mat("surjectivity"))
+		return "surjective";
+	if (mat("bijectivity"))
+		return "bijective";
+	if (mat("classification|nature|properties|characteristics|category") &&
+	    peek("of"))
+		return "identify";
+	return NULL;
+}
+
+static const char *
+props_adj(void)
+{
+	int s = wi;
+	const char *c;
+
+	mat("?a|an");
+	mat("?strictly|monotonically|always|everywhere|globally");
+	if (mat("monotonic|monotone|increasing|decreasing|nondecreasing|"
+	    "nonincreasing|ascending|descending|rising|falling|growing") ||
+	    mat("non - decreasing|increasing") || mat("order preserving|reversing")) {
+		mat("?function|map|mapping|sequence");
+		return "monotonic";
+	}
+	if (mat("periodic|cyclic|cyclical") || mat("repeating ?itself") ||
+	    mat("repeat|repeats|recur|recurs|cycle|cycles ?itself|periodically")) {
+		mat("?function|map");
+		return "periodic";
+	}
+	if (mat("convex|concave ?up|down|upward|upwards|downward|downwards")) {
+		mat("?function|map");
+		return "convexity";
+	}
+	if (mat("bounded|limited ?from ?above|below")) {
+		mat("?function|map");
+		return "bounded";
+	}
+	if (mat("injective|invertible|reversible") || mat("one to one") ||
+	    mat("one - to - one") || mat("1 - 1") || mat("1 - to - 1")) {
+		mat("?function|map|mapping");
+		return "injective";
+	}
+	if (mat("surjective|onto")) {
+		mat("?function|map|mapping");
+		return "surjective";
+	}
+	if (mat("bijective|bijection|permutation")) {
+		mat("?function|map|mapping");
+		return "bijective";
+	}
+	if (mat("continuous|discontinuous")) {
+		mat("?everywhere|function|map");
+		mat("?on its domain");
+		return "continuity";
+	}
+	if (mat("polynomial|rational|algebraic|transcendental|linear|quadratic|"
+	    "cubic|trigonometric|exponential|logarithmic|elementary ?function|"
+	    "map|expression"))
+		return "identify";
+	if (mat("have|has|possess|possesses ?a|an|any|some|vertical|horizontal|"
+	    "oblique") && (c = props_noun()) != NULL)
+		return c;
+	wi = s;
+	if (mat("cross|crosses|hit|hits|touch|touches|intersect|intersects|meet|"
+	    "meets zero|0") || mat("cross|crosses|hit|hits|touch|touches|"
+	    "intersect|intersects|meet|meets the x - axis|axis"))
+		return "zeros";
+	wi = s;
+	return NULL;
+}
+
+static const char *
+props_where(void)
+{
+	if (mat("?strictly|monotonically increasing|decreasing|rising|falling|"
+	    "growing|shrinking|monotonic|monotone|nondecreasing|nonincreasing"))
+		return "monotonic";
+	if (mat("?strictly convex|concave"))
+		return "convexity";
+	if (mat("discontinuous|continuous|singular") || mat("not continuous"))
+		return "discontinuities";
+	if (mat("zero|0|vanishing|vanish|vanishes") || mat("equal|equals ?to "
+	    "zero|0") || mat("cross|crosses|hit|hits|touch|touches|meet|meets|"
+	    "intersect|intersects zero|0") || mat("cross|crosses|hit|hits|touch|"
+	    "touches|meet|meets|intersect|intersects the x - axis|axis"))
+		return "zeros";
+	return NULL;
+}
+
 static int
 noun_cmd(void)
 {
@@ -3394,6 +3526,8 @@ noun_cmd(void)
 		Q.count = n;
 		mat("?more");
 	}
+	if ((Q.pcmd = props_noun()) != NULL)
+		return C_PCMD;
 	if (mat("range|image|codomain|bounds|extent|span") ||
 	    mat("?set ?of possible|output|attainable values") ||
 	    mat("min|minimum|smallest|lowest and max|maximum|largest|highest "
@@ -3591,6 +3725,7 @@ yes_no(int s0)
 		wi = s0;
 		return 0;
 	}
+	mat("?the function|map");
 	target(&Q.a, P_BOR);
 	s = wi;
 	if (mat("and")) {
@@ -3606,6 +3741,10 @@ yes_no(int s0)
 	}
 	mat("?always|ever|possibly|really");
 	mat("?guaranteed|going to");
+	if ((Q.pcmd = props_adj()) != NULL) {
+		Q.cmd = C_PCMD;
+		return 1;
+	}
 	/* algebraic properties, checked with equiv */
 	{
 		static const char *const pw[] = {"commutative", "symmetric",
@@ -3619,6 +3758,8 @@ yes_no(int s0)
 			mat("?function|operation|operator|map|mapping|op");
 			Q.prop = pk[k];
 			Q.cmd = C_PROP;
+			if (k == 1)   /* symmetric: about an axis for one argument */
+				Q.pcmd = "symmetry";
 			return 1;
 		}
 		if (mat("odd|even")) {
@@ -3636,8 +3777,9 @@ yes_no(int s0)
 					return 1;
 				}
 			}
-			Q.prop = odd ? PR_ODD : PR_EVEN;
-			Q.cmd = C_PROP;
+			mat("?function|map|mapping");
+			Q.pcmd = "parity";
+			Q.cmd = C_PCMD;
 			return 1;
 		}
 		wi = s5;
@@ -3672,12 +3814,6 @@ yes_no(int s0)
 	    "for") || mat("close|accurate to|for")) {
 		second_target();
 		Q.cmd = C_ERROR;
-		return 1;
-	}
-	if (mat("monotonic|monotone|increasing|decreasing|convex|concave") ||
-	    mat("monotonically increasing|decreasing")) {
-		Q.cmd = C_CRIT;
-		Q.why = "the critical points answer that";
 		return 1;
 	}
 	if (mat("fit|fits in|into") || mat("fit|fits")) {
@@ -3799,6 +3935,10 @@ where_question(void)
 		wi++;
 	mat("?is|are|does|do|will|can");
 	target(&Q.a, P_BOR);
+	if ((Q.pcmd = props_where()) != NULL) {
+		Q.cmd = C_PCMD;
+		return 1;
+	}
 	if (mat("?not defined|undefined|valid|invalid|ok|well-defined"))
 		c = C_DOMAIN;
 	else if (mat("maximized|minimized|maximised|minimised|maximal|minimal|"
@@ -3838,6 +3978,8 @@ show_help(void)
 "  alt ((1 << 3) & x) + x*5                   (find ... 10)\n"
 "  cos from -90deg to 90deg using cheby poly  (approx ... method cheb)\n"
 "  is avg commutative / associative / additive / idempotent / odd?\n"
+"  is sin(2x) periodic?  where is x^3 - 3x decreasing?  is f bounded?\n"
+"  what kind of equation is y'' + y = 0?   identify x^2 + y^2 = 1\n"
 "  the integral of x squared times sin x from 0 to pi\n"
 "  the closed form of the sum of i squared for i from 1 to n\n"
 "  the best evaluation scheme for fb;   solve y from 0 to 2 in 4 steps\n"
@@ -4659,6 +4801,21 @@ sentence(void)
 		Q.cmd = C_APPROX;
 		return;
 	}
+	/* "classify f", "what kind of function is f" (props.c: identify) */
+	if (mat("identify|classify|characterize|characterise|categorize|"
+	    "categorise|recognize|recognise|describe") ||
+	    mat("what|which kind|type|sort|class|category of function|functions|"
+	    "expression|map|thing|equation ?is|are") ||
+	    mat("what|which kind|type|sort|class is|are") ||
+	    mat("what properties|characteristics does|do|has|have")) {
+		mat("?the|this ?function|expression|map");
+		target(&Q.a, P_TERN);
+		mat("?have|has|possess|satisfy");
+		mat("?function|map");
+		Q.cmd = C_PCMD;
+		Q.pcmd = "identify";
+		return;
+	}
 	if (mat("plot|graph|chart|draw|sketch")) {
 		target(&Q.a, P_TERN);
 		Q.cmd = C_TABLE;
@@ -5170,6 +5327,11 @@ emit_prop(void)
 	dz = S("%s3%s", x, dx + strlen(x));
 	switch (Q.prop) {
 	case PR_COMM:
+		if (np < 2 && Q.pcmd) {
+			/* "is f symmetric" for one argument: about an axis */
+			emit(S("symmetry %s", F));
+			return;
+		}
 		if (np < 2)
 			nfail("commutative needs two arguments; %s has one", F);
 		sb_printf(&l, "lhs(%s", dx);
@@ -5460,6 +5622,11 @@ finish(void)
 	default:
 		break;
 	}
+	if (Q.cmd == C_PCMD)
+		/* "on [0, 7]": a real interval unless a type was given */
+		for (k = 0; k < nv; k++)
+			if (!V[k].ty[0] && V[k].lo[0] && (V[k].uses & 1))
+				snprintf(V[k].ty, sizeof V[k].ty, "real");
 	a = target_fn(&Q.a, 1, "it", !(Q.cmd == C_DIFF && Q.wrt[0]), 1, 1);
 	switch (Q.cmd) {
 	case C_EVAL:
@@ -5516,6 +5683,9 @@ finish(void)
 	case C_GATES:
 		emit(S("gates %s%s%s%s", a, Q.basis[0] ? S(" basis %s", Q.basis) :
 		    "", Q.maxc ? S(" max %d", Q.maxc) : "", Q.emit_c ? " as c" : ""));
+		break;
+	case C_PCMD:
+		emit(S("%s %s", Q.pcmd, a));
 		break;
 	}
 }
@@ -5705,6 +5875,15 @@ static int
 translate(const char *sent)
 {
 	need_more = NULL;
+	{
+		/* an equation or ODE to classify: props.c reads it as written */
+		const char *r = props_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -5912,7 +6091,12 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
 	"model", "approx", "closed", "scheme", "continuous", "integrate",
-	"dsolve", "pde", "animate", NULL};
+	"dsolve", "pde", "animate",
+	/* props.c */
+	"monotonic", "monotone", "period", "periodic", "identify", "parity",
+	"symmetry", "bounded", "injective", "surjective", "bijective",
+	"continuity", "discontinuities", "convexity", "convex", "concave",
+	"asymptotes", "zeros", "roots", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -5939,7 +6123,8 @@ static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"work", "figure", "tune", "calibrate", "speed", "improve", "name",
 	"call", "declare", "thanks", "verify", "alt", "alts", "alternatives",
 	"alternative", "approximate", "expand", "rewrite", "linearize",
-	"linearise", NULL};
+	"linearise", "classify", "characterize", "characterise", "describe",
+	NULL};
 static const char *const vocab[] = {"principal", "branch", "lambert",
 	"productlog", "lower", "upper", "plus", "minus", "times", "multiplied",
 	"divided", "squared", "cubed", "square", "root", "cube", "sum",

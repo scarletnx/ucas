@@ -1,0 +1,1014 @@
+> monotonic x^3
+monotonic x^3:
+  strictly increasing on all real x
+  proved symbolically: x^3' = 3x^2; its real roots: 0 (multiplicity 2) (exact); f' keeps its sign between roots of odd multiplicity (zeros of f' of even multiplicity are isolated, so it stays strict)
+> monotonic x^3 - 3x
+monotonic x^3 - 3x:
+  not monotonic on all real x
+  maximal intervals of monotonicity:
+    x in (-inf, -1]: increasing
+    x in [-1, 1]: decreasing
+    x in [1, inf): increasing
+  witness: x = -2 < x = -1 but f(-2) = -2 < f(-1) = 2 (not decreasing)
+  witness: x = -1 < x = 1 but f(-1) = 2 > f(1) = -2 (not increasing)
+  proved symbolically: x^3 - 3x' = 3x^2 - 3; its real roots: -1, 1 (exact); f' keeps its sign between roots of odd multiplicity
+> monotonic x^2 in 0..5
+monotonic x^2:
+  strictly increasing on [0, 5]
+  proved symbolically: x^2' = 2x; its real roots: 0 (exact); f' keeps its sign between roots of odd multiplicity (zeros of f' of even multiplicity are isolated, so it stays strict)
+> monotonic sin(x)
+monotonic sin(x):
+  not monotonic on [-10, 10]
+  maximal intervals of monotonicity:
+    x in [-10, -7.853981634 (~-5*pi/2)]: decreasing
+    x in [-7.853981634 (~-5*pi/2), -4.71238898 (~-3*pi/2)]: increasing
+    x in [-4.71238898 (~-3*pi/2), -1.570796327 (~-pi/2)]: decreasing
+    x in [-1.570796327 (~-pi/2), 1.570796327 (~pi/2)]: increasing
+    x in [1.570796327 (~pi/2), 4.71238898 (~3*pi/2)]: decreasing
+    x in [4.71238898 (~3*pi/2), 7.853981634 (~5*pi/2)]: increasing
+    x in [7.853981634 (~5*pi/2), 10]: decreasing
+  witness: x = -7.853981634 < x = -4.71238898 but f(-7.853981634) = -1 < f(-4.71238898) = 1 (not decreasing)
+  witness: x = -10 < x = -7.853981634 but f(-10) = 0.5440211109 > f(-7.853981634) = -1 (not increasing)
+  checked numerically on [-10, 10] (x has no range; give it one); turning points refined on f'
+  periodic (period 2*pi ≈ 6.283185307): not monotonic on any interval longer than one period
+> monotonic 1/x
+monotonic 1/x:
+  not monotonic on [-10, 10]
+  maximal intervals of monotonicity:
+    x in [-10, -0.001]: decreasing
+    x in [0.001, 10]: decreasing
+  witness: x = -0.001 < x = 0.001 but f(-0.001) = -1000 < f(0.001) = 1000 (not decreasing)
+  witness: x = -10 < x = -0.001 but f(-10) = -0.1 > f(-0.001) = -1000 (not increasing)
+  checked numerically on [-10, 10] (x has no range; give it one); turning points refined on f'
+> monotonic floor(x)
+monotonic floor(x):
+  non-decreasing (increasing, not strictly) on [-10, 10]
+  checked numerically on [-10, 10] (x has no range; give it one); turning points refined on f'
+> inc(x: u8) = x + 1
+> monotonic inc
+monotonic inc:
+  not monotonic on 0..255
+  maximal intervals of monotonicity:
+    x in 0..254: increasing
+    x in 254..255: decreasing
+  witness: x = 0 < x = 1 but f(0) = 1 < f(1) = 2 (not decreasing)
+  witness: x = 254 < x = 255 but f(254) = 255 > f(255) = 0 (not increasing)
+  note: without wrapping (as int) it is strictly increasing; the machine type wraps: f(254) = 255, f(255) = 0
+  proved, exhaustive over all 256 points (forward difference f(x+1) - f(x))
+> dbl(x: u8) = x * 2
+> monotonic dbl
+monotonic dbl:
+  not monotonic on 0..255
+  maximal intervals of monotonicity:
+    x in 0..127: increasing
+    x in 127..128: decreasing
+    x in 128..255: increasing
+  witness: x = 0 < x = 1 but f(0) = 0 < f(1) = 2 (not decreasing)
+  witness: x = 127 < x = 128 but f(127) = 254 > f(128) = 0 (not increasing)
+  note: without wrapping (as int) it is strictly increasing; the machine type wraps: f(127) = 254, f(128) = 0
+  proved, exhaustive over all 256 points (forward difference f(x+1) - f(x))
+> period sin(2x)
+period of sin(2x):
+  fundamental period pi ≈ 3.141592654
+  proved symbolically: sin(2x) has period pi; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> period sin(x) + cos(3x)
+period of sin(x) + cos(3x):
+  fundamental period 2*pi ≈ 6.283185307
+  proved symbolically: sin(x) has period 2*pi, cos(3x) has period 2*pi/3; p is their least common multiple; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> period abs(sin(x))
+period of abs(sin(x)):
+  fundamental period pi ≈ 3.141592654
+  sin(x) has period 2*pi; so 2*pi ≈ 6.283185307 is a period (proved symbolically); its 1/2 also is, checked numerically at 997 points (not proved), and no smaller fraction is
+> period tan(x/2)
+period of tan(x/2):
+  fundamental period 2*pi ≈ 6.283185307
+  proved symbolically: tan(x/2) has period 2*pi; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> periodic sin(x) + sin(sqrt(2)*x)
+periodic sin(x) + sin(1.414213562x):
+  no: not periodic
+  the subterms' periods 6.283185307 (~2*pi) and 4.442882938 are incommensurate (ratio 0.7071067812 is not a ratio of small integers)
+  sin(x) has period 2*pi, sin(1.414213562x) has period 4.442882938; a sum of such terms is almost periodic, not periodic (unless they cancel)
+> periodic x*sin(x)
+periodic x*sin(x):
+  no: not periodic
+  x appears outside the periodic subterms (in x*sin(x)), and no period p <= 20 was found numerically
+> periodic x^2 + 1
+periodic x^2 + 1:
+  no: not periodic
+  a polynomial of degree 2 is not periodic (proved: f(x) - f(0) is a non-zero polynomial, so it has finitely many zeros)
+> period x - floor(x)
+period of x - floor(x):
+  fundamental period 1
+  found numerically (not proved): f(x + p) = f(x) at 997 points of [-10, 10]
+> m7(x: u8) = x % 7
+> period m7
+period of m7:
+  fundamental period 7
+  proved, exhaustive: f(x + 7) = f(x) for every x with both in 0..255, and no smaller shift works
+  the pattern does not continue across the end of the domain
+> a3(x: u8) = x & 3
+> period a3
+period of a3:
+  fundamental period 4
+  proved, exhaustive: f(x + 4) = f(x) for every x with both in 0..255, and no smaller shift works
+  the pattern also continues across the wrap-around of the type (the period divides the domain size)
+> s7(x: i8) = x % 7
+> period s7
+period of s7:
+  fundamental period 7 for x >= 0 only (C's % truncates towards zero, so the pattern breaks at 0; mod repeats everywhere)
+  proved, exhaustive: f(x + 7) = f(x) for every x >= 0 with both in 0..127, and no smaller shift works
+  the pattern does not continue across the end of the domain
+> parity x^2*cos(x)
+parity of x^2*cos(x):
+  even: f(-x) = f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> parity x^3 + sin(x)
+parity of x^3 + sin(x):
+  odd: f(-x) = -f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> parity x^2 + x
+parity of x^2 + x:
+  neither even nor odd
+  not even: f(x) = 2, f(-x) = 0 at x = 1
+  not odd: f(x) = 2, f(-x) = 0 at x = 1
+  checked numerically at 2000 points of [-10, 10]
+> sq8(x: i8) = x * x
+> parity sq8
+parity of sq8:
+  even: f(-x) = f(x)
+  proved, exhaustive, with -x and -f(x) in i8 arithmetic (two's complement: -x of the minimum wraps to itself)
+> parity dbl
+parity of dbl:
+  odd: f(-x) = -f(x)
+  proved, exhaustive, with -x and -f(x) in u8 arithmetic (two's complement: -x is 2^w - x)
+> symmetry (x - 1)^2
+symmetry of (x - 1)^2:
+  neither even nor odd
+  not even: f(x) = 0, f(-x) = 4 at x = 1
+  not odd: f(x) = 0, f(-x) = 4 at x = 1
+  checked numerically at 2000 points of [-10, 10]
+  symmetric about the line x = 1: f(c + h) = f(c - h) (checked numerically at 200 h up to 10)
+> symmetry x^3 - 3x^2
+symmetry of x^3 - 3x^2:
+  neither even nor odd
+  not even: f(x) = -2, f(-x) = -4 at x = 1
+  not odd: f(x) = -2, f(-x) = -4 at x = 1
+  checked numerically at 2000 points of [-10, 10]
+  point symmetric about (1, -2): f(c + h) + f(c - h) = 2 f(c) (checked numerically at 200 h up to 10)
+> symmetry x*y + x + y
+symmetry of x*y + x + y:
+  f(x, y) = f(y, x): yes (symmetric)
+  checked numerically at 400 random points of [-10, 10]^2
+> bounded sin(x)
+bounded sin(x):
+  bounded (on all real x)
+  above: proved by interval arithmetic: f <= 1; the largest value seen is 1 at x = -4.71238898 (~-3*pi/2)
+  below: proved by interval arithmetic: f >= -1; the smallest value seen is -1 at x = -7.853981634 (~-5*pi/2)
+> bounded 1/(1 + x^2)
+bounded 1/(x^2 + 1):
+  bounded (on all real x)
+  above: proved by interval arithmetic: f <= 1; the largest value seen is 1 at x = 0
+  below: proved by interval arithmetic: f >= 0; the smallest value seen is 0.009900990099 at x = -10
+> bounded x^2 - 4
+bounded x^2 - 4:
+  bounded below, not above (on all real x)
+  above: proved: a polynomial of degree 2 with leading coefficient 1: f -> +inf as x -> +inf
+  below: proved: an even-degree polynomial with a positive leading coefficient has a minimum, -4 at x = 0 (a root of f')
+> bounded x^3
+bounded x^3:
+  unbounded above and below (on all real x)
+  above: proved: a polynomial of degree 3 with leading coefficient 1: f -> +inf as x -> +inf
+  below: proved: a polynomial of degree 3 with leading coefficient 1: f -> -inf as x -> -inf
+> bounded exp(x)
+bounded exp(x):
+  bounded below, not above (on all real x)
+  above: f(100) = 2.688117142e+43, beyond any value on [-10, 10] (checked numerically)
+  below: proved by interval arithmetic: f >= 0; the smallest value seen is 4.539992976e-05 at x = -10
+> bounded 1/x
+bounded 1/x:
+  unbounded above and below (on all real x)
+  above: f -> +inf at x = 0 (checked numerically)
+  below: f -> -inf at x = 0 (checked numerically)
+> bounded inc
+bounded inc:
+  bounded
+  above: the domain is finite: max 255 at x = 254 (exhaustive)
+  below: min 0 at x = 255
+> injective x^2
+injective x^2:
+  injective: no
+  witness: f(-1) = f(1) = 1 with x = -1 and x = 1
+  the value is taken on two pieces of monotonicity (pieces proved, witness solved by bisection)
+> injective x^3
+injective x^3:
+  injective: yes (one-to-one)
+  x^3 is strictly increasing, so no two inputs share a value (proved)
+> injective 1/x
+injective 1/x:
+  injective: yes (one-to-one)
+  strictly monotonic on each piece of its domain with disjoint value ranges (checked numerically)
+> surjective x^2
+surjective x^2:
+  surjective onto the reals: no
+  witness: -1 is never taken
+  f is bounded below by 0: proved: an even-degree polynomial with a positive leading coefficient has a minimum, 0 at x = 0 (a root of f')
+> surjective exp(x)
+surjective exp(x):
+  surjective onto the reals: no
+  witness: -1 is never taken
+  f is bounded below by 4.539992976e-05: proved by interval arithmetic: f >= 0; the smallest value seen is 4.539992976e-05 at x = -10
+> surjective x^2 onto 0..4
+surjective x^2:
+  surjective onto [0, 4]: yes
+  continuous on one interval, with values from 0 to inf, so every value between is taken (intermediate value theorem; continuity proved only for elementary bodies, the extremes checked numerically)
+> bijective x^3 + x
+bijective x^3 + x:
+  injective: yes (one-to-one)
+  x^3 + x is strictly increasing, so no two inputs share a value (proved)
+  surjective onto the reals: yes
+  proved: a polynomial of odd degree 3 is continuous and tends to -inf and +inf, so it takes every value (intermediate value theorem)
+  bijective: yes
+> bijective inc
+bijective inc:
+  injective: yes (one-to-one)
+  proved, exhaustive over all 256 points
+  surjective onto its type u8 (0..255): yes
+  256 distinct values (proved, exhaustive over all 256 points)
+  bijective: yes
+> surjective dbl
+surjective dbl:
+  surjective onto its type u8 (0..255): no
+  witness: 1 is never taken
+  128 distinct values (proved, exhaustive over all 256 points)
+> injective dbl
+injective dbl:
+  injective: no
+  witness: f(0) = f(128) = 0 with x = 0 and x = 128
+  a witness pair (exhaustive search over the domain)
+> injective (x: u8) * 3
+injective 3x:
+  injective: yes (one-to-one)
+  proved, exhaustive over all 256 points
+> continuity 1/x
+continuity of 1/x:
+  undefined at x = 0 (the ends located numerically)
+  x = 0: infinite (a pole): -inf from the left, +inf from the right
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> discontinuities x/x
+discontinuities of x/x:
+  undefined at x = 0 (the ends located numerically)
+  x = 0: removable: both limits are 1, f is undefined there
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> discontinuities (x^2 - 1)/(x - 1)
+discontinuities of (x^2 - 1)/(x - 1):
+  undefined at x = 1 (the ends located numerically)
+  x = 1: removable: both limits are 2, f is undefined there
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> discontinuities floor(x) in -2..2
+discontinuities of floor(x):
+  x = -1: jump from -2 to -1 (size 1) (f = -1 there)
+  x = 0: jump from -1 to 0 (size 1) (f = 0 there)
+  x = 1: jump from 0 to 1 (size 1) (f = 1 there)
+  x = 2: jump from 1 to 2 (size 1) (f = 2 there)
+  checked numerically: a grid of 20001 points, jumps located by bisection, limits from both sides
+> discontinuities sign(x)
+discontinuities of sign(x):
+  x = 0: jump from -1 to 1 (size 2) (f = 0 there)
+  checked numerically: a grid of 20001 points, jumps located by bisection, limits from both sides; x has no range: searched [-10, 10]
+> discontinuities sin(1/x)
+discontinuities of sin(1/x):
+  undefined at x = 0 (the ends located numerically)
+  x = 0: essential (no limit: f oscillates)
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> continuity log(x)
+continuity of log(x):
+  undefined on [-10, 0) (the ends located numerically)
+  x = 0: end of the domain, f -> -inf from the right
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> continuity tan(x) in -2..2
+continuity of tan(x):
+  x = -1.570796327 (~-pi/2): infinite (a pole): +inf from the left, -inf from the right
+  x = 1.570796327 (~pi/2): infinite (a pole): +inf from the left, -inf from the right
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically
+> convexity x^3
+convexity of x^3:
+  neither convex nor concave on all real x
+    x in (-inf, 0]: concave (f'' < 0)
+    x in [0, inf): convex (f'' > 0)
+  inflection points: x = 0
+  witness: f(-1) = -1 > (f(-2) + f(0))/2 = -4
+  proved symbolically: f'' = 6x, a polynomial; its sign changes only at real roots of odd multiplicity
+> convexity x^4
+convexity of x^4:
+  convex on all real x
+  proved symbolically: f'' = 12x^2, a polynomial; its sign changes only at real roots of odd multiplicity
+> convexity sin(x) in 0..6
+convexity of sin(x):
+  neither convex nor concave on [0, 6]
+    x in [0, 3.141592654 (~pi)]: concave (f'' < 0)
+    x in [3.141592654 (~pi), 6]: convex (f'' > 0)
+  inflection points: x = 3.141592654 (~pi)
+  witness: f(1.570796327) = 1 > (f(0) + f(3.141592654))/2 = 6.123233996e-17
+  checked numerically, grid of 20001 points, sign of f''
+> convexity abs(x)
+convexity of abs(x):
+  convex on [-10, 10]
+  checked numerically on [-10, 10] (x has no range; give it one), sign of the second difference
+> convexity 1/x
+convexity of 1/x:
+  neither (its domain is not an interval) on [-10, 10]
+    x in [-10, -0.001]: concave (f'' < 0)
+    x in [0.001, 10]: convex (f'' > 0)
+  checked numerically on [-10, 10] (x has no range; give it one), sign of f''
+> asymptotes 1/(x - 1)
+asymptotes of 1/(x - 1):
+  vertical: x = 1 (f -> -inf from the left, +inf from the right)
+  horizontal: y = 0 as x -> ±inf
+  proved symbolically: f = N/D with deg N = 0, deg D = 1; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> asymptotes (x^2 + 1)/x
+asymptotes of (x^2 + 1)/x:
+  vertical: x = 0 (f -> -inf from the left, +inf from the right)
+  oblique: y = x as x -> ±inf
+  proved symbolically: f = N/D with deg N = 2, deg D = 1; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> asymptotes (2x^2 + 1)/(x^2 - 4)
+asymptotes of (2x^2 + 1)/(x^2 - 4):
+  vertical: x = -2 (f -> +inf from the left, -inf from the right)
+  vertical: x = 2 (f -> -inf from the left, +inf from the right)
+  horizontal: y = 2 as x -> ±inf
+  proved symbolically: f = N/D with deg N = 2, deg D = 2; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> asymptotes (x^2 - 1)/(x - 1)
+asymptotes of (x^2 - 1)/(x - 1):
+  oblique: y = x + 1 as x -> ±inf
+  hole (removable, not an asymptote): x = 1, f -> 2
+  proved symbolically: f = N/D with deg N = 2, deg D = 1; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> asymptotes exp(-x)
+asymptotes of exp(-x):
+  horizontal: y = 0 as x -> +inf
+  checked numerically: poles from a grid scan of [-10, 10]; at infinity the limits of f(x)/x and f(x) - m x estimated at |x| = 1e3..1e8
+> asymptotes atan(x)
+asymptotes of atan(x):
+  horizontal: y = -1.570796327 (~-pi/2) as x -> -inf
+  horizontal: y = 1.570796327 (~pi/2) as x -> +inf
+  checked numerically: poles from a grid scan of [-10, 10]; at infinity the limits of f(x)/x and f(x) - m x estimated at |x| = 1e3..1e8
+> asymptotes log(x)
+asymptotes of log(x):
+  vertical: x = 0 (f -> -inf from the right)
+  none as x -> +inf
+  checked numerically: poles from a grid scan of [-10, 10]; at infinity the limits of f(x)/x and f(x) - m x estimated at |x| = 1e3..1e8
+> zeros x^2 - 2
+zeros of x^2 - 2:
+  2 zeros:
+    x = -sqrt(2)
+    x = sqrt(2)
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> zeros (x - 1)^2*(x + 2)
+zeros of (x - 1)^2*(x + 2):
+  2 zeros:
+    x = -2
+    x = 1 (multiplicity 2)
+  proved: a polynomial of degree 3 has 3 roots counted with multiplicity
+> zeros x^2 + 1
+zeros of x^2 + 1:
+  no real zeros
+  and 2 complex: ±i (with conjugates)
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> roots x^4 - 5x^2 + 4
+zeros of x^4 - 5x^2 + 4:
+  4 zeros:
+    x = -2
+    x = -1
+    x = 1
+    x = 2
+  proved: a polynomial of degree 4 has 4 roots counted with multiplicity
+> zeros sin(x)
+zeros of sin(x):
+  7 zeros on [-10, 10]:
+    x = -9.424777961 (~-3*pi)
+    x = -6.283185307 (~-2*pi)
+    x = -3.141592654 (~-pi)
+    x = 0
+    x = 3.141592654 (~pi)
+    x = 6.283185307 (~2*pi)
+    x = 9.424777961 (~3*pi)
+  checked numerically on [-10, 10] (x has no range; give it one): sign changes refined by bisection, touching zeros at critical points; zeros between grid points that do not change sign can be missed
+> zeros cos(x) - 1 in -7..7
+zeros of cos(x) - 1:
+  3 zeros on [-7, 7]:
+    x = -6.283185307 (~-2*pi) (touches zero without crossing)
+    x = 0 (touches zero without crossing)
+    x = 6.283185307 (~2*pi) (touches zero without crossing)
+  checked numerically, grid of 20001 points: sign changes refined by bisection, touching zeros at critical points; zeros between grid points that do not change sign can be missed
+> zeros (x: u8) & 7
+zeros of x & 7:
+  32 zeros in 0..255: x = 0, 8, ..., 248 (every 8)
+  proved, exhaustive over all 256 points
+> identify x^3 - 3x
+identify x^3 - 3x:
+  polynomial of degree 3 (cubic), leading coefficient 1
+  factored over the reals: x(x - sqrt(3))(x + sqrt(3))
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: odd: f(-x) = -f(x) [proved]
+  periodic: no [proved]
+  monotonic: not monotonic (3 intervals of monotonicity) [proved]
+  neither convex nor concave, inflection at 0 [proved]
+  unbounded above and below [proved]
+  values on [-10, 10]: from -970 to 970 [numeric]
+  injective: no, f(-1.732050808) = f(0) = 0 [witness]
+  zeros: 3 (-sqrt(3), 0, sqrt(3)) [proved]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> identify (x^2 + 1)/(x - 1)
+identify (x^2 + 1)/(x - 1):
+  rational function: numerator of degree 2, denominator of degree 1
+  domain: all real x except x = 1 [numeric]
+  discontinuous at x = 1 (pole) [numeric]
+  parity: neither even nor odd [numeric]
+  periodic: no [numeric]
+  monotonic: not monotonic (4 intervals of monotonicity) [numeric]
+  neither convex nor concave [numeric]
+  unbounded above and below [numeric]
+  values on [-10, 10]: from -1998.001 to 2002.001 [numeric]
+  injective: no, f(-3.828427125) = f(0.5857864376) = -3.242640687 [witness]
+  zeros: 0 [numeric]
+  asymptotes: x = 1, y = x + 1 (x -> ±inf) [proved]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> identify sin(2x)
+identify sin(2x):
+  transcendental: trigonometric
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: odd: f(-x) = -f(x) [proved]
+  periodic: yes, period pi ≈ 3.141592654 [proved]
+  monotonic: not monotonic (13 intervals of monotonicity) [numeric]
+  neither convex nor concave, inflection at -9.424777961, -7.853981634, -6.283185307, ... [numeric]
+  bounded [proved]
+  values on [-10, 10]: from -1 to 1 [numeric]
+  injective: no, f(-9.639379797) = f(-7.639379797) = -0.4161468365 [witness]
+  zeros: 13 (-9.424777961 (~-3*pi), -7.853981634 (~-5*pi/2), -6.283185307 (~-2*pi), -4.71238898 (~-3*pi/2), -3.141592654 (~-pi), -1.570796327 (~-pi/2), ...) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> identify exp(-x^2)
+identify exp(-x^2):
+  transcendental: exponential
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: even: f(-x) = f(x) [proved]
+  periodic: no [numeric]
+  monotonic: not monotonic (2 intervals of monotonicity) [numeric]
+  neither convex nor concave, inflection at -0.7071067812, 0.7071067812 [numeric]
+  bounded [proved]
+  values on [-10, 10]: from 3.720075976e-44 to 1 [numeric]
+  injective: no, f(-1) = f(1) = 0.3678794412 [witness]
+  zeros: 0 [numeric]
+  asymptotes: y = 0 (x -> ±inf) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> identify sqrt(x)
+identify sqrt(x):
+  algebraic (radicals of rational functions)
+  domain: defined on [0, 10] (of [-10, 10]) [numeric]
+  continuous on its domain [proved: continuous operations]
+  parity: neither even nor odd [numeric]
+  periodic: no [numeric]
+  monotonic: strictly increasing [numeric]
+  concave [numeric]
+  bounded below, not above [numeric]
+  values on [-10, 10]: from 0 to 3.16227766 (~sqrt(10)) [numeric]
+  injective: yes [numeric]
+  zeros: 1 (0) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> identify abs(x)
+identify abs(x):
+  piecewise (abs)
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: even: f(-x) = f(x) [proved]
+  periodic: no [numeric]
+  monotonic: not monotonic (2 intervals of monotonicity) [numeric]
+  convex [numeric]
+  bounded below, not above [numeric]
+  values on [-10, 10]: from 0 to 10 [numeric]
+  injective: no, f(-1) = f(1) = 1 [witness]
+  zeros: 1 (0) [numeric]
+  asymptotes: y = -x (x -> -inf), y = x (x -> +inf) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> q3(x: u8) = x * 3
+> identify q3
+identify q3:
+  q3(x: u8) = 3x
+  -> u8
+  an integer function of x: u8 -> u8
+  domain: 0..255 (256 points)
+  range: 0..255, 256 distinct values [exhaustive]
+  monotonic: not monotonic [exhaustive]
+  periodic: no [exhaustive]
+  parity: odd: f(-x) = -f(x) [exhaustive]
+  injective: yes; surjective onto its type u8 (0..255): yes [exhaustive]
+  zeros: 1 [exhaustive]
+  (each property has its own command: monotonic, period, parity, injective, zeros ...)
+> identify x^2 + y^2 = 1
+identify x^2 + y^2 = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = 1, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = -4 (elliptic); determinant of the 3x3 matrix -1 (non-degenerate)
+  circle: centre (0, 0), radius 1
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin, the line y = x [numeric, 40 points]
+> identify x^2/4 + y^2/9 = 1
+identify x^2/4 + y^2/9 = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 0.25, B = 0, C = 0.1111111111, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = -0.1111111111 (elliptic); determinant of the 3x3 matrix -0.02777777778 (non-degenerate)
+  ellipse: centre (0, 0), semi-axes 3 and 2
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin [numeric, 40 points]
+> identify x^2 - y^2 = 1
+identify x^2 - y^2 = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = -1, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = 4 (hyperbolic); determinant of the 3x3 matrix 1 (non-degenerate)
+  hyperbola: centre (0, 0), asymptotes y = -x and y = x
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin [numeric, 40 points]
+> identify y = x^2 + 1
+identify y = x^2 + 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = -1, B = 0, C = 0, D = 0, E = 1, F = -1
+  discriminant B^2 - 4AC = 0 (parabolic); determinant of the 3x3 matrix 0.25 (non-degenerate)
+  parabola: y = x^2 + 1, vertex (0, 1), axis x = 0
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  the graph of a function: y = x^2 + 1
+  symmetric about: the y-axis [numeric, 40 points]
+> identify x*y = 1
+identify x*y = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 0, B = 1, C = 0, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = 1 (hyperbolic); determinant of the 3x3 matrix 0.25 (non-degenerate)
+  hyperbola: centre (0, 0), asymptotes x = 0 and y = 0
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  the graph of a function: y = 1/x
+  symmetric about: the origin, the line y = x [numeric, 40 points]
+> identify x^2 + y^2 + 2x + 1 = 0
+identify x^2 + y^2 + 2x + 1 = 0:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = 1, D = 2, E = 0, F = 1
+  discriminant B^2 - 4AC = -4 (elliptic); determinant of the 3x3 matrix 0 (degenerate)
+  degenerate ellipse: the single point (-1, 0)
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the x-axis [numeric, 40 points]
+> identify 2x + 3y = 6
+identify 2x + 3y = 6:
+  a linear equation in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 0, B = 0, C = 0, D = 2, E = 3, F = -6
+  a line: y = -0.6666666667 (~-2/3)*x + 2 (slope -0.6666666667 (~-2/3))
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  the graph of a function: y = (6 - 2x)/3
+  no symmetry about the axes, the origin or y = x [numeric, 40 points]
+> identify x^2 - 2 = 0
+identify x^2 - 2 = 0:
+  a polynomial equation of degree 2 (quadratic) in x
+  solutions (zeros of lhs - rhs):
+  2 zeros:
+    x = -sqrt(2)
+    x = sqrt(2)
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> identify sin(x) = x/2
+identify sin(x) = x/2:
+  an equation in x: transcendental, trigonometric
+  solutions (zeros of lhs - rhs):
+  3 zeros on [-10, 10]:
+    x = -1.895494267
+    x = 0
+    x = 1.895494267
+  checked numerically on [-10, 10] (x has no range; give it one): sign changes refined by bisection, touching zeros at critical points; zeros between grid points that do not change sign can be missed
+> identify y'' + y = 0
+identify y'' + y = 0:
+  an ordinary differential equation of order 2 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  constant coefficients (and autonomous)
+  characteristic equation: r^2 + 1 = 0, roots ±i
+  homogeneous solutions: y(t) = a combination of cos(t), sin(t)
+  autonomous: the independent variable does not appear explicitly
+  solved for the highest derivative: y'' = -y  (then initial values and: dsolve y)
+> identify y'' + 4y' + 4y = 0
+identify y'' + 4y' + 4y = 0:
+  an ordinary differential equation of order 2 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  constant coefficients (and autonomous)
+  characteristic equation: r^2 + 4r + 4 = 0, roots -2 (multiplicity 2)
+  homogeneous solutions: y(t) = a combination of exp(-2*t), t*exp(-2*t)
+  autonomous: the independent variable does not appear explicitly
+  solved for the highest derivative: y'' = -(4y' + 4y)  (then initial values and: dsolve y)
+> identify y' = t*y
+identify y' = t*y:
+  an ordinary differential equation of order 1 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  variable coefficients (they depend on t)
+  not autonomous: it depends on the independent variable explicitly
+  first order: y' = t*y
+  separable: yes, g = p(t) q(y) [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
+  exact (M + N y' = 0 with M = -(t*y), N = 1): no [numeric: dM/dy - dN/dt = -t]
+  solved for the highest derivative: y' = t*y  (then initial values and: dsolve y)
+> identify y' = y^2 + t
+identify y' = y^2 + t:
+  an ordinary differential equation of order 1 in y(t)
+  nonlinear: d/dy = -2y depends on y
+  not autonomous: it depends on the independent variable explicitly
+  first order: y' = y^2 + t
+  separable: no [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
+  exact (M + N y' = 0 with M = -(y^2 + t), N = 1): no [numeric: dM/dy - dN/dt = -2y]
+  Riccati: y' is quadratic in y
+  solved for the highest derivative: y' = y^2 + t  (then initial values and: dsolve y)
+> identify y' + 2y = sin(t)
+identify y' + 2y = sin(t):
+  an ordinary differential equation of order 1 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  inhomogeneous: forcing term sin(t)
+  constant coefficients
+  characteristic equation: r + 2 = 0, roots -2
+  homogeneous solutions: y(t) = a combination of exp(-2*t)
+  not autonomous: it depends on the independent variable explicitly
+  first order: y' = sin(t) - 2y
+  separable: no [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
+  exact (M + N y' = 0 with M = 2y - sin(t), N = 1): no [numeric: dM/dy - dN/dt = 2]
+  solved for the highest derivative: y' = sin(t) - 2y  (then initial values and: dsolve y)
+> w' = -2w + 1
+> identify w
+identify w' = -2w + 1:
+  an ordinary differential equation of order 1 in w(t)
+  linear: every w-term appears to the first power [proved: the partial derivatives in w, w', ... do not involve w]
+  inhomogeneous: forcing term 1
+  constant coefficients (and autonomous)
+  characteristic equation: r + 2 = 0, roots -2
+  homogeneous solutions: w(t) = a combination of exp(-2*t)
+  autonomous: the independent variable does not appear explicitly
+  first order: w' = 1 - 2w
+  separable: yes (autonomous)
+  solved for the highest derivative: w' = 1 - 2w  (then initial values and: dsolve w)
+> is x^3 monotonic?
+  ucas: it(x) = x^3
+  ucas: monotonic it
+monotonic it:
+  strictly increasing on all real x
+  proved symbolically: it' = 3x^2; its real roots: 0 (multiplicity 2) (exact); f' keeps its sign between roots of odd multiplicity (zeros of f' of even multiplicity are isolated, so it stays strict)
+> is x^3 strictly increasing?
+  ucas: it(x) = x^3
+  ucas: monotonic it
+monotonic it:
+  strictly increasing on all real x
+  proved symbolically: it' = 3x^2; its real roots: 0 (multiplicity 2) (exact); f' keeps its sign between roots of odd multiplicity (zeros of f' of even multiplicity are isolated, so it stays strict)
+> f(x) = x^3 - 3x
+> where is f decreasing?
+  ucas: monotonic f
+monotonic f:
+  not monotonic on all real x
+  maximal intervals of monotonicity:
+    x in (-inf, -1]: increasing
+    x in [-1, 1]: decreasing
+    x in [1, inf): increasing
+  witness: x = -2 < x = -1 but f(-2) = -2 < f(-1) = 2 (not decreasing)
+  witness: x = -1 < x = 1 but f(-1) = 2 > f(1) = -2 (not increasing)
+  proved symbolically: f' = 3x^2 - 3; its real roots: -1, 1 (exact); f' keeps its sign between roots of odd multiplicity
+> is it increasing?
+  ucas: monotonic f
+monotonic f:
+  not monotonic on all real x
+  maximal intervals of monotonicity:
+    x in (-inf, -1]: increasing
+    x in [-1, 1]: decreasing
+    x in [1, inf): increasing
+  witness: x = -2 < x = -1 but f(-2) = -2 < f(-1) = 2 (not decreasing)
+  witness: x = -1 < x = 1 but f(-1) = 2 > f(1) = -2 (not increasing)
+  proved symbolically: f' = 3x^2 - 3; its real roots: -1, 1 (exact); f' keeps its sign between roots of odd multiplicity
+> is sin x monotone?
+  ucas: it(x) = sin(x)
+  ucas: monotonic it
+monotonic it:
+  not monotonic on [-10, 10]
+  maximal intervals of monotonicity:
+    x in [-10, -7.853981634 (~-5*pi/2)]: decreasing
+    x in [-7.853981634 (~-5*pi/2), -4.71238898 (~-3*pi/2)]: increasing
+    x in [-4.71238898 (~-3*pi/2), -1.570796327 (~-pi/2)]: decreasing
+    x in [-1.570796327 (~-pi/2), 1.570796327 (~pi/2)]: increasing
+    x in [1.570796327 (~pi/2), 4.71238898 (~3*pi/2)]: decreasing
+    x in [4.71238898 (~3*pi/2), 7.853981634 (~5*pi/2)]: increasing
+    x in [7.853981634 (~5*pi/2), 10]: decreasing
+  witness: x = -7.853981634 < x = -4.71238898 but f(-7.853981634) = -1 < f(-4.71238898) = 1 (not decreasing)
+  witness: x = -10 < x = -7.853981634 but f(-10) = 0.5440211109 > f(-7.853981634) = -1 (not increasing)
+  checked numerically on [-10, 10] (x has no range; give it one); turning points refined on f'
+  periodic (period 2*pi ≈ 6.283185307): not monotonic on any interval longer than one period
+> is sin(2x) periodic?
+  ucas: it(x) = sin(2*x)
+  ucas: periodic it
+periodic it:
+  yes: fundamental period pi ≈ 3.141592654
+  proved symbolically: sin(2x) has period pi; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> find the period of sin(2x) + cos(4x)
+  ucas: it(x) = sin(2*x) + cos(4*x)
+  ucas: period it
+period of it:
+  fundamental period pi ≈ 3.141592654
+  proved symbolically: sin(2x) has period pi, cos(4x) has period pi/2; p is their least common multiple; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> what is the period of tan(3x)?
+  ucas: it(x) = tan(3*x)
+  ucas: period it
+period of it:
+  fundamental period pi/3 ≈ 1.047197551
+  proved symbolically: tan(3x) has period pi/3; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> what is the fundamental period of sin(x)^2?
+  ucas: it(x) = sin(x)^2
+  ucas: period it
+period of it:
+  fundamental period pi ≈ 3.141592654
+  sin(x) has period 2*pi; so 2*pi ≈ 6.283185307 is a period (proved symbolically); its 1/2 also is, checked numerically at 997 points (not proved), and no smaller fraction is
+> does sin(x) + cos(x) repeat?
+  ucas: it(x) = sin(x) + cos(x)
+  ucas: periodic it
+periodic it:
+  yes: fundamental period 2*pi ≈ 6.283185307
+  proved symbolically: sin(x) has period 2*pi, cos(x) has period 2*pi; p is their least common multiple; x occurs only inside them, so f(x + p) = f(x).  Smallest: no p/k (2 <= k <= 64) is a period (checked at 997 points)
+> is the function x^2 + 1 periodic?
+  ucas: it(x) = x^2 + 1
+  ucas: periodic it
+periodic it:
+  no: not periodic
+  a polynomial of degree 2 is not periodic (proved: f(x) - f(0) is a non-zero polynomial, so it has finitely many zeros)
+> is x squared even?
+  note: "even": read as an even function, f(-x) = f(x), not an even number for every input (say "an odd function" or "always odd")
+  ucas: it(x) = x^2
+  ucas: parity it
+parity of it:
+  even: f(-x) = f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> is x cubed an odd function?
+  ucas: it(x) = x^3
+  ucas: parity it
+parity of it:
+  odd: f(-x) = -f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> what is the parity of x^3?
+  ucas: it(x) = x^3
+  ucas: parity it
+parity of it:
+  odd: f(-x) = -f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> is f symmetric?
+  ucas: symmetry f
+symmetry of f:
+  odd: f(-x) = -f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> is cos x bounded?
+  ucas: it(x) = cos(x)
+  ucas: bounded it
+bounded it:
+  bounded (on all real x)
+  above: proved by interval arithmetic: f <= 1; the largest value seen is 1 at x = 0
+  below: proved by interval arithmetic: f >= -1; the smallest value seen is -1 at x = -9.424777961 (~-3*pi)
+> is exp(x) bounded above?
+  ucas: it(x) = exp(x)
+  ucas: bounded it
+bounded it:
+  bounded below, not above (on all real x)
+  above: f(100) = 2.688117142e+43, beyond any value on [-10, 10] (checked numerically)
+  below: proved by interval arithmetic: f >= 0; the smallest value seen is 4.539992976e-05 at x = -10
+> is x^3 one to one?
+  ucas: it(x) = x^3
+  ucas: injective it
+injective it:
+  injective: yes (one-to-one)
+  it is strictly increasing, so no two inputs share a value (proved)
+> is x^2 injective?
+  ucas: it(x) = x^2
+  ucas: injective it
+injective it:
+  injective: no
+  witness: f(-1) = f(1) = 1 with x = -1 and x = 1
+  the value is taken on two pieces of monotonicity (pieces proved, witness solved by bisection)
+> is x^3 surjective?
+  ucas: it(x) = x^3
+  ucas: surjective it
+surjective it:
+  surjective onto the reals: yes
+  proved: a polynomial of odd degree 3 is continuous and tends to -inf and +inf, so it takes every value (intermediate value theorem)
+> is x^3 + x a bijection?
+  ucas: it(x) = x^3 + x
+  ucas: bijective it
+bijective it:
+  injective: yes (one-to-one)
+  it is strictly increasing, so no two inputs share a value (proved)
+  surjective onto the reals: yes
+  proved: a polynomial of odd degree 3 is continuous and tends to -inf and +inf, so it takes every value (intermediate value theorem)
+  bijective: yes
+> is 1/x continuous?
+  ucas: it(x) = 1/x
+  ucas: continuity it
+continuity of it:
+  undefined at x = 0 (the ends located numerically)
+  x = 0: infinite (a pole): -inf from the left, +inf from the right
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> where is 1/x discontinuous?
+  ucas: it(x) = 1/x
+  ucas: discontinuities it
+discontinuities of it:
+  undefined at x = 0 (the ends located numerically)
+  x = 0: infinite (a pole): -inf from the left, +inf from the right
+  proved: built from operations that are continuous where defined, so it is continuous on its domain; points outside it located numerically; x has no range: searched [-10, 10]
+> what are the discontinuities of floor(x) on [0, 3]?
+  ucas: it(x: real in 0..3) = floor(x)
+  ucas: discontinuities it
+discontinuities of it:
+  x = 1: jump from 0 to 1 (size 1) (f = 1 there)
+  x = 2: jump from 1 to 2 (size 1) (f = 2 there)
+  x = 3: jump from 2 to 3 (size 1) (f = 3 there)
+  checked numerically: a grid of 20001 points, jumps located by bisection, limits from both sides
+> is x^2 convex?
+  ucas: it(x) = x^2
+  ucas: convexity it
+convexity of it:
+  convex on all real x
+  proved symbolically: f'' = 2, a polynomial; its sign changes only at real roots of odd multiplicity
+> where is x^3 concave?
+  ucas: it(x) = x^3
+  ucas: convexity it
+convexity of it:
+  neither convex nor concave on all real x
+    x in (-inf, 0]: concave (f'' < 0)
+    x in [0, inf): convex (f'' > 0)
+  inflection points: x = 0
+  witness: f(-1) = -1 > (f(-2) + f(0))/2 = -4
+  proved symbolically: f'' = 6x, a polynomial; its sign changes only at real roots of odd multiplicity
+> what are the asymptotes of (x^2 + 1)/x?
+  ucas: it(x) = (x^2 + 1)/x
+  ucas: asymptotes it
+asymptotes of it:
+  vertical: x = 0 (f -> -inf from the left, +inf from the right)
+  oblique: y = x as x -> ±inf
+  proved symbolically: f = N/D with deg N = 2, deg D = 1; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> does 1/x have asymptotes?
+  ucas: it(x) = 1/x
+  ucas: asymptotes it
+asymptotes of it:
+  vertical: x = 0 (f -> -inf from the left, +inf from the right)
+  horizontal: y = 0 as x -> ±inf
+  proved symbolically: f = N/D with deg N = 0, deg D = 1; poles are the real roots of D that are roots of N of lower multiplicity (others are holes); at infinity the quotient of N by D
+> what are the roots of x^2 - 5x + 6?
+  ucas: it(x) = x^2 - 5*x + 6
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = 2
+    x = 3
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> find the zeros of sin(x) on [0, 7]
+  ucas: it(x: real in 0..7) = sin(x)
+  ucas: zeros it
+zeros of it:
+  3 zeros on [0, 7]:
+    x = 0
+    x = 3.141592654 (~pi)
+    x = 6.283185307 (~2*pi)
+  checked numerically, grid of 20001 points: sign changes refined by bisection, touching zeros at critical points; zeros between grid points that do not change sign can be missed
+> where is x^2 - 4 zero?
+  ucas: it(x) = x^2 - 4
+  ucas: zeros it
+zeros of it:
+  2 zeros:
+    x = -2
+    x = 2
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> does x^2 + 1 have real roots?
+  ucas: it(x) = x^2 + 1
+  ucas: zeros it
+zeros of it:
+  no real zeros
+  and 2 complex: ±i (with conjugates)
+  proved: a polynomial of degree 2 has 2 roots counted with multiplicity
+> where does x^3 - x cross zero?
+  ucas: it(x) = x^3 - x
+  ucas: zeros it
+zeros of it:
+  3 zeros:
+    x = -1
+    x = 0
+    x = 1
+  proved: a polynomial of degree 3 has 3 roots counted with multiplicity
+> identify the equation x^2 + y^2 = 1
+  ucas: identify x^2 + y^2 = 1
+identify x^2 + y^2 = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = 1, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = -4 (elliptic); determinant of the 3x3 matrix -1 (non-degenerate)
+  circle: centre (0, 0), radius 1
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin, the line y = x [numeric, 40 points]
+> is x^2 + y^2 = 4 a circle?
+  ucas: identify x^2 + y^2 = 4
+identify x^2 + y^2 = 4:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = 1, D = 0, E = 0, F = -4
+  discriminant B^2 - 4AC = -4 (elliptic); determinant of the 3x3 matrix -4 (non-degenerate)
+  circle: centre (0, 0), radius 2
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin, the line y = x [numeric, 40 points]
+> what kind of curve is x^2 - y^2 = 1
+  ucas: identify x^2 - y^2 = 1
+identify x^2 - y^2 = 1:
+  a conic section (degree 2) in x and y
+  A x^2 + B xy + C y^2 + D x + E y + F = 0 with A = 1, B = 0, C = -1, D = 0, E = 0, F = -1
+  discriminant B^2 - 4AC = 4 (hyperbolic); determinant of the 3x3 matrix 1 (non-degenerate)
+  hyperbola: centre (0, 0), asymptotes y = -x and y = x
+  [coefficients by evaluation at 9 points, the form checked at 30 more: numeric]
+  symmetric about: the y-axis, the x-axis, the origin [numeric, 40 points]
+> what kind of equation is y'' + y = 0?
+  ucas: identify y'' + y = 0
+identify y'' + y = 0:
+  an ordinary differential equation of order 2 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  constant coefficients (and autonomous)
+  characteristic equation: r^2 + 1 = 0, roots ±i
+  homogeneous solutions: y(t) = a combination of cos(t), sin(t)
+  autonomous: the independent variable does not appear explicitly
+  solved for the highest derivative: y'' = -y  (then initial values and: dsolve y)
+> classify y' = t*y
+  ucas: identify y' = t*y
+identify y' = t*y:
+  an ordinary differential equation of order 1 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  variable coefficients (they depend on t)
+  not autonomous: it depends on the independent variable explicitly
+  first order: y' = t*y
+  separable: yes, g = p(t) q(y) [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
+  exact (M + N y' = 0 with M = -(t*y), N = 1): no [numeric: dM/dy - dN/dt = -t]
+  solved for the highest derivative: y' = t*y  (then initial values and: dsolve y)
+> what type of function is x^3 - x?
+  ucas: it(x) = x^3 - x
+  ucas: identify it
+identify it:
+  it(x: real) = x^3 - x
+  -> real
+  polynomial of degree 3 (cubic), leading coefficient 1
+  factored over the reals: x(x + 1)(x - 1)
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: odd: f(-x) = -f(x) [proved]
+  periodic: no [proved]
+  monotonic: not monotonic (3 intervals of monotonicity) [proved]
+  neither convex nor concave, inflection at 0 [proved]
+  unbounded above and below [proved]
+  values on [-10, 10]: from -990 to 990 [numeric]
+  injective: no, f(-1.141929725) = f(0.4226497308) = -0.3471506281 [witness]
+  zeros: 3 (-1, 0, 1) [proved]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> what properties does exp(-x^2) have?
+  ucas: it(x) = exp(-x^2)
+  ucas: identify it
+identify it:
+  it(x: real) = exp(-x^2)
+  -> real
+  transcendental: exponential
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: even: f(-x) = f(x) [proved]
+  periodic: no [numeric]
+  monotonic: not monotonic (2 intervals of monotonicity) [numeric]
+  neither convex nor concave, inflection at -0.7071067812, 0.7071067812 [numeric]
+  bounded [proved]
+  values on [-10, 10]: from 3.720075976e-44 to 1 [numeric]
+  injective: no, f(-1) = f(1) = 0.3678794412 [witness]
+  zeros: 0 [numeric]
+  asymptotes: y = 0 (x -> ±inf) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> classify the function sin(x)/x
+  ucas: it(x) = sin(x)/x
+  ucas: identify it
+identify it:
+  it(x: real) = sin(x)/x
+  -> real
+  transcendental: trigonometric, with quotients
+  domain: all real x except x = 0 [numeric]
+  discontinuous at x = 0 (removable) [numeric]
+  parity: even: f(-x) = f(x) [proved]
+  periodic: no [numeric]
+  monotonic: not monotonic (6 intervals of monotonicity) [numeric]
+  neither convex nor concave, inflection at -9.205840143, -5.940369991, -2.081575978, ... [numeric]
+  bounded [numeric]
+  values on [-10, 10]: from -0.2172336282 to 0.9999998333 [numeric]
+  injective: no, f(-8.828461939) = f(-6.725251837) = 0.06361222759 [witness]
+  zeros: 6 (-9.424777961 (~-3*pi), -6.283185307 (~-2*pi), -3.141592654 (~-pi), 3.141592654 (~pi), 6.283185307 (~2*pi), 9.424777961 (~3*pi)) [numeric]
+  asymptotes: y = 0 (x -> ±inf) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> is u8(x + 1) monotonic for an unsigned byte x?
+  ucas: it(x: u8) = u8(x + 1)
+  ucas: monotonic it
+monotonic it:
+  not monotonic on 0..255
+  maximal intervals of monotonicity:
+    x in 0..254: increasing
+    x in 254..255: decreasing
+  witness: x = 0 < x = 1 but f(0) = 1 < f(1) = 2 (not decreasing)
+  witness: x = 254 < x = 255 but f(254) = 255 > f(255) = 0 (not increasing)
+  note: without wrapping (as int) it is strictly increasing; the machine type wraps: f(254) = 255, f(255) = 0
+  proved, exhaustive over all 256 points (forward difference f(x+1) - f(x))
