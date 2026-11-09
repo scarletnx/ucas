@@ -1,0 +1,2 @@
+# session 17: a range search over every input of a unorm16 to unorm8 conversion
+{"op": 0, "s": 8001, "t": "MESSAGE_CREATE", "d": {"id": "8001", "channel_id": "50", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> SAT simplify c in [0,65536)\n```glsl\nuint Unorm16To8(uint c) {\n    return (c * 255u + 32895u) >> 16u;\n}\n```", "type": 0}}

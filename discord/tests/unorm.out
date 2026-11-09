@@ -1,0 +1,12 @@
+== event 1: channel 50, author 97: <@1000> SAT simplify c in [0,65536)
+```glsl
+uint Unorm16To8(uint c) {
+    return (c * 255u + 32895u) >> 16u;
+}
+```
+POST /channels/50/messages
+{"content":"the ```glsl block: GLSL, compiled to SPIR-V with glslangValidator\n  Unorm16To8: called from a compute shader's main(), its arguments read from a buffer\n  optimized with spirv-opt -O (what follows is beyond that)\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"8001","channel_id":"50","guild_id":"7","fail_if_not_exists":false}}
+POST /channels/50/messages
+{"content":"```\n> spvsimplify assume c 0 65535\nsimplify: 55 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed\n  assuming c in [0, 65535] (every load of it)\n  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)\n  nothing to rewrite: no cheaper form of an integer instruction could be proved\n  range search on a result (one input, c in [0, 65535]; every one of the 65536 inputs checked):\n      (line 2: return (c * 255u + 32895u) >> 16u;)\n    it is round(c * 255 / 65535)\n    same cost, no multiply: t = c + 128; (t - (t >> 8)) >> 8   (cost 6)\n    (its cost now: 6; each form above equals it on every input in the range)\n  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"8001","channel_id":"50","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/50/messages/8001/reactions/check/@me
+

@@ -138,3 +138,17 @@ simplify: 86 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       (line 5: p += p << 4u;)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 2605 bytes, checksum fe0a740c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Unorm16To8: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 65535
+simplify: 55 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming c in [0, 65535] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  range search on a result (one input, c in [0, 65535]; every one of the 65536 inputs checked):
+      (line 2: return (c * 255u + 32895u) >> 16u;)
+    it is round(c * 255 / 65535)
+    same cost, no multiply: t = c + 128; (t - (t >> 8)) >> 8   (cost 6)
+    (its cost now: 6; each form above equals it on every input in the range)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

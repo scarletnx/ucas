@@ -89,3 +89,11 @@ uint Hash52(uint p) {
     return p;
 }
 ```
+# live session 17: one bounded input: what it is, and forms checked on
+# every input (the same cost without a multiply)
+SAT simplify c in [0,65536) nofile
+```glsl
+uint Unorm16To8(uint c) {
+    return (c * 255u + 32895u) >> 16u;
+}
+```

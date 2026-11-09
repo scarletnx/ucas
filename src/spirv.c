@@ -2380,6 +2380,8 @@ static struct {
 	int *before;		/* per new instruction: emitted before this */
 	char notes[6][700];	/* near misses worth telling */
 	int nnotes;
+	int force_id;		/* range search: this input has force_val */
+	uint64_t force_val;
 	int orig_nid;
 	int *uses;		/* per id: operand references, before rewriting */
 } SP;
@@ -2705,6 +2707,8 @@ evalid(int id)
 		    (uint64_t)SP.sample * 0x9e3779b97f4a7c15ULL;
 		h ^= h >> 29;
 		r = evalid(idx(V.in[k].opnd[1 + 2 * (int)(h % (uint64_t)np)]));
+	} else if (id == SP.force_id) {
+		r = SP.force_val & wmask(w ? w : 32);
 	} else if (k < 0 || !pure_ins(k)) {
 		int64_t lo, hi;
 		r = leafval(id, w ? w : 32);
@@ -3870,6 +3874,223 @@ src_line(int ln, char *b, size_t n)
 	}
 }
 
+
+/* ---- range search: one bounded input, every value checked ---- */
+
+/* the pure cone under id: its free inputs and its cost */
+static void
+cone_of(int id, int *leaves, int *nl, double *cost, char *seen, int rt)
+{
+	int k, i;
+
+	id = res_of(id);
+	if (seen[id])
+		return;
+	seen[id] = 1;
+	if (V.id[id].kind == K_CONST && !V.id[id].spec)
+		return;
+	k = SP.def[id];
+	if (k < 0 || SP.dead[k] || !pure_ins(k)) {
+		if (*nl < 8)
+			leaves[*nl] = id;
+		(*nl)++;
+		return;
+	}
+	*cost += ins_cost(V.in[k].op, !strcmp(V.in[k].op, "OpExtInst") ?
+	    V.in[k].opnd[2] : NULL, rt);
+	for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++)
+		cone_of(idx(V.in[k].opnd[i]), leaves, nl, cost, seen, rt);
+}
+
+/* f over the domain: the root's value with the input forced */
+static uint64_t *
+range_values(int root, int leaf, int64_t lo, int64_t hi)
+{
+	uint64_t *f = xmalloc((size_t)(hi - lo + 1) * sizeof *f);
+	int64_t x;
+
+	SP.force_id = leaf;
+	for (x = lo; x <= hi; x++) {
+		SP.force_val = (uint64_t)x;
+		SP.stamp++;
+		f[x - lo] = evalid(root);
+	}
+	SP.force_id = -1;
+	return f;
+}
+
+static int
+has_mul(int id, char *seen)
+{
+	int k, i;
+
+	id = res_of(id);
+	if (seen[id])
+		return 0;
+	seen[id] = 1;
+	k = SP.def[id];
+	if (k < 0 || !pure_ins(k))
+		return 0;
+	if (!strcmp(V.in[k].op, "OpIMul") || !strcmp(V.in[k].op, "OpUDiv") ||
+	    !strcmp(V.in[k].op, "OpSDiv"))
+		return 1;
+	for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++)
+		if (has_mul(idx(V.in[k].opnd[i]), seen))
+			return 1;
+	return 0;
+}
+
+/*
+ * For a stored or returned value with one bounded input (at most 2^20
+ * values): what it is (floor/round/ceil of a ratio), and cheaper forms
+ * from a few template families, each checked on every input.
+ */
+static void
+range_search(int root, int line, struct sbuf *out)
+{
+	int leaves[8], nl = 0, w, mul;
+	double cost = 0, cadd, cshr;
+	char *seen = xcalloc((size_t)(V.nid + 1024), 1);
+	int64_t lo, hi, x, n;
+	uint64_t *f, m;
+	const char *nm;
+	char sl[160], nmb[64];
+	int rt = V.id[res_of(root)].type, found = 0;
+	long tried = 0;
+
+	w = int_width(rt);
+	cone_of(root, leaves, &nl, &cost, seen, rt);
+	if (nl != 1 || w < 2 || !assumed(leaves[0], &lo, &hi) || lo < 0 ||
+	    hi - lo > (1 << 20) || cost <= 0) {
+		free(seen);
+		return;
+	}
+	memset(seen, 0, (size_t)(V.nid + 1024));
+	mul = has_mul(root, seen);
+	free(seen);
+	m = wmask(w);
+	n = hi - lo + 1;
+	f = range_values(root, leaves[0], lo, hi);
+	/* the input's name, as the user wrote it */
+	nm = NULL;
+	{
+		int j;
+		for (j = 0; j < SP.nas && nm == NULL; j++) {
+			int64_t a, b;
+			if (assumed(leaves[0], &a, &b))
+				nm = SP.as[j].name;
+		}
+	}
+	snprintf(nmb, sizeof nmb, "%s", nm ? nm : "x");
+	src_line(line, sl, sizeof sl);
+	sb_printf(out, "  range search on a result (one input, %s in [%lld, "
+	    "%lld]; every one of the %lld inputs checked):\n", nmb, (long long)lo,
+	    (long long)hi, (long long)n);
+	if (sl[0])
+		sb_printf(out, "%s", sl);
+	/* what it is: f(lo) + floor/round/ceil((x - lo) * p / q) */
+	{
+		uint64_t p = (f[n - 1] - f[0]) & m, q = (uint64_t)(hi - lo);
+		static const char *const kind[] = {"floor", "round", "ceil"};
+		int kk;
+		for (kk = 0; kk < 3 && q > 0 && p > 0; kk++) {
+			int ok = 1;
+			for (x = 0; x < n && ok; x++) {
+				uint64_t num = (uint64_t)x * p, v;
+				v = kk == 0 ? num / q : kk == 1 ? (2 * num + q) / (2 * q) :
+				    (num + q - 1) / q;
+				ok = ((f[0] + v) & m) == f[x];
+			}
+			if (ok) {
+				if (lo == 0 && f[0] == 0)
+					sb_printf(out, "    it is %s(%s * %llu / %llu)\n",
+					    kind[kk], nmb, (unsigned long long)p,
+					    (unsigned long long)q);
+				else
+					sb_printf(out, "    it is %llu + %s((%s - %lld) * %llu "
+					    "/ %llu)\n", (unsigned long long)f[0], kind[kk], nmb,
+					    (long long)lo, (unsigned long long)p,
+					    (unsigned long long)q);
+				break;
+			}
+		}
+	}
+	/* template families, K solved exactly where it is an offset */
+	cadd = ins_cost("OpIAdd", NULL, rt);
+	cshr = ins_cost("OpShiftRightLogical", NULL, rt);
+	{
+		int S, S1, sg;
+		int64_t K0;
+		/* (h + K) >> S, h = x, x + (x >> S1), x - (x >> S1) */
+		for (S1 = 0; S1 < w && found < 4; S1++)
+			for (sg = (S1 ? -1 : 1); sg <= 1 && found < 4; sg += 2)
+				for (S = 0; S < w && found < 4; S++) {
+					int64_t klo = INT64_MIN, khi = INT64_MAX;
+					double c = (S1 ? cshr + cadd : 0) + cadd + (S ? cshr : 0);
+					tried++;
+					if (c > cost || (c == cost && !mul))
+						continue;
+					for (x = 0; x < n && klo < khi; x++) {
+						int64_t xv = lo + x, h = xv + sg * (S1 ? (xv >> S1) : 0);
+						int64_t a = (int64_t)(f[x] << S) - h;
+						int64_t b = (int64_t)((f[x] + 1) << S) - h;
+						if (a > klo)
+							klo = a;
+						if (b < khi)
+							khi = b;
+					}
+					if (klo < khi && klo + (hi + (hi >> (S1 ? S1 : 63))) <
+					    (int64_t)m) {
+						char e[160];
+						int64_t K = klo < 0 && khi > 0 ? 0 : klo;
+						if (S1)
+							snprintf(e, sizeof e, "(%s %c (%s >> %d) %c %lld)"
+							    " >> %d", nmb, sg > 0 ? '+' : '-', nmb, S1,
+							    K < 0 ? '-' : '+', (long long)(K < 0 ? -K : K),
+							    S);
+						else
+							snprintf(e, sizeof e, "(%s %c %lld) >> %d", nmb,
+							    K < 0 ? '-' : '+', (long long)(K < 0 ? -K : K),
+							    S);
+						sb_printf(out, "    %s: %s   (cost %g)\n", c < cost ?
+						    "cheaper" : "same cost, no multiply", e, c);
+						found++;
+					}
+				}
+		/* t = x + K0; (t +- (t >> S1)) >> S */
+		for (K0 = 0; K0 < 1024 && found < 4 &&
+		    (double)clock() / CLOCKS_PER_SEC < SP.deadline; K0++)
+			for (S1 = 1; S1 < w && found < 4; S1++)
+				for (sg = -1; sg <= 1 && found < 4; sg += 2)
+					for (S = 1; S < w && found < 4; S++) {
+						double c = 2 * cadd + 2 * cshr;
+						int ok = 1;
+						tried++;
+						if (c > cost || (c == cost && !mul))
+							continue;
+						for (x = 0; x < n && ok; x++) {
+							int64_t t = lo + x + K0;
+							ok = (uint64_t)((t + sg * (t >> S1)) >> S) == f[x];
+						}
+						if (ok) {
+							sb_printf(out, "    %s: t = %s + %lld; (t %c (t >> "
+							    "%d)) >> %d   (cost %g)\n", c < cost ?
+							    "cheaper" : "same cost, no multiply", nmb,
+							    (long long)K0, sg > 0 ? '+' : '-', S1, S, c);
+							found++;
+						}
+					}
+	}
+	if (!found)
+		sb_printf(out, "    nothing cheaper than its cost %g among %ld forms "
+		    "of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t "
+		    "+- (t >> S1)) >> S\n", cost, tried);
+	else
+		sb_printf(out, "    (its cost now: %g; each form above equals it on "
+		    "every input in the range)\n", cost);
+	free(f);
+}
+
 /* "n in [0, 32)" for the next simplify */
 static struct {
 	char name[40];
@@ -3892,6 +4113,7 @@ void
 spirv_simplify(const char *src, double budget, int nofile)
 {
 	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0, nfwd = 0, ndst = 0;
+	char *range_report = NULL;
 #define MAXLOG 4096
 	struct rwlog {
 		char from[160], to[160];
@@ -3906,6 +4128,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	memset(&V, 0, sizeof V);
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
+	SP.force_id = -1;
 	code_block_used = 1;
 	V.glsl = -1;
 	V.lanes = 1;
@@ -4119,6 +4342,31 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    V.in[k].opnd[2] : NULL;
 			after += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
 		}
+	/* range search on stored and returned values with a bounded input */
+	if (SP.nas > 0) {
+		struct sbuf rs = {0};
+		int nr = 0;
+		SP.force_id = -1;
+		for (k = 0; k < SP.orig_nin && nr < 4; k++) {
+			const struct sins *I = &V.in[k];
+			int v = -1;
+			if (SP.dead[k])
+				continue;
+			if (!strcmp(I->op, "OpStore") && I->nop >= 2)
+				v = res_of(idx(I->opnd[1]));
+			else if (!strcmp(I->op, "OpReturnValue") && I->nop >= 1)
+				v = res_of(idx(I->opnd[0]));
+			if (v < 0 || SP.def[v] < 0 || !pure_ins(SP.def[v]))
+				continue;
+			{
+				size_t before_n = rs.n;
+				range_search(v, ins_line(SP.def[v]), &rs);
+				if (rs.n > before_n)
+					nr++;
+			}
+		}
+		range_report = rs.p;
+	}
 	/* the module, rewritten */
 	{
 		int first_fn = -1;
@@ -4248,6 +4496,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 	} else
 		printf("  nothing to rewrite: no cheaper form of an integer "
 		    "instruction could be proved\n");
+	if (range_report) {
+		fputs(range_report, stdout);
+		free(range_report);
+	}
 	if (SP.nnotes) {
 		int q;
 		printf("  not applied (the solver found an input where it "
