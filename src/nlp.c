@@ -30,6 +30,7 @@
  */
 #include "ucas.h"
 #include "props.h"
+#include "ring.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -6637,6 +6638,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* rings and finite fields (ring_nlp.c) */
+		const char *r = ring_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7045,6 +7055,12 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	{
+		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
+		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
 	/* calc2: d/dx F, d²/dx² F, d^2/dx^2 F, dy/dx, ∂f/∂x, ∇f */
 	if (s[i] == 'd' && i + 4 < n && isalpha((unsigned char)s[i + 1]) &&
 	    s[i + 2] == '/' && s[i + 3] == 'd' && isalpha((unsigned char)s[i + 4]))

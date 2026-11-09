@@ -22,6 +22,7 @@
  */
 #include "ucas.h"
 #include "props.h"
+#include "ring.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1808,6 +1809,8 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		if (ring_command(p))    /* Z/n, GF(q), ... (ring.c) */
+			return;
 		if (calc2_command(p))
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */

@@ -12,6 +12,9 @@ SRCS+=	forms.c
 SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
+# rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them
+SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
+ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
 .PATH:	${.CURDIR}/src
 MAN=
 
