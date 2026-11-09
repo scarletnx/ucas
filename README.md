@@ -24,6 +24,7 @@ make test       # tests/*.ucas must print tests/*.out
 ./ucas -e 'range isqrt(x: u4)'
 ./ucas          # interactive
 ./ucas --json   # JSON Lines for programs and agents (see "JSON frontend")
+./ucas --mcp    # an MCP server for AI clients (see "MCP server")
 ```
 
 ## A tour
@@ -1079,6 +1080,114 @@ language.  The Discord bot still uses its `\x1e` directives (`defer`,
 `tests/json/*.jsonl` (with `.out`) cover every structured command,
 the errors, ambiguities, state, reset, timeouts and the schema;
 `make json-test` (part of `make test`), `make json-accept`.
+
+## MCP server
+
+```sh
+ucas --mcp              # a Model Context Protocol server on stdin/stdout
+ucas --mcp --flat       # one tool per command instead of one per area
+ucas --mcp --dir DIR    # also write the GIFs and modules into DIR
+```
+
+A client configuration (Claude Desktop, Claude Code, or any MCP client
+that starts stdio servers):
+
+```json
+{"mcpServers": {"ucas": {"command": "/path/to/ucas", "args": ["--mcp"]}}}
+```
+
+On another machine, let ssh carry the stdio:
+
+```json
+{"mcpServers": {"ucas": {"command": "ssh", "args": ["host", "/path/to/ucas", "--mcp"]}}}
+```
+
+(`claude mcp add ucas -- /path/to/ucas --mcp` in Claude Code.)
+
+`src/mcp.c` speaks JSON-RPC 2.0, one message per line, as MCP's stdio
+transport specifies: `initialize` (protocol versions 2025-06-18,
+2025-03-26 and 2024-11-05; another version is answered with the latest),
+`notifications/initialized`, `ping`, `tools/list`, `tools/call`,
+`resources/list`, `resources/read`, `prompts/list`, `prompts/get`.
+Notifications are not answered; errors are JSON-RPC's (-32700 parse
+error, -32600 invalid request or a batch, -32601 unknown method, -32602
+an unknown tool, op or prompt, or arguments that are not an object).
+stdout carries only protocol messages.
+
+It is a layer over the JSON frontend, not beside it: a tool call becomes
+a JSON request (`{"cmd": op, "args": ...}`) served by the same code, so
+everything in "JSON frontend for agents and programs" holds: typed
+arguments, sessions (definitions persist across calls; `session` op
+`reset` restarts the process image), `assume` answers, `timeout_s` (the
+call runs in a forked child; the state survives a timeout).  The result
+of a call:
+
+- `content`: the text the CLI prints (for an error, the code, message,
+  the readings of an ambiguity with their `assume` key, then the text);
+  each GIF as `{"type": "image", "mimeType": "image/gif", "data": ...}`;
+  other files (a rewritten SPIR-V module) as embedded resources.  Images
+  are kept under 4 MiB of base64: animations are re-rendered at a lower
+  frame rate first, as for the Discord bot.
+- `structuredContent` (protocol 2025-06-18): the JSON frontend's
+  response, with the typed `result`, `checks`, `proof`, `conditions`,
+  `notes` and `error` (files without their base64).  The grouped tools
+  declare it as their `outputSchema`.
+- `isError`: true when the response's `ok` is false.  An ambiguity is an
+  error whose `structuredContent.error` has `key` and `readings`: call
+  again with `args.assume.KEY`.
+
+**Tools: grouped by default.**  There are about 120 commands.  As one
+tool each they make a 690 KB `tools/list`, and several clients cap or
+truncate the tool list, so by default there is one tool per area, with
+an `op` and the op's `args`:
+
+| tool | ops |
+|------|-----|
+| `analyze` | show table parse range domain wrap crit equiv fit error cost gates find more approx approx_more |
+| `calculus` | diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed scheme continuous dsolve |
+| `algebra` | expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute |
+| `properties` | monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes |
+| `complex` | complex re im conj modulus arg polar trig nthroots unity holomorphic residue poles |
+| `hypercomplex` | multiplication_table algebra zerodivisors associator commutator rotate axisangle rotmatrix frommatrix slerp |
+| `rings` | ring inverse_mod order_mod phi carmichael factorint legendre jacobi sqrtmod qr primroot dlog crt congruence magic ring_factor irreducible primitive ring_roots ring_poly ring_gcd ring_norm matrix gf2matrix |
+| `transforms` | laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic |
+| `solids` | area revolve volume surfacearea arclength centroid |
+| `plot` | plot plot3d neighbourhood animate |
+| `session` | define state assume reset schema funcs models use help |
+| `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
+
+```json
+{"name": "calculus", "arguments": {"op": "integrate", "args": {"f": "x^2 sin(x)", "var": "x", "from": "0", "to": "pi"}}}
+```
+
+Each grouped tool's description lists its ops with their parameters
+(`integrate(f*, var, from, to, around)`, `*` required) and what they
+compute, about 4 KB a tool and 60 KB in all; the exact schema of every
+op is the `session` tool's `schema` op or the `ucas://schema` resource.
+The trade: a model picks among 14 tools and reads one description,
+instead of scanning 120; the price is that an op's arguments are checked
+by ucas (a precise `bad_request` error) rather than by the client.
+`--flat` gives one tool per command with its exact `inputSchema` (no
+`outputSchema` there, to keep the list at 690 KB rather than 950 KB),
+for clients that prefer it.  A command added to `src/jsonmode.c`'s table
+appears in both forms (in `--mcp` it is a tool of its own until it is
+named in a group in `src/mcp.c`).
+
+**Resources:** `ucas://state` (the session's functions, models, bases
+and assumptions, JSON), `ucas://help` (the command summary),
+`ucas://schema` (the JSON Schema of every command).  **Prompts:**
+`cheaper_implementation` (f), `prove_identity` (identity),
+`explore_function` (f): each a short plan in terms of the tools.
+
+Tests: `tests/mcp/*.jsonl` with `.out` (the handshake, every error,
+`tools/list`, calls with images, an ambiguity and its answer, a timeout,
+reset, resources, prompts, the 2024-11-05 protocol, `--flat`), `make
+mcp-test` (part of `make test`), `make mcp-accept`.
+`tools/mcp_client.py` is a stdlib client (handshake, calls, an ambiguity
+answered, an image saved), and `tools/mcp_sdk_check.mjs` drives the
+server with the official TypeScript SDK client (`npm install
+@modelcontextprotocol/sdk`), which also validates `structuredContent`
+against `outputSchema`.
 
 ## Bases and exact synthesis
 
