@@ -465,6 +465,24 @@ integral_numeric(struct sctx *C, double *ratio)
 	return 1;
 }
 
+/* n^p as text: n, n^2, n^(1/2) */
+static const char *
+npow(const char *idx, double p)
+{
+	static char buf[4][48];
+	static int k;
+	char *b = buf[k++ & 3];
+	const char *t = xf_num(p);
+
+	if (p == 1)
+		snprintf(b, 48, "%s", idx);
+	else if (strchr(t, '/') || strchr(t, '.'))
+		snprintf(b, 48, "%s^(%s)", idx, t);
+	else
+		snprintf(b, 48, "%s^%s", idx, t);
+	return b;
+}
+
 static void
 verdict(struct sctx *C, struct verdict *V, int quiet_abs)
 {
@@ -552,14 +570,14 @@ verdict(struct sctx *C, struct verdict *V, int quiet_abs)
 		if (dec && prev < 1e-3) {
 			if (isfinite(p) && p > 1.05) {
 				V->v = CV_ABS;
-				snprintf(V->test, sizeof V->test, "|a_%s| ~ C/%s^%s: comparison "
-				    "with a p-series (p > 1)", C->idx, C->idx, xf_num(p));
+				snprintf(V->test, sizeof V->test, "|a_%s| ~ C/%s: comparison "
+				    "with a p-series (p > 1)", C->idx, npow(C->idx, p));
 			} else {
 				V->v = CV_COND;
 				snprintf(V->test, sizeof V->test, "alternating series test "
-				    "(|a_%s| decreases to 0); not absolutely: |a_%s| ~ C/%s^%s "
-				    "(p <= 1)", C->idx, C->idx, C->idx, isfinite(p) ? xf_num(p) :
-				    xf_num(nearbyint(pf * 100) / 100));
+				    "(|a_%s| decreases to 0); not absolutely: |a_%s| ~ C/%s "
+				    "(p <= 1)", C->idx, C->idx, npow(C->idx, isfinite(p) ? p :
+				    nearbyint(pf * 100) / 100));
 			}
 			return;
 		}
@@ -568,15 +586,15 @@ verdict(struct sctx *C, struct verdict *V, int quiet_abs)
 		if (p > 1.05 && fabs(pf - p) < 0.02) {
 			V->v = CV_ABS;
 			snprintf(V->test, sizeof V->test, "comparison with the p-series "
-			    "sum 1/%s^%s (|a_%s| ~ C/%s^%s, p > 1)", C->idx, xf_num(p),
-			    C->idx, C->idx, xf_num(p));
+			    "sum 1/%s (|a_%s| ~ C/%s, p > 1)", npow(C->idx, p), C->idx,
+			    npow(C->idx, p));
 			return;
 		}
 		if (p <= 1 && fabs(pf - p) < 0.02 && !alt) {
 			V->v = CV_DIV;
 			snprintf(V->test, sizeof V->test, "comparison with the p-series "
-			    "sum 1/%s^%s (a_%s ~ C/%s^%s, p <= 1)", C->idx, xf_num(p), C->idx,
-			    C->idx, xf_num(p));
+			    "sum 1/%s (a_%s ~ C/%s, p <= 1)", npow(C->idx, p), C->idx,
+			    npow(C->idx, p));
 			return;
 		}
 	}
@@ -1187,7 +1205,6 @@ sum_geometric(struct sctx *C, struct sbuf *txt, double *val, const char **how)
 	double a[24], r;
 	uint8_t ok[24];
 	int i, d, k;
-	double c[24];
 
 	terms(C, C->lo, 24, a, ok);
 	for (i = 0; i < 24; i++)
@@ -2374,11 +2391,25 @@ cmd_asymptotic(char *text)
 		sb_printf(&b, "%s", xf_str(Fn));
 		{
 			const char *ts[3] = {xf_str(t1), xf_str(t2), xf_str(t3)};
+			int grows;
+			{
+				int o1, o2;
+				double v1 = fabs(xf_eval1(t1, N.ki[nn], 1e3, &o1));
+				double v2 = fabs(xf_eval1(t1, N.ki[nn], 1e6, &o2));
+				grows = o1 && o2 && v2 > v1;
+			}
+			if (!grows) {
+				if (cs)
+					sb_printf(&b, cs[0] == '-' ? " - %s" : " + %s",
+					    cs[0] == '-' ? cs + 1 : cs);
+				else
+					sb_printf(&b, " + %.15g", Cst);
+			}
 			for (k = 0; k < 3; k++) {
 				if (strcmp(ts[k], "0"))
 					sb_printf(&b, ts[k][0] == '-' ? " - %s" : " + %s",
 					    ts[k][0] == '-' ? ts[k] + 1 : ts[k]);
-				if (k == 0) {
+				if (k == 0 && (grows || !strcmp(ts[0], "0"))) {
 					if (cs)
 						sb_printf(&b, cs[0] == '-' ? " - %s" : " + %s",
 						    cs[0] == '-' ? cs + 1 : cs);

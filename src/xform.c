@@ -683,7 +683,7 @@ static void
 lap_term(struct lctx *C, nid term, double sh)
 {
 	struct facs F;
-	double pw = 0, step = 0, da = 0, dw = 0, v, hv1, hv0;
+	double pw = 0, step = 0, da = 0, dw = 0, hv1, hv0;
 	nid alpha = xk(0), beta = 0, phi = 0, c1, c0, arg, u;
 	int k, trig = 0, trigk = -1, dirac = 0;
 	uint32_t steps = 0;
@@ -2356,7 +2356,7 @@ static void
 zt_term(struct zctx *C, nid term, int delay)
 {
 	struct facs F;
-	double pw = 0, v, c1, c0;
+	double pw = 0, c1, c0;
 	nid r = xk(1), beta = 0, phi = 0, u, arg;
 	int k, trig = 0, trigk = -1, fact = 0;
 	int64_t step = 0;
@@ -3198,7 +3198,7 @@ seq_names(const char *s, int discrete, char names[4][32])
 }
 
 static void
-freq_table(const struct xrat *H, int discrete)
+freq_table(const struct xrat *H, int discrete, int stable)
 {
 	static const double wd[] = {0, M_PI / 8, M_PI / 4, M_PI / 2,
 		3 * M_PI / 4, M_PI};
@@ -3236,6 +3236,12 @@ freq_table(const struct xrat *H, int discrete)
 			printf("    %-10s %-12.6g %-10.4g %.4g\n", xf_num(w), mag,
 			    mag > 0 ? 20 * log10(mag) : -INFINITY, ph);
 	}
+	if (!stable) {
+		printf("  (an unstable system has no steady state: this is H on the "
+		    "%s, not what the system settles to)\n", discrete ?
+		    "unit circle" : "imaginary axis");
+		return;
+	}
 	/* -3 dB point when the gain falls monotonically from w = 0 */
 	{
 		double lo = 0, hi = discrete ? M_PI : wc[5] * 10;
@@ -3251,8 +3257,9 @@ freq_table(const struct xrat *H, int discrete)
 				else
 					hi = mid;
 			}
-			printf("  -3 dB (gain %s/sqrt(2)) at w = %.6g%s\n", xf_num(g0), lo,
-			    discrete ? " rad/sample" : " rad/s");
+			printf(strchr(xf_num(g0), '/') ? "  -3 dB (gain (%s)/sqrt(2)) at w = "
+			    "%.6g%s\n" : "  -3 dB (gain %s/sqrt(2)) at w = %.6g%s\n",
+			    xf_num(g0), lo, discrete ? " rad/sample" : " rad/s");
 			if (discrete)
 				printf("    = %.6g of the sample rate\n", lo / (2 * M_PI));
 		}
@@ -3407,7 +3414,8 @@ tf_analyse(struct xrat *H, int discrete, const char *vn, struct func *f)
 			printf("  DC gain H(%s) = %s\n", discrete ? "1" : "0",
 			    xf_cnum(g));
 	}
-	freq_table(H, discrete);
+	freq_table(H, discrete, nz <= 0 || (discrete ? maxp < 1 - 1e-12 :
+	    maxp < -1e-12));
 	if (discrete && H->n.deg <= H->d.deg && H->d.deg <= 8) {
 		double b[XD + 1], a[XD + 1];
 		int dd = H->d.deg;
@@ -3845,9 +3853,9 @@ cmd_fseries(char *text)
 		const char *wx = xf_str(xmul(xmul(xk(w), nn), x));
 		printf("  f(%s) ~ a0/2 + sum_{n>=1} a_n cos(%s) + b_n sin(%s)\n",
 		    sym_str(N.a[x]), wx, wx);
-		printf("  a_n = %s int f(%s) cos(%s) d%s over the period, b_n "
-		    "likewise with sin\n", xf_num(2 / P), sym_str(N.a[x]), wx,
-		    sym_str(N.a[x]));
+		printf("  a_n = %s%sint f(%s) cos(%s) d%s over the period, b_n "
+		    "likewise with sin\n", 2 / P == 1 ? "" : xf_num(2 / P),
+		    2 / P == 1 ? "" : " ", sym_str(N.a[x]), wx, sym_str(N.a[x]));
 	}
 	printf("  a0 = %s\n", xf_num(an[0]));
 	{
@@ -4100,7 +4108,7 @@ static struct cpair
 ft_term(struct fctx *C, nid term)
 {
 	struct facs F;
-	double pw = 0, v, c1, c0;
+	double v, c1, c0;
 	nid u, arg, w = C->w;
 	int k;
 
