@@ -1992,6 +1992,15 @@ sqrt_cnode(int64_t m)
 	return mk_raw(O_SQRT, TY_REAL, KR((double)m), 0, 0, 0, 0);
 }
 
+/* k * x, as 3x*sin(x) rather than 3(x*sin(x)) */
+static nid
+kmul(double k, nid x)
+{
+	if (N.op[x] == O_MUL && !is_const(N.a[x]))
+		return MUL(kmul(k, N.a[x]), N.b[x]);
+	return MUL(KR(k), x);
+}
+
 nid
 qmul_node(aq c, nid x)
 {
@@ -2005,9 +2014,9 @@ qmul_node(aq c, nid x)
 	if (c.n == 1 && c.d == 1)
 		r = x;
 	else if (c.d == 1)
-		r = MUL(KR((double)c.n), x);
+		r = kmul((double)c.n, x);
 	else
-		r = DIV(c.n == 1 ? x : MUL(KR((double)c.n), x), KR((double)c.d));
+		r = DIV(c.n == 1 ? x : kmul((double)c.n, x), KR((double)c.d));
 	return neg ? mk_un(O_NEG, r) : r;
 }
 

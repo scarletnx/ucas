@@ -815,14 +815,78 @@ as_upq(nid f, nid x, struct up *n, struct up *d)
 	return ok && !alg_ovf;
 }
 
+/* from -> to, keeping constant subterms as they are (sqrt(3) stays) */
+static nid
+rsub(nid e, nid from, nid to, int depth)
+{
+	int op = N.op[e];
+
+	if (e == from)
+		return to;
+	if (!(N.fl[e] & NF_VAR) || depth > 200)
+		return e;
+	switch (op) {
+	case O_VAR:
+	case O_CONST:
+	case O_TABLE:
+	case O_LOOP:
+	case O_INDEX:
+		return e;
+	case O_CAST:
+		return mk_cast(N.ty[e], rsub(N.a[e], from, to, depth + 1));
+	case O_SEL:
+		return mk_sel(rsub(N.a[e], from, to, depth + 1), rsub(N.b[e], from,
+		    to, depth + 1), rsub(N.c[e], from, to, depth + 1));
+	}
+	if (opinfo[op].arity == 1)
+		return mk_un(op, rsub(N.a[e], from, to, depth + 1));
+	if (opinfo[op].arity == 2)
+		return mk_bin(op, rsub(N.a[e], from, to, depth + 1), rsub(N.b[e],
+		    from, to, depth + 1));
+	return e;
+}
+
+static nid I_x;
+
 static nid
 xsubst(nid e, nid val)
 {
-	nid map[NSLOT];
+	return rsub(e, I_x, val, 0);
+}
 
-	memset(map, 0, sizeof map);
-	map[I_slot] = val;
-	return subst(e, map, NSLOT);
+/* a + b or a - b with b's terms added one by one: no parentheses */
+static nid
+flat(nid a, nid b, int sub)
+{
+	if (N.op[b] == O_ADD)
+		return flat(flat(a, N.a[b], sub), N.b[b], sub);
+	if (N.op[b] == O_SUB)
+		return flat(flat(a, N.a[b], sub), N.b[b], !sub);
+	if (N.op[b] == O_NEG)
+		return flat(a, N.a[b], !sub);
+	return sub ? SUB(a, b) : ADD(a, b);
+}
+
+/* P(x) * s with P's content in front: (3x^2 - 2)*s/15 */
+static nid
+poly_times(const struct up *P, nid x, nid s)
+{
+	int64_t l = 1, g = 0;
+	int j;
+	struct up p;
+	aq c;
+
+	for (j = 0; j <= P->d; j++)
+		l = lcm64(l, P->c[j].d);
+	for (j = 0; j <= P->d; j++)
+		g = gcd64(g, qmul(P->c[j], qi(l)).n);
+	if (P->d >= 0 && qsgn(P->c[P->d]) < 0)
+		g = -g;
+	c = qmk(g, l);
+	up_scale(&p, P, qdiv(qi(1), c));
+	if (p.d == 0)
+		return qmul_node(c, s);
+	return qmul_node(c, MUL(up_node(&p, x), s));
 }
 
 static nid sub_int(nid h);
@@ -906,6 +970,35 @@ trig_int(nid f, nid x)
 		ar_release(mk);
 		return 0;
 	}
+	/* sin^2m cos^2n: power reduction to cos(2u), no tangent poles */
+	if (mp_isconst(r.d, NULL) && I_depth < 4) {
+		int ok = 1, ii;
+		for (ii = 0; ii < r.n.n; ii++)
+			if ((r.n.t[ii].e[sv] | r.n.t[ii].e[cv]) & 1)
+				ok = 0;
+		if (ok) {
+			nid c2 = mk_un(O_COS, MUL(KR(2), u)), body, F;
+			int w = atom_of(c2);
+			aq dc;
+			struct mp acc = mp_zero(), hm, hp;
+			mp_isconst(r.d, &dc);
+			hm = mp_sub(mp_const(qmk(1, 2)), mp_scale(mp_atom(w), qmk(1, 2)));
+			hp = mp_add(mp_const(qmk(1, 2)), mp_scale(mp_atom(w), qmk(1, 2)));
+			for (ii = 0; ii < r.n.n; ii++)
+				acc = mp_add(acc, mp_mul(mp_const(qdiv(r.n.t[ii].c, dc)),
+				    mp_mul(mp_pow(hm, r.n.t[ii].e[sv] / 2), mp_pow(hp,
+				    r.n.t[ii].e[cv] / 2))));
+			body = mp_node(acc);
+			ar_release(mk);
+			F = antideriv(body, I_slot, NULL);
+			if (F) {
+				snprintf(notebuf, sizeof notebuf, "power reduction: sin^2 = "
+				    "(1 - cos 2u)/2, cos^2 = (1 + cos 2u)/2");
+				alg_int_note = notebuf;
+			}
+			return F;
+		}
+	}
 	{
 		/* Bioche's invariants */
 		struct mp mS = mp_neg(mp_atom(sv)), mC = mp_neg(mp_atom(cv));
@@ -924,14 +1017,14 @@ trig_int(nid f, nid x)
 			t.n = mp_pyth(t.n, sv, cv, 0);
 			t.d = mp_pyth(t.d, sv, cv, 0);
 			t = rf_norm(t);
-			how = "Bioche: t = cos";
+			how = "Bioche: t = ";
 			T = C;
 		} else if (SAME(r2, -1)) {
 			t = rf_div(r, rf_poly(mp_atom(cv)));
 			t.n = mp_pyth(t.n, cv, sv, 0);
 			t.d = mp_pyth(t.d, cv, sv, 0);
 			t = rf_norm(t);
-			how = "Bioche: t = sin";
+			how = "Bioche: t = ";
 			T = S;
 		} else {
 			/* tan or Weierstrass: substitute rational values */
@@ -972,7 +1065,7 @@ trig_int(nid f, nid x)
 					t = rf_div(parts[0], parts[1]);
 					t = rf_div(t, opt);
 				}
-				how = "Bioche: t = tan";
+				how = "Bioche: t = ";
 				T = mk_un(O_TAN, u);
 			} else {
 				struct rf w, tn, td;
@@ -999,7 +1092,7 @@ trig_int(nid f, nid x)
 				}
 				w = rf_div(tn, td);
 				t = rf_mul(w, rf_div(rf_poly(mp_const(qi(2))), opt));
-				how = "Weierstrass: t = tan(u/2)";
+				how = "Weierstrass: t = ";
 				T = mk_un(O_TAN, DIV(u, KR(2)));
 			}
 			/* rename atom tv to index of a single variable */
@@ -1038,13 +1131,141 @@ trig_int(nid f, nid x)
 		res = DIV(xsubst(res, T), KR(a));
 	}
 out:
+	res = rsub(res, mk_un(O_ATAN, mk_un(O_TAN, u)), u, 0);
 	if (how) {
-		snprintf(notebuf, sizeof notebuf, "%s(%s)%s", how, node_str(u),
+		snprintf(notebuf, sizeof notebuf, "%s%s%s", how, node_str(T),
 		    !strncmp(how, "Weier", 5) ? "; the antiderivative holds on "
 		    "each interval between the poles of the tangent" : "");
 		alg_int_note = notebuf;
 	}
 	return res;
+}
+
+/* P(x) times a polynomial in sin u, cos u: product to sum, then by parts */
+#define TK 24
+struct tpoly {
+	aq c[TK + 1], s[TK + 1];      /* sum c_k cos(k u) + s_k sin(k u) */
+};
+
+static void
+tp_mul1(struct tpoly *t, int sin)
+{
+	struct tpoly r;
+	int k;
+
+	for (k = 0; k <= TK; k++)
+		r.c[k] = r.s[k] = qi(0);
+	for (k = 0; k < TK; k++) {
+		aq h = qmk(1, 2), cc = qmul(t->c[k], h), ss = qmul(t->s[k], h);
+		/* k - 1 with cos(-a) = cos a, sin(-a) = -sin a */
+		int km = k - 1 < 0 ? 1 - k : k - 1, sg = k - 1 < 0 ? -1 : 1;
+		if (sin) {
+			/* S cos(ku) = (sin((k+1)u) - sin((k-1)u))/2 */
+			r.s[k + 1] = qadd(r.s[k + 1], cc);
+			r.s[km] = qsub(r.s[km], sg > 0 ? cc : qneg(cc));
+			/* S sin(ku) = (cos((k-1)u) - cos((k+1)u))/2 */
+			r.c[km] = qadd(r.c[km], ss);
+			r.c[k + 1] = qsub(r.c[k + 1], ss);
+		} else {
+			r.c[k + 1] = qadd(r.c[k + 1], cc);
+			r.c[km] = qadd(r.c[km], cc);
+			r.s[k + 1] = qadd(r.s[k + 1], ss);
+			r.s[km] = qadd(r.s[km], sg > 0 ? ss : qneg(ss));
+		}
+	}
+	r.s[0] = qi(0);
+	*t = r;
+}
+
+static nid
+triglin_int(nid f, nid x)
+{
+	nid fn[24], u = 0, S, C, sum = 0;
+	int nf = 0, i, sv, cv, xv, ii, k;
+	double a, b;
+	struct rf r;
+	size_t mk;
+	aq dc;
+
+	walk(f, fn, &nf, 24, 0);
+	for (i = 0; i < nf; i++) {
+		int op = N.op[fn[i]];
+		if (op == O_SIN || op == O_COS) {
+			if (u == 0)
+				u = N.a[fn[i]];
+			else if (N.a[fn[i]] != u)
+				return 0;
+		} else
+			return 0;
+	}
+	if (u == 0 || !lin_in(u, &a, &b))
+		return 0;
+	S = mk_un(O_SIN, u);
+	C = mk_un(O_COS, u);
+	mk = ar_mark();
+	atoms_reset();
+	xv = atom_of(x);
+	sv = atom_of(S);
+	cv = atom_of(C);
+	if (!rf_of(f, &r, NULL) || !mp_isconst(r.d, &dc) ||
+	    !(mp_vars(r.n) & (1u << xv)) || (mp_vars(r.n) & ~7u)) {
+		ar_release(mk);
+		return 0;
+	}
+	for (ii = 0; ii < r.n.n; ii++) {
+		struct tpoly t;
+		int e0 = r.n.t[ii].e[xv];
+		if (r.n.t[ii].e[sv] + r.n.t[ii].e[cv] >= TK) {
+			ar_release(mk);
+			return 0;
+		}
+		for (k = 0; k <= TK; k++)
+			t.c[k] = t.s[k] = qi(0);
+		t.c[0] = qdiv(r.n.t[ii].c, dc);
+		for (k = 0; k < r.n.t[ii].e[sv]; k++)
+			tp_mul1(&t, 1);
+		for (k = 0; k < r.n.t[ii].e[cv]; k++)
+			tp_mul1(&t, 0);
+		for (k = 0; k <= TK; k++) {
+			nid xp = e0 == 0 ? KR(1) : e0 == 1 ? x : POW(x, KI(e0));
+			nid arg = k == 1 ? u : MUL(KR(k), u);
+			if (t.c[k].n)
+				sum = sum ? ADD(sum, qmul_node(t.c[k], k ? MUL(xp,
+				    mk_un(O_COS, arg)) : xp)) : qmul_node(t.c[k], k ? MUL(xp,
+				    mk_un(O_COS, arg)) : xp);
+			if (k && t.s[k].n)
+				sum = sum ? ADD(sum, qmul_node(t.s[k], MUL(xp, mk_un(O_SIN,
+				    arg)))) : qmul_node(t.s[k], MUL(xp, mk_un(O_SIN, arg)));
+		}
+	}
+	ar_release(mk);
+	if (sum == 0 || alg_ovf || I_depth > 3)
+		return 0;
+	snprintf(notebuf, sizeof notebuf, "product to sum (%s), then by parts",
+	    node_str(sum));
+	{
+		nid F = antideriv(sum, I_slot, NULL);
+		if (F)
+			alg_int_note = notebuf;
+		return F;
+	}
+}
+
+/* sinh, cosh, tanh of a linear argument */
+static nid
+hyp_int(nid f, nid x)
+{
+	double a, b;
+	int op = N.op[f];
+
+	if ((op != O_SINH && op != O_COSH && op != O_TANH) || !lin_in(N.a[f], &a,
+	    &b))
+		return 0;
+	if (op == O_SINH)
+		return DIV(mk_un(O_COSH, N.a[f]), KR(a));
+	if (op == O_COSH)
+		return DIV(mk_un(O_SINH, N.a[f]), KR(a));
+	return DIV(mk_un(O_LOG, mk_un(O_COSH, N.a[f])), KR(a));
 }
 
 /* R(e^(a x)): u = e^(g x) */
@@ -1086,10 +1307,10 @@ exp_int(nid f, nid x)
 			gq = qmk(gn, lcm64(gq.d, q.d));
 		}
 	}
-	if (gq.n == 0)
-		return 0;
 	if (g != f)
 		return exp_int(g, x);
+	if (gq.n == 0)
+		return 0;
 	/* replace each exp(a x + b) by e^b T^(a/g); T stands in x's slot */
 	{
 		nf = 0;
@@ -1143,17 +1364,31 @@ inv_sqrt_quad(aq a, aq b, aq c, nid x, nid s)
 			return over_sqrt(qdiv(qi(1), k), m, mk_un(O_ASINH,
 			    lin_over_sqrt(qdiv(lin.c[1], kd), qdiv(b, kd), md, x)));
 		}
-		/* log|2a x + b + 2 sqrt(a) sqrt(q)| / sqrt(a) */
-		return over_sqrt(qdiv(qi(1), k), m, logabs(ADD(up_node(&lin, x),
-		    qmul_node(qmul(qi(2), k), m == 1 ? s : MUL(sqrt_cnode(m), s)))));
+		/* log|2a x + b + 2 sqrt(a) sqrt(q)| / sqrt(a), common factors out */
+		{
+			aq tk = qmul(qi(2), k);
+			int64_t L = lcm64(lcm64(lin.c[1].d, lin.c[0].d), tk.d), g;
+			lin.c[1] = qmul(lin.c[1], qi(L));
+			lin.c[0] = qmul(lin.c[0], qi(L));
+			tk = qmul(tk, qi(L));
+			g = gcd64(gcd64(lin.c[1].n, lin.c[0].n), tk.n);
+			if (g > 1) {
+				lin.c[1] = qdiv(lin.c[1], qi(g));
+				lin.c[0] = qdiv(lin.c[0], qi(g));
+				tk = qdiv(tk, qi(g));
+			}
+			up_trim(&lin);
+			return over_sqrt(qdiv(qi(1), k), m, logabs(ADD(up_node(&lin, x),
+			    qmul_node(tk, m == 1 ? s : MUL(sqrt_cnode(m), s)))));
+		}
 	}
 	if (qsgn(D) >= 0)
 		return 0;   /* q < 0 everywhere */
-	/* -asin((2a x + b)/sqrt(b^2 - 4ac)) / sqrt(-a) */
+	/* asin((-2a x - b)/sqrt(b^2 - 4ac)) / sqrt(-a) */
 	sqrt_split(qneg(a), &k, &m);
 	sqrt_split(qneg(D), &kk, &mm);
-	return over_sqrt(qneg(qdiv(qi(1), k)), m, mk_un(O_ASIN,
-	    lin_over_sqrt(qdiv(lin.c[1], kk), qdiv(b, kk), mm, x)));
+	return over_sqrt(qdiv(qi(1), k), m, mk_un(O_ASIN,
+	    lin_over_sqrt(qneg(qdiv(lin.c[1], kk)), qneg(qdiv(b, kk)), mm, x)));
 }
 
 /* integral of P(x)/sqrt(q): Q sqrt(q) + lambda * integral dx/sqrt(q) */
@@ -1201,13 +1436,17 @@ poly_over_sqrt(const struct up *P, const struct up *q, nid x, nid s)
 		Q.c[j] = B[j];
 	up_trim(&Q);
 	if (!up_iszero(&Q))
-		r = MUL(up_node(&Q, x), s);
+		r = poly_times(&Q, x, s);
 	if (B[n].n) {
 		base = q->d == 2 ? inv_sqrt_quad(q->c[2], q->c[1], q->c[0], x, s) : 0;
 		if (q->d == 1)
 			base = qmul_node(qdiv(qi(2), q->c[1]), s);
 		if (base == 0)
 			return 0;
+		if (N.op[base] == O_NEG) {
+			B[n] = qneg(B[n]);
+			base = N.a[base];
+		}
 		base = qmul_node(B[n], base);
 		r = r ? ADD(r, base) : base;
 	}
@@ -1387,6 +1626,10 @@ sqrt_int(nid f, nid x)
 			res = tl_sum(&l);
 		}
 	}
+	snprintf(notebuf, sizeof notebuf, "sqrt of a quadratic: "
+	    "Q(x) sqrt(q) + c * integral of "
+	    "dx/sqrt(q) (Ostrogradsky)");
+	alg_int_note = notebuf;
 	return res;
 }
 
@@ -1450,7 +1693,7 @@ parts_int(nid f, nid x)
 	}
 	if (!B || I_depth > 3)
 		return 0;
-	F = antideriv(A, I_slot, NULL);
+	F = has_x(A) ? antideriv(A, I_slot, NULL) : MUL(A, I_x);
 	if (F == 0)
 		return 0;
 	d = try_diff(B);
@@ -1461,7 +1704,7 @@ parts_int(nid f, nid x)
 		return 0;
 	snprintf(notebuf, sizeof notebuf, "by parts (u = %s)", node_str(B));
 	alg_int_note = notebuf;
-	return SUB(MUL(F, B), G);
+	return flat(MUL(F, B), G, 1);
 }
 
 /* substitution: f = h(u) u' */
@@ -1601,8 +1844,11 @@ alg_antideriv(nid f, int s, nid x, int first, const char **how)
 	size_t mk = ar_mark();
 	const char *saved_note = alg_int_note;
 
+	nid saved_x = I_x;
+
 	(void)sub_int;
 	I_slot = s;
+	I_x = x;
 	if (first) {
 		alg_int_note = NULL;
 		if (as_upq(f, x, &n, &d) && d.d >= 1) {
@@ -1618,16 +1864,29 @@ alg_antideriv(nid f, int s, nid x, int first, const char **how)
 			} else if (r)
 				alg_int_note = hermite_used ? "partial fractions, Hermite "
 				    "reduction for the repeated factors" : "partial fractions";
+		} else if (I_depth == 0) {
+			/* R(x, sqrt(quadratic)) before the older sqrt rules */
+			nid c;
+			I_depth++;
+			c = sqrt_int(f, x);
+			I_depth--;
+			if (c && verified(c, f))
+				r = alg_light(c);
+			else
+				alg_int_note = NULL;
 		}
 		ar_release(mk);
 		I_slot = saved_slot;
+		I_x = saved_x;
 		/* plain partial fractions need no method line */
-		if (how && r && strcmp(alg_int_note, "partial fractions"))
+		if (how && r && alg_int_note && strcmp(alg_int_note,
+		    "partial fractions"))
 			*how = alg_int_note;
 		return r;
 	}
 	if (I_depth > 4) {
 		I_slot = saved_slot;
+		I_x = saved_x;
 		return 0;
 	}
 	I_depth++;
@@ -1637,7 +1896,7 @@ alg_antideriv(nid f, int s, nid x, int first, const char **how)
 		nid A = antideriv(N.a[f], s, NULL), B = A ? antideriv(N.b[f], s,
 		    NULL) : 0;
 		if (A && B)
-			r = mk_bin(N.op[f], A, B);
+			r = flat(A, B, N.op[f] == O_SUB);
 		alg_int_note = NULL;
 	} else if (N.op[f] == O_NEG) {
 		nid A = antideriv(N.a[f], s, NULL);
@@ -1655,11 +1914,11 @@ alg_antideriv(nid f, int s, nid x, int first, const char **how)
 	if (r && !verified(r, f))
 		r = 0;
 	{
-		nid (*m[])(nid, nid) = {exp_int, trig_int, sqrt_int, parts_int,
-		    subst_int};
+		nid (*m[])(nid, nid) = {hyp_int, exp_int, triglin_int, trig_int,
+		    sqrt_int, parts_int, subst_int};
 		const char *saved = alg_int_note;
 		int k;
-		for (k = 0; k < 5 && r == 0; k++) {
+		for (k = 0; k < 7 && r == 0; k++) {
 			nid c;
 			alg_int_note = NULL;
 			c = m[k](f, x);
@@ -1672,8 +1931,14 @@ alg_antideriv(nid f, int s, nid x, int first, const char **how)
 	I_depth--;
 	if (r == 0)
 		alg_int_note = saved_note;
+	if (r) {
+		/* the normal form when it is shorter (power reduction's nests) */
+		nid t = alg_simplify(r, NULL), l = alg_light(r);
+		r = strlen(node_str(t)) < strlen(node_str(l)) && verified(t, f) ? t : l;
+	}
 	ar_release(mk);
 	I_slot = saved_slot;
+	I_x = saved_x;
 	if (how && r)
 		*how = alg_int_note ? alg_int_note : "";
 	return r;

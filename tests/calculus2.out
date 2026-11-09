@@ -515,11 +515,13 @@ on the curve a^2 + b^2 - 4 = 0, b as a function of a:
 > antiderivative 1/sqrt(1 - x^2)
 ∫ 1/sqrt(1 - x^2) dx
   = asin(x) + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
   check: d/dx of it equals the integrand at 39 points of [-10, 10] (max difference 0)
 > antiderivative 1/sqrt(x^2 + 1)
 ∫ 1/sqrt(x^2 + 1) dx
-  = log(abs(2x + 2sqrt(x^2 + 1))) + C
-  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1e-15)
+  = asinh(x) + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative x/(x^2 + 1)
 ∫ x/(x^2 + 1) dx
   = log(x^2 + 1)/2 + C

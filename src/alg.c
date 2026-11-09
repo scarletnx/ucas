@@ -292,7 +292,7 @@ simp_rec(nid e, struct sbuf *conds, int depth)
 {
 	int op = N.op[e];
 
-	if (depth > 100)
+	if (depth > 100 || !(N.fl[e] & NF_VAR))
 		return e;
 	switch (op) {
 	case O_CONST:
@@ -306,8 +306,16 @@ simp_rec(nid e, struct sbuf *conds, int depth)
 	case O_POW:
 		if (!TY_FP(N.ty[e]))
 			return e;
-		return mk_bin(op, simp_rec(N.a[e], conds, depth + 1),
-		    simp_rec(N.b[e], conds, depth + 1));
+		{
+			nid a = simp_rec(N.a[e], conds, depth + 1), b = simp_rec(N.b[e],
+			    conds, depth + 1);
+			double k;
+			/* exp(u)^k = exp(k u) */
+			if (op == O_POW && N.op[a] == O_EXP && num_of(b, &k) &&
+			    k == floor(k))
+				return mk_un(O_EXP, alg_simplify(MUL(b, N.a[a]), NULL));
+			return mk_bin(op, a, b);
+		}
 	case O_NEG:
 		return mk_un(O_NEG, simp_rec(N.a[e], conds, depth + 1));
 	case O_CAST:
@@ -460,6 +468,20 @@ alg_simplify(nid e, struct sbuf *conds)
 	nat = saved_nat;
 	memcpy(at_node, saved_at, sizeof saved_at);
 	return res;
+}
+
+/* the function rules only (log|e^u| = u ...), no normal form */
+nid
+alg_light(nid e)
+{
+	jmp_buf saved;
+	nid r = e;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	if (setjmp(fail_jmp) == 0)
+		r = simp_rec(e, NULL, 0);
+	memcpy(fail_jmp, saved, sizeof saved);
+	return r;
 }
 
 nid
