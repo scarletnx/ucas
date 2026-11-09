@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * A small SAT solver (CDCL) under an and-inverter graph, with word-level
  * circuits for bit-precise proofs: two expressions are equal for every

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * find: other ways to compute the same function, cheapest first, lazily.
  *

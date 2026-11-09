@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Bit-precise proofs.  Expressions are built as an and-inverter graph
  * (AIG: two-input AND gates with optionally negated edges, structurally

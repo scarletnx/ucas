@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Expression nodes.  The store is a hash-consed DAG kept as parallel
  * arrays.  Constructors do type inference, implicit conversions, local

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 #ifndef UCAS_GIF_H
 #define UCAS_GIF_H
 

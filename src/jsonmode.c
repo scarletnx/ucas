@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * jsonmode.c - the JSON frontend, for programs and AI agents.
  *

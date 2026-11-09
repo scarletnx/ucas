@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Z/n and Z/n[x]/(f) as rings of u64 codes, and polynomials and matrices
  * over them.  For a field GF(q): irreducibility (Rabin, Ben-Or, and

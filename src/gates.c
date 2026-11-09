@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Gate-level exact synthesis (the general form of the LOP3 reduction in
  * basis.md).

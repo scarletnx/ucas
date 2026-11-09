@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * calc2: derivatives of any order (also partial and mixed) and where they
  * exist, the gradient, Hessian, Jacobian, Laplacian and directional

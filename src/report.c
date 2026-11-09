@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * report.c - structured results for the JSON frontend (see report.h).
  *

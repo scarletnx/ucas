@@ -17,6 +17,9 @@ searches for other implementations.
 
 C99, BSD make, no dependencies beyond libm.
 
+License: GPL-3.0-or-later (COPYING).  src/snxglslc/ is ScarletNX's GLSL
+compiler, GPL-3.0-or-later as well; it is why ucas is GPLv3.
+
 ```sh
 make            # FreeBSD make or bmake
 make test       # tests/*.ucas must print tests/*.out

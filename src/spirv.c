@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * SPIR-V assembly (spirv-dis text) executed on a group of SIMT lanes, for
  * "animate exec" followed by a ```spv block.
