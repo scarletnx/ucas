@@ -16,8 +16,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 int rep_on;
+static int ntl;		/* rep_text_list's pending lists */
 
 static struct {
 	struct jv *results;	/* every result object of the request */
@@ -51,6 +53,7 @@ rep_request(const struct jv *assume, const struct jv *session, int defaults,
 	R.fmode = fmode;
 	snprintf(R.outdir, sizeof R.outdir, "%s", outdir ? outdir : ".");
 	rep_on = 1;
+	ntl = 0;
 }
 
 /* the pieces, as one object; the request is over */
@@ -329,6 +332,66 @@ rep_note(const char *kind, const char *text)
 	jv_set(o, "kind", jv_str(kind));
 	jv_set(o, "text", jv_str(text));
 	jv_push(R.notes, o);
+}
+
+/*
+ * The lines a command prints from here on, as a list of strings under key
+ * (filled when the request ends): for output that is a list of findings
+ * in words (identify's properties).
+ */
+static struct {
+	struct jv *obj;
+	char key[32];
+	long off;
+} tl[8];
+
+void
+rep_text_list(const char *key)
+{
+	struct jv *c;
+
+	if (!rep_on || ntl == 8)
+		return;
+	if (R.sp == 0)
+		rep_begin(NULL);
+	c = R.stack[R.sp - 1];
+	if (c->t != J_OBJ)
+		return;
+	fflush(stdout);
+	tl[ntl].obj = c;
+	snprintf(tl[ntl].key, sizeof tl[ntl].key, "%s", key);
+	tl[ntl].off = (long)lseek(1, 0, SEEK_CUR);
+	if (tl[ntl].off >= 0)
+		ntl++;
+}
+
+/* jsonmode.c: the request's text, before rep_collect */
+void
+rep_text_fill(const char *text)
+{
+	size_t n = strlen(text);
+	int i;
+
+	for (i = 0; i < ntl; i++) {
+		struct jv *a = jv_new(J_ARR);
+		const char *p = (size_t)tl[i].off <= n ? text + tl[i].off : "",
+		    *e, *s, *q;
+		while (*p) {
+			e = strchr(p, '\n');
+			if (e == NULL)
+				e = p + strlen(p);
+			for (s = p; s < e && *s == ' '; s++)
+				;
+			q = e;
+			while (q > s && q[-1] == ' ')
+				q--;
+			if (q > s)
+				jv_push(a, jv_strn(s, (size_t)(q - s)));
+			p = *e ? e + 1 : e;
+		}
+		jv_set(tl[i].obj, tl[i].key, a);
+	}
+	ntl = 0;
 }
 
 /* ---- errors ---- */

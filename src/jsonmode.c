@@ -1591,6 +1591,7 @@ handle(const struct jv *rq)
 		code_block = NULL;
 	}
 	text = cap_end();
+	rep_text_fill(text);
 	pieces = rep_collect();
 	if (!strcmp(cmd, "schema"))
 		;

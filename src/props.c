@@ -592,6 +592,13 @@ struct mono {
 	struct dom d;
 };
 
+/* report.h's proof kinds for proved = 2, 1, 0 */
+static const char *
+proofkind(int p)
+{
+	return p == 2 ? "exhaustive" : p == 1 ? "symbolic" : "numeric";
+}
+
 static const char *
 mono_word(int v)
 {
@@ -925,6 +932,33 @@ mono_print(struct func *f, int s, const struct mono *m)
 	int k;
 	const char *x = vname(f, s);
 
+	rep_begin("monotonic");
+	rep_str("var", x);
+	rep_str("verdict", mono_word(m->verdict));
+	rep_str("on", m->d.unranged && m->proved != 1 ? iv_text(m->d.rlo,
+	    m->d.rhi, 0) : dom_text(&m->d));
+	rep_list("intervals");
+	for (k = 0; k < m->npc; k++) {
+		rep_obj(NULL);
+		rep_num("lo", m->pa[k]);
+		rep_num("hi", m->pb[k]);
+		rep_str("direction", m->pdir[k] > 0 ? "increasing" : m->pdir[k] <
+		    0 ? "decreasing" : "constant");
+		rep_bool("strict", m->pstrict[k]);
+		rep_end();
+	}
+	rep_end();
+	if (m->verdict == MO_NONE) {
+		rep_list("witness_not_decreasing");
+		rep_num(NULL, m->ia);
+		rep_num(NULL, m->ib);
+		rep_end();
+		rep_list("witness_not_increasing");
+		rep_num(NULL, m->da);
+		rep_num(NULL, m->db);
+		rep_end();
+	}
+	rep_proof(proofkind(m->proved), m->how);
 	printf("  %s on %s\n", mono_word(m->verdict), m->d.unranged &&
 	    m->proved != 1 ? iv_text(m->d.rlo, m->d.rhi, 0) : dom_text(&m->d));
 	if (m->verdict == MO_NONE || (m->npc > 1 && m->proved == 1)) {
@@ -1470,6 +1504,19 @@ fn_period(struct func *f, int slot, double *p)
 static void
 per_print(struct func *f, int s, const struct per *r, int yesno)
 {
+	rep_begin("period");
+	rep_str("var", vname(f, s));
+	rep_str("status", r->status == 1 ? "periodic" : r->status == 0 ?
+	    "not periodic" : r->status == -1 ? "constant" : "unknown");
+	if (r->status == 1) {
+		rep_exact("period", r->p, r->exact ? q_text(r->q, r->pi) : NULL);
+		if (r->nonneg)
+			rep_cond("%s >= 0", vname(f, s));
+	}
+	if (r->why[0])
+		rep_str("why", r->why);
+	if (r->how[0])
+		rep_proof(proofkind(r->proved), r->how);
 	if (r->status == -1) {
 		printf("  %sconstant in %s: every p > 0 is a period, there is no "
 		    "fundamental period\n", yesno ? "yes, trivially: " : "",
@@ -2880,6 +2927,25 @@ zer_print(struct func *f, int s, const struct zer *z)
 	int k;
 	const char *x = vname(f, s);
 
+	rep_begin("zeros");
+	rep_str("var", x);
+	rep_bool("identically_zero", z->ntotal < 0);
+	rep_int("count", z->ntotal < 0 ? 0 : z->ntotal);
+	rep_list("zeros");
+	for (k = 0; k < z->n; k++) {
+		rep_obj(NULL);
+		rep_exact("value", z->x[k], z->txt[k]);
+		rep_int("multiplicity", z->mult[k] < 0 ? 2 : z->mult[k]);
+		if (z->mult[k] < 0)
+			rep_bool("touches", 1);
+		rep_end();
+	}
+	rep_end();
+	rep_int("complex", z->ncomplex);
+	if (z->ncomplex)
+		rep_str("complex_zeros", z->ctxt);
+	rep_proof(z->proved ? (z->isint ? "exhaustive" : "symbolic") :
+	    "numeric", z->how);
 	if (z->ntotal < 0)
 		printf("  identically zero: every %s is a zero\n", x);
 	else if (z->n == 0)
@@ -5437,6 +5503,9 @@ cmd_identify(struct P *p)
 		if (strchr(vname(&fn, j), '\''))
 			prim = 1;
 	printf("identify %s%s%s:\n", buf, rhs ? " = " : "", rhs ? rhs : "");
+	rep_begin("identify");
+	rep_strf("input", "%s%s%s", buf, rhs ? " = " : "", rhs ? rhs : "");
+	rep_text_list("properties");
 	if (prim) {
 		for (j = 0; j < fn.np; j++)
 			fn.p[j].ty = TY_REAL;

@@ -50,6 +50,9 @@ void rep_note(const char *kind, const char *text);
 void rep_file(const char *name, const char *mime, const char *data, size_t n);
 /* the strings of a list of lines ("  = x + 1\n  check: ..."), trimmed */
 void rep_lines(const char *key, const char *text);
+/* the lines printed from here to the end of the command, as a list */
+void rep_text_list(const char *key);
+void rep_text_fill(const char *text);	/* jsonmode.c */
 
 /* hooks for util.c, nlp.c, anim.c */
 void rep_fail(const char *msg, unsigned line, unsigned col);
