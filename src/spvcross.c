@@ -9,8 +9,8 @@
  * temporaries), not the user's source.
  *
  * spirv-cross is an external tool like glslangValidator: looked up on
- * PATH (UCAS_SPIRV_CROSS names another one; "none" turns the view off
- * without a word, as the tests do).  When it is missing or fails, a note
+ * PATH (UCAS_SPIRV_CROSS names another one, a path or a name on PATH;
+ * "none" turns the view off without a word, as the tests do).  When it is missing or fails, a note
  * says so and simplify goes on without the view.
  */
 #include <ctype.h>
@@ -28,7 +28,8 @@ const char *
 spvcross_tool(int *silent)
 {
 	static char path[1024];
-	const char *env = getenv("UCAS_SPIRV_CROSS"), *p, *e;
+	const char *env = getenv("UCAS_SPIRV_CROSS"), *p, *e, *name =
+	    "spirv-cross";
 
 	*silent = 0;
 	if (env != NULL) {
@@ -36,13 +37,15 @@ spvcross_tool(int *silent)
 			*silent = 1;
 			return NULL;
 		}
-		return access(env, X_OK) == 0 ? env : NULL;
+		if (strchr(env, '/'))	/* a path; else a name on PATH */
+			return access(env, X_OK) == 0 ? env : NULL;
+		name = env;
 	}
 	for (p = getenv("PATH"); p && *p; p = *e ? e + 1 : e) {
 		e = strchr(p, ':');
 		if (e == NULL)
 			e = p + strlen(p);
-		snprintf(path, sizeof path, "%.*s/spirv-cross", (int)(e - p), p);
+		snprintf(path, sizeof path, "%.*s/%s", (int)(e - p), p, name);
 		if (e > p && access(path, X_OK) == 0)
 			return path;
 	}

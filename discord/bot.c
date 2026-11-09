@@ -271,20 +271,29 @@ output_failed(const char *out, size_t n)
 	return 0;
 }
 
+/* a file the engine made (animate's GIF, simplified.spvasm, ...) */
+struct dfile {
+	char name[64], type[64];
+	char *data;
+	size_t len;
+};
+#define MAXDFILES 6
+
 static void
 post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
-    const char *content, const char *file, size_t filelen, const char *img,
-    size_t imglen, const char *imgname, const char *imgtype)
+    const char *content, const char *file, size_t filelen,
+    const struct dfile *fs, int nfs)
 {
 	char *noparse[1] = {NULL};
 	struct strings parse = {0, noparse, 0};
 	struct discord_allowed_mention am = {0};
 	struct discord_message_reference ref = {0};
-	struct discord_attachment att[2];
+	struct discord_attachment att[MAXDFILES + 1];
 	struct discord_attachments atts = {0};
 	struct discord_create_message p = {0};
 	char buf[16384];
 	size_t n;
+	int k;
 
 	/* a reply that pings nobody, not even the author */
 	am.parse = &parse;
@@ -297,12 +306,12 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	p.allowed_mentions = &am;
 	p.message_reference = &ref;
 	memset(att, 0, sizeof att);
-	if (img != NULL) {
+	for (k = 0; k < nfs && k < MAXDFILES; k++) {
 		att[atts.size].id = atts.size;
-		att[atts.size].content = (char *)img;
-		att[atts.size].size = imglen;
-		att[atts.size].filename = (char *)imgname;
-		att[atts.size].content_type = (char *)imgtype;
+		att[atts.size].content = fs[k].data;
+		att[atts.size].size = fs[k].len;
+		att[atts.size].filename = (char *)fs[k].name;
+		att[atts.size].content_type = (char *)fs[k].type;
 		atts.size++;
 	}
 	if (file != NULL) {
@@ -328,11 +337,11 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 	n = discord_create_message_to_json(buf, sizeof buf, &p);
 	printf("POST /channels/%" PRIu64 "/messages%s\n%.*s\n", chan,
 	    atts.size ? " (multipart)" : "", (int)n, buf);
-	if (img != NULL)
-		printf("  files[0]: %s, %s, %zu bytes\n", imgname, imgtype, imglen);
+	for (k = 0; k < nfs && k < MAXDFILES; k++)
+		printf("  files[%d]: %s, %s, %zu bytes\n", k, fs[k].name,
+		    fs[k].type, fs[k].len);
 	if (file != NULL)
-		printf("  files[%d]: %s, %zu bytes\n", img != NULL, DC_FILENAME,
-		    filelen);
+		printf("  files[%d]: %s, %zu bytes\n", k, DC_FILENAME, filelen);
 }
 
 /* ---- requests ---- */
@@ -594,7 +603,7 @@ handle_message(const struct discord_message *m)
 				    "mention me with a question or ucas input, e.g. "
 				    "`@Wimsy what is the range of x squared for a signed "
 				    "byte x?` or `@Wimsy range isqrt(x: u4)`; `@Wimsy help` "
-				    "lists everything", NULL, 0, NULL, 0, NULL, NULL);
+				    "lists everything", NULL, 0, NULL, 0);
 				react(m->channel_id, m->id, RX_ASK);
 				free(req.p);
 				return DC_IGNORE;
@@ -631,7 +640,7 @@ handle_message(const struct discord_message *m)
 			ask_drop((int)(q - asks));
 			log_in(m, "cancel", 0);
 			post(m->channel_id, m->id, m->guild_id,
-			    "question cancelled", NULL, 0, NULL, 0, NULL, NULL);
+			    "question cancelled", NULL, 0, NULL, 0);
 			react(m->channel_id, m->id, RX_OK);
 			maybe_end_session();
 			free(code.p);
@@ -666,7 +675,7 @@ handle_message(const struct discord_message *m)
 		attach_convert(&code, &notes);
 		if (notes.n)
 			post(m->channel_id, m->id, m->guild_id, notes.p, NULL, 0,
-			    NULL, 0, NULL, NULL);
+			    NULL, 0);
 		log_attach(notes.p, blocks.n);
 		free(blocks.p);
 		free(notes.p);
@@ -719,8 +728,9 @@ on_response(const struct sframe *h, const char *out)
 {
 	struct dc_reply r;
 	struct sbuf txt = {0};
-	char *img = NULL, imgname[64], imgtype[64];
-	size_t imglen = 0, olen = h->len;
+	struct dfile files[MAXDFILES];
+	int nfiles = 0;
+	size_t olen = h->len;
 	int asked;
 	struct pend pp;
 	char sbuf[256];
@@ -735,37 +745,110 @@ on_response(const struct sframe *h, const char *out)
 	pp = pend[i];
 	pend[i] = pend[--npend];
 	head = dc_status(h->status, h->arg, &limits, sbuf, sizeof sbuf);
-	{
-		/*
-		 * "\x1efile NAME TYPE SIZE\n<base64>\x1eend\n": a file made by
-		 * the engine (animate's GIF).  Decode it, attach it, and keep
-		 * the block out of the text.
-		 */
-		const char *fb = out ? memmem(out, h->len, "\x1e" "file ", 6) : NULL;
-		const char *fe = fb ? memmem(fb, (size_t)(out + h->len - fb),
+	/*
+	 * "\x1efile NAME TYPE SIZE\n<base64>\x1eend\n": a file made by the
+	 * engine (animate's GIF, simplified.spvasm, simplified.c).  Decode
+	 * each, attach it, and keep the block out of the text.
+	 */
+	while (out != NULL) {
+		const char *fb = memmem(out, olen, "\x1e" "file ", 6);
+		const char *fe = fb ? memmem(fb, (size_t)(out + olen - fb),
 		    "\x1e" "end\n", 5) : NULL;
-		if (fb && fe) {
+		struct sbuf t = {0};
+		if (fb == NULL)
+			break;
+		if (fe != NULL) {
 			char fname[64] = "file", ftype[64] = "application/octet-stream";
 			const char *q = fb + 6, *nl = memchr(fb, '\n',
 			    (size_t)(fe - fb));
 			size_t cap;
-			if (nl != NULL && sscanf(q, "%63s %63s", fname, ftype) >= 1) {
+			if (nl != NULL && nfiles < MAXDFILES &&
+			    sscanf(q, "%63s %63s", fname, ftype) >= 1) {
+				struct dfile *f = &files[nfiles++];
 				cap = (size_t)(fe - nl) * 3 / 4 + 4;
-				img = xmalloc(cap);
-				imglen = b64dec(nl + 1, (size_t)(fe - nl - 1), img, cap);
-				snprintf(imgname, sizeof imgname, "%s", fname);
-				snprintf(imgtype, sizeof imgtype, "%s", ftype);
+				f->data = xmalloc(cap);
+				f->len = b64dec(nl + 1, (size_t)(fe - nl - 1), f->data,
+				    cap);
+				snprintf(f->name, sizeof f->name, "%s", fname);
+				snprintf(f->type, sizeof f->type, "%s", ftype);
 			}
-			sb_printf(&txt, "%.*s%.*s", (int)(fb - out), out,
-			    (int)(out + h->len - (fe + 5)), fe + 5);
-			out = txt.p ? txt.p : "";
-			olen = txt.n;
-		} else if (fb) {
-			/* cut by the output limit: drop the partial file */
-			sb_printf(&txt, "%.*s  (the generated file did not fit in "
+			sb_printf(&t, "%.*s%.*s", (int)(fb - out), out,
+			    (int)(out + olen - (fe + 5)), fe + 5);
+		} else	/* cut by the output limit: drop the partial file */
+			sb_printf(&t, "%.*s  (the generated file did not fit in "
 			    "the output limit of %zu bytes; ask for a smaller one)\n",
 			    (int)(fb - out), out, (size_t)limits.max_out);
-			out = txt.p;
+		free(txt.p);
+		txt = t;
+		out = txt.p ? txt.p : "";
+		olen = txt.n;
+		if (fe == NULL)
+			break;
+	}
+	/*
+	 * "\x1exspv NOFILE\n<base64>\n\x1eand\n<base64>\n\x1eend\n": the
+	 * modules before and after simplify.  The engine's sandbox cannot
+	 * run spirv-cross: the GLSL view is made here (spvcross.c), its
+	 * report in the block's place and simplified.glsl attached.
+	 */
+	if (out != NULL) {
+		const char *xs = memmem(out, olen, "\x1e" "xspv ", 6);
+		const char *xa = xs ? memmem(xs, (size_t)(out + olen - xs),
+		    "\x1e" "and\n", 5) : NULL;
+		const char *xe = xa ? memmem(xa, (size_t)(out + olen - xa),
+		    "\x1e" "end\n", 5) : NULL;
+		struct sbuf t = {0};
+		if (xs != NULL && xe != NULL) {
+			struct sbuf rep = {0}, og = {0}, sg = {0};
+			const char *b1 = memchr(xs, '\n', (size_t)(xa - xs));
+			size_t c1 = (size_t)(xa - xs) * 3 / 4 + 4,
+			    c2 = (size_t)(xe - xa) * 3 / 4 + 4, n1 = 0, n2;
+			char *om = xmalloc(c1 + 1), *sm = xmalloc(c2 + 1);
+			int nofile = atoi(xs + 6);
+			if (b1 != NULL)
+				n1 = b64dec(b1 + 1, (size_t)(xa - b1 - 1), om, c1);
+			n2 = b64dec(xa + 5, (size_t)(xe - xa - 5), sm, c2);
+			om[n1] = 0;
+			sm[n2] = 0;
+			sb_printf(&t, "%.*s", (int)(xs - out), out);
+			spvcross_view(n1 ? om : NULL, sm, &rep, &og, &sg);
+			sb_puts(&t, rep.p ? rep.p : "");
+			if (sg.n && nofile) {
+				const struct sbuf *g[2] = {&sg, &og};
+				const char *gn[2] = {"simplified.glsl", "original.glsl"};
+				int k;
+				for (k = 0; k < 2; k++) {
+					uint32_t hsh = 2166136261u;
+					size_t q;
+					if (g[k]->n == 0)
+						continue;
+					for (q = 0; q < g[k]->n; q++)
+						hsh = (hsh ^ (unsigned char)g[k]->p[q]) * 16777619u;
+					sb_printf(&t, "  (nofile: %s, %zu bytes, checksum "
+					    "%08x)\n", gn[k], g[k]->n, hsh);
+				}
+			} else if (sg.n && nfiles < MAXDFILES) {
+				struct dfile *f = &files[nfiles++];
+				snprintf(f->name, sizeof f->name, "simplified.glsl");
+				snprintf(f->type, sizeof f->type, "text/plain");
+				f->data = sg.p;
+				f->len = sg.n;
+				sg.p = NULL;
+				sb_puts(&t, "  spirv-cross's GLSL of it is attached as "
+				    "simplified.glsl\n");
+			}
+			sb_printf(&t, "%.*s", (int)(out + olen - (xe + 5)), xe + 5);
+			free(rep.p);
+			free(og.p);
+			free(sg.p);
+			free(om);
+			free(sm);
+		} else if (xs != NULL)	/* cut by the output limit */
+			sb_printf(&t, "%.*s", (int)(xs - out), out);
+		if (xs != NULL) {
+			free(txt.p);
+			txt = t;
+			out = txt.p ? txt.p : "";
 			olen = txt.n;
 		}
 	}
@@ -821,8 +904,7 @@ on_response(const struct sframe *h, const char *out)
 	/* the replies go out first: the session may end once they are sent */
 	for (i = 0; i < r.n; i++)
 		post(pp.chan, pp.msg, pp.guild, r.msg[i],
-		    i == 0 ? r.file : NULL, r.filelen, i == 0 ? img : NULL, imglen,
-		    imgname, imgtype);
+		    i == 0 ? r.file : NULL, r.filelen, files, i == 0 ? nfiles : 0);
 	{
 		/* answered: finished or reset (cut output still answers) */
 		unsigned st = h->status & SR_MASK;
@@ -832,7 +914,8 @@ on_response(const struct sframe *h, const char *out)
 	sessions_done++;
 	maybe_end_session();
 	dc_reply_free(&r);
-	free(img);
+	for (i = 0; i < nfiles; i++)
+		free(files[i].data);
 	free(txt.p);
 }
 

@@ -1639,7 +1639,14 @@ deliver_file(const char *name, const char *type, const char *data, size_t n,
 		rep_deliver(name, type, data, n, 0);
 	} else if (nlp_defer) {
 		b64(&out, (const unsigned char *)data, n);
-		printf("  the rewritten module is attached as %s\n", name);
+		const char *x = strrchr(name, '.');
+		if (x && !strcmp(x, ".c"))
+			printf("  the rewritten C is attached as %s\n", name);
+		else if (x && !strcmp(x, ".glsl"))
+			printf("  spirv-cross's GLSL of it is attached as %s\n",
+			    name);
+		else
+			printf("  the rewritten module is attached as %s\n", name);
 		printf("\x1e" "file %s %s %zu\n%s\x1e" "end\n", name, type, n,
 		    out.p);
 	} else {

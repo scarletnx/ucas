@@ -8,7 +8,8 @@
  *   GLSL (.comp, .frag, .vert, .glsl ...)
  *                       glslangValidator -V, then spirv-dis
  *   SPIR-V assembly     as it is (```spv)
- *   other text          as it is
+ *   C (.c, .h)          as it is, as a ```c block (the C frontend)
+ *   other text          as it is (C by its content: ```c)
  *   images (PNG, JPEG, GIF, BMP, PPM)
  *                       a ```image NAME block of base64: the shader's
  *                       image inputs, in attachment order (animate exec)
@@ -233,6 +234,19 @@ is_glsl_ext(const char *e)
 }
 
 static int
+is_c_ext(const char *e)
+{
+	static const char *const c[] = {"c", "h", "cc", "cpp", "cxx", "hpp",
+	    NULL};
+	int k;
+
+	for (k = 0; c[k]; k++)
+		if (!strcasecmp(e, c[k]))
+			return 1;
+	return 0;
+}
+
+static int
 is_text(const char *p, size_t n)
 {
 	size_t i;
@@ -365,7 +379,11 @@ one_attachment(const struct discord_attachment *a, struct sbuf *blocks,
 		free(t.p);
 	} else if (!is_text(d, n))
 		sb_printf(notes, "%s is binary and not SPIR-V: skipped\n", name);
-	else if (is_glsl_ext(e) || glsl_like(d, "")) {
+	else if (is_c_ext(e) || (!is_glsl_ext(e) && strcasecmp(e, "spvasm") &&
+	    code_lang(d, "", NULL) == CL_C)) {
+		sb_printf(notes, "%s: C, for the C frontend\n", name);
+		add_block(blocks, "c", d, n);
+	} else if (is_glsl_ext(e) || glsl_like(d, "")) {
 		struct sbuf t = {0}, why = {0};
 		if (glsl_to_spvasm(d, &t, &why)) {
 			sb_printf(notes, "%s: GLSL, compiled to SPIR-V with "
