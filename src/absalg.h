@@ -354,6 +354,10 @@ void ab_gen(const struct fgab *G, int i, zint *x);  /* i-th canonical generator 
 int ab_elem_eq(const struct fgab *G, const zint *x, const zint *y);
 int ab_elem_is_zero(const struct fgab *G, const zint *x);
 zint ab_elem_order(const struct fgab *G, const zint *x);    /* 0: infinite */
+/* reduce x (in A) modulo B in place: the representative whose entries at
+ * the pivot rows of B's Hermite basis lie in [0, pivot); equal elements
+ * give equal vectors */
+void ab_reduce(const struct fgab *G, zint *x);
 /* x in B, with x = B w (w: b entries) as the certificate */
 int ab_elem_zero_witness(const struct fgab *G, const zint *x, zint *w);
 

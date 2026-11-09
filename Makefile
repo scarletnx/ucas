@@ -21,7 +21,7 @@ SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
 ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
 # absalg: exact abstract algebra (absalg.h): integers, integer matrices,
 # abelian groups, permutation groups, Groebner bases
-SRCS+=	zint.c zmat.c fgab.c
+SRCS+=	zint.c zmat.c fgab.c absalg_cmd.c
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
 # transforms (Laplace, Z, Fourier, DFT), series and infinite sums

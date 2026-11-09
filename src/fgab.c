@@ -734,6 +734,21 @@ ab_elem_eq(const struct fgab *G, const zint *x, const zint *y)
 	return r;
 }
 
+void
+ab_reduce(const struct fgab *G, zint *x)
+{
+	int i, j;
+
+	for (j = 0; j < G->B.c; j++) {
+		int p = piv_row(&G->B, j);
+		zint q = z_div_floor(x[p], ZM(&G->B, p, j));
+		if (q != 0)
+			for (i = p; i < G->n; i++)
+				if (ZM(&G->B, i, j) != 0)
+					x[i] = z_submul(x[i], q, ZM(&G->B, i, j));
+	}
+}
+
 int
 ab_elem_zero_witness(const struct fgab *G, const zint *x, zint *w)
 {

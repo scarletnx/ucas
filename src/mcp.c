@@ -119,6 +119,20 @@ static const struct group groups[] = {
 	    "animations of scans and SIMD execution.  The GIF comes back as "
 	    "an image.",
 	    "plot plot3d neighbourhood animate"},
+	{"abstract_algebra", "Abstract algebra, exactly",
+	    "Exact algebra with certificates: integers of any size (bigint), "
+	    "integer matrices (Smith and Hermite forms with unimodular "
+	    "transforms, kernels, images, solving over Z; rational matrices), "
+	    "finitely generated abelian groups (\"Z/4 + Z/6\", \"coker "
+	    "[[2, 0], [0, 3]]\"): invariants, isomorphisms with explicit maps, "
+	    "Hom, tensor, Tor, Ext, homomorphisms with kernel/image/cokernel, "
+	    "subgroups, element orders, exactness.  Every claim is checked "
+	    "(U A V = D, preimages, inverse maps) and the check is reported.  "
+	    "For instance {\"op\": \"abiso\", \"args\": {\"g\": \"Z/4 + "
+	    "Z/6\", \"h\": \"Z/2 + Z/12\"}} or {\"op\": \"snf\", \"args\": "
+	    "{\"matrix\": [[2, 4], [6, 8]]}}.",
+	    "bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom "
+	    "abtensor abtor abext abmap abelem absub abexact"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "

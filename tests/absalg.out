@@ -1,0 +1,300 @@
+> bigint 2^200 + 1
+2^200 + 1 = 1606938044258990275541962092341162602522202993782792835301377
+  bits: 201
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint 100! / 98!
+100! / 98! = 9900
+  bits: 14
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint (2^127 - 1) * (2^89 - 1) - 2^216
+(2^127 - 1) * (2^89 - 1) - 2^216 = -170141183461088201751329993853333667839
+  bits: 128
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint -7 div 2
+-7 div 2 = -4
+  bits: 3
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint -7 % 2
+-7 % 2 = 1
+  bits: 1
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint gcd(2^120 - 1, 2^90 - 1)
+gcd(2^120 - 1, 2^90 - 1) = 1073741823
+  bits: 30
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> bigint factor 2^64 + 1
+18446744073709551617 = 274177 * 67280421310721
+  how: trial division, then Pollard-Brent rho; primality by Miller-Rabin (deterministic below 2^64, probable above)
+  check: the product is the number; each factor passes the primality test
+> bigint factor 2^200 + 1
+1606938044258990275541962092341162602522202993782792835301377 = 257 * 1601 * 25601 * 82471201 * 4278255361 * 432363203127002885506543172618401
+  how: trial division, then Pollard-Brent rho; primality by Miller-Rabin (deterministic below 2^64, probable above)
+  check: the product is the number; each factor passes the primality test
+> bigint factor 600851475143 * 1000000007^2
+600851483554920681443722282007 = 71 * 839 * 1471 * 6857 * 1000000007^2
+  how: trial division, then Pollard-Brent rho; primality by Miller-Rabin (deterministic below 2^64, probable above)
+  check: the product is the number; each factor passes the primality test
+> bigint isprime(2^127 - 1)
+isprime(2^127 - 1) = 1
+  bits: 1
+  how: exact arbitrary-precision integers (32-bit limbs; Knuth division)
+> snf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+Smith normal form of the 3x3 matrix: diag(2, 6, 12), rank 3
+  D: [[2, 0, 0], [0, 6, 0], [0, 0, 12]]
+  U: [[1, 0, 0], [2, -1, -1], [3, -4, -3]]
+  V: [[1, -2, 2], [0, 1, -2], [0, 0, 1]]
+  U^-1: [[1, 0, 0], [-3, 3, -1], [5, -4, 1]]
+  V^-1: [[1, 2, 2], [0, 1, 2], [0, 0, 1]]
+  cokernel: Z^3 / (columns) = Z/2 + Z/6 + Z/12
+  check: U A V = D, U U^-1 = I and V V^-1 = I (unimodular), d_i | d_(i+1): verified
+> snf [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+Smith normal form of the 3x3 matrix: diag(1, 3, 0), rank 2
+  D: [[1, 0, 0], [0, 3, 0], [0, 0, 0]]
+  U: [[1, 0, 0], [4, -1, 0], [1, -2, 1]]
+  V: [[1, -2, 1], [0, 1, -2], [0, 0, 1]]
+  U^-1: [[1, 0, 0], [4, -1, 0], [7, -2, 1]]
+  V^-1: [[1, 2, 3], [0, 1, 2], [0, 0, 1]]
+  cokernel: Z^3 / (columns) = Z/3 + Z
+  check: U A V = D, U U^-1 = I and V V^-1 = I (unimodular), d_i | d_(i+1): verified
+> snf [[6, 0], [0, 4], [0, 0]]
+Smith normal form of the 3x2 matrix: diag(2, 12), rank 2
+  D: [[2, 0], [0, 12], [0, 0]]
+  U: [[1, 1, 0], [-2, -3, 0], [0, 0, 1]]
+  V: [[1, 2], [-1, -3]]
+  U^-1: [[3, 1, 0], [-2, -1, 0], [0, 0, 1]]
+  V^-1: [[3, 2], [-1, -1]]
+  cokernel: Z^3 / (columns) = Z/2 + Z/12 + Z
+  check: U A V = D, U U^-1 = I and V V^-1 = I (unimodular), d_i | d_(i+1): verified
+> snf [[123456789012345678901234567890, 2], [3, 987654321098765432109876543210]]
+Smith normal form of the 2x2 matrix: diag(1, 121932631137021795226185032733622923332237463801111263526894), rank 2
+  D: [[1, 0], [0, 121932631137021795226185032733622923332237463801111263526894]]
+  U: [[-493827160549382716054938271604, 1], [-30106822506355362032215241184352731533803526637854687538224890138322617415668005826987383, 60966315568510897613092516366811461666118731900555631763446]]
+  V: [[-1, 2], [-30483157784255448806546258183344002438553193110827198597778, 60966315568510897613092516366688004877106386221654397195557]]
+  U^-1: [[-60966315568510897613092516366811461666118731900555631763446, 1], [-30106822506355362032215241184352731533803526637854687538224890138322617415668005826987383, 493827160549382716054938271604]]
+  V^-1: [[-60966315568510897613092516366688004877106386221654397195557, 2], [-30483157784255448806546258183344002438553193110827198597778, 1]]
+  cokernel: Z^2 / (columns) = Z/121932631137021795226185032733622923332237463801111263526894
+  check: U A V = D, U U^-1 = I and V V^-1 = I (unimodular), d_i | d_(i+1): verified
+> snf [[2^62, 2^62 + 1], [2^63, 2^63 + 1]]
+Smith normal form of the 2x2 matrix: diag(1, 4611686018427387904), rank 2
+  D: [[1, 0], [0, 4611686018427387904]]
+  U: [[1, 0], [1, -1]]
+  V: [[-1, -4611686018427387905], [1, 4611686018427387904]]
+  U^-1: [[1, 0], [1, -1]]
+  V^-1: [[4611686018427387904, 4611686018427387905], [-1, -1]]
+  cokernel: Z^2 / (columns) = Z/4611686018427387904
+  check: U A V = D, U U^-1 = I and V V^-1 = I (unimodular), d_i | d_(i+1): verified
+> hnf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+Hermite normal form (rows) of the 3x3 matrix: rank 3
+  H: [[2, 4, 4], [0, 6, 0], [0, 0, 12]]
+  U: [[1, 0, 0], [-1, 3, 2], [3, -4, -3]]
+  check: U A = H, det U = +-1, H in echelon form with positive pivots and reduced entries above them: verified
+> hnf [[0, 3, 6], [0, 2, 4], [1, 1, 1]]
+Hermite normal form (rows) of the 3x3 matrix: rank 2
+  H: [[1, 0, -1], [0, 1, 2], [0, 0, 0]]
+  U: [[-1, 1, 1], [1, -1, 0], [2, -3, 0]]
+  check: U A = H, det U = +-1, H in echelon form with positive pivots and reduced entries above them: verified
+> zmat [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+integer matrix 3x3: rank 2, det 0
+  smith diagonal: 1 3 0
+  kernel basis (columns): [[1], [-2], [1]]
+  image basis (columns): [[1, 0], [1, 3], [1, 6]]
+  check: A K = 0; the Smith form verified (U A V = D)
+> zmat kernel [[2, 4, 6, 8], [1, 3, 5, 7]]
+kernel of the 2x4 matrix over Z: rank 2
+  basis (columns): [[1, 0], [0, 1], [-3, -2], [2, 1]]
+  how: U A^T = H (Hermite); the rows of U past the rank; a saturated basis (Z^4 / ker is torsion free)
+  check: A K = 0
+> zmat image [[2, 4], [4, 2]]
+image of the 2x2 matrix (the lattice of its columns): rank 2
+  basis (columns, Hermite form): [[2, 0], [4, 6]]
+  index / quotient: Z^2 / image = Z/2 + Z/6
+  check: each column of A lies in the lattice and each basis vector in the column span: verified
+> zmat solve [[2, 0], [0, 3]], [4, 9]
+x = [[2], [3]]
+  check: A x = b
+> zmat solve [[2, 0], [0, 3]], [3, 9]
+no integer solution of A x = b
+  over Q: x = [[3/2], [3]]
+  how: U A V = D (Smith); D y = U b has no integer solution
+> zmat solve [[1, 1, 1], [1, 2, 3]], [6, 14]
+x = [[-2], [8], [0]]
+  general solution: x + K t, K = [[1], [-2], [1]]
+  check: A x = b
+> zmat det [[123456789012345678901, 2], [3, 4]]
+det = 493827156049382715598
+  how: Bareiss fraction-free elimination
+  check: Gaussian elimination over Q gives 493827156049382715598
+> zmat inverse [[2, 3], [1, 2]]
+inverse over Z: [[2, -3], [-1, 2]]
+  check: A A^-1 = I
+> zmat inverse [[2, 0], [0, 1]]
+not invertible over Z: det = 2 (must be +-1)
+> zmat cokernel [[2, 0], [0, 0]]
+Z^2 / (columns) = Z/2 + Z
+  generators: (1, 0) of order 2, (0, 1) of order infinity
+  how: the Smith normal form of the relation matrix
+> qmat inverse [[1/2, 1], [3, 4]]
+inverse = [[-4, 1], [3, -1/2]]
+  check: A A^-1 = I verified
+> qmat rref [[1, 2, 3], [2, 4, 7]]
+rref = [[1, 2, 0], [0, 0, 1]]
+  rank: 2
+> qmat solve [[1, 2], [3, 4]], [1/2, 1/3]
+x = [[-2/3], [7/12]]
+  check: A x = b
+> abgroup Z/4 + Z/6
+Z/4 + Z/6 = Z/2 + Z/12
+  primary decomposition: Z/2 + Z/4 + Z/3
+  order: 24
+  rank: 0
+  exponent: 12
+  torsion subgroup: Z/2 + Z/12
+  cyclic: no
+  free: no
+  generators: (2, 3) of order 2, (3, 1) of order 12
+  how: the Smith normal form of the relation matrix (U R V = D, verified)
+> abgroup Z/2^3 + (Z/3)^2 + Z^2
+Z/2^3 + (Z/3)^2 + Z^2 = Z/3 + Z/24 + Z^2
+  primary decomposition: Z/8 + Z/3 + Z/3 + Z^2
+  order: infinite
+  rank: 2
+  torsion subgroup: Z/3 + Z/24
+  cyclic: no
+  free: no
+  generators: (0, 0, 1, 0, 0) of order 3, (1, 2, 0, 0, 0) of order 24, (0, 0, 0, 1, 0) of order infinity, (0, 0, 0, 0, 1) of order infinity
+  how: the Smith normal form of the relation matrix (U R V = D, verified)
+> abgroup coker [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+coker [[2, 4, 4], [-6, 6, 12], [10, -4, -16]] = Z/2 + Z/6 + Z/12
+  primary decomposition: Z/2 + Z/2 + Z/4 + Z/3 + Z/3
+  order: 144
+  rank: 0
+  exponent: 12
+  torsion subgroup: Z/2 + Z/6 + Z/12
+  cyclic: no
+  free: no
+  generators: (1, 0, 5) of order 2, (0, 1, 0) of order 6, (0, 0, 1) of order 12
+  how: the Smith normal form of the relation matrix (U R V = D, verified)
+> abgroup [[0]]
+[[0]] = Z
+  primary decomposition: Z
+  order: infinite
+  rank: 1
+  torsion subgroup: 0
+  cyclic: yes
+  free: yes
+  generators: (1) of order infinity
+  how: the Smith normal form of the relation matrix (U R V = D, verified)
+> abgroup 0
+0 = 0
+  primary decomposition: 0
+  order: 1
+  rank: 0
+  exponent: 1
+  torsion subgroup: 0
+  cyclic: yes
+  free: yes
+  how: the Smith normal form of the relation matrix (U R V = D, verified)
+> abiso Z/4 + Z/6, Z/2 + Z/12
+Z/4 + Z/6 = Z/2 + Z/12: isomorphic, both Z/2 + Z/12
+  phi: (1, 0) -> (1, 9), (0, 1) -> (1, 10)
+  psi = phi^-1: (1, 0) -> (2, 3), (0, 1) -> (3, 1)
+  check: phi and psi are well defined (relations go to relations), psi phi = 1 and phi psi = 1 on generators
+> abiso Z/4 + Z/4, Z/2 + Z/8
+Z/4 + Z/4 and Z/2 + Z/8 are not isomorphic
+  invariant factors: Z/4 + Z/4 versus Z/2 + Z/8
+  how: the invariant factors of a finitely generated abelian group determine it up to isomorphism
+> abiso Z/6 + Z/10 + Z/15, Z/30 + Z/30
+Z/6 + Z/10 + Z/15 = Z/30 + Z/30: isomorphic, both Z/30 + Z/30
+  phi: (1, 0, 0) -> (5, 15), (0, 1, 0) -> (6, 15), (0, 0, 1) -> (0, 16)
+  psi = phi^-1: (1, 0) -> (5, 1, 0), (0, 1) -> (0, 5, 1)
+  check: phi and psi are well defined (relations go to relations), psi phi = 1 and phi psi = 1 on generators
+> abhom Z/4 + Z/6, Z/2 + Z/12
+Hom(Z/4 + Z/6, Z/2 + Z/12) = Z/2 + Z/2 + Z/2 + Z/12
+  how: the coordinate matrices M with M R_G inside R_H, modulo those with every column in R_H
+> abhom Z^2 + Z/3, Z/6
+Hom(Z^2 + Z/3, Z/6) = Z/3 + Z/6 + Z/6
+  how: the coordinate matrices M with M R_G inside R_H, modulo those with every column in R_H
+> abtensor Z/4 + Z, Z/6
+(Z/4 + Z) (x) (Z/6) = Z/2 + Z/6
+  how: Z^(a b) / (R_G (x) 1, 1 (x) R_H)
+> abtor Z/4, Z/6
+Tor(Z/4, Z/6) = Z/2
+  how: ker(R (x) 1_H) for the free resolution 0 -> Z^b -R-> Z^a -> G -> 0
+> abtor Z/12 + Z, Z/8 + Z/3
+Tor(Z/12 + Z, Z/8 + Z/3) = Z/12
+  how: ker(R (x) 1_H) for the free resolution 0 -> Z^b -R-> Z^a -> G -> 0
+> abext Z/4 + Z, Z
+Ext(Z/4 + Z, Z) = Z/4
+  how: coker Hom(R, H) for the free resolution 0 -> Z^b -R-> Z^a -> G -> 0
+> abext Z/12, Z/8
+Ext(Z/12, Z/8) = Z/4
+  how: coker Hom(R, H) for the free resolution 0 -> Z^b -R-> Z^a -> G -> 0
+> abmap Z/12 -> Z/4 by [[1]]
+a homomorphism Z/12 -> Z/4
+  kernel: Z/3
+  generators: (4) of order 3
+  image: Z/4
+  cokernel: 0
+  injective: no
+  surjective: yes
+  check: well defined (M R_G inside R_H); G / ker = im: isomorphic, as it must be
+> abmap Z -> Z by [[4]]
+a homomorphism Z -> Z
+  kernel: 0
+  image: Z
+  cokernel: Z/4
+  injective: yes
+  surjective: no
+  check: well defined (M R_G inside R_H); G / ker = im: isomorphic, as it must be
+> abmap Z/4 -> Z/6 by [[1]]
+not a homomorphism: a relation of Z/4 is not sent to a relation of Z/6
+> abmap Z^2 -> Z/2 + Z/3 by [[1, 1], [1, 2]]
+a homomorphism Z^2 -> Z/6
+  kernel: Z^2
+  generators: (1, 1) of order infinity, (0, 6) of order infinity
+  image: Z/6
+  cokernel: 0
+  injective: no
+  surjective: yes
+  check: well defined (M R_G inside R_H); G / ker = im: isomorphic, as it must be
+> abelem Z/4 + Z/6, [1, 1]
+(1, 1) in Z/2 + Z/12: canonical form (0, 7)
+  order: 12
+  zero: no
+  check: 12 * x is a combination of the relations
+> abelem Z + Z/6, [0, 3]
+(0, 3) in Z/6 + Z: canonical form (3, 0)
+  order: 2
+  zero: no
+  check: 2 * x is a combination of the relations
+> abelem Z + Z/6, [2, 3]
+(2, 3) in Z/6 + Z: canonical form (3, 2)
+  order: infinite
+  zero: no
+> absub Z/4 + Z/6, [2, 0], [0, 3]
+the subgroup generated in Z/2 + Z/12: Z/2 + Z/2
+  quotient: Z/6
+  index: 6
+  generators: (2, 0) of order 2, (0, 3) of order 2
+  check: every generator is a member (with a witness): verified
+> absub Z^2, [2, 0], [0, 3]
+the subgroup generated in Z^2: Z^2
+  quotient: Z/6
+  index: 6
+  generators: (2, 0) of order infinity, (0, 3) of order infinity
+  check: every generator is a member (with a witness): verified
+> abexact Z -> Z -> Z/4 by [[4]], [[1]]
+Z -> Z -> Z/4: exact at Z
+  preimages of the generators of ker g: [[1]]
+  check: g f = 0, and f(preimages) = the generators of ker g modulo relations
+> abexact Z -> Z -> Z/4 by [[2]], [[1]]
+Z -> Z -> Z/4: not exact at Z
+  why: the composite is not zero (im f is not inside ker g)
+> abexact Z/2 -> Z/4 -> Z/2 by [[2]], [[1]]
+Z/2 -> Z/4 -> Z/2: exact at Z/4
+  preimages of the generators of ker g: [[1]]
+  check: g f = 0, and f(preimages) = the generators of ker g modulo relations
+> abexact 0 -> Z/6 -> Z/2 + Z/3 by [], [[1], [1]]
+0 -> Z/6 -> Z/6: exact at Z/6
+  preimages of the generators of ker g: []
+  check: g f = 0, and f(preimages) = the generators of ker g modulo relations

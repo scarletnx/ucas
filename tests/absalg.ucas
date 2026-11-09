@@ -1,0 +1,68 @@
+# Exact abstract algebra (absalg.h): integers of any size, integer
+# matrices with certified normal forms, finitely generated abelian groups
+
+# integers: no wrapping, ever
+bigint 2^200 + 1
+bigint 100! / 98!
+bigint (2^127 - 1) * (2^89 - 1) - 2^216
+bigint -7 div 2
+bigint -7 % 2
+bigint gcd(2^120 - 1, 2^90 - 1)
+bigint factor 2^64 + 1
+bigint factor 2^200 + 1
+bigint factor 600851475143 * 1000000007^2
+bigint isprime(2^127 - 1)
+
+# Smith and Hermite normal forms with their unimodular transforms
+snf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+snf [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+snf [[6, 0], [0, 4], [0, 0]]
+snf [[123456789012345678901234567890, 2], [3, 987654321098765432109876543210]]
+snf [[2^62, 2^62 + 1], [2^63, 2^63 + 1]]
+hnf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+hnf [[0, 3, 6], [0, 2, 4], [1, 1, 1]]
+
+# kernels, images, solving over Z (and over Q when Z has no solution)
+zmat [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+zmat kernel [[2, 4, 6, 8], [1, 3, 5, 7]]
+zmat image [[2, 4], [4, 2]]
+zmat solve [[2, 0], [0, 3]], [4, 9]
+zmat solve [[2, 0], [0, 3]], [3, 9]
+zmat solve [[1, 1, 1], [1, 2, 3]], [6, 14]
+zmat det [[123456789012345678901, 2], [3, 4]]
+zmat inverse [[2, 3], [1, 2]]
+zmat inverse [[2, 0], [0, 1]]
+zmat cokernel [[2, 0], [0, 0]]
+qmat inverse [[1/2, 1], [3, 4]]
+qmat rref [[1, 2, 3], [2, 4, 7]]
+qmat solve [[1, 2], [3, 4]], [1/2, 1/3]
+
+# finitely generated abelian groups
+abgroup Z/4 + Z/6
+abgroup Z/2^3 + (Z/3)^2 + Z^2
+abgroup coker [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+abgroup [[0]]
+abgroup 0
+abiso Z/4 + Z/6, Z/2 + Z/12
+abiso Z/4 + Z/4, Z/2 + Z/8
+abiso Z/6 + Z/10 + Z/15, Z/30 + Z/30
+abhom Z/4 + Z/6, Z/2 + Z/12
+abhom Z^2 + Z/3, Z/6
+abtensor Z/4 + Z, Z/6
+abtor Z/4, Z/6
+abtor Z/12 + Z, Z/8 + Z/3
+abext Z/4 + Z, Z
+abext Z/12, Z/8
+abmap Z/12 -> Z/4 by [[1]]
+abmap Z -> Z by [[4]]
+abmap Z/4 -> Z/6 by [[1]]
+abmap Z^2 -> Z/2 + Z/3 by [[1, 1], [1, 2]]
+abelem Z/4 + Z/6, [1, 1]
+abelem Z + Z/6, [0, 3]
+abelem Z + Z/6, [2, 3]
+absub Z/4 + Z/6, [2, 0], [0, 3]
+absub Z^2, [2, 0], [0, 3]
+abexact Z -> Z -> Z/4 by [[4]], [[1]]
+abexact Z -> Z -> Z/4 by [[2]], [[1]]
+abexact Z/2 -> Z/4 -> Z/2 by [[2]], [[1]]
+abexact 0 -> Z/6 -> Z/2 + Z/3 by [], [[1], [1]]
