@@ -34,6 +34,7 @@
 #include "calc.h"
 #include "gif.h"
 #include "viz.h"
+#include "alg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -471,28 +472,18 @@ eval_node(nid e, int n, const double *xs, double *ys, uint8_t *ok)
  * times pi or pi^2; "" if none.  Used only on values that come from an
  * antiderivative, so the form is a recognition of an exact result.
  */
-static const char *
-recog(double v)
+/* v = n/d pi^k sqrt(rt[m]) with small d; 0 if not */
+static const int rt[] = {1, 2, 3, 5};
+
+static int
+rparts(double v, int *pm, int *pk, int64_t *pn, int64_t *pd)
 {
-	static char buf[4][64];
-	static int r;
-	static const int rt[] = {1, 2, 3, 5};
-	char *b = buf[r++ & 3];
 	int k, m;
 
-	b[0] = 0;
-	if (!isfinite(v))
-		return b;
-	if (v == 0) {
-		snprintf(b, 64, "0");
-		return b;
-	}
-	/* p/q, p/q pi, p/q pi^2, then the same times sqrt(2), sqrt(3), sqrt(5) */
 	for (m = 0; m < 4; m++)
 		for (k = 0; k < 3; k++) {
 			double u = v / pow(M_PI, k) / sqrt(rt[m]);
 			int64_t n = 0, d, dmax = m ? 100 : 1000;
-			char num[48], f[16];
 			if (fabs(u) > 1e9)
 				continue;
 			for (d = 1; d <= dmax; d++) {
@@ -502,23 +493,154 @@ recog(double v)
 			}
 			if (d > dmax)
 				continue;
-			snprintf(f, sizeof f, "%s%s%s", k == 1 ? "pi" : k == 2 ? "pi^2" :
-			    "", k && m ? "*" : "", m ? (m == 1 ? "sqrt(2)" : m == 2 ?
-			    "sqrt(3)" : "sqrt(5)") : "");
-			if (!f[0])
-				snprintf(num, sizeof num, "%lld", (long long)n);
-			else if (n == 1 || n == -1)
-				snprintf(num, sizeof num, "%s%s", n < 0 ? "-" : "", f);
-			else
-				snprintf(num, sizeof num, "%lld%s%s", (long long)n, k ? "" : "*",
-				    f);
-			if (d == 1)
-				snprintf(b, 64, "%s", num);
-			else
-				snprintf(b, 64, "%s/%lld", num, (long long)d);
+			*pm = m;
+			*pk = k;
+			*pn = n;
+			*pd = d;
+			return 1;
+		}
+	return 0;
+}
+
+static void
+rformat(char *b, size_t bn, int m, int k, int64_t n, int64_t d)
+{
+	char num[48], f[16];
+
+	snprintf(f, sizeof f, "%s%s%s", k == 1 ? "pi" : k == 2 ? "pi^2" : "",
+	    k && m ? "*" : "", m ? (m == 1 ? "sqrt(2)" : m == 2 ? "sqrt(3)" :
+	    "sqrt(5)") : "");
+	if (!f[0])
+		snprintf(num, sizeof num, "%lld", (long long)n);
+	else if (n == 1 || n == -1)
+		snprintf(num, sizeof num, "%s%s", n < 0 ? "-" : "", f);
+	else
+		snprintf(num, sizeof num, "%lld%s%s", (long long)n, k ? "" : "*", f);
+	if (d == 1)
+		snprintf(b, bn, "%s", num);
+	else
+		snprintf(b, bn, "%s/%lld", num, (long long)d);
+}
+
+/*
+ * Sums of such terms (pi^2/2 + 4pi) are known only from an antiderivative:
+ * integrate() splits F(b) - F(a) into F's terms, recognises each, and
+ * records the sum here for the scales the commands use (1, pi, 2pi).
+ */
+static struct {
+	double v;
+	char form[96];
+} known[32];
+static int nknown;
+
+static const char *
+recog(double v)
+{
+	static char buf[4][96];
+	static int r;
+	char *b = buf[r++ & 3];
+	int k, m;
+	int64_t n, d;
+
+	b[0] = 0;
+	if (!isfinite(v))
+		return b;
+	if (v == 0) {
+		snprintf(b, 96, "0");
+		return b;
+	}
+	if (rparts(v, &m, &k, &n, &d)) {
+		rformat(b, 96, m, k, n, d);
+		return b;
+	}
+	for (k = 0; k < nknown; k++)
+		if (fabs(known[k].v - v) <= 1e-12 * fabs(v)) {
+			snprintf(b, 96, "%s", known[k].form);
 			return b;
 		}
 	return b;
+}
+
+/* F's additive terms, with their signs */
+static int
+terms_of(nid e, int sg, nid *t, int *sgn, int nt, int max)
+{
+	int op = N.op[e];
+
+	if (nt < 0)
+		return nt;
+	if (op == O_ADD)
+		return terms_of(N.b[e], sg, t, sgn, terms_of(N.a[e], sg, t, sgn, nt,
+		    max), max);
+	if (op == O_SUB)
+		return terms_of(N.b[e], -sg, t, sgn, terms_of(N.a[e], sg, t, sgn, nt,
+		    max), max);
+	if (op == O_NEG)
+		return terms_of(N.a[e], -sg, t, sgn, nt, max);
+	if (op == O_CAST && TY_FP(N.ty[e]))
+		return terms_of(N.a[e], sg, t, sgn, nt, max);
+	if (nt == max)
+		return -1;
+	t[nt] = e;
+	sgn[nt] = sg;
+	return nt + 1;
+}
+
+/* record F(b) - F(a) (= v) as a sum of recognised terms, when it is one */
+static void
+known_terms(nid F, double a, double b, double v)
+{
+	static const double scale[3] = {1, M_PI, 2 * M_PI};
+	nid t[16];
+	int sg[16], n = terms_of(F, 1, t, sg, 0, 16), i, j, s;
+	struct q acc[12];
+	int used[12];
+
+	if (n < 2 || rparts(v, &i, &j, &(int64_t){0}, &(int64_t){0}))
+		return;
+	for (s = 0; s < 3; s++) {
+		double sum = 0;
+		char buf[96] = "";
+		memset(used, 0, sizeof used);
+		for (i = 0; i < n; i++) {
+			int o1, o2, m, k;
+			int64_t qn, qd;
+			double tv = sg[i] * (eval_const_at(mk_cast(TY_REAL, t[i]), 0, b,
+			    &o1) - eval_const_at(mk_cast(TY_REAL, t[i]), 0, a, &o2)) *
+			    scale[s];
+			if (!o1 || !o2)
+				return;
+			if (fabs(tv) <= 1e-13 * fmax(1, fabs(v) * scale[s]))
+				continue;
+			if (!rparts(tv, &m, &k, &qn, &qd))
+				goto next;
+			sum += tv;
+			if (!used[m * 3 + k]) {
+				used[m * 3 + k] = 1;
+				acc[m * 3 + k] = qmk(qn, qd);
+			} else
+				acc[m * 3 + k] = qadd(acc[m * 3 + k], qmk(qn, qd));
+		}
+		if (fabs(sum - v * scale[s]) > 1e-10 * fmax(1, fabs(sum)))
+			goto next;
+		for (j = 2; j >= 0; j--)	/* pi^2 terms first */
+			for (i = 0; i < 4; i++) {
+				char one[48];
+				struct q c = acc[i * 3 + j];
+				if (!used[i * 3 + j] || c.n == 0)
+					continue;
+				rformat(one, sizeof one, i, j, c.n < 0 && buf[0] ? -c.n : c.n,
+				    c.d);
+				snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "%s%s",
+				    !buf[0] ? "" : c.n < 0 ? " - " : " + ", one);
+			}
+		if (buf[0] && strchr(buf + 1, ' ') && nknown < 32) {
+			known[nknown].v = v * scale[s];
+			snprintf(known[nknown].form, sizeof known[0].form, "%s", buf);
+			nknown++;
+		}
+next:		;
+	}
 }
 
 /* an exact value in full: "21.3333333333333 = 64/3", "0" */
@@ -674,6 +796,8 @@ integrate(nid e, double a, double b, struct integ *I, int want_exact)
 		if (ok) {
 			I->exact = 1;
 			I->ve = fe[1] - fe[0];
+			if (!I->improper)
+				known_terms(I->F, a, b, I->ve);
 			/* sin(2pi) is 2.4e-16: rounding, not a value */
 			if (fabs(I->ve) < 1e-13 * fmax(fabs(fe[0]) + fabs(fe[1]), last_max *
 			    fabs(b - a)))
@@ -2087,12 +2211,14 @@ surface:
 static int ramp0;
 static int VW, VH;		/* the canvas */
 static double light_turn;	/* the view's turn since the start */
+static int light_sym;		/* a side view: the light from the front */
+static int g_outer;		/* G is further from the axis than F */
 
 static void
 ramps(unsigned char pal[256][3])
 {
 	static const double base[NRAMP][3] = {
-		{38, 120, 190}, {120, 170, 215}, {235, 140, 45}, {120, 160, 120},
+		{38, 120, 190}, {120, 170, 215}, {235, 140, 45}, {80, 142, 196},
 	};
 	int r, k, c;
 
@@ -2209,7 +2335,7 @@ view_fit(struct view *v, const double *bb, int x0, int y0, int x1, int y1,
 /* a triangle with a shade per vertex (0..1), dithered, depth-tested */
 static void
 gtri(const double *x, const double *y, const double *z, const double *s,
-    int ramp)
+    int ramp, int door)
 {
 	static const unsigned char bayer[4][4] = {
 		{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5},
@@ -2239,6 +2365,8 @@ gtri(const double *x, const double *y, const double *z, const double *s,
 			w2 = 1 - w0 - w1;
 			if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9)
 				continue;
+			if (door && ((i + j) & 1) == 0)
+				continue;	/* half the pixels: what is behind shows */
 			zp = &zb[(size_t)j * VW + i];
 			d = w0 * z[0] + w1 * z[1] + w2 * z[2];
 			if (d >= *zp)
@@ -2296,6 +2424,12 @@ solid_draw(const struct view *v, const struct bnd *B, double th1)
 
 	for (k = 0; k < 3; k++)
 		L[k] = L0[k] / ll;
+	if (light_sym) {	/* both ends lit alike */
+		L[0] = 0;
+		ll = sqrt(L[1] * L[1] + L[2] * L[2]);
+		L[1] /= ll;
+		L[2] /= ll;
+	}
 	{	/* the light turns with the eye (rotate) */
 		double c = cos(light_turn), sn = sin(light_turn), lx = L[0], lz = L[2];
 		L[0] = lx * c + lz * sn;
@@ -2314,7 +2448,7 @@ solid_draw(const struct view *v, const struct bnd *B, double th1)
 		for (j = 0; j < nj; j++) {
 			double th[2], P[4][3], Nw[4][3], sx[4], sy[4], sd[4], sh[4];
 			double tx[3], ty[3], tz[3], ts[3], cx, cy, cz, nx, ny, nz;
-			int q, front, ramp;
+			int q, front, ramp, door;
 			static const int vi[4] = {0, 1, 1, 0}, ti[4] = {0, 0, 1, 1};
 			th[0] = 2 * M_PI * j / NTH;
 			th[1] = 2 * M_PI * (j + 1) / NTH;
@@ -2372,14 +2506,18 @@ solid_draw(const struct view *v, const struct bnd *B, double th1)
 				sh[q] = 0.16 + 0.84 * (lam > 0 ? lam : 0);
 				wproj(v, P[q][0], P[q][1], P[q][2], &sx[q], &sy[q], &sd[q]);
 			}
-			ramp = part == 0 ? (front ? 0 : 1) : part == 1 ? 2 : 3;
+			/* the outer surface blue, the inner orange */
+			ramp = part == 2 ? 3 : (part == 1) == g_outer ? (front ? 0 : 1) : 2;
+			/* an end facing the eye is see-through: the solid behind it
+			 * (the other lobe of x^2 on [-2, 2]) stays in view */
+			door = part == 2 && front;
 			tx[0] = sx[0]; ty[0] = sy[0]; tz[0] = sd[0]; ts[0] = sh[0];
 			tx[1] = sx[1]; ty[1] = sy[1]; tz[1] = sd[1]; ts[1] = sh[1];
 			tx[2] = sx[2]; ty[2] = sy[2]; tz[2] = sd[2]; ts[2] = sh[2];
-			gtri(tx, ty, tz, ts, ramp);
+			gtri(tx, ty, tz, ts, ramp, door);
 			tx[1] = sx[2]; ty[1] = sy[2]; tz[1] = sd[2]; ts[1] = sh[2];
 			tx[2] = sx[3]; ty[2] = sy[3]; tz[2] = sd[3]; ts[2] = sh[3];
-			gtri(tx, ty, tz, ts, ramp);
+			gtri(tx, ty, tz, ts, ramp, door);
 		}
 	}
 }
@@ -2403,8 +2541,8 @@ seg3(const struct view *v, double X0, double Y0, double Z0, double X1,
 		int xi = (int)floor(x), yi = (int)floor(y), vis = 1;
 		if (xi >= 0 && yi >= 0 && xi < W && yi < H)
 			vis = dep <= zb[(size_t)yi * W + xi] + 0.02;
-		if (vis != !hidden) {
-			px = NAN;
+		if (vis != !hidden || (hidden && (t / 3) % 2)) {
+			px = NAN;	/* hidden parts dashed */
 			continue;
 		}
 		if (!isnan(px))
@@ -2539,7 +2677,8 @@ axes3(const struct view *v, const struct rscene *S)
 	seg3(v, X0, Y0, Z0, X1, Y1, Z1, 1.4, 0);
 	pr_ink_solid(pr_ink(PR_TEXT));
 	/* the x-axis too, in the region's plane, when it is not the axis */
-	if (!(R.axis == AX_H && R.c == 0)) {
+	if (!(R.axis == AX_H && R.c == 0) && !(R.axis == AX_H &&
+	    fabs(R.c - S->Rm * 1.1) < 0.15 * S->Rm)) {	/* not on the ruler */
 		double xa = R.axis == AX_H ? S->lo : S->bb[0], xb = R.axis == AX_H ?
 		    S->hi : S->bb[1];
 		seg3(v, xa, 0, 0, xb, 0, 0, 1.0, 0);
@@ -2598,7 +2737,7 @@ revolve_frame(const struct view *v, const struct bnd *B,
 		region3(v, B, th, pr_ser(3, 2), th < 2 * M_PI - 1e-9);
 	axes3(v, S);
 	if (region)
-		curve3(v, B, th, 3, th < 2 * M_PI - 1e-9);
+		curve3(v, B, th, 3, 1);
 	pr_clip(0, 0, VW - 1, VH - 1);
 	pr_title(VW / 2, 8, S->title, VW - 20);
 	pr_text(10, VH - 16, S->foot, pr_ink(PR_TEXT));
@@ -2711,14 +2850,36 @@ revolve_cmd(int what)
 	VH = 500;
 	memset(&v, 0, sizeof v);
 	v.V.el = R.axis == AX_H ? 0.36 : 0.42;
+	light_sym = 0;
+	{	/* which curve is the outer one */
+		double xs[NU], fy[NU], gy[NU], df = 0, dg = 0;
+		uint8_t o1[NU], o2[NU];
+		int i;
+		for (i = 0; i < NU; i++)
+			xs[i] = R.a + (R.b - R.a) * i / (NU - 1);
+		eval_n(&R.f, NU, xs, fy, o1);
+		eval_n(&Gf, NU, xs, gy, o2);
+		for (i = 0; i < NU; i++)
+			if (o1[i] == 1 && o2[i] == 1 && R.axis == AX_H) {
+				df += fabs(fy[i] - R.c);
+				dg += fabs(gy[i] - R.c);
+			}
+		g_outer = !gconst && dg > df;
+	}
 	if (R.axis == AX_H) {
 		/* from the narrow end: the curved surface faces the eye */
 		double fa, fb2, ga, gb;
 		int oa = eval_at(&R.f, R.a, &fa), ob = eval_at(&R.f, R.b, &fb2);
 		eval_at(&Gf, R.a, &ga);
 		eval_at(&Gf, R.b, &gb);
-		if (oa && ob && fmax(fabs(fa - R.c), fabs(ga - R.c)) > fmax(fabs(fb2 -
-		    R.c), fabs(gb - R.c)))
+		double ra = fmax(fabs(fa - R.c), fabs(ga - R.c));
+		double rb = fmax(fabs(fb2 - R.c), fabs(gb - R.c));
+		if (oa && ob && fabs(ra - rb) <= 1e-6 * fmax(ra, rb) + 1e-12) {
+			az0 = 0.2;	/* the same at both ends: nearly from the side */
+			v.V.el = 0.45;
+			light_sym = 1;
+		}
+		else if (oa && ob && ra > rb)
 			az0 = -0.4;
 	}
 	view_fit(&v, S.bb, 24, 34, VW - 24, VH - 30, az0, R.rotate);
@@ -2843,6 +3004,7 @@ viz_command(struct P *p)
 	}
 	memset(&R, 0, sizeof R);
 	R.cmd = k;
+	nknown = 0;
 	if (!cmdp_rest(p, R.text, sizeof R.text, NULL))
 		fail("%s what? e.g. %s", w, k == VC_AREA ? "area x^2 from 0 to 4" :
 		    k == VC_ARCLEN ? "arclength x^2 from 0 to 1" : k == VC_CENTROID ?

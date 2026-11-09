@@ -190,8 +190,8 @@ solid of revolution: the region between x^2 and the x-axis about the x-axis
       exact: 53.2259652431546
       numeric: 53.225965243169, estimated error 5.9e-13
   the region sweeps from 0 to 2pi in 8 steps
-  animation: 600x500, 9 frames (2.9 s), 47645 bytes
-  (nofile: GIF checksum 716ae02a)
+  animation: 600x500, 9 frames (2.9 s), 47446 bytes
+  (nofile: GIF checksum 1d2b6fe2)
 > revolve sqrt(x) from 0 to 4 about x still nofile
 solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
   x in [0, 4]: given
@@ -207,8 +207,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
   surface area (the curves swept around the x-axis, without the end disks):
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
-  image: 600x500, 16169 bytes
-  (nofile: GIF checksum 6535267b)
+  image: 600x500, 16140 bytes
+  (nofile: GIF checksum a03529d9)
 > revolve x^2 from 0 to 2 about y still nofile
 solid of revolution: the region between x^2 and the x-axis about the y-axis
   note: the region between the curve and the x-axis (with two curves, the region between them)
@@ -226,8 +226,8 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
       exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
-  image: 600x500, 26599 bytes
-  (nofile: GIF checksum fd5ac1ac)
+  image: 600x500, 30857 bytes
+  (nofile: GIF checksum 627c1683)
 > revolve x and x^2 from 0 to 1 about x-axis still nofile
 solid of revolution: the region between x and x^2 about the x-axis
   x in [0, 1]: given
@@ -248,8 +248,8 @@ solid of revolution: the region between x and x^2 about the x-axis
       exact: 3.8097297048578
       numeric: 3.8097297048578, estimated error 4.2e-14
     both: 8.253
-  image: 600x500, 11880 bytes
-  (nofile: GIF checksum 044a2488)
+  image: 600x500, 11878 bytes
+  (nofile: GIF checksum fa2d952c)
 > revolve sin x about x still nofile
 solid of revolution: the region between sin(x) and the x-axis about the x-axis
   x in [0, 3.142 (pi)]: between two crossings of the x-axis, the lobe nearest 0 (in plot's bounds [-2pi, 2pi])
@@ -267,8 +267,8 @@ solid of revolution: the region between sin(x) and the x-axis about the x-axis
     sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
       exact: 14.4235994484141
       numeric: 14.4235994484141, estimated error 1.6e-13
-  image: 600x500, 19590 bytes
-  (nofile: GIF checksum 831f49fa)
+  image: 600x500, 20468 bytes
+  (nofile: GIF checksum 0348ae44)
 > revolve x^2 from 0 to 1 about y = -1 still nofile
 solid of revolution: the region between x^2 and the line y = -1 about the line y = -1
   note: the region between the curve and the axis; for the region under it, say `revolve x^2 and 0 about y = -1`
@@ -286,8 +286,8 @@ solid of revolution: the region between x^2 and the line y = -1 about the line y
     x^2: S = 2pi ∫ |x^2 + 1| sqrt(1 + (2x)^2) dx
       exact: 13.1022017375402
       numeric: 13.1022017375402, estimated error 1.4e-13
-  image: 600x500, 11898 bytes
-  (nofile: GIF checksum 92ef478a)
+  image: 600x500, 14880 bytes
+  (nofile: GIF checksum 3dfe753e)
 > revolve x^2 from 0 to 1 about x = 2 still nofile
 solid of revolution: the region between x^2 and the x-axis about the line x = 2
   note: the region between the curve and the x-axis (with two curves, the region between them)
@@ -305,18 +305,18 @@ solid of revolution: the region between x^2 and the x-axis about the line x = 2
     x^2: S = 2pi ∫ |x - 2| sqrt(1 + (2x)^2) dx
       exact: 13.2545305650958
       numeric: 13.2545305650959, estimated error 1.5e-13
-  image: 600x500, 21025 bytes
-  (nofile: GIF checksum a567a1a1)
+  image: 600x500, 23201 bytes
+  (nofile: GIF checksum 9b6c961f)
 > revolve sin x and 0 from 0 to pi about y = -1 still nofile
 solid of revolution: the region between sin(x) and 0 about the line y = -1
   x in [0, 3.142 (pi)]: given
   method: washers, V = pi ∫ (R^2 - r^2) dx, R and r the outer and inner distances to the axis
     antiderivative of the integrand: 0.5(x - sin(2x)/2) - 2cos(x)
-    exact: V = 17.5011728149038
+    exact: V = 17.5011728149038 = pi^2/2 + 4pi
     numeric (Gauss-Kronrod): 17.5011728149038, estimated error 1.9e-13
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 17.5012 (relative difference 3e-06, the grid's resolution)
-  volume: 17.5 (exact)
+  volume: pi^2/2 + 4pi = 17.5 (exact)
   region: area 2, centroid (pi/2 = 1.571, pi/8 = 0.3927) (exact)
   Pappus: V = 2pi d A, d = 1.393 from the centroid to the axis: 17.5 (agrees)
   surface area (the curves swept around the line y = -1, without the end disks):
@@ -325,8 +325,8 @@ solid of revolution: the region between sin(x) and 0 about the line y = -1
     0: S = 2pi ∫ |1| sqrt(1 + (0)^2) dx
       numeric: 19.7392088021787, estimated error 0
     both: 58.17
-  image: 600x500, 20360 bytes
-  (nofile: GIF checksum aa3c6b5f)
+  image: 600x500, 19830 bytes
+  (nofile: GIF checksum 01ecfa4c)
 > revolve x^2 about y still nofile
 solid of revolution: the region between x^2 and the x-axis about the y-axis
   note: the region between the curve and the x-axis (with two curves, the region between them)
@@ -346,8 +346,8 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
       exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
-  image: 600x500, 26599 bytes
-  (nofile: GIF checksum fd5ac1ac)
+  image: 600x500, 30857 bytes
+  (nofile: GIF checksum 627c1683)
 > revolve sqrt(x) from 0 to 4 about x rotate frames 6 nofile
 solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
   x in [0, 4]: given
@@ -364,8 +364,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
   the region sweeps from 0 to 2pi in 6 steps, then the solid turns once
-  animation: 600x500, 13 frames (4.6 s), 125568 bytes
-  (nofile: GIF checksum 07d31aaf)
+  animation: 600x500, 13 frames (4.6 s), 150770 bytes
+  (nofile: GIF checksum 58748228)
 > volume x^2 from 0 to 1
 solid of revolution: the region between x^2 and the x-axis about the x-axis
   note: about the x-axis (say about y, about y = 2, about x = -1 for another)
@@ -560,8 +560,8 @@ solid of revolution: the region between x^2 and the x-axis about the x-axis
     x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
       exact: 106.451930486309
       numeric: 106.451930486338, estimated error 1.2e-12
-  image: 600x500, 13451 bytes
-  (nofile: GIF checksum b0d1d724)
+  image: 600x500, 12473 bytes
+  (nofile: GIF checksum 27b1f345)
 > rotate x^2 around the y axis still nofile
   ucas: revolve x^2 about y still nofile
 solid of revolution: the region between x^2 and the x-axis about the y-axis
@@ -582,8 +582,8 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
       exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
-  image: 600x500, 26599 bytes
-  (nofile: GIF checksum fd5ac1ac)
+  image: 600x500, 30857 bytes
+  (nofile: GIF checksum 627c1683)
 > solid of revolution of sqrt x from 0 to 4 still nofile
   ucas: revolve sqrt(x) from 0 to 4 still nofile
 solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
@@ -601,8 +601,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
   surface area (the curves swept around the x-axis, without the end disks):
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
-  image: 600x500, 16169 bytes
-  (nofile: GIF checksum 6535267b)
+  image: 600x500, 16140 bytes
+  (nofile: GIF checksum a03529d9)
 > spin sin x about the x-axis still nofile
   ucas: revolve sin(x) about x still nofile
 solid of revolution: the region between sin(x) and the x-axis about the x-axis
@@ -621,8 +621,8 @@ solid of revolution: the region between sin(x) and the x-axis about the x-axis
     sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
       exact: 14.4235994484141
       numeric: 14.4235994484141, estimated error 1.6e-13
-  image: 600x500, 19590 bytes
-  (nofile: GIF checksum 831f49fa)
+  image: 600x500, 20468 bytes
+  (nofile: GIF checksum 0348ae44)
 > revolve x and x^2 from 0 to 1 about the x-axis using washers still nofile
   ucas: revolve x and x^2 from 0 to 1 about x washer still nofile
 solid of revolution: the region between x and x^2 about the x-axis
@@ -644,8 +644,8 @@ solid of revolution: the region between x and x^2 about the x-axis
       exact: 3.8097297048578
       numeric: 3.8097297048578, estimated error 4.2e-14
     both: 8.253
-  image: 600x500, 11880 bytes
-  (nofile: GIF checksum 044a2488)
+  image: 600x500, 11878 bytes
+  (nofile: GIF checksum fa2d952c)
 > rotate the region between x and x^2 about the line y = 2 still nofile
   ucas: revolve x and x^2 about y = 2 still nofile
 solid of revolution: the region between x and x^2 about the line y = 2
@@ -668,8 +668,8 @@ solid of revolution: the region between x and x^2 about the line y = 2
       exact: 14.775214360507
       numeric: 14.775214360507, estimated error 1.6e-13
     both: 28.1
-  image: 600x500, 11786 bytes
-  (nofile: GIF checksum 98b0e1c0)
+  image: 600x500, 11622 bytes
+  (nofile: GIF checksum fff0e368)
 > volume of revolution of x^2 from 0 to 1 about the y-axis
   ucas: volume x^2 from 0 to 1 about y
 solid of revolution: the region between x^2 and the x-axis about the y-axis
