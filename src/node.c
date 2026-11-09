@@ -1092,6 +1092,8 @@ pr_const(struct sbuf *b, nid n, int hex)
 			sb_puts(b, "pi");
 		else if (v == M_E)
 			sb_puts(b, "e");
+		else if (v == floor(v) && fabs(v) >= 1e10 && fabs(v) < 9007199254740992.0)
+			sb_printf(b, "%.0f", v);   /* integers stay exact */
 		else
 			sb_printf(b, "%.10g", v);
 		return;
@@ -1140,9 +1142,29 @@ pr_bin(struct sbuf *b, nid n, const char *opstr, int p, int lp, int rp,
 	(void)p;
 }
 
+/* v is exactly p/q (as a double) with 2 <= q <= 12 */
+static int
+small_frac(double v, long *p, long *q)
+{
+	long k;
+
+	if (v == floor(v) || fabs(v) > 1e6)
+		return 0;
+	for (k = 2; k <= 12; k++) {
+		double t = nearbyint(v * k);
+		if (t / k == v) {
+			*p = (long)t;
+			*q = k;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void
 pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 {
+	long fp, fq;
 	int p = prec(n, pc), op = N.op[n], c = pc->mode != PM_UCAS;
 	int bits = pc->mode == PM_CBITS;
 	uint32_t i;
@@ -1164,8 +1186,10 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		sb_puts(b, "undefined");
 		break;
 	case O_NEG:
+		/* -(a*b) and -(a/b) read the same as (-a)*b: -x*sin(y), -1/x */
 		sb_putc(b, '-');
-		pr(b, N.a[n], 11, pc, 0);
+		pr(b, N.a[n], TY_FP(N.ty[n]) && (N.op[N.a[n]] == O_MUL ||
+		    N.op[N.a[n]] == O_DIV) ? 10 : 11, pc, 0);
 		break;
 	case O_NOT:
 		sb_putc(b, '~');
@@ -1222,6 +1246,11 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
 			sb_putc(b, ')');
+		} else if (TYK(N.ty[n]) == K_REAL && is_const(N.b[n]) &&
+		    small_frac(N.kr[N.b[n]], &fp, &fq)) {
+			/* x^(1/3), x^(-2/3): the exponent as the fraction it is */
+			pr(b, N.a[n], 14, pc, 0);
+			sb_printf(b, "^(%ld/%ld)", fp, fq);
 		} else   /* next to bitwise operators ^ would read as xor */
 			pr_bin(b, n, pr_bitwise && TY_ISINT(N.ty[n]) ? "**" : "^", 13,
 			    14, 13, pc, 0);

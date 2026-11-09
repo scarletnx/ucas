@@ -1,0 +1,125 @@
+# symbolic algebra: polynomials, rational functions, integration, solve
+# (src/poly.c, alg.c, rint.c, solve.c); every result is checked
+
+# expand, factor, collect
+expand (x+1)^5
+expand (x+y+z)^3
+factor x^4 - 1
+factor x^6 - 1
+factor 6x^2 - 5x - 6
+factor x^5 + x + 1
+factor x^4 + 1
+factor x^30 - 1
+factor x^3 + y^3
+factor 4x^2 - 9y^2
+factor x^2 y + x y^2
+factor 2x^3 + 4x^2 + 2x
+collect x^2 y + x y + x^2 + 3, x
+
+# rational functions: cancel, together, apart (with the condition where a
+# factor was cancelled)
+simplify (x^2-1)/(x-1)
+cancel (x^2 - y^2)/(x - y)
+together 1/x + 1/(x+1)
+together a/b + c/d
+apart 1/(x^2-1)
+apart (2x+3)/(x^3-x)
+apart (x^3+1)/(x^2+1)^2
+
+# simplification rules (each with its condition)
+simplify sqrt(x^2)
+simplify sqrt(4x^2+4x+1)
+simplify exp(log(x))
+simplify exp(x)*exp(2x)
+simplify x^2/x^3
+
+# gcd, lcm, resultant, discriminant, division
+gcd x^2-1, x^2+2x+1
+lcm x^2-1, x^2+2x+1
+gcd 12, 18
+resultant x^2-2, x^2-3x+2
+resultant x^2 + y^2 - 1, x - y in y
+discriminant a x^2 + b x + c
+discriminant x^3 - 3x + 1
+quo x^3 + 1, x + 2
+rem x^3 + 1, x + 2
+divide x^4 + 1 by x^2 + x
+substitute x = 2, y = 3 in x^2 + y
+
+# integration of rational functions: complete
+integrate 1/(x^3+1)
+integrate (x+1)/(x^2+2x+5)
+integrate 1/(x^4+1)
+integrate x^3/(x^2+1)^2
+integrate 1/(x^2+1)^3
+integrate 1/(x^2-2)
+integrate (x^5+1)/(x^2-1)^2
+integrate 1/(x^4-2)
+integrate 1/(x^3-2)
+integrate 1/(x^4+1) from 0 to 1
+
+# other methods, each differentiated back
+integrate 2x*cos(x^2)
+integrate exp(x)*sin(x)
+integrate x*atan(x)
+integrate atan(x)
+integrate log(x)^2
+integrate asin(x)
+integrate sin(x)^3*cos(x)^2
+integrate sin(x)^2*cos(x)^2
+integrate tan(x)^3
+integrate x*cos(x)^2
+integrate sin(x)*cos(2x)
+integrate 1/(1+exp(x))
+integrate cosh(x)^2
+integrate sqrt(1-x^2)
+integrate sqrt(x^2+1)
+integrate x^3*sqrt(1+x^2)
+integrate 1/(x*sqrt(x^2+1))
+integrate x*sqrt(x+1)
+integrate log(x)/x
+integrate x*exp(x) + 1/(x^3+1)
+# a Weierstrass antiderivative jumps at x = pi: the jump is taken out
+integrate 1/(2+cos(x)) from 0 to 2pi
+
+# solve
+solve x^2 - 5x + 6 = 0
+solve (x-1)^2 = 0
+solve x^2 + 1 = 0
+solve x^3 - 3x + 1 = 0
+solve x^3 - 2 = 0
+solve x^4 - 10x^2 + 1 = 0
+solve x^5 - x - 1 = 0
+solve (x^2-1)/(x-1) = 0
+solve a x^2 + b x + c = 0 for x
+solve sin x = 1/2
+solve 2 sin(3x + 1) = 1
+solve cos(2x) = 0
+solve sin(x)^2 - sin(x) = 0
+solve exp(x) = 5
+solve 2^x = 8
+solve log(x) = 2
+solve exp(x^2) = 3
+solve sin(x) = 2
+solve sqrt(x+1) = x - 1
+solve abs(x - 2) = 3
+solve x + y = 3, x - y = 1
+solve x + y = 3, 2x + 2y = 6
+solve x + y = 1, x + y = 2
+solve x^2 + y^2 = 1, y = x
+
+# English
+factor x^4 - 1
+expand (x+1)^5
+simplify (x^2-1)/(x-1)
+partial fraction decomposition of 1/(x^2-1)
+decompose 1/(x^2-4) into partial fractions
+put 1/x + 1/(x+1) over a common denominator
+solve x^2 - 5x + 6 = 0
+solve sin x = 1/2
+solve the system x + y = 3, x - y = 1
+gcd of x^2-1 and x^2+2x+1
+the discriminant of a x^2 + b x + c
+what is the remainder when x^3 + 1 is divided by x + 2?
+plug in x = 2 into x^2 + 1
+what is the integral of 1/(x^3 + 1)?

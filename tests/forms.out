@@ -1051,5 +1051,10 @@ loops and calculus
 complex numbers (i is the unit) and trig forms
   complex F | re F | im F | conj F | modulus F | arg F | polar F
   nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|harmonic|half|inverse]
+algebra
+  expand|factor|simplify|together|cancel F | collect|apart F [in x]
+  gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]
+  quo|rem P, Q [in x] | divide P by Q | substitute x = a in F
+  solve L = R [, L2 = R2] [for x, y]
 English works too: 'what is the range of x squared for a signed byte x?'
   ('help english' for more)

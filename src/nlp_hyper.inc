@@ -224,6 +224,10 @@ hy_sentence(void)
 		ex2 = form_expr(m + 1, b);
 		if (!*ex || !*ex2)
 			goto no;
+		/* "divide x^4 + 1 by x^2 + x": polynomial division (alg.c) */
+		if (div && !hy_formula(ex, strlen(ex)) &&
+		    !hy_formula(ex2, strlen(ex2)) && !has_unit_word(a, b) && !alg)
+			goto no;
 		Q.raw[0] = S("(%s)%s(%s)", ex, div ? "/" : "*", ex2);
 		goto done;
 	}

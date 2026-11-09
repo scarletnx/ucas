@@ -68,7 +68,7 @@ sum(i, 1, n, sqrt(real(i + 1)) - sqrt(real(i)))
 > geo(n: int in 0..30, r: real in 0.5..0.9) = sum(i, 1, n, i * r^i)
 > closed geo
 sum(i, 1, n, real(i)*r^real(i))
-  = r == 1 ? real(n*(n + 1)/2) : r^(real(n) + 1)*(1/(r - 1)*real(n) + -(1/(r - 1))/(r - 1)) - r*(-(1/(r - 1))/(r - 1))
+  = r == 1 ? real(n*(n + 1)/2) : r^(real(n) + 1)*(1/(r - 1)*real(n) + -1/(r - 1)/(r - 1)) - r*(-1/(r - 1)/(r - 1))
   method: Faulhaber (polynomial in the index), arithmetico-geometric
   check: equals direct iteration at all 6231 points of the domain, max relative difference 1.4e-14
 > thr(n: int in 0..40) = sum(i, 0, n, i < 10 ? i : 10)

@@ -5690,6 +5690,8 @@ solve_inline(void)
 	Q.cmd = C_DSOLVE;
 }
 
+#include "nlp_alg.inc"     /* factor, expand, solve, gcd ... (alg.c) */
+
 static void
 sentence(void)
 {
@@ -5705,6 +5707,8 @@ sentence(void)
 	if (definition())
 		return;
 	if (hy_sentence())	/* holomorphic, residues, quaternions (hyper.c) */
+		return;
+	if (alg_sentence())	/* factor, partial fractions, solve, gcd (alg.c) */
 		return;
 	if (c2_sentence())	/* derivatives, limits, series (calc2) */
 		return;
@@ -7385,6 +7389,27 @@ nlp_is_english(const char *s, size_t n)
 				j2++;
 			}
 			return 0;
+		}
+		/* alg.c's commands: ucas unless English follows ("gcd of") */
+		{
+			static const char *const alg_cmds[] = {"factor", "collect",
+				"together", "apart", "cancel", "gcd", "lcm", "resultant",
+				"discriminant", "quo", "rem", "substitute", "subst", NULL};
+			static const char *const alg_eng[] = {"of", "the", "this",
+				"that", "between", "fraction", "fractions", "terms", "like",
+				"polynomial", "expression", "out", "completely", NULL};
+			static const char *const alg_starts[] = {"decompose",
+				"factorise", "factorize", "combine", "plug", "multiply",
+				"partial", NULL};
+			if (in_list(alg_starts, w1) && !user_fn(w1) &&
+			    (strcmp(w1, "partial") || strstr(s, "fraction")))
+				return 1;
+			if (in_list(alg_cmds, w1) && !user_fn(w1)) {
+				size_t j2 = j;
+				if (word_at(s, n, &j2, w2, sizeof w2) && in_list(alg_eng, w2))
+					return 1;
+				return english_words(s + j, n - j, 1) >= 1;
+			}
 		}
 		if (in_list(ucas_cmds, w1) || in_list(c2_cmds, w1)) {
 			size_t j2 = j, j3;

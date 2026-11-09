@@ -95,6 +95,7 @@ static nid calc_block(struct P *p);
 static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
 static int calc2_command(struct P *p);	/* calc2_syntax.inc */
+static int alg_command(struct P *p);	/* alg_syntax.inc */
 
 static int
 pk(struct P *p)
@@ -1574,6 +1575,11 @@ help(void)
 "  complex F | re F | im F | conj F | modulus F | arg F | polar F\n"
 "  nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|"
 "harmonic|half|inverse]\n"
+"algebra\n"
+"  expand|factor|simplify|together|cancel F | collect|apart F [in x]\n"
+"  gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]\n"
+"  quo|rem P, Q [in x] | divide P by Q | substitute x = a in F\n"
+"  solve L = R [, L2 = R2] [for x, y]\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
 "  ('help english' for more)");
 }
@@ -1852,6 +1858,8 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
+			return;
 		if (calc2_command(p))
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
@@ -2293,3 +2301,4 @@ run_source1(const char *src, const char *file, int echo)
 /* calc: loops, sums, recurrences, ODE/PDE statements and commands */
 #include "calc_syntax.inc"
 #include "calc2_syntax.inc"
+#include "alg_syntax.inc"

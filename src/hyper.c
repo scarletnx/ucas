@@ -1585,6 +1585,10 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"lim", "taylor", "maclaurin", "implicit", "antiderivative",
 	"primitive", "grad", "gradient", "hessian", "laplacian", "jacobian",
 	"ddir", "wronskian", "partial", "basis", "model", "assume", "forget",
+	/* alg.c */
+	"expand", "factor", "collect", "simplify", "together", "apart",
+	"cancel", "gcd", "lcm", "resultant", "discriminant", "quo", "rem",
+	"divide", "solve", "substitute", "subst",
 	"derivative", "series", NULL};
 
 static const char *

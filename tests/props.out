@@ -608,7 +608,7 @@ identify y' = t*y:
   not autonomous: it depends on the independent variable explicitly
   first order: y' = t*y
   separable: yes, g = p(t) q(y) [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
-  exact (M + N y' = 0 with M = -(t*y), N = 1): no [numeric: dM/dy - dN/dt = -t]
+  exact (M + N y' = 0 with M = -t*y, N = 1): no [numeric: dM/dy - dN/dt = -t]
   solved for the highest derivative: y' = t*y  (then initial values and: dsolve y)
 > identify y' = y^2 + t
 identify y' = y^2 + t:
@@ -943,7 +943,7 @@ identify y' = t*y:
   not autonomous: it depends on the independent variable explicitly
   first order: y' = t*y
   separable: yes, g = p(t) q(y) [numeric, 40 point pairs: g(t1, y1) g(t2, y2) = g(t1, y2) g(t2, y1)]
-  exact (M + N y' = 0 with M = -(t*y), N = 1): no [numeric: dM/dy - dN/dt = -t]
+  exact (M + N y' = 0 with M = -t*y, N = 1): no [numeric: dM/dy - dN/dt = -t]
   solved for the highest derivative: y' = t*y  (then initial values and: dsolve y)
 > what type of function is x^3 - x?
   ucas: it(x) = x^3 - x
