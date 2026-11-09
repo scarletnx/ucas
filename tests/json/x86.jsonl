@@ -1,0 +1,9 @@
+{"id":1,"cmd":"x86_models"}
+{"id":2,"cmd":"x86_model","args":{"name":"skl"}}
+{"id":3,"cmd":"intrinsic","args":{"name":"_mm256_sad_epu8","model":"zen4"}}
+{"id":4,"cmd":"intrinsic","args":{"name":"_mm256_i32gather_epi32"}}
+{"id":5,"cmd":"intrinsics","args":{"filter":"avx512vpopcntdq","model":"zen4"}}
+{"id":6,"cmd":"intrinsic","args":{"name":"_mm256_addd_epi32"}}
+{"id":7,"cmd":"define","args":{"name":"h","params":[{"name":"x","type":"u32"}],"body":"(x * 0x9e3779b9) >> 16 xor x"}}
+{"id":8,"cmd":"mca","args":{"f":"h","model":"glc"}}
+{"id":9,"cmd":"c_optimize","args":{"code":"#include <stdint.h>\nvoid avg(uint8_t *restrict d, const uint8_t *restrict a, const uint8_t *restrict b, int n) { for (int i = 0; i < n; i++) d[i] = (uint8_t)((a[i] + b[i] + 1) >> 1); }\nuint32_t sum(const uint16_t *a, int n) { uint32_t s = 0; for (int i = 0; i < n; i++) s += a[i]; return s; }","nofile":true,"target":"x86-64-v2"}}

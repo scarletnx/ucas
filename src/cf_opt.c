@@ -2118,6 +2118,14 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 	}
 	memset(&o, 0, sizeof o);
 	r = f(&l, R.o->t, &o);
+	if (!r && o.what[0] && f != cf_vec_stub) {
+		/* the vectoriser says why not */
+		struct cf_rewrite *w = add_rw("not vectorised", (int)fn_line(n));
+		w->before = strdup("");
+		w->after = strdup("");
+		snprintf(w->proof_text, sizeof w->proof_text, "%s", o.what);
+		w->info = 1;
+	}
 	if (r) {
 		struct cf_rewrite *w = add_rw("vectorised", (int)fn_line(n));
 		struct sbuf before = {0};

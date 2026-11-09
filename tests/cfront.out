@@ -650,10 +650,12 @@ c optimize: 9 functions, 6 rewrites proved (0 exhaustive, 1 by SAT, 2 structural
   brighten (line 6): not lowered: line 6: the function does not return an integer or a float
   invert_low (line 15): not lowered: line 15: the function does not return an integer or a float
   split (line 22): not lowered: line 22: the function does not return an integer or a float
+  split (line 24): not vectorised: a division other than an unsigned one by 2^k
   my_strlen (line 31): not lowered: line 31: a parameter that is not an integer or a float (s)
   skip (line 39): not lowered: line 39: the function does not return an integer or a float
   len32 (line 47): not lowered: line 47: a parameter that is not an integer or a float (s)
   rgb2gray (line 55): not lowered: line 55: the function does not return an integer or a float
+  rgb2gray (line 57): not vectorised: a load at an index other than i + c (strided: not implemented)
   sum8 (line 63): not lowered: line 63: a parameter that is not an integer or a float (a)
   copy_odd (line 71): not lowered: line 71: the function does not return an integer or a float
 optimised C:
@@ -1075,6 +1077,1443 @@ optimised C:
   			d[i] = s[i];
   	}
   }
+> c lower cfront/vec.c
+  saxpy: not lowered: line 6: the function does not return an integer or a float
+    loop (line 8): for i = 0 while i < n step 1 (index i32, slot 0)
+      array x: read only, no alias (restrict or a distinct array)
+      array y: written, no alias (restrict or a distinct array)
+      load  x[i64(i)] -> leaf 3 (f32, 4 bytes, after 0 stores)
+      load  y[i64(i)] -> leaf 4 (f32, 4 bytes, after 0 stores)
+      store y[i64(i)] = a*x[i] + y[i] (f32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 a: f32, 3 x[i]: f32, 4 y[i]: f32
+  dscale: not lowered: line 12: the function does not return an integer or a float
+    loop (line 14): for i = 0 while i < n step 1 (index i32, slot 0)
+      array x: read only, no alias (restrict or a distinct array)
+      array y: written, no alias (restrict or a distinct array)
+      load  x[i64(i)] -> leaf 2 (f64, 8 bytes, after 0 stores)
+      store y[i64(i)] = 0.5x[i] - 1 (f64, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 x[i]: f64
+  add32: not lowered: line 18: the function does not return an integer or a float
+    loop (line 20): for i = 0 while i < n step 1 (index i32, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      array b: read only, no alias (restrict or a distinct array)
+      array c: written, no alias (restrict or a distinct array)
+      load  a[i64(i)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      load  b[i64(i)] -> leaf 3 (i32, 4 bytes, after 0 stores)
+      store c[i64(i)] = a[i] + 3b[i] (i32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i]: i32, 3 b[i]: i32
+  avg8: not lowered: line 24: the function does not return an integer or a float
+    loop (line 26): for i = 0 while i < n step 1 (index u64, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      array b: read only, no alias (restrict or a distinct array)
+      array d: written, no alias (restrict or a distinct array)
+      load  a[i] -> leaf 2 (u8, 1 bytes, after 0 stores)
+      load  b[i] -> leaf 3 (u8, 1 bytes, after 0 stores)
+      store d[i] = u8(i32(a[i]) + i32(b[i]) + 1 >> 1) (u8, after 0 stores)
+      leaves: 0 i: u64, 1 n: u64, 2 a[i]: u8, 3 b[i]: u8
+  sat16: not lowered: line 30: the function does not return an integer or a float
+    loop (line 32): for i = 0 while i < n step 1 (index i32, slot 0)
+      array s: read only, may alias
+      array d: written, may alias
+      load  s[i64(i)] -> leaf 2 (i16, 2 bytes, after 0 stores)
+      store d[i64(i)] = i16(i32(t1 > 32767) != 0 ? 32767 : i32(t1 < -32768) != 0 ? -32768 : t1) where t1 = 2i32(s[i]) (i16, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 s[i]: i16
+  xorsum: not lowered: line 38: a parameter that is not an integer or a float (a)
+    loop (line 41): for i = 0 while i < n step 1 (index i32, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      load  a[i64(i)] -> leaf 2 (u32, 4 bytes, after 0 stores)
+      reduction x = x xor a[i] >> 3 (leaf 3)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i]: u32, 3 x: u32
+  maxv: not lowered: line 46: a parameter that is not an integer or a float (a)
+    loop (line 49): for i = 0 while i < n step 1 (index i32, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      load  a[i64(i)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      reduction m = i32(a[i] > m) != 0 ? a[i] : m (leaf 3)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i]: i32, 3 m: i32
+  sum64: not lowered: line 54: a parameter that is not an integer or a float (a)
+    loop (line 57): for i = 0 while i < n step 1 (index i32, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      load  a[i64(i)] -> leaf 2 (i64, 8 bytes, after 0 stores)
+      reduction s = s + a[i] (leaf 3)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i]: i64, 3 s: i64
+  iota: not lowered: line 62: the function does not return an integer or a float
+    loop (line 64): for i = 0 while i < n step 1 (index i32, slot 0)
+      array d: written, no alias (restrict or a distinct array)
+      store d[i64(i)] = 2u32(i) + 1 (u32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32
+  shift_left: not lowered: line 68: the function does not return an integer or a float
+    loop (line 70): for i = 0 while i < n - 1 step 1 (index i32, slot 0)
+      array a: written, no alias (restrict or a distinct array)
+      load  a[i64(i + 1)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      store a[i64(i)] = a[i + 1] (i32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i + 1]: i32
+  prefix: not lowered: line 74: the function does not return an integer or a float
+    loop (line 76): for i = 1 while i < n step 1 (index i32, slot 0)
+      array a: written, no alias (restrict or a distinct array)
+      load  a[i64(i - 1)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      load  a[i64(i)] -> leaf 3 (i32, 4 bytes, after 0 stores)
+      store a[i64(i)] = a[i - 1] + a[i] (i32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i - 1]: i32, 3 a[i]: i32
+  fsum: not lowered: line 80: a parameter that is not an integer or a float (a)
+    loop (line 83): for i = 0 while i < n step 1 (index i32, slot 0)
+      array a: read only, no alias (restrict or a distinct array)
+      load  a[i64(i)] -> leaf 2 (f32, 4 bytes, after 0 stores)
+      reduction s = s + a[i] (leaf 3)
+      leaves: 0 i: i32, 1 n: i32, 2 a[i]: f32, 3 s: f32
+  after: not lowered: line 88: the function does not return an integer or a float
+    loop (line 90): for i = 0 while i < n step 1 (index i32, slot 0)
+      array b: written, may alias
+      array a: written, may alias
+      load  b[i64(i)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      load  a[i64(i)] -> leaf 3 (i32, 4 bytes, after 1 stores)
+      store a[i64(i)] = b[i] + 1 (i32, after 0 stores)
+      store b[i64(i)] = 2a[i] (i32, after 1 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 b[i]: i32, 3 a[i]: i32
+  inplace2: not lowered: line 95: the function does not return an integer or a float
+    loop (line 97): no IR: line 100: a value of type void (only integer values are lowered)
+  gath: not lowered: line 106: the function does not return an integer or a float
+    loop (line 109): for i = 0 while i < n step 1 (index i32, slot 0)
+      array idx: read only, no alias (restrict or a distinct array)
+      array t: read only, no alias (restrict or a distinct array)
+      array d: written, no alias (restrict or a distinct array)
+      load  idx[i64(i)] -> leaf 2 (i32, 4 bytes, after 0 stores)
+      load  t[i64(idx[i] & 0x3f)] -> leaf 3 (i32, 4 bytes, after 0 stores)
+      store d[i64(i)] = t[idx[i] & 63] (i32, after 0 stores)
+      leaves: 0 i: i32, 1 n: i32, 2 idx[i]: i32, 3 t[idx[i] & 63]: i32
+> c optimize cfront/vec.c nofile
+c optimize: 15 functions, 11 rewrites proved (0 exhaustive, 0 by SAT, 11 by lanes) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 45.8 -> 6.2 cycles
+  saxpy (line 8): 256-bit vectors, 8 lanes of 32 bits (avx); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 0.5
+  dscale (line 14): 256-bit vectors, 4 lanes of 64 bits (avx); 4 lanes proved (4 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 1.1
+  add32 (line 20): 256-bit vectors, 8 lanes of 32 bits (avx avx2); 8 lanes proved (0 equal DAGs, 0 exhaustive, 8 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.0 -> 0.4
+  avg8 (line 26): 256-bit vectors, 32 lanes of 8 bits (avx avx2); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.1
+  sat16 (line 32): 256-bit vectors, 8 lanes of 32 bits (sse2 sse4.1 avx avx2), run-time overlap test; 8 lanes proved (0 equal DAGs, 0 exhaustive, 8 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 11.0 -> 1.5
+  xorsum (line 41): 256-bit vectors, 8 lanes of 32 bits (avx avx2), reductions reassociated (exact mod 2^n); 8 lanes proved (0 equal DAGs, 0 exhaustive, 8 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 2.0 -> 0.2
+  maxv (line 49): 256-bit vectors, 8 lanes of 32 bits (avx avx2), reductions reassociated (exact mod 2^n); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.1
+  sum64 (line 57): 256-bit vectors, 4 lanes of 64 bits (avx avx2), reductions reassociated (exact mod 2^n); 4 lanes proved (4 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 1.0 -> 0.2
+  iota (line 64): 256-bit vectors, 8 lanes of 32 bits (avx avx2); 8 lanes proved (0 equal DAGs, 0 exhaustive, 8 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.2 -> 0.5
+  shift_left (line 70): 256-bit vectors, 8 lanes of 32 bits (avx); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 0.0 -> 0.2
+  gath (line 109): 256-bit vectors, 8 lanes of 32 bits (avx avx2); 8 lanes proved (16 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 0.0 -> 1.4
+  saxpy (line 6): not lowered: line 6: the function does not return an integer or a float
+  dscale (line 12): not lowered: line 12: the function does not return an integer or a float
+  add32 (line 18): not lowered: line 18: the function does not return an integer or a float
+  avg8 (line 24): not lowered: line 24: the function does not return an integer or a float
+  sat16 (line 30): not lowered: line 30: the function does not return an integer or a float
+  xorsum (line 38): not lowered: line 38: a parameter that is not an integer or a float (a)
+  maxv (line 46): not lowered: line 46: a parameter that is not an integer or a float (a)
+  sum64 (line 54): not lowered: line 54: a parameter that is not an integer or a float (a)
+  iota (line 62): not lowered: line 62: the function does not return an integer or a float
+  shift_left (line 68): not lowered: line 68: the function does not return an integer or a float
+  prefix (line 74): not lowered: line 74: the function does not return an integer or a float
+  prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
+  fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  after (line 88): not lowered: line 88: the function does not return an integer or a float
+  after (line 90): not vectorised: a load after a store to its array
+  inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
+  gath (line 106): not lowered: line 106: the function does not return an integer or a float
+optimised C:
+  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
+  #include <immintrin.h>
+  #pragma STDC FP_CONTRACT OFF
+  /* cfront test: loops for the x86 vectoriser (cfx86.c): element-wise,
+   * reductions, widening and narrowing, and loops it must refuse */
+  #include <stdint.h>
+  #include <stddef.h>
+  
+  void saxpy(float *restrict y, const float *restrict x, float a, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256 cf_v0 = _mm256_loadu_ps((const void *)((x) + cf_i));
+  		__m256 cf_v1 = _mm256_loadu_ps((const void *)((y) + cf_i));
+  		__m256 cf_v2 = _mm256_set1_ps((float)(a));
+  		__m256 cf_v3 = _mm256_mul_ps(cf_v2, cf_v0);
+  		__m256 cf_v4 = _mm256_add_ps(cf_v3, cf_v1);
+  		_mm256_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m256 cf_v0 = _mm256_loadu_ps((const void *)((x) + cf_i));
+  		__m256 cf_v1 = _mm256_loadu_ps((const void *)((y) + cf_i));
+  		__m256 cf_v2 = _mm256_set1_ps((float)(a));
+  		__m256 cf_v3 = _mm256_mul_ps(cf_v2, cf_v0);
+  		__m256 cf_v4 = _mm256_add_ps(cf_v3, cf_v1);
+  		_mm256_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m256 cf_v0 = _mm256_loadu_ps((const void *)((x) + cf_i));
+  		__m256 cf_v1 = _mm256_loadu_ps((const void *)((y) + cf_i));
+  		__m256 cf_v2 = _mm256_set1_ps((float)(a));
+  		__m256 cf_v3 = _mm256_mul_ps(cf_v2, cf_v0);
+  		__m256 cf_v4 = _mm256_add_ps(cf_v3, cf_v1);
+  		_mm256_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 24;
+  		__m256 cf_v0 = _mm256_loadu_ps((const void *)((x) + cf_i));
+  		__m256 cf_v1 = _mm256_loadu_ps((const void *)((y) + cf_i));
+  		__m256 cf_v2 = _mm256_set1_ps((float)(a));
+  		__m256 cf_v3 = _mm256_mul_ps(cf_v2, cf_v0);
+  		__m256 cf_v4 = _mm256_add_ps(cf_v3, cf_v1);
+  		_mm256_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256 cf_v0 = _mm256_loadu_ps((const void *)((x) + cf_i));
+  		__m256 cf_v1 = _mm256_loadu_ps((const void *)((y) + cf_i));
+  		__m256 cf_v2 = _mm256_set1_ps((float)(a));
+  		__m256 cf_v3 = _mm256_mul_ps(cf_v2, cf_v0);
+  		__m256 cf_v4 = _mm256_add_ps(cf_v3, cf_v1);
+  		_mm256_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const float cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		const float cf_ld1 = (y)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (float)((float)(((float)((a)) * (float)((cf_ld0)))) + (float)((cf_ld1)));
+  	}
+  }
+  }
+  
+  void dscale(double *restrict y, const double *restrict x, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256d cf_v0 = _mm256_loadu_pd((const void *)((x) + cf_i));
+  		__m256d cf_v1 = _mm256_set1_pd((double)(0.5));
+  		__m256d cf_v2 = _mm256_mul_pd(cf_v1, cf_v0);
+  		__m256d cf_v3 = _mm256_set1_pd((double)(1));
+  		__m256d cf_v4 = _mm256_sub_pd(cf_v2, cf_v3);
+  		_mm256_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m256d cf_v0 = _mm256_loadu_pd((const void *)((x) + cf_i));
+  		__m256d cf_v1 = _mm256_set1_pd((double)(0.5));
+  		__m256d cf_v2 = _mm256_mul_pd(cf_v1, cf_v0);
+  		__m256d cf_v3 = _mm256_set1_pd((double)(1));
+  		__m256d cf_v4 = _mm256_sub_pd(cf_v2, cf_v3);
+  		_mm256_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m256d cf_v0 = _mm256_loadu_pd((const void *)((x) + cf_i));
+  		__m256d cf_v1 = _mm256_set1_pd((double)(0.5));
+  		__m256d cf_v2 = _mm256_mul_pd(cf_v1, cf_v0);
+  		__m256d cf_v3 = _mm256_set1_pd((double)(1));
+  		__m256d cf_v4 = _mm256_sub_pd(cf_v2, cf_v3);
+  		_mm256_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 12;
+  		__m256d cf_v0 = _mm256_loadu_pd((const void *)((x) + cf_i));
+  		__m256d cf_v1 = _mm256_set1_pd((double)(0.5));
+  		__m256d cf_v2 = _mm256_mul_pd(cf_v1, cf_v0);
+  		__m256d cf_v3 = _mm256_set1_pd((double)(1));
+  		__m256d cf_v4 = _mm256_sub_pd(cf_v2, cf_v3);
+  		_mm256_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 4; i += 4) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256d cf_v0 = _mm256_loadu_pd((const void *)((x) + cf_i));
+  		__m256d cf_v1 = _mm256_set1_pd((double)(0.5));
+  		__m256d cf_v2 = _mm256_mul_pd(cf_v1, cf_v0);
+  		__m256d cf_v3 = _mm256_set1_pd((double)(1));
+  		__m256d cf_v4 = _mm256_sub_pd(cf_v2, cf_v3);
+  		_mm256_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const double cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (double)((double)(((double)(((double)0x1p-1)) * (double)((cf_ld0)))) - (double)(((double)0x1p+0)));
+  	}
+  }
+  }
+  
+  void add32(int32_t *restrict c, const int32_t *restrict a, const int32_t *restrict b, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX__) && defined(__AVX2__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_add_epi32(cf_v2, cf_v1);
+  		__m256i cf_v4 = _mm256_add_epi32(cf_v0, cf_v3);
+  		_mm256_storeu_si256((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_add_epi32(cf_v2, cf_v1);
+  		__m256i cf_v4 = _mm256_add_epi32(cf_v0, cf_v3);
+  		_mm256_storeu_si256((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_add_epi32(cf_v2, cf_v1);
+  		__m256i cf_v4 = _mm256_add_epi32(cf_v0, cf_v3);
+  		_mm256_storeu_si256((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 24;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_add_epi32(cf_v2, cf_v1);
+  		__m256i cf_v4 = _mm256_add_epi32(cf_v0, cf_v3);
+  		_mm256_storeu_si256((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_add_epi32(cf_v2, cf_v1);
+  		__m256i cf_v4 = _mm256_add_epi32(cf_v0, cf_v3);
+  		_mm256_storeu_si256((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int32_t cf_ld0 = (a)[(long)((int64_t)((i)))];
+  		const int32_t cf_ld1 = (b)[(long)((int64_t)((i)))];
+  		(c)[(long)((int64_t)((i)))] = (int)((int32_t)((uint32_t)((cf_ld0)) + (uint32_t)(((int32_t)((uint32_t)(((int32_t)3)) * (uint32_t)((cf_ld1)))))));
+  	}
+  }
+  }
+  
+  void avg8(uint8_t *restrict d, const uint8_t *restrict a, const uint8_t *restrict b, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__AVX__) && defined(__AVX2__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_avg_epu8(cf_v0, cf_v1);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 32;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_avg_epu8(cf_v0, cf_v1);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_avg_epu8(cf_v0, cf_v1);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 96;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_avg_epu8(cf_v0, cf_v1);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_loadu_si256((const void *)((b) + cf_i));
+  		__m256i cf_v2 = _mm256_avg_epu8(cf_v0, cf_v1);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (a)[(unsigned long)(i)];
+  		const uint8_t cf_ld1 = (b)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) + (uint32_t)(((int32_t)((cf_ld1))))))) + (uint32_t)(((int32_t)1))))) >> (((int32_t)1))))));
+  	}
+  }
+  }
+  
+  void sat16(int16_t *d, const int16_t *s, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__) && defined(__SSE4_1__) && defined(__AVX__) && defined(__AVX2__)
+  	if (((unsigned long)(const void *)(d) + (unsigned long)(n + 0) * sizeof *(d) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(d) + (unsigned long)(i + 0) * sizeof *(d))) {
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 24;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int16_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+  		(d)[(long)((int64_t)((i)))] = (short)((int16_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) > (int32_t)(((int32_t)32767)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)32767)) : (int32_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) < (int32_t)(((int32_t)-32768)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)-32768)) : (int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))))))));
+  	}
+  }
+  }
+  
+  uint32_t xorsum(const uint32_t *a, int n)
+  {
+  	uint32_t x = 0;
+  	{
+  	int i = 0;
+  #if defined(__AVX__) && defined(__AVX2__)
+  	{
+  	__m256i cf_acc0_0 = _mm256_set1_epi32((int32_t)0);
+  	__m256i cf_acc0_1 = _mm256_set1_epi32((int32_t)0);
+  	__m256i cf_acc0_2 = _mm256_set1_epi32((int32_t)0);
+  	__m256i cf_acc0_3 = _mm256_set1_epi32((int32_t)0);
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_srli_epi32(cf_v0, 3);
+  		cf_acc0_0 = _mm256_xor_si256(cf_acc0_0, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_srli_epi32(cf_v0, 3);
+  		cf_acc0_1 = _mm256_xor_si256(cf_acc0_1, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((a) + cf_i));
+  		__m256i cf_v1 = _mm256_srli_epi32(cf_v0, 3);
+  		cf_acc0_2 = _mm256_xor_si256(cf_acc0_2, cf_v1);
+  ...
+> c optimize cfront/vec.c nofile target x86-64-v2
+c optimize: 15 functions, 10 rewrites proved (0 exhaustive, 0 by SAT, 10 by lanes) for x86-64-v2
+  estimated cost of the rewritten values on x86-64-v2: 45.8 -> 9.2 cycles
+  saxpy (line 8): 128-bit vectors, 4 lanes of 32 bits (sse2); 4 lanes proved (4 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 1.0
+  dscale (line 14): 128-bit vectors, 2 lanes of 64 bits (sse2); 2 lanes proved (2 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 2.2
+  add32 (line 20): 128-bit vectors, 4 lanes of 32 bits (sse2); 4 lanes proved (0 equal DAGs, 0 exhaustive, 4 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.0 -> 0.8
+  avg8 (line 26): 128-bit vectors, 16 lanes of 8 bits (sse2); 16 lanes proved (0 equal DAGs, 16 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.2
+  sat16 (line 32): 128-bit vectors, 4 lanes of 32 bits (sse2 sse4.1), run-time overlap test; 4 lanes proved (0 equal DAGs, 4 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 11.0 -> 2.6
+  xorsum (line 41): 128-bit vectors, 4 lanes of 32 bits (sse2), reductions reassociated (exact mod 2^n); 4 lanes proved (0 equal DAGs, 0 exhaustive, 4 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 2.0 -> 0.3
+  maxv (line 49): 128-bit vectors, 4 lanes of 32 bits (sse2 sse4.1), reductions reassociated (exact mod 2^n); 4 lanes proved (4 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.2
+  sum64 (line 57): 128-bit vectors, 2 lanes of 64 bits (sse2), reductions reassociated (exact mod 2^n); 2 lanes proved (2 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 1.0 -> 0.4
+  iota (line 64): 128-bit vectors, 4 lanes of 32 bits (sse2); 4 lanes proved (0 equal DAGs, 0 exhaustive, 4 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.2 -> 1.0
+  shift_left (line 70): 128-bit vectors, 4 lanes of 32 bits (sse2); 4 lanes proved (4 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 0.0 -> 0.4
+  saxpy (line 6): not lowered: line 6: the function does not return an integer or a float
+  dscale (line 12): not lowered: line 12: the function does not return an integer or a float
+  add32 (line 18): not lowered: line 18: the function does not return an integer or a float
+  avg8 (line 24): not lowered: line 24: the function does not return an integer or a float
+  sat16 (line 30): not lowered: line 30: the function does not return an integer or a float
+  xorsum (line 38): not lowered: line 38: a parameter that is not an integer or a float (a)
+  maxv (line 46): not lowered: line 46: a parameter that is not an integer or a float (a)
+  sum64 (line 54): not lowered: line 54: a parameter that is not an integer or a float (a)
+  iota (line 62): not lowered: line 62: the function does not return an integer or a float
+  shift_left (line 68): not lowered: line 68: the function does not return an integer or a float
+  prefix (line 74): not lowered: line 74: the function does not return an integer or a float
+  prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
+  fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  after (line 88): not lowered: line 88: the function does not return an integer or a float
+  after (line 90): not vectorised: a load after a store to its array
+  inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
+  gath (line 106): not lowered: line 106: the function does not return an integer or a float
+  gath (line 109): not vectorised: a gather other than 32-bit elements in 256/512-bit vectors
+optimised C:
+  /* optimised by ucas cfront for x86-64-v2 (x86-64-v2); every rewrite proved, see the report */
+  #include <immintrin.h>
+  #pragma STDC FP_CONTRACT OFF
+  /* cfront test: loops for the x86 vectoriser (cfx86.c): element-wise,
+   * reductions, widening and narrowing, and loops it must refuse */
+  #include <stdint.h>
+  #include <stddef.h>
+  
+  void saxpy(float *restrict y, const float *restrict x, float a, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128 cf_v0 = _mm_loadu_ps((const void *)((x) + cf_i));
+  		__m128 cf_v1 = _mm_loadu_ps((const void *)((y) + cf_i));
+  		__m128 cf_v2 = _mm_set1_ps((float)(a));
+  		__m128 cf_v3 = _mm_mul_ps(cf_v2, cf_v0);
+  		__m128 cf_v4 = _mm_add_ps(cf_v3, cf_v1);
+  		_mm_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m128 cf_v0 = _mm_loadu_ps((const void *)((x) + cf_i));
+  		__m128 cf_v1 = _mm_loadu_ps((const void *)((y) + cf_i));
+  		__m128 cf_v2 = _mm_set1_ps((float)(a));
+  		__m128 cf_v3 = _mm_mul_ps(cf_v2, cf_v0);
+  		__m128 cf_v4 = _mm_add_ps(cf_v3, cf_v1);
+  		_mm_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128 cf_v0 = _mm_loadu_ps((const void *)((x) + cf_i));
+  		__m128 cf_v1 = _mm_loadu_ps((const void *)((y) + cf_i));
+  		__m128 cf_v2 = _mm_set1_ps((float)(a));
+  		__m128 cf_v3 = _mm_mul_ps(cf_v2, cf_v0);
+  		__m128 cf_v4 = _mm_add_ps(cf_v3, cf_v1);
+  		_mm_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 12;
+  		__m128 cf_v0 = _mm_loadu_ps((const void *)((x) + cf_i));
+  		__m128 cf_v1 = _mm_loadu_ps((const void *)((y) + cf_i));
+  		__m128 cf_v2 = _mm_set1_ps((float)(a));
+  		__m128 cf_v3 = _mm_mul_ps(cf_v2, cf_v0);
+  		__m128 cf_v4 = _mm_add_ps(cf_v3, cf_v1);
+  		_mm_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 4; i += 4) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128 cf_v0 = _mm_loadu_ps((const void *)((x) + cf_i));
+  		__m128 cf_v1 = _mm_loadu_ps((const void *)((y) + cf_i));
+  		__m128 cf_v2 = _mm_set1_ps((float)(a));
+  		__m128 cf_v3 = _mm_mul_ps(cf_v2, cf_v0);
+  		__m128 cf_v4 = _mm_add_ps(cf_v3, cf_v1);
+  		_mm_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const float cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		const float cf_ld1 = (y)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (float)((float)(((float)((a)) * (float)((cf_ld0)))) + (float)((cf_ld1)));
+  	}
+  }
+  }
+  
+  void dscale(double *restrict y, const double *restrict x, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128d cf_v0 = _mm_loadu_pd((const void *)((x) + cf_i));
+  		__m128d cf_v1 = _mm_set1_pd((double)(0.5));
+  		__m128d cf_v2 = _mm_mul_pd(cf_v1, cf_v0);
+  		__m128d cf_v3 = _mm_set1_pd((double)(1));
+  		__m128d cf_v4 = _mm_sub_pd(cf_v2, cf_v3);
+  		_mm_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 2;
+  		__m128d cf_v0 = _mm_loadu_pd((const void *)((x) + cf_i));
+  		__m128d cf_v1 = _mm_set1_pd((double)(0.5));
+  		__m128d cf_v2 = _mm_mul_pd(cf_v1, cf_v0);
+  		__m128d cf_v3 = _mm_set1_pd((double)(1));
+  		__m128d cf_v4 = _mm_sub_pd(cf_v2, cf_v3);
+  		_mm_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m128d cf_v0 = _mm_loadu_pd((const void *)((x) + cf_i));
+  		__m128d cf_v1 = _mm_set1_pd((double)(0.5));
+  		__m128d cf_v2 = _mm_mul_pd(cf_v1, cf_v0);
+  		__m128d cf_v3 = _mm_set1_pd((double)(1));
+  		__m128d cf_v4 = _mm_sub_pd(cf_v2, cf_v3);
+  		_mm_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 6;
+  		__m128d cf_v0 = _mm_loadu_pd((const void *)((x) + cf_i));
+  		__m128d cf_v1 = _mm_set1_pd((double)(0.5));
+  		__m128d cf_v2 = _mm_mul_pd(cf_v1, cf_v0);
+  		__m128d cf_v3 = _mm_set1_pd((double)(1));
+  		__m128d cf_v4 = _mm_sub_pd(cf_v2, cf_v3);
+  		_mm_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 2; i += 2) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128d cf_v0 = _mm_loadu_pd((const void *)((x) + cf_i));
+  		__m128d cf_v1 = _mm_set1_pd((double)(0.5));
+  		__m128d cf_v2 = _mm_mul_pd(cf_v1, cf_v0);
+  		__m128d cf_v3 = _mm_set1_pd((double)(1));
+  		__m128d cf_v4 = _mm_sub_pd(cf_v2, cf_v3);
+  		_mm_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const double cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (double)((double)(((double)(((double)0x1p-1)) * (double)((cf_ld0)))) - (double)(((double)0x1p+0)));
+  	}
+  }
+  }
+  
+  void add32(int32_t *restrict c, const int32_t *restrict a, const int32_t *restrict b, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_add_epi32(cf_v2, cf_v1);
+  		__m128i cf_v4 = _mm_add_epi32(cf_v0, cf_v3);
+  		_mm_storeu_si128((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_add_epi32(cf_v2, cf_v1);
+  		__m128i cf_v4 = _mm_add_epi32(cf_v0, cf_v3);
+  		_mm_storeu_si128((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_add_epi32(cf_v2, cf_v1);
+  		__m128i cf_v4 = _mm_add_epi32(cf_v0, cf_v3);
+  		_mm_storeu_si128((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 12;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_add_epi32(cf_v2, cf_v1);
+  		__m128i cf_v4 = _mm_add_epi32(cf_v0, cf_v3);
+  		_mm_storeu_si128((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 4; i += 4) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_add_epi32(cf_v2, cf_v1);
+  		__m128i cf_v4 = _mm_add_epi32(cf_v0, cf_v3);
+  		_mm_storeu_si128((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int32_t cf_ld0 = (a)[(long)((int64_t)((i)))];
+  		const int32_t cf_ld1 = (b)[(long)((int64_t)((i)))];
+  		(c)[(long)((int64_t)((i)))] = (int)((int32_t)((uint32_t)((cf_ld0)) + (uint32_t)(((int32_t)((uint32_t)(((int32_t)3)) * (uint32_t)((cf_ld1)))))));
+  	}
+  }
+  }
+  
+  void avg8(uint8_t *restrict d, const uint8_t *restrict a, const uint8_t *restrict b, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__SSE2__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_avg_epu8(cf_v0, cf_v1);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 16;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_avg_epu8(cf_v0, cf_v1);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 32;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_avg_epu8(cf_v0, cf_v1);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 48;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_avg_epu8(cf_v0, cf_v1);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 16; i += 16) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_loadu_si128((const void *)((b) + cf_i));
+  		__m128i cf_v2 = _mm_avg_epu8(cf_v0, cf_v1);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (a)[(unsigned long)(i)];
+  		const uint8_t cf_ld1 = (b)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) + (uint32_t)(((int32_t)((cf_ld1))))))) + (uint32_t)(((int32_t)1))))) >> (((int32_t)1))))));
+  	}
+  }
+  }
+  
+  void sat16(int16_t *d, const int16_t *s, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__) && defined(__SSE4_1__)
+  	if (((unsigned long)(const void *)(d) + (unsigned long)(n + 0) * sizeof *(d) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(d) + (unsigned long)(i + 0) * sizeof *(d))) {
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadl_epi64((const void *)((s) + cf_i));
+  		__m128i cf_v1 = _mm_cvtepi16_epi32(cf_v0);
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_set1_epi32((int32_t)(32767LL));
+  		__m128i cf_v4 = _mm_cmpgt_epi32(cf_v2, cf_v3);
+  		__m128i cf_v5 = _mm_set1_epi32((int32_t)(-32768LL));
+  		__m128i cf_v6 = _mm_max_epi32(cf_v2, cf_v5);
+  		__m128i cf_v7 = _mm_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m128i cf_v8 = _mm_slli_epi32(cf_v7, 16);
+  		__m128i cf_v9 = _mm_srai_epi32(cf_v8, 16);
+  		__m128i cf_v10 = _mm_set1_epi32((int32_t)(65535LL));
+  		__m128i cf_v11 = _mm_and_si128(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm_packus_epi32(cf_v11, cf_v11);
+  		_mm_storel_epi64((void *)((d) + cf_i), cf_v12);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m128i cf_v0 = _mm_loadl_epi64((const void *)((s) + cf_i));
+  		__m128i cf_v1 = _mm_cvtepi16_epi32(cf_v0);
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_set1_epi32((int32_t)(32767LL));
+  		__m128i cf_v4 = _mm_cmpgt_epi32(cf_v2, cf_v3);
+  		__m128i cf_v5 = _mm_set1_epi32((int32_t)(-32768LL));
+  		__m128i cf_v6 = _mm_max_epi32(cf_v2, cf_v5);
+  		__m128i cf_v7 = _mm_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m128i cf_v8 = _mm_slli_epi32(cf_v7, 16);
+  		__m128i cf_v9 = _mm_srai_epi32(cf_v8, 16);
+  		__m128i cf_v10 = _mm_set1_epi32((int32_t)(65535LL));
+  		__m128i cf_v11 = _mm_and_si128(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm_packus_epi32(cf_v11, cf_v11);
+  		_mm_storel_epi64((void *)((d) + cf_i), cf_v12);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128i cf_v0 = _mm_loadl_epi64((const void *)((s) + cf_i));
+  		__m128i cf_v1 = _mm_cvtepi16_epi32(cf_v0);
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_set1_epi32((int32_t)(32767LL));
+  		__m128i cf_v4 = _mm_cmpgt_epi32(cf_v2, cf_v3);
+  		__m128i cf_v5 = _mm_set1_epi32((int32_t)(-32768LL));
+  		__m128i cf_v6 = _mm_max_epi32(cf_v2, cf_v5);
+  		__m128i cf_v7 = _mm_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m128i cf_v8 = _mm_slli_epi32(cf_v7, 16);
+  		__m128i cf_v9 = _mm_srai_epi32(cf_v8, 16);
+  		__m128i cf_v10 = _mm_set1_epi32((int32_t)(65535LL));
+  		__m128i cf_v11 = _mm_and_si128(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm_packus_epi32(cf_v11, cf_v11);
+  		_mm_storel_epi64((void *)((d) + cf_i), cf_v12);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 12;
+  		__m128i cf_v0 = _mm_loadl_epi64((const void *)((s) + cf_i));
+  		__m128i cf_v1 = _mm_cvtepi16_epi32(cf_v0);
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_set1_epi32((int32_t)(32767LL));
+  		__m128i cf_v4 = _mm_cmpgt_epi32(cf_v2, cf_v3);
+  		__m128i cf_v5 = _mm_set1_epi32((int32_t)(-32768LL));
+  		__m128i cf_v6 = _mm_max_epi32(cf_v2, cf_v5);
+  		__m128i cf_v7 = _mm_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m128i cf_v8 = _mm_slli_epi32(cf_v7, 16);
+  		__m128i cf_v9 = _mm_srai_epi32(cf_v8, 16);
+  		__m128i cf_v10 = _mm_set1_epi32((int32_t)(65535LL));
+  		__m128i cf_v11 = _mm_and_si128(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm_packus_epi32(cf_v11, cf_v11);
+  		_mm_storel_epi64((void *)((d) + cf_i), cf_v12);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 4; i += 4) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadl_epi64((const void *)((s) + cf_i));
+  		__m128i cf_v1 = _mm_cvtepi16_epi32(cf_v0);
+  		__m128i cf_v2 = _mm_slli_epi32(cf_v1, 1);
+  		__m128i cf_v3 = _mm_set1_epi32((int32_t)(32767LL));
+  		__m128i cf_v4 = _mm_cmpgt_epi32(cf_v2, cf_v3);
+  		__m128i cf_v5 = _mm_set1_epi32((int32_t)(-32768LL));
+  		__m128i cf_v6 = _mm_max_epi32(cf_v2, cf_v5);
+  		__m128i cf_v7 = _mm_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m128i cf_v8 = _mm_slli_epi32(cf_v7, 16);
+  		__m128i cf_v9 = _mm_srai_epi32(cf_v8, 16);
+  		__m128i cf_v10 = _mm_set1_epi32((int32_t)(65535LL));
+  		__m128i cf_v11 = _mm_and_si128(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm_packus_epi32(cf_v11, cf_v11);
+  		_mm_storel_epi64((void *)((d) + cf_i), cf_v12);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int16_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+  		(d)[(long)((int64_t)((i)))] = (short)((int16_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) > (int32_t)(((int32_t)32767)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)32767)) : (int32_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) < (int32_t)(((int32_t)-32768)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)-32768)) : (int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))))))));
+  	}
+  }
+  }
+  
+  uint32_t xorsum(const uint32_t *a, int n)
+  {
+  	uint32_t x = 0;
+  	{
+  	int i = 0;
+  #if defined(__SSE2__)
+  	{
+  	__m128i cf_acc0_0 = _mm_set1_epi32((int32_t)0);
+  	__m128i cf_acc0_1 = _mm_set1_epi32((int32_t)0);
+  	__m128i cf_acc0_2 = _mm_set1_epi32((int32_t)0);
+  	__m128i cf_acc0_3 = _mm_set1_epi32((int32_t)0);
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_srli_epi32(cf_v0, 3);
+  		cf_acc0_0 = _mm_xor_si128(cf_acc0_0, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 4;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_srli_epi32(cf_v0, 3);
+  		cf_acc0_1 = _mm_xor_si128(cf_acc0_1, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_srli_epi32(cf_v0, 3);
+  		cf_acc0_2 = _mm_xor_si128(cf_acc0_2, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 12;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((a) + cf_i));
+  		__m128i cf_v1 = _mm_srli_epi32(cf_v0, 3);
+  		cf_acc0_3 = _mm_xor_si128(cf_acc0_3, cf_v1);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 4; i += 4) {
+  	    {
+  ...
+> c optimize cfront/vec.c nofile target x86-64-v4
+c optimize: 15 functions, 11 rewrites proved (0 exhaustive, 0 by SAT, 11 by lanes) for x86-64-v4
+  estimated cost of the rewritten values on x86-64-v4: 45.8 -> 6.2 cycles
+  saxpy (line 8): 512-bit vectors, 16 lanes of 32 bits (avx512f); 16 lanes proved (16 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 0.5
+  dscale (line 14): 512-bit vectors, 8 lanes of 64 bits (avx512f); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 1.1
+  add32 (line 20): 512-bit vectors, 16 lanes of 32 bits (avx512f); 16 lanes proved (0 equal DAGs, 0 exhaustive, 16 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.0 -> 0.4
+  avg8 (line 26): 512-bit vectors, 64 lanes of 8 bits (avx512f avx512bw); 64 lanes proved (0 equal DAGs, 64 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.1
+  sat16 (line 32): 256-bit vectors, 8 lanes of 32 bits (sse2 sse4.1 avx avx2), run-time overlap test; 8 lanes proved (0 equal DAGs, 0 exhaustive, 8 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 11.0 -> 1.7
+  xorsum (line 41): 512-bit vectors, 16 lanes of 32 bits (avx512f), reductions reassociated (exact mod 2^n); 16 lanes proved (0 equal DAGs, 0 exhaustive, 16 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 2.0 -> 0.2
+  maxv (line 49): 512-bit vectors, 16 lanes of 32 bits (avx512f), reductions reassociated (exact mod 2^n); 16 lanes proved (16 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.8 -> 0.1
+  sum64 (line 57): 512-bit vectors, 8 lanes of 64 bits (avx512f), reductions reassociated (exact mod 2^n); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 1.0 -> 0.2
+  iota (line 64): 512-bit vectors, 16 lanes of 32 bits (avx512f); 16 lanes proved (0 equal DAGs, 0 exhaustive, 16 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 4.2 -> 0.5
+  shift_left (line 70): 512-bit vectors, 16 lanes of 32 bits (avx512f); 16 lanes proved (16 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 0.0 -> 0.2
+  gath (line 109): 512-bit vectors, 16 lanes of 32 bits (avx512f); 16 lanes proved (32 equal DAGs, 0 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 0.0 -> 1.3
+  saxpy (line 6): not lowered: line 6: the function does not return an integer or a float
+  dscale (line 12): not lowered: line 12: the function does not return an integer or a float
+  add32 (line 18): not lowered: line 18: the function does not return an integer or a float
+  avg8 (line 24): not lowered: line 24: the function does not return an integer or a float
+  sat16 (line 30): not lowered: line 30: the function does not return an integer or a float
+  xorsum (line 38): not lowered: line 38: a parameter that is not an integer or a float (a)
+  maxv (line 46): not lowered: line 46: a parameter that is not an integer or a float (a)
+  sum64 (line 54): not lowered: line 54: a parameter that is not an integer or a float (a)
+  iota (line 62): not lowered: line 62: the function does not return an integer or a float
+  shift_left (line 68): not lowered: line 68: the function does not return an integer or a float
+  prefix (line 74): not lowered: line 74: the function does not return an integer or a float
+  prefix (line 76): not vectorised: a store feeds a later iteration's load (a loop-carried dependence)
+  fsum (line 80): not lowered: line 80: a parameter that is not an integer or a float (a)
+  fsum (line 83): not vectorised: a float reduction (reassociating it changes the rounding)
+  after (line 88): not lowered: line 88: the function does not return an integer or a float
+  after (line 90): not vectorised: a load after a store to its array
+  inplace2 (line 95): not lowered: line 95: the function does not return an integer or a float
+  gath (line 106): not lowered: line 106: the function does not return an integer or a float
+optimised C:
+  /* optimised by ucas cfront for x86-64-v4 (x86-64-v4); every rewrite proved, see the report */
+  #include <immintrin.h>
+  #pragma STDC FP_CONTRACT OFF
+  /* cfront test: loops for the x86 vectoriser (cfx86.c): element-wise,
+   * reductions, widening and narrowing, and loops it must refuse */
+  #include <stdint.h>
+  #include <stddef.h>
+  
+  void saxpy(float *restrict y, const float *restrict x, float a, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 64; i += 64) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512 cf_v0 = _mm512_loadu_ps((const void *)((x) + cf_i));
+  		__m512 cf_v1 = _mm512_loadu_ps((const void *)((y) + cf_i));
+  		__m512 cf_v2 = _mm512_set1_ps((float)(a));
+  		__m512 cf_v3 = _mm512_mul_ps(cf_v2, cf_v0);
+  		__m512 cf_v4 = _mm512_add_ps(cf_v3, cf_v1);
+  		_mm512_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m512 cf_v0 = _mm512_loadu_ps((const void *)((x) + cf_i));
+  		__m512 cf_v1 = _mm512_loadu_ps((const void *)((y) + cf_i));
+  		__m512 cf_v2 = _mm512_set1_ps((float)(a));
+  		__m512 cf_v3 = _mm512_mul_ps(cf_v2, cf_v0);
+  		__m512 cf_v4 = _mm512_add_ps(cf_v3, cf_v1);
+  		_mm512_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 32;
+  		__m512 cf_v0 = _mm512_loadu_ps((const void *)((x) + cf_i));
+  		__m512 cf_v1 = _mm512_loadu_ps((const void *)((y) + cf_i));
+  		__m512 cf_v2 = _mm512_set1_ps((float)(a));
+  		__m512 cf_v3 = _mm512_mul_ps(cf_v2, cf_v0);
+  		__m512 cf_v4 = _mm512_add_ps(cf_v3, cf_v1);
+  		_mm512_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 48;
+  		__m512 cf_v0 = _mm512_loadu_ps((const void *)((x) + cf_i));
+  		__m512 cf_v1 = _mm512_loadu_ps((const void *)((y) + cf_i));
+  		__m512 cf_v2 = _mm512_set1_ps((float)(a));
+  		__m512 cf_v3 = _mm512_mul_ps(cf_v2, cf_v0);
+  		__m512 cf_v4 = _mm512_add_ps(cf_v3, cf_v1);
+  		_mm512_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512 cf_v0 = _mm512_loadu_ps((const void *)((x) + cf_i));
+  		__m512 cf_v1 = _mm512_loadu_ps((const void *)((y) + cf_i));
+  		__m512 cf_v2 = _mm512_set1_ps((float)(a));
+  		__m512 cf_v3 = _mm512_mul_ps(cf_v2, cf_v0);
+  		__m512 cf_v4 = _mm512_add_ps(cf_v3, cf_v1);
+  		_mm512_storeu_ps((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const float cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		const float cf_ld1 = (y)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (float)((float)(((float)((a)) * (float)((cf_ld0)))) + (float)((cf_ld1)));
+  	}
+  }
+  }
+  
+  void dscale(double *restrict y, const double *restrict x, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512d cf_v0 = _mm512_loadu_pd((const void *)((x) + cf_i));
+  		__m512d cf_v1 = _mm512_set1_pd((double)(0.5));
+  		__m512d cf_v2 = _mm512_mul_pd(cf_v1, cf_v0);
+  		__m512d cf_v3 = _mm512_set1_pd((double)(1));
+  		__m512d cf_v4 = _mm512_sub_pd(cf_v2, cf_v3);
+  		_mm512_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m512d cf_v0 = _mm512_loadu_pd((const void *)((x) + cf_i));
+  		__m512d cf_v1 = _mm512_set1_pd((double)(0.5));
+  		__m512d cf_v2 = _mm512_mul_pd(cf_v1, cf_v0);
+  		__m512d cf_v3 = _mm512_set1_pd((double)(1));
+  		__m512d cf_v4 = _mm512_sub_pd(cf_v2, cf_v3);
+  		_mm512_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m512d cf_v0 = _mm512_loadu_pd((const void *)((x) + cf_i));
+  		__m512d cf_v1 = _mm512_set1_pd((double)(0.5));
+  		__m512d cf_v2 = _mm512_mul_pd(cf_v1, cf_v0);
+  		__m512d cf_v3 = _mm512_set1_pd((double)(1));
+  		__m512d cf_v4 = _mm512_sub_pd(cf_v2, cf_v3);
+  		_mm512_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 24;
+  		__m512d cf_v0 = _mm512_loadu_pd((const void *)((x) + cf_i));
+  		__m512d cf_v1 = _mm512_set1_pd((double)(0.5));
+  		__m512d cf_v2 = _mm512_mul_pd(cf_v1, cf_v0);
+  		__m512d cf_v3 = _mm512_set1_pd((double)(1));
+  		__m512d cf_v4 = _mm512_sub_pd(cf_v2, cf_v3);
+  		_mm512_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512d cf_v0 = _mm512_loadu_pd((const void *)((x) + cf_i));
+  		__m512d cf_v1 = _mm512_set1_pd((double)(0.5));
+  		__m512d cf_v2 = _mm512_mul_pd(cf_v1, cf_v0);
+  		__m512d cf_v3 = _mm512_set1_pd((double)(1));
+  		__m512d cf_v4 = _mm512_sub_pd(cf_v2, cf_v3);
+  		_mm512_storeu_pd((void *)((y) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const double cf_ld0 = (x)[(long)((int64_t)((i)))];
+  		(y)[(long)((int64_t)((i)))] = (double)((double)(((double)(((double)0x1p-1)) * (double)((cf_ld0)))) - (double)(((double)0x1p+0)));
+  	}
+  }
+  }
+  
+  void add32(int32_t *restrict c, const int32_t *restrict a, const int32_t *restrict b, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 64; i += 64) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_slli_epi32(cf_v1, 1);
+  		__m512i cf_v3 = _mm512_add_epi32(cf_v2, cf_v1);
+  		__m512i cf_v4 = _mm512_add_epi32(cf_v0, cf_v3);
+  		_mm512_storeu_si512((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_slli_epi32(cf_v1, 1);
+  		__m512i cf_v3 = _mm512_add_epi32(cf_v2, cf_v1);
+  		__m512i cf_v4 = _mm512_add_epi32(cf_v0, cf_v3);
+  		_mm512_storeu_si512((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 32;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_slli_epi32(cf_v1, 1);
+  		__m512i cf_v3 = _mm512_add_epi32(cf_v2, cf_v1);
+  		__m512i cf_v4 = _mm512_add_epi32(cf_v0, cf_v3);
+  		_mm512_storeu_si512((void *)((c) + cf_i), cf_v4);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 48;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_slli_epi32(cf_v1, 1);
+  		__m512i cf_v3 = _mm512_add_epi32(cf_v2, cf_v1);
+  		__m512i cf_v4 = _mm512_add_epi32(cf_v0, cf_v3);
+  		_mm512_storeu_si512((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 16; i += 16) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_slli_epi32(cf_v1, 1);
+  		__m512i cf_v3 = _mm512_add_epi32(cf_v2, cf_v1);
+  		__m512i cf_v4 = _mm512_add_epi32(cf_v0, cf_v3);
+  		_mm512_storeu_si512((void *)((c) + cf_i), cf_v4);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int32_t cf_ld0 = (a)[(long)((int64_t)((i)))];
+  		const int32_t cf_ld1 = (b)[(long)((int64_t)((i)))];
+  		(c)[(long)((int64_t)((i)))] = (int)((int32_t)((uint32_t)((cf_ld0)) + (uint32_t)(((int32_t)((uint32_t)(((int32_t)3)) * (uint32_t)((cf_ld1)))))));
+  	}
+  }
+  }
+  
+  void avg8(uint8_t *restrict d, const uint8_t *restrict a, const uint8_t *restrict b, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__AVX512F__) && defined(__AVX512BW__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 256; i += 256) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_avg_epu8(cf_v0, cf_v1);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_avg_epu8(cf_v0, cf_v1);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 128;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_avg_epu8(cf_v0, cf_v1);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v2);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 192;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_avg_epu8(cf_v0, cf_v1);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_loadu_si512((const void *)((b) + cf_i));
+  		__m512i cf_v2 = _mm512_avg_epu8(cf_v0, cf_v1);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v2);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (a)[(unsigned long)(i)];
+  		const uint8_t cf_ld1 = (b)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) + (uint32_t)(((int32_t)((cf_ld1))))))) + (uint32_t)(((int32_t)1))))) >> (((int32_t)1))))));
+  	}
+  }
+  }
+  
+  void sat16(int16_t *d, const int16_t *s, int n)
+  {
+  	{
+  	int i = 0;
+  #if defined(__SSE2__) && defined(__SSE4_1__) && defined(__AVX__) && defined(__AVX2__)
+  	if (((unsigned long)(const void *)(d) + (unsigned long)(n + 0) * sizeof *(d) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(d) + (unsigned long)(i + 0) * sizeof *(d))) {
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 8;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 24;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 8; i += 8) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m128i cf_v0 = _mm_loadu_si128((const void *)((s) + cf_i));
+  		__m256i cf_v1 = _mm256_cvtepi16_epi32(cf_v0);
+  		__m256i cf_v2 = _mm256_slli_epi32(cf_v1, 1);
+  		__m256i cf_v3 = _mm256_set1_epi32((int32_t)(32767LL));
+  		__m256i cf_v4 = _mm256_cmpgt_epi32(cf_v2, cf_v3);
+  		__m256i cf_v5 = _mm256_set1_epi32((int32_t)(-32768LL));
+  		__m256i cf_v6 = _mm256_max_epi32(cf_v2, cf_v5);
+  		__m256i cf_v7 = _mm256_blendv_epi8(cf_v6, cf_v3, cf_v4);
+  		__m256i cf_v8 = _mm256_slli_epi32(cf_v7, 16);
+  		__m256i cf_v9 = _mm256_srai_epi32(cf_v8, 16);
+  		__m256i cf_v10 = _mm256_set1_epi32((int32_t)(65535LL));
+  		__m256i cf_v11 = _mm256_and_si256(cf_v9, cf_v10);
+  		__m128i cf_v12 = _mm256_extracti128_si256(cf_v11, 0);
+  		__m128i cf_v13 = _mm256_extracti128_si256(cf_v11, 1);
+  		__m128i cf_v14 = _mm_packus_epi32(cf_v12, cf_v13);
+  		_mm_storeu_si128((void *)((d) + cf_i), cf_v14);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const int16_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+  		(d)[(long)((int64_t)((i)))] = (short)((int16_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) > (int32_t)(((int32_t)32767)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)32767)) : (int32_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))) < (int32_t)(((int32_t)-32768)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)-32768)) : (int32_t)(((int32_t)((uint32_t)(((int32_t)2)) * (uint32_t)(((int32_t)((cf_ld0))))))))))));
+  	}
+  }
+  }
+  
+  uint32_t xorsum(const uint32_t *a, int n)
+  {
+  	uint32_t x = 0;
+  	{
+  	int i = 0;
+  #if defined(__AVX512F__)
+  	{
+  	__m512i cf_acc0_0 = _mm512_set1_epi32((int32_t)0);
+  	__m512i cf_acc0_1 = _mm512_set1_epi32((int32_t)0);
+  	__m512i cf_acc0_2 = _mm512_set1_epi32((int32_t)0);
+  	__m512i cf_acc0_3 = _mm512_set1_epi32((int32_t)0);
+  	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 64; i += 64) {
+  	    {
+  		const int32_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_srli_epi32(cf_v0, 3);
+  		cf_acc0_0 = _mm512_xor_si512(cf_acc0_0, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 16;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_srli_epi32(cf_v0, 3);
+  		cf_acc0_1 = _mm512_xor_si512(cf_acc0_1, cf_v1);
+  	    }
+  	    {
+  		const int32_t cf_i = i + 32;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((a) + cf_i));
+  		__m512i cf_v1 = _mm512_srli_epi32(cf_v0, 3);
+  		cf_acc0_2 = _mm512_xor_si512(cf_acc0_2, cf_v1);
+  ...
 > c optimize cfront/float.c nofile budget 120
 c optimize: 9 functions, 7 rewrites proved (1 exhaustive, 0 by SAT, 5 by algebra, 1 by lanes) for x86-64-v3
   estimated cost of the rewritten values on x86-64-v3: 87.2 -> 22.9 cycles

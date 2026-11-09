@@ -131,6 +131,16 @@ static const struct group groups[] = {
 	    "become strlen; c_lower shows each loop's IR for the vectoriser; "
 	    "optional differential test and rdtsc benchmark with the host cc.",
 	    "c_optimize c_lower c_targets"},
+	{"x86", "x86-64 costs and intrinsics",
+	    "x86-64 cost models per µarch (Skylake, Skylake-X, Golden Cove, "
+	    "Raptor Lake, Zen 4, x86-64-v2/v3/v4; numbers typed from uops.info, "
+	    "Agner Fog and the vendor manuals, a few measured on this host, "
+	    "the rest estimates, each row tagged), a cycle-level throughput "
+	    "estimate of a function's x86 code (mca), and the intrinsics "
+	    "catalogue (SSE2 .. AVX-512, BMI, GFNI, AES, CLMUL) with exact "
+	    "lane semantics as ucas expressions, tested against the C "
+	    "compiler (x86check).",
+	    "x86_models x86_model mca intrinsic intrinsics x86check"},
 	{"abstract_algebra", "Abstract algebra, exactly",
 	    "Exact algebra with certificates: integers of any size (bigint), "
 	    "integer matrices (Smith and Hermite forms with unimodular "

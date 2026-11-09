@@ -301,3 +301,249 @@ mca of d on zen4 (znver4)
   port pressure: ALU0 1.50 ALU1 11.00 ALU2 3.00 ALU3 1.50
   bounds: critical path 16.00, ports 11.00 (ALU1), front end 1.50 (9 uops / 6)
   simulated: 25.00 cycles, limited by the critical path
+> intrinsics
+2585 intrinsics; by feature: sse2 194 sse3 9 ssse3 15 sse4.1 46 sse4.2 5 popcnt 2 lzcnt 2 bmi 12 bmi2 8 avx 96 avx2 150 fma 30 pclmul 1 aes 5 adx 2 gfni 27 avx512f 1205 avx512bw 651 avx512dq 77 avx512vl 1204 avx512cd 18 avx512vbmi 12 avx512vpopcntdq 18 avx512bitalg 18 vpclmulqdq 2
+> intrinsics gfni
+  _mm_gf2p8affine_epi64_epi8
+  _mm_mask_gf2p8affine_epi64_epi8
+  _mm_maskz_gf2p8affine_epi64_epi8
+  _mm256_gf2p8affine_epi64_epi8
+  _mm256_mask_gf2p8affine_epi64_epi8
+  _mm256_maskz_gf2p8affine_epi64_epi8
+  _mm512_gf2p8affine_epi64_epi8
+  _mm512_mask_gf2p8affine_epi64_epi8
+  _mm512_maskz_gf2p8affine_epi64_epi8
+  _mm_gf2p8affineinv_epi64_epi8
+  _mm_mask_gf2p8affineinv_epi64_epi8
+  _mm_maskz_gf2p8affineinv_epi64_epi8
+  _mm256_gf2p8affineinv_epi64_epi8
+  _mm256_mask_gf2p8affineinv_epi64_epi8
+  _mm256_maskz_gf2p8affineinv_epi64_epi8
+  _mm512_gf2p8affineinv_epi64_epi8
+  _mm512_mask_gf2p8affineinv_epi64_epi8
+  _mm512_maskz_gf2p8affineinv_epi64_epi8
+  _mm_gf2p8mul_epi8
+  _mm_mask_gf2p8mul_epi8
+  _mm_maskz_gf2p8mul_epi8
+  _mm256_gf2p8mul_epi8
+  _mm256_mask_gf2p8mul_epi8
+  _mm256_maskz_gf2p8mul_epi8
+  _mm512_gf2p8mul_epi8
+  _mm512_mask_gf2p8mul_epi8
+  _mm512_maskz_gf2p8mul_epi8
+27 intrinsics matching gfni; by feature: avx 3 gfni 27 avx512f 21 avx512vl 12
+> intrinsic _mm256_add_epi16
+__m256i _mm256_add_epi16(__m256i a, __m256i b)
+  needs: avx2
+  class: vpaddd (paddb/w/d/q psub pand pandn por pxor)
+  semantics (each lane i of 16): a + b
+  lanes (operand lanes named a0, b3 ...):
+    r0 = a0 + b0
+    r15 = a15 + b15
+  cost       lat   rtp uops  ports
+  skl          1  0.33    1  p015
+  skx          1  0.33    1  p015
+  glc          1  0.33    1  p015
+  rpl          1  0.33    1  p015
+  zen4         1  0.25    1  FP0 FP1 FP2 FP3
+  x86v3        1  0.33    1  p015
+  x86v4        1  0.33    1  p015
+> intrinsic _mm_ternarylogic_epi32 on skx
+__m128i _mm_ternarylogic_epi32(__m128i a, __m128i b, __m128i c, const int d)
+  needs: avx512f avx512vl
+  class: vpternlogd (vpternlogd/q)
+  semantics (each lane i of 4): or(j, 0, 7, bit(imm, j) ? (bit(j, 2) ? a : ~a) & (bit(j, 1) ? b : ~b) & (bit(j, 0) ? c : ~c) : 0)
+  lanes with imm = 0x1b (operand lanes named a0, b3 ...):
+    r0 = t1 & ~c0 | t1 & c0 | ~a0 & b0 & c0 | a0 & ~b0 & ~c0 where t1 = ~a0 & ~b0
+    r3 = t1 & ~c3 | t1 & c3 | ~a3 & b3 & c3 | a3 & ~b3 & ~c3 where t1 = ~a3 & ~b3
+  cost       lat   rtp uops  ports
+  skx          1  0.33    1  p015
+> intrinsic _mm256_fmadd_ps on zen4
+__m256 _mm256_fmadd_ps(__m256 a, __m256 b, __m256 c)
+  needs: fma
+  class: vfmadd (vfmadd/vfmsub/vfnmadd 132/213/231)
+  semantics (each lane i of 8): fma(a, b, c)
+  lanes (operand lanes named a0, b3 ...):
+    r0 = fma(a0, b0, c0)
+    r7 = fma(a7, b7, c7)
+  cost       lat   rtp uops  ports
+  zen4         4   0.5    1  FP0 FP1
+> intrinsic _mm256_madd_epi16
+__m256i _mm256_madd_epi16(__m256i a, __m256i b)
+  needs: avx2
+  class: vpmullw (pmullw pmulhw pmulhuw pmulhrsw pmuludq pmuldq pmaddwd pmaddubsw)
+  semantics (each lane i of 8): int(a[2*i]) * int(b[2*i]) + int(a[2*i+1]) * int(b[2*i+1])
+  lanes (operand lanes named a0, b3 ...):
+    r0 = i32(int(a0)*int(b0) + int(a1)*int(b1))
+    r7 = i32(int(a14)*int(b14) + int(a15)*int(b15))
+  cost       lat   rtp uops  ports
+  skl          5   0.5    1  p01
+  skx          5   0.5    1  p01
+  glc          5   0.5    1  p01
+  rpl          5   0.5    1  p01
+  zen4         3   0.5    1  FP0 FP3
+  x86v3        5   0.5    1  p01
+  x86v4        5   0.5    1  p01
+> intrinsic _mm512_mask_add_epi32
+__m512i _mm512_mask_add_epi32(__m512i a, __mmask16 b, __m512i c, __m512i d)
+  needs: avx512f
+  class: vpaddd (paddb/w/d/q psub pand pandn por pxor)
+  semantics: r = k[i] ? base : src (the first operand), base _mm512_add_epi32: a + b
+  lanes (operand lanes named a0, b3 ...):
+    r0 = b & 1 != 0 ? c0 + d0 : a0
+    r15 = b >> 15 & 1 != 0 ? c15 + d15 : a15
+  cost       lat   rtp uops  ports
+  skx          1 0.495    1  p05
+  glc          1 0.495    1  p05
+  zen4         1   0.5    1  FP0 FP1 FP2 FP3
+  x86v4        1   0.5    1  p05
+> intrinsic _mm256_loadu_si256
+__m256i _mm256_loadu_si256(void * a)
+  needs: avx
+  class: vmovdqu ld (vmovdqu/vmovups load)
+  memory: a is the 64 bytes at the pointer, its lanes a[0] .. a[7] (i64)
+  semantics (each lane i of 4): a
+  lanes (operand lanes named a0, b3 ...):
+    r0 = a[0]
+    r3 = a[3]
+  cost       lat   rtp uops  ports
+  skl          7   0.5    1  p23
+  skx          7   0.5    1  p23
+  glc          7  0.33    1  p23 p11
+  rpl          7  0.33    1  p23 p11
+  zen4         7   0.5    1  AGU0 AGU1 AGU2
+  x86v3        7   0.5    1  p23
+  x86v4        7   0.5    1  p23
+> intrinsic _mm_storeu_si128
+void _mm_storeu_si128(void * a, __m128i b)
+  needs: sse2
+  class: vmovdqu st (vmovdqu/vmovups store)
+  memory: a is the 64 bytes at the pointer, its lanes a[0] .. a[7] (i64); the result r is that memory after the store
+  semantics (each lane i of 8): i < 2 ? b : a
+  lanes (operand lanes named a0, b3 ...):
+    r0 = b0
+    r7 = a[7]
+  cost       lat   rtp uops  ports
+  skx          1     1    1  p4
+  glc          1     1    1  p49
+  zen4         1     2    1  AGU1 AGU2
+  x86v4        1     2    1  p4
+> intrinsic _mm256_maskstore_epi32
+void _mm256_maskstore_epi32(void * a, __m256i b, __m256i c)
+  needs: avx2
+  class: vpmaskmovd st (vpmaskmovd vmaskmovps store)
+  memory: a is the 64 bytes at the pointer, its lanes a[0] .. a[15] (i32); the result r is that memory after the store
+  semantics (each lane i of 16): i < 8 ? (b < 0 ? c : a) : a
+  lanes (operand lanes named a0, b3 ...):
+    r0 = b0 < 0 ? c0 : a[0]
+    r15 = a[15]
+  cost       lat   rtp uops  ports
+  skx          1     1    3  p0457
+  glc          1     1    3  p0459
+  zen4         1    12    4  AGU1 AGU2
+  x86v4        1    12    3  p0457
+> intrinsic _mm256_i32gather_epi32
+__m256i _mm256_i32gather_epi32(void * a, __m256i b, const int c)
+  needs: avx2
+  class: vpgatherdd (vpgatherdd vgatherdps (all lanes active))
+  memory: a is the 64 bytes at the pointer, its lanes a[0] .. a[15] (i32); a gather's scale must be a multiple of the element size
+  semantics (each lane i of 8): a[int(b) * imm / 4]
+  lanes with imm = 4 (operand lanes named a0, b3 ...):
+    r0 = [a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]][4int(b0)/4]
+    r7 = [a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]][4int(b7)/4]
+  cost       lat   rtp uops  ports
+  skl         22     5    4  p0235
+  skx         22     5    4  p0235
+  glc         22     5    5  p0235 p11
+  rpl         22     5    5  p0235 p11
+  zen4        22     8   17  AGU0 AGU1 AGU2
+  x86v3       22     8    4  p0235
+  x86v4       22     8    4  p0235
+> maj(a: u1, b: u1, c: u1) = (a & b) | (a & c) | (b & c)
+> gates maj basis x86bmi
+gates for maj: 3 input bits -> 1 output bit, basis x86bmi
+  minimal: cost 4, 4 steps (no program of cost <= 3 exists; 18524 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = and(a, b)               = a & b
+  t1 = or(a, b)                = a | b
+  t2 = and(c, t1)               = c & t1
+  t3 = or(t0, t2)                = t0 | t2
+  r0 = t3
+> gates maj basis avx512
+gates for maj: 3 input bits -> 1 output bit, basis avx512
+  minimal: cost 1, 1 step (no program of cost <= 0 exists; 1 candidates searched)
+  checked: the program reproduces every output bit on all 8 care inputs
+  t0 = ternlog(a, b, c, 0xe8)       = (~c & b & a) | (c & ~b & a) | (c & b & ~a) | (c & b & a)
+  r0 = t0
+> add2(a: u2, b: u2) = a + b
+> gates add2 basis avx512
+gates for add2: 4 input bits -> 2 output bits, basis avx512
+  minimal: cost 3, 3 steps (no program of cost <= 2 exists; 120970 candidates searched)
+  checked: the program reproduces every output bit on all 16 care inputs
+  t0 = ternlog(a0, a1, b0, 0x36)       = (~b0 & ~a1 & a0) | (~b0 & a1 & ~a0) | (b0 & ~a1 & ~a0) | (b0 & ~a1 & a0)
+  t1 = ternlog(a0, a1, b0, 0x5a)       = (~b0 & ~a1 & a0) | (~b0 & a1 & a0) | (b0 & ~a1 & ~a0) | (b0 & a1 & ~a0)
+  t2 = ternlog(b1, t0, t1, 0x96)       = (~t1 & ~t0 & b1) | (~t1 & t0 & ~b1) | (t1 & ~t0 & ~b1) | (t1 & t0 & b1)
+  r1 = t2
+  r0 = t1
+> mux4(s: u2, x: u4) = (x >> s) & 1
+> gates mux4 basis avx512 as c
+gates for mux4: 6 input bits -> 4 output bits (3 constant), basis avx512
+  minimal: cost 3, 3 steps (no program of cost <= 2 exists; 7289084 candidates searched)
+  checked: the program reproduces every output bit on all 64 care inputs
+  t0 = ternlog(s0, x0, x1, 0x53)       = (~x1 & ~x0 & ~s0) | (~x1 & ~x0 & s0) | (~x1 & x0 & s0) | (x1 & ~x0 & ~s0)
+  t1 = ternlog(s0, x2, x3, 0x53)       = (~x3 & ~x2 & ~s0) | (~x3 & ~x2 & s0) | (~x3 & x2 & s0) | (x3 & ~x2 & ~s0)
+  t2 = ternlog(s1, t0, t1, 0x53)       = (~t1 & ~t0 & ~s1) | (~t1 & ~t0 & s1) | (~t1 & t0 & s1) | (t1 & ~t0 & ~s1)
+  r3 = 0
+  r2 = 0
+  r1 = 0
+  r0 = t2
+
+/* mux4, basis avx512: bits are independent lanes, so the same code also
+   runs bit-sliced on whole words */
+static inline uint32_t
+mux4_gates(uint32_t s, uint32_t x)
+{
+	uint32_t s0 = s >> 0 & 1;
+	uint32_t s1 = s >> 1 & 1;
+	uint32_t x0 = x >> 0 & 1;
+	uint32_t x1 = x >> 1 & 1;
+	uint32_t x2 = x >> 2 & 1;
+	uint32_t x3 = x >> 3 & 1;
+	uint32_t t0 = ((~x1 & ~x0 & ~s0) | (~x1 & ~x0 & s0) | (~x1 & x0 & s0) | (x1 & ~x0 & ~s0)) & 1;
+	uint32_t t1 = ((~x3 & ~x2 & ~s0) | (~x3 & ~x2 & s0) | (~x3 & x2 & s0) | (x3 & ~x2 & ~s0)) & 1;
+	uint32_t t2 = ((~t1 & ~t0 & ~s1) | (~t1 & ~t0 & s1) | (~t1 & t0 & s1) | (t1 & ~t0 & ~s1)) & 1;
+	return (t2 & 1) << 0;
+}
+> use skl
+cost model: skl
+> k(x: u32) = x & (x - 1)
+> find k
+find k: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from skl
+  cost 1   x & x - 1                                blsr (proved by SAT)
+  cost 2   x - (x & -x)                             exact (proved by SAT)
+  cost 2   x & x + 4294967295                       exact (proved by SAT)
+  cost 2   x & (x & x - 1)                          exact (proved by SAT)
+  cost 2   x xor x & -x                             exact (proved by SAT)
+  [searched every term up to cost 2: 2983 distinct columns; 'more' continues]
+> a(x: u32, y: u32) = ~x & y
+> find a
+find a: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from skl
+  cost 1   ~x & y                                   andn (proved by SAT)
+  cost 2   y - (x & y)                              exact (proved by SAT)
+  cost 2   (x | y) - x                              exact (proved by SAT)
+  cost 2   y & (x xor y)                            exact (proved by SAT)
+  cost 2   y & (~x & y)                             exact (proved by SAT)
+  [searched every term up to cost 2: 7483 distinct columns; 'more' continues]
+> e(x: u16) = ((x >> 3) & 7) | ((x >> 6) & 0x38)
+> find e
+find e: 1024 points (sampled; matches verified on the whole domain), computing in u16, costs from skl
+  cost 3   x >> 3 & 7 | x >> 6 & 0x38               pext(x, 0xe38)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> d(x: u8) = ((x & 3) << 1) | ((x & 12) << 3)
+> find d
+find d: 256 points, computing in u8, costs from skl
+  cost 3   x << 1 & 6 | x << 3 & 0x60               pdep(x, 0x66)
+  cost 5   [0, 2, 4, 6, 32, 34, 36, 38, 64, 66, 68, 70, 96, 98, 100, 102, 0, 2, 4, 6, 32, 34, 36, 38, 64, 66, 68, 70, 96, 98, 100, 102, 0, 2, 4, 6, 32, 34, 36, 38, 64, 66, 68, 70, 96, 98, 100, 102, 0, 2, 4, 6, 32, 34, 36, 38, 64, 66, 68, 70, 96, 98, 100, 102, 0, 2, 4, 6, 32, 34, 36, 38, 64, 66, 68, 70, 96, 98,… (695 more characters) lookup table (baseline)
+  [searched every term up to cost 3: 65536 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

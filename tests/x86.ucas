@@ -15,3 +15,40 @@ mca h on glc
 d(x: u64, y: u64) = x / (y + 1) + x % 10
 mca d on skl
 mca d on zen4
+#
+# the intrinsics catalogue, x86 gate bases and find (x86check needs the
+# host cc: not run here)
+# intrinsics: semantics per lane, features, costs
+intrinsics
+intrinsics gfni
+intrinsic _mm256_add_epi16
+intrinsic _mm_ternarylogic_epi32 on skx
+intrinsic _mm256_fmadd_ps on zen4
+intrinsic _mm256_madd_epi16
+intrinsic _mm512_mask_add_epi32
+# memory: the 64-byte window at the pointer
+intrinsic _mm256_loadu_si256
+intrinsic _mm_storeu_si128
+intrinsic _mm256_maskstore_epi32
+intrinsic _mm256_i32gather_epi32
+#
+# gates over x86 bases: andn (BMI), vpternlog as one 3-input gate
+maj(a: u1, b: u1, c: u1) = (a & b) | (a & c) | (b & c)
+gates maj basis x86bmi
+gates maj basis avx512
+add2(a: u2, b: u2) = a + b
+gates add2 basis avx512
+mux4(s: u2, x: u4) = (x >> s) & 1
+gates mux4 basis avx512 as c
+#
+# find under an x86 model: andn, blsr, pext, pdep as single instructions
+use skl
+k(x: u32) = x & (x - 1)
+find k
+a(x: u32, y: u32) = ~x & y
+find a
+e(x: u16) = ((x >> 3) & 7) | ((x >> 6) & 0x38)
+find e
+d(x: u8) = ((x & 3) << 1) | ((x & 12) << 3)
+find d
+use gt1030

@@ -553,7 +553,8 @@ static const struct jcmd cmds[] = {
 	    "x86-64 target: each rewrite proved (exhaustively, by SAT, by a "
 	    "derivation or by induction) against the original under C99 LP64 "
 	    "semantics with IEEE floats, unproved ones not applied; loops in "
-	    "closed form, element-wise loop bodies, strlen scans",
+	    "closed form, element-wise loop bodies, strlen scans, loops "
+	    "vectorised with intrinsics (proved lane by lane)",
 	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
 	    TO("file", " %s", "a .c file instead of code"),
 	    TO("target", " target %s", "x86-64-v3 (default), zen4, skylake, "
@@ -579,6 +580,35 @@ static const struct jcmd cmds[] = {
 	    BO("wrapv", " wrapv", "signed overflow wraps")}},
 	{"c_targets", "c targets", 1, 0, "the x86-64 targets and their "
 	    "instruction-set features", {{NULL, 0, 0, NULL, NULL, NULL}}},
+	/* x86-64 (x86*.c, cfx86.c): cost models, mca, intrinsics */
+	{"x86_models", "x86 models", 1, 0, "the x86 µarch cost models (skl "
+	    "skx glc rpl zen4 x86v2 x86v3 x86v4)", {{NULL, 0, 0, NULL, NULL,
+	    NULL}}},
+	{"x86_model", "model", 1, 0, "one x86 µarch: features, ports, and per "
+	    "instruction class latency, reciprocal throughput, uops and ports "
+	    "at xmm/ymm/zmm (with where each number comes from)",
+	    {TX("name", " %s", "skl skx glc rpl zen4 x86v2 x86v3 x86v4, or an "
+	    "alias: skylake, znver4 ...")}},
+	{"mca", "mca", 1, 0, "a cycle-level throughput estimate of a "
+	    "function's x86 code (critical path, port pressure, front end; no "
+	    "caches or mispredictions)", {F("f", " %s", "the function"),
+	    TO("model", " on %s", "the µarch (default: the active x86 model, "
+	    "else skl)")}},
+	{"intrinsic", "intrinsic", 1, 0, "one x86 intrinsic: signature, "
+	    "features, instruction class, exact lane semantics (as ucas "
+	    "expressions) and costs per µarch", {TX("name", " %s",
+	    "_mm256_add_epi32 ..."), TO("model", " on %s", "only this µarch")}},
+	{"intrinsics", "intrinsics", 1, 0, "the intrinsics catalogue: count "
+	    "per feature, or the names matching a filter (a substring, a "
+	    "feature such as avx2, or a class)", {TO("filter", " %s",
+	    "a substring, feature or class"), TO("model", " on %s",
+	    "only those this µarch has")}},
+	{"x86check", "x86check", 1, 0, "test the intrinsics' lane semantics "
+	    "against the host C compiler's intrinsics (compiled and run on "
+	    "random and edge inputs)", {TO("filter", " %s", "a substring or "
+	    "feature"), IO("n", " n %s", "points per test (64)"),
+	    BO("avx512", " avx512", "also the AVX-512 forms (lowered to run "
+	    "on this host, and cross-checked)")}},
 	/* abstract algebra (absalg_cmd.c): exact, every claim certified */
 #define ZM_(n, fr, d) {n, P_MATRIX, 1, fr, d, NULL}
 #define GRP(n, fr) TX(n, fr, "an abelian group: \"Z/4 + Z/6\", " \

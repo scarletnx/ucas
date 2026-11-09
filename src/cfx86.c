@@ -76,6 +76,8 @@ static struct {
 	int memo_v[MAXVV];
 	int nmemo;
 	int ldv[CF_MAXMEM];	/* each load's vector, -1 */
+	uint8_t gather[CF_MAXMEM];	/* the load is a gather */
+	int gidx[CF_MAXMEM];	/* a gather's index vector */
 	xfeat need;		/* features the vector code uses */
 	struct sbuf body;	/* the vector loop's body */
 	struct sbuf pre;	/* before the vector loop */
@@ -151,6 +153,9 @@ new_vv(char kind, int w, int n)
 }
 
 static int same_val(nid a, nid b);
+static int vgather(int k);
+static int node_uses(nid n, int slot);
+static int tr(nid n);
 static int memo_get(nid n);
 static int memo_put(nid n, int v);
 static int t_has(int xf);
@@ -461,6 +466,53 @@ base_text(int b, int64_t c)
 	return buf[r];
 }
 
+/*
+ * A gather t[e(i)]: the index vector is e in 32-bit lanes, and lane j of
+ * the result is the element t[e(i + j)] (the catalogue's gather lane
+ * semantics with the scale the element size), provided the index lane
+ * sign-extended is the scalar index: attempt() proves that per lane.
+ */
+static int
+vgather(int k)
+{
+	const struct cf_mem *m = &X.l->load[k];
+	int vi, r, j, id;
+	char nm[64];
+
+	if (X.W != 32 || X.VB < 256 || m->esize != 4) {
+		why("a gather other than 32-bit elements in 256/512-bit vectors",
+		    NULL);
+		return -1;
+	}
+	if ((vi = tr(m->index)) < 0)
+		return -1;
+	snprintf(nm, sizeof nm, "%s_i32gather_%s", pfx(), X.flt ? "ps" : "epi32");
+	if ((id = xi_find(nm)) < 0) {
+		why("%s is not in the intrinsics catalogue", nm);
+		return -1;
+	}
+	if ((r = new_vv(X.flt ? 'f' : 'i', 32, X.VL)) < 0)
+		return -1;
+	for (j = 0; j < X.VL; j++) {
+		char ln[96];
+		snprintf(ln, sizeof ln, "%s[idx@%d]", X.l->base[m->base], j);
+		X.v[r].lane[j] = mk_var((uint32_t)(LSLOT + k * 64 + j), sym_cstr(ln),
+		    m->ety);
+	}
+	X.need |= xi_feat(id);
+	price(id);
+	if (X.VB == 512)
+		sb_printf(&X.body, "\t\t%s %s = %s(%s, (const void *)(%s), 4);\n",
+		    vtype(X.flt ? 'f' : 'i', 32), X.v[r].nm, nm, X.v[vi].nm,
+		    X.l->base[m->base]);
+	else
+		sb_printf(&X.body, "\t\t%s %s = %s((const void *)(%s), %s, 4);\n",
+		    vtype(X.flt ? 'f' : 'i', 32), X.v[r].nm, nm, X.l->base[m->base],
+		    X.v[vi].nm);
+	X.gidx[k] = vi;
+	return r;
+}
+
 /* load k: the raw elements (lane j: a fresh input per lane), widened to W */
 static int
 vload(int k)
@@ -472,6 +524,8 @@ vload(int k)
 
 	if (X.ldv[k] >= 0)
 		return X.ldv[k];
+	if (X.gather[k])
+		return X.ldv[k] = vgather(k);
 	affine(m->index, &c);
 	if (X.flt && (TYK(m->ety) != K_FLOAT || E != X.flt)) {
 		why("a load of another type in float code", NULL);
@@ -1253,6 +1307,18 @@ prove_lanes(int v, nid s, ty_t ety, struct lproof *lp)
 
 /* ---- the loop ---- */
 
+/* the node reads a load's leaf (a gather's index) */
+static int
+uses_load(nid e)
+{
+	int k;
+
+	for (k = 0; k < X.l->nload; k++)
+		if (node_uses(e, X.l->load[k].slot))
+			return 1;
+	return 0;
+}
+
 /* acc op g: the operation and g, or 0 */
 static int
 red_split(nid e, int slot, nid *g)
@@ -1454,7 +1520,19 @@ attempt(int VB, int W, struct vplan *pl)
 		why("an intrinsic the target lacks", NULL);
 		return 0;
 	}
-	/* the proof, lane by lane */
+	/* the proof, lane by lane: each gather's index first */
+	for (k = 0; k < l->nload; k++)
+		if (X.gather[k]) {
+			int j;
+			for (j = 0; j < X.VL; j++) {
+				ty_t it = N.ty[l->load[k].index];
+				nid a = mk_cast(it, scalar_at(l->load[k].index, j));
+				nid b = mk_cast(it, mk_cast(TY(K_SINT, 32), vlane(X.gidx[k],
+				    j, 32)));
+				if (!prove_eq(a, b, &pl->lp))
+					return 0;
+			}
+		}
 	for (k = 0; k < l->nstore; k++)
 		if (!prove_lanes(pl->st[k], l->store[k].value, l->store[k].ety,
 		    &pl->lp))
@@ -1512,32 +1590,55 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	char rop_name[MAXST][64], comb_name[MAXST][64];
 	const char *UT;
 	double cb = 0;
+	char first[160] = "";
+#define REFUSE(r) do { snprintf(out->what, sizeof out->what, "%s", (r)); \
+	return 0; } while (0)
 
 	memset(&X, 0, sizeof X);
 	X.l = l;
 	X.t = t;
 	X.ua = pick_uarch(t);
 	snprintf(out->what, sizeof out->what, "not vectorised");
-	if (l->step != 1 || !TY_ISINT(l->ity) || TYW(l->ity) < 32 ||
-	    N.ty[l->hi] != l->ity || node_uses(l->hi, l->islot))
-		return 0;
+	if (l->step != 1)
+		REFUSE("a step other than 1");
+	if (!TY_ISINT(l->ity) || TYW(l->ity) < 32)
+		REFUSE("an index narrower than int");
+	if (N.ty[l->hi] != l->ity)
+		REFUSE("a bound of another type than the index");
+	if (node_uses(l->hi, l->islot))
+		REFUSE("a bound that depends on the index");
 	for (k = 0; k < l->nload; k++)
 		if (node_uses(l->hi, l->load[k].slot))
-			return 0;
+			REFUSE("a bound read from memory the loop accesses");
 	for (k = 0; k < l->nred; k++)
 		if (l->rslot[k] >= 0 && node_uses(l->hi, l->rslot[k]))
-			return 0;
+			REFUSE("a bound the loop changes");
 	/* memory: contiguous, and no store feeds a later iteration's load */
 	for (k = 0; k < l->nstore; k++) {
 		if (!affine(l->store[k].index, &off))
-			return 0;
+			REFUSE("a store at an index other than i + c");
 		if (written[l->store[k].base]++)
-			return 0;	/* two stores to one array */
+			REFUSE("two stores to one array");
 	}
 	for (k = 0; k < l->nload; k++) {
 		int s;
-		if (!affine(l->load[k].index, &off))
-			return 0;	/* strided, or a gather: not yet */
+		if (!affine(l->load[k].index, &off)) {
+			/* a gather: its array read only and not overlapping a
+			 * written one (no run-time test: its range is unknown) */
+			int b = l->load[k].base, w2;
+			if (!uses_load(l->load[k].index))
+				REFUSE("a load at an index other than i + c (strided: "
+				    "not implemented)");
+			if (!l->readonly[b])
+				REFUSE("a gather from an array the loop writes");
+			for (w2 = 0; w2 < l->nbase; w2++)
+				if (w2 != b && !l->readonly[w2] && !l->noalias[b] &&
+				    !l->noalias[w2])
+					REFUSE("a gather from an array that may overlap a "
+					    "written one");
+			X.gather[k] = 1;
+			continue;
+		}
 		for (s = 0; s < l->nstore; s++) {
 			int64_t so;
 			if (l->store[s].base != l->load[k].base)
@@ -1545,11 +1646,14 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 			affine(l->store[s].index, &so);
 			/* a later element read before it is written is fine;
 			 * an earlier one carries a dependence */
-			if (off < so || l->load[k].epoch > l->store[s].epoch)
-				return 0;	/* (a load after the store: refused,
-						 * all loads are issued first) */
+			if (off < so)
+				REFUSE("a store feeds a later iteration's load (a "
+				    "loop-carried dependence)");
+			if (l->load[k].epoch > l->store[s].epoch)
+				REFUSE("a load after a store to its array");
 			if (l->load[k].esize != l->store[s].esize)
-				return 0;
+				REFUSE("an array read and written with different "
+				    "element sizes");
 		}
 	}
 	for (k = 0; k < l->nbase; k++)
@@ -1569,16 +1673,20 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 	for (k = 0; k < l->nred; k++) {
 		nid g;
 		ty_t rt = N.ty[l->rnext[k]];
-		if (l->rslot[k] < 0 || !TY_ISINT(rt) || TYK(rt) == K_BOOL)
-			return 0;	/* float sums: reassociation rounds */
+		if (l->rslot[k] < 0)
+			REFUSE("a variable the loop sets without reading it");
+		if (!TY_ISINT(rt) || TYK(rt) == K_BOOL)
+			REFUSE("a float reduction (reassociating it changes the "
+			    "rounding)");
 		if (!red_split(l->rnext[k], l->rslot[k], &g) ||
 		    node_uses(g, l->rslot[k]))
-			return 0;
+			REFUSE("a reduction that is not acc op g (op + - ^ | & min "
+			    "max)");
 		if (TYW(rt) > Wmin)
 			Wmin = TYW(rt);
 	}
 	if (X.flt && l->nred)
-		return 0;
+		REFUSE("a reduction in float code");
 	for (k = 0; k < l->nload; k++)
 		if (l->load[k].esize * 8 > Wmin)
 			Wmin = l->load[k].esize * 8;
@@ -1586,7 +1694,7 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 		if (l->store[k].esize * 8 > Wmin)
 			Wmin = l->store[k].esize * 8;
 	if (!l->nstore && !l->nred)
-		return 0;
+		REFUSE("nothing stored or reduced");
 	X.ivar = mk_var(ISLOT, sym_cstr(l->iname), l->ity);
 	/* the narrowest lanes first, the widest vectors first */
 	for (W = X.flt ? X.flt : Wmin; W <= 64 && !ok; W *= 2)
@@ -1608,10 +1716,13 @@ vec_loop(const struct cf_loop *l, const struct cf_target *t,
 				}
 				ok = attempt(VB, W, &pl);
 				memcpy(fail_jmp, saved, sizeof saved);
+				if (!ok && !first[0])
+					snprintf(first, sizeof first, "%s", X.why[0] ?
+					    X.why : "no vector form");
 			}
 		}
 	if (!ok)
-		return 0;
+		REFUSE(first[0] ? first : "no vector width fits the target");
 	/* the remainder: the scalar loop from the IR, from the current i */
 	rem = *l;
 	rem.init_text = "";
