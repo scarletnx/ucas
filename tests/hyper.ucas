@@ -1,0 +1,150 @@
+# Complex, quaternion, octonion and Cayley-Dickson numbers (src/hyper.c).
+# i is the imaginary unit; i, j, k quaternion units; e1..e7 octonion units.
+# z and w are complex unless x or y is present; annotations win.
+
+# values
+(1+2i)*(3-i)
+(1+2i)/(3-4i)
+exp(i pi)
+i^i
+sqrt(-4)
+log(-1)
+asin(2)
+(-8)^(1/3)
+3 + 4j
+abs(3 + 4i)
+w = 2 + 3i
+w*conj(w)
+
+# quaternions: order matters
+i*j
+j*i
+(1+i+j+k)^2
+(1 + 2i + 3j + 4k)/(1 - i)
+exp(pi*(i+j+k)/sqrt(3))
+sqrt(i + j)
+log(1 + i + j + k)
+conj(1+2i+3j+4k)
+im(1+2i+3j)
+sqrt(-1 + 0*j)
+
+# octonions: grouping matters
+e1*e2
+(e1*e2)*e4
+e1*(e2*e4)
+(1 + e1)^(1/2)
+exp(e1 + e2)
+(e1 + e10)*(e4 - e15)
+
+# functions
+f(z) = z^2 + 1
+show f
+table f max 6
+g(z: c64) = z*z + 0.1
+table g max 2
+q(t) = exp(t*(i+j+k)/sqrt(3))
+show q
+table q max 3
+h(x, z) = x + z
+show h
+p: quat
+range f
+
+# zeros and roots
+zeros f
+zeros z^3 = 1
+zeros z^4 + 1
+zeros (z - 1)^2*(z + 2i)
+zeros z^2 + 2z + 5
+zeros z^5 - z + 1
+zeros sin(z)
+
+# derivatives, holomorphy
+diff z^3
+diff exp(i*z)
+diff conj(z)*z
+holomorphic exp(z)
+holomorphic |z|^2
+holomorphic log(z)
+holomorphic 1/z
+holomorphic re(z)
+
+# limits, residues, poles, integrals
+limit sin(z)/z at 0
+limit conj(z)/z at 0
+limit 1/z at 0
+limit (z^2+1)/(z-i) at i
+limit 1/z^2 as z -> inf
+residue 1/(z^2+1) at i
+residue 1/z^3 at 0
+residue exp(1/z) at 0
+poles 1/(z^2+1)
+integrate 1/z around |z| = 1
+integrate 1/(z^2+1) around |z - i| = 1
+integrate 1/z around |z - 2| = 1
+integrate z^2 from 0 to 1 + i
+
+# real and imaginary parts with z = x + iy (forms.c)
+complex z^2
+re f
+modulus exp(z)
+
+# pictures
+plot (z^2-1)/(z^2+1) nofile
+plot |f| nofile
+
+# the algebras
+table quaternion
+table octonion
+algebra quaternion
+algebra octonion
+algebra sedenion
+zerodivisors sedenion
+associator e1, e2, e4
+associator i, j, k
+commutator i, j
+
+# rotations
+rotate (1, 0, 0) by 90 degrees about the z axis
+rotate (1, 2, 3) by 1 + i + j + k
+rotate (1, 0, 0) by pi/2 about (1, 1, 1)
+axisangle (0, 0, 1), 90 degrees
+axisangle 1 + i
+rotmatrix 1 + i + j + k
+frommatrix 0, -1, 0, 1, 0, 0, 0, 0, 1
+slerp 1, k, 1/2
+
+# English
+multiply (1+2i) by (3-i)
+what is (1+2i)*(3-i)?
+what is e to the i pi
+the square root of -4
+roots of z^3 = 1
+is z^2 holomorphic
+is conj(z) analytic?
+the residue of 1/(z^2+1) at i
+the poles of 1/(z^2+1)
+integrate exp(z)/z around the unit circle
+rotate (1, 0, 0) by 90 degrees about the z axis using quaternions
+quaternion product of i and j
+is octonion multiplication associative
+are the quaternions commutative?
+the octonion multiplication table
+zero divisors of the sedenions
+the commutator of i and j
+domain colouring of (z^2-1)/(z^2+1) nofile
+the limit of sin(z)/z as z approaches 0
+where is 1/z holomorphic
+the complex derivative of z^3
+integrate 1/(z-i) around the circle of radius 2 about i
+the rotation matrix of 1 + i
+the quaternion for 90 degrees about the z axis
+slerp between 1 and k at 1/2
+is the sedenion algebra a division algebra
+the associator of e1, e2 and e4
+divide 1 by i
+is complex multiplication commutative
+what is i^i?
+the limit of (z^2+1)/(z-i) as z approaches i
+i = 3
+2*i

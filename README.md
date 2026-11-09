@@ -79,6 +79,8 @@ Types:
 | `int` | unbounded integers (checked against the int64 range) |
 | `uN`, `iN` (1..64; also `uint8_t`...) | wrapping machine integers |
 | `bool` | 0 or 1 |
+| `complex` (`c128`), `c64` | complex numbers; `c64` rounds both parts of every result to f32.  `z`, `w`, `z1`.., `w1`.. are complex by default unless `x` or `y` is present (see "Complex and hypercomplex numbers") |
+| `quat` (`quaternion`), `oct` (`octonion`), `sed` (`sedenion`), `cd(N)` | the Cayley-Dickson algebras of dimension 4, 8, 16 and N = 2..32 |
 
 `real` and `int` are the *ideal* twins of the machine types: `wrap`
 compares a function against itself evaluated with every `uN`/`iN` as
@@ -171,6 +173,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
 | `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
 | `nthroots N F`, `unity N` | the N complex N-th roots (of 1), each raised back to the N-th power |
+| `holomorphic F`, `residue F at a`, `poles F`, `integrate F around \|z\| = r`, `table quaternion`, `algebra octonion`, `rotate V by Q`, `slerp` ... | complex functions and the quaternions, octonions, sedenions (see "Complex and hypercomplex numbers") |
 | `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
@@ -240,10 +243,166 @@ for `trig`, where a point the original is undefined at is skipped).  A
 form that holds only under a condition (`atan u = pi/2 - atan(1/u)` for
 `u > 0`) is checked where the condition holds, and the points outside
 where it differs are counted, which shows that the condition is needed.
-Limits: variables are real (no complex variables); `polar` of a symbolic
+Limits: variables are real here, except that a complex variable (`z`,
+see the next section) is written `x + iy` first; `polar` of a symbolic
 z uses `atan2`, recognising `R cos u + i R sin u` with R > 0 (then theta
 = u for -pi < u <= pi); there is no polynomial gcd, so rational
 functions are combined but not always reduced.
+
+## Complex and hypercomplex numbers
+
+```
+> (1+2i)*(3-i)
+5 + 5i
+> i^i
+exp(-pi/2)
+> sqrt(-4)
+  note: sqrt(-4) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of sqrt: the principal value, sqrt z = e^(log(z)/2): ...
+2i
+> j*i
+  note: i, j are quaternion units: ij = k = -ji
+-k
+> (e1*e2)*e4
+  note: octonion products are not associative: each product is taken as grouped, ...
+e7
+> f(z) = z^2 + 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+> zeros f
+  2 roots (a polynomial of degree 2):
+    z = -i
+    z = i
+> residue 1/(z^2+1) at i
+  = -i/2
+  a pole of order 1 (|f| grows like |z - a|^-1)
+> integrate 1/z around |z| = 1
+  = 2pi*i
+  residue theorem: 2 pi i times the sum of the residues at the 1 pole inside = 2pi*i: agrees
+> rotate (1, 0, 0) by 90 degrees about the z axis
+  q = sqrt(2)/2 + k*sqrt(2)/2: a rotation by pi/2 about (0, 0, 1)
+  q v q^-1 = j
+  rotated: (0, 1, 0)
+```
+
+`src/hyper.c`.  **Design.**  The DAG stays real-valued.  A
+hypercomplex expression is an ordinary DAG whose units (`i`; `i j k`;
+`e1`..`e31`) are variables in reserved slots and whose complex variables
+are ordinary parameters; a function records the algebra of its value
+and of each parameter (`struct func`: `halg`, `hk[]`).  Nothing in the
+constructors reorders a product of non-constants (only real constants
+move, and real scalars commute with everything), so the DAG is faithful
+for non-commutative and non-associative algebras: `i*j` and `j*i` are
+different nodes and a product is evaluated as it is grouped.  A small
+plan (the reachable nodes in id order, one value of dimension 2^k per
+node) evaluates it.  This keeps every symbolic tool working unchanged:
+printing, substitution, inlining of calls, `diff_node` (the complex
+derivative of a holomorphic expression is the formal one), and forms.c's
+split into real and imaginary parts once `z = x + iy`.  A separate
+complex node kind would have had to be taught to every evaluator,
+simplifier and printer; the price of this choice is that the real
+evaluators must not see these functions, so the real-only commands
+(`range`, `crit`, ...) refuse a complex function and say how to get a
+real one.
+
+Multiplication is the Cayley-Dickson doubling `(p, q)(s, t) = (ps -
+conj(t) q, tp + q conj(s))`, with `e_{m+d/2} = (0, e_m)`: `ij = k`,
+`e1 e2 = e3`, `e1 e4 = e5` (`table octonion` prints the table and the
+Fano plane).  Every element of a Cayley-Dickson algebra lies in the
+complex plane spanned by 1 and its vector part, so an analytic function
+with real coefficients is evaluated by C's complex function at `a + |v|i`
+and mapped back: `f(a + v) = Re f(a + |v|i) + (v/|v|) Im f(a + |v|i)`.
+That is exact for quaternions and octonions (one element generates an
+associative subalgebra) and gives `exp`, `log`, `sqrt`, powers and the
+trig and hyperbolic functions and their inverses everywhere.
+
+**Syntax.**
+
+| form | meaning |
+|------|---------|
+| `3 + 4i`, `i`, `I`, `j` (alone, with a note), `cis(t)` | complex; `j` with `i` or `k` is a quaternion unit |
+| `1 + 2i + 3j + 4k` | a quaternion (`k` is a unit only next to `i` or `j`, or in a list of quaternions) |
+| `e1`..`e7`, `e8`..`e15`, up to `e31`; `e0` is 1 | octonion, sedenion, cd(32) units; `i j k` are then `e1 e2 e3`; `2e1` is read as `2*e1` there (with a note), never elsewhere |
+| `z`, `w`, `z1`, `w_2`, `zeta` | complex variables unless `x` or `y` appears in the statement (a point or a surface z = f(x, y), implicit equations in x, y, z): then real, as before.  ODEs (`z'' = ...`), sums, code blocks and `where` clauses are never read this way |
+| `z: complex`, `z: c64`, `q: quat`, `o: oct`, `s: sed`, `s: cd(16)`, `z: real` | annotations win over every default |
+| `conj(z)`, `re(z)`, `im(z)`, `arg(z)`, `abs(z)`, `|z|`, `norm(z)` | conjugate, parts (for a quaternion `im` is the vector part), the principal argument in (-pi, pi] (for a quaternion the angle in [0, pi]), the Euclidean norm; `conj re im arg` are functions only when called, so a variable named `re` still works |
+| `a/b` | `a b^-1` (right division); a note says when `b^-1 a` differs |
+| `a^n` | repeated multiplication (power-associative, so well defined); a real exponent in the plane of `a`; a non-real one is `e^(log(a) b)`, with a note where `e^(b log a)` differs |
+
+A defined function named `i` (`i = 3`) is used as that, with a note.
+In a definition the translator makes (`it(i) = i^i`), an untyped `i`
+is the unit.  An explicit parameter `f(i) = ...` stays a real parameter.
+
+**Principal values and branch cuts.**  `log z = log|z| + i arg z` with
+`-pi < arg z <= pi` (the cut (-inf, 0] takes the value from above);
+`sqrt z = e^(log(z)/2)` (i sqrt|z| on the negative reals); `z^w = e^(w log
+z)`; `asin z = -i log(iz + sqrt(1 - z^2))`, `acos z = pi/2 - asin z`
+(cuts (-inf, -1), (1, inf)); `acosh z = log(z + sqrt(z + 1) sqrt(z - 1))`
+(cut (-inf, 1)); `atanh z = (log(1 + z) - log(1 - z))/2`; `atan` and
+`asinh` are cut on the imaginary axis beyond +-i.  These match forms.c.
+A real argument on a cut is noted.  In the quaternions and beyond a
+function of a negative real has a whole sphere of values (every unit u
+with u^2 = -1); `i` is taken, with a note.  A constant expression that
+is undefined in the reals (`sqrt(-4)`, `log(-1)`, `asin(2)`,
+`(-8)^(1/3)`) prints its complex principal value with a note; with a
+variable the real function stays as it was.
+
+**Commands** on a complex function of one complex variable (a name, or
+an expression):
+
+| command | |
+|---------|--|
+| `show F`, `table F [max n]` | the function with its kinds; values at 0, +-1, +-i, +-1 +- i, 2, 2i (quaternions: 0, 1, the units, 1 + a unit, their mean) |
+| `zeros F` (`roots`, `solve`, `L = R`) | a polynomial (its coefficients from 64 samples on a circle by the DFT, checked at 8 other points) gets every complex root by Durand-Kerner, multiple roots grouped and polished on the derivative, exact where recognised (`-1/2 + i*sqrt(3)/2`); otherwise Newton from a 21x21 grid in \|Re\|, \|Im\| <= 7, each zero checked |
+| `diff F`, `holomorphic F` (`analytic`) | the complex derivative (the formal derivative, checked against difference quotients), when the Cauchy-Riemann equations hold at 64 sample points; where it can fail (branch cuts of log, sqrt, non-integer powers; poles); otherwise not holomorphic, with the point where df/dx != df/(i dy), the non-holomorphic parts used (conj, re, im, \|.\|, arg) and the Wirtinger derivatives there |
+| `limit F at a`, `limit F as z -> a`, `lim z -> a F` | along 8 directions, z -> a by factors of 4 (Richardson-extrapolated); equal: the limit (and whether F is continuous or a removable singularity there); else the values per direction; growing from every side: infinity; `a = inf` |
+| `residue F at a`, `poles F` | the residue as (1/2 pi i) times circle integrals of radius 0.01 and 0.005, which must agree; the order of a pole from the growth of \|F\| on circles of radius 1e-2..1e-4 (or: regular, essential); poles are the zeros of 1/F by Newton |
+| `integrate F around \|z - c\| = r [clockwise]`, `integrate F from a to b` | the trapezoid rule on the circle (1024 and 2048 points), cross-checked by the residue theorem with the poles found inside, or Cauchy's theorem when there are none; the straight segment by Simpson's rule |
+| `complex F`, `re F`, `im F`, `conj F`, `modulus F`, `arg F`, `polar F` | forms.c with each complex variable written `x + iy` (w = u + iv, z1 = x1 + i y1) and a note: `complex z^2` is `x^2 - y^2 + 2i*x*y` |
+| `plot F [radius R] [nofile] [to NAME]` | domain colouring, a GIF: hue = arg F (24 hues), brightness steps each time \|F\| doubles, axes dotted, undefined points black; it lists the zeros (all hues meet) and poles it finds |
+| `plot \|F\|`, `plot re F`, `plot im F` | a surface over (x, y) by plot.c |
+
+The algebras:
+
+| command | |
+|---------|--|
+| `table complex\|quaternion\|octonion\|sedenion\|cd N` | the multiplication table (row times column); for octonions the 7 oriented lines of the Fano plane |
+| `algebra NAME [property]` | commutative, associative, alternative, flexible/power-associative, normed (composition), division algebra, inverses, conjugation: each with a counterexample from the units or a check on 200 random elements, and the theorems that bound them (Frobenius, Artin, Hurwitz) |
+| `zerodivisors [NAME]` | a pair (e_a +- e_b)(e_c +- e_d) = 0: from the sedenions on |
+| `associator a, b, c`, `commutator a, b` | (ab)c - a(bc) and ab - ba |
+| `rotate V by Q`, `rotate V by ANGLE about AXIS` | q v q^-1 with v the pure quaternion of V (q normalised, with a note); the angle in radians, or degrees (`90 degrees`, `90°`, or a whole number above 2pi, with a note); the axis a vector or `x`, `y`, `z` (`the z axis`).  Checked against the rotation matrix, which is printed |
+| `axisangle (x, y, z), ANGLE`, `axisangle Q` | the unit quaternion cos(theta/2) + sin(theta/2) u, and back |
+| `rotmatrix Q`, `frommatrix m11, ..., m33` | to and from the 3x3 rotation matrix (Shepperd's method; the matrix must be orthogonal with det 1; q and -q are the same rotation) |
+| `slerp Q1, Q2, T` | spherical linear interpolation on the shorter arc, checked against q1 (q1^-1 q2)^t |
+
+In English (`src/nlp_hyper.inc`): `multiply (1+2i) by (3-i)`, `divide 1
+by i`, `what is (1+2i)*(3-i)?`, `what is e to the i pi`, `the square root
+of -4`, `roots of z^3 = 1`, `is z^2 holomorphic`, `is conj(z) analytic?`,
+`where is F holomorphic`, `the complex derivative of F`, `the residue of
+1/(z^2+1) at i`, `the poles of F`, `the contour integral of F around the
+unit circle`, `integrate F around the circle of radius 2 about i`,
+`rotate (1, 0, 0) by 90 degrees about the z axis using quaternions`, `the
+rotation matrix of q`, `the quaternion for 90 degrees about the z axis`,
+`slerp between 1 and k at 1/2`, `quaternion product of i and j`, `is
+octonion multiplication associative`, `are the quaternions commutative?`,
+`is the sedenion algebra a division algebra`, `the octonion
+multiplication table`, `the Fano plane`, `zero divisors of the
+sedenions`, `the associator of e1, e2 and e4`, `the commutator of i and
+j`, `domain colouring of (z^2-1)/(z^2+1)`, and the calc2 phrases (`the
+limit of sin(z)/z as z approaches 0`) with complex variables.  A line
+that is a formula with units (`i^i`, `i*j`) is not English.
+
+**Checked, and approximate.**  Every derivative is compared with
+difference quotients; residues and contour integrals are computed twice
+and cross-checked (residue theorem); zeros are evaluated back; rotations
+are checked against the matrix; algebra properties are counterexamples
+(exact, from the units) or checks on random elements (numeric).  Zeros
+of non-polynomials, poles, limits and orders are numeric and say so.
+Not done: residues at infinity, Laurent series, branch-cut-aware
+contours (an integrand undefined on the contour is refused), several
+complex variables in the analysis commands, quaternion calculus
+(`diff`, `zeros` work on complex functions only), exact symbolic
+quaternion simplification (values are numeric with recognised
+constants).
 
 ## Approximations
 
@@ -419,7 +578,11 @@ behind it.  English only; the translator is a hand-written parser
   and cos`, `simplify sin x cos x`, `expand sin(a+b)`, `product to sum
   of sin x cos y`, `write 3 sin x + 4 cos x in the form R sin(x + phi)`,
   `rewrite acos x in terms of asin`; see "Complex numbers and trig
-  forms"); properties answered by props.c (`is f monotonic`, `is
+  forms"); complex functions, quaternions and octonions (`is z^2
+  holomorphic`, `the residue of 1/(z^2+1) at i`, `rotate (1, 0, 0) by 90
+  degrees about the z axis using quaternions`, `is octonion
+  multiplication associative`; see "Complex and hypercomplex numbers");
+  properties answered by props.c (`is f monotonic`, `is
   it strictly increasing`, `where is f decreasing`, `is sin(2x)
   periodic`, `find the period of`, `does f repeat`, `is x squared even`,
   `is f bounded`, `one to one`, `a bijection`, `where is 1/x

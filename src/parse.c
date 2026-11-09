@@ -289,6 +289,8 @@ static const struct bfn bfns[] = {
 	{"sinh", O_SINH, 1}, {"cosh", O_COSH, 1}, {"tanh", O_TANH, 1},
 	{"asinh", O_ASINH, 1}, {"arsinh", O_ASINH, 1}, {"acosh", O_ACOSH, 1},
 	{"arcosh", O_ACOSH, 1}, {"atanh", O_ATANH, 1}, {"artanh", O_ATANH, 1},
+	/* hyper.c: only when called, conj(z); a bare re or arg is a name */
+	{"conj", O_CONJ, 1}, {"re", O_RE, 1}, {"im", O_IM, 1}, {"arg", O_ARG, 1},
 	{NULL, 0, 0}
 };
 
@@ -299,8 +301,11 @@ builtin(struct P *p, uint32_t i)
 
 	for (k = 0; bfns[k].name; k++)
 		if (tok_is(p->t, i, bfns[k].name)) {
-			/* one letter (W): only called, and a user's W wins */
-			if (bfns[k].name[1] == 0 && (i + 1 >= p->t->n ||
+			/* one letter (W), conj re im arg: only called, and a
+			 * user's function wins */
+			if ((bfns[k].name[1] == 0 || bfns[k].op == O_CONJ ||
+			    bfns[k].op == O_RE || bfns[k].op == O_IM ||
+			    bfns[k].op == O_ARG) && (i + 1 >= p->t->n ||
 			    p->t->kind[i + 1] != T_LP || func_find(tsym(p, i))))
 				return NULL;
 			return &bfns[k];
@@ -1781,6 +1786,43 @@ cmd_func_text(const char *src)
 	return f;
 }
 
+/*
+ * hyper.c: a statement with complex, quaternion or octonion numbers (i,
+ * z, e1, q: quat ...) runs there, as text; 1 when it did.
+ */
+static int
+hyper_hook(struct P *p)
+{
+	static char buf[8192];
+	uint32_t a = p->i, b = a;
+	int depth = 0;
+	size_t len;
+
+	while (b < p->t->n && p->t->kind[b] != T_EOF) {
+		if (p->t->kind[b] == T_LC)
+			depth++;
+		if (p->t->kind[b] == T_RC)
+			depth--;
+		if (p->t->kind[b] == T_NL && depth <= 0) {
+			if (b + 1 < p->t->n && tok_is(p->t, b + 1, "where"))
+				return 0;
+			break;
+		}
+		b++;
+	}
+	if (b == a)
+		return 0;
+	len = p->t->off[b - 1] + p->t->len[b - 1] - p->t->off[a];
+	if (len >= sizeof buf)
+		return 0;
+	memcpy(buf, p->t->src + p->t->off[a], len);
+	buf[len] = 0;
+	if (!hyper_statement(buf))
+		return 0;
+	p->i = b;
+	return 1;
+}
+
 static void
 statement(struct P *p)
 {
@@ -1794,6 +1836,8 @@ statement(struct P *p)
 	if (pk(p) == T_EOF)
 		return;
 	diag_tok = p->i;
+	if (hyper_hook(p))
+		return;
 	if (pk(p) == T_ID && (pk2(p) == T_ID || pk2(p) == T_NUM ||
 	    pk2(p) == T_NL || pk2(p) == T_EOF || pk2(p) == T_LP ||
 	    pk2(p) == T_BAR || pk2(p) == T_MINUS || pk2(p) == T_SQRT ||

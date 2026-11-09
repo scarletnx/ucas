@@ -327,6 +327,9 @@ d1(nid e, uint32_t slot)
 	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:   /* forms.c */
 		r = forms_diff(e, slot);
 		break;
+	case O_CONJ: case O_RE: case O_IM: case O_ARG:   /* hyper.c */
+		r = hyper_diff(e, slot);
+		break;
 	case O_LOOP:   /* calc: the loop carries its derivative (loop.c) */
 		r = loop_diff(e, slot);
 		break;
