@@ -509,7 +509,7 @@ static const struct jcmd cmds[] = {
 	    "quaternion | octonion | sedenion | cd N", NULL}, TO("property",
 	    " %s", "one property: associative, alternative ...")}},
 	{"zerodivisors", "zerodivisors", 1, 0, "a pair of zero divisors",
-	    {TO("algebra", " %s", "sedenion (default) | cd N")}},
+	    {TX("algebra", " %s", "sedenion | cd N (from the sedenions on)")}},
 	{"associator", "associator", 1, 0, "(ab)c - a(bc)", {E("a", " %s", "a"),
 	    E("b", ", %s", "b"), E("c", ", %s", "c")}},
 	{"commutator", "commutator", 1, 0, "ab - ba", {E("a", " %s", "a"),
@@ -523,8 +523,7 @@ static const struct jcmd cmds[] = {
 	{"rotmatrix", "rotmatrix", 1, 0, "a quaternion's 3x3 rotation matrix",
 	    {TX("q", " %s", "the quaternion")}},
 	{"frommatrix", "frommatrix", 1, 0, "the quaternion of a rotation "
-	    "matrix", {{"matrix", P_VALUES, 1, " %s", "m11, ..., m33 (9 "
-	    "numbers)", NULL}}},
+	    "matrix", {ES("matrix", " %s", "m11, ..., m33 (9 numbers, by rows)")}},
 	{"slerp", "slerp", 1, 0, "spherical linear interpolation",
 	    {TX("q1", " %s", "q1"), TX("q2", ", %s", "q2"), NUR("t", ", %s",
 	    "t")}},

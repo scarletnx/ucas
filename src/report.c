@@ -434,6 +434,29 @@ field_key(char *k, size_t n, const char *s, size_t len)
 	k[j] = 0;
 }
 
+/* the left side of "y(t) = ...", "Y(s) = ...", "a_n = ...": its length */
+static size_t
+def_lhs(const char *s, size_t len)
+{
+	size_t i = 0;
+
+	if (len < 5 || !isalpha((unsigned char)s[0]))
+		return 0;
+	while (i < len && (isalnum((unsigned char)s[i]) || s[i] == '_'))
+		i++;
+	if (i < len && (s[i] == '(' || s[i] == '[')) {
+		char cl = s[i] == '(' ? ')' : ']';
+		while (i < len && s[i] != cl)
+			i++;
+		if (i == len)
+			return 0;
+		i++;
+	}
+	if (i > 12 || i + 3 > len || strncmp(s + i, " = ", 3))
+		return 0;
+	return i;
+}
+
 /* the label of "  label: value", or 0 */
 static size_t
 label_len(const char *s, size_t len)
@@ -572,13 +595,25 @@ headline_parts(struct jv *o, const char *h)
 	long long iv;
 	int k;
 
-	if (eq == NULL || jv_get(o, "value") || strchr(eq + 3, '=') ||
-	    !balanced(h, (size_t)(eq - h)) || !balanced(eq + 3, strlen(eq + 3)))
+	const char *fo = eq ? strstr(eq, "    for ") : NULL;
+	size_t rl;
+
+	if (eq == NULL || jv_get(o, "value"))
+		return;
+	rl = fo ? (size_t)(fo - eq - 3) : strlen(eq + 3);
+	if (memchr(eq + 3, '=', rl) || !balanced(h, (size_t)(eq - h)) ||
+	    !balanced(eq + 3, rl) || (rl > 0 && eq[3 + rl - 1] == ':') ||
+	    memchr(h, ',', (size_t)(eq - h)))
 		return;
 	if (!jv_get(o, "lhs"))
 		jv_set(o, "lhs", jv_strn(h, (size_t)(eq - h)));
 	v = eq + 3;
 	end = v + strlen(v);
+	/* "(1/2)^n    for n >= 0" */
+	if ((m = strstr(v, "    for ")) != NULL) {
+		jv_set(o, "valid_for", jv_str(m + 8));
+		end = m;
+	}
 	/* a trailing parenthetical: another form of the value, or a remark */
 	if (end > v && end[-1] == ')') {
 		const char *p = end - 1;
@@ -630,6 +665,9 @@ fill_fields(struct jv *o, const char *p, const char *end)
 			jv_push(heads, jv_strn(s, (size_t)(q - s)));
 		else if (q - s > 9 && !strncmp(s, "assuming ", 9))
 			rep_cond("%.*s", (int)(q - s - 9), s + 9);
+		else if (s - p >= 2 && q - s > 3 && s[0] == 'w' &&
+		    isdigit((unsigned char)s[1]) && jv_get(o, "roots"))
+			;	/* nthroots' lines: typed already */
 		else if ((ll = label_len(s, (size_t)(q - s))) != 0) {
 			const char *v = s + ll + 2;
 			size_t vl = (size_t)(q - v);
@@ -647,9 +685,18 @@ fill_fields(struct jv *o, const char *p, const char *end)
 			else if ((f = tagged(v, vl)) != NULL)
 				field_add(o, key, f);
 			else {
+				const char *rc;
 				field_add(o, key, jv_strn(v, vl));
 				if (!strcmp(key, "region_of_convergence"))
 					field_add(o, "roc", jv_strn(v, vl));
+				else if ((rc = strstr(v, "region of convergence ")) !=
+				    NULL && rc < q && !jv_get(o, "roc")) {
+					const char *pe = strstr(rc + 22, " (");
+					if (pe == NULL || pe > q)
+						pe = q;
+					jv_set(o, "roc", jv_strn(rc + 22, (size_t)(pe - rc -
+					    22)));
+				}
 			}
 		} else if (q - s > 2 && s[0] == '=' && s[1] == ' ' &&
 		    !jv_get(o, "value")) {
@@ -658,6 +705,19 @@ fill_fields(struct jv *o, const char *p, const char *end)
 			jv_set(o, "value", jv_strn(s + 2, (size_t)(q - s - 2)));
 			if (int_text(s + 2, (size_t)(q - s - 2), &iv))
 				jv_set(o, "value_int", jv_int(iv));
+		} else if ((ll = def_lhs(s, (size_t)(q - s))) != 0) {
+			/* "y(t) = -t*cos(t)/2    for t >= 0" */
+			const char *v = s + ll + 3, *fo;
+			char k2[48];
+			snprintf(k2, sizeof k2, "%.*s", (int)ll, s);
+			fo = strstr(v, "    for ");
+			if (fo && fo < q) {
+				struct jv *x = jv_new(J_OBJ);
+				jv_set(x, "value", jv_strn(v, (size_t)(fo - v)));
+				jv_set(x, "valid_for", jv_strn(fo + 8, (size_t)(q - fo - 8)));
+				field_add(o, k2, x);
+			} else
+				field_add(o, k2, jv_strn(v, (size_t)(q - v)));
 		} else if ((f = tagged(s, (size_t)(q - s))) != NULL) {
 			jv_push(det, f);
 		} else {
