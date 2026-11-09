@@ -65,6 +65,7 @@ static struct {
 	jmp_buf jb;
 	char why[200];
 	struct sbuf closed;	/* loops summed in closed form */
+	char closed_why[240];	/* beyond degree 2: the derivation */
 	double iter_cost;
 	uint32_t leafkey[CF_MAXLEAF];	/* symbol + 1, or ~AST node */
 	nid leafnode[CF_MAXLEAF];
@@ -1177,6 +1178,7 @@ lower_end(void)
 {
 	free(L.closed.p);
 	memset(&L.closed, 0, sizeof L.closed);
+	L.closed_why[0] = 0;
 	free(L.env);
 	free(L.set);
 	free(L.bodylocal);
@@ -1247,6 +1249,7 @@ cf_lower_func(struct cf_unit *u, uint32_t fn, struct cf_value *v, int ub)
 	v->where = L.where;
 	if (L.closed.n)
 		snprintf(v->closed, sizeof v->closed, "%s", L.closed.p);
+	snprintf(v->closed_why, sizeof v->closed_why, "%s", L.closed_why);
 	v->iter_cost = L.iter_cost;
 	if (L.obl) {
 		/* every loop must have finished within the unrolled count */
@@ -1758,7 +1761,7 @@ closed_for(uint32_t n)
 	uint32_t cond = AU.b[n], step = AU.c[n], body = AU.d[n], isym = 0, hi = 0,
 	    l0, r0, items[16], ity, syms[17];
 	uint32_t asym[16], aexp[16];
-	int asub[16], na = 0, ni, k, j;
+	int asub[16], amul[16], na = 0, ni, k, j;
 	nid lo, hv, T, iv, gt;
 	ty_t it, u64 = TY(K_UINT, 64);
 	double ic = 3;
@@ -1808,9 +1811,24 @@ closed_for(uint32_t n)
 		if (s == isym || !is_local_scalar(s))
 			return 0;
 		r = AU.b[x];
-		if (AU.iv[x] == '+' || AU.iv[x] == '-') {
+		amul[na] = 0;
+		if (AU.iv[x] == '*') {
+			e = r;
+			amul[na] = 1;
+		} else if (AU.iv[x] == '+' || AU.iv[x] == '-') {
 			e = r;
 			sub = AU.iv[x] == '-';
+		} else if (AU.iv[x] == '=' && AU.kind[strip_cast(r)] == CA_BIN &&
+		    AU.iv[strip_cast(r)] == '*') {
+			uint32_t a = strip_cast(AU.a[strip_cast(r)]);
+			uint32_t b = strip_cast(AU.b[strip_cast(r)]);
+			if (AU.kind[a] == CA_ID && (uint32_t)AU.iv[a] == s)
+				e = AU.b[strip_cast(r)];
+			else if (AU.kind[b] == CA_ID && (uint32_t)AU.iv[b] == s)
+				e = AU.a[strip_cast(r)];
+			else
+				return 0;
+			amul[na] = 1;
 		} else if (AU.iv[x] == '=') {
 			uint32_t a, b;
 			r = strip_cast(r);
@@ -1846,9 +1864,21 @@ closed_for(uint32_t n)
 	syms[na] = isym;
 	if (reads_any(hi, syms, na + 1))
 		return 0;
-	for (k = 0; k < na; k++)
+	for (k = 0; k < na; k++) {
+		uint32_t e0 = strip_cast(aexp[k]);
+		if (amul[k] && AU.kind[e0] != CA_NUM)
+			return 0;	/* p *= K: a constant K */
+		if (!amul[k] && AU.kind[e0] == CA_ID) {
+			/* s += p with p *= K in the loop: a geometric sum */
+			for (j = 0; j < na; j++)
+				if (amul[j] && asym[j] == (uint32_t)AU.iv[e0])
+					break;
+			if (j < na)
+				continue;
+		}
 		if (reads_any(aexp[k], syms, na))
 			return 0;
+	}
 	/* bounds and trip count */
 	it = uty(ity, n);
 	lo = mk_cast(it, L.env[isym]);
@@ -1861,8 +1891,76 @@ closed_for(uint32_t n)
 	T = mk_sel(gt, mk_bin(O_SUB, mk_cast(u64, mk_cast(TY(TYK(it), 64), hv)),
 	    mk_cast(u64, mk_cast(TY(TYK(it), 64), lo))), mk_const_i(u64, 0));
 	iv = mk_var(IVSLOT, SU.name[isym], it);
+	/* the multiplicative variables' values before the loop */
+	nid mold[16];
+	for (k = 0; k < na; k++) {
+		mold[k] = 0;
+		if (amul[k]) {
+			uint32_t s = asym[k];
+			if (!L.set[s]) {
+				L.env[s] = SU.kind[s] == CS_PARAM ? read_var(AU.a[AU.a[
+				    items[k]]]) : mk_undef(uty(SU.ty[s], n));
+				L.set[s] = 1;
+			}
+			mold[k] = L.env[s];
+		}
+	}
 	for (k = 0; k < na; k++) {
 		uint32_t s = asym[k], at = ct_unqual(SU.ty[s]), rt;
+		uint32_t e0 = strip_cast(aexp[k]);
+		if (amul[k]) {
+			/* p *= K: p0 K^T, K^T by squaring */
+			ty_t pt = uty(at, n), u64t = TY(K_UINT, 64);
+			nid K = conv(ex(aexp[k], L.alive), at, n), KT;
+			if (!is_const(K) || !TY_SIZED(pt) || TYW(pt) > 64)
+				return 0;
+			KT = mk_bin(O_POW, mk_const_i(u64t, N.ki[K]), T);
+			L.env[s] = sel(L.alive, conv(mk_bin(O_MUL, mk_cast(pt, mold[k]),
+			    mk_cast(pt, KT)), at, n), mold[k]);
+			sb_printf(&L.closed, "%s%s *= %lld (geometric)",
+			    L.closed.n ? ", " : "", sym_str(SU.name[s]),
+			    (long long)N.ki[K]);
+			continue;
+		}
+		if (AU.kind[e0] == CA_ID) {
+			int g;
+			for (g = 0; g < na; g++)
+				if (amul[g] && asym[g] == (uint32_t)AU.iv[e0])
+					break;
+			if (g < na) {
+				/* s += p, p = p0 K^j (or K^(j+1) when p is updated
+				 * first): s + p0 K^shift (K^T - 1)/(K - 1) */
+				ty_t st = uty(at, n), u64t = TY(K_UINT, 64);
+				nid K = conv(ex(aexp[g], L.alive), ct_unqual(SU.ty[asym[g]]),
+				    n), G, S2, old2;
+				char why[200];
+				if (!is_const(K) || !TY_SIZED(st) || TYW(st) > 64)
+					return 0;
+				G = cf_geom_node(T, (uint64_t)N.ki[K], TYW(st), why,
+				    sizeof why);
+				if (!G)
+					return 0;
+				S2 = mk_bin(O_MUL, mk_cast(st, mold[g]), mk_cast(st, G));
+				if (g < k)
+					S2 = mk_bin(O_MUL, S2, mk_const_i(st, int_norm(st,
+					    N.ki[K])));
+				if (!L.set[s]) {
+					L.env[s] = SU.kind[s] == CS_PARAM ? read_var(AU.a[AU.a[
+					    items[k]]]) : mk_undef(st);
+					L.set[s] = 1;
+				}
+				old2 = L.env[s];
+				L.env[s] = sel(L.alive, conv(mk_bin(asub[k] ? O_SUB : O_ADD,
+				    mk_cast(st, old2), S2), at, n), old2);
+				sb_printf(&L.closed, "%s%s %s= geometric sum of %s",
+				    L.closed.n ? ", " : "", sym_str(SU.name[s]), asub[k] ?
+				    "-" : "+", sym_str(SU.name[asym[g]]));
+				snprintf(L.closed_why, sizeof L.closed_why, "%s", why);
+				(void)u64t;
+				continue;
+			}
+		}
+		{
 		nid P, p0, p1, p2, d1, d2, S, old, nv, saved_env = L.env[isym];
 		int saved_set = L.set[isym], ub = L.ub, deg, w;
 		rt = ct_usual(at, AU.ty[aexp[k]]);
@@ -1880,7 +1978,7 @@ closed_for(uint32_t n)
 		 * and s's */
 		w = TYW(N.ty[P]) < TYW(uty(at, n)) ? TYW(N.ty[P]) : TYW(uty(at, n));
 		deg = poly_deg(P, iv, w);
-		if (deg < 0 || deg > 2)
+		if (deg < 0 || deg > 7)
 			return 0;
 		ic += cf_cost_default(cf_target_default(), P);
 		p0 = cf_subst(P, iv, lo);
@@ -1896,6 +1994,32 @@ closed_for(uint32_t n)
 		if (deg >= 2)
 			S = mk_bin(O_ADD, S, mk_bin(O_MUL, d2, mk_cast(N.ty[P],
 			    binom(T, 3))));
+		if (deg >= 3) {
+			/* the k-th forward difference sum_j (-1)^(k-j) C(k,j) P(lo+j),
+			 * times C(T, k+1) (cf_binom_node: exact mod 2^64) */
+			int kk, jj;
+			nid pj[8];
+			for (jj = 0; jj <= deg; jj++)
+				pj[jj] = cf_subst(P, iv, mk_bin(O_ADD, lo, mk_const_i(it,
+				    jj)));
+			for (kk = 3; kk <= deg; kk++) {
+				nid dk = 0, bn = cf_binom_node(T, kk + 1);
+				int64_t c = 1;
+				if (!bn)
+					return 0;
+				for (jj = 0; jj <= kk; jj++) {
+					int64_t cj = c * (((kk - jj) & 1) ? -1 : 1);
+					nid t = mk_bin(O_MUL, pj[jj], mk_const_i(N.ty[P], cj));
+					dk = dk ? mk_bin(O_ADD, dk, t) : t;
+					c = c * (kk - jj) / (jj + 1);
+				}
+				S = mk_bin(O_ADD, S, mk_bin(O_MUL, dk, mk_cast(N.ty[P], bn)));
+			}
+			snprintf(L.closed_why, sizeof L.closed_why, "Newton: P(lo+j) "
+			    "= sum_k D^k P(lo) C(j,k) in any commutative ring (degree %d), "
+			    "sum_{j<T} C(j,k) = C(T,k+1); C(T,m) mod 2^64: m consecutive "
+			    "factors less v2(m!) twos (ctz), times odd(m!)^-1", deg);
+		}
 		if (!L.set[s]) {
 			L.env[s] = SU.kind[s] == CS_PARAM ? read_var(AU.a[AU.a[items[k]]]) :
 			    mk_undef(uty(SU.ty[s], n));
@@ -1908,6 +2032,7 @@ closed_for(uint32_t n)
 		sb_printf(&L.closed, "%s%s %s= sum of degree %d in %s",
 		    L.closed.n ? ", " : "", sym_str(SU.name[s]), asub[k] ? "-" :
 		    "+", deg, sym_str(SU.name[isym]));
+		}
 	}
 	L.env[isym] = sel(L.alive, sel(gt, hv, lo), L.env[isym]);
 	L.iter_cost += ic;
