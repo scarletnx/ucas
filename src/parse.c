@@ -23,6 +23,7 @@
 #include "ucas.h"
 #include "props.h"
 #include "ring.h"
+#include "viz.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1581,6 +1582,28 @@ help(void)
 "  gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]\n"
 "  quo|rem P, Q [in x] | divide P by Q | substitute x = a in F\n"
 "  solve L = R [, L2 = R2] [for x, y]\n"
+"properties\n"
+"  monotonic|period|periodic|parity|symmetry|bounded|injective|surjective|\n"
+"    bijective|continuity|discontinuities|convexity|asymptotes|zeros F\n"
+"    [x] [in a..b] | identify EXPR | identify L = R\n"
+"complex, quaternion, octonion (z, w complex; i j k; e1..e31)\n"
+"  holomorphic F | residue F at a | poles F | integrate F around |z| = r\n"
+"  table quaternion|octonion|sedenion | algebra NAME [property]\n"
+"  zerodivisors | associator a, b, c | commutator a, b\n"
+"  rotate V by Q | rotate V by ANGLE about AXIS | axisangle | rotmatrix |\n"
+"    frommatrix | slerp\n"
+"rings and finite fields (Z/n, mod n, GF(p^n [, aes|0x11b|f]))\n"
+"  ring R [EXPR|units|zerodivisors|ideals|field|table|minpoly A|log A]\n"
+"  inverse A mod N | order A mod N | phi N | carmichael N | factorint N\n"
+"  crt | solve ... mod m | legendre | jacobi | sqrtmod | primroot N |\n"
+"    dlog A base G mod N | magic D [uN|iN] | gf2matrix EXPR [uN]\n"
+"  factor|irreducible|primitive|roots F over GF(q) | det|rank|nullspace|\n"
+"    inverse M mod p\n"
+"integrals and solids\n"
+"  area F [and G] [from a to b] [riemann [N] [left|right|mid|trapezoid|\n"
+"    simpson]] [accumulate] | revolve F [and G] [from a to b]\n"
+"    [about x|y|y = c|x = c] [disk|washer|shell] [still] [rotate]\n"
+"  volume | surfacearea | arclength F from a to b | centroid F [and G]\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
 "  ('help english' for more)");
 }
@@ -1915,6 +1938,9 @@ statement(struct P *p)
 			cmd_plot(p, mode);
 			return;
 		}
+		/* area, revolve, volume, arclength ... (viz.c) */
+		if (viz_command(p))
+			return;
 		/* animate (anim.c) */
 		if (is_kw(p, "animate") && !func_find(tsym(p, p->i))) {
 			adv(p);

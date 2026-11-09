@@ -169,6 +169,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
 | `plot F, ...`, `plot3d F`, `neighbourhood F [at a]` | GIF plots, bounds chosen from the function when not given (see Plots) |
+| `area F [and G]`, `revolve F [and G]`, `volume`, `surfacearea`, `arclength`, `centroid` | integrals shaded (Riemann sums, the accumulation function) and solids of revolution, measured and drawn (see "Integrals and solids of revolution") |
 | `approx F in a..b [options]`, `approx more [n]` | polynomial, rational and range-reduced approximations, measured as they run (see below) |
 | `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
 | `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
@@ -691,6 +692,9 @@ behind it.  English only; the translator is a hand-written parser
   find (`cheaper implementations`, `alt`: 10 by default), cost, table,
   approx (`cheby poly`, `minimax`, `taylor`, `degree 4`, `f64`),
   integrate (`the integral of ... from 0 to pi`, `antiderivative`),
+  integrals drawn and solids of revolution (`area under x^2 from 0 to
+  4`, `slice of integral ...`, `revolve x^2 about the y axis`, `the volume
+  of revolution of ...`; see "Integrals and solids of revolution"),
   derivatives, limits, series (`the second derivative of`, `d/dx`,
   `partial derivative of x^2 y wrt y`, `∂f/∂x`, `fx`, `the gradient of
   ... at (1, 2)`, `hessian`, `laplacian`, `jacobian`, `directional
@@ -1221,6 +1225,105 @@ log scale` (y, with a note), `log-log`, `in polar coordinates`, `the
 slope field of ...` (or `the direction field y' = ...`, `... with y(0) = 1`),
 `the vector field (P, Q)`, `(P, Q) as arrows`, `as small multiples`,
 `in parallel coordinates`, `at 30 fps`, `save it as NAME`.
+
+## Integrals and solids of revolution
+
+```
+> slice of integral f(x) = x^2 at 0 till 4
+  ucas: area x^2 from 0 to 4
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  ...
+  wrote area.gif
+> revolve f(x) = x^2 in x-axis
+  ucas: revolve x^2 about x
+solid of revolution: the region between x^2 and the x-axis about the x-axis
+  x in [-2, 2]: plot's bounds (covering the 2 features found in [-10, 10])
+  method: disks, V = pi ∫ (x^2)^2 dx from -2 to 2
+    exact: V = 40.2123859659494 = 64pi/5
+  check: shells in the radius on a grid: V ≈ 40.2148 (relative difference 6e-05, the grid's resolution)
+  ...
+  animation: 600x500, 37 frames (5.2 s), ... bytes
+```
+
+`area` draws F with the region between it and the x-axis (or between F
+and G) shaded on [a, b], the parts above and below in their own colours,
+a and b marked, and prints the integral both ways: F(b) - F(a) from the
+antiderivative when integ.c finds one (shown as an exact form when the
+value is p/q, times pi, pi^2, sqrt 2, 3 or 5, q <= 1000), and adaptive
+Gauss-Kronrod always, with how far they agree.  The zeros (or crossings)
+inside split it into signed parts; the total area is ∫ |f|, the area
+between two curves ∫ |f - g| next to the signed ∫ (f - g).  An end where
+the antiderivative is undefined takes its limit (log x on [0, 1] is -1),
+or the integral diverges there (1/x on [0, 1]) and no area is claimed; an
+integrable singular end (arc length of a quarter circle) is trimmed by
+1e-8 and 1e-12 of the interval and the difference is the error stated.
+
+| form | |
+|------|--|
+| `area F from a to b`, `area F x in a..b` | the shaded integral, one frame (`area.gif`) |
+| `area F and G` | the region between them; without bounds, between their outermost crossings |
+| `area F` | without bounds: one lobe between two zeros (the one nearest 0), else plot's bounds (the neighbourhood search), with a note |
+| `riemann N [left\|right\|mid\|trapezoid\|simpson]` | the sum's rectangles, trapezoids or parabolas over the region, the sum, the integral and the error; without N an animation of n = 1, 2, 4 ... 64 converging (midpoint by default; Simpson takes an even n) |
+| `accumulate` | A(t) = ∫_a^t F: a sweeping line over F with the running area, and A's graph below traced as it goes (its formula when F has an antiderivative) |
+| `frames N`, `fps F`, `to NAME`, `nofile` | as plot's |
+
+`revolve` turns a region around an axis: one curve about a horizontal
+axis, the region between F and the axis (`revolve x^2 and 0 about y = -1`
+for the region under F); about a vertical axis, the region between F and
+the x-axis; two curves, the region between them (washers).  The default
+axis is the x-axis (with a note), and bounds not given are found as for
+`area`, about a vertical axis on the side x >= c.  The volume is by
+washers (pi ∫ (R^2 - r^2) dx, R and r the distances to the axis) about a
+horizontal axis and by shells (2pi ∫ |x - c| |f - g| dx) about a vertical
+one, exact when the integrand has an antiderivative (squares are expanded
+first: sqrt(x)^2 = x, sin^2 u = (1 - cos 2u)/2), numeric always, and
+checked by the other method on a grid (shells in the radius, washers in
+y).  A region that crosses a horizontal axis turns into disks out to the
+further side; one on both sides of a vertical axis keeps the shell
+integral when the two sides sweep separate parts, else the union is
+measured on the grid.  Also printed: the region's area and centroid, and
+Pappus' theorem V = 2pi d A as a check when the region stays on one side;
+the lateral surface area 2pi ∫ r sqrt(1 + F'^2) dx of each curve (r its
+distance to the axis, without the end disks), exact or numeric.
+
+The picture is the classic one: the region, in the plane, sweeps from 0
+to 2pi about the axis and leaves the surface of the solid behind (the
+region's boundary, revolved, is that surface: the curves and the ends),
+drawn through plot's z-buffer, lit per vertex and dithered, the outside
+and inside of a surface in different shades, the region and its curve
+showing through the solid while it turns, the axis dashed where hidden,
+and a ruler beside it.  It is seen from the narrow end, so the curved
+surface faces the eye.
+
+| form | |
+|------|--|
+| `revolve F [and G] [from a to b]` | the solid and its numbers; 36 steps of 10 degrees (`revolve.gif`) |
+| `about x`, `about the x-axis`, `about y`, `about y = c`, `about x = c` | the axis |
+| `disk`, `washer`, `shell` | the method asked for; when it would integrate in y, the dx method is used and the asked one is the check (with a note) |
+| `still`, `rotate` | the finished solid only; or then turned once (the light turns with the eye) |
+| `volume ...`, `surfacearea ...` | the numbers without the image |
+| `arclength F from a to b` | ∫ sqrt(1 + F'^2) dx, with the chord as a lower bound |
+| `centroid F [and G] [from a to b]` | the area and centroid of the region (between F and the x-axis, or F and G), and the volumes Pappus gives about the axes |
+
+In English: `slice of integral f(x) = x^2 at 0 till 4`, `area under x^2
+from 0 to 4`, `shade the integral of sin x from 0 to pi`, `show the area
+between x^2 and x from 0 to 1`, `a left riemann sum of x^2 from 0 to 4
+with 8 rectangles`, `the midpoint rule for sin x`, `the trapezoid rule
+...`, `simpson's rule ...`, `the accumulation function of cos x from 0
+to 2pi`, `revolve f(x) = x^2 in x-axis`, `rotate x^2 around the y axis`,
+`solid of revolution of sqrt x from 0 to 4`, `spin sin x about the
+x-axis`, `rotate the region between x and x^2 about the line y = 2`,
+`using washers|shells`, `and rotate it`, `as a still image`, `the
+volume of revolution of ...`, `the volume of the solid obtained by
+rotating ...`, `the surface area of revolution of ...`, `the arc length
+of ...`, `the centroid of the region between ...`, `in 12 frames`, `at
+20 fps`.  A definition in the sentence (`f(x) = x^2`, `y = x^2`) gives
+the function and is not kept.
 
 ## Discord bot (optional)
 

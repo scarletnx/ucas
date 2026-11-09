@@ -71,6 +71,15 @@ hy_own_cmd(const char *s, size_t n)
 	w[k] = 0;
 	if (!in_list(c, w) || k == n || s[k] != ' ')
 		return 0;
+	/* "rotate x^2 around the y axis" is a solid of revolution (viz.c) */
+	if (!strcmp(w, "rotate")) {
+		size_t q;
+		for (q = k; q + 3 < n; q++)
+			if (!strncmp(s + q, " by ", 4))
+				break;
+		if (q + 3 >= n)
+			return 0;
+	}
 	while (k < n && s[k] == ' ')
 		k++;
 	return strncmp(s + k, "of ", 3) && strncmp(s + k, "the ", 4) &&

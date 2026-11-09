@@ -1056,5 +1056,27 @@ algebra
   gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]
   quo|rem P, Q [in x] | divide P by Q | substitute x = a in F
   solve L = R [, L2 = R2] [for x, y]
+properties
+  monotonic|period|periodic|parity|symmetry|bounded|injective|surjective|
+    bijective|continuity|discontinuities|convexity|asymptotes|zeros F
+    [x] [in a..b] | identify EXPR | identify L = R
+complex, quaternion, octonion (z, w complex; i j k; e1..e31)
+  holomorphic F | residue F at a | poles F | integrate F around |z| = r
+  table quaternion|octonion|sedenion | algebra NAME [property]
+  zerodivisors | associator a, b, c | commutator a, b
+  rotate V by Q | rotate V by ANGLE about AXIS | axisangle | rotmatrix |
+    frommatrix | slerp
+rings and finite fields (Z/n, mod n, GF(p^n [, aes|0x11b|f]))
+  ring R [EXPR|units|zerodivisors|ideals|field|table|minpoly A|log A]
+  inverse A mod N | order A mod N | phi N | carmichael N | factorint N
+  crt | solve ... mod m | legendre | jacobi | sqrtmod | primroot N |
+    dlog A base G mod N | magic D [uN|iN] | gf2matrix EXPR [uN]
+  factor|irreducible|primitive|roots F over GF(q) | det|rank|nullspace|
+    inverse M mod p
+integrals and solids
+  area F [and G] [from a to b] [riemann [N] [left|right|mid|trapezoid|
+    simpson]] [accumulate] | revolve F [and G] [from a to b]
+    [about x|y|y = c|x = c] [disk|washer|shell] [still] [rotate]
+  volume | surfacearea | arclength F from a to b | centroid F [and G]
 English works too: 'what is the range of x squared for a signed byte x?'
   ('help english' for more)

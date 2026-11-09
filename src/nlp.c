@@ -2585,10 +2585,10 @@ parse_postfix(struct ex e, int minprec)
 			e = mkbin(e, "^", x, P_POW);
 			continue;
 		}
-		/* 2x, 3(x + 1) */
-		if (e.lit && e.prec == P_ATOM && !W[wi].sp && ((varlike(wi) &&
-		    !peek("th|st|nd|rd")) || issym("(") || (W[wi].k == W_WORD &&
-		    W[wi].prime))) {
+		/* 2x, 3(x + 1), 2pi */
+		if (e.lit && e.prec == P_ATOM && !W[wi].sp && (((varlike(wi) ||
+		    isw(wi, "pi")) && !peek("th|st|nd|rd")) || issym("(") ||
+		    (W[wi].k == W_WORD && W[wi].prime))) {
 			x = parse_expr(P_POW);
 			e = mkbin(e, "*", x, P_MUL);
 			continue;
@@ -5613,6 +5613,392 @@ no:
 	return 0;
 }
 
+/* ---- integrals drawn, solids of revolution (viz.c) ---- */
+
+/*
+ * "slice of integral f(x) = x^2 at 0 till 4", "area under x^2 from 0 to
+ * 4", "shade the integral of sin x from 0 to pi", "the area between x^2
+ * and x", "a left riemann sum of x^2 with 8 rectangles", "revolve f(x) =
+ * x^2 in x-axis", "rotate x^2 around the y axis", "solid of revolution
+ * of sqrt x from 0 to 4", "the volume of revolution of ...", "the surface
+ * area of revolution of ...", "the arc length of ...", "the centroid of
+ * the region between ...": one area/revolve/volume/... line.
+ */
+static const char *const viz_cmds[] = {"area", "revolve", "volume",
+	"surfacearea", "arclength", "centroid", NULL};
+
+static int word_at(const char *s, size_t n, size_t *i, char *w, size_t wn);
+
+/* the raw command's text read as English? (nlp_is_english) */
+static int
+viz_english(const char *s, size_t n)
+{
+	static const char *const en[] = {"of", "under", "beneath", "below",
+		"the", "a", "an", "till", "until", "axis", "line", "enclosed",
+		"bounded", "curve", "curves", "graph", "function", "region",
+		"solid", "revolution", "using", "method", "rectangles",
+		"subintervals", "me", "please", "its", "it", "with", "sum", "sums",
+		"rule", "obtained", "generated", NULL};
+	size_t j = 0, k;
+	char w[40];
+
+	for (k = 0; k + 1 < n; k++)	/* f(x) = ... */
+		if (s[k] == ')') {
+			size_t q = k + 1;
+			while (q < n && s[q] == ' ')
+				q++;
+			if (q < n && s[q] == '=' && (q + 1 >= n || s[q + 1] != '='))
+				return 1;
+		}
+	while (j < n) {
+		if (word_at(s, n, &j, w, sizeof w)) {
+			if (in_list(en, w) && !user_fn(w))
+				return 1;
+			if (!strcmp(w, "in")) {	/* in x-axis */
+				size_t q = j;
+				while (q < n && s[q] == ' ')
+					q++;
+				if (q + 1 < n && (s[q] == 'x' || s[q] == 'y') &&
+				    (s[q + 1] == '-' || s[q + 1] == ' '))
+					return 1;
+			}
+			continue;
+		}
+		j++;
+	}
+	return 0;
+}
+
+/* "f(x) = x^2", "y = x^2": the body only */
+static void
+viz_skip_def(void)
+{
+	int k, d = 0;
+
+	if (W[wi].k != W_WORD)
+		return;
+	if (issym_at(wi + 1, "=")) {
+		wi += 2;
+		return;
+	}
+	if (!issym_at(wi + 1, "("))
+		return;
+	for (k = wi + 1; W[k].k != W_END; k++)
+		if (issym_at(k, "("))
+			d++;
+		else if (issym_at(k, ")") && --d == 0)
+			break;
+	if (W[k].k != W_END && issym_at(k + 1, "="))
+		wi = k + 2;
+}
+
+/* about the x-axis, around the y axis, in x-axis, about the line y = 2 */
+static const char *
+viz_axis(void)
+{
+	int s = wi;
+	const char *c;
+
+	if (!mat("about|around|in|along|over|across"))
+		return NULL;
+	mat("?the");
+	if (mat("x-axis|xaxis|abscissa") || mat("x - axis") || mat("x axis") ||
+	    mat("horizontal axis"))
+		return "x";
+	if (mat("y-axis|yaxis|ordinate") || mat("y - axis") || mat("y axis") ||
+	    mat("vertical axis"))
+		return "y";
+	mat("?line|lines");
+	if ((isw(wi, "x") || isw(wi, "y")) && issym_at(wi + 1, "=")) {
+		const char *v = W[wi].s;
+		wi += 2;
+		if ((c = plot_const()) != NULL)
+			return S("%s = %s", v, c);
+	}
+	if ((isw(wi, "x") || isw(wi, "y")) && (isw(s, "about") ||
+	    isw(s, "around")) && (W[wi + 1].k == W_END || W[wi + 1].k == W_WORD)) {
+		wi++;
+		return W[wi - 1].s;
+	}
+	wi = s;
+	return NULL;
+}
+
+static int
+viz_sentence(void)
+{
+	enum { A, REV, VOL, SURF, ARC, CEN };
+	int s = wi, cmd = -1, verb, riemann = 0, accum = 0, still = 0, rot = 0;
+	int nofile = 0, anim = 0, rev = 0, k;
+	const char *kind = NULL, *n = NULL, *method = NULL, *axis = NULL;
+	const char *lo = NULL, *hi = NULL, *nm = NULL, *anim_opt = NULL;
+	struct sbuf sb = {0};
+	static const char *const kinds = "left|right|midpoint|mid|middle|"
+	    "trapezoid|trapezoidal|trapezium|simpson|simpsons|lower|upper";
+
+	verb = mat("show|display|draw|plot|graph|shade|visualize|visualise|"
+	    "illustrate|sketch|render|depict|animate|highlight|picture") ? 1 :
+	    mat("find|compute|calculate|get|give|determine|evaluate|estimate|"
+	    "tell") || mat("work out") || mat("what|whats ?is|are") ? 2 : 0;
+	mat("?me|us");
+	mat("?the|a|an");
+	while (mat(kinds) || mat("-|endpoint|endpoints|point|hand"))
+		if (!kind && W[wi - 1].k == W_WORD && strcmp(W[wi - 1].s,
+		    "endpoint") && strcmp(W[wi - 1].s, "endpoints") &&
+		    strcmp(W[wi - 1].s, "point") && strcmp(W[wi - 1].s, "hand"))
+			kind = W[wi - 1].s;
+	if (mat("slice|slices|sliver ?of ?the|an|a ?definite integral|integrals "
+	    "?of|for")) {
+		if (!isw(wi - 1, "integral") && !isw(wi - 1, "integrals") &&
+		    !isw(wi - 2, "integral") && !isw(wi - 2, "integrals"))
+			goto no;
+		cmd = A;
+	} else if (verb == 1 && mat("?definite integral|integrals ?of|for")) {
+		cmd = A;
+	} else if (mat("area|region|areas under|beneath|below|of")) {
+		cmd = A;
+	} else if (mat("area|region|areas ?that|which ?is|lies ?enclosed|bounded|"
+	    "contained|trapped|caught between|by")) {
+		cmd = A;
+	} else if (mat("riemann|rectangle|rectangles|trapezoid|trapezoidal|"
+	    "simpson|simpsons ?sum|sums|rule|approximation|approximations "
+	    "?of|for") || (kind && mat("sum|sums|rule|approximation ?of|for"))) {
+		cmd = A;
+		riemann = 1;
+		if (!kind && !isw(s, "riemann") && W[wi - 1].k == W_WORD) {
+			for (k = s; k < wi; k++)
+				if (isw(k, "trapezoid") || isw(k, "trapezoidal") ||
+				    isw(k, "simpson") || isw(k, "simpsons"))
+					kind = W[k].s;
+		}
+	} else if (mat("accumulation|accumulated ?area ?function ?of|for") ||
+	    mat("area function ?of|for")) {
+		cmd = A;
+		accum = 1;
+	} else if (mat("solid|solids ?of revolution ?of|for|from")) {
+		cmd = verb == 2 ? VOL : REV;
+		rev = 1;
+	} else if (mat("volume|volumes") || (mat("surface area|areas") &&
+	    (cmd = SURF))) {
+		if (cmd != SURF)
+			cmd = VOL;
+		mat("?of ?the ?solid ?of revolution");
+		rev = isw(wi - 1, "revolution");
+		if (mat("?that|which ?is obtained|generated|formed|swept|made ?by|when"
+		    " ?revolving|rotating|turning|spinning|sweeping") &&
+		    W[wi - 1].k == W_WORD && strstr(W[wi - 1].s, "ing"))
+			rev = 1;
+		mat("?of|for");
+		if (verb == 1 && cmd == VOL)
+			cmd = REV;
+	} else if (mat("arc|curve length|lengths") || mat("arclength") ||
+	    mat("length of the curve|graph")) {
+		cmd = ARC;
+	} else if (mat("centroid|centroids") || mat("center|centre of mass|"
+	    "gravity")) {
+		cmd = CEN;
+	} else if (mat("revolve|revolving|rotate|rotating|spin|spinning|turn|"
+	    "turning|sweep|sweeping")) {
+		cmd = REV;
+		rev = isw(wi - 1, "revolve") || isw(wi - 1, "revolving");
+		for (k = wi; k < nw && !rev; k++)
+			if (isw(k, "axis") || isw(k, "about") || isw(k, "around") ||
+			    isw(k, "x-axis") || isw(k, "y-axis"))
+				rev = 1;
+		if (!rev)
+			goto no;
+	} else
+		goto no;
+	if ((cmd == VOL || cmd == SURF) && !rev) {
+		for (k = wi; k < nw && !rev; k++)
+			if (isw(k, "about") || isw(k, "around") || isw(k, "axis") ||
+			    isw(k, "x-axis") || isw(k, "y-axis") || isw(k, "revolution"))
+				rev = 1;
+		if (!rev)
+			goto no;
+	}
+	mat("?of|for");
+	mat("?the ?region|area|curve|curves|graph|graphs|function|functions|"
+	    "parabola|line");
+	mat("?that|which ?is|lies");
+	mat("?under|beneath|below|between|of|enclosed|bounded|by");
+	mat("?by|between");
+	mat("?the ?curve|curves|graph|graphs|function|functions");
+	viz_skip_def();
+	plot_targets();
+	for (;;) {
+		struct ex a, b;
+		const char *c;
+		int s2 = wi, btw;
+		if (W[wi].k == W_END)
+			break;
+		if (acc_sym(",") || acc_sym(";") || acc_sym(".") ||
+		    mat("please|thanks|now|too|again|then|also|and") ||
+		    mat("for me") || mat("as well"))
+			continue;
+		if ((c = viz_axis()) != NULL) {
+			axis = c;
+			continue;
+		}
+		if (mat("at|from|on|over|between|across|within|for|in")) {
+			btw = isw(wi - 1, "between");
+			mat("?the interval|range|segment");
+			if ((isw(wi, "x") || isw(wi, "t")) && (mat("x|t from|in|between") ||
+			    mat("x|t =")))
+				btw |= isw(wi - 1, "between");
+			if (const_interval(&a, &b, btw)) {
+				lo = a.s;
+				hi = b.s;
+				continue;
+			}
+			wi = s2;
+		}
+		if (mat(kinds)) {
+			kind = W[wi - 1].s;
+			riemann = 1;
+			continue;
+		}
+		if (mat("?riemann sum|sums|rule|approximation|approximations") &&
+		    wi > s2) {
+			riemann = 1;
+			continue;
+		}
+		if (mat("riemann|endpoint|endpoints|point|points|hand")) {
+			riemann |= isw(wi - 1, "riemann");
+			continue;
+		}
+		if (mat("?with|using|in|into ?n ?=") && W[wi].k == W_NUM) {
+			n = W[wi].s;
+			wi++;
+			mat("?rectangles|rectangle|trapezoids|trapezoid|subintervals|"
+			    "intervals|pieces|strips|slices|parts|boxes|bars|steps");
+			riemann = 1;
+			continue;
+		}
+		wi = s2;
+		if (mat("?using|by|with|via ?the disk|disc|disks|discs|washer|washers|"
+		    "shell|shells ?method|methods")) {
+			for (k = s2; k < wi; k++)
+				if (W[k].s[0] == 'd' || W[k].s[0] == 'w')
+					method = "washer";
+				else if (W[k].s[0] == 's' && strncmp(W[k].s, "shell", 5) == 0)
+					method = "shell";
+			if (method)
+				continue;
+			wi = s2;
+		}
+		if (mat("?as ?an|a animated|animate|animation|animations") &&
+		    wi > s2) {
+			anim = 1;
+			continue;
+		}
+		if (mat("?as ?a|an still|static|without|no ?animation|image|picture") &&
+		    wi > s2) {
+			still = 1;
+			continue;
+		}
+		if (mat("?and ?then rotate|rotating|spin|spinning|turn|turning ?it|the "
+		    "?solid ?around|round") && wi > s2) {
+			rot = 1;
+			continue;
+		}
+		if (mat("?with|and|plus ?its|the accumulation|accumulated ?area "
+		    "?function") && wi > s2) {
+			accum = 1;
+			continue;
+		}
+		if (mat("nofile")) {
+			nofile = 1;
+			continue;
+		}
+		/* frames 12, in 12 frames, 30 fps, at 30 fps */
+		if ((mat("frames|fps") && W[wi].k == W_NUM) ||
+		    (mat("?in|with|at") && W[wi].k == W_NUM && (isw(wi + 1, "frames") ||
+		    isw(wi + 1, "fps")))) {
+			int f = isw(wi - 1, "frames") || isw(wi + 1, "frames");
+			anim_opt = S("%s %s %s", anim_opt ? anim_opt : "", f ? "frames" :
+			    "fps", W[wi].s);
+			wi += isw(wi - 1, "frames") || isw(wi - 1, "fps") ? 1 : 2;
+			continue;
+		}
+		wi = s2;
+		if (isw(wi, "to") && W[wi + 1].k == W_WORD && W[wi + 2].k == W_END) {
+			nm = W[wi + 1].o;	/* to NAME, the last words */
+			wi += 2;
+			continue;
+		}
+		if (mat("save|call|name ?it|that ?as") && W[wi].k == W_WORD) {
+			nm = W[wi].o;
+			wi++;
+			continue;
+		}
+		if (parse_clause())
+			continue;
+		nfail("I didn't follow \"%s\"", words_text(wi, nw));
+	}
+	if (Q.npl == 0)
+		nfail("of what? (a function)");
+	if (Q.npl > 2)
+		nfail("one or two functions, please");
+	if (!lo && Q.ilo) {
+		lo = Q.ilo;
+		hi = Q.ihi;
+	}
+	for (k = 0; k < nv && !lo; k++)
+		if (V[k].order && V[k].lo[0] && V[k].hi[0] && !V[k].ty[0]) {
+			lo = S("%s", V[k].lo);
+			hi = S("%s", V[k].hi);
+		}
+	sb_printf(&sb, "%s", cmd == A ? "area" : cmd == REV ? "revolve" : cmd ==
+	    VOL ? "volume" : cmd == SURF ? "surfacearea" : cmd == ARC ?
+	    "arclength" : "centroid");
+	for (k = 0; k < Q.npl; k++)
+		sb_printf(&sb, "%s%s", k ? " and " : " ", Q.pl[k].named ?
+		    Q.pl[k].fn : Q.pl[k].e.s);
+	if (lo)
+		sb_printf(&sb, " from %s to %s", lo, hi);
+	if (cmd == A && (riemann || kind)) {
+		const char *kk = !kind ? NULL : !strcmp(kind, "middle") ||
+		    !strcmp(kind, "mid") ? "mid" : !strncmp(kind, "trap", 4) ?
+		    "trapezoid" : !strncmp(kind, "simpson", 7) ? "simpson" :
+		    !strcmp(kind, "lower") ? "left" : !strcmp(kind, "upper") ? "right" :
+		    kind;
+		sb_printf(&sb, " riemann");
+		if (n && !anim)
+			sb_printf(&sb, " %s", n);
+		if (kk)
+			sb_printf(&sb, " %s", kk);
+		if (kind && (!strcmp(kind, "lower") || !strcmp(kind, "upper")) && !dry)
+			printf("  note: read \"%s sum\" as the %s endpoint sum (the %s "
+			    "sum for an increasing function)\n", kind, kk, kind);
+	}
+	if (cmd == A && accum)
+		sb_printf(&sb, " accumulate");
+	if (axis && cmd != A && cmd != ARC && cmd != CEN)
+		sb_printf(&sb, " about %s", axis);
+	if (method && (cmd == REV || cmd == VOL))
+		sb_printf(&sb, " %s", method);
+	if (cmd == REV && still)
+		sb_printf(&sb, " still");
+	if (cmd == REV && rot)
+		sb_printf(&sb, " rotate");
+	if (anim_opt && cmd != VOL && cmd != SURF && cmd != ARC && cmd != CEN)
+		sb_puts(&sb, anim_opt);
+	if (nm)
+		sb_printf(&sb, " to %s", nm);
+	if (nofile)
+		sb_printf(&sb, " nofile");
+	Q.raw[0] = S("%s", sb.p);
+	free(sb.p);
+	Q.cmd = C_RAW;
+	Q.nraw = 1;
+	wi = nw;
+	return 1;
+no:
+	wi = s;
+	return 0;
+}
+
 #include "calc2.h"
 #include "nlp_calc2.inc"   /* derivatives, limits, series ... (calc2) */
 #include "nlp_hyper.inc"   /* complex, quaternion, octonion (hyper.c) */
@@ -5704,6 +6090,8 @@ sentence(void)
 		return;
 	}
 	if (meta())
+		return;
+	if (viz_sentence())	/* area under, revolve, volume of revolution */
 		return;
 	if (definition())
 		return;
@@ -7118,7 +7506,7 @@ static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"alternative", "approximate", "expand", "rewrite", "linearize",
 	"linearise", "classify", "characterize", "characterise", "describe",
 	"draw", "sketch", "visualize", "visualise", "render", "depict",
-	"illustrate", "chart", NULL};
+	"illustrate", "chart", "shade", "rotate", "spin", NULL};
 static const char *const vocab[] = {"principal", "branch", "lambert",
 	"productlog", "lower", "upper", "plus", "minus", "times", "multiplied",
 	"divided", "squared", "cubed", "square", "root", "cube", "sum",
@@ -7406,6 +7794,9 @@ nlp_is_english(const char *s, size_t n)
 			}
 			return 0;
 		}
+		/* viz.c: "area x^2 from 0 to 4" is ucas, "area under x^2" not */
+		if (in_list(viz_cmds, w1) && !user_fn(w1))
+			return viz_english(s + j, n - j);
 		/* alg.c's commands: ucas unless English follows ("gcd of") */
 		{
 			static const char *const alg_cmds[] = {"factor", "collect",

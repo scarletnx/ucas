@@ -1,0 +1,3 @@
+# viz: integral slices and solids of revolution, attached as plot's GIFs are
+{"op": 0, "s": 3101, "t": "MESSAGE_CREATE", "d": {"id": "3101", "channel_id": "45", "guild_id": "7", "author": {"id": "98", "username": "u98"}, "content": "<@1000> slice of integral f(x) = x^2 at 0 till 4", "type": 0}}
+{"op": 0, "s": 3102, "t": "MESSAGE_CREATE", "d": {"id": "3102", "channel_id": "45", "guild_id": "7", "author": {"id": "98", "username": "u98"}, "content": "<@1000> revolve sqrt(x) from 0 to 4 about x frames 8 to bowl", "type": 0}}

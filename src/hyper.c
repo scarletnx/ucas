@@ -1594,7 +1594,10 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"congruence", "crt", "legendre", "jacobi", "sqrtmod", "qr", "primroot",
 	"dlog", "magic", "irreducible", "det", "rank", "nullspace", "matinv",
 	"matsolve", "gf2matrix", "matrix",
-	"derivative", "series", NULL};
+	"derivative", "series",
+	/* viz.c */
+	"area", "revolve", "volume", "surfacearea", "arclength", "centroid",
+	NULL};
 
 static const char *
 kind_str(const struct func *f, int j)
@@ -4326,7 +4329,9 @@ hy_command(const struct toks *t, uint32_t b, const char *w0)
 		hn = 0;
 		return 1;
 	}
-	if (!strcmp(w0, "rotate") && !func_find(sym_cstr("rotate"))) {
+	if (!strcmp(w0, "rotate") && !func_find(sym_cstr("rotate")) &&
+	    find_word(t, 1, b, (const char *const[]){"by", NULL}) < b) {
+		/* without "by": a solid of revolution, English (viz.c) */
 		cmd_rotate(t, 1, b);
 		hn = 0;
 		return 1;
