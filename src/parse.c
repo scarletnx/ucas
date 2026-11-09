@@ -196,7 +196,7 @@ static const char *const keywords[] = {
 };
 static const char *const stopwords[] = {
 	"basis", "max", "ops", "model", "as", "using", "to", "metric",
-	"nodes", "from", "wrt", "steps", NULL
+	"nodes", "from", "wrt", "steps", "nocrit", NULL
 };
 
 static int
@@ -1443,7 +1443,7 @@ help(void)
 "types: real (math), f32 f64 (IEEE), int (math), uN iN (wrapping), bool\n"
 "commands (F is a function name or an expression like isqrt(x: u4))\n"
 "  show F | parse EXPR | table F [max n] | funcs | models | help\n"
-"  range F | domain F | wrap F | crit F | diff F [x]\n"
+"  range F [nocrit] | domain F | wrap F | crit F | diff F [x]\n"
 "  equiv F G | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]\n"
 "  gates F [basis b] [max k] [nodes n] [as c]\n"
 "  find F [n] [max cost] | more [n]\n"
@@ -1457,7 +1457,9 @@ help(void)
 "  closed F | scheme F [model m] | continuous F\n"
 "  integrate F [wrt x] [from a to b]\n"
 "  y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] "
-"[steps n]");
+"[steps n]\n"
+"English works too: 'what is the range of x squared for a signed byte x?'\n"
+"  ('help english' for more)");
 }
 
 /* ---- approx: parsing hooks (the command itself is in approx.c) ---- */
@@ -1637,9 +1639,12 @@ statement(struct P *p)
 				notes_flush();
 				cmd_table(f, n);
 			} else if (!strcmp(cmd, "range")) {
+				int nocrit = accept_kw(p, "nocrit");
 				expect_eos(p);
 				notes_flush();
+				range_nocrit = nocrit;
 				cmd_range(f);
+				range_nocrit = 0;
 			} else if (!strcmp(cmd, "domain")) {
 				expect_eos(p);
 				notes_flush();

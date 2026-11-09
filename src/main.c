@@ -2,6 +2,10 @@
  * ucas [file ...]     run files (echoing each statement), or
  * ucas                read statements from standard input
  * ucas -e 'stmt'      run one statement
+ *
+ * A line that reads as English is translated to ucas statements first
+ * (nlp.c).  -y never asks about ambiguous words (the default reading is
+ * taken and noted); -i always asks, even when not on a terminal.
  */
 #include "ucas.h"
 
@@ -51,11 +55,11 @@ repl(void)
 		if (depth > 0)
 			continue;
 		depth = 0;
-		run_source(buf.p, "<stdin>", 0);
+		run_text(buf.p, "<stdin>", 0);
 		sb_clear(&buf);
 	}
 	if (buf.n)
-		run_source(buf.p, "<stdin>", 0);
+		run_text(buf.p, "<stdin>", 0);
 }
 
 int
@@ -67,8 +71,12 @@ main(int argc, char **argv)
 	for (i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "-q")) {
 			echo = 0;
+		} else if (!strcmp(argv[i], "-y")) {
+			nlp_interactive = 0;
+		} else if (!strcmp(argv[i], "-i")) {
+			nlp_interactive = 1;
 		} else if (!strcmp(argv[i], "-e") && i + 1 < argc) {
-			run_source(argv[++i], "<arg>", 0);
+			run_text(argv[++i], "<arg>", 0);
 			ran = 1;
 		} else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
 			run_source("help", "<arg>", 0);
@@ -82,7 +90,7 @@ main(int argc, char **argv)
 			}
 			src = slurp(fp);
 			fclose(fp);
-			run_source(src, argv[i], echo);
+			run_text(src, argv[i], echo);
 			free(src);
 			ran = 1;
 		}

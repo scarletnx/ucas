@@ -1,0 +1,389 @@
+> what is the range of the integer square root of a 4-bit unsigned x?
+  ucas: it(x: u4) = isqrt(x)
+  ucas: range it
+range of it -> u4:
+  0..3   (4 distinct values)
+  values: 0..3
+  fits in u2
+  over all 16 points of the domain
+> does x times 2 plus 1 overflow for a signed byte x?
+  ucas: it(x: i8) = x*2 + 1
+  ucas: wrap it
+wrap analysis of it:
+  2x   (i8)
+      nuw fails: unsigned wrap at 128 points, e.g. x=-128
+      nsw fails: signed wrap at 128 points, e.g. x=-128  <- UB in C; a compiler assumes it cannot happen
+  2x + 1   (i8)
+      nuw holds
+      nsw holds (C requires it: signed overflow is UB)
+  end to end: differs from the mathematical result at 128 points, e.g. x=-128
+      exact for: -64..63
+  over all 256 points of the domain
+> what are the critical points of x cubed minus 3x?
+  ucas: it(x) = x^3 - 3*x
+  ucas: crit it
+critical points of it:
+  it' = 3x^2 - 3
+  x ≈ -1: local maximum, it = 2
+  x ≈ 1: local minimum, it = -2
+  searched [-10, 10] (default; give x a range)
+> the derivative of sin x squared with respect to x
+  ucas: it(x) = sin(x^2)
+  ucas: diff it x
+d/dx it = cos(x^2)*2x
+> what is 2 to the 10th?
+  ucas: 2^10
+1024
+> what is two hundred fifty-six divided by 4?
+  ucas: 256/4
+64
+> what's 20 percent of 150?
+  ucas: 150*20/100
+30
+> let f of x be x squared plus 1 where x is between 0 and 10
+  ucas: f(x in 0..10) = x^2 + 1
+  ucas: show f
+f(x: int in 0..10) = x^2 + 1
+  -> int
+> what is its range?
+  ucas: range f
+range of f -> int:
+  1..101
+  fits in u7
+  over all 11 points of the domain
+> what is f when x is 3?
+  ucas: f(3)
+10
+> what is the square root of x plus 1 where x is a real?
+  note: what does "the square root of" apply to: read as sqrt(x) + ..., not sqrt(x + ...) (say "the square root of the quantity ..." for the second)
+  ucas: it(x: real) = sqrt(x) + 1
+  ucas: show it
+it(x: real) = sqrt(x) + 1
+  -> real
+> range of the log of x for x from 1 to 8
+  note: "log" without a base: read as the natural log, ln, not log base 2 or log base 10 (say "natural log", "log base 2" or "log base 10", or "assume log means base 2")
+  ucas: it(x in 1..8) = log(x)
+  ucas: range it
+range of it -> real:
+  [0, 2.07944154]
+  over all 8 points of the domain
+> how big can x times y get when x and y are unsigned bytes?
+  ucas: it(x: u8, y: u8) = x*y
+  ucas: range it
+range of it -> u8:
+  0..255   (256 distinct values)
+  fits in u8
+  over all 65536 points of the domain
+> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+> find 2 cheaper implementations of days
+  ucas: find days 2
+  note: the result is int: searching in u8
+find days: 12 points, computing in u8, costs from gt1030
+  cost 6   u8(0x3bbeecc >> (u32(m) << 1) & 3) + 28  packed table in one constant
+  cost 9   [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] lookup table (baseline)
+  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]
+> where is log(x) / (x - 1) defined?
+  ucas: it(x) = log(x)/(x - 1)
+  ucas: domain it
+domain of it:
+  x: real (default [-10, 10])
+  requires x - 1 != 0  (in log(x)/(x - 1))
+  requires x > 0
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in (0, 1)
+    x in (1, 10]
+    except x ≈ 1  (x - 1 = 0)
+> avg(a: u8, b: u8) = (a + b) / 2
+> does avg overflow?
+  ucas: wrap avg
+wrap analysis of avg:
+  a + b   (u8)
+      nuw fails: unsigned wrap at 32640 points, e.g. a=255, b=1
+      nsw fails: signed wrap at 16384 points, e.g. a=127, b=1
+  end to end: differs from the mathematical result at 32640 points, e.g. a=255, b=1
+  over all 65536 points of the domain
+> is avg equal to (a & b) + ((a xor b) >> 1)?
+  ucas: that(a: u8, b: u8) = (a & b) + ((a xor b) >> 1)
+  ucas: equiv avg that
+avg and that differ at 32640 points, e.g. a=255, b=1: 0 vs 128
+> is avg comutative?
+  note: read "comutative" as "commutative"
+  note: commutative: avg(a, b) = avg(b, a) everywhere?
+  ucas: lhs(a: u8, b: u8) = avg(a, b)
+  ucas: rhs(a: u8, b: u8) = avg(b, a)
+  ucas: equiv lhs rhs
+lhs and rhs are equal on the domain of lhs (exhaustive)
+> dbl(x: u8) = x * 2
+> is dbl add ivite?
+  note: read "add ivite" as "additive"
+  note: additive: dbl(a + b) = dbl(a) + dbl(b) everywhere?
+  ucas: lhs(x: u8, x2: u8) = dbl(x + x2)
+  ucas: rhs(x: u8, x2: u8) = dbl(x) + dbl(x2)
+  ucas: equiv lhs rhs
+lhs and rhs are equal on the domain of lhs (exhaustive)
+> is dbl an odd function?
+  note: odd: dbl(-x) = -dbl(x) everywhere?
+  ucas: lhs(x: u8) = dbl(-x)
+  ucas: rhs(x: u8) = -dbl(x)
+  ucas: equiv lhs rhs
+lhs and rhs are equal on the domain of lhs (exhaustive)
+> is avg asociative?
+  note: read "asociative" as "associative"
+  note: associative: avg(avg(a, b), c) = avg(a, avg(b, c)) everywhere?
+  ucas: lhs(a: u8, b: u8, a3: u8) = avg(avg(a, b), a3)
+  ucas: rhs(a: u8, b: u8, a3: u8) = avg(a, avg(b, a3))
+  ucas: equiv lhs rhs
+lhs and rhs differ at 64452 points, e.g. a=255, b=0, a3=2: 64 vs 0
+> are x plus y and y plus x equivalent for u8 x and y?
+  ucas: it(x: u8, y: u8) = x + y
+  ucas: that(x: u8, y: u8) = y + x
+  ucas: equiv it that
+it and that are equal on the domain of it (exhaustive)
+> is x squared ever negative for a signed byte x?
+  ucas: it(x: i8) = x^2
+  ucas: range it
+range of it -> i8:
+  -127..121   (44 distinct values)
+  values: -127, -124, -119, -112..-111, -103, -95, -92, -87, -79, -71, -63, -60, -55, -47, -39, -31, -28, -23, -15, -7, 0..1, 4, 9, 16..17, ...
+  fits in i8
+  over all 256 points of the domain
+> what is the maximum of a and b when a is 3 and b is 5?
+  ucas: max(3, 5)
+5
+> give me a table of values of x squared mod 7 for x from 0 to 10
+  ucas: it(x in 0..10) = x^2 % 7
+  ucas: table it
+  x=0  ->  0
+  x=1  ->  1
+  x=2  ->  4
+  x=3  ->  2
+  x=4  ->  2
+  x=5  ->  4
+  x=6  ->  1
+  x=7  ->  0
+  x=8  ->  1
+  x=9  ->  4
+  x=10  ->  2
+> x if x is positive, otherwise minus x; call it myabs
+  ucas: it(x) = x > 0 ? x : -x
+  ucas: show it
+it(x: real) = x > 0 ? x : -x
+  -> real
+  ucas: myabs(x: real) = it(x)
+  ucas: show myabs
+myabs(x: real) = x > 0 ? x : -x
+  -> real
+> what is the derivative of myabs?
+  ucas: diff myabs
+d/dx myabs = x > 0 ? 1 : -1
+> cos of pi/2 to -pi/2 w/o crit. points
+  note: read the interval as [-pi/2, pi/2]
+  ucas: it(x in -pi/2..pi/2) = cos(x)
+  ucas: range it nocrit
+range of it:
+  [6.123233996e-17, 1]   min at x ≈ -1.570796327, max at x ≈ 0
+  grid of 20001 points over [-1.5708, 1.5708], critical points not used (nocrit)
+> what is the range of sin theta for theta between 0 and pi?
+  ucas: it(theta in 0..pi) = sin(theta)
+  ucas: range it
+range of it:
+  [0, 1]   min at theta ≈ 0, max at theta ≈ 1.570796327
+  grid of 20001 points over [0, 3.14159], extrema refined at critical points
+> what is the range of 90deg minus theta for theta from 0 to pi?
+  ucas: it(theta in 0..pi) = 90*pi/180 - theta
+  ucas: range it
+range of it:
+  [-1.570796327, 1.570796327]   min at theta ≈ 3.141592654, max at theta ≈ 0
+  grid of 20001 points over [0, 3.14159], extrema refined at critical points
+> isqrt4(x: u4) = isqrt(x)
+> what is the minimal gate network for isqrt4 using arm64 with sha3?
+  ucas: gates isqrt4 basis a64sha
+gates for isqrt4: 4 input bits -> 4 output bits (2 constant), basis a64sha
+  minimal: cost 3, 3 steps (no program of cost <= 2 exists; 4576 candidates searched)
+  checked: the program reproduces every output bit on all 16 care inputs
+  t0 = or(x0, x1)                = x0 | x1
+  t1 = or(x2, x3)                = x2 | x3
+  t2 = bsl(x2, x3, t0)           = x2 & x3 | ~x2 & t0
+  r3 = 0
+  r2 = 0
+  r1 = t1
+  r0 = t2
+> rsqrt(x: f32 in 0.01..100) = 1/sqrt(x)
+> guess(x: f32, K: u32) = asfloat(K - (asuint(x) >> 1))
+> quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
+      where y = asfloat(0x5f3759df - (asuint(x) >> 1))
+> how accurate is quake as an approximation of rsqrt?
+  ucas: error quake ~ rsqrt
+error of quake against rsqrt:
+  max abs error 0.0174789 at x=0.0100000007
+  max rel error 0.00175224 (0.175%) at x=14.9190588
+  mean rel error 0.000943339 over 65536 points
+  max 28402 ulp
+> find the best constant for guess to approximate rsqrt
+  ucas: fit guess ~ rsqrt
+fit guess to rsqrt (max relative error, 4096 sample points):
+  K = 1597465581  (0x5f3763ed)
+  objective 0.0342066
+  asfloat(1597465581 - (asuint(x) >> 1))
+  max abs error 0.341896 at x=0.0100000007
+  max rel error 0.0342164 (3.42%) at x=59.6959572
+  mean rel error 0.0231791 over 65536 points
+  max 564234 ulp
+> x is a byte
+  note: "byte" without signed or unsigned: read as unsigned, u8, not signed, i8 (say "unsigned byte", or "assume bytes are signed")
+  ok: from now on x is a byte
+> assume bytes are signed
+  ok: bytes are signed
+> what is the range of x plus 1 for a byte x?
+  ucas: it(x: i8) = x + 1
+  ucas: range it
+range of it -> i8:
+  -128..127   (256 distinct values)
+  fits in i8
+  over all 256 points of the domain
+> forget everything
+  ok: forgot every assumption
+> alt ((1 << 3) & x) + x *5
+  ucas: it(x) = (1 << 3 & x) + x*5
+  ucas: find it 10
+  note: x has no type: inferred int from the integer operations in the body
+find it: 191 points (sampled; matches verified on the whole domain), computing in int, costs from gt1030
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 87838 distinct columns, bank full; 'more' continues]
+> cos -pi/2 to pi/2 with cheby poly degree 4
+  ucas: it(x in -pi/2..pi/2) = cos(x)
+  ucas: approx it method cheb degree 4
+approx it on [-1.57079637, 1.57079637] as f32, fma
+  checked: it is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.57079637]
+  metric: absolute error (the function crosses zero away from the expansion point)
+  checked: the target equals cos(x) at 33 points: range reductions and identities for cos apply
+  fits in real arithmetic (max absolute error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    4    0.00061      0.000603     0.000597     
+  rational fits (num/den degree: minimax, Pade; max abs error):
+    0/2 0.191 (0.448) 2/2 0.00097 (0.0233) 0/4 0.0997 (0.286) 4/2 6.01e-06 (0.000691)
+    2/4 3.17e-05 (0.0027) 0/6 0.0613 (0.209) 4/4 6.9e-08 (2.96e-05) 2/6 9.72e-07 (0.000311) 4/6 7.84e-10 (1.29e-06)
+  piecewise (2 pieces split at 0.785398185, max abs error): 1: 0.0352 2: 0.00231 3: 0.000114 4: 4.47e-06
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131103 f32 in [-1.57079637, 1.57079637]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   cheb      4     horner+fma                           1.33e+04      0.00061       3    at x=0.000245948235
+      P(x^2): fma(fma(0.0367740616, s, -0.49553737), s, 0.999389827) where s = x*x
+  2   rational  4/2   horner+fma                           137           6.16e-06      14   at x=-0.586780608
+      P(x^2)/Q(x^2): fma(fma(0.0238029845, s, -0.46401602), s, 1.00000596)/fma(0.0360647254, s, 1.0) where s = x*x
+  3   rational  4/4   horner+fma                           1.52          1.8e-07       15   at x=-0.49033007
+      P(x^2)/Q(x^2): fma(fma(0.0202511679, s, -0.455252439), s, 0.99999994)/fma(fma(0.000962396443, s, 0.044746127), s, 1.0) where s = x*x
+  4   rational  4/6   horner+fma                           0.54          1.12e-07      16   at x=-0.903456569
+      P(x^2)/Q(x^2): fma(fma(0.0189904552, s, -0.452141792), s, 1.0)/fma(fma(fma(2.13919138e-05, s, 0.00125278335), s, 0.0478582196), s, 1.0) where s = x*x
+  1 more: 'approx more [n]' (dominated or worse)
+> cos from -90deg to 90 deg using chebysev polynomaial of degree 4, yes critical
+  note: read "chebysev" as "chebyshev"
+  note: read "polynomaial" as "polynomial"
+  ucas: it(x in -(90*pi/180)..90*pi/180) = cos(x)
+  ucas: approx it method cheb degree 4 keep crit
+  keep crit: x = 0
+approx it on [-1.57079637, 1.57079637] as f32, fma
+  checked: it is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.57079637]
+  metric: absolute error (the function crosses zero away from the expansion point)
+  checked: the target equals cos(x) at 33 points: range reductions and identities for cos apply
+  exact at: x = 0 -> 1
+  fits in real arithmetic (max absolute error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax      no exact pts
+    4    0.00239      -            0.000737     0.000597
+  rational fits (num/den degree: minimax, Pade; max abs error):
+    2/2 0.00117 (-) 4/2 6.99e-06 (-) 2/4 2.78e-05 (-) 4/4 7.78e-08 (-)
+    2/6 6e-07 (-) 4/6 9.18e-10 (-)
+  piecewise (2 pieces split at 0.785398185, max abs error): 1: 0.0487 2: 0.00231 3: 0.000133 4: 4.47e-06
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131103 f32 in [-1.57079637, 1.57079637]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   cheb      4     horner+fma                           5.46e+04      0.00239       3    at x=-1.57079566  exact pts yes  keep +300%
+      P(x^2): fma(fma(0.0383687839, s, -0.498988509), s, 1.0) where s = x*x
+  2   rational  4/2   horner+fma                           159           7.09e-06      14   at x=-0.517942131  exact pts yes
+      P(x^2)/Q(x^2): fma(fma(0.0238436721, s, -0.464113563), s, 1.0)/fma(0.035945598, s, 1.0) where s = x*x
+  3   rational  4/4   horner+fma                           1.43          1.85e-07      15   at x=-0.411664426  exact pts yes
+      P(x^2)/Q(x^2): fma(fma(0.0202609245, s, -0.455276519), s, 1.0)/fma(fma(0.000959660218, s, 0.0447224379), s, 1.0) where s = x*x
+  4   rational  4/6   horner+fma                           0.536         1.13e-07      17   at x=-0.116080977  exact pts yes
+      P(x^2)/Q(x^2): fma(fma(fma(2.24345495e-05, s, 0.0184873883), s, -0.451037109), s, 1.0)/fma(fma(fma(2.24345495e-05, s, 0.00130206731), s, 0.0489628986), s, 1.0) where s = x*x
+  2 more: 'approx more [n]' (dominated or worse)
+> cos with cheby poly of degree 2
+  note: no interval given: using -pi/2 to pi/2 (say "on a to b")
+  ucas: it(x) = cos(x)
+  ucas: approx it in -pi/2..pi/2 method cheb degree 2
+approx it on [-1.57079637, 1.57079637] as f32, fma
+  checked: it is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.57079637]
+  metric: absolute error (the function crosses zero away from the expansion point)
+  checked: the target equals cos(x) at 33 points: range reductions and identities for cos apply
+  fits in real arithmetic (max absolute error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    2    0.0292       0.0286       0.028        
+  rational fits (num/den degree: minimax, Pade; max abs error):
+    0/2 0.191 (0.448) 2/2 0.00097 (0.0233) 0/4 0.0997 (0.286) 2/4 3.17e-05 (0.0027)
+    0/6 0.0613 (0.209) 2/6 9.72e-07 (0.000311)
+  piecewise (2 pieces split at 0.785398185, max abs error): 1: 0.0352 2: 0.00231
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131103 f32 in [-1.57079637, 1.57079637]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   cheb      2     horner+fma                           6.13e+05      0.0292        2    at x=0.000271611469
+      P(x^2): fma(-0.404317319, s, 0.970800996) where s = x*x
+  2   piecewise 2     horner+fma                           5.28e+04      0.00231       11   at x=-0.986053109
+      2 pieces, of |x|: fma(fma(k2, t, k1), t, k0) where a = abs(x), lo = a < 0.785398185, t = a - (lo ? f32(0.392699093) : f32(1.17809725)), k0 = lo ? f32(0.923656046) : f32(0.382589638), k1 = lo ? f32(-0.375392377) : f32(-0.906198204), k2 = lo ? f32(-0.454584599) : f32(-0.188287169)
+  3   rational  2/2   horner+fma                           2.22e+04      0.00097       13   at x=-0.00066325604
+      P(x^2)/Q(x^2): fma(-0.406169564, s, 1.00097001)/fma(0.101648785, s, 1.0) where s = x*x
+  4   rational  2/4   horner+fma                           724           3.18e-05      14   at x=-0.579158485
+      P(x^2)/Q(x^2): fma(-0.405288219, s, 0.99996835)/fma(fma(0.00643032137, s, 0.0942667201), s, 1.0) where s = x*x
+  5   rational  2/6   horner+fma                           21.3          1.07e-06      16   at x=-0.457205176
+      P(x^2)/Q(x^2): fma(fma(0.0, s, -0.405285597), s, 1.00000095)/fma(fma(fma(0.000342802872, s, 0.00562889501), s, 0.0947354212), s, 1.0) where s = x*x
+> integrate x squared
+  ucas: it(x) = x^2
+  ucas: integrate it
+∫ x^2 dx
+  = x^3/3 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.4e-14)
+> what is the integral of x squared times sin x from 0 to pi?
+  ucas: it(x) = x^2*sin(x)
+  ucas: integrate it from 0 to pi
+∫ x^2*sin(x) dx
+  = 2x*sin(x) + 2cos(x) - x^2*cos(x) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 3.14159] (max difference 8.9e-16)
+  from 0 to 3.14159: F(3.14159) - F(0) = 5.86960440108936
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 5.86960440108936, estimated error 6.5e-14
+  the two agree to 0
+> what is the closed form of the sum of i squared for i from 1 to n?
+  ucas: it(n: int in 0..100) = sum(i, 1, n, i^2)
+  ucas: closed it
+sum(i, 1, n, i^2)
+  = n*(n + 1)*(2n + 1)/6
+  method: Faulhaber (polynomial in the index)
+  check: equals direct iteration at all 101 points of the domain
+> the sum over k from 1 to 10 of k cubed
+  ucas: sum(k, 1, 10, k^3)
+3025
+> what is the product of i for i from 1 to 6?
+  ucas: prod(i, 1, 6, i)
+720
+> fib[0] = 0
+> fib[1] = 1
+> fib[n] = fib[n-1] + fib[n-2]
+> closed form of fib
+  ucas: closed fib
+fib[n]
+  = int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+  method: linear recurrence (characteristic roots)
+  characteristic polynomial x^2 - x - 1, roots (1 + √5)/2 = 1.618033989, (1 - √5)/2 = -0.6180339887
+  check: equals direct iteration at all 61 points of the domain
+> y' = -2y + 1
+> y(0) = 3
+> solve y from 0 to 2 in 2 steps
+  ucas: dsolve y from 0 to 2 steps 2
+y' = -2y + 1, y(0) = 3
+  linear with constant coefficients: eigenvalues -2; forcing by undetermined coefficients
+  y(t) = 2.5exp(-2*t) + 0.5
+  check: satisfies the equations at 201 points of [0, 2] (max relative residual 7.4e-17) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 90 steps) agrees with it to 2.3e-11
+      t            y(t)
+      0            3
+      1            0.8383382081
+      2            0.5457890972
+> factor x squared minus 1
+  sorry: ucas can't factor yet: it measures functions

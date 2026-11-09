@@ -9,5 +9,6 @@ ucas.debug
 .depend*
 *.orig
 *.rej
+nlp_words.h
 # bot token and other secrets: never commit
 secrets/

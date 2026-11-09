@@ -2,7 +2,7 @@
 
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
-	find.c model.c remez.c approx.c
+	find.c model.c remez.c approx.c nlp.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c
 .PATH:	${.CURDIR}/src
@@ -15,6 +15,13 @@ CWARNFLAGS+=	-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
 WARNS?=	2
 MK_WERROR=	no
 LDADD+=	-lm
+
+# nlp.c corrects misspelt words towards the words of its own strings
+CFLAGS+=	-I${.OBJDIR}
+nlp_words.h: nlp.c nlp_words.awk
+	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c > ${.TARGET}
+nlp.o nlp.pieo: nlp_words.h
+CLEANFILES+=	nlp_words.h
 
 TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
 

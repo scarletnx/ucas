@@ -7,3 +7,4 @@ ucas-discord.debug
 .depend*
 *.got
 *.diff
+nlp_words.h

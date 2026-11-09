@@ -20,6 +20,13 @@ SRCS=	bot.c sup.c text.c selftest.c ${ENGINE}
 .PATH:	${.CURDIR}/../src
 MAN=
 
+# nlp.c includes a word list generated from its own strings
+CFLAGS+=	-I${.OBJDIR}
+nlp_words.h: nlp.c nlp_words.awk
+	awk -f ${.CURDIR}/../src/nlp_words.awk ${.CURDIR}/../src/nlp.c > ${.TARGET}
+nlp.o nlp.pieo: nlp_words.h
+CLEANFILES+=	nlp_words.h
+
 CSTD=	c99
 CFLAGS+=	-O2 -I${.CURDIR}/../src -I${.CURDIR}
 CFLAGS+=	-isystem ${CONCORD}/include -isystem ${CONCORD}/core \
