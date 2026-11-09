@@ -30,8 +30,10 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7272,6 +7274,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* abstract algebra (absalg_cmd.c) */
+		const char *r = absalg_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7679,6 +7690,8 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int homalg_line(const char *s, size_t n);	/* homalg_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7699,6 +7712,15 @@ nlp_is_english(const char *s, size_t n)
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
+	if (prove_is_cmd(s + i, n - i))
+		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
+	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
+		return 0;
+	{
+		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
 	}

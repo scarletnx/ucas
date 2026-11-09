@@ -19,6 +19,9 @@ SRCS+=	poly.c alg.c rint.c solve.c
 # rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them
 SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
 ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
+# absalg: exact abstract algebra (absalg.h): integers, integer matrices,
+# abelian groups, permutation groups, Groebner bases
+SRCS+=	zint.c zmat.c fgab.c pgrp.c ideal.c absalg_cmd.c
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
 # transforms (Laplace, Z, Fourier, DFT), series and infinite sums
@@ -27,6 +30,14 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# proofs: an LCF kernel, its checker, decision procedures, a theory library
+SRCS+=	kterm.c knorm.c kernel.c kcheck.c kauto.c kscript.c prove_cmd.c \
+	prove_model.c
+thy_absalg.inc: thy_absalg.thy
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    ${.ALLSRC} > ${.TARGET}
+kscript.o kscript.pieo: thy_absalg.inc
+CLEANFILES+=	thy_absalg.inc
 # simplify's function-level pass over a shader's GLSL source
 SRCS+=	glslfn.c
 # ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its
@@ -46,6 +57,8 @@ DPADD+=	libsnxglslc.a
 ${PROG}.full ${PROG}: libsnxglslc.a
 CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
 glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
+# homological algebra: spaces, (co)homology, exact couples (homalg.h)
+SRCS+=	simp.c cx.c excouple.c homalg_cmd.c reduce.c
 .PATH:	${.CURDIR}/src
 MAN=
 
