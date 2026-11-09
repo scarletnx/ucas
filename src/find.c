@@ -509,6 +509,13 @@ show_new(int want)
 		}
 		printf("  cost %-3d %-40s %s%s\n", F.m[i].cost, node_str(F.m[i].e),
 		    F.m[i].why, sampled ? " (sampled)" : "");
+		rep_obj(NULL);
+		rep_num("cost", F.m[i].cost);
+		rep_expr("expr", F.m[i].e);
+		rep_str("why", F.m[i].why);
+		rep_bool("verified", 1);
+		rep_bool("exhaustive", !sampled);
+		rep_end();
 		shown++;
 	}
 	free(w.p);
@@ -948,7 +955,14 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	    F.P == 1 ? "" : "s", F.sampled ? " (sampled; matches verified on "
 	    "the whole domain)" : "", ty_str(F.W),
 	    sym_str(model_active()->name));
+	rep_begin("find");
+	rep_int("points", F.P);
+	rep_bool("sampled", F.sampled);
+	rep_str("type", ty_str(F.W));
+	rep_str("model", sym_str(model_active()->name));
+	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
+	rep_end();
 }
 
 void
@@ -958,5 +972,8 @@ cmd_more(int want)
 		fail("nothing to continue: run 'find' first");
 	printf("more for %s:\n", F.f.anon ? node_str(F.f.body) :
 	    sym_str(F.f.name));
+	rep_begin("find");
+	rep_list("implementations");
 	run_levels(want, F.done + 8);
+	rep_end();
 }

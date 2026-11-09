@@ -457,6 +457,8 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 		snprintf(buf, sizeof buf, "t%d", i);
 		names[s->nin + i] = strdup(buf);
 	}
+	if (!emit)
+		rep_list("program");
 	for (i = 0; i < nstep; i++) {
 		const struct gate *g = &s->bs->g[sg[i]];
 		const char *vn[3];
@@ -479,6 +481,15 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 				    g->arity * 4 > 2 ? 26 - (int)strlen(sym_str(
 				    g->name)) - g->arity * 4 : 2, "", sb_str(&b));
 			printf("\n");
+			rep_obj(NULL);
+			rep_strf("dst", "t%d", i);
+			rep_str("gate", sym_str(g->name));
+			rep_list("args");
+			for (k = 0; k < g->arity; k++)
+				rep_str(NULL, vn[k]);
+			rep_end();
+			rep_str("expr", sb_str(&b));
+			rep_end();
 		}
 	}
 	if (emit) {
@@ -498,6 +509,21 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 			printf("0");
 		printf(";\n");
 	} else {
+		rep_end();
+		rep_obj("outputs");
+		for (k = width; k-- > 0;) {
+			int o;
+			char rn[16];
+			for (o = 0; o < nout; o++)
+				if (outk[o] == k)
+					break;
+			snprintf(rn, sizeof rn, "r%d", k);
+			if (o < nout)
+				rep_str(rn, names[outv[o]]);
+			else
+				rep_strf(rn, "%d", (int)((constbits[0] >> k) & 1));
+		}
+		rep_end();
 		for (k = width; k-- > 0;) {
 			int o;
 			for (o = 0; o < nout; o++)
@@ -647,6 +673,11 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 	if (constbits || nout < width)
 		printf(" (%d constant)", width - nout);
 	printf(", basis %s\n", sym_str(bs->name));
+	rep_begin("gates");
+	rep_str("basis", sym_str(bs->name));
+	rep_int("input_bits", nin);
+	rep_int("output_bits", width);
+	rep_int("constant_bits", width - nout);
 	if (care != s->full)
 		printf("  %d of %u input combinations are don't-cares (outside "
 		    "the domain)\n", (int)(npts - (uint32_t)__builtin_popcountll(care)),
@@ -658,6 +689,12 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 		    "exists; %llu candidates searched)\n", cost, s->bnstep,
 		    s->bnstep == 1 ? "" : "s", cost - 1,
 		    (unsigned long long)s->nodes);
+		rep_bool("minimal", 1);
+		rep_int("cost", cost);
+		rep_int("steps", s->bnstep);
+		rep_int("candidates", (long long)s->nodes);
+		rep_proof("exhaustive", "iterative deepening on cost: no program "
+		    "of a lower cost exists");
 	} else {
 		/* upper bound by Shannon expansion, one output at a time */
 		int o, total;
@@ -710,6 +747,9 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 		total = gate_cost_sum(s, s->bnstep, s->bsg);
 		printf("  cost %d, %d steps (an upper bound, not proved minimal)\n",
 		    total, s->bnstep);
+		rep_bool("minimal", 0);
+		rep_int("cost", total);
+		rep_int("steps", s->bnstep);
 		for (o = 0; o < s->ntg; o++)
 			s->active[o] = 1;
 	}
@@ -744,6 +784,8 @@ cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 			}
 		printf("  checked: the program reproduces every output bit on all "
 		    "%d care inputs\n", __builtin_popcountll(care));
+		rep_check("truth_table", __builtin_popcountll(care), -1, 1,
+		    "every output bit on every care input");
 		print_program(s, f, s->bnstep, s->bsg, s->bsa, vout, outk, nout,
 		    width, &constbits, 0);
 		if (emit) {
