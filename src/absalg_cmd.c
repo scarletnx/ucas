@@ -1796,12 +1796,505 @@ cmd_cayley(char *s)
 	cg_free(&C);
 }
 
+/* ---- polynomials and ideals ---- */
+
+struct popts {
+	int order;
+	u64 p;
+	int nv;
+	char var[MPL_MAXV][16];
+};
+
+static int
+is_kw_at(const char *s, const char *p, const char *w)
+{
+	size_t n = strlen(w);
+
+	return !strncmp(p, w, n) && (p == s || !isalnum((unsigned char)p[-1])) &&
+	    !isalnum((unsigned char)p[n]);
+}
+
+/* the options, from text like "order lex mod 7 vars x, y" */
+static void
+read_popts(const char *t, struct popts *o)
+{
+	const char *p = t;
+
+	while (*p) {
+		while (*p == ' ' || *p == ',')
+			p++;
+		if (!strncmp(p, "order", 5)) {
+			p += 5;
+			while (*p == ' ')
+				p++;
+			if (!strncmp(p, "grevlex", 7))
+				o->order = MPL_GREVLEX, p += 7;
+			else if (!strncmp(p, "grlex", 5) || !strncmp(p, "deglex", 6))
+				o->order = MPL_GRLEX, p += *p == 'g' ? 5 : 6;
+			else if (!strncmp(p, "lex", 3))
+				o->order = MPL_LEX, p += 3;
+			else
+				fail("order: lex, grlex or grevlex");
+		} else if (!strncmp(p, "mod", 3) || !strncmp(p, "over", 4)) {
+			int over = p[0] == 'o';
+			zint v;
+			const char *e;
+			p += over ? 4 : 3;
+			while (*p == ' ')
+				p++;
+			if (over && (*p == 'Q' || !strncmp(p, "QQ", 2))) {
+				o->p = 0;
+				while (isalpha((unsigned char)*p))
+					p++;
+				continue;
+			}
+			if (over) {
+				if (!strncmp(p, "GF(", 3))
+					p += 3;
+				else if (!strncmp(p, "F_", 2) || !strncmp(p, "Z/", 2))
+					p += 2;
+				else if (*p == 'F' || *p == 'Z')
+					p++;
+			}
+			if (!z_parse(p, &v, &e) || !z_to_u64(v, &o->p) || !nt_isprime(
+			    o->p))
+				fail("polynomials: \"mod P\" or \"over GF(P)\" needs a "
+				    "prime P < 2^64");
+			p = e;
+			if (*p == ')')
+				p++;
+		} else if (!strncmp(p, "vars", 4)) {
+			p += 4;
+			o->nv = 0;
+			for (;;) {
+				int n = 0;
+				while (*p == ' ' || *p == ',')
+					p++;
+				if (!isalpha((unsigned char)*p) || is_kw_at(t, p, "order") ||
+				    is_kw_at(t, p, "mod") || is_kw_at(t, p, "over"))
+					break;
+				if (o->nv == MPL_MAXV)
+					fail("polynomials: at most %d variables", MPL_MAXV);
+				while ((isalnum((unsigned char)*p) || *p == '_') && n < 15)
+					o->var[o->nv][n++] = *p++;
+				o->var[o->nv++][n] = 0;
+			}
+		} else if (*p)
+			fail("polynomials: unexpected \"%s\" (options: order lex|grlex|"
+			    "grevlex, mod P, over Q, vars x, y, ...)", p);
+	}
+}
+
+/* the polynomial part and the options of s; the variables (if not given)
+ * are the identifiers that occur, sorted */
+static char *
+popts(char *s, struct popts *o, const char *dflt_order)
+{
+	static const char *const kw[] = {"order", "mod", "over", "vars", NULL};
+	char *cut = NULL, *p;
+	int depth = 0, k;
+
+	memset(o, 0, sizeof *o);
+	o->order = !strcmp(dflt_order, "lex") ? MPL_LEX : MPL_GREVLEX;
+	for (p = s; *p; p++) {
+		if (*p == '[' || *p == '(')
+			depth++;
+		else if (*p == ']' || *p == ')')
+			depth--;
+		for (k = 0; depth == 0 && kw[k]; k++)
+			if (is_kw_at(s, p, kw[k]) && !cut)
+				cut = p;
+	}
+	if (cut) {
+		read_popts(cut, o);
+		*cut = 0;
+	}
+	if (o->nv == 0) {
+		/* collect identifiers */
+		for (p = s; *p;) {
+			if (isalpha((unsigned char)*p) || *p == '_') {
+				char w[16];
+				int n = 0, i;
+				while ((isalnum((unsigned char)*p) || *p == '_') && n < 15)
+					w[n++] = *p++;
+				while (isalnum((unsigned char)*p) || *p == '_')
+					p++;
+				w[n] = 0;
+				if (!strcmp(w, "in"))
+					continue;
+				for (i = 0; i < o->nv && strcmp(o->var[i], w); i++)
+					;
+				if (i == o->nv) {
+					if (o->nv == MPL_MAXV)
+						fail("polynomials: at most %d variables",
+						    MPL_MAXV);
+					strcpy(o->var[o->nv++], w);
+				}
+			} else
+				p++;
+		}
+		/* sorted: x > y > z, a > b ... (alphabetical) */
+		{
+			int i, j;
+			for (i = 1; i < o->nv; i++)
+				for (j = i; j > 0 && strcmp(o->var[j - 1], o->var[j]) > 0;
+				    j--) {
+					char t[16];
+					strcpy(t, o->var[j]);
+					strcpy(o->var[j], o->var[j - 1]);
+					strcpy(o->var[j - 1], t);
+				}
+		}
+	}
+	return trim(s);
+}
+
+static void
+ring_of(struct mring *R, const struct popts *o)
+{
+	const char *names[MPL_MAXV];
+	int i;
+
+	for (i = 0; i < o->nv; i++)
+		names[i] = o->var[i];
+	mring_init(R, o->nv, names, o->order, o->p);
+}
+
+static const char *
+ring_desc(const struct mring *R)
+{
+	static char buf[512];
+	int i, n;
+
+	n = snprintf(buf, sizeof buf, "%s, ", R->order == MPL_LEX ? "lex" :
+	    R->order == MPL_GRLEX ? "grlex" : "grevlex");
+	for (i = 0; i < R->nv && n < (int)sizeof buf - 40; i++)
+		n += snprintf(buf + n, sizeof buf - n, "%s%s", i ? " > " : "",
+		    R->name[i]);
+	if (R->p)
+		snprintf(buf + n, sizeof buf - n, ", over F_%llu",
+		    (unsigned long long)R->p);
+	else
+		snprintf(buf + n, sizeof buf - n, ", over Q");
+	return buf;
+}
+
+/* polynomials separated by top-level commas */
+static int
+need_polys(const struct mring *R, char *s, struct mpl **out, const char *what)
+{
+	char *part[256];
+	int n = split_commas(s, part, 256), i;
+	struct mpl *f = xcalloc((size_t)n + 1, sizeof *f);
+
+	for (i = 0; i < n; i++) {
+		const char *e;
+		if (!*part[i] || !mpl_parse(R, part[i], &f[i], &e) ||
+		    *trim((char *)e))
+			fail("%s: cannot read the polynomial \"%s\"", what, part[i]);
+	}
+	*out = f;
+	return n;
+}
+
+static void
+free_polys(struct mpl *f, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+		mpl_free(&f[i]);
+	free(f);
+}
+
+static void
+cmd_groebner(char *s)
+{
+	struct popts o;
+	struct mring R;
+	struct mpl *f;
+	struct gbasis gb;
+	int k, i, j;
+
+	s = popts(s, &o, "grevlex");
+	ring_of(&R, &o);
+	k = need_polys(&R, s, &f, "groebner");
+	mpl_groebner(&R, f, k, &gb);
+	printf("  input:");
+	for (j = 0; j < k; j++)
+		printf("%s f%d = %s", j ? "," : "", j + 1, mpl_str(&R, &f[j]));
+	printf("\n");
+	printf("reduced Groebner basis (%s): %d element%s\n", ring_desc(&R),
+	    gb.n, gb.n == 1 ? "" : "s");
+	rep_list("basis");
+	for (i = 0; i < gb.n; i++)
+		rep_str(NULL, mpl_str(&R, &gb.g[i]));
+	rep_end();
+	for (i = 0; i < gb.n; i++)
+		printf("  g%d: %s\n", i + 1, mpl_str(&R, &gb.g[i]));
+	for (i = 0; i < gb.n; i++) {
+		int first = 1;
+		printf("  g%d =", i + 1);
+		for (j = 0; j < k; j++)
+			if (gb.cof[(size_t)i * k + j].n) {
+				printf("%s (%s)*f%d", first ? "" : " +", mpl_str(&R,
+				    &gb.cof[(size_t)i * k + j]), j + 1);
+				first = 0;
+			}
+		printf("\n");
+	}
+	printf("  pairs: %ld; reduced: %ld; skipped by the criteria: %ld\n",
+	    gb.pairs, gb.reductions, gb.skipped);
+	printf("  how: Buchberger (normal strategy, product and chain "
+	    "criteria), every element carrying its cofactors\n");
+	printf("  check: each g_i = sum c_ij f_j multiplied out; each f_j "
+	    "reduces to 0; every S-pair of the basis reduces to 0: verified\n");
+	gb_free(&gb);
+	free_polys(f, k);
+}
+
+/* idealmember h in f1, f2, ... */
+static void
+cmd_idealmember(char *s)
+{
+	struct popts o;
+	struct mring R;
+	struct mpl *f, h, *cof, r;
+	struct gbasis gb;
+	char *in;
+	int k, j;
+	const char *e;
+
+	s = popts(s, &o, "grevlex");
+	in = find_word(s, "in");
+	if (!in)
+		fail("idealmember: h in f1, f2, ...");
+	*in = 0;
+	ring_of(&R, &o);
+	memset(&h, 0, sizeof h);
+	if (!mpl_parse(&R, trim(s), &h, &e) || *trim((char *)e))
+		fail("idealmember: cannot read \"%s\"", trim(s));
+	k = need_polys(&R, in + 2, &f, "idealmember");
+	mpl_groebner(&R, f, k, &gb);
+	cof = xcalloc((size_t)k + 1, sizeof *cof);
+	if (gb_member(&R, &gb, f, &h, cof)) {
+		printf("%s is in the ideal (%s)\n", mpl_str(&R, &h), ring_desc(&R));
+		rep_bool("member", 1);
+		printf("  certificate: %s =", mpl_str(&R, &h));
+		rep_list("cofactors");
+		for (j = 0; j < k; j++) {
+			printf("%s (%s)*(%s)", j ? " +" : "", mpl_str(&R, &cof[j]),
+			    mpl_str(&R, &f[j]));
+			rep_str(NULL, mpl_str(&R, &cof[j]));
+		}
+		rep_end();
+		printf("\n");
+		printf("  check: the combination multiplied out equals the "
+		    "polynomial\n");
+	} else {
+		memset(&r, 0, sizeof r);
+		mpl_divide(&R, &h, gb.g, gb.n, NULL, &r);
+		printf("%s is not in the ideal (%s)\n", mpl_str(&R, &h),
+		    ring_desc(&R));
+		rep_bool("member", 0);
+		printf("  normal form: %s (nonzero)\n", mpl_str(&R, &r));
+		printf("  how: the remainder on division by a reduced Groebner "
+		    "basis (%d element%s, verified) is unique, and zero exactly "
+		    "for members\n", gb.n, gb.n == 1 ? "" : "s");
+		mpl_free(&r);
+	}
+	for (j = 0; j < k; j++)
+		mpl_free(&cof[j]);
+	free(cof);
+	mpl_free(&h);
+	gb_free(&gb);
+	free_polys(f, k);
+}
+
+/* idealeq f1, f2 = g1, g2 (also <= for inclusion) */
+static void
+cmd_idealeq(char *s)
+{
+	struct popts o;
+	struct mring R;
+	struct mpl *f, *g;
+	struct gbasis gf, gg;
+	char *eq;
+	int kf, kg, le, ge, i;
+
+	s = popts(s, &o, "grevlex");
+	for (eq = s; *eq && *eq != '='; eq++)
+		;
+	if (!*eq)
+		fail("idealeq: f1, f2, ... = g1, g2, ...");
+	*eq = 0;
+	if (eq > s && eq[-1] == '<')
+		eq[-1] = 0;
+	ring_of(&R, &o);
+	{
+		static char ti[4096], tj[4096];
+		snprintf(ti, sizeof ti, "%s", trim(s));
+		snprintf(tj, sizeof tj, "%s", trim(eq + 1));
+		kf = need_polys(&R, s, &f, "idealeq");
+		kg = need_polys(&R, eq + 1, &g, "idealeq");
+		s = ti;
+		eq = tj - 1;
+	}
+	mpl_groebner(&R, f, kf, &gf);
+	mpl_groebner(&R, g, kg, &gg);
+	le = gb_ideal_le(&R, f, kf, &gg, g);
+	ge = gb_ideal_le(&R, g, kg, &gf, f);
+	printf("I = (%s), J = (%s) (%s): %s\n", trim(s), trim(eq + 1),
+	    ring_desc(&R), le && ge ? "I = J" : le ? "I is strictly inside J" :
+	    ge ? "J is strictly inside I" : "neither contains the other");
+	rep_bool("equal", le && ge);
+	rep_bool("i_in_j", le);
+	rep_bool("j_in_i", ge);
+	printf("  reduced Groebner basis of I:");
+	for (i = 0; i < gf.n; i++)
+		printf("%s %s", i ? "," : "", mpl_str(&R, &gf.g[i]));
+	printf("\n  reduced Groebner basis of J:");
+	for (i = 0; i < gg.n; i++)
+		printf("%s %s", i ? "," : "", mpl_str(&R, &gg.g[i]));
+	printf("\n  check: each generator of the smaller ideal is a combination "
+	    "of the other's generators (cofactors multiplied out)\n");
+	gb_free(&gf);
+	gb_free(&gg);
+	free_polys(f, kf);
+	free_polys(g, kg);
+}
+
+/* fxmodule M [mod p]: F^n as an F[x]-module with x acting by M */
+static void
+cmd_fxmodule(char *s)
+{
+	struct popts o;
+	struct mring R;
+	struct qmat m;
+	struct mpl inv[64], cp, t;
+	const char *e, *names[1] = {"x"};
+	int n, i;
+
+	s = popts(s, &o, "grevlex");
+	mring_init(&R, 1, names, MPL_LEX, o.p);
+	memset(&m, 0, sizeof m);
+	if (!qm_parse(&m, s, &e) || *trim((char *)e) || m.r != m.c)
+		fail("fxmodule: a square matrix over Q (or with mod P)");
+	n = pm_charmodule(&R, &m, inv, 64);
+	printf("F^%d with x acting by the matrix (F = %s): F[x]-module ", m.r,
+	    o.p ? "F_p" : "Q");
+	for (i = 0; i < n; i++)
+		printf("%sF[x]/(%s)", i ? " + " : "", mpl_str(&R, &inv[i]));
+	if (n == 0)
+		printf("0");
+	printf("\n");
+	rep_list("invariant_factors");
+	for (i = 0; i < n; i++)
+		rep_str(NULL, mpl_str(&R, &inv[i]));
+	rep_end();
+	memset(&cp, 0, sizeof cp);
+	memset(&t, 0, sizeof t);
+	mpl_const(&R, &cp, zq_int(Z_ONE));
+	for (i = 0; i < n; i++)
+		mpl_mul(&R, &cp, &cp, &inv[i]);
+	printf("  minimal polynomial: %s\n", n ? mpl_str(&R, &inv[n - 1]) : "1");
+	printf("  characteristic polynomial: %s\n", mpl_str(&R, &cp));
+	printf("  rational canonical form: companion blocks of sizes");
+	for (i = 0; i < n; i++)
+		printf(" %d", mpl_deg(&R, &inv[i]));
+	printf("\n");
+	printf("  how: the Smith form U (xI - M) V = D over the PID F[x] "
+	    "(U, V invertible: U U^-1 = I and V V^-1 = I checked)\n");
+	for (i = 0; i < n; i++)
+		mpl_free(&inv[i]);
+	mpl_free(&cp);
+	mpl_free(&t);
+	qm_free(&m);
+}
+
+/* pmsnf [[polys]]: the Smith form over F[x] */
+static void
+cmd_pmsnf(char *s)
+{
+	struct popts o;
+	struct mring R;
+	struct pmat A, D, U, V;
+	char *rows[64], *body;
+	int nr, nc = -1, i, j, rank;
+
+	s = popts(s, &o, "grevlex");
+	if (o.nv > 1)
+		fail("pmsnf: polynomials in one variable (found %d)", o.nv);
+	if (o.nv == 0) {
+		o.nv = 1;
+		strcpy(o.var[0], "x");
+	}
+	ring_of(&R, &o);
+	body = trim(s);
+	if (body[0] != '[' || body[strlen(body) - 1] != ']')
+		fail("pmsnf: a matrix [[x, 1], [0, x^2]]");
+	body[strlen(body) - 1] = 0;
+	nr = split_commas(body + 1, rows, 64);
+	for (i = 0; i < nr; i++) {
+		char *cells[64], *r = trim(rows[i]);
+		int c;
+		if (r[0] != '[' || r[strlen(r) - 1] != ']')
+			fail("pmsnf: rows like [x, 1]");
+		r[strlen(r) - 1] = 0;
+		c = split_commas(r + 1, cells, 64);
+		if (nc < 0) {
+			nc = c;
+			pm_init(&A, nr, nc);
+		} else if (c != nc)
+			fail("pmsnf: the rows have different lengths");
+		for (j = 0; j < c; j++) {
+			const char *e;
+			if (!mpl_parse(&R, cells[j], PM(&A, i, j), &e) ||
+			    *trim((char *)e))
+				fail("pmsnf: cannot read \"%s\"", cells[j]);
+		}
+	}
+	memset(&D, 0, sizeof D);
+	memset(&U, 0, sizeof U);
+	memset(&V, 0, sizeof V);
+	rank = pm_snf(&R, &A, &D, &U, &V);
+	printf("Smith form over %s[%s]: diag(", R.p ? "F_p" : "Q", R.name[0]);
+	rep_list("diagonal");
+	for (i = 0; i < (nr < nc ? nr : nc); i++) {
+		printf("%s%s", i ? ", " : "", mpl_str(&R, PM(&D, i, i)));
+		rep_str(NULL, mpl_str(&R, PM(&D, i, i)));
+	}
+	rep_end();
+	printf("), rank %d\n", rank);
+	printf("  U:");
+	for (i = 0; i < U.r; i++) {
+		printf(" [");
+		for (j = 0; j < U.c; j++)
+			printf("%s%s", j ? ", " : "", mpl_str(&R, PM(&U, i, j)));
+		printf("]");
+	}
+	printf("\n  V:");
+	for (i = 0; i < V.r; i++) {
+		printf(" [");
+		for (j = 0; j < V.c; j++)
+			printf("%s%s", j ? ", " : "", mpl_str(&R, PM(&V, i, j)));
+		printf("]");
+	}
+	printf("\n  check: U A V = D; U and V invertible over F[x] (their "
+	    "inverses tracked and multiplied back); d_i | d_(i+1)\n");
+	pm_free(&A);
+	pm_free(&D);
+	pm_free(&U);
+	pm_free(&V);
+}
+
 static const struct {
 	const char *w;
 	int c;
 } acmds2[] = {
 	{"permgroup", 1}, {"permelem", 2}, {"permsub", 3}, {"permhom", 4},
-	{"cayley", 5}, {NULL, 0}
+	{"cayley", 5}, {"groebner", 6}, {"idealmember", 7}, {"idealeq", 8},
+	{"fxmodule", 9}, {"pmsnf", 10}, {NULL, 0}
 };
 
 int
@@ -1833,6 +2326,21 @@ absalg_cmd2(const char *w, char *s)
 		break;
 	case 5:
 		cmd_cayley(s);
+		break;
+	case 6:
+		cmd_groebner(s);
+		break;
+	case 7:
+		cmd_idealmember(s);
+		break;
+	case 8:
+		cmd_idealeq(s);
+		break;
+	case 9:
+		cmd_fxmodule(s);
+		break;
+	case 10:
+		cmd_pmsnf(s);
 		break;
 	}
 }

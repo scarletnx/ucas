@@ -580,6 +580,7 @@ struct mpl {
 	uint32_t n, cap;
 	uint32_t *e;
 	zint *cn, *cd;
+	int nv;          /* exponents per term (set by the ring operations) */
 };
 void mring_init(struct mring *R, int nv, const char *const *names, int order,
     u64 p);

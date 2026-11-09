@@ -444,3 +444,157 @@ a group of order 3 (identity 0)
 not a group: no identity element
 > cayley [[0, 1, 2], [1, 0, 2], [2, 2, 0]]
 not a group: the operation is not associative
+> groebner x^2 + y^2 - 1, x - y
+  input: f1 = x^2 + y^2 - 1, f2 = x - y
+reduced Groebner basis (grevlex, x > y, over Q): 2 elements
+  g1: y^2 - 1/2
+  g2: x - y
+  g1 = (1/2)*f1 + (-1/2*x - 1/2*y)*f2
+  g2 = (1)*f2
+  pairs: 3; reduced: 1; skipped by the criteria: 2
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner x^2 + y^2 - 1, x - y order lex
+  input: f1 = x^2 + y^2 - 1, f2 = x - y
+reduced Groebner basis (lex, x > y, over Q): 2 elements
+  g1: x - y
+  g2: y^2 - 1/2
+  g1 = (1)*f2
+  g2 = (1/2)*f1 + (-1/2*x - 1/2*y)*f2
+  pairs: 3; reduced: 1; skipped by the criteria: 2
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner x + y + z, x*y + y*z + z*x, x*y*z - 1 order lex
+  input: f1 = x + y + z, f2 = x*y + x*z + y*z, f3 = x*y*z - 1
+reduced Groebner basis (lex, x > y > z, over Q): 3 elements
+  g1: x + y + z
+  g2: y^2 + y*z + z^2
+  g3: z^3 - 1
+  g1 = (1)*f1
+  g2 = (y + z)*f1 + (-1)*f2
+  g3 = (z^2)*f1 + (-z)*f2 + (1)*f3
+  pairs: 10; reduced: 3; skipped by the criteria: 7
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner a + b + c + d, a*b + b*c + c*d + d*a, a*b*c + b*c*d + c*d*a + d*a*b, a*b*c*d - 1
+  input: f1 = a + b + c + d, f2 = a*b + b*c + a*d + c*d, f3 = a*b*c + a*b*d + a*c*d + b*c*d, f4 = a*b*c*d - 1
+reduced Groebner basis (grevlex, a > b > c > d, over Q): 7 elements
+  g1: c^2*d^4 + b*c - b*d + c*d - 2*d^2
+  g2: c^3*d^2 + c^2*d^3 - c - d
+  g3: b*d^4 + d^5 - b - d
+  g4: b*c*d^2 + c^2*d^2 - b*d^3 + c*d^3 - d^4 - 1
+  g5: b*c^2 + c^2*d - b*d^2 - d^3
+  g6: b^2 + 2*b*d + d^2
+  g7: a + b + c + d
+  g1 = (-b*c*d^2 + b*d^3 + c*d^3)*f2 + (b*c*d - b*d^2 - d^3)*f3 + (-b*c + b*d - c*d + 2*d^2)*f4
+  g2 = (c^2*d^2)*f1 + (-c*d)*f3 + (c + d)*f4
+  g3 = (d^4)*f1 + (b*d^2 - d^3)*f2 + (-b*d)*f3 + (b + d)*f4
+  g4 = (c*d^2 - d^3)*f1 + (d^2)*f2 + (-d)*f3 + (1)*f4
+  g5 = (-d^2)*f1 + (c + d)*f2 + (-1)*f3
+  g6 = (b + d)*f1 + (-1)*f2
+  g7 = (1)*f1
+  pairs: 45; reduced: 14; skipped by the criteria: 31
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner x^3 - 2x*y, x^2*y - 2y^2 + x order grlex
+  input: f1 = x^3 - 2*x*y, f2 = x^2*y - 2*y^2 + x
+reduced Groebner basis (grlex, x > y, over Q): 3 elements
+  g1: x^2
+  g2: x*y
+  g3: y^2 - 1/2*x
+  g1 = (-y)*f1 + (x)*f2
+  g2 = (-1/2*x*y - 1/2)*f1 + (1/2*x^2)*f2
+  g3 = (-1/2*y^2)*f1 + (1/2*x*y - 1/2)*f2
+  pairs: 10; reduced: 5; skipped by the criteria: 5
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner x*y - 1, y^2 - 1 mod 7
+  input: f1 = x*y + 6, f2 = y^2 + 6
+reduced Groebner basis (grevlex, x > y, over F_7): 2 elements
+  g1: y^2 + 6
+  g2: x + 6*y
+  g1 = (1)*f2
+  g2 = (y)*f1 + (6*x)*f2
+  pairs: 3; reduced: 2; skipped by the criteria: 1
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> groebner y - x^2, z - x^3 order lex vars z, y, x
+  input: f1 = y - x^2, f2 = z - x^3
+reduced Groebner basis (lex, z > y > x, over Q): 2 elements
+  g1: z - x^3
+  g2: y - x^2
+  g1 = (1)*f2
+  g2 = (1)*f1
+  pairs: 1; reduced: 0; skipped by the criteria: 1
+  how: Buchberger (normal strategy, product and chain criteria), every element carrying its cofactors
+  check: each g_i = sum c_ij f_j multiplied out; each f_j reduces to 0; every S-pair of the basis reduces to 0: verified
+> idealmember x^3 - 1 in x + y + z, x*y + y*z + z*x, x*y*z - 1
+x^3 - 1 is in the ideal (grevlex, x > y > z, over Q)
+  certificate: x^3 - 1 = (x^2)*(x + y + z) + (-x)*(x*y + x*z + y*z) + (1)*(x*y*z - 1)
+  check: the combination multiplied out equals the polynomial
+> idealmember x^3 - x in x^2 + y^2 - 1, x - y
+x^3 - x is not in the ideal (grevlex, x > y, over Q)
+  normal form: -1/2*y (nonzero)
+  how: the remainder on division by a reduced Groebner basis (2 elements, verified) is unique, and zero exactly for members
+> idealmember x^4 - 1 in x^2 - 1 mod 5
+x^4 + 4 is in the ideal (grevlex, x, over F_5)
+  certificate: x^4 + 4 = (x^2 + 1)*(x^2 + 4)
+  check: the combination multiplied out equals the polynomial
+> idealmember 2^100*x - 1 in 2x - 1
+1267650600228229401496703205376*x - 1 is not in the ideal (grevlex, x, over Q)
+  normal form: 633825300114114700748351602687 (nonzero)
+  how: the remainder on division by a reduced Groebner basis (1 element, verified) is unique, and zero exactly for members
+> idealeq x^2 - 1, x - 1 = x - 1
+I = (x^2 - 1, x - 1), J = (x - 1) (grevlex, x, over Q): I = J
+  reduced Groebner basis of I: x - 1
+  reduced Groebner basis of J: x - 1
+  check: each generator of the smaller ideal is a combination of the other's generators (cofactors multiplied out)
+> idealeq x^2, y = x*y, y
+I = (x^2, y), J = (x*y, y) (grevlex, x > y, over Q): J is strictly inside I
+  reduced Groebner basis of I: x^2, y
+  reduced Groebner basis of J: y
+  check: each generator of the smaller ideal is a combination of the other's generators (cofactors multiplied out)
+> idealeq x + y, x - y = x, y
+I = (x + y, x - y), J = (x, y) (grevlex, x > y, over Q): I = J
+  reduced Groebner basis of I: x, y
+  reduced Groebner basis of J: x, y
+  check: each generator of the smaller ideal is a combination of the other's generators (cofactors multiplied out)
+> fxmodule [[2, 1, 0], [0, 2, 0], [0, 0, 2]]
+F^3 with x acting by the matrix (F = Q): F[x]-module F[x]/(x - 2) + F[x]/(x^2 - 4*x + 4)
+  minimal polynomial: x^2 - 4*x + 4
+  characteristic polynomial: x^3 - 6*x^2 + 12*x - 8
+  rational canonical form: companion blocks of sizes 1 2
+  how: the Smith form U (xI - M) V = D over the PID F[x] (U, V invertible: U U^-1 = I and V V^-1 = I checked)
+> fxmodule [[0, -1], [1, 0]]
+F^2 with x acting by the matrix (F = Q): F[x]-module F[x]/(x^2 + 1)
+  minimal polynomial: x^2 + 1
+  characteristic polynomial: x^2 + 1
+  rational canonical form: companion blocks of sizes 2
+  how: the Smith form U (xI - M) V = D over the PID F[x] (U, V invertible: U U^-1 = I and V V^-1 = I checked)
+> fxmodule [[0, -1], [1, 0]] mod 5
+F^2 with x acting by the matrix (F = F_p): F[x]-module F[x]/(x^2 + 1)
+  minimal polynomial: x^2 + 1
+  characteristic polynomial: x^2 + 1
+  rational canonical form: companion blocks of sizes 2
+  how: the Smith form U (xI - M) V = D over the PID F[x] (U, V invertible: U U^-1 = I and V V^-1 = I checked)
+> fxmodule [[1/2, 1], [0, 1/2]]
+F^2 with x acting by the matrix (F = Q): F[x]-module F[x]/(x^2 - x + 1/4)
+  minimal polynomial: x^2 - x + 1/4
+  characteristic polynomial: x^2 - x + 1/4
+  rational canonical form: companion blocks of sizes 2
+  how: the Smith form U (xI - M) V = D over the PID F[x] (U, V invertible: U U^-1 = I and V V^-1 = I checked)
+> pmsnf [[x, 1], [0, x]]
+Smith form over Q[x]: diag(1, x^2), rank 2
+  U: [1, 0] [x, -1]
+  V: [0, 1] [1, -x]
+  check: U A V = D; U and V invertible over F[x] (their inverses tracked and multiplied back); d_i | d_(i+1)
+> pmsnf [[x^2 - 1, 0], [0, x - 1]]
+Smith form over Q[x]: diag(x - 1, x^2 - 1), rank 2
+  U: [0, 1] [1, 0]
+  V: [0, 1] [1, 0]
+  check: U A V = D; U and V invertible over F[x] (their inverses tracked and multiplied back); d_i | d_(i+1)
+> pmsnf [[x, x + 1], [x^2, x^2 + x]] mod 3
+Smith form over F_p[x]: diag(1, 0), rank 1
+  U: [1, 0] [2*x, 1]
+  V: [2, x + 1] [1, 2*x]
+  check: U A V = D; U and V invertible over F[x] (their inverses tracked and multiplied back); d_i | d_(i+1)

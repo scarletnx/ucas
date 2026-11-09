@@ -626,6 +626,34 @@ static const struct jcmd cmds[] = {
 	    "nilpotent", {ZM_("table", " %s", "the n x n table: row a, column "
 	    "b holds a*b")}},
 #undef PGRP
+#define POPTS {"order", P_ENUM, 0, " order %s", "the monomial order " \
+	"(default grevlex)", "lex|grlex|grevlex"}, {"modulus", P_INT, 0, \
+	" mod %s", "a prime p: over F_p (default over Q)", NULL}, {"vars", \
+	P_TEXT, 0, " vars %s", "the variables, largest first: \"x, y, z\" " \
+	"(default: those that occur, alphabetical)", NULL}
+	{"groebner", "groebner", 1, 0, "the reduced Groebner basis of an ideal "
+	    "of polynomials over Q or F_p, each element with its cofactors in "
+	    "the generators (Buchberger with criteria; verified)",
+	    {TX("polys", " %s", "the generators: \"x^2 + y^2 - 1, x - y\""),
+	    POPTS}},
+	{"idealmember", "idealmember", 1, 0, "is h in the ideal: the cofactors "
+	    "h = sum c_j f_j (multiplied out and checked), or the nonzero "
+	    "normal form", {TX("h", " %s", "the polynomial"), TX("polys",
+	    " in %s", "the ideal's generators"), POPTS}},
+	{"idealeq", "idealeq", 1, 0, "compare two ideals: equal, one inside the "
+	    "other, or neither (each inclusion certified by cofactors)",
+	    {TX("i", " %s", "generators of I"), TX("j", " = %s", "generators "
+	    "of J"), POPTS}},
+	{"fxmodule", "fxmodule", 1, 0, "F^n as an F[x]-module with x acting by "
+	    "a matrix: invariant factors, minimal and characteristic "
+	    "polynomial, rational canonical form (Smith form over F[x])",
+	    {ZM_("matrix", " %s", "a square matrix over Q (\"1/2\" allowed)"),
+	    {"modulus", P_INT, 0, " mod %s", "a prime p: over F_p", NULL}}},
+	{"pmsnf", "pmsnf", 1, 0, "the Smith normal form of a matrix of "
+	    "polynomials in one variable over Q or F_p, with U and V",
+	    {TX("matrix", " %s", "\"[[x, 1], [0, x^2]]\""), {"modulus",
+	    P_INT, 0, " mod %s", "a prime p: over F_p", NULL}}},
+#undef POPTS
 #undef GRP
 #undef ZM_
 };

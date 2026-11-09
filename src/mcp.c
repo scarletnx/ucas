@@ -129,14 +129,18 @@ static const struct group groups[] = {
 	    "subgroups, element orders, exactness; permutation groups by "
 	    "Schreier-Sims (\"S4\", \"(1 2 3), (1 2)\": order, orbits, "
 	    "solvable, nilpotent, centre, membership, subgroups, cosets, "
-	    "homomorphisms) and Cayley tables.  Every claim is checked "
+	    "homomorphisms) and Cayley tables; polynomial ideals over Q and "
+	    "F_p (Groebner bases with cofactors, membership certificates, "
+	    "ideal equality); modules over F[x] (Smith form, rational "
+	    "canonical form).  Every claim is checked "
 	    "(U A V = D, preimages, inverse maps) and the check is reported.  "
 	    "For instance {\"op\": \"abiso\", \"args\": {\"g\": \"Z/4 + "
 	    "Z/6\", \"h\": \"Z/2 + Z/12\"}} or {\"op\": \"snf\", \"args\": "
 	    "{\"matrix\": [[2, 4], [6, 8]]}}.",
 	    "bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom "
 	    "abtensor abtor abext abmap abelem absub abexact permgroup permelem "
-	    "permsub permhom cayley"},
+	    "permsub permhom cayley groebner idealmember idealeq fxmodule "
+	    "pmsnf"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "
