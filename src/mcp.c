@@ -423,7 +423,9 @@ tool_list(void)
 		else if (!strcmp(nm, "spirv_simplify"))
 			sb_puts(&d, "; float instructions too (bit-exact, within "
 			    "Vulkan precision, or approximations).  code is SPIR-V "
-			    "assembly or GLSL");
+			    "assembly or GLSL (with spirv-cross installed, the result's "
+			    "glsl_view diffs its GLSL before and after); C code goes "
+			    "to the C frontend, as the c_optimize tool");
 		jv_set(t, "description", jv_str(d.p));
 		jv_set(t, "inputSchema", prune_defs(json_cmd_schema(k, 1)));
 		/* the response schema on ~120 tools would be 260 KB: grouped only */
