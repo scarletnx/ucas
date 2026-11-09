@@ -7,6 +7,18 @@
  *                      in SoA vertex columns) and cellular complexes given by
  *                      their boundary matrices; the standard models and the
  *                      constructions (product, wedge, suspension).
+ *   complexes (cx.c)   cochain complexes of presented groups Z^g/R, chain
+ *                      maps, cohomology as fgab subquotients, short exact
+ *                      sequences -> long exact sequences (snake lemma).
+ *   couples (excouple.c) exact couples, derived couples, spectral
+ *                      sequences, the Bockstein spectral sequence, element
+ *                      tracing, the concrete check of Prop 0.1.
+ *   commands (homalg_cmd.c) space, homology, cohomology, les, bockstein,
+ *                      prop01 (README "Homological algebra").
+ *
+ * Integers: every zint lives in absalg.h's arena; homalg_command scopes a
+ * command with z_mark/z_release, so a caller that keeps results across
+ * commands must do its own marking (or z_release_keep).
  *
  * Handles are small integers into arenas that live for the process; nothing
  * is freed one object at a time.  Every constructor checks what it claims
