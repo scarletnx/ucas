@@ -21,6 +21,8 @@ SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
 ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
+# transforms (Laplace, Z, Fourier, DFT), series and infinite sums
+SRCS+=	xfrat.c xform.c series.c
 .PATH:	${.CURDIR}/src
 MAN=
 
@@ -34,10 +36,11 @@ LDADD+=	-lm
 
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
-nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_words.awk
+nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_xform.inc \
+    nlp_words.awk
 	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
 	    ${.CURDIR}/src/nlp_calc2.inc ${.CURDIR}/src/nlp_hyper.inc \
-	    ${.CURDIR}/src/nlp_alg.inc > ${.TARGET}
+	    ${.CURDIR}/src/nlp_alg.inc ${.CURDIR}/src/nlp_xform.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 

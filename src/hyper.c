@@ -1595,6 +1595,11 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"dlog", "magic", "irreducible", "det", "rank", "nullspace", "matinv",
 	"matsolve", "gf2matrix", "matrix",
 	"derivative", "series",
+	/* xform.c (z, s, w are the transforms' own variables there) */
+	"laplace", "ilaplace", "ztrans", "iztrans", "zsolve", "tf", "fourier",
+	"ifourier", "fseries", "dft", "idft", "fft", "ifft", "dtft", "genfunc",
+	"ogf", "egf", "converge", "converges", "radius", "powerseries",
+	"coeffs", "asymptotic",
 	/* viz.c */
 	"area", "revolve", "volume", "surfacearea", "arclength", "centroid",
 	NULL};

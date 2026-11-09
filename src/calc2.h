@@ -27,6 +27,8 @@ void c2_ddir(struct func *f, const double *v, int nv, const double *at,
 void c2_wronskian(struct func *f, const nid *fs, int nf, int slot);
 /* limit of f as slot -> a (side -1 left, +1 right, 0 both; a may be inf) */
 void c2_limit(struct func *f, int slot, double a, int side);
+/* quietly: 1 finite (*v), 2 +inf, -2 -inf, 0 undecided */
+int c2_limit_value(nid e, int slot, double a, int side, double *v);
 /* Taylor series of f in slot at a, through order n */
 void c2_taylor(struct func *f, int slot, double a, int n);
 /* implicit differentiation of F = 0: dy/dx (and d2y/dx2 when order 2) */

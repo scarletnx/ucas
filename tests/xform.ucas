@@ -1,0 +1,155 @@
+# Transforms, series and sums (src/xform.c, src/series.c): Laplace, Z and
+# Fourier transforms and their inverses, ODEs and recurrences solved by
+# them, transfer functions, the DFT, generating functions, infinite sums
+# and products, convergence, power series.  Every answer is checked
+# numerically and the check printed.
+
+# Laplace: table and rules, the region of convergence
+laplace t^2 e^-t
+laplace e^(-2t) cos(3t)
+laplace t sin(t)
+laplace sin(t)^2
+laplace sinh(2t)
+laplace cosh(3t)
+laplace sqrt(t)
+laplace (t - 1) u(t - 1)
+laplace delta(t - 3)
+laplace e^(a t)
+laplace sin(w t)
+laplace e^(-t) sin(t) t s
+laplace {1 if t < 1, -1 otherwise} period 2
+# inverse: partial fractions, complex poles, shifts, (s - a)^(-p)
+ilaplace 1/(s^2 + 1)
+ilaplace (s + 3)/((s + 1)*(s + 2))
+ilaplace 1/(s^2 + 2s + 5)
+ilaplace 1/(s + 1)^3
+ilaplace 1/(s^2 - 4)
+ilaplace e^(-2s)/s^2
+ilaplace 1/sqrt(s)
+ilaplace s/(s^2 + w^2)
+ilaplace (s^2 + 1)/(s^2 + 3)
+# ODEs by Laplace, and the same one by dsolve
+laplace solve y'' + y = sin(t), y(0) = 0, y'(0) = 1
+y'' = -y + sin(t)
+y(0) = 0
+y'(0) = 1
+dsolve y from 0 to 3
+laplace solve y'' + 3y' + 2y = u(t - 1)
+laplace solve y' + 2y = e^(-t), y(0) = 1
+
+# Z transform and its inverse
+ztrans 0.5^n
+ztrans a^n u[n]
+ztrans n^2
+ztrans n 0.5^n
+ztrans cos(pi n/3)
+ztrans u[n - 3]
+ztrans 1/n!
+iztrans z/(z - 0.5)
+iztrans z/((z - 1)*(z - 0.5))
+iztrans z^2/(z^2 - z + 0.5)
+iztrans z/(z - 1)^2
+iztrans (z + 1)/z^2
+iztrans e^(2/z)
+# recurrences by Z, and the same one by closed
+zsolve y[n+2] = y[n+1] + y[n], y[0] = 0, y[1] = 1
+zsolve x[n+1] = 2x[n] + n, x[0] = 1
+zsolve y[n] = 0.5 y[n-1] + 1, y[0] = 2
+f[0] = 1
+f[k+1] = 2f[k] + k
+closed f
+
+# transfer functions: an IIR filter, a moving average, a continuous system
+tf y[n] = 0.9 y[n-1] + x[n]
+tf y[n] = (x[n] + x[n-1] + x[n-2])/3
+tf y[n] - 1.5y[n-1] + 0.5y[n-2] = x[n]
+tf y'' + 3y' + 2y = x
+tf 1/(s^2 + s + 1)
+
+# Fourier series, the Gibbs overshoot
+fourier series sign(x)
+fourier series x^2
+fourier series abs(x) on -1..1
+fourier series sin(x)^3
+fourier series {1 if x < 0.5, 0 otherwise} on 0..1
+# the Fourier transform (F(w) = int f(x) e^(-iwx) dx)
+fourier e^(-x^2)
+fourier e^(-2abs(x))
+fourier 1/(x^2 + 1)
+fourier {1 if abs(x) < 1, 0 otherwise}
+fourier e^(-x) u(x)
+fourier x e^(-x^2)
+fourier cos(3x) e^(-x^2)
+fourier cos(2x)
+ifourier e^(-w^2)
+# DFT, DTFT
+dft [1, 2, 3, 4]
+dft [1, 0, 0, 0, 0]
+idft [10, -2+2i, -2, -2-2i]
+dtft [1, 1, 1]
+dtft 0.5^n
+
+# generating functions, and back
+genfunc fibonacci
+genfunc n^2
+genfunc 1/n!
+genfunc catalan
+genfunc a[n+1] = 3a[n] + 1, a[0] = 0
+egf fibonacci
+egf n
+powerseries 1/(1 - x - x^2)
+
+# infinite sums: the test that decides, a closed form, an accelerated value
+sum(n, 1, inf, 1/n^2)
+sum(n, 1, inf, 1/n^3)
+sum(n, 1, inf, 1/(n*(n+1)))
+sum(n, 0, inf, 1/(2n+1)^2)
+sum(n, 1, inf, 1/(n^2 + 1))
+sum(n, 1, inf, n/2^n)
+sum(n, 1, inf, (-1)^(n+1)/n)
+sum(n, 0, inf, (-1)^n/(2n+1))
+sum(n, 0, inf, 1/n!)
+sum(k in 1..inf, 2^k/k!)
+sum(n, 2, inf, 1/(n log(n)^2))
+sum(n, 1, inf, sin(n)/n^2)
+sum(n, 1, inf, 1/n^2 + 1/2^n)
+sum(n, 1, inf, 1/n)
+sum(n, 1, inf, 1/sqrt(n))
+sum(n, 1, 10, 1/n^2)
+# products
+prod(n, 1, inf, 4n^2/(4n^2 - 1))
+prod(n, 2, inf, 1 - 1/n^2)
+prod(n, 1, inf, 1 + 1/n^2)
+# convergence alone
+converge (-1)^n/n
+converge 1/(n log(n))
+converge n!/n^n
+# power series: radius and interval of convergence, the general term
+radius x^n/n!
+radius x^n/n
+radius (x - 2)^n/(n 3^n)
+radius x^n/(n^2 2^n)
+radius n! x^n
+powerseries e^(2x)
+powerseries sin(x)
+powerseries log(1 + x)
+# Euler-Maclaurin: harmonic numbers and Stirling
+asymptotic sum(k, 1, n, 1/k)
+asymptotic sum(k, 1, n, log(k))
+
+# English
+the laplace transform of t^2 e^-t
+inverse laplace of 1/(s^2+1)
+solve y'' + y = 0 with y(0) = 1, y'(0) = 0 using laplace
+the z transform of a^n u[n]
+inverse z transform of z/(z - 0.5)
+transfer function of y[n] = 0.9 y[n-1] + x[n]
+is the filter y[n] = 1.1 y[n-1] + x[n] stable?
+fourier series of a square wave
+fourier transform of e^(-x^2)
+does the sum of 1/n^2 converge
+what is the sum of 1/n^2 from 1 to infinity
+radius of convergence of the sum of x^n/n!
+the generating function of fibonacci
+the product of 1 - 1/n^2 for n from 2 to infinity
+the asymptotic expansion of the sum of 1/k

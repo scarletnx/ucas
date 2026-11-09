@@ -1043,6 +1043,8 @@ is_jux(nid n, const struct pctx *pc)
 		return 0;
 	if (N.op[b] == O_NEG || (N.op[b] == O_MUL && is_const(N.a[b])))
 		return 0;
+	while (N.op[b] == O_CAST)
+		b = N.a[b];
 	if (N.op[b] == O_POW && is_const(N.a[b]))   /* 2*3^x is not 23^x */
 		return 0;
 	return 1;

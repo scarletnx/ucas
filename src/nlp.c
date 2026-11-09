@@ -6078,6 +6078,7 @@ solve_inline(void)
 }
 
 #include "nlp_alg.inc"     /* factor, expand, solve, gcd ... (alg.c) */
+#include "nlp_xform.inc"   /* transforms, series and sums (xform.c) */
 
 static void
 sentence(void)
@@ -7246,6 +7247,12 @@ translate(const char *sent)
 			emit(r);
 			return 1;
 		}
+		/* transforms, series, sums: read as written (nlp_xform.inc) */
+		if ((r = xn_raw(sent)) != NULL) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
 	}
 	{
 		/* rings and finite fields (ring_nlp.c) */
@@ -7429,7 +7436,8 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 	start = p;
 	for (q = p;; q++) {
 		int end = *q == 0 || *q == ';';
-		if ((*q == '.' || *q == '?' || *q == '!') && q[1] != '=' &&
+		if ((*q == '.' || *q == '?' || (*q == '!' && !(q > p &&
+		    isalnum((unsigned char)q[-1])))) && q[1] != '=' &&
 		    !(q > p && isdigit((unsigned char)q[-1]) &&
 		    isdigit((unsigned char)q[1])) && q[1] != '.' &&
 		    !(q > p && q[-1] == '.')) {

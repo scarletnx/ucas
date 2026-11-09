@@ -24,6 +24,7 @@
 #include "props.h"
 #include "ring.h"
 #include "viz.h"
+#include "xform.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1875,7 +1876,7 @@ statement(struct P *p)
 	if (pk(p) == T_ID && (pk2(p) == T_ID || pk2(p) == T_NUM ||
 	    pk2(p) == T_NL || pk2(p) == T_EOF || pk2(p) == T_LP ||
 	    pk2(p) == T_BAR || pk2(p) == T_MINUS || pk2(p) == T_SQRT ||
-	    pk2(p) == T_LB)) {
+	    pk2(p) == T_LB || pk2(p) == T_LC)) {
 		/* commands */
 		if (is_kw(p, "basis") && pk2(p) == T_ID) {
 			parse_basis(p);
@@ -1887,6 +1888,9 @@ statement(struct P *p)
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
 		if (ring_command(p))    /* Z/n, GF(q), ... (ring.c) */
+			return;
+		/* transforms, series and sums (xform.c, series.c) */
+		if (xform_command(p))
 			return;
 		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
 			return;

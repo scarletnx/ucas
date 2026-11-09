@@ -3192,6 +3192,28 @@ lstep(struct lctx *c, const char *fmt, ...)
 
 static struct lv lim(nid e, struct lctx *c);
 
+/*
+ * The symbolic limit of e as slot -> a (side as in c2_limit), quietly:
+ * 1 finite (*v), 2 +inf, -2 -inf, 0 not decided (oscillates, unknown).
+ */
+int
+c2_limit_value(nid e, int slot, double a, int side, double *v)
+{
+	struct lctx c;
+	struct lv l;
+
+	memset(&c, 0, sizeof c);
+	c.slot = slot;
+	c.a = a;
+	c.side = side ? side : (isinf(a) ? (a > 0 ? -1 : 1) : 1);
+	l = lim(e, &c);
+	if (l.k == LV_NUM) {
+		*v = l.v;
+		return 1;
+	}
+	return l.k == LV_PINF ? 2 : l.k == LV_NINF ? -2 : 0;
+}
+
 /* N/D with both -> 0 or both -> inf: L'Hopital, bounded */
 static struct lv
 lhopital(nid Nn, nid Dn, struct lctx *c, const char *form)

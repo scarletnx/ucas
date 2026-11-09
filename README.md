@@ -179,6 +179,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `gcd P, Q`, `lcm P, Q`, `resultant P, Q [in x]`, `discriminant P [in x]`, `quo P, Q [in x]`, `rem P, Q [in x]`, `divide P by Q [in x]` | polynomial gcd (multivariate), resultants and discriminants with symbolic coefficients, division with remainder |
 | `solve L = R [, L2 = R2 ...] [for x [, y]]` | polynomial equations (exact roots: rational, surds, cubics in trigonometric or hyperbolic form, quartics that split over Q(sqrt d); otherwise numeric with a note), rational equations (poles excluded), `sin u = c` and other invertible functions with the general solution in k, one square root (squared, extraneous roots named), linear systems (unique, a family with free unknowns, or none), two polynomial equations by the resultant; every solution substituted back |
 | `substitute x = a [, y = b] in F` (`subst`) | F at those values, simplified |
+| `laplace`, `ilaplace`, `ztrans`, `iztrans`, `zsolve`, `tf`, `fourier`, `ifourier`, `dft`, `dtft`, `genfunc`, `egf`, `sum(n, 1, inf, ...)`, `prod(...)`, `converge`, `radius`, `powerseries`, `asymptotic` | transforms, series and sums (see "Transforms, series and sums") |
 | `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
 | `ring R [EXPR]`, `inverse A mod N`, `crt ...`, `factor P over GF(q)`, `magic D u32`, `gf2matrix EXPR` ... | rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them (see "Rings and finite fields") |
 
@@ -744,7 +745,21 @@ behind it.  English only; the translator is a hand-written parser
   fields (`the inverse of 3 mod 256`, `x ≡ 2 mod 3 and x ≡ 3 mod 5`, `is
   Z/12 a field`, `in GF(2^8) with the AES polynomial multiply 0x57 by
   0x83`, `the magic number for dividing a u32 by 7`; see "Rings and
-  finite fields").
+  finite fields"); transforms, series
+  and sums (src/nlp_xform.inc: `the laplace transform of t^2 e^-t`,
+  `inverse laplace of 1/(s^2+1)`, `solve y'' + y = 0 with y(0) = 1,
+  y'(0) = 0 using laplace`, `the z transform of a^n u[n]`, `inverse z
+  transform of z/(z - 0.5)`, `solve y[n+1] = 2y[n], y[0] = 1 using the z
+  transform`, `transfer function of y[n] = 0.9 y[n-1] + x[n]`, `the
+  frequency response of ...`, `is the filter ... stable`, `fourier series
+  of a square wave` (also sawtooth, triangle wave; `on -1 to 1`),
+  `fourier transform of e^(-x^2)`, `the dft of [1, 2, 3, 4]`, `does the
+  sum of 1/n^2 converge`, `what is the sum of 1/n^2 from 1 to infinity`,
+  `the infinite sum of 1/2^n`, `the product of 1 - 1/n^2 for n from 2 to
+  infinity`, `radius of convergence of the sum of x^n/n!`, `the
+  generating function of fibonacci`, `the exponential generating
+  function of 2^n`, `the power series of e^(2x)`, `the asymptotic
+  expansion of the sum of 1/k`; see "Transforms, series and sums").
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
@@ -966,7 +981,8 @@ by parts, trigonometric and square-root integrands (see "Symbolic
 algebra").
 
 Not done: limits of several variables, Taylor series of several variables
-beyond symbolic coefficients, the n-th derivative of products.
+beyond symbolic coefficients, partial fractions (the transforms carry a
+small one, xfrat.c), the n-th derivative of products.
 
 ### What is checked, and what is approximate
 
@@ -1014,108 +1030,122 @@ matrix power is exact).
 - PDEs: one space dimension, linear, constant coefficients; Dirichlet,
   periodic or (for advection) outflow boundaries.
 
-## Rings and finite fields
+## Transforms, series and sums
 
 ```
-> inverse 3 mod 2^32
-3^-1 = 0xaaaaaaab mod 2^32 (2863311531)
-  how: Newton's iteration y = y*(2 - a*y), from y = a ...: 4 steps
-  check: 0x3 * 0xaaaaaaab = 1 mod 2^32 (the product's low 32 bits are 0x1)
-  as u32 arithmetic: x * 0xaaaaaaab undoes x * 0x3 ..., and x * 0xaaaaaaab = x / 3 exactly when 3 divides x
-  check in ucas's u32 evaluator: x * 0x3 * 0xaaaaaaab = x for ... (66048 inputs)
-> gf(2^8, aes) 0x57 * 0x83
-0x57 * 0x83 = 0xc1 = x^7 + x^6 + 1 in GF(2^8, aes)
-  how: carry-less product 0x2b79, reduced mod (x^8 + x^4 + x^3 + x + 1), the AES (Rijndael) polynomial 0x11b
-  check: the same with a second multiplication algorithm (shift-and-add, xtime)
-> x ≡ 2 mod 3 and x ≡ 3 mod 5
-  ucas: crt x = 2 mod 3 , x = 3 mod 5
-x = 8 (mod 15)
-> magic 7 u32
-  m = ceil(2^35 / 7) = 4908534053 (0x124924925, 33 bits), shift s = 3
-  proof (Granlund-Montgomery): m*7 = 2^35 + e with e = 3 <= 2^3 ...
-    C:    t = mulhi(x, 0x24924925); q = (t + ((x - t) >> 1)) >> 2;
-  check: the ucas form above, run by ucas's evaluator in u32, equals x / 7 for ...
+> laplace t^2 e^-t
+L{t^2*e^(-t)}(s) = 2/(s + 1)^3
+  region of convergence: Re(s) > -1
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: ...
+> ilaplace 1/(s^2 + 2s + 5)
+L^-1{1/(s^2 + 2s + 5)}(t) = e^(-t)*sin(2t)/2
+  poles: s = -1 +- 2i
+> laplace solve y'' + y = sin(t), y(0) = 0, y'(0) = 1
+  Y(s) = (s^2 + 2)/(s^2 + 1)^2
+  y(t) = -t*cos(t)/2 + 3sin(t)/2    for t >= 0
+> tf y[n] = 0.9 y[n-1] + x[n]
+  H(z) = 10z/(10z - 9)
+       = 1/(1 - (9/10)z^-1)
+  stable (BIBO): every pole inside the unit circle (max |p| = 9/10)
+  -3 dB (gain 10/sqrt(2)) at w = 0.105458 rad/sample
+    float y = x + 0.9f*y1;
+> sum(n, 1, inf, 1/n^2)
+  converges absolutely: p-series 1/n^2 with p = 2 > 1
+  = pi^2/6
+  numeric: 1.644934066848226 (the first 128 terms plus an Euler-Maclaurin tail ...)
+> asymptotic sum(k, 1, n, 1/k)
+sum(k, 1, n, 1/k) ~ log(n) + gamma + 1/(2n) - 1/(12n^2) + 1/(120n^4) + ...
 ```
 
-`src/ntheory.c` (number theory on 64-bit integers), `src/gfield.c`
-(rings, polynomials and matrices over them), `src/ring.c` (the commands;
-parts in `src/ring_*.inc`) and `src/ring_nlp.c` (English).  A ring is
-written
-
-| ring | |
-|------|--|
-| `Z/12`, `Z/12Z`, `Zmod(12)`, `Z_12`, `mod 12`, `(mod 12)` | the integers mod n (n < 2^64; `mod 2^61 - 1` works) |
-| `GF(q)`, `GF(p^n)`, `GF 256`, `GF256`, `F_q` | the field with q elements; for n > 1 the modulus is the smallest primitive polynomial of degree n (its coefficients read as a base-p number; *not* necessarily the Conway polynomial), which the description says |
-| `GF(2^8, aes)`, `GF(2^8) aes`, `GF(2^8, x^8 + x^4 + x^3 + x + 1)`, `GF(256, 0x11b)`, `GF(2^8) mod f` | a given modulus: a polynomial, a code (bits for p = 2), or a name: `aes` (0x11b), `rs` (0x11d), `crc8`, `crc16`, `ccitt`, `crc32`, `crc32c`, `crc64` |
-| `GF(2)[x]/(f)`, `Z/4[x]/(x^2 + 1)` | a quotient ring, a field only when the base is prime and f irreducible (said, with the factors and the unit count when not) |
-| `Z[i]`, `Z[sqrt(d)]` (`Z[√d]`) | Gaussian and quadratic integers |
-| `Q[x]/(f)` | rational polynomials mod f |
-
-Elements of an extension are codes: the coefficients as base-p digits
-(bits for GF(2^n)), so `0x57` is x^6 + x^4 + x^2 + x + 1; `x` (also `a`,
-`α`) is the class of x.  Every answer prints how it was found and a
-check by another route: brute force over small rings, inverses multiplied
-back with a second multiplication algorithm (shift-and-add, or the log
-tables), factors multiplied together and each tested with Rabin's test,
-Ben-Or's test and Berlekamp's factor count against Rabin's, ucas's own
-evaluator for anything printed as ucas.
+`src/xform.c` (transforms), `src/series.c` (sums and products),
+`src/xfrat.c` (shared: exact-looking numbers, the printer, polynomials
+and rational functions, partial fractions), English in
+`src/nlp_xform.inc`.  `tests/xform.ucas` runs every command.
 
 | command | |
 |---------|--|
-| `ring R` (`gf ...`, `zmod n`) | the ring: order, characteristic, field / integral domain (with a witness), CRT decomposition, units and the unit group (invariant factors, `C2 x C4`), zero divisors, nilpotents, idempotents, ideals; for GF(q): the modulus (irreducible by Rabin, Ben-Or and Berlekamp; primitive or not, a generator), subfields, Frobenius, and for q <= 256 the field axioms by brute force |
-| `ring R units\|zerodivisors\|nilpotents\|idempotents\|ideals\|field\|domain\|char\|order\|generators\|subfields\|table\|frobenius\|elements` | one part; `table` is the log/antilog table (q <= 256) |
-| `ring R EXPR`, `GF(2^8, aes) 0x57 * 0x83` | arithmetic (`+ - * / ^`, negative powers, `inv(a)`), with the carry-less product for one GF(2^n) product and a second evaluation as the check |
-| `ring R A` (one element), `ring R minpoly A` | Z/n: unit or zero divisor (witness), orders, nilpotent, idempotent, square roots; GF(q): inverse, order, log to the generator, minimal polynomial and conjugates, trace, norm, square root (char 2) |
-| `inverse A mod N`, `inverse A in R` | by extended Euclid (the Bezout identity is printed), or why not (gcd, a zero divisor witness); `mod 2^k` for k <= 128 by Newton's iteration, with what it means for uN multiplication, checked in ucas's evaluator |
-| `order A mod N`, `order A in GF(q)` | multiplicative order (from lambda(N), removing primes), additive order; `mod 2^k` up to 128 bits |
-| `phi N` (`totient`), `carmichael N` (`lambda`), `factorint N` | with the factorisation, counted by brute force up to 2^24; Carmichael numbers are named |
-| `congruence A = B mod m [, ...]`, `crt ...`, `solve ... mod m` | linear (gcd and the solution count), `x^2 = c` (square roots), other polynomials by search (by prime power and CRT for large m); systems by CRT (moduli need not be coprime); checked by substitution and brute force |
-| `legendre A P`, `jacobi A N` | with Euler's criterion as the check; a composite bottom says that 1 does not mean a square |
-| `sqrtmod A N` (`sqrt A mod N`), `qr N` | all square roots: Tonelli-Shanks per prime, Hensel lifting, CRT; brute-force count up to 2^22 |
-| `primroot N [A]`, `primroot A mod N` | the smallest primitive root and all of them, or whether A is one (and why none exists mod 12) |
-| `dlog A base G mod N`, `log A [base G] in GF(q)` | Pohlig-Hellman with baby-step giant-step; `2^x = 3 mod 11` in English |
-| `magic D [uN\|iN]` | division by a constant as multiply-high and shift: the least shift, the magic number, the add-back sequence when it needs N+1 bits, C and ucas forms, the Granlund-Montgomery proof with the numbers, and a check: every input for N <= 22, else the ends, both sides of the multiples of D near 0 and the top, and 2^20 random inputs; the ucas form is run through ucas's evaluator.  The type is asked (or u32 with a note) when not given |
-| `factor P over GF(q)`, `factor P mod p` | square-free split, distinct-degree, Cantor-Zassenhaus (trace map in characteristic 2) |
-| `irreducible P [over GF(q)]`, `primitive P over GF(q)` | Rabin's test, checked by Ben-Or, Berlekamp, and trial division when cheap; primitive: the order of x (an LFSR's period), stepped through when small.  Without a field, bits mean GF(2) (with a note) |
-| `roots P over R`, `order P over GF(q)`, `poly EXPR mod n`, `gcd A, B mod p` | roots (search over non-fields: Z/8 has 4 roots of x^2 - 1), the order of x mod P (the period of a CRC or LFSR; checked by x^o = 1 and x^(o/r) != 1), arithmetic, gcd with Bezout cofactors |
-| `matrix M mod p`, `det`, `rank`, `nullspace`, `inverse M mod n`, `matinv`, `solve M x = b mod p`, `matsolve M, b mod p` | `M` as `[[1,2],[3,4]]` or `[1, 2; 3, 4]`; Gaussian elimination over fields; over Z/n (n composite) the determinant and inverse by unimodular (Euclid) row operations; rank and nullspace only over fields (said otherwise) |
-| `gf2matrix EXPR [uN]` (`gf2map`) | the GF(2) matrix of an xor/shift/and expression (`^` is xor here), from f(1 << j), checked against f on every x up to 20 bits; affine maps get their constant; rank, the inverse as an xor of masked shifts (run back through the evaluator), the characteristic polynomial and the map's order (a CRC or LFSR step); a non-linear map gets a witness |
-| `ring Z[i] gcd(A, B)`, `gcd A, B in Z[i]`, `factor A in Z[i]`, `norm A in Z[i]`, `ring Z[sqrt(d)] EXPR` | Gaussian gcd (rounded Euclid), factorisation into Gaussian primes (2 ramifies, p = 3 mod 4 inert, p = 1 mod 4 splits), norms; `ring Z[sqrt(d)]` gives the units (the fundamental unit from the continued fraction) and whether it is a UFD |
-| `ring Q[x]/(f) [EXPR]` | arithmetic with rational coefficients, inverses by extended Euclid (checked by the product); a field when f is irreducible: proved by the rational root test (degree <= 3) or irreducibility mod a prime, else "not decided" (x^4 + 1 is reducible mod every prime) |
+| `laplace F [t] [s] [period T]` | L{f}(s) = int_0^inf f(t) e^(-st) dt, one-sided.  Table: t^n, t^p (Gamma), e^(at), sin, cos, sinh, cosh (of bt + c); rules: linearity, e^(at) f -> F(s - a), t^n f, product to sum, powers of sin/cos, polynomials expanded, u(t - a) (also `H`, `step`, `heaviside`, `theta`) as e^(-as) shifts, delta(t - a), piecewise `{... if t < 1, ...}` and \|t - a\| as steps, `period T` (F_T(s)/(1 - e^(-Ts))).  Symbolic constants are allowed (`e^(a t)`, `sin(w t)`).  Prints the region of convergence Re(s) > a and the rules used |
+| `ilaplace F [s] [t]` | partial fractions (complex pairs as e^(at)(cos, sin), ±r pairs as cosh/sinh when that is shorter), e^(-as) factors as u(t - a) shifts, a constant part as delta(t), (s - a)^(-p) with p not an integer (Gamma), and symbolic c/(s - a)^m and (b s + c)/(A s^2 + B s + C) (with the assumption printed).  The right-sided inverse: Re(s) > the largest pole's real part |
+| `laplace solve ODE, ICs` | `y'' + 3y' + 2y = u(t - 1), y(0) = 1, y'(0) = 0` (also `dy/dt`, `d^2y/dt^2`, `y(t)`; conditions joined by `,` `and` `with`): linear, constant coefficients; prints the transformed equation, Y(s) and y(t); missing initial values are 0 with a note |
+| `ztrans X [n] [z]` | Z{x}(z) = sum_{n>=0} x[n] z^-n.  a^n, n^k a^n (Eulerian numbers), cos/sin(bn + c), delays u[n - k] and delta[n - k], 1/n! (e^(1/z)), piecewise; the z^-1 form; ROC \|z\| > r |
+| `iztrans X [z] [n]` | partial fractions of X(z)/z: p^n times binomials in n, complex pairs as r^n (cos, sin), poles at 0 as delta[n - k]; e^(a/z); causal (ROC outside every pole, stated); the first terms by long division in z^-1 |
+| `zsolve REC, ICs` | `y[n+2] = y[n+1] + y[n], y[0] = 0, y[1] = 1` (backward shifts y[n-1] too): Y(z), y[n] |
+| `tf EQ` \| `tf H` | the transfer function of a difference equation (`y[n] = 0.9 y[n-1] + x[n]`, input x, output y) or of an ODE (`y'' + 3y' + 2y = x`), or H(z)/H(s) itself: poles, zeros, BIBO stability, causality, impulse response, DC gain, a frequency response table, the -3 dB point, and (discrete) the filter as C in direct form I |
+| `fourier series F [x] [on a..b \| on [a, b] \| on a to b \| period P] [terms N]` | default [-pi, pi]; a_n, b_n with closed forms (A + B(-1)^n)/n^k recognised, finite trigonometric series, the first terms, the L2 error of S_N, the midpoint at a jump and the Gibbs overshoot (measured; it tends to 8.95% of the jump) |
+| `fourier F [x] [w]`, `ifourier F [w] [x]` | F(w) = int f(x) e^(-iwx) dx (angular frequency, no 1/sqrt(2pi); the inverse has 1/(2pi)).  e^(-ax^2), e^(-a\|x\|), e^(-ax) u(x), 1/(x^2 + a^2), boxes, sin(ax)/x, delta(x - c), 1 and cos/sin as deltas, x^n f (derivatives), cos/sin(bx) f (shifts).  Complex results print as `a + i*b` |
+| `dft [x0, x1, ...]`, `fft`, `idft`, `ifft` | a radix-2 FFT when N is a power of two, else the direct sum; `a + bi` entries; the table of X[k], \|X[k]\| and arg; the inverse and Parseval as checks |
+| `dtft [x0, ...]` \| `dtft X` | a finite list in closed form; a sequence through its Z transform on the unit circle (refused when the ROC excludes it) |
+| `genfunc A [n]`, `egf A` | the ordinary generating function sum a_n x^n = X(1/x) from the Z transform, the power-series library for the rest (Catalan, central binomials), recurrences (`genfunc a[n+1] = 3a[n] + 1, a[0] = 0`) and named sequences (fibonacci, lucas, pell, tribonacci, catalan, squares, cubes, triangular, powers of 2, factorials); the EGF sum a_n x^n/n! for sums of n^k r^n (Stirling numbers), r^n cos/sin, deltas, n! |
+| `sum(n, lo, inf, a)`, `sum(n in lo..inf, a)` | an infinite sum (a finite `sum(...)` is evaluated as before): the convergence test that decides, a closed form, an accelerated numeric value, and the two compared |
+| `prod(n, lo, inf, a)` | an infinite product: rational factors as Gamma quotients (Wallis: pi/2, prod (1 + 1/n^2) = sinh(pi)/pi), divergence from the factors' expansion |
+| `converge A \| sum(...)` | the convergence tests alone, and partial sums |
+| `radius A \| sum(...)` | a power series in one variable, `x^n/n!`, `(x - 2)^n/(n 3^n)`: center, radius (ratio or root test), both endpoints tested, the interval, and the sum when the library knows it |
+| `powerseries F [x] [at a]` (`coeffs`) | the general term: rational F exactly (partial fractions), others by Taylor coefficients matched against the library; the radius |
+| `asymptotic sum(k, 1, n, f)` | Euler-Maclaurin: int f + C + f(n)/2 + B2/2! f'(n) + B4/4! f'''(n), the constant C computed and recognised (gamma, log(2pi)/2) |
 
-The shared words `inverse order factor gcd primitive roots solve det
-rank matrix poly norm log sqrt nullspace` are ring commands only when the
-line names a ring (`mod n`, `over GF(q)`, `in Z[i]`); otherwise they mean
-what they meant before (`primitive F` is still the antiderivative).
+Input words: `u(t - a)` and `u[n - k]` are steps, `delta(t)` is Dirac's
+delta (a marker that evaluates to 0 except at 0), `delta[n]` the
+Kronecker delta; `n!` and `binom(n, k)` (also `choose`, `C(n, k)`) work
+in these commands (the helpers `heaviside`, `dirac`, `kron`, `fact`,
+`binom` are defined, hidden, on first use).  The variables are guessed
+(t, then x, for time; n, k, i for an index) or named after the
+expression: `laplace e^(a x) x p`.
 
-English (`src/ring_nlp.c` reads the sentence before the general
-translator): `what is the inverse of 3 mod 256`, `3^-1 mod 7`, `solve
-3x = 4 mod 7`, `3x ≡ 4 (mod 7)`, `x ≡ 2 mod 3 and x ≡ 3 mod 5`, `find x
-such that x = 1 mod 4 and x = 2 mod 9`, `is 2 a primitive root mod 11`,
-`the smallest primitive root mod 23`, `discrete log of 3 base 2 mod 11`,
-`the discrete logarithm of 13 to the base 3 mod 17`, `2^x = 3 mod 11`,
-`in GF(2^8) with the AES polynomial multiply 0x57 by 0x83`, `0x57 times
-0x83 in the AES field`, `factor x^4 + 1 over GF(2)`, `is x^8+x^4+x^3+x+1
-irreducible over GF(2)`, `is it primitive`, `is Z/12 a field`, `is it
-an integral domain`, `the units of Z/12`, `zero divisors of Z/18`,
-`idempotents of Z/30`, `the magic number for dividing a u32 by 7`, `...
-a signed 32-bit int by 10`, `the order of 2 mod 101`, `phi of 100`,
-`euler's totient of 36`, `the carmichael function of 561`, `is 561
-prime`, `legendre symbol of 3 and 7`, `is 3 a quadratic residue mod 7`,
-`the quadratic residues mod 13`, `square root of 10 mod 13`, `the
-determinant of [[1,2],[3,4]] mod 7`, `rank of ... over GF(2)`, `gcd of
-x^4 - 1 and x^6 - 1 mod 7`, `norm of 3 + 4i in Z[i]`, `what is the GF(2)
-matrix of x ^ (x << 3) for a u8`, `the period of the LFSR with polynomial
-x^4 + x + 1`, `the minimal polynomial of 0x02 in GF(2^8)`, `is 0x03 a
-generator of GF(2^8) aes`, `the log table for GF(16)`, `tell me about
-GF(16)`.
+How sums are decided, in order: a rational term exactly (the degree
+difference: nth-term test, the harmonic series, limit comparison with a
+p-series); the nth-term test numerically; the ratio test (a steady ratio,
+Richardson-extrapolated; a ratio tending to 0 or infinity is recognised);
+the alternating series test with the absolute series tested apart
+(conditional convergence); comparison with p-series through the envelope
+max \|a_n\| over windows at 10^4, 10^5, 10^6 (so sin(n)/n^2 compares with
+1/n^2); the integral test, symbolic (an antiderivative and its limit) or
+numeric (over x = e^u, whether the pieces shrink per doubling of u: this
+separates 1/(n log n) from 1/(n log^2 n)); the root test.
 
-Limits: moduli and fields up to 2^64 elements (`mod 2^k` up to 128 bits
-for `inverse` and `order`); polynomials up to degree 255; matrices up to
-64 x 64; discrete logs need the group order's prime factors below 2^40;
-no factorisation over Q or Z (`Q[x]/(f)` may answer "not decided"), no
-Conway polynomials, no general Z[sqrt d] factorisation, and `find`/`fit`
-do not use modular inverses yet.
+Closed forms: polynomial times r^n (Eulerian numbers); rational terms by
+partial fractions with poles at integers and half-integers: zeta(k),
+eta(k) = (1 - 2^(1-k)) zeta(k), Dirichlet beta (pi/4, Catalan's G,
+pi^3/32), digamma differences (the first-order residues must cancel);
+1/(n^2 + a^2) as pi a coth(pi a); a library of power series (exp, cosh,
+sinh, geometric 1/(1 - u)^k, -log(1 - u), atanh/atan, 1/sqrt(1 - 4u),
+Catalan, sqrt(1 + u)) matched with a scale and a shift (`sum 2^k/k!` =
+e^2 - 1); telescoping g(n) - g(n + k).  Numeric values: geometric-like
+terms summed until negligible (Aitken as the check), alternating ones by
+the Cohen-Villegas-Zagier transform, the rest by the first terms plus an
+Euler-Maclaurin tail (the integral, if need be over x = e^u), or
+Richardson on partial sums; each with an error estimate.  A value with no
+closed form is matched against constants (pi, gamma, zeta(3), Catalan,
+log 2, ...) and reported as "recognised numerically (not proved)".
+
+What is checked: a Laplace transform against the integral computed at
+three s right of the abscissa (symbols get sample values, printed); an
+inverse by transforming the result back numerically; a Z transform by
+summing its series at three z outside the ROC; an inverse Z transform
+against long division (32 terms); ODE and recurrence solutions by their
+residual and initial values, by RK4 and by iterating the recurrence (the
+test file also runs `dsolve` and `closed` on the same problems); Fourier
+coefficients' closed forms against the quadrature for n <= 48; a Fourier
+transform against the integral (with its truncation error for slowly
+decaying f); generating functions by summing the series inside the
+radius; sums and products by the accelerated numeric value.
+
+Seams: these commands work on real nodes: s, z and w are real variables,
+complex values are computed in C99 `double complex` and printed as
+`a + i*b`; the complex type being added elsewhere can take them over.
+Every inverse transform goes through `xf_apart()` (xfrat.c), a small
+partial-fraction routine with double coefficients and exact rational or
+quadratic-surd roots (cnum.c's `poly_roots` on the square-free part); it
+is meant to be replaced by alg.c's `apart` once that is merged.
+
+Limits: numeric coefficients for the inverse transforms and partial
+fractions (symbolic only for first and second order denominators); no
+Laplace rule for t^p times sin/cos with p not an integer, log t, or
+general products; Fourier transforms by table (no shift rule for f(x - c)
+beyond deltas and boxes, no convolution); the power-series library is
+small and matches one family at a time (sums of two families are not
+split); asymptotic expansions need an antiderivative of the term;
+infinite products are exact for rational factors only; Laurent series
+and Mellin or two-sided Laplace transforms are not done.
 
 ## Design
 

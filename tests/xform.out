@@ -1,0 +1,894 @@
+> laplace t^2 e^-t
+L{t^2*e^(-t)}(s) = 2/(s + 1)^3
+  region of convergence: Re(s) > -1
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a), t^n f(t) -> (-1)^n F^(n)(s)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: max relative difference 4.4e-16
+> laplace e^(-2t) cos(3t)
+L{e^(-2t)*cos(3t)}(s) = (s + 2)/(s^2 + 4s + 13)
+  region of convergence: Re(s) > -2
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a), sin/cos table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -3/2, -1/2, 2: max relative difference 2.6e-13
+> laplace t sin(t)
+L{t*sin(t)}(s) = 2s/(s^2 + 1)^2
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: t^n f(t) -> (-1)^n F^(n)(s), sin/cos table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4: max relative difference 2.5e-16
+> laplace sin(t)^2
+L{sin(t)^2}(s) = 2/(s*(s^2 + 4))
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: sin/cos table, power reduction
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4: max relative difference 1.2e-16
+> laplace sinh(2t)
+L{sinh(2t)}(s) = 2/((s + 2)*(s - 2))
+  region of convergence: Re(s) > 2
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: sinh/cosh table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 5/2, 7/2, 6: max relative difference 0
+> laplace cosh(3t)
+L{cosh(3t)}(s) = s/((s + 3)*(s - 3))
+  region of convergence: Re(s) > 3
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: sinh/cosh table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 7/2, 9/2, 7: max relative difference 2.1e-16
+> laplace sqrt(t)
+L{sqrt(t)}(s) = sqrt(pi)/(2s^(3/2))
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: t^p -> Gamma(p + 1)/s^(p + 1)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4: max relative difference 1.1e-13
+> laplace (t - 1) u(t - 1)
+L{(t - 1)*u(t - 1)}(s) = e^(-s)/s^2
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: linearity, t^n f(t) -> (-1)^n F^(n)(s), u(t - a) f(t - a) -> e^(-as) F(s)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4: max relative difference 2.8e-16
+> laplace delta(t - 3)
+L{delta(t - 3)}(s) = e^(-3s)
+  region of convergence: every s (f is zero after a finite time)
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: delta(t - a) -> e^(-as)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4 (delta terms left out): max relative difference 0
+> laplace e^(a t)
+L{e^(a*t)}(s) = 1/(s - a)
+  region of convergence: Re(s) > a
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 6/5, 11/5, 47/10 with a = 7/10: max relative difference 2.2e-16
+> laplace sin(w t)
+L{sin(w*t)}(s) = w/(s^2 + w^2)
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: sin/cos table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4 with w = 7/10: max relative difference 2.2e-16
+> laplace e^(-t) sin(t) t s
+  note: the last word t is read as the variable (write *t to multiply by it)
+L{e^(-t)*sin(t)}(s) = 1/(s^2 + 2s + 2)
+  region of convergence: Re(s) > -1
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a), sin/cos table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: max relative difference 1.8e-16
+> laplace {1 if t < 1, -1 otherwise} period 2
+L{t < 1 ? 1 : -1}(s) = (1/s - 2*e^(-s)/s + e^(-2s)/s)/(1 - e^(-2s))
+  f is the periodic extension of its values on [0, 2)
+  region of convergence: Re(s) > 0
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: linearity, u(t - a) f(t - a) -> e^(-as) F(s), piecewise as steps, periodic: F(s) = F_T(s)/(1 - e^(-Ts))
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4: max relative difference 2.6e-16
+> ilaplace 1/(s^2 + 1)
+L^-1{1/(s^2 + 1)}(t) = sin(t)
+  poles: s = +-i
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 1.4e-16
+> ilaplace (s + 3)/((s + 1)*(s + 2))
+L^-1{(s + 3)/((s + 1)*(s + 2))}(t) = 2*e^(-t) - e^(-2t)
+  poles: s = -1, -2
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > -1 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 1.3e-16
+> ilaplace 1/(s^2 + 2s + 5)
+L^-1{1/(s^2 + 2s + 5)}(t) = e^(-t)*sin(2t)/2
+  poles: s = -1 +- 2i
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > -1 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 2.2e-16
+> ilaplace 1/(s + 1)^3
+L^-1{1/(s + 1)^3}(t) = t^2*e^(-t)/2
+  poles: s = -1 (triple)
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > -1 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 1.6e-16
+> ilaplace 1/(s^2 - 4)
+L^-1{1/(s^2 - 4)}(t) = sinh(2t)/2
+  poles: s = -2, 2
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 2 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 3, 4, 11/2: max relative difference 1.7e-16
+> ilaplace e^(-2s)/s^2
+L^-1{e^(-2s)/s^2}(t) = (t - 2)*u(t - 2)
+  poles: s = 0 (double)
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 7.3e-16
+> ilaplace 1/sqrt(s)
+L^-1{1/sqrt(s)}(t) = 1/(sqrt(pi)*sqrt(t))
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 4.7e-14
+> ilaplace s/(s^2 + w^2)
+L^-1{s/(s^2 + w^2)}(t) = cos(w*t)
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  assuming w > 0
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2 with w = 7/10: max relative difference 4e-16
+> ilaplace (s^2 + 1)/(s^2 + 3)
+L^-1{(s^2 + 1)/(s^2 + 3)}(t) = delta(t) - 2sqrt(3)*sin(sqrt(3)*t)/3
+  poles: s = +-sqrt(3)*i
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  the constant part of F gives delta(t)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 2.2e-16
+> laplace solve y'' + y = sin(t), y(0) = 0, y'(0) = 1
+y'' + y = sin(t), y(0) = 0, y'(0) = 1
+  transformed: (s^2 + 1)Y(s) - 1 = 1/(s^2 + 1)
+  Y(s) = (s^2 + 2)/(s^2 + 1)^2
+  y(t) = -t*cos(t)/2 + 3sin(t)/2    for t >= 0
+  poles of Y: +-i (double)
+  check: residual of the equation at 201 points of [0, 10]: max 8.3e-16; initial values hold (max difference 0)
+  check: a numeric solution (RK4, h = 1/1000) agrees at 20 points of [0, 10]: max difference 1.4e-13
+> y'' = -y + sin(t)
+> y(0) = 0
+> y'(0) = 1
+> dsolve y from 0 to 3
+y'' = -y + sin(t), y(0) = 0, y'(0) = 1
+  linear with constant coefficients (eigenvalues 0 ± 1i), but no closed form was found for the forcing: numeric only
+  numeric (Dormand-Prince 5(4), adaptive, 88 steps, tolerance 1e-10); a 1000x looser solve differs by 4.2e-08
+      t            y(t)
+      0            0
+      0.3          0.2999798366
+      0.6          0.5993630256
+      0.9          0.8952658787
+      1.2          1.180643976
+      1.5          1.443189579
+      1.8          1.665253332
+      2.1          1.82490246
+      2.4          1.898067229
+      2.7          1.861567212
+      3            1.696668757
+> laplace solve y'' + 3y' + 2y = u(t - 1)
+y'' + 3y' + 2y = u(t - 1), y(0) = 0, y'(0) = 0
+  note: y(0), y'(0) not given: taken as 0
+  transformed: (s^2 + 3s + 2)Y(s) = e^(-s)/s
+  Y(s) = e^(-s)/(s*(s + 1)*(s + 2))
+  y(t) = (1/2 - e^(1 - t) + e^(-2(t - 1))/2)*u(t - 1)    for t >= 0
+  poles of Y: 0, -1, -2
+  check: residual of the equation at 201 points of [0, 10]: max 2.2e-16; initial values hold (max difference 0)
+  check: a numeric solution (RK4, h = 1/1000) agrees at 20 points of [0, 10]: max difference 2.2e-14
+> laplace solve y' + 2y = e^(-t), y(0) = 1
+y' + 2y = e^(-t), y(0) = 1
+  transformed: (s + 2)Y(s) - 1 = 1/(s + 1)
+  Y(s) = 1/(s + 1)
+  y(t) = e^(-t)    for t >= 0
+  poles of Y: -1
+  check: residual of the equation at 201 points of [0, 10]: max 1.1e-16; initial values hold (max difference 0)
+  check: a numeric solution (RK4, h = 1/1000) agrees at 20 points of [0, 10]: max difference 1.7e-14
+> ztrans 0.5^n
+Z{(1/2)^n}(z) = 2z/(2z - 1)
+  in powers of z^-1: 1/(1 - (1/2)z^-1)
+  region of convergence: |z| > 1/2
+  one-sided: x[n] for n >= 0
+  rules: a^n x[n] -> X(z/a)
+  check: matches sum_n x[n] z^-n (79 terms) at z = 3/2, 3, 13/2: max relative difference 3.7e-16
+> ztrans a^n u[n]
+Z{a^n*u[n]}(z) = z/(z - a)
+  region of convergence: |z| > abs(a)
+  one-sided: x[n] for n >= 0
+  rules: a^n x[n] -> X(z/a)
+  check: matches sum_n x[n] z^-n (88 terms) at z = 17/10, 17/5, 71/10 with a = 7/10: max relative difference 2e-16
+> ztrans n^2
+Z{n^2}(z) = (z^2 + z)/(z - 1)^3
+  in powers of z^-1: (z^-1 + z^-2)/(1 - 3z^-1 + 3z^-2 - z^-3)
+  region of convergence: |z| > 1
+  one-sided: x[n] for n >= 0
+  rules: n x[n] -> -z X'(z)
+  check: matches sum_n x[n] z^-n (111 terms) at z = 2, 4, 8: max relative difference 1.5e-16
+> ztrans n 0.5^n
+Z{n*(1/2)^n}(z) = 2z/(2z - 1)^2
+  in powers of z^-1: (1/2)z^-1/(1 - z^-1 + (1/4)z^-2)
+  region of convergence: |z| > 1/2
+  one-sided: x[n] for n >= 0
+  rules: a^n x[n] -> X(z/a), n x[n] -> -z X'(z)
+  check: matches sum_n x[n] z^-n (83 terms) at z = 3/2, 3, 13/2: max relative difference 1.5e-16
+> ztrans cos(pi n/3)
+Z{cos(pi*n/3)}(z) = (2z^2 - z)/(2(z^2 - z + 1))
+  in powers of z^-1: (1 - (1/2)z^-1)/(1 - z^-1 + z^-2)
+  region of convergence: |z| > 1
+  one-sided: x[n] for n >= 0
+  rules: cos/sin table
+  check: matches sum_n x[n] z^-n (100 terms) at z = 2, 4, 8: max relative difference 0
+> ztrans u[n - 3]
+Z{u[n - 3]}(z) = 1/(z^2*(z - 1))
+  in powers of z^-1: z^-3/(1 - z^-1)
+  region of convergence: |z| > 1
+  one-sided: x[n] for n >= 0
+  rules: x[n - k] u[n - k] -> z^-k X(z)
+  check: matches sum_n x[n] z^-n (103 terms) at z = 2, 4, 8: max relative difference 0
+> ztrans 1/n!
+Z{1/n!}(z) = e^(1/z)
+  region of convergence: |z| > 0
+  one-sided: x[n] for n >= 0
+  rules: a^n/n! -> e^(a/z)
+  check: matches sum_n x[n] z^-n (61 terms) at z = 1, 2, 5: max relative difference 2.7e-16
+> iztrans z/(z - 0.5)
+Z^-1{z/(z - 1/2)}[n] = (1/2)^n    for n >= 0
+  poles: z = 1/2
+  taken as causal (right-sided): region of convergence |z| > 1/2
+  long division in z^-1: 1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64, 1/128, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 0)
+> iztrans z/((z - 1)*(z - 0.5))
+Z^-1{z/((z - 1)*(z - 1/2))}[n] = -2(1/2)^n + 2    for n >= 0
+  poles: z = 1, 1/2
+  taken as causal (right-sided): region of convergence |z| > 1
+  long division in z^-1: 0, 1, 3/2, 7/4, 15/8, 31/16, 63/32, 127/64, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 0)
+> iztrans z^2/(z^2 - z + 0.5)
+Z^-1{z^2/(z^2 - z + 1/2)}[n] = (sqrt(2)/2)^n*(cos(pi*n/4) + sin(pi*n/4))    for n >= 0
+  poles: z = 1/2 +- i/2
+  taken as causal (right-sided): region of convergence |z| > sqrt(2)/2
+  long division in z^-1: 1, 1, 1/2, 0, -1/4, -1/4, -1/8, 0, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 1.1e-16)
+> iztrans z/(z - 1)^2
+Z^-1{z/(z - 1)^2}[n] = n    for n >= 0
+  poles: z = 1 (double)
+  taken as causal (right-sided): region of convergence |z| > 1
+  long division in z^-1: 0, 1, 2, 3, 4, 5, 6, 7, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 0)
+> iztrans (z + 1)/z^2
+Z^-1{(z + 1)/z^2}[n] = delta[n - 1] + delta[n - 2]    for n >= 0
+  poles: z = 0 (double)
+  taken as causal (right-sided): region of convergence |z| > 0
+  long division in z^-1: 0, 1, 1, 0, 0, 0, 0, 0, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 0)
+> iztrans e^(2/z)
+Z^-1{e^(2/z)}[n] = 2^n/n!    for n >= 0
+  taken as causal (right-sided): region of convergence outside every pole
+> zsolve y[n+2] = y[n+1] + y[n], y[0] = 0, y[1] = 1
+y[n+2] = y[n+1] + y[n], y[0] = 0, y[1] = 1
+  transformed: (z^2 - z - 1)Y(z) - (z) = 0
+  Y(z) = z/(z^2 - z - 1)
+  y[n] = sqrt(5)*((1 + sqrt(5))/2)^n/5 - sqrt(5)*((1 - sqrt(5))/2)^n/5    for n >= 0
+  poles of Y: (1 + sqrt(5))/2, (1 - sqrt(5))/2
+  check: iterating the recurrence gives the same y[0..39] (max relative difference 1.2e-15)
+> zsolve x[n+1] = 2x[n] + n, x[0] = 1
+x[n+1] = 2x[n] + n, x[0] = 1
+  transformed: (z - 2)Y(z) - (z) = z/(z - 1)^2
+  Y(z) = (z^3 - 2z^2 + 2z)/((z - 1)^2*(z - 2))
+  x[n] = -n - 1 + 2*2^n    for n >= 0
+  poles of Y: 1 (double), 2
+  check: iterating the recurrence gives the same x[0..39] (max relative difference 0)
+> zsolve y[n] = 0.5 y[n-1] + 1, y[0] = 2
+y[n] = 0.5 y[n-1] + 1, y[0] = 2
+  the recurrence holds for n >= 1
+  transformed: (z - 1/2)Y(z) - (2z) = z/(z - 1)
+  Y(z) = 2z/(z - 1)
+  y[n] = 2    for n >= 0
+  poles of Y: 1
+  check: iterating the recurrence gives the same y[0..39] (max relative difference 0)
+> f[0] = 1
+> f[k+1] = 2f[k] + k
+> closed f
+f[n]
+  = 2*2^n - n - 1
+  method: affine recurrence (particular solution)
+  check: equals direct iteration at all 61 points of the domain
+> tf y[n] = 0.9 y[n-1] + x[n]
+transfer function of y[n] = 0.9 y[n-1] + x[n] (zero initial state)
+  input x, output y: H(z) = Y(z)/X(z)
+  H(z) = 10z/(10z - 9)
+       = 1/(1 - (9/10)z^-1)
+  poles: 9/10
+  zeros: 0
+  stable (BIBO): every pole inside the unit circle (max |p| = 9/10)
+  causal: yes (deg numerator <= deg denominator)
+  impulse response h[n] = (9/10)^n    for n >= 0
+  DC gain H(1) = 10
+  frequency response H(e^(iw)), w in radians per sample:
+    w          |H|          dB         phase (deg)
+    0          10           20         0
+    pi/8       2.60805      8.326      -63.93
+    pi/4       1.36436      2.699      -60.26
+    pi/2       0.743294     -2.577     -41.99
+    3pi/4      0.569545     -4.889     -21.25
+    pi         0.526316     -5.575     0
+  -3 dB (gain 10/sqrt(2)) at w = 0.105458 rad/sample
+    = 0.0167842 of the sample rate
+  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
+    float y = x + 0.9f*y1;
+    y1 = y;
+> tf y[n] = (x[n] + x[n-1] + x[n-2])/3
+transfer function of y[n] = (x[n] + x[n-1] + x[n-2])/3 (zero initial state)
+  input x, output y: H(z) = Y(z)/X(z)
+  H(z) = (z^2 + z + 1)/(3z^2)
+       = 1/3 + (1/3)z^-1 + (1/3)z^-2
+  poles: 0 (double)
+  zeros: -1/2 +- sqrt(3)i/2
+  stable (BIBO): every pole inside the unit circle (max |p| = 0)
+  causal: yes (deg numerator <= deg denominator)
+  impulse response h[n] = delta[n]/3 + delta[n - 1]/3 + delta[n - 2]/3    for n >= 0
+  DC gain H(1) = 1
+  frequency response H(e^(iw)), w in radians per sample:
+    w          |H|          dB         phase (deg)
+    0          1            0          0
+    pi/8       0.949253     -0.4524    -22.5
+    pi/4       0.804738     -1.887     -45
+    pi/2       0.333333     -9.542     -90
+    3pi/4      0.138071     -17.2      45
+    pi         0.333333     -9.542     0
+  -3 dB (gain 1/sqrt(2)) at w = 0.975613 rad/sample
+    = 0.155274 of the sample rate
+  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
+    float y = 0.333333333f*x + 0.333333333f*x1 + 0.333333333f*x2;
+    x2 = x1; x1 = x;
+> tf y[n] - 1.5y[n-1] + 0.5y[n-2] = x[n]
+transfer function of y[n] - 1.5y[n-1] + 0.5y[n-2] = x[n] (zero initial state)
+  input x, output y: H(z) = Y(z)/X(z)
+  H(z) = 2z^2/((z - 1)*(2z - 1))
+       = 1/(1 - (3/2)z^-1 + (1/2)z^-2)
+  poles: 1, 1/2
+  zeros: 0 (x2)
+  marginally stable at best: a pole on the unit circle (|p| = 1): bounded input can give unbounded output
+  causal: yes (deg numerator <= deg denominator)
+  impulse response h[n] = 2 - (1/2)^n    for n >= 0
+  frequency response H(e^(iw)), w in radians per sample:
+    w          |H|          dB         phase (deg)
+    0          inf          inf        (a pole)
+    pi/8       4.48792      13.04      -98.33
+    pi/4       1.77326      4.975      -96.18
+    pi/2       0.632456     -3.979     -71.57
+    3pi/4      0.386854     -8.249     -37.14
+    pi         0.333333     -9.542     0
+  (not BIBO stable, so no steady state: this is H on the unit circle, not what the system settles to)
+  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
+    float y = x + 1.5f*y1 - 0.5f*y2;
+    y2 = y1; y1 = y;
+> tf y'' + 3y' + 2y = x
+transfer function of y'' + 3y' + 2y = x (zero initial state)
+  input x, output y: H(s) = Y(s)/X(s)
+  H(s) = 1/((s + 1)*(s + 2))
+  poles: -1, -2
+  zeros: none
+  stable (BIBO): every pole in the left half-plane (max Re(p) = -1)
+  proper: yes
+  impulse response h(t) = e^(-t) - e^(-2t)    for t >= 0
+  DC gain H(0) = 1/2
+  frequency response H(iw):
+    w          |H|          dB         phase (deg)
+    0          0.5          -6.021     0
+    1/10       0.496898     -6.075     -8.573
+    1/2        0.433861     -7.253     -40.6
+    1          0.316228     -10        -71.57
+    2          0.158114     -16.02     -108.4
+    10         0.00975714   -40.21     -163
+  -3 dB (gain (1/2)/sqrt(2)) at w = 0.837593 rad/s
+> tf 1/(s^2 + s + 1)
+transfer function 1/(s^2 + s + 1)
+  H(s) = 1/(s^2 + s + 1)
+  poles: -1/2 +- sqrt(3)i/2
+  zeros: none
+  stable (BIBO): every pole in the left half-plane (max Re(p) = -1/2)
+  proper: yes
+  impulse response h(t) = 2sqrt(3)*e^(-t/2)*sin(sqrt(3)*t/2)/3    for t >= 0
+  DC gain H(0) = 1
+  frequency response H(iw):
+    w          |H|          dB         phase (deg)
+    0          1            0          0
+    1/10       1.00499      0.04321    -5.768
+    1/2        1.1094       0.9018     -33.69
+    1          1            0          -90
+    2          0.27735      -11.14     -146.3
+    10         0.0100499    -39.96     -174.2
+  -3 dB (gain 1/sqrt(2)) at w = 1.27202 rad/s
+> fourier series sign(x)
+Fourier series of sign(x) on [-pi, pi] (period 2pi):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(n*x) + b_n sin(n*x)
+  a_n = 1/pi int f(x) cos(n*x) dx over the period, b_n likewise with sin
+  a0 = 0
+  a_n = 0 (f is odd)
+  b_n = 2(1 - (-1)^n)/(pi*n)
+  check: the closed forms equal the numeric coefficients (Gauss-Legendre, 5120 nodes) for n = 1..48
+  f(x) ~ 4sin(x)/pi + 4sin(3x)/(3pi) + 4sin(5x)/(5pi) + 4sin(7x)/(7pi) + 4sin(9x)/(9pi) + ...
+  partial sums S_N: ||f - S_N||/||f|| = 0.259 (N = 5), 0.0919 (N = 48)
+  converges to f where f is continuous, and to the midpoint of the jump where it jumps:
+    at x = 0 it jumps by 2: S_N -> 0
+    at x = pi it jumps by -2: S_N -> the midpoint
+  Gibbs: near x = 0, S_48 overshoots by 0.1791 = 9.0% of the jump (at x = 0.06545); the overshoot tends to 8.95% of the jump and does not shrink as N grows
+> fourier series x^2
+Fourier series of x^2 on [-pi, pi] (period 2pi):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(n*x) + b_n sin(n*x)
+  a_n = 1/pi int f(x) cos(n*x) dx over the period, b_n likewise with sin
+  a0 = 2pi^2/3
+  a_n = 4(-1)^n/n^2
+  b_n = 0 (f is even)
+  check: the closed forms equal the numeric coefficients (Gauss-Legendre, 5120 nodes) for n = 1..48
+  f(x) ~ pi^2/3 - 4cos(x) + cos(2x) - 4cos(3x)/9 + cos(4x)/4 - 4cos(5x)/25 + ...
+  partial sums S_N: ||f - S_N||/||f|| = 0.0285 (N = 5), 0.0011 (N = 48)
+  f is continuous as a periodic function: S_N -> f uniformly (no Gibbs overshoot)
+> fourier series abs(x) on -1..1
+Fourier series of abs(x) on [-1, 1] (period 2):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(pi*n*x) + b_n sin(pi*n*x)
+  a_n = int f(x) cos(pi*n*x) dx over the period, b_n likewise with sin
+  a0 = 1
+  a_n = -2(1 - (-1)^n)/(pi^2*n^2)
+  b_n = 0 (f is even)
+  check: the closed forms equal the numeric coefficients (Gauss-Legendre, 5120 nodes) for n = 1..48
+  f(x) ~ 1/2 - 4cos(pi*x)/(pi^2) - 4cos(3pi*x)/(9pi^2) - 4cos(5pi*x)/(25pi^2) - 4cos(7pi*x)/(49pi^2) - 4cos(9pi*x)/(81pi^2) + ...
+  partial sums S_N: ||f - S_N||/||f|| = 0.0134 (N = 5), 0.000609 (N = 48)
+  f is continuous as a periodic function: S_N -> f uniformly (no Gibbs overshoot)
+> fourier series sin(x)^3
+Fourier series of sin(x)^3 on [-pi, pi] (period 2pi):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(n*x) + b_n sin(n*x)
+  a_n = 1/pi int f(x) cos(n*x) dx over the period, b_n likewise with sin
+  a0 = 0
+  finite: every coefficient after n = 3 is 0
+  a_1 = 0, b_1 = 3/4
+  a_3 = 0, b_3 = -1/4
+  f(x) ~ 3sin(x)/4 - sin(3x)/4
+  partial sums S_N: ||f - S_N||/||f|| = 1.29e-15 (N = 5), 1.29e-15 (N = 48)
+  f is continuous as a periodic function: S_N -> f uniformly (no Gibbs overshoot)
+> fourier series {1 if x < 0.5, 0 otherwise} on 0..1
+Fourier series of x < 0.5 ? 1 : 0 on [0, 1] (period 1):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(2pi*n*x) + b_n sin(2pi*n*x)
+  a_n = 2 int f(x) cos(2pi*n*x) dx over the period, b_n likewise with sin
+  a0 = 1
+  a_n = 0
+  b_n = (1 - (-1)^n)/(pi*n)
+  check: the closed forms equal the numeric coefficients (Gauss-Legendre, 5120 nodes) for n = 1..48
+  f(x) ~ 1/2 + 2sin(2pi*x)/pi + 2sin(6pi*x)/(3pi) + 2sin(10pi*x)/(5pi) + 2sin(14pi*x)/(7pi) + 2sin(18pi*x)/(9pi) + ...
+  partial sums S_N: ||f - S_N||/||f|| = 0.183 (N = 5), 0.065 (N = 48)
+  converges to f where f is continuous, and to the midpoint of the jump where it jumps:
+    at x = 1/2 it jumps by -1: S_N -> 1/2
+    at x = 1 it jumps by 1: S_N -> the midpoint
+  Gibbs: near x = 1/2, S_48 overshoots by 0.08956 = 9.0% of the jump (at x = 0.4896); the overshoot tends to 8.95% of the jump and does not shrink as N grows
+> fourier e^(-x^2)
+F{e^(-x^2)}(w) = sqrt(pi)*e^(-w^2/4)
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 6.7e-16
+> fourier e^(-2abs(x))
+F{e^(-2abs(x))}(w) = 4/(w^2 + 4)
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 9.6e-15
+> fourier 1/(x^2 + 1)
+F{1/(x^2 + 1)}(w) = pi*e^(-abs(w))
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 4.5e-10
+> fourier {1 if abs(x) < 1, 0 otherwise}
+F{abs(x) < 1 ? 1 : 0}(w) = 2sin(w)/w
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 5.8e-16
+> fourier e^(-x) u(x)
+F{e^(-x)*u(x)}(w) = 1/(w^2 + 1) - i*w/(w^2 + 1)
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 1.4e-14
+> fourier x e^(-x^2)
+F{x*e^(-x^2)}(w) = -i*sqrt(pi)*e^(-w^2/4)*w/2
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 7.4e-16
+> fourier cos(3x) e^(-x^2)
+F{cos(3x)*e^(-x^2)}(w) = (sqrt(pi)*e^(-(w - 3)^2/4) + sqrt(pi)*e^(-(w + 3)^2/4))/2
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 1.2e-15
+> fourier cos(2x)
+F{cos(2x)}(w) = pi*(delta(w - 2) + delta(w + 2))
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  delta terms: f does not decay, the transform is a distribution (not checked numerically)
+> ifourier e^(-w^2)
+F^-1{e^(-w^2)}(x) = e^(-x^2/4)/(2sqrt(pi))
+  convention: f(x) = (1/(2pi)) int F(w) e^(iwx) dw
+  check: matches the integral computed numerically at x = 1/2, 13/10, 27/10: max relative difference 6.3e-16
+> dft [1, 2, 3, 4]
+DFT of 4 values (X[k] = sum_n x[n] e^(-2 pi i k n/N); radix-2 FFT, N log2 N operations)
+  k    X[k]                         |.|            arg
+  0    10                           10             0
+  1    -2 + 2i                      2sqrt(2)       3pi/4
+  2    -2                           2              pi
+  3    -2 - 2i                      2sqrt(2)       -3pi/4
+  check: the inverse transform gives the input back (max difference 0); Parseval: sum |x|^2 = 30, sum |X|^2/N = 30
+  bin k is the frequency k/N cycles per sample; k > N/2 are the negative frequencies k - N
+> dft [1, 0, 0, 0, 0]
+DFT of 5 values (X[k] = sum_n x[n] e^(-2 pi i k n/N); direct sum, N^2 operations)
+  k    X[k]                         |.|            arg
+  0    1                            1              0
+  1    1                            1              0
+  2    1                            1              0
+  3    1                            1              0
+  4    1                            1              0
+  check: the inverse transform gives the input back (max difference 0); Parseval: sum |x|^2 = 1, sum |X|^2/N = 1
+  bin k is the frequency k/N cycles per sample; k > N/2 are the negative frequencies k - N
+> idft [10, -2+2i, -2, -2-2i]
+inverse DFT of 4 values (x[n] = (1/N) sum_k X[k] e^(2 pi i k n/N); radix-2 FFT, N log2 N operations)
+  k    x[k]                         |.|            arg
+  0    1                            1              0
+  1    2                            2              0
+  2    3                            3              0
+  3    4                            4              0
+  check: the forward transform gives the input back (max difference 2.2e-16); Parseval: sum |x|^2 = 30, sum |X|^2/N = 30
+> dtft [1, 1, 1]
+DTFT of 3 values: X(w) = sum_n x[n] e^(-iwn)
+  X(w) = cos(w) + 1 + cos(2w) + i*(-sin(w) - sin(2w))
+  w        |X|          arg
+  0        3            0
+  pi/4     2.41421      -0.785398
+  pi/2     1            -1.5708
+  3pi/4    0.414214     0.785398
+  pi       1            0
+  periodic in w with period 2pi; the DFT samples it at w = 2pi k/N
+> dtft 0.5^n
+DTFT of (1/2)^n: X(e^(iw)) = X(z) at z = e^(iw)
+  X(z) = 2z/(2z - 1)
+  w        |X|          arg
+  0        2            0
+  pi/4     1.3572       -0.500474
+  pi/2     0.894427     -0.463648
+  3pi/4    0.714813     -0.255495
+  pi       0.666667     0
+> genfunc fibonacci
+fibonacci: a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1
+  a[n] = sqrt(5)*((1 + sqrt(5))/2)^n/5 - sqrt(5)*((1 - sqrt(5))/2)^n/5
+  G(x) = sum_{n>=0} a_n x^n = x/(1 - x - x^2)    for |x| < (-1 + sqrt(5))/2
+  check: sum_n a_n x^n at x = (-1 + sqrt(5))/4 is 0.518927630227216, G = 0.518927630227215 (difference 1.1e-16)
+> genfunc n^2
+  G(x) = sum_{n>=0} a_n x^n = (x + x^2)/(1 - 3x + 3x^2 - x^3)    for |x| < 1
+  check: sum_n a_n x^n at x = 1/2 is 6, G = 6 (difference 8.9e-16)
+> genfunc 1/n!
+  G(x) = sum_{n>=0} a_n x^n = e^x    for every x
+  check: sum_n a_n x^n at x = 1/2 is 1.64872127070013, G = 1.64872127070013 (difference 4.4e-16)
+> genfunc catalan
+catalan: binom(2n, n)/(n + 1)
+  G(x) = sum_{n>=0} a_n x^n = (1 - sqrt(1 - 4x))/(2x)    for |x| < 1/4
+  from the library: (1 - sqrt(1 - 4u))/(2u)
+  check: sum_n a_n x^n at x = 1/8 is 1.17157287525381, G = 1.17157287525381 (difference 2.2e-16)
+> genfunc a[n+1] = 3a[n] + 1, a[0] = 0
+  a[n] = 3^n/2 - 1/2
+  G(x) = sum_{n>=0} a_n x^n = x/(1 - 4x + 3x^2)    for |x| < 1/3
+  check: sum_n a_n x^n at x = 1/6 is 0.4, G = 0.4 (difference 5.6e-17)
+> egf fibonacci
+fibonacci: a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1
+  a[n] = sqrt(5)*((1 + sqrt(5))/2)^n/5 - sqrt(5)*((1 - sqrt(5))/2)^n/5
+  E(x) = sum_{n>=0} a_n x^n/n! = sqrt(5)*e^((1 + sqrt(5))/2*x)/5 - sqrt(5)*e^(-(-1 + sqrt(5))/2*x)/5
+  check: the series at x = 1/4 and 1/2 matches E (max relative difference 0)
+> egf n
+  E(x) = sum_{n>=0} a_n x^n/n! = x*e^x
+  check: the series at x = 1/4 and 1/2 matches E (max relative difference 2.2e-16)
+> powerseries 1/(1 - x - x^2)
+power series of 1/(1 - x - x^2) about x = 0
+  = sum_{n>=0} a_n x^n with a_n = (5 + sqrt(5))/10*((1 + sqrt(5))/2)^n + (5 - sqrt(5))/10*((1 - sqrt(5))/2)^n
+  radius of convergence (-1 + sqrt(5))/2 (the nearest pole)
+  check: the series at x = (-1 + sqrt(5))/6 sums to 1.33058699734, f = 1.33058699734
+> sum(n, 1, inf, 1/n^2)
+sum(n, 1, inf, 1/n^2)
+  converges absolutely: p-series 1/n^2 with p = 2 > 1
+  = pi^2/6
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 1.644934066848226 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 4.4e-16)
+  check: the closed form and the numeric value agree (difference 4.4e-16)
+> sum(n, 1, inf, 1/n^3)
+sum(n, 1, inf, 1/n^3)
+  converges absolutely: p-series 1/n^3 with p = 3 > 1
+  = zeta(3)
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 1.202056903159595 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 1.2e-16)
+  check: the closed form and the numeric value agree (difference 6.7e-16)
+> sum(n, 1, inf, 1/(n*(n+1)))
+sum(n, 1, inf, 1/(n*(n + 1)))
+  converges absolutely: limit comparison with the p-series sum 1/n^2 (p = 2 > 1): a_n n^2 -> 1
+  = 1
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 0.9999999999999998 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 1e-16)
+  check: the closed form and the numeric value agree (difference 2.2e-16)
+> sum(n, 0, inf, 1/(2n+1)^2)
+sum(n, 0, inf, 1/(2n + 1)^2)
+  converges absolutely: limit comparison with the p-series sum 1/n^2 (p = 2 > 1): a_n n^2 -> 1/4
+  = pi^2/8
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 1.233700550136169 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 2.2e-16)
+  check: the closed form and the numeric value agree (difference 4.4e-16)
+> sum(n, 1, inf, 1/(n^2 + 1))
+sum(n, 1, inf, 1/(n^2 + 1))
+  converges absolutely: limit comparison with the p-series sum 1/n^2 (p = 2 > 1): a_n n^2 -> 1
+  = -1/2 + 1/2*pi*cosh(pi)/sinh(pi)
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 1.076674047468581 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 1.1e-16)
+  check: the closed form and the numeric value agree (difference 4.4e-16)
+> sum(n, 1, inf, n/2^n)
+sum(n, 1, inf, n/2^n)
+  converges absolutely: ratio test: |a_(n+1)/a_n| -> 1/2 < 1
+  = 2
+  method: arithmetico-geometric: sum m^k r^m = r A_k(r)/(1 - r)^(k+1) (Eulerian numbers)
+  numeric: 2 (65 terms (the ratio of terms -> 1/2; Aitken's delta^2 agrees); estimated error 2e-16)
+  check: the closed form and the numeric value agree (difference 2.2e-16)
+> sum(n, 1, inf, (-1)^(n+1)/n)
+sum(n, 1, inf, (-1)^(n + 1)/n)
+  converges conditionally: alternating series test (|a_n| decreases to 0); not absolutely: |a_n| ~ C/n (p <= 1)
+  = log(2)
+  method: partial fractions; eta(k) = (1 - 2^(1-k)) zeta(k), Dirichlet beta
+  numeric: 0.6931471805599452 (alternating: Cohen-Villegas-Zagier acceleration (an Euler-type transform), 40 terms; estimated error 1.1e-16)
+  check: the closed form and the numeric value agree (difference 1.1e-16)
+> sum(n, 0, inf, (-1)^n/(2n+1))
+sum(n, 0, inf, (-1)^n/(2n + 1))
+  converges conditionally: alternating series test (|a_n| decreases to 0); not absolutely: |a_n| ~ C/n (p <= 1)
+  = pi/4
+  method: partial fractions; eta(k) = (1 - 2^(1-k)) zeta(k), Dirichlet beta
+  numeric: 0.7853981633974484 (alternating: Cohen-Villegas-Zagier acceleration (an Euler-type transform), 40 terms; estimated error 3.3e-16)
+  check: the closed form and the numeric value agree (difference 1.1e-16)
+> sum(n, 0, inf, 1/n!)
+sum(n, 0, inf, 1/n!)
+  converges absolutely: ratio test: |a_(n+1)/a_n| -> 0 < 1
+  = e
+  method: e^u
+  numeric: 2.718281828459046 (21 terms (the ratio of terms -> 0; Aitken's delta^2 agrees); estimated error 2.7e-16)
+  check: the closed form and the numeric value agree (difference 0)
+> sum(k in 1..inf, 2^k/k!)
+sum(k, 1, inf, 2^k/k!)
+  converges absolutely: ratio test: |a_(k+1)/a_k| -> 0 < 1
+  = e^2 - 1
+  method: e^u
+  numeric: 6.389056098930649 (25 terms (the ratio of terms -> 0; Aitken's delta^2 agrees); estimated error 6.4e-16)
+  check: the closed form and the numeric value agree (difference 1.8e-15)
+> sum(n, 2, inf, 1/(n log(n)^2))
+sum(n, 2, inf, 1/(n*log(n)^2))
+  converges absolutely: integral test: int f = -1/log(n) has the finite limit 0 as n -> inf
+  numeric: 2.109742801236894 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 1.3e-15)
+> sum(n, 1, inf, sin(n)/n^2)
+sum(n, 1, inf, sin(n)/n^2)
+  converges absolutely: comparison with the p-series sum 1/n^2 (|a_n| ~ C/n^2, p > 1)
+  numeric: 1.013959253717499 (Richardson extrapolation of the partial sums S_1024, S_2048, S_4096; estimated error 3.3e-07)
+> sum(n, 1, inf, 1/n^2 + 1/2^n)
+sum(n, 1, inf, 1/n^2 + 1/2^n)
+  by linearity: the sum of 2 series, each convergent:
+    sum 1/n^2: converges absolutely, = pi^2/6
+    sum 1/2^n: converges absolutely, = 1
+  converges absolutely
+  = pi^2/6 + 1
+  numeric: 2.644934066848226 (each part accelerated; estimated error 5.4e-16)
+  check: the closed form and the numeric value agree (difference 8.9e-16)
+> sum(n, 1, inf, 1/n)
+sum(n, 1, inf, 1/n)
+  diverges: limit comparison with the harmonic series sum 1/n (p = 1): a_n n -> 1
+> sum(n, 1, inf, 1/sqrt(n))
+sum(n, 1, inf, 1/sqrt(n))
+  diverges: comparison with the p-series sum 1/n^(1/2) (a_n ~ C/n^(1/2), p <= 1)
+> sum(n, 1, 10, 1/n^2)
+  note: 1/n^2 would divide integers by the index n: n taken as real
+1.54977
+> prod(n, 1, inf, 4n^2/(4n^2 - 1))
+prod(n, 1, inf, 4n^2/(4n^2 - 1))
+  converges: the factors are 1 + O(1/n^2) (sum |a_n - 1| converges)
+  = pi/2
+  method: the factors as (n - a_i)/(n - b_i): prod Gamma(1 - b_i)/Gamma(1 - a_i)
+  numeric: 1.57079632677919 (partial products to 4096, Richardson in 1/N twice; estimated error 2.9e-08)
+  check: agree (difference 1.6e-11)
+> prod(n, 2, inf, 1 - 1/n^2)
+prod(n, 2, inf, 1 - 1/n^2)
+  converges: the factors are 1 + O(1/n^2) (sum |a_n - 1| converges)
+  = 1/2
+  method: the factors as (n - a_i)/(n - b_i): prod Gamma(2 - b_i)/Gamma(2 - a_i)
+  numeric: 0.500000000058105 (partial products to 4097, Richardson in 1/N twice; estimated error 6e-08)
+  check: agree (difference 5.8e-11)
+> prod(n, 1, inf, 1 + 1/n^2)
+prod(n, 1, inf, 1/n^2 + 1)
+  converges: the factors are 1 + O(1/n^2) (sum |a_n - 1| converges)
+  = sinh(pi)/pi
+  method: the factors as (n - a_i)/(n - b_i): prod Gamma(1 - b_i)/Gamma(1 - a_i)
+  numeric: 3.67607791008984 (partial products to 4096, Richardson in 1/N twice; estimated error 4.4e-07)
+  check: agree (difference 2.9e-10)
+> converge (-1)^n/n
+sum(n, 1, inf, (-1)^n/n)
+  converges conditionally: alternating series test (|a_n| decreases to 0); not absolutely: |a_n| ~ C/n (p <= 1)
+  partial sums: S_10 = -0.6456349206, S_1000 = -0.6926474306
+> converge 1/(n log(n))
+sum(n, 2, inf, 1/(n*log(n)))
+  diverges: integral test: int f = log(abs(log(n))) -> +inf as n -> inf
+  partial sums: S_10 = 1.687819573, S_1000 = 2.727540347
+> converge n!/n^n
+sum(n, 0, inf, n!/n^n)
+  converges absolutely: ratio test: |a_(n+1)/a_n| -> 1/e < 1
+  partial sums: S_10 = 2.879264136, S_1000 = 2.879853862
+> radius x^n/n!
+power series sum(n, 0, inf, x^n/n!) in x
+  center x = 0; coefficients a_n = 1/n! of x^(n)
+  radius of convergence R = inf (ratio test: |a_(n+1)/a_n| -> 0)
+  interval of convergence: every x (absolutely)
+  sum = e^x    for |x| < inf (e^u)
+> radius x^n/n
+power series sum(n, 1, inf, x^n/n) in x
+  center x = 0; coefficients a_n = 1/n of x^(n)
+  radius of convergence R = 1 (ratio test: |a_(n+1)/a_n| -> 1)
+  at x = -1: converges conditionally (alternating series test (|a_n| decreases to 0); not absolutely: |a_n| ~ C/n (p <= 1))
+  at x = 1: diverges (limit comparison with the harmonic series sum 1/n (p = 1): a_n n -> 1)
+  interval of convergence: [-1, 1)
+  sum = -log(1 - x)    for |x| < 1 (-log(1 - u))
+> radius (x - 2)^n/(n 3^n)
+power series sum(n, 1, inf, (x - 2)^n/(n*3^n)) in x
+  center x = 2; coefficients a_n = 1/(n*3^n) of (x - 2)^(n)
+  radius of convergence R = 3 (ratio test: |a_(n+1)/a_n| -> 1/3)
+  at x = -1: converges conditionally (alternating series test (|a_n| decreases to 0); not absolutely: |a_n| ~ C/n (p <= 1))
+  at x = 5: diverges (limit comparison with the harmonic series sum 1/n (p = 1): a_n n -> 1)
+  interval of convergence: [-1, 5)
+  sum = -log(1 - (x - 2)/3)    for |x - 2| < 3 (-log(1 - u))
+> radius x^n/(n^2 2^n)
+power series sum(n, 1, inf, x^n/(n^2*2^n)) in x
+  center x = 0; coefficients a_n = 1/(n^2*2^n) of x^(n)
+  radius of convergence R = 2 (ratio test: |a_(n+1)/a_n| -> 1/2)
+  at x = -2: converges absolutely (|a_n| ~ C/n^2: comparison with a p-series (p > 1))
+  at x = 2: converges absolutely (p-series 1/n^2 with p = 2 > 1)
+  interval of convergence: [-2, 2]
+> radius n! x^n
+power series sum(n, 0, inf, n!*x^n) in x
+  center x = 0; coefficients a_n = n! of x^(n)
+  radius of convergence R = 0 (ratio test: |a_(n+1)/a_n| -> inf)
+  converges only at x = 0
+> powerseries e^(2x)
+power series of e^(2x) about x = 0
+  Taylor coefficients c_0..c_7: 1, 2, 2, 4/3, 2/3, 4/15, 4/45, 8/315
+  = sum_{m>=0} c_m x^m, c_m = 2^m/m!
+  matches e^u: radius of convergence inf
+> powerseries sin(x)
+power series of sin(x) about x = 0
+  Taylor coefficients c_0..c_7: 0, 1, 0, -1/6, 0, 1/120, 0, -0.0001984126984
+  = sum_{k>=0} (-1)^k/(2k + 1)! * x^(2k + 1)
+  radius of convergence inf
+> powerseries log(1 + x)
+power series of log(x + 1) about x = 0
+  Taylor coefficients c_0..c_7: 0, 1, -1/2, 1/3, -1/4, 1/5, -1/6, 1/7
+  = sum_{m>=1} c_m x^m, c_m = -(-1)^m/m
+  matches -log(1 - u): radius of convergence 1
+> asymptotic sum(k, 1, n, 1/k)
+sum(k, 1, n, 1/k) ~ log(n) + gamma + 1/(2n) - 1/(12n^2) + 1/(120n^4) + ...
+  Euler-Maclaurin: int f + C + f(n)/2 + B2/2! f'(n) + B4/4! f'''(n), B2 = 1/6, B4 = -1/30
+  the constant C = 0.577215664901532 = gamma
+  check: n = 10: sum 2.92896825397, expansion off by 3.9e-09; n = 100: sum 5.18737751764, expansion off by 2.7e-15; n = 1000: sum 7.48547086055, expansion off by 0
+> asymptotic sum(k, 1, n, log(k))
+sum(k, 1, n, log(k)) ~ n*log(n) - n + log(n)/2 + log(2pi)/2 + 1/(12n) - 1/(360n^3) + ...
+  Euler-Maclaurin: int f + C + f(n)/2 + B2/2! f'(n) + B4/4! f'''(n), B2 = 1/6, B4 = -1/30
+  the constant C = 0.918938533202891 = log(2pi)/2
+  check: n = 10: sum 15.1044125731, expansion off by 7.9e-09; n = 100: sum 363.739375556, expansion off by 1.9e-12; n = 1000: sum 5912.12817849, expansion off by 1e-11
+> the laplace transform of t^2 e^-t
+  ucas: laplace t^2 e^-t
+L{t^2*e^(-t)}(s) = 2/(s + 1)^3
+  region of convergence: Re(s) > -1
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a), t^n f(t) -> (-1)^n F^(n)(s)
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: max relative difference 4.4e-16
+> inverse laplace of 1/(s^2+1)
+  ucas: ilaplace 1/(s^2+1)
+L^-1{1/(s^2 + 1)}(t) = sin(t)
+  poles: s = +-i
+  for t >= 0 (0 before): the right-sided inverse, region of convergence Re(s) > 0 (right of every pole)
+  check: transformed back (Gauss-Kronrod), it matches F at s = 1, 2, 7/2: max relative difference 1.4e-16
+> solve y'' + y = 0 with y(0) = 1, y'(0) = 0 using laplace
+  ucas: laplace solve y'' + y = 0 with y(0) = 1, y'(0) = 0
+y'' + y = 0, y(0) = 1, y'(0) = 0
+  transformed: (s^2 + 1)Y(s) - (s) = 0
+  Y(s) = s/(s^2 + 1)
+  y(t) = cos(t)    for t >= 0
+  poles of Y: +-i
+  check: residual of the equation at 201 points of [0, 10]: max 0; initial values hold (max difference 0)
+  check: a numeric solution (RK4, h = 1/1000) agrees at 20 points of [0, 10]: max difference 6.6e-14
+> the z transform of a^n u[n]
+  ucas: ztrans a^n u[n]
+Z{a^n*u[n]}(z) = z/(z - a)
+  region of convergence: |z| > abs(a)
+  one-sided: x[n] for n >= 0
+  rules: a^n x[n] -> X(z/a)
+  check: matches sum_n x[n] z^-n (88 terms) at z = 17/10, 17/5, 71/10 with a = 7/10: max relative difference 2e-16
+> inverse z transform of z/(z - 0.5)
+  ucas: iztrans z/(z - 0.5)
+Z^-1{z/(z - 1/2)}[n] = (1/2)^n    for n >= 0
+  poles: z = 1/2
+  taken as causal (right-sided): region of convergence |z| > 1/2
+  long division in z^-1: 1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64, 1/128, ...
+  check: the closed form equals the long division for n = 0..31 (max difference 0)
+> transfer function of y[n] = 0.9 y[n-1] + x[n]
+  ucas: tf y[n] = 0.9 y[n-1] + x[n]
+transfer function of y[n] = 0.9 y[n-1] + x[n] (zero initial state)
+  input x, output y: H(z) = Y(z)/X(z)
+  H(z) = 10z/(10z - 9)
+       = 1/(1 - (9/10)z^-1)
+  poles: 9/10
+  zeros: 0
+  stable (BIBO): every pole inside the unit circle (max |p| = 9/10)
+  causal: yes (deg numerator <= deg denominator)
+  impulse response h[n] = (9/10)^n    for n >= 0
+  DC gain H(1) = 10
+  frequency response H(e^(iw)), w in radians per sample:
+    w          |H|          dB         phase (deg)
+    0          10           20         0
+    pi/8       2.60805      8.326      -63.93
+    pi/4       1.36436      2.699      -60.26
+    pi/2       0.743294     -2.577     -41.99
+    3pi/4      0.569545     -4.889     -21.25
+    pi         0.526316     -5.575     0
+  -3 dB (gain 10/sqrt(2)) at w = 0.105458 rad/sample
+    = 0.0167842 of the sample rate
+  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
+    float y = x + 0.9f*y1;
+    y1 = y;
+> is the filter y[n] = 1.1 y[n-1] + x[n] stable?
+  ucas: tf y[n] = 1.1 y[n-1] + x[n]
+transfer function of y[n] = 1.1 y[n-1] + x[n] (zero initial state)
+  input x, output y: H(z) = Y(z)/X(z)
+  H(z) = 10z/(10z - 11)
+       = 1/(1 - (11/10)z^-1)
+  poles: 11/10
+  zeros: 0
+  UNSTABLE: a pole outside the unit circle (|p| = 11/10)
+  causal: yes (deg numerator <= deg denominator)
+  impulse response h[n] = (11/10)^n    for n >= 0
+  DC gain H(1) = -10
+  frequency response H(e^(iw)), w in radians per sample:
+    w          |H|          dB         phase (deg)
+    0          10           20         -180
+    pi/8       2.3738       7.509      -92.21
+    pi/4       1.2362       1.842      -74.06
+    pi/2       0.672673     -3.444     -47.73
+    3pi/4      0.515325     -5.758     -23.63
+    pi         0.47619      -6.444     0
+  (not BIBO stable, so no steady state: this is H on the unit circle, not what the system settles to)
+  as C (direct form I; x1 = x[n-1], y1 = y[n-1], ...):
+    float y = x + 1.1f*y1;
+    y1 = y;
+> fourier series of a square wave
+  ucas: fourier series sign(x)
+Fourier series of sign(x) on [-pi, pi] (period 2pi):
+  f(x) ~ a0/2 + sum_{n>=1} a_n cos(n*x) + b_n sin(n*x)
+  a_n = 1/pi int f(x) cos(n*x) dx over the period, b_n likewise with sin
+  a0 = 0
+  a_n = 0 (f is odd)
+  b_n = 2(1 - (-1)^n)/(pi*n)
+  check: the closed forms equal the numeric coefficients (Gauss-Legendre, 5120 nodes) for n = 1..48
+  f(x) ~ 4sin(x)/pi + 4sin(3x)/(3pi) + 4sin(5x)/(5pi) + 4sin(7x)/(7pi) + 4sin(9x)/(9pi) + ...
+  partial sums S_N: ||f - S_N||/||f|| = 0.259 (N = 5), 0.0919 (N = 48)
+  converges to f where f is continuous, and to the midpoint of the jump where it jumps:
+    at x = 0 it jumps by 2: S_N -> 0
+    at x = pi it jumps by -2: S_N -> the midpoint
+  Gibbs: near x = 0, S_48 overshoots by 0.1791 = 9.0% of the jump (at x = 0.06545); the overshoot tends to 8.95% of the jump and does not shrink as N grows
+> fourier transform of e^(-x^2)
+  ucas: fourier e^(-x^2)
+F{e^(-x^2)}(w) = sqrt(pi)*e^(-w^2/4)
+  convention: F(w) = int f(x) e^(-iwx) dx over the real line (angular frequency; the inverse has 1/(2pi))
+  check: matches the integral computed numerically at w = 1/2, 13/10, 27/10: max relative difference 6.7e-16
+> does the sum of 1/n^2 converge
+  ucas: converge 1/n^2
+sum(n, 1, inf, 1/n^2)
+  converges absolutely: p-series 1/n^2 with p = 2 > 1
+  partial sums: S_10 = 1.549767731, S_1000 = 1.643934567
+> what is the sum of 1/n^2 from 1 to infinity
+  ucas: sum(n, 1, inf, 1/n^2)
+sum(n, 1, inf, 1/n^2)
+  converges absolutely: p-series 1/n^2 with p = 2 > 1
+  = pi^2/6
+  method: partial fractions; zeta(k), digamma at integers
+  numeric: 1.644934066848226 (the first 128 terms plus an Euler-Maclaurin tail (integral + 3 corrections); estimated error 4.4e-16)
+  check: the closed form and the numeric value agree (difference 4.4e-16)
+> radius of convergence of the sum of x^n/n!
+  ucas: radius x^n/n!
+power series sum(n, 0, inf, x^n/n!) in x
+  center x = 0; coefficients a_n = 1/n! of x^(n)
+  radius of convergence R = inf (ratio test: |a_(n+1)/a_n| -> 0)
+  interval of convergence: every x (absolutely)
+  sum = e^x    for |x| < inf (e^u)
+> the generating function of fibonacci
+  ucas: genfunc fibonacci
+fibonacci: a[n+2] = a[n+1] + a[n], a[0] = 0, a[1] = 1
+  a[n] = sqrt(5)*((1 + sqrt(5))/2)^n/5 - sqrt(5)*((1 - sqrt(5))/2)^n/5
+  G(x) = sum_{n>=0} a_n x^n = x/(1 - x - x^2)    for |x| < (-1 + sqrt(5))/2
+  check: sum_n a_n x^n at x = (-1 + sqrt(5))/4 is 0.518927630227216, G = 0.518927630227215 (difference 1.1e-16)
+> the product of 1 - 1/n^2 for n from 2 to infinity
+  ucas: prod(n, 2, inf, 1 - 1/n^2)
+prod(n, 2, inf, 1 - 1/n^2)
+  converges: the factors are 1 + O(1/n^2) (sum |a_n - 1| converges)
+  = 1/2
+  method: the factors as (n - a_i)/(n - b_i): prod Gamma(2 - b_i)/Gamma(2 - a_i)
+  numeric: 0.500000000058105 (partial products to 4097, Richardson in 1/N twice; estimated error 6e-08)
+  check: agree (difference 5.8e-11)
+> the asymptotic expansion of the sum of 1/k
+  ucas: asymptotic sum(k, 1, n, 1/k)
+sum(k, 1, n, 1/k) ~ log(n) + gamma + 1/(2n) - 1/(12n^2) + 1/(120n^4) + ...
+  Euler-Maclaurin: int f + C + f(n)/2 + B2/2! f'(n) + B4/4! f'''(n), B2 = 1/6, B4 = -1/30
+  the constant C = 0.577215664901532 = gamma
+  check: n = 10: sum 2.92896825397, expansion off by 3.9e-09; n = 100: sum 5.18737751764, expansion off by 2.7e-15; n = 1000: sum 7.48547086055, expansion off by 0
