@@ -383,6 +383,8 @@ struct func *cmdp_func_typed(struct P *p, const char *const *stop, ty_t ty);
 uint32_t cmdp_pos(struct P *p);
 void cmdp_seek(struct P *p, uint32_t pos);
 int cmdp_int(struct P *p, int64_t *v);
+int cmdp_rest(struct P *p, char *buf, size_t n,
+    const char *const *stop);
 double cmdp_number(struct P *p, const char *const *stop);
 void cmdp_fail_here(struct P *p);
 int cmdp_word(struct P *p, char *buf, size_t n);
@@ -405,6 +407,7 @@ int nlp_ask_choice(const char *what, const char *const *opt, int nopt,
 int nlp_ask_pref(const char *key, const char *what, const char *const *opt,
     int nopt, int dflt, const char *hint);  /* -1: ask only when stdin and stdout are ttys */
 int nlp_is_english(const char *line, size_t n);
+int nlp_translate(const char *req, struct sbuf *dst);
 void nlp_run(const char *line, size_t n, const char *file, int echo);
 void run_text(const char *src, const char *file, int echo);
 extern const char *code_block;     /* a fenced block after the statement */

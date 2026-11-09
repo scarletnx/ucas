@@ -156,3 +156,66 @@ exec of (((1 << x) + x xor x) & x) + (y - z), cost model gt1030, 4 lanes in lock
   time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 68042 bytes
   (nofile: GIF checksum c0ff2ccf)
+> animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly nofile
+  note: finding the approximation first: approximate cos [-pi/2, pi/2] with crit + cheby poly
+  ucas: it(x in -pi/2..pi/2) = cos(x)
+  ucas: approx it method cheb keep crit
+  keep crit: x = 0
+  note: it has special points at the interval's ends (at x = -1.57079633 it is 0, at x = 1.57079633 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx it on [-1.57079637, 1.57079637] as f32, fma
+  checked: it is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 1.57079637]
+  metric: absolute error (the function crosses zero away from the expansion point)
+  checked: the target equals cos(x) at 33 points: range reductions and identities for cos apply
+  exact at: x = 0 -> 1
+  fits in real arithmetic (max absolute error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax      no exact pts
+    0    1            1            1            0.5
+    2    0.112        -            0.0387       0.028
+    4    0.00239      -            0.000737     0.000597
+    6    2.68e-05     -            7.84e-06     6.7e-06
+    8    1.86e-07     -            5.27e-08     4.65e-08
+    10   8.77e-10     -            2.43e-10     2.19e-10
+  Chebyshev interpolation polynomial of it, degree 10 (max absolute error 8.77e-10 in real arithmetic, the lowest degree that reaches the format's precision):
+    it(x) = -2.629751735e-07*x^10 + 2.477457974e-05*x^8 - 0.001388865165*x^6 + 0.04166665936*x^4 - 0.4999999996*x^2 + 1
+    in the Chebyshev basis: 0.472001191*T0(u) - 0.49940328*T2(u) + 0.02799208254*T4(u) - 0.0005966952925*T6(u) + 6.704176991e-06*T8(u) - 4.697250058e-08*T10(u)
+      where u = x/1.570796371 maps [-1.57079637, 1.57079637] to [-1, 1]
+    other degrees: add `degree n`; the other methods and shapes: add `compare`
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131103 f32 in [-1.57079637, 1.57079637]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   cheb      4     horner+fma  0.00239 abs              5.46e+04      0.00239       3    at x=-1.57079566  exact pts yes  keep +300%
+      P(x^2): fma(fma(0.0383687839, s, -0.498988509), s, 1.0) where s = x*x
+  2   cheb      6     horner+fma  2.69e-05 abs             614           2.69e-05      4    at x=1.57079446  exact pts yes  keep +300%
+      P(x^2): fma(fma(fma(-0.00129987358, s, 0.0415850282), s, -0.499988824), s, 1.0) where s = x*x
+  3   cheb      8     horner+fma  1.31e-07 abs             1.26          1.31e-07      5    at x=-1.50162232  exact pts yes  keep +300%
+      P(x^2): fma(fma(fma(fma(2.31890335e-05, s, -0.00138557085), s, 0.0416639633), s, -0.499999315), s, 1.0) where s = x*x
+  4   cheb      10    horner+fma  8.07e-08 abs             0.425         8.07e-08      6    at x=-1.54606056  exact pts yes  keep +300%
+      P(x^2): fma(fma(fma(fma(fma(-2.62090197e-07, s, 2.47701792e-05), s, -0.00138885865), s, 0.0416666567), s, -0.5), s, 1.0) where s = x*x
+  5 more: 'approx more [n]' (dominated or worse)
+  animating the best candidate, ap1 = fma(fma(0.0383687839, x*x, -0.498988509), x*x, 1)
+exec of fma(fma(0.0383687839, x*x, -0.498988509), x*x, 1), cost model gt1030, 4 lanes in lockstep; x: f32
+  result per lane: 0.00238693412 0.866083324 0.866083324 0.00238693412
+  serial form:
+    t0 = x * x                                   fmul           1  t = 0..1  -> 2.46740127 0.274155706 0.274155706 2.46740127
+    t1 = fma(0.0383687839, t0, -0.498988509)     fmul           1  t = 1..2  -> -0.404317319 -0.488469481 -0.488469481 -0.404317319
+    t2 = fma(t1, t0, 1)                          fmul           1  t = 2..3  -> 0.00238693412 0.866083324 0.866083324 0.00238693412
+  time 3 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 40120 bytes
+  (nofile: GIF checksum de6682b1)
+> animate exec of sin(x) * 0.5 nofile
+  note: no type given: every variable is f32, as the expression is real (say "32-bit", "signed 32-bit", "f32" ...)
+exec of 0.5sin(x), cost model gt1030, 4 lanes in lockstep; x: f32
+  result per lane: 0 0.420735478 0.454648703 0.0705600008
+  serial form:
+    t0 = sin(x)                                  ftrans         4  t = 0..4  -> 0 0.841470957 0.909297407 0.141120002
+    t1 = 0.5 * t0                                fmul           1  t = 4..5  -> 0 0.420735478 0.454648703 0.0705600008
+  time 5 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.8 cost units; 41893 bytes
+  (nofile: GIF checksum 872c3fdb)
+> animate exec of best found blorp qq nofile
+  note: finding the approximation first: approximate blorp qq
+  note: I don't know the word "blorp": read as a variable, not a mistake (stop here) (rephrase it, or name variables with one or two letters)
+  sorry: I didn't follow "qq"
+anim.ucas:22:17: error: animate exec: could not read "blorp qq" as an approximation request
+    animate exec of best found blorp qq nofile
+                    ^

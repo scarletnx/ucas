@@ -14,3 +14,9 @@ animate exec of signed 16-bit x*x - 3 lanes 32 nofile
 animate exec of (1 << x) + x nofile
 # live session 6: "^" in a bitwise expression
 animate exec of 32-bit ((((1 << x) + x) ^ x) & x) + (y - z) nofile
+# session 9: the best approximation found, then its exec (lanes span the domain)
+animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly nofile
+# a real expression defaults to f32
+animate exec of sin(x) * 0.5 nofile
+# a failed approximation request is an error, not a crash
+animate exec of best found blorp qq nofile

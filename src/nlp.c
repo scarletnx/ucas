@@ -3292,6 +3292,10 @@ parse_tail(void)
 			return;
 		if (acc_sym(",") || acc_sym(";"))
 			continue;
+		/* options joined by "+", "&", "and", "plus": "crit + cheby poly" */
+		if ((acc_sym("+") || acc_sym("&") || mat("and|plus|also")) &&
+		    W[wi].k != W_END)
+			continue;
 		if (parse_option())
 			continue;
 		{
@@ -5391,6 +5395,25 @@ translate_asking(const char *sent)
 	spell_quiet = 0;
 	free(cur);
 	return ok;
+}
+
+/*
+ * Translate one request and hand back the ucas statements instead of
+ * running them (animate exec of ...).  Questions are asked as usual;
+ * returns 0 when the request did not translate or a question is out.
+ */
+int
+nlp_translate(const char *req, struct sbuf *dst)
+{
+	int ok;
+
+	run_source("", "<english>", 0);   /* the prelude */
+	ok = translate_asking(req);
+	if (!ok || nlp_asked || out.n == 0)
+		return 0;
+	sb_clear(dst);
+	sb_puts(dst, out.p);
+	return 1;
 }
 
 void

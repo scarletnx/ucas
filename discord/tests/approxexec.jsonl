@@ -1,0 +1,4 @@
+# session 9: animate the best approximation found (no type question: ap1 is f32)
+{"op": 0, "s": 2001, "t": "MESSAGE_CREATE", "d": {"id": "2001", "channel_id": "44", "guild_id": "7", "author": {"id": "98", "username": "u98"}, "content": "<@1000> animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly", "type": 0}}
+{"op": 0, "s": 2002, "t": "MESSAGE_CREATE", "d": {"id": "2002", "channel_id": "44", "guild_id": "7", "author": {"id": "98", "username": "u98"}, "content": "<@1000> within 1e-6", "type": 0}}
+{"op": 0, "s": 2003, "t": "MESSAGE_CREATE", "d": {"id": "2003", "channel_id": "44", "guild_id": "7", "author": {"id": "98", "username": "u98"}, "content": "1", "type": 0}}

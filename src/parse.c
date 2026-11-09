@@ -1624,6 +1624,55 @@ cmdp_seek(struct P *p, uint32_t pos)
 	diag_tok = pos;
 }
 
+/*
+ * the rest of the statement as written, up to the end of its line or
+ * the first identifier in stop[] (may be NULL)
+ */
+int
+cmdp_rest(struct P *p, char *buf, size_t n, const char *const *stop)
+{
+	uint32_t a = p->i, b = p->i;
+	size_t len;
+	int from = 0;
+
+	if (at_eos(p))
+		return 0;
+
+	while (b < p->t->n && p->t->kind[b] != T_NL && p->t->kind[b] != T_EOF) {
+		if (stop != NULL && b > a && p->t->kind[b] == T_ID) {
+			size_t l, k;
+			const char *w = ttext(p, b, &l);
+			for (k = 0; stop[k]; k++)
+				if (strlen(stop[k]) == l && !strncmp(stop[k], w, l))
+					break;
+			if (l == 4 && !strncmp(w, "from", 4))
+				from = 1;
+			/*
+			 * "to NAME" (a file) ends it only as one last word with
+			 * no "from" before it: "from 0 to pi" is a range
+			 */
+			if (stop[k] && l == 2 && !strncmp(w, "to", 2)) {
+				uint8_t k2 = b + 2 < p->t->n ? p->t->kind[b + 2] : T_EOF;
+				if (!from && b + 1 < p->t->n && p->t->kind[b + 1] == T_ID &&
+				    (k2 == T_NL || k2 == T_EOF))
+					break;
+				b++;
+				continue;
+			}
+			if (stop[k])
+				break;
+		}
+		b++;
+	}
+	len = p->t->off[b - 1] + p->t->len[b - 1] - p->t->off[a];
+	if (len >= n)
+		len = n - 1;
+	memcpy(buf, p->t->src + p->t->off[a], len);
+	buf[len] = 0;
+	p->i = b;
+	return 1;
+}
+
 /* a plain integer literal token, else 0 */
 int
 cmdp_int(struct P *p, int64_t *v)
@@ -2000,8 +2049,31 @@ skip_stmt(struct P *p)
 	}
 }
 
+static void run_source1(const char *src, const char *file, int echo);
+
+/*
+ * Runs may nest (animate exec runs an approximation request): the
+ * caller's fail_jmp is put back, or a later fail() jumps into a frame
+ * that has returned.
+ */
 void
 run_source(const char *src, const char *file, int echo)
+{
+	jmp_buf saved;
+	struct toks *dt = diag_toks;
+	const char *df = diag_file;
+	uint32_t di = diag_tok;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	run_source1(src, file, echo);
+	memcpy(fail_jmp, saved, sizeof saved);
+	diag_toks = dt;	/* errors after it point at the caller's text */
+	diag_file = df;
+	diag_tok = di;
+}
+
+static void
+run_source1(const char *src, const char *file, int echo)
 {
 	static int prelude_done;
 	/* both live across setjmp, so they are reached through pointers */

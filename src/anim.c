@@ -33,6 +33,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #define MAXN 100
@@ -1182,6 +1183,13 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 			if (TY_FP(f->p[j].ty)) {
 				double v = random ? (double)(r % 2001) / 100.0 - 10 :
 				    (double)(i + j);
+				/* a ranged real (an approximation's domain): spread over it */
+				if (f->p[j].ranged && f->p[j].rlo < f->p[j].rhi) {
+					double lo_ = f->p[j].rlo, w_ = f->p[j].rhi - lo_;
+					v = random ? lo_ + w_ * (double)(r % 10001) / 10000.0 :
+					    lo_ + w_ * (double)i / (double)(lanes > 1 ?
+					    lanes - 1 : 1);
+				}
 				X.vr[j][i] = in_r[(size_t)j * CH + i] = v;
 			} else {
 				int64_t v = random ? (int64_t)(r % 32) : i + j;
@@ -1375,6 +1383,84 @@ word:
 				if (strcmp(w, "of") && strcmp(w, "for"))
 					cmdp_seek(p, pos);
 			}
+			/*
+			 * "animate exec of best found cos [-pi/2, pi/2] with crit +
+			 * cheby poly": find the approximation first (through the
+			 * English translator and approx), then run the best one.
+			 */
+			if (cmdp_at(p, T_ID)) {
+				static const char *const apw[] = {"best", "found",
+				    "approximation", "approximate", "approx", "cheapest",
+				    "fastest", "cheby", "chebyshev", "minimax", "taylor",
+				    NULL};
+				/* animate's own options end the request; "with" does not */
+				static const char *const apstop[] = {"at", "fps", "lanes",
+				    "lane", "random", "seed", "seconds", "nofile", "quad",
+				    "warp", "to", NULL};
+				char rest[512], req[600], *r = rest;
+				uint32_t pos = cmdp_pos(p);
+				int approx_req = 0;
+				size_t q;
+				if (cmdp_rest(p, rest, sizeof rest, apstop)) {
+					char lw[512];
+					
+					for (q = 0; rest[q] && q + 1 < sizeof lw; q++)
+						lw[q] = (char)tolower((unsigned char)rest[q]);
+					lw[q] = 0;
+					for (q = 0; apw[q]; q++)
+						if (strstr(lw, apw[q]))
+							approx_req = 1;
+				}
+				if (approx_req) {
+					struct sbuf st = {0};
+					struct func *best;
+					static const char *const drop[] = {"the ", "best ",
+					    "found ", "approximation of ", "approximation ",
+					    "approx of ", "approx ", "approximate ", "a ", "an ",
+					    NULL};
+					int again = 1;
+					while (again) {   /* "best found", "the best" ... */
+						again = 0;
+						for (q = 0; drop[q]; q++) {
+							size_t dl = strlen(drop[q]);
+							if (!strncasecmp(r, drop[q], dl)) {
+								r += dl;
+								again = 1;
+							}
+						}
+					}
+					snprintf(req, sizeof req, "approximate %s", r);
+					printf("  note: finding the approximation first: %s\n",
+					    req);
+					notes_flush();
+					if (!nlp_translate(req, &st)) {
+						free(st.p);
+						if (nlp_asked)
+							return;
+						fail("animate exec: could not read \"%s\" as an "
+						    "approximation request", r);
+					}
+					{
+						char *l = st.p, *nl;
+						while (*l && (nl = strchr(l, '\n')) != NULL) {
+							printf("  ucas: %.*s\n", (int)(nl - l), l);
+							l = nl + 1;
+						}
+					}
+					run_source(st.p, "<english>", 0);
+					free(st.p);
+					if (nlp_asked)
+						return;
+					if ((best = func_find(sym_cstr("ap1"))) == NULL)
+						fail("animate exec: the approximation found no "
+						    "candidate");
+					printf("  animating the best candidate, ap1 = %s\n",
+					    node_str(best->body));
+					xf = best;
+					continue;
+				}
+				cmdp_seek(p, pos);
+			}
 			/* nothing after it but a code block: run the SPIR-V */
 			if (code_block != NULL && (cmdp_eos(p) || cmdp_at(p, T_PCT) ||
 			    cmdp_at(p, T_NUM) || (cmdp_at(p, T_ID) &&
@@ -1428,15 +1514,31 @@ word:
 				static const ty_t tys[] = {TY(K_UINT, 32), TY(K_SINT, 32),
 				    TY(K_FLOAT, 32), 0};
 				int k2 = 0;
+				{
+					/* real functions or decimals: f32 is the default */
+					char rest[512];
+					uint32_t pos = cmdp_pos(p);
+					static const char *const realw[] = {"sin", "cos", "tan",
+					    "exp", "log", "sqrt", "pow", "atan", ".", "pi",
+					    NULL};
+					if (cmdp_rest(p, rest, sizeof rest, exstop)) {
+						int q;
+						for (q = 0; realw[q]; q++)
+							if (strstr(rest, realw[q]))
+								k2 = 2;
+					}
+					cmdp_seek(p, pos);
+				}
 				if (nlp_can_ask()) {
 					k2 = nlp_ask_choice("animate exec: no type given for the "
-					    "variables; which", opts, 4, 0);
+					    "variables; which", opts, 4, k2);
 					if (nlp_asked)
 						return;
 				} else
-					note("no type given: every variable is u32, a GPU's "
-					    "integer (say \"32-bit\", \"signed 32-bit\", "
-					    "\"f32\" ...)");
+					note("no type given: every variable is %s (say "
+					    "\"32-bit\", \"signed 32-bit\", \"f32\" ...)",
+					    k2 == 2 ? "f32, as the expression is real" :
+					    "u32, a GPU's integer");
 				ty = tys[k2];
 				asked_ty = 1;
 			}
