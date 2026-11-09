@@ -1,0 +1,42 @@
+# Elliptic curves over finite fields (ecff): arithmetic, counting, crypto
+
+# a textbook curve: points, the group law, counting by every method
+ec toy97
+ecpoints y^2 = x^3 + 2x + 3 mod 97
+ecadd y^2 = x^3 + 2x + 3 mod 97 (3, 6) + (80, 10)
+ecmul y^2 = x^3 + 2x + 3 mod 97 5 (3, 6)
+ecorder y^2 = x^3 + 3x + 7 mod 1000003 using naive
+ecorder y^2 = x^3 + 3x + 7 mod 1000003 using bsgs
+ecorder y^2 = x^3 + 3x + 7 mod 1000003 using schoof
+ecorder [5, 11] mod 2^61 - 1 using schoof
+ecorder y^2 = x^3 + 7 mod 2^127 - 1 using cm
+ecorder y^2 = x^3 + x mod 1000037 using cm
+# general Weierstrass input is moved to short form (the map printed)
+ecorder y^2 + x*y + y = x^3 - x^2 - 10x - 20 mod 1009
+
+# named curves: parameters certified (G on the curve, n prime, n G = O)
+ec secp256k1
+ec P-256
+ec curve25519
+ec bls12_381
+ecmul secp256k1 2 G
+ecmul P-384 -3 G
+
+# cryptography: RFC 6979 ECDSA, ECDH, X25519, X448, Ed25519, SEC 1
+ecvectors
+ecdsa sign P-256 key 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721 msg sample
+ecdsa verify P-256 pub 0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6 r 0xEFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716 s 0xF7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8 msg sample
+ecdsa verify P-256 pub 0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6 r 0xEFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716 s 0xF7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8 msg samples
+ecdh P-256 a 12345 b 67890
+x25519 a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4 e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c
+x448 3d262fddf9ec8e88495266fea19a34d28882acef045104d0d1aae121700a779c984c24f8cdd78fbff44943eba368f54b29259a4f1c600ad3 base
+ed25519 sign 4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb msghex 72
+ed25519 verify 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c 92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00 msghex 72
+eccompress secp256k1 G
+ecdecompress secp256k1 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+ecvalidate P-256 (1, 2)
+
+# ECM
+ecm 2^64 + 1
+ecm 2^128 + 1
+ecm 1000000016000000063 B1 2000

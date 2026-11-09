@@ -568,7 +568,8 @@ ec_count_schoof(const struct ecp_curve *E, nn *N, int verbose)
 	/* candidates: 4 sqrt(p) + 1 values of t; stop when M exceeds
 	 * 4 sqrt(p) / 2^38 and let a BSGS match finish */
 	nn_shl(&bound, &w2, 1);
-	nn_shr(&bound, &bound, 38);
+	if (nn_bits(&bound) > 64)
+		nn_shr(&bound, &bound, 38);    /* a BSGS match finishes */
 	nn_set(&M, 2);
 	nn_set(&c, (u64)schoof_2(E));     /* c = t mod 2 */
 	ecsch_last.l[0] = 2;

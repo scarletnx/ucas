@@ -397,6 +397,43 @@ struct ecsch_log {
 };
 extern struct ecsch_log ecsch_last;
 
+/* ---- ecsha.c, eccrypto.c: hashes and cryptography ---- */
+struct sha {
+	int alg, bsz, outlen;
+	uint32_t h32[8];
+	uint64_t h64[8];
+	unsigned char buf[128];
+	size_t blen;
+	uint64_t total;
+};
+void sha_init(struct sha *s, int alg);           /* 256, 384, 512 */
+void sha_update(struct sha *s, const void *data, size_t n);
+void sha_final(struct sha *s, unsigned char *out);
+void sha_hash(int alg, const void *data, size_t n, unsigned char *out);
+int sha_outlen(int alg);
+void hmac(int alg, const unsigned char *key, size_t kn,
+    const unsigned char *msg, size_t mn, unsigned char *out);
+void rfc6979_k(const nn *q, const nn *x, int alg, const unsigned char *h1,
+    size_t hlen, nn *k);
+int ecdsa_sign(struct ecload *L, int alg, const nn *d, const unsigned char *m,
+    size_t mn, const nn *kfix, nn *r, nn *s, nn *kout);
+int ecdsa_verify(struct ecload *L, int alg, const struct ecp_pt *Q,
+    const unsigned char *m, size_t mn, const nn *r, const nn *s);
+int sec1_encode(const struct ecload *L, const struct ecp_pt *P,
+    int compressed, unsigned char *out);
+int sec1_decode(const struct ecload *L, struct ecp_pt *P,
+    const unsigned char *in, size_t n);
+int ec_validate_pub(struct ecload *L, const struct ecp_pt *Q, char *why,
+    size_t wn);
+void x25519(unsigned char *out, const unsigned char *k, const unsigned char *u);
+void x448(unsigned char *out, const unsigned char *k, const unsigned char *u);
+void ed25519_pub(unsigned char *pk, const unsigned char *sk);
+void ed25519_sign(unsigned char *sig, const unsigned char *sk,
+    const unsigned char *m, size_t mn);
+int ed25519_verify(const unsigned char *pk, const unsigned char *m,
+    size_t mn, const unsigned char *sig);
+int ed25519_check_base(void);
+
 /* ---- ecalg.c: ECM ---- */
 size_t ecff_primes(u64 limit, const uint32_t **out);  /* primes <= limit */
 struct ecm_res {

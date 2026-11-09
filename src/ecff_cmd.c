@@ -34,6 +34,8 @@ static struct {
 	char desc[600];
 } cc;
 
+static int timed;          /* "timed" at the end: print timings */
+
 #define CF (&cc.L.F)
 #define CE (&cc.L.E)
 
@@ -683,11 +685,14 @@ cmd_ecorder(void)
 		}
 		printf("  residues: t = %s\n", b);
 		o = 0;
+		b[0] = 0;
 		for (i = 1; i < ecsch_last.n && o + 60 < sizeof b; i++)
-			o += (size_t)snprintf(b + o, sizeof b - o, "%sl = %d: degree "
-			    "%d, %llu ms", i > 1 ? "; " : "", ecsch_last.l[i],
-			    ecsch_last.deg[i], (unsigned long long)ecsch_last.ms[i]);
-		printf("  per prime: %s\n", b);
+			o += (size_t)snprintf(b + o, sizeof b - o, timed ?
+			    "%sl = %d: degree %d, %llu ms" : "%sl = %d: degree %d",
+			    i > 1 ? "; " : "", ecsch_last.l[i], ecsch_last.deg[i],
+			    (unsigned long long)ecsch_last.ms[i]);
+		if (o)
+			printf("  per prime: %s\n", b);
 		if (ecsch_last.bsgs)
 			printf("  finish: the residues fix t mod %s; a baby-step "
 			    "giant-step match on random points picked #E among the "
@@ -696,7 +701,7 @@ cmd_ecorder(void)
 	ec_hasse(&CF->P, &lo, &hi, NULL);
 	printf("  check: Hasse: |t| <= 2 sqrt(p)\n");
 	print_cert(&C, &N);
-	if (m != CM_AUTO || !cc.named)
+	if (timed)
 		printf("  time: %llu ms\n", (unsigned long long)(ecff_ms() - t0));
 	(void)P1;
 }
@@ -862,22 +867,27 @@ cmd_ecmul(void)
 	printf("%s P = %s\n", zz_str(&kz), pt(&R));
 	print_curve_head();
 	printf("  P: %s\n", pt(&P));
-	printf("  how: Jacobian coordinates, width-4 NAF (%llu ms)\n",
-	    (unsigned long long)(t1 - t0));
+	printf("  how: Jacobian coordinates, width-4 NAF\n");
+	if (timed)
+		printf("  time: %llu ms\n", (unsigned long long)(t1 - t0));
 	if (which == 0 || which == 1) {
 		ecp_mul_affine(CE, &R2, &P, &k);
 		t2 = ecff_ms();
-		printf("  check: affine double-and-add agrees: %s (%llu ms)\n",
-		    ecp_eq(CE, &R, &R2) ? "yes" : "NO",
-		    (unsigned long long)(t2 - t1));
+		printf("  check: affine double-and-add agrees: %s\n",
+		    ecp_eq(CE, &R, &R2) ? "yes" : "NO");
+		if (timed)
+			printf("  time affine: %llu ms\n",
+			    (unsigned long long)(t2 - t1));
 	}
 	if (which == 0 || which == 3) {
 		t2 = ecff_ms();
 		ecp_mul_ladder(CE, &R3, &P, &k);
 		t3 = ecff_ms();
-		printf("  check: Montgomery ladder agrees: %s (%llu ms)\n",
-		    ecp_eq(CE, &R, &R3) ? "yes" : "NO",
-		    (unsigned long long)(t3 - t2));
+		printf("  check: Montgomery ladder agrees: %s\n",
+		    ecp_eq(CE, &R, &R3) ? "yes" : "NO");
+		if (timed)
+			printf("  time ladder: %llu ms\n",
+			    (unsigned long long)(t3 - t2));
 	}
 	ecp_mul_wnaf(CE, &R4, &P, &k, 2);
 	printf("  check: plain NAF agrees: %s\n", ecp_eq(CE, &R, &R4) ? "yes" :
@@ -935,10 +945,11 @@ cmd_ecm(void)
 		printf("  cofactor: %s\n", nn_str(&q));
 		printf("  how: Lenstra ECM, Montgomery curve by Suyama's sigma = "
 		    "%llu, B1 = %llu, B2 = %llu, found in stage %d after %d "
-		    "curve%s (%llu ms)\n", (unsigned long long)r.sigma,
+		    "curve%s\n", (unsigned long long)r.sigma,
 		    (unsigned long long)B1, (unsigned long long)B2, r.stage,
-		    r.curves, r.curves == 1 ? "" : "s",
-		    (unsigned long long)r.ms);
+		    r.curves, r.curves == 1 ? "" : "s");
+		if (timed)
+			printf("  time: %llu ms\n", (unsigned long long)r.ms);
 		{
 			nn t;
 			nn_mul(&t, &f, &q);
@@ -953,8 +964,10 @@ cmd_ecm(void)
 		nnfac_print(fb, sizeof fb, &F);
 		printf("%s = %s\n", nn_str(&n), fb);
 		printf("  how: trial division, Pollard-Brent rho, then ECM stage "
-		    "1 + 2 with growing B1 (%llu ms)\n",
-		    (unsigned long long)(ecff_ms() - t0));
+		    "1 + 2 with growing B1\n");
+		if (timed)
+			printf("  time: %llu ms\n",
+			    (unsigned long long)(ecff_ms() - t0));
 		printf("  check: the factors multiply back to n: %s\n",
 		    nnfac_check(&F, &n) ? "yes" : "NO");
 		printf("  check: %s\n", F.complete ? "every factor is a BPSW "
@@ -963,21 +976,73 @@ cmd_ecm(void)
 	}
 }
 
+#include "ecff_crypto.inc"
+
+static void
+cmd_x25519(void)
+{
+	cmd_xdh(0);
+}
+
+static void
+cmd_x448(void)
+{
+	cmd_xdh(1);
+}
+
 /* ---- dispatch ---- */
 
 static const struct {
 	const char *w;
 	void (*fn)(void);
 	const char *kind;
+	int shared;      /* also a word of the curves over Q (ec.h, E1): ours
+			  * only with a finite field or a named curve */
 } ecmds[] = {
-	{"ec", cmd_ec, "ec"},
-	{"ecorder", cmd_ecorder, "ec_order"},
-	{"ecpoints", cmd_ecpoints, "ec_points"},
-	{"ecadd", cmd_ecadd, "ec_add"},
-	{"ecmul", cmd_ecmul, "ec_mul"},
+	{"ec", cmd_ec, "ec", 1},
+	{"ecorder", cmd_ecorder, "ec_order", 1},
+	{"ecpoints", cmd_ecpoints, "ec_points", 1},
+	{"ecadd", cmd_ecadd, "ec_add", 1},
+	{"ecmul", cmd_ecmul, "ec_mul", 1},
 	{"ecm", cmd_ecm, "ecm"},
+	{"ecdsa", cmd_ecdsa, "ecdsa"},
+	{"ecdh", cmd_ecdh, "ecdh"},
+	{"x25519", cmd_x25519, "x25519"},
+	{"x448", cmd_x448, "x448"},
+	{"ed25519", cmd_ed25519, "ed25519"},
+	{"eccompress", cmd_eccompress, "ec_compress"},
+	{"ecdecompress", cmd_ecdecompress, "ec_decompress"},
+	{"ecvalidate", cmd_ecvalidate, "ec_validate"},
+	{"ecvectors", cmd_ecvectors, "ec_vectors"},
 	{NULL, NULL, NULL}
 };
+
+/* a named curve, or a curve with mod p / over F_q */
+static int
+finite_spec(const char *t)
+{
+	char w[64];
+	size_t k = 0;
+	const char *s;
+
+	while (*t == ' ' || *t == '\t')
+		t++;
+	while ((isalnum((unsigned char)t[k]) || t[k] == '_' || t[k] == '-') &&
+	    k + 1 < sizeof w) {
+		w[k] = t[k];
+		k++;
+	}
+	w[k] = 0;
+	if (k && ecnamed_find(w))
+		return 1;
+	for (s = t; *s; s++) {
+		if (!strncmp(s, " mod ", 5) || !strncmp(s, "over F", 6) ||
+		    !strncmp(s, "over GF", 7) || !strncmp(s, "GF(", 3) ||
+		    !strncmp(s, " in F_", 6))
+			return 1;
+	}
+	return 0;
+}
 
 /* nlp.c: a line starting with one of these words is ucas, not English */
 int
@@ -1014,6 +1079,18 @@ ecff_command(struct P *p)
 	text[0] = 0;
 	if (!cmdp_eos(p))
 		cmdp_rest(p, text, sizeof text, NULL);
+	if (ecmds[k].shared && !finite_spec(text)) {
+		cmdp_seek(p, pos);
+		return 0;
+	}
+	{
+		size_t L = strlen(text);
+		while (L > 0 && (text[L - 1] == ' ' || text[L - 1] == '\t'))
+			text[--L] = 0;
+		timed = L >= 6 && !strcmp(text + L - 6, " timed");
+		if (timed)
+			text[L - 6] = 0;
+	}
 	notes_flush();
 	rep_begin(ecmds[k].kind);
 	rep_text_fields();

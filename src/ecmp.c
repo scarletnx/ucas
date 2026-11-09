@@ -1261,8 +1261,11 @@ fac_rec(struct nnfac *F, const nn *n, int e, int effort)
 		fac_add(F, n, e, 1);
 		return;
 	}
-	/* perfect powers */
-	for (k = 2; k <= nn_bits(n); k++) {
+	/* perfect powers (factors here exceed 541 > 2^9: k <= bits / 9) */
+	for (k = 2; k <= nn_bits(n) / 9 + 1; k++) {
+		if (k > 2 && (k % 2 == 0 || (k > 3 && k % 3 == 0) ||
+		    (k > 5 && k % 5 == 0) || (k > 7 && k % 7 == 0)))
+			continue;
 		nn r, t;
 		nn_root(&r, n, k);
 		nn_pow_u64(&t, &r, (u64)k);

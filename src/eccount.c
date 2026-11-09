@@ -172,12 +172,17 @@ ec_certify(const struct ecp_curve *E, const nn *N, struct eccert *C)
 	nn_shl(&s2, &s2, 1);
 	nn_sub(&NT, &s2, N);
 	nn_factor(N, &fN, 1);
-	nn_factor(&NT, &fT, 1);
+	fT.k = 0;
+	fT.complete = 1;
 	nn_set(&L, 1);
 	nn_set(&L2, 1);
 	for (it = 0; it < 40; it++) {
 		struct ecp_pt P;
-		int tw = it % 3 == 2;   /* mostly E, sometimes the twist */
+		/* points of E first; the twist (Mestre) only when E's group
+		 * exponent leaves several candidates */
+		int tw = it >= 8 && it % 3 == 2;
+		if (tw && fT.k == 0)
+			nn_factor(&NT, &fT, 1);
 		ecp_random_point(tw ? &T : E, &P);
 		if (!ec_point_order(tw ? &T : E, &P, tw ? &NT : N,
 		    tw ? &fT : &fN, &ord))
@@ -197,7 +202,7 @@ ec_certify(const struct ecp_curve *E, const nn *N, struct eccert *C)
 			C->L = L;
 			C->L2 = L2;
 			C->ok = 1;
-			C->complete = fN.complete && fT.complete;
+			C->complete = fN.complete && (nn_is_one(&L2) || fT.complete);
 			C->iters = it + 1;
 			return 1;
 		}

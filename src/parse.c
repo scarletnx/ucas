@@ -1873,6 +1873,8 @@ statement(struct P *p)
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
 		return;
+	if (pk(p) == T_ID && ecff_command(p))	/* elliptic curves over F_q */
+		return;
 	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
 		return;
 	if (hyper_hook(p))
@@ -1892,8 +1894,6 @@ statement(struct P *p)
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
 		if (ring_command(p))    /* Z/n, GF(q), ... (ring.c) */
-			return;
-		if (ecff_command(p))	/* elliptic curves over F_q (ecff) */
 			return;
 		/* transforms, series and sums (xform.c, series.c) */
 		if (xform_command(p))

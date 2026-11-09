@@ -1,0 +1,289 @@
+> ec toy97
+toy97
+  curve: toy97
+  standard: y^2 = x^3 + 2x + 3 over F_97 (a textbook example)
+  discriminant: 62
+  j: 36
+  order: #E = 100
+  factored: 2^2 * 5^2
+  trace: -2
+  how: the standard's n h, certified below
+  check: (73, 83) has order 10 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (46, 72) has order 25 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 100 is the only multiple of 50 in the Hasse interval [79, 117]
+  supersingular: no (t != 0 mod p)
+  group: Z/50 x Z/2
+  twist order: 96
+  embedding degree: 4 (of r = 5: r | p^4 - 1)
+> ecpoints y^2 = x^3 + 2x + 3 mod 97
+E(F_97): y^2 = x^3 + 2x + 3 over F_97
+  points: O, (0, 10), (0, 87), (1, 43), (1, 54), (3, 6), (3, 91), (4, 47), (4, 50), (10, 21), (10, 76), (11, 17), (11, 80), (12, 3), (12, 94), (17, 10), (17, 87), (20, 34), (20, 63), (21, 24), (21, 73), (22, 5), (22, 92), (23, 24), (23, 73), (24, 2), (24, 95), (25, 35), (25, 62), (27, 7), (27, 90), (28, 34), (28, 63), (29, 43), (29, 54), (30, 0), (32, 7), (32, 90), (37, 22), (37, 75), (38, 7), (38, 90), (39, 6), (39, 91), (44, 20), (44, 77), (46, 25), (46, 72), (47, 18), (47, 79), (49, 34), (49, 63), (50, 19), (50, 78), (52, 29), (52, 68), (53, 24), (53, 73), (54, 12), (54, 85), (55, 6), (55, 91), ... (39 more)
+  count: 100
+  check: every listed (x, y) satisfies y^2 = x^3 + a x + b (square roots by Tonelli-Shanks, squared back)
+> ecadd y^2 = x^3 + 2x + 3 mod 97 (3, 6) + (80, 10)
+P + Q = (80, 87)
+  curve: y^2 = x^3 + 2x + 3 over F_97
+  P: (3, 6)
+  Q: (80, 10)
+  check: on the curve: yes
+  check: (P + Q) - Q = P: yes
+> ecmul y^2 = x^3 + 2x + 3 mod 97 5 (3, 6)
+5 P = O
+  curve: y^2 = x^3 + 2x + 3 over F_97
+  P: (3, 6)
+  how: Jacobian coordinates, width-4 NAF
+  check: affine double-and-add agrees: yes
+  check: Montgomery ladder agrees: yes
+  check: plain NAF agrees: yes
+  check: on the curve: yes
+> ecorder y^2 = x^3 + 3x + 7 mod 1000003 using naive
+#E = 999853
+  curve: y^2 = x^3 + 3x + 7 over F_1000003
+  trace: t = p + 1 - #E = 151
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (164329, 245074) has order 999853 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 999853 is the only multiple of 999853 in the Hasse interval [998004, 1002004]
+> ecorder y^2 = x^3 + 3x + 7 mod 1000003 using bsgs
+#E = 999853
+  curve: y^2 = x^3 + 3x + 7 over F_1000003
+  trace: t = p + 1 - #E = 151
+  how: baby-step giant-step on random points of E and of its quadratic twist (Mestre)
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (27054, 618622) has order 999853 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 999853 is the only multiple of 999853 in the Hasse interval [998004, 1002004]
+> ecorder y^2 = x^3 + 3x + 7 mod 1000003 using schoof
+#E = 999853
+  curve: y^2 = x^3 + 3x + 7 over F_1000003
+  trace: t = p + 1 - #E = 151
+  how: Schoof: t mod l from the Frobenius on E[l] (division polynomials), CRT
+  residues: t = 1 mod 2, 1 mod 3, 1 mod 5, 4 mod 7, 8 mod 11, 8 mod 13
+  per prime: l = 3: degree 1; l = 5: degree 12; l = 7: degree 3; l = 11: degree 60; l = 13: degree 84
+  finish: the residues fix t mod 30030; a baby-step giant-step match on random points picked #E among the candidates
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (27054, 618622) has order 999853 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 999853 is the only multiple of 999853 in the Hasse interval [998004, 1002004]
+> ecorder [5, 11] mod 2^61 - 1 using schoof
+#E = 2305843008470236846
+  curve: y^2 = x^3 + 5x + 11 over F_2305843009213693951
+  trace: t = p + 1 - #E = 743457106
+  how: Schoof: t mod l from the Frobenius on E[l] (division polynomials), CRT
+  residues: t = 0 mod 2, 1 mod 3, 1 mod 5, 0 mod 7, 7 mod 11, 2 mod 13, 16 mod 17, 7 mod 19, 0 mod 23, 27 mod 29
+  per prime: l = 3: degree 1; l = 5: degree 12; l = 7: degree 24; l = 11: degree 60; l = 13: degree 6; l = 17: degree 144; l = 19: degree 180; l = 23: degree 264; l = 29: degree 420
+  finish: the residues fix t mod 6469693230; a baby-step giant-step match on random points picked #E among the candidates
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (945108776672395986, 119546246948517245) has order 1152921504235118423 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 2305843008470236846 is the only multiple of 1152921504235118423 in the Hasse interval [2305843006176693453, 2305843012250694451]
+> ecorder y^2 = x^3 + 7 mod 2^127 - 1 using cm
+#E = 170141183460469231756807104314664985063
+  curve: y^2 = x^3 + 7 over F_0x7fffffffffffffffffffffffffffffff
+  trace: t = p + 1 - #E = -25119800598780879335
+  how: complex multiplication by Z[(1+sqrt(-3))/2] (j = 0): Cornacchia's 4p = t^2 + 3 v^2, the twist picked by multiplying points
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (0x24bdf605ee1887040477de91b96b7b43, 0x2c97e8c33890b500ec493e47461dccbf) has order 170141183460469231756807104314664985063 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 170141183460469231756807104314664985063 is the only multiple of 170141183460469231756807104314664985063 in the Hasse interval [170141183460469231705599668065218541304, 170141183460469231757774939366549670152]
+> ecorder y^2 = x^3 + x mod 1000037 using cm
+#E = 1002020
+  curve: y^2 = x^3 + x over F_1000037
+  trace: t = p + 1 - #E = -1982
+  how: complex multiplication by Z[i] (j = 1728): Cornacchia's 4p = t^2 + 4 v^2, the twist picked by multiplying points
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (155047, 591781) has order 100202 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 1002020 is the only multiple of 100202 in the Hasse interval [998038, 1002038]
+> ecorder y^2 + x*y + y = x^3 - x^2 - 10x - 20 mod 1009
+#E = 963
+  curve: y^2 = x^3 + 562x + 503 over F_1009
+  short form: y^2 = x^3 + 562 x + 503 ((x, y) -> (36x + 3b2, 108(2y + a1 x + a3)))
+  trace: t = p + 1 - #E = 47
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (713, 567) has order 963 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 963 is the only multiple of 963 in the Hasse interval [947, 1073]
+> ec secp256k1
+secp256k1
+  curve: secp256k1
+  standard: SEC 2 (Koblitz, j = 0)
+  discriminant: 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffa97f
+  j: 0x0
+  order: #E = 115792089237316195423570985008687907852837564279074904382605163141518161494337
+  factored: 115792089237316195423570985008687907852837564279074904382605163141518161494337
+  trace: 432420386565659656852420866390673177327
+  how: the standard's n h, certified below
+  check: (0xb4a0472e578069ae6d1db36ccba982d2382ff84cb27281e9e99ff867dbf682c9, 0xc151d7e00a265b218df33660e1abdab4aba70677a4bb4f4ca72dcc03e73631bb) has order 115792089237316195423570985008687907852837564279074904382605163141518161494337 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 115792089237316195423570985008687907852837564279074904382605163141518161494337 is the only multiple of 115792089237316195423570985008687907852837564279074904382605163141518161494337 in the Hasse interval [115792089237316195423570985008687907852589419931798687112530834793045298248753, 115792089237316195423570985008687907853950549399482440966384333222772371094575]
+  supersingular: no (t != 0 mod p)
+  group: Z/115792089237316195423570985008687907852837564279074904382605163141518161494337 (cyclic)
+  twist order: 115792089237316195423570985008687907853702405052206223696310004874299507848991
+  embedding degree: > 100 (of r = 115792089237316195423570985008687907852837564279074904382605163141518161494337)
+> ec P-256
+P-256
+  curve: P-256
+  standard: FIPS 186-4 / SEC 2 secp256r1
+  discriminant: 0x680d8cb6fbc0a4201dd499d851c1ae23e501d15636a856b19e4ce86d8da606e5
+  j: 0x1198954424ebb0f8479de43131caece8ee0a9b13a558c21e0b2f74e3fcd36aa3
+  order: #E = 115792089210356248762697446949407573529996955224135760342422259061068512044369
+  factored: 115792089210356248762697446949407573529996955224135760342422259061068512044369
+  trace: 89188191154553853111372247798585809583
+  how: the standard's n h, certified below
+  check: (0xb4a0472e578069ae6d1db36ccba982d2382ff84cb27281e9e99ff867dbf682c9, 0x89a311d8c7e34dd6738134c8395ab07e98639131fe9c24592efd3ea93df5ecbc) has order 115792089210356248762697446949407573529996955224135760342422259061068512044369 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 115792089210356248762697446949407573529996955224135760342422259061068512044369 is the only multiple of 115792089210356248762697446949407573529996955224135760342422259061068512044369 in the Hasse interval [115792089210356248762697446949407573529405578681527665431107311373540212604928, 115792089210356248762697446949407573530766708149052962959959951244193983102976]
+  supersingular: no (t != 0 mod p)
+  group: Z/115792089210356248762697446949407573529996955224135760342422259061068512044369 (cyclic)
+  twist order: 115792089210356248762697446949407573530175331606444868048645003556665683663535
+  embedding degree: > 100 (of r = 115792089210356248762697446949407573529996955224135760342422259061068512044369)
+> ec curve25519
+Curve25519
+  curve: Curve25519
+  standard: RFC 7748: v^2 = u^3 + 486662 u^2 + u
+  weierstrass: y^2 = x^3 + a x + b with a = 0x2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa984914a144, b = 0x7b425ed097b425ed097b425ed097b425ed097b425ed097b4260b5e9c7710c864 (x = u + A/3)
+  discriminant: 0x3724c21c200
+  j: 0x56c143fbfba334948229e71bacc4801f4321f1a7c4591336f27d7903cb215317
+  order: #E = 57896044618658097711785492504343953926856930875039260848015607506283634007912
+  factored: 2^3 * 7237005577332262213973186563042994240857116359379907606001950938285454250989
+  trace: -221938542218978828286815502327069187962
+  how: the standard's n h, certified below
+  check: (0x34a0472e578069ae6d1db36ccba982d2382ff84cb27281e9e99ff867dbf682c9, 0x5d4777bf0d0db3107b76bba41355c1a32192232fb1fb4d59a72560a9599f0713) has order 28948022309329048855892746252171976963428465437519630424007803753141817003956 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 57896044618658097711785492504343953926856930875039260848015607506283634007912 is the only multiple of 28948022309329048855892746252171976963428465437519630424007803753141817003956 in the Hasse interval [57896044618658097711785492504343953926153760394484272996638724459001314706096, 57896044618658097711785492504343953927116224271156291042818859548911814933804]
+  supersingular: no (t != 0 mod p)
+  group: Z/57896044618658097711785492504343953926856930875039260848015607506283634007912 (cyclic)
+  twist order: 57896044618658097711785492504343953926413053790601303191441976501629495631988
+  embedding degree: > 100 (of r = 7237005577332262213973186563042994240857116359379907606001950938285454250989)
+> ec bls12_381
+BLS12-381
+  curve: BLS12-381
+  standard: Barreto-Lynn-Scott, embedding degree 12 (Zcash, Ethereum 2)
+  discriminant: 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffff8fab
+  j: 0x0
+  order: #E = 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129030796414117214202539
+  factored: 3 * 11^2 * 10177^2 * 859267^2 * 52437899^2 * 52435875175126190479447740508185965837690552500527637822603658699938581184513
+  trace: -15132376222941642751
+  how: the standard's n h, certified below
+  check: (0x1c9558bd006badbce755952d3025da703b234961e71cf15031e50fe7bbd6e1cc4fea708156e0c84405da438a39e8064, 0x38930a00fede930b8b67a7c86d0b9a729a246ee4162f5288f7a7ff725074a00111a393598c1ad8eaa61793b009612e1) has order 264493130243071837505502650427723022029376893320131317353094445957672484527674560789128274094763 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129030796414117214202539 is the only multiple of 264493130243071837505502650427723022029376893320131317353094445957672484527674560789128274094763 in the Hasse interval [4002409555221667393417789825735904156556882819939007885328056931527802326256899269604250617939810542222441166006816, 4002409555221667393417789825735904156556882819939007885336059340720260974724776459281124640318220785853347379112760]
+  supersingular: no (t != 0 mod p)
+  group: Z/793479390729215512516507951283169066088130679960393952059283337873017453583023682367384822284289 x Z/5044125407647214251
+  twist order: 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129000531661671330917037
+  embedding degree: 12 (of r = 52435875175126190479447740508185965837690552500527637822603658699938581184513: r | p^12 - 1)
+> ecmul secp256k1 2 G
+2 P = (0xc6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5, 0x1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a)
+  curve: secp256k1
+  standard: SEC 2 (Koblitz, j = 0)
+  P: (0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798, 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8)
+  how: Jacobian coordinates, width-4 NAF
+  check: affine double-and-add agrees: yes
+  check: Montgomery ladder agrees: yes
+  check: plain NAF agrees: yes
+  check: on the curve: yes
+> ecmul P-384 -3 G
+-3 P = (0x77a41d4606ffa1464793c7e5fdc7d98cb9d3910202dcd06bea4f240d3566da6b408bbae5026580d02d7e5c70500c831, 0x366a0835f4f3bd7c82f44169fd5603667adf4be37aeea55a0897b3f123eee1523db542931b4a2d6749a0d7a0f5d0e20e)
+  curve: P-384
+  standard: FIPS 186-4 / SEC 2 secp384r1
+  P: (0xaa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7, 0xc9e821b569d9d390a26167406d6d23d6070be242d765eb831625ceec4a0f473ef59f4e30e2817e6285bce2846f15f1a0)
+  how: Jacobian coordinates, width-4 NAF
+  check: affine double-and-add agrees: yes
+  check: Montgomery ladder agrees: yes
+  check: plain NAF agrees: yes
+  check: on the curve: yes
+> ecvectors
+30 of 30 test vectors and parameter checks pass
+  check: FIPS 180-4 example (sha256): pass
+  check: FIPS 180-4 example (sha384): pass
+  check: FIPS 180-4 example (sha512): pass
+  check: RFC 6979 A.2.5 (key) (pub, P-256): pass
+  check: RFC 6979 A.2.5 SHA-256 sample (ecdsa256, P-256): pass
+  check: RFC 6979 A.2.5 SHA-256 test (ecdsa256, P-256): pass
+  check: OpenSSL cross-check (RFC 6979 nonces) (ecdsa256, secp256k1): pass
+  check: OpenSSL cross-check (RFC 6979 nonces) (ecdsa384, P-384): pass
+  check: OpenSSL cross-check (RFC 6979 nonces) (ecdsa512, P-521): pass
+  check: RFC 5903 8.1 (ECP-256) (ecdh, P-256): pass
+  check: RFC 7748 5.2 vector 1 (x25519): pass
+  check: RFC 7748 5.2 vector 2 (x25519): pass
+  check: RFC 7748 5.2 iterated, 1 and 1000 (x25519iter): pass
+  check: RFC 7748 6.1 Diffie-Hellman (x25519dh): pass
+  check: RFC 7748 5.2 X448 vector 1 (x448): pass
+  check: RFC 7748 5.2 X448 iterated once (x448iter): pass
+  check: RFC 8032 7.1 test 1 (ed25519): pass
+  check: RFC 8032 7.1 test 2 (ed25519): pass
+  check: RFC 8032 7.1 test 3 (ed25519): pass
+  check: secp256k1 parameters: G on the curve, n prime (BPSW), n G = O
+  check: P-256 parameters: G on the curve, n prime (BPSW), n G = O
+  check: P-384 parameters: G on the curve, n prime (BPSW), n G = O
+  check: P-521 parameters: G on the curve, n prime (BPSW), n G = O
+  check: Curve25519 parameters: G on the curve, n prime (BPSW), n G = O
+  check: Ed25519 parameters: G on the curve, n prime (BPSW), n G = O
+  check: Curve448 parameters: G on the curve, n prime (BPSW), n G = O
+  check: BN254 parameters: G on the curve, n prime (BPSW), n G = O
+  check: BLS12-381 parameters: G on the curve, n prime (BPSW), n G = O
+  check: toy97 parameters: G on the curve, n prime (BPSW), n G = O
+  check: Ed25519 base point on -x^2 + y^2 = 1 + d x^2 y^2 and L B = 0: pass
+> ecdsa sign P-256 key 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721 msg sample
+signature (r, s) on P-256 with SHA-256
+  r: 0xefd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716
+  s: 0xf7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8
+  k: 0xa6e3c57dd01abe90086538398355dd4c3b17aa873382b0f24d6129493d8aad60 (RFC 6979: HMAC-DRBG on the key and the message hash)
+  public key: (0x60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6, 0x7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299)
+  how: r = x(k G) mod n, s = k^-1 (z + r d) mod n, z = the leftmost bits of SHA-256(msg)
+  check: verifies with the public key: yes
+  check: public key valid: Q != O, coordinates reduced, on the curve, n Q = O
+> ecdsa verify P-256 pub 0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6 r 0xEFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716 s 0xF7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8 msg sample
+valid signature
+  curve: P-256
+  hash: SHA-256
+  public key: Q != O, coordinates reduced, on the curve, n Q = O
+  how: w = s^-1, X = (z w) G + (r w) Q, valid iff x(X) = r mod n
+> ecdsa verify P-256 pub 0360fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6 r 0xEFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716 s 0xF7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8 msg samples
+invalid signature
+  curve: P-256
+  hash: SHA-256
+  public key: Q != O, coordinates reduced, on the curve, n Q = O
+  how: w = s^-1, X = (z w) G + (r w) Q, valid iff x(X) = r mod n
+> ecdh P-256 a 12345 b 67890
+shared secret: x = 0x3e0c4fe85c5ec06d7507496bb70f1aa7012f383901ba592ab5254eb475f14b7b
+  curve: P-256
+  A = a G: (0x26efcebd0ee9e34a669187e18b3a9122b2f733945b649cc9f9f921e9f9dad812, 0x90238bde9cc7bb330d150c67704dd25ae7055205744b6f31bf4070745872d0e6)
+  B = b G: (0xc2a5ef4599f9e79d877ec63f111e580cbeea31b7b24937fefd0e98a66ee0f14e, 0x1b690d520490acf9664bf86b62e4984f29a4c1e2b58471c16840145bcb726459)
+  a B: (0x3e0c4fe85c5ec06d7507496bb70f1aa7012f383901ba592ab5254eb475f14b7b, 0x9d8863e232c23858d900b79285f2f7756f6e486797e6d66e2c620c33825eecdc)
+  check: a B = b A: yes
+  check: A valid: Q != O, coordinates reduced, on the curve, n Q = O
+> x25519 a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4 e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c
+c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552
+  how: RFC 7748 Montgomery ladder on x only (A = 486662, a24 = 121665), the scalar clamped
+> x448 3d262fddf9ec8e88495266fea19a34d28882acef045104d0d1aae121700a779c984c24f8cdd78fbff44943eba368f54b29259a4f1c600ad3 base
+078dc8e73158e3a63345f6729d0a386435b4d7ad2e033aa413985a60b443956007427dd89e81a36dc0db81752cc338824369985b4ae58c7d
+  how: RFC 7748 Montgomery ladder on x only (A = 156326, a24 = 39081), the scalar clamped
+> ed25519 sign 4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb msghex 72
+92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00
+  public key: 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c
+  how: r = SHA-512(prefix || M) mod L, R = r B, S = r + SHA-512(R || A || M) s mod L
+  check: verifies: yes
+> ed25519 verify 3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c 92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00 msghex 72
+valid signature
+  how: [S] B = R + [SHA-512(R || A || M) mod L] A
+> eccompress secp256k1 G
+0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  compressed: 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+  uncompressed: 0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8
+  check: decompresses to the point: yes
+> ecdecompress secp256k1 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+(0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798, 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8)
+  how: y = sqrt(x^3 + a x + b), the root with the parity in the prefix
+  check: on the curve: yes
+> ecvalidate P-256 (1, 2)
+invalid public key
+  why: not on the curve (an invalid-curve attack point?)
+> ecm 2^64 + 1
+18446744073709551617 = 274177 * 67280421310721
+  how: trial division, Pollard-Brent rho, then ECM stage 1 + 2 with growing B1
+  check: the factors multiply back to n: yes
+  check: every factor is a BPSW probable prime (ecpp certifies one)
+> ecm 2^128 + 1
+340282366920938463463374607431768211457 = 59649589127497217 * 5704689200685129054721
+  how: trial division, Pollard-Brent rho, then ECM stage 1 + 2 with growing B1
+  check: the factors multiply back to n: yes
+  check: every factor is a BPSW probable prime (ecpp certifies one)
+> ecm 1000000016000000063 B1 2000
+1000000016000000063 = 1000000009 * 1000000007
+  factor: 1000000009
+  cofactor: 1000000007
+  how: Lenstra ECM, Montgomery curve by Suyama's sigma = 6, B1 = 2000, B2 = 200000, found in stage 2 after 1 curve
+  check: 1000000009 * 1000000007 = n: yes
