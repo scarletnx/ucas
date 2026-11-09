@@ -1006,7 +1006,10 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | transforms, series | `laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic` |
 | solids | `area revolve volume surfacearea arclength centroid` |
 | pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
+| abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
+| elliptic curves | `elliptic diophantine weierstrass congruent mordell cubesum` |
 | session | `define state assume reset english schema` |
+| homological | `space homology cohomology les bockstein bockstein_trace prop01` |
 
 A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
 reduction polynomial or its name: `aes`, `crc32` ...), `{"ring": "Z/12"}`,
@@ -1169,7 +1172,7 @@ of a call:
   error whose `structuredContent.error` has `key` and `readings`: call
   again with `args.assume.KEY`.
 
-**Tools: grouped by default.**  There are about 120 commands.  As one
+**Tools: grouped by default.**  There are about 150 commands.  As one
 tool each they make a 340 KB `tools/list`, and several clients cap or
 truncate the tool list, so by default there is one tool per area, with
 an `op` and the op's `args`:
@@ -1186,7 +1189,10 @@ an `op` and the op's `args`:
 | `transforms` | laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic |
 | `solids` | area revolve volume surfacearea arclength centroid |
 | `plot` | plot plot3d neighbourhood animate |
+| `abstract_algebra` | bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf |
+| `elliptic` | elliptic diophantine weierstrass congruent mordell cubesum |
 | `session` | define state assume reset schema funcs models use help |
+| `homological` | space homology cohomology les bockstein bockstein_trace prop01 |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
 
 ```json
@@ -1197,7 +1203,7 @@ Each grouped tool's description lists its ops with their parameters
 (`integrate(f*, var, from, to, around)`, `*` required) and what they
 compute, about 4 KB a tool and 60 KB in all; the exact schema of every
 op is the `session` tool's `schema` op or the `ucas://schema` resource.
-The trade: a model picks among 14 tools and reads one description,
+The trade: a model picks among 15 tools and reads one description,
 instead of scanning 120; the price is that an op's arguments are checked
 by ucas (a precise `bad_request` error) rather than by the client.
 `--flat` gives one tool per command with its exact `inputSchema` (no
@@ -1810,6 +1816,331 @@ split); asymptotic expansions need an antiderivative of the term;
 infinite products are exact for rational factors only; Laurent series
 and Mellin or two-sided Laplace transforms are not done.
 
+## Abstract algebra, exactly
+
+```
+bigint factor 2^200 + 1
+snf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+abiso Z/4 + Z/6, Z/2 + Z/12
+abtor Z/12 + Z, Z/8 + Z/3
+abmap Z/12 -> Z/4 by [[1]]
+permgroup A5
+groebner x + y + z, x*y + y*z + z*x, x*y*z - 1 order lex
+idealmember x^3 - 1 in x + y + z, x*y + y*z + z*x, x*y*z - 1
+fxmodule [[2, 1, 0], [0, 2, 0], [0, 0, 2]]
+```
+
+An exact framework (`src/absalg.h`, the API that the homological
+algebra and proof layers build on): no floating point anywhere,
+integers that never wrap, and every claimed fact computed with a
+certificate that is checked before it is printed (`check:` lines, the
+`checks` of a JSON response).
+
+| command | what | certificate |
+|---------|------|-------------|
+| `bigint EXPR`, `bigint factor N` | integers of any size (`+ - * ^ !`, `/` exact, `div`, `%`, `gcd lcm abs isprime binomial`); factoring by trial division and Pollard-Brent rho | the product of the factors; Miller-Rabin (deterministic below 2^64, probable above) |
+| `snf M`, `hnf M` | Smith form U A V = D with U, V, U^-1, V^-1; row Hermite form H = U A | the products multiplied out; U U^-1 = I |
+| `zmat [det\|rank\|kernel\|image\|inverse\|cokernel\|solve] M[, b]` | integer linear algebra: saturated kernel bases, lattice bases, A x = b over Z (over Q when Z has no solution) | A K = 0, A x = b, the lattice equality |
+| `qmat [rref\|det\|rank\|inverse\|nullspace\|solve] M[, b]` | matrices over Q (`1/2`) | A A^-1 = I, A x = b |
+| `abgroup G` | invariant factors, primary decomposition, order, rank, exponent, torsion, generators | the Smith form of the relations |
+| `abiso G, H` | isomorphic?, with an explicit isomorphism and its inverse | both well defined, both composites the identity |
+| `abhom`, `abtensor`, `abtor`, `abext` `G, H` | Hom, tensor, Tor, Ext, computed from presentations (not from formulas) | `abselftest N` compares them with the cyclic formulas |
+| `abmap G -> H by M` | well defined?, kernel, image, cokernel, injective, surjective, inverse | relations to relations; G/ker = im |
+| `abelem G, x`, `absub G, x1, x2, ...` | canonical form and order of an element; a subgroup, its quotient and index | n x is a combination of relations; membership witnesses |
+| `abexact G1 -> G2 -> G3 by f, g` | exactness at G2 | g f = 0 and preimages of generators of ker g |
+| `permgroup G`, `permelem G, p`, `permsub H in G`, `permhom G -> H by ...` | permutation groups by Schreier-Sims: order, base, orbits, derived and lower central series, solvable, nilpotent, centre, membership, normality, cosets, homomorphisms | sifting words that rebuild the permutation; orbit-stabiliser; the graph subgroup has order abs(G) |
+| `cayley T` | a group by its Cayley table | all axioms (n^3 associativity) |
+| `groebner F [order lex\|grlex\|grevlex] [mod p] [vars x, y]` | reduced Groebner basis over Q or F_p, each element as a combination of the generators | cofactors multiplied out; every S-pair of the basis reduces to 0 |
+| `idealmember h in F`, `idealeq F = G` | ideal membership, inclusion, equality | h = sum c_j f_j multiplied out; else the nonzero normal form |
+| `fxmodule M`, `pmsnf [[x, 1], [0, x]]` | modules over the PID F[x]: invariant factors of xI - M (minimal and characteristic polynomial, rational canonical form), Smith form of polynomial matrices | U A V = D with U, V inverted |
+
+Groups are written `Z/4 + Z/6`, `Z^2 + Z/3`, `(Z/2)^3`, `Z/2^3` (= Z/8),
+`0`, or as a presentation: `coker [[2, 0], [0, 3]]` is Z^rows modulo
+the columns.  Permutation groups are `S4`, `A5`, `C6`, `D8` (order 8)
+or generators in cycle notation `(1 2 3 4), (1 2)` (1-based).  JSON:
+the commands of the same names (`zmatrix`, `qmatrix` for `zmat`,
+`qmat`; `bigint_factor`), and the `abstract_algebra` MCP tool.
+
+How it is built (data-oriented, like the rest of ucas):
+
+- **zint** (`zint.c`): a 64-bit handle; values below 2^61 are inline,
+  others index one arena of three columns (sign, length, offset) over
+  one array of 32-bit limbs.  Zeroed memory is the integer 0.  Knuth's
+  division; `z_mark`/`z_release_keep` scope temporaries, and every
+  elimination compacts the arena to its live entries after each pivot.
+- **zmat** (`zmat.c`): dense row-major handle arrays.  Hermite and Smith
+  forms by Euclid across rows and columns (the smallest entry as pivot,
+  rounded quotients), applied to the matrix and its transforms and
+  their inverses together; Smith starts from Hermite.  A random 30x30
+  integer matrix takes 0.03 s.
+- **fgab** (`fgab.c`): a group is a subquotient A/B of Z^n (a
+  presentation Z^g/R is A = Z^g; homology is cycles/boundaries), A and
+  B kept as column-Hermite bases so coordinates are a triangular solve;
+  R = B in A-coordinates and its Smith form give the invariants and
+  canonical coordinates.  Homomorphisms are coordinate matrices; kernels,
+  images, cokernels, sums, meets, m G, G[m], T_p are lattice operations;
+  Hom is the lattice of well-defined matrices modulo the zero maps;
+  Tor and Ext come from the free resolution 0 -> Z^b -R-> Z^a.
+- **pgrp** (`pgrp.c`): deterministic Schreier-Sims (every Schreier
+  generator sifted), explicit transversals in one flat array per level.
+  The centre and centralisers enumerate (groups up to 10^5 elements in
+  the command).
+- **ideal** (`ideal.c`): polynomials as SoA term arrays (exponents,
+  numerator and denominator columns); Buchberger with the normal
+  strategy, the product and chain criteria, cofactors carried through
+  every S-polynomial and reduction.
+
+Limits: factoring above 2^64 is Pollard rho only (a composite with two
+large factors may stay unsplit, and is reported as such); polynomial
+arithmetic is schoolbook; Groebner bases use Buchberger, not F4; the
+centre of a permutation group is found by enumeration.  English covers
+only a few phrasings: "is A5 solvable?", "is Z/4 + Z/6 isomorphic to
+Z/2 + Z/12?", "smith normal form of [[...]]", "groebner basis of ...",
+"is h in the ideal generated by ...?", "tensor product of G and H",
+"order of S5".
+
+## Homological algebra
+
+```
+cohomology RP^4                     # Z, 0, Z/2, 0, Z/2
+cohomology RP^4 with Z/2            # Z/2 in every degree
+homology K_s generators             # the 9-vertex Klein bottle, with cycles
+les L(4) mod 2                      # 0 -> C -2-> C -> C (x) Z/2 -> 0, delta by the snake lemma
+bockstein L(9) mod 3                # pages E_r, D_r, d_r until stable
+bockstein L(9) mod 3 trace 2        # j_r(3^(r-1) a): in ker d_r? in im d_r?
+prop01 S^2 x RP^3 mod 2             # Proposition 0.1 of bockstein.pdf, every n and r
+```
+
+Exact homology over Z on top of the abstract algebra core (`src/homalg.h`,
+built on `absalg.h`'s zint, zmat and fgab): every group is an fgab
+subquotient of the cochains, so an element is the same integer vector on
+every page of a spectral sequence, and every claim is checked before it
+is printed (the `check:` line counts each kind; JSON `checks`).
+
+| command | what | checked |
+|---------|------|---------|
+| `space X` | cells per dimension, Euler characteristic, small boundaries (not reduced) | d o d = 0 |
+| `homology X [with G] [generators]` | H_n(X; G), G any f.g. abelian group (`Z/2`, `Z/4 + Z`) | universal coefficients: H_n(X; G) = H_n (x) G + Tor(H_{n-1}, G) |
+| `cohomology X [with G] [generators]` | H^n(X; G) = H^n(Hom(C_*, Z) (x) G) | both UCTs: Hom(H_n, G) + Ext(H_{n-1}, G), and H^n (x) G + Tor(H^{n+1}, G) |
+| `les X mod m` | the long exact sequence of 0 -> C^* -m-> C^* -> C^* (x) Z/m -> 0, maps in canonical generators | short exactness per degree, each snake-lemma lift solved and verified, exactness at every spot (with 0 at both ends) |
+| `bockstein X mod p [pages N]` | the Bockstein spectral sequence: D_r, E_r, d_r per page, the stable page, E_inf | each couple exact, i' j' k' well defined (and j' independent of the preimage), im d <= ker d, the stable page has d = 0 and the next page equal |
+| `bockstein X mod p trace n [a] [page r]` | for a in H^n(X; Z) (canonical coordinates; default each generator): j_r(p^(r-1) a) in E_r^n, in ker d_r?, in im d_r^(n-1)? (with a preimage) | the preimage mapped back |
+| `prop01 X mod p` (= `bockstein X mod p check`) | Proposition 0.1 for every n and every r | see below |
+
+Spaces: `S^n`, `T^n`, `RP^n`, `CP^n`, `K` (Klein bottle), `L(m)` or
+`L(m,q)` (lens spaces; write `,` since `;` ends a ucas statement), `pt`,
+cellular by default; `_s` for a simplicial model: `S^n_s` (the boundary
+of the (n+1)-simplex), `T^2_s` (Moebius' 7 vertices), `RP^2_s` (6
+vertices), `RP^n_s` for n <= 4 (the barycentric subdivision of the
+cross-polytope's boundary modulo -1, checked to be a 2-to-1 covering),
+`K_s` (a 3x3 grid, checked not to collapse).  Constructions: `X x Y`
+(product cells, Koszul signs), `X v Y` (wedge at the first 0-cells),
+`susp(X)`; your own: `cells([[0, 0]], [[0], [2]])` gives the boundary
+matrices d_1, d_2, ... (rows: the (k-1)-cells; `cells(1, 1, 1: [],
+[[3]])` with counts when a matrix is empty) and `facets([[0,1,2],
+[0,2,3], [3,4]])` a simplicial complex.  JSON: `space homology
+cohomology les bockstein bockstein_trace prop01`; MCP tool `homological`.
+
+**Proposition 0.1, checked completely on a space.**  For a in H = H^n(X;
+Z) let psi_r(a) = [j_r(p^(r-1) a)] in E_r^n / im d_r^(n-1).  a generates
+a Z summand of H iff its class in F = H/T(H) is primitive; psi_r(a) = 0
+iff a lies in K = ker psi_r; and a sublattice of F contains a primitive
+vector iff the gcd of its coordinates is 1 (in a Smith basis it is d_1
+Z + ...).  So "abar is not in im d_r for every such a" is exactly
+"content(image of K in F) != 1", one finite computation; "abar is in ker
+d_r" is d_r psi_r = 0 on all of H.  This is done for every n and every r
+up to the first page where i_r is injective in every degree.  There k_r
+= 0 (im k = ker i), so d_r = 0, and i_r with the identity on E_r is an
+isomorphism of exact couples onto the next page with j_{r+1}(p^r a) =
+j_r(p^(r-1) a); so every later page, and every abar, is the one already
+checked (the next page is also computed and compared).  The general
+proof (all complexes, all p, n, r) is the proof layer's (`prove.h`);
+this is its concrete oracle.
+
+For programs (`src/homalg.h`): `hs_*` build spaces (SoA simplices,
+sparse boundary triplets); `hcx_*` cochain complexes of presented groups
+Z^g/R (so C (x) Z/m is a complex like any other), `hcx_cohomology` an
+fgab; `hmap_*` chain maps and their induced maps; `hles_compute` any
+short exact sequence of complexes to its long exact sequence;
+`struct hcouple` an exact couple with degrees (di, dj, dk), `hc_derive`
+its derived couple, `hc_stable`; `struct hss` the pages of a spectral
+sequence, `hss_bockstein`, `hss_trace`, `hss_prop01`.
+
+**Reduction first.**  Every command except `space` works on a reduced
+complex: each boundary entry +-1 cancels its pair of cells (an elementary
+collapse; algebraic Morse theory), sparsely, until none is left, keeping
+the chain homotopy equivalence g: C' -> C, f: C -> C', h with f g = 1 and
+1 - g f = d h + h d.  All four identities (f and g chain maps, f g = 1,
+the homotopy) are checked on every cell of the original complex before
+anything is computed, and the output says `reduced: cells 40 232 384 192
+-> 1 1 1 1`.  So H^*(C') is H^*(X) with f^*, g^* inverse to each other,
+and cocycles and cycles are printed back on the space's own cells (f^*
+for cochains, g for chains: `generators`, the cocycle of a trace).  The
+Bockstein sequence 0 -> C' -p-> C' -> C' (x) Z/p -> 0 is built on the
+reduced cochain complex, which is still free of finite type: the
+statement of Proposition 0.1 is about H^*(X; Z) and H^*(X; Z/p), which
+the checked equivalence identifies with those of C' (and, since f is a
+chain map of free complexes, with the whole exact couple: the couple is
+natural).  `unreduced` (JSON `"unreduced": true`) uses the space's own
+cells.
+
+| (FreeBSD, -O2) | unreduced | reduced |
+|---|---|---|
+| `homology RP^3_s` (40 232 384 192 cells) | 2.0 s | < 0.01 s |
+| `cohomology RP^3_s with Z/2` | 16.6 s | < 0.01 s |
+| `bockstein RP^3_s mod 2`, `prop01 RP^3_s mod 2` | > 10 min (stopped) | < 0.01 s each |
+| `bockstein`, `prop01`, `cohomology` of `RP^4_s` (121 1320 4080 4800 1920 cells) | not tried | 0.8 s for the three |
+| `tests/homalg.ucas` (about 70 statements) | | 1 s |
+
+Limits: the reduction cancels unit pivots only, so a complex whose
+remaining boundaries have no +-1 entry (RP^n's cellular 2s) stays as it
+is (they are small); no cup products (so no Sq^1 = d_1 identification
+beyond the numbers); only cellular models for lens spaces and CP^n.
+
+## Elliptic curves and Diophantine equations
+
+```
+ec [0,0,1,-1,0]                       # the summary of 37a1
+ec y^2 + y = x^3 - x^2 - 10*x - 20 local
+ec [0,0,1,-1,0] mul 7 (0,0)
+diophantine a/(b+c) + b/(a+c) + c/(a+b) = 4 positive
+congruent 157
+cubesum 7 positive
+mordell 17 bound 6000
+```
+
+`src/ec.h` is the shared core (the finite-field side, branch `elip-ff`,
+builds on it): a field behind a table of operations with elements as
+fixed-size values (`fe`): Q with `zint` rationals, F_p for any p, Z/n (a
+failed inversion yields a factor), GF(p^k) through `ring.h`, and room for
+other implementations; curves in general Weierstrass form with b2..b8,
+c4, c6, the discriminant and j; points and the chord-and-tangent law; a
+struct-of-arrays point table; the isomorphisms [u, r, s, t] with
+composition and inverse; models (short, Montgomery, Edwards, twisted
+Edwards, Legendre, twisted Hessian) with their maps to and from
+Weierstrass form in both directions; plane cubics with a rational flex
+to Weierstrass form.
+
+Over Q (`ecq.c`): integral and global minimal models (Laska-Kraus-
+Connell), Tate's algorithm at every bad prime (Kodaira symbol, c_p,
+conductor exponent, split or non-split), torsion (bounded by gcd
+#E(F_p), found by Nagell-Lutz, checked against Mazur's list), naive and
+canonical heights (Tate's series at infinity, Silverman's formulas at the
+bad primes; normalised as h(x(nP))/n^2, the BSD regulator's convention),
+a sieved point search, 2-isogeny descent (local solubility of the
+quartics over Q_p and R, both Selmer groups, global points on the
+quartics mapped back through the dual isogeny) giving proved rank
+bounds, independence by the height pairing, the lattice enlarged by any
+found point outside it (Hermite form), saturation at p <= 7 (by
+reduction, and at 2 exactly by the descent map when the 2-torsion is
+rational).
+
+The analytic side (`ecan.c`, floating point with the bound stated):
+periods by AGM, Weierstrass p by q-series (checked against p'^2 = 4p^3 -
+g2 p - g3), a_n, the root number from the functional equation (the
+mismatch for both signs is printed: a wrong conductor or a_p would show
+there), L(E, 1) up to L'''(E, 1), the analytic rank, and #Sha_an =
+L^(r)(1)/r! #T^2 / (Omega R prod c_p).  With analytic rank 0 or 1 the
+rank is a theorem (Gross-Zagier, Kolyvagin).  On 80 random curves the
+functional-equation mismatch stayed below 1e-9 and #Sha_an came out an
+integer for every curve whose generators were found.
+
+`diophantine` (`ecdio.c`) parses a rational equation in up to six
+variables (denominators cleared, their spurious factors divided out and
+remembered: a solution must not make one vanish) and recognises a plane
+cubic (homogeneous in 3 variables, or affine in 2 and homogenised), a
+curve quadratic in one variable with a quartic discriminant (s = 2Ay +
+B, s^2 = B^2 - 4AC), or z^2 = a quartic form.  It finds a rational
+point; from a flex, the tangent goes to the line at infinity; otherwise
+the pencil of lines through the point turns the cubic into w^2 =
+quartic(t) with a known point (the tangent direction), and Washington's
+map (or the root case) gives Weierstrass form.  Each step is data with a
+forward and a backward map; then the minimal model and the group.
+Combinations sum n_i P_i + T are taken in order of height, mapped back,
+the composed maps checked to return the same point, the side conditions
+(`positive`, `integer`, `nonzero`) applied, and the solution substituted
+into the original equation exactly.  With no solution it says why when
+it can: E(Q) finite (rank 0 by descent) and every point mapped; or, for
+positivity on a cubic, the positive real points lie on the bounded
+component of E(R) and the 2-isogeny Selmer group at the largest
+2-torsion point is all positive, so no rational point lies there.
+
+For a/(b+c) + b/(a+c) + c/(a+b) = N: N = 4 gives the 80-digit solution
+(from -9P + T on y^2 + xy + y = x^3 - 234x + 1352, conductor 910), N = 6
+a 134-digit and N = 10 a 190-digit one, N = 2 gives (3, 1, 1); N = 1, 3,
+5, 7, 9, 11, 13, 15, 17 have rank 0 (no solution, proved), and N = 19,
+21, 23, 29, 35, 39 have rank 1 but no positive solution, proved by the
+component argument.  `x^4 + y^4 = z^2 nonzero` reproves Fermat's case.
+`congruent n` gives a triangle (checked: a^2 + b^2 = c^2, ab/2 = n) or a
+proof that none exists (rank 0), else the bounds and Tunnell's counts.
+`cubesum k` solves x^3 + y^3 = k z^3; `mordell k` gives the summary and
+the integral points of y^2 = x^3 + k up to a bound.
+
+JSON: `elliptic` (curve, op, args), `diophantine` (equation, positive,
+integer, nonzero, count, maxmult, search), `weierstrass`, `congruent`,
+`mordell`, `cubesum`; the MCP tool `elliptic`.  Tests: `tests/elip.ucas`,
+`tests/json/elip.jsonl`, `tests/mcp/elliptic.jsonl`.
+
+Not done yet: a full 2-descent for curves without rational 2-torsion
+(their rank's upper bound is the analytic rank, a theorem only up to
+rank 1), second descents (`congruent 157`, whose generator is huge, is
+left open with its bounds), integral points beyond a search bound (no
+elliptic logarithms or Baker bounds), saturation only at p <= 7 and
+without an index bound, Hessian models from Weierstrass form (they need
+a 3-torsion point), theta-congruent numbers.
+
+## Elliptic curves over finite fields
+
+```
+> ecorder y^2 = x^3 + 2x + 3 mod 97
+#E = 100
+  trace: t = p + 1 - #E = -2
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: Hasse: |t| <= 2 sqrt(p)
+  check: (73, 83) has order 10 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (46, 72) has order 25 ...
+  check: N = 100 is the only multiple of 50 in the Hasse interval [79, 117]
+> ecpp 2^255 - 19
+57896...19949 is prime
+  how: Atkin-Morain ECPP, 6 steps down to 3425690484314565209
+> ecm 2^128 + 1
+340282366920938463463374607431768211457 = 59649589127497217 * 5704689200685129054721
+> ecvectors
+  check: RFC 8032 7.1 test 3 (ed25519): pass        (30 of 30)
+```
+
+Curves over F_p (fixed-width Montgomery arithmetic up to 521 bits),
+F_{p^k} (k <= 12) and binary fields GF(2^m), with their own arithmetic
+(`src/ecff.h`).  A curve is a name (`secp256k1`, `P-256`, `P-384`,
+`P-521`, `Curve25519`, `Ed25519`, `Curve448`, `BN254`, `BLS12-381`,
+`K-163`, `B-163`, `K-233`), an equation (`y^2 = x^3 + 2x + 3 mod 97`, also
+`over F_97`, `over GF(97)`; a general Weierstrass equation is moved to
+short form and the map printed) or coefficients (`[2, 3] mod 97`); a
+point is `(x, y)`, `G`, `O` or `random`.  Every answer prints how it was
+found and `check:` lines; JSON fields come from its `label: value` lines.
+
+| command | |
+|---------|--|
+| `ec C` | the curve: discriminant, j, order (named curves: standard), trace, embedding degree, supersingular / anomalous, twist |
+| `ecorder C [method naive\|bsgs\|schoof\|cm]` | #E: naive, baby-step giant-step with Mestre, CM for j = 0 or 1728, Schoof; certified by point orders (the only multiple of the exponent in the Hasse interval) |
+| `ecpoints C`, `ecadd C P Q`, `ecmul C k P` | points, the group law, scalar multiples (group structure Z/m x Z/mn by the Weil pairing) |
+| `ecdh`, `ecdsa`, `x25519`, `x448`, `ed25519`, `eccompress`, `ecdecompress`, `ecvalidate` | the protocols on the named curves; RFC 6979 nonces for ECDSA |
+| `ecvectors` | the known-answer tests: SHA-2 (FIPS), RFC 6979 (P-256), RFC 5903, RFC 7748 (X25519, X448), RFC 8032 (Ed25519); ECDSA on secp256k1, P-384, P-521 cross-checked against OpenSSL |
+| `ecdlog C Q P`, `ecweak anomalous\|supersingular BITS` | discrete logs: Pohlig-Hellman, BSGS, rho (orders up to 64 bits), MOV, Smart's anomalous attack; weak curves to try them on |
+| `ecpairing C` | Weil and reduced Tate pairings (Miller), including BN254 and BLS12-381 in F_p^12, with non-degeneracy, e^r = 1 and bilinearity checked |
+| `hilbert D`, `eccm D BITS`, `modpoly l`, `ecisogeny C l`, `ecvolcano C l`, `ecdivpoly C n` | Hilbert class polynomials (coefficients up to 1152 bits), prime-order CM curves, modular polynomials, Velu and Kohel isogenies, isogeny graphs, division polynomials |
+| `ecb2 C [mul k]` | binary curves over GF(2^m): Koblitz counting, FIPS parameters checked (non-Koblitz counted only for m <= 24) |
+| `ecm N`, `ecpp N` | Lenstra's ECM (stage 1 + 2); Atkin-Morain ECPP with an independent checker of the certificate |
+
+Append `timed` to any of them for timings.  MCP tool `elliptic_ff`.  This
+is variable-time mathematics, not hardened cryptography: use it to check
+and explore, not to protect secrets.
+
+Limits: no SEA (no Elkies or Atkin primes), so Schoof takes about 40 s at
+160 bits and random 256-bit curves are impractical (named and CM curves
+are fine); no Ed448; rho only for orders up to 64 bits; the `ec.h`
+`ECF_USER` adapter for these fields is not done.
+
 ## Design
 
 Data-oriented throughout (see `src/ucas.h`):
@@ -2202,3 +2533,109 @@ passes them through the same handler as the live bot and prints each
 REST request it would make.  `ucas-discord --selftest` checks the
 prefix and fence handling, message splitting and the JSON codecs.
 `make discord-test` runs both against `discord/tests/*.jsonl`.
+
+## Proofs
+
+```
+theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+prove bockstein      # two proofs (the paper's, and by coordinates), each re-checked
+proof bockstein      # each route's script, the tree of lemmas, the axioms used
+check bockstein      # the independent checker again
+axioms               # every axiom; lemmas: the library
+```
+
+`theorem NAME: FORMULA` states a theorem in many-sorted first-order logic
+(`forall x y:el, n:int: ...`, `exists`, `and or not -> <->`, `= != <= <
+in`, terms with `+ - *` and `^` on integers; sorts `int`, `el`, `set`,
+`cpl`, `cx`, `hom`).  `prove NAME [using L ...]` proves it: by a library
+theorem with the same statement (every such route, each re-checked), else
+by replaying the library's theorem proofs on it (a false variant fails at
+the step that needs the missing hypothesis, which is printed), else by the
+automation; when all fail it looks for a counterexample in a concrete
+model (standard spaces' cochains, homalg's exact Bockstein spectral
+sequences, small integers) and says that this is a computation, not a
+proof.  JSON: `theorem prove proof proof_check axioms lemmas`; MCP tool
+`proofs`.
+
+**Kernel** (`src/prove.h`, `kernel.c`).  Terms and formulas are one
+hash-consed DAG in SoA columns with de Bruijn binders; theorems are
+sequents in kernel.c's own SoA table and only its rules make them:
+assume, axiom, imp/and/or/not/iff introduction and elimination,
+false_elim, raa, all_intro (eigenvariable checked), all_elim, ex_intro,
+ex_elim (freshness checked), refl, subst (Leibniz), conv (equal normal
+forms: commutative-ring polynomials over Z, Z-module linear combinations,
+symbols marked hom additive and Z-linear, numerals compared), lin (a
+linear combination of equations, with nonnegative numerals on
+inequalities), induct (over Z from a base) and hom_decl (a symbol becomes
+a homomorphism once both laws are theorems without hypotheses).  Every
+theorem records its rule, premises and terms, so a proof is a DAG.
+`kcheck.c` replays it in id order with its own substitution, hypothesis
+sets and normal forms (canonical strings, not the kernel's id-ordered
+DAG).  Integers in normal forms are int64 with overflow checks (an
+overflow fails the step; nothing wraps).
+
+**Axioms** (`src/thy_absalg.thy`, the only `def`/`arith` lines;
+`axioms` lists them, `axioms NAME` the ones a proof rests on): the
+ordered ring Z (`int_discrete` n <= 0 or 1 <= n, `le_antisym`,
+`mul_nonneg`, `int_domain`, `pow_zero`, `pow_succ`), and definitions
+only: subgroups, sums and intersections of subgroups, direct summands, a
+generating a Z (or Z/p^k) summand; exact couples, i^m, the derived couple
+construction (D_1..E_1 and page r+1 from page r: D' = i D, E' = ker d /
+im d with representatives in E, j'(i x) = [j x], k'[e] = k e), d_r [e] =
+0 and [e] in im d_r^m; cochain complexes (Ch, dif, d d = 0), their
+cohomology as the quotient Z/B given with its projection (the relation
+Cls: five lines), the grading (projections onto C^n, d of degree +1),
+H^n, chain maps, short exact sequences of complexes, the induced map
+H(f) and the connecting map (lift, apply d, pull back) as relations;
+multiplication by p, the quotient complex C/pC (its cochains, kernel and
+differential), "of finite type" (here: torsion-free cochains), primes;
+and the Bockstein couple bock(C,p): D = H(C), E = H(C/p), i = H(p),
+j = H(rho), k = delta (each map named as the value of the relation, whose
+totality and single-valuedness are lemmas), E's grading.  Proved, not
+assumed: the long exact sequence of any short exact sequence of
+complexes (`les_exact`, with H(f) and the connecting map well defined),
+that 0 -> C -p-> C -> C/p -> 0 is short exact for a torsion-free C, that
+the Bockstein couple is exact (`bock_couple`), i = p on classes,
+H^n a direct summand of H* (`H_summand`), the degrees of i, j, k
+(`deg_i`, `deg_j`, `deg_k`), and everything about derived couples.
+
+**Automation** (`kauto.c`, results are kernel theorems): linear integer
+arithmetic by Fourier-Motzkin with the multipliers as a `lin`
+certificate, products of two hypotheses and case splits n <= 0 or 1 <= n
+when the rational relaxation is not enough; abelian-group equalities by
+elimination on unit pivots (monomials divided, equations lifted through
+applications by congruence, integer coefficients that vanish modulo the
+integer equations); subgroup membership of linear combinations; and
+goal-directed chaining through facts and lemmas with unification modulo
+the normal forms (metavariables solved through linear terms), with
+existentials opened and arguments rewritten by congruence: enough for
+diagram chases.
+
+**Library** (`thy_absalg.thy`, scripts in an Isar-like language: `fix
+intro have obtain show contra cases induct`): the closed forms of the
+r-th derived couple by induction on r (D_r = i^(r-1) D, Z_r =
+k^-1(i^(r-1) D), B_r = j(ker i^(r-1)), j_r(i^(r-1) x) = [j x]); every
+derived couple is exact (`derived_exact`: ker j_r = im i_r, im k_r =
+ker i_r, ...), d_r d_r = 0, j_r additive and well defined; i^m = p^m on
+the Bockstein couple; `bockstein_paper` (the paper's argument: D_r =
+p^(r-1)H, j_r(p^(r-1)a) = a-bar, ker j_r = im i_r, im k_r = ker i_r =
+p-torsion of D_r, and the valuation argument p^(r-1) = p^r n is
+impossible) and `bockstein_coords` (B_(r+1) = j(H[p^r]), so a-bar in
+im d_r puts a in H[p^r] + pH, and a's coordinate in H = <a> (+) M gives
+1 in pZ); `bockstein_torsion` (a Z/p^k summand's a-bar is nonzero on
+E_1..E_k and zero on E_(k+1)); `cyclic_order` (symbolic exponents);
+`modular_law`; `short_five_mono`; `snake_ker_exact`.
+
+The statement's d_r and im d_r^(n-1) are those of the total graded
+couple, with Edeg(bock(C,p), m, e) meaning e in H^m(C/p); i_r and k_r are
+by the definition of the derived couple the restrictions of i and k (only
+j_r is new, as a relation on representatives).  Route (b) is a coordinate
+argument that shares the closed forms of the derived couples with route
+(a); the reduction to elementary complexes (splitting a complex of finite
+type, additivity of the spectral sequence) is not formalised.
+
+Tests: `tests/prove.ucas` (the two routes, re-checks, the other theorems,
+automation, and four false variants: no summand hypothesis, a Z/p
+summand, a Z/p^k summand dying on E_k, an integer inequality; each fails
+with the failing step and a counterexample), `tests/json/prove.jsonl`,
+`tests/mcp/prove.jsonl`.

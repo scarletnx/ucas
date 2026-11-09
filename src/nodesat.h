@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * nodesat.c: SAT proofs about expression DAGs on machine integers.
  */
