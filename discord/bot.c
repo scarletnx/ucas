@@ -13,6 +13,7 @@
  * differs.  Evaluation happens in the supervisor process (sup.c).
  */
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #ifdef __FreeBSD__
@@ -29,9 +30,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "discord.h"
+#include "logconf.h"
 
 #define JSMN_STRICT
 #define JSMN_HEADER
@@ -133,6 +137,33 @@ send_req(uint32_t type, const struct discord_message *m, const char *text,
 }
 
 /* returns DC_IGNORE, DC_EVAL or DC_RESET */
+/*
+ * "<@id> $expr" or "<@!id> $expr": without the Message Content intent,
+ * Discord only delivers the text of server messages that mention the bot.
+ */
+static const char *
+skip_mention(const char *s)
+{
+	char id[32];
+	size_t n;
+
+	if (s == NULL || self_id == 0)
+		return s;
+	n = (size_t)snprintf(id, sizeof id, "%" PRIu64 ">", self_id);
+	if (!strncmp(s, "<@", 2)) {
+		const char *p = s + 2;
+		if (*p == '!')
+			p++;
+		if (!strncmp(p, id, n)) {
+			p += n;
+			while (*p == ' ' || *p == '\t' || *p == '\n')
+				p++;
+			return p;
+		}
+	}
+	return s;
+}
+
 static int
 handle_message(const struct discord_message *m)
 {
@@ -142,7 +173,7 @@ handle_message(const struct discord_message *m)
 	if (m->author == NULL || m->author->bot || m->author->System ||
 	    m->author->id == self_id || m->webhook_id != 0)
 		return DC_IGNORE;
-	kind = dc_command(m->content, &code, &echo);
+	kind = dc_command(skip_mention(m->content), &code, &echo);
 	if (kind == DC_EVAL)
 		send_req(SF_EVAL, m, code.p, echo);
 	else if (kind == DC_RESET)
@@ -206,11 +237,14 @@ on_message(struct discord *c, const struct discord_message *m)
 	handle_message(m);
 }
 
+static int sup_dead;
+
 static void
 on_sup(struct io_poller *io, enum io_poller_events ev, void *data)
 {
 	if (!read_response()) {
 		fprintf(stderr, "ucas-discord: evaluator process died\n");
+		sup_dead = 1;
 		io_poller_socket_del(io, supfd);
 		discord_shutdown(client);
 	}
@@ -356,36 +390,202 @@ check_token(void)
 	return dots == 2 ? 0 : 1;
 }
 
+
+/*
+ * Concord's own log, to stderr.  Without a config file it is silent, so
+ * a failed connection ended with no reason given.  UCAS_DISCORD_LOG sets
+ * the level (trace debug info warn error fatal; default info).  Do not use
+ * trace in production: it can include HTTP details.
+ */
+static volatile sig_atomic_t gw_close;   /* 4014, 4004 or 0 */
+
+static void
+concord_log_cb(log_Event *ev)
+{
+	static const char *const names[] = {"TRACE", "DEBUG", "INFO", "WARN",
+	    "ERROR", "FATAL"};
+	char ts[32];
+
+	char msg[1024];
+
+	vsnprintf(msg, sizeof msg, ev->fmt, ev->ap);
+	/* the close codes that decide what the run loop does next */
+	if (strstr(msg, "DISALLOWED_INTENTS") || strstr(msg, "code: 4014"))
+		gw_close = 4014;
+	else if (strstr(msg, "AUTHENTICATION_FAILED") ||
+	    strstr(msg, "code: 4004"))
+		gw_close = 4004;
+	strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", ev->time);
+	fprintf(ev->udata, "%s %-5s concord %s:%d: %s\n", ts,
+	    names[ev->level], ev->file, ev->line, msg);
+	fflush(ev->udata);
+}
+
+static int
+concord_log_level(void)
+{
+	static const char *const names[] = {"trace", "debug", "info", "warn",
+	    "error", "fatal"};
+	const char *v = getenv("UCAS_DISCORD_LOG");
+	int i;
+
+	if (v == NULL || *v == 0)
+		return LOG_INFO;
+	for (i = 0; i < 6; i++)
+		if (!strcasecmp(v, names[i]))
+			return i;
+	fprintf(stderr, "ucas-discord: UCAS_DISCORD_LOG=%s is not a level; "
+	    "using info\n", v);
+	return LOG_INFO;
+}
+
+/*
+ * SIGINT/SIGTERM: the handler only writes a byte; the event loop reads it
+ * and shuts the client down, and the run loop does not reconnect.
+ */
+static int stop_pipe[2] = {-1, -1};
+static volatile sig_atomic_t stop_requested;
+
+static void
+on_signal(int sig)
+{
+	int saved = errno;
+
+	(void)sig;
+	stop_requested = 1;
+	if (stop_pipe[1] >= 0)
+		(void)write(stop_pipe[1], "x", 1);
+	errno = saved;
+}
+
+static void
+on_stop(struct io_poller *io, enum io_poller_events ev, void *data)
+{
+	char b[16];
+
+	(void)ev;
+	(void)data;
+	while (read(stop_pipe[0], b, sizeof b) > 0)
+		;
+	io_poller_socket_del(io, stop_pipe[0]);
+	discord_shutdown(client);
+}
+
+/* sleep up to secs, returning early on a stop signal */
+static void
+backoff_sleep(unsigned secs)
+{
+	struct timespec ts;
+
+	ts.tv_sec = (time_t)secs;
+	ts.tv_nsec = 0;
+	while (!stop_requested && nanosleep(&ts, &ts) != 0 && errno == EINTR)
+		;
+}
+
+/*
+ * Connect, run, and keep running: the gateway is reconnected with
+ * exponential backoff (2 s doubling to 5 min; back to 2 s after any
+ * session that lasted over a minute).  Only a stop signal, a dead
+ * evaluator or a rejected token end the bot.  If Discord refuses the
+ * Message Content intent (close code 4014: it is not enabled for the
+ * application), the bot says how to enable it and carries on without
+ * it: it then sees the text of DMs and of messages that mention it.
+ */
 static int
 run_live(void)
 {
 	const struct discord_user *me;
 	char from[PATH_MAX + 64], *tok;
 	CCORDcode rc;
+	uint64_t intents = DISCORD_GATEWAY_GUILD_MESSAGES |
+	    DISCORD_GATEWAY_DIRECT_MESSAGES | DISCORD_GATEWAY_MESSAGE_CONTENT;
+	unsigned delay = 2;
+	time_t started;
+	struct sigaction sa;
+	int status = 0;
 
 	if ((tok = load_token(from, sizeof from)) == NULL)
 		return 1;
+	(void)mlock(tok, strlen(tok) + 1);   /* kept for reconnects; no swap */
 	fprintf(stderr, "ucas-discord: token from %s\n", from);
-	ccord_global_init();
-	client = discord_init(tok);
-	memset(tok, 0, strlen(tok));
-	free(tok);
-	if (client == NULL) {
-		fprintf(stderr, "ucas-discord: cannot initialise the client\n");
+	if (pipe(stop_pipe) != 0) {
+		perror("ucas-discord: pipe");
 		return 1;
 	}
-	if ((me = discord_get_self(client)) != NULL)
-		self_id = me->id;
-	discord_add_intents(client, DISCORD_GATEWAY_GUILD_MESSAGES |
-	    DISCORD_GATEWAY_DIRECT_MESSAGES | DISCORD_GATEWAY_MESSAGE_CONTENT);
-	discord_set_on_ready(client, on_ready);
-	discord_set_on_message_create(client, on_message);
-	io_poller_socket_add(discord_get_io_poller(client), supfd,
-	    IO_POLLER_IN, on_sup, NULL);
-	rc = discord_run(client);
-	discord_cleanup(client);
+	(void)fcntl(stop_pipe[0], F_SETFL, O_NONBLOCK);
+	(void)fcntl(stop_pipe[1], F_SETFL, O_NONBLOCK);
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = on_signal;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGHUP, &sa, NULL);
+	ccord_global_init();
+	while (!stop_requested && !sup_dead) {
+		gw_close = 0;
+		client = discord_init(tok);
+		if (client == NULL) {
+			fprintf(stderr, "ucas-discord: cannot initialise the "
+			    "client; retrying in %u s\n", delay);
+			backoff_sleep(delay);
+			delay = delay < 150 ? delay * 2 : 300;
+			continue;
+		}
+		logconf_add_callback(discord_get_logconf(client),
+		    concord_log_cb, stderr, concord_log_level());
+		if ((me = discord_get_self(client)) != NULL && me->id)
+			self_id = me->id;
+		discord_add_intents(client, intents);
+		discord_set_on_ready(client, on_ready);
+		discord_set_on_message_create(client, on_message);
+		io_poller_socket_add(discord_get_io_poller(client), supfd,
+		    IO_POLLER_IN, on_sup, NULL);
+		io_poller_socket_add(discord_get_io_poller(client), stop_pipe[0],
+		    IO_POLLER_IN, on_stop, NULL);
+		started = time(NULL);
+		rc = discord_run(client);
+		discord_cleanup(client);
+		client = NULL;
+		if (stop_requested || sup_dead)
+			break;
+		if (gw_close == 4004) {
+			fprintf(stderr, "ucas-discord: Discord rejected the token "
+			    "(4004 authentication failed): replace %s and restart\n",
+			    from);
+			status = 1;
+			break;
+		}
+		if (gw_close == 4014 &&
+		    (intents & DISCORD_GATEWAY_MESSAGE_CONTENT)) {
+			fprintf(stderr,
+			    "ucas-discord: Discord refused the Message Content intent "
+			    "(4014).\n"
+			    "  Enable it: https://discord.com/developers/applications "
+			    "-> this application\n"
+			    "  -> Bot -> Privileged Gateway Intents -> Message Content "
+			    "Intent, then restart.\n"
+			    "  Continuing without it: the bot now sees DMs and server "
+			    "messages that\n"
+			    "  mention it, e.g. \"@bot $1 + 2\".\n");
+			intents &= ~(uint64_t)DISCORD_GATEWAY_MESSAGE_CONTENT;
+			delay = 2;
+			continue;
+		}
+		if (time(NULL) - started > 60)
+			delay = 2;
+		fprintf(stderr, "ucas-discord: the gateway loop ended: %s (code "
+		    "%d); reconnecting in %u s\n", discord_strerror(rc, NULL),
+		    (int)rc, delay);
+		backoff_sleep(delay);
+		delay = delay < 150 ? delay * 2 : 300;
+	}
 	ccord_global_cleanup();
-	return rc == CCORD_OK ? 0 : 1;
+	memset(tok, 0, strlen(tok));
+	free(tok);
+	fprintf(stderr, "ucas-discord: stopped (%s)\n", stop_requested ?
+	    "signal" : sup_dead ? "evaluator died" : "token rejected");
+	return status;
 }
 
 /* ---- test mode: gateway events on stdin ---- */

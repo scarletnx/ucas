@@ -535,6 +535,16 @@ discord/ucas-discord --check-token   # where it was found; never prints it
 discord/ucas-discord
 ```
 
+The bot keeps running until SIGINT/SIGTERM/SIGHUP.  If the gateway
+connection ends it reconnects with exponential backoff (2 s doubling to
+5 minutes).  It gives up only if Discord rejects the token (4004) or the
+evaluator process dies.  If the Message Content intent is not enabled
+(close code 4014), it prints how to enable it and continues without it.
+It then sees DMs and server messages that mention it (`@bot $1 + 2`).
+Concord's log goes to stderr at `info`; `UCAS_DISCORD_LOG=debug|warn|...`
+changes the level.  Avoid `trace` outside debugging: it can include
+HTTP details.
+
 The token is looked up in this order:
 
 1. `--token-file PATH`;
