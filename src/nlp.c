@@ -7054,8 +7054,8 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
-	if (hy_formula(s + i, n - i))	/* i^i, i*j: a formula (hyper.c) */
-		return 0;
+	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
+		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */
 		return 1;
 	/* calc2: d/dx F, d²/dx² F, d^2/dx^2 F, dy/dx, ∂f/∂x, ∇f */

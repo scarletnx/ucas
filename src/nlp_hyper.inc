@@ -54,6 +54,29 @@ hy_formula(const char *s, size_t n)
 	return unit && op;
 }
 
+/* hyper.c's own commands are ucas, not English */
+static int
+hy_own_cmd(const char *s, size_t n)
+{
+	static const char *const c[] = {"axisangle", "rotmatrix", "frommatrix",
+		"slerp", "associator", "commutator", "zerodivisors", "algebra",
+		"rotate", NULL};
+	size_t k = 0;
+	char w[24];
+
+	while (k < n && k + 1 < sizeof w && isalpha((unsigned char)s[k])) {
+		w[k] = s[k];
+		k++;
+	}
+	w[k] = 0;
+	if (!in_list(c, w) || k == n || s[k] != ' ')
+		return 0;
+	while (k < n && s[k] == ' ')
+		k++;
+	return strncmp(s + k, "of ", 3) && strncmp(s + k, "the ", 4) &&
+	    strncmp(s + k, "me ", 3);
+}
+
 /* English that starts like a command or not at all like ucas */
 static int
 hy_starter(const char *s, size_t n)

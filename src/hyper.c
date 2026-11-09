@@ -271,11 +271,13 @@ static int hn_realop, hn_cutop;
 
 /* f(a + v) through the complex plane spanned by 1 and v */
 static int
-h_slice(int op, const double *x, double *r, int d)
+h_slice(int op, const double *x0, double *r, int d)
 {
 	cplx w;
-	double s;
+	double s, x[HM];
 	int k;
+
+	memcpy(x, x0, (size_t)d * sizeof *x);	/* r may alias x0 */
 
 	cut_op = 0;
 	if (d == 2) {
@@ -343,10 +345,13 @@ h_commute(const double *a, const double *b, int d)
 
 /* a^b: integer powers by multiplication, else principal exp(log(a) b) */
 static int
-h_pow(const double *a, const double *b, double *r, int d)
+h_pow(const double *a0, const double *b0, double *r, int d)
 {
-	double l[HM], t[HM];
+	double l[HM], t[HM], a[HM], b[HM];
 	int k;
+
+	memcpy(a, a0, (size_t)d * sizeof *a);	/* r may alias a or b */
+	memcpy(b, b0, (size_t)d * sizeof *b);
 
 	if (h_isreal(b, d) && b[0] == floor(b[0]) && fabs(b[0]) <= 1e6) {
 		if (h_n2(a, d) == 0) {
@@ -760,8 +765,10 @@ unit_str(int u, int lg)
 	static int k;
 	char *s = b[k++ & 7];
 
+	if (u == 0)
+		return "1";
 	if (lg <= 1)
-		return u ? "i" : "1";
+		return "i";
 	if (lg == 2) {
 		static const char *const q[] = {"1", "i", "j", "k"};
 		return q[u];
@@ -791,6 +798,39 @@ plain_num(const char *s)
 		    *s != '-' && *s != '+')
 			return 0;
 	return 1;
+}
+
+/* "(-1 + sqrt(3))/3" -> "(1 - sqrt(3))/3": the negated text, or NULL */
+static const char *
+flip_sum(const char *s)
+{
+	static char b[4][128];
+	static int k;
+	char *o = b[k++ & 3];
+	const char *p, *e;
+	int depth = 0;
+
+	if (s[0] != '(' || s[1] != '-')
+		return NULL;
+	for (p = s + 1; *p; p++) {
+		if (*p == '(')
+			depth++;
+		if (*p == ')') {
+			if (depth == 0)
+				break;
+			depth--;
+		}
+		if (depth == 0 && (!strncmp(p, " + ", 3) || !strncmp(p, " - ", 3)))
+			break;
+	}
+	if (*p != ' ')
+		return NULL;
+	e = strchr(p + 3, ')');
+	if (e == NULL)
+		return NULL;
+	snprintf(o, 128, "(%.*s %c %.*s%s", (int)(p - s - 2), s + 2,
+	    p[1] == '+' ? '-' : '+', (int)(e - p - 3), p + 3, e);
+	return o;
 }
 
 /* drop parts that are rounding noise next to the largest one */
@@ -855,6 +895,10 @@ hv_text(struct sbuf *b, const double *x0, int d, int lg)
 		if (c == 0)
 			continue;
 		forms_num(fabs(c), nb, sizeof nb);
+		if (c < 0 && k > 0 && flip_sum(nb)) {
+			snprintf(nb, sizeof nb, "%s", flip_sum(nb));
+			c = -c;
+		}
 		if (!first)
 			sb_puts(b, c < 0 ? " - " : " + ");
 		else if (c < 0)
@@ -3392,8 +3436,16 @@ cmd_cayley(int lg)
 		for (a = 1; a < 8; a++)
 			for (b = a + 1; b < 8; b++) {
 				unit_prod(a, b, d, &c, &s);
-				if (c > b)
-					printf(" (%d, %d, %d)", s > 0 ? a : b, s > 0 ? b : a, c);
+				if (c > b) {
+					/* oriented, smallest first: e_p e_q = e_r */
+					int p = s > 0 ? a : b, q = s > 0 ? b : a, r = c;
+					if (q < p && q < r)
+						printf(" (%d, %d, %d)", q, r, p);
+					else if (r < p && r < q)
+						printf(" (%d, %d, %d)", r, p, q);
+					else
+						printf(" (%d, %d, %d)", p, q, r);
+				}
 			}
 		printf("\n  every pair of units lies on one line; e_a^2 = -1 and "
 		    "e_a e_b = -e_b e_a for a != b\n");
@@ -3631,7 +3683,7 @@ cmd_zerodiv(int lg)
 /* comma-separated constants in [a, b) */
 static int
 const_list(const struct toks *t, uint32_t a, uint32_t b, double v[][HM],
-    int max, int *lg)
+    int max, int *lg, int lgmin)
 {
 	int n = 0, depth = 0, l, lgall = 1;
 	uint32_t s = a, i;
@@ -3646,9 +3698,10 @@ const_list(const struct toks *t, uint32_t a, uint32_t b, double v[][HM],
 		/* the algebra of the whole list: "i, j" are quaternions */
 		struct hscan S;
 		memset(&S, 0, sizeof S);
+		S.keepk = lgmin >= 2;
 		if (hy_scan(t, a, b, &S)) {
 			hy_decide(&S, t, a, b);
-			lgall = S.lg;
+			lgall = S.lg > lgmin ? S.lg : lgmin;
 		}
 	}
 	for (i = a; i <= b; i++) {
@@ -3677,7 +3730,7 @@ cmd_assoc(const struct toks *t, uint32_t a, uint32_t b, int comm)
 	double v[3][HM], p[HM], q[HM], r1[HM], r2[HM], r[HM];
 	int n, lg, d, k;
 
-	n = const_list(t, a, b, v, 3, &lg);
+	n = const_list(t, a, b, v, 3, &lg, 2);
 	if (n != (comm ? 2 : 3))
 		fail("%s takes %d values", comm ? "commutator" : "associator",
 		    comm ? 2 : 3);
@@ -3736,6 +3789,8 @@ rnum(double v)
 	if (fabs(v) < 1e-13)
 		v = 0;
 	forms_num(v, s, 64);
+	if (s[0] == '-' && flip_sum(s + 1))
+		snprintf(s, 64, "%s", flip_sum(s + 1));
 	return s;
 }
 
@@ -3786,6 +3841,7 @@ do_rotate(const double *v3, const double *q0)
 
 	memcpy(q, q0, 4 * sizeof *q);
 	q_normalize(q);
+	notes_flush();
 	v[1] = v3[0], v[2] = v3[1], v[3] = v3[2];
 	h_inv(q, qi, 4);
 	h_mul(q, v, t, 4);
@@ -3834,7 +3890,7 @@ axis_of(const struct toks *t, uint32_t a, uint32_t b, double *ax)
 	}
 	while (b > a && t->kind[b - 1] == T_ID && tok_is(t, b - 1, "axis"))
 		b--;
-	n = const_list(t, a, b, v, 3, &lg);
+	n = const_list(t, a, b, v, 3, &lg, 1);
 	if (n != 3)
 		fail("the axis is a vector (x, y, z), or x, y, z");
 	for (k = 0; k < 3; k++) {
@@ -3890,13 +3946,23 @@ cmd_rotate(const struct toks *t, uint32_t a, uint32_t b)
 {
 	static const char *const by_w[] = {"by", NULL};
 	static const char *const ab_w[] = {"about", "around", "round", NULL};
-	uint32_t by = find_word(t, a, b, by_w), ab;
+	uint32_t by = find_word(t, a, b, by_w), ab, i;
 	double v[3][HM], v3[3], q[HM], ax[3], ang;
 	int n, lg, k;
 
+	/* "... using quaternions", "with a quaternion" */
+	for (i = by; i < b; i++)
+		if (tok_is(t, i, "using") || tok_is(t, i, "via") ||
+		    (tok_is(t, i, "with") && i + 1 < b && (tok_is(t, i + 1, "a") ||
+		    tok_is(t, i + 1, "quaternions") ||
+		    tok_is(t, i + 1, "quaternion")))) {
+			b = i;
+			break;
+		}
+
 	if (by == b)
 		fail("rotate V by Q, or rotate V by ANGLE about AXIS");
-	n = const_list(t, a, by, v, 3, &lg);
+	n = const_list(t, a, by, v, 3, &lg, 1);
 	if (n != 3)
 		fail("rotate: the vector has 3 components (x, y, z)");
 	for (k = 0; k < 3; k++) {
@@ -3931,7 +3997,7 @@ cmd_slerp(const struct toks *t, uint32_t a, uint32_t b)
 	    chk[HM], qi[HM], m[HM];
 	int n, lg, k;
 
-	n = const_list(t, a, b, v, 3, &lg);
+	n = const_list(t, a, b, v, 3, &lg, 2);
 	if (n != 3 || !h_isreal(v[2], 4))
 		fail("slerp Q1, Q2, T (T real, 0..1)");
 	memcpy(q1, v[0], 4 * sizeof(double));
@@ -3964,8 +4030,9 @@ cmd_slerp(const struct toks *t, uint32_t a, uint32_t b)
 		h_pow(m, e, m, 4);
 	}
 	h_mul(q1, m, chk, 4);
-	printf("  the angle between them: %s; slerp = (sin((1-t)a) q1 + sin(ta) "
-	    "q2)/sin(a)\n", rnum(2 * th));
+	printf("  the arc between them on the unit sphere: a = %s (a rotation "
+	    "by %s); slerp = (sin((1-t)a) q1 + sin(ta) q2)/sin(a)\n", rnum(th),
+	    rnum(2 * th));
 	printf("  check: |slerp| = %s, and q1 (q1^-1 q2)^t = %s: %s\n",
 	    rnum(sqrt(h_n2(r, 4))), hv_str(chk, 4, 2), h_close(chk, r, 4) ?
 	    "the same" : "DIFFERENT");
@@ -3977,7 +4044,7 @@ cmd_axisangle(const struct toks *t, uint32_t a, uint32_t b)
 	double v[4][HM], q[HM], ax[3], ang;
 	int n, lg, k;
 
-	n = const_list(t, a, b, v, 4, &lg);
+	n = const_list(t, a, b, v, 4, &lg, 2);
 	if (n == 1) {
 		memcpy(q, v[0], sizeof q);
 		q_normalize(q);
@@ -4041,7 +4108,7 @@ cmd_frommatrix(const struct toks *t, uint32_t a, uint32_t b)
 	double v[9][HM], m[3][3], q[HM] = {0}, s, det, chk[3][3], e = 0;
 	int n, lg, r, c;
 
-	n = const_list(t, a, b, v, 9, &lg);
+	n = const_list(t, a, b, v, 9, &lg, 1);
 	if (n != 9)
 		fail("frommatrix: 9 entries, row by row");
 	for (r = 0; r < 3; r++)
@@ -4176,8 +4243,8 @@ plot_part(const struct toks *t, uint32_t a, uint32_t b)
 	else
 		sb_printf(&st, "plot %s %s\n", !strcmp(which, "re") ? re.p : im.p,
 		    opts);
-	printf("  %s of %s with %s:\n", !strcmp(which, "abs") ? "|f|" :
-	    which, fname(f), say.p);
+	printf("  %s(%s) as a surface over the plane (%s):\n",
+	    !strcmp(which, "abs") ? "|f|" : which, fname(f), say.p);
 	run_source(st.p, "<hyper>", 0);
 	free(opts);
 	free(text);

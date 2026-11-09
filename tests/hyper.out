@@ -1,0 +1,590 @@
+> (1+2i)*(3-i)
+5 + 5i
+> (1+2i)/(3-4i)
+-1/5 + 2i/5
+> exp(i pi)
+-1
+> i^i
+exp(-pi/2)
+> sqrt(-4)
+  note: sqrt(-4) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of sqrt: the principal value, sqrt z = e^(log(z)/2): i sqrt|z| on the negative reals (the other root is its negative)
+2i
+> log(-1)
+  note: log(-1) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of log: the principal value, log z = log|z| + i arg z with -pi < arg z <= pi
+pi*i
+> asin(2)
+  note: asin(2) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of asin: the principal value, asin z = -i log(iz + sqrt(1 - z^2)) (cuts (-inf, -1) and (1, inf))
+pi/2 - i*log(2 + sqrt(3))
+> (-8)^(1/3)
+  note: (-8)^(1/3) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of a power: the principal value, z^w = e^(w log z) with the principal log
+1 + i*sqrt(3)
+> 3 + 4j
+  note: j is read as the imaginary unit (j^2 = -1)
+3 + 4i
+> abs(3 + 4i)
+5
+> w = 2 + 3i
+> w*conj(w)
+13
+> i*j
+  note: i, j are quaternion units: ij = k = -ji
+k
+> j*i
+  note: i, j are quaternion units: ij = k = -ji
+-k
+> (1+i+j+k)^2
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+-2 + 2i + 2j + 2k
+> (1 + 2i + 3j + 4k)/(1 - i)
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+  note: a/b is a b^-1 (right division); b^-1 a differs here, since a b != b a
+-1/2 + 3i/2 + 7j/2 + k/2
+> exp(pi*(i+j+k)/sqrt(3))
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+-1
+> sqrt(i + j)
+  note: i, j are quaternion units: ij = k = -ji
+0.8408964153 + 0.5946035575i + 0.5946035575j
+> log(1 + i + j + k)
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+log(2) + 0.6045997881i + 0.6045997881j + 0.6045997881k
+> conj(1+2i+3j+4k)
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+1 - 2i - 3j - 4k
+> im(1+2i+3j)
+  note: i, j are quaternion units: ij = k = -ji
+2i + 3j
+> sqrt(-1 + 0*j)
+  note: j is read as the imaginary unit (j^2 = -1)
+  note: on the branch cut of sqrt: the principal value, sqrt z = e^(log(z)/2): i sqrt|z| on the negative reals (the other root is its negative)
+i
+> e1*e2
+e3
+> (e1*e2)*e4
+  note: octonion products are not associative: each product is taken as grouped, (a b) c != a (b c) here
+e7
+> e1*(e2*e4)
+  note: octonion products are not associative: each product is taken as grouped, (a b) c != a (b c) here
+-e7
+> (1 + e1)^(1/2)
+sqrt((1 + sqrt(2))/2) + e1*sqrt((-1 + sqrt(2))/2)
+> exp(e1 + e2)
+0.1559436948 + 0.6984559986 e1 + 0.6984559986 e2
+> (e1 + e10)*(e4 - e15)
+  note: the sedenions have zero divisors: a b = 0 with a, b != 0 is possible, and |ab| != |a||b|
+0
+> f(z) = z^2 + 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+> show f
+f(z: complex) = z^2 + 1
+  -> complex
+> table f max 6
+  z = 0  ->  1
+  z = 1  ->  2
+  z = -1  ->  2
+  z = i  ->  0
+  z = -i  ->  0
+  z = 1 + i  ->  1 + 2i
+  ... (table max 6)
+> g(z: c64) = z*z + 0.1
+> table g max 2
+  z = 0  ->  0.1000000015
+  z = 1  ->  1.100000024
+  ... (table max 2)
+> q(t) = exp(t*(i+j+k)/sqrt(3))
+  note: i, j, k are the quaternion units: i^2 = j^2 = k^2 = ijk = -1, ij = k = -ji (say k: real for a variable k)
+> show q
+q(t: real) = exp(t*(i + j + k)/1.732050808)
+  -> quaternion
+> table q max 3
+  t = -2  ->  -0.4161468365 - 0.5249831142i - 0.5249831142j - 0.5249831142k
+  t = -1  ->  0.5403023059 - 0.4858234996i - 0.4858234996j - 0.4858234996k
+  t = 0  ->  1
+  ... (table max 3)
+> h(x, z) = x + z
+> show h
+h(x: real, z: real) = x + z
+  -> real
+> p: quat
+_(p: quaternion) = p
+  -> quaternion
+> range f
+hyper.ucas:51:1: error: range works on real functions; this one is complex (use re, im, modulus or arg to get a real one, or define it with real parameters)
+    range f
+    ^
+> zeros f
+zeros of f (z complex):
+  2 roots (a polynomial of degree 2):
+    z = -i
+    z = i
+  check: f = 0 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 2 has 2 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros z^3 = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^3 - 1 (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -1/2 - i*sqrt(3)/2
+    z = -1/2 + i*sqrt(3)/2
+    z = 1
+  check: |z^3 - 1| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros z^4 + 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^4 + 1 (z complex):
+  4 roots (a polynomial of degree 4):
+    z = -sqrt(2)/2 - i*sqrt(2)/2
+    z = -sqrt(2)/2 + i*sqrt(2)/2
+    z = sqrt(2)/2 - i*sqrt(2)/2
+    z = sqrt(2)/2 + i*sqrt(2)/2
+  check: |z^4 + 1| <= 4e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 4 has 4 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros (z - 1)^2*(z + 2i)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of (z - 1)^2*(z + 2i) (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -2i
+    z = 1  (double)
+  check: (z - 1)^2*(z + 2i) = 0 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros z^2 + 2z + 5
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^2 + 2z + 5 (z complex):
+  2 roots (a polynomial of degree 2):
+    z = -1 - 2i
+    z = -1 + 2i
+  check: z^2 + 2z + 5 = 0 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 2 has 2 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros z^5 - z + 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^5 - z + 1 (z complex):
+  5 roots (a polynomial of degree 5):
+    z = -1.167303978
+    z = -0.1812324445 - 1.083954101i
+    z = -0.1812324445 + 1.083954101i
+    z = 0.7648844336 - 0.352471546i
+    z = 0.7648844336 + 0.352471546i
+  check: |z^5 - z + 1| <= 7e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 5 has 5 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> zeros sin(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of sin(z) (z complex):
+  5 zeros in |Re z|, |Im z| <= 7:
+    z = -2pi
+    z = -pi
+    z = 0
+    z = pi
+    z = 2pi
+  numerically: Newton's method from a 21x21 grid, each zero checked (|f| < 1e-8); not a proof that there are no others
+> diff z^3
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+d/dz z^3 = 3z^2
+  the complex derivative: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  entire: holomorphic on the whole plane
+  check: equals the difference quotient at 64 of 64 sample points (max relative difference 1e-10)
+> diff exp(i*z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+d/dz exp(i*z) = exp(i*z)*i
+  the complex derivative: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  entire: holomorphic on the whole plane
+  check: equals the difference quotient at 64 of 64 sample points (max relative difference 1e-10)
+> diff conj(z)*z
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+d/dz conj(z)*z does not exist: conj(z)*z is not holomorphic
+  Cauchy-Riemann fails: at z = 1/2 + i/4, df/dx = 1 but df/(i dy) = -0.5i
+  (it uses conj, which is not holomorphic)
+  Wirtinger derivatives there: df/dz = 0.5 - 0.25i, df/dconj(z) = 0.5 + 0.25i (holomorphic means df/dconj(z) = 0)
+> holomorphic exp(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  holomorphic: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  entire: holomorphic on the whole plane
+> holomorphic |z|^2
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+abs(z)^2 is not holomorphic
+  Cauchy-Riemann fails: at z = 1/2 + i/4, df/dx = 1 but df/(i dy) = -0.5i
+  (it uses |.|, which is not holomorphic)
+  Wirtinger derivatives there: df/dz = 0.5 - 0.25i, df/dconj(z) = 0.5 + 0.25i (holomorphic means df/dconj(z) = 0)
+> holomorphic log(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  holomorphic: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  holomorphic except at log (the branch cuts of the principal values)
+> holomorphic 1/z
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  holomorphic: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  holomorphic except at the points where it is undefined (poles)
+> holomorphic re(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+re(z) is not holomorphic
+  Cauchy-Riemann fails: at z = 1/2 + i/4, df/dx = 1 but df/(i dy) = 0
+  (it uses re, which is not holomorphic)
+  Wirtinger derivatives there: df/dz = 1/2, df/dconj(z) = 1/2 (holomorphic means df/dconj(z) = 0)
+> limit sin(z)/z at 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of sin(z)/z as z -> 0:
+  = 1
+  checked numerically along 8 directions (arg(z - a) = 0, pi/4, ..., -pi/4), z -> a by factors of 4: all agree
+  (sin(z)/z is undefined at 0 itself: a removable singularity)
+> limit conj(z)/z at 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of conj(z)/z as z -> 0:
+  does not exist: the values along different directions differ
+    along arg(z - a) = 0: 1
+    along arg(z - a) = pi/4: -i
+    along arg(z - a) = pi/2: -1
+    along arg(z - a) = 3pi/4: i
+    along arg(z - a) = pi: 1
+    along arg(z - a) = -3pi/4: -i
+    along arg(z - a) = -pi/2: -1
+    along arg(z - a) = -pi/4: i
+> limit 1/z at 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of 1/z as z -> 0:
+  infinity: |1/z| grows without bound from every direction (a pole)
+> limit (z^2+1)/(z-i) at i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of (z^2 + 1)/(z - i) as z -> i:
+  = 2i
+  checked numerically along 8 directions (arg(z - a) = 0, pi/4, ..., -pi/4), z -> a by factors of 4: all agree
+  ((z^2 + 1)/(z - i) is undefined at i itself: a removable singularity)
+> limit 1/z^2 as z -> inf
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of 1/z^2 as z -> infinity:
+  = 0
+  checked numerically along 8 directions (arg(z) = 0, pi/4, ..., -pi/4), z -> infinity by factors of 4: all agree
+> residue 1/(z^2+1) at i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+residue of 1/(z^2 + 1) at z = i:
+  = -i/2
+  a pole of order 1 (|f| grows like |z - a|^-1)
+  computed as (1/(2 pi i)) times the integral of 1/(z^2 + 1) on |z - a| = 0.01 and 0.005 (512 points each): they agree
+> residue 1/z^3 at 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+residue of 1/z^3 at z = 0:
+  = 0
+  a pole of order 3 (|f| grows like |z - a|^-3)
+  computed as (1/(2 pi i)) times the integral of 1/z^3 on |z - a| = 0.01 and 0.005 (512 points each): they agree
+> residue exp(1/z) at 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+residue of exp(1/z) at z = 0:
+  the integral around small circles does not settle (an essential singularity or a branch point)
+> poles 1/(z^2+1)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+poles of 1/(z^2 + 1):
+    z = -i  order 1, residue i/2
+    z = i  order 1, residue -i/2
+  numerically: zeros of 1/f by Newton's method from a grid in |Re z|, |Im z| <= 7; orders from the growth of |f| on circles of radius 1e-2..1e-4, residues by circle integrals
+> integrate 1/z around |z| = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of 1/z around |z| = 1 (counterclockwise):
+  = 2pi*i
+  numerically: the trapezoid rule on the circle with 1024 and 2048 points (difference 3e-18)
+  residue theorem: 2 pi i times the sum of the residues at the 1 pole inside = 2pi*i: agrees
+> integrate 1/(z^2+1) around |z - i| = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of 1/(z^2 + 1) around |z - i| = 1 (counterclockwise):
+  = pi
+  numerically: the trapezoid rule on the circle with 1024 and 2048 points (difference 4e-16)
+  residue theorem: 2 pi i times the sum of the residues at the 1 pole inside = pi: agrees
+> integrate 1/z around |z - 2| = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of 1/z around |z - 2| = 1 (counterclockwise):
+  = 0
+  numerically: the trapezoid rule on the circle with 1024 and 2048 points (difference 2e-16)
+  no pole inside: 0, as Cauchy's theorem says for a function holomorphic on the disc
+> integrate z^2 from 0 to 1 + i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of z^2 along the segment from 0 to 1 + i:
+  = -2/3 + 2i/3
+  numerically: Simpson's rule with 4096 and 2048 steps (difference 0e+00); the straight path; a holomorphic integrand on a simply connected region containing it gives the same value on every path
+> complex z^2
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  note: z = x + iy (real and imaginary parts real)
+  note: i is the imaginary unit; x, y are taken as real
+(x + i*y)^2 = x^2 - y^2 + 2i*x*y
+  Re = x^2 - y^2,  Im = 2x*y
+  check: equal at 64 of 64 sample points
+> re f
+  note: z = x + iy (real and imaginary parts real)
+  note: i is the imaginary unit; x, y are taken as real
+Re((x + i*y)^2 + 1) = x^2 - y^2 + 1
+  check: equal at 64 of 64 sample points
+> modulus exp(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  note: z = x + iy (real and imaginary parts real)
+  note: i is the imaginary unit; x, y are taken as real
+|exp(x + i*y)| = exp(x)
+  check: equal at 64 of 64 sample points (max relative difference 2e-16)
+> plot (z^2-1)/(z^2+1) nofile
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+domain colouring of (z^2 - 1)/(z^2 + 1), z in [-2, 2] x [-2, 2]i
+  hue = arg f (red: positive real, yellow-green: arg 2pi/3 side, cyan: negative real, blue-magenta: arg < 0); brightness rises from dark to light each time |f| doubles
+  zeros (every hue meets, counterclockwise red, yellow, green, blue): -1 1
+  poles (the hues in the opposite order): -i i
+  image: 400x400, 46813 bytes
+  (nofile: GIF checksum 0bb790e2)
+> plot |f| nofile
+  note: z = x + iy
+  |f|(f) as a surface over the plane (z = x + iy):
+surface: z = f(x, y)
+  x in [-2, 2]: covering the 1 feature found in [-10, 10]
+  y in [-2.5, 2.5]: covering the 3 features found in [-10, 10]
+  z in [-0.4146, 10.58]: the values
+  65x65 grid
+  image: 640x500, 31762 bytes
+  (nofile: GIF checksum d5fe5133)
+> table quaternion
+multiplication table of the quaternions (row times column), not symmetric: the product does not commute:
+      |   1   i   j   k
+  ----+----------------
+    1 |   1   i   j   k
+    i |   i  -1   k  -j
+    j |   j  -k  -1   i
+    k |   k   j  -i  -1
+  i^2 = j^2 = k^2 = ijk = -1 (Hamilton); ij = k, jk = i, ki = j, and reversing a product changes its sign
+> table octonion
+multiplication table of the octonions (row times column), not symmetric: the product does not commute:
+       |    1   e1   e2   e3   e4   e5   e6   e7
+  -----+----------------------------------------
+     1 |    1   e1   e2   e3   e4   e5   e6   e7
+    e1 |   e1   -1   e3  -e2   e5  -e4  -e7   e6
+    e2 |   e2  -e3   -1   e1   e6   e7  -e4  -e5
+    e3 |   e3   e2  -e1   -1   e7  -e6   e5  -e4
+    e4 |   e4  -e5  -e6  -e7   -1   e1   e2   e3
+    e5 |   e5   e4  -e7   e6  -e1   -1  -e3   e2
+    e6 |   e6   e7   e4  -e5  -e2   e3   -1  -e1
+    e7 |   e7  -e6   e5   e4  -e3  -e2   e1   -1
+  the Fano plane: the 7 lines (a, b, c) with e_a e_b = e_c, e_b e_c = e_a, e_c e_a = e_b:
+    (1, 2, 3) (1, 4, 5) (1, 7, 6) (2, 4, 6) (2, 5, 7) (3, 4, 7) (3, 6, 5)
+  every pair of units lies on one line; e_a^2 = -1 and e_a e_b = -e_b e_a for a != b
+> algebra quaternion
+the quaternions: dimension 4 over the reals, basis 1, i, j, k
+  commutative: no: i j = k but j i = -k
+  associative: yes ((ab)c = a(bc) at 200 random triples); by Frobenius, R, C and H are the only associative real division algebras
+  alternative: yes ((aa)b = a(ab), (ba)a = b(aa) at 200 random pairs)
+  flexible and power-associative: yes ((ab)a = a(ba); powers a^n are well defined), as in every Cayley-Dickson algebra
+  normed (a composition algebra): yes, |ab| = |a||b| at 200 random pairs (Euler's four-square identity)
+  a division algebra: yes, ab = 0 only when a = 0 or b = 0 (it is normed); by Hurwitz, R, C, H and O are the only normed division algebras
+  inverses: every a != 0 has a^-1 = conj(a)/|a|^2 (a a^-1 = 1, checked)
+  conjugation: conj(ab) = conj(b) conj(a) (checked); a conj(a) = |a|^2
+> algebra octonion
+the octonions: dimension 8 over the reals, basis 1, e1, e2, e3, e4, e5, e6, e7
+  commutative: no: e1 e2 = e3 but e2 e1 = -e3
+  associative: no: (e1 e2) e4 = e7 but e1 (e2 e4) = -e7
+  alternative: yes ((aa)b = a(ab), (ba)a = b(aa) at 200 random pairs); by Artin's theorem any two elements generate an associative subalgebra
+  flexible and power-associative: yes ((ab)a = a(ba); powers a^n are well defined), as in every Cayley-Dickson algebra
+  normed (a composition algebra): yes, |ab| = |a||b| at 200 random pairs (Degen's eight-square identity)
+  a division algebra: yes, ab = 0 only when a = 0 or b = 0 (it is normed); by Hurwitz, R, C, H and O are the only normed division algebras
+  inverses: every a != 0 has a^-1 = conj(a)/|a|^2 (a a^-1 = 1, checked); a^-1(ab) = b holds (alternativity)
+  conjugation: conj(ab) = conj(b) conj(a) (checked); a conj(a) = |a|^2
+> algebra sedenion
+the sedenions: dimension 16 over the reals, basis 1, e1, e2, e3, e4, e5, e6, e7, ...
+  commutative: no: e1 e2 = e3 but e2 e1 = -e3
+  associative: no: (e1 e2) e4 = e7 but e1 (e2 e4) = -e7
+  alternative: no: (aa)b != a(ab) for random a, b (by 7.28)
+  flexible and power-associative: yes ((ab)a = a(ba); powers a^n are well defined), as in every Cayley-Dickson algebra
+  normed: no: |ab| != |a||b| (off by 0.595 at a random pair)
+  a division algebra: no, it has zero divisors: (e1 - e10)(e4 + e15) = 0
+  inverses: every a != 0 has a^-1 = conj(a)/|a|^2 (a a^-1 = 1, checked); but a^-1(ab) = b can fail, so ax = b need not be solvable
+  conjugation: conj(ab) = conj(b) conj(a) (checked); a conj(a) = |a|^2
+> zerodivisors sedenion
+zero divisors in the sedenions:
+  (e1 - e10)(e4 + e15) = 0, although |e1 - e10| = |e4 + e15| = sqrt(2)
+  so |ab| = |a||b| fails and the sedenions are not a division algebra (from dimension 16 on, every Cayley-Dickson algebra has them)
+> associator e1, e2, e4
+[a, b, c] = (ab)c - a(bc) = e7 - (-e7) = 2 e7
+  not associative: the grouping changes the product (in the octonions)
+> associator i, j, k
+[a, b, c] = (ab)c - a(bc) = -1 - (-1) = 0
+  the product of these three is associative (in the quaternions)
+> commutator i, j
+[a, b] = ab - ba = k - (-k) = 2k
+  they do not commute
+> rotate (1, 0, 0) by 90 degrees about the z axis
+rotate (1, 0, 0) by pi/2 about (0, 0, 1):
+  q = cos(theta/2) + sin(theta/2) u, u the unit axis
+  q = sqrt(2)/2 + k*sqrt(2)/2: a rotation by pi/2 about (0, 0, 1)
+  v = i (the vector as a pure quaternion)
+  q v q^-1 = j
+  rotated: (0, 1, 0)
+  check: |v'| = |v| = 1, the real part is 0, and the rotation matrix gives the same vector
+  rotation matrix:
+    [0, -1, 0]
+    [1, 0, 0]
+    [0, 0, 1]
+  (right-handed: counterclockwise looking down the axis towards the origin; -q gives the same rotation)
+> rotate (1, 2, 3) by 1 + i + j + k
+rotate (1, 2, 3) by the quaternion 1 + i + j + k:
+  note: q is not a unit quaternion (|q| = 2): normalised
+  q = 1/2 + i/2 + j/2 + k/2: a rotation by 2pi/3 about (sqrt(3)/3, sqrt(3)/3, sqrt(3)/3)
+  v = i + 2j + 3k (the vector as a pure quaternion)
+  q v q^-1 = 3i + j + 2k
+  rotated: (3, 1, 2)
+  check: |v'| = |v| = sqrt(14), the real part is 0, and the rotation matrix gives the same vector
+  rotation matrix:
+    [0, 0, 1]
+    [1, 0, 0]
+    [0, 1, 0]
+  (right-handed: counterclockwise looking down the axis towards the origin; -q gives the same rotation)
+> rotate (1, 0, 0) by pi/2 about (1, 1, 1)
+rotate (1, 0, 0) by pi/2 about (1, 1, 1):
+  q = cos(theta/2) + sin(theta/2) u, u the unit axis
+  q = sqrt(2)/2 + i*sqrt(6)/6 + j*sqrt(6)/6 + k*sqrt(6)/6: a rotation by pi/2 about (sqrt(3)/3, sqrt(3)/3, sqrt(3)/3)
+  v = i (the vector as a pure quaternion)
+  q v q^-1 = i/3 + j*(1 + sqrt(3))/3 + k*(1 - sqrt(3))/3
+  rotated: (1/3, (1 + sqrt(3))/3, (1 - sqrt(3))/3)
+  check: |v'| = |v| = 1, the real part is 0, and the rotation matrix gives the same vector
+  rotation matrix:
+    [1/3, (1 - sqrt(3))/3, (1 + sqrt(3))/3]
+    [(1 + sqrt(3))/3, 1/3, (1 - sqrt(3))/3]
+    [(1 - sqrt(3))/3, (1 + sqrt(3))/3, 1/3]
+  (right-handed: counterclockwise looking down the axis towards the origin; -q gives the same rotation)
+> axisangle (0, 0, 1), 90 degrees
+the rotation by pi/2 about (0, 0, 1):
+  q = cos(theta/2) + sin(theta/2) u = sqrt(2)/2 + k*sqrt(2)/2
+  rotation matrix:
+    [0, -1, 0]
+    [1, 0, 0]
+    [0, 0, 1]
+> axisangle 1 + i
+  note: q is not a unit quaternion (|q| = sqrt(2)): normalised
+sqrt(2)/2 + i*sqrt(2)/2 = cos(theta/2) + sin(theta/2) u:
+  theta = pi/2 (90 degrees), axis u = (1, 0, 0)
+> rotmatrix 1 + i + j + k
+  note: q is not a unit quaternion (|q| = 2): normalised
+the rotation matrix of 1/2 + i/2 + j/2 + k/2 (v -> q v q^-1):
+  [0, 0, 1]
+  [1, 0, 0]
+  [0, 1, 0]
+> frommatrix 0, -1, 0, 1, 0, 0, 0, 0, 1
+the unit quaternion of the rotation matrix: q = sqrt(2)/2 + k*sqrt(2)/2 (or -q)
+  check: q's matrix equals the given one (max difference 2e-16)
+> slerp 1, k, 1/2
+slerp(1, k, 1/2) = sqrt(2)/2 + k*sqrt(2)/2
+  the arc between them on the unit sphere: a = pi/2 (a rotation by pi); slerp = (sin((1-t)a) q1 + sin(ta) q2)/sin(a)
+  check: |slerp| = 1, and q1 (q1^-1 q2)^t = sqrt(2)/2 + k*sqrt(2)/2: the same
+> multiply (1+2i) by (3-i)
+  ucas: ((1+2i))*((3-i))
+5 + 5i
+> what is (1+2i)*(3-i)?
+  ucas: (1 + 2*i)*(3 - i)
+5 + 5i
+> what is e to the i pi
+  ucas: (e)^(i pi)
+-1
+> the square root of -4
+  ucas: sqrt(-4)
+  note: sqrt(-4) is undefined in the reals; its complex principal value follows
+  note: on the branch cut of sqrt: the principal value, sqrt z = e^(log(z)/2): i sqrt|z| on the negative reals (the other root is its negative)
+2i
+> roots of z^3 = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+zeros of z^3 - 1 (z complex):
+  3 roots (a polynomial of degree 3):
+    z = -1/2 - i*sqrt(3)/2
+    z = -1/2 + i*sqrt(3)/2
+    z = 1
+  check: |z^3 - 1| <= 2e-16 at the roots; the polynomial's coefficients come from 64 samples and were checked at 8 other points
+  a polynomial of degree 3 has 3 complex roots counted with multiplicity (the fundamental theorem of algebra)
+> is z^2 holomorphic
+  ucas: holomorphic z^2
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+  holomorphic: the Cauchy-Riemann equations hold at 64 sample points of [-2, 2] x [-2, 2] (df/dx = df/(i dy))
+  entire: holomorphic on the whole plane
+> is conj(z) analytic?
+  ucas: holomorphic conj(z)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+conj(z) is not holomorphic
+  Cauchy-Riemann fails: at z = 1/2 + i/4, df/dx = 1 but df/(i dy) = -1
+  (it uses conj, which is not holomorphic)
+  Wirtinger derivatives there: df/dz = 0, df/dconj(z) = 1 (holomorphic means df/dconj(z) = 0)
+> the residue of 1/(z^2+1) at i
+  ucas: residue 1/(z^2+1) at i
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+residue of 1/(z^2 + 1) at z = i:
+  = -i/2
+  a pole of order 1 (|f| grows like |z - a|^-1)
+  computed as (1/(2 pi i)) times the integral of 1/(z^2 + 1) on |z - a| = 0.01 and 0.005 (512 points each): they agree
+> the poles of 1/(z^2+1)
+  ucas: poles 1/(z^2+1)
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+poles of 1/(z^2 + 1):
+    z = -i  order 1, residue i/2
+    z = i  order 1, residue -i/2
+  numerically: zeros of 1/f by Newton's method from a grid in |Re z|, |Im z| <= 7; orders from the growth of |f| on circles of radius 1e-2..1e-4, residues by circle integrals
+> integrate exp(z)/z around the unit circle
+  ucas: integrate exp(z)/z around |z| = 1
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+integral of exp(z)/z around |z| = 1 (counterclockwise):
+  = 2pi*i
+  numerically: the trapezoid rule on the circle with 1024 and 2048 points (difference 1e-15)
+  residue theorem: 2 pi i times the sum of the residues at the 1 pole inside = 2pi*i: agrees
+> rotate (1, 0, 0) by 90 degrees about the z axis using quaternions
+rotate (1, 0, 0) by pi/2 about (0, 0, 1):
+  q = cos(theta/2) + sin(theta/2) u, u the unit axis
+  q = sqrt(2)/2 + k*sqrt(2)/2: a rotation by pi/2 about (0, 0, 1)
+  v = i (the vector as a pure quaternion)
+  q v q^-1 = j
+  rotated: (0, 1, 0)
+  check: |v'| = |v| = 1, the real part is 0, and the rotation matrix gives the same vector
+  rotation matrix:
+    [0, -1, 0]
+    [1, 0, 0]
+    [0, 0, 1]
+  (right-handed: counterclockwise looking down the axis towards the origin; -q gives the same rotation)
+> quaternion product of i and j
+  ucas: (i)*(j)
+  note: i, j are quaternion units: ij = k = -ji
+k
+> is octonion multiplication associative
+  ucas: algebra octonion associative
+the octonions: dimension 8 over the reals, basis 1, e1, e2, e3, e4, e5, e6, e7
+  associative: no: (e1 e2) e4 = e7 but e1 (e2 e4) = -e7
+> are the quaternions commutative?
+  ucas: algebra quaternion commutative
+the quaternions: dimension 4 over the reals, basis 1, i, j, k
+  commutative: no: i j = k but j i = -k
+> the octonion multiplication table
+  ucas: table octonion
+multiplication table of the octonions (row times column), not symmetric: the product does not commute:
+       |    1   e1   e2   e3   e4   e5   e6   e7
+  -----+----------------------------------------
+     1 |    1   e1   e2   e3   e4   e5   e6   e7
+    e1 |   e1   -1   e3  -e2   e5  -e4  -e7   e6
+    e2 |   e2  -e3   -1   e1   e6   e7  -e4  -e5
+    e3 |   e3   e2  -e1   -1   e7  -e6   e5  -e4
+    e4 |   e4  -e5  -e6  -e7   -1   e1   e2   e3
+    e5 |   e5   e4  -e7   e6  -e1   -1  -e3   e2
+    e6 |   e6   e7   e4  -e5  -e2   e3   -1  -e1
+    e7 |   e7  -e6   e5   e4  -e3  -e2   e1   -1
+  the Fano plane: the 7 lines (a, b, c) with e_a e_b = e_c, e_b e_c = e_a, e_c e_a = e_b:
+    (1, 2, 3) (1, 4, 5) (1, 7, 6) (2, 4, 6) (2, 5, 7) (3, 4, 7) (3, 6, 5)
+  every pair of units lies on one line; e_a^2 = -1 and e_a e_b = -e_b e_a for a != b
+> zero divisors of the sedenions
+  ucas: zerodivisors sedenion
+zero divisors in the sedenions:
+  (e1 - e10)(e4 + e15) = 0, although |e1 - e10| = |e4 + e15| = sqrt(2)
+  so |ab| = |a||b| fails and the sedenions are not a division algebra (from dimension 16 on, every Cayley-Dickson algebra has them)
+> the commutator of i and j
+  ucas: commutator i, j
+[a, b] = ab - ba = k - (-k) = 2k
+  they do not commute
+> domain colouring of (z^2-1)/(z^2+1) nofile
+  ucas: plot (z^2-1)/(z^2+1) nofile
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+domain colouring of (z^2 - 1)/(z^2 + 1), z in [-2, 2] x [-2, 2]i
+  hue = arg f (red: positive real, yellow-green: arg 2pi/3 side, cyan: negative real, blue-magenta: arg < 0); brightness rises from dark to light each time |f| doubles
+  zeros (every hue meets, counterclockwise red, yellow, green, blue): -1 1
+  poles (the hues in the opposite order): -i i
+  image: 400x400, 46813 bytes
+  (nofile: GIF checksum 0bb790e2)
+> the limit of sin(z)/z as z approaches 0
+  ucas: it(z) = sin(z)/z
+  ucas: limit it z -> 0
+  note: z is taken as complex (no x or y here; say z: real for a real variable)
+limit of it as z -> 0:
+  = 1
+  checked numerically along 8 directions (arg(z - a) = 0, pi/4, ..., -pi/4), z -> a by factors of 4: all agree
+  (it is undefined at 0 itself: a removable singularity)
