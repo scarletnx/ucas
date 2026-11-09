@@ -247,6 +247,7 @@ zn_info(u64 n, int sub)
 		for (i = 0; i < nl && i < 24; i++)
 			printf(" (%llu)", U(list[i] == n ? 0 : list[i]));
 		printf("%s\n", cnt > 24 ? " ..." : "");
+		printf("  quotients: Z/%llu / (d) = Z/d (a -> a mod d)\n", U(n));
 		if (n > 1) {
 			printf("  maximal = prime ideals: ");
 			for (i = 0; i < f.k; i++)

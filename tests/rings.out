@@ -60,6 +60,7 @@ Z/12: the integers mod 12 = 2^2 * 3
   nilpotents: the multiples of rad(12) = 6, 2 of them: 0, 6
   idempotents: 2^2 (e = 0 or 1 mod each prime power): 0, 1, 4, 9
   ideals: (d) for each d | 12 (6 of them; Z/12 is a principal ideal ring): (1) (2) (3) (4) (6) (0)
+  quotients: Z/12 / (d) = Z/d (a -> a mod d)
   maximal = prime ideals: (2), (3) (quotients Z/p, fields)
   check: by brute force over the 12 elements: 4 units, 7 zero divisors, 2 nilpotents, 4 idempotents
 > ring Z/12 units
@@ -79,6 +80,7 @@ Z/7: the integers mod 7
   nilpotents: the multiples of rad(7) = 7, 1 of them: 0
   idempotents: 2^1 (e = 0 or 1 mod each prime power): 0, 1
   ideals: (d) for each d | 7 (2 of them; Z/7 is a principal ideal ring): (1) (0)
+  quotients: Z/7 / (d) = Z/d (a -> a mod d)
   maximal = prime ideals: (7) (quotients Z/p, fields)
   check: by brute force over the 7 elements: 6 units, 0 zero divisors, 1 nilpotents, 2 idempotents
 > ring Z/12 4
