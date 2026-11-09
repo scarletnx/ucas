@@ -774,6 +774,7 @@ switch_body(uint32_t body, nid v, uint32_t vty, uint32_t at)
 {
 	uint32_t k, cnt, *items, one[1];
 	nid entry = L.alive, none = T1;
+	int has_default = 0;
 	struct lctx *lc;
 
 	if (AU.kind[body] == CA_BLOCK) {
@@ -791,6 +792,8 @@ switch_body(uint32_t body, nid v, uint32_t vty, uint32_t at)
 			if (AU.kind[s] == CA_CASE)
 				none = band(none, mk_bin(O_NE, v, kint(vty,
 				    AU.iv[s], s)));
+			else
+				has_default = 1;
 			s = AU.a[s];
 		}
 	}
@@ -812,6 +815,9 @@ switch_body(uint32_t body, nid v, uint32_t vty, uint32_t at)
 	L.nlc--;
 	lc = &L.lc[L.nlc];
 	L.alive = bor(L.alive, lc->brk);
+	/* no label matched and no default: past the switch */
+	if (!has_default)
+		L.alive = bor(L.alive, band(entry, none));
 	/* continue inside a switch belongs to the loop around it */
 	if (lc->cont != F0) {
 		int j;

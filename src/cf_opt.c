@@ -612,7 +612,24 @@ static void
 gen_idioms(const struct cf_value *v, nid e, struct cf_cands *cs)
 {
 	ty_t t = N.ty[e];
-	int k;
+	int k, have0 = 0;
+	int64_t at0 = 0;
+
+	{
+		/* the value with every input 0 */
+		struct plan p;
+		int64_t in_i[MAXP * CH];
+		double in_r[MAXP * CH];
+		memset(in_i, 0, sizeof in_i);
+		memset(in_r, 0, sizeof in_r);
+		plan_build(&p, &e, 1, 0);
+		plan_run(&p, 1, in_i, in_r);
+		if (!(COLF(&p, p.root[0])[0] & F_UNDEF)) {
+			have0 = 1;
+			at0 = COLI(&p, p.root[0])[0];
+		}
+		plan_free(&p);
+	}
 
 	for (k = 0; k < v->nleaf; k++) {
 		nid x = leaf_node(v, k), ux, c;
@@ -656,6 +673,15 @@ gen_idioms(const struct cf_value *v, nid e, struct cf_cands *cs)
 				continue;
 			snprintf(d, sizeof d, f[j].f, nm, nm);
 			cf_cand_add(cs, c, NULL, NULL, 0, 0, d);
+			/* the loop forms often special-case 0 */
+			if (have0 && j < 6) {
+				char d2[96];
+				nid z = mk_sel(mk_bin(O_EQ, x, mk_const_i(xt, 0)),
+				    mk_const_i(t, at0), c);
+				snprintf(d2, sizeof d2, "%.60s, %lld at 0", d,
+				    (long long)at0);
+				cf_cand_add(cs, z, NULL, NULL, 0, 0, d2);
+			}
 		}
 	}
 }
@@ -831,6 +857,93 @@ gen_table(const struct cf_value *v, nid e, struct cf_cands *cs)
 	free(tab);
 }
 
+/*
+ * A value of one bounded input that is a polynomial of degree <= 3 in it
+ * (up to a point after which it stays constant, as a loop with a capped
+ * trip count gives): Newton's forward differences are integers, so
+ * f0 + D1 u + D2 u(u-1)/2 + D3 u(u-1)(u-2)/6 is exact in 64 bits.
+ */
+static void
+gen_poly(const struct cf_value *v, nid e, struct cf_cands *cs)
+{
+	int k = single_slot(e), undef, deg, j;
+	int64_t lo, hi, *tab, c, n;
+	ty_t t = N.ty[e], xt, w = TY(K_SINT, 64);
+	nid x;
+
+	if (k < 0 || k >= v->nleaf || !TY_SIZED(t) || t == TY_BOOL)
+		return;
+	x = leaf_node(v, k);
+	xt = N.ty[x];
+	if (v->leaf[k].ranged) {
+		lo = v->leaf[k].lo;
+		hi = v->leaf[k].hi;
+	} else if (TY_SIZED(xt) && TYW(xt) <= 16 && xt != TY_BOOL) {
+		lo = TYK(xt) == K_SINT ? -((int64_t)1 << (TYW(xt) - 1)) : 0;
+		hi = TYK(xt) == K_SINT ? ((int64_t)1 << (TYW(xt) - 1)) - 1 :
+		    ((int64_t)1 << TYW(xt)) - 1;
+	} else
+		return;
+	if (hi - lo > 65535 || hi - lo < 8)
+		return;
+	n = hi - lo + 1;
+	tab = xmalloc((size_t)n * sizeof *tab);
+	eval_line(v, e, k, lo, hi, tab, &undef);
+	if (undef) {
+		free(tab);
+		return;
+	}
+	/* the plateau: tab[c..] all equal */
+	for (c = n - 1; c > 0 && tab[c - 1] == tab[n - 1]; c--)
+		;
+	for (deg = 1; deg <= 3; deg++) {
+		int64_t d[4], ok = 1;
+		if (c < deg + 2)
+			break;
+		d[0] = tab[0];
+		d[1] = tab[1] - tab[0];
+		d[2] = tab[2] - 2 * tab[1] + tab[0];
+		d[3] = tab[3] - 3 * tab[2] + 3 * tab[1] - tab[0];
+		for (j = deg + 1; j <= 3; j++)
+			d[j] = 0;
+		for (j = 0; j <= c && ok; j++) {
+			/* u = j: the polynomial at j, exactly */
+			int64_t u = j, p = d[0] + d[1] * u + d[2] * (u * (u - 1) / 2) +
+			    d[3] * (u * (u - 1) * (u - 2) / 6);
+			if (int_norm(t, p) != tab[j])
+				ok = 0;
+		}
+		if (ok) {
+			nid u, r, u1, u2;
+			char what[120];
+			u = mk_cast(w, x);
+			if (c < n - 1)
+				u = mk_bin(O_MIN, u, mk_const_i(w, lo + c));
+			if (lo)
+				u = mk_bin(O_SUB, u, mk_const_i(w, lo));
+			u1 = mk_bin(O_SUB, u, mk_const_i(w, 1));
+			u2 = mk_bin(O_SUB, u, mk_const_i(w, 2));
+			r = mk_const_i(w, d[0]);
+			if (d[1])
+				r = mk_bin(O_ADD, r, mk_bin(O_MUL, mk_const_i(w, d[1]), u));
+			if (d[2])
+				r = mk_bin(O_ADD, r, mk_bin(O_MUL, mk_const_i(w, d[2]),
+				    mk_bin(O_DIV, mk_bin(O_MUL, u, u1), mk_const_i(w, 2))));
+			if (d[3])
+				r = mk_bin(O_ADD, r, mk_bin(O_MUL, mk_const_i(w, d[3]),
+				    mk_bin(O_DIV, mk_bin(O_MUL, mk_bin(O_MUL, u, u1), u2),
+				    mk_const_i(w, 6))));
+			r = mk_cast(t, r);
+			snprintf(what, sizeof what, "a polynomial of degree %d in %s%s",
+			    deg, v->leaf[k].text, c < n - 1 ? " (capped: constant "
+			    "from there on)" : "");
+			cf_cand_add(cs, r, NULL, NULL, 0, 0, what);
+			break;
+		}
+	}
+	free(tab);
+}
+
 /* ---- local rewrites (one node at a time) ---- */
 
 struct ivals {
@@ -979,12 +1092,10 @@ gen_local(const struct cf_value *v, nid e, struct cf_cands *cs)
 					r = safe_replace(e, n, r);
 					cf_cand_add(cs, r, NULL, NULL, 0, 0, w);
 					last_lemma(cs, r, "interval: x in [%lld, %lld]; "
-					    "M*d - 2^s = %llu and x*%llu < 2^%d for x <= %lld "
-					    "(Granlund-Montgomery)", (long long)alo,
-					    (long long)ahi, (unsigned long long)(M *
-					    (uint64_t)N.ki[b] - (s < 64 ? 1ULL << s : 0)),
+					    "e = M*d - 2^s = %llu and e*%lld < 2^%d, so "
+					    "(x*M) >> s = x/d", (long long)alo, (long long)ahi,
 					    (unsigned long long)(M * (uint64_t)N.ki[b] -
-					    (1ULL << s)), s, (long long)ahi);
+					    (1ULL << s)), (long long)ahi, s);
 				}
 			}
 		}
@@ -1053,6 +1164,7 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 			gen_switch(v, cur, &cs);
 			if (allow_table)
 				gen_table(v, cur, &cs);
+			gen_poly(v, cur, &cs);
 			for (k = 0; k < ncand_hooks; k++) {
 				const char *lt[CF_MAXLEAF];
 				int j;
@@ -1166,6 +1278,172 @@ apply_assumptions(struct cf_value *v)
 			}
 }
 
+/* ---- call-site domains ---- */
+
+/*
+ * A static function whose address never escapes is only entered through
+ * the calls in this file, so each parameter ranges over the union of
+ * what those calls pass (each argument lowered and bounded by sound
+ * interval arithmetic over its own inputs' types).  As in the function
+ * level of simplify, the domain comes from the call sites; the rewrites
+ * are proved over it.
+ */
+struct csdom {
+	int n;			/* call sites seen */
+	uint8_t known[MAXP];
+	int64_t lo[MAXP], hi[MAXP];
+};
+static struct csdom *csd;
+
+static void
+cs_walk(struct cf_unit *u, uint32_t caller, uint32_t n, uint8_t *escape)
+{
+	uint32_t k;
+	int kind;
+
+	if (n == 0 || n >= u->A.n)
+		return;
+	kind = u->A.kind[n];
+	if (kind == CA_ID) {
+		uint32_t s = (uint32_t)u->A.iv[n];
+		if (u->S.kind[s] == CS_FUNC)
+			escape[s] = 1;	/* a function used as a value */
+		return;
+	}
+	if (kind == CA_CALL) {
+		uint32_t callee = u->A.a[n], s, fn, j;
+		while (u->A.kind[callee] == CA_CAST && u->A.iv[callee] == 1)
+			callee = u->A.a[callee];
+		for (k = 0; k < u->A.c[n]; k++)
+			cs_walk(u, caller, u->A.lst[u->A.b[n] + k], escape);
+		if (u->A.kind[callee] != CA_ID) {
+			cs_walk(u, caller, callee, escape);
+			return;
+		}
+		s = (uint32_t)u->A.iv[callee];
+		fn = u->S.decl[s];
+		if (u->S.kind[s] != CS_FUNC || fn == 0 || u->A.kind[fn] != CA_FUNC)
+			return;
+		for (j = 0; j < (uint32_t)u->nfn && u->fns[j] != fn; j++)
+			;
+		if (j == (uint32_t)u->nfn || u->A.c[n] != u->A.d[fn] ||
+		    u->A.d[fn] > MAXP)
+			return;
+		{
+			struct csdom *d = &csd[j];
+			for (k = 0; k < u->A.c[n]; k++) {
+				struct cf_value v;
+				uint32_t a = u->A.lst[u->A.b[n] + k];
+				int64_t lo = 0, hi = 0;
+				int ok = 0;
+				if (cf_lower_expr(u, caller, a, &v)) {
+					struct ivals I;
+					ivals_build(&I, &v, v.e);
+					ok = ival_of(&I, v.e, &lo, &hi);
+					ivals_free(&I);
+				} else
+					free((char *)v.why);
+				if (!ok) {
+					d->known[k] = 2;	/* unknown at some site */
+					continue;
+				}
+				if (d->known[k] == 0) {
+					d->known[k] = 1;
+					d->lo[k] = lo;
+					d->hi[k] = hi;
+				} else if (d->known[k] == 1) {
+					if (lo < d->lo[k])
+						d->lo[k] = lo;
+					if (hi > d->hi[k])
+						d->hi[k] = hi;
+				}
+			}
+			d->n++;
+		}
+		return;
+	}
+	if (kind == CA_BLOCK || kind == CA_INIT) {
+		for (k = 0; k < u->A.b[n]; k++)
+			cs_walk(u, caller, u->A.lst[u->A.a[n] + k], escape);
+		return;
+	}
+	if (kind == CA_NUM || kind == CA_FNUM || kind == CA_CHARLIT ||
+	    kind == CA_STR || kind == CA_BREAK || kind == CA_CONTINUE ||
+	    kind == CA_GOTO || kind == CA_EMPTY || kind == CA_TYPEDEF)
+		return;
+	if (kind == CA_DECL) {
+		cs_walk(u, caller, u->A.a[n], escape);
+		return;
+	}
+	if (kind == CA_MEMBER || kind == CA_ARROW || kind == CA_CASE ||
+	    kind == CA_DEFAULT || kind == CA_LABEL || kind == CA_SIZEOF_E ||
+	    kind == CA_CAST || kind == CA_COMPOUND) {
+		cs_walk(u, caller, u->A.a[n], escape);
+		return;
+	}
+	cs_walk(u, caller, u->A.a[n], escape);
+	cs_walk(u, caller, u->A.b[n], escape);
+	cs_walk(u, caller, u->A.c[n], escape);
+	if (kind == CA_FOR)
+		cs_walk(u, caller, u->A.d[n], escape);
+}
+
+static void
+callsite_domains(struct cf_unit *u)
+{
+	uint8_t *escape = xcalloc(u->S.n + 1, 1);
+	int k;
+
+	free(csd);
+	csd = xcalloc((size_t)u->nfn + 1, sizeof *csd);
+	for (k = 0; k < u->nfn; k++)
+		cs_walk(u, u->fns[k], u->A.a[u->fns[k]], escape);
+	/* global initializers can take a function's address too */
+	for (k = 0; k < (int)u->A.d[0]; k++) {
+		uint32_t n = u->A.lst[u->top + k];
+		if (u->A.kind[n] != CA_FUNC)
+			cs_walk(u, 0, n, escape);
+	}
+	for (k = 0; k < u->nfn; k++) {
+		uint32_t s = (uint32_t)u->A.iv[u->fns[k]];
+		if (u->S.stclass[s] != 's' || escape[s] || csd[k].n == 0)
+			csd[k].n = 0;	/* entered from outside: no domain */
+	}
+	free(escape);
+}
+
+static int cur_fn_index;
+
+static void
+apply_callsites(struct cf_value *v, int whole)
+{
+	struct cf_unit *u = R.u;
+	uint32_t fn = u->fns[cur_fn_index], k;
+	const struct csdom *d = &csd[cur_fn_index];
+	int j;
+
+	if (d->n == 0)
+		return;
+	for (k = 0; k < u->A.d[fn] && k < MAXP; k++) {
+		uint32_t ps = u->A.lst[u->A.c[fn] + k];
+		const char *nm = sym_str(u->S.name[ps]);
+		if (d->known[k] != 1 || (!whole && u->S.assigned[ps]))
+			continue;
+		for (j = 0; j < v->nleaf; j++)
+			if (!strcmp(v->leaf[j].text, nm) && !v->leaf[j].ranged) {
+				ty_t t = ct_to_ucas(v->leaf[j].cty);
+				int64_t lo = int_norm(t, d->lo[k]), hi = int_norm(t,
+				    d->hi[k]);
+				if (lo != d->lo[k] || hi != d->hi[k] || lo > hi)
+					continue;
+				v->leaf[j].ranged = 1;
+				v->leaf[j].lo = lo;
+				v->leaf[j].hi = hi;
+				v->leaf[j].from_calls = 1;
+			}
+	}
+}
+
 static void
 record_steps(const struct step *s, int ns, nid from, nid to, int line,
     const char *before_c, const char *after_c, int applied)
@@ -1175,7 +1453,13 @@ record_steps(const struct step *s, int ns, nid from, nid to, int line,
 	struct sbuf what = {0};
 
 	for (k = 0; k < ns; k++) {
+		int rep = 1;
+		while (k + rep < ns && !strcmp(s[k + rep].what, s[k].what))
+			rep++;
 		sb_printf(&what, "%s%s", k ? "; " : "", s[k].what);
+		if (rep > 1)
+			sb_printf(&what, " (x%d)", rep);
+		k += rep - 1;
 		if (s[k].pf.kind == CF_PROOF_EXHAUSTIVE && best != CF_PROOF_SAT)
 			best = CF_PROOF_EXHAUSTIVE;
 	}
@@ -1199,6 +1483,34 @@ record_steps(const struct step *s, int ns, nid from, nid to, int line,
 	w->steps = what.p ? strdup(what.p) : NULL;
 	free(what.p);
 	(void)best;
+}
+
+/* the inputs' ranges that did not come from their types */
+static void
+note_domain(const struct cf_value *v)
+{
+	struct cf_rewrite *w;
+	char buf[160];
+	size_t l;
+	int j, any = 0;
+
+	if (R.r->nrw == 0)
+		return;
+	w = &R.r->rw[R.r->nrw - 1];
+	buf[0] = 0;
+	for (j = 0; j < v->nleaf; j++) {
+		if (!v->leaf[j].ranged)
+			continue;
+		l = strlen(buf);
+		snprintf(buf + l, sizeof buf - l, "%s%s in [%lld, %lld] (%s)",
+		    any++ ? ", " : "", v->leaf[j].text, (long long)v->leaf[j].lo,
+		    (long long)v->leaf[j].hi, v->leaf[j].from_calls ?
+		    "from the call sites" : "assumed");
+	}
+	if (any) {
+		free(w->domain);
+		w->domain = strdup(buf);
+	}
 }
 
 static uint32_t
@@ -1231,6 +1543,7 @@ whole_function(uint32_t fn, struct cf_emit *em)
 		return 0;
 	}
 	apply_assumptions(&v);
+	apply_callsites(&v, 1);
 	best = optimize_value(&v, steps, &ns, 16, 1);
 	if (!cf_span(u, body, &from, &to) || !cf_span(u, fn, &ffrom, &fto))
 		return 1;
@@ -1256,6 +1569,7 @@ whole_function(uint32_t fn, struct cf_emit *em)
 		return 1;
 	}
 	record_steps(steps, ns, v.e, best, (int)fn_line(fn), before.p, out.p, 1);
+	note_domain(&v);
 	add_repl(from, to, out.p, ffrom);
 	R.r->cost_before += steps[0].before;
 	R.r->cost_after += steps[ns - 1].after;
@@ -1297,6 +1611,7 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 		if (cf_cost(R.o->t, v.e) <= 1.5 || !cf_span(u, n, &from, &to))
 			return;
 		apply_assumptions(&v);
+		apply_callsites(&v, 0);
 		best = optimize_value(&v, steps, &ns, 16, 0);
 		if (best != v.e && ns > 0) {
 			struct sbuf out = {0}, before = {0};
@@ -1305,6 +1620,7 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 				    u->ftext[0] + from);
 				record_steps(steps, ns, v.e, best,
 				    (int)u->tk.line[u->A.t0[n]], before.p, out.p, 1);
+				note_domain(&v);
 				{
 					struct sbuf par = {0};
 					sb_printf(&par, "(%s)", out.p);
@@ -1432,6 +1748,7 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 	R.t0 = clock();
 	R.deadline = o->budget > 0 ? o->budget : 10;
 	nreps = 0;
+	callsite_domains(u);
 	for (k = 0; k < u->nfn; k++) {
 		uint32_t fn = u->fns[k], s = (uint32_t)u->A.iv[fn], ff, ft;
 		int before = nreps;
@@ -1441,6 +1758,7 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 		if (!cf_span(u, fn, &ff, &ft))
 			continue;
 		R.fnstart = ff;
+		cur_fn_index = k;
 		if (!whole_function(fn, &em) || nreps == before)
 			if (nreps == before)
 				visit_stmt(fn, u->A.a[fn], &em);
@@ -1479,6 +1797,9 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 		free(reps[k].text);
 	free(em.helpers.p);
 	r->nproofs = R.nproofs;
+	r->calls_only = xcalloc((size_t)u->nfn + 1, 1);
+	for (k = 0; k < u->nfn; k++)
+		r->calls_only[k] = csd[k].n > 0;
 	r->seconds = elapsed();
 	return 1;
 }
@@ -1492,8 +1813,10 @@ cf_result_free(struct cf_result *r)
 		free(r->rw[k].before);
 		free(r->rw[k].after);
 		free(r->rw[k].steps);
+		free(r->rw[k].domain);
 	}
 	free(r->rw);
 	free(r->out.p);
+	free(r->calls_only);
 	memset(r, 0, sizeof *r);
 }

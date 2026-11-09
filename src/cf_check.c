@@ -58,6 +58,7 @@ struct tfn {
 	uint32_t pty[16];
 	uint32_t rty;
 	int bufs;
+	uint32_t ft;
 };
 
 static int
@@ -83,6 +84,7 @@ testable(struct cf_unit *u, uint32_t fn, struct tfn *t)
 	if (CT.nf[ft] > 16 || CT.variadic[ft])
 		return 0;
 	t->np = (int)CT.nf[ft];
+	t->ft = ft;
 	for (k = 0; k < CT.nf[ft]; k++) {
 		uint32_t pt = CT.fty[CT.fst[ft] + k], b;
 		const char *nm = sym_str(CT.fname[CT.fst[ft] + k]);
@@ -158,6 +160,24 @@ static const char *ub_handlers =
 #undef H
     ;
 
+static const struct cf_opts *H_o;
+
+/* an assumed range for parameter j of t: the harness stays inside it */
+static int
+assumed(const struct tfn *t, int j, int64_t *lo, int64_t *hi)
+{
+	int k;
+	const char *nm = sym_str(CT.fname[CT.fst[t->ft] + j]);
+
+	for (k = 0; H_o && k < H_o->nassume; k++)
+		if (!strcmp(H_o->assume[k].name, nm)) {
+			*lo = H_o->assume[k].lo;
+			*hi = H_o->assume[k].hi;
+			return 1;
+		}
+	return 0;
+}
+
 static void
 harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
     long iters)
@@ -165,7 +185,10 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 	int k, j;
 
 	sb_puts(b, "#include <stdint.h>\n#include <stdio.h>\n#include <string.h>\n"
+	    "#include <stdlib.h>\n#include <setjmp.h>\n#include <signal.h>\n"
 	    "#include <x86intrin.h>\n");
+	sb_puts(b, "static sigjmp_buf cf_jb;\nstatic void cf_sig(int s) { (void)s; "
+	    "siglongjmp(cf_jb, 1); }\n");
 	sb_puts(b, ub_handlers);
 	sb_puts(b, "static uint64_t rs = 0x9e3779b97f4a7c15ull;\n"
 	    "static uint64_t rnd(void) { rs ^= rs << 13; rs ^= rs >> 7; "
@@ -202,7 +225,9 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 		}
 		free(proto.p);
 	}
-	sb_puts(b, "int main(void)\n{\n\tlong bad = 0, skipped = 0, n = 0, i;\n");
+	sb_puts(b, "int main(void)\n{\n\tlong bad = 0, skipped = 0, n = 0;\n"
+	    "\tvolatile long i;\n\tsignal(SIGFPE, cf_sig);\n"
+	    "\tsignal(SIGSEGV, cf_sig);\n\tsignal(SIGBUS, cf_sig);\n");
 	for (k = 0; k < ntf; k++) {
 		const struct tfn *t = &tf[k];
 		int nonvoid = CT.kind[t->rty] != CT_VOID;
@@ -224,6 +249,14 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 		for (j = 0; j < t->np; j++) {
 			struct sbuf d = {0};
 			ct_str(&d, ct_unqual(t->pty[j]), "");
+			int64_t alo, ahi;
+			if (t->kind[j] == PK_INT && assumed(t, j, &alo, &ahi)) {
+				sb_printf(b, "\t\t\t%s a%d = (%s)(%lldll + (long long)(rnd() "
+				    "%% %lluull));\n", d.p, j, d.p, (long long)alo,
+				    (unsigned long long)(ahi - alo + 1));
+				free(d.p);
+				continue;
+			}
 			switch (t->kind[j]) {
 			case PK_INT:
 				sb_printf(b, "\t\t\t%s a%d = (%s)pick((int)((i * %d + "
@@ -250,16 +283,19 @@ harness(struct sbuf *b, const struct tfn *tf, int ntf, int bench,
 			free(d.p);
 		}
 		/* call the original first, under the UB handlers */
-		sb_puts(b, "\t\t\tcf_ub = 0;\n\t\t\t");
+		sb_puts(b, "\t\t\tcf_ub = 0;\n\t\t\tvolatile long long r0 = 0;\n"
+		    "\t\t\tif (sigsetjmp(cf_jb, 1)) { ts++; continue; }\n\t\t\t");
 		if (nonvoid)
-			sb_puts(b, "long long r0 = (long long)");
+			sb_puts(b, "r0 = (long long)");
 		sb_printf(b, "cfw_orig_%s(", t->name);
 		for (j = 0; j < t->np; j++)
 			sb_printf(b, "%s%s%d%s", j ? ", " : "",
 			    t->kind[j] >= PK_PTR && t->kind[j] != PK_LEN ? "b" : "a",
 			    j, t->kind[j] == PK_PTR || t->kind[j] == PK_STR ? "[0]" :
 			    "");
-		sb_puts(b, ");\n\t\t\tif (cf_ub) { ts++; continue; }\n\t\t\t");
+		sb_puts(b, ");\n\t\t\tif (cf_ub) { ts++; continue; }\n"
+		    "\t\t\tif (sigsetjmp(cf_jb, 1)) { if (tb++ < 3) printf(\"CRASH %s\\n\", "
+		    "__func__); continue; }\n\t\t\t");
 		if (nonvoid)
 			sb_puts(b, "long long r1 = (long long)");
 		sb_printf(b, "cfw_opt_%s(", t->name);
@@ -460,8 +496,13 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 	march = host_march(o->t, &note);
 	snprintf(mflag, sizeof mflag, "%s", march);
 	sb_puts(rep, note.p ? note.p : "");
+	H_o = o;
 	for (k = 0; k < u->nfn && ntf < 64; k++)
-		if (u->tk.file[u->A.t0[u->fns[k]]] == 0 &&
+		if (r && r->calls_only && r->calls_only[k])
+			sb_printf(rep, "  check: %s is static and only called here: "
+			    "tested through its callers\n", sym_str(u->S.name[
+			    u->A.iv[u->fns[k]]]));
+		else if (u->tk.file[u->A.t0[u->fns[k]]] == 0 &&
 		    testable(u, u->fns[k], &tf[ntf]))
 			ntf++;
 		else if (u->tk.file[u->A.t0[u->fns[k]]] == 0)
@@ -601,7 +642,9 @@ check(struct cf_unit *u, const char *orig, const char *opt,
 		}
 	}
 done:
-	{
+	if (getenv("CF_KEEP"))
+		fprintf(stderr, "cfront: kept %s\n", dir);
+	else {
 		char *rm[] = {"rm", "-rf", dir, NULL};
 		run(rm, &out);
 	}

@@ -209,6 +209,7 @@ struct cf_rewrite {
 	int info;		/* not a rewrite: why nothing happened */
 	char *steps;		/* every step's description */
 	int trivial;		/* clang -O2 already produces the same code */
+	char *domain;		/* input ranges assumed or from call sites */
 };
 
 /* ================================================================
@@ -373,6 +374,7 @@ struct cf_leaf {
 	uint32_t cty;		/* its C type */
 	int64_t lo, hi;		/* known range (ranged = 1) */
 	int ranged;
+	int from_calls;		/* the range is the call sites' (static) */
 };
 struct cf_value {
 	nid e;			/* the value */
@@ -424,6 +426,8 @@ struct cf_result {
 	double cost_before, cost_after;
 	int nproofs;
 	double seconds;
+	uint8_t *calls_only;	/* per function: entered only from this file's
+				 * calls, rewritten over their domain */
 };
 int cf_optimize(struct cf_unit *u, const struct cf_opts *o,
     struct cf_result *r);

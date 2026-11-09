@@ -177,6 +177,10 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 				printf("    proof: %s (%s); cost %.1f -> %.1f\n",
 				    cf_proof_name(w->proof), w->proof_text,
 				    w->cost_before, w->cost_after);
+				if (w->domain) {
+					printf("    over: %s\n", w->domain);
+					rep_str("domain", w->domain);
+				}
 				if (strchr(w->before, '\n') == NULL &&
 				    strlen(w->before) < 200) {
 					printf("    before: %s\n", w->before);
