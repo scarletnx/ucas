@@ -368,6 +368,7 @@ static struct {
 	int nproofs;
 	uint32_t fnstart;
 	int intrinsics;		/* a vectorised loop: <immintrin.h> */
+	uint32_t vecproved;	/* the last loop the vectoriser proved */
 } R;
 
 static double
@@ -2101,6 +2102,8 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 	uint32_t from, to;
 	int r;
 
+	if (R.o->novec && !R.o->vecstub)
+		return 0;
 	if (f == NULL || !cf_span(u, n, &from, &to))
 		return 0;
 	if (!cf_extract_loop(u, fn, n, &l, &it, &why)) {
@@ -2118,6 +2121,8 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 	}
 	memset(&o, 0, sizeof o);
 	r = f(&l, R.o->t, &o);
+	if (r && f != cf_vec_stub)
+		R.vecproved = n;
 	if (!r && o.what[0] && f != cf_vec_stub) {
 		/* the vectoriser says why not */
 		struct cf_rewrite *w = add_rw("not vectorised", (int)fn_line(n));
@@ -2147,7 +2152,25 @@ try_vectorise(uint32_t fn, uint32_t n, struct cf_emit *em)
 			if (!strcmp(R.o->vveto[q], R.fname))
 				break;
 		if (q < R.o->nvveto) {
-			struct cf_rewrite *w = add_rw("proved, not applied",
+			struct cf_rewrite *w;
+			int b2;
+			for (b2 = 0; b2 < R.o->nbapply; b2++)
+				if (!strcmp(R.o->bapply[b2], R.fname))
+					break;
+			if (b2 < R.o->nbapply) {
+				/* bench chose the loop-body rewrite instead */
+				w = add_rw("proved, not applied", (int)fn_line(n));
+				w->before = strdup("");
+				w->after = strdup("");
+				snprintf(w->proof_text, sizeof w->proof_text, "the "
+				    "loop-body rewrite measured faster (bench); %s",
+				    o.what);
+				w->info = 1;
+				free(o.text.p);
+				free_loop(&l);
+				return 0;
+			}
+			w = add_rw("proved, not applied",
 			    (int)fn_line(n));
 			w->before = strdup("");
 			w->after = strdup("");
@@ -2426,6 +2449,35 @@ try_strlen(uint32_t fn, uint32_t n, struct cf_emit *em)
  * used after is kept in a temporary at its place), so the rewrite holds
  * whatever the arrays alias.
  */
+/* e leaves a lookup indexed by data in the loop (a table) */
+static int
+blocks_vec(nid e)
+{
+	uint8_t *seen = xcalloc(N.n, 1);
+	nid *st = xmalloc(N.n * sizeof *st);
+	int sp = 0, r = 0;
+
+	st[sp++] = e;
+	while (sp && !r) {
+		nid x = st[--sp];
+		if (x == 0 || seen[x])
+			continue;
+		seen[x] = 1;
+		if (N.op[x] == O_INDEX || N.op[x] == O_TABLE)
+			r = 1;
+		else if (N.op[x] != O_CONST && N.op[x] != O_VAR) {
+			st[sp++] = N.a[x];
+			if (N.b[x])
+				st[sp++] = N.b[x];
+			if (N.c[x])
+				st[sp++] = N.c[x];
+		}
+	}
+	free(seen);
+	free(st);
+	return r;
+}
+
 static int
 try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 {
@@ -2442,6 +2494,9 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 	const char *text[CF_MAXLEAF];
 	ty_t lty[CF_MAXLEAF];
 	struct cf_rewrite *w;
+	size_t saved_hn;
+	uint64_t saved_used;
+	int saved_ntab, blocking = 0;
 
 	if (!cf_span(u, body, &from, &to) || (u->A.kind[body] != CA_BLOCK &&
 	    (u->A.kind[body] != CA_EXPR || to == from ||
@@ -2496,6 +2551,10 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 			if (has_slot(best[k], it.load[j].slot) &&
 			    it.load[j].epoch < it.store[k].epoch)
 				temp[j] = 1;
+	/* the emitter's state, to undo a rewrite that is not applied */
+	saved_hn = em->helpers.n;
+	saved_used = em->used;
+	saved_ntab = em->ntab;
 	sb_puts(&out, "{\n");
 	for (k = 0; k < it.nstore; k++) {
 		struct sbuf v = {0};
@@ -2528,6 +2587,67 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 	}
 	sb_puts(&out, "\t}");
 	sb_printf(&before, "%.*s", (int)(to - from), u->ftext[0] + from);
+	/*
+	 * A rewrite that blocks vectorisation (a table indexed by data, a
+	 * helper function: anything that leaves a lookup or a call in the
+	 * body) on a loop the vectoriser proves (so clang vectorises the
+	 * original too) can make the code slower: proposed, not applied,
+	 * unless bench measured it faster.
+	 */
+	for (k = 0; k < it.nstore; k++)
+		if (best[k] != it.store[k].value && blocks_vec(best[k]))
+			blocking = 1;
+	if (em->helpers.n != saved_hn)
+		blocking = 1;
+	if (blocking && !R.o->bodyall) {
+		int q, chosen = 0, vetoed = -1;
+		for (q = 0; q < R.o->nbapply; q++)
+			if (!strcmp(R.o->bapply[q], R.fname))
+				chosen = 1;
+		for (q = 0; q < R.o->nbveto; q++)
+			if (!strcmp(R.o->bveto[q], R.fname))
+				vetoed = q;
+		if (!chosen && (R.o->bjudged || R.vecproved == n)) {
+			int kk;
+			for (kk = 0; kk < it.nstore && best[kk] == it.store[kk].value;
+			    kk++)
+				;
+			w = add_rw("proved, not applied", (int)fn_line(n));
+			w->before = before.p;
+			w->after = strdup("");
+			w->code = strdup(out.p);
+			if (vetoed >= 0 && R.o->bveto_c[vetoed][0] >= 0)
+				snprintf(w->proof_text, sizeof w->proof_text, "clang's "
+				    "own vectorisation is as fast or faster (%.2f vs %.2f "
+				    "cycles/element, bench: not faster by 5%% in every "
+				    "run); loop body: %s", R.o->bveto_c[vetoed][0],
+				    R.o->bveto_c[vetoed][1], what.p ? what.p : "");
+			else if (R.o->bjudged)
+				snprintf(w->proof_text, sizeof w->proof_text, "not "
+				    "measured faster than clang's own code (bench); loop "
+				    "body: %s", what.p ? what.p : "");
+			else {
+				free(w->before);
+				w->before = strdup("");
+				snprintf(w->kind, sizeof w->kind, "proposed, not applied");
+				snprintf(w->proof_text, sizeof w->proof_text, "loop body: "
+				    "%s (proved: %.100s); it leaves a table lookup or a "
+				    "call in a loop clang vectorises as written, which can "
+				    "be much slower: 'bench' measures it", what.p ?
+				    what.p : "", steps[kk][ns[kk] - 1].pf.text);
+			}
+			w->info = 1;
+			/* undo the emitter's tables and helpers */
+			em->helpers.n = saved_hn;
+			if (em->helpers.p)
+				em->helpers.p[saved_hn] = 0;
+			em->used = saved_used;
+			em->ntab = saved_ntab;
+			free(out.p);
+			free(what.p);
+			return 0;
+		}
+	}
 	w = add_rw("loop body", (int)fn_line(n));
 	w->before = before.p;
 	w->after = strdup(out.p);

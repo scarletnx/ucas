@@ -124,8 +124,8 @@ optimised C:
   	return (unsigned long)((uint64_t)(((uint32_t)((uint32_t)(((uint32_t)(((uint64_t)((uint64_t)((x)) & (uint64_t)(((uint64_t)65535ull))))))) / (uint32_t)(((uint32_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)((y)) & (uint64_t)(((uint64_t)255ull))))) + (uint64_t)(((uint64_t)1ull)))))))))));
   }
 > c optimize cfront/k2.c nofile budget 120
-c optimize: 19 functions, 13 rewrites proved (1 exhaustive, 11 by SAT, 1 structural) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 4049.2 -> 80.5 cycles
+c optimize: 19 functions, 12 rewrites proved (1 exhaustive, 10 by SAT, 1 structural) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 4039.5 -> 76.2 cycles
   ilog2_loop (line 29): floor(log2(x)) (width - 1 - clz), 0 at 0
     proof: sat (proved by SAT: 28006 AIG nodes, 132 conflicts); cost 660.0 -> 4.8
   clz_loop (line 37): clz(x)
@@ -146,8 +146,6 @@ c optimize: 19 functions, 13 rewrites proved (1 exhaustive, 11 by SAT, 1 structu
     proof: sat (proved by SAT: 498 AIG nodes, 29 conflicts); cost 27.5 -> 7.0
   tri (line 148): a table of 256 values indexed by n
     proof: exhaustive (exhaustive: 256 inputs); cost 1039.2 -> 4.2
-  brighten (line 158): store 0: a table of 256 values indexed by src[i]
-    proof: sat (proved by SAT: 2960 AIG nodes, 349 conflicts; per stored value, over the loads); cost 9.8 -> 4.2 per element (loads and stores kept, in order)
   my_strlen (line 167): a scan for the terminating zero: n += strlen(s + n)
     proof: structural (C99 7.21.6.3: strlen counts the characters before the first null; the loop steps over exactly those, reading the same bytes); cost: a byte loop -> the C library's strlen
     after:  n += strlen((const char *)s + n);
@@ -257,6 +255,11 @@ c optimize: 19 functions, 13 rewrites proved (1 exhaustive, 11 by SAT, 1 structu
       		(dst)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((((int32_t)(((int32_t)(((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)((cf_ld0))))))) / (uint32_t)(((uint32_t)2u))))) + (uint32_t)(((uint32_t)10u))))) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)(((uint8_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)((cf_ld0))))))) / (uint32_t)(((uint32_t)2u))))) + (uint32_t)(((uint32_t)10u))))))))))));
       	}
       }
+  brighten (line 158): proposed, not applied: loop body: store 0: a table of 256 values indexed by src[i] (proved: proved by SAT: 2960 AIG nodes, 349 conflicts); it leaves a table lookup or a call in a loop clang vectorises as written, which can be much slower: 'bench' measures it
+    code (not applied):
+      {
+      		dst[i] = (unsigned char)cf_tab2[((int64_t)((src[i])))];
+      	}
   my_strlen (line 164): not lowered: line 164: a parameter that is not an integer or a float (s)
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
@@ -343,31 +346,7 @@ optimised C:
   	2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 2016u, 
   	2016u, 2016u, 2016u, 2016u, 
   };
-  static const uint8_t cf_tab2[256] = {
-  	10u, 11u, 13u, 14u, 16u, 17u, 19u, 20u, 22u, 23u, 25u, 26u, 
-  	28u, 29u, 31u, 32u, 34u, 35u, 37u, 38u, 40u, 41u, 43u, 44u, 
-  	46u, 47u, 49u, 50u, 52u, 53u, 55u, 56u, 58u, 59u, 61u, 62u, 
-  	64u, 65u, 67u, 68u, 70u, 71u, 73u, 74u, 76u, 77u, 79u, 80u, 
-  	82u, 83u, 85u, 86u, 88u, 89u, 91u, 92u, 94u, 95u, 97u, 98u, 
-  	100u, 101u, 103u, 104u, 106u, 107u, 109u, 110u, 112u, 113u, 115u, 116u, 
-  	118u, 119u, 121u, 122u, 124u, 125u, 127u, 128u, 130u, 131u, 133u, 134u, 
-  	136u, 137u, 139u, 140u, 142u, 143u, 145u, 146u, 148u, 149u, 151u, 152u, 
-  	154u, 155u, 157u, 158u, 160u, 161u, 163u, 164u, 166u, 167u, 169u, 170u, 
-  	172u, 173u, 175u, 176u, 178u, 179u, 181u, 182u, 184u, 185u, 187u, 188u, 
-  	190u, 191u, 193u, 194u, 196u, 197u, 199u, 200u, 202u, 203u, 205u, 206u, 
-  	208u, 209u, 211u, 212u, 214u, 215u, 217u, 218u, 220u, 221u, 223u, 224u, 
-  	226u, 227u, 229u, 230u, 232u, 233u, 235u, 236u, 238u, 239u, 241u, 242u, 
-  	244u, 245u, 247u, 248u, 250u, 251u, 253u, 254u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 
-  };
-  static const uint8_t cf_tab3[12] = {
+  static const uint8_t cf_tab2[12] = {
   	31u, 28u, 31u, 30u, 31u, 30u, 31u, 31u, 30u, 31u, 30u, 31u, 
   };
   int ilog2_loop(uint32_t x)
@@ -453,7 +432,8 @@ optimised C:
   void brighten(uint8_t *dst, const uint8_t *src, size_t n)
   {
   	for (size_t i = 0; i < n; i++) {
-  		dst[i] = (unsigned char)cf_tab2[((int64_t)((src[i])))];
+  		unsigned v = src[i] * 3u / 2u + 10u;
+  		dst[i] = v > 255 ? 255 : (uint8_t)v;
   	}
   }
   
@@ -466,7 +446,7 @@ optimised C:
   
   int table_month(int m)
   {
-  	return (int)((int32_t)(cf_tab3[((int64_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)((m)) - (uint32_t)(((int32_t)1))))) & (uint32_t)(((int32_t)11))))))]));
+  	return (int)((int32_t)(cf_tab2[((int64_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)((m)) - (uint32_t)(((int32_t)1))))) & (uint32_t)(((int32_t)11))))))]));
   }
 > c optimize cfront/k3.c nofile budget 120
 c optimize: 4 functions, 3 rewrites proved (3 exhaustive, 0 by SAT) for x86-64-v3
@@ -659,13 +639,8 @@ optimised C:
   	return s;
   }
 > c optimize cfront/mem.c nofile budget 120
-c optimize: 9 functions, 5 rewrites proved (0 exhaustive, 3 by SAT, 2 structural) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 23.5 -> 12.5 cycles
-  brighten (line 8): store 0: a table of 256 values indexed by src[i]
-    proof: sat (proved by SAT: 2960 AIG nodes, 349 conflicts; per stored value, over the loads); cost 9.8 -> 4.2 per element (loads and stores kept, in order)
-  invert_low (line 17): store 0: a table of 256 values indexed by p[i]
-    proof: sat (proved by SAT: 3774 AIG nodes, 530 conflicts; per stored value, over the loads); cost 6.8 -> 4.2 per element (loads and stores kept, in order)
-    before: p[i] = (uint8_t)(p[i] < 16 ? 15 - p[i] : p[i]) & 0xff;
+c optimize: 9 functions, 3 rewrites proved (0 exhaustive, 1 by SAT, 2 structural) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 7.0 -> 4.0 cycles
   split (line 24): store 0: a signed division of non-negative values done unsigned; store 1: a signed remainder of non-negative values done unsigned
     proof: sat (proved by SAT: 113 AIG nodes, 0 conflicts; per stored value, over the loads); cost 7.0 -> 4.0 per element (loads and stores kept, in order)
   my_strlen (line 34): a scan for the terminating zero: n += strlen(s + n)
@@ -772,6 +747,11 @@ c optimize: 9 functions, 5 rewrites proved (0 exhaustive, 3 by SAT, 2 structural
       		(dst)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((((int32_t)(((int32_t)(((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)((cf_ld0))))))) / (uint32_t)(((uint32_t)2u))))) + (uint32_t)(((uint32_t)10u))))) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)(((uint8_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)((cf_ld0))))))) / (uint32_t)(((uint32_t)2u))))) + (uint32_t)(((uint32_t)10u))))))))))));
       	}
       }
+  brighten (line 8): proposed, not applied: loop body: store 0: a table of 256 values indexed by src[i] (proved: proved by SAT: 2960 AIG nodes, 349 conflicts); it leaves a table lookup or a call in a loop clang vectorises as written, which can be much slower: 'bench' measures it
+    code (not applied):
+      {
+      		dst[i] = (unsigned char)cf_tab0[((int64_t)((src[i])))];
+      	}
   invert_low (line 15): not lowered: line 15: the function does not return an integer or a float
   invert_low (line 17): proposed, not applied: 256-bit vectors, 32 lanes of 8 bits (avx avx2); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
     code (not applied):
@@ -855,6 +835,11 @@ c optimize: 9 functions, 5 rewrites proved (0 exhaustive, 3 by SAT, 2 structural
       		(p)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((((int32_t)(((int32_t)(((int32_t)(((int32_t)((cf_ld0)))) < (int32_t)(((int32_t)16)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)((uint32_t)(((int32_t)15)) - (uint32_t)(((int32_t)((cf_ld0))))))) : (int32_t)(((int32_t)((cf_ld0)))))))))) & (uint32_t)(((int32_t)255))))));
       	}
       }
+  invert_low (line 17): proposed, not applied: loop body: store 0: a table of 256 values indexed by p[i] (proved: proved by SAT: 3774 AIG nodes, 530 conflicts); it leaves a table lookup or a call in a loop clang vectorises as written, which can be much slower: 'bench' measures it
+    code (not applied):
+      {
+      		p[i] = (unsigned char)cf_tab0[((int64_t)((p[i])))];
+      	}
   split (line 22): not lowered: line 22: the function does not return an integer or a float
   split (line 24): not vectorised: a division other than an unsigned one by 2^k
   my_strlen (line 31): not lowered: line 31: a parameter that is not an integer or a float (s)
@@ -933,61 +918,11 @@ optimised C:
   #include <stdint.h>
   #include <stddef.h>
   
-  #if defined(__POPCNT__) || defined(__LZCNT__) || defined(__BMI__)
-  #include <immintrin.h>
-  #endif
-  static const uint8_t cf_tab0[256] = {
-  	10u, 11u, 13u, 14u, 16u, 17u, 19u, 20u, 22u, 23u, 25u, 26u, 
-  	28u, 29u, 31u, 32u, 34u, 35u, 37u, 38u, 40u, 41u, 43u, 44u, 
-  	46u, 47u, 49u, 50u, 52u, 53u, 55u, 56u, 58u, 59u, 61u, 62u, 
-  	64u, 65u, 67u, 68u, 70u, 71u, 73u, 74u, 76u, 77u, 79u, 80u, 
-  	82u, 83u, 85u, 86u, 88u, 89u, 91u, 92u, 94u, 95u, 97u, 98u, 
-  	100u, 101u, 103u, 104u, 106u, 107u, 109u, 110u, 112u, 113u, 115u, 116u, 
-  	118u, 119u, 121u, 122u, 124u, 125u, 127u, 128u, 130u, 131u, 133u, 134u, 
-  	136u, 137u, 139u, 140u, 142u, 143u, 145u, 146u, 148u, 149u, 151u, 152u, 
-  	154u, 155u, 157u, 158u, 160u, 161u, 163u, 164u, 166u, 167u, 169u, 170u, 
-  	172u, 173u, 175u, 176u, 178u, 179u, 181u, 182u, 184u, 185u, 187u, 188u, 
-  	190u, 191u, 193u, 194u, 196u, 197u, 199u, 200u, 202u, 203u, 205u, 206u, 
-  	208u, 209u, 211u, 212u, 214u, 215u, 217u, 218u, 220u, 221u, 223u, 224u, 
-  	226u, 227u, 229u, 230u, 232u, 233u, 235u, 236u, 238u, 239u, 241u, 242u, 
-  	244u, 245u, 247u, 248u, 250u, 251u, 253u, 254u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 255u, 
-  	255u, 255u, 255u, 255u, 
-  };
-  static const uint8_t cf_tab1[256] = {
-  	15u, 14u, 13u, 12u, 11u, 10u, 9u, 8u, 7u, 6u, 5u, 4u, 
-  	3u, 2u, 1u, 0u, 16u, 17u, 18u, 19u, 20u, 21u, 22u, 23u, 
-  	24u, 25u, 26u, 27u, 28u, 29u, 30u, 31u, 32u, 33u, 34u, 35u, 
-  	36u, 37u, 38u, 39u, 40u, 41u, 42u, 43u, 44u, 45u, 46u, 47u, 
-  	48u, 49u, 50u, 51u, 52u, 53u, 54u, 55u, 56u, 57u, 58u, 59u, 
-  	60u, 61u, 62u, 63u, 64u, 65u, 66u, 67u, 68u, 69u, 70u, 71u, 
-  	72u, 73u, 74u, 75u, 76u, 77u, 78u, 79u, 80u, 81u, 82u, 83u, 
-  	84u, 85u, 86u, 87u, 88u, 89u, 90u, 91u, 92u, 93u, 94u, 95u, 
-  	96u, 97u, 98u, 99u, 100u, 101u, 102u, 103u, 104u, 105u, 106u, 107u, 
-  	108u, 109u, 110u, 111u, 112u, 113u, 114u, 115u, 116u, 117u, 118u, 119u, 
-  	120u, 121u, 122u, 123u, 124u, 125u, 126u, 127u, 128u, 129u, 130u, 131u, 
-  	132u, 133u, 134u, 135u, 136u, 137u, 138u, 139u, 140u, 141u, 142u, 143u, 
-  	144u, 145u, 146u, 147u, 148u, 149u, 150u, 151u, 152u, 153u, 154u, 155u, 
-  	156u, 157u, 158u, 159u, 160u, 161u, 162u, 163u, 164u, 165u, 166u, 167u, 
-  	168u, 169u, 170u, 171u, 172u, 173u, 174u, 175u, 176u, 177u, 178u, 179u, 
-  	180u, 181u, 182u, 183u, 184u, 185u, 186u, 187u, 188u, 189u, 190u, 191u, 
-  	192u, 193u, 194u, 195u, 196u, 197u, 198u, 199u, 200u, 201u, 202u, 203u, 
-  	204u, 205u, 206u, 207u, 208u, 209u, 210u, 211u, 212u, 213u, 214u, 215u, 
-  	216u, 217u, 218u, 219u, 220u, 221u, 222u, 223u, 224u, 225u, 226u, 227u, 
-  	228u, 229u, 230u, 231u, 232u, 233u, 234u, 235u, 236u, 237u, 238u, 239u, 
-  	240u, 241u, 242u, 243u, 244u, 245u, 246u, 247u, 248u, 249u, 250u, 251u, 
-  	252u, 253u, 254u, 255u, 
-  };
   void brighten(uint8_t *dst, const uint8_t *src, size_t n)
   {
   	for (size_t i = 0; i < n; i++) {
-  		dst[i] = (unsigned char)cf_tab0[((int64_t)((src[i])))];
+  		unsigned v = src[i] * 3u / 2u + 10u;
+  		dst[i] = v > 255 ? 255 : (uint8_t)v;
   	}
   }
   
@@ -995,9 +930,7 @@ optimised C:
   void invert_low(uint8_t *p, size_t n)
   {
   	for (size_t i = 0; i < n; i++)
-  		{
-  		p[i] = (unsigned char)cf_tab1[((int64_t)((p[i])))];
-  	}
+  		p[i] = (uint8_t)(p[i] < 16 ? 15 - p[i] : p[i]) & 0xff;
   }
   
   /* two stores; the second reads a load from before the first */

@@ -506,6 +506,17 @@ struct cf_opts {
 	int nvveto;
 	char vveto[16][64];
 	double vveto_c[16][2];
+	/* loop-body rewrites that block vectorisation (a table indexed by
+	 * data, a helper call): by default proposed, not applied, on a loop
+	 * the vectoriser can prove (clang vectorises the original); bench
+	 * measures them: bodyall applies them all (its first measurement),
+	 * novec keeps the vectoriser out, bapply lists the functions whose
+	 * body rewrites won, bjudged says bench decided, bveto_c the cycles
+	 * per element of those that lost */
+	int bodyall, novec, bjudged;
+	int nbapply, nbveto;
+	char bapply[16][64], bveto[16][64];
+	double bveto_c[16][2];
 };
 struct cf_result {
 	struct sbuf out;		/* the emitted C */
