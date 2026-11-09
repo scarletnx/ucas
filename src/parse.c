@@ -1570,6 +1570,10 @@ help(void)
 "  complex F | re F | im F | conj F | modulus F | arg F | polar F\n"
 "  nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|"
 "harmonic|half|inverse]\n"
+"rings and finite fields (see README, \"Rings and finite fields\")\n"
+"  ring R [EXPR|units|field|...] | inverse A mod N | order A mod N | phi N\n"
+"  crt/congruence ... mod N | primroot | dlog | sqrtmod | magic D u32\n"
+"  factor|irreducible|primitive|roots P over GF(q) | matrix M mod p | gf2matrix\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
 "  ('help english' for more)");
 }

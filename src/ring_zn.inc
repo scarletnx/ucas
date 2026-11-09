@@ -3,6 +3,7 @@
 /* ---- polynomials over R in one variable ---- */
 
 static const struct ring *PR;
+static int code_noted;     /* the integer notation was explained */
 static const char *pvar = "x";
 static int p_rem_note;
 
@@ -31,9 +32,10 @@ code_arg(const struct ring *R, const struct rtok *t)
 	if ((u64)t->v > R->qm1)
 		rfail("%s is not an element of a ring with %s elements (codes 0..%s)",
 		    u128s(t->v), u128s((u128)R->qm1 + 1), u128s(R->qm1));
-	if ((u64)t->v >= R->n)
-		note("integers are elements in integer notation: %s = %s",
-		    el_code(R, (u64)t->v), el_pstr(R, (u64)t->v, "x"));
+	if ((u64)t->v >= R->n && !code_noted++)
+		note("integers are elements in integer notation (the coefficients "
+		    "as base-%llu digits): %s = %s", U(R->n), el_code(R, (u64)t->v),
+		    el_pstr(R, (u64)t->v, "x"));
 	return (u64)t->v;
 }
 
@@ -497,7 +499,7 @@ cmd_inverse_pow2(i128 a, int k)
 		while (!(x >> z & 1) && z < k)
 			z++;
 		printf("%s has no inverse mod 2^%d: it is even (gcd = 2^%d), and "
-		    "x * %s = 0 mod 2^%d\n", u128x(x), k, z, u128x(
+		    "%s * %s = 0 mod 2^%d\n", u128x(x), k, z, u128x(x), u128x(
 		    k == 128 && z == 0 ? 1 : ((u128)1 << (k - z)) & mask), k);
 		printf("  as u%d arithmetic: multiplying by an even constant loses "
 		    "the top bit%s, so it cannot be undone\n", k, z > 1 ? "s" : "");
@@ -790,7 +792,12 @@ cmd_factorint(void)
 		rfail("factorint n for 1 <= n < 2^64");
 	nt_factor((u64)v, &f);
 	printf("%s = %s%s\n", i128s(v), fac_text((u64)v), f.k == 1 &&
-	    f.e[0] == 1 ? " (prime)" : "");
+	    f.e[0] == 1 ? " (prime)" : v > 1 ? " (not prime)" : "");
+	if (v > 2 && !(f.k == 1 && f.e[0] == 1) && (v & 1) && nt_lambda((u64)v) &&
+	    ((u64)v - 1) % nt_lambda((u64)v) == 0)
+		printf("  a Carmichael number: a^(n-1) = 1 for every a coprime to "
+		    "it (lambda(%s) = %llu divides n - 1), so Fermat's test is "
+		    "fooled\n", i128s(v), U(nt_lambda((u64)v)));
 	printf("  how: trial division by the primes below 50, then Pollard-Brent "
 	    "rho; primality by Miller-Rabin with the first 12 prime bases "
 	    "(deterministic below 2^64)\n");
@@ -870,7 +877,10 @@ cmd_sqrtmod_int(i128 a0, u64 n)
 			printf(", ... (%d in all)", k);
 		printf("\n");
 	}
-	if (nt_isprime(n))
+	if (nt_isprime(n) && k == 0)
+		printf("  how: Euler's criterion (a square mod an odd prime p has "
+		    "a^((p-1)/2) = 1)\n");
+	else if (nt_isprime(n))
 		printf("  how: %s\n", n == 2 || a == 0 ? "directly" : n % 4 == 3 ?
 		    "p = 3 mod 4: x = a^((p+1)/4)" : "Tonelli-Shanks");
 	else
@@ -901,7 +911,8 @@ cmd_sqrtmod_int(i128 a0, u64 n)
 static void
 cmd_qr(u64 n)
 {
-	u64 *seen, x, c = 0, list[64];
+	uint8_t *seen;
+	u64 x, c = 0, list[64];
 	int k = 0;
 
 	if (n > (1u << 24))
@@ -1374,7 +1385,7 @@ cmd_congruence(void)
 			u64 x;
 			printf("  that is, mod %llu: %s =", U(eq[0].m), var);
 			for (x = acc.r[0]; x < eq[0].m; x += acc.m)
-				printf(" %llu", U(x));
+				printf("%s %llu", x == acc.r[0] ? "" : ",", U(x));
 			printf("\n");
 		}
 	}
@@ -1394,7 +1405,7 @@ cmd_congruence(void)
 			    "the congruence" : "every congruence", bad ? "FAILED" :
 			    "it holds");
 		else
-			printf("  check:");
+			printf("  check: ");
 		if (acc.m <= (1u << 22) && acc.m > 0) {
 			u64 x, cnt = 0;
 			for (x = 0; x < acc.m; x++) {
@@ -1406,8 +1417,8 @@ cmd_congruence(void)
 				}
 				cnt += i == ne;
 			}
-			printf("; brute force over 0..%llu: %llu solution%s", U(acc.m - 1),
-			    U(cnt), cnt == 1 ? "" : "s");
+			printf("%sbrute force over 0..%llu: %llu solution%s", acc.n ?
+			    "; " : "", U(acc.m - 1), U(cnt), cnt == 1 ? "" : "s");
 		}
 		printf("\n");
 	}

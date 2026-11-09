@@ -49,6 +49,7 @@ ring_dispatch(int c, const char *text)
 	static struct rspec s;
 	int end, i;
 
+	code_noted = 0;
 	if (c == C_GF2M) {
 		cmd_gf2matrix(text);
 		return;

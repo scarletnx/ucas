@@ -1122,6 +1122,22 @@ cmd_xorder(struct rspec *s)
 			rp_mulmod(R, &h, &h, &x, &f);
 		printf("  check: stepping x, x^2, ... mod f: x^k = 1 first at k = "
 		    "%llu\n", U(kk));
+	} else {
+		struct rpoly x, h, one;
+		struct nt_fac nf;
+		int i, ok;
+		rp_x(&x);
+		rp_const(R, &one, r_const(R, 1));
+		rp_powmod(R, &h, &x, o, &f);
+		ok = rp_eq(&h, &one);
+		nt_factor(o, &nf);
+		for (i = 0; i < nf.k; i++) {
+			rp_powmod(R, &h, &x, o / nf.p[i], &f);
+			ok &= !rp_eq(&h, &one);
+		}
+		printf("  check: x^%llu = 1 mod f and x^(%llu/r) != 1 for each prime r "
+		    "| %llu = %s (repeated squaring): %s\n", U(o), U(o), U(o),
+		    fac_text(o), ok ? "so the order is exactly that" : "FAILED");
 	}
 }
 

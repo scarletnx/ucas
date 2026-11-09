@@ -643,9 +643,9 @@ cmd_gf2matrix(const char *text)
 					    mat_pow_is_identity(&B, &M, o / nf.p[q]))
 						o /= nf.p[q];
 				printf("  order %llu: applying the map %llu times gives the "
-				    "identity (it divides the order of x mod the "
-				    "characteristic polynomial; checked by matrix powers)\n",
-				    U(o), U(o));
+				    "identity (M^%llu = I and no M^(%llu/r) = I, by matrix "
+				    "powers; it divides the order of x mod the characteristic "
+				    "polynomial)\n", U(o), U(o), U(o), U(o));
 				(void)sq;
 			}
 		}

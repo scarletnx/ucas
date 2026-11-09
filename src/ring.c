@@ -680,7 +680,8 @@ spec_name(struct rspec *s)
 		for (i = 0; i <= m.d; i++)
 			m.c[i] = s->R.f[i];
 		if (s->gf && s->R.field) {
-			sb_printf(&b, "GF(%llu^%d)", U(s->R.n), s->R.deg);
+			sb_printf(&b, "GF(%llu^%d%s%s)", U(s->R.n), s->R.deg,
+			    s->R.fname ? ", " : "", s->R.fname ? s->R.fname : "");
 		} else
 			sb_printf(&b, "%s%llu[x]/(%s)", s->R.nprime ? "GF(" : "Z/",
 			    U(s->R.n), "");

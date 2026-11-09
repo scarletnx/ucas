@@ -386,6 +386,21 @@ has_word(const char *w)
 
 #define OUT(...) (snprintf(out, sizeof out, __VA_ARGS__), out)
 
+/* a factor of a product: parenthesised unless it is one word */
+static const char *
+op(const char *s)
+{
+	static char b[4][620];
+	static int k;
+	char *r = b[k++ & 3];
+
+	if (strchr(s, ' ') || strchr(s, '+') || (strchr(s, '-') && s[0] != '-'))
+		snprintf(r, 620, "(%s)", s);
+	else
+		snprintf(r, 620, "%s", s);
+	return r;
+}
+
 /* a congruence or a system of them: "x = 2 mod 3 , x = 3 mod 5" */
 static const char *
 congruences(const char *s)
@@ -594,13 +609,13 @@ ring_nlp_raw(const char *sent)
 	    match("multiply {1} by|and|with {2} in {0}") ||
 	    match("product of {1} and {2} in {0}") ||
 	    match("{1} times {2} in {0}")) && is_ring(cap[0]))
-		return OUT("ring %s (%s) * (%s)", R(cap[0]), cap[1], cap[2]);
+		return OUT("ring %s %s * %s", R(cap[0]), op(cap[1]), op(cap[2]));
 	if ((match("in {0} divide {1} by {2}") || match("divide {1} by {2} in {0}"))
 	    && is_ring(cap[0]))
-		return OUT("ring %s (%s) / (%s)", R(cap[0]), cap[1], cap[2]);
+		return OUT("ring %s %s / %s", R(cap[0]), op(cap[1]), op(cap[2]));
 	if ((match("in {0} add {1} and|to {2}") || match("add {1} and|to {2} in {0}")
 	    || match("sum of {1} and {2} in {0}")) && is_ring(cap[0]))
-		return OUT("ring %s (%s) + (%s)", R(cap[0]), cap[1], cap[2]);
+		return OUT("ring %s %s + %s", R(cap[0]), op(cap[1]), op(cap[2]));
 	if ((match("in {0} invert {1}") || match("invert {1} in {0}")) &&
 	    is_ring(cap[0]))
 		return OUT("inverse %s in %s", cap[1], R(cap[0]));
