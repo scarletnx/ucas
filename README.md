@@ -625,7 +625,7 @@ system users are ignored.
    Intent** (without it the bot sees empty messages in servers).
 3. Invite it (OAuth2 → URL Generator, scope `bot`, permissions *View
    Channels*, *Send Messages*, *Send Messages in Threads*, *Read Message
-   History*, *Attach Files*).
+   History*, *Attach Files*, *Add Reactions*).
 4. Build and run on the host:
 
 ```sh
