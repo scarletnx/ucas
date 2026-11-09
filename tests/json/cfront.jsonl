@@ -1,0 +1,8 @@
+{"id":1,"cmd":"c_targets"}
+{"id":2,"cmd":"c_lower","args":{"code":"int f(int a, int b) { return a + b; }\nfloat g(float x) { return x * 0.5; }\nvoid h(unsigned char *d, const unsigned char *s, int n) { for (int i = 0; i < n; i++) d[i] = s[i] >> 1; }"}}
+{"id":3,"cmd":"c_optimize","args":{"code":"#include <stdint.h>\nuint32_t pc(uint32_t x) { uint32_t c = 0; for (int i = 0; i < 32; i++) c += (x >> i) & 1; return c; }","nofile":true,"budget":120}}
+{"id":4,"cmd":"c_optimize","args":{"code":"#include <stdint.h>\nuint64_t tri(uint64_t n) { uint64_t s = 0; for (uint64_t i = 0; i < n; i++) s += i; return s; }\nfloat q(float x) { return x / 4.0f; }","nofile":true}}
+{"id":5,"cmd":"c_optimize","args":{"code":"#include <stddef.h>\nsize_t len(const char *s) { size_t n = 0; while (s[n]) n++; return n; }\nvoid inv(unsigned char *p, size_t n) { for (size_t i = 0; i < n; i++) p[i] = (unsigned char)(255 - p[i]); }","nofile":true,"vecstub":true}}
+{"id":6,"cmd":"c_optimize","args":{"code":"unsigned d(unsigned x) { return x / 7; }","range":"x 0 1000","target":"zen4","nofile":true}}
+{"id":7,"cmd":"c_optimize","args":{"code":"int f(int x) { return x; }","target":"pdp11"}}
+{"id":8,"cmd":"c_lower","args":{"code":"int f(int x { return x; }"}}

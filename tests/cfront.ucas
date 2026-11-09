@@ -1,0 +1,52 @@
+# cfront: C99 in, faster C out, every rewrite proved (README "C frontend").
+# The kernels are in tests/cfront/.  No check or bench here: they need the
+# host cc and time things.
+c targets
+#
+# each function as one value of its parameters, with C's UB as a domain;
+# for functions with memory, each counted loop in the vectoriser's IR
+c lower cfront/float.c
+c lower cfront/mem.c
+#
+# bit loops, a switch, a clamp, a narrowed 64-bit division
+c optimize cfront/k1.c nofile budget 120
+# hashes (no cheaper form), bit loops, magic-number division, switches to
+# tables and lines, a capped loop as a table, a strlen scan, an image loop
+c optimize cfront/k2.c nofile budget 120
+# static functions rewritten over what their call sites pass
+c optimize cfront/k3.c nofile budget 120
+#
+# loops with symbolic trip counts summed in closed form (proof: induction)
+c optimize cfront/loops.c nofile budget 120
+#
+# memory: element-wise loop bodies, strlen scans, conditional stores kept
+c optimize cfront/mem.c nofile budget 120
+# the vectoriser hook, with the stub that rebuilds each loop from its IR
+c optimize cfront/mem.c nofile vecstub
+#
+# float and double: IEEE rewrites proved by derivation
+c optimize cfront/float.c nofile budget 120
+#
+# a code block; wrapv keeps signed overflow defined
+c optimize nofile wrapv
+```c
+int avg(int a, int b) { return (a + b) / 2; }
+unsigned char lo4(unsigned x) { return (unsigned char)(x & 15); }
+```
+# an assumed input range
+c optimize nofile assume x 0 1000
+```c
+unsigned div7(unsigned x) { return x / 7; }
+```
+# trace: every candidate and why it was not taken
+c optimize nofile trace
+```c
+unsigned char sat(unsigned char a) { unsigned s = a + 200u; return s > 255 ? 255 : s; }
+```
+# errors
+c optimize cfront/k1.c target pdp11
+c optimize cfront/missing.c
+c lower nofile
+```c
+int f(int x) { goto out; out: return x; }
+```

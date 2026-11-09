@@ -550,21 +550,30 @@ static const struct jcmd cmds[] = {
 	    "range (closed)", NULL}}},
 	/* cfront: C99 in, proved and x86-64-optimised C out (cf_*.c) */
 	{"c_optimize", "c optimize", 1, 0, "C99 in, faster C out for an "
-	    "x86-64 target: each rewrite proved (exhaustive or SAT) against the "
-	    "original under C99 LP64 semantics, unproved ones not applied",
+	    "x86-64 target: each rewrite proved (exhaustively, by SAT, by a "
+	    "derivation or by induction) against the original under C99 LP64 "
+	    "semantics with IEEE floats, unproved ones not applied; loops in "
+	    "closed form, element-wise loop bodies, strlen scans",
 	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
 	    TO("file", " %s", "a .c file instead of code"),
 	    TO("target", " target %s", "x86-64-v3 (default), zen4, skylake, "
 	    "alderlake, x86-64-v2 ... (c_targets)"),
 	    NUO("budget", " budget %s", "seconds for proofs (10)"),
-	    TO("assume", " assume %s", "NAME LO HI: a contract on an input"),
+	    TO("range", " assume %s", "NAME LO HI: a contract on an input "
+	    "(\"x 0 1000\")"),
 	    BO("check", " check", "compile both with the host cc and compare "
 	    "them on edge and random inputs (UB inputs skipped)"),
 	    BO("bench", " bench", "check, and time both with rdtsc"),
 	    BO("wrapv", " wrapv", "signed overflow wraps (do not exploit UB)"),
-	    BO("nofile", " nofile", "print the code instead of a file")}},
+	    BO("nofile", " nofile", "print the code instead of a file"),
+	    BO("timed", " timed", "say how many seconds the proofs took"),
+	    BO("trace", " trace", "list every candidate and why it was not "
+	    "taken"),
+	    BO("vecstub", " vecstub", "a stub vectoriser that rebuilds each "
+	    "counted loop from its IR (tests the loop extraction)")}},
 	{"c_lower", "c lower", 1, 0, "each C function as one ucas value of "
-	    "its parameters (with the C UB as a domain condition), or why not",
+	    "its parameters (with the C UB as a domain condition), or why not; "
+	    "for the others, each counted loop in the vectoriser's IR",
 	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
 	    TO("file", " %s", "a .c file instead of code"),
 	    BO("wrapv", " wrapv", "signed overflow wraps")}},

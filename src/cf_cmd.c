@@ -350,8 +350,11 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			const struct cf_target *t;
 			w = strtok_r(NULL, " \t", &save);
 			if (w == NULL || (t = cf_target_find(w)) == NULL) {
-				printf("error: c: unknown target %s (c targets lists "
-				    "them)\n", w ? w : "");
+				char m[160];
+				snprintf(m, sizeof m, "c: unknown target %s (c targets "
+				    "lists them)", w ? w : "");
+				printf("error: %s\n", m);
+				rep_error("c_target", m);
 				return 0;
 			}
 			o->t = t;
@@ -371,6 +374,7 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 			    strtok_r(NULL, " \t", &save);
 			if (!nm || !a || !b || o->nassume == 16) {
 				printf("error: c: assume NAME LO HI\n");
+				rep_error("c_option", "c: assume NAME LO HI");
 				return 0;
 			}
 			snprintf(o->assume[o->nassume].name,
@@ -402,7 +406,10 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 		else if (file[0] == 0 && (strchr(w, '.') || strchr(w, '/')))
 			snprintf(file, fn, "%s", w);
 		else {
-			printf("error: c: unknown option '%s'\n", w);
+			char m[160];
+			snprintf(m, sizeof m, "c: unknown option '%.100s'", w);
+			printf("error: %s\n", m);
+			rep_error("c_option", m);
 			return 0;
 		}
 	}
@@ -459,6 +466,22 @@ cfront_line(const char *line)
  * nlp.c: a ```c block whose statement is a C command or reads as one
  * ("optimize this C", "c optimize for zen4"): it stays C, not GLSL.
  */
+/* the statement a code block belongs to: the last line with text before
+ * it (earlier lines are other statements) */
+static const char *
+last_line(const char *s)
+{
+	const char *p = s + strlen(s), *e;
+
+	while (p > s && isspace((unsigned char)p[-1]))
+		p--;
+	e = p;
+	while (p > s && p[-1] != '\n')
+		p--;
+	(void)e;
+	return p;
+}
+
 int
 cfront_claims(const char *stmt, const char *lang)
 {
@@ -466,6 +489,7 @@ cfront_claims(const char *stmt, const char *lang)
 
 	if (s == NULL)
 		return 0;
+	s = last_line(s);
 	while (*s && isspace((unsigned char)*s))
 		s++;
 	if ((s[0] == 'c' || s[0] == 'C') && isspace((unsigned char)s[1]))
@@ -487,12 +511,20 @@ cfront_english(const char *stmt, struct sbuf *out)
 	int k;
 	const struct cf_target *t;
 
+	const char *full = stmt, *end;
+
 	if (!cfront_claims(stmt, "c"))
 		return 0;
+	stmt = last_line(stmt);
 	while (*stmt && isspace((unsigned char)*stmt))
 		stmt++;
 	if ((stmt[0] == 'c' || stmt[0] == 'C') && isspace((unsigned char)stmt[1]))
 		return 0;	/* already a command */
+	/* the earlier lines stay as they are; the line becomes the command,
+	 * and the newlines after it are kept (line numbers) */
+	sb_printf(out, "%.*s", (int)(stmt - full), full);
+	for (end = stmt; *end && *end != '\n'; end++)
+		;
 	sb_puts(out, strstr(stmt, "lower") ? "c lower" : "c optimize");
 	for (k = 0; (t = cf_target_nth(k)) != NULL; k++) {
 		const char *q = strstr(stmt, t->name);
@@ -506,7 +538,8 @@ cfront_english(const char *stmt, struct sbuf *out)
 	for (k = 0; words[k]; k++)
 		if (strstr(stmt, words[k]))
 			sb_printf(out, " %s", words[k]);
-	if (strstr(stmt, "test") && !strstr(out->p, "check"))
+	if (strstr(stmt, "test") && !strstr(out->p + (stmt - full), "check"))
 		sb_puts(out, " check");
+	sb_puts(out, end);
 	return 1;
 }

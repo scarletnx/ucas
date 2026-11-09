@@ -199,6 +199,7 @@ cf_cand_add(struct cf_cands *cs, nid sem, const char *text,
 	c->cost = cost;
 	snprintf(c->what, sizeof c->what, "%s", what ? what : "");
 	c->lemma[0] = 0;
+	c->derived = 0;
 }
 
 static void
@@ -2373,7 +2374,9 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 	ty_t lty[CF_MAXLEAF];
 	struct cf_rewrite *w;
 
-	if (!cf_span(u, body, &from, &to) || u->A.kind[body] != CA_BLOCK)
+	if (!cf_span(u, body, &from, &to) || (u->A.kind[body] != CA_BLOCK &&
+	    (u->A.kind[body] != CA_EXPR || to == from ||
+	    u->ftext[0][to - 1] != ';')))
 		return 0;
 	if (!cf_lower_iter(u, fn, n, 0, &it)) {
 		free((char *)it.v.why);
@@ -2463,13 +2466,12 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 	w->proof = worst;
 	for (k = 0; k < it.nstore && best[k] == it.store[k].value; k++)
 		;
-	snprintf(w->proof_text, sizeof w->proof_text, "per stored value, over "
-	    "the loads: %.84s; accesses and their order kept",
-	    steps[k][ns[k] - 1].pf.text);
+	snprintf(w->proof_text, sizeof w->proof_text, "%.112s; per stored "
+	    "value, over the loads", steps[k][ns[k] - 1].pf.text);
 	w->cost_before = cb;
 	w->cost_after = ca;
 	w->applied = 1;
-	w->cost_note = strdup("per element");
+	w->cost_note = strdup("per element (loads and stores kept, in order)");
 	add_repl(from, to, out.p, R.fnstart);
 	R.r->cost_before += cb;
 	R.r->cost_after += ca;

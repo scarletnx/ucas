@@ -124,9 +124,12 @@ static const struct group groups[] = {
 	    "C99 in, faster C out for a chosen x86-64 target (zen4, skylake, "
 	    "alderlake, x86-64-v2/v3/v4 ...): each function or expression is "
 	    "lowered with C99 LP64 semantics (promotions, wrap, UB as a domain "
-	    "condition) and rewritten only by forms proved equal on every input "
-	    "(exhaustively or by SAT); optional differential test and rdtsc "
-	    "benchmark with the host cc.",
+	    "condition, IEEE float and double) and rewritten only by forms "
+	    "proved equal on every input (exhaustively, by SAT, by a stated "
+	    "derivation, or by induction for loops summed in closed form); "
+	    "loops over arrays are rewritten per element, strlen-style scans "
+	    "become strlen; c_lower shows each loop's IR for the vectoriser; "
+	    "optional differential test and rdtsc benchmark with the host cc.",
 	    "c_optimize c_lower c_targets"},
 	{"abstract_algebra", "Abstract algebra, exactly",
 	    "Exact algebra with certificates: integers of any size (bigint), "

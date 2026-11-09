@@ -8421,14 +8421,9 @@ run_text(const char *src, const char *file, int echo)
 			/* C for cfront (cf_cmd.c): English becomes the command */
 			struct sbuf cmd = {0};
 			if (cfront_english(piece.p, &cmd)) {
-				size_t nl = 0;
-				const char *q;
-				for (q = piece.p; *q; q++)
-					nl += *q == '\n';
+				/* the same lines, the statement's one rewritten */
 				sb_clear(&piece);
 				sb_puts(&piece, cmd.p);
-				while (nl-- > 0)
-					sb_putc(&piece, '\n');
 			}
 			free(cmd.p);
 			snprintf(code_block_lang, sizeof code_block_lang, "c");
