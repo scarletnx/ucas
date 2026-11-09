@@ -71,3 +71,21 @@ simplify assume d in [1, 1] nofile
 %q = OpUDiv %uint %x %d
 OpStore %out %q
 ```
+# live session 16: an integer hash; three shift-and-add steps are one
+# multiply (by algebra mod 2^32: SAT is slow on multipliers)
+SAT simplify nofile
+```glsl
+uint Hash52(uint p) {
+    p ^= p >> 15u;
+    p -= p << 17u;
+    p += p << 7u;
+    p += p << 4u;
+    p ^= p >> 5u;
+    p += p << 16u;
+    p ^= p >> 7u;
+    p ^= p >> 3u;
+    p ^= p << 6u;
+    p ^= p >> 17u;
+    return p;
+}
+```

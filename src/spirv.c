@@ -569,6 +569,10 @@ complete(const char *src, struct sbuf *said)
 			ninps++;
 		}
 	}
+	/* a whole module with nothing undefined: as it is */
+	if (ninps == 0 && hasfn && hasentry && hasmem && hascap &&
+	    (!needglsl || hasglsl))
+		return strdup(src);
 	/* the types the inputs need, asking for the ones nothing tells */
 	for (k = 0; k < ninps; k++) {
 		if (!inps[k].ty[0] || !ensure_type(inps[k].ty, &decl)) {
@@ -672,6 +676,13 @@ complete(const char *src, struct sbuf *said)
 		    !strcmp(I->op, "OpExecutionMode") || !strcmp(I->op, "OpName") ||
 		    !strcmp(I->op, "OpMemberName") || !strcmp(I->op, "OpDecorate") ||
 		    !strcmp(I->op, "OpMemberDecorate") || !strcmp(I->op, "OpSource") ||
+		    !strcmp(I->op, "OpString") || !strcmp(I->op, "OpModuleProcessed") ||
+		    !strncmp(I->op, "OpSourceExtension", 17) ||
+		    !strcmp(I->op, "OpSourceContinued") ||
+		    !strcmp(I->op, "OpDecorateString") ||
+		    !strcmp(I->op, "OpDecorateId") ||
+		    !strcmp(I->op, "OpMemberDecorateString") ||
+		    !strcmp(I->op, "OpExecutionModeId") ||
 		    (!strcmp(I->op, "OpVariable") && !hasfn && I->nop > 1 &&
 		    strcmp(I->opnd[1], "Function"));
 		char *t = I->text;
@@ -2328,6 +2339,7 @@ struct cand {
 	char pre_op[40];	/* RW_INS: a new instruction for operand 1 */
 	int pre_a[2];
 	double extra;		/* instructions left dead by it: their cost */
+	int algebra;		/* exact by ring identities mod 2^w (affine) */
 	int kind;
 	int id;			/* RW_ID: the operand */
 	uint64_t v;		/* RW_CONST */
@@ -2372,11 +2384,66 @@ static struct {
 	int *uses;		/* per id: operand references, before rewriting */
 } SP;
 
+/*
+ * A struct member's name for an access chain "%base %int_k" into a
+ * struct (OpMemberName), or NULL: after inlining, a parameter is a load
+ * from the harness's buffer member "Fn_n"
+ */
+static const char *
+member_name(int ptr)
+{
+	int k = SP.def[ptr], base, bt, st, q;
+	uint64_t mi;
+
+	if (k < 0 && ptr < V.nid) {
+		/* module-level access chains are not in SP.def */
+		for (q = 0; q < V.nin; q++)
+			if (V.in[q].res == ptr) {
+				k = q;
+				break;
+			}
+	}
+	if (k < 0 || (strcmp(V.in[k].op, "OpAccessChain") != 0 &&
+	    strcmp(V.in[k].op, "OpInBoundsAccessChain") != 0) ||
+	    V.in[k].nop != 3)
+		return NULL;
+	base = idx(V.in[k].opnd[1]);
+	bt = V.id[base].type;
+	if (bt < 0 || V.id[bt].kind != K_TYPE || T(bt)->k != S_PTR)
+		return NULL;
+	st = T(bt)->e;
+	if (V.id[st].kind != K_TYPE || T(st)->k != S_STRUCT ||
+	    V.id[idx(V.in[k].opnd[2])].kind != K_CONST)
+		return NULL;
+	mi = V.id[idx(V.in[k].opnd[2])].c[0];
+	for (q = 0; q < V.nin; q++)
+		if (!strcmp(V.in[q].op, "OpMemberName") && V.in[q].nop >= 3 &&
+		    idx(V.in[q].opnd[0]) == st &&
+		    (uint64_t)atoll(V.in[q].opnd[1]) == mi) {
+			static char buf[64];
+			const char *m = V.in[q].opnd[2];
+			snprintf(buf, sizeof buf, "%.*s", (int)strlen(m) - 2, m + 1);
+			return buf;
+		}
+	return NULL;
+}
+
+/* NAME, or "Fn_NAME" (a harness member) */
+static int
+name_is(const char *have, const char *want)
+{
+	size_t h = strlen(have), w = strlen(want);
+
+	if (!strcmp(have, want))
+		return 1;
+	return h > w + 1 && have[h - w - 1] == '_' && !strcmp(have + h - w, want);
+}
+
 /* the assumption on an input: a value named NAME, or a load from it */
 static int
 assumed(int id, int64_t *lo, int64_t *hi)
 {
-	const char *nm = V.id[id].name;
+	const char *nm = V.id[id].name, *mn = NULL;
 	int k = SP.def[id], j;
 
 	if (SP.nas == 0)
@@ -2389,11 +2456,13 @@ assumed(int id, int64_t *lo, int64_t *hi)
 			    idx(V.in[q].opnd[0]) == ptr)
 				return 0;
 		nm = V.id[ptr].name;
+		mn = member_name(ptr);
 	}
 	if (*nm == '%')
 		nm++;
 	for (j = 0; j < SP.nas; j++)
-		if (!strcmp(SP.as[j].name, nm)) {
+		if (!strcmp(SP.as[j].name, nm) || (mn != NULL &&
+		    name_is(mn, SP.as[j].name))) {
 			*lo = SP.as[j].lo;
 			*hi = SP.as[j].hi;
 			return 1;
@@ -2435,6 +2504,8 @@ assumptions(void)
 	return a;
 }
 
+static const char *member_name(int ptr);
+
 /* the counterexample's named inputs: "%n = 0" */
 static void
 cex_text(char *b, size_t n, int undefined)
@@ -2448,8 +2519,16 @@ cex_text(char *b, size_t n, int undefined)
 		uint64_t v = aig_word_value(SP.g, &SP.leaf[i].w);
 		int64_t lo = 0, hi = 0, sv;
 		int as = assumed(id, &lo, &hi);
-		if (k >= 0 && !strcmp(V.in[k].op, "OpLoad"))
+		if (k >= 0 && !strcmp(V.in[k].op, "OpLoad")) {
+			const char *mn = member_name(idx(V.in[k].opnd[1]));
 			nm = V.id[idx(V.in[k].opnd[1])].name;
+			if (mn != NULL) {	/* "Skip_n": the parameter n */
+				const char *u = strrchr(mn, '_');
+				static char pn[64];
+				snprintf(pn, sizeof pn, "%s", u && u[1] ? u + 1 : mn);
+				nm = pn;
+			}
+		}
 		/* named inputs and assumed ones tell the most */
 		if (!as && nm[0] == '%' && isdigit((unsigned char)nm[1]))
 			continue;
@@ -3035,6 +3114,23 @@ prove(int x, const struct cand *c, int rt)
 	int di, out = 0;
 
 	SP.cex[0] = 0;
+	if (c->algebra) {
+		/*
+		 * a*x + b came from adds, subtracts, negation, constant shifts
+		 * (below the width: defined) and constant multiplies, all exact
+		 * in Z/2^w: equal by the ring laws.  A multiplier against a
+		 * shift-and-add network is hard for SAT, so the algebra is the
+		 * proof, checked again on 1024 random inputs.
+		 */
+		int smp;
+		for (smp = 0; smp < 1024; smp++) {
+			SP.sample = 100 + smp;
+			SP.stamp++;
+			if (evalid(x) != evalcand(c, rt))
+				return 0;
+		}
+		return 1;
+	}
 	for (di = 0; di < 4; di++) {
 		struct word *wx, wc, *a[4], pre;
 		lit dx, dc = L_TRUE, goal;
@@ -3169,6 +3265,277 @@ ins_cand(struct cand *c, const char *op, const char *ext, int rt, int a0,
 	return 1;
 }
 
+/*
+ * Affine forms over Z/2^w: an integer value as a*x + b for one base x,
+ * through adds, subtracts, negation, shifts left and multiplies by
+ * constants.  "p -= p << 17; p += p << 7" is one multiply of p.
+ */
+struct aff {
+	int base;		/* -1: a constant (b) */
+	uint64_t a, b;
+};
+
+static struct aff
+aff_of(int id, int w, int depth)
+{
+	struct aff r, x, y;
+	const struct sins *I;
+	int k;
+	uint64_t c, m = wmask(w);
+
+	id = res_of(id);
+	r.base = id;
+	r.a = 1;
+	r.b = 0;
+	if (V.id[id].kind == K_CONST && !V.id[id].spec) {
+		r.base = -1;
+		r.a = 0;
+		r.b = V.id[id].c[0] & m;
+		return r;
+	}
+	k = SP.def[id];
+	if (depth <= 0 || k < 0 || !pure_ins(k) ||
+	    int_width(V.id[id].type) != w)
+		return r;
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpIAdd") || !strcmp(I->op, "OpISub")) {
+		x = aff_of(idx(I->opnd[1]), w, depth - 1);
+		y = aff_of(idx(I->opnd[2]), w, depth - 1);
+		if (x.base >= 0 && y.base >= 0 && x.base != y.base)
+			return r;
+		if (I->op[3] == 'S') {
+			y.a = (0 - y.a) & m;
+			y.b = (0 - y.b) & m;
+		}
+		r.base = x.base >= 0 ? x.base : y.base;
+		r.a = (x.a + y.a) & m;
+		r.b = (x.b + y.b) & m;
+		return r;
+	}
+	if (!strcmp(I->op, "OpSNegate")) {
+		x = aff_of(idx(I->opnd[1]), w, depth - 1);
+		x.a = (0 - x.a) & m;
+		x.b = (0 - x.b) & m;
+		return x;
+	}
+	if (!strcmp(I->op, "OpIMul")) {
+		x = aff_of(idx(I->opnd[1]), w, depth - 1);
+		y = aff_of(idx(I->opnd[2]), w, depth - 1);
+		if (y.base < 0) {
+			struct aff t = x;
+			x = y;
+			y = t;
+		}
+		if (x.base >= 0)	/* x * y, neither constant */
+			return r;
+		y.a = (y.a * x.b) & m;
+		y.b = (y.b * x.b) & m;
+		return y;
+	}
+	if (!strcmp(I->op, "OpShiftLeftLogical") &&
+	    const_of(idx(I->opnd[2]), &c) && c < (uint64_t)w) {
+		x = aff_of(idx(I->opnd[1]), w, depth - 1);
+		x.a = (x.a << c) & m;
+		x.b = (x.b << c) & m;
+		return x;
+	}
+	if (!strcmp(I->op, "OpCopyObject") || (!strcmp(I->op, "OpBitcast") &&
+	    int_width(V.id[res_of(idx(I->opnd[1]))].type) == w))
+		return aff_of(idx(I->opnd[1]), w, depth - 1);
+	return r;
+}
+
+/*
+ * The cost of the instructions an affine rewrite of id leaves dead: the
+ * cone down to base whose every use is inside the cone
+ */
+static double
+aff_dead_cost(int id, int base, int rt)
+{
+	int cone[64], n = 0, i, j, q, top = 0, stack[64];
+	double c = 0;
+
+	stack[top++] = res_of(id);
+	while (top > 0 && n < 64) {
+		int v = stack[--top], k = SP.def[v], seen = 0;
+		if (v == base || k < 0 || !pure_ins(k) ||
+		    (V.id[v].kind == K_CONST && !V.id[v].spec))
+			continue;
+		for (j = 0; j < n; j++)
+			if (cone[j] == v)
+				seen = 1;
+		if (seen)
+			continue;
+		cone[n++] = v;
+		for (i = first_arg(&V.in[k]); i < V.in[k].nop && top < 64; i++)
+			stack[top++] = res_of(idx(V.in[k].opnd[i]));
+	}
+	/* dead: the top (replaced), then any node whose every use is by a
+	 * dead node, until nothing changes */
+	{
+		char dead[64] = {0};
+		int changed = 1;
+		dead[0] = 1;
+		while (changed) {
+			changed = 0;
+			for (j = 1; j < n; j++) {
+				int from_dead = 0;
+				if (dead[j])
+					continue;
+				for (q = 0; q < n; q++) {
+					const struct sins *I;
+					if (!dead[q])
+						continue;
+					I = &V.in[SP.def[cone[q]]];
+					for (i = first_arg(I); i < I->nop; i++)
+						if (res_of(idx(I->opnd[i])) == cone[j])
+							from_dead++;
+				}
+				if (from_dead >= SP.uses[cone[j]]) {
+					dead[j] = 1;
+					changed = 1;
+					c += ins_cost(V.in[SP.def[cone[j]]].op, NULL, rt);
+				}
+			}
+		}
+	}
+	return c;
+}
+
+static int
+is_param(int id)
+{
+	return SP.def[id] >= 0 && !strcmp(V.in[SP.def[id]].op,
+	    "OpFunctionParameter");
+}
+
+/* the variable (or pointer parameter) a pointer points into */
+static int
+ptr_root(int id)
+{
+	int k;
+
+	for (;;) {
+		k = SP.def[id];
+		if (k < 0 || (strcmp(V.in[k].op, "OpAccessChain") != 0 &&
+		    strcmp(V.in[k].op, "OpInBoundsAccessChain") != 0))
+			return id;
+		id = idx(V.in[k].opnd[1]);
+	}
+}
+
+/*
+ * Store-to-load forwarding in a block: a load from a per-invocation
+ * pointer (Function, Private) after a store to the same pointer, with no
+ * call and no store that could alias in between, is the stored value.
+ * Returns how many loads it forwarded.
+ */
+static int
+forward_loads(void)
+{
+	int k, n = 0;
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int ptr, root, j, pt;
+		if (strcmp(I->op, "OpLoad") != 0 || I->res < 0 || I->nop < 2)
+			continue;
+		ptr = idx(I->opnd[1]);
+		pt = V.id[ptr].type;
+		if (pt < 0 || V.id[pt].kind != K_TYPE || T(pt)->k != S_PTR ||
+		    (T(pt)->sc != SC_FUNCTION && T(pt)->sc != SC_PRIVATE))
+			continue;
+		root = ptr_root(ptr);
+		for (j = k - 1; j >= 0; j--) {
+			const struct sins *J = &V.in[j];
+			if (!strcmp(J->op, "OpLabel") || !strcmp(J->op, "OpFunction") ||
+			    !strcmp(J->op, "OpFunctionCall") ||
+			    !strncmp(J->op, "OpAtomic", 8) ||
+			    !strcmp(J->op, "OpCopyMemory"))
+				break;
+			if (!strcmp(J->op, "OpStore") && J->nop >= 2) {
+				int sp = idx(J->opnd[0]), sr = ptr_root(sp);
+				if (sp == ptr) {
+					int v = idx(J->opnd[1]);
+					if (V.id[v].type == V.id[I->res].type ||
+					    (V.id[v].kind == K_CONST &&
+					    V.id[v].type == idx(I->opnd[0]))) {
+						SP.alias[I->res] = res_of(v);
+						SP.dead[k] = 1;	/* a load has no effect */
+						n++;
+					}
+					break;
+				}
+				/* another pointer into the same thing, or one that
+				 * could point anywhere: stop */
+				if (sr == root || is_param(sr) || is_param(root))
+					break;
+			}
+		}
+	}
+	return n;
+}
+
+/*
+ * A store to a per-invocation pointer that the same block stores to
+ * again before anything could read it (a load from the same variable
+ * that is still there, a call, the block's end) is dead.
+ */
+static int
+dead_stores(void)
+{
+	int k, n = 0;
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int ptr, root, j, pt;
+		if (SP.dead[k] || strcmp(I->op, "OpStore") != 0 || I->nop < 2)
+			continue;
+		ptr = idx(I->opnd[0]);
+		pt = V.id[ptr].type;
+		if (pt < 0 || V.id[pt].kind != K_TYPE || T(pt)->k != S_PTR ||
+		    (T(pt)->sc != SC_FUNCTION && T(pt)->sc != SC_PRIVATE))
+			continue;
+		root = ptr_root(ptr);
+		for (j = k + 1; j < V.nin; j++) {
+			const struct sins *J = &V.in[j];
+			if (SP.dead[j])
+				continue;
+			if (!strcmp(J->op, "OpStore") && J->nop >= 1 &&
+			    idx(J->opnd[0]) == ptr) {
+				SP.dead[k] = 1;
+				n++;
+				break;
+			}
+			if (!strcmp(J->op, "OpLoad") && J->nop >= 2) {
+				int lr = ptr_root(idx(J->opnd[1]));
+				if (lr == root || is_param(lr) || is_param(root))
+					break;
+				continue;
+			}
+			if (!strcmp(J->op, "OpStore")) {
+				int sr = ptr_root(idx(J->opnd[0]));
+				if (sr == root || is_param(sr) || is_param(root))
+					break;	/* (a partial overwrite: keep it simple) */
+				continue;
+			}
+			/* anything that ends the block or could read it */
+			if (!strcmp(J->op, "OpLabel") || !strncmp(J->op, "OpBranch",
+			    8) || !strcmp(J->op, "OpReturn") ||
+			    !strcmp(J->op, "OpReturnValue") || !strcmp(J->op, "OpSwitch")
+			    || !strcmp(J->op, "OpKill") ||
+			    !strcmp(J->op, "OpFunctionCall") ||
+			    !strncmp(J->op, "OpAtomic", 8) ||
+			    !strcmp(J->op, "OpCopyMemory") ||
+			    !strcmp(J->op, "OpFunctionEnd") ||
+			    !strcmp(J->op, "OpUnreachable") ||
+			    !strncmp(J->op, "OpTerminate", 11))
+				break;
+		}
+	}
+	return n;
+}
+
 /* candidates for instruction k, cheapest first */
 static int
 candidates(int k, struct cand *cs, int max)
@@ -3292,6 +3659,36 @@ candidates(int k, struct cand *cs, int max)
 				cs[n - 1].cost += ins_cost("OpISub", NULL, st);
 				cs[n - 1].extra = inner + (SP.uses[arg[1]] == 1 ?
 				    ins_cost("OpISub", NULL, st) : 0);
+			}
+		}
+	}
+	/* an affine chain: one multiply (and an add) of its base */
+	if (w > 1 && n + 1 < max && (!strcmp(I->op, "OpIAdd") ||
+	    !strcmp(I->op, "OpISub") || !strcmp(I->op, "OpIMul") ||
+	    !strcmp(I->op, "OpSNegate"))) {
+		struct aff f = aff_of(I->res, w, 24);
+		if (f.base >= 0 && f.base != res_of(I->res) && f.a != 1 &&
+		    (f.a & (f.a - 1)) != 0) {
+			double dead = aff_dead_cost(I->res, f.base, rt);
+			int ca = const_id(rt, f.a);
+			if (ca >= 0 && f.b == 0) {
+				n += ins_cand(&cs[n], "OpIMul", NULL, rt, f.base, ca, -1,
+				    "a chain of shifts and adds is one multiply");
+				cs[n - 1].extra = dead;
+				cs[n - 1].algebra = 1;
+			} else if (ca >= 0) {
+				int cb = const_id(rt, f.b);
+				if (cb >= 0) {
+					n += ins_cand(&cs[n], "OpIAdd", NULL, rt, cb, f.base,
+					    -1, "a chain of shifts and adds is a multiply-add");
+					snprintf(cs[n - 1].pre_op, sizeof cs[n - 1].pre_op,
+					    "OpIMul");
+					cs[n - 1].pre_a[0] = f.base;
+					cs[n - 1].pre_a[1] = ca;
+					cs[n - 1].cost += ins_cost("OpIMul", NULL, rt);
+					cs[n - 1].extra = dead;
+					cs[n - 1].algebra = 1;
+				}
 			}
 		}
 	}
@@ -3494,13 +3891,13 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
-	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0;
+	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0, nfwd = 0, ndst = 0;
 #define MAXLOG 4096
 	struct rwlog {
 		char from[160], to[160];
 		const char *why;
 		double gain;
-		int line;
+		int line, algebra;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	double before = 0, after = 0;
 	struct sbuf out = {0}, list = {0};
@@ -3578,6 +3975,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			V.id[I->res].type = idx(I->opnd[0]);
 	}
 	SP.dl = xcalloc((size_t)(V.nid + 1024), sizeof *SP.dl);
+	nfwd = forward_loads();
+	ndst = dead_stores();
 	SP.uses = xcalloc((size_t)(V.nid + 1024), sizeof *SP.uses);
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
@@ -3585,9 +3984,11 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    12) || !strncmp(I->op, "OpDecorate", 10) ||
 		    !strncmp(I->op, "OpMemberDecorate", 16))
 			continue;
+		if (SP.dead[k])
+			continue;	/* a forwarded load, a dead store: gone */
 		for (i = 0; i < I->nop; i++)
 			if (I->opnd[i][0] == '%')
-				SP.uses[idx(I->opnd[i])]++;
+				SP.uses[res_of(idx(I->opnd[i]))]++;
 	}
 	SP.memo = xcalloc((size_t)(V.nid + 1024), sizeof *SP.memo);
 	SP.have = xcalloc((size_t)(V.nid + 1024), 1);
@@ -3674,6 +4075,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 			snprintf(L->from, sizeof L->from, "%s", V.in[k].text);
 			L->why = cs[best].why;
 			L->gain = gain;
+			L->algebra = cs[best].algebra;
 			L->line = ins_line(k);
 		}
 		apply(k, &cs[best]);
@@ -3778,17 +4180,29 @@ spirv_simplify(const char *src, double budget, int nofile)
 			sb_putc(&out, '\n');
 		}
 	}
-	printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
-	    "(bit-precise: equal for every input), %d dead instruction%s "
-	    "removed\n", SP.orig_nin, nrw, nrw == 1 ? "" : "s", ndead,
-	    ndead == 1 ? "" : "s");
+	{
+		int nal = 0;
+		for (i = 0; i < nlog; i++)
+			nal += rl[i].algebra;
+		printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
+		    "(bit-precise: equal for every input)", SP.orig_nin, nrw - nal,
+		    nrw - nal == 1 ? "" : "s");
+		if (nal)
+			printf(" and %d by algebra mod 2^w", nal);
+		printf(", %d dead instruction%s removed\n", ndead,
+		    ndead == 1 ? "" : "s");
+	}
+	if (nfwd || ndst)
+		printf("  %d load%s of a variable just stored to became the stored "
+		    "value; %d store%s overwritten before any read removed\n", nfwd,
+		    nfwd == 1 ? "" : "s", ndst, ndst == 1 ? "" : "s");
 	for (i = 0; i < SP.nas; i++)
 		printf("  assuming %s in [%lld, %lld] (every load of it)\n",
 		    SP.as[i].name, (long long)SP.as[i].lo, (long long)SP.as[i].hi);
 	printf("  integer arithmetic cost under %s (each instruction once): "
 	    "%g -> %g", sym_str(model_active()->name), before, after);
 	if (before > 0)
-		printf(" (-%.1f%%)", 100 * (before - after) / before);
+		printf(" (%+.1f%%)", 100 * (after - before) / before);
 	printf("\n");
 	if (nlog > 0) {
 		/* by kind, then the largest savings first */
@@ -3823,8 +4237,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		for (i = 0; i < shown; i++) {
 			char sl[160];
 			src_line(rl[i].line, sl, sizeof sl);
-			sb_printf(&list, "    %s\n      ->  %s   (%s; -%g)\n%s",
-			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain, sl);
+			sb_printf(&list, "    %s\n      ->  %s   (%s; -%g%s)\n%s",
+			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain, rl[i].algebra ?
+			    "; by algebra mod 2^w, not SAT" : "", sl);
 		}
 		if (shown < nlog)
 			sb_printf(&list, "    ... %d more (all in the attached "
@@ -3848,9 +4263,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 	if (SP.timeout)
 		printf("  note: stopped proving after %g s (the time budget; "
 		    "`budget N` for more)\n", budget);
-	printf("  proved in %.2f s; the operands' definitions were expanded up "
-	    "to 16 levels, the rest (loads, loop phis, spec constants) are free "
-	    "inputs\n", (double)(clock() - t0) / CLOCKS_PER_SEC);
+	{
+		double el = (double)(clock() - t0) / CLOCKS_PER_SEC;
+		char tb[32] = "";
+		if (el >= 0.5)	/* shorter times are noise, not news */
+			snprintf(tb, sizeof tb, " in %.1f s", el);
+		printf("  proved%s; the operands' definitions were expanded up to "
+		    "16 levels, the rest (loads, loop phis, spec constants) are "
+		    "free inputs\n", tb);
+	}
 	if (nrw + ndead > 0)
 		deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
 		    nofile);

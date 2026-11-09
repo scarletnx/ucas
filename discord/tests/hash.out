@@ -1,0 +1,23 @@
+== event 1: channel 49, author 97: <@1000> SAT simplify
+```glsl
+uint Hash52(uint p) {
+    p ^= p >> 15u;
+    p -= p << 17u;
+    p += p << 7u;
+    p += p << 4u;
+    p ^= p >> 5u;
+    p += p << 16u;
+    p ^= p >> 7u;
+    p ^= p >> 3u;
+    p ^= p << 6u;
+    p ^= p >> 17u;
+    return p;
+}
+```
+POST /channels/49/messages
+{"content":"the ```glsl block: GLSL, compiled to SPIR-V with glslangValidator\n  Hash52: called from a compute shader's main(), its arguments read from a buffer\n  optimized with spirv-opt -O (what follows is beyond that)\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7001","channel_id":"49","guild_id":"7","fail_if_not_exists":false}}
+POST /channels/49/messages (multipart)
+{"content":"```\n> spvsimplify\nsimplify: 86 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input) and 2 by algebra mod 2^w, 5 dead instructions removed\n  integer arithmetic cost under gt1030 (each instruction once): 30 -> 24 (-20.0%)\n  by kind:\n       2  a chain of shifts and adds is one multiply    -6\n  rewrites:\n    %92 = OpIAdd %uint %88 %90\n      ->  OpIMul %uint %84 %ucas_uint_4278059137   (a chain of shifts and adds is one multiply; -3; by algebra mod 2^w, not SAT)\n      (line 4: p += p << 7u;)\n    %96 = OpIAdd %uint %92 %94\n      ->  OpIMul %uint %84 %ucas_uint_4007528593   (a chain of shifts and adds is one multiply; -3; by algebra mod 2^w, not SAT)\n      (line 5: p += p << 4u;)\n  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs\n  the rewritten module is attached as simplified.spvasm\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7001","channel_id":"49","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"simplified.spvasm","description":"","content_type":"text/plain","size":2605,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: simplified.spvasm, text/plain, 2605 bytes
+PUT /channels/49/messages/7001/reactions/check/@me
+

@@ -1,0 +1,2 @@
+# session 16: an integer hash; shift-and-add steps fold into one multiply
+{"op": 0, "s": 7001, "t": "MESSAGE_CREATE", "d": {"id": "7001", "channel_id": "49", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> SAT simplify\n```glsl\nuint Hash52(uint p) {\n    p ^= p >> 15u;\n    p -= p << 17u;\n    p += p << 7u;\n    p += p << 4u;\n    p ^= p >> 5u;\n    p += p << 16u;\n    p ^= p >> 7u;\n    p ^= p >> 3u;\n    p ^= p << 6u;\n    p ^= p >> 17u;\n    return p;\n}\n```", "type": 0}}

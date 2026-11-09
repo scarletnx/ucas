@@ -284,10 +284,13 @@ guess_decl(const char *src, const char *name, struct sbuf *decl,
 	else
 		snprintf(ty, sizeof ty, "%s", flt && !uns ? "float" : uns ? "uint" :
 		    "int");
-	sb_printf(decl, "%s %s%s;\n", ty, name, arr ? "[64]" : "");
-	sb_printf(notes, "  %s is not declared: assumed `%s %s%s;` (a global; "
-	    "from %s)\n", name, ty, name, arr ? "[64]" : "", comps >= 2 ?
-	    "its swizzles" : "how it is used");
+	sb_printf(decl, "layout(std430, binding = %d) buffer UcasGlobal_%s { %s "
+	    "%s%s; };\n", 6 - (int)(decl->n % 5), name, ty, name, arr ? "[64]" :
+	    "");
+	sb_printf(notes, "  %s is not declared: assumed `%s %s%s;` (a global in a "
+	    "buffer, so the optimizer keeps what is written to it; from %s)\n",
+	    name, ty, name, arr ? "[64]" : "", comps >= 2 ? "its swizzles" :
+	    "how it is used");
 }
 
 /*
@@ -373,6 +376,37 @@ glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes)
 				}
 				if (fp)
 					fclose(fp);
+				/* optimized as a real pipeline would: spirv-opt -O */
+				if (nb > 0) {
+					char opath[] = "/tmp/ucas-opt-XXXXXX.spv";
+					char *oargv[] = {"spirv-opt", "-O", spv, "-o", opath,
+					    NULL};
+					struct sbuf olog = {0};
+					if (tool_tmp(opath, "", 0) == 0) {
+						if (tool_run(oargv, &olog) == 0) {
+							FILE *of = fopen(opath, "rb");
+							size_t r2;
+							nb = 0;
+							while (of) {
+								if (nb == cap) {
+									cap = cap ? cap * 2 : 65536;
+									bin = xrealloc(bin, cap);
+								}
+								if ((r2 = fread(bin + nb, 1, cap - nb, of)) == 0)
+									break;
+								nb += r2;
+							}
+							if (of)
+								fclose(of);
+							sb_puts(notes, "  optimized with spirv-opt -O (what "
+							    "follows is beyond that)\n");
+						} else
+							sb_printf(notes, "  spirv-opt -O failed: the "
+							    "unoptimized module is used\n");
+						unlink(opath);
+					}
+					free(olog.p);
+				}
 				ok = nb > 0 && spv_disassemble(bin, nb, out);
 				free(bin);
 				/* the temporary file's name (in OpString) as a fixed one */
