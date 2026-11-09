@@ -1,0 +1,2 @@
+{"id": 1, "cmd": "spirv_simplify", "args": {"code": "uint f(uint x) { return (x * 8u) / 4u; }"}}
+{"id": 2, "cmd": "spirv_simplify", "args": {"code": "void Skip(uint n) {\n    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));\n    s.w >>= n;\n}", "ranges": {"n": [1, 31]}, "nofile": true}}

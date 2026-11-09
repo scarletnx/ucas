@@ -1,0 +1,27 @@
+== event 1: channel 49, author 97: <@1000> SAT simplify
+```c
+unsigned f(unsigned x) { return (x * 8) / 4; }
+```
+POST /channels/49/messages (multipart)
+{"content":"```\n  note: the code is C: optimised by the C frontend (c optimize)\n> c optimize\nc optimize: 1 function, 0 rewrites proved (0 exhaustive, 0 by SAT) for x86-64-v3\n  f (line 1): no cheaper form: lowered: 1 inputs, cost 4.0\noptimised C:\n  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */\n  unsigned f(unsigned x) { return (x * 8) / 4; }\n  the rewritten C is attached as simplified.c\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7001","channel_id":"49","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"simplified.c","description":"","content_type":"text/x-c","size":142,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: simplified.c, text/x-c, 142 bytes
+PUT /channels/49/messages/7001/reactions/check/@me
+
+== event 2: channel 49, author 97: <@1000> make it faster for zen4 with n in [0, 32)
+POST /channels/49/messages
+{"content":"kern.c: C, for the C frontend\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7002","channel_id":"49","guild_id":"7","fail_if_not_exists":false}}
+POST /channels/49/messages (multipart)
+{"content":"```\n  note: the code is C: optimised by the C frontend (c optimize)\nc optimize: 2 functions, 2 rewrites proved (0 exhaustive, 2 by SAT) for zen4\n  estimated cost of the rewritten values on zen4: 9.8 -> 1.2 cycles\n  lo8 (line 3): the value is x\n    proof: sat (proved by SAT: 33 AIG nodes, 0 conflicts); cost 5.0 -> 0.2\n    before: { uint32_t y = x & 255; return (uint8_t)(y > 255 ? 255 : y); }\n  shr (line 4): a ?: that always takes its first arm\n    proof: sat (proved by SAT: 754 AIG nodes, 64 conflicts); cost 4.8 -> 1.0\n    over: n in [0, 31] (assumed)\n    before: { return n < 32 ? x >> n : 0; }\noptimised C:\n  /* optimised by ucas cfront for zen4 (znver4); every rewrite proved, see the report */\n  #include <stdint.h>\n  /* a clamp the type already does, and a shift in range */\n  uint8_t lo8(uint32_t x) {\n  \treturn (unsigned char)((uint8_t)((x)));\n  }\n  uint32_t shr(uint32_t x, uint32_t n) {\n  \treturn (unsigned int)((uint32_t)((uint32_t)((x)) >> ((n))));\n  }\n  the rewritten C is attached as simplified.c\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7002","channel_id":"49","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"simplified.c","description":"","content_type":"text/x-c","size":337,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: simplified.c, text/x-c, 337 bytes
+PUT /channels/49/messages/7002/reactions/check/@me
+
+== event 3: channel 49, author 97: <@1000> optimize this with smt
+```
+#include <stdint.h>
+uint32_t shr(uint32_t x, uint32_t n) { return n < 32 ? x >> n : 0; }
+```
+POST /channels/49/messages (multipart)
+{"content":"```\n  note: the code is C: optimised by the C frontend (c optimize)\n> c optimize\nc optimize: 1 function, 0 rewrites proved (0 exhaustive, 0 by SAT) for x86-64-v3\n  shr (line 2): no cheaper form: lowered: 2 inputs, cost 4.8\noptimised C:\n  /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */\n  #include <stdint.h>\n  uint32_t shr(uint32_t x, uint32_t n) { return n < 32 ? x >> n : 0; }\n  the rewritten C is attached as simplified.c\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7003","channel_id":"49","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"simplified.c","description":"","content_type":"text/x-c","size":184,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: simplified.c, text/x-c, 184 bytes
+PUT /channels/49/messages/7003/reactions/check/@me
+

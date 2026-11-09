@@ -1,0 +1,5 @@
+{"id": 1, "cmd": "english", "args": {"text": "SAT simplify", "code": "unsigned f(unsigned x) { return (x * 8) / 4; }", "lang": "c"}}
+{"id": 2, "cmd": "english", "args": {"text": "make it faster for zen4 with n in [0, 32)", "code": "unsigned shr(unsigned x, unsigned n) { return n < 32 ? x >> n : 0; }"}}
+{"id": 3, "cmd": "spirv_simplify", "args": {"code": "unsigned shr(unsigned x, unsigned n) { return n < 32 ? x >> n : 0; }", "lang": "c", "ranges": {"n": [0, 31]}, "nofile": true}}
+{"id": 4, "cmd": "spirv_simplify", "args": {"code": "#include <stdint.h>\nuint32_t h(uint32_t x) { return (x * 8) / 4; }", "budget": 20}}
+{"id": 5, "cmd": "spirv_simplify", "args": {"code": "uint f(uint x) { return (x * 8u) / 4u; }", "nofile": true}}

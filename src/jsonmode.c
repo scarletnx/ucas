@@ -164,7 +164,11 @@ static const struct jcmd cmds[] = {
 	    "translated statements are returned",
 	    {{"text", P_TEXT, 1, "", "one English request", NULL},
 	    {"answers", P_STRS, 0, "", "replies to follow-up questions "
-	    "(needs_input), in order", NULL}}},
+	    "(needs_input), in order", NULL},
+	    {"code", P_SOURCE, 0, "", "a code block the request is about "
+	    "(\"SAT simplify\" on SPIR-V, GLSL or C)", NULL},
+	    {"lang", P_ENUM, 0, "", "the code block's language (by default "
+	    "from the code)", "spv|glsl|c"}}},
 	{"help", "help", 0, 0, "the command summary", {{0}}},
 	{"funcs", "funcs", 0, 0, "every defined function", {{0}}},
 	{"models", "models", 0, 0, "the cost models", {{0}}},
@@ -555,9 +559,10 @@ static const struct jcmd cmds[] = {
 	    "t")}},
 	{"spirv_simplify", NULL, 1, 1, "cheaper forms of a SPIR-V module's "
 	    "integer instructions, each proved by SAT",
-	    {{"code", P_SOURCE, 1, "", "SPIR-V assembly or GLSL", NULL},
+	    {{"code", P_SOURCE, 1, "", "SPIR-V assembly, GLSL, or C (run as "
+	    "c_optimize)", NULL},
 	    {"lang", P_ENUM, 0, "", "the code's language (by default from "
-	    "the code)", "spv|glsl"},
+	    "the code; c: the C frontend, as c_optimize)", "spv|glsl|c"},
 	    NUO("budget", "", "seconds (6)"),
 	    {"ranges", P_OBJ, 0, "", "{\"n\": [lo, hi]}: values assumed for "
 	    "an input", NULL},
@@ -2262,6 +2267,9 @@ cmd_limit(struct req *r)
 	return 1;
 }
 
+/* spirv_simplify given C (lang "c", or C by its content): c optimize */
+static int spirv_is_c;
+
 static int
 cmd_spirv(struct req *r, const char **code)
 {
@@ -2270,6 +2278,30 @@ cmd_spirv(struct req *r, const char **code)
 	int k;
 
 	*code = jv_gets(r->args, "code");
+	spirv_is_c = (lang && !strcmp(lang, "c")) || (!lang && *code &&
+	    code_lang(*code, "", NULL) == CL_C);
+	if (spirv_is_c) {
+		/* the options that mean the same; target, check: c_optimize */
+		sb_puts(&r->stmt, "c optimize");
+		if ((v = jv_get(r->args, "budget")) != NULL) {
+			sb_puts(&r->stmt, " budget ");
+			if (!render_num(r, &r->stmt, v, "budget"))
+				return 0;
+		}
+		if ((v = jv_get(r->args, "ranges")) != NULL)
+			for (k = 0; k < v->n; k++) {
+				rg = v->v[k];
+				if (!is_ident(v->k[k]) || rg->t != J_ARR || rg->n != 2 ||
+				    rg->v[0]->t != J_NUM || rg->v[1]->t != J_NUM)
+					return bad(r, "bad_request", "ranges: {\"name\": "
+					    "[lo, hi]} with integers");
+				sb_printf(&r->stmt, " assume %s %lld %lld", v->k[k],
+				    (long long)rg->v[0]->num, (long long)rg->v[1]->num);
+			}
+		if ((v = jv_get(r->args, "nofile")) != NULL && v->t == J_TRUE)
+			sb_puts(&r->stmt, " nofile");
+		return 1;
+	}
 	sb_puts(&r->stmt, "spvsimplify");
 	if ((v = jv_get(r->args, "budget")) != NULL) {
 		sb_puts(&r->stmt, " budget ");
@@ -2546,6 +2578,13 @@ handle(const struct jv *rq)
 			for (k = 0; ans && k < ans->n; k++)
 				sb_printf(&r.stmt, "\x1e" "answer %s\n", ans->v[k]->s);
 			sb_puts(&r.stmt, jv_gets(a, "text"));
+			if (jv_gets(a, "code") != NULL)	/* as a fenced block */
+			{
+				sb_printf(&r.stmt, "\n```%s\n", jv_gets(a, "lang") ?
+				    jv_gets(a, "lang") : "");
+				sb_puts(&r.stmt, jv_gets(a, "code"));
+				sb_puts(&r.stmt, "\n```");
+			}
 		} else if (!r.c->special) {
 			build(&r);
 			if (!strncmp(cmd, "c_", 2))	/* cfront: C source */
@@ -2602,7 +2641,13 @@ handle(const struct jv *rq)
 		res = NULL;
 		if (code) {
 			code_block = code;
-			if (strncmp(cmd, "c_", 2) && glsl_like(code, "")) {
+			int as_c = !strncmp(cmd, "c_", 2) ||
+			    (!strcmp(cmd, "spirv_simplify") && spirv_is_c);
+			if (as_c && strncmp(cmd, "c_", 2))
+				printf("  note: the code is C: optimised by the C frontend "
+				    "(c optimize; the c_optimize tool also takes a target "
+				    "and check)\n");
+			if (!as_c && glsl_like(code, "")) {
 				struct sbuf nt = {0};
 				sb_clear(&glsl);
 				if (glsl_to_spvasm(code, &glsl, &nt)) {
@@ -2614,7 +2659,8 @@ handle(const struct jv *rq)
 					    nt.p ? nt.p : "");
 				free(nt.p);
 			}
-			snprintf(code_block_lang, sizeof code_block_lang, "%s", strncmp(cmd, "c_", 2) ? "spv" : "c");
+			snprintf(code_block_lang, sizeof code_block_lang, "%s", as_c ?
+			    "c" : "spv");
 		}
 		jv_set(resp, "ucas", jv_str(sb_str(&src)));
 		if (!strcmp(cmd, "english")) {

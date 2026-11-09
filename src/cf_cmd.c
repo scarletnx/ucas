@@ -290,7 +290,13 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 		fputs(rep.p, stdout);
 	if (o->check || o->bench)
 		rep_bool("check_passed", checked > 0);
-	if (o->nofile || !path || !strcmp(path, "<block>")) {
+	if (nlp_defer && !rep_on && !o->nofile && path &&
+	    !strcmp(path, "<block>")) {
+		/* the bot: a preview, and the whole as simplified.c */
+		printf("optimised C:\n");
+		print_lines("  ", r.out.p, 30);
+		deliver_file("simplified.c", "text/x-c", r.out.p, r.out.n, 0);
+	} else if (o->nofile || !path || !strcmp(path, "<block>")) {
 		printf("optimised C:\n");
 		print_lines("  ", r.out.p, 400);
 		rep_str("code", r.out.p);

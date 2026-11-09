@@ -448,6 +448,17 @@ void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
 int glsl_like(const char *code, const char *lang);
+/* codelang.c: a code block's language, from its tag and its content;
+ * *unclear: 1 untagged and could be either, 2 a ```c block of GLSL */
+enum { CL_NONE, CL_SPV, CL_GLSL, CL_C };
+int code_lang(const char *code, const char *lang, int *unclear);
+/* spvcross.c: spirv-cross's GLSL of a module before and after simplify */
+const char *spvcross_tool(int *silent);
+int spvcross_view(const char *orig, const char *simp, struct sbuf *report,
+    struct sbuf *oglsl, struct sbuf *sglsl);
+void spvcross_after_simplify(const char *orig, const char *simp, int nofile);
+void text_udiff(const char *a, const char *b, const char *na,
+    const char *nb, int maxlines, struct sbuf *out);
 int spv_disassemble(const char *data, size_t n, struct sbuf *out);
 int tool_run(char *const argv[], struct sbuf *out);
 int tool_tmp(char *tmpl, const char *data, size_t n);
