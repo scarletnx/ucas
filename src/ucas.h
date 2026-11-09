@@ -424,6 +424,12 @@ void xr_val(int k, int lane, const char *v);
 void xr_lanein(int lane, const char *v);
 int xr_count(void);
 void xr_done(int fps, double seconds, const char *name, int nofile);
+/* an image beside the trace (8-bit RGBA; cover: NULL, or which pixels
+ * were written, the rest discarded); outputs fill in as the trace runs */
+void xr_panel(const char *label, int w, int h, const unsigned char *rgba,
+    const unsigned char *cover, int output);
+/* the traced lanes' pixels (x, y, w, h) in the image run's (iw, ih) */
+void xr_quad(int x, int y, int w, int h, int iw, int ih);
 /* spirv.c: run SPIR-V assembly on the lanes */
 struct spvset {			/* "animate exec %19 = 2.5": an input's value */
 	char name[40];		/* without the % */
@@ -463,6 +469,7 @@ int cmdp_rest(struct P *p, char *buf, size_t n,
 double cmdp_number(struct P *p, const char *const *stop);
 void cmdp_fail_here(struct P *p);
 int cmdp_word(struct P *p, char *buf, size_t n);
+int cmdp_raw(struct P *p, char *buf, size_t n);	/* "a/b.png" */
 /* ---- calc: loops and calculus (loop.c; the rest in calc.h) ---- */
 nid mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl);
 void loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,

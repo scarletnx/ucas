@@ -110,6 +110,30 @@ lex(struct toks *t, const char *src)
 			fl = TF_SPACE;
 			continue;
 		}
+		if (t->n > 0 && t->kind[t->n - 1] == T_ID && t->len[t->n - 1] == 4 &&
+		    !strncmp(src + t->off[t->n - 1], "file", 4) && c != '\n' &&
+		    c != ';' && c != '#' && c != 0) {
+			/* "input 1 file a/b.png": the path is one word */
+			for (n = 0; s[i + n] && !isspace(s[i + n]) && s[i + n] != ';';
+			    n++)
+				;
+			push(t, T_ID, i, (uint32_t)n, fl);
+			i += (uint32_t)n;
+			fl = 0;
+			continue;
+		}
+		if (c == '#' && t->n > 0 && t->kind[t->n - 1] != T_NL) {
+			/* a colour after a word, "input 1 #ff8800": a word */
+			for (n = 1; isxdigit(s[i + n]); n++)
+				;
+			if ((n == 4 || n == 5 || n == 7 || n == 9) &&
+			    !isalnum(s[i + n]) && s[i + n] != '_') {
+				push(t, T_ID, i, (uint32_t)n, fl);
+				i += (uint32_t)n;
+				fl = 0;
+				continue;
+			}
+		}
 		if (c == '#' || (c == '/' && s[i + 1] == '/')) {
 			while (s[i] && s[i] != '\n')
 				i++;

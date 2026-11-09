@@ -1,0 +1,249 @@
+# animate exec with images: textures, samplers, derivatives, the whole-image run
+
+animate exec of this seed 1 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D tex;
+layout(binding = 1) uniform texture2D t2;
+layout(binding = 2) uniform sampler smp;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	vec4 c = texture(tex, uv) + texelFetch(tex, ivec2(gl_FragCoord.xy), 0);
+	c += texture(sampler2D(t2, smp), uv * 2.0);
+	float d = dFdx(uv.x) + dFdy(uv.y) + fwidth(c.r);
+	mat3 r = mat3(1.0);
+	r[1] = vec3(c.xyz) * d;
+	vec3 q = transpose(r) * vec3(uv, 1.0);
+	if (q.z < 0.0)
+		discard;
+	vec2 sz = vec2(textureSize(tex, 0));
+	o = vec4(q, d) + vec4(sz, 0, 0) + vec4(outerProduct(uv, uv)[0], 0, 0);
+	o.xy = mix(o.xy, smoothstep(0.0, 1.0, o.zw), step(0.5, uv));
+}
+```
+
+# a 5x5 box blur
+animate exec of this seed 2 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D img;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	vec2 px = 1.0 / vec2(textureSize(img, 0));
+	vec4 s = vec4(0.0);
+	for (int y = -2; y <= 2; y++)
+		for (int x = -2; x <= 2; x++)
+			s += texture(img, uv + vec2(x, y) * px);
+	o = s / 25.0;
+}
+```
+
+# grayscale of a gradient, into an R8 target
+animate exec of this seed 3 input 1 gradient output R8 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D img;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	vec4 c = texture(img, uv);
+	float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+	o = vec4(g, g, g, 1.0);
+}
+```
+
+# a channel swap on a picture (a ```image block), nearest sampling
+animate exec of this seed 4 sampler nearest clamp nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D img;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(img, uv).bgra; }
+```
+```image ramp8.png
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAhklEQVR42hXKQQECAAgEwYtCFKIQhQZGkAZGkAZGkAZGwGXeI2nX9FvXd0OfTb239NrWc0ePlYxgBCMYwQhGMIJdcIITnOAEJzjBCX4hCEEIQhCCEIQgxIUkJCEJSUhCEpKQF4pQhCIUoQhFKEJdaEITmtCEJjShCX1hCEMYwhCGMIQhzGP/bUepgfLDzHoAAAAASUVORK5CYII=
+```
+
+# a blend of two inputs, one a colour, at 32x32
+animate exec of this seed 5 input 1 checker input 2 #ff8800 size 32x32 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = mix(texture(a, uv), texture(b, uv), 0.5); }
+```
+
+# discard: the pixels outside a circle
+animate exec of this seed 6 input 1 red nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D img;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	o = texture(img, uv).bgra;
+	if (length(uv - 0.5) > 0.4)
+		discard;
+}
+```
+
+# a compute shader on storage images: invert
+animate exec of this seed 7 nofile
+```glsl
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba8) uniform readonly image2D src;
+layout(binding = 1, rgba8) uniform writeonly image2D dst;
+void main() {
+	ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+	imageStore(dst, p, vec4(1.0) - imageLoad(src, p));
+}
+```
+
+# image atomics: a histogram of the red channel
+animate exec of this seed 8 size 16x16 input 2 black nofile
+```glsl
+#version 450
+layout(local_size_x = 4, local_size_y = 4) in;
+layout(binding = 0) uniform sampler2D img;
+layout(binding = 1, r32ui) uniform uimage2D hist;
+void main() {
+	ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+	uint r = uint(texelFetch(img, p, 0).r * 15.0);
+	imageAtomicAdd(hist, ivec2(r, 0), 1u);
+}
+```
+
+# explicit LOD, gather, offsets, queries, a shadow compare
+animate exec of this seed 9 input 2 gradient input 3 R32F nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(binding = 2) uniform sampler2DShadow s;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	vec4 l = textureLod(a, uv, 2.0) + textureGrad(b, uv, vec2(0.1, 0.0), vec2(0.0, 0.1));
+	vec4 g = textureGather(b, uv, 1) + textureOffset(a, uv, ivec2(1, -1));
+	float d = texture(s, vec3(uv, 0.5));
+	vec2 q = textureQueryLod(a, uv);
+	o = vec4(l.x + g.y, d, q.x / 8.0, float(textureQueryLevels(a)) / 8.0);
+}
+```
+
+# texelFetch outside the image: robust, counted
+animate exec of this seed 10 size 8x8 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texelFetch(a, ivec2(gl_FragCoord.xy) * 3, 0); }
+```
+
+# matrices: inverse, determinant, outer product
+animate exec of this seed 11 size 4x4 nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() {
+	mat3 m = mat3(uv.x + 1.0, 0.5, 0.0, 0.25, uv.y + 2.0, 0.0, 0.0, 0.0, 1.0);
+	mat3 i = inverse(m);
+	o = vec4((i * m)[0][0], determinant(m) / 8.0, outerProduct(uv, uv)[1][1], 1.0);
+}
+```
+
+# image files: PNG, JPEG, BMP, GIF
+
+animate exec of this seed 12 input 1 file img/ramp8.png input 2 file img/g16.jpg input 3 file img/g16.bmp input 4 file img/g16.gif nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(binding = 2) uniform sampler2D c;
+layout(binding = 3) uniform sampler2D d;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = (texture(a, uv) + texture(b, uv) + texture(c, uv) + texture(d, uv)) / 4.0; }
+```
+
+animate exec of this seed 13 input 1 file img/bad.png nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv); }
+```
+
+# English: inputs and outputs in words
+
+run this with seed 14, for input 1 use pure black nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+
+use a red image for the second input and show it on a 16x16 image seed 15 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+
+input 2 is a checkerboard, with an RG8 output seed 16 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+
+use white for all inputs seed 17 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+
+animate exec of this, for input 1 use purpel seed 18 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+
+run this on my images seed 19 nofile
+```glsl
+#version 450
+layout(binding = 0) uniform sampler2D a;
+layout(binding = 1) uniform sampler2D b;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o;
+void main() { o = texture(a, uv) * 0.5 + texture(b, uv) * 0.5; }
+```
+```image ramp8.png
+iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAhklEQVR42hXKQQECAAgEwYtCFKIQhQZGkAZGkAZGkAZGwGXeI2nX9FvXd0OfTb239NrWc0ePlYxgBCMYwQhGMIJdcIITnOAEJzjBCX4hCEEIQhCCEIQgxIUkJCEJSUhCEpKQF4pQhCIUoQhFKEJdaEITmtCEJjShCX1hCEMYwhCGMIQhzGP/bUepgfLDzHoAAAAASUVORK5CYII=
+```

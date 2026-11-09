@@ -1,0 +1,11 @@
+Third-party code, kept unmodified.
+
+stb_image.h
+	stb_image v2.30 by Sean Barrett (nothings/stb), public domain or
+	MIT (its own licence text at the end of the file), so it may be
+	combined with ucas (GPL-3.0-or-later).
+	Source: https://raw.githubusercontent.com/nothings/stb/f58f558c120e9b32c217290b80bad1a0729fbb2c/stb_image.h
+	(commit f58f558c120e9b32c217290b80bad1a0729fbb2c)
+	sha256 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3
+	Compiled once, in src/img.c, restricted to PNG, JPEG, GIF, BMP and
+	PNM, from memory only (STBI_NO_STDIO), with the dimensions capped.

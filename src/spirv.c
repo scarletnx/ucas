@@ -30,12 +30,12 @@
 
 #define NL 32
 #define MAXOP 80
-#define MAXCOMP 4
+#define MAXCOMP 16		/* a value's components: a mat4 at most */
 
 enum { K_NONE, K_TYPE, K_CONST, K_VAR, K_FUNC, K_LABEL, K_VALUE, K_EXT,
 	K_PARAM };
 enum { S_VOID, S_BOOL, S_INT, S_FLOAT, S_VEC, S_STRUCT, S_ARRAY, S_PTR,
-	S_FN, S_OTHER };
+	S_FN, S_OTHER, S_MAT, S_IMAGE, S_SAMPLER, S_SIMAGE };
 enum { SC_FUNCTION, SC_PRIVATE, SC_INPUT, SC_OUTPUT, SC_SHARED, SC_WG };
 
 struct sins {
@@ -53,6 +53,9 @@ struct sty {
 	int nm;
 	int sc;			/* pointer: storage class */
 	int slots;
+	/* an image: Dim (TD_), Depth, Arrayed, MS, Sampled (1 sampled, 2
+	 * storage), the format (tex.c's, -1 Unknown) */
+	signed char dim, depth, arrayed, ms, sampled, ifmt;
 };
 
 struct sid {
@@ -69,6 +72,9 @@ struct sid {
 	int label_at;		/* K_LABEL: index of OpLabel */
 	int spec;		/* a specialization constant: may change */
 	int func_at;		/* K_FUNC: index of OpFunction */
+	int set, binding, location;	/* decorations, -1 none */
+	int nonread, nonwrite;		/* NonReadable, NonWritable */
+	int setix;		/* "%name = value" for an input variable, -1 */
 };
 
 struct lval {
@@ -97,7 +103,39 @@ static struct {
 	int seeded;
 	long oob;		/* accesses outside a variable */
 	char oobvar[40];	/* the first one's variable */
+	int quiet;		/* the whole-image run: nothing recorded */
+	uint32_t killed;	/* lanes that discarded */
+	long divderiv;		/* derivatives with a partner lane masked */
 } V;
+
+#include "img.h"
+
+/*
+ * Images: every image, sampled image and sampler binding (and each
+ * element of an array of them) gets a texture or a sampler here; its
+ * variable's memory slot holds a handle, (texture + 1) | (sampler + 1)
+ * << 16, so loads, access chains, phis, selects and calls carry images
+ * like any other value.
+ */
+#define MAXTEX 32
+static struct {
+	struct tex t[MAXTEX];
+	struct tex init[MAXTEX];	/* as it started, for the image run */
+	char label[MAXTEX][96];
+	int slot[MAXTEX];		/* the input slot (0..), -1 none */
+	int storage[MAXTEX], written[MAXTEX];
+	int nt;
+	struct samp s[MAXTEX];
+	int ns;
+	long oob;			/* texel accesses outside the image */
+	long nsample;
+	int on;				/* the shader has images, or asked */
+	int W, H;			/* the image run's size */
+	int x0, y0;			/* the lanes' first pixel */
+	int uv;				/* the input taken as uv, -1 */
+	int lsize[3];			/* compute: LocalSize */
+	int run;			/* in the image run */
+} G;
 
 static void
 die(const char *fmt, const char *a)
@@ -137,6 +175,7 @@ idx(const char *name)
 	snprintf(V.id[i].tok, sizeof V.id[i].tok, "%s", name);
 	V.id[i].type = -1;
 	V.id[i].builtin = -1;
+	V.id[i].set = V.id[i].binding = V.id[i].location = V.id[i].setix = -1;
 	symmap[s] = i;
 	return i;
 }
@@ -741,7 +780,7 @@ slots_of(int t)
 		return 1;
 	case S_VEC:
 		return y->n;
-	case S_ARRAY:
+	case S_ARRAY: case S_MAT:
 		return y->n * slots_of(y->e);
 	case S_STRUCT:
 		for (i = 0; i < y->nm; i++)
@@ -763,7 +802,7 @@ fill_slotty(int t, int *out, int at)
 		for (i = 0; i < y->n; i++)
 			out[at + i] = y->e;
 		return;
-	case S_ARRAY:
+	case S_ARRAY: case S_MAT:
 		for (i = 0; i < y->n; i++)
 			fill_slotty(y->e, out, at + i * slots_of(y->e));
 		return;
@@ -782,7 +821,7 @@ ncomp(int t)
 {
 	struct sty *y = T(t);
 
-	return y->k == S_VEC ? y->n : 1;
+	return y->k == S_VEC ? y->n : y->k == S_MAT ? y->n * ncomp(y->e) : 1;
 }
 
 static int
@@ -790,7 +829,51 @@ scalar_of(int t)
 {
 	struct sty *y = T(t);
 
-	return y->k == S_VEC ? y->e : t;
+	return y->k == S_VEC ? y->e : y->k == S_MAT ? scalar_of(y->e) : t;
+}
+
+/* a value's words: components of a vector or matrix, a small struct's
+ * or array's slots */
+static int
+nwords(int t)
+{
+	int n;
+
+	if (t < 0 || V.id[t].kind != K_TYPE)
+		return 1;
+	n = T(t)->k == S_PTR ? 1 : slots_of(t);
+	return n > MAXCOMP ? MAXCOMP : n;
+}
+
+/*
+ * The first word and type of a composite's part, by literal indices
+ * opnd[from..]: a vector's component, a matrix's column or element, a
+ * struct's member, an array's element
+ */
+static int
+part_of(int t, const struct sins *I, int from, int *rt)
+{
+	int off = 0, i, j;
+
+	for (i = from; i < I->nop; i++) {
+		struct sty *y = T(t);
+		int ix = atoi(I->opnd[i]);
+		if (y->k == S_STRUCT) {
+			if (ix < 0 || ix >= y->nm)
+				ix = 0;
+			for (j = 0; j < ix; j++)
+				off += slots_of(y->m[j]);
+			t = y->m[ix];
+		} else if (y->k == S_VEC || y->k == S_MAT || y->k == S_ARRAY) {
+			if (ix < 0 || ix >= y->n)
+				ix = 0;
+			off += ix * slots_of(y->e);
+			t = y->e;
+		} else
+			break;
+	}
+	*rt = t;
+	return off;
 }
 
 static uint64_t
@@ -920,14 +1003,25 @@ init_var(int v, int lane, uint64_t *mem)
 
 	for (s = 0; s < d->nslots; s++) {
 		int st = d->slotty[s];
+		int px = G.x0 + lane % cols, py = G.y0 + lane / cols;
 		uint64_t b = 0;
 		switch (d->builtin) {
 		case B_FRAGCOORD:
-			b = putf(st, s == 0 ? lane % cols + 0.5 : s == 1 ?
-			    lane / cols + 0.5 : s == 2 ? 0.5 : 1.0);
+			b = putf(st, s == 0 ? px + 0.5 : s == 1 ? py + 0.5 : s == 2 ?
+			    0.5 : 1.0);
 			break;
 		case B_LOCALID: case B_GLOBALID:
-			b = puti(st, s == 0 ? lane : 0);
+			if (G.on) {	/* an invocation per pixel */
+				int g = s == 0 ? px : s == 1 ? py : 0;
+				b = puti(st, d->builtin == B_GLOBALID ? g :
+				    g % (G.lsize[s < 3 ? s : 0] > 0 ? G.lsize[s] : 1));
+			} else
+				b = puti(st, s == 0 ? lane : 0);
+			break;
+		case B_WGID:
+			if (G.on && s < 2)
+				b = puti(st, (s == 0 ? px : py) / (G.lsize[s] > 0 ?
+				    G.lsize[s] : 1));
 			break;
 		case B_LOCALINDEX: case B_SUBLANE: case B_VERTEX:
 			b = puti(st, lane);
@@ -938,11 +1032,21 @@ init_var(int v, int lane, uint64_t *mem)
 		case B_FRONT:
 			b = 1;
 			break;
-		case B_WGID: case B_HELPER:
+		case B_HELPER:
 			b = 0;
 			break;
 		default:
-			if (d->sc == SC_SHARED || d->sc == SC_INPUT)
+			if (G.on && v == G.uv)	/* the pixel's normalized coordinate */
+				b = putf(st, s == 0 ? (px + 0.5) / G.W : s == 1 ?
+				    (py + 0.5) / G.H : 0);
+			else if (d->sc == SC_INPUT && d->setix >= 0)
+				b = spv_set[d->setix].mode == 1 ? (T(st)->k == S_FLOAT ?
+				    putf(st, lane) : puti(st, lane)) : T(st)->k == S_FLOAT ?
+				    putf(st, spv_set[d->setix].v) :
+				    puti(st, (int64_t)spv_set[d->setix].v);
+			else if ((d->sc == SC_SHARED || d->sc == SC_INPUT) &&
+			    T(st)->k != S_IMAGE && T(st)->k != S_SIMAGE &&
+			    T(st)->k != S_SAMPLER)
 				b = random_scalar(st);
 		}
 		mem[s] = b;
@@ -1016,6 +1120,19 @@ declare(void)
 		} else if (!strcmp(I->op, "OpDecorate") && I->nop >= 3 &&
 		    !strcmp(I->opnd[1], "BuiltIn")) {
 			V.id[opid(I, 0)].builtin = builtin_code(I->opnd[2]);
+		} else if (!strcmp(I->op, "OpDecorate") && I->nop >= 2) {
+			struct sid *x = &V.id[opid(I, 0)];
+			int v = I->nop >= 3 ? atoi(I->opnd[2]) : 0;
+			if (!strcmp(I->opnd[1], "Binding"))
+				x->binding = v;
+			else if (!strcmp(I->opnd[1], "DescriptorSet"))
+				x->set = v;
+			else if (!strcmp(I->opnd[1], "Location"))
+				x->location = v;
+			else if (!strcmp(I->opnd[1], "NonReadable"))
+				x->nonread = 1;
+			else if (!strcmp(I->opnd[1], "NonWritable"))
+				x->nonwrite = 1;
 		} else if (!strncmp(I->op, "OpType", 6)) {
 			struct sty *y = &d->t;
 			d->kind = K_TYPE;
@@ -1048,7 +1165,30 @@ declare(void)
 				    y->e = opid(I, 1);
 			else if (!strcmp(I->op, "OpTypeFunction"))
 				y->k = S_FN;
-			else
+			else if (!strcmp(I->op, "OpTypeMatrix"))
+				y->k = S_MAT, y->e = opid(I, 0), y->n = atoi(I->opnd[1]);
+			else if (!strcmp(I->op, "OpTypeSampler"))
+				y->k = S_SAMPLER;
+			else if (!strcmp(I->op, "OpTypeSampledImage"))
+				y->k = S_SIMAGE, y->e = opid(I, 0);
+			else if (!strcmp(I->op, "OpTypeImage") && I->nop >= 7) {
+				static const char *const dims[] = {"1D", "2D", "3D", "Cube",
+				    "Rect", "Buffer", "SubpassData"};
+				int j;
+				y->k = S_IMAGE;
+				y->e = opid(I, 0);
+				y->dim = TD_2D;
+				for (j = 0; j < 7; j++)
+					if (!strcmp(I->opnd[1], dims[j]))
+						y->dim = (signed char)(j == 6 ? TD_2D : j);
+				y->depth = (signed char)atoi(I->opnd[2]);
+				y->arrayed = (signed char)atoi(I->opnd[3]);
+				y->ms = (signed char)atoi(I->opnd[4]);
+				y->sampled = (signed char)atoi(I->opnd[5]);
+				y->ifmt = (signed char)(I->nop > 6 &&
+				    strcmp(I->opnd[6], "Unknown") ?
+				    tex_fmt_find(I->opnd[6]) : -1);
+			} else
 				y->k = S_OTHER;
 			if (y->n > 4096)
 				y->n = 4096;
@@ -1108,7 +1248,8 @@ declare(void)
 			if (d->sc == SC_SHARED)
 				init_var(i, 0, d->mem);
 		} else {
-			d->mem = xcalloc((size_t)d->nslots * V.lanes, sizeof *d->mem);
+			/* room for a warp: the image run uses 32 lanes */
+			d->mem = xcalloc((size_t)d->nslots * NL, sizeof *d->mem);
 			for (l = 0; l < V.lanes; l++)
 				init_var(i, l, d->mem + (size_t)l * d->nslots);
 		}
@@ -1191,6 +1332,33 @@ fmt(char *buf, size_t n, int t, const struct lval *v)
 	}
 	if (y->k == S_STRUCT || y->k == S_ARRAY) {
 		snprintf(buf, n, "{...}");
+		return;
+	}
+	if (y->k == S_IMAGE || y->k == S_SIMAGE || y->k == S_SAMPLER) {
+		int ti = (int)(v->b[0] & 0xffff) - 1, si = (int)(v->b[0] >> 16 &
+		    0xffff) - 1;
+		if (ti >= 0 && si >= 0)
+			snprintf(buf, n, "tex%d+smp%d", ti + 1, si + 1);
+		else if (ti >= 0)
+			snprintf(buf, n, "tex%d", ti + 1);
+		else
+			snprintf(buf, n, si >= 0 ? "smp%d" : "none", si + 1);
+		return;
+	}
+	if (y->k == S_MAT) {
+		struct lval c;
+		int j, cn = ncomp(y->e);
+		at = snprintf(buf, n, "[");
+		for (j = 0; j < y->n && (size_t)at + 2 < n; j++) {
+			memset(&c, 0, sizeof c);
+			memcpy(c.b, v->b + j * cn, (size_t)cn * sizeof c.b[0]);
+			fmt(buf + at, n - (size_t)at, y->e, &c);
+			at += (int)strlen(buf + at);
+			if (j + 1 < y->n && (size_t)at + 1 < n)
+				buf[at++] = ',', buf[at] = 0;
+		}
+		if ((size_t)at + 1 < n)
+			buf[at++] = ']', buf[at] = 0;
 		return;
 	}
 	if (nc > 1)
@@ -1300,6 +1468,8 @@ emit(const struct sins *I, int kind, int cls, double cost, uint32_t mask)
 {
 	char dst[16] = "";
 
+	if (V.quiet)
+		return -1;
 	if (I->res >= 0)
 		snprintf(dst, sizeof dst, "%.15s", V.id[I->res].name);
 	return xr_add(kind, I->text, cls, cost, mask, dst);
@@ -1311,7 +1481,7 @@ emit_vals(int k, const struct sins *I, uint32_t mask)
 	int l;
 	char buf[64];
 
-	if (I->res < 0 || V.id[I->res].type < 0)
+	if (k < 0 || I->res < 0 || V.id[I->res].type < 0)
 		return;
 	for (l = 0; l < V.lanes; l++)
 		if (mask >> l & 1) {
@@ -1517,6 +1687,750 @@ glsl(const char *f, int rt, int at, uint64_t a, uint64_t b, uint64_t c,
 	return 0;
 }
 
+/* ---- images and derivatives ---- */
+
+static int
+handle_tex(uint64_t h)
+{
+	int t = (int)(h & 0xffff) - 1;
+
+	return t >= 0 && t < G.nt ? t : -1;
+}
+
+static const struct samp *
+handle_samp(uint64_t h)
+{
+	static struct samp dflt;
+	int s = (int)(h >> 16 & 0xffff) - 1;
+
+	if (s >= 0 && s < G.ns)
+		return &G.s[s];
+	samp_default(&dflt);
+	return &dflt;
+}
+
+/* the image type behind an operand (an image or a sampled image) */
+static const struct sty *
+image_type(int id)
+{
+	int t = V.id[id].type;
+
+	if (t >= 0 && T(t)->k == S_SIMAGE)
+		t = T(t)->e;
+	if (t < 0 || T(t)->k != S_IMAGE)
+		die("not an image: %s", V.id[id].name);
+	return T(t);
+}
+
+/*
+ * A derivative across the 2x2 quad, as the hardware computes it: lanes
+ * are laid out `cols` wide, so the x neighbour is lane ^ 1 and the y
+ * neighbour lane ^ cols.  Fine: from the lane's own row (column);
+ * coarse: from the quad's top-left pixel's row (column), the same for
+ * all four.  A neighbour that is masked off (divergent control flow)
+ * counts as equal, and is counted for a note.
+ */
+static double
+deriv(const double *v, int l, int axis, int coarse, uint32_t mask)
+{
+	int base = coarse ? l & ~1 & ~cols : l, a, b;
+
+	if (axis == 1)
+		a = base & ~1, b = a | 1;
+	else
+		a = base & ~cols, b = a | cols;
+	if (b >= V.lanes || !(mask >> a & 1) || !(mask >> b & 1)) {
+		V.divderiv++;
+		return 0;
+	}
+	return v[b] - v[a];
+}
+
+static double
+comp_f(int id, int l, int c)
+{
+	int t = V.id[id].type;
+	struct lval x = val(id, l);
+
+	if (t < 0)
+		return 0;
+	t = scalar_of(t);
+	return T(t)->k == S_FLOAT ? getf(t, x.b[c]) : (double)geti(t, x.b[c]);
+}
+
+/* image operands: the mask's names, then their ids in bit order */
+enum { IO_BIAS, IO_LOD, IO_GRAD, IO_COFF, IO_OFF, IO_COFFS, IO_SAMPLE,
+	IO_MINLOD, IO_N };
+static void
+image_operands(const struct sins *I, int at, int *id)
+{
+	static const char *const nm[] = {"Bias", "Lod", "Grad", "ConstOffset",
+	    "Offset", "ConstOffsets", "Sample", "MinLod", "MakeTexelAvailable",
+	    "MakeTexelVisible"};
+	unsigned m = 0;
+	int k;
+	char w[160], *s, *e;
+
+	for (k = 0; k < IO_N + 1; k++)
+		id[k] = -1;
+	if (at >= I->nop || I->opnd[at][0] == '%')
+		return;
+	snprintf(w, sizeof w, "%s", I->opnd[at]);
+	for (s = w; s && *s; s = e) {
+		if ((e = strchr(s, '|')) != NULL)
+			*e++ = 0;
+		for (k = 0; k < 10; k++)
+			if (!strcmp(s, nm[k]))
+				m |= 1u << k;
+	}
+	at++;
+	for (k = 0; k < 10; k++) {
+		if (!(m >> k & 1))
+			continue;
+		if (k < IO_N && at < I->nop)
+			id[k] = opid(I, at);
+		if (k == IO_GRAD && at + 1 < I->nop)
+			id[IO_N] = opid(I, at + 1);	/* the y gradient */
+		at += k == IO_GRAD ? 2 : 1;
+	}
+}
+
+static void
+put_result(struct lval *r, int rt, const double *v, int n)
+{
+	int st = scalar_of(rt), c;
+
+	memset(r, 0, sizeof *r);
+	for (c = 0; c < n && c < MAXCOMP; c++)
+		r->b[c] = T(st)->k == S_FLOAT ? putf(st, v[c]) :
+		    puti(st, (int64_t)v[c]);
+}
+
+/* texel coordinates (x, y, z, layer) from an integer coordinate */
+static int
+texel_coords(const struct tex *t, const struct sty *y, int lv, const int64_t *c,
+    int n, int *xyz)
+{
+	int axes = y->dim == TD_1D || y->dim == TD_BUFFER ? 1 : y->dim == TD_3D
+	    ? 3 : 2, a, lw, lh, ld;
+
+	if (!tex_level_size(t, lv, &lw, &lh, &ld))
+		return 0;
+	xyz[0] = xyz[1] = xyz[2] = xyz[3] = 0;
+	for (a = 0; a < axes && a < n; a++)
+		xyz[a] = (int)(c[a] > 1 << 30 ? 1 << 30 : c[a] < -(1 << 30) ?
+		    -(1 << 30) : c[a]);
+	if (y->dim == TD_CUBE)	/* (x, y, face + 6 * layer) */
+		xyz[3] = (int)(n > 2 ? c[2] : 0);
+	else if (y->arrayed && n > axes)
+		xyz[3] = (int)c[axes];
+	if (xyz[0] < 0 || xyz[0] >= lw || xyz[1] < 0 || xyz[1] >= lh ||
+	    xyz[2] < 0 || xyz[2] >= ld || xyz[3] < 0 || xyz[3] >= t->layers)
+		return 0;
+	return 1;
+}
+
+static int
+exec_image(const struct sins *I, uint32_t mask, int rt, int st, int nc)
+{
+	const char *op = I->op;
+	int l, c, k;
+
+	if (!strncmp(op, "OpDPd", 5) || !strncmp(op, "OpFwidth", 8)) {
+		int a = opid(I, 1), fw = op[2] == 'F';
+		const char *suf = op + (fw ? 8 : 6);
+		int coarse = !strcmp(suf, "Coarse");
+		double v[NL];
+		struct lval *r;
+		for (c = 0; c < nc; c++) {
+			double out[NL];
+			for (l = 0; l < V.lanes; l++)
+				v[l] = mask >> l & 1 ? comp_f(a, l, c) : 0;
+			for (l = 0; l < V.lanes; l++)
+				if (mask >> l & 1) {
+					double dx = deriv(v, l, 1, coarse, mask),
+					    dy = deriv(v, l, 2, coarse, mask);
+					out[l] = fw ? fabs(dx) + fabs(dy) : op[5] == 'x' ? dx :
+					    dy;
+				}
+			for (l = 0; l < V.lanes; l++)
+				if (mask >> l & 1) {
+					r = LV(I->res, l);
+					if (c == 0)
+						memset(r, 0, sizeof *r);
+					r->b[c] = putf(st, out[l]);
+				}
+		}
+		k = emit(I, I_OP, C_FADD, model_active()->c[C_FADD] * nc *
+		    (fw ? 3 : 1), mask);
+		emit_vals(k, I, mask);
+		return 1;
+	}
+	if (!strcmp(op, "OpSampledImage") || !strcmp(op, "OpImage")) {
+		int a = opid(I, 1), b = I->nop > 2 ? opid(I, 2) : -1;
+		for (l = 0; l < V.lanes; l++)
+			if (mask >> l & 1) {
+				struct lval *r = LV(I->res, l);
+				uint64_t h = val(a, l).b[0];
+				memset(r, 0, sizeof *r);
+				r->b[0] = op[7] == 0 ? (h & 0xffff) : (h & 0xffff) |
+				    (val(b, l).b[0] & 0xffff0000u);
+			}
+		k = emit(I, I_OP, -1, 0, mask);
+		emit_vals(k, I, mask);
+		return 1;
+	}
+	if (!strncmp(op, "OpImageQuery", 12)) {
+		const char *q = op + 12;
+		int img = opid(I, 1);
+		const struct sty *y = image_type(img);
+		for (l = 0; l < V.lanes; l++) {
+			double v[4] = {0, 0, 0, 0};
+			int ti, lv = 0, w, h, d, n = 0;
+			if (!(mask >> l & 1))
+				continue;
+			ti = handle_tex(val(img, l).b[0]);
+			if (ti < 0) {
+				put_result(LV(I->res, l), rt, v, nc);
+				continue;
+			}
+			if (!strcmp(q, "SizeLod"))
+				lv = (int)comp_f(opid(I, 2), l, 0);
+			if (!strcmp(q, "Levels"))
+				v[n++] = G.t[ti].levels;
+			else if (!strcmp(q, "Samples"))
+				v[n++] = 1;
+			else if (!strcmp(q, "Lod")) {
+				/* (the level accessed, lambda) from the coordinate's
+				 * derivatives across the quad */
+				int co = opid(I, 2), nco = vcomp(co), a;
+				double dx[3] = {0, 0, 0}, dy[3] = {0, 0, 0}, cv[NL], lam;
+				const struct samp *s = handle_samp(val(img, l).b[0]);
+				for (a = 0; a < nco && a < 3; a++) {
+					int j;
+					for (j = 0; j < V.lanes; j++)
+						cv[j] = mask >> j & 1 ? comp_f(co, j, a) : 0;
+					dx[a] = deriv(cv, l, 1, 0, mask);
+					dy[a] = deriv(cv, l, 2, 0, mask);
+				}
+				lam = tex_lambda(&G.t[ti], nco, dx, dy) + s->bias;
+				v[1] = lam;
+				lam = lam < s->minlod ? s->minlod : lam > s->maxlod ?
+				    s->maxlod : lam;
+				v[0] = lam < 0 ? 0 : lam > G.t[ti].levels - 1 ?
+				    G.t[ti].levels - 1 : lam;
+				n = 2;
+			} else if (tex_level_size(&G.t[ti], lv, &w, &h, &d)) {
+				v[n++] = w;
+				if (y->dim != TD_1D && y->dim != TD_BUFFER)
+					v[n++] = h;
+				if (y->dim == TD_3D)
+					v[n++] = d;
+				if (y->arrayed)
+					v[n++] = y->dim == TD_CUBE ? G.t[ti].layers / 6 :
+					    G.t[ti].layers;
+			}
+			put_result(LV(I->res, l), rt, v, nc);
+		}
+		k = emit(I, I_OP, -1, 0, mask);
+		emit_vals(k, I, mask);
+		return 1;
+	}
+	if (!strcmp(op, "OpImageTexelPointer")) {
+		/* a pointer to one texel's first word, for an atomic */
+		int p = opid(I, 1), co = opid(I, 2);
+		for (l = 0; l < V.lanes; l++) {
+			struct lval pv, *r;
+			int ti, xyz[4], n = vcomp(co), a;
+			int64_t ic[4] = {0, 0, 0, 0};
+			if (!(mask >> l & 1))
+				continue;
+			pv = val(p, l);
+			ti = pv.var >= 0 ? handle_tex(*slot(pv.var, l, pv.off)) : -1;
+			r = LV(I->res, l);
+			memset(r, 0, sizeof *r);
+			r->var = ti >= 0 ? -2 - ti : -1;
+			r->off = -1;
+			for (a = 0; a < n && a < 4; a++)
+				ic[a] = (int64_t)comp_f(co, l, a);
+			if (ti >= 0) {
+				int it = T(V.id[pv.var].type)->e;
+				const struct sty *y;
+				while (T(it)->k == S_ARRAY)
+					it = T(it)->e;
+				y = T(it);
+				if (texel_coords(&G.t[ti], y, 0, ic, n, xyz))
+					r->off = (int)(tex_word(&G.t[ti], 0, xyz[0], xyz[1],
+					    xyz[2], xyz[3]) - G.t[ti].t);
+				else
+					G.oob++;
+			}
+		}
+		k = emit(I, I_OP, C_IADD, model_active()->c[C_IADD], mask);
+		return 1;
+	}
+	if (!strcmp(op, "OpImageFetch") || !strcmp(op, "OpImageRead") ||
+	    !strcmp(op, "OpImageWrite")) {
+		int wr = op[7] == 'W', base = wr ? 0 : 1;
+		int img = opid(I, base), co = opid(I, base + 1), ids[IO_N + 1];
+		const struct sty *y = image_type(img);
+		int n = vcomp(co);
+		image_operands(I, base + (wr ? 3 : 2), ids);
+		for (l = 0; l < V.lanes; l++) {
+			int ti, xyz[4], lv = 0, a;
+			int64_t ic[4] = {0, 0, 0, 0};
+			double v[4] = {0, 0, 0, 0};
+			if (!(mask >> l & 1))
+				continue;
+			ti = handle_tex(val(img, l).b[0]);
+			for (a = 0; a < n && a < 4; a++)
+				ic[a] = (int64_t)comp_f(co, l, a);
+			if (ids[IO_LOD] >= 0)
+				lv = (int)comp_f(ids[IO_LOD], l, 0);
+			for (a = 0; a < 3; a++) {
+				int oid = ids[IO_COFF] >= 0 ? ids[IO_COFF] : ids[IO_OFF];
+				if (oid >= 0 && a < vcomp(oid))
+					ic[a] += (int64_t)comp_f(oid, l, a);
+			}
+			if (ti < 0 || !texel_coords(&G.t[ti], y, lv, ic, n, xyz)) {
+				G.oob++;
+				if (!wr) {	/* robust: zeros, alpha 1 if the format has none */
+					v[3] = ti >= 0 && tex_fmts[G.t[ti].fmt].nc < 4 ? 1 : 0;
+					put_result(LV(I->res, l), rt, v, nc);
+				}
+				continue;
+			}
+			if (wr) {
+				int tx = opid(I, 2), m = vcomp(tx);
+				for (a = 0; a < 4; a++)
+					v[a] = a < m ? comp_f(tx, l, a) : a == 3 ? 1 : 0;
+				tex_store(&G.t[ti], lv, xyz[0], xyz[1], xyz[2], xyz[3], v);
+				G.written[ti] = 1;
+			} else {
+				tex_load(&G.t[ti], lv, xyz[0], xyz[1], xyz[2], xyz[3], v);
+				put_result(LV(I->res, l), rt, v, nc);
+			}
+		}
+		k = emit(I, I_OP, wr ? C_STORE : C_LOAD, model_active()->c[wr ?
+		    C_STORE : C_LOAD], mask);
+		emit_vals(k, I, mask);
+		return 1;
+	}
+	if (!strncmp(op, "OpImageSample", 13) || !strcmp(op, "OpImageGather") ||
+	    !strcmp(op, "OpImageDrefGather")) {
+		int proj = strstr(op, "Proj") != NULL, dref = strstr(op, "Dref") !=
+		    NULL, gather = strstr(op, "Gather") != NULL;
+		int explicit_lod = strstr(op, "ExplicitLod") != NULL;
+		int img = opid(I, 1), co = opid(I, 2), at = 3, ids[IO_N + 1];
+		int dref_id = -1, comp_id = -1;
+		const struct sty *y = image_type(img);
+		int axes = y->dim == TD_1D || y->dim == TD_BUFFER ? 1 : y->dim ==
+		    TD_3D || y->dim == TD_CUBE ? 3 : 2;
+		int nco = vcomp(co);
+		double cc[4][NL];
+		if (dref || (gather && !dref)) {
+			if (dref)
+				dref_id = opid(I, at++);
+			else
+				comp_id = opid(I, at++);
+		}
+		image_operands(I, at, ids);
+		/* every lane's coordinate first: the derivatives need the quad */
+		for (c = 0; c < 4; c++)
+			for (l = 0; l < V.lanes; l++)
+				cc[c][l] = (mask >> l & 1) && c < nco ? comp_f(co, l, c) : 0;
+		if (proj)
+			for (l = 0; l < V.lanes; l++) {
+				double q = cc[nco - 1][l];
+				for (c = 0; c < axes; c++)
+					cc[c][l] = q != 0 ? cc[c][l] / q : cc[c][l];
+			}
+		for (l = 0; l < V.lanes; l++) {
+			struct texreq rq;
+			const struct samp *s;
+			struct samp s2;
+			double out[4] = {0, 0, 0, 0}, dx[3] = {0, 0, 0},
+			    dy[3] = {0, 0, 0};
+			int ti, fc;
+			if (!(mask >> l & 1))
+				continue;
+			ti = handle_tex(val(img, l).b[0]);
+			if (ti < 0) {
+				put_result(LV(I->res, l), rt, out, nc);
+				continue;
+			}
+			s = handle_samp(val(img, l).b[0]);
+			fc = tex_fmts[G.t[ti].fmt].cls;
+			if (fc == TC_UINT || fc == TC_SINT) {
+				/* integer formats cannot be filtered: nearest */
+				s2 = *s;
+				s2.mag = s2.min = s2.mip = SF_NEAREST;
+				s = &s2;
+			}
+			memset(&rq, 0, sizeof rq);
+			rq.nc = axes;
+			rq.arrayed = y->arrayed;
+			for (c = 0; c < 4; c++)
+				rq.c[c] = cc[c][l];
+			rq.gather = gather ? (comp_id >= 0 ? (int)comp_f(comp_id, l, 0) &
+			    3 : 0) : -1;
+			if (dref_id >= 0) {
+				rq.dref = 1;
+				rq.ref = comp_f(dref_id, l, 0);
+			}
+			{
+				int oid = ids[IO_COFF] >= 0 ? ids[IO_COFF] : ids[IO_OFF];
+				for (c = 0; c < 3 && oid >= 0; c++)
+					rq.off[c] = c < vcomp(oid) ? (int)comp_f(oid, l, c) : 0;
+			}
+			if (ids[IO_LOD] >= 0)
+				rq.lod = comp_f(ids[IO_LOD], l, 0);
+			else {
+				if (ids[IO_GRAD] >= 0) {
+					for (c = 0; c < axes; c++) {
+						dx[c] = c < vcomp(ids[IO_GRAD]) ?
+						    comp_f(ids[IO_GRAD], l, c) : 0;
+						dy[c] = c < vcomp(ids[IO_N]) ?
+						    comp_f(ids[IO_N], l, c) : 0;
+					}
+				} else if (!explicit_lod)
+					for (c = 0; c < axes; c++) {
+						dx[c] = deriv(cc[c], l, 1, 0, mask);
+						dy[c] = deriv(cc[c], l, 2, 0, mask);
+					}
+				if (s->unnorm)	/* coordinates in texels already */
+					rq.lod = 0;
+				else
+					rq.lod = tex_lambda(&G.t[ti], y->dim == TD_CUBE ? 2 :
+					    axes, dx, dy);
+			}
+			rq.lod += s->bias + (ids[IO_BIAS] >= 0 ?
+			    comp_f(ids[IO_BIAS], l, 0) : 0);
+			if (ids[IO_MINLOD] >= 0) {
+				double ml = comp_f(ids[IO_MINLOD], l, 0);
+				if (rq.lod < ml)
+					rq.lod = ml;
+			}
+			tex_sample(&G.t[ti], s, &rq, out);
+			G.nsample++;
+			put_result(LV(I->res, l), rt, out, nc);
+		}
+		k = emit(I, I_OP, C_LOAD, model_active()->c[C_LOAD], mask);
+		emit_vals(k, I, mask);
+		return 1;
+	}
+	return 0;
+}
+
+/* ---- GLSL.std.450 on whole vectors and matrices ---- */
+
+static double
+half_round(double v)
+{
+	/* to binary16 and back, round to nearest even */
+	int e;
+	double a = fabs(v), q;
+
+	if (isnan(v) || a == 0)
+		return v;
+	if (a >= 65520)
+		return v < 0 ? -INFINITY : INFINITY;
+	frexp(a, &e);
+	e -= 1;
+	if (e < -14)
+		e = -14;
+	q = ldexp(nearbyint(ldexp(a, 10 - e)), e - 10);
+	return v < 0 ? -q : q;
+}
+
+static uint32_t
+half_bits(double v)
+{
+	float f = (float)half_round(v);
+	uint32_t u, s, e, m;
+
+	memcpy(&u, &f, 4);
+	s = u >> 16 & 0x8000;
+	e = u >> 23 & 0xff;
+	m = u & 0x7fffff;
+	if (e == 0xff)
+		return s | 0x7c00 | (m ? 0x200 : 0);
+	if (e == 0)
+		return s;
+	if ((int)e - 127 < -14) {	/* subnormal */
+		int sh = -14 - ((int)e - 127);
+		return s | ((m | 0x800000) >> (13 + sh));
+	}
+	return s | ((e - 127 + 15) << 10) | (m >> 13);
+}
+
+static double
+half_value(uint32_t h)
+{
+	int e = h >> 10 & 0x1f, m = h & 0x3ff;
+	double v = e == 0 ? ldexp(m, -24) : e == 31 ? (m ? NAN : INFINITY) :
+	    ldexp(m | 0x400, e - 25);
+
+	return h & 0x8000 ? -v : v;
+}
+
+static double
+det(const double *m, int n)
+{
+	if (n == 2)
+		return m[0] * m[3] - m[2] * m[1];
+	if (n == 3)
+		return m[0] * (m[4] * m[8] - m[7] * m[5]) -
+		    m[3] * (m[1] * m[8] - m[7] * m[2]) +
+		    m[6] * (m[1] * m[5] - m[4] * m[2]);
+	{
+		double s = 0, sub[9];
+		int c, i, j, k;
+		for (c = 0; c < 4; c++) {	/* along column c's row 0 */
+			for (i = 0, k = 0; i < 4; i++)
+				if (i != c)
+					for (j = 1; j < 4; j++)
+						sub[k++] = m[i * 4 + j];
+			s += (c & 1 ? -1 : 1) * m[c * 4] * det(sub, 3);
+		}
+		return s;
+	}
+}
+
+static int
+exec_glslvec(const struct sins *I, uint32_t mask, int rt, int st, int nc)
+{
+	static const char *const fs[] = {"Length", "Distance", "Normalize",
+	    "Cross", "Reflect", "Refract", "FaceForward", "Determinant",
+	    "MatrixInverse", "PackUnorm4x8", "PackSnorm4x8", "PackUnorm2x16",
+	    "PackSnorm2x16", "PackHalf2x16", "UnpackUnorm4x8", "UnpackSnorm4x8",
+	    "UnpackUnorm2x16", "UnpackSnorm2x16", "UnpackHalf2x16", NULL};
+	const char *f;
+	int fi, l, i, j, k, a, b = -1, c = -1, n;
+
+	if (strcmp(I->op, "OpExtInst") || I->nop < 4)
+		return 0;
+	f = I->opnd[2];
+	for (fi = 0; fs[fi] && strcmp(fs[fi], f); fi++)
+		;
+	if (!fs[fi])
+		return 0;
+	a = opid(I, 3);
+	if (I->nop > 4)
+		b = opid(I, 4);
+	if (I->nop > 5)
+		c = opid(I, 5);
+	n = vcomp(a);
+	for (l = 0; l < V.lanes; l++) {
+		double x[MAXCOMP], y[MAXCOMP], z[MAXCOMP], r[MAXCOMP];
+		int nr = nc, at = V.id[a].type, sa = at >= 0 ? scalar_of(at) : st;
+		struct lval xv, *o;
+		if (!(mask >> l & 1))
+			continue;
+		xv = val(a, l);
+		memset(r, 0, sizeof r);
+		for (i = 0; i < MAXCOMP; i++) {
+			x[i] = i < nwords(at) && T(sa)->k == S_FLOAT ? getf(sa, xv.b[i]) :
+			    0;
+			y[i] = b >= 0 && i < nwords(V.id[b].type) ? comp_f(b, l, i) : 0;
+			z[i] = c >= 0 && i < nwords(V.id[c].type) ? comp_f(c, l, i) : 0;
+		}
+		switch (fi) {
+		case 0: case 1: {	/* Length, Distance */
+			double s = 0;
+			for (i = 0; i < n; i++)
+				s += (x[i] - (fi ? y[i] : 0)) * (x[i] - (fi ? y[i] : 0));
+			r[0] = sqrt(s);
+			break;
+		}
+		case 2: {	/* Normalize */
+			double s = 0;
+			for (i = 0; i < n; i++)
+				s += x[i] * x[i];
+			s = sqrt(s);
+			for (i = 0; i < n; i++)
+				r[i] = x[i] / s;
+			break;
+		}
+		case 3:		/* Cross */
+			r[0] = x[1] * y[2] - y[1] * x[2];
+			r[1] = x[2] * y[0] - y[2] * x[0];
+			r[2] = x[0] * y[1] - y[0] * x[1];
+			break;
+		case 4: {	/* Reflect: I - 2 dot(N, I) N */
+			double d = 0;
+			for (i = 0; i < n; i++)
+				d += x[i] * y[i];
+			for (i = 0; i < n; i++)
+				r[i] = x[i] - 2 * d * y[i];
+			break;
+		}
+		case 5: {	/* Refract(I, N, eta) */
+			double d = 0, e = comp_f(c, l, 0), kk;
+			for (i = 0; i < n; i++)
+				d += x[i] * y[i];
+			kk = 1 - e * e * (1 - d * d);
+			for (i = 0; i < n; i++)
+				r[i] = kk < 0 ? 0 : e * x[i] - (e * d + sqrt(kk)) * y[i];
+			break;
+		}
+		case 6: {	/* FaceForward(N, I, Nref) */
+			double d = 0;
+			for (i = 0; i < n; i++)
+				d += z[i] * y[i];
+			for (i = 0; i < n; i++)
+				r[i] = d < 0 ? x[i] : -x[i];
+			break;
+		}
+		case 7: case 8: {	/* Determinant, MatrixInverse */
+			int m = at >= 0 && T(at)->k == S_MAT ? T(at)->n : 2;
+			double dd = det(x, m), sub[9];
+			if (fi == 7) {
+				r[0] = dd;
+				break;
+			}
+			/* inverse: the adjugate over the determinant */
+			for (i = 0; i < m; i++)
+				for (j = 0; j < m; j++) {
+					int ii, jj, q = 0;
+					for (ii = 0; ii < m; ii++)
+						for (jj = 0; jj < m; jj++)
+							if (ii != j && jj != i)
+								sub[q++] = x[ii * m + jj];
+					r[i * m + j] = ((i + j) & 1 ? -1 : 1) * (m == 2 ? sub[0] :
+					    det(sub, m - 1)) / dd;
+				}
+			nr = m * m;
+			break;
+		}
+		case 9: case 10: case 11: case 12: case 13: {	/* Pack* */
+			uint64_t u = 0;
+			int cnt = fi <= 10 ? 4 : 2, bits = fi <= 10 ? 8 : 16;
+			for (i = 0; i < cnt; i++) {
+				double v = x[i];
+				uint64_t q;
+				if (fi == 13)
+					q = half_bits(v);
+				else if (fi == 9 || fi == 11) {
+					v = v < 0 ? 0 : v > 1 ? 1 : v;
+					q = (uint64_t)nearbyint(v * (double)((1 << bits) - 1));
+				} else {
+					v = v < -1 ? -1 : v > 1 ? 1 : v;
+					q = (uint64_t)(int64_t)nearbyint(v * (double)((1 <<
+					    (bits - 1)) - 1)) & ((1u << bits) - 1);
+				}
+				u |= q << (i * bits);
+			}
+			r[0] = (double)(u & 0xffffffffu);
+			nr = 1;
+			break;
+		}
+		default: {	/* Unpack* */
+			uint32_t u = (uint32_t)(xv.b[0] & 0xffffffffu);
+			int cnt = fi <= 15 ? 4 : 2, bits = fi <= 15 ? 8 : 16;
+			for (i = 0; i < cnt; i++) {
+				uint32_t q = u >> (i * bits) & ((1u << bits) - 1);
+				if (fi == 18)
+					r[i] = half_value(q);
+				else if (fi == 14 || fi == 16)
+					r[i] = q / (double)((1u << bits) - 1);
+				else {
+					int sv = (int)q - (q >> (bits - 1) ? 1 << bits : 0);
+					double v = sv / (double)((1 << (bits - 1)) - 1);
+					r[i] = v < -1 ? -1 : v;
+				}
+			}
+			nr = cnt;
+		}
+		}
+		o = LV(I->res, l);
+		memset(o, 0, sizeof *o);
+		for (k = 0; k < nr && k < MAXCOMP; k++)
+			o->b[k] = T(st)->k == S_FLOAT ? putf(st, r[k]) :
+			    puti(st, (int64_t)r[k]);
+	}
+	k = emit(I, I_OP, fi <= 2 ? C_FMUL : fi <= 8 ? C_FMUL : C_CONV,
+	    model_active()->c[fi <= 8 ? C_FMUL : C_CONV] * (fi <= 2 ? 3 : 2),
+	    mask);
+	emit_vals(k, I, mask);
+	return 1;
+}
+
+/* ---- matrices ---- */
+
+static int
+exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
+{
+	const char *op = I->op;
+	int l, i, j, q, k, n = 0;
+
+	if (strcmp(op, "OpTranspose") && strcmp(op, "OpMatrixTimesScalar") &&
+	    strcmp(op, "OpVectorTimesMatrix") && strcmp(op,
+	    "OpMatrixTimesVector") && strcmp(op, "OpMatrixTimesMatrix") &&
+	    strcmp(op, "OpOuterProduct"))
+		return 0;
+	for (l = 0; l < V.lanes; l++) {
+		int a = opid(I, 1), b = I->nop > 2 ? opid(I, 2) : a;
+		int at = V.id[a].type, bt = V.id[b].type;
+		struct lval x, y, *r;
+		double v[MAXCOMP];
+		if (!(mask >> l & 1))
+			continue;
+		x = val(a, l);
+		y = val(b, l);
+		memset(v, 0, sizeof v);
+#define AF(m, i) getf(st, (m).b[i])
+		if (!strcmp(op, "OpTranspose")) {
+			/* a: C columns of R; the result: R columns of C */
+			int C = T(at)->n, R = ncomp(T(at)->e);
+			for (i = 0; i < C; i++)
+				for (j = 0; j < R; j++)
+					v[j * C + i] = AF(x, i * R + j);
+			n = C * R;
+		} else if (!strcmp(op, "OpMatrixTimesScalar")) {
+			n = ncomp(at);
+			for (i = 0; i < n; i++)
+				v[i] = AF(x, i) * AF(y, 0);
+		} else if (!strcmp(op, "OpVectorTimesMatrix")) {
+			/* v (R) * M (C columns of R): C results, dot with columns */
+			int C = T(bt)->n, R = ncomp(T(bt)->e);
+			for (i = 0; i < C; i++)
+				for (j = 0; j < R; j++)
+					v[i] += AF(x, j) * AF(y, i * R + j);
+			n = C;
+		} else if (!strcmp(op, "OpMatrixTimesVector")) {
+			int C = T(at)->n, R = ncomp(T(at)->e);
+			for (j = 0; j < R; j++)
+				for (i = 0; i < C; i++)
+					v[j] += AF(x, i * R + j) * AF(y, i);
+			n = R;
+		} else if (!strcmp(op, "OpMatrixTimesMatrix")) {
+			/* A (K columns of R) * B (C columns of K) */
+			int K = T(at)->n, R = ncomp(T(at)->e), C = T(bt)->n;
+			for (i = 0; i < C; i++)
+				for (j = 0; j < R; j++)
+					for (q = 0; q < K; q++)
+						v[i * R + j] += AF(x, q * R + j) * AF(y, i * K + q);
+			n = C * R;
+		} else {	/* OuterProduct: column i is a * b[i] */
+			int R = vcomp(a), C = vcomp(b);
+			for (i = 0; i < C; i++)
+				for (j = 0; j < R; j++)
+					v[i * R + j] = AF(x, j) * AF(y, i);
+			n = C * R;
+		}
+#undef AF
+		r = LV(I->res, l);
+		memset(r, 0, sizeof *r);
+		for (i = 0; i < n && i < MAXCOMP; i++)
+			r->b[i] = putf(st, v[i]);
+	}
+	k = emit(I, I_OP, C_FMUL, model_active()->c[C_FMUL] * (n > 0 ? n : 1),
+	    mask);
+	emit_vals(k, I, mask);
+	return 1;
+}
+
 /* ---- execution ---- */
 
 static int region(int lbl, uint32_t mask, int stop, int brk, uint32_t *arrived);
@@ -1567,6 +2481,12 @@ exec_one(const struct sins *I, uint32_t mask)
 		}
 	}
 
+	if (!strcmp(I->op, "OpDemoteToHelperInvocation") ||
+	    !strcmp(I->op, "OpDemoteToHelperInvocationEXT")) {
+		V.killed |= mask;
+		emit(I, I_OP, -1, 0, mask);
+		return;
+	}
 	if (!strcmp(I->op, "OpUndef")) {
 		for (l = 0; l < V.lanes; l++)
 			if (mask >> l & 1)
@@ -1585,7 +2505,7 @@ exec_one(const struct sins *I, uint32_t mask)
 			a = val(p, l);
 			x = val(v, l);
 			pt = type_of(v) >= 0 ? type_of(v) : -1;
-			for (i = 0; i < (pt >= 0 && T(pt)->k == S_VEC ? T(pt)->n : 1); i++)
+			for (i = 0; i < nwords(pt); i++)
 				*slot(a.var, l, a.off + i) = x.b[i];
 		}
 		k = emit(I, I_OP, sc == SC_SHARED || sc == SC_WG ? C_STORE : -1,
@@ -1605,7 +2525,7 @@ exec_one(const struct sins *I, uint32_t mask)
 			a = val(p, l);
 			r = LV(I->res, l);
 			memset(r, 0, sizeof *r);
-			for (i = 0; i < nc; i++)
+			for (i = 0; i < nwords(rt); i++)
 				r->b[i] = *slot(a.var, l, a.off + i);
 		}
 		k = emit(I, I_OP, shared_sc(sc) ? C_LOAD : -1, shared_sc(sc) ?
@@ -1636,7 +2556,7 @@ exec_one(const struct sins *I, uint32_t mask)
 						n += slots_of(y->m[j]);
 					a.off += n;
 					t = y->m[iv < y->nm ? iv : 0];
-				} else if (y->k == S_ARRAY) {
+				} else if (y->k == S_ARRAY || y->k == S_MAT) {
 					a.off += (int)iv * slots_of(y->e);
 					t = y->e;
 				} else if (y->k == S_VEC) {
@@ -1667,12 +2587,16 @@ exec_one(const struct sins *I, uint32_t mask)
 		return;
 	}
 	if (!strcmp(I->op, "OpCompositeExtract")) {
-		int c = opid(I, 1);
+		int c = opid(I, 1), pt, off, n;
+		off = part_of(V.id[c].type, I, 2, &pt);
+		n = nwords(pt);
+		if (off + n > MAXCOMP)
+			off = 0, n = 1;
 		for (l = 0; l < V.lanes; l++)
 			if (mask >> l & 1) {
 				struct lval x = val(c, l), *r = LV(I->res, l);
 				memset(r, 0, sizeof *r);
-				r->b[0] = x.b[atoi(I->opnd[2]) & 3];
+				memcpy(r->b, x.b + off, (size_t)n * sizeof r->b[0]);
 			}
 		k = emit(I, I_OP, -1, 0, mask);
 		emit_vals(k, I, mask);
@@ -1685,7 +2609,7 @@ exec_one(const struct sins *I, uint32_t mask)
 				int at = 0;
 				memset(r, 0, sizeof *r);
 				for (i = 1; i < I->nop && at < MAXCOMP; i++) {
-					int c = opid(I, i), cn = ncomp(type_of(c) >= 0 ?
+					int c = opid(I, i), cn = nwords(type_of(c) >= 0 ?
 					    type_of(c) : V.id[c].type), j;
 					struct lval x = val(c, l);
 					for (j = 0; j < cn && at < MAXCOMP; j++)
@@ -1697,12 +2621,16 @@ exec_one(const struct sins *I, uint32_t mask)
 		return;
 	}
 	if (!strcmp(I->op, "OpCompositeInsert")) {
-		int obj = opid(I, 1), c = opid(I, 2);
+		int obj = opid(I, 1), c = opid(I, 2), pt, off, n;
+		off = part_of(V.id[c].type, I, 3, &pt);
+		n = nwords(pt);
+		if (off + n > MAXCOMP)
+			off = 0, n = 1;
 		for (l = 0; l < V.lanes; l++)
 			if (mask >> l & 1) {
-				struct lval x = val(c, l), *r = LV(I->res, l);
+				struct lval x = val(c, l), o = val(obj, l), *r = LV(I->res, l);
 				*r = x;
-				r->b[atoi(I->opnd[3]) & 3] = val(obj, l).b[0];
+				memcpy(r->b + off, o.b, (size_t)n * sizeof r->b[0]);
 			}
 		k = emit(I, I_OP, -1, 0, mask);
 		emit_vals(k, I, mask);
@@ -1717,7 +2645,7 @@ exec_one(const struct sins *I, uint32_t mask)
 				memset(r, 0, sizeof *r);
 				for (i = 3; i < I->nop && i - 3 < MAXCOMP; i++) {
 					int s = atoi(I->opnd[i]);
-					r->b[i - 3] = s < na ? x.b[s & 3] : y.b[(s - na) & 3];
+					r->b[i - 3] = s < na ? x.b[s & 15] : y.b[(s - na) & 15];
 				}
 			}
 		k = emit(I, I_OP, -1, 0, mask);
@@ -1769,20 +2697,32 @@ exec_one(const struct sins *I, uint32_t mask)
 		int p = opid(I, 1), sc;
 		struct lval pv = val(p, 0);
 		const char *a = I->op + 8;
-		sc = V.id[pv.var].sc;
+		sc = pv.var >= 0 ? V.id[pv.var].sc : SC_SHARED;
 		for (l = 0; l < V.lanes; l++) {
 			struct lval ptr, *r;
-			uint64_t *m, old, x = 0;
+			uint64_t *m, old, x = 0, tw = 0;
+			uint32_t *texw = NULL;
 			if (!(mask >> l & 1))
 				continue;
 			ptr = val(p, l);
-			m = slot(ptr.var, l, ptr.off);
+			if (ptr.var < 0) {	/* a texel (OpImageTexelPointer) */
+				int ti = -ptr.var - 2;
+				if (ti >= 0 && ptr.off >= 0) {
+					texw = G.t[ti].t + ptr.off;
+					tw = *texw;
+					G.written[ti] = 1;
+				}
+				m = &tw;
+			} else
+				m = slot(ptr.var, l, ptr.off);
 			old = *m;
 			if (!strcmp(a, "Store"))
 				x = val(opid(I, 3), l).b[0];
 			else if (I->nop > 4)
 				x = val(opid(I, 4), l).b[0];
-			st = rt >= 0 ? rt : V.id[ptr.var].slotty[ptr.off];
+			st = rt >= 0 ? rt : ptr.var < 0 ? type_of(opid(I, 3)) :
+			    V.id[ptr.var].slotty[ptr.off >= 0 && ptr.off <
+			    V.id[ptr.var].nslots ? ptr.off : 0];
 			if (!strcmp(a, "IAdd")) *m = puti(st, geti(st, old) + geti(st, x));
 			else if (!strcmp(a, "ISub")) *m = puti(st, geti(st, old) - geti(st, x));
 			else if (!strcmp(a, "IIncrement")) *m = puti(st, geti(st, old) + 1);
@@ -1801,6 +2741,8 @@ exec_one(const struct sins *I, uint32_t mask)
 				if (old == cmp)
 					*m = x;
 			}
+			if (texw != NULL)
+				*texw = (uint32_t)*m;
 			if (I->res >= 0) {
 				r = LV(I->res, l);
 				memset(r, 0, sizeof *r);
@@ -1810,7 +2752,7 @@ exec_one(const struct sins *I, uint32_t mask)
 			k = emit(I, I_ATOMIC, sc == SC_WG ? C_ATOM_SH : C_ATOM_GL,
 			    model_active()->c[sc == SC_WG ? C_ATOM_SH : C_ATOM_GL],
 			    1u << l);
-			if (I->res >= 0) {
+			if (I->res >= 0 && k >= 0) {
 				char buf[64];
 				fmt(buf, sizeof buf, V.id[I->res].type, LV(I->res, l));
 				xr_val(k, l, buf);
@@ -1818,6 +2760,9 @@ exec_one(const struct sins *I, uint32_t mask)
 		}
 		return;
 	}
+	if (exec_image(I, mask, rt, st, nc) || exec_matrix(I, mask, rt, st) ||
+	    exec_glslvec(I, mask, rt, st, nc))
+		return;
 	if (!strcmp(I->op, "OpFunctionCall")) {
 		int fn = opid(I, 1), at = V.id[fn].func_at, p = 0, j, lb = -1;
 		uint32_t saved = V.retired;
@@ -1979,6 +2924,8 @@ region(int lbl, uint32_t mask, int stop, int brk, uint32_t *arrived)
 		if (!strcmp(I->op, "OpReturn") || !strcmp(I->op, "OpKill") ||
 		    !strcmp(I->op, "OpTerminateInvocation") ||
 		    !strcmp(I->op, "OpUnreachable")) {
+			if (strcmp(I->op, "OpReturn"))
+				V.killed |= mask;
 			V.retired |= mask;
 			return 0;
 		}
@@ -2128,6 +3075,634 @@ region(int lbl, uint32_t mask, int stop, int brk, uint32_t *arrived)
 	return 0;
 }
 
+/* ---- image inputs and the image run ---- */
+
+/* a texture's level 0 checksum (FNV-1a over its channels' words) */
+static uint32_t
+tex_sum(const struct tex *t)
+{
+	const struct texfmt *f = &tex_fmts[t->fmt];
+	size_t n = t->levels > 1 ? t->lo[1] : t->ntexel, i;
+	uint32_t h = 2166136261u, w;
+	int c, b;
+
+	for (i = 0; i < n; i++)
+		for (c = 0; c < f->nc; c++)
+			for (w = t->t[4 * i + c], b = 0; b < 4; b++, w >>= 8)
+				h = (h ^ (w & 0xff)) * 16777619u;
+	return h;
+}
+
+static const char *
+samp_text(const struct samp *s)
+{
+	static char b[80];
+	static const char *const am[] = {"repeat", "mirrored repeat",
+	    "clamp to edge", "clamp to border", "mirror clamp to edge"};
+
+	snprintf(b, sizeof b, "%s filtering, %s mips, %s", s->mag == SF_NEAREST ?
+	    "nearest" : "linear", s->mip == SF_NEAREST ? "nearest" : "linear",
+	    am[s->addr[0] % 5]);
+	return b;
+}
+
+/* the element image type of a binding variable, -1 if not an image */
+static int
+binding_elem(int var, int *count)
+{
+	int t;
+
+	*count = 1;
+	if (V.id[var].kind != K_VAR || V.id[var].type < 0)
+		return -1;
+	t = T(V.id[var].type)->e;
+	while (T(t)->k == S_ARRAY) {
+		*count *= T(t)->n;
+		t = T(t)->e;
+	}
+	if (*count > 16)
+		*count = 16;
+	return T(t)->k == S_IMAGE || T(t)->k == S_SIMAGE ||
+	    T(t)->k == S_SAMPLER ? t : -1;
+}
+
+static void
+samp_from_opts(struct samp *s, const struct imgin *in)
+{
+	samp_default(s);
+	if (img_opt.filt >= 0)
+		s->mag = s->min = (unsigned char)img_opt.filt;
+	if (img_opt.mipf >= 0)
+		s->mip = (unsigned char)img_opt.mipf;
+	else if (img_opt.filt >= 0)
+		s->mip = (unsigned char)img_opt.filt;
+	if (img_opt.addr >= 0)
+		s->addr[0] = s->addr[1] = s->addr[2] = (unsigned char)img_opt.addr;
+	if (img_opt.border >= 0)
+		s->border = (unsigned char)img_opt.border;
+	if (in != NULL && in->filt >= 0)
+		s->mag = s->min = s->mip = (unsigned char)in->filt;
+	if (in != NULL && in->addr >= 0)
+		s->addr[0] = s->addr[1] = s->addr[2] = (unsigned char)in->addr;
+}
+
+static const char *
+kind_name(const struct imgin *in)
+{
+	static char b[24];
+	const char *n;
+
+	switch (in->kind) {
+	case IK_COLOR:
+		if ((n = img_color_name(in->rgba)) != NULL)
+			return n;
+		snprintf(b, sizeof b, "#%02x%02x%02x%02x", in->rgba[0], in->rgba[1],
+		    in->rgba[2], in->rgba[3]);
+		return b;
+	case IK_GRADIENT:
+		return "gradient";
+	case IK_CHECKER:
+		return "checkerboard";
+	}
+	return "noise";
+}
+
+/* read a file for `input N file PATH` (not in the bot: no files there) */
+static unsigned char *
+read_file(const char *path, size_t *n)
+{
+	FILE *fp;
+	unsigned char *d = NULL;
+	size_t cap = 0, r;
+
+	*n = 0;
+	if (nlp_defer)
+		fail("animate exec: input files are read on the command line; in "
+		    "the chat, attach the images");
+	if ((fp = fopen(path, "rb")) == NULL)
+		fail("animate exec: cannot open %s", path);
+	for (;;) {
+		if (*n == cap) {
+			if (cap >= IMG_MAXFILE) {
+				fclose(fp);
+				free(d);
+				fail("animate exec: %s is over %u MiB", path,
+				    IMG_MAXFILE >> 20);
+			}
+			cap = cap ? cap * 2 : 65536;
+			d = xrealloc(d, cap);
+		}
+		if ((r = fread(d + *n, 1, cap - *n, fp)) == 0)
+			break;
+		*n += r;
+	}
+	fclose(fp);
+	return d;
+}
+
+/*
+ * One input slot's pixels: a file, a gallery image, or a pattern, as
+ * 8-bit RGBA (w, h); the label says which
+ */
+static unsigned gal_used;	/* the gallery's images taken */
+
+static unsigned char *
+input_pixels(int slot, const struct imgin *in, int *gal, uint64_t seed,
+    int *w, int *h, char *what, size_t wn, struct sbuf *said)
+{
+	unsigned char *px = NULL;
+	struct imgdec im;
+	char err[160];
+	int kind = in->kind;
+
+	if (kind == IK_GALLERY && in->gal > 0 && in->gal > img_opt.ngal)
+		fail("animate exec: input %d: there is no image %d", slot + 1,
+		    in->gal);
+	if (kind == IK_DEFAULT && *gal < img_opt.ngal)
+		kind = IK_GALLERY;
+	if (kind == IK_FILE || kind == IK_GALLERY) {
+		const unsigned char *d;
+		size_t n;
+		unsigned char *own = NULL;
+		const char *nm;
+		if (kind == IK_FILE) {
+			own = read_file(in->file, &n);
+			d = own;
+			nm = in->file;
+		} else if (in->gal > 0) {	/* a given one of the gallery */
+			gal_used |= 1u << (in->gal - 1);
+			d = img_opt.gal[in->gal - 1].data;
+			n = img_opt.gal[in->gal - 1].n;
+			nm = img_opt.gal[in->gal - 1].name;
+		} else {
+			d = img_opt.gal[*gal].data;
+			n = img_opt.gal[*gal].n;
+			nm = img_opt.gal[*gal].name;
+			gal_used |= 1u << *gal;
+			(*gal)++;
+		}
+		if (!img_decode(d, n, &im, err, sizeof err)) {
+			free(own);
+			if (kind == IK_FILE)
+				fail("animate exec: %s: %s", in->file, err);
+			sb_printf(said, "  note: input %d: %s: %s; noise instead\n",
+			    slot + 1, nm, err);
+			kind = IK_NOISE;
+		} else {
+			free(own);
+			{
+				const char *b = strrchr(nm, '/');
+				snprintf(what, wn, "%s", b ? b + 1 : nm);
+			}
+			*w = im.w;
+			*h = im.h;
+			if (im.w > TEX_MAXSIDE || im.h > TEX_MAXSIDE) {
+				/* box-filtered down, the aspect kept */
+				double s = (double)TEX_MAXSIDE / (im.w > im.h ? im.w :
+				    im.h);
+				*w = (int)(im.w * s + 0.5) > 0 ? (int)(im.w * s + 0.5) : 1;
+				*h = (int)(im.h * s + 0.5) > 0 ? (int)(im.h * s + 0.5) : 1;
+				px = xmalloc((size_t)*w * *h * 4);
+				img_downscale(im.rgba, im.w, im.h, px, *w, *h);
+				sb_printf(said, "  note: input %d: %s is %dx%d, scaled down "
+				    "to %dx%d\n", slot + 1, what, im.w, im.h, *w, *h);
+			} else {
+				px = xmalloc((size_t)im.w * im.h * 4);
+				memcpy(px, im.rgba, (size_t)im.w * im.h * 4);
+			}
+			img_free(&im);
+			return px;
+		}
+	}
+	*w = in->w > 0 ? in->w : img_opt.w > 0 ? img_opt.w : 64;
+	*h = in->h > 0 ? in->h : img_opt.h > 0 ? img_opt.h : 64;
+	if (*w > TEX_MAXSIDE)
+		*w = TEX_MAXSIDE;
+	if (*h > TEX_MAXSIDE)
+		*h = TEX_MAXSIDE;
+	px = xmalloc((size_t)*w * *h * 4);
+	{
+		struct imgin k2 = *in;
+		k2.kind = kind;
+		img_pattern(px, *w, *h, kind, in->rgba, seed + (uint64_t)slot);
+		snprintf(what, wn, "%s", kind_name(&k2));
+	}
+	return px;
+}
+
+/*
+ * Textures for every image binding, in (set, binding) order, then
+ * declaration order; sampled images and readable storage images are the
+ * input slots.  Returns 1 when the shader has images.
+ */
+static int
+img_setup(uint64_t seed, int frag, struct sbuf *said)
+{
+	int vars[64], nv = 0, i, j, slot = 0, gal = 0;
+	int firstw = 0, firsth = 0;
+
+	memset(&G, 0, sizeof G);
+	G.uv = -1;
+	gal_used = 0;
+	for (i = 0; i < V.nid && nv < 64; i++) {
+		int cnt;
+		if (V.id[i].kind == K_VAR && binding_elem(i, &cnt) >= 0)
+			vars[nv++] = i;
+	}
+	/* by (set, binding); unbound ones after, as declared */
+	for (i = 1; i < nv; i++)
+		for (j = i; j > 0; j--) {
+			struct sid *a = &V.id[vars[j - 1]], *b = &V.id[vars[j]];
+			long ka = a->binding < 0 ? 1L << 40 : (long)(a->set < 0 ? 0 :
+			    a->set) << 20 | a->binding;
+			long kb = b->binding < 0 ? 1L << 40 : (long)(b->set < 0 ? 0 :
+			    b->set) << 20 | b->binding;
+			if (kb < ka) {
+				int t = vars[j];
+				vars[j] = vars[j - 1];
+				vars[j - 1] = t;
+			} else
+				break;
+		}
+	for (i = 0; i < nv; i++) {
+		struct sid *d = &V.id[vars[i]];
+		int cnt, et = binding_elem(vars[i], &cnt), e;
+		for (e = 0; e < cnt && e < d->nslots; e++) {
+			const struct sty *y;
+			const struct imgin *in;
+			int it, storage, w, h, fmt, depth, layers, ti;
+			unsigned char *px;
+			char what[96], bind[48];
+			uint64_t hnd = 0;
+			if (T(et)->k == S_SAMPLER) {
+				if (G.ns < MAXTEX) {
+					samp_from_opts(&G.s[G.ns], NULL);
+					hnd = (uint64_t)(G.ns + 1) << 16;
+					G.ns++;
+				}
+				d->mem[e] = hnd;
+				continue;
+			}
+			if (G.nt == MAXTEX)
+				fail("animate exec: more than %d images", MAXTEX);
+			it = T(et)->k == S_SIMAGE ? T(et)->e : et;
+			y = T(it);
+			storage = y->sampled == 2;
+			ti = G.nt++;
+			if (d->binding >= 0)
+				snprintf(bind, sizeof bind, " (binding %d%s)", d->binding,
+				    cnt > 1 ? ", element" : "");
+			else
+				bind[0] = 0;
+			if (cnt > 1)
+				snprintf(bind + strlen(bind), sizeof bind - strlen(bind),
+				    "[%d]", e);
+			/* write-only storage: an output, not an input */
+			if (storage && d->nonread) {
+				w = img_opt.w > 0 ? img_opt.w : firstw > 0 ? firstw : 64;
+				h = img_opt.h > 0 ? img_opt.h : firsth > 0 ? firsth : 64;
+				fmt = y->ifmt >= 0 ? y->ifmt : img_opt.outfmt >= 0 ?
+				    img_opt.outfmt : 0;
+				tex_alloc(&G.t[ti], y->dim, w, h, y->dim == TD_3D ? 8 : 1,
+				    y->dim == TD_CUBE ? 6 : y->arrayed ? 4 : 1, fmt, 0);
+				G.slot[ti] = -1;
+				G.storage[ti] = 1;
+				snprintf(G.label[ti], sizeof G.label[ti], "%s%s %s %dx%d",
+				    d->name, bind, tex_fmts[fmt].name, w, h);
+				sb_printf(said, "  image %s%s: write-only storage, %s %dx%d, "
+				    "starts clear\n", d->name, bind, tex_fmts[fmt].name, w,
+				    h);
+				d->mem[e] = (uint64_t)(ti + 1);
+				continue;
+			}
+			in = &img_opt.in[img_opt.all ? 0 : slot < IMG_MAXIN ? slot :
+			    IMG_MAXIN - 1];
+			px = input_pixels(slot, in, &gal, seed, &w, &h, what,
+			    sizeof what, said);
+			fmt = in->fmt;
+			if (storage && y->ifmt >= 0) {
+				if (fmt >= 0 && fmt != y->ifmt)
+					sb_printf(said, "  note: input %d is a storage image "
+					    "declared %s: %s ignored\n", slot + 1,
+					    tex_fmts[(int)y->ifmt].name, tex_fmts[fmt].name);
+				fmt = y->ifmt;
+			}
+			if (fmt < 0) {
+				int sk = T(y->e)->k == S_INT ? (T(y->e)->sign ? 2 : 1) : 0;
+				fmt = sk == 1 ? tex_fmt_find("RGBA8UI") : sk == 2 ?
+				    tex_fmt_find("RGBA8I") : 0;
+			}
+			depth = y->dim == TD_3D ? 8 : 1;
+			layers = y->dim == TD_CUBE ? 6 * (y->arrayed ? 2 : 1) :
+			    y->arrayed ? 4 : 1;
+			if (y->dim == TD_CUBE && w != h)
+				w = h = w < h ? w : h;
+			if (y->dim == TD_1D || y->dim == TD_BUFFER)
+				h = 1;
+			tex_alloc(&G.t[ti], y->dim, w, h, depth, layers, fmt, !storage &&
+			    y->dim != TD_RECT && y->dim != TD_BUFFER);
+			tex_from_rgba8(&G.t[ti], px, w, y->dim == TD_1D ||
+			    y->dim == TD_BUFFER ? 1 : h);
+			free(px);
+			tex_mips(&G.t[ti]);
+			G.slot[ti] = slot;
+			G.storage[ti] = storage;
+			if (slot == 0) {
+				firstw = w;
+				firsth = h;
+			}
+			snprintf(G.label[ti], sizeof G.label[ti], "input %d: %s %s %dx%d",
+			    slot + 1, what, tex_fmts[fmt].name, w, h);
+			sb_printf(said, "  input %d = %s%s: %s %s %dx%d%s%s, checksum "
+			    "%08x\n", slot + 1, d->name, bind, what, tex_fmts[fmt].name, w,
+			    h, G.t[ti].levels > 1 ? ", mipmapped" : "", storage ?
+			    " (storage)" : "", tex_sum(&G.t[ti]));
+			hnd = (uint64_t)(ti + 1);
+			if (T(et)->k == S_SIMAGE && G.ns < MAXTEX) {
+				samp_from_opts(&G.s[G.ns], in);
+				hnd |= (uint64_t)(G.ns + 1) << 16;
+				G.ns++;
+			}
+			d->mem[e] = hnd;
+			slot++;
+		}
+	}
+	if (img_opt.use_gallery && img_opt.ngal == 0)
+		sb_printf(said, "  note: no images came with the request: the inputs "
+		    "are noise\n");
+	{
+		int unused = 0;
+		for (i = 0; i < img_opt.ngal; i++)
+			unused += !(gal_used >> i & 1);
+		if (unused)
+			sb_printf(said, "  note: %d image%s not used (the shader has "
+			    "%d image input%s)\n", unused, unused == 1 ? "" : "s", slot,
+			    slot == 1 ? "" : "s");
+	}
+	for (i = 0; img_opt.any && i < IMG_MAXIN; i++)
+		if (i >= slot && !img_opt.all && (img_opt.in[i].kind != IK_DEFAULT ||
+		    img_opt.in[i].fmt >= 0)) {
+			sb_printf(said, "  note: input %d was given, but the shader has "
+			    "%d image input%s\n", i + 1, slot, slot == 1 ? "" : "s");
+			break;
+		}
+	G.on = G.nt > 0 || (frag && img_opt.any);
+	if (!G.on)
+		return 0;
+	for (i = 0; i < G.nt; i++)
+		tex_copy(&G.init[i], &G.t[i]);
+	/* the image run's size */
+	G.W = img_opt.w > 0 ? img_opt.w : firstw > 0 ? firstw : 64;
+	G.H = img_opt.h > 0 ? img_opt.h : firsth > 0 ? firsth : 64;
+	if (img_opt.w <= 0 && (G.W > 256 || G.H > 256)) {
+		double s = 256.0 / (G.W > G.H ? G.W : G.H);
+		G.W = (int)(G.W * s) > 0 ? (int)(G.W * s) : 1;
+		G.H = (int)(G.H * s) > 0 ? (int)(G.H * s) : 1;
+	}
+	if (G.W > 1024)
+		G.W = 1024;
+	if (G.H > 1024)
+		G.H = 1024;
+	/* the input taken as uv: location 0, else the first vec2/vec3 */
+	if (frag) {
+		int best = -1;
+		for (i = 0; i < V.nid; i++) {
+			struct sid *d = &V.id[i];
+			int pt;
+			if (d->kind != K_VAR || d->sc != SC_INPUT || d->builtin > 0)
+				continue;
+			pt = T(d->type)->e;
+			if (T(pt)->k != S_VEC || T(pt)->n > 3 ||
+			    T(T(pt)->e)->k != S_FLOAT)
+				continue;
+			if (d->location == 0) {
+				best = i;
+				break;
+			}
+			if (best < 0)
+				best = i;
+		}
+		G.uv = best;
+		if (best >= 0)
+			sb_printf(said, "  note: %s (location %d) is taken as the "
+			    "pixel's uv: its centre over the image size, 0..1\n",
+			    V.id[best].name, V.id[best].location);
+	}
+	return 1;
+}
+
+/* every per-lane variable's starting values, for lanes 0..n-1 */
+static void
+lanes_init(int n)
+{
+	int i, l;
+
+	for (i = 0; i < V.nid; i++) {
+		struct sid *d = &V.id[i];
+		if (d->kind != K_VAR || shared_sc(d->sc) || d->mem == NULL)
+			continue;
+		for (l = 0; l < n; l++)
+			init_var(i, l, d->mem + (size_t)l * d->nslots);
+	}
+}
+
+/* the outputs of the image run */
+#define MAXOUT 8
+static struct {
+	int var[MAXOUT], n;
+	struct tex t[MAXOUT];
+	unsigned char *cover[MAXOUT];	/* written (not discarded) */
+	long discarded;
+	int rows;			/* rows done */
+} O;
+
+/*
+ * The whole image: the shader on every pixel (or invocation), 8x4 lanes
+ * at a time so derivatives see 2x2 quads; edge lanes outside the image
+ * run as helpers (fragment) or are masked off (compute)
+ */
+static void
+image_run(int lb, int frag, int *stopped)
+{
+	int saved_lanes = V.lanes, saved_cols = cols, i, tx, ty, l;
+	long total = 0;
+
+	memset(&O, 0, sizeof O);
+	for (i = 0; i < G.nt; i++) {
+		tex_free(&G.t[i]);
+		tex_copy(&G.t[i], &G.init[i]);
+		G.written[i] = 0;
+	}
+	if (frag)
+		for (i = 0; i < V.nid && O.n < MAXOUT; i++) {
+			struct sid *d = &V.id[i];
+			int pt, st, fmt;
+			if (d->kind != K_VAR || d->sc != SC_OUTPUT || d->builtin > 0)
+				continue;
+			pt = T(d->type)->e;
+			st = scalar_of(pt);
+			if (T(pt)->k != S_VEC && T(pt)->k != S_FLOAT && T(pt)->k != S_INT)
+				continue;
+			fmt = T(st)->k == S_INT ? tex_fmt_find(T(st)->sign ? "RGBA32I" :
+			    "RGBA32UI") : d->location <= 0 && img_opt.outfmt >= 0 ?
+			    img_opt.outfmt : 0;
+			O.var[O.n] = i;
+			tex_alloc(&O.t[O.n], TD_2D, G.W, G.H, 1, 1, fmt, 0);
+			O.cover[O.n] = xcalloc((size_t)G.W * G.H, 1);
+			O.n++;
+		}
+	V.lanes = 32;
+	cols = 8;
+	V.quiet = 1;
+	G.run = 1;
+	*stopped = 0;
+	for (ty = 0; ty < G.H; ty += 4) {
+		for (tx = 0; tx < G.W; tx += 8) {
+			uint32_t m = 0xffffffffu;
+			G.x0 = tx;
+			G.y0 = ty;
+			if (!frag)
+				for (l = 0, m = 0; l < 32; l++)
+					if (tx + l % 8 < G.W && ty + l / 8 < G.H)
+						m |= 1u << l;
+			lanes_init(32);
+			V.retired = V.killed = 0;
+			V.steps = 0;
+			memset(V.curblk, 0, sizeof V.curblk);
+			memset(V.prevblk, 0, sizeof V.prevblk);
+			region(lb, m, -1, -1, NULL);
+			total += V.steps;
+			for (l = 0; l < 32 && frag; l++) {
+				int x = tx + l % 8, y = ty + l / 8, k;
+				if (x >= G.W || y >= G.H)
+					continue;
+				if (V.killed >> l & 1) {
+					O.discarded++;
+					continue;
+				}
+				for (k = 0; k < O.n; k++) {
+					struct sid *d = &V.id[O.var[k]];
+					double v[4] = {0, 0, 0, 1};
+					int c;
+					for (c = 0; c < d->nslots && c < 4; c++) {
+						int st = d->slotty[c];
+						uint64_t b = d->mem[(size_t)l * d->nslots + c];
+						v[c] = T(st)->k == S_FLOAT ? getf(st, b) :
+						    (double)geti(st, b);
+					}
+					tex_store(&O.t[k], 0, x, y, 0, 0, v);
+					O.cover[k][(size_t)y * G.W + x] = 1;
+				}
+			}
+		}
+		O.rows = ty + 4 < G.H ? ty + 4 : G.H;
+		/* a bound on the work, so a heavy shader still answers */
+		if (total > 20000000L && ty + 4 < G.H) {
+			*stopped = 1;
+			break;
+		}
+	}
+	V.quiet = 0;
+	G.run = 0;
+	V.lanes = saved_lanes;
+	cols = saved_cols;
+}
+
+/* the run's images, for the report and the animation */
+static void
+image_report(int frag, int stopped)
+{
+	int i, k;
+	unsigned char *px;
+
+	if (stopped)
+		printf("  note: the image run stopped after %d of %d rows (over "
+		    "20000000 instructions); the rest is left empty\n", O.rows,
+		    G.H);
+	for (i = 0; i < G.nt; i++) {
+		if (G.slot[i] < 0)
+			continue;
+		px = xmalloc((size_t)G.init[i].w * G.init[i].h * 4);
+		tex_to_rgba8(&G.init[i], px);
+		xr_panel(G.label[i], G.init[i].w, G.init[i].h, px, NULL, 0);
+		free(px);
+	}
+	for (k = 0; k < O.n; k++) {
+		struct sid *d = &V.id[O.var[k]];
+		char lab[96];
+		px = xmalloc((size_t)G.W * G.H * 4);
+		tex_to_rgba8(&O.t[k], px);
+		snprintf(lab, sizeof lab, "output %s%s %s %dx%d", d->name,
+		    d->location >= 0 ? (d->location == 0 ? " (location 0)" :
+		    " (location >0)") : "", tex_fmts[O.t[k].fmt].name, G.W, G.H);
+		if (d->location > 0)
+			snprintf(lab, sizeof lab, "output %s (location %d) %s %dx%d",
+			    d->name, d->location, tex_fmts[O.t[k].fmt].name, G.W, G.H);
+		printf("  output %s: %s %dx%d, checksum %08x", d->name,
+		    tex_fmts[O.t[k].fmt].name, G.W, G.H, tex_sum(&O.t[k]));
+		if (O.discarded)
+			printf(", %ld pixel%s discarded", O.discarded, O.discarded == 1 ?
+			    "" : "s");
+		printf("\n");
+		xr_panel(lab, G.W, G.H, px, O.cover[k], 1);
+		free(px);
+	}
+	for (i = 0; i < G.nt; i++) {
+		char lab[120];
+		if (!G.written[i])
+			continue;
+		printf("  image %s after the run: checksum %08x\n", G.label[i],
+		    tex_sum(&G.t[i]));
+		px = xmalloc((size_t)G.t[i].w * G.t[i].h * 4);
+		tex_to_rgba8(&G.t[i], px);
+		snprintf(lab, sizeof lab, "%s%s, after", G.slot[i] >= 0 ? "" :
+		    "storage ", G.label[i]);
+		xr_panel(lab, G.t[i].w, G.t[i].h, px, NULL, 1);
+		free(px);
+	}
+	if (G.oob)
+		printf("  note: %ld texel access%s outside an image: read as 0 "
+		    "(alpha 1 when the format has none) and writes dropped, as with "
+		    "robustImageAccess2\n", G.oob, G.oob == 1 ? "" : "es");
+	if (V.divderiv)
+		printf("  note: %ld derivative%s had a quad neighbour that was not "
+		    "running (divergent control flow, or a discarded pixel): its "
+		    "difference counted as 0\n", V.divderiv, V.divderiv == 1 ?
+		    "" : "s");
+	if (G.nsample) {
+		struct samp d;
+		int given = img_opt.filt >= 0 || img_opt.addr >= 0 ||
+		    img_opt.mipf >= 0, k;
+		for (k = 0; k < IMG_MAXIN; k++)
+			given |= img_opt.in[k].filt >= 0 || img_opt.in[k].addr >= 0;
+		samp_from_opts(&d, NULL);
+		printf("  sampling: %s%s; implicit LOD from the quad's fine "
+		    "derivatives, mips by a 2x2 box filter, filter weights in "
+		    "double precision\n", samp_text(G.ns > 0 ? &G.s[0] : &d),
+		    given ? " (as given)" : " (the sampler's state is not in "
+		    "SPIR-V: assumed; say `sampler nearest clamp`, or `input 1 "
+		    "nearest mirror`)");
+	}
+	(void)frag;
+}
+
+static void
+image_free(void)
+{
+	int i;
+
+	for (i = 0; i < G.nt; i++) {
+		tex_free(&G.t[i]);
+		tex_free(&G.init[i]);
+	}
+	for (i = 0; i < O.n; i++) {
+		tex_free(&O.t[i]);
+		free(O.cover[i]);
+	}
+	memset(&O, 0, sizeof O);
+	G.nt = 0;
+}
+
 static void
 dump_buffers(const char *when)
 {
@@ -2136,7 +3711,9 @@ dump_buffers(const char *when)
 
 	for (i = 0; i < V.nid; i++) {
 		struct sid *d = &V.id[i];
-		if (d->kind != K_VAR || d->sc != SC_SHARED)
+		int cnt;
+		if (d->kind != K_VAR || d->sc != SC_SHARED ||
+		    binding_elem(i, &cnt) >= 0)
 			continue;
 		printf("  %s %s:", when, d->name);
 		for (s = 0; s < d->nslots && s < 16; s++) {
@@ -2156,6 +3733,7 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 {
 	int k, entry = -1, lb = -1, l, model = 0;
 	char title[200];
+	struct sbuf isaid = {0};
 
 	memset(&V, 0, sizeof V);
 	symmap_reset();
@@ -2192,6 +3770,47 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 		free(said.p);
 	}
 	declare();
+	/* images: textures for the bindings, the image run's size and uv */
+	{
+		int frag = 0, nset = 0;
+		for (k = 0; k < V.nin; k++) {
+			if (!strcmp(V.in[k].op, "OpEntryPoint") && V.in[k].nop >= 1)
+				frag = !strcmp(V.in[k].opnd[0], "Fragment");
+			if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 5 &&
+			    !strcmp(V.in[k].opnd[1], "LocalSize")) {
+				G.lsize[0] = atoi(V.in[k].opnd[2]);
+				G.lsize[1] = atoi(V.in[k].opnd[3]);
+				G.lsize[2] = atoi(V.in[k].opnd[4]);
+			}
+		}
+		{
+			int ls[3];
+			memcpy(ls, G.lsize, sizeof ls);
+			img_setup(seed, frag, &isaid);
+			memcpy(G.lsize, ls, sizeof ls);
+		}
+		/* "%uv = 0.5" on an input variable of a whole module */
+		for (k = 0; k < V.nid; k++) {
+			struct sid *d = &V.id[k];
+			int q;
+			if (d->kind != K_VAR || d->sc != SC_INPUT)
+				continue;
+			for (q = 0; q < nspv_set; q++)
+				if (!strcmp(spv_set[q].name, d->name) ||
+				    !strcmp(spv_set[q].name, d->tok + 1)) {
+					d->setix = q;
+					nset++;
+				}
+		}
+		if (G.on) {
+			/* the traced lanes: the tile at the image's centre */
+			int rows = lanes / cols;
+			G.x0 = G.W / 2 / cols * cols;
+			G.y0 = G.H / 2 / rows * rows;
+		}
+		if (G.on || nset)
+			lanes_init(lanes);
+	}
 	/* the inputs' values in every lane */
 	for (k = 0; k < ninps; k++) {
 		int id = idx(inps[k].name), st;
@@ -2250,7 +3869,8 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 	for (l = 0; l < lanes; l++) {
 		char b[48], v[32];
 		if (model == 1)
-			snprintf(b, sizeof b, "frag (%d.5,%d.5)", l % cols, l / cols);
+			snprintf(b, sizeof b, "frag (%d.5,%d.5)", G.x0 + l % cols,
+			    G.y0 + l / cols);
 		else if (ninps > 0 && !inps[0].var) {
 			int id = idx(inps[0].name);
 			fmt(v, sizeof v, V.id[id].type, LV(id, l));
@@ -2265,12 +3885,26 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 	    sym_str(model_active()->name));
 	printf("  buffers start with random values (seed %llu)\n",
 	    (unsigned long long)seed);
+	if (isaid.n)
+		fputs(isaid.p, stdout);
+	free(isaid.p);
+	if (G.on)
+		printf("  the trace: lanes at pixels (%d,%d)..(%d,%d) of the %dx%d "
+		    "image\n", G.x0, G.y0, G.x0 + cols - 1, G.y0 + lanes / cols - 1,
+		    G.W, G.H);
 	for (k = 0; k < V.nin; k++)
 		if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 5 &&
 		    !strcmp(V.in[k].opnd[1], "LocalSize")) {
 			long wg = atol(V.in[k].opnd[2]) * atol(V.in[k].opnd[3]) *
 			    atol(V.in[k].opnd[4]);
-			if (wg > lanes)
+			if (wg > lanes && G.on)
+				printf("  note: the workgroup has %ld invocations (LocalSize "
+				    "%s %s %s); the trace shows %d of them, the image run "
+				    "every one, 32 at a time (shared memory and barriers "
+				    "across more than 32 are not modelled there)\n", wg,
+				    V.in[k].opnd[2], V.in[k].opnd[3], V.in[k].opnd[4],
+				    lanes);
+			else if (wg > lanes)
 				printf("  note: the workgroup has %ld invocations (LocalSize "
 				    "%s %s %s); these are the first %d%s, so shared memory "
 				    "the others would write stays as it started\n", wg,
@@ -2301,8 +3935,15 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 		}
 		printf("\n");
 	}
+	if (G.on) {
+		int stopped, qx = G.x0, qy = G.y0;
+		image_run(lb, model == 1, &stopped);
+		image_report(model == 1, stopped);
+		xr_quad(qx, qy, cols, lanes / cols, G.W, G.H);
+	}
 	code_block_used = 1;
 	xr_done(fps, seconds, name, nofile);
+	image_free();
 	for (k = 0; k < V.nin; k++) {
 		int j;
 		for (j = 0; j < V.in[k].nop; j++)

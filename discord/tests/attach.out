@@ -23,7 +23,7 @@ PUT /channels/45/messages/3003/reactions/check/@me
 
 == event 4: channel 45, author 97: <@1000> animate exec of this
 POST /channels/45/messages
-{"content":"I can't read the image shot.png: paste its code as text in a ``` block, or attach the file\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3004","channel_id":"45","guild_id":"7","fail_if_not_exists":false}}
+{"content":"shot.png is not an image file I can read (PNG, JPEG, GIF, BMP, PPM): skipped\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3004","channel_id":"45","guild_id":"7","fail_if_not_exists":false}}
 POST /channels/45/messages
 {"content":"```\ninput:1:21: error: animate exec: I see no code to run here: attach the file (.spv, .spvasm, .comp/.frag GLSL), paste it in a ``​` block, or reply to the message that has it\n    animate exec of this\n                        ^\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3004","channel_id":"45","guild_id":"7","fail_if_not_exists":false}}
 PUT /channels/45/messages/3004/reactions/cross/@me

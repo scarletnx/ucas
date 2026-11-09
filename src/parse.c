@@ -1677,6 +1677,27 @@ cmdp_func(struct P *p, const char *const *stop)
 	return f;
 }
 
+/*
+ * The source text from the next token to the next blank, the tokens
+ * inside it skipped: a path ("work/a.png") as it was written
+ */
+int
+cmdp_raw(struct P *p, char *buf, size_t n)
+{
+	const char *src = p->t->src;
+	uint32_t o, e;
+
+	if (at_eos(p))
+		return 0;
+	o = p->t->off[p->i];
+	for (e = o; src[e] && !isspace((unsigned char)src[e]); e++)
+		;
+	snprintf(buf, n, "%.*s", (int)(e - o), src + o);
+	while (!at_eos(p) && p->t->off[p->i] < e)
+		adv(p);
+	return 1;
+}
+
 /* token position, to look ahead and back off ("32-bit" or "32*x") */
 uint32_t
 cmdp_pos(struct P *p)
