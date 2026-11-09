@@ -984,6 +984,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 | transforms, series | `laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic` |
 | solids | `area revolve volume surfacearea arclength centroid` |
 | pictures, shaders | `plot plot3d neighbourhood spirv_simplify` |
+| abstract algebra | `bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf` |
 | session | `define state assume reset english schema` |
 
 A ring argument is typed: `{"ring": "GF(2^8)", "modulus": "aes"}` (the
@@ -1136,7 +1137,7 @@ of a call:
   error whose `structuredContent.error` has `key` and `readings`: call
   again with `args.assume.KEY`.
 
-**Tools: grouped by default.**  There are about 120 commands.  As one
+**Tools: grouped by default.**  There are about 150 commands.  As one
 tool each they make a 340 KB `tools/list`, and several clients cap or
 truncate the tool list, so by default there is one tool per area, with
 an `op` and the op's `args`:
@@ -1153,6 +1154,7 @@ an `op` and the op's `args`:
 | `transforms` | laplace ilaplace laplace_solve ztrans iztrans zsolve tf fourier ifourier fourier_series dft idft dtft genfunc egf infinite_sum infinite_product converge radius powerseries asymptotic |
 | `solids` | area revolve volume surfacearea arclength centroid |
 | `plot` | plot plot3d neighbourhood animate |
+| `abstract_algebra` | bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom abtensor abtor abext abmap abelem absub abexact permgroup permelem permsub permhom cayley groebner idealmember idealeq fxmodule pmsnf |
 | `session` | define state assume reset schema funcs models use help |
 | `ucas`, `english`, `spirv_simplify` | tools of their own (full input schema) |
 
@@ -1164,7 +1166,7 @@ Each grouped tool's description lists its ops with their parameters
 (`integrate(f*, var, from, to, around)`, `*` required) and what they
 compute, about 4 KB a tool and 60 KB in all; the exact schema of every
 op is the `session` tool's `schema` op or the `ucas://schema` resource.
-The trade: a model picks among 14 tools and reads one description,
+The trade: a model picks among 15 tools and reads one description,
 instead of scanning 120; the price is that an op's arguments are checked
 by ucas (a precise `bad_request` error) rather than by the client.
 `--flat` gives one tool per command with its exact `inputSchema` (no
@@ -1627,6 +1629,86 @@ small and matches one family at a time (sums of two families are not
 split); asymptotic expansions need an antiderivative of the term;
 infinite products are exact for rational factors only; Laurent series
 and Mellin or two-sided Laplace transforms are not done.
+
+## Abstract algebra, exactly
+
+```
+bigint factor 2^200 + 1
+snf [[2, 4, 4], [-6, 6, 12], [10, -4, -16]]
+abiso Z/4 + Z/6, Z/2 + Z/12
+abtor Z/12 + Z, Z/8 + Z/3
+abmap Z/12 -> Z/4 by [[1]]
+permgroup A5
+groebner x + y + z, x*y + y*z + z*x, x*y*z - 1 order lex
+idealmember x^3 - 1 in x + y + z, x*y + y*z + z*x, x*y*z - 1
+fxmodule [[2, 1, 0], [0, 2, 0], [0, 0, 2]]
+```
+
+An exact framework (`src/absalg.h`, the API that the homological
+algebra and proof layers build on): no floating point anywhere,
+integers that never wrap, and every claimed fact computed with a
+certificate that is checked before it is printed (`check:` lines, the
+`checks` of a JSON response).
+
+| command | what | certificate |
+|---------|------|-------------|
+| `bigint EXPR`, `bigint factor N` | integers of any size (`+ - * ^ !`, `/` exact, `div`, `%`, `gcd lcm abs isprime binomial`); factoring by trial division and Pollard-Brent rho | the product of the factors; Miller-Rabin (deterministic below 2^64, probable above) |
+| `snf M`, `hnf M` | Smith form U A V = D with U, V, U^-1, V^-1; row Hermite form H = U A | the products multiplied out; U U^-1 = I |
+| `zmat [det\|rank\|kernel\|image\|inverse\|cokernel\|solve] M[, b]` | integer linear algebra: saturated kernel bases, lattice bases, A x = b over Z (over Q when Z has no solution) | A K = 0, A x = b, the lattice equality |
+| `qmat [rref\|det\|rank\|inverse\|nullspace\|solve] M[, b]` | matrices over Q (`1/2`) | A A^-1 = I, A x = b |
+| `abgroup G` | invariant factors, primary decomposition, order, rank, exponent, torsion, generators | the Smith form of the relations |
+| `abiso G, H` | isomorphic?, with an explicit isomorphism and its inverse | both well defined, both composites the identity |
+| `abhom`, `abtensor`, `abtor`, `abext` `G, H` | Hom, tensor, Tor, Ext, computed from presentations (not from formulas) | `abselftest N` compares them with the cyclic formulas |
+| `abmap G -> H by M` | well defined?, kernel, image, cokernel, injective, surjective, inverse | relations to relations; G/ker = im |
+| `abelem G, x`, `absub G, x1, x2, ...` | canonical form and order of an element; a subgroup, its quotient and index | n x is a combination of relations; membership witnesses |
+| `abexact G1 -> G2 -> G3 by f, g` | exactness at G2 | g f = 0 and preimages of generators of ker g |
+| `permgroup G`, `permelem G, p`, `permsub H in G`, `permhom G -> H by ...` | permutation groups by Schreier-Sims: order, base, orbits, derived and lower central series, solvable, nilpotent, centre, membership, normality, cosets, homomorphisms | sifting words that rebuild the permutation; orbit-stabiliser; the graph subgroup has order abs(G) |
+| `cayley T` | a group by its Cayley table | all axioms (n^3 associativity) |
+| `groebner F [order lex\|grlex\|grevlex] [mod p] [vars x, y]` | reduced Groebner basis over Q or F_p, each element as a combination of the generators | cofactors multiplied out; every S-pair of the basis reduces to 0 |
+| `idealmember h in F`, `idealeq F = G` | ideal membership, inclusion, equality | h = sum c_j f_j multiplied out; else the nonzero normal form |
+| `fxmodule M`, `pmsnf [[x, 1], [0, x]]` | modules over the PID F[x]: invariant factors of xI - M (minimal and characteristic polynomial, rational canonical form), Smith form of polynomial matrices | U A V = D with U, V inverted |
+
+Groups are written `Z/4 + Z/6`, `Z^2 + Z/3`, `(Z/2)^3`, `Z/2^3` (= Z/8),
+`0`, or as a presentation: `coker [[2, 0], [0, 3]]` is Z^rows modulo
+the columns.  Permutation groups are `S4`, `A5`, `C6`, `D8` (order 8)
+or generators in cycle notation `(1 2 3 4), (1 2)` (1-based).  JSON:
+the commands of the same names (`zmatrix`, `qmatrix` for `zmat`,
+`qmat`; `bigint_factor`), and the `abstract_algebra` MCP tool.
+
+How it is built (data-oriented, like the rest of ucas):
+
+- **zint** (`zint.c`): a 64-bit handle; values below 2^61 are inline,
+  others index one arena of three columns (sign, length, offset) over
+  one array of 32-bit limbs.  Zeroed memory is the integer 0.  Knuth's
+  division; `z_mark`/`z_release_keep` scope temporaries, and every
+  elimination compacts the arena to its live entries after each pivot.
+- **zmat** (`zmat.c`): dense row-major handle arrays.  Hermite and Smith
+  forms by Euclid across rows and columns (the smallest entry as pivot,
+  rounded quotients), applied to the matrix and its transforms and
+  their inverses together; Smith starts from Hermite.  A random 30x30
+  integer matrix takes 0.03 s.
+- **fgab** (`fgab.c`): a group is a subquotient A/B of Z^n (a
+  presentation Z^g/R is A = Z^g; homology is cycles/boundaries), A and
+  B kept as column-Hermite bases so coordinates are a triangular solve;
+  R = B in A-coordinates and its Smith form give the invariants and
+  canonical coordinates.  Homomorphisms are coordinate matrices; kernels,
+  images, cokernels, sums, meets, m G, G[m], T_p are lattice operations;
+  Hom is the lattice of well-defined matrices modulo the zero maps;
+  Tor and Ext come from the free resolution 0 -> Z^b -R-> Z^a.
+- **pgrp** (`pgrp.c`): deterministic Schreier-Sims (every Schreier
+  generator sifted), explicit transversals in one flat array per level.
+  The centre and centralisers enumerate (groups up to 10^5 elements in
+  the command).
+- **ideal** (`ideal.c`): polynomials as SoA term arrays (exponents,
+  numerator and denominator columns); Buchberger with the normal
+  strategy, the product and chain criteria, cofactors carried through
+  every S-polynomial and reduction.
+
+Limits: factoring above 2^64 is Pollard rho only (a composite with two
+large factors may stay unsplit, and is reported as such); polynomial
+arithmetic is schoolbook; Groebner bases use Buchberger, not F4; the
+centre of a permutation group is found by enumeration; no English
+phrasing for these commands yet.
 
 ## Design
 
