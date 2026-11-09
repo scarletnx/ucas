@@ -171,6 +171,8 @@ node_cost(const struct model *m, nid n, int *cls)
 		mul = 8;
 		break;
 	case O_ATAN:			/* no SFU instruction: a library call */
+	case O_ASIN: case O_ACOS: case O_ATAN2: case O_SINH: case O_COSH:
+	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:
 		k = C_FTRANS;
 		mul = 4;
 		break;

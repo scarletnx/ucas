@@ -182,9 +182,13 @@ lex(struct toks *t, const char *src)
 			n = c == 0xce ? 2 : 3;
 			i += (uint32_t)n;
 			push(t, T_ID, st, (uint32_t)n, fl);
-		} else if (c == 0xcf && s[i + 1] == 0x80) {   /* π */
+		} else if ((c == 0xcf && s[i + 1] == 0x80) ||   /* π */
+		    (c == 0xc2 && s[i + 1] == 0xb0)) {        /* ° (forms.c) */
 			i += 2;
 			push(t, T_ID, st, 2, fl);
+		} else if (c == 0xe2 && s[i + 1] == 0x88 && s[i + 2] == 0xa0) {
+			i += 3;   /* ∠: r∠theta, polar notation (forms.c) */
+			push(t, T_ID, st, 3, fl);
 		} else if ((n = utf8_op(s + i, &k)) > 0) {
 			i += (uint32_t)n;
 			push(t, k, st, (uint32_t)n, fl);

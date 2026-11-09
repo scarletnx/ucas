@@ -1,0 +1,1037 @@
+> complex (1+2i)/(3-i)
+(1+2i)/(3-i) = 1/10 + 7i/10
+  Re = 1/10,  Im = 7/10
+  check: equal numerically (0.1 + 0.7i, complex arithmetic)
+> complex e^(i x)
+  note: i is the imaginary unit; x is taken as real
+e^(i x) = cos(x) + i*sin(x)
+  Re = cos(x),  Im = sin(x)
+  check: equal at 64 of 64 sample points
+> complex (1+i)^8
+(1+i)^8 = 16
+  Re = 16,  Im = 0
+  check: equal numerically (16, complex arithmetic)
+> rect (2+3i)(4-5i)
+(2+3i)(4-5i) = 23 + 2i
+  Re = 23,  Im = 2
+  check: equal numerically (23 + 2i, complex arithmetic)
+> complex 1/(x + i y)
+  note: i is the imaginary unit; x, y are taken as real
+1/(x + i y) = x/(x^2 + y^2) - i*y/(x^2 + y^2)
+  Re = x/(x^2 + y^2),  Im = -y/(x^2 + y^2)
+  check: equal at 64 of 64 sample points (max relative difference 2e-16)
+> complex (x + i y)^2
+  note: i is the imaginary unit; x, y are taken as real
+(x + i y)^2 = x^2 - y^2 + 2i*x*y
+  Re = x^2 - y^2,  Im = 2x*y
+  check: equal at 64 of 64 sample points
+> complex sqrt(-4)
+sqrt(-4) = 2i
+  Re = 0,  Im = 2
+  check: equal numerically (2i, complex arithmetic)
+> complex sqrt(i)
+sqrt(i) = sqrt(2)/2 + i*sqrt(2)/2
+  Re = sqrt(2)/2,  Im = sqrt(2)/2
+  check: equal numerically (0.7071067812 + 0.7071067812i, complex arithmetic)
+> complex log(-1)
+log(-1) = i*pi
+  Re = 0,  Im = pi
+  check: equal numerically (3.141592654i, complex arithmetic)
+> complex i^i
+i^i = exp(-pi/2)
+  Re = exp(-pi/2),  Im = 0
+  check: equal numerically (0.2078795764, complex arithmetic)
+> complex sin(x + i y)
+  note: i is the imaginary unit; x, y are taken as real
+sin(x + i y) = sin(x)*cosh(y) + i*cos(x)*sinh(y)
+  Re = sin(x)*cosh(y),  Im = cos(x)*sinh(y)
+  check: equal at 64 of 64 sample points
+> complex asin(2)
+  note: asin(2) is on the branch cut; the value is that of -i log(iz + sqrt(1 - z^2))
+asin(2) = pi/2 - i*log(2 + sqrt(3))
+  Re = pi/2,  Im = -log(2 + sqrt(3))
+  check: equal numerically (1.570796327 - 1.316957897i, complex arithmetic)
+> complex 2 cis(pi/3)
+2 cis(pi/3) = 1 + i*sqrt(3)
+  Re = 1,  Im = sqrt(3)
+  check: equal numerically (1 + 1.732050808i, complex arithmetic)
+> complex 3j - 1
+  note: j is read as the imaginary unit (j^2 = -1)
+3j - 1 = -1 + 3i
+  Re = -1,  Im = 3
+  check: equal numerically (-1 + 3i, complex arithmetic)
+> complex 4 + 2im
+4 + 2im = 4 + 2i
+  Re = 4,  Im = 2
+  check: equal numerically (4 + 2i, complex arithmetic)
+> re e^(x + i y)
+  note: i is the imaginary unit; x, y are taken as real
+Re(e^(x + i y)) = exp(x)*cos(y)
+  check: equal at 64 of 64 sample points
+> im (2+3i)^2
+Im((2+3i)^2) = 12
+  check: equal numerically (12, complex arithmetic)
+> conj (1+2i)/(3-i)
+conj((1+2i)/(3-i)) = 1/10 - 7i/10
+  check: equal numerically (0.1 - 0.7i, complex arithmetic)
+> modulus 3+4i
+|3+4i| = 5
+  check: equal numerically (5, complex arithmetic)
+> modulus e^(x + i y)
+  note: i is the imaginary unit; x, y are taken as real
+|e^(x + i y)| = exp(x)
+  check: equal at 64 of 64 sample points (max relative difference 2e-16)
+> arg 1 + 2i
+arg(1 + 2i) = atan(2)  (about 1.107148718)
+  the principal argument, -pi < arg <= pi
+  check: equal numerically (1.107148718, complex arithmetic)
+> arg -1 - i
+arg(-1 - i) = -3pi/4
+  the principal argument, -pi < arg <= pi
+  check: equal numerically (-2.35619449, complex arithmetic)
+> f(x, i) = x + 2i
+> complex f
+  note: f's parameter i: read as the imaginary unit, not a real parameter
+  note: i is the imaginary unit; x is taken as real
+f = x + 2i
+  Re = x,  Im = 2
+  check: equal at 64 of 64 sample points
+> polar 1 + i
+1 + i = sqrt(2)*e^(i*pi/4)
+  = sqrt(2)*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = sqrt(2),  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1 + 1i, complex arithmetic)
+  check: equal numerically (1 + 1i, complex arithmetic)
+> polar -2i
+-2i = 2*e^(-i*pi/2)
+  = 2*(cos(-pi/2) + i*sin(-pi/2))
+  r = |z| = 2,  theta = arg z = -pi/2
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (-2i, complex arithmetic)
+  check: equal numerically (-2i, complex arithmetic)
+> polar -1
+-1 = e^(i*pi)
+  = cos(pi) + i*sin(pi)
+  r = |z| = 1,  theta = arg z = pi
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (-1, complex arithmetic)
+  check: equal numerically (-1, complex arithmetic)
+> polar 3 + 4i
+3 + 4i = 5*e^(i*atan(4/3))
+  = 5*(cos(atan(4/3)) + i*sin(atan(4/3)))
+  r = |z| = 5,  theta = arg z = atan(4/3)  (about 0.927295218)
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (3 + 4i, complex arithmetic)
+  check: equal numerically (3 + 4i, complex arithmetic)
+> polar x + i y
+  note: i is the imaginary unit; x, y are taken as real
+x + i y = sqrt(x^2 + y^2)*e^(i*atan2(y, x))
+  = sqrt(x^2 + y^2)*(cos(atan2(y, x)) + i*sin(atan2(y, x)))
+  r = |z| = sqrt(x^2 + y^2),  theta = arg z = atan2(y, x)
+  theta is the principal argument, -pi < theta <= pi; undefined where x = y = 0
+  check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  check: equal at 64 of 64 sample points (max relative difference 4e-16)
+> polar e^(i x)
+  note: i is the imaginary unit; x is taken as real
+e^(i x) = e^(i*x)
+  = cos(x) + i*sin(x)
+  r = |z| = 1,  theta = arg z = x
+  theta is the principal argument, -pi < theta <= pi;
+  theta = x for -pi < x <= pi (otherwise reduce it by a multiple of 2pi)
+  check: equal at 64 of 64 sample points where -pi < x <= pi
+  check: equal at 64 of 64 sample points where -pi < x <= pi
+> polar 2∠45°
+2∠45° = 2*e^(i*pi/4)
+  = 2*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = 2,  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1.414213562 + 1.414213562i, complex arithmetic)
+  check: equal numerically (1.414213562 + 1.414213562i, complex arithmetic)
+> polar 0
+0 = 0: the modulus is 0 and the argument is undefined
+> nthroots 3 8i
+the 3 cube roots of 8i (w^3 = 8i)
+  w0 = sqrt(3) + i            = 2*e^(i*pi/6)  (principal)
+  w1 = -sqrt(3) + i           = 2*e^(i*5pi/6)
+  w2 = -2i                    = 2*e^(-i*pi/2)
+  check: each w^3, parsed back as printed, equals 8i numerically
+> nthroots 4 -16
+the 4 fourth roots of -16 (w^4 = -16)
+  w0 = sqrt(2) + i*sqrt(2)    = 2*e^(i*pi/4)  (principal)
+  w1 = -sqrt(2) + i*sqrt(2)   = 2*e^(i*3pi/4)
+  w2 = -sqrt(2) - i*sqrt(2)   = 2*e^(-i*3pi/4)
+  w3 = sqrt(2) - i*sqrt(2)    = 2*e^(-i*pi/4)
+  check: each w^4, parsed back as printed, equals -16 numerically
+> unity 6
+the 6 sixth roots of 1 (w^6 = 1)
+  w0 = 1                      = 1  (principal)
+  w1 = 1/2 + i*sqrt(3)/2      = e^(i*pi/3)
+  w2 = -1/2 + i*sqrt(3)/2     = e^(i*2pi/3)
+  w3 = -1                     = e^(i*pi)
+  w4 = -1/2 - i*sqrt(3)/2     = e^(-i*2pi/3)
+  w5 = 1/2 - i*sqrt(3)/2      = e^(-i*pi/3)
+  check: each w^6, parsed back as printed, equals 1 numerically
+> nthroots 2 x + i y
+  note: i is the imaginary unit; x, y are taken as real
+the 2 square roots of x + i y: w^2 = z
+  w_k = r^(1/2) e^(i (theta + 2 pi k)/2),  k = 0..1
+  r = |z| = sqrt(x^2 + y^2),  theta = arg z = atan2(y, x)
+  k = 0: check: equal at 64 of 64 sample points (max relative difference 5e-16)
+  k = 1: check: equal at 64 of 64 sample points (max relative difference 1e-15)
+> trig sin^2 x
+  note: x is taken as real
+trig forms of sin^2 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (1 - cos(2x))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  exponential (Euler): sin u = (e^(iu) - e^(-iu))/(2i)
+    = ((exp(i*x) - exp(-i*x))/(2*i))^2
+    check: equal at 64 of 64 sample points
+  simplest: sin^2 x  (as given)
+> trig sin(x) cos(x)
+  note: x is taken as real
+trig forms of sin(x) cos(x)
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = sin(2x)/2
+    check: equal at 64 of 64 sample points (max relative difference 6e-17)
+  exponential (Euler): sin u = (e^(iu) - e^(-iu))/(2i), cos u = (e^(iu) + e^(-iu))/2
+    = (exp(i*x) - exp(-i*x))*(exp(i*x) + exp(-i*x))/(4*i)
+    check: equal at 64 of 64 sample points
+  simplest: sin(2x)/2  (product to sum)
+> trig sin(3x) expand
+  note: x is taken as real
+trig forms of sin(3x)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = 3sin(x)*cos(x)^2 - sin(x)^3
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  compound angles, in sin: cos^2 u = 1 - sin^2 u
+    = 3sin(x) - 4sin(x)^3
+    check: equal at 64 of 64 sample points (max relative difference 7e-16)
+  simplest: sin(3x)  (as given)
+> trig cos(2x) expand
+  note: x is taken as real
+trig forms of cos(2x)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = cos(x)^2 - sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in sin: cos^2 u = 1 - sin^2 u
+    = 1 - 2sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in cos: sin^2 u = 1 - cos^2 u
+    = 2cos(x)^2 - 1
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: cos(2x)  (as given)
+> trig tan(a+b) expand
+  note: a, b are taken as real
+trig forms of tan(a+b)
+  compound and multiple angles: tan(a + b) = (tan a + tan b)/(1 - tan a tan b)
+    = (tan(a) + tan(b))/(1 - tan(a)*tan(b))
+    for cos(a) != 0 && cos(b) != 0
+    check: equal at 64 of 64 sample points where cos(a) != 0 && cos(b) != 0 (max relative difference 2e-15)
+  simplest: tan(a+b)  (as given)
+> trig sin(x + pi/4) expand
+  note: x is taken as real
+trig forms of sin(x + pi/4)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = sqrt(2)*sin(x)/2 + sqrt(2)*cos(x)/2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: sin(x + pi/4)  (as given)
+> trig sin^3 x reduce
+  note: x is taken as real
+trig forms of sin^3 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (3sin(x) - sin(3x))/4
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: sin^3 x  (as given)
+> trig sin x cos y product
+  note: x, y are taken as real
+trig forms of sin x cos y
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = (sin(x + y) + sin(x - y))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  simplest: sin x cos y  (as given)
+> trig sin x + sin y sum
+  note: x, y are taken as real
+trig forms of sin x + sin y
+  sum to product: sin a + sin b = 2 sin((a + b)/2) cos((a - b)/2), cos a + cos b = 2 cos((a + b)/2) cos((a - b)/2) ...
+    = 2sin((x + y)/2)*cos((x - y)/2)
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: sin x + sin y  (as given)
+> trig cos(3x) - cos(x) sum
+  note: x is taken as real
+trig forms of cos(3x) - cos(x)
+  sum to product: sin a + sin b = 2 sin((a + b)/2) cos((a - b)/2), cos a + cos b = 2 cos((a + b)/2) cos((a - b)/2) ...
+    = -2sin(x)*sin(2x)
+    check: equal at 64 of 64 sample points (max relative difference 8e-16)
+  simplest: cos(3x) - cos(x)  (as given)
+> trig 3sin(x) + 4cos(x) harmonic
+  note: x is taken as real
+trig forms of 3sin(x) + 4cos(x)
+  amplitude-phase: a sin u + b cos u = R sin(u + phi), R = sqrt(a^2 + b^2), phi = atan2(b, a)
+    = 5sin(x + atan(4/3))
+    check: equal at 64 of 64 sample points (max relative difference 8e-16)
+  amplitude-phase: a sin u + b cos u = R cos(u - psi), psi = atan2(a, b)
+    = 5cos(x - atan(3/4))
+    check: equal at 64 of 64 sample points (max relative difference 1e-15)
+  simplest: 3sin(x) + 4cos(x)  (as given)
+> trig a sin(x) + b cos(x) harmonic
+  note: a, x, b are taken as real
+trig forms of a sin(x) + b cos(x)
+  amplitude-phase: a sin u + b cos u = R sin(u + phi), R = sqrt(a^2 + b^2), phi = atan2(b, a)
+    = sqrt(a^2 + b^2)*sin(x + atan2(b, a))
+    for a != 0 || b != 0
+    check: equal at 64 of 64 sample points where a != 0 || b != 0 (max relative difference 9e-16)
+  amplitude-phase: a sin u + b cos u = R cos(u - psi), psi = atan2(a, b)
+    = sqrt(a^2 + b^2)*cos(x - atan2(a, b))
+    for a != 0 || b != 0
+    check: equal at 64 of 64 sample points where a != 0 || b != 0 (max relative difference 1e-15)
+  simplest: a sin(x) + b cos(x)  (as given)
+> trig tan(x) sec(x) sincos
+  note: x is taken as real
+trig forms of tan(x) sec(x)
+  in sin and cos: tan = sin/cos, sec = 1/cos, csc = 1/sin, cot = cos/sin, tanh = sinh/cosh
+    = sin(x)/cos(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: tan(x) sec(x)  (as given)
+> trig sin(x)^2 + cos(x)^2
+  note: x is taken as real
+trig forms of sin(x)^2 + cos(x)^2
+  simplified: sin^2 + cos^2 = 1, cosh^2 - sinh^2 = 1, f(f^-1(u)) = u
+    = 1
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: 1  (simplified)
+> trig sin(x/2) half
+  note: x is taken as real
+trig forms of sin(x/2)
+  tan half-angle: t = tan(u/2): sin u = 2t/(1 + t^2), cos u = (1 - t^2)/(1 + t^2), tan u = 2t/(1 - t^2)
+    = 2tan(x/4)/(tan(x/4)^2 + 1)
+    for cos(x/4) != 0
+    check: equal at 64 of 64 sample points where cos(x/4) != 0 (max relative difference 2e-16)
+  half angle: sin(u/2) = sqrt((1 - cos u)/2) where sin(u/2) >= 0, cos(u/2) = sqrt((1 + cos u)/2) where cos(u/2) >= 0, tan(u/2) = sin u/(1 + cos u)
+    = sqrt((1 - cos(x))/2)
+    for sin(x/2) >= 0
+    check: equal at 38 of 64 sample points where sin(x/2) >= 0 (max relative difference 2e-16)
+      (outside: differs at 26 of 26 points, so the condition is needed)
+  simplest: sin(x/2)  (as given)
+> trig 1/(1 + cos(x)) weierstrass
+  note: x is taken as real
+trig forms of 1/(1 + cos(x))
+  tan half-angle: t = tan(u/2): sin u = 2t/(1 + t^2), cos u = (1 - t^2)/(1 + t^2), tan u = 2t/(1 - t^2)
+    = (tan(x/2)^2 + 1)/2
+    for cos(x/2) != 0
+    check: equal at 64 of 64 sample points where cos(x/2) != 0 (max relative difference 5e-16)
+  simplest: 1/(1 + cos(x))  (as given)
+> trig sinh(2x)
+  note: x is taken as real
+trig forms of sinh(2x)
+  compound and multiple angles: sinh(a + b) = sinh a cosh b + cosh a sinh b, cosh(a + b) = cosh a cosh b + sinh a sinh b
+    = 2cosh(x)*sinh(x)
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  exponential (Euler): sinh u = (e^u - e^(-u))/2
+    = (exp(2x) - exp(-2x))/2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: sinh(2x)  (as given)
+> trig cosh(x)^2 reduce
+  note: x is taken as real
+trig forms of cosh(x)^2
+  power reduction: sinh^2 u = (cosh 2u - 1)/2, cosh^2 u = (cosh 2u + 1)/2
+    = (cosh(2x) + 1)/2
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: cosh(x)^2  (as given)
+> trig tanh(x) exp
+  note: x is taken as real
+trig forms of tanh(x)
+  exponential (Euler): tanh u = (e^u - e^(-u))/(e^u + e^(-u))
+    = (exp(x) - exp(-x))/(exp(x) + exp(-x))
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: tanh(x)  (as given)
+> trig cos(atan(x))
+  note: x is taken as real
+trig forms of cos(atan(x))
+  simplified: sin^2 + cos^2 = 1, cosh^2 - sinh^2 = 1, f(f^-1(u)) = u
+    = 1/sqrt(x^2 + 1)
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: 1/sqrt(x^2 + 1)  (simplified)
+> trig sin(asin(x))
+  note: x is taken as real
+trig forms of sin(asin(x))
+  simplified: sin^2 + cos^2 = 1, cosh^2 - sinh^2 = 1, f(f^-1(u)) = u
+    = x
+    check: equal at 31 of 64 sample points
+  simplest: x  (simplified)
+> trig atan(x) inverse
+  note: x is taken as real
+trig forms of atan(x)
+  atan via asin: atan(u) = asin(u/sqrt(1 + u^2))
+    = asin(x/sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 5e-16)
+  atan via acos: atan(u) = sign(u)*acos(1/sqrt(1 + u^2))
+    = sign(x)*acos(1/sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 3e-15)
+  atan reflection: atan(u) = pi/2 - atan(1/u)
+    = pi/2 - atan(1/x)
+    for x > 0
+    check: equal at 38 of 64 sample points where x > 0 (max relative difference 2e-16)
+      (outside: differs at 26 of 26 points, so the condition is needed)
+  atan reflection: atan(u) = -pi/2 - atan(1/u)
+    = -pi/2 - atan(1/x)
+    for x < 0
+    check: equal at 26 of 64 sample points where x < 0 (max relative difference 2e-16)
+      (outside: differs at 38 of 38 points, so the condition is needed)
+  atan half-angle: atan(u) = 2atan(u/(1 + sqrt(1 + u^2)))
+    = 2atan(x/(sqrt(x^2 + 1) + 1))
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  atan as atan2: atan(u) = atan2(u, 1)
+    = atan2(x, 1)
+    check: equal at 64 of 64 sample points
+  simplest: atan2(x, 1)  (atan as atan2)
+> trig acos(x) inverse
+  note: x is taken as real
+trig forms of acos(x)
+  acos via asin: acos(u) = pi/2 - asin(u)
+    = pi/2 - asin(x)
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  acos via asin: acos(u) = asin(sqrt(1 - u^2))
+    = asin(sqrt(1 - x^2))
+    for 0 <= x <= 1
+    check: equal at 18 of 64 sample points where 0 <= x <= 1 (max relative difference 2e-16)
+      (outside: differs at 13 of 13 points, so the condition is needed)
+  acos via asin: acos(u) = 2asin(sqrt((1 - u)/2))
+    = 2asin(sqrt((1 - x)/2))
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  acos via atan: acos(u) = atan(sqrt(1 - u^2)/u)
+    = atan(sqrt(1 - x^2)/x)
+    for 0 < x <= 1
+    check: equal at 18 of 64 sample points where 0 < x <= 1 (max relative difference 2e-16)
+      (outside: differs at 13 of 13 points, so the condition is needed)
+  acos via atan: acos(u) = pi + atan(sqrt(1 - u^2)/u)
+    = atan(sqrt(1 - x^2)/x) + pi
+    for -1 <= x < 0
+    check: equal at 13 of 64 sample points where -1 <= x < 0 (max relative difference 2e-16)
+      (outside: differs at 18 of 18 points, so the condition is needed)
+  acos half-angle: acos(u) = 2atan(sqrt((1 - u)/(1 + u)))
+    = 2atan(sqrt((1 - x)/(x + 1)))
+    for -1 < x <= 1
+    check: equal at 31 of 64 sample points where -1 < x <= 1 (max relative difference 2e-16)
+  acos as atan2: acos(u) = atan2(sqrt(1 - u^2), u)
+    = atan2(sqrt(1 - x^2), x)
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  simplest: acos(x)  (as given)
+> trig atan2(y, x)
+  note: y, x are taken as real
+trig forms of atan2(y, x)
+  atan2 half-angle: atan2(y, x) = 2atan(y/(sqrt(x^2 + y^2) + x))
+    = 2atan(y/(sqrt(x^2 + y^2) + x))
+    for x > 0 || y != 0
+    check: equal at 64 of 64 sample points where x > 0 || y != 0 (max relative difference 6e-16)
+  atan2 via atan: atan2(y, x) = atan(y/x)
+    = atan(y/x)
+    for x > 0
+    check: equal at 39 of 64 sample points where x > 0 (max relative difference 2e-16)
+      (outside: differs at 25 of 25 points, so the condition is needed)
+  atan2 via atan: atan2(y, x) = atan(y/x) + pi
+    = atan(y/x) + pi
+    for x < 0 && y >= 0
+    check: equal at 15 of 64 sample points where x < 0 && y >= 0 (max relative difference 2e-16)
+      (outside: differs at 49 of 49 points, so the condition is needed)
+  atan2 via atan: atan2(y, x) = atan(y/x) - pi
+    = atan(y/x) - pi
+    for x < 0 && y < 0
+    check: equal at 10 of 64 sample points where x < 0 && y < 0 (max relative difference 2e-16)
+      (outside: differs at 54 of 54 points, so the condition is needed)
+  atan2 via atan: atan2(y, x) = pi/2 - atan(x/y)
+    = pi/2 - atan(x/y)
+    for y > 0
+    check: equal at 37 of 64 sample points where y > 0 (max relative difference 2e-16)
+      (outside: differs at 27 of 27 points, so the condition is needed)
+  atan2 via atan: atan2(y, x) = -pi/2 - atan(x/y)
+    = -pi/2 - atan(x/y)
+    for y < 0
+    check: equal at 27 of 64 sample points where y < 0 (max relative difference 2e-16)
+      (outside: differs at 37 of 37 points, so the condition is needed)
+  simplest: atan2(y, x)  (as given)
+> trig atan(x) + atan(y) inverse
+  note: x, y are taken as real
+trig forms of atan(x) + atan(y)
+  atan via asin: atan(u) = asin(u/sqrt(1 + u^2))
+    = asin(x/sqrt(x^2 + 1)) + atan(y)
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  atan via acos: atan(u) = sign(u)*acos(1/sqrt(1 + u^2))
+    = sign(x)*acos(1/sqrt(x^2 + 1)) + atan(y)
+    check: equal at 64 of 64 sample points (max relative difference 3e-15)
+  atan reflection: atan(u) = pi/2 - atan(1/u)
+    = pi/2 - atan(1/x) + atan(y)
+    for x > 0
+    check: equal at 37 of 64 sample points where x > 0 (max relative difference 2e-16)
+      (outside: differs at 27 of 27 points, so the condition is needed)
+  atan reflection: atan(u) = -pi/2 - atan(1/u)
+    = -pi/2 - atan(1/x) + atan(y)
+    for x < 0
+    check: equal at 27 of 64 sample points where x < 0 (max relative difference 2e-16)
+      (outside: differs at 37 of 37 points, so the condition is needed)
+  atan half-angle: atan(u) = 2atan(u/(1 + sqrt(1 + u^2)))
+    = 2atan(x/(sqrt(x^2 + 1) + 1)) + atan(y)
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  atan as atan2: atan(u) = atan2(u, 1)
+    = atan2(x, 1) + atan(y)
+    check: equal at 64 of 64 sample points
+  atan via asin: atan(u) = asin(u/sqrt(1 + u^2))
+    = atan(x) + asin(y/sqrt(y^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 7e-16)
+  atan via acos: atan(u) = sign(u)*acos(1/sqrt(1 + u^2))
+    = atan(x) + sign(y)*acos(1/sqrt(y^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 9e-16)
+  atan reflection: atan(u) = pi/2 - atan(1/u)
+    = atan(x) + pi/2 - atan(1/y)
+    for y > 0
+    check: equal at 39 of 64 sample points where y > 0 (max relative difference 2e-16)
+      (outside: differs at 25 of 25 points, so the condition is needed)
+  atan reflection: atan(u) = -pi/2 - atan(1/u)
+    = atan(x) - pi/2 - atan(1/y)
+    for y < 0
+    check: equal at 25 of 64 sample points where y < 0 (max relative difference 2e-16)
+      (outside: differs at 39 of 39 points, so the condition is needed)
+  atan half-angle: atan(u) = 2atan(u/(1 + sqrt(1 + u^2)))
+    = atan(x) + 2atan(y/(sqrt(y^2 + 1) + 1))
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  atan as atan2: atan(u) = atan2(u, 1)
+    = atan(x) + atan2(y, 1)
+    check: equal at 64 of 64 sample points
+  atan addition: atan a + atan b = atan((a + b)/(1 - a b)) for a b < 1
+    = atan((x + y)/(1 - x*y))
+    for x*y < 1
+    check: equal at 45 of 64 sample points where x*y < 1 (max relative difference 2e-16)
+      (outside: differs at 19 of 19 points, so the condition is needed)
+  simplest: atan2(x, 1) + atan(y)  (atan as atan2)
+> trig asinh(x)
+  note: x is taken as real
+trig forms of asinh(x)
+  asinh as a log: asinh(u) = log(u + sqrt(u^2 + 1))
+    = log(x + sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 5e-16)
+  asinh via atanh: asinh(u) = atanh(u/sqrt(1 + u^2))
+    = atanh(x/sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 1e-15)
+  simplest: asinh(x)  (as given)
+> trig atanh(x)
+  note: x is taken as real
+trig forms of atanh(x)
+  atanh as a log: atanh(u) = log((1 + u)/(1 - u))/2
+    = log((x + 1)/(1 - x))/2
+    check: equal at 31 of 64 sample points (max relative difference 1e-16)
+  atanh via asinh: atanh(u) = asinh(u/sqrt(1 - u^2))
+    = asinh(x/sqrt(1 - x^2))
+    check: equal at 31 of 64 sample points (max relative difference 6e-16)
+  simplest: atanh(x)  (as given)
+> diff asin(x)
+d/dx asin(x) = 1/sqrt(1 - x^2)
+> diff atan2(y, x)
+d/dy atan2(y, x) = x/(x^2 + y^2)
+> domain acos(x/2)
+domain of acos(x/2):
+  x: real (default [-10, 10])
+  requires -1 <= x/2 <= 1
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in [-2, 2]
+> what is the complex form of (1+2i)/(3-i)?
+  ucas: complex (1+2i)/(3-i)
+(1+2i)/(3-i) = 1/10 + 7i/10
+  Re = 1/10,  Im = 7/10
+  check: equal numerically (0.1 + 0.7i, complex arithmetic)
+> write (1+2i)/(3-i) in a+bi form
+  ucas: complex (1+2i)/(3-i)
+(1+2i)/(3-i) = 1/10 + 7i/10
+  Re = 1/10,  Im = 7/10
+  check: equal numerically (0.1 + 0.7i, complex arithmetic)
+> rectangular form of e^(i x)
+  ucas: complex e^(i x)
+  note: i is the imaginary unit; x is taken as real
+e^(i x) = cos(x) + i*sin(x)
+  Re = cos(x),  Im = sin(x)
+  check: equal at 64 of 64 sample points
+> real and imaginary parts of e^(i x)
+  ucas: complex e^(i x)
+  note: i is the imaginary unit; x is taken as real
+e^(i x) = cos(x) + i*sin(x)
+  Re = cos(x),  Im = sin(x)
+  check: equal at 64 of 64 sample points
+> the real part of e^(x + i y)
+  ucas: re e^(x + i y)
+  note: i is the imaginary unit; x, y are taken as real
+Re(e^(x + i y)) = exp(x)*cos(y)
+  check: equal at 64 of 64 sample points
+> imaginary part of (2+3i)^2
+  ucas: im (2+3i)^2
+Im((2+3i)^2) = 12
+  check: equal numerically (12, complex arithmetic)
+> what is the polar form of 1 + i?
+  ucas: polar 1 + i
+1 + i = sqrt(2)*e^(i*pi/4)
+  = sqrt(2)*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = sqrt(2),  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1 + 1i, complex arithmetic)
+  check: equal numerically (1 + 1i, complex arithmetic)
+> convert 1+i to polar form
+  ucas: polar 1+i
+1+i = sqrt(2)*e^(i*pi/4)
+  = sqrt(2)*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = sqrt(2),  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1 + 1i, complex arithmetic)
+  check: equal numerically (1 + 1i, complex arithmetic)
+> put 3 + 4i in polar coordinates
+  ucas: polar 3 + 4i
+3 + 4i = 5*e^(i*atan(4/3))
+  = 5*(cos(atan(4/3)) + i*sin(atan(4/3)))
+  r = |z| = 5,  theta = arg z = atan(4/3)  (about 0.927295218)
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (3 + 4i, complex arithmetic)
+  check: equal numerically (3 + 4i, complex arithmetic)
+> modulus and argument of 3 + 4i
+  ucas: polar 3 + 4i
+3 + 4i = 5*e^(i*atan(4/3))
+  = 5*(cos(atan(4/3)) + i*sin(atan(4/3)))
+  r = |z| = 5,  theta = arg z = atan(4/3)  (about 0.927295218)
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (3 + 4i, complex arithmetic)
+  check: equal numerically (3 + 4i, complex arithmetic)
+> 1 + i in exponential form
+  ucas: polar 1 + i
+1 + i = sqrt(2)*e^(i*pi/4)
+  = sqrt(2)*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = sqrt(2),  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1 + 1i, complex arithmetic)
+  check: equal numerically (1 + 1i, complex arithmetic)
+> cis form of -2i
+  ucas: polar -2i
+-2i = 2*e^(-i*pi/2)
+  = 2*(cos(-pi/2) + i*sin(-pi/2))
+  r = |z| = 2,  theta = arg z = -pi/2
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (-2i, complex arithmetic)
+  check: equal numerically (-2i, complex arithmetic)
+> what is the modulus of 3+4i
+  ucas: modulus 3+4i
+|3+4i| = 5
+  check: equal numerically (5, complex arithmetic)
+> what's the magnitude of 1 + i
+  ucas: modulus 1 + i
+|1 + i| = sqrt(2)
+  check: equal numerically (1.414213562, complex arithmetic)
+> the argument of -1 - i
+  ucas: arg -1 - i
+arg(-1 - i) = -3pi/4
+  the principal argument, -pi < arg <= pi
+  check: equal numerically (-2.35619449, complex arithmetic)
+> complex conjugate of (1+2i)/(3-i)
+  ucas: conj (1+2i)/(3-i)
+conj((1+2i)/(3-i)) = 1/10 - 7i/10
+  check: equal numerically (0.1 - 0.7i, complex arithmetic)
+> convert 2 cis(pi/3) to rectangular form
+  ucas: complex 2 cis(pi/3)
+2 cis(pi/3) = 1 + i*sqrt(3)
+  Re = 1,  Im = sqrt(3)
+  check: equal numerically (1 + 1.732050808i, complex arithmetic)
+> write 5∠30° in cartesian form
+  ucas: complex 5∠30deg
+5∠30deg = 5sqrt(3)/2 + 5i/2
+  Re = 5sqrt(3)/2,  Im = 5/2
+  check: equal numerically (4.330127019 + 2.5i, complex arithmetic)
+> simplify (1+i)/(1-i)
+  ucas: complex (1+i)/(1-i)
+(1+i)/(1-i) = i
+  Re = 0,  Im = 1
+  check: equal numerically (1i, complex arithmetic)
+> trig rewrite of sin^2 x
+  ucas: trig sin^2 x
+  note: x is taken as real
+trig forms of sin^2 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (1 - cos(2x))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  exponential (Euler): sin u = (e^(iu) - e^(-iu))/(2i)
+    = ((exp(i*x) - exp(-i*x))/(2*i))^2
+    check: equal at 64 of 64 sample points
+  simplest: sin^2 x  (as given)
+> rewrite sin^2 x using double angle
+  ucas: trig sin^2 x double
+  note: x is taken as real
+trig forms of sin^2 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (1 - cos(2x))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  simplest: sin^2 x  (as given)
+> express tan x in terms of sin and cos
+  ucas: trig tan x sincos
+  note: x is taken as real
+trig forms of tan x
+  in sin and cos: tan = sin/cos, sec = 1/cos, csc = 1/sin, cot = cos/sin, tanh = sinh/cosh
+    = sin(x)/cos(x)
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  simplest: tan x  (as given)
+> simplify sin x cos x
+  ucas: trig sin x cos x
+  note: x is taken as real
+trig forms of sin x cos x
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = sin(2x)/2
+    check: equal at 64 of 64 sample points (max relative difference 6e-17)
+  exponential (Euler): sin u = (e^(iu) - e^(-iu))/(2i), cos u = (e^(iu) + e^(-iu))/2
+    = (exp(i*x) - exp(-i*x))*(exp(i*x) + exp(-i*x))/(4*i)
+    check: equal at 64 of 64 sample points
+  simplest: sin(2x)/2  (product to sum)
+> expand sin(a+b)
+  ucas: trig sin(a+b) expand
+  note: a, b are taken as real
+trig forms of sin(a+b)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = cos(a)*sin(b) + cos(b)*sin(a)
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: sin(a+b)  (as given)
+> expand sin 3x
+  ucas: trig sin 3x expand
+  note: x is taken as real
+trig forms of sin 3x
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = 3sin(x)*cos(x)^2 - sin(x)^3
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  compound angles, in sin: cos^2 u = 1 - sin^2 u
+    = 3sin(x) - 4sin(x)^3
+    check: equal at 64 of 64 sample points (max relative difference 7e-16)
+  simplest: sin 3x  (as given)
+> product to sum of sin x cos y
+  ucas: trig sin x cos y product
+  note: x, y are taken as real
+trig forms of sin x cos y
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = (sin(x + y) + sin(x - y))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  simplest: sin x cos y  (as given)
+> write sin x + sin y as a product
+  ucas: trig sin x + sin y sum
+  note: x, y are taken as real
+trig forms of sin x + sin y
+  sum to product: sin a + sin b = 2 sin((a + b)/2) cos((a - b)/2), cos a + cos b = 2 cos((a + b)/2) cos((a - b)/2) ...
+    = 2sin((x + y)/2)*cos((x - y)/2)
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: sin x + sin y  (as given)
+> write 3 sin x + 4 cos x in the form R sin(x + phi)
+  ucas: trig 3 sin x + 4 cos x harmonic
+  note: x is taken as real
+trig forms of 3 sin x + 4 cos x
+  amplitude-phase: a sin u + b cos u = R sin(u + phi), R = sqrt(a^2 + b^2), phi = atan2(b, a)
+    = 5sin(x + atan(4/3))
+    check: equal at 64 of 64 sample points (max relative difference 8e-16)
+  amplitude-phase: a sin u + b cos u = R cos(u - psi), psi = atan2(a, b)
+    = 5cos(x - atan(3/4))
+    check: equal at 64 of 64 sample points (max relative difference 1e-15)
+  simplest: 3 sin x + 4 cos x  (as given)
+> sin x in exponential form
+  note: an exponential form of a real trig expression: read as its Euler form (say "polar form" for r e^(i theta))
+  ucas: trig sin x exp
+  note: x is taken as real
+trig forms of sin x
+  exponential (Euler): sin u = (e^(iu) - e^(-iu))/(2i)
+    = (exp(i*x) - exp(-i*x))/(2*i)
+    check: equal at 64 of 64 sample points
+  simplest: sin x  (as given)
+> express atan x in terms of asin
+  ucas: trig atan x inverse
+  note: x is taken as real
+trig forms of atan x
+  atan via asin: atan(u) = asin(u/sqrt(1 + u^2))
+    = asin(x/sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 5e-16)
+  atan via acos: atan(u) = sign(u)*acos(1/sqrt(1 + u^2))
+    = sign(x)*acos(1/sqrt(x^2 + 1))
+    check: equal at 64 of 64 sample points (max relative difference 3e-15)
+  atan reflection: atan(u) = pi/2 - atan(1/u)
+    = pi/2 - atan(1/x)
+    for x > 0
+    check: equal at 38 of 64 sample points where x > 0 (max relative difference 2e-16)
+      (outside: differs at 26 of 26 points, so the condition is needed)
+  atan reflection: atan(u) = -pi/2 - atan(1/u)
+    = -pi/2 - atan(1/x)
+    for x < 0
+    check: equal at 26 of 64 sample points where x < 0 (max relative difference 2e-16)
+      (outside: differs at 38 of 38 points, so the condition is needed)
+  atan half-angle: atan(u) = 2atan(u/(1 + sqrt(1 + u^2)))
+    = 2atan(x/(sqrt(x^2 + 1) + 1))
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  atan as atan2: atan(u) = atan2(u, 1)
+    = atan2(x, 1)
+    check: equal at 64 of 64 sample points
+  simplest: atan2(x, 1)  (atan as atan2)
+> trig identities for cos(2x)
+  ucas: trig cos(2x)
+  note: x is taken as real
+trig forms of cos(2x)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = cos(x)^2 - sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in sin: cos^2 u = 1 - sin^2 u
+    = 1 - 2sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in cos: sin^2 u = 1 - cos^2 u
+    = 2cos(x)^2 - 1
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  exponential (Euler): cos u = (e^(iu) + e^(-iu))/2
+    = (exp(2i*x) + exp(-2i*x))/2
+    check: equal at 64 of 64 sample points
+  simplest: cos(2x)  (as given)
+> write sin(x)^2 cos(x)^2 using power reduction
+  ucas: trig sin(x)^2 cos(x)^2 reduce
+  note: x is taken as real
+trig forms of sin(x)^2 cos(x)^2
+  power reduction, product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = (1 - cos(4x))/8
+    check: equal at 64 of 64 sample points (max relative difference 6e-17)
+  simplest: (1 - cos(4x))/8  (power reduction, product to sum)
+> linearize cos^3 x
+  ucas: trig cos^3 x reduce
+  note: x is taken as real
+trig forms of cos^3 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (3cos(x) + cos(3x))/4
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: cos^3 x  (as given)
+> the 5th roots of unity
+  ucas: unity 5
+the 5 fifth roots of 1 (w^5 = 1)
+  w0 = 1                      = 1  (principal)
+  w1 = (-1 + sqrt(5))/4 + i*sqrt((5 + sqrt(5))/8) = e^(i*2pi/5)
+  w2 = -(1 + sqrt(5))/4 + i*sqrt((5 - sqrt(5))/8) = e^(i*4pi/5)
+  w3 = -(1 + sqrt(5))/4 - i*sqrt((5 - sqrt(5))/8) = e^(-i*4pi/5)
+  w4 = (-1 + sqrt(5))/4 - i*sqrt((5 + sqrt(5))/8) = e^(-i*2pi/5)
+  check: each w^5, parsed back as printed, equals 1 numerically
+> find the cube roots of 8i
+  ucas: nthroots 3 8i
+the 3 cube roots of 8i (w^3 = 8i)
+  w0 = sqrt(3) + i            = 2*e^(i*pi/6)  (principal)
+  w1 = -sqrt(3) + i           = 2*e^(i*5pi/6)
+  w2 = -2i                    = 2*e^(-i*pi/2)
+  check: each w^3, parsed back as printed, equals 8i numerically
+> what are the square roots of i
+  ucas: nthroots 2 i
+the 2 square roots of i (w^2 = i)
+  w0 = sqrt(2)/2 + i*sqrt(2)/2 = e^(i*pi/4)  (principal)
+  w1 = -sqrt(2)/2 - i*sqrt(2)/2 = e^(-i*3pi/4)
+  check: each w^2, parsed back as printed, equals i numerically
+> solve z^4 = -16
+  ucas: nthroots 4 -16
+the 4 fourth roots of -16 (w^4 = -16)
+  w0 = sqrt(2) + i*sqrt(2)    = 2*e^(i*pi/4)  (principal)
+  w1 = -sqrt(2) + i*sqrt(2)   = 2*e^(i*3pi/4)
+  w2 = -sqrt(2) - i*sqrt(2)   = 2*e^(-i*3pi/4)
+  w3 = sqrt(2) - i*sqrt(2)    = 2*e^(-i*pi/4)
+  check: each w^4, parsed back as printed, equals -16 numerically
+> what is the absolute value of -3
+  ucas: abs(-3)
+3
+> express 3+4i in polar form
+  ucas: polar 3+4i
+3+4i = 5*e^(i*atan(4/3))
+  = 5*(cos(atan(4/3)) + i*sin(atan(4/3)))
+  r = |z| = 5,  theta = arg z = atan(4/3)  (about 0.927295218)
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (3 + 4i, complex arithmetic)
+  check: equal numerically (3 + 4i, complex arithmetic)
+> convert 2e^(i pi/3) to a + bi
+  ucas: complex 2e^(i pi/3)
+2e^(i pi/3) = 1 + i*sqrt(3)
+  Re = 1,  Im = sqrt(3)
+  check: equal numerically (1 + 1.732050808i, complex arithmetic)
+> phasor form of 3+4j
+  ucas: polar 3+4j
+  note: j is read as the imaginary unit (j^2 = -1)
+3+4j = 5*e^(i*atan(4/3))
+  = 5*(cos(atan(4/3)) + i*sin(atan(4/3)))
+  r = |z| = 5,  theta = arg z = atan(4/3)  (about 0.927295218)
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (3 + 4i, complex arithmetic)
+  check: equal numerically (3 + 4i, complex arithmetic)
+> convert x + iy to polar form
+  ucas: polar x + iy
+  note: 'iy' read as i*y (single-letter variables)
+  note: i is the imaginary unit; x, y are taken as real
+x + iy = sqrt(x^2 + y^2)*e^(i*atan2(y, x))
+  = sqrt(x^2 + y^2)*(cos(atan2(y, x)) + i*sin(atan2(y, x)))
+  r = |z| = sqrt(x^2 + y^2),  theta = arg z = atan2(y, x)
+  theta is the principal argument, -pi < theta <= pi; undefined where x = y = 0
+  check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  check: equal at 64 of 64 sample points (max relative difference 4e-16)
+> list the sixth roots of unity
+  ucas: unity 6
+the 6 sixth roots of 1 (w^6 = 1)
+  w0 = 1                      = 1  (principal)
+  w1 = 1/2 + i*sqrt(3)/2      = e^(i*pi/3)
+  w2 = -1/2 + i*sqrt(3)/2     = e^(i*2pi/3)
+  w3 = -1                     = e^(i*pi)
+  w4 = -1/2 - i*sqrt(3)/2     = e^(-i*2pi/3)
+  w5 = 1/2 - i*sqrt(3)/2      = e^(-i*pi/3)
+  check: each w^6, parsed back as printed, equals 1 numerically
+> what is the principal argument of -1
+  ucas: arg -1
+arg(-1) = pi
+  the principal argument, -pi < arg <= pi
+  check: equal numerically (3.141592654, complex arithmetic)
+> use the double angle formula on cos 2x
+  ucas: trig cos 2x double
+  note: x is taken as real
+trig forms of cos 2x
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = cos(x)^2 - sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in sin: cos^2 u = 1 - sin^2 u
+    = 1 - 2sin(x)^2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  compound angles, in cos: sin^2 u = 1 - cos^2 u
+    = 2cos(x)^2 - 1
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: cos 2x  (as given)
+> turn sin x cos y into a sum
+  ucas: trig sin x cos y product
+  note: x, y are taken as real
+trig forms of sin x cos y
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, cos a cos b = (cos(a - b) + cos(a + b))/2, sin a sin b = (cos(a - b) - cos(a + b))/2
+    = (sin(x + y) + sin(x - y))/2
+    check: equal at 64 of 64 sample points (max relative difference 1e-16)
+  simplest: sin x cos y  (as given)
+> write sin(x + pi/4) using the angle addition formula
+  ucas: trig sin(x + pi/4) expand
+  note: x is taken as real
+trig forms of sin(x + pi/4)
+  compound and multiple angles: sin(a + b) = sin a cos b + cos a sin b, cos(a + b) = cos a cos b - sin a sin b
+    = sqrt(2)*sin(x)/2 + sqrt(2)*cos(x)/2
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: sin(x + pi/4)  (as given)
+> express sin x + cos x as a single sine
+  ucas: trig sin x + cos x harmonic
+  note: x is taken as real
+trig forms of sin x + cos x
+  amplitude-phase: a sin u + b cos u = R sin(u + phi), R = sqrt(a^2 + b^2), phi = atan2(b, a)
+    = sqrt(2)*sin(x + pi/4)
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  amplitude-phase: a sin u + b cos u = R cos(u - psi), psi = atan2(a, b)
+    = sqrt(2)*cos(x - pi/4)
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: sin x + cos x  (as given)
+> write tanh x in terms of exponentials
+  ucas: trig tanh x exp
+  note: x is taken as real
+trig forms of tanh x
+  exponential (Euler): tanh u = (e^u - e^(-u))/(e^u + e^(-u))
+    = (exp(x) - exp(-x))/(exp(x) + exp(-x))
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: tanh x  (as given)
+> rewrite acos x in terms of asin
+  ucas: trig acos x inverse
+  note: x is taken as real
+trig forms of acos x
+  acos via asin: acos(u) = pi/2 - asin(u)
+    = pi/2 - asin(x)
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  acos via asin: acos(u) = asin(sqrt(1 - u^2))
+    = asin(sqrt(1 - x^2))
+    for 0 <= x <= 1
+    check: equal at 18 of 64 sample points where 0 <= x <= 1 (max relative difference 2e-16)
+      (outside: differs at 13 of 13 points, so the condition is needed)
+  acos via asin: acos(u) = 2asin(sqrt((1 - u)/2))
+    = 2asin(sqrt((1 - x)/2))
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  acos via atan: acos(u) = atan(sqrt(1 - u^2)/u)
+    = atan(sqrt(1 - x^2)/x)
+    for 0 < x <= 1
+    check: equal at 18 of 64 sample points where 0 < x <= 1 (max relative difference 2e-16)
+      (outside: differs at 13 of 13 points, so the condition is needed)
+  acos via atan: acos(u) = pi + atan(sqrt(1 - u^2)/u)
+    = atan(sqrt(1 - x^2)/x) + pi
+    for -1 <= x < 0
+    check: equal at 13 of 64 sample points where -1 <= x < 0 (max relative difference 2e-16)
+      (outside: differs at 18 of 18 points, so the condition is needed)
+  acos half-angle: acos(u) = 2atan(sqrt((1 - u)/(1 + u)))
+    = 2atan(sqrt((1 - x)/(x + 1)))
+    for -1 < x <= 1
+    check: equal at 31 of 64 sample points where -1 < x <= 1 (max relative difference 2e-16)
+  acos as atan2: acos(u) = atan2(sqrt(1 - u^2), u)
+    = atan2(sqrt(1 - x^2), x)
+    check: equal at 31 of 64 sample points (max relative difference 2e-16)
+  simplest: acos x  (as given)
+> simplify cos(atan x)
+  ucas: trig cos(atan x)
+  note: x is taken as real
+trig forms of cos(atan x)
+  simplified: sin^2 + cos^2 = 1, cosh^2 - sinh^2 = 1, f(f^-1(u)) = u
+    = 1/sqrt(x^2 + 1)
+    check: equal at 64 of 64 sample points (max relative difference 2e-16)
+  simplest: 1/sqrt(x^2 + 1)  (simplified)
+> how do I write (2+i)/(1-i) in standard form
+  ucas: complex (2+i)/(1-i)
+(2+i)/(1-i) = 1/2 + 3i/2
+  Re = 1/2,  Im = 3/2
+  check: equal numerically (0.5 + 1.5i, complex arithmetic)
+> what is the trigonometric form of 1 + i
+  ucas: polar 1 + i
+1 + i = sqrt(2)*e^(i*pi/4)
+  = sqrt(2)*(cos(pi/4) + i*sin(pi/4))
+  r = |z| = sqrt(2),  theta = arg z = pi/4
+  theta is the principal argument, -pi < theta <= pi
+  check: equal numerically (1 + 1i, complex arithmetic)
+  check: equal numerically (1 + 1i, complex arithmetic)
+> power reduction formula for cos^4 x
+  ucas: trig cos^4 x reduce
+  note: x is taken as real
+trig forms of cos^4 x
+  power reduction: sin^2 u = (1 - cos 2u)/2, cos^2 u = (1 + cos 2u)/2 (higher powers through e^(iu) = cos u + i sin u)
+    = (4cos(2x) + cos(4x) + 3)/8
+    check: equal at 64 of 64 sample points (max relative difference 3e-16)
+  simplest: cos^4 x  (as given)
+> alternative forms of tan x
+  ucas: trig tan x
+  note: x is taken as real
+trig forms of tan x
+  in sin and cos: tan = sin/cos, sec = 1/cos, csc = 1/sin, cot = cos/sin, tanh = sinh/cosh
+    = sin(x)/cos(x)
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  exponential (Euler): tan u = (e^(iu) - e^(-iu))/(i(e^(iu) + e^(-iu)))
+    = (exp(i*x) - exp(-i*x))/(i*(exp(i*x) + exp(-i*x)))
+    check: equal at 64 of 64 sample points (max relative difference 4e-16)
+  simplest: tan x  (as given)
+> expand (1+i)^3
+  ucas: complex (1+i)^3
+(1+i)^3 = -2 + 2i
+  Re = -2,  Im = 2
+  check: equal numerically (-2 + 2i, complex arithmetic)
+> help
+definitions
+  f(x: u8, y: i16 in -5..5) = expr [where y = expr, cond]
+  g = x^2 + 1               free variables become parameters
+  basis name [: parent] { gate(x, y) = expr [cost n]; ... }
+  model name [: parent] { class: cost, ... }
+types: real (math), f32 f64 (IEEE), int (math), uN iN (wrapping), bool
+commands (F is a function name or an expression like isqrt(x: u4))
+  show F | parse EXPR | table F [max n] | funcs | models | help
+  range F [nocrit] | domain F | wrap F | crit F | diff F [x]
+  equiv F G | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]
+  gates F [basis b] [max k] [nodes n] [as c]
+  find F [n] [max cost] | more [n]
+  cost F [model m] | use m
+  approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]
+    [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]
+    [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]
+  approx more [n]
+  animate [hillis|blelloch|sequential] scan [n N] [fps F] [seconds S]
+    [random [seed K] | values a, b, ...] [f32] [MODEL] [to NAME]
+loops and calculus
+  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }
+  closed F | scheme F [model m] | continuous F
+  integrate F [wrt x] [from a to b]
+  y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] [steps n]
+complex numbers (i is the unit) and trig forms
+  complex F | re F | im F | conj F | modulus F | arg F | polar F
+  nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|harmonic|half|inverse]
+English works too: 'what is the range of x squared for a signed byte x?'
+  ('help english' for more)
