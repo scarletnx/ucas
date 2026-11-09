@@ -364,17 +364,10 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
 simplify: 68 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 28 -> 5 (-82.1%)
-  by kind:
-       1  a multiply by a power of two is a shift       -1
-       1  a divide by a power of two is a shift         -22
-  rewrites:
-    %59 = OpUDiv %uint %58 %uint_2
-      ->  OpShiftRightLogical %uint %58 %uint_1   (a divide by a power of two is a shift; -22)
-      (line 2: uint m = (n * 4u) / 2u;)
-    %58 = OpIMul %uint %44 %uint_4
-      ->  OpShiftLeftLogical %uint %44 %uint_2   (a multiply by a power of two is a shift; -1)
-      (line 2: uint m = (n * 4u) / 2u;)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5 -> 5 (+0.0%)
+  counting the strength reductions any driver also does: 28 -> 5 (-82.1%)
+  also done by any driver compiler (2 rewrites, -23; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything

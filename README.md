@@ -17,6 +17,9 @@ searches for other implementations.
 
 C99, BSD make, no dependencies beyond libm.
 
+License: GPL-3.0-or-later (COPYING).  src/snxglslc/ is ScarletNX's GLSL
+compiler, GPL-3.0-or-later as well; it is why ucas is GPLv3.
+
 ```sh
 make            # FreeBSD make or bmake
 make test       # tests/*.ucas must print tests/*.out
@@ -166,7 +169,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
-| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component` |
+| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
@@ -1416,6 +1419,111 @@ second input is kept as an interval, so its sets are "possibly"); bit-
 level SAT for small float pieces; joining two vec2 operations into one
 vec4 (the gt1030 model prices components, so it would save nothing
 there).
+
+## Function level
+
+The instruction-level rewrites see one SPIR-V instruction at a time, and
+spirv-opt and the driver have already done the easy ones.  What is left
+in a hand-optimised shader is usually a function-level fact: a branch
+that the callers never take, a mask that the arguments never need, a
+loop iteration that never wins.  For GLSL, `simplify` therefore also
+reads the source (the OpSource text `glslangValidator -g` keeps) and
+works on whole functions (src/glslfn.c).
+
+**Parsing.** The source goes through ScarletNX's GLSL ES compiler
+(src/snxglslc), which gives a typed syntax tree with source positions.
+Vulkan GLSL 4.50 is brought to GLSL ES 3.10 first where the two only
+spell things differently, keeping every line in place: the `#version`
+line, `layout(push_constant)`, `T a[N] = { ... }` (as `T[N](...)`),
+`#extension` lines, and `const` on a local (GLSL ES wants a constant
+expression there; the word is remembered for the suggestions).  A
+declaration or function the parser still refuses is left out, and the
+report names it and why.  Integer scalars, arrays and constant tables
+are understood; floats, vectors and structs are opaque.
+
+**Domains.** An abstract interpretation runs from `main` (or from every
+function nobody calls).  Its state is a set of environments, one per
+value of the *key* variables: globals only ever assigned constants or
+selects of constants (`sh_ib = mode == 6u ? 4u : mode == 1u ? 3u : 2u`
+gives one environment for each of 2, 3, 4), bool locals, and locals
+assigned only such selects.  Each variable is an interval with the bits
+that may be one (`(w >> 8c) & 0xFF` of a word whose bytes are below 2^n
+is below 2^n) and an optional symbolic upper bound (`t <= dd` after
+`clamp(x, 0, dd)`).  Conditions narrow the variables they compare; loops
+iterate to a fixed point (widened after three passes).  A function with
+a loop is run once per value of the keys it reads and of its
+single-valued arguments (its summary); a loop-free one is run on each
+call's own values.  An expression whose leaves repeat (`a + (b - a) /
+16` with a, b in 0..255) is run on every combination of its leaves when
+there are at most 65536; one that grows with a leaf bounded by another
+(`(t * 64 + dd / 2) / dd` with t <= dd) is run at the bound over every
+value of the rest, which gives `t64 <= 64` exactly.  The domains are
+over-approximations: what is proved on them holds for every run.
+
+**Searches**, each candidate checked by the interpreter first and then
+proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
+
+- a *pure helper* (scalar parameters and result, writes nothing, reads
+  scalar globals) whose domain has at most 2^20 points is checked whole:
+  each `if` removed or reduced to one side, each min, max, clamp, mask,
+  remainder, select and compare replaced by an operand or a constant,
+  the first and last iterations of each constant-bound loop dropped, as
+  long as the function's value stays the same at every point of its
+  domain; what is kept is proved together;
+- elsewhere, each such operation is checked on the values its leaves
+  took (recorded during the analysis), and so is the interpolation
+  `((2^S - w) a + w b + C) >> S`, which is `a + ((w (b - a) + C) >> S)`
+  with one multiply (arithmetic shift; the identity floor((a 2^S + X) /
+  2^S) = a + floor(X / 2^S) and the intervals showing no wrap are why,
+  the exhaustive check is the proof);
+- a pure helper of one wide input and inputs of a few values (cases) is
+  fitted by `(x * K + C) >> S` per case: the least S, C = 2^(S-1) first,
+  covering the most of each case's domain; K is written as one formula of
+  the case when one fits (`A / ((1 << g) - 1)`, `A / (1 << g)`, `A / g`),
+  else listed.  Where the form holds on less than the inferred domain
+  (BC7's weight tables repeat past 2^ib), what must hold is stated (`i <=
+  2^sh_ib - 1`) with the call sites where the analysis shows it and
+  those where it does not;
+- invariant calls: a call in a loop whose arguments and everything the
+  callee reads (globals, arrays, transitively) are not written in the
+  loop, and whose callee writes nothing, is the same on every pass; also
+  a call one level down (in a function the loop calls, outside that
+  function's own loops) whose arguments come from parameters bound to
+  such values.  That is a dataflow fact; no proof beyond the read and
+  write sets.  Calls costing under 8 are listed in one line.
+
+**The translation.** A function becomes a ucas code block: its
+parameters and the globals it reads are the ucas function's parameters
+(u32, i32, bool), ranged by the domain's bounding box with a `where`
+clause for the union of its rows; locals are typed variables, every
+literal and conversion explicit; a call is the callee inlined as a
+nested block; loops are `while` loops; `return`, `break` and `continue`
+set flags that guard the statements after them.  A domain of more than
+2^22 points is proved row by row (a row split on its widest input);
+nothing is reported on sampling.
+
+Each proposal says what never bites or changes, the GLSL to use (the
+function, or the expression before and after), the proof and its number
+of points, the cost under the active model before and after (a loop
+priced per iteration times its trip count, a branch by its dearer side),
+and what it relies on: the inferred domain and the calls it came from,
+so that what must stay true is in view.  The module itself is not
+changed by this section.  JSON: `result.function_level`, a list of
+`{kind, function, line, what, replacement, proof, points, cost_before,
+cost_after, domain, relies_on}` (`kind`: `function`, `expression`,
+`case_fit`; `invariant_call` with `cost_per_call` and `passes`).
+
+On a BC7 encoder (ScarletNX's bc7.comp), with every helper already hand
+tuned, it finds on its own: `Widen(v, n)`'s `if (n == 8u) return v;` and
+`& 0xFFu` dead (n in 5..8, v < 2^n, from Decoded and Quant); `Weight(i)`
+= `(i * K + 32u) >> 6u` with K = 4095 / ((1u << sh_ib) - 1u), relying on
+i < 2^sh_ib (shown at Eval's calls, not at Fit's, where the index comes
+from a packed word); Quant's `for d in -2..2` needing only -1..1;
+Eval's `min(..., top)` dead (t64 <= 64); TexelError's interpolation
+with one multiply; and `PAllowed(s)` the same on all four passes of
+FitSubset's loop.  It does not yet go further with Quant (two of guess
+- 1, guess, guess + 1 are left by the parity rules, so a branch-free
+comparison of two candidates would do).
 
 ## Loops and calculus
 

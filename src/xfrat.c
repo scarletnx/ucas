@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * xfrat.c: the shared machinery of the transforms (xform.h): numbers as
  * text, a printer for results, polynomials and rational functions with

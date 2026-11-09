@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * alg: symbolic algebra.  Exact rational arithmetic (int64 with 128-bit
  * intermediates; an overflow sets alg_ovf and the caller gives up),

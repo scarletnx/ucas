@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * xform.c: integral and discrete transforms (xform.h).
  *

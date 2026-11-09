@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * A small animated-GIF encoder (GIF89a) writing into memory.
  *
