@@ -147,6 +147,14 @@ vres_free(struct vres *v)
 void
 print_verify(const char *what, const struct vres *v)
 {
+	if (v->n)
+		rep_check("iteration", (long)v->n, v->maxrel, !v->bad,
+		    v->exhaustive ? "against direct iteration on every point of "
+		    "the domain" : "against direct iteration (sampled)");
+	if (v->n && !v->bad)
+		rep_proof(v->exhaustive ? "exhaustive" : "numeric", v->exhaustive ?
+		    "equals direct iteration on every point of the domain" :
+		    "equals direct iteration at sampled points");
 	if (v->bad) {
 		printf("  check: %s differs from direct iteration at %llu of %llu "
 		    "points, e.g. %s\n", what, (unsigned long long)v->bad,
@@ -2704,11 +2712,14 @@ print_meth(unsigned m)
 	if (!m)
 		return;
 	printf("  method: ");
+	rep_list("method");
 	for (k = 0; k < M_N; k++)
 		if ((m >> k) & 1) {
 			printf("%s%s", first ? "" : ", ", mname[k]);
+			rep_str(NULL, mname[k]);
 			first = 0;
 		}
+	rep_end();
 	printf("\n");
 }
 
@@ -2728,13 +2739,26 @@ cmd_closed(struct func *f)
 	body = cl_walk(f->body, memo, lim);
 	free(memo);
 	cl_func = NULL;
+	rep_begin("closed");
 	if (nreps == 0) {
 		printf("%s has no loops\n", fname(f));
+		rep_list("loops");
+		rep_end();
 		return;
 	}
+	rep_list("loops");
 	for (i = 0; i < nreps; i++) {
 		struct clrep *rp = &reps[i];
 		printf("%s\n", node_str(rp->orig));
+		rep_obj(NULL);
+		rep_expr("loop", rp->orig);
+		if (rp->cf)
+			rep_expr("closed_form", rp->cf);
+		else
+			rep_null("closed_form");
+		rep_bool("accepted", rp->cf && !(rp->checked && (rp->v.bad ||
+		    rp->v.n == 0)));
+		rep_bool("checked", rp->cf && rp->checked);
 		if (rp->cf && rp->checked && (rp->v.bad || rp->v.n == 0)) {
 			printf("  candidate %s (rejected)\n", node_str(rp->cf));
 			alltop = 0;
@@ -2754,10 +2778,13 @@ cmd_closed(struct func *f)
 			printf("  (inside another loop: checked as part of it)\n");
 		if (!rp->top)
 			alltop = 0;
+		rep_end();
 	}
+	rep_end();
 	if (body != f->body && !(nreps == 1 && alltop && reps[0].orig == f->body)) {
 		struct vres v;
 		printf("%s = %s\n", fname(f), node_str(body));
+		rep_expr("result", body);
 		if (!(node_slots(body) >> MAXP)) {
 			verify_nodes(f, f->body, body, &v);
 			print_verify("it", &v);
