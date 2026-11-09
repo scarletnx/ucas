@@ -434,6 +434,31 @@ int ed25519_verify(const unsigned char *pk, const unsigned char *m,
     size_t mn, const unsigned char *sig);
 int ed25519_check_base(void);
 
+/* ---- ecpair.c: pairings and discrete logs ---- */
+int fk_irreducible(const struct fk *K);
+int eck_weil(const struct eck_curve *E, const struct eck_pt *P,
+    const struct eck_pt *Q, const nn *n, u64 *out);
+int eck_tate(const struct eck_curve *E, const struct eck_pt *P,
+    const struct eck_pt *Q, const nn *n, u64 *out, int direct);
+void eck_from_ecp(struct eck_curve *Ek, const struct fk *K,
+    const struct ecp_curve *E);
+void eck_pt_from_ecp(const struct fk *K, struct eck_pt *R,
+    const struct ecp_pt *P);
+int fk_dlog_bsgs(const struct fk *K, const u64 *g, const u64 *h,
+    const nn *r, nn *x);
+int ec_dlog_bsgs(const struct ecp_curve *E, const struct ecp_pt *P,
+    const struct ecp_pt *Q, const nn *n, nn *k);
+int ec_dlog_rho(const struct ecp_curve *E, const struct ecp_pt *P,
+    const struct ecp_pt *Q, const nn *n, nn *k, u64 *iters);
+int ec_dlog_ph(const struct ecp_curve *E, const struct ecp_pt *P,
+    const struct ecp_pt *Q, const nn *n, const struct nnfac *f, nn *k,
+    char *log, size_t ln);
+int ec_mov(const struct ecp_curve *E, const struct ecp_pt *P,
+    const struct ecp_pt *Q, const nn *r, const zz *trace, nn *k, int *kdeg,
+    char *info, size_t in);
+int ec_smart(const struct ecp_curve *E, const struct ecp_pt *P,
+    const struct ecp_pt *Q, nn *k);
+
 /* ---- ecalg.c: ECM ---- */
 size_t ecff_primes(u64 limit, const uint32_t **out);  /* primes <= limit */
 struct ecm_res {

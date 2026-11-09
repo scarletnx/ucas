@@ -40,3 +40,22 @@ ecvalidate P-256 (1, 2)
 ecm 2^64 + 1
 ecm 2^128 + 1
 ecm 1000000016000000063 B1 2000
+
+# group structure, certified by a Weil pairing
+ec y^2 = x^3 + 4 mod 10009
+ec y^2 = x^3 - x mod 1009
+
+# discrete logarithms: Pohlig-Hellman, BSGS, rho, and the weak cases
+ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777
+ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777 using bsgs
+ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777 using rho
+ecweak anomalous 64
+ecdlog anomalous 128 random secret 1234567890123456789
+ecweak supersingular 40
+ecdlog supersingular 40 random secret 98765432123 using mov
+
+# pairings: Weil and Tate by Miller's algorithm; BN254 and BLS12-381
+ecpairing y^2 = x^3 + 4 mod 10009 (0, 2) (2137, 4178) 3
+ecpairing y^2 = x^3 + 4 mod 10009 (6337, 10003) (4177, 8795) 6
+ecpairing bn254
+ecpairing bls12_381

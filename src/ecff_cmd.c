@@ -706,6 +706,8 @@ cmd_ecorder(void)
 	(void)P1;
 }
 
+static int struct_certify(const nn *n1, const nn *n2, char *out, size_t on);
+
 static void
 cmd_ec(void)
 {
@@ -746,6 +748,11 @@ cmd_ec(void)
 		printf("  group: Z/%s (cyclic)\n", nn_str(&n1));
 	else
 		printf("  group: Z/%s x Z/%s\n", nn_str(&n1), nn_str(&n2));
+	if (!nn_is_one(&n2)) {
+		char sc[3000];
+		struct_certify(&n1, &n2, sc, sizeof sc);
+		printf("  check: %s\n", sc);
+	}
 	{
 		nn s2, NT;
 		nn_shl(&s2, &p1, 1);
@@ -977,6 +984,7 @@ cmd_ecm(void)
 }
 
 #include "ecff_crypto.inc"
+#include "ecff_dlp.inc"
 
 static void
 cmd_x25519(void)
@@ -1014,6 +1022,9 @@ static const struct {
 	{"ecdecompress", cmd_ecdecompress, "ec_decompress"},
 	{"ecvalidate", cmd_ecvalidate, "ec_validate"},
 	{"ecvectors", cmd_ecvectors, "ec_vectors"},
+	{"ecdlog", cmd_ecdlog, "ec_dlog"},
+	{"ecweak", cmd_ecweak, "ec_weak"},
+	{"ecpairing", cmd_ecpairing, "ec_pairing"},
 	{NULL, NULL, NULL}
 };
 

@@ -13,6 +13,7 @@ toy97
   check: N = 100 is the only multiple of 50 in the Hasse interval [79, 117]
   supersingular: no (t != 0 mod p)
   group: Z/50 x Z/2
+  check: P1 = (86, 28) has order n1; R = (55, 91); the Weil pairing e_n1(P1, R) = 96 has order n2, so <P1, R> has at least n1 n2 = #E points
   twist order: 96
   embedding degree: 4 (of r = 5: r | p^4 - 1)
 > ecpoints y^2 = x^3 + 2x + 3 mod 97
@@ -162,6 +163,7 @@ BLS12-381
   check: N = 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129030796414117214202539 is the only multiple of 264493130243071837505502650427723022029376893320131317353094445957672484527674560789128274094763 in the Hasse interval [4002409555221667393417789825735904156556882819939007885328056931527802326256899269604250617939810542222441166006816, 4002409555221667393417789825735904156556882819939007885336059340720260974724776459281124640318220785853347379112760]
   supersingular: no (t != 0 mod p)
   group: Z/793479390729215512516507951283169066088130679960393952059283337873017453583023682367384822284289 x Z/5044125407647214251
+  check: P1 = (0xff0b0912928b70c33c3ad3579549ae5e9068b54adef9ba98b6ce61913cd894f0cdd20ab6cc0e2e7aaff7fb5cefaa1b0, 0xfc08c7ae01d9609550f88ec9f155ee9a02b82240997eb24505a805f58931f6ff1bb9a5babf15f38ddc6408e47f4c8a7) has order n1; R = (0x12bef892af4c8e8cbf59435d15f7597736788ba38f376ae20ff71ba7125665abda5a81b416ce95f68b185325b4312e37, 0x10006e9e9642aa8711c64c10d0d23403ddf6e727302ee67436fa96b7257f5dc0232a1e7c7b9c38f3ee4694db60d24321); the Weil pairing e_n1(P1, R) = 81495275292464437477436312748659799555474774335707153818667560990668642366650354440657306756533682195617557119195 has order n2, so <P1, R> has at least n1 n2 = #E points
   twist order: 4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129000531661671330917037
   embedding degree: 12 (of r = 52435875175126190479447740508185965837690552500527637822603658699938581184513: r | p^12 - 1)
 > ecmul secp256k1 2 G
@@ -287,3 +289,138 @@ invalid public key
   cofactor: 1000000007
   how: Lenstra ECM, Montgomery curve by Suyama's sigma = 6, B1 = 2000, B2 = 200000, found in stage 2 after 1 curve
   check: 1000000009 * 1000000007 = n: yes
+> ec y^2 = x^3 + 4 mod 10009
+y^2 = x^3 + 4 over F_10009
+  curve: y^2 = x^3 + 4 over F_10009
+  discriminant: 3097
+  j: 0
+  order: #E = 9828
+  factored: 2^2 * 3^3 * 7 * 13
+  trace: 182
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: (489, 381) has order 546 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 9828 is the only multiple of 546 in the Hasse interval [9810, 10210]
+  supersingular: no (t != 0 mod p)
+  group: Z/1638 x Z/6
+  check: P1 = (6825, 4612) has order n1; R = (4550, 353); the Weil pairing e_n1(P1, R) = 8965 has order n2, so <P1, R> has at least n1 n2 = #E points
+  twist order: 10192
+  embedding degree: 2 (of r = 13: r | p^2 - 1)
+> ec y^2 = x^3 - x mod 1009
+y^2 = x^3 - x over F_1009
+  curve: y^2 = x^3 - x over F_1009
+  discriminant: 64
+  j: 719
+  order: #E = 1040
+  factored: 2^4 * 5 * 13
+  trace: -30
+  how: naive: 1 + sum over x of (1 + (x^3 + ax + b | p)), with a table of squares
+  check: (713, 973) has order 52 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: (722, 310) has order 65 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 1040 is the only multiple of 260 in the Hasse interval [947, 1073]
+  supersingular: no (t != 0 mod p)
+  group: Z/260 x Z/4
+  check: P1 = (958, 68) has order n1; R = (123, 279); the Weil pairing e_n1(P1, R) = 469 has order n2, so <P1, R> has at least n1 n2 = #E points
+  twist order: 980
+  embedding degree: 4 (of r = 13: r | p^4 - 1)
+> ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777
+k = 111305
+  curve: y^2 = x^3 + 2x + 3 over F_1000003
+  P: (426697, 875880)
+  Q: (503312, 597945)
+  order of P: 166618
+  how: Pohlig-Hellman over ord(P) = 166618: k = 1 mod 2, k = 75 mod 227, k = 104 mod 367, then CRT
+  check: k P = Q: yes
+  check: k = the secret mod ord(P): yes
+> ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777 using bsgs
+k = 111305
+  curve: y^2 = x^3 + 2x + 3 over F_1000003
+  P: (426697, 875880)
+  Q: (503312, 597945)
+  order of P: 166618
+  how: baby-step giant-step: sqrt(n) babies jP, giants Q - i m P
+  check: k P = Q: yes
+  check: k = the secret mod ord(P): yes
+> ecdlog y^2 = x^3 + 2x + 3 mod 1000003 random secret 777777 using rho
+  note: projected to the subgroup of prime order r = 367 (P, Q times 454): k is found mod r
+k = 104
+  curve: y^2 = x^3 + 2x + 3 over F_1000003
+  P: (823839, 897762)
+  Q: (617939, 111801)
+  order of P: 367
+  how: Pollard rho: 20-adding walk, Floyd cycle finding, a collision after 18 steps
+  check: k P = Q: yes
+  check: k = the secret mod ord(P): yes
+> ecweak anomalous 64
+y^2 = x^3 + 2592469188103234411x + 12679997811118790130 over F_13835058340471716373
+  curve: y^2 = x^3 + 2592469188103234411 x + 12679997811118790130 mod 13835058340471716373
+  order: #E = 13835058340471716373
+  weak: anomalous (#E = p): Smart's attack maps E(F_p) onto (F_p, +) through the p-adic logarithm
+  check: (7808924390736667001, 9969237459197053002) has order 13835058340471716373 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 13835058340471716373 is the only multiple of 13835058340471716373 in the Hasse interval [13835058333032614724, 13835058347910818024]
+> ecdlog anomalous 128 random secret 1234567890123456789
+k = 1234567890123456789
+  curve: y^2 = x^3 + 127842633212411952763017110177251885746x + 85228422141607968508678073451501257164 over F_0xc0000000000002e474d9d42de8c92345
+  P: (0x31e50fe7bbd6e1cc4fea708156e0c84, 0x81447db3462b5aa235252ff4bd7ca723)
+  Q: (0x325e52723cf8f97b673a36708f79339c, 0x9e1e9eee034a154aa7589173cd64fa5c)
+  order of P: 255211775190703861256541564390884320069
+  how: Smart: lift to Z/p^2, p P' lies in the kernel of reduction, psi(P) = -x/(p y) of p P' mod p is a homomorphism E(F_p) -> F_p; k = psi(Q) / psi(P)
+  check: k P = Q: yes
+  check: k = the secret mod ord(P): yes
+> ecweak supersingular 40
+y^2 = x^3 + x over F_549755815771
+  curve: y^2 = x^3 + 1 x + 0 mod 549755815771
+  order: #E = 549755815772
+  weak: supersingular (#E = p + 1): embedding degree 2, MOV maps the group into F_p^2^*
+  check: (446071997129, 408251346015) has order 549755815772 (N P = O, and (N/q) P != O stepwise for each prime q of N)
+  check: N = 549755815772 is the only multiple of 549755815772 in the Hasse interval [549754332862, 549757298682]
+> ecdlog supersingular 40 random secret 98765432123 using mov
+  note: projected to the subgroup of prime order r = 137438953943 (P, Q times 4): k is found mod r
+k = 98765432123
+  curve: y^2 = x^3 + x over F_549755815771
+  P: (372827195834, 361987772546)
+  Q: (5852742473, 13229109128)
+  order of P: 137438953943
+  how: MOV: the Weil pairing e_r(., R) maps <P> into the r-th roots of unity of F_p^2 (embedding degree 2), where baby-step giant-step finds the log
+  transfer: #E(F_p^2) = 302231456975137203955984; R of order r in E(F_p^2), e_r(P, R) a primitive r-th root of unity
+  check: k P = Q: yes
+  check: k = the secret mod ord(P): yes
+> ecpairing y^2 = x^3 + 4 mod 10009 (0, 2) (2137, 4178) 3
+e_3(P, Q) = 8964
+  curve: y^2 = x^3 + 4 over F_10009
+  pairing: Weil (Miller, randomised by an auxiliary point S)
+  field: F_p^1 (embedding degree of n)
+  check: e^n = 1: yes
+  check: e(2P, 3Q) = e(P, Q)^6: yes
+  check: e(P, Q) e(Q, P) = 1 (alternating): yes
+  degenerate: no
+> ecpairing y^2 = x^3 + 4 mod 10009 (6337, 10003) (4177, 8795) 6
+e_6(P, Q) = 8965
+  curve: y^2 = x^3 + 4 over F_10009
+  pairing: Weil (Miller, randomised by an auxiliary point S)
+  field: F_p^1 (embedding degree of n)
+  check: e^n = 1: yes
+  check: e(2P, 3Q) = e(P, Q)^6: yes
+  check: e(P, Q) e(Q, P) = 1 (alternating): yes
+  degenerate: no
+> ecpairing bn254
+e(G1, G2) on BN254: reduced Tate pairing in F_p^12
+  field: F_p^12 = F_p[w]/(w^12 - 18 w^6 + 82), u = w^6 - 9, xi = 9 + u = w^6
+  twist: D-type E': y^2 = x^3 + 3 / xi; psi(x, y) = (x w^2, y w^3)
+  check: G2 untwisted is on y^2 = x^3 + 3 over F_p^12: yes
+  check: r G2 = O: yes
+  value: 20210469749439596480915120057935665765860695731536556057113952828024130849369*x^11 + 3314362000193010715052769662421751145025288853014347901929084743686925091033*x^10 + 9740411817590043771488498441210821606869449023601574073310485764683435152587*x^9 + 154397549418641559307524478611787574224314011122 ...
+  check: e != 1 (non-degenerate): yes
+  check: e^r = 1: yes
+  check: e(3 G1, G2) = e^3: yes
+  check: e(G1, 5 G2) = e^5: yes
+> ecpairing bls12_381
+e(G1, G2) on BLS12-381: reduced Tate pairing in F_p^12
+  field: F_p^12 = F_p[w]/(w^12 - 2 w^6 + 2), u = w^6 - 1, xi = 1 + u = w^6
+  twist: M-type E': y^2 = x^3 + 4 xi; psi(x, y) = (x / w^2, y / w^3)
+  check: G2 untwisted is on y^2 = x^3 + 4 over F_p^12: yes
+  check: r G2 = O: yes
+  value: 3012356018069764567982630103534294411665622953096453021688764132713107988233564279250696615597189389430340084559370*x^11 + 2006565697911789566275435269447941586461560957911136229153219146737722253615914552930953852929460665688757186782903*x^10 + 108807325430149999981871613059460521517519359470562321 ...
+  check: e != 1 (non-degenerate): yes
+  check: e^r = 1: yes
+  check: e(3 G1, G2) = e^3: yes
+  check: e(G1, 5 G2) = e^5: yes

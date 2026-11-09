@@ -846,7 +846,7 @@ fk_print(const struct fk *K, char *buf, size_t sz, const u64 *a)
 
 /* is m (the context's modulus) irreducible: x^(p^k) = x mod m and
  * gcd(x^(p^(k/r)) - x, m) = 1 for primes r | k */
-static int
+int
 fk_irreducible(const struct fk *K)
 {
 	const struct mf *F = K->F;
