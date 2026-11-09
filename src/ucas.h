@@ -461,6 +461,8 @@ const char *spvcross_tool(int *silent);
 int spvcross_view(const char *orig, const char *simp, struct sbuf *report,
     struct sbuf *oglsl, struct sbuf *sglsl);
 void spvcross_after_simplify(const char *orig, const char *simp, int nofile);
+/* the bot's JSON path: the view goes to the bot as for its text path */
+extern int spvcross_defer;
 void text_udiff(const char *a, const char *b, const char *na,
     const char *nb, int maxlines, struct sbuf *out);
 int spv_disassemble(const char *data, size_t n, struct sbuf *out);

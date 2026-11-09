@@ -48,6 +48,8 @@
 #ifdef __FreeBSD__
 #include <sys/sysctl.h>
 #endif
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #define PROTOCOL_VERSION 1
 
@@ -1789,12 +1791,30 @@ build(struct req *r)
 
 static int cap_saved = -1;
 static FILE *cap_fp;
+static int cap_shm;
+#define CAP_SHM_MAX (64 << 20)
 
 static void
 cap_begin(void)
 {
 	fflush(stdout);
 	cap_fp = tmpfile();
+	cap_shm = 0;
+#ifdef SHM_ANON
+	/*
+	 * No file system (the Discord bot's worker is in capability mode):
+	 * an anonymous shared memory object, sized up front, since writes do
+	 * not grow it.  The output ends at the shared offset.
+	 */
+	if (cap_fp == NULL) {
+		int fd = shm_open(SHM_ANON, O_RDWR, 0600);
+		if (fd >= 0 && ftruncate(fd, CAP_SHM_MAX) == 0 &&
+		    (cap_fp = fdopen(fd, "r")) != NULL)
+			cap_shm = 1;
+		else if (fd >= 0)
+			close(fd);
+	}
+#endif
 	if (cap_fp == NULL)
 		return;
 	cap_saved = dup(1);
@@ -1807,16 +1827,22 @@ cap_end(void)
 	struct sbuf b = {0};
 	char buf[4096];
 	size_t n;
+	off_t left = -1;
 
 	fflush(stdout);
 	sb_puts(&b, "");
 	if (cap_fp == NULL)
 		return b.p;
+	if (cap_shm)
+		left = lseek(fileno(cap_fp), 0, SEEK_CUR);
 	dup2(cap_saved, 1);
 	close(cap_saved);
 	cap_saved = -1;
 	rewind(cap_fp);
-	while ((n = fread(buf, 1, sizeof buf, cap_fp)) > 0) {
+	while ((left < 0 || left > 0) && (n = fread(buf, 1, left >= 0 &&
+	    left < (off_t)sizeof buf ? (size_t)left : sizeof buf, cap_fp)) > 0) {
+		if (left > 0)
+			left -= (off_t)n;
 		size_t i;
 		for (i = 0; i < n; i++)
 			sb_putc(&b, buf[i]);
@@ -3216,4 +3242,58 @@ struct jv *
 json_schema(void)
 {
 	return schema();
+}
+
+/*
+ * The Discord bot's JSON path (discord/bot.c, "JSON over Discord"): body
+ * is a request or an array of them, as the bot passed them on (files set
+ * to base64, GLSL already compiled); each is answered by handle() and the
+ * response, or the array of them, is printed as one line after a
+ * "\x1ejson" line.  This runs in the bot's sandboxed channel worker: no
+ * file system, no exec, no timeout_s fork (the bot's limits apply), and
+ * reset and schema are the bot's own.  The worker's text-path state
+ * (nlp_defer) is set aside meanwhile, so the answers are those of
+ * `ucas --json`: an ambiguity is an error with its readings, never a
+ * question.
+ */
+void
+json_bot_serve(const char *body)
+{
+	struct jv *rq, *out;
+	struct sbuf b = {0};
+	char err[160];
+	size_t pos;
+	int k, defer = nlp_defer, inter = nlp_interactive,
+	    small = rep_small_files;
+
+	if (session == NULL)
+		session = jv_new(J_OBJ);
+	default_fmode = REP_FILES_BASE64;
+	rep_small_files = 1;
+	nlp_interactive = 0;
+	nlp_defer = 0;
+	spvcross_defer = 1;
+	rq = jv_parse(body, err, sizeof err, &pos);
+	if (rq == NULL) {
+		char m[240];
+		snprintf(m, sizeof m, "%s at byte %zu", err, pos);
+		out = error_response(NULL, NULL, "bad_json", m);
+	} else if (rq->t == J_ARR) {
+		out = jv_new(J_ARR);
+		for (k = 0; k < rq->n; k++)
+			jv_push(out, handle(rq->v[k]));
+	} else
+		out = handle(rq);
+	reset_wanted = 0;
+	jv_write(&b, out);
+	fflush(stdout);
+	printf("\x1e" "json\n%s\n", b.p ? b.p : "null");
+	fflush(stdout);
+	free(b.p);
+	jv_free(out);
+	jv_free(rq);
+	nlp_defer = defer;
+	nlp_interactive = inter;
+	rep_small_files = small;
+	spvcross_defer = 0;
 }

@@ -359,14 +359,18 @@ spvcross_view(const char *orig, const char *simp, struct sbuf *report,
  * GLSL files delivered (written, attached, or in the response's files).
  * The bot's engine runs in a sandbox that cannot run programs: it hands
  * both modules to the bot in an "\x1exspv" block and the bot makes the
- * view (discord/bot.c, with the same spvcross_view).
+ * view (discord/bot.c, with the same spvcross_view).  The bot's JSON path
+ * sets spvcross_defer: the block then lands in the response's text, and
+ * the bot expands it there.
  */
+int spvcross_defer;
+
 void
 spvcross_after_simplify(const char *orig, const char *simp, int nofile)
 {
 	struct sbuf rep = {0}, og = {0}, sg = {0};
 
-	if (nlp_defer && !rep_on) {
+	if ((nlp_defer && !rep_on) || spvcross_defer) {
 		int silent;
 		if (spvcross_tool(&silent) == NULL && silent)
 			return;

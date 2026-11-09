@@ -33,6 +33,9 @@ enum {
 	SR_RESET,	/* $reset done */
 	SR_BUSY		/* too many requests queued for this channel */
 };
+/* SF_EVAL arg: bit 0 echo; SF_JSON: the text is a JSON frontend request */
+#define SF_JSON 2
+
 #define SR_MASK 0xff
 #define SR_TRUNC 0x100	/* output was cut at the output limit */
 

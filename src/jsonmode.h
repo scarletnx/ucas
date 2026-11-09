@@ -27,4 +27,7 @@ struct jv *json_schema(void);
 
 int mcp_main(int argc, char **argv, int i);	/* mcp.c */
 
+/* discord/sup.c's worker: a request (or array) answered after "\x1ejson" */
+void json_bot_serve(const char *body);
+
 #endif

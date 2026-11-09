@@ -36,6 +36,7 @@
 #include <unistd.h>
 
 #include "ucas.h"
+#include "jsonmode.h"
 #include "sup.h"
 
 #define MAXFRAME (64u << 20)
@@ -213,7 +214,10 @@ worker_main(int ctl, int out, const struct sup_limits *l)
 			r.id = (uint64_t)getpid();
 			if (frame_write(ctl, &r, NULL) < 0)
 				_exit(1);
-			run_text(text, "input", (int)h.arg);
+			if (h.arg & SF_JSON)
+				json_bot_serve(text);
+			else
+				run_text(text, "input", (int)(h.arg & 1));
 			fflush(stdout);
 			fflush(stderr);
 			free(text);
