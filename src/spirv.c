@@ -57,6 +57,7 @@ struct sty {
 struct sid {
 	int kind;
 	char name[40];
+	char tok[40];		/* the id as written ("%23"), for writing back */
 	int type;		/* the value's type id */
 	struct sty t;		/* when kind == K_TYPE */
 	uint64_t c[MAXCOMP];	/* constant components (scalar or vector) */
@@ -65,6 +66,7 @@ struct sid {
 	uint64_t *mem;		/* slots, shared or lanes * nslots */
 	int *slotty;		/* scalar type per slot */
 	int label_at;		/* K_LABEL: index of OpLabel */
+	int spec;		/* a specialization constant: may change */
 	int func_at;		/* K_FUNC: index of OpFunction */
 };
 
@@ -131,10 +133,21 @@ idx(const char *name)
 	i = V.nid++;
 	memset(&V.id[i], 0, sizeof V.id[i]);
 	snprintf(V.id[i].name, sizeof V.id[i].name, "%s", name);
+	snprintf(V.id[i].tok, sizeof V.id[i].tok, "%s", name);
 	V.id[i].type = -1;
 	V.id[i].builtin = -1;
 	symmap[s] = i;
 	return i;
+}
+
+/* a new module: no id is known yet (V is reset by the caller) */
+static void
+symmap_reset(void)
+{
+	uint32_t i;
+
+	for (i = 0; i < nsymmap; i++)
+		symmap[i] = -1;
 }
 
 static int
@@ -273,6 +286,7 @@ struct spvin {
 	int var;		/* used as a pointer: a per-lane variable */
 };
 static struct spvin inps[MAXIN];
+static int values_unneeded;	/* simplify: inputs need types, not values */
 static int ninps;
 struct spvset spv_set[16];
 int nspv_set;
@@ -565,6 +579,11 @@ complete(const char *src, struct sbuf *said)
 		snprintf(what, sizeof what, "SPIR-V: %s (%s%s) is not defined in the "
 		    "snippet; its value", inps[k].name, inps[k].ty + 1,
 		    inps[k].var ? ", through a pointer" : "");
+		if (values_unneeded) {
+			sb_printf(said, "  input %s: %s\n", inps[k].name,
+			    inps[k].ty + 1);
+			continue;
+		}
 		if (nlp_can_ask()) {
 			c = nlp_ask_choice(what, md, 4, 0);
 			if (nlp_asked)
@@ -982,6 +1001,7 @@ declare(void)
 		    !strncmp(I->op, "OpSpecConstant", 14)) {
 			const char *o = I->op + (I->op[2] == 'S' ? 14 : 10);
 			d->kind = K_CONST;
+			d->spec = I->op[2] == 'S';
 			d->type = opid(I, 0);
 			if (!strcmp(o, "True"))
 				d->c[0] = 1, d->nc = 1;
@@ -1174,6 +1194,8 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 			*mul = 3;
 			return C_FMUL;
 		}
+		if (strstr(ext, "Clamp"))
+			*mul = 2;	/* a min and a max */
 		return C_MINMAX;   /* min, max, clamp, abs, sign, step */
 	}
 	if (!strcmp(op, "OpIAdd") || !strcmp(op, "OpISub") ||
@@ -2081,6 +2103,7 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 	char title[200];
 
 	memset(&V, 0, sizeof V);
+	symmap_reset();
 	code_block_used = 1;
 	V.glsl = -1;
 	V.lanes = lanes;
@@ -2241,4 +2264,1093 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 	free(symmap);
 	symmap = NULL;
 	nsymmap = 0;
+}
+
+/* ---- simplify: rewrites proved by SAT ---- */
+
+/*
+ * Every pure integer instruction of the module (arithmetic, bit
+ * operations, comparisons, selects, integer min/max/clamp) is offered
+ * cheaper replacements: one of its operands, a constant, or a single
+ * cheaper instruction (a shift for a multiply by a power of two, an AND
+ * for a bitfield extract at 0, a min for a clamp whose other side always
+ * holds, ...).  A candidate is first run on random inputs with the
+ * interpreter's own arithmetic, then the two sides are bit-blasted and
+ * the solver must show that no input makes them differ.  The operands'
+ * definitions are expanded a few levels deep (2, 4, 8, 16); anything
+ * deeper, and every load, phi, parameter or specialization constant, is
+ * a free input, so a proof holds for every value it could have.
+ * Proved rewrites are applied in order (later ones see earlier ones),
+ * dead pure instructions are removed, and the module is written back.
+ */
+#include <time.h>
+#include "sat.h"
+
+enum { RW_ID, RW_CONST, RW_INS };
+
+struct cand {
+	int kind;
+	int id;			/* RW_ID: the operand */
+	uint64_t v;		/* RW_CONST */
+	char op[40], ext[24];	/* RW_INS: the instruction */
+	int a[3], na;		/* its operands (ids) */
+	double cost;
+	const char *why;
+};
+
+static struct {
+	int *def;		/* id -> defining instruction, -1 */
+	int *alias;		/* id -> replacement id, -1 */
+	char *dead, *rw;	/* per instruction */
+	struct aig *g;
+	struct word *memo;
+	char *have;
+	int *touched, ntouched;
+	uint64_t *ev;		/* per id: value in the current sample */
+	uint32_t *evstamp, stamp;
+	int sample;
+	uint64_t rng;
+	int newk[256], nnewk;	/* constants made here */
+	double deadline;
+	long undecided, timeout, proved;
+} SP;
+
+static int
+res_of(int id)
+{
+	while (SP.alias[id] >= 0)
+		id = SP.alias[id];
+	return id;
+}
+
+/* a scalar integer or boolean type id: its width, else 0 */
+static int
+int_width(int t)
+{
+	struct sty *y;
+
+	if (t < 0 || V.id[t].kind != K_TYPE)
+		return 0;
+	y = &V.id[t].t;
+	if (y->k == S_BOOL)
+		return 1;
+	if (y->k == S_INT && y->w >= 1 && y->w <= 64)
+		return y->w;
+	return 0;
+}
+
+static const char *const pure_core[] = {"OpIAdd", "OpISub", "OpIMul",
+	"OpSNegate", "OpUDiv", "OpUMod", "OpSDiv", "OpSRem", "OpSMod",
+	"OpShiftLeftLogical", "OpShiftRightLogical", "OpShiftRightArithmetic",
+	"OpBitwiseAnd", "OpBitwiseOr", "OpBitwiseXor", "OpNot", "OpBitCount",
+	"OpBitReverse", "OpBitFieldUExtract", "OpBitFieldSExtract",
+	"OpBitFieldInsert", "OpLogicalAnd", "OpLogicalOr", "OpLogicalNot",
+	"OpLogicalEqual", "OpLogicalNotEqual", "OpIEqual", "OpINotEqual",
+	"OpULessThan", "OpULessThanEqual", "OpUGreaterThan",
+	"OpUGreaterThanEqual", "OpSLessThan", "OpSLessThanEqual",
+	"OpSGreaterThan", "OpSGreaterThanEqual", "OpSelect", "OpBitcast",
+	"OpUConvert", "OpSConvert", "OpCopyObject", NULL};
+static const char *const pure_ext[] = {"SMin", "SMax", "UMin", "UMax",
+	"SClamp", "UClamp", "SAbs", NULL};
+
+static int
+in_list(const char *w, const char *const *l)
+{
+	for (; *l; l++)
+		if (!strcmp(w, *l))
+			return 1;
+	return 0;
+}
+
+/* the instruction computes a scalar integer from scalar integers only */
+static int
+pure_ins(int k)
+{
+	const struct sins *I = &V.in[k];
+	int base = 1, i;
+
+	if (SP.dead[k] || I->res < 0 || I->nop < 2 || I->opnd[0][0] != '%' ||
+	    !int_width(idx(I->opnd[0])))
+		return 0;
+	if (!strcmp(I->op, "OpExtInst")) {
+		if (I->nop < 4 || V.glsl < 0 || idx(I->opnd[1]) != V.glsl ||
+		    !in_list(I->opnd[2], pure_ext))
+			return 0;
+		base = 3;
+	} else if (!in_list(I->op, pure_core))
+		return 0;
+	for (i = base; i < I->nop; i++) {
+		int a;
+		if (I->opnd[i][0] != '%')
+			return 0;
+		a = res_of(idx(I->opnd[i]));
+		if (!int_width(V.id[a].type))
+			return 0;
+	}
+	if (!strcmp(I->op, "OpBitcast") &&
+	    int_width(V.id[res_of(idx(I->opnd[1]))].type) !=
+	    int_width(idx(I->opnd[0])))
+		return 0;
+	return 1;
+}
+
+/*
+ * A phi at a selection merge: one of its incoming values, all defined
+ * before it.  A loop header's phi (a value from the back edge, defined
+ * later) stays a free input: its incoming value is from the previous
+ * iteration, not the one the rest of the expression sees.
+ */
+static int
+fwd_phi(int k)
+{
+	const struct sins *I = &V.in[k];
+	int i;
+
+	if (SP.dead[k] || strcmp(I->op, "OpPhi") != 0 || I->nop < 3 ||
+	    !int_width(idx(I->opnd[0])))
+		return 0;
+	for (i = 1; i + 1 < I->nop; i += 2) {
+		int v = res_of(idx(I->opnd[i])), d = SP.def[v];
+		if (V.id[v].kind == K_CONST && !V.id[v].spec)
+			continue;
+		if (d < 0 || d >= k || !int_width(V.id[v].type))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+first_arg(const struct sins *I)
+{
+	return !strcmp(I->op, "OpExtInst") ? 3 : 1;
+}
+
+/* ---- concrete values (the interpreter's arithmetic) ---- */
+
+static uint64_t
+leafval(int id, int w)
+{
+	uint64_t h = (uint64_t)id * 0x9e3779b97f4a7c15ULL ^
+	    (uint64_t)SP.sample * 0xbf58476d1ce4e5b9ULL ^ SP.rng;
+	int s = SP.sample % 8;
+
+	h ^= h >> 31;
+	h *= 0x94d049bb133111ebULL;
+	h ^= h >> 29;
+	if (w == 1)
+		return h & 1;
+	switch (s) {
+	case 0: return 0;
+	case 1: return 1;
+	case 2: return wmask(w);
+	case 3: return h % 17;
+	case 4: return (1ULL << (h % (unsigned)w)) & wmask(w);
+	case 5: return (wmask(w) >> 1) + (h & 1);	/* around the sign */
+	}
+	return h & wmask(w);
+}
+
+static uint64_t
+evalid(int id)
+{
+	int k, rt, at, i, base, w;
+	const struct sins *I;
+	uint64_t x[4] = {0}, r;
+	int ok = 1;
+
+	id = res_of(id);
+	if (SP.evstamp[id] == SP.stamp)
+		return SP.ev[id];
+	w = int_width(V.id[id].type);
+	k = SP.def[id];
+	if (V.id[id].kind == K_CONST && !V.id[id].spec)
+		r = V.id[id].c[0] & wmask(w ? w : 64);
+	else if (k >= 0 && fwd_phi(k)) {
+		/* the sample takes one of the ways in */
+		int np = (V.in[k].nop - 1) / 2;
+		uint64_t h = (uint64_t)id * 0x2545f4914f6cdd1dULL ^
+		    (uint64_t)SP.sample * 0x9e3779b97f4a7c15ULL;
+		h ^= h >> 29;
+		r = evalid(idx(V.in[k].opnd[1 + 2 * (int)(h % (uint64_t)np)]));
+	} else if (k < 0 || !pure_ins(k))
+		r = leafval(id, w ? w : 32);
+	else {
+		I = &V.in[k];
+		rt = idx(I->opnd[0]);
+		base = first_arg(I);
+		for (i = base; i < I->nop && i - base < 4; i++)
+			x[i - base] = evalid(idx(I->opnd[i]));
+		at = V.id[res_of(idx(I->opnd[base]))].type;
+		if (!strcmp(I->op, "OpSelect"))
+			r = x[0] ? x[1] : x[2];
+		else if (!strcmp(I->op, "OpBitFieldInsert")) {
+			int off = (int)(x[2] & 63), cnt = (int)(x[3] & 127);
+			uint64_t m = cnt >= 64 ? ~0ULL : wmask(cnt) << off;
+			r = puti(rt, (int64_t)((x[0] & ~m) | (x[1] << off & m)));
+		} else if (!strcmp(I->op, "OpUConvert"))
+			r = x[0] & wmask(int_width(at)) & wmask(w);
+		else if (!strcmp(I->op, "OpSConvert"))
+			r = puti(rt, geti(at, x[0]));
+		else if (!strcmp(I->op, "OpExtInst"))
+			r = glsl(I->opnd[2], rt, at, x[0], x[1], x[2], &ok);
+		else
+			r = alu(I->op, rt, at, x[0], x[1], x[2], &ok);
+		r &= wmask(w);
+	}
+	SP.evstamp[id] = SP.stamp;
+	SP.ev[id] = r;
+	return r;
+}
+
+/* the candidate's value in the current sample */
+static uint64_t
+evalcand(const struct cand *c, int rt)
+{
+	uint64_t x[3] = {0};
+	int i, ok = 1, at;
+
+	if (c->kind == RW_ID)
+		return evalid(c->id);
+	if (c->kind == RW_CONST)
+		return c->v;
+	for (i = 0; i < c->na; i++)
+		x[i] = evalid(c->a[i]);
+	at = V.id[res_of(c->a[0])].type;
+	if (c->ext[0])
+		return glsl(c->ext, rt, at, x[0], x[1], x[2], &ok) &
+		    wmask(int_width(rt));
+	return alu(c->op, rt, at, x[0], x[1], x[2], &ok) & wmask(int_width(rt));
+}
+
+/* ---- circuits ---- */
+
+static struct word *blast(int id, int depth);
+
+static void
+sclamp_like(struct word *r, const struct word *x, const struct word *lo,
+    const struct word *hi, int sign, int mode)
+{
+	struct aig *g = SP.g;
+	lit lt, gt;
+
+	/* mode 0: clamp; 1: min(x, lo); 2: max(x, lo) */
+	if (mode == 1) {
+		lt = sign ? w_slt(g, x, lo) : w_ult(g, x, lo);
+		w_mux(g, r, lt, x, lo);
+		return;
+	}
+	if (mode == 2) {
+		gt = sign ? w_slt(g, lo, x) : w_ult(g, lo, x);
+		w_mux(g, r, gt, x, lo);
+		return;
+	}
+	{
+		struct word t;
+		lt = sign ? w_slt(g, x, lo) : w_ult(g, x, lo);
+		gt = sign ? w_slt(g, hi, x) : w_ult(g, hi, x);
+		w_mux(g, &t, gt, hi, x);
+		w_mux(g, r, lt, lo, &t);
+	}
+}
+
+/* r = op(a...) for the core and GLSL operations simplify handles */
+static void
+blast_op(struct word *r, const char *op, const char *ext, int rt,
+    struct word **a, int na, int at)
+{
+	struct aig *g = SP.g;
+	int w = int_width(rt), aw = int_width(at);
+	struct word t, u, z;
+
+	(void)na;
+#define IS(n) (!strcmp(op, n))
+	if (ext && ext[0]) {
+		if (!strcmp(ext, "SMin")) sclamp_like(r, a[0], a[1], NULL, 1, 1);
+		else if (!strcmp(ext, "UMin")) sclamp_like(r, a[0], a[1], NULL, 0, 1);
+		else if (!strcmp(ext, "SMax")) sclamp_like(r, a[0], a[1], NULL, 1, 2);
+		else if (!strcmp(ext, "UMax")) sclamp_like(r, a[0], a[1], NULL, 0, 2);
+		else if (!strcmp(ext, "SClamp")) sclamp_like(r, a[0], a[1], a[2], 1, 0);
+		else if (!strcmp(ext, "UClamp")) sclamp_like(r, a[0], a[1], a[2], 0, 0);
+		else if (!strcmp(ext, "SAbs")) {
+			w_neg(g, &t, a[0]);
+			w_mux(g, r, a[0]->b[a[0]->w - 1], &t, a[0]);
+		}
+		return;
+	}
+	if (IS("OpIAdd")) w_add(g, r, a[0], a[1]);
+	else if (IS("OpISub")) w_sub(g, r, a[0], a[1]);
+	else if (IS("OpIMul")) w_mul(g, r, a[0], a[1]);
+	else if (IS("OpSNegate")) w_neg(g, r, a[0]);
+	else if (IS("OpNot")) w_not(g, r, a[0]);
+	else if (IS("OpUDiv")) w_udivrem(g, r, &t, a[0], a[1]);
+	else if (IS("OpUMod")) w_udivrem(g, &t, r, a[0], a[1]);
+	else if (IS("OpSDiv") || IS("OpSRem") || IS("OpSMod")) {
+		lit sa = a[0]->b[aw - 1], sb = a[1]->b[aw - 1];
+		struct word na_, nb_, ua, ub, q, rm, nq;
+		w_neg(g, &na_, a[0]);
+		w_neg(g, &nb_, a[1]);
+		w_mux(g, &ua, sa, &na_, a[0]);
+		w_mux(g, &ub, sb, &nb_, a[1]);
+		w_udivrem(g, &q, &rm, &ua, &ub);
+		if (IS("OpSDiv")) {
+			w_neg(g, &nq, &q);
+			w_mux(g, r, aig_xor(g, sa, sb), &nq, &q);
+		} else {
+			struct word srem, adj;
+			w_neg(g, &nq, &rm);
+			w_mux(g, &srem, sa, &nq, &rm);
+			if (IS("OpSRem"))
+				*r = srem;
+			else {
+				lit nz, sr;
+				w_const(&z, aw, 0);
+				nz = w_ne(g, &srem, &z);
+				sr = srem.b[aw - 1];
+				w_add(g, &adj, &srem, a[1]);
+				w_mux(g, r, aig_and(g, nz, aig_xor(g, sr, sb)), &adj, &srem);
+			}
+		}
+	} else if (IS("OpShiftLeftLogical")) w_shl(g, r, a[0], a[1]);
+	else if (IS("OpShiftRightLogical")) w_lshr(g, r, a[0], a[1]);
+	else if (IS("OpShiftRightArithmetic")) w_ashr(g, r, a[0], a[1]);
+	else if (IS("OpBitwiseAnd") || IS("OpLogicalAnd")) w_and(g, r, a[0], a[1]);
+	else if (IS("OpBitwiseOr") || IS("OpLogicalOr")) w_or(g, r, a[0], a[1]);
+	else if (IS("OpBitwiseXor") || IS("OpLogicalNotEqual"))
+		w_xor(g, r, a[0], a[1]);
+	else if (IS("OpLogicalNot")) w_not(g, r, a[0]);
+	else if (IS("OpLogicalEqual")) {
+		w_xor(g, &t, a[0], a[1]);
+		w_not(g, r, &t);
+	} else if (IS("OpBitCount")) {
+		w_popcount(g, &t, a[0]);
+		w_resize(r, &t, w, 0);
+	} else if (IS("OpBitReverse")) w_reverse(r, a[0]);
+	else if (IS("OpBitFieldUExtract") || IS("OpBitFieldSExtract")) {
+		struct word ones, m, v, c7, sh, cm1, one, sb_, ext_;
+		lit big;
+		w_lshr(g, &t, a[0], a[1]);
+		w_const(&ones, aw, wmask(aw));
+		w_resize(&c7, a[2], a[2]->w, 0);
+		{	/* count & 127 */
+			int i;
+			for (i = 7; i < c7.w; i++)
+				c7.b[i] = L_FALSE;
+		}
+		w_const(&u, c7.w, (uint64_t)aw);
+		big = L_NOT(w_ult(g, &c7, &u));
+		w_shl(g, &sh, &ones, &c7);
+		w_not(g, &m, &sh);
+		w_mux(g, &m, big, &ones, &m);
+		w_and(g, &v, &t, &m);
+		if (IS("OpBitFieldUExtract"))
+			*r = v;
+		else {
+			w_const(&one, c7.w, 1);
+			w_sub(g, &cm1, &c7, &one);
+			w_lshr(g, &sb_, &v, &cm1);
+			w_not(g, &ext_, &m);
+			w_or(g, &ext_, &v, &ext_);
+			w_mux(g, &u, sb_.b[0], &ext_, &v);
+			w_mux(g, r, big, &t, &u);
+		}
+	} else if (IS("OpBitFieldInsert")) {
+		struct word ones, mk, m, c7, sh, ins, keep, nm;
+		lit big;
+		w_const(&ones, aw, wmask(aw));
+		w_resize(&c7, a[3], a[3]->w, 0);
+		{
+			int i;
+			for (i = 7; i < c7.w; i++)
+				c7.b[i] = L_FALSE;
+		}
+		w_const(&u, c7.w, (uint64_t)aw);
+		big = L_NOT(w_ult(g, &c7, &u));
+		w_shl(g, &sh, &ones, &c7);
+		w_not(g, &mk, &sh);
+		w_mux(g, &mk, big, &ones, &mk);
+		w_shl(g, &m, &mk, a[2]);
+		w_shl(g, &ins, a[1], a[2]);
+		w_and(g, &ins, &ins, &m);
+		w_not(g, &nm, &m);
+		w_and(g, &keep, a[0], &nm);
+		w_or(g, r, &keep, &ins);
+	} else if (IS("OpIEqual")) {
+		w_const(r, 1, 0);
+		r->b[0] = w_eq(g, a[0], a[1]);
+	} else if (IS("OpINotEqual")) {
+		w_const(r, 1, 0);
+		r->b[0] = w_ne(g, a[0], a[1]);
+	} else if (IS("OpULessThan") || IS("OpUGreaterThan") ||
+	    IS("OpULessThanEqual") || IS("OpUGreaterThanEqual") ||
+	    IS("OpSLessThan") || IS("OpSGreaterThan") ||
+	    IS("OpSLessThanEqual") || IS("OpSGreaterThanEqual")) {
+		int sgn = op[2] == 'S', swap = strstr(op, "Greater") != NULL,
+		    eq = strstr(op, "Equal") != NULL;
+		const struct word *x = swap ? a[1] : a[0], *y = swap ? a[0] : a[1];
+		lit l;
+		/* x < y, or x <= y as !(y < x) */
+		if (eq)
+			l = L_NOT(sgn ? w_slt(g, y, x) : w_ult(g, y, x));
+		else
+			l = sgn ? w_slt(g, x, y) : w_ult(g, x, y);
+		w_const(r, 1, 0);
+		r->b[0] = l;
+	} else if (IS("OpSelect"))
+		w_mux(g, r, a[0]->b[0], a[1], a[2]);
+	else if (IS("OpBitcast") || IS("OpCopyObject"))
+		*r = *a[0];
+	else if (IS("OpUConvert"))
+		w_resize(r, a[0], w, 0);
+	else if (IS("OpSConvert"))
+		w_resize(r, a[0], w, 1);
+	else
+		w_input(g, r, w);	/* not reached: pure_ins */
+#undef IS
+}
+
+static struct word *
+blast(int id, int depth)
+{
+	int k, w;
+	struct word *r;
+
+	id = res_of(id);
+	r = &SP.memo[id];
+	if (SP.have[id])
+		return r;
+	SP.have[id] = 1;
+	SP.touched[SP.ntouched++] = id;
+	w = int_width(V.id[id].type);
+	if (w == 0)
+		w = 32;
+	k = SP.def[id];
+	if (V.id[id].kind == K_CONST && !V.id[id].spec)
+		w_const(r, w, V.id[id].c[0] & wmask(w));
+	else if (k >= 0 && depth > 0 && pure_ins(k)) {
+		const struct sins *I = &V.in[k];
+		struct word *a[4], tmp;
+		int base = first_arg(I), i, n = 0;
+		for (i = base; i < I->nop && n < 4; i++)
+			a[n++] = blast(idx(I->opnd[i]), depth - 1);
+		blast_op(&tmp, I->op, !strcmp(I->op, "OpExtInst") ? I->opnd[2] :
+		    NULL, idx(I->opnd[0]), a, n,
+		    V.id[res_of(idx(I->opnd[base]))].type);
+		*r = tmp;
+	} else if (k >= 0 && depth > 0 && fwd_phi(k)) {
+		/* one of the incoming values; which one is free */
+		const struct sins *I = &V.in[k];
+		struct word acc, *v;
+		int i;
+		acc = *blast(idx(I->opnd[1]), depth - 1);
+		for (i = 3; i + 1 < I->nop; i += 2) {
+			v = blast(idx(I->opnd[i]), depth - 1);
+			w_mux(SP.g, &acc, aig_input(SP.g), v, &acc);
+		}
+		SP.memo[id] = acc;
+		r = &SP.memo[id];
+	} else
+		w_input(SP.g, r, w);
+	return r;
+}
+
+static void
+blast_reset(void)
+{
+	while (SP.ntouched > 0)
+		SP.have[SP.touched[--SP.ntouched]] = 0;
+	aig_free(SP.g);
+	SP.g = aig_new();
+}
+
+/* the cost of an instruction under the model */
+static double
+ins_cost(const char *op, const char *ext, int rt)
+{
+	double mul = 1;
+	int cls = cost_class(op, ext && ext[0] ? ext : NULL, rt, &mul);
+
+	return cls >= 0 ? model_active()->c[cls] * mul : 0;
+}
+
+/*
+ * 1: proved equal for every input, 0: a difference (or none found to be
+ * impossible within the depths), -1: the solver ran out of budget
+ */
+static int
+prove(int x, const struct cand *c, int rt)
+{
+	static const int depths[] = {2, 4, 8, 16};
+	int di, out = 0;
+
+	for (di = 0; di < 4; di++) {
+		struct word *wx, wc, *a[3];
+		int i, r;
+		if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
+			return -2;
+		blast_reset();
+		wx = blast(x, depths[di]);
+		if (c->kind == RW_ID)
+			wc = *blast(c->id, depths[di] - 1);
+		else if (c->kind == RW_CONST)
+			w_const(&wc, wx->w, c->v);
+		else {
+			for (i = 0; i < c->na; i++)
+				a[i] = blast(c->a[i], depths[di] - 1);
+			blast_op(&wc, c->op, c->ext, rt, a, c->na,
+			    V.id[res_of(c->a[0])].type);
+		}
+		if (wc.w != wx->w)
+			return 0;
+		r = aig_sat(SP.g, w_ne(SP.g, wx, &wc), 20000);
+		if (r == 0)
+			return 1;
+		if (r < 0)
+			out = -1;
+		/* a difference: real, or only with the cut-off inputs free */
+		if (r == 1 && aig_nodes(SP.g) > 400000)
+			break;
+	}
+	return out;
+}
+
+/* a constant id of the type with the value: an existing one, or new */
+static int
+const_id(int rt, uint64_t v)
+{
+	int i;
+	char nm[48];
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_CONST && !V.id[i].spec && V.id[i].type == rt &&
+		    V.id[i].nc <= 1 && (V.id[i].c[0] & wmask(int_width(rt))) == v)
+			return i;
+	if (SP.nnewk >= 256)
+		return -1;
+	if (int_width(rt) == 1)
+		snprintf(nm, sizeof nm, "%%ucas_%s", v ? "true" : "false");
+	else
+		snprintf(nm, sizeof nm, "%%ucas_%s_%llu", V.id[rt].tok + 1,
+		    (unsigned long long)v);
+	i = idx(nm);
+	if (V.id[i].kind != K_CONST) {
+		V.id[i].kind = K_CONST;
+		V.id[i].type = rt;
+		V.id[i].c[0] = v;
+		V.id[i].nc = 1;
+		SP.newk[SP.nnewk++] = i;
+	}
+	return i;
+}
+
+static int
+is_pow2(uint64_t v)
+{
+	return v && !(v & (v - 1));
+}
+
+static int
+log2u(uint64_t v)
+{
+	int k = 0;
+
+	while (v > 1) {
+		v >>= 1;
+		k++;
+	}
+	return k;
+}
+
+/* a constant operand's value, or -1 */
+static int
+const_of(int id, uint64_t *v)
+{
+	id = res_of(id);
+	if (V.id[id].kind != K_CONST || V.id[id].spec)
+		return 0;
+	*v = V.id[id].c[0] & wmask(int_width(V.id[id].type) ?
+	    int_width(V.id[id].type) : 64);
+	return 1;
+}
+
+static int
+ins_cand(struct cand *c, const char *op, const char *ext, int rt, int a0,
+    int a1, int a2, const char *why)
+{
+	(void)rt;
+	memset(c, 0, sizeof *c);
+	c->kind = RW_INS;
+	snprintf(c->op, sizeof c->op, "%s", op);
+	snprintf(c->ext, sizeof c->ext, "%s", ext ? ext : "");
+	c->a[0] = a0;
+	c->a[1] = a1;
+	c->a[2] = a2;
+	c->na = a2 >= 0 ? 3 : a1 >= 0 ? 2 : 1;
+	c->cost = ins_cost(op, ext, rt);
+	c->why = why;
+	return 1;
+}
+
+/* candidates for instruction k, cheapest first */
+static int
+candidates(int k, struct cand *cs, int max)
+{
+	const struct sins *I = &V.in[k];
+	int rt = idx(I->opnd[0]), w = int_width(rt), base = first_arg(I),
+	    n = 0, i, s, nargs = I->nop - base;
+	int arg[4];
+	uint64_t v0 = 0, cv;
+	const char *ext = !strcmp(I->op, "OpExtInst") ? I->opnd[2] : NULL;
+	int isconst = 1;
+
+	for (i = 0; i < nargs && i < 4; i++)
+		arg[i] = res_of(idx(I->opnd[base + i]));
+	/* the value on random inputs: a constant? an operand? */
+	for (s = 0; s < 24; s++) {
+		uint64_t v;
+		SP.sample = s;
+		SP.stamp++;
+		v = evalid(I->res);
+		if (s == 0)
+			v0 = v;
+		else if (v != v0)
+			isconst = 0;
+	}
+	if (isconst && n < max) {
+		memset(&cs[n], 0, sizeof cs[n]);
+		cs[n].kind = RW_CONST;
+		cs[n].v = v0;
+		cs[n].why = "always this value";
+		n++;
+	}
+	for (i = 0; i < nargs && i < 4 && n < max; i++) {
+		int same = 1;
+		if (V.id[arg[i]].type != rt)
+			continue;
+		for (s = 0; s < 24 && same; s++) {
+			SP.sample = s;
+			SP.stamp++;
+			same = evalid(I->res) == evalid(arg[i]);
+		}
+		if (same) {
+			memset(&cs[n], 0, sizeof cs[n]);
+			cs[n].kind = RW_ID;
+			cs[n].id = arg[i];
+			cs[n].why = "equals its operand";
+			n++;
+		}
+	}
+	/* strength reductions (each may need a new constant: room for it) */
+	if (SP.nnewk >= 240)
+		return n;
+	if (!strcmp(I->op, "OpIMul") && n < max) {
+		for (i = 0; i < 2; i++)
+			if (const_of(arg[i], &cv) && is_pow2(cv) && cv > 1) {
+				n += ins_cand(&cs[n], "OpShiftLeftLogical", NULL, rt,
+				    arg[1 - i], const_id(rt, (uint64_t)log2u(cv)), -1,
+				    "a multiply by a power of two is a shift");
+				break;
+			}
+	}
+	if ((!strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpSDiv")) &&
+	    const_of(arg[1], &cv) && is_pow2(cv) && cv > 1 && n < max)
+		n += ins_cand(&cs[n], "OpShiftRightLogical", NULL, rt, arg[0],
+		    const_id(rt, (uint64_t)log2u(cv)), -1, I->op[2] == 'U' ?
+		    "a divide by a power of two is a shift" :
+		    "the dividend is never negative: a shift");
+	if ((!strcmp(I->op, "OpUMod") || !strcmp(I->op, "OpSRem") ||
+	    !strcmp(I->op, "OpSMod")) && const_of(arg[1], &cv) && is_pow2(cv) &&
+	    n < max)
+		n += ins_cand(&cs[n], "OpBitwiseAnd", NULL, rt, arg[0],
+		    const_id(rt, cv - 1), -1, I->op[2] == 'U' ?
+		    "a remainder by a power of two is a mask" :
+		    "the dividend is never negative: a mask");
+	if (!strcmp(I->op, "OpBitFieldUExtract") && const_of(arg[1], &cv) &&
+	    cv == 0 && n < max) {
+		uint64_t cnt;
+		if (const_of(arg[2], &cnt) && cnt < (uint64_t)w)
+			n += ins_cand(&cs[n], "OpBitwiseAnd", NULL, rt, arg[0],
+			    const_id(rt, wmask((int)cnt)), -1,
+			    "an extract at bit 0 is a mask");
+	}
+	if (ext && (!strcmp(ext, "SClamp") || !strcmp(ext, "UClamp")) &&
+	    n + 2 <= max) {
+		n += ins_cand(&cs[n], "OpExtInst", ext[0] == 'S' ? "SMin" : "UMin",
+		    rt, arg[0], arg[2], -1, "never below the low bound: a min");
+		n += ins_cand(&cs[n], "OpExtInst", ext[0] == 'S' ? "SMax" : "UMax",
+		    rt, arg[0], arg[1], -1, "never above the high bound: a max");
+	}
+	/* (x >> k) & (2^n - 1): one bitfield extract */
+	if (!strcmp(I->op, "OpBitwiseAnd") && n < max)
+		for (i = 0; i < 2; i++) {
+			int d = SP.def[arg[1 - i]];
+			uint64_t m, sh;
+			if (const_of(arg[i], &m) && m && is_pow2(m + 1) && d >= 0 &&
+			    !SP.dead[d] && !strcmp(V.in[d].op, "OpShiftRightLogical") &&
+			    const_of(res_of(idx(V.in[d].opnd[2])), &sh)) {
+				n += ins_cand(&cs[n], "OpBitFieldUExtract", NULL, rt,
+				    res_of(idx(V.in[d].opnd[1])),
+				    const_id(rt, sh), const_id(rt, (uint64_t)log2u(m + 1)),
+				    "a shift then a mask is one bitfield extract");
+				break;
+			}
+		}
+	(void)w;
+	return n;
+}
+
+/* a constant made here is referenced by what is left */
+static int
+const_used(int c)
+{
+	int k, i;
+
+	for (k = 0; k < V.nin; k++) {
+		if (SP.dead[k])
+			continue;
+		for (i = 0; i < V.in[k].nop; i++)
+			if (V.in[k].opnd[i][0] == '%' &&
+			    res_of(idx(V.in[k].opnd[i])) == c)
+				return 1;
+	}
+	return 0;
+}
+
+static void
+cand_text(char *b, size_t n, const struct cand *c, const struct sins *I)
+{
+	int i, at = 0;
+
+	if (c->kind == RW_ID) {
+		snprintf(b, n, "%s", V.id[c->id].tok);
+		return;
+	}
+	if (c->kind == RW_CONST) {
+		if (int_width(idx(I->opnd[0])) == 1)
+			snprintf(b, n, "%s", c->v ? "true" : "false");
+		else
+			snprintf(b, n, "%llu", (unsigned long long)c->v);
+		return;
+	}
+	if (c->ext[0])
+		at = snprintf(b, n, "OpExtInst %s %s %s", I->opnd[0],
+		    V.glsl >= 0 ? V.id[V.glsl].tok : "%glsl", c->ext);
+	else
+		at = snprintf(b, n, "%s %s", c->op, I->opnd[0]);
+	for (i = 0; i < c->na && (size_t)at < n; i++)
+		at += snprintf(b + at, n - (size_t)at, " %s", V.id[c->a[i]].tok);
+}
+
+/* apply: alias, constant alias, or the instruction rewritten in place */
+static void
+apply(int k, const struct cand *c)
+{
+	struct sins *I = &V.in[k];
+	int rt = idx(I->opnd[0]), i;
+	char buf[64];
+
+	if (c->kind == RW_ID) {
+		SP.alias[I->res] = c->id;
+		SP.dead[k] = 1;
+		return;
+	}
+	if (c->kind == RW_CONST) {
+		int ci = const_id(rt, c->v);
+		if (ci < 0)
+			return;
+		SP.alias[I->res] = ci;
+		SP.dead[k] = 1;
+		return;
+	}
+	for (i = 1; i < I->nop; i++)
+		free(I->opnd[i]);
+	I->nop = 1;
+	if (c->ext[0]) {
+		snprintf(I->op, sizeof I->op, "OpExtInst");
+		I->opnd[I->nop++] = strdup(V.id[V.glsl].tok);
+		I->opnd[I->nop++] = strdup(c->ext);
+	} else
+		snprintf(I->op, sizeof I->op, "%s", c->op);
+	for (i = 0; i < c->na; i++) {
+		snprintf(buf, sizeof buf, "%s", V.id[c->a[i]].tok);
+		I->opnd[I->nop++] = strdup(buf);
+	}
+	SP.rw[k] = 1;
+}
+
+void
+spirv_simplify(const char *src, double budget, int nofile)
+{
+	int k, i, nrw = 0, ndead = 0, shown = 0, inbody = 0;
+	double before = 0, after = 0;
+	struct sbuf out = {0}, list = {0};
+	clock_t t0 = clock();
+
+	memset(&V, 0, sizeof V);
+	symmap_reset();
+	memset(&SP, 0, sizeof SP);
+	code_block_used = 1;
+	V.glsl = -1;
+	V.lanes = 1;
+	V.rng = 1;
+	cols = 1;
+	parse(src);
+	{
+		/* a snippet: complete it (types only), then read it afresh */
+		struct sbuf said = {0};
+		char *full;
+		values_unneeded = 1;
+		full = complete(src, &said);
+		values_unneeded = 0;
+		if (full == NULL) {
+			free(said.p);
+			return;
+		}
+		for (k = 0; k < V.nin; k++) {
+			int j;
+			for (j = 0; j < V.in[k].nop; j++)
+				free(V.in[k].opnd[j]);
+			free(V.in[k].text);
+		}
+		V.nin = 0;
+		V.nid = 0;
+		for (i = 0; i < (int)nsymmap; i++)
+			symmap[i] = -1;
+		parse(full);
+		free(full);
+		if (said.n)
+			fputs(said.p, stdout);
+		free(said.p);
+	}
+	declare();
+	/* a snippet's inputs: their inferred types (they are free inputs) */
+	for (k = 0; k < ninps; k++)
+		if (!inps[k].var && inps[k].ty[0])
+			V.id[idx(inps[k].name)].type = idx(inps[k].ty);
+	/* result types, definitions */
+	SP.def = xmalloc((size_t)(V.nid + 512) * sizeof *SP.def);
+	SP.alias = xmalloc((size_t)(V.nid + 512) * sizeof *SP.alias);
+	for (i = 0; i < V.nid + 512; i++)
+		SP.def[i] = SP.alias[i] = -1;
+	SP.dead = xcalloc((size_t)V.nin, 1);
+	SP.rw = xcalloc((size_t)V.nin, 1);
+	for (k = 0; k < V.nin; k++) {
+		struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpFunction"))
+			inbody = 1;
+		if (I->res < 0 || !inbody)
+			continue;
+		SP.def[I->res] = k;
+		if (I->nop >= 1 && I->opnd[0][0] == '%' &&
+		    V.id[idx(I->opnd[0])].kind == K_TYPE)
+			V.id[I->res].type = idx(I->opnd[0]);
+	}
+	SP.memo = xcalloc((size_t)(V.nid + 512), sizeof *SP.memo);
+	SP.have = xcalloc((size_t)(V.nid + 512), 1);
+	SP.touched = xmalloc((size_t)(V.nid + 512) * sizeof *SP.touched);
+	SP.ev = xcalloc((size_t)(V.nid + 512), sizeof *SP.ev);
+	SP.evstamp = xcalloc((size_t)(V.nid + 512), sizeof *SP.evstamp);
+	SP.rng = 0x51c3a5e1ULL;
+	SP.deadline = (double)t0 / CLOCKS_PER_SEC + budget;
+	SP.g = aig_new();
+	for (k = 0; k < V.nin; k++)
+		if (pure_ins(k)) {
+			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
+			    V.in[k].opnd[2] : NULL;
+			before += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
+		}
+	/* in order: a rewrite is seen by the instructions after it */
+	for (k = 0; k < V.nin; k++) {
+		struct cand cs[12];
+		int nc, best = -1, rt;
+		double cost, gain = 0;
+		const char *ext;
+		if (!pure_ins(k))
+			continue;
+		rt = idx(V.in[k].opnd[0]);
+		ext = !strcmp(V.in[k].op, "OpExtInst") ? V.in[k].opnd[2] : NULL;
+		cost = ins_cost(V.in[k].op, ext, rt);
+		nc = candidates(k, cs, 12);
+		/* the cheapest that is cheaper and proves */
+		for (;;) {
+			int j, r;
+			best = -1;
+			for (j = 0; j < nc; j++)
+				if (cs[j].why && cost - cs[j].cost > 1e-9 &&
+				    (best < 0 || cs[j].cost < cs[best].cost))
+					best = j;
+			if (best < 0)
+				break;
+			/* random inputs first: the interpreter's arithmetic */
+			{
+				int s, same = 1;
+				for (s = 0; s < 24 && same; s++) {
+					SP.sample = s;
+					SP.stamp++;
+					same = evalid(V.in[k].res) == evalcand(&cs[best], rt);
+				}
+				if (!same) {
+					cs[best].why = NULL;
+					continue;
+				}
+			}
+			r = prove(V.in[k].res, &cs[best], rt);
+			if (r == 1) {
+				gain = cost - cs[best].cost;
+				break;
+			}
+			if (r == -1)
+				SP.undecided++;
+			if (r == -2) {
+				SP.timeout++;
+				best = -1;
+				break;
+			}
+			cs[best].why = NULL;
+		}
+		if (best < 0)
+			continue;
+		{
+			char ct[200];
+			cand_text(ct, sizeof ct, &cs[best], &V.in[k]);
+			if (shown < 40)
+				sb_printf(&list, "    %-52.52s ->  %s   (%s; -%g)\n",
+				    V.in[k].text, ct, cs[best].why, gain);
+			else if (shown == 40)
+				sb_puts(&list, "    ...\n");
+			shown++;
+		}
+		apply(k, &cs[best]);
+		nrw++;
+		SP.proved++;
+	}
+	/* dead pure instructions: no uses left */
+	{
+		int *uses = xcalloc((size_t)(V.nid + 512), sizeof *uses), changed = 1;
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			if (SP.dead[k] || !strncmp(I->op, "OpName", 6) ||
+			    !strncmp(I->op, "OpMemberName", 12) ||
+			    !strncmp(I->op, "OpDecorate", 10) ||
+			    !strncmp(I->op, "OpMemberDecorate", 16))
+				continue;
+			for (i = 0; i < I->nop; i++)
+				if (I->opnd[i][0] == '%')
+					uses[res_of(idx(I->opnd[i]))]++;
+		}
+		while (changed) {
+			changed = 0;
+			for (k = 0; k < V.nin; k++) {
+				const struct sins *I = &V.in[k];
+				if (SP.dead[k] || I->res < 0 || uses[I->res] ||
+				    SP.def[I->res] != k || !pure_ins(k))
+					continue;
+				SP.dead[k] = 1;
+				ndead++;
+				changed = 1;
+				for (i = 0; i < I->nop; i++)
+					if (I->opnd[i][0] == '%')
+						uses[res_of(idx(I->opnd[i]))]--;
+			}
+		}
+		free(uses);
+	}
+	for (k = 0; k < V.nin; k++)
+		if (!SP.dead[k] && pure_ins(k)) {
+			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
+			    V.in[k].opnd[2] : NULL;
+			after += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
+		}
+	/* the module, rewritten */
+	{
+		int first_fn = -1;
+		for (k = 0; k < V.nin; k++)
+			if (!strcmp(V.in[k].op, "OpFunction")) {
+				first_fn = k;
+				break;
+			}
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			int subst = 0;
+			if (k == first_fn)
+				for (i = 0; i < SP.nnewk; i++) {
+					struct sid *d = &V.id[SP.newk[i]];
+					if (!const_used(SP.newk[i]))
+						continue;
+					if (int_width(d->type) == 1)
+						sb_printf(&out, "%s = OpConstant%s %s\n", d->tok,
+						    d->c[0] ? "True" : "False", V.id[d->type].tok);
+					else
+						sb_printf(&out, "%s = OpConstant %s %llu\n", d->tok,
+						    V.id[d->type].tok, (unsigned long long)d->c[0]);
+				}
+			if (SP.dead[k])
+				continue;
+			/* names and decorations of removed ids go too */
+			if ((!strcmp(I->op, "OpName") || !strncmp(I->op, "OpDecorate", 10))
+			    && I->nop >= 1 && I->opnd[0][0] == '%') {
+				int t = idx(I->opnd[0]);
+				if (SP.def[t] >= 0 && SP.dead[SP.def[t]])
+					continue;
+			}
+			for (i = 0; i < I->nop; i++)
+				if (I->opnd[i][0] == '%' && SP.alias[idx(I->opnd[i])] >= 0)
+					subst = 1;
+			if (!subst && !SP.rw[k]) {
+				sb_printf(&out, "%s\n", I->text);
+				continue;
+			}
+			if (I->res >= 0)
+				sb_printf(&out, "%s = ", V.id[I->res].tok);
+			sb_puts(&out, I->op);
+			for (i = 0; i < I->nop; i++)
+				sb_printf(&out, " %s", I->opnd[i][0] == '%' ?
+				    V.id[res_of(idx(I->opnd[i]))].tok : I->opnd[i]);
+			sb_putc(&out, '\n');
+		}
+	}
+	printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
+	    "(bit-precise: equal for every input), %d dead instruction%s "
+	    "removed\n", V.nin, nrw, nrw == 1 ? "" : "s", ndead,
+	    ndead == 1 ? "" : "s");
+	printf("  integer arithmetic cost under %s (each instruction once): "
+	    "%g -> %g", sym_str(model_active()->name), before, after);
+	if (before > 0)
+		printf(" (-%.1f%%)", 100 * (before - after) / before);
+	printf("\n");
+	if (list.n)
+		fputs(list.p, stdout);
+	else
+		printf("  nothing to rewrite: no cheaper form of an integer "
+		    "instruction could be proved\n");
+	if (SP.undecided)
+		printf("  %ld candidate%s too hard for the solver's budget (kept as "
+		    "they are)\n", SP.undecided, SP.undecided == 1 ? "" : "s");
+	if (SP.timeout)
+		printf("  note: stopped proving after %g s (the time budget; "
+		    "`budget N` for more)\n", budget);
+	printf("  proved in %.2f s; the operands' definitions were expanded up "
+	    "to 16 levels, the rest (loads, loop phis, spec constants) are free "
+	    "inputs\n", (double)(clock() - t0) / CLOCKS_PER_SEC);
+	if (nrw + ndead > 0)
+		deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
+		    nofile);
+	free(out.p);
+	free(list.p);
+	aig_free(SP.g);
+	free(SP.def);
+	free(SP.alias);
+	free(SP.dead);
+	free(SP.rw);
+	free(SP.memo);
+	free(SP.have);
+	free(SP.touched);
+	free(SP.ev);
+	free(SP.evstamp);
+	for (k = 0; k < V.nin; k++) {
+		for (i = 0; i < V.in[k].nop; i++)
+			free(V.in[k].opnd[i]);
+		free(V.in[k].text);
+	}
+	free(V.in);
+	memset(&V, 0, sizeof V);
 }

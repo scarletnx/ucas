@@ -1356,6 +1356,40 @@ deliver(struct gif *gp, const char *name, int nofile)
 	free(out.p);
 }
 
+/*
+ * Any file: written next to the command line run, or handed to the bot
+ * as a file block (attached to the reply)
+ */
+void
+deliver_file(const char *name, const char *type, const char *data, size_t n,
+    int nofile)
+{
+	struct sbuf out = {0};
+
+	if (nofile) {
+		uint32_t hsh = 2166136261u;
+		size_t q;
+		for (q = 0; q < n; q++)
+			hsh = (hsh ^ (unsigned char)data[q]) * 16777619u;
+		printf("  (nofile: %s, %zu bytes, checksum %08x)\n", name, n, hsh);
+	} else if (nlp_defer) {
+		b64(&out, (const unsigned char *)data, n);
+		printf("  the rewritten module is attached as %s\n", name);
+		printf("\x1e" "file %s %s %zu\n%s\x1e" "end\n", name, type, n,
+		    out.p);
+	} else {
+		FILE *fp = fopen(name, "wb");
+		if (fp == NULL || fwrite(data, 1, n, fp) != n) {
+			if (fp)
+				fclose(fp);
+			fail("cannot write %s", name);
+		}
+		fclose(fp);
+		printf("  wrote %s\n", name);
+	}
+	free(out.p);
+}
+
 void
 cmd_animate(struct P *p)
 {

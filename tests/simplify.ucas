@@ -1,0 +1,48 @@
+# simplify a SPIR-V block: rewrites proved by SAT (live session 13: "SAT simplify")
+SAT simplify nofile
+```spv
+%a = OpBitFieldUExtract %uint %x %uint_0 %uint_8
+%b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_255
+%c = OpIMul %uint %b %uint_4
+%d = OpUDiv %uint %c %uint_2
+%e = OpISub %uint %d %d
+%f = OpIAdd %uint %c %e
+%g = OpShiftRightLogical %uint %y %uint_3
+%h = OpBitwiseAnd %uint %g %uint_31
+%i = OpUMod %uint %h %uint_32
+%j = OpULessThan %bool %a %uint_256
+%k = OpSelect %uint %j %f %i
+OpStore %out %k
+```
+# what must stay: a 9-bit value clamped to 255, a signed divide of a
+# value that can be negative, a remainder by a non-power of two
+optimize this nofile
+```spv
+%a = OpBitFieldUExtract %uint %x %uint_0 %uint_9
+%b = OpExtInst %uint %glsl UClamp %a %uint_0 %uint_255
+%s = OpSDiv %int %sx %int_2
+%r = OpUMod %uint %x %uint_3
+%t = OpBitwiseAnd %uint %x %uint_255
+%st = OpBitcast %int %t
+%u = OpSDiv %int %st %int_4
+OpStore %out %b
+OpStore %out2 %s
+OpStore %out3 %r
+OpStore %out4 %u
+```
+# a phi at a merge: either way the value fits in a byte
+peephole with smt nofile
+```spv
+OpSelectionMerge %m None
+OpBranchConditional %c %l1 %l2
+%l1 = OpLabel
+%p = OpBitwiseAnd %uint %x %uint_127
+OpBranch %m
+%l2 = OpLabel
+%q = OpShiftRightLogical %uint %y %uint_24
+OpBranch %m
+%m = OpLabel
+%v = OpPhi %uint %p %l1 %q %l2
+%w = OpExtInst %uint %glsl UMin %v %uint_255
+OpStore %out %w
+```

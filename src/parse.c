@@ -1746,6 +1746,29 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
+		if (is_kw(p, "spvsimplify")) {
+			double budget = 6;
+			int nofile = 0;
+			adv(p);
+			while (!at_eos(p)) {
+				if (accept_kw(p, "budget") && pk(p) == T_NUM)
+					budget = cmdp_number(p, NULL);
+				else if (accept_kw(p, "nofile"))
+					nofile = 1;
+				else
+					adv(p);
+			}
+			if (code_block == NULL)
+				fail("simplify: attach the SPIR-V (a ```spv block or a "
+				    "file)");
+			if (budget < 0.5)
+				budget = 0.5;
+			if (budget > 60)
+				budget = 60;
+			spirv_simplify(code_block, budget, nofile);
+			return;
+		}
 		/* animate (anim.c) */
 		if (is_kw(p, "animate") && !func_find(tsym(p, p->i))) {
 			adv(p);

@@ -1,0 +1,15 @@
+#version 450
+// texel unpacking with the redundancies simplify proves away
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { uint words[]; };
+layout(std430, binding = 1) buffer Out { uint texels[]; };
+void main() {
+	uint i = gl_LocalInvocationIndex;
+	uint w = words[i];
+	uint r = bitfieldExtract(w, 0, 8);
+	int g = clamp(int((w >> 8) & 255u), 0, 255);
+	uint b = min((w >> 16) & 15u, 15u);
+	uint a = (w >> 24) * 4u / 2u;
+	uint lum = (r * 8u + uint(g) * 16u + b) % 64u;
+	texels[i] = r | uint(g) << 8 | b << 16 | a << 24 | (lum < 64u ? lum : 0u);
+}

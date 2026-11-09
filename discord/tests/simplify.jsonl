@@ -1,0 +1,2 @@
+# session 13: "SAT simplify" on an attached shader: rewrites proved by SAT, the module attached back
+{"op": 0, "s": 5001, "t": "MESSAGE_CREATE", "d": {"id": "5001", "channel_id": "47", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> SAT simplify", "type": 0, "attachments": [{"id": "5", "filename": "simp.spv", "size": 1500, "url": "test:tests/files/simp.spv"}]}}

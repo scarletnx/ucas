@@ -8,6 +8,7 @@
  * taken and noted); -i always asks, even when not on a terminal.
  */
 #include "ucas.h"
+#include "sat.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -69,6 +70,11 @@ main(int argc, char **argv)
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	for (i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--sat-selftest")) {
+			int bad = sat_selftest();
+			printf("sat selftest: %s\n", bad ? "FAILED" : "ok");
+			return bad != 0;
+		}
 		if (!strcmp(argv[i], "-q")) {
 			echo = 0;
 		} else if (!strcmp(argv[i], "-y")) {

@@ -372,6 +372,9 @@ struct spvset {			/* "animate exec %19 = 2.5": an input's value */
 };
 extern struct spvset spv_set[16];
 extern int nspv_set;
+void spirv_simplify(const char *src, double budget, int nofile);
+void deliver_file(const char *name, const char *type, const char *data,
+    size_t n, int nofile);
 void spirv_exec(const char *src, int lanes, int fps, double seconds,
     int random, uint64_t seed, const char *name, int nofile);
 int cmdp_kw(struct P *p, const char *w);	/* accept a word */

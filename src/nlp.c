@@ -5832,6 +5832,97 @@ next_code_block(const char *src, struct sbuf *piece)
 
 static void run_text_plain(const char *src, const char *file, int echo);
 
+/* the block looks like SPIR-V assembly */
+static int
+spv_like(const char *c)
+{
+	return c != NULL && (strstr(c, "= Op") != NULL ||
+	    strstr(c, "OpFunction") != NULL || strstr(c, "OpCapability") != NULL ||
+	    strstr(c, "OpStore") != NULL);
+}
+
+/*
+ * "SAT simplify", "optimize this shader", "peephole it with smt" next to
+ * a SPIR-V block: the text lines become one `spvsimplify` statement
+ * (directive lines and the line count stay), options carried over
+ */
+static int
+simplify_piece(struct sbuf *piece)
+{
+	static const char *const w[] = {"simplify", "simplified",
+	    "simplification", "simplifications", "simp", "optimize", "optimise",
+	    "optimized", "optimised", "optimization", "optimisation",
+	    "superoptimize", "superoptimise", "superoptimization", "peephole",
+	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
+	    NULL};
+	char *p = piece->p, budget[32] = "", lw[64] = "";
+	int hit = 0, anim = 0, nofile = 0, k, first = 1;
+	struct sbuf out = {0};
+
+	if (p == NULL)
+		return 0;
+	/* the words */
+	{
+		const char *q = p;
+		while (*q) {
+			size_t n = 0;
+			if (*q == '\x1e') {	/* directives */
+				while (*q && *q != '\n')
+					q++;
+				continue;
+			}
+			if (!isalpha((unsigned char)*q)) {
+				if (isdigit((unsigned char)*q) && !strcmp(lw, "budget")) {
+					size_t b = 0;
+					while ((isdigit((unsigned char)*q) || *q == '.') &&
+					    b + 1 < sizeof budget)
+						budget[b++] = *q++;
+					budget[b] = 0;
+					continue;
+				}
+				q++;
+				continue;
+			}
+			while (isalpha((unsigned char)*q) && n + 1 < sizeof lw)
+				lw[n++] = (char)tolower((unsigned char)*q++);
+			lw[n] = 0;
+			while (isalpha((unsigned char)*q))
+				q++;
+			for (k = 0; w[k]; k++)
+				if (!strcmp(lw, w[k]))
+					hit = 1;
+			if (!strcmp(lw, "animate") || !strcmp(lw, "exec") ||
+			    !strcmp(lw, "run"))
+				anim = 1;
+			if (!strcmp(lw, "nofile"))
+				nofile = 1;
+		}
+	}
+	if (!hit || anim)
+		return 0;
+	/* rebuild: directives kept, the text on one line, blank lines after */
+	{
+		const char *q = p, *e;
+		while (*q) {
+			e = strchr(q, '\n');
+			if (e == NULL)
+				e = q + strlen(q);
+			if (*q == '\x1e')
+				sb_printf(&out, "%.*s\n", (int)(e - q), q);
+			else if (first && e > q) {
+				sb_printf(&out, "spvsimplify%s%s%s\n", budget[0] ?
+				    " budget " : "", budget, nofile ? " nofile" : "");
+				first = 0;
+			} else
+				sb_putc(&out, '\n');
+			q = *e ? e + 1 : e;
+		}
+	}
+	free(piece->p);
+	*piece = out;
+	return 1;
+}
+
 /* statements, each fenced block going to the statement before it */
 void
 run_text(const char *src, const char *file, int echo)
@@ -5848,6 +5939,8 @@ run_text(const char *src, const char *file, int echo)
 	for (;;) {
 		const char *c;
 		next = next_code_block(rest, &piece);
+		if (code_block && spv_like(code_block))
+			simplify_piece(&piece);
 		/* earlier pieces' lines come first, as empty lines */
 		sb_clear(&pad);
 		sb_puts(&pad, "");
@@ -5860,7 +5953,7 @@ run_text(const char *src, const char *file, int echo)
 		run_text_plain(pad.p, file, echo);
 		if (code_block && !code_block_used && !nlp_asked)
 			printf("  note: the ```%s code block was not used (animate "
-			    "exec takes SPIR-V)\n", code_block_lang);
+			    "exec and simplify take SPIR-V)\n", code_block_lang);
 		code_block = NULL;
 		if (next == NULL || *next == 0 || nlp_asked)
 			break;

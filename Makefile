@@ -2,7 +2,7 @@
 
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
-	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c
+	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c sat.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 .PATH:	${.CURDIR}/src
@@ -28,6 +28,7 @@ TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
 # Each tests/NAME.ucas runs and must print exactly tests/NAME.out.
 # `make accept` rewrites the .out files from the current output.
 test: ${PROG}
+	@${.OBJDIR}/${PROG} --sat-selftest || exit 1
 	@fail=0; for t in ${TESTS}; do \
 		n=$${t%.ucas}; \
 		(cd ${.CURDIR}/tests && ${.OBJDIR}/${PROG} $$t) > $$n.got 2>&1; \
