@@ -2753,6 +2753,9 @@ print_check(const struct inp *in, const struct chk *r, const char *cond,
 {
 	char v[96];
 
+	if (r->n)
+		rep_check(r->pts == 1 ? "value" : "sample_points", r->pts == 1 ?
+		    1 : r->n, r->maxd, !r->bad, cond);
 	if (r->n == 0) {
 		printf("%scheck: %s\n", ind, r->wit[0] ? r->wit :
 		    "no sample point where both sides are defined");
@@ -3024,6 +3027,8 @@ show_conds(const char *ind)
 {
 	if (lc_conds[0])
 		printf("%s(for %s: a factor was cancelled)\n", ind, lc_conds);
+	if (lc_conds[0])
+		rep_cond("%s", lc_conds);
 }
 
 static void
@@ -3046,30 +3051,43 @@ cmd_cform(const char *text, int which)
 	notes_flush();
 	lhs = lhs_text(&in);
 	check_part = PT_ALL;
+	{
+		static const char *const kn[] = {"complex", "re", "im", "conj",
+		    "modulus", "arg", "polar"};
+		rep_begin(which >= 0 && which < 7 ? kn[which] : "complex");
+	}
+	rep_str("input", lhs);
 	switch (which) {
 	case FC_RECT:
 		zfmt(&b, re, im);
 		printf("%s = %s\n", lhs, b.p);
 		printf("  Re = %s,  Im = %s\n", pstr(re), pstr(im));
+		rep_str("result", b.p);
+		rep_str("re", pstr(re));
+		rep_str("im", pstr(im));
 		break;
 	case FC_RE:
 		pr(&b, re, 0);
 		printf("Re(%s) = %s\n", lhs, b.p);
+		rep_str("result", b.p);
 		check_part = PT_RE;
 		break;
 	case FC_IM:
 		pr(&b, im, 0);
 		printf("Im(%s) = %s\n", lhs, b.p);
+		rep_str("result", b.p);
 		check_part = PT_IM;
 		break;
 	case FC_CONJ:
 		zfmt(&b, re, norm(nneg(im)));
 		printf("conj(%s) = %s\n", lhs, b.p);
+		rep_str("result", b.p);
 		check_part = PT_CONJ;
 		break;
 	case FC_MOD:
 		pr(&b, zabs(Z(re, im)), 0);
 		printf("|%s| = %s\n", lhs, b.p);
+		rep_str("result", b.p);
 		check_part = PT_ABS;
 		break;
 	case FC_ARG:
@@ -3080,12 +3098,19 @@ cmd_cform(const char *text, int which)
 		if (P.zero) {
 			printf("%s = 0: the modulus is 0 and the argument is undefined\n",
 			    lhs);
+			rep_str("r", "0");
+			rep_null("theta");
 			free(b.p);
 			return;
 		}
 		if (which == FC_ARG) {
 			pr(&b, P.th, 0);
 			printf("arg(%s) = %s", lhs, b.p);
+			rep_str("result", b.p);
+			if (P.approx)
+				rep_num("value", P.thv);
+			if (P.cond)
+				rep_cond("%s", P.cond);
 			if (P.approx)
 				printf("  (about %.10g)", P.thv);
 			printf("\n  the principal argument, -pi < arg <= pi");
@@ -3103,6 +3128,14 @@ cmd_cform(const char *text, int which)
 		polar_text(&P, &ex, &tr);
 		printf("%s = %s\n", lhs, ex.p);
 		printf("  = %s\n", tr.p);
+		rep_str("exponential", ex.p);
+		rep_str("trigonometric", tr.p);
+		rep_str("r", pstr(P.r));
+		rep_str("theta", pstr(P.th));
+		if (P.approx)
+			rep_num("theta_value", P.thv);
+		if (P.cond)
+			rep_cond("%s", P.cond);
 		printf("  r = |z| = %s,  theta = arg z = %s", pstr(P.r), pstr(P.th));
 		if (P.approx)
 			printf("  (about %.10g)", P.thv);
@@ -4626,6 +4659,8 @@ cmd_trig(const char *text, int modes)
 	body = in.body;
 	snprintf(lhs, sizeof lhs, "%s", lhs_text(&in));
 	printf("trig forms of %s\n", lhs);
+	rep_begin("trig");
+	rep_str("input", lhs);
 
 	if (modes & M_SIMP) {
 		rw_cond[0] = 0;
@@ -4803,9 +4838,12 @@ cmd_trig(const char *text, int modes)
 	}
 	if (ncand == 0 || (ncand == 1 && !strcmp(cands[0].text, pstr(in.body)))) {
 		printf("  no rewrite of this kind applies (try: trig F all)\n");
+		rep_list("forms");
+		rep_end();
 		return;
 	}
 	blen = score(pstr(in.body));
+	rep_list("forms");
 	for (k = 0; k < ncand; k++) {
 		struct cand *c = &cands[k];
 		if (!strcmp(c->text, pstr(in.body)) && !c->cond[0])
@@ -4816,11 +4854,22 @@ cmd_trig(const char *text, int modes)
 			printf("    for %s\n", c->cond);
 		check_text(&in, 1, c->text, c->cond[0] ? c->cond : NULL, &ck);
 		c->ok = print_check(&in, &ck, c->cond[0] ? c->cond : NULL, "    ");
+		rep_obj(NULL);
+		rep_str("label", c->label);
+		rep_str("identity", c->ident);
+		rep_str("result", c->text);
+		if (c->cond[0])
+			rep_str("condition", c->cond);
+		rep_bool("checked", c->ok);
+		rep_int("check_points", ck.n);
+		rep_end();
 		if (c->ok && !c->cond[0] && score(c->text) < blen &&
 		    (best < 0 || score(c->text) < score(cands[best].text)))
 			best = k;
 	}
 	(void)anyexp;
+	rep_end();
+	rep_str("simplest", best >= 0 ? cands[best].text : lhs);
 	if (best >= 0)
 		printf("  simplest: %s  (%s)\n", cands[best].text, cands[best].label);
 	else
