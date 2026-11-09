@@ -5277,6 +5277,8 @@ cmd_plot(struct P *p, int mode)
 	memset(tick_int, 0, sizeof tick_int);
 	nrc = 0;
 	snprintf(O.name, sizeof O.name, "plot");
+	rep_begin(mode == 0 ? "plot" : mode == 1 ? "plot3d" : "neighbourhood");
+	rep_text_list("findings");
 	if (!cmdp_rest(p, O.text, sizeof O.text, NULL))
 		fail("%s what? e.g. %s", mode == 0 ? "plot" : mode == 1 ? "plot3d" :
 		    "neighbourhood", mode == 2 ? "neighbourhood sin(x)/x" :
