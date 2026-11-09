@@ -1,0 +1,2 @@
+# float simplify: a user's sRGB decode had no integer rewrites; the float ones, derived
+{"op": 0, "s": 6101, "t": "MESSAGE_CREATE", "d": {"id": "6101", "channel_id": "48", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> SAT simplify with floats, c in [0, 1]\n```glsl\nvec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }\n```", "type": 0}}
