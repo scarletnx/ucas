@@ -31,6 +31,7 @@
 #include "ucas.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7271,6 +7272,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* abstract algebra (absalg_cmd.c) */
+		const char *r = absalg_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7700,6 +7710,11 @@ nlp_is_english(const char *s, size_t n)
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
+	{
+		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
 	}
