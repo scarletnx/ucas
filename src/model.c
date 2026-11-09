@@ -156,6 +156,11 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_COT:
 		*cls = C_FTRANS;
 		return 2 * m->c[C_FTRANS] + m->c[C_FDIV];
+	case O_LAMBERTW:		/* Halley iterations of exp: a library call */
+	case O_LAMBERTWM1:
+		k = C_FTRANS;
+		mul = 8;
+		break;
 	case O_ATAN:			/* no SFU instruction: a library call */
 		k = C_FTRANS;
 		mul = 4;

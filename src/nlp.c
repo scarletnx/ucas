@@ -625,7 +625,8 @@ user_fn(const char *name)
 static const char *const builtins[] = {"sin", "cos", "tan", "exp", "log",
 	"ln", "sqrt", "isqrt", "abs", "floor", "ceil", "sign", "min", "max",
 	"clz", "ctz", "popcount", "asuint", "asint", "asfloat", "bits",
-	"barrier", NULL};
+	"barrier", "atan", "sec", "csc", "cot", "copysign", "fma",
+	"w", "w0", "lambertw", "productlog", "wm1", "lambertwm1", NULL};
 
 static int
 builtin_call(int i)
@@ -1798,6 +1799,14 @@ struct uop {
 	int k;
 };
 static const struct uop uops[] = {
+	/* Lambert W, the inverse of w e^w */
+	{"?the principal|main|upper branch of ?the lambert w|W ?function ?of",
+	    U_FN, "W", 0},
+	{"?the lower|negative|secondary|other branch of ?the lambert w|W "
+	    "?function ?of", U_FN, "Wm1", 0},
+	{"?the lambert w|W ?function ?of", U_FN, "W", 0},
+	{"?the product log|productlog ?function ?of", U_FN, "W", 0},
+	{"?the omega function of", U_FN, "W", 0},
 	{"?the integer|floor square root of", U_FN, "isqrt", 0},
 	{"?the integer|floor sqrt of", U_FN, "isqrt", 0},
 	{"isqrt ?of", U_FN, "isqrt", 0},
@@ -3028,6 +3037,11 @@ small_number(int *n)
 	return 0;
 }
 
+static const char *subst_call(const char *s, const char *from,
+    const char *to);
+static int osa(const char *a, const char *b, int max);
+static int spell_limit(size_t n);
+
 static int
 parse_option(void)
 {
@@ -3126,6 +3140,25 @@ parse_option(void)
 				snprintf(Q.acc, sizeof Q.acc, "error %s", num);
 				return 1;
 			}
+		}
+	}
+	wi = s;
+	/* Lambert W's branch, said after the expression */
+	if (mat("?on|in|using|with|for ?the principal|main|upper|lower|negative|"
+	    "secondary ?real branch|branches ?of ?w|lambert ?w")) {
+		int lower = 0, k;
+		for (k = s; k < wi; k++)
+			if (isw(k, "lower") || isw(k, "negative") ||
+			    isw(k, "secondary"))
+				lower = 1;
+		if (Q.a.has && Q.a.e.s && !lower) {
+			Q.why = "principal branch: W (the -1 branch is Wm1)";
+			return 1;
+		}
+		if (Q.a.has && Q.a.e.s && lower) {
+			Q.a.e.s = subst_call(Q.a.e.s, "W", "Wm1");
+			Q.why = "lower branch: Wm1 (the principal branch is W)";
+			return 1;
 		}
 	}
 	wi = s;
@@ -4360,6 +4393,26 @@ is_ident(char c)
 	return isalnum((unsigned char)c) || c == '_';
 }
 
+/* rename calls: "W(" -> "Wm1(" as a whole identifier */
+static const char *
+subst_call(const char *s, const char *from, const char *to)
+{
+	struct sbuf sb = {0};
+	size_t n = strlen(from);
+	const char *p;
+
+	for (p = s; *p;) {
+		if (!strncmp(p, from, n) && p[n] == '(' && (p == s ||
+		    !(isalnum((unsigned char)p[-1]) || p[-1] == '_'))) {
+			sb_puts(&sb, to);
+			p += n;
+			continue;
+		}
+		sb_putc(&sb, *p++);
+	}
+	return sb.p ? sb.p : s;
+}
+
 /* replace the variable name in s by val, as a whole identifier */
 static const char *
 subst_ident(const char *s, const char *name, const char *val)
@@ -5411,7 +5464,8 @@ static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"work", "figure", "tune", "calibrate", "speed", "improve", "name",
 	"call", "declare", "thanks", "verify", "alt", "alts", "alternatives",
 	"alternative", "approximate", NULL};
-static const char *const vocab[] = {"plus", "minus", "times", "multiplied",
+static const char *const vocab[] = {"principal", "branch", "lambert",
+	"productlog", "lower", "upper", "plus", "minus", "times", "multiplied",
 	"divided", "squared", "cubed", "square", "root", "cube", "sum",
 	"product", "difference", "quotient", "ratio", "average", "half",
 	"twice", "of", "the", "is", "are", "equal", "equals", "greater",
@@ -5486,7 +5540,14 @@ scan_definitions(const char *src)
 /* words that are also options of ucas commands: integrate f from 0 to 1 */
 static const char *const option_words[] = {"from", "to", "with", "using",
 	"wrt", "steps", "degree", "method", "keep", "crit", "nocrit", "range",
-	"deg", NULL};
+	"deg",
+	/* approx's options: ucas, never English */
+	"error", "ulp", "relative", "absolute", "odd", "even", "nosym",
+	"endpoints", "ends", "weight", "fma", "nofma", "norefine",
+	"norational", "noreduce", "nosplit", "list", "points", "name",
+	"compare", "free", "more",
+	/* gates, find, cost */
+	"basis", "max", "nodes", "model", "metric", NULL};
 
 static int word_at(const char *s, size_t n, size_t *i, char *w, size_t wn);
 
@@ -5508,8 +5569,19 @@ english_words(const char *s, size_t n, int strong)
 			for (k = j; k < n && s[k] == ' '; k++)
 				;
 			if ((k < n && s[k] == '(') || user_fn(w) || pending_name(w) ||
-			    !in_list(vocab, w) || (strong && in_list(option_words, w)))
+			    (strong && in_list(option_words, w)))
 				continue;
+			if (!in_list(vocab, w)) {
+				/* a misspelt English word ("princpal") counts too,
+				 * but not one of ucas's own option words */
+				int v, lim = in_list(option_words, w) ? 0 :
+				    spell_limit(strlen(w));
+				for (v = 0; lim > 0 && vocab[v]; v++)
+					if (osa(w, vocab[v], lim) <= lim)
+						break;
+				if (lim == 0 || vocab[v] == NULL)
+					continue;
+			}
 			count++;
 			continue;
 		}

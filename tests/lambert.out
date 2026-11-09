@@ -1,0 +1,64 @@
+> W(1)
+0.567143
+> W(exp(1))
+1
+> Wm1(-0.2)
+-2.54264
+> W(-0.2)
+-0.259171
+> diff W(x)
+d/dx W(x) = 1/(exp(W(x))*(W(x) + 1))
+> integrate W(x) from 0 to e
+∫ W(x) dx
+  = x*(W(x) - 1) + exp(W(x)) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 2.71828] (max difference 3.3e-16)
+  from 0 to 2.71828: F(2.71828) - F(0) = 1.71828182845904
+  numeric (adaptive Gauss-Kronrod 7-15, 45 evaluations): 1.71828182845903, estimated error 1.9e-14
+  the two agree to 1.7e-14
+> domain W(x)
+domain of W(x):
+  x: real (default [-10, 10])
+  requires x >= -1/e  (Lambert W, principal branch)
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in [-0.3678794412, 10]
+> domain Wm1(x)
+domain of Wm1(x):
+  x: real (default [-10, 10])
+  requires -1/e <= x < 0  (Lambert W, branch -1)
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in [-0.3678794412, 0)
+> range W + 1
+range of W + 1:
+  [-9, 11]   min at W ≈ -10, max at W ≈ 10
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> integrate W(x) princpal branch
+  note: read "princpal" as "principal"
+  note: principal branch: W (the -1 branch is Wm1)
+  ucas: it(x) = W(x)
+  ucas: integrate it
+∫ W(x) dx
+  = x*(W(x) - 1) + exp(W(x)) + C
+  check: d/dx of it equals the integrand at 208 points of [-10, 10] (max difference 4.4e-16)
+> integrate W(x) lower branch from -0.3 to -0.1
+  note: lower branch: Wm1 (the principal branch is W)
+  ucas: it(x) = Wm1(x)
+  ucas: integrate it from -0.3 to -0.1
+∫ Wm1(x) dx
+  = x*(Wm1(x) - 1) + exp(Wm1(x)) + C
+  check: d/dx of it equals the integrand at 401 points of [-0.3, -0.1] (max difference 1.3e-15)
+  from -0.3 to -0.1: F(-0.1) - F(-0.3) = -0.517143525796282
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -0.517143525796282, estimated error 5.7e-15
+  the two agree to 3.3e-16
+> what is the integral of the lambert w function of x from 0 to e?
+  ucas: it(x) = W(x)
+  ucas: integrate it from 0 to e
+∫ W(x) dx
+  = x*(W(x) - 1) + exp(W(x)) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 2.71828] (max difference 3.3e-16)
+  from 0 to 2.71828: F(2.71828) - F(0) = 1.71828182845904
+  numeric (adaptive Gauss-Kronrod 7-15, 45 evaluations): 1.71828182845903, estimated error 1.9e-14
+  the two agree to 1.7e-14
+> differentiate the product log of x
+  ucas: it(x) = W(x)
+  ucas: diff it
+d/dx it = 1/(exp(W(x))*(W(x) + 1))

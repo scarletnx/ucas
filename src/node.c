@@ -68,6 +68,8 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_ATAN] = {"atan", 1, OF_REALFN},
 	[O_COPYSIGN] = {"copysign", 2, 0},
 	[O_FMA] = {"fma", 3, 0},
+	[O_LAMBERTW] = {"W", 1, OF_REALFN | OF_PARTIAL},
+	[O_LAMBERTWM1] = {"Wm1", 1, OF_REALFN | OF_PARTIAL},
 	[O_LOOP] = {"loop", 2, 0},
 };
 

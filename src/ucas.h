@@ -116,6 +116,7 @@ enum {
 	/* approx: more functions, sign transfer and fused multiply-add */
 	O_SEC, O_CSC, O_COT, O_ATAN, O_COPYSIGN, O_FMA,
 	O_LOOP,      /* calc: loop over an entry (calc.h); a = lo, b = hi */
+	O_LAMBERTW, O_LAMBERTWM1,  /* Lambert W: principal and -1 branches */
 	O_NOPS
 };
 #define OF_COMM 1
@@ -260,6 +261,7 @@ int64_t scalar_int(int op, const struct ity *t, const struct ity *ta,
     int64_t a, int64_t b, int64_t c, uint8_t *fl);
 double scalar_real(int op, double a, double b, uint8_t *fl);
 double scalar_float(int op, int w, double a, double b, uint8_t *fl);
+double lambert_w(double x, int branch);   /* NaN outside the domain */
 double fround(int w, double v);
 int64_t fkey(int w, double v);      /* IEEE value -> ordered integer key */
 double fromkey(int w, int64_t k);

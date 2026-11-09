@@ -34,7 +34,7 @@ lsupported(int op)
 	case O_MAX: case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT:
 	case O_GE: case O_LAND: case O_LOR: case O_LNOT: case O_SEL:
 	case O_BARRIER: case O_SEC: case O_CSC: case O_COT: case O_ATAN:
-	case O_COPYSIGN: case O_FMA:
+	case O_COPYSIGN: case O_FMA: case O_LAMBERTW: case O_LAMBERTWM1:
 		return 1;
 	}
 	return 0;
@@ -156,6 +156,8 @@ lref_eval(struct lref *r, ld x)
 		case O_CSC: v[k] = 1 / sinl(a); break;
 		case O_COT: v[k] = cosl(a) / sinl(a); break;
 		case O_ATAN: v[k] = atanl(a); break;
+		case O_LAMBERTW: v[k] = lambert_w((double)a, 0); break;
+		case O_LAMBERTWM1: v[k] = lambert_w((double)a, 1); break;
 		case O_FLOOR: v[k] = floorl(a); break;
 		case O_CEIL: v[k] = ceill(a); break;
 		case O_CAST: v[k] = a; break;

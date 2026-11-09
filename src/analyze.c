@@ -318,6 +318,11 @@ d1(nid e, uint32_t slot)
 		r = mk_bin(O_ADD, mk_bin(O_ADD, mk_bin(O_MUL, d1(a, slot), b),
 		    mk_bin(O_MUL, a, d1(b, slot))), d1(N.c[e], slot));
 		break;
+	case O_LAMBERTW:	/* W' = 1/(e^W (1 + W)): x = W e^W, defined at 0 */
+	case O_LAMBERTWM1:
+		r = mk_bin(O_DIV, d1(a, slot), mk_bin(O_MUL, mk_un(O_EXP, e),
+		    mk_bin(O_ADD, C(1), e)));
+		break;
 	case O_LOOP:   /* calc: the loop carries its derivative (loop.c) */
 		r = loop_diff(e, slot);
 		break;
@@ -713,6 +718,14 @@ list_conditions(const struct func *f, int *nc)
 			break;
 		case O_LOG:
 			COND("%s > 0", node_str(N.a[n]));
+			break;
+		case O_LAMBERTW:
+			COND("%s >= -1/e  (Lambert W, principal branch)",
+			    node_str(N.a[n]));
+			break;
+		case O_LAMBERTWM1:
+			COND("-1/e <= %s < 0  (Lambert W, branch -1)",
+			    node_str(N.a[n]));
 			break;
 		case O_TAN:
 			COND("cos(%s) != 0", node_str(N.a[n]));

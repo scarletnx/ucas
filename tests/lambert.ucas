@@ -1,0 +1,14 @@
+# Lambert W (live session 2: "integrate W(x) princpal branch")
+W(1)
+W(exp(1))
+Wm1(-0.2)
+W(-0.2)
+diff W(x)
+integrate W(x) from 0 to e
+domain W(x)
+domain Wm1(x)
+range W + 1
+integrate W(x) princpal branch
+integrate W(x) lower branch from -0.3 to -0.1
+what is the integral of the lambert w function of x from 0 to e?
+differentiate the product log of x

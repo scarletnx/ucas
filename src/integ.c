@@ -210,6 +210,14 @@ ad(nid f, int s, nid x)
 		if (!linear_arg(u, s, &a))
 			return 0;
 		return DIV(SUB(MUL(u, f), u), KR(a));
+	case O_LAMBERTW:
+	case O_LAMBERTWM1:
+		/* u = W e^W, so u/W = e^W: u (W - 1) + e^W, defined at u = 0 */
+		u = N.a[f];
+		if (!linear_arg(u, s, &a))
+			return 0;
+		return DIV(mk_bin(O_ADD, MUL(u, SUB(f, KR(1))), mk_un(O_EXP, f)),
+		    KR(a));
 	}
 	return 0;
 }

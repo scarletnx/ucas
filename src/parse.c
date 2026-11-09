@@ -276,6 +276,10 @@ static const struct bfn bfns[] = {
 	{"barrier", O_BARRIER, 1},
 	{"sec", O_SEC, 1}, {"csc", O_CSC, 1}, {"cot", O_COT, 1},
 	{"atan", O_ATAN, 1}, {"copysign", O_COPYSIGN, 2}, {"fma", O_FMA, 3},
+	/* Lambert W; a bare W stays a variable unless called: W(x) */
+	{"W", O_LAMBERTW, 1}, {"W0", O_LAMBERTW, 1}, {"lambertw", O_LAMBERTW, 1},
+	{"productlog", O_LAMBERTW, 1}, {"Wm1", O_LAMBERTWM1, 1},
+	{"lambertwm1", O_LAMBERTWM1, 1},
 	{NULL, 0, 0}
 };
 
@@ -285,8 +289,13 @@ builtin(struct P *p, uint32_t i)
 	int k;
 
 	for (k = 0; bfns[k].name; k++)
-		if (tok_is(p->t, i, bfns[k].name))
+		if (tok_is(p->t, i, bfns[k].name)) {
+			/* one letter (W): only called, and a user's W wins */
+			if (bfns[k].name[1] == 0 && (i + 1 >= p->t->n ||
+			    p->t->kind[i + 1] != T_LP || func_find(tsym(p, i))))
+				return NULL;
 			return &bfns[k];
+		}
 	return NULL;
 }
 

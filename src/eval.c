@@ -418,6 +418,14 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 		}
 		r = log(a);
 		break;
+	case O_LAMBERTW:
+	case O_LAMBERTWM1:
+		r = lambert_w(a, op == O_LAMBERTWM1);
+		if (isnan(r)) {
+			*fl |= F_UNDEF;
+			return 0;
+		}
+		break;
 	case O_SIN: r = sin(a); break;
 	case O_COS: r = cos(a); break;
 	case O_TAN:
@@ -463,6 +471,60 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 		return 0;
 	}
 	return r;
+}
+
+/*
+ * Lambert W: the w with w e^w = x.  Branch 0 (principal) on [-1/e, inf),
+ * branch -1 on [-1/e, 0).  Halley's iteration from a series near the
+ * branch point, an asymptotic guess for large |log|, log1p otherwise.
+ */
+double
+lambert_w(double x, int branch)
+{
+	const double em1 = 0.36787944117144233;	/* 1/e */
+	double w, p, ew, f, d, wn;
+	int i;
+
+	if (isnan(x) || x < -em1 * (1 + 1e-15) || (branch && x >= 0))
+		return NAN;
+	if (x <= -em1)
+		return -1;
+	if (x == 0 && !branch)
+		return 0;
+	if (isinf(x))
+		return x;
+	p = sqrt(2 * (2.718281828459045 * x + 1));
+	if (branch) {
+		if (x < -0.25)
+			w = -1 - p - p * p / 3 - 11 * p * p * p / 72;
+		else {
+			double l1 = log(-x), l2 = log(-l1);
+			w = l1 - l2 + l2 / l1;
+		}
+	} else if (x < -0.3)
+		w = -1 + p - p * p / 3 + 11 * p * p * p / 72;
+	else if (x < 3)
+		w = log1p(x) * (1 - log1p(log1p(x)) / (2 + log1p(x)));
+	else {
+		double l1 = log(x), l2 = log(l1);
+		w = l1 - l2 + l2 / l1;
+	}
+	for (i = 0; i < 64; i++) {
+		ew = exp(w);
+		f = w * ew - x;
+		if (w == -1)
+			break;
+		d = ew * (w + 1) - (w + 2) * f / (2 * w + 2);
+		wn = w - f / d;
+		if (!isfinite(wn))
+			break;
+		if (fabs(wn - w) <= 1e-16 * (1 + fabs(wn))) {
+			w = wn;
+			break;
+		}
+		w = wn;
+	}
+	return w;
 }
 
 /* ---- IEEE helpers ---- */
@@ -551,6 +613,8 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 	case O_SIN: r = sin(a); break;
 	case O_COS: r = cos(a); break;
 	case O_TAN: r = tan(a); break;
+	case O_LAMBERTW: r = lambert_w(a, 0); break;
+	case O_LAMBERTWM1: r = lambert_w(a, 1); break;
 	case O_SEC: r = 1 / cos(a); break;
 	case O_CSC: r = 1 / sin(a); break;
 	case O_COT: r = cos(a) / sin(a); break;

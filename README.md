@@ -93,7 +93,9 @@ Expressions: `+ - * / % ^` (power), `mod`, `& | xor ⊕ ~ << >>`,
 comparisons (chains allowed), `&& || ! and or not`, `c ? a : b`,
 `x in a..b`, `|x|`, `[t0, t1, ...][i]` (lookup table), `x²`,
 functions `sin cos tan exp log ln sqrt isqrt abs floor ceil sign min max
-clz ctz popcount sec csc cot atan copysign fma`, conversions `u8(x) f32(x) real(n) int(x)`, bit casts
+clz ctz popcount sec csc cot atan copysign fma`, Lambert W (`W(x)`, also `W0`,
+`lambertw`, `productlog`: the principal branch; `Wm1(x)`: the -1 branch; a
+bare `W` without a call stays a variable), conversions `u8(x) f32(x) real(n) int(x)`, bit casts
 `asuint asint asfloat` (`bits` = `asuint`), effects `barrier(e)`,
 `atomic_{add,sub,min,max,and,or,xor,xchg}[_shared](x, v)`.  C float
 literals (`1.5f`) are `f32`.
