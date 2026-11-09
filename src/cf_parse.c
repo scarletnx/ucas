@@ -182,6 +182,14 @@ ct_is_int(uint32_t t)
 }
 
 int
+ct_is_lowered(uint32_t t)
+{
+	int k = CT.kind[t];
+
+	return ct_is_int(t) || k == CT_FLOAT || k == CT_DOUBLE;
+}
+
+int
 ct_is_arith(uint32_t t)
 {
 	return ct_is_int(t) || (CT.kind[t] >= CT_FLOAT &&
@@ -289,6 +297,9 @@ ct_to_ucas(uint32_t t)
 	case CT_LONG: case CT_LLONG: return TY(K_SINT, 64);
 	case CT_ULONG: case CT_ULLONG: return TY(K_UINT, 64);
 	case CT_ENUM: return ct_is_signed(t) ? TY(K_SINT, 32) : TY(K_UINT, 32);
+	/* IEEE binary32/64 (x86-64 SSE: FLT_EVAL_METHOD 0) */
+	case CT_FLOAT: return TY_F32;
+	case CT_DOUBLE: return TY_F64;
 	}
 	return 0;
 }
@@ -802,8 +813,9 @@ num_literal(uint32_t t0)
 		A_.fv[n] = v;
 		A_.ty[n] = ct_basic(CT_DOUBLE);
 		if (*end == 'f' || *end == 'F') {
+			/* rounded once, from the decimal (not through double) */
 			A_.ty[n] = ct_basic(CT_FLOAT);
-			A_.fv[n] = (float)v;
+			A_.fv[n] = strtof(buf, NULL);
 		} else if (*end == 'l' || *end == 'L')
 			A_.ty[n] = ct_basic(CT_LDOUBLE);
 		else if (*end)

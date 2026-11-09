@@ -97,6 +97,8 @@ struct cf_cand {
 	 * intervals of its operands): when SAT gives up, the lemma is the
 	 * proof (CF_PROOF_ALGEBRA), provided sampling found no difference */
 	char lemma[120];
+	int derived;	/* added: lemma is a derivation (a proof of its own,
+			 * e.g. IEEE float identities), not a hint */
 };
 struct cf_cands {
 	struct cf_cand *c;
@@ -286,7 +288,9 @@ int ct_is_signed(uint32_t t);
 int ct_rank(uint32_t t);
 uint32_t ct_promote(uint32_t t);
 uint32_t ct_usual(uint32_t a, uint32_t b);
-ty_t ct_to_ucas(uint32_t t);	/* integer C type -> uN/iN/bool; 0 if none */
+ty_t ct_to_ucas(uint32_t t);	/* integer C type -> uN/iN/bool, float and
+				 * double -> f32/f64; 0 if none */
+int ct_is_lowered(uint32_t t);	/* an integer, float or double */
 void ct_str(struct sbuf *b, uint32_t t, const char *name);  /* a declaration */
 
 /* ---- the AST ---- */
@@ -465,6 +469,7 @@ struct cf_emit {
 	int ntab;
 	const struct cf_target *t;
 	int need_string;	/* the output calls strlen: <string.h> */
+	int floats;		/* float arithmetic emitted: FP_CONTRACT OFF */
 };
 /* the C text of e, with leaves printed from v; 0 if it cannot be
  * printed without introducing UB */

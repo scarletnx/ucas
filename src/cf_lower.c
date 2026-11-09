@@ -33,6 +33,7 @@
  * calls other than to functions of the same unit that lower themselves
  * (inlined), volatile, goto, case labels inside nested statements.
  */
+#include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,6 +95,7 @@ lfail(uint32_t at, const char *fmt, const char *a)
 
 static nid T1, F0;
 static nid bnot(nid a);
+static void add_cond(nid g, nid ok);
 
 static nid
 band(nid a, nid b)
@@ -171,9 +173,45 @@ conv(nid x, uint32_t to, uint32_t at)
 {
 	ty_t t;
 
+	if (TYK(N.ty[x]) == K_FLOAT && ct_is_int(to) &&
+	    CT.kind[ct_unqual(to)] != CT_BOOL)
+		lfail(at, "a float converted to an integer here%s", "");
+
 	if (CT.kind[ct_unqual(to)] == CT_BOOL)
 		return N.ty[x] == TY_BOOL ? x : mk_bool(x);
 	t = uty(to, at);
+	return mk_cast(t, x);
+}
+
+/*
+ * conv, and a float converted to an integer type: C99 6.3.1.4 makes it
+ * UB unless the truncated value fits, so that is a domain condition
+ * (NaN fails it too); a conversion to _Bool is x != 0 (NaN is true).
+ */
+static nid
+convg(nid x, uint32_t to, uint32_t at, nid g)
+{
+	ty_t t;
+
+	if (TYK(N.ty[x]) != K_FLOAT || CT.kind[ct_unqual(to)] == CT_BOOL ||
+	    !ct_is_int(to))
+		return conv(x, to, at);
+	t = uty(to, at);
+	{
+		/* -2^(w-1) - 1 < x < 2^(w-1) (signed), -1 < x < 2^w: both
+		 * bounds are exact in binary64 for w <= 64 */
+		int w = TYW(t);
+		double lo = TYK(t) == K_SINT ? -ldexp(1, w - 1) - 1 : -1;
+		double hi = TYK(t) == K_SINT ? ldexp(1, w - 1) : ldexp(1, w);
+		nid xd = mk_cast(TY_F64, x), ok;
+		if (TYK(t) == K_SINT && w == 64)
+			ok = band(mk_bin(O_GE, xd, mk_cast(TY_F64, mk_const_r(lo + 1))),
+			    mk_bin(O_LT, xd, mk_cast(TY_F64, mk_const_r(hi))));
+		else
+			ok = band(mk_bin(O_GT, xd, mk_cast(TY_F64, mk_const_r(lo))),
+			    mk_bin(O_LT, xd, mk_cast(TY_F64, mk_const_r(hi))));
+		add_cond(g, ok);
+	}
 	return mk_cast(t, x);
 }
 
@@ -207,7 +245,7 @@ static int
 is_local_scalar(uint32_t s)
 {
 	return (SU.kind[s] == CS_LOCAL || SU.kind[s] == CS_PARAM) &&
-	    !SU.addr_taken[s] && ct_is_int(SU.ty[s]) &&
+	    !SU.addr_taken[s] && ct_is_lowered(SU.ty[s]) &&
 	    !(CT.qual[SU.ty[s]] & CQ_VOLATILE);
 }
 
@@ -687,11 +725,9 @@ ex(uint32_t n, nid g)
 	case CA_ARROW:
 		return load(n, g);
 	case CA_CAST:
-		if (!ct_is_int(ty))
-			(void)uty(ty, n);
-		if (!ct_is_int(AU.ty[AU.a[n]]))
-			(void)uty(AU.ty[AU.a[n]], n);
-		return conv(ex(AU.a[n], g), ty, n);
+		(void)uty(ty, n);
+		(void)uty(AU.ty[AU.a[n]], n);
+		return convg(ex(AU.a[n], g), ty, n, g);
 	case CA_PLUS:
 		return conv(ex(AU.a[n], g), ty, n);
 	case CA_NEG:
@@ -718,8 +754,8 @@ ex(uint32_t n, nid g)
 		    mk_bin(O_LAND, a, b) : mk_bin(O_LOR, a, b));
 	case CA_COND: {
 		nid c = truth(AU.a[n], g);
-		a = conv(ex(AU.b[n], band(g, c)), ty, n);
-		b = conv(ex(AU.c[n], band(g, bnot(c))), ty, n);
+		a = convg(ex(AU.b[n], band(g, c)), ty, n, band(g, c));
+		b = convg(ex(AU.c[n], band(g, bnot(c))), ty, n, band(g, bnot(c)));
 		return sel(c, a, b);
 	}
 	case CA_COMMA:
@@ -736,7 +772,7 @@ ex(uint32_t n, nid g)
 			a = ex(l, g);
 			b = arith(op, a, lt, b, AU.ty[AU.b[n]], n, g);
 		}
-		v = conv(b, lt, n);
+		v = convg(b, lt, n, g);
 		write_var(l, v);
 		return v;
 	}
@@ -760,7 +796,8 @@ ex(uint32_t n, nid g)
 	case CA_CALL:
 		return inline_call(n, g);
 	case CA_FNUM:
-		lfail(n, "a floating-point value%s", "");
+		/* the literal's value is already rounded to its type */
+		return mk_cast(uty(ty, n), mk_const_r(AU.fv[n]));
 	}
 	lfail(n, "an expression of this kind (%s)", AU.kind[n] == CA_ADDR ?
 	    "&" : AU.kind[n] == CA_STR ? "a string" : AU.kind[n] == CA_SIZEOF_E ?
@@ -796,7 +833,7 @@ inline_call(uint32_t n, nid g)
 		lfail(n, "a call under a condition inside an expression%s", "");
 	for (k = 0; k < AU.c[n] && k < 64; k++) {
 		uint32_t ps = AU.lst[AU.c[fn] + k];
-		args[k] = conv(ex(AU.lst[AU.b[n] + k], g), SU.ty[ps], n);
+		args[k] = convg(ex(AU.lst[AU.b[n] + k], g), SU.ty[ps], n, g);
 	}
 	/* a fresh frame: the callee's symbols are its own */
 	saved_env = xmalloc(SU.n * sizeof *saved_env);
@@ -871,7 +908,7 @@ decl(uint32_t n)
 		nid v;
 		if (AU.kind[AU.a[n]] == CA_INIT)
 			lfail(n, "a braced initializer%s", "");
-		v = conv(ex(AU.a[n], L.alive), ty, n);
+		v = convg(ex(AU.a[n], L.alive), ty, n, L.alive);
 		L.env[s] = sel(L.alive, v, L.env[s]);
 	} else
 		L.env[s] = sel(L.alive, mk_undef(uty(ty, n)), L.env[s]);
@@ -889,7 +926,7 @@ ret(uint32_t n)
 		L.alive = F0;
 		return;
 	}
-	v = conv(ex(AU.a[n], L.alive), rt, n);
+	v = convg(ex(AU.a[n], L.alive), rt, n, L.alive);
 	L.ret = sel(L.alive, v, L.ret);
 	L.alive = F0;
 }
@@ -1190,14 +1227,15 @@ cf_lower_func(struct cf_unit *u, uint32_t fn, struct cf_value *v, int ub)
 	L.fnsym = s;
 	if (u->A.d[fn] > CF_MAXLEAF)
 		lfail(fn, "more than 8 parameters%s", "");
-	if (!ct_is_int(CT.base[ft]))
-		lfail(fn, "the function does not return an integer%s", "");
+	if (!ct_is_lowered(CT.base[ft]))
+		lfail(fn, "the function does not return an integer or a "
+		    "float%s", "");
 	/* parameters first, in order */
 	for (k = 0; k < u->A.d[fn]; k++) {
 		uint32_t ps = u->A.lst[u->A.c[fn] + k], ty = u->S.ty[ps];
-		if (!ct_is_int(ty))
-			lfail(fn, "a parameter that is not an integer (%s)",
-			    sym_str(u->S.name[ps]));
+		if (!ct_is_lowered(ty))
+			lfail(fn, "a parameter that is not an integer or a float "
+			    "(%s)", sym_str(u->S.name[ps]));
 		if (u->S.addr_taken[ps])
 			lfail(fn, "the address of a parameter is taken%s", "");
 		(void)leaf(ps + 1, ty, sym_str(u->S.name[ps]), fn);
@@ -1242,8 +1280,8 @@ cf_lower_expr(struct cf_unit *u, uint32_t fn, uint32_t e, struct cf_value *v)
 		return 0;
 	}
 	L.fnsym = (uint32_t)u->A.iv[fn];
-	if (!ct_is_int(u->A.ty[e]))
-		lfail(e, "not an integer expression%s", "");
+	if (!ct_is_lowered(u->A.ty[e]))
+		lfail(e, "not an integer or float expression%s", "");
 	v->e = ex(e, T1);
 	v->where = 0;
 	lower_end();

@@ -25,6 +25,7 @@
  *   - more candidates from the x86 side (cf_add_cand_hook).
  * The cheapest proved candidate under the target's cost model wins.
  */
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -243,6 +244,27 @@ op_cost(const struct cf_target *t, nid n)
 	int op = N.op[n], w = TYW(N.ty[n]);
 	nid b = N.b[n];
 
+	/* SSE scalar floats (Agner Fog, Skylake .. Zen 4): add, mul 4;
+	 * divss 11, divsd 13-14; conversions 4-5; ucomiss 3 */
+	if (TYK(N.ty[n]) == K_FLOAT || (N.a[n] && op != O_TABLE &&
+	    op != O_CONST && op != O_VAR && TYK(N.ty[N.a[n]]) == K_FLOAT)) {
+		switch (op) {
+		case O_CONST:
+		case O_VAR:
+		case O_UNDEF:
+			return 0;
+		case O_DIV:
+			return w == 32 ? 11 : 14;
+		case O_SEL:
+			return t->c_alu * 1.5;
+		case O_NEG:
+			return 1;
+		}
+		if (opinfo[op].fl & OF_CMP)
+			return 3;
+		return 4;
+	}
+
 	switch (op) {
 	case O_CONST:
 	case O_VAR:
@@ -386,8 +408,21 @@ quick_ok(const struct func *f, nid cand)
 		for (i = 0; i < np; i++) {
 			if (!v[i] || (COLF(&p, p.root[0])[i] & F_UNDEF))
 				continue;
-			if ((COLF(&p, p.root[1])[i] & F_UNDEF) ||
-			    COLI(&p, p.root[0])[i] != COLI(&p, p.root[1])[i]) {
+			if (COLF(&p, p.root[1])[i] & F_UNDEF) {
+				ok = 0;
+				break;
+			}
+			if (TY_FP(N.ty[f->body])) {
+				/* IEEE values: the same bits (both NaN, or equal
+				 * with the same sign: -0 is not +0) */
+				double x = COLR(&p, p.root[0])[i];
+				double y = COLR(&p, p.root[1])[i];
+				if (!((isnan(x) && isnan(y)) || (x == y &&
+				    !signbit(x) == !signbit(y)))) {
+					ok = 0;
+					break;
+				}
+			} else if (COLI(&p, p.root[0])[i] != COLI(&p, p.root[1])[i]) {
 				ok = 0;
 				break;
 			}
@@ -1111,6 +1146,130 @@ drops:
 	ivals_free(&I);
 }
 
+/* ---- IEEE floats: rewrites proved by derivation ---- */
+
+static void
+cand_derived(struct cf_cands *cs, nid sem, const char *what,
+    const char *lemma)
+{
+	if (sem == 0)
+		return;
+	cf_cand_add(cs, sem, NULL, NULL, 0, 0, what);
+	snprintf(cs->c[cs->n - 1].lemma, sizeof cs->c[cs->n - 1].lemma, "%s",
+	    lemma);
+	cs->c[cs->n - 1].derived = 1;
+}
+
+/* x as an f32 value: x itself (f32), (double)y of an f32 y, or a double
+ * constant that is an f32 value; else 0 */
+static nid
+as_f32(nid x)
+{
+	if (N.ty[x] == TY_F32)
+		return x;
+	if (N.ty[x] != TY_F64)
+		return 0;
+	if (N.op[x] == O_CAST && N.ty[N.a[x]] == TY_F32)
+		return N.a[x];
+	if (is_const(x) && !isnan(N.kr[x]) && (double)(float)N.kr[x] == N.kr[x])
+		return mk_cast(TY_F32, x);
+	return 0;
+}
+
+/* |x| <= 2^p for every value of the integer x (by its type) */
+static int
+int_fits(nid x, int p)
+{
+	ty_t t = N.ty[x];
+
+	if (!TY_SIZED(t))
+		return 0;
+	return TYK(t) == K_UINT || t == TY_BOOL ? TYW(t) <= p : TYW(t) <= p + 1;
+}
+
+static void
+gen_float(const struct cf_value *v, nid e, struct cf_cands *cs)
+{
+	nid *rn;
+	uint32_t nr, i;
+	char w[120];
+
+	(void)v;
+	nr = reach(e, &rn);
+	for (i = 0; i < nr; i++) {
+		nid n = rn[i], a = N.a[n], b = N.b[n], x, y;
+		int op = N.op[n];
+		ty_t t = N.ty[n];
+		/* (float)((double)x op (double)y) = x op y in float */
+		if (op == O_CAST && t == TY_F32 && N.ty[a] == TY_F64 &&
+		    (N.op[a] == O_ADD || N.op[a] == O_SUB || N.op[a] == O_MUL ||
+		    N.op[a] == O_DIV) && (x = as_f32(N.a[a])) != 0 &&
+		    (y = as_f32(N.b[a])) != 0) {
+			snprintf(w, sizeof w, "a float %s done in double: in float",
+			    N.op[a] == O_ADD ? "sum" : N.op[a] == O_SUB ?
+			    "difference" : N.op[a] == O_MUL ? "product" :
+			    "quotient");
+			cand_derived(cs, safe_replace(e, n, mk_bin(N.op[a], x, y)), w,
+			    "double rounding is innocuous: 53 >= 2*24 + 2, so "
+			    "float(double(x) op double(y)) = x op y for + - * / "
+			    "(Figueroa 1995)");
+		}
+		/* (float)(double)x = x */
+		if (op == O_CAST && t == TY_F32 && N.op[a] == O_CAST &&
+		    N.ty[a] == TY_F64 && N.ty[N.a[a]] == TY_F32)
+			cand_derived(cs, safe_replace(e, n, N.a[a]), "float to double "
+			    "and back", "every float is a double: the round trip is "
+			    "the identity (NaN stays NaN)");
+		/* x / 2^k = x * 2^-k */
+		if (op == O_DIV && TYK(t) == K_FLOAT && is_const(b) &&
+		    !isnan(N.kr[b]) && N.kr[b] != 0 && !isinf(N.kr[b])) {
+			int ex;
+			double m = frexp(fabs(N.kr[b]), &ex), r = 1.0 / N.kr[b];
+			int ok = m == 0.5 && (TYW(t) == 64 ? (r != 0 && !isinf(r)) :
+			    ((double)(float)r == r && r != 0 && !isinf((float)r)));
+			if (ok) {
+				nid k = TYW(t) == 32 ? mk_cast(TY_F32, mk_const_r(r)) :
+				    mk_cast(TY_F64, mk_const_r(r));
+				snprintf(w, sizeof w, "x / %g as x * %g", N.kr[b], r);
+				cand_derived(cs, safe_replace(e, n, mk_bin(O_MUL, a, k)), w,
+				    "x / 2^k and x * 2^-k round the same real number "
+				    "once (2^-k is exact), the same on 0, inf, NaN");
+			}
+		}
+		/* (int)(float)x = x when x is exact in the float */
+		if (op == O_CAST && TY_SIZED(t) && t != TY_BOOL &&
+		    TYK(N.ty[a]) == K_FLOAT && N.op[a] == O_CAST &&
+		    TY_SIZED(N.ty[N.a[a]]) && int_fits(N.a[a], TYW(N.ty[a]) == 32 ?
+		    24 : 53)) {
+			cand_derived(cs, safe_replace(e, n, mk_cast(t, N.a[a])),
+			    "an integer through a float and back",
+			    "|x| <= 2^p (p = 24 or 53): the conversion to the float "
+			    "is exact and truncating it gives x back");
+		}
+		/* (float)x < (float)y = x < y when both are exact */
+		if ((opinfo[op].fl & OF_CMP) && TYK(N.ty[a]) == K_FLOAT) {
+			int p = TYW(N.ty[a]) == 32 ? 24 : 53;
+			ty_t w64 = TY(K_SINT, 64);
+			nid xa = 0, xb = 0;
+			if (N.op[a] == O_CAST && TY_SIZED(N.ty[N.a[a]]) &&
+			    int_fits(N.a[a], p) && TYW(N.ty[N.a[a]]) <= 32)
+				xa = mk_cast(w64, N.a[a]);
+			if (N.op[b] == O_CAST && TY_SIZED(N.ty[N.a[b]]) &&
+			    int_fits(N.a[b], p) && TYW(N.ty[N.a[b]]) <= 32)
+				xb = mk_cast(w64, N.a[b]);
+			else if (is_const(b) && N.kr[b] == floor(N.kr[b]) &&
+			    fabs(N.kr[b]) < 0x1p53)
+				xb = mk_const_i(w64, (int64_t)N.kr[b]);
+			if (xa && xb)
+				cand_derived(cs, safe_replace(e, n, mk_bin(op, xa, xb)),
+				    "a comparison of integers made in a float",
+				    "both sides are integers exact in the float: "
+				    "conversion is exact and order-preserving");
+		}
+	}
+	free(rn);
+}
+
 /* ---- the driver for one value ---- */
 
 struct step {
@@ -1146,7 +1305,11 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 	for (round = 0; round < 12 && *nsteps < max && !out_of_time(); round++) {
 		struct cf_cands cs = {0};
 		int took = 0;
-		if (round == 0) {
+		if (TY_FP(N.ty[cur])) {
+			/* a float value: only derived rewrites (the proof
+			 * engines compare floats by value, not by bits) */
+			gen_float(v, cur, &cs);
+		} else if (round == 0) {
 			gen_basic(v, cur, &cs);
 			gen_idioms(v, cur, &cs);
 			gen_switch(v, cur, &cs);
@@ -1161,7 +1324,10 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 				cand_hooks[k](t, cur, v->nleaf, lt, &cs);
 			}
 		}
-		gen_local(v, cur, &cs);
+		if (!TY_FP(N.ty[cur])) {
+			gen_local(v, cur, &cs);
+			gen_float(v, cur, &cs);
+		}
 		for (k = 0; k < cs.n; k++)
 			cs.c[k].cost = cf_cost(t, cs.c[k].sem);
 		if (R.o->trace)
@@ -1172,8 +1338,24 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 			struct proof pf;
 			if (cs.c[k].cost >= ccur - 0.01 || cs.c[k].sem == cur)
 				continue;
-			int pr = prove(v, cs.c[k].sem, &pf);
-			if (pr == 2 && cs.c[k].lemma[0]) {
+			int pr;
+			if (TY_FP(N.ty[cur])) {
+				/* the derivation is the proof; the sample is a
+				 * check of the derivation's premises */
+				struct func f;
+				cf_value_func(v, &f);
+				pr = cs.c[k].derived && quick_ok(&f, cs.c[k].sem) ? 2 : 0;
+				pf.kind = CF_PROOF_NONE;
+				snprintf(pf.text, sizeof pf.text, "%s", pr ? "" :
+				    "differs on a sample");
+			} else
+				pr = prove(v, cs.c[k].sem, &pf);
+			if (pr == 2 && cs.c[k].derived) {
+				pf.kind = CF_PROOF_ALGEBRA;
+				snprintf(pf.text, sizeof pf.text, "derivation: %s",
+				    cs.c[k].lemma);
+				pr = 1;
+			} else if (pr == 2 && cs.c[k].lemma[0]) {
 				char t[160];
 				snprintf(t, sizeof t, "%s; sampled inputs agree (SAT "
 				    "gave up)", cs.c[k].lemma);
@@ -1665,7 +1847,8 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 	kind = u->A.kind[n];
 	if (!is_expr_kind(kind))
 		return;
-	if (ct_is_int(u->A.ty[n]) && kind != CA_ID && kind != CA_NUM &&
+	if (ct_is_lowered(u->A.ty[n]) && kind != CA_ID && kind != CA_NUM &&
+	    kind != CA_FNUM &&
 	    kind != CA_CHARLIT && kind != CA_ASSIGN && kind != CA_CALL &&
 	    cf_lower_expr(u, fn, n, &v)) {
 		struct step steps[16];
@@ -1736,6 +1919,8 @@ ct_of_ty(ty_t t)
 
 	if (t == TY_BOOL)
 		return ct_basic(CT_BOOL);
+	if (TYK(t) == K_FLOAT)
+		return ct_basic(w == 32 ? CT_FLOAT : CT_DOUBLE);
 	if (TYK(t) == K_UINT)
 		return ct_basic(w <= 8 ? CT_UCHAR : w <= 16 ? CT_USHORT : w <= 32 ?
 		    CT_UINT : CT_ULONG);
@@ -2278,9 +2463,9 @@ try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 	w->proof = worst;
 	for (k = 0; k < it.nstore && best[k] == it.store[k].value; k++)
 		;
-	snprintf(w->proof_text, sizeof w->proof_text, "each stored value as a "
-	    "function of the iteration's loads (%.80s); addresses and the "
-	    "order of loads and stores unchanged", steps[k][ns[k] - 1].pf.text);
+	snprintf(w->proof_text, sizeof w->proof_text, "per stored value, over "
+	    "the loads: %.84s; accesses and their order kept",
+	    steps[k][ns[k] - 1].pf.text);
 	w->cost_before = cb;
 	w->cost_after = ca;
 	w->applied = 1;
@@ -2416,6 +2601,10 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 	if (em.need_string && !strstr(u->includes.p ? u->includes.p : "",
 	    "<string.h>"))
 		sb_puts(&r->out, "#include <string.h>\n");
+	if (em.floats)
+		/* the proofs are about each operation rounded on its own: a
+		 * compiler must not fuse a*b + c (C99 7.12.2) */
+		sb_puts(&r->out, "#pragma STDC FP_CONTRACT OFF\n");
 	for (k = 0; k < nreps; k++) {
 		if (reps[k].from < pos)
 			continue;	/* overlapping: the outer one won */

@@ -213,8 +213,9 @@ cfront_run(const char *src, const char *path, const struct cf_opts *o)
 	printf("\n");
 	if (r.cost_before > 0)
 		printf("  estimated cost of the rewritten values on %s: %.1f -> "
-		    "%.1f cycles (loops in closed form not counted)\n", o->t->name,
-		    r.cost_before, r.cost_after);
+		    "%.1f cycles%s\n", o->t->name, r.cost_before, r.cost_after,
+		    nkind[CF_PROOF_INDUCTION] ? " (loops in closed form not "
+		    "counted)" : "");
 	if (ntriv)
 		printf("  of these, %d give the same machine code as clang -O2 "
 		    "makes of the original (listed apart)\n", ntriv);

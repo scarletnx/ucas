@@ -23,6 +23,7 @@
  * (_mm_popcnt_u32 under __POPCNT__, _lzcnt_u32 under __LZCNT__,
  * _tzcnt_u32 under __BMI__), else the GNU builtin, else portable C.
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,8 +42,25 @@ cty(ty_t t)
 	case K_SINT:
 		return TYW(t) <= 8 ? "int8_t" : TYW(t) <= 16 ? "int16_t" :
 		    TYW(t) <= 32 ? "int32_t" : "int64_t";
+	case K_FLOAT:
+		return TYW(t) == 32 ? "float" : "double";
 	}
 	return NULL;
+}
+
+/* an IEEE constant, exactly: a hexadecimal literal of its type */
+static void
+fkonst(struct sbuf *b, ty_t t, double v)
+{
+	const char *sfx = TYW(t) == 32 ? "f" : "";
+
+	if (isnan(v))
+		sb_printf(b, "(0.0%s / 0.0%s)", sfx, sfx);
+	else if (isinf(v))
+		sb_printf(b, "(%s1.0%s / 0.0%s)", v < 0 ? "-" : "", sfx, sfx);
+	else
+		sb_printf(b, "((%s)%a%s)", TYW(t) == 32 ? "float" : "double", v,
+		    sfx);
 }
 
 static int
@@ -76,6 +94,7 @@ struct em {
 };
 
 static void pe(struct em *E, struct sbuf *b, nid n);
+static void pf(struct em *E, struct sbuf *b, nid n);
 
 static const char *
 tmp_name(struct em *E, nid n)
@@ -231,6 +250,10 @@ pe(struct em *E, struct sbuf *b, nid n)
 	}
 	if (b->n > 60000) {
 		fail_e(E, "the expression is too long");
+		return;
+	}
+	if (TYK(t) == K_FLOAT || (op == O_CAST && TYK(N.ty[a]) == K_FLOAT)) {
+		pf(E, b, n);
 		return;
 	}
 	switch (op) {
@@ -466,6 +489,85 @@ pe(struct em *E, struct sbuf *b, nid n)
 	}
 	}
 	fail_e(E, opinfo[op].name);
+}
+
+/*
+ * Float values (IEEE binary32/64, as C99 with FLT_EVAL_METHOD 0 does
+ * them on x86-64): each operation in its own type, written so that no
+ * implicit conversion intervenes.  Floats converted to integers come
+ * from the original program (the conversion is partial, so it is never
+ * hoisted out of the ?: arm it was in).
+ */
+static void
+pf(struct em *E, struct sbuf *b, nid n)
+{
+	int op = N.op[n];
+	ty_t t = N.ty[n];
+	const char *T = cty(t);
+	nid a = N.a[n], c = N.b[n];
+
+	E->em->floats = 1;
+	switch (op) {
+	case O_CONST:
+		fkonst(b, t, N.kr[n]);
+		return;
+	case O_VAR:
+	case O_UNDEF:
+		break;
+	case O_ADD:
+	case O_SUB:
+	case O_MUL:
+	case O_DIV:
+		sb_printf(b, "((%s)(", T);
+		pe(E, b, a);
+		sb_printf(b, ") %s (%s)(", op == O_ADD ? "+" : op == O_SUB ? "-" :
+		    op == O_MUL ? "*" : "/", T);
+		pe(E, b, c);
+		sb_puts(b, "))");
+		return;
+	case O_NEG:
+		sb_printf(b, "(-(%s)(", T);
+		pe(E, b, a);
+		sb_puts(b, "))");
+		return;
+	case O_SEL:
+		sb_puts(b, "((");
+		pe(E, b, a);
+		sb_printf(b, ") ? (%s)(", T);
+		pe(E, b, c);
+		sb_printf(b, ") : (%s)(", T);
+		pe(E, b, N.c[n]);
+		sb_puts(b, "))");
+		return;
+	case O_CAST:
+		if (t == TY_BOOL) {
+			sb_puts(b, "((int)((");
+			pe(E, b, a);
+			sb_puts(b, ") != 0))");
+			return;
+		}
+		if (!cty(t)) {
+			fail_e(E, "a conversion to a non-C type");
+			return;
+		}
+		sb_printf(b, "((%s)(", cty(t));
+		pe(E, b, a);
+		sb_puts(b, "))");
+		return;
+	default:
+		fail_e(E, "a float operation without a C operator");
+		return;
+	}
+	/* variables and undefined values: as for integers */
+	if (op == O_VAR) {
+		int s = (int)N.ki[n];
+		if (s >= E->v->nleaf) {
+			fail_e(E, "a free variable");
+			return;
+		}
+		sb_printf(b, "(%s)", E->v->leaf[s].text);
+	} else
+		sb_printf(b, "((%s)0)", T);
 }
 
 int
