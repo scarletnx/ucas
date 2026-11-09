@@ -322,6 +322,81 @@ void ec_structure(const struct ecp_curve *E, const nn *N,
     const struct nnfac *f, nn *n1, nn *n2);
 int ec_embedding_degree(const nn *p, const nn *r, int max);
 
+/* ---- ecpoly.c: polynomials over F_p ---- */
+struct px {
+	int d;              /* degree, -1 for 0 */
+	int cap;            /* coefficients allocated */
+	u64 *c;             /* coefficient i at c + i * F->n */
+};
+struct pxmod {
+	struct px m, inv;   /* modulus, 1/rev(m) mod x^deg(m) */
+};
+void px_init(struct px *a);
+void px_free(struct px *a);
+void px_reserve(const struct mf *F, struct px *a, int d);
+void px_norm(const struct mf *F, struct px *a);
+void px_zero(const struct mf *F, struct px *a);
+void px_set_c(const struct mf *F, struct px *a, const u64 *c);
+void px_set_u64(const struct mf *F, struct px *a, int64_t v);
+void px_set_x(const struct mf *F, struct px *a);
+void px_copy(const struct mf *F, struct px *r, const struct px *a);
+u64 *px_coef(const struct mf *F, const struct px *a, int i);
+int px_eq(const struct mf *F, const struct px *a, const struct px *b);
+int px_is_one(const struct mf *F, const struct px *a);
+void px_add(const struct mf *F, struct px *r, const struct px *a,
+    const struct px *b);
+void px_sub(const struct mf *F, struct px *r, const struct px *a,
+    const struct px *b);
+void px_scale(const struct mf *F, struct px *r, const struct px *a,
+    const u64 *c);
+void px_mul(const struct mf *F, struct px *r, const struct px *a,
+    const struct px *b);
+void px_sqr(const struct mf *F, struct px *r, const struct px *a);
+void px_divmod(const struct mf *F, struct px *q, struct px *r,
+    const struct px *a, const struct px *b);
+void px_rem(const struct mf *F, struct px *r, const struct px *a,
+    const struct px *b);
+void pxmod_init(const struct mf *F, struct pxmod *M, const struct px *m);
+void pxmod_free(struct pxmod *M);
+void px_reduce(const struct mf *F, const struct pxmod *M, struct px *r,
+    const struct px *a);
+void px_mulmod(const struct mf *F, const struct pxmod *M, struct px *r,
+    const struct px *a, const struct px *b);
+void px_powmod(const struct mf *F, const struct pxmod *M, struct px *r,
+    const struct px *a, const nn *e);
+void px_monic(const struct mf *F, struct px *a);
+void px_gcd(const struct mf *F, struct px *g, const struct px *a,
+    const struct px *b);
+int px_invmod(const struct mf *F, struct px *r, const struct px *a,
+    const struct px *m, struct px *g);
+void px_deriv(const struct mf *F, struct px *r, const struct px *a);
+void px_eval(const struct mf *F, u64 *r, const struct px *a, const u64 *x);
+void px_compose_mod(const struct mf *F, const struct pxmod *M, struct px *r,
+    const struct px *a, const struct px *b);
+int px_roots(const struct mf *F, const struct px *f, u64 *roots, int max);
+void px_print(const struct mf *F, char *buf, size_t sz, const struct px *a,
+    const char *var);
+
+/* ---- ecschoof.c: division polynomials, Schoof, SEA ---- */
+/* f_n = psi_n (n odd), psi_n / (2y) (n even), for n = 0 .. nmax */
+void ec_divpolys(const struct ecp_curve *E, struct px *f, int nmax);
+int ec_count_schoof(const struct ecp_curve *E, nn *N, int verbose);
+int ec_count_sea(const struct ecp_curve *E, nn *N, int verbose);
+/* N with N = c mod M in the Hasse interval and N P = O for random P */
+int ec_match_bsgs(const struct ecp_curve *E, const nn *c, const nn *M, nn *N);
+/* the last count's per-prime record (for printing) */
+struct ecsch_log {
+	int n;
+	int l[128];
+	int t[128];       /* t mod l, or -1 when only a set is known */
+	char kind[128];   /* 's' Schoof, 'e' Elkies, 'a' Atkin, '2' l = 2 */
+	int deg[128];     /* the degree worked modulo */
+	u64 ms[128];
+	nn M;             /* the CRT modulus reached */
+	int bsgs;         /* a final baby-step giant-step match was used */
+};
+extern struct ecsch_log ecsch_last;
+
 /* ---- ecalg.c: ECM ---- */
 size_t ecff_primes(u64 limit, const uint32_t **out);  /* primes <= limit */
 struct ecm_res {

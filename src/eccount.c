@@ -218,8 +218,9 @@ hkey(const u64 *x)
 /* returns the number of solutions written (up to max), or -1 when Q has
  * a small order (then *small = ord(Q)) */
 static int
-bsgs_all(const struct ecp_curve *E, const struct ecp_pt *Q, const nn *k0,
-    const nn *k1, nn *sol, int max, u64 *small)
+bsgs_all(const struct ecp_curve *E, const struct ecp_pt *Q,
+    const struct ecp_pt *Tg, const nn *k0, const nn *k1, nn *sol, int max,
+    u64 *small)
 {
 	const struct mf *F = E->K;
 	nn w, sN, step, c;
@@ -288,6 +289,8 @@ bsgs_all(const struct ecp_curve *E, const struct ecp_pt *Q, const nn *k0,
 	nn_add_u64(&c, k0, s);
 	nn_set(&step, 2 * s + 1);
 	ecp_mul(E, &R, Q, &c);
+	if (Tg)
+		ecp_sub(E, &R, &R, Tg);     /* giants c Q - T */
 	ecp_mul(E, &G, Q, &step);
 	for (;;) {
 		nn lo_c;
@@ -363,7 +366,7 @@ ec_count_bsgs(const struct ecp_curve *E, nn *N, struct eccert *C)
 		if (!nn_is_zero(&r))
 			nn_add_u64(&k0, &k0, 1);
 		nn_divmod(&k1, NULL, &hi2, LL);
-		ns = bsgs_all(EE, &Q, &k0, &k1, sol, 8, &small);
+		ns = bsgs_all(EE, &Q, NULL, &k0, &k1, sol, 8, &small);
 		if (ns < 0) {
 			nn t;
 			if (!nn_mul_u64(&t, LL, small))
@@ -392,6 +395,73 @@ ec_count_bsgs(const struct ecp_curve *E, nn *N, struct eccert *C)
 		}
 	}
 	return 0;
+}
+
+/* N = c mod M in the Hasse interval with N P = O for random points P */
+int
+ec_match_bsgs(const struct ecp_curve *E, const nn *c, const nn *M, nn *N)
+{
+	const struct mf *F = E->K;
+	nn lo, hi, c0, r, k1, kk0, cand[8];
+	int nc = -1, it, i;
+
+	ec_hasse(&F->P, &lo, &hi, NULL);
+	/* c0: the least N >= lo with N = c mod M */
+	nn_mod(&r, c, M);
+	{
+		nn lr;
+		nn_mod(&lr, &lo, M);
+		c0 = lo;
+		nn_sub(&c0, &c0, &lr);
+		nn_add(&c0, &c0, &r);
+		if (nn_cmp(&c0, &lo) < 0)
+			nn_add(&c0, &c0, M);
+	}
+	if (nn_cmp(&c0, &hi) > 0)
+		return 0;
+	nn_sub(&k1, &hi, &c0);
+	nn_divmod(&k1, NULL, &k1, M);
+	nn_zero(&kk0);
+	for (it = 0; it < 20; it++) {
+		struct ecp_pt P, Q, T;
+		nn sol[8];
+		u64 small = 0;
+		int ns;
+		ecp_random_point(E, &P);
+		if (nc >= 0) {
+			/* filter the candidates */
+			int m = 0;
+			for (i = 0; i < nc; i++) {
+				ecp_mul(E, &T, &P, &cand[i]);
+				if (T.inf)
+					cand[m++] = cand[i];
+			}
+			nc = m;
+			if (nc <= 1)
+				break;
+			continue;
+		}
+		ecp_mul(E, &Q, &P, M);
+		ecp_mul(E, &T, &P, &c0);
+		ecp_neg(E, &T, &T);
+		if (Q.inf)
+			continue;
+		ns = bsgs_all(E, &Q, &T, &kk0, &k1, sol, 8, &small);
+		if (ns < 0 || ns > 8)
+			continue;
+		nc = ns;
+		for (i = 0; i < ns; i++) {
+			nn t;
+			nn_mul(&t, &sol[i], M);
+			nn_add(&cand[i], &c0, &t);
+		}
+		if (nc <= 1)
+			break;
+	}
+	if (nc != 1)
+		return 0;
+	*N = cand[0];
+	return 1;
 }
 
 /* ---- CM: Cornacchia ---- */

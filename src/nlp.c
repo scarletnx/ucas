@@ -7697,14 +7697,14 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	if (ecff_is_cmd(s + i, n - i))
+		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
 	}
-	if (ecff_is_cmd(s + i, n - i))
-		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */

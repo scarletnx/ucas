@@ -665,6 +665,34 @@ cmd_ecorder(void)
 	print_curve_head();
 	printf("  trace: t = p + 1 - #E = %s\n", zz_str(&t));
 	printf("  how: %s\n", how);
+	if (m == CM_SCHOOF || m == CM_SEA || (m == CM_AUTO && !cc.named &&
+	    ecsch_last.n > 0 && CF->bits > 56)) {
+		char b[4000];
+		size_t o = 0;
+		int i;
+		for (i = 0; i < ecsch_last.n && o + 80 < sizeof b; i++) {
+			if (ecsch_last.t[i] >= 0)
+				o += (size_t)snprintf(b + o, sizeof b - o, "%s%d mod %d"
+				    "%s", i ? ", " : "", ecsch_last.t[i],
+				    ecsch_last.l[i], ecsch_last.kind[i] == 'e' ?
+				    " (Elkies)" : ecsch_last.kind[i] == 'a' ?
+				    " (Atkin)" : "");
+			else
+				o += (size_t)snprintf(b + o, sizeof b - o, "%s? mod %d "
+				    "(Atkin)", i ? ", " : "", ecsch_last.l[i]);
+		}
+		printf("  residues: t = %s\n", b);
+		o = 0;
+		for (i = 1; i < ecsch_last.n && o + 60 < sizeof b; i++)
+			o += (size_t)snprintf(b + o, sizeof b - o, "%sl = %d: degree "
+			    "%d, %llu ms", i > 1 ? "; " : "", ecsch_last.l[i],
+			    ecsch_last.deg[i], (unsigned long long)ecsch_last.ms[i]);
+		printf("  per prime: %s\n", b);
+		if (ecsch_last.bsgs)
+			printf("  finish: the residues fix t mod %s; a baby-step "
+			    "giant-step match on random points picked #E among the "
+			    "candidates\n", nn_str(&ecsch_last.M));
+	}
 	ec_hasse(&CF->P, &lo, &hi, NULL);
 	printf("  check: Hasse: |t| <= 2 sqrt(p)\n");
 	print_cert(&C, &N);
