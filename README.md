@@ -179,6 +179,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `solve L = R [, L2 = R2 ...] [for x [, y]]` | polynomial equations (exact roots: rational, surds, cubics in trigonometric or hyperbolic form, quartics that split over Q(sqrt d); otherwise numeric with a note), rational equations (poles excluded), `sin u = c` and other invertible functions with the general solution in k, one square root (squared, extraneous roots named), linear systems (unique, a family with free unknowns, or none), two polynomial equations by the resultant; every solution substituted back |
 | `substitute x = a [, y = b] in F` (`subst`) | F at those values, simplified |
 | `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
+| `ring R [EXPR]`, `inverse A mod N`, `crt ...`, `factor P over GF(q)`, `magic D u32`, `gf2matrix EXPR` ... | rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them (see "Rings and finite fields") |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
 sampled (65536 points, edge values first), and the output says so.
@@ -735,7 +736,11 @@ behind it.  English only; the translator is a hand-written parser
   discontinuous`, `where is x^3 concave`, `the asymptotes of`, `the
   roots of`, `where does f cross zero`, `identify the equation x^2 + y^2
   = 1`, `what kind of equation is y'' + y = 0`, `classify`, `what type
-  of function is`, `what properties does f have`).
+  of function is`, `what properties does f have`); rings and finite
+  fields (`the inverse of 3 mod 256`, `x ≡ 2 mod 3 and x ≡ 3 mod 5`, `is
+  Z/12 a field`, `in GF(2^8) with the AES polynomial multiply 0x57 by
+  0x83`, `the magic number for dividing a u32 by 7`; see "Rings and
+  finite fields").
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
@@ -1004,6 +1009,109 @@ matrix power is exact).
   none).
 - PDEs: one space dimension, linear, constant coefficients; Dirichlet,
   periodic or (for advection) outflow boundaries.
+
+## Rings and finite fields
+
+```
+> inverse 3 mod 2^32
+3^-1 = 0xaaaaaaab mod 2^32 (2863311531)
+  how: Newton's iteration y = y*(2 - a*y), from y = a ...: 4 steps
+  check: 0x3 * 0xaaaaaaab = 1 mod 2^32 (the product's low 32 bits are 0x1)
+  as u32 arithmetic: x * 0xaaaaaaab undoes x * 0x3 ..., and x * 0xaaaaaaab = x / 3 exactly when 3 divides x
+  check in ucas's u32 evaluator: x * 0x3 * 0xaaaaaaab = x for ... (66048 inputs)
+> gf(2^8, aes) 0x57 * 0x83
+0x57 * 0x83 = 0xc1 = x^7 + x^6 + 1 in GF(2^8, aes)
+  how: carry-less product 0x2b79, reduced mod (x^8 + x^4 + x^3 + x + 1), the AES (Rijndael) polynomial 0x11b
+  check: the same with a second multiplication algorithm (shift-and-add, xtime)
+> x ≡ 2 mod 3 and x ≡ 3 mod 5
+  ucas: crt x = 2 mod 3 , x = 3 mod 5
+x = 8 (mod 15)
+> magic 7 u32
+  m = ceil(2^35 / 7) = 4908534053 (0x124924925, 33 bits), shift s = 3
+  proof (Granlund-Montgomery): m*7 = 2^35 + e with e = 3 <= 2^3 ...
+    C:    t = mulhi(x, 0x24924925); q = (t + ((x - t) >> 1)) >> 2;
+  check: the ucas form above, run by ucas's evaluator in u32, equals x / 7 for ...
+```
+
+`src/ntheory.c` (number theory on 64-bit integers), `src/gfield.c`
+(rings, polynomials and matrices over them), `src/ring.c` (the commands;
+parts in `src/ring_*.inc`) and `src/ring_nlp.c` (English).  A ring is
+written
+
+| ring | |
+|------|--|
+| `Z/12`, `Z/12Z`, `Zmod(12)`, `Z_12`, `mod 12`, `(mod 12)` | the integers mod n (n < 2^64; `mod 2^61 - 1` works) |
+| `GF(q)`, `GF(p^n)`, `GF 256`, `GF256`, `F_q` | the field with q elements; for n > 1 the modulus is the smallest primitive polynomial of degree n (its coefficients read as a base-p number; *not* necessarily the Conway polynomial), which the description says |
+| `GF(2^8, aes)`, `GF(2^8) aes`, `GF(2^8, x^8 + x^4 + x^3 + x + 1)`, `GF(256, 0x11b)`, `GF(2^8) mod f` | a given modulus: a polynomial, a code (bits for p = 2), or a name: `aes` (0x11b), `rs` (0x11d), `crc8`, `crc16`, `ccitt`, `crc32`, `crc32c`, `crc64` |
+| `GF(2)[x]/(f)`, `Z/4[x]/(x^2 + 1)` | a quotient ring, a field only when the base is prime and f irreducible (said, with the factors and the unit count when not) |
+| `Z[i]`, `Z[sqrt(d)]` (`Z[√d]`) | Gaussian and quadratic integers |
+| `Q[x]/(f)` | rational polynomials mod f |
+
+Elements of an extension are codes: the coefficients as base-p digits
+(bits for GF(2^n)), so `0x57` is x^6 + x^4 + x^2 + x + 1; `x` (also `a`,
+`α`) is the class of x.  Every answer prints how it was found and a
+check by another route: brute force over small rings, inverses multiplied
+back with a second multiplication algorithm (shift-and-add, or the log
+tables), factors multiplied together and each tested with Rabin's test,
+Ben-Or's test and Berlekamp's factor count against Rabin's, ucas's own
+evaluator for anything printed as ucas.
+
+| command | |
+|---------|--|
+| `ring R` (`gf ...`, `zmod n`) | the ring: order, characteristic, field / integral domain (with a witness), CRT decomposition, units and the unit group (invariant factors, `C2 x C4`), zero divisors, nilpotents, idempotents, ideals; for GF(q): the modulus (irreducible by Rabin, Ben-Or and Berlekamp; primitive or not, a generator), subfields, Frobenius, and for q <= 256 the field axioms by brute force |
+| `ring R units\|zerodivisors\|nilpotents\|idempotents\|ideals\|field\|domain\|char\|order\|generators\|subfields\|table\|frobenius\|elements` | one part; `table` is the log/antilog table (q <= 256) |
+| `ring R EXPR`, `GF(2^8, aes) 0x57 * 0x83` | arithmetic (`+ - * / ^`, negative powers, `inv(a)`), with the carry-less product for one GF(2^n) product and a second evaluation as the check |
+| `ring R A` (one element), `ring R minpoly A` | Z/n: unit or zero divisor (witness), orders, nilpotent, idempotent, square roots; GF(q): inverse, order, log to the generator, minimal polynomial and conjugates, trace, norm, square root (char 2) |
+| `inverse A mod N`, `inverse A in R` | by extended Euclid (the Bezout identity is printed), or why not (gcd, a zero divisor witness); `mod 2^k` for k <= 128 by Newton's iteration, with what it means for uN multiplication, checked in ucas's evaluator |
+| `order A mod N`, `order A in GF(q)` | multiplicative order (from lambda(N), removing primes), additive order; `mod 2^k` up to 128 bits |
+| `phi N` (`totient`), `carmichael N` (`lambda`), `factorint N` | with the factorisation, counted by brute force up to 2^24; Carmichael numbers are named |
+| `congruence A = B mod m [, ...]`, `crt ...`, `solve ... mod m` | linear (gcd and the solution count), `x^2 = c` (square roots), other polynomials by search (by prime power and CRT for large m); systems by CRT (moduli need not be coprime); checked by substitution and brute force |
+| `legendre A P`, `jacobi A N` | with Euler's criterion as the check; a composite bottom says that 1 does not mean a square |
+| `sqrtmod A N` (`sqrt A mod N`), `qr N` | all square roots: Tonelli-Shanks per prime, Hensel lifting, CRT; brute-force count up to 2^22 |
+| `primroot N [A]`, `primroot A mod N` | the smallest primitive root and all of them, or whether A is one (and why none exists mod 12) |
+| `dlog A base G mod N`, `log A [base G] in GF(q)` | Pohlig-Hellman with baby-step giant-step; `2^x = 3 mod 11` in English |
+| `magic D [uN\|iN]` | division by a constant as multiply-high and shift: the least shift, the magic number, the add-back sequence when it needs N+1 bits, C and ucas forms, the Granlund-Montgomery proof with the numbers, and a check: every input for N <= 22, else the ends, both sides of the multiples of D near 0 and the top, and 2^20 random inputs; the ucas form is run through ucas's evaluator.  The type is asked (or u32 with a note) when not given |
+| `factor P over GF(q)`, `factor P mod p` | square-free split, distinct-degree, Cantor-Zassenhaus (trace map in characteristic 2) |
+| `irreducible P [over GF(q)]`, `primitive P over GF(q)` | Rabin's test, checked by Ben-Or, Berlekamp, and trial division when cheap; primitive: the order of x (an LFSR's period), stepped through when small.  Without a field, bits mean GF(2) (with a note) |
+| `roots P over R`, `order P over GF(q)`, `poly EXPR mod n`, `gcd A, B mod p` | roots (search over non-fields: Z/8 has 4 roots of x^2 - 1), the order of x mod P (the period of a CRC or LFSR; checked by x^o = 1 and x^(o/r) != 1), arithmetic, gcd with Bezout cofactors |
+| `matrix M mod p`, `det`, `rank`, `nullspace`, `inverse M mod n`, `matinv`, `solve M x = b mod p`, `matsolve M, b mod p` | `M` as `[[1,2],[3,4]]` or `[1, 2; 3, 4]`; Gaussian elimination over fields; over Z/n (n composite) the determinant and inverse by unimodular (Euclid) row operations; rank and nullspace only over fields (said otherwise) |
+| `gf2matrix EXPR [uN]` (`gf2map`) | the GF(2) matrix of an xor/shift/and expression (`^` is xor here), from f(1 << j), checked against f on every x up to 20 bits; affine maps get their constant; rank, the inverse as an xor of masked shifts (run back through the evaluator), the characteristic polynomial and the map's order (a CRC or LFSR step); a non-linear map gets a witness |
+| `ring Z[i] gcd(A, B)`, `gcd A, B in Z[i]`, `factor A in Z[i]`, `norm A in Z[i]`, `ring Z[sqrt(d)] EXPR` | Gaussian gcd (rounded Euclid), factorisation into Gaussian primes (2 ramifies, p = 3 mod 4 inert, p = 1 mod 4 splits), norms; `ring Z[sqrt(d)]` gives the units (the fundamental unit from the continued fraction) and whether it is a UFD |
+| `ring Q[x]/(f) [EXPR]` | arithmetic with rational coefficients, inverses by extended Euclid (checked by the product); a field when f is irreducible: proved by the rational root test (degree <= 3) or irreducibility mod a prime, else "not decided" (x^4 + 1 is reducible mod every prime) |
+
+The shared words `inverse order factor gcd primitive roots solve det
+rank matrix poly norm log sqrt nullspace` are ring commands only when the
+line names a ring (`mod n`, `over GF(q)`, `in Z[i]`); otherwise they mean
+what they meant before (`primitive F` is still the antiderivative).
+
+English (`src/ring_nlp.c` reads the sentence before the general
+translator): `what is the inverse of 3 mod 256`, `3^-1 mod 7`, `solve
+3x = 4 mod 7`, `3x ≡ 4 (mod 7)`, `x ≡ 2 mod 3 and x ≡ 3 mod 5`, `find x
+such that x = 1 mod 4 and x = 2 mod 9`, `is 2 a primitive root mod 11`,
+`the smallest primitive root mod 23`, `discrete log of 3 base 2 mod 11`,
+`the discrete logarithm of 13 to the base 3 mod 17`, `2^x = 3 mod 11`,
+`in GF(2^8) with the AES polynomial multiply 0x57 by 0x83`, `0x57 times
+0x83 in the AES field`, `factor x^4 + 1 over GF(2)`, `is x^8+x^4+x^3+x+1
+irreducible over GF(2)`, `is it primitive`, `is Z/12 a field`, `is it
+an integral domain`, `the units of Z/12`, `zero divisors of Z/18`,
+`idempotents of Z/30`, `the magic number for dividing a u32 by 7`, `...
+a signed 32-bit int by 10`, `the order of 2 mod 101`, `phi of 100`,
+`euler's totient of 36`, `the carmichael function of 561`, `is 561
+prime`, `legendre symbol of 3 and 7`, `is 3 a quadratic residue mod 7`,
+`the quadratic residues mod 13`, `square root of 10 mod 13`, `the
+determinant of [[1,2],[3,4]] mod 7`, `rank of ... over GF(2)`, `gcd of
+x^4 - 1 and x^6 - 1 mod 7`, `norm of 3 + 4i in Z[i]`, `what is the GF(2)
+matrix of x ^ (x << 3) for a u8`, `the period of the LFSR with polynomial
+x^4 + x + 1`, `the minimal polynomial of 0x02 in GF(2^8)`, `is 0x03 a
+generator of GF(2^8) aes`, `the log table for GF(16)`, `tell me about
+GF(16)`.
+
+Limits: moduli and fields up to 2^64 elements (`mod 2^k` up to 128 bits
+for `inverse` and `order`); polynomials up to degree 255; matrices up to
+64 x 64; discrete logs need the group order's prime factors below 2^40;
+no factorisation over Q or Z (`Q[x]/(f)` may answer "not decided"), no
+Conway polynomials, no general Z[sqrt d] factorisation, and `find`/`fit`
+do not use modular inverses yet.
 
 ## Design
 

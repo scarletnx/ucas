@@ -22,6 +22,7 @@
  */
 #include "ucas.h"
 #include "props.h"
+#include "ring.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1842,6 +1843,10 @@ statement(struct P *p)
 	if (pk(p) == T_EOF)
 		return;
 	diag_tok = p->i;
+	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
+	 * when hyper.c would read it as a value */
+	if (pk(p) == T_ID && ring_command(p))
+		return;
 	if (hyper_hook(p))
 		return;
 	if (pk(p) == T_ID && (pk2(p) == T_ID || pk2(p) == T_NUM ||
@@ -1858,6 +1863,8 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		if (ring_command(p))    /* Z/n, GF(q), ... (ring.c) */
+			return;
 		if (alg_command(p))	/* expand, factor, solve ... (alg.c) */
 			return;
 		if (calc2_command(p))

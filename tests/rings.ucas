@@ -1,0 +1,136 @@
+# Rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them
+
+# Z/n: inverses (or why not), orders, phi, lambda
+inverse 3 mod 256
+inverse 6 mod 15
+inverse 17 mod 3120
+inverse 3 mod 2^32
+inverse 7 mod 2^64
+inverse 6 mod 2^8
+order 2 mod 101
+order 3 mod 2^64
+phi 100
+carmichael 561
+factorint 600851475143
+
+# the ring itself, its elements and parts
+ring Z/12
+ring Z/12 units
+ring Z/12 zero divisors
+ring Z/30 idempotents
+ring Z/7
+ring Z/12 4
+ring Zmod(8) 3
+
+# congruences and the Chinese remainder theorem
+congruence 3x = 4 mod 7
+congruence 6x = 4 mod 10
+crt x = 2 mod 3, x = 3 mod 5
+crt x = 2 mod 4, x = 3 mod 6
+congruence x^2 + x + 1 = 0 mod 7
+
+# squares, symbols, primitive roots, discrete logs
+legendre 2 7
+jacobi 2 15
+sqrtmod 2 7
+sqrt 4 mod 15
+sqrtmod 5 mod 2^61 - 1
+qr 11
+primroot 11
+primroot 12
+primroot 2 mod 11
+dlog 3 base 2 mod 11
+dlog 5 base 2 mod 1000003
+
+# division by a constant: multiply-high and shift
+magic 7 u32
+magic 7 i32
+magic 10 u64
+magic 7 u8
+
+# finite fields
+ring GF(16)
+ring GF(16) table
+ring GF(2^8, aes)
+gf(2^8, aes) 0x57 * 0x83
+GF(2^8, aes) 0x53
+inverse 0x53 in GF(2^8, aes)
+log 0x53 in GF(2^8, aes)
+ring GF(9)
+gf(9) x^2 + 1
+ring GF(2^64)
+ring GF(2)[x]/(x^4 + 1)
+ring Z/4[x]/(x^2 + 1)
+
+# polynomials over GF(q)
+irreducible x^8 + x^4 + x^3 + x + 1 over GF(2)
+primitive x^8 + x^4 + x^3 + x + 1 over GF(2)
+primitive x^8 + x^4 + x^3 + x^2 + 1 over GF(2)
+factor x^4 + 1 over GF(2)
+factor x^8 - 1 mod 3
+factor x^15 - 1 over GF(2)
+factor x^6 + 1 over GF(4)
+factor crc16 over GF(2)
+order crc32 over GF(2)
+roots x^2 + 1 mod 5
+roots x^2 - 1 mod 8
+poly (x + 1)^5 mod 5
+gcd x^4 - 1, x^6 - 1 mod 7
+
+# matrices over Z/n and GF(q)
+matrix [[1,2],[3,4]] mod 7
+det [[2,3],[1,4]] mod 12
+inverse [[1,2],[3,5]] mod 12
+nullspace [[1,1,0],[0,1,1],[1,0,1]] mod 2
+solve [[1,2],[3,4]] x = [1,0] mod 7
+
+# bit expressions as GF(2) linear maps
+gf2matrix x ^ (x << 3) u8
+gf2matrix (x << 1) ^ ((x >> 7) * 0x1d) u8
+gf2matrix x * 3 u8
+
+# Gaussian integers, Z[sqrt d], Q[x]/(f)
+ring Z[i]
+gcd 11 + 3i, 1 + 8i in Z[i]
+factor 5 + 10i in Z[i]
+norm 3 + 4i in Z[i]
+ring Z[sqrt(2)]
+ring Z[sqrt(-5)]
+ring Z[sqrt(2)] (1 + sqrt(2))^5
+ring Q[x]/(x^2 - 2)
+ring Q[x]/(x^2 - 2) 1/(1 + x)
+ring Q[x]/(x^4 + 1)
+ring Q[x]/(x^5 - x - 1)
+
+# English
+what is the inverse of 3 mod 256
+solve 3x = 4 mod 7
+x ≡ 2 mod 3 and x ≡ 3 mod 5
+is 2 a primitive root mod 11
+discrete log of 3 base 2 mod 11
+in GF(2^8) with the AES polynomial multiply 0x57 by 0x83
+factor x^4 + 1 over GF(2)
+is Z/12 a field
+the units of Z/12
+the magic number for dividing a u32 by 7
+the order of 2 mod 101
+phi of 100
+is x^8+x^4+x^3+x+1 irreducible over GF(2)
+is it primitive
+what is the GF(2) matrix of x ^ (x << 1) for a u8
+3x ≡ 4 (mod 7)
+what is 3^-1 mod 7?
+find x such that x = 1 mod 4 and x = 2 mod 9
+euler's totient of 36
+what are the quadratic residues mod 13
+is 3 a quadratic residue mod 7?
+what is the discrete logarithm of 13 to the base 3 mod 17
+what is 2^x = 3 mod 11
+is 561 prime
+the determinant of [[1,2],[3,4]] mod 7
+norm of 3 + 4i in Z[i]
+tell me about GF(16)
+the magic number for dividing a signed 32-bit int by 10
+the period of the LFSR with polynomial x^4 + x + 1
+what is the minimal polynomial of 0x02 in GF(2^8)
+is 0x03 a generator of GF(2^8) aes

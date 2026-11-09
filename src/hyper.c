@@ -1589,6 +1589,11 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"expand", "factor", "collect", "simplify", "together", "apart",
 	"cancel", "gcd", "lcm", "resultant", "discriminant", "quo", "rem",
 	"divide", "solve", "substitute", "subst",
+	/* ring.c */
+	"ring", "inverse", "order", "phi", "carmichael", "factorint",
+	"congruence", "crt", "legendre", "jacobi", "sqrtmod", "qr", "primroot",
+	"dlog", "magic", "irreducible", "det", "rank", "nullspace", "matinv",
+	"matsolve", "gf2matrix", "matrix",
 	"derivative", "series", NULL};
 
 static const char *
