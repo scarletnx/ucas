@@ -1376,13 +1376,49 @@ cmd_selftest(char *s)
 		}
 		z_release(mk);
 	}
+	/* integers: identities on random numbers of 1 .. 600 bits */
+	for (t = 0; t < n; t++) {
+		zmark mk = z_mark();
+		zint a = 0, b = 0, q, r, g, x, y;
+		const char *e;
+		int i, la = 1 + rnd(20), lb = 1 + rnd(20);
+		for (i = 0; i < la; i++)
+			a = z_add(z_mul(a, z_from_i64(1 << 30)), z_from_i64(rnd(1 <<
+			    30)));
+		for (i = 0; i < lb; i++)
+			b = z_add(z_mul(b, z_from_i64(1 << 30)), z_from_i64(rnd(1 <<
+			    30)));
+		if (rnd(2))
+			a = z_neg(a);
+		if (rnd(2))
+			b = z_neg(b);
+		if (b == 0)
+			b = Z_ONE;
+		if (!z_eq(z_sub(z_add(a, b), b), a))
+			bad++, printf("  FAIL a + b - b\n");
+		if (!z_eq(z_divexact(z_mul(a, b), b), a))
+			bad++, printf("  FAIL a b / b\n");
+		z_divmod_floor(a, b, &q, &r);
+		if (!z_eq(z_add(z_mul(q, b), r), a) || (r != 0 && z_sign(r) !=
+		    z_sign(b)) || z_cmpabs(r, b) >= 0)
+			bad++, printf("  FAIL floor division\n");
+		g = z_xgcd(a, b, &x, &y);
+		if (!z_eq(z_add(z_mul(x, a), z_mul(y, b)), g) || !z_divides(g, a) ||
+		    !z_divides(g, b))
+			bad++, printf("  FAIL xgcd\n");
+		if (!z_parse(z_str(a), &q, &e) || *e || !z_eq(q, a))
+			bad++, printf("  FAIL print/parse\n");
+		z_release(mk);
+	}
 	printf("abselftest: %d random pairs of groups, %d random "
-	    "homomorphisms: %s\n", n, homs, bad ? "FAILED" : "all identities "
-	    "hold");
+	    "homomorphisms, %d random integer pairs: %s\n", n, homs, n, bad ?
+	    "FAILED" : "all identities hold");
 	printf("  checked: Hom, tensor, Tor, Ext against the cyclic formulas; "
 	    "G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> "
 	    "0 exact (with preimages); G/ker = im; explicit isomorphisms with "
-	    "the invariant-factor form; orders of the canonical generators\n");
+	    "the invariant-factor form; orders of the canonical generators; "
+	    "for integers a + b - b, a b / b, floor division, xgcd, printing "
+	    "and parsing back\n");
 	ab_free(&G);
 	ab_free(&H);
 	ab_free(&R);

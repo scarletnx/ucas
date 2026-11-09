@@ -299,8 +299,8 @@ Z/2 -> Z/4 -> Z/2: exact at Z/4
   preimages of the generators of ker g: []
   check: g f = 0, and f(preimages) = the generators of ker g modulo relations
 > abselftest 500
-abselftest: 500 random pairs of groups, 207 random homomorphisms: all identities hold
-  checked: Hom, tensor, Tor, Ext against the cyclic formulas; G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> 0 exact (with preimages); G/ker = im; explicit isomorphisms with the invariant-factor form; orders of the canonical generators
+abselftest: 500 random pairs of groups, 207 random homomorphisms, 500 random integer pairs: all identities hold
+  checked: Hom, tensor, Tor, Ext against the cyclic formulas; G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> 0 exact (with preimages); G/ker = im; explicit isomorphisms with the invariant-factor form; orders of the canonical generators; for integers a + b - b, a b / b, floor division, xgcd, printing and parsing back
 > permgroup S4
 S4: a permutation group of degree 4, order 24
   generators: (1 2 3 4), (1 2)
