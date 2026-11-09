@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * kterm.c - the proof kernel's terms and formulas: sorts, signature,
  * a hash-consed DAG in SoA columns, de Bruijn binders, substitution,

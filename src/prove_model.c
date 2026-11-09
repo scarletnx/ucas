@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * prove_model.c - counterexamples for statements that fail to prove.
  *

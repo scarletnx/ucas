@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * knorm.c - normal forms for the kernel's conversion rule.
  *

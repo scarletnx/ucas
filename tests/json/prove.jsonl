@@ -7,3 +7,4 @@
 {"id": 7, "cmd": "prove", "args": {"name": "ab"}}
 {"id": 8, "cmd": "proof", "args": {"name": "cyclic_order"}}
 {"id": 9, "cmd": "theorem", "args": {"name": "bad", "statement": "forall x:el: x in"}}
+{"id": 10, "cmd": "axioms", "args": {"name": "bockstein"}}

@@ -716,8 +716,10 @@ static const struct jcmd cmds[] = {
 	{"proof_check", "check", 1, 0, "re-check a proved theorem with the "
 	    "independent checker (kcheck.c)", {NM("name", " %s", "the theorem "
 	    "or library lemma")}},
-	{"axioms", "axioms", 1, 0, "every axiom of the proof library "
-	    "(definitions and the integer arithmetic of Z)", {{0}}},
+	{"axioms", "axioms", 1, 0, "the axioms of the proof library "
+	    "(definitions and the integer arithmetic of Z); with a name, the "
+	    "ones that theorem's proofs rest on", {NMO("name", " %s",
+	    "a proved theorem")}},
 	{"lemmas", "lemmas", 1, 0, "the proof library's lemmas and theorems",
 	    {{0}}},
 };

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * prove_cmd.c - the statements of the proof framework (parse.c calls
  * prove_command first on every statement):
@@ -517,14 +518,69 @@ cmd_check(const char *rest)
 		printf("  %s\n", msg);
 }
 
+/* the axioms a proof rests on (every axiom in its DAG) */
 static void
-cmd_axioms(void)
+used_axioms(kthm top, uint8_t *used)
+{
+	uint32_t n = kthm_count(), ns = 0, i;
+	uint8_t *mark = xcalloc(n, 1);
+	kthm *st = xmalloc(n * sizeof *st);
+
+	st[ns++] = top;
+	mark[top] = 1;
+	while (ns) {
+		kthm th = st[--ns];
+		if (kthm_rule(th) == KR_AXIOM)
+			used[kthm_aux(th)] = 1;
+		if (kthm_rule(th) == KR_CONV) {
+			uint32_t s;
+			for (s = 1; s < nksyms; s++) {
+				kthm h = ksyms[s].homthm;
+				if (h && h < th && !mark[h]) {
+					mark[h] = 1;
+					st[ns++] = h;
+				}
+			}
+		}
+		for (i = 0; i < kthm_nprem(th); i++) {
+			kthm q = kthm_prem(th, i);
+			if (!mark[q]) {
+				mark[q] = 1;
+				st[ns++] = q;
+			}
+		}
+	}
+	free(mark);
+	free(st);
+}
+
+static void
+cmd_axioms(const char *rest)
 {
 	uint32_t i;
+	char name[64];
+	uint8_t *used = NULL;
 
 	rep_begin("axioms");
+	if (sscanf(rest, "%63s", name) == 1) {
+		int li = need(name), r[8], nr, k;
+		if (!klemmas[li].th)
+			fail("%s is not proved (prove %s)", name, name);
+		used = xcalloc(nkaxioms + 1, 1);
+		nr = klemmas[li].lib ? 0 : routes(li, r, 8);
+		if (!nr) {
+			r[0] = li;
+			nr = 1;
+		}
+		for (k = 0; k < nr; k++)
+			used_axioms(klemmas[r[k]].th, used);
+		rep_str("name", name);
+		printf("the axioms %s rests on (every route):\n", name);
+	}
 	rep_list("axioms");
 	for (i = 0; i < nkaxioms; i++) {
+		if (used && !used[i])
+			continue;
 		printf("%-14s [%s] %s\n", sym_str(kaxioms[i].name),
 		    kaxioms[i].kind, kaxioms[i].text);
 		rep_obj(NULL);
@@ -534,6 +590,7 @@ cmd_axioms(void)
 		rep_end();
 	}
 	rep_end();
+	free(used);
 }
 
 static void
@@ -573,7 +630,7 @@ prove_command(struct P *p)
 		c = 3;
 	else if (!strcmp(w, "check"))
 		c = 4;
-	else if (!strcmp(w, "axioms") && cmdp_eos(p))
+	else if (!strcmp(w, "axioms"))
 		c = 5;
 	else if (!strcmp(w, "lemmas") && cmdp_eos(p))
 		c = 6;
@@ -604,7 +661,7 @@ prove_command(struct P *p)
 		cmd_check(text);
 		break;
 	case 5:
-		cmd_axioms();
+		cmd_axioms(text);
 		break;
 	case 6:
 		cmd_lemmas();
@@ -631,8 +688,10 @@ prove_is_cmd(const char *s, unsigned long n)
 	}
 	if (!w[c])
 		return 0;
-	if (c >= 4)
+	if (c == 5)
 		return n == strlen(w[c]);
+	if (c == 4 && n == strlen(w[c]))
+		return 1;
 	i = strlen(w[c]);
 	while (i < n && s[i] == ' ')
 		i++;

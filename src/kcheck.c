@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * kcheck.c - an independent re-checker for kernel proofs.
  *

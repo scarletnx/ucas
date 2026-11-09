@@ -5,11 +5,19 @@ axioms
 theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
 prove bockstein
 check bockstein
+axioms bockstein
 proof bockstein
 # a Z/p^k summand dies exactly at d_k
 theorem torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))) and Br(bock(C,p),k+1,j(bock(C,p),a))
 prove torsion
-# general machinery: any exact couple, any page; lattices; diagram chases
+# general machinery: the long exact sequence of a short exact sequence of
+# complexes; the Bockstein couple is exact (derived from it); the grading
+check les_exact
+check bock_couple
+check H_summand
+check deg_k
+check red_dif_wd
+# any exact couple, any page; lattices; diagram chases
 check derived_exact
 check dd_zero
 check modular_law

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * kernel.c - the LCF kernel.  A theorem is a sequent (hypotheses |-
  * conclusion) in this file's SoA table, and only the rules below append

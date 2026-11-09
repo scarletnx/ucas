@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * kauto.c - decision procedures and proof search that return kernel
  * theorems (prove.h).  Nothing here is trusted: every result is built

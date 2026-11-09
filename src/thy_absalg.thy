@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # absalg.thy - the proof library: definitions, the arithmetic axioms of
 # Z, and lemmas proved from them (kscript.c runs it; every lemma ends in
 # kernel rules).  The only axioms are the "def" and "arith" lines.
@@ -874,26 +875,934 @@ proof
   show by dzero_def j1 b0 with 0
 qed
 
-# ---- the Bockstein spectral sequence ----
-# For a cochain complex C of finite type over Z and a prime p, the short
-# exact sequence 0 -> C --p--> C -> C/p -> 0 (exact because C is free)
-# gives the long exact sequence, i.e. the exact couple with
-# D = H*(C;Z) (Htot), E = H*(C;Z/p), i = multiplication by p, j the
-# reduction, k the connecting map.  H(C,n) = H^n(C;Z), a direct summand
-# of H*(C;Z) = (+)_n H^n.  These four lines define the couple.
-func bock(cx, int): cpl
-func Htot(cx): set
+# ---- cochain complexes and cohomology ----
+# A complex A has cochains Ch(A) (every degree; the grading below) and a
+# differential dif.  H(A) = Z/B is given with its projection as the
+# relation Cls(A,z,h), "h is the class of the cocycle z": the five cls_
+# lines are the definition of a quotient group.
+sort hom
+func ap(hom, el): el hom
+func Ch(cx): set
+func dif(cx, el): el hom
+pred iscx(cx)
+def iscx_def: forall A:cx: iscx(A) <-> (subgroup(Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,x) in Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,dif(A,x)) = 0))
+func Hc(cx): set
+pred Cls(cx, el, el)
+def cls_dom: forall A:cx, z h:el: Cls(A,z,h) -> z in Ch(A) and dif(A,z) = 0 and h in Hc(A)
+def cls_tot: forall A:cx, z:el: z in Ch(A) and dif(A,z) = 0 -> exists h:el: Cls(A,z,h)
+def cls_sur: forall A:cx, h:el: h in Hc(A) -> exists z:el: Cls(A,z,h)
+def cls_sub: forall A:cx, z1 z2 h1 h2:el: Cls(A,z1,h1) and Cls(A,z2,h2) -> Cls(A,z1 - z2,h1 - h2)
+def cls_zero: forall A:cx, z h:el: Cls(A,z,h) -> (h = 0 <-> (exists y:el: y in Ch(A) and z = dif(A,y)))
+
+lemma cx_sub: forall A:cx: iscx(A) -> subgroup(Ch(A))
+by iscx_def
+lemma cx_d: forall A:cx, x:el: iscx(A) and x in Ch(A) -> dif(A,x) in Ch(A)
+by iscx_def
+lemma cx_dd: forall A:cx, x:el: iscx(A) and x in Ch(A) -> dif(A,dif(A,x)) = 0
+by iscx_def
+
+lemma cls_zero0: forall A:cx, h:el: iscx(A) and Cls(A,0,h) -> h = 0
+proof
+  fix A h
+  intro cx hc
+  have s: subgroup(Ch(A)) by cx_sub cx
+  have z: 0 in Ch(A) by sub_zero s
+  show h = 0 by cls_zero[A, 0, h] hc z with 0
+qed
+
+lemma cls_00: forall A:cx: iscx(A) -> Cls(A,0,0)
+proof
+  fix A
+  intro cx
+  have s: subgroup(Ch(A)) by cx_sub cx
+  have z: 0 in Ch(A) by sub_zero s
+  obtain h:el st hc: Cls(A,0,h) by cls_tot[A, 0] z
+  have h0: h = 0 by cls_zero0 cx hc
+  show Cls(A,0,0) by hc h0
+qed
+
+lemma cls_neg: forall A:cx, z h:el: iscx(A) and Cls(A,z,h) -> Cls(A,-z,-h)
+proof
+  fix A z h
+  intro cx hc
+  have c0: Cls(A,0,0) by cls_00 cx
+  show Cls(A,-z,-h) by cls_sub[A, 0, z, 0, h] c0 hc
+qed
+
+lemma cls_add: forall A:cx, z1 z2 h1 h2:el: iscx(A) and Cls(A,z1,h1) and Cls(A,z2,h2) -> Cls(A,z1 + z2,h1 + h2)
+proof
+  fix A z1 z2 h1 h2
+  intro cx c1 c2
+  have n2: Cls(A,-z2,-h2) by cls_neg[A, z2, h2] cx c2
+  show by cls_sub[A, z1, -z2, h1, -h2] c1 n2
+qed
+
+lemma cls_eq: forall A:cx, z1 z2 h1 h2 y:el: iscx(A) and Cls(A,z1,h1) and Cls(A,z2,h2) and y in Ch(A) and z1 - z2 = dif(A,y) -> h1 = h2
+proof
+  fix A z1 z2 h1 h2 y
+  intro cx c1 c2 hy e
+  have c: Cls(A,z1 - z2,h1 - h2) by cls_sub[A, z1, z2, h1, h2] c1 c2
+  have z: h1 - h2 = 0 by cls_zero[A, z1 - z2, h1 - h2] c hy e with y
+  show by z
+qed
+
+lemma cls_fun: forall A:cx, z h1 h2:el: iscx(A) and Cls(A,z,h1) and Cls(A,z,h2) -> h1 = h2
+proof
+  fix A z h1 h2
+  intro cx c1 c2
+  have s: subgroup(Ch(A)) by cx_sub cx
+  have z0: 0 in Ch(A) by sub_zero s
+  show by cls_eq[A, z, z, h1, h2, 0] cx c1 c2 z0
+qed
+
+lemma cls_rep: forall A:cx, z1 z2 h:el: Cls(A,z1,h) and Cls(A,z2,h) -> exists y:el: y in Ch(A) and z1 - z2 = dif(A,y)
+proof
+  fix A z1 z2 h
+  intro c1 c2
+  have c: Cls(A,z1 - z2,h - h) by cls_sub[A, z1, z2, h, h] c1 c2
+  show by cls_zero[A, z1 - z2, h - h] c
+qed
+
+lemma cls_natmul: forall A:cx, z h:el: iscx(A) and Cls(A,z,h) -> forall n:int: 0 <= n -> Cls(A,n*z,n*h)
+proof
+  fix A z h
+  intro cx hc
+  have c0: Cls(A,0,0) by cls_00 cx
+  induct n from 0
+  base
+  proof
+    show Cls(A,0*z,0*h) by c0
+  qed
+  step
+  proof
+    fix m
+    intro hm ih
+    show Cls(A,(m+1)*z,(m+1)*h) by cls_add[A, m*z, z, m*h, h] cx ih hc
+  qed
+qed
+
+lemma cls_smul: forall A:cx, n:int, z h:el: iscx(A) and Cls(A,z,h) -> Cls(A,n*z,n*h)
+proof
+  fix A n z h
+  intro cx hc
+  have nat: forall m:int: 0 <= m -> Cls(A,m*z,m*h) by cls_natmul cx hc
+  cases hc2: n <= 0 or 1 <= n by int_discrete[n]
+  case h1
+  proof
+    have a: Cls(A,(-n)*z,(-n)*h) by nat h1
+    show by cls_neg[A, (-n)*z, (-n)*h] cx a
+  qed
+  case h2
+  proof
+    show by nat h2
+  qed
+qed
+
+lemma Hc_sub: forall A:cx: iscx(A) -> subgroup(Hc(A))
+proof
+  fix A
+  intro cx
+  have c0: Cls(A,0,0) by cls_00 cx
+  have z: 0 in Hc(A) by cls_dom[A, 0, 0] c0
+  have ad: forall x y:el: x in Hc(A) and y in Hc(A) -> x + y in Hc(A)
+  proof
+    fix x y
+    intro hx hy
+    obtain u:el st cu: Cls(A,u,x) by cls_sur hx
+    obtain v:el st cv: Cls(A,v,y) by cls_sur hy
+    have c: Cls(A,u + v,x + y) by cls_add[A, u, v, x, y] cx cu cv
+    show by cls_dom[A, u + v, x + y] c
+  qed
+  have ng: forall x:el: x in Hc(A) -> -x in Hc(A)
+  proof
+    fix x
+    intro hx
+    obtain u:el st cu: Cls(A,u,x) by cls_sur hx
+    have c: Cls(A,-u,-x) by cls_neg[A, u, x] cx cu
+    show by cls_dom[A, -u, -x] c
+  qed
+  show subgroup(Hc(A)) by subgroup_def z ad ng
+qed
+
+# the grading: C = (+)_n C^n with projections proj(A,n,-), d of degree +1
+func Cn(cx, int): set
+func proj(cx, int, el): el hom
+def proj_in: forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n,x) in Cn(A,n)
+def Cn_ch: forall A:cx, n:int, x:el: x in Cn(A,n) -> x in Ch(A)
+def proj_id: forall A:cx, n:int, x:el: x in Cn(A,n) -> proj(A,n,x) = x
+def proj_dif: forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n+1,dif(A,x)) = dif(A,proj(A,n,x))
+# H^n(A): classes of cocycles of degree n; Hco(A,n): classes of cocycles
+# without a degree n part (sets by comprehension)
 func H(cx, int): set
+def H_def: forall A:cx, n:int, h:el: h in H(A,n) <-> (exists z:el: z in Cn(A,n) and Cls(A,z,h))
+func Hco(cx, int): set
+def Hco_def: forall A:cx, n:int, h:el: h in Hco(A,n) <-> (exists z:el: z in Ch(A) and proj(A,n,z) = 0 and Cls(A,z,h))
+
+lemma Cn_sub: forall A:cx, n:int: iscx(A) -> subgroup(Cn(A,n))
+proof
+  fix A n
+  intro cx
+  have s: subgroup(Ch(A)) by cx_sub cx
+  have z0: 0 in Ch(A) by sub_zero s
+  have z: 0 in Cn(A,n) by proj_in[A, n, 0] z0
+  have ad: forall x y:el: x in Cn(A,n) and y in Cn(A,n) -> x + y in Cn(A,n)
+  proof
+    fix x y
+    intro hx hy
+    have xc: x in Ch(A) by Cn_ch hx
+    have yc: y in Ch(A) by Cn_ch hy
+    have xy: x + y in Ch(A) by s xc yc
+    have m: proj(A,n,x + y) in Cn(A,n) by proj_in[A, n, x + y] xy
+    have e: proj(A,n,x + y) = x + y by proj_id[A, n, x] proj_id[A, n, y] hx hy
+    show by m e
+  qed
+  have ng: forall x:el: x in Cn(A,n) -> -x in Cn(A,n)
+  proof
+    fix x
+    intro hx
+    have xc: x in Ch(A) by Cn_ch hx
+    have nx: -x in Ch(A) by s xc
+    have m: proj(A,n,-x) in Cn(A,n) by proj_in[A, n, -x] nx
+    have e: proj(A,n,-x) = -x by proj_id[A, n, x] hx
+    show by m e
+  qed
+  show subgroup(Cn(A,n)) by subgroup_def z ad ng
+qed
+
+lemma H_in: forall A:cx, n:int, h:el: h in H(A,n) -> h in Hc(A)
+proof
+  fix A n h
+  intro hh
+  obtain z:el st zn cz: z in Cn(A,n) and Cls(A,z,h) by H_def hh
+  show by cls_dom cz
+qed
+
+lemma Hco_in: forall A:cx, n:int, h:el: h in Hco(A,n) -> h in Hc(A)
+proof
+  fix A n h
+  intro hh
+  obtain z:el st zc pz cz: z in Ch(A) and proj(A,n,z) = 0 and Cls(A,z,h) by Hco_def hh
+  show by cls_dom cz
+qed
+
+lemma H_sub: forall A:cx, n:int: iscx(A) -> subgroup(H(A,n))
+proof
+  fix A n
+  intro cx
+  have sn: subgroup(Cn(A,n)) by Cn_sub cx
+  have c0: Cls(A,0,0) by cls_00 cx
+  have z0: 0 in Cn(A,n) by sub_zero sn
+  have z: 0 in H(A,n) by H_def z0 c0 with 0
+  have ad: forall x y:el: x in H(A,n) and y in H(A,n) -> x + y in H(A,n)
+  proof
+    fix x y
+    intro hx hy
+    obtain u:el st un cu: u in Cn(A,n) and Cls(A,u,x) by H_def hx
+    obtain v:el st vn cv: v in Cn(A,n) and Cls(A,v,y) by H_def hy
+    have uv: u + v in Cn(A,n) by sn un vn
+    have c: Cls(A,u + v,x + y) by cls_add[A, u, v, x, y] cx cu cv
+    show by H_def uv c with u + v
+  qed
+  have ng: forall x:el: x in H(A,n) -> -x in H(A,n)
+  proof
+    fix x
+    intro hx
+    obtain u:el st un cu: u in Cn(A,n) and Cls(A,u,x) by H_def hx
+    have nu: -u in Cn(A,n) by sn un
+    have c: Cls(A,-u,-x) by cls_neg[A, u, x] cx cu
+    show by H_def nu c with -u
+  qed
+  show subgroup(H(A,n)) by subgroup_def z ad ng
+qed
+
+lemma Hco_sub: forall A:cx, n:int: iscx(A) -> subgroup(Hco(A,n))
+proof
+  fix A n
+  intro cx
+  have s: subgroup(Ch(A)) by cx_sub cx
+  have c0: Cls(A,0,0) by cls_00 cx
+  have z0: 0 in Ch(A) by sub_zero s
+  have z: 0 in Hco(A,n) by Hco_def z0 c0 with 0
+  have ad: forall x y:el: x in Hco(A,n) and y in Hco(A,n) -> x + y in Hco(A,n)
+  proof
+    fix x y
+    intro hx hy
+    obtain u:el st uc pu cu: u in Ch(A) and proj(A,n,u) = 0 and Cls(A,u,x) by Hco_def hx
+    obtain v:el st vc pv cv: v in Ch(A) and proj(A,n,v) = 0 and Cls(A,v,y) by Hco_def hy
+    have uv: u + v in Ch(A) by s uc vc
+    have puv: proj(A,n,u + v) = 0 by pu pv
+    have c: Cls(A,u + v,x + y) by cls_add[A, u, v, x, y] cx cu cv
+    show by Hco_def uv puv c with u + v
+  qed
+  have ng: forall x:el: x in Hco(A,n) -> -x in Hco(A,n)
+  proof
+    fix x
+    intro hx
+    obtain u:el st uc pu cu: u in Ch(A) and proj(A,n,u) = 0 and Cls(A,u,x) by Hco_def hx
+    have nu: -u in Ch(A) by s uc
+    have pnu: proj(A,n,-u) = 0 by pu
+    have c: Cls(A,-u,-x) by cls_neg[A, u, x] cx cu
+    show by Hco_def nu pnu c with -u
+  qed
+  show subgroup(Hco(A,n)) by subgroup_def z ad ng
+qed
+
+# H*(A) = H^n(A) (+) (the rest): from the grading alone
+lemma H_summand: forall A:cx, n:int: iscx(A) -> summand(H(A,n),Hc(A))
+proof
+  fix A n
+  intro cx
+  have s1: subgroup(H(A,n)) by H_sub cx
+  have s2: subgroup(Hc(A)) by Hc_sub cx
+  have s3: subgroup(Hco(A,n)) by Hco_sub cx
+  have sCh: subgroup(Ch(A)) by cx_sub cx
+  have i1: forall x:el: x in H(A,n) -> x in Hc(A) by H_in
+  have i2: forall x:el: x in Hco(A,n) -> x in Hc(A) by Hco_in
+  have dec: forall x:el: x in Hc(A) -> exists s m:el: s in H(A,n) and m in Hco(A,n) and x = s + m
+  proof
+    fix x
+    intro hx
+    obtain z:el st cz: Cls(A,z,x) by cls_sur hx
+    have zc: z in Ch(A) and dif(A,z) = 0 by cls_dom cz
+    have z1n: proj(A,n,z) in Cn(A,n) by proj_in[A, n, z] zc
+    have z1c: proj(A,n,z) in Ch(A) by Cn_ch z1n
+    have pd: proj(A,n+1,dif(A,z)) = dif(A,proj(A,n,z)) by proj_dif[A, n, z] zc
+    have d1: dif(A,proj(A,n,z)) = 0 by pd zc
+    obtain s:el st cs: Cls(A,proj(A,n,z),s) by cls_tot[A, proj(A,n,z)] z1c d1
+    have z2c: z - proj(A,n,z) in Ch(A) by sCh zc z1c
+    have pp: proj(A,n,proj(A,n,z)) = proj(A,n,z) by proj_id[A, n, proj(A,n,z)] z1n
+    have p2: proj(A,n,z - proj(A,n,z)) = 0 by pp
+    have d2: dif(A,z - proj(A,n,z)) = 0 by zc d1
+    obtain m:el st cm: Cls(A,z - proj(A,n,z),m) by cls_tot[A, z - proj(A,n,z)] z2c d2
+    have c3: Cls(A,proj(A,n,z) + (z - proj(A,n,z)),s + m) by cls_add[A, proj(A,n,z), z - proj(A,n,z), s, m] cx cs cm
+    have xe: x = s + m by cls_fun[A, z, x, s + m] cx cz c3
+    have sH: s in H(A,n) by H_def z1n cs with proj(A,n,z)
+    have mH: m in Hco(A,n) by Hco_def z2c p2 cm with z - proj(A,n,z)
+    show by sH mH xe with s, m
+  qed
+  have ind: forall s m:el: s in H(A,n) and m in Hco(A,n) and s + m = 0 -> s = 0
+  proof
+    fix s m
+    intro hs hm h0
+    obtain u:el st un cu: u in Cn(A,n) and Cls(A,u,s) by H_def hs
+    obtain v:el st vc pv cv: v in Ch(A) and proj(A,n,v) = 0 and Cls(A,v,m) by Hco_def hm
+    have c: Cls(A,u + v,s + m) by cls_add[A, u, v, s, m] cx cu cv
+    have c0: Cls(A,u + v,0) by c h0
+    obtain y:el st yc ye: y in Ch(A) and u + v = dif(A,y) by cls_zero[A, u + v, 0] c0
+    have pd: proj(A,n,dif(A,y)) = dif(A,proj(A,n-1,y)) by proj_dif[A, n-1, y] yc
+    have pu: proj(A,n,u) = u by proj_id un
+    have ue: u = dif(A,proj(A,n-1,y)) by ye pd pu pv
+    have pn: proj(A,n-1,y) in Cn(A,n-1) by proj_in[A, n-1, y] yc
+    have pc: proj(A,n-1,y) in Ch(A) by Cn_ch pn
+    show s = 0 by cls_zero[A, u, s] cu pc ue with proj(A,n-1,y)
+  qed
+  show summand(H(A,n),Hc(A)) by summand_def s1 s2 s3 i1 i2 dec ind with Hco(A,n)
+qed
+
+# ---- chain maps, short exact sequences, the long exact sequence ----
+pred chmap(cx, cx, hom)
+def chmap_def: forall A B:cx, f:hom: chmap(A,B,f) <-> (iscx(A) and iscx(B) and (forall x:el: x in Ch(A) -> ap(f,x) in Ch(B)) and (forall x:el: x in Ch(A) -> ap(f,dif(A,x)) = dif(B,ap(f,x))))
+# 0 -> A -f-> B -g-> C -> 0
+pred isses(cx, cx, cx, hom, hom)
+def isses_def: forall A B C:cx, f g:hom: isses(A,B,C,f,g) <-> (chmap(A,B,f) and chmap(B,C,g) and (forall x:el: x in Ch(A) and ap(f,x) = 0 -> x = 0) and (forall w:el: w in Ch(C) -> exists b:el: b in Ch(B) and w = ap(g,b)) and (forall b:el: b in Ch(B) and ap(g,b) = 0 -> exists x:el: x in Ch(A) and b = ap(f,x)) and (forall x:el: x in Ch(A) -> ap(g,ap(f,x)) = 0))
+# the induced map H(f), as a relation on classes; the connecting map:
+# lift a cocycle w of C to b in B, apply d, pull back along f, take the class
+pred HM(cx, cx, hom, el, el)
+def HM_def: forall A B:cx, f:hom, h h2:el: HM(A,B,f,h,h2) <-> (exists z:el: Cls(A,z,h) and Cls(B,ap(f,z),h2))
+pred Del(cx, cx, cx, hom, hom, el, el)
+def Del_def: forall A B C:cx, f g:hom, e h:el: Del(A,B,C,f,g,e,h) <-> (exists w b z:el: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h))
+
+lemma cm_A: forall A B:cx, f:hom: chmap(A,B,f) -> iscx(A)
+by chmap_def
+lemma cm_B: forall A B:cx, f:hom: chmap(A,B,f) -> iscx(B)
+by chmap_def
+lemma cm_in: forall A B:cx, f:hom, x:el: chmap(A,B,f) and x in Ch(A) -> ap(f,x) in Ch(B)
+by chmap_def
+lemma cm_d: forall A B:cx, f:hom, x:el: chmap(A,B,f) and x in Ch(A) -> ap(f,dif(A,x)) = dif(B,ap(f,x))
+by chmap_def
+lemma ss_f: forall A B C:cx, f g:hom: isses(A,B,C,f,g) -> chmap(A,B,f)
+by isses_def
+lemma ss_g: forall A B C:cx, f g:hom: isses(A,B,C,f,g) -> chmap(B,C,g)
+by isses_def
+lemma ss_inj: forall A B C:cx, f g:hom, x:el: isses(A,B,C,f,g) and x in Ch(A) and ap(f,x) = 0 -> x = 0
+by isses_def
+lemma ss_sur: forall A B C:cx, f g:hom, w:el: isses(A,B,C,f,g) and w in Ch(C) -> exists b:el: b in Ch(B) and w = ap(g,b)
+by isses_def
+lemma ss_ker: forall A B C:cx, f g:hom, b:el: isses(A,B,C,f,g) and b in Ch(B) and ap(g,b) = 0 -> exists x:el: x in Ch(A) and b = ap(f,x)
+by isses_def
+lemma ss_gf: forall A B C:cx, f g:hom, x:el: isses(A,B,C,f,g) and x in Ch(A) -> ap(g,ap(f,x)) = 0
+by isses_def
+
+lemma HM_dom: forall A B:cx, f:hom, h h2:el: HM(A,B,f,h,h2) -> h in Hc(A) and h2 in Hc(B)
+proof
+  fix A B f h h2
+  intro m
+  obtain z:el st cz cf: Cls(A,z,h) and Cls(B,ap(f,z),h2) by HM_def m
+  have a: h in Hc(A) by cls_dom cz
+  have b: h2 in Hc(B) by cls_dom cf
+  show by a b
+qed
+
+lemma Del_dom: forall A B C:cx, f g:hom, e h:el: Del(A,B,C,f,g,e,h) -> e in Hc(C) and h in Hc(A)
+proof
+  fix A B C f g e h
+  intro dl
+  obtain w b z:el st cw bc bw zc zf cz: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h) by Del_def dl
+  have a: e in Hc(C) by cls_dom cw
+  have c: h in Hc(A) by cls_dom cz
+  show by a c
+qed
+
+# H(f) is well defined: total and single valued
+lemma HM_tot: forall A B:cx, f:hom, h:el: chmap(A,B,f) and h in Hc(A) -> exists h2:el: HM(A,B,f,h,h2)
+proof
+  fix A B f h
+  intro cm hh
+  obtain z:el st cz: Cls(A,z,h) by cls_sur hh
+  have zc: z in Ch(A) and dif(A,z) = 0 by cls_dom cz
+  have fz: ap(f,z) in Ch(B) by cm_in[A, B, f, z] cm zc
+  have fd: ap(f,dif(A,z)) = dif(B,ap(f,z)) by cm_d[A, B, f, z] cm zc
+  have d0: dif(B,ap(f,z)) = 0 by fd zc
+  obtain h2:el st c2: Cls(B,ap(f,z),h2) by cls_tot[B, ap(f,z)] fz d0
+  have m: HM(A,B,f,h,h2) by HM_def cz c2 with z
+  show by m with h2
+qed
+
+lemma HM_fun: forall A B:cx, f:hom, h h1 h2:el: chmap(A,B,f) and HM(A,B,f,h,h1) and HM(A,B,f,h,h2) -> h1 = h2
+proof
+  fix A B f h h1 h2
+  intro cm m1 m2
+  have cxB: iscx(B) by cm_B cm
+  obtain z1:el st c1 d1: Cls(A,z1,h) and Cls(B,ap(f,z1),h1) by HM_def m1
+  obtain z2:el st c2 d2: Cls(A,z2,h) and Cls(B,ap(f,z2),h2) by HM_def m2
+  obtain y:el st yc ye: y in Ch(A) and z1 - z2 = dif(A,y) by cls_rep[A, z1, z2, h] c1 c2
+  have fy: ap(f,y) in Ch(B) by cm_in[A, B, f, y] cm yc
+  have fd: ap(f,dif(A,y)) = dif(B,ap(f,y)) by cm_d[A, B, f, y] cm yc
+  have e: ap(f,z1) - ap(f,z2) = dif(B,ap(f,y)) by ye fd
+  show by cls_eq[B, ap(f,z1), ap(f,z2), h1, h2, ap(f,y)] cxB d1 d2 fy e
+qed
+
+# the connecting map is well defined: total and single valued
+lemma Del_tot: forall A B C:cx, f g:hom, e:el: isses(A,B,C,f,g) and e in Hc(C) -> exists h:el: Del(A,B,C,f,g,e,h)
+proof
+  fix A B C f g e
+  intro ss he
+  have cf: chmap(A,B,f) by ss_f ss
+  have cg: chmap(B,C,g) by ss_g ss
+  have cxA: iscx(A) by cm_A cf
+  have cxB: iscx(B) by cm_B cf
+  obtain w:el st cw: Cls(C,w,e) by cls_sur he
+  have wc: w in Ch(C) and dif(C,w) = 0 by cls_dom cw
+  obtain b:el st bc bw: b in Ch(B) and w = ap(g,b) by ss_sur[A, B, C, f, g, w] ss wc
+  have db: dif(B,b) in Ch(B) by cx_d cxB bc
+  have gd: ap(g,dif(B,b)) = dif(C,ap(g,b)) by cm_d[B, C, g, b] cg bc
+  have gdb: ap(g,dif(B,b)) = 0 by gd bw wc
+  obtain z:el st zc zf: z in Ch(A) and dif(B,b) = ap(f,z) by ss_ker[A, B, C, f, g, dif(B,b)] ss db gdb
+  have dz: dif(A,z) in Ch(A) by cx_d cxA zc
+  have fdz: ap(f,dif(A,z)) = dif(B,ap(f,z)) by cm_d[A, B, f, z] cf zc
+  have ddb: dif(B,dif(B,b)) = 0 by cx_dd cxB bc
+  have f0: ap(f,dif(A,z)) = 0 by fdz zf ddb
+  have z0: dif(A,z) = 0 by ss_inj[A, B, C, f, g, dif(A,z)] ss dz f0
+  obtain h:el st ch: Cls(A,z,h) by cls_tot[A, z] zc z0
+  have zf2: ap(f,z) = dif(B,b) by zf
+  have dl: Del(A,B,C,f,g,e,h) by Del_def cw bc bw zc zf2 ch with w, b, z
+  show by dl with h
+qed
+
+lemma Del_fun: forall A B C:cx, f g:hom, e h1 h2:el: isses(A,B,C,f,g) and Del(A,B,C,f,g,e,h1) and Del(A,B,C,f,g,e,h2) -> h1 = h2
+proof
+  fix A B C f g e h1 h2
+  intro ss d1 d2
+  have cf: chmap(A,B,f) by ss_f ss
+  have cg: chmap(B,C,g) by ss_g ss
+  have cxA: iscx(A) by cm_A cf
+  have cxB: iscx(B) by cm_B cf
+  have sA: subgroup(Ch(A)) by cx_sub cxA
+  have sB: subgroup(Ch(B)) by cx_sub cxB
+  obtain w1 b1 z1:el st cw1 b1c bw1 z1c zf1 ch1: Cls(C,w1,e) and b1 in Ch(B) and w1 = ap(g,b1) and z1 in Ch(A) and ap(f,z1) = dif(B,b1) and Cls(A,z1,h1) by Del_def d1
+  obtain w2 b2 z2:el st cw2 b2c bw2 z2c zf2 ch2: Cls(C,w2,e) and b2 in Ch(B) and w2 = ap(g,b2) and z2 in Ch(A) and ap(f,z2) = dif(B,b2) and Cls(A,z2,h2) by Del_def d2
+  obtain u:el st uc ue: u in Ch(C) and w1 - w2 = dif(C,u) by cls_rep[C, w1, w2, e] cw1 cw2
+  obtain v:el st vc vu: v in Ch(B) and u = ap(g,v) by ss_sur[A, B, C, f, g, u] ss uc
+  have dv: dif(B,v) in Ch(B) by cx_d cxB vc
+  have gdv: ap(g,dif(B,v)) = dif(C,ap(g,v)) by cm_d[B, C, g, v] cg vc
+  have t1: b1 - b2 - dif(B,v) in Ch(B) by sB b1c b2c dv
+  have t0: ap(g,b1 - b2 - dif(B,v)) = 0 by bw1 bw2 ue vu gdv
+  obtain t:el st tc tf: t in Ch(A) and b1 - b2 - dif(B,v) = ap(f,t) by ss_ker[A, B, C, f, g, b1 - b2 - dif(B,v)] ss t1 t0
+  have fdt: ap(f,dif(A,t)) = dif(B,ap(f,t)) by cm_d[A, B, f, t] cf tc
+  have ddv: dif(B,dif(B,v)) = 0 by cx_dd cxB vc
+  have dt: dif(A,t) in Ch(A) by cx_d cxA tc
+  have zz: z1 - z2 - dif(A,t) in Ch(A) by sA z1c z2c dt
+  have f0: ap(f,z1 - z2 - dif(A,t)) = 0 by zf1 zf2 tf fdt ddv
+  have z0: z1 - z2 - dif(A,t) = 0 by ss_inj[A, B, C, f, g, z1 - z2 - dif(A,t)] ss zz f0
+  have e2: z1 - z2 = dif(A,t) by z0
+  show by cls_eq[A, z1, z2, h1, h2, t] cxA ch1 ch2 tc e2
+qed
+
+# exactness of H(A) -> H(B) -> H(C) -> H(A) at all three places
+lemma les_fg: forall A B C:cx, f g:hom, h h2 h3:el: isses(A,B,C,f,g) and HM(A,B,f,h,h2) and HM(B,C,g,h2,h3) -> h3 = 0
+proof
+  fix A B C f g h h2 h3
+  intro ss m1 m2
+  have cg: chmap(B,C,g) by ss_g ss
+  have cxC: iscx(C) by cm_B cg
+  obtain z:el st cz cfz: Cls(A,z,h) and Cls(B,ap(f,z),h2) by HM_def m1
+  have zc: z in Ch(A) by cls_dom cz
+  have gf: ap(g,ap(f,z)) = 0 by ss_gf[A, B, C, f, g, z] ss zc
+  have c0: Cls(C,0,0) by cls_00 cxC
+  have c1: Cls(C,ap(g,ap(f,z)),0) by c0 gf
+  have m3: HM(B,C,g,h2,0) by HM_def cfz c1 with ap(f,z)
+  show by HM_fun[B, C, g, h2, h3, 0] cg m2 m3
+qed
+
+lemma les_kerg: forall A B C:cx, f g:hom, h2:el: isses(A,B,C,f,g) and h2 in Hc(B) and HM(B,C,g,h2,0) -> exists h:el: HM(A,B,f,h,h2)
+proof
+  fix A B C f g h2
+  intro ss hh m
+  have cf: chmap(A,B,f) by ss_f ss
+  have cg: chmap(B,C,g) by ss_g ss
+  have cxA: iscx(A) by cm_A cf
+  have cxB: iscx(B) by cm_B cf
+  have sB: subgroup(Ch(B)) by cx_sub cxB
+  obtain z:el st cz cgz: Cls(B,z,h2) and Cls(C,ap(g,z),0) by HM_def m
+  have zc: z in Ch(B) and dif(B,z) = 0 by cls_dom cz
+  obtain u:el st uc ue: u in Ch(C) and ap(g,z) = dif(C,u) by cls_zero[C, ap(g,z), 0] cgz
+  obtain v:el st vc vu: v in Ch(B) and u = ap(g,v) by ss_sur[A, B, C, f, g, u] ss uc
+  have gdv: ap(g,dif(B,v)) = dif(C,ap(g,v)) by cm_d[B, C, g, v] cg vc
+  have dv: dif(B,v) in Ch(B) by cx_d cxB vc
+  have t1: z - dif(B,v) in Ch(B) by sB zc dv
+  have t0: ap(g,z - dif(B,v)) = 0 by ue vu gdv
+  obtain x:el st xc xf: x in Ch(A) and z - dif(B,v) = ap(f,x) by ss_ker[A, B, C, f, g, z - dif(B,v)] ss t1 t0
+  have fdx: ap(f,dif(A,x)) = dif(B,ap(f,x)) by cm_d[A, B, f, x] cf xc
+  have ddv: dif(B,dif(B,v)) = 0 by cx_dd cxB vc
+  have dx: dif(A,x) in Ch(A) by cx_d cxA xc
+  have f0: ap(f,dif(A,x)) = 0 by fdx xf zc ddv
+  have x0: dif(A,x) = 0 by ss_inj[A, B, C, f, g, dif(A,x)] ss dx f0
+  obtain h:el st ch: Cls(A,x,h) by cls_tot[A, x] xc x0
+  have fx: ap(f,x) in Ch(B) by cm_in[A, B, f, x] cf xc
+  have dfx: dif(B,ap(f,x)) = 0 by fdx x0
+  obtain h3:el st c3: Cls(B,ap(f,x),h3) by cls_tot[B, ap(f,x)] fx dfx
+  have e: z - ap(f,x) = dif(B,v) by xf
+  have hh3: h2 = h3 by cls_eq[B, z, ap(f,x), h2, h3, v] cxB cz c3 vc e
+  have m2: HM(A,B,f,h,h3) by HM_def ch c3 with x
+  have m3: HM(A,B,f,h,h2) by m2 hh3
+  show by m3 with h
+qed
+
+lemma les_gdel: forall A B C:cx, f g:hom, h2 e h:el: isses(A,B,C,f,g) and HM(B,C,g,h2,e) and Del(A,B,C,f,g,e,h) -> h = 0
+proof
+  fix A B C f g h2 e h
+  intro ss m dl
+  have cf: chmap(A,B,f) by ss_f ss
+  have cxA: iscx(A) by cm_A cf
+  obtain z:el st cz cgz: Cls(B,z,h2) and Cls(C,ap(g,z),e) by HM_def m
+  have zc: z in Ch(B) and dif(B,z) = 0 by cls_dom cz
+  have sA: subgroup(Ch(A)) by cx_sub cxA
+  have z0A: 0 in Ch(A) by sub_zero sA
+  have c0: Cls(A,0,0) by cls_00 cxA
+  have f0: ap(f,0) = dif(B,z) by zc
+  have d0: Del(A,B,C,f,g,e,0) by Del_def cgz zc z0A f0 c0 with ap(g,z), z, 0
+  show by Del_fun[A, B, C, f, g, e, h, 0] ss dl d0
+qed
+
+lemma les_kerdel: forall A B C:cx, f g:hom, e:el: isses(A,B,C,f,g) and Del(A,B,C,f,g,e,0) -> exists h2:el: HM(B,C,g,h2,e)
+proof
+  fix A B C f g e
+  intro ss dl
+  have cf: chmap(A,B,f) by ss_f ss
+  have cg: chmap(B,C,g) by ss_g ss
+  have cxB: iscx(B) by cm_B cf
+  have sB: subgroup(Ch(B)) by cx_sub cxB
+  obtain w b z:el st cw bc bw zc zf cz: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,0) by Del_def dl
+  obtain t:el st tc te: t in Ch(A) and z = dif(A,t) by cls_zero[A, z, 0] cz
+  have ft: ap(f,t) in Ch(B) by cm_in[A, B, f, t] cf tc
+  have fdt: ap(f,dif(A,t)) = dif(B,ap(f,t)) by cm_d[A, B, f, t] cf tc
+  have c1: b - ap(f,t) in Ch(B) by sB bc ft
+  have d1: dif(B,b - ap(f,t)) = 0 by zf te fdt
+  obtain h2:el st c2: Cls(B,b - ap(f,t),h2) by cls_tot[B, b - ap(f,t)] c1 d1
+  have gt: ap(g,ap(f,t)) = 0 by ss_gf[A, B, C, f, g, t] ss tc
+  have c3: Cls(C,ap(g,b - ap(f,t)),e) by cw bw gt
+  have m: HM(B,C,g,h2,e) by HM_def c2 c3 with b - ap(f,t)
+  show by m with h2
+qed
+
+lemma les_delf: forall A B C:cx, f g:hom, e h h2:el: isses(A,B,C,f,g) and Del(A,B,C,f,g,e,h) and HM(A,B,f,h,h2) -> h2 = 0
+proof
+  fix A B C f g e h h2
+  intro ss dl m
+  have cf: chmap(A,B,f) by ss_f ss
+  have cxB: iscx(B) by cm_B cf
+  obtain w b z:el st cw bc bw zc zf cz: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h) by Del_def dl
+  have fz: ap(f,z) in Ch(B) by cm_in[A, B, f, z] cf zc
+  have ddb: dif(B,dif(B,b)) = 0 by cx_dd cxB bc
+  have dfz: dif(B,ap(f,z)) = 0 by zf ddb
+  obtain h3:el st c3: Cls(B,ap(f,z),h3) by cls_tot[B, ap(f,z)] fz dfz
+  have h30: h3 = 0 by cls_zero[B, ap(f,z), h3] c3 bc zf with b
+  have c4: Cls(B,ap(f,z),0) by c3 h30
+  have m2: HM(A,B,f,h,0) by HM_def cz c4 with z
+  show by HM_fun[A, B, f, h, h2, 0] cf m m2
+qed
+
+lemma les_kerf: forall A B C:cx, f g:hom, h:el: isses(A,B,C,f,g) and h in Hc(A) and HM(A,B,f,h,0) -> exists e:el: Del(A,B,C,f,g,e,h)
+proof
+  fix A B C f g h
+  intro ss hh m
+  have cg: chmap(B,C,g) by ss_g ss
+  obtain z:el st cz c0: Cls(A,z,h) and Cls(B,ap(f,z),0) by HM_def m
+  have zc: z in Ch(A) by cls_dom cz
+  obtain b:el st bc bf: b in Ch(B) and ap(f,z) = dif(B,b) by cls_zero[B, ap(f,z), 0] c0
+  have gb: ap(g,b) in Ch(C) by cm_in[B, C, g, b] cg bc
+  have gdb: ap(g,dif(B,b)) = dif(C,ap(g,b)) by cm_d[B, C, g, b] cg bc
+  have gf: ap(g,ap(f,z)) = 0 by ss_gf[A, B, C, f, g, z] ss zc
+  have dgb: dif(C,ap(g,b)) = 0 by gdb bf gf
+  obtain e:el st ce: Cls(C,ap(g,b),e) by cls_tot[C, ap(g,b)] gb dgb
+  have dl: Del(A,B,C,f,g,e,h) by Del_def ce bc zc bf cz with ap(g,b), b, z
+  show by dl with e
+qed
+
+# the long exact sequence of a short exact sequence of complexes
+theorem les_exact: forall A B C:cx, f g:hom: isses(A,B,C,f,g) -> (forall h h2 h3:el: HM(A,B,f,h,h2) and HM(B,C,g,h2,h3) -> h3 = 0) and (forall h2:el: h2 in Hc(B) and HM(B,C,g,h2,0) -> exists h:el: HM(A,B,f,h,h2)) and (forall h2 e h:el: HM(B,C,g,h2,e) and Del(A,B,C,f,g,e,h) -> h = 0) and (forall e:el: Del(A,B,C,f,g,e,0) -> exists h2:el: HM(B,C,g,h2,e)) and (forall e h h2:el: Del(A,B,C,f,g,e,h) and HM(A,B,f,h,h2) -> h2 = 0) and (forall h:el: h in Hc(A) and HM(A,B,f,h,0) -> exists e:el: Del(A,B,C,f,g,e,h))
+proof
+  fix A B C f g
+  intro ss
+  have a1: forall h h2 h3:el: HM(A,B,f,h,h2) and HM(B,C,g,h2,h3) -> h3 = 0 by les_fg ss
+  have a2: forall h2:el: h2 in Hc(B) and HM(B,C,g,h2,0) -> exists h:el: HM(A,B,f,h,h2) by les_kerg ss
+  have a3: forall h2 e h:el: HM(B,C,g,h2,e) and Del(A,B,C,f,g,e,h) -> h = 0 by les_gdel ss
+  have a4: forall e:el: Del(A,B,C,f,g,e,0) -> exists h2:el: HM(B,C,g,h2,e) by les_kerdel ss
+  have a5: forall e h h2:el: Del(A,B,C,f,g,e,h) and HM(A,B,f,h,h2) -> h2 = 0 by les_delf ss
+  have a6: forall h:el: h in Hc(A) and HM(A,B,f,h,0) -> exists e:el: Del(A,B,C,f,g,e,h) by les_kerf ss
+  show by a1 a2 a3 a4 a5 a6
+qed
+
+# ---- the Bockstein spectral sequence ----
+# For a cochain complex C and an integer p: red(C,p) = C/pC with the
+# projection rh(C,p) (the three red_ lines define the quotient complex),
+# the short exact sequence 0 -> C -p-> C -> C/pC -> 0 (exact because C is
+# torsion-free: a lemma), and its long exact sequence as the exact couple
+# bock(C,p): D = H(C), E = H(C/p), i = H(p), j = H(rho), k = delta.
+func red(cx, int): cx
+func rh(cx, int): hom
+func mulp(int): hom
+def mulp_def: forall p:int, x:el: ap(mulp(p),x) = p*x
+def red_ch: forall C:cx, p:int, w:el: w in Ch(red(C,p)) <-> (exists x:el: x in Ch(C) and w = ap(rh(C,p),x))
+def red_ker: forall C:cx, p:int, x:el: x in Ch(C) -> (ap(rh(C,p),x) = 0 <-> (exists y:el: y in Ch(C) and x = p*y))
+def red_dif: forall C:cx, p:int, x:el: x in Ch(C) -> dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x))
+def red_Cn: forall C:cx, p n:int, w:el: w in Cn(red(C,p),n) <-> (exists x:el: x in Cn(C,n) and w = ap(rh(C,p),x))
+# of finite type: here, a complex whose cochains are torsion-free (what
+# free of finite rank in each degree gives; finite generation is not used)
 pred fintype(cx)
+def fintype_def: forall C:cx: fintype(C) <-> (iscx(C) and (forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0))
 pred prime(int)
 def prime_def: forall p:int: prime(p) <-> (2 <= p and (forall d q:int: 1 <= d and p = d*q -> d = 1 or d = p))
-def bock_couple: forall C:cx, p:int: fintype(C) and prime(p) -> excouple(bock(C,p))
-def bock_D: forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Htot(C)
-def bock_i: forall C:cx, p:int, x:el: i(bock(C,p),x) = p*x
-def H_summand: forall C:cx, n:int: summand(H(C,n), Htot(C))
+func bock(cx, int): cpl
+def bock_D: forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Hc(C)
+def bock_E: forall C:cx, p:int, x:el: x in E(bock(C,p)) <-> x in Hc(red(C,p))
+def bock_i: forall C:cx, p:int, h h2:el: HM(C,C,mulp(p),h,h2) -> i(bock(C,p),h) = h2
+def bock_j: forall C:cx, p:int, h h2:el: HM(C,red(C,p),rh(C,p),h,h2) -> j(bock(C,p),h) = h2
+def bock_k: forall C:cx, p:int, e h:el: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) -> k(bock(C,p),e) = h
+def bock_Edeg: forall C:cx, p m:int, e:el: Edeg(bock(C,p),m,e) <-> e in H(red(C,p),m)
 
 lemma prime_ge2: forall p:int: prime(p) -> 2 <= p
 by prime_def
+
+lemma red_cx: forall C:cx, p:int: iscx(C) -> iscx(red(C,p))
+proof
+  fix C p
+  intro cx
+  have sC: subgroup(Ch(C)) by cx_sub cx
+  have z: 0 in Ch(C) by sub_zero sC
+  have z0: 0 in Ch(red(C,p)) by red_ch z with 0
+  have ad: forall u v:el: u in Ch(red(C,p)) and v in Ch(red(C,p)) -> u + v in Ch(red(C,p))
+  proof
+    fix u v
+    intro hu hv
+    obtain x:el st xc xu: x in Ch(C) and u = ap(rh(C,p),x) by red_ch hu
+    obtain y:el st yc yv: y in Ch(C) and v = ap(rh(C,p),y) by red_ch hv
+    have s: x + y in Ch(C) by sC xc yc
+    show by red_ch s xu yv with x + y
+  qed
+  have ng: forall u:el: u in Ch(red(C,p)) -> -u in Ch(red(C,p))
+  proof
+    fix u
+    intro hu
+    obtain x:el st xc xu: x in Ch(C) and u = ap(rh(C,p),x) by red_ch hu
+    have s: -x in Ch(C) by sC xc
+    show by red_ch s xu with -x
+  qed
+  have sub: subgroup(Ch(red(C,p))) by subgroup_def z0 ad ng
+  have dd1: forall u:el: u in Ch(red(C,p)) -> dif(red(C,p),u) in Ch(red(C,p))
+  proof
+    fix u
+    intro hu
+    obtain x:el st xc xu: x in Ch(C) and u = ap(rh(C,p),x) by red_ch hu
+    have dx: dif(C,x) in Ch(C) by cx_d cx xc
+    have e: dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x)) by red_dif xc
+    have m: ap(rh(C,p),dif(C,x)) in Ch(red(C,p)) by red_ch dx with dif(C,x)
+    have e2: dif(red(C,p),u) = ap(rh(C,p),dif(C,x)) by e xu
+    show by m e2
+  qed
+  have dd2: forall u:el: u in Ch(red(C,p)) -> dif(red(C,p),dif(red(C,p),u)) = 0
+  proof
+    fix u
+    intro hu
+    obtain x:el st xc xu: x in Ch(C) and u = ap(rh(C,p),x) by red_ch hu
+    have dx: dif(C,x) in Ch(C) by cx_d cx xc
+    have e1: dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x)) by red_dif xc
+    have e0: dif(red(C,p),u) = ap(rh(C,p),dif(C,x)) by e1 xu
+    have e2: dif(red(C,p),ap(rh(C,p),dif(C,x))) = ap(rh(C,p),dif(C,dif(C,x))) by red_dif dx
+    have e3: dif(C,dif(C,x)) = 0 by cx_dd cx xc
+    show by e0 e2 e3
+  qed
+  show iscx(red(C,p)) by iscx_def sub dd1 dd2
+qed
+
+# 0 -> C -p-> C -> C/pC -> 0 is a short exact sequence of complexes
+lemma isses_bock: forall C:cx, p:int: fintype(C) and prime(p) -> isses(C,C,red(C,p),mulp(p),rh(C,p))
+proof
+  fix C p
+  intro hf hp
+  have cx: iscx(C) by fintype_def hf
+  have tf: forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0 by fintype_def hf
+  have p2: 2 <= p by prime_ge2 hp
+  have cr: iscx(red(C,p)) by red_cx cx
+  have sC: subgroup(Ch(C)) by cx_sub cx
+  have cf: chmap(C,C,mulp(p))
+  proof
+    have a: forall x:el: x in Ch(C) -> ap(mulp(p),x) in Ch(C)
+    proof
+      fix x
+      intro hx
+      have m: p*x in Ch(C) by sC hx
+      show by m mulp_def[p, x]
+    qed
+    have b: forall x:el: x in Ch(C) -> ap(mulp(p),dif(C,x)) = dif(C,ap(mulp(p),x))
+    proof
+      fix x
+      intro hx
+      show by mulp_def[p, dif(C,x)] mulp_def[p, x]
+    qed
+    show by chmap_def cx a b
+  qed
+  have cg: chmap(C,red(C,p),rh(C,p))
+  proof
+    have a: forall x:el: x in Ch(C) -> ap(rh(C,p),x) in Ch(red(C,p))
+    proof
+      fix x
+      intro hx
+      show by red_ch hx with x
+    qed
+    have b: forall x:el: x in Ch(C) -> ap(rh(C,p),dif(C,x)) = dif(red(C,p),ap(rh(C,p),x))
+    proof
+      fix x
+      intro hx
+      show by red_dif hx
+    qed
+    show by chmap_def cx cr a b
+  qed
+  have inj: forall x:el: x in Ch(C) and ap(mulp(p),x) = 0 -> x = 0
+  proof
+    fix x
+    intro hx h0
+    have px: p*x = 0 by h0 mulp_def[p, x]
+    have p1: 1 <= p by p2
+    show by tf[p, x] hx p1 px
+  qed
+  have sur: forall w:el: w in Ch(red(C,p)) -> exists b:el: b in Ch(C) and w = ap(rh(C,p),b)
+  proof
+    fix w
+    intro hw
+    show by red_ch hw
+  qed
+  have ker: forall b:el: b in Ch(C) and ap(rh(C,p),b) = 0 -> exists x:el: x in Ch(C) and b = ap(mulp(p),x)
+  proof
+    fix b
+    intro hb h0
+    obtain y:el st yc yb: y in Ch(C) and b = p*y by red_ker[C, p, b] hb h0
+    show by yc yb mulp_def[p, y] with y
+  qed
+  have gf: forall x:el: x in Ch(C) -> ap(rh(C,p),ap(mulp(p),x)) = 0
+  proof
+    fix x
+    intro hx
+    have m: p*x in Ch(C) by sC hx
+    have r0: ap(rh(C,p),p*x) = 0 by red_ker[C, p, p*x] m hx with x
+    show by r0 mulp_def[p, x]
+  qed
+  show by isses_def cf cg inj sur ker gf
+qed
+
+lemma sub_eqv: forall S T:set: subgroup(T) and (forall x:el: x in S <-> x in T) -> subgroup(S)
+proof
+  fix S T
+  intro hT eq
+  have z0: 0 in T by sub_zero hT
+  have z: 0 in S by eq z0
+  have ad: forall x y:el: x in S and y in S -> x + y in S
+  proof
+    fix x y
+    intro hx hy
+    have xT: x in T by eq hx
+    have yT: y in T by eq hy
+    have s: x + y in T by hT xT yT
+    show by eq s
+  qed
+  have ng: forall x:el: x in S -> -x in S
+  proof
+    fix x
+    intro hx
+    have xT: x in T by eq hx
+    have s: -x in T by hT xT
+    show by eq s
+  qed
+  show subgroup(S) by subgroup_def z ad ng
+qed
+
+# the Bockstein couple is an exact couple: the long exact sequence
+theorem bock_couple: forall C:cx, p:int: fintype(C) and prime(p) -> excouple(bock(C,p))
+proof
+  fix C p
+  intro hf hp
+  have ss: isses(C,C,red(C,p),mulp(p),rh(C,p)) by isses_bock hf hp
+  have cf: chmap(C,C,mulp(p)) by ss_f ss
+  have cg: chmap(C,red(C,p),rh(C,p)) by ss_g ss
+  have cx: iscx(C) by cm_A cf
+  have cr: iscx(red(C,p)) by cm_B cg
+  have sH: subgroup(Hc(C)) by Hc_sub cx
+  have sR: subgroup(Hc(red(C,p))) by Hc_sub cr
+  have sD: subgroup(D(bock(C,p))) by sub_eqv[D(bock(C,p)), Hc(C)] sH bock_D[C, p]
+  have sE: subgroup(E(bock(C,p))) by sub_eqv[E(bock(C,p)), Hc(red(C,p))] sR bock_E[C, p]
+  have iD: forall x:el: x in D(bock(C,p)) -> i(bock(C,p),x) in D(bock(C,p))
+  proof
+    fix x
+    intro hx
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,C,mulp(p),x,h) by HM_tot[C, C, mulp(p), x] cf xH
+    have e: i(bock(C,p),x) = h by bock_i m
+    have hH: h in Hc(C) by HM_dom m
+    have hD: h in D(bock(C,p)) by bock_D hH
+    show by hD e
+  qed
+  have jE: forall x:el: x in D(bock(C,p)) -> j(bock(C,p),x) in E(bock(C,p))
+  proof
+    fix x
+    intro hx
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,red(C,p),rh(C,p),x,h) by HM_tot[C, red(C,p), rh(C,p), x] cg xH
+    have e: j(bock(C,p),x) = h by bock_j m
+    have hH: h in Hc(red(C,p)) by HM_dom m
+    have hE: h in E(bock(C,p)) by bock_E hH
+    show by hE e
+  qed
+  have kD: forall e:el: e in E(bock(C,p)) -> k(bock(C,p),e) in D(bock(C,p))
+  proof
+    fix e
+    intro he
+    have eH: e in Hc(red(C,p)) by bock_E he
+    obtain h:el st dl: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) by Del_tot[C, C, red(C,p), mulp(p), rh(C,p), e] ss eH
+    have ke: k(bock(C,p),e) = h by bock_k dl
+    have hH: h in Hc(C) by Del_dom dl
+    have hD: h in D(bock(C,p)) by bock_D hH
+    show by hD ke
+  qed
+  # ker j = im i
+  have kerj: forall x:el: x in D(bock(C,p)) and j(bock(C,p),x) = 0 -> exists y:el: y in D(bock(C,p)) and x = i(bock(C,p),y)
+  proof
+    fix x
+    intro hx h0
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,red(C,p),rh(C,p),x,h) by HM_tot[C, red(C,p), rh(C,p), x] cg xH
+    have e: j(bock(C,p),x) = h by bock_j m
+    have m0: HM(C,red(C,p),rh(C,p),x,0) by m e h0
+    obtain y:el st my: HM(C,C,mulp(p),y,x) by les_kerg[C, C, red(C,p), mulp(p), rh(C,p), x] ss xH m0
+    have yH: y in Hc(C) by HM_dom my
+    have yD: y in D(bock(C,p)) by bock_D yH
+    have iy: i(bock(C,p),y) = x by bock_i my
+    show by yD iy with y
+  qed
+  have ji: forall x:el: x in D(bock(C,p)) -> j(bock(C,p),i(bock(C,p),x)) = 0
+  proof
+    fix x
+    intro hx
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,C,mulp(p),x,h) by HM_tot[C, C, mulp(p), x] cf xH
+    have e: i(bock(C,p),x) = h by bock_i m
+    have hH: h in Hc(C) by HM_dom m
+    obtain h3:el st m3: HM(C,red(C,p),rh(C,p),h,h3) by HM_tot[C, red(C,p), rh(C,p), h] cg hH
+    have e3: j(bock(C,p),h) = h3 by bock_j m3
+    have z: h3 = 0 by les_fg[C, C, red(C,p), mulp(p), rh(C,p), x, h, h3] ss m m3
+    show by e e3 z
+  qed
+  # ker k = im j
+  have kerk: forall e:el: e in E(bock(C,p)) and k(bock(C,p),e) = 0 -> exists x:el: x in D(bock(C,p)) and e = j(bock(C,p),x)
+  proof
+    fix e
+    intro he h0
+    have eH: e in Hc(red(C,p)) by bock_E he
+    obtain h:el st dl: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) by Del_tot[C, C, red(C,p), mulp(p), rh(C,p), e] ss eH
+    have ke: k(bock(C,p),e) = h by bock_k dl
+    have dl0: Del(C,C,red(C,p),mulp(p),rh(C,p),e,0) by dl ke h0
+    obtain x:el st m: HM(C,red(C,p),rh(C,p),x,e) by les_kerdel[C, C, red(C,p), mulp(p), rh(C,p), e] ss dl0
+    have xH: x in Hc(C) by HM_dom m
+    have xD: x in D(bock(C,p)) by bock_D xH
+    have jx: j(bock(C,p),x) = e by bock_j m
+    show by xD jx with x
+  qed
+  have kj: forall x:el: x in D(bock(C,p)) -> k(bock(C,p),j(bock(C,p),x)) = 0
+  proof
+    fix x
+    intro hx
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,red(C,p),rh(C,p),x,h) by HM_tot[C, red(C,p), rh(C,p), x] cg xH
+    have e: j(bock(C,p),x) = h by bock_j m
+    have hH: h in Hc(red(C,p)) by HM_dom m
+    obtain h4:el st dl: Del(C,C,red(C,p),mulp(p),rh(C,p),h,h4) by Del_tot[C, C, red(C,p), mulp(p), rh(C,p), h] ss hH
+    have kh: k(bock(C,p),h) = h4 by bock_k dl
+    have z: h4 = 0 by les_gdel[C, C, red(C,p), mulp(p), rh(C,p), x, h, h4] ss m dl
+    show by e kh z
+  qed
+  # ker i = im k
+  have keri: forall x:el: x in D(bock(C,p)) and i(bock(C,p),x) = 0 -> exists e:el: e in E(bock(C,p)) and x = k(bock(C,p),e)
+  proof
+    fix x
+    intro hx h0
+    have xH: x in Hc(C) by bock_D hx
+    obtain h:el st m: HM(C,C,mulp(p),x,h) by HM_tot[C, C, mulp(p), x] cf xH
+    have e: i(bock(C,p),x) = h by bock_i m
+    have m0: HM(C,C,mulp(p),x,0) by m e h0
+    obtain d:el st dl: Del(C,C,red(C,p),mulp(p),rh(C,p),d,x) by les_kerf[C, C, red(C,p), mulp(p), rh(C,p), x] ss xH m0
+    have dH: d in Hc(red(C,p)) by Del_dom dl
+    have dE: d in E(bock(C,p)) by bock_E dH
+    have kd: k(bock(C,p),d) = x by bock_k dl
+    show by dE kd with d
+  qed
+  have ik: forall e:el: e in E(bock(C,p)) -> i(bock(C,p),k(bock(C,p),e)) = 0
+  proof
+    fix e
+    intro he
+    have eH: e in Hc(red(C,p)) by bock_E he
+    obtain h:el st dl: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) by Del_tot[C, C, red(C,p), mulp(p), rh(C,p), e] ss eH
+    have ke: k(bock(C,p),e) = h by bock_k dl
+    have hH: h in Hc(C) by Del_dom dl
+    obtain h2:el st m: HM(C,C,mulp(p),h,h2) by HM_tot[C, C, mulp(p), h] cf hH
+    have ih: i(bock(C,p),h) = h2 by bock_i m
+    have z: h2 = 0 by les_delf[C, C, red(C,p), mulp(p), rh(C,p), e, h, h2] ss dl m
+    show by ke ih z
+  qed
+  show excouple(bock(C,p)) by excouple_def sD sE iD jE kD kerj ji kerk kj keri ik
+qed
+
+# i = H(p) is multiplication by p on classes
+lemma bock_ip: forall C:cx, p:int, x:el: fintype(C) and x in D(bock(C,p)) -> i(bock(C,p),x) = p*x
+proof
+  fix C p x
+  intro hf hx
+  have cx: iscx(C) by fintype_def hf
+  have xH: x in Hc(C) by bock_D hx
+  obtain z:el st cz: Cls(C,z,x) by cls_sur xH
+  have cp: Cls(C,p*z,p*x) by cls_smul[C, p, z, x] cx cz
+  have mz: Cls(C,ap(mulp(p),z),p*x) by cp mulp_def[p, z]
+  have m: HM(C,C,mulp(p),x,p*x) by HM_def cz mz with z
+  show by bock_i m
+qed
 
 lemma zs_mem: forall a:el, S:set: zsummand(a,S) -> a in S and subgroup(S)
 proof
@@ -904,13 +1813,16 @@ proof
 qed
 
 # i^m = p^m on the Bockstein couple
-lemma ipow_bock: forall C:cx, p:int: forall m:int: 0 <= m -> forall x:el: ipow(bock(C,p),m,x) = p^m*x
+lemma ipow_bock: forall C:cx, p:int: fintype(C) and prime(p) -> forall m:int: 0 <= m -> forall x:el: x in D(bock(C,p)) -> ipow(bock(C,p),m,x) = p^m*x
 proof
   fix C p
+  intro hf hp
+  have ec: excouple(bock(C,p)) by bock_couple hf hp
   induct m from 0
   base
   proof
     fix x
+    intro hx
     show by ipow_zero[bock(C,p), x]
   qed
   step
@@ -918,12 +1830,104 @@ proof
     fix m
     intro hm ih
     fix x
+    intro hx
     have s: ipow(bock(C,p),m+1,x) = i(bock(C,p),ipow(bock(C,p),m,x)) by ipow_succ[bock(C,p), m, x] hm
-    have a: ipow(bock(C,p),m,x) = p^m*x by ih
-    have b: i(bock(C,p),x) = p*x by bock_i
+    have a: ipow(bock(C,p),m,x) = p^m*x by ih hx
+    have yD: ipow(bock(C,p),m,x) in D(bock(C,p)) by ipow_D ec hx
+    have b: i(bock(C,p),ipow(bock(C,p),m,x)) = p*ipow(bock(C,p),m,x) by bock_ip hf yD
     have e: p^(m+1) = p^m*p by pow_succ[p, m] hm
     show by s a b e
   qed
+qed
+
+# the quotient differential is well defined (red_dif names one value)
+lemma red_dif_wd: forall C:cx, p:int, x y:el: iscx(C) and x in Ch(C) and y in Ch(C) and ap(rh(C,p),x) = ap(rh(C,p),y) -> ap(rh(C,p),dif(C,x)) = ap(rh(C,p),dif(C,y))
+proof
+  fix C p x y
+  intro cx hx hy he
+  have s: subgroup(Ch(C)) by cx_sub cx
+  have d: x - y in Ch(C) by s hx hy
+  have r0: ap(rh(C,p),x - y) = 0 by he
+  obtain u:el st uc ue: u in Ch(C) and x - y = p*u by red_ker[C, p, x - y] d r0
+  have du: dif(C,u) in Ch(C) by cx_d cx uc
+  have pd: p*dif(C,u) in Ch(C) by s du
+  have r1: ap(rh(C,p),p*dif(C,u)) = 0 by red_ker[C, p, p*dif(C,u)] pd du with dif(C,u)
+  have dd: dif(C,x) - dif(C,y) = p*dif(C,u) by ue
+  show by r1 dd
+qed
+
+# the degrees of the Bockstein couple: i and j of degree 0, k of degree +1
+lemma deg_i: forall C:cx, p n:int, h:el: fintype(C) and h in H(C,n) -> i(bock(C,p),h) in H(C,n)
+proof
+  fix C p n h
+  intro hf hh
+  have cx: iscx(C) by fintype_def hf
+  have hc: h in Hc(C) by H_in hh
+  have hD: h in D(bock(C,p)) by bock_D hc
+  have e: i(bock(C,p),h) = p*h by bock_ip hf hD
+  obtain z:el st zn cz: z in Cn(C,n) and Cls(C,z,h) by H_def hh
+  have sn: subgroup(Cn(C,n)) by Cn_sub cx
+  have pz: p*z in Cn(C,n) by sn zn
+  have cp: Cls(C,p*z,p*h) by cls_smul[C, p, z, h] cx cz
+  have m: p*h in H(C,n) by H_def pz cp with p*z
+  show by m e
+qed
+
+lemma deg_j: forall C:cx, p n:int, h:el: fintype(C) and h in H(C,n) -> j(bock(C,p),h) in H(red(C,p),n)
+proof
+  fix C p n h
+  intro hf hh
+  have cx: iscx(C) by fintype_def hf
+  obtain z:el st zn cz: z in Cn(C,n) and Cls(C,z,h) by H_def hh
+  have zc: z in Ch(C) and dif(C,z) = 0 by cls_dom cz
+  have wn: ap(rh(C,p),z) in Cn(red(C,p),n) by red_Cn zn with z
+  have wc: ap(rh(C,p),z) in Ch(red(C,p)) by red_ch zc with z
+  have dw: dif(red(C,p),ap(rh(C,p),z)) = ap(rh(C,p),dif(C,z)) by red_dif zc
+  have dw0: dif(red(C,p),ap(rh(C,p),z)) = 0 by dw zc
+  obtain e:el st ce: Cls(red(C,p),ap(rh(C,p),z),e) by cls_tot[red(C,p), ap(rh(C,p),z)] wc dw0
+  have m: HM(C,red(C,p),rh(C,p),h,e) by HM_def cz ce with z
+  have je: j(bock(C,p),h) = e by bock_j m
+  have eH: e in H(red(C,p),n) by H_def wn ce with ap(rh(C,p),z)
+  show by eH je
+qed
+
+lemma deg_k: forall C:cx, p n:int, e:el: fintype(C) and prime(p) and e in H(red(C,p),n) -> k(bock(C,p),e) in H(C,n+1)
+proof
+  fix C p n e
+  intro hf hp he
+  have cx: iscx(C) by fintype_def hf
+  have tf: forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0 by fintype_def hf
+  have p2: 2 <= p by prime_ge2 hp
+  have p1: 1 <= p by p2
+  have s: subgroup(Ch(C)) by cx_sub cx
+  obtain w:el st wn cw: w in Cn(red(C,p),n) and Cls(red(C,p),w,e) by H_def he
+  have wc: w in Ch(red(C,p)) and dif(red(C,p),w) = 0 by cls_dom cw
+  obtain x:el st xn xw: x in Cn(C,n) and w = ap(rh(C,p),x) by red_Cn wn
+  have xc: x in Ch(C) by Cn_ch xn
+  have dx: dif(C,x) in Ch(C) by cx_d cx xc
+  have rd: dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x)) by red_dif xc
+  have r0: ap(rh(C,p),dif(C,x)) = 0 by rd xw wc
+  obtain z:el st zc zx: z in Ch(C) and dif(C,x) = p*z by red_ker[C, p, dif(C,x)] dx r0
+  # d x has degree n+1, so z does (C is torsion-free)
+  have pdx: proj(C,n+1,dif(C,x)) = dif(C,proj(C,n,x)) by proj_dif[C, n, x] xc
+  have px: proj(C,n,x) = x by proj_id xn
+  have pz: p*(proj(C,n+1,z) - z) = 0 by pdx px zx
+  have pzc: proj(C,n+1,z) in Cn(C,n+1) by proj_in[C, n+1, z] zc
+  have pzc2: proj(C,n+1,z) in Ch(C) by Cn_ch pzc
+  have dz: proj(C,n+1,z) - z in Ch(C) by s pzc2 zc
+  have z1: proj(C,n+1,z) - z = 0 by tf[p, proj(C,n+1,z) - z] dz p1 pz
+  have zn: z in Cn(C,n+1) by pzc z1
+  # z is a cocycle: p d z = d d x = 0
+  have ddx: dif(C,dif(C,x)) = 0 by cx_dd cx xc
+  have dzc: dif(C,z) in Ch(C) by cx_d cx zc
+  have pdz: p*dif(C,z) = 0 by ddx zx
+  have dz0: dif(C,z) = 0 by tf[p, dif(C,z)] dzc p1 pdz
+  obtain h:el st ch: Cls(C,z,h) by cls_tot[C, z] zc dz0
+  have fz: ap(mulp(p),z) = dif(C,x) by mulp_def[p, z] zx
+  have dl: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) by Del_def cw xc xw zc fz ch with w, x, z
+  have ke: k(bock(C,p),e) = h by bock_k dl
+  have hn: h in H(C,n+1) by H_def zn ch with z
+  show by hn ke
 qed
 
 # Proposition 0.1, following the paper: a-bar = j_1(a) lies in im j_r,
@@ -937,8 +1941,10 @@ proof
   intro hC hp hn hr ha hs
   have ec: excouple(bock(C,p)) by bock_couple hC hp
   have p2: 2 <= p by prime_ge2 hp
-  have hsT: zsummand(a,Htot(C)) by zsummand_trans[a, H(C,n), Htot(C)] hs H_summand
-  have aT: a in Htot(C) by zs_mem hsT
+  have cxC: iscx(C) by fintype_def hC
+  have hsum: summand(H(C,n),Hc(C)) by H_summand cxC
+  have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum
+  have aT: a in Hc(C) by zs_mem hsT
   have aD: a in D(bock(C,p)) by bock_D aT
   have r0: 0 <= r - 1 by hr
   # j_r(p^(r-1) a) = a-bar
@@ -970,18 +1976,20 @@ proof
     have tk: Dr(bock(C,p),r,k(bock(C,p),e0)) and i(bock(C,p),k(bock(C,p),e0)) = 0 by dc_imk ec hr z0
     have tD: k(bock(C,p),e0) in D(bock(C,p)) by dc_DD ec hr tk
     # i = p, i^(r-1) = p^(r-1)
-    have e1: ipow(bock(C,p),r-1,a) = p^(r-1)*a by ipow_bock r0
-    have e2: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock r0
-    have e3: i(bock(C,p),y) = p*y by bock_i
-    have e4: i(bock(C,p),k(bock(C,p),e0)) = p*k(bock(C,p),e0) by bock_i
+    have e1: ipow(bock(C,p),r-1,a) = p^(r-1)*a by ipow_bock[C, p] hC hp r0 aD
+    have e2: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock[C, p] hC hp r0 xD
+    have yD: y in D(bock(C,p)) by dc_DD ec hr yd
+    have e3: i(bock(C,p),y) = p*y by bock_ip[C, p, y] hC yD
+    have tD0: k(bock(C,p),e0) in D(bock(C,p)) by dc_DD ec hr tk
+    have e4: i(bock(C,p),k(bock(C,p),e0)) = p*k(bock(C,p),e0) by bock_ip[C, p, k(bock(C,p),e0)] hC tD0
     have pt: p*k(bock(C,p),e0) = 0 by tk e4
     # p^(r-1) a = t + p^r x with p t = 0
     have key: p^(r-1)*a = k(bock(C,p),e0) + (p*p^(r-1))*x by yi yx e1 e2 e3
     have p1: 1 <= p by p2
     have q1: 1 <= p^(r-1) by pow_pos p1 r0
-    have tH: k(bock(C,p),e0) in Htot(C) by bock_D tD
-    have xH: x in Htot(C) by bock_D xD
-    show false by zsum_val[a, Htot(C), p, p^(r-1), k(bock(C,p),e0), x] hsT p2 q1 tH xH pt key
+    have tH: k(bock(C,p),e0) in Hc(C) by bock_D tD
+    have xH: x in Hc(C) by bock_D xD
+    show false by zsum_val[a, Hc(C), p, p^(r-1), k(bock(C,p),e0), x] hsT p2 q1 tH xH pt key
   qed
   show by s1 s2 s3
 qed
@@ -996,8 +2004,10 @@ proof
   intro hC hp hn hr ha hs
   have ec: excouple(bock(C,p)) by bock_couple hC hp
   have p2: 2 <= p by prime_ge2 hp
-  have hsT: zsummand(a,Htot(C)) by zsummand_trans[a, H(C,n), Htot(C)] hs H_summand
-  have aT: a in Htot(C) by zs_mem hsT
+  have cxC: iscx(C) by fintype_def hC
+  have hsum: summand(H(C,n),Hc(C)) by H_summand cxC
+  have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum
+  have aT: a in Hc(C) by zs_mem hsT
   have aD: a in D(bock(C,p)) by bock_D aT
   have sD: subgroup(D(bock(C,p))) by ec_subD ec
   have rr: 0 <= r by hr
@@ -1025,15 +2035,15 @@ proof
     have jd: j(bock(C,p),a - x) = 0 by xj
     # ker j = im i = pH
     obtain y:el st yD yi: y in D(bock(C,p)) and a - x = i(bock(C,p),y) by ec_kerj ec dD jd
-    have e1: ipow(bock(C,p),r,x) = p^r*x by ipow_bock rr
-    have e2: i(bock(C,p),y) = p*y by bock_i
+    have e1: ipow(bock(C,p),r,x) = p^r*x by ipow_bock[C, p] hC hp rr xD
+    have e2: i(bock(C,p),y) = p*y by bock_ip[C, p, y] hC yD
     have p1: 1 <= p by p2
     have w1: 1 <= p^r by pow_pos p1 rr
     have wx: p^r*x = 0 by xi e1
     have ax: a = x + p*y by yi e2
-    have xH: x in Htot(C) by bock_D xD
-    have yH: y in Htot(C) by bock_D yD
-    show false by zsum_unit[a, Htot(C), p, p^r, x, y] hsT p2 w1 xH yH wx ax
+    have xH: x in Hc(C) by bock_D xD
+    have yH: y in Hc(C) by bock_D yD
+    show false by zsum_unit[a, Hc(C), p, p^r, x, y] hsT p2 w1 xH yH wx ax
   qed
   show by s1 s2 s3
 qed
@@ -1193,8 +2203,10 @@ proof
   intro hC hp hk ha hz
   have ec: excouple(bock(C,p)) by bock_couple hC hp
   have p2: 2 <= p by prime_ge2 hp
-  have hzT: zpksummand(a,Htot(C),p,k) by zpksummand_trans[a, H(C,n), Htot(C), p, k] hz H_summand
-  have am: a in Htot(C) and subgroup(Htot(C)) and p^k*a = 0 by zpk_mem hzT
+  have cxC: iscx(C) by fintype_def hC
+  have hsum: summand(H(C,n),Hc(C)) by H_summand cxC
+  have hzT: zpksummand(a,Hc(C),p,k) by zpksummand_trans[a, H(C,n), Hc(C), p, k] hz hsum
+  have am: a in Hc(C) and subgroup(Hc(C)) and p^k*a = 0 by zpk_mem hzT
   have aD: a in D(bock(C,p)) by bock_D am
   have sD: subgroup(D(bock(C,p))) by ec_subD ec
   have part1: forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))
@@ -1207,17 +2219,17 @@ proof
     have dD: a - x in D(bock(C,p)) by sD aD xD
     have jd: j(bock(C,p),a - x) = 0 by xj
     obtain y:el st yD yi: y in D(bock(C,p)) and a - x = i(bock(C,p),y) by ec_kerj ec dD jd
-    have e1: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock r0
-    have e2: i(bock(C,p),y) = p*y by bock_i
+    have e1: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock[C, p] hC hp r0 xD
+    have e2: i(bock(C,p),y) = p*y by bock_ip[C, p, y] hC yD
     have wx: p^(r-1)*x = 0 by xi e1
     have ax: a = x + p*y by yi e2
-    have xH: x in Htot(C) by bock_D xD
-    have yH: y in Htot(C) by bock_D yD
-    show false by zpk_unit[a, Htot(C), p, k, r, x, y] hzT p2 hr hrk xH yH wx ax
+    have xH: x in Hc(C) by bock_D xD
+    have yH: y in Hc(C) by bock_D yD
+    show false by zpk_unit[a, Hc(C), p, k, r, x, y] hzT p2 hr hrk xH yH wx ax
   qed
   have k0: 0 <= k by hk
   have k1: 1 <= k + 1 by hk
-  have ek: ipow(bock(C,p),k,a) = p^k*a by ipow_bock k0
+  have ek: ipow(bock(C,p),k,a) = p^k*a by ipow_bock[C, p] hC hp k0 aD
   have part2: Br(bock(C,p),k+1,j(bock(C,p),a)) by cf_B[bock(C,p), k+1, j(bock(C,p),a)] ec k1 aD ek am with a
   show by part1 part2
 qed
@@ -1258,9 +2270,6 @@ proof
 qed
 
 # ---- diagram chases with arbitrary homomorphisms ----
-sort hom
-func ap(hom, el): el hom
-
 # the short five lemma, injective half: rows A -f-> B -g-> C exact at B
 # and A2 -f2-> B2 with f2 injective, squares commuting, alpha and gamma
 # injective: then beta is injective

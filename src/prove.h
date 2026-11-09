@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * prove.h - an LCF-style proof kernel for exact abstract algebra.
  *

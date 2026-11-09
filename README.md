@@ -2220,17 +2220,30 @@ sets and normal forms (canonical strings, not the kernel's id-ordered
 DAG).  Integers in normal forms are int64 with overflow checks (an
 overflow fails the step; nothing wraps).
 
-**Axioms** (`src/thy_absalg.thy`, the only `def`/`arith` lines): the
+**Axioms** (`src/thy_absalg.thy`, the only `def`/`arith` lines;
+`axioms` lists them, `axioms NAME` the ones a proof rests on): the
 ordered ring Z (`int_discrete` n <= 0 or 1 <= n, `le_antisym`,
-`mul_nonneg`, `int_domain`, `pow_zero`, `pow_succ`); definitions of
-subgroups, the sum and intersection of subgroups, direct summands, a
-generating a Z (or Z/p^k) direct summand, exact couples, i^m, the
-derived couple construction (D_1..E_1 and D_(r+1), Z_(r+1), B_(r+1),
-j_(r+1) from page r: D' = i D, E' = ker d / im d with representatives in
-E, j'(i x) = [j x], k'[e] = k e), d_r [e] = 0 and [e] in im d_r^m,
-primes, and the Bockstein couple of a complex of finite type (an exact
-couple with D = H*(C;Z), i = p, H^n a direct summand of H*).  Nothing
-else: every lemma, including all facts about derived couples, is proved.
+`mul_nonneg`, `int_domain`, `pow_zero`, `pow_succ`), and definitions
+only: subgroups, sums and intersections of subgroups, direct summands, a
+generating a Z (or Z/p^k) summand; exact couples, i^m, the derived couple
+construction (D_1..E_1 and page r+1 from page r: D' = i D, E' = ker d /
+im d with representatives in E, j'(i x) = [j x], k'[e] = k e), d_r [e] =
+0 and [e] in im d_r^m; cochain complexes (Ch, dif, d d = 0), their
+cohomology as the quotient Z/B given with its projection (the relation
+Cls: five lines), the grading (projections onto C^n, d of degree +1),
+H^n, chain maps, short exact sequences of complexes, the induced map
+H(f) and the connecting map (lift, apply d, pull back) as relations;
+multiplication by p, the quotient complex C/pC (its cochains, kernel and
+differential), "of finite type" (here: torsion-free cochains), primes;
+and the Bockstein couple bock(C,p): D = H(C), E = H(C/p), i = H(p),
+j = H(rho), k = delta (each map named as the value of the relation, whose
+totality and single-valuedness are lemmas), E's grading.  Proved, not
+assumed: the long exact sequence of any short exact sequence of
+complexes (`les_exact`, with H(f) and the connecting map well defined),
+that 0 -> C -p-> C -> C/p -> 0 is short exact for a torsion-free C, that
+the Bockstein couple is exact (`bock_couple`), i = p on classes,
+H^n a direct summand of H* (`H_summand`), the degrees of i, j, k
+(`deg_i`, `deg_j`, `deg_k`), and everything about derived couples.
 
 **Automation** (`kauto.c`, results are kernel theorems): linear integer
 arithmetic by Fourier-Motzkin with the multipliers as a `lin`
@@ -2259,15 +2272,13 @@ im d_r puts a in H[p^r] + pH, and a's coordinate in H = <a> (+) M gives
 E_1..E_k and zero on E_(k+1)); `cyclic_order` (symbolic exponents);
 `modular_law`; `short_five_mono`; `snake_ker_exact`.
 
-The statement is proved in a slightly stronger form than the paper's:
-d_r and im d_r^(n-1) are those of the total graded couple, with
-`Edeg(c,m,e)` (e of degree m) uninterpreted, so the result holds for any
-grading; i_r and k_r are by the definition of the derived couple the
-restrictions of i and k (only j_r is new, as a relation on
-representatives).  Exactness of the long exact sequence of 0 -> C -p->
-C -> C/p -> 0 is part of the definition of the Bockstein couple (the
-snake lemma's computation is homalg's; the kernel proves
-`snake_ker_exact` only for one spot of the snake).
+The statement's d_r and im d_r^(n-1) are those of the total graded
+couple, with Edeg(bock(C,p), m, e) meaning e in H^m(C/p); i_r and k_r are
+by the definition of the derived couple the restrictions of i and k (only
+j_r is new, as a relation on representatives).  Route (b) is a coordinate
+argument that shares the closed forms of the derived couples with route
+(a); the reduction to elementary complexes (splitting a complex of finite
+type, additivity of the spectral sequence) is not formalised.
 
 Tests: `tests/prove.ucas` (the two routes, re-checks, the other theorems,
 automation, and four false variants: no summand hypothesis, a Z/p
