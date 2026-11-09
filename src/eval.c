@@ -726,7 +726,7 @@ double
 fma64(double a, double b, double c)
 {
 	uint64_t ma, mb, mc;
-	int ea, eb, ec, sx, sy, ex, ey, d, rest, L, s, sticky = 0;
+	int ea, eb, ec, sx, sy, ex, ey, rest, L, s, sticky = 0;
 	struct u128 X, Y, R;
 	double r;
 
