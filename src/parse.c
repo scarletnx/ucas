@@ -21,6 +21,7 @@
  *                            give a real
  */
 #include "ucas.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
 #include "viz.h"
@@ -1870,6 +1871,8 @@ statement(struct P *p)
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
+		return;
+	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */
 		return;
 	if (hyper_hook(p))
 		return;

@@ -27,6 +27,13 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# proofs: an LCF kernel, its checker, decision procedures, a theory library
+SRCS+=	kterm.c knorm.c kernel.c kcheck.c kauto.c kscript.c prove_cmd.c
+thy_absalg.inc: thy_absalg.thy
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    ${.ALLSRC} > ${.TARGET}
+kscript.o kscript.pieo: thy_absalg.inc
+CLEANFILES+=	thy_absalg.inc
 .PATH:	${.CURDIR}/src
 MAN=
 

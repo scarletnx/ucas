@@ -29,6 +29,7 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
 
@@ -7701,6 +7702,8 @@ nlp_is_english(const char *s, size_t n)
 		if (r >= 0)
 			return r;
 	}
+	if (prove_is_cmd(s + i, n - i))
+		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */
