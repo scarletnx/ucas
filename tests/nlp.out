@@ -122,11 +122,10 @@ lhs and rhs are equal on the domain of lhs (exhaustive)
   ucas: equiv lhs rhs
 lhs and rhs are equal on the domain of lhs (exhaustive)
 > is dbl an odd function?
-  note: odd: dbl(-x) = -dbl(x) everywhere?
-  ucas: lhs(x: u8) = dbl(-x)
-  ucas: rhs(x: u8) = -dbl(x)
-  ucas: equiv lhs rhs
-lhs and rhs are equal on the domain of lhs (exhaustive)
+  ucas: parity dbl
+parity of dbl:
+  odd: f(-x) = -f(x)
+  proved, exhaustive, with -x and -f(x) in u8 arithmetic (two's complement: -x is 2^w - x)
 > is avg asociative?
   note: read "asociative" as "associative"
   note: associative: avg(avg(a, b), c) = avg(a, avg(b, c)) everywhere?

@@ -21,6 +21,7 @@
  *                            give a real
  */
 #include "ucas.h"
+#include "props.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -1789,6 +1790,9 @@ statement(struct P *p)
 			cmd_animate(p);
 			return;
 		}
+		/* monotonic, period, identify, zeros ... (props.c) */
+		if (props_command(p))
+			return;
 		/* approx (approx.c) */
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {
 			adv(p);

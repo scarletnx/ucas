@@ -145,6 +145,15 @@ inline annotations: `range isqrt(x: u4)`.
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter |
 | `equiv F G` | equal on F's domain? (with a counterexample) |
+| `monotonic F [x] [in a..b]` | increasing/decreasing (strictly or not), constant, or the maximal intervals of monotonicity with a witness pair x1 < x2; polynomials proved by the real roots of f', integer types exhaustively (and whether wrapping is what breaks it) |
+| `period F [x]`, `periodic F [x]` | the fundamental period: trigonometric subterms with linear arguments (2π/\|k\|, π/\|k\| for tan), `x % m`, `x & m`, combined by their lcm (proved), then the smaller fractions p/k (k <= 64) checked numerically; incommensurate periods (sin x + sin(√2 x)) are almost periodic, not periodic; integer domains searched exhaustively; otherwise a numeric search (not proved) |
+| `identify EXPR`, `identify LHS = RHS`, `identify F` | classify and list properties, each tagged proved/exhaustive/numeric: polynomials (degree, factors, roots), rational functions (poles, asymptotes), algebraic/transcendental/piecewise; equations in one variable (solutions), conics by B²-4AC and the 3x3 determinant (circle, ellipse, parabola, hyperbola, degenerate), lines, implicit curves; ODEs (`y'' + y = 0`, or `identify y` after `y' = ...`): order, linear, homogeneous, constant coefficients with the characteristic roots and solution basis, autonomous, separable, exact, Riccati |
+| `parity F`, `symmetry F` | even/odd (parity rules proved symbolically, machine integers exhaustively in two's complement), axes x = c and centres of symmetry, f(x, y) = f(y, x) |
+| `bounded F`, `zeros F` (`roots`) | bounds by interval arithmetic or polynomial degree, poles and growth at large \|x\|; zeros exactly for polynomials (with multiplicity and complex ones), numerically otherwise |
+| `injective F`, `surjective F [onto a..b]`, `bijective F` | with a witness f(x1) = f(x2) or a value never taken; the codomain is the result type for machine integers, the reals otherwise |
+| `continuity F`, `discontinuities F` | removable, jump, infinite (pole), essential; ends of the domain |
+| `convexity F` (`convex`, `concave`) | intervals of convexity, inflection points, a chord witness |
+| `asymptotes F` | vertical, horizontal and oblique; exact for rational functions, from limits otherwise |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
 | `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
@@ -313,7 +322,14 @@ behind it.  English only; the translator is a hand-written parser
   steps`), sums and products in words (`the sum of i squared for i
   from 1 to n`, `the product over k from 1 to 5 of k`),
   properties checked with equiv (commutative, associative, additive,
-  idempotent, odd/even function), definitions (`let f of x be ...`,
+  idempotent), properties answered by props.c (`is f monotonic`, `is
+  it strictly increasing`, `where is f decreasing`, `is sin(2x)
+  periodic`, `find the period of`, `does f repeat`, `is x squared even`,
+  `is f bounded`, `one to one`, `a bijection`, `where is 1/x
+  discontinuous`, `where is x^3 concave`, `the asymptotes of`, `the
+  roots of`, `where does f cross zero`, `identify the equation x^2 + y^2
+  = 1`, `what kind of equation is y'' + y = 0`, `classify`, `what type
+  of function is`, `what properties does f have`), definitions (`let f of x be ...`,
   `call it g`), `assume`, `forget`.
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted

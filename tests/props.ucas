@@ -1,0 +1,171 @@
+# Properties of functions and equations (src/props.c).  Each answer says
+# how it was established: proved (symbolically or exhaustively) or
+# checked numerically.
+
+# monotonic: polynomials by the roots of f', integers exhaustively
+monotonic x^3
+monotonic x^3 - 3x
+monotonic x^2 in 0..5
+monotonic sin(x)
+monotonic 1/x
+monotonic floor(x)
+inc(x: u8) = x + 1
+monotonic inc
+dbl(x: u8) = x * 2
+monotonic dbl
+
+# period: periodic subterms with linear arguments, their lcm, then smaller
+# fractions checked; integer domains exhaustively
+period sin(2x)
+period sin(x) + cos(3x)
+period abs(sin(x))
+period tan(x/2)
+periodic sin(x) + sin(sqrt(2)*x)
+periodic x*sin(x)
+periodic x^2 + 1
+period x - floor(x)
+m7(x: u8) = x % 7
+period m7
+a3(x: u8) = x & 3
+period a3
+s7(x: i8) = x % 7
+period s7
+
+# parity and symmetry
+parity x^2*cos(x)
+parity x^3 + sin(x)
+parity x^2 + x
+sq8(x: i8) = x * x
+parity sq8
+parity dbl
+symmetry (x - 1)^2
+symmetry x^3 - 3x^2
+symmetry x*y + x + y
+
+# bounded: interval arithmetic, polynomial degree, poles, growth
+bounded sin(x)
+bounded 1/(1 + x^2)
+bounded x^2 - 4
+bounded x^3
+bounded exp(x)
+bounded 1/x
+bounded inc
+
+# injective, surjective, bijective (with witnesses)
+injective x^2
+injective x^3
+injective 1/x
+surjective x^2
+surjective exp(x)
+surjective x^2 onto 0..4
+bijective x^3 + x
+bijective inc
+surjective dbl
+injective dbl
+injective (x: u8) * 3
+
+# continuity: removable, jump, infinite, essential; ends of the domain
+continuity 1/x
+discontinuities x/x
+discontinuities (x^2 - 1)/(x - 1)
+discontinuities floor(x) in -2..2
+discontinuities sign(x)
+discontinuities sin(1/x)
+continuity log(x)
+continuity tan(x) in -2..2
+
+# convexity and inflection points
+convexity x^3
+convexity x^4
+convexity sin(x) in 0..6
+convexity abs(x)
+convexity 1/x
+
+# asymptotes: rational functions exactly, others from limits
+asymptotes 1/(x - 1)
+asymptotes (x^2 + 1)/x
+asymptotes (2x^2 + 1)/(x^2 - 4)
+asymptotes (x^2 - 1)/(x - 1)
+asymptotes exp(-x)
+asymptotes atan(x)
+asymptotes log(x)
+
+# zeros
+zeros x^2 - 2
+zeros (x - 1)^2*(x + 2)
+zeros x^2 + 1
+roots x^4 - 5x^2 + 4
+zeros sin(x)
+zeros cos(x) - 1 in -7..7
+zeros (x: u8) & 7
+
+# identify: functions, equations, conics, ODEs
+identify x^3 - 3x
+identify (x^2 + 1)/(x - 1)
+identify sin(2x)
+identify exp(-x^2)
+identify sqrt(x)
+identify abs(x)
+q3(x: u8) = x * 3
+identify q3
+identify x^2 + y^2 = 1
+identify x^2/4 + y^2/9 = 1
+identify x^2 - y^2 = 1
+identify y = x^2 + 1
+identify x*y = 1
+identify x^2 + y^2 + 2x + 1 = 0
+identify 2x + 3y = 6
+identify x^2 - 2 = 0
+identify sin(x) = x/2
+identify y'' + y = 0
+identify y'' + 4y' + 4y = 0
+identify y' = t*y
+identify y' = y^2 + t
+identify y' + 2y = sin(t)
+w' = -2w + 1
+identify w
+
+# English
+is x^3 monotonic?
+is x^3 strictly increasing?
+f(x) = x^3 - 3x
+where is f decreasing?
+is it increasing?
+is sin x monotone?
+is sin(2x) periodic?
+find the period of sin(2x) + cos(4x)
+what is the period of tan(3x)?
+what is the fundamental period of sin(x)^2?
+does sin(x) + cos(x) repeat?
+is the function x^2 + 1 periodic?
+is x squared even?
+is x cubed an odd function?
+what is the parity of x^3?
+is f symmetric?
+is cos x bounded?
+is exp(x) bounded above?
+is x^3 one to one?
+is x^2 injective?
+is x^3 surjective?
+is x^3 + x a bijection?
+is 1/x continuous?
+where is 1/x discontinuous?
+what are the discontinuities of floor(x) on [0, 3]?
+is x^2 convex?
+where is x^3 concave?
+what are the asymptotes of (x^2 + 1)/x?
+does 1/x have asymptotes?
+what are the roots of x^2 - 5x + 6?
+find the zeros of sin(x) on [0, 7]
+where is x^2 - 4 zero?
+does x^2 + 1 have real roots?
+where does x^3 - x cross zero?
+identify the equation x^2 + y^2 = 1
+is x^2 + y^2 = 4 a circle?
+what kind of curve is x^2 - y^2 = 1
+what kind of equation is y'' + y = 0?
+classify y' = t*y
+what type of function is x^3 - x?
+what properties does exp(-x^2) have?
+classify the function sin(x)/x
+is u8(x + 1) monotonic for an unsigned byte x?

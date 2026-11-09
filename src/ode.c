@@ -109,6 +109,18 @@ eq_find(uint32_t var)
 	return NULL;
 }
 
+/* props.c (identify y): var^(order) = the returned text */
+const char *
+ode_rhs(uint32_t var, int *order)
+{
+	struct odeq *q = eq_find(var);
+
+	if (q == NULL)
+		return NULL;
+	*order = q->order;
+	return q->rhs;
+}
+
 /* ---- first-order systems z' = F(t, z): slot 0 is t, 1 + i is z_i ---- */
 
 #define MAXS 15
