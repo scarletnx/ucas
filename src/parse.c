@@ -1570,6 +1570,11 @@ help(void)
 "  complex F | re F | im F | conj F | modulus F | arg F | polar F\n"
 "  nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|"
 "harmonic|half|inverse]\n"
+"algebra\n"
+"  expand|factor|simplify|together|cancel F | collect|apart F [in x]\n"
+"  gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]\n"
+"  quo|rem P, Q [in x] | divide P by Q | substitute x = a in F\n"
+"  solve L = R [, L2 = R2] [for x, y]\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
 "  ('help english' for more)");
 }
