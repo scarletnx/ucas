@@ -2144,7 +2144,7 @@ rf_node(struct rf a, int factored)
 	struct mp n, d;
 
 	if (mp_isconst(a.d, &cd))
-		return factored ? mp_fnode(mp_scale(a.n, qdiv(qi(1), cd))) :
+		return factored == 1 ? mp_fnode(mp_scale(a.n, qdiv(qi(1), cd))) :
 		    mp_node(mp_scale(a.n, qdiv(qi(1), cd)));
 	cn = mp_iszero(a.n) ? qi(1) : mp_qcontent(a.n);
 	cd = mp_qcontent(a.d);
@@ -2152,7 +2152,8 @@ rf_node(struct rf a, int factored)
 	d = mp_scale(a.d, qdiv(qi(1), cd));
 	cn = qdiv(cn, cd);     /* the value is cn * n / d */
 	if (factored) {
-		num = mp_isconst(n, NULL) ? 0 : mp_fnode(n);
+		num = mp_isconst(n, NULL) ? 0 : factored == 2 ? mp_node(n) :
+		    mp_fnode(n);
 		den = mp_fnode(d);
 	} else {
 		num = mp_isconst(n, NULL) ? 0 : mp_node(n);

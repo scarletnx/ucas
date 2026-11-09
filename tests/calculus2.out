@@ -195,8 +195,8 @@ Hessian of x^3 - 3x*y^2 (row i, column j: ∂²/∂j∂i):
   at (x = 1, y = 1, z = 1): 6
 > jacobian x*cos(y), x*sin(y) at 2, 0
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
-  [ cos(y)   -(x*sin(y)) ]
-  [ sin(y)   x*cos(y)    ]
+  [ cos(y)   -x*sin(y) ]
+  [ sin(y)   x*cos(y)  ]
   det = x*cos(y)^2 + x*sin(y)^2
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)
@@ -268,7 +268,7 @@ Wronskian matrix of x^2, x*abs(x) (row k: the k-th derivatives wrt x)
 > wronskian sin(x)^2, cos(x)^2, 1
 Wronskian matrix of sin(x)^2, cos(x)^2, 1 (row k: the k-th derivatives wrt x)
   [ sin(x)^2                cos(x)^2                1 ]   the functions
-  [ 2sin(x)*cos(x)          -(2sin(x)*cos(x))       0 ]   d/dx
+  [ 2sin(x)*cos(x)          -2sin(x)*cos(x)         0 ]   d/dx
   [ 2cos(x)^2 - 2sin(x)^2   2sin(x)^2 - 2cos(x)^2   0 ]   d²/dx²
   W = det = 0
   check: every entry matches central differences at 1206 points (max relative difference 3e-14)
@@ -510,7 +510,7 @@ on the curve a^2 + b^2 - 4 = 0, b as a function of a:
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative 3/(x^2 + 2x + 5)
 ∫ 3/(x^2 + 2x + 5) dx
-  = 3atan(x/2 + 0.5)/2 + C
+  = 3atan((x + 1)/2)/2 + C
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
 > antiderivative 1/sqrt(1 - x^2)
 ∫ 1/sqrt(1 - x^2) dx
@@ -522,7 +522,7 @@ on the curve a^2 + b^2 - 4 = 0, b as a function of a:
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1e-15)
 > antiderivative x/(x^2 + 1)
 ∫ x/(x^2 + 1) dx
-  = log(abs(x^2 + 1))/2 + C
+  = log(x^2 + 1)/2 + C
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative x*log(x)
 ∫ x*log(x) dx
@@ -595,7 +595,7 @@ d²/dx² it = 6x
 > d^2/dx^2 exp(-x^2)
   ucas: it(x) = exp(-x^2)
   ucas: diff it x 2
-d/dx it = -(2x*exp(-x^2))
+d/dx it = -2x*exp(-x^2)
 d²/dx² it = 4x^2*exp(-x^2) - 2exp(-x^2)
   holds for every real x
   check: each order matches central differences at 402 points (max relative difference 1e-15)
@@ -691,8 +691,8 @@ Hessian of it (row i, column j: ∂²/∂j∂i):
 > jacobian of x*cos(y), x*sin(y)
   ucas: jacobian x*cos(y), x*sin(y)
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
-  [ cos(y)   -(x*sin(y)) ]
-  [ sin(y)   x*cos(y)    ]
+  [ cos(y)   -x*sin(y) ]
+  [ sin(y)   x*cos(y)  ]
   det = x*cos(y)^2 + x*sin(y)^2
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)

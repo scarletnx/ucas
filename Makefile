@@ -13,7 +13,7 @@ SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
 # symbolic algebra: polynomials, rational functions, integration, solve
-SRCS+=	poly.c
+SRCS+=	poly.c alg.c rint.c
 .PATH:	${.CURDIR}/src
 MAN=
 

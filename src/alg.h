@@ -173,6 +173,7 @@ nid alg_antideriv(nid f, int s, nid x, int first, const char **how);
 extern const char *alg_int_note;          /* a note for the caller to print */
 
 /* ---- printing helper (alg.c) ---- */
+struct mp mp_pyth(struct mp a, int s, int c, int hyper);
 nid alg_tidy(nid e);         /* exact rational coefficients, collected */
 nid alg_simplify(nid e, struct sbuf *conds);
 

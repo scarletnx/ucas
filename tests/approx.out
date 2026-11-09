@@ -243,8 +243,8 @@ approx g on [-1, 1] as real
       P(x^2)/Q(x^2): (1.0 + 4.1292856178647142e-20*s)/(1.0 + 1.0*s) where s = x*x
   5 more: 'approx more [n]' (dominated or worse)
 > approx exp(-x*x) in -2..2 degree 6 norational list 3
-approx exp(-(x*x)) on [-2, 2] as f32, fma
-  checked: exp(-(x*x)) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 2]
+approx exp(-x*x) on [-2, 2] as f32, fma
+  checked: exp(-x*x) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 2]
   metric: relative error
   fits in real arithmetic (max relative error of P(x^2)):
     deg  cheb interp  cheb econ    minimax

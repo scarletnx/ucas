@@ -1160,8 +1160,10 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		sb_puts(b, "undefined");
 		break;
 	case O_NEG:
+		/* -(a*b) and -(a/b) read the same as (-a)*b: -x*sin(y), -1/x */
 		sb_putc(b, '-');
-		pr(b, N.a[n], 11, pc, 0);
+		pr(b, N.a[n], TY_FP(N.ty[n]) && (N.op[N.a[n]] == O_MUL ||
+		    N.op[N.a[n]] == O_DIV) ? 10 : 11, pc, 0);
 		break;
 	case O_NOT:
 		sb_putc(b, '~');

@@ -8,6 +8,7 @@
  */
 #include "calc.h"
 #include "calc2.h"   /* c2_antideriv: atan, asin, log|P|, P log(u) */
+#include "alg.h"     /* alg_antideriv: rational functions and more methods */
 
 #include <math.h>
 #include <stdlib.h>
@@ -255,9 +256,14 @@ antideriv(nid f, int s, const char **how)
 		notes_drop();
 		return 0;
 	}
-	r = ad(f, s, x);
+	/* rational functions first (exact), then the rules here, then rint.c */
+	r = alg_antideriv(f, s, x, 1, how);
+	if (r == 0 && (r = ad(f, s, x)) != 0)
+		r = tidy(r);
+	if (r == 0)
+		r = alg_antideriv(f, s, x, 0, how);
 	memcpy(fail_jmp, saved, sizeof saved);
-	return r ? tidy(r) : 0;
+	return r;
 }
 
 /* ---- evaluation helpers ---- */
@@ -468,7 +474,7 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 	int removable = 0;
 	double a = 0, b = 0, lo, hi, maxres = 0, scale = 0;
 	int defd = an && bn, i, ok, checked = 0;
-	const char *xn;
+	const char *xn, *how = NULL;
 
 	if (slot >= f->np)
 		fail("%s has no variable to integrate over", f->anon ?
@@ -494,7 +500,7 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		 */
 		ibody = simpler;
 		removable = conds.n > 0;
-		F = antideriv_wrt(simpler, slot, xv, NULL);
+		F = antideriv_wrt(simpler, slot, xv, &how);
 		free(conds.p);
 	}
 	/* where to check: the interval, the parameter's range, or -10..10 */
@@ -517,6 +523,8 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		memcpy(fail_jmp, saved, sizeof saved);
 		notes_drop();
 		printf("  = %s + C\n", node_str(F));
+		if (how && *how)
+			printf("  method: %s\n", how);
 		if (f->np == 1 && d) {
 			for (i = 0; i <= 400; i++) {
 				double x = lo + (hi - lo) * i / 400.0, fv, dv;
