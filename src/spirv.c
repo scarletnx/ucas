@@ -2122,6 +2122,240 @@ exec_image(const struct sins *I, uint32_t mask, int rt, int st, int nc)
 	return 0;
 }
 
+/* ---- GLSL.std.450 on whole vectors and matrices ---- */
+
+static double
+half_round(double v)
+{
+	/* to binary16 and back, round to nearest even */
+	int e;
+	double a = fabs(v), q;
+
+	if (isnan(v) || a == 0)
+		return v;
+	if (a >= 65520)
+		return v < 0 ? -INFINITY : INFINITY;
+	frexp(a, &e);
+	e -= 1;
+	if (e < -14)
+		e = -14;
+	q = ldexp(nearbyint(ldexp(a, 10 - e)), e - 10);
+	return v < 0 ? -q : q;
+}
+
+static uint32_t
+half_bits(double v)
+{
+	float f = (float)half_round(v);
+	uint32_t u, s, e, m;
+
+	memcpy(&u, &f, 4);
+	s = u >> 16 & 0x8000;
+	e = u >> 23 & 0xff;
+	m = u & 0x7fffff;
+	if (e == 0xff)
+		return s | 0x7c00 | (m ? 0x200 : 0);
+	if (e == 0)
+		return s;
+	if ((int)e - 127 < -14) {	/* subnormal */
+		int sh = -14 - ((int)e - 127);
+		return s | ((m | 0x800000) >> (13 + sh));
+	}
+	return s | ((e - 127 + 15) << 10) | (m >> 13);
+}
+
+static double
+half_value(uint32_t h)
+{
+	int e = h >> 10 & 0x1f, m = h & 0x3ff;
+	double v = e == 0 ? ldexp(m, -24) : e == 31 ? (m ? NAN : INFINITY) :
+	    ldexp(m | 0x400, e - 25);
+
+	return h & 0x8000 ? -v : v;
+}
+
+static double
+det(const double *m, int n)
+{
+	if (n == 2)
+		return m[0] * m[3] - m[2] * m[1];
+	if (n == 3)
+		return m[0] * (m[4] * m[8] - m[7] * m[5]) -
+		    m[3] * (m[1] * m[8] - m[7] * m[2]) +
+		    m[6] * (m[1] * m[5] - m[4] * m[2]);
+	{
+		double s = 0, sub[9];
+		int c, i, j, k;
+		for (c = 0; c < 4; c++) {	/* along column c's row 0 */
+			for (i = 0, k = 0; i < 4; i++)
+				if (i != c)
+					for (j = 1; j < 4; j++)
+						sub[k++] = m[i * 4 + j];
+			s += (c & 1 ? -1 : 1) * m[c * 4] * det(sub, 3);
+		}
+		return s;
+	}
+}
+
+static int
+exec_glslvec(const struct sins *I, uint32_t mask, int rt, int st, int nc)
+{
+	static const char *const fs[] = {"Length", "Distance", "Normalize",
+	    "Cross", "Reflect", "Refract", "FaceForward", "Determinant",
+	    "MatrixInverse", "PackUnorm4x8", "PackSnorm4x8", "PackUnorm2x16",
+	    "PackSnorm2x16", "PackHalf2x16", "UnpackUnorm4x8", "UnpackSnorm4x8",
+	    "UnpackUnorm2x16", "UnpackSnorm2x16", "UnpackHalf2x16", NULL};
+	const char *f;
+	int fi, l, i, j, k, a, b = -1, c = -1, n;
+
+	if (strcmp(I->op, "OpExtInst") || I->nop < 4)
+		return 0;
+	f = I->opnd[2];
+	for (fi = 0; fs[fi] && strcmp(fs[fi], f); fi++)
+		;
+	if (!fs[fi])
+		return 0;
+	a = opid(I, 3);
+	if (I->nop > 4)
+		b = opid(I, 4);
+	if (I->nop > 5)
+		c = opid(I, 5);
+	n = vcomp(a);
+	for (l = 0; l < V.lanes; l++) {
+		double x[MAXCOMP], y[MAXCOMP], z[MAXCOMP], r[MAXCOMP];
+		int nr = nc, at = V.id[a].type, sa = at >= 0 ? scalar_of(at) : st;
+		struct lval xv, *o;
+		if (!(mask >> l & 1))
+			continue;
+		xv = val(a, l);
+		memset(r, 0, sizeof r);
+		for (i = 0; i < MAXCOMP; i++) {
+			x[i] = i < nwords(at) && T(sa)->k == S_FLOAT ? getf(sa, xv.b[i]) :
+			    0;
+			y[i] = b >= 0 && i < nwords(V.id[b].type) ? comp_f(b, l, i) : 0;
+			z[i] = c >= 0 && i < nwords(V.id[c].type) ? comp_f(c, l, i) : 0;
+		}
+		switch (fi) {
+		case 0: case 1: {	/* Length, Distance */
+			double s = 0;
+			for (i = 0; i < n; i++)
+				s += (x[i] - (fi ? y[i] : 0)) * (x[i] - (fi ? y[i] : 0));
+			r[0] = sqrt(s);
+			break;
+		}
+		case 2: {	/* Normalize */
+			double s = 0;
+			for (i = 0; i < n; i++)
+				s += x[i] * x[i];
+			s = sqrt(s);
+			for (i = 0; i < n; i++)
+				r[i] = x[i] / s;
+			break;
+		}
+		case 3:		/* Cross */
+			r[0] = x[1] * y[2] - y[1] * x[2];
+			r[1] = x[2] * y[0] - y[2] * x[0];
+			r[2] = x[0] * y[1] - y[0] * x[1];
+			break;
+		case 4: {	/* Reflect: I - 2 dot(N, I) N */
+			double d = 0;
+			for (i = 0; i < n; i++)
+				d += x[i] * y[i];
+			for (i = 0; i < n; i++)
+				r[i] = x[i] - 2 * d * y[i];
+			break;
+		}
+		case 5: {	/* Refract(I, N, eta) */
+			double d = 0, e = comp_f(c, l, 0), kk;
+			for (i = 0; i < n; i++)
+				d += x[i] * y[i];
+			kk = 1 - e * e * (1 - d * d);
+			for (i = 0; i < n; i++)
+				r[i] = kk < 0 ? 0 : e * x[i] - (e * d + sqrt(kk)) * y[i];
+			break;
+		}
+		case 6: {	/* FaceForward(N, I, Nref) */
+			double d = 0;
+			for (i = 0; i < n; i++)
+				d += z[i] * y[i];
+			for (i = 0; i < n; i++)
+				r[i] = d < 0 ? x[i] : -x[i];
+			break;
+		}
+		case 7: case 8: {	/* Determinant, MatrixInverse */
+			int m = at >= 0 && T(at)->k == S_MAT ? T(at)->n : 2;
+			double dd = det(x, m), sub[9];
+			if (fi == 7) {
+				r[0] = dd;
+				break;
+			}
+			/* inverse: the adjugate over the determinant */
+			for (i = 0; i < m; i++)
+				for (j = 0; j < m; j++) {
+					int ii, jj, q = 0;
+					for (ii = 0; ii < m; ii++)
+						for (jj = 0; jj < m; jj++)
+							if (ii != j && jj != i)
+								sub[q++] = x[ii * m + jj];
+					r[i * m + j] = ((i + j) & 1 ? -1 : 1) * (m == 2 ? sub[0] :
+					    det(sub, m - 1)) / dd;
+				}
+			nr = m * m;
+			break;
+		}
+		case 9: case 10: case 11: case 12: case 13: {	/* Pack* */
+			uint64_t u = 0;
+			int cnt = fi <= 10 ? 4 : 2, bits = fi <= 10 ? 8 : 16;
+			for (i = 0; i < cnt; i++) {
+				double v = x[i];
+				uint64_t q;
+				if (fi == 13)
+					q = half_bits(v);
+				else if (fi == 9 || fi == 11) {
+					v = v < 0 ? 0 : v > 1 ? 1 : v;
+					q = (uint64_t)nearbyint(v * (double)((1 << bits) - 1));
+				} else {
+					v = v < -1 ? -1 : v > 1 ? 1 : v;
+					q = (uint64_t)(int64_t)nearbyint(v * (double)((1 <<
+					    (bits - 1)) - 1)) & ((1u << bits) - 1);
+				}
+				u |= q << (i * bits);
+			}
+			r[0] = (double)(u & 0xffffffffu);
+			nr = 1;
+			break;
+		}
+		default: {	/* Unpack* */
+			uint32_t u = (uint32_t)(xv.b[0] & 0xffffffffu);
+			int cnt = fi <= 15 ? 4 : 2, bits = fi <= 15 ? 8 : 16;
+			for (i = 0; i < cnt; i++) {
+				uint32_t q = u >> (i * bits) & ((1u << bits) - 1);
+				if (fi == 18)
+					r[i] = half_value(q);
+				else if (fi == 14 || fi == 16)
+					r[i] = q / (double)((1u << bits) - 1);
+				else {
+					int sv = (int)q - (q >> (bits - 1) ? 1 << bits : 0);
+					double v = sv / (double)((1 << (bits - 1)) - 1);
+					r[i] = v < -1 ? -1 : v;
+				}
+			}
+			nr = cnt;
+		}
+		}
+		o = LV(I->res, l);
+		memset(o, 0, sizeof *o);
+		for (k = 0; k < nr && k < MAXCOMP; k++)
+			o->b[k] = T(st)->k == S_FLOAT ? putf(st, r[k]) :
+			    puti(st, (int64_t)r[k]);
+	}
+	k = emit(I, I_OP, fi <= 2 ? C_FMUL : fi <= 8 ? C_FMUL : C_CONV,
+	    model_active()->c[fi <= 8 ? C_FMUL : C_CONV] * (fi <= 2 ? 3 : 2),
+	    mask);
+	emit_vals(k, I, mask);
+	return 1;
+}
+
 /* ---- matrices ---- */
 
 static int
@@ -2526,7 +2760,8 @@ exec_one(const struct sins *I, uint32_t mask)
 		}
 		return;
 	}
-	if (exec_image(I, mask, rt, st, nc) || exec_matrix(I, mask, rt, st))
+	if (exec_image(I, mask, rt, st, nc) || exec_matrix(I, mask, rt, st) ||
+	    exec_glslvec(I, mask, rt, st, nc))
 		return;
 	if (!strcmp(I->op, "OpFunctionCall")) {
 		int fn = opid(I, 1), at = V.id[fn].func_at, p = 0, j, lb = -1;

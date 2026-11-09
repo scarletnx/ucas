@@ -532,7 +532,8 @@ static const char *const stopw[] = {
 	"to", "hillis", "steele", "blelloch", "sequential", "serial", "scan",
 	"prefix", "sum", "sums", "f32", "u32", "for", "frames", "per", "and",
 	"on", "of", "a", "the", "in", "nofile", "blelloch", "sequential",
-	"efficient", "work", "values", "seconds", NULL
+	"efficient", "work", "values", "seconds", "input", "inputs", "output",
+	"size", "sampler", "texture", "textures", "lanes", "quad", "warp", NULL
 };
 static const char *const filler[] = {
 	"a", "an", "the", "of", "prefix", "sum", "sums", "scan", "scans",
