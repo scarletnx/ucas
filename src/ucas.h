@@ -380,6 +380,21 @@ void cmd_crit(struct func *f);
 void cmd_diff(struct func *f, int slot);
 void cmd_equiv(struct func *f, struct func *g);
 void cmd_gates(struct func *f, struct basis *b, int maxcost, int emit_c);
+/* gates.c for programs: a minimal network for one output (cfront) */
+struct gprog {
+	int nstep;
+	uint8_t g[64], a[64][4];	/* gate, arguments, a[3]: lut table */
+	int out;			/* the value that is the output */
+	int cost;
+	uint64_t nodes;
+};
+int gates_synth(const struct basis *bs, int nin, uint64_t tt, uint64_t care,
+    int maxcost, uint64_t budget, struct gprog *out);
+int gates_lut_imm(int tt, int n);
+/* find.c for programs: candidate forms of f's body (not yet proved),
+ * searched up to maxcost or seconds; why[k] says what each is */
+int find_cands(struct func *f, int maxcost, double seconds, nid *out,
+    char (*why)[96], int max);
 extern uint64_t gates_budget;
 void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost);
 void cmd_more(int want);

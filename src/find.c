@@ -19,6 +19,7 @@
 #include "x86.h"
 
 #include <math.h>
+#include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -67,6 +68,8 @@ static struct {
 	int sampled;
 	int full;
 } F;
+
+static int fquiet;	/* find_cands: no output, no proofs */
 
 static void
 finder_free(void)
@@ -1260,6 +1263,19 @@ peephole(const struct func *f)
 
 	if (!TY_ISINT(N.ty[f->body]))
 		return;
+	if (fquiet) {
+		/* for programs: every cheaper drop, unproved (the caller
+		 * proves what it takes) */
+		nc = peep_cands(f->body, &c);
+		for (i = 0; i < nc; i++)
+			if (c[i].cost < base && quick_refines(f, c[i].e)) {
+				char w[120];
+				snprintf(w, sizeof w, "drops %s", c[i].what);
+				add_match(M_FORM, c[i].cost, c[i].e, strdup(w));
+			}
+		free(c);
+		return;
+	}
 	notes_flush();
 	nc = peep_cands(f->body, &c);
 	rep_list("peephole");
@@ -1575,10 +1591,12 @@ parametric(const struct func *f)
 			kform[nf] = chain;
 			kwhy[nf++] = "one constant per case";
 		}
-		printf("  split on %s (%d values), fitted (%s*K + C) >> S per "
-		    "case: S = %d, C = %lld\n", sym_str(f->p[s].name), ncase,
-		    sym_str(f->p[xs].name), S, (long long)C);
-		rep_list("parametric");
+		if (!fquiet) {
+			printf("  split on %s (%d values), fitted (%s*K + C) >> S "
+			    "per case: S = %d, C = %lld\n", sym_str(f->p[s].name),
+			    ncase, sym_str(f->p[xs].name), S, (long long)C);
+			rep_list("parametric");
+		}
 		for (i = 0; i < nf; i++) {
 			struct eqproof pr;
 			nid e = mk_bin(O_MUL, xv, kform[i]);
@@ -1586,6 +1604,14 @@ parametric(const struct func *f)
 				e = mk_bin(O_ADD, e, kconst(C));
 			if (S)
 				e = mk_bin(O_SHR, e, kconst(S));
+			if (fquiet) {
+				snprintf(why, sizeof why, "split on %s, (%s*K + %lld) >> "
+				    "%d per case, K = %s (%s)", sym_str(f->p[s].name),
+				    sym_str(f->p[xs].name), (long long)C, S,
+				    shared_str(kform[i], 60), kwhy[i]);
+				add_match(M_FORM, icost(e), e, strdup(why));
+				continue;
+			}
 			if (equiv_decide(f, f->body, e, NULL, &pr))
 				continue;
 			snprintf(why, sizeof why, "K = %s (%s) depends only on "
@@ -1605,7 +1631,8 @@ parametric(const struct func *f)
 			    pr.how == EQ_SAT ? "sat" : "sampled");
 			rep_end();
 		}
-		rep_end();
+		if (!fquiet)
+			rep_end();
 	}
 done:
 	for (k = 0; k < ncase; k++) {
@@ -1619,8 +1646,9 @@ done:
 
 /* ---- entry points ---- */
 
-void
-cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
+/* the points, the leaves and the closed forms: find's state for f */
+static void
+find_setup(struct func *f)
 {
 	struct diter d;
 	struct plan p;
@@ -1632,11 +1660,6 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	int64_t ks[32];
 	ty_t rt = N.ty[f->body];
 
-	(void)opsel;
-	if (TY_FP(rt)) {
-		find_float(f, want);
-		return;
-	}
 	for (j = 0; j < f->np; j++)
 		if (!TY_ISINT(f->p[j].ty))
 			fail("find needs integer parameters (or a float result)");
@@ -1763,6 +1786,17 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 		add_match(M_EXACT, 0, kconst(F.y[0]), "constant");
 	forms(xs);
 	free(xs);
+}
+
+void
+cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
+{
+	(void)opsel;
+	if (TY_FP(N.ty[f->body])) {
+		find_float(f, want);
+		return;
+	}
+	find_setup(f);
 	F.active = 1;
 	printf("find %s: %u point%s%s, computing in %s, costs from %s\n",
 	    f->anon ? node_str(f->body) : sym_str(f->name), F.P,
@@ -1792,4 +1826,54 @@ cmd_more(int want)
 	rep_list("implementations");
 	run_levels(want, F.done + 8);
 	rep_end();
+}
+
+/*
+ * For programs (cfront's bridge): the forms find would list for f, not
+ * proved (the caller proves what it takes): the closed forms, the
+ * peephole drops, the per-case fits and the enumerated terms up to
+ * maxcost or the seconds.  Nothing is printed; `more` does not continue
+ * it.  Returns the count; fail()s like find on bad input.
+ */
+int
+find_cands(struct func *f, int maxcost, double seconds, nid *out,
+    char (*why)[96], int max)
+{
+	clock_t t0 = clock();
+	int c, n = 0, i;
+
+	jmp_buf saved;
+
+	if (TY_FP(N.ty[f->body]))
+		return 0;
+	fquiet = 1;
+	note_mute++;
+	memcpy(saved, fail_jmp, sizeof saved);
+	if (setjmp(fail_jmp) != 0) {
+		memcpy(fail_jmp, saved, sizeof saved);
+		note_mute--;
+		fquiet = 0;
+		notes_drop();
+		F.active = 0;
+		return 0;
+	}
+	find_setup(f);
+	peephole(&F.f);
+	parametric(&F.f);
+	for (c = F.done + 1; c <= maxcost && c < 62 && !F.full; c++) {
+		if ((double)(clock() - t0) / CLOCKS_PER_SEC > seconds)
+			break;
+		enumerate_level(c);
+	}
+	memcpy(fail_jmp, saved, sizeof saved);
+	note_mute--;
+	fquiet = 0;
+	qsort(F.m, (size_t)F.nm, sizeof *F.m, cmp_match);
+	for (i = 0; i < F.nm && n < max; i++) {
+		out[n] = F.m[i].e;
+		snprintf(why[n], sizeof why[n], "%s", F.m[i].why ? F.m[i].why : "");
+		n++;
+	}
+	F.active = 0;
+	return n;
 }

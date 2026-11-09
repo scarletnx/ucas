@@ -134,6 +134,10 @@ int rm_mul(const struct ring *R, struct rmat *r, const struct rmat *a,
     const struct rmat *b);
 void rm_charpoly(const struct ring *R, const struct rmat *m, struct rpoly *cp);
 
+/* the magic number of `magic D` (ring_misc.inc): 0 if none is needed */
+int ring_magic_number(u64 d, int w, int sign, u64 *m, int *s, int *add,
+    u64 *e);
+
 /* ---- ring.c: parse.c and nlp.c hooks ---- */
 struct P;
 int ring_command(struct P *p);

@@ -60,6 +60,46 @@ magic_s(int64_t x, int64_t m, int s, int add, int w)
 	return sext((u64)((t >> (s - 1)) + (x < 0 ? 1 : 0)), w);
 }
 
+/*
+ * The magic number of `magic D uW|iW` for d >= 3 not a power of two: the
+ * least s with m = ceil(2^(w' + s) / d), e = m d - 2^(w' + s) <= 2^s
+ * (w' = w, or w - 1 signed).  Unsigned: *add when m has w + 1 bits, and
+ * *m is then its low w bits (the add sequence of magic_u); signed: *m is
+ * m itself (< 2^w).  *e is the error term of the proof.
+ */
+int
+ring_magic_number(u64 d, int w, int sign, u64 *mo, int *so, int *addo,
+    u64 *eo)
+{
+	u128 q, r, m = 0, e = 0;
+	int s, k, wp = sign ? w - 1 : w;
+
+	if (w < 2 || w > 64 || d < 3 || !(d & (d - 1)) ||
+	    (u128)d >= ((u128)1 << wp))
+		return 0;
+	for (s = sign; s <= 64; s++) {
+		k = wp + s;
+		pow2div(k, d, &q, &r);
+		m = q + (r != 0);
+		e = r ? d - r : 0;
+		if (e <= ((u128)1 << s))
+			break;
+	}
+	if (s > 64)
+		return 0;
+	*so = s;
+	*eo = (u64)e;
+	if (!sign) {
+		*addo = (m >> w) != 0;
+		*mo = *addo ? (w == 64 ? (u64)m : (u64)(m - ((u128)1 << w))) :
+		    (u64)m;
+	} else {
+		*addo = m >= ((u128)1 << (w - 1));
+		*mo = (u64)m;
+	}
+	return 1;
+}
+
 static u64
 want_div(u64 x, const void *arg)
 {

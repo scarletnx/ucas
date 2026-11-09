@@ -743,6 +743,87 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 	free(b.p);
 }
 
+/*
+ * For programs (cfront's bridge): the minimal network over bs for one
+ * output with truth table tt over nin <= 6 inputs (bit m of tt: the
+ * value at minterm m, input i = bit i of m), on the care set.  Returns
+ * the cost (-1: none within maxcost or the node budget); out gets the
+ * steps and the value that is the output.
+ */
+int
+gates_synth(const struct basis *bs, int nin, uint64_t tt, uint64_t care,
+    int maxcost, uint64_t budget, struct gprog *out)
+{
+	struct gs *s;
+	uint32_t m, npts = 1u << nin;
+	int i, k, cost, gi;
+
+	memset(out, 0, sizeof *out);
+	out->out = -1;
+	if (nin < 1 || nin > 6 || bs->ng == 0)
+		return -1;
+	s = xcalloc(1, sizeof *s);
+	s->bs = bs;
+	s->nin = nin;
+	s->full = npts == 64 ? ~0ULL : (1ULL << npts) - 1;
+	s->care = care & s->full;
+	for (i = 0; i < nin; i++) {
+		uint64_t proj = 0;
+		for (m = 0; m < npts; m++)
+			if ((m >> i) & 1)
+				proj |= 1ULL << m;
+		s->val[s->nval++] = proj;
+	}
+	s->tg[0] = tt & s->care;
+	s->active[0] = 1;
+	s->ntg = 1;
+	s->mincost = 255;
+	for (gi = 0; gi < bs->ng; gi++)
+		if (bs->g[gi].cost < s->mincost)
+			s->mincost = bs->g[gi].cost;
+	cost = deepen(s, 0, maxcost, budget);
+	out->nodes = s->nodes;
+	if (cost < 0 || s->bnstep > 64) {
+		free(s);
+		return -1;
+	}
+	out->nstep = s->bnstep;
+	for (i = 0; i < s->bnstep; i++) {
+		out->g[i] = s->bsg[i];
+		for (k = 0; k < 4; k++)
+			out->a[i][k] = s->bsa[i][k];
+	}
+	/* which value is the output */
+	{
+		uint64_t v[MAXV];
+		int nv = 0;
+		for (i = 0; i < nin; i++)
+			v[nv++] = s->val[i];
+		for (i = 0; i < s->bnstep; i++) {
+			const struct gate *g = &bs->g[s->bsg[i]];
+			uint64_t x[3];
+			for (k = 0; k < g->arity; k++)
+				x[k] = v[s->bsa[i][k]];
+			v[nv++] = gapply(g, x, s->full, s->bsa[i][3]);
+		}
+		for (i = nv; i-- > 0;)
+			if (((v[i] ^ tt) & s->care) == 0) {
+				out->out = i;
+				break;
+			}
+	}
+	out->cost = cost;
+	free(s);
+	return out->out >= 0 ? cost : -1;
+}
+
+/* vpternlog's immediate of a lut step's table (arity n) */
+int
+gates_lut_imm(int tt, int n)
+{
+	return lut_imm(tt, n);
+}
+
 void
 cmd_gates(struct func *f, struct basis *bs, int maxcost, int emit)
 {
