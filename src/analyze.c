@@ -1188,6 +1188,79 @@ cmd_wrap(struct func *f)
 
 /* ---- critical points ---- */
 
+/*
+ * An integer parameter, a real result (atan(x)*exp(x) for x in -3..3):
+ * the steps between consecutive integers, compared within rounding
+ */
+static void
+crit_int_real(struct func *f, struct run *r, uint32_t loc)
+{
+	uint32_t np, i;
+	int64_t px = 0;
+	double py = 0, prevd = 0, d0 = 0;
+	int have = 0, n = 0, nexts = 0, affine = 1, nsteps = 0, up = 0, down = 0;
+	const char *xn = sym_str(f->p[0].name);
+
+	printf("  %s is an integer, %s is real: the steps between consecutive "
+	    "%s\n", xn, fname(f), xn);
+	if (f->p[0].ty == TY_INT && f->p[0].ranged)
+		printf("  note: %s in a..b with integer bounds is an integer; %s: real in "
+		    "a..b (or real bounds, -3.0..3) for the continuous view\n", xn, xn);
+	while ((np = run_next(r)) != 0)
+		for (i = 0; i < np; i++) {
+			int64_t x = r->in_i[i];
+			double y, d;
+			if (!r->ok[i] || (COLF(&r->p, loc)[i] & F_UNDEF) ||
+			    !isfinite(COLR(&r->p, loc)[i])) {
+				have = 0;
+				affine = 0;
+				continue;
+			}
+			y = COLR(&r->p, loc)[i];
+			n++;
+			if (!have || x != px + 1) {
+				if (have)
+					affine = 0;
+				have = 1;
+				prevd = 0;
+				px = x;
+				py = y;
+				continue;
+			}
+			d = y - py;
+			if (nsteps++ == 0)
+				d0 = d;
+			else if (fabs(d - d0) > 1e-12 * fmax(fabs(d), fabs(d0)) +
+			    1e-300)
+				affine = 0;
+			if (d > 0)
+				up = 1;
+			if (d < 0)
+				down = 1;
+			if (prevd != 0 && d != 0 && (prevd > 0) != (d > 0)) {
+				if (nexts < 12)
+					printf("    %s = %lld: local %s, %s = %.10g\n", xn,
+					    (long long)px, prevd > 0 ? "maximum" : "minimum",
+					    fname(f), py);
+				nexts++;
+			}
+			if (d != 0)
+				prevd = d;
+			px = x;
+			py = y;
+		}
+	if (nexts > 12)
+		printf("    ... %d local extrema in all\n", nexts);
+	if (n == 0)
+		printf("  undefined at every point\n");
+	else if (affine && nsteps)
+		printf("  -> affine on its whole domain: every step is %.10g\n", d0);
+	else if (!nexts)
+		printf("  no local extrema: %s at every step\n", up && down ?
+		    "it rises or falls (flat steps between)" : up ? "it rises" :
+		    down ? "it falls" : "it stays");
+}
+
 static void
 crit_int1(struct func *f)
 {
@@ -1209,6 +1282,11 @@ crit_int1(struct func *f)
 		return;
 	}
 	loc = r.p.root[0];
+	if (TY_FP(t)) {
+		crit_int_real(f, &r, loc);
+		run_close(&r);
+		return;
+	}
 	printf("  piecewise-affine segments (consecutive x with a constant "
 	    "step):\n");
 #define FLUSH() do { if (inseg) { nseg++; if (nlist < 16) { nlist++; \

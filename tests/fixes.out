@@ -451,3 +451,9 @@ critical points of cp:
   cp' = 3x^2 - (0x + 3)
   x ≈ -1.000000022: local maximum, cp = 2
   x ≈ 1.000000037: local minimum, cp = -2
+> cg(x in -3..3) = atan(x)*exp(x)
+> crit cg
+critical points of cg:
+  x is an integer, cg is real: the steps between consecutive x
+  note: x in a..b with integer bounds is an integer; x: real in a..b (or real bounds, -3.0..3) for the continuous view
+    x = -1: local minimum, cg = -0.2889318374
