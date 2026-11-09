@@ -8,6 +8,10 @@
 -0.259171
 > diff W(x)
 d/dx W(x) = 1/(exp(W(x))*(W(x) + 1))
+  holds for x > -1/e
+    at x = -1/e (an end of the domain) W(x) has an infinite one-sided slope
+    (points looked for in [-10, 10])
+  check: matches central differences at 104 points (max relative difference 1e-12)
 > integrate W(x) from 0 to e
 ∫ W(x) dx
   = x*(W(x) - 1) + exp(W(x)) + C
@@ -62,3 +66,7 @@ range of W + 1:
   ucas: it(x) = W(x)
   ucas: diff it
 d/dx it = 1/(exp(W(x))*(W(x) + 1))
+  holds for x > -1/e
+    at x = -1/e (an end of the domain) it has an infinite one-sided slope
+    (points looked for in [-10, 10])
+  check: matches central differences at 104 points (max relative difference 1e-12)

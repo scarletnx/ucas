@@ -143,7 +143,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `wrap F` | per operation: whether LLVM's `nuw`/`nsw` hold (with a witness), C UB, truncating conversions; for floats `nnan`/`ninf` (fast-math) per operation; end to end: where the machine result equals the mathematical one, or the rounding error in ulp |
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
-| `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter |
+| `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter; higher, partial and mixed derivatives, gradient, limits, series: see "Derivatives, limits and series" |
 | `equiv F G` | equal on F's domain? (with a counterexample) |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
 | `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search |
@@ -308,6 +308,15 @@ behind it.  English only; the translator is a hand-written parser
   find (`cheaper implementations`, `alt`: 10 by default), cost, table,
   approx (`cheby poly`, `minimax`, `taylor`, `degree 4`, `f64`),
   integrate (`the integral of ... from 0 to pi`, `antiderivative`),
+  derivatives, limits, series (`the second derivative of`, `d/dx`,
+  `partial derivative of x^2 y wrt y`, `∂f/∂x`, `fx`, `the gradient of
+  ... at (1, 2)`, `hessian`, `laplacian`, `jacobian`, `directional
+  derivative of ... along (3, 4)`, `the wronskian of sin x, cos x`, `are
+  sin x and cos x linearly independent`, `the limit of sin x / x as x
+  approaches 0`, `lim x->0+ ...`, `what does 1/x tend to as x goes to
+  infinity`, `the taylor series of ... about 1 to order 3`, `dy/dx for
+  x^2 + y^2 = 1`, `the primitive of ...`; see "Derivatives, limits and
+  series"),
   closed (`the closed form of ...`), scheme (`the best evaluation
   scheme for ...`), continuous, dsolve (`solve y from 0 to 2 in 4
   steps`), sums and products in words (`the sum of i squared for i
@@ -494,6 +503,45 @@ What is found:
 - while loops: the trip count of `v += d`, `v *= c`, `v /= c`, `v >>= k`
   against a bound, and `v*v <= n` (isqrt); the other variables then
   follow from the counted loop.  The trip count is checked on its own.
+
+### Derivatives, limits and series
+
+`src/calc2.c` (syntax in `src/calc2_syntax.inc`, English in
+`src/nlp_calc2.inc`).  Every answer says where it holds and is checked
+numerically.
+
+| command | |
+|---------|--|
+| `diff F [x y ...] [n]`, `diff F wrt x, y`, `partial F ...` | derivatives of any order: `diff F x 3`, mixed `diff F x y` (∂²/∂y∂x, x first).  The variables after F are told apart by spacing (`diff x^2*y x`); a name that is not a variable of F is part of the product (with a note).  F with several variables and none named: the gradient.  `diff F x n` (a literal n): the n-th derivative of exp/sin/cos/log/powers of a linear argument, checked for n = 1..6 |
+| `F''`, `F'(a)`, `fx`, `fxy`, `f_x` | a defined function's derivatives; `F'(a)` first checks that the derivative exists at a |
+| `grad F [at a, b]`, `hessian F [at ...]`, `laplacian F [at ...]` | the gradient (and its value and length at a point); the Hessian, its determinant, symmetry of the mixed partials checked at sample points, and at a point the second-derivative test (leading minors: minimum, maximum, saddle, inconclusive); the Laplacian, harmonic when it is 0 |
+| `jacobian F, G, ... [wrt x, y] [at ...]` | the Jacobian matrix, its determinant when square, invertibility at a point |
+| `ddir F along v1, v2 [at ...] [raw]` | ∇F·v/|v| (`raw`: ∇F·v), checked against (f(p + hu) - f(p - hu))/2h |
+| `wronskian F, G, ... [wrt x]` | row k holds the k-th derivatives; W simplified, also recognised from its values (a constant, c·exp(ax), a polynomial) and checked against the numeric determinant.  W(x0) != 0: independent.  W = 0 at every sample: a linear relation is fitted to the values; for analytic functions W = 0 means dependence, otherwise (x^2, x·abs(x)) it does not, and the values decide |
+| `limit F [as] x -> a[+|-] [from left|right]`, `lim x->a F`, `lim(x -> a) F`, `limit F at a` | a may be `inf`, `-inf`, `oo`, `∞`.  Symbolically: substitution where continuous, L'Hôpital on 0/0 and inf/inf (up to 12 steps, simplified in between), 0·inf as a quotient (both ways), inf - inf by the conjugate (sqrt) or a common quotient, 1^inf/0^0/inf^0 through exp(B log A), leading powers at infinity, exp beating powers, squeeze for 0·bounded, oscillation (sin(1/x)), one-sided limits that differ (the limit does not exist), a side outside the domain (the other side's limit).  Numerically: f at a ± 0.1·2^-k (or x = ±10·2^k), Richardson-extrapolated, with the verdict "agrees" or "DISAGREES" |
+| `taylor F [x] [at a] [order n]`, `maclaurin F [order n]` | coefficients from the derivatives, checked against Taylor-jet arithmetic (long double), and |f - P| measured at a ± h for three h (it shrinks like h^(n+1)); refused where a derivative does not exist (sqrt, abs at 0) |
+| `implicit L = R [for y] [wrt x] [order 2]` | dy/dx = -F_x/F_y (and d²y/dx²) where F_y != 0, checked on points of the curve found by bisection and Newton |
+| `antiderivative F [wrt x]`, `primitive F` | `integrate` without bounds (+ C, differentiated back); bounds are refused (use integrate) |
+
+Where a derivative holds: the conditions of F's partial operations
+(`log(u)`: u > 0, `sqrt(u)`: u >= 0, `u/v`: v != 0, ...), solved for x
+when linear, minus the points where it fails.  Those are looked for
+(one variable, in the parameter's range or [-10, 10]) at the zeros of
+the arguments of abs/sign, sqrt and fractional powers, min/max ties,
+piece boundaries and the integers of floor/ceil, and each is examined by
+one-sided difference quotients: a corner (both slopes given), a vertical
+tangent, a jump, an end of the domain.  With several variables they are
+listed as "may fail where u = 0".  Derivatives are simplified (like
+terms, coefficients, exp(a)exp(b)), never by cancelling a factor that
+could be 0; limits do cancel (a limit does not see one point).
+
+`integrate` also knows c/(quadratic without real roots) (atan),
+c/sqrt(quadratic) (asin written with atan, or log), P'/P (log|P|),
+P(x)·log(ax + b) by parts, and e^u as exp(u).
+
+Not done: limits of several variables, Taylor series of several variables
+beyond symbolic coefficients, partial fractions, the n-th derivative of
+products.
 
 ### What is checked, and what is approximate
 

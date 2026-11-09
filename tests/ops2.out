@@ -16,12 +16,20 @@ f(x: f32) = fma(x, x, -1)
   -> f32
 > diff atan(x)
 d/dx atan(x) = 1/(x^2 + 1)
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 1e-15)
 > diff sec(x)
 d/dx sec(x) = sec(x)*tan(x)
+  holds for cos(x) != 0
+  check: matches central differences at 201 points (max relative difference 4e-07)
 > diff cot(x)
-d/dx cot(x) = -(1/sin(x)^2)
+d/dx cot(x) = -1/sin(x)^2
+  holds for sin(x) != 0
+  check: matches central differences at 200 points (max relative difference 3e-06)
 > diff copysign(x, 2)
 d/dx copysign(x, 2) = sign(x)
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 1e-15)
 > cost fma(x: f32, x, 1.0f)
 cost of fma(x, x, 1) under gt1030: 1 (1 operations, shared subterms counted once)
   fmul             1 x 1     = 1

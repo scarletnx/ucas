@@ -335,6 +335,8 @@ range of g:
   grid of 20001 points over [0, 2], extrema refined at critical points
 > diff g
 d/dx g = sum(k, 0, 10, real(k)*x^(real(k) - 1)/real(2^k))
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 2e-12)
 > wrap f
 wrap analysis of f:
   no wrapping or rounding operations

@@ -5,6 +5,8 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c sat.c glslc.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
+# calc2: derivatives and their conditions, limits, series, Wronskians
+SRCS+=	calc2.c
 .PATH:	${.CURDIR}/src
 MAN=
 
@@ -18,8 +20,9 @@ LDADD+=	-lm
 
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
-nlp_words.h: nlp.c nlp_words.awk
-	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c > ${.TARGET}
+nlp_words.h: nlp.c nlp_calc2.inc nlp_words.awk
+	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
+	    ${.CURDIR}/src/nlp_calc2.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 

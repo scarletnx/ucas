@@ -1,0 +1,903 @@
+> diff abs(x)
+d/dx abs(x) = sign(x)
+  holds for x != 0
+    at x = 0 abs(x) has a corner (slope -1 from the left, 1 from the right)
+    (points looked for in [-10, 10])
+  check: matches central differences at 201 points (max relative difference 1e-15)
+> diff sqrt(x)
+d/dx sqrt(x) = 0.5/sqrt(x)
+  holds for x > 0
+    at x = 0 (an end of the domain) sqrt(x) has an infinite one-sided slope
+    (points looked for in [-10, 10])
+  check: matches central differences at 100 points (max relative difference 6e-14)
+> diff log(x)
+d/dx log(x) = 1/x
+  holds for x > 0
+  check: matches central differences at 100 points (max relative difference 2e-13)
+> diff x*abs(x) x 2
+d/dx x*abs(x) = abs(x) + x*sign(x)
+d²/dx² x*abs(x) = 2sign(x)
+  holds for x != 0
+    at x = 0 d/dx x*abs(x) has a corner (slope -2 from the left, 2 from the right)
+    (points looked for in [-10, 10])
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> diff sin(x) x 3
+d/dx sin(x) = cos(x)
+d²/dx² sin(x) = -sin(x)
+d³/dx³ sin(x) = -cos(x)
+  holds for every real x
+  check: each order matches central differences at 603 points (max relative difference 3e-15)
+> diff x^3 2
+d/dx x^3 = 3x^2
+d²/dx² x^3 = 6x
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> diff floor(x) + x^2
+d/dx floor(x) + x^2 = 2x
+  holds for x not an integer
+    where x is an integer it jumps (no derivative there)
+    (points looked for in [-10, 10])
+  check: matches central differences at 201 points (max relative difference 2e-15)
+> diff max(x, x^2)
+d/dx max(x, x^2) = x >= x^2 ? 1 : 2x
+  holds for x != 0 and x != 1
+    at x = 0 max(x, x^2) has a corner (slope 0 from the left, 1 from the right)
+    at x = 1 max(x, x^2) has a corner (slope 1 from the left, 2 from the right)
+    (points looked for in [-10, 10])
+  check: matches central differences at 201 points (max relative difference 2e-15)
+> diff x^(1/3)
+d/dx x^0.3333333333 = x^(-0.6666666667)/3
+  holds for x > 0
+    at x = 0 (an end of the domain) x^0.3333333333 has an infinite one-sided slope
+    (points looked for in [-10, 10])
+  check: matches central differences at 100 points (max relative difference 1e-13)
+> myabs(x: real) = x > 0 ? x : -x
+> diff myabs
+d/dx myabs = x > 0 ? 1 : -1
+  holds for x != 0
+    at x = 0 myabs has a corner (slope -1 from the left, 1 from the right)
+    (points looked for in [-10, 10])
+  check: matches central differences at 201 points (max relative difference 1e-15)
+> g(x) = x^3 - x
+> g''
+d/dx g = 3x^2 - 1
+d²/dx² g = 6x
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> g'(2)
+g'(2) = 11
+  from g' = 3x^2 - 1
+> myabs'(0)
+myabs'(0) does not exist: at x = 0 myabs has a corner (slope -1 from the left, 1 from the right)
+> diff exp(2x) n
+d^n/dx^n exp(2x) = exp(2x)*2^n
+  holds for every real x and n >= 0; check: equals the derivatives of orders 1..6 at 120 points
+> diff sin(3x) n
+d^n/dx^n sin(3x) = 3^n*sin(3x + n*pi/2)
+  holds for every real x and n >= 0; check: equals the derivatives of orders 1..6 at 120 points
+> diff log(2x + 1) n
+d^n/dx^n log(2x + 1) = (-1)^(n - 1) (n - 1)! 2^n / (2x + 1)^n  for n >= 1
+  holds for x > -1/2; check: equals the derivatives of orders 1..6 at 120 points
+> diff 1/(2x + 1) n
+d^n/dx^n 1/(2x + 1) = -1(-1 - 1)...(-1 - n + 1) 2^n (2x + 1)^(-1 - n)
+  holds where 2x + 1 != 0; check: equals the derivatives of orders 1..6 at 120 points
+> diff x^5 n
+  note: x^5 is a polynomial of degree 5: its derivatives of order > 5 are 0
+d^n/dx^n x^5 = 5(5 - 1)...(5 - n + 1) x^(5 - n)
+  holds for every real x and 0 <= n <= 5 (0 for n > 5); check: equals the derivatives of orders 1..6 at 120 points
+> diff x^2*y x
+∂/∂x x^2*y = 2x*y
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 3e-13)
+> diff x^2*y^3 x y
+∂²/∂y∂x x^2*y^3 = 6x*y^2
+  holds wherever the formula is defined
+  check: each order matches central differences at 200 points (max relative difference 3e-13)
+> diff x^2*y
+  note: x^2*y has 2 variables (x, y): all first partial derivatives, the gradient (say `diff F x` for one)
+∇ x^2*y = (2x*y, x^2)
+  ∂/∂x x^2*y = 2x*y
+  ∂/∂y x^2*y = x^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 4e-13)
+> partial x*y^2 y
+∂/∂y x*y^2 = 2x*y
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 3e-13)
+> diff sqrt(x^2 + y^2) x
+∂/∂x sqrt(x^2 + y^2) = x/sqrt(x^2 + y^2)
+  holds for x^2 + y^2 >= 0
+    may fail where x^2 + y^2 = 0 (an infinite slope)
+  check: matches central differences at 100 points (max relative difference 5e-12)
+> f(x, y) = x^2*y + y^3
+> fx
+∂/∂x f = 2x*y
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 4e-13)
+> fxy
+∂²/∂y∂x f = 2x
+  holds wherever the formula is defined
+  check: each order matches central differences at 200 points (max relative difference 4e-13)
+> diff x y
+  note: y is not a variable of x: read as a product (for a derivative wrt y write `diff F wrt y`)
+  note: x*y has 2 variables (x, y): all first partial derivatives, the gradient (say `diff F x` for one)
+∇ x*y = (y, x)
+  ∂/∂x x*y = y
+  ∂/∂y x*y = x
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 3e-13)
+> grad x^2*y + sin(y)
+∇ x^2*y + sin(y) = (2x*y, x^2 + cos(y))
+  ∂/∂x x^2*y + sin(y) = 2x*y
+  ∂/∂y x^2*y + sin(y) = x^2 + cos(y)
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 5e-13)
+> grad x^2 + y^2 at 1, 2
+∇ x^2 + y^2 = (2x, 2y)
+  ∂/∂x x^2 + y^2 = 2x
+  ∂/∂y x^2 + y^2 = 2y
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 4e-13)
+  at (x = 1, y = 2): (2, 4), |∇| = 4.472135955
+> hessian x^2 - y^2 at 0, 0
+Hessian of x^2 - y^2 (row i, column j: ∂²/∂j∂i):
+  [ 2   0  ]   ∂/∂x
+  [ 0   -2 ]   ∂/∂y
+  det = -4
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 2e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+  at (x = 0, y = 0):
+  [ 2          0          ]
+  [ 0          -2         ]
+  det = -4
+  the gradient is 0 and the Hessian is indefinite: a saddle point
+> hessian x^2 + y^2 at (0, 0)
+Hessian of x^2 + y^2 (row i, column j: ∂²/∂j∂i):
+  [ 2   0 ]   ∂/∂x
+  [ 0   2 ]   ∂/∂y
+  det = 4
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 2e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+  at (x = 0, y = 0):
+  [ 2          0          ]
+  [ 0          2          ]
+  det = 4
+  the gradient is 0 and the Hessian is positive definite (leading minors > 0): a local minimum
+> hessian x^3 - 3x*y^2 at 0, 0
+Hessian of x^3 - 3x*y^2 (row i, column j: ∂²/∂j∂i):
+  [ 6x    -6y ]   ∂/∂x
+  [ -6y   -6x ]   ∂/∂y
+  det = -36x^2 - 36y^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 4e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+  at (x = 0, y = 0):
+  [ 0          0          ]
+  [ 0          0          ]
+  det = 0
+  the gradient is 0 but the Hessian is singular: the second-derivative test is inconclusive
+> laplacian x^2 - y^2
+∇² x^2 - y^2 = 0
+  ∂²/∂x² x^2 - y^2 = 2
+  ∂²/∂y² x^2 - y^2 = -2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 4e-13)
+  x^2 - y^2 is harmonic: its Laplacian is 0 at all 200 sample points (and symbolically 0)
+> laplacian x^2 + y^2 + z^2 at 1, 1, 1
+∇² x^2 + y^2 + z^2 = 6
+  ∂²/∂x² x^2 + y^2 + z^2 = 2
+  ∂²/∂y² x^2 + y^2 + z^2 = 2
+  ∂²/∂z² x^2 + y^2 + z^2 = 2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 600 points (max relative difference 4e-13)
+  at (x = 1, y = 1, z = 1): 6
+> jacobian x*cos(y), x*sin(y) at 2, 0
+Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
+  [ cos(y)   -(x*sin(y)) ]
+  [ sin(y)   x*cos(y)    ]
+  det = x*cos(y)^2 + x*sin(y)^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+  at (x = 2, y = 0):
+  [ 1          0          ]
+  [ 0          2          ]
+  det = 2 (nonzero: the map is locally invertible there)
+> jacobian (x + y, x*y, x - y) wrt x, y
+Jacobian of (x + y, x*y, x - y) wrt (x, y): row i = the gradient of function i
+  [ 1   1  ]
+  [ y   x  ]
+  [ 1   -1 ]
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 600 points (max relative difference 4e-13)
+> ddir x^2*y along 3, 4 at 1, 1
+D_u x^2*y = 6x*y/5 + 4x^2/5
+  u = v/|v| = (3/5, 4/5), |v| = 5  (the rate of change per unit length; `raw` for ∇x^2*y · v)
+  holds wherever the formulas are defined
+  check: matches (f(p + h u) - f(p - h u))/2h at 100 points (max relative difference 1e-12)
+  at (x = 1, y = 1): 2
+> ddir x^2*y along 3, 4 at 1, 1 raw
+D_u x^2*y = 6x*y + 4x^2
+  (∇x^2*y · v with v as given, not normalized)
+  holds wherever the formulas are defined
+  check: matches (f(p + h u) - f(p - h u))/2h at 100 points (max relative difference 1e-12)
+  at (x = 1, y = 1): 10
+> wronskian sin(x), cos(x)
+Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
+  [ sin(x)   cos(x)  ]   the functions
+  [ cos(x)   -sin(x) ]   d/dx
+  W = det = -sin(x)^2 - cos(x)^2
+  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 3e-15)
+  linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
+> wronskian exp(x), exp(2x), exp(3x)
+Wronskian matrix of exp(x), exp(2x), exp(3x) (row k: the k-th derivatives wrt x)
+  [ exp(x)   exp(2x)    exp(3x)  ]   the functions
+  [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
+  [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
+  W = det = 2exp(6x)
+  check: every entry matches central differences at 1206 points (max relative difference 2e-13)
+  linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
+> wronskian 1, x, x^2
+Wronskian matrix of 1, x, x^2 (row k: the k-th derivatives wrt x)
+  [ 1   x   x^2 ]   the functions
+  [ 0   1   2x  ]   d/dx
+  [ 0   0   2   ]   d²/dx²
+  W = det = 2
+  check: every entry matches central differences at 1206 points (max relative difference 2e-15)
+  linearly independent: W(-1/20) = 2 != 0, so the functions are independent on every interval containing x = -1/20
+> wronskian x, 2x
+Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
+  [ x   2x ]   the functions
+  [ 1   2  ]   d/dx
+  W = det = 0
+  check: every entry matches central differences at 402 points (max relative difference 1e-15)
+  W = 0 at all 200 sample points
+  a linear relation holds at all 200 points: -2*(x) + (2x) = 0
+  linearly dependent (the functions are analytic, so W = 0 everywhere implies dependence; the relation confirms it)
+> wronskian x^2, x*abs(x)
+Wronskian matrix of x^2, x*abs(x) (row k: the k-th derivatives wrt x)
+  [ x^2   x*abs(x)           ]   the functions
+  [ 2x    abs(x) + x*sign(x) ]   d/dx
+  W = det = x^3*sign(x) - x^2*abs(x)
+  W = 0  (equal to the determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 2e-15)
+  W = 0 at all 200 sample points
+  W = 0 does not prove dependence for functions that are not analytic (x^2 and x*abs(x) have W = 0 and are independent), and no linear relation fits their values: independent on [-10, 10]
+> wronskian sin(x)^2, cos(x)^2, 1
+Wronskian matrix of sin(x)^2, cos(x)^2, 1 (row k: the k-th derivatives wrt x)
+  [ sin(x)^2                cos(x)^2                1 ]   the functions
+  [ 2sin(x)*cos(x)          -(2sin(x)*cos(x))       0 ]   d/dx
+  [ 2cos(x)^2 - 2sin(x)^2   2sin(x)^2 - 2cos(x)^2   0 ]   d²/dx²
+  W = det = 0
+  check: every entry matches central differences at 1206 points (max relative difference 3e-14)
+  W = 0 at all 200 sample points
+  a linear relation holds at all 200 points: -(sin(x)^2) - (cos(x)^2) + (1) = 0
+  linearly dependent (the functions are analytic, so W = 0 everywhere implies dependence; the relation confirms it)
+> limit sin(x)/x x -> 0
+limit of sin(x)/x as x -> 0:
+  0/0: L'Hôpital: lim (cos(x))/(1) = lim cos(x)
+  = 1 (from both sides)
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.9983341665, 0.9999934896, 0.9999999746, 0.9999999999, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0.9983341665, 0.9999934896, 0.9999999746, 0.9999999999, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+> lim x->0 (1 - cos(x))/x^2
+limit of (1 - cos(x))/x^2 as x -> 0:
+  0/0: L'Hôpital: lim (sin(x))/(2x) = lim sin(x)/2/x
+  0/0: L'Hôpital: lim (cos(x)/2)/(1) = lim cos(x)/2
+  = 1/2 (from both sides)
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.4995834722, 0.4999983724, 0.4999999936, 0.5, 0.4999999888, 0.5000114441
+    extrapolated (Richardson): 0.5 (estimated error 4e-14): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0.4995834722, 0.4999983724, 0.4999999936, 0.5, 0.4999999888, 0.5000114441
+    extrapolated (Richardson): 0.5 (estimated error 4e-14): agrees
+> lim x->0+ 1/x
+limit of 1/x as x -> 0+ (from the right):
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  = inf
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 10, 160, 2560, 40960, 655360, 20971520
+    the values grow without bound (+): agrees
+> limit 1/x x -> 0
+limit of 1/x as x -> 0:
+  from the left:
+  1/x -> -inf (the numerator -> 1, x -> 0-)
+  = -inf
+  from the right:
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  = inf
+  the one-sided limits differ: the (two-sided) limit does not exist
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): -10, -160, -2560, -40960, -655360, -20971520
+    the values grow without bound (-): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 10, 160, 2560, 40960, 655360, 20971520
+    the values grow without bound (+): agrees
+> lim x->inf (1 + 1/x)^x
+limit of (1/x + 1)^x as x -> inf:
+  (1/x + 1)^x = exp((x)*log(1/x + 1))
+  0*inf: x*log(1/x + 1) = (log(1/x + 1))/(1/x)
+  0/0: L'Hôpital: lim (-1/(x^2*(1/x + 1)))/(-1/x^2) = lim x^2/(x^2*(1/x + 1))
+  at inf: x^2 ~ 1|x|^2, x^2*(1/x + 1) ~ 1|x|^2
+  = 2.718281828
+  numeric (x = 10*2^k, k = 0..21): 2.59374246, 2.709835576, 2.717751104, 2.718248647, 2.718279755, 2.718281764
+    extrapolated (Richardson): 2.71828182846 (estimated error 3e-16): agrees
+> lim x->inf (3x^2 + 1)/(2x^2 - x)
+limit of (3x^2 + 1)/(2x^2 - x) as x -> inf:
+  leading terms: 3*x^2 / (2*x^2)
+  = 3/2
+  numeric (x = 10*2^k, k = 0..21): 1.584210526, 1.504721787, 1.500293102, 1.500018311, 1.500001144, 1.500000036
+    extrapolated (Richardson): 1.5 (estimated error 0): agrees
+> limit sin(1/x) x -> 0
+limit of sin(1/x) as x -> 0:
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  1/x -> inf: sin(1/x) keeps oscillating between -1 and 1
+  = none (it oscillates between -1 and 1)
+  the limit does not exist
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.5440211109, -0.2194252584, -0.3875871276, 0.08491512332, 0.9779231634, -0.4379663196
+    the values do not settle (the last ones lie in [-0.993585, 0.977923]): consistent
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): -0.5440211109, 0.2194252584, 0.3875871276, -0.08491512332, -0.9779231634, 0.4379663196
+    the values do not settle (the last ones lie in [-0.977923, 0.993585]): consistent
+> limit x*sin(1/x) as x -> 0
+limit of x*sin(1/x) as x -> 0:
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  1/x -> inf: sin(1/x) keeps oscillating between -1 and 1
+  squeeze: x -> 0 times a bounded factor
+  = 0 (from both sides)
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): -0.05440211109, 0.001371407865, 0.0001514012217, -2.073123128e-06, -1.492192327e-06, 2.088386152e-08
+    extrapolated (Richardson): 8.80983672472e-07 (estimated error 1e-08)
+    the values approach 0 (|f - L| = 2e-08 at the last point; not smooth enough to extrapolate): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): -0.05440211109, 0.001371407865, 0.0001514012217, -2.073123128e-06, -1.492192327e-06, 2.088386152e-08
+    extrapolated (Richardson): 8.80983672472e-07 (estimated error 1e-08)
+    the values approach 0 (|f - L| = 2e-08 at the last point; not smooth enough to extrapolate): agrees
+> lim x->0+ x^x
+limit of x^x as x -> 0+ (from the right):
+  continuous at x = 0: substitute
+  = 1
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0.7943282347, 0.9687779604, 0.9969391617, 0.9997407477, 0.9999795642, 0.9999991961
+    extrapolated (Richardson): 0.999999966688 (estimated error 3e-08): agrees
+> lim x->0+ x*log(x)
+limit of x*log(x) as x -> 0+ (from the right):
+  0*inf: x*log(x) = (log(x))/(1/x)
+  inf/inf: L'Hôpital: lim (1/x)/(-1/x^2) = lim -x
+  = 0
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): -0.2302585093, -0.03171983635, -0.003065532241, -0.0002592859194, -2.043600461e-05, -8.0388431e-07
+    extrapolated (Richardson): -3.33120838344e-08 (estimated error 3e-08): agrees
+> lim x->inf sqrt(x^2 + x) - x
+limit of sqrt(x^2 + x) - x as x -> inf:
+  inf - inf: times the conjugate: (sqrt(x^2 + x))^2 - (x)^2 over their sum = x/(sqrt(x^2 + x) + x)
+  at inf: x ~ 1|x|^1, sqrt(x^2 + x) + x ~ 2|x|^1
+  = 1/2
+  numeric (x = 10*2^k, k = 0..21): 0.4880884817, 0.4992211819, 0.4999511814, 0.4999969483, 0.4999998093, 0.499999994
+    extrapolated (Richardson): 0.5 (estimated error 2e-16): agrees
+> lim x->0 abs(x)/x
+limit of abs(x)/x as x -> 0:
+  from the left:
+  0/0: L'Hôpital: lim (sign(x))/(1) = lim sign(x)
+  = -1
+  from the right:
+  0/0: L'Hôpital: lim (sign(x))/(1) = lim sign(x)
+  = 1
+  the one-sided limits differ: the (two-sided) limit does not exist
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): -1, -1, -1, -1, -1, -1
+    extrapolated (Richardson): -1 (estimated error 0): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 1, 1, 1, 1, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+> lim x->0 floor(x)
+limit of floor(x) as x -> 0:
+  from the left:
+  x -> 0 from below
+  = -1
+  from the right:
+  continuous at x = 0: substitute
+  = 0
+  the one-sided limits differ: the (two-sided) limit does not exist
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): -1, -1, -1, -1, -1, -1
+    extrapolated (Richardson): -1 (estimated error 0): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0, 0, 0, 0, 0, 0
+    extrapolated (Richardson): 0 (estimated error 0): agrees
+> lim x->inf exp(-x)*x^5
+limit of exp(-x)*x^5 as x -> inf:
+  exp(-x) grows or decays faster than any power of x
+  = 0
+  numeric (x = 10*2^k, k = 0..21): 4.539992976, 3.415724295e-59, 1.767364609e-1095, 0, 0, 0
+    extrapolated (Richardson): 0 (estimated error 0): agrees
+> lim x->-inf exp(x)
+limit of exp(x) as x -> -inf:
+  = 0
+  numeric (x = -10*2^k, k = 0..21): 4.539992976e-05, 3.257488532e-70, 1.607408748e-1112, 0, 0, 0
+    extrapolated (Richardson): 0 (estimated error 0): agrees
+> lim x->pi/2- tan(x)
+limit of tan(x) as x -> pi/2- (from the left):
+  = inf
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 6.313751515, 101.8558911, 1629.746413, 26075.94586, 417215.134, 13350884.28
+    the values grow without bound (+): agrees
+> lim x->0 sqrt(x)
+limit of sqrt(x) as x -> 0:
+  sqrt(x) is undefined just left of x = 0: the limit is the one from the right
+  = 0
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0.316227766, 0.0790569415, 0.01976423538, 0.004941058844, 0.001235264711, 0.0002183660134
+    extrapolated (Richardson): 0.000218366013428 (estimated error 0.0004): agrees
+> limit sin(x)/x at inf
+limit of sin(x)/x as x -> inf:
+  x -> inf: sin(x) keeps oscillating between -1 and 1
+  = 0
+  numeric (x = 10*2^k, k = 0..21): -0.05440211109, 0.001371407865, 0.0001514012217, -2.073123128e-06, -1.492192327e-06, 2.088386152e-08
+    extrapolated (Richardson): 8.80983672472e-07 (estimated error 1e-08)
+    the values approach 0 (|f - L| = 2e-08 at the last point; not smooth enough to extrapolate): agrees
+> lim(x -> 1) (x^2 - 1)/(x - 1)
+limit of (x^2 - 1)/(x - 1) as x -> 1:
+  0/0: L'Hôpital: lim (2x)/(1) = lim 2x
+  = 2 (from both sides)
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 1.9, 1.99375, 1.999609375, 1.999975586, 1.999998474, 1.999999952
+    extrapolated (Richardson): 2 (estimated error 0): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 2.1, 2.00625, 2.000390625, 2.000024414, 2.000001526, 2.000000048
+    extrapolated (Richardson): 2 (estimated error 7e-17): agrees
+> lim x->inf x*sin(x)
+limit of x*sin(x) as x -> inf:
+  x -> inf: sin(x) keeps oscillating between -1 and 1
+  = none (it oscillates without bound)
+  the limit does not exist
+  numeric (x = 10*2^k, k = 0..21): -5.440211109, 35.10804134, 992.2230467, -3478.123451, -640891.7244, 9184819.431
+    the values do not settle (the last ones lie in [-2.35648e+06, 9.18482e+06]): consistent
+> limit 1/x x -> 0 from right
+limit of 1/x as x -> 0+ (from the right):
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  = inf
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 10, 160, 2560, 40960, 655360, 20971520
+    the values grow without bound (+): agrees
+> taylor sin(x) order 7
+Maclaurin (Taylor at 0) series of sin(x) at x = 0, through order 7:
+  sin(x) = x - x^3/6 + x^5/120 - x^7/5040 + O(x^8)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: 0 1 0 -1/6 0 1/120 0 -1/5040
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 2.76e-15 at x = 0 ± 1/10, 5.38e-18 at ± 1/20, 1.02e-20 at ± 1/40 (at rounding level)
+> taylor exp(x) at 1 order 3
+Taylor series of exp(x) at x = 1, through order 3:
+  exp(x) = 2.718281828 + 2.718281828*(x - 1) + 1.359140914*(x - 1)^2 + 0.4530469714*(x - 1)^3 + O((x - 1)^4)
+  as x -> 1; coefficients c_k = f^(k)(1)/k!: 2.718281828 2.718281828 1.359140914 0.4530469714
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 2e-16
+  check: |f - P| = 1.16e-05 at x = 1 ± 1/10, 7.15e-07 at ± 1/20, 4.45e-08 at ± 1/40 (shrinks like h^4.0; expected >= 4)
+> maclaurin 1/(1 - x) order 5
+Maclaurin (Taylor at 0) series of 1/(1 - x) at x = 0, through order 5:
+  1/(1 - x) = 1 + x + x^2 + x^3 + x^4 + x^5 + O(x^6)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: 1 1 1 1 1 1
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 1.11e-06 at x = 0 ± 1/10, 1.64e-08 at ± 1/20, 2.5e-10 at ± 1/40 (shrinks like h^6.0; expected >= 6)
+> taylor log(x) at 1 order 4
+Taylor series of log(x) at x = 1, through order 4:
+  log(x) = x - 1 - (x - 1)^2/2 + (x - 1)^3/3 - (x - 1)^4/4 + O((x - 1)^5)
+  as x -> 1; coefficients c_k = f^(k)(1)/k!: 0 1 -1/2 1/3 -1/4
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 2.18e-06 at x = 1 ± 1/10, 6.52e-08 at ± 1/20, 1.99e-09 at ± 1/40 (shrinks like h^5.0; expected >= 5)
+> taylor sqrt(x) at 0
+no Taylor series of sqrt(x) at x = 0: at x = 0 (an end of the domain) sqrt(x) has an infinite one-sided slope
+> taylor abs(x)
+no Taylor series of abs(x) at x = 0: at x = 0 abs(x) has a corner (slope -1 from the left, 1 from the right)
+> taylor cos(x)*y x order 4
+Maclaurin (Taylor at 0) series of cos(x)*y at x = 0, through order 4:
+  cos(x)*y = (y) + (-y/2)*x^2 + (y/24)*x^4 + O(x^5)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: y 0 -y/2 0 y/24
+  (several variables: the coefficients are symbolic; checked through the derivatives only)
+> implicit x^2 + y^2 = 1
+on the curve x^2 + y^2 - 1 = 0, y as a function of x:
+  dy/dx = -F_x/F_y = -x/y
+  holds where F_y = 2y != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 2e-12)
+> implicit x^2 + y^2 = 1 order 2
+on the curve x^2 + y^2 - 1 = 0, y as a function of x:
+  dy/dx = -F_x/F_y = -x/y
+  d²y/dx² = (-y^2 - x^2)/y^3
+  holds where F_y = 2y != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 2e-12)
+> implicit x^3 + y^3 = 6x*y
+on the curve x^3 + y^3 - 6x*y = 0, y as a function of x:
+  dy/dx = -F_x/F_y = (6y - 3x^2)/(3y^2 - 6x)
+  holds where F_y = 3y^2 - 6x != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 5e-12)
+> implicit exp(y) + y = x
+on the curve exp(y) + y - x = 0, y as a function of x:
+  dy/dx = -F_x/F_y = 1/(exp(y) + 1)
+  holds where F_y = exp(y) + 1 != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 8e-12)
+> implicit a^2 + b^2 = 4
+  note: taking b as a function of a (say `for a wrt b` for the other way)
+on the curve a^2 + b^2 - 4 = 0, b as a function of a:
+  db/da = -F_a/F_b = -a/b
+  holds where F_b = 2b != 0 (the implicit function theorem: there b is locally a differentiable function of a)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 1e-10)
+> antiderivative 1/(1 + x^2)
+∫ 1/(x^2 + 1) dx
+  = atan(x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> antiderivative 3/(x^2 + 2x + 5)
+∫ 3/(x^2 + 2x + 5) dx
+  = 3atan(x/2 + 0.5)/2 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
+> antiderivative 1/sqrt(1 - x^2)
+∫ 1/sqrt(1 - x^2) dx
+  = atan(x/sqrt(1 - x^2)) + C
+  check: d/dx of it equals the integrand at 39 points of [-10, 10] (max difference 4.4e-16)
+> antiderivative 1/sqrt(x^2 + 1)
+∫ 1/sqrt(x^2 + 1) dx
+  = log(abs(2x + 2sqrt(x^2 + 1))) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1e-15)
+> antiderivative x/(x^2 + 1)
+∫ x/(x^2 + 1) dx
+  = log(abs(x^2 + 1))/2 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> antiderivative x*log(x)
+∫ x*log(x) dx
+  = x^2*log(x)/2 - x^2/4 + C
+  check: d/dx of it equals the integrand at 200 points of [-10, 10] (max difference 3.6e-15)
+> antiderivative x^2*exp(x)
+∫ x^2*exp(x) dx
+  = x^2*exp(x) + 2exp(x) - 2x*exp(x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 4.7e-10)
+> antiderivative a*x wrt a
+∫ a*x da
+  = x*a^2/2 + C
+  (several parameters: the derivative check needs values; checked symbolically only)
+> antiderivative x from 0 to 1
+calculus2.ucas:102:29: error: an antiderivative is indefinite: for the definite integral say integrate F from a to b
+    antiderivative x from 0 to 1
+                                ^
+> range of x^2 - 2x
+  ucas: it(x) = x^2 - 2*x
+  ucas: range it
+range of it:
+  [-1, 120]   min at x ≈ 1, max at x ≈ -10
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> differentiate x^3 sin x
+  ucas: it(x) = x^3*sin(x)
+  ucas: diff it
+d/dx it = 3x^2*sin(x) + x^3*cos(x)
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 3e-15)
+> what is the second derivative of x^4?
+  ucas: it(x) = x^4
+  ucas: diff it 2
+d/dx it = 4x^3
+d²/dx² it = 12x^2
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> third derivative of sin(2x)
+  ucas: it(x) = sin(2*x)
+  ucas: diff it 3
+d/dx it = 2cos(2x)
+d²/dx² it = -4sin(2x)
+d³/dx³ it = -8cos(2x)
+  holds for every real x
+  check: each order matches central differences at 603 points (max relative difference 3e-14)
+> the nth derivative of exp(3x)
+  ucas: it(x) = exp(3*x)
+  ucas: diff it n
+d^n/dx^n it = 3^n*exp(3x)
+  holds for every real x and n >= 0; check: equals the derivatives of orders 1..6 at 120 points
+> differentiate x^5 twice
+  ucas: it(x) = x^5
+  ucas: diff it 2
+d/dx it = 5x^4
+d²/dx² it = 20x^3
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 1e-15)
+> d/dx sin(x)^2
+  ucas: it(x) = sin(x)^2
+  ucas: diff it x
+d/dx it = 2sin(x)*cos(x)
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 3e-14)
+> d²/dx² x^3
+  ucas: it(x) = x^3
+  ucas: diff it x 2
+d/dx it = 3x^2
+d²/dx² it = 6x
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> d^2/dx^2 exp(-x^2)
+  ucas: it(x) = exp(-x^2)
+  ucas: diff it x 2
+d/dx it = -(2x*exp(-x^2))
+d²/dx² it = 4x^2*exp(-x^2) - 2exp(-x^2)
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 1e-15)
+> derivative of x^3 at x = 2
+  ucas: it(x) = x^3
+  ucas: it'(2)
+it'(2) = 12
+  from it' = 3x^2
+> the second derivative of sin x at pi/2
+  ucas: it(x) = sin(x)
+  ucas: it''(pi/2)
+it''(pi/2) = -1
+  from it'' = -sin(x)
+> partial derivate of x^2 y wrt y
+  ucas: it(x, y) = x^2*y
+  ucas: diff it y
+∂/∂y it = x^2
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 4e-13)
+> partial derivative of x^2*y with respect to x
+  ucas: it(x, y) = x^2*y
+  ucas: diff it x
+∂/∂x it = 2x*y
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 3e-13)
+> partial of x*y^2 with respect to y
+  ucas: it(x, y) = x*y^2
+  ucas: diff it y
+∂/∂y it = 2x*y
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 3e-13)
+> the mixed partial derivative of x^2 y^3 with respect to x and y
+  ucas: it(x, y) = x^2*y^3
+  ucas: diff it x y
+∂²/∂y∂x it = 6x*y^2
+  holds wherever the formula is defined
+  check: each order matches central differences at 200 points (max relative difference 3e-13)
+> ∂f/∂y
+  ucas: diff f y
+∂/∂y f = x^2 + 3y^2
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 3e-13)
+> ∂²f/∂x∂y
+  ucas: diff f y x
+∂²/∂x∂y f = 2x
+  holds wherever the formula is defined
+  check: each order matches central differences at 200 points (max relative difference 3e-13)
+> ∂/∂y x^2 y
+  ucas: it(x, y) = x^2*y
+  ucas: diff it y
+∂/∂y it = x^2
+  holds wherever the formula is defined
+  check: matches central differences at 100 points (max relative difference 4e-13)
+> gradient of x^2 + y^2 at (1, 2)
+  ucas: it(x, y) = x^2 + y^2
+  ucas: grad it at 1, 2
+∇ it = (2x, 2y)
+  ∂/∂x it = 2x
+  ∂/∂y it = 2y
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 4e-13)
+  at (x = 1, y = 2): (2, 4), |∇| = 4.472135955
+> ∇f
+  ucas: grad f
+∇ f = (2x*y, x^2 + 3y^2)
+  ∂/∂x f = 2x*y
+  ∂/∂y f = x^2 + 3y^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 4e-13)
+> the hessian of x^2 - y^2 at the origin
+  ucas: it(x, y) = x^2 - y^2
+  ucas: hessian it at 0, 0
+Hessian of it (row i, column j: ∂²/∂j∂i):
+  [ 2   0  ]   ∂/∂x
+  [ 0   -2 ]   ∂/∂y
+  det = -4
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 2e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+  at (x = 0, y = 0):
+  [ 2          0          ]
+  [ 0          -2         ]
+  det = -4
+  the gradient is 0 and the Hessian is indefinite: a saddle point
+> laplacian of x^2 + y^2
+  ucas: it(x, y) = x^2 + y^2
+  ucas: laplacian it
+∇² it = 4
+  ∂²/∂x² it = 2
+  ∂²/∂y² it = 2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 4e-13)
+> jacobian of x*cos(y), x*sin(y)
+  ucas: jacobian x*cos(y), x*sin(y)
+Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
+  [ cos(y)   -(x*sin(y)) ]
+  [ sin(y)   x*cos(y)    ]
+  det = x*cos(y)^2 + x*sin(y)^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+> directional derivative of x^2 y along (3, 4) at (1, 1)
+  ucas: it(x, y) = x^2*y
+  ucas: ddir it along 3, 4 at 1, 1
+D_u it = 6x*y/5 + 4x^2/5
+  u = v/|v| = (3/5, 4/5), |v| = 5  (the rate of change per unit length; `raw` for ∇it · v)
+  holds wherever the formulas are defined
+  check: matches (f(p + h u) - f(p - h u))/2h at 100 points (max relative difference 1e-12)
+  at (x = 1, y = 1): 2
+> wronskian of sin x, cos x
+  ucas: wronskian sin(x), cos(x)
+Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
+  [ sin(x)   cos(x)  ]   the functions
+  [ cos(x)   -sin(x) ]   d/dx
+  W = det = -sin(x)^2 - cos(x)^2
+  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 3e-15)
+  linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
+> wronkian matrix of e^x, e^2x, e^3x
+  note: read "wronkian" as "wronskian"
+  ucas: wronskian e^x, e^(2*x), e^(3*x)
+Wronskian matrix of e^x, e^(2x), e^(3x) (row k: the k-th derivatives wrt x)
+  [ e^x      e^(2x)     e^(3x)   ]   the functions
+  [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
+  [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
+  W = det = 2exp(6x)
+  check: every entry matches central differences at 1206 points (max relative difference 2e-13)
+  linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
+> are sin x and cos x linearly independent?
+  ucas: wronskian sin(x), cos(x)
+Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
+  [ sin(x)   cos(x)  ]   the functions
+  [ cos(x)   -sin(x) ]   d/dx
+  W = det = -sin(x)^2 - cos(x)^2
+  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 3e-15)
+  linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
+> is x and 2x linearly dependent?
+  ucas: wronskian x, 2*x
+Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
+  [ x   2x ]   the functions
+  [ 1   2  ]   d/dx
+  W = det = 0
+  check: every entry matches central differences at 402 points (max relative difference 1e-15)
+  W = 0 at all 200 sample points
+  a linear relation holds at all 200 points: -2*(x) + (2x) = 0
+  linearly dependent (the functions are analytic, so W = 0 everywhere implies dependence; the relation confirms it)
+> limit of sin x / x as x approaches 0
+  note: what does "sin" apply to: read as sin(x) / ..., not sin(x / ...) (say "sin the quantity ..." for the second)
+  ucas: it(x) = sin(x)/x
+  ucas: limit it x -> 0
+limit of it as x -> 0:
+  0/0: L'Hôpital: lim (cos(x))/(1) = lim cos(x)
+  = 1 (from both sides)
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.9983341665, 0.9999934896, 0.9999999746, 0.9999999999, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 0.9983341665, 0.9999934896, 0.9999999746, 0.9999999999, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+> the limit as x goes to infinity of (1 + 1/x)^x
+  ucas: it(x) = (1 + 1/x)^x
+  ucas: limit it x -> inf
+limit of it as x -> inf:
+  (1/x + 1)^x = exp((x)*log(1/x + 1))
+  0*inf: x*log(1/x + 1) = (log(1/x + 1))/(1/x)
+  0/0: L'Hôpital: lim (-1/(x^2*(1/x + 1)))/(-1/x^2) = lim x^2/(x^2*(1/x + 1))
+  at inf: x^2 ~ 1|x|^2, x^2*(1/x + 1) ~ 1|x|^2
+  = 2.718281828
+  numeric (x = 10*2^k, k = 0..21): 2.59374246, 2.709835576, 2.717751104, 2.718248647, 2.718279755, 2.718281764
+    extrapolated (Richardson): 2.71828182846 (estimated error 3e-16): agrees
+> what does 1/x tend to as x goes to infinity?
+  ucas: it(x) = 1/x
+  ucas: limit it x -> inf
+limit of it as x -> inf:
+  = 0
+  numeric (x = 10*2^k, k = 0..21): 0.1, 0.00625, 0.000390625, 2.44140625e-05, 1.525878906e-06, 4.768371582e-08
+    extrapolated (Richardson): 0 (estimated error 0): agrees
+> limit of 1/x as x approaches 0 from the left
+  ucas: it(x) = 1/x
+  ucas: limit it x -> 0 from left
+limit of it as x -> 0- (from the left):
+  1/x -> -inf (the numerator -> 1, x -> 0-)
+  = -inf
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): -10, -160, -2560, -40960, -655360, -20971520
+    the values grow without bound (-): agrees
+> right-hand limit of abs(x)/x at 0
+  ucas: it(x) = abs(x)/x
+  ucas: limit it x -> 0 from right
+limit of it as x -> 0+ (from the right):
+  0/0: L'Hôpital: lim (sign(x))/(1) = lim sign(x)
+  = 1
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 1, 1, 1, 1, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+> lim x→0 sin(1/x)
+limit of sin(1/x) as x -> 0:
+  1/x -> inf (the numerator -> 1, x -> 0+)
+  1/x -> inf: sin(1/x) keeps oscillating between -1 and 1
+  = none (it oscillates between -1 and 1)
+  the limit does not exist
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.5440211109, -0.2194252584, -0.3875871276, 0.08491512332, 0.9779231634, -0.4379663196
+    the values do not settle (the last ones lie in [-0.993585, 0.977923]): consistent
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): -0.5440211109, 0.2194252584, 0.3875871276, -0.08491512332, -0.9779231634, 0.4379663196
+    the values do not settle (the last ones lie in [-0.977923, 0.993585]): consistent
+> taylor series of sin x
+  note: no order given: through order 5 (say "to order 8")
+  ucas: it(x) = sin(x)
+  ucas: taylor it
+Maclaurin (Taylor at 0) series of it at x = 0, through order 5:
+  it = x - x^3/6 + x^5/120 + O(x^6)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: 0 1 0 -1/6 0 1/120
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 1.98e-11 at x = 0 ± 1/10, 1.55e-13 at ± 1/20, 1.21e-15 at ± 1/40 (shrinks like h^7.0; expected >= 6)
+> maclaurin series of exp(x) up to order 4
+  ucas: it(x) = exp(x)
+  ucas: taylor it order 4
+Maclaurin (Taylor at 0) series of it at x = 0, through order 4:
+  it = 1 + x + x^2/2 + x^3/6 + x^4/24 + O(x^5)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: 1 1 1/2 1/6 1/24
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 8.47e-08 at x = 0 ± 1/10, 2.63e-09 at ± 1/20, 8.17e-11 at ± 1/40 (shrinks like h^5.0; expected >= 5)
+> taylor expansion of log x about 1 to order 3
+  note: "log" without a base: read as the natural log, ln, not log base 2 or log base 10 (say "natural log", "log base 2" or "log base 10", or "assume log means base 2")
+  ucas: it(x) = log(x)
+  ucas: taylor it at 1 order 3
+Taylor series of it at x = 1, through order 3:
+  it = x - 1 - (x - 1)^2/2 + (x - 1)^3/3 + O((x - 1)^4)
+  as x -> 1; coefficients c_k = f^(k)(1)/k!: 0 1 -1/2 1/3
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 2.72e-05 at x = 1 ± 1/10, 1.63e-06 at ± 1/20, 9.97e-08 at ± 1/40 (shrinks like h^4.0; expected >= 4)
+> dy/dx for x^2 + y^2 = 1
+  ucas: implicit x^2 + y^2 = 1 for y wrt x
+on the curve x^2 + y^2 - 1 = 0, y as a function of x:
+  dy/dx = -F_x/F_y = -x/y
+  holds where F_y = 2y != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 2e-12)
+> differentiate x^2 + y^2 = 25 implicitly
+  ucas: implicit x^2 + y^2 = 25
+on the curve x^2 + y^2 - 25 = 0, y as a function of x:
+  dy/dx = -F_x/F_y = -x/y
+  holds where F_y = 2y != 0 (the implicit function theorem: there y is locally a differentiable function of x)
+  check: matches the slope of the curve (points solved by bisection and Newton) at 12 points (max relative difference 8e-12)
+> antiderivative of 1/(1 + x^2)
+  ucas: it(x) = 1/(1 + x^2)
+  ucas: antiderivative it
+∫ 1/(x^2 + 1) dx
+  = atan(x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> anti-derivative of x e^x
+  ucas: it(x) = x*e^x
+  ucas: antiderivative it
+∫ x*e^x dx
+  = x*exp(x) - exp(x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.5e-10)
+> primitive of cos(x)^2
+  ucas: it(x) = cos(x)^2
+  ucas: antiderivative it
+∫ cos(x)^2 dx
+  = x/2 + sin(2x)/4 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
+> indefinite integral of x log x
+  ucas: it(x) = x*log(x)
+  ucas: antiderivative it
+∫ x*log(x) dx
+  = x^2*log(x)/2 - x^2/4 + C
+  check: d/dx of it equals the integrand at 200 points of [-10, 10] (max difference 3.6e-15)
+> the antiderivative of x^2 from 0 to 1
+  note: an antiderivative is indefinite; with bounds this is the definite integral
+  ucas: it(x) = x^2
+  ucas: integrate it from 0 to 1
+∫ x^2 dx
+  = x^3/3 + C
+  check: d/dx of it equals the integrand at 401 points of [0, 1] (max difference 1.1e-16)
+  from 0 to 1: F(1) - F(0) = 0.333333333333333
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 0.333333333333333, estimated error 3.7e-15
+  the two agree to 0
+> range of x^2 - 2x for x in 0..3
+  ucas: it(x in 0..3) = x^2 - 2*x
+  ucas: range it
+range of it -> int:
+  -1..3
+  fits in i3
+  over all 4 points of the domain
+> image of sin x
+  ucas: it(x) = sin(x)
+  ucas: range it
+range of it:
+  [-1, 1]   min at x ≈ -7.853981634, max at x ≈ -4.71238898
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> what values does x^2 + 1 take?
+  ucas: it(x) = x^2 + 1
+  ucas: range it
+range of it:
+  [1, 101]   min at x ≈ 0, max at x ≈ -10
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> the codomain of cos x
+  ucas: it(x) = cos(x)
+  ucas: range it
+range of it:
+  [-1, 1]   min at x ≈ -9.424777961, max at x ≈ -6.283185307
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> the set of values of x^3 - x on [0, 1]
+  note: x taken as real on [0, 1] (say "integer x" for whole numbers)
+  ucas: it(x: real in 0..1) = x^3 - x
+  ucas: range it
+range of it:
+  [-0.3849001795, 0]   min at x ≈ 0.5773502692, max at x ≈ 0
+  grid of 20001 points over [0, 1], extrema refined at critical points

@@ -93,6 +93,7 @@ static int cs_is_block(struct P *p);
 static nid calc_block(struct P *p);
 static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
+static int calc2_command(struct P *p);	/* calc2_syntax.inc */
 
 static int
 pk(struct P *p)
@@ -1544,7 +1545,11 @@ help(void)
 "loops and calculus\n"
 "  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
 "  closed F | scheme F [model m] | continuous F\n"
-"  integrate F [wrt x] [from a to b]\n"
+"  integrate F [wrt x] [from a to b] | antiderivative F [wrt x]\n"
+"  diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)\n"
+"  jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]\n"
+"  limit F x -> a[+|-] [from left|right] | lim x->a F | wronskian F, G, ...\n"
+"  taylor F [x] [at a] [order n] | implicit L = R [for y] [wrt x] [order 2]\n"
 "  y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] "
 "[steps n]\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
@@ -1746,6 +1751,8 @@ statement(struct P *p)
 			return;
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
+		if (calc2_command(p))
+			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
 		if (is_kw(p, "spvsimplify")) {
 			double budget = 6;
@@ -2170,3 +2177,4 @@ run_source1(const char *src, const char *file, int echo)
 
 /* calc: loops, sums, recurrences, ODE/PDE statements and commands */
 #include "calc_syntax.inc"
+#include "calc2_syntax.inc"
