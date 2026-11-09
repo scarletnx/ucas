@@ -180,13 +180,34 @@ int is_const(nid n);
 int const_is(nid n, double v);
 
 enum { PM_UCAS, PM_C, PM_CBITS };
+struct shmap;
 struct pctx {
 	int mode;
 	const char *const *vn;  /* optional names per param slot */
+	const struct shmap *sh; /* shared subterms printed by name */
+	nid self;               /* the binding being defined (not by name) */
 };
 void print_node(struct sbuf *b, nid n, const struct pctx *pc);
 const char *node_str(nid n);   /* static buffer, rotated; ucas syntax */
 void print_paren(struct sbuf *b, nid n);
+/*
+ * Shared subterms named: a subterm used more than once and larger than a
+ * few nodes is printed once as a binding, `e where t1 = ..., t2 = ...`
+ * (a name from the source's let or where when there is one), and the
+ * whole is capped at cap bytes with "… (N more characters)".
+ */
+#define EXPR_CAP 2000
+#define NOTE_CAP 600
+void print_shared(struct sbuf *b, nid root, size_t cap);
+const char *shared_str(nid root, size_t cap);   /* static, rotated */
+void name_hint(nid n, uint32_t sym);           /* the source named n */
+struct shmap *shmap_new(nid root);   /* names for root's shared subterms */
+void shmap_free(struct shmap *m);
+int shmap_count(const struct shmap *m);
+void print_with(struct sbuf *b, nid e, const struct shmap *m, size_t cap);
+void shmap_bindings(struct sbuf *b, const struct shmap *m, const char *sep,
+    size_t cap);
+void cap_text(struct sbuf *b, size_t from, size_t cap);
 
 /* ---- functions ---- */
 struct param {

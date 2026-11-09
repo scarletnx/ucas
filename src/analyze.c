@@ -69,7 +69,7 @@ run_close(struct run *r)
 static const char *
 fname(const struct func *f)
 {
-	return f->anon ? node_str(f->body) : sym_str(f->name);
+	return f->anon ? shared_str(f->body, 200) : sym_str(f->name);
 }
 
 static void
@@ -122,7 +122,7 @@ print_header(const struct func *f)
 			sb_puts(&b, " uniform");
 	}
 	sb_printf(&b, ") = ");
-	print_node(&b, f->body, NULL);
+	print_shared(&b, f->body, 4 * EXPR_CAP);
 	if (f->where) {
 		sb_puts(&b, "  where ");
 		print_node(&b, f->where, NULL);

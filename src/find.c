@@ -509,7 +509,8 @@ show_new(int want)
 			continue;
 		}
 		sampled = pr.how == EQ_SAMPLED;
-		printf("  cost %-3d %-40s %s%s\n", F.m[i].cost, node_str(F.m[i].e),
+		printf("  cost %-3d %-40s %s%s\n", F.m[i].cost,
+		    shared_str(F.m[i].e, 300),
 		    F.m[i].why, sampled ? " (sampled)" : pr.how == EQ_SAT ?
 		    " (proved by SAT)" : "");
 		rep_obj(NULL);
@@ -1064,7 +1065,7 @@ peephole(const struct func *f)
 			    "each checked on the whole domain):\n", f->anon ?
 			    "the expression" : sym_str(f->name), base);
 		printf("  cost %-3d %-40s drops %s (%s)\n", c[i].cost,
-		    node_str(c[i].e), c[i].what, proof_word(&pr));
+		    shared_str(c[i].e, 300), c[i].what, proof_word(&pr));
 		rep_obj(NULL);
 		rep_num("cost", c[i].cost);
 		rep_expr("expr", c[i].e);
@@ -1102,7 +1103,7 @@ peephole(const struct func *f)
 	rep_end();
 	if (nsteps >= 2) {
 		printf("  cost %-3d %-40s all of them: drops %s (%s)\n",
-		    icost(cur), node_str(cur), sb_str(&steps), last);
+		    icost(cur), shared_str(cur, 300), sb_str(&steps), last);
 		rep_obj("peephole_fixpoint");
 		rep_num("cost", icost(cur));
 		rep_expr("expr", cur);
