@@ -141,9 +141,9 @@ cmd_magic(void)
 		if (!sign)
 			printf("  q = x >> %d (a power of two)\n", sh);
 		else
-			printf("  q = (x + ((x >> %d) >>> %d)) >> %d: an arithmetic shift "
-			    "rounds toward -inf, so negative x first get %llu - 1 added "
-			    "(C's / rounds toward 0)\n", w - 1, w - sh, sh, U(d));
+			printf("  q = (x + ((x >> %d) & %llu)) >> %d (arithmetic shifts): "
+			    "a shift rounds toward -inf, so negative x first get %llu - 1 "
+			    "added (C's / rounds toward 0)\n", w - 1, U(d - 1), sh, U(d));
 		return;
 	}
 	/* the least s with m = ceil(2^(w' + s)/d), e = m d - 2^(w' + s) <= 2^s */

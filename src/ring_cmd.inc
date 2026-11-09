@@ -458,6 +458,11 @@ ring_command(struct P *p)
 		int end, kk, ok;
 		rtokenize(text);
 		ok = find_ring(&s, 0, &end, 0) || pow2_modulus(0, &kk, &end);
+		/* "inverse 3 mod 0": ours, so the error says what is wrong */
+		for (kk = 0; !ok && kk + 1 < nrt; kk++)
+			if (rt[kk].k == RK_ID && !strcasecmp(rt[kk].s, "mod") &&
+			    rt[kk + 1].k == RK_NUM)
+				ok = 1;
 		if (!ok && (c == C_IRRED || c == C_PRIMITIVE) && 0)
 			ok = 1;
 		if (!ok) {

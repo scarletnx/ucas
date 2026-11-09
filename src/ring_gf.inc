@@ -1330,6 +1330,8 @@ cmd_matrix(struct rspec *s, int what)
 		printf("the %dx%d matrix over %s\n", m.r, m.c, field_name(s));
 		rm_print(R, &m, "  ");
 	}
+	if (what == MX_DET && m.r != m.c)
+		printf("  no determinant: the matrix is not square\n");
 	if ((what == MX_ALL || what == MX_DET || what == MX_INV) && m.r == m.c) {
 		if (rm_det(R, &m, &det))
 			printf("  det = %s%s\n", el_code(R, det), R->field ? "" : (R->deg
@@ -1406,9 +1408,55 @@ cmd_matrix(struct rspec *s, int what)
 				printf(") over %s (the only solution: det is a unit)\n",
 				    s->name);
 				rm_free(&inv);
-			} else
-				rfail("solving over %s (not a field) when the matrix is "
-				    "not invertible: solve mod each prime power", s->name);
+			} else {
+				/* search, when small */
+				u128 tot = 1;
+				int j2;
+				for (j2 = 0; j2 < m.c; j2++)
+					tot *= (u128)R->n;
+				if (tot > (1u << 20))
+					rfail("solving over %s (not a field) when the matrix is "
+					    "not invertible: solve mod each prime power", s->name);
+				{
+					u64 v[64], cnt = 0, xx, first[64];
+					int r2, c2;
+					for (xx = 0; xx < (u64)tot; xx++) {
+						u64 t = xx;
+						for (c2 = 0; c2 < m.c; c2++) {
+							v[c2] = t % R->n;
+							t /= R->n;
+						}
+						for (r2 = 0; r2 < m.r; r2++) {
+							u64 acc = 0;
+							for (c2 = 0; c2 < m.c; c2++)
+								acc = r_add(R, acc, r_mul(R, RM(&m, r2, c2),
+								    v[c2]));
+							if (acc != b.a[r2])
+								break;
+						}
+						if (r2 == m.r) {
+							if (!cnt)
+								memcpy(first, v, sizeof(u64) * (size_t)m.c);
+							cnt++;
+						}
+					}
+					if (!cnt)
+						printf("no solution over %s (searched all %s vectors)\n",
+						    s->name, u128s(tot));
+					else {
+						printf("x = (");
+						for (c2 = 0; c2 < m.c; c2++)
+							printf("%s%llu", c2 ? ", " : "", U(first[c2]));
+						printf(") over %s, %s %llu solution%s (searched all %s "
+						    "vectors; det is not a unit)\n", s->name, cnt > 1 ?
+						    "one of" : "the only one of", U(cnt), cnt == 1 ?
+						    "" : "s", u128s(tot));
+					}
+					rm_free(&m);
+					rm_free(&b);
+					return;
+				}
+			}
 		} else {
 			rm_init(&aug, m.r, m.c + 1);
 			for (i = 0; i < m.r; i++) {
