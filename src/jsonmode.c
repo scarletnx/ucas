@@ -1834,6 +1834,8 @@ run_with_timeout(const struct jv *rq, double secs)
 		jv_free(resp);
 		(void)!write(sp[1], "k", 1);
 		close(sp[1]);
+		if (reset_wanted && !oneshot)
+			self_exec();
 		return 1;
 	}
 	close(sp[1]);
