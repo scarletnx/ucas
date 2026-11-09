@@ -1200,12 +1200,153 @@ param_bounds(const struct param *p, int64_t *lo, int64_t *hi)
 	}
 }
 
+/*
+ * The where clause's conjuncts that compare a parameter (through casts
+ * that keep its value) with an expression bound the parameter by the
+ * expression's interval: `v < 1 << n` with n in 5..8 gives v <= 255.
+ * The intervals are sound for machine values (plan_ival), so every point
+ * cut off fails the where clause; a few rounds reach a fixpoint.
+ */
+static int
+cast_keeps(ty_t s, ty_t t)
+{
+	int ks = TYK(s), kt = TYK(t), ws = TYW(s), wt = TYW(t);
+
+	if (ks == K_UINT || ks == K_BOOL) {
+		if (ks == K_BOOL)
+			ws = 1;
+		return (kt == K_UINT && wt >= ws) || (kt == K_SINT && wt > ws) ||
+		    (kt == K_INT && ws < 64);
+	}
+	if (ks == K_SINT)
+		return (kt == K_SINT && wt >= ws) || kt == K_INT;
+	if (ks == K_INT)
+		return kt == K_INT;
+	return 0;
+}
+
+static int
+var_under_casts(nid e)
+{
+	while (N.op[e] == O_CAST && cast_keeps(N.ty[N.a[e]], N.ty[e]))
+		e = N.a[e];
+	return N.op[e] == O_VAR && N.ki[e] < MAXP ? (int)N.ki[e] : -1;
+}
+
+static int
+conjuncts(nid w, nid *out, int n, int max)
+{
+	if (N.op[w] == O_LAND) {
+		n = conjuncts(N.a[w], out, n, max);
+		return conjuncts(N.b[w], out, n, max);
+	}
+	if (n < max && (opinfo[N.op[w]].fl & OF_CMP) &&
+	    TY_ISINT(N.ty[N.a[w]]) && N.ty[N.a[w]] != TY_BOOL)
+		out[n++] = w;
+	return n;
+}
+
+int
+where_bounds(const struct func *f, int64_t *lo, int64_t *hi,
+    uint8_t *narrowed)
+{
+	nid cj[64], roots[128];
+	int nc, i, j, round, any = 0;
+	struct func g;
+	struct plan p;
+	struct ival *iv;
+
+	if (!f->where)
+		return 0;
+	nc = conjuncts(f->where, cj, 0, 64);
+	if (nc == 0)
+		return 0;
+	for (i = 0; i < nc; i++) {
+		roots[2 * i] = N.a[cj[i]];
+		roots[2 * i + 1] = N.b[cj[i]];
+	}
+	plan_build(&p, roots, (uint32_t)(2 * nc), 0);
+	iv = xcalloc(p.n ? p.n : 1, sizeof *iv);
+	g = *f;
+	for (round = 0; round < 4; round++) {
+		int changed = 0;
+		for (j = 0; j < f->np; j++)
+			if (TY_ISINT(g.p[j].ty) && !(TYK(g.p[j].ty) == K_UINT &&
+			    TYW(g.p[j].ty) == 64)) {
+				g.p[j].ranged = 1;
+				g.p[j].lo = lo[j];
+				g.p[j].hi = hi[j];
+			}
+		plan_ival(&p, &g, iv);
+		for (i = 0; i < nc; i++) {
+			int op = N.op[cj[i]], k;
+			for (k = 0; k < 2; k++) {
+				nid x = k ? N.b[cj[i]] : N.a[cj[i]];
+				nid e = k ? N.a[cj[i]] : N.b[cj[i]];
+				int s = var_under_casts(x), o = op;
+				const struct ival *b;
+				int64_t nlo, nhi;
+				if (s < 0 || s >= f->np || !TY_ISINT(f->p[s].ty) ||
+				    (TYK(f->p[s].ty) == K_UINT &&
+				    TYW(f->p[s].ty) == 64))
+					continue;
+				b = &iv[p.root[2 * i + (k ? 0 : 1)]];
+				if (b->top)
+					continue;
+				if (k)   /* e op x: x op' e */
+					o = o == O_LT ? O_GT : o == O_GT ? O_LT :
+					    o == O_LE ? O_GE : o == O_GE ? O_LE : o;
+				nlo = lo[s];
+				nhi = hi[s];
+				switch (o) {
+				case O_LT:
+					if (b->hi > INT64_MIN && b->hi - 1 < nhi)
+						nhi = b->hi - 1;
+					break;
+				case O_LE:
+					if (b->hi < nhi)
+						nhi = b->hi;
+					break;
+				case O_GT:
+					if (b->lo < INT64_MAX && b->lo + 1 > nlo)
+						nlo = b->lo + 1;
+					break;
+				case O_GE:
+					if (b->lo > nlo)
+						nlo = b->lo;
+					break;
+				case O_EQ:
+					if (b->hi < nhi)
+						nhi = b->hi;
+					if (b->lo > nlo)
+						nlo = b->lo;
+					break;
+				}
+				(void)e;
+				if (nlo != lo[s] || nhi != hi[s]) {
+					lo[s] = nlo;
+					hi[s] = nhi;
+					if (narrowed)
+						narrowed[s] = 1;
+					changed = any = 1;
+				}
+			}
+		}
+		if (!changed)
+			break;
+	}
+	free(iv);
+	plan_free(&p);
+	return any;
+}
+
 void
 diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
     uint32_t rsteps, uint64_t nsample)
 {
 	int j;
 	uint64_t sz;
+	int64_t ilo[MAXP], ihi[MAXP];
 
 	memset(d, 0, sizeof *d);
 	d->f = f;
@@ -1213,6 +1354,12 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 	d->rsteps = rsteps < 2 ? 2 : rsteps;
 	d->total = 1;
 	d->rng = 0x9e3779b97f4a7c15ULL;
+	for (j = 0; j < f->np; j++)
+		if (TY_ISINT(f->p[j].ty))
+			param_bounds(&f->p[j], &ilo[j], &ihi[j]);
+		else
+			ilo[j] = ihi[j] = 0;
+	where_bounds(f, ilo, ihi, d->narrowed);
 	for (j = 0; j < f->np; j++) {
 		const struct param *p = &f->p[j];
 		if (TYK(p->ty) == K_REAL) {
@@ -1237,7 +1384,8 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 			sz = d->hi[j] < d->lo[j] ? 0 :
 			    (uint64_t)d->hi[j] - (uint64_t)d->lo[j] + 1;
 		} else {
-			param_bounds(p, &d->lo[j], &d->hi[j]);
+			d->lo[j] = ilo[j];
+			d->hi[j] = ihi[j];
 			if (d->hi[j] < d->lo[j])
 				sz = 0;
 			else {

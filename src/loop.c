@@ -841,12 +841,12 @@ loop_cost(const struct model *m, nid n, int *cls)
 	if (loops.kind[loop_ent(n)] == LK_FOR && int_of(N.a[n], &lo) &&
 	    int_of(N.b[n], &hi)) {
 		note("loop %s priced as %lld iterations x %g (listed under "
-		    "branch)", node_str(n), (long long)(hi - lo + 1),
+		    "branch)", shared_str(n, 120), (long long)(hi - lo + 1),
 		    (double)per);
 		return per * (float)(hi >= lo ? hi - lo + 1 : 0);
 	}
 	note("loop %s priced per iteration (%g, listed under branch); "
-	    "multiply by the trip count; see 'scheme'", node_str(n),
+	    "multiply by the trip count; see 'scheme'", shared_str(n, 120),
 	    (double)per);
 	return per;
 }

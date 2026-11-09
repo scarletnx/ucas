@@ -586,10 +586,12 @@ cs_set(struct P *p, uint32_t name, nid v)
 {
 	int j = binding(p, name);
 
+	name_hint(v, name);
 	if (j >= 0) {
 		if (cs_dty[j])
 			v = mk_cast(cs_dty[j], v);
 		p->bval[j] = v;
+		name_hint(v, name);
 		return;
 	}
 	if (p->nb == MAXBIND)
