@@ -8,6 +8,7 @@
  */
 #include "calc.h"
 #include "calc2.h"   /* c2_antideriv: atan, asin, log|P|, P log(u) */
+#include "alg.h"     /* alg_antideriv: rational functions and more methods */
 
 #include <math.h>
 #include <stdlib.h>
@@ -255,9 +256,14 @@ antideriv(nid f, int s, const char **how)
 		notes_drop();
 		return 0;
 	}
-	r = ad(f, s, x);
+	/* rational functions first (exact), then the rules here, then rint.c */
+	r = alg_antideriv(f, s, x, 1, how);
+	if (r == 0 && (r = ad(f, s, x)) != 0)
+		r = tidy(r);
+	if (r == 0)
+		r = alg_antideriv(f, s, x, 0, how);
 	memcpy(fail_jmp, saved, sizeof saved);
-	return r ? tidy(r) : 0;
+	return r;
 }
 
 /* ---- evaluation helpers ---- */
@@ -461,6 +467,91 @@ at_const(nid e, int s, double x)
 	return subst(mk_cast(TY_REAL, e), map, NSLOT);
 }
 
+/*
+ * F continuous on [lo, hi]?  An antiderivative from tan(x/2) or atan of
+ * a quotient can jump where the integrand is smooth; F(b) - F(a) then
+ * needs the jumps taken out.  Each jump is located by bisection and
+ * printed; returns their sum (times sg, the direction).
+ */
+static double
+f_jumps(nid F, nid f, int slot, double lo, double hi, int sg,
+    const char *xn)
+{
+	enum { M = 2000 };
+	double tot = 0, h = (hi - lo) / M, Fp = 0, fp = 0, xp = lo;
+	int i, ok, okp = 0, nj = 0;
+
+	F = mk_cast(TY_REAL, F);
+	for (i = 0; i <= M; i++) {
+		double x = lo + h * i, Fv = eval_const_at(F, slot, x, &ok), fv, fm,
+		    bound;
+		int o2, o3;
+		fv = eval_const_at(f, slot, x, &o2);
+		if (!ok || !o2)
+			continue;
+		if (okp) {
+			fm = eval_const_at(f, slot, 0.5 * (x + xp), &o3);
+			bound = 8 * (x - xp) * fmax(fabs(fv), fmax(fabs(fp), o3 ?
+			    fabs(fm) : 0)) + 1e-9 * (1 + fabs(Fv));
+			if (fabs(Fv - Fp) > bound) {
+				/* bisect for the jump */
+				double l = xp, r = x, Fl = Fp, Fr = Fv, J = 0, c;
+				int k, ol, orr, done = 0;
+				for (k = 0; k < 60 && !done; k++) {
+					double m = 0.5 * (l + r), Fm = eval_const_at(F, slot, m,
+					    &ok);
+					if (!ok) {
+						/* a pole of F's pieces: the one-sided values */
+						double d = 1e-7 * (1 + fabs(m));
+						int j;
+						for (j = 0; j < 20; j++, d *= 0.25) {
+							int o4, o5;
+							double F2l, F2r;
+							Fl = eval_const_at(F, slot, m - d, &ol);
+							Fr = eval_const_at(F, slot, m + d, &orr);
+							F2l = eval_const_at(F, slot, m - 2 * d, &o4);
+							F2r = eval_const_at(F, slot, m + 2 * d, &o5);
+							if (ol && orr && o4 && o5) {
+								/* J(d) = J + 2 f d: extrapolate to d = 0 */
+								double J1 = Fr - Fl, J2 = F2r - F2l;
+								Fl = 0;
+								Fr = 2 * J1 - J2;
+								break;
+							}
+						}
+						l = r = m;
+						done = 1;
+						break;
+					}
+					if (fabs(Fm - Fl) > fabs(Fr - Fm))
+						r = m, Fr = Fm;
+					else
+						l = m, Fl = Fm;
+				}
+				if (!done) {
+					Fl = eval_const_at(F, slot, l, &ol);
+					Fr = eval_const_at(F, slot, r, &orr);
+				} else
+					ol = orr = 1;
+				J = Fr - Fl;
+				c = 0.5 * (l + r);
+				if (ol && orr && fabs(J) > 1e-6) {
+					if (nj++ < 6)
+						printf("  the antiderivative jumps by %.15g at %s = %s "
+						    "(the integrand is continuous there): the jump is "
+						    "taken out\n", J, xn, c2_fnum(c));
+					tot += J;
+				}
+			}
+		}
+		Fp = Fv;
+		fp = fv;
+		xp = x;
+		okp = 1;
+	}
+	return sg * tot;
+}
+
 void
 cmd_integrate(struct func *f, int slot, nid an, nid bn)
 {
@@ -468,7 +559,7 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 	int removable = 0;
 	double a = 0, b = 0, lo, hi, maxres = 0, scale = 0;
 	int defd = an && bn, i, ok, checked = 0;
-	const char *xn;
+	const char *xn, *how = NULL;
 
 	if (slot >= f->np)
 		fail("%s has no variable to integrate over", f->anon ?
@@ -494,7 +585,7 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		 */
 		ibody = simpler;
 		removable = conds.n > 0;
-		F = antideriv_wrt(simpler, slot, xv, NULL);
+		F = antideriv_wrt(simpler, slot, xv, &how);
 		free(conds.p);
 	}
 	/* where to check: the interval, the parameter's range, or -10..10 */
@@ -517,6 +608,8 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		memcpy(fail_jmp, saved, sizeof saved);
 		notes_drop();
 		printf("  = %s + C\n", node_str(F));
+		if (how && *how)
+			printf("  method: %s\n", how);
 		if (f->np == 1 && d) {
 			for (i = 0; i <= 400; i++) {
 				double x = lo + (hi - lo) * i / 400.0, fv, dv;
@@ -570,6 +663,14 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 				symok = 1;
 				printf("  from %g to %g: F(%g) - F(%g) = %.15g\n", a, b, b,
 				    a, sv);
+				{
+					double jt = f_jumps(F, mk_cast(TY_REAL, ibody), slot, lo,
+					    hi, a > b ? -1 : 1, xn);
+					if (jt != 0) {
+						sv -= jt;
+						printf("  F(b) - F(a) minus the jumps = %.15g\n", sv);
+					}
+				}
 			}
 		}
 		if (good) {

@@ -1,0 +1,78 @@
+# 1. primes after a name pass through English as ucas notation
+f(x) = x^3
+f''(2)
+what is f'(3)
+what is f''(x)?
+the slope field of y' = t - y nofile
+what kind of equation is y'' + y = 0
+plot the slope field of y' = t - y nofile
+solve y' = -2y + 1 with y(0) = 3 from 0 to 2 in 2 steps
+solve y'' = -y with y(0) = 1 and y'(0) = 0 from 0 to 3 in 3 steps
+solve x' = y and y' = -x with x(0) = 1, y(0) = 0 from 0 to 1 in 1 steps
+what's the derivative of x^2
+# 2. a tuple part starting with a minus
+plot the vector field (y, -x) nofile
+draw the vector field (−y, x) nofile
+what is the gradient of x^2 y at (1, -2)
+the hessian of x^2 y^3 at (-1, -2)
+the directional derivative of x^2 y along (3, -4) at (1, 2)
+x squared, plus one
+# 3. identities in derivative results
+wronskian sinh(x), cosh(x)
+wronskian sin x, cos x
+wronskian exp(x)*sin(x), exp(x)*cos(x)
+jacobian x*cos(y), x*sin(y) wrt x, y
+k(x, y) = log(cosh(x)*cos(y))
+hessian k
+laplacian k
+diff log(cosh(x)) x 2
+# 4. approx and properties of asin acos ... atanh
+approx asinh(x) in -1..1 list 3
+approx tanh(x) in -3..3 ulp 2 list 3
+approx acos(x) in -0.9..0.9 list 2
+approx atanh(x) in -0.5..0.5 list 2
+approx cosh(x) in -3..3 ulp 1 list 2
+taylor tanh(x) order 7
+parity asinh(x) + atanh(x/2)
+identify tanh(x)
+g(x: f32 in -0.9..0.9) = acos(x) + tanh(x)
+cost g
+wrap g
+range acos(x)
+domain atanh(x)
+# 5. plot bounds
+plot3d x^2 - y^2 nofile
+plot x*y + z parallel nofile
+plot log(x) logx nofile
+plot x^2 logx nofile
+h(n: u8 in 0..20) = n*n
+plot h nofile
+# crit: an f32 rounding plateau is one point
+ch(x: f32 in -0.9..0.9) = sin(x) - x
+crit ch
+cp(x: f32 in -3..3) = x^3 - 3x
+crit cp
+# crit: an integer parameter with a real result
+cg(x in -3..3) = atan(x)*exp(x)
+crit cg
+# the derivative of a defined function at a point
+fd(x) = x^3
+the derivative of fd at 3
+the slope of fd at 3
+fd prime of 3
+fd double prime at 2
+the second derivative of fd at 2
+what is the derivative of fd at x = 3?
+# plots in English: arrows, direction fields, an initial value
+plot (y, -x) as arrows nofile
+plot the vector field (y, -x) as arrows nofile
+graph the direction field y' = t - y nofile
+plot the slope field of y' = t - y with y(0) = 1 nofile
+plot y' = y - y^2 with y(0) = 0.1 t in 0..8 nofile
+plot y' = t - y with x(0) = 1 nofile
+# a negated product prints without parentheses
+what is x divided by -2y when x is 1 and y is 3?
+what is x - -2y when x is 1 and y is 3?
+# all in sin: the Hessian determinant of sin(x) cos(y)
+fh(x, y) = sin(x)*cos(y)
+hessian fh

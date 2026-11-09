@@ -12,6 +12,10 @@ SRCS+=	forms.c
 SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
+# complex, quaternion, octonion and Cayley-Dickson numbers
+SRCS+=	hyper.c
+# symbolic algebra: polynomials, rational functions, integration, solve
+SRCS+=	poly.c alg.c rint.c solve.c
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
 .PATH:	${.CURDIR}/src
@@ -27,9 +31,10 @@ LDADD+=	-lm
 
 # nlp.c corrects misspelt words towards the words of its own strings
 CFLAGS+=	-I${.OBJDIR}
-nlp_words.h: nlp.c nlp_calc2.inc nlp_words.awk
+nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_words.awk
 	awk -f ${.CURDIR}/src/nlp_words.awk ${.CURDIR}/src/nlp.c \
-	    ${.CURDIR}/src/nlp_calc2.inc > ${.TARGET}
+	    ${.CURDIR}/src/nlp_calc2.inc ${.CURDIR}/src/nlp_hyper.inc \
+	    ${.CURDIR}/src/nlp_alg.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
 

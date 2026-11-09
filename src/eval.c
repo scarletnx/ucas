@@ -458,6 +458,12 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 			return 0;
 		}
 		break;
+	case O_CONJ: case O_RE: case O_IM: case O_ARG:   /* hyper.c */
+		if (!hyper_scalar(op, a, &r)) {
+			*fl |= F_UNDEF;
+			return 0;
+		}
+		break;
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
@@ -635,6 +641,9 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 	case O_ASINH: r = asinh(a); break;
 	case O_ACOSH: r = acosh(a); break;
 	case O_ATANH: r = atanh(a); break;
+	case O_CONJ: case O_RE: r = a; break;
+	case O_IM: r = 0; break;
+	case O_ARG: r = a > 0 ? 0 : a < 0 ? M_PI : NAN; break;
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;

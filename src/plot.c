@@ -588,8 +588,11 @@ nice_step(double span, int maxn)
 	return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
 }
 
+/* integer axes: [0] horizontal, [1] vertical, [2] values (z, colour bar) */
+static int tick_int[3];
+
 static void
-mkticks(struct ticks *t, double lo, double hi, int lg, int maxn)
+mkticks(struct ticks *t, double lo, double hi, int lg, int maxn, int isint)
 {
 	double step, v;
 	int k;
@@ -627,7 +630,7 @@ mkticks(struct ticks *t, double lo, double hi, int lg, int maxn)
 		}
 		return;
 	}
-	if (pi_axis(lo, hi)) {
+	if (!isint && pi_axis(lo, hi)) {
 		long q = 1, m, ma, mb;
 		while ((hi - lo) / (q * M_PI / 4) > maxn)
 			q *= 2;
@@ -641,6 +644,10 @@ mkticks(struct ticks *t, double lo, double hi, int lg, int maxn)
 		return;
 	}
 	step = nice_step(hi - lo, maxn);
+	if (isint && step < 1)
+		step = 1;
+	else if (isint && step != floor(step))
+		step = floor(step);	/* 2.5 is 2 */
 	for (k = (int)ceil(lo / step - 1e-9); t->n < MAXTICK; k++) {
 		v = k * step;
 		if (v > hi + step * 1e-9)
@@ -788,6 +795,9 @@ static struct {
 	int nr;
 	char name[64];
 	int nofile, view, rotate, fps, frames, logx, logy, deriv, tangent;
+	int has_ic;			/* with y(0) = 1 */
+	uint32_t ic_name;
+	double ic_t, ic_y;
 	double seconds, tan_at;
 	int nat;
 	double at[2];
@@ -935,6 +945,10 @@ optstart(int i)
 	for (k = 0; optkw[k]; k++)
 		if (tw(i, optkw[k]))
 			return 1;
+	/* with y(0) = 1: an initial value */
+	if (i > 0 && (tw(i - 1, "with") || tw(i - 1, "and")) && i + 1 < nt &&
+	    T[i + 1].k == '(')
+		return 1;
 	if (tw(i + 1, "in") || tw(i + 1, "from"))
 		return 1;
 	if (tw(i, "in") && (tw(i + 1, "3d") || tw(i + 1, "2d") || tw(i + 1, "polar")
@@ -945,6 +959,8 @@ optstart(int i)
 		for (j = i + 2; j < nt && !(T[j].d == 0 && T[j].k == ','); j++)
 			if (T[j].k == 'D' && T[j].d == 0)
 				return 1;
+			else if (T[j].k == 'w' && !tw(j, "pi") && !tw(j, "e"))
+				break;	/* y' = y - y^2 t in 0..8: not a range */
 	}
 	return 0;
 }
@@ -1195,6 +1211,20 @@ parse_opts(int i, int leading)
 		} else if (!strcmp(w, "for") || !strcmp(w, "with") ||
 		    !strcmp(w, "and") || !strcmp(w, "in")) {
 			i++;
+		} else if (i + 1 < nt && T[i + 1].k == '(') {
+			/* NAME(t0) = v: the initial value of a slope field */
+			int j = i + 2, e;
+			while (j < nt && !(T[j].k == ')' && T[j].d == 0))
+				j++;
+			if (j >= nt || j + 1 >= nt || T[j + 1].k != '=')
+				fail("plot: an initial value is NAME(t0) = value");
+			tk_str(i, i + 1, w, sizeof w);
+			O.ic_name = sym_cstr(w);
+			O.ic_t = const_tok(i + 2, j);
+			e = val_end(j + 2, 0);
+			O.ic_y = const_tok(j + 2, e);
+			O.has_ic = 1;
+			i = e;
 		} else {
 			/* NAME in a..b, NAME from a to b, NAME = a..b */
 			double lo, hi;
@@ -2000,7 +2030,8 @@ layout2(struct ax2 *a, int x0, int y0, int w, int h, int rightpad, int small)
 	struct ticks ty;
 	int k, maxw = 0;
 
-	mkticks(&ty, a->lo[1], a->hi[1], a->lg[1], small ? 4 : h / 46);
+	mkticks(&ty, a->lo[1], a->hi[1], a->lg[1], small ? 4 : h / 46,
+	    tick_int[1]);
 	for (k = 0; k < ty.n; k++)
 		if (textw(ty.lab[k]) > maxw)
 			maxw = textw(ty.lab[k]);
@@ -2018,9 +2049,9 @@ axes2(const struct ax2 *a, const char *xn, const char *yn, int small,
 	int k, x, y;
 
 	mkticks(&tx, a->lo[0], a->hi[0], a->lg[0], small ? 4 :
-	    (a->R - a->L) / 72);
+	    (a->R - a->L) / 72, tick_int[0]);
 	mkticks(&ty, a->lo[1], a->hi[1], a->lg[1], small ? 4 :
-	    (a->B - a->T) / 46);
+	    (a->B - a->T) / 46, tick_int[1]);
 	for (k = 0; k < tx.n; k++) {
 		x = (int)floor(PX(a, tx.v[k]) + 0.5);
 		if (x > a->L && x < a->R)
@@ -2919,7 +2950,7 @@ colorbar(int x, int y0, int y1, double zlo, double zhi, int sh,
 	for (y = y0; y <= y1; y++)
 		fill(x, y, 12, 1, cmap((double)(y1 - y) / (y1 - y0 + 1), sh));
 	rect(x - 1, y0 - 1, 14, y1 - y0 + 3, P_AXIS);
-	mkticks(&t, zlo, zhi, 0, (y1 - y0) / 40);
+	mkticks(&t, zlo, zhi, 0, (y1 - y0) / 40, tick_int[2]);
 	for (k = 0; k < t.n; k++) {
 		y = (int)floor(y1 - (t.v[k] - zlo) / (zhi - zlo) * (y1 - y0) + 0.5);
 		fill(x + 12, y, 3, 1, P_AXIS);
@@ -2972,7 +3003,7 @@ heat_into(struct ser *s, int si, const struct ax2 *A, double zlo, double zhi,
 	if (view == V_CONTOUR) {
 		struct ticks t;
 		int k;
-		mkticks(&t, zlo, zhi, 0, 10);
+		mkticks(&t, zlo, zhi, 0, 10, 0);   /* levels between integers */
 		for (k = 0; k < t.n; k++) {
 			contour_grid(e, s, A, blk > 1 ? 4 : 2, t.v[k], 1.2, NULL);
 			cov_solid(P_WIRE);
@@ -3126,7 +3157,7 @@ panes(const struct v3 *V, const struct box3 *B, int labels)
 	proj(V, 0, -1, 0, &sx, &sy, &d2);
 	yb = d1 > d2 ? 1 : -1;
 	for (k = 0; k < 3; k++)
-		mkticks(&t[k], B->lo[k], B->hi[k], 0, k == 2 ? 5 : 5);
+		mkticks(&t[k], B->lo[k], B->hi[k], 0, 5, tick_int[k]);
 	/* floor */
 	P[0][0] = -1; P[0][1] = -1; P[0][2] = -h;
 	P[1][0] = 1; P[1][1] = -1; P[1][2] = -h;
@@ -3441,7 +3472,14 @@ slope_from(struct ser *s, const char *rhs, uint32_t dep, int stored)
 		fail("plot: a slope field needs y' = f(t, y) of two variables (%s "
 		    "has %d)", rhs, s->f[0].np);
 	s->xname = s->sx >= 0 ? s->f[0].p[s->sx].name : sym_cstr("t");
-	if (stored && ode_ic_text(dep, 0, &t0, &val)) {
+	if (O.has_ic && O.ic_name != dep)
+		printf("  note: the initial value is for %s, the unknown is %s: not "
+		    "used\n", sym_str(O.ic_name), sym_str(dep));
+	if (O.has_ic && O.ic_name == dep) {
+		s->has_ic = 1;
+		s->ic_t = O.ic_t;
+		s->ic_y = O.ic_y;
+	} else 	if (stored && ode_ic_text(dep, 0, &t0, &val)) {
 		s->has_ic = 1;
 		s->ic_t = const_text(t0);
 		s->ic_y = const_text(val);
@@ -3707,29 +3745,17 @@ static char last_why[300];
  * chosen; printed with the reason.  at: index into O.at, or -1.
  */
 static void
-slot_range(int si, int c, int k, int at, double *lo, double *hi, int quiet,
-    int *periodic)
+slot_auto(int si, int c, int k, int at, double *lo, double *hi,
+    struct sbuf *whyp, int show)
 {
 	struct ser *s = &O.s[si];
 	const struct func *f = &s->f[c];
-	const char *vn = sym_str(f->p[k].name);
-	struct rng *r = rng_find(f->p[k].name);
 	struct sbuf why = {0};
 	double base[MAXP];
 
-	if (periodic)
-		*periodic = 0;
-	if (r) {
-		*lo = r->lo;
-		*hi = r->hi;
-		if (!quiet)
-			range_line(vn, *lo, *hi, "given");
-		snprintf(last_why, sizeof last_why, "given");
-		return;
-	}
 	base_of(f, base, 0.7);
 	auto1(&EV[si][c], base, k, at >= 0 && O.nat > at, at >= 0 ? O.at[at] : 0,
-	    lo, hi, &why, O.mode == 2);
+	    lo, hi, &why, show);
 	/*
 	 * With other variables the slice at 0.7 can be lopsided (x^2 + 0.7x)
 	 * or degenerate (sin(0.7 - t) cos(y) at t = 0.7): the slices at a few
@@ -3774,6 +3800,141 @@ slot_range(int si, int c, int k, int at, double *lo, double *hi, int quiet,
 			*lo = -m;
 			*hi = m;
 		}
+	}
+	*whyp = why;
+}
+
+/* the automatic ranges of this plot's slots, computed once */
+static struct {
+	int si, c, k;
+	double lo, hi;
+	char why[300];
+} RC[24];
+static int nrc;
+
+static const char *
+slot_auto_cached(int si, int c, int k, double *lo, double *hi)
+{
+	struct sbuf w = {0};
+	int i;
+
+	for (i = 0; i < nrc; i++)
+		if (RC[i].si == si && RC[i].c == c && RC[i].k == k) {
+			*lo = RC[i].lo;
+			*hi = RC[i].hi;
+			return RC[i].why;
+		}
+	slot_auto(si, c, k, -1, lo, hi, &w, 0);
+	if (nrc == 24)
+		nrc = 0;
+	RC[nrc].si = si;
+	RC[nrc].c = c;
+	RC[nrc].k = k;
+	RC[nrc].lo = *lo;
+	RC[nrc].hi = *hi;
+	snprintf(RC[nrc].why, sizeof RC[0].why, "%s", w.p ? w.p : "");
+	free(w.p);
+	return RC[nrc++].why;
+}
+
+/* f(.., x, .., y, ..) = ±f(.., y, .., x, ..) at 32 points */
+static int
+swap_sym(int si, int c, int k, int j)
+{
+	const struct func *f = &O.s[si].f[c];
+	double in[MAXP], v1, v2;
+	uint32_t s = 2654435761u;
+	int i, n = 0;
+
+	for (i = 0; i < 32; i++) {
+		double a, b;
+		base_of(f, in, 0.7);
+		s = s * 1103515245u + 12345u;
+		a = -3 + 6 * ((s >> 8) & 0xffff) / 65536.0;
+		s = s * 1103515245u + 12345u;
+		b = -3 + 6 * ((s >> 8) & 0xffff) / 65536.0;
+		in[k] = a;
+		in[j] = b;
+		if (!ev1(&EV[si][c], in, &v1)) {
+			in[k] = b;
+			in[j] = a;
+			if (ev1(&EV[si][c], in, &v2))
+				return 0;
+			continue;
+		}
+		in[k] = b;
+		in[j] = a;
+		if (!ev1(&EV[si][c], in, &v2) ||
+		    fabs(fabs(v1) - fabs(v2)) > 1e-9 * fmax(1, fabs(v1)))
+			return 0;
+		n++;
+	}
+	return n >= 16;
+}
+
+/*
+ * The range of slot k of series si, component c: given, declared, or
+ * chosen; printed with the reason.  at: index into O.at, or -1.  With
+ * several variables, a range chosen from the features is made the same
+ * as another's when f is symmetric in them (up to sign) or the two are
+ * alike (around 0, spans within 1.5x): x^2 - y^2 gets a square.
+ */
+static void
+slot_range(int si, int c, int k, int at, double *lo, double *hi, int quiet,
+    int *periodic)
+{
+	const struct func *f = &O.s[si].f[c];
+	const char *vn = sym_str(f->p[k].name);
+	struct rng *r = rng_find(f->p[k].name);
+	struct sbuf why = {0};
+
+	if (periodic)
+		*periodic = 0;
+	if (r) {
+		*lo = r->lo;
+		*hi = r->hi;
+		if (!quiet)
+			range_line(vn, *lo, *hi, "given");
+		snprintf(last_why, sizeof last_why, "given");
+		return;
+	}
+	slot_auto(si, c, k, at, lo, hi, &why, O.mode == 2);
+	if (f->np > 1 && !(at >= 0 && O.nat > at) && why.p &&
+	    strstr(why.p, "feature") && TY_FP(f->p[k].ty) && !f->p[k].ranged) {
+		double l0 = *lo, h0 = *hi;
+		int j, by = -1, bysym = 0;
+		for (j = 0; j < f->np; j++) {
+			const char *wj;
+			double lj, hj, sk, sj;
+			int sy;
+			if (j == k || !TY_FP(f->p[j].ty) || f->p[j].ranged ||
+			    rng_find(f->p[j].name))
+				continue;
+			wj = slot_auto_cached(si, c, j, &lj, &hj);
+			if (!strstr(wj, "feature"))
+				continue;
+			sk = h0 - l0;
+			sj = hj - lj;
+			sy = swap_sym(si, c, k, j);
+			if (!sy && !(l0 == -h0 && lj == -hj && fmax(sk, sj) <=
+			    1.5 * fmin(sk, sj)))
+				continue;
+			if (lj < *lo || hj > *hi) {
+				by = j;
+				bysym = sy;
+			}
+			if (lj < *lo)
+				*lo = lj;
+			if (hj > *hi)
+				*hi = hj;
+		}
+		if (by >= 0 && bysym)
+			sb_printf(&why, "; as for %s (f(%s, %s) = \xc2\xb1" "f(%s, %s))",
+			    sym_str(f->p[by].name), vn, sym_str(f->p[by].name),
+			    sym_str(f->p[by].name), vn);
+		else if (by >= 0)
+			sb_printf(&why, "; as for %s (alike: the features do not set "
+			    "them apart)", sym_str(f->p[by].name));
 	}
 	if (periodic && why.p && strstr(why.p, "periodic"))
 		*periodic = 1;
@@ -4284,10 +4445,57 @@ plot_2d(uint32_t av)
 		A.hi[0] = 5;
 	}
 	if (A.lg[0] && A.lo[0] <= 0) {
-		A.lo[0] = A.hi[0] > 0 ? fmax(A.hi[0] * 1e-3, 1e-3) : 1e-3;
+		/*
+		 * the positive part: two decades below the smallest positive
+		 * zero or extremum (sampled on a log grid down to 1e-6 of the
+		 * top), else three decades below the top decade
+		 */
+		double top = A.hi[0] > 0 ? pow(10, ceil(log10(A.hi[0]) - 1e-9)) :
+		    1, pf = INFINITY;
+		int i;
+		if (A.hi[0] <= 0)
+			A.hi[0] = 1;
+		for (k = 0; k < O.ns; k++) {
+			struct ser *s = &O.s[k];
+			double pv = NAN, pd = NAN;
+			if (s->kind != S_FX || s->sx < 0)
+				continue;
+			for (i = 0; i <= 400; i++) {
+				double x = top * pow(10, -6 + 6.0 * i / 400), v, d;
+				if (x > A.hi[0])
+					break;
+				if (!f1(&EV[k][0], s->fix[0], s->sx, x, &v) ||
+				    !isfinite(v)) {
+					pv = pd = NAN;
+					continue;
+				}
+				d = v - pv;
+				if (!isnan(pv) && ((v == 0) || (pv < 0) != (v < 0) ||
+				    (!isnan(pd) && d != 0 && pd != 0 && (d < 0) !=
+				    (pd < 0)))) {
+					if (x < pf)
+						pf = x;
+					break;
+				}
+				if (!isnan(pv) && d != 0)
+					pd = d;
+				pv = v;
+			}
+		}
+		if (isfinite(pf) && pf > 0) {
+			A.lo[0] = pow(10, floor(log10(pf)) - 2);
+			if (A.lo[0] > top / 100)
+				A.lo[0] = top / 100;
+			printf("  note: log x axis: from %s, two decades below the "
+			    "first positive feature (near %s)\n", g4(A.lo[0]),
+			    g4(pf));
+		} else {
+			A.lo[0] = top / 1000;
+			printf("  note: log x axis: from %s, three decades below the "
+			    "top\n", g4(A.lo[0]));
+		}
 		if (A.hi[0] <= A.lo[0])
 			A.hi[0] = A.lo[0] * 1000;
-		printf("  note: log x axis: starting at %s\n", g4(A.lo[0]));
 	}
 	/* tangent and derivative series need nothing more here */
 	if (!yset && has_fx) {
@@ -4407,6 +4615,21 @@ plot_2d(uint32_t av)
 			printf("  %s in [%s, %s], %s in [%s, %s]: the curve, the same "
 			    "scale on both axes\n", sym_str(xn), g4(A.lo[0]), g4(A.hi[0]),
 			    sym_str(yn), g4(A.lo[1]), g4(A.hi[1]));
+	}
+	{
+		/* integer ticks when every function has an integer input (output) */
+		int nfx = 0, ix = 1, iy = 1;
+		for (k = 0; k < O.ns; k++) {
+			if (O.s[k].kind != S_FX || O.s[k].sx < 0) {
+				ix = iy = 0;
+				continue;
+			}
+			nfx++;
+			ix &= is_intvar(&O.s[k]);
+			iy &= !TY_FP(N.ty[O.s[k].f[0].body]);
+		}
+		tick_int[0] = nfx && ix && !A.lg[0];
+		tick_int[1] = nfx && iy && !A.lg[1];
 	}
 	join_labels(title, sizeof title);
 	if (O.mode == 2 && O.nat)
@@ -4544,6 +4767,9 @@ plot_surf(int si)
 	slot_range(si, 0, s->sx, O.nat ? 0 : -1, &A.lo[0], &A.hi[0], 0, NULL);
 	slot_range(si, 0, s->sy, O.nat > 1 ? 1 : -1, &A.lo[1], &A.hi[1], 0, NULL);
 	zrange(si, &A, NULL, NULL, 0, &B.lo[2], &B.hi[2], zn);
+	tick_int[0] = !TY_FP(s->f[0].p[s->sx].ty);
+	tick_int[1] = !TY_FP(s->f[0].p[s->sy].ty);
+	tick_int[2] = !TY_FP(N.ty[s->f[0].body]);
 	B.lo[0] = A.lo[0];
 	B.hi[0] = A.hi[0];
 	B.lo[1] = A.lo[1];
@@ -4753,6 +4979,9 @@ plot_nd(int si)
 	slot_range(si, 0, s->sy, O.nat > 1 ? 1 : -1, &A.lo[1], &A.hi[1], 0, NULL);
 	if (ps >= 0)
 		slot_range(si, 0, ps, -1, &plo, &phi, 0, NULL);
+	tick_int[0] = !TY_FP(f->p[s->sx].ty);
+	tick_int[1] = !TY_FP(f->p[s->sy].ty);
+	tick_int[2] = !TY_FP(N.ty[f->body]);
 	for (k = 0; k < nrem; k++)
 		if (rem[k] != ps && rem[k] != as)
 			printf("  note: %s fixed at %s (the middle of its range; give "
@@ -5045,6 +5274,8 @@ cmd_plot(struct P *p, int mode)
 	plot_free();
 	memset(&O, 0, sizeof O);
 	O.mode = mode;
+	memset(tick_int, 0, sizeof tick_int);
+	nrc = 0;
 	snprintf(O.name, sizeof O.name, "plot");
 	if (!cmdp_rest(p, O.text, sizeof O.text, NULL))
 		fail("%s what? e.g. %s", mode == 0 ? "plot" : mode == 1 ? "plot3d" :
@@ -5283,7 +5514,7 @@ pr_ticks(double lo, double hi, int maxn, double *v, char (*lab)[20])
 	struct ticks t;
 	int k;
 
-	mkticks(&t, lo, hi, 0, maxn);
+	mkticks(&t, lo, hi, 0, maxn, 0);
 	for (k = 0; k < t.n; k++) {
 		v[k] = t.v[k];
 		memcpy(lab[k], t.lab[k], 20);

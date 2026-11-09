@@ -327,6 +327,9 @@ d1(nid e, uint32_t slot)
 	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:   /* forms.c */
 		r = forms_diff(e, slot);
 		break;
+	case O_CONJ: case O_RE: case O_IM: case O_ARG:   /* hyper.c */
+		r = hyper_diff(e, slot);
+		break;
 	case O_LOOP:   /* calc: the loop carries its derivative (loop.c) */
 		r = loop_diff(e, slot);
 		break;
@@ -1188,6 +1191,79 @@ cmd_wrap(struct func *f)
 
 /* ---- critical points ---- */
 
+/*
+ * An integer parameter, a real result (atan(x)*exp(x) for x in -3..3):
+ * the steps between consecutive integers, compared within rounding
+ */
+static void
+crit_int_real(struct func *f, struct run *r, uint32_t loc)
+{
+	uint32_t np, i;
+	int64_t px = 0;
+	double py = 0, prevd = 0, d0 = 0;
+	int have = 0, n = 0, nexts = 0, affine = 1, nsteps = 0, up = 0, down = 0;
+	const char *xn = sym_str(f->p[0].name);
+
+	printf("  %s is an integer, %s is real: the steps between consecutive "
+	    "%s\n", xn, fname(f), xn);
+	if (f->p[0].ty == TY_INT && f->p[0].ranged)
+		printf("  note: %s in a..b with integer bounds is an integer; %s: real in "
+		    "a..b (or real bounds, -3.0..3) for the continuous view\n", xn, xn);
+	while ((np = run_next(r)) != 0)
+		for (i = 0; i < np; i++) {
+			int64_t x = r->in_i[i];
+			double y, d;
+			if (!r->ok[i] || (COLF(&r->p, loc)[i] & F_UNDEF) ||
+			    !isfinite(COLR(&r->p, loc)[i])) {
+				have = 0;
+				affine = 0;
+				continue;
+			}
+			y = COLR(&r->p, loc)[i];
+			n++;
+			if (!have || x != px + 1) {
+				if (have)
+					affine = 0;
+				have = 1;
+				prevd = 0;
+				px = x;
+				py = y;
+				continue;
+			}
+			d = y - py;
+			if (nsteps++ == 0)
+				d0 = d;
+			else if (fabs(d - d0) > 1e-12 * fmax(fabs(d), fabs(d0)) +
+			    1e-300)
+				affine = 0;
+			if (d > 0)
+				up = 1;
+			if (d < 0)
+				down = 1;
+			if (prevd != 0 && d != 0 && (prevd > 0) != (d > 0)) {
+				if (nexts < 12)
+					printf("    %s = %lld: local %s, %s = %.10g\n", xn,
+					    (long long)px, prevd > 0 ? "maximum" : "minimum",
+					    fname(f), py);
+				nexts++;
+			}
+			if (d != 0)
+				prevd = d;
+			px = x;
+			py = y;
+		}
+	if (nexts > 12)
+		printf("    ... %d local extrema in all\n", nexts);
+	if (n == 0)
+		printf("  undefined at every point\n");
+	else if (affine && nsteps)
+		printf("  -> affine on its whole domain: every step is %.10g\n", d0);
+	else if (!nexts)
+		printf("  no local extrema: %s at every step\n", up && down ?
+		    "it rises or falls (flat steps between)" : up ? "it rises" :
+		    down ? "it falls" : "it stays");
+}
+
 static void
 crit_int1(struct func *f)
 {
@@ -1209,6 +1285,11 @@ crit_int1(struct func *f)
 		return;
 	}
 	loc = r.p.root[0];
+	if (TY_FP(t)) {
+		crit_int_real(f, &r, loc);
+		run_close(&r);
+		return;
+	}
 	printf("  piecewise-affine segments (consecutive x with a constant "
 	    "step):\n");
 #define FLUSH() do { if (inseg) { nseg++; if (nlist < 16) { nlist++; \
@@ -1306,7 +1387,7 @@ cmd_crit(struct func *f)
 	struct plan dp;
 	uint32_t np, i, fl, dl;
 	double prevx = 0, prevd = 0, x;
-	int prevok = 0, prevfdef = -1, nfound = 0, j, waszero = 0;
+	int prevok = 0, prevfdef = -1, nfound = 0, j;
 
 	printf("critical points of %s:\n", fname(f));
 	if (f->np == 0) {
@@ -1347,58 +1428,176 @@ cmd_crit(struct func *f)
 		run_close(&r);
 		return;
 	}
-	while ((np = run_next(&r)) != 0) {
-		for (i = 0; i < np; i++) {
-			int fdef, ddef;
-			double dv;
-			if (!r.ok[i])
-				continue;
-			x = r.in_r[i];
-			fdef = !(COLF(&r.p, fl)[i] & F_UNDEF) &&
-			    !isnan(COLR(&r.p, fl)[i]);
-			ddef = !(COLF(&r.p, dl)[i] & F_UNDEF) &&
-			    !isnan(COLR(&r.p, dl)[i]) && !isinf(COLR(&r.p, dl)[i]);
-			dv = COLR(&r.p, dl)[i];
-			if (fdef && prevfdef == 1 && ddef && prevok && !waszero &&
-			    (dv == 0 || (dv > 0) != (prevd > 0))) {
-				double c = dv == 0 ? x : bisect(&dp, dp.root[1],
-				    prevx, x, 0), fc = 0, dl2, dr2;
-				double h = (r.d.rhi[0] - r.d.rlo[0]) * 1e-7;
-				int okl, okr;
-				const char *kind;
-				eval_at(&dp, dp.root[0], c, &fc);
-				okl = eval_at(&dp, dp.root[1], c - h, &dl2);
-				okr = eval_at(&dp, dp.root[1], c + h, &dr2);
-				if (okl && okr && dl2 < 0 && dr2 > 0)
-					kind = "local minimum";
-				else if (okl && okr && dl2 > 0 && dr2 < 0)
-					kind = "local maximum";
-				else if (okl && okr && (dl2 > 0) == (dr2 > 0))
-					kind = "stationary inflection";
-				else
-					kind = "kink (derivative jumps)";
-				if (nfound < 32)
-					printf("  %s ≈ %.10g: %s, %s = %.10g\n",
-					    sym_str(f->p[0].name), c, kind, fname(f),
-					    fc);
-				nfound++;
-			} else if (fdef && prevfdef == 1 && ddef != prevok) {
-				double c = bisect(&dp, dp.root[1], prevx, x, 1), fc = 0;
-				eval_at(&dp, dp.root[0], c, &fc);
-				if (nfound < 32)
-					printf("  %s ≈ %.10g: not differentiable, "
-					    "%s = %.10g\n", sym_str(f->p[0].name), c,
-					    fname(f), fc);
-				nfound++;
+	{
+		/*
+		 * Points are found where f' changes sign between grid points, or
+		 * is 0 on the grid; a run of grid points where f' is exactly 0
+		 * (an f32 rounding plateau, cos(x) - 1 near 0) is one point.  A
+		 * sampled float domain is swept more than once (by value, by bit
+		 * pattern): a step back restarts the scan, and a point found again
+		 * is not listed twice.
+		 */
+		enum { MAXC = 4096 };
+		double *cx = xmalloc(MAXC * sizeof *cx), *cf = xmalloc(MAXC *
+		    sizeof *cf), *cz = xmalloc(MAXC * sizeof *cz);
+		const char **ck = xmalloc(MAXC * sizeof *ck);
+		double span = r.d.rhi[0] - r.d.rlo[0], zlo = 0, zhi = 0, zd0 = 0;
+		int nc = 0, inzero = 0, zd0ok = 0, k2;
+		double h = span * 1e-7;
+#define ADDC(c_, kind_, w_) do { double c__ = (c_), fc__ = 0; int q__; \
+	for (q__ = 0; q__ < nc; q__++) \
+		if (fabs(cx[q__] - c__) <= fmax(span * 1e-9, fabs(c__) * 1e-6) || \
+		    (cz[q__] > 0 && c__ >= cx[q__] - cz[q__] && \
+		    c__ <= cx[q__] + cz[q__])) \
+			break; \
+	if (q__ == nc && nc < MAXC) { \
+		eval_at(&dp, dp.root[0], c__, &fc__); \
+		cx[nc] = c__; cf[nc] = fc__; ck[nc] = (kind_); cz[nc] = (w_); \
+		nc++; } } while (0)
+		while ((np = run_next(&r)) != 0) {
+			for (i = 0; i < np; i++) {
+				int fdef, ddef;
+				double dv;
+				if (!r.ok[i])
+					continue;
+				x = r.in_r[i];
+				if (prevfdef != -1 && x <= prevx) {
+					/* the next sweep */
+					prevfdef = -1;
+					prevok = 0;
+					inzero = 0;
+				}
+				fdef = !(COLF(&r.p, fl)[i] & F_UNDEF) &&
+				    !isnan(COLR(&r.p, fl)[i]);
+				ddef = !(COLF(&r.p, dl)[i] & F_UNDEF) &&
+				    !isnan(COLR(&r.p, dl)[i]) && !isinf(COLR(&r.p, dl)[i]);
+				dv = COLR(&r.p, dl)[i];
+				if (fdef && ddef && dv == 0) {
+					if (!inzero) {
+						inzero = 1;
+						zlo = x;
+						zd0 = prevd;
+						zd0ok = prevok && prevfdef == 1;
+					}
+					zhi = x;
+				} else if (inzero) {
+					/* the end of a run of zeros: one point */
+					double c = zlo == zhi ? zlo : (zlo <= 0 && zhi >= 0) ?
+					    0 : (zlo + zhi) / 2;
+					const char *kind;
+					inzero = 0;
+					if (zd0ok && ddef && fdef && (zd0 > 0) != (dv > 0))
+						kind = zd0 < 0 ? "local minimum" :
+						    "local maximum";
+					else if (zd0ok && ddef && fdef)
+						kind = "stationary inflection";
+					else {
+						double dl2, dr2;
+						int okl = eval_at(&dp, dp.root[1], c - h, &dl2);
+						int okr = eval_at(&dp, dp.root[1], c + h, &dr2);
+						kind = okl && okr && dl2 < 0 && dr2 > 0 ?
+						    "local minimum" : okl && okr && dl2 > 0 &&
+						    dr2 < 0 ? "local maximum" :
+						    "stationary inflection";
+					}
+					ADDC(c, kind, zhi > zlo ? fmax(zhi - c, c - zlo) : 0);
+				} else if (fdef && prevfdef == 1 && ddef && prevok &&
+				    (dv > 0) != (prevd > 0)) {
+					double c = bisect(&dp, dp.root[1], prevx, x, 0), dl2,
+					    dr2;
+					int okl, okr;
+					const char *kind;
+					okl = eval_at(&dp, dp.root[1], c - h, &dl2);
+					okr = eval_at(&dp, dp.root[1], c + h, &dr2);
+					if (okl && okr && dl2 < 0 && dr2 > 0)
+						kind = "local minimum";
+					else if (okl && okr && dl2 > 0 && dr2 < 0)
+						kind = "local maximum";
+					else if (okl && okr && (dl2 > 0) == (dr2 > 0))
+						kind = "stationary inflection";
+					else
+						kind = "kink (derivative jumps)";
+					ADDC(c, kind, 0);
+				} else if (fdef && prevfdef == 1 && ddef != prevok) {
+					double c = bisect(&dp, dp.root[1], prevx, x, 1);
+					ADDC(c, "not differentiable", 0);
+				}
+				prevok = ddef;
+				if ((dv != 0 || !ddef) && !inzero)
+					prevd = dv;
+				prevx = x;
+				prevfdef = fdef;
 			}
-			/* an exact zero on the grid was reported; skip its far side */
-			waszero = ddef && dv == 0;
-			prevok = ddef;
-			if (dv != 0 || !ddef)
-				prevd = dv;
-			prevx = x;
-			prevfdef = fdef;
 		}
+#undef ADDC
+		/* in order of x */
+		for (k2 = 1; k2 < nc; k2++) {
+			int q;
+			for (q = k2; q > 0 && cx[q - 1] > cx[q]; q--) {
+				double t1 = cx[q], t2 = cf[q], t3 = cz[q];
+				const char *t4 = ck[q];
+				cx[q] = cx[q - 1]; cf[q] = cf[q - 1]; cz[q] = cz[q - 1];
+				ck[q] = ck[q - 1];
+				cx[q - 1] = t1; cf[q - 1] = t2; cz[q - 1] = t3;
+				ck[q - 1] = t4;
+			}
+		}
+		/*
+		 * A sampled float domain: points closer than the value grid
+		 * (span/4000) are one feature, where f' is at rounding level
+		 * (sin(x) - x in f32 near 0); its kind from f' just outside
+		 */
+		if (TYK(f->p[0].ty) == K_FLOAT && !r.d.exhaustive) {
+			double gap = span / 4000;
+			int o = 0, a = 0;
+			while (a < nc) {
+				int b = a, q;
+				while (b + 1 < nc && cx[b + 1] - cx[b] <= gap)
+					b++;
+				if (b > a) {
+					double lo = cx[a] - cz[a], hi = cx[b] + cz[b], dl2, dr2;
+					double c = lo <= 0 && hi >= 0 ? 0 : (lo + hi) / 2;
+					int okl = eval_at(&dp, dp.root[1], lo - gap, &dl2);
+					int okr = eval_at(&dp, dp.root[1], hi + gap, &dr2);
+					for (q = a; q <= b; q++)
+						if (!strcmp(ck[q], "not differentiable"))
+							break;
+					ck[o] = q <= b ? ck[q] : !okl || !okr ?
+					    "stationary point" : dl2 < 0 && dr2 > 0 ?
+					    "local minimum" : dl2 > 0 && dr2 < 0 ?
+					    "local maximum" : "stationary inflection";
+					eval_at(&dp, dp.root[0], c, &cf[o]);
+					cx[o] = c;
+					cz[o] = fmax(hi - c, c - lo);
+				} else if (o != a) {
+					cx[o] = cx[a];
+					cf[o] = cf[a];
+					ck[o] = ck[a];
+					cz[o] = cz[a];
+				}
+				o++;
+				a = b + 1;
+			}
+			nc = o;
+		}
+		for (k2 = 0; k2 < nc && k2 < 32; k2++) {
+			if (!strcmp(ck[k2], "not differentiable"))
+				printf("  %s ≈ %.10g: not differentiable, %s = %.10g\n",
+				    sym_str(f->p[0].name), cx[k2], fname(f), cf[k2]);
+			else
+				printf("  %s ≈ %.10g: %s, %s = %.10g\n",
+				    sym_str(f->p[0].name), cx[k2], ck[k2], fname(f),
+				    cf[k2]);
+			if (cz[k2] > 0)
+				printf("    (%s' is 0 to %s rounding within %.3g of it: "
+				    "one point)\n", fname(f),
+				    ty_str(f->p[0].ty), cz[k2]);
+		}
+		nfound = nc;
+		free(cx);
+		free(cf);
+		free(cz);
+		free(ck);
 	}
 	if (nfound == 0)
 		printf("  none in [%g, %g]\n", r.d.rlo[0], r.d.rhi[0]);

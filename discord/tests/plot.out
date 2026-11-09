@@ -6,7 +6,7 @@ PUT /channels/45/messages/3001/reactions/check/@me
 
 == event 2: channel 45, author 98: <@1000> plot3d x^2 - y^2 to saddle
 POST /channels/45/messages (multipart)
-{"content":"```\nsurface: z = f(x, y)\n  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]\n  y in [-3, 3]: covering the 3 features found in [-10, 10]\n  z in [-10.06, 13.31]: the values\n  65x65 grid\n  image: 640x500, 30307 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3002","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"saddle.gif","description":"","content_type":"image/gif","size":30307,"url":"","proxy_url":"","ephemeral":false}]}
-  files[0]: saddle.gif, image/gif, 30307 bytes
+{"content":"```\nsurface: z = f(x, y)\n  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]\n  y in [-3.5, 3.5]: covering the 3 features found in [-10, 10]; as for x (f(y, x) = ±f(x, y))\n  z in [-13.47, 13.47]: the values\n  65x65 grid\n  image: 640x500, 30525 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3002","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"saddle.gif","description":"","content_type":"image/gif","size":30525,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: saddle.gif, image/gif, 30525 bytes
 PUT /channels/45/messages/3002/reactions/check/@me
 

@@ -530,7 +530,7 @@ d/dx asin(x) = 1/sqrt(1 - x^2)
     at x = -1 (an end of the domain) asin(x) has an infinite one-sided slope
     at x = 1 (an end of the domain) asin(x) has an infinite one-sided slope
     (points looked for in [-10, 10])
-  check: matches central differences at 20 points (max relative difference 6e-09)
+  check: matches central differences at 20 points (max relative difference 6e-13)
 > diff atan2(y, x)
   note: atan2(y, x) has 2 variables (y, x): all first partial derivatives, the gradient (say `diff F y` for one)
 ∇ atan2(y, x) = (x/(x^2 + y^2), -y/(x^2 + y^2))
@@ -1051,5 +1051,10 @@ loops and calculus
 complex numbers (i is the unit) and trig forms
   complex F | re F | im F | conj F | modulus F | arg F | polar F
   nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|harmonic|half|inverse]
+algebra
+  expand|factor|simplify|together|cancel F | collect|apart F [in x]
+  gcd|lcm P, Q | resultant P, Q [in x] | discriminant P [in x]
+  quo|rem P, Q [in x] | divide P by Q | substitute x = a in F
+  solve L = R [, L2 = R2] [for x, y]
 English works too: 'what is the range of x squared for a signed byte x?'
   ('help english' for more)

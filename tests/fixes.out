@@ -1,0 +1,548 @@
+> f(x) = x^3
+> f''(2)
+f''(2) = 12
+  from f'' = 6x
+> what is f'(3)
+  ucas: f'(3)
+f'(3) = 27
+  from f' = 3x^2
+> what is f''(x)?
+  ucas: f''
+d/dx f = 3x^2
+d²/dx² f = 6x
+  holds for every real x
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> the slope field of y' = t - y nofile
+  ucas: plot y' = t - y field nofile
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> what kind of equation is y'' + y = 0
+  ucas: identify y'' + y = 0
+identify y'' + y = 0:
+  an ordinary differential equation of order 2 in y(t)
+  linear: every y-term appears to the first power [proved: the partial derivatives in y, y', ... do not involve y]
+  homogeneous
+  constant coefficients (and autonomous)
+  characteristic equation: r^2 + 1 = 0, roots ±i
+  homogeneous solutions: y(t) = a combination of cos(t), sin(t)
+  autonomous: the independent variable does not appear explicitly
+  solved for the highest derivative: y'' = -y  (then initial values and: dsolve y)
+> plot the slope field of y' = t - y nofile
+  ucas: plot y' = t - y field nofile
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> solve y' = -2y + 1 with y(0) = 3 from 0 to 2 in 2 steps
+  ucas: y' = -2*y + 1
+  ucas: y(0) = 3
+  ucas: dsolve y from 0 to 2 steps 2
+y' = -2*y + 1, y(0) = 3
+  linear with constant coefficients: eigenvalues -2; forcing by undetermined coefficients
+  y(t) = 2.5exp(-2*t) + 0.5
+  check: satisfies the equations at 201 points of [0, 2] (max relative residual 7.4e-17) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 90 steps) agrees with it to 2.3e-11
+      t            y(t)
+      0            3
+      1            0.8383382081
+      2            0.5457890972
+> solve y'' = -y with y(0) = 1 and y'(0) = 0 from 0 to 3 in 3 steps
+  ucas: y'' = -y
+  ucas: y(0) = 1
+  ucas: y'(0) = 0
+  ucas: dsolve y from 0 to 3 steps 3
+y'' = -y, y(0) = 1, y'(0) = 0
+  linear with constant coefficients: eigenvalues 0 ± 1i
+  y(t) = cos(t)
+  y'(t) = -sin(t)
+  check: satisfies the equations at 201 points of [0, 3] (max relative residual 0) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 101 steps) agrees with it to 2.9e-11
+      t            y(t)
+      0            1
+      1            0.5403023059
+      2            -0.4161468365
+      3            -0.9899924966
+> solve x' = y and y' = -x with x(0) = 1, y(0) = 0 from 0 to 1 in 1 steps
+  ucas: x' = y
+  ucas: y' = -x
+  ucas: x(0) = 1
+  ucas: y(0) = 0
+  ucas: dsolve x from 0 to 1 steps 1
+x' = y, x(0) = 1
+y' = -x, y(0) = 0
+  linear with constant coefficients: eigenvalues 0 ± 1i
+  x(t) = cos(t)
+  y(t) = -sin(t)
+  check: satisfies the equations at 201 points of [0, 1] (max relative residual 0) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 34 steps) agrees with it to 6.2e-12
+      t            x(t)
+      0            1
+      1            0.5403023059
+> what's the derivative of x^2
+  ucas: it(x) = x^2
+  ucas: diff it
+d/dx it = 2x
+  holds for every real x
+  check: matches central differences at 201 points (max relative difference 2e-15)
+> plot the vector field (y, -x) nofile
+  ucas: plot (y, -x) nofile
+vector field: (y, -x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (y, -x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20252 bytes
+  (nofile: GIF checksum efd3e948)
+> draw the vector field (−y, x) nofile
+  ucas: plot (-y, x) nofile
+vector field: (-y, x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (-y, x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20283 bytes
+  (nofile: GIF checksum 233b73c8)
+> what is the gradient of x^2 y at (1, -2)
+  ucas: it(x, y) = x^2*y
+  ucas: grad it at 1, -2
+∇ it = (2x*y, x^2)
+  ∂/∂x it = 2x*y
+  ∂/∂y it = x^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 200 points (max relative difference 4e-13)
+  at (x = 1, y = -2): (-4, 1), |∇| = 4.123105626
+> the hessian of x^2 y^3 at (-1, -2)
+  ucas: it(x, y) = x^2*y^3
+  ucas: hessian it at -1, -2
+Hessian of it (row i, column j: ∂²/∂j∂i):
+  [ 2y^3     6x*y^2 ]   ∂/∂x
+  [ 6x*y^2   6x^2*y ]   ∂/∂y
+  det = -24x^2*y^4
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+  at (x = -1, y = -2):
+  [ -16        -24        ]
+  [ -24        -12        ]
+  det = -384
+  the gradient is not 0 there (largest component 16): not a critical point
+> the directional derivative of x^2 y along (3, -4) at (1, 2)
+  ucas: it(x, y) = x^2*y
+  ucas: ddir it along 3, -4 at 1, 2
+D_u it = 6x*y/5 - 4x^2/5
+  u = v/|v| = (3/5, -4/5), |v| = 5  (the rate of change per unit length; `raw` for ∇it · v)
+  holds wherever the formulas are defined
+  check: matches (f(p + h u) - f(p - h u))/2h at 100 points (max relative difference 1e-12)
+  at (x = 1, y = 2): 8/5
+> x squared, plus one
+  ucas: it(x) = x^2 + 1
+  ucas: show it
+it(x: real) = x^2 + 1
+  -> real
+> wronskian sinh(x), cosh(x)
+Wronskian matrix of sinh(x), cosh(x) (row k: the k-th derivatives wrt x)
+  [ sinh(x)   cosh(x) ]   the functions
+  [ cosh(x)   sinh(x) ]   d/dx
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 3e-15)
+  linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
+> wronskian sin x, cos x
+Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
+  [ sin(x)   cos(x)  ]   the functions
+  [ cos(x)   -sin(x) ]   d/dx
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 3e-15)
+  linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
+> wronskian exp(x)*sin(x), exp(x)*cos(x)
+Wronskian matrix of exp(x)*sin(x), exp(x)*cos(x) (row k: the k-th derivatives wrt x)
+  [ exp(x)*sin(x)                   exp(x)*cos(x)                 ]   the functions
+  [ sin(x)*exp(x) + cos(x)*exp(x)   cos(x)*exp(x) - sin(x)*exp(x) ]   d/dx
+  W = det = -exp(x)^2
+  W = -exp(2x)  (equal to the determinant at all 200 sample points of [-10, 10])
+  check: every entry matches central differences at 402 points (max relative difference 8e-15)
+  linearly independent: W(-1/20) = -0.904837418 != 0, so the functions are independent on every interval containing x = -1/20
+> jacobian x*cos(y), x*sin(y) wrt x, y
+Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
+  [ cos(y)   -x*sin(y) ]
+  [ sin(y)   x*cos(y)  ]
+  det = x
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+> k(x, y) = log(cosh(x)*cos(y))
+> hessian k
+Hessian of k (row i, column j: ∂²/∂j∂i):
+  [ 1/cosh(x)^2   0           ]   ∂/∂x
+  [ 0             -1/cos(y)^2 ]   ∂/∂y
+  det = -1/(cosh(x)^2*cos(y)^2)
+  holds for cosh(x)*cos(y) > 0
+  check: every entry matches central differences at 400 points (max relative difference 5e-07)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs
+> laplacian k
+∇² k = 1/cosh(x)^2 - 1/cos(y)^2
+  ∂²/∂x² k = 1/cosh(x)^2
+  ∂²/∂y² k = -1/cos(y)^2
+  holds for cosh(x)*cos(y) > 0
+  check: every entry matches central differences at 400 points (max relative difference 5e-07)
+> diff log(cosh(x)) x 2
+d/dx log(cosh(x)) = sinh(x)/cosh(x)
+d²/dx² log(cosh(x)) = 1/cosh(x)^2
+  holds for cosh(x) > 0
+  check: each order matches central differences at 402 points (max relative difference 2e-15)
+> approx asinh(x) in -1..1 list 3
+approx asinh(x) on [-1, 1] as f32, fma
+  checked: asinh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1]
+  metric: relative error
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.0688       -            0.0631       
+    3    0.00585      -            0.00508      
+    5    0.000628     -            0.000532     
+    7    7.58e-05     -            6.31e-05     
+    9    9.79e-06     -            8.06e-06     
+    11   1.33e-06     -            1.08e-06     
+    13   1.85e-07     -            1.5e-07      
+    15   2.66e-08     -            2.15e-08     
+    17   3.89e-09     -            3.13e-09     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.0031 (0.0275) 3/2 0.000124 (0.00418) 1/4 0.000276 (0.0135) 5/2 7.57e-06 (0.00116)
+    3/4 5.65e-06 (0.000778) 1/6 3.01e-05 (0.00798) 7/2 5.89e-07 (0.000449) 5/4 2.34e-07 (0.000125) 3/6 3.76e-07 (0.000247) 9/2 5.32e-08 (0.000211)
+    7/4 1.29e-08 (3.02e-05) 5/6 1.05e-08 (2.26e-05) 11/2 5.32e-09 (0.000113) 9/4 8.68e-10 (9.58e-06) 7/6 4.39e-10 (3.72e-06) 13/2 5.73e-10 (6.62e-05)
+    11/4 6.72e-11 (3.67e-06) 9/6 2.29e-11 (8.3e-07)
+  piecewise (2 pieces split at 0.5, max rel error): 1: 0.0191 2: 0.0044 3: 0.000237 4: 2e-05 5: 2.61e-06 6: 6.65e-08 7: 2.66e-08
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130931 f32 in [-1, 1]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   3     horner+fma  8.52e+04 ulp             0.00511       0.00448       3    at x=-5.16979994e-26
+      x*P(x^2): x*fma(-0.118023947, s, 0.994921327) where s = x*x
+  2   minimax   5     horner+fma  8.92e+03 ulp             0.000554      0.000469      4    at x=-1.03393632e-25
+      x*P(x^2): x*fma(fma(0.0380428135, s, -0.15566887), s, 0.999468267) where s = x*x
+  3   minimax   7     horner+fma  1.06e+03 ulp             6.44e-05      5.56e-05      5    at x=-2.70928534e-20
+      x*P(x^2): x*fma(fma(fma(-0.0159260482, s, 0.0617101379), s, -0.164403021), s, 0.999936879) where s = x*x
+  46 more: 'approx more [n]'
+> approx tanh(x) in -3..3 ulp 2 list 3
+approx tanh(x) on [-3, 3] as f32, fma
+  checked: tanh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 3]
+  metric: relative error
+  checked: the target equals tanh(x) at 33 points: range reductions and identities for tanh apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.542        -            0.502        
+    3    0.215        -            0.186        
+    5    0.0796       -            0.0682       
+    7    0.0292       -            0.025        
+    9    0.0107       -            0.00914      
+    11   0.00391      -            0.00335      
+    13   0.00143      -            0.00123      
+    15   0.000525     -            0.000449     
+    17   0.000192     -            0.000164     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.0493 (0.246) 3/2 0.00262 (0.0487) 1/4 0.00712 (0.37) 5/2 0.000191 (0.0167)
+    3/4 8.56e-05 (0.00523) 1/6 0.00111 (0.194) 7/2 1.53e-05 (0.00642) 5/4 1.86e-06 (0.000402) 3/6 3.64e-06 (0.000956) 9/2 1.27e-06 (0.00256)
+    7/4 5.08e-08 (4.49e-05) 5/6 2.84e-08 (2.24e-05) 11/2 1.07e-07 (0.00103) 9/4 1.54e-09 (5.79e-06) 7/6 3.23e-10 (9.44e-07) 13/2 9.07e-09 (0.000417)
+    11/4 4.95e-11 (7.95e-07) 9/6 4.42e-12 (5.15e-08)
+  piecewise (2 pieces split at 1.5, max rel error): 1: 0.247 2: 0.0315 3: 0.0153 4: 0.00164 5: 0.000444 6: 0.000135 7: 8.01e-06
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131061 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   identity  9     horner+fma  1.32 ulp                 1.57e-07      7.87e-08      29   at x=-0.551567852  *
+      P | 1 - 2/(exp(2|x|) + 1): copysign(a < 0.550000012 ? p : 1.0 - 2.0/(e + 1.0), x) where a = abs(x), s = a*a, p = fma(a*s, fma(fma(fma(0.0164374672, s, -0.052671846), s, 0.133207276), s, -0.333329469), a), e = exp(2.0*a)
+  2   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-1.86081905e-09
+      x*P(x^2): x*fma(fma(fma(-0.00152674236, s, 0.0306036901), s, -0.224170253), s, 0.975032032) where s = x*x
+  3   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-9.30409527e-10
+      x*P(x^2): x*fma(fma(fma(fma(0.000248046214, s, -0.0060768961), s, 0.056944713), s, -0.274004072), s, 0.990858138) where s = x*x
+  50 more: 'approx more [n]'
+> approx acos(x) in -0.9..0.9 list 2
+approx acos(x) on [-0.899999976, 0.899999976] as f32, fma
+  metric: relative error
+  fits in real arithmetic (max relative error of P(x)):
+    deg  cheb interp  cheb econ    minimax
+    0    2.48         2.48         0.713        
+    1    0.32         0.167        0.0743       
+    2    0.195        0.167        0.0517       
+    3    0.0605       0.0305       0.0136       
+    4    0.0376       0.0305       0.00942      
+    5    0.0146       0.00736      0.00325      
+    6    0.00926      0.00736      0.00226      
+    7    0.00396      0.00207      0.000885     
+    8    0.00256      0.00207      0.000618     
+    9    0.00116      0.000685     0.000259     
+    10   0.000759     0.000685     0.000182     
+    11   0.000357     0.000293     7.97e-05     
+    12   0.000235     0.000293     5.61e-05     
+    13   0.000114     0.000177     2.54e-05     
+    14   7.55e-05     0.000177     1.79e-05     
+    15   3.72e-05     0.000142     8.3e-06      
+    16   2.48e-05     0.000142     5.87e-06     
+    17   1.24e-05     0.000132     2.77e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    0/1 0.346 (1.21) 1/1 0.0491 (0.487) 0/2 0.193 (0.832) 2/1 0.138 (-)
+    1/2 0.00689 (0.0592) 0/3 0.105 (0.607) 3/1 0.00798 (0.218) 2/2 0.0055 (0.176) 1/3 0.00561 (0.192) 4/1 0.0244 (-)
+    3/2 0.000835 (0.0634) 2/3 0.00433 (-) 5/1 0.00179 (0.12) 4/2 0.000542 (0.0634) 3/3 0.000526 (0.0634) 6/1 0.00575 (-)
+    5/2 0.000118 (0.0283) 4/3 0.00143 (-)
+  piecewise (2 pieces split at 0, max rel error): 1: 0.0639 2: 0.021 3: 0.00692 4: 0.00264 5: 0.00105 6: 0.000438 7: 0.000188
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131012 f32 in [-0.899999976, 0.899999976]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   1     horner+fma  1.21e+06 ulp             0.0743        0.162         1    at x=-0.416127235
+      P(x): fma(-1.26084006, x, 1.6192801)
+  2   minimax   2     horner+fma  8.03e+05 ulp             0.0517        0.139         2    at x=-0.31864956
+      P(x): fma(fma(-0.155473009, x, -1.1539849), x, 1.63885665)
+  65 more: 'approx more [n]'
+> approx atanh(x) in -0.5..0.5 list 2
+approx atanh(x) on [-0.5, 0.5] as f32, fma
+  checked: atanh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.5]
+  metric: relative error
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    1    0.0487       0.0472       0.047        
+    3    0.00212      0.00202      0.00201      
+    5    0.000109     0.000104     0.000103     
+    7    6.12e-06     5.78e-06     5.72e-06     
+    9    3.6e-07      3.4e-07      3.35e-07     
+    11   2.19e-08     2.06e-08     2.03e-08     
+    13   1.37e-09     1.28e-09     1.26e-09     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.000906 (0.00701) 3/2 1.68e-05 (0.000522) 1/4 3.42e-05 (0.000957) 5/2 4.77e-07 (5.6e-05)
+    3/4 3.06e-07 (3.82e-05) 1/6 1.6e-06 (0.000159) 7/2 1.69e-08 (7.3e-06) 5/4 5.56e-09 (2.77e-06) 3/6 8.41e-09 (3.96e-06) 9/2 6.85e-10 (1.07e-06)
+    7/4 1.37e-10 (2.62e-07) 5/6 1.01e-10 (2.01e-07) 11/2 3.05e-11 (1.71e-07) 9/4 4.07e-12 (2.92e-08) 7/6 1.82e-12 (1.45e-08) 13/2 1.45e-12 (2.89e-08)
+    11/4 1.39e-13 (3.67e-09) 9/6 4.15e-14 (1.28e-09)
+  piecewise (2 pieces split at 0.25, max rel error): 1: 0.0107 2: 0.00276 3: 6.33e-05 4: 7.28e-06 5: 4.45e-07 6: 3.9e-08 7: 3.43e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130773 f32 in [-0.5, 0.5]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   1     horner+fma  7.88e+05 ulp             0.0909        0.0258        1    at x=-3.38805424e-21
+      x*P(x^2): x*1.04698932 where s = x*x
+  2   minimax   3     horner+fma  3.37e+04 ulp             0.00201       0.0011        3    at x=-3.38805424e-21
+      x*P(x^2): x*fma(0.393656552, s, 0.997990668) where s = x*x
+  43 more: 'approx more [n]'
+> approx cosh(x) in -3..3 ulp 1 list 2
+approx cosh(x) on [-3, 3] as f32, fma
+  checked: cosh(x) is even (f(-x) = f(x) at 64 points): fitting P(x^2) on [0, 3]
+  metric: relative error
+  checked: the target equals cosh(x) at 33 points: range reductions and identities for cosh apply
+  fits in real arithmetic (max relative error of P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    0    3.23         3.88         0.819        
+    2    0.568        0.61         0.163        
+    4    0.0402       0.0418       0.0113       
+    6    0.00155      0.00159      0.000429     
+    8    3.77e-05     3.83e-05     1.03e-05     
+    10   6.28e-07     6.36e-07     1.72e-07     
+    12   7.63e-09     7.7e-09      2.08e-09     
+    14   7.06e-11     7.11e-11     1.92e-11     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    0/2 0.407 (-) 2/2 0.0145 (0.887) 0/4 0.159 (0.993) 4/2 0.000345 (0.0252)
+    2/4 0.00133 (0.181) 0/6 0.0588 (-) 6/2 5.99e-06 (0.00136) 4/4 1.26e-05 (0.00436) 2/6 0.000119 (0.105) 8/2 7.76e-08 (6.37e-05)
+    6/4 1.1e-07 (0.000117) 4/6 4.71e-07 (0.000738) 10/2 7.7e-10 (2.4e-06) 8/4 8.17e-10 (3.03e-06) 6/6 2.16e-09 (1.01e-05) 12/2 6.02e-12 (7.3e-08)
+    10/4 5.08e-12 (6.97e-08) 8/6 9.59e-12 (1.54e-07)
+  piecewise (2 pieces split at 1.5, max rel error): 1: 0.135 2: 0.0166 3: 0.0016 4: 0.000118 5: 7.55e-06 6: 3.96e-07 7: 1.9e-08
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131029 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   identity  -     -           0.994 ulp                1.11e-07      9.39e-07      18   at x=-2.64367127  *
+      (e + 1/e)/2, e = exp(|x|): 0.5*(e + 1.0/e) where a = abs(x), e = exp(a)
+  2   minimax   4     horner+fma  1.66e+05 ulp             0.0113        0.113         3    at x=1.22375834
+      P(x^2): fma(fma(0.0598213971, s, 0.455278039), s, 1.01126039) where s = x*x
+  46 more: 'approx more [n]'
+> taylor tanh(x) order 7
+Maclaurin (Taylor at 0) series of tanh(x) at x = 0, through order 7:
+  tanh(x) = x - x^3/3 + 2x^5/15 - 17x^7/315 + O(x^8)
+  as x -> 0; coefficients c_k = f^(k)(0)/k!: 0 1 0 -1/3 0 2/15 0 -17/315
+  check: the coefficients agree with Taylor-jet arithmetic (long double) to 0
+  check: |f - P| = 2.18e-11 at x = 0 ± 1/10, 4.27e-14 at ± 1/20, 8.34e-17 at ± 1/40 (at rounding level)
+> parity asinh(x) + atanh(x/2)
+parity of asinh(x) + atanh(x/2):
+  odd: f(-x) = -f(x)
+  proved symbolically (parity rules: x is odd; sums keep a common parity, products multiply it; sin/tan/atan preserve it, cos/abs make it even)
+> identify tanh(x)
+identify tanh(x):
+  transcendental: exponential
+  domain: all real x [proved: no partial operation]
+  continuous on its domain [proved: continuous operations]
+  parity: odd: f(-x) = -f(x) [proved]
+  periodic: no [numeric]
+  monotonic: strictly increasing [numeric]
+  neither convex nor concave, inflection at 0 [numeric]
+  bounded [proved]
+  values on [-10, 10]: from -0.9999999959 to 0.9999999959 [numeric]
+  injective: yes [numeric]
+  zeros: 1 (0) [numeric]
+  asymptotes: y = -1 (x -> -inf), y = 1 (x -> +inf) [numeric]
+  (numeric results are for [-10, 10]: x has no range; each property has its own command)
+> g(x: f32 in -0.9..0.9) = acos(x) + tanh(x)
+> cost g
+cost of g under gt1030: 33 (3 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  ftrans           2 x 16    = 32
+> wrap g
+wrap analysis of g:
+  acos(x) + tanh(x)   (f32)
+      nnan holds (no NaN from non-NaN inputs)
+      ninf holds
+  end to end vs the real-number result: max abs error 2.05e-07, max rel error 1.13e-07, max 2 ulp
+      worst relative error at x=-0.784826159
+  sampled 65536 points (domain has 2127350989 points); not exhaustive
+> range acos(x)
+range of acos(x):
+  [0, 3.141592654]   min at x ≈ 1, max at x ≈ -1
+  undefined at 18000 of 20001 grid points
+  grid of 20001 points over [-10, 10] (default; give x a range), extrema refined at critical points
+> domain atanh(x)
+domain of atanh(x):
+  x: real (default [-10, 10])
+  requires -1 < x < 1
+  defined on (numerically, grid of 20001 over [-10, 10]):
+    x in (-1, 1)
+> plot3d x^2 - y^2 nofile
+surface: z = f(x, y)
+  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
+  y in [-3.5, 3.5]: covering the 3 features found in [-10, 10]; as for x (f(y, x) = ±f(x, y))
+  z in [-13.47, 13.47]: the values
+  65x65 grid
+  image: 640x500, 30525 bytes
+  (nofile: GIF checksum 596f2db0)
+> plot x*y + z parallel nofile
+parallel coordinates: x*y + z
+  x in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]; as for y (f(x, y) = ±f(y, x))
+  y in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]
+  z in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]; as for y (alike: the features do not set them apart)
+  400 random points, 400 defined, f in [-31.31, 33.39] (colour)
+  image: 480x440, 48361 bytes
+  (nofile: GIF checksum 546137e3)
+> plot log(x) logx nofile
+plot of log(x)
+  x in [0, 4]: covering the 2 features found in [-10, 10]
+  note: log x axis: from 0.01, two decades below the first positive feature (near 1.023)
+  y in [-4.905, 1.686]: the values
+  log(x): 1201 samples, values in [-4.605, 1.386]
+  image: 640x440, 5019 bytes
+  (nofile: GIF checksum bc7f766e)
+> plot x^2 logx nofile
+plot of x^2
+  x in [-2, 2]: covering the 2 features found in [-10, 10]
+  note: log x axis: from 0.01, three decades below the top
+  y in [-0.1999, 4.2]: the values
+  x^2: 1201 samples, values in [0.0001, 4]
+  image: 640x440, 5153 bytes
+  (nofile: GIF checksum c6a6dcb7)
+> h(n: u8 in 0..20) = n*n
+> plot h nofile
+plot of h(n) = n*n
+  n in [0, 20]: n's declared range
+  y in [-11.25, 236.2]: the values
+  h(n) = n*n: 21 points, values in [0, 225]
+  image: 640x440, 8196 bytes
+  (nofile: GIF checksum 567e60de)
+> ch(x: f32 in -0.9..0.9) = sin(x) - x
+> crit ch
+critical points of ch:
+  ch' = cos(x) - 1
+  x ≈ 0: stationary inflection, ch = 0
+    (ch' is 0 to f32 rounding within 0.000203 of it: one point)
+> cp(x: f32 in -3..3) = x^3 - 3x
+> crit cp
+critical points of cp:
+  cp' = 3x^2 - (0x + 3)
+  x ≈ -1.000000022: local maximum, cp = 2
+  x ≈ 1.000000037: local minimum, cp = -2
+> cg(x in -3..3) = atan(x)*exp(x)
+> crit cg
+critical points of cg:
+  x is an integer, cg is real: the steps between consecutive x
+  note: x in a..b with integer bounds is an integer; x: real in a..b (or real bounds, -3.0..3) for the continuous view
+    x = -1: local minimum, cg = -0.2889318374
+> fd(x) = x^3
+> the derivative of fd at 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> the slope of fd at 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> fd prime of 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> fd double prime at 2
+  ucas: fd''(2)
+fd''(2) = 12
+  from fd'' = 6x
+> the second derivative of fd at 2
+  ucas: fd''(2)
+fd''(2) = 12
+  from fd'' = 6x
+> what is the derivative of fd at x = 3?
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> plot (y, -x) as arrows nofile
+  ucas: plot (y, -x) nofile
+vector field: (y, -x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (y, -x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20252 bytes
+  (nofile: GIF checksum efd3e948)
+> plot the vector field (y, -x) as arrows nofile
+  ucas: plot (y, -x) nofile
+vector field: (y, -x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (y, -x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20252 bytes
+  (nofile: GIF checksum efd3e948)
+> graph the direction field y' = t - y nofile
+  ucas: plot y' = t - y field nofile
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> plot the slope field of y' = t - y with y(0) = 1 nofile
+  ucas: plot y' = t - y field with y(0) = 1 nofile
+slope field: y' = t - y
+  t in [0, 5]: from the initial value, 5 units
+  y in [-0.3859, 5.093]: around the solution through the initial value
+  solution through (0, 1): at t = 5 it is 4.013
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20712 bytes
+  (nofile: GIF checksum e18a7adb)
+> plot y' = y - y^2 with y(0) = 0.1 t in 0..8 nofile
+slope field: y' = y - y^2
+  t in [0, 8]: given
+  y in [-0.4515, 1.548]: around the solution through the initial value
+  solution through (0, 0.1): at t = 8 it is 0.997
+  y' = y - y^2: slopes on a 26x17 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 16853 bytes
+  (nofile: GIF checksum 07d0cbf0)
+> plot y' = t - y with x(0) = 1 nofile
+  note: the initial value is for x, the unknown is y: not used
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> what is x divided by -2y when x is 1 and y is 3?
+  ucas: 1/(-2*3)
+-0.166667
+> what is x - -2y when x is 1 and y is 3?
+  ucas: 1 - (-2*3)
+7
+> fh(x, y) = sin(x)*cos(y)
+> hessian fh
+Hessian of fh (row i, column j: ∂²/∂j∂i):
+  [ -sin(x)*cos(y)   -cos(x)*sin(y) ]   ∂/∂x
+  [ -cos(x)*sin(y)   -sin(x)*cos(y) ]   ∂/∂y
+  det = sin(x)^2 - sin(y)^2
+  holds wherever the formulas are defined
+  check: every entry matches central differences at 400 points (max relative difference 3e-13)
+  symmetric (the mixed partials agree) at 100 of 100 sample pairs

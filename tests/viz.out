@@ -187,6 +187,7 @@ solid of revolution: the region between x^2 and the x-axis about the x-axis
   Pappus: V = 2pi d A, d = 6/5 = 1.2 from the centroid to the axis: 20.11 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      exact: 53.2259652431546
       numeric: 53.225965243169, estimated error 5.9e-13
   the region sweeps from 0 to 2pi in 8 steps
   animation: 600x500, 9 frames (2.9 s), 47645 bytes
@@ -201,8 +202,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
   volume: 8pi = 25.13 (exact)
-  region: area 16/3 = 5.333, centroid (2.4, 0.75)
-  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  region: area 16/3 = 5.333, centroid (12/5 = 2.4, 3/4 = 0.75) (exact)
+  Pappus: V = 2pi d A, d = 3/4 = 0.75 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
@@ -223,6 +224,7 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
   Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the y-axis, without the end disks):
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
   image: 600x500, 26599 bytes
   (nofile: GIF checksum fd5ac1ac)
@@ -243,6 +245,7 @@ solid of revolution: the region between x and x^2 about the x-axis
       exact: 4.44288293815837 = pi*sqrt(2)
       numeric: 4.44288293815837, estimated error 4.9e-14
     x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      exact: 3.8097297048578
       numeric: 3.8097297048578, estimated error 4.2e-14
     both: 8.253
   image: 600x500, 11880 bytes
@@ -258,10 +261,11 @@ solid of revolution: the region between sin(x) and the x-axis about the x-axis
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 4.93483 (relative difference 6e-06, the grid's resolution)
   volume: pi^2/2 = 4.935 (exact)
-  region: area 2, centroid (1.571, 0.3927)
-  Pappus: V = 2pi d A, d = 0.3927 from the centroid to the axis: 4.935 (agrees)
+  region: area 2, centroid (pi/2 = 1.571, pi/8 = 0.3927) (exact)
+  Pappus: V = 2pi d A, d = pi/8 = 0.3927 from the centroid to the axis: 4.935 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
+      exact: 14.4235994484141
       numeric: 14.4235994484141, estimated error 1.6e-13
   image: 600x500, 19590 bytes
   (nofile: GIF checksum 831f49fa)
@@ -280,6 +284,7 @@ solid of revolution: the region between x^2 and the line y = -1 about the line y
   Pappus: V = 2pi d A, d = 7/10 = 0.7 from the centroid to the axis: 5.864 (agrees)
   surface area (the curves swept around the line y = -1, without the end disks):
     x^2: S = 2pi ∫ |x^2 + 1| sqrt(1 + (2x)^2) dx
+      exact: 13.1022017375402
       numeric: 13.1022017375402, estimated error 1.4e-13
   image: 600x500, 11898 bytes
   (nofile: GIF checksum 92ef478a)
@@ -298,6 +303,7 @@ solid of revolution: the region between x^2 and the x-axis about the line x = 2
   Pappus: V = 2pi d A, d = 5/4 = 1.25 from the centroid to the axis: 2.618 (agrees)
   surface area (the curves swept around the line x = 2, without the end disks):
     x^2: S = 2pi ∫ |x - 2| sqrt(1 + (2x)^2) dx
+      exact: 13.2545305650958
       numeric: 13.2545305650959, estimated error 1.5e-13
   image: 600x500, 21025 bytes
   (nofile: GIF checksum a567a1a1)
@@ -311,7 +317,7 @@ solid of revolution: the region between sin(x) and 0 about the line y = -1
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 17.5012 (relative difference 3e-06, the grid's resolution)
   volume: 17.5 (exact)
-  region: area 2, centroid (1.571, 0.3927)
+  region: area 2, centroid (pi/2 = 1.571, pi/8 = 0.3927) (exact)
   Pappus: V = 2pi d A, d = 1.393 from the centroid to the axis: 17.5 (agrees)
   surface area (the curves swept around the line y = -1, without the end disks):
     sin(x): S = 2pi ∫ |sin(x) + 1| sqrt(1 + (cos(x))^2) dx
@@ -338,6 +344,7 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
   Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the y-axis, without the end disks):
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
   image: 600x500, 26599 bytes
   (nofile: GIF checksum fd5ac1ac)
@@ -351,8 +358,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
   volume: 8pi = 25.13 (exact)
-  region: area 16/3 = 5.333, centroid (2.4, 0.75)
-  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  region: area 16/3 = 5.333, centroid (12/5 = 2.4, 3/4 = 0.75) (exact)
+  Pappus: V = 2pi d A, d = 3/4 = 0.75 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
@@ -408,8 +415,10 @@ surface of revolution: x about the x-axis
 arc length of x^2
   x in [0, 1]: given
   L = ∫ sqrt(1 + (2x)^2) dx from 0 to 1
-  no antiderivative found: numeric only
+  antiderivative: x*sqrt(2x*2x + 1)/2 + asinh(2x)/2/2
+  exact: F(1) - F(0) = 1.4789428575446
   numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1.4789428575446, estimated error 1.6e-14
+  the two agree to 2.7e-15
   (the chord from end to end: 1.414; the arc is never shorter)
   arc length: 1.479
 > arclength sqrt(1 - x^2) from 0 to 1
@@ -549,6 +558,7 @@ solid of revolution: the region between x^2 and the x-axis about the x-axis
   Pappus: V = 2pi d A, d = 6/5 = 1.2 from the centroid to the axis: 40.21 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      exact: 106.451930486309
       numeric: 106.451930486338, estimated error 1.2e-12
   image: 600x500, 13451 bytes
   (nofile: GIF checksum b0d1d724)
@@ -570,6 +580,7 @@ solid of revolution: the region between x^2 and the x-axis about the y-axis
   Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the y-axis, without the end disks):
     x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      exact: 36.1769031974114
       numeric: 36.1769031973116, estimated error 4e-13
   image: 600x500, 26599 bytes
   (nofile: GIF checksum fd5ac1ac)
@@ -585,8 +596,8 @@ solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
   volume: 8pi = 25.13 (exact)
-  region: area 16/3 = 5.333, centroid (2.4, 0.75)
-  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  region: area 16/3 = 5.333, centroid (12/5 = 2.4, 3/4 = 0.75) (exact)
+  Pappus: V = 2pi d A, d = 3/4 = 0.75 from the centroid to the axis: 25.13 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
       numeric: 36.176903197278, estimated error 2.6e-12
@@ -604,10 +615,11 @@ solid of revolution: the region between sin(x) and the x-axis about the x-axis
     the two agree to 0
   check: shells in the radius on a grid: V ≈ 4.93483 (relative difference 6e-06, the grid's resolution)
   volume: pi^2/2 = 4.935 (exact)
-  region: area 2, centroid (1.571, 0.3927)
-  Pappus: V = 2pi d A, d = 0.3927 from the centroid to the axis: 4.935 (agrees)
+  region: area 2, centroid (pi/2 = 1.571, pi/8 = 0.3927) (exact)
+  Pappus: V = 2pi d A, d = pi/8 = 0.3927 from the centroid to the axis: 4.935 (agrees)
   surface area (the curves swept around the x-axis, without the end disks):
     sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
+      exact: 14.4235994484141
       numeric: 14.4235994484141, estimated error 1.6e-13
   image: 600x500, 19590 bytes
   (nofile: GIF checksum 831f49fa)
@@ -629,6 +641,7 @@ solid of revolution: the region between x and x^2 about the x-axis
       exact: 4.44288293815837 = pi*sqrt(2)
       numeric: 4.44288293815837, estimated error 4.9e-14
     x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      exact: 3.8097297048578
       numeric: 3.8097297048578, estimated error 4.2e-14
     both: 8.253
   image: 600x500, 11880 bytes
@@ -652,6 +665,7 @@ solid of revolution: the region between x and x^2 about the line y = 2
       exact: 13.3286488144751 = 3pi*sqrt(2)
       numeric: 13.3286488144751, estimated error 0
     x^2: S = 2pi ∫ |x^2 - 2| sqrt(1 + (2x)^2) dx
+      exact: 14.775214360507
       numeric: 14.775214360507, estimated error 1.6e-13
     both: 28.1
   image: 600x500, 11786 bytes
@@ -684,8 +698,10 @@ surface of revolution: x about the x-axis
 arc length of x^2
   x in [0, 1]: given
   L = ∫ sqrt(1 + (2x)^2) dx from 0 to 1
-  no antiderivative found: numeric only
+  antiderivative: x*sqrt(2x*2x + 1)/2 + asinh(2x)/2/2
+  exact: F(1) - F(0) = 1.4789428575446
   numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1.4789428575446, estimated error 1.6e-14
+  the two agree to 2.7e-15
   (the chord from end to end: 1.414; the arc is never shorter)
   arc length: 1.479
 > the centroid of the region between x^2 and x

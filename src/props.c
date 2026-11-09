@@ -1558,8 +1558,10 @@ parity_of(nid e, int s)
 	case O_CSC:
 	case O_COT:
 	case O_SIGN:
+	case O_ASIN: case O_SINH: case O_TANH: case O_ASINH: case O_ATANH:
 		a = parity_of(N.a[e], s);
 		return a == PA_CONST ? PA_EVEN : a;
+	case O_COSH:
 	case O_COS:
 	case O_SEC:
 	case O_ABS:
@@ -1899,6 +1901,18 @@ iv_of(nid e, int s, struct rng x, struct rng *memo, uint8_t *done)
 		break;
 	case O_ATAN:
 		r = rg(-M_PI / 2, M_PI / 2);
+		break;
+	case O_ASIN:	/* forms.c */
+		r = rg(-M_PI / 2, M_PI / 2);
+		break;
+	case O_ACOS:
+		r = rg(0, M_PI);
+		break;
+	case O_ATAN2:
+		r = rg(-M_PI, M_PI);
+		break;
+	case O_TANH:
+		r = rg(-1, 1);
 		break;
 	case O_SIGN:
 		r = rg(-1, 1);
@@ -4411,8 +4425,15 @@ kinds_of(nid e, int s, struct kinds *k)
 	case O_COT:
 		k->trig = 1;
 		break;
+	case O_ASIN: case O_ACOS: case O_ATAN2:	/* forms.c */
 	case O_ATAN:
 		k->invtrig = 1;
+		break;
+	case O_SINH: case O_COSH: case O_TANH:	/* exponentials */
+		k->exp = 1;
+		break;
+	case O_ASINH: case O_ACOSH: case O_ATANH:	/* logarithms */
+		k->log = 1;
 		break;
 	case O_SQRT:
 		k->alg = 1;

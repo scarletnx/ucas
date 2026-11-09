@@ -5,7 +5,7 @@ d/dx abs(x) = sign(x)
     (points looked for in [-10, 10])
   check: matches central differences at 201 points (max relative difference 1e-15)
 > diff sqrt(x)
-d/dx sqrt(x) = 0.5/sqrt(x)
+d/dx sqrt(x) = 1/(2sqrt(x))
   holds for x > 0
     at x = 0 (an end of the domain) sqrt(x) has an infinite one-sided slope
     (points looked for in [-10, 10])
@@ -46,9 +46,9 @@ d/dx max(x, x^2) = x >= x^2 ? 1 : 2x
     (points looked for in [-10, 10])
   check: matches central differences at 201 points (max relative difference 2e-15)
 > diff x^(1/3)
-d/dx x^0.3333333333 = x^(-0.6666666667)/3
+d/dx x^(1/3) = x^(-2/3)/3
   holds for x > 0
-    at x = 0 (an end of the domain) x^0.3333333333 has an infinite one-sided slope
+    at x = 0 (an end of the domain) x^(1/3) has an infinite one-sided slope
     (points looked for in [-10, 10])
   check: matches central differences at 100 points (max relative difference 1e-13)
 > myabs(x: real) = x > 0 ? x : -x
@@ -195,9 +195,9 @@ Hessian of x^3 - 3x*y^2 (row i, column j: ∂²/∂j∂i):
   at (x = 1, y = 1, z = 1): 6
 > jacobian x*cos(y), x*sin(y) at 2, 0
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
-  [ cos(y)   -(x*sin(y)) ]
-  [ sin(y)   x*cos(y)    ]
-  det = x*cos(y)^2 + x*sin(y)^2
+  [ cos(y)   -x*sin(y) ]
+  [ sin(y)   x*cos(y)  ]
+  det = x
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)
   at (x = 2, y = 0):
@@ -227,8 +227,8 @@ D_u x^2*y = 6x*y + 4x^2
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian exp(x), exp(2x), exp(3x)
@@ -237,6 +237,7 @@ Wronskian matrix of exp(x), exp(2x), exp(3x) (row k: the k-th derivatives wrt x)
   [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
   [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
   W = det = 2exp(6x)
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-13)
   linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian 1, x, x^2
@@ -245,6 +246,7 @@ Wronskian matrix of 1, x, x^2 (row k: the k-th derivatives wrt x)
   [ 0   1   2x  ]   d/dx
   [ 0   0   2   ]   d²/dx²
   W = det = 2
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-15)
   linearly independent: W(-1/20) = 2 != 0, so the functions are independent on every interval containing x = -1/20
 > wronskian x, 2x
@@ -252,6 +254,7 @@ Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
   [ x   2x ]   the functions
   [ 1   2  ]   d/dx
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 1e-15)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -2*(x) + (2x) = 0
@@ -267,10 +270,11 @@ Wronskian matrix of x^2, x*abs(x) (row k: the k-th derivatives wrt x)
   W = 0 does not prove dependence for functions that are not analytic (x^2 and x*abs(x) have W = 0 and are independent), and no linear relation fits their values: independent on [-10, 10]
 > wronskian sin(x)^2, cos(x)^2, 1
 Wronskian matrix of sin(x)^2, cos(x)^2, 1 (row k: the k-th derivatives wrt x)
-  [ sin(x)^2                cos(x)^2                1 ]   the functions
-  [ 2sin(x)*cos(x)          -(2sin(x)*cos(x))       0 ]   d/dx
-  [ 2cos(x)^2 - 2sin(x)^2   2sin(x)^2 - 2cos(x)^2   0 ]   d²/dx²
+  [ sin(x)^2         cos(x)^2          1 ]   the functions
+  [ 2sin(x)*cos(x)   -2sin(x)*cos(x)   0 ]   d/dx
+  [ 2 - 4sin(x)^2    4sin(x)^2 - 2     0 ]   d²/dx²
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 3e-14)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -(sin(x)^2) - (cos(x)^2) + (1) = 0
@@ -285,8 +289,8 @@ limit of sin(x)/x as x -> 0:
     extrapolated (Richardson): 1 (estimated error 0): agrees
 > lim x->0 (1 - cos(x))/x^2
 limit of (1 - cos(x))/x^2 as x -> 0:
-  0/0: L'Hôpital: lim (sin(x))/(2x) = lim sin(x)/2/x
-  0/0: L'Hôpital: lim (cos(x)/2)/(1) = lim cos(x)/2
+  0/0: L'Hôpital: lim (sin(x))/(2x) = lim sin(x)/(2x)
+  0/0: L'Hôpital: lim (cos(x))/(2) = lim cos(x)/2
   = 1/2 (from both sides)
   numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 0.4995834722, 0.4999983724, 0.4999999936, 0.5, 0.4999999888, 0.5000114441
     extrapolated (Richardson): 0.5 (estimated error 4e-14): agrees
@@ -510,19 +514,21 @@ on the curve a^2 + b^2 - 4 = 0, b as a function of a:
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative 3/(x^2 + 2x + 5)
 ∫ 3/(x^2 + 2x + 5) dx
-  = 3atan(x/2 + 0.5)/2 + C
+  = 3atan((x + 1)/2)/2 + C
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
 > antiderivative 1/sqrt(1 - x^2)
 ∫ 1/sqrt(1 - x^2) dx
   = asin(x) + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
   check: d/dx of it equals the integrand at 39 points of [-10, 10] (max difference 0)
 > antiderivative 1/sqrt(x^2 + 1)
 ∫ 1/sqrt(x^2 + 1) dx
-  = log(abs(2x + 2sqrt(x^2 + 1))) + C
-  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1e-15)
+  = asinh(x) + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative x/(x^2 + 1)
 ∫ x/(x^2 + 1) dx
-  = log(abs(x^2 + 1))/2 + C
+  = log(x^2 + 1)/2 + C
   check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
 > antiderivative x*log(x)
 ∫ x*log(x) dx
@@ -595,7 +601,7 @@ d²/dx² it = 6x
 > d^2/dx^2 exp(-x^2)
   ucas: it(x) = exp(-x^2)
   ucas: diff it x 2
-d/dx it = -(2x*exp(-x^2))
+d/dx it = -2x*exp(-x^2)
 d²/dx² it = 4x^2*exp(-x^2) - 2exp(-x^2)
   holds for every real x
   check: each order matches central differences at 402 points (max relative difference 1e-15)
@@ -691,9 +697,9 @@ Hessian of it (row i, column j: ∂²/∂j∂i):
 > jacobian of x*cos(y), x*sin(y)
   ucas: jacobian x*cos(y), x*sin(y)
 Jacobian of (x*cos(y), x*sin(y)) wrt (x, y): row i = the gradient of function i
-  [ cos(y)   -(x*sin(y)) ]
-  [ sin(y)   x*cos(y)    ]
-  det = x*cos(y)^2 + x*sin(y)^2
+  [ cos(y)   -x*sin(y) ]
+  [ sin(y)   x*cos(y)  ]
+  det = x
   holds wherever the formulas are defined
   check: every entry matches central differences at 400 points (max relative difference 3e-13)
 > directional derivative of x^2 y along (3, 4) at (1, 1)
@@ -709,8 +715,8 @@ D_u it = 6x*y/5 + 4x^2/5
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > wronkian matrix of e^x, e^2x, e^3x
@@ -721,6 +727,7 @@ Wronskian matrix of e^x, e^(2x), e^(3x) (row k: the k-th derivatives wrt x)
   [ exp(x)   2exp(2x)   3exp(3x) ]   d/dx
   [ exp(x)   4exp(2x)   9exp(3x) ]   d²/dx²
   W = det = 2exp(6x)
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 1206 points (max relative difference 2e-13)
   linearly independent: W(-1/20) = 1.481636441 != 0, so the functions are independent on every interval containing x = -1/20
 > are sin x and cos x linearly independent?
@@ -728,8 +735,8 @@ Wronskian matrix of e^x, e^(2x), e^(3x) (row k: the k-th derivatives wrt x)
 Wronskian matrix of sin(x), cos(x) (row k: the k-th derivatives wrt x)
   [ sin(x)   cos(x)  ]   the functions
   [ cos(x)   -sin(x) ]   d/dx
-  W = det = -sin(x)^2 - cos(x)^2
-  W = -1  (equal to the determinant at all 200 sample points of [-10, 10])
+  W = det = -1
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 3e-15)
   linearly independent: W(-1/20) = -1 != 0, so the functions are independent on every interval containing x = -1/20
 > is x and 2x linearly dependent?
@@ -738,6 +745,7 @@ Wronskian matrix of x, 2x (row k: the k-th derivatives wrt x)
   [ x   2x ]   the functions
   [ 1   2  ]   d/dx
   W = det = 0
+  (W equals the numeric determinant at all 200 sample points of [-10, 10])
   check: every entry matches central differences at 402 points (max relative difference 1e-15)
   W = 0 at all 200 sample points
   a linear relation holds at all 200 points: -2*(x) + (2x) = 0

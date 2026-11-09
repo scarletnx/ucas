@@ -375,4 +375,8 @@ y' = -2y + 1, y(0) = 3
       1            0.8383382081
       2            0.5457890972
 > factor x squared minus 1
-  sorry: ucas can't factor yet: it measures functions
+  ucas: factor x^2 - 1
+factor x^2 - 1
+  = (x - 1)*(x + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
