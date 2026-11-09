@@ -19,6 +19,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define FPTS 1024
 #define MAXOPS 10
@@ -821,6 +822,8 @@ find_float(struct func *f, int want)
 
 #define PEEP_ROUNDS 16
 #define PEEP_PROOFS 40      /* equivalence proofs per find */
+#define PEEP_SECONDS 8.0    /* and CPU time for them */
+#define PEEP_SHOWN 6        /* single drops listed */
 
 struct pcand {
 	nid e;
@@ -876,7 +879,7 @@ quick_refines(const struct func *f, nid e)
 static void
 short_str(char *out, size_t n, nid e)
 {
-	const char *s = node_str(e);
+	const char *s = shared_str(e, 0);
 	size_t l = strlen(s);
 
 	if (l + 1 <= n && l <= 40)
@@ -1044,8 +1047,10 @@ peephole(const struct func *f)
 	int nc, i, shown = 0, proofs = 0, round, base = icost(f->body);
 	nid cur = f->body;
 	struct sbuf steps = {0}, w = {0};
-	int nsteps = 0;
+	int nsteps = 0, more = 0;
 	const char *last = "exhaustive";
+
+	clock_t t0 = clock();
 
 	if (!TY_ISINT(N.ty[f->body]))
 		return;
@@ -1056,6 +1061,8 @@ peephole(const struct func *f)
 		struct eqproof pr;
 		if (c[i].cost >= base || !quick_refines(f, c[i].e))
 			continue;
+		if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
+			break;
 		proofs++;
 		sb_clear(&w);
 		if (equiv_decide(f, f->body, c[i].e, &w, &pr))
@@ -1064,6 +1071,10 @@ peephole(const struct func *f)
 			printf("  dropping operations of %s (cost %d as written; "
 			    "each checked on the whole domain):\n", f->anon ?
 			    "the expression" : sym_str(f->name), base);
+		if (shown > PEEP_SHOWN) {
+			more++;
+			continue;
+		}
 		printf("  cost %-3d %-40s drops %s (%s)\n", c[i].cost,
 		    shared_str(c[i].e, 300), c[i].what, proof_word(&pr));
 		rep_obj(NULL);
@@ -1075,6 +1086,8 @@ peephole(const struct func *f)
 		rep_end();
 	}
 	free(c);
+	if (more)
+		printf("  ... %d more single drops hold (not listed)\n", more);
 	/* the fixpoint: take the cheapest proved drop until none is left */
 	for (round = 0; round < PEEP_ROUNDS && proofs < PEEP_PROOFS; round++) {
 		int took = 0, cc = icost(cur);
@@ -1083,6 +1096,8 @@ peephole(const struct func *f)
 			struct eqproof pr;
 			if (c[i].cost >= cc || !quick_refines(f, c[i].e))
 				continue;
+			if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
+				break;
 			proofs++;
 			if (equiv_decide(f, f->body, c[i].e, NULL, &pr) ||
 			    pr.how == EQ_SAMPLED)
@@ -1198,7 +1213,8 @@ parametric(const struct func *f)
 	double *in_r;
 	struct ity it;
 
-	if (f->np != 2 || !TY_ISINT(N.ty[f->body]) || F.it.k != K_UINT)
+	if (f->np != 2 || !TY_ISINT(N.ty[f->body]) ||
+	    (F.it.k != K_UINT && F.it.k != K_SINT))
 		return;
 	for (k = 0; k < 2; k++) {
 		if (!TY_ISINT(f->p[k].ty))
@@ -1278,8 +1294,9 @@ parametric(const struct func *f)
 	/* no overflow in the computing type at the largest x */
 	for (k = 0; k < ncase; k++) {
 		double top = (double)pc[k].khi * (double)hi[xs] + (double)C;
-		if (pc[k].n && top > (double)it.mask) {
-			pc[k].khi = (int64_t)(((double)it.mask - (double)C) /
+		double tmax = it.k == K_SINT ? (double)it.smax : (double)it.mask;
+		if (pc[k].n && top > tmax) {
+			pc[k].khi = (int64_t)((tmax - (double)C) /
 			    (double)(hi[xs] ? hi[xs] : 1));
 			if (pc[k].khi < pc[k].klo)
 				goto done;
@@ -1326,7 +1343,7 @@ parametric(const struct func *f)
 				if (Alo > Ahi)
 					ok = 0;
 			}
-			if (!ok || Ahi > (int64_t)it.mask)
+			if (!ok || Ahi > (it.k == K_SINT ? it.smax : (int64_t)it.mask))
 				continue;
 			A = nice_in(Alo, Ahi);
 			if (i == 0)

@@ -1051,6 +1051,17 @@ What the results hold beyond the common fields:
   `not_exact_at`, `witness`, `fail`, `cost`, `gain`, `derivation` (the
   proof's lines).  The arguments `exact`, `ulp`, `approx`, `percomp`,
   `float_only` and `float_ranges` are the CLI's options.
+- **Analysis** (stress test 1): `equiv` has `method` (`exhaustive`,
+  `sat`, `sat_counterexample`, `sampled`), `sat` (`result`, `aig_nodes`,
+  `conflicts`, `why`) and `narrowed` (the where clause's bounds); `find`
+  has `peephole` (each `{cost, expr, drops, proof}`), `peephole_fixpoint`
+  and `parametric` (`{cost, cost_per_use, expr, K, why, proof}`), and
+  each implementation's `proof`; `cost` has `shared` (the named
+  subterms), `loops` (`body`, `overhead`, `once`, `trips_worst`,
+  `trips_average`, `trips_known`, `trips_bound_sound`, `total_worst`,
+  `total_average`), `average_total` and `selects_not_listed`; `range` has
+  `proved_bound` (`min`, `max`, `min_exact`, `max_exact` and the steps).
+  Any result list is cut at 500 entries (`KEY_omitted`).
 - **Identify**: `properties` with a field per property, each `{text,
   tag, proof}` when it carries a tag (`proved`, `numeric`, `witness`).
 - **Plots**: `axes` (`{var, lo, hi, why, values_lo, values_hi}`),

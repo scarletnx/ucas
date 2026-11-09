@@ -274,3 +274,19 @@ find dv: 1024 points (sampled; matches verified on the whole domain), computing 
            K = d == 1 ? 4096 : d == 2 ? 2048 : d == 3 ? 1366 : d == 4 ? 1024 : d == 5 ? 820 : 683 (one constant per case) depends only on d: compute it once where d is set; 5 per use once K is known (exhaustive)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find qb 1
+find qb: 1024 points, computing in i32, costs from gt1030
+  dropping operations of qb (cost 60 as written; each checked on the whole domain):
+  cost 41  t3*t3 < t2*t2 ? dn : q where q = (v*((1 << b) - 1) + 127)/255, dn = q > 0 ? q - 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (dn << 8 - b | dn >> t1) - v drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm) (exhaustive)
+  cost 47  t3*t3 < t2*t2 && t3*t3 <= t2*t2 ? up : t2*t2 < t2*t2 ? q : q where m = (1 << b) - 1, q = (v*m + 127)/255, up = q < m ? q + 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (up << 8 - b | up >> t1) - v drops the ?: on (v*((1 << b) - 1) + 127)/255 > 0 (it always takes the second arm) (exhaustive)
+  cost 47  t2*t2 < t2*t2 && t2*t2 <= t3*t3 ? q : t3*t3 < t2*t2 ? dn : q where q = (v*((1 << b) - 1) + 127)/255, dn = q > 0 ? q - 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (dn << 8 - b | dn >> t1) - v drops the ?: on (v*m + 127)/255 < m where m = (1 << ... (it always takes the second arm) (exhaustive)
+  cost 57  t3*t3 < t2*t2 && t3*t3 <= t4*t4 ? up : q where m = (1 << b) - 1, q = (v*m + 127)/255, up = q < m ? q + 1 : q, dn = q > 0 ? q - 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (up << 8 - b | up >> t1) - v, t4 = (dn << 8 - b | dn >> t1) - v drops the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm) (exhaustive)
+  cost 57  t3*t3 < t2*t2 && t3*t3 <= t4*t4 ? up : t4*t4 < t2*t2 ? q - 1 : q where m = (1 << b) - 1, q = (v*m + 127)/255, up = q < m ? q + 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (up << 8 - b | up >> t1) - v, t4 = (q - 1 << 8 - b | q - 1 >> t1) - v drops the ?: on (v*((1 << b) - 1) + 127)/255 > 0 (it always takes the first arm) (exhaustive)
+  cost 57  t3*t3 < t2 && t3*t3 <= t4*t4 ? up : t4*t4 < t2 ? dn : q where m = (1 << b) - 1, q = (v*m + 127)/255, up = q < m ? q + 1 : q, dn = q > 0 ? q - 1 : q, t1 = 2b - 8, t2 = (q << 8 - b | q >> t1) - v, t3 = (up << 8 - b | up >> t1) - v, t4 = (dn << 8 - b | dn >> t1) - v drops * (q << 8 - b | q >> 2b - 8) - v where... (exhaustive)
+  ... 9 more single drops hold (not listed)
+  cost 12  (v*((1 << b) - 1) + 127)/255             all of them: drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm), then the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm) (exhaustive)
+  split on b (4 values), fitted (v*K + C) >> S per case: S = 12, C = 2048
+  cost 15  v*(b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047) + 2048 >> 12
+           K = b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047 (one constant per case) depends only on b: compute it once where b is set; 6 per use once K is known (exhaustive)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

@@ -110,3 +110,5 @@ wref(i: u32 in 0..15, ib: u32 in 2..4) = (i * 64 + ((1 << ib) - 1) / 2) / ((1 <<
 find wref 5
 dv(x: u32 in 0..1000, d: u32 in 1..6) = x / d
 find dv 1
+# signed, with the dropped operations listed first (at most 6, then the fixpoint)
+find qb 1
