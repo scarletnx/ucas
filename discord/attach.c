@@ -9,7 +9,9 @@
  *                       glslangValidator -V, then spirv-dis
  *   SPIR-V assembly     as it is (```spv)
  *   other text          as it is
- *   images              a note: paste the code as text
+ *   images (PNG, JPEG, GIF, BMP, PPM)
+ *                       a ```image NAME block of base64: the shader's
+ *                       image inputs, in attachment order (animate exec)
  *
  * Downloads come only from Discord's CDN (file:// in --stdin tests),
  * capped in size and time; the tools run with CPU and memory limits.
@@ -34,16 +36,18 @@
 
 #include "ucas.h"
 #include "attach.h"
+#include "img.h"
 
-#define AT_MAXBYTES (256 * 1024)
-#define AT_MAXFILES 4
+#define AT_MAXBYTES (256 * 1024)	/* code */
+#define AT_MAXIMAGE (8 << 20)		/* an image (decoded: capped by img.c) */
+#define AT_MAXFILES 10
 #define AT_MAXTEXT (64 * 1024)	/* of tool output kept */
 
 int attach_allow_file;		/* --stdin: file:// URLs (tests) */
 
 struct buf {
 	char *p;
-	size_t n;
+	size_t n, cap;
 	int over;
 };
 
@@ -53,7 +57,7 @@ on_data(char *d, size_t sz, size_t nm, void *u)
 	struct buf *b = u;
 	size_t n = sz * nm;
 
-	if (b->n + n > AT_MAXBYTES) {
+	if (b->n + n > b->cap) {
 		b->over = 1;
 		return 0;
 	}
@@ -75,9 +79,9 @@ url_ok(const char *u)
 	return attach_allow_file && !strncmp(u, "test:", 5);
 }
 
-/* the attachment's bytes, or NULL with why */
+/* the attachment's bytes (at most cap), or NULL with why */
 static char *
-fetch(const char *url, size_t *len, const char **why)
+fetch(const char *url, size_t cap, size_t *len, const char **why)
 {
 	struct buf b = {0};
 	CURL *c;
@@ -103,6 +107,7 @@ fetch(const char *url, size_t *len, const char **why)
 		*why = "no curl";
 		return NULL;
 	}
+	b.cap = cap;
 	curl_easy_setopt(c, CURLOPT_URL, url);
 	curl_easy_setopt(c, CURLOPT_PROTOCOLS_STR, attach_allow_file ?
 	    "https,file" : "https");
@@ -115,7 +120,8 @@ fetch(const char *url, size_t *len, const char **why)
 	curl_easy_cleanup(c);
 	if (b.over) {
 		free(b.p);
-		*why = "larger than 256 KiB";
+		*why = cap > AT_MAXBYTES ? "larger than 8 MiB" :
+		    "larger than 256 KiB";
 		return NULL;
 	}
 	if (rc != CURLE_OK || (code != 0 && code != 200)) {
@@ -260,7 +266,56 @@ is_spirv(const char *d, size_t n)
 	    (u[0] == 0x07 && u[1] == 0x23 && u[2] == 0x02 && u[3] == 0x03);
 }
 
+static int
+is_image_name(const struct discord_attachment *a, const char *e)
+{
+	static const char *const x[] = {"png", "jpg", "jpeg", "gif", "bmp",
+	    "ppm", "pgm", "pnm", "webp", "qoi", NULL};
+	int k;
+
+	if (a->content_type && !strncmp(a->content_type, "image/", 6))
+		return 1;
+	for (k = 0; x[k]; k++)
+		if (!strcasecmp(e, x[k]))
+			return 1;
+	return 0;
+}
+
+/* an image: a ```image block of base64, decoded by the engine */
 static void
+image_block(struct sbuf *blocks, const char *name, const unsigned char *d,
+    size_t n)
+{
+	static const char t[] =
+	    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	size_t i;
+	int col = 0;
+	char nm[96];
+
+	/* the name on the fence line: no blanks or backticks */
+	snprintf(nm, sizeof nm, "%s", name);
+	for (i = 0; nm[i]; i++)
+		if (isspace((unsigned char)nm[i]) || nm[i] == '`' ||
+		    nm[i] == '\x1e')
+			nm[i] = '_';
+	sb_printf(blocks, "\n```image %s\n", nm);
+	for (i = 0; i < n; i += 3) {
+		unsigned v = (unsigned)d[i] << 16 | (i + 1 < n ? d[i + 1] << 8 : 0) |
+		    (i + 2 < n ? d[i + 2] : 0);
+		sb_putc(blocks, t[v >> 18 & 63]);
+		sb_putc(blocks, t[v >> 12 & 63]);
+		sb_putc(blocks, i + 1 < n ? t[v >> 6 & 63] : '=');
+		sb_putc(blocks, i + 2 < n ? t[v & 63] : '=');
+		if ((col += 4) >= 76) {
+			sb_putc(blocks, '\n');
+			col = 0;
+		}
+	}
+	sb_puts(blocks, "\n```");
+}
+
+/* one attachment as a block; 1 when it was code (not an image) */
+static int
 one_attachment(const struct discord_attachment *a, struct sbuf *blocks,
     struct sbuf *notes)
 {
@@ -268,20 +323,36 @@ one_attachment(const struct discord_attachment *a, struct sbuf *blocks,
 	const char *e = ext_of(name), *why = NULL;
 	char *d;
 	size_t n = 0;
+	int img = is_image_name(a, e);
 
-	if (a->content_type && !strncmp(a->content_type, "image/", 6)) {
-		sb_printf(notes, "I can't read the image %s: paste its code as "
-		    "text in a ``` block, or attach the file\n", name);
-		return;
+	if (a->size > (img ? AT_MAXIMAGE : AT_MAXBYTES)) {
+		sb_printf(notes, "%s is larger than %s: skipped\n", name, img ?
+		    "8 MiB" : "256 KiB");
+		return 0;
 	}
-	if (a->size > AT_MAXBYTES) {
-		sb_printf(notes, "%s is larger than 256 KiB: skipped\n", name);
-		return;
-	}
-	if (a->url == NULL || (d = fetch(a->url, &n, &why)) == NULL) {
+	if (a->url == NULL || (d = fetch(a->url, img ? AT_MAXIMAGE :
+	    AT_MAXBYTES, &n, &why)) == NULL) {
 		sb_printf(notes, "could not read %s (%s)\n", name,
 		    why ? why : "no URL");
-		return;
+		return 0;
+	}
+	if (img || img_sniff((const unsigned char *)d, n) != NULL) {
+		const char *f = img_sniff((const unsigned char *)d, n);
+		if (f == NULL)
+			sb_printf(notes, "%s is not an image file I can read (PNG, "
+			    "JPEG, GIF, BMP, PPM): skipped\n", name);
+		else if (!strcmp(f, "QOI") || !strcmp(f, "WebP"))
+			sb_printf(notes, "%s: %s images are not read (PNG, JPEG, "
+			    "GIF, BMP, PPM are): skipped\n", name, f);
+		else
+			image_block(blocks, name, (const unsigned char *)d, n);
+		free(d);
+		return 0;
+	}
+	if (n > AT_MAXBYTES) {
+		sb_printf(notes, "%s is larger than 256 KiB: skipped\n", name);
+		free(d);
+		return 0;
 	}
 	if (is_spirv(d, n)) {
 		struct sbuf t = {0};
@@ -311,6 +382,7 @@ one_attachment(const struct discord_attachment *a, struct sbuf *blocks,
 	else
 		add_block(blocks, "", d, n);
 	free(d);
+	return 1;
 }
 
 /* the ``` blocks of a message's text, fences included */
@@ -386,18 +458,20 @@ attach_gather(const struct discord_message *m, uint64_t self,
     int have_block, struct sbuf *blocks, struct sbuf *notes)
 {
 	const struct discord_message *r = m->referenced_message;
-	int k, nf = 0;
+	int k, nf = 0, code = have_block;
 	size_t before = blocks->n;
 
 	if (m->attachments)
 		for (k = 0; k < m->attachments->size && nf < AT_MAXFILES; k++, nf++)
-			one_attachment(&m->attachments->array[k], blocks, notes);
+			code |= one_attachment(&m->attachments->array[k], blocks,
+			    notes);
 	/*
-	 * A reply to someone's message: what it holds.  A reply to the bot
-	 * is a follow-up, its output is not input.
+	 * A reply to someone's message: what it holds (the shader, or a
+	 * gallery of pictures for it).  A reply to the bot is a follow-up,
+	 * its output is not input.
 	 */
 	if (r != NULL && !(r->author && r->author->id == self)) {
-		if (!have_block && blocks->n == before)
+		if (!code)
 			text_blocks(r->content, blocks);
 		if (r->attachments)
 			for (k = 0; k < r->attachments->size && nf < AT_MAXFILES;
