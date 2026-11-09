@@ -1,0 +1,14 @@
+# other bots: only allowlisted ones (UCAS_DISCORD_BOTS, by default 1562594665109393468), addressed explicitly
+{"op": 0, "s": 7001, "t": "MESSAGE_CREATE", "d": {"id": "7001", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:00.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> what is 2^10 + 1?", "type": 0}}
+# no mention: ignored, even from the allowlisted bot
+{"op": 0, "s": 7002, "t": "MESSAGE_CREATE", "d": {"id": "7002", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:01.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "what is 2 + 2?", "type": 0}}
+# the name typed as text is not a mention for a bot
+{"op": 0, "s": 7003, "t": "MESSAGE_CREATE", "d": {"id": "7003", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:02.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "@Wimsy 2 + 2", "type": 0}}
+# a bot not on the allowlist, mentioning: ignored
+{"op": 0, "s": 7004, "t": "MESSAGE_CREATE", "d": {"id": "7004", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:03.000000+00:00", "author": {"id": "55", "username": "u55", "bot": true}, "content": "<@1000> 2 + 2", "type": 0}}
+# a webhook message: ignored
+{"op": 0, "s": 7005, "t": "MESSAGE_CREATE", "d": {"id": "7005", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:04.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 2 + 2", "type": 0, "webhook_id": "77"}}
+# a Discord reply to Wimsy's answer addresses it
+{"op": 0, "s": 7006, "t": "MESSAGE_CREATE", "d": {"id": "7006", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:05.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "and 3 * 14?", "type": 0, "referenced_message": {"id": "8001", "channel_id": "60", "author": {"id": "1000", "username": "Wimsy", "bot": true}, "content": "```\n  ucas: 2^10 + 1\n1025\n```"}}}
+# Wimsy's own messages: ignored
+{"op": 0, "s": 7007, "t": "MESSAGE_CREATE", "d": {"id": "7007", "channel_id": "60", "guild_id": "7", "timestamp": "2026-11-09T12:00:06.000000+00:00", "author": {"id": "1000", "username": "Wimsy", "bot": true}, "content": "<@1000> 1 + 1", "type": 0}}

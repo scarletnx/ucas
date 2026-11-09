@@ -1,0 +1,12 @@
+# a bot's rate limit: 3 at once, then 6 a minute; told once, then ignored
+{"op": 0, "s": 7101, "t": "MESSAGE_CREATE", "d": {"id": "7101", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:00.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 1 + 1", "type": 0}}
+{"op": 0, "s": 7102, "t": "MESSAGE_CREATE", "d": {"id": "7102", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:00.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 2 + 2", "type": 0}}
+{"op": 0, "s": 7103, "t": "MESSAGE_CREATE", "d": {"id": "7103", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:00.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 3 + 3", "type": 0}}
+{"op": 0, "s": 7104, "t": "MESSAGE_CREATE", "d": {"id": "7104", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:01.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 4 + 4", "type": 0}}
+{"op": 0, "s": 7105, "t": "MESSAGE_CREATE", "d": {"id": "7105", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:02.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 5 + 5", "type": 0}}
+# a reply to the notice alone is not a request
+{"op": 0, "s": 7106, "t": "MESSAGE_CREATE", "d": {"id": "7106", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:03.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "ok", "type": 0, "referenced_message": {"id": "8101", "channel_id": "61", "author": {"id": "1000", "username": "Wimsy", "bot": true}, "content": "rate limited: retry in 9 s (3 requests at once, then 6 a minute; until then your messages are ignored)"}}}
+# 12 s later a request is taken again
+{"op": 0, "s": 7107, "t": "MESSAGE_CREATE", "d": {"id": "7107", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:13.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> 6 + 6", "type": 0}}
+# a human is not limited
+{"op": 0, "s": 7108, "t": "MESSAGE_CREATE", "d": {"id": "7108", "channel_id": "61", "guild_id": "7", "timestamp": "2026-11-09T12:00:13.000000+00:00", "author": {"id": "99", "username": "u99"}, "content": "<@1000> 7 + 7", "type": 0}}

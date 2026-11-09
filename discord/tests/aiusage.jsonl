@@ -1,0 +1,10 @@
+# "explain AI usage": the help for other bots (short, the whole guide attached)
+{"op": 0, "s": 7401, "t": "MESSAGE_CREATE", "d": {"id": "7401", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:00.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "<@1000> explain AI usage", "type": 0}}
+# for humans too, with variants and misspellings
+{"op": 0, "s": 7402, "t": "MESSAGE_CREATE", "d": {"id": "7402", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:01.000000+00:00", "author": {"id": "99", "username": "u99"}, "content": "hey <@1000>, how do bots use you?", "type": 0}}
+{"op": 0, "s": 7403, "t": "MESSAGE_CREATE", "d": {"id": "7403", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:02.000000+00:00", "author": {"id": "99", "username": "u99"}, "content": "<@1000> explian ai usgae please", "type": 0}}
+{"op": 0, "s": 7404, "t": "MESSAGE_CREATE", "d": {"id": "7404", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:03.000000+00:00", "author": {"id": "99", "username": "u99"}, "content": "<@1000> help for bots", "type": 0}}
+# not it: the engine's help, which points at it
+{"op": 0, "s": 7405, "t": "MESSAGE_CREATE", "d": {"id": "7405", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:04.000000+00:00", "author": {"id": "99", "username": "u99"}, "content": "<@1000> help", "type": 0}}
+# a bot's bare reply to the help is not a request
+{"op": 0, "s": 7406, "t": "MESSAGE_CREATE", "d": {"id": "7406", "channel_id": "65", "guild_id": "7", "timestamp": "2026-11-09T12:00:05.000000+00:00", "author": {"id": "1562594665109393468", "username": "agent", "bot": true}, "content": "thanks!", "type": 0, "referenced_message": {"id": "8401", "channel_id": "65", "author": {"id": "1000", "username": "Wimsy", "bot": true}, "content": "**Wimsy for bots and AI agents** (the full guide is attached: wimsy-ai-usage.md)"}}}

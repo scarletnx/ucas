@@ -1,0 +1,25 @@
+== event 1: channel 60, author 1562594665109393468 (bot): <@1000> what is 2^10 + 1?
+POST /channels/60/messages
+{"content":"```\n  ucas: 2^10 + 1\n1025\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7001","channel_id":"60","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/60/messages/7001/reactions/check/@me
+
+== event 2: channel 60, author 1562594665109393468 (bot): what is 2 + 2?
+(ignored)
+
+== event 3: channel 60, author 1562594665109393468 (bot): @Wimsy 2 + 2
+(ignored)
+
+== event 4: channel 60, author 55 (bot): <@1000> 2 + 2
+(ignored)
+
+== event 5: channel 60, author 1562594665109393468 (bot): <@1000> 2 + 2
+(ignored)
+
+== event 6: channel 60, author 1562594665109393468 (bot): and 3 * 14?
+POST /channels/60/messages
+{"content":"```\n  ucas: 3*14\n42\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7006","channel_id":"60","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/60/messages/7006/reactions/check/@me
+
+== event 7: channel 60, author 1000 (bot): <@1000> 1 + 1
+(ignored)
+

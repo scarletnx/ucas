@@ -1,0 +1,39 @@
+== event 1: channel 62, author 1562594665109393468 (bot): <@1000> 1 + 1
+POST /channels/62/messages
+{"content":"```\n2\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7201","channel_id":"62","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/62/messages/7201/reactions/check/@me
+
+== event 2: channel 62, author 1562594665109393468 (bot): <@1000> 2 + 2
+POST /channels/62/messages
+{"content":"```\n4\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7202","channel_id":"62","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/62/messages/7202/reactions/check/@me
+
+== event 3: channel 62, author 1562594665109393468 (bot): 3 + 3
+POST /channels/62/messages
+{"content":"reply-chain limit: 2 replies in a row with no human message in between; this chain is not answered any more. Mention me in a new message (not a reply) to start another.","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7203","channel_id":"62","guild_id":"7","fail_if_not_exists":false}}
+(ignored)
+
+== event 4: channel 62, author 1562594665109393468 (bot): <@1000> 4 + 4
+(ignored)
+
+== event 5: channel 62, author 1562594665109393468 (bot): understood
+(ignored)
+
+== event 6: channel 62, author 99: nice
+(ignored)
+
+== event 7: channel 62, author 1562594665109393468 (bot): 5 + 5
+POST /channels/62/messages
+{"content":"```\n10\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7207","channel_id":"62","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/62/messages/7207/reactions/check/@me
+
+== event 8: channel 63, author 1562594665109393468 (bot): <@1000> 6 + 6
+POST /channels/63/messages
+{"content":"```\n12\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7208","channel_id":"63","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/63/messages/7208/reactions/check/@me
+
+== event 9: channel 62, author 1562594665109393468 (bot): <@1000> 7 + 7
+POST /channels/62/messages
+{"content":"```\n14\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7209","channel_id":"62","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/62/messages/7209/reactions/check/@me
+

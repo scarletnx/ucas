@@ -9,6 +9,8 @@
 #include "discord.h"
 
 #include "text.h"
+#include "botuse.h"
+#include "dcjson.h"
 
 int dc_selftest(void);
 
@@ -189,12 +191,99 @@ test_json(void)
 	CHECK(strstr(buf, "\"parse\":[]") != NULL);
 }
 
+/* other bots: the allowlist, the limits, the phrases, the help text */
+static void
+test_botuse(void)
+{
+	static const char *const yes[] = {"explain AI usage", "Explain AI use",
+	    "explain ai usage?", "explian ai usgae", "AI usage", "usage for AI",
+	    "help for bots", "bot usage", "how do bots use you?",
+	    "How do bots uSe you", "explain A.I. usage", "explain AI usage "
+	    "please", "please explain ai usage!", "AI's usage", "help for bot",
+	    "explain ai useage", NULL};
+	static const char *const no[] = {"help", "explain", "usage",
+	    "range isqrt(x: u4)", "explain ai usage of x squared", "ai",
+	    "bots", "integrate ai usage", "use gt1030", "a usage", "", "help me",
+	    NULL};
+	struct bu_conf c;
+	struct sbuf b = {0};
+	char *h;
+	int k, nt, w;
+
+	CHECK(bu_conf_parse(&c, "deny") && c.nallow == 0);
+	CHECK(bu_conf_parse(&c, "") && c.nallow == 0);
+	CHECK(bu_conf_parse(&c, "1, 22,333") && c.nallow == 3 &&
+	    c.allow[1] == 22 && c.allow[2] == 333);
+	CHECK(!bu_conf_parse(&c, "allow") && c.nallow == 0);
+	CHECK(!bu_conf_parse(&c, "12x") && c.nallow == 0);
+	CHECK(bu_conf_parse(&c, BU_DEFAULT_BOTS) && c.nallow == 1 &&
+	    c.allow[0] == 1562594665109393468ULL);
+	bu_conf = c;
+	bu_conf.rate = 6;
+	bu_conf.burst = 2;
+	bu_conf.chain = 2;
+	bu_reset();
+	CHECK(bu_allowed(1562594665109393468ULL) && !bu_allowed(55));
+	/* 2 at once, then one per 10 s; told once */
+	CHECK(bu_rate(7, 1000, &nt) == 0 && !nt);
+	CHECK(bu_rate(7, 1000, &nt) == 0);
+	CHECK((w = bu_rate(7, 1000, &nt)) == 10 && nt);
+	CHECK(bu_rate(7, 5000, &nt) == 6 && !nt);
+	CHECK(bu_rate(8, 5000, &nt) == 0);	/* per bot */
+	CHECK(bu_rate(7, 11000, &nt) == 0);
+	CHECK(bu_rate(7, 11000, &nt) == 10 && nt);
+	/* chains: replies deepen, a mention restarts, a human ends them */
+	CHECK(bu_chain(1, 7, 0, &nt) && bu_chain(1, 7, 1, &nt));
+	CHECK(!bu_chain(1, 7, 1, &nt) && nt);
+	CHECK(!bu_chain(1, 7, 1, &nt) && !nt);
+	CHECK(bu_chain(2, 7, 1, &nt));		/* per channel */
+	bu_human(1);
+	CHECK(bu_chain(1, 7, 1, &nt) && bu_chain(1, 7, 1, &nt));
+	CHECK(!bu_chain(1, 7, 1, &nt) && nt);
+	CHECK(bu_chain(1, 7, 0, &nt));
+	for (k = 0; yes[k]; k++) {
+		ncheck++;
+		if (!bu_is_ai_usage(yes[k])) {
+			nfail++;
+			printf("FAIL ai usage: \"%s\" not recognised\n", yes[k]);
+		}
+	}
+	for (k = 0; no[k]; k++) {
+		ncheck++;
+		if (bu_is_ai_usage(no[k])) {
+			nfail++;
+			printf("FAIL ai usage: \"%s\" taken for it\n", no[k]);
+		}
+	}
+	CHECK(bu_is_notice("rate limited: retry in 3 s"));
+	CHECK(bu_is_notice(BU_HELP_HEAD "`explain AI usage`"));
+	CHECK(!bu_is_notice("```\n2\n```"));
+	/* the short help fits a message, with the longest ids */
+	h = bu_help(0, 18446744073709551615ULL, "Wimsy", 3600, 3600);
+	CHECK(strlen(h) <= DC_LIMIT && bu_is_notice(h));
+	CHECK(strstr(h, "<@18446744073709551615>") && !strstr(h, "{RATE}"));
+	free(h);
+	h = bu_help(1, 1000, "Wimsy", 10, 20);
+	CHECK(strstr(h, "<@1000>") && strstr(h, "user id 1000") &&
+	    strstr(h, "10 s of CPU, 20 s") && !strstr(h, "{MENTION}"));
+	free(h);
+	/* the ```json block */
+	CHECK(dj_find("x ```json\n{\"cmd\": \"help\"}\n``` y", &b) &&
+	    !strcmp(b.p, "\n{\"cmd\": \"help\"}\n"));
+	CHECK(dj_find("```JSON {}```", &b) && !strcmp(b.p, " {}"));
+	CHECK(!dj_find("```jsonl\n{}\n```", &b));
+	CHECK(!dj_find("```\n{}\n```", &b));
+	free(b.p);
+	bu_conf_env();
+}
+
 int
 dc_selftest(void)
 {
 	test_prefix();
 	test_format();
 	test_json();
+	test_botuse();
 	printf("%s: %d checks, %d failed\n", nfail ? "FAIL" : "ok", ncheck,
 	    nfail);
 	return nfail != 0;

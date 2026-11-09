@@ -1,0 +1,36 @@
+== event 1: channel 61, author 1562594665109393468 (bot): <@1000> 1 + 1
+POST /channels/61/messages
+{"content":"```\n2\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7101","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/61/messages/7101/reactions/check/@me
+
+== event 2: channel 61, author 1562594665109393468 (bot): <@1000> 2 + 2
+POST /channels/61/messages
+{"content":"```\n4\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7102","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/61/messages/7102/reactions/check/@me
+
+== event 3: channel 61, author 1562594665109393468 (bot): <@1000> 3 + 3
+POST /channels/61/messages
+{"content":"```\n6\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7103","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/61/messages/7103/reactions/check/@me
+
+== event 4: channel 61, author 1562594665109393468 (bot): <@1000> 4 + 4
+POST /channels/61/messages
+{"content":"rate limited: retry in 9 s (3 requests at once, then 6 a minute; until then your messages are ignored)","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7104","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+(ignored)
+
+== event 5: channel 61, author 1562594665109393468 (bot): <@1000> 5 + 5
+(ignored)
+
+== event 6: channel 61, author 1562594665109393468 (bot): ok
+(ignored)
+
+== event 7: channel 61, author 1562594665109393468 (bot): <@1000> 6 + 6
+POST /channels/61/messages
+{"content":"```\n12\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7107","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/61/messages/7107/reactions/check/@me
+
+== event 8: channel 61, author 99: <@1000> 7 + 7
+POST /channels/61/messages
+{"content":"```\n14\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7108","channel_id":"61","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/61/messages/7108/reactions/check/@me
+
