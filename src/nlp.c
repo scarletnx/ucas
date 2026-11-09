@@ -303,6 +303,7 @@ struct word {
 	uint8_t k;
 	uint8_t sp;      /* whitespace before */
 	uint8_t poss;    /* followed by 's */
+	uint8_t prime;   /* y', f'': a derivative in ucas notation */
 	char s[40];      /* lower case; symbols "|" "||" "?" are BAR OROR QUES */
 	char o[40];      /* as written */
 };
@@ -393,6 +394,9 @@ push_word(const char *s, size_t n, int sp)
 	}
 }
 
+static struct func *user_fn(const char *name);
+static int pending_name(const char *w);
+
 static void
 tokenize(const char *s)
 {
@@ -479,6 +483,27 @@ tokenize(const char *s)
 					j++;   /* thirty-two, non-negative */
 				} else
 					break;
+			}
+			/*
+			 * primes after a name, y' f'' f'(x), are ucas notation passed
+			 * through; a contraction (what's, f's) has a letter after the
+			 * quote and was taken above
+			 */
+			if (s[j] == '\'' && !memchr(s + i, '\'', j - i)) {
+				k = j;
+				while (s[k] == '\'')
+					k++;
+				char base[40];
+				snprintf(base, sizeof base, "%.*s", (int)(j - i), s + i);
+				/* not a plural possessive: "the functions' values" */
+				if (!isalnum((unsigned char)s[k]) && s[k] != '_' &&
+				    k - j <= 4 && (j - i <= 2 || user_fn(base) ||
+				    pending_name(base))) {
+					push(W_WORD, s + i, k - i, sp);
+					W[nw - 1].prime = (uint8_t)(k - j);
+					i = k;
+					continue;
+				}
 			}
 			push_word(s + i, j - i, sp);
 			i = j;
@@ -1387,7 +1412,7 @@ varlike(int i)
 {
 	const char *w = W[i].s, *p;
 
-	if (W[i].k != W_WORD)
+	if (W[i].k != W_WORD || W[i].prime)
 		return 0;
 	if (var_find(W[i].o) || known_name(W[i].o) || in_list(greek, w))
 		return 1;
@@ -1442,6 +1467,8 @@ static struct {
 	int crit;             /* critical points asked for explicitly */
 	int steps;            /* dsolve: output steps */
 	char ode[32];         /* dsolve: the unknown */
+	const char *pre[8];   /* dsolve: y' = ..., y(0) = ... given inline */
+	int npre;
 	const char *pcmd;     /* C_PCMD: monotonic, period, ... (props.c) */
 	/* plot (plot.c): the functions, the command, raw options */
 	struct tgt pl[6];
@@ -2313,6 +2340,46 @@ fraction:
 	}
 	if (mat("true|false"))
 		return num(S("%s", W[wi - 1].s));
+	/* a derivative in ucas notation: f'(3), f'', y' (an ODE's unknown) */
+	if (W[wi].k == W_WORD && W[wi].prime) {
+		const char *nm = S("%s", W[wi].o);
+		char base[40];
+		snprintf(base, sizeof base, "%.*s", (int)(strlen(nm) - W[wi].prime),
+		    nm);
+		wi++;
+		f = user_fn(base);
+		if (f && issym("(") && !W[wi].sp) {
+			struct sbuf sb = {0};
+			int allp = 1, nv0 = nv;
+			struct var v0[MAXV];
+			memcpy(v0, V, sizeof V);
+			wi++;
+			sb_printf(&sb, "%s(", nm);
+			e = mkatom("", 0, 0);
+			k = 0;
+			do {
+				a = parse_expr(P_TERN);
+				if (k >= f->np || strcmp(a.s, sym_str(f->p[k].name)))
+					allp = 0;
+				sb_printf(&sb, "%s%s", k++ ? ", " : "", a.s);
+				e.ity = icomb(e.ity, a.ity);
+			} while (acc_sym(","));
+			if (!acc_sym(")"))
+				nfail("expected ')' after the arguments of %s", nm);
+			sb_putc(&sb, ')');
+			/* f'(x) at its own parameters is the derivative f' */
+			e.s = allp && k == f->np ? nm : S("%s", sb.p);
+			if (allp && k == f->np) {
+				e.ity = 0;
+				memcpy(V, v0, sizeof V);
+				nv = nv0;
+			}
+			e.closed = 1;
+			free(sb.p);
+			return e;
+		}
+		return mkatom(nm, 0, 0);
+	}
 	/* calls in ucas notation: sin(x), min(a, b), u8(x) */
 	if (builtin_call(wi)) {
 		const char *fn = W[wi].o;
@@ -2496,7 +2563,8 @@ parse_postfix(struct ex e, int minprec)
 		}
 		/* 2x, 3(x + 1) */
 		if (e.lit && e.prec == P_ATOM && !W[wi].sp && ((varlike(wi) &&
-		    !peek("th|st|nd|rd")) || issym("("))) {
+		    !peek("th|st|nd|rd")) || issym("(") || (W[wi].k == W_WORD &&
+		    W[wi].prime))) {
 			x = parse_expr(P_POW);
 			e = mkbin(e, "*", x, P_MUL);
 			continue;
@@ -2568,6 +2636,15 @@ parse_expr(int minprec)
 		}
 		if (issym(",")) {
 			wi++;
+			/*
+			 * "x squared, plus one" goes on; "(y, -x)", "(1, -2)" start
+			 * the next item: a sign symbol after the comma
+			 */
+			if (W[wi].k == W_SYM && (!strcmp(W[wi].s, "-") ||
+			    !strcmp(W[wi].s, "+"))) {
+				wi = s;
+				break;
+			}
 			o = peek_bop();
 			if (o == NULL || (o->kind != B_NORM && o->kind != B_SWAP &&
 			    o->kind != B_OVER) || o->prec < P_CMP) {
@@ -5487,6 +5564,80 @@ no:
 #include "calc2.h"
 #include "nlp_calc2.inc"   /* derivatives, limits, series ... (calc2) */
 
+/*
+ * "solve y' = -2y + 1 with y(0) = 3": the ODE (or a system, "x' = y and
+ * y' = -x") and its initial values in ucas notation, defined before the
+ * dsolve
+ */
+static void
+solve_inline(void)
+{
+	struct ex a, b;
+
+	while (W[wi].k == W_WORD && W[wi].prime) {
+		const char *nm = S("%s", W[wi].o);
+		wi++;
+		if (!acc_sym("=") && !mat("equals|is ?equal ?to"))
+			nfail("expected '=' after %s", nm);
+		a = parse_expr(P_CMP + 1);
+		if (Q.npre == 8)
+			nfail("that is too many equations for me");
+		Q.pre[Q.npre++] = S("%s = %s", nm, a.s);
+		if (!Q.ode[0])
+			snprintf(Q.ode, sizeof Q.ode, "%.*s", (int)strcspn(nm, "'"),
+			    nm);
+		{
+			int s = wi;
+			if ((acc_sym(",") || mat("and")) && W[wi].k == W_WORD &&
+			    W[wi].prime && W[wi + 1].k == W_SYM &&
+			    !strcmp(W[wi + 1].s, "="))
+				continue;
+			wi = s;
+		}
+		break;
+	}
+	/* initial values: with y(0) = 3 and y'(0) = 1 */
+	{
+		int s = wi;
+		if (acc_sym(",") || mat("with|where|given|if|when|and|for"))
+			;
+		mat("?the ?initial ?value|values|condition|conditions");
+		mat("?of");
+		if (!(W[wi].k == W_WORD && W[wi + 1].k == W_SYM &&
+		    !strcmp(W[wi + 1].s, "("))) {
+			wi = s;
+			Q.cmd = C_DSOLVE;
+			return;
+		}
+	}
+	for (;;) {
+		const char *nm;
+		if (!(W[wi].k == W_WORD && W[wi + 1].k == W_SYM &&
+		    !strcmp(W[wi + 1].s, "(")))
+			break;
+		nm = S("%s", W[wi].o);
+		wi += 2;
+		a = parse_expr(P_TERN);
+		if (!acc_sym(")"))
+			nfail("expected ')' in the initial value %s(%s", nm, a.s);
+		if (!acc_sym("=") && !mat("equals|is ?equal ?to"))
+			nfail("expected '=' after %s(%s)", nm, a.s);
+		b = parse_expr(P_CMP + 1);
+		if (Q.npre == 8)
+			nfail("that is too many equations for me");
+		Q.pre[Q.npre++] = S("%s(%s) = %s", nm, a.s, b.s);
+		{
+			int s = wi;
+			if ((acc_sym(",") || mat("and")) && W[wi].k == W_WORD &&
+			    W[wi + 1].k == W_SYM && !strcmp(W[wi + 1].s, "("))
+				continue;
+			wi = s;
+		}
+		break;
+	}
+	Q.cmd = C_DSOLVE;
+}
+
 static void
 sentence(void)
 {
@@ -5612,6 +5763,10 @@ sentence(void)
 	if (mat("solve|dsolve")) {
 		mat("?the ?ode|odes|pde|pdes|equation|equations|system");
 		mat("?for");
+		if (W[wi].k == W_WORD && W[wi].prime) {
+			solve_inline();
+			return;
+		}
 		if (W[wi].k != W_WORD)
 			nfail("solve what? (the ODE's unknown, e.g. solve y from 0 "
 			    "to 2)");
@@ -6248,6 +6403,8 @@ finish(void)
 		return;
 	}
 	if (Q.cmd == C_DSOLVE) {
+		for (k = 0; k < Q.npre; k++)
+			emit(Q.pre[k]);
 		sb_printf(&sb, "dsolve %s", Q.ode);
 		if (Q.ilo)
 			sb_printf(&sb, " from %s to %s", Q.ilo, Q.ihi);
@@ -6776,6 +6933,15 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 		    ((unsigned char)line[i + 2] == 0x98 ||
 		    (unsigned char)line[i + 2] == 0x99)) {
 			buf[j++] = '\'';
+			i += 2;
+		} else if ((unsigned char)line[i] == 0xe2 && i + 2 < n &&
+		    (unsigned char)line[i + 1] == 0x80 &&
+		    ((unsigned char)line[i + 2] == 0xb2 ||
+		    (unsigned char)line[i + 2] == 0xb3)) {
+			/* the primes ′ ″ */
+			buf[j++] = '\'';
+			if ((unsigned char)line[i + 2] == 0xb3)
+				buf[j++] = '\'';
 			i += 2;
 		} else if ((unsigned char)line[i] == 0xe2 && i + 2 < n &&
 		    (unsigned char)line[i + 1] == 0x80 &&

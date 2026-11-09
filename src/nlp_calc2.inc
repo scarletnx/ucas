@@ -52,7 +52,7 @@ c2_juxt(int i)
 	if (W[i + 1].k == W_SYM && (!strcmp(W[i + 1].s, "=") ||
 	    !strcmp(W[i + 1].s, ":")))
 		return 0;
-	if (in_list(fns, W[i].s))
+	if (in_list(fns, W[i].s) || W[i].prime)
 		return 1;
 	return varlike(i) && !isw(i + 1, "is") && !isw(i + 1, "are") &&
 	    !isw(i + 1, "be") && !isw(i + 1, "and");
