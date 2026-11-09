@@ -23,6 +23,8 @@ compiler, GPL-3.0-or-later as well; it is why ucas is GPLv3.
 ```sh
 make            # FreeBSD make or bmake
 make test       # tests/*.ucas must print tests/*.out
+                # (tests run with UCAS_SPIRV_CROSS=none; NAME.env replaces
+                # that, and a NAME.needs test is skipped without its tool)
 ./ucas file.ucas    # run a file (each statement is echoed)
 ./ucas -e 'range isqrt(x: u4)'
 ./ucas          # interactive
@@ -169,7 +171,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
-| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it |
+| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to.  A shader with images (textures, samplers, storage images) also runs over a whole image, with image inputs you choose: see [Shaders on images](#shaders-on-images) |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
@@ -784,6 +786,14 @@ behind it.  English only; the translator is a hand-written parser
   generating function of fibonacci`, `the exponential generating
   function of 2^n`, `the power series of e^(2x)`, `the asymptotic
   expansion of the sum of 1/k`; see "Transforms, series and sums").
+- **Code blocks**: a request followed by a fenced block is about that
+  block.  `SAT simplify`, `simplify this`, `optimize this`, `peephole
+  with smt`, `make it faster`, `superoptimize`, `find something
+  cheaper`, with `budget 20`, `n in [0, 32)` or `n < 32`, `nofile`,
+  simplify a SPIR-V or GLSL block (and show spirv-cross's GLSL of the
+  result, see "GLSL view") or run the C frontend on a C block (`for
+  zen4`, `and test it` too; see "C frontend"); which language the block
+  is comes from its tag, or from its content when it has none.
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
@@ -1027,6 +1037,8 @@ Examples:
 {"cmd": "infinite_sum", "args": {"index": "n", "f": "1/n^2"}}
 {"cmd": "revolve", "args": {"f": "sqrt(x)", "from": 0, "to": 4, "about": "x"}}
 {"cmd": "spirv_simplify", "args": {"code": "vec3 decode(vec3 c) { ... }", "float_only": true, "float_ranges": {"c": [0, 1]}}}
+{"cmd": "spirv_simplify", "args": {"code": "unsigned shr(unsigned x, unsigned n) { ... }", "lang": "c", "ranges": {"n": [0, 31]}}}
+{"cmd": "english", "args": {"text": "SAT simplify", "code": "unsigned f(unsigned x) { return (x * 8) / 4; }", "lang": "c"}}
 {"cmd": "animate", "args": {"code": "#version 450 ...", "inputs": [{"png_base64": "iVBORw0..."}, {"color": "black"}, "checker"], "output_format": "RG8", "size": "128x128", "sampler": "nearest clamp", "seed": 1}}
 ```
 
@@ -1540,6 +1552,57 @@ with one multiply; and `PAllowed(s)` the same on all four passes of
 FitSubset's loop.  It does not yet go further with Quant (two of guess
 - 1, guess, guess + 1 are left by the parity rules, so a branch-free
 comparison of two candidates would do).
+
+## GLSL view
+
+SPIR-V is hard to read, so after `simplify` writes `simplified.spvasm`
+it shows what changed as GLSL: the rewritten module is assembled
+(`spirv-as`), validated (`spirv-val`) and cross-compiled with
+`spirv-cross --vulkan-semantics` at the source's `#version` (ES with
+`--es` when the source was ES), into `simplified.glsl`; the module as
+`spirv-opt -O` left it, before the rewrites, goes the same way into
+`original.glsl`, and the report shows a unified diff of the two (at most
+40 lines):
+
+```
+  GLSL view (spirv-cross's reconstruction of the SPIR-V, with its own names, not your source):
+    --- original.glsl (spirv-opt -O)
+    +++ simplified.glsl
+    @@ -14,7 +14,7 @@
+     void main()
+     {
+    -    uint _25 = ucas_args.Skip_n;
+    -    _5.s.x = (_5.s.x >> _25) | ((_5.s.y << 1u) << (31u - _25));
+    -    _5.s.w = _5.s.w >> _25;
+    +    uint _26 = ucas_args.Skip_n;
+    +    _5.s.x = (_5.s.x >> _26) | (_5.s.y << (32u - _26));
+    +    _5.s.w = _5.s.w >> _26;
+     }
+```
+
+It is spirv-cross's reconstruction of the SPIR-V, not the user's
+source: functions spirv-opt inlined are in `main`, temporaries have
+spirv-cross's names (`_26`), and an id the rewrites renumbered changes
+its name.  The command line writes both files; JSON and MCP put the
+diff in the result's `glsl_view` and the GLSL in `glsl`, and list both
+files in `files`; the Discord bot attaches `simplified.glsl` next to
+`simplified.spvasm` (its engine runs in a sandbox that cannot start
+programs, so the bot makes the view, with the same code).  A SPIR-V
+snippet completed by ucas leaves its inputs undefined, so spirv-val
+rejects it and the view is skipped with a note.
+
+spirv-cross is an external tool, like glslangValidator: ucas looks for
+`spirv-cross` on `PATH` (`UCAS_SPIRV_CROSS` names another one, a path or
+a name; `none` turns the view off silently).  When it is missing, or a
+step fails, a note says so and simplify carries on without the view.
+The one used here is FreeBSD's package `spirv-cross-1.4.357.0`
+(`pkg install spirv-cross`, Khronos tag `vulkan-sdk-1.4.357.0`, which
+pairs with the installed spirv-tools and spirv-headers 1.4.357.0); the
+expected outputs of the tests that need it (`tests/glslview.ucas`,
+`tests/json/glslview.jsonl`, `tests/mcp/glslview.jsonl`,
+`discord/tests/glslview.jsonl`, each with a `.needs` file) were made
+with it, and they are skipped where it is not installed.
+`tests/glslview_absent.ucas` is the same run without it.
 
 ## Loops and calculus
 
@@ -2191,9 +2254,48 @@ cc and compare them on edge and random inputs, inputs on which the
 original has UB skipped by UBSan); `bench` (also time both with rdtsc);
 `timed` (print the seconds); `trace` (every candidate and why it was not
 taken); `vecstub` (the stub vectoriser, below); `keep` (keep `check`'s
-build directory).  English works too: "optimize this C for zen4 and test
-it" before a ```` ```c ```` block.  JSON `c_optimize`, `c_lower`,
-`c_targets` (an input range is `range`: `"x 0 1000"`); MCP tool `c`.
+build directory).  JSON `c_optimize`, `c_lower`, `c_targets` (an input
+range is `range`: `"x 0 1000"`); MCP tool `c`.
+
+**In English, and "SAT simplify" on C.**  Any of simplify's phrasings
+before a C block runs `c optimize` on it: "SAT simplify", "simplify
+this", "optimize this C for zen4 and test it", "peephole with smt",
+"make it faster".  The options that mean the same carry over: `budget
+20`, a target named (`for zen4`), ranges (`n in [0, 32)`, `n in 0..31`,
+`n < 32` become `assume n 0 31`), `check` ("test it", "verify"),
+`bench`, `wrapv`, `trace`, `nofile`; float options are SPIR-V's only.
+"lower this C" runs `c lower`.  A bare block with no words is not run,
+as a bare SPIR-V or GLSL block is not.
+
+````
+SAT simplify
+```c
+unsigned shr(unsigned x, unsigned n) { return n < 32 ? x >> n : 0; }
+```
+make it faster for zen4 with n in [0, 32)
+```c
+...
+```
+````
+
+Which language a block is (`src/codelang.c`): the tag decides when there
+is one: ```` ```glsl ```` (and `comp`, `frag`, `vert` ...) is GLSL,
+```` ```c ```` / ```` ```h ```` is C, ```` ```spv ```` is SPIR-V.  A
+```` ```c ```` block with GLSL's marks (`uint`, `vec3`, `layout(`,
+`gl_`, `#version`) and none of C's is GLSL tagged for its colours, and a
+note says so.  An untagged block is read from its content,
+conservatively: marks only C has (`#include`, `unsigned`, `uint32_t`,
+`char`, `static`, `->`, pointer declarations) make it C, marks only GLSL
+has make it GLSL; with both or neither (`int twice(int x) { return x +
+x; }`) it is GLSL, as before, with a note to tag it ```` ```c ```` for
+the C frontend.  In Discord a C block's rewritten code comes back as an
+attached `simplified.c` (with a preview), and an attached `.c`/`.h`
+file, or a text file that is C by its content, is read as a C block.
+Over JSON, `english` takes the block as `code` (and `lang`), and
+`spirv_simplify` given C (`"lang": "c"`, or C by its content) runs it
+through the C frontend as `c optimize` with its `budget`, `ranges` and
+`nofile` (the result is a `c_optimize` one; a note points to
+`c_optimize` for a target and `check`).
 
 **Pipeline** (`src/cfront.h`, `cf_*.c`):
 
@@ -2756,8 +2858,9 @@ and for a Discord reply to someone else's message that message's
 so `@Wimsy animate exec of this` works on a posted shader.  Binary
 SPIR-V goes through `spirv-dis`; GLSL (`.comp`, `.frag`, `.vert`,
 `.glsl` ..., the stage from the extension or what the code uses)
-through `glslangValidator -V` and then `spirv-dis`; SPIR-V assembly and
-other text are added as they are.  Images (PNG, JPEG, GIF, BMP, PPM)
+through `glslangValidator -V` and then `spirv-dis`; C (`.c`, `.h`, or
+text that is C by its content) as a ```` ```c ```` block for the C
+frontend; SPIR-V assembly and other text are added as they are.  Images (PNG, JPEG, GIF, BMP, PPM)
 are the shader's image inputs, in attachment order (see [Shaders on
 images](#shaders-on-images)): a gallery posted by someone, replied to
 with `@Wimsy run this on these, for input 1 use pure black` and the
@@ -2902,7 +3005,9 @@ engine code.
 passes them through the same handler as the live bot and prints each
 REST request it would make.  `ucas-discord --selftest` checks the
 prefix and fence handling, message splitting and the JSON codecs.
-`make discord-test` runs both against `discord/tests/*.jsonl`.
+`make discord-test` runs both against `discord/tests/*.jsonl`, with
+`UCAS_SPIRV_CROSS=none` unless `NAME.env` sets it; a test with a
+`NAME.needs` file is skipped when that tool is missing.
 
 ## Proofs
 
