@@ -30,6 +30,7 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "cfront.h"
 #include "prove.h"
 #include "props.h"
 #include "ring.h"
@@ -7712,6 +7713,11 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	/* cfront: "c optimize ...", "c lower ...", "c targets" are ucas */
+	if (n - i > 2 && s[i] == 'c' && s[i + 1] == ' ' &&
+	    (!strncmp(s + i + 2, "optimi", 6) || !strncmp(s + i + 2, "lower", 5) ||
+	    !strncmp(s + i + 2, "targets", 7)))
+		return 0;
 	if (ecff_is_cmd(s + i, n - i))
 		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	{
@@ -8411,7 +8417,17 @@ run_text(const char *src, const char *file, int echo)
 	for (;;) {
 		const char *c;
 		next = next_code_block(rest, &piece);
-		if (code_block && glsl_like(code_block, code_block_lang)) {
+		if (code_block && cfront_claims(piece.p, code_block_lang)) {
+			/* C for cfront (cf_cmd.c): English becomes the command */
+			struct sbuf cmd = {0};
+			if (cfront_english(piece.p, &cmd)) {
+				/* the same lines, the statement's one rewritten */
+				sb_clear(&piece);
+				sb_puts(&piece, cmd.p);
+			}
+			free(cmd.p);
+			snprintf(code_block_lang, sizeof code_block_lang, "c");
+		} else if (code_block && glsl_like(code_block, code_block_lang)) {
 			/* GLSL: compiled to SPIR-V (the command line; the bot
 			 * converts before it sends) */
 			static struct sbuf spv;
@@ -8442,7 +8458,8 @@ run_text(const char *src, const char *file, int echo)
 		run_text_plain(pad.p, file, echo);
 		if (code_block && !code_block_used && !nlp_asked)
 			printf("  note: the ```%s code block was not used (animate "
-			    "exec and simplify take SPIR-V)\n", code_block_lang);
+			    "exec and simplify take SPIR-V, c optimize takes C)\n",
+			    code_block_lang);
 		code_block = NULL;
 		if (next == NULL || *next == 0 || nlp_asked)
 			break;

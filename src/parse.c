@@ -22,6 +22,7 @@
  *                            give a real
  */
 #include "ucas.h"
+#include "cfront.h"
 #include "prove.h"
 #include "props.h"
 #include "ring.h"
@@ -2319,8 +2320,65 @@ static void run_source1(const char *src, const char *file, int echo);
  * caller's fail_jmp is put back, or a later fail() jumps into a frame
  * that has returned.
  */
+/*
+ * cfront's commands take file paths and C, which the ucas lexer does not
+ * read: a line starting "c optimize", "c lower" or "c targets" runs on
+ * its text (cf_cmd.c), the rest around it as usual.
+ */
+static int
+c_line(const char *p, size_t n)
+{
+	return n > 2 && p[0] == 'c' && p[1] == ' ' && (!strncmp(p + 2, "optimi",
+	    6) || !strncmp(p + 2, "lower", 5) || !strncmp(p + 2, "targets", 7));
+}
+
+static void run_source0(const char *src, const char *file, int echo);
+
 void
 run_source(const char *src, const char *file, int echo)
+{
+	const char *p = src, *seg = src;
+
+	while (*p) {
+		const char *e = strchr(p, '\n');
+		if (e == NULL)
+			e = p + strlen(p);
+		if (c_line(p, (size_t)(e - p))) {
+			jmp_buf saved;
+			char *line;
+			if (p > seg) {
+				char *pre = xmalloc((size_t)(p - seg) + 1);
+				memcpy(pre, seg, (size_t)(p - seg));
+				pre[p - seg] = 0;
+				run_source0(pre, file, echo);
+				free(pre);
+			}
+			line = xmalloc((size_t)(e - p) + 1);
+			memcpy(line, p, (size_t)(e - p));
+			line[e - p] = 0;
+			if (echo)
+				printf("> %s\n", line);
+			memcpy(saved, fail_jmp, sizeof saved);
+			if (setjmp(fail_jmp) == 0)
+				cfront_line(line + 2);
+			else
+				rep_failed();
+			memcpy(fail_jmp, saved, sizeof saved);
+			notes_flush();
+			fflush(stdout);
+			free(line);
+			seg = *e ? e + 1 : e;
+		}
+		p = *e ? e + 1 : e;
+	}
+	if (seg == src)
+		run_source0(src, file, echo);
+	else if (*seg)
+		run_source0(seg, file, echo);
+}
+
+static void
+run_source0(const char *src, const char *file, int echo)
 {
 	jmp_buf saved;
 	struct toks *dt = diag_toks;

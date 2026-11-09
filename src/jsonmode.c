@@ -548,6 +548,37 @@ static const struct jcmd cmds[] = {
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
 	    "range (closed)", NULL}}},
+	/* cfront: C99 in, proved and x86-64-optimised C out (cf_*.c) */
+	{"c_optimize", "c optimize", 1, 0, "C99 in, faster C out for an "
+	    "x86-64 target: each rewrite proved (exhaustively, by SAT, by a "
+	    "derivation or by induction) against the original under C99 LP64 "
+	    "semantics with IEEE floats, unproved ones not applied; loops in "
+	    "closed form, element-wise loop bodies, strlen scans",
+	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
+	    TO("file", " %s", "a .c file instead of code"),
+	    TO("target", " target %s", "x86-64-v3 (default), zen4, skylake, "
+	    "alderlake, x86-64-v2 ... (c_targets)"),
+	    NUO("budget", " budget %s", "seconds for proofs (10)"),
+	    TO("range", " assume %s", "NAME LO HI: a contract on an input "
+	    "(\"x 0 1000\")"),
+	    BO("check", " check", "compile both with the host cc and compare "
+	    "them on edge and random inputs (UB inputs skipped)"),
+	    BO("bench", " bench", "check, and time both with rdtsc"),
+	    BO("wrapv", " wrapv", "signed overflow wraps (do not exploit UB)"),
+	    BO("nofile", " nofile", "print the code instead of a file"),
+	    BO("timed", " timed", "say how many seconds the proofs took"),
+	    BO("trace", " trace", "list every candidate and why it was not "
+	    "taken"),
+	    BO("vecstub", " vecstub", "a stub vectoriser that rebuilds each "
+	    "counted loop from its IR (tests the loop extraction)")}},
+	{"c_lower", "c lower", 1, 0, "each C function as one ucas value of "
+	    "its parameters (with the C UB as a domain condition), or why not; "
+	    "for the others, each counted loop in the vectoriser's IR",
+	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
+	    TO("file", " %s", "a .c file instead of code"),
+	    BO("wrapv", " wrapv", "signed overflow wraps")}},
+	{"c_targets", "c targets", 1, 0, "the x86-64 targets and their "
+	    "instruction-set features", {{NULL, 0, 0, NULL, NULL, NULL}}},
 	/* abstract algebra (absalg_cmd.c): exact, every claim certified */
 #define ZM_(n, fr, d) {n, P_MATRIX, 1, fr, d, NULL}
 #define GRP(n, fr) TX(n, fr, "an abelian group: \"Z/4 + Z/6\", " \
@@ -2347,8 +2378,11 @@ handle(const struct jv *rq)
 			for (k = 0; ans && k < ans->n; k++)
 				sb_printf(&r.stmt, "\x1e" "answer %s\n", ans->v[k]->s);
 			sb_puts(&r.stmt, jv_gets(a, "text"));
-		} else if (!r.c->special)
+		} else if (!r.c->special) {
 			build(&r);
+			if (!strncmp(cmd, "c_", 2))	/* cfront: C source */
+				code = jv_gets(a, "code");
+		}
 	}
 	if (r.ecode) {
 		rep_error(r.ecode, r.err);   /* unless an ambiguity is there */
@@ -2392,7 +2426,7 @@ handle(const struct jv *rq)
 		res = NULL;
 		if (code) {
 			code_block = code;
-			if (glsl_like(code, "")) {
+			if (strncmp(cmd, "c_", 2) && glsl_like(code, "")) {
 				struct sbuf nt = {0};
 				sb_clear(&glsl);
 				if (glsl_to_spvasm(code, &glsl, &nt)) {
@@ -2404,7 +2438,7 @@ handle(const struct jv *rq)
 					    nt.p ? nt.p : "");
 				free(nt.p);
 			}
-			snprintf(code_block_lang, sizeof code_block_lang, "spv");
+			snprintf(code_block_lang, sizeof code_block_lang, "%s", strncmp(cmd, "c_", 2) ? "spv" : "c");
 		}
 		jv_set(resp, "ucas", jv_str(sb_str(&src)));
 		if (!strcmp(cmd, "english")) {
