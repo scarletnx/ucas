@@ -1137,7 +1137,7 @@ of a call:
   again with `args.assume.KEY`.
 
 **Tools: grouped by default.**  There are about 120 commands.  As one
-tool each they make a 690 KB `tools/list`, and several clients cap or
+tool each they make a 340 KB `tools/list`, and several clients cap or
 truncate the tool list, so by default there is one tool per area, with
 an `op` and the op's `args`:
 
@@ -1168,7 +1168,7 @@ The trade: a model picks among 14 tools and reads one description,
 instead of scanning 120; the price is that an op's arguments are checked
 by ucas (a precise `bad_request` error) rather than by the client.
 `--flat` gives one tool per command with its exact `inputSchema` (no
-`outputSchema` there, to keep the list at 690 KB rather than 950 KB),
+`outputSchema` there, to keep the list at 340 KB rather than 690 KB),
 for clients that prefer it.  A command added to `src/jsonmode.c`'s table
 appears in both forms (in `--mcp` it is a tool of its own until it is
 named in a group in `src/mcp.c`).
