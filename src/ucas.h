@@ -115,6 +115,7 @@ enum {
 	O_ATOMIC,    /* atomic_op(x, v): old value x; ki = AT_* | scope */
 	/* approx: more functions, sign transfer and fused multiply-add */
 	O_SEC, O_CSC, O_COT, O_ATAN, O_COPYSIGN, O_FMA,
+	O_LOOP,      /* calc: loop over an entry (calc.h); a = lo, b = hi */
 	O_NOPS
 };
 #define OF_COMM 1
@@ -355,5 +356,13 @@ struct func *cmdp_func(struct P *p, const char *const *stop);
 double cmdp_number(struct P *p, const char *const *stop);
 void cmdp_fail_here(struct P *p);
 int cmdp_word(struct P *p, char *buf, size_t n);
+/* ---- calc: loops and calculus (loop.c; the rest in calc.h) ---- */
+nid mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl);
+void loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,
+    const double *in_r);
+void loop_print(struct sbuf *b, nid n, const struct pctx *pc);
+nid loop_remake(nid n, nid a, nid b, nid c, const nid *map, int nmap);
+float loop_cost(const struct model *m, nid n, int *cls);
+nid loop_diff(nid n, uint32_t slot);
 
 #endif

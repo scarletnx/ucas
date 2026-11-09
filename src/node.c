@@ -68,6 +68,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_ATAN] = {"atan", 1, OF_REALFN},
 	[O_COPYSIGN] = {"copysign", 2, 0},
 	[O_FMA] = {"fma", 3, 0},
+	[O_LOOP] = {"loop", 2, 0},
 };
 
 static const char *const atomic_names[] = {
@@ -330,6 +331,14 @@ nid
 mk_undef(ty_t t)
 {
 	return intern(O_UNDEF, t, 0, 0, 0, 0, 0.0, NF_PARTIAL);
+}
+
+/* calc: a node of an op the constructors here do not know (O_LOOP) */
+nid
+mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl)
+{
+	fl |= (child_fl(a) | child_fl(b) | child_fl(c)) & NF_VAR;
+	return intern(op, t, a, b, c, ki, 0.0, fl);
 }
 
 /* evaluation of constant operands lives with the evaluator */
@@ -971,6 +980,11 @@ rebuild(nid n, const nid *map, int nmap)
 		r = mk_fma(rebuild(N.a[n], map, nmap),
 		    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
 		break;
+	case O_LOOP:
+		r = loop_remake(n, rebuild(N.a[n], map, nmap),
+		    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap), map,
+		    nmap);
+		break;
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], rebuild(N.a[n], map, nmap));
@@ -1013,6 +1027,8 @@ is_jux(nid n, const struct pctx *pc)
 	if (TYK(N.ty[a]) == K_REAL && (N.kr[a] == M_PI || N.kr[a] == M_E))
 		return 0;
 	if (N.op[b] == O_NEG || (N.op[b] == O_MUL && is_const(N.a[b])))
+		return 0;
+	if (N.op[b] == O_POW && is_const(N.a[b]))   /* 2*3^x is not 23^x */
 		return 0;
 	return 1;
 }
@@ -1255,6 +1271,9 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		pr(b, N.b[n], 0, pc, 0);
 		sb_putc(b, ')');
 		break;
+	case O_LOOP:
+		loop_print(b, n, pc);
+		break;
 	default:
 		s = opinfo[op].name;
 		if (c && op == O_POPCNT)
@@ -1336,6 +1355,9 @@ print_paren(struct sbuf *b, nid n)
 		sb_printf(b, "%s(", ty_str(N.ty[n]));
 		print_paren(b, N.a[n]);
 		sb_putc(b, ')');
+		return;
+	case O_LOOP:
+		loop_print(b, n, NULL);
 		return;
 	}
 	if (opinfo[op].arity == 1) {

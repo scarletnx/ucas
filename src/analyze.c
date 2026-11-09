@@ -318,6 +318,9 @@ d1(nid e, uint32_t slot)
 		r = mk_bin(O_ADD, mk_bin(O_ADD, mk_bin(O_MUL, d1(a, slot), b),
 		    mk_bin(O_MUL, a, d1(b, slot))), d1(N.c[e], slot));
 		break;
+	case O_LOOP:   /* calc: the loop carries its derivative (loop.c) */
+		r = loop_diff(e, slot);
+		break;
 	default:
 		if (TY_ISINT(t) && !(N.fl[e] & NF_VAR))
 			r = C(0);
@@ -335,14 +338,15 @@ d1(nid e, uint32_t slot)
 nid
 diff_node(nid e, uint32_t slot)
 {
-	nid r;
+	nid r, *saved = dmemo;   /* reentrant: loop_diff calls it */
+	uint32_t savedn = dmemon;
 
 	dmemon = N.n;
 	dmemo = xcalloc(dmemon, sizeof *dmemo);
 	r = d1(e, slot);
 	free(dmemo);
-	dmemo = NULL;
-	dmemon = 0;
+	dmemo = saved;
+	dmemon = savedn;
 	return r;
 }
 

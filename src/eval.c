@@ -804,6 +804,9 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 		case O_UNDEF:
 			memset(of, F_UNDEF, np);
 			continue;
+		case O_LOOP:
+			loop_run(p, k, np, in_i, in_r);
+			continue;
 		case O_BARRIER:
 		case O_ATOMIC:
 			for (i = 0; i < np; i++) {

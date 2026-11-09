@@ -1,0 +1,28 @@
+# Cheap evaluation schemes, priced with the active cost model (gt1030).
+
+# polynomials: Horner and Estrin against the naive forms
+p(x: f32) = 3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+scheme p
+q(x: int in 0..1000) = 2x^3 + 3x^2 + 5
+scheme q
+
+# powers by squaring
+r(x: f32) = x^13
+scheme r
+e(x: real, n: int in 0..20) = x^n
+scheme e
+
+# loops: iteration against the closed form and the matrix power
+fib[0] = 0
+fib[1] = 1
+fib[n] = fib[n-1] + fib[n-2]
+fb(n: int in 0..90) = fib[n]
+scheme fb
+s(n: int in 0..1000) = sum(i, 0, n, 3i^2 + 2i + 1)
+scheme s
+model cheapmul : gt1030 { imul: 1 }
+scheme fb model cheapmul
+use cheapmul
+scheme fb
+use gt1030
+scheme sin(x) + 1

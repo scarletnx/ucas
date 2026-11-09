@@ -1,0 +1,92 @@
+> p(x: f32) = 3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+> scheme p
+evaluation schemes for p under gt1030
+polynomial of degree 5 in x:
+  as written cost 39     depth 16    12 ops  3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+  pow()      cost 39     depth 16    12 ops  3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+  products   cost 12     depth 10    12 ops  3(x*x*x*x*x) - 2(x*x*x*x) + x*x*x + 7(x*x) - x + 4
+             max relative difference 1.9e-07 (rounding) at 2471 points
+  Horner     cost 10     depth 10    10 ops  ((((3x - 2)*x + 1)*x + 7)*x - 1)*x + 4
+             max relative difference 1.8e-06 (rounding) at 2471 points
+  Estrin     cost 10     depth 4     10 ops  4 - x + (x + 7)*(x*x) + (3x - 2)*(x*x*(x*x))
+             max relative difference 1.7e-06 (rounding) at 2471 points
+  (depth is the critical path: Estrin trades operations for parallelism)
+> q(x: int in 0..1000) = 2x^3 + 3x^2 + 5
+> scheme q
+evaluation schemes for q under gt1030
+polynomial of degree 3 in x:
+  as written cost 16     depth 10     6 ops  2x^3 + 3x^2 + 5
+  pow()      cost 16     depth 10     6 ops  2x^3 + 3x^2 + 5
+  products   cost 13     depth 10     6 ops  2(x*x*x) + 3(x*x) + 5
+             equal at all 1001 points checked
+  Horner     cost 10     depth 10     5 ops  (2x + 3)*x*x + 5
+             equal at all 1001 points checked
+  Estrin     cost 10     depth 7      5 ops  (2x + 3)*(x*x) + 5
+             equal at all 1001 points checked
+  (depth is the critical path: Estrin trades operations for parallelism)
+  differences, for x = 0, 1, ...: start d0 = 5 d1 = 5 d2 = 18 d3 = 12
+    per point: d0 += d1; d1 += d2; d2 += d3; (3 additions, cost 3 a point after the start)
+    check: equals the polynomial at all 1001 points 0..1000
+> r(x: f32) = x^13
+> scheme r
+evaluation schemes for r under gt1030
+x^13 by squaring: 5 multiplications (3 squarings), cost 5 against 10 for the power
+  x*(x*x*(x*x))*(x*x*(x*x)*(x*x*(x*x)))
+  max relative difference 2.8e-06 (rounding) at 2195 points
+  as written: cost 10, depth 10, 1 operations (no polynomial, power or loop to rewrite)
+> e(x: real, n: int in 0..20) = x^n
+> scheme e
+evaluation schemes for e under gt1030
+x^real(n): an integer power by squaring takes at most 2 log2(n) multiplications
+  as written: cost 14, depth 14, 2 operations (no polynomial, power or loop to rewrite)
+> fib[0] = 0
+> fib[1] = 1
+> fib[n] = fib[n-1] + fib[n-2]
+> fb(n: int in 0..90) = fib[n]
+> scheme fb
+evaluation schemes for fb under gt1030
+fib[n]
+  iterating: 3 per iteration, up to 90 iterations: 270
+  closed form: 36 (9 ops): int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+    but it differs from the loop at 20 of 91 points (e.g. n=71: 308061521170129 by iteration vs 308061521170130): not used
+  matrix form: state' = M state, M = [0 1; 1 1]; the answer is (M^k v0)[0]
+    M^k by squaring: at most 14 matrix products of 28 each: 392 (O(log k))
+    check: equals the loop at 91 points (in exact int64 arithmetic: no rounding, unlike the closed form's real powers)
+    cheaper than iterating once k > about 131
+> s(n: int in 0..1000) = sum(i, 0, n, 3i^2 + 2i + 1)
+> scheme s
+evaluation schemes for s under gt1030
+sum(i, 0, n, 3i^2 + 2i + 1)
+  iterating: 13 per iteration, up to 1001 iterations: 13013
+  closed form: 19 (8 ops): (n + 1)*(2n^2 + 3n + 2)/2
+    matches the loop at 1001 points; cheaper than iterating from 2 iterations on
+  strength reduction: the body is a degree-2 polynomial in i; keep its 2 differences and update them by additions
+    per iteration: Horner 8, differences 2
+> model cheapmul : gt1030 { imul: 1 }
+> scheme fb model cheapmul
+evaluation schemes for fb under cheapmul
+fib[n]
+  iterating: 3 per iteration, up to 90 iterations: 270
+  closed form: 36 (9 ops): int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+    but it differs from the loop at 20 of 91 points (e.g. n=71: 308061521170129 by iteration vs 308061521170130): not used
+  matrix form: state' = M state, M = [0 1; 1 1]; the answer is (M^k v0)[0]
+    M^k by squaring: at most 14 matrix products of 12 each: 168 (O(log k))
+    check: equals the loop at 91 points (in exact int64 arithmetic: no rounding, unlike the closed form's real powers)
+    cheaper than iterating once k > about 56
+> use cheapmul
+cost model: cheapmul
+> scheme fb
+evaluation schemes for fb under cheapmul
+fib[n]
+  iterating: 3 per iteration, up to 90 iterations: 270
+  closed form: 36 (9 ops): int(floor(0.4472135955*1.618033989^real(n) - 0.4472135955*(-0.6180339887)^real(n) + 0.5))
+    but it differs from the loop at 20 of 91 points (e.g. n=71: 308061521170129 by iteration vs 308061521170130): not used
+  matrix form: state' = M state, M = [0 1; 1 1]; the answer is (M^k v0)[0]
+    M^k by squaring: at most 14 matrix products of 12 each: 168 (O(log k))
+    check: equals the loop at 91 points (in exact int64 arithmetic: no rounding, unlike the closed form's real powers)
+    cheaper than iterating once k > about 56
+> use gt1030
+cost model: gt1030
+> scheme sin(x) + 1
+evaluation schemes for sin(x) + 1 under gt1030
+  as written: cost 5, depth 5, 2 operations (no polynomial, power or loop to rewrite)

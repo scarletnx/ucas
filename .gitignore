@@ -9,3 +9,5 @@ ucas.debug
 .depend*
 *.orig
 *.rej
+# bot token and other secrets: never commit
+secrets/

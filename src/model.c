@@ -195,6 +195,8 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_ATOMIC:
 		k = (N.ki[n] & AT_SHARED) ? C_ATOM_SH : C_ATOM_GL;
 		break;
+	case O_LOOP:
+		return loop_cost(m, n, cls);
 	default:
 		k = C_IADD;
 	}

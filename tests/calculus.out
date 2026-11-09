@@ -1,0 +1,333 @@
+> integrate x^2 sin(x) from 0 to pi
+∫ x^2*sin(x) dx
+  = 2x*sin(x) + 2cos(x) - x^2*cos(x) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 3.14159] (max difference 8.9e-16)
+  from 0 to 3.14159: F(3.14159) - F(0) = 5.86960440108936
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 5.86960440108936, estimated error 6.5e-14
+  the two agree to 0
+> integrate exp(-x^2) from 0 to inf
+∫ exp(-x^2) dx
+  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)
+  numeric (adaptive Gauss-Kronrod 7-15, 105 evaluations): 0.886226925452757, estimated error 1.1e-14
+> integrate 1/x from 1 to e
+∫ 1/x dx
+  = log(abs(x)) + C
+  check: d/dx of it equals the integrand at 401 points of [1, 2.71828] (max difference 0)
+  from 1 to 2.71828: F(2.71828) - F(1) = 1
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1, estimated error 1.1e-14
+  the two agree to 0
+> integrate x*exp(2x)
+∫ x*exp(2x) dx
+  = x/2*exp(2x) - 0.25exp(2x) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 6e-08)
+> integrate 1/(2x + 1)^2 from 0 to 1
+∫ 1/(2x + 1)^2 dx
+  = -((2x + 1)^(-1)/2) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 1] (max difference 1.1e-16)
+  from 0 to 1: F(1) - F(0) = 0.333333333333333
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 0.333333333333343, estimated error 1.8e-14
+  the two agree to 9.3e-15
+> integrate tan(x) from 0 to 1
+∫ tan(x) dx
+  = -log(abs(cos(x))) + C
+  check: d/dx of it equals the integrand at 401 points of [0, 1] (max difference 2.2e-16)
+  from 0 to 1: F(1) - F(0) = 0.615626470386014
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 0.615626470386014, estimated error 6.8e-15
+  the two agree to 2.2e-16
+> integrate 1/x from -1 to 1
+∫ 1/x dx
+  = log(abs(x)) + C
+  check: d/dx of it equals the integrand at 400 points of [-1, 1] (max difference 0)
+  numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+> integrate sin(x)^2 from 0 to pi
+∫ sin(x)^2 dx
+  = x/2 - sin(2x)/4 + C
+  check: d/dx of it equals the integrand at 401 points of [0, 3.14159] (max difference 1.1e-16)
+  from 0 to 3.14159: F(3.14159) - F(0) = 1.5707963267949
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1.5707963267949, estimated error 1.7e-14
+  the two agree to 0
+> integrate 1/(1 + x^2) from -inf to inf
+∫ 1/(x^2 + 1) dx
+  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)
+  numeric (adaptive Gauss-Kronrod 7-15, 105 evaluations): 3.14159265358979, estimated error 3.5e-14
+> integrate a*x + b wrt b
+∫ a*x + b db
+  = a*x*b + b^2/2 + C
+  (several parameters: the derivative check needs values; checked symbolically only)
+> y' = -2y + 1
+> y(0) = 3
+> dsolve y
+y' = -2y + 1, y(0) = 3
+  (on [0, 10]; 'dsolve y to T' for another end)
+  linear with constant coefficients: eigenvalues -2; forcing by undetermined coefficients
+  y(t) = 2.5exp(-2*t) + 0.5
+  check: satisfies the equations at 201 points of [0, 10] (max relative residual 3.7e-17) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 179 steps) agrees with it to 2.3e-11
+      t            y(t)
+      0            3
+      1            0.8383382081
+      2            0.5457890972
+      3            0.5061968804
+      4            0.5008386566
+      5            0.5001134998
+      6            0.5000153605
+      7            0.5000020788
+      8            0.5000002813
+      9            0.5000000381
+      10           0.5000000052
+> x'' = -x
+> x(0) = 1
+> x'(0) = 0
+> dsolve x to 6.283185307 steps 4
+x'' = -x, x(0) = 1, x'(0) = 0
+  linear with constant coefficients: eigenvalues 0 ± 1i
+  x(t) = cos(t)
+  x'(t) = -sin(t)
+  check: satisfies the equations at 201 points of [0, 6.28319] (max relative residual 0) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 212 steps) agrees with it to 6e-11
+      t            x(t)
+      0            1
+      1.5708       4.489659217e-11
+      3.14159      -1
+      4.71239      -1.346897765e-10
+      6.28319      1
+> z'' = -z' - z + sin(t)
+> z(0) = 0
+> z'(0) = 1
+> dsolve z to 5 steps 5
+z'' = -z' - z + sin(t), z(0) = 0, z'(0) = 1
+  linear with constant coefficients: eigenvalues -0.5 ± 0.8660254038i; forcing by undetermined coefficients
+  z(t) = exp(-0.5*t)*cos(0.8660254038t) + 1.732050808(exp(-0.5*t)*sin(0.8660254038t)) - cos(t)
+  z'(t) = exp(-0.5*t)*cos(0.8660254038t) + sin(t) - 1.732050808(exp(-0.5*t)*sin(0.8660254038t))
+  check: satisfies the equations at 201 points of [0, 5] (max relative residual 2.2e-16) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 148 steps) agrees with it to 1.9e-11
+      t            z(t)
+      0            0
+      1            0.6529050426
+      2            0.9860008314
+      3            0.9988803732
+      4            0.4509909727
+      5            -0.4461951728
+> q'' = -4q' - 4q
+> q(0) = 1
+> q'(0) = 0
+> dsolve q to 3 steps 3
+q'' = -4q' - 4q, q(0) = 1, q'(0) = 0
+  linear with constant coefficients: eigenvalues -2 (x2)
+  q(t) = exp(-2*t) + 2(t*exp(-2*t))
+  q'(t) = -4*(t*exp(-2*t))
+  check: satisfies the equations at 201 points of [0, 3] (max relative residual 8.9e-17) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 165 steps) agrees with it to 4.6e-12
+      t            q(t)
+      0            1
+      1            0.4060058497
+      2            0.09157819444
+      3            0.01735126524
+> p' = p*(1 - p)
+> p(0) = 0.1
+> dsolve p to 10 steps 5
+p' = p*(1 - p), p(0) = 0.1
+  not linear with constant coefficients: numeric only
+  numeric (Dormand-Prince 5(4), adaptive, 121 steps, tolerance 1e-10); a 1000x looser solve differs by 1.7e-08
+      t            p(t)
+      0            0.1
+      2            0.4508530604
+      4            0.8584864498
+      6            0.9781780512
+      8            0.9969899242
+      10           0.9995915675
+> k = 0.5
+> a' = -k*a + b
+> b' = -b
+> a(0) = 0
+> b(0) = 1
+> dsolve a to 4 steps 4
+a' = -k*a + b, a(0) = 0
+b' = -b, b(0) = 1
+  linear with constant coefficients: eigenvalues -1, -0.5
+  a(t) = 2exp(-0.5*t) - 2exp(-t)
+  b(t) = exp(-t)
+  check: satisfies the equations at 201 points of [0, 4] (max relative residual 6.9e-18) and the initial values
+  numeric (Dormand-Prince 5(4), adaptive, 119 steps) agrees with it to 6.9e-12
+      t            a(t)
+      0            0
+      1            0.4773024371
+      2            0.4650883159
+      3            0.3466861836
+      4            0.2340392887
+> dsolve w
+calculus.ucas:41:9: error: no equation for w (write w' = ...)
+    dsolve w
+            ^
+> h(n: int in 1..1000) = sum(i, 1, n, 1/i)
+  note: 1/i would divide integers by the index i: i taken as real
+> continuous h
+sum(i, 1, n, 1/i)
+  the sum ≈ ∫ 1/i di from 1 to n, plus Euler-Maclaurin corrections
+  ∫ 1/i di = log(abs(i)) + C
+  integral: log(abs(real(n)))
+  + (g(lo) + g(hi))/2: log(abs(real(n))) + (1/real(n) + 1)/2
+  + (g'(hi) - g'(lo))/12 - (g'''(hi) - g'''(lo))/720 (evaluated below)
+  measured against the sum (relative error):
+      at                       exact          integral    + endpoint  + g', g''' 
+      n=1                      1              1           0           0          
+      n=200                    5.8780309      0.099       0.013       0.00038    
+      n=400                    6.5699297      0.088       0.012       0.00034    
+      n=600                    6.9749784      0.083       0.011       0.00032    
+      n=800                    7.2624523      0.08        0.011       0.00031    
+      n=1000                   7.4854709      0.077       0.01        0.0003     
+  the remaining error does not shrink: the corrections at the lower end are not small (it is a constant, like Euler's gamma for 1/i)
+> fac(n: int in 1..20) = prod(i, 1, n, i)
+> continuous fac
+prod(i, 1, n, i)
+  log of the product ≈ ∫ log(i) di from 1 to n, plus Euler-Maclaurin corrections
+  ∫ log(i) di = i*log(i) - i + C
+  integral: exp(real(n)*log(real(n)) - real(n) + 1)
+  + (g(lo) + g(hi))/2: exp(real(n)*log(real(n)) + log(real(n))/2 - real(n) + 1)
+  + (g'(hi) - g'(lo))/12 - (g'''(hi) - g'''(lo))/720 (evaluated below)
+  measured against the product (relative error):
+      at                       exact          integral    + endpoint  + g', g''' 
+      n=1                      1              0           0           0          
+      n=4                      24             0.47        0.062       0.00051    
+      n=8                      40320          0.62        0.073       0.00051    
+      n=12                     4.790016e+08   0.69        0.077       0.00051    
+      n=16                     2.092279e+13   0.73        0.079       0.00051    
+      n=20                     2.432902e+18   0.76        0.08        0.00051    
+  the remaining error does not shrink: the corrections at the lower end are not small (it is a constant factor, like Stirling's sqrt(2 pi)/e)
+> decay(n: int in 0..1000) = {
+    x = 1.0
+    for i in 1..n { x += 0.01 * (-2 * x) }
+    x
+  }
+> continuous decay
+loop(i in 1..n; x = 1 then x + -0.02*x).x
+  each iteration steps by h = 0.02 times a rate: Euler's method for
+    x' = -x,  x(0) = 1
+  with t = 0.02 * (iterations)
+  solution (eigenvalues -1):
+    x(t) = exp(-t)
+    checked: residual 0 on [0, 20]
+      at                       t          loop             ODE              difference
+      n=0                      0          1                1                0
+      n=200                    4          0.01758794661    0.01831563889    0.000728
+      n=400                    8          0.0003093358658  0.0003354626279  2.61e-05
+      n=600                    12         5.440582691e-06  6.144212353e-06  7.04e-07
+      n=800                    16         9.568867787e-08  1.125351747e-07  1.68e-08
+      n=1000                   20         1.682967357e-09  2.061153622e-09  3.78e-10
+  Euler's method has global error O(h): the difference shrinks about in proportion to h
+> osc(n: int in 0..1000) = {
+    x = 1.0; v = 0.0
+    for i in 1..n {
+      v += 0.01 * (-x)
+      x += 0.01 * v
+    }
+    x
+  }
+> continuous osc
+loop(i in 1..n; v = 0 then v + -0.01*x; x = 1 then x + 0.01(v + -0.01*x)).x
+  each iteration steps by h = 0.01 times a rate: Euler's method for
+    v' = -x,  v(0) = 0
+    x' = v,  x(0) = 1
+  with t = 0.01 * (iterations)
+  solution (eigenvalues 0 ± 1i):
+    x(t) = cos(t)
+    checked: residual 0 on [0, 10]
+      at                       t          loop             ODE              difference
+      n=0                      0          1                1                0
+      n=200                    2          -0.4207009407    -0.4161468365    0.00455
+      n=400                    4          -0.649846893     -0.6536436209    0.0038
+      n=600                    6          0.9615742467     0.9601702867     0.0014
+      n=800                    8          -0.1504798415    -0.1455000338    0.00498
+      n=1000                   10         -0.8363285462    -0.8390715291    0.00274
+  Euler's method has global error O(h): the difference shrinks about in proportion to h
+> continuous x^2
+x^2 has no loops
+> pde heat {
+    u_t = 0.1 u_xx
+    u(x, 0) = sin(pi x)
+    x in 0..1
+    t in 0..0.5
+  }
+> dsolve heat steps 4
+pde heat: u_t = 0.1u_xx on x in [0, 1], t in [0, 0.5]
+  coefficients: u_xx 0.1, u_x 0, u 0
+  boundary: Dirichlet, u = 0 at both ends
+  method: Crank-Nicolson, 200 intervals, dt = 0.005 (100 steps)
+  grid check: 200 and 400 intervals differ by at most 4.2e-06
+  separation of variables, sine series (100 modes) agrees with the finer grid to 1.4e-06
+      x          u(x, 0.5)
+      0          0
+      0.25       0.43168828
+      0.5        0.61049942
+      0.75       0.43168828
+      1          0
+> pde wave {
+    u_tt = u_xx
+    u(x, 0) = sin(pi x) + 0.5 sin(3 pi x)
+    x in 0..1
+    t in 0..1
+  }
+> dsolve wave steps 4
+pde wave: u_tt = u_xx on x in [0, 1], t in [0, 1]
+  coefficients: u_xx 1, u_x 0, u 0, u_t 0
+  boundary: Dirichlet, u = 0 at both ends
+  method: leapfrog (central differences in x and t), 200 intervals, dt = 0.004 (250 steps)
+  grid check: 200 and 400 intervals differ by at most 2.3e-08
+  separation of variables, sine series (100 modes) agrees with the finer grid to 1.5e-09
+      x          u(x, 1)
+      0          0
+      0.25       -1.0606602
+      0.5        -0.5
+      0.75       -1.0606602
+      1          0
+> pde adv {
+    u_t = -u_x
+    u(x, 0) = exp(-100 (x - 0.3)^2)
+    x in 0..1
+    t in 0..0.4
+    periodic
+  }
+> dsolve adv steps 4
+pde adv: u_t = -u_x on x in [0, 1], t in [0, 0.4]
+  coefficients: u_xx 0, u_x -1, u 0
+  boundary: periodic
+  method: Lax-Wendroff, 200 intervals, dt = 0.004 (100 steps)
+  grid check: 200 and 400 intervals differ by at most 0.0018
+  the exact solution u0(x + V t) e^(R t) agrees with the finer grid to 0.00059
+      x          u(x, 0.4)
+      0          0.00012652693
+      0.25       1.2376234e-13
+      0.5        0.018202434
+      0.75       0.77821604
+      1          0.00012652693
+> pde src {
+    u_t = u_xx + 1
+    u(x, 0) = 0
+    u(0, t) = 0
+    u(1, t) = 0
+    x in 0..1
+    t in 0..2
+  }
+> dsolve src steps 4
+pde src: u_t = u_xx + 1 on x in [0, 1], t in [0, 2]
+  coefficients: u_xx 1, u_x 0, u 0; plus a source term
+  boundary: Dirichlet (given values)
+  method: Crank-Nicolson, 200 intervals, dt = 0.005 (400 steps)
+  grid check: 200 and 400 intervals differ by at most 1.3e-07
+  (no series solution for this case: the grid check is the error estimate)
+      x          u(x, 2)
+      0          0
+      0.25       0.09375
+      0.5        0.125
+      0.75       0.09375
+      1          0
+> pde back {
+    u_t = -u_xx
+    u(x, 0) = sin(pi x)
+  }
+> dsolve back
+pde back: u_t = -u_xx on x in [0, 1], t in [0, 1]
+  coefficients: u_xx -1, u_x 0, u 0
+calculus.ucas:102:12: error: u_t = D u_xx with D < 0 is ill-posed (backward heat equation)
+    dsolve back
+               ^

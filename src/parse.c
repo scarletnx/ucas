@@ -86,6 +86,13 @@ enum {
 
 static nid parse_expr(struct P *p, int minbp);
 
+/* calc: loops, sums, recurrences, ODEs (calc_syntax.inc, included below) */
+static nid calc_ident(struct P *p);
+static int cs_is_block(struct P *p);
+static nid calc_block(struct P *p);
+static int calc_statement(struct P *p);
+static int calc_command(struct P *p);
+
 static int
 pk(struct P *p)
 {
@@ -189,7 +196,7 @@ static const char *const keywords[] = {
 };
 static const char *const stopwords[] = {
 	"basis", "max", "ops", "model", "as", "using", "to", "metric",
-	"nodes", NULL
+	"nodes", "from", "wrt", "steps", NULL
 };
 
 static int
@@ -463,6 +470,8 @@ ident(struct P *p)
 		adv(p);
 		return r;
 	}
+	if ((r = calc_ident(p)) != 0)
+		return r;
 	/* type conversion: u8(x), f32(x), real(n) */
 	if (pk2(p) == T_LP && ty_parse(s, n, &ct)) {
 		adv(p);
@@ -765,6 +774,8 @@ prefix(struct P *p)
 			fail("empty table");
 		return mk_table(items, (uint32_t)n);
 	case T_LC:
+		if (cs_is_block(p))
+			return calc_block(p);
 		return parse_piecewise(p);
 	}
 	if (pk(p) == T_EOF || pk(p) == T_NL)
@@ -1440,7 +1451,13 @@ help(void)
 "  approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]\n"
 "    [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]\n"
 "    [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]\n"
-"  approx more [n]");
+"  approx more [n]\n"
+"loops and calculus\n"
+"  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
+"  closed F | scheme F [model m] | continuous F\n"
+"  integrate F [wrt x] [from a to b]\n"
+"  y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] "
+"[steps n]");
 }
 
 /* ---- approx: parsing hooks (the command itself is in approx.c) ---- */
@@ -1722,8 +1739,12 @@ statement(struct P *p)
 			}
 			return;
 		}
+		if (calc_command(p))
+			return;
 #undef CMD
 	}
+	if (calc_statement(p))
+		return;
 	/* definition? */
 	if (pk(p) == T_ID) {
 		uint32_t i = p->i + 1;
@@ -1889,3 +1910,6 @@ run_source(const char *src, const char *file, int echo)
 	free(p);
 	diag_toks = NULL;
 }
+
+/* calc: loops, sums, recurrences, ODE/PDE statements and commands */
+#include "calc_syntax.inc"

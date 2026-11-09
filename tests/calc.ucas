@@ -1,0 +1,157 @@
+# Loops and closed forms.  Every closed form is checked against the loop.
+
+# sums: sum(i, lo, hi, body), sum(i in lo..hi, body), Σ(i in lo..hi) body
+sum(i, 1, 10, i^2)
+Σ(i in 1..100) i
+prod(i, 1, 10, i)
+f(n: int in 0..20) = sum(i, 0, n, i^3)
+table f max 4
+closed f
+closed sum(i, 1, n, i^2)
+closed sum(i, 1, n, a*i + b)
+closed sum(i, 0, n, 2^i)
+closed sum(i, 0, n, i*2^i)
+closed sum(i, 0, n, x^i)
+closed sum(i, 1, n, 1/(i*(i+1)))
+closed sum(i, 1, n, 1/i)
+closed sum(i, 1, n, sqrt(real(i + 1)) - sqrt(real(i)))
+geo(n: int in 0..30, r: real in 0.5..0.9) = sum(i, 1, n, i * r^i)
+closed geo
+thr(n: int in 0..40) = sum(i, 0, n, i < 10 ? i : 10)
+closed thr
+
+# products
+closed prod(i, 2, n, 1 - 1/i^2)
+closed prod(i, 1, n, 2^i)
+closed prod(i, 1, n, i)
+
+# recurrences: initial values and one step rule
+x[0] = 1
+x[k+1] = 2 x[k] + 1
+table x max 5
+closed x
+fib[0] = 0
+fib[1] = 1
+fib[n] = fib[n-1] + fib[n-2]
+closed fib
+y[0] = 1
+y[1] = 4
+y[n] = 4 y[n-1] - 4 y[n-2]
+closed y
+rot[0] = 1
+rot[1] = 0
+rot[n] = -rot[n-2]
+closed rot
+u[0] = x0
+u[k+1] = a*u[k] + b
+closed u
+aff[0] = 0
+aff[k+1] = 3 aff[k] + k^2
+closed aff
+w[0] = 1.0
+w[k+1] = w[k] / (1 + w[k])
+closed w
+sq[0] = 0.9
+sq[k+1] = sq[k]^2
+closed sq
+lg[0] = 0.1
+lg[k+1] = 2 lg[k] (1 - lg[k])
+closed lg
+h(m: int in 0..30) = fib[m] + 1
+closed h
+
+# code: blocks with for, while and if; a, b = b, a + b
+s(n: int in 0..10) = {
+  s = 0
+  for i in 1..n {
+    if i % 2 == 0 { s += i } else { s -= 1 }
+  }
+  s
+}
+table s max 6
+show s
+closed s
+fb(n: int in 0..20) = {
+  a = 0; b = 1
+  for i in 1..n { a, b = b, a + b }
+  return a
+}
+closed fb
+tri(n: int in 0..30) = {
+  s = 0
+  for i in 1..n {
+    for j in 1..i { s += j }
+  }
+  s
+}
+closed tri
+nest(n: int in 0..5) = sum(i, 1, n, sum(j, 1, i, i*j))
+closed nest
+
+# while loops: trip counts
+c(n: int in 1..1000) = {
+  x = n
+  k = 0
+  while x > 1 {
+    x = x / 2
+    k += 1
+  }
+  k
+}
+closed c
+dig(n: u32 in 1..100000) = {
+  d = 0
+  while n > 0 { n = n / 10; d += 1 }
+  d
+}
+closed dig
+cnt(n: int in 0..500) = {
+  i = 0
+  while i*i <= n { i += 1 }
+  i
+}
+closed cnt
+step(n: int in 0..1000) = {
+  x = 3; c = 0
+  while x < n { x += 7; c++ }
+  c
+}
+closed step
+mulw(n: int in 1..10000) = {
+  x = 1; c = 0
+  while x < n { x *= 3; c++ }
+  c
+}
+closed mulw
+collatz(n: int in 1..200) = {
+  c = 0
+  while n != 1 {
+    if n % 2 == 0 { n = n / 2 } else { n = 3n + 1 }
+    c += 1
+  }
+  c
+}
+closed collatz
+range collatz
+
+# loops work with the other commands
+equiv f sum(i, 0, n, i^3)
+g(x: real in 0..2) = sum(k, 0, 10, x^k/2^k)
+range g
+diff g
+wrap f
+cost f
+
+# what is not allowed, and what never ends
+bad[0] = 1
+closed bad[n]
+bad[k+1] = bad[k] + bad[k-1]
+spin(n: int in 0..3) = {
+  x = 1
+  while x > 0 { x += 1 }
+  x
+}
+table spin max 2
+idx(n: int in 0..3) = { s = 0; for i in 1..n { i = 2 }; s }
+ok(n: int in 0..3) = { s = 0; for i in 1..n { s += i }; s }
+table ok
