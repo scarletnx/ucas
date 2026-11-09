@@ -780,11 +780,12 @@ cmd_trace(const struct hopt *o)
 		canon_vec(&b, H, x);
 		printf("  a = %s (canonical coordinates in %s; cocycle ", sb_str(&b),
 		    ab_str(H));
+		rep_obj(NULL);
+		rep_str("coordinates", sb_str(&b));
 		sb_clear(&b);
 		chain_text(&b, s, n, x, H->n);
 		printf("%s)\n", sb_str(&b));
-		rep_obj(NULL);
-		rep_str("a", sb_str(&b));
+		rep_str("cocycle", sb_str(&b));
 		rep_list("pages");
 		if (o->has_page) {
 			if (o->page < 1 || o->page > 100000)
@@ -900,6 +901,7 @@ homalg_command(struct P *p)
 	uint32_t pos = cmdp_pos(p);
 	int k, c = 0;
 	struct hopt o;
+	zmark m;
 
 	if (!cmdp_word(p, w, sizeof w))
 		return 0;
@@ -919,6 +921,9 @@ homalg_command(struct P *p)
 	parse_opts(&o, text);
 	notes_flush();
 	hal_checks_reset();
+	/* the integers of this command die with it (the complexes and
+	 * couples it made are not used by later statements) */
+	m = z_mark();
 	switch (c) {
 	case HC_SPACE:
 		rep_begin("space");
@@ -950,5 +955,6 @@ homalg_command(struct P *p)
 		cmd_prop(&o);
 		break;
 	}
+	z_release(m);
 	return 1;
 }
