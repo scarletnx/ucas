@@ -70,6 +70,15 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_FMA] = {"fma", 3, 0},
 	[O_LAMBERTW] = {"W", 1, OF_REALFN | OF_PARTIAL},
 	[O_LAMBERTWM1] = {"Wm1", 1, OF_REALFN | OF_PARTIAL},
+	[O_ASIN] = {"asin", 1, OF_REALFN | OF_PARTIAL},
+	[O_ACOS] = {"acos", 1, OF_REALFN | OF_PARTIAL},
+	[O_ATAN2] = {"atan2", 2, OF_PARTIAL},
+	[O_SINH] = {"sinh", 1, OF_REALFN},
+	[O_COSH] = {"cosh", 1, OF_REALFN},
+	[O_TANH] = {"tanh", 1, OF_REALFN},
+	[O_ASINH] = {"asinh", 1, OF_REALFN},
+	[O_ACOSH] = {"acosh", 1, OF_REALFN | OF_PARTIAL},
+	[O_ATANH] = {"atanh", 1, OF_REALFN | OF_PARTIAL},
 	[O_LOOP] = {"loop", 2, 0},
 };
 
@@ -669,7 +678,7 @@ mk_bin(int op, nid a, nid b)
 			b = conv(b, TY_REAL);
 		}
 		t = common(ta, tb, &mix);
-		if (op == O_COPYSIGN && !TY_FP(t))
+		if ((op == O_COPYSIGN || op == O_ATAN2) && !TY_FP(t))
 			t = TY_REAL;
 		if (t == TY_BOOL && !(opinfo[op].fl & OF_CMP) &&
 		    op != O_AND && op != O_OR && op != O_XOR &&
@@ -1402,7 +1411,8 @@ print_paren(struct sbuf *b, nid n)
 		}
 		return;
 	}
-	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA) {
+	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA ||
+	    op == O_ATAN2) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
 		sb_puts(b, ", ");

@@ -281,6 +281,12 @@ static const struct bfn bfns[] = {
 	{"W", O_LAMBERTW, 1}, {"W0", O_LAMBERTW, 1}, {"lambertw", O_LAMBERTW, 1},
 	{"productlog", O_LAMBERTW, 1}, {"Wm1", O_LAMBERTWM1, 1},
 	{"lambertwm1", O_LAMBERTWM1, 1},
+	/* forms.c */
+	{"asin", O_ASIN, 1}, {"arcsin", O_ASIN, 1}, {"acos", O_ACOS, 1},
+	{"arccos", O_ACOS, 1}, {"arctan", O_ATAN, 1}, {"atan2", O_ATAN2, 2},
+	{"sinh", O_SINH, 1}, {"cosh", O_COSH, 1}, {"tanh", O_TANH, 1},
+	{"asinh", O_ASINH, 1}, {"arsinh", O_ASINH, 1}, {"acosh", O_ACOSH, 1},
+	{"arcosh", O_ACOSH, 1}, {"atanh", O_ATANH, 1}, {"artanh", O_ATANH, 1},
 	{NULL, 0, 0}
 };
 
@@ -346,6 +352,8 @@ value_name(struct P *p, const char *s, size_t n)
 		return mk_const_r(M_PI);
 	if (n == 1 && s[0] == 'e')
 		return mk_const_r(M_E);
+	if (n == 2 && (unsigned char)s[0] == 0xc2)   /* 45° */
+		return mk_const_r(M_PI / 180);
 	if (n == 3 && !memcmp(s, "inf", 3))
 		return mk_const_r(INFINITY);
 	return 0;
@@ -1547,6 +1555,10 @@ help(void)
 "  integrate F [wrt x] [from a to b]\n"
 "  y' = f(t, y); y(0) = c | pde name { ... } | dsolve y [from a to b] "
 "[steps n]\n"
+"complex numbers (i is the unit) and trig forms\n"
+"  complex F | re F | im F | conj F | modulus F | arg F | polar F\n"
+"  nthroots N F | unity N | trig F [expand|reduce|product|sum|sincos|exp|"
+"harmonic|half|inverse]\n"
 "English works too: 'what is the range of x squared for a signed byte x?'\n"
 "  ('help english' for more)");
 }
@@ -1969,6 +1981,8 @@ statement(struct P *p)
 			return;
 		}
 		if (calc_command(p))
+			return;
+		if (forms_command(p))   /* complex, polar, trig ... (forms.c) */
 			return;
 #undef CMD
 	}

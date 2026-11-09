@@ -93,7 +93,9 @@ Expressions: `+ - * / % ^` (power), `mod`, `& | xor ⊕ ~ << >>`,
 comparisons (chains allowed), `&& || ! and or not`, `c ? a : b`,
 `x in a..b`, `|x|`, `[t0, t1, ...][i]` (lookup table), `x²`,
 functions `sin cos tan exp log ln sqrt isqrt abs floor ceil sign min max
-clz ctz popcount sec csc cot atan copysign fma`, Lambert W (`W(x)`, also `W0`,
+clz ctz popcount sec csc cot atan copysign fma asin acos atan2 sinh cosh
+tanh asinh acosh atanh` (also `arcsin arccos arctan arsinh arcosh artanh`;
+`45°` is `45*pi/180`), Lambert W (`W(x)`, also `W0`,
 `lambertw`, `productlog`: the principal branch; `Wm1(x)`: the -1 branch; a
 bare `W` without a call stays a variable), conversions `u8(x) f32(x) real(n) int(x)`, bit casts
 `asuint asint asfloat` (`bits` = `asuint`), effects `barrier(e)`,
@@ -156,11 +158,82 @@ inline annotations: `range isqrt(x: u4)`.
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
 | `approx F in a..b [options]`, `approx more [n]` | polynomial, rational and range-reduced approximations, measured as they run (see below) |
+| `complex F` (`rect F`), `re F`, `im F`, `conj F`, `modulus F`, `arg F` | F with `i` as the imaginary unit, as a + bi (exact where the constants are recognised), each part checked (see "Complex numbers and trig forms") |
+| `polar F` | r e^(i theta) and r (cos theta + i sin theta), theta the principal argument in (-pi, pi], with the conditions it holds under |
+| `nthroots N F`, `unity N` | the N complex N-th roots (of 1), each raised back to the N-th power |
+| `trig F [simplify\|sincos\|exp\|reduce\|product\|sum\|expand\|harmonic\|half\|weierstrass\|inverse\|double\|all]` | equivalent trig, hyperbolic and inverse-trig forms, each with the identity used, its conditions and a numeric check; the simplest is named |
 
 Finite domains of up to 2^22 points are enumerated; larger ones are
 sampled (65536 points, edge values first), and the output says so.
 `wrap` and `range` add interval bounds when sampling, which can prove
 that an operation never wraps.
+
+## Complex numbers and trig forms
+
+```
+> complex (1+2i)/(3-i)
+(1+2i)/(3-i) = 1/10 + 7i/10
+> polar x + i y
+  note: i is the imaginary unit; x, y are taken as real
+x + i y = sqrt(x^2 + y^2)*e^(i*atan2(y, x))
+  theta is the principal argument, -pi < theta <= pi; undefined where x = y = 0
+  check: equal at 64 of 64 sample points (max relative difference 4e-16)
+> trig sin(x) cos(x)
+  product to sum: sin a cos b = (sin(a + b) + sin(a - b))/2, ...
+    = sin(2x)/2
+    check: equal at 64 of 64 sample points (max relative difference 6e-17)
+  simplest: sin(2x)/2  (product to sum)
+```
+
+The DAG is real-valued; these commands (`src/forms.c`) map an
+expression to a pair of real nodes (Re, Im).  `i` is the imaginary unit,
+also `j` (with a note), `I` and `im`; `cis(t)` is `e^(i t)` and `r∠t` is
+`r e^(i t)`.  A function's parameter named `i` is asked about (default:
+the unit, with a note).  Every other variable is taken as real, and the
+output says so.  Products, quotients (through the conjugate), integer
+powers, `exp`, `sin cos tan sec csc cot sinh cosh tanh` of complex
+arguments are exact; `sqrt`, `log`, non-integer powers and the inverse
+functions take the principal branch (`log z = log|z| + i arg z`, `z^w =
+e^(w log z)`, `asin z = -i log(iz + sqrt(1 - z^2))` ...), and a real
+argument on a branch cut (`asin(2)`) says which value it takes.  Each
+part is normalised: sums of monomials over atoms, `sin^2 + cos^2 = 1`
+and `cosh^2 - sinh^2 = 1` folded, `sqrt(x^2) = |x|`, `exp(a + b) = exp(a)
+exp(b)`.  Constants are printed exactly when they are rationals,
+rational multiples of pi, square roots, `(p + k sqrt(m))/q`, their square
+roots (`sqrt((5 + sqrt(5))/8)`), logarithms of small integers and surds,
+or `exp` of those; otherwise as decimals, and an angle that is not nice
+is kept as `atan(4/3)` with its value.  A cancelled factor (x/x) is
+reported as a condition.
+
+`trig F` lists the forms that apply, each with the identity used:
+simplification (also `sin(asin u) = u`, `asin(sin u) = u` for |u| <=
+pi/2 ...), tan/sec/csc/cot in sin and cos, power reduction and product to
+sum (every sin/cos/sinh/cosh as exponentials, multiplied out and paired
+back, so `sin^3 x = (3 sin x - sin 3x)/4`), sum to product, compound and
+multiple angles (`sin 3x = 3 sin x - 4 sin^3 x`, also only in sin or only
+in cos, `tan(a + b)`), `a sin u + b cos u = R sin(u + phi) = R cos(u -
+psi)`, half angles (`sin(u/2) = sqrt((1 - cos u)/2)` where `sin(u/2) >=
+0`), the tan(u/2) substitution (`weierstrass` or `half`), inverse
+functions in terms of each other (`atan u = asin(u/sqrt(1 + u^2))`,
+`acos u = pi/2 - asin u`, `atan2` via `atan` by quadrant, `atan a + atan
+b` for `a b < 1`, `asinh u = log(u + sqrt(u^2 + 1))` ...), and the
+exponential/logarithmic (Euler) form.  A mode word picks one kind.  With
+no mode, a simplification that removes a composition is applied first.
+The simplest form is the shortest, counting each function call as 6
+characters.
+
+What is checked: every printed result is parsed back as ucas text and
+evaluated at sample points (64, seeded, inside the parameters' ranges;
+one point for constants) against the original, which is evaluated by C's
+complex functions (`cexp`, `clog`, `csqrt`, `csin` ...; real semantics
+for `trig`, where a point the original is undefined at is skipped).  A
+form that holds only under a condition (`atan u = pi/2 - atan(1/u)` for
+`u > 0`) is checked where the condition holds, and the points outside
+where it differs are counted, which shows that the condition is needed.
+Limits: variables are real (no complex variables); `polar` of a symbolic
+z uses `atan2`, recognising `R cos u + i R sin u` with R > 0 (then theta
+= u for -pi < u <= pi); there is no polynomial gcd, so rational
+functions are combined but not always reduced.
 
 ## Approximations
 
@@ -314,7 +387,15 @@ behind it.  English only; the translator is a hand-written parser
   from 1 to n`, `the product over k from 1 to 5 of k`),
   properties checked with equiv (commutative, associative, additive,
   idempotent, odd/even function), definitions (`let f of x be ...`,
-  `call it g`), `assume`, `forget`.
+  `call it g`), `assume`, `forget`; complex and trig forms (`the polar
+  form of 1 + i`, `write (1+2i)/(3-i) in a+bi form`, `real and imaginary
+  parts of e^(ix)`, `modulus and argument of 3 + 4i`, `convert 2 cis(pi/3)
+  to rectangular form`, `the 5th roots of unity`, `solve z^4 = -16`,
+  `rewrite sin^2 x using double angle`, `express tan x in terms of sin
+  and cos`, `simplify sin x cos x`, `expand sin(a+b)`, `product to sum
+  of sin x cos y`, `write 3 sin x + 4 cos x in the form R sin(x + phi)`,
+  `rewrite acos x in terms of asin`; see "Complex numbers and trig
+  forms").
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.

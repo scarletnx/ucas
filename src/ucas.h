@@ -118,6 +118,9 @@ enum {
 	O_SEC, O_CSC, O_COT, O_ATAN, O_COPYSIGN, O_FMA,
 	O_LOOP,      /* calc: loop over an entry (calc.h); a = lo, b = hi */
 	O_LAMBERTW, O_LAMBERTWM1,  /* Lambert W: principal and -1 branches */
+	/* forms.c: inverse trig, atan2(y, x), hyperbolic and their inverses */
+	O_ASIN, O_ACOS, O_ATAN2, O_SINH, O_COSH, O_TANH, O_ASINH, O_ACOSH,
+	O_ATANH,
 	O_NOPS
 };
 #define OF_COMM 1
@@ -406,6 +409,12 @@ void loop_print(struct sbuf *b, nid n, const struct pctx *pc);
 nid loop_remake(nid n, nid a, nid b, nid c, const nid *map, int nmap);
 float loop_cost(const struct model *m, nid n, int *cls);
 nid loop_diff(nid n, uint32_t slot);
+
+/* ---- forms.c: complex, polar and trig forms; the ops it adds ---- */
+int forms_scalar(int op, double a, double b, double *r);  /* 0: undefined */
+nid forms_diff(nid e, uint32_t slot);
+const char *forms_cond(nid n);    /* an op's domain condition, or NULL */
+int forms_command(struct P *p);
 
 /* ---- nlp.c: English in, ucas statements out ---- */
 extern int nlp_interactive;

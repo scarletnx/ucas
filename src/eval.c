@@ -451,6 +451,13 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 		r = op == O_CSC ? 1 / sin(a) : cos(a) / sin(a);
 		break;
 	case O_ATAN: r = atan(a); break;
+	case O_ASIN: case O_ACOS: case O_ATAN2: case O_SINH: case O_COSH:
+	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:   /* forms.c */
+		if (!forms_scalar(op, a, b, &r)) {
+			*fl |= F_UNDEF;
+			return 0;
+		}
+		break;
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
@@ -619,6 +626,15 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 	case O_CSC: r = 1 / sin(a); break;
 	case O_COT: r = cos(a) / sin(a); break;
 	case O_ATAN: r = atan(a); break;
+	case O_ASIN: r = asin(a); break;
+	case O_ACOS: r = acos(a); break;
+	case O_ATAN2: r = atan2(a, b); break;
+	case O_SINH: r = sinh(a); break;
+	case O_COSH: r = cosh(a); break;
+	case O_TANH: r = tanh(a); break;
+	case O_ASINH: r = asinh(a); break;
+	case O_ACOSH: r = acosh(a); break;
+	case O_ATANH: r = atanh(a); break;
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;

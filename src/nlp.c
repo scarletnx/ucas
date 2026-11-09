@@ -405,7 +405,7 @@ tokenize(const char *s)
 		{"\xc2\xb7", "*", W_SYM}, {"\xc3\xb7", "/", W_SYM},
 		{"\xe2\x89\xa4", "<=", W_SYM}, {"\xe2\x89\xa5", ">=", W_SYM},
 		{"\xe2\x89\xa0", "!=", W_SYM}, {"\xe2\x88\x92", "-", W_SYM},
-		{"\xc2\xb0", "deg", W_WORD},
+		{"\xc2\xb0", "deg", W_WORD}, {"\xe2\x88\xa0", "\xe2\x88\xa0", W_SYM},
 		{NULL, NULL, 0}
 	};
 	static const char *const greeku[] = {"alpha", "beta", "gamma",
@@ -634,6 +634,8 @@ static const char *const builtins[] = {"sin", "cos", "tan", "exp", "log",
 	"ln", "sqrt", "isqrt", "abs", "floor", "ceil", "sign", "min", "max",
 	"clz", "ctz", "popcount", "asuint", "asint", "asfloat", "bits",
 	"barrier", "atan", "sec", "csc", "cot", "copysign", "fma",
+	"asin", "acos", "atan2", "sinh", "cosh", "tanh", "asinh", "acosh",
+	"atanh", "arcsin", "arccos", "arctan",
 	"w", "w0", "lambertw", "productlog", "wm1", "lambertwm1", NULL};
 
 static int
@@ -4202,6 +4204,416 @@ cmd_after_noun(int c)
 	}
 }
 
+/* ---- complex, polar and trig forms (forms.c) ---- */
+
+enum { FN_NONE, FN_RECT, FN_POLAR, FN_EXPF, FN_TRIGF, FN_RE, FN_IM, FN_CONJ,
+	FN_MOD, FN_ARG, FN_TRIG };
+
+static const struct {
+	const char *pat;
+	int cls;
+	const char *opt;	/* trig mode */
+} form_phr[] = {
+	{"real and imaginary parts|part|components|component", FN_RECT, ""},
+	{"imaginary and real parts|part|components", FN_RECT, ""},
+	{"real part|component|value", FN_RE, ""},
+	{"imaginary part|component", FN_IM, ""},
+	{"complex conjugate|conjugates", FN_CONJ, ""},
+	{"conjugate|conj", FN_CONJ, ""},
+	{"modulus|magnitude|norm|length|absolute and argument|arg|phase|angle",
+	    FN_POLAR, ""},
+	{"modulus-argument|mod-arg|magnitude-phase ?form", FN_POLAR, ""},
+	{"polar|phasor|cis|versor ?form|forms|representation|notation|"
+	    "coordinates", FN_POLAR, ""},
+	{"exponentials", FN_TRIG, " exp"},
+	{"complex exponentials|exponential", FN_TRIG, " exp"},
+	{"exponential|euler|eulers ?form|representation|notation", FN_EXPF, ""},
+	{"rectangular|cartesian|algebraic|binomial|standard ?form|forms|"
+	    "representation|notation|coordinates", FN_RECT, ""},
+	{"a + bi|ib ?form", FN_RECT, "e"},	/* not at the start */
+	{"a + b i ?form", FN_RECT, "e"},
+	{"x + iy|yi ?form", FN_RECT, "e"},
+	{"complex ?number form|representation", FN_RECT, ""},
+	{"trigonometric|trig form|representation", FN_TRIGF, ""},
+	{"modulus|magnitude|norm", FN_MOD, ""},
+	{"absolute value", FN_MOD, "u"},	/* only with i */
+	{"principal argument|value", FN_ARG, ""},
+	{"trig|trigonometric rewrite|rewrites|identities|identity|forms|"
+	    "alternatives|equivalents|simplification", FN_TRIG, ""},
+	{"alternative|equivalent|other trig|trigonometric ?forms|form|"
+	    "expressions", FN_TRIG, ""},
+	{"double|double-angle ?angle ?identity|identities|formula|formulas|"
+	    "formulae", FN_TRIG, " double"},
+	{"power reduction|reducing ?formula|formulas|identity|identities",
+	    FN_TRIG, " reduce"},
+	{"power-reduction|power-reducing ?formula|formulas|identity|identities",
+	    FN_TRIG, " reduce"},
+	{"lower|first powers", FN_TRIG, " reduce"},
+	{"product to sum|sums ?formula|formulas|identity|identities", FN_TRIG,
+	    " product"},
+	{"products to sums", FN_TRIG, " product"},
+	{"product-to-sum ?formula|formulas|identity|identities", FN_TRIG,
+	    " product"},
+	{"a sum|sums", FN_TRIG, " product"},
+	{"sum to product|products ?formula|formulas|identity|identities",
+	    FN_TRIG, " sum"},
+	{"sums to products", FN_TRIG, " sum"},
+	{"sum-to-product ?formula|formulas|identity|identities", FN_TRIG, " sum"},
+	{"a product", FN_TRIG, " sum"},
+	{"sin|sine|sines and cos|cosine|cosines", FN_TRIG, " sincos"},
+	{"sin / cos", FN_TRIG, " sincos"},
+	{"compound|multiple|multiple-angle|triple|addition angle|angles|"
+	    "formula|formulas|identity|identities", FN_TRIG, " expand"},
+	{"angle addition|sum ?formula|formulas|identity|identities", FN_TRIG,
+	    " expand"},
+	{"tangent|tan half-angle|half ?angle ?substitution|formula|formulas",
+	    FN_TRIG, " half"},
+	{"half-angle|half angle ?formula|formulas|identity|identities", FN_TRIG,
+	    " half"},
+	{"weierstrass|t-substitution ?substitution|form", FN_TRIG, " half"},
+	{"inverse trig|trigonometric ?functions|identities|form", FN_TRIG,
+	    " inverse"},
+	{"terms of arcsin|asin|arccos|acos|arctan|atan|atan2", FN_TRIG,
+	    " inverse"},
+	{"terms of inverse trig|trigonometric ?functions", FN_TRIG, " inverse"},
+	{"harmonic|amplitude-phase ?form|addition", FN_TRIG, " harmonic"},
+	{"amplitude phase ?form", FN_TRIG, " harmonic"},
+	{"single sine|sinusoid|cosine|wave", FN_TRIG, " harmonic"},
+	{"the form r|a sin|cos", FN_TRIG, " harmonic"},
+	{"alternative|equivalent|other forms|form|expressions|rewrites|"
+	    "identities", FN_TRIG, "t"},	/* only for trig */
+	{"argument|arg|phase|angle", FN_ARG, ""},
+	{NULL, 0, NULL}
+};
+
+static int
+issym_at(int i, const char *s)
+{
+	return W[i].k == W_SYM && !strcmp(W[i].s, s);
+}
+
+static int
+form_lead(int *verb)
+{
+	int k = 0;
+
+	*verb = 0;
+	for (;;) {
+		if (mat("expand|expanding")) {
+			*verb = 1;
+		} else if (mat("simplify|simplifying")) {
+			*verb = 2;
+		} else if (mat("linearize|linearise|linearizing|linearising")) {
+			*verb = 3;
+		} else if (mat("rewrite|express|write|convert|put|transform|turn|"
+		    "change|represent|rewriting|writing|converting|expressing|"
+		    "use|apply|using|applying")) {
+			if (!*verb)
+				*verb = 4;
+		} else if (isw(wi, "i") && (!strcmp(W[wi].o, "I") ||
+		    peek("i want|need|would|have|am|wanna|write|rewrite|express|"
+		    "convert|put|find|get|compute|calculate|turn|change|expand|"
+		    "simplify"))) {
+			wi++;
+		} else if (mat("please|pls|plz|kindly|can|could|would|will|you|me|us|"
+		    "we|want|need|like|to|how|do|does|what|whats|is|are|find|"
+		    "compute|calculate|evaluate|give|get|show|tell|determine|list|"
+		    "work|out|the|an|all|now|so|ok|okay|hey|hi|also|then|its|both|"
+		    "and|in")) {
+			;
+		} else
+			break;
+		k++;
+	}
+	return k;
+}
+
+/* a form phrase at wi: its class; wi moves past it */
+static int
+form_phrase(const char **opt, int start)
+{
+	int k, s = wi;
+
+	for (k = 0; form_phr[k].pat; k++) {
+		wi = s;
+		if (start && !strcmp(form_phr[k].opt, "e"))
+			continue;	/* "x + iy to polar": the expression */
+		if (mat(form_phr[k].pat) || (wi = s, mat("the|a|an|its") &&
+		    mat(form_phr[k].pat))) {
+			*opt = form_phr[k].opt;
+			return form_phr[k].cls;
+		}
+	}
+	wi = s;
+	return FN_NONE;
+}
+
+/* an ordinal: 2, 2nd, second, square, cube, 5th, fifth */
+static int
+form_ordinal(int *n)
+{
+	static const char *const ow[] = {"", "", "square", "cube", "fourth",
+		"fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh",
+		"twelfth", NULL};
+	int k;
+
+	if (W[wi].k == W_NUM) {
+		*n = atoi(W[wi].s);
+		wi++;
+		if (W[wi].k == W_WORD && !W[wi].sp && (isw(wi, "th") ||
+		    isw(wi, "st") || isw(wi, "nd") || isw(wi, "rd")))
+			wi++;
+		else if (issym("-") && (isw(wi + 1, "th") || isw(wi + 1, "st") ||
+		    isw(wi + 1, "nd") || isw(wi + 1, "rd")))
+			wi += 2;
+		return *n > 0;
+	}
+	for (k = 2; ow[k]; k++)
+		if (isw(wi, ow[k])) {
+			*n = k;
+			wi++;
+			return 1;
+		}
+	if (isw(wi, "second")) {
+		*n = 2;
+		wi++;
+		return 1;
+	}
+	if (isw(wi, "third")) {
+		*n = 3;
+		wi++;
+		return 1;
+	}
+	return 0;
+}
+
+static int
+has_trig_word(int a, int b)
+{
+	static const char *const tw[] = {"sin", "cos", "tan", "sec", "csc",
+		"cot", "sinh", "cosh", "tanh", "asin", "acos", "atan", "atan2",
+		"arcsin", "arccos", "arctan", "asinh", "acosh", "atanh", "sine",
+		"cosine", "tangent", NULL};
+	int i, k;
+
+	for (i = a; i < b; i++)
+		for (k = 0; tw[k]; k++)
+			if (isw(i, tw[k]))
+				return 1;
+	return 0;
+}
+
+static int
+has_unit_word(int a, int b)
+{
+	int i;
+
+	for (i = a; i < b; i++)
+		if ((W[i].k == W_WORD && (!strcmp(W[i].o, "i") ||
+		    !strcmp(W[i].o, "j") || !strcmp(W[i].o, "I") ||
+		    !strcmp(W[i].s, "im") || !strcmp(W[i].s, "cis"))) ||
+		    (W[i].k == W_SYM && !strcmp(W[i].o, "\xe2\x88\xa0")))
+			return 1;
+	return 0;
+}
+
+/* the words a..b as ucas text: as written, or translated when English */
+static const char *
+form_expr(int a, int b)
+{
+	static const char *const ew[] = {"plus", "minus", "times", "over",
+		"divided", "squared", "cubed", "root", "power", "half", "twice",
+		"of", "sine", "cosine", "tangent", "logarithm", "quantity", "sum",
+		"product", "raised", "multiplied", "one", "two", "three", "four",
+		"five", "six", "seven", "eight", "nine", "ten", NULL};
+	int i, k, eng = 0;
+
+	while (b > a && W[b - 1].k == W_SYM && (!strcmp(W[b - 1].s, "?") ||
+	    !strcmp(W[b - 1].s, ".") || !strcmp(W[b - 1].s, ",")))
+		b--;
+	for (i = a; i < b; i++)
+		for (k = 0; ew[k]; k++)
+			if (isw(i, ew[k]))
+				eng = 1;
+	if (eng) {
+		jmp_buf saved;
+		struct word wend = W[b];
+		struct ex e;
+		int s = wi, ok = 0;
+		memcpy(saved, nl_jmp, sizeof saved);
+		memset(&W[b], 0, sizeof W[b]);
+		wi = a;
+		quiet++;
+		if (setjmp(nl_jmp) == 0) {
+			e = parse_expr(P_TERN);
+			ok = wi == b && e.s;
+		}
+		quiet--;
+		memcpy(nl_jmp, saved, sizeof saved);
+		W[b] = wend;
+		wi = s;
+		if (ok)
+			return e.s;
+	}
+	return words_text(a, b);
+}
+
+static int
+forms_sentence(void)
+{
+	int s = wi, verb, cls = FN_NONE, ps = -1, pe = -1, i, a, b, n = 0;
+	const char *opt = "", *ex, *cmd = NULL;
+
+	form_lead(&verb);
+	a = wi;
+	/* "solve z^3 = 8i": the cube roots */
+	wi = s;
+	if (mat("solve") && W[wi].k == W_WORD && strlen(W[wi].s) == 1 &&
+	    W[wi + 1].k == W_SYM && !strcmp(W[wi + 1].s, "^") &&
+	    W[wi + 2].k == W_NUM && W[wi + 3].k == W_SYM &&
+	    !strcmp(W[wi + 3].s, "=")) {
+		n = atoi(W[wi + 2].s);
+		ex = form_expr(wi + 4, nw);
+		if (n < 1 || !*ex)
+			goto no;
+		Q.raw[0] = S("nthroots %d %s", n, ex);
+		goto done;
+	}
+	/* "the 5th roots of unity", "the cube roots of 8i" */
+	for (i = a; i < nw; i++) {
+		wi = i;
+		mat("?all ?the|of");
+		/* a plain number needs a suffix: "the 2 roots of" is not this */
+		if ((W[wi].k != W_NUM || (W[wi + 1].k == W_WORD && !W[wi + 1].sp) ||
+		    issym_at(wi + 1, "-")) && form_ordinal(&n) &&
+		    (mat("roots ?of|for") || (mat("root ?of|for") &&
+		    has_unit_word(wi, nw)))) {
+			mat("?the");
+			if (mat("unity|one|1") && W[wi].k == W_END) {
+				Q.raw[0] = S("unity %d", n);
+				goto done;
+			}
+			mat("?the ?complex ?number");
+			ex = form_expr(wi, nw);
+			if (!*ex)
+				goto no;
+			Q.raw[0] = S("nthroots %d %s", n, ex);
+			goto done;
+		}
+	}
+	/* a form phrase: the first one, from the left */
+	for (i = a; i < nw && cls == FN_NONE; i++) {
+		wi = i;
+		/* "a" or "i" inside the expression are not phrases */
+		if (i > a && !(isw(i, "in") || isw(i, "into") || isw(i, "to") ||
+		    isw(i, "as") || isw(i, "using") || isw(i, "with") ||
+		    isw(i, "via") || isw(i, "by") || isw(i, "terms") ||
+		    isw(i, "the") || isw(i, "of") || isw(i, "for") || isw(i, "its") ||
+		    isw(i - 1, "in") || isw(i - 1, "into") || isw(i - 1, "to") ||
+		    isw(i - 1, "as") || isw(i - 1, "using") || isw(i - 1, "of") ||
+		    isw(i - 1, "with") || isw(i - 1, "via") || isw(i - 1, "the")))
+			continue;
+		mat("?in|into|to|as|using|with|via|by");
+		if (!peek("terms of arcsin|asin|arccos|acos|arctan|atan|atan2|"
+		    "inverse"))
+			mat("?terms of");
+		ps = i;
+		cls = form_phrase(&opt, i == a);
+		pe = wi;
+	}
+	if (cls == FN_NONE) {
+		/* "expand sin(a + b)", "simplify sin x cos x" */
+		if (verb < 1 || verb > 3)
+			goto no;
+		mat("?the ?expression|function");
+		b = nw;
+		if (!has_trig_word(a, b) && !has_unit_word(a, b))
+			goto no;
+		ex = form_expr(a, b);
+		if (has_unit_word(a, b) && !has_trig_word(a, b))
+			Q.raw[0] = S("complex %s", ex);
+		else
+			Q.raw[0] = S("trig %s%s", ex, verb == 1 ? " expand" :
+			    verb == 3 ? " reduce" : "");
+		goto done;
+	}
+	/* the expression: after the phrase ("polar form of z"), or before
+	 * it ("write z in polar form") */
+	if (ps == a) {
+		wi = pe;
+		mat("?form|forms|representation|notation|parts|part");
+		mat("?of|for|on");
+		mat("?the ?complex ?number|expression|function");
+		b = nw;
+		a = wi;
+	} else {
+		b = ps;
+		while (b > a && (isw(b - 1, "in") || isw(b - 1, "into") ||
+		    isw(b - 1, "to") || isw(b - 1, "as") || isw(b - 1, "using") ||
+		    isw(b - 1, "with") || isw(b - 1, "via") || isw(b - 1, "by") ||
+		    isw(b - 1, "the") || isw(b - 1, "of") || isw(b - 1, "terms") ||
+		    isw(b - 1, "its") || isw(b - 1, "form") || isw(b - 1, "for")))
+			b--;
+		/* "find the polar form ... of": no */
+	}
+	if (b <= a)
+		goto no;
+	if (!strcmp(opt, "u")) {
+		if (!has_unit_word(a, b))
+			goto no;	/* |x|: an expression, not a form */
+		opt = "";
+	}
+	if (!strcmp(opt, "t")) {
+		if (!has_trig_word(a, b))
+			goto no;	/* other forms of x + 1: find */
+		opt = "";
+	}
+	if (!strcmp(opt, "e"))
+		opt = "";
+	ex = form_expr(a, b);
+	if (!*ex)
+		goto no;
+	switch (cls) {
+	case FN_RECT: cmd = "complex"; break;
+	case FN_POLAR: cmd = "polar"; break;
+	case FN_RE: cmd = "re"; break;
+	case FN_IM: cmd = "im"; break;
+	case FN_CONJ: cmd = "conj"; break;
+	case FN_MOD: cmd = "modulus"; break;
+	case FN_ARG: cmd = "arg"; break;
+	case FN_EXPF:
+		if (!has_unit_word(a, b) && has_trig_word(a, b)) {
+			Q.why = "an exponential form of a real trig expression: read as "
+			    "its Euler form (say \"polar form\" for r e^(i theta))";
+			cmd = "trig";
+			opt = " exp";
+		} else
+			cmd = "polar";
+		break;
+	case FN_TRIGF:
+		if (has_unit_word(a, b))
+			cmd = "polar";
+		else
+			cmd = "trig";
+		break;
+	default:
+		cmd = "trig";
+	}
+	if (strcmp(cmd, "trig"))
+		opt = "";
+	else if (verb == 1 && !strcmp(opt, " double"))
+		opt = " expand";
+	Q.raw[0] = S("%s %s%s", cmd, ex, opt);
+done:
+	Q.cmd = C_RAW;
+	Q.nraw = 1;
+	wi = nw;
+	return 1;
+no:
+	wi = s;
+	return 0;
+}
+
 static void
 sentence(void)
 {
@@ -4215,6 +4627,8 @@ sentence(void)
 	if (meta())
 		return;
 	if (definition())
+		return;
+	if (forms_sentence())	/* polar form of 1 + i, expand sin(a + b) */
 		return;
 	s = wi;
 	/* commands named by a verb */
@@ -5505,6 +5919,13 @@ static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"each", "possible", "both", "another", "other", "cheaper", "faster",
 	"better", "alternative", "alternatives", "implementations", "ways",
 	"minimal", "smallest", "english", "form", "forms", NULL};
+static const char *const forms_cmds[] = {"complex", "rect", "polar",
+	"conj", "re", "im", "modulus", "arg", "nthroots", "unity", "trig", NULL};
+static const char *const forms_followers[] = {"conjugate", "rewrite",
+	"rewrites", "identity", "identities", "representation", "notation",
+	"coordinates", "part", "parts", "roots", "root", "number", "numbers",
+	"and", "simplification", "functions", "of", "the", "for", "form",
+	"forms", "me", NULL};
 static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"does", "do", "can", "could", "would", "will", "which", "why", "who",
 	"compute", "calculate", "evaluate", "simplify", "solve", "let",
@@ -5517,7 +5938,8 @@ static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"hi", "ok", "okay", "so", "now", "also", "the", "whether", "get",
 	"work", "figure", "tune", "calibrate", "speed", "improve", "name",
 	"call", "declare", "thanks", "verify", "alt", "alts", "alternatives",
-	"alternative", "approximate", NULL};
+	"alternative", "approximate", "expand", "rewrite", "linearize",
+	"linearise", NULL};
 static const char *const vocab[] = {"principal", "branch", "lambert",
 	"productlog", "lower", "upper", "plus", "minus", "times", "multiplied",
 	"divided", "squared", "cubed", "square", "root", "cube", "sum",
@@ -5525,6 +5947,9 @@ static const char *const vocab[] = {"principal", "branch", "lambert",
 	"twice", "of", "the", "is", "are", "equal", "equals", "greater",
 	"less", "than", "between", "power", "raised", "modulo", "remainder",
 	"absolute", "value", "sine", "cosine", "tangent", "logarithm",
+	"imaginary", "polar", "rectangular", "cartesian", "modulus",
+	"conjugate", "exponential", "unity", "roots", "identities",
+	"trigonometric", "magnitude",
 	"natural", "negative", "positive", "bitwise", "shifted", "exclusive",
 	"number", "count", "leading", "trailing", "zeros", "ones", "derivative",
 	"maximum", "minimum", "unsigned", "signed", "byte", "bytes", "integer",
@@ -5719,6 +6144,12 @@ nlp_is_english(const char *s, size_t n)
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;
+		/* forms.c: "polar 1 + i" is ucas, "polar form of 1 + i" English */
+		if (in_list(forms_cmds, w1)) {
+			size_t j2 = j;
+			return word_at(s, n, &j2, w2, sizeof w2) &&
+			    in_list(forms_followers, w2);
+		}
 		if (in_list(ucas_cmds, w1)) {
 			size_t j2 = j, j3;
 			/* "find 2 cheaper ways": look past a count */

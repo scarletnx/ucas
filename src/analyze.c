@@ -323,6 +323,10 @@ d1(nid e, uint32_t slot)
 		r = mk_bin(O_DIV, d1(a, slot), mk_bin(O_MUL, mk_un(O_EXP, e),
 		    mk_bin(O_ADD, C(1), e)));
 		break;
+	case O_ASIN: case O_ACOS: case O_ATAN2: case O_SINH: case O_COSH:
+	case O_TANH: case O_ASINH: case O_ACOSH: case O_ATANH:   /* forms.c */
+		r = forms_diff(e, slot);
+		break;
 	case O_LOOP:   /* calc: the loop carries its derivative (loop.c) */
 		r = loop_diff(e, slot);
 		break;
@@ -729,6 +733,10 @@ list_conditions(const struct func *f, int *nc)
 			break;
 		case O_TAN:
 			COND("cos(%s) != 0", node_str(N.a[n]));
+			break;
+		case O_ASIN: case O_ACOS: case O_ATAN2: case O_ACOSH:
+		case O_ATANH:   /* forms.c */
+			COND("%s", forms_cond(n));
 			break;
 		case O_POW:
 			if (TYK(N.ty[n]) == K_REAL && !(is_const(N.b[n]) &&

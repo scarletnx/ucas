@@ -1,0 +1,137 @@
+# Complex, polar and trig forms (src/forms.c).  Inside these commands i
+# (also j, I, im) is the imaginary unit and other variables are real;
+# every result is parsed back and compared with the original at sample
+# points (the original in C's complex arithmetic).
+
+# --- a + bi ---
+complex (1+2i)/(3-i)
+complex e^(i x)
+complex (1+i)^8
+rect (2+3i)(4-5i)
+complex 1/(x + i y)
+complex (x + i y)^2
+complex sqrt(-4)
+complex sqrt(i)
+complex log(-1)
+complex i^i
+complex sin(x + i y)
+complex asin(2)
+complex 2 cis(pi/3)
+complex 3j - 1
+complex 4 + 2im
+re e^(x + i y)
+im (2+3i)^2
+conj (1+2i)/(3-i)
+modulus 3+4i
+modulus e^(x + i y)
+arg 1 + 2i
+arg -1 - i
+f(x, i) = x + 2i
+complex f
+
+# --- polar ---
+polar 1 + i
+polar -2i
+polar -1
+polar 3 + 4i
+polar x + i y
+polar e^(i x)
+polar 2∠45°
+polar 0
+
+# --- roots ---
+nthroots 3 8i
+nthroots 4 -16
+unity 6
+nthroots 2 x + i y
+
+# --- trig rewrites ---
+trig sin^2 x
+trig sin(x) cos(x)
+trig sin(3x) expand
+trig cos(2x) expand
+trig tan(a+b) expand
+trig sin(x + pi/4) expand
+trig sin^3 x reduce
+trig sin x cos y product
+trig sin x + sin y sum
+trig cos(3x) - cos(x) sum
+trig 3sin(x) + 4cos(x) harmonic
+trig a sin(x) + b cos(x) harmonic
+trig tan(x) sec(x) sincos
+trig sin(x)^2 + cos(x)^2
+trig sin(x/2) half
+trig 1/(1 + cos(x)) weierstrass
+trig sinh(2x)
+trig cosh(x)^2 reduce
+trig tanh(x) exp
+trig cos(atan(x))
+trig sin(asin(x))
+trig atan(x) inverse
+trig acos(x) inverse
+trig atan2(y, x)
+trig atan(x) + atan(y) inverse
+trig asinh(x)
+trig atanh(x)
+diff asin(x)
+diff atan2(y, x)
+domain acos(x/2)
+
+# --- English ---
+what is the complex form of (1+2i)/(3-i)?
+write (1+2i)/(3-i) in a+bi form
+rectangular form of e^(i x)
+real and imaginary parts of e^(i x)
+the real part of e^(x + i y)
+imaginary part of (2+3i)^2
+what is the polar form of 1 + i?
+convert 1+i to polar form
+put 3 + 4i in polar coordinates
+modulus and argument of 3 + 4i
+1 + i in exponential form
+cis form of -2i
+what is the modulus of 3+4i
+what's the magnitude of 1 + i
+the argument of -1 - i
+complex conjugate of (1+2i)/(3-i)
+convert 2 cis(pi/3) to rectangular form
+write 5∠30° in cartesian form
+simplify (1+i)/(1-i)
+trig rewrite of sin^2 x
+rewrite sin^2 x using double angle
+express tan x in terms of sin and cos
+simplify sin x cos x
+expand sin(a+b)
+expand sin 3x
+product to sum of sin x cos y
+write sin x + sin y as a product
+write 3 sin x + 4 cos x in the form R sin(x + phi)
+sin x in exponential form
+express atan x in terms of asin
+trig identities for cos(2x)
+write sin(x)^2 cos(x)^2 using power reduction
+linearize cos^3 x
+the 5th roots of unity
+find the cube roots of 8i
+what are the square roots of i
+solve z^4 = -16
+what is the absolute value of -3
+express 3+4i in polar form
+convert 2e^(i pi/3) to a + bi
+phasor form of 3+4j
+convert x + iy to polar form
+list the sixth roots of unity
+what is the principal argument of -1
+use the double angle formula on cos 2x
+turn sin x cos y into a sum
+write sin(x + pi/4) using the angle addition formula
+express sin x + cos x as a single sine
+write tanh x in terms of exponentials
+rewrite acos x in terms of asin
+simplify cos(atan x)
+how do I write (2+i)/(1-i) in standard form
+what is the trigonometric form of 1 + i
+power reduction formula for cos^4 x
+alternative forms of tan x
+expand (1+i)^3
+help
