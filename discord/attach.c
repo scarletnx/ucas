@@ -226,58 +226,6 @@ is_glsl_ext(const char *e)
 	return 0;
 }
 
-/* a GLSL stage from the file name, else from what the code uses */
-static const char *
-glsl_stage(const char *e, const char *src)
-{
-	if (strcasecmp(e, "glsl") != 0)
-		return e;
-	if (strstr(src, "local_size_x") || strstr(src, "gl_GlobalInvocationID")
-	    || strstr(src, "gl_LocalInvocationID") || strstr(src, "shared "))
-		return "comp";
-	if (strstr(src, "gl_Position"))
-		return "vert";
-	return "frag";
-}
-
-/* GLSL to SPIR-V to text; 0 on failure (the compiler's errors in out) */
-static int
-compile_glsl(const char *e, const char *data, size_t n, struct sbuf *out)
-{
-	char src[] = "/tmp/ucas-att-XXXXXX.glsl", spv[] = "/tmp/ucas-att-XXXXXX.spv";
-	char stage[16];
-	char *cc[] = {"glslangValidator", "-V", "-S", stage, "-o", spv, src,
-	    NULL};
-	char *dis[] = {"spirv-dis", "--no-color", spv, NULL};
-	struct sbuf log = {0};
-	int ok = 0;
-
-	snprintf(stage, sizeof stage, "%s", glsl_stage(e, data));
-	if (write_tmp(src, data, n) < 0)
-		return 0;
-	if (write_tmp(spv, "", 0) < 0) {
-		unlink(src);
-		return 0;
-	}
-	if (run_tool(cc, &log) == 0)
-		ok = run_tool(dis, out) == 0;
-	else {
-		/* the error lines, not the banner */
-		const char *l = log.p ? log.p : "";
-		while (*l) {
-			const char *nl = strchr(l, '\n');
-			size_t len = nl ? (size_t)(nl - l) : strlen(l);
-			if (!strncmp(l, "ERROR:", 6))
-				sb_printf(out, "%.*s\n", (int)len, l);
-			l += len + (nl != NULL);
-		}
-	}
-	free(log.p);
-	unlink(src);
-	unlink(spv);
-	return ok;
-}
-
 static int
 is_text(const char *p, size_t n)
 {
@@ -346,16 +294,17 @@ one_attachment(const struct discord_attachment *a, struct sbuf *blocks,
 		free(t.p);
 	} else if (!is_text(d, n))
 		sb_printf(notes, "%s is binary and not SPIR-V: skipped\n", name);
-	else if (is_glsl_ext(e)) {
-		struct sbuf t = {0};
-		if (compile_glsl(e, d, n, &t)) {
-			sb_printf(notes, "%s: GLSL (%s), compiled to SPIR-V with "
-			    "glslangValidator\n", name, glsl_stage(e, d));
+	else if (is_glsl_ext(e) || glsl_like(d, "")) {
+		struct sbuf t = {0}, why = {0};
+		if (glsl_to_spvasm(d, &t, &why)) {
+			sb_printf(notes, "%s: GLSL, compiled to SPIR-V with "
+			    "glslangValidator\n%s", name, why.p ? why.p : "");
 			add_block(blocks, "spv", t.p ? t.p : "", t.n);
 		} else
 			sb_printf(notes, "%s: GLSL that does not compile:\n%.600s",
-			    name, t.p ? t.p : "");
+			    name, why.p ? why.p : "");
 		free(t.p);
+		free(why.p);
 	} else if (!strcasecmp(e, "spvasm") || !strcasecmp(e, "spv") ||
 	    strstr(d, "OpFunction") || strstr(d, "OpLabel"))
 		add_block(blocks, "spv", d, n);
@@ -375,6 +324,61 @@ text_blocks(const char *s, struct sbuf *blocks)
 		sb_printf(blocks, "\n%.*s", (int)(b + 3 - a), a);
 		s = b + 3;
 	}
+}
+
+/*
+ * The message's own ```glsl blocks (or untagged GLSL): compiled to
+ * ```spv blocks in place, since the engine's sandbox cannot run the
+ * compiler
+ */
+int
+attach_convert(struct sbuf *code, struct sbuf *notes)
+{
+	struct sbuf out = {0};
+	const char *p = code->p, *a, *b;
+	int conv = 0;
+
+	if (p == NULL)
+		return 0;
+	while ((a = strstr(p, "```")) != NULL &&
+	    (b = strstr(a + 3, "```")) != NULL) {
+		const char *body = a + 3, *nl;
+		char lang[24] = "";
+		size_t ln = 0;
+		while (body < b && !isspace((unsigned char)*body) &&
+		    ln + 1 < sizeof lang)
+			lang[ln++] = (char)tolower((unsigned char)*body++);
+		lang[ln] = 0;
+		nl = memchr(body, '\n', (size_t)(b - body));
+		sb_printf(&out, "%.*s", (int)(a - p), p);
+		if (nl != NULL) {
+			char *src = xmalloc((size_t)(b - nl));
+			struct sbuf spv = {0}, why = {0};
+			memcpy(src, nl + 1, (size_t)(b - nl - 1));
+			src[b - nl - 1] = 0;
+			if (glsl_like(src, lang) && glsl_to_spvasm(src, &spv, &why)) {
+				sb_printf(notes, "the ```%s block: GLSL, compiled to SPIR-V "
+				    "with glslangValidator\n%s", lang[0] ? lang : "",
+				    why.p ? why.p : "");
+				sb_printf(&out, "```spv\n%s```", spv.p ? spv.p : "");
+				conv = 1;
+			} else {
+				if (glsl_like(src, lang))
+					sb_printf(notes, "the GLSL block does not compile:\n"
+					    "%.600s", why.p ? why.p : "");
+				sb_printf(&out, "%.*s", (int)(b + 3 - a), a);
+			}
+			free(src);
+			free(spv.p);
+			free(why.p);
+		} else
+			sb_printf(&out, "%.*s", (int)(b + 3 - a), a);
+		p = b + 3;
+	}
+	sb_puts(&out, p);
+	free(code->p);
+	*code = out;
+	return conv;
 }
 
 int

@@ -168,6 +168,8 @@ T(int t)
 
 /* ---- parsing ---- */
 
+static char *src_text;	/* OpSource's text, when there is one */
+
 static void
 parse(const char *src)
 {
@@ -177,13 +179,47 @@ parse(const char *src)
 
 	while (*p) {
 		struct sins I;
+		int quotes = 0;
+		const char *c;
 		e = strchr(p, '\n');
 		if (e == NULL)
 			e = p + strlen(p);
-		n = (int)(e - p) < (int)sizeof line - 1 ? (int)(e - p) :
-		    (int)sizeof line - 1;
-		memcpy(line, p, (size_t)n);
-		line[n] = 0;
+		/* a string literal may run over lines (OpSource's text): join
+		 * them, the text kept with its newlines */
+		for (;;) {
+			for (c = p, quotes = 0; c < e; c++)
+				if (*c == '"' && (c == p || c[-1] != '\\'))
+					quotes++;
+				else if (*c == ';' && !(quotes & 1))
+					break;
+			if (!(quotes & 1) || *e == 0)
+				break;
+			{
+				const char *e2 = strchr(e + 1, '\n');
+				e = e2 ? e2 : e + 1 + strlen(e + 1);
+			}
+		}
+		/* OpSource's text goes to src_text; the instruction keeps the rest */
+		{
+			const char *q = memchr(p, '"', (size_t)(e - p));
+			int is_src = q != NULL && (e - p) > 9 &&
+			    strstr(p, "OpSource") != NULL &&
+			    strstr(p, "OpSource") < q;
+			const char *end = is_src ? q : e;
+			if (is_src) {
+				const char *z = e;
+				while (z > q && *z != '"')
+					z--;
+				free(src_text);
+				src_text = xmalloc((size_t)(z - q) + 1);
+				memcpy(src_text, q + 1, (size_t)(z > q ? z - q - 1 : 0));
+				src_text[z > q ? z - q - 1 : 0] = 0;
+			}
+			n = (int)(end - p) < (int)sizeof line - 1 ? (int)(end - p) :
+			    (int)sizeof line - 1;
+			memcpy(line, p, (size_t)n);
+			line[n] = 0;
+		}
 		p = *e ? e + 1 : e;
 		if ((q = strchr(line, ';')) != NULL) {
 			/* a comment, unless inside a string */
@@ -2289,6 +2325,9 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 enum { RW_ID, RW_CONST, RW_INS };
 
 struct cand {
+	char pre_op[40];	/* RW_INS: a new instruction for operand 1 */
+	int pre_a[2];
+	double extra;		/* instructions left dead by it: their cost */
 	int kind;
 	int id;			/* RW_ID: the operand */
 	uint64_t v;		/* RW_CONST */
@@ -2313,7 +2352,122 @@ static struct {
 	int newk[256], nnewk;	/* constants made here */
 	double deadline;
 	long undecided, timeout, proved;
+	lit *dl;		/* per id: "its value is defined" */
+	char cex[240];		/* the last counterexample, as text */
+	struct {
+		int id;
+		struct word w;
+	} leaf[96];		/* the free inputs of the current query */
+	int nleaf;
+	struct {
+		char name[40];
+		int64_t lo, hi;
+	} as[8];		/* "n in [0, 32)": assumptions */
+	int nas;
+	int orig_nin;
+	int *before;		/* per new instruction: emitted before this */
+	char notes[6][700];	/* near misses worth telling */
+	int nnotes;
+	int orig_nid;
+	int *uses;		/* per id: operand references, before rewriting */
 } SP;
+
+/* the assumption on an input: a value named NAME, or a load from it */
+static int
+assumed(int id, int64_t *lo, int64_t *hi)
+{
+	const char *nm = V.id[id].name;
+	int k = SP.def[id], j;
+
+	if (SP.nas == 0)
+		return 0;
+	if (k >= 0 && !strcmp(V.in[k].op, "OpLoad") && V.in[k].nop >= 2) {
+		int ptr = idx(V.in[k].opnd[1]), q;
+		/* a pointer nothing stores to: every load sees the same value */
+		for (q = 0; q < V.nin; q++)
+			if (!strcmp(V.in[q].op, "OpStore") && V.in[q].nop >= 1 &&
+			    idx(V.in[q].opnd[0]) == ptr)
+				return 0;
+		nm = V.id[ptr].name;
+	}
+	if (*nm == '%')
+		nm++;
+	for (j = 0; j < SP.nas; j++)
+		if (!strcmp(SP.as[j].name, nm)) {
+			*lo = SP.as[j].lo;
+			*hi = SP.as[j].hi;
+			return 1;
+		}
+	return 0;
+}
+
+static void
+leaf_made(int id, const struct word *w)
+{
+	if (SP.nleaf < 96) {
+		SP.leaf[SP.nleaf].id = id;
+		SP.leaf[SP.nleaf++].w = *w;
+	}
+}
+
+/* the assumptions on the current query's inputs, as one literal */
+static lit
+assumptions(void)
+{
+	lit a = L_TRUE;
+	int i;
+
+	for (i = 0; i < SP.nleaf; i++) {
+		int64_t lo, hi;
+		const struct word *x = &SP.leaf[i].w;
+		struct word l, h;
+		if (!assumed(SP.leaf[i].id, &lo, &hi))
+			continue;
+		w_const(&l, x->w, (uint64_t)lo & wmask(x->w));
+		w_const(&h, x->w, (uint64_t)hi & wmask(x->w));
+		if (lo < 0)	/* signed bounds */
+			a = aig_and(SP.g, a, aig_and(SP.g, L_NOT(w_slt(SP.g, x, &l)),
+			    L_NOT(w_slt(SP.g, &h, x))));
+		else
+			a = aig_and(SP.g, a, aig_and(SP.g, L_NOT(w_ult(SP.g, x, &l)),
+			    L_NOT(w_ult(SP.g, &h, x))));
+	}
+	return a;
+}
+
+/* the counterexample's named inputs: "%n = 0" */
+static void
+cex_text(char *b, size_t n, int undefined)
+{
+	int i, at = 0, shown = 0;
+
+	b[0] = 0;
+	for (i = 0; i < SP.nleaf && shown < 3; i++) {
+		int id = SP.leaf[i].id, k = SP.def[id], w = SP.leaf[i].w.w;
+		const char *nm = V.id[id].name;
+		uint64_t v = aig_word_value(SP.g, &SP.leaf[i].w);
+		int64_t lo = 0, hi = 0, sv;
+		int as = assumed(id, &lo, &hi);
+		if (k >= 0 && !strcmp(V.in[k].op, "OpLoad"))
+			nm = V.id[idx(V.in[k].opnd[1])].name;
+		/* named inputs and assumed ones tell the most */
+		if (!as && nm[0] == '%' && isdigit((unsigned char)nm[1]))
+			continue;
+		sv = (int64_t)v;
+		if (as && lo < 0 && w < 64 && (v >> (w - 1) & 1))
+			sv = (int64_t)(v | ~wmask(w));
+		at += snprintf(b + at, n - (size_t)at, "%s%s%s = %lld",
+		    shown ? ", " : "", nm[0] == '%' ? "" : "%", nm, (long long)sv);
+		shown++;
+		if ((size_t)at >= n)
+			return;
+	}
+	if (undefined && (size_t)at < n)
+		snprintf(b + at, n - (size_t)at, "%s(where the replacement is "
+		    "undefined: a shift by the width or more, a bitfield past it, "
+		    "or a division by zero)", at ? " " : "");
+}
+
 
 static int
 res_of(int id)
@@ -2472,8 +2626,16 @@ evalid(int id)
 		    (uint64_t)SP.sample * 0x9e3779b97f4a7c15ULL;
 		h ^= h >> 29;
 		r = evalid(idx(V.in[k].opnd[1 + 2 * (int)(h % (uint64_t)np)]));
-	} else if (k < 0 || !pure_ins(k))
+	} else if (k < 0 || !pure_ins(k)) {
+		int64_t lo, hi;
 		r = leafval(id, w ? w : 32);
+		if (assumed(id, &lo, &hi)) {	/* inside the range, ends too */
+			uint64_t span = (uint64_t)(hi - lo) + 1;
+			int s = SP.sample % 8;
+			r = (uint64_t)(s == 0 ? lo : s == 1 ? hi : lo +
+			    (int64_t)(span ? r % span : r)) & wmask(w ? w : 32);
+		}
+	}
 	else {
 		I = &V.in[k];
 		rt = idx(I->opnd[0]);
@@ -2515,6 +2677,11 @@ evalcand(const struct cand *c, int rt)
 		return c->v;
 	for (i = 0; i < c->na; i++)
 		x[i] = evalid(c->a[i]);
+	if (c->pre_op[0]) {
+		int pt = V.id[res_of(c->pre_a[0])].type;
+		x[1] = alu(c->pre_op, pt, pt, evalid(c->pre_a[0]),
+		    evalid(c->pre_a[1]), 0, &ok) & wmask(int_width(pt));
+	}
 	at = V.id[res_of(c->a[0])].type;
 	if (c->ext[0])
 		return glsl(c->ext, rt, at, x[0], x[1], x[2], &ok) &
@@ -2554,6 +2721,64 @@ sclamp_like(struct word *r, const struct word *x, const struct word *lo,
 }
 
 /* r = op(a...) for the core and GLSL operations simplify handles */
+/* x >= v for a constant v (x unsigned) */
+static lit
+w_ge_const(struct aig *g, const struct word *x, uint64_t v)
+{
+	struct word c;
+
+	if (x->w < 64 && v > wmask(x->w))
+		return L_FALSE;
+	w_const(&c, x->w, v);
+	return L_NOT(w_ult(g, x, &c));
+}
+
+/* offset + count > width, both unsigned (in 64 bits: no overflow) */
+static lit
+range_past(struct aig *g, const struct word *off, const struct word *cnt,
+    int w)
+{
+	struct word o, c, sum, lim;
+
+	w_resize(&o, off, 64, 0);
+	w_resize(&c, cnt, 64, 0);
+	w_add(g, &sum, &o, &c);
+	w_const(&lim, 64, (uint64_t)w);
+	return w_ult(g, &lim, &sum);
+}
+
+/*
+ * The undefined cases SPIR-V leaves open, for the operation on these
+ * operands: a shift by the width or more, a bitfield past the width, a
+ * division by zero, the most negative number divided by -1.
+ */
+static lit
+op_undefined(const char *op, struct word **a, int aw)
+{
+	struct aig *g = SP.g;
+	struct word z, m1, mn;
+
+	if (!strncmp(op, "OpShift", 7))
+		return w_ge_const(g, a[1], (uint64_t)aw);
+	if (!strcmp(op, "OpBitFieldUExtract") || !strcmp(op, "OpBitFieldSExtract"))
+		return range_past(g, a[1], a[2], aw);
+	if (!strcmp(op, "OpBitFieldInsert"))
+		return range_past(g, a[2], a[3], aw);
+	if (!strcmp(op, "OpUDiv") || !strcmp(op, "OpUMod")) {
+		w_const(&z, aw, 0);
+		return w_eq(g, a[1], &z);
+	}
+	if (!strcmp(op, "OpSDiv") || !strcmp(op, "OpSRem") ||
+	    !strcmp(op, "OpSMod")) {
+		w_const(&z, aw, 0);
+		w_const(&m1, aw, wmask(aw));
+		w_const(&mn, aw, 1ULL << (aw - 1));
+		return aig_or(g, w_eq(g, a[1], &z),
+		    aig_and(g, w_eq(g, a[0], &mn), w_eq(g, a[1], &m1)));
+	}
+	return L_FALSE;
+}
+
 static void
 blast_op(struct word *r, const char *op, const char *ext, int rt,
     struct word **a, int na, int at)
@@ -2724,38 +2949,58 @@ blast(int id, int depth)
 	if (w == 0)
 		w = 32;
 	k = SP.def[id];
+	SP.dl[id] = L_TRUE;
 	if (V.id[id].kind == K_CONST && !V.id[id].spec)
 		w_const(r, w, V.id[id].c[0] & wmask(w));
 	else if (k >= 0 && depth > 0 && pure_ins(k)) {
 		const struct sins *I = &V.in[k];
 		struct word *a[4], tmp;
-		int base = first_arg(I), i, n = 0;
-		for (i = base; i < I->nop && n < 4; i++)
-			a[n++] = blast(idx(I->opnd[i]), depth - 1);
+		int base = first_arg(I), i, n = 0, at, ids[4];
+		lit d = L_TRUE;
+		for (i = base; i < I->nop && n < 4; i++, n++) {
+			ids[n] = res_of(idx(I->opnd[i]));
+			a[n] = blast(ids[n], depth - 1);
+		}
+		at = V.id[res_of(idx(I->opnd[base]))].type;
+		for (i = 0; i < n; i++)
+			d = aig_and(SP.g, d, SP.dl[ids[i]]);
+		if (strcmp(I->op, "OpExtInst") != 0)
+			d = aig_and(SP.g, d, L_NOT(op_undefined(I->op, a,
+			    int_width(at))));
 		blast_op(&tmp, I->op, !strcmp(I->op, "OpExtInst") ? I->opnd[2] :
-		    NULL, idx(I->opnd[0]), a, n,
-		    V.id[res_of(idx(I->opnd[base]))].type);
+		    NULL, idx(I->opnd[0]), a, n, at);
+		r = &SP.memo[id];	/* (blast may have moved nothing: arrays) */
 		*r = tmp;
+		SP.dl[id] = d;
 	} else if (k >= 0 && depth > 0 && fwd_phi(k)) {
 		/* one of the incoming values; which one is free */
 		const struct sins *I = &V.in[k];
 		struct word acc, *v;
-		int i;
-		acc = *blast(idx(I->opnd[1]), depth - 1);
+		lit d, sel;
+		int i, v0 = res_of(idx(I->opnd[1]));
+		acc = *blast(v0, depth - 1);
+		d = SP.dl[v0];
 		for (i = 3; i + 1 < I->nop; i += 2) {
-			v = blast(idx(I->opnd[i]), depth - 1);
-			w_mux(SP.g, &acc, aig_input(SP.g), v, &acc);
+			int vi = res_of(idx(I->opnd[i]));
+			v = blast(vi, depth - 1);
+			sel = aig_input(SP.g);
+			w_mux(SP.g, &acc, sel, v, &acc);
+			d = aig_mux(SP.g, sel, SP.dl[vi], d);
 		}
 		SP.memo[id] = acc;
 		r = &SP.memo[id];
-	} else
+		SP.dl[id] = d;
+	} else {
 		w_input(SP.g, r, w);
+		leaf_made(id, r);
+	}
 	return r;
 }
 
 static void
 blast_reset(void)
 {
+	SP.nleaf = 0;
 	while (SP.ntouched > 0)
 		SP.have[SP.touched[--SP.ntouched]] = 0;
 	aig_free(SP.g);
@@ -2776,36 +3021,70 @@ ins_cost(const char *op, const char *ext, int rt)
  * 1: proved equal for every input, 0: a difference (or none found to be
  * impossible within the depths), -1: the solver ran out of budget
  */
+/*
+ * 1: proved, for every input the assumptions allow: where the original
+ * is defined, the candidate is defined and equal (a refinement: what
+ * SPIR-V leaves undefined may become anything); 0: a counterexample (or
+ * none found impossible within the depths: SP.cex says why); -1: the
+ * solver ran out of budget; -2: out of time
+ */
 static int
 prove(int x, const struct cand *c, int rt)
 {
 	static const int depths[] = {2, 4, 8, 16};
 	int di, out = 0;
 
+	SP.cex[0] = 0;
 	for (di = 0; di < 4; di++) {
-		struct word *wx, wc, *a[3];
-		int i, r;
+		struct word *wx, wc, *a[4], pre;
+		lit dx, dc = L_TRUE, goal;
+		int i, r, j;
 		if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
 			return -2;
 		blast_reset();
 		wx = blast(x, depths[di]);
-		if (c->kind == RW_ID)
+		dx = SP.dl[res_of(x)];
+		if (c->kind == RW_ID) {
 			wc = *blast(c->id, depths[di] - 1);
-		else if (c->kind == RW_CONST)
+			dc = SP.dl[res_of(c->id)];
+		} else if (c->kind == RW_CONST)
 			w_const(&wc, wx->w, c->v);
 		else {
-			for (i = 0; i < c->na; i++)
+			for (i = 0; i < c->na; i++) {
 				a[i] = blast(c->a[i], depths[di] - 1);
+				dc = aig_and(SP.g, dc, SP.dl[res_of(c->a[i])]);
+			}
+			if (c->pre_op[0]) {	/* a new instruction feeds operand 1 */
+				struct word *pa[2];
+				int pt = V.id[res_of(c->pre_a[0])].type;
+				for (j = 0; j < 2; j++) {
+					pa[j] = blast(c->pre_a[j], depths[di] - 1);
+					dc = aig_and(SP.g, dc, SP.dl[res_of(c->pre_a[j])]);
+				}
+				blast_op(&pre, c->pre_op, NULL, pt, pa, 2, pt);
+				dc = aig_and(SP.g, dc, L_NOT(op_undefined(c->pre_op, pa,
+				    int_width(pt))));
+				a[1] = &pre;
+			}
+			if (!c->ext[0])
+				dc = aig_and(SP.g, dc, L_NOT(op_undefined(c->op, a,
+				    int_width(V.id[res_of(c->a[0])].type))));
 			blast_op(&wc, c->op, c->ext, rt, a, c->na,
 			    V.id[res_of(c->a[0])].type);
 		}
 		if (wc.w != wx->w)
 			return 0;
-		r = aig_sat(SP.g, w_ne(SP.g, wx, &wc), 20000);
+		/* defined original, and the candidate undefined or different */
+		goal = aig_and(SP.g, dx, aig_or(SP.g, L_NOT(dc),
+		    w_ne(SP.g, wx, &wc)));
+		goal = aig_and(SP.g, goal, assumptions());
+		r = aig_sat(SP.g, goal, 20000);
 		if (r == 0)
 			return 1;
 		if (r < 0)
 			out = -1;
+		if (r == 1)
+			cex_text(SP.cex, sizeof SP.cex, aig_value(SP.g, dc) == 0);
 		/* a difference: real, or only with the cut-off inputs free */
 		if (r == 1 && aig_nodes(SP.g) > 400000)
 			break;
@@ -2979,6 +3258,43 @@ candidates(int k, struct cand *cs, int max)
 		n += ins_cand(&cs[n], "OpExtInst", ext[0] == 'S' ? "SMax" : "UMax",
 		    rt, arg[0], arg[1], -1, "never above the high bound: a max");
 	}
+	/*
+	 * shift chains: (y << c1) << c2 is y << (c1 + c2); (y << c1) <<
+	 * (c2 - n) is y << ((c1 + c2) - n), one subtract in place of a
+	 * shift when the inner ones are used only here
+	 */
+	if ((!strcmp(I->op, "OpShiftLeftLogical") ||
+	    !strcmp(I->op, "OpShiftRightLogical")) && n < max) {
+		int d = SP.def[arg[0]], ds = SP.def[arg[1]];
+		uint64_t c1, c2;
+		if (d >= 0 && !SP.dead[d] && !strcmp(V.in[d].op, I->op) &&
+		    const_of(res_of(idx(V.in[d].opnd[2])), &c1)) {
+			int y = res_of(idx(V.in[d].opnd[1]));
+			double inner = SP.uses[arg[0]] == 1 ?
+			    ins_cost(V.in[d].op, NULL, rt) : 0;
+			if (const_of(arg[1], &c2) && c1 + c2 < (uint64_t)w) {
+				n += ins_cand(&cs[n], I->op, NULL, rt, y,
+				    const_id(V.id[arg[1]].type, c1 + c2), -1,
+				    "two shifts by constants are one");
+				cs[n - 1].extra = inner;
+			} else if (ds >= 0 && !SP.dead[ds] &&
+			    !strcmp(V.in[ds].op, "OpISub") &&
+			    const_of(res_of(idx(V.in[ds].opnd[1])), &c2) && n < max) {
+				int nn = res_of(idx(V.in[ds].opnd[2]));
+				int st = V.id[arg[1]].type;
+				n += ins_cand(&cs[n], I->op, NULL, rt, y, nn, -1,
+				    "a shift of a shift is one shift by the sum");
+				snprintf(cs[n - 1].pre_op, sizeof cs[n - 1].pre_op,
+				    "OpISub");
+				cs[n - 1].pre_a[0] = const_id(st, (c1 + c2) &
+				    wmask(int_width(st)));
+				cs[n - 1].pre_a[1] = nn;
+				cs[n - 1].cost += ins_cost("OpISub", NULL, st);
+				cs[n - 1].extra = inner + (SP.uses[arg[1]] == 1 ?
+				    ins_cost("OpISub", NULL, st) : 0);
+			}
+		}
+	}
 	/* (x >> k) & (2^n - 1): one bitfield extract */
 	if (!strcmp(I->op, "OpBitwiseAnd") && n < max)
 		for (i = 0; i < 2; i++) {
@@ -3037,7 +3353,12 @@ cand_text(char *b, size_t n, const struct cand *c, const struct sins *I)
 	else
 		at = snprintf(b, n, "%s %s", c->op, I->opnd[0]);
 	for (i = 0; i < c->na && (size_t)at < n; i++)
-		at += snprintf(b + at, n - (size_t)at, " %s", V.id[c->a[i]].tok);
+		if (i == 1 && c->pre_op[0])
+			at += snprintf(b + at, n - (size_t)at, " (%s %s %s)",
+			    c->pre_op, V.id[c->pre_a[0]].tok, V.id[c->pre_a[1]].tok);
+		else
+			at += snprintf(b + at, n - (size_t)at, " %s",
+			    V.id[c->a[i]].tok);
 }
 
 /* apply: alias, constant alias, or the instruction rewritten in place */
@@ -3047,6 +3368,7 @@ apply(int k, const struct cand *c)
 	struct sins *I = &V.in[k];
 	int rt = idx(I->opnd[0]), i;
 	char buf[64];
+	struct cand c2 = *c;
 
 	if (c->kind == RW_ID) {
 		SP.alias[I->res] = c->id;
@@ -3060,6 +3382,38 @@ apply(int k, const struct cand *c)
 		SP.alias[I->res] = ci;
 		SP.dead[k] = 1;
 		return;
+	}
+	if (c->pre_op[0]) {
+		/* the new subtract, emitted just before k */
+		char nm[40], tyn[40];
+		int nid_, pt = V.id[res_of(c->pre_a[0])].type, nk;
+		struct sins N;
+		snprintf(nm, sizeof nm, "%%ucas_t%d", SP.nnewk + V.nin);
+		nid_ = idx(nm);
+		snprintf(tyn, sizeof tyn, "%s", V.id[pt].tok);
+		memset(&N, 0, sizeof N);
+		snprintf(N.op, sizeof N.op, "%s", c->pre_op);
+		N.res = nid_;
+		N.opnd[0] = strdup(tyn);
+		N.opnd[1] = strdup(V.id[c->pre_a[0]].tok);
+		N.opnd[2] = strdup(V.id[c->pre_a[1]].tok);
+		N.nop = 3;
+		N.text = xmalloc(200);
+		snprintf(N.text, 200, "%s = %s %s %s %s", nm, N.op, tyn,
+		    N.opnd[1], N.opnd[2]);
+		if (V.nin == V.cap) {
+			V.cap *= 2;
+			V.in = xrealloc(V.in, (size_t)V.cap * sizeof *V.in);
+		}
+		nk = V.nin++;
+		V.in[nk] = N;
+		I = &V.in[k];	/* (V.in may have moved) */
+		SP.def[nid_] = nk;
+		V.id[nid_].type = pt;
+		V.id[nid_].kind = K_VALUE;
+		SP.before[nk] = k;
+		c2.a[1] = nid_;
+		c = &c2;
 	}
 	for (i = 1; i < I->nop; i++)
 		free(I->opnd[i]);
@@ -3077,6 +3431,66 @@ apply(int k, const struct cand *c)
 	SP.rw[k] = 1;
 }
 
+/* the source line an instruction came from (OpLine before it), or 0 */
+static int
+ins_line(int k)
+{
+	for (; k >= 0; k--) {
+		if (!strcmp(V.in[k].op, "OpLine") && V.in[k].nop >= 2)
+			return atoi(V.in[k].opnd[1]);
+		if (!strcmp(V.in[k].op, "OpFunction"))
+			break;
+	}
+	return 0;
+}
+
+/* " (GLSL line 3: s.x = ...)" from OpSource's text, or "" */
+static void
+src_line(int ln, char *b, size_t n)
+{
+	const char *t = src_text, *m;
+	int at = 1;
+
+	b[0] = 0;
+	if (t == NULL || ln <= 0 || ln >= 10000)
+		return;
+	if ((m = strstr(t, "#line 1\n")) != NULL)
+		t = m + 8;
+	while (*t && at < ln) {
+		if (*t == '\n')
+			at++;
+		t++;
+	}
+	if (*t == 0)
+		return;
+	while (*t == ' ' || *t == '\t')
+		t++;
+	{
+		size_t len = strcspn(t, "\n");
+		if (len > 90)
+			len = 90;
+		snprintf(b, n, "      (line %d: %.*s)\n", ln, (int)len, t);
+	}
+}
+
+/* "n in [0, 32)" for the next simplify */
+static struct {
+	char name[40];
+	int64_t lo, hi;
+} pend_as[8];
+static int npend_as;
+
+void
+spirv_assume(const char *name, int64_t lo, int64_t hi)
+{
+	if (npend_as < 8) {
+		snprintf(pend_as[npend_as].name, sizeof pend_as[0].name, "%s",
+		    name[0] == '%' ? name + 1 : name);
+		pend_as[npend_as].lo = lo;
+		pend_as[npend_as++].hi = hi;
+	}
+}
+
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
@@ -3086,6 +3500,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		char from[160], to[160];
 		const char *why;
 		double gain;
+		int line;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	double before = 0, after = 0;
 	struct sbuf out = {0}, list = {0};
@@ -3128,17 +3543,29 @@ spirv_simplify(const char *src, double budget, int nofile)
 		free(said.p);
 	}
 	declare();
+	SP.orig_nid = V.nid;
 	/* a snippet's inputs: their inferred types (they are free inputs) */
 	for (k = 0; k < ninps; k++)
 		if (!inps[k].var && inps[k].ty[0])
 			V.id[idx(inps[k].name)].type = idx(inps[k].ty);
 	/* result types, definitions */
-	SP.def = xmalloc((size_t)(V.nid + 512) * sizeof *SP.def);
-	SP.alias = xmalloc((size_t)(V.nid + 512) * sizeof *SP.alias);
-	for (i = 0; i < V.nid + 512; i++)
+	SP.def = xmalloc((size_t)(V.nid + 1024) * sizeof *SP.def);
+	SP.alias = xmalloc((size_t)(V.nid + 1024) * sizeof *SP.alias);
+	for (i = 0; i < V.nid + 1024; i++)
 		SP.def[i] = SP.alias[i] = -1;
-	SP.dead = xcalloc((size_t)V.nin, 1);
-	SP.rw = xcalloc((size_t)V.nin, 1);
+	SP.orig_nin = V.nin;
+	SP.dead = xcalloc((size_t)V.nin + 1024, 1);
+	SP.rw = xcalloc((size_t)V.nin + 1024, 1);
+	SP.before = xmalloc(((size_t)V.nin + 1024) * sizeof *SP.before);
+	for (i = 0; i < V.nin + 1024; i++)
+		SP.before[i] = -1;
+	for (i = 0; i < npend_as; i++) {
+		snprintf(SP.as[SP.nas].name, sizeof SP.as[0].name, "%s",
+		    pend_as[i].name);
+		SP.as[SP.nas].lo = pend_as[i].lo;
+		SP.as[SP.nas++].hi = pend_as[i].hi;
+	}
+	npend_as = 0;
 	for (k = 0; k < V.nin; k++) {
 		struct sins *I = &V.in[k];
 		if (!strcmp(I->op, "OpFunction"))
@@ -3150,11 +3577,23 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    V.id[idx(I->opnd[0])].kind == K_TYPE)
 			V.id[I->res].type = idx(I->opnd[0]);
 	}
-	SP.memo = xcalloc((size_t)(V.nid + 512), sizeof *SP.memo);
-	SP.have = xcalloc((size_t)(V.nid + 512), 1);
-	SP.touched = xmalloc((size_t)(V.nid + 512) * sizeof *SP.touched);
-	SP.ev = xcalloc((size_t)(V.nid + 512), sizeof *SP.ev);
-	SP.evstamp = xcalloc((size_t)(V.nid + 512), sizeof *SP.evstamp);
+	SP.dl = xcalloc((size_t)(V.nid + 1024), sizeof *SP.dl);
+	SP.uses = xcalloc((size_t)(V.nid + 1024), sizeof *SP.uses);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strncmp(I->op, "OpName", 6) || !strncmp(I->op, "OpMemberName",
+		    12) || !strncmp(I->op, "OpDecorate", 10) ||
+		    !strncmp(I->op, "OpMemberDecorate", 16))
+			continue;
+		for (i = 0; i < I->nop; i++)
+			if (I->opnd[i][0] == '%')
+				SP.uses[idx(I->opnd[i])]++;
+	}
+	SP.memo = xcalloc((size_t)(V.nid + 1024), sizeof *SP.memo);
+	SP.have = xcalloc((size_t)(V.nid + 1024), 1);
+	SP.touched = xmalloc((size_t)(V.nid + 1024) * sizeof *SP.touched);
+	SP.ev = xcalloc((size_t)(V.nid + 1024), sizeof *SP.ev);
+	SP.evstamp = xcalloc((size_t)(V.nid + 1024), sizeof *SP.evstamp);
 	SP.rng = 0x51c3a5e1ULL;
 	SP.deadline = (double)t0 / CLOCKS_PER_SEC + budget;
 	SP.g = aig_new();
@@ -3165,12 +3604,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 			before += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
 		}
 	/* in order: a rewrite is seen by the instructions after it */
-	for (k = 0; k < V.nin; k++) {
+	for (k = 0; k < SP.orig_nin; k++) {
 		struct cand cs[12];
 		int nc, best = -1, rt;
 		double cost, gain = 0;
 		const char *ext;
-		if (!pure_ins(k))
+		if (!pure_ins(k) || V.nin >= SP.orig_nin + 1000 ||
+		    V.nid + 64 >= SP.orig_nid + 1024)
 			continue;
 		rt = idx(V.in[k].opnd[0]);
 		ext = !strcmp(V.in[k].op, "OpExtInst") ? V.in[k].opnd[2] : NULL;
@@ -3181,8 +3621,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			int j, r;
 			best = -1;
 			for (j = 0; j < nc; j++)
-				if (cs[j].why && cost - cs[j].cost > 1e-9 &&
-				    (best < 0 || cs[j].cost < cs[best].cost))
+				if (cs[j].why && cost + cs[j].extra - cs[j].cost > 1e-9 &&
+				    (best < 0 || cs[j].cost - cs[j].extra <
+				    cs[best].cost - cs[best].extra))
 					best = j;
 			if (best < 0)
 				break;
@@ -3201,8 +3642,20 @@ spirv_simplify(const char *src, double budget, int nofile)
 			}
 			r = prove(V.in[k].res, &cs[best], rt);
 			if (r == 1) {
-				gain = cost - cs[best].cost;
+				gain = cost + cs[best].extra - cs[best].cost;
 				break;
+			}
+			/* a near miss worth telling: a shift that merges, but not
+			 * everywhere */
+			if (r == 0 && cs[best].pre_op[0] && SP.cex[0] &&
+			    SP.nnotes < 6) {
+				char ct[200];
+				cand_text(ct, sizeof ct, &cs[best], &V.in[k]);
+				char sl[160];
+				src_line(ins_line(k), sl, sizeof sl);
+				snprintf(SP.notes[SP.nnotes++], sizeof SP.notes[0],
+				    "%s\n      ->  %s\n      fails at %s\n%s",
+				    V.in[k].text, ct, SP.cex, sl);
 			}
 			if (r == -1)
 				SP.undecided++;
@@ -3221,6 +3674,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 			snprintf(L->from, sizeof L->from, "%s", V.in[k].text);
 			L->why = cs[best].why;
 			L->gain = gain;
+			L->line = ins_line(k);
 		}
 		apply(k, &cs[best]);
 		nrw++;
@@ -3228,7 +3682,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	/* dead pure instructions: no uses left */
 	{
-		int *uses = xcalloc((size_t)(V.nid + 512), sizeof *uses), changed = 1;
+		int *uses = xcalloc((size_t)(V.nid + 1024), sizeof *uses), changed = 1;
 		for (k = 0; k < V.nin; k++) {
 			const struct sins *I = &V.in[k];
 			if (SP.dead[k] || !strncmp(I->op, "OpName", 6) ||
@@ -3286,6 +3740,19 @@ spirv_simplify(const char *src, double budget, int nofile)
 						sb_printf(&out, "%s = OpConstant %s %llu\n", d->tok,
 						    V.id[d->type].tok, (unsigned long long)d->c[0]);
 				}
+			if (k >= SP.orig_nin)
+				break;
+			{
+				int q;
+				for (q = SP.orig_nin; q < V.nin; q++)
+					if (SP.before[q] == k && !SP.dead[q]) {
+						const struct sins *N = &V.in[q];
+						sb_printf(&out, "%s = %s %s %s %s\n",
+						    V.id[N->res].tok, N->op, N->opnd[0],
+						    V.id[res_of(idx(N->opnd[1]))].tok,
+						    V.id[res_of(idx(N->opnd[2]))].tok);
+					}
+			}
 			if (SP.dead[k])
 				continue;
 			/* names and decorations of removed ids go too */
@@ -3313,8 +3780,11 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
 	    "(bit-precise: equal for every input), %d dead instruction%s "
-	    "removed\n", V.nin, nrw, nrw == 1 ? "" : "s", ndead,
+	    "removed\n", SP.orig_nin, nrw, nrw == 1 ? "" : "s", ndead,
 	    ndead == 1 ? "" : "s");
+	for (i = 0; i < SP.nas; i++)
+		printf("  assuming %s in [%lld, %lld] (every load of it)\n",
+		    SP.as[i].name, (long long)SP.as[i].lo, (long long)SP.as[i].hi);
 	printf("  integer arithmetic cost under %s (each instruction once): "
 	    "%g -> %g", sym_str(model_active()->name), before, after);
 	if (before > 0)
@@ -3350,9 +3820,12 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 		shown = nlog < 25 ? nlog : 25;
 		printf("  %s:\n", shown < nlog ? "the largest savings" : "rewrites");
-		for (i = 0; i < shown; i++)
-			sb_printf(&list, "    %s\n      ->  %s   (%s; -%g)\n",
-			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain);
+		for (i = 0; i < shown; i++) {
+			char sl[160];
+			src_line(rl[i].line, sl, sizeof sl);
+			sb_printf(&list, "    %s\n      ->  %s   (%s; -%g)\n%s",
+			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain, sl);
+		}
 		if (shown < nlog)
 			sb_printf(&list, "    ... %d more (all in the attached "
 			    "module)\n", nlog - shown);
@@ -3360,6 +3833,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 	} else
 		printf("  nothing to rewrite: no cheaper form of an integer "
 		    "instruction could be proved\n");
+	if (SP.nnotes) {
+		int q;
+		printf("  not applied (the solver found an input where it "
+		    "differs):\n");
+		for (q = 0; q < SP.nnotes; q++)
+			printf("    %s", SP.notes[q]);
+		printf("  if those inputs cannot happen, say so (a narrower range, "
+		    "e.g. `n in [1, 32)`) and ask again\n");
+	}
 	if (SP.undecided)
 		printf("  %ld candidate%s too hard for the solver's budget (kept as "
 		    "they are)\n", SP.undecided, SP.undecided == 1 ? "" : "s");
@@ -3375,6 +3857,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 	free(out.p);
 	free(list.p);
 	free(rl);
+	free(SP.dl);
+	free(SP.uses);
+	free(SP.before);
 	aig_free(SP.g);
 	free(SP.def);
 	free(SP.alias);

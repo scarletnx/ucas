@@ -1756,7 +1756,21 @@ statement(struct P *p)
 					budget = cmdp_number(p, NULL);
 				else if (accept_kw(p, "nofile"))
 					nofile = 1;
-				else
+				else if (accept_kw(p, "assume") && pk(p) == T_ID) {
+					char nm[48];
+					int64_t lo, hi;
+					int neg;
+					cmdp_word(p, nm, sizeof nm);
+					neg = accept(p, T_MINUS);
+					if (!cmdp_int(p, &lo))
+						fail("simplify: assume NAME LO HI");
+					lo = neg ? -lo : lo;
+					neg = accept(p, T_MINUS);
+					if (!cmdp_int(p, &hi))
+						fail("simplify: assume NAME LO HI");
+					hi = neg ? -hi : hi;
+					spirv_assume(nm, lo, hi);
+				} else
 					adv(p);
 			}
 			if (code_block == NULL)

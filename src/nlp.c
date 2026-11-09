@@ -5832,6 +5832,26 @@ next_code_block(const char *src, struct sbuf *piece)
 
 static void run_text_plain(const char *src, const char *file, int echo);
 
+/* the block looks like GLSL source (and is tagged so, or untagged) */
+int
+glsl_like(const char *c, const char *lang)
+{
+	static const char *const tags[] = {"", "glsl", "comp", "frag", "vert",
+	    "c", "cpp", "c++", "hlsl", "shader", "geom", "tesc", "tese", NULL};
+	int k, tagged = 0;
+
+	if (c == NULL)
+		return 0;
+	for (k = 0; tags[k]; k++)
+		if (!strcmp(lang ? lang : "", tags[k]))
+			tagged = 1;
+	if (!tagged || strstr(c, "= Op") || strstr(c, "OpFunction"))
+		return 0;
+	return strchr(c, '{') && strchr(c, ';') && (strstr(c, "uint") ||
+	    strstr(c, "vec") || strstr(c, "float") || strstr(c, "int ") ||
+	    strstr(c, "void ") || strstr(c, "#version"));
+}
+
 /* the block looks like SPIR-V assembly */
 static int
 spv_like(const char *c)
@@ -5839,6 +5859,143 @@ spv_like(const char *c)
 	return c != NULL && (strstr(c, "= Op") != NULL ||
 	    strstr(c, "OpFunction") != NULL || strstr(c, "OpCapability") != NULL ||
 	    strstr(c, "OpStore") != NULL);
+}
+
+/* an integer literal: decimal or 0x hex, with a sign */
+static int
+int_lit(const char **pp, int64_t *v)
+{
+	const char *p = *pp;
+	int neg = 0;
+	char *e;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p == '-' || *p == '+')
+		neg = *p++ == '-';
+	if (!isdigit((unsigned char)*p))
+		return 0;
+	*v = (int64_t)strtoull(p, &e, 0);
+	if (neg)
+		*v = -*v;
+	*pp = e;
+	return 1;
+}
+
+/*
+ * Assumptions in the request, each as " assume NAME LO HI" (inclusive):
+ * "n in [0, 32)", "n in (a, b]", "n in 0..31", "0 <= n < 32", "n < 32"
+ * (0 <= n), "n <= 31".
+ */
+static void
+find_assumptions(const char *t, struct sbuf *opt)
+{
+	const char *p = t;
+
+	while (*p) {
+		const char *q, *ns;
+		char name[40];
+		size_t nl;
+		int64_t lo, hi;
+		if (!(isalpha((unsigned char)*p) || *p == '_') ||
+		    (p > t && (isalnum((unsigned char)p[-1]) || p[-1] == '_'))) {
+			p++;
+			continue;
+		}
+		ns = p;
+		while (isalnum((unsigned char)*p) || *p == '_')
+			p++;
+		nl = (size_t)(p - ns);
+		if (nl >= sizeof name)
+			continue;
+		memcpy(name, ns, nl);
+		name[nl] = 0;
+		q = p;
+		while (*q == ' ')
+			q++;
+		/* NAME in [lo, hi) / (lo, hi] / lo..hi */
+		if (!strncmp(q, "in", 2) && !isalnum((unsigned char)q[2])) {
+			char open, close;
+			q += 2;
+			while (*q == ' ')
+				q++;
+			open = *q;
+			if (open == '[' || open == '(') {
+				q++;
+				if (!int_lit(&q, &lo))
+					continue;
+				while (*q == ' ')
+					q++;
+				if (*q != ',' && strncmp(q, "..", 2) != 0)
+					continue;
+				q += *q == ',' ? 1 : 2;
+				if (!int_lit(&q, &hi))
+					continue;
+				while (*q == ' ')
+					q++;
+				close = *q;
+				if (close != ']' && close != ')')
+					continue;
+				if (open == '(')
+					lo++;
+				if (close == ')')
+					hi--;
+			} else {
+				if (!int_lit(&q, &lo))
+					continue;
+				if (strncmp(q, "..", 2) != 0)
+					continue;
+				q += 2;
+				if (!int_lit(&q, &hi))
+					continue;
+			}
+			if (lo <= hi)
+				sb_printf(opt, " assume %s %lld %lld", name,
+				    (long long)lo, (long long)hi);
+			p = q;
+			continue;
+		}
+		/* NAME < hi / NAME <= hi, and lo <= NAME before it */
+		if (*q == '<') {
+			int le = q[1] == '=';
+			const char *b = ns;
+			q += le ? 2 : 1;
+			if (!int_lit(&q, &hi))
+				continue;
+			if (!le)
+				hi--;
+			lo = 0;
+			while (b > t && b[-1] == ' ')
+				b--;
+			if (b - 2 >= t && b[-1] == '=' && b[-2] == '<') {
+				const char *e = b - 2, *st;
+				int64_t v;
+				while (e > t && e[-1] == ' ')
+					e--;
+				st = e;
+				while (st > t && (isxdigit((unsigned char)st[-1]) ||
+				    st[-1] == 'x' || st[-1] == '-'))
+					st--;
+				if (int_lit(&st, &v))
+					lo = v;
+			} else if (b - 1 >= t && b[-1] == '<') {
+				const char *e = b - 1, *st;
+				int64_t v;
+				while (e > t && e[-1] == ' ')
+					e--;
+				st = e;
+				while (st > t && (isxdigit((unsigned char)st[-1]) ||
+				    st[-1] == 'x' || st[-1] == '-'))
+					st--;
+				if (int_lit(&st, &v))
+					lo = v + 1;
+			}
+			if (lo <= hi)
+				sb_printf(opt, " assume %s %lld %lld", name,
+				    (long long)lo, (long long)hi);
+			p = q;
+		}
+	}
 }
 
 /*
@@ -5855,7 +6012,7 @@ simplify_piece(struct sbuf *piece)
 	    "superoptimize", "superoptimise", "superoptimization", "peephole",
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    NULL};
-	char *p = piece->p, budget[32] = "", lw[64] = "";
+	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	struct sbuf out = {0};
 
@@ -5902,6 +6059,24 @@ simplify_piece(struct sbuf *piece)
 		return 0;
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
+		struct sbuf as = {0};
+		const char *q0 = p;
+		/* assumptions from the text lines (not directives) */
+		while (*q0) {
+			const char *e = strchr(q0, '\n');
+			size_t ln = e ? (size_t)(e - q0) : strlen(q0);
+			if (*q0 != '\x1e' && *q0 != '#') {	/* not comments */
+				char *line = xmalloc(ln + 1);
+				memcpy(line, q0, ln);
+				line[ln] = 0;
+				find_assumptions(line, &as);
+				free(line);
+			}
+			q0 += ln + (e != NULL);
+		}
+		assume_opts = as.p;
+	}
+	{
 		const char *q = p, *e;
 		while (*q) {
 			e = strchr(q, '\n');
@@ -5910,14 +6085,16 @@ simplify_piece(struct sbuf *piece)
 			if (*q == '\x1e')
 				sb_printf(&out, "%.*s\n", (int)(e - q), q);
 			else if (first && e > q) {
-				sb_printf(&out, "spvsimplify%s%s%s\n", budget[0] ?
-				    " budget " : "", budget, nofile ? " nofile" : "");
+				sb_printf(&out, "spvsimplify%s%s%s%s\n", budget[0] ?
+				    " budget " : "", budget, nofile ? " nofile" : "",
+				    assume_opts ? assume_opts : "");
 				first = 0;
 			} else
 				sb_putc(&out, '\n');
 			q = *e ? e + 1 : e;
 		}
 	}
+	free(assume_opts);
 	free(piece->p);
 	*piece = out;
 	return 1;
@@ -5939,6 +6116,23 @@ run_text(const char *src, const char *file, int echo)
 	for (;;) {
 		const char *c;
 		next = next_code_block(rest, &piece);
+		if (code_block && glsl_like(code_block, code_block_lang)) {
+			/* GLSL: compiled to SPIR-V (the command line; the bot
+			 * converts before it sends) */
+			static struct sbuf spv;
+			struct sbuf notes = {0};
+			sb_clear(&spv);
+			if (glsl_to_spvasm(code_block, &spv, &notes)) {
+				printf("  note: the ```%s block was compiled to SPIR-V with "
+				    "glslangValidator\n%s", code_block_lang[0] ?
+				    code_block_lang : "glsl", notes.p ? notes.p : "");
+				code_block = spv.p;
+				snprintf(code_block_lang, sizeof code_block_lang, "spv");
+			} else
+				printf("  note: the GLSL block did not compile:\n%s",
+				    notes.p ? notes.p : "");
+			free(notes.p);
+		}
 		if (code_block && spv_like(code_block))
 			simplify_piece(&piece);
 		/* earlier pieces' lines come first, as empty lines */

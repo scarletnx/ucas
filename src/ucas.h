@@ -373,6 +373,13 @@ struct spvset {			/* "animate exec %19 = 2.5": an input's value */
 extern struct spvset spv_set[16];
 extern int nspv_set;
 void spirv_simplify(const char *src, double budget, int nofile);
+void spirv_assume(const char *name, int64_t lo, int64_t hi);
+/* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
+int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
+int glsl_like(const char *code, const char *lang);
+int spv_disassemble(const char *data, size_t n, struct sbuf *out);
+int tool_run(char *const argv[], struct sbuf *out);
+int tool_tmp(char *tmpl, const char *data, size_t n);
 void deliver_file(const char *name, const char *type, const char *data,
     size_t n, int nofile);
 void spirv_exec(const char *src, int lanes, int fps, double seconds,

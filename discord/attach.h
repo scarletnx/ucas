@@ -18,4 +18,7 @@ extern int attach_allow_file;	/* --stdin tests: file:// URLs */
 int attach_gather(const struct discord_message *m, uint64_t self,
     int have_block, struct sbuf *blocks, struct sbuf *notes);
 
+/* ```glsl blocks in the request, compiled to ```spv in place */
+int attach_convert(struct sbuf *code, struct sbuf *notes);
+
 #endif

@@ -1,0 +1,2 @@
+# session 15: GLSL in the message, an assumption on n, a merge that fails at n = 0
+{"op": 0, "s": 6001, "t": "MESSAGE_CREATE", "d": {"id": "6001", "channel_id": "48", "guild_id": "7", "author": {"id": "97", "username": "u97"}, "content": "<@1000> SAT simplify n in [0, 32)\n```glsl\nvoid Skip(uint n) {\n    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));\n    s.y = (s.y >> n) | ((s.z << 1u) << (31u - n));\n    s.z = (s.z >> n) | ((s.w << 1u) << (31u - n));\n    s.w >>= n;\n}\n```", "type": 0}}

@@ -46,3 +46,28 @@ OpBranch %m
 %w = OpExtInst %uint %glsl UMin %v %uint_255
 OpStore %out %w
 ```
+# live session 15: GLSL (s undeclared, no main), an assumption on n; the
+# shifts merge only when n = 0 is excluded (a shift by 32 is undefined)
+SAT simplify n in [0, 32) nofile
+```glsl
+void Skip(uint n) {
+    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));
+    s.y = (s.y >> n) | ((s.z << 1u) << (31u - n));
+    s.z = (s.z >> n) | ((s.w << 1u) << (31u - n));
+    s.w >>= n;
+}
+```
+simplify with n in [1, 32) nofile
+```glsl
+void Skip(uint n) {
+    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));
+    s.w >>= n;
+}
+```
+# refinement: x / 0 is undefined, so a divide by a variable is never
+# replaced by something that is defined differently; 1 <= d <= 1 makes it x
+simplify assume d in [1, 1] nofile
+```spv
+%q = OpUDiv %uint %x %d
+OpStore %out %q
+```

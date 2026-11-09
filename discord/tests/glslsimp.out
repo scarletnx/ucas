@@ -1,0 +1,15 @@
+== event 1: channel 48, author 97: <@1000> SAT simplify n in [0, 32)
+```glsl
+void Skip(uint n) {
+    s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));
+    s.y = (s.y >> n) | ((s.z << 1u) << (31u - n));
+    s.z = (s.z >> n) | ((s.w << 1u) << (31u - n));
+    s.w >>= n;
+}
+```
+POST /channels/48/messages
+{"content":"the ```glsl block: GLSL, compiled to SPIR-V with glslangValidator\n  Skip: called from a compute shader's main(), its arguments read from a buffer\n  s is not declared: assumed `uvec4 s;` (a global; from its swizzles)\n","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"6001","channel_id":"48","guild_id":"7","fail_if_not_exists":false}}
+POST /channels/48/messages
+{"content":"```\n> spvsimplify assume n 0 31\nsimplify: 114 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed\n  assuming n in [0, 31] (every load of it)\n  integer arithmetic cost under gt1030 (each instruction once): 26 -> 26 (-0.0%)\n  nothing to rewrite: no cheaper form of an integer instruction could be proved\n  not applied (the solver found an input where it differs):\n    %29 = OpShiftLeftLogical %uint %25 %28\n      ->  OpShiftLeftLogical %uint %24 (OpISub %ucas_uint_32 %27)\n      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)\n      (line 2: s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));)\n    %42 = OpShiftLeftLogical %uint %39 %41\n      ->  OpShiftLeftLogical %uint %38 (OpISub %ucas_uint_32 %40)\n      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)\n      (line 3: s.y = (s.y >> n) | ((s.z << 1u) << (31u - n));)\n    %55 = OpShiftLeftLogical %uint %52 %54\n      ->  OpShiftLeftLogical %uint %51 (OpISub %ucas_uint_32 %53)\n      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)\n      (line 4: s.z = (s.z >> n) | ((s.w << 1u) << (31u - n));)\n  if those inputs cannot happen, say so (a narrower range, e.g. `n in [1, 32)`) and ask again\n  proved in 0.00 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"6001","channel_id":"48","guild_id":"7","fail_if_not_exists":false}}
+PUT /channels/48/messages/6001/reactions/check/@me
+

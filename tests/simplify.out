@@ -67,3 +67,55 @@ simplify: 28 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
       ->  %v   (equals its operand; -2)
   proved in 0.00 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 719 bytes, checksum 5ea34a25)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Skip: called from a compute shader's main(), its arguments read from a buffer
+  s is not declared: assumed `uvec4 s;` (a global; from its swizzles)
+> spvsimplify nofile assume n 0 31
+simplify: 114 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming n in [0, 31] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 26 -> 26 (-0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  not applied (the solver found an input where it differs):
+    %29 = OpShiftLeftLogical %uint %25 %28
+      ->  OpShiftLeftLogical %uint %24 (OpISub %ucas_uint_32 %27)
+      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)
+      (line 2: s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));)
+    %42 = OpShiftLeftLogical %uint %39 %41
+      ->  OpShiftLeftLogical %uint %38 (OpISub %ucas_uint_32 %40)
+      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)
+      (line 3: s.y = (s.y >> n) | ((s.z << 1u) << (31u - n));)
+    %55 = OpShiftLeftLogical %uint %52 %54
+      ->  OpShiftLeftLogical %uint %51 (OpISub %ucas_uint_32 %53)
+      fails at %n = 0 (where the replacement is undefined: a shift by the width or more, a bitfield past it, or a division by zero)
+      (line 4: s.z = (s.z >> n) | ((s.w << 1u) << (31u - n));)
+  if those inputs cannot happen, say so (a narrower range, e.g. `n in [1, 32)`) and ask again
+  proved in 0.01 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Skip: called from a compute shader's main(), its arguments read from a buffer
+  s is not declared: assumed `uvec4 s;` (a global; from its swizzles)
+> spvsimplify nofile assume n 1 31
+simplify: 85 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
+  assuming n in [1, 31] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 10 -> 8 (-20.0%)
+  by kind:
+       1  a shift of a shift is one shift by the sum    -2
+  rewrites:
+    %29 = OpShiftLeftLogical %uint %25 %28
+      ->  OpShiftLeftLogical %uint %24 (OpISub %ucas_uint_32 %27)   (a shift of a shift is one shift by the sum; -2)
+      (line 2: s.x = (s.x >> n) | ((s.y << 1u) << (31u - n));)
+  proved in 0.02 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2733 bytes, checksum ec9cf7fd)
+> spvsimplify nofile assume d 1 1
+  input %x: uint
+  input %d: uint
+  output %out: uint (stored to; its values are listed after the run)
+simplify: 14 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming d in [1, 1] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 24 -> 0 (-100.0%)
+  by kind:
+       1  equals its operand                            -24
+  rewrites:
+    %q = OpUDiv %uint %x %d
+      ->  %x   (equals its operand; -24)
+  proved in 0.12 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 349 bytes, checksum 06cbc691)

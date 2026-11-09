@@ -663,6 +663,7 @@ handle_message(const struct discord_message *m)
 		    &blocks, &notes);
 		if (blocks.n)
 			sb_puts(&code, blocks.p);
+		attach_convert(&code, &notes);
 		if (notes.n)
 			post(m->channel_id, m->id, m->guild_id, notes.p, NULL, 0,
 			    NULL, 0, NULL, NULL);
