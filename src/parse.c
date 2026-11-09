@@ -846,6 +846,26 @@ infix(struct P *p, int *op)
 	return 0;
 }
 
+/* & | << >> ~ xor in the statement around token i */
+static int
+bitwise_context(struct P *p, uint32_t i)
+{
+	uint32_t a = i, b = i;
+
+	while (a > 0 && p->t->kind[a - 1] != T_NL)
+		a--;
+	while (b < p->t->n && p->t->kind[b] != T_NL && p->t->kind[b] != T_EOF)
+		b++;
+	for (; a < b; a++) {
+		int k = p->t->kind[a];
+		if (k == T_AMP || k == T_SHL || k == T_SHR || k == T_TILDE ||
+		    k == T_XOR || tok_is(p->t, a, "xor") ||
+		    (k == T_BAR && a > 0 && p->t->kind[a - 1] != T_LP))
+			return 1;
+	}
+	return 0;
+}
+
 static nid
 parse_expr(struct P *p, int minbp)
 {
@@ -963,7 +983,24 @@ parse_expr(struct P *p, int minbp)
 			continue;
 		}
 		prevcmp = 0;
-		rhs = parse_expr(p, bp == BP_POW ? BP_POW : bp + 1);
+		{
+			uint32_t opat = p->i - 1;
+			rhs = parse_expr(p, bp == BP_POW ? BP_POW : bp + 1);
+			if (op == O_POW && p->t->len[opat] == 1 &&
+			    TY_ISINT(N.ty[lhs]) && TY_ISINT(N.ty[rhs]) &&
+			    strcmp(diag_file, "<english>") != 0 &&
+			    bitwise_context(p, opat)) {
+				static const char *const xo[] = {
+				    "xor (bitwise exclusive or)", "power"};
+				int k = nlp_ask_pref("caret", "\"^\" between integers, "
+				    "next to bitwise operators", xo, 2, 0,
+				    "write xor or ** to say which");
+				if (nlp_asked)
+					fail_quiet();
+				if (k == 0)
+					op = O_XOR;
+			}
+		}
 		if (op == O_DIV && p->top_jux) {
 			note("%s/%s read as %s/(%s); write (%s/...)%s for the "
 			    "other reading", node_str(lhs), node_str(rhs),
@@ -971,7 +1008,7 @@ parse_expr(struct P *p, int minbp)
 			    "...");
 		}
 		if (op == O_POW && TY_SIZED(N.ty[lhs]) && TYK(N.ty[lhs]) !=
-		    K_BOOL && !is_const(rhs))
+		    K_BOOL && !is_const(rhs) && p->t->len[p->i - 1] == 1)
 			note("'^' is power; use 'xor' or '⊕' for exclusive or");
 		x = mk_bin(op, lhs, rhs);
 		lhs = x;
@@ -1992,6 +2029,8 @@ run_source(const char *src, const char *file, int echo)
 			p->fnarg = 0;
 			p->nb = 0;
 			fflush(stdout);
+			if (nlp_asked)
+				break;   /* a question is out (fail_quiet) */
 			skip_stmt(p);
 			continue;
 		}

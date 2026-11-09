@@ -60,3 +60,16 @@ parse.ucas:25:11: error: expected an expression
 > show f
 f(n: u8) = isqrt(n)
   -> u8
+> f2(a: u8, b: u8) = (a ^ b) & 0x0f
+  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+> show f2
+f2(a: u8, b: u8) = (a xor b) & 15
+  -> u8
+> g2(a: u8) = a ^ 2
+> show g2
+g2(a: u8) = a^2
+  -> u8
+> h2(a: u8) = (a ** 2) & 7
+> show h2
+h2(a: u8) = a^2 & 7
+  -> u8

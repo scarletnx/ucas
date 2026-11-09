@@ -119,6 +119,15 @@ node_cost(const struct model *m, nid n, int *cls)
 			k = C_IMUL;
 			if (is_const(N.b[n]) && N.ki[N.b[n]] > 1)
 				mul = (float)(N.ki[N.b[n]] - 1);
+			else if (!is_const(N.b[n])) {
+				/* square and multiply over the exponent's bits */
+				int w = TY_SIZED(t) ? TYW(t) : 64, bits = 0;
+				while ((1 << bits) < w)
+					bits++;
+				*cls = C_IMUL;
+				return (float)bits * (2 * m->c[C_IMUL] +
+				    m->c[C_BRANCH]);
+			}
 		}
 		break;
 	case O_AND: case O_OR: case O_XOR: case O_NOT: case O_LNOT:

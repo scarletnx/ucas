@@ -141,3 +141,18 @@ exec of (1 << x) + x, cost model gt1030, 4 lanes in lockstep; x: u32
   result per lane: 1 3 6 11
   animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 31689 bytes
   (nofile: GIF checksum ef4262be)
+> animate exec of 32-bit ((((1 << x) + x) ^ x) & x) + (y - z) nofile
+  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+  note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
+exec of (((1 << x) + x xor x) & x) + (y - z), cost model gt1030, 4 lanes in lockstep; x: u32, y: u32, z: u32
+  serial form:
+    t0 = 1 << x                                  shift          2  t = 0..2
+    t1 = t0 + x                                  iadd           1  t = 2..3
+    t2 = t1 xor x                                logic          1  t = 3..4
+    t3 = t2 & x                                  logic          1  t = 4..5
+    t4 = y - z                                   iadd           1  t = 5..6
+    t5 = t3 + t4                                 iadd           1  t = 6..7
+  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  result per lane: 4294967295 4294967295 4294967295 4294967295
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 67784 bytes
+  (nofile: GIF checksum e8c3cd2b)

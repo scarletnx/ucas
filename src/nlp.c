@@ -79,6 +79,14 @@ nlp_ask_choice(const char *what, const char *const *opt, int nopt, int dflt)
 	return clarify(NULL, what, opt, nopt, dflt, NULL);
 }
 
+/* the same, kept for the session under key (asked once) */
+int
+nlp_ask_pref(const char *key, const char *what, const char *const *opt,
+    int nopt, int dflt, const char *hint)
+{
+	return clarify(key, what, opt, nopt, dflt, hint);
+}
+
 /* a reply to a numbered question: a number, a prefix of an option, or
  * empty for the default; -1 if it is none of these */
 static int

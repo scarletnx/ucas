@@ -260,6 +260,17 @@ fail(const char *fmt, ...)
 	longjmp(fail_jmp, 1);
 }
 
+/*
+ * End the statement without an error message: a deferred question has
+ * been printed and the run stops until it is answered.
+ */
+void
+fail_quiet(void)
+{
+	notes_flush();
+	longjmp(fail_jmp, 1);
+}
+
 void
 note(const char *fmt, ...)
 {

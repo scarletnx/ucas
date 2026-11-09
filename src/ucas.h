@@ -48,6 +48,7 @@ extern uint32_t diag_tok;
 extern struct toks *diag_toks;
 extern const char *diag_file;
 void fail(const char *fmt, ...);
+void fail_quiet(void);    /* end the statement: a question was asked */
 void note(const char *fmt, ...);
 void notes_flush(void);
 void notes_drop(void);
@@ -380,7 +381,9 @@ extern int nlp_defer;        /* questions go to the front end, not a tty */
 extern int nlp_asked;        /* a deferred question is waiting */
 int nlp_can_ask(void);
 int nlp_ask_choice(const char *what, const char *const *opt, int nopt,
-    int dflt);  /* -1: ask only when stdin and stdout are ttys */
+    int dflt);
+int nlp_ask_pref(const char *key, const char *what, const char *const *opt,
+    int nopt, int dflt, const char *hint);  /* -1: ask only when stdin and stdout are ttys */
 int nlp_is_english(const char *line, size_t n);
 void nlp_run(const char *line, size_t n, const char *file, int echo);
 void run_text(const char *src, const char *file, int echo);
