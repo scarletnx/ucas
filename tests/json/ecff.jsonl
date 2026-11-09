@@ -1,0 +1,13 @@
+{"id":1,"cmd":"ec_order","args":{"curve":"y^2 = x^3 + 3x + 7 mod 1000003","method":"schoof"}}
+{"id":2,"cmd":"ec_info","args":{"curve":"y^2 = x^3 + 4 mod 10009"}}
+{"id":3,"cmd":"ec_mul","args":{"curve":"secp256k1","k":"2","P":"G"}}
+{"id":4,"cmd":"ecdsa_sign","args":{"curve":"P-256","key":"0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721","msg":"sample"}}
+{"id":5,"cmd":"x25519","args":{"k":"a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4","u":"e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c"}}
+{"id":6,"cmd":"ec_dlog","args":{"curve":"anomalous 64","P":"random","secret":"1234567890123","method":"smart"}}
+{"id":7,"cmd":"ecm","args":{"n":"2^128 + 1"}}
+{"id":8,"cmd":"ecpp","args":{"n":"2^127 - 1"}}
+{"id":9,"cmd":"hilbert","args":{"D":"-23"}}
+{"id":10,"cmd":"ec_isogeny","args":{"curve":"y^2 = x^3 + 2x + 3 mod 97","kernel":"(3, 6)"}}
+{"id":11,"cmd":"ec_binary","args":{"curve":"K-163"}}
+{"id":12,"cmd":"ec_vectors","args":{}}
+{"id":13,"cmd":"ec_order","args":{"curve":"y^2 = x^3 + 1 mod 4"}}

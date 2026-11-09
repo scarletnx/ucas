@@ -38,6 +38,15 @@ thy_absalg.inc: thy_absalg.thy
 	    ${.ALLSRC} > ${.TARGET}
 kscript.o kscript.pieo: thy_absalg.inc
 CLEANFILES+=	thy_absalg.inc
+# elliptic curves: the shared core (ec.h), curves over Q, Diophantine
+SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
+# elliptic curves over finite fields, crypto and algorithms (ecff.h)
+SRCS+=	ecmp.c ecfp.c ecw.c ecnamed.c eccount.c ecpoly.c ecschoof.c ecalg.c \
+	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c ecb2.c ecntt.c \
+	ecff_cmd.c
+ecff_cmd.o ecff_cmd.pieo: ecff_crypto.inc ecff_dlp.inc ecff_cm.inc \
+    ecff_isog.inc ecff_b2.inc
+ecw.o ecw.pieo: ecw_impl.inc
 # simplify's function-level pass over a shader's GLSL source
 SRCS+=	glslfn.c
 # ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its

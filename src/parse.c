@@ -29,6 +29,7 @@
 #include "viz.h"
 #include "xform.h"
 int homalg_command(struct P *p);	/* homalg.h */
+int ec_command(struct P *p);	/* ec.h (absalg.h names a parameter I) */
 
 #include <ctype.h>
 #include <math.h>
@@ -103,6 +104,7 @@ static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
 static int calc2_command(struct P *p);	/* calc2_syntax.inc */
 static int alg_command(struct P *p);	/* alg_syntax.inc */
+int ecff_command(struct P *p);		/* ecff_cmd.c: elliptic curves */
 
 static int
 pk(struct P *p)
@@ -1878,6 +1880,12 @@ statement(struct P *p)
 	if (pk(p) == T_ID && ring_command(p))
 		return;
 	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */
+		return;
+	if (pk(p) == T_ID && ecff_command(p))	/* elliptic curves over F_q */
+		return;
+	/* elliptic curves, Diophantine equations (ec_cmd.c): before
+	 * hyper.c tries the line ("ec y^2 = x^3 - x" as e*c ...) */
+	if (pk(p) == T_ID && ec_command(p))
 		return;
 	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
 		return;
