@@ -342,7 +342,12 @@ What it does, in order:
   `e*ln2 + m*P(m)`; sqrt and 1/sqrt by halving the exponent, with a
   polynomial or a short polynomial seed and one Newton step, and the
   bit-hack seed with one or two Newton steps; atan of |x| > 1 as
-  `pi/2 - atan(1/|x|)` with `copysign`.
+  `pi/2 - atan(1/|x|)` with `copysign`; cosh as `(e + 1/e)/2` with `e =
+  exp(|x|)`, sinh and tanh as an odd polynomial below a cut and `(e -
+  1/e)/2`, `1 - 2/(exp(2|x|) + 1)` above it.  asin acos atan2 asinh
+  acosh atanh (and sinh cosh tanh) are fitted like any builtin: the long
+  double reference, Taylor jets (so `cheb econ` and Padé) and the
+  symmetry check know them.
 
 Errors are measured on a sample of the format's values in the interval
 (half evenly spaced in value, half evenly spaced in bit pattern, plus
