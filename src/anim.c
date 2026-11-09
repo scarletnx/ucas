@@ -540,6 +540,20 @@ static const char *const filler[] = {
 	"input", "array", "fps", "frame", "rate", "nofile", NULL
 };
 
+static int in_words(const char *w, const char *const *list);
+
+/* the next token is a word from list (it is not consumed) */
+static int
+in_words_at(struct P *p, const char *const *list)
+{
+	char w[64];
+	uint32_t pos = cmdp_pos(p);
+	int r = cmdp_word(p, w, sizeof w) && in_words(w, list);
+
+	cmdp_seek(p, pos);
+	return r;
+}
+
 static int
 in_words(const char *w, const char *const *list)
 {
@@ -590,14 +604,15 @@ static void deliver(struct gif *gp, const char *name, int nofile);
  * agree, only the taken side runs.  barrier() stalls every lane; an
  * atomic is serialized, one lane after another.
  */
-#define MAXINS 96
+#define MAXINS 1024
 #define MAXLANE 32
-enum { I_OP, I_BRANCH, I_RECONV, I_BARRIER, I_ATOMIC, I_MERGE };
 
 struct ins {
 	nid n;
 	int kind, cls, lane, reg;
 	char text[96];
+	char dst[16];			/* the register it writes, "t3" or "%20" */
+	char val[MAXLANE][24];		/* each lane's value after it */
 	double cost, t0, t1;
 	uint32_t mask;
 };
@@ -614,6 +629,8 @@ static struct {
 	const struct model *m;
 	int64_t vi[MAXP][MAXLANE];
 	double vr[MAXP][MAXLANE];
+	char title[200];
+	char lanein[MAXLANE][48];	/* what each lane starts with */
 } X;
 
 static int
@@ -850,31 +867,45 @@ xvalue(char *buf, size_t n, nid g, int lane)
 #define LBW 132		/* lane box */
 #define LBH 64
 
+#define LISTMAX 24		/* serial-form lines shown at once */
+
 static void
 xdraw(double t, int listx, int listw, int gridx, int top)
 {
-	int k, i, cur = -1, y, x0, x1, tlw, ty;
-	char buf[160], v[48];
+	int k, i, cur = -1, y, x0, x1, tlw, ty, first, lastk;
+	char buf[160];
 	const struct ins *I;
 
 	memset(D.px, C_BG, (size_t)D.W * D.H);
-	snprintf(buf, sizeof buf, "exec of %s on %d lanes (%s), cost model %s",
-	    node_str(X.f->body), X.nl, X.nl == 4 ? "a 2x2 quad" : X.nl == 32 ?
-	    "a warp" : "lockstep", sym_str(X.m->name));
-	text(4, 4, buf, C_TEXT);
+	text(4, 4, X.title, C_TEXT);
 	for (k = 0; k < X.nins; k++)
 		if (X.in[k].cost > 0 && t >= X.in[k].t0 && t < X.in[k].t1)
 			cur = k;
-	/* the serial form */
-	text(listx, top - 14, "serial form", C_GRAY);
-	for (k = 0, y = top; k < X.nins; k++) {
+	lastk = -1;
+	for (k = 0; k < X.nins; k++)
+		if (t >= X.in[k].t1)
+			lastk = k;
+	/* the serial form, scrolled to keep the current line in view */
+	first = 0;
+	if (X.nins > LISTMAX) {
+		int at = cur >= 0 ? cur : lastk >= 0 ? lastk : 0;
+		first = at - LISTMAX / 3;
+		if (first > X.nins - LISTMAX)
+			first = X.nins - LISTMAX;
+		if (first < 0)
+			first = 0;
+	}
+	snprintf(buf, sizeof buf, "serial form%s", X.nins > LISTMAX ?
+	    " (scrolling)" : "");
+	text(listx, top - 14, buf, C_GRAY);
+	for (k = first, y = top; k < X.nins && k < first + LISTMAX; k++) {
 		int col;
 		I = &X.in[k];
 		col = k == cur ? C_ARROW : t >= I->t1 ? C_TEXT : C_GRAY;
 		if (I->kind == I_BRANCH || I->kind == I_RECONV)
-			col = k == cur ? C_RED : t >= I->t1 ? C_RED : C_GRAY;
+			col = k == cur || t >= I->t1 ? C_RED : C_GRAY;
 		if (I->kind == I_BARRIER)
-			col = k == cur ? C_BAR_ORANGE : t >= I->t1 ? C_BAR_ORANGE : C_GRAY;
+			col = k == cur || t >= I->t1 ? C_BAR_ORANGE : C_GRAY;
 		if (k == cur)
 			box(listx - 2, y - 1, listw, FONT_6X10_H + 2, C_HI);
 		snprintf(buf, sizeof buf, "%c %s", t >= I->t1 && I->cost > 0 ? '*' :
@@ -895,7 +926,7 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 		int active = cur >= 0 && (X.in[cur].mask >> i & 1);
 		int stall = cur >= 0 && X.in[cur].kind == I_BARRIER;
 		int atom = cur >= 0 && X.in[cur].kind == I_ATOMIC;
-		int last = -1, line = 0, fill, j;
+		int last = -1, j, fill;
 		fill = cur < 0 ? C_CELL : stall ? C_TLBG : atom ? (active ? C_HI :
 		    C_TLBG) : active ? C_CELL : C_TLBG;
 		box(bx, by, LBW, LBH, fill);
@@ -903,41 +934,27 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 		    C_ARROW : C_GRID);
 		snprintf(buf, sizeof buf, "lane %d", i);
 		text(bx + 4, by + 3, buf, C_TEXT);
-		/* inputs */
-		{
-			int kx = bx + 4 + 8 * FONT_6X10_W;
-			for (j = 0; j < X.f->np && j < 2; j++) {
-				struct sbuf b = {0};
-				fmt_val(&b, X.f->p[j].ty, X.vi[j][i], X.vr[j][i]);
-				snprintf(buf, sizeof buf, "%s=%s", sym_str(X.f->p[j].name), b.p);
-				free(b.p);
-				kx = text(kx, by + 3, buf, C_GRAY) + FONT_6X10_W;
-			}
-		}
+		snprintf(buf, sizeof buf, "%s", X.lanein[i]);
+		buf[(LBW - 8 - 8 * FONT_6X10_W) / FONT_6X10_W] = 0;
+		text(bx + 4 + 7 * FONT_6X10_W, by + 3, buf, C_GRAY);
 		/* the latest values this lane computed */
 		for (k = 0; k < X.nins; k++)
-			if (t >= X.in[k].t1 && X.in[k].reg >= 0 && (X.in[k].mask >> i & 1))
+			if (t >= X.in[k].t1 && X.in[k].dst[0] && (X.in[k].mask >> i & 1))
 				last = k;
-		for (k = last >= 0 ? last : 0, j = 0; last >= 0 && k >= 0 && j < 3;
-		    k--) {
+		for (k = last, j = 0; last >= 0 && k >= 0 && j < 3; k--) {
 			I = &X.in[k];
-			if (I->reg < 0 || !(I->mask >> i & 1) || t < I->t1)
+			if (!I->dst[0] || !(I->mask >> i & 1) || t < I->t1)
 				continue;
-			xvalue(v, sizeof v, I->n, i);
-			snprintf(buf, sizeof buf, "t%d = %s", I->reg, v);
+			snprintf(buf, sizeof buf, "%s = %s", I->dst, I->val[i]);
 			buf[(LBW - 8) / FONT_6X10_W] = 0;
 			text(bx + 4, by + 16 + (2 - j) * 12, buf, j ? C_GRAY : C_TEXT);
 			j++;
 		}
-		line = 0;
-		if (cur >= 0 && !active && !stall) {
+		if (cur >= 0 && !active && !stall)
 			text(bx + LBW - 7 * FONT_6X10_W, by + 3, atom ? "waits" :
 			    "masked", C_RED);
-			line = 1;
-		}
 		if (stall)
 			text(bx + LBW - 7 * FONT_6X10_W, by + 3, "barrier", C_BAR_ORANGE);
-		(void)line;
 	}
 	/* timeline */
 	x0 = 46;
@@ -956,7 +973,8 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 		    I->kind == I_BARRIER ? C_BAR_ORANGE : I->kind == I_ATOMIC ? C_HI :
 		    C_BAR;
 		box(a, ty, b2 - a, 10, col);
-		box(a, ty, 1, 10, C_BG);
+		if (b2 - a > 2)
+			box(a, ty, 1, 10, C_BG);
 	}
 	{
 		int cx = x0 + (int)(tlw * (t < X.T ? t : X.T) / X.T);
@@ -996,6 +1014,146 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 	text(4, D.H - 13, buf, cur < 0 ? C_DONE : C_ARROW);
 }
 
+/*
+ * The shared back end: X.in[] holds the executed instructions with their
+ * costs, masks and per-lane values; this times them, prints the serial
+ * form and renders the animation.
+ */
+static void
+xr_finish(int fps, double seconds, const char *name, int nofile)
+{
+	int i, k, nframes, hold, fr, listw, gridx, top, h1, h2;
+	double t = 0, per, keep = 0, busy = 0;
+	struct gif g;
+
+	for (k = 0; k < X.nins; k++) {
+		X.in[k].t0 = t;
+		t += X.in[k].cost;
+		X.in[k].t1 = t;
+	}
+	X.T = t;
+	printf("  serial form:\n");
+	for (k = 0; k < X.nins; k++) {
+		const struct ins *I = &X.in[k];
+		char lt[96];
+		int pc = 0;
+		lanes_text(lt, sizeof lt, I->mask);
+		for (i = 0; i < X.nl; i++)
+			pc += I->mask >> i & 1;
+		if (I->cost > 0 && I->kind != I_BARRIER) {
+			busy += I->cost * pc;
+			if ((I->kind == I_OP || I->kind == I_ATOMIC) && pc < X.nl)
+				keep += I->cost * (X.nl - pc);
+		}
+		if (X.nins > 200 && k == 160) {
+			printf("    ... %d more\n", X.nins - 180);
+			k = X.nins - 21;
+			continue;
+		}
+		printf("    %-44s %-10s %5g  t = %g..%g%s%s%s", I->text,
+		    I->cls >= 0 ? cclass_name[I->cls] : "", I->cost, I->t0, I->t1,
+		    pc < X.nl ? "  lanes {" : "", pc < X.nl ? lt : "",
+		    pc < X.nl ? "}" : "");
+		if (I->dst[0] && X.nl <= 8) {   /* each lane's value */
+			printf("  ->");
+			for (i = 0; i < X.nl; i++)
+				printf(" %s", I->mask >> i & 1 ? I->val[i] : "-");
+		}
+		printf("\n");
+	}
+	printf("  time %g for every lane; lanes busy %.0f%% (%g lane-units "
+	    "idle: masked, or waiting for an atomic)\n", X.T, X.T > 0 ?
+	    100 * busy / (X.nl * X.T) : 100.0, keep);
+	if (X.T <= 0) {
+		printf("  nothing to execute\n");
+		return;
+	}
+	listw = 300;
+	{
+		int maxt = 0;
+		for (k = 0; k < X.nins; k++)
+			if ((int)strlen(X.in[k].text) > maxt)
+				maxt = (int)strlen(X.in[k].text);
+		if (maxt * FONT_6X10_W + 60 > listw)
+			listw = maxt * FONT_6X10_W + 60;
+		if (listw > 520)
+			listw = 520;
+	}
+	top = 36;
+	gridx = 8 + listw + 16;
+	D.W = gridx + X.cols * (LBW + 8) + 4;
+	h1 = (X.nins < LISTMAX ? X.nins : LISTMAX) * (FONT_6X10_H + 3);
+	h2 = X.rows * (LBH + 8);
+	D.H = top + (h1 > h2 ? h1 : h2) + 70;
+	D.px = xmalloc((size_t)D.W * D.H);
+	nframes = (int)(fps * seconds + 0.5);
+	hold = (int)(fps * 1.5 + 0.5);
+	per = X.T / (nframes - 1);
+	gif_begin(&g, D.W, D.H, pal, 16);
+	for (fr = 0; fr < nframes + hold; fr++) {
+		double tt = fr < nframes ? fr * per : X.T;
+		int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
+		    (int)(fr * 100.0 / fps + 0.5);
+		xdraw(tt, 8, listw, gridx, top);
+		gif_frame(&g, D.px, d);
+	}
+	gif_end(&g);
+	free(D.px);
+	printf("  animation: %dx%d, %d frames at %d fps (%.1f s, then the result "
+	    "for 1.5 s), 1 s = %.1f cost units; %zu bytes\n", D.W, D.H,
+	    nframes + hold, fps, seconds, X.T / seconds, g.out.n);
+	deliver(&g, name, nofile);
+	free(g.out.p);
+}
+
+/* ---- the API spirv.c uses ---- */
+
+void
+xr_begin(int lanes, const char *title)
+{
+	memset(&X, 0, sizeof X);
+	X.nl = lanes;
+	X.m = model_active();
+	X.cols = lanes == 4 ? 2 : lanes == 8 ? 4 : lanes == 16 ? 4 : 8;
+	X.rows = (lanes + X.cols - 1) / X.cols;
+	snprintf(X.title, sizeof X.title, "%s", title);
+}
+
+int
+xr_add(int kind, const char *txt, int cls, double cost, uint32_t mask,
+    const char *dst)
+{
+	struct ins *I = xadd(kind, 0, cost, cls, mask);
+
+	snprintf(I->text, sizeof I->text, "%s", txt);
+	snprintf(I->dst, sizeof I->dst, "%s", dst ? dst : "");
+	return X.nins - 1;
+}
+
+void
+xr_val(int k, int lane, const char *v)
+{
+	snprintf(X.in[k].val[lane], sizeof X.in[k].val[lane], "%s", v);
+}
+
+void
+xr_lanein(int lane, const char *v)
+{
+	snprintf(X.lanein[lane], sizeof X.lanein[lane], "%s", v);
+}
+
+int
+xr_count(void)
+{
+	return X.nins;
+}
+
+void
+xr_done(int fps, double seconds, const char *name, int nofile)
+{
+	xr_finish(fps, seconds, name, nofile);
+}
+
 static void
 animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
     uint64_t seed, const char *name, int nofile)
@@ -1003,10 +1161,8 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 	int64_t in_i[MAXP * CH];
 	double in_r[MAXP * CH];
 	nid root = f->body;
-	int i, j, k, nframes, hold, fr, listw, gridx, top, h1, h2;
+	int i, j, k;
 	uint64_t r = seed * 0x9e3779b97f4a7c15ULL + 1;
-	double t = 0, per;
-	struct gif g;
 
 	memset(&X, 0, sizeof X);
 	X.f = f;
@@ -1040,12 +1196,28 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 	plan_build(&X.p, &root, 1, 0);
 	plan_run(&X.p, (uint32_t)lanes, in_i, in_r);
 	xemit(root, lanes == 32 ? 0xffffffffu : (1u << lanes) - 1);
+	/* each instruction's register and every lane's value, as text */
 	for (k = 0; k < X.nins; k++) {
-		X.in[k].t0 = t;
-		t += X.in[k].cost;
-		X.in[k].t1 = t;
+		struct ins *I = &X.in[k];
+		if (I->reg < 0)
+			continue;
+		snprintf(I->dst, sizeof I->dst, "t%d", I->reg);
+		for (i = 0; i < lanes; i++)
+			xvalue(I->val[i], sizeof I->val[i], I->n, i);
 	}
-	X.T = t;
+	for (i = 0; i < lanes; i++) {
+		int at = 0;
+		for (j = 0; j < f->np && j < 3; j++) {
+			struct sbuf b = {0};
+			fmt_val(&b, f->p[j].ty, X.vi[j][i], X.vr[j][i]);
+			at += snprintf(X.lanein[i] + at, sizeof X.lanein[i] - (size_t)at,
+			    "%s%s=%s", j ? " " : "", sym_str(f->p[j].name), b.p);
+			free(b.p);
+		}
+	}
+	snprintf(X.title, sizeof X.title, "exec of %s on %d lanes (%s), cost "
+	    "model %s", node_str(root), X.nl, X.nl == 4 ? "a 2x2 quad" :
+	    X.nl == 32 ? "a warp" : "lockstep", sym_str(X.m->name));
 	/* report */
 	printf("exec of %s, cost model %s, %d lanes in lockstep", node_str(root),
 	    sym_str(X.m->name), lanes);
@@ -1055,30 +1227,6 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 	printf("\n");
 	if (random)
 		printf("  random inputs (seed %llu)\n", (unsigned long long)seed);
-	printf("  serial form:\n");
-	{
-		double keep = 0, busy = 0;
-		for (k = 0; k < X.nins; k++) {
-			const struct ins *I = &X.in[k];
-			char lt[96];
-			int pc = 0;
-			lanes_text(lt, sizeof lt, I->mask);
-			for (i = 0; i < lanes; i++)
-				pc += I->mask >> i & 1;
-			if (I->cost > 0 && I->kind != I_BARRIER) {
-				busy += I->cost * pc;
-				if ((I->kind == I_OP || I->kind == I_ATOMIC) && pc < lanes)
-					keep += I->cost * (lanes - pc);
-			}
-			printf("    %-44s %-10s %5g  t = %g..%g%s%s%s\n", I->text,
-			    I->cls >= 0 ? cclass_name[I->cls] : "", I->cost, I->t0, I->t1,
-			    pc < lanes ? "  lanes {" : "", pc < lanes ? lt : "",
-			    pc < lanes ? "}" : "");
-		}
-		printf("  time %g for every lane; lanes busy %.0f%% (%g lane-units "
-		    "idle: masked, or waiting for an atomic)\n", X.T, X.T > 0 ? 100 * busy / (lanes * X.T) :
-		    100.0, keep);
-	}
 	printf("  result per lane:");
 	for (i = 0; i < lanes; i++) {
 		char v[48];
@@ -1086,50 +1234,8 @@ animate_exec(struct func *f, int lanes, int fps, double seconds, int random,
 		printf(" %s", v);
 	}
 	printf("\n");
-	if (X.T <= 0) {
-		printf("  nothing to execute: the expression is a constant or an "
-		    "input\n");
-		plan_free(&X.p);
-		return;
-	}
-	/* layout: the serial form on the left, the lanes on the right */
-	listw = 300;
-	{
-		int maxt = 0;
-		for (k = 0; k < X.nins; k++)
-			if ((int)strlen(X.in[k].text) > maxt)
-				maxt = (int)strlen(X.in[k].text);
-		if (maxt * FONT_6X10_W + 60 > listw)
-			listw = maxt * FONT_6X10_W + 60;
-		if (listw > 520)
-			listw = 520;
-	}
-	top = 36;
-	gridx = 8 + listw + 16;
-	D.W = gridx + X.cols * (LBW + 8) + 4;
-	h1 = X.nins * (FONT_6X10_H + 3);
-	h2 = X.rows * (LBH + 8);
-	D.H = top + (h1 > h2 ? h1 : h2) + 70;
-	D.px = xmalloc((size_t)D.W * D.H);
-	nframes = (int)(fps * seconds + 0.5);
-	hold = (int)(fps * 1.5 + 0.5);
-	per = X.T / (nframes - 1);
-	gif_begin(&g, D.W, D.H, pal, 16);
-	for (fr = 0; fr < nframes + hold; fr++) {
-		double tt = fr < nframes ? fr * per : X.T;
-		int d = (int)((fr + 1) * 100.0 / fps + 0.5) -
-		    (int)(fr * 100.0 / fps + 0.5);
-		xdraw(tt, 8, listw, gridx, top);
-		gif_frame(&g, D.px, d);
-	}
-	gif_end(&g);
-	free(D.px);
+	xr_finish(fps, seconds, name, nofile);
 	plan_free(&X.p);
-	printf("  animation: %dx%d, %d frames at %d fps (%.1f s, then the result "
-	    "for 1.5 s), 1 s = %.1f cost units; %zu bytes\n", D.W, D.H,
-	    nframes + hold, fps, seconds, X.T / seconds, g.out.n);
-	deliver(&g, name, nofile);
-	free(g.out.p);
 }
 
 /* the GIF: a file on the command line, an attachment in the bot */
@@ -1182,10 +1288,12 @@ cmd_animate(struct P *p)
 	struct model *m = model_active(), *saved = model_active();
 	struct gif g;
 	int nframes, hold, f, nofile = 0, exec = 0, lanes = 4, seeded = 0;
+	int spirv = 0;
 	struct func *xf = NULL;
 	double per;
 
 	S.fp = 0;
+	nspv_set = 0;
 	while (!cmdp_eos(p)) {
 		if (cmdp_at(p, T_NUM) || cmdp_at(p, T_MINUS)) {
 			num = cmdp_number(p, stopw);
@@ -1219,6 +1327,31 @@ cmd_animate(struct P *p)
 			n = (int)num;
 			continue;
 		}
+		if (cmdp_tok(p, T_PCT)) {
+			/* "%19 = 2.5" or "%x = lane": a SPIR-V input's value */
+			char id[40];
+			int64_t iv;
+			if (cmdp_int(p, &iv))
+				snprintf(id, sizeof id, "%lld", (long long)iv);
+			else if (!cmdp_word(p, id, sizeof id))
+				fail("animate: %%name = value");
+			if (!cmdp_tok(p, T_ASSIGN))
+				fail("animate: %%%s = value", id);
+			if (nspv_set < 16) {
+				struct spvset *e = &spv_set[nspv_set++];
+				snprintf(e->name, sizeof e->name, "%s", id);
+				if (cmdp_at(p, T_ID)) {
+					cmdp_word(p, w, sizeof w);
+					if (strcmp(w, "lane") && strcmp(w, "index"))
+						fail("animate: %%%s = a number or lane", id);
+					e->mode = 1;
+				} else {
+					e->mode = 4;
+					e->v = cmdp_number(p, stopw);
+				}
+			}
+			continue;
+		}
 		if (cmdp_tok(p, T_ASSIGN) || cmdp_tok(p, T_COMMA) ||
 		    cmdp_tok(p, T_COLON) || cmdp_tok(p, T_MINUS))
 			continue;
@@ -1241,6 +1374,13 @@ word:
 				cmdp_word(p, w, sizeof w);
 				if (strcmp(w, "of") && strcmp(w, "for"))
 					cmdp_seek(p, pos);
+			}
+			/* nothing after it but a code block: run the SPIR-V */
+			if (code_block != NULL && (cmdp_eos(p) || cmdp_at(p, T_PCT) ||
+			    cmdp_at(p, T_NUM) || (cmdp_at(p, T_ID) &&
+			    in_words_at(p, exstop)))) {
+				spirv = 1;
+				continue;
 			}
 			/* the type: "32-bit", "signed 16-bit", "u32", "float" */
 			for (;;) {
@@ -1418,6 +1558,20 @@ word:
 		note("animate: ignored %s", unk);
 	if (random && !seeded)   /* a new sample each time; the seed is shown */
 		seed = (uint64_t)time(NULL) % 100000 + 1;
+	if (exec && !strcmp(name, "scan"))
+		snprintf(name, sizeof name, "exec");
+	if (exec && spirv && !seeded)   /* buffers: a new sample each run */
+		seed = (uint64_t)time(NULL) % 100000 + 1;
+	if (exec && spirv) {
+		if (lanes != 4 && lanes != 8 && lanes != 16 && lanes != 32)
+			fail("animate exec: lanes 4 (a 2x2 quad), 8, 16 or 32 (a warp)");
+		notes_flush();
+		model_set_active(m);
+		spirv_exec(code_block, lanes, fps, seconds, random, seed, name,
+		    nofile);
+		model_set_active(saved);
+		return;
+	}
 	if (exec) {
 		if (xf == NULL)
 			fail("animate exec of EXPR: which expression?");

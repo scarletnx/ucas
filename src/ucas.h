@@ -354,6 +354,25 @@ void run_source(const char *src, const char *file, int echo);
 struct P;
 void cmd_approx(struct P *p);
 void cmd_animate(struct P *p);   /* anim.c: animated GIF of a scan */
+/* anim.c: the exec animation's back end, for spirv.c */
+enum { I_OP, I_BRANCH, I_RECONV, I_BARRIER, I_ATOMIC, I_MERGE };
+void xr_begin(int lanes, const char *title);
+int xr_add(int kind, const char *txt, int cls, double cost, uint32_t mask,
+    const char *dst);
+void xr_val(int k, int lane, const char *v);
+void xr_lanein(int lane, const char *v);
+int xr_count(void);
+void xr_done(int fps, double seconds, const char *name, int nofile);
+/* spirv.c: run SPIR-V assembly on the lanes */
+struct spvset {			/* "animate exec %19 = 2.5": an input's value */
+	char name[40];		/* without the % */
+	int mode;		/* 1 lane index, 4 the value */
+	double v;
+};
+extern struct spvset spv_set[16];
+extern int nspv_set;
+void spirv_exec(const char *src, int lanes, int fps, double seconds,
+    int random, uint64_t seed, const char *name, int nofile);
 int cmdp_kw(struct P *p, const char *w);	/* accept a word */
 int cmdp_tok(struct P *p, int kind);		/* accept a token */
 int cmdp_at(struct P *p, int kind);		/* peek */
@@ -387,5 +406,8 @@ int nlp_ask_pref(const char *key, const char *what, const char *const *opt,
 int nlp_is_english(const char *line, size_t n);
 void nlp_run(const char *line, size_t n, const char *file, int echo);
 void run_text(const char *src, const char *file, int echo);
+extern const char *code_block;     /* a fenced block after the statement */
+extern char code_block_lang[24];
+extern int code_block_used;
 
 #endif

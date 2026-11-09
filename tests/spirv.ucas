@@ -1,0 +1,114 @@
+# animate exec on SPIR-V (live session 7): a full module from the user
+animate exec seed 1 nofile
+```spv
+               OpCapability Shader
+          %2 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main"
+               OpExecutionMode %main OriginUpperLeft
+               OpDecorate %SSBO BufferBlock
+               OpMemberDecorate %SSBO 0 Offset 0
+               OpDecorate %_ Binding 0
+               OpDecorate %_ DescriptorSet 0
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+       %SSBO = OpTypeStruct %v4float                
+%_ptr_Uniform_SSBO = OpTypePointer Uniform %SSBO
+          %_ = OpVariable %_ptr_Uniform_SSBO Uniform    
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %int_1 = OpConstant %int 1
+       %uint = OpTypeInt 32 0
+     %uint_0 = OpConstant %uint 0
+%_ptr_Uniform_float = OpTypePointer Uniform %float
+     %uint_1 = OpConstant %uint 1
+       %main = OpFunction %void None %4
+          %6 = OpLabel
+         %18 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_0
+         %19 = OpLoad %float %18
+         %20 = OpConvertFToS %int %19
+         %21 = OpExtInst %int %2 SMin %int_1 %20
+         %24 = OpExtInst %int %2 SMax %int_0 %21
+         %25 = OpBitcast %uint %24
+         %28 = OpISub %uint %uint_1 %25
+         %29 = OpBitcast %int %28
+         %30 = OpConvertSToF %float %29
+         %31 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_1
+               OpStore %31 %30
+               OpReturn
+               OpFunctionEnd
+```
+
+# a snippet: types, constants, the import and %19 (an input) are inferred
+animate exec seed 3 nofile
+```spv
+%20 = OpConvertFToS %int %19
+%21 = OpExtInst %int %2 SMin %int_1 %20
+%24 = OpExtInst %int %2 SMax %int_0 %21
+%28 = OpISub %int %int_1 %24
+```
+
+# a pointer input given in the request, and an output
+animate exec %x = 2.5 seed 1 nofile
+```spv
+%19 = OpLoad %float %x
+%20 = OpFMul %float %19 %19
+OpStore %y %20
+```
+
+# a divergent loop and if/else on 4 lanes, merged by OpPhi
+animate exec seed 1 nofile
+```spv
+OpCapability Shader
+%glsl = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %gid
+OpDecorate %gid BuiltIn LocalInvocationIndex
+%void = OpTypeVoid
+%fn = OpTypeFunction %void
+%uint = OpTypeInt 32 0
+%bool = OpTypeBool
+%uint_0 = OpConstant %uint 0
+%uint_1 = OpConstant %uint 1
+%uint_2 = OpConstant %uint 2
+%ptr_in = OpTypePointer Input %uint
+%gid = OpVariable %ptr_in Input
+%ptr_fn = OpTypePointer Function %uint
+%main = OpFunction %void None %fn
+%entry = OpLabel
+%acc = OpVariable %ptr_fn Function
+%i = OpLoad %uint %gid
+OpStore %acc %uint_0
+OpBranch %head
+%head = OpLabel
+%n = OpPhi %uint %uint_0 %entry %n1 %cont
+OpLoopMerge %done %cont None
+%c = OpULessThan %bool %n %i
+OpBranchConditional %c %body %done
+%body = OpLabel
+%a = OpLoad %uint %acc
+%a2 = OpIAdd %uint %a %n
+OpStore %acc %a2
+OpBranch %cont
+%cont = OpLabel
+%n1 = OpIAdd %uint %n %uint_1
+OpBranch %head
+%done = OpLabel
+%sum = OpLoad %uint %acc
+%odd = OpBitwiseAnd %uint %i %uint_1
+%isodd = OpIEqual %bool %odd %uint_1
+OpSelectionMerge %m None
+OpBranchConditional %isodd %t %e
+%t = OpLabel
+%x = OpIMul %uint %sum %uint_2
+OpBranch %m
+%e = OpLabel
+%y = OpIAdd %uint %sum %uint_2
+OpBranch %m
+%m = OpLabel
+%r = OpPhi %uint %x %t %y %e
+OpReturn
+OpFunctionEnd
+```

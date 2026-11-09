@@ -72,87 +72,87 @@ anim.ucas:6:31: error: animate: fps from 1 to 60
 > animate exec of 32-bit (1 << x) + x nofile
   note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
 exec of (1 << x) + x, cost model gt1030, 4 lanes in lockstep; x: u32
-  serial form:
-    t0 = 1 << x                                  shift          2  t = 0..2
-    t1 = t0 + x                                  iadd           1  t = 2..3
-  time 3 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   result per lane: 1 3 6 11
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 31689 bytes
-  (nofile: GIF checksum ef4262be)
+  serial form:
+    t0 = 1 << x                                  shift          2  t = 0..2  -> 1 2 4 8
+    t1 = t0 + x                                  iadd           1  t = 2..3  -> 1 3 6 11
+  time 3 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 31670 bytes
+  (nofile: GIF checksum affd447a)
 > animate exec of 32-bit x > 1 ? x*x*x : x + 7 nofile
   note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
 exec of x > 1 ? x*x*x : x + 7, cost model gt1030, 4 lanes in lockstep; x: u32
-  serial form:
-    t0 = x > 1                                   cmp            2  t = 0..2
-    branch on t0: then {2,3} else {0,1} diverges branch         2  t = 2..4
-    t1 = x * x                                   imul           3  t = 4..7  lanes {2,3}
-    t2 = t1 * x                                  imul           3  t = 7..10  lanes {2,3}
-    t3 = x + 7                                   iadd           1  t = 10..11  lanes {0,1}
-    reconverge (keep-up)                         diverge        6  t = 11..17
-    t4 = t2 | t3  (per lane)                                    0  t = 17..17
-  time 17 for every lane; lanes busy 79% (14 lane-units idle: masked, or waiting for an atomic)
   result per lane: 7 8 8 27
-  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 2.8 cost units; 126403 bytes
-  (nofile: GIF checksum 58670a02)
+  serial form:
+    t0 = x > 1                                   cmp            2  t = 0..2  -> 0 0 1 1
+    branch on t0: then {2,3} else {0,1} diverges branch         2  t = 2..4
+    t1 = x * x                                   imul           3  t = 4..7  lanes {2,3}  -> - - 4 9
+    t2 = t1 * x                                  imul           3  t = 7..10  lanes {2,3}  -> - - 8 27
+    t3 = x + 7                                   iadd           1  t = 10..11  lanes {0,1}  -> 7 8 - -
+    reconverge (keep-up)                         diverge        6  t = 11..17
+    t4 = t2 | t3  (per lane)                                    0  t = 17..17  -> 7 8 8 27
+  time 17 for every lane; lanes busy 79% (14 lane-units idle: masked, or waiting for an atomic)
+  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 2.8 cost units; 126422 bytes
+  (nofile: GIF checksum d9721262)
 > animate exec of 32-bit x < 100 ? x*3 : x/3 nofile
   note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
 exec of x < 100 ? 3x : x/3, cost model gt1030, 4 lanes in lockstep; x: u32
-  serial form:
-    t0 = x < 100                                 cmp            2  t = 0..2
-    branch on t0: then {0,1,2,3} else {} uniform branch         2  t = 2..4
-    t1 = 3 * x                                   imul           3  t = 4..7
-    t2 = t1  (per lane)                                         0  t = 7..7
-  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   result per lane: 0 3 6 9
-  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 57520 bytes
-  (nofile: GIF checksum 937344bf)
+  serial form:
+    t0 = x < 100                                 cmp            2  t = 0..2  -> 1 1 1 1
+    branch on t0: then {0,1,2,3} else {} uniform branch         2  t = 2..4
+    t1 = 3 * x                                   imul           3  t = 4..7  -> 0 3 6 9
+    t2 = t1  (per lane)                                         0  t = 7..7  -> 0 3 6 9
+  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 57524 bytes
+  (nofile: GIF checksum 5a9c29fb)
 > animate exec of u32 barrier(atomic_add_shared(x, 1) + x) * 2 nofile
   note: every variable is u32
 exec of 2barrier(atomic_add_shared(x, 1) + x), cost model gt1030, 4 lanes in lockstep; x: u32
-  serial form:
-    t0 = atomic_add_shared(x, 1)  (lane 0)       atomic_shared     8  t = 0..8  lanes {0}
-    t0 = atomic_add_shared(x, 1)  (lane 1)       atomic_shared     8  t = 8..16  lanes {1}
-    t0 = atomic_add_shared(x, 1)  (lane 2)       atomic_shared     8  t = 16..24  lanes {2}
-    t0 = atomic_add_shared(x, 1)  (lane 3)       atomic_shared     8  t = 24..32  lanes {3}
-    t1 = t0 + x                                  iadd           1  t = 32..33
-    barrier()                                    barrier       20  t = 33..53
-    t2 = 2 * t1                                  shift          2  t = 53..55
-  time 55 for every lane; lanes busy 20% (96 lane-units idle: masked, or waiting for an atomic)
   result per lane: 0 4 8 12
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 9.2 cost units; 135277 bytes
-  (nofile: GIF checksum 152c1260)
+  serial form:
+    t0 = atomic_add_shared(x, 1)  (lane 0)       atomic_shared     8  t = 0..8  lanes {0}  -> 0 - - -
+    t0 = atomic_add_shared(x, 1)  (lane 1)       atomic_shared     8  t = 8..16  lanes {1}  -> - 1 - -
+    t0 = atomic_add_shared(x, 1)  (lane 2)       atomic_shared     8  t = 16..24  lanes {2}  -> - - 2 -
+    t0 = atomic_add_shared(x, 1)  (lane 3)       atomic_shared     8  t = 24..32  lanes {3}  -> - - - 3
+    t1 = t0 + x                                  iadd           1  t = 32..33  -> 0 2 4 6
+    barrier()                                    barrier       20  t = 33..53
+    t2 = 2 * t1                                  shift          2  t = 53..55  -> 0 4 8 12
+  time 55 for every lane; lanes busy 20% (96 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 9.2 cost units; 135210 bytes
+  (nofile: GIF checksum 4a9c7544)
 > animate exec of signed 16-bit x*x - 3 lanes 32 nofile
   note: 16-bit: every variable is i16
 exec of x*x - 3, cost model gt1030, 32 lanes in lockstep; x: i16
+  result per lane: -3 -2 1 6 13 22 33 46 61 78 97 118 141 166 193 222 253 286 321 358 397 438 481 526 573 622 673 726 781 838 897 958
   serial form:
     t0 = x * x                                   imul           3  t = 0..3
     t1 = t0 - 3                                  iadd           1  t = 3..4
   time 4 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  result per lane: -3 -2 1 6 13 22 33 46 61 78 97 118 141 166 193 222 253 286 321 358 397 438 481 526 573 622 673 726 781 838 897 958
-  animation: 1448x394, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.7 cost units; 72135 bytes
-  (nofile: GIF checksum bc1877d6)
+  animation: 1448x394, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.7 cost units; 71868 bytes
+  (nofile: GIF checksum e437e296)
 > animate exec of (1 << x) + x nofile
   note: no type given: every variable is u32, a GPU's integer (say "32-bit", "signed 32-bit", "f32" ...)
 exec of (1 << x) + x, cost model gt1030, 4 lanes in lockstep; x: u32
-  serial form:
-    t0 = 1 << x                                  shift          2  t = 0..2
-    t1 = t0 + x                                  iadd           1  t = 2..3
-  time 3 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   result per lane: 1 3 6 11
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 31689 bytes
-  (nofile: GIF checksum ef4262be)
+  serial form:
+    t0 = 1 << x                                  shift          2  t = 0..2  -> 1 2 4 8
+    t1 = t0 + x                                  iadd           1  t = 2..3  -> 1 3 6 11
+  time 3 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 0.5 cost units; 31670 bytes
+  (nofile: GIF checksum affd447a)
 > animate exec of 32-bit ((((1 << x) + x) ^ x) & x) + (y - z) nofile
   note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
   note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
 exec of (((1 << x) + x xor x) & x) + (y - z), cost model gt1030, 4 lanes in lockstep; x: u32, y: u32, z: u32
-  serial form:
-    t0 = 1 << x                                  shift          2  t = 0..2
-    t1 = t0 + x                                  iadd           1  t = 2..3
-    t2 = t1 xor x                                logic          1  t = 3..4
-    t3 = t2 & x                                  logic          1  t = 4..5
-    t4 = y - z                                   iadd           1  t = 5..6
-    t5 = t3 + t4                                 iadd           1  t = 6..7
-  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
   result per lane: 4294967295 4294967295 4294967295 4294967295
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 67784 bytes
-  (nofile: GIF checksum e8c3cd2b)
+  serial form:
+    t0 = 1 << x                                  shift          2  t = 0..2  -> 1 2 4 8
+    t1 = t0 + x                                  iadd           1  t = 2..3  -> 1 3 6 11
+    t2 = t1 xor x                                logic          1  t = 3..4  -> 1 2 4 8
+    t3 = t2 & x                                  logic          1  t = 4..5  -> 0 0 0 0
+    t4 = y - z                                   iadd           1  t = 5..6  -> 4294967295 4294967295 4294967295 4294967295
+    t5 = t3 + t4                                 iadd           1  t = 6..7  -> 4294967295 4294967295 4294967295 4294967295
+  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 68042 bytes
+  (nofile: GIF checksum c0ff2ccf)

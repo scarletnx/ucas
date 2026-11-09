@@ -5743,8 +5743,113 @@ nlp_is_english(const char *s, size_t n)
  * line that reads as English goes through the translator.  Blocks keep
  * their line numbers by starting with empty lines.
  */
+/*
+ * A fenced code block (```lang ... ```) after a statement is that
+ * statement's input: "animate exec" followed by SPIR-V.  The block is
+ * taken out of the source (its lines left empty, so line numbers stay)
+ * and kept here for the command that wants it.
+ */
+const char *code_block;
+char code_block_lang[24];
+int code_block_used;
+static struct sbuf code_buf;
+
+/*
+ * Split off the text up to the first fenced block: *piece gets that text
+ * (the statement the block belongs to), the block goes to code_block, and
+ * the return value points after the closing fence (NULL: no block).  Lines
+ * taken out are kept as empty lines so later line numbers stay right.
+ */
+static const char *
+next_code_block(const char *src, struct sbuf *piece)
+{
+	const char *p = src, *e, *q;
+	int in = 0;
+
+	sb_clear(piece);
+	sb_puts(piece, "");
+	sb_clear(&code_buf);
+	code_block = NULL;
+	code_block_lang[0] = 0;
+	code_block_used = 0;
+	while (*p) {
+		e = strchr(p, '\n');
+		if (e == NULL)
+			e = p + strlen(p);
+		for (q = p; q < e && (*q == ' ' || *q == '\t'); q++)
+			;
+		if (!in && e - q >= 3 && !strncmp(q, "```", 3)) {
+			size_t n = 0;
+			q += 3;
+			while (q < e && n + 1 < sizeof code_block_lang &&
+			    !isspace((unsigned char)*q))
+				code_block_lang[n++] = (char)tolower((unsigned char)*q++);
+			code_block_lang[n] = 0;
+			in = 1;
+			sb_putc(piece, '\n');
+		} else if (in) {
+			sb_putc(piece, '\n');
+			if (e - q >= 3 && !strncmp(q, "```", 3)) {
+				code_block = code_buf.p ? code_buf.p : "";
+				return *e ? e + 1 : e;
+			}
+			sb_printf(&code_buf, "%.*s\n", (int)(e - p), p);
+		} else
+			sb_printf(piece, "%.*s\n", (int)(e - p), p);
+		p = *e ? e + 1 : e;
+	}
+	if (in) {   /* no closing fence: the block runs to the end */
+		code_block = code_buf.p ? code_buf.p : "";
+		return p;
+	}
+	return NULL;
+}
+
+static void run_text_plain(const char *src, const char *file, int echo);
+
+/* statements, each fenced block going to the statement before it */
 void
 run_text(const char *src, const char *file, int echo)
+{
+	struct sbuf piece = {0}, pad = {0};
+	const char *rest = src, *next;
+	int lines = 0;
+
+	/* one run: the questions' answers are queued once, for all pieces */
+	nlp_asked = 0;
+	while (nans > 0)
+		free(answers[--nans]);
+	ansi = 0;
+	for (;;) {
+		const char *c;
+		next = next_code_block(rest, &piece);
+		/* earlier pieces' lines come first, as empty lines */
+		sb_clear(&pad);
+		sb_puts(&pad, "");
+		{
+			int i;
+			for (i = 0; i < lines; i++)
+				sb_putc(&pad, '\n');
+		}
+		sb_puts(&pad, piece.p ? piece.p : "");
+		run_text_plain(pad.p, file, echo);
+		if (code_block && !code_block_used && !nlp_asked)
+			printf("  note: the ```%s code block was not used (animate "
+			    "exec takes SPIR-V)\n", code_block_lang);
+		code_block = NULL;
+		if (next == NULL || *next == 0 || nlp_asked)
+			break;
+		for (c = rest; c < next; c++)
+			if (*c == '\n')
+				lines++;
+		rest = next;
+	}
+	free(piece.p);
+	free(pad.p);
+}
+
+static void
+run_text_plain(const char *src, const char *file, int echo)
 {
 	struct sbuf seg = {0};
 	const char *p = src, *e, *c;
@@ -5752,10 +5857,6 @@ run_text(const char *src, const char *file, int echo)
 	size_t len;
 
 	npending = 0;
-	nlp_asked = 0;
-	while (nans > 0)
-		free(answers[--nans]);
-	ansi = 0;
 	scan_definitions(src);
 	while (*p) {
 		e = strchr(p, '\n');
