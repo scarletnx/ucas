@@ -5603,7 +5603,7 @@ viz_sentence(void)
 	int s = wi, cmd = -1, verb, riemann = 0, accum = 0, still = 0, rot = 0;
 	int nofile = 0, anim = 0, rev = 0, k;
 	const char *kind = NULL, *n = NULL, *method = NULL, *axis = NULL;
-	const char *lo = NULL, *hi = NULL, *nm = NULL;
+	const char *lo = NULL, *hi = NULL, *nm = NULL, *anim_opt = NULL;
 	struct sbuf sb = {0};
 	static const char *const kinds = "left|right|midpoint|mid|middle|"
 	    "trapezoid|trapezoidal|trapezium|simpson|simpsons|lower|upper";
@@ -5783,6 +5783,17 @@ viz_sentence(void)
 			nofile = 1;
 			continue;
 		}
+		/* frames 12, in 12 frames, 30 fps, at 30 fps */
+		if ((mat("frames|fps") && W[wi].k == W_NUM) ||
+		    (mat("?in|with|at") && W[wi].k == W_NUM && (isw(wi + 1, "frames") ||
+		    isw(wi + 1, "fps")))) {
+			int f = isw(wi - 1, "frames") || isw(wi + 1, "frames");
+			anim_opt = S("%s %s %s", anim_opt ? anim_opt : "", f ? "frames" :
+			    "fps", W[wi].s);
+			wi += isw(wi - 1, "frames") || isw(wi - 1, "fps") ? 1 : 2;
+			continue;
+		}
+		wi = s2;
 		if (mat("save|call|name ?it|that ?as") && W[wi].k == W_WORD) {
 			nm = W[wi].o;
 			wi++;
@@ -5838,6 +5849,8 @@ viz_sentence(void)
 		sb_printf(&sb, " still");
 	if (cmd == REV && rot)
 		sb_printf(&sb, " rotate");
+	if (anim_opt && cmd != VOL && cmd != SURF && cmd != ARC && cmd != CEN)
+		sb_puts(&sb, anim_opt);
 	if (nm)
 		sb_printf(&sb, " to %s", nm);
 	if (nofile)

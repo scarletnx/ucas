@@ -476,48 +476,48 @@ recog(double v)
 {
 	static char buf[4][64];
 	static int r;
+	static const int rt[] = {1, 2, 3, 5};
 	char *b = buf[r++ & 3];
-	int k;
+	int k, m;
 
 	b[0] = 0;
 	if (!isfinite(v))
 		return b;
-	for (k = 0; k < 3; k++) {
-		double u = v / pow(M_PI, k);
-		struct q q;
-		const char *pk = k == 0 ? "" : k == 1 ? "pi" : "pi^2";
-		if (fabs(u) > 1e9)
-			continue;
-		if (u == 0) {
-			snprintf(b, 64, "0");
-			return b;
-		}
-		for (q.d = 1; q.d <= 1000; q.d++) {
-			q.n = (int64_t)llround(u * q.d);
-			if (fabs((double)q.n / q.d - u) <= 1e-10 * fmax(1, fabs(u)))
-				break;
-		}
-		if (q.d > 1000)
-			continue;
-		if (k == 0 && q.d == 1)
-			snprintf(b, 64, "%lld", (long long)q.n);
-		else if (k == 0)
-			snprintf(b, 64, "%lld/%lld", (long long)q.n, (long long)q.d);
-		else {
-			char num[40];
-			if (q.n == 1)
-				snprintf(num, sizeof num, "%s", pk);
-			else if (q.n == -1)
-				snprintf(num, sizeof num, "-%s", pk);
-			else
-				snprintf(num, sizeof num, "%lld%s", (long long)q.n, pk);
-			if (q.d == 1)
-				snprintf(b, 64, "%s", num);
-			else
-				snprintf(b, 64, "%s/%lld", num, (long long)q.d);
-		}
+	if (v == 0) {
+		snprintf(b, 64, "0");
 		return b;
 	}
+	/* p/q, p/q pi, p/q pi^2, then the same times sqrt(2), sqrt(3), sqrt(5) */
+	for (m = 0; m < 4; m++)
+		for (k = 0; k < 3; k++) {
+			double u = v / pow(M_PI, k) / sqrt(rt[m]);
+			int64_t n = 0, d, dmax = m ? 100 : 1000;
+			char num[48], f[16];
+			if (fabs(u) > 1e9)
+				continue;
+			for (d = 1; d <= dmax; d++) {
+				n = (int64_t)llround(u * d);
+				if (fabs((double)n / d - u) <= 1e-10 * fmax(1, fabs(u)))
+					break;
+			}
+			if (d > dmax)
+				continue;
+			snprintf(f, sizeof f, "%s%s%s", k == 1 ? "pi" : k == 2 ? "pi^2" :
+			    "", k && m ? "*" : "", m ? (m == 1 ? "sqrt(2)" : m == 2 ?
+			    "sqrt(3)" : "sqrt(5)") : "");
+			if (!f[0])
+				snprintf(num, sizeof num, "%lld", (long long)n);
+			else if (n == 1 || n == -1)
+				snprintf(num, sizeof num, "%s%s", n < 0 ? "-" : "", f);
+			else
+				snprintf(num, sizeof num, "%lld%s%s", (long long)n, k ? "" : "*",
+				    f);
+			if (d == 1)
+				snprintf(b, 64, "%s", num);
+			else
+				snprintf(b, 64, "%s/%lld", num, (long long)d);
+			return b;
+		}
 	return b;
 }
 
@@ -630,7 +630,7 @@ integrate(nid e, double a, double b, struct integ *I, int want_exact)
 		 * gives the same value with the ends trimmed by 1e-6 and 1e-9 of
 		 * the interval; a divergent one or one inside does not
 		 */
-		double v6, v9, e6, e9, d6 = 1e-6 * (b - a), d9 = 1e-9 * (b - a);
+		double v6, v9, e6, e9, d6 = 1e-8 * (b - a), d9 = 1e-12 * (b - a);
 		int n6, n9, g6 = gk_integrate(&R.f, e, 0, a + d6, b - d6, &v6, &e6,
 		    &n6), g9 = gk_integrate(&R.f, e, 0, a + d9, b - d9, &v9, &e9,
 		    &n9);
@@ -710,7 +710,7 @@ print_integ(const char *indent, const struct integ *I, double a, double b,
 	if (I->good) {
 		if (I->trim)
 			printf("%s(singular at an end but integrable: the ends trimmed by "
-			    "1e-6 and 1e-9 of the interval give values %.2g apart)\n",
+			    "1e-8 and 1e-12 of the interval give values %.2g apart)\n",
 			    indent, I->tdiff);
 		printf("%snumeric (adaptive Gauss-Kronrod 7-15, %d evaluations): "
 		    "%.15g, estimated error %.2g\n", indent, I->nev, I->v * scale,
@@ -1388,11 +1388,18 @@ area_cmd(void)
 			    val_text(v, ex));
 	}
 	abs_area = pos - neg;
+	if (I.diverge)
+		printf("  no area: the integral diverges at %s = %s\n", xname(),
+		    btxt(I.diverge == 1 ? R.a : R.b));
 	if (!(exact_v == exact_v)) {
 		pos = neg = abs_area = NAN;
 	} else if (R.ng) {
-		printf("  %s above %s: %s; %s above %s: %s\n", R.fl, R.gl,
-		    val_text(pos, allexact), R.gl, R.fl, val_text(-neg, allexact));
+		if (pos != 0 && neg != 0)
+			printf("  %s above %s: %s; %s above %s: %s\n", R.fl, R.gl,
+			    val_text(pos, allexact), R.gl, R.fl, val_text(-neg, allexact));
+		else
+			printf("  %s above %s everywhere\n", pos != 0 ? R.fl : R.gl,
+			    pos != 0 ? R.gl : R.fl);
 		printf("  area between the curves (∫ |f - g|): %s; signed integral "
 		    "∫ (f - g): %s\n", val_text(abs_area, allexact),
 		    val_text(exact_v, I.exact));
@@ -2004,9 +2011,9 @@ solid_numbers(struct solid *so, int print, int what)
 			    node_str(R.f.body) : node_str(SUB(R.f.body, R.g.body)),
 			    xname(), btxt(R.a), btxt(R.b));
 			if (so->straddle)
-				printf("  note: [%s, %s] straddles %s: the two sides sweep "
-				    "overlapping shells; the volume is the solid's (their "
-				    "union), the shell integral counts the overlap twice\n",
+				printf("  note: [%s, %s] straddles %s: the sides of it turn "
+				    "into the same solid; where they overlap the shell integral "
+				    "counts twice, so the union is measured too\n",
 				    btxt(R.a), btxt(R.b), axis_text());
 		}
 	}
@@ -2031,12 +2038,19 @@ solid_numbers(struct solid *so, int print, int what)
 		}
 	}
 	so->Vo = vol_grid_other();
-	if (use_shell && so->straddle)
-		so->V = so->Vo, so->exact = 0;
-	if (print && use_shell && so->straddle)
-		printf("  the solid (the union of the two sides), by washers in y on "
-		    "a grid: V ≈ %.6g\n", so->V);
-	else if (print) {
+	if (use_shell && so->straddle) {
+		if (fabs(so->Vo - so->V) <= 2e-3 * fabs(so->V)) {
+			if (print)
+				printf("  the two sides sweep separate parts (washers in y on a "
+				    "grid: V ≈ %.6g): the shells add up\n", so->Vo);
+		} else {
+			so->V = so->Vo;
+			so->exact = 0;
+			if (print)
+				printf("  the two sides overlap: the solid (their union), by "
+				    "washers in y on a grid: V ≈ %.6g\n", so->V);
+		}
+	} else if (print) {
 		double rel = fabs(so->Vo - so->V) / fmax(fabs(so->V), 1e-300);
 		printf("  check: %s on a grid: V ≈ %.6g (relative difference %.1g%s)\n",
 		    use_shell ? "washers in y" : "shells in the radius", so->Vo, rel,

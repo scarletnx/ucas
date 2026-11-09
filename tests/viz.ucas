@@ -1,0 +1,63 @@
+# viz: integrals shaded, Riemann sums, accumulation, solids of revolution;
+# nofile prints the report and a checksum instead of NAME.gif
+# area: exact from the antiderivative, numeric always, signed parts
+area x^2 from 0 to 4 nofile
+area sin x from 0 to 2pi nofile
+area x^2 - 1 nofile
+area x^2 and x nofile
+area sin x and cos x from 0 to 2pi nofile
+area log(x) from 0 to 1 nofile
+area 1/x from 0 to 1 nofile
+area 1/x from -1 to 1 nofile
+# Riemann sums: one n, or n = 1, 2, 4 ... 64 animated
+area x^2 from 0 to 4 riemann 8 left nofile
+area x^2 from 0 to 4 riemann nofile
+area sin x from 0 to 2pi riemann 12 trapezoid nofile
+area x^3 - 3x from -2 to 2 riemann 5 simpson nofile
+# the accumulation function
+area x^2 from 0 to 2 accumulate frames 12 nofile
+# solids of revolution: washers, shells, other axes
+revolve x^2 from 0 to 2 about x frames 8 nofile
+revolve sqrt(x) from 0 to 4 about x still nofile
+revolve x^2 from 0 to 2 about y still nofile
+revolve x and x^2 from 0 to 1 about x-axis still nofile
+revolve sin x about x still nofile
+revolve x^2 from 0 to 1 about y = -1 still nofile
+revolve x^2 from 0 to 1 about x = 2 still nofile
+revolve sin x and 0 from 0 to pi about y = -1 still nofile
+revolve x^2 about y still nofile
+revolve sqrt(x) from 0 to 4 about x rotate frames 6 nofile
+# text only: volume, surface area, arc length, centroid
+volume x^2 from 0 to 1
+volume x^2 from 0 to 2 about x shell
+volume x from -1 to 2 about y
+surfacearea x from 0 to 1
+arclength x^2 from 0 to 1
+arclength sqrt(1 - x^2) from 0 to 1
+centroid x^2 and x
+g(x) = x^3
+centroid g from 0 to 1
+# English
+slice of integral f(x) = x^2 at 0 till 4 nofile
+area under x^2 from 0 to 4 nofile
+shade the integral of sin x from 0 to pi nofile
+show the area between x^2 and x from 0 to 1 nofile
+a left riemann sum of x^2 from 0 to 4 with 8 rectangles nofile
+the midpoint rule for sin x from 0 to pi nofile
+the accumulation function of cos x from 0 to 2pi frames 6 nofile
+revolve f(x) = x^2 in x-axis still nofile
+rotate x^2 around the y axis still nofile
+solid of revolution of sqrt x from 0 to 4 still nofile
+spin sin x about the x-axis still nofile
+revolve x and x^2 from 0 to 1 about the x-axis using washers still nofile
+rotate the region between x and x^2 about the line y = 2 still nofile
+volume of revolution of x^2 from 0 to 1 about the y-axis
+the surface area of revolution of x from 0 to 1
+arc length of x^2 from 0 to 1
+the centroid of the region between x^2 and x
+# errors
+area
+area x*y from 0 to 1
+revolve x^2 about z
+area x^2 from 0 to 4 about x
+revolve x^2 riemann 4

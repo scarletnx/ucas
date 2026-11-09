@@ -1,0 +1,717 @@
+> area x^2 from 0 to 4 nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  image: 640x440, 8281 bytes
+  (nofile: GIF checksum 9632b106)
+> area sin x from 0 to 2pi nofile
+area under sin(x)
+  x in [0, 6.283 (2pi)]: given
+  ∫ sin(x) dx from 0 to 6.283 (2pi)
+  antiderivative: -cos(x)
+  exact: F(2pi) - F(0) = 0
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -2.25852358965227e-16, estimated error 4.2e-17
+  the two agree to 2.3e-16
+  zeros inside at x = 3.142 (pi)
+    on [0, pi]: 2
+    on [pi, 2pi]: -2
+  above the axis 2, below -2: signed integral 0, total area (∫ |f|) 4
+  image: 640x440, 9568 bytes
+  (nofile: GIF checksum 87dcf61a)
+> area x^2 - 1 nofile
+area under x^2 - 1
+  x in [-1, 1]: between two crossings of the x-axis, the lobe nearest 0 (in plot's bounds [-2.5, 2.5])
+  note: no bounds given: one lobe of the region (say from a to b for another)
+  ∫ x^2 - 1 dx from -1 to 1
+  antiderivative: x^3/3 - x
+  exact: F(1) - F(-1) = -1.33333333333333 = -4/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -1.33333333333333, estimated error 0
+  the two agree to 0
+  below the axis everywhere: the area is 4/3 = 1.333
+  image: 640x440, 8986 bytes
+  (nofile: GIF checksum e96b91c1)
+> area x^2 and x nofile
+area between x^2 and x
+  x in [0, 1]: between the outermost crossings of x^2 and x
+  note: no bounds given: the region the curves enclose (say from a to b for another)
+  ∫ x^2 - x dx from 0 to 1
+  antiderivative: -x^2/2 + x^3/3
+  exact: F(1) - F(0) = -0.166666666666667 = -1/6
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -0.166666666666667, estimated error 1.8e-15
+  the two agree to 2.8e-17
+  x above x^2 everywhere
+  area between the curves (∫ |f - g|): 1/6 = 0.1667; signed integral ∫ (f - g): -1/6 = -0.1667
+  image: 640x440, 9603 bytes
+  (nofile: GIF checksum 1f0084b3)
+> area sin x and cos x from 0 to 2pi nofile
+area between sin(x) and cos(x)
+  x in [0, 6.283 (2pi)]: given
+  ∫ sin(x) - cos(x) dx from 0 to 6.283 (2pi)
+  antiderivative: -cos(x) - sin(x)
+  exact: F(2pi) - F(0) = 0
+  numeric (adaptive Gauss-Kronrod 7-15, 105 evaluations): 4.44089209850063e-16, estimated error 2e-17
+  the two agree to 4.4e-16
+  crossings inside at x = 0.7854 (pi/4), 3.927 (5pi/4)
+    on [0, pi/4]: -0.4142
+    on [pi/4, 5pi/4]: 2*sqrt(2) = 2.828
+    on [5pi/4, 2pi]: -2.414
+  sin(x) above cos(x): 2*sqrt(2) = 2.828; cos(x) above sin(x): 2*sqrt(2) = 2.828
+  area between the curves (∫ |f - g|): 4*sqrt(2) = 5.657; signed integral ∫ (f - g): 0
+  image: 640x440, 12215 bytes
+  (nofile: GIF checksum c264d443)
+> area log(x) from 0 to 1 nofile
+area under log(x)
+  x in [0, 1]: given
+  ∫ log(x) dx from 0 to 1
+  antiderivative: x*log(x) - x
+  exact: F(1) - F(0) = -0.999999999971369 = -1 (an improper integral: F's limit at the end where it is undefined)
+  numeric (adaptive Gauss-Kronrod 7-15, 975 evaluations): -0.999999999999606, estimated error 6.4e-14
+  the two agree to 2.8e-11
+  below the axis everywhere: the area is 1
+  image: 640x440, 7891 bytes
+  (nofile: GIF checksum 5ffd6769)
+> area 1/x from 0 to 1 nofile
+area under 1/x
+  x in [0, 1]: given
+  ∫ 1/x dx from 0 to 1
+  antiderivative: log(abs(x))
+  diverges: F = log(abs(x)) grows without bound towards x = 0
+  no area: the integral diverges at x = 0
+  image: 640x440, 8295 bytes
+  (nofile: GIF checksum ee38adb1)
+> area 1/x from -1 to 1 nofile
+area under 1/x
+  x in [-1, 1]: given
+  ∫ 1/x dx from -1 to 1
+  antiderivative: log(abs(x))
+  (the antiderivative is not defined across the interval: numeric only)
+  numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+  the integral does not exist as a number: 1/x is singular or undefined inside [-1, 1]
+  image: 640x440, 8244 bytes
+  (nofile: GIF checksum 5419704d)
+> area x^2 from 0 to 4 riemann 8 left nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  left sums (exact 64/3 = 21.33):
+    n = 8: 17.5, error -3.83
+  image: 640x440, 9297 bytes
+  (nofile: GIF checksum d6cc8db7)
+> area x^2 from 0 to 4 riemann nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  midpoint sums (exact 64/3 = 21.33):
+    n = 1: 16, error -5.33
+    n = 2: 20, error -1.33
+    n = 4: 21, error -0.333
+    n = 8: 21.25, error -0.0833
+    n = 16: 21.3125, error -0.0208
+    n = 32: 21.328125, error -0.00521
+    n = 64: 21.33203125, error -0.0013
+  animation: 640x440, 7 frames (7.9 s), 41608 bytes
+  (nofile: GIF checksum 0d03ef28)
+> area sin x from 0 to 2pi riemann 12 trapezoid nofile
+area under sin(x)
+  x in [0, 6.283 (2pi)]: given
+  ∫ sin(x) dx from 0 to 6.283 (2pi)
+  antiderivative: -cos(x)
+  exact: F(2pi) - F(0) = 0
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -2.25852358965227e-16, estimated error 4.2e-17
+  the two agree to 2.3e-16
+  zeros inside at x = 3.142 (pi)
+    on [0, pi]: 2
+    on [pi, 2pi]: -2
+  above the axis 2, below -2: signed integral 0, total area (∫ |f|) 4
+  trapezoid sums (exact 0):
+    n = 12: 0, error 0
+  image: 640x440, 10682 bytes
+  (nofile: GIF checksum 0d493e96)
+> area x^3 - 3x from -2 to 2 riemann 5 simpson nofile
+area under x^3 - 3x
+  x in [-2, 2]: given
+  ∫ x^3 - 3x dx from -2 to 2
+  antiderivative: -3*x^2/2 + x^4/4
+  exact: F(2) - F(-2) = 0
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 0, estimated error 0
+  the two agree to 0
+  zeros inside at x = -1.732, 0, 1.732
+    on [-2, -1.732]: -1/4 = -0.25
+    on [-1.732, 0]: 9/4 = 2.25
+    on [0, 1.732]: -9/4 = -2.25
+    on [1.732, 2]: 1/4 = 0.25
+  above the axis 5/2 = 2.5, below -5/2 = -2.5: signed integral 0, total area (∫ |f|) 5
+  note: Simpson's rule takes an even n: 6
+  simpson sums (exact 0):
+    n = 6: 0, error 0
+  image: 640x440, 9610 bytes
+  (nofile: GIF checksum e3c564ce)
+> area x^2 from 0 to 2 accumulate frames 12 nofile
+area under x^2
+  x in [0, 2]: given
+  ∫ x^2 dx from 0 to 2
+  antiderivative: x^3/3
+  exact: F(2) - F(0) = 2.66666666666667 = 8/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 2.66666666666667, estimated error 2.9e-14
+  the two agree to 0
+  above the axis everywhere: the area is 8/3 = 2.667
+  accumulation: A(x) = ∫ from 0 to x = x^3/3
+  animation: 640x640, 12 frames (3.4 s), 83102 bytes
+  (nofile: GIF checksum 1753cbd5)
+> revolve x^2 from 0 to 2 about x frames 8 nofile
+solid of revolution: the region between x^2 and the x-axis about the x-axis
+  x in [0, 2]: given
+  method: disks, V = pi ∫ (x^2)^2 dx from 0 to 2
+    antiderivative of the integrand: x^5/5
+    exact: V = 20.1061929829747 = 32pi/5
+    numeric (Gauss-Kronrod): 20.1061929829747, estimated error 2.2e-13
+    the two agree to 2.8e-15
+  check: shells in the radius on a grid: V ≈ 20.1063 (relative difference 6e-06, the grid's resolution)
+  volume: 32pi/5 = 20.11 (exact)
+  region: area 8/3 = 2.667, centroid (3/2 = 1.5, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 6/5 = 1.2 from the centroid to the axis: 20.11 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      numeric: 53.225965243169, estimated error 5.9e-13
+  the region sweeps from 0 to 2pi in 8 steps
+  animation: 600x500, 9 frames (2.9 s), 47645 bytes
+  (nofile: GIF checksum 716ae02a)
+> revolve sqrt(x) from 0 to 4 about x still nofile
+solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
+  x in [0, 4]: given
+  method: disks, V = pi ∫ (sqrt(x))^2 dx from 0 to 4
+    antiderivative of the integrand: x^2/2
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 0
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 16/3 = 5.333, centroid (2.4, 0.75)
+  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
+      numeric: 36.176903197278, estimated error 2.6e-12
+  image: 600x500, 16169 bytes
+  (nofile: GIF checksum 6535267b)
+> revolve x^2 from 0 to 2 about y still nofile
+solid of revolution: the region between x^2 and the x-axis about the y-axis
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  x in [0, 2]: given
+  method: shells, V = 2pi ∫ |x| |x^2| dx from 0 to 2
+    antiderivative of the integrand: x^4/4
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 2.8e-13
+    the two agree to 0
+  check: washers in y on a grid: V ≈ 25.1328 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 8/3 = 2.667, centroid (3/2 = 1.5, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the y-axis, without the end disks):
+    x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      numeric: 36.1769031973116, estimated error 4e-13
+  image: 600x500, 26599 bytes
+  (nofile: GIF checksum fd5ac1ac)
+> revolve x and x^2 from 0 to 1 about x-axis still nofile
+solid of revolution: the region between x and x^2 about the x-axis
+  x in [0, 1]: given
+  method: washers, V = pi ∫ (R^2 - r^2) dx, R and r the outer and inner distances to the axis
+    antiderivative of the integrand: x^3/3 + -x^5/5
+    exact: V = 0.418879020478639 = 2pi/15
+    numeric (Gauss-Kronrod): 0.418879020478639, estimated error 0
+    the two agree to 8.7e-17
+  check: shells in the radius on a grid: V ≈ 0.418834 (relative difference 0.0001, the grid's resolution)
+  volume: 2pi/15 = 0.4189 (exact)
+  region: area 1/6 = 0.1667, centroid (1/2 = 0.5, 2/5 = 0.4) (exact)
+  Pappus: V = 2pi d A, d = 2/5 = 0.4 from the centroid to the axis: 0.4189 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    x: S = 2pi ∫ |x| sqrt(1 + (1)^2) dx
+      exact: 4.44288293815837 = pi*sqrt(2)
+      numeric: 4.44288293815837, estimated error 4.9e-14
+    x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      numeric: 3.8097297048578, estimated error 4.2e-14
+    both: 8.253
+  image: 600x500, 11880 bytes
+  (nofile: GIF checksum 044a2488)
+> revolve sin x about x still nofile
+solid of revolution: the region between sin(x) and the x-axis about the x-axis
+  x in [0, 3.142 (pi)]: between two crossings of the x-axis, the lobe nearest 0 (in plot's bounds [-2pi, 2pi])
+  note: no bounds given: one lobe of the region (say from a to b for another)
+  method: disks, V = pi ∫ (sin(x))^2 dx from 0 to pi
+    antiderivative of the integrand: 0.5(x - sin(2x)/2)
+    exact: V = 4.93480220054468 = pi^2/2
+    numeric (Gauss-Kronrod): 4.93480220054468, estimated error 5.4e-14
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 4.93483 (relative difference 6e-06, the grid's resolution)
+  volume: pi^2/2 = 4.935 (exact)
+  region: area 2, centroid (1.571, 0.3927)
+  Pappus: V = 2pi d A, d = 0.3927 from the centroid to the axis: 4.935 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
+      numeric: 14.4235994484141, estimated error 1.6e-13
+  image: 600x500, 19590 bytes
+  (nofile: GIF checksum 831f49fa)
+> revolve x^2 from 0 to 1 about y = -1 still nofile
+solid of revolution: the region between x^2 and the line y = -1 about the line y = -1
+  note: the region between the curve and the axis; for the region under it, say `revolve x^2 and 0 about y = -1`
+  x in [0, 1]: given
+  method: disks, V = pi ∫ (x^2 + 1)^2 dx from 0 to 1
+    antiderivative of the integrand: x + 2x^3/3 + x^5/5
+    exact: V = 5.86430628670095 = 28pi/15
+    numeric (Gauss-Kronrod): 5.86430628670095, estimated error 6.5e-14
+    the two agree to 7e-16
+  check: shells in the radius on a grid: V ≈ 5.86431 (relative difference 2e-07, the grid's resolution)
+  volume: 28pi/15 = 5.864 (exact)
+  region: area 4/3 = 1.333, centroid (9/16 = 0.5625, -3/10 = -0.3) (exact)
+  Pappus: V = 2pi d A, d = 7/10 = 0.7 from the centroid to the axis: 5.864 (agrees)
+  surface area (the curves swept around the line y = -1, without the end disks):
+    x^2: S = 2pi ∫ |x^2 + 1| sqrt(1 + (2x)^2) dx
+      numeric: 13.1022017375402, estimated error 1.4e-13
+  image: 600x500, 11898 bytes
+  (nofile: GIF checksum 92ef478a)
+> revolve x^2 from 0 to 1 about x = 2 still nofile
+solid of revolution: the region between x^2 and the x-axis about the line x = 2
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  x in [0, 1]: given
+  method: shells, V = 2pi ∫ |x - 2| |x^2| dx from 0 to 1
+    antiderivative of the integrand: 2x^3/3 + -x^4/4
+    exact: V = 2.61799387799149 = 5pi/6
+    numeric (Gauss-Kronrod): 2.61799387799149, estimated error 0
+    the two agree to 0
+  check: washers in y on a grid: V ≈ 2.61799 (relative difference 3e-06, the grid's resolution)
+  volume: 5pi/6 = 2.618 (exact)
+  region: area 1/3 = 0.3333, centroid (3/4 = 0.75, 3/10 = 0.3) (exact)
+  Pappus: V = 2pi d A, d = 5/4 = 1.25 from the centroid to the axis: 2.618 (agrees)
+  surface area (the curves swept around the line x = 2, without the end disks):
+    x^2: S = 2pi ∫ |x - 2| sqrt(1 + (2x)^2) dx
+      numeric: 13.2545305650959, estimated error 1.5e-13
+  image: 600x500, 21025 bytes
+  (nofile: GIF checksum a567a1a1)
+> revolve sin x and 0 from 0 to pi about y = -1 still nofile
+solid of revolution: the region between sin(x) and 0 about the line y = -1
+  x in [0, 3.142 (pi)]: given
+  method: washers, V = pi ∫ (R^2 - r^2) dx, R and r the outer and inner distances to the axis
+    antiderivative of the integrand: 0.5(x - sin(2x)/2) - 2cos(x)
+    exact: V = 17.5011728149038
+    numeric (Gauss-Kronrod): 17.5011728149038, estimated error 1.9e-13
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 17.5012 (relative difference 3e-06, the grid's resolution)
+  volume: 17.5 (exact)
+  region: area 2, centroid (1.571, 0.3927)
+  Pappus: V = 2pi d A, d = 1.393 from the centroid to the axis: 17.5 (agrees)
+  surface area (the curves swept around the line y = -1, without the end disks):
+    sin(x): S = 2pi ∫ |sin(x) + 1| sqrt(1 + (cos(x))^2) dx
+      numeric: 38.426610066953, estimated error 4.2e-13
+    0: S = 2pi ∫ |1| sqrt(1 + (0)^2) dx
+      numeric: 19.7392088021787, estimated error 0
+    both: 58.17
+  image: 600x500, 20360 bytes
+  (nofile: GIF checksum aa3c6b5f)
+> revolve x^2 about y still nofile
+solid of revolution: the region between x^2 and the x-axis about the y-axis
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  note: plot's bounds [-2, 2] straddle the y-axis: the side x >= 0 (say from a to b for the other)
+  x in [0, 2]: plot's bounds (covering the 2 features found in [-10, 10])
+  note: no bounds given: plot's (say from a to b for others)
+  method: shells, V = 2pi ∫ |x| |x^2| dx from 0 to 2
+    antiderivative of the integrand: x^4/4
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 2.8e-13
+    the two agree to 0
+  check: washers in y on a grid: V ≈ 25.1328 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 8/3 = 2.667, centroid (3/2 = 1.5, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the y-axis, without the end disks):
+    x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      numeric: 36.1769031973116, estimated error 4e-13
+  image: 600x500, 26599 bytes
+  (nofile: GIF checksum fd5ac1ac)
+> revolve sqrt(x) from 0 to 4 about x rotate frames 6 nofile
+solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
+  x in [0, 4]: given
+  method: disks, V = pi ∫ (sqrt(x))^2 dx from 0 to 4
+    antiderivative of the integrand: x^2/2
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 0
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 16/3 = 5.333, centroid (2.4, 0.75)
+  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
+      numeric: 36.176903197278, estimated error 2.6e-12
+  the region sweeps from 0 to 2pi in 6 steps, then the solid turns once
+  animation: 600x500, 13 frames (4.6 s), 125568 bytes
+  (nofile: GIF checksum 07d31aaf)
+> volume x^2 from 0 to 1
+solid of revolution: the region between x^2 and the x-axis about the x-axis
+  note: about the x-axis (say about y, about y = 2, about x = -1 for another)
+  x in [0, 1]: given
+  method: disks, V = pi ∫ (x^2)^2 dx from 0 to 1
+    antiderivative of the integrand: x^5/5
+    exact: V = 0.628318530717959 = pi/5
+    numeric (Gauss-Kronrod): 0.628318530717959, estimated error 6.9e-15
+    the two agree to 8.7e-17
+  check: shells in the radius on a grid: V ≈ 0.628322 (relative difference 6e-06, the grid's resolution)
+  volume: pi/5 = 0.6283 (exact)
+  region: area 1/3 = 0.3333, centroid (3/4 = 0.75, 3/10 = 0.3) (exact)
+  Pappus: V = 2pi d A, d = 3/10 = 0.3 from the centroid to the axis: 0.6283 (agrees)
+> volume x^2 from 0 to 2 about x shell
+solid of revolution: the region between x^2 and the x-axis about the x-axis
+  x in [0, 2]: given
+  note: shells about a horizontal axis integrate in y (x as a function of y): disks/washers in x instead, shells as the check
+  method: disks, V = pi ∫ (x^2)^2 dx from 0 to 2
+    antiderivative of the integrand: x^5/5
+    exact: V = 20.1061929829747 = 32pi/5
+    numeric (Gauss-Kronrod): 20.1061929829747, estimated error 2.2e-13
+    the two agree to 2.8e-15
+  check: shells in the radius on a grid: V ≈ 20.1063 (relative difference 6e-06, the grid's resolution)
+  volume: 32pi/5 = 20.11 (exact)
+  region: area 8/3 = 2.667, centroid (3/2 = 1.5, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 6/5 = 1.2 from the centroid to the axis: 20.11 (agrees)
+> volume x from -1 to 2 about y
+solid of revolution: the region between x and the x-axis about the y-axis
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  x in [-1, 2]: given
+  method: shells, V = 2pi ∫ |x| |x| dx from -1 to 2
+  note: [-1, 2] straddles the y-axis: the sides of it turn into the same solid; where they overlap the shell integral counts twice, so the union is measured too
+    numeric (Gauss-Kronrod): 18.8495559215388, estimated error 2.1e-13
+  the two sides sweep separate parts (washers in y on a grid: V ≈ 18.848): the shells add up
+  volume: 18.85 (numeric)
+  region: area 2.5, centroid (0.9333, 0.4667)
+  Pappus does not apply: the region crosses the axis
+> surfacearea x from 0 to 1
+surface of revolution: x about the x-axis
+  note: about the x-axis (say about y, about y = 2, about x = -1 for another)
+  x in [0, 1]: given
+  surface area (the curves swept around the x-axis, without the end disks):
+    x: S = 2pi ∫ |x| sqrt(1 + (1)^2) dx
+      exact: 4.44288293815837 = pi*sqrt(2)
+      numeric: 4.44288293815837, estimated error 4.9e-14
+> arclength x^2 from 0 to 1
+arc length of x^2
+  x in [0, 1]: given
+  L = ∫ sqrt(1 + (2x)^2) dx from 0 to 1
+  no antiderivative found: numeric only
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1.4789428575446, estimated error 1.6e-14
+  (the chord from end to end: 1.414; the arc is never shorter)
+  arc length: 1.479
+> arclength sqrt(1 - x^2) from 0 to 1
+arc length of sqrt(1 - x^2)
+  x in [0, 1]: given
+  L = ∫ sqrt(1 + (-2x/(2sqrt(1 - x^2)))^2) dx from 0 to 1
+  no antiderivative found: numeric only
+  (singular at an end but integrable: the ends trimmed by 1e-8 and 1e-12 of the interval give values 0.00014 apart)
+  numeric (adaptive Gauss-Kronrod 7-15, 1860 evaluations): 1.57079491262354, estimated error 0.00014
+  (the chord from end to end: 1.414; the arc is never shorter)
+  arc length: 1.571
+> centroid x^2 and x
+centroid of the region between x^2 and x
+  x in [0, 1]: between the outermost crossings of x^2 and x
+  note: no bounds given: the region the curves enclose (say from a to b for another)
+  region: area 1/6 = 0.1667, centroid (1/2 = 0.5, 2/5 = 0.4) (exact)
+  Pappus: turned about the x-axis it sweeps 2pi*|ybar|*A = 0.4189; about the y-axis 2pi*|xbar|*A = 0.5236 (when the region stays on one side)
+> g(x) = x^3
+> centroid g from 0 to 1
+centroid of the region between g and the x-axis
+  x in [0, 1]: given
+  region: area 1/4 = 0.25, centroid (4/5 = 0.8, 2/7 = 0.2857) (exact)
+  Pappus: turned about the x-axis it sweeps 2pi*|ybar|*A = 0.4488; about the y-axis 2pi*|xbar|*A = 1.257 (when the region stays on one side)
+> slice of integral f(x) = x^2 at 0 till 4 nofile
+  ucas: area x^2 from 0 to 4 nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  image: 640x440, 8281 bytes
+  (nofile: GIF checksum 9632b106)
+> area under x^2 from 0 to 4 nofile
+  ucas: area x^2 from 0 to 4 nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  image: 640x440, 8281 bytes
+  (nofile: GIF checksum 9632b106)
+> shade the integral of sin x from 0 to pi nofile
+  ucas: area sin(x) from 0 to pi nofile
+area under sin(x)
+  x in [0, 3.142 (pi)]: given
+  ∫ sin(x) dx from 0 to 3.142 (pi)
+  antiderivative: -cos(x)
+  exact: F(pi) - F(0) = 2
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 2, estimated error 2.2e-14
+  the two agree to 4.4e-16
+  above the axis everywhere: the area is 2
+  image: 640x440, 9366 bytes
+  (nofile: GIF checksum 60a9517c)
+> show the area between x^2 and x from 0 to 1 nofile
+  ucas: area x^2 and x from 0 to 1 nofile
+area between x^2 and x
+  x in [0, 1]: given
+  ∫ x^2 - x dx from 0 to 1
+  antiderivative: -x^2/2 + x^3/3
+  exact: F(1) - F(0) = -0.166666666666667 = -1/6
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): -0.166666666666667, estimated error 1.8e-15
+  the two agree to 2.8e-17
+  x above x^2 everywhere
+  area between the curves (∫ |f - g|): 1/6 = 0.1667; signed integral ∫ (f - g): -1/6 = -0.1667
+  image: 640x440, 9603 bytes
+  (nofile: GIF checksum 1f0084b3)
+> a left riemann sum of x^2 from 0 to 4 with 8 rectangles nofile
+  ucas: area x^2 from 0 to 4 riemann 8 left nofile
+area under x^2
+  x in [0, 4]: given
+  ∫ x^2 dx from 0 to 4
+  antiderivative: x^3/3
+  exact: F(4) - F(0) = 21.3333333333333 = 64/3
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 21.3333333333333, estimated error 2.3e-13
+  the two agree to 0
+  above the axis everywhere: the area is 64/3 = 21.33
+  left sums (exact 64/3 = 21.33):
+    n = 8: 17.5, error -3.83
+  image: 640x440, 9297 bytes
+  (nofile: GIF checksum d6cc8db7)
+> the midpoint rule for sin x from 0 to pi nofile
+  ucas: area sin(x) from 0 to pi riemann midpoint nofile
+area under sin(x)
+  x in [0, 3.142 (pi)]: given
+  ∫ sin(x) dx from 0 to 3.142 (pi)
+  antiderivative: -cos(x)
+  exact: F(pi) - F(0) = 2
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 2, estimated error 2.2e-14
+  the two agree to 4.4e-16
+  above the axis everywhere: the area is 2
+  midpoint sums (exact 2):
+    n = 1: 3.141592654, error 1.14
+    n = 2: 2.221441469, error 0.221
+    n = 4: 2.052344306, error 0.0523
+    n = 8: 2.012909086, error 0.0129
+    n = 16: 2.003216378, error 0.00322
+    n = 32: 2.000803416, error 0.000803
+    n = 64: 2.000200812, error 0.000201
+  animation: 640x440, 7 frames (7.9 s), 53506 bytes
+  (nofile: GIF checksum 10cc1267)
+> the accumulation function of cos x from 0 to 2pi frames 6 nofile
+  ucas: area cos(x) from 0 to 2*pi accumulate frames 6 nofile
+area under cos(x)
+  x in [0, 6.283 (2pi)]: given
+  ∫ cos(x) dx from 0 to 6.283 (2pi)
+  antiderivative: sin(x)
+  exact: F(2pi) - F(0) = 0
+  numeric (adaptive Gauss-Kronrod 7-15, 45 evaluations): -1.86378835171544e-16, estimated error 1.2e-16
+  the two agree to 1.9e-16
+  zeros inside at x = 1.571 (pi/2), 4.712 (3pi/2)
+    on [0, pi/2]: 1
+    on [pi/2, 3pi/2]: -2
+    on [3pi/2, 2pi]: 1
+  above the axis 2, below -2: signed integral 0, total area (∫ |f|) 4
+  accumulation: A(x) = ∫ from 0 to x = sin(x)
+  animation: 640x640, 6 frames (2.9 s), 64282 bytes
+  (nofile: GIF checksum 9ba441c6)
+> revolve f(x) = x^2 in x-axis still nofile
+  ucas: revolve x^2 about x still nofile
+solid of revolution: the region between x^2 and the x-axis about the x-axis
+  x in [-2, 2]: plot's bounds (covering the 2 features found in [-10, 10])
+  note: no bounds given: plot's (say from a to b for others)
+  method: disks, V = pi ∫ (x^2)^2 dx from -2 to 2
+    antiderivative of the integrand: x^5/5
+    exact: V = 40.2123859659494 = 64pi/5
+    numeric (Gauss-Kronrod): 40.2123859659494, estimated error 4.4e-13
+    the two agree to 5.6e-15
+  check: shells in the radius on a grid: V ≈ 40.2148 (relative difference 6e-05, the grid's resolution)
+  volume: 64pi/5 = 40.21 (exact)
+  region: area 16/3 = 5.333, centroid (0, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 6/5 = 1.2 from the centroid to the axis: 40.21 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      numeric: 106.451930486338, estimated error 1.2e-12
+  image: 600x500, 13451 bytes
+  (nofile: GIF checksum b0d1d724)
+> rotate x^2 around the y axis still nofile
+  ucas: revolve x^2 about y still nofile
+solid of revolution: the region between x^2 and the x-axis about the y-axis
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  note: plot's bounds [-2, 2] straddle the y-axis: the side x >= 0 (say from a to b for the other)
+  x in [0, 2]: plot's bounds (covering the 2 features found in [-10, 10])
+  note: no bounds given: plot's (say from a to b for others)
+  method: shells, V = 2pi ∫ |x| |x^2| dx from 0 to 2
+    antiderivative of the integrand: x^4/4
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 2.8e-13
+    the two agree to 0
+  check: washers in y on a grid: V ≈ 25.1328 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 8/3 = 2.667, centroid (3/2 = 1.5, 6/5 = 1.2) (exact)
+  Pappus: V = 2pi d A, d = 3/2 = 1.5 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the y-axis, without the end disks):
+    x^2: S = 2pi ∫ |x| sqrt(1 + (2x)^2) dx
+      numeric: 36.1769031973116, estimated error 4e-13
+  image: 600x500, 26599 bytes
+  (nofile: GIF checksum fd5ac1ac)
+> solid of revolution of sqrt x from 0 to 4 still nofile
+  ucas: revolve sqrt(x) from 0 to 4 still nofile
+solid of revolution: the region between sqrt(x) and the x-axis about the x-axis
+  note: about the x-axis (say about y, about y = 2, about x = -1 for another)
+  x in [0, 4]: given
+  method: disks, V = pi ∫ (sqrt(x))^2 dx from 0 to 4
+    antiderivative of the integrand: x^2/2
+    exact: V = 25.1327412287183 = 8pi
+    numeric (Gauss-Kronrod): 25.1327412287183, estimated error 0
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 25.1327 (relative difference 3e-06, the grid's resolution)
+  volume: 8pi = 25.13 (exact)
+  region: area 16/3 = 5.333, centroid (2.4, 0.75)
+  Pappus: V = 2pi d A, d = 0.75 from the centroid to the axis: 25.13 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    sqrt(x): S = 2pi ∫ |sqrt(x)| sqrt(1 + (1/(2sqrt(x)))^2) dx
+      numeric: 36.176903197278, estimated error 2.6e-12
+  image: 600x500, 16169 bytes
+  (nofile: GIF checksum 6535267b)
+> spin sin x about the x-axis still nofile
+  ucas: revolve sin(x) about x still nofile
+solid of revolution: the region between sin(x) and the x-axis about the x-axis
+  x in [0, 3.142 (pi)]: between two crossings of the x-axis, the lobe nearest 0 (in plot's bounds [-2pi, 2pi])
+  note: no bounds given: one lobe of the region (say from a to b for another)
+  method: disks, V = pi ∫ (sin(x))^2 dx from 0 to pi
+    antiderivative of the integrand: 0.5(x - sin(2x)/2)
+    exact: V = 4.93480220054468 = pi^2/2
+    numeric (Gauss-Kronrod): 4.93480220054468, estimated error 5.4e-14
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 4.93483 (relative difference 6e-06, the grid's resolution)
+  volume: pi^2/2 = 4.935 (exact)
+  region: area 2, centroid (1.571, 0.3927)
+  Pappus: V = 2pi d A, d = 0.3927 from the centroid to the axis: 4.935 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    sin(x): S = 2pi ∫ |sin(x)| sqrt(1 + (cos(x))^2) dx
+      numeric: 14.4235994484141, estimated error 1.6e-13
+  image: 600x500, 19590 bytes
+  (nofile: GIF checksum 831f49fa)
+> revolve x and x^2 from 0 to 1 about the x-axis using washers still nofile
+  ucas: revolve x and x^2 from 0 to 1 about x washer still nofile
+solid of revolution: the region between x and x^2 about the x-axis
+  x in [0, 1]: given
+  method: washers, V = pi ∫ (R^2 - r^2) dx, R and r the outer and inner distances to the axis
+    antiderivative of the integrand: x^3/3 + -x^5/5
+    exact: V = 0.418879020478639 = 2pi/15
+    numeric (Gauss-Kronrod): 0.418879020478639, estimated error 0
+    the two agree to 8.7e-17
+  check: shells in the radius on a grid: V ≈ 0.418834 (relative difference 0.0001, the grid's resolution)
+  volume: 2pi/15 = 0.4189 (exact)
+  region: area 1/6 = 0.1667, centroid (1/2 = 0.5, 2/5 = 0.4) (exact)
+  Pappus: V = 2pi d A, d = 2/5 = 0.4 from the centroid to the axis: 0.4189 (agrees)
+  surface area (the curves swept around the x-axis, without the end disks):
+    x: S = 2pi ∫ |x| sqrt(1 + (1)^2) dx
+      exact: 4.44288293815837 = pi*sqrt(2)
+      numeric: 4.44288293815837, estimated error 4.9e-14
+    x^2: S = 2pi ∫ |x^2| sqrt(1 + (2x)^2) dx
+      numeric: 3.8097297048578, estimated error 4.2e-14
+    both: 8.253
+  image: 600x500, 11880 bytes
+  (nofile: GIF checksum 044a2488)
+> rotate the region between x and x^2 about the line y = 2 still nofile
+  ucas: revolve x and x^2 about y = 2 still nofile
+solid of revolution: the region between x and x^2 about the line y = 2
+  x in [0, 1]: between the outermost crossings of x and x^2
+  note: no bounds given: the region the curves enclose (say from a to b for another)
+  method: washers, V = pi ∫ (R^2 - r^2) dx, R and r the outer and inner distances to the axis
+    antiderivative of the integrand: 4x^2/2 + -5*x^3/3 + x^5/5
+    exact: V = 1.67551608191456 = 8pi/15
+    numeric (Gauss-Kronrod): 1.67551608191456, estimated error 1.8e-14
+    the two agree to 0
+  check: shells in the radius on a grid: V ≈ 1.67557 (relative difference 3e-05, the grid's resolution)
+  volume: 8pi/15 = 1.676 (exact)
+  region: area 1/6 = 0.1667, centroid (1/2 = 0.5, 2/5 = 0.4) (exact)
+  Pappus: V = 2pi d A, d = 8/5 = 1.6 from the centroid to the axis: 1.676 (agrees)
+  surface area (the curves swept around the line y = 2, without the end disks):
+    x: S = 2pi ∫ |x - 2| sqrt(1 + (1)^2) dx
+      exact: 13.3286488144751 = 3pi*sqrt(2)
+      numeric: 13.3286488144751, estimated error 0
+    x^2: S = 2pi ∫ |x^2 - 2| sqrt(1 + (2x)^2) dx
+      numeric: 14.775214360507, estimated error 1.6e-13
+    both: 28.1
+  image: 600x500, 11786 bytes
+  (nofile: GIF checksum 98b0e1c0)
+> volume of revolution of x^2 from 0 to 1 about the y-axis
+  ucas: volume x^2 from 0 to 1 about y
+solid of revolution: the region between x^2 and the x-axis about the y-axis
+  note: the region between the curve and the x-axis (with two curves, the region between them)
+  x in [0, 1]: given
+  method: shells, V = 2pi ∫ |x| |x^2| dx from 0 to 1
+    antiderivative of the integrand: x^4/4
+    exact: V = 1.5707963267949 = pi/2
+    numeric (Gauss-Kronrod): 1.5707963267949, estimated error 1.7e-14
+    the two agree to 0
+  check: washers in y on a grid: V ≈ 1.5708 (relative difference 3e-06, the grid's resolution)
+  volume: pi/2 = 1.571 (exact)
+  region: area 1/3 = 0.3333, centroid (3/4 = 0.75, 3/10 = 0.3) (exact)
+  Pappus: V = 2pi d A, d = 3/4 = 0.75 from the centroid to the axis: 1.571 (agrees)
+> the surface area of revolution of x from 0 to 1
+  ucas: surfacearea x from 0 to 1
+surface of revolution: x about the x-axis
+  note: about the x-axis (say about y, about y = 2, about x = -1 for another)
+  x in [0, 1]: given
+  surface area (the curves swept around the x-axis, without the end disks):
+    x: S = 2pi ∫ |x| sqrt(1 + (1)^2) dx
+      exact: 4.44288293815837 = pi*sqrt(2)
+      numeric: 4.44288293815837, estimated error 4.9e-14
+> arc length of x^2 from 0 to 1
+  ucas: arclength x^2 from 0 to 1
+arc length of x^2
+  x in [0, 1]: given
+  L = ∫ sqrt(1 + (2x)^2) dx from 0 to 1
+  no antiderivative found: numeric only
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 1.4789428575446, estimated error 1.6e-14
+  (the chord from end to end: 1.414; the arc is never shorter)
+  arc length: 1.479
+> the centroid of the region between x^2 and x
+  ucas: centroid x^2 and x
+centroid of the region between x^2 and x
+  x in [0, 1]: between the outermost crossings of x^2 and x
+  note: no bounds given: the region the curves enclose (say from a to b for another)
+  region: area 1/6 = 0.1667, centroid (1/2 = 0.5, 2/5 = 0.4) (exact)
+  Pappus: turned about the x-axis it sweeps 2pi*|ybar|*A = 0.4189; about the y-axis 2pi*|xbar|*A = 0.5236 (when the region stays on one side)
+> area
+viz.ucas:59:5: error: area what? e.g. area x^2 from 0 to 4
+    area
+        ^
+> area x*y from 0 to 1
+viz.ucas:60:6: error: area: x*y has 2 variables; one, please (fix the others first, e.g. g(x) = ... with numbers)
+    area x*y from 0 to 1
+         ^
+> revolve x^2 about z
+viz.ucas:61:9: error: revolve: about which axis? (about x, about y, about y = 2, about x = -1; found 'z')
+    revolve x^2 about z
+            ^
+> area x^2 from 0 to 4 about x
+viz.ucas:62:6: error: area: about, disk, washer, shell, still and rotate are revolve's
+    area x^2 from 0 to 4 about x
+         ^
+> revolve x^2 riemann 4
+viz.ucas:63:9: error: revolve: riemann and accumulate are area's
+    revolve x^2 riemann 4
+            ^
