@@ -55,3 +55,11 @@ crit cp
 # crit: an integer parameter with a real result
 cg(x in -3..3) = atan(x)*exp(x)
 crit cg
+# the derivative of a defined function at a point
+fd(x) = x^3
+the derivative of fd at 3
+the slope of fd at 3
+fd prime of 3
+fd double prime at 2
+the second derivative of fd at 2
+what is the derivative of fd at x = 3?

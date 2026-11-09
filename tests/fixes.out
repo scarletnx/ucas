@@ -457,3 +457,28 @@ critical points of cg:
   x is an integer, cg is real: the steps between consecutive x
   note: x in a..b with integer bounds is an integer; x: real in a..b (or real bounds, -3.0..3) for the continuous view
     x = -1: local minimum, cg = -0.2889318374
+> fd(x) = x^3
+> the derivative of fd at 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> the slope of fd at 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> fd prime of 3
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2
+> fd double prime at 2
+  ucas: fd''(2)
+fd''(2) = 12
+  from fd'' = 6x
+> the second derivative of fd at 2
+  ucas: fd''(2)
+fd''(2) = 12
+  from fd'' = 6x
+> what is the derivative of fd at x = 3?
+  ucas: fd'(3)
+fd'(3) = 27
+  from fd' = 3x^2

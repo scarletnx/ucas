@@ -7256,6 +7256,14 @@ nlp_is_english(const char *s, size_t n)
 		if (k < n && s[k] == '=' && (k + 1 >= n || s[k + 1] != '=') &&
 		    !in_list(starters, w1))
 			return 0;
+		/* "f prime of 3", "f double prime" */
+		if (user_fn(w1)) {
+			size_t j2 = j;
+			if (word_at(s, n, &j2, w2, sizeof w2) && (!strcmp(w2, "prime") ||
+			    ((!strcmp(w2, "double") || !strcmp(w2, "triple")) &&
+			    word_at(s, n, &j2, w2, sizeof w2) && !strcmp(w2, "prime"))))
+				return 1;
+		}
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;
