@@ -295,22 +295,36 @@ fail_quiet(void)
 	longjmp(fail_jmp, 1);
 }
 
+int note_mute;   /* > 0: notes are dropped (trial rewrites) */
+
 void
 note(const char *fmt, ...)
 {
-	va_list ap;
-	char tmp[512];
-	struct sbuf line = {0};
+	va_list ap, ap2;
+	char *tmp;
+	int len;
+	struct sbuf line = {0}, t = {0};
 
+	if (note_mute > 0)
+		return;
 	va_start(ap, fmt);
-	vsnprintf(tmp, sizeof tmp, fmt, ap);
+	va_copy(ap2, ap);
+	len = vsnprintf(NULL, 0, fmt, ap);
 	va_end(ap);
+	tmp = xmalloc((size_t)(len < 0 ? 0 : len) + 1);
+	vsnprintf(tmp, (size_t)len + 1, fmt, ap2);
+	va_end(ap2);
+	/* a note is one line: a long expression in it is cut */
+	sb_puts(&t, tmp);
+	cap_text(&t, 0, NOTE_CAP);
 	if (rep_on)
-		rep_note_hook(tmp);	/* a guess: an ambiguity in JSON mode */
-	sb_printf(&line, "  note: %s\n", tmp);
+		rep_note_hook(sb_str(&t));	/* a guess: an ambiguity in JSON mode */
+	sb_printf(&line, "  note: %s\n", sb_str(&t));
 	if (notes.p == NULL || strstr(notes.p, line.p) == NULL)
 		sb_puts(&notes, line.p);
 	free(line.p);
+	free(t.p);
+	free(tmp);
 }
 
 void

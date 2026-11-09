@@ -134,7 +134,7 @@ parity of dbl:
   ucas: lhs(a: u8, b: u8, a3: u8) = avg(avg(a, b), a3)
   ucas: rhs(a: u8, b: u8, a3: u8) = avg(a, avg(b, a3))
   ucas: equiv lhs rhs
-lhs and rhs differ at 64452 points, e.g. a=255, b=0, a3=2: 64 vs 0
+lhs and rhs differ at 64452 points of the sample, e.g. a=255, b=0, a3=2: 64 vs 0
 > are x plus y and y plus x equivalent for u8 x and y?
   ucas: it(x: u8, y: u8) = x + y
   ucas: that(x: u8, y: u8) = y + x

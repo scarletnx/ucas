@@ -463,6 +463,7 @@ print_program(const struct gs *s, const struct func *f, int nstep,
 		const struct gate *g = &s->bs->g[sg[i]];
 		const char *vn[3];
 		struct pctx pc;
+		memset(&pc, 0, sizeof pc);
 		for (k = 0; k < g->arity; k++)
 			vn[k] = names[sa[i][k]];
 		pc.mode = emit ? PM_CBITS : PM_UCAS;
