@@ -474,7 +474,9 @@ rp_print(struct sbuf *s, const struct ring *R, const struct rpoly *p,
 		if (!first)
 			sb_puts(s, " + ");
 		first = 0;
-		if (c != one || i == 0) {
+		if (c == one && i == 0)
+			sb_puts(s, "1");
+		else if (c != one || i == 0) {
 			sb_puts(s, el_code(R, c));
 			if (i > 0 && R->deg > 1)
 				sb_putc(s, '*');
@@ -821,7 +823,12 @@ parse_ring(struct rspec *s)
 			return 0;
 		}
 		rti++;
-		ring_zn(&s->R, modulus_arg());
+		{
+			i128 v = iexpr_sum();
+			if (v < 1 || (v >> 64))
+				rfail("moduli from 1 to 2^64 - 1");
+			ring_zn(&s->R, (u64)v);
+		}
 		expect_sym(')');
 		s->kind = RS_ZN;
 		goto done;
@@ -887,12 +894,16 @@ parse_ring(struct rspec *s)
 		goto done;
 	}
 	if (at_id("mod") || at_id("modulo")) {
+		i128 v;
 		rti++;
 		if (!starts_number()) {
 			rti = save;
 			return 0;
 		}
-		ring_zn(&s->R, modulus_arg());
+		v = iexpr_sum();
+		if (v < 1 || (v >> 64))
+			rfail("moduli from 1 to 2^64 - 1");
+		ring_zn(&s->R, (u64)v);
 		s->kind = RS_ZN;
 		goto done;
 	}
@@ -912,8 +923,32 @@ parse_ring(struct rspec *s)
 		rti++;
 		if (acc_sym('(')) {
 			i128 v = iexpr_sum();
+			if (v == ((i128)1 << 64)) {
+				/* GF(2^64): q itself does not fit u64 */
+				if (acc_sym(',')) {
+					parse_modulus(2, 64, f, &deg, &fn);
+					have = 1;
+				}
+				expect_sym(')');
+				if (!have && rti < rlim && rt[rti].k == RK_ID &&
+				    named_index(rt[rti].s) >= 0) {
+					parse_modulus(2, 64, f, &deg, &fn);
+					have = 1;
+				}
+				if (have && deg != 64)
+					rfail("GF(2^64) needs a modulus of degree 64");
+				if (!have) {
+					default_modulus(2, 64, f);
+					s->automod = 1;
+				}
+				ring_ext(&s->R, 2, 64, f);
+				s->R.fname = fn;
+				s->kind = RS_EXT;
+				s->gf = 1;
+				goto done;
+			}
 			if (v < 2 || (v >> 64))
-				rfail("GF(q): q must be a prime power below 2^64");
+				rfail("GF(q): q must be a prime power up to 2^64");
 			q = (u64)v;
 			if (acc_sym(',')) {
 				u128 dummy = 0;

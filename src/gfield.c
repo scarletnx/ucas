@@ -754,7 +754,8 @@ rp_mulmod(const struct ring *R, struct rpoly *r, const struct rpoly *a,
 {
 	struct rpoly t;
 
-	rp_mul(R, &t, a, b);
+	if (!rp_mul(R, &t, a, b))
+		fail("a polynomial product has degree above %d", RMAXD - 1);
 	rp_divmod(R, &t, f, NULL, r);
 }
 
@@ -1103,7 +1104,7 @@ rm_mul(const struct ring *R, struct rmat *r, const struct rmat *a,
 void
 rm_charpoly(const struct ring *R, const struct rmat *m0, struct rpoly *cp)
 {
-	static struct rpoly p[RMAXD + 1];
+	static struct rpoly p[RMAXF + 1];
 	struct rmat h;
 	int n = m0->r, i, j, k, mm;
 
@@ -1407,14 +1408,14 @@ rp_factor(const struct ring *R, const struct rpoly *f0, struct rpoly *fac,
 u64
 rp_xorder(const struct ring *R, const struct rpoly *f, int *overflow)
 {
-	static struct rpoly fac[RMAXD];
-	int mult[RMAXD], k, i, j;
+	static struct rpoly fac[RMAXDEG + 1];
+	int mult[RMAXDEG + 1], k, i, j;
 	u64 lead, res = 1;
 
 	*overflow = 0;
 	if (f->d < 1 || f->c[0] == 0)
 		return 0;
-	k = rp_factor(R, f, fac, mult, RMAXD, &lead);
+	k = rp_factor(R, f, fac, mult, RMAXDEG + 1, &lead);
 	for (i = 0; i < k; i++) {
 		struct nt_fac nf;
 		struct rpoly x, h, one;

@@ -523,8 +523,8 @@ cmd_gf2matrix(const char *text)
 	{
 		struct rmat t, inv;
 		struct rpoly cp;
-		static struct rpoly fac[RMAXD];
-		int mult[RMAXD], rk, k, sq = 1, kk;
+		static struct rpoly fac[RMAXDEG + 1];
+		int mult[RMAXDEG + 1], rk, k, sq = 1, kk;
 		u64 lead;
 		rm_init(&t, w, w);
 		memcpy(t.a, M.a, sizeof(u64) * (size_t)w * w);
@@ -620,7 +620,7 @@ cmd_gf2matrix(const char *text)
 			rm_free(&inv);
 		}
 		rm_charpoly(&B, &M, &cp);
-		k = rp_factor(&B, &cp, fac, mult, RMAXD, &lead);
+		k = rp_factor(&B, &cp, fac, mult, RMAXDEG + 1, &lead);
 		for (kk = 0; kk < k; kk++)
 			if (mult[kk] > 1)
 				sq = 0;
@@ -1575,8 +1575,8 @@ qx_irreducible(const struct rspec *s)
 	for (p = 3; p < 400 && nprimes < 12; p += 2) {
 		struct ring B;
 		struct rpoly f, fd, g;
-		static struct rpoly fac[RMAXD];
-		int mult[RMAXD], k, j, can[RMAXF + 1];
+		static struct rpoly fac[RMAXDEG + 1];
+		int mult[RMAXDEG + 1], k, j, can[RMAXF + 1];
 		u64 lead;
 		if (!nt_isprime(p) || (u64)((z[n] % (int64_t)p + (int64_t)p) %
 		    (int64_t)p) == 0)
@@ -1590,7 +1590,7 @@ qx_irreducible(const struct rspec *s)
 		if (g.d != 0)
 			continue;
 		nprimes++;
-		k = rp_factor(&B, &f, fac, mult, RMAXD, &lead);
+		k = rp_factor(&B, &f, fac, mult, RMAXDEG + 1, &lead);
 		memset(can, 0, sizeof can);
 		can[0] = 1;
 		for (j = 0; j < k; j++)

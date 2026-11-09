@@ -439,10 +439,26 @@ ext_info(struct rspec *s, int sub)
 		if (sub != SUB_ALL && sub != SUB_FIELD && sub != SUB_DOMAIN &&
 		    sub != SUB_UNITS && sub != SUB_ZD)
 			rfail("%s is not a field", s->name);
-		if (!R->nprime)
+		if (!R->nprime) {
 			printf("  a field: no; an integral domain: no (%llu is not "
 			    "prime, so Z/%llu already has zero divisors)\n", U(R->n),
 			    U(R->n));
+			if (q1 < 4096) {
+				u64 a, b, nu = 0, nz = 0, one = r_const(R, 1);
+				for (a = 1; a <= q1; a++) {
+					int u = 0, z = 0;
+					for (b = 1; b <= q1; b++) {
+						u64 p = r_mul(R, a, b);
+						u |= p == one;
+						z |= p == 0;
+					}
+					nu += u;
+					nz += z;
+				}
+				printf("  units: %llu; zero divisors: %llu nonzero (by brute "
+				    "force over all products)\n", U(nu), U(nz));
+			}
+		}
 		else {
 			static struct rpoly fac[RMAXF];
 			int mult[RMAXF], k, i;
@@ -859,8 +875,8 @@ static void
 cmd_irreducible(struct rspec *s, int primitive)
 {
 	struct rpoly f;
-	static struct rpoly fac[RMAXD];
-	int mult[RMAXD], k, irr, ben, berl, bf, bok;
+	static struct rpoly fac[RMAXDEG + 1];
+	int mult[RMAXDEG + 1], k, irr, ben, berl, bf, bok;
 	u64 lead;
 	const struct ring *R = &s->R;
 
@@ -875,7 +891,7 @@ cmd_irreducible(struct rspec *s, int primitive)
 	    "(%d/r)) - x, f) = 1 for each prime r | %d; q = %s)\n", f.d, f.d, f.d,
 	    f.d, u128s((u128)R->qm1 + 1));
 	if (!irr) {
-		k = rp_factor(R, &f, fac, mult, RMAXD, &lead);
+		k = rp_factor(R, &f, fac, mult, RMAXDEG + 1, &lead);
 		printf("  %s = %s\n", rp_str(R, &f), fac_str(R, fac, mult, k, lead));
 	}
 	ben = rp_benor(R, &f);
@@ -941,8 +957,8 @@ static void
 cmd_factor(struct rspec *s)
 {
 	struct rpoly f, prod, t;
-	static struct rpoly fac[RMAXD];
-	int mult[RMAXD], k, i, j, allirr = 1;
+	static struct rpoly fac[RMAXDEG + 1];
+	int mult[RMAXDEG + 1], k, i, j, allirr = 1;
 	u64 lead;
 	const struct ring *R = &s->R;
 
@@ -952,7 +968,7 @@ cmd_factor(struct rspec *s)
 		printf("%s is a constant\n", rp_str(R, &f));
 		return;
 	}
-	k = rp_factor(R, &f, fac, mult, RMAXD, &lead);
+	k = rp_factor(R, &f, fac, mult, RMAXDEG + 1, &lead);
 	if (k == 1 && mult[0] == 1 && lead == r_const(R, 1))
 		printf("%s is irreducible over %s\n", rp_str(R, &f), field_name(s));
 	else
@@ -1009,10 +1025,10 @@ cmd_roots(struct rspec *s)
 	if (f.d < 1)
 		rfail("a polynomial of degree >= 1");
 	if (R->field) {
-		static struct rpoly fac[RMAXD];
-		int mult[RMAXD], k, i;
+		static struct rpoly fac[RMAXDEG + 1];
+		int mult[RMAXDEG + 1], k, i;
 		u64 lead;
-		k = rp_factor(R, &f, fac, mult, RMAXD, &lead);
+		k = rp_factor(R, &f, fac, mult, RMAXDEG + 1, &lead);
 		for (i = 0; i < k; i++)
 			if (fac[i].d == 1 && n < 64)
 				list[n++] = r_neg(R, fac[i].c[0]);

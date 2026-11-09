@@ -42,7 +42,8 @@ u64 nt_isqrt(u64 n);
 
 /* ---- gfield.c: Z/n and R[x]/(f) as rings of u64 codes ---- */
 #define RMAXF 64     /* degree of an extension (n^deg <= 2^64) */
-#define RMAXD 256    /* coefficients of a polynomial over a ring */
+#define RMAXD 512    /* coefficients of a polynomial over a ring */
+#define RMAXDEG 255  /* the degree of polynomials as given (products fit) */
 struct ring {
 	int deg;          /* 1: Z/n; > 1: Z/n[x]/(f) */
 	u64 n;            /* the coefficient modulus */

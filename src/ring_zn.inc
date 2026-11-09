@@ -88,8 +88,8 @@ p_pow(struct rpoly *r)
 	e = iexpr_unary();
 	if (e < 0)
 		rfail("negative powers of polynomials");
-	if (r->d > 0 && e * r->d >= RMAXD)
-		rfail("degree above %d", RMAXD - 1);
+	if (r->d > 0 && e * r->d > RMAXDEG)
+		rfail("degree above %d", RMAXDEG);
 	b = *r;
 	rp_const(PR, r, r_const(PR, 1));
 	while (e-- > 0)
@@ -119,8 +119,8 @@ p_term(struct rpoly *r)
 	for (;;) {
 		if (acc_sym('*') || at_mult_start()) {
 			p_unary(&b);
-			if (!rp_mul(PR, r, r, &b))
-				rfail("degree above %d", RMAXD - 1);
+			if (!rp_mul(PR, r, r, &b) || r->d > RMAXDEG)
+				rfail("degree above %d", RMAXDEG);
 		} else if (acc_sym('/')) {
 			p_unary(&b);
 			if (b.d < 0)
@@ -200,8 +200,8 @@ poly_arg(const struct ring *R, struct rpoly *p)
 		int i;
 		p->d = -1;
 		for (i = 0; v; i++, v >>= 1) {
-			if (i >= RMAXD)
-				rfail("degree above %d", RMAXD - 1);
+			if (i > RMAXDEG)
+				rfail("degree above %d", RMAXDEG);
 			p->c[i] = (u64)(v & 1);
 		}
 		p->d = i - 1;
@@ -636,6 +636,29 @@ pow2_modulus(int from, int *k, int *end)
 /* ---- order, phi, lambda ---- */
 
 static void
+cmd_order_pow2(i128 a0, int k)
+{
+	u128 mask = k == 128 ? ~(u128)0 : (((u128)1 << k) - 1), a = (u128)a0 &
+	    mask, y;
+	int j;
+
+	if (!(a & 1)) {
+		printf("%s has no multiplicative order mod 2^%d: it is even, so no "
+		    "power of it is 1\n", u128x(a), k);
+		return;
+	}
+	/* the order of an odd a divides 2^(k-2) (k >= 3): square until 1 */
+	for (j = 0, y = a; y != 1 && j < 130; j++)
+		y = (y * y) & mask;
+	printf("ord(%s) = 2^%d mod 2^%d\n", u128x(a), j, k);
+	printf("  how: the units mod 2^%d form C2 x C2^%d, so the order is a "
+	    "power of two: square until the result is 1 (%d squarings)\n", k,
+	    k >= 3 ? k - 2 : 0, j);
+	printf("  as u%d arithmetic: x * %s^(2^%d) = x, so multiplying by %s "
+	    "2^%d times is the identity\n", k, u128x(a), j, u128x(a), j);
+}
+
+static void
 cmd_order_int(i128 a0, u64 n)
 {
 	u64 a = (u64)(((a0 % (i128)n) + (i128)n) % (i128)n), o, lam, ph, k, x;
@@ -785,10 +808,10 @@ cmd_symbol(int legendre)
 	u64 a, n;
 	int j;
 
-	a0 = iexpr_unary();
+	a0 = iexpr_sum();
 	acc_sym(',') || acc_sym('|') || acc_sym('/') || acc_id("mod") ||
 	    acc_id("over");
-	n0 = iexpr_unary();
+	n0 = iexpr_sum();
 	if (!at_end())
 		rfail("unexpected %s", here());
 	if (n0 < 3 || !(n0 & 1) || (n0 >> 64))
@@ -1263,6 +1286,8 @@ eq_text(int a, int b)
 		const struct rtok *t = &rt[i];
 		int sp = i > a && !(t->k == RK_SYM && strchr(")^,", t->s[0])) &&
 		    !(t->k == RK_SYM && t->s[0] == '(' && rt[i - 1].k == RK_ID) &&
+		    !(rt[i - 1].k == RK_SYM && rt[i - 1].s[0] == '-' && (i - 1 == a ||
+		    (rt[i - 2].k == RK_SYM && strchr("^(=,*/", rt[i - 2].s[0])))) &&
 		    !(rt[i - 1].k == RK_SYM && strchr("(^", rt[i - 1].s[0])) &&
 		    !(t->k == RK_ID && rt[i - 1].k == RK_NUM && strlen(t->s) <= 2);
 		if (t->k == RK_NUM)

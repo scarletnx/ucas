@@ -155,7 +155,7 @@ ring_dispatch(int c, const char *text)
 			if (c == C_INVERSE)
 				cmd_inverse_pow2(a, k);
 			else
-				rfail("order mod 2^%d: moduli below 2^64", k);
+				cmd_order_pow2(a, k);
 			return;
 		}
 	}
@@ -168,15 +168,15 @@ ring_dispatch(int c, const char *text)
 			/* primroot N [A], qr N, sqrtmod A N */
 			i128 a, n;
 			if (c == C_SQRTMOD) {
-				a = iexpr_unary();
+				a = iexpr_sum();
 				acc_sym(',');
-				n = iexpr_unary();
+				n = iexpr_sum();
 				if (n < 2 || (n >> 64))
 					rfail("sqrtmod A N with 2 <= N < 2^64");
 				cmd_sqrtmod_int(a, (u64)n);
 				return;
 			}
-			n = iexpr_unary();
+			n = iexpr_sum();
 			if (n < 1 || (n >> 64))
 				rfail("a modulus from 1 to 2^64 - 1");
 			if (c == C_QR) {
@@ -185,7 +185,7 @@ ring_dispatch(int c, const char *text)
 			}
 			acc_sym(',');
 			if (!at_end()) {
-				a = iexpr_unary();
+				a = iexpr_sum();
 				cmd_primroot_int((u64)n, 1, (u64)(((a % n) + n) % n));
 			} else
 				cmd_primroot_int((u64)n, 0, 0);
