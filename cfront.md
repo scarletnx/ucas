@@ -97,5 +97,6 @@ gives each leaf's type; `noalias` is per base (restrict, or distinct
 arrays).  Reductions have `rinit` 0 (the variable's value before the
 loop) and `rslot` -1 when the body never reads the variable.  Costs:
 `cf_set_cost_hook` replaces the default per-op table, which prices
-SSE scalar float ops too.  Conditional stores and gathers through a
-loaded index are not in the IR yet (the extraction refuses them).
+SSE scalar float ops too.  A gather (`a[idx[i]]`) is in the IR: its
+index node reads the leaf of the load `idx[i]`.  Conditional loads and
+stores are not (the extraction refuses them, as it does breaks).
