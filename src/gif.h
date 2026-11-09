@@ -15,5 +15,7 @@ void gif_begin(struct gif *g, int w, int h, const unsigned char (*pal)[3],
 /* a full frame of palette indices; only what changed is stored */
 void gif_frame(struct gif *g, const unsigned char *pix, int delay_cs);
 void gif_end(struct gif *g);
+/* anim.c: NAME.gif on the command line, an attachment in the bot */
+void gif_deliver(struct gif *g, const char *name, int nofile);
 
 #endif

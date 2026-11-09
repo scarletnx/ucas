@@ -1,0 +1,397 @@
+> plot sin x, cos x nofile
+plot of 2 functions
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-1.1, 1.1]: the values
+  sin(x): 1201 samples, values in [-1, 1]
+  cos(x): 1201 samples, values in [-1, 1]
+  image: 640x440, 13072 bytes
+  (nofile: GIF checksum 00058477)
+> plot tan x nofile
+plot of tan(x)
+  x in [-3.142 (-pi), 3.142 (pi)]: periodic with period 3.142 (pi): two periods
+  y in [-13.45, 13.4]: the bulk of the values (they reach [-191, 191])
+  tan(x): 1201 samples, values in [-191, 191]
+    poles at x ≈ -1.571 (-pi/2), 1.571 (pi/2)
+  image: 640x440, 9528 bytes
+  (nofile: GIF checksum bc41dba7)
+> plot 1/x, floor(x), log x nofile
+plot of 3 functions
+  x in [-2, 2]: covering the 1 feature found in [-10, 10] for 1/x
+  x in [-4.5, 4.5]: covering the features nearest 0 (21 found in [-10, 10]) for floor(x)
+  x in [0, 4]: covering the 2 features found in [-10, 10] for log(x)
+  x in [-4.5, 4.5]: all of them
+  y in [-11.5, 10.5]: the bulk of the values (they reach [-133.3, 133.3])
+  1/x: 1201 samples, values in [-133.3, 133.3]
+    poles at x ≈ 0
+  floor(x): 1201 samples, values in [-5, 4]
+  log(x): 1201 samples, values in [-4.893, 1.504]
+    undefined for x in [-4.5, 0]
+  image: 640x440, 8815 bytes
+  (nofile: GIF checksum acbe6a1d)
+> plot isqrt(x: u8) nofile
+plot of isqrt(x)
+  x in [0, 255]: every u8 value
+  y in [-0.75, 15.75]: the values
+  isqrt(x): 256 integer inputs (steps), values in [0, 15]
+  image: 640x440, 6896 bytes
+  (nofile: GIF checksum aa11e0b5)
+> plot x % 7 x in -10..10 nofile
+plot of x % 7
+  x in [-10, 10]: given
+  y in [-6.6, 6.6]: the values
+  x % 7: 21 points, values in [-6, 6]
+  image: 640x440, 7496 bytes
+  (nofile: GIF checksum 2a3d8ead)
+> plot sin x x in 0..2pi deriv tangent 1 nofile
+plot of 3 functions
+  x in [0, 6.283 (2pi)]: given
+  y in [-1.1, 1.1]: the values
+  sin(x): 1201 samples, values in [-1, 1]
+  d/dx: cos(x): 1201 samples, values in [-1, 1]
+  tangent at x = 1: y = 0.5403*x + 0.3012: slope 0.5403, through (1, 0.8415)
+  image: 640x440, 10115 bytes
+  (nofile: GIF checksum 8f3600d5)
+> plot exp(x), x^3 x in 0.1..10 loglog nofile
+plot of 2 functions
+  x in [0.1, 10]: given
+  y in [0.0004294, 5.13e+04]: the values
+  exp(x): 1201 samples, values in [1.105, 2.203e+04]
+  x^3: 1201 samples, values in [0.001, 1000]
+  image: 640x440, 5965 bytes
+  (nofile: GIF checksum f0a1702e)
+> plot x^2 + y^2 = 1, y = x^2 - 1 nofile
+plot of 2 functions
+  x in [-2.5, 2.5]: covering the 3 features found in [-10, 10]
+  y in [-1.562, 1.562]: around the curve found in [-10, 10]
+  x^2 + y^2 = 1: the curve spans x in [-1, 1], y in [-1, 1]
+  y = x^2 - 1: 1201 samples, values in [-1, 5.25]
+  image: 600x540, 11202 bytes
+  (nofile: GIF checksum 0e87c89c)
+> plot x^2 + y^2 < 4 - x*y nofile
+region: x^2 + y^2 < 4 - x*y
+  x in [-3.006, 3.006]: around the curve found in [-10, 10]
+  y in [-3.006, 3.006]: around the curve found in [-10, 10]
+  x^2 + y^2 < 4 - x*y: holds on 34.5% of the view
+  image: 600x540, 7415 bytes
+  (nofile: GIF checksum 3f49c68e)
+> plot (cos(3t), sin(2t)) nofile
+parametric curve: (cos(3t), sin(2t))
+  t in [0, 6.283 (2pi)]: default
+  x in [-1.265, 1.265], y in [-1.12, 1.12]: the curve, the same scale on both axes
+  (cos(3t), sin(2t)): t in [0, 6.283 (2pi)], 2000 samples
+  image: 600x540, 12769 bytes
+  (nofile: GIF checksum 9813396a)
+> plot r = 1 + cos(theta) nofile
+polar curve: r = cos(theta) + 1
+  theta in [0, 6.283 (2pi)]: default
+  x in [-0.7864, 2.536], y in [-1.455, 1.455]: the curve, the same scale on both axes
+  r = cos(theta) + 1: theta in [0, 6.283 (2pi)], 3000 samples
+  image: 600x540, 10780 bytes
+  (nofile: GIF checksum d6194c2f)
+> plot polar sin(5 theta / 2) nofile
+polar curve: r = sin(5theta/2)
+  theta in [0, 12.57 (4pi)]: until the curve closes
+  x in [-1.225, 1.225], y in [-1.073, 1.073]: the curve, the same scale on both axes
+  r = sin(5theta/2): theta in [0, 12.57 (4pi)], 3000 samples
+  image: 600x540, 15987 bytes
+  (nofile: GIF checksum 304759b1)
+> plot (-y, x) nofile
+vector field: (-y, x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (-y, x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20283 bytes
+  (nofile: GIF checksum 233b73c8)
+> plot y' = y*(1 - y) nofile
+slope field: y' = y*(1 - y)
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = y*(1 - y): slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 16290 bytes
+  (nofile: GIF checksum 17d540cc)
+> y' = -2y + 1
+> y(0) = 3
+> plot y nofile
+slope field: y' = 1 - 2y
+  t in [0, 5]: from the initial value, 5 units
+  y in [-0.3123, 3.812]: around the solution through the initial value
+  solution through (0, 3): at t = 5 it is 0.5001
+  y' = 1 - 2y: slopes on a 26x17 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 18860 bytes
+  (nofile: GIF checksum 2f6621fb)
+> plot sin(x)*cos(y) nofile
+surface: z = f(x, y)
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  z in [-1.1, 1.1]: the values
+  65x65 grid
+  image: 640x500, 37736 bytes
+  (nofile: GIF checksum 9968d859)
+> plot x^2 - y^2 + x*y contour nofile
+contour plot: z = f(x, y)
+  x in [-5, 5]: covering the 3 features found in [-10, 10]
+  y in [-4, 4]: covering the 3 features found in [-10, 10]
+  z in [-22.56, 33.81]: the values
+  image: 640x500, 35752 bytes
+  (nofile: GIF checksum e997d298)
+> plot sin(x)*cos(y) heatmap nofile
+  ucas: plot sin(x)*cos(y) heatmap nofile
+heat map: z = f(x, y)
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  z in [-1.1, 1.1]: the values
+  image: 640x500, 45564 bytes
+  (nofile: GIF checksum 27629107)
+> plot sqrt(1 - x^2 - y^2) wireframe nofile
+wireframe surface: z = f(x, y)
+  x in [-1.2, 1.2]: covering the 3 features found in [-10, 10]
+  y in [-1.2, 1.2]: covering the 3 features found in [-10, 10]
+  z in [-0.05, 1.05]: the values
+  65x65 grid, undefined at 1992 points
+  image: 640x500, 23136 bytes
+  (nofile: GIF checksum 42155b7a)
+> plot3d x^2 - y^2 rotate frames 12 nofile
+surface: z = f(x, y)
+  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
+  y in [-3, 3]: covering the 3 features found in [-10, 10]
+  z in [-10.06, 13.31]: the values
+  rotating once around the vertical axis
+  65x65 grid
+  animation: 560x440, 12 frames at 12 fps (1.0 s), 247793 bytes
+  (nofile: GIF checksum fdbdb6a7)
+> plot (cos(t), sin(t), t/5) t in 0..4pi nofile
+space curve:
+  t in [0, 12.57 (4pi)]: given
+  box x in [-1.1, 1.1], y in [-1.1, 1.1], z in [-0.1257, 2.639]
+  (cos(t), sin(t), t/5): t in [0, 12.57 (4pi)], 2000 samples
+  image: 560x460, 10913 bytes
+  (nofile: GIF checksum 3aa68d15)
+> plot sin(x - t) animate t frames 8 nofile
+plot of sin(x - t)
+  t in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  t: one period [0, 6.283 (2pi)), looping
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-1.1, 1.1]: the values
+  frames over t in [0, 6.283]
+  sin(x - t): 1201 samples, values in [-1, 1]
+  animation: 640x440, 8 frames at 12 fps (0.7 s), 52080 bytes
+  (nofile: GIF checksum f9d09872)
+> plot sin(x - t)*cos(y) frames 6 nofile
+sin(x - t)*cos(y) of 3 variables: a heat map over x, y; frames over t
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  t in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  t: one period [0, 6.283 (2pi)), looping
+  f in [-1.1, 1.1]: the values
+  frames over t in [0, 6.283]
+  animation: 600x460, 6 frames at 8 fps (0.8 s), 201535 bytes
+  (nofile: GIF checksum 4e1ca507)
+> plot x*y + z*w - z frames 4 nofile
+x*y + z*w - z of 4 variables: a heat map over x, y; small multiples over z; frames over w
+  x in [-3.8, 3.8]: covering the 1 feature found in [-10, 10]
+  y in [-4.4, 4.4]: covering the 1 feature found in [-10, 10]
+  z in [-3.6, 3.6]: covering the 1 feature found in [-10, 10]
+  w in [-6.8, 6.8]: covering the 1 feature found in [-10, 10]
+  f in [-49.28, 49.28]: the values
+  frames over w in [-6.8, 6.8]
+  animation: 780x640, 4 frames at 8 fps (0.5 s), 87549 bytes
+  (nofile: GIF checksum 7e11fe94)
+> plot sin(x + y + z) slices nofile
+sin(x + y + z) of 3 variables: a heat map over x, y; small multiples over z
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  z in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  f in [-1.1, 1.1]: the values
+  image: 780x640, 61104 bytes
+  (nofile: GIF checksum 72984ae9)
+> plot x*y + z parallel nofile
+parallel coordinates: x*y + z
+  x in [-3.6, 3.6]: covering the 1 feature found in [-10, 10]
+  y in [-5.6, 5.6]: covering the 1 feature found in [-10, 10]
+  z in [-4.2, 4.2]: covering the 1 feature found in [-10, 10]
+  400 random points, 400 defined, f in [-20.52, 21.96] (colour)
+  image: 480x440, 48178 bytes
+  (nofile: GIF checksum e9b5d734)
+> neighbourhood x^3 - 3x nofile
+neighbourhood: bounds from declared ranges, else the function's features
+plot of x^3 - 3x
+  x in [-10, 10]:
+    zeros: x ≈ -1.732, 0, 1.732
+    local minima: x ≈ 1
+    local maxima: x ≈ -1
+  x in [-3.5, 3.5]: covering the 5 features found in [-10, 10]
+  y in [-35.61, 35.61]: the values
+  x^3 - 3x: 1201 samples, values in [-32.38, 32.38]
+  image: 640x440, 8390 bytes
+  (nofile: GIF checksum 941c0495)
+> neighbourhood sin(x)/x at 3 nofile
+neighbourhood: bounds from the features near the point
+plot of sin(x)/x
+  x near 3 (within 10):
+    zeros: x ≈ -6.283 (-2pi), -3.142 (-pi), 3.142 (pi), 6.283 (2pi), 9.425 (3pi), 12.57 (4pi)
+    local minima: x ≈ -4.493, 4.493, 10.9
+    local maxima: x ≈ 7.725
+    inflection points: x ≈ -5.94, -2.082, 2.082, 5.94, 9.206, 12.4
+    undefined points: x ≈ 0
+  x in [1.714, 4.286]: around x = 3: features on both sides within 0.9184 (an inflection point at 2.082)
+  y in [-0.2519, 0.6169]: the values
+  sin(x)/x: 1201 samples, values in [-0.2124, 0.5774]
+  image: 640x440, 7246 bytes
+  (nofile: GIF checksum 44e1acbd)
+> neighbourhood sqrt(x) nofile
+neighbourhood: bounds from declared ranges, else the function's features
+plot of sqrt(x)
+  x in [-10, 10]:
+    domain edges: x ≈ 0
+  x in [0, 4]: covering the 1 feature found in [-10, 10]
+  y in [-0.1, 2.1]: the values
+  sqrt(x): 1201 samples, values in [0, 2]
+  image: 640x440, 8119 bytes
+  (nofile: GIF checksum d8eeaa38)
+> h(x: real in 1..4) = x*log(x)
+> neighbourhood h nofile
+neighbourhood: bounds from declared ranges, else the function's features
+plot of h(x) = x*log(x)
+  x in [1, 4]: x's declared range
+  y in [-0.2773, 5.822]: the values
+  h(x) = x*log(x): 1201 samples, values in [0, 5.545]
+  image: 640x440, 7033 bytes
+  (nofile: GIF checksum b35c8437)
+> neighbourhood exp(-(x^2 + y^2)) nofile
+neighbourhood: bounds from declared ranges, else the function's features
+surface: z = f(x, y)
+  x in [-10, 10]:
+    local maxima: x ≈ 0
+  x in [-2, 2]: covering the 1 feature found in [-10, 10]
+  y in [-10, 10]:
+    local maxima: y ≈ 0
+  y in [-2, 2]: covering the 1 feature found in [-10, 10]
+  z in [-0.04965, 1.05]: the values
+  65x65 grid
+  image: 640x500, 28359 bytes
+  (nofile: GIF checksum 1fc019ab)
+> plot sin x and cos x from -pi to pi nofile
+  ucas: plot sin(x), cos(x) x in -pi..pi nofile
+plot of 2 functions
+  x in [-3.142 (-pi), 3.142 (pi)]: given
+  y in [-1.1, 1.1]: the values
+  sin(x): 1201 samples, values in [-1, 1]
+  cos(x): 1201 samples, values in [-1, 1]
+  image: 640x440, 9914 bytes
+  (nofile: GIF checksum 89cad3eb)
+> show me a surface plot of x^2 - y^2 nofile
+  ucas: plot3d x^2 - y^2 nofile
+surface: z = f(x, y)
+  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
+  y in [-3, 3]: covering the 3 features found in [-10, 10]
+  z in [-10.06, 13.31]: the values
+  65x65 grid
+  image: 640x500, 30307 bytes
+  (nofile: GIF checksum efaab15a)
+> draw the circle x^2 + y^2 = 4 nofile
+  ucas: plot x^2 + y^2 = 4 nofile
+implicit curve: x^2 + y^2 = 4
+  x in [-2.681, 2.681]: around the curve found in [-10, 10]
+  y in [-2.681, 2.681]: around the curve found in [-10, 10]
+  x^2 + y^2 = 4: the curve spans x in [-2, 2], y in [-2, 2]
+  image: 600x540, 9576 bytes
+  (nofile: GIF checksum 7aea9f37)
+> plot x^3 - 3x and its tangent at 2 nofile
+  ucas: plot x^3 - 3*x tangent 2 nofile
+plot of 2 functions
+  x in [-3.5, 3.5]: covering the 5 features found in [-10, 10]
+  y in [-35.61, 35.61]: the values
+  x^3 - 3x: 1201 samples, values in [-32.38, 32.38]
+  tangent at x = 2: y = 9*x - 16: slope 9, through (2, 2)
+  image: 640x440, 9694 bytes
+  (nofile: GIF checksum 6f2354c3)
+> plot exp x on a log scale nofile
+  note: a log scale read as a logarithmic y axis (say log x axis, or log-log, for the others)
+  ucas: plot exp(x) logy nofile
+plot of exp(x)
+  x in [-5, 5]: no zeros, extrema, poles or domain edges in [-100, 100]: a default window
+  y in [0.004087, 244.7]: the values
+  exp(x): 1201 samples, values in [0.006738, 148.4]
+  image: 640x440, 6932 bytes
+  (nofile: GIF checksum b8fc546c)
+> sin x as a neighbourhood nofile
+  ucas: neighbourhood sin(x) nofile
+neighbourhood: bounds from declared ranges, else the function's features
+plot of sin(x)
+  x: one period [0, 6.283 (2pi)]:
+    zeros: x ≈ 0, 3.142 (pi)
+    local minima: x ≈ 4.712 (3pi/2)
+    local maxima: x ≈ 1.571 (pi/2)
+  x in [-6.283 (-2pi), 6.283 (2pi)]: periodic with period 6.283 (2pi): two periods
+  y in [-1.1, 1.1]: the values
+  sin(x): 1201 samples, values in [-1, 1]
+  image: 640x440, 8729 bytes
+  (nofile: GIF checksum c070646a)
+> plot sin(x)/x near its interesting part nofile
+  ucas: neighbourhood sin(x)/x nofile
+neighbourhood: bounds from declared ranges, else the function's features
+plot of sin(x)/x
+  x in [-10, 10]:
+    zeros: x ≈ -9.425 (-3pi), -6.283 (-2pi), -3.142 (-pi), 3.142 (pi), 6.283 (2pi), 9.425 (3pi)
+    local minima: x ≈ -4.493, 4.493
+    local maxima: x ≈ -7.725, 7.725
+    inflection points: x ≈ -9.206, -5.94, -2.082, 2.082, 5.94, 9.206
+    undefined points: x ≈ 0
+  x in [-9, 9]: covering the features nearest 0 (17 found in [-10, 10])
+  y in [-0.2781, 1.061]: the values
+  sin(x)/x: 1201 samples, values in [-0.2172, 1]
+    undefined at x ≈ 0
+  image: 640x440, 9869 bytes
+  (nofile: GIF checksum d736d89f)
+> plot x^2 - y^2 as a heatmap nofile
+  ucas: plot x^2 - y^2 heatmap nofile
+heat map: z = f(x, y)
+  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]
+  y in [-3, 3]: covering the 3 features found in [-10, 10]
+  z in [-10.06, 13.31]: the values
+  image: 640x500, 28976 bytes
+  (nofile: GIF checksum 50a81ee5)
+> plot 1 + cos theta in polar coordinates nofile
+  ucas: plot 1 + cos(theta) polar nofile
+polar curve: r = cos(theta) + 1
+  theta in [0, 6.283 (2pi)]: default
+  x in [-0.7864, 2.536], y in [-1.455, 1.455]: the curve, the same scale on both axes
+  r = cos(theta) + 1: theta in [0, 6.283 (2pi)], 3000 samples
+  image: 600x540, 10780 bytes
+  (nofile: GIF checksum d6194c2f)
+> plot the slope field of t - y nofile
+  ucas: plot t - y field nofile
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> plot the vector field (-y, x) nofile
+  ucas: plot (-y, x) nofile
+vector field: (-y, x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (-y, x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20283 bytes
+  (nofile: GIF checksum 233b73c8)
+> plot isqrt of an unsigned byte x nofile
+  ucas: plot isqrt(x: u8) nofile
+plot of isqrt(x)
+  x in [0, 255]: every u8 value
+  y in [-0.75, 15.75]: the values
+  isqrt(x): 256 integer inputs (steps), values in [0, 15]
+  image: 640x440, 6896 bytes
+  (nofile: GIF checksum aa11e0b5)
+> plot nofile
+plot.ucas:56:6: error: plot what? (a function or an expression)
+    plot nofile
+         ^
+> plot x*y, x*y*z nofile
+plot.ucas:57:6: error: plot: one function of two or more variables at a time (curves of one variable can share a plot)
+    plot x*y, x*y*z nofile
+         ^
+> plot sin x tangent 1 deriv derivative frobnicate nofile
+plot.ucas:58:6: error: plot: I don't understand 'frobnicate nofile'
+    plot sin x tangent 1 deriv derivative frobnicate nofile
+         ^

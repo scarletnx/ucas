@@ -1945,3 +1945,10 @@ word:
 	deliver(&g, name, nofile);
 	free(g.out.p);
 }
+
+/* plot.c: deliver a finished GIF as animate does */
+void
+gif_deliver(struct gif *g, const char *name, int nofile)
+{
+	deliver(g, name, nofile);
+}

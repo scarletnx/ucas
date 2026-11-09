@@ -1398,7 +1398,8 @@ varlike(int i)
 enum {
 	C_NONE, C_EVAL, C_SHOW, C_TABLE, C_RANGE, C_DOMAIN, C_WRAP, C_CRIT,
 	C_DIFF, C_EQUIV, C_GATES, C_FIND, C_FIT, C_ERROR, C_COST, C_DEF,
-	C_RAW, C_PROP, C_APPROX, C_INTEG, C_CLOSED, C_SCHEME, C_CONT, C_DSOLVE
+	C_RAW, C_PROP, C_APPROX, C_INTEG, C_CLOSED, C_SCHEME, C_CONT, C_DSOLVE,
+	C_PLOT
 };
 enum { PR_COMM, PR_ASSOC, PR_ADD, PR_IDEM, PR_ODD, PR_EVEN, PR_ODDV,
 	PR_EVENV };
@@ -1433,6 +1434,11 @@ static struct {
 	int crit;             /* critical points asked for explicitly */
 	int steps;            /* dsolve: output steps */
 	char ode[32];         /* dsolve: the unknown */
+	/* plot (plot.c): the functions, the command, raw options */
+	struct tgt pl[6];
+	int npl, pmode;
+	char popt[256];
+	const char *pat;      /* neighbourhood at */
 } Q;
 
 /* a question the sentence leaves open; asked on a terminal (nlp_run) */
@@ -3380,6 +3386,679 @@ target(struct tgt *t, int minprec)
 	t->has = 1;
 }
 
+/* ---- plots (plot.c): "plot sin x and cos x from 0 to pi" ---- */
+
+static const char *subst_ident(const char *s, const char *name,
+    const char *val);
+static const char *annotate(const char *s, const char *name, const char *ty);
+static const char *value_text(const char *val);
+static const char *fn_used;
+
+static void
+popt_add(const char *o)
+{
+	size_t n = strlen(Q.popt);
+
+	snprintf(Q.popt + n, sizeof Q.popt - n, " %s", o);
+}
+
+/* a constant expression, or NULL (nothing consumed) */
+static const char *
+plot_const(void)
+{
+	jmp_buf saved;
+	int s = wi, ok = 0, nvs = nv, nos = norder;
+	struct ex e;
+
+	memset(&e, 0, sizeof e);
+	memcpy(saved, nl_jmp, sizeof saved);
+	memcpy(Vsave, V, sizeof V);
+	quiet++;
+	if (W[wi].k != W_END && setjmp(nl_jmp) == 0) {
+		e = parse_expr(P_ADD);
+		ok = e.hv;
+	}
+	quiet--;
+	memcpy(nl_jmp, saved, sizeof saved);
+	if (!ok) {
+		wi = s;
+		memcpy(V, Vsave, sizeof V);
+		nv = nvs;
+		norder = nos;
+		return NULL;
+	}
+	return e.s;
+}
+
+/* a variable name as a word: x, t, theta */
+static const char *
+plot_var(void)
+{
+	if (W[wi].k == W_WORD && (strlen(W[wi].s) <= 2 || var_find(W[wi].s) ||
+	    !strcmp(W[wi].s, "theta") || !strcmp(W[wi].s, "time")) &&
+	    !reserved_word(W[wi].s)) {
+		const char *n = !strcmp(W[wi].s, "time") ? "t" : W[wi].o;
+		wi++;
+		return S("%s", n);
+	}
+	return NULL;
+}
+
+static int
+plot_option(void)
+{
+	int s = wi, n;
+	const char *c, *v;
+
+	if (mat("nofile")) {	/* tests: the report without the file */
+		popt_add("nofile");
+		return 1;
+	}
+	mat("?and|with|plus|also|then|but");
+	/* the view */
+	if (mat("?in|as|into ?a|an|the 3 d ?plot|plots|graph|view|surface|"
+	    "picture|image|render|rendering") ||
+	    mat("?in|as ?a|an|the 3 - d ?plot|graph|view|surface") ||
+	    mat("?in|as ?a|an|the three-dimensional|3-dimensional|three-d ?plot|"
+	    "graph|view|surface|picture") ||
+	    mat("in three|3 dimensions") ||
+	    mat("?as|in ?a|an|the surface|surf ?plot|plots|graph|view|picture")) {
+		if (Q.pmode == 0)
+			Q.pmode = 1;
+		return 1;
+	}
+	if (mat("?as|in|with ?a|an|the contour|contours ?plot|plots|graph|map|"
+	    "lines|view|diagram") ||
+	    mat("?as|with ?a|an|the level curves|sets|lines")) {
+		popt_add("contour");
+		return 1;
+	}
+	if (mat("?as|in ?a|an|the heatmap|heatmaps|heat-map|density|colormap|"
+	    "colourmap ?plot|map|graph|view|image") ||
+	    mat("?as|in ?a|an|the heat|color|colour map|plot|image")) {
+		popt_add("heatmap");
+		return 1;
+	}
+	if (mat("?as ?a|an|the wireframe|wire-frame|mesh ?plot|graph|surface|view|"
+	    "model") || mat("?as ?a|an|the wire frame|mesh")) {
+		popt_add("wireframe");
+		return 1;
+	}
+	if (mat("?in|as|using ?a|an|the polar ?plot|graph|coordinates|form|"
+	    "curve|coordinate")) {
+		popt_add("polar");
+		return 1;
+	}
+	if (mat("?as ?a|an|the vector|gradient field|fields ?plot|graph")) {
+		return 1;	/* a tuple (P, Q) of two variables is one */
+	}
+	if (mat("?as ?a|an|the slope|direction field|fields ?plot|graph")) {
+		popt_add("field");
+		return 1;
+	}
+	if (mat("?as|in|using ?a|an|the parallel coordinates|coordinate ?plot|"
+	    "graph|view|chart")) {
+		popt_add("parallel");
+		return 1;
+	}
+	if (mat("?as|in ?a|an|the small multiples") ||
+	    mat("?as|in ?a|an|the slices|panels") ||
+	    mat("?as|in ?a|an|the grid of slices|panels|plots")) {
+		popt_add("slices");
+		return 1;
+	}
+	if (mat("?and ?make|let ?it rotating|rotate|rotates|spinning|spin|spins|"
+	    "turning|turn|revolving ?around|round ?the ?vertical|z ?axis") ||
+	    mat("?as ?a|an|the turntable|rotation|spinning|rotating ?animation|"
+	    "gif|view")) {
+		popt_add("rotate");
+		return 1;
+	}
+	/* animation: "animated over t", "over time", "as t goes from 0 to 1" */
+	if (mat("animated|animate|animating|animation|moving|evolving|frames ?it "
+	    "?over|along|through|in|with|by|for ?the ?variable|parameter")) {
+		if (mat("time"))
+			popt_add("animate t");
+		else if ((v = plot_var()) != NULL)
+			popt_add(S("animate %s", v));
+		else
+			popt_add("animate");
+		return 1;
+	}
+	if (mat("over|through|in ?the time")) {
+		popt_add("animate t");
+		return 1;
+	}
+	{
+		int s2 = wi;
+		if (mat("as|while|when") && (v = plot_var()) != NULL &&
+		    mat("varies|changes|goes|runs|increases|moves|grows|ranges|"
+		    "evolves|sweeps")) {
+			struct ex a, b;
+			popt_add(S("animate %s", v));
+			mat("?from|over|across|between|in");
+			if (const_interval(&a, &b, 1))
+				popt_add(S("%s in %s..%s", v, a.s, b.s));
+			return 1;
+		}
+		wi = s2;
+	}
+	/* frames */
+	if (mat("?at|with ?a|an ?frame ?rate ?of") && W[wi].k == W_NUM &&
+	    (isw(wi + 1, "fps") || (isw(wi + 1, "frames") && isw(wi + 2, "per")))) {
+		n = atoi(W[wi].s);
+		wi++;
+		mat("fps") || mat("frames per second");
+		popt_add(S("fps %d", n));
+		return 1;
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if (mat("?for|lasting|over") && W[wi].k == W_NUM &&
+	    (isw(wi + 1, "seconds") || isw(wi + 1, "second") ||
+	    isw(wi + 1, "secs") || isw(wi + 1, "sec") || isw(wi + 1, "s"))) {
+		popt_add(S("seconds %s", W[wi].s));
+		wi += 2;
+		return 1;
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if (mat("?in|with|using") && W[wi].k == W_NUM && isw(wi + 1, "frames")) {
+		popt_add(S("frames %s", W[wi].s));
+		wi += 2;
+		return 1;
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if (mat("?with|using") && W[wi].k == W_NUM && (isw(wi + 1, "samples") ||
+	    isw(wi + 1, "points"))) {
+		popt_add(S("points %s", W[wi].s));
+		wi += 2;
+		return 1;
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	/* derivative and tangent */
+	if (mat("?together|along|alongside ?with ?its|the|their first|1st "
+	    "derivative|derivatives") ||
+	    mat("?together|along|alongside ?with ?its|the|their derivative|"
+	    "derivatives ?too") ||
+	    mat("?together|along|alongside ?with ?its|the|their slope function")) {
+		popt_add("deriv");
+		return 1;
+	}
+	if (mat("?together|along ?with ?its|the|a tangent ?line ?at|through|in "
+	    "?the ?point")) {
+		if (W[wi].k == W_WORD && W[wi + 1].k == W_SYM &&
+		    (!strcmp(W[wi + 1].s, "=") || !strcmp(W[wi + 1].s, "==")))
+			wi += 2;
+		if ((c = plot_const()) == NULL)
+			nfail("the tangent at which point? (tangent at 2)");
+		popt_add(S("tangent %s", c));
+		return 1;
+	}
+	/* log scales */
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	mat("?on|with|using|in ?a|an|the");
+	if (mat("log-log|loglog|double-log|double-logarithmic ?scale|scales|axes|"
+	    "axis|plot|graph") || mat("log log ?scale|scales|axes|plot")) {
+		popt_add("loglog");
+		return 1;
+	}
+	if (mat("log|logarithmic|semilog|semi-log|log-scale|log-scaled")) {
+		if (mat("x|x-axis|horizontal ?scale|axis")) {
+			popt_add("logx");
+			return 1;
+		}
+		if (mat("y|y-axis|vertical ?scale|axis")) {
+			popt_add("logy");
+			return 1;
+		}
+		if (mat("axes|scales")) {
+			popt_add("loglog");
+			return 1;
+		}
+		if (mat("scale|axis|plot|graph|scaling")) {
+			if (!dry)
+				printf("  note: a log scale read as a logarithmic y axis "
+				    "(say log x axis, or log-log, for the others)\n");
+			popt_add("logy");
+			return 1;
+		}
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if ((isw(wi, "x") || isw(wi, "y")) && (mat("x on|in ?a|an|the log|"
+	    "logarithmic scale|axis") || mat("y on|in ?a|an|the log|logarithmic "
+	    "scale|axis"))) {
+		popt_add(isw(s, "x") || isw(s + 1, "x") ? "logx" : "logy");
+		return 1;
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	/* neighbourhood: "as a neighbourhood", "around 2", "near its interesting part" */
+	if (mat("as ?a|an|the|its neighbourhood|neighborhood|neighbourhoods|"
+	    "neighborhoods|surroundings")) {
+		if (Q.pmode != 1)
+			Q.pmode = 2;
+		mat("?of|around|at|near");
+		if ((c = plot_const()) != NULL)
+			Q.pat = c;
+		return 1;
+	}
+	if (mat("near|around|about|nearby|at") || mat("close to") ||
+	    mat("in|within the neighbourhood|neighborhood|vicinity of") ||
+	    mat("in|within a|the small ?neighbourhood|neighborhood|window around")) {
+		if (mat("its|the interesting|interestin|important|relevant|main "
+		    "part|region|bit|parts|features|bits|stuff|area|range")) {
+			if (Q.pmode != 1)
+				Q.pmode = 2;
+			return 1;
+		}
+		mat("?the ?point");
+		if (W[wi].k == W_WORD && W[wi + 1].k == W_SYM &&
+		    (!strcmp(W[wi + 1].s, "=") || !strcmp(W[wi + 1].s, "==")))
+			wi += 2;
+		if (acc_sym("(")) {
+			const char *a, *b;
+			if ((a = plot_const()) != NULL && acc_sym(",") &&
+			    (b = plot_const()) != NULL && acc_sym(")")) {
+				Q.pat = S("(%s, %s)", a, b);
+				if (Q.pmode != 1)
+					Q.pmode = 2;
+				return 1;
+			}
+		} else if ((c = plot_const()) != NULL && !isw(wi, "fps") &&
+		    !isw(wi, "frames")) {
+			Q.pat = c;
+			if (Q.pmode != 1)
+				Q.pmode = 2;
+			return 1;
+		}
+	}
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if (mat("where ?it is|it's|its interesting") ||
+	    mat("?on|over|in|at|showing ?its|the interesting|important|relevant "
+	    "part|region|bit|parts|features|bits|stuff|area|range") ||
+	    mat("?with|using automatic|auto|implicit|natural|sensible|good|nice|"
+	    "default ?bounds|range|ranges|window|limits|axes")) {
+		if (Q.pmode != 1)
+			Q.pmode = 2;
+		return 1;
+	}
+	/* the file: "save it as wave", "to wave.gif" */
+	wi = s;
+	mat("?and|with|plus|also|then|but");
+	if (mat("save|write|store|put ?it|the|that ?plot|image|picture|gif|graph "
+	    "?as|to|into|in") || mat("into|named|called")) {
+		if (W[wi].k == W_WORD) {
+			popt_add(S("to %s", W[wi].o));
+			wi++;
+			if (issym(".") && isw(wi + 1, "gif"))
+				wi += 2;
+			return 1;
+		}
+	}
+	wi = s;
+	return 0;
+}
+
+/* plot_option without its effect: does an option start here? */
+static int
+plot_peek(void)
+{
+	char save[sizeof Q.popt];
+	int s = wi, pm = Q.pmode, r, q = quiet;
+	const char *pa = Q.pat;
+
+	memcpy(save, Q.popt, sizeof save);
+	quiet = 1;
+	dry++;
+	r = plot_option();
+	dry--;
+	quiet = q;
+	memcpy(Q.popt, save, sizeof save);
+	Q.pmode = pm;
+	Q.pat = pa;
+	wi = s;
+	return r;
+}
+
+/* "a contour plot of", "the graph of", "a surface plot for" */
+static int
+plot_noun(void)
+{
+	char save[sizeof Q.popt];
+	int s = wi, pm = Q.pmode, any = 0;
+	const char *pa = Q.pat;
+
+	memcpy(save, Q.popt, sizeof save);
+	for (;;) {
+		int s1 = wi;
+		mat("?a|an|the|some|nice|quick|simple|little|small|big|animated");
+		if (mat("plot|plots|graph|graphs|chart|picture|drawing|sketch|figure|"
+		    "image|visualization|visualisation|diagram|rendering|render|"
+		    "animation|gif|view") && peek("of|for")) {
+			any = 1;
+			break;
+		}
+		wi = s1;
+		mat("?a|an|the");
+		if (mat("neighbourhood|neighborhood") && peek("of|for")) {
+			if (Q.pmode != 1)
+				Q.pmode = 2;
+			any = 1;
+			break;
+		}
+		wi = s1;
+		{
+			/* only a view names a plot: "the derivative of" does not */
+			static const char *const views[] = {" contour", " heatmap",
+				" wireframe", " polar", " field", " parallel", " slices",
+				" rotate", NULL};
+			size_t n0 = strlen(Q.popt);
+			int pm0 = Q.pmode;
+			if (!plot_option() || W[wi].k == W_END ||
+			    (Q.pmode == pm0 && !in_list(views, Q.popt + n0))) {
+				Q.popt[n0] = 0;
+				Q.pmode = pm0;
+				wi = s1;
+				break;
+			}
+		}
+		if (peek("of|for")) {	/* "a heatmap of", "the slope field of" */
+			any = 1;
+			break;
+		}
+	}
+	if (any && mat("of|for"))
+		return 1;
+	memcpy(Q.popt, save, sizeof save);
+	Q.pmode = pm;
+	Q.pat = pa;
+	wi = s;
+	return 0;
+}
+
+static void
+plot_tail(void)
+{
+	for (;;) {
+		struct ex a, b;
+		int s = wi;
+		if (W[wi].k == W_END)
+			return;
+		if (acc_sym(",") || acc_sym(";"))
+			continue;
+		if (plot_option())
+			continue;
+		if (const_interval(&a, &b, 0)) {
+			Q.ilo = a.s;
+			Q.ihi = b.s;
+			continue;
+		}
+		if (parse_clause())
+			continue;
+		if (mat("please|thanks|again|too|now") || mat("thank you") ||
+		    mat("for me") || mat("as well") || mat("if possible") ||
+		    mat("if you can"))
+			continue;
+		if (mat("and|also|plus|then") && W[wi].k != W_END)
+			continue;
+		wi = s;
+		return;
+	}
+}
+
+/* the functions: "sin x and cos x", "f, g and h" */
+static void
+plot_targets(void)
+{
+	for (;;) {
+		int s;
+		if (Q.npl == 6)
+			nfail("at most six functions in one plot");
+		cur_mask = 1;
+		if (issym("(")) {
+			/* a tuple (x(t), y(t)) or (P, Q): its parts one by one */
+			int k, d = 0, comma = 0;
+			for (k = wi; W[k].k != W_END; k++) {
+				if (W[k].k == W_SYM && !strcmp(W[k].s, "("))
+					d++;
+				else if (W[k].k == W_SYM && !strcmp(W[k].s, ")") && --d == 0)
+					break;
+				else if (d == 1 && W[k].k == W_SYM && !strcmp(W[k].s, ","))
+					comma = 1;
+			}
+			if (comma && W[k].k != W_END) {
+				struct tgt *t = &Q.pl[Q.npl++];
+				const char *parts = "";
+				int np = 0;
+				memset(t, 0, sizeof *t);
+				acc_sym("(");
+				do {
+					struct tgt c;
+					target(&c, P_CMP);
+					parts = np++ ? S("%s, %s", parts, c.e.s) : c.e.s;
+				} while (acc_sym(","));
+				if (!acc_sym(")"))
+					nfail("I didn't follow \"%s\"", words_text(wi, nw));
+				t->has = 1;
+				t->e = mkatom(S("(%s)", parts), 2, 0);
+				goto next;
+			}
+		}
+		target(&Q.pl[Q.npl++], P_CMP);
+next:
+		s = wi;
+		if (acc_sym(",") || acc_sym("&") || mat("and|plus|vs|versus") ||
+		    mat("together|along|alongside with")) {
+			if (W[wi].k == W_END || plot_peek() ||
+			    peek("for|where|with|on|from|over|between|when|whenever|"
+			    "its|it|their|in|at|near|around")) {
+				wi = s;
+				break;
+			}
+			continue;
+		}
+		break;
+	}
+}
+
+static void
+plot_sentence(void)
+{
+	Q.cmd = C_PLOT;
+	mat("?me|us|out");
+	while (plot_noun())
+		;
+	mat("?of|for");
+	/* "the unit circle x^2 + y^2 = 1", "the function f" */
+	mat("?the|a|an ?unit circle|curve|curves|function|functions|parabola|"
+	    "line|lines|ellipse|hyperbola|cardioid|spiral|rose|equation|"
+	    "equations|expression|expressions|formula|wave|surface|helix|field");
+	mat("?the|a|an ?vector|gradient field|fields");
+	mat("?of|for|given by|defined by");
+	plot_targets();
+	plot_tail();
+}
+
+/* is W[i] the start of "a neighbourhood", "a contour plot" after "as"? */
+static int
+plot_as_at(int i)
+{
+	static const char *const w[] = {"neighbourhood", "neighborhood",
+		"neighbourhoods", "neighborhoods", "plot", "graph", "surface",
+		"contour", "contours", "heatmap", "heat", "wireframe", "picture",
+		"chart", "curve", "drawing", "sketch", "polar", "small", "slices",
+		"panels", "parallel", "mesh", "density", "rotating", "animation",
+		"spinning", "level", "slope", "direction", NULL};
+	int k;
+
+	if (isw(i, "a") || isw(i, "an") || isw(i, "the") || isw(i, "its"))
+		i++;
+	if (isw(i, "3") && isw(i + 1, "d"))
+		return 1;
+	for (k = 0; w[k]; k++)
+		if (isw(i, w[k]))
+			return 1;
+	return 0;
+}
+
+/* "F as a neighbourhood": the functions are what comes before "as" */
+static int
+plot_as(void)
+{
+	int k, depth = 0;
+
+	for (k = wi; W[k].k != W_END; k++) {
+		if (W[k].k == W_SYM && (!strcmp(W[k].s, "(") || !strcmp(W[k].s, "[")))
+			depth++;
+		if (W[k].k == W_SYM && (!strcmp(W[k].s, ")") || !strcmp(W[k].s, "]")))
+			depth--;
+		if (depth == 0 && k > wi && isw(k, "as") && plot_as_at(k + 1))
+			break;
+	}
+	if (W[k].k == W_END)
+		return 0;
+	{
+		struct word save = W[k];
+		W[k].k = W_END;
+		Q.cmd = C_PLOT;
+		plot_targets();
+		W[k] = save;
+		if (wi != k)
+			nfail("I didn't follow \"%s\"", words_text(wi, k));
+	}
+	plot_tail();
+	return 1;
+}
+
+/* "what does sin x look like" */
+static int
+plot_looks(void)
+{
+	int s = wi, k;
+
+	if (!mat("what|how does|do|would|will|might"))
+		return 0;
+	for (k = wi; W[k].k != W_END; k++)
+		if (isw(k, "look") || isw(k, "looks"))
+			break;
+	if (W[k].k == W_END || k == wi || !(W[k + 1].k == W_END ||
+	    isw(k + 1, "like") || plot_peek())) {
+		wi = s;
+		return 0;
+	}
+	{
+		struct word save = W[k];
+		W[k].k = W_END;
+		Q.cmd = C_PLOT;
+		plot_targets();
+		W[k] = save;
+		if (wi != k)
+			nfail("I didn't follow \"%s\"", words_text(wi, k));
+	}
+	wi = k + 1;
+	mat("?like");
+	plot_tail();
+	return 1;
+}
+
+/* top-level "==" of an equation back to "=" (plot x^2 + y^2 = 1) */
+static const char *
+plot_eq(const char *s)
+{
+	int d = 0;
+	const char *p;
+
+	for (p = s; *p; p++) {
+		if (*p == '(' || *p == '[')
+			d++;
+		else if (*p == ')' || *p == ']')
+			d--;
+		else if (d == 0 && p[0] == '=' && p[1] == '=')
+			return S("%.*s=%s", (int)(p - s), s, p + 2);
+	}
+	return s;
+}
+
+static void
+emit_plot(void)
+{
+	struct sbuf sb = {0};
+	char typed[MAXV];
+	int k, j, hv = -1;
+	const char *cmd = Q.pmode == 1 ? "plot3d" : Q.pmode == 2 ?
+	    "neighbourhood" : "plot";
+
+	memset(typed, 0, sizeof typed);
+	sb_printf(&sb, "%s ", cmd);
+	for (k = 0; k < Q.npl; k++) {
+		struct tgt *t = &Q.pl[k];
+		const char *body;
+		if (t->named)
+			body = t->fn;
+		else {
+			body = t->e.s;
+			for (j = 0; j < nv; j++)
+				if (V[j].val[0])
+					body = subst_ident(body, V[j].name, value_text(V[j].val));
+			for (j = 0; j < nv; j++)
+				if (V[j].ty[0] && !typed[j] && !V[j].val[0] &&
+				    strcmp(annotate(body, V[j].name, V[j].ty), body)) {
+					body = annotate(body, V[j].name, V[j].ty);
+					typed[j] = 1;
+				}
+			body = plot_eq(body);
+		}
+		sb_printf(&sb, "%s%s", k ? ", " : "", body);
+	}
+	/* ranges in words: "for x between 0 and 2" */
+	for (j = 0; j < nv; j++) {
+		struct var *v = &V[j];
+		if (!v->order || v->val[0] || !v->lo[0] || !v->hi[0])
+			continue;
+		sb_printf(&sb, " %s in %s..%s", v->name, v->lo, v->hi);
+		if (!strcmp(v->name, "x"))
+			hv = -2;
+	}
+	for (j = 0; j < nv; j++)
+		if (V[j].order && !V[j].val[0] && V[j].ncond && !dry)
+			printf("  note: the condition on %s is not used by the plot "
+			    "(give it a range: %s in a..b)\n", V[j].name, V[j].name);
+	/* "from a to b" without a variable: the horizontal one */
+	if (Q.ilo && hv == -1) {
+		const char *name = NULL;
+		int best = 1 << 30;
+		for (j = 0; j < nv; j++)
+			if (V[j].order && !V[j].val[0] && !strcmp(V[j].name, "x"))
+				name = "x";
+		for (j = 0; j < nv && !name; j++)
+			if (V[j].order && !V[j].val[0] && V[j].order < best) {
+				best = V[j].order;
+				name = V[j].name;
+			}
+		if (Q.npl == 1 && Q.pl[0].named) {
+			struct func *f = user_fn(Q.pl[0].fn);
+			if (f && f->np)
+				name = sym_str(f->p[0].name);
+		}
+		if (!name)
+			name = "x";
+		sb_printf(&sb, " %s in %s..%s", name, Q.ilo, Q.ihi);
+	}
+	if (Q.pat)
+		sb_printf(&sb, " at %s", Q.pat);
+	sb_puts(&sb, Q.popt);
+	emit(sb.p);
+	free(sb.p);
+	if (Q.npl == 1 && Q.pl[0].named)
+		fn_used = Q.pl[0].fn;
+}
+
 /* ---- requests ---- */
 
 static int
@@ -3387,6 +4066,8 @@ noun_cmd(void)
 {
 	int n, s0;
 
+	if (plot_noun())
+		return C_PLOT;
 	mat("?the|a|an|some|any|its|their");
 	if (small_number(&n)) {
 		Q.count = n;
@@ -4162,6 +4843,10 @@ cmd_after_noun(int c)
 {
 	Q.cmd = c;
 	switch (c) {
+	case C_PLOT:
+		plot_targets();
+		plot_tail();
+		break;
 	case C_EQUIV:
 		break;
 	case C_ERROR:
@@ -4217,6 +4902,13 @@ sentence(void)
 	if (definition())
 		return;
 	s = wi;
+	/* "sin x as a neighbourhood", "what does sin x look like" */
+	mat("?show|display|draw|plot|graph|render|give|print|visualize|"
+	    "visualise|sketch");
+	mat("?me|us");
+	if (plot_as() || plot_looks())
+		return;
+	wi = s;
 	/* commands named by a verb */
 	if (mat("differentiate|derive")) {
 		target(&Q.a, P_TERN);
@@ -4245,10 +4937,9 @@ sentence(void)
 		Q.cmd = C_APPROX;
 		return;
 	}
-	if (mat("plot|graph|chart|draw|sketch")) {
-		target(&Q.a, P_TERN);
-		Q.cmd = C_TABLE;
-		Q.why = "ucas does not draw; here is a table";
+	if (mat("plot|graph|chart|draw|sketch|visualize|visualise|render|"
+	    "depict|illustrate|picture")) {
+		plot_sentence();
 		return;
 	}
 	if (mat("simplify|expand|normalize|normalise|canonicalize|show|display|"
@@ -4918,6 +5609,10 @@ finish(void)
 	fn_used = NULL;
 	if (Q.why && !dry)
 		printf("  note: %s\n", Q.why);
+	if (Q.cmd == C_PLOT) {
+		emit_plot();
+		return;
+	}
 	if (Q.cmd == C_DSOLVE) {
 		sb_printf(&sb, "dsolve %s", Q.ode);
 		if (Q.ilo)
@@ -5517,7 +6212,8 @@ static const char *const starters[] = {"what", "whats", "how", "is", "are",
 	"hi", "ok", "okay", "so", "now", "also", "the", "whether", "get",
 	"work", "figure", "tune", "calibrate", "speed", "improve", "name",
 	"call", "declare", "thanks", "verify", "alt", "alts", "alternatives",
-	"alternative", "approximate", NULL};
+	"alternative", "approximate", "draw", "sketch", "visualize",
+	"visualise", "render", "depict", "illustrate", "chart", NULL};
 static const char *const vocab[] = {"principal", "branch", "lambert",
 	"productlog", "lower", "upper", "plus", "minus", "times", "multiplied",
 	"divided", "squared", "cubed", "square", "root", "cube", "sum",
@@ -5534,7 +6230,8 @@ static const char *const vocab[] = {"principal", "branch", "lambert",
 	"cheby", "cheb", "chebyshev", "poly", "polynomial", "minimax", "remez",
 	"crit", "critical", "nocrit", "points", "radians", "degrees", "deg",
 	"approximation", "commutative", "additive", "associative",
-	"idempotent", NULL};
+	"idempotent", "plot", "graph", "neighbourhood", "neighborhood",
+	"heatmap", "contour", "surface", NULL};
 
 /*
  * Names the text being run defines (f(x) = ..., x[0] = ..., y' = ...,
@@ -5719,6 +6416,49 @@ nlp_is_english(const char *s, size_t n)
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;
+		/*
+		 * plot's raw options are words too ("plot sin x tangent 2"):
+		 * English after "plot of", or with an English word that is not
+		 * one of them ("plot x squared", "plot it with its derivative")
+		 */
+		if ((!strcmp(w1, "plot") || !strcmp(w1, "plot3d") ||
+		    !strcmp(w1, "neighbourhood") || !strcmp(w1, "neighborhood")) &&
+		    !user_fn(w1)) {
+			static const char *const raw[] = {"tangent", "derivative",
+				"derivatives", "over", "from", "to", "with", "points",
+				"at", "near", "around", "contour", "surface", "field",
+				"polar", NULL};
+			size_t j2 = j;
+			if (word_at(s, n, &j2, w2, sizeof w2) &&
+			    (in_list(cmd_followers, w2) || !strcmp(w2, "me")))
+				return 1;
+			for (j2 = j; j2 < n;) {
+				if (s[j2] == '#')
+					break;
+				if (word_at(s, n, &j2, w, sizeof w)) {
+					if (!in_list(raw, w) && in_list(vocab, w) &&
+					    !user_fn(w))
+						return 1;
+					{
+						static const char *const en[] = {"its", "it",
+							"as", "the", "and", "interesting", "on", "a",
+							"an", "of", "into", "using", "scale", "axis",
+							"axes", "coordinates", "neighbourhood",
+							"neighborhood", "me", "show", "part", "save",
+							"called", "named", "between", "together",
+							"along", "their", "logarithmic", "multiples", "dimensions", "three", "time",
+							"look", "like", "is", "where", "per", "lines",
+							"map", "plot", "graph", "circle", "curve",
+							"function", "then", "also", NULL};
+						if (in_list(en, w))
+							return 1;
+					}
+					continue;
+				}
+				j2++;
+			}
+			return 0;
+		}
 		if (in_list(ucas_cmds, w1)) {
 			size_t j2 = j, j3;
 			/* "find 2 cheaper ways": look past a count */

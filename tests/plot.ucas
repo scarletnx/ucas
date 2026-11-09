@@ -1,0 +1,58 @@
+# plot: GIF plots; nofile prints the report and a checksum instead of NAME.gif
+# 2d: several functions, poles, jumps, undefined stretches, integer inputs
+plot sin x, cos x nofile
+plot tan x nofile
+plot 1/x, floor(x), log x nofile
+plot isqrt(x: u8) nofile
+plot x % 7 x in -10..10 nofile
+plot sin x x in 0..2pi deriv tangent 1 nofile
+plot exp(x), x^3 x in 0.1..10 loglog nofile
+# implicit curves, regions, parametric and polar curves
+plot x^2 + y^2 = 1, y = x^2 - 1 nofile
+plot x^2 + y^2 < 4 - x*y nofile
+plot (cos(3t), sin(2t)) nofile
+plot r = 1 + cos(theta) nofile
+plot polar sin(5 theta / 2) nofile
+# fields: vectors, slopes (and a defined ODE with its initial value)
+plot (-y, x) nofile
+plot y' = y*(1 - y) nofile
+y' = -2y + 1
+y(0) = 3
+plot y nofile
+# surfaces and their 2d views
+plot sin(x)*cos(y) nofile
+plot x^2 - y^2 + x*y contour nofile
+plot sin(x)*cos(y) heatmap nofile
+plot sqrt(1 - x^2 - y^2) wireframe nofile
+plot3d x^2 - y^2 rotate frames 12 nofile
+plot (cos(t), sin(t), t/5) t in 0..4pi nofile
+# three or more variables: frames, small multiples, parallel coordinates
+plot sin(x - t) animate t frames 8 nofile
+plot sin(x - t)*cos(y) frames 6 nofile
+plot x*y + z*w - z frames 4 nofile
+plot sin(x + y + z) slices nofile
+plot x*y + z parallel nofile
+# neighbourhood: bounds from declared ranges, else from the features
+neighbourhood x^3 - 3x nofile
+neighbourhood sin(x)/x at 3 nofile
+neighbourhood sqrt(x) nofile
+h(x: real in 1..4) = x*log(x)
+neighbourhood h nofile
+neighbourhood exp(-(x^2 + y^2)) nofile
+# English
+plot sin x and cos x from -pi to pi nofile
+show me a surface plot of x^2 - y^2 nofile
+draw the circle x^2 + y^2 = 4 nofile
+plot x^3 - 3x and its tangent at 2 nofile
+plot exp x on a log scale nofile
+sin x as a neighbourhood nofile
+plot sin(x)/x near its interesting part nofile
+plot x^2 - y^2 as a heatmap nofile
+plot 1 + cos theta in polar coordinates nofile
+plot the slope field of t - y nofile
+plot the vector field (-y, x) nofile
+plot isqrt of an unsigned byte x nofile
+# errors
+plot nofile
+plot x*y, x*y*z nofile
+plot sin x tangent 1 deriv derivative frobnicate nofile

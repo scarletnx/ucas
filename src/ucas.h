@@ -355,6 +355,8 @@ void run_source(const char *src, const char *file, int echo);
 struct P;
 void cmd_approx(struct P *p);
 void cmd_animate(struct P *p);   /* anim.c: animated GIF of a scan */
+void cmd_plot(struct P *p, int mode);  /* plot.c: 0 plot, 1 plot3d, 2 neighbourhood */
+struct func *cmd_func_text(const char *src);  /* parse.c, for plot.c */
 /* anim.c: the exec animation's back end, for spirv.c */
 enum { I_OP, I_BRANCH, I_RECONV, I_BARRIER, I_ATOMIC, I_MERGE };
 void xr_begin(int lanes, const char *title);

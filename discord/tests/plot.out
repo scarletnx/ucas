@@ -1,0 +1,12 @@
+== event 1: channel 45, author 98: <@1000> plot sin x and cos x from -pi to pi
+POST /channels/45/messages (multipart)
+{"content":"```\n  ucas: plot sin(x), cos(x) x in -pi..pi\nplot of 2 functions\n  x in [-3.142 (-pi), 3.142 (pi)]: given\n  y in [-1.1, 1.1]: the values\n  sin(x): 1201 samples, values in [-1, 1]\n  cos(x): 1201 samples, values in [-1, 1]\n  image: 640x440, 9914 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3001","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"plot.gif","description":"","content_type":"image/gif","size":9914,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: plot.gif, image/gif, 9914 bytes
+PUT /channels/45/messages/3001/reactions/check/@me
+
+== event 2: channel 45, author 98: <@1000> plot3d x^2 - y^2 to saddle
+POST /channels/45/messages (multipart)
+{"content":"```\nsurface: z = f(x, y)\n  x in [-3.5, 3.5]: covering the 3 features found in [-10, 10]\n  y in [-3, 3]: covering the 3 features found in [-10, 10]\n  z in [-10.06, 13.31]: the values\n  65x65 grid\n  image: 640x500, 30307 bytes\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"3002","channel_id":"45","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"saddle.gif","description":"","content_type":"image/gif","size":30307,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: saddle.gif, image/gif, 30307 bytes
+PUT /channels/45/messages/3002/reactions/check/@me
+
