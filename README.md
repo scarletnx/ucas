@@ -165,7 +165,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
-| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  The time budget defaults to 6 s |
+| `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component` |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
 | `animate exec` + a ```` ```spv ```` block | runs SPIR-V assembly (spirv-dis text) on the lanes in SIMT lockstep and animates it like the expression form, the serial form being the executed SPIR-V lines with each lane's values.  Structured control flow with masks: a selection runs both sides when the lanes disagree, then reconverges; a loop iterates while any lane runs; switch, calls, return/kill; OpPhi per lane.  Uniform/StorageBuffer/Workgroup memory is shared (random contents unless `seed`), Function/Private/Input/Output per lane; FragCoord is the quad's pixel centres, invocation ids the lane.  Barriers stall, atomics serialize.  Bitfield extract/insert/reverse, find LSB/MSB, OpSpecConstantOp (folded with the spec constants' defaults) and OpUndef (zero) are handled.  An access outside a variable reads 0 and drops the write, as with robustBufferAccess, and is counted in a note (random inputs are rarely valid data for a decoder).  Long runs (up to 100000 executed instructions) print the first 160 and last 20 lines plus the time by cost class; when the workgroup is wider than the lanes run, a note says so.  In the chat a GIF over 6 MiB is re-rendered at half the frame rate until it fits.  A snippet is completed: types and constants from glslang's names (`%int`, `%v4float`, `%uint_1`, `%float_0_5`, `%int_n1`), the GLSL.std.450 import, an entry point, the function and its return; any other undefined operand is an input typed from its use (its value asked for: random per lane, the lane index, 0, 1; or given as `%19 = 2.5` / `%19 = lane`), or an output when it is only stored to |
 | `animate [hillis\|blelloch\|sequential] scan [n N] [fps F] [seconds S] [random [seed K] \| values ...] [f32] [MODEL] [to NAME]` | an animated GIF of a prefix-sum scan (n capped at 100): one row per level, values updating, the critical-path time and the work under the cost model advancing, with barriers and divergence on a timeline; also a table of the three algorithms' costs.  Filler words are skipped, so `animate random sample prefix sum scan n=8 at 30 fps using gt1030` works as written.  GIF delays are whole hundredths, so 30 fps alternates 3/3/4 cs.  On the command line it writes NAME.gif (default scan.gif); in Discord it is attached |
@@ -1069,6 +1069,100 @@ appear in expressions and be priced.  They are never merged by
 hash-consing.
 
 `find` takes its operation costs from the active model.
+
+## Float simplify
+
+After the integer part, `simplify` reads every float value the module
+stores or returns as one scalar function per component (src/spirv.c
+builds the graphs, src/fsimp.c does the mathematics).  Components with
+the same function (splat constants) are analysed once and the rewrite
+applies to every lane; a vec2 or vec3 is just fewer lanes of a vec4, so
+one scalar search covers every width.  When the constants differ per
+component, each lane is analysed and a rewrite applies only when every
+lane allows it (`per component` forces one analysis per lane).
+
+Two equivalence notions are reported for every rewrite:
+
+- **bit-exact** against the reference: IEEE binary32, round to nearest
+  even, `pow`/`exp2`/`log2` correctly rounded (long double, then f32),
+  NaN payloads ignored, -0 and +0 distinct;
+- **within the original's Vulkan precision**: the rewrite's derived
+  error is at most what the original was already allowed, using the
+  Vulkan 1.3 table (add, sub, mul correctly rounded; `OpFDiv` 2.5 ulp;
+  `fma` inherited from a multiply then an add; `exp2` 3 + 2|x| ulp;
+  `log2` 3 ulp outside [0.5, 2], absolute 2^-21 inside; `pow`
+  inherited from exp2(y * log2 x); `sqrt` from 1/inversesqrt, which is
+  2 ulp; `mix` from x*(1 - a) + y*a), and the default float controls
+  (without `SignedZeroInfNanPreserve` the sign of a zero, infinities and
+  NaNs need not be preserved; the module's execution modes are read).
+
+Rewrites are refinements: where GLSL leaves the result undefined
+(`pow` of x < 0 or of 0 with y <= 0, `log2` and `inversesqrt` of
+x <= 0, `sqrt` of x < 0), the replacement may give anything.
+
+Every claim is derived, not sampled:
+
+- interval arithmetic on f32 in the total order -inf < ... < -0 < +0 <
+  ... < +inf (rounding is monotone, so an interval's image is spanned by
+  its corners);
+- monotonicity rules (x + K, x * K for K > 0, fma(x, K, C), pow(x, y > 0),
+  exp2, log2, sqrt; inversesqrt and negation reverse), so the inputs
+  where a value is -0, +inf or undefined are a preimage of an interval:
+  found by bisection on the order (32 steps, a solution, not a search);
+- the standard model fl(a op b) = (a op b)(1 + d), |d| <= u = 2^-24, with
+  the exact cases (Sterbenz, scaling by 2^k, exact reciprocals) and
+  |v| < 2^24 ulp(v);
+- witnesses of a difference are built from the analysis (a quotient
+  just off a rounding midpoint, the end of a domain where an error term
+  is largest, x = -A where a sum cancels) and then evaluated.
+
+| rewrite | when | derivation |
+|---|---|---|
+| mix(a, b, step(e, x)) -> `x >= e or NaN ? b : a` (`OpFUnordGreaterThanEqual` + `OpSelect`) | always offered | step gives 0 or 1 (NaN fails x < e: 1), and a*1 + b*0 is a except for b = +-inf/NaN or a = -0 with b*0 = +0 (and symmetrically); the inputs where that happens are solved by monotonicity, the ones where the original is undefined excused |
+| x / d -> x * fl(1/d) | a divide by a constant (spirv-opt -O already does it for GLSL: reported as such) | k d = 1 + delta exactly; bit-exact when delta = 0, else at most 1 ulp from x / d when 2^24 |delta| < 1, and 0.5 + 2^24 |delta| <= 2.5 ulp is within the division's precision |
+| (x + A) * K -> fma(x, K1, K2) | an add feeding a constant multiply | K1 = fl(1/d), K2 = fl(A/d) re-optimised against the source's (x + A)/d; no cancellation (x, A of one sign where it is used) gives (1 + 2^24 max(e1, e2)) ulp, plus the add's rounding, against the division's 2.5; bit-exact when K1 is a power of two and K2 = A K1 exactly; with cancellation, a counterexample |
+| x * K + B -> fma(x, K, B) | a multiply-add | a contraction Vulkan already allows (no `NoContraction`) |
+| pow(q, y) -> exp2(y * log2 q) | q > 0 where it is used | the expression pow's precision is defined by; against the correctly rounded pow, 2^(|t|(2u + u^2))(1 + u) - 1 with |t| = |y log2 q| bounded on q's range |
+| sqrt(x) -> x * inversesqrt(x) | x > 0 where it is used | both carry inversesqrt's error; the original divides (2.5 ulp), the rewrite multiplies (0.5 ulp) |
+| pow(q, y) ~ P(q - c) | q bounded where it is used | relative minimax (remez.c) with f32 coefficients; its real error certified on 4096 geometric pieces by a second-order Taylor bound with explicit derivative bounds, plus gamma_2n for Horner with fma; compared with pow's allowance piece by piece: listed as approximations unless within |
+
+"Where it is used" matters: after `mix(a, b, step(e, x))` becomes a
+select, `b` is only used where x >= e (or NaN), so its pow's base, a
+sqrt's operand or an add's sign are analysed on that part only, and the
+rewrites that rely on it apply only with the select.  Assumptions narrow
+an input (`c in [0, 1]`, `c in (0, 0.5]`, `c in 0..1`; each component,
+no NaN; 0 includes -0).
+
+Options: `exact` applies bit-exact rewrites only; `ulp N` applies those
+whose derived bound against the reference is at most N ulp (a select is
+0 ulp: its finite results are identical); `approx` with `ulp N` also
+applies an approximation within N ulp.  Without an option, rewrites
+within the original's Vulkan precision apply.  Costs count every
+component, with step as a compare and a select and mix as a subtract
+and an fma (as lowered).  The report lists the rewrites by savings with
+their proofs, what spirv-opt -O already did (with the same
+derivation), approximations with their certified errors, near misses
+with their counterexamples, and the dead-side note: a select still runs
+both sides; a branch would skip one where the lanes agree.
+
+The user's sRGB decode, `vec3 decode(vec3 c) { return mix(c / 12.92,
+pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }`:
+spirv-opt -O had already made both divisions multiplies (within 0.53
+and 0.71 ulp, inside the 2.5 ulp of a division); float simplify makes
+the mix a select (bit-exact except c in [-8.4e-45, -0], where the
+original gives +0, and c = +inf, where it gives NaN: both allowed by the
+default float controls; c < -0.055 is undefined in the original), the
+pow `exp2(2.4 * log2 q)` (its own Vulkan definition; 13 ulp from the
+correctly rounded pow for c in [0, 1]) and the add and multiply one fma
+(2.16 <= 2.5 ulp): 18 -> 14 per component under gt1030.  No polynomial
+cheaper than the pow is within its precision on the base's range
+[0.0905, 1] (the best, degree 7, is 3.3e-4 relative).
+
+Not done yet: proofs for two or more float inputs that interact (a
+second input is kept as an interval, so its sets are "possibly"); bit-
+level SAT for small float pieces; joining two vec2 operations into one
+vec4 (the gt1030 model prices components, so it would save nothing
+there).
 
 ## Loops and calculus
 

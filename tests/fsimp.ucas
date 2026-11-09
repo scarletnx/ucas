@@ -1,0 +1,50 @@
+# float simplify: rewrites of float instructions, each with a derivation
+# (interval arithmetic in the float order, monotone preimages, the
+# standard rounding model, the Vulkan precision table); no sampling
+#
+# a user's sRGB decode: no integer rewrites, but float ones
+SAT simplify nofile
+```glsl
+vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+```
+# a color: c in [0, 1] bounds pow's base, so polynomial approximations
+# are listed (cheaper, but beyond the precision pow already had)
+simplify this shader with floats, c in [0, 1] nofile
+```glsl
+vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+```
+# bit-exact only: each rewrite differs somewhere (shown)
+float simplify, bit-exact only, c in [0, 1] nofile
+```glsl
+vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+```
+# within 4 ulp of the reference: the select (0 ulp) and the fma (4 ulp)
+simplify with floats, allow approximations within 4 ulp, c in [0, 1] nofile
+```glsl
+vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+```
+# a vec2: two lanes, one scalar function; sqrt is only used for v >= 0.25
+# after the select, so x * inversesqrt(x) is defined there
+float simplify nofile
+```glsl
+vec2 shade(vec2 v) { return mix(v * 2.0, sqrt(v), step(vec2(0.25), v)); }
+```
+# integer and float: SAT for the integer part, the float part after it
+SAT simplify nofile
+```glsl
+float blend(uint n, float x) {
+    uint m = (n * 4u) / 2u;
+    return mix(x * 0.5, float(m & 255u), step(0.5, x));
+}
+```
+# different constants per component: lanes x, y are bit-exact (powers of
+# two), lane z fails where c + 0.3 cancels ...
+simplify with floats, per component nofile
+```glsl
+vec3 tone(vec3 c) { return (c + vec3(0.1, 0.2, 0.3)) / vec3(2.0, 4.0, 1.5); }
+```
+# ... which c in [0, 1] excludes
+simplify with floats, c in [0, 1] nofile
+```glsl
+vec3 tone(vec3 c) { return (c + vec3(0.1, 0.2, 0.3)) / vec3(2.0, 4.0, 1.5); }
+```

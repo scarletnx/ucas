@@ -1898,8 +1898,8 @@ statement(struct P *p)
 			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
 		if (is_kw(p, "spvsimplify")) {
-			double budget = 6;
-			int nofile = 0;
+			double budget = 6, ulp = 0;
+			int nofile = 0, fmode = 0, fapprox = 0, fpercomp = 0, fonly = 0;
 			adv(p);
 			while (!at_eos(p)) {
 				if (accept_kw(p, "budget") && pk(p) == T_NUM)
@@ -1920,9 +1920,40 @@ statement(struct P *p)
 						fail("simplify: assume NAME LO HI");
 					hi = neg ? -hi : hi;
 					spirv_assume(nm, lo, hi);
-				} else
+				} else if (accept_kw(p, "fassume") && pk(p) == T_ID) {
+					/* fassume NAME LO HI LOOPEN HIOPEN (float simplify) */
+					char nm[48];
+					double v[4];
+					int i, neg;
+					cmdp_word(p, nm, sizeof nm);
+					for (i = 0; i < 4; i++) {
+						neg = accept(p, T_MINUS);
+						if (pk(p) != T_NUM)
+							fail("simplify: fassume NAME LO HI LOOPEN HIOPEN");
+						{
+							nid nn = number(p);
+							v[i] = TY_FP(N.ty[nn]) ? N.kr[nn] :
+							    (double)N.ki[nn];
+						}
+						v[i] = neg ? -v[i] : v[i];
+					}
+					spirv_assume_float(nm, v[0], v[1], v[2] != 0, v[3] != 0);
+				} else if (accept_kw(p, "float"))
+					fonly = 1;
+				else if (accept_kw(p, "exact"))
+					fmode = 1;
+				else if (accept_kw(p, "ulp") && pk(p) == T_NUM) {
+					nid nn = number(p);
+					ulp = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+					fmode = 2;
+				} else if (accept_kw(p, "approx"))
+					fapprox = 1;
+				else if (accept_kw(p, "percomp"))
+					fpercomp = 1;
+				else
 					adv(p);
 			}
+			spirv_float_opts(fmode, ulp, fapprox, fpercomp, fonly);
 			if (code_block == NULL)
 				fail("simplify: attach the SPIR-V (a ```spv block or a "
 				    "file)");
