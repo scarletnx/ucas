@@ -1857,8 +1857,9 @@ its derived couple, `hc_stable`; `struct hss` the pages of a spectral
 sequence, `hss_bockstein`, `hss_trace`, `hss_prop01`.
 
 Limits: the dense core makes big simplicial complexes slow (homology of
-the 192-tetrahedron `RP^3_s` takes 1.5 s; its Bockstein sequence, over
-a minute); there is no reduction to a small homotopy-equivalent complex
+the 192-tetrahedron `RP^3_s` takes 2 s, with Z/2 coefficients 16 s, and
+its Bockstein sequence did not finish in 10 minutes: every group keeps the
+full cochain ambient Z^g); there is no reduction to a small homotopy-equivalent complex
 yet, no cup products (so no Sq^1 = d_1 identification beyond the
 numbers), and only cellular models for lens spaces and CP^n.
 
