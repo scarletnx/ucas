@@ -248,6 +248,10 @@ void ks_load_library(void);
 int ks_run(const char *text, const char *file, char *msg, int n);
 int ks_add_user(const char *name, kt phi, const char *src);
 void ks_print_script(int lemma);	/* its proof, as written */
+kthm ks_replay(int lemma, kt phi, char *msg, int n);
+
+/* ---- prove_model.c: a counterexample in a concrete model ---- */
+int pm_refute(kt phi, struct sbuf *out);
 
 /* ---- prove_cmd.c ---- */
 int prove_command(struct P *p);

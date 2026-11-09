@@ -1045,6 +1045,48 @@ ks_add_user(const char *name, kt phi, const char *src)
 	return kl_add(name, phi, src, 0);
 }
 
+/* run a library lemma's proof script on another statement: which step
+ * breaks (a false variant fails where its missing hypothesis is used) */
+kthm
+ks_replay(int li, kt phi, char *msg, int n)
+{
+	struct ps P;
+	kthm th;
+	int i0 = libsrc.i, f0 = libsrc.failed;
+	char *m0 = libsrc.msg;
+	int mn = libsrc.msgn;
+
+	msg[0] = 0;
+	if (!klemmas[li].lib || klemmas[li].l1 <= klemmas[li].l0 + 1)
+		return KNONE;
+	memset(&P, 0, sizeof P);
+	P.S = &libsrc;
+	libsrc.msg = msg;
+	libsrc.msgn = n;
+	libsrc.failed = 0;
+	libsrc.i = klemmas[li].l0 + 1;
+	if (!cur_is(&P, "proof")) {
+		libsrc.i = i0;
+		libsrc.msg = m0;
+		libsrc.msgn = mn;
+		return KNONE;
+	}
+	libsrc.i++;
+	th = block(&P, phi);
+	if (th)
+		th = kr_conv(th, phi);
+	else if (libsrc.i < libsrc.n) {
+		size_t l = strlen(msg);
+		snprintf(msg + l, (size_t)n - l, " [step: %.160s]",
+		    skipws(libsrc.l[libsrc.i].text));
+	}
+	libsrc.i = i0;
+	libsrc.failed = f0;
+	libsrc.msg = m0;
+	libsrc.msgn = mn;
+	return th;
+}
+
 /* the proof of a library lemma as written (indented by nesting) */
 void
 ks_print_script(int li)

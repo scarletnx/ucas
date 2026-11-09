@@ -652,6 +652,8 @@ kt_fresh(const char *base, int sort)
 struct kpctx {
 	const char *bn[64];
 	int nb;
+	uint32_t fv[64];	/* names of the free variables: not reused */
+	int nfv;
 };
 
 static void pr(struct sbuf *b, kt t, struct kpctx *c, int prec);
@@ -684,6 +686,9 @@ bname(struct kpctx *c, kt t)
 		clash = 0;
 		for (i = 0; i < c->nb; i++)
 			if (!strcmp(c->bn[i], o))
+				clash = 1;
+		for (i = 0; i < c->nfv && !clash; i++)
+			if (!strcmp(sym_str(c->fv[i]), o))
 				clash = 1;
 		if (!clash)
 			break;
@@ -869,12 +874,33 @@ pr(struct sbuf *b, kt t, struct kpctx *c, int prec)
 	sb_puts(b, "?");
 }
 
+static void
+freevars(kt t, struct kpctx *c, int depth)
+{
+	int i;
+
+	if (depth > 200 || !KT.fv[t])
+		return;
+	if (KOP(t) == KO_VAR) {
+		for (i = 0; i < c->nfv; i++)
+			if (c->fv[i] == KT.aux[t])
+				return;
+		if (c->nfv < 64)
+			c->fv[c->nfv++] = KT.aux[t];
+		return;
+	}
+	for (i = 0; i < KN(t); i++)
+		freevars(KA(t, i), c, depth + 1);
+}
+
 void
 kt_print(struct sbuf *b, kt t)
 {
 	struct kpctx c;
 
 	c.nb = 0;
+	c.nfv = 0;
+	freevars(t, &c, 0);
 	pr(b, t, &c, 0);
 }
 

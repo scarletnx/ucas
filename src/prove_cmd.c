@@ -193,6 +193,52 @@ routes(int ui, int *out, int max)
 	return n;
 }
 
+/* the predicates of a formula's conclusion */
+static void
+preds(kt f, uint32_t *out, int *n)
+{
+	int i, k;
+
+	if (KOP(f) == KO_PRED) {
+		for (k = 0; k < *n && out[k] != KT.aux[f]; k++)
+			;
+		if (k == *n && *n < 64)
+			out[(*n)++] = KT.aux[f];
+		return;
+	}
+	if (KSORT(f) != KS_PROP)
+		return;
+	for (i = 0; i < KN(f); i++)
+		preds(KA(f, i), out, n);
+}
+
+/* do two statements talk about the same things (a replay may apply) */
+static int
+same_shape(kt a, kt b)
+{
+	uint32_t pa[64], pb[64];
+	int na = 0, nb = 0, i, k, common = 0;
+
+	while (KOP(a) == KO_ALL && KOP(b) == KO_ALL) {
+		if (KT.aux[a] != KT.aux[b])
+			return 0;
+		a = KA(a, 0);
+		b = KA(b, 0);
+	}
+	if (KOP(a) == KO_ALL || KOP(b) == KO_ALL)
+		return 0;
+	if (KOP(a) == KO_IMP)
+		a = KA(a, 1);
+	if (KOP(b) == KO_IMP)
+		b = KA(b, 1);
+	preds(a, pa, &na);
+	preds(b, pb, &nb);
+	for (i = 0; i < na; i++)
+		for (k = 0; k < nb; k++)
+			common += pa[i] == pb[k];
+	return common > 0;
+}
+
 static void
 cmd_theorem(const char *text)
 {
@@ -333,9 +379,54 @@ cmd_prove(const char *rest)
 		rep_bool("rechecked", k);
 		return;
 	}
+	/* the library's theorem proofs, replayed on this statement */
+	{
+		uint32_t i;
+		char m[512];
+		for (i = 0; i < nklemmas; i++) {
+			if (!klemmas[i].lib || !klemmas[i].route ||
+			    strcmp(klemmas[i].route, "theorem") ||
+			    !same_shape(klemmas[i].phi, klemmas[li].phi))
+				continue;
+			th = ks_replay((int)i, klemmas[li].phi, m, sizeof m);
+			if (th) {
+				index_lemmas();
+				k = kcheck(th, msg, sizeof msg, &steps);
+				klemmas[li].th = th;
+				printf("%s: proved by the proof of %s (%u kernel "
+				    "inferences); independent re-check: %s\n", name,
+				    sym_str(klemmas[i].name), total_inferences(th),
+				    k ? "ok" : msg);
+				rep_bool("proved", 1);
+				rep_bool("rechecked", k);
+				return;
+			}
+			printf("  the proof of %s does not apply: %s\n",
+			    sym_str(klemmas[i].name), m);
+			rep_list("replays");
+			rep_obj(NULL);
+			rep_str("lemma", sym_str(klemmas[i].name));
+			rep_str("fails", m);
+			rep_end();
+			rep_end();
+		}
+	}
 	printf("%s: NOT proved\n  %s\n", name, ka_why);
 	rep_bool("proved", 0);
 	rep_str("reason", ka_why);
+	{
+		struct sbuf b = {0};
+		if (pm_refute(klemmas[li].phi, &b)) {
+			printf("  counterexample: %s\n  (computed exactly with the "
+			    "Bockstein spectral sequence of homalg.h; a "
+			    "computation, not a kernel proof)\n", sb_str(&b));
+			rep_str("counterexample", sb_str(&b));
+		} else
+			printf("  no counterexample among the standard spaces "
+			    "(S^1 S^2 RP^2 T^2 RP^3 L(4;1) L(9;1) RP^4), "
+			    "p, n, r <= 4\n");
+		free(b.p);
+	}
 }
 
 static void
