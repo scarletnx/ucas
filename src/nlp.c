@@ -7490,6 +7490,8 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 
 /* ---- telling English from ucas ---- */
 
+int ecff_is_cmd(const char *s, size_t n);	/* ecff_cmd.c */
+
 static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
@@ -7701,6 +7703,8 @@ nlp_is_english(const char *s, size_t n)
 		if (r >= 0)
 			return r;
 	}
+	if (ecff_is_cmd(s + i, n - i))
+		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */
 	if (hy_starter(s + i, n - i))	/* multiply A by B (hyper.c) */

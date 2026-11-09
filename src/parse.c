@@ -99,6 +99,7 @@ static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
 static int calc2_command(struct P *p);	/* calc2_syntax.inc */
 static int alg_command(struct P *p);	/* alg_syntax.inc */
+int ecff_command(struct P *p);		/* ecff_cmd.c: elliptic curves */
 
 static int
 pk(struct P *p)
@@ -1888,6 +1889,8 @@ statement(struct P *p)
 		}
 #define CMD(w) (is_kw(p, w) && (adv(p), 1))
 		if (ring_command(p))    /* Z/n, GF(q), ... (ring.c) */
+			return;
+		if (ecff_command(p))	/* elliptic curves over F_q (ecff) */
 			return;
 		/* transforms, series and sums (xform.c, series.c) */
 		if (xform_command(p))
