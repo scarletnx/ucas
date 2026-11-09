@@ -212,6 +212,64 @@ post_fail(struct discord *c, struct discord_response *resp)
 	maybe_end_session();
 }
 
+#define RX_ASK "\xe2\x9d\x93"     /* question mark: a question follows */
+#define RX_OK "\xe2\x9c\x85"      /* check mark: understood, answered */
+#define RX_FAIL "\xe2\x9d\x8c"    /* cross: could not answer */
+
+static void
+react_done(struct discord *c, struct discord_response *resp)
+{
+	(void)c;
+	(void)resp;
+	outstanding--;
+	maybe_end_session();
+}
+
+static void
+react_fail(struct discord *c, struct discord_response *resp)
+{
+	(void)c;
+	fprintf(stderr, "ucas-discord: a reaction was not added: %s (code %d)\n",
+	    discord_strerror(resp->code, NULL), (int)resp->code);
+	outstanding--;
+	maybe_end_session();
+}
+
+static void
+react(u64snowflake chan, u64snowflake msg, const char *emoji)
+{
+	if (client != NULL) {
+		struct discord_ret ret = {0};
+		ret.done = react_done;
+		ret.fail = react_fail;
+		outstanding++;
+		discord_create_reaction(client, chan, msg, 0, emoji, &ret);
+		return;
+	}
+	printf("PUT /channels/%" PRIu64 "/messages/%" PRIu64 "/reactions/%s/@me"
+	    "\n", chan, msg, !strcmp(emoji, RX_ASK) ? "question" :
+	    !strcmp(emoji, RX_OK) ? "check" : "cross");
+}
+
+/* did the engine fail to answer?  errors, "sorry", failed checks */
+static int
+output_failed(const char *out, size_t n)
+{
+	static const char *const bad[] = {": error: ", "  sorry: ", "sorry: ",
+	    "check FAILED", NULL};
+	int k;
+
+	if (out == NULL)
+		return 0;
+	for (k = 0; bad[k]; k++)
+		if (memmem(out, n, bad[k], strlen(bad[k])) != NULL)
+			return 1;
+	if (memmem(out, n, "no antiderivative found", 23) != NULL &&
+	    memmem(out, n, "numeric (", 9) == NULL)
+		return 1;
+	return 0;
+}
+
 static void
 post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
     const char *content, const char *file, size_t filelen, const char *img,
@@ -503,7 +561,7 @@ handle_message(const struct discord_message *m)
 				again = 0;
 				while (*t == ' ' || *t == '\t' || *t == '\n' ||
 				    *t == ',' || *t == ':' || *t == ';' || *t == '!' ||
-				    *t == '-')
+				    *t == '-' || *t == '$')
 					t++;
 				for (g = 0; greet[g]; g++) {
 					size_t gl = strlen(greet[g]);
@@ -521,6 +579,7 @@ handle_message(const struct discord_message *m)
 				    "`@Wimsy what is the range of x squared for a signed "
 				    "byte x?` or `@Wimsy range isqrt(x: u4)`; `@Wimsy help` "
 				    "lists everything", NULL, 0, NULL, 0, NULL, NULL);
+				react(m->channel_id, m->id, RX_ASK);
 				free(req.p);
 				return DC_IGNORE;
 			}
@@ -557,6 +616,7 @@ handle_message(const struct discord_message *m)
 			log_in(m, "cancel", 0);
 			post(m->channel_id, m->id, m->guild_id,
 			    "question cancelled", NULL, 0, NULL, 0, NULL, NULL);
+			react(m->channel_id, m->id, RX_OK);
 			maybe_end_session();
 			free(code.p);
 			return DC_EVAL;
@@ -632,6 +692,7 @@ on_response(const struct sframe *h, const char *out)
 	struct sbuf txt = {0};
 	char *img = NULL, imgname[64], imgtype[64];
 	size_t imglen = 0, olen = h->len;
+	int asked;
 	struct pend pp;
 	char sbuf[256];
 	const char *head;
@@ -724,16 +785,23 @@ on_response(const struct sframe *h, const char *out)
 			    "question was dropped: this looked like a new request)" :
 			    head, out, olen);
 	}
-	log_out(h->id, (int)h->status, out && memmem(out, olen, "\x1e" "ask ",
-	    5) != NULL, out, olen);
+	asked = out && memmem(out, olen, "\x1e" "ask ", 5) != NULL;
+	log_out(h->id, (int)h->status, asked, out, olen);
 	free(pp.orig);
 	free(pp.answers);
-	sessions_done++;
-	maybe_end_session();
+	/* the replies go out first: the session may end once they are sent */
 	for (i = 0; i < r.n; i++)
 		post(pp.chan, pp.msg, pp.guild, r.msg[i],
 		    i == 0 ? r.file : NULL, r.filelen, i == 0 ? img : NULL, imglen,
 		    imgname, imgtype);
+	{
+		/* answered: finished or reset (cut output still answers) */
+		unsigned st = h->status & SR_MASK;
+		react(pp.chan, pp.msg, asked ? RX_ASK : (st != SR_OK &&
+		    st != SR_RESET) || output_failed(out, olen) ? RX_FAIL : RX_OK);
+	}
+	sessions_done++;
+	maybe_end_session();
 	dc_reply_free(&r);
 	free(img);
 	free(txt.p);

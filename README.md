@@ -599,6 +599,13 @@ table sq max 4
 hey @Wimsy, what is the integral of x/x from -1 to 1?
 ```
 
+The bot reacts to each message it handles: a question mark when it
+asks a follow-up question (or when a mention arrives with nothing
+else), a check mark when it understood and answered, and a cross when it
+could not answer (an error, "sorry" from the translator, a failed check,
+or a timeout, the memory limit or a crash).  A `$` typed after the
+mention, from the old trigger, is ignored.
+
 The rest of the message goes to the engine unchanged (a surrounding
 ```` ``` ```` fence with an optional language tag, or single backticks,
 is removed), so new commands work without changes to the bot.  When the

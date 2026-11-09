@@ -10,3 +10,7 @@
 {"op": 0, "s": 1008, "t": "MESSAGE_CREATE", "d": {"id": "1008", "channel_id": "43", "guild_id": "7", "author": {"id": "55", "username": "u55"}, "content": "3", "type": 0}}
 {"op": 0, "s": 1009, "t": "MESSAGE_CREATE", "d": {"id": "1009", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000>", "type": 0}}
 {"op": 0, "s": 1010, "t": "MESSAGE_CREATE", "d": {"id": "1010", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "@Wimsyx is not me", "type": 0}}
+# the old trigger typed after the mention: the $ is dropped (live session 4)
+{"op": 0, "s": 1012, "t": "MESSAGE_CREATE", "d": {"id": "1012", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> $2^10", "type": 0}}
+# an error gets a cross
+{"op": 0, "s": 1013, "t": "MESSAGE_CREATE", "d": {"id": "1013", "channel_id": "43", "guild_id": "7", "author": {"id": "99", "username": "u99"}, "content": "<@1000> range nosuch(x", "type": 0}}
