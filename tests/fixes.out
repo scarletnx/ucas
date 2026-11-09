@@ -482,3 +482,52 @@ fd''(2) = 12
   ucas: fd'(3)
 fd'(3) = 27
   from fd' = 3x^2
+> plot (y, -x) as arrows nofile
+  ucas: plot (y, -x) nofile
+vector field: (y, -x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (y, -x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20252 bytes
+  (nofile: GIF checksum efd3e948)
+> plot the vector field (y, -x) as arrows nofile
+  ucas: plot (y, -x) nofile
+vector field: (y, -x)
+  x in [-3, 3]: default
+  y in [-3, 3]: default
+  (y, -x): 24x15 arrows, length in [0.125, 4.013] (longest brightest)
+  image: 640x440, 20252 bytes
+  (nofile: GIF checksum efd3e948)
+> graph the direction field y' = t - y nofile
+  ucas: plot y' = t - y field nofile
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)
+> plot the slope field of y' = t - y with y(0) = 1 nofile
+  ucas: plot y' = t - y field with y(0) = 1 nofile
+slope field: y' = t - y
+  t in [0, 5]: from the initial value, 5 units
+  y in [-0.3859, 5.093]: around the solution through the initial value
+  solution through (0, 1): at t = 5 it is 4.013
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20712 bytes
+  (nofile: GIF checksum e18a7adb)
+> plot y' = y - y^2 with y(0) = 0.1 t in 0..8 nofile
+slope field: y' = y - y^2
+  t in [0, 8]: given
+  y in [-0.4515, 1.548]: around the solution through the initial value
+  solution through (0, 0.1): at t = 8 it is 0.997
+  y' = y - y^2: slopes on a 26x17 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 16853 bytes
+  (nofile: GIF checksum 07d0cbf0)
+> plot y' = t - y with x(0) = 1 nofile
+  note: the initial value is for x, the unknown is y: not used
+slope field: y' = t - y
+  t in [0, 5]: default
+  y in [-3, 3]: default
+  y' = t - y: slopes on a 26x16 grid, 9 solutions (RK4, 400 steps)
+  image: 640x440, 20027 bytes
+  (nofile: GIF checksum b6dee34c)

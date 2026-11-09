@@ -795,6 +795,9 @@ static struct {
 	int nr;
 	char name[64];
 	int nofile, view, rotate, fps, frames, logx, logy, deriv, tangent;
+	int has_ic;			/* with y(0) = 1 */
+	uint32_t ic_name;
+	double ic_t, ic_y;
 	double seconds, tan_at;
 	int nat;
 	double at[2];
@@ -942,6 +945,10 @@ optstart(int i)
 	for (k = 0; optkw[k]; k++)
 		if (tw(i, optkw[k]))
 			return 1;
+	/* with y(0) = 1: an initial value */
+	if (i > 0 && (tw(i - 1, "with") || tw(i - 1, "and")) && i + 1 < nt &&
+	    T[i + 1].k == '(')
+		return 1;
 	if (tw(i + 1, "in") || tw(i + 1, "from"))
 		return 1;
 	if (tw(i, "in") && (tw(i + 1, "3d") || tw(i + 1, "2d") || tw(i + 1, "polar")
@@ -952,6 +959,8 @@ optstart(int i)
 		for (j = i + 2; j < nt && !(T[j].d == 0 && T[j].k == ','); j++)
 			if (T[j].k == 'D' && T[j].d == 0)
 				return 1;
+			else if (T[j].k == 'w' && !tw(j, "pi") && !tw(j, "e"))
+				break;	/* y' = y - y^2 t in 0..8: not a range */
 	}
 	return 0;
 }
@@ -1202,6 +1211,20 @@ parse_opts(int i, int leading)
 		} else if (!strcmp(w, "for") || !strcmp(w, "with") ||
 		    !strcmp(w, "and") || !strcmp(w, "in")) {
 			i++;
+		} else if (i + 1 < nt && T[i + 1].k == '(') {
+			/* NAME(t0) = v: the initial value of a slope field */
+			int j = i + 2, e;
+			while (j < nt && !(T[j].k == ')' && T[j].d == 0))
+				j++;
+			if (j >= nt || j + 1 >= nt || T[j + 1].k != '=')
+				fail("plot: an initial value is NAME(t0) = value");
+			tk_str(i, i + 1, w, sizeof w);
+			O.ic_name = sym_cstr(w);
+			O.ic_t = const_tok(i + 2, j);
+			e = val_end(j + 2, 0);
+			O.ic_y = const_tok(j + 2, e);
+			O.has_ic = 1;
+			i = e;
 		} else {
 			/* NAME in a..b, NAME from a to b, NAME = a..b */
 			double lo, hi;
@@ -3449,7 +3472,14 @@ slope_from(struct ser *s, const char *rhs, uint32_t dep, int stored)
 		fail("plot: a slope field needs y' = f(t, y) of two variables (%s "
 		    "has %d)", rhs, s->f[0].np);
 	s->xname = s->sx >= 0 ? s->f[0].p[s->sx].name : sym_cstr("t");
-	if (stored && ode_ic_text(dep, 0, &t0, &val)) {
+	if (O.has_ic && O.ic_name != dep)
+		printf("  note: the initial value is for %s, the unknown is %s: not "
+		    "used\n", sym_str(O.ic_name), sym_str(dep));
+	if (O.has_ic && O.ic_name == dep) {
+		s->has_ic = 1;
+		s->ic_t = O.ic_t;
+		s->ic_y = O.ic_y;
+	} else 	if (stored && ode_ic_text(dep, 0, &t0, &val)) {
 		s->has_ic = 1;
 		s->ic_t = const_text(t0);
 		s->ic_y = const_text(val);

@@ -769,7 +769,7 @@ samples, poles, jumps, undefined stretches), so the text is a test.
 | `plot (x(t), y(t))`, `plot r = f(theta)`, `plot polar f` | parametric and polar curves (t in [0, 2pi] by default; a polar curve runs until it closes) |
 | `plot (x(t), y(t), z(t))` | a space curve in a box, coloured along t |
 | `plot (P, Q)` | a vector field: arrows coloured by length |
-| `plot y' = f(t, y)`, `plot y` (a defined ODE), `plot F field` | a slope field with nine RK4 solutions; through the initial value `y(0) = ...` when the ODE has one |
+| `plot y' = f(t, y)`, `plot y` (a defined ODE), `plot F field` | a slope field with nine RK4 solutions; through the initial value `y(0) = ...` when the ODE has one or the plot says `with y(0) = 1` |
 | `plot F` of two variables, `plot3d F` | a surface: a z-buffered, shaded and height-coloured 65x65 grid with grid lines, back panes, labelled axes and a colour bar.  `contour`, `heatmap`, `wireframe` are the other views; `rotate` turns it once (36 frames) |
 | three or more variables | one is animated (`t` if there is one, else the third), x and y form a heat map (`3d`/`plot3d`: a surface); with four, small multiples (3x3) over a third and frames over the fourth; the rest are fixed at the middle of their range, with a note.  `slices`: small multiples instead of frames; `parallel`: parallel coordinates of 400 random points |
 | `plot F animate t` | frames over t of whatever the other variables make |
@@ -803,7 +803,8 @@ neighbourhood`, `plot F near its interesting part`, `what does F look
 like`, `and|with its derivative`, `and its tangent at 2`, `in 3d`, `as a
 heatmap`, `rotating`, `animated over t`, `as t goes from 0 to 1`, `on a
 log scale` (y, with a note), `log-log`, `in polar coordinates`, `the
-slope field of ...`, `the vector field (P, Q)`, `as small multiples`,
+slope field of ...` (or `the direction field y' = ...`, `... with y(0) = 1`),
+`the vector field (P, Q)`, `(P, Q) as arrows`, `as small multiples`,
 `in parallel coordinates`, `at 30 fps`, `save it as NAME`.
 
 ## Discord bot (optional)

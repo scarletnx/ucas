@@ -3408,6 +3408,10 @@ parse_tail(void)
 		}
 		if (parse_clause())
 			continue;
+		/* a tuple is drawn as arrows anyway */
+		if (mat("as arrows|vectors|quiver ?plot") ||
+		    mat("as ?a|an vector|quiver field|plot"))
+			continue;
 		if (mat("please|thanks|again|too|now") || mat("thank you") ||
 		    mat("for me") || mat("as well") || mat("if possible") ||
 		    mat("if you can"))
@@ -3886,6 +3890,22 @@ plot_tail(void)
 			return;
 		if (acc_sym(",") || acc_sym(";"))
 			continue;
+		/* with y(0) = 1: the solution through it is drawn */
+		if ((mat("with|where|and|through|given") || wi == s) &&
+		    W[wi].k == W_WORD && W[wi + 1].k == W_SYM &&
+		    !strcmp(W[wi + 1].s, "(") && !user_fn(W[wi].o)) {
+			const char *nm = S("%s", W[wi].o);
+			int s2 = wi;
+			wi += 2;
+			a = parse_expr(P_TERN);
+			if (acc_sym(")") && acc_sym("=")) {
+				b = parse_expr(P_CMP + 1);
+				popt_add(S("with %s(%s) = %s", nm, a.s, b.s));
+				continue;
+			}
+			wi = s2;
+		}
+		wi = s;
 		if (plot_option())
 			continue;
 		if (const_interval(&a, &b, 0)) {
@@ -3898,6 +3918,10 @@ plot_tail(void)
 		if (mat("please|thanks|again|too|now") || mat("thank you") ||
 		    mat("for me") || mat("as well") || mat("if possible") ||
 		    mat("if you can"))
+			continue;
+		/* a tuple is drawn as arrows anyway */
+		if (mat("as arrows|vectors|quiver ?plot") ||
+		    mat("as ?a|an vector|quiver field|plot"))
 			continue;
 		if (mat("and|also|plus|then") && W[wi].k != W_END)
 			continue;
@@ -3999,6 +4023,8 @@ plot_sentence(void)
 	    "line|lines|ellipse|hyperbola|cardioid|spiral|rose|equation|"
 	    "equations|expression|expressions|formula|wave|surface|helix|field");
 	mat("?the|a|an ?vector|gradient field|fields");
+	if (mat("?the|a|an slope|direction field|fields"))
+		popt_add("field");
 	mat("?of|for|given by|defined by");
 	plot_targets();
 	plot_tail();
@@ -4013,7 +4039,8 @@ plot_as_at(int i)
 		"contour", "contours", "heatmap", "heat", "wireframe", "picture",
 		"chart", "curve", "drawing", "sketch", "polar", "small", "slices",
 		"panels", "parallel", "mesh", "density", "rotating", "animation",
-		"spinning", "level", "slope", "direction", NULL};
+		"spinning", "level", "slope", "direction", "arrows", "vectors",
+		"quiver", "vector", NULL};
 	int k;
 
 	if (isw(i, "a") || isw(i, "an") || isw(i, "the") || isw(i, "its"))
@@ -4046,6 +4073,7 @@ plot_as(void)
 		struct word save = W[k];
 		W[k].k = W_END;
 		Q.cmd = C_PLOT;
+		mat("?the|a|an vector|gradient field|fields ?of");
 		plot_targets();
 		W[k] = save;
 		if (wi != k)

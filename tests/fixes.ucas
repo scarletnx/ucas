@@ -63,3 +63,10 @@ fd prime of 3
 fd double prime at 2
 the second derivative of fd at 2
 what is the derivative of fd at x = 3?
+# plots in English: arrows, direction fields, an initial value
+plot (y, -x) as arrows nofile
+plot the vector field (y, -x) as arrows nofile
+graph the direction field y' = t - y nofile
+plot the slope field of y' = t - y with y(0) = 1 nofile
+plot y' = y - y^2 with y(0) = 0.1 t in 0..8 nofile
+plot y' = t - y with x(0) = 1 nofile
