@@ -28,6 +28,12 @@ L{sinh(2t)}(s) = 2/((s + 2)*(s - 2))
   one-sided: f(t) for t >= 0 (0 before)
   rules: sinh/cosh table
   check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 5/2, 7/2, 6: max relative difference 0
+> laplace cosh(3t)
+L{cosh(3t)}(s) = s/((s + 3)*(s - 3))
+  region of convergence: Re(s) > 3
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: sinh/cosh table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 7/2, 9/2, 7: max relative difference 2.1e-16
 > laplace sqrt(t)
 L{sqrt(t)}(s) = sqrt(pi)/(2s^(3/2))
   region of convergence: Re(s) > 0
@@ -58,6 +64,13 @@ L{sin(w*t)}(s) = w/(s^2 + w^2)
   one-sided: f(t) for t >= 0 (0 before)
   rules: sin/cos table
   check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = 1/2, 3/2, 4 with w = 7/10: max relative difference 2.2e-16
+> laplace e^(-t) sin(t) t s
+  note: the last word t is read as the variable (write *t to multiply by it)
+L{e^(-t)*sin(t)}(s) = 1/(s^2 + 2s + 2)
+  region of convergence: Re(s) > -1
+  one-sided: f(t) for t >= 0 (0 before)
+  rules: e^(at) f(t) -> F(s - a), sin/cos table
+  check: matches int_0^inf f(t) e^(-st) dt (Gauss-Kronrod) at s = -1/2, 1/2, 3: max relative difference 1.8e-16
 > laplace {1 if t < 1, -1 otherwise} period 2
 L{t < 1 ? 1 : -1}(s) = (1/s - 2*e^(-s)/s + e^(-2s)/s)/(1 - e^(-2s))
   f is the periodic extension of its values on [0, 2)
@@ -624,6 +637,15 @@ sum(n, 2, inf, 1/(n*log(n)^2))
 sum(n, 1, inf, sin(n)/n^2)
   converges absolutely: comparison with the p-series sum 1/n^2 (|a_n| ~ C/n^2, p > 1)
   numeric: 1.013959253717499 (Richardson extrapolation of the partial sums S_1024, S_2048, S_4096; estimated error 3.3e-07)
+> sum(n, 1, inf, 1/n^2 + 1/2^n)
+sum(n, 1, inf, 1/n^2 + 1/2^n)
+  by linearity: the sum of 2 series, each convergent:
+    sum 1/n^2: converges absolutely, = pi^2/6
+    sum 1/2^n: converges absolutely, = 1
+  converges absolutely
+  = pi^2/6 + 1
+  numeric: 2.644934066848226 (each part accelerated; estimated error 5.4e-16)
+  check: the closed form and the numeric value agree (difference 8.9e-16)
 > sum(n, 1, inf, 1/n)
 sum(n, 1, inf, 1/n)
   diverges: limit comparison with the harmonic series sum 1/n (p = 1): a_n n -> 1

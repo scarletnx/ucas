@@ -28,6 +28,25 @@
 
 /* ---- small helpers ---- */
 
+/* a + or - between terms at the top level of printed text */
+static int
+top_level_sum(const char *s)
+{
+	int depth = 0;
+	size_t i;
+
+	for (i = 1; s[i]; i++) {
+		if (s[i] == '(')
+			depth++;
+		else if (s[i] == ')')
+			depth--;
+		else if (!depth && s[i - 1] == ' ' && (s[i] == '+' || s[i] == '-') &&
+		    s[i + 1] == ' ')
+			return 1;
+	}
+	return 0;
+}
+
 static char *
 sdup(const char *s)
 {
@@ -1689,6 +1708,8 @@ setup(struct sctx *C, const char *bodytext, const char *idx, const char *lo,
 
 /* ---- sum(...) with an infinite bound ---- */
 
+static int sum_parts(struct sctx *C);
+
 static void
 infinite_sum(struct ssum *S)
 {
@@ -1705,6 +1726,10 @@ infinite_sum(struct ssum *S)
 		    "radius, for a value give them numbers");
 	printf("sum(%s, %lld, inf, %s)\n", C.idx, (long long)C.lo,
 	    xf_str(C.body));
+	if (sum_parts(&C)) {
+		free(txt.p);
+		return;
+	}
 	verdict(&C, &V, 0);
 	printf("  %s: %s\n", verdict_word(V.v), V.test);
 	if (V.v == CV_DIV) {
@@ -1745,6 +1770,120 @@ infinite_sum(struct ssum *S)
 	} else
 		printf("  numeric: %s\n", R.how);
 	free(txt.p);
+}
+
+/*
+ * A sum of terms whose sums all converge: each on its own, the results
+ * added (linearity).  0 when the body is one term or a part diverges.
+ */
+static int
+sum_parts(struct sctx *C)
+{
+	nid parts[8];
+	int sg[8], np = 0, i, all_abs = 1;
+	nid stack[16];
+	int ssg[16], sp = 0;
+	struct sbuf txt = {0};
+	double total = 0, nsum = 0, nerr = 0;
+	int exact = 1;
+
+	stack[sp] = C->body;
+	ssg[sp++] = 1;
+	while (sp) {
+		nid e = stack[--sp];
+		int g = ssg[sp];
+		while (N.op[e] == O_CAST)
+			e = N.a[e];
+		if ((N.op[e] == O_ADD || N.op[e] == O_SUB) && sp < 14) {
+			stack[sp] = N.b[e];
+			ssg[sp++] = N.op[e] == O_SUB ? -g : g;
+			stack[sp] = N.a[e];
+			ssg[sp++] = g;
+			continue;
+		}
+		if (np == 8)
+			return 0;
+		parts[np] = e;
+		sg[np++] = g;
+	}
+	if (np < 2)
+		return 0;
+	{
+		/* a rational body as a whole is better: 1/n - 1/(n + 1) */
+		struct xrat r;
+		if (xq_of(C->body, C->ns, &r))
+			return 0;
+	}
+	for (i = 0; i < np; i++) {
+		struct sctx P = *C;
+		struct verdict V;
+		P.body = parts[i];
+		verdict(&P, &V, 0);
+		if (V.v != CV_ABS && V.v != CV_COND)
+			return 0;
+		if (V.v != CV_ABS)
+			all_abs = 0;
+	}
+	printf("  by linearity: the sum of %d series, each convergent:\n", np);
+	for (i = 0; i < np; i++) {
+		struct sctx P = *C;
+		struct verdict V;
+		struct nval R;
+		struct sbuf t = {0};
+		double cv = 0;
+		const char *how = NULL;
+		int have;
+		P.body = parts[i];
+		verdict(&P, &V, 0);
+		have = sum_geometric(&P, &t, &cv, &how) ||
+		    sum_rational(&P, 0, &t, &cv, &how) ||
+		    sum_library(&P, &t, &cv, &how) ||
+		    sum_telescoping(&P, &t, &cv, &how);
+		if (!have) {
+			nid Ra = strip_alt(P.body, P.ns), saved = P.body;
+			if (Ra) {
+				sb_clear(&t);
+				P.body = Ra;
+				have = sum_rational(&P, 1, &t, &cv, &how);
+				P.body = saved;
+			}
+		}
+		numeric_sum(&P, &V, &R);
+		printf("    %ssum %s: %s%s%s\n", sg[i] < 0 ? "- " : "",
+		    xf_str(parts[i]), verdict_word(V.v), have ? ", = " : "",
+		    have ? t.p : "");
+		if (have) {
+			if (txt.n)
+				sb_puts(&txt, sg[i] < 0 ? " - " : " + ");
+			else if (sg[i] < 0)
+				sb_puts(&txt, "-");
+			sb_printf(&txt, top_level_sum(t.p) ? "(%s)" : "%s", t.p);
+			total += sg[i] * cv;
+		} else
+			exact = 0;
+		if (R.ok) {
+			nsum += sg[i] * R.v;
+			nerr += R.err;
+		} else
+			nerr = INFINITY;
+		free(t.p);
+	}
+	printf("  %s\n", all_abs ? "converges absolutely" :
+	    "converges (some parts only conditionally)");
+	if (exact) {
+		printf("  = %s\n", txt.p);
+	}
+	if (isfinite(nerr)) {
+		printf("  numeric: %.16g (each part accelerated; estimated error "
+		    "%.2g)\n", nsum, nerr);
+		if (exact)
+			printf("  check: the closed form and the numeric value %s "
+			    "(difference %.2g)\n", fabs(total - nsum) <= 1e3 * nerr +
+			    1e-12 * fabs(total) ? "agree" : "DISAGREE",
+			    fabs(total - nsum));
+	}
+	free(txt.p);
+	return 1;
 }
 
 /* ---- infinite products ---- */

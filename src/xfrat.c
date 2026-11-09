@@ -2221,6 +2221,7 @@ xf_parse(const char *text)
 	free(s.p);
 	*r = *f;
 	r->body = xf_fix(r->body);
+	notes_flush();
 	return r;
 }
 

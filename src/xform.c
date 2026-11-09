@@ -209,6 +209,8 @@ trail_vars(char *s, char *in, size_t inn, char *out, size_t outn,
 				if (inrest && !in[0]) {
 					snprintf(in, inn, "%s", w);
 					s[r] = 0;
+					note("the last word %s is read as the variable (write *%s "
+					    "to multiply by it)", w, w);
 					continue;
 				}
 				if (!inrest && !out[0] && !in[0] && in_list(outs, w)) {
@@ -1019,9 +1021,12 @@ lap_numeric(nid e, int ts, nid t, double s0, double P, double decay,
 		*v = piece / (1 - exp(-P * s0));
 		return 1;
 	}
-	/* [0, X] in doubling pieces: the integrand is e^(-decay t) small */
+	/* [0, X] in doubling pieces: the integrand is e^(-decay t) small; f
+	 * grows like e^(roc t), roc = s0 - decay: stay below overflow */
 	X = 80 / fmax(decay, 0.05) + 40;
-	for (a = 0, b = 0.5; a < X; a = b, b *= 2) {
+	if (s0 - decay > 0)
+		X = fmin(X, 650 / (s0 - decay));
+	for (a = 0, b = 0.5; a < X; a = b, b = fmin(b * 2, X)) {
 		if (!gk_integrate(NULL, g, ts, a, b, &piece, &err, &nev))
 			return 0;
 		sum += piece;
