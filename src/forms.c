@@ -1022,6 +1022,25 @@ S_cond(nid f)
 
 static int lc_nocond;	/* t_bump: moving factors around, not cancelling */
 
+/* forms_norm: the factors cancelled (x/x), for calc2 to judge */
+static nid lc_cancel[16];
+static int nlc_cancel;
+
+static void
+cancel_add(nid f)
+{
+	int k;
+
+	if (lc_nocond)
+		return;
+	for (k = 0; k < nlc_cancel; k++)
+		if (lc_cancel[k] == f)
+			return;
+	if (nlc_cancel < 16)
+		lc_cancel[nlc_cancel] = f;
+	nlc_cancel++;
+}
+
 static void
 cond_add(const char *s)
 {
@@ -1056,8 +1075,10 @@ t_mul(const struct term *a, const struct term *b, struct term *r)
 			f = a->f[i];
 			p = a->p[i] + b->p[j];
 			if (p == 0 && (a->p[i] < 0 || b->p[j] < 0) &&
-			    !nonzero_atom(f))
+			    !nonzero_atom(f)) {
 				cond_add(S_cond(f));
+				cancel_add(f);
+			}
 			i++, j++;
 		}
 		if (p == 0)
@@ -1679,6 +1700,36 @@ static nid
 norm(nid e)
 {
 	return lc_node(e);
+}
+
+/*
+ * calc2: the normal form of a real expression (sin^2 + cos^2 = 1, cosh^2
+ * - sinh^2 = 1, like terms) and the factors that could be 0 it cancelled
+ * (x/x; at most max, else 0 is returned).  The caller checks it
+ * numerically.
+ */
+nid
+forms_norm(nid e, nid *cancelled, int max, int *ncancelled)
+{
+	uint64_t us = unit_slots;
+	nid r;
+	int k;
+
+	unit_slots = 0;
+	lc_reset();
+	lc_conds[0] = 0;
+	nlc_cancel = 0;
+	r = lc_node(e);
+	if (nlc_cancel > max || nlc_cancel > 16)
+		r = 0;
+	for (k = 0; r && k < nlc_cancel; k++)
+		cancelled[k] = lc_cancel[k];
+	*ncancelled = r ? nlc_cancel : 0;
+	nlc_cancel = 0;
+	lc_conds[0] = 0;
+	lc_reset();
+	unit_slots = us;
+	return r;
 }
 
 /* ---- the complex layer: an expression as a pair of real nodes ---- */
