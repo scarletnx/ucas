@@ -60,10 +60,17 @@ magic_s(int64_t x, int64_t m, int s, int add, int w)
 	return sext((u64)((t >> (s - 1)) + (x < 0 ? 1 : 0)), w);
 }
 
+static u64
+want_div(u64 x, const void *arg)
+{
+	return x / *(const u64 *)arg;
+}
+
 static void
 cmd_magic(void)
 {
 	i128 d0;
+	char usrc[400] = "";
 	int w = 0, sign = -1, s, add = 0, k;
 	u128 m = 0, e = 0, q, r;
 	u64 d;
@@ -102,8 +109,12 @@ cmd_magic(void)
 		if (sign < 0)
 			sign = os[c];
 	}
-	if (sign < 0)
-		sign = 0;
+	if (sign < 0) {
+		static const char *const opt[] = {"unsigned", "signed"};
+		char what[64];
+		snprintf(what, sizeof what, "%d-bit: signed or unsigned", w);
+		sign = nlp_ask_choice(what, opt, 2, 0);
+	}
 	if (w < 2 || w > 64)
 		rfail("widths 2..64");
 	if (d0 == 0)
@@ -168,9 +179,12 @@ cmd_magic(void)
 				printf("  m fits u%d:\n", w);
 				printf("    C:    q = (uint%d_t)(((uint%d_t)x * 0x%llx) >> %d);"
 				    "\n", w, w <= 32 ? 64 : 128, U(lo), w + s);
-				if (w <= 32)
-					printf("    ucas: u%d((u64(x) * 0x%llx) >> %d)\n", w,
+				if (w <= 32) {
+					printf("    in ucas: u%d((u64(x) * 0x%llx) >> %d)\n", w,
 					    U(lo), w + s);
+					snprintf(usrc, sizeof usrc, "u%d((u64((x: u%d)) * 0x%llx) "
+					    ">> %d)", w, w, U(lo), w + s);
+				}
 			} else {
 				lo = w == 64 ? (u64)m : (u64)(m - ((u128)1 << w));
 				printf("  m has %d bits, one more than u%d: the usual sequence "
@@ -178,9 +192,16 @@ cmd_magic(void)
 				    w + 1, w, w, U(lo));
 				printf("    C:    t = mulhi(x, 0x%llx); q = (t + ((x - t) >> 1)) "
 				    ">> %d;\n", U(lo), s - 1);
-				if (w <= 32)
-					printf("    ucas: (t + ((x - t) >> 1)) >> %d where t = "
-					    "u%d((u64(x) * 0x%llx) >> %d)\n", s - 1, w, U(lo), w);
+				if (w <= 32) {
+					char t[120];
+					snprintf(t, sizeof t, "u%d((u64(x) * 0x%llx) >> %d)", w,
+					    U(lo), w);
+					printf("    in ucas: (%s + ((x - %s) >> 1)) >> %d\n", t, t,
+					    s - 1);
+					snprintf(usrc, sizeof usrc, "(u%d((u64((x: u%d)) * 0x%llx) "
+					    ">> %d) + ((x - %s) >> 1)) >> %d", w, w, U(lo), w, t,
+					    s - 1);
+				}
 				m = lo;
 			}
 		} else {
@@ -254,6 +275,15 @@ cmd_magic(void)
 			}
 #undef CHKS
 		}
+		if (usrc[0]) {
+			u64 eb, en;
+			int all;
+			en = engine_check(usrc, w, want_div, &d, &eb, &all);
+			printf("  check: the ucas form above, run by ucas's evaluator in "
+			    "u%d, equals x / %llu for %s (%llu inputs)%s\n", w, U(d),
+			    all ? "every x" : "the 256 smallest and largest x and 65536 "
+			    "random x", U(en), eb ? ": FAILED" : "");
+		}
 		if (bad)
 			printf("  check: FAILED: the sequence differs from x / %llu at "
 			    "%llu of %llu inputs\n", U(d), U(bad), U(n));
@@ -267,6 +297,36 @@ cmd_magic(void)
 }
 
 /* ---- the GF(2) matrix of a bit expression ---- */
+
+static int
+mat_pow_is_identity(const struct ring *R, const struct rmat *m, u64 e)
+{
+	struct rmat acc, b, t;
+	int i, n = m->r, id;
+
+	rm_init(&acc, n, n);
+	for (i = 0; i < n; i++)
+		RM(&acc, i, i) = 1;
+	rm_init(&b, n, n);
+	memcpy(b.a, m->a, sizeof(u64) * (size_t)n * n);
+	while (e) {
+		if (e & 1) {
+			rm_mul(R, &t, &acc, &b);
+			rm_free(&acc);
+			acc = t;
+		}
+		e >>= 1;
+		if (e) {
+			rm_mul(R, &t, &b, &b);
+			rm_free(&b);
+			b = t;
+		}
+	}
+	id = rm_is_identity(R, &acc);
+	rm_free(&acc);
+	rm_free(&b);
+	return id;
+}
 
 static void
 cmd_gf2matrix(const char *text)
@@ -564,16 +624,30 @@ cmd_gf2matrix(const char *text)
 		for (kk = 0; kk < k; kk++)
 			if (mult[kk] > 1)
 				sq = 0;
-		printf("  characteristic polynomial: %s = %s\n", rp_str(&B, &cp),
-		    fac_str(&B, fac, mult, k, lead));
-		if (rk == w && sq) {
+		if (k == 1 && mult[0] == 1)
+			printf("  characteristic polynomial: %s (irreducible)\n",
+			    rp_str(&B, &cp));
+		else
+			printf("  characteristic polynomial: %s = %s\n", rp_str(&B, &cp),
+			    fac_str(&B, fac, mult, k, lead));
+		if (rk == w) {
 			int of;
 			u64 o = rp_xorder(&B, &cp, &of);
-			if (!of)
+			if (!of) {
+				/* M^o = I; remove prime factors while it stays I */
+				struct nt_fac nf;
+				int q;
+				nt_factor(o, &nf);
+				for (q = 0; q < nf.k; q++)
+					while (o % nf.p[q] == 0 &&
+					    mat_pow_is_identity(&B, &M, o / nf.p[q]))
+						o /= nf.p[q];
 				printf("  order %llu: applying the map %llu times gives the "
-				    "identity (the order of x mod the characteristic "
-				    "polynomial, which is square-free, so it is also the "
-				    "minimal polynomial)\n", U(o), U(o));
+				    "identity (it divides the order of x mod the "
+				    "characteristic polynomial; checked by matrix powers)\n",
+				    U(o), U(o));
+				(void)sq;
+			}
 		}
 	}
 	plan_free(&pl);

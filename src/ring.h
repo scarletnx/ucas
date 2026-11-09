@@ -135,7 +135,8 @@ void rm_charpoly(const struct ring *R, const struct rmat *m, struct rpoly *cp);
 /* ---- ring.c: parse.c and nlp.c hooks ---- */
 struct P;
 int ring_command(struct P *p);
-int ring_has_ring(const char *args);   /* "... mod 7", "... over GF(2)" */
+int ring_has_ring(const char *args);
+int ring_parses(const char *text);     /* the whole text is a ring */   /* "... mod 7", "... over GF(2)" */
 const char *ring_nlp_raw(const char *sent);   /* ring_nlp.c */
 int ring_nlp_english(const char *s, unsigned long n);  /* 1, 0, -1 undecided */
 

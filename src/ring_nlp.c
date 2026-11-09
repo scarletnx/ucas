@@ -246,6 +246,8 @@ is_num(const char *s)
 static int
 is_ring(const char *s)
 {
+	if (!ring_parses(s))
+		return 0;
 	if (!strncmp(s, "z/", 2) || !strncmp(s, "gf", 2) || !strncmp(s, "zmod", 4) ||
 	    !strncmp(s, "f_", 2) || !strncmp(s, "q[x]", 4) || !strncmp(s, "z[", 2) ||
 	    !strncmp(s, "z_", 2) || !strncmp(s, "z /", 3))
@@ -347,9 +349,12 @@ strip_lead(void)
 		i++;
 	}
 	/* keep "is" when it starts a yes/no question */
-	if (i > 0 && (!strcmp(wd[i - 1], "is") || !strcmp(wd[i - 1], "are")) &&
-	    i < nwd && strcmp(wd[i], "the"))
+	if (i > 0 && (!strcmp(wd[0], "is") || !strcmp(wd[0], "are")) &&
+	    i < nwd && strcmp(wd[i], "the")) {
+		/* "is 2 a primitive root ...": a yes/no question */
+		wd[i - 1] = wd[0];
 		i--;
+	}
 	memmove(wd, wd + i, sizeof(char *) * (size_t)(nwd - i));
 	nwd -= i;
 }
@@ -399,9 +404,14 @@ congruences(const char *s)
 		return NULL;
 	/* x^... = a mod n with a numeric base: a discrete log */
 	{
-		char g[64], a[200], n[200];
-		if (sscanf(t, " %63[0-9] ^ x = %199[^m] mod %199[^,]", g, a, n) == 3 &&
-		    !strchr(t, ','))
+		char g[64], a[200], n[200], c[2048];
+		size_t o = 0;
+		for (p = t; *p && o + 1 < sizeof c; p++)
+			if (*p != ' ')
+				c[o++] = *p;
+		c[o] = 0;
+		if (sscanf(c, "%63[0-9]^x=%199[^m]mod%199[^,]", g, a, n) == 3 &&
+		    !strchr(c, ','))
 			return OUT("dlog %s base %s mod %s", a, g, n);
 	}
 	return OUT("%s %s", neq > 1 || strchr(t, ',') ? "crt" : "congruence", t);
@@ -435,7 +445,13 @@ ring_nlp_raw(const char *sent)
 	    "subfields|generators|characteristic|table") && last_ring[0])
 		return OUT("ring %s %s", last_ring, wd[nwd - 1]);
 
-	/* inverses */
+	/* inverses: "3^-1 mod 7" */
+	if (match("{0} mod {1}") && strlen(cap[0]) > 3 &&
+	    !strcmp(cap[0] + strlen(cap[0]) - 3, "^-1") && is_num(cap[1])) {
+		cap[0][strlen(cap[0]) - 3] = 0;
+		if (is_num(cap[0]))
+			return OUT("inverse %s mod %s", cap[0], cap[1]);
+	}
 	if ((match("inverse of? {0} mod {1}") || match("{0} inverse mod {1}") ||
 	    match("{0} ^ -1 mod {1}") || match("1 / {0} mod {1}")) &&
 	    (is_num(cap[0]) || is_matrix(cap[0])) && is_num(cap[1]))
@@ -478,12 +494,13 @@ ring_nlp_raw(const char *sent)
 		return OUT("ring %s generators", R(cap[0]));
 
 	/* discrete logs */
-	if ((match("dlog of? {0} base|to {1} mod {2}") ||
-	    match("dlog of? {0} to the base {1} mod {2}") ||
+	if ((match("dlog of? {0} to the base {1} mod {2}") ||
+	    match("dlog of? {0} base|to {1} mod {2}") ||
 	    match("dlog base {1} of {0} mod {2}") ||
 	    match("log base {1} of {0} mod {2}")) && is_num(cap[2]))
 		return OUT("dlog %s base %s mod %s", cap[0], cap[1], cap[2]);
-	if ((match("dlog of? {0} base|to {1} in {2}") ||
+	if ((match("dlog of? {0} to the base {1} in {2}") ||
+	    match("dlog of? {0} base|to {1} in {2}") ||
 	    match("dlog base {1} of {0} in {2}")) && is_ring(cap[2]))
 		return OUT("dlog %s base %s in %s", cap[0], cap[1], R(cap[2]));
 	if (match("dlog of? {0} in {1}") && is_ring(cap[1]))
@@ -508,16 +525,35 @@ ring_nlp_raw(const char *sent)
 	/* magic numbers for division */
 	if (has_word("magic") || (has_word("divide") && has_word("multiply"))) {
 		const char *ty = NULL;
-		char d[64] = "";
-		int i;
+		char d[64] = "", tb[16];
+		int i, w = 0, sg = has_word("unsigned") ? 0 : has_word("signed") ? 1 :
+		    -1;
 		for (i = 0; i < nwd; i++) {
 			if ((wd[i][0] == 'u' || wd[i][0] == 'i') &&
 			    isdigit((unsigned char)wd[i][1]))
 				ty = type_of(wd[i]);
+			if (isdigit((unsigned char)wd[i][0]) && strstr(wd[i], "-bit"))
+				w = atoi(wd[i]);
+			if (isdigit((unsigned char)wd[i][0]) && i + 1 < nwd &&
+			    wis(i + 1, "bit|bits"))
+				w = atoi(wd[i]);
+			if (!w && wis(i, "int|ints|integer|integers|word"))
+				w = 32;
+			if (wis(i, "long|longs"))
+				w = 64;
+			if (wis(i, "short|shorts"))
+				w = 16;
+			if (wis(i, "byte|bytes|char|chars"))
+				w = 8;
 			if (!strcmp(wd[i], "by") && i + 1 < nwd && is_num(wd[i + 1]))
 				snprintf(d, sizeof d, "%s", wd[i + 1]);
-			if ((!strcmp(wd[i], "byte") || !strcmp(wd[i], "bytes")) && !ty)
-				ty = "u8";
+		}
+		if (!ty && w) {
+			if (sg < 0)
+				snprintf(tb, sizeof tb, "%d bits", w);
+			else
+				snprintf(tb, sizeof tb, "%s%d", sg ? "i" : "u", w);
+			ty = tb;
 		}
 		if (!d[0])
 			for (i = 0; i < nwd; i++)
@@ -528,7 +564,8 @@ ring_nlp_raw(const char *sent)
 				}
 		if (d[0])
 			return OUT("magic %s%s%s%s", d, ty ? " " : "", ty ? ty : "",
-			    has_word("signed") && !ty ? " signed" : "");
+			    sg == 1 && !ty ? " signed" : sg == 0 && !ty ? " unsigned" :
+			    "");
 	}
 
 	/* rings: field? domain? units ... */
@@ -552,10 +589,6 @@ ring_nlp_raw(const char *sent)
 				return OUT("ring %s %s", R(cap[0]), subs[k]);
 		}
 	}
-	if ((match("describe {0}") || match("about {0}") || match("{0}")) &&
-	    is_ring(cap[0]) && !strchr(cap[0], '='))
-		return OUT("ring %s", R(cap[0]));
-
 	/* arithmetic in a ring */
 	if ((match("in {0} multiply {1} by|and|with {2}") ||
 	    match("multiply {1} by|and|with {2} in {0}") ||
@@ -574,10 +607,6 @@ ring_nlp_raw(const char *sent)
 	if ((match("minimal polynomial of {1} in|over {0}") ||
 	    match("minpoly of {1} in {0}")) && is_ring(cap[0]))
 		return OUT("ring %s minpoly %s", R(cap[0]), cap[1]);
-	if ((match("in {0} {1}") || match("{1} in {0}")) && is_ring(cap[0]) &&
-	    !is_ring(cap[1]) && !strstr(cap[1], " is "))
-		return OUT("ring %s %s", R(cap[0]), cap[1]);
-
 	/* polynomials */
 	if ((match("factor|factorise|factorize {0} over|mod|in {1}") ||
 	    match("factorization|factorisation of {0} over|mod|in {1}") ||
@@ -616,7 +645,7 @@ ring_nlp_raw(const char *sent)
 	    match("greatest common divisor of {0} and {1} mod|over|in {2}")))
 		return OUT("gcd %s, %s %s %s", cap[0], cap[1], is_num(cap[2]) ? "mod" :
 		    "in", cap[2]);
-	if (match("norm of {0} in {1}") && is_ring(cap[1]))
+	if (match("norm of? {0} in {1}") && is_ring(cap[1]))
 		return OUT("norm %s in %s", cap[0], R(cap[1]));
 
 	/* matrices */
@@ -654,6 +683,14 @@ ring_nlp_raw(const char *sent)
 		}
 		return OUT("gf2matrix %s%s%s", e, ty ? " " : "", ty ? ty : "");
 	}
+
+	if ((match("in {0} {1}") || match("{1} in {0}")) && is_ring(cap[0]) &&
+	    !is_ring(cap[1]) && !strstr(cap[1], " is "))
+		return OUT("ring %s %s", R(cap[0]), cap[1]);
+
+	if ((match("describe {0}") || match("about {0}") || match("{0}")) &&
+	    is_ring(cap[0]) && !strchr(cap[0], '='))
+		return OUT("ring %s", R(cap[0]));
 
 	/* congruences and systems */
 	if (has_word("mod") && strchr(join_from(0), '=')) {

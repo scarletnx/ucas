@@ -485,3 +485,20 @@ ring_has_ring(const char *text)
 	notes_drop();
 	return ok;
 }
+
+/* ring_nlp.c: is the whole text a ring (Z/12, GF(2^8) aes, Z[i]) */
+int
+ring_parses(const char *text)
+{
+	static struct rspec s;
+	int ok = 0;
+
+	spec_depth++;
+	if (setjmp(spec_jmp) == 0) {
+		rtokenize(text);
+		ok = parse_ring(&s) && rti == nrt;
+	}
+	spec_depth--;
+	notes_drop();
+	return ok;
+}

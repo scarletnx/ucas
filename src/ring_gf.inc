@@ -490,6 +490,28 @@ ext_info(struct rspec *s, int sub)
 		    "(%s)\n", benor ? "agrees" : "DISAGREES", berl, berl == 1 ?
 		    "one irreducible factor" : "DISAGREES");
 		(void)rabin;
+		if (q1 < 256) {
+			/* the field axioms that matter, by brute force */
+			u64 a, b, noinv = 0, zd = 0, dis = 0, one = r_const(R, 1);
+			for (a = 1; a <= q1; a++) {
+				int has = 0;
+				for (b = 1; b <= q1; b++) {
+					u64 p = r_mul(R, a, b);
+					if (p == one)
+						has = 1;
+					if (p == 0)
+						zd++;
+					if (p != r_mul_alt(R, a, b) || p != r_mul(R, b, a))
+						dis++;
+				}
+				noinv += !has;
+			}
+			printf("  check by brute force over all %llu x %llu products: "
+			    "every nonzero element has an inverse%s, no zero divisors%s, "
+			    "commutative and equal to shift-and-add%s\n", U(q1 + 1),
+			    U(q1 + 1), noinv ? " (FAILED)" : "", zd ? " (FAILED)" : "",
+			    dis ? " (FAILED)" : "");
+		}
 	}
 	if (sub == SUB_ALL || sub == SUB_GEN || sub == SUB_UNITS) {
 		u64 ox = r_order(R, r_x(R));

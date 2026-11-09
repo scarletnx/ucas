@@ -417,6 +417,72 @@ upow(u64 p, int e)
 	return r;
 }
 
+/* ---- running ucas text through the evaluator ---- */
+
+/*
+ * src: a ucas expression in x with its type annotated; f(x) is compared
+ * with want(x) at every x (w <= 16) or at the ends and 65536 random x.
+ * Returns the number of inputs tried, *bad the mismatches.
+ */
+static u64
+engine_check(const char *src, int w, u64 (*want)(u64, const void *),
+    const void *arg, u64 *bad, int *all)
+{
+	struct func *f = cmd_func_text(src);
+	struct plan pl;
+	int64_t *ii;
+	double *ir;
+	u64 mask = w == 64 ? ~(u64)0 : (((u64)1 << w) - 1), x = 0, n = 0;
+	u64 st = 0x243f6a8885a308d3ULL, lim;
+
+	*all = w <= 16;
+	lim = *all ? mask + 1 : 65536 + 512;
+	*bad = 0;
+	plan_build(&pl, &f->body, 1, 0);
+	ii = xcalloc((size_t)MAXP * CH, sizeof *ii);
+	ir = xcalloc((size_t)MAXP * CH, sizeof *ir);
+	while (x < lim) {
+		uint32_t k, m = 0;
+		u64 xs[CH];
+		for (k = 0; k < CH && x < lim; k++, x++) {
+			u64 v = x;
+			if (!*all) {
+				if (x < 256)
+					v = x;
+				else if (x < 512)
+					v = mask - (x - 256);
+				else {
+					st ^= st << 13;
+					st ^= st >> 7;
+					st ^= st << 17;
+					v = st & mask;
+				}
+			}
+			xs[k] = v;
+			ii[k] = (int64_t)v;
+			m++;
+		}
+		plan_run(&pl, m, ii, ir);
+		for (k = 0; k < m; k++) {
+			n++;
+			if (((u64)COLI(&pl, pl.root[0])[k] & mask) != (want(xs[k], arg) &
+			    mask))
+				(*bad)++;
+		}
+	}
+	plan_free(&pl);
+	free(ii);
+	free(ir);
+	return n;
+}
+
+static u64
+want_identity(u64 x, const void *arg)
+{
+	(void)arg;
+	return x;
+}
+
 /* ---- inverse mod n, including 2^k up to 2^128 ---- */
 
 static void
@@ -452,11 +518,22 @@ cmd_inverse_pow2(i128 a, int k)
 	    "%d step%s\n", it, it == 1 ? "" : "s");
 	printf("  check: %s * %s = 1 mod 2^%d (the product's low %d bits are "
 	    "%s)\n", u128x(x), u128x(y), k, k, u128x((x * y) & mask));
-	if (k == 8 || k == 16 || k == 32 || k == 64)
+	if (k == 8 || k == 16 || k == 32 || k == 64) {
+		char src[200];
+		u64 bad, n;
+		int all;
 		printf("  as u%d arithmetic: x * %s undoes x * %s (multiplying by an "
 		    "odd constant is a bijection of u%d), and x * %s = x / %s "
 		    "exactly when %s divides x\n", k, u128x(y), u128x(x), k,
 		    u128x(y), u128s(x), u128s(x));
+		snprintf(src, sizeof src, "(x: u%d) * %s * %s", k, u128x(x),
+		    u128x(y));
+		n = engine_check(src, k, want_identity, NULL, &bad, &all);
+		printf("  check in ucas's u%d evaluator: x * %s * %s = x for %s "
+		    "(%llu inputs)%s\n", k, u128x(x), u128x(y), all ? "every x" :
+		    "the 256 smallest and largest x and 65536 random x", U(n),
+		    bad ? ": FAILED" : "");
+	}
 }
 
 static void
