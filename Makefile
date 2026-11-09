@@ -12,6 +12,8 @@ SRCS+=	forms.c
 SRCS+=	props.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
+# transforms (Laplace, Z, Fourier, DFT), series and infinite sums
+SRCS+=	xfrat.c xform.c series.c
 .PATH:	${.CURDIR}/src
 MAN=
 
