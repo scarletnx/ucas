@@ -1226,6 +1226,176 @@ cmd_abexact(char *s)
 	zm_free(&pre);
 }
 
+/* ---- a randomized self-test of the identities (abselftest N) ---- */
+
+static uint64_t rng = 88172645463325252ULL;
+
+static int
+rnd(int n)
+{
+	rng ^= rng << 13;
+	rng ^= rng >> 7;
+	rng ^= rng << 17;
+	return (int)(rng % (uint64_t)n);
+}
+
+static void
+rand_group(struct fgab *G)
+{
+	struct zmat r;
+	int i, g = 1 + rnd(3), k = rnd(4);
+
+	zm_init(&r, g, k);
+	for (i = 0; i < g * k; i++)
+		r.a[i] = z_from_i64(rnd(3) ? rnd(13) - 6 : 0);
+	ab_present(G, &r);
+	zm_free(&r);
+}
+
+/* the formula for F(G, H) from the cyclic factors: 0 Hom, 1 tensor,
+ * 2 Tor, 3 Ext */
+static void
+formula(struct fgab *R, const struct fgab *G, const struct fgab *H, int f)
+{
+	zint *d = xcalloc((size_t)(G->ninv * H->ninv) + 1, sizeof *d);
+	int i, j, n = 0;
+
+	for (i = 0; i < G->ninv; i++)
+		for (j = 0; j < H->ninv; j++) {
+			zint a = G->d[G->ntriv + i], b = H->d[H->ntriv + j], v = Z_ONE;
+			switch (f) {
+			case 0:	/* Hom(Z/a, Z/b) = Z/(a, b); Hom(Z, B) = B */
+				v = a == 0 ? b : b == 0 ? Z_ONE : z_gcd(a, b);
+				break;
+			case 1:	/* Z/a (x) Z/b = Z/(a, b) (gcd(0, b) = b) */
+				v = z_gcd(a, b);
+				break;
+			case 2:	/* Tor(Z/a, Z/b) = Z/(a, b) for a, b != 0 */
+				v = a == 0 || b == 0 ? Z_ONE : z_gcd(a, b);
+				break;
+			case 3:	/* Ext(Z/a, Z/b) = Z/(a, b), Ext(Z/a, Z) = Z/a */
+				v = a == 0 ? Z_ONE : b == 0 ? a : z_gcd(a, b);
+				break;
+			}
+			d[n++] = v;
+		}
+	ab_from_invariants(R, d, n);
+	free(d);
+}
+
+static void
+cmd_selftest(char *s)
+{
+	int n = atoi(s), t, f, bad = 0, homs = 0;
+	struct fgab G, H, R, F, K, I, C, X, Y;
+	struct zmat M, inc, proj;
+	const char *why;
+
+	if (n <= 0)
+		n = 100;
+	memset(&G, 0, sizeof G);
+	memset(&H, 0, sizeof H);
+	memset(&R, 0, sizeof R);
+	memset(&F, 0, sizeof F);
+	memset(&K, 0, sizeof K);
+	memset(&I, 0, sizeof I);
+	memset(&C, 0, sizeof C);
+	memset(&X, 0, sizeof X);
+	memset(&Y, 0, sizeof Y);
+	memset(&M, 0, sizeof M);
+	memset(&inc, 0, sizeof inc);
+	memset(&proj, 0, sizeof proj);
+	for (t = 0; t < n; t++) {
+		zmark mk = z_mark();
+		int i;
+		zint m = z_from_i64(2 + rnd(5));
+		rand_group(&G);
+		rand_group(&H);
+		/* Hom, tensor, Tor, Ext against the formulas */
+		for (f = 0; f < 4; f++) {
+			if (f == 0)
+				ab_hom_group(&R, &G, &H);
+			else if (f == 1)
+				ab_tensor(&R, &G, &H);
+			else if (f == 2)
+				ab_tor(&R, &G, &H);
+			else
+				ab_ext(&R, &G, &H);
+			formula(&F, &G, &H, f);
+			if (!ab_isomorphic(&R, &F, NULL, NULL)) {
+				printf("  FAIL %s(%s, %s) = %s, formula %s\n", f == 0 ?
+				    "Hom" : f == 1 ? "tensor" : f == 2 ? "Tor" : "Ext",
+				    ab_str(&G), ab_str(&H), ab_str(&R), ab_str(&F));
+				bad++;
+			}
+		}
+		/* G[m] = Hom(Z/m, G) and m G = G / G[m] */
+		ab_torsion_m(&X, &G, m);
+		ab_cyclic(&Y, m);
+		ab_hom_group(&R, &Y, &G);
+		if (!ab_isomorphic(&X, &R, NULL, NULL))
+			bad++, printf("  FAIL G[m]\n");
+		ab_mulsub(&Y, &G, m);
+		ab_quotient(&R, &G, &X);
+		if (!ab_isomorphic(&Y, &R, NULL, NULL))
+			bad++, printf("  FAIL mG\n");
+		/* a random homomorphism G -> H, when well defined */
+		zm_init(&M, H.a, G.a);
+		for (i = 0; i < H.a * G.a; i++)
+			M.a[i] = z_from_i64(rnd(7) - 3);
+		if (ab_hom_check(&G, &H, &M)) {
+			homs++;
+			ab_kernel(&K, &inc, &G, &H, &M);
+			ab_image(&I, NULL, &G, &H, &M);
+			ab_cokernel(&C, &proj, &G, &H, &M);
+			if (!ab_exact_at(&K, &G, &H, &inc, &M, NULL, &why))
+				bad++, printf("  FAIL exact at G: %s\n", why);
+			if (!ab_exact_at(&G, &H, &C, &M, &proj, NULL, &why))
+				bad++, printf("  FAIL exact at H: %s\n", why);
+			ab_quotient(&R, &G, &K);
+			if (!ab_isomorphic(&R, &I, NULL, NULL))
+				bad++, printf("  FAIL G/ker = im\n");
+		}
+		/* explicit isomorphism with the invariant-factor form */
+		{
+			zint d[16];
+			int k = ab_invariants(&G, d);
+			ab_from_invariants(&F, d, k);
+			if (!ab_isomorphic(&G, &F, NULL, NULL))
+				bad++, printf("  FAIL invariant form\n");
+		}
+		/* T(G) + G/T(G) and the order of every canonical generator */
+		ab_torsion(&X, &G);
+		for (i = 0; i < G.ninv; i++) {
+			zint *x = xcalloc((size_t)G.n + 1, sizeof *x);
+			ab_gen(&G, i, x);
+			if (!z_eq(ab_elem_order(&G, x), G.d[G.ntriv + i]))
+				bad++, printf("  FAIL generator order\n");
+			free(x);
+		}
+		z_release(mk);
+	}
+	printf("abselftest: %d random pairs of groups, %d random "
+	    "homomorphisms: %s\n", n, homs, bad ? "FAILED" : "all identities "
+	    "hold");
+	printf("  checked: Hom, tensor, Tor, Ext against the cyclic formulas; "
+	    "G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> "
+	    "0 exact (with preimages); G/ker = im; explicit isomorphisms with "
+	    "the invariant-factor form; orders of the canonical generators\n");
+	ab_free(&G);
+	ab_free(&H);
+	ab_free(&R);
+	ab_free(&F);
+	ab_free(&K);
+	ab_free(&I);
+	ab_free(&C);
+	ab_free(&X);
+	ab_free(&Y);
+	zm_free(&M);
+	zm_free(&inc);
+	zm_free(&proj);
+}
+
 /* ---- the entry point ---- */
 
 void absalg_cmd2(const char *w, char *s);   /* below: groups, ideals */
@@ -1238,7 +1408,7 @@ static const struct {
 	{"bigint", 1}, {"snf", 2}, {"hnf", 3}, {"zmat", 4}, {"qmat", 5},
 	{"abgroup", 6}, {"abiso", 7}, {"abhom", 8}, {"abtensor", 9},
 	{"abtor", 10}, {"abext", 11}, {"abmap", 12}, {"abelem", 13},
-	{"absub", 14}, {"abexact", 15}, {NULL, 0}
+	{"absub", 14}, {"abexact", 15}, {"abselftest", 16}, {NULL, 0}
 };
 
 int
@@ -1304,6 +1474,9 @@ absalg_command(struct P *p)
 		break;
 	case 15:
 		cmd_abexact(text);
+		break;
+	case 16:
+		cmd_selftest(text);
 		break;
 	}
 	z_release(m);

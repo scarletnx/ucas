@@ -66,3 +66,6 @@ abexact Z -> Z -> Z/4 by [[4]], [[1]]
 abexact Z -> Z -> Z/4 by [[2]], [[1]]
 abexact Z/2 -> Z/4 -> Z/2 by [[2]], [[1]]
 abexact 0 -> Z/6 -> Z/2 + Z/3 by [], [[1], [1]]
+
+# random groups and maps: Hom/tensor/Tor/Ext formulas, exactness, isomorphisms
+abselftest 500

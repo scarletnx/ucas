@@ -298,3 +298,6 @@ Z/2 -> Z/4 -> Z/2: exact at Z/4
 0 -> Z/6 -> Z/6: exact at Z/6
   preimages of the generators of ker g: []
   check: g f = 0, and f(preimages) = the generators of ker g modulo relations
+> abselftest 500
+abselftest: 500 random pairs of groups, 207 random homomorphisms: all identities hold
+  checked: Hom, tensor, Tor, Ext against the cyclic formulas; G[m] = Hom(Z/m, G); mG = G/G[m]; 0 -> ker -> G -> H -> coker -> 0 exact (with preimages); G/ker = im; explicit isomorphisms with the invariant-factor form; orders of the canonical generators
