@@ -8200,6 +8200,9 @@ simplify_piece(struct sbuf *piece)
 	char ulp[32] = "", num[32] = "", fl[96] = "";
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
+	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
+				 * function level": 2 */
+	char prevw[64] = "", lastw[64] = "";
 	struct sbuf out = {0};
 
 	if (p == NULL)
@@ -8277,6 +8280,33 @@ simplify_piece(struct sbuf *piece)
 			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
 			    !ulp[0])
 				snprintf(ulp, sizeof ulp, "%s", num);
+			/* the function level: "function level", "per function",
+			 * "functions only", "function-level only"; "without the
+			 * function level", "no function level" turns it off */
+			if (fnw && (!strcmp(lw, "level") || !strcmp(lw, "only")))
+				f_fn = !strcmp(prevw, "no") || !strcmp(prevw, "without") ||
+				    !strcmp(prevw, "skip") ? 2 : 1;
+			if ((per && (!strcmp(lw, "function") || !strcmp(lw, "functions")))
+			    || !strcmp(lw, "functionlevel"))
+				f_fn = 1;
+			if (!strcmp(lw, "nofunctions"))
+				f_fn = 2;
+			/* "simplify functions": the option word (not "these
+			 * functions", "its functions") */
+			if (!strcmp(lw, "functions") && !f_fn && strcmp(lastw, "the") &&
+			    strcmp(lastw, "these") && strcmp(lastw, "those") &&
+			    strcmp(lastw, "my") && strcmp(lastw, "its") &&
+			    strcmp(lastw, "all") && strcmp(lastw, "some") &&
+			    strcmp(lastw, "no") && strcmp(lastw, "without"))
+				f_fn = 1;
+			if (!strcmp(lw, "function") || !strcmp(lw, "functions"))
+				fnw = 1;	/* prevw stays the word before */
+			else {
+				fnw = 0;
+				if (strcmp(lw, "the"))
+					snprintf(prevw, sizeof prevw, "%s", lw);
+			}
+			snprintf(lastw, sizeof lastw, "%s", lw);
 			if (!strcmp(lw, "componentwise") || !strcmp(lw, "percomp") ||
 			    (per && (!strcmp(lw, "component") ||
 			    !strcmp(lw, "components") || !strcmp(lw, "lane"))))
@@ -8288,9 +8318,10 @@ simplify_piece(struct sbuf *piece)
 	}
 	if (!hit || anim)
 		return 0;
-	snprintf(fl, sizeof fl, "%s%s%s%s%s%s", f_float ? " float" : "",
+	snprintf(fl, sizeof fl, "%s%s%s%s%s%s%s", f_float ? " float" : "",
 	    f_exact && !ulp[0] ? " exact" : "", ulp[0] ? " ulp " : "", ulp,
-	    f_approx ? " approx" : "", f_percomp ? " percomp" : "");
+	    f_approx ? " approx" : "", f_percomp ? " percomp" : "",
+	    f_fn == 1 ? " functions" : f_fn == 2 ? " nofunctions" : "");
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		struct sbuf as = {0};

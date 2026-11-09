@@ -170,6 +170,7 @@ T(int t)
 /* ---- parsing ---- */
 
 void glslfn_pass(const char *src, double budget, int only);
+static int fnl_mode;	/* the function level: 0 too, 1 alone, 2 not */
 static char *src_text;	/* OpSource's text, when there is one */
 
 static void
@@ -4221,6 +4222,12 @@ spirv_assume_float(const char *name, double lo, double hi, int lo_open,
 }
 
 void
+spirv_fn_opts(int mode)
+{
+	fnl_mode = mode;
+}
+
+void
 spirv_float_opts(int mode, double ulp, int approx, int percomp, int only)
 {
 	fopt.mode = mode;
@@ -5575,6 +5582,25 @@ spirv_simplify(const char *src, double budget, int nofile)
 	V.rng = 1;
 	cols = 1;
 	parse(src);
+	if (fnl_mode == 1) {
+		/* the function level alone (glslfn.c) */
+		rep_begin("spirv_simplify");
+		if (src_text != NULL)
+			glslfn_pass(src_text, budget, 1);
+		else
+			printf("function level: the module carries no GLSL source "
+			    "(OpSource): give the GLSL, or compile it with -g\n");
+		for (k = 0; k < V.nin; k++) {
+			for (i = 0; i < V.in[k].nop; i++)
+				free(V.in[k].opnd[i]);
+			free(V.in[k].text);
+		}
+		free(V.in);
+		memset(&V, 0, sizeof V);
+		spirv_float_opts(0, 0, 0, 0, 0);
+		fnl_mode = 0;
+		return;
+	}
 	{
 		/* a snippet: complete it (types only), then read it afresh */
 		struct sbuf said = {0};
@@ -6062,7 +6088,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "free inputs\n", tb);
 	}
 	/* the function level: the GLSL source's functions (glslfn.c) */
-	if (src_text != NULL)
+	if (src_text != NULL && fnl_mode != 2)
 		glslfn_pass(src_text, budget, 0);
 	free(list.p);
 	free(rl);
@@ -6100,4 +6126,5 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0);
+	fnl_mode = 0;
 }

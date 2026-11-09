@@ -6066,6 +6066,7 @@ search_fit(int f, struct dom *D)
 	int wide = -1, i, r, j, nc = 0, S, best_S = -1, ncase_var = 0, cv = -1;
 	struct fitc *cs;
 	int64_t best_C = 0, best_cov = -1, total = 0;
+	(void)total;
 	double c0;
 	char names[MAXP + 8][40];
 	int tys[MAXP + 8];

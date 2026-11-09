@@ -1902,6 +1902,7 @@ statement(struct P *p)
 			double budget = 6, ulp = 0;
 			int nofile = 0, fmode = 0, fapprox = 0, fpercomp = 0, fonly = 0;
 			adv(p);
+			spirv_fn_opts(0);
 			while (!at_eos(p)) {
 				if (accept_kw(p, "budget") && pk(p) == T_NUM) {
 					/* one number: "budget 60 nofile" is not 60 * nofile */
@@ -1942,7 +1943,11 @@ statement(struct P *p)
 						v[i] = neg ? -v[i] : v[i];
 					}
 					spirv_assume_float(nm, v[0], v[1], v[2] != 0, v[3] != 0);
-				} else if (accept_kw(p, "float"))
+				} else if (accept_kw(p, "functions"))
+					spirv_fn_opts(1);	/* the function level alone */
+				else if (accept_kw(p, "nofunctions"))
+					spirv_fn_opts(2);
+				else if (accept_kw(p, "float"))
 					fonly = 1;
 				else if (accept_kw(p, "exact"))
 					fmode = 1;
