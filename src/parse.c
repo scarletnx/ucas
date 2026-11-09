@@ -1388,6 +1388,7 @@ static const char prelude[] =
     "basis a64sha : a64 { bsl(s, x, y) = (s & x) | (~s & y);"
     " eor3(x, y, z) = x xor y xor z; bcax(x, y, z) = x xor (y & ~z) }\n"
     "basis x86bmi : c { andn(x, y) = ~x & y }\n"
+    "basis avx512 : x86bmi { ternlog(x, y, z) = lut }\n"
     "basis nand { nand(x, y) = ~(x & y) }\n"
     /*
      * NVIDIA GT 1030 (GP108, sm_61) through SPIR-V.  Relative issue cost
@@ -1456,10 +1457,17 @@ parse_basis(struct P *p)
 		} while (accept(p, T_COMMA));
 		expect(p, T_RP);
 		expect(p, T_ASSIGN);
-		p->fn = &tmp;
-		g->body = mk_cast(TY(K_UINT, 1), parse_expr(p, 0));
-		p->fn = NULL;
 		g->arity = (uint8_t)tmp.np;
+		if (is_kw(p, "lut") && pk2(p) != T_LP) {
+			/* any function of the inputs: a truth-table instruction */
+			adv(p);
+			g->lut = 1;
+			g->body = mk_const_i(TY(K_UINT, 1), 0);
+		} else {
+			p->fn = &tmp;
+			g->body = mk_cast(TY(K_UINT, 1), parse_expr(p, 0));
+			p->fn = NULL;
+		}
 		g->cost = 1;
 		if (accept_kw(p, "cost")) {
 			nid c = number(p);
@@ -1471,7 +1479,9 @@ parse_basis(struct P *p)
 				b->g[j] = *g;
 				break;
 			}
-		if (j == b->ng) {
+		if (g->lut)
+			b->ng += j == b->ng;
+		else if (j == b->ng) {
 			basis_finish_gate(b, g);
 			b->ng++;
 		} else

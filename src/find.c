@@ -16,6 +16,7 @@
  * >> s)) and friends get their magic constant fitted (see `fit`).
  */
 #include "calc.h"
+#include "x86.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -23,7 +24,7 @@
 #include <time.h>
 
 #define FPTS 1024
-#define MAXOPS 10
+#define MAXOPS 14
 
 enum { M_EXACT, M_AFFINE, M_XOR, M_AND, M_OR, M_FORM };
 
@@ -149,6 +150,56 @@ insert(int op, uint32_t a, uint32_t b, int cost, const int64_t *c,
 	return 1;
 }
 
+/*
+ * x86 BMI1 instructions as one operation each (under an x86 model with
+ * BMI1): andn(a, b) = ~a & b, blsr(a) = a & (a - 1), blsi(a) = a & -a,
+ * blsmsk(a) = a xor (a - 1).  Their terms are ordinary nodes; the cost is
+ * one instruction's.  pdep/pext with a constant mask (BMI2) are solved
+ * as templates over a parameter (holes).
+ */
+enum { XO_ANDN = O_NOPS, XO_BLSR, XO_BLSI, XO_BLSMSK };
+
+static int
+oarity(int op)
+{
+	return op >= O_NOPS ? (op == XO_ANDN ? 2 : 1) : opinfo[op].arity;
+}
+
+static nid
+xo_node(int op, nid a, nid b)
+{
+	nid m1;
+
+	switch (op) {
+	case XO_ANDN: return mk_bin(O_AND, mk_un(O_NOT, a), b);
+	case XO_BLSI: return mk_bin(O_AND, a, mk_un(O_NEG, a));
+	}
+	m1 = mk_bin(O_SUB, a, mk_const_i(N.ty[a], 1));
+	return mk_bin(op == XO_BLSR ? O_AND : O_XOR, a, m1);
+}
+
+static int64_t
+xo_eval(int op, int64_t a, int64_t b)
+{
+	uint64_t u = (uint64_t)a;
+
+	switch (op) {
+	case XO_ANDN: return int_norm(F.W, (int64_t)(~u & (uint64_t)b));
+	case XO_BLSR: return int_norm(F.W, (int64_t)(u & (u - 1)));
+	case XO_BLSI: return int_norm(F.W, (int64_t)(u & (0 - u)));
+	}
+	return int_norm(F.W, (int64_t)(u ^ (u - 1)));
+}
+
+/* the active model's x86 µarch with feature f, or -1 */
+static int
+x86_with(int f)
+{
+	int ua = uarch_of_model(model_active());
+
+	return ua >= 0 && (uarchs[ua].feat & XB(f)) ? ua : -1;
+}
+
 static nid
 term_node(uint32_t t)
 {
@@ -156,7 +207,10 @@ term_node(uint32_t t)
 
 	if (F.node[t])
 		return F.node[t];
-	if (opinfo[F.op[t]].arity == 1)
+	if (F.op[t] >= O_NOPS)
+		r = xo_node(F.op[t], term_node(F.a[t]), oarity(F.op[t]) > 1 ?
+		    term_node(F.b[t]) : 0);
+	else if (opinfo[F.op[t]].arity == 1)
 		r = mk_un(F.op[t], term_node(F.a[t]));
 	else
 		r = mk_bin(F.op[t], term_node(F.a[t]), term_node(F.b[t]));
@@ -286,7 +340,7 @@ is_kleaf(uint32_t t)
 static int
 has_const_operand(uint32_t t, int op)
 {
-	if (F.op[t] != op || opinfo[op].arity != 2 || t < F.lvl[1])
+	if (F.op[t] != op || oarity(op) != 2 || t < F.lvl[1])
 		return 0;
 	return is_kleaf(F.a[t]) || is_kleaf(F.b[t]);
 }
@@ -300,6 +354,150 @@ add_k(nid e, int64_t b)
 	if (F.it.k != K_UINT && b < 0)
 		return mk_bin(O_SUB, e, kconst(-b));
 	return mk_bin(O_ADD, e, kconst(b));
+}
+
+/*
+ * y = pext(t, K) or pdep(t, K) for a constant mask K, solved exactly.
+ * pext: bit j of y is bit p_j of t with p_0 < p_1 < ...; taking each p_j
+ * as the first position after p_(j-1) whose column equals y's bit j is
+ * complete (a subsequence match: if any choice works the earliest one
+ * does).  pdep: positions p in order, each either in K (it receives the
+ * next bit of t) or not (y's bit p must be 0 there); reach[p][j] is a
+ * dynamic program over (position, bits used).  The result is spelled
+ * with shifts and masks (one node per run of consecutive positions) and,
+ * like every match, checked against the function by enumeration or SAT.
+ */
+static int
+colbit_eq(const int64_t *a, int ia, const int64_t *b, int ib)
+{
+	uint32_t i;
+
+	for (i = 0; i < F.P; i++)
+		if ((((uint64_t)a[i] >> ia) ^ ((uint64_t)b[i] >> ib)) & 1)
+			return 0;
+	return 1;
+}
+
+static int
+colbit_zero(const int64_t *a, int ia)
+{
+	uint32_t i;
+
+	for (i = 0; i < F.P; i++)
+		if (((uint64_t)a[i] >> ia) & 1)
+			return 0;
+	return 1;
+}
+
+/* the node for y = OR over j of bit src_j of x, put at bit dst_j */
+static nid
+bitmove_node(nid x, const int *src, const int *dst, int n)
+{
+	nid r = 0;
+	int j = 0;
+
+	while (j < n) {
+		int k = j + 1, sh;
+		uint64_t m;
+		nid e;
+		while (k < n && src[k] == src[k - 1] + 1 && dst[k] == dst[k - 1] + 1)
+			k++;
+		m = (k - j >= 64 ? ~0ULL : ((1ULL << (k - j)) - 1)) << dst[j];
+		sh = dst[j] - src[j];
+		e = sh > 0 ? mk_bin(O_SHL, x, kconst(sh)) : sh < 0 ?
+		    mk_bin(O_SHR, x, kconst(-sh)) : x;
+		e = mk_bin(O_AND, e, kconst(int_norm(F.W, (int64_t)m)));
+		r = r ? mk_bin(O_OR, r, e) : e;
+		j = k;
+	}
+	return r;
+}
+
+static void
+pdep_pext(uint32_t t)
+{
+	const int64_t *c = COL(t), *y = F.y;
+	int w = F.it.w, top = -1, j, p, src[64], dst[64], n;
+	const struct xcost *xc = xcost_get(x86_with(XF_BMI2), XC_PDEP, VW_X);
+	int pc = xc ? (int)(xc->lat + 0.5f) : 3;
+	uint32_t i;
+	uint64_t K;
+	char why[64];
+
+	if (F.it.k != K_UINT || w > 64 || F.it.w < 8)
+		return;
+	for (i = 0; i < F.P; i++)
+		for (j = w; j-- > top + 1;)
+			if (((uint64_t)y[i] >> j) & 1) {
+				top = j;
+				break;
+			}
+	if (top < 0)
+		return;
+	/* pext */
+	for (j = 0, p = 0, K = 0; j <= top; j++, p++) {
+		while (p < w && !colbit_eq(c, p, y, j))
+			p++;
+		if (p == w)
+			break;
+		K |= 1ULL << p;
+		src[j] = p;
+		dst[j] = j;
+	}
+	if (j > top && __builtin_popcountll(K) > 1) {
+		n = j;
+		snprintf(why, sizeof why, "pext(%s, 0x%llx)", node_str(term_node(t)),
+		    (unsigned long long)K);
+		add_match(M_FORM, pc, bitmove_node(term_node(t), src, dst, n),
+		    strdup(why));
+	}
+	/* pdep: reach[p][j], positions 0..p-1 decided with j bits of t used */
+	{
+		static uint8_t reach[65][65], how[65][65];
+		int q;
+		memset(reach, 0, sizeof reach);
+		reach[0][0] = 1;
+		for (p = 0; p < w; p++)
+			for (q = 0; q <= p; q++) {
+				if (!reach[p][q])
+					continue;
+				/* p not in K: y's bit p is 0 */
+				if (colbit_zero(y, p) && !reach[p + 1][q]) {
+					reach[p + 1][q] = 1;
+					how[p + 1][q] = 0;
+				}
+				/* p in K: y's bit p is t's bit q */
+				if (q < w && colbit_eq(c, q, y, p) && !reach[p + 1][q + 1]) {
+					reach[p + 1][q + 1] = 1;
+					how[p + 1][q + 1] = 1;
+				}
+			}
+		/* the fewest bits of t: a smaller mask */
+		for (q = 0; q <= w && !reach[w][q]; q++)
+			;
+		if (q > 1 && q <= w) {
+			int pp = w, qq = q;
+			K = 0;
+			n = 0;
+			while (pp > 0) {
+				if (how[pp][qq]) {
+					K |= 1ULL << (pp - 1);
+					qq--;
+				}
+				pp--;
+			}
+			for (p = 0, j = 0; p < w; p++)
+				if ((K >> p) & 1) {
+					src[n] = j++;
+					dst[n++] = p;
+				}
+			/* a plain shift or mask is found by the search itself */
+			snprintf(why, sizeof why, "pdep(%s, 0x%llx)",
+			    node_str(term_node(t)), (unsigned long long)K);
+			add_match(M_FORM, pc, bitmove_node(term_node(t), src, dst, n),
+			    strdup(why));
+		}
+	}
 }
 
 /* templates with one solved constant around a term */
@@ -320,7 +518,7 @@ holes(uint32_t t)
 	if (p == NOTOK)
 		return;
 	/* a constant at the top of t would only be absorbed by the hole */
-	if (t >= F.lvl[1] && opinfo[F.op[t]].arity == 2 &&
+	if (t >= F.lvl[1] && oarity(F.op[t]) == 2 &&
 	    (is_kleaf(F.a[t]) || is_kleaf(F.b[t])) && F.op[t] != O_SHL &&
 	    F.op[t] != O_SHR && F.op[t] != O_MUL)
 		return;
@@ -367,6 +565,8 @@ holes(uint32_t t)
 	if (i == F.P && k != int_norm(F.W, -1) && !has_const_operand(t, O_AND))
 		add_match(M_AND, base + op_cost(O_AND),
 		    mk_bin(O_AND, term_node(t), kconst(k)), "mask");
+	if (F.op[t] == O_VAR && x86_with(XF_BMI2) >= 0)
+		pdep_pext(t);
 	/* y = t | K */
 	acc = ~0ULL;
 	for (i = 0; i < F.P; i++)
@@ -388,13 +588,14 @@ is_target(const int64_t *c)
 static void
 build(int op, uint32_t a, uint32_t b, int cost, int64_t *scratch)
 {
-	const int64_t *ca = COL(a), *cb = opinfo[op].arity > 1 ? COL(b) : ca;
+	const int64_t *ca = COL(a), *cb = oarity(op) > 1 ? COL(b) : ca;
 	uint32_t i, t;
 	uint8_t fl = 0;
 	int64_t first;
 
 	for (i = 0; i < F.P; i++) {
-		scratch[i] = scalar_int(op, &F.it, &F.it, ca[i], cb[i], 0, &fl);
+		scratch[i] = op >= O_NOPS ? xo_eval(op, ca[i], cb[i]) :
+		    scalar_int(op, &F.it, &F.it, ca[i], cb[i], 0, &fl);
 		if (fl & (F_UNDEF | F_UB))
 			return;
 	}
@@ -404,9 +605,13 @@ build(int op, uint32_t a, uint32_t b, int cost, int64_t *scratch)
 	if (i == F.P)
 		return;   /* constants come from the leaves and the holes */
 	if (is_target(scratch)) {
-		nid e = opinfo[op].arity == 1 ? mk_un(op, term_node(a)) :
-		    mk_bin(op, term_node(a), term_node(b));
-		add_match(M_EXACT, cost, e, "exact");
+		static const char *const xname[] = {"andn", "blsr", "blsi",
+		    "blsmsk"};
+		nid e = op >= O_NOPS ? xo_node(op, term_node(a), oarity(op) > 1 ?
+		    term_node(b) : 0) : opinfo[op].arity == 1 ? mk_un(op,
+		    term_node(a)) : mk_bin(op, term_node(a), term_node(b));
+		add_match(M_EXACT, cost, e, op >= O_NOPS ? xname[op - O_NOPS] :
+		    "exact");
 	}
 	if (insert(op, a, b, cost, scratch, &t))
 		holes(t);
@@ -424,7 +629,7 @@ enumerate_level(int c)
 		int op = F.ops[k], oc = F.opc[k];
 		if (oc > c)
 			continue;
-		if (opinfo[op].arity == 1) {
+		if (oarity(op) == 1) {
 			for (i = F.lvl[c - oc]; i < F.lvl[c - oc + 1] && !F.full; i++)
 				if (i < F.firstk || c - oc > 0)
 					build(op, i, 0, c, scratch);
@@ -432,7 +637,7 @@ enumerate_level(int c)
 		}
 		for (ca = 0; ca <= c - oc; ca++) {
 			int cb = c - oc - ca;
-			int comm = (opinfo[op].fl & OF_COMM) != 0;
+			int comm = op < O_NOPS && (opinfo[op].fl & OF_COMM) != 0;
 			if (comm && ca > cb)
 				continue;
 			for (i = F.lvl[ca]; i < F.lvl[ca + 1] && !F.full; i++) {
@@ -1541,6 +1746,14 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 		for (j = 0; j < (int)(sizeof defops / sizeof defops[0]); j++) {
 			F.ops[F.nops] = defops[j];
 			F.opc[F.nops++] = op_cost(defops[j]);
+		}
+		if (x86_with(XF_BMI1) >= 0) {
+			static const int xops[] = {XO_ANDN, XO_BLSR, XO_BLSI,
+			    XO_BLSMSK};
+			for (j = 0; j < 4; j++) {
+				F.ops[F.nops] = xops[j];
+				F.opc[F.nops++] = op_cost(O_AND);
+			}
 		}
 	}
 	/* constant target */

@@ -244,6 +244,8 @@ extern int nfuncs;
 struct gate {
 	uint32_t name;
 	uint8_t arity, tt, cost, symm; /* symm bit (i*3+j): args i,j interchangeable */
+	uint8_t lut;    /* "= lut": any function of its inputs, the table per use
+			 * (vpternlog, LOP3) */
 	nid body;
 	uint32_t pname[3];
 };
