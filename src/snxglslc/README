@@ -1,0 +1,10 @@
+ScarletNX's GLSL ES compiler (lexer, preprocessor, parser, SPIR-V
+emitter), copied from ScarletNX's src/glslc at commit 8f79d815.
+GPL-3.0-or-later, Copyright 2026 the ScarletNX contributors.
+
+The files are as they are there but for the include paths
+("glslc/internal.h" is "internal.h" here, "glslc/glslc.h" "glslc.h").
+ucas uses its parser for simplify's function-level pass (../glslfn.c):
+the syntax tree, typed, with each node's source position.  The
+Makefiles build these files into libsnxglslc.a, as glslc.c would clash
+with ucas's own src/glslc.c as an object.

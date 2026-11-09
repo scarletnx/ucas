@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * json.c - JSON values: a strict parser (RFC 8259: no comments, no
  * trailing commas, \u escapes with surrogate pairs) and a one-line writer.

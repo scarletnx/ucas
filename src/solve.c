@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * solve: equations and systems.  Every solution is substituted back and
  * the residual printed.

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Analyses over a function's domain: show, table, range, domain, wrap,
  * crit, diff, equiv, error, fit.

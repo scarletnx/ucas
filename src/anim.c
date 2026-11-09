@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * animate scan: an animated GIF of a parallel prefix sum (scan), laid out
  * as one row of cells per level, with time measured by the active cost

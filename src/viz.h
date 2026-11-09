@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * viz: integrals and solids of revolution drawn (viz.c), on plot.c's
  * renderer, which plot.c exports here (the pr_ functions).

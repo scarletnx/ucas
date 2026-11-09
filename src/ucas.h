@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ucas - a programmer's computer algebra system.
  *
@@ -437,6 +438,7 @@ void spirv_assume_float(const char *name, double lo, double hi, int lo_open,
     int hi_open);
 void spirv_float_opts(int mode, double ulp, int approx, int percomp,
     int only);
+void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
 int glsl_like(const char *code, const char *lang);

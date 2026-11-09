@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * ucas [file ...]     run files (echoing each statement), or
  * ucas                read statements from standard input

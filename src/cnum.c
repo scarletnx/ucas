@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Numbers for the calc files: exact rationals (int64, overflow checked),
  * small dense linear algebra, polynomial roots (exact rational roots and

@@ -1,0 +1,350 @@
+# simplify's function-level pass (glslfn.c) on a trimmed BC7 encoder: the
+# helpers' domains come from main's shapes; Widen's branch and mask, Quant's
+# loop ends, Weight per sh_ib, Eval's min, TexelError's interpolation and
+# PAllowed hoisted out of FitSubset's loop are what it must find
+simplify functions nofile budget 30
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint rgba[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint out_err[]; };
+layout(std430, binding = 2) writeonly buffer Dw { uint out_w[]; };
+uint px[16];
+uint sh_alpha;
+uint sh_pk;
+uint sh_ib;
+uint sh_cb;
+uint sh_mask;
+uint sh_pbits;
+uint cur_lo;
+uint cur_hi;
+uint fit_err;
+uint fit_s0;
+uint fit_s1;
+uint fit_lo;
+uint fit_hi;
+uint Ch(uint word, uint c) {
+    return (word >> (c * 8u)) & 0xFFu;
+}
+uint SubsetOf(uint k) {
+    return (sh_pbits >> (k * 2u)) & 3u;
+}
+/* the weight of index i: BC7's 2, 3 and 4-bit tables (0 21 43 64; 0 9 18 27 37 46 55 64; 0 4 9 13 ... 60 64), a byte
+   each of constant words. They are (i * 64 + top / 2) / top for top = 2^bits - 1, a division by a value that is no
+   constant where the encoder calls this, for every texel of every line it tries */
+uint Weight(uint i) {
+    const uint w4 = i < 8u ? (i < 4u ? 0x0D090400u : 0x1E1A1511u) : (i < 12u ? 0x2F2B2622u : 0x403C3733u);
+    const uint w = sh_ib == 4u ? w4 : sh_ib == 3u ? (i < 4u ? 0x1B120900u : 0x40372E25u) : 0x402B1500u;
+    return (w >> ((i & 3u) * 8u)) & 0xFFu;
+}
+
+uint Index(uint lo, uint hi, uint k) {
+    return ((k < 8u ? lo : hi) >> ((k & 7u) * 4u)) & 15u;
+}
+
+/* bits of an end's channel as stored (with the p-bit), and alpha's */
+uint StoredBits() {
+    return sh_cb + (sh_pk != 0u ? 1u : 0u);
+}
+
+/* an n-bit stored channel as the decoder widens it to 8 bits: its top bits again below it */
+uint Widen(uint v, uint n) {
+    if (n == 8u) return v;
+    return ((v << (8u - n)) | (v >> (2u * n - 8u))) & 0xFFu;
+}
+
+/* the stored ends as the decoder reads them, an RGBA8 word, alpha 255 where the shape stores none */
+uint Decoded(uint stored) {
+    const uint n = StoredBits();
+    uint word = Widen(Ch(stored, 0u), n) | (Widen(Ch(stored, 1u), n) << 8u) | (Widen(Ch(stored, 2u), n) << 16u);
+    return word | ((sh_alpha != 0u ? Widen(Ch(stored, 3u), n) : 255u) << 24u);
+}
+
+/* the stored value of n bits (its lowest the p-bit p when the shape has p-bits) that widens nearest to t */
+uint Quant(int t, uint p) {
+    const uint n = StoredBits();
+    const uint top = (1u << n) - 1u;
+    const int guess = (t * int(top) + 127) / 255;
+    uint best = 0u;
+    int best_d = 1000;
+    for (int d = -2; d <= 2; d++) {
+        const int c = guess + d;
+        if (c < 0 || c > int(top)) continue;
+        if (sh_pk != 0u && (uint(c) & 1u) != p) continue;
+        const int e = int(Widen(uint(c), n)) - t;
+        const int a = e < 0 ? -e : e;
+        if (a < best_d) {
+            best_d = a;
+            best = uint(c);
+        }
+    }
+    return best;
+}
+
+uint QuantWord(int r, int g, int b, int a, uint p) {
+    return Quant(r, p) | (Quant(g, p) << 8u) | (Quant(b, p) << 16u) | (sh_alpha != 0u ? Quant(a, p) << 24u : 0u);
+}
+
+uint TexelError(uint p, uint q0, uint q1, uint w) {
+    uint e = 0u;
+    for (uint c = 0u; c < 4u; c++) {
+        if (((sh_mask >> c) & 1u) == 0u) continue;
+        const int v = int(((64u - w) * Ch(q0, c) + w * Ch(q1, c) + 32u) >> 6u) - int(Ch(p, c));
+        e += uint(v * v);
+    }
+    return e;
+}
+
+/* channel c of q1 less q0's, nought for a channel the shape does not weigh */
+int Step(uint q0, uint q1, uint c) { return ((sh_mask >> c) & 1u) != 0u ? int(Ch(q1, c)) - int(Ch(q0, c)) : 0; }
+
+/* subset s's squared error with decoded ends q0 and q1, each of its texels at its best weight, which go to cur_lo
+   and cur_hi */
+uint Eval(uint s, uint q0, uint q1) {
+    const int dr = Step(q0, q1, 0u);
+    const int dg = Step(q0, q1, 1u);
+    const int db = Step(q0, q1, 2u);
+    const int da = Step(q0, q1, 3u);
+    const int dd = dr * dr + dg * dg + db * db + da * da;
+    const uint top = (1u << sh_ib) - 1u;
+    uint err = 0u;
+    cur_lo = 0u;
+    cur_hi = 0u;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        const uint p = px[k];
+        uint i = 0u;
+        if (dd > 0) {
+            /* the texel's place along the line, 0 to 64, then the nearest weight */
+            const int t = clamp((int(Ch(p, 0u)) - int(Ch(q0, 0u))) * dr + (int(Ch(p, 1u)) - int(Ch(q0, 1u))) * dg +
+                                    (int(Ch(p, 2u)) - int(Ch(q0, 2u))) * db + (int(Ch(p, 3u)) - int(Ch(q0, 3u))) * da,
+                                0, dd);
+            const uint t64 = uint((t * 64 + dd / 2) / dd);
+            i = min((t64 * top + 32u) / 64u, top);
+        }
+        uint bi = i;
+        uint be = TexelError(p, q0, q1, Weight(i));
+        if (i > 0u) {
+            const uint e = TexelError(p, q0, q1, Weight(i - 1u));
+            if (e < be) {
+                be = e;
+                bi = i - 1u;
+            }
+        }
+        if (i < top) {
+            const uint e = TexelError(p, q0, q1, Weight(i + 1u));
+            if (e < be) {
+                be = e;
+                bi = i + 1u;
+            }
+        }
+        err += be;
+        if (err >= fit_err) return err; /* Try keeps only a smaller one */
+        if (k < 8u)
+            cur_lo |= bi << (k * 4u);
+        else
+            cur_hi |= bi << ((k - 8u) * 4u);
+    }
+    return err;
+}
+
+/* the p-bits subset s's ends may take, a bit for each: 1 allows 0, 2 allows 1. A subset whose every alpha is 255
+   keeps it only with the p-bit 1, one whose every alpha is 0 only with 0: a nearly opaque texel blends, and a nearly
+   transparent one passes an alpha test of more than nought */
+uint PAllowed(uint s) {
+    if (sh_pk == 0u) return 1u;
+    if (sh_alpha == 0u) return 3u;
+    uint lo = 255u, hi = 0u;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        lo = min(lo, Ch(px[k], 3u));
+        hi = max(hi, Ch(px[k], 3u));
+    }
+    return lo == 255u ? 2u : hi == 0u ? 1u : 3u;
+}
+
+/* a candidate line for subset s, a0 to a3 one end and b0 to b3 the other (RGBA, 0 to 255): each p-bit choice the
+   shape and the subset allow, the best kept in fit_ */
+void Try(uint s, int a0, int a1, int a2, int a3, int b0, int b1, int b2, int b3) {
+    const uint allowed = PAllowed(s);
+    for (uint pp = 0u; pp < 4u; pp++) {
+        const uint p0 = pp & 1u, p1 = sh_pk == 2u ? pp >> 1u : p0;
+        if (sh_pk != 2u && (pp >> 1u) != 0u) continue;
+        if (sh_pk == 0u && pp != 0u) continue;
+        if ((allowed & (1u << p0)) == 0u || (allowed & (1u << p1)) == 0u) continue;
+        const uint s0 = QuantWord(a0, a1, a2, a3, p0), s1 = QuantWord(b0, b1, b2, b3, p1);
+        const uint err = Eval(s, Decoded(s0), Decoded(s1));
+        if (err < fit_err) {
+            fit_err = err;
+            fit_s0 = s0;
+            fit_s1 = s1;
+            fit_lo = cur_lo;
+            fit_hi = cur_hi;
+        }
+    }
+}
+
+/* the least squares fit of subset s's ends to the weights fit_ holds, the line v = e0 + (e1 - e0) w / 64 nearest its
+   texels: how many there are, the sums of their weights and of the weights' squares, and the determinant n W2 - W W,
+   nought when every texel took one weight. Whole sums: each product in Solve stays under 2^28, its numerator under
+   2^29 */
+int fit_n;
+int fit_w;
+int fit_w2;
+int Fit(uint s) {
+    fit_n = 0;
+    fit_w = 0;
+    fit_w2 = 0;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        const int w = int(Weight(Index(fit_lo, fit_hi, k)));
+        fit_n++;
+        fit_w += w;
+        fit_w2 += w * w;
+    }
+    return fit_n * fit_w2 - fit_w * fit_w;
+}
+
+/* channel c's end (side 0 or 1) of subset s's fit whose determinant det is positive, rounded and held to 0 to 255:
+   from the sums of the values (V) and of each by its weight (WV), e0 = (V W2 - W WV) / det and e1 = e0 + 64 (n WV -
+   W V) / det. A channel of one value gets that value at both ends; one the shape does not weigh, nought */
+int SolveEnd(uint c, uint side, int det, int v, int wv) {
+    if (((sh_mask >> c) & 1u) == 0u) return 0;
+    int num = v * fit_w2 - fit_w * wv;
+    if (side != 0u) num += 64 * (fit_n * wv - fit_w * v);
+    return clamp(num >= 0 ? (num + det / 2) / det : -((-num + det / 2) / det), 0, 255);
+}
+int Solve(uint s, uint c, uint side, int det) {
+    int v = 0, wv = 0;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        const int w = int(Weight(Index(fit_lo, fit_hi, k)));
+        const int x = int(Ch(px[k], c));
+        v += x;
+        wv += w * x;
+    }
+    return SolveEnd(c, side, det, v, wv);
+}
+
+/* fits subset s of the shape: fit_err and the rest */
+void FitSubset(uint s) {
+    /* the bounding box, the channel the shape weighs that the subset spans most, and each channel's sign against
+       it */
+    int lo0 = 255, lo1 = 255, lo2 = 255, lo3 = 255, hi0 = 0, hi1 = 0, hi2 = 0, hi3 = 0;
+    int s0 = 0, s1 = 0, s2 = 0, s3 = 0, n = 0;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        const uint p = px[k];
+        lo0 = min(lo0, int(Ch(p, 0u)));
+        lo1 = min(lo1, int(Ch(p, 1u)));
+        lo2 = min(lo2, int(Ch(p, 2u)));
+        lo3 = min(lo3, int(Ch(p, 3u)));
+        hi0 = max(hi0, int(Ch(p, 0u)));
+        hi1 = max(hi1, int(Ch(p, 1u)));
+        hi2 = max(hi2, int(Ch(p, 2u)));
+        hi3 = max(hi3, int(Ch(p, 3u)));
+        s0 += int(Ch(p, 0u));
+        s1 += int(Ch(p, 1u));
+        s2 += int(Ch(p, 2u));
+        s3 += int(Ch(p, 3u));
+        n++;
+    }
+    uint wide = 0u;
+    int span = (sh_mask & 1u) != 0u ? hi0 - lo0 : -1;
+    if ((sh_mask & 2u) != 0u && hi1 - lo1 > span) {
+        wide = 1u;
+        span = hi1 - lo1;
+    }
+    if ((sh_mask & 4u) != 0u && hi2 - lo2 > span) {
+        wide = 2u;
+        span = hi2 - lo2;
+    }
+    if ((sh_mask & 8u) != 0u && hi3 - lo3 > span) wide = 3u;
+    const int sw = wide == 0u ? s0 : wide == 1u ? s1 : wide == 2u ? s2 : s3;
+    /* covariances with the widest channel, n times each value against n times the mean: under 2^28 */
+    int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+    for (uint k = 0u; k < 16u; k++) {
+        if (SubsetOf(k) != s) continue;
+        const uint p = px[k];
+        const int vw = n * int(Ch(p, wide)) - sw;
+        c0 += (n * int(Ch(p, 0u)) - s0) * vw;
+        c1 += (n * int(Ch(p, 1u)) - s1) * vw;
+        c2 += (n * int(Ch(p, 2u)) - s2) * vw;
+        c3 += (n * int(Ch(p, 3u)) - s3) * vw;
+    }
+    const int a0 = c0 < 0 ? hi0 : lo0, b0 = c0 < 0 ? lo0 : hi0;
+    const int a1 = c1 < 0 ? hi1 : lo1, b1 = c1 < 0 ? lo1 : hi1;
+    const int a2 = c2 < 0 ? hi2 : lo2, b2 = c2 < 0 ? lo2 : hi2;
+    const int a3 = c3 < 0 ? hi3 : lo3, b3 = c3 < 0 ? lo3 : hi3;
+    /* a sixteenth in from each end: the box's corners lie past the texels on any line not along an axis */
+    const int i0 = (b0 - a0) / 16, i1 = (b1 - a1) / 16, i2 = (b2 - a2) / 16, i3 = (b3 - a3) / 16;
+    fit_err = 0xFFFFFFFFu;
+    uint seen_lo = 0u, seen_hi = 0u;
+    /* the lines tried, in turn: the box pulled in, the box, then a least squares fit to the weights chosen, twice.
+       One call of Try in a loop, not one a line: the compiler inlines each call, and the copies' registers (the
+       whole encoder's, as each shape inlines this too) made the GPU spill and run fewer blocks at once */
+    for (uint step = 0u; step < 4u; step++) {
+        int e0 = a0 + i0, e1 = a1 + i1, e2 = a2 + i2, e3 = a3 + i3;
+        int f0 = b0 - i0, f1 = b1 - i1, f2 = b2 - i2, f3 = b3 - i3;
+        if (step == 1u) {
+            e0 = a0, e1 = a1, e2 = a2, e3 = a3;
+            f0 = b0, f1 = b1, f2 = b2, f3 = b3;
+        } else if (step >= 2u) {
+            if (fit_err == 0u) break;
+            /* the same weights give the same line */
+            if (step == 3u && fit_lo == seen_lo && fit_hi == seen_hi) break;
+            seen_lo = fit_lo;
+            seen_hi = fit_hi;
+            const int det = Fit(s);
+            if (det <= 0) break;
+            /* Solve's sums for every channel in one pass over the texels */
+            int v0 = 0, v1 = 0, v2 = 0, v3 = 0, w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+            for (uint k = 0u; k < 16u; k++) {
+                if (SubsetOf(k) != s) continue;
+                const int w = int(Weight(Index(fit_lo, fit_hi, k)));
+                const uint p = px[k];
+                v0 += int(Ch(p, 0u));
+                v1 += int(Ch(p, 1u));
+                v2 += int(Ch(p, 2u));
+                v3 += int(Ch(p, 3u));
+                w0 += w * int(Ch(p, 0u));
+                w1 += w * int(Ch(p, 1u));
+                w2 += w * int(Ch(p, 2u));
+                w3 += w * int(Ch(p, 3u));
+            }
+            e0 = SolveEnd(0u, 0u, det, v0, w0);
+            e1 = SolveEnd(1u, 0u, det, v1, w1);
+            e2 = SolveEnd(2u, 0u, det, v2, w2);
+            e3 = SolveEnd(3u, 0u, det, v3, w3);
+            f0 = SolveEnd(0u, 1u, det, v0, w0);
+            f1 = SolveEnd(1u, 1u, det, v1, w1);
+            f2 = SolveEnd(2u, 1u, det, v2, w2);
+            f3 = SolveEnd(3u, 1u, det, v3, w3);
+        }
+        Try(s, e0, e1, e2, e3, f0, f1, f2, f3);
+    }
+}
+
+void main() {
+    const uint b = gl_GlobalInvocationID.x;
+    for (uint k = 0u; k < 16u; k++) px[k] = rgba[b * 16u + k];
+    uint total = 0u, w = 0u;
+    for (uint j = 0u; j < 6u; j++) {
+        /* modes 6, 1, 3 and 7 of BC7 (a partition from the input), then
+           mode 5's colour and alpha */
+        const uint mode = j == 0u ? 6u : j == 1u ? 1u : j == 2u ? 3u : j == 3u ? 7u : 5u;
+        const bool colour = j == 4u;
+        sh_pbits = mode == 6u || mode == 5u ? 0u : rgba[b] & 0x55555555u;
+        sh_cb = mode == 1u ? 6u : mode == 7u ? 5u : mode == 5u ? (colour ? 7u : 8u) : 7u;
+        sh_alpha = mode == 6u || mode == 7u || (mode == 5u && !colour) ? 1u : 0u;
+        sh_pk = mode == 5u ? 0u : mode == 1u ? 1u : 2u;
+        sh_ib = mode == 6u ? 4u : mode == 1u ? 3u : 2u;
+        sh_mask = mode != 5u ? 15u : colour ? 7u : 8u;
+        FitSubset(j & 1u);
+        total += fit_err;
+        w ^= fit_lo ^ fit_s0 ^ fit_s1;
+    }
+    out_err[b] = total;
+    out_w[b] = w;
+}
+```

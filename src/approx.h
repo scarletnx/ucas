@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * approx: polynomial and rational approximation (approx.c, remez.c).
  * Internal interface between the command and the numerics.
