@@ -49,6 +49,21 @@ index_lemmas(void)
 			lemma_of[klemmas[i].th] = i + 1;
 }
 
+static int
+uses_sym(kt t, uint32_t s, int depth)
+{
+	int i;
+
+	if (KOP(t) == KO_APP && KT.aux[t] == s)
+		return 1;
+	if (depth > 64)
+		return 1;
+	for (i = 0; i < KN(t); i++)
+		if (uses_sym(KA(t, i), s, depth + 1))
+			return 1;
+	return 0;
+}
+
 struct deps {
 	int lem[256], nl;
 	int ax[256], na;
@@ -91,7 +106,9 @@ deps_of(int li, struct deps *d)
 			uint32_t s;
 			for (s = 1; s < nksyms; s++) {
 				kthm h = ksyms[s].homthm;
-				if (h && h < th && !mark[h]) {
+				if (h && h < th && !mark[h] && (uses_sym(kthm_concl(th),
+				    s, 0) || uses_sym(kthm_concl(kthm_prem(th, 0)), s,
+				    0))) {
 					mark[h] = 1;
 					st[ns++] = h;
 				}
@@ -381,6 +398,8 @@ cmd_prove(const char *rest)
 	}
 	/* the library's theorem proofs, replayed on this statement */
 	{
+		char why[512];
+		snprintf(why, sizeof why, "%s", ka_why);
 		uint32_t i;
 		char m[512];
 		for (i = 0; i < nklemmas; i++) {
@@ -410,16 +429,19 @@ cmd_prove(const char *rest)
 			rep_end();
 			rep_end();
 		}
+		snprintf(ka_why, sizeof ka_why, "%s", why);
 	}
-	printf("%s: NOT proved\n  %s\n", name, ka_why);
+	printf("%s: NOT proved\n  automation: %s\n", name, ka_why);
 	rep_bool("proved", 0);
 	rep_str("reason", ka_why);
 	{
 		struct sbuf b = {0};
 		if (pm_refute(klemmas[li].phi, &b)) {
-			printf("  counterexample: %s\n  (computed exactly with the "
-			    "Bockstein spectral sequence of homalg.h; a "
-			    "computation, not a kernel proof)\n", sb_str(&b));
+			printf("  counterexample: %s\n  (evaluated in a concrete "
+			    "model: complexes are standard spaces' cochains, "
+			    "bock(C,p) homalg.h's exact Bockstein spectral "
+			    "sequence; a computation, not a kernel proof)\n",
+			    sb_str(&b));
 			rep_str("counterexample", sb_str(&b));
 		} else
 			printf("  no counterexample among the standard spaces "

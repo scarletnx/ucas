@@ -1,0 +1,37 @@
+# proofs: the LCF kernel, its library, automation and counterexamples
+axioms
+# Proposition 0.1 of bockstein.pdf, for every complex of finite type,
+# prime p, n >= 0 and r >= 1: two proofs, both re-checked
+theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+prove bockstein
+check bockstein
+proof bockstein
+# a Z/p^k summand dies exactly at d_k
+theorem torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))) and Br(bock(C,p),k+1,j(bock(C,p),a))
+prove torsion
+# general machinery: any exact couple, any page; lattices; diagram chases
+check derived_exact
+check dd_zero
+check modular_law
+check short_five_mono
+check snake_ker_exact
+check cyclic_order
+# automation alone
+theorem ab: forall x y:el: 2*(x + y) - x = x + 2*y
+prove ab
+theorem unit: forall p z:int: 2 <= p and 1 = p*z -> false
+prove unit
+theorem kerj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c,r,y,e) and Br(c,r,e) -> exists y2:el: Dr(c,r,y2) and y = i(c,y2)
+prove kerj using dc_kerj
+# false variants must fail, with a counterexample where the model finds one
+# without "a generates a Z summand":
+theorem nosummand: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+prove nosummand
+# a Z/p summand's a-bar is in im d_1:
+theorem zp_survives: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 1 <= r and a in H(C,n) and zpksummand(a,H(C,n),p,1) -> not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+prove zp_survives
+# a Z/p^k summand is not dead already on E_k:
+theorem dies_early: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> Br(bock(C,p),k,j(bock(C,p),a))
+prove dies_early
+theorem notsquare: forall x:int: x*x >= x + 1
+prove notsquare

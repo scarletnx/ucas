@@ -14,3 +14,4 @@ nlp_words.h
 secrets/
 # bot session logs: user messages, never commit
 logs/
+thy_absalg.inc

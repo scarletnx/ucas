@@ -1,0 +1,9 @@
+{"id": 1, "cmd": "theorem", "args": {"name": "bockstein", "statement": "forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))"}}
+{"id": 2, "cmd": "prove", "args": {"name": "bockstein"}}
+{"id": 3, "cmd": "proof_check", "args": {"name": "bockstein"}}
+{"id": 4, "cmd": "theorem", "args": {"name": "nosummand", "statement": "forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) -> not dimg(bock(C,p),r,n-1,j(bock(C,p),a))"}}
+{"id": 5, "cmd": "prove", "args": {"name": "nosummand"}}
+{"id": 6, "cmd": "theorem", "args": {"name": "ab", "statement": "forall x y:el: 2*(x + y) - x = x + 2*y"}}
+{"id": 7, "cmd": "prove", "args": {"name": "ab"}}
+{"id": 8, "cmd": "proof", "args": {"name": "cyclic_order"}}
+{"id": 9, "cmd": "theorem", "args": {"name": "bad", "statement": "forall x:el: x in"}}

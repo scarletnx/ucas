@@ -156,6 +156,17 @@ static const struct group groups[] = {
 	    "0.1.  Every claim carries its checks (d o d = 0, exactness, "
 	    "well-defined induced maps, universal coefficients).",
 	    "space homology cohomology les bockstein bockstein_trace prop01"},
+	{"proofs", "Proofs",
+	    "An LCF proof kernel for abstract algebra: state theorems "
+	    "(theorem), prove them (prove: the library's proofs, replays, "
+	    "automation for linear integer arithmetic, abelian-group "
+	    "equalities, subgroup membership and diagram chases; on failure "
+	    "a counterexample from concrete Bockstein spectral sequences), "
+	    "print the proof tree and its axioms (proof), re-check with an "
+	    "independent checker (proof_check).  The library proves "
+	    "bockstein.pdf's Proposition 0.1 for all complexes, primes, n "
+	    "and r, two ways (theorem bockstein: ...; prove bockstein).",
+	    "theorem prove proof proof_check axioms lemmas"},
 };
 #define NGROUPS (int)(sizeof groups / sizeof groups[0])
 

@@ -696,6 +696,30 @@ static const struct jcmd cmds[] = {
 	    {HSPACE, IR("p", " mod %s", "a prime"), IO("pages", " pages %s",
 	    "at most this many pages (64)")}},
 #undef HSPACE
+	/* proofs (prove_cmd.c): an LCF kernel, every theorem re-checked */
+	{"theorem", "theorem", 1, 0, "state a theorem in the kernel's "
+	    "language (forall x:el, n:int: ..., and or not -> <->, = <= <, "
+	    "in; the library's sorts, functions and predicates: see lemmas "
+	    "and axioms)", {NM("name", " %s", "its name"), TX("statement",
+	    ": %s", "the formula")}},
+	{"prove", "prove", 1, 0, "prove a stated theorem: by the library's "
+	    "proofs of the same statement (every route, each re-checked "
+	    "independently), else by replaying the library's proofs and by "
+	    "automation; when it fails, a counterexample is searched in "
+	    "concrete Bockstein spectral sequences", {NM("name", " %s",
+	    "the theorem"), NSO("using", " using %s", "lemmas and axioms "
+	    "for the automation")}},
+	{"proof", "proof", 1, 0, "print a proved theorem's proof: each "
+	    "route's script, the tree of lemmas it rests on with their "
+	    "kernel inferences, and the axioms used", {NM("name", " %s",
+	    "the theorem or library lemma")}},
+	{"proof_check", "check", 1, 0, "re-check a proved theorem with the "
+	    "independent checker (kcheck.c)", {NM("name", " %s", "the theorem "
+	    "or library lemma")}},
+	{"axioms", "axioms", 1, 0, "every axiom of the proof library "
+	    "(definitions and the integer arithmetic of Z)", {{0}}},
+	{"lemmas", "lemmas", 1, 0, "the proof library's lemmas and theorems",
+	    {{0}}},
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 
