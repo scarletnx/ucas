@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * plot: functions as GIF images (a still plot is a one-frame GIF).
  *

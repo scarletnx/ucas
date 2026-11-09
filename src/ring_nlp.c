@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * English for the ring commands: the sentence is normalised (lower case,
  * "modulo" and "(mod n)" to "mod n", "≡" and "is congruent to" to "=",

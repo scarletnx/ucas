@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * jsonmode.h - the JSON frontend's entry points for other frontends
  * (mcp.c), which drive the same commands, sessions and timeouts.

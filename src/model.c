@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * Cost models: a cost per operation class, declared with `model`.  The
  * prelude defines gt1030 (NVIDIA GP108 through SPIR-V), which is active by

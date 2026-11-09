@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * fsimp: the mathematics of float simplify (fsimp.c), for spirv.c.
  *
