@@ -27,6 +27,13 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# cfront: C99 in, proved and x86-64-optimised C out (cfront.md)
+SRCS+=	cf_pp.c cf_parse.c cf_lower.c cf_emit.c cf_opt.c cf_check.c cf_cmd.c
+# the x86 side (branch cfront-x86): cost models, intrinsics, vectoriser
+.if exists(${.CURDIR}/src/cfx86.c)
+SRCS+=	cfx86.c
+CFLAGS+=	-DCF_HAVE_X86
+.endif
 # simplify's function-level pass over a shader's GLSL source
 SRCS+=	glslfn.c
 # ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * cfront: C99 in, proved and x86-64-optimised C99 out.
  *
@@ -92,6 +93,10 @@ struct cf_cand {
 	uint64_t feat;
 	double cost;
 	char what[96];
+	/* a local rewrite justified by a lemma under proved facts (sound
+	 * intervals of its operands): when SAT gives up, the lemma is the
+	 * proof (CF_PROOF_ALGEBRA), provided sampling found no difference */
+	char lemma[120];
 };
 struct cf_cands {
 	struct cf_cand *c;
@@ -167,6 +172,14 @@ typedef int (*cf_vec_fn)(const struct cf_loop *l, const struct cf_target *t,
     struct cf_loopout *out);
 void cf_set_vectoriser(cf_vec_fn f);
 
+/*
+ * The x86 side's entry point (src/cfx86.c, when it exists: the Makefile
+ * then defines CF_HAVE_X86): it registers its targets, cost model,
+ * candidate generators and vectoriser.  Called once before the first
+ * optimisation.
+ */
+void cfx86_init(void);
+
 /* ================================================================
  * Proofs and the rewrite report
  * ================================================================ */
@@ -193,6 +206,9 @@ struct cf_rewrite {
 	char proof_text[160];
 	double cost_before, cost_after;
 	int applied;
+	int info;		/* not a rewrite: why nothing happened */
+	char *steps;		/* every step's description */
+	int trivial;		/* clang -O2 already produces the same code */
 };
 
 /* ================================================================
@@ -324,7 +340,14 @@ struct cf_unit {
 	 * collide with one) */
 	uint32_t *macros;
 	int nmacro;
+	/* per token: the main-file extent of its origin (itself, or the
+	 * outermost macro invocation it came out of) and that invocation's
+	 * group (0 none, ~0 an invocation that cannot be mapped back) */
+	uint32_t *tk_o0, *tk_o1, *tk_grp;
+	int synfile;
 };
+int cf_tspan(const struct cf_unit *u, uint32_t t0, uint32_t t1,
+    uint32_t *from, uint32_t *to);
 
 /* cf_pp.c: the preprocessor and lexer */
 int cf_preprocess(struct cf_unit *u, const char *path, const char *text,
@@ -385,7 +408,7 @@ int cf_emit_body(struct cf_emit *em, const struct cf_value *v, nid e,
 struct cf_opts {
 	const struct cf_target *t;
 	double budget;		/* seconds for proofs */
-	int ub;			/* exploit C UB (signed overflow) */
+	int wrapv;		/* signed overflow wraps (no UB exploited) */
 	int approx;		/* apply unproved (only tested) rewrites */
 	int check, bench, nofile, show_lower;
 	int nassume;
@@ -399,6 +422,8 @@ struct cf_result {
 	struct cf_rewrite *rw;
 	int nrw, rwcap;
 	double cost_before, cost_after;
+	int nproofs;
+	double seconds;
 };
 int cf_optimize(struct cf_unit *u, const struct cf_opts *o,
     struct cf_result *r);
@@ -413,8 +438,9 @@ int cf_bench(struct cf_unit *u, const char *orig, const char *opt,
 
 /* cf_cmd.c: commands */
 struct P;
-int cfront_command(struct P *p);	/* parse.c: "c optimize ..." */
+int cfront_line(const char *rest);	/* parse.c: "c " + rest of the line */
 int cfront_claims(const char *stmt, const char *lang);	/* nlp.c */
+int cfront_english(const char *stmt, struct sbuf *out);	/* nlp.c */
 void cfront_run(const char *src, const char *path, const struct cf_opts *o);
 
 #endif
