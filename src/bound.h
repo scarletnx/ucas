@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
  * bound.c: bounds of a function proved by monotonicity, the where
  * clause's relations and exact integer-quotient algebra.

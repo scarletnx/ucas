@@ -120,11 +120,95 @@ static const struct group groups[] = {
 	    "animations of scans and SIMD execution.  The GIF comes back as "
 	    "an image.",
 	    "plot plot3d neighbourhood animate"},
+	{"c", "C optimiser",
+	    "C99 in, faster C out for a chosen x86-64 target (zen4, skylake, "
+	    "alderlake, x86-64-v2/v3/v4 ...): each function or expression is "
+	    "lowered with C99 LP64 semantics (promotions, wrap, UB as a domain "
+	    "condition, IEEE float and double) and rewritten only by forms "
+	    "proved equal on every input (exhaustively, by SAT, by a stated "
+	    "derivation, or by induction for loops summed in closed form); "
+	    "loops over arrays are rewritten per element, strlen-style scans "
+	    "become strlen; c_lower shows each loop's IR for the vectoriser; "
+	    "optional differential test and rdtsc benchmark with the host cc.",
+	    "c_optimize c_lower c_targets"},
+	{"abstract_algebra", "Abstract algebra, exactly",
+	    "Exact algebra with certificates: integers of any size (bigint), "
+	    "integer matrices (Smith and Hermite forms with unimodular "
+	    "transforms, kernels, images, solving over Z; rational matrices), "
+	    "finitely generated abelian groups (\"Z/4 + Z/6\", \"coker "
+	    "[[2, 0], [0, 3]]\"): invariants, isomorphisms with explicit maps, "
+	    "Hom, tensor, Tor, Ext, homomorphisms with kernel/image/cokernel, "
+	    "subgroups, element orders, exactness; permutation groups by "
+	    "Schreier-Sims (\"S4\", \"(1 2 3), (1 2)\": order, orbits, "
+	    "solvable, nilpotent, centre, membership, subgroups, cosets, "
+	    "homomorphisms) and Cayley tables; polynomial ideals over Q and "
+	    "F_p (Groebner bases with cofactors, membership certificates, "
+	    "ideal equality); modules over F[x] (Smith form, rational "
+	    "canonical form).  Every claim is checked "
+	    "(U A V = D, preimages, inverse maps) and the check is reported.  "
+	    "For instance {\"op\": \"abiso\", \"args\": {\"g\": \"Z/4 + "
+	    "Z/6\", \"h\": \"Z/2 + Z/12\"}} or {\"op\": \"snf\", \"args\": "
+	    "{\"matrix\": [[2, 4], [6, 8]]}}.",
+	    "bigint bigint_factor snf hnf zmatrix qmatrix abgroup abiso abhom "
+	    "abtensor abtor abext abmap abelem absub abexact permgroup permelem "
+	    "permsub permhom cayley groebner idealmember idealeq fxmodule "
+	    "pmsnf"},
+	{"elliptic", "Elliptic curves and Diophantine equations",
+	    "Elliptic curves over Q, exactly (analytic values with error "
+	    "bounds): invariants, minimal models, Tate's algorithm, conductor, "
+	    "torsion, rank by 2-isogeny descent, generators, canonical "
+	    "heights, the group law, models (Montgomery, Edwards, Legendre) "
+	    "with their maps, periods, L-values, BSD; Diophantine equations "
+	    "reduced to elliptic curves (\"a/(b+c) + b/(a+c) + c/(a+b) = 4\" "
+	    "positive), congruent numbers, Mordell curves, sums of two cubes.  "
+	    "A curve is \"[a1, a2, a3, a4, a6]\", \"[a4, a6]\" or \"y^2 = x^3 "
+	    "- x\".  For instance {\"op\": \"diophantine\", \"args\": "
+	    "{\"equation\": \"a/(b+c) + b/(a+c) + c/(a+b) = 4\", \"positive\": "
+	    "true}}.",
+	    "elliptic diophantine weierstrass congruent mordell cubesum"},
+	{"elliptic_ff", "Elliptic curves over finite fields and cryptography",
+	    "Curves over F_p (any size to 521 bits; named: secp256k1, P-256, "
+	    "P-384, P-521, Curve25519, Ed25519, Curve448, BN254, BLS12-381) and "
+	    "GF(2^m): #E by naive/BSGS/CM/Schoof with a certificate, group "
+	    "structure, twists, embedding degrees, scalar multiplication, "
+	    "ECDSA (RFC 6979), ECDH, X25519/X448, Ed25519, SEC 1 encodings, "
+	    "test vectors; discrete logs (Pohlig-Hellman, rho, MOV, Smart); "
+	    "Weil/Tate pairings; CM and Hilbert class polynomials; modular "
+	    "polynomials, Velu isogenies, isogeny graphs, division "
+	    "polynomials; ECM factoring and ECPP certificates.  A curve is "
+	    "a name, \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\".  "
+	    "Mathematics, not hardened (constant-time) cryptography.",
+	    "ec_info ec_order ec_points ec_add ec_mul ecm ecdsa_sign "
+	    "ecdsa_verify ecdh x25519 x448 ed25519_sign ed25519_verify "
+	    "ec_compress ec_decompress ec_validate ec_vectors ec_dlog ec_weak "
+	    "ec_pairing hilbert ec_cm ecpp modpoly ec_isogeny ec_volcano "
+	    "ec_divpoly ec_binary"},
 	{"session", "Session",
 	    "The session: define a function (typed parameters), list the "
 	    "state, keep answers to ambiguities (assume), reset, the interface "
 	    "schema, the cost models.",
 	    "define state assume reset schema funcs models use help"},
+	{"homological", "Homological algebra",
+	    "Exact homology and cohomology of spaces (spheres, tori, RP^n, "
+	    "CP^n, Klein bottle, lens spaces L(m,q), products, wedges, "
+	    "suspensions, simplicial or cellular complexes you give) with any "
+	    "f.g. abelian coefficients; long exact sequences with the snake "
+	    "lemma; the Bockstein spectral sequence (pages, d_r, E_inf), "
+	    "element tracing, and the check of bockstein.pdf's Proposition "
+	    "0.1.  Every claim carries its checks (d o d = 0, exactness, "
+	    "well-defined induced maps, universal coefficients).",
+	    "space homology cohomology les bockstein bockstein_trace prop01"},
+	{"proofs", "Proofs",
+	    "An LCF proof kernel for abstract algebra: state theorems "
+	    "(theorem), prove them (prove: the library's proofs, replays, "
+	    "automation for linear integer arithmetic, abelian-group "
+	    "equalities, subgroup membership and diagram chases; on failure "
+	    "a counterexample from concrete Bockstein spectral sequences), "
+	    "print the proof tree and its axioms (proof), re-check with an "
+	    "independent checker (proof_check).  The library proves "
+	    "bockstein.pdf's Proposition 0.1 for all complexes, primes, n "
+	    "and r, two ways (theorem bockstein: ...; prove bockstein).",
+	    "theorem prove proof proof_check axioms lemmas"},
 };
 #define NGROUPS (int)(sizeof groups / sizeof groups[0])
 

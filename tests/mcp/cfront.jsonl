@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"#include <stdint.h>\nint parity(uint32_t x) { int p = 0; while (x) { p ^= 1; x &= x - 1; } return p; }","nofile":true,"budget":120}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_lower","args":{"code":"void s(float *restrict d, const float *restrict a, int n) { for (int i = 0; i < n; i++) d[i] = a[i] / 2.0f; }"}}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"long sq(long n) { long s = 0; for (long i = 0; i < n; i++) s += i * i; return s; }","nofile":true}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_targets","args":{}}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"int f(int x) { return x; }","target":"pdp11"}}}}

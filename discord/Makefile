@@ -22,11 +22,19 @@ MAN=
 
 # nlp.c includes a word list generated from its own strings
 CFLAGS+=	-I${.OBJDIR}
-nlp_words.h: nlp.c nlp_calc2.inc nlp_words.awk
+nlp_words.h: nlp.c nlp_calc2.inc nlp_hyper.inc nlp_alg.inc nlp_xform.inc \
+    nlp_words.awk
 	awk -f ${.CURDIR}/../src/nlp_words.awk ${.CURDIR}/../src/nlp.c \
-	    ${.CURDIR}/../src/nlp_calc2.inc > ${.TARGET}
+	    ${.CURDIR}/../src/nlp_calc2.inc ${.CURDIR}/../src/nlp_hyper.inc \
+	    ${.CURDIR}/../src/nlp_alg.inc ${.CURDIR}/../src/nlp_xform.inc > ${.TARGET}
 nlp.o nlp.pieo: nlp_words.h
 CLEANFILES+=	nlp_words.h
+# the proof library (prove_cmd.c), as ../Makefile embeds it
+thy_absalg.inc: thy_absalg.thy
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    ${.ALLSRC} > ${.TARGET}
+kscript.o kscript.pieo: thy_absalg.inc
+CLEANFILES+=	thy_absalg.inc
 
 CSTD=	c99
 CFLAGS+=	-O2 -I${.CURDIR}/../src -I${.CURDIR}

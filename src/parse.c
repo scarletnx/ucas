@@ -22,11 +22,16 @@
  *                            give a real
  */
 #include "ucas.h"
+#include "cfront.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 #include "viz.h"
 #include "xform.h"
 #include "x86.h"
+int homalg_command(struct P *p);	/* homalg.h */
+int ec_command(struct P *p);	/* ec.h (absalg.h names a parameter I) */
 
 #include <ctype.h>
 #include <math.h>
@@ -101,6 +106,7 @@ static int calc_statement(struct P *p);
 static int calc_command(struct P *p);
 static int calc2_command(struct P *p);	/* calc2_syntax.inc */
 static int alg_command(struct P *p);	/* alg_syntax.inc */
+int ecff_command(struct P *p);		/* ecff_cmd.c: elliptic curves */
 
 static int
 pk(struct P *p)
@@ -1871,11 +1877,25 @@ statement(struct P *p)
 	if (pk(p) == T_EOF)
 		return;
 	diag_tok = p->i;
-	if (x86_command(p))	/* model zen4, mca, intrinsic ... (x86.c) */
-		return;
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
 	if (pk(p) == T_ID && ring_command(p))
+		return;
+	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */
+		return;
+	if (pk(p) == T_ID && ecff_command(p))	/* elliptic curves over F_q */
+		return;
+	/* elliptic curves, Diophantine equations (ec_cmd.c): before
+	 * hyper.c tries the line ("ec y^2 = x^3 - x" as e*c ...) */
+	if (pk(p) == T_ID && ec_command(p))
+		return;
+	if (pk(p) == T_ID && absalg_command(p))	/* snf, abgroup ... */
+		return;
+	if (pk(p) == T_ID && homalg_command(p))	/* homology ... (homalg) */
+		return;
+	/* model zen4, mca, intrinsic ... (x86.c): before hyper.c reads
+	 * "mca f" as a product */
+	if (x86_command(p))
 		return;
 	if (hyper_hook(p))
 		return;
@@ -2305,8 +2325,65 @@ static void run_source1(const char *src, const char *file, int echo);
  * caller's fail_jmp is put back, or a later fail() jumps into a frame
  * that has returned.
  */
+/*
+ * cfront's commands take file paths and C, which the ucas lexer does not
+ * read: a line starting "c optimize", "c lower" or "c targets" runs on
+ * its text (cf_cmd.c), the rest around it as usual.
+ */
+static int
+c_line(const char *p, size_t n)
+{
+	return n > 2 && p[0] == 'c' && p[1] == ' ' && (!strncmp(p + 2, "optimi",
+	    6) || !strncmp(p + 2, "lower", 5) || !strncmp(p + 2, "targets", 7));
+}
+
+static void run_source0(const char *src, const char *file, int echo);
+
 void
 run_source(const char *src, const char *file, int echo)
+{
+	const char *p = src, *seg = src;
+
+	while (*p) {
+		const char *e = strchr(p, '\n');
+		if (e == NULL)
+			e = p + strlen(p);
+		if (c_line(p, (size_t)(e - p))) {
+			jmp_buf saved;
+			char *line;
+			if (p > seg) {
+				char *pre = xmalloc((size_t)(p - seg) + 1);
+				memcpy(pre, seg, (size_t)(p - seg));
+				pre[p - seg] = 0;
+				run_source0(pre, file, echo);
+				free(pre);
+			}
+			line = xmalloc((size_t)(e - p) + 1);
+			memcpy(line, p, (size_t)(e - p));
+			line[e - p] = 0;
+			if (echo)
+				printf("> %s\n", line);
+			memcpy(saved, fail_jmp, sizeof saved);
+			if (setjmp(fail_jmp) == 0)
+				cfront_line(line + 2);
+			else
+				rep_failed();
+			memcpy(fail_jmp, saved, sizeof saved);
+			notes_flush();
+			fflush(stdout);
+			free(line);
+			seg = *e ? e + 1 : e;
+		}
+		p = *e ? e + 1 : e;
+	}
+	if (seg == src)
+		run_source0(src, file, echo);
+	else if (*seg)
+		run_source0(seg, file, echo);
+}
+
+static void
+run_source0(const char *src, const char *file, int echo)
 {
 	jmp_buf saved;
 	struct toks *dt = diag_toks;

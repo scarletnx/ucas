@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"homological","arguments":{"op":"cohomology","args":{"space":"RP^4"}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"homological","arguments":{"op":"bockstein","args":{"space":"L(9)","p":3}}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"homological","arguments":{"op":"prop01","args":{"space":"S^2 x RP^3","p":2}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"homological","arguments":{"op":"bockstein_trace","args":{"space":"RP^4","p":2,"degree":2}}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"homological","arguments":{"op":"bockstein","args":{"space":"RP^4","p":4}}}}

@@ -19,6 +19,9 @@ SRCS+=	poly.c alg.c rint.c solve.c
 # rings and finite fields: Z/n, GF(p^n), polynomials and matrices over them
 SRCS+=	ntheory.c gfield.c ring.c ring_nlp.c
 ring.o ring.pieo: ring_zn.inc ring_gf.inc ring_misc.inc ring_cmd.inc
+# absalg: exact abstract algebra (absalg.h): integers, integer matrices,
+# abelian groups, permutation groups, Groebner bases
+SRCS+=	zint.c zmat.c fgab.c pgrp.c ideal.c absalg_cmd.c
 # viz: integrals shaded, Riemann sums, solids of revolution (plot's renderer)
 SRCS+=	viz.c
 # transforms (Laplace, Z, Fourier, DFT), series and infinite sums
@@ -27,6 +30,30 @@ SRCS+=	xfrat.c xform.c series.c
 SRCS+=	json.c report.c jsonmode.c
 # an MCP server over stdio, on top of the JSON frontend
 SRCS+=	mcp.c
+# cfront: C99 in, proved and x86-64-optimised C out (cfront.md)
+SRCS+=	cf_pp.c cf_parse.c cf_lower.c cf_emit.c cf_opt.c cf_check.c cf_cmd.c
+# the x86 side (branch cfront-x86): cost models, intrinsics, vectoriser
+.if exists(${.CURDIR}/src/cfx86.c)
+SRCS+=	cfx86.c
+CFLAGS+=	-DCF_HAVE_X86
+.endif
+# proofs: an LCF kernel, its checker, decision procedures, a theory library
+SRCS+=	kterm.c knorm.c kernel.c kcheck.c kauto.c kscript.c prove_cmd.c \
+	prove_model.c
+thy_absalg.inc: thy_absalg.thy
+	sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$$/\\n"/' \
+	    ${.ALLSRC} > ${.TARGET}
+kscript.o kscript.pieo: thy_absalg.inc
+CLEANFILES+=	thy_absalg.inc
+# elliptic curves: the shared core (ec.h), curves over Q, Diophantine
+SRCS+=	ec.c ecq.c ecan.c ecdio.c ec_cmd.c
+# elliptic curves over finite fields, crypto and algorithms (ecff.h)
+SRCS+=	ecmp.c ecfp.c ecw.c ecnamed.c eccount.c ecpoly.c ecschoof.c ecalg.c \
+	ecsha.c eccrypto.c ecpair.c eccm.c ecisog.c ecpp.c ecb2.c ecntt.c \
+	ecff_cmd.c
+ecff_cmd.o ecff_cmd.pieo: ecff_crypto.inc ecff_dlp.inc ecff_cm.inc \
+    ecff_isog.inc ecff_b2.inc
+ecw.o ecw.pieo: ecw_impl.inc
 # simplify's function-level pass over a shader's GLSL source
 SRCS+=	glslfn.c
 # ScarletNX's GLSL ES compiler (src/snxglslc, kept as it is there): its
@@ -49,6 +76,8 @@ glslfn.o glslfn.pieo: ${SNXDIR}/glslc.h ${SNXDIR}/internal.h
 # x86-64: cost models per µarch, mca, intrinsics, vectoriser (cfront F2)
 SRCS+=	x86.c x86data.c x86mca.c x86intr.c
 x86intr.o x86intr.pieo: x86intr_tab.inc
+# homological algebra: spaces, (co)homology, exact couples (homalg.h)
+SRCS+=	simp.c cx.c excouple.c homalg_cmd.c reduce.c
 .PATH:	${.CURDIR}/src
 MAN=
 

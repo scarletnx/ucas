@@ -1,0 +1,13 @@
+{"id": 1, "cmd": "elliptic", "args": {"curve": "[0,0,1,-1,0]"}}
+{"id": 2, "cmd": "elliptic", "args": {"curve": "y^2 + y = x^3 - x^2 - 10*x - 20", "op": "torsion"}}
+{"id": 3, "cmd": "elliptic", "args": {"curve": "[0,0,1,-1,0]", "op": "add", "args": "(0,0) (1,0)"}}
+{"id": 4, "cmd": "elliptic", "args": {"curve": "[0,0,0,-1,0]", "op": "model", "args": "legendre"}}
+{"id": 5, "cmd": "diophantine", "args": {"equation": "a/(b+c) + b/(a+c) + c/(a+b) = 4", "positive": true}}
+{"id": 6, "cmd": "diophantine", "args": {"equation": "a/(b+c) + b/(a+c) + c/(a+b) = 23", "positive": true, "maxmult": 3}}
+{"id": 7, "cmd": "diophantine", "args": {"equation": "x^4 + y^4 = z^2", "nonzero": true}}
+{"id": 8, "cmd": "weierstrass", "args": {"equation": "x^3 + y^3 = 7*z^3"}}
+{"id": 9, "cmd": "congruent", "args": {"n": "5"}}
+{"id": 10, "cmd": "cubesum", "args": {"k": "6"}}
+{"id": 11, "cmd": "mordell", "args": {"k": "-2", "bound": 1000}}
+{"id": 12, "cmd": "elliptic", "args": {"curve": "[0,0,1,-1,0]", "op": "on", "args": "(1,1)"}}
+{"id": 13, "cmd": "diophantine", "args": {"equation": "x^5 + y^5 = z^5"}}

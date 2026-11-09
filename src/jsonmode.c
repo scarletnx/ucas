@@ -548,6 +548,367 @@ static const struct jcmd cmds[] = {
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
 	    "range (closed)", NULL}}},
+	/* cfront: C99 in, proved and x86-64-optimised C out (cf_*.c) */
+	{"c_optimize", "c optimize", 1, 0, "C99 in, faster C out for an "
+	    "x86-64 target: each rewrite proved (exhaustively, by SAT, by a "
+	    "derivation or by induction) against the original under C99 LP64 "
+	    "semantics with IEEE floats, unproved ones not applied; loops in "
+	    "closed form, element-wise loop bodies, strlen scans",
+	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
+	    TO("file", " %s", "a .c file instead of code"),
+	    TO("target", " target %s", "x86-64-v3 (default), zen4, skylake, "
+	    "alderlake, x86-64-v2 ... (c_targets)"),
+	    NUO("budget", " budget %s", "seconds for proofs (10)"),
+	    TO("range", " assume %s", "NAME LO HI: a contract on an input "
+	    "(\"x 0 1000\")"),
+	    BO("check", " check", "compile both with the host cc and compare "
+	    "them on edge and random inputs (UB inputs skipped)"),
+	    BO("bench", " bench", "check, and time both with rdtsc"),
+	    BO("wrapv", " wrapv", "signed overflow wraps (do not exploit UB)"),
+	    BO("nofile", " nofile", "print the code instead of a file"),
+	    BO("timed", " timed", "say how many seconds the proofs took"),
+	    BO("trace", " trace", "list every candidate and why it was not "
+	    "taken"),
+	    BO("vecstub", " vecstub", "a stub vectoriser that rebuilds each "
+	    "counted loop from its IR (tests the loop extraction)")}},
+	{"c_lower", "c lower", 1, 0, "each C function as one ucas value of "
+	    "its parameters (with the C UB as a domain condition), or why not; "
+	    "for the others, each counted loop in the vectoriser's IR",
+	    {{"code", P_SOURCE, 0, "", "C99 source (or file)", NULL},
+	    TO("file", " %s", "a .c file instead of code"),
+	    BO("wrapv", " wrapv", "signed overflow wraps")}},
+	{"c_targets", "c targets", 1, 0, "the x86-64 targets and their "
+	    "instruction-set features", {{NULL, 0, 0, NULL, NULL, NULL}}},
+	/* abstract algebra (absalg_cmd.c): exact, every claim certified */
+#define ZM_(n, fr, d) {n, P_MATRIX, 1, fr, d, NULL}
+#define GRP(n, fr) TX(n, fr, "an abelian group: \"Z/4 + Z/6\", " \
+	"\"Z^2 + Z/3\", \"(Z/2)^3\", \"0\", or \"coker [[2, 0], [0, 3]]\"")
+	{"bigint", "bigint", 1, 0, "an exact integer expression of any size "
+	    "(+ - * ^ !, / exact, div floor, % mod, gcd, lcm, abs, isprime, "
+	    "binomial)", {TX("expr", " %s", "the expression: \"2^200 + 1\"")}},
+	{"bigint_factor", "bigint factor", 1, 0, "prime factorization of an "
+	    "integer of any size (Pollard-Brent rho; product and primality "
+	    "checked)", {TX("n", " %s", "the integer or expression")}},
+	{"snf", "snf", 1, 0, "Smith normal form U A V = D with U, V and their "
+	    "inverses, verified; the cokernel", {ZM_("matrix", " %s",
+	    "an integer matrix (big entries as strings: \"2^100\")")}},
+	{"hnf", "hnf", 1, 0, "row Hermite normal form H = U A with U "
+	    "unimodular, verified", {ZM_("matrix", " %s", "an integer "
+	    "matrix")}},
+	{"zmatrix", "zmat", 1, 0, "an integer matrix over Z: summary, det, "
+	    "rank, kernel (saturated basis), image (lattice basis), inverse "
+	    "over Z, cokernel group, or solve A x = b over Z",
+	    {{"op", P_ENUM, 0, " %s", "what (default: a summary)", "det|rank|"
+	    "kernel|image|inverse|cokernel|solve"}, ZM_("matrix", " %s",
+	    "the matrix"), {"rhs", P_VALUES, 0, ", %s", "solve: b", NULL}}},
+	{"qmatrix", "qmat", 1, 0, "a matrix over Q (entries like \"1/2\"): "
+	    "rref, det, rank, inverse, nullspace, solve", {{"op", P_ENUM, 0,
+	    " %s", "what (default rref)", "rref|det|rank|inverse|nullspace|"
+	    "solve"}, ZM_("matrix", " %s", "the matrix"), {"rhs", P_VALUES, 0,
+	    ", %s", "solve: b", NULL}}},
+	{"abgroup", "abgroup", 1, 0, "a finitely generated abelian group: "
+	    "invariant factors, primary decomposition, order, rank, exponent, "
+	    "torsion, generators", {GRP("group", " %s")}},
+	{"abiso", "abiso", 1, 0, "are two abelian groups isomorphic; if so an "
+	    "explicit isomorphism and its inverse, both checked",
+	    {GRP("g", " %s"), GRP("h", ", %s")}},
+	{"abhom", "abhom", 1, 0, "the group Hom(G, H)", {GRP("g", " %s"),
+	    GRP("h", ", %s")}},
+	{"abtensor", "abtensor", 1, 0, "the tensor product G (x) H",
+	    {GRP("g", " %s"), GRP("h", ", %s")}},
+	{"abtor", "abtor", 1, 0, "Tor(G, H) from a free resolution",
+	    {GRP("g", " %s"), GRP("h", ", %s")}},
+	{"abext", "abext", 1, 0, "Ext(G, H) from a free resolution",
+	    {GRP("g", " %s"), GRP("h", ", %s")}},
+	{"abmap", "abmap", 1, 0, "a homomorphism G -> H given by the images of "
+	    "G's generators (columns, in H's generators): well defined?, "
+	    "kernel, image, cokernel, injective, surjective, inverse",
+	    {GRP("from", " %s"), GRP("to", " -> %s"), ZM_("matrix", " by %s",
+	    "column j = the image of generator j")}},
+	{"abelem", "abelem", 1, 0, "an element of an abelian group: canonical "
+	    "form and order", {GRP("group", " %s"), {"element", P_VALUES, 1,
+	    ", %s", "its coordinates in the group's generators", NULL}}},
+	{"absub", "absub", 1, 0, "the subgroup generated by elements, its "
+	    "quotient and index (membership witnesses checked)",
+	    {GRP("group", " %s"), ZM_("generators", ", %s", "the generators, "
+	    "one per row")}},
+	{"abexact", "abexact", 1, 0, "is G1 -f-> G2 -g-> G3 exact at G2 (with "
+	    "preimages of ker g as the certificate)", {GRP("g1", " %s"),
+	    GRP("g2", " -> %s"), GRP("g3", " -> %s"), TX("f", " by %s", "f as "
+	    "a matrix ([[...]]; \"[]\" from 0)"), TX("g", ", %s", "g as a "
+	    "matrix")}},
+#define PGRP(n, fr) TX(n, fr, "a permutation group: \"S4\", \"A5\", " \
+	"\"C6\", \"D8\" (order 8), or generators in cycle notation " \
+	"\"(1 2 3 4), (1 2)\"")
+	{"permgroup", "permgroup", 1, 0, "a permutation group by Schreier-Sims: "
+	    "order (exact, any size), base and strong generators, orbits, "
+	    "abelian, derived and lower central series, solvable, nilpotent, "
+	    "centre", {PGRP("group", " %s")}},
+	{"permelem", "permelem", 1, 0, "is a permutation in the group (sifting, "
+	    "with the word in the transversals as the certificate); its order",
+	    {PGRP("group", " %s"), TX("perm", ", %s", "the permutation: "
+	    "\"(1 2 3)(4 5)\" or \"()\"")}},
+	{"permsub", "permsub", 1, 0, "H in G: subgroup?, normal?, index, normal "
+	    "closure, coset representatives", {PGRP("h", " %s"), PGRP("g",
+	    " in %s")}},
+	{"permhom", "permhom", 1, 0, "does sending G's generators to the given "
+	    "permutations define a homomorphism G -> H", {PGRP("from", " %s"),
+	    PGRP("to", " -> %s"), TX("images", " by %s", "the images of G's "
+	    "generators, in order: \"(), (1 2)\"")}},
+	{"cayley", "cayley", 1, 0, "a finite group by its Cayley table (entries "
+	    "0..n-1): the axioms checked, abelian, element orders, solvable, "
+	    "nilpotent", {ZM_("table", " %s", "the n x n table: row a, column "
+	    "b holds a*b")}},
+#undef PGRP
+#define POPTS {"order", P_ENUM, 0, " order %s", "the monomial order " \
+	"(default grevlex)", "lex|grlex|grevlex"}, {"modulus", P_INT, 0, \
+	" mod %s", "a prime p: over F_p (default over Q)", NULL}, {"vars", \
+	P_TEXT, 0, " vars %s", "the variables, largest first: \"x, y, z\" " \
+	"(default: those that occur, alphabetical)", NULL}
+	{"groebner", "groebner", 1, 0, "the reduced Groebner basis of an ideal "
+	    "of polynomials over Q or F_p, each element with its cofactors in "
+	    "the generators (Buchberger with criteria; verified)",
+	    {TX("polys", " %s", "the generators: \"x^2 + y^2 - 1, x - y\""),
+	    POPTS}},
+	{"idealmember", "idealmember", 1, 0, "is h in the ideal: the cofactors "
+	    "h = sum c_j f_j (multiplied out and checked), or the nonzero "
+	    "normal form", {TX("h", " %s", "the polynomial"), TX("polys",
+	    " in %s", "the ideal's generators"), POPTS}},
+	{"idealeq", "idealeq", 1, 0, "compare two ideals: equal, one inside the "
+	    "other, or neither (each inclusion certified by cofactors)",
+	    {TX("i", " %s", "generators of I"), TX("j", " = %s", "generators "
+	    "of J"), POPTS}},
+	{"fxmodule", "fxmodule", 1, 0, "F^n as an F[x]-module with x acting by "
+	    "a matrix: invariant factors, minimal and characteristic "
+	    "polynomial, rational canonical form (Smith form over F[x])",
+	    {ZM_("matrix", " %s", "a square matrix over Q (\"1/2\" allowed)"),
+	    {"modulus", P_INT, 0, " mod %s", "a prime p: over F_p", NULL}}},
+	{"pmsnf", "pmsnf", 1, 0, "the Smith normal form of a matrix of "
+	    "polynomials in one variable over Q or F_p, with U and V",
+	    {TX("matrix", " %s", "\"[[x, 1], [0, x^2]]\""), {"modulus",
+	    P_INT, 0, " mod %s", "a prime p: over F_p", NULL}}},
+#undef POPTS
+#undef GRP
+#undef ZM_
+	/* homological algebra (homalg_cmd.c) */
+#define HSPACE TX("space", " %s", "a space: S^n, T^n, RP^n, CP^n, K (Klein " \
+	"bottle), L(m) or L(m,q), pt; _s for a simplicial model (RP^2_s, " \
+	"T^2_s, K_s, S^3_s); X x Y, X v Y, susp(X); cells([[d1]], [[d2]], " \
+	"...) by boundary matrices, facets([[0,1,2], ...])"), \
+	BO("unreduced", " unreduced", "use the space's own cells (by " \
+	"default unit pivots are cancelled first, with the homotopy " \
+	"equivalence checked)")
+	{"space", "space", 1, 0, "a cell complex: its cells, Euler "
+	    "characteristic and boundaries (d o d = 0 checked)", {HSPACE}},
+	{"homology", "homology", 1, 0, "H_n(X; G) for every n, exactly, with "
+	    "the universal coefficient theorem as a check", {HSPACE,
+	    TXO("coefficients", " with %s", "an abelian group: Z/2, Z/4 + Z "
+	    "(default Z)"), BO("generators", " generators", "representative "
+	    "cycles")}},
+	{"cohomology", "cohomology", 1, 0, "H^n(X; G) for every n, exactly, "
+	    "with both universal coefficient theorems as checks", {HSPACE,
+	    TXO("coefficients", " with %s", "an abelian group: Z/2, Z/4 + Z "
+	    "(default Z)"), BO("generators", " generators", "representative "
+	    "cocycles")}},
+	{"les", "les", 1, 0, "the long exact sequence of 0 -> C -m-> C -> "
+	    "C (x) Z/m -> 0 on cochains, the connecting map by the snake "
+	    "lemma, exactness verified at every spot", {HSPACE, IR("modulus",
+	    " mod %s", "m >= 2")}},
+	{"bockstein", "bockstein", 1, 0, "the Bockstein spectral sequence: "
+	    "pages E_r, D_r and d_r of the exact couple of 0 -> C -p-> C -> "
+	    "C (x) Z/p -> 0, derived exactly until stable", {HSPACE, IR("p",
+	    " mod %s", "a prime"), IO("pages", " pages %s", "at most this "
+	    "many pages (64)")}},
+	{"bockstein_trace", "bockstein", 1, 0, "trace a in H^n(X; Z) "
+	    "through the Bockstein spectral sequence: j_r(p^(r-1) a) in E_r, "
+	    "in ker d_r?, in im d_r? (with a preimage)", {HSPACE, IR("p",
+	    " mod %s", "a prime"), IR("degree", " trace %s", "n"),
+	    TXO("element", " %s", "[c1, c2, ...]: canonical coordinates in "
+	    "H^n(X; Z) (default: each generator)"), IO("page", " page %s",
+	    "only page r")}},
+	{"prop01", "prop01", 1, 0, "check Proposition 0.1 of bockstein.pdf "
+	    "on a space: for a generating a Z summand of H^n(X; Z), "
+	    "j_r(p^(r-1) a) is in ker d_r and not in im d_r, for every n and "
+	    "every r (all r up to the stable page, which covers the rest)",
+	    {HSPACE, IR("p", " mod %s", "a prime"), IO("pages", " pages %s",
+	    "at most this many pages (64)")}},
+#undef HSPACE
+	/* proofs (prove_cmd.c): an LCF kernel, every theorem re-checked */
+	{"theorem", "theorem", 1, 0, "state a theorem in the kernel's "
+	    "language (forall x:el, n:int: ..., and or not -> <->, = <= <, "
+	    "in; the library's sorts, functions and predicates: see lemmas "
+	    "and axioms)", {NM("name", " %s", "its name"), TX("statement",
+	    ": %s", "the formula")}},
+	{"prove", "prove", 1, 0, "prove a stated theorem: by the library's "
+	    "proofs of the same statement (every route, each re-checked "
+	    "independently), else by replaying the library's proofs and by "
+	    "automation; when it fails, a counterexample is searched in "
+	    "concrete Bockstein spectral sequences", {NM("name", " %s",
+	    "the theorem"), NSO("using", " using %s", "lemmas and axioms "
+	    "for the automation")}},
+	{"proof", "proof", 1, 0, "print a proved theorem's proof: each "
+	    "route's script, the tree of lemmas it rests on with their "
+	    "kernel inferences, and the axioms used", {NM("name", " %s",
+	    "the theorem or library lemma")}},
+	{"proof_check", "check", 1, 0, "re-check a proved theorem with the "
+	    "independent checker (kcheck.c)", {NM("name", " %s", "the theorem "
+	    "or library lemma")}},
+	{"axioms", "axioms", 1, 0, "the axioms of the proof library "
+	    "(definitions and the integer arithmetic of Z); with a name, the "
+	    "ones that theorem's proofs rest on", {NMO("name", " %s",
+	    "a proved theorem")}},
+	{"lemmas", "lemmas", 1, 0, "the proof library's lemmas and theorems",
+	    {{0}}},
+	/* elliptic curves over Q, Diophantine equations (ec_cmd.c) */
+	{"elliptic", "ec", 1, 0, "an elliptic curve over Q: by default the "
+	    "summary (invariants, minimal model, Tate's algorithm: Kodaira "
+	    "symbols, c_p, conductor; torsion; rank bounds by 2-isogeny "
+	    "descent; generators and heights; periods, root number, L-values, "
+	    "analytic rank, BSD quotient), or one operation",
+	    {TX("curve", " %s", "[a1, a2, a3, a4, a6], [a4, a6], or "
+	    "\"y^2 + x*y = x^3 - x + 1\""), {"op", P_ENUM, 0, " %s", "what "
+	    "(default: the summary)", "info|points|torsion|rank|local|minimal|"
+	    "analytic|periods|on|height|add|mul|order|wp|ap|model|integral"},
+	    TXO("args", " %s", "the op's arguments: a point \"(x, y)\" (on, "
+	    "height, order), two points (add), \"k (x, y)\" (mul), a height "
+	    "bound (points, rank), a bound on |x| (integral), a prime (ap), z "
+	    "as \"a+bi\" (wp), a model: short, montgomery, edwards, "
+	    "twisted_edwards, legendre")}},
+	{"diophantine", "diophantine", 1, 0, "solve a Diophantine equation "
+	    "through an elliptic curve: a plane cubic (homogeneous in 3 "
+	    "variables, or affine in 2), a curve quadratic in one variable "
+	    "with a quartic discriminant, or z^2 = quartic(x, y); rational "
+	    "point, birational map to Weierstrass form (kept with its "
+	    "inverse), the group, combinations of generators mapped back, "
+	    "each solution substituted into the equation; with no solution, "
+	    "a proof where one is found (rank 0, or no rational point on the "
+	    "real component the conditions need)",
+	    {TX("equation", " %s", "\"a/(b+c) + b/(a+c) + c/(a+b) = 4\""),
+	    BO("positive", " positive", "every variable > 0"),
+	    BO("integer", " integer", "integer values (affine equations)"),
+	    BO("nonzero", " nonzero", "every variable != 0"),
+	    IO("count", " count %s", "solutions wanted (default 1)"),
+	    IO("maxmult", " maxmult %s", "largest |coefficient| of a "
+	    "generator (default 30 for rank 1)"),
+	    IO("search", " search %s", "point search bound")}},
+	{"weierstrass", "weierstrass", 1, 0, "the maps from a cubic or quartic "
+	    "curve to Weierstrass form, the minimal model and the group",
+	    {TX("equation", " %s", "\"x^3 + y^3 = 7*z^3\"")}},
+	{"congruent", "congruent", 1, 0, "is n the area of a right triangle "
+	    "with rational sides: the curve y^2 = x^3 - n^2 x, its rank by "
+	    "descent, a triangle (checked) or a proof that none exists, "
+	    "Tunnell's counts", {TX("n", " %s", "a positive integer")}},
+	{"mordell", "mordell", 1, 0, "the Mordell curve y^2 = x^3 + k: the "
+	    "summary and its integral points up to a bound",
+	    {TX("k", " %s", "a nonzero integer"), IO("bound", " bound %s",
+	    "|x| <= bound (default 100000)")}},
+	{"cubesum", "cubesum", 1, 0, "k as a sum of two rational cubes: "
+	    "x^3 + y^3 = k z^3 solved through its curve", {TX("k", " %s",
+	    "a positive integer"), BO("positive", " positive", "x, y > 0")}},
+	/* elliptic curves over finite fields, crypto, algorithms (ecff) */
+	{"ec_info", "ec", 1, 0, "a curve over F_p: discriminant, j, #E "
+	    "(certified by point orders), trace, group structure (certified "
+	    "by a Weil pairing), twist, embedding degree, weaknesses",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\"")}},
+	{"ec_order", "ecorder", 1, 0, "#E(F_p) by a chosen method, with the "
+	    "certificate (points whose orders leave one candidate in the "
+	    "Hasse interval)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), {"method", P_ENUM, 0, " using %s",
+	    "naive, baby-step giant-step (Mestre), CM (j = 0, 1728), Schoof, "
+	    "SEA (Schoof with splitting here)", "auto|naive|bsgs|cm|schoof|sea"},
+	    BO("timed", " timed", "print timings")}},
+	{"ec_points", "ecpoints", 1, 0, "the points of E(F_p), p <= 100000",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\"")}},
+	{"ec_add", "ecadd", 1, 0, "P + Q", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y), "
+	    "G or O"), TX("Q", " + %s", "(x, y), G or O")}},
+	{"ec_mul", "ecmul", 1, 0, "k P by wNAF/Jacobian, checked against "
+	    "affine double-and-add, the Montgomery ladder and plain NAF",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("k", " %s", "the scalar (an integer expression)"),
+	    TX("P", " %s", "(x, y), G, random"), {"method", P_ENUM, 0,
+	    " using %s", "only this cross-check", "affine|wnaf|ladder"}}},
+	{"ecm", "ecm", 1, 0, "factor an integer (up to 576 bits): trial "
+	    "division, Pollard rho, Lenstra ECM stage 1 + 2; with B1 one ECM "
+	    "run", {TX("n", " %s", "the number (\"2^128 + 1\")"),
+	    TXO("B1", " B1 %s", "stage 1 bound"), TXO("B2", " B2 %s",
+	    "stage 2 bound")}},
+	{"ecdsa_sign", "ecdsa sign", 1, 0, "ECDSA signature with RFC 6979 "
+	    "deterministic nonce (variable-time code: mathematics, not a "
+	    "hardened implementation)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("key", " key %s",
+	    "the private key d"), {"hash", P_ENUM, 0, " hash %s", "default by "
+	    "the order's size", "sha256|sha384|sha512"}, TXO("nonce", " k %s",
+	    "a given nonce instead of RFC 6979"), TX("msg", " msg %s",
+	    "the message (text)")}},
+	{"ecdsa_verify", "ecdsa verify", 1, 0, "verify an ECDSA signature",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("pub", " pub %s", "(x, y) or SEC 1 hex"), TX("r",
+	    " r %s", "r"), TX("s", " s %s", "s"), {"hash", P_ENUM, 0,
+	    " hash %s", "the hash", "sha256|sha384|sha512"}, TX("msg",
+	    " msg %s", "the message (text)")}},
+	{"ecdh", "ecdh", 1, 0, "Diffie-Hellman on a named curve: both sides "
+	    "from two private keys, or one key and a peer's point (validated)",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("a", " a %s", "a private key"), TXO("b", " b %s",
+	    "the other private key"), TXO("pub", " pub %s", "the peer's "
+	    "point (x, y)")}},
+	{"x25519", "x25519", 1, 0, "RFC 7748 X25519 (hex, little-endian)",
+	    {TX("k", " %s", "the scalar, 32 bytes hex"), TXO("u", " %s",
+	    "u, 32 bytes hex (default the base point 9)")}},
+	{"x448", "x448", 1, 0, "RFC 7748 X448 (hex, little-endian)",
+	    {TX("k", " %s", "the scalar, 56 bytes hex"), TXO("u", " %s",
+	    "u, 56 bytes hex (default the base point 5)")}},
+	{"ed25519_sign", "ed25519 sign", 1, 0, "RFC 8032 Ed25519 signature "
+	    "(and the public key)", {TX("secret", " %s", "32 bytes hex"),
+	    TX("msghex", " msghex %s", "the message as hex bytes")}},
+	{"ed25519_verify", "ed25519 verify", 1, 0, "verify an Ed25519 "
+	    "signature", {TX("pub", " %s", "32 bytes hex"), TX("sig", " %s",
+	    "64 bytes hex"), TX("msghex", " msghex %s", "the message as hex")}},
+	{"ec_compress", "eccompress", 1, 0, "SEC 1 encodings of a point",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y) or G")}},
+	{"ec_decompress", "ecdecompress", 1, 0, "decode a SEC 1 point",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("hex", " %s", "02/03/04 ...")}},
+	{"ec_validate", "ecvalidate", 1, 0, "public-key validation (SEC 1 "
+	    "3.2.2.1)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s", "(x, y)")}},
+	{"ec_vectors", "ecvectors", 1, 0, "run the built-in RFC/FIPS test "
+	    "vectors and the named curves' parameter checks", {{0}}},
+	{"ec_dlog", "ecdlog", 1, 0, "a discrete logarithm k with k P = Q: "
+	    "Pohlig-Hellman, BSGS, rho, MOV (pairing transfer), Smart "
+	    "(anomalous); checked by k P = Q", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TX("P", " %s",
+	    "(x, y) or random"), TXO("Q", " %s", "(x, y)"), TXO("secret",
+	    " secret %s", "instead of Q: Q = secret P"), {"method", P_ENUM, 0,
+	    " using %s", "default: by the curve", "bsgs|rho|ph|mov|smart"}}},
+	{"ec_weak", "ecweak", 1, 0, "generate a weak curve (anomalous: #E = "
+	    "p; supersingular: embedding degree 2); \"anomalous 64\" also "
+	    "works as the curve of ec_dlog", {{"kind", P_ENUM, 1, " %s",
+	    "which weakness", "anomalous|supersingular"}, IR("bits", " %s",
+	    "the size of p")}},
+	{"ec_pairing", "ecpairing", 1, 0, "Weil or reduced Tate pairing by "
+	    "Miller's algorithm with bilinearity checks; on bn254/bls12_381 "
+	    "alone: e(G1, G2) in F_p^12", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TXO("P", " %s", "(x, y)"),
+	    TXO("Q", " %s", "(x, y)"), TXO("n", " %s", "the order n"),
+	    {"kind", P_ENUM, 0, " %s", "default weil", "weil|tate"}}},
+	{"hilbert", "hilbert", 1, 0, "the Hilbert class polynomial H_D (CM "
+	    "j-invariants), rounding error bounded", {TX("D", " %s",
+	    "a negative discriminant")}},
+	{"ec_cm", "eccm", 1, 0, "a CM curve with discriminant D over F_p, or "
+	    "a random prime-order CM curve of a given size", {TX("D", " %s",
+	    "the discriminant"), TXO("p", " mod %s", "the prime"),
+	    IO("bits", " bits %s", "instead of p: random p and prime #E")}},
+	{"ecpp", "ecpp", 1, 0, "an Atkin-Morain ECPP primality certificate, "
+	    "verified by an independent checker", {TX("n", " %s", "the "
+	    "number (\"2^127 - 1\")")}},
+	{"modpoly", "modpoly", 1, 0, "the classical modular polynomial Phi_l "
+	    "(over Z, or mod p)", {IR("l", " %s", "a prime <= 31"), TXO("p",
+	    " mod %s", "a prime modulus")}},
+	{"ec_isogeny", "ecisogeny", 1, 0, "an isogeny from a kernel point "
+	    "(Velu, Kohel, checked as a homomorphism), or the rational "
+	    "l-isogenies (roots of Phi_l)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), TXO("kernel", " kernel %s",
+	    "a point (x, y) of small order"), TXO("l", " %s", "a prime l")}},
+	{"ec_volcano", "ecvolcano", 1, 0, "the l-isogeny graph around j(E)",
+	    {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), IR("l", " %s", "a prime <= 13")}},
+	{"ec_divpoly", "ecdivpoly", 1, 0, "the division polynomial psi_n, its "
+	    "roots and factor degrees (the torsion field)", {TX("curve", " %s", "secp256k1, P-256, Curve25519, BN254, ..., \"y^2 = x^3 + 2x + 3 mod 97\" or \"[a, b] mod p\""), IR("n",
+	    " %s", "2 .. 60")}},
+	{"ec_binary", "ecb2", 1, 0, "a binary curve y^2 + xy = x^3 + a x^2 + "
+	    "b over GF(2^m): count (Koblitz, naive), FIPS parameters checked",
+	    {TX("curve", " %s", "K-163, B-163, K-233, or \"[a, b] over "
+	    "GF(2^13) poly 4 3 1 0\""), TXO("mul", " mul %s", "k: k G")}},
 };
 #define NCMDS (int)(sizeof cmds / sizeof cmds[0])
 
@@ -2017,8 +2378,11 @@ handle(const struct jv *rq)
 			for (k = 0; ans && k < ans->n; k++)
 				sb_printf(&r.stmt, "\x1e" "answer %s\n", ans->v[k]->s);
 			sb_puts(&r.stmt, jv_gets(a, "text"));
-		} else if (!r.c->special)
+		} else if (!r.c->special) {
 			build(&r);
+			if (!strncmp(cmd, "c_", 2))	/* cfront: C source */
+				code = jv_gets(a, "code");
+		}
 	}
 	if (r.ecode) {
 		rep_error(r.ecode, r.err);   /* unless an ambiguity is there */
@@ -2062,7 +2426,7 @@ handle(const struct jv *rq)
 		res = NULL;
 		if (code) {
 			code_block = code;
-			if (glsl_like(code, "")) {
+			if (strncmp(cmd, "c_", 2) && glsl_like(code, "")) {
 				struct sbuf nt = {0};
 				sb_clear(&glsl);
 				if (glsl_to_spvasm(code, &glsl, &nt)) {
@@ -2074,7 +2438,7 @@ handle(const struct jv *rq)
 					    nt.p ? nt.p : "");
 				free(nt.p);
 			}
-			snprintf(code_block_lang, sizeof code_block_lang, "spv");
+			snprintf(code_block_lang, sizeof code_block_lang, "%s", strncmp(cmd, "c_", 2) ? "spv" : "c");
 		}
 		jv_set(resp, "ucas", jv_str(sb_str(&src)));
 		if (!strcmp(cmd, "english")) {

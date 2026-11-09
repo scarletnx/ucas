@@ -30,8 +30,11 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "ucas.h"
+#include "cfront.h"
+#include "prove.h"
 #include "props.h"
 #include "ring.h"
+#include "absalg.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7272,6 +7275,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* abstract algebra (absalg_cmd.c) */
+		const char *r = absalg_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7491,6 +7503,8 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 
 /* ---- telling English from ucas ---- */
 
+int ecff_is_cmd(const char *s, size_t n);	/* ecff_cmd.c */
+
 static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
@@ -7679,6 +7693,9 @@ word_at(const char *s, size_t n, size_t *i, char *w, size_t wn)
 	return 1;
 }
 
+int homalg_line(const char *s, size_t n);	/* homalg_cmd.c */
+int ec_word(const char *w);	/* ec_cmd.c */
+
 int
 nlp_is_english(const char *s, size_t n)
 {
@@ -7696,9 +7713,25 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	/* cfront: "c optimize ...", "c lower ...", "c targets" are ucas */
+	if (n - i > 2 && s[i] == 'c' && s[i + 1] == ' ' &&
+	    (!strncmp(s + i + 2, "optimi", 6) || !strncmp(s + i + 2, "lower", 5) ||
+	    !strncmp(s + i + 2, "targets", 7)))
+		return 0;
+	if (ecff_is_cmd(s + i, n - i))
+		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
+		if (r >= 0)
+			return r;
+	}
+	if (prove_is_cmd(s + i, n - i))
+		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
+	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
+		return 0;
+	{
+		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
 	}
@@ -7759,6 +7792,9 @@ nlp_is_english(const char *s, size_t n)
 			    word_at(s, n, &j2, w2, sizeof w2) && !strcmp(w2, "prime"))))
 				return 1;
 		}
+		/* ec_cmd.c: elliptic-curve and Diophantine commands are ucas */
+		if (ec_word(w1) && !user_fn(w1))
+			return 0;
 		/* animate reads its own wordy options ("n=8 at 30 fps") */
 		if (!strcmp(w1, "animate"))
 			return 0;
@@ -8381,7 +8417,17 @@ run_text(const char *src, const char *file, int echo)
 	for (;;) {
 		const char *c;
 		next = next_code_block(rest, &piece);
-		if (code_block && glsl_like(code_block, code_block_lang)) {
+		if (code_block && cfront_claims(piece.p, code_block_lang)) {
+			/* C for cfront (cf_cmd.c): English becomes the command */
+			struct sbuf cmd = {0};
+			if (cfront_english(piece.p, &cmd)) {
+				/* the same lines, the statement's one rewritten */
+				sb_clear(&piece);
+				sb_puts(&piece, cmd.p);
+			}
+			free(cmd.p);
+			snprintf(code_block_lang, sizeof code_block_lang, "c");
+		} else if (code_block && glsl_like(code_block, code_block_lang)) {
 			/* GLSL: compiled to SPIR-V (the command line; the bot
 			 * converts before it sends) */
 			static struct sbuf spv;
@@ -8412,7 +8458,8 @@ run_text(const char *src, const char *file, int echo)
 		run_text_plain(pad.p, file, echo);
 		if (code_block && !code_block_used && !nlp_asked)
 			printf("  note: the ```%s code block was not used (animate "
-			    "exec and simplify take SPIR-V)\n", code_block_lang);
+			    "exec and simplify take SPIR-V, c optimize takes C)\n",
+			    code_block_lang);
 		code_block = NULL;
 		if (next == NULL || *next == 0 || nlp_asked)
 			break;

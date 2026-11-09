@@ -1,0 +1,823 @@
+> axioms
+int_discrete   [integer arithmetic] forall n:int: n <= 0 or 1 <= n
+le_antisym     [integer arithmetic] forall a:int: 0 <= a and 0 <= -a -> a = 0
+mul_nonneg     [integer arithmetic] forall a b:int: 0 <= a and 0 <= b -> 0 <= a*b
+int_domain     [integer arithmetic] forall a b:int: a*b = 0 -> a = 0 or b = 0
+pow_zero       [integer arithmetic] forall a:int: a^0 = 1
+pow_succ       [integer arithmetic] forall a m:int: 0 <= m -> a^(m+1) = a^m*a
+subgroup_def   [definition] forall S:set: subgroup(S) <-> (0 in S and (forall x y:el: x in S and y in S -> x + y in S) and (forall x:el: x in S -> -x in S))
+ssum_def       [definition] forall A B:set, x:el: x in ssum(A,B) <-> (exists a b:el: a in A and b in B and x = a + b)
+summand_def    [definition] forall S T:set: summand(S,T) <-> (exists M:set: subgroup(S) and subgroup(T) and subgroup(M) and (forall x:el: x in S -> x in T) and (forall x:el: x in M -> x in T) and (forall x:el: x in T -> exists s m:el: s in S and m in M and x = s + m) and (forall s m:el: s in S and m in M and s + m = 0 -> s = 0))
+zsummand_def   [definition] forall a:el, S:set: zsummand(a,S) <-> (exists M:set: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0))
+zpksummand_def [definition] forall a:el, S:set, p k:int: zpksummand(a,S,p,k) <-> (exists M:set: a in S and subgroup(S) and subgroup(M) and p^k*a = 0 and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> exists q:int: n = p^k*q))
+excouple_def   [definition] forall c:cpl: excouple(c) <-> (subgroup(D(c)) and subgroup(E(c)) and (forall x:el: x in D(c) -> i(c,x) in D(c)) and (forall x:el: x in D(c) -> j(c,x) in E(c)) and (forall e:el: e in E(c) -> k(c,e) in D(c)) and (forall x:el: x in D(c) and j(c,x) = 0 -> exists y:el: y in D(c) and x = i(c,y)) and (forall x:el: x in D(c) -> j(c,i(c,x)) = 0) and (forall e:el: e in E(c) and k(c,e) = 0 -> exists x:el: x in D(c) and e = j(c,x)) and (forall x:el: x in D(c) -> k(c,j(c,x)) = 0) and (forall x:el: x in D(c) and i(c,x) = 0 -> exists e:el: e in E(c) and x = k(c,e)) and (forall e:el: e in E(c) -> i(c,k(c,e)) = 0))
+ipow_zero      [definition] forall c:cpl, x:el: ipow(c,0,x) = x
+ipow_succ      [definition] forall c:cpl, m:int, x:el: 0 <= m -> ipow(c,m+1,x) = i(c,ipow(c,m,x))
+ipow_neg       [definition] forall c:cpl, m:int, x:el: m < 0 -> ipow(c,m,x) = 0
+D1_def         [definition] forall c:cpl, x:el: Dr(c,1,x) <-> x in D(c)
+Z1_def         [definition] forall c:cpl, e:el: Zr(c,1,e) <-> e in E(c)
+B1_def         [definition] forall c:cpl, e:el: Br(c,1,e) <-> e = 0
+J1_def         [definition] forall c:cpl, x e:el: Jr(c,1,x,e) <-> (x in D(c) and e = j(c,x))
+Dsucc_def      [definition] forall c:cpl, r:int, y:el: 1 <= r -> (Dr(c,r+1,y) <-> (exists x:el: Dr(c,r,x) and y = i(c,x)))
+Zsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Zr(c,r+1,e) <-> (Zr(c,r,e) and exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f)))
+Bsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Br(c,r+1,e) <-> (exists e0 f:el: Zr(c,r,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f)))
+Jsucc_def      [definition] forall c:cpl, r:int, y e:el: 1 <= r -> (Jr(c,r+1,y,e) <-> (exists x f:el: Dr(c,r,x) and y = i(c,x) and Jr(c,r,x,f) and Br(c,r+1,e - f)))
+dzero_def      [definition] forall c:cpl, r:int, e:el: dzero(c,r,e) <-> (exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f))
+dimg_def       [definition] forall c:cpl, r m:int, e:el: dimg(c,r,m,e) <-> (exists e0 f:el: Zr(c,r,e0) and Edeg(c,m,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f))
+iscx_def       [definition] forall A:cx: iscx(A) <-> (subgroup(Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,x) in Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,dif(A,x)) = 0))
+cls_dom        [definition] forall A:cx, z h:el: Cls(A,z,h) -> z in Ch(A) and dif(A,z) = 0 and h in Hc(A)
+cls_tot        [definition] forall A:cx, z:el: z in Ch(A) and dif(A,z) = 0 -> exists h:el: Cls(A,z,h)
+cls_sur        [definition] forall A:cx, h:el: h in Hc(A) -> exists z:el: Cls(A,z,h)
+cls_sub        [definition] forall A:cx, z1 z2 h1 h2:el: Cls(A,z1,h1) and Cls(A,z2,h2) -> Cls(A,z1 - z2,h1 - h2)
+cls_zero       [definition] forall A:cx, z h:el: Cls(A,z,h) -> (h = 0 <-> (exists y:el: y in Ch(A) and z = dif(A,y)))
+proj_in        [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n,x) in Cn(A,n)
+Cn_ch          [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> x in Ch(A)
+proj_id        [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> proj(A,n,x) = x
+proj_dif       [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n+1,dif(A,x)) = dif(A,proj(A,n,x))
+H_def          [definition] forall A:cx, n:int, h:el: h in H(A,n) <-> (exists z:el: z in Cn(A,n) and Cls(A,z,h))
+Hco_def        [definition] forall A:cx, n:int, h:el: h in Hco(A,n) <-> (exists z:el: z in Ch(A) and proj(A,n,z) = 0 and Cls(A,z,h))
+chmap_def      [definition] forall A B:cx, f:hom: chmap(A,B,f) <-> (iscx(A) and iscx(B) and (forall x:el: x in Ch(A) -> ap(f,x) in Ch(B)) and (forall x:el: x in Ch(A) -> ap(f,dif(A,x)) = dif(B,ap(f,x))))
+isses_def      [definition] forall A B C:cx, f g:hom: isses(A,B,C,f,g) <-> (chmap(A,B,f) and chmap(B,C,g) and (forall x:el: x in Ch(A) and ap(f,x) = 0 -> x = 0) and (forall w:el: w in Ch(C) -> exists b:el: b in Ch(B) and w = ap(g,b)) and (forall b:el: b in Ch(B) and ap(g,b) = 0 -> exists x:el: x in Ch(A) and b = ap(f,x)) and (forall x:el: x in Ch(A) -> ap(g,ap(f,x)) = 0))
+HM_def         [definition] forall A B:cx, f:hom, h h2:el: HM(A,B,f,h,h2) <-> (exists z:el: Cls(A,z,h) and Cls(B,ap(f,z),h2))
+Del_def        [definition] forall A B C:cx, f g:hom, e h:el: Del(A,B,C,f,g,e,h) <-> (exists w b z:el: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h))
+mulp_def       [definition] forall p:int, x:el: ap(mulp(p),x) = p*x
+red_ch         [definition] forall C:cx, p:int, w:el: w in Ch(red(C,p)) <-> (exists x:el: x in Ch(C) and w = ap(rh(C,p),x))
+red_ker        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> (ap(rh(C,p),x) = 0 <-> (exists y:el: y in Ch(C) and x = p*y))
+red_dif        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x))
+red_Cn         [definition] forall C:cx, p n:int, w:el: w in Cn(red(C,p),n) <-> (exists x:el: x in Cn(C,n) and w = ap(rh(C,p),x))
+fintype_def    [definition] forall C:cx: fintype(C) <-> (iscx(C) and (forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0))
+prime_def      [definition] forall p:int: prime(p) <-> (2 <= p and (forall d q:int: 1 <= d and p = d*q -> d = 1 or d = p))
+bock_D         [definition] forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Hc(C)
+bock_E         [definition] forall C:cx, p:int, x:el: x in E(bock(C,p)) <-> x in Hc(red(C,p))
+bock_i         [definition] forall C:cx, p:int, h h2:el: HM(C,C,mulp(p),h,h2) -> i(bock(C,p),h) = h2
+bock_j         [definition] forall C:cx, p:int, h h2:el: HM(C,red(C,p),rh(C,p),h,h2) -> j(bock(C,p),h) = h2
+bock_k         [definition] forall C:cx, p:int, e h:el: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) -> k(bock(C,p),e) = h
+bock_Edeg      [definition] forall C:cx, p m:int, e:el: Edeg(bock(C,p),m,e) <-> e in H(red(C,p),m)
+inter_def      [definition] forall A B:set, x:el: x in inter(A,B) <-> (x in A and x in B)
+> theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) and zsummand(a,H(C,n)) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+theorem bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C, n) and zsummand(a, H(C, n)) -> Zr(bock(C, p), r, j(bock(C, p), a)) and dzero(bock(C, p), r, j(bock(C, p), a)) and not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+> prove bockstein
+bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C, n) and zsummand(a, H(C, n)) -> Zr(bock(C, p), r, j(bock(C, p), a)) and dzero(bock(C, p), r, j(bock(C, p), a)) and not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+  proved by bockstein_paper (6945 kernel inferences with its lemmas); independent re-check: ok
+  proved by bockstein_coords (6176 kernel inferences with its lemmas); independent re-check: ok
+> check bockstein
+bockstein: 7063 inferences re-checked
+> axioms bockstein
+the axioms bockstein rests on (every route):
+int_discrete   [integer arithmetic] forall n:int: n <= 0 or 1 <= n
+le_antisym     [integer arithmetic] forall a:int: 0 <= a and 0 <= -a -> a = 0
+mul_nonneg     [integer arithmetic] forall a b:int: 0 <= a and 0 <= b -> 0 <= a*b
+int_domain     [integer arithmetic] forall a b:int: a*b = 0 -> a = 0 or b = 0
+pow_succ       [integer arithmetic] forall a m:int: 0 <= m -> a^(m+1) = a^m*a
+subgroup_def   [definition] forall S:set: subgroup(S) <-> (0 in S and (forall x y:el: x in S and y in S -> x + y in S) and (forall x:el: x in S -> -x in S))
+ssum_def       [definition] forall A B:set, x:el: x in ssum(A,B) <-> (exists a b:el: a in A and b in B and x = a + b)
+summand_def    [definition] forall S T:set: summand(S,T) <-> (exists M:set: subgroup(S) and subgroup(T) and subgroup(M) and (forall x:el: x in S -> x in T) and (forall x:el: x in M -> x in T) and (forall x:el: x in T -> exists s m:el: s in S and m in M and x = s + m) and (forall s m:el: s in S and m in M and s + m = 0 -> s = 0))
+zsummand_def   [definition] forall a:el, S:set: zsummand(a,S) <-> (exists M:set: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0))
+excouple_def   [definition] forall c:cpl: excouple(c) <-> (subgroup(D(c)) and subgroup(E(c)) and (forall x:el: x in D(c) -> i(c,x) in D(c)) and (forall x:el: x in D(c) -> j(c,x) in E(c)) and (forall e:el: e in E(c) -> k(c,e) in D(c)) and (forall x:el: x in D(c) and j(c,x) = 0 -> exists y:el: y in D(c) and x = i(c,y)) and (forall x:el: x in D(c) -> j(c,i(c,x)) = 0) and (forall e:el: e in E(c) and k(c,e) = 0 -> exists x:el: x in D(c) and e = j(c,x)) and (forall x:el: x in D(c) -> k(c,j(c,x)) = 0) and (forall x:el: x in D(c) and i(c,x) = 0 -> exists e:el: e in E(c) and x = k(c,e)) and (forall e:el: e in E(c) -> i(c,k(c,e)) = 0))
+ipow_zero      [definition] forall c:cpl, x:el: ipow(c,0,x) = x
+ipow_succ      [definition] forall c:cpl, m:int, x:el: 0 <= m -> ipow(c,m+1,x) = i(c,ipow(c,m,x))
+ipow_neg       [definition] forall c:cpl, m:int, x:el: m < 0 -> ipow(c,m,x) = 0
+D1_def         [definition] forall c:cpl, x:el: Dr(c,1,x) <-> x in D(c)
+Z1_def         [definition] forall c:cpl, e:el: Zr(c,1,e) <-> e in E(c)
+B1_def         [definition] forall c:cpl, e:el: Br(c,1,e) <-> e = 0
+J1_def         [definition] forall c:cpl, x e:el: Jr(c,1,x,e) <-> (x in D(c) and e = j(c,x))
+Dsucc_def      [definition] forall c:cpl, r:int, y:el: 1 <= r -> (Dr(c,r+1,y) <-> (exists x:el: Dr(c,r,x) and y = i(c,x)))
+Zsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Zr(c,r+1,e) <-> (Zr(c,r,e) and exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f)))
+Bsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Br(c,r+1,e) <-> (exists e0 f:el: Zr(c,r,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f)))
+Jsucc_def      [definition] forall c:cpl, r:int, y e:el: 1 <= r -> (Jr(c,r+1,y,e) <-> (exists x f:el: Dr(c,r,x) and y = i(c,x) and Jr(c,r,x,f) and Br(c,r+1,e - f)))
+dzero_def      [definition] forall c:cpl, r:int, e:el: dzero(c,r,e) <-> (exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f))
+dimg_def       [definition] forall c:cpl, r m:int, e:el: dimg(c,r,m,e) <-> (exists e0 f:el: Zr(c,r,e0) and Edeg(c,m,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f))
+iscx_def       [definition] forall A:cx: iscx(A) <-> (subgroup(Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,x) in Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,dif(A,x)) = 0))
+cls_dom        [definition] forall A:cx, z h:el: Cls(A,z,h) -> z in Ch(A) and dif(A,z) = 0 and h in Hc(A)
+cls_tot        [definition] forall A:cx, z:el: z in Ch(A) and dif(A,z) = 0 -> exists h:el: Cls(A,z,h)
+cls_sur        [definition] forall A:cx, h:el: h in Hc(A) -> exists z:el: Cls(A,z,h)
+cls_sub        [definition] forall A:cx, z1 z2 h1 h2:el: Cls(A,z1,h1) and Cls(A,z2,h2) -> Cls(A,z1 - z2,h1 - h2)
+cls_zero       [definition] forall A:cx, z h:el: Cls(A,z,h) -> (h = 0 <-> (exists y:el: y in Ch(A) and z = dif(A,y)))
+proj_in        [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n,x) in Cn(A,n)
+Cn_ch          [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> x in Ch(A)
+proj_id        [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> proj(A,n,x) = x
+proj_dif       [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n+1,dif(A,x)) = dif(A,proj(A,n,x))
+H_def          [definition] forall A:cx, n:int, h:el: h in H(A,n) <-> (exists z:el: z in Cn(A,n) and Cls(A,z,h))
+Hco_def        [definition] forall A:cx, n:int, h:el: h in Hco(A,n) <-> (exists z:el: z in Ch(A) and proj(A,n,z) = 0 and Cls(A,z,h))
+chmap_def      [definition] forall A B:cx, f:hom: chmap(A,B,f) <-> (iscx(A) and iscx(B) and (forall x:el: x in Ch(A) -> ap(f,x) in Ch(B)) and (forall x:el: x in Ch(A) -> ap(f,dif(A,x)) = dif(B,ap(f,x))))
+isses_def      [definition] forall A B C:cx, f g:hom: isses(A,B,C,f,g) <-> (chmap(A,B,f) and chmap(B,C,g) and (forall x:el: x in Ch(A) and ap(f,x) = 0 -> x = 0) and (forall w:el: w in Ch(C) -> exists b:el: b in Ch(B) and w = ap(g,b)) and (forall b:el: b in Ch(B) and ap(g,b) = 0 -> exists x:el: x in Ch(A) and b = ap(f,x)) and (forall x:el: x in Ch(A) -> ap(g,ap(f,x)) = 0))
+HM_def         [definition] forall A B:cx, f:hom, h h2:el: HM(A,B,f,h,h2) <-> (exists z:el: Cls(A,z,h) and Cls(B,ap(f,z),h2))
+Del_def        [definition] forall A B C:cx, f g:hom, e h:el: Del(A,B,C,f,g,e,h) <-> (exists w b z:el: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h))
+mulp_def       [definition] forall p:int, x:el: ap(mulp(p),x) = p*x
+red_ch         [definition] forall C:cx, p:int, w:el: w in Ch(red(C,p)) <-> (exists x:el: x in Ch(C) and w = ap(rh(C,p),x))
+red_ker        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> (ap(rh(C,p),x) = 0 <-> (exists y:el: y in Ch(C) and x = p*y))
+red_dif        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x))
+fintype_def    [definition] forall C:cx: fintype(C) <-> (iscx(C) and (forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0))
+prime_def      [definition] forall p:int: prime(p) <-> (2 <= p and (forall d q:int: 1 <= d and p = d*q -> d = 1 or d = p))
+bock_D         [definition] forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Hc(C)
+bock_E         [definition] forall C:cx, p:int, x:el: x in E(bock(C,p)) <-> x in Hc(red(C,p))
+bock_i         [definition] forall C:cx, p:int, h h2:el: HM(C,C,mulp(p),h,h2) -> i(bock(C,p),h) = h2
+bock_j         [definition] forall C:cx, p:int, h h2:el: HM(C,red(C,p),rh(C,p),h,h2) -> j(bock(C,p),h) = h2
+bock_k         [definition] forall C:cx, p:int, e h:el: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) -> k(bock(C,p),e) = h
+> proof bockstein
+bockstein: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C, n) and zsummand(a, H(C, n)) -> Zr(bock(C, p), r, j(bock(C, p), a)) and dzero(bock(C, p), r, j(bock(C, p), a)) and not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+route a: bockstein_paper
+    proof
+      fix C p n r a
+      intro hC hp hn hr ha hs
+      have ec: excouple(bock(C,p)) by bock_couple hC hp
+      have p2: 2 <= p by prime_ge2 hp
+      have cxC: iscx(C) by fintype_def hC
+      have hsum: summand(H(C,n),Hc(C)) by H_summand cxC
+      have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum
+      have aT: a in Hc(C) by zs_mem hsT
+      have aD: a in D(bock(C,p)) by bock_D aT
+      have r0: 0 <= r - 1 by hr
+      have jr: Jr(bock(C,p),r,ipow(bock(C,p),r-1,a),j(bock(C,p),a)) by dc_jr ec hr aD
+      have kj: k(bock(C,p),j(bock(C,p),a)) = 0 by dc_imj ec hr jr
+      have s1: Zr(bock(C,p),r,j(bock(C,p),a)) by dc_JZ ec hr jr
+      have s2: dzero(bock(C,p),r,j(bock(C,p),a))
+      proof
+        have z: 0 in D(bock(C,p)) by sub_zero ec_subD ec
+        have j0: Jr(bock(C,p),r,0,0) by dc_jr[bock(C,p), r, 0] ec hr z
+        have b0: Br(bock(C,p),r,0) by dc_B0 ec hr
+        have j1: Jr(bock(C,p),r,k(bock(C,p),j(bock(C,p),a)),0) by j0 kj
+        show by dzero_def j1 b0 with 0
+      qed
+      have s3: not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+      proof
+        intro h
+        obtain e0 f:el st z0 dg jf bf: Zr(bock(C,p),r,e0) and Edeg(bock(C,p),n-1,e0) and Jr(bock(C,p),r,k(bock(C,p),e0),f) and Br(bock(C,p),r,j(bock(C,p),a) - f) by dimg_def h
+        have j2: Jr(bock(C,p),r,ipow(bock(C,p),r-1,a) - k(bock(C,p),e0),j(bock(C,p),a) - f) by dc_Jsub[bock(C,p), r, ipow(bock(C,p),r-1,a), k(bock(C,p),e0), j(bock(C,p),a), f] ec hr jr jf
+        obtain y:el st yd yi: Dr(bock(C,p),r,y) and ipow(bock(C,p),r-1,a) - k(bock(C,p),e0) = i(bock(C,p),y) by dc_kerj ec hr j2 bf
+        obtain x:el st xD yx: x in D(bock(C,p)) and y = ipow(bock(C,p),r-1,x) by dc_Dr ec hr yd
+        have tk: Dr(bock(C,p),r,k(bock(C,p),e0)) and i(bock(C,p),k(bock(C,p),e0)) = 0 by dc_imk ec hr z0
+        have tD: k(bock(C,p),e0) in D(bock(C,p)) by dc_DD ec hr tk
+        have e1: ipow(bock(C,p),r-1,a) = p^(r-1)*a by ipow_bock[C, p] hC hp r0 aD
+        have e2: ipow(bock(C,p),r-1,x) = p^(r-1)*x by ipow_bock[C, p] hC hp r0 xD
+        have yD: y in D(bock(C,p)) by dc_DD ec hr yd
+        have e3: i(bock(C,p),y) = p*y by bock_ip[C, p, y] hC yD
+        have tD0: k(bock(C,p),e0) in D(bock(C,p)) by dc_DD ec hr tk
+        have e4: i(bock(C,p),k(bock(C,p),e0)) = p*k(bock(C,p),e0) by bock_ip[C, p, k(bock(C,p),e0)] hC tD0
+        have pt: p*k(bock(C,p),e0) = 0 by tk e4
+        have key: p^(r-1)*a = k(bock(C,p),e0) + (p*p^(r-1))*x by yi yx e1 e2 e3
+        have p1: 1 <= p by p2
+        have q1: 1 <= p^(r-1) by pow_pos p1 r0
+        have tH: k(bock(C,p),e0) in Hc(C) by bock_D tD
+        have xH: x in Hc(C) by bock_D xD
+        show false by zsum_val[a, Hc(C), p, p^(r-1), k(bock(C,p),e0), x] hsT p2 q1 tH xH pt key
+      qed
+      show by s1 s2 s3
+    qed
+  rests on:
+    bockstein_paper  (285 inferences; axioms: int_discrete dzero_def dimg_def fintype_def bock_D)
+      pow_pos  (32 inferences; axioms: int_discrete mul_nonneg pow_succ)
+      sub_zero  (9 inferences; axioms: subgroup_def)
+      zsummand_trans  (200 inferences; axioms: ssum_def summand_def zsummand_def)
+        sub_add  (20 inferences; axioms: subgroup_def)
+        sub_smul  (38 inferences; axioms: int_discrete)
+          sub_neg  (13 inferences; axioms: subgroup_def)
+          sub_natmul  (21 inferences)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+        ssum_sub  (177 inferences; axioms: subgroup_def ssum_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+      zsum_val  (147 inferences; axioms: int_discrete le_antisym mul_nonneg int_domain zsummand_def)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+      ec_subD  (17 inferences; axioms: excouple_def)
+      ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+      ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+      dc_B0  (50 inferences)
+        sub_zero  (9 inferences; axioms: subgroup_def) ^
+        ec_subD  (17 inferences; axioms: excouple_def) ^
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_B  (16 inferences)
+          closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            ec_subD  (17 inferences; axioms: excouple_def) ^
+            ec_iD  (21 inferences; axioms: excouple_def)
+            ec_kD  (19 inferences; axioms: excouple_def)
+            ec_kerj  (21 inferences; axioms: excouple_def)
+            ec_ji  (17 inferences; axioms: excouple_def)
+            ec_keri  (17 inferences; axioms: excouple_def)
+            ec_ik  (13 inferences; axioms: excouple_def)
+            ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+            ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+            ipow_shift  (53 inferences; axioms: int_discrete ipow_zero ipow_succ)
+              ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+              ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+            ipow_D  (63 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+              sub_zero  (9 inferences; axioms: subgroup_def) ^
+              ec_subD  (17 inferences; axioms: excouple_def) ^
+              ec_iD  (21 inferences; axioms: excouple_def) ^
+              ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+              ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+      dc_Dr  (17 inferences)
+        closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def) ^
+      dc_DD  (32 inferences)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_D  (63 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        dc_Dr  (17 inferences) ^
+      dc_jr  (58 inferences)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_J  (17 inferences)
+          closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def) ^
+        dc_B0  (50 inferences) ^
+      dc_Jsub  (114 inferences)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+        ec_subD  (17 inferences; axioms: excouple_def) ^
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_J  (17 inferences) ^
+        dc_Bsub  (95 inferences)
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          ec_subD  (17 inferences; axioms: excouple_def) ^
+          ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+          ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+          cf_B  (16 inferences) ^
+      dc_kerj  (149 inferences; axioms: ipow_succ)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+        ec_subD  (17 inferences; axioms: excouple_def) ^
+        ec_kerj  (21 inferences; axioms: excouple_def) ^
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_shift  (53 inferences; axioms: int_discrete ipow_zero ipow_succ) ^
+        cf_B  (16 inferences) ^
+        cf_J  (17 inferences) ^
+        dc_Dr  (17 inferences) ^
+      dc_imj  (58 inferences)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        ec_subD  (17 inferences; axioms: excouple_def) ^
+        ec_kj  (15 inferences; axioms: excouple_def)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_B  (16 inferences) ^
+        cf_J  (17 inferences) ^
+      dc_JZ  (109 inferences)
+        sub_zero  (9 inferences; axioms: subgroup_def) ^
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        ec_subD  (17 inferences; axioms: excouple_def) ^
+        ec_subE  (17 inferences; axioms: excouple_def)
+        ec_jE  (20 inferences; axioms: excouple_def)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_Z  (17 inferences)
+          closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def) ^
+        cf_B  (16 inferences) ^
+        cf_J  (17 inferences) ^
+        dc_imj  (58 inferences) ^
+      dc_imk  (72 inferences)
+        ec_ik  (13 inferences; axioms: excouple_def) ^
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        cf_Z  (17 inferences) ^
+        dc_Dr  (17 inferences) ^
+      H_summand  (276 inferences; axioms: summand_def cls_dom cls_tot cls_sur cls_zero proj_in Cn_ch proj_id proj_dif H_def Hco_def)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+        cx_sub  (9 inferences; axioms: iscx_def)
+        cls_add  (27 inferences; axioms: cls_sub)
+          cls_neg  (18 inferences; axioms: cls_sub)
+            cls_00  (24 inferences; axioms: cls_tot)
+              sub_zero  (9 inferences; axioms: subgroup_def) ^
+              cx_sub  (9 inferences; axioms: iscx_def) ^
+              cls_zero0  (29 inferences; axioms: cls_zero)
+                sub_zero  (9 inferences; axioms: subgroup_def) ^
+                cx_sub  (9 inferences; axioms: iscx_def) ^
+        cls_fun  (28 inferences)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_eq  (43 inferences; axioms: cls_sub cls_zero)
+        Hc_sub  (79 inferences; axioms: subgroup_def cls_dom cls_sur)
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+        H_in  (20 inferences; axioms: cls_dom H_def)
+        Hco_in  (20 inferences; axioms: cls_dom Hco_def)
+        H_sub  (147 inferences; axioms: subgroup_def H_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+          Cn_sub  (101 inferences; axioms: subgroup_def proj_in Cn_ch proj_id)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+        Hco_sub  (161 inferences; axioms: subgroup_def Hco_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+      prime_ge2  (8 inferences; axioms: prime_def)
+      bock_couple  (564 inferences; axioms: excouple_def bock_D bock_E bock_i bock_j bock_k)
+        Hc_sub  (79 inferences; axioms: subgroup_def cls_dom cls_sur) ^
+        cm_A  (14 inferences; axioms: chmap_def)
+        cm_B  (14 inferences; axioms: chmap_def)
+        ss_f  (20 inferences; axioms: isses_def)
+        ss_g  (20 inferences; axioms: isses_def)
+        HM_dom  (32 inferences; axioms: cls_dom HM_def)
+        Del_dom  (44 inferences; axioms: cls_dom Del_def)
+        HM_tot  (71 inferences; axioms: cls_dom cls_tot cls_sur HM_def)
+          cm_in  (18 inferences; axioms: chmap_def)
+          cm_d  (17 inferences; axioms: chmap_def)
+        Del_tot  (160 inferences; axioms: cls_dom cls_tot cls_sur Del_def)
+          cx_d  (14 inferences; axioms: iscx_def)
+          cx_dd  (13 inferences; axioms: iscx_def)
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_inj  (27 inferences; axioms: isses_def)
+          ss_sur  (23 inferences; axioms: isses_def)
+          ss_ker  (25 inferences; axioms: isses_def)
+        les_fg  (89 inferences; axioms: cls_dom HM_def)
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def)
+          HM_fun  (79 inferences; axioms: HM_def)
+            cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+            cls_rep  (26 inferences; axioms: cls_sub cls_zero)
+            cm_B  (14 inferences; axioms: chmap_def) ^
+            cm_in  (18 inferences; axioms: chmap_def) ^
+            cm_d  (17 inferences; axioms: chmap_def) ^
+        les_kerg  (209 inferences; axioms: cls_dom cls_tot cls_zero HM_def)
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cx_d  (14 inferences; axioms: iscx_def) ^
+          cx_dd  (13 inferences; axioms: iscx_def) ^
+          cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_inj  (27 inferences; axioms: isses_def) ^
+          ss_sur  (23 inferences; axioms: isses_def) ^
+          ss_ker  (25 inferences; axioms: isses_def) ^
+        les_gdel  (105 inferences; axioms: cls_dom HM_def Del_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          Del_fun  (232 inferences; axioms: Del_def)
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+            cx_d  (14 inferences; axioms: iscx_def) ^
+            cx_dd  (13 inferences; axioms: iscx_def) ^
+            cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+            cls_rep  (26 inferences; axioms: cls_sub cls_zero) ^
+            cm_A  (14 inferences; axioms: chmap_def) ^
+            cm_B  (14 inferences; axioms: chmap_def) ^
+            cm_d  (17 inferences; axioms: chmap_def) ^
+            ss_f  (20 inferences; axioms: isses_def) ^
+            ss_g  (20 inferences; axioms: isses_def) ^
+            ss_inj  (27 inferences; axioms: isses_def) ^
+            ss_sur  (23 inferences; axioms: isses_def) ^
+            ss_ker  (25 inferences; axioms: isses_def) ^
+        les_kerdel  (136 inferences; axioms: cls_tot cls_zero HM_def Del_def)
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def) ^
+        les_delf  (122 inferences; axioms: cls_tot cls_zero HM_def Del_def)
+          cx_dd  (13 inferences; axioms: iscx_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          HM_fun  (79 inferences; axioms: HM_def) ^
+        les_kerf  (125 inferences; axioms: cls_dom cls_tot cls_zero HM_def Del_def)
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def) ^
+        isses_bock  (257 inferences; axioms: int_discrete chmap_def isses_def mulp_def red_ch red_ker red_dif fintype_def)
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          prime_ge2  (8 inferences; axioms: prime_def) ^
+          red_cx  (251 inferences; axioms: subgroup_def iscx_def red_ch red_dif)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+            cx_d  (14 inferences; axioms: iscx_def) ^
+            cx_dd  (13 inferences; axioms: iscx_def) ^
+        sub_eqv  (65 inferences; axioms: subgroup_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+      bock_ip  (66 inferences; axioms: cls_sur HM_def mulp_def fintype_def bock_D bock_i)
+        cls_smul  (41 inferences; axioms: int_discrete)
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_natmul  (24 inferences)
+            cls_00  (24 inferences; axioms: cls_tot) ^
+            cls_add  (27 inferences; axioms: cls_sub) ^
+      zs_mem  (18 inferences; axioms: zsummand_def)
+      ipow_bock  (54 inferences; axioms: pow_succ ipow_zero ipow_succ)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_D  (63 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        bock_couple  (564 inferences; axioms: excouple_def bock_D bock_E bock_i bock_j bock_k) ^
+        bock_ip  (66 inferences; axioms: cls_sur HM_def mulp_def fintype_def bock_D bock_i) ^
+route b: bockstein_coords
+    proof
+      fix C p n r a
+      intro hC hp hn hr ha hs
+      have ec: excouple(bock(C,p)) by bock_couple hC hp
+      have p2: 2 <= p by prime_ge2 hp
+      have cxC: iscx(C) by fintype_def hC
+      have hsum: summand(H(C,n),Hc(C)) by H_summand cxC
+      have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum
+      have aT: a in Hc(C) by zs_mem hsT
+      have aD: a in D(bock(C,p)) by bock_D aT
+      have sD: subgroup(D(bock(C,p))) by ec_subD ec
+      have rr: 0 <= r by hr
+      have r1: 1 <= r + 1 by hr
+      have kj: k(bock(C,p),j(bock(C,p),a)) = 0 by ec_kj ec aD
+      have jaE: j(bock(C,p),a) in E(bock(C,p)) by ec_jE ec aD
+      have z0: 0 in D(bock(C,p)) by sub_zero sD
+      have zr1: Zr(bock(C,p),r+1,j(bock(C,p),a)) by cf_Z[bock(C,p), r+1, j(bock(C,p),a)] ec r1 jaE kj z0 with 0
+      have s1: Zr(bock(C,p),r,j(bock(C,p),a)) by Zsucc_def zr1 hr
+      have s2: dzero(bock(C,p),r,j(bock(C,p),a))
+      proof
+        obtain f:el st jf bf: Jr(bock(C,p),r,k(bock(C,p),j(bock(C,p),a)),f) and Br(bock(C,p),r,f) by Zsucc_def zr1 hr
+        show by dzero_def jf bf with f
+      qed
+      have s3: not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+      proof
+        intro h
+        obtain e0 f:el st z1 dg jf bf: Zr(bock(C,p),r,e0) and Edeg(bock(C,p),n-1,e0) and Jr(bock(C,p),r,k(bock(C,p),e0),f) and Br(bock(C,p),r,j(bock(C,p),a) - f) by dimg_def h
+        have b: Br(bock(C,p),r+1,j(bock(C,p),a)) by Bsucc_def hr z1 jf bf with e0, f
+        obtain x:el st xD xi xj: x in D(bock(C,p)) and ipow(bock(C,p),r,x) = 0 and j(bock(C,p),a) = j(bock(C,p),x) by cf_B[bock(C,p), r+1, j(bock(C,p),a)] ec r1 b
+        have dD: a - x in D(bock(C,p)) by sD aD xD
+        have jd: j(bock(C,p),a - x) = 0 by xj
+        obtain y:el st yD yi: y in D(bock(C,p)) and a - x = i(bock(C,p),y) by ec_kerj ec dD jd
+        have e1: ipow(bock(C,p),r,x) = p^r*x by ipow_bock[C, p] hC hp rr xD
+        have e2: i(bock(C,p),y) = p*y by bock_ip[C, p, y] hC yD
+        have p1: 1 <= p by p2
+        have w1: 1 <= p^r by pow_pos p1 rr
+        have wx: p^r*x = 0 by xi e1
+        have ax: a = x + p*y by yi e2
+        have xH: x in Hc(C) by bock_D xD
+        have yH: y in Hc(C) by bock_D yD
+        show false by zsum_unit[a, Hc(C), p, p^r, x, y] hsT p2 w1 xH yH wx ax
+      qed
+      show by s1 s2 s3
+    qed
+  rests on:
+    bockstein_coords  (304 inferences; axioms: int_discrete Zsucc_def Bsucc_def dzero_def dimg_def fintype_def bock_D)
+      pow_pos  (32 inferences; axioms: int_discrete mul_nonneg pow_succ)
+      sub_zero  (9 inferences; axioms: subgroup_def)
+      sub_add  (20 inferences; axioms: subgroup_def)
+      sub_smul  (38 inferences; axioms: int_discrete)
+        sub_neg  (13 inferences; axioms: subgroup_def)
+        sub_natmul  (21 inferences)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+      zsummand_trans  (200 inferences; axioms: ssum_def summand_def zsummand_def)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+        ssum_sub  (177 inferences; axioms: subgroup_def ssum_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+      zsum_unit  (138 inferences; axioms: int_discrete le_antisym mul_nonneg int_domain zsummand_def)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+      ec_subD  (17 inferences; axioms: excouple_def)
+      ec_jE  (20 inferences; axioms: excouple_def)
+      ec_kerj  (21 inferences; axioms: excouple_def)
+      ec_kj  (15 inferences; axioms: excouple_def)
+      ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+      ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+      cf_Z  (17 inferences)
+        closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          ec_subD  (17 inferences; axioms: excouple_def) ^
+          ec_iD  (21 inferences; axioms: excouple_def)
+          ec_kD  (19 inferences; axioms: excouple_def)
+          ec_kerj  (21 inferences; axioms: excouple_def) ^
+          ec_ji  (17 inferences; axioms: excouple_def)
+          ec_keri  (17 inferences; axioms: excouple_def)
+          ec_ik  (13 inferences; axioms: excouple_def)
+          ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+          ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+          ipow_shift  (53 inferences; axioms: int_discrete ipow_zero ipow_succ)
+            ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+            ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+          ipow_D  (63 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            ec_subD  (17 inferences; axioms: excouple_def) ^
+            ec_iD  (21 inferences; axioms: excouple_def) ^
+            ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+            ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+      cf_B  (16 inferences)
+        closed_forms  (934 inferences; axioms: ipow_zero ipow_succ D1_def Z1_def B1_def J1_def Dsucc_def Zsucc_def Bsucc_def Jsucc_def) ^
+      H_summand  (276 inferences; axioms: summand_def cls_dom cls_tot cls_sur cls_zero proj_in Cn_ch proj_id proj_dif H_def Hco_def)
+        sub_add  (20 inferences; axioms: subgroup_def) ^
+        sub_smul  (38 inferences; axioms: int_discrete) ^
+        cx_sub  (9 inferences; axioms: iscx_def)
+        cls_add  (27 inferences; axioms: cls_sub)
+          cls_neg  (18 inferences; axioms: cls_sub)
+            cls_00  (24 inferences; axioms: cls_tot)
+              sub_zero  (9 inferences; axioms: subgroup_def) ^
+              cx_sub  (9 inferences; axioms: iscx_def) ^
+              cls_zero0  (29 inferences; axioms: cls_zero)
+                sub_zero  (9 inferences; axioms: subgroup_def) ^
+                cx_sub  (9 inferences; axioms: iscx_def) ^
+        cls_fun  (28 inferences)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_eq  (43 inferences; axioms: cls_sub cls_zero)
+        Hc_sub  (79 inferences; axioms: subgroup_def cls_dom cls_sur)
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+        H_in  (20 inferences; axioms: cls_dom H_def)
+        Hco_in  (20 inferences; axioms: cls_dom Hco_def)
+        H_sub  (147 inferences; axioms: subgroup_def H_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+          Cn_sub  (101 inferences; axioms: subgroup_def proj_in Cn_ch proj_id)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+        Hco_sub  (161 inferences; axioms: subgroup_def Hco_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_add  (27 inferences; axioms: cls_sub) ^
+      prime_ge2  (8 inferences; axioms: prime_def)
+      bock_couple  (564 inferences; axioms: excouple_def bock_D bock_E bock_i bock_j bock_k)
+        Hc_sub  (79 inferences; axioms: subgroup_def cls_dom cls_sur) ^
+        cm_A  (14 inferences; axioms: chmap_def)
+        cm_B  (14 inferences; axioms: chmap_def)
+        ss_f  (20 inferences; axioms: isses_def)
+        ss_g  (20 inferences; axioms: isses_def)
+        HM_dom  (32 inferences; axioms: cls_dom HM_def)
+        Del_dom  (44 inferences; axioms: cls_dom Del_def)
+        HM_tot  (71 inferences; axioms: cls_dom cls_tot cls_sur HM_def)
+          cm_in  (18 inferences; axioms: chmap_def)
+          cm_d  (17 inferences; axioms: chmap_def)
+        Del_tot  (160 inferences; axioms: cls_dom cls_tot cls_sur Del_def)
+          cx_d  (14 inferences; axioms: iscx_def)
+          cx_dd  (13 inferences; axioms: iscx_def)
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_inj  (27 inferences; axioms: isses_def)
+          ss_sur  (23 inferences; axioms: isses_def)
+          ss_ker  (25 inferences; axioms: isses_def)
+        les_fg  (89 inferences; axioms: cls_dom HM_def)
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def)
+          HM_fun  (79 inferences; axioms: HM_def)
+            cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+            cls_rep  (26 inferences; axioms: cls_sub cls_zero)
+            cm_B  (14 inferences; axioms: chmap_def) ^
+            cm_in  (18 inferences; axioms: chmap_def) ^
+            cm_d  (17 inferences; axioms: chmap_def) ^
+        les_kerg  (209 inferences; axioms: cls_dom cls_tot cls_zero HM_def)
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cx_d  (14 inferences; axioms: iscx_def) ^
+          cx_dd  (13 inferences; axioms: iscx_def) ^
+          cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_inj  (27 inferences; axioms: isses_def) ^
+          ss_sur  (23 inferences; axioms: isses_def) ^
+          ss_ker  (25 inferences; axioms: isses_def) ^
+        les_gdel  (105 inferences; axioms: cls_dom HM_def Del_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cls_00  (24 inferences; axioms: cls_tot) ^
+          cm_A  (14 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          Del_fun  (232 inferences; axioms: Del_def)
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+            cx_d  (14 inferences; axioms: iscx_def) ^
+            cx_dd  (13 inferences; axioms: iscx_def) ^
+            cls_eq  (43 inferences; axioms: cls_sub cls_zero) ^
+            cls_rep  (26 inferences; axioms: cls_sub cls_zero) ^
+            cm_A  (14 inferences; axioms: chmap_def) ^
+            cm_B  (14 inferences; axioms: chmap_def) ^
+            cm_d  (17 inferences; axioms: chmap_def) ^
+            ss_f  (20 inferences; axioms: isses_def) ^
+            ss_g  (20 inferences; axioms: isses_def) ^
+            ss_inj  (27 inferences; axioms: isses_def) ^
+            ss_sur  (23 inferences; axioms: isses_def) ^
+            ss_ker  (25 inferences; axioms: isses_def) ^
+        les_kerdel  (136 inferences; axioms: cls_tot cls_zero HM_def Del_def)
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def) ^
+        les_delf  (122 inferences; axioms: cls_tot cls_zero HM_def Del_def)
+          cx_dd  (13 inferences; axioms: iscx_def) ^
+          cm_B  (14 inferences; axioms: chmap_def) ^
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          ss_f  (20 inferences; axioms: isses_def) ^
+          HM_fun  (79 inferences; axioms: HM_def) ^
+        les_kerf  (125 inferences; axioms: cls_dom cls_tot cls_zero HM_def Del_def)
+          cm_in  (18 inferences; axioms: chmap_def) ^
+          cm_d  (17 inferences; axioms: chmap_def) ^
+          ss_g  (20 inferences; axioms: isses_def) ^
+          ss_gf  (21 inferences; axioms: isses_def) ^
+        isses_bock  (257 inferences; axioms: int_discrete chmap_def isses_def mulp_def red_ch red_ker red_dif fintype_def)
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+          cx_sub  (9 inferences; axioms: iscx_def) ^
+          prime_ge2  (8 inferences; axioms: prime_def) ^
+          red_cx  (251 inferences; axioms: subgroup_def iscx_def red_ch red_dif)
+            sub_zero  (9 inferences; axioms: subgroup_def) ^
+            sub_add  (20 inferences; axioms: subgroup_def) ^
+            sub_smul  (38 inferences; axioms: int_discrete) ^
+            cx_sub  (9 inferences; axioms: iscx_def) ^
+            cx_d  (14 inferences; axioms: iscx_def) ^
+            cx_dd  (13 inferences; axioms: iscx_def) ^
+        sub_eqv  (65 inferences; axioms: subgroup_def)
+          sub_zero  (9 inferences; axioms: subgroup_def) ^
+          sub_add  (20 inferences; axioms: subgroup_def) ^
+          sub_smul  (38 inferences; axioms: int_discrete) ^
+      bock_ip  (66 inferences; axioms: cls_sur HM_def mulp_def fintype_def bock_D bock_i)
+        cls_smul  (41 inferences; axioms: int_discrete)
+          cls_neg  (18 inferences; axioms: cls_sub) ^
+          cls_natmul  (24 inferences)
+            cls_00  (24 inferences; axioms: cls_tot) ^
+            cls_add  (27 inferences; axioms: cls_sub) ^
+      zs_mem  (18 inferences; axioms: zsummand_def)
+      ipow_bock  (54 inferences; axioms: pow_succ ipow_zero ipow_succ)
+        ipow_add  (65 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_smul  (52 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        ipow_D  (63 inferences; axioms: int_discrete ipow_zero ipow_succ ipow_neg) ^
+        bock_couple  (564 inferences; axioms: excouple_def bock_D bock_E bock_i bock_j bock_k) ^
+        bock_ip  (66 inferences; axioms: cls_sur HM_def mulp_def fintype_def bock_D bock_i) ^
+axioms used:
+  int_discrete   [integer arithmetic] forall n:int: n <= 0 or 1 <= n
+  le_antisym     [integer arithmetic] forall a:int: 0 <= a and 0 <= -a -> a = 0
+  mul_nonneg     [integer arithmetic] forall a b:int: 0 <= a and 0 <= b -> 0 <= a*b
+  int_domain     [integer arithmetic] forall a b:int: a*b = 0 -> a = 0 or b = 0
+  pow_succ       [integer arithmetic] forall a m:int: 0 <= m -> a^(m+1) = a^m*a
+  subgroup_def   [definition] forall S:set: subgroup(S) <-> (0 in S and (forall x y:el: x in S and y in S -> x + y in S) and (forall x:el: x in S -> -x in S))
+  ssum_def       [definition] forall A B:set, x:el: x in ssum(A,B) <-> (exists a b:el: a in A and b in B and x = a + b)
+  summand_def    [definition] forall S T:set: summand(S,T) <-> (exists M:set: subgroup(S) and subgroup(T) and subgroup(M) and (forall x:el: x in S -> x in T) and (forall x:el: x in M -> x in T) and (forall x:el: x in T -> exists s m:el: s in S and m in M and x = s + m) and (forall s m:el: s in S and m in M and s + m = 0 -> s = 0))
+  zsummand_def   [definition] forall a:el, S:set: zsummand(a,S) <-> (exists M:set: a in S and subgroup(S) and subgroup(M) and (forall x:el: x in M -> x in S) and (forall x:el: x in S -> exists n:int, m:el: m in M and x = n*a + m) and (forall n:int, m:el: m in M and n*a + m = 0 -> n = 0))
+  excouple_def   [definition] forall c:cpl: excouple(c) <-> (subgroup(D(c)) and subgroup(E(c)) and (forall x:el: x in D(c) -> i(c,x) in D(c)) and (forall x:el: x in D(c) -> j(c,x) in E(c)) and (forall e:el: e in E(c) -> k(c,e) in D(c)) and (forall x:el: x in D(c) and j(c,x) = 0 -> exists y:el: y in D(c) and x = i(c,y)) and (forall x:el: x in D(c) -> j(c,i(c,x)) = 0) and (forall e:el: e in E(c) and k(c,e) = 0 -> exists x:el: x in D(c) and e = j(c,x)) and (forall x:el: x in D(c) -> k(c,j(c,x)) = 0) and (forall x:el: x in D(c) and i(c,x) = 0 -> exists e:el: e in E(c) and x = k(c,e)) and (forall e:el: e in E(c) -> i(c,k(c,e)) = 0))
+  ipow_zero      [definition] forall c:cpl, x:el: ipow(c,0,x) = x
+  ipow_succ      [definition] forall c:cpl, m:int, x:el: 0 <= m -> ipow(c,m+1,x) = i(c,ipow(c,m,x))
+  ipow_neg       [definition] forall c:cpl, m:int, x:el: m < 0 -> ipow(c,m,x) = 0
+  D1_def         [definition] forall c:cpl, x:el: Dr(c,1,x) <-> x in D(c)
+  Z1_def         [definition] forall c:cpl, e:el: Zr(c,1,e) <-> e in E(c)
+  B1_def         [definition] forall c:cpl, e:el: Br(c,1,e) <-> e = 0
+  J1_def         [definition] forall c:cpl, x e:el: Jr(c,1,x,e) <-> (x in D(c) and e = j(c,x))
+  Dsucc_def      [definition] forall c:cpl, r:int, y:el: 1 <= r -> (Dr(c,r+1,y) <-> (exists x:el: Dr(c,r,x) and y = i(c,x)))
+  Zsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Zr(c,r+1,e) <-> (Zr(c,r,e) and exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f)))
+  Bsucc_def      [definition] forall c:cpl, r:int, e:el: 1 <= r -> (Br(c,r+1,e) <-> (exists e0 f:el: Zr(c,r,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f)))
+  Jsucc_def      [definition] forall c:cpl, r:int, y e:el: 1 <= r -> (Jr(c,r+1,y,e) <-> (exists x f:el: Dr(c,r,x) and y = i(c,x) and Jr(c,r,x,f) and Br(c,r+1,e - f)))
+  dzero_def      [definition] forall c:cpl, r:int, e:el: dzero(c,r,e) <-> (exists f:el: Jr(c,r,k(c,e),f) and Br(c,r,f))
+  dimg_def       [definition] forall c:cpl, r m:int, e:el: dimg(c,r,m,e) <-> (exists e0 f:el: Zr(c,r,e0) and Edeg(c,m,e0) and Jr(c,r,k(c,e0),f) and Br(c,r,e - f))
+  iscx_def       [definition] forall A:cx: iscx(A) <-> (subgroup(Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,x) in Ch(A)) and (forall x:el: x in Ch(A) -> dif(A,dif(A,x)) = 0))
+  cls_dom        [definition] forall A:cx, z h:el: Cls(A,z,h) -> z in Ch(A) and dif(A,z) = 0 and h in Hc(A)
+  cls_tot        [definition] forall A:cx, z:el: z in Ch(A) and dif(A,z) = 0 -> exists h:el: Cls(A,z,h)
+  cls_sur        [definition] forall A:cx, h:el: h in Hc(A) -> exists z:el: Cls(A,z,h)
+  cls_sub        [definition] forall A:cx, z1 z2 h1 h2:el: Cls(A,z1,h1) and Cls(A,z2,h2) -> Cls(A,z1 - z2,h1 - h2)
+  cls_zero       [definition] forall A:cx, z h:el: Cls(A,z,h) -> (h = 0 <-> (exists y:el: y in Ch(A) and z = dif(A,y)))
+  proj_in        [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n,x) in Cn(A,n)
+  Cn_ch          [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> x in Ch(A)
+  proj_id        [definition] forall A:cx, n:int, x:el: x in Cn(A,n) -> proj(A,n,x) = x
+  proj_dif       [definition] forall A:cx, n:int, x:el: x in Ch(A) -> proj(A,n+1,dif(A,x)) = dif(A,proj(A,n,x))
+  H_def          [definition] forall A:cx, n:int, h:el: h in H(A,n) <-> (exists z:el: z in Cn(A,n) and Cls(A,z,h))
+  Hco_def        [definition] forall A:cx, n:int, h:el: h in Hco(A,n) <-> (exists z:el: z in Ch(A) and proj(A,n,z) = 0 and Cls(A,z,h))
+  chmap_def      [definition] forall A B:cx, f:hom: chmap(A,B,f) <-> (iscx(A) and iscx(B) and (forall x:el: x in Ch(A) -> ap(f,x) in Ch(B)) and (forall x:el: x in Ch(A) -> ap(f,dif(A,x)) = dif(B,ap(f,x))))
+  isses_def      [definition] forall A B C:cx, f g:hom: isses(A,B,C,f,g) <-> (chmap(A,B,f) and chmap(B,C,g) and (forall x:el: x in Ch(A) and ap(f,x) = 0 -> x = 0) and (forall w:el: w in Ch(C) -> exists b:el: b in Ch(B) and w = ap(g,b)) and (forall b:el: b in Ch(B) and ap(g,b) = 0 -> exists x:el: x in Ch(A) and b = ap(f,x)) and (forall x:el: x in Ch(A) -> ap(g,ap(f,x)) = 0))
+  HM_def         [definition] forall A B:cx, f:hom, h h2:el: HM(A,B,f,h,h2) <-> (exists z:el: Cls(A,z,h) and Cls(B,ap(f,z),h2))
+  Del_def        [definition] forall A B C:cx, f g:hom, e h:el: Del(A,B,C,f,g,e,h) <-> (exists w b z:el: Cls(C,w,e) and b in Ch(B) and w = ap(g,b) and z in Ch(A) and ap(f,z) = dif(B,b) and Cls(A,z,h))
+  mulp_def       [definition] forall p:int, x:el: ap(mulp(p),x) = p*x
+  red_ch         [definition] forall C:cx, p:int, w:el: w in Ch(red(C,p)) <-> (exists x:el: x in Ch(C) and w = ap(rh(C,p),x))
+  red_ker        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> (ap(rh(C,p),x) = 0 <-> (exists y:el: y in Ch(C) and x = p*y))
+  red_dif        [definition] forall C:cx, p:int, x:el: x in Ch(C) -> dif(red(C,p),ap(rh(C,p),x)) = ap(rh(C,p),dif(C,x))
+  fintype_def    [definition] forall C:cx: fintype(C) <-> (iscx(C) and (forall m:int, x:el: x in Ch(C) and 1 <= m and m*x = 0 -> x = 0))
+  prime_def      [definition] forall p:int: prime(p) <-> (2 <= p and (forall d q:int: 1 <= d and p = d*q -> d = 1 or d = p))
+  bock_D         [definition] forall C:cx, p:int, x:el: x in D(bock(C,p)) <-> x in Hc(C)
+  bock_E         [definition] forall C:cx, p:int, x:el: x in E(bock(C,p)) <-> x in Hc(red(C,p))
+  bock_i         [definition] forall C:cx, p:int, h h2:el: HM(C,C,mulp(p),h,h2) -> i(bock(C,p),h) = h2
+  bock_j         [definition] forall C:cx, p:int, h h2:el: HM(C,red(C,p),rh(C,p),h,h2) -> j(bock(C,p),h) = h2
+  bock_k         [definition] forall C:cx, p:int, e h:el: Del(C,C,red(C,p),mulp(p),rh(C,p),e,h) -> k(bock(C,p),e) = h
+> theorem torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C,p),r,j(bock(C,p),a))) and Br(bock(C,p),k+1,j(bock(C,p),a))
+theorem torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C, n) and zpksummand(a, H(C, n), p, k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C, p), r, j(bock(C, p), a))) and Br(bock(C, p), k + 1, j(bock(C, p), a))
+> prove torsion
+torsion: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C, n) and zpksummand(a, H(C, n), p, k) -> (forall r:int: 1 <= r and r <= k -> not Br(bock(C, p), r, j(bock(C, p), a))) and Br(bock(C, p), k + 1, j(bock(C, p), a))
+  proved by bockstein_torsion (6160 kernel inferences with its lemmas); independent re-check: ok
+> check les_exact
+les_exact: 1778 inferences re-checked
+> check bock_couple
+bock_couple: 3249 inferences re-checked
+> check H_summand
+H_summand: 1201 inferences re-checked
+> check deg_k
+deg_k: 511 inferences re-checked
+> check red_dif_wd
+red_dif_wd: 320 inferences re-checked
+> check derived_exact
+derived_exact: 2177 inferences re-checked
+> check dd_zero
+dd_zero: 1662 inferences re-checked
+> check modular_law
+modular_law: 371 inferences re-checked
+> check short_five_mono
+short_five_mono: 187 inferences re-checked
+> check snake_ker_exact
+snake_ker_exact: 164 inferences re-checked
+> check cyclic_order
+cyclic_order: 316 inferences re-checked
+> theorem ab: forall x y:el: 2*(x + y) - x = x + 2*y
+theorem ab: forall x y:el: 2*(x + y) - x = x + 2*y
+> prove ab
+ab: proved automatically (5 kernel inferences); independent re-check: ok
+> theorem unit: forall p z:int: 2 <= p and 1 = p*z -> false
+theorem unit: forall p z:int: 2 <= p and 1 = p*z -> false
+> prove unit
+unit: forall p z:int: 2 <= p and 1 = p*z -> false
+  proved by unit_p (29 kernel inferences with its lemmas); independent re-check: ok
+> theorem kerj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c,r,y,e) and Br(c,r,e) -> exists y2:el: Dr(c,r,y2) and y = i(c,y2)
+theorem kerj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c, r, y, e) and Br(c, r, e) -> (exists y2:el: Dr(c, r, y2) and y = i(c, y2))
+> prove kerj using dc_kerj
+kerj: forall c:cpl, r:int, y e:el: excouple(c) and 1 <= r and Jr(c, r, y, e) and Br(c, r, e) -> (exists y2:el: Dr(c, r, y2) and y = i(c, y2))
+  proved by dc_kerj (1471 kernel inferences with its lemmas); independent re-check: ok
+> theorem nosummand: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C,n) -> Zr(bock(C,p),r,j(bock(C,p),a)) and dzero(bock(C,p),r,j(bock(C,p),a)) and not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+theorem nosummand: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C, n) -> Zr(bock(C, p), r, j(bock(C, p), a)) and dzero(bock(C, p), r, j(bock(C, p), a)) and not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+> prove nosummand
+  the proof of bockstein_paper does not apply: thy_absalg.thy:1946: no fact, lemma or axiom named hs [step: have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum]
+  the proof of bockstein_coords does not apply: thy_absalg.thy:2009: no fact, lemma or axiom named hs [step: have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum]
+nosummand: NOT proved
+  automation: could not prove forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 0 <= n and 1 <= r and a in H(C, n) -> Zr(bock(C, p), r, j(bock(C, p), a)) and dzero(bock(C, p), r, j(bock(C, p), a)) and not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+  counterexample: C = the cochains of S^1, p = 2, n = 0, r = 1, a = [0] in H^0(S^1; Z) = Z
+  (evaluated in a concrete model: complexes are standard spaces' cochains, bock(C,p) homalg.h's exact Bockstein spectral sequence; a computation, not a kernel proof)
+> theorem zp_survives: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 1 <= r and a in H(C,n) and zpksummand(a,H(C,n),p,1) -> not dimg(bock(C,p),r,n-1,j(bock(C,p),a))
+theorem zp_survives: forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 1 <= r and a in H(C, n) and zpksummand(a, H(C, n), p, 1) -> not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+> prove zp_survives
+  the proof of bockstein_paper does not apply: thy_absalg.thy:1946: no fact, lemma or axiom named hs [step: have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum]
+  the proof of bockstein_coords does not apply: thy_absalg.thy:2009: no fact, lemma or axiom named hs [step: have hsT: zsummand(a,Hc(C)) by zsummand_trans[a, H(C,n), Hc(C)] hs hsum]
+zp_survives: NOT proved
+  automation: could not prove forall C:cx, p n r:int, a:el: fintype(C) and prime(p) and 1 <= r and a in H(C, n) and zpksummand(a, H(C, n), p, 1) -> not dimg(bock(C, p), r, n - 1, j(bock(C, p), a))
+  counterexample: C = the cochains of RP^2, p = 2, n = 2, r = 1, a = [1] in H^2(RP^2; Z) = Z/2
+  (evaluated in a concrete model: complexes are standard spaces' cochains, bock(C,p) homalg.h's exact Bockstein spectral sequence; a computation, not a kernel proof)
+> theorem dies_early: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C,n) and zpksummand(a,H(C,n),p,k) -> Br(bock(C,p),k,j(bock(C,p),a))
+theorem dies_early: forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C, n) and zpksummand(a, H(C, n), p, k) -> Br(bock(C, p), k, j(bock(C, p), a))
+> prove dies_early
+  the proof of bockstein_torsion does not apply: thy_absalg.thy:2234: could not prove Br(bock(C, p), k'189, j(bock(C, p), a)) [step: show by part1 part2]
+dies_early: NOT proved
+  automation: could not prove forall C:cx, p n k:int, a:el: fintype(C) and prime(p) and 1 <= k and a in H(C, n) and zpksummand(a, H(C, n), p, k) -> Br(bock(C, p), k, j(bock(C, p), a))
+  counterexample: C = the cochains of RP^2, p = 2, n = 2, k = 1, a = [1] in H^2(RP^2; Z) = Z/2
+  (evaluated in a concrete model: complexes are standard spaces' cochains, bock(C,p) homalg.h's exact Bockstein spectral sequence; a computation, not a kernel proof)
+> theorem notsquare: forall x:int: x*x >= x + 1
+theorem notsquare: forall x:int: x + 1 <= x*x
+> prove notsquare
+notsquare: NOT proved
+  automation: could not prove forall x:int: x + 1 <= x*x
+  counterexample: x = 0
+  (evaluated in a concrete model: complexes are standard spaces' cochains, bock(C,p) homalg.h's exact Bockstein spectral sequence; a computation, not a kernel proof)
