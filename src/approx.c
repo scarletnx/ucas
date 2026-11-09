@@ -52,6 +52,8 @@ struct aopt {
 	int rational, reduce, split;
 	char name[24];
 	int haswt;
+	int method;		/* fit that seeds the machine forms: FM_* */
+	int keep_crit;		/* exact at the critical points too */
 };
 
 struct cand {
@@ -98,7 +100,8 @@ static struct {
 static const char *const optwords[] = {
 	"in", "degree", "error", "ulp", "as", "relative", "absolute", "odd",
 	"even", "nosym", "keep", "weight", "at", "fma", "nofma", "norefine",
-	"list", "name", "points", "norational", "noreduce", "nosplit", NULL
+	"list", "name", "points", "norational", "noreduce", "nosplit", "method",
+	NULL
 };
 
 /* ---- small helpers ---- */
@@ -1260,8 +1263,17 @@ direct_polys(void)
 			continue;
 		k.pb = pb;
 		k.fr = rr;
-		machine_forms(&k, "minimax", shape_str(A.k0, A.step, A.c, 0),
-		    deg, 0, metric_of_fit(&rr), fe);
+		if (A.o.method == FM_CHEB && rc.ok) {
+			k.pb.method = FM_CHEB;
+			k.fr = rc;
+		} else if (A.o.method == FM_ECON && re.ok) {
+			k.pb.method = FM_ECON;
+			k.fr = re;
+		}
+		machine_forms(&k, k.pb.method == FM_CHEB ? "cheb" :
+		    k.pb.method == FM_ECON ? "econ" : "minimax",
+		    shape_str(A.k0, A.step, A.c, 0), deg, 0, metric_of_fit(&k.fr),
+		    fe);
 		if (metric_of_fit(&rr) < floor_err())
 			stop = 1;
 		/* polynomials that barely converge are not worth more terms */
@@ -2601,6 +2613,8 @@ cmd_approx(struct P *p)
 	o->list = 0;
 	o->npts = 1 << 17;
 	o->rational = 1;
+	o->method = FM_REMEZ;
+	o->keep_crit = 0;
 	o->reduce = 1;
 	o->split = 1;
 	o->fmt = -1;
@@ -2662,6 +2676,8 @@ cmd_approx(struct P *p)
 			do {
 				if (cmdp_kw(p, "endpoints") || cmdp_kw(p, "ends"))
 					o->keep_ends = 1;
+				else if (cmdp_kw(p, "crit") || cmdp_kw(p, "critical"))
+					o->keep_crit = 1;
 				else if (cmdp_kw(p, "none"))
 					;
 				else if (o->nkeep < AMAXK - 2)
@@ -2693,6 +2709,15 @@ cmd_approx(struct P *p)
 		} else if (cmdp_kw(p, "name")) {
 			if (!cmdp_word(p, o->name, sizeof o->name))
 				fail("name needs an identifier");
+		} else if (cmdp_kw(p, "method")) {
+			if (cmdp_kw(p, "cheb") || cmdp_kw(p, "chebyshev"))
+				o->method = FM_CHEB;
+			else if (cmdp_kw(p, "econ"))
+				o->method = FM_ECON;
+			else if (cmdp_kw(p, "minimax") || cmdp_kw(p, "remez"))
+				o->method = FM_REMEZ;
+			else
+				fail("method is cheb, econ or minimax");
 		} else if (cmdp_kw(p, "norational"))
 			o->rational = 0;
 		else if (cmdp_kw(p, "noreduce"))
@@ -2723,6 +2748,20 @@ cmd_approx(struct P *p)
 	lref_init(&A.ref, A.f.body, 0);
 	if (o->haswt)
 		lref_init(&A.wref, A.wf.body, 0);
+	if (o->keep_crit) {
+		/* extrema stay exact: the critical points inside the interval */
+		double cr[8];
+		int nc = crit_roots(&A.f, lo, hi, cr, 8);
+		printf("  keep crit: ");
+		if (nc == 0)
+			printf("no critical points inside [%.9g, %.9g]", lo, hi);
+		for (i = 0; i < nc; i++) {
+			printf("%sx = %.9g", i ? ", " : "", cr[i]);
+			if (o->nkeep < AMAXK - 2)
+				o->keep[o->nkeep++] = cr[i];
+		}
+		putchar('\n');
+	}
 	A.nkeep = 0;
 	if (o->keep_ends) {
 		A.keep[A.nkeep++] = A.lo;

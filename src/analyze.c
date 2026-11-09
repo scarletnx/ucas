@@ -418,6 +418,8 @@ bisect(struct plan *p, uint32_t loc, double a, double b, int by_def)
 
 #define GRID 20001
 
+int range_nocrit;   /* range F nocrit: the grid only, no refinement */
+
 static void
 range_real1(struct func *f)
 {
@@ -432,7 +434,7 @@ range_real1(struct func *f)
 	nid d = 0;
 
 	roots[0] = f->body;
-	{
+	if (!range_nocrit) {
 		/* not every body is differentiable; then only the grid is used */
 		jmp_buf saved;
 		memcpy(saved, fail_jmp, sizeof saved);
@@ -503,9 +505,11 @@ range_real1(struct func *f)
 		printf("  IEEE: NaN at %llu points, ±inf at %llu points\n",
 		    (unsigned long long)nnan, (unsigned long long)ninf);
 	if (TYK(f->p[0].ty) == K_REAL)
-		printf("  grid of %d points over [%g, %g]%s, extrema refined "
-		    "at critical points\n", GRID, r.d.rlo[0], r.d.rhi[0],
-		    f->p[0].ranged ? "" : " (default; give x a range)");
+		printf("  grid of %d points over [%g, %g]%s, %s\n", GRID,
+		    r.d.rlo[0], r.d.rhi[0], f->p[0].ranged ? "" :
+		    " (default; give x a range)", have_d ?
+		    "extrema refined at critical points" : range_nocrit ?
+		    "critical points not used (nocrit)" : "grid only");
 	else
 		domain_note(&r, seen);
 	plan_free(&dp);
@@ -1851,4 +1855,48 @@ cmd_fit(struct func *g, struct func *f, int metric)
 	free(c.tgt);
 	free(c.pin_i);
 	free(c.pin_r);
+}
+
+/*
+ * The critical points of a one-parameter function on [lo, hi]: sign
+ * changes and zeros of the derivative on a grid, refined by bisection.
+ * Returns how many were found (at most max); 0 when f has no derivative.
+ */
+int
+crit_roots(struct func *f, double lo, double hi, double *out, int max)
+{
+	enum { NG = 4000 };
+	jmp_buf saved;
+	struct plan dp;
+	nid d = 0;
+	double x, px = lo, dv, pdv = 0, r;
+	int have = 0, n = 0, k, ok, pok = 0;
+
+	memcpy(saved, fail_jmp, sizeof saved);
+	if (setjmp(fail_jmp) == 0) {
+		d = diff_node(f->body, 0);
+		have = 1;
+	}
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	if (!have)
+		return 0;
+	plan_build(&dp, &d, 1, 0);
+	for (k = 0; k <= NG && n < max; k++) {
+		x = lo + (hi - lo) * k / NG;
+		ok = eval_at(&dp, dp.root[0], x, &dv);
+		r = NAN;
+		if (ok && dv == 0 && k > 0 && k < NG)
+			r = x;
+		else if (ok && pok && pdv != 0 && (dv > 0) != (pdv > 0))
+			r = bisect(&dp, dp.root[0], px, x, 0);
+		if (!isnan(r) && r > lo && r < hi &&
+		    (n == 0 || r - out[n - 1] > (hi - lo) * 1e-9))
+			out[n++] = r;
+		px = x;
+		pdv = dv;
+		pok = ok;
+	}
+	plan_free(&dp);
+	return n;
 }

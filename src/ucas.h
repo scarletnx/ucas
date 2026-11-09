@@ -325,6 +325,8 @@ void plan_ival(const struct plan *p, const struct func *f, struct ival *out);
 void cmd_show(struct func *f);
 void cmd_table(struct func *f, int max);
 void cmd_range(struct func *f);
+extern int range_nocrit;     /* range F nocrit: skip critical points */
+int crit_roots(struct func *f, double lo, double hi, double *out, int max);
 void cmd_domain(struct func *f);
 void cmd_wrap(struct func *f);
 void cmd_crit(struct func *f);
@@ -364,5 +366,11 @@ void loop_print(struct sbuf *b, nid n, const struct pctx *pc);
 nid loop_remake(nid n, nid a, nid b, nid c, const nid *map, int nmap);
 float loop_cost(const struct model *m, nid n, int *cls);
 nid loop_diff(nid n, uint32_t slot);
+
+/* ---- nlp.c: English in, ucas statements out ---- */
+extern int nlp_interactive;  /* -1: ask only when stdin and stdout are ttys */
+int nlp_is_english(const char *line, size_t n);
+void nlp_run(const char *line, size_t n, const char *file, int echo);
+void run_text(const char *src, const char *file, int echo);
 
 #endif

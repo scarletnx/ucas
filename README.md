@@ -136,7 +136,7 @@ inline annotations: `range isqrt(x: u4)`.
 | command | |
 |---------|--|
 | `show F`, `table F [max n]`, `parse EXPR`, `funcs`, `help` | look |
-| `range F` | min/max (exhaustive for finite domains, distinct values, smallest type); for one real parameter a grid refined at the critical points; IEEE NaN/inf counts |
+| `range F [nocrit]` | min/max (exhaustive for finite domains, distinct values, smallest type); for one real parameter a grid refined at the critical points; IEEE NaN/inf counts |
 | `domain F` | the conditions each partial operation imposes, the C assumptions (signed overflow, shift amounts, `__builtin_clz(0)`), and the inputs where the function is defined |
 | `wrap F` | per operation: whether LLVM's `nuw`/`nsw` hold (with a witness), C UB, truncating conversions; for floats `nnan`/`ninf` (fast-math) per operation; end to end: where the machine result equals the mathematical one, or the rounding error in ulp |
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
@@ -194,6 +194,8 @@ defined as `ap1`, `ap2`, ... (`name p` changes the prefix), so `error`,
 | `relative`, `absolute` | the error to minimise; by default relative unless F has a zero that a polynomial factor cannot match |
 | `odd`, `even`, `nosym` | symmetry; by default detected numerically (64 points) |
 | `keep endpoints`, `keep x1, x2, ...` | points where the approximation must be exact (in real arithmetic; after rounding the list says whether the machine result equals the rounded value there) |
+| `keep crit` | also exact at the critical points of F inside the interval (found from the derivative), so the extrema survive |
+| `method cheb`, `method econ`, `method minimax` | which real-arithmetic fit seeds the machine candidates: Chebyshev interpolation, Chebyshev-economised Taylor, or minimax (the default) |
 | `weight W` | an extra weight function of x for the minimax error |
 | `at c` | expansion point for a non-symmetric fit (default: 0 when inside, a zero at an endpoint, else the midpoint) |
 | `fma`, `nofma` | Horner/Estrin with or without `fma` (default with) |
@@ -255,6 +257,90 @@ the floats around each zero of F, the exact points and 0); the ulp is
 that of the exact value, so a correctly rounded result has at most 0.5.
 `error G ~ F` compares against F rounded to the format, so its ulp count
 can differ by about one half.
+
+## English
+
+A line that reads as English is translated into ucas statements, which
+are printed (`ucas: ...`) and run, so every answer also shows the syntax
+behind it.  English only; the translator is a hand-written parser
+(`src/nlp.c`) with no dictionary beyond its own phrase tables.
+
+```
+> what is the range of the integer square root of a 4-bit unsigned x?
+  ucas: it(x: u4) = isqrt(x)
+  ucas: range it
+> is avg comutative?
+  note: read "comutative" as "commutative"
+  ucas: lhs(a: u8, b: u8) = avg(a, b)
+  ucas: rhs(a: u8, b: u8) = avg(b, a)
+  ucas: equiv lhs rhs
+> cos of pi/2 to -pi/2 w/o crit. points
+  note: read the interval as [-pi/2, pi/2]
+  ucas: it(x in -pi/2..pi/2) = cos(x)
+  ucas: range it nocrit
+> cos from -90deg to 90deg using cheby poly, yes critical
+  ucas: it(x in -(90*pi/180)..90*pi/180) = cos(x)
+  ucas: approx it method cheb keep crit
+> alt ((1 << 3) & x) + x*5
+  ucas: it(x) = (1 << 3 & x) + x*5
+  ucas: find it 10
+```
+
+- **When a line is English**: it ends in `?`, starts with `?`, starts
+  like a sentence (`what`, `is`, `does`, `let`, `alt`, ...), a command
+  word is followed by an English one (`range of`, `find cheaper`), or
+  it has two or more English words ucas has no use for.  Definitions
+  (`f(x) = ...`) always stay ucas.
+- **Requests**: range, domain, wrap (`does it overflow`), crit, diff
+  (`with respect to y`), equiv (`is A the same as B`), error (`how
+  accurate is G as an approximation of F`), fit (`the best constant
+  for G to approximate F`), gates (`using arm64 with sha3`, `in C`),
+  find (`cheaper implementations`, `alt`: 10 by default), cost, table,
+  approx (`cheby poly`, `minimax`, `taylor`, `degree 4`, `f64`),
+  integrate (`the integral of ... from 0 to pi`, `antiderivative`),
+  closed (`the closed form of ...`), scheme (`the best evaluation
+  scheme for ...`), continuous, dsolve (`solve y from 0 to 2 in 4
+  steps`), sums and products in words (`the sum of i squared for i
+  from 1 to n`, `the product over k from 1 to 5 of k`),
+  properties checked with equiv (commutative, associative, additive,
+  idempotent, odd/even function), definitions (`let f of x be ...`,
+  `call it g`), `assume`, `forget`.
+- **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
+  of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
+  left by 3`, `e to the power of 2`, mixed freely with ucas notation.
+  Number words, `90deg`, `90 degrees`, `90°` (angles, converted to
+  radians), `1.5r`/`rad`.  Greek letter names (`theta`, `alpha`, or
+  `θ`) are variables; one or two letters are variables; `it`/`its`
+  refer to the last function.
+- **Variables**: `for a signed byte x`, `where x is between 1 and 12`,
+  `x and y are unsigned bytes`, `when x is 3` (substituted), `on [a, b]`
+  or `from a to b` for the only variable, `cos of a to b` (an implicit
+  x); a reversed interval is put in order.
+- **Ambiguity**: `byte` (u8/i8), `char`, `int` (i32 or unbounded),
+  `integer`, `word` (16/32/64), N-bit without a sign, `log` (ln, log2,
+  log10), `the square root` of an integer (isqrt or real), `and`/`or`/
+  `not` between numbers, and scope (`the square root of x plus 1`, `the
+  sum of x and y squared`).  On a terminal ucas asks; term meanings are
+  kept for the session (`assume log means base 2` sets one).  Otherwise
+  the default is taken and a `note:` says which and how to say the
+  other.  `-i` always asks, `-y` never does.
+- **Follow-up questions**: approx without an interval asks for one; the
+  reply is read as the rest of the sentence, so options compound:
+  `cheby poly nocrit`, `0 to pi/4 degree 4 crit`.  An empty reply takes
+  the defaults (a usual interval for the function).
+- **Misspellings**: words are corrected towards the words `src/nlp.c`
+  knows (generated into `nlp_words.h` by `src/nlp_words.awk`) by
+  optimal-string-alignment distance (1 edit for 5-6 letters, 2 for
+  longer), including two halves of one word (`add ivite`).  Ties are
+  asked about.  Names being defined, function and variable names are
+  never corrected.
+
+Two ucas additions serve it: `range F nocrit` (the grid only, no
+refinement at critical points) and, for approx, `method cheb|econ|
+minimax` (which fit seeds the machine candidates; minimax by default)
+and `keep crit` (exact at the function's critical points inside the
+interval, so its extrema survive).  `it`, `that`, `lhs` and `rhs` are
+the names the translator defines.
 
 ## Bases and exact synthesis
 
