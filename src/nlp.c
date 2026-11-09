@@ -7159,6 +7159,12 @@ nlp_is_english(const char *s, size_t n)
 			static const char *const alg_eng[] = {"of", "the", "this",
 				"that", "between", "fraction", "fractions", "terms", "like",
 				"polynomial", "expression", "out", "completely", NULL};
+			static const char *const alg_starts[] = {"decompose",
+				"factorise", "factorize", "combine", "plug", "multiply",
+				"partial", NULL};
+			if (in_list(alg_starts, w1) && !user_fn(w1) &&
+			    (strcmp(w1, "partial") || strstr(s, "fraction")))
+				return 1;
 			if (in_list(alg_cmds, w1) && !user_fn(w1)) {
 				size_t j2 = j;
 				if (word_at(s, n, &j2, w2, sizeof w2) && in_list(alg_eng, w2))

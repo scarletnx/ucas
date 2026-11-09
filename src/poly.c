@@ -1668,6 +1668,10 @@ fsort_key(struct mp a, double *k2)
 	int i;
 
 	*k2 = 0;
+	if (t.n == 1) {
+		*k2 = -1e300;   /* x, y: in front */
+		return 0;
+	}
 	for (i = 0; i < t.n; i++) {
 		int k, z = 1;
 		for (k = 0; k < AV; k++)

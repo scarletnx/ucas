@@ -198,8 +198,7 @@ print_check(nid a, nid b, const char *cond)
 	uint64_t m = 0;
 
 	if (exact_same(a, b)) {
-		printf("  check: exact (both sides have the same normal form)%s%s\n",
-		    cond && *cond ? "; where " : "", cond && *cond ? cond : "");
+		printf("  check: exact (both sides have the same normal form)\n");
 		return;
 	}
 	n = alg_check(a, b, &w, &one);

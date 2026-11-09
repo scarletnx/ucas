@@ -1,0 +1,525 @@
+> expand (x+1)^5
+  ucas: expand (x+1)^5
+expand (x + 1)^5
+  = x^5 + 5x^4 + 10x^3 + 10x^2 + 5x + 1
+  check: exact (both sides have the same normal form)
+> expand (x+y+z)^3
+  ucas: expand (x+y+z)^3
+expand (x + y + z)^3
+  = x^3 + 3x^2*y + 3x^2*z + 3x*y^2 + 6x*y*z + 3x*z^2 + y^3 + 3y^2*z + 3y*z^2 + z^3
+  check: exact (both sides have the same normal form)
+> factor x^4 - 1
+factor x^4 - 1
+  = (x - 1)*(x + 1)*(x^2 + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor x^6 - 1
+factor x^6 - 1
+  = (x - 1)*(x + 1)*(x^2 + x + 1)*(x^2 - x + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor 6x^2 - 5x - 6
+factor 6x^2 - 5x - 6
+  = (2x - 3)*(3x + 2)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor x^5 + x + 1
+factor x^5 + x + 1
+  = (x^2 + x + 1)*(x^3 - x^2 + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor x^4 + 1
+factor x^4 + 1
+  = x^4 + 1
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor x^3 + y^3
+factor x^3 + y^3
+  = (x + y)*(x^2 - x*y + y^2)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor 4x^2 - 9y^2
+factor 4x^2 - 9y^2
+  = (2x + 3y)*(2x - 3y)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor x^2 y + x y^2
+factor x^2*y + x*y^2
+  = x*y*(x + y)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> factor 2x^3 + 4x^2 + 2x
+factor 2x^3 + 4x^2 + 2x
+  = 2x*(x + 1)^2
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> collect x^2 y + x y + x^2 + 3, x
+collect x^2*y + x*y + x^2 + 3
+  = (y + 1)*x^2 + x*y + 3
+  check: exact (both sides have the same normal form)
+> simplify (x^2-1)/(x-1)
+  ucas: simplify (x^2-1)/(x-1)
+simplify (x^2 - 1)/(x - 1)
+  = x + 1
+  holds where x - 1 != 0 (cancelled there)
+  check: exact (both sides have the same normal form)
+> cancel (x^2 - y^2)/(x - y)
+cancel (x^2 - y^2)/(x - y)
+  = x + y
+  holds where x - y != 0 (cancelled there)
+  check: exact (both sides have the same normal form)
+> together 1/x + 1/(x+1)
+together 1/x + 1/(x + 1)
+  = (2x + 1)/(x*(x + 1))
+  check: exact (both sides have the same normal form)
+> together a/b + c/d
+together a/b + c/d
+  = (a*d + b*c)/(b*d)
+  check: exact (both sides have the same normal form)
+> apart 1/(x^2-1)
+apart 1/(x^2 - 1)
+  = 1/(2(x - 1)) - 1/(2(x + 1))
+  check: exact (both sides have the same normal form)
+> apart (2x+3)/(x^3-x)
+apart (2x + 3)/(x^3 - x)
+  = 1/(2(x + 1)) - 3/x + 5/(2(x - 1))
+  check: exact (both sides have the same normal form)
+> apart (x^3+1)/(x^2+1)^2
+apart (x^3 + 1)/(x^2 + 1)^2
+  = x/(x^2 + 1) - (x - 1)/(x^2 + 1)^2
+  check: exact (both sides have the same normal form)
+> simplify sqrt(x^2)
+  ucas: simplify sqrt(x^2)
+simplify sqrt(x^2)
+  = abs(x)
+  check: equal at 64 sample points (max relative difference 0)
+> simplify sqrt(4x^2+4x+1)
+  ucas: simplify sqrt(4x^2+4x+1)
+simplify sqrt(4x^2 + 4x + 1)
+  = abs(2x + 1)
+  check: equal at 64 sample points (max relative difference 1.4e-16)
+> simplify exp(log(x))
+  ucas: simplify exp(log(x))
+simplify exp(log(x))
+  = x
+  holds where x > 0 (cancelled there)
+  check: equal at 35 sample points (max relative difference 1.6e-16); they differ in where they are defined: x > 0
+> simplify exp(x)*exp(2x)
+  ucas: simplify exp(x)*exp(2x)
+simplify exp(x)*exp(2x)
+  = exp(3x)
+  check: equal at 64 sample points (max relative difference 1.9e-15)
+> simplify x^2/x^3
+  ucas: simplify x^2/x^3
+simplify x^2/x^3
+  = 1/x
+  check: exact (both sides have the same normal form)
+> gcd x^2-1, x^2+2x+1
+gcd x^2 - 1, x^2 + 2x + 1
+  = x + 1
+  check: it divides both exactly, and the cofactors are coprime
+  (normalized: integer coefficients without a common factor, leading coefficient positive)
+> lcm x^2-1, x^2+2x+1
+lcm x^2 - 1, x^2 + 2x + 1
+  = (x - 1)*(x + 1)^2
+    = x^3 + x^2 - x - 1
+  check: both divide it exactly
+> gcd 12, 18
+gcd 12, 18
+  = 6
+> resultant x^2-2, x^2-3x+2
+resultant x^2 - 2, x^2 - 3x + 2
+  in x: -2
+  nonzero: no common root
+  check: lc(P)^deg(Q) * product of Q over the roots of P = -2 (agrees)
+> resultant x^2 + y^2 - 1, x - y in y
+resultant x^2 + y^2 - 1, x - y
+  in y: 2x^2 - 1
+> discriminant a x^2 + b x + c
+discriminant a*x^2 + b*x + c
+  in x (degree 2): b^2 - 4a*c
+  check: at sample values of the coefficients the numeric polynomial's discriminant is -0.7279, the formula gives -0.7279 (agrees)
+> discriminant x^3 - 3x + 1
+discriminant x^3 - 3x + 1
+  in x (degree 3): 81
+  > 0: three distinct real roots
+  check: lc^(2n-2) * product of (ri - rj)^2 over the roots = 81 (agrees)
+> quo x^3 + 1, x + 2
+quo x^3 + 1, x + 2
+  = x^2 - 2x + 4
+  (in x: P = Q*quotient + remainder, deg remainder < 1)
+  check: exact (both sides have the same normal form)
+> rem x^3 + 1, x + 2
+rem x^3 + 1, x + 2
+  = -7
+  (in x: P = Q*quotient + remainder, deg remainder < 1)
+  check: exact (both sides have the same normal form)
+> divide x^4 + 1 by x^2 + x
+  ucas: divide x^4 + 1 by x^2 + x
+divide x^4 + 1, x^2 + x
+  quotient x^2 - x + 1, remainder 1 - x
+  (in x: P = Q*quotient + remainder, deg remainder < 2)
+  check: exact (both sides have the same normal form)
+> substitute x = 2, y = 3 in x^2 + y
+x^2 + y with x = 2, y = 3
+  = 7
+  check: exact (both sides have the same normal form)
+> integrate 1/(x^3+1)
+∫ 1/(x^3 + 1) dx
+  = log(abs(x + 1))/3 - log(x^2 - x + 1)/6 + atan((2x - 1)/sqrt(3))/sqrt(3) + C
+  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 1.3e-15)
+> integrate (x+1)/(x^2+2x+5)
+∫ (x + 1)/(x^2 + 2x + 5) dx
+  = log(x^2 + 2x + 5)/2 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> integrate 1/(x^4+1)
+∫ 1/(x^4 + 1) dx
+  = sqrt(2)*log(x^2 + sqrt(2)*x + 1)/8 - sqrt(2)*log(x^2 - sqrt(2)*x + 1)/8 + sqrt(2)*atan(sqrt(2)*x - 1)/4 + sqrt(2)*atan(sqrt(2)*x + 1)/4 + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 3.3e-16)
+> integrate x^3/(x^2+1)^2
+∫ x^3/(x^2 + 1)^2 dx
+  = 1/(2(x^2 + 1)) + log(x^2 + 1)/2 + C
+  method: partial fractions, Hermite reduction for the repeated factors
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.1e-16)
+> integrate 1/(x^2+1)^3
+∫ 1/(x^2 + 1)^3 dx
+  = (3x^3 + 5x)/(8(x^2 + 1)^2) + 3atan(x)/8 + C
+  method: partial fractions, Hermite reduction for the repeated factors
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
+> integrate 1/(x^2-2)
+∫ 1/(x^2 - 2) dx
+  = log(abs((x - sqrt(2))/(x + sqrt(2))))/(2sqrt(2)) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.3e-13)
+> integrate (x^5+1)/(x^2-1)^2
+∫ (x^5 + 1)/(x^2 - 1)^2 dx
+  = x^2/2 - 1/(2(x - 1)) + 5log(abs(x + 1))/4 + 3log(abs(x - 1))/4 + C
+  method: partial fractions, Hermite reduction for the repeated factors
+  check: d/dx of it equals the integrand at 399 points of [-10, 10] (max difference 4.3e-13)
+> integrate 1/(x^4-2)
+∫ 1/(x^4 - 2) dx
+  = sqrt(2)*log(abs((2x - 2sqrt(sqrt(2)))/(2x + 2sqrt(sqrt(2)))))/(8sqrt(sqrt(2))) - sqrt(2)*atan(x/sqrt(sqrt(2)))/(4sqrt(sqrt(2))) + C
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 6.8e-14)
+> integrate 1/(x^3-2)
+∫ 1/(x^3 - 2) dx
+  = 0.2099868416log(abs(x - 1.25992105)) - 0.1049934208log((x + 0.6299605249)^2 + 1.190550789) - 0.3637078787atan((x + 0.6299605249)/1.091123636) + C
+  method: partial fractions; the denominator has irreducible factors of degree >= 3: their roots are numeric, so the coefficients are decimals
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 5e-14)
+> integrate 1/(x^4+1) from 0 to 1
+∫ 1/(x^4 + 1) dx
+  = sqrt(2)*log(x^2 + sqrt(2)*x + 1)/8 - sqrt(2)*log(x^2 - sqrt(2)*x + 1)/8 + sqrt(2)*atan(sqrt(2)*x - 1)/4 + sqrt(2)*atan(sqrt(2)*x + 1)/4 + C
+  check: d/dx of it equals the integrand at 401 points of [0, 1] (max difference 3.3e-16)
+  from 0 to 1: F(1) - F(0) = 0.866972987339911
+  numeric (adaptive Gauss-Kronrod 7-15, 15 evaluations): 0.866972987339917, estimated error 9.5e-15
+  the two agree to 6.1e-15
+> integrate 2x*cos(x^2)
+∫ 2x*cos(x^2) dx
+  = sin(x^2) + C
+  method: substitution u = x^2
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 0)
+> integrate exp(x)*sin(x)
+∫ exp(x)*sin(x) dx
+  = exp(x)*(sin(x) - cos(x))/2 + C
+  method: by parts twice (the integral returns)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-12)
+> integrate x*atan(x)
+∫ x*atan(x) dx
+  = (x^2*atan(x) - x + atan(x))/2 + C
+  method: by parts (u = atan(x))
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-15)
+> integrate atan(x)
+∫ atan(x) dx
+  = x*atan(x) - log(x^2 + 1)/2 + C
+  method: by parts (u = atan(x))
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 2.2e-16)
+> integrate log(x)^2
+∫ log(x)^2 dx
+  = x*(log(x)^2 - 2log(x) + 2) + C
+  method: by parts (u = log(x)^2)
+  check: d/dx of it equals the integrand at 200 points of [-10, 10] (max difference 8.9e-16)
+> integrate asin(x)
+∫ asin(x) dx
+  = x*asin(x) + sqrt(1 - x^2) + C
+  method: by parts (u = asin(x))
+  check: d/dx of it equals the integrand at 39 points of [-10, 10] (max difference 2.2e-16)
+> integrate sin(x)^3*cos(x)^2
+∫ sin(x)^3*cos(x)^2 dx
+  = cos(x)^5/5 - cos(x)^3/3 + C
+  method: Bioche: t = cos(x)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.1e-16)
+> integrate sin(x)^2*cos(x)^2
+∫ sin(x)^2*cos(x)^2 dx
+  = x/8 - sin(4x)/32 + C
+  method: power reduction: sin^2 = (1 - cos 2u)/2, cos^2 = (1 + cos 2u)/2
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.4e-16)
+> integrate tan(x)^3
+∫ tan(x)^3 dx
+  = 1/(2cos(x)^2) + log(abs(cos(x))) + C
+  method: Bioche: t = cos(x)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 5.6e-09)
+> integrate x*cos(x)^2
+∫ x*cos(x)^2 dx
+  = x^2/4 + x*sin(2x)/4 + cos(2x)/8 + C
+  method: product to sum (x/2 + x*cos(2x)/2), then by parts
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-15)
+> integrate 1/(1+exp(x))
+∫ 1/(exp(x) + 1) dx
+  = x - log(abs(exp(x) + 1)) + C
+  method: substitution u = exp(x)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.7e-16)
+> integrate cosh(x)^2
+∫ cosh(x)^2 dx
+  = exp(2x)/8 - 1/(8exp(2x)) + x/2 + C
+  method: substitution u = exp(x)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 3e-08)
+> integrate sqrt(1-x^2)
+∫ sqrt(1 - x^2) dx
+  = x*sqrt(1 - x^2)/2 + asin(x)/2 + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 39 points of [-10, 10] (max difference 1.1e-16)
+> integrate sqrt(x^2+1)
+∫ sqrt(x^2 + 1) dx
+  = x*sqrt(x^2 + 1)/2 + asinh(x)/2 + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-15)
+> integrate x^3*sqrt(1+x^2)
+∫ x^3*sqrt(x^2 + 1) dx
+  = (3x^4 + x^2 - 2)*sqrt(x^2 + 1)/15 + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 401 points of [-10, 10] (max difference 1.8e-12)
+> integrate 1/(x*sqrt(x^2+1))
+∫ 1/(x*sqrt(x^2 + 1)) dx
+  = -sign(x)*asinh(1/x) + C
+  method: sqrt of a quadratic: Q(x) sqrt(q) + c * integral of dx/sqrt(q) (Ostrogradsky)
+  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 8.9e-16)
+> integrate x*sqrt(x+1)
+∫ x*sqrt(x + 1) dx
+  = 2sqrt(x + 1)^5/5 - 2sqrt(x + 1)^3/3 + C
+  method: substitution t = sqrt(x + 1)
+  check: d/dx of it equals the integrand at 220 points of [-10, 10] (max difference 1.1e-14)
+> integrate log(x)/x
+∫ log(x)/x dx
+  = log(x)^2/2 + C
+  method: substitution u = log(x)
+  check: d/dx of it equals the integrand at 200 points of [-10, 10] (max difference 4.4e-16)
+> integrate x*exp(x) + 1/(x^3+1)
+∫ x*exp(x) + 1/(x^3 + 1) dx
+  = x*exp(x) - exp(x) + log(abs(x + 1))/3 - log(x^2 - x + 1)/6 + atan((2x - 1)/sqrt(3))/sqrt(3) + C
+  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 2.9e-11)
+> integrate 1/(2+cos(x)) from 0 to 2pi
+∫ 1/(cos(x) + 2) dx
+  = 2atan(tan(x/2)/sqrt(3))/sqrt(3) + C
+  method: Weierstrass: t = tan(x/2); the antiderivative holds on each interval between the poles of the tangent
+  check: d/dx of it equals the integrand at 400 points of [0, 6.28319] (max difference 5.6e-16)
+  from 0 to 6.28319: F(6.28319) - F(0) = -8.16431199431569e-17
+  the antiderivative jumps by -3.62759872846843 at x = pi (the integrand is continuous there): the jump is taken out
+  F(b) - F(a) minus the jumps = 3.62759872846843
+  numeric (adaptive Gauss-Kronrod 7-15, 45 evaluations): 3.62759872847087, estimated error 7.9e-14
+  the two agree to 2.4e-12
+> solve x^2 - 5x + 6 = 0
+  ucas: solve x^2 - 5x + 6 = 0
+solve x^2 - 5x + 6 = 0 for x
+  x = 2
+  x = 3
+  check: each solution substituted (2 values): residual 0
+> solve (x-1)^2 = 0
+  ucas: solve (x-1)^2 = 0
+solve (x-1)^2 = 0 for x
+  x = 1   (a double root)
+  check: each solution substituted (1 value): residual 0
+> solve x^2 + 1 = 0
+  ucas: solve x^2 + 1 = 0
+solve x^2 + 1 = 0 for x
+  no real solution
+  (and 2 complex solutions)
+> solve x^3 - 3x + 1 = 0
+  ucas: solve x^3 - 3x + 1 = 0
+solve x^3 - 3x + 1 = 0 for x
+  x = 2*cos(acos(-1/2)/3)   (= 1.532088886)
+  x = 2*cos(acos(-1/2)/3 - 2pi/3)   (= 0.3472963553)
+  x = 2*cos(acos(-1/2)/3 - 4pi/3)   (= -1.879385242)
+  check: each solution substituted (3 values): residual 1.8e-15
+> solve x^3 - 2 = 0
+  ucas: solve x^3 - 2 = 0
+solve x^3 - 2 = 0 for x
+  x = 2^(1/3)   (= 1.25992105)
+  (and 2 complex solutions)
+  check: each solution substituted (1 value): residual 0
+> solve x^4 - 10x^2 + 1 = 0
+  ucas: solve x^4 - 10x^2 + 1 = 0
+solve x^4 - 10x^2 + 1 = 0 for x
+  x = -sqrt(2) - sqrt(3)   (= -3.14626437)
+  x = -sqrt(2) + sqrt(3)   (= 0.3178372452)
+  x = sqrt(2) - sqrt(3)   (= -0.3178372452)
+  x = sqrt(2) + sqrt(3)   (= 3.14626437)
+  check: each solution substituted (4 values): residual 1.4e-14
+> solve x^5 - x - 1 = 0
+  ucas: solve x^5 - x - 1 = 0
+solve x^5 - x - 1 = 0 for x
+  x = 1.16730397826142   (numeric)
+  (and 4 complex solutions)
+  check: each solution substituted (1 value): residual 6.7e-16
+> solve (x^2-1)/(x-1) = 0
+  ucas: solve (x^2-1)/(x-1) = 0
+solve (x^2-1)/(x-1) = 0 for x
+  x = -1
+  check: each solution substituted (1 value): residual 0
+> solve a x^2 + b x + c = 0 for x
+  ucas: solve a x^2 + b x + c = 0 for x
+solve a x^2 + b x + c = 0 for x
+  x = (-b + sqrt(b^2 - 4a*c))/(2a)
+  x = (-b - sqrt(b^2 - 4a*c))/(2a)
+  where a != 0 (else the equation is linear)
+  real when the discriminant b^2 - 4a*c >= 0
+  check: x = the first substituted, the equation holds at 42 sample points of the other variables (residual 1.4e-13)
+  check: x = the second substituted, the equation holds at 42 sample points of the other variables (residual 1.2e-14)
+> solve sin x = 1/2
+  ucas: solve sin x = 1/2
+solve sin x = 1/2 for x
+  x = pi/6 + 2pi*k   (k any integer)
+  x = 5*pi/6 + 2pi*k   (k any integer)
+  check: each solution substituted (10 values, k = -2..2): residual 9.4e-16
+> solve 2 sin(3x + 1) = 1
+  ucas: solve 2 sin(3x + 1) = 1
+solve 2 sin(3x + 1) = 1 for x
+  x = (pi/6 - 1)/3 + 2*pi/3*k   (k any integer)
+  x = (5*pi/6 - 1)/3 + 2*pi/3*k   (k any integer)
+  check: each solution substituted (10 values, k = -2..2): residual 2.9e-15
+> solve cos(2x) = 0
+  ucas: solve cos(2x) = 0
+solve cos(2x) = 0 for x
+  x = pi/4 + pi*k   (k any integer)
+  x = -pi/4 + pi*k   (k any integer)
+  check: each solution substituted (10 values, k = -2..2): residual 5.5e-16
+> solve sin(x)^2 - sin(x) = 0
+  ucas: solve sin(x)^2 - sin(x) = 0
+solve sin(x)^2 - sin(x) = 0 for x
+  x = 2pi*k   (k any integer)
+  x = pi + 2pi*k   (k any integer)
+  x = pi/2 + 2pi*k   (k any integer)
+  check: each solution substituted (15 values, k = -2..2): residual 6.1e-16
+> solve exp(x) = 5
+  ucas: solve exp(x) = 5
+solve exp(x) = 5 for x
+  x = log(5)   (= 1.609437912)
+  check: each solution substituted (1 value): residual 0
+> solve 2^x = 8
+  ucas: solve 2^x = 8
+solve 2^x = 8 for x
+  x = 3
+  check: each solution substituted (1 value): residual 0
+> solve log(x) = 2
+  ucas: solve log(x) = 2
+solve log(x) = 2 for x
+  x = exp(2)   (= 7.389056099)
+  check: each solution substituted (1 value): residual 0
+> solve exp(x^2) = 3
+  ucas: solve exp(x^2) = 3
+solve exp(x^2) = 3 for x
+  x = 1.0481470739682
+  x = -1.0481470739682
+  check: each solution substituted (2 values): residual 4.4e-16
+> solve sin(x) = 2
+  ucas: solve sin(x) = 2
+solve sin(x) = 2 for x
+  no real solution: sin(x) never takes the value 2
+> solve x + y = 3, x - y = 1
+  ucas: solve x + y = 3, x - y = 1
+solve x + y = 3, x - y = 1 for x, y
+  x = 2
+  y = 1
+  check: substituted into every equation: residual 0
+> solve x + y = 3, 2x + 2y = 6
+  ucas: solve x + y = 3, 2x + 2y = 6
+solve x + y = 3, 2x + 2y = 6 for x, y
+  x = 3 - y
+  y is free (any value)
+  (a family of solutions: 1 free unknown)
+  check: substituted into every equation (free unknowns at two values): residual 0
+> solve x + y = 1, x + y = 2
+  ucas: solve x + y = 1, x + y = 2
+solve x + y = 1, x + y = 2 for x, y
+  no solution: the equations are inconsistent (rank 1, the augmented system has rank 2)
+> solve x^2 + y^2 = 1, y = x
+  ucas: solve x^2 + y^2 = 1, y = x
+solve x^2 + y^2 = 1, y = x for x, y
+  eliminating y: the resultant in x is 2x^2 - 1
+  x = -sqrt(2)/2, y = -0.7071067812
+  x = sqrt(2)/2, y = 0.7071067812
+  check: 2 solutions substituted into both equations: residual 1.1e-16
+> factor x^4 - 1
+factor x^4 - 1
+  = (x - 1)*(x + 1)*(x^2 + 1)
+  check: exact (both sides have the same normal form)
+  (factors are irreducible over the rationals)
+> expand (x+1)^5
+  ucas: expand (x+1)^5
+expand (x + 1)^5
+  = x^5 + 5x^4 + 10x^3 + 10x^2 + 5x + 1
+  check: exact (both sides have the same normal form)
+> simplify (x^2-1)/(x-1)
+  ucas: simplify (x^2-1)/(x-1)
+simplify (x^2 - 1)/(x - 1)
+  = x + 1
+  holds where x - 1 != 0 (cancelled there)
+  check: exact (both sides have the same normal form)
+> partial fraction decomposition of 1/(x^2-1)
+  ucas: apart 1/(x^2-1)
+apart 1/(x^2 - 1)
+  = 1/(2(x - 1)) - 1/(2(x + 1))
+  check: exact (both sides have the same normal form)
+> decompose 1/(x^2-4) into partial fractions
+  ucas: apart 1/(x^2-4)
+apart 1/(x^2 - 4)
+  = 1/(4(x - 2)) - 1/(4(x + 2))
+  check: exact (both sides have the same normal form)
+> put 1/x + 1/(x+1) over a common denominator
+  ucas: together 1/x + 1/(x+1)
+together 1/x + 1/(x + 1)
+  = (2x + 1)/(x*(x + 1))
+  check: exact (both sides have the same normal form)
+> solve x^2 - 5x + 6 = 0
+  ucas: solve x^2 - 5x + 6 = 0
+solve x^2 - 5x + 6 = 0 for x
+  x = 2
+  x = 3
+  check: each solution substituted (2 values): residual 0
+> solve sin x = 1/2
+  ucas: solve sin x = 1/2
+solve sin x = 1/2 for x
+  x = pi/6 + 2pi*k   (k any integer)
+  x = 5*pi/6 + 2pi*k   (k any integer)
+  check: each solution substituted (10 values, k = -2..2): residual 9.4e-16
+> solve the system x + y = 3, x - y = 1
+  ucas: solve x + y = 3, x - y = 1
+solve x + y = 3, x - y = 1 for x, y
+  x = 2
+  y = 1
+  check: substituted into every equation: residual 0
+> gcd of x^2-1 and x^2+2x+1
+  ucas: gcd x^2-1, x^2+2x+1
+gcd x^2 - 1, x^2 + 2x + 1
+  = x + 1
+  check: it divides both exactly, and the cofactors are coprime
+  (normalized: integer coefficients without a common factor, leading coefficient positive)
+> the discriminant of a x^2 + b x + c
+  ucas: discriminant a x^2 + b x + c
+discriminant a*x^2 + b*x + c
+  in x (degree 2): b^2 - 4a*c
+  check: at sample values of the coefficients the numeric polynomial's discriminant is -0.7279, the formula gives -0.7279 (agrees)
+> what is the remainder when x^3 + 1 is divided by x + 2?
+  ucas: rem x^3 + 1, x + 2
+rem x^3 + 1, x + 2
+  = -7
+  (in x: P = Q*quotient + remainder, deg remainder < 1)
+  check: exact (both sides have the same normal form)
+> plug in x = 2 into x^2 + 1
+  ucas: substitute x = 2 in x^2 + 1
+x^2 + 1 with x = 2
+  = 5
+  check: exact (both sides have the same normal form)
+> what is the integral of 1/(x^3 + 1)?
+  ucas: it(x) = 1/(x^3 + 1)
+  ucas: integrate it
+∫ 1/(x^3 + 1) dx
+  = log(abs(x + 1))/3 - log(x^2 - x + 1)/6 + atan((2x - 1)/sqrt(3))/sqrt(3) + C
+  check: d/dx of it equals the integrand at 400 points of [-10, 10] (max difference 1.3e-15)
