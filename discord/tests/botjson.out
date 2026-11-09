@@ -66,8 +66,8 @@ PUT /channels/64/messages/7308/reactions/check/@me
 {"id": "s", "cmd": "schema"}
 ```
 POST /channels/64/messages (multipart)
-{"content":"```json\n{\"id\": \"s\", \"ok\": true, \"cmd\": \"schema\", \"result\": {\"kind\": \"schema\", \"attached\": \"schema.json\"}, \"files\": [{\"name\": \"schema.json\", \"mime\": \"application/json\", \"bytes\": 357138, \"attached\": true}]}\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7309","channel_id":"64","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"schema.json","description":"","content_type":"application/json","size":357138,"url":"","proxy_url":"","ephemeral":false}]}
-  files[0]: schema.json, application/json, 357138 bytes
+{"content":"```json\n{\"id\": \"s\", \"ok\": true, \"cmd\": \"schema\", \"result\": {\"kind\": \"schema\", \"attached\": \"schema.json\"}, \"files\": [{\"name\": \"schema.json\", \"mime\": \"application/json\", \"bytes\": 366106, \"attached\": true}]}\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7309","channel_id":"64","guild_id":"7","fail_if_not_exists":false},"attachments":[{"id":"0","filename":"schema.json","description":"","content_type":"application/json","size":366106,"url":"","proxy_url":"","ephemeral":false}]}
+  files[0]: schema.json, application/json, 366106 bytes
 PUT /channels/64/messages/7309/reactions/check/@me
 
 == event 10: channel 64, author 1562594665109393468 (bot): <@1000> ```json
@@ -81,7 +81,7 @@ PUT /channels/64/messages/7310/reactions/check/@me
 {"id": 10, "cmd": "state"}
 ```
 POST /channels/64/messages
-{"content":"```json\n{\"id\": 10, \"ok\": true, \"cmd\": \"state\", \"structured\": true, \"result\": {\"kind\": \"state\", \"functions\": [], \"models\": [\"gt1030\"], \"active_model\": \"gt1030\", \"bases\": [\"c\", \"spirv\", \"a64\", \"a64sha\", \"x86bmi\", \"nand\"], \"assumptions\": {}}, \"notes\": [], \"conditions\": [], \"checks\": [], \"files\": [], \"text\": \"\"}\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7311","channel_id":"64","guild_id":"7","fail_if_not_exists":false}}
+{"content":"```json\n{\"id\": 10, \"ok\": true, \"cmd\": \"state\", \"structured\": true, \"result\": {\"kind\": \"state\", \"functions\": [], \"models\": [\"gt1030\", \"skl\", \"skx\", \"glc\", \"rpl\", \"zen4\", \"x86v2\", \"x86v3\", \"x86v4\"], \"active_model\": \"gt1030\", \"bases\": [\"c\", \"spirv\", \"a64\", \"a64sha\", \"x86bmi\", \"avx512\", \"nand\"], \"assumptions\": {}}, \"notes\": [], \"conditions\": [], \"checks\": [], \"files\": [], \"text\": \"\"}\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"7311","channel_id":"64","guild_id":"7","fail_if_not_exists":false}}
 PUT /channels/64/messages/7311/reactions/check/@me
 
 == event 12: channel 64, author 1562594665109393468 (bot): <@1000> ```json
