@@ -50,8 +50,75 @@ int dc_selftest(void);
 
 struct pend {
 	uint64_t id;
-	u64snowflake chan, msg, guild;
+	u64snowflake chan, msg, guild, author;
+	char *orig;      /* the user's code, for a follow-up question */
+	char *answers;   /* "\x1eanswer ...\n" lines sent with it */
+	int echo;
 };
+
+/*
+ * Follow-up questions.  The engine runs in "defer" mode (see nlp.c): an
+ * English request that needs an answer prints the question after a
+ * "\x1eask" marker and stops.  The question is kept here per channel and
+ * author; that author's next `$` message in the channel is the answer, and
+ * the original message runs again with every answer so far queued.
+ */
+#define MAXASK 64
+#define ASK_TTL (15 * 60)
+struct ask {
+	u64snowflake chan, author;
+	char *orig;
+	char *answers;
+	int echo;
+	time_t when;
+};
+static struct ask asks[MAXASK];
+static int nasks;
+
+static void
+ask_drop(int i)
+{
+	free(asks[i].orig);
+	free(asks[i].answers);
+	asks[i] = asks[--nasks];
+}
+
+static struct ask *
+ask_find(u64snowflake chan, u64snowflake author)
+{
+	time_t now = time(NULL);
+	int i;
+
+	for (i = nasks; i-- > 0;)
+		if (now - asks[i].when > ASK_TTL)
+			ask_drop(i);
+	for (i = 0; i < nasks; i++)
+		if (asks[i].chan == chan && asks[i].author == author)
+			return &asks[i];
+	return NULL;
+}
+
+static void
+ask_drop_chan(u64snowflake chan)
+{
+	int i;
+
+	for (i = nasks; i-- > 0;)
+		if (asks[i].chan == chan)
+			ask_drop(i);
+}
+
+/* user text must not carry engine directives */
+static void
+strip_directives(char *s)
+{
+	char *d = s;
+
+	for (; *s; s++)
+		if (*s != '\x1e')
+			*d++ = *s;
+	*d = 0;
+}
 
 static struct discord *client;	/* NULL in --stdin mode */
 static struct sup_limits limits;
@@ -111,7 +178,7 @@ post(u64snowflake chan, u64snowflake msg, u64snowflake guild,
 
 static int
 send_req(uint32_t type, const struct discord_message *m, const char *text,
-    int echo)
+    int echo, const char *orig, const char *answers)
 {
 	struct sframe h;
 	struct pend *pp;
@@ -133,6 +200,10 @@ send_req(uint32_t type, const struct discord_message *m, const char *text,
 	pp->chan = m->channel_id;
 	pp->msg = m->id;
 	pp->guild = m->guild_id;
+	pp->author = m->author ? m->author->id : 0;
+	pp->orig = orig ? strdup(orig) : NULL;
+	pp->answers = answers ? strdup(answers) : NULL;
+	pp->echo = echo;
 	return 0;
 }
 
@@ -167,18 +238,60 @@ skip_mention(const char *s)
 static int
 handle_message(const struct discord_message *m)
 {
-	struct sbuf code = {0};
+	struct sbuf code = {0}, req = {0}, ans = {0};
+	const char *content;
+	struct ask *q;
 	int kind, echo;
 
 	if (m->author == NULL || m->author->bot || m->author->System ||
 	    m->author->id == self_id || m->webhook_id != 0)
 		return DC_IGNORE;
-	kind = dc_command(skip_mention(m->content), &code, &echo);
-	if (kind == DC_EVAL)
-		send_req(SF_EVAL, m, code.p, echo);
-	else if (kind == DC_RESET)
-		send_req(SF_RESET, m, NULL, 0);
+	content = skip_mention(m->content);
+	if (content == NULL || content[0] != '$')
+		return DC_IGNORE;
+	kind = dc_command(content, &code, &echo);
+	if (kind == DC_RESET) {
+		ask_drop_chan(m->channel_id);
+		send_req(SF_RESET, m, NULL, 0, NULL, NULL);
+		free(code.p);
+		return kind;
+	}
+	if ((q = ask_find(m->channel_id, m->author->id)) != NULL) {
+		/* this author's next $ message answers the open question */
+		const char *c = kind == DC_EVAL ? code.p : "";
+		char *orig;
+		if (!strcmp(c, "cancel")) {
+			ask_drop((int)(q - asks));
+			post(m->channel_id, m->id, m->guild_id,
+			    "question cancelled", NULL, 0);
+			free(code.p);
+			return DC_EVAL;
+		}
+		sb_puts(&ans, q->answers ? q->answers : "");
+		sb_puts(&ans, "\x1e" "answer ");
+		for (; *c; c++)
+			sb_putc(&ans, *c == '\n' || *c == '\r' ? ' ' : *c);
+		sb_putc(&ans, '\n');
+		strip_directives(ans.p + (q->answers ? strlen(q->answers) : 0) + 1);
+		sb_printf(&req, "\x1e" "defer\n%s%s", ans.p, q->orig);
+		orig = q->orig;
+		q->orig = NULL;
+		echo = q->echo;
+		ask_drop((int)(q - asks));
+		send_req(SF_EVAL, m, req.p, echo, orig, ans.p);
+		free(orig);
+		free(code.p);
+		free(req.p);
+		free(ans.p);
+		return DC_EVAL;
+	}
+	if (kind == DC_EVAL) {
+		strip_directives(code.p);
+		sb_printf(&req, "\x1e" "defer\n%s", code.p);
+		send_req(SF_EVAL, m, req.p, echo, code.p, "");
+	}
 	free(code.p);
+	free(req.p);
 	return kind;
 }
 
@@ -199,7 +312,50 @@ on_response(const struct sframe *h, const char *out)
 	pp = pend[i];
 	pend[i] = pend[--npend];
 	head = dc_status(h->status, h->arg, &limits, sbuf, sizeof sbuf);
-	dc_format(&r, head, out, h->len);
+	{
+		/* a follow-up question: remember it, say how to answer */
+		const char *mk = out ? memmem(out, h->len, "\x1e" "ask ", 5) : NULL;
+		struct sbuf o = {0};
+		char hbuf[320];
+		if (mk != NULL && pp.orig != NULL && pp.author != 0 &&
+		    h->status == 0) {
+			const char *eol = memchr(mk, '\n', (size_t)(out + h->len - mk));
+			int nopt = 0;
+			struct ask *q;
+			if (eol == NULL)
+				eol = out + h->len;
+			if (!strncmp(mk + 5, "choice ", 7))
+				nopt = atoi(mk + 12);
+			sb_printf(&o, "%.*s%.*s", (int)(mk - out), out,
+			    (int)(out + h->len - (eol < out + h->len ? eol + 1 :
+			    eol)), eol < out + h->len ? eol + 1 : eol);
+			if ((q = ask_find(pp.chan, pp.author)) != NULL)
+				ask_drop((int)(q - asks));
+			if (nasks == MAXASK)
+				ask_drop(0);
+			q = &asks[nasks++];
+			q->chan = pp.chan;
+			q->author = pp.author;
+			q->orig = pp.orig;
+			q->answers = pp.answers ? pp.answers : strdup("");
+			q->echo = pp.echo;
+			q->when = time(NULL);
+			pp.orig = pp.answers = NULL;
+			if (nopt > 0)
+				snprintf(hbuf, sizeof hbuf, "a question first: answer "
+				    "with `$1`..`$%d` (or the option's name), `$` alone "
+				    "for the default, or `$cancel`", nopt);
+			else
+				snprintf(hbuf, sizeof hbuf, "a question first: answer "
+				    "with `$` and your reply (`$` alone for the "
+				    "defaults), or `$cancel`");
+			dc_format(&r, hbuf, o.p ? o.p : "", o.n);
+			free(o.p);
+		} else
+			dc_format(&r, head, out, h->len);
+	}
+	free(pp.orig);
+	free(pp.answers);
 	for (i = 0; i < r.n; i++)
 		post(pp.chan, pp.msg, pp.guild, r.msg[i],
 		    i == 0 ? r.file : NULL, r.filelen);

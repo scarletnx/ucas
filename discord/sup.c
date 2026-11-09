@@ -213,7 +213,7 @@ worker_main(int ctl, int out, const struct sup_limits *l)
 			r.id = (uint64_t)getpid();
 			if (frame_write(ctl, &r, NULL) < 0)
 				_exit(1);
-			run_source(text, "input", (int)h.arg);
+			run_text(text, "input", (int)h.arg);
 			fflush(stdout);
 			fflush(stderr);
 			free(text);

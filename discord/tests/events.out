@@ -30,7 +30,7 @@ POST /channels/43/messages
 
 == event 9: channel 42, author 99: $range nosuch(x
 POST /channels/42/messages
-{"content":"```\ninput:1:15: error: expected ')', found 'end'\n    range nosuch(x\n                  ^\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"608","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
+{"content":"```\ninput:1:15: error: expected ')', found 'eol'\n    range nosuch(x\n                  ^\n```","embeds":[],"allowed_mentions":{"parse":[],"roles":[],"users":[],"replied_user":false},"message_reference":{"message_id":"608","channel_id":"42","guild_id":"7","fail_if_not_exists":false}}
 
 == event 10: channel 42, author 99: $f(x: u6) = x * x * 37 + (x >> 2) xor 21
 gates f max 40 nodes 100000000000

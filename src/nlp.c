@@ -40,6 +40,52 @@
 
 int nlp_interactive = -1;    /* -1: ask only when stdin and stdout are ttys */
 
+/*
+ * Deferred questions, for front ends with no terminal (the Discord bot).
+ * A "\x1edefer" line turns them on.  A question is then printed after a
+ * "\x1eask choice N" or "\x1eask text" marker line, and the run stops
+ * there: nothing translated runs.  The front end asks the user and runs
+ * the same text again, preceded by one "\x1eanswer TEXT" line per answer
+ * so far.  Questions take queued answers in order, which works because
+ * translation is deterministic.
+ */
+int nlp_defer;
+int nlp_asked;
+#define MAXANS 16
+static char *answers[MAXANS];
+static int nans, ansi;
+
+static const char *
+next_answer(void)
+{
+	return ansi < nans ? answers[ansi++] : NULL;
+}
+
+/* a reply to a numbered question: a number, a prefix of an option, or
+ * empty for the default; -1 if it is none of these */
+static int
+pick_option(const char *p, const char *const *opt, int nopt, int dflt)
+{
+	size_t n;
+	int k, v;
+
+	while (isspace((unsigned char)*p))
+		p++;
+	n = strcspn(p, "\r\n");
+	while (n > 0 && isspace((unsigned char)p[n - 1]))
+		n--;
+	if (n == 0)
+		return dflt;
+	if (isdigit((unsigned char)*p)) {
+		v = atoi(p) - 1;
+		return v >= 0 && v < nopt ? v : -1;
+	}
+	for (k = 0; k < nopt; k++)
+		if (!strncasecmp(opt[k], p, n))
+			return k;
+	return -1;
+}
+
 static jmp_buf nl_jmp;
 static int dry;              /* first pass: learn declarations, say nothing */
 static int quiet;            /* lookahead: never ask */
@@ -143,6 +189,30 @@ clarify(const char *key, const char *what, const char *const *opt, int nopt,
 		return v;
 	if (dry || quiet)
 		return dflt;
+	if (nlp_defer) {
+		const char *a;
+		if (nlp_asked)
+			return dflt;   /* one question at a time */
+		if ((a = next_answer()) == NULL) {
+			printf("\x1e" "ask choice %d\n? %s:\n", nopt, what);
+			for (k = 0; k < nopt; k++)
+				printf("  %d) %s%s\n", k + 1, opt[k],
+				    k == dflt ? "  (default)" : "");
+			nlp_asked = 1;
+			return dflt;
+		}
+		if ((v = pick_option(a, opt, nopt, dflt)) < 0) {
+			printf("  note: \"%s\" is not one of the %d choices for "
+			    "%s: read as %s\n", a, nopt, what, opt[dflt]);
+			v = dflt;
+		}
+		if (key) {
+			pref_set(key, v);
+			printf("  note: %s: %s (kept for this session)\n", what,
+			    opt[v]);
+		}
+		return v;
+	}
 	if (!interactive()) {
 		printf("  note: %s: read as %s", what, opt[dflt]);
 		if (nopt > 1) {
@@ -4637,7 +4707,7 @@ emit_approx(void)
 		nfail("approx needs a function of one variable (%s has %d)", F, np);
 	if (!ranged) {
 		default_interval(body, &lo, &hi);
-		if (!no_more_prompts && interactive() && !dry) {
+		if (!no_more_prompts && (interactive() || nlp_defer) && !dry) {
 			need_more = S(
 "approximating %s needs an interval (default %s to %s).\n"
 "    Reply with any of these, in any order (empty: the defaults):\n"
@@ -5099,12 +5169,27 @@ translate_asking(const char *sent)
 		no_more_prompts = tries >= 1;
 		spell_quiet = tries > 0;
 		ok = translate(cur);
+		if (nlp_asked) {
+			ok = 0;
+			break;
+		}
 		if (ok || need_more == NULL)
 			break;
-		printf("  ? %s\n    > ", need_more);
-		fflush(stdout);
-		if (fgets(reply, sizeof reply, stdin) == NULL)
-			reply[0] = 0;
+		if (nlp_defer) {
+			const char *a = next_answer();
+			if (a == NULL) {
+				printf("\x1e" "ask text\n? %s\n", need_more);
+				nlp_asked = 1;
+				ok = 0;
+				break;
+			}
+			snprintf(reply, sizeof reply, "%s", a);
+		} else {
+			printf("  ? %s\n    > ", need_more);
+			fflush(stdout);
+			if (fgets(reply, sizeof reply, stdin) == NULL)
+				reply[0] = 0;
+		}
 		reply[strcspn(reply, "\r\n")] = 0;
 		for (p = reply; isspace((unsigned char)*p); p++)
 			;
@@ -5193,7 +5278,7 @@ nlp_run(const char *line, size_t n, const char *file, int echo)
 				last_nfuncs = nfuncs;
 			}
 			fflush(stdout);
-			if (c == 0)
+			if (c == 0 || nlp_asked)
 				break;
 			start = q + 1;
 		}
@@ -5463,12 +5548,32 @@ run_text(const char *src, const char *file, int echo)
 	size_t len;
 
 	npending = 0;
+	nlp_asked = 0;
+	while (nans > 0)
+		free(answers[--nans]);
+	ansi = 0;
 	scan_definitions(src);
 	while (*p) {
 		e = strchr(p, '\n');
 		if (e == NULL)
 			e = p + strlen(p);
 		len = (size_t)(e - p);
+		/* front-end directives (see nlp_defer); not counted as lines */
+		if (len > 0 && p[0] == '\x1e') {
+			if (len >= 6 && !strncmp(p + 1, "defer", 5))
+				nlp_defer = 1;
+			else if (len >= 7 && !strncmp(p + 1, "answer", 6) &&
+			    nans < MAXANS) {
+				const char *a = p + 7;
+				if (a < e && *a == ' ')
+					a++;
+				answers[nans] = xmalloc((size_t)(e - a) + 1);
+				memcpy(answers[nans], a, (size_t)(e - a));
+				answers[nans++][e - a] = 0;
+			}
+			p = *e ? e + 1 : e;
+			continue;
+		}
 		if (depth <= 0 && len > 0 && !isspace((unsigned char)p[0]) &&
 		    nlp_is_english(p, len)) {
 			if (have) {
@@ -5476,6 +5581,8 @@ run_text(const char *src, const char *file, int echo)
 				have = 0;
 			}
 			nlp_run(p, len, file, echo);
+			if (nlp_asked)
+				break;   /* the rest waits for the answer */
 		} else {
 			if (!have) {
 				sb_clear(&seg);

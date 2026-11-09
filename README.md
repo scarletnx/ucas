@@ -621,6 +621,24 @@ discord/ucas-discord --check-token   # where it was found; never prints it
 discord/ucas-discord
 ```
 
+English works in Discord too: `$what is the range of x squared for a
+signed byte x?`.  When the translator needs a decision, it asks in the
+channel instead of on a terminal.  Two kinds of question:
+
+- **Choice:** which `log`, what a `byte` is.  Answer `$2` or with the
+  option's name.  The choice is kept for the channel's session.
+- **Missing details:** an interval for `approx`.  Answer something like
+  `$0 to pi/4 degree 5 crit`.
+
+`$` alone takes the default, and `$cancel` drops the question.  While a
+question is open, the asker's next `$` message in that channel is the
+answer; other users are unaffected.  Questions expire after 15 minutes.
+Each answer re-runs the original message with all answers so far.
+Translation is deterministic, so the same questions come up in the same
+order, and nothing waits inside the sandboxed evaluator meanwhile.
+(Engine side: `\x1edefer` / `\x1eanswer` directive lines, see `nlp.c`;
+the bot strips `\x1e` from user text.)
+
 The bot keeps running until SIGINT/SIGTERM/SIGHUP.  If the gateway
 connection ends it reconnects with exponential backoff (2 s doubling to
 5 minutes).  It gives up only if Discord rejects the token (4004) or the
