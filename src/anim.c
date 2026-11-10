@@ -1032,7 +1032,8 @@ xdraw(double t, int listx, int listw, int gridx, int top)
 		snprintf(buf, sizeof buf, "%s", X.in[cur].text);
 	else
 		snprintf(buf, sizeof buf, t >= X.T ? "done" : "start");
-	buf[(D.W - 8) / FONT_6X10_W] = 0;
+	if ((D.W - 8) / FONT_6X10_W < (int)sizeof buf)
+		buf[(D.W - 8) / FONT_6X10_W] = 0;
 	text(4, D.H - 13, buf, cur < 0 ? C_DONE : C_ARROW);
 }
 
