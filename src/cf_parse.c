@@ -1202,7 +1202,8 @@ cast_expr(void)
 		if (is("{")) {
 			/* a compound literal */
 			n = node(CA_COMPOUND, t0);
-			A_.a[n] = initializer(ty);
+			a = initializer(ty);
+			A_.a[n] = a;
 			A_.ty[n] = ty;
 			A_.t1[n] = PS.i - 1;
 			return n;
@@ -1999,7 +2000,8 @@ declaration(int top)
 		A_.iv[dn] = s;
 		U->S.decl[s] = dn;
 		if (accept("=")) {
-			A_.a[dn] = initializer(ty);
+			uint32_t in = initializer(ty);
+			A_.a[dn] = in;
 			if (CT.kind[ty] == CT_ARRAY && CT.count[ty] < 0 &&
 			    A_.kind[A_.a[dn]] == CA_INIT) {
 				ty = ct_array(CT.base[ty], A_.b[A_.a[dn]]);
@@ -2032,7 +2034,7 @@ declaration(int top)
 static uint32_t
 stmt(void)
 {
-	uint32_t t0 = PS.i, n;
+	uint32_t t0 = PS.i, n, a;
 
 	if (TK.kind[PS.i] == CK_ID && is_at(PS.i + 1, ":") &&
 	    !is("default") && !starts_type(PS.i)) {
@@ -2040,7 +2042,8 @@ stmt(void)
 		PS.i += 2;
 		n = node(CA_LABEL, t0);
 		A_.iv[n] = lab;
-		A_.a[n] = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		a = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		A_.a[n] = a;
 		A_.t1[n] = PS.i - 1;
 		return n;
 	}
@@ -2095,7 +2098,8 @@ stmt(void)
 		else if (!accept(";")) {
 			uint32_t e0 = PS.i;
 			i = node(CA_EXPR, e0);
-			A_.a[i] = expr();
+			a = expr();
+			A_.a[i] = a;
 			expect(";");
 			A_.t1[i] = PS.i - 1;
 		}
@@ -2163,14 +2167,16 @@ stmt(void)
 		expect(":");
 		n = node(CA_CASE, t0);
 		A_.iv[n] = v;
-		A_.a[n] = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		a = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		A_.a[n] = a;
 		A_.t1[n] = PS.i - 1;
 		return n;
 	}
 	if (accept("default")) {
 		expect(":");
 		n = node(CA_DEFAULT, t0);
-		A_.a[n] = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		a = is("}") ? node(CA_EMPTY, PS.i) : stmt();
+		A_.a[n] = a;
 		A_.t1[n] = PS.i - 1;
 		return n;
 	}
@@ -2180,7 +2186,8 @@ stmt(void)
 	    (is_at(PS.i + 1, "=") || is_at(PS.i + 1, "("))))
 		return declaration(0);
 	n = node(CA_EXPR, t0);
-	A_.a[n] = expr();
+	a = expr();
+	A_.a[n] = a;
 	expect(";");
 	A_.t1[n] = PS.i - 1;
 	return n;
