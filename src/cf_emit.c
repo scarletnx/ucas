@@ -317,21 +317,25 @@ ov_call(struct em *E, struct sbuf *b, int k)
 		}
 		sb_puts(&h, "#else\n");
 		{
-			struct em F;
-			memset(&F, 0, sizeof F);
-			F.em = E->em;
-			F.v = &fv;
+			/* the value as it was, with its shared subterms named */
+			ty_t ft = N.ty[o->fb];
+			int w = TYW(ft), ok;
+			uint32_t ct = TYK(ft) == K_UINT ? ct_basic(w <= 8 ? CT_UCHAR :
+			    w <= 16 ? CT_USHORT : w <= 32 ? CT_UINT : CT_ULONG) :
+			    TYK(ft) == K_SINT ? ct_basic(w <= 8 ? CT_SCHAR : w <= 16 ?
+			    CT_SHORT : w <= 32 ? CT_INT : CT_LONG) : TYK(ft) == K_FLOAT ?
+			    ct_basic(w == 32 ? CT_FLOAT : CT_DOUBLE) : ct_basic(CT_INT);
 			ovoff++;
-			pe(&F, &fb, o->fb);
+			ok = cf_emit_body(E->em, &fv, o->fb, ct, &fb);
 			ovoff--;
-			if (F.bad) {
-				fail_e(E, F.why);
+			if (!ok) {
+				fail_e(E, "the fallback cannot be printed");
 				free(h.p);
 				free(fb.p);
 				return;
 			}
 		}
-		sb_printf(&h, "\treturn (%s)%s;\n#endif\n}\n", RT, fb.p);
+		sb_printf(&h, "\t%s\n#endif\n}\n", fb.p);
 		sb_puts(&E->em->helpers, h.p);
 		E->em->intrin = 1;
 		free(h.p);

@@ -97,7 +97,8 @@ eng_begin(int k)
 	}
 	if (!cf_engine_on(k))
 		return 0;
-	if (eng_used[k] > eng_share(k))
+	/* the synthesis is budgeted in sketches (deterministic), not time */
+	if (k != CF_ENG_SYNTH && eng_used[k] > eng_share(k))
 		return 0;
 	eng_cur = k;
 	eng_t0 = clock();
@@ -1781,15 +1782,49 @@ eng_bound(struct bx *B)
  * gf2: GF(2)-affine maps: gf2p8affine, pext/pdep, CRC by pclmul
  * ================================================================ */
 
+/* memos for the DAG walks below (shared subterms: a CRC's rounds) */
+static uint64_t *m1memo;
+static uint8_t *m1have, *g2memo;
+static uint32_t g2n;
+
+static void
+g2_memo_reset(void)
+{
+	free(m1memo);
+	free(m1have);
+	free(g2memo);
+	g2n = N.n + 1;
+	m1memo = xcalloc(g2n, sizeof *m1memo);
+	m1have = xcalloc(g2n, 1);
+	g2memo = xcalloc(g2n, 1);
+}
+
+static uint64_t may1_(nid n, int depth);
+
 /* bits that may be 1 (sound) */
 static uint64_t
 may1(nid n, int depth)
+{
+	uint64_t r;
+
+	if (n < g2n && m1have && m1have[n])
+		return m1memo[n];
+	r = may1_(n, depth);
+	if (n < g2n && m1have) {
+		m1have[n] = 1;
+		m1memo[n] = r;
+	}
+	return r;
+}
+
+static uint64_t
+may1_(nid n, int depth)
 {
 	ty_t t = N.ty[n];
 	uint64_t m = TY_SIZED(t) ? wmask(TYW(t)) : ~0ULL, a;
 	nid x = N.a[n], y = N.b[n];
 
-	if (depth > 60)
+	if (depth > 2000)
 		return m;
 	switch (N.op[n]) {
 	case O_CONST:
@@ -1823,13 +1858,28 @@ may1(nid n, int depth)
 	return m;
 }
 
+static int g2_struct_(nid n, int depth);
+
 /* affine over GF(2) in the leaves, by the structure of its operations */
 static int
 g2_struct(nid n, int depth)
 {
+	int r;
+
+	if (n < g2n && g2memo && g2memo[n])
+		return g2memo[n] == 1;
+	r = g2_struct_(n, depth);
+	if (n < g2n && g2memo)
+		g2memo[n] = r ? 1 : 2;
+	return r;
+}
+
+static int
+g2_struct_(nid n, int depth)
+{
 	nid x = N.a[n], y = N.b[n];
 
-	if (depth > 80 || (!TY_SIZED(N.ty[n])))
+	if (depth > 2000 || (!TY_SIZED(N.ty[n])))
 		return 0;
 	switch (N.op[n]) {
 	case O_CONST:
@@ -1919,7 +1969,9 @@ g2_matrix(struct bx *B, struct g2 *G)
 		G->nin += TYW(lt);
 		G->ns++;
 	}
-	if (G->nin == 0 || G->nin > 64 || B->v->where)
+	/* a domain condition: only the structural proof (it holds for the
+	 * expression everywhere; cfront proves the form on the domain) */
+	if (G->nin == 0 || G->nin > 64 || (B->v->where && !g2_struct(B->e, 0)))
 		return 0;
 	if (!g2_eval(B, G, 0, &G->c))
 		return 0;
@@ -2092,6 +2144,8 @@ gf2_divmod(uint64_t ahi, uint64_t alo, uint64_t b, int db, uint64_t *qo)
 	int k;
 
 	ring_zn(&R2, 2);
+	memset(&a, 0, sizeof a);
+	memset(&bb, 0, sizeof bb);
 	rp_zero(&a);
 	rp_zero(&bb);
 	for (k = 0; k < 64; k++) {
@@ -2262,6 +2316,35 @@ g2_crc(struct bx *B, const struct g2 *G)
 		}
 		snprintf(text, sizeof text, "%s", t2);
 	}
+	/* a proof that does not need SAT: both sides are GF(2)-affine by
+	 * structure, so they are equal when equal at 0 and on the basis */
+	if (g2_struct(sem, 0) && g2_struct(B->e, 0)) {
+		struct plan sp;
+		int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+		double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+		int ok = 1, jj, q;
+		plan_build(&sp, &sem, 1, 0);
+		for (jj = -1; jj < G->nin && ok; jj++) {
+			uint64_t bits = jj < 0 ? 0 : 1ULL << jj, want;
+			for (q = 0; q < G->ns; q++)
+				in_i[(size_t)G->slot[q] * CH] = int_norm(ct_to_ucas(
+				    B->v->leaf[G->slot[q]].cty), (int64_t)((bits >>
+				    G->off[q]) & wmask(G->wid[q])));
+			plan_run(&sp, 1, in_i, in_r);
+			want = jj < 0 ? G->c : G->c ^ G->col[jj];
+			if ((COLF(&sp, sp.root[0])[0] & F_UNDEF) ||
+			    ((uint64_t)COLI(&sp, sp.root[0])[0] & 0xffffffffULL) != want)
+				ok = 0;
+		}
+		plan_free(&sp);
+		free(in_i);
+		free(in_r);
+		if (ok) {
+			snprintf(c->lemma, sizeof c->lemma, "both sides GF(2)-affine by "
+			    "structure, equal at 0 and on all %d basis vectors", G->nin);
+			c->derived = 1;
+		}
+	}
 	c->text = strdup(text);
 	c->feat = CF_F(CF_PCLMUL) | CF_F(CF_SSE2);
 	c->fixcost = 1;
@@ -2295,6 +2378,7 @@ eng_gf2(struct bx *B)
 {
 	struct g2 G;
 
+	g2_memo_reset();
 	if (!g2_matrix(B, &G))
 		return;
 	g2_pext(B, &G);
@@ -2659,6 +2743,14 @@ eng_synth(struct bx *B)
 		return;
 	if (B->nr < 5)
 		return;		/* nothing to win */
+	for (k = 0; k < (int)B->nr; k++) {
+		int op = N.op[B->rn[k]];
+		if (op != O_AND && op != O_OR && op != O_XOR && op != O_NOT &&
+		    op != O_SHL && op != O_SHR && op != O_ADD && op != O_SUB &&
+		    op != O_MUL && op != O_NEG && op != O_CAST && op != O_CONST &&
+		    op != O_VAR)
+			return;	/* a bit-manipulating value only */
+	}
 	cur = cf_cost(B->t, B->e);
 	mv = 2 * mov_cost(B->t);
 	bound = cur - mv;

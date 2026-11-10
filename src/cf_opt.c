@@ -43,6 +43,9 @@
     CF_F(CF_BMI2) | CF_F(CF_FMA) | CF_F(CF_LZCNT) | CF_F(CF_MOVBE))
 #define V4 (V3 | CF_F(CF_AVX512F) | CF_F(CF_AVX512BW) | CF_F(CF_AVX512DQ) | \
     CF_F(CF_AVX512VL))
+/* every named core since Westmere / Bulldozer has pclmulqdq and AES-NI
+ * (the x86-64-vN levels do not require them) */
+#define PA (CF_F(CF_PCLMUL) | CF_F(CF_AES))
 
 /*
  * Default scalar numbers (cycles, a blend of latency and reciprocal
@@ -59,22 +62,22 @@ static struct cf_target targets[32] = {
 	    40, 1, 12, 4, 15},
 	{"x86-64-v4", "x86-64-v4", V4, "AVX-512 F/BW/DQ/VL", 1, 3, 14, 18, 1,
 	    12, 4, 15},
-	{"skylake", "skylake", V3, "Intel Skylake / Coffee Lake client",
+	{"skylake", "skylake", V3 | PA, "Intel Skylake / Coffee Lake client",
 	    1, 3, 26, 42, 1, 12, 4, 16},
-	{"skylake-avx512", "skylake-avx512", V4, "Intel Skylake-SP/X",
+	{"skylake-avx512", "skylake-avx512", V4 | PA, "Intel Skylake-SP/X",
 	    1, 3, 26, 42, 1, 12, 4, 16},
-	{"icelake", "icelake-client", V4 | CF_F(CF_AVX512VBMI) |
+	{"icelake", "icelake-client", V4 | PA | CF_F(CF_AVX512VBMI) |
 	    CF_F(CF_AVX512VPOPCNTDQ) | CF_F(CF_GFNI), "Intel Ice Lake client",
 	    1, 3, 12, 15, 1, 12, 5, 16},
-	{"alderlake", "alderlake", V3 | CF_F(CF_GFNI), "Intel Alder Lake / "
+	{"alderlake", "alderlake", V3 | PA | CF_F(CF_GFNI), "Intel Alder Lake / "
 	    "Raptor Lake P-core (Golden Cove)", 1, 3, 12, 15, 1, 12, 5, 17},
-	{"raptorlake", "raptorlake", V3 | CF_F(CF_GFNI), "Intel Raptor Lake "
+	{"raptorlake", "raptorlake", V3 | PA | CF_F(CF_GFNI), "Intel Raptor Lake "
 	    "P-core", 1, 3, 12, 15, 1, 12, 5, 17},
-	{"sapphirerapids", "sapphirerapids", V4 | CF_F(CF_AVX512VBMI) |
+	{"sapphirerapids", "sapphirerapids", V4 | PA | CF_F(CF_AVX512VBMI) |
 	    CF_F(CF_AVX512VPOPCNTDQ) | CF_F(CF_GFNI), "Intel Sapphire Rapids "
 	    "(Golden Cove)", 1, 3, 12, 15, 1, 12, 5, 17},
-	{"zen3", "znver3", V3, "AMD Zen 3", 1, 3, 10, 14, 1, 12, 4, 13},
-	{"zen4", "znver4", V4 | CF_F(CF_AVX512VBMI) | CF_F(CF_AVX512VPOPCNTDQ) |
+	{"zen3", "znver3", V3 | PA, "AMD Zen 3", 1, 3, 10, 14, 1, 12, 4, 13},
+	{"zen4", "znver4", V4 | PA | CF_F(CF_AVX512VBMI) | CF_F(CF_AVX512VPOPCNTDQ) |
 	    CF_F(CF_GFNI), "AMD Zen 4", 1, 3, 10, 14, 1, 12, 4, 13},
 	{NULL, NULL, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0}
 };
