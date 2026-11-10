@@ -180,8 +180,8 @@ cf_set_loop_hook(cf_loop_fn f)
 }
 
 static const char *const eng_names[CF_ENG_N] = {
-	"find", "gates", "alg", "ring", "dio", "gf2", "loops", "float",
-	"bound", "synth"
+	"find", "gates", "alg", "ring", "dio", "gf2", "loops", "bound",
+	"synth"
 };
 
 const char *
@@ -378,20 +378,50 @@ op_cost(const struct cf_target *t, nid n)
 	return 8;
 }
 
+/* "seen" stamps: one per node, a generation per walk (calloc'ing the
+ * whole node table per walk costs more than the walk once the table
+ * has grown, as the synthesis makes it) */
+static uint32_t *mk_stamp, mk_cap, mk_gen;
+
+static void
+mark_begin(void)
+{
+	if (N.n + 1 > mk_cap) {
+		uint32_t nc = (N.n + 1) * 2;
+		mk_stamp = xrealloc(mk_stamp, (size_t)nc * sizeof *mk_stamp);
+		memset(mk_stamp + mk_cap, 0, (size_t)(nc - mk_cap) *
+		    sizeof *mk_stamp);
+		mk_cap = nc;
+	}
+	if (++mk_gen == 0) {
+		memset(mk_stamp, 0, (size_t)mk_cap * sizeof *mk_stamp);
+		mk_gen = 1;
+	}
+}
+
+/* 1 the first time n is met in this walk */
+static int
+mark_new(nid n)
+{
+	if (mk_stamp[n] == mk_gen)
+		return 0;
+	mk_stamp[n] = mk_gen;
+	return 1;
+}
+
 double
 cf_cost_default(const struct cf_target *t, nid root)
 {
 	nid *st = xmalloc((N.n + 1) * sizeof *st);
-	uint8_t *seen = xcalloc(N.n, 1);
 	uint32_t sp = 0;
 	double c = 0;
 
+	mark_begin();
 	st[sp++] = root;
 	while (sp) {
 		nid n = st[--sp];
-		if (n == 0 || seen[n])
+		if (n == 0 || !mark_new(n))
 			continue;
-		seen[n] = 1;
 		c += op_cost(t, n);
 		if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_TABLE)
 			continue;
@@ -407,7 +437,6 @@ cf_cost_default(const struct cf_target *t, nid root)
 			st[sp++] = N.c[n];
 	}
 	free(st);
-	free(seen);
 	return c;
 }
 
@@ -444,6 +473,14 @@ static int
 out_of_time(void)
 {
 	return elapsed() > R.deadline;
+}
+
+static unsigned run_id;
+
+unsigned
+cf_run_id(void)
+{
+	return run_id;
 }
 
 const struct cf_opts *
@@ -603,20 +640,33 @@ safe_cast(ty_t t, nid a)
 	return r;
 }
 
+static int
+cmp_nid_asc(const void *a, const void *b)
+{
+	nid x = *(const nid *)a, y = *(const nid *)b;
+
+	return x < y ? -1 : x > y;
+}
+
 /* the nodes reachable from root, in id order */
 static uint32_t
 reach(nid root, nid **out)
 {
-	uint8_t *seen = xcalloc(N.n, 1);
 	nid *st = xmalloc((N.n + 1) * sizeof *st), *r;
-	uint32_t sp = 0, n = 0, k;
+	uint32_t sp = 0, n = 0, k, nn = 0, ncap = 256;
+	nid *got = xmalloc(ncap * sizeof *got);
 
+	mark_begin();
 	st[sp++] = root;
 	while (sp) {
 		nid x = st[--sp];
-		if (x == 0 || seen[x])
+		if (x == 0 || !mark_new(x))
 			continue;
-		seen[x] = 1;
+		if (nn == ncap) {
+			ncap *= 2;
+			got = xrealloc(got, ncap * sizeof *got);
+		}
+		got[nn++] = x;
 		if (N.op[x] == O_CONST || N.op[x] == O_VAR || N.op[x] == O_TABLE)
 			continue;
 		if (N.op[x] == O_INDEX) {
@@ -628,11 +678,11 @@ reach(nid root, nid **out)
 		if (N.c[x] && (N.op[x] == O_SEL || N.op[x] == O_FMA))
 			st[sp++] = N.c[x];
 	}
-	r = xmalloc((N.n + 1) * sizeof *r);
-	for (k = 0; k < N.n; k++)
-		if (seen[k])
-			r[n++] = k;
-	free(seen);
+	/* in id order */
+	qsort(got, nn, sizeof *got, cmp_nid_asc);
+	r = got;
+	n = nn;
+	(void)k;
 	free(st);
 	*out = r;
 	return n;
@@ -1429,10 +1479,19 @@ optimize_value(struct cf_value *v, struct step *steps, int *nsteps, int max,
 			if (!cs.c[k].fixcost)
 				cs.c[k].cost = cf_cost(t, cs.c[k].sem);
 		/* the same form from two generators: the one with an engine's
-		 * certificate is kept (it says more) */
+		 * certificate is kept (it says more), except a plain search
+		 * result (find) duplicating cfront's own */
 		for (k = 0; k < cs.n; k++) {
 			int j;
-			if (!cs.c[k].engine[0])
+			if (strcmp(cs.c[k].cert_kind, "search"))
+				continue;
+			for (j = 0; j < cs.n; j++)
+				if (j != k && cs.c[j].sem == cs.c[k].sem && !cs.c[j].engine[0])
+					cs.c[k].cost = 1e30;
+		}
+		for (k = 0; k < cs.n; k++) {
+			int j;
+			if (!cs.c[k].engine[0] || !strcmp(cs.c[k].cert_kind, "search"))
 				continue;
 			for (j = 0; j < cs.n; j++)
 				if (j != k && cs.c[j].sem == cs.c[k].sem &&
@@ -2949,6 +3008,7 @@ cf_optimize(struct cf_unit *u, const struct cf_opts *o, struct cf_result *r)
 			cf_bridge_init();
 	}
 	cf_emit_reset();
+	run_id++;
 	memset(r, 0, sizeof *r);
 	memset(&R, 0, sizeof R);
 	memset(&em, 0, sizeof em);

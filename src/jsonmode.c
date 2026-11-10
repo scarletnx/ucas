@@ -607,9 +607,9 @@ static const struct jcmd cmds[] = {
 	    "beat clang's own code)"),
 	    TO("engines", " engines %s", "which of ucas's engines generate "
 	    "candidates: all (default), none, or a comma list of find gates "
-	    "alg ring dio gf2 loops float bound synth"),
+	    "alg ring dio gf2 loops bound synth"),
 	    NUO("steps", " steps %s", "sketches the synthesis may try per value "
-	    "(a deterministic budget; default 3000)"),
+	    "(a deterministic budget; default 1000)"),
 	    NUO("ebudget", " ebudget %s", "CPU seconds for the engines' own "
 	    "searches, in total (default: a quarter of budget)"),
 	    BO("approx", " approx", "apply approximations (loops as integrals, "

@@ -606,7 +606,7 @@ parse_opts(char *s, struct cf_opts *o, char *file, size_t fn, int *lower)
 						char m[200];
 						snprintf(m, sizeof m, "c: unknown engine '%.40s' "
 						    "(all, none, or a list of find gates alg ring dio "
-						    "gf2 loops float bound synth)", e);
+						    "gf2 loops bound synth)", e);
 						printf("error: %s\n", m);
 						rep_error("c_option", m);
 						return 0;
@@ -645,6 +645,7 @@ cfront_line(const char *line)
 	int lower = 0;
 	char *src, *w;
 
+	ucas_prelude();
 	memset(&o, 0, sizeof o);
 	o.t = cf_target_default();
 	o.budget = 10;

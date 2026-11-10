@@ -2413,6 +2413,22 @@ run_source(const char *src, const char *file, int echo)
 		run_source0(seg, file, echo);
 }
 
+/* the prelude (definitions, gt1030, the x86 models), once; a C line
+ * that comes first (cfront_line) needs the models too */
+void
+ucas_prelude(void)
+{
+	static int prelude_done;
+
+	nodes_init();
+	if (!prelude_done) {
+		prelude_done = 1;
+		run_source(prelude, "<prelude>", 0);
+		model_set_active(model_find(sym_cstr("gt1030")));
+		x86_prelude();	/* the x86 µarchs as cost models (x86data.c) */
+	}
+}
+
 static void
 run_source0(const char *src, const char *file, int echo)
 {
@@ -2432,18 +2448,11 @@ run_source0(const char *src, const char *file, int echo)
 static void
 run_source1(const char *src, const char *file, int echo)
 {
-	static int prelude_done;
 	/* both live across setjmp, so they are reached through pointers */
 	struct toks *const t = xcalloc(1, sizeof *t);
 	struct P *const p = xcalloc(1, sizeof *p);
 
-	nodes_init();
-	if (!prelude_done) {
-		prelude_done = 1;
-		run_source(prelude, "<prelude>", 0);
-		model_set_active(model_find(sym_cstr("gt1030")));
-		x86_prelude();	/* the x86 µarchs as cost models (x86data.c) */
-	}
+	ucas_prelude();
 	diag_file = file;
 	diag_toks = t;
 	p->t = t;

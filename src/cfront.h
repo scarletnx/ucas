@@ -571,7 +571,7 @@ struct cf_opts {
 /* the bridge's engines (option engines all|find,gates,...) */
 enum {
 	CF_ENG_FIND, CF_ENG_GATES, CF_ENG_ALG, CF_ENG_RING, CF_ENG_DIO,
-	CF_ENG_GF2, CF_ENG_LOOPS, CF_ENG_FLOAT, CF_ENG_BOUND, CF_ENG_SYNTH,
+	CF_ENG_GF2, CF_ENG_LOOPS, CF_ENG_BOUND, CF_ENG_SYNTH,
 	CF_ENG_N
 };
 const char *cf_engine_name(int k);
@@ -600,6 +600,7 @@ struct cf_unit *cf_run_unit(void);
 struct cf_rewrite *cf_run_rewrite(const char *kind, int line);
 void cf_run_replace(uint32_t from, uint32_t to, const char *text);
 double cf_run_elapsed(void);
+unsigned cf_run_id(void);		/* changes with every cf_optimize */
 /* a loop hook: a for or while statement offered before the loop
  * passes; it records its rewrites and returns 1 when it replaced the
  * loop */

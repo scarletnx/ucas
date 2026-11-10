@@ -427,6 +427,7 @@ void eqproof_text(struct sbuf *b, const struct eqproof *pr);
 
 /* ---- parse.c ---- */
 void run_source(const char *src, const char *file, int echo);
+void ucas_prelude(void);	/* once: the prelude and the cost models */
 
 /* ---- approx.c: function approximation; parse.c hooks it uses ---- */
 struct P;

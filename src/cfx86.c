@@ -1576,7 +1576,7 @@ vsynth(nid value, double bound)
 	int s, k, ld = -1, r, c, j;
 	struct cf_synth_res R;
 	const struct cf_opts *o = cf_run_opts();
-	long steps = o && o->synth_steps > 0 ? o->synth_steps : 3000;
+	long steps = o && o->synth_steps > 0 ? o->synth_steps : 1000;
 	struct sbuf code = {0}, txt = {0};
 	char pfx[16];
 	xfeat need = 0;

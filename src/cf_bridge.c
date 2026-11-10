@@ -22,8 +22,8 @@
  *           pclmul (a Barrett reduction from the ring's GF(2)[t])
  *   loops   closed forms beyond degree 2 (cf_lower.c calls back here)
  *           and float sums as integrals (an approximation, opt-in)
- *   float   the IEEE rewrites of fsimp that are bit-exact
  *   bound   comparisons decided by bound.c's proved bounds
+ *   synth   CEGIS over the intrinsics catalogue (cf_synth.c)
  *
  * Every candidate carries its engine's certificate (a witness, an
  * inverse multiplied back, a residue table, a factorisation, a GF(2)
@@ -57,7 +57,7 @@
 /* ---- budget ---- */
 
 static double eng_used[CF_ENG_N];
-static const struct cf_opts *eng_run;
+static unsigned eng_run;
 static clock_t eng_t0;
 static int eng_cur = -1;
 
@@ -72,7 +72,7 @@ eng_total(void)
 }
 
 /* the searches get more of the total than the analyses */
-static const int eng_weight[CF_ENG_N] = {3, 1, 1, 1, 1, 1, 1, 1, 1, 4};
+static const int eng_weight[CF_ENG_N] = {3, 1, 1, 1, 1, 1, 1, 1, 4};
 
 static double
 eng_share(int k)
@@ -89,16 +89,16 @@ eng_share(int k)
 static int
 eng_begin(int k)
 {
-	const struct cf_opts *o = cf_run_opts();
-
-	if (o != eng_run) {
+	if (cf_run_id() != eng_run) {
 		memset(eng_used, 0, sizeof eng_used);
-		eng_run = o;
+		eng_run = cf_run_id();
 	}
 	if (!cf_engine_on(k))
 		return 0;
-	/* the synthesis is budgeted in sketches (deterministic), not time */
-	if (k != CF_ENG_SYNTH && eng_used[k] > eng_share(k))
+	/* only find's search is cut by CPU time (its share of the total);
+	 * the synthesis is budgeted in sketches, gates in search nodes, the
+	 * analyses are bounded by the value's size: deterministic */
+	if (k == CF_ENG_FIND && eng_used[k] > eng_share(k) && eng_share(k) < 1e9)
 		return 0;
 	eng_cur = k;
 	eng_t0 = clock();
@@ -144,13 +144,32 @@ cmp_nid(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
+/* "seen" marks without clearing an array of N.n each time: a stamp per
+ * node, a generation per walk (the node table grows over a session) */
+static uint32_t *stamp;
+static uint32_t stampcap, stampgen;
+
+static void
+stamp_begin(void)
+{
+	if (N.n + 1 > stampcap) {
+		uint32_t nc = (N.n + 1) * 2;
+		stamp = xrealloc(stamp, (size_t)nc * sizeof *stamp);
+		memset(stamp + stampcap, 0, (size_t)(nc - stampcap) * sizeof *stamp);
+		stampcap = nc;
+	}
+	if (++stampgen == 0) {
+		memset(stamp, 0, (size_t)stampcap * sizeof *stamp);
+		stampgen = 1;
+	}
+}
+
 static void
 bx_init(struct bx *B, const struct cf_target *t, const struct cf_value *v,
     nid e, struct cf_cands *cs)
 {
-	uint8_t *seen;
 	nid *st;
-	uint32_t sp = 0;
+	uint32_t sp = 0, cap = 1024;
 
 	memset(B, 0, sizeof *B);
 	B->t = t;
@@ -163,16 +182,26 @@ bx_init(struct bx *B, const struct cf_target *t, const struct cf_value *v,
 	plan_build(&B->p, &e, 1, 0);
 	B->iv = xcalloc(B->p.n + 1, sizeof *B->iv);
 	plan_ival(&B->p, &B->f, B->iv);
-	seen = xcalloc(N.n, 1);
-	st = xmalloc((N.n + 1) * sizeof *st);
-	B->rn = xmalloc((N.n + 1) * sizeof *B->rn);
+	stamp_begin();
+	st = xmalloc(cap * sizeof *st);
+	B->rn = NULL;
+	{
+	uint32_t rcap = 0;
 	st[sp++] = e;
 	while (sp) {
 		nid x = st[--sp];
-		if (x == 0 || seen[x])
+		if (x == 0 || stamp[x] == stampgen)
 			continue;
-		seen[x] = 1;
+		stamp[x] = stampgen;
+		if (B->nr == rcap) {
+			rcap = rcap ? rcap * 2 : 256;
+			B->rn = xrealloc(B->rn, rcap * sizeof *B->rn);
+		}
 		B->rn[B->nr++] = x;
+		if (sp + 3 >= cap) {
+			cap *= 2;
+			st = xrealloc(st, cap * sizeof *st);
+		}
 		if (N.op[x] == O_CONST || N.op[x] == O_VAR || N.op[x] == O_TABLE)
 			continue;
 		if (N.op[x] == O_INDEX) {
@@ -188,8 +217,8 @@ bx_init(struct bx *B, const struct cf_target *t, const struct cf_value *v,
 		if (N.c[x] && (N.op[x] == O_SEL || N.op[x] == O_FMA))
 			st[sp++] = N.c[x];
 	}
+	}
 	qsort(B->rn, B->nr, sizeof *B->rn, cmp_nid);
-	free(seen);
 	free(st);
 }
 
@@ -1026,7 +1055,7 @@ eng_ring(struct bx *B)
 {
 	uint32_t i;
 
-	for (i = 0; i < B->nr && eng_left() > 0; i++) {
+	for (i = 0; i < B->nr; i++) {
 		nid n = B->rn[i];
 		switch (N.op[n]) {
 		case O_EQ:
@@ -1237,6 +1266,11 @@ dio_elliptic(struct bx *B, nid n, nid side, const struct bpoly *p,
 			if (a)
 				snprintf(eq + strlen(eq), sizeof eq - strlen(eq), " %c %lldx",
 				    a < 0 ? '-' : '+', (long long)(a < 0 ? -a : a));
+			if (a == 1 || a == -1) {
+				char *q = strstr(eq, "1x");
+				if (q)
+					memmove(q, q + 1, strlen(q));
+			}
 			if (b)
 				snprintf(eq + strlen(eq), sizeof eq - strlen(eq), " %c %lld",
 				    b < 0 ? '-' : '+', (long long)(b < 0 ? -b : b));
@@ -1259,7 +1293,7 @@ eng_dio(struct bx *B)
 {
 	uint32_t i;
 
-	for (i = 0; i < B->nr && eng_left() > 0; i++) {
+	for (i = 0; i < B->nr; i++) {
 		nid n = B->rn[i], L, R, side = 0;
 		struct bpoly p, pr;
 		struct patoms A;
@@ -1670,7 +1704,7 @@ eng_alg(struct bx *B)
 	uint32_t i;
 	int tried = 0;
 
-	for (i = B->nr; i-- > 0 && tried < 12 && eng_left() > 0;) {
+	for (i = B->nr; i-- > 0 && tried < 12;) {
 		nid n = B->rn[i];
 		switch (N.op[n]) {
 		case O_ADD:
@@ -1699,7 +1733,7 @@ eng_bound(struct bx *B)
 	uint32_t i;
 	int tried = 0;
 
-	for (i = 0; i < B->nr && tried < 8 && eng_left() > 0; i++) {
+	for (i = 0; i < B->nr && tried < 8; i++) {
 		nid n = B->rn[i], X, K;
 		int op = N.op[n], flip = 0, res = -1;
 		struct func g;
@@ -1787,16 +1821,33 @@ static uint64_t *m1memo;
 static uint8_t *m1have, *g2memo;
 static uint32_t g2n;
 
+static uint32_t g2cap, *g2gen, g2cur;
+
+/* the memos live as long as the node table; a generation clears them */
 static void
 g2_memo_reset(void)
 {
-	free(m1memo);
-	free(m1have);
-	free(g2memo);
+	if (N.n + 1 > g2cap) {
+		uint32_t nc = (N.n + 1) * 2;
+		m1memo = xrealloc(m1memo, (size_t)nc * sizeof *m1memo);
+		m1have = xrealloc(m1have, nc);
+		g2memo = xrealloc(g2memo, nc);
+		g2gen = xrealloc(g2gen, (size_t)nc * sizeof *g2gen);
+		memset(g2gen + g2cap, 0, (size_t)(nc - g2cap) * sizeof *g2gen);
+		g2cap = nc;
+	}
 	g2n = N.n + 1;
-	m1memo = xcalloc(g2n, sizeof *m1memo);
-	m1have = xcalloc(g2n, 1);
-	g2memo = xcalloc(g2n, 1);
+	g2cur++;
+}
+
+static void
+g2_fresh(nid n)
+{
+	if (g2gen[n] != g2cur) {
+		g2gen[n] = g2cur;
+		m1have[n] = 0;
+		g2memo[n] = 0;
+	}
 }
 
 static uint64_t may1_(nid n, int depth);
@@ -1807,8 +1858,11 @@ may1(nid n, int depth)
 {
 	uint64_t r;
 
-	if (n < g2n && m1have && m1have[n])
-		return m1memo[n];
+	if (n < g2n && m1have) {
+		g2_fresh(n);
+		if (m1have[n])
+			return m1memo[n];
+	}
 	r = may1_(n, depth);
 	if (n < g2n && m1have) {
 		m1have[n] = 1;
@@ -1866,8 +1920,11 @@ g2_struct(nid n, int depth)
 {
 	int r;
 
-	if (n < g2n && g2memo && g2memo[n])
-		return g2memo[n] == 1;
+	if (n < g2n && g2memo) {
+		g2_fresh(n);
+		if (g2memo[n])
+			return g2memo[n] == 1;
+	}
 	r = g2_struct_(n, depth);
 	if (n < g2n && g2memo)
 		g2memo[n] = r ? 1 : 2;
@@ -2205,8 +2262,7 @@ g2_crc(struct bx *B, const struct g2 *G)
 	char text[700], what[120];
 	struct cf_cand *c;
 
-	if (G->ns != 2 || G->nout != 32 || G->c ||
-	    !(B->t->feat & CF_F(CF_PCLMUL)))
+	if (G->ns != 2 || G->nout != 32 || G->c)
 		return;
 	if (G->wid[0] == 32 && G->wid[1] <= 32) {
 		ic = 0;
@@ -2256,6 +2312,8 @@ g2_crc(struct bx *B, const struct g2 *G)
 	dat = mk_var((uint32_t)G->slot[idt], sym_intern(B->v->leaf[
 	    G->slot[idt]].text, strlen(B->v->leaf[G->slot[idt]].text)),
 	    ct_to_ucas(B->v->leaf[G->slot[idt]].cty));
+	if (!(B->t->feat & CF_F(CF_PCLMUL)))
+		goto table;
 	x = mk_bin(O_AND, mk_bin(O_XOR, mk_cast(u64, crc), mk_cast(u64,
 	    mk_cast(TY(K_UINT, G->wid[idt]), dat))), mk_const_i(u64,
 	    (int64_t)maskk));
@@ -2350,6 +2408,7 @@ g2_crc(struct bx *B, const struct g2 *G)
 	c->fixcost = 1;
 	/* two pclmul (latency 6-7, throughput 1) and moves: estimated */
 	c->cost = 2 * B->t->c_mul + 4 * B->t->c_alu;
+table:
 	/* the 8-bit step also as Sarwate's table, 256 x 4 bytes */
 	if (k == 8) {
 		nid ent[256], tab, r;
@@ -2500,7 +2559,7 @@ eng_gates(struct bx *B)
 	uint32_t i;
 	int tried = 0;
 
-	for (i = B->nr; i-- > 0 && tried < 3 && eng_left() > 0;) {
+	for (i = B->nr; i-- > 0 && tried < 3;) {
 		nid n = B->rn[i], at[6], vals[6 + 64], r;
 		int na = 0, nops = 0, m, k;
 		ty_t t = N.ty[n];
@@ -2657,19 +2716,45 @@ eng_find(struct bx *B)
 	for (k = 0; k < f.np; k++)
 		if (!TY_ISINT(f.p[k].ty))
 			return;
-	if (__builtin_popcountll(sl) > 3)
+	if (__builtin_popcountll(sl) > 3 || B->nr > 40)
 		return;
 	if ((m = model_find(sym_cstr(x86_model_for(B->t)))) != NULL)
 		model_set_active(m);
 	else if (!old)
 		return;
-	/* the depth is fixed (deterministic); the time only a safety cap */
-	n = find_cands(&f, 5, secs, out, why, 24);
+	/* the depth is fixed (deterministic); the time only a safety cap
+	 * (find's share of ebudget), not reached on small values */
+	n = find_cands(&f, 4, secs > 60 ? secs : 60, out, why, 8);
 	model_set_active(old);
+	if (cf_run_opts() && cf_run_opts()->trace)
+		printf("  trace:   find: %d forms\n", n);
 	for (k = 0; k < n; k++) {
 		char what[120];
 		if (out[k] == 0 || out[k] == B->e)
 			continue;
+		/* tables: cfront's own generator decides them, with its
+		 * policy (none inside loop bodies clang vectorises) */
+		{
+			nid st[512];
+			int sp = 0, tab = 0;
+			st[sp++] = out[k];
+			while (sp && !tab) {
+				nid x = st[--sp];
+				if (N.op[x] == O_INDEX || N.op[x] == O_TABLE)
+					tab = 1;
+				else if (N.op[x] != O_CONST && N.op[x] != O_VAR &&
+				    sp < 500) {
+					if (N.a[x])
+						st[sp++] = N.a[x];
+					if (N.b[x])
+						st[sp++] = N.b[x];
+					if (N.c[x] && N.op[x] == O_SEL)
+						st[sp++] = N.c[x];
+				}
+			}
+			if (tab)
+				continue;
+		}
 		snprintf(what, sizeof what, "%s", why[k][0] ? why[k] :
 		    "a cheaper term");
 		if (!cand(B, B->e, out[k], 0, what, "search", "find: %s, verified "
@@ -2725,7 +2810,7 @@ eng_synth(struct bx *B)
 	double cur, mv, bound;
 	struct cf_synth_res R;
 	const struct cf_opts *o = cf_run_opts();
-	long steps = o && o->synth_steps > 0 ? o->synth_steps : 3000;
+	long steps = o && o->synth_steps > 0 ? o->synth_steps : 1000;
 	nid in16[16], out16[16], x, sem = 0;
 	ty_t u64 = TY(K_UINT, 64);
 	struct sbuf code = {0}, txt = {0}, beat = {0};
