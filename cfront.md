@@ -123,3 +123,21 @@ default per-op table still prices scalar code), candidate generators
 (`cf_add_cand_hook`), strided loads, conditional loads and stores
 (masked forms), float reductions (refused; no opt-in), saturating
 idioms (paddsw, packs), SLP of straight-line code.
+
+## Status (the bridge)
+
+Done (branch `cbridge`): cfront's values go to ucas's engines
+(`src/cf_bridge.c`): find, gates, alg, ring, dio, gf2, loops, bound, and
+`src/cf_synth.c`, a CEGIS search over the intrinsics catalogue that the
+vectoriser also uses for byte maps.  Every candidate carries its engine
+and certificate and is proved, priced and applied by cfront's policy.
+Hooks added (additive): `cf_add_value_hook` (a generator that sees the
+cf_value), `cf_cand_cert`, `cf_set_loop_hook`, `cf_emit_override` (a node
+printed as an intrinsic helper with the value as written as its
+fallback), the run accessors `cf_run_*`, and the options engines,
+ebudget, steps, approx, error.  Closed forms go to degree 7 and
+geometric sums; float sums of polynomials are proposed in closed form
+(approximations, opt-in).  README "C frontend", "Engines" is the user
+documentation.  Not done: fsimp's float rewrites and minimax
+approximations (nothing to approximate: libm calls are not lowered),
+synthesis over several input words or longer sequences.

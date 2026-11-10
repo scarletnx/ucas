@@ -1,0 +1,18 @@
+# the bridge at zen4 (cfbridge.ucas): with a larger budget the synthesis
+# finds the compound gf2p8affine; vpternlogd for a bitwise mix of a byte
+# and its rotation
+c optimize nofile target zen4 vectorize engines synth steps 3000 budget 120
+```c
+#include <stdint.h>
+#include <stddef.h>
+void mixrot(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		uint8_t x = s[i], r = (uint8_t)((x >> 2) | (x << 6));
+		d[i] = (uint8_t)((x & r) | (~x & 0x5a));
+	}
+}
+```
+# gf2: pclmul for the CRC word, pext, Sarwate's table; gates: a minimal
+# network for the majority
+c optimize cfront/bridge.c nofile target zen4 engines gf2,gates budget 120

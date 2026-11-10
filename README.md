@@ -2259,7 +2259,11 @@ cc and compare them on edge and random inputs, inputs on which the
 original has UB skipped by UBSan); `bench` (also time both with rdtsc);
 `timed` (print the seconds); `trace` (every candidate and why it was not
 taken); `vecstub` (the stub vectoriser, below); `keep` (keep `check`'s
-build directory).  JSON `c_optimize`, `c_lower`, `c_targets` (an input
+build directory); `engines all|none|find,gates,...` (which of ucas's
+engines generate candidates, below; all by default), `ebudget S` (their
+CPU seconds in total; default `budget`), `steps N` (sketches the
+synthesis may try per value; default 1000), `approx` (apply
+approximations with a derived error bound; by default they are proposed).  JSON `c_optimize`, `c_lower`, `c_targets` (an input
 range is `range`: `"x 0 1000"`); MCP tool `c`.
 
 **In English, and "SAT simplify" on C.**  Any of simplify's phrasings
@@ -2463,11 +2467,126 @@ Limits: a `while` loop whose proved form is long (more than 96
 operations unrolled) is kept, and SAT may give up on a while loop's
 equivalence (a `while (x)` popcount is sampled, not proved, and kept);
 induction over loop invariants is not done.  Closed forms stop at
-degree 2.  Float rewrites are the listed exact identities; there is no
+degree 7 and at geometric sums with a constant ratio (see "Engines").
+Float rewrites are the listed exact identities; there is no
 `fma` contraction or reassociation (they change results).
 `check`'s harness passes random values to parameters other than
 lengths, so loops whose trip count is a random parameter take too long
 for it (tests/cfront/loops.c is checked by hand).
+
+### Engines
+
+The candidates of step 3 also come from the rest of ucas
+(`src/cf_bridge.c`, `src/cf_synth.c`): each lowered value (a node over
+typed leaves, with the call sites' and assumed ranges and C's UB as its
+domain) is offered to every engine, each candidate carries its engine's
+own certificate, and then goes through the same pipeline as cfront's
+own: proved against the value (exhaustively, by SAT, or, when SAT gives
+up, by the certificate's derivation with a sample checking its
+premises), priced by the target's costs, applied only when cheaper, and
+under the same apply policy (vector code and table lookups proposed
+unless `bench` measures them faster or `vectorize`; approximations
+proposed unless `approx`).  The report names the engine and its
+certificate:
+
+```
+> c optimize cfront/bridge.c nofile budget 120          (tests/cfbridge.ucas)
+c optimize: 22 functions, 21 rewrites proved (6 exhaustive, 8 by SAT, 5 by algebra, 2 by induction) for x86-64-v3
+  engines: find 5 gates 1 alg 1 ring 4 dio 3 gf2 2 loops 2 (+1 proposed) synth 1
+  cong (line 7): (3 x + 5) % 7 == 2 as x % 7 == 6
+    engine: ring; derivation: 3*6 + 5 = 23 = 2 (mod 7); gcd(3, 7) = 1 and 3^-1 = 5 (mod 7) (3*5 = 1, checked), so the solutions are x = 6 (mod 7); no wrap (intervals)
+  two_sq (line 19): an equation without solutions mod q
+    engine: dio; Diophantine certificate: a^2 + b^2 - 21 takes only the residues {1, 2, 4, 5, 6, 7, 8} mod 9 (every residue of its 2 inputs tried), never 0; the values are exact integers where defined
+  ec_pts (line 22): an elliptic curve without such integer points
+    engine: dio; Diophantine certificate: E: y^2 = x^3 - x has rank 0 (2-isogeny descent, ecq.c) and torsion of order 4: E(Q) = {O, (-1, 0), (0, 0), (1, 0)}, each with y = 0; ...
+  sum4 (line 31): loop in closed form: s += sum of degree 4 in i
+    engine: loops; derivation: Newton: P(lo+j) = sum_k D^k P(lo) C(j,k) in any commutative ring (degree 4), ...
+  rev_each (line 62): intrinsic: synthesised: nibble LUT pair (two pshufb, xor_si128)
+    engine: synth; synthesis: CEGIS: 1000 of 80421 sketches under cost 11.0 tried, 1015 SAT calls, 741 counterexamples, 0 linear solves; winner nibble LUT pair (two pshufb, xor_si128) (cost 10.0 with the moves); beat the value as written (cost 15.0)
+  gather_bits (line 115): intrinsic: _pext_u32(x, 0xe38)
+    engine: gf2; GF(2) linearity proof: affine by structure (...); its matrix moves single bits in order: a gather with mask 0xe38
+```
+
+| engine | what it offers | certificate |
+|---|---|---|
+| `find` | find.c's forms (closed forms, peephole drops, per-case `(x*K + C) >> S` fits, the enumerated bank to cost 4) under the target's µarch model | none of its own (`search`): cfront's proof |
+| `gates` | a bitwise function of up to 6 words: its per-bit truth table, the minimal network over `x86bmi` (`c` without BMI); vpternlog for 3 words on AVX-512VL | minimality of the exhaustive search (gates.c) |
+| `alg` | the value's polynomial over Z (alg.c): expanded, by Horner, factored; `P / Q` cancelled when Q divides P | the factorisation multiplied back; only + - * (an identity of Z holds in Z/2^w); a division only where neither side wraps (sound intervals or signed overflow as UB) |
+| `ring` | `x * K == C` as `x == C K^-1` (mod 2^w, also for even K); `(a x + b) % m == c` as `x % m' == x0`; two congruences joined by the CRT; magic numbers (ring.c's `magic`) for u64 and i32 division | the inverse multiplied back; the linear congruence theorem with gcd and inverse; the CRT residues; Granlund-Montgomery's `m d = 2^k + e`, `e <= 2^s` |
+| `dio` | equations and remainders a polynomial cannot reach: its residues mod q (q a power of two survives wrapping; any q on exact values); `u^2 + v^2 == C` by the two-squares theorem; `y^2 == x^3 + a x + b` with side conditions when E has rank 0 (ecq.c's 2-isogeny descent) and its torsion points | the residue table; the factorisation of C; rank and torsion |
+| `gf2` | GF(2)-affine maps of the inputs: bit gathers and scatters (pext, pdep); CRC steps `(crc >> k) ^ T((crc ^ data) mod 2^k)`: Sarwate's table for k = 8, two pclmul (a Barrett reduction, mu = t^(32+k) div P in the ring (Z/2)[t]) | linearity by structure (xor, shifts and masks by constants, or/add of bit-disjoint operands, conversions), or `f(a ^ b) = f(a) ^ f(b) ^ f(0)` for all pairs (8 bits), or `f = M x ^ c` exhaustively (16 bits); for pclmul both sides affine and equal on every basis vector |
+| `loops` | closed forms of counted loops beyond degree 2 (cf_lower.c) and geometric sums; float sums proposed as their exact real value (below) | derivations |
+| `bound` | comparisons and clamps decided by bound.c's proved bounds where intervals do not decide them | bound.c's steps |
+| `synth` | counterexample-guided synthesis over the intrinsics catalogue (below) | the search's statistics; the proof is cfront's (lanes) |
+
+**Synthesis.**  `cf_synth.c` searches programs of up to 3 instructions on
+128-bit registers over templates from the catalogue whose constant
+operands are holes: gf2p8affine (matrix and xor byte), gf2p8mul,
+pshufb (a table, or the nibble-LUT pair: two 16-entry lookups of the low
+and high nibbles combined by xor, or or add), and/or/xor/add with a
+constant, vpternlogd (imm8 and a constant operand), shifts and rotates
+(amounts enumerated), binary and/or/xor/andnot/add.  Sketches are tried
+shortest first, then cheapest under the µarch's costs (x86data.c), below
+the value's cost (a solution then bounds the rest); holes are solved by
+SAT against a growing set of counterexamples (gf2p8affine of the input
+by GF(2) linear algebra), each solution verified for every input
+(exhaustively up to 16 bits, else by SAT over the register) and a
+failure adds its counterexample.  The budget is counted in sketches
+(`steps`), so the results do not depend on the machine.  Scalar values of
+one word go through it (moves into and out of xmm counted), and the
+vectoriser asks it for every store of u8 lanes that is a function of one
+u8 load, below the 8-bit translation's cost: what wins is whatever is
+cheapest at the target, nothing is recognised by pattern:
+
+| kernel | x86-64-v3 | icelake (GFNI, AVX-512) | zen4, `steps 3000` |
+|---|---|---|---|
+| `d[i] = s[i] << 3` | and; vpsllw 3 (32 lanes) | and; vpsllw 3 (64 lanes) | |
+| `d[i] = s[i] >> 2 \| s[i] << 6` | nibble LUT pair | gf2p8affineqb | |
+| bit reversal of each byte | nibble LUT pair | gf2p8affineqb | |
+| `(x & ror(x, 2)) \| (~x & 0x5a)` | none within 1000 sketches (16-bit lanes) | the same | gf2p8affineqb; vpternlogd |
+| bit reversal in each byte of a u64 (scalar) | nibble LUT pair | gf2p8affineqb | |
+| popcount of each byte of a u64 (scalar) | none below the value's cost | nibble LUT pair (add) | |
+
+The tests are `tests/cfbridge.ucas` (all engines, x86-64-v3; approx;
+engine selection), `cfbridge_icl.ucas` and `cfbridge_zen4.ucas`, each in
+a process of its own: cfront's proof budget is CPU time and the
+synthesis grows the node table, which slows what runs after it.  The
+kernels are `tests/cfront/bridge.c`.
+
+The 8x8 matrix of gf2p8affine is packed as Intel defines it (the row of
+output bit i in byte 7 - i, as the catalogue's lane semantics `b[7 - k]`
+and wunkolo's post have it): bit reversal is 0x8040201008040201.
+
+**Floats as integrals.**  A float loop `s += t(i)` whose term is a
+polynomial in i over the loop's invariants (`s += x * x * h`, `x = i *
+h`) is a left Riemann sum of a polynomial F, for which Euler-Maclaurin
+terminates: its exact real value is Faulhaber's sums.  It is proposed
+with its error bound, never applied by default (`approx` applies it): the
+loop's own rounding differs from the exact sum by at most g(N + k)
+(|s0| + sum |terms|), g(k) = k u/(1 - k u), u = 2^-53, N the trip count
+and k the term's operations; the closed form's own rounding is a few
+ulps of its terms.  For `riemann` (tests/cfront/bridge.c) the two
+differed by 2.2e-14 relative at n = 797161 and 0 for n <= 121.  Integer
+sums get exact closed forms instead (`loops`).
+
+**What is validated where.**  Candidates are proved like every other
+(the proof column).  Intrinsic code runs on this host (i5-9400) where it
+can: `check` ran the SSSE3/AVX2 programs (nibble LUTs, and+shift
+vectors) and the pclmul CRC on 40000+ calls, all agreeing.  GFNI and
+AVX-512 do not exist here (QEMU 11.1's TCG has no GFNI either: it traps
+on gf2p8affineqb), so the gf2p8affine and vpternlogd programs are proved
+against the catalogue's lane semantics only, the same semantics the
+vectoriser proves its lanes with; the catalogue's gf2p8affine is
+Intel's pseudo-code (`parity(b[7 - k] & a) ^ imm`) and agrees with the
+post's constants.
+
+Not done: fsimp's float rewrites (none is bit-exact beyond cfront's own
+IEEE identities) and minimax approximations (cfront does not lower libm
+calls, so there is nothing to approximate yet); synthesis of values of
+more than one input word, of sequences longer than 3, and with pext,
+pclmul or vpermb as searched templates (the gf2 engine supplies pext,
+pdep and pclmul forms directly); `error E` is accepted but only proposes
+(no numeric bound is derived for a symbolic trip count).
 
 ## x86-64
 

@@ -1,0 +1,793 @@
+> c optimize nofile target zen4 vectorize engines synth steps 3000 budget 120
+c optimize: 1 function, 1 rewrite proved (0 exhaustive, 0 by SAT, 1 by lanes) for zen4
+  estimated cost of the rewritten values on zen4: 8.0 -> 0.1 cycles
+  mixrot (line 5): 512-bit vectors, 64 lanes of 8 bits (gfni avx512f); 64 lanes proved (0 equal DAGs, 0 exhaustive, 64 SAT); synthesised gf2p8affine_epi64_epi8; ternarylogic_epi32 (of t, x) (CEGIS: 3000 of 192613 sketches, 3001 SAT calls, 1711 counterexamples)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 0.1
+  mixrot (line 3): not lowered: line 3: the function does not return an integer or a float
+optimised C:
+  /* optimised by ucas cfront for zen4 (znver4); every rewrite proved, see the report */
+  #include <immintrin.h>
+  #include <stdint.h>
+  #include <stddef.h>
+  void mixrot(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__GFNI__) && defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 256; i += 256) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull), 18);
+  		__m512i cf_v1 = _mm512_ternarylogic_epi32(cf_v1_0, cf_v0, _mm512_set_epi64((long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull), 0x1d);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull), 18);
+  		__m512i cf_v1 = _mm512_ternarylogic_epi32(cf_v1_0, cf_v0, _mm512_set_epi64((long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull), 0x1d);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 128;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull), 18);
+  		__m512i cf_v1 = _mm512_ternarylogic_epi32(cf_v1_0, cf_v0, _mm512_set_epi64((long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull), 0x1d);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 192;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull), 18);
+  		__m512i cf_v1 = _mm512_ternarylogic_epi32(cf_v1_0, cf_v0, _mm512_set_epi64((long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull), 0x1d);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull, (long long)0x508142840a04182ull), 18);
+  		__m512i cf_v1 = _mm512_ternarylogic_epi32(cf_v1_0, cf_v0, _mm512_set_epi64((long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull, (long long)0xa5a5a5a5a5a5a5a5ull), 0x1d);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)6))))))))))))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)~(uint32_t)(((int32_t)((cf_ld0)))))) & (uint32_t)(((int32_t)90)))))))));
+  	}
+  }
+  }
+> c optimize cfront/bridge.c nofile target zen4 engines gf2,gates budget 120
+c optimize: 22 functions, 8 rewrites proved (1 exhaustive, 4 by SAT, 1 by algebra, 2 by induction) for zen4
+  estimated cost of the rewritten values on zen4: 225.0 -> 28.8 cycles (loops in closed form not counted)
+  engines: gates 1 gf2 3 loops 2
+  never_sq (line 16): the value is a constant
+    proof: sat (proved by SAT: 4594 AIG nodes, 0 conflicts); cost 5.2 -> 0.0
+    before: { return x * x % 4 == 3; }
+  sum4 (line 31): loop in closed form: s += sum of degree 4 in i
+    proof: induction (sums by forward differences and C(T,k), geometric sums by r^T, exact mod 2^w); cost 12.0 -> 78.0 (before: per iteration of the loop)
+    engine: loops; derivation: Newton: P(lo+j) = sum_k D^k P(lo) C(j,k) in any commutative ring (degree 4), sum_{j<T} C(j,k) = C(T,k+1); C(T,m) mod 2^64: m consecutive factors less v2(m!) twos (ctz), times odd(m!)^-1
+  geo3 (line 40): loop in closed form: s += geometric sum of p, p *= 3 (geometric)
+    proof: induction (sums by forward differences and C(T,k), geometric sums by r^T, exact mod 2^w); cost 3.0 -> 13.0 (before: per iteration of the loop)
+    engine: loops; derivation: sum r^j = (r^T - 1)/(r - 1) for r = 3: r - 1 = 2^1*1, 1^-1 = 0x1 mod 2^64 (checked), exact in the low 63 >= 32 bits
+  rev_bytes (line 94): a mask that never bites (x2)
+    proof: exhaustive (exhaustive: 256 inputs); cost 5.5 -> 3.5
+    before: (uint8_t)((x & 0xF0) >> 4 | (x & 0x0F) << 4)
+    after:  (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((x)))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((x)))) << (((int32_t)4)))))))))
+  maj (line 109): a bitwise function by a minimal gate network
+    proof: sat (proved by SAT: 544 AIG nodes, 136 conflicts); cost 7.0 -> 4.0
+    engine: gates; exhaustive search: per-bit truth table 0xe8 of 3 inputs (8 operations as written); gates over basis x86bmi: cost 4, minimal (no program of cost 3 exists, 18524 candidates); bits are independent lanes
+  gather_bits (line 115): intrinsic: _pext_u32(x, 0xe38)
+    proof: sat (proved by SAT: 33 AIG nodes, 0 conflicts); cost 5.0 -> 3.0
+    engine: gf2; GF(2) linearity proof: affine by structure (xor, shifts and masks by constants, or/add of bit-disjoint operands, conversions); its matrix moves single bits in order: a gather with mask 0xe38
+    before: { return ((x >> 3) & 7) | ((x >> 6) & 0x38); }
+  crc8step (line 118): a CRC step by a table of 256 values (Sarwate)
+    proof: sat (proved by SAT: 12395 AIG nodes, 1196 conflicts); cost 41.2 -> 8.2
+    engine: gf2; GF(2) linearity proof: affine by structure (xor, shifts and masks by constants, or/add of bit-disjoint operands, conversions); f = (crc >> 8) ^ T[(crc ^ data) & 0xff], T linear (its 8 columns are the matrix's)
+  crc32step (line 127): intrinsic: a CRC-32 step of 32 bits by two pclmul (Barrett)
+    proof: algebra (derivation: both sides GF(2)-affine by structure, equal at 0 and on all 64 basis vectors); cost 161.0 -> 10.0
+    engine: gf2; GF(2) linearity proof: affine by structure (xor, shifts and masks by constants, or/add of bit-disjoint operands, conversions); f = (crc >> 32) ^ T((crc ^ data) mod 2^32), T = x t^32 mod P, P = t^32 + 0x04c11db7 (reflected 0xedb88320), mu = t^64 div P (the ring (
+  cong (line 7): no cheaper form: lowered: 1 inputs, cost 11.5
+  inv_eq (line 10): no cheaper form: lowered: 1 inputs, cost 4.2
+  crt2 (line 13): no cheaper form: lowered: 1 inputs, cost 17.8
+  two_sq (line 19): no cheaper form: lowered: 2 inputs, cost 8.8
+  ec_pts (line 22): no cheaper form: lowered: 2 inputs, cost 16.2
+  dsq (line 25): no cheaper form: lowered: 2 inputs, cost 7.0
+  cancel_q (line 28): no cheaper form: lowered: 1 inputs, cost 15.2
+  riemann (line 51): not lowered: a loop that may run more than 66 times
+  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding)
+  rev_each (line 62): no cheaper form: lowered: 1 inputs, cost 15.0
+  pop_each (line 69): no cheaper form: lowered: 1 inputs, cost 10.0
+  shl3_bytes (line 78): not lowered: line 78: the function does not return an integer or a float
+  shl3_bytes (line 80): proposed, not applied: 512-bit vectors, 32 lanes of 16 bits (avx avx512f avx512bw); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	size_t i = 0;
+      #if defined(__AVX__) && defined(__AVX512F__) && defined(__AVX512BW__)
+      	{
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_slli_epi16(cf_v1, 3);
+      		__m512i cf_v3 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v4 = _mm512_and_si512(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm512_cvtepi16_epi8(cf_v4);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v5);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 32;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_slli_epi16(cf_v1, 3);
+      		__m512i cf_v3 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v4 = _mm512_and_si512(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm512_cvtepi16_epi8(cf_v4);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v5);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 64;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_slli_epi16(cf_v1, 3);
+      		__m512i cf_v3 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v4 = _mm512_and_si512(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm512_cvtepi16_epi8(cf_v4);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v5);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 96;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_slli_epi16(cf_v1, 3);
+      		__m512i cf_v3 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v4 = _mm512_and_si512(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm512_cvtepi16_epi8(cf_v4);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v5);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_slli_epi16(cf_v1, 3);
+      		__m512i cf_v3 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v4 = _mm512_and_si512(cf_v2, cf_v3);
+      		__m256i cf_v5 = _mm512_cvtepi16_epi8(cf_v4);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v5);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+      		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)3))))));
+      	}
+      }
+  rotr2_bytes (line 84): not lowered: line 84: the function does not return an integer or a float
+  rotr2_bytes (line 86): proposed, not applied: 512-bit vectors, 32 lanes of 16 bits (avx avx512f avx512bw); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	size_t i = 0;
+      #if defined(__AVX__) && defined(__AVX512F__) && defined(__AVX512BW__)
+      	{
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m256i cf_v7 = _mm512_cvtepi16_epi8(cf_v6);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v7);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 32;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m256i cf_v7 = _mm512_cvtepi16_epi8(cf_v6);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v7);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 64;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m256i cf_v7 = _mm512_cvtepi16_epi8(cf_v6);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v7);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 96;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m256i cf_v7 = _mm512_cvtepi16_epi8(cf_v6);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v7);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m256i cf_v7 = _mm512_cvtepi16_epi8(cf_v6);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v7);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+      		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)6)))))))));
+      	}
+      }
+  rev_bytes (line 90): not lowered: line 90: the function does not return an integer or a float
+  rev_bytes (line 92): proposed, not applied: 512-bit vectors, 32 lanes of 16 bits (avx avx512f avx512bw); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	size_t i = 0;
+      #if defined(__AVX__) && defined(__AVX512F__) && defined(__AVX512BW__)
+      	{
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_set1_epi16((int16_t)(240LL));
+      		__m512i cf_v3 = _mm512_and_si512(cf_v1, cf_v2);
+      		__m512i cf_v4 = _mm512_srai_epi16(cf_v3, 4);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(15LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v1, cf_v5);
+      		__m512i cf_v7 = _mm512_slli_epi16(cf_v6, 4);
+      		__m512i cf_v8 = _mm512_or_si512(cf_v4, cf_v7);
+      		__m512i cf_v9 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v10 = _mm512_and_si512(cf_v8, cf_v9);
+      		__m512i cf_v11 = _mm512_set1_epi16((int16_t)(204LL));
+      		__m512i cf_v12 = _mm512_and_si512(cf_v10, cf_v11);
+      		__m512i cf_v13 = _mm512_srai_epi16(cf_v12, 2);
+      		__m512i cf_v14 = _mm512_set1_epi16((int16_t)(51LL));
+      		__m512i cf_v15 = _mm512_and_si512(cf_v10, cf_v14);
+      		__m512i cf_v16 = _mm512_slli_epi16(cf_v15, 2);
+      		__m512i cf_v17 = _mm512_or_si512(cf_v13, cf_v16);
+      		__m512i cf_v18 = _mm512_and_si512(cf_v17, cf_v9);
+      		__m512i cf_v19 = _mm512_set1_epi16((int16_t)(170LL));
+      		__m512i cf_v20 = _mm512_and_si512(cf_v18, cf_v19);
+      		__m512i cf_v21 = _mm512_srai_epi16(cf_v20, 1);
+      		__m512i cf_v22 = _mm512_set1_epi16((int16_t)(85LL));
+      		__m512i cf_v23 = _mm512_and_si512(cf_v18, cf_v22);
+      		__m512i cf_v24 = _mm512_slli_epi16(cf_v23, 1);
+      		__m512i cf_v25 = _mm512_or_si512(cf_v21, cf_v24);
+      		__m512i cf_v26 = _mm512_and_si512(cf_v25, cf_v9);
+      		__m256i cf_v27 = _mm512_cvtepi16_epi8(cf_v26);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v27);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 32;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_set1_epi16((int16_t)(240LL));
+      		__m512i cf_v3 = _mm512_and_si512(cf_v1, cf_v2);
+      		__m512i cf_v4 = _mm512_srai_epi16(cf_v3, 4);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(15LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v1, cf_v5);
+      		__m512i cf_v7 = _mm512_slli_epi16(cf_v6, 4);
+      		__m512i cf_v8 = _mm512_or_si512(cf_v4, cf_v7);
+      		__m512i cf_v9 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v10 = _mm512_and_si512(cf_v8, cf_v9);
+      		__m512i cf_v11 = _mm512_set1_epi16((int16_t)(204LL));
+      		__m512i cf_v12 = _mm512_and_si512(cf_v10, cf_v11);
+      		__m512i cf_v13 = _mm512_srai_epi16(cf_v12, 2);
+      		__m512i cf_v14 = _mm512_set1_epi16((int16_t)(51LL));
+      		__m512i cf_v15 = _mm512_and_si512(cf_v10, cf_v14);
+      		__m512i cf_v16 = _mm512_slli_epi16(cf_v15, 2);
+      		__m512i cf_v17 = _mm512_or_si512(cf_v13, cf_v16);
+      		__m512i cf_v18 = _mm512_and_si512(cf_v17, cf_v9);
+      		__m512i cf_v19 = _mm512_set1_epi16((int16_t)(170LL));
+      		__m512i cf_v20 = _mm512_and_si512(cf_v18, cf_v19);
+      		__m512i cf_v21 = _mm512_srai_epi16(cf_v20, 1);
+      		__m512i cf_v22 = _mm512_set1_epi16((int16_t)(85LL));
+      		__m512i cf_v23 = _mm512_and_si512(cf_v18, cf_v22);
+      		__m512i cf_v24 = _mm512_slli_epi16(cf_v23, 1);
+      		__m512i cf_v25 = _mm512_or_si512(cf_v21, cf_v24);
+      		__m512i cf_v26 = _mm512_and_si512(cf_v25, cf_v9);
+      		__m256i cf_v27 = _mm512_cvtepi16_epi8(cf_v26);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v27);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 64;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_set1_epi16((int16_t)(240LL));
+      		__m512i cf_v3 = _mm512_and_si512(cf_v1, cf_v2);
+      		__m512i cf_v4 = _mm512_srai_epi16(cf_v3, 4);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(15LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v1, cf_v5);
+      		__m512i cf_v7 = _mm512_slli_epi16(cf_v6, 4);
+      		__m512i cf_v8 = _mm512_or_si512(cf_v4, cf_v7);
+      		__m512i cf_v9 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v10 = _mm512_and_si512(cf_v8, cf_v9);
+      		__m512i cf_v11 = _mm512_set1_epi16((int16_t)(204LL));
+      		__m512i cf_v12 = _mm512_and_si512(cf_v10, cf_v11);
+      		__m512i cf_v13 = _mm512_srai_epi16(cf_v12, 2);
+      		__m512i cf_v14 = _mm512_set1_epi16((int16_t)(51LL));
+      		__m512i cf_v15 = _mm512_and_si512(cf_v10, cf_v14);
+      		__m512i cf_v16 = _mm512_slli_epi16(cf_v15, 2);
+      		__m512i cf_v17 = _mm512_or_si512(cf_v13, cf_v16);
+      		__m512i cf_v18 = _mm512_and_si512(cf_v17, cf_v9);
+      		__m512i cf_v19 = _mm512_set1_epi16((int16_t)(170LL));
+      		__m512i cf_v20 = _mm512_and_si512(cf_v18, cf_v19);
+      		__m512i cf_v21 = _mm512_srai_epi16(cf_v20, 1);
+      		__m512i cf_v22 = _mm512_set1_epi16((int16_t)(85LL));
+      		__m512i cf_v23 = _mm512_and_si512(cf_v18, cf_v22);
+      		__m512i cf_v24 = _mm512_slli_epi16(cf_v23, 1);
+      		__m512i cf_v25 = _mm512_or_si512(cf_v21, cf_v24);
+      		__m512i cf_v26 = _mm512_and_si512(cf_v25, cf_v9);
+      		__m256i cf_v27 = _mm512_cvtepi16_epi8(cf_v26);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v27);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 96;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_set1_epi16((int16_t)(240LL));
+      		__m512i cf_v3 = _mm512_and_si512(cf_v1, cf_v2);
+      		__m512i cf_v4 = _mm512_srai_epi16(cf_v3, 4);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(15LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v1, cf_v5);
+      		__m512i cf_v7 = _mm512_slli_epi16(cf_v6, 4);
+      		__m512i cf_v8 = _mm512_or_si512(cf_v4, cf_v7);
+      		__m512i cf_v9 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v10 = _mm512_and_si512(cf_v8, cf_v9);
+      		__m512i cf_v11 = _mm512_set1_epi16((int16_t)(204LL));
+      		__m512i cf_v12 = _mm512_and_si512(cf_v10, cf_v11);
+      		__m512i cf_v13 = _mm512_srai_epi16(cf_v12, 2);
+      		__m512i cf_v14 = _mm512_set1_epi16((int16_t)(51LL));
+      		__m512i cf_v15 = _mm512_and_si512(cf_v10, cf_v14);
+      		__m512i cf_v16 = _mm512_slli_epi16(cf_v15, 2);
+      		__m512i cf_v17 = _mm512_or_si512(cf_v13, cf_v16);
+      		__m512i cf_v18 = _mm512_and_si512(cf_v17, cf_v9);
+      		__m512i cf_v19 = _mm512_set1_epi16((int16_t)(170LL));
+      		__m512i cf_v20 = _mm512_and_si512(cf_v18, cf_v19);
+      		__m512i cf_v21 = _mm512_srai_epi16(cf_v20, 1);
+      		__m512i cf_v22 = _mm512_set1_epi16((int16_t)(85LL));
+      		__m512i cf_v23 = _mm512_and_si512(cf_v18, cf_v22);
+      		__m512i cf_v24 = _mm512_slli_epi16(cf_v23, 1);
+      		__m512i cf_v25 = _mm512_or_si512(cf_v21, cf_v24);
+      		__m512i cf_v26 = _mm512_and_si512(cf_v25, cf_v9);
+      		__m256i cf_v27 = _mm512_cvtepi16_epi8(cf_v26);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v27);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_set1_epi16((int16_t)(240LL));
+      		__m512i cf_v3 = _mm512_and_si512(cf_v1, cf_v2);
+      		__m512i cf_v4 = _mm512_srai_epi16(cf_v3, 4);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(15LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v1, cf_v5);
+      		__m512i cf_v7 = _mm512_slli_epi16(cf_v6, 4);
+      		__m512i cf_v8 = _mm512_or_si512(cf_v4, cf_v7);
+      		__m512i cf_v9 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v10 = _mm512_and_si512(cf_v8, cf_v9);
+      		__m512i cf_v11 = _mm512_set1_epi16((int16_t)(204LL));
+      		__m512i cf_v12 = _mm512_and_si512(cf_v10, cf_v11);
+      		__m512i cf_v13 = _mm512_srai_epi16(cf_v12, 2);
+      		__m512i cf_v14 = _mm512_set1_epi16((int16_t)(51LL));
+      		__m512i cf_v15 = _mm512_and_si512(cf_v10, cf_v14);
+      		__m512i cf_v16 = _mm512_slli_epi16(cf_v15, 2);
+      		__m512i cf_v17 = _mm512_or_si512(cf_v13, cf_v16);
+      		__m512i cf_v18 = _mm512_and_si512(cf_v17, cf_v9);
+      		__m512i cf_v19 = _mm512_set1_epi16((int16_t)(170LL));
+      		__m512i cf_v20 = _mm512_and_si512(cf_v18, cf_v19);
+      		__m512i cf_v21 = _mm512_srai_epi16(cf_v20, 1);
+      		__m512i cf_v22 = _mm512_set1_epi16((int16_t)(85LL));
+      		__m512i cf_v23 = _mm512_and_si512(cf_v18, cf_v22);
+      		__m512i cf_v24 = _mm512_slli_epi16(cf_v23, 1);
+      		__m512i cf_v25 = _mm512_or_si512(cf_v21, cf_v24);
+      		__m512i cf_v26 = _mm512_and_si512(cf_v25, cf_v9);
+      		__m256i cf_v27 = _mm512_cvtepi16_epi8(cf_v26);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v27);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+      		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)204))))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)51))))) << (((int32_t)2)))))))))))) & (uint32_t)(((int32_t)170))))) >> (((int32_t)1))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)204))))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)51))))) << (((int32_t)2)))))))))))) & (uint32_t)(((int32_t)85))))) << (((int32_t)1)))))))));
+      	}
+      }
+  rev_bytes (line 92): proposed, not applied: loop body: store 0: a table of 256 values indexed by s[i] (proved: proved by SAT: 3741 AIG nodes, 422 conflicts); it leaves a table lookup or a call in a loop clang vectorises as written, which can be much slower: 'bench' measures it
+    code (not applied):
+      {
+      		d[i] = (unsigned char)cf_tab0[((int64_t)((s[i])))];
+      	}
+  mixrot (line 100): not lowered: line 100: the function does not return an integer or a float
+  mixrot (line 102): proposed, not applied: 512-bit vectors, 32 lanes of 16 bits (avx avx512f avx512bw); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	size_t i = 0;
+      #if defined(__AVX__) && defined(__AVX512F__) && defined(__AVX512BW__)
+      	{
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+      		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+      		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+      		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+      		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+      		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+      		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 32;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+      		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+      		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+      		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+      		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+      		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+      		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 64;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+      		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+      		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+      		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+      		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+      		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+      		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+      	    }
+      	    {
+      		const uint64_t cf_i = i + 96;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+      		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+      		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+      		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+      		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+      		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+      		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+      	    {
+      		const uint64_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+      		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+      		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+      		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+      		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+      		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+      		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+      		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+      		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+      		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+      		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+      		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+      		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+      		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+      		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)6))))))))))))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)~(uint32_t)(((int32_t)((cf_ld0)))))) & (uint32_t)(((int32_t)90)))))))));
+      	}
+      }
+  mixrot (line 102): proposed, not applied: loop body: store 0: a table of 256 values indexed by s[i] (proved: proved by SAT: 3963 AIG nodes, 615 conflicts); it leaves a table lookup or a call in a loop clang vectorises as written, which can be much slower: 'bench' measures it
+    code (not applied):
+      {
+      		d[i] = (unsigned char)cf_tab0[((int64_t)((s[i])))];
+      	}
+  div10 (line 136): no cheaper form: lowered: 1 inputs, cost 6.0
+optimised C:
+  /* optimised by ucas cfront for zen4 (znver4); every rewrite proved, see the report */
+  #include <immintrin.h>
+  /* The bridge (src/cf_bridge.c, cf_synth.c): kernels for ucas's engines
+   * behind the C frontend.  tests/cfront.ucas runs them per target. */
+  #include <stdint.h>
+  #include <stddef.h>
+  
+  /* ring: a linear congruence, 3x + 5 = 2 (mod 7) <=> x = 6 (mod 7) */
+  int cong(uint16_t x) { return (3 * x + 5) % 7 == 2; }
+  
+  /* ring: x * 7 == 21 (mod 2^32) <=> x == 21 * 7^-1 = 3 */
+  int inv_eq(uint32_t x) { return x * 7u == 21u; }
+  
+  /* ring: two congruences joined by the CRT */
+  int crt2(uint32_t x) { return x % 3 == 1 && x % 5 == 2; }
+  
+  /* dio: x*x = 3 (mod 4) has no solution */
+  #if defined(__POPCNT__) || defined(__LZCNT__) || defined(__BMI__)
+  #include <immintrin.h>
+  #endif
+  static inline uint64_t cf_ctz64(uint64_t x)
+  {
+  #if defined(__BMI__)
+  	return (uint64_t)_tzcnt_u64(x);
+  #elif defined(__GNUC__)
+  	return x ? (uint64_t)__builtin_ctzll(x) : 64u;
+  #else
+  	uint64_t n = 0;
+  	if (!x) return 64;
+  	while (!(x & 1)) { x >>= 1; n++; }
+  	return n;
+  #endif
+  }
+  static inline uint64_t cf_powu64(uint64_t b, uint64_t e)
+  {
+  	uint64_t r = 1;
+  	while (e) {
+  		if (e & 1)
+  			r *= b;
+  		b *= b;
+  		e >>= 1;
+  	}
+  	return r;
+  }
+  static inline uint32_t cf_b0(uint32_t a0)
+  {
+  #if defined(__BMI2__)
+  	return (uint32_t)(_pext_u32(a0, 0xe38u));
+  #else
+  	{
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((a0)) >> (((int32_t)3))))) & (uint32_t)(((uint32_t)7u))))) | (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((a0)) >> (((int32_t)6))))) & (uint32_t)(((uint32_t)56u)))))));
+  }
+  #endif
+  }
+  static const uint32_t cf_tab0[256] = {
+  	0u, 1996959894u, 3993919788u, 2567524794u, 124634137u, 1886057615u, 3915621685u, 2657392035u, 249268274u, 2044508324u, 3772115230u, 2547177864u, 
+  	162941995u, 2125561021u, 3887607047u, 2428444049u, 498536548u, 1789927666u, 4089016648u, 2227061214u, 450548861u, 1843258603u, 4107580753u, 2211677639u, 
+  	325883990u, 1684777152u, 4251122042u, 2321926636u, 335633487u, 1661365465u, 4195302755u, 2366115317u, 997073096u, 1281953886u, 3579855332u, 2724688242u, 
+  	1006888145u, 1258607687u, 3524101629u, 2768942443u, 901097722u, 1119000684u, 3686517206u, 2898065728u, 853044451u, 1172266101u, 3705015759u, 2882616665u, 
+  	651767980u, 1373503546u, 3369554304u, 3218104598u, 565507253u, 1454621731u, 3485111705u, 3099436303u, 671266974u, 1594198024u, 3322730930u, 2970347812u, 
+  	795835527u, 1483230225u, 3244367275u, 3060149565u, 1994146192u, 31158534u, 2563907772u, 4023717930u, 1907459465u, 112637215u, 2680153253u, 3904427059u, 
+  	2013776290u, 251722036u, 2517215374u, 3775830040u, 2137656763u, 141376813u, 2439277719u, 3865271297u, 1802195444u, 476864866u, 2238001368u, 4066508878u, 
+  	1812370925u, 453092731u, 2181625025u, 4111451223u, 1706088902u, 314042704u, 2344532202u, 4240017532u, 1658658271u, 366619977u, 2362670323u, 4224994405u, 
+  	1303535960u, 984961486u, 2747007092u, 3569037538u, 1256170817u, 1037604311u, 2765210733u, 3554079995u, 1131014506u, 879679996u, 2909243462u, 3663771856u, 
+  	1141124467u, 855842277u, 2852801631u, 3708648649u, 1342533948u, 654459306u, 3188396048u, 3373015174u, 1466479909u, 544179635u, 3110523913u, 3462522015u, 
+  	1591671054u, 702138776u, 2966460450u, 3352799412u, 1504918807u, 783551873u, 3082640443u, 3233442989u, 3988292384u, 2596254646u, 62317068u, 1957810842u, 
+  	3939845945u, 2647816111u, 81470997u, 1943803523u, 3814918930u, 2489596804u, 225274430u, 2053790376u, 3826175755u, 2466906013u, 167816743u, 2097651377u, 
+  	4027552580u, 2265490386u, 503444072u, 1762050814u, 4150417245u, 2154129355u, 426522225u, 1852507879u, 4275313526u, 2312317920u, 282753626u, 1742555852u, 
+  	4189708143u, 2394877945u, 397917763u, 1622183637u, 3604390888u, 2714866558u, 953729732u, 1340076626u, 3518719985u, 2797360999u, 1068828381u, 1219638859u, 
+  	3624741850u, 2936675148u, 906185462u, 1090812512u, 3747672003u, 2825379669u, 829329135u, 1181335161u, 3412177804u, 3160834842u, 628085408u, 1382605366u, 
+  	3423369109u, 3138078467u, 570562233u, 1426400815u, 3317316542u, 2998733608u, 733239954u, 1555261956u, 3268935591u, 3050360625u, 752459403u, 1541320221u, 
+  	2607071920u, 3965973030u, 1969922972u, 40735498u, 2617837225u, 3943577151u, 1913087877u, 83908371u, 2512341634u, 3803740692u, 2075208622u, 213261112u, 
+  	2463272603u, 3855990285u, 2094854071u, 198958881u, 2262029012u, 4057260610u, 1759359992u, 534414190u, 2176718541u, 4139329115u, 1873836001u, 414664567u, 
+  	2282248934u, 4279200368u, 1711684554u, 285281116u, 2405801727u, 4167216745u, 1634467795u, 376229701u, 2685067896u, 3608007406u, 1308918612u, 956543938u, 
+  	2808555105u, 3495958263u, 1231636301u, 1047427035u, 2932959818u, 3654703836u, 1088359270u, 936918000u, 2847714899u, 3736837829u, 1202900863u, 817233897u, 
+  	3183342108u, 3401237130u, 1404277552u, 615818150u, 3134207493u, 3453421203u, 1423857449u, 601450431u, 3009837614u, 3294710456u, 1567103746u, 711928724u, 
+  	3020668471u, 3272380065u, 1510334235u, 755167117u, 
+  };
+  static inline uint32_t cf_b1(uint32_t a0, uint32_t a1)
+  {
+  #if defined(__SSE2__) && defined(__PCLMUL__)
+  	{ const uint64_t x = ((uint64_t)a0 ^ (uint64_t)a1) & 0xffffffffull; const __m128i u = _mm_clmulepi64_si128(_mm_cvtsi64_si128((long long)x), _mm_cvtsi64_si128((long long)0x1f7011641ull), 0); const uint64_t q = (uint64_t)_mm_cvtsi128_si64(u) & 0xffffffffull; const __m128i v = _mm_clmulepi64_si128(_mm_cvtsi64_si128((long long)q), _mm_cvtsi64_si128((long long)0x1db710641ull), 0); return (uint32_t)((uint64_t)_mm_cvtsi128_si64(v) >> 32); }
+  #else
+  	{
+  	const uint32_t cf_t0 = ((uint32_t)((uint32_t)((a0)) ^ (uint32_t)((a1))));
+  	const uint32_t cf_t1 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t0) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t0) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t2 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t1) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t1) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t3 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t2) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t2) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t4 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t3) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t3) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t5 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t4) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t4) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t6 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t5) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t5) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t7 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t6) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t6) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t8 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t7) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t7) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t9 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t8) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t8) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t10 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t9) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t9) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t11 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t10) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t10) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t12 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t11) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t11) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t13 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t12) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t12) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t14 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t13) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t13) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t15 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t14) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t14) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t16 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t15) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t15) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t17 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t16) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t16) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t18 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t17) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t17) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t19 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t18) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t18) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t20 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t19) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t19) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t21 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t20) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t20) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t22 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t21) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t21) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t23 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t22) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t22) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t24 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t23) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t23) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t25 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t24) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t24) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t26 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t25) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t25) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t27 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t26) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t26) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t28 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t27) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t27) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t29 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t28) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t28) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t30 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t29) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t29) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	const uint32_t cf_t31 = ((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t30) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t30) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(cf_t31) >> (((int32_t)1))))) ^ (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(0u - (uint32_t)(((uint32_t)((uint32_t)(cf_t31) & (uint32_t)(((uint32_t)1u)))))))) & (uint32_t)(((uint32_t)3988292384u)))))));
+  }
+  #endif
+  }
+  int never_sq(uint32_t x) {
+  	return (int)((int32_t)0);
+  }
+  
+  /* dio: a^2 + b^2 = 21 has none: 3 divides 21 to an odd power */
+  int two_sq(int16_t a, int16_t b) { return a * a + b * b == 21; }
+  
+  /* dio: y^2 = x^3 - x has rank 0; its rational points have y = 0 */
+  int ec_pts(int16_t x, int16_t y) { return y != 0 && y * y == x * x * x - x; }
+  
+  /* alg: a difference of squares, one multiply instead of two */
+  uint32_t dsq(uint32_t a, uint32_t b) { return a * a - b * b; }
+  
+  /* alg: (x^2 - 1)/(x - 1) cancelled: nothing wraps */
+  int32_t cancel_q(int16_t x) { return (x * x - 1) / (x - 1); }
+  
+  /* loops: a sum of degree 4 */
+  uint64_t sum4(uint64_t n)
+  {
+  	const uint64_t cf_t0 = ((((uint64_t)((n)) > (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)((n)) : (uint64_t)(((uint64_t)0ull)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	const uint64_t cf_t2 = ((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull)))))))));
+  	const uint64_t cf_t3 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)2ull))));
+  	const uint64_t cf_t4 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t0))))) < (uint64_t)(((uint64_t)3ull)) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t0))))) : (uint64_t)(((uint64_t)3ull)));
+  	const uint64_t cf_t5 = ((uint64_t)((uint64_t)(((uint64_t)3ull)) - (uint64_t)(cf_t4)));
+  	const uint64_t cf_t6 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t1))))) < (uint64_t)(cf_t5) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t1))))) : (uint64_t)(cf_t5));
+  	const uint64_t cf_t7 = ((uint64_t)((uint64_t)(cf_t5) - (uint64_t)(cf_t6)));
+  	const uint64_t cf_t8 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t3))))) < (uint64_t)(cf_t7) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t3))))) : (uint64_t)(cf_t7));
+  	const uint64_t cf_t9 = ((uint64_t)((uint64_t)(cf_t7) - (uint64_t)(cf_t8)));
+  	const uint64_t cf_t10 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)3ull))));
+  	const uint64_t cf_t11 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t10))))) < (uint64_t)(cf_t9) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t10))))) : (uint64_t)(cf_t9));
+  	const uint64_t cf_t12 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)4ull))));
+  	return (unsigned long)((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t2) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)14ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)12297829382473034411ull)) * (uint64_t)(((uint64_t)((uint64_t)(cf_t2) * (uint64_t)(cf_t3))))))))))))) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)36ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)12297829382473034411ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (cf_t4)))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (cf_t6))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t3) >> (cf_t8))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t10) >> (cf_t11)))))))))))))))) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)24ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)17216961135462248175ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (cf_t4)))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (cf_t6))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t3) >> (cf_t8))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t10) >> (cf_t11))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t12) >> (((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t12))))) < (uint64_t)(((uint64_t)((uint64_t)(cf_t9) - (uint64_t)(cf_t11)))) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t12))))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t9) - (uint64_t)(cf_t11))))))))))))))))))));
+  }
+  
+  /* loops: a geometric sum */
+  uint32_t geo3(uint32_t n)
+  {
+  	return (unsigned int)((uint32_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)cf_powu64((uint64_t)(((uint64_t)3ull)), (uint64_t)(((((uint32_t)((n)) > (uint32_t)(((uint32_t)0u)))) ? (uint64_t)(((uint64_t)((n)))) : (uint64_t)(((uint64_t)0ull))))))) - (uint64_t)(((uint64_t)1ull))))) >> (((uint64_t)1ull))))));
+  }
+  
+  /* loops into integrals: a left Riemann sum of x^2 on [0, 1] */
+  double riemann(int n)
+  {
+  	double h = 1.0 / n, s = 0;
+  	for (int i = 0; i < n; i++) {
+  		double x = i * h;
+  		s += x * x * h;
+  	}
+  	return s;
+  }
+  
+  /* synth: maps of the bytes of a word */
+  uint64_t rev_each(uint64_t x)
+  {
+  	x = (x & 0xF0F0F0F0F0F0F0F0ull) >> 4 | (x & 0x0F0F0F0F0F0F0F0Full) << 4;
+  	x = (x & 0xCCCCCCCCCCCCCCCCull) >> 2 | (x & 0x3333333333333333ull) << 2;
+  	return (x & 0xAAAAAAAAAAAAAAAAull) >> 1 | (x & 0x5555555555555555ull) << 1;
+  }
+  
+  uint64_t pop_each(uint64_t x)
+  {
+  	x = x - ((x >> 1) & 0x5555555555555555ull);
+  	x = (x & 0x3333333333333333ull) + ((x >> 2) & 0x3333333333333333ull);
+  	return (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0Full;
+  }
+  
+  /* synth in the vectoriser: per-byte shift, rotate, bit reversal, and a
+   * bitwise mix of a rotate with the byte (no 8-bit shifts in SSE/AVX) */
+  void shl3_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	for (size_t i = 0; i < n; i++)
+  		d[i] = (uint8_t)(s[i] << 3);
+  }
+  
+  void rotr2_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	for (size_t i = 0; i < n; i++)
+  		d[i] = (uint8_t)((s[i] >> 2) | (s[i] << 6));
+  }
+  
+  void rev_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	for (size_t i = 0; i < n; i++) {
+  		uint8_t x = s[i];
+  		x = ((unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((x)))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((x)))) << (((int32_t)4))))))))));
+  		x = (uint8_t)((x & 0xCC) >> 2 | (x & 0x33) << 2);
+  		d[i] = (uint8_t)((x & 0xAA) >> 1 | (x & 0x55) << 1);
+  	}
+  }
+  
+  void mixrot(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	for (size_t i = 0; i < n; i++) {
+  		uint8_t x = s[i], r = (uint8_t)((x >> 2) | (x << 6));
+  		d[i] = (uint8_t)((x & r) | (~x & 0x5a));
+  	}
+  }
+  
+  /* gates: a 3-input bit function (majority) */
+  uint32_t maj(uint32_t a, uint32_t b, uint32_t c)
+  {
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((a)) & (uint32_t)((b))))) | (uint32_t)(((uint32_t)((uint32_t)((c)) & (uint32_t)(((uint32_t)((uint32_t)((a)) | (uint32_t)((b))))))))));
+  }
+  
+  /* gf2: a bit gather (pext) */
+  uint32_t gather_bits(uint32_t x) {
+  	return (unsigned int)((uint32_t)cf_b0((uint32_t)(x)));
+  }
+  
+  /* gf2: one byte of the reflected CRC-32 (0xEDB88320), bit by bit */
+  uint32_t crc8step(uint32_t crc, uint8_t b)
+  {
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((crc)) >> (((uint32_t)8u))))) ^ (uint32_t)(cf_tab0[((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((crc)) ^ (uint32_t)(((uint32_t)((b))))))) & (uint32_t)(((uint32_t)255u))))])));
+  }
+  
+  /* gf2: a 32-bit word of the same CRC: pclmul */
+  uint32_t crc32step(uint32_t crc, uint32_t w)
+  {
+  	return (unsigned int)((uint32_t)cf_b1((uint32_t)(crc), (uint32_t)(w)));
+  }
+  
+  /* ring: magic numbers for a 64-bit division by a constant */
+  uint64_t div10(uint64_t x) { return x / 10; }

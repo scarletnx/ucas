@@ -5,3 +5,4 @@
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"long sq(long n) { long s = 0; for (long i = 0; i < n; i++) s += i * i; return s; }","nofile":true}}}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_targets","args":{}}}}
 {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"int f(int x) { return x; }","target":"pdp11"}}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"c","arguments":{"op":"c_optimize","args":{"code":"#include <stdint.h>\nint crt(uint32_t x) { return x % 3 == 1 && x % 5 == 2; }\nint inv(uint32_t x) { return x * 7u == 21u; }\nuint32_t dsq(uint32_t a, uint32_t b) { return a * a - b * b; }","nofile":true,"engines":"ring,alg","budget":120}}}}

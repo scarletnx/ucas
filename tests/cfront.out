@@ -3,14 +3,14 @@
   x86-64-v2       -march=x86-64-v2       SSE4.2, POPCNT: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt
   x86-64-v3       -march=x86-64-v3       AVX2, BMI1/2, FMA, LZCNT: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma movbe
   x86-64-v4       -march=x86-64-v4       AVX-512 F/BW/DQ/VL: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl movbe
-  skylake         -march=skylake         Intel Skylake / Coffee Lake client: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma movbe
-  skylake-avx512  -march=skylake-avx512  Intel Skylake-SP/X: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl movbe
-  icelake         -march=icelake-client  Intel Ice Lake client: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni movbe
-  alderlake       -march=alderlake       Intel Alder Lake / Raptor Lake P-core (Golden Cove): sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma gfni movbe
-  raptorlake      -march=raptorlake      Intel Raptor Lake P-core: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma gfni movbe
-  sapphirerapids  -march=sapphirerapids  Intel Sapphire Rapids (Golden Cove): sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni movbe
-  zen3            -march=znver3          AMD Zen 3: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma movbe
-  zen4            -march=znver4          AMD Zen 4: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni movbe
+  skylake         -march=skylake         Intel Skylake / Coffee Lake client: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma pclmul aes movbe
+  skylake-avx512  -march=skylake-avx512  Intel Skylake-SP/X: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl pclmul aes movbe
+  icelake         -march=icelake-client  Intel Ice Lake client: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni pclmul aes movbe
+  alderlake       -march=alderlake       Intel Alder Lake / Raptor Lake P-core (Golden Cove): sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma gfni pclmul aes movbe
+  raptorlake      -march=raptorlake      Intel Raptor Lake P-core: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma gfni pclmul aes movbe
+  sapphirerapids  -march=sapphirerapids  Intel Sapphire Rapids (Golden Cove): sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni pclmul aes movbe
+  zen3            -march=znver3          AMD Zen 3: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma pclmul aes movbe
+  zen4            -march=znver4          AMD Zen 4: sse2 sse3 ssse3 sse4.1 sse4.2 popcnt lzcnt bmi bmi2 avx avx2 fma avx512f avx512bw avx512dq avx512vl avx512vbmi avx512vpopcntdq gfni pclmul aes movbe
 > c lower cfront/float.c
   half(x: f32) = f32(0.5f64(x))
   quarter(x: f32) = x/4
@@ -75,12 +75,14 @@
 > c optimize cfront/k1.c nofile budget 120
 c optimize: 4 functions, 4 rewrites proved (1 exhaustive, 2 by SAT, 1 by algebra) for x86-64-v3
   estimated cost of the rewritten values on x86-64-v3: 170.8 -> 40.2 cycles
+  engines: bound 1
   popcount_loop (line 4): popcount(x)
     proof: sat (proved by SAT: 2017 AIG nodes, 0 conflicts); cost 94.0 -> 1.0
   classify (line 12): switch on c: a range check and the bit mask 0x1104111
     proof: sat (proved by SAT: 586 AIG nodes, 57 conflicts); cost 25.5 -> 6.0
-  clamp_avg (line 24): a ?: that always takes its second arm; a mask that never bites
+  clamp_avg (line 24): a comparison decided by a proved bound; a mask that never bites
     proof: exhaustive (exhaustive: 65536 inputs); cost 8.2 -> 3.5
+    engine: bound; lemma: the value is in [0, 255] (bound.c: f is nondecreasing in a, so take a = 0:;      u32(b) + 1 >> 1;    then it is nondecreasing in b, so take b = 0:;      0)
   div64 (line 32): a 64-bit division on values below 2^32 done in 32 bits
     proof: algebra (intervals: dividend in [0, 65535], divisor in [1, 256], so the 32-bit quotient is exact; sampled inputs agree (SAT gave up)); cost 43.0 -> 29.8
 optimised C:
@@ -124,8 +126,9 @@ optimised C:
   	return (unsigned long)((uint64_t)(((uint32_t)((uint32_t)(((uint32_t)(((uint64_t)((uint64_t)((x)) & (uint64_t)(((uint64_t)65535ull))))))) / (uint32_t)(((uint32_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)((y)) & (uint64_t)(((uint64_t)255ull))))) + (uint64_t)(((uint64_t)1ull)))))))))));
   }
 > c optimize cfront/k2.c nofile budget 120
-c optimize: 19 functions, 12 rewrites proved (1 exhaustive, 10 by SAT, 1 structural) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 4039.5 -> 76.2 cycles
+c optimize: 19 functions, 15 rewrites proved (3 exhaustive, 11 by SAT, 1 structural) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 4055.2 -> 89.5 cycles
+  engines: find 3
   ilog2_loop (line 29): floor(log2(x)) (width - 1 - clz), 0 at 0
     proof: sat (proved by SAT: 28006 AIG nodes, 132 conflicts); cost 660.0 -> 4.8
   clz_loop (line 37): clz(x)
@@ -134,6 +137,9 @@ c optimize: 19 functions, 12 rewrites proved (1 exhaustive, 10 by SAT, 1 structu
     proof: sat (proved by SAT: 8522 AIG nodes, 253 conflicts); cost 653.0 -> 2.0
   parity_loop (line 59): parity of x
     proof: sat (proved by SAT: 22903 AIG nodes, 13515 conflicts); cost 726.5 -> 2.2
+  sat_add_u8 (line 80): drops the conversion u8(...)
+    proof: exhaustive (exhaustive: 65536 inputs); cost 6.2 -> 6.0
+    engine: find; search: find: drops the conversion u8(...), verified below like every candidate
   clamp_byte (line 86): a ?: that always takes its first arm; a logical test that never bites
     proof: sat (proved by SAT: 166 AIG nodes, 19 conflicts); cost 13.0 -> 8.5
   digit_sum (line 95): x / 100 for x <= 1023: (x * 41) >> 12 in 32 bits; x / 10 for x <= 1023: (x * 205) >> 11 in 32 bits; x % 10 for x <= 1023: (x * 205) >> 11 in 32 bits
@@ -146,6 +152,16 @@ c optimize: 19 functions, 12 rewrites proved (1 exhaustive, 10 by SAT, 1 structu
     proof: sat (proved by SAT: 498 AIG nodes, 29 conflicts); cost 27.5 -> 7.0
   tri (line 148): a table of 256 values indexed by n
     proof: exhaustive (exhaustive: 256 inputs); cost 1039.2 -> 4.2
+  brighten (line 159): affine fit
+    proof: exhaustive (exhaustive: 256 inputs); cost 5.2 -> 3.2
+    engine: find; search: find: affine fit, verified below like every candidate
+    before: src[i] * 3u / 2u + 10u
+    after:  (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) >> (((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)10u))))
+  brighten (line 160): drops the conversion u8(...)
+    proof: sat (proved by SAT: 142 AIG nodes, 24 conflicts); cost 4.2 -> 4.0
+    engine: find; search: find: drops the conversion u8(...), verified below like every candidate
+    before: v > 255 ? 255 : (uint8_t)v
+    after:  (int)((((int32_t)(((int32_t)(((uint32_t)((v)) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)((v)))))
   my_strlen (line 167): a scan for the terminating zero: n += strlen(s + n)
     proof: structural (C99 7.21.6.3: strlen counts the characters before the first null; the loop steps over exactly those, reading the same bytes); cost: a byte loop -> the C library's strlen
     after:  n += strlen((const char *)s + n);
@@ -155,7 +171,6 @@ c optimize: 19 functions, 12 rewrites proved (1 exhaustive, 10 by SAT, 1 structu
   oaat_step (line 16): no cheaper form: lowered: 2 inputs, cost 5.2
   rotmix (line 24): no cheaper form: lowered: 2 inputs, cost 8.0
   next_pow2 (line 69): no cheaper form: lowered: 1 inputs, cost 12.0
-  sat_add_u8 (line 80): no cheaper form: lowered: 2 inputs, cost 6.2
   is_hex (line 142): no cheaper form: lowered: 1 inputs, cost 23.8
   brighten (line 156): not lowered: line 156: the function does not return an integer or a float
   brighten (line 158): proposed, not applied: 256-bit vectors, 16 lanes of 16 bits (sse2 avx avx2), run-time overlap test; 16 lanes proved (0 equal DAGs, 0 exhaustive, 16 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
@@ -382,8 +397,8 @@ optimised C:
   
   uint8_t sat_add_u8(uint8_t a, uint8_t b)
   {
-  	unsigned s = a + b;
-  	return s > 255 ? 255 : (uint8_t)s;
+  	const uint32_t cf_t0 = ((uint32_t)(((int32_t)((uint32_t)(((int32_t)((a)))) + (uint32_t)(((int32_t)((b))))))));
+  	return (unsigned char)((uint8_t)(((((int32_t)(((int32_t)(((uint32_t)(cf_t0) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)(cf_t0))))));
   }
   
   int clamp_byte(int v)
@@ -432,8 +447,8 @@ optimised C:
   void brighten(uint8_t *dst, const uint8_t *src, size_t n)
   {
   	for (size_t i = 0; i < n; i++) {
-  		unsigned v = src[i] * 3u / 2u + 10u;
-  		dst[i] = v > 255 ? 255 : (uint8_t)v;
+  		unsigned v = ((unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) >> (((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)10u)))));
+  		dst[i] = ((int)((((int32_t)(((int32_t)(((uint32_t)((v)) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)((v))))));
   	}
   }
   
@@ -449,8 +464,13 @@ optimised C:
   	return (int)((int32_t)(cf_tab2[((int64_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)((m)) - (uint32_t)(((int32_t)1))))) & (uint32_t)(((int32_t)11))))))]));
   }
 > c optimize cfront/k3.c nofile budget 120
-c optimize: 4 functions, 3 rewrites proved (3 exhaustive, 0 by SAT) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 74.8 -> 18.2 cycles
+c optimize: 4 functions, 4 rewrites proved (4 exhaustive, 0 by SAT) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 100.8 -> 27.2 cycles
+  engines: find 1
+  scale (line 2): split on d, (x*K + 0) >> 10 per case, K = d == 3 ? 342 : d == 4 ? 256 : 205 (one constant per c
+    proof: exhaustive (exhaustive: 768 inputs); cost 26.0 -> 9.0
+    engine: find; search: find: split on d, (x*K + 0) >> 10 per case, K = d == 3 ? 342 : d == 4 ? 256 : 205 (one constant per c, verified below like every candidate
+    over: x in [0, 255] (from the call sites), d in [3, 5] (from the call sites)
   use (line 6): x / 3 for x <= 255: (x * 171) >> 9 in 32 bits; x / 5 for x <= 255: (x * 205) >> 10 in 32 bits
     proof: exhaustive (exhaustive: 65536 inputs); cost 13.5 -> 9.5
   bucket (line 10): a ?: that always takes its first arm; x / 100 for x <= 510: (x * 41) >> 12 in 32 bits
@@ -458,14 +478,9 @@ c optimize: 4 functions, 3 rewrites proved (3 exhaustive, 0 by SAT) for x86-64-v
     over: v in [0, 510] (from the call sites)
   use2 (line 18): a table of 256 values indexed by x
     proof: exhaustive (exhaustive: 256 inputs); cost 42.2 -> 4.2
-  scale (line 2): no cheaper form: lowered: 2 inputs, cost 26.0
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
   #include <stdint.h>
-  static uint32_t scale(uint32_t x, uint32_t d)
-  {
-  	return x / d;
-  }
   #if defined(__POPCNT__) || defined(__LZCNT__) || defined(__BMI__)
   #include <immintrin.h>
   #endif
@@ -493,6 +508,10 @@ optimised C:
   	6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 
   	7, 7, 7, 7, 
   };
+  static uint32_t scale(uint32_t x, uint32_t d)
+  {
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) * (uint32_t)(((((uint32_t)((d)) == (uint32_t)(((uint32_t)3u)))) ? (uint32_t)(((uint32_t)342u)) : (uint32_t)(((((uint32_t)((d)) == (uint32_t)(((uint32_t)4u)))) ? (uint32_t)(((uint32_t)256u)) : (uint32_t)(((uint32_t)205u))))))))) >> (((uint32_t)10u))));
+  }
   uint32_t use(uint8_t a, uint8_t b)
   {
   	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)171u)) * (uint32_t)(((uint32_t)((a))))))) >> (((uint32_t)9u))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)205u)) * (uint32_t)(((uint32_t)((b))))))) >> (((uint32_t)10u)))))));
@@ -507,12 +526,14 @@ optimised C:
   }
 > c optimize cfront/loops.c nofile budget 120
 c optimize: 5 functions, 4 rewrites proved (0 exhaustive, 0 by SAT, 4 by induction) for x86-64-v3
+  engines: alg 1
   tri32 (line 4): loop in closed form: s += sum of degree 1 in i
     proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 3.0 -> 15.5 (before: per iteration of the loop)
   sumsq (line 12): loop in closed form: s += sum of degree 2 in i
     proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 6.2 -> 31.5 (before: per iteration of the loop)
-  lin (line 20): loop in closed form: s += sum of degree 1 in i
-    proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 7.0 -> 35.5 (before: per iteration of the loop)
+  lin (line 20): loop in closed form: s += sum of degree 1 in i; the polynomial expanded; the polynomial factored
+    proof: induction (closed form: forward differences, C(T,k) mod 2^64; then derivation: 3au1 + u1k = (b > a ? u64(i64(b)) - u64(i64(a)) : 0)*(3real(a) + real(k)) over Z (alg.c'); cost 7.0 -> 30.2 (before: per iteration of the loop)
+    engine: alg; derivation: 3au2 + ku2 + 3u3 + 7 over Z; only + - * and constants: the same mod 2^32; derivation: 3au1 + u1k = (b > a ? u64(i64(b)) - u64(i64(a)) : 0)*(3real(a) + real(k)) over Z (alg.c's factor, multiplied back); only + - * and constants: the same mod 2^32
   two (line 28): loop in closed form: a += sum of degree 1 in i, b -= sum of degree 2 in i
     proof: induction (sum of a polynomial of degree <= 2 by forward differences and C(T,k), exact mod 2^w); cost 9.0 -> 30.8 (before: per iteration of the loop)
   bits_below (line 39): not lowered: a loop that may run more than 66 times
@@ -616,9 +637,8 @@ optimised C:
   int lin(int a, int b, int k)
   {
   	const uint64_t cf_t0 = ((((int32_t)((b)) > (int32_t)((a)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)(((int64_t)((b)))))) - (uint64_t)(((uint64_t)(((int64_t)((a))))))))) : (uint64_t)(((uint64_t)0ull)));
-  	const int32_t cf_t1 = ((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)3)) * (uint32_t)((a))))) + (uint32_t)((k))));
-  	const uint64_t cf_t2 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
-  	return (int)((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(cf_t1) * (uint32_t)(((int32_t)(cf_t0)))))) + (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)3)) * (uint32_t)(((int32_t)((uint32_t)((a)) + (uint32_t)(((int32_t)1)))))))) + (uint32_t)((k))))) - (uint32_t)(cf_t1)))) * (uint32_t)(((int32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t2)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t2) >> (((uint64_t)1ull)))))))))))))))))) + (uint32_t)(((int32_t)7))));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	return (int)((int32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)(cf_t0))) * (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)((a))))))) + (uint32_t)(((uint32_t)((k)))))))))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)3u)) * (uint32_t)(((uint32_t)(((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull)))))))))))))))))) + (uint32_t)(((uint32_t)7u))))));
   }
   
   long two(long n)
@@ -639,10 +659,21 @@ optimised C:
   	return s;
   }
 > c optimize cfront/mem.c nofile budget 120
-c optimize: 9 functions, 3 rewrites proved (0 exhaustive, 1 by SAT, 2 structural) for x86-64-v3
-  estimated cost of the rewritten values on x86-64-v3: 7.0 -> 4.0 cycles
-  split (line 24): store 0: a signed division of non-negative values done unsigned; store 1: a signed remainder of non-negative values done unsigned
-    proof: sat (proved by SAT: 113 AIG nodes, 0 conflicts; per stored value, over the loads); cost 7.0 -> 4.0 per element (loads and stores kept, in order)
+c optimize: 9 functions, 5 rewrites proved (1 exhaustive, 2 by SAT, 2 structural) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 16.5 -> 9.2 cycles
+  engines: find 2
+  brighten (line 9): affine fit
+    proof: exhaustive (exhaustive: 256 inputs); cost 5.2 -> 3.2
+    engine: find; search: find: affine fit, verified below like every candidate
+    before: src[i] * 3u / 2u + 10u
+    after:  (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) >> (((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)10u))))
+  brighten (line 10): drops the conversion u8(...)
+    proof: sat (proved by SAT: 142 AIG nodes, 24 conflicts); cost 4.2 -> 4.0
+    engine: find; search: find: drops the conversion u8(...), verified below like every candidate
+    before: v > 255 ? 255 : (uint8_t)v
+    after:  (int)((((int32_t)(((int32_t)(((uint32_t)((v)) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)((v)))))
+  split (line 24): store 0: exact; store 1: mask
+    proof: sat (proved by SAT: 113 AIG nodes, 0 conflicts; per stored value, over the loads); cost 7.0 -> 2.0 per element (loads and stores kept, in order)
   my_strlen (line 34): a scan for the terminating zero: n += strlen(s + n)
     proof: structural (C99 7.21.6.3: strlen counts the characters before the first null; the loop steps over exactly those, reading the same bytes); cost: a byte loop -> the C library's strlen
     after:  n += strlen((const char *)s + n);
@@ -841,7 +872,71 @@ c optimize: 9 functions, 3 rewrites proved (0 exhaustive, 1 by SAT, 2 structural
       		p[i] = (unsigned char)cf_tab0[((int64_t)((p[i])))];
       	}
   split (line 22): not lowered: line 22: the function does not return an integer or a float
-  split (line 24): not vectorised: a division other than an unsigned one by 2^k
+  split (line 24): proposed, not applied: 256-bit vectors, 32 lanes of 8 bits (avx avx2), run-time overlap test; 64 lanes proved (0 equal DAGs, 0 exhaustive, 64 SAT); synthesised and_si128 (CEGIS: 1 of 80421 sketches, 2 SAT calls, 0 counterexamples); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
+    code (not applied):
+      {
+      	int i = 0;
+      #if defined(__AVX__) && defined(__AVX2__)
+      	if (((unsigned long)(const void *)(a) + (unsigned long)(n + 0) * sizeof *(a) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(a) + (unsigned long)(i + 0) * sizeof *(a))
+      	    && ((unsigned long)(const void *)(a) + (unsigned long)(n + 0) * sizeof *(a) <= (unsigned long)(const void *)(b) + (unsigned long)(i + 0) * sizeof *(b) || (unsigned long)(const void *)(b) + (unsigned long)(n + 0) * sizeof *(b) <= (unsigned long)(const void *)(a) + (unsigned long)(i + 0) * sizeof *(a))
+      	    && ((unsigned long)(const void *)(b) + (unsigned long)(n + 0) * sizeof *(b) <= (unsigned long)(const void *)(s) + (unsigned long)(i + 0) * sizeof *(s) || (unsigned long)(const void *)(s) + (unsigned long)(n + 0) * sizeof *(s) <= (unsigned long)(const void *)(b) + (unsigned long)(i + 0) * sizeof *(b))) {
+      	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 128; i += 128) {
+      	    {
+      		const int32_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1_0 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull));
+      		__m256i cf_v1 = _mm256_srli_epi16(cf_v1_0, 4);
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full));
+      		_mm256_storeu_si256((void *)((a) + cf_i), cf_v1);
+      		_mm256_storeu_si256((void *)((b) + cf_i), cf_v2);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 32;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1_0 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull));
+      		__m256i cf_v1 = _mm256_srli_epi16(cf_v1_0, 4);
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full));
+      		_mm256_storeu_si256((void *)((a) + cf_i), cf_v1);
+      		_mm256_storeu_si256((void *)((b) + cf_i), cf_v2);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 64;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1_0 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull));
+      		__m256i cf_v1 = _mm256_srli_epi16(cf_v1_0, 4);
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full));
+      		_mm256_storeu_si256((void *)((a) + cf_i), cf_v1);
+      		_mm256_storeu_si256((void *)((b) + cf_i), cf_v2);
+      	    }
+      	    {
+      		const int32_t cf_i = i + 96;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1_0 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull));
+      		__m256i cf_v1 = _mm256_srli_epi16(cf_v1_0, 4);
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full));
+      		_mm256_storeu_si256((void *)((a) + cf_i), cf_v1);
+      		_mm256_storeu_si256((void *)((b) + cf_i), cf_v2);
+      	    }
+      	}
+      	for (; i < (n) && (unsigned)((unsigned)(n) - (unsigned)i) >= 32; i += 32) {
+      	    {
+      		const int32_t cf_i = i + 0;
+      		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+      		__m256i cf_v1_0 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull, (long long)0xf0f0f0f0f0f0f0f0ull));
+      		__m256i cf_v1 = _mm256_srli_epi16(cf_v1_0, 4);
+      		__m256i cf_v2 = _mm256_and_si256(cf_v0, _mm256_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full));
+      		_mm256_storeu_si256((void *)((a) + cf_i), cf_v1);
+      		_mm256_storeu_si256((void *)((b) + cf_i), cf_v2);
+      	    }
+      	}
+      	}
+      #endif
+      	for (; i < (n); i += 1) {
+      		const uint8_t cf_ld0 = (s)[(long)((int64_t)((i)))];
+      		(a)[(long)((int64_t)((i)))] = (unsigned char)((uint8_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) / (int32_t)(((int32_t)16))))));
+      		(b)[(long)((int64_t)((i)))] = (unsigned char)((uint8_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) % (int32_t)(((int32_t)16))))));
+      	}
+      }
   my_strlen (line 31): not lowered: line 31: a parameter that is not an integer or a float (s)
   skip (line 39): not lowered: line 39: the function does not return an integer or a float
   len32 (line 47): not lowered: line 47: a parameter that is not an integer or a float (s)
@@ -921,8 +1016,8 @@ optimised C:
   void brighten(uint8_t *dst, const uint8_t *src, size_t n)
   {
   	for (size_t i = 0; i < n; i++) {
-  		unsigned v = src[i] * 3u / 2u + 10u;
-  		dst[i] = v > 255 ? 255 : (uint8_t)v;
+  		unsigned v = ((unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) + (uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((src[i])))) >> (((uint32_t)1u)))))))) + (uint32_t)(((uint32_t)10u)))));
+  		dst[i] = ((int)((((int32_t)(((int32_t)(((uint32_t)((v)) > (uint32_t)(((uint32_t)255u)))))) != (int32_t)(((int32_t)0)))) ? (int32_t)(((int32_t)255)) : (int32_t)(((int32_t)((v))))));
   	}
   }
   
@@ -938,8 +1033,8 @@ optimised C:
   {
   	for (int i = 0; i < n; i++) {
   		const unsigned char cf_ld0 = s[i];
-  		a[i] = (unsigned char)((uint8_t)(((int32_t)(((uint32_t)((uint32_t)(((uint32_t)(((int32_t)((cf_ld0)))))) / (uint32_t)(((uint32_t)16u))))))));
-  		b[i] = (unsigned char)((uint8_t)(((int32_t)(((uint32_t)((uint32_t)(((uint32_t)(((int32_t)((cf_ld0)))))) % (uint32_t)(((uint32_t)16u))))))));
+  		a[i] = (unsigned char)((uint8_t)((uint32_t)((cf_ld0)) >> (((uint8_t)4u))));
+  		b[i] = (unsigned char)((uint8_t)((uint32_t)((cf_ld0)) & (uint32_t)(((uint8_t)15u))));
   	}
   }
   
@@ -1206,7 +1301,14 @@ optimised C:
       store d[i64(i)] = t[idx[i] & 63] (i32, after 0 stores)
       leaves: 0 i: i32, 1 n: i32, 2 idx[i]: i32, 3 t[idx[i] & 63]: i32
 > c optimize cfront/vec.c nofile
-c optimize: 15 functions, 0 rewrites proved (0 exhaustive, 0 by SAT) for x86-64-v3
+c optimize: 15 functions, 1 rewrite proved (1 exhaustive, 0 by SAT) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 3.2 -> 1.2 cycles
+  engines: find 1
+  sat16 (line 33): exact
+    proof: exhaustive (exhaustive: 65536 inputs); cost 3.2 -> 1.2
+    engine: find; search: find: exact, verified below like every candidate
+    before: s[i] * 2
+    after:  (int)((int32_t)((uint32_t)(((int32_t)((s[i])))) + (uint32_t)(((int32_t)((s[i]))))))
   saxpy (line 6): not lowered: line 6: the function does not return an integer or a float
   saxpy (line 8): proposed, not applied: 256-bit vectors, 8 lanes of 32 bits (avx); 8 lanes proved (8 equal DAGs, 0 exhaustive, 0 SAT); proof: lanes (each lane of each store proved equal to the scalar body); clang -O2 vectorises such loops itself: 'bench' measures against it, 'vectorize' applies
     code (not applied):
@@ -1888,7 +1990,7 @@ optimised C:
   void sat16(int16_t *d, const int16_t *s, int n)
   {
   	for (int i = 0; i < n; i++) {
-  		int v = s[i] * 2;
+  		int v = ((int)((int32_t)((uint32_t)(((int32_t)((s[i])))) + (uint32_t)(((int32_t)((s[i])))))));
   		d[i] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
   	}
   }
@@ -3006,10 +3108,11 @@ optimised C:
   	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)1171u)) * (uint32_t)((x))))) >> (((uint32_t)13u))));
   }
 > c optimize nofile trace
+  trace:   find: 2 forms
   trace: sat round 0: 24 candidates, cost 5.2
-  trace:   the value is a (cost 0.0): differs on a sample
   trace:   a ?: that always takes its first arm (cost 0.0): differs on a sample
   trace:   the value is a constant (cost 0.0): differs on a sample
+  trace:   the value is a (cost 0.0): differs on a sample
   trace:   popcount(a) (cost 1.0): differs on a sample
   trace:   clz(a) (cost 1.0): differs on a sample
   trace:   ctz(a) (cost 1.0): differs on a sample

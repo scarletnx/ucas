@@ -1,0 +1,24 @@
+# the bridge (cf_bridge.c, cf_synth.c): ucas's engines behind the C
+# frontend (README "C frontend", "Engines"), each candidate with its
+# engine's certificate; all engines run by default.  The synthesis (CEGIS
+# over the intrinsics) is budgeted in sketches, so what it finds does not
+# depend on the machine; cfront's own proof budget is CPU time, and the
+# synthesis grows the node table, so each target runs in a file (a
+# process) of its own: cfbridge_icl.ucas, cfbridge_zen4.ucas.
+c optimize cfront/bridge.c nofile budget 120
+# opt-in: the float sum in closed form, applied (an approximation)
+c optimize cfront/bridge.c nofile approx engines loops budget 120
+# one engine at a time; none
+c optimize nofile engines ring
+```c
+int crt(unsigned x) { return x % 4 == 1 && x % 9 == 4; }
+int never(unsigned x) { return (x * 6u) == 9u; }
+```
+c optimize nofile engines none
+```c
+int crt(unsigned x) { return x % 4 == 1 && x % 9 == 4; }
+```
+c optimize nofile engines bogus
+```c
+int f(int x) { return x; }
+```

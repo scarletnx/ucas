@@ -1,0 +1,450 @@
+> c optimize cfront/bridge.c nofile target icelake vectorize engines synth budget 120
+c optimize: 22 functions, 10 rewrites proved (0 exhaustive, 4 by SAT, 2 by induction, 4 by lanes) for icelake
+  estimated cost of the rewritten values on icelake: 66.8 -> 21.1 cycles (loops in closed form not counted)
+  engines: loops 2 synth 2
+  never_sq (line 16): the value is a constant
+    proof: sat (proved by SAT: 4594 AIG nodes, 0 conflicts); cost 5.2 -> 0.0
+    before: { return x * x % 4 == 3; }
+  sum4 (line 31): loop in closed form: s += sum of degree 4 in i
+    proof: induction (sums by forward differences and C(T,k), geometric sums by r^T, exact mod 2^w); cost 12.0 -> 78.0 (before: per iteration of the loop)
+    engine: loops; derivation: Newton: P(lo+j) = sum_k D^k P(lo) C(j,k) in any commutative ring (degree 4), sum_{j<T} C(j,k) = C(T,k+1); C(T,m) mod 2^64: m consecutive factors less v2(m!) twos (ctz), times odd(m!)^-1
+  geo3 (line 40): loop in closed form: s += geometric sum of p, p *= 3 (geometric)
+    proof: induction (sums by forward differences and C(T,k), geometric sums by r^T, exact mod 2^w); cost 3.0 -> 13.0 (before: per iteration of the loop)
+    engine: loops; derivation: sum r^j = (r^T - 1)/(r - 1) for r = 3: r - 1 = 2^1*1, 1^-1 = 0x1 mod 2^64 (checked), exact in the low 63 >= 32 bits
+  rev_each (line 62): intrinsic: synthesised: gf2p8affine_epi64_epi8
+    proof: sat (proved by SAT: 65 AIG nodes, 0 conflicts); cost 15.0 -> 6.8
+    engine: synth; synthesis: CEGIS: 1000 of 192559 sketches under cost 11.0 tried, 1000 SAT calls, 508 counterexamples, 1 linear solves; winner gf2p8affine_epi64_epi8 (cost 6.8 with the moves); beat the value as written (cost 15.0)
+  pop_each (line 69): intrinsic: synthesised: nibble LUT pair (two pshufb, add_epi8)
+    proof: sat (proved by SAT: 3406 AIG nodes, 2483 conflicts); cost 10.0 -> 8.5
+    engine: synth; synthesis: CEGIS: 1000 of 174891 sketches under cost 6.0 tried, 1001 SAT calls, 505 counterexamples, 1 linear solves; winner nibble LUT pair (two pshufb, add_epi8) (cost 8.5 with the moves); beat the value as written (cost 10.0)
+  shl3_bytes (line 80): 512-bit vectors, 64 lanes of 8 bits (avx512f avx512bw); 64 lanes proved (0 equal DAGs, 0 exhaustive, 64 SAT); synthesised and_si128; slli_epi16 3 (of t) (CEGIS: 111 of 192613 sketches, 112 SAT calls, 38 counterexamples)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 1.5 -> 0.1
+  rotr2_bytes (line 86): 512-bit vectors, 64 lanes of 8 bits (gfni avx512f); 64 lanes proved (0 equal DAGs, 64 exhaustive, 0 SAT); synthesised gf2p8affine_epi64_epi8 (CEGIS: 1000 of 192613 sketches, 1000 SAT calls, 508 counterexamples)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 3.5 -> 0.1
+  rev_bytes (line 92): 512-bit vectors, 64 lanes of 8 bits (gfni avx512f); 64 lanes proved (0 equal DAGs, 64 exhaustive, 0 SAT); synthesised gf2p8affine_epi64_epi8 (CEGIS: 1000 of 192613 sketches, 1000 SAT calls, 508 counterexamples)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 16.5 -> 0.1
+  mixrot (line 102): 512-bit vectors, 32 lanes of 16 bits (avx avx512f avx512bw); 32 lanes proved (0 equal DAGs, 32 exhaustive, 0 SAT)
+    proof: lanes (lane semantics of each intrinsic, per lane); cost 8.0 -> 0.6
+  maj (line 109): an or that never bites
+    proof: sat (proved by SAT: 448 AIG nodes, 66 conflicts); cost 7.0 -> 5.0
+  cong (line 7): no cheaper form: lowered: 1 inputs, cost 11.5
+  inv_eq (line 10): no cheaper form: lowered: 1 inputs, cost 4.2
+  crt2 (line 13): no cheaper form: lowered: 1 inputs, cost 17.8
+  two_sq (line 19): no cheaper form: lowered: 2 inputs, cost 8.8
+  ec_pts (line 22): no cheaper form: lowered: 2 inputs, cost 16.2
+  dsq (line 25): no cheaper form: lowered: 2 inputs, cost 7.0
+  cancel_q (line 28): no cheaper form: lowered: 1 inputs, cost 17.2
+  riemann (line 51): not lowered: a loop that may run more than 66 times
+  riemann (line 54): not vectorised: a float reduction (reassociating it changes the rounding)
+  shl3_bytes (line 78): not lowered: line 78: the function does not return an integer or a float
+  rotr2_bytes (line 84): not lowered: line 84: the function does not return an integer or a float
+  rev_bytes (line 90): not lowered: line 90: the function does not return an integer or a float
+  mixrot (line 100): not lowered: line 100: the function does not return an integer or a float
+  gather_bits (line 115): no cheaper form: lowered: 1 inputs, cost 5.0
+  crc8step (line 118): no cheaper form: lowered: 2 inputs, cost 41.2
+  crc8step (line 121): not vectorised: a reduction that is not acc op g (op + - ^ | & min max)
+  crc32step (line 127): no cheaper form: lowered: 2 inputs, cost 161.0
+  crc32step (line 130): not vectorised: a reduction that is not acc op g (op + - ^ | & min max)
+  div10 (line 136): no cheaper form: lowered: 1 inputs, cost 6.0
+optimised C:
+  /* optimised by ucas cfront for icelake (icelake-client); every rewrite proved, see the report */
+  #include <immintrin.h>
+  /* The bridge (src/cf_bridge.c, cf_synth.c): kernels for ucas's engines
+   * behind the C frontend.  tests/cfront.ucas runs them per target. */
+  #include <stdint.h>
+  #include <stddef.h>
+  
+  /* ring: a linear congruence, 3x + 5 = 2 (mod 7) <=> x = 6 (mod 7) */
+  int cong(uint16_t x) { return (3 * x + 5) % 7 == 2; }
+  
+  /* ring: x * 7 == 21 (mod 2^32) <=> x == 21 * 7^-1 = 3 */
+  int inv_eq(uint32_t x) { return x * 7u == 21u; }
+  
+  /* ring: two congruences joined by the CRT */
+  int crt2(uint32_t x) { return x % 3 == 1 && x % 5 == 2; }
+  
+  /* dio: x*x = 3 (mod 4) has no solution */
+  #if defined(__POPCNT__) || defined(__LZCNT__) || defined(__BMI__)
+  #include <immintrin.h>
+  #endif
+  static inline uint64_t cf_ctz64(uint64_t x)
+  {
+  #if defined(__BMI__)
+  	return (uint64_t)_tzcnt_u64(x);
+  #elif defined(__GNUC__)
+  	return x ? (uint64_t)__builtin_ctzll(x) : 64u;
+  #else
+  	uint64_t n = 0;
+  	if (!x) return 64;
+  	while (!(x & 1)) { x >>= 1; n++; }
+  	return n;
+  #endif
+  }
+  static inline uint64_t cf_powu64(uint64_t b, uint64_t e)
+  {
+  	uint64_t r = 1;
+  	while (e) {
+  		if (e & 1)
+  			r *= b;
+  		b *= b;
+  		e >>= 1;
+  	}
+  	return r;
+  }
+  static inline uint64_t cf_b0(uint64_t a0)
+  {
+  #if defined(__SSE2__) && defined(__GFNI__)
+  	{ const __m128i cf_x = _mm_cvtsi64_si128((long long)a0); __m128i cf_r = _mm_gf2p8affine_epi64_epi8(cf_x, _mm_set_epi64x((long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0); return (uint64_t)_mm_cvtsi128_si64(cf_r); }
+  #else
+  	{
+  	const uint64_t cf_t0 = ((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)((a0)) & (uint64_t)(((uint64_t)17361641481138401520ull))))) >> (((int32_t)4))))) | (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)((a0)) & (uint64_t)(((uint64_t)1085102592571150095ull))))) << (((int32_t)4)))))));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)14757395258967641292ull))))) >> (((int32_t)2))))) | (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)3689348814741910323ull))))) << (((int32_t)2)))))));
+  	return (unsigned long)((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t1) & (uint64_t)(((uint64_t)12297829382473034410ull))))) >> (((int32_t)1))))) | (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t1) & (uint64_t)(((uint64_t)6148914691236517205ull))))) << (((int32_t)1)))))));
+  }
+  #endif
+  }
+  static inline uint64_t cf_b1(uint64_t a0)
+  {
+  #if defined(__SSE2__) && defined(__SSSE3__)
+  	{ const __m128i cf_x = _mm_cvtsi64_si128((long long)a0); __m128i cf_rl = _mm_and_si128(cf_x, _mm_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full)); __m128i cf_rh = _mm_and_si128(_mm_srli_epi16(cf_x, 4), _mm_set_epi64x((long long)0xf0f0f0f0f0f0f0full, (long long)0xf0f0f0f0f0f0f0full)); __m128i cf_r = _mm_add_epi8(_mm_shuffle_epi8(_mm_set_epi64x((long long)0x1615151415141413ull, (long long)0x1514141314131312ull), cf_rl), _mm_shuffle_epi8(_mm_set_epi64x((long long)0xf2f1f1f0f1f0f0efull, (long long)0xf1f0f0eff0efefeeull), cf_rh)); return (uint64_t)_mm_cvtsi128_si64(cf_r); }
+  #else
+  	{
+  	const uint64_t cf_t0 = ((uint64_t)((uint64_t)((a0)) - (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)((a0)) >> (((int32_t)1))))) & (uint64_t)(((uint64_t)6148914691236517205ull)))))));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)3689348814741910323ull))))) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((int32_t)2))))) & (uint64_t)(((uint64_t)3689348814741910323ull)))))));
+  	return (unsigned long)((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t1) + (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((int32_t)4)))))))) & (uint64_t)(((uint64_t)1085102592571150095ull))));
+  }
+  #endif
+  }
+  int never_sq(uint32_t x) {
+  	return (int)((int32_t)0);
+  }
+  
+  /* dio: a^2 + b^2 = 21 has none: 3 divides 21 to an odd power */
+  int two_sq(int16_t a, int16_t b) { return a * a + b * b == 21; }
+  
+  /* dio: y^2 = x^3 - x has rank 0; its rational points have y = 0 */
+  int ec_pts(int16_t x, int16_t y) { return y != 0 && y * y == x * x * x - x; }
+  
+  /* alg: a difference of squares, one multiply instead of two */
+  uint32_t dsq(uint32_t a, uint32_t b) { return a * a - b * b; }
+  
+  /* alg: (x^2 - 1)/(x - 1) cancelled: nothing wraps */
+  int32_t cancel_q(int16_t x) { return (x * x - 1) / (x - 1); }
+  
+  /* loops: a sum of degree 4 */
+  uint64_t sum4(uint64_t n)
+  {
+  	const uint64_t cf_t0 = ((((uint64_t)((n)) > (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)((n)) : (uint64_t)(((uint64_t)0ull)));
+  	const uint64_t cf_t1 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)1ull))));
+  	const uint64_t cf_t2 = ((((uint64_t)(((uint64_t)((uint64_t)(cf_t0) & (uint64_t)(((uint64_t)1ull))))) == (uint64_t)(((uint64_t)0ull)))) ? (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (((uint64_t)1ull))))) * (uint64_t)(cf_t1)))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t0) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (((uint64_t)1ull)))))))));
+  	const uint64_t cf_t3 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)2ull))));
+  	const uint64_t cf_t4 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t0))))) < (uint64_t)(((uint64_t)3ull)) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t0))))) : (uint64_t)(((uint64_t)3ull)));
+  	const uint64_t cf_t5 = ((uint64_t)((uint64_t)(((uint64_t)3ull)) - (uint64_t)(cf_t4)));
+  	const uint64_t cf_t6 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t1))))) < (uint64_t)(cf_t5) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t1))))) : (uint64_t)(cf_t5));
+  	const uint64_t cf_t7 = ((uint64_t)((uint64_t)(cf_t5) - (uint64_t)(cf_t6)));
+  	const uint64_t cf_t8 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t3))))) < (uint64_t)(cf_t7) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t3))))) : (uint64_t)(cf_t7));
+  	const uint64_t cf_t9 = ((uint64_t)((uint64_t)(cf_t7) - (uint64_t)(cf_t8)));
+  	const uint64_t cf_t10 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)3ull))));
+  	const uint64_t cf_t11 = ((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t10))))) < (uint64_t)(cf_t9) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t10))))) : (uint64_t)(cf_t9));
+  	const uint64_t cf_t12 = ((uint64_t)((uint64_t)(cf_t0) - (uint64_t)(((uint64_t)4ull))));
+  	return (unsigned long)((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t2) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)14ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)12297829382473034411ull)) * (uint64_t)(((uint64_t)((uint64_t)(cf_t2) * (uint64_t)(cf_t3))))))))))))) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)36ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)12297829382473034411ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (cf_t4)))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (cf_t6))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t3) >> (cf_t8))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t10) >> (cf_t11)))))))))))))))) + (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)24ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)17216961135462248175ull)) * (uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(cf_t0) >> (cf_t4)))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t1) >> (cf_t6))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t3) >> (cf_t8))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t10) >> (cf_t11))))))) * (uint64_t)(((uint64_t)((uint64_t)(cf_t12) >> (((uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t12))))) < (uint64_t)(((uint64_t)((uint64_t)(cf_t9) - (uint64_t)(cf_t11)))) ? (uint64_t)(((uint64_t)(cf_ctz64((uint64_t)(cf_t12))))) : (uint64_t)(((uint64_t)((uint64_t)(cf_t9) - (uint64_t)(cf_t11))))))))))))))))))));
+  }
+  
+  /* loops: a geometric sum */
+  uint32_t geo3(uint32_t n)
+  {
+  	return (unsigned int)((uint32_t)(((uint64_t)((uint64_t)(((uint64_t)((uint64_t)(((uint64_t)cf_powu64((uint64_t)(((uint64_t)3ull)), (uint64_t)(((((uint32_t)((n)) > (uint32_t)(((uint32_t)0u)))) ? (uint64_t)(((uint64_t)((n)))) : (uint64_t)(((uint64_t)0ull))))))) - (uint64_t)(((uint64_t)1ull))))) >> (((uint64_t)1ull))))));
+  }
+  
+  /* loops into integrals: a left Riemann sum of x^2 on [0, 1] */
+  double riemann(int n)
+  {
+  	double h = 1.0 / n, s = 0;
+  	for (int i = 0; i < n; i++) {
+  		double x = i * h;
+  		s += x * x * h;
+  	}
+  	return s;
+  }
+  
+  /* synth: maps of the bytes of a word */
+  uint64_t rev_each(uint64_t x)
+  {
+  	return (unsigned long)((uint64_t)cf_b0((uint64_t)(x)));
+  }
+  
+  uint64_t pop_each(uint64_t x)
+  {
+  	return (unsigned long)((uint64_t)cf_b1((uint64_t)(x)));
+  }
+  
+  /* synth in the vectoriser: per-byte shift, rotate, bit reversal, and a
+   * bitwise mix of a rotate with the byte (no 8-bit shifts in SSE/AVX) */
+  void shl3_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__AVX512F__) && defined(__AVX512BW__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 256; i += 256) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_and_si512(cf_v0, _mm512_set_epi64((long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full));
+  		__m512i cf_v1 = _mm512_slli_epi16(cf_v1_0, 3);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_and_si512(cf_v0, _mm512_set_epi64((long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full));
+  		__m512i cf_v1 = _mm512_slli_epi16(cf_v1_0, 3);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 128;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_and_si512(cf_v0, _mm512_set_epi64((long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full));
+  		__m512i cf_v1 = _mm512_slli_epi16(cf_v1_0, 3);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 192;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_and_si512(cf_v0, _mm512_set_epi64((long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full));
+  		__m512i cf_v1 = _mm512_slli_epi16(cf_v1_0, 3);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1_0 = _mm512_and_si512(cf_v0, _mm512_set_epi64((long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full, (long long)0x1f1f1f1f1f1f1f1full));
+  		__m512i cf_v1 = _mm512_slli_epi16(cf_v1_0, 3);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)3))))));
+  	}
+  }
+  }
+  
+  void rotr2_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__GFNI__) && defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 256; i += 256) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 128;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 192;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull, (long long)0x408102040800102ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)6)))))))));
+  	}
+  }
+  }
+  
+  void rev_bytes(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__GFNI__) && defined(__AVX512F__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 256; i += 256) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 128;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 192;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 64; i += 64) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m512i cf_v0 = _mm512_loadu_si512((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_gf2p8affine_epi64_epi8(cf_v0, _mm512_set_epi64((long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull, (long long)0x8040201008040201ull), 0);
+  		_mm512_storeu_si512((void *)((d) + cf_i), cf_v1);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)204))))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)51))))) << (((int32_t)2)))))))))))) & (uint32_t)(((int32_t)170))))) >> (((int32_t)1))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)204))))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)240))))) >> (((int32_t)4))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)15))))) << (((int32_t)4)))))))))))) & (uint32_t)(((int32_t)51))))) << (((int32_t)2)))))))))))) & (uint32_t)(((int32_t)85))))) << (((int32_t)1)))))))));
+  	}
+  }
+  }
+  
+  void mixrot(uint8_t *restrict d, const uint8_t *restrict s, size_t n)
+  {
+  	{
+  	size_t i = 0;
+  #if defined(__AVX__) && defined(__AVX512F__) && defined(__AVX512BW__)
+  	{
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 128; i += 128) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+  		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+  		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+  		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+  		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+  		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+  		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+  		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+  		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+  		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+  		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+  		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+  		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 32;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+  		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+  		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+  		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+  		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+  		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+  		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+  		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+  		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+  		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+  		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+  		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+  		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 64;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+  		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+  		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+  		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+  		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+  		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+  		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+  		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+  		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+  		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+  		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+  		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+  		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+  	    }
+  	    {
+  		const uint64_t cf_i = i + 96;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+  		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+  		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+  		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+  		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+  		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+  		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+  		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+  		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+  		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+  		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+  		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+  		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+  	    }
+  	}
+  	for (; i < (n) && (unsigned long)((unsigned long)(n) - (unsigned long)i) >= 32; i += 32) {
+  	    {
+  		const uint64_t cf_i = i + 0;
+  		__m256i cf_v0 = _mm256_loadu_si256((const void *)((s) + cf_i));
+  		__m512i cf_v1 = _mm512_cvtepu8_epi16(cf_v0);
+  		__m512i cf_v2 = _mm512_srai_epi16(cf_v1, 2);
+  		__m512i cf_v3 = _mm512_slli_epi16(cf_v1, 6);
+  		__m512i cf_v4 = _mm512_or_si512(cf_v2, cf_v3);
+  		__m512i cf_v5 = _mm512_set1_epi16((int16_t)(255LL));
+  		__m512i cf_v6 = _mm512_and_si512(cf_v4, cf_v5);
+  		__m512i cf_v7 = _mm512_and_si512(cf_v1, cf_v6);
+  		__m512i cf_v8 = _mm512_set1_epi16((int16_t)(-1LL));
+  		__m512i cf_v9 = _mm512_xor_si512(cf_v1, cf_v8);
+  		__m512i cf_v10 = _mm512_set1_epi16((int16_t)(90LL));
+  		__m512i cf_v11 = _mm512_and_si512(cf_v9, cf_v10);
+  		__m512i cf_v12 = _mm512_or_si512(cf_v7, cf_v11);
+  		__m256i cf_v13 = _mm512_cvtepi16_epi8(cf_v12);
+  		_mm256_storeu_si256((void *)((d) + cf_i), cf_v13);
+  	    }
+  	}
+  	}
+  #endif
+  	for (; i < (n); i += 1) {
+  		const uint8_t cf_ld0 = (s)[(unsigned long)(i)];
+  		(d)[(unsigned long)(i)] = (unsigned char)((uint8_t)(((int32_t)((uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) & (uint32_t)(((int32_t)(((uint8_t)(((int32_t)((uint32_t)(((int32_t)((int32_t)(((int32_t)((cf_ld0)))) >> (((int32_t)2))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)((cf_ld0)))) << (((int32_t)6))))))))))))))) | (uint32_t)(((int32_t)((uint32_t)(((int32_t)~(uint32_t)(((int32_t)((cf_ld0)))))) & (uint32_t)(((int32_t)90)))))))));
+  	}
+  }
+  }
+  
+  /* gates: a 3-input bit function (majority) */
+  uint32_t maj(uint32_t a, uint32_t b, uint32_t c)
+  {
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((a)) & (uint32_t)((b))))) | (uint32_t)(((uint32_t)((uint32_t)((a)) & (uint32_t)((c)))))))) | (uint32_t)(((uint32_t)((uint32_t)((b)) & (uint32_t)((c)))))));
+  }
+  
+  ...

@@ -6,3 +6,6 @@
 {"id":6,"cmd":"c_optimize","args":{"code":"unsigned d(unsigned x) { return x / 7; }","range":"x 0 1000","target":"zen4","nofile":true}}
 {"id":7,"cmd":"c_optimize","args":{"code":"int f(int x) { return x; }","target":"pdp11"}}
 {"id":8,"cmd":"c_lower","args":{"code":"int f(int x { return x; }"}}
+{"id":9,"cmd":"c_optimize","args":{"code":"#include <stdint.h>\nint cong(uint16_t x) { return (3 * x + 5) % 7 == 2; }\nint sq(int16_t a, int16_t b) { return a * a + b * b == 21; }\nuint32_t geo(uint32_t n) { uint32_t s = 0, p = 1; for (uint32_t i = 0; i < n; i++) { s += p; p *= 3; } return s; }","nofile":true,"engines":"ring,dio,loops","budget":120}}
+{"id":10,"cmd":"c_optimize","args":{"code":"#include <stdint.h>\nuint64_t rev(uint64_t x) { x = (x & 0xF0F0F0F0F0F0F0F0ull) >> 4 | (x & 0x0F0F0F0F0F0F0F0Full) << 4; x = (x & 0xCCCCCCCCCCCCCCCCull) >> 2 | (x & 0x3333333333333333ull) << 2; return (x & 0xAAAAAAAAAAAAAAAAull) >> 1 | (x & 0x5555555555555555ull) << 1; }","nofile":true,"target":"icelake","engines":"synth","steps":200}}
+{"id":11,"cmd":"c_optimize","args":{"code":"int f(int x) { return x; }","engines":"bogus"}}

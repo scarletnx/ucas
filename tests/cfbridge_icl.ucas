@@ -1,0 +1,4 @@
+# the bridge at icelake (GFNI, AVX-512): the synthesis alone finds
+# gf2p8affine for per-byte rotates and bit reversal, and the pshufb
+# nibble-LUT pair for a per-byte popcount (cfbridge.ucas)
+c optimize cfront/bridge.c nofile target icelake vectorize engines synth budget 120

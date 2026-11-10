@@ -1,10 +1,18 @@
   note: the code is C: optimised by the C frontend (c optimize)
 > c optimize
-c optimize: 1 function, 0 rewrites proved (0 exhaustive, 0 by SAT) for x86-64-v3
-  f (line 1): no cheaper form: lowered: 1 inputs, cost 4.0
+c optimize: 1 function, 1 rewrite proved (0 exhaustive, 1 by SAT) for x86-64-v3
+  estimated cost of the rewritten values on x86-64-v3: 4.0 -> 2.0 cycles
+  engines: find 1
+  f (line 1): mask
+    proof: sat (proved by SAT: 33 AIG nodes, 0 conflicts); cost 4.0 -> 2.0
+    engine: find; search: find: mask, verified below like every candidate
+    before: { return (x * 8) / 4; }
 optimised C:
   /* optimised by ucas cfront for x86-64-v3 (x86-64-v3); every rewrite proved, see the report */
-  unsigned f(unsigned x) { return (x * 8) / 4; }
+  #include <stdint.h>
+  unsigned f(unsigned x) {
+  	return (unsigned int)((uint32_t)((uint32_t)(((uint32_t)((uint32_t)((x)) + (uint32_t)((x))))) & (uint32_t)(((uint32_t)1073741823u))));
+  }
   note: the code is C: optimised by the C frontend (c optimize)
 > c optimize target zen4 assume n 0 31
 c optimize: 2 functions, 1 rewrite proved (0 exhaustive, 1 by SAT) for zen4
