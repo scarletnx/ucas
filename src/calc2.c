@@ -1710,6 +1710,7 @@ print_holds(const struct func *f, const struct cond *cs, int nc,
 void
 c2_deriv(struct func *f, const int *slots, int n)
 {
+	static const int first[] = {0};
 	nid g[C2MAXO + 1];
 	struct cond cs[MAXCOND];
 	int k, nc, i, ok = 1, npts, allpts = 0;
@@ -1732,7 +1733,7 @@ c2_deriv(struct func *f, const int *slots, int n)
 			return;
 		}
 		n = 1;
-		slots = (const int[]){0};
+		slots = first;
 	}
 	if (n > C2MAXO)
 		fail("derivatives up to order %d", C2MAXO);
