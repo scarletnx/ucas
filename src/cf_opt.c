@@ -2085,6 +2085,7 @@ visit_expr(uint32_t fn, uint32_t n, struct cf_emit *em)
 	kind = u->A.kind[n];
 	if (!is_expr_kind(kind))
 		return;
+	v.why = NULL;	/* freed below, also when nothing was lowered */
 	if (ct_is_lowered(u->A.ty[n]) && kind != CA_ID && kind != CA_NUM &&
 	    kind != CA_FNUM &&
 	    kind != CA_CHARLIT && kind != CA_ASSIGN && kind != CA_CALL &&
