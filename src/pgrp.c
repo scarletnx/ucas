@@ -277,7 +277,7 @@ ss_run(struct ss *s, const uint32_t *gens, int ngens, const uint32_t *pre,
 		struct lvl *L = &s->L[l];
 		int restart = 0;
 		uint32_t j;
-		for (j = 0; j < L->norb && !restart; j++)
+		for (j = 0; !restart && j < L->norb; j++)
 			for (k = 0; k < s->ns && !restart; k++) {
 				const uint32_t *g = s->S + (size_t)k * n;
 				uint32_t q, kk;
