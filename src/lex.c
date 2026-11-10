@@ -85,7 +85,7 @@ utf8_op(const unsigned char *s, int *kind)
 
 	for (i = 0; i < sizeof tab / sizeof tab[0]; i++) {
 		n = strlen(tab[i].u);
-		if (memcmp(s, tab[i].u, n) == 0) {
+		if (strncmp((const char *)s, tab[i].u, n) == 0) {
 			*kind = tab[i].kind;
 			return (int)n;
 		}
