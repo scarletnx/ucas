@@ -216,14 +216,16 @@ test_botuse(void)
 	    c.allow[1] == 22 && c.allow[2] == 333);
 	CHECK(!bu_conf_parse(&c, "allow") && c.nallow == 0);
 	CHECK(!bu_conf_parse(&c, "12x") && c.nallow == 0);
-	CHECK(bu_conf_parse(&c, BU_DEFAULT_BOTS) && c.nallow == 1 &&
-	    c.allow[0] == 1562594665109393468ULL);
+	CHECK(bu_conf_parse(&c, BU_DEFAULT_BOTS) && c.nallow == 2 &&
+	    c.allow[0] == 1562594665109393468ULL &&
+	    c.allow[1] == 1566587484866093137ULL);
 	bu_conf = c;
 	bu_conf.rate = 6;
 	bu_conf.burst = 2;
 	bu_conf.chain = 2;
 	bu_reset();
-	CHECK(bu_allowed(1562594665109393468ULL) && !bu_allowed(55));
+	CHECK(bu_allowed(1562594665109393468ULL) &&
+	    bu_allowed(1566587484866093137ULL) && !bu_allowed(55));
 	/* 2 at once, then one per 10 s; told once */
 	CHECK(bu_rate(7, 1000, &nt) == 0 && !nt);
 	CHECK(bu_rate(7, 1000, &nt) == 0);

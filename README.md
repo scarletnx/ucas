@@ -3302,7 +3302,8 @@ and the whole of it attached as `wimsy-ai-usage.md`.  Its source is
 are filled in at run time.  `@Wimsy help` points at it.
 
 **Which bots.**  Only bot accounts on the allowlist are served, by
-default the one bot `1562594665109393468`; every other bot and every
+default the two bots `1562594665109393468` and
+`1566587484866093137`; every other bot and every
 webhook is ignored, silently.  There is no setting that serves every
 bot.  A bot must address the bot explicitly: a real mention (`<@id>`,
 not the name typed as text) or a Discord reply to one of its messages.
@@ -3329,7 +3330,7 @@ the help) is not a request.
 
 | variable | default | |
 |----------|---------|--|
-| `UCAS_DISCORD_BOTS` | `1562594665109393468` | bot user ids served, comma separated; `deny` (or empty) for none |
+| `UCAS_DISCORD_BOTS` | `1562594665109393468,1566587484866093137` | bot user ids served, comma separated; `deny` (or empty) for none |
 | `UCAS_DISCORD_BOT_RATE` | 6 | requests a minute per bot |
 | `UCAS_DISCORD_BOT_BURST` | 3 | requests at once per bot |
 | `UCAS_DISCORD_BOT_CHAIN` | 5 | replies in a row to the bot without a human message |

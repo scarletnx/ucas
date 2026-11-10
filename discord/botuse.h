@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 #define BU_MAXALLOW 32
-#define BU_DEFAULT_BOTS "1562594665109393468"
+#define BU_DEFAULT_BOTS "1562594665109393468,1566587484866093137"
 
 struct bu_conf {
 	int nallow;
