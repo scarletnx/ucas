@@ -1,0 +1,68 @@
+# The memory side of a cost model in a shader: what the prices of its
+# kinds of access make worth doing.
+#
+# in a shader: a block read at a per-lane address, a texel fetch
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { vec4 base; float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+layout(set = 0, binding = 2) uniform sampler2D tex;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float a = ubo.w[i & 63u];
+    float t = texelFetch(tex, ivec2(int(i & 255u), 3), 0).x;
+    outb.o[i] = a * ubo.base.x + t;
+}
+```
+# a 32 x 32 block of workgroup memory summed by columns: the swizzle is
+# written into every access
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint sh[1024];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    for (uint r = 0u; r < 32u; r++)
+        sh[r * 32u + lane] = outb.o[r * 32u + lane];
+    barrier();
+    uint s = 0u;
+    for (uint c = 0u; c < 32u; c++)
+        s += sh[lane * 32u + c];
+    outb.o[lane] = s;
+}
+```
+# a float atomic add on workgroup memory: its addend is on a binary grid
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float acc[64];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    atomicAdd(acc[i & 7u], float(i & 255u) * 0.25);
+    barrier();
+    outb.o[i] = acc[i & 7u];
+}
+```
+# under a model that lists no memory kinds nothing is said
+simplify nofile under zen4
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(std140, set = 0, binding = 0) uniform U { float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { uint o[]; } outb;
+shared uint sh[1024];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    for (uint c = 0u; c < 32u; c++)
+        sh[lane * 32u + c] = uint(ubo.w[lane]);
+    barrier();
+    outb.o[lane] = sh[lane * 32u];
+}
+```

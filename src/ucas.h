@@ -295,6 +295,17 @@ enum {
 	 */
 	C_DOT_FIRST = C_NBASE,
 	C_DOT_LAST = C_DOT_FIRST + 17,
+	/*
+	 * Memory kinds (memk.c): unset in a model that does not list them
+	 * (NaN), and priced through model_cost() as their fallback then.
+	 */
+	C_MEM_FIRST,
+	C_LOAD_SHARED = C_MEM_FIRST, C_STORE_SHARED, C_LOAD_UBO, C_LOAD_UBO_DIV,
+	C_LOAD_STREAM, C_STORE_STREAM, C_BANK_CONFLICT,
+	C_ATOM_SH_SAME, C_ATOM_SH_F, C_ATOM_GL_F, C_ATOM_GL_64, C_ATOM_GL_CAS,
+	C_ATOM_GL_STREAM, C_TEX_FETCH, C_TEX_SAMPLE, C_TEX_SAMPLE_F32,
+	C_IMAGE_LOAD,
+	C_MEM_LAST = C_IMAGE_LOAD,
 	C_NCLASS
 };
 /* the class of a dot op; IS_DOT(op) */
@@ -302,6 +313,8 @@ enum {
 #define C_DIVK(k) ((k) + 1)	/* the division class by a constant */
 int div_class(nid n);		/* model.c: an integer / or %'s class */
 #define MAXFOLD 4
+/* a model's parameters that are not prices */
+enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_NPAR };
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];
@@ -309,6 +322,7 @@ struct model {
 	/* float round trips T -> M -> T the driver drops (fpfold.c) */
 	ty_t fold[MAXFOLD][2];
 	int nfold;
+	float par[MP_NPAR];	/* 0: the model does not say */
 };
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
@@ -319,6 +333,7 @@ struct model *model_active(void);
 struct model *model_nth(int i);
 void model_set_active(struct model *m);
 int cclass_find(const char *s, size_t n);
+extern const char *const mparam_name[MP_NPAR];
 float node_cost(const struct model *m, nid n, int *cls);
 void cmd_cost(struct func *f, struct model *m);
 void cmd_models(void);

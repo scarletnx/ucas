@@ -1,0 +1,9 @@
+{"id": 1, "cmd": "intatomic", "args": {"f": {"name": "w", "body": "atomic_add_shared(acc, f32(i) * 0.25)", "params": [{"name": "acc", "type": "f32"}, {"name": "i", "type": "u32", "range": [0, 255]}]}}}
+{"id": 2, "cmd": "intatomic", "args": {"f": "w", "count": 100000000}}
+{"id": 3, "cmd": "intatomic", "args": {"f": "w", "model": "zen4"}}
+{"id": 4, "cmd": "define", "args": {"name": "row", "params": [{"name": "lane", "type": "u32", "range": [0, 31]}, {"name": "r", "type": "u32", "range": [0, 31], "uniform": true}], "body": "r * 32 + lane"}}
+{"id": 5, "cmd": "define", "args": {"name": "col", "params": [{"name": "lane", "type": "u32", "range": [0, 31]}, {"name": "c", "type": "u32", "range": [0, 31], "uniform": true}], "body": "lane * 32 + c"}}
+{"id": 6, "cmd": "banks", "args": {"accesses": ["row", "col"], "size": 1024}}
+{"id": 7, "cmd": "banks", "args": {"accesses": ["col"], "model": "zen4"}}
+{"id": 8, "cmd": "ucas", "args": {"source": "model addy : zen4 { iadd: 3, load_shared: 3, bank_conflict: 4, banks: 32, bank_bytes: 4, warp: 32 }"}}
+{"id": 9, "cmd": "spirv_simplify", "args": {"code": "#version 450\nlayout(local_size_x = 32) in;\nlayout(set = 0, binding = 0) buffer O { uint o[]; } outb;\nshared uint sh[1024];\nvoid main() {\n    uint lane = gl_LocalInvocationID.x;\n    for (uint r = 0u; r < 32u; r++)\n        sh[r * 32u + lane] = outb.o[r * 32u + lane];\n    barrier();\n    uint s = 0u;\n    for (uint c = 0u; c < 32u; c++)\n        s += sh[lane * 32u + c];\n    outb.o[lane] = s;\n}\n", "lang": "glsl", "nofile": true, "model": "addy"}}

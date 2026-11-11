@@ -1,0 +1,101 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 98 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  block ubo (a uniform buffer) is read at an address that differs per lane:
+    %33 = OpLoad %float %32
+      (line 8: float a = ubo.w[i & 63u];)
+    each is priced load_ubo_div 148.125 (a uniform address: load_ubo 4.125); a storage-buffer load is 6.875
+    proposal (an interface change, not applied): declare the block `layout(std430) readonly buffer` instead of
+    `layout(std140) uniform`: 1 read at 6.875 instead of 148.125 (-141.25)
+      the host then binds it as a storage buffer: VK_DESCRIPTOR_TYPE_STORAGE_BUFFER in the set layout and the
+      write, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT on the buffer (its size within maxStorageBufferRange)
+      and fills it by std430, which packs arrays and structs tighter than std140:
+        w: offset 16 -> 16, array stride 16 -> 4, size 1024 -> 256 bytes
+      reads at a uniform address would then cost 6.875 instead of 4.125: worth it when the divergent ones dominate
+  texel fetches (tex_fetch 43.125; a sampled read, tex_sample, 21.625):
+    %49 = OpImageFetch %v4float %48 %46 Lod %int_0
+      (line 9: float t = texelFetch(tex, ivec2(int(i & 255u), 3), 0).x;)
+    a candidate worth testing (not applied: it needs a sampler, and the model's price is for bilinear rgba8):
+      textureLod(sampler2D(tex, nearest), (vec2(p) + 0.5) / vec2(textureSize(tex, 0)), 0.0) for texelFetch(tex, p, 0):
+      1 fetch at 21.625 instead of 43.125 (-21.5)
+      the same texel, for every size up to 2^20 and 0 <= p < size: p + 0.5 is exact in f32 (p < 2^23);
+      the quotient is within 2.5 ulp (Vulkan's OpFDiv), so u * size is within (p + 0.5) * 2.5 * 2^-23 < 0.32
+      of p + 0.5; the sampler's fixed point (at least 4 sub-texel bits) moves it by at most 1/32 more;
+      nearest takes floor(u * size) = p.  Out of range a fetch is undefined, a sample clamps: a refinement.
+      the sampler: magFilter = minFilter = NEAREST, mipmapMode = NEAREST, any address mode, no anisotropy,
+      no compare; with unnormalizedCoordinates = VK_TRUE the coordinate is vec2(p) + 0.5 and nothing is divided
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 105 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 9.75 -> 11.75 (+20.5%)
+  counting the strength reductions any driver also does: 11.75 -> 11.75 (+0.0%)
+  also done by any driver compiler (2 rewrites, -2; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          2 x 2     = 4  ((a << k) + b; saves 2)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array sh (1024 elements of 4 bytes, 2 accesses):
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _sh_1 = (v79 << 5) + lane
+    lane parameter lane; conflict degree 1: index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 32 cases enumerated too
+    price 3
+  _sh_2 = (lane << 5) + v80
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 32 cases enumerated too
+    price 127
+  -> swizzle every index i of the array: i + (i >> 5)
+     it is strictly increasing (i + 1 lands after i), so no two indices meet; the array grows to 1055 elements: every index enumerated
+     _sh_1_sw = t1 + (t1 >> 5) where t1 = (v79 << 5) + lane
+       conflict degree 1 (index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 32 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_2_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + v80
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 32 cases enumerated too): price 3 + 2 for the swizzle
+     total 10 against 130 (-92.3%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 2 access chains of the array index it through the swizzle
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3577 bytes, checksum a36464eb)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 77 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+memory under gt1030:
+  %34 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %32
+      (line 8: atomicAdd(acc[i & 7u], float(i & 255u) * 0.25);)
+    (count: the workgroup's 64 invocations, once each; the array and its other accesses are not rewritten here:
+    the change below is for every access of it)
+intatomic 0.25f32(lane & 0xff) under gt1030: a shared float atomic add of 0.25f32(lane & 0xff), at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-2 with |k| <= 255, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 16320 2^-2: it fits 32 bits (16320 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(lane & 0xff)
+  -> atomic_add_shared(cell, i32(lane & 0xff)): addend and atomic cost 7.625 against 29.25 (-73.9%)
+     the cell is an i32 holding the sum times 2^2; every other access of it changes too: a store of v
+     stores i32(v * 2^2), a read is f32(cell) * 2^-2 (a conversion and a multiply: 4 a read)
+  defined _ia: the atomic's old value read back as a float
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use zen4
+cost model: zen4
+> spvsimplify nofile
+simplify: 104 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under zen4 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5 -> 5 (+0.0%)
+  counting the strength reductions any driver also does: 9 -> 5 (-44.4%)
+  also done by any driver compiler (2 rewrites, -4; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3437 bytes, checksum 13216954)
