@@ -257,9 +257,10 @@ parse(const char *src)
 		/* OpSource's text goes to src_text; the instruction keeps the rest */
 		{
 			const char *q = memchr(p, '"', (size_t)(e - p));
-			int is_src = q != NULL && (e - p) > 9 &&
-			    strstr(p, "OpSource") != NULL &&
-			    strstr(p, "OpSource") < q;
+			const char *os = strstr(p, "OpSource");
+			/* OpSource itself: not OpSourceExtension's name */
+			int is_src = q != NULL && (e - p) > 9 && os != NULL &&
+			    os < q && (os[8] == ' ' || os[8] == '\t');
 			const char *end = is_src ? q : e;
 			if (is_src) {
 				const char *z = e;

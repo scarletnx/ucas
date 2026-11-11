@@ -868,6 +868,8 @@ parse_source(const char *src)
 			ok = 1;
 			break;
 		}
+		if (SG->ntoks == 0)
+			break;	/* nothing was read: no piece to drop */
 		{
 			/* drop what it refused: the top-level piece around it */
 			size_t at = SG->toks[SG->pos < SG->ntoks ? SG->pos :
