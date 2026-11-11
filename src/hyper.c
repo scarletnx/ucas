@@ -1607,6 +1607,8 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"area", "revolve", "volume", "surfacearea", "arclength", "centroid",
 	/* dword.c, fpfold.c */
 	"dword", "foldproof",
+	/* memk.c */
+	"banks", "intatomic",
 	NULL};
 
 static const char *

@@ -7993,6 +7993,7 @@ float_pass(const char *text, int *changed)
 }
 
 #include "spv_dword.inc"	/* fp64 as f32 pairs, the driver's folds */
+#include "spv_mem.inc"	/* memory kinds: what their prices make worth doing */
 
 static char *orig_mod;	/* the module before the rewrites */
 
@@ -8730,8 +8731,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	memset(&V, 0, sizeof V);
 	/* the float instructions, on the module as the integer part left it */
 	{
-		int fch = 0, dch = 0;
-		char *ft, *dt;
+		int fch = 0, dch = 0, mch = 0;
+		char *ft, *dt, *mt;
 		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
 		ft = float_pass(out.p ? out.p : "", &fch);
 		/* f64 over f32 and folded round trips, on what that left */
@@ -8739,6 +8740,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (dch) {
 			free(ft);
 			ft = dt;
+			fch = 1;
+		}
+		/* the memory accesses, on what that left */
+		mt = mem_pass(fch ? ft : out.p ? out.p : "", &mch);
+		if (mch) {
+			free(ft);
+			ft = mt;
 			fch = 1;
 		}
 		if (fch)

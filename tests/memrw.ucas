@@ -1,0 +1,46 @@
+# The memory side of a cost model: kinds of load, store and atomic, bank
+# conflicts, textures.  A model that lists none of them prices each as
+# its load, store or atomic, and nothing below fires under it.
+models
+# a shared float atomic add is a compare-and-swap loop on gt1030
+w(acc: f32, i: u32 in 0..255) = atomic_add_shared(acc, f32(i) * 0.25)
+cost w
+intatomic w
+cost w_ia
+# too many addends for 32 bits
+intatomic w count 100000000
+# not on a grid: a rounded scaling within a tolerance
+wt(acc: f32, x: f32 in 0..1) = atomic_add_shared(acc, x)
+intatomic wt
+intatomic wt tol 1e-3
+# a device-scope atomic
+wg(acc: f32, i: u32 in 0..255) = atomic_add(acc, f32(i))
+intatomic wg
+# under a model that prices float atomics as integer ones: nothing
+intatomic w model zen4
+# bank conflicts: a 32 x 32 block of workgroup memory read along a row
+# (free) and along a column (32 lanes on one bank)
+row(lane: u32 in 0..31, r: u32 uniform in 0..31) = r * 32 + lane
+col(lane: u32 in 0..31, c: u32 uniform in 0..31) = lane * 32 + c
+banks row
+banks col
+banks row, col
+# a stride of 8: four lanes a bank
+s8(lane: u32 in 0..31, b: u32 uniform in 0..7) = lane * 8 + b
+banks s8 size 256
+# what is cheapest depends on the prices: gt1030 fuses the shift and the
+# add of a padded row into one instruction; a model without that fusion
+# whose add costs 3 xors the row into the bank bits, and the array keeps
+# its size
+model addy : zen4 { iadd: 3, load_shared: 3, bank_conflict: 4, banks: 32, bank_bytes: 4, warp: 32 }
+banks col model addy
+# a size the indices do not fit is refused
+banks col size 64
+# a model without banks
+banks col model zen4
+# a model can declare its own
+model wide : gt1030 { banks: 64, warp: 64 }
+banks col model wide
+# English
+bank conflicts of col
+make w an integer atomic

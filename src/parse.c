@@ -26,6 +26,7 @@
 #include "prove.h"
 #include "props.h"
 #include "dword.h"
+#include "memk.h"
 #include "ring.h"
 #include "absalg.h"
 #include "viz.h"
@@ -1456,6 +1457,24 @@ static const char prelude[] =
     "  fuse ffmr(a: float, b: float, c: float) = c - a * b : fmul contract\n"
     "  fuse fneg(a: float) = -a : 0 in fadd fmul\n"
     "  fuse fabs(a: float) = abs(a) : 0 in fadd fmul\n"
+    /*
+     * The memory kinds, from the same run: workgroup memory is 32 banks
+     * of 4 bytes, each address after the first on a bank costs
+     * bank_conflict (32 on one bank: 127); a block read is the constant
+     * cache (uniform address) or serialised (a different address in each
+     * lane); streams are DRAM-bound loads and stores (16 MiB); a shared
+     * float add is a compare-and-swap loop; a sampled read costs less
+     * than a fetch.
+     */
+    "  load_shared: 3, store_shared: 3, bank_conflict: 4,\n"
+    "  banks: 32, bank_bytes: 4, warp: 32,\n"
+    "  load_ubo: 4.125, load_ubo_div: 148.125,\n"
+    "  load_stream: 80.625, store_stream: 111,\n"
+    "  atomic_shared_same: 63.75, atomic_shared_f: 24.25,\n"
+    "  atomic_global_f: 138.75, atomic_global_64: 264.625,\n"
+    "  atomic_global_cas: 143.5, atomic_global_stream: 137.5,\n"
+    "  tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75,\n"
+    "  image_load: 31.875\n"
     /* measured: the f32 -> f16 -> f32 round trip costs nothing and does
      * not round (tests/gt1030/results/2026-11-11.md, f16 round trip) */
     "  folds f32 -> f16 -> f32\n"
@@ -1723,6 +1742,7 @@ parse_model(struct P *p)
 		fuse_inherit(m, parent);
 		memcpy(m->fold, parent->fold, sizeof m->fold);
 		m->nfold = parent->nfold;
+		memcpy(m->par, parent->par, sizeof m->par);
 		inherited = 1;
 	}
 	skip_nl(p);
@@ -1778,6 +1798,26 @@ parse_model(struct P *p)
 			continue;
 		}
 		k = (n == 3 && !memcmp(s, "all", 3)) ? -1 : cclass_find(s, n);
+		if (k == -2) {
+			/* banks, bank_bytes, warp: parameters, not prices */
+			int q;
+			for (q = 0; q < MP_NPAR; q++)
+				if (strlen(mparam_name[q]) == n && !memcmp(s,
+				    mparam_name[q], n))
+					break;
+			if (q < MP_NPAR) {
+				adv(p);
+				if (!accept(p, T_COLON))
+					expect(p, T_ASSIGN);
+				v = number(p);
+				m->par[q] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
+				    (float)N.ki[v];
+				if (!(m->par[q] >= 1) || m->par[q] > 4096)
+					fail("%s: a count from 1 to 4096, not %g",
+					    mparam_name[q], (double)m->par[q]);
+				continue;
+			}
+		}
 		if (k == -2)
 			fail("unknown cost class '%.*s' (see 'models')", (int)n, s);
 		adv(p);
@@ -1787,8 +1827,9 @@ parse_model(struct P *p)
 			/* a dot form taken away from an inherited model */
 			int j, j0 = k <= -100 ? -k - 100 : k;
 			adv(p);
+			/* (a memory kind: back to its fallback's price) */
 			for (j = j0; j < j0 + (k <= -100 ? 3 : 1); j++)
-				m->c[j] = INFINITY;
+				m->c[j] = j >= C_MEM_FIRST ? NAN : INFINITY;
 			continue;
 		}
 		v = number(p);
@@ -1808,7 +1849,8 @@ parse_model(struct P *p)
 			    (float)N.ki[v];
 			if (k == C_STORE)
 				store_given = 1;
-			given |= 1ULL << k;
+			if (k < C_NBASE)
+				given |= 1ULL << k;
 		}
 	}
 	/* a model that does not price stores: as dear as its loads */
@@ -2342,6 +2384,9 @@ statement(struct P *p)
 			return;
 		/* dword, foldproof: fp64 as f32 pairs, driver folds (dword.h) */
 		if (dword_command(p) || fold_command(p))
+			return;
+		/* banks, intatomic: the memory side of a model (memk.c) */
+		if (memk_command(p))
 			return;
 		/* approx (approx.c) */
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {

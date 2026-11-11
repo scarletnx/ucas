@@ -172,6 +172,8 @@ inline annotations: `range isqrt(x: u4)`.
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
+| `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
+| `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -1617,6 +1619,137 @@ for a GLSL expression over the values its leaves take at its calls,
 with the declaration GLSL needs (GLSL has no built-in for these).
 Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 
+
+### Memory kinds
+
+A model can price memory by kind, and say how its shared memory is
+banked:
+
+```
+model gt1030 { ...,
+  load_shared: 3, store_shared: 3, bank_conflict: 4,
+  banks: 32, bank_bytes: 4, warp: 32,
+  load_ubo: 4.125, load_ubo_div: 148.125,
+  load_stream: 80.625, store_stream: 111,
+  atomic_shared_same: 63.75, atomic_shared_f: 24.25,
+  atomic_global_f: 138.75, atomic_global_64: 264.625,
+  atomic_global_cas: 143.5, atomic_global_stream: 137.5,
+  tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75,
+  image_load: 31.875 }
+```
+
+| class | what | priced as, when the model does not list it |
+|---|---|---|
+| `load_shared`, `store_shared` | workgroup memory | `load`, `store` |
+| `bank_conflict` | each address after the first that a warp reaches on one bank | 0 |
+| `load_ubo`, `load_ubo_div` | a uniform block read at a uniform address, at an address that differs per lane | `load`, `load_ubo` |
+| `load_stream`, `store_stream` | a DRAM-bound stream | `load`, `store` |
+| `atomic_shared_same`, `atomic_shared_f` | every lane on one address; a float add | `atomic_shared` |
+| `atomic_global_f`, `_64`, `_cas`, `_stream` | float add, 64-bit add, compare-and-swap, DRAM | `atomic_global` |
+| `tex_fetch`, `tex_sample`, `tex_sample_f32`, `image_load` | texelFetch, an explicit-LOD sample (rgba8, rgba32f), imageLoad | `load` (`tex_sample_f32`: `tex_sample`) |
+
+`banks`, `bank_bytes` and `warp` are counts, not prices.  gt1030's values
+are the measurements of tests/gt1030 (a step minus the add it contains).
+A model that lists none of this (the x86 models) keeps its `load`,
+`store` and atomic prices for everything, has no banks, and none of what
+follows fires under it; `models` prints only what a model lists.  `cost`
+prices a float `atomic_add[_shared]` as `atomic_*_f` where listed.
+
+**Bank conflicts.**  `banks F [, G ...]` takes the index expressions of
+the accesses to one shared array.  The first integer parameter that is
+not `uniform` is the lane: a warp is `warp` consecutive values of it
+(aligned windows of its range), the other parameters are the same for
+the whole warp.  The conflict degree is the largest number of distinct
+addresses on one bank: for an index a·lane + b two lanes share a bank
+when `banks` divides a (l - l'), so warp·gcd(a, banks)/banks lanes do
+(printed, and enumerated too); any other index is enumerated over every
+warp and every value of the uniform parameters (sampled past 65536
+cases, and then nothing is rewritten).  An access costs `load_shared +
+(degree - 1) bank_conflict`: 32 lanes on one bank are 3 + 31·4 = 127
+under gt1030, the 126.94 measured.
+
+```
+> row(lane: u32 in 0..31, r: u32 uniform in 0..31) = r * 32 + lane
+> col(lane: u32 in 0..31, c: u32 uniform in 0..31) = lane * 32 + c
+> banks row, col
+  row = 32r + lane
+    lane parameter lane; conflict degree 1: ...
+    price 3
+  col = 32lane + c
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), ...
+    price 127
+  -> swizzle every index i of the array: i + (i >> 5)
+     it is strictly increasing (i + 1 lands after i), so no two indices meet; the array grows to 1055 elements: every index enumerated
+     row_sw = ...  conflict degree 1 ...: price 3 + 2 for the swizzle
+     col_sw = ...  conflict degree 1 (index = 33 lane + b: ...): price 3 + 2 for the swizzle
+     total 10 against 130 (-92.3%); every access of the array takes the swizzle, reads and writes alike
+```
+
+A swizzle is searched over the accesses together: the row number `i >>
+s` xored into the bank bits, added into them, or one element of padding
+after every 2^s (the array grows).  Each candidate's degrees are
+enumerated again and its instructions priced by the model's cover with
+its fusions (gt1030's shift-and-add makes the padded row cost 2); the
+cheapest total is taken when it beats the price as written.  It must keep indices apart,
+or a read would no longer find what a write put there: the xor is
+proved an involution and the add inverted (bijections of [0, size)),
+the padding strictly increasing, by enumeration of every index or by
+SAT.  `F_sw` is defined for each access.  Without banks in the model,
+or when no candidate is cheaper, nothing changes.
+
+**Integer atomics.**  `intatomic F` takes a function with a float
+`atomic_add` (or the addend itself).  Where the model prices a float
+atomic add above an integer one (on sm_61 a shared float add is a
+compare-and-swap loop), the addend is put on fixed point: its values are
+proved to be k·2^g from the structure of the expression (integers and
+binary constants as leaves; + - *, and powers of two, keep a grid) with
+|k| bounded by the ranges and no f32 value on the way past 24 bits, so
+nothing rounds; `count N` addends (1024 by default) must fit 32 bits.
+The integer sum is then the exact sum, in any order of arrival, where
+the float sum rounds past 24 bits in an order-dependent way.  An addend
+on no grid needs `tol T`: it is scaled by the largest 2^s whose sum
+fits and rounded to nearest, off by at most N·2^-(s+1) in total.  The
+report gives the integer addend (the conversions dropped where the
+structure allows: `f32(i) * 0.25` adds `i`), both costs, and what every
+other access of the cell becomes; `F_ia` is defined.
+
+```
+> w(acc: f32, i: u32 in 0..255) = atomic_add_shared(acc, f32(i) * 0.25)
+> intatomic w
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-2 with |k| <= 255, exactly: ...
+  the sum of 1024 of them is at most 261120 2^-2: it fits 32 bits ...
+  -> atomic_add_shared(acc, i32(i)): addend and atomic cost 6.625 against 28.25 (-76.5%)
+```
+
+**In a shader**, `simplify` adds a memory part after the float part,
+silent when it has nothing to say.  An address is uniform when it
+depends only on constants, uniform blocks read at uniform addresses and
+the workgroup's builtins; invocation builtins, buffer contents and
+function parameters vary per lane; a phi is uniform when its inputs are
+and no branch of its function has a varying condition.
+
+- A uniform block read at a per-lane address, where `load_ubo_div` is
+  above `load`: moving the block to a storage buffer is *proposed*, with
+  the host's side (descriptor type, buffer usage) and every member whose
+  offset, stride or size changes from std140 to std430.  It is an
+  interface change and is never applied.
+- A texel fetch, where `tex_sample` is below `tex_fetch`: `textureLod`
+  through a nearest sampler at the texel's centre is offered as a
+  candidate worth testing, with the proof that the float coordinates
+  select the same texel for every size up to 2^20 (p + 0.5 exact, the
+  quotient within OpFDiv's 2.5 ulp, the sampler's sub-texel rounding)
+  and the sampler state it needs.  Not applied.
+- A float atomic add on workgroup memory (`OpAtomicFAddEXT`):
+  `intatomic`'s analysis of its addend, with the workgroup's size as
+  the count; the array's other accesses are listed as what must change,
+  not rewritten.
+- A workgroup array whose accesses conflict: `banks` on their index
+  expressions (the lane is gl_LocalInvocationID.x or
+  gl_LocalInvocationIndex in a one-dimensional workgroup; a loop counter
+  is uniform with the range its loop gives it).  A proved swizzle is
+  written into every access chain of the array (and the array's length
+  for a padded row), and spirv-val is run on the result.
 ### Driver folds
 
 A model can say which float round trips its driver drops:

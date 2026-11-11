@@ -37,6 +37,7 @@
 #include "absalg.h"
 #include "img.h"
 #include "dword.h"
+#include "memk.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7291,6 +7292,12 @@ translate(const char *sent)
 			emit(r);
 			return 1;
 		}
+		/* bank conflicts, integer atomics (memk.c) */
+		if ((r = memk_nlp_raw(sent)) != NULL) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
 	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
@@ -7524,7 +7531,9 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"continuity", "discontinuities", "convexity", "convex", "concave",
 	"asymptotes", "zeros", "roots",
 	/* dword.c, fpfold.c */
-	"dword", "foldproof", NULL};
+	"dword", "foldproof",
+	/* memk.c */
+	"banks", "intatomic", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -7735,6 +7744,10 @@ nlp_is_english(const char *s, size_t n)
 		return 0;
 	if (ecff_is_cmd(s + i, n - i))
 		return 0;	/* ec, ecorder, ecdsa ...: ucas (ecff_cmd.c) */
+	/* memk.c: "banks f size 64", "intatomic w count 9" are ucas */
+	if ((n - i > 6 && !strncmp(s + i, "banks ", 6)) ||
+	    (n - i > 10 && !strncmp(s + i, "intatomic ", 10)))
+		return 0;
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));
@@ -7755,6 +7768,16 @@ nlp_is_english(const char *s, size_t n)
 	}
 	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
 		return 0;
+	{
+		/* "bank conflicts of f", "make w an integer atomic" (memk.c) */
+		char line[1000];
+		if (n - i < sizeof line) {
+			memcpy(line, s + i, n - i);
+			line[n - i] = 0;
+			if (memk_nlp_raw(line) != NULL)
+				return 1;
+		}
+	}
 	{
 		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)

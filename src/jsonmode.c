@@ -255,6 +255,21 @@ static const struct jcmd cmds[] = {
 	    "driver folds, and their rounding as integer arithmetic it cannot "
 	    "fold, proved equal",
 	    {FN, NMO("model", " model %s", "the model (the active one)")}},
+	{"banks", "banks", 1, 0, "the bank-conflict degree of shared-memory "
+	    "index expressions over a warp, and a proved index swizzle that "
+	    "lowers it when the model prices conflicts",
+	    {ES("accesses", " %s", "the index expressions (functions of a "
+	    "lane parameter and uniform ones)"), IO("size", " size %s",
+	    "the array's length"), IO("elem", " elem %s", "bytes per element "
+	    "(4)"), NMO("model", " model %s", "the model (the active one)")}},
+	{"intatomic", "intatomic", 1, 0, "a float atomic add as an integer "
+	    "atomic add on fixed point, when its values are proved exact "
+	    "there (or within tol) and the model prices it lower",
+	    {FN, IO("count", " count %s", "adds into one cell at most (1024)"),
+	    NUO("tol", " tol %s", "absolute error allowed on the total"),
+	    BO("global", " global", "a device-scope atomic (shared: "
+	    "workgroup)"), NMO("model", " model %s", "the model (the active "
+	    "one)")}},
 	{"gates", "gates", 1, 0, "minimal gate network, with proof",
 	    {FN, NMO("basis", " basis %s", "c, a64, a64sha, x86bmi, nand ..."),
 	    IO("max", " max %s", "maximum cost (12)"), IO("nodes",

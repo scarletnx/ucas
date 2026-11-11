@@ -9,6 +9,9 @@
 #include "calc.h"
 #include "fuse.h"
 #include "dword.h"
+#include "memk.h"
+
+#include <math.h>
 
 #include <math.h>
 #include <stdlib.h>
@@ -27,6 +30,12 @@ const char *const cclass_name[C_NCLASS] = {
 	"udot4x8sat", "sdot4x8sat", "sudot4x8sat", "udot2x16sat",
 	"sdot2x16sat", "sudot2x16sat", "udot8x4sat", "sdot8x4sat",
 	"sudot8x4sat",
+	/* the memory kinds (memk.c) */
+	"load_shared", "store_shared", "load_ubo", "load_ubo_div",
+	"load_stream", "store_stream", "bank_conflict",
+	"atomic_shared_same", "atomic_shared_f", "atomic_global_f",
+	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
+	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
 };
 
 /*
@@ -36,6 +45,8 @@ const char *const cclass_name[C_NCLASS] = {
 static const char *const dot_group[6] = {
 	"dot4x8", "dot2x16", "dot8x4", "dot4x8sat", "dot2x16sat", "dot8x4sat",
 };
+
+const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp"};
 
 #define MAXMODEL 32
 static struct model models[MAXMODEL];
@@ -68,6 +79,9 @@ model_new(uint32_t name)
 	m->name = name;
 	for (k = 0; k < C_NCLASS; k++)
 		m->c[k] = 1;
+	/* a memory kind the model does not list: its fallback's price */
+	for (k = C_MEM_FIRST; k <= C_MEM_LAST; k++)
+		m->c[k] = NAN;
 	m->c[C_BITCAST] = 0;
 	m->c[C_F64] = 1;
 	/* an instruction the target may not have: absent unless listed */
@@ -140,6 +154,13 @@ model_classes_text(struct sbuf *b, const struct model *m)
 			if (cclass_available(m, j))
 				sb_printf(b, ", %s: %g", cclass_name[j], (double)m->c[j]);
 	}
+	/* the memory kinds and counts it lists (memk.c) */
+	for (k = C_MEM_FIRST; k <= C_MEM_LAST; k++)
+		if (model_lists(m, k))
+			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
+	for (k = 0; k < MP_NPAR; k++)
+		if (m->par[k] != 0)
+			sb_printf(b, ", %s: %g", mparam_name[k], (double)m->par[k]);
 }
 
 static int
@@ -309,6 +330,14 @@ node_cost(const struct model *m, nid n, int *cls)
 		break;
 	case O_ATOMIC:
 		k = (N.ki[n] & AT_SHARED) ? C_ATOM_SH : C_ATOM_GL;
+		/* a float add where the model prices it apart (memk.c) */
+		if (TY_FP(t) && (N.ki[n] & 15) == AT_ADD) {
+			int kf = (N.ki[n] & AT_SHARED) ? C_ATOM_SH_F : C_ATOM_GL_F;
+			if (model_lists(m, kf)) {
+				*cls = kf;
+				return m->c[kf];
+			}
+		}
 		break;
 	case O_LOOP:
 		return loop_cost(m, n, cls);
