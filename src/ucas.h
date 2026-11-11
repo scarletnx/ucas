@@ -329,6 +329,18 @@ int dot_ival(int op, int64_t alo, int64_t ahi, int64_t blo, int64_t bhi,
     int64_t clo, int64_t chi, int64_t *lo, int64_t *hi);
 /* find: sums of products rewritten into the active model's dot forms */
 void dot_find(const struct func *f);
+enum { DOT_NONE, DOT_PROVED, DOT_UNPROVED, DOT_WRONG, DOT_UNAVAILABLE };
+struct dotres {
+	int status;          /* DOT_* */
+	nid body;            /* the rewritten function body */
+	float before, after; /* its cost under the active model */
+	struct sbuf desc;    /* the lanes and what they rely on */
+	struct sbuf proof;   /* the proof (or the counterexample) */
+	const char *kind;    /* "exhaustive", "sat", "parts" */
+};
+/* fmask: 1 the 4 x 8 forms, 2 the 2 x 16, 4 the 8 x 4 */
+int dot_search(const struct func *f, int fmask, struct dotres *r);
+void dotres_free(struct dotres *r);
 
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */

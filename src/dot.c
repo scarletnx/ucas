@@ -27,6 +27,7 @@
  * the forms the active cost model offers (dot_find).
  */
 #include "calc.h"
+#include "nodesat.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -709,17 +710,19 @@ static nid
 rest_of(const struct sum *s, uint32_t taken, int64_t *lo, int64_t *hi,
     int *exact)
 {
-	nid r = mk_const_i(s->t, int_norm(s->t, s->k));
+	nid r = 0;
 	int i, wrap;
 	int64_t l, h;
 
 	*lo = *hi = s->k;
 	*exact = 1;
 	for (i = 0; i < s->nt; i++) {
+		nid x;
 		if ((taken >> i) & 1)
 			continue;
-		r = mk_bin(s->tm[i].sign > 0 ? O_ADD : O_SUB, r,
-		    mk_cast(s->t, s->tm[i].n));
+		x = mk_cast(s->t, s->tm[i].n);
+		r = r ? mk_bin(s->tm[i].sign > 0 ? O_ADD : O_SUB, r, x) :
+		    s->tm[i].sign > 0 ? x : mk_un(O_NEG, x);
 		if (!iv_of(s->tm[i].n, &l, &h, &wrap) || wrap)
 			*exact = 0;
 		else if (s->tm[i].sign > 0)
@@ -727,6 +730,12 @@ rest_of(const struct sum *s, uint32_t taken, int64_t *lo, int64_t *hi,
 		else
 			*lo -= h, *hi -= l;
 	}
+	/* the constant last, subtracted when negative */
+	if (s->k > 0 || !r)
+		r = r ? mk_bin(O_ADD, r, mk_const_i(s->t, int_norm(s->t, s->k))) :
+		    mk_const_i(s->t, int_norm(s->t, s->k));
+	else if (s->k < 0)
+		r = mk_bin(O_SUB, r, mk_const_i(s->t, int_norm(s->t, -s->k)));
 	if (*exact && mwidth(s->t)) {
 		struct ity it;
 		ity_of(&it, s->t, 0);
@@ -810,7 +819,12 @@ rebuild_sum(const struct sum *s, const struct group *g, int ng, int sat,
 			snprintf(cond, ncond, "%s", sb_str(&b));
 			free(b.p);
 		}
-		return is_const(r) && N.ki[r] == 0 ? d : mk_bin(O_ADD, d, r);
+		if (is_const(r) && s->k == 0)
+			return d;
+		if (is_const(r) && s->k < 0)
+			return mk_bin(O_SUB, d, mk_const_i(s->t, int_norm(s->t,
+			    -s->k)));
+		return mk_bin(O_ADD, d, r);
 	}
 }
 
@@ -1107,24 +1121,66 @@ roots_of(nid body, nid *out, int max)
 	return (int)n;
 }
 
+/* lane k of the word w (b bits), as the dot reads it, as an int */
+static nid
+lane_of(nid w, int k, int b, int sgn)
+{
+	nid t = mk_cast(TY(K_UINT, 32), w);
+
+	if (k)
+		t = mk_bin(O_SHR, t, ku32(b * k));
+	t = mk_bin(O_AND, t, ku32(((int64_t)1 << b) - 1));
+	if (sgn)
+		t = mk_cast(TY(K_SINT, b), t);
+	return mk_cast(TY_INT, t);
+}
+
+/* lane == v on f's domain: 1 proved (*sat: by SAT, not exhaustively) */
+static int
+lane_is(const struct func *f, nid lane, nid v, int *sat)
+{
+	struct eqproof q;
+	int bad;
+
+	if (is_const(lane) && is_const(v))
+		return N.ki[lane] == N.ki[v];
+	nsat_narrow = 1;
+	bad = equiv_decide(f, v, lane, NULL, &q);
+	nsat_narrow = 0;
+	if (bad || q.how == EQ_SAMPLED)
+		return 0;
+	if (q.how == EQ_SAT)
+		*sat = 1;
+	return 1;
+}
+
 /*
  * The proof: the rewritten function against the original, exhaustively
- * or by SAT.  When SAT gives up (the original's adders associate
- * differently from the dots'), by parts: each dot against the sum of its
- * own terms (exhaustive or SAT: a small circuit), and the regrouping of
- * the sum's terms, which is algebra: + and - are associative and
- * commutative mod 2^W, and the conversions the normalisation passed keep
- * the value mod 2^W (narrowing) or exactly (widening a subterm the
- * intervals show does not wrap).  0 proved, 1 a counterexample, 2 not
- * proved; *kind is "exhaustive", "sat" or "parts".
+ * or by SAT.  A multiplier against a differently built one is hard for
+ * SAT, so when it gives up, by lanes: each used lane of each word is
+ * shown to be its factor, each unused lane to be 0 on one side (small
+ * circuits, no multiplier); a dot is by definition the exact sum of its
+ * lane products, which the intervals put inside its result's range (no
+ * wrap; for a _SAT chain no partial sum saturates), so it is the sum of
+ * its terms; and the rest is the sum's own terms regrouped: + and -
+ * associate and commute mod 2^W, and the conversions the normalisation
+ * passed keep the value mod 2^W (narrowing) or exactly (widening a
+ * subterm the intervals show does not wrap).  0 proved, 1 a
+ * counterexample, 2 not proved; *kind is "exhaustive", "sat", "lanes".
  */
 static int
 prove_cand(const struct func *f, const struct cand *c, struct sbuf *how,
     struct sbuf *wit, const char **kind)
 {
 	struct eqproof pr;
-	int bad = equiv_decide(f, f->body, c->body, wit, &pr), i, j;
-	struct sbuf parts = {0};
+	int bad, i, j, k, anysat = 0;
+	struct sbuf facts = {0};
+
+	/* the parameters cut to their ranges' bits from the start: lanes
+	 * are about small values in wide words */
+	nsat_narrow = 1;
+	bad = equiv_decide(f, f->body, c->body, wit, &pr);
+	nsat_narrow = 0;
 
 	eqproof_text(how, &pr);
 	*kind = pr.how == EQ_EXHAUSTIVE ? "exhaustive" : "sat";
@@ -1132,65 +1188,89 @@ prove_cand(const struct func *f, const struct cand *c, struct sbuf *how,
 		return 1;
 	if (pr.how != EQ_SAMPLED)
 		return 0;
-	if (c->sat)
-		return 2;
 	for (i = 0; i < c->ng; i++) {
 		const struct group *g = &c->g[i];
 		const struct dotform *df = dot_form(g->op);
-		ty_t rt = df->sa || df->sb ? TY(K_SINT, 32) : TY(K_UINT, 32);
-		nid sum = 0, d = group_dot(g, 0);
-		struct eqproof q;
-		struct sbuf h = {0};
+		int L = df->lanes, b = df->bits, used[8] = {0};
+		int sgn[2];
+		nid w[2];
+		w[0] = g->wa;
+		w[1] = g->wb;
+		sgn[0] = g->swap ? df->sb : df->sa;
+		sgn[1] = g->swap ? df->sa : df->sb;
 		for (j = 0; j < c->s->nt; j++) {
 			const struct term *t = &c->s->tm[j];
-			nid p;
+			int o = (g->orient >> j) & 1, sd;
 			if (!((g->set >> j) & 1))
 				continue;
-			p = mk_bin(O_MUL, mk_cast(rt, t->f[0].n), t->prod ?
-			    mk_cast(rt, t->f[1].n) : mk_const_i(rt, 1));
-			if (!sum)
-				sum = t->sign == g->sign ? p : mk_un(O_NEG, p);
+			used[g->lane[j]] = 1;
+			for (sd = 0; sd < 2; sd++) {
+				const struct fac *x = &t->f[sd ? 1 - o : o];
+				nid v = x->isk ? mk_const_i(TY_INT, ((g->neg >> j) & 1) ?
+				    -x->k : x->k) : mk_cast(TY_INT, x->n);
+				nid ln = lane_of(w[sd], g->lane[j], b, sgn[sd]);
+				if (!lane_is(f, ln, v, &anysat))
+					goto fail;
+				if (!x->isk)
+					sb_printf(&facts, "%slane %d of %s is %s", facts.n ?
+					    "; " : "", g->lane[j], shared_str(w[sd], 60),
+					    shared_str(x->n, 60));
+			}
+		}
+		for (k = 0; k < L; k++) {
+			nid z = mk_const_i(TY_INT, 0);
+			if (used[k])
+				continue;
+			if (lane_is(f, lane_of(w[0], k, b, sgn[0]), z, &anysat))
+				sb_printf(&facts, "%slane %d of %s is 0", facts.n ? "; " :
+				    "", k, shared_str(w[0], 60));
+			else if (lane_is(f, lane_of(w[1], k, b, sgn[1]), z, &anysat))
+				sb_printf(&facts, "%slane %d of %s is 0", facts.n ? "; " :
+				    "", k, shared_str(w[1], 60));
 			else
-				sum = mk_bin(t->sign == g->sign ? O_ADD : O_SUB, sum, p);
+				goto fail;
 		}
-		if (equiv_decide(f, sum, d, NULL, &q) || q.how == EQ_SAMPLED) {
-			free(parts.p);
-			return 2;
-		}
-		eqproof_text(&h, &q);
-		sb_printf(&parts, "%s%s = %s (%s)", i ? "; " : "",
-		    shared_str(d, 120), shared_str(sum, 200), sb_str(&h));
-		free(h.p);
 	}
 	sb_clear(how);
-	sb_printf(how, "by parts: %s; the other terms are the sum's own, "
-	    "regrouped (+ and - associate and commute mod 2^%d; the "
-	    "conversions passed keep the value mod 2^%d or exactly); whole: "
-	    "SAT gave up, sampled without a difference", sb_str(&parts),
-	    mwidth(c->s->t) ? mwidth(c->s->t) : 64,
-	    mwidth(c->s->t) ? mwidth(c->s->t) : 64);
-	free(parts.p);
-	*kind = "parts";
+	sb_printf(how, "by lanes (%s each; no multiplier for the solver): %s; "
+	    "so each dot is the exact sum of its terms (its range above), and "
+	    "the rest is the sum's own terms regrouped (+ and - associate and "
+	    "commute mod 2^%d; the conversions passed keep the value mod 2^%d "
+	    "or exactly); the whole at once: SAT gave up, sampled without a "
+	    "difference", anysat ? "proved by SAT or exhaustively" :
+	    "exhaustive", sb_str(&facts), mwidth(c->s->t) ? mwidth(c->s->t) :
+	    64, mwidth(c->s->t) ? mwidth(c->s->t) : 64);
+	free(facts.p);
+	*kind = "lanes";
 	return 0;
+fail:
+	free(facts.p);
+	return 2;
 }
 
-void
-dot_find(const struct func *f)
+int
+dot_search(const struct func *f, int fmask, struct dotres *r)
 {
 	struct func g = *f;
 	int64_t blo[MAXP], bhi[MAXP];
 	nid roots[2], rt[MAXROOT];
-	int j, nr, nfmt, any = 0, shown = 0;
+	int j, k, nr, nfmt, any = 0;
 	int fmt[3][2];
 	struct sum *sums;
 	struct cand best;
-	float base;
 
+	memset(r, 0, sizeof *r);
 	if (!TY_ISINT(N.ty[f->body]) || N.ty[f->body] == TY_BOOL)
-		return;
+		return r->status;
 	S.f = f;
 	S.m = model_active();
 	nfmt = model_formats(fmt);
+	for (j = k = 0; j < nfmt; j++)
+		if ((fmask >> (fmt[j][1] == 8 ? 0 : fmt[j][1] == 16 ? 1 : 2)) & 1) {
+			fmt[k][0] = fmt[j][0];
+			fmt[k++][1] = fmt[j][1];
+		}
+	nfmt = k;
 	/* proved ranges: the parameters' (the where clause narrowing them),
 	 * then intervals, sound for machine values */
 	for (j = 0; j < f->np; j++)
@@ -1211,12 +1291,12 @@ dot_find(const struct func *f)
 	plan_ival(&S.p, &g, S.iv);
 	nr = roots_of(f->body, rt, MAXROOT);
 	sums = xcalloc((size_t)(nr ? nr : 1), sizeof *sums);
-	base = price_dag(f->body);
+	r->before = price_dag(f->body);
 	memset(&best, 0, sizeof best);
-	best.cost = base;
+	best.cost = r->before;
 	for (j = 0; j < nr; j++) {
 		struct sum *s = &sums[j];
-		int i, lanes = 0;
+		int i, lanes = 0, small = 0;
 		s->root = rt[j];
 		s->t = N.ty[rt[j]];
 		s->ok = 1;
@@ -1224,72 +1304,106 @@ dot_find(const struct func *f)
 		collect(s, rt[j], 1, s->exact);
 		if (!s->ok)
 			continue;
-		/* worth it with a product of two lane-sized factors */
+		/* worth a look with a product of two lane-sized factors, or
+		 * two lane-sized terms (a sum of bytes is a dot with 1s); a
+		 * model without the forms is mentioned for products only */
 		for (i = 0; i < s->nt; i++)
-			if (N.op[s->tm[i].n] == O_MUL &&
-			    fac_signs(&s->tm[i].f[0], 16) &&
-			    fac_signs(&s->tm[i].f[1], 16))
-				lanes = 1;
-		if (!lanes)
+			if (fac_signs(&s->tm[i].f[0], 16) &&
+			    fac_signs(&s->tm[i].f[1], 16)) {
+				small++;
+				if (N.op[s->tm[i].n] == O_MUL)
+					lanes = 1;
+			}
+		if (!lanes && small < 2)
 			continue;
-		any = 1;
+		any |= lanes;
 		if (nfmt)
 			search_sum(&best, f, s, fmt, nfmt);
 	}
-	if (any && !nfmt) {
-		printf("  dot products: %s has no dot product forms (products "
-		    "of lane-sized factors are left as they are)\n",
-		    sym_str(S.m->name));
-		rep_obj("dot_products");
-		rep_str("model", sym_str(S.m->name));
-		rep_bool("available", 0);
-		rep_end();
-	}
+	if (any && !nfmt)
+		r->status = DOT_UNAVAILABLE;
 	if (best.body) {
-		struct sbuf w = {0}, how = {0}, d = {0};
-		const char *kind;
-		int bad = prove_cand(f, &best, &how, &w, &kind);
-		describe(&d, &best);
-		rep_obj("dot_products");
-		rep_str("model", sym_str(S.m->name));
-		rep_bool("available", 1);
-		rep_num("cost_before", base);
-		if (bad) {
-			printf("  dot products under %s: %s (cost %g) %s: %s\n",
-			    sym_str(S.m->name), shared_str(best.body, 300),
-			    (double)best.cost, bad == 1 ? "does not hold" :
-			    "is not proved", bad == 1 ? sb_str(&w) : sb_str(&how));
-			rep_expr("candidate", best.body);
-			rep_str("not_proved", bad ? sb_str(&w) : sb_str(&how));
-		} else {
-			const char *s = sb_str(&d), *e;
-			shown = 1;
-			printf("  dot products under %s (sums of products laid "
-			    "into lanes; cost %g as written):\n",
-			    sym_str(S.m->name), (double)base);
-			printf("  cost %-3g %s\n", (double)best.cost,
-			    shared_str(best.body, 300));
-			while (*s) {
-				e = strchr(s, '\n');
-				if (!e)
-					e = s + strlen(s);
-				printf("           %.*s\n", (int)(e - s), s);
-				s = *e ? e + 1 : e;
-			}
-			printf("           %s\n", sb_str(&how));
-			rep_num("cost", best.cost);
-			rep_expr("expr", best.body);
-			rep_str("relies_on", sb_str(&d));
-			rep_str("proof", kind);
+		struct sbuf w = {0};
+		int bad = prove_cand(f, &best, &r->proof, &w, &r->kind);
+		describe(&r->desc, &best);
+		r->body = best.body;
+		r->after = best.cost;
+		r->status = bad == 1 ? DOT_WRONG : bad ? DOT_UNPROVED : DOT_PROVED;
+		if (bad == 1) {
+			sb_clear(&r->proof);
+			sb_puts(&r->proof, sb_str(&w));
 		}
-		rep_end();
 		free(w.p);
-		free(how.p);
-		free(d.p);
 	}
-	(void)shown;
 	free(sums);
 	free(S.iv);
 	plan_free(&S.p);
 	memset(&S, 0, sizeof S);
+	return r->status;
+}
+
+void
+dotres_free(struct dotres *r)
+{
+	free(r->desc.p);
+	free(r->proof.p);
+	memset(r, 0, sizeof *r);
+}
+
+void
+dot_find(const struct func *f)
+{
+	struct dotres r;
+	const char *mn = sym_str(model_active()->name);
+
+	switch (dot_search(f, 7, &r)) {
+	case DOT_UNAVAILABLE:
+		printf("  dot products: %s has no dot product forms (products "
+		    "of lane-sized factors are left as they are)\n", mn);
+		rep_obj("dot_products");
+		rep_str("model", mn);
+		rep_bool("available", 0);
+		rep_end();
+		break;
+	case DOT_WRONG:
+	case DOT_UNPROVED:
+		printf("  dot products under %s: %s (cost %g) %s: %s\n", mn,
+		    shared_str(r.body, 300), (double)r.after, r.status ==
+		    DOT_WRONG ? "does not hold" : "is not proved",
+		    sb_str(&r.proof));
+		rep_obj("dot_products");
+		rep_str("model", mn);
+		rep_bool("available", 1);
+		rep_num("cost_before", r.before);
+		rep_expr("candidate", r.body);
+		rep_str("not_proved", sb_str(&r.proof));
+		rep_end();
+		break;
+	case DOT_PROVED: {
+		const char *s = sb_str(&r.desc), *e;
+		printf("  dot products under %s (sums of products laid into "
+		    "lanes; cost %g as written):\n", mn, (double)r.before);
+		printf("  cost %-3g %s\n", (double)r.after,
+		    shared_str(r.body, 300));
+		while (*s) {
+			e = strchr(s, '\n');
+			if (!e)
+				e = s + strlen(s);
+			printf("           %.*s\n", (int)(e - s), s);
+			s = *e ? e + 1 : e;
+		}
+		printf("           %s\n", sb_str(&r.proof));
+		rep_obj("dot_products");
+		rep_str("model", mn);
+		rep_bool("available", 1);
+		rep_num("cost_before", r.before);
+		rep_num("cost", r.after);
+		rep_expr("expr", r.body);
+		rep_str("relies_on", sb_str(&r.desc));
+		rep_str("proof", r.kind);
+		rep_end();
+		break;
+	}
+	}
+	dotres_free(&r);
 }
