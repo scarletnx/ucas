@@ -369,17 +369,33 @@ for x in T:
     if x['kind'] == 'branch':
         x['pre_iter'] = 'uint bi = i * 0x9e3779b9u + k, bd = bi ^ (gid * 0x9e3779b9u);'
 
-# --- fragment stage -----------------------------------------------------------------
-FRAG = []
+# --- graphics stages: ALU ----------------------------------------------------------
+# The same steps in a vertex, a geometry and a fragment shader, each against the fadd of
+# its own stage.  The stage's I/O is fixed for all of them, so it cancels in b - a: the
+# vertex shader reads one rgba32_sfloat vec4 and writes gl_Position and one vec4 into
+# rasterizer discard; the geometry shader reads points (the built-in vertex shader's
+# vec4) and emits one point into rasterizer discard; the fragment shader reads one vec4
+# of the full-screen triangle and writes one rgba8_unorm target, 1920x1080, no blending.
+STAGE_SUBSET = ['fadd', 'fmul', 'ffma', 'iadd', 'xor_add', 'shl_var', 'imul', 'udiv', 'udiv_const', 'cmp_select',
+                'umin_add', 'bitcount', 'f2u2f', 'fdiv', 'fsqrt', 'exp2', 'sin', 'pow', 'dadd', 'udot4x8',
+                'sg_add', 'sg_shuffle']
+STAGE_LANES = {'vert': 3 * 65536, 'geom': 65536, 'frag': 1920 * 1080}
+GFX = []
+_by = {x['name']: x for x in T}
+for st in ('vert', 'geom', 'frag'):
+    for nm in STAGE_SUBSET:
+        x = dict(_by[nm])
+        x.update(name='%s_%s' % (st, nm), kind=st, lat=False, fit=False, args=[], vkext=list(x['vkext']),
+                 base=nm, note=(x.get('note') or '') + ('' if nm != 'fadd' else ' (this stage)'))
+        GFX.append(x)
 
 
-def f(name, step, ops, fit=False, exts=(), decls='', pre='', note='', args=(), A=8, C=4):
-    FRAG.append(dict(name=name, step=step, ops=ops, ty='float', fit=fit, exts=list(exts), decls=decls,
-                     pre=pre, note=note, args=list(args), kind='frag', A=A, C=C, lat=False, ring=False,
-                     vkext=[], qual='', iters=None))
+def f(name, step, ops, fit=False, exts=(), decls='', note='', args=(), A=8, C=4):
+    GFX.append(dict(name=name, step=step, ops=ops, ty='float', fit=fit, exts=list(exts), decls=decls,
+                    pre='', post='', note=note, args=list(args), kind='frag', A=A, C=C, lat=False, ring=False,
+                    vkext=[], qual='', iters=None, pre_iter='', body=None, prestep='', poststep='', wg=128))
 
 
-f('frag_fadd', '{a} + {b}', {'fadd': 1}, note='the fragment reference')
 f('frag_dfdx', 'dFdx({a}) + {a}', {'x_deriv': 1, 'fadd': 1}, fit=True, note='a quad shuffle and a subtract')
 f('frag_dfdy_fine', 'dFdyFine({a}) + {a}', {'x_deriv': 1, 'fadd': 1})
 f('frag_fwidth', 'fwidth({a}) + {a}', {'x_deriv': 2, 'minmax': 2, 'fadd': 2})
@@ -387,6 +403,92 @@ f('frag_tex_implicit', '{a} + texture(tex, uv + vec2({a} * 1e-3, 0.0)).x', {'x_t
   fit=True, decls='layout(set = 0, binding = 5) uniform sampler2D tex;\n', C=1,
   args=['--bind', '0.5=format=rgba8_unorm,size=1024x1024,pattern=noise,filter=linear,mips=full'],
   note='implicit LOD: the derivatives come from the quad')
+
+# --- graphics stages: I/O -------------------------------------------------------------
+# What a stage's inputs and outputs cost, apart from its ALU: each group varies one
+# thing.  "run" groups differ only in the shader and share one snx-shaderperf run (the
+# ratio to the first is exact); "sweep" groups need other options (formats, blending,
+# samples, other vertex inputs or render targets), so each item is its own run.
+
+def vs_io(n_in, n_out):
+    src = ['#version 460\n// %d vec4 attributes in, %d vec4 varyings out\n' % (n_in, n_out)]
+    src += ['layout(location = %d) in vec4 a%d;\n' % (i, i) for i in range(n_in)]
+    src += ['layout(location = %d) out vec4 o%d;\n' % (j, j) for j in range(n_out)]
+    src.append('void main() {\n    vec4 t = %s;\n' % ' + '.join('a%d' % i for i in range(n_in)))
+    src.append('    gl_Position = vec4(t.xy, 0.0, 1.0);\n')
+    src += ['    o%d = t + %d.0;\n' % (j, j) for j in range(n_out)]
+    src.append('}\n')
+    return ''.join(src)
+
+
+def gs_io(m, n_out, inv=1):
+    src = ['#version 460\n// points in (%d invocations), %d points out with %d vec4 each\n' % (inv, m, n_out),
+           'layout(points, invocations = %d) in;\nlayout(points, max_vertices = %d) out;\n' % (inv, m),
+           'layout(location = 0) in vec4 vin[];\n']
+    src += ['layout(location = %d) out vec4 o%d;\n' % (j, j) for j in range(n_out)]
+    src.append('void main() {\n    for (int i = 0; i < %d; i++) {\n' % m)
+    src.append('        gl_Position = vec4(vin[0].xy + float(i + gl_InvocationID) * 1e-3, 0.0, 1.0);\n')
+    src += ['        o%d = vin[0] + %d.0;\n' % (j, j) for j in range(n_out)]
+    src.append('        EmitVertex();\n    }\n}\n')
+    return ''.join(src)
+
+
+def fs_io(n_in, n_out):
+    src = ['#version 460\n// %d vec4 inputs, %d vec4 render targets\n' % (n_in, n_out)]
+    src += ['layout(location = %d) in vec4 i%d;\n' % (i, i) for i in range(n_in)]
+    src += ['layout(location = %d) out vec4 c%d;\n' % (j, j) for j in range(n_out)]
+    src.append('void main() {\n    vec4 t = %s;\n' % ' + '.join('i%d' % i for i in range(n_in)))
+    src += ['    c%d = t * 0.25 + %d.0 / 8.0;\n' % (j, j) for j in range(n_out)]
+    src.append('}\n')
+    return ''.join(src)
+
+
+IO = []
+
+
+def io(group, mode, stage, unit, note, items, args=()):
+    IO.append(dict(group=group, mode=mode, stage=stage, unit=unit, note=note, items=items, args=list(args)))
+
+
+def it(name, src=None, args=(), shader=None):
+    return dict(name=name, src=src, args=list(args), shader=shader)
+
+
+io('vs_outputs', 'run', 'vert', 'vertex', 'vec4 varyings a vertex shader writes (rasterizer discard)',
+   [it('vs_out%d' % n, vs_io(1, n)) for n in (1, 2, 4, 8, 16)])
+io('vs_attr_count', 'sweep', 'vert', 'vertex', 'rgba32_sfloat vec4 attributes a vertex reads',
+   [it('vs_in%d' % n, vs_io(n, 1)) for n in (1, 2, 4, 8)])
+io('vs_attr_format', 'sweep', 'vert', 'vertex', 'the format of one vec4 attribute (bytes a vertex: 16, 8, 8, 4, 4, 4, 4)',
+   [it('vs_attr_' + f_, args=['--attr', '0=' + f_], shader='vs_in1') for f_ in
+    ('rgba32_sfloat', 'rgba16_sfloat', 'rgba16_unorm', 'rgba8_unorm', 'rgba8_snorm', 'a2bgr10_unorm',
+     'b10g11r11_ufloat')])
+io('vs_index', 'sweep', 'vert', 'vertex', 'non-indexed, sequential and random u32 indices (vertex reuse)',
+   [it('vs_index_' + k_, args=['--index', k_], shader='vs_in1') for k_ in ('none', 'seq', 'random')])
+io('gs_amplify', 'run', 'geom', 'primitive', 'points a geometry shader emits for each input point (one vec4 each)',
+   [it('gs_emit%d' % m, gs_io(m, 1)) for m in (1, 2, 4, 8, 16, 32)])
+io('gs_outputs', 'run', 'geom', 'primitive', 'vec4 outputs of each of 4 emitted points',
+   [it('gs_emit4_out%d' % n, gs_io(4, n)) for n in (1, 2, 4, 8)])
+io('gs_invocations', 'run', 'geom', 'primitive', '4 points a primitive, from 1, 2 or 4 invocations',
+   [it('gs_inv1_emit4', gs_io(4, 1, 1)), it('gs_inv2_emit2', gs_io(2, 1, 2)), it('gs_inv4_emit1', gs_io(1, 1, 4))])
+io('fs_inputs', 'run', 'frag', 'pixel', 'vec4 inputs a fragment shader interpolates',
+   [it('fs_in%d' % n, fs_io(n, 1)) for n in (1, 2, 4, 8)])
+io('fs_rt_format', 'sweep', 'frag', 'pixel', 'the render target format (bytes a pixel: 4, 4, 8, 8, 16, 4, 4, 4)',
+   [it('fs_rt_' + f_, args=['--rt', '0=' + f_], shader='fs_in1') for f_ in
+    ('rgba8_unorm', 'rgba8_srgb', 'rgba16_sfloat', 'rgba16_unorm', 'rgba32_sfloat', 'r32_sfloat', 'a2bgr10_unorm',
+     'b10g11r11_ufloat')])
+io('fs_blend', 'sweep', 'frag', 'pixel', 'blending on the render target',
+   [it('fs_blend_%s_%s' % (b_, f_), args=['--rt', '0=' + f_, '--blend', b_], shader='fs_in1') for f_, b_ in
+    (('rgba8_unorm', 'none'), ('rgba8_unorm', 'alpha'), ('rgba8_unorm', 'add'), ('rgba16_sfloat', 'none'),
+     ('rgba16_sfloat', 'alpha'), ('rgba32_sfloat', 'none'), ('rgba32_sfloat', 'alpha'))])
+io('fs_msaa', 'sweep', 'frag', 'pixel', 'samples of the render target (the shader runs once a pixel)',
+   [it('fs_msaa%d' % n, args=['--samples', str(n)], shader='fs_in1') for n in (1, 2, 4, 8)])
+io('fs_targets', 'sweep', 'frag', 'pixel', 'rgba8_unorm render targets a fragment shader writes',
+   [it('fs_out%d' % n, fs_io(1, n)) for n in (1, 2, 4, 8)])
+io('fs_depth', 'sweep', 'frag', 'pixel', 'a depth attachment, tested and written (cleared each pass)',
+   [it('fs_depth_none', shader='fs_in1'),
+    it('fs_depth_d16', args=['--depth', 'd16_unorm', '--depth-test', '--depth-write'], shader='fs_in1'),
+    it('fs_depth_d24s8', args=['--depth', 'd24_unorm_s8_uint', '--depth-test', '--depth-write'], shader='fs_in1'),
+    it('fs_depth_d32', args=['--depth', 'd32_sfloat', '--depth-test', '--depth-write'], shader='fs_in1')])
 
 # --- probes (not timed per op): occupancy and SM placement --------------------------
 PROBE = r'''#version 460
@@ -519,27 +621,55 @@ def gen_compute(x, U, latency):
     return ''.join(lines)
 
 
-def gen_frag(x, U):
+GFX_IO = {
+    'vert': ('', 'layout(location = 0) in vec4 p;\nlayout(location = 0) out vec4 o;\n',
+             'vec4 q = p; uint s = floatBitsToUint(q.x) ^ uint(gl_VertexIndex) ^ pc.seed;',
+             'gl_Position = vec4(q.xy, 0.0, 1.0);\n    o = vec4(uintBitsToFloat(r), q.yzw);'),
+    'geom': ('layout(points) in;\nlayout(points, max_vertices = 1) out;\n',
+             'layout(location = 0) in vec4 vin[];\nlayout(location = 0) out vec4 o;\n',
+             'vec4 q = vin[0]; uint s = floatBitsToUint(q.x) ^ uint(gl_PrimitiveIDIn) ^ pc.seed;',
+             'gl_Position = vec4(q.xy, 0.0, 1.0);\n    o = vec4(uintBitsToFloat(r), q.yzw);\n'
+             '    EmitVertex();\n    EndPrimitive();'),
+    'frag': ('', 'layout(location = 0) in vec4 vin;\nlayout(location = 0) out vec4 col;\n',
+             'vec4 q = vin; vec2 uv = vin.xy;\n'
+             '    uint s = floatBitsToUint(q.x) ^ (uint(gl_FragCoord.x) * 7919u) ^ uint(gl_FragCoord.y) ^ pc.seed;',
+             'col = vec4(uintBitsToFloat(r & 0x3f7fffffu), q.yzw);'),
+}
+
+
+def gen_graphics(x, U):
+    st = x['kind']
+    ty, init, sink = TYPES[x['ty']]
     C = x['C']
+    layout, iface, head, tail = GFX_IO[st]
     lines = ['#version 460\n', extlines(x)]
-    lines.append('// generated by gen.py: test %s, fragment, UNROLL %d, %d chain(s)\n' % (x['name'], U, C))
+    lines.append('// generated by gen.py: test %s, %s shader, UNROLL %d, %d chain(s)\n' % (x['name'], st, U, C))
     lines.append('// one step: %s\n' % json.dumps(x['ops']))
     if x.get('note'):
-        lines.append('// %s\n' % x['note'])
+        lines.append('// %s\n' % x['note'].strip())
+    lines.append(layout)
     lines.append(HEADER_PC)
     if x['decls']:
         lines.append(x['decls'])
-    lines.append('layout(location = 0) in vec4 vin;\nlayout(location = 0) out vec4 col;\n')
-    lines.append('void main() {\n    vec2 uv = vin.xy;\n    float kf = pc.kf, kf2 = pc.kf2;\n')
+    lines.append(iface)
+    lines.append('void main() {\n    %s\n' % head)
+    lines.append('    uint k = pc.k, k2 = pc.k2; int ki = int(pc.k); float kf = pc.kf, kf2 = pc.kf2;\n')
+    if x['ty'] == 'double' or 'f64' in x['exts']:
+        lines.append('    double kd = double(pc.kf), kd2 = double(pc.kf2);\n')
+    if x['pre']:
+        lines.append('    %s\n' % x['pre'])
+    q = (x['qual'] + ' ') if x['qual'] else ''
     for n in range(C):
-        lines.append('    float v%d = uv.x * %d.0 + uv.y + 1.0;\n' % (n, n + 1))
+        lines.append('    %s%s v%d = %s;\n' % (q, ty, n, fill(init, i=str(n))))
     lines.append('    for (uint i = 0u; i < pc.iters; i++) {\n')
+    if x.get('pre_iter'):
+        lines.append('        %s\n' % x['pre_iter'])
     for u in range(U):
         for j in range(C):
             lines.append('        %s\n' % step_text(x, j, u, C, lambda n: 'v%d' % n))
     lines.append('    }\n')
-    lines.append('    col = vec4(%s, 0.0, 0.0, 1.0);\n' % ' + '.join('v%d' % n for n in range(C)))
-    lines.append('}\n')
+    r = ' ^ '.join('(%s)' % fill(sink, x='v%d' % n) for n in range(C))
+    lines.append('    uint r = %s;\n    %s\n}\n' % (r, tail))
     return ''.join(lines)
 
 
@@ -563,14 +693,14 @@ def main():
     os.makedirs(os.path.join(HERE, 'spv'), exist_ok=True)
     man = dict(device='NVIDIA GeForce GT 1030 (GP108, sm_61)', tests=[])
     files = []
-    for x in T + FRAG:
+    for x in T + GFX:
         A = x['A']
         cost = model_guess(x['ops'])
         C = x['C']
         # about 1 ms of GPU time for the A build at the model's guess
-        lanes = 65536 if x['kind'] != 'frag' else 1920 * 1080
+        lanes = STAGE_LANES.get(x['kind'], 65536)
         iters = x['iters'] or max(2, int(round(5.8e8 / (lanes * A * C * cost))))
-        ent = dict(name=x['name'], kind=x['kind'], ops=x['ops'], fit=x['fit'], ty=x['ty'], chains=C,
+        ent = dict(name=x['name'], kind=x['kind'], base=x.get('base'), ops=x['ops'], fit=x['fit'], ty=x['ty'], chains=C,
                    unroll=[A, 2 * A], iters=iters, note=x.get('note', ''), vkext=x['vkext'],
                    args=x['args'], files={})
         builds = [('a', A, False), ('b', 2 * A, False)]
@@ -578,8 +708,8 @@ def main():
             builds += [('la', 32, True), ('lb', 64, True)]
             ent['latency'] = dict(chains=x['latC'], unroll=[32, 64], iters=64)
         for tag, U, lat in builds:
-            if x['kind'] == 'frag':
-                src, stage = gen_frag(x, U), 'frag'
+            if x['kind'] in GFX_IO:
+                src, stage = gen_graphics(x, U), x['kind']
             else:
                 src, stage = gen_compute(x, U, lat), 'comp'
             base = '%s.%s' % (x['name'], tag)
@@ -589,6 +719,19 @@ def main():
             ent['files'][tag] = 'spv/%s.spv' % base
             files.append((sp, 'spv/%s.spv' % base))
         man['tests'].append(ent)
+    man['io'] = []
+    for g in IO:
+        ent = dict(group=g['group'], mode=g['mode'], stage=g['stage'], unit=g['unit'], note=g['note'],
+                   args=g['args'], items=[])
+        for x in g['items']:
+            name = x['shader'] or x['name']
+            if x['src']:
+                sp = os.path.join('src', '%s.%s' % (name, g['stage']))
+                with open(os.path.join(HERE, sp), 'w') as fh:
+                    fh.write(x['src'])
+                files.append((sp, 'spv/%s.spv' % name))
+            ent['items'].append(dict(name=x['name'], file='spv/%s.spv' % name, args=x['args']))
+        man['io'].append(ent)
     probe = os.path.join('src', 'probe_sm.comp')
     with open(os.path.join(HERE, probe), 'w') as fh:
         fh.write(PROBE)

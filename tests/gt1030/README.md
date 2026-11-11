@@ -67,14 +67,37 @@ shared loads, texture fetches...): each gets a cost from its test, ready for a m
   subgroup barrier), texel fetch, bilinear rgba8 and rgba32f, image loads.
 - Control: uniform and divergent branches (arms of 2 and 8 FFMAs, `[[dont_flatten]]`), a flattened branch,
   an expect hint.
-- Fragment: derivatives (dFdx, dFdyFine, fwidth) and implicit-LOD sampling, against a fragment fadd.
+- Graphics stages, ALU: 22 of the steps above (fadd, fmul, fma, iadd, xor, shift, imul, udiv, udiv by a
+  constant, compare-select, min, bitCount, conversions, fdiv, sqrt, exp2, sin, pow, f64 add, DP4A, subgroup add
+  and shuffle) again in a vertex, a geometry and a fragment shader (`vert_*`, `geom_*`, `frag_*`), each against
+  the fadd of its own stage; derivatives (dFdx, dFdyFine, fwidth) and implicit-LOD sampling in the fragment
+  stage.
+- Graphics stages, I/O (`io` in the manifest): the cost of what a stage reads and writes, one thing varied a
+  group. Vertex: varyings written (1-16 vec4), attributes read (1-8 vec4), the attribute format (rgba32f,
+  rgba16f, rgba16 unorm, rgba8 unorm/snorm, a2bgr10, b10g11r11), indexing (none, sequential, random). Geometry:
+  points emitted a point (1-32), vec4 outputs a point (1-8), invocations against emitted vertices. Fragment:
+  inputs interpolated (1-8 vec4), render target format (8 formats), blending (none, alpha, add on rgba8,
+  rgba16f, rgba32f), MSAA (1-8 samples), render targets (1-8), depth attachments (none, d16, d24s8, d32).
+
+## Formats and fixed interfaces
+
+The interface of a stage costs time apart from its ALU, so each ALU test keeps it fixed and the A/2A
+difference cancels it: the vertex shader reads one vec4 attribute as rgba32_sfloat and writes gl_Position and
+one vec4, the geometry shader reads points (the built-in vertex shader's vec4) and emits one point, both into
+rasterizer discard; the fragment shader reads one vec4 of the full-screen triangle (1920x1080) and writes one
+rgba8_unorm target without blending. The I/O groups then vary one of these at a time. Groups whose items differ
+only in the shader ("run") share one snx-shaderperf run; items that need other options (formats, blending,
+samples, other vertex inputs or render targets: "sweep") are runs of their own, so their ratios carry the clock
+drift between runs. The report gives each item in ns a vertex, input primitive or pixel, as a ratio to the
+group's first item, and in fadd steps of its stage.
 
 ## Running
 
 ```sh
 cd ~/ucas/tests/gt1030
 ./gen.py                       # after editing the table
-./run.py                       # ~5 minutes; --only a,b to run some tests, --runs N
+./run.py                       # ~12 minutes; --only a,b to run some tests or I/O groups, --runs N,
+                               # --no-io (ALU only), --io-only (the I/O groups only)
 ./run.py --analyse ~/ucas/work/gt1030/run-...   # re-fit a finished run
 ```
 
@@ -82,6 +105,7 @@ Notes:
 
 - Xorg shares this GPU, and the SM clock moves (1.2 to 1.9 GHz). Ratios inside one run are steady; do not
   compare times of two runs.
+- The graphics tests need snx-shaderperf with geometry shaders and `--attr` (ScarletNX branch `shaderperf`).
 - snx-shaderperf enables extensions given with `--ext` but not their feature structs: the float atomics run
   with VK_EXT_shader_atomic_float enabled and its features left at their defaults.
 - shaderFloat16 is false on this GPU, so there are no f16 arithmetic tests, only conversions.
