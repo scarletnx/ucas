@@ -1270,8 +1270,13 @@ rewrites(const struct func *f, int base)
 	for (i = 0; i < nr; i++) {
 		struct eqproof pr;
 		int cost = icost(r[i].e), bad;
-		if (cost >= base)
+		if (cost >= base) {
+			if (!r[i].nearmiss)
+				printf("  derived, but not cheaper under %s (cost %d, as "
+				    "written %d): %s\n", sym_str(model_active()->name),
+				    cost, base, r[i].what);
 			continue;
+		}
 		if (r[i].nearmiss) {
 			printf("  not applied (it would cost %d): %s\n", cost,
 			    r[i].what);
@@ -1873,11 +1878,91 @@ find_setup(struct func *f)
 	free(xs);
 }
 
+/*
+ * A float function's rewrites by identities (irw.c: compare and select
+ * as min/max, clamps), those the model prices lower, each with what it
+ * holds under (NaN, the sign of a zero) and its derivation; then applied
+ * while one is cheaper.  The count of those listed.
+ */
+static int
+float_rewrites(struct func *f)
+{
+	nid cur = f->body;
+	int round, shown = 0, base = icost(f->body);
+	struct sbuf steps = {0};
+
+	for (round = 0; round < 8; round++) {
+		struct irw *r;
+		int nr = irw_cands(f, cur, &r), i, best = -1, bc = icost(cur);
+		for (i = 0; i < nr; i++) {
+			int c = icost(r[i].e);
+			if (!r[i].nearmiss && c >= bc && round == 0) {
+				printf("find %s: derived, but not cheaper under %s (cost %d, "
+				    "as written %d): %s\n", f->anon ? node_str(f->body) :
+				    sym_str(f->name), sym_str(model_active()->name), c, bc,
+				    r[i].what);
+				shown = shown ? shown : -1;
+			}
+			if (r[i].nearmiss || c >= bc)
+				continue;
+			if (round == 0) {
+				if (shown < 0)
+					shown = 0;
+				if (!shown++) {
+					printf("find %s: rewrites by identities the model "
+					    "prices lower (cost %d as written, under %s)\n",
+					    f->anon ? node_str(f->body) : sym_str(f->name),
+					    base, sym_str(model_active()->name));
+					rep_begin("find");
+					rep_str("model", sym_str(model_active()->name));
+					rep_list("rewrites");
+				}
+				printf("  cost %-3d %-40s %s (derived)\n", c,
+				    shared_str(r[i].e, 300), r[i].what);
+				irw_print(&r[i], "      ");
+				rep_obj(NULL);
+				rep_num("cost", c);
+				rep_expr("expr", r[i].e);
+				rep_str("rewrite", r[i].what);
+				rep_str("holds_where", r[i].cond);
+				rep_str("derivation", r[i].proof);
+				rep_end();
+			}
+			if (best < 0 || c < icost(r[best].e))
+				best = i;
+		}
+		if (best < 0) {
+			irw_free(r, nr);
+			break;
+		}
+		sb_printf(&steps, "%s%s", round ? ", then " : "", r[best].what);
+		cur = r[best].e;
+		irw_free(r, nr);
+	}
+	if (shown > 0) {
+		rep_end();
+		if (round >= 2) {
+			printf("  cost %-3d %-40s all of them: %s (derived)\n",
+			    icost(cur), shared_str(cur, 300), sb_str(&steps));
+			rep_obj("fixpoint");
+			rep_num("cost", icost(cur));
+			rep_expr("expr", cur);
+			rep_str("steps", sb_str(&steps));
+			rep_end();
+		}
+	}
+	free(steps.p);
+	return shown;
+}
+
 void
 cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 {
 	(void)opsel;
 	if (TY_FP(N.ty[f->body])) {
+		if (float_rewrites(f) && (f->np != 1 ||
+		    TYK(f->p[0].ty) != K_FLOAT))
+			return;
 		find_float(f, want);
 		return;
 	}

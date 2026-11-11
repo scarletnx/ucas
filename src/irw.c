@@ -254,7 +254,14 @@ rw_minmax(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 	char what[200], cond[300];
 	struct sbuf pf = {0};
 
-	if (!TY_ISINT(N.ty[n]) || N.ty[n] == TY_BOOL)
+	int fl = TY_FP(N.ty[n]) != 0;
+	const char *fcond = "neither compared value is NaN (GLSL leaves min "
+	    "and max undefined there; the select takes the second arm), and "
+	    "where they are zeros of opposite signs the zero's sign may differ "
+	    "(both allowed by Vulkan's default float controls, without "
+	    "SignedZeroInfNanPreserve)";
+
+	if (N.ty[n] == TY_BOOL || (fl && TYK(N.ty[n]) != K_FLOAT))
 		return;
 	/* y is the arm that is a compare operand; e the other arm */
 	for (k = 0; k < 2; k++) {
@@ -273,10 +280,13 @@ rw_minmax(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 			sb_clear(&pf);
 			sb_printf(&pf, "the select takes %s exactly where %s is %s "
 			    "it (%s), and %s otherwise; where they are equal both "
-			    "arms are the same value; integers are totally ordered, "
-			    "so that is %s at every point", sstr(y), sstr(x),
-			    below ? "below" : "above", sstr(cnd), sstr(x), sstr(to));
-			add(out, cnt, cap, root, n, to, what, "",
+			    "arms are the same value; %s, so that is %s %s", sstr(y),
+			    sstr(x), below ? "below" : "above", sstr(cnd), sstr(x),
+			    fl ? "floats other than NaN are ordered (with -0 = +0)" :
+			    "integers are totally ordered", sstr(to), fl ?
+			    "wherever no operand is NaN, up to the sign of a zero" :
+			    "at every point");
+			add(out, cnt, cap, root, n, to, what, fl ? fcond : "",
 			    sb_str(&pf), 1);
 			continue;
 		}
@@ -287,6 +297,29 @@ rw_minmax(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 			nid h = N.a[e] == x ? N.b[e] : N.a[e];
 			int64_t ylo, yhi, hlo, hhi;
 			char wy[200], wh[200];
+			if (fl) {
+				/* floats: the two bounds as constants */
+				if (!is_const(y) || !is_const(h) || (below ?
+				    N.kr[y] > N.kr[h] : N.kr[h] > N.kr[y]))
+					continue;
+				to = mk_bin(below ? O_MAX : O_MIN, y, e);
+				snprintf(what, sizeof what, "the clamp %s as %s",
+				    sstr(n), sstr(to));
+				snprintf(cond, sizeof cond, "%s %s %s (constants); %s",
+				    sstr(y), below ? "<=" : ">=", sstr(h), fcond);
+				sb_clear(&pf);
+				sb_printf(&pf, "where %s is %s %s: %s %s %s, so %s(%s, "
+				    "%s) = %s; elsewhere %s %s %s since %s %s %s, so it "
+				    "is %s (the order of floats other than NaN)",
+				    sstr(x), below ? "below" : "above", sstr(y), sstr(e),
+				    below ? "<" : ">", sstr(y), below ? "max" : "min",
+				    sstr(y), sstr(e), sstr(y), sstr(e), below ? ">=" :
+				    "<=", sstr(y), sstr(h), below ? ">=" : "<=", sstr(y),
+				    sstr(e));
+				add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf),
+				    1);
+				continue;
+			}
 			if (!range_of(c, y, INT64_MIN, &ylo, &yhi, wy, sizeof wy) ||
 			    !range_of(c, h, INT64_MIN, &hlo, &hhi, wh, sizeof wh))
 				continue;
@@ -402,7 +435,7 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 	jmp_buf saved;
 
 	*out = NULL;
-	if (!TY_ISINT(N.ty[root]))
+	if (!TY_ISINT(N.ty[root]) && TYK(N.ty[root]) != K_FLOAT)
 		return 0;
 	mark = xcalloc(lim, 1);
 	st = xmalloc(lim * sizeof *st);
