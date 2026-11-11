@@ -21,7 +21,7 @@ simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       the word's other lanes meet zero lanes
       udot4x8's sum is in 0..7905: it does not wrap
       by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of %52 is %52 & 0xff; lane 0 of %38 & 15 | 16 - (%38 & 15) << 8 is %38 & 15; lane 1 of %52 is %52 >> 8 & 0xff; lane 1 of %38 & 15 | 16 - (%38 & 15) << 8 is 16 - (%38 & 15); lane 2 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; lane 3 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
-  proved in 2.0 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
   blend (line 4), called from main (line 7)
     line 4: a sum of products as one dot product

@@ -110,11 +110,14 @@ TESTS!=	cd ${.CURDIR}/tests && ls *.ucas 2>/dev/null || true
 
 # Each test runs without spirv-cross (simplify's GLSL view), so that the
 # outputs do not depend on what is installed: UCAS_SPIRV_CROSS=none.
-# DIR/NAME.env, when present, replaces that environment; DIR/NAME.needs
+# UCAS_NO_TIMES=1 leaves out elapsed times, which depend on the machine's
+# load.  DIR/NAME.env, when present, replaces UCAS_SPIRV_CROSS=none;
+# DIR/NAME.needs
 # names a tool the test needs (spirv-cross): without it the test is
 # skipped.
-TESTPRE=	e="UCAS_SPIRV_CROSS=none"; \
-		[ -f ${.CURDIR}/DIR/$$n.env ] && e=$$(cat ${.CURDIR}/DIR/$$n.env); \
+TESTPRE=	e="UCAS_NO_TIMES=1 UCAS_SPIRV_CROSS=none"; \
+		[ -f ${.CURDIR}/DIR/$$n.env ] && \
+		    e="UCAS_NO_TIMES=1 $$(cat ${.CURDIR}/DIR/$$n.env)"; \
 		if [ -f ${.CURDIR}/DIR/$$n.needs ] && ! command -v \
 		    $$(cat ${.CURDIR}/DIR/$$n.needs) >/dev/null 2>&1; then \
 			echo "skip $$n (no $$(cat ${.CURDIR}/DIR/$$n.needs))"; \

@@ -209,6 +209,17 @@ T(int t)
 /* ---- parsing ---- */
 
 void glslfn_pass(const char *src, double budget, int only);
+/*
+ * Whether an elapsed time is worth printing: shorter than half a second is
+ * noise, not news, and UCAS_NO_TIMES (set by `make test`) leaves times out
+ * so that outputs do not depend on the machine's load.
+ */
+static int
+show_time(double el)
+{
+	return el >= 0.5 && getenv("UCAS_NO_TIMES") == NULL;
+}
+
 static int fnl_mode;	/* the function level: 0 too, 1 alone, 2 not */
 static char *src_text;	/* OpSource's text, when there is one */
 
@@ -7785,7 +7796,7 @@ float_pass(const char *text, int *changed)
 			}
 		{
 			double el = (double)(clock() - t0) / CLOCKS_PER_SEC;
-			if (el >= 0.5)
+			if (show_time(el))
 				sb_printf(&rep, "  derived in %.1f s\n", el);
 		}
 		fputs(rep.p, stdout);
@@ -8427,7 +8438,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	{
 		double el = (double)(clock() - t0) / CLOCKS_PER_SEC;
 		char tb[32] = "";
-		if (el >= 0.5)	/* shorter times are noise, not news */
+		if (show_time(el))
 			snprintf(tb, sizeof tb, " in %.1f s", el);
 		printf("  proved%s; the operands' definitions were expanded up to "
 		    "16 levels, the rest (loads, loop phis, spec constants) are "
