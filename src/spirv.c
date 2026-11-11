@@ -4131,6 +4131,9 @@ struct cand {
 	int a[3], na;		/* its operands (ids) */
 	double cost;
 	const char *why;
+	int via_u, ut;		/* RW_INS on the bits as unsigned type ut:
+				 * bitcasts in and out (OpUDiv and OpUMod
+				 * want an unsigned result type) */
 };
 
 static struct {
@@ -5361,6 +5364,19 @@ dead_stores(void)
 	return n;
 }
 
+/* the module's unsigned scalar integer type of width w, or -1 */
+static int
+uint_type(int w)
+{
+	int i;
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_INT &&
+		    V.id[i].t.w == w && !V.id[i].t.sign)
+			return i;
+	return -1;
+}
+
 /* candidates for instruction k, cheapest first */
 static int
 candidates(int k, struct cand *cs, int max)
@@ -5437,11 +5453,20 @@ candidates(int k, struct cand *cs, int max)
 	 */
 	if ((!strcmp(I->op, "OpSDiv") || !strcmp(I->op, "OpSRem") ||
 	    !strcmp(I->op, "OpSMod")) && nargs == 2 && n < max &&
-	    !(const_of(arg[1], &cv) && is_pow2(cv)))
-		n += ins_cand(&cs[n], I->op[3] == 'D' ? "OpUDiv" : "OpUMod", NULL,
-		    rt, arg[0], arg[1], -1, I->op[3] == 'D' ?
-		    "operands never negative: the unsigned divide" :
-		    "operands never negative: the unsigned remainder");
+	    !(const_of(arg[1], &cv) && is_pow2(cv))) {
+		int ut = uint_type(w), nb = 1 + !const_of(arg[1], &cv);
+		if (ut >= 0) {
+			const char *uo = I->op[3] == 'D' ? "OpUDiv" : "OpUMod";
+			n += ins_cand(&cs[n], uo, NULL, rt, arg[0], arg[1], -1,
+			    I->op[3] == 'D' ?
+			    "operands never negative: the unsigned divide" :
+			    "operands never negative: the unsigned remainder");
+			cs[n - 1].via_u = 1;
+			cs[n - 1].ut = ut;
+			cs[n - 1].cost = ins_cost_b(uo, NULL, ut, arg[1]) +
+			    (nb + 1) * model_active()->c[C_BITCAST];
+		}
+	}
 	/*
 	 * a compare of the two arms and a select of them is a min or a max
 	 * (x < y ? x : y = min(x, y): integers are totally ordered); the
@@ -5614,6 +5639,14 @@ cand_text(char *b, size_t n, const struct cand *c, const struct sins *I)
 			snprintf(b, n, "%llu", (unsigned long long)c->v);
 		return;
 	}
+	if (c->via_u) {
+		uint64_t v;
+		snprintf(b, n, "OpBitcast %s (%s %s (OpBitcast %s %s) %s)",
+		    I->opnd[0], c->op, V.id[c->ut].tok, V.id[c->ut].tok,
+		    V.id[c->a[0]].tok, const_of(c->a[1], &v) ?
+		    V.id[const_id(c->ut, v)].tok : V.id[c->a[1]].tok);
+		return;
+	}
 	if (c->ext[0])
 		at = snprintf(b, n, "OpExtInst %s %s %s", I->opnd[0],
 		    V.glsl >= 0 ? V.id[V.glsl].tok : "%glsl", c->ext);
@@ -5700,6 +5733,40 @@ driver_trivial(int k, const struct cand *c)
 	return 0;
 }
 
+/* a new instruction of type ty, emitted just before k: its id */
+static int
+new_ins(int k, const char *op, int ty, int a, int b)
+{
+	char nm[40];
+	int nid_, nk;
+	struct sins N;
+
+	snprintf(nm, sizeof nm, "%%ucas_t%d", SP.nnewk + V.nin);
+	nid_ = idx(nm);
+	memset(&N, 0, sizeof N);
+	snprintf(N.op, sizeof N.op, "%s", op);
+	N.res = nid_;
+	N.opnd[0] = strdup(V.id[ty].tok);
+	N.opnd[1] = strdup(V.id[a].tok);
+	N.nop = 2;
+	if (b >= 0)
+		N.opnd[N.nop++] = strdup(V.id[b].tok);
+	N.text = xmalloc(200);
+	snprintf(N.text, 200, "%s = %s %s %s%s%s", nm, N.op, N.opnd[0],
+	    N.opnd[1], b >= 0 ? " " : "", b >= 0 ? N.opnd[2] : "");
+	if (V.nin == V.cap) {
+		V.cap *= 2;
+		V.in = xrealloc(V.in, (size_t)V.cap * sizeof *V.in);
+	}
+	nk = V.nin++;
+	V.in[nk] = N;
+	SP.def[nid_] = nk;
+	V.id[nid_].type = ty;
+	V.id[nid_].kind = K_VALUE;
+	SP.before[nk] = k;
+	return nid_;
+}
+
 /* apply: alias, constant alias, or the instruction rewritten in place */
 static void
 apply(int k, const struct cand *c)
@@ -5724,34 +5791,25 @@ apply(int k, const struct cand *c)
 	}
 	if (c->pre_op[0]) {
 		/* the new subtract, emitted just before k */
-		char nm[40], tyn[40];
-		int nid_, pt = V.id[res_of(c->pre_a[0])].type, nk;
-		struct sins N;
-		snprintf(nm, sizeof nm, "%%ucas_t%d", SP.nnewk + V.nin);
-		nid_ = idx(nm);
-		snprintf(tyn, sizeof tyn, "%s", V.id[pt].tok);
-		memset(&N, 0, sizeof N);
-		snprintf(N.op, sizeof N.op, "%s", c->pre_op);
-		N.res = nid_;
-		N.opnd[0] = strdup(tyn);
-		N.opnd[1] = strdup(V.id[c->pre_a[0]].tok);
-		N.opnd[2] = strdup(V.id[c->pre_a[1]].tok);
-		N.nop = 3;
-		N.text = xmalloc(200);
-		snprintf(N.text, 200, "%s = %s %s %s %s", nm, N.op, tyn,
-		    N.opnd[1], N.opnd[2]);
-		if (V.nin == V.cap) {
-			V.cap *= 2;
-			V.in = xrealloc(V.in, (size_t)V.cap * sizeof *V.in);
-		}
-		nk = V.nin++;
-		V.in[nk] = N;
+		c2.a[1] = new_ins(k, c->pre_op, V.id[res_of(c->pre_a[0])].type,
+		    c->pre_a[0], c->pre_a[1]);
 		I = &V.in[k];	/* (V.in may have moved) */
-		SP.def[nid_] = nk;
-		V.id[nid_].type = pt;
-		V.id[nid_].kind = K_VALUE;
-		SP.before[nk] = k;
-		c2.a[1] = nid_;
+		c = &c2;
+	}
+	if (c->via_u) {
+		/* on the bits as unsigned: bitcasts in, the operation, a
+		 * bitcast out in place of k */
+		uint64_t v;
+		int a0 = new_ins(k, "OpBitcast", c->ut, c->a[0], -1), a1, r;
+		a1 = const_of(c->a[1], &v) ? const_id(c->ut, v) :
+		    new_ins(k, "OpBitcast", c->ut, c->a[1], -1);
+		r = new_ins(k, c->op, c->ut, a0, a1);
+		I = &V.in[k];
+		memset(&c2, 0, sizeof c2);
+		c2.kind = RW_INS;
+		snprintf(c2.op, sizeof c2.op, "OpBitcast");
+		c2.a[0] = r;
+		c2.na = 1;
 		c = &c2;
 	}
 	for (i = 1; i < I->nop; i++)
