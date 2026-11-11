@@ -38,6 +38,7 @@
 #include "img.h"
 #include "dword.h"
 #include "memk.h"
+#include "stoch.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7299,6 +7300,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* stochastic search, identity testing (stoch.c) */
+		const char *r = stoch_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7533,7 +7543,9 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	/* dword.c, fpfold.c */
 	"dword", "foldproof",
 	/* memk.c */
-	"banks", "intatomic", NULL};
+	"banks", "intatomic",
+	/* stoch.c */
+	"stoke", "pit", "phash", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -7782,6 +7794,21 @@ nlp_is_english(const char *s, size_t n)
 		int r = absalg_nlp_english(s + i, (unsigned long)(n - i));
 		if (r >= 0)
 			return r;
+	}
+	/* stoch.c: "stoke f steps 9", "pit f g", "phash f" are ucas ... */
+	if ((n - i > 6 && !strncmp(s + i, "stoke ", 6)) ||
+	    (n - i > 4 && !strncmp(s + i, "pit ", 4)) ||
+	    (n - i > 6 && !strncmp(s + i, "phash ", 6)))
+		return 0;
+	{
+		/* ... "superoptimize f", "are f and g the same polynomial" not */
+		char line[1000];
+		if (n - i < sizeof line) {
+			memcpy(line, s + i, n - i);
+			line[n - i] = 0;
+			if (stoch_nlp_raw(line) != NULL)
+				return 1;
+		}
 	}
 	if (hy_formula(s + i, n - i) || hy_own_cmd(s + i, n - i))
 		return 0;	/* i^i, i*j, slerp ...: ucas (hyper.c) */

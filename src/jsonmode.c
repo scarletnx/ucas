@@ -235,6 +235,23 @@ static const struct jcmd cmds[] = {
 	    "maximum cost")}},
 	{"more", "more", 0, 0, "the next results of the last find",
 	    {IO("n", " %s", "how many")}},
+	{"stoke", "stoke", 1, 0, "MCMC (Metropolis-Hastings) over straight-"
+	    "line integer programs priced by the model; what reaches distance "
+	    "0 is verified on the whole domain",
+	    {FN, IO("steps", " steps %s", "proposals a chain (200000)"),
+	    IO("restarts", " restarts %s", "chains (4)"),
+	    IO("len", " len %s", "instructions at most (8)"),
+	    IO("seed", " seed %s", "the random seed (UCAS_SEED, else 1)"),
+	    NMO("model", " model %s", "the model (the active one)")}},
+	{"pit", "pit", 1, 0, "polynomial identity testing (Schwartz-Zippel): "
+	    "a probabilistic answer with its error bound",
+	    {FN, F("g", " %s", "the other polynomial"),
+	    IO("trials", " trials %s", "random points (4)"),
+	    IO("seed", " seed %s", "the random seed (UCAS_SEED, else 1)")}},
+	{"phash", "phash", 1, 0, "a switch's keys hashed injectively into a "
+	    "table, when the model prices the lookup below the compare chain",
+	    {FN, IO("seed", " seed %s", "the random seed (UCAS_SEED, else 1)"),
+	    NMO("model", " model %s", "the model (the active one)")}},
 	{"fit", "fit", 1, 0, "choose G's extra parameters to approximate F",
 	    {F("g", " %s", "the approximation, with extra parameters"),
 	    F("f", " ~ %s", "the target"), {"metric", P_ENUM, 0, " metric %s",
@@ -243,7 +260,10 @@ static const struct jcmd cmds[] = {
 	    {F("g", " %s", "the approximation"), F("f", " ~ %s",
 	    "the target")}},
 	{"cost", "cost", 1, 0, "price under a cost model",
-	    {FN, NMO("model", " model %s", "the model (the active one)")}},
+	    {FN, NMO("model", " model %s", "the model (the active one)"),
+	    NMO("consecutive", " consecutive %s", "an integer parameter whose "
+	    "values run along the lanes of a warp (a branch's expected cost "
+	    "is then counted over those warps)")}},
 	{"dword", "dword", 1, 0, "f64 arithmetic over f32 (alone, or as "
 	    "double-word pairs) where the model prices that lower, with a "
 	    "derived error bound and its conditions",

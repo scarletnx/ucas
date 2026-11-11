@@ -1,0 +1,64 @@
+# Stochastic search and probabilistic answers.  Every search is seeded
+# (`seed K`, else UCAS_SEED, else 1): the same seed is the same run.
+#
+# MCMC over straight-line programs (Metropolis-Hastings; the cost is the
+# Hamming distance on test inputs plus the price under the model): what
+# reaches distance 0 is only a candidate until it is verified
+xr(x: u8, y: u8) = (x | y) - (x & y)
+stoke xr
+sm(x: u16, y: u16) = (x & y) + (x | y)
+stoke sm steps 100000 restarts 3
+# what is cheaper depends on the prices: gt1030 fuses a shift and an add
+# into one instruction that costs less than its multiply; sm75's multiply
+# costs 1, and nothing beats it
+m9(x: u8) = x * 9
+stoke m9
+stoke m9 model sm75
+# another seed is another run
+stoke m9 seed 7
+# find, then the search
+find xr 2 stoke
+# Schwartz-Zippel: polynomials compared at random points mod 2^61 - 1
+pa(x: u32, y: u32) = (x + y) * (x + y)
+pb(x: u32, y: u32) = x * x + 2 * x * y + y * y
+pc(x: u32, y: u32) = x * x + 2 * x * y + y * y + 1
+pit pa pb
+pit pa pc
+# different over the integers, the same in u8: 128 x (x + 1) is 0 mod 256
+za(x: u8) = 128 * x * (x + 1)
+zb(x: u8) = 0
+pit za zb
+# not polynomials
+pit xr sm
+# equiv falls back on it where enumeration and SAT cannot decide (a
+# multiplier against a multiplier)
+equiv pa pb
+# the expected cost of a branch: lanes that take it independently ...
+k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+cost k
+# ... a rare condition leaves most warps whole ...
+r(x: u32 in 0..65535, y: f32) = x == 7 ? exp(y) * exp(2 * y) * sqrt(y) : y
+cost r
+# ... and an index that runs along the lanes splits one warp in a thousand
+t(i: u32 in 0..32767, y: f32) = i < 16000 ? exp(y) * sqrt(y) : y
+cost t
+cost t consecutive i
+# a model without warps prices the divergent branch as before
+cost t model zen4
+# a switch's keys hashed into a table, when the lookup is cheaper
+sw8(x: u32) = match x { 3 => 10, 17 => 20, 100 => 30, 1000 => 40, 65537 => 50, 99999 => 60, 123456 => 70, 7777777 => 80, _ => 0 }
+cost sw8
+phash sw8
+cost sw8_ph
+# every input a key: no key check
+days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31, _ => 0 }
+phash days
+# three cases are cheaper as they are
+few(x: u32) = match x { 5 => 1, 900 => 2, 70000 => 3, _ => 0 }
+phash few
+# the prices decide: under zen4 the margin is two compares
+phash sw8 model zen4
+# English
+superoptimize xr with seed 3
+are pa and pb the same polynomial
+perfect hash for sw8

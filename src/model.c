@@ -12,6 +12,7 @@
 #include "memk.h"
 
 #include <math.h>
+#include "stoch.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -928,8 +929,10 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		double times = k < 0 ? 1 : lps[k].worst < 0 ? 1 : lps[k].worst;
 		for (g = 1; g < lim; g++) {
 			nid s = g, arm[2];
-			float ex[2], sel, uni, div;
-			int i, nonuni;
+			float ex[2], sel, uni, div, expd = 0;
+			double dp = 0, dat = 0, daf = 0;
+			uint64_t dpts = 0;
+			int i, nonuni, dmode, dexact = 0;
 
 			if (!in[g] || N.op[g] != O_SEL)
 				continue;
@@ -961,12 +964,26 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			uni = m->c[C_BRANCH] + (ex[0] > ex[1] ? ex[0] : ex[1]) -
 			    ex[0] - ex[1];
 			div = m->c[C_BRANCH] + m->c[C_DIVERGE];
+			/*
+			 * A branch on a varying condition, on average: the warps
+			 * that agree skip the other arm, the ones that split pay
+			 * the divergence (stoch.c counts or estimates how many).
+			 */
+			dmode = 0;
+			if (nonuni && k < 0 && m->par[MP_WARP] >= 2)
+				dmode = diverge_stats(f, N.a[s], (int)m->par[MP_WARP], &dp, &dat,
+				    &daf, &dexact, &dpts);
+			if (dmode)
+				expd = m->c[C_BRANCH] + (float)((1 - dat - daf) *
+				    (double)m->c[C_DIVERGE] - dat * (double)ex[1] -
+				    daf * (double)ex[0]);
 			{
-				float pick = nonuni ? (sel < div ? sel : div) :
-				    (sel < uni ? sel : uni);
-				const char *name = nonuni ? (sel <= div ? "select" :
-				    "divergent branch") : (sel <= uni ? "select" :
-				    "uniform branch");
+				float pick = nonuni ? (dmode ? (sel <= expd ? sel : expd) :
+				    (sel < div ? sel : div)) : (sel < uni ? sel : uni);
+				const char *name = nonuni ? (dmode ? (sel <= expd ?
+				    "select" : "branch (its expected cost)") :
+				    (sel <= div ? "select" : "divergent branch")) :
+				    (sel <= uni ? "select" : "uniform branch");
 				best_total += (float)((pick - sel) * times);
 				if (nsel > MAXSEL_SHOWN)
 					continue;
@@ -980,6 +997,24 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				    "divergent branch: %+g%s\n", (double)sel,
 				    (double)(uni), (double)div, nonuni ? "" :
 				    "  (condition is uniform)");
+				if (dmode == 2)
+					printf("      expected branch: %+g   (%llu warps of "
+					    "%d consecutive lanes%s: %.4g all true, %.4g "
+					    "all false, %.4g split)\n", (double)expd,
+					    (unsigned long long)dpts, (int)m->par[MP_WARP],
+					    dexact ? ", all counted" : ", sampled", dat, daf,
+					    1 - dat - daf);
+				else if (dmode == 1)
+					printf("      expected branch: %+g   (P(true) %s "
+					    "%.4g%s%s%llu points; %d independent lanes split "
+					    "with probability 1 - p^%d - (1 - p)^%d = %.4g)\n",
+					    (double)expd, dexact < 0 ? (dp < 0.5 ? "<=" : ">=") :
+					    "=", dp, dexact < 0 ? " at 95% confidence: " : " over ",
+					    dexact < 0 ? (dp < 0.5 ? "never in a sample of " :
+					    "always in a sample of ") : dexact ? "all " :
+					    "a sample of ", (unsigned long long)dpts,
+					    (int)m->par[MP_WARP], (int)m->par[MP_WARP],
+					    (int)m->par[MP_WARP], 1 - dat - daf);
 				rep_obj(NULL);
 				sb_clear(&cb);
 				print_with(&cb, N.a[s], sh, 300);
@@ -988,6 +1023,13 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				rep_num("uniform_branch", uni);
 				rep_num("divergent_branch", div);
 				rep_bool("uniform_condition", !nonuni);
+				if (dmode) {
+					rep_num("expected_branch", expd);
+					rep_num("p_true", dp);
+					rep_num("p_split", 1 - dat - daf);
+					rep_str("lanes", dmode == 2 ? "consecutive" :
+					    "independent");
+				}
 				rep_str("best", name);
 				if (k >= 0)
 					rep_bool("in_loop", 1);

@@ -169,7 +169,10 @@ inline annotations: `range isqrt(x: u4)`.
 | `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  Identities the model prices lower join them (a signed division of non-negative operands as unsigned, compare and select as min/max, clamps, a division by a variable through f32), each with its derivation and the conditions it holds under (see [Rewrites the prices make worthwhile](#rewrites-the-prices-make-worthwhile)); floats get these too.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
-| `cost F [model m]`, `use m`, `models` | price F under a cost model |
+| `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
+| `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
+| `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
+| `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
@@ -1468,6 +1471,28 @@ counted in the estimate):
   reconvergence penalty: the "keep-up" cost.
 
 A condition is uniform when it depends only on `uniform` parameters.
+For a condition that varies, a model with a `warp` (gt1030: 32 lanes
+share a program counter) also gets the branch's *expected* price: the
+warps that agree skip the arm they do not take, the ones that split pay
+the divergence.
+
+```
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: -8.73566   (P(true) = 1.526e-05 over all 65536 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.0004882)
+      -> branch (its expected cost)
+```
+
+P(true) is the condition's frequency over the domain, uniform, counted
+over the parameters it reads (every point when there are at most 65536,
+a sample otherwise; a sample that never saw it true uses the bound 3/n,
+at 95% confidence, and says so).  The lanes are taken as independent
+draws, so a warp splits with probability 1 - p^w - (1 - p)^w, unless
+`cost F consecutive i` names an index that runs along the lanes: the
+aligned runs of w consecutive values of i are then counted, all of them
+when they are few enough (`i < 16000` over 0..32767 splits no warp:
++1.64 against +20.6).  The choice between select and branch follows the
+expected price; the divergent price stays in the line as the worst
+case.  Loops' selects and models without a warp are priced as before.
 Barriers and atomics have value semantics for one invocation
 (`barrier(e)` is `e`, an atomic returns the old value), so they can
 appear in expressions and be priced.  They are never merged by
@@ -1940,6 +1965,99 @@ longer than 500 entries is cut (`KEY_omitted` says how many) and the
 `text` field is cut past 64 KiB, keeping the head and the last lines;
 when files are written (`--dir`), the full text goes to a file named in
 the marker.
+
+## Stochastic search
+
+Searches that draw random numbers are seeded: `seed K`, else the
+environment's `UCAS_SEED`, else 1.  The same seed is the same run, on
+any libm (acceptance and bounds use + * / only).  What a search finds
+is verified or labelled; nothing sampled is called a proof.
+
+**stoke.**  `stoke F` is Markov-chain Monte Carlo over straight-line
+programs, after STOKE (Schkufza, Sharma, Aiken 2013).  A program is up
+to `len` (8) instructions from add sub mul and or xor shl shr not neg
+on the inputs, earlier results and constants.  A proposal changes an
+opcode, an operand, a constant, a whole instruction (or removes it), or
+swaps two; it is accepted by Metropolis-Hastings on
+
+    cost = Hamming distance to F on the test inputs + the price under the model
+
+(the tests: the ends of the ranges and 36 random points).  `restarts`
+(4) chains of `steps` (200000) proposals run: the first starts from F
+itself when F is straight-line in those operations (optimisation), the
+others from random programs (synthesis).  A program at distance 0 is a
+candidate: it is checked on the whole domain (enumerated, or by SAT;
+for polynomials SAT gives up on, by identity testing, printed as
+"probably"), and a counterexample joins the tests.  The chain's own
+price is the sum of its instructions' classes; what it finds is priced
+by the model's cover with its fusions, as `cost` does, and listed
+cheapest first, the fewer operations first at one price.
+
+```
+> xr(x: u8, y: u8) = (x | y) - (x & y)
+> stoke xr
+stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (...),
+  4 chains of 200000 proposals, seed 1; xr as written costs 3
+  800000 proposals, 666113 accepted, 664981 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      y xor x
+      every input enumerated
+  -> 1 against 3 (-66.7%)
+> m9(x: u8) = x * 9
+> stoke m9                  # gt1030 fuses a shift and an add: 2 against the multiply's 3
+  cost 2      x + 8x
+> stoke m9 model sm75       # sm75's multiply costs 1
+  -> nothing cheaper than 1 was found and verified (the search is stochastic: more `steps`, another `seed`)
+```
+
+`find F [n] [max c] stoke` runs it after find's own enumeration.  It is
+for machine integers; "nothing cheaper was found" is not "nothing
+cheaper exists" (find's enumeration, up to its cost bound, is).
+
+**pit.**  `pit F G` is Schwartz-Zippel identity testing.  Both must be
+polynomials over the integers in integer parameters (+ - *, constant
+powers and shifts, conversions that do not widen).  They are evaluated
+at `trials` (4) points drawn uniformly mod p = 2^61 - 1; two different
+polynomials of total degree at most d agree at one point with
+probability at most d/p, so "equal" is wrong with probability at most
+(d/p)^trials, which is printed.  Equal over the integers they are equal
+in a wrapping type, reduction mod 2^w being a ring homomorphism.  The
+converse fails: 128 x (x + 1) is not the zero polynomial and is 0 for
+every u8, so "they differ over the integers" (which is certain) is not a
+verdict on machine functions; pit then compares those on the domain and
+says what it saw.  `equiv` adds the test's line when enumeration and SAT
+leave it at "sampled, not proved" (a multiplier against a multiplier):
+
+```
+> equiv pa pb
+pa and pb are equal on the domain of pa (sampled, not proved; SAT gave up on 19200 AIG nodes ...)
+  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
+```
+
+**phash.**  `phash F` takes a function of one machine integer written
+as a `match` or an if-chain on constant keys (`x == k`, their `||`,
+small ranges) and looks for a hash that sends the keys to distinct
+slots of a table of 2^b entries, b from the smallest that fits up to
+three more: `(x >> s) & mask`, `(x * K) >> s`, `((x xor x >> a) * K) >>
+s` with K drawn at random, and a two-level hash with a displacement
+table for the smallest b.  Injectivity is checked on the key set, slot
+by slot.  Other inputs are handled by the parameter's range when every
+value is a key, else by a second table holding each slot's key,
+compared with x (an empty slot holds a key that hashes elsewhere).  The
+lookup replaces the chain when the model prices it lower, after it is
+proved equal to F for every input (enumerated or SAT); `F_ph` is
+defined.
+
+```
+> sw8(x: u32) = match x { 3 => 10, 17 => 20, 100 => 30, 1000 => 40, 65537 => 50, 99999 => 60, 123456 => 70, 7777777 => 80, _ => 0 }
+> phash sw8
+phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
+  injective on the 8 keys (each slot checked): h(x) = (x * 1671120851) >> 29, a table of 8 slots
+  -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
+     cost 22.75 against 32 (-28.9%); equal to the switch for every input: proved by SAT
+> few(x: u32) = match x { 5 => 1, 900 => 2, 70000 => 3, _ => 0 }
+> phash few
+  -> not rewritten: the lookup costs 18.75, the compare chain 12 under gt1030
+```
 
 ## Float simplify
 
