@@ -27,6 +27,7 @@
 #include "props.h"
 #include "dword.h"
 #include "memk.h"
+#include "stoch.h"
 #include "ring.h"
 #include "absalg.h"
 #include "viz.h"
@@ -2388,6 +2389,9 @@ statement(struct P *p)
 		/* banks, intatomic: the memory side of a model (memk.c) */
 		if (memk_command(p))
 			return;
+		/* stoke, pit, phash: stochastic search (stoch.c) */
+		if (stoch_command(p))
+			return;
 		/* approx (approx.c) */
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {
 			adv(p);
@@ -2546,24 +2550,45 @@ statement(struct P *p)
 				notes_flush();
 				cmd_gates(f, b, maxc, emit);
 			} else if (!strcmp(cmd, "find")) {
-				int want = 5, maxc = 0;
+				int want = 5, maxc = 0, stoke;
+				uint32_t fnm2 = f->name;
 				if (pk(p) == T_NUM)
 					want = (int)N.ki[number(p)];
 				maxc = opt_int(p, "max", 0);
+				stoke = accept_kw(p, "stoke");	/* then the MCMC search */
 				expect_eos(p);
 				notes_flush();
 				cmd_find(f, want, NULL, maxc);
+				if (stoke)
+					stoke_find(func_find(fnm2));
 			} else if (!strcmp(cmd, "cost")) {
+				int cons = -1;
 				m = model_active();
-				if (accept_kw(p, "model")) {
-					if (pk(p) != T_ID ||
-					    (m = model_find(tsym(p, p->i))) == NULL)
-						fail("unknown model");
-					adv(p);
+				for (;;) {
+					if (accept_kw(p, "model")) {
+						if (pk(p) != T_ID ||
+						    (m = model_find(tsym(p, p->i))) == NULL)
+							fail("unknown model");
+						adv(p);
+					} else if (accept_kw(p, "consecutive")) {
+						/* an index that runs along the lanes of a warp */
+						if (pk(p) != T_ID)
+							fail("cost: consecutive NAME, a parameter");
+						for (cons = 0; cons < f->np; cons++)
+							if (f->p[cons].name == tsym(p, p->i))
+								break;
+						if (cons == f->np || !TY_ISINT(f->p[cons].ty))
+							fail("cost: consecutive takes an integer "
+							    "parameter of the function");
+						adv(p);
+					} else
+						break;
 				}
 				expect_eos(p);
 				notes_flush();
+				diverge_consecutive(cons);
 				cmd_cost(f, m);
+				diverge_consecutive(-1);
 			}
 			return;
 		}

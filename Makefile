@@ -18,6 +18,8 @@ spirv.o spirv.pieo: spv_dword.inc
 # the memory side of a cost model: bank conflicts, integer atomics
 SRCS+=	memk.c
 spirv.o spirv.pieo: spv_mem.inc
+# stochastic search: MCMC over programs, identity testing, hash search
+SRCS+=	stoch.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
 # complex, quaternion, octonion and Cayley-Dickson numbers

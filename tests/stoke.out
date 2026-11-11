@@ -1,0 +1,259 @@
+> xr(x: u8, y: u8) = (x | y) - (x & y)
+> stoke xr
+stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 1; xr as written costs 3
+  800000 proposals, 666113 accepted, 664981 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      y xor x
+      every input enumerated
+  cost 1      (y | x) xor x & y
+      every input enumerated
+  -> 1 against 3 (-66.7%)
+> sm(x: u16, y: u16) = (x & y) + (x | y)
+> stoke sm steps 100000 restarts 3
+stoke sm under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  3 chains of 100000 proposals, seed 1; sm as written costs 3
+  300000 proposals, 250692 accepted, 250321 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
+  cost 1      x + y
+      proved by SAT
+  -> 1 against 3 (-66.7%)
+> m9(x: u8) = x * 9
+> stoke m9
+stoke m9 under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 1; m9 as written costs 3
+  800000 proposals, 600836 accepted, 516609 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 2      x + 8x
+      every input enumerated
+  -> 2 against 3 (-33.3%)
+> stoke m9 model sm75
+stoke m9 under sm75: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 1; m9 as written costs 1
+  800000 proposals, 610536 accepted, 419235 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
+  -> nothing cheaper than 1 was found and verified (the search is stochastic: more `steps`, another `seed`)
+> stoke m9 seed 7
+stoke m9 under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 7; m9 as written costs 3
+  800000 proposals, 622217 accepted, 265537 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 2      x + (x << 3)
+      every input enumerated
+  -> 2 against 3 (-33.3%)
+> find xr 2 stoke
+find xr: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  cost 1   x xor y                                  exact
+  cost 3   x + ((x xor y) - x)                      exact
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 1; xr as written costs 3
+  800000 proposals, 666113 accepted, 664981 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      y xor x
+      every input enumerated
+  cost 1      (y | x) xor x & y
+      every input enumerated
+  -> 1 against 3 (-66.7%)
+> pa(x: u32, y: u32) = (x + y) * (x + y)
+> pb(x: u32, y: u32) = x * x + 2 * x * y + y * y
+> pc(x: u32, y: u32) = x * x + 2 * x * y + y * y + 1
+> pit pa pb
+pit pa pb: polynomial identity testing (Schwartz-Zippel), seed 1
+  pa has total degree at most 2, pb at most 2
+  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73
+  -> equal as polynomials over the integers, except with probability at most 5.66e-73 (not a proof: a probabilistic answer)
+     in u32 they are then equal for every input: reduction mod 2^32 is a ring homomorphism
+> pit pa pc
+pit pa pc: polynomial identity testing (Schwartz-Zippel), seed 1
+  pa has total degree at most 2, pc at most 2
+  they differ as polynomials over the integers: at x = 1507915731792878937, y = 728479921167953487 (mod 2^61 - 1) the values are 1411851496979807141 and 1411851496979807142 (certain)
+  -> and as u32 functions they differ too, e.g. x=0, y=4294967294: 4 vs 5
+> za(x: u8) = 128 * x * (x + 1)
+> zb(x: u8) = 0
+> pit za zb
+pit za zb: polynomial identity testing (Schwartz-Zippel), seed 1
+  za has total degree at most 2, zb at most 0
+  they differ as polynomials over the integers: at x = 1507915731792878937 (mod 2^61 - 1) the values are 1699511911201106446 and 0 (certain)
+  -> as u8 functions they agree on the whole domain: polynomials that differ over the integers can agree mod 2^8
+     for every input (2^7 x (x + 1) is 0), so this test cannot tell; `equiv` decides the machine functions
+> pit xr sm
+pit xr sm: polynomial identity testing (Schwartz-Zippel), seed 1
+  not polynomials over the integers in integer parameters (only + - *, constant powers and shifts, integer constants, conversions that do not widen): nothing to test; `equiv` compares them as functions
+> equiv pa pb
+pa and pb are equal on the domain of pa (sampled, not proved; SAT gave up on 19200 AIG nodes within its budget of 100000 conflicts or 2 s)
+  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
+> k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
+> cost k
+cost of k under gt1030: 13 (6 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  fsqrt            1 x 4     = 4
+  ftrans           1 x 4     = 4
+  fused by the model (one instruction for several operations):
+    ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
+  ?: on x > 0  (arms cost 9 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +20.625   (P(true) = 0.5044 over a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 13
+> r(x: u32 in 0..65535, y: f32) = x == 7 ? exp(y) * exp(2 * y) * sqrt(y) : y
+> cost r
+cost of r under gt1030: 19 (8 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  fmul             3 x 1     = 3
+  fsqrt            1 x 4     = 4
+  ftrans           2 x 4     = 8
+  ?: on x == 7  (arms cost 15 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: -8.73566   (P(true) = 1.526e-05 over all 65536 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.0004882)
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 8.63934
+> t(i: u32 in 0..32767, y: f32) = i < 16000 ? exp(y) * sqrt(y) : y
+> cost t
+cost of t under gt1030: 13 (5 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  fmul             1 x 1     = 1
+  fsqrt            1 x 4     = 4
+  ftrans           1 x 4     = 4
+  ?: on i < 16000  (arms cost 9 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +20.625   (P(true) = 0.4883 over all 32768 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 13
+> cost t consecutive i
+cost of t under gt1030: 13 (5 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  fmul             1 x 1     = 1
+  fsqrt            1 x 4     = 4
+  ftrans           1 x 4     = 4
+  ?: on i < 16000  (arms cost 9 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +1.64453   (1024 warps of 32 consecutive lanes, all counted: 0.4883 all true, 0.5117 all false, 0 split)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 13
+> cost t model zen4
+cost of t under zen4: 38 (5 operations, shared subterms counted once)
+  cmp              1 x 1     = 1
+  select           1 x 1     = 1
+  fmul             1 x 3     = 3
+  fsqrt            1 x 15    = 15
+  ftrans           1 x 18    = 18
+  ?: on i < 16000  (arms cost 36 and 0)
+      select: +1   uniform branch: +1   divergent branch: +7.5
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 38
+> sw8(x: u32) = match x { 3 => 10, 17 => 20, 100 => 30, 1000 => 40, 65537 => 50, 99999 => 60, 123456 => 70, 7777777 => 80, _ => 0 }
+> cost sw8
+cost of sw8 under gt1030: 32 (16 operations, shared subterms counted once)
+  cmp              8 x 2.375 = 19
+  select           8 x 1.625 = 13
+  ?: on x == 7777777  (arms cost 0 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 123456  (arms cost 0 and 4)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 99999  (arms cost 0 and 8)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 65537  (arms cost 0 and 12)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 1000  (arms cost 0 and 16)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 100  (arms cost 0 and 20)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 17  (arms cost 0 and 24)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on x == 3  (arms cost 0 and 28)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +6.58312   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 32
+> phash sw8
+phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
+  1360 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 8 keys (each slot checked): h(x) = (x * 1671120851) >> 29, a table of 8 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 22.75
+  -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
+     cost 22.75 against 32 (-28.9%); equal to the switch for every input: proved by SAT
+  defined sw8_ph
+> cost sw8_ph
+cost of sw8_ph under gt1030: 22.75 (6 operations, shared subterms counted once)
+  shared subterms (named once, used below):
+    t1 = 1671120851x >> 0x1d
+  shift            1 x 2     = 2
+  imul             1 x 3     = 3
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  load             2 x 6.875 = 13.75
+  ?: on [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x  (arms cost 6.875 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: -0.132566   (P(true) <= 0.0007324 at 95% confidence: never in a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.02317)
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 20.9924
+> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31, _ => 0 }
+> phash days
+phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
+  13 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 12 keys (each slot checked): h(x) = x & 15, a table of 16 slots
+  every value of m in 1..12 is a key: no key check is needed
+  the lookup costs 7.875
+  -> [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0, 0, 0][m & 15]
+     cost 7.875 against 42.375 (-81.4%); equal to the switch for every input: every input enumerated
+  defined days_ph
+> few(x: u32) = match x { 5 => 1, 900 => 2, 70000 => 3, _ => 0 }
+> phash few
+phash few under gt1030: 3 keys, the compare chain costs 12; seed 1
+  16 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 3 keys (each slot checked): h(x) = x & 7, a table of 8 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 18.75
+  -> not rewritten: the lookup costs 18.75, the compare chain 12 under gt1030
+> phash sw8 model zen4
+phash sw8 under zen4: 8 keys, the compare chain costs 16; seed 1
+  1360 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 8 keys (each slot checked): h(x) = (x * 1671120851) >> 29, a table of 8 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 14
+  -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
+     cost 14 against 16 (-12.5%); equal to the switch for every input: proved by SAT
+  defined sw8_ph
+> superoptimize xr with seed 3
+  ucas: stoke xr seed 3
+stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  4 chains of 200000 proposals, seed 3; xr as written costs 3
+  800000 proposals, 667102 accepted, 666520 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      x xor y
+      every input enumerated
+  cost 1      (x | y) xor x & y
+      every input enumerated
+  cost 1      x & y xor (x | y)
+      every input enumerated
+  -> 1 against 3 (-66.7%)
+> are pa and pb the same polynomial
+  ucas: pit pa pb
+pit pa pb: polynomial identity testing (Schwartz-Zippel), seed 1
+  pa has total degree at most 2, pb at most 2
+  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73
+  -> equal as polynomials over the integers, except with probability at most 5.66e-73 (not a proof: a probabilistic answer)
+     in u32 they are then equal for every input: reduction mod 2^32 is a ring homomorphism
+> perfect hash for sw8
+  ucas: phash sw8
+phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
+  1360 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 8 keys (each slot checked): h(x) = (x * 1671120851) >> 29, a table of 8 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 22.75
+  -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
+     cost 22.75 against 32 (-28.9%); equal to the switch for every input: proved by SAT
+  defined sw8_ph

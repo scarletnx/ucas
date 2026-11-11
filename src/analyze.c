@@ -11,6 +11,7 @@
 #include "ucas.h"
 #include "nodesat.h"
 #include "bound.h"
+#include "stoch.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -2137,6 +2138,28 @@ cmd_equiv(struct func *f, struct func *g)
 		printf("%s and %s differ at %d point%s%s, e.g. %s\n", fname(f),
 		    fname(g), m, m == 1 ? "" : "s", pr.how == EQ_SAMPLED ?
 		    " of the sample" : "", sb_str(&w));
+	if (m == 0 && pr.how == EQ_SAMPLED) {
+		/* not decided: polynomials can still be tested as such */
+		struct sbuf pt = {0};
+		double bound;
+		int r = pit_check(f, f->body, gb, 4, stoch_seed(), &bound, &pt);
+		if (r == 1) {
+			printf("  %s: equal over the integers except with that "
+			    "probability, and then for every input here (a "
+			    "probabilistic answer, not a proof)\n", sb_str(&pt));
+			rep_obj("identity_test");
+			rep_str("result", "equal_probably");
+			rep_num("error_probability", bound);
+			rep_end();
+		} else if (r == 0) {
+			printf("  %s; that does not decide wrapping types (see "
+			    "`pit`)\n", sb_str(&pt));
+			rep_obj("identity_test");
+			rep_str("result", "differ_over_integers");
+			rep_end();
+		}
+		free(pt.p);
+	}
 	if (pr.how == EQ_EXHAUSTIVE) {
 		struct sbuf nb = {0};
 		struct diter d;

@@ -81,6 +81,7 @@ cost of k under gt1030: 13 (6 operations, shared subterms counted once)
     ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
   ?: on x > 0  (arms cost 9 and 0)
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +20.625   (P(true) = 0.5044 over a sample of 4096 points; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   estimate with the best form per ?: : 13
 > ku(x: f32 uniform, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
