@@ -1079,16 +1079,23 @@ What the results hold beyond the common fields:
   per lane group `lanes`: `exact`, `proof`, `ulp_bound`, `rel_error`,
   `not_exact_at`, `witness`, `fail`, `cost`, `gain`, `derivation` (the
   proof's lines).  The arguments `exact`, `ulp`, `approx`, `percomp`,
-  `float_only` and `float_ranges` are the CLI's options.
+  `float_only` and `float_ranges` are the CLI's options; `model` makes
+  a cost model the active one first.  Sums made dot products are in
+  `dot_products` (`from`, `to`, `line`, `cost_before`, `cost_after`,
+  `relies_on`, `proof`), and their `rewrites` entries have proof `dot`.
 - **Analysis** (stress test 1): `equiv` has `method` (`exhaustive`,
   `sat`, `sat_counterexample`, `sampled`), `sat` (`result`, `aig_nodes`,
   `conflicts`, `why`) and `narrowed` (the where clause's bounds); `find`
-  has `peephole` (each `{cost, expr, drops, proof}`), `peephole_fixpoint`
+  has `dot_products` (`model`, `available`; when there is one,
+  `cost_before`, `cost`, `expr`, `relies_on`, `proof`: `exhaustive`,
+  `sat` or `lanes`; or `candidate` and `not_proved`), `peephole` (each
+  `{cost, expr, drops, proof}`), `peephole_fixpoint`
   and `parametric` (`{cost, cost_per_use, expr, K, why, proof}`), and
   each implementation's `proof`; `cost` has `shared` (the named
   subterms), `loops` (`body`, `overhead`, `once`, `trips_worst`,
   `trips_average`, `trips_known`, `trips_bound_sound`, `total_worst`,
-  `total_average`), `average_total` and `selects_not_listed`; `range` has
+  `total_average`), `average_total`, `selects_not_listed` and
+  `unavailable` (dot forms the model does not have); `range` has
   `proved_bound` (`min`, `max`, `min_exact`, `max_exact` and the steps).
   Any result list is cut at 500 entries (`KEY_omitted`).
 - **Identify**: `properties` with a field per property, each `{text,
@@ -1288,7 +1295,8 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0,
   fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,
   load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
-  atomic_shared: 6.625, atomic_global: 50, store: 15 }
+  atomic_shared: 6.625, atomic_global: 50, store: 15,
+  dot4x8: 1, dot4x8sat: 6.5 }
 model mine : gt1030 { imul: 1 }
 ```
 
@@ -1301,8 +1309,9 @@ division is emulated, fdiv, sqrt and the SFU ops are quarter rate, fp64
 is 1/32 rate (`f64` multiplies the cost of every f64 float operation;
 f64 division and sqrt are library calls, about 300 and 570).  load,
 store and atomic_global are cache-resident accesses; streams from DRAM
-cost 90 to 140.  The report also has what the classes do not show:
-LOP3 and multiply-add fusion, DP4A, subgroup operations, textures.
+cost 90 to 140.  DP4A is the dot4x8 class (see Dot products below).
+The report also has what the classes do not show: LOP3 and
+multiply-add fusion, subgroup operations, textures.
 `cd tests/gt1030 && ./run.py` measures again (it needs the GPU).
 
 `cost F` counts each shared subterm once (and prints the body's shared
@@ -1351,6 +1360,121 @@ cost of quant under gt1030: 134 (0 operations outside loops and 1 loop, ...)
 ```
 
 `find` takes its operation costs from the active model.
+
+### Dot products
+
+Packed integer dot products are operations of the language, with the
+semantics of SPV_KHR_integer_dot_product (src/dot.c).  The operands are
+u32 words of lanes; lane k is bits [k*b, (k+1)*b), zero-extended for an
+unsigned operand and sign-extended for a signed one:
+
+| op | lanes | operands | result |
+|---|---|---|---|
+| `udot4x8(a, b)`, `sdot4x8`, `sudot4x8` | 4 x 8 bits (OpUDot/OpSDot/OpSUDot, PackedVectorFormat4x8Bit) | unsigned, signed, a signed x b unsigned | u32 for udot, i32 otherwise: the exact sum's low 32 bits |
+| `udot2x16(a, b)`, `sdot2x16`, `sudot2x16` | 2 x 16 bits (the 2-vector forms) | as above | as above (2 x 16 can wrap: 2 * 65535^2 > 2^32) |
+| `udot8x4(a, b)`, `sdot8x4`, `sudot8x4` | 8 x 4 bits (AMD's v_dot8; SPIR-V has no form for them) | as above | as above |
+| `udot4x8sat(a, b, acc)` ... `sudot8x4sat` | the same | plus an accumulator of the result's type | the exact sum plus acc, saturated to the result's range (OpUDotAccSat ...) |
+
+```
+> show sudot4x8(0xff000001, 0x01000002)     lanes 1*2 + (-1)*1
+_() = 1
+> show udot4x8sat(0xffffffff, 0xffffffff, 0xfffffff0)
+_() = 4294967295
+> range sdot4x8(a: u8, b: u8)
+  -16256..16384
+```
+
+They fold, evaluate, have interval bounds (lane by lane from the
+operands' ranges) and are bit-blasted for SAT.
+
+**Cost classes.**  One per form: `udot4x8`, `sdot4x8`, `sudot4x8`, the
+same for `2x16` and `8x4`, and the `...sat` ones; `dot4x8: 1` (and
+`dot2x16`, `dot8x4`, `dot4x8sat` ...) sets a form's three signednesses
+at once.  Unlike the other classes, which default to 1, a model that
+does not list a form cannot use it: it costs infinity, `models` leaves
+it out, `cost` says it is not available, and `all: v` does not set it;
+`dot4x8: none` takes a form away from a model it inherits.
+
+| model | forms | source |
+|---|---|---|
+| gt1030 | dot4x8 1, dot4x8sat 6.5 | measured (tests/gt1030: udot4x8 + iadd 2.14, sdot4x8 + iadd 2.00, udot4x8sat 6.47: DP4A has no saturation, the driver emulates it); sudot4x8 is the same instruction, not measured apart |
+| sm75 (Turing) | dot4x8 1, dot4x8sat 6.5 | estimates: the CUDA guide's throughput table for the classes it covers (int 64/clk as fp32, so imul 1; SFU and conversions 16), the rest gt1030's; IDP4A at the IMAD rate, no saturating form |
+| sm86 (Ampere GA10x) | dot4x8 2, dot4x8sat 13 | estimates: fp32 128/clk, the integer pipe 64, so every integer class is 2 |
+| rdna2 (AMD gfx10.3) | udot4x8, sdot4x8, udot8x4, sdot8x4 1, their sat forms 1 | estimates from AMD's ISA guide: full-rate v_dot4/v_dot8 with a clamp bit; no mixed signedness, no 2 x 16 |
+| glc, rpl, zen4 | sudot4x8, sdot2x16 and their sat forms | estimates: vpdpbusd (u8 x s8) and vpdpwssd (s16 x s16) of AVX-VNNI / AVX512-VNNI, priced as movd + the published latency + movd |
+
+**The rewrite.**  Nothing in the search knows a target: each sum in a
+function is normalised to sum s_i f_i g_i + c (through +, -, negation,
+t << k as t * 2^k, a lone term as t * 1, and conversions that keep the
+value mod 2^W or exactly), and its terms are laid into the lanes of the
+forms the active model has.  A factor is a lane value when its proved
+range fits a lane (the parameters' ranges narrowed by the where clause,
+then intervals); a bit field (w >> 8k) & 255, w >> 24, u8(w >> 8k) is
+lane k of w already, so the dot takes w and the other side's zero lanes
+cancel w's other lanes; other values are packed (constants into a
+constant word for free, a value into lane 0 as it is, into lane k by a
+shift and an or, a negative one masked when its sign bits would meet a
+used lane), each instruction priced.  Groups are chosen greedily,
+cheapest first, and a rewrite is kept only when the whole function is
+cheaper under the model; a `...sat` form takes the rest of the sum as
+its accumulator only when the intervals show nothing can saturate.
+
+Each rewrite is proved: exhaustively or by SAT (the parameters cut to
+their ranges' bits); when SAT gives up (a multiplier against a
+differently built one), by lanes: each used lane of each word is shown
+to be its factor and each unused lane 0 on one side (small circuits
+without a multiplier), a dot is by definition the exact sum of its lane
+products, which the intervals keep inside its result (no wrap), and the
+rest of the sum is the same terms regrouped by the ring laws mod 2^W.
+The report says what each lane relies on.
+
+```
+> f(x: u32) = (x & 255)*3 + ((x >> 8) & 255)*5 + ((x >> 16) & 255)*7 + (x >> 24)*9
+> find f 1                                  (gt1030)
+  dot products under gt1030 (sums of products laid into lanes; cost 24 as written):
+  cost 1   udot4x8(x, 0x9070503)
+           x & 0xff is bits 0..7 of x: lane 0 as it is
+           ...
+           udot4x8's sum is in 0..6120: it does not wrap
+           proved by SAT: 755 AIG nodes, 0 conflicts
+> g(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
+> find g 1
+  cost 2   udot4x8(a, b) + c
+           a in 0..255 (proved range)
+           b in 0..255 (proved range)
+```
+
+With a model without dot forms (`model nodot : gt1030 { dot4x8: none,
+dot4x8sat: none }`, or x86v3) nothing is rewritten and `find` says so;
+under sm86 a single product is no cheaper as a dot (2 + 2 against
+2 + 2) and stays; under zen4 the four bytes go into vpdpbusd's signed
+side as constants, but `a*b` of two bytes does not (u8 x u8 is no VNNI
+form); under rdna2 `a*b + c` with c in 0..1000000 becomes
+`udot4x8sat(a, b, c)` (the clamp is free there and cannot act), and
+with c a full u32 it stays `udot4x8(a, b) + c`.  Note that ucas types
+`a*b` of two u8 as a u8 (it wraps): `h(a: u8, b: u8, c: u32) = a*b + c`
+becomes `u32(u8(udot4x8(a, b))) + c`.  And since gt1030 measured DP4A
+at 1 and a shift at 2, a product with a small power of two can come out
+as a dot too: that is the model speaking.
+
+**SPIR-V and GLSL.**  `animate exec` runs OpUDot, OpSDot, OpSUDot and
+their AccSat forms, packed or on vectors, priced by the model's class
+(as the multiplies and adds they stand for when it has none).
+`simplify` reads each maximal integer sum of a module into a ucas
+function (its loads and other free inputs are the parameters, with the
+assumed ranges), searches it under the active model's 4 x 8-bit forms,
+checks the translation against its own interpreter, and writes the
+result back: OpUDot/OpSDot/OpSUDot(AccSat) with PackedVectorFormat4x8Bit
+and the shifts and ors that pack, adding `OpCapability DotProduct`,
+`DotProductInput4x8BitPacked` and `OpExtension
+"SPV_KHR_integer_dot_product"` when the module lacks them; spirv-val
+accepts it, and spirv-cross writes the instruction through
+GL_EXT_spirv_intrinsics (tests/dot_view.ucas).  "simplify under sm86"
+(for, on, model NAME) makes that model the active one first; the JSON
+`spirv_simplify` takes `model`.  The function level proposes the same
+for a GLSL expression over the values its leaves take at its calls,
+with the declaration GLSL needs (GLSL has no built-in for these).
+Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 
 ### Long expressions
 

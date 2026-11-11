@@ -1,0 +1,7 @@
+{"id": 1, "cmd": "find", "args": {"f": {"body": "(x & 255)*3 + ((x >> 8) & 255)*5 + ((x >> 16) & 255)*7 + (x >> 24)*9", "params": [{"name": "x", "type": "u32"}]}, "n": 1}}
+{"id": 2, "cmd": "find", "args": {"f": {"body": "a*b + c", "params": [{"name": "a", "type": "u32", "range": [0, 255]}, {"name": "b", "type": "u32", "range": [0, 255]}, {"name": "c", "type": "u32"}]}, "n": 1}}
+{"id": 3, "cmd": "cost", "args": {"f": "udot2x16(x: u32, y: u32)"}}
+{"id": 4, "cmd": "spirv_simplify", "args": {"code": "#version 450\nlayout(local_size_x = 64) in;\nlayout(std430, binding = 0) buffer B { uint d[]; } b;\nvoid main() {\n  uint i = gl_GlobalInvocationID.x;\n  uint x = b.d[i];\n  b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;\n}\n", "nofile": true, "model": "gt1030"}}
+{"id": 5, "cmd": "ucas", "args": {"source": "model nodot : gt1030 { dot4x8: none, dot4x8sat: none }"}}
+{"id": 6, "cmd": "spirv_simplify", "args": {"code": "#version 450\nlayout(local_size_x = 64) in;\nlayout(std430, binding = 0) buffer B { uint d[]; } b;\nvoid main() {\n  uint i = gl_GlobalInvocationID.x;\n  uint x = b.d[i];\n  b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;\n}\n", "nofile": true, "model": "nodot"}}
+{"id": 7, "cmd": "find", "args": {"f": {"body": "a*b + c", "params": [{"name": "a", "type": "u32", "range": [0, 255]}, {"name": "b", "type": "u32", "range": [0, 255]}, {"name": "c", "type": "u32"}]}, "n": 1}}

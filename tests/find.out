@@ -28,6 +28,12 @@ find isprime: 32 points, computing in u8, costs from gt1030
 > sq(x: u8 in 0..15) = x * x
 > find sq 2
 find sq: 16 points, computing in u8, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 3 as written):
+  cost 2   u8(udot4x8(x, x))
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: x * x
+           x in 0..15 (proved range)
+           udot4x8's sum is in 0..225: it does not wrap
+           exhaustive
   cost 3   x*x                                      exact
   cost 5   x + (x*x - x)                            exact
   [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]

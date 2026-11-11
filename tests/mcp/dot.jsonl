@@ -1,0 +1,4 @@
+{"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}}
+{"jsonrpc": "2.0", "method": "notifications/initialized"}
+{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "spirv_simplify", "arguments": {"code": "#version 450\nlayout(local_size_x = 64) in;\nlayout(std430, binding = 0) buffer B { uint d[]; } b;\nvoid main() {\n  uint i = gl_GlobalInvocationID.x;\n  uint x = b.d[i];\n  b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;\n}\n", "nofile": true, "model": "gt1030"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "ucas", "arguments": {"source": "f(x: u32) = (x & 255) + ((x >> 8) & 255) + ((x >> 16) & 255) + (x >> 24)\nfind f 1"}}}

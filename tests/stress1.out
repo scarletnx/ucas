@@ -262,6 +262,12 @@ find wref: 28 points, computing in u32, costs from gt1030
            K = 511/((1 << ib) - 1) (a constant over 2^case - 1) depends only on ib: compute it once where ib is set; 6 per use once K is known (exhaustive)
   cost 14  i*(ib == 2 ? 170 : ib == 3 ? 73 : 34) + 4 >> 3
            K = ib == 2 ? 170 : ib == 3 ? 73 : 34 (one constant per case) depends only on ib: compute it once where ib is set; 6 per use once K is known (exhaustive)
+  dot products under gt1030 (sums of products laid into lanes; cost 43.25 as written):
+  cost 42.25 (udot4x8(i, 0x40) + t1/2)/t1 where t1 = (1 << ib) - 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: i * 64
+           i in 0..15 (proved range)
+           udot4x8's sum is in 0..960: it does not wrap
+           exhaustive
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 599186 distinct columns, bank full; 'more' continues]
 > dv(x: u32 in 0..1000, d: u32 in 1..6) = x / d
@@ -288,5 +294,12 @@ find qb: 1024 points, computing in i32, costs from gt1030
   split on b (4 values), fitted (v*K + C) >> S per case: S = 12, C = 2048
   cost 18  v*(b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047) + 2048 >> 12
            K = b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047 (one constant per case) depends only on b: compute it once where b is set; 6 per use once K is known (exhaustive)
+  dot products under gt1030 (sums of products laid into lanes; cost 68.125 as written):
+  cost 66.125 t4*t4 < t5*t5 && t4*t4 <= t7*t7 ? t3 : t7*t7 < t5*t5 ? t6 : t2 where m = (1 << b) - 1, t1 = 2b - 8, t2 = (i32(udot4x8(v, m)) + 127)/255, t3 = t2 < m ? t2 + 1 : t2, t4 = (t3 << 8 - b | t3 >> t1) - v, t5 = (t2 << 8 - b | t2 >> t1) - v, t6 = t2 > 0 ? t2 - 1 : t2, t7 = (t6 << 8 - b | t6 >> t1) - v
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: v * ((1 << b) - 1)
+           v in 0..255 (proved range)
+           (1 << b) - 1 in 15..127 (proved range)
+           udot4x8's sum is in 0..32385: it does not wrap
+           exhaustive
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

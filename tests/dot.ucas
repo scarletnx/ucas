@@ -1,0 +1,157 @@
+# Packed integer dot products (src/dot.c): SPV_KHR_integer_dot_product's
+# forms as operations, their cost classes, and sums of products laid
+# into them when the active model has them (and only then).
+
+# semantics: lanes of a u32, unsigned, signed, signed x unsigned
+show udot4x8(0x01020304, 0x01010101)
+show sdot4x8(0xff, 0xff)
+show sudot4x8(0xff, 0xff)
+show sudot4x8(0xff000001, 0x01000002)
+# the plain forms keep the sum's low 32 bits: 2 x 16 can wrap
+show sdot2x16(0x80008000, 0x80008000)
+show udot2x16(0xffffffff, 0xffffffff)
+show udot8x4(0x12345678, 0x11111111)
+show sdot8x4(0xf, 0xf)
+# the _sat forms add the accumulator and saturate (u32, or i32)
+show udot4x8sat(0xffffffff, 0xffffffff, 0xfffffff0)
+show sdot4x8sat(0x80, 0x7f, -2147483600)
+show sudot2x16sat(0xffff, 0xffff, 5)
+# ranges: lane by lane from the operands' intervals
+range sdot4x8(a: u8, b: u8)
+range udot4x8(a: u32, b: u32)
+# the definition, proved by SAT
+d(x: u32, y: u32) = udot4x8(x, y)
+e(x: u32, y: u32) = (x & 255)*(y & 255) + ((x >> 8) & 255)*((y >> 8) & 255) + ((x >> 16) & 255)*((y >> 16) & 255) + (x >> 24)*(y >> 24)
+equiv d e
+# a model prices only the forms it lists; the others are not available
+cost udot4x8(x: u32, y: u32)
+cost udot2x16(x: u32, y: u32)
+use rdna2
+cost udot8x4sat(x: u32, y: u32, z: u32)
+cost sudot4x8(x: u32, y: u32)
+use gt1030
+
+# gt1030 (DP4A measured at 1, imul 3): four bytes times constants
+f(x: u32) = (x & 255)*3 + ((x >> 8) & 255)*5 + ((x >> 16) & 255)*7 + (x >> 24)*9
+find f 1
+# a product of two values below 256, plus anything
+g(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
+find g 1
+# u8 * u8 is a u8 in ucas (it wraps): the dot, then its low byte
+h(a: u8, b: u8, c: u32) = a*b + c
+find h 1
+# the whole dot of two packed words
+p(x: u32, y: u32) = (x & 255)*(y & 255) + ((x >> 8) & 255)*((y >> 8) & 255) + ((x >> 16) & 255)*((y >> 16) & 255) + (x >> 24)*(y >> 24)
+find p 1
+# signed lanes: i8 values, and a constant that must be signed
+s(a: i8, b: i8, c: i8, d: i8) = i32(a)*3 - i32(b)*5 + i32(c)*d
+find s 1
+# eight bytes: two dots (proved lane by lane: SAT gives up on the whole)
+e8(x: u32, y: u32) = (x & 255)*1 + ((x >> 8) & 255)*2 + ((x >> 16) & 255)*3 + (x >> 24)*4 + (y & 255)*5 + ((y >> 8) & 255)*6 + ((y >> 16) & 255)*7 + (y >> 24)*8
+find e8 1
+# the sum of the bytes is a dot with 1, 1, 1, 1
+bs(x: u32) = (x & 255) + ((x >> 8) & 255) + ((x >> 16) & 255) + (x >> 24)
+find bs 1
+# values packed by shifts and ors when they are not lanes already
+pk(x: u32, w: u32 in 0..15) = (x & 255)*w + ((x >> 8) & 255)*(16 - w)
+find pk 1
+
+# a model without dot forms: nothing is rewritten, and find says why
+model nodot : gt1030 { dot4x8: none, dot4x8sat: none }
+use nodot
+find f 1
+find g 1
+use x86v3
+find f 1
+
+# later NVIDIA parts (estimates): sm86's integer pipe is half rate, so a
+# single product is no cheaper as a dot (2 + 2 = 2 + 2), four still are
+use sm86
+find f 1
+find g 1
+# x86 with VNNI (zen4, an estimate): vpdpbusd is u8 x s8 only, so the
+# constants go in the signed side; u8 x u8 is not a VNNI form
+use zen4
+find f 1
+find g 1
+
+# the saturating form only where it cannot saturate: rdna2 saturates
+# for free (the clamp bit), so the accumulator goes in when the
+# intervals show the sum stays in range ...
+use rdna2
+k(a: u32 in 0..255, b: u32 in 0..255, c: u32 in 0..1000000) = a*b + c
+find k 1
+# ... and not when c can reach the top of u32 (the add wraps, a
+# saturating dot would clamp)
+k2(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
+find k2 1
+# 8 x 4-bit lanes: nibbles of x, one of them against another nibble
+n(x: u32) = (x & 15)*(x >> 28) + ((x >> 4) & 15)*3
+find n 1
+use gt1030
+
+# the SPIR-V instructions run on the lanes (inputs given per lane)
+animate exec %pa = 16909060, %pb = 4294967295 seed 1 nofile
+```spv
+%a = OpLoad %uint %pa
+%b = OpLoad %uint %pb
+%d = OpUDot %uint %a %b PackedVectorFormat4x8Bit
+%e = OpSDot %int %a %b PackedVectorFormat4x8Bit
+%f = OpSUDotAccSat %int %a %b %int_5 PackedVectorFormat4x8Bit
+OpStore %y %d
+OpStore %z %e
+OpStore %w %f
+```
+
+# simplify: the sum becomes one OpUDot, with the capabilities and the
+# extension (the GLSL view is in dot_view.ucas)
+simplify under gt1030 nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;
+}
+```
+
+# the same under a model without dot forms: left as it is
+simplify under nodot nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;
+}
+```
+
+# a helper whose weight is 0..15 at its only call: the function level
+# proposes the dot from the call's domain, the instruction level packs w
+# and 16 - w into one word
+simplify under gt1030 nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); }
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  b.d[i] = blend(b.d[i], i & 15u);
+}
+```
+
+# a SPIR-V snippet: a*b + c with a, b assumed to be bytes
+simplify assume pa in [0, 255], pb in [0, 255] nofile
+```spv
+%a = OpLoad %uint %pa
+%b = OpLoad %uint %pb
+%c = OpLoad %uint %pc
+%m = OpIMul %uint %a %b
+%s = OpIAdd %uint %m %c
+OpStore %y %s
+```

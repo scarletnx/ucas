@@ -1,0 +1,16 @@
+# simplify's dot products through the GLSL view: the rewritten module
+# (OpUDot with DotProduct, DotProductInput4x8BitPacked and
+# SPV_KHR_integer_dot_product) passes spirv-val, and spirv-cross writes
+# the instruction through GL_EXT_spirv_intrinsics.  Needs spirv-cross
+# (dot_view.needs).
+simplify under gt1030 nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); }
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  b.d[i] = blend(b.d[i], i & 15u);
+}
+```

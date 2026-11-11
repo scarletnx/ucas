@@ -1,0 +1,58 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 7 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 13 -> 6 (-53.8%)
+  by kind:
+       1  a sum of products as one dot product          -7
+  rewrites:
+    %71 = OpIAdd %uint %64 %70
+      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (a sum of products as one dot product; -7)
+      (line 4: uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); })
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %71 = OpIAdd %uint %64 %70
+      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (cost 13 -> 6)
+      (line 4: uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); })
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (%52 & 0xff) * (%38 & 15), lane 1: (%52 >> 8 & 0xff) * (16 - (%38 & 15))
+      %52 & 0xff is bits 0..7 of %52: lane 0 as it is
+      %38 & 15 in 0..15 (proved range)
+      %52 >> 8 & 0xff is bits 8..15 of %52: lane 1 as it is
+      16 - (%38 & 15) in 1..16 (proved range)
+      the word's other lanes meet zero lanes
+      udot4x8's sum is in 0..7905: it does not wrap
+      by lanes (proved by SAT or exhaustively each; no multiplier for the solver): lane 0 of %52 is %52 & 0xff; lane 0 of %38 & 15 | 16 - (%38 & 15) << 8 is %38 & 15; lane 1 of %52 is %52 >> 8 & 0xff; lane 1 of %38 & 15 | 16 - (%38 & 15) << 8 is 16 - (%38 & 15); lane 2 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; lane 3 of %38 & 15 | 16 - (%38 & 15) << 8 is 0; so each dot is the exact sum of its terms (its range above), and the rest is the sum's own terms regrouped (+ and - associate and commute mod 2^32; the conversions passed keep the value mod 2^32 or exactly); the whole at once: SAT gave up, sampled without a difference
+  proved in 2.0 s; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  blend (line 4), called from main (line 7)
+    line 4: a sum of products as one dot product
+      (a & 255u) * w + ((a >> 8) & 255u) * (16u - w)
+        ->  udot4x8(a, w | 16 - w << 8)
+        (GLSL has no built-in for it: declare it, e.g. #extension GL_EXT_spirv_intrinsics : require; spirv_instruction(extensions = ["SPV_KHR_integer_dot_product"], capabilities = [6019, 6018], id = 4451) uint udot4x8(uint a, uint b, spirv_literal int fmt); and call it with fmt 0; id 4450 is sdot4x8 (int), 4452 sudot4x8)
+      proof: by lanes: each lane of each word shown to be its factor (SAT), the dot is the exact sum of its lane products, the other terms regrouped mod 2^32
+      cost under gt1030: 12 -> 5 each time it runs
+      relies on: w in 0..15 where line 4 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (a & 0xff) * w, lane 1: (a >> 8 & 0xff) * (16 - w); a & 0xff is bits 0..7 of a: lane 0 as it is; w in 0..15 (proved range); a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is; 16 - w in 1..16 (proved range); the word's other lanes meet zero lanes; udot4x8's sum is in 0..7905: it does not wrap
+  (nofile: simplified.spvasm, 2370 bytes, checksum 19c4e853)
+  GLSL view (spirv-cross's reconstruction of the SPIR-V, with its own names, not your source):
+    --- original.glsl (spirv-opt -O)
+    +++ simplified.glsl
+    @@ -1,3 +1,4 @@
+     #version 450
+    +#extension GL_EXT_spirv_intrinsics : require
+     layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+    @@ -7,8 +8,11 @@
+     } b;
+
+    +spirv_instruction (extensions = ["SPV_KHR_integer_dot_product"], capabilities = [6019, 6018], id = 4451)
+    +uint spvUDot_uint_uint_uint(uint arg0, uint arg1, spirv_literal uint packedFormat);
+    +
+     void main()
+     {
+    -    uint _29 = gl_GlobalInvocationID.x & 15u;
+    -    b.d[gl_GlobalInvocationID.x] = ((b.d[gl_GlobalInvocationID.x] & 255u) * _29) + (((b.d[gl_GlobalInvocationID.x] >> uint(8)) & 255u) * (16u - _29));
+    +    uint _32 = gl_GlobalInvocationID.x & 15u;
+    +    b.d[gl_GlobalInvocationID.x] = spvUDot_uint_uint_uint(b.d[gl_GlobalInvocationID.x], _32 | ((16u - _32) << 8u), 0);
+     }
+
+  (nofile: simplified.glsl, 565 bytes, checksum 7fd11103)
+  (nofile: original.glsl, 362 bytes, checksum a1dce72a)
