@@ -1,0 +1,6551 @@
+{
+ "device": "Mali-G715 (Pixel 9, GrapheneOS, Android 17)",
+ "tests": [
+  {
+   "name": "iadd",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/iadd.a.spv",
+    "b": "spv/iadd.b.spv",
+    "la": "spv/iadd.la.spv",
+    "lb": "spv/iadd.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "isub",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "latency: b - (b - a) folds in a 2-chain ring",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/isub.a.spv",
+    "b": "spv/isub.b.spv"
+   }
+  },
+  {
+   "name": "xor_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/xor_add.a.spv",
+    "b": "spv/xor_add.b.spv",
+    "la": "spv/xor_add.la.spv",
+    "lb": "spv/xor_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "and_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/and_add.a.spv",
+    "b": "spv/and_add.b.spv",
+    "la": "spv/and_add.la.spv",
+    "lb": "spv/and_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "or_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/or_add.a.spv",
+    "b": "spv/or_add.b.spv",
+    "la": "spv/or_add.la.spv",
+    "lb": "spv/or_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "not_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "~a + b = b - a - 1: the not can become a negated add operand",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/not_add.a.spv",
+    "b": "spv/not_add.b.spv",
+    "la": "spv/not_add.la.spv",
+    "lb": "spv/not_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "lop3_select",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 4,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "a 3-input function: one LOP3 on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/lop3_select.a.spv",
+    "b": "spv/lop3_select.b.spv"
+   }
+  },
+  {
+   "name": "lop3_xor3",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "logic": 2,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "one LOP3",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/lop3_xor3.a.spv",
+    "b": "spv/lop3_xor3.b.spv"
+   }
+  },
+  {
+   "name": "shl_var",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/shl_var.a.spv",
+    "b": "spv/shl_var.b.spv",
+    "la": "spv/shl_var.la.spv",
+    "lb": "spv/shl_var.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "shr_var",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/shr_var.a.spv",
+    "b": "spv/shr_var.b.spv",
+    "la": "spv/shr_var.la.spv",
+    "lb": "spv/shr_var.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sar_var",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "int",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sar_var.a.spv",
+    "b": "spv/sar_var.b.spv",
+    "la": "spv/sar_var.la.spv",
+    "lb": "spv/sar_var.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "shr_const_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/shr_const_add.a.spv",
+    "b": "spv/shr_const_add.b.spv",
+    "la": "spv/shr_const_add.la.spv",
+    "lb": "spv/shr_const_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "shl_const_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ISCADD: shift and add in one",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/shl_const_add.a.spv",
+    "b": "spv/shl_const_add.b.spv",
+    "la": "spv/shl_const_add.la.spv",
+    "lb": "spv/shl_const_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "rotl",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 2,
+    "logic": 2
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "no funnel shift on sm_61: two shifts and a LOP3",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/rotl.a.spv",
+    "b": "spv/rotl.b.spv",
+    "la": "spv/rotl.la.spv",
+    "lb": "spv/rotl.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "imul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "imul": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/imul.a.spv",
+    "b": "spv/imul.b.spv",
+    "la": "spv/imul.la.spv",
+    "lb": "spv/imul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "imad",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "imul": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "the add folds into the XMAD chain",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/imad.a.spv",
+    "b": "spv/imad.b.spv"
+   }
+  },
+  {
+   "name": "imul_const",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "imul": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/imul_const.a.spv",
+    "b": "spv/imul_const.b.spv",
+    "la": "spv/imul_const.la.spv",
+    "lb": "spv/imul_const.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "imul_pow2",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ucas prices x*2^n as a shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/imul_pow2.a.spv",
+    "b": "spv/imul_pow2.b.spv",
+    "la": "spv/imul_pow2.la.spv",
+    "lb": "spv/imul_pow2.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "umulhi",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_imulhi": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/umulhi.a.spv",
+    "b": "spv/umulhi.b.spv",
+    "la": "spv/umulhi.la.spv",
+    "lb": "spv/umulhi.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udiv",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udiv.a.spv",
+    "b": "spv/udiv.b.spv",
+    "la": "spv/udiv.la.spv",
+    "lb": "spv/udiv.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "umod",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/umod.a.spv",
+    "b": "spv/umod.b.spv",
+    "la": "spv/umod.la.spv",
+    "lb": "spv/umod.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sdiv",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "int",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sdiv.a.spv",
+    "b": "spv/sdiv.b.spv",
+    "la": "spv/sdiv.la.spv",
+    "lb": "spv/sdiv.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udiv_const",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udiv_const.a.spv",
+    "b": "spv/udiv_const.b.spv",
+    "la": "spv/udiv_const.la.spv",
+    "lb": "spv/udiv_const.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "umod_const",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/umod_const.a.spv",
+    "b": "spv/umod_const.b.spv",
+    "la": "spv/umod_const.la.spv",
+    "lb": "spv/umod_const.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sdiv_const",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "int",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sdiv_const.a.spv",
+    "b": "spv/sdiv_const.b.spv",
+    "la": "spv/sdiv_const.la.spv",
+    "lb": "spv/sdiv_const.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udiv_pow2",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "a shift; ucas prices it as idivk",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udiv_pow2.a.spv",
+    "b": "spv/udiv_pow2.b.spv",
+    "la": "spv/udiv_pow2.la.spv",
+    "lb": "spv/udiv_pow2.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "cmp_select",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/cmp_select.a.spv",
+    "b": "spv/cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "select",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "select": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "predicates computed before the loop",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/select.a.spv",
+    "b": "spv/select.b.spv"
+   }
+  },
+  {
+   "name": "cmp_select_eq",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/cmp_select_eq.a.spv",
+    "b": "spv/cmp_select_eq.b.spv"
+   }
+  },
+  {
+   "name": "umin_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/umin_add.a.spv",
+    "b": "spv/umin_add.b.spv",
+    "la": "spv/umin_add.la.spv",
+    "lb": "spv/umin_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "smax_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "int",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/smax_add.a.spv",
+    "b": "spv/smax_add.b.spv",
+    "la": "spv/smax_add.la.spv",
+    "lb": "spv/smax_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "uclamp_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 2,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "ucas: a clamp is a min and a max",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/uclamp_add.a.spv",
+    "b": "spv/uclamp_add.b.spv"
+   }
+  },
+  {
+   "name": "bitcount",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/bitcount.a.spv",
+    "b": "spv/bitcount.b.spv",
+    "la": "spv/bitcount.la.spv",
+    "lb": "spv/bitcount.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "findmsb",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/findmsb.a.spv",
+    "b": "spv/findmsb.b.spv",
+    "la": "spv/findmsb.la.spv",
+    "lb": "spv/findmsb.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "findlsb",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/findlsb.a.spv",
+    "b": "spv/findlsb.b.spv",
+    "la": "spv/findlsb.la.spv",
+    "lb": "spv/findlsb.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "bitreverse",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/bitreverse.a.spv",
+    "b": "spv/bitreverse.b.spv",
+    "la": "spv/bitreverse.la.spv",
+    "lb": "spv/bitreverse.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "bfe",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ucas prices OpBitField* as a shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/bfe.a.spv",
+    "b": "spv/bfe.b.spv",
+    "la": "spv/bfe.la.spv",
+    "lb": "spv/bfe.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "bfi",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/bfi.a.spv",
+    "b": "spv/bfi.b.spv",
+    "la": "spv/bfi.la.spv",
+    "lb": "spv/bfi.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "f2u2f",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/f2u2f.a.spv",
+    "b": "spv/f2u2f.b.spv",
+    "la": "spv/f2u2f.la.spv",
+    "lb": "spv/f2u2f.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "i2f_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/i2f_add.a.spv",
+    "b": "spv/i2f_add.b.spv",
+    "la": "spv/i2f_add.la.spv",
+    "lb": "spv/i2f_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "floor_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 1,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "ucas prices floor/ceil/fract/round as conv",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/floor_add.a.spv",
+    "b": "spv/floor_add.b.spv",
+    "la": "spv/floor_add.la.spv",
+    "lb": "spv/floor_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fract_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 1,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fract_add.a.spv",
+    "b": "spv/fract_add.b.spv",
+    "la": "spv/fract_add.la.spv",
+    "lb": "spv/fract_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "round_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 1,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/round_add.a.spv",
+    "b": "spv/round_add.b.spv",
+    "la": "spv/round_add.la.spv",
+    "lb": "spv/round_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "f16_roundtrip",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 2,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "f32->f16->f32: the driver drops the round trip; shaderFloat16 is false, only conversions",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/f16_roundtrip.a.spv",
+    "b": "spv/f16_roundtrip.b.spv",
+    "la": "spv/f16_roundtrip.la.spv",
+    "lb": "spv/f16_roundtrip.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "f16_pack_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 3,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 11,
+   "note": "two F2F to f16 and a pack, an integer add on the halves, one F2F back",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/f16_pack_add.a.spv",
+    "b": "spv/f16_pack_add.b.spv",
+    "la": "spv/f16_pack_add.la.spv",
+    "lb": "spv/f16_pack_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "f32_f64_roundtrip",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "conv": 3,
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 3,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/f32_f64_roundtrip.a.spv",
+    "b": "spv/f32_f64_roundtrip.b.spv",
+    "la": "spv/f32_f64_roundtrip.la.spv",
+    "lb": "spv/f32_f64_roundtrip.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "bitcast",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "bitcast": 3,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/bitcast.a.spv",
+    "b": "spv/bitcast.b.spv",
+    "la": "spv/bitcast.la.spv",
+    "lb": "spv/bitcast.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "u16_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "u16",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "shaderInt16: no 16-bit ALU on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/u16_add.a.spv",
+    "b": "spv/u16_add.b.spv",
+    "la": "spv/u16_add.la.spv",
+    "lb": "spv/u16_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "u8_mul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "imul": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "u8",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/u8_mul.a.spv",
+    "b": "spv/u8_mul.b.spv",
+    "la": "spv/u8_mul.la.spv",
+    "lb": "spv/u8_mul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fadd",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "the reference: every cost is a ratio to it",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fadd.a.spv",
+    "b": "spv/fadd.b.spv",
+    "la": "spv/fadd.la.spv",
+    "lb": "spv/fadd.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fmul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fmul.a.spv",
+    "b": "spv/fmul.b.spv",
+    "la": "spv/fmul.la.spv",
+    "lb": "spv/fmul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "ffma",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/ffma.a.spv",
+    "b": "spv/ffma.b.spv"
+   }
+  },
+  {
+   "name": "fmad_contract",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "no NoContraction: the driver may fuse into FFMA",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fmad_contract.a.spv",
+    "b": "spv/fmad_contract.b.spv"
+   }
+  },
+  {
+   "name": "fmad_precise",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "precise: NoContraction, a separate FMUL and FADD",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fmad_precise.a.spv",
+    "b": "spv/fmad_precise.b.spv"
+   }
+  },
+  {
+   "name": "fneg_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fadd": 2
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "a negation is a free source modifier",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fneg_add.a.spv",
+    "b": "spv/fneg_add.b.spv"
+   }
+  },
+  {
+   "name": "fabs_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "abs is a free source modifier",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fabs_add.a.spv",
+    "b": "spv/fabs_add.b.spv",
+    "la": "spv/fabs_add.la.spv",
+    "lb": "spv/fabs_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fmin_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fmin_add.a.spv",
+    "b": "spv/fmin_add.b.spv",
+    "la": "spv/fmin_add.la.spv",
+    "lb": "spv/fmin_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fclamp_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "minmax": 2,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fclamp_add.a.spv",
+    "b": "spv/fclamp_add.b.spv"
+   }
+  },
+  {
+   "name": "fcmp_select",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "sm_61 FCMP compares and selects in one",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fcmp_select.a.spv",
+    "b": "spv/fcmp_select.b.spv"
+   }
+  },
+  {
+   "name": "fmix",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "ucas prices FMix as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fmix.a.spv",
+    "b": "spv/fmix.b.spv"
+   }
+  },
+  {
+   "name": "length3",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fmul": 3
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ucas prices Length as 3 fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/length3.a.spv",
+    "b": "spv/length3.b.spv",
+    "la": "spv/length3.la.spv",
+    "lb": "spv/length3.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fdiv",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 13,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fdiv.a.spv",
+    "b": "spv/fdiv.b.spv",
+    "la": "spv/fdiv.la.spv",
+    "lb": "spv/fdiv.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "frcp",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 13,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frcp.a.spv",
+    "b": "spv/frcp.b.spv",
+    "la": "spv/frcp.la.spv",
+    "lb": "spv/frcp.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fdiv_const",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 13,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fdiv_const.a.spv",
+    "b": "spv/fdiv_const.b.spv",
+    "la": "spv/fdiv_const.la.spv",
+    "lb": "spv/fdiv_const.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "fsqrt",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/fsqrt.a.spv",
+    "b": "spv/fsqrt.b.spv",
+    "la": "spv/fsqrt.la.spv",
+    "lb": "spv/fsqrt.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "frsqrt",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frsqrt.a.spv",
+    "b": "spv/frsqrt.b.spv",
+    "la": "spv/frsqrt.la.spv",
+    "lb": "spv/frsqrt.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "exp2",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/exp2.a.spv",
+    "b": "spv/exp2.b.spv",
+    "la": "spv/exp2.la.spv",
+    "lb": "spv/exp2.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "log2",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/log2.a.spv",
+    "b": "spv/log2.b.spv",
+    "la": "spv/log2.la.spv",
+    "lb": "spv/log2.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "exp",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/exp.a.spv",
+    "b": "spv/exp.b.spv",
+    "la": "spv/exp.la.spv",
+    "lb": "spv/exp.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "log",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/log.a.spv",
+    "b": "spv/log.b.spv",
+    "la": "spv/log.la.spv",
+    "lb": "spv/log.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sin",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sin.a.spv",
+    "b": "spv/sin.b.spv",
+    "la": "spv/sin.la.spv",
+    "lb": "spv/sin.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "cos",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/cos.a.spv",
+    "b": "spv/cos.b.spv",
+    "la": "spv/cos.la.spv",
+    "lb": "spv/cos.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "tan",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 2,
+    "fdiv": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 8,
+   "note": "ucas: 2 SFU and a divide",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/tan.a.spv",
+    "b": "spv/tan.b.spv",
+    "la": "spv/tan.la.spv",
+    "lb": "spv/tan.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "asin",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4,
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 8,
+   "note": "ucas: a library call, 4 ftrans",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/asin.a.spv",
+    "b": "spv/asin.b.spv",
+    "la": "spv/asin.la.spv",
+    "lb": "spv/asin.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "acos",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4,
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 8,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/acos.a.spv",
+    "b": "spv/acos.b.spv",
+    "la": "spv/acos.la.spv",
+    "lb": "spv/acos.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "atan",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atan.a.spv",
+    "b": "spv/atan.b.spv",
+    "la": "spv/atan.la.spv",
+    "lb": "spv/atan.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "atan2",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atan2.a.spv",
+    "b": "spv/atan2.b.spv",
+    "la": "spv/atan2.la.spv",
+    "lb": "spv/atan2.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sinh",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sinh.a.spv",
+    "b": "spv/sinh.b.spv",
+    "la": "spv/sinh.la.spv",
+    "lb": "spv/sinh.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "tanh",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "ftrans": 4
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/tanh.a.spv",
+    "b": "spv/tanh.b.spv",
+    "la": "spv/tanh.la.spv",
+    "lb": "spv/tanh.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "pow",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "fpow": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/pow.a.spv",
+    "b": "spv/pow.b.spv",
+    "la": "spv/pow.la.spv",
+    "lb": "spv/pow.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "dadd",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "f64": 1
+   },
+   "fit": true,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/dadd.a.spv",
+    "b": "spv/dadd.b.spv",
+    "la": "spv/dadd.la.spv",
+    "lb": "spv/dadd.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "dmul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/dmul.a.spv",
+    "b": "spv/dmul.b.spv",
+    "la": "spv/dmul.la.spv",
+    "lb": "spv/dmul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "dfma",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/dfma.a.spv",
+    "b": "spv/dfma.b.spv"
+   }
+  },
+  {
+   "name": "ddiv",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_f64div": 1,
+    "f64": 1
+   },
+   "fit": true,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 3,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/ddiv.a.spv",
+    "b": "spv/ddiv.b.spv",
+    "la": "spv/ddiv.la.spv",
+    "lb": "spv/ddiv.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "dsqrt",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_f64sqrt": 1
+   },
+   "fit": true,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/dsqrt.a.spv",
+    "b": "spv/dsqrt.b.spv",
+    "la": "spv/dsqrt.la.spv",
+    "lb": "spv/dsqrt.lb.spv"
+   },
+   "latency": {
+    "chains": 1,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "u64_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_i64add": 1
+   },
+   "fit": true,
+   "ty": "u64",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/u64_add.a.spv",
+    "b": "spv/u64_add.b.spv",
+    "la": "spv/u64_add.la.spv",
+    "lb": "spv/u64_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "u64_mul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_i64mul": 1
+   },
+   "fit": true,
+   "ty": "u64",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/u64_mul.a.spv",
+    "b": "spv/u64_mul.b.spv",
+    "la": "spv/u64_mul.la.spv",
+    "lb": "spv/u64_mul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "u64_shl",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_i64shl": 1,
+    "x_i64and": 1
+   },
+   "fit": false,
+   "ty": "u64",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/u64_shl.a.spv",
+    "b": "spv/u64_shl.b.spv",
+    "la": "spv/u64_shl.la.spv",
+    "lb": "spv/u64_shl.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udot4x8",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udot4x8.a.spv",
+    "b": "spv/udot4x8.b.spv",
+    "la": "spv/udot4x8.la.spv",
+    "lb": "spv/udot4x8.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sdot4x8",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sdot4x8.a.spv",
+    "b": "spv/sdot4x8.b.spv",
+    "la": "spv/sdot4x8.la.spv",
+    "lb": "spv/sdot4x8.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udot4x8sat",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_dp4a": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udot4x8sat.a.spv",
+    "b": "spv/udot4x8sat.b.spv",
+    "la": "spv/udot4x8sat.la.spv",
+    "lb": "spv/udot4x8sat.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "udot4x8_emul",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "shift": 8,
+    "imul": 4,
+    "iadd": 4
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "the same dot product without DP4A, as ucas prices it",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/udot4x8_emul.a.spv",
+    "b": "spv/udot4x8_emul.b.spv",
+    "la": "spv/udot4x8_emul.la.spv",
+    "lb": "spv/udot4x8_emul.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_add.a.spv",
+    "b": "spv/sg_add.b.spv",
+    "la": "spv/sg_add.la.spv",
+    "lb": "spv/sg_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_inclusive_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_sg_scan": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_inclusive_add.a.spv",
+    "b": "spv/sg_inclusive_add.b.spv",
+    "la": "spv/sg_inclusive_add.la.spv",
+    "lb": "spv/sg_inclusive_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_clustered_add4",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_sg_cluster4": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_clustered_add4.a.spv",
+    "b": "spv/sg_clustered_add4.b.spv",
+    "la": "spv/sg_clustered_add4.la.spv",
+    "lb": "spv/sg_clustered_add4.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_shuffle",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_shuffle.a.spv",
+    "b": "spv/sg_shuffle.b.spv",
+    "la": "spv/sg_shuffle.la.spv",
+    "lb": "spv/sg_shuffle.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_shuffle_xor",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_shuffle_xor.a.spv",
+    "b": "spv/sg_shuffle_xor.b.spv",
+    "la": "spv/sg_shuffle_xor.la.spv",
+    "lb": "spv/sg_shuffle_xor.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_broadcast",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_broadcast.a.spv",
+    "b": "spv/sg_broadcast.b.spv",
+    "la": "spv/sg_broadcast.la.spv",
+    "lb": "spv/sg_broadcast.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_broadcast_first",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_broadcast_first.a.spv",
+    "b": "spv/sg_broadcast_first.b.spv",
+    "la": "spv/sg_broadcast_first.la.spv",
+    "lb": "spv/sg_broadcast_first.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_quad_swap",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_quad_swap.a.spv",
+    "b": "spv/sg_quad_swap.b.spv",
+    "la": "spv/sg_quad_swap.la.spv",
+    "lb": "spv/sg_quad_swap.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_ballot",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_ballot": 1,
+    "logic": 1,
+    "cmp": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_ballot.a.spv",
+    "b": "spv/sg_ballot.b.spv",
+    "la": "spv/sg_ballot.la.spv",
+    "lb": "spv/sg_ballot.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_any",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_vote": 1,
+    "logic": 1,
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_any.a.spv",
+    "b": "spv/sg_any.b.spv"
+   }
+  },
+  {
+   "name": "sg_rotate",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_shfl": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_rotate.a.spv",
+    "b": "spv/sg_rotate.b.spv",
+    "la": "spv/sg_rotate.la.spv",
+    "lb": "spv/sg_rotate.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_partition",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_match": 1,
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "NV: MATCH.ANY",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_partition.a.spv",
+    "b": "spv/sg_partition.b.spv",
+    "la": "spv/sg_partition.la.spv",
+    "lb": "spv/sg_partition.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "sg_partitioned_add",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_part_reduce": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "NV: a reduction within each partition",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/sg_partitioned_add.a.spv",
+    "b": "spv/sg_partitioned_add.b.spv",
+    "la": "spv/sg_partitioned_add.la.spv",
+    "lb": "spv/sg_partitioned_add.lb.spv"
+   },
+   "latency": {
+    "chains": 2,
+    "unroll": [
+     32,
+     64
+    ],
+    "iters": 64
+   }
+  },
+  {
+   "name": "clock_read",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_clock": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/clock_read.a.spv",
+    "b": "spv/clock_read.b.spv"
+   }
+  },
+  {
+   "name": "clock_realtime_read",
+   "kind": "alu",
+   "base": null,
+   "ops": {
+    "x_rtclock": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/clock_realtime_read.a.spv",
+    "b": "spv/clock_realtime_read.b.spv"
+   }
+  },
+  {
+   "name": "load_dram",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_dram": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "coalesced, 16 MiB working set (L2 is 512 KiB): DRAM bound",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_dram.a.spv",
+    "b": "spv/load_dram.b.spv"
+   }
+  },
+  {
+   "name": "load_l2",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "load": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "256 KiB working set, coalesced: the ucas load (an instruction, not a bandwidth)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_l2.a.spv",
+    "b": "spv/load_l2.b.spv"
+   }
+  },
+  {
+   "name": "load_bcast",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_bcast": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "every lane the same address",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_bcast.a.spv",
+    "b": "spv/load_bcast.b.spv"
+   }
+  },
+  {
+   "name": "load_ubo",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_ubo": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "uniform address: the constant cache",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_ubo.a.spv",
+    "b": "spv/load_ubo.b.spv"
+   }
+  },
+  {
+   "name": "load_ubo_divergent",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_ubo_div": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "a different address in each lane: the constant cache serialises",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_ubo_divergent.a.spv",
+    "b": "spv/load_ubo_divergent.b.spv"
+   }
+  },
+  {
+   "name": "load_shared",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_shared.a.spv",
+    "b": "spv/load_shared.b.spv"
+   }
+  },
+  {
+   "name": "load_shared_conflict",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_load_shared_conflict": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "32 lanes on one bank: 32-way conflict",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/load_shared_conflict.a.spv",
+    "b": "spv/load_shared_conflict.b.spv"
+   }
+  },
+  {
+   "name": "store_dram",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_store_dram": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "coalesced, 16 MiB: DRAM bound",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/store_dram.a.spv",
+    "b": "spv/store_dram.b.spv"
+   }
+  },
+  {
+   "name": "store_l2",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "store": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "coalesced, 256 KiB: the ucas store",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/store_l2.a.spv",
+    "b": "spv/store_l2.b.spv"
+   }
+  },
+  {
+   "name": "store_shared",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_store_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/store_shared.a.spv",
+    "b": "spv/store_shared.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_dram",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_global_dram": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "distinct addresses over 16 MiB, value returned",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_dram.a.spv",
+    "b": "spv/atomic_global_dram.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "atomic_global": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "distinct addresses over 256 KiB (L2 atomics), value returned: the ucas atomic_global",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global.a.spv",
+    "b": "spv/atomic_global.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_red",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_red_global": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "value unused: RED",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_red.a.spv",
+    "b": "spv/atomic_global_red.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_same",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_global_same": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "every lane of every warp on one address per step",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_same.a.spv",
+    "b": "spv/atomic_global_same.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_cas",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_cas_global": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_cas.a.spv",
+    "b": "spv/atomic_global_cas.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_f32",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_global_f32": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "",
+   "vkext": [
+    "VK_EXT_shader_atomic_float"
+   ],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_f32.a.spv",
+    "b": "spv/atomic_global_f32.b.spv"
+   }
+  },
+  {
+   "name": "atomic_global_u64",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_global_u64": 1,
+    "x_i64add": 1
+   },
+   "fit": true,
+   "ty": "u64",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_global_u64.a.spv",
+    "b": "spv/atomic_global_u64.b.spv"
+   }
+  },
+  {
+   "name": "atomic_shared",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "atomic_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "distinct addresses",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_shared.a.spv",
+    "b": "spv/atomic_shared.b.spv"
+   }
+  },
+  {
+   "name": "atomic_shared_same",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_shared_same": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "every lane on one address",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_shared_same.a.spv",
+    "b": "spv/atomic_shared_same.b.spv"
+   }
+  },
+  {
+   "name": "atomic_shared_f32",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_atomic_shared_f32": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "no native shared float add on sm_61: a CAS loop",
+   "vkext": [
+    "VK_EXT_shader_atomic_float"
+   ],
+   "args": [],
+   "files": {
+    "a": "spv/atomic_shared_f32.a.spv",
+    "b": "spv/atomic_shared_f32.b.spv"
+   }
+  },
+  {
+   "name": "barrier",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "barrier": 2,
+    "x_store_shared": 1,
+    "x_load_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 19,
+   "note": "a store, a barrier, a load from the neighbour, a barrier (128 invocations)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/barrier.a.spv",
+    "b": "spv/barrier.b.spv"
+   }
+  },
+  {
+   "name": "barrier_wg1024",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_barrier1024": 2,
+    "x_store_shared": 1,
+    "x_load_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 34,
+   "note": "the same with 1024 invocations: 32 warps meet",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/barrier_wg1024.a.spv",
+    "b": "spv/barrier_wg1024.b.spv"
+   }
+  },
+  {
+   "name": "subgroup_barrier",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_sg_barrier": 2,
+    "x_store_shared": 1,
+    "x_load_shared": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 34,
+   "note": "the neighbour is in the same warp",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/subgroup_barrier.a.spv",
+    "b": "spv/subgroup_barrier.b.spv"
+   }
+  },
+  {
+   "name": "tex_fetch",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_tex_fetch": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "rgba8 1024x1024, nearest, one texel a lane in a row",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.5=format=rgba8_unorm,size=1024x1024,pattern=noise,filter=nearest"
+   ],
+   "files": {
+    "a": "spv/tex_fetch.a.spv",
+    "b": "spv/tex_fetch.b.spv"
+   }
+  },
+  {
+   "name": "tex_bilinear",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_tex_bilinear": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "rgba8, bilinear, explicit LOD",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.5=format=rgba8_unorm,size=1024x1024,pattern=noise,filter=linear"
+   ],
+   "files": {
+    "a": "spv/tex_bilinear.a.spv",
+    "b": "spv/tex_bilinear.b.spv"
+   }
+  },
+  {
+   "name": "tex_bilinear_rgba32f",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_tex_bilinear_rgba32f": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "rgba32f, bilinear: four times the texel bytes",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.5=format=rgba32_sfloat,size=1024x1024,pattern=noise,filter=linear"
+   ],
+   "files": {
+    "a": "spv/tex_bilinear_rgba32f.a.spv",
+    "b": "spv/tex_bilinear_rgba32f.b.spv"
+   }
+  },
+  {
+   "name": "image_load",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_image_load": 1,
+    "iadd": 1
+   },
+   "fit": true,
+   "ty": "uint",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.6=format=r32_uint,size=1024x1024,pattern=noise"
+   ],
+   "files": {
+    "a": "spv/image_load.a.spv",
+    "b": "spv/image_load.b.spv"
+   }
+  },
+  {
+   "name": "branch_uniform_m2",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "fmul": 2,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 158,
+   "note": "the warp takes one arm of 2 FFMAs",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_uniform_m2.a.spv",
+    "b": "spv/branch_uniform_m2.b.spv"
+   }
+  },
+  {
+   "name": "branch_divergent_m2",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "diverge": 1,
+    "fmul": 4,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 74,
+   "note": "lanes split: the warp runs both arms of 2 FFMAs (keep-up)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_divergent_m2.a.spv",
+    "b": "spv/branch_divergent_m2.b.spv"
+   }
+  },
+  {
+   "name": "branch_uniform_m8",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "fmul": 8,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 85,
+   "note": "the warp takes one arm of 8 FFMAs",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_uniform_m8.a.spv",
+    "b": "spv/branch_uniform_m8.b.spv"
+   }
+  },
+  {
+   "name": "branch_divergent_m8",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "diverge": 1,
+    "fmul": 16,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 41,
+   "note": "lanes split: the warp runs both arms of 8 FFMAs (keep-up)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_divergent_m8.a.spv",
+    "b": "spv/branch_divergent_m8.b.spv"
+   }
+  },
+  {
+   "name": "branch_uniform_m32",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "fmul": 32,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 30,
+   "note": "the warp takes one arm of 32 FFMAs",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_uniform_m32.a.spv",
+    "b": "spv/branch_uniform_m32.b.spv"
+   }
+  },
+  {
+   "name": "branch_divergent_m32",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "diverge": 1,
+    "fmul": 64,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "lanes split: the warp runs both arms of 32 FFMAs (keep-up)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_divergent_m32.a.spv",
+    "b": "spv/branch_divergent_m32.b.spv"
+   }
+  },
+  {
+   "name": "branch_flatten_m2",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "select": 1,
+    "fmul": 4,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "the divergent branch flattened: both arms and a select",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_flatten_m2.a.spv",
+    "b": "spv/branch_flatten_m2.b.spv"
+   }
+  },
+  {
+   "name": "branch_flatten_m8",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "select": 1,
+    "fmul": 16,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 55,
+   "note": "the divergent branch flattened: both arms and a select",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_flatten_m8.a.spv",
+    "b": "spv/branch_flatten_m8.b.spv"
+   }
+  },
+  {
+   "name": "branch_expect_m8",
+   "kind": "branch",
+   "base": null,
+   "ops": {
+    "branch": 1,
+    "fmul": 8,
+    "logic": 1,
+    "cmp": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 85,
+   "note": "KHR_shader_expect_assume hint on a uniform branch",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/branch_expect_m8.a.spv",
+    "b": "spv/branch_expect_m8.b.spv"
+   }
+  },
+  {
+   "name": "vert_fadd",
+   "kind": "vert",
+   "base": "fadd",
+   "ops": {
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "the reference: every cost is a ratio to it (this stage)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fadd.a.spv",
+    "b": "spv/vert_fadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_fmul",
+   "kind": "vert",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fmul.a.spv",
+    "b": "spv/vert_fmul.b.spv"
+   }
+  },
+  {
+   "name": "vert_ffma",
+   "kind": "vert",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_ffma.a.spv",
+    "b": "spv/vert_ffma.b.spv"
+   }
+  },
+  {
+   "name": "vert_iadd",
+   "kind": "vert",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_iadd.a.spv",
+    "b": "spv/vert_iadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_xor_add",
+   "kind": "vert",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_xor_add.a.spv",
+    "b": "spv/vert_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_shl_var",
+   "kind": "vert",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_shl_var.a.spv",
+    "b": "spv/vert_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "vert_imul",
+   "kind": "vert",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_imul.a.spv",
+    "b": "spv/vert_imul.b.spv"
+   }
+  },
+  {
+   "name": "vert_udiv",
+   "kind": "vert",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udiv.a.spv",
+    "b": "spv/vert_udiv.b.spv"
+   }
+  },
+  {
+   "name": "vert_udiv_const",
+   "kind": "vert",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 8,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udiv_const.a.spv",
+    "b": "spv/vert_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "vert_cmp_select",
+   "kind": "vert",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_cmp_select.a.spv",
+    "b": "spv/vert_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "vert_umin_add",
+   "kind": "vert",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_umin_add.a.spv",
+    "b": "spv/vert_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_bitcount",
+   "kind": "vert",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 9,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_bitcount.a.spv",
+    "b": "spv/vert_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "vert_f2u2f",
+   "kind": "vert",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_f2u2f.a.spv",
+    "b": "spv/vert_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "vert_fdiv",
+   "kind": "vert",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fdiv.a.spv",
+    "b": "spv/vert_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "vert_fsqrt",
+   "kind": "vert",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fsqrt.a.spv",
+    "b": "spv/vert_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "vert_exp2",
+   "kind": "vert",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_exp2.a.spv",
+    "b": "spv/vert_exp2.b.spv"
+   }
+  },
+  {
+   "name": "vert_sin",
+   "kind": "vert",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sin.a.spv",
+    "b": "spv/vert_sin.b.spv"
+   }
+  },
+  {
+   "name": "vert_pow",
+   "kind": "vert",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_pow.a.spv",
+    "b": "spv/vert_pow.b.spv"
+   }
+  },
+  {
+   "name": "vert_dadd",
+   "kind": "vert",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_dadd.a.spv",
+    "b": "spv/vert_dadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_udot4x8",
+   "kind": "vert",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udot4x8.a.spv",
+    "b": "spv/vert_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "vert_sg_add",
+   "kind": "vert",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sg_add.a.spv",
+    "b": "spv/vert_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_sg_shuffle",
+   "kind": "vert",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sg_shuffle.a.spv",
+    "b": "spv/vert_sg_shuffle.b.spv"
+   }
+  },
+  {
+   "name": "geom_fadd",
+   "kind": "geom",
+   "base": "fadd",
+   "ops": {
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "the reference: every cost is a ratio to it (this stage)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fadd.a.spv",
+    "b": "spv/geom_fadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_fmul",
+   "kind": "geom",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fmul.a.spv",
+    "b": "spv/geom_fmul.b.spv"
+   }
+  },
+  {
+   "name": "geom_ffma",
+   "kind": "geom",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_ffma.a.spv",
+    "b": "spv/geom_ffma.b.spv"
+   }
+  },
+  {
+   "name": "geom_iadd",
+   "kind": "geom",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_iadd.a.spv",
+    "b": "spv/geom_iadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_xor_add",
+   "kind": "geom",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_xor_add.a.spv",
+    "b": "spv/geom_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_shl_var",
+   "kind": "geom",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_shl_var.a.spv",
+    "b": "spv/geom_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "geom_imul",
+   "kind": "geom",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_imul.a.spv",
+    "b": "spv/geom_imul.b.spv"
+   }
+  },
+  {
+   "name": "geom_udiv",
+   "kind": "geom",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udiv.a.spv",
+    "b": "spv/geom_udiv.b.spv"
+   }
+  },
+  {
+   "name": "geom_udiv_const",
+   "kind": "geom",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udiv_const.a.spv",
+    "b": "spv/geom_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "geom_cmp_select",
+   "kind": "geom",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_cmp_select.a.spv",
+    "b": "spv/geom_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "geom_umin_add",
+   "kind": "geom",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_umin_add.a.spv",
+    "b": "spv/geom_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_bitcount",
+   "kind": "geom",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_bitcount.a.spv",
+    "b": "spv/geom_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "geom_f2u2f",
+   "kind": "geom",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_f2u2f.a.spv",
+    "b": "spv/geom_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "geom_fdiv",
+   "kind": "geom",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 13,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fdiv.a.spv",
+    "b": "spv/geom_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "geom_fsqrt",
+   "kind": "geom",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fsqrt.a.spv",
+    "b": "spv/geom_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "geom_exp2",
+   "kind": "geom",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_exp2.a.spv",
+    "b": "spv/geom_exp2.b.spv"
+   }
+  },
+  {
+   "name": "geom_sin",
+   "kind": "geom",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sin.a.spv",
+    "b": "spv/geom_sin.b.spv"
+   }
+  },
+  {
+   "name": "geom_pow",
+   "kind": "geom",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_pow.a.spv",
+    "b": "spv/geom_pow.b.spv"
+   }
+  },
+  {
+   "name": "geom_dadd",
+   "kind": "geom",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_dadd.a.spv",
+    "b": "spv/geom_dadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_udot4x8",
+   "kind": "geom",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udot4x8.a.spv",
+    "b": "spv/geom_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "geom_sg_add",
+   "kind": "geom",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sg_add.a.spv",
+    "b": "spv/geom_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_sg_shuffle",
+   "kind": "geom",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sg_shuffle.a.spv",
+    "b": "spv/geom_sg_shuffle.b.spv"
+   }
+  },
+  {
+   "name": "frag_fadd",
+   "kind": "frag",
+   "base": "fadd",
+   "ops": {
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "the reference: every cost is a ratio to it (this stage)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fadd.a.spv",
+    "b": "spv/frag_fadd.b.spv"
+   }
+  },
+  {
+   "name": "frag_fmul",
+   "kind": "frag",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fmul.a.spv",
+    "b": "spv/frag_fmul.b.spv"
+   }
+  },
+  {
+   "name": "frag_ffma",
+   "kind": "frag",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_ffma.a.spv",
+    "b": "spv/frag_ffma.b.spv"
+   }
+  },
+  {
+   "name": "frag_iadd",
+   "kind": "frag",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_iadd.a.spv",
+    "b": "spv/frag_iadd.b.spv"
+   }
+  },
+  {
+   "name": "frag_xor_add",
+   "kind": "frag",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_xor_add.a.spv",
+    "b": "spv/frag_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_shl_var",
+   "kind": "frag",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_shl_var.a.spv",
+    "b": "spv/frag_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "frag_imul",
+   "kind": "frag",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_imul.a.spv",
+    "b": "spv/frag_imul.b.spv"
+   }
+  },
+  {
+   "name": "frag_udiv",
+   "kind": "frag",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udiv.a.spv",
+    "b": "spv/frag_udiv.b.spv"
+   }
+  },
+  {
+   "name": "frag_udiv_const",
+   "kind": "frag",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udiv_const.a.spv",
+    "b": "spv/frag_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "frag_cmp_select",
+   "kind": "frag",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_cmp_select.a.spv",
+    "b": "spv/frag_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "frag_umin_add",
+   "kind": "frag",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_umin_add.a.spv",
+    "b": "spv/frag_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_bitcount",
+   "kind": "frag",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_bitcount.a.spv",
+    "b": "spv/frag_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "frag_f2u2f",
+   "kind": "frag",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_f2u2f.a.spv",
+    "b": "spv/frag_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "frag_fdiv",
+   "kind": "frag",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fdiv.a.spv",
+    "b": "spv/frag_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "frag_fsqrt",
+   "kind": "frag",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fsqrt.a.spv",
+    "b": "spv/frag_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "frag_exp2",
+   "kind": "frag",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_exp2.a.spv",
+    "b": "spv/frag_exp2.b.spv"
+   }
+  },
+  {
+   "name": "frag_sin",
+   "kind": "frag",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sin.a.spv",
+    "b": "spv/frag_sin.b.spv"
+   }
+  },
+  {
+   "name": "frag_pow",
+   "kind": "frag",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_pow.a.spv",
+    "b": "spv/frag_pow.b.spv"
+   }
+  },
+  {
+   "name": "frag_dadd",
+   "kind": "frag",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_dadd.a.spv",
+    "b": "spv/frag_dadd.b.spv"
+   }
+  },
+  {
+   "name": "frag_udot4x8",
+   "kind": "frag",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udot4x8.a.spv",
+    "b": "spv/frag_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "frag_sg_add",
+   "kind": "frag",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sg_add.a.spv",
+    "b": "spv/frag_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_sg_shuffle",
+   "kind": "frag",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sg_shuffle.a.spv",
+    "b": "spv/frag_sg_shuffle.b.spv"
+   }
+  },
+  {
+   "name": "frag_dfdx",
+   "kind": "frag",
+   "base": null,
+   "ops": {
+    "x_deriv": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 4,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "a quad shuffle and a subtract",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_dfdx.a.spv",
+    "b": "spv/frag_dfdx.b.spv"
+   }
+  },
+  {
+   "name": "frag_dfdy_fine",
+   "kind": "frag",
+   "base": null,
+   "ops": {
+    "x_deriv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 4,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_dfdy_fine.a.spv",
+    "b": "spv/frag_dfdy_fine.b.spv"
+   }
+  },
+  {
+   "name": "frag_fwidth",
+   "kind": "frag",
+   "base": null,
+   "ops": {
+    "x_deriv": 2,
+    "minmax": 2,
+    "fadd": 2
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 4,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fwidth.a.spv",
+    "b": "spv/frag_fwidth.b.spv"
+   }
+  },
+  {
+   "name": "frag_tex_implicit",
+   "kind": "frag",
+   "base": null,
+   "ops": {
+    "x_tex_implicit": 1,
+    "fmul": 1,
+    "fadd": 2
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 3,
+   "note": "implicit LOD: the derivatives come from the quad",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.5=format=rgba8_unorm,size=1024x1024,pattern=noise,filter=linear,mips=full"
+   ],
+   "files": {
+    "a": "spv/frag_tex_implicit.a.spv",
+    "b": "spv/frag_tex_implicit.b.spv"
+   }
+  }
+ ],
+ "io": [
+  {
+   "group": "vs_outputs",
+   "mode": "run",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "vec4 varyings a vertex shader writes (rasterizer discard)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_out1",
+     "file": "spv/vs_out1.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out2",
+     "file": "spv/vs_out2.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out4",
+     "file": "spv/vs_out4.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out8",
+     "file": "spv/vs_out8.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out16",
+     "file": "spv/vs_out16.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "vs_attr_count",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "rgba32_sfloat vec4 attributes a vertex reads",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_in1",
+     "file": "spv/vs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in2",
+     "file": "spv/vs_in2.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in4",
+     "file": "spv/vs_in4.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in8",
+     "file": "spv/vs_in8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "vs_attr_format",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "the format of one vec4 attribute (bytes a vertex: 16, 8, 8, 4, 4, 4, 4)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_attr_rgba32_sfloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba32_sfloat"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba16_sfloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba16_sfloat"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba16_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba16_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba8_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba8_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba8_snorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba8_snorm"
+     ]
+    },
+    {
+     "name": "vs_attr_a2bgr10_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=a2bgr10_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_b10g11r11_ufloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=b10g11r11_ufloat"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "vs_index",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "non-indexed, sequential and random u32 indices (vertex reuse)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_index_none",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "none"
+     ]
+    },
+    {
+     "name": "vs_index_seq",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "seq"
+     ]
+    },
+    {
+     "name": "vs_index_random",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "random"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "gs_amplify",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "points a geometry shader emits for each input point (one vec4 each)",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_emit1",
+     "file": "spv/gs_emit1.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit2",
+     "file": "spv/gs_emit2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4",
+     "file": "spv/gs_emit4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit8",
+     "file": "spv/gs_emit8.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit16",
+     "file": "spv/gs_emit16.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit32",
+     "file": "spv/gs_emit32.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "gs_outputs",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "vec4 outputs of each of 4 emitted points",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_emit4_out1",
+     "file": "spv/gs_emit4_out1.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out2",
+     "file": "spv/gs_emit4_out2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out4",
+     "file": "spv/gs_emit4_out4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out8",
+     "file": "spv/gs_emit4_out8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "gs_invocations",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "4 points a primitive, from 1, 2 or 4 invocations",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_inv1_emit4",
+     "file": "spv/gs_inv1_emit4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_inv2_emit2",
+     "file": "spv/gs_inv2_emit2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_inv4_emit1",
+     "file": "spv/gs_inv4_emit1.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_inputs",
+   "mode": "run",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "vec4 inputs a fragment shader interpolates",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_in1",
+     "file": "spv/fs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in2",
+     "file": "spv/fs_in2.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in4",
+     "file": "spv/fs_in4.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in8",
+     "file": "spv/fs_in8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_rt_format",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "the render target format (bytes a pixel: 4, 4, 8, 8, 16, 4, 4, 4)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_rt_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba8_srgb",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_srgb"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba16_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_r32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=r32_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_a2bgr10_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=a2bgr10_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_b10g11r11_ufloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=b10g11r11_ufloat"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_blend",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "blending on the render target",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_blend_none_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "alpha"
+     ]
+    },
+    {
+     "name": "fs_blend_add_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "add"
+     ]
+    },
+    {
+     "name": "fs_blend_none_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat",
+      "--blend",
+      "alpha"
+     ]
+    },
+    {
+     "name": "fs_blend_none_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat",
+      "--blend",
+      "alpha"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_msaa",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "samples of the render target (the shader runs once a pixel)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_msaa1",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "1"
+     ]
+    },
+    {
+     "name": "fs_msaa2",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "2"
+     ]
+    },
+    {
+     "name": "fs_msaa4",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "4"
+     ]
+    },
+    {
+     "name": "fs_msaa8",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "8"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_targets",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "rgba8_unorm render targets a fragment shader writes",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_out1",
+     "file": "spv/fs_out1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out2",
+     "file": "spv/fs_out2.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out4",
+     "file": "spv/fs_out4.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out8",
+     "file": "spv/fs_out8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_depth",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "a depth attachment, tested and written (cleared each pass)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_depth_none",
+     "file": "spv/fs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_depth_d16",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d16_unorm",
+      "--depth-test",
+      "--depth-write"
+     ]
+    },
+    {
+     "name": "fs_depth_d24s8",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d24_unorm_s8_uint",
+      "--depth-test",
+      "--depth-write"
+     ]
+    },
+    {
+     "name": "fs_depth_d32",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d32_sfloat",
+      "--depth-test",
+      "--depth-write"
+     ]
+    }
+   ]
+  }
+ ],
+ "probe": "spv/probe_sm.spv"
+}

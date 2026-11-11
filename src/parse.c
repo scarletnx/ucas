@@ -1409,6 +1409,26 @@ static const char prelude[] =
     "  fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,\n"
     "  load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,\n"
     "  atomic_shared: 6.625, atomic_global: 50, store: 15\n"
+    "}\n"
+    /*
+     * ARM Mali-G715 (Pixel 9, Tensor G4, Valhall) through SPIR-V,
+     * measured on the phone by tests/mali-g715 over adb (driver
+     * v1.r54p3): issue cost per SPIR-V operation relative to fadd, from
+     * throughput on an idle GPU.  Subgroups are 16 lanes.  The integer
+     * ALU runs at half the FP32 rate (iadd, logic, shift and minmax are
+     * 1.83, and cmp is cheaper than one add because a compare and its
+     * select share an issue), the multiply is 4x fadd, and division is
+     * emulated (by a constant: multiply-high and shifts).  fsqrt, fdiv
+     * and the SFU functions are 1/1.5 to 1/15 rate; a cache-resident
+     * load or store is 16 to 27, an atomic 118 to 147, and a taken
+     * branch with its reconvergence 23.  No f64: the GPU has no fp64.
+     */
+    "model mali_g715 {\n"
+    "  iadd: 1.87, logic: 1.83, shift: 1.87, imul: 7.57, idiv: 36.82, idivk: 18.23,\n"
+    "  cmp: 0.87, select: 1.62, minmax: 1.83, bitcnt: 5.59, conv: 1.28, bitcast: 0,\n"
+    "  fadd: 1, fmul: 1.01, fdiv: 6.17, fsqrt: 14.44, ftrans: 7.3, fpow: 14.88,\n"
+    "  load: 16.25, branch: 23.17, diverge: 14.45, barrier: 20.04,\n"
+    "  atomic_shared: 118.07, atomic_global: 146.52, store: 26.94\n"
     "}\n";
 
 static void
