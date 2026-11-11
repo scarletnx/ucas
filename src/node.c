@@ -85,6 +85,24 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_RE] = {"re", 1, OF_REALFN},
 	[O_IM] = {"im", 1, OF_REALFN},
 	[O_ARG] = {"arg", 1, OF_REALFN | OF_PARTIAL},
+	[O_UDOT4X8] = {"udot4x8", 2, OF_INT},
+	[O_SDOT4X8] = {"sdot4x8", 2, OF_INT},
+	[O_SUDOT4X8] = {"sudot4x8", 2, OF_INT},
+	[O_UDOT2X16] = {"udot2x16", 2, OF_INT},
+	[O_SDOT2X16] = {"sdot2x16", 2, OF_INT},
+	[O_SUDOT2X16] = {"sudot2x16", 2, OF_INT},
+	[O_UDOT8X4] = {"udot8x4", 2, OF_INT},
+	[O_SDOT8X4] = {"sdot8x4", 2, OF_INT},
+	[O_SUDOT8X4] = {"sudot8x4", 2, OF_INT},
+	[O_UDOT4X8S] = {"udot4x8sat", 3, OF_INT},
+	[O_SDOT4X8S] = {"sdot4x8sat", 3, OF_INT},
+	[O_SUDOT4X8S] = {"sudot4x8sat", 3, OF_INT},
+	[O_UDOT2X16S] = {"udot2x16sat", 3, OF_INT},
+	[O_SDOT2X16S] = {"sdot2x16sat", 3, OF_INT},
+	[O_SUDOT2X16S] = {"sudot2x16sat", 3, OF_INT},
+	[O_UDOT8X4S] = {"udot8x4sat", 3, OF_INT},
+	[O_SDOT8X4S] = {"sdot8x4sat", 3, OF_INT},
+	[O_SUDOT8X4S] = {"sudot8x4sat", 3, OF_INT},
 };
 
 static const char *const atomic_names[] = {
@@ -636,6 +654,8 @@ mk_bin(int op, nid a, nid b)
 	int mix = 0;
 	nid r, x;
 
+	if (IS_DOT(op))
+		return mk_dot(op, a, b, 0);
 	switch (op) {
 	case O_LAND:
 	case O_LOR:
@@ -830,6 +850,49 @@ mk_fma(nid a, nid b, nid c)
 	return node(O_FMA, t, a, b, c);
 }
 
+/*
+ * A packed dot product (dot.c): a and b are u32 words of lanes, the
+ * result is u32 (unsigned lanes) or i32; the _SAT forms add acc, of the
+ * result's type, saturating.  Constant operands fold.
+ */
+nid
+mk_dot(int op, nid a, nid b, nid acc)
+{
+	const struct dotform *df = dot_form(op);
+	ty_t t = df->sa || df->sb ? TY(K_SINT, 32) : TY(K_UINT, 32);
+	nid r;
+
+	if (!TY_ISINT(N.ty[a]) || !TY_ISINT(N.ty[b]) ||
+	    (df->sat && !TY_ISINT(N.ty[acc])))
+		fail("%s takes integer operands (packed lanes in a u32)",
+		    df->name);
+	a = mk_cast(TY(K_UINT, 32), a);
+	b = mk_cast(TY(K_UINT, 32), b);
+	acc = df->sat ? mk_cast(t, acc) : 0;
+	if (N.op[a] == O_UNDEF || N.op[b] == O_UNDEF ||
+	    (acc && N.op[acc] == O_UNDEF))
+		return mk_undef(t);
+	if (is_const(a) && is_const(b) && (!acc || is_const(acc)) &&
+	    (r = folded(op, t, a, b, acc)) != 0)
+		return r;
+	return node(op, t, a, b, acc);
+}
+
+/* any operation from its operands (the generic rebuilders) */
+nid
+mk_op(int op, nid a, nid b, nid c)
+{
+	if (IS_DOT(op))
+		return mk_dot(op, a, b, c);
+	if (op == O_SEL)
+		return mk_sel(a, b, c);
+	if (op == O_FMA)
+		return mk_fma(a, b, c);
+	if (opinfo[op].arity == 1)
+		return mk_un(op, a);
+	return mk_bin(op, a, b);
+}
+
 nid
 mk_sel(nid c, nid a, nid b)
 {
@@ -1008,7 +1071,10 @@ rebuild(nid n, const nid *map, int nmap)
 		    nmap);
 		break;
 	default:
-		if (opinfo[N.op[n]].arity == 1)
+		if (IS_DOT(N.op[n]))
+			r = mk_dot(N.op[n], rebuild(N.a[n], map, nmap),
+			    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
+		else if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], rebuild(N.a[n], map, nmap));
 		else
 			r = mk_bin(N.op[n], rebuild(N.a[n], map, nmap),
@@ -1346,6 +1412,26 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 	case O_LOOP:
 		loop_print(b, n, pc);
 		break;
+	case O_UDOT4X8: case O_SDOT4X8: case O_SUDOT4X8:
+	case O_UDOT2X16: case O_SDOT2X16: case O_SUDOT2X16:
+	case O_UDOT8X4: case O_SDOT8X4: case O_SUDOT8X4:
+	case O_UDOT4X8S: case O_SDOT4X8S: case O_SUDOT4X8S:
+	case O_UDOT2X16S: case O_SDOT2X16S: case O_SUDOT2X16S:
+	case O_UDOT8X4S: case O_SDOT8X4S: case O_SUDOT8X4S:
+		/* the words in hex, without the conversion to u32 that
+		 * reading them back inserts again */
+		sb_printf(b, "%s(", opinfo[op].name);
+		for (i = 0; i < (uint32_t)opinfo[op].arity; i++) {
+			nid x = i == 0 ? N.a[n] : i == 1 ? N.b[n] : N.c[n];
+			if (i)
+				sb_puts(b, ", ");
+			if (i < 2 && N.op[x] == O_CAST && TY_ISINT(N.ty[N.a[x]]) &&
+			    N.ty[N.a[x]] != TY_BOOL && !sh_name(pc, x))
+				x = N.a[x];
+			pr(b, x, 0, pc, i < 2);
+		}
+		sb_putc(b, ')');
+		break;
 	default:
 		s = opinfo[op].name;
 		if (c && op == O_POPCNT)
@@ -1466,12 +1552,12 @@ print_paren(struct sbuf *b, nid n)
 		return;
 	}
 	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA ||
-	    op == O_ATAN2) {
+	    op == O_ATAN2 || IS_DOT(op)) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
 		sb_puts(b, ", ");
 		print_paren(b, N.b[n]);
-		if (op == O_FMA) {
+		if (opinfo[op].arity == 3) {
 			sb_puts(b, ", ");
 			print_paren(b, N.c[n]);
 		}

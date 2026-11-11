@@ -126,8 +126,21 @@ enum {
 	O_ATANH,
 	/* hyper.c: conj(z), re(z), im(z), arg(z); on reals x, x, 0, 0 or pi */
 	O_CONJ, O_RE, O_IM, O_ARG,
+	/*
+	 * dot.c: packed integer dot products (SPV_KHR_integer_dot_product):
+	 * 4 lanes of 8 bits, 2 of 16, 8 of 4, packed in a u32; unsigned,
+	 * signed, and signed x unsigned lanes; the *SAT forms take an
+	 * accumulator and saturate (see dot.c for the exact semantics)
+	 */
+	O_UDOT4X8, O_SDOT4X8, O_SUDOT4X8, O_UDOT2X16, O_SDOT2X16, O_SUDOT2X16,
+	O_UDOT8X4, O_SDOT8X4, O_SUDOT8X4,
+	O_UDOT4X8S, O_SDOT4X8S, O_SUDOT4X8S, O_UDOT2X16S, O_SDOT2X16S,
+	O_SUDOT2X16S, O_UDOT8X4S, O_SDOT8X4S, O_SUDOT8X4S,
 	O_NOPS
 };
+#define O_DOT_FIRST O_UDOT4X8
+#define O_DOT_LAST O_SUDOT8X4S
+#define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
 #define OF_COMM 1
 #define OF_INT 2      /* integer operands only */
 #define OF_REALFN 4   /* operand promoted to real */
@@ -176,6 +189,8 @@ nid mk_index(nid tab, nid i);
 nid mk_barrier(nid a);
 nid mk_atomic(int kind, nid a, nid v);
 nid mk_fma(nid a, nid b, nid c);
+nid mk_dot(int op, nid a, nid b, nid acc);  /* dot.c; acc 0 unless _SAT */
+nid mk_op(int op, nid a, nid b, nid c);     /* any op from its operands */
 double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
 double fma16(double a, double b, double c);	/* f16 fma, correctly rounded */
 double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
@@ -268,8 +283,18 @@ enum {
 	C_FADD, C_FMUL, C_FDIV, C_FSQRT, C_FTRANS, C_FPOW, C_F64,
 	C_LOAD, C_BRANCH, C_DIVERGE, C_BARRIER, C_ATOM_SH, C_ATOM_GL,
 	C_STORE,
+	C_NBASE,
+	/*
+	 * Dot products, one class per form (u, s, su; 4x8, 2x16, 8x4; plain
+	 * and accumulate-saturate).  Unlike the classes above, a model that
+	 * does not list one cannot use it: it costs infinity (unavailable).
+	 */
+	C_DOT_FIRST = C_NBASE,
+	C_DOT_LAST = C_DOT_FIRST + 17,
 	C_NCLASS
 };
+/* the class of a dot op; IS_DOT(op) */
+#define DOT_CLASS(op) (C_DOT_FIRST + ((op) - O_DOT_FIRST))
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];
@@ -277,6 +302,8 @@ struct model {
 };
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
+int cclass_available(const struct model *m, int k);
+void model_classes_text(struct sbuf *b, const struct model *m);
 struct model *model_new(uint32_t name);
 struct model *model_active(void);
 struct model *model_nth(int i);
@@ -285,6 +312,23 @@ int cclass_find(const char *s, size_t n);
 float node_cost(const struct model *m, nid n, int *cls);
 void cmd_cost(struct func *f, struct model *m);
 void cmd_models(void);
+
+/* ---- dot.c: packed integer dot products ---- */
+struct dotform {
+	const char *name;    /* "udot4x8", "sdot2x16sat", ... */
+	uint8_t lanes, bits; /* 4 x 8, 2 x 16, 8 x 4 */
+	uint8_t sa, sb;      /* lanes of a, b signed */
+	uint8_t sat;         /* accumulates, saturating */
+};
+const struct dotform *dot_form(int op);
+int dot_op(int lanes, int bits, int sa, int sb, int sat);  /* 0: none */
+int64_t dot_scalar(int op, int ideal, int64_t a, int64_t b, int64_t acc,
+    uint8_t *fl);
+/* bounds of a dot from its operands' (a, b as u32 values; acc) */
+int dot_ival(int op, int64_t alo, int64_t ahi, int64_t blo, int64_t bhi,
+    int64_t clo, int64_t chi, int64_t *lo, int64_t *hi);
+/* find: sums of products rewritten into the active model's dot forms */
+void dot_find(const struct func *f);
 
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */

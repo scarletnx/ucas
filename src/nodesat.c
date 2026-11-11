@@ -194,6 +194,71 @@ static uint32_t blast(struct nctx *c, nid n);
 
 static uint32_t blast_loop(struct nctx *c, nid n);
 
+/*
+ * A packed dot product (dot.c): lane k of a 32-bit word is bits
+ * [k*bits, (k+1)*bits), zero- or sign-extended.  Without an accumulator
+ * the result is the sum's low 32 bits, so each product and the sum are
+ * built in 32 bits (the same circuit as a 32-bit a*b + c, which lets
+ * the AIG's hashing share it).  With one, the sum is exact in
+ * 2*bits + 4 bits, then acc is added in 64 bits and the total clamped
+ * to the result's range.
+ */
+static int
+nconst(const struct word *x)
+{
+	int i, n = 0;
+
+	for (i = 0; i < x->w; i++)
+		n += x->b[i] == L_FALSE || x->b[i] == L_TRUE;
+	return n;
+}
+
+static void
+blast_dot(int op, struct word *r, const struct word *a,
+    const struct word *b, const struct word *acc)
+{
+	const struct dotform *df = dot_form(op);
+	struct aig *g = B.g;
+	int E = acc ? 2 * df->bits + 4 : 32, k, i, sres = df->sa || df->sb;
+	struct word la, lb, sum, p, x, y;
+
+	w_const(&sum, E, 0);
+	for (k = 0; k < df->lanes; k++) {
+		la.w = lb.w = df->bits;
+		for (i = 0; i < df->bits; i++) {
+			la.b[i] = a->b[k * df->bits + i];
+			lb.b[i] = b->b[k * df->bits + i];
+		}
+		w_resize(&x, &la, E, df->sa);
+		w_resize(&y, &lb, E, df->sb);
+		/* the more constant operand first, as the node constructors
+		 * put a constant factor first: the same circuit as K * x */
+		if (nconst(&y) > nconst(&x))
+			w_mul(g, &p, &y, &x);
+		else
+			w_mul(g, &p, &x, &y);
+		w_add(g, &sum, &sum, &p);
+	}
+	if (!acc) {
+		*r = sum;
+		return;
+	}
+	{
+		struct word s64, a64, t, hi, lo;
+		lit over, under;
+		w_resize(&s64, &sum, 64, 1);
+		w_resize(&a64, acc, 64, sres);
+		w_add(g, &t, &s64, &a64);
+		w_const(&hi, 64, sres ? 0x7fffffffULL : 0xffffffffULL);
+		w_const(&lo, 64, sres ? (uint64_t)-0x80000000LL : 0);
+		over = w_slt(g, &hi, &t);
+		under = w_slt(g, &t, &lo);
+		w_mux(g, &t, over, &hi, &t);
+		w_mux(g, &t, under, &lo, &t);
+		w_resize(r, &t, 32, 0);
+	}
+}
+
 #define V(i) (&B.v[i].v)
 #define D(i) (B.v[i].d)
 
@@ -290,8 +355,19 @@ blast1(struct nctx *c, nid n)
 			a = blast(c, N.a[n]);
 		if (N.b[n])
 			b = blast(c, N.b[n]);
-		if (opinfo[op].arity >= 3 && N.c[n])
+		if (opinfo[op].arity >= 3 && N.c[n] && !IS_DOT(op))
 			unsup(opinfo[op].name);
+		if (IS_DOT(op) && N.c[n]) {
+			k = blast(c, N.c[n]);
+			d = aig_and(g, aig_and(g, D(a), D(b)), D(k));
+			blast_dot(op, &r, V(a), V(b), V(k));
+			break;
+		}
+		if (IS_DOT(op)) {
+			d = aig_and(g, D(a), D(b));
+			blast_dot(op, &r, V(a), V(b), NULL);
+			break;
+		}
 		d = a ? D(a) : L_TRUE;
 		if (opinfo[op].arity >= 2 && b)
 			d = aig_and(g, d, D(b));

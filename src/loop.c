@@ -770,6 +770,9 @@ xr1(struct xr *x, nid n)
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], xr1(x, N.a[n]));
+		else if (IS_DOT(N.op[n]))
+			r = mk_dot(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]),
+			    N.c[n] ? xr1(x, N.c[n]) : 0);
 		else
 			r = mk_bin(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]));
 	}

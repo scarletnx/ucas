@@ -1107,6 +1107,10 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 		return 0;
 	if (op == O_BARRIER || op == O_ATOMIC)
 		return 0;
+	if (IS_DOT(op)) {
+		*ri = dot_scalar(op, 0, N.ki[a], N.ki[b], c ? N.ki[c] : 0, &fl);
+		return !(fl & F_UNDEF);
+	}
 	if (op == O_FMA) {
 		if (TYK(t) == K_FLOAT && TYW(t) == 32)
 			*rr = fma32(N.kr[a], N.kr[b], N.kr[c]);
@@ -1383,6 +1387,28 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					f |= F_UNDEF;
 					orr[i] = 0;
 				}
+				of[i] = f;
+			}
+			continue;
+		}
+		case O_UDOT4X8: case O_SDOT4X8: case O_SUDOT4X8:
+		case O_UDOT2X16: case O_SDOT2X16: case O_SUDOT2X16:
+		case O_UDOT8X4: case O_SDOT8X4: case O_SUDOT8X4:
+		case O_UDOT4X8S: case O_SDOT4X8S: case O_SUDOT4X8S:
+		case O_UDOT2X16S: case O_SDOT2X16S: case O_SUDOT2X16S:
+		case O_UDOT8X4S: case O_SDOT8X4S: case O_SUDOT8X4S: {
+			const int64_t *av = COLI(p, a), *bv = COLI(p, b);
+			int sat = opinfo[op].arity == 3;
+			for (i = 0; i < np; i++) {
+				uint8_t f = (COLF(p, a)[i] | COLF(p, b)[i] |
+				    (sat ? COLF(p, c)[i] : 0)) & F_UNDEF;
+				if (f) {
+					o[i] = 0;
+					of[i] = F_UNDEF;
+					continue;
+				}
+				o[i] = dot_scalar(op, p->ideal, av[i], bv[i],
+				    sat ? COLI(p, c)[i] : 0, &f);
 				of[i] = f;
 			}
 			continue;
@@ -2146,6 +2172,19 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 			*v = *A;
 			ok = !A->top;
 			break;
+		case O_UDOT4X8: case O_SDOT4X8: case O_SUDOT4X8:
+		case O_UDOT2X16: case O_SDOT2X16: case O_SUDOT2X16:
+		case O_UDOT8X4: case O_SDOT8X4: case O_SUDOT8X4:
+		case O_UDOT4X8S: case O_SDOT4X8S: case O_SUDOT4X8S:
+		case O_UDOT2X16S: case O_SDOT2X16S: case O_SUDOT2X16S:
+		case O_UDOT8X4S: case O_SDOT8X4S: case O_SUDOT8X4S: {
+			struct ival *C = &out[p->c[k]];
+			int sat = opinfo[op].arity == 3;
+			ok = !A->top && !B->top && (!sat || !C->top) &&
+			    dot_ival(op, A->lo, A->hi, B->lo, B->hi,
+			    sat ? C->lo : 0, sat ? C->hi : 0, &v->lo, &v->hi);
+			break;
+		}
 		case O_ABS:
 			ok = !A->top && A->lo != INT64_MIN;
 			if (ok) {

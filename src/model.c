@@ -8,6 +8,7 @@
  */
 #include "calc.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +18,20 @@ const char *const cclass_name[C_NCLASS] = {
 	"fadd", "fmul", "fdiv", "fsqrt", "ftrans", "fpow", "f64",
 	"load", "branch", "diverge", "barrier", "atomic_shared",
 	"atomic_global", "store",
+	/* in the order of the O_*DOT* ops (DOT_CLASS) */
+	"udot4x8", "sdot4x8", "sudot4x8", "udot2x16", "sdot2x16", "sudot2x16",
+	"udot8x4", "sdot8x4", "sudot8x4",
+	"udot4x8sat", "sdot4x8sat", "sudot4x8sat", "udot2x16sat",
+	"sdot2x16sat", "sudot2x16sat", "udot8x4sat", "sdot8x4sat",
+	"sudot8x4sat",
+};
+
+/*
+ * A form's three signednesses under one name, as models are usually
+ * written: `dot4x8: 1` sets udot4x8, sdot4x8 and sudot4x8.
+ */
+static const char *const dot_group[6] = {
+	"dot4x8", "dot2x16", "dot8x4", "dot4x8sat", "dot2x16sat", "dot8x4sat",
 };
 
 #define MAXMODEL 32
@@ -52,7 +67,16 @@ model_new(uint32_t name)
 		m->c[k] = 1;
 	m->c[C_BITCAST] = 0;
 	m->c[C_F64] = 1;
+	/* an instruction the target may not have: absent unless listed */
+	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
+		m->c[k] = INFINITY;
 	return m;
+}
+
+int
+cclass_available(const struct model *m, int k)
+{
+	return isfinite(m->c[k]);
 }
 
 /* the i-th model, NULL past the last (jsonmode.c's state) */
@@ -82,7 +106,37 @@ cclass_find(const char *s, size_t n)
 	for (k = 0; k < C_NCLASS; k++)
 		if (strlen(cclass_name[k]) == n && !memcmp(cclass_name[k], s, n))
 			return k;
+	/* a group of three: -(100 + the first class) */
+	for (k = 0; k < 6; k++)
+		if (strlen(dot_group[k]) == n && !memcmp(dot_group[k], s, n))
+			return -(100 + C_DOT_FIRST + 3 * k);
 	return -2;
+}
+
+/* a model's classes as `models` prints them: dot forms only when listed,
+ * a group's three by its name when they agree */
+void
+model_classes_text(struct sbuf *b, const struct model *m)
+{
+	int k, first = 1;
+
+	for (k = 0; k < C_NBASE; k++) {
+		sb_printf(b, "%s %s: %g", first ? "" : ",", cclass_name[k],
+		    (double)m->c[k]);
+		first = 0;
+	}
+	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k += 3) {
+		int j;
+		if (m->c[k] == m->c[k + 1] && m->c[k] == m->c[k + 2]) {
+			if (cclass_available(m, k))
+				sb_printf(b, ", %s: %g", dot_group[(k - C_DOT_FIRST) / 3],
+				    (double)m->c[k]);
+			continue;
+		}
+		for (j = k; j < k + 3; j++)
+			if (cclass_available(m, j))
+				sb_printf(b, ", %s: %g", cclass_name[j], (double)m->c[j]);
+	}
 }
 
 static int
@@ -222,7 +276,7 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_LOOP:
 		return loop_cost(m, n, cls);
 	default:
-		k = C_IADD;
+		k = IS_DOT(op) ? DOT_CLASS(op) : C_IADD;
 	}
 	*cls = k;
 	c = m->c[k] * mul;
@@ -234,16 +288,16 @@ node_cost(const struct model *m, nid n, int *cls)
 void
 cmd_models(void)
 {
-	int i, k;
+	int i;
+	struct sbuf b = {0};
 
 	for (i = 0; i < nmodels; i++) {
-		printf("model %s%s {", sym_str(models[i].name),
-		    &models[i] == active ? " (active)" : "");
-		for (k = 0; k < C_NCLASS; k++)
-			printf("%s %s: %g", k ? "," : "", cclass_name[k],
-			    (double)models[i].c[k]);
-		printf(" }\n");
+		sb_clear(&b);
+		model_classes_text(&b, &models[i]);
+		printf("model %s%s {%s }\n", sym_str(models[i].name),
+		    &models[i] == active ? " (active)" : "", sb_str(&b));
 	}
+	free(b.p);
 }
 
 /* ---- pricing a function ---- */
@@ -695,6 +749,20 @@ cmd_cost(struct func *f, struct model *m)
 			rep_end();
 		}
 	rep_end();
+	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
+		if (cnt[k] && !cclass_available(m, k))
+			break;
+	if (k <= C_DOT_LAST) {
+		rep_list("unavailable");
+		for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
+			if (cnt[k] && !cclass_available(m, k)) {
+				printf("  %s is not available under %s (the model "
+				    "lists no such instruction)\n", cclass_name[k],
+				    sym_str(m->name));
+				rep_str(NULL, cclass_name[k]);
+			}
+		rep_end();
+	}
 	if (nloop) {
 		rep_list("loops");
 		for (k = 0; k < nloop; k++)

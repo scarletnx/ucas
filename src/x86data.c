@@ -838,8 +838,33 @@ model_text(struct sbuf *b, int ua)
 	    L(LIBM), 3 * L(LIBM));
 	sb_printf(b, "  load: %g, branch: 1, diverge: %g, barrier: 33,\n",
 	    L(LOAD), (double)uarchs[ua].mispredict / 2);
-	sb_printf(b, "  atomic_shared: %g, atomic_global: %g, store: 1\n}\n",
-	    L(LOCK), L(LOCK));
+	sb_printf(b, "  atomic_shared: %g, atomic_global: %g, store: 1", L(LOCK),
+	    L(LOCK));
+	/*
+	 * VNNI (AVX-VNNI on rpl, AVX512-VNNI on glc and zen4): vpdpbusd
+	 * multiplies unsigned bytes by signed bytes and adds the four
+	 * products to a 32-bit accumulator (sudot4x8 with the operands
+	 * swapped), vpdpwssd signed 16-bit pairs (sdot2x16); the ...s forms
+	 * saturate (the *sat classes).  The scalar form is a movd to xmm,
+	 * the dot and a movd back.  ESTIMATES: the dot's latency is the
+	 * published one (uops.info: 5 cycles on Ice Lake and Golden Cove,
+	 * 4 on Zen 4), not measured here.  No VNNI form multiplies
+	 * unsigned by unsigned or signed by signed bytes before
+	 * AVX-VNNI-INT8, which none of these has.
+	 */
+	{
+		static const struct { const char *ua; double lat; } vnni[] = {
+			{"glc", 5}, {"rpl", 5}, {"zen4", 4},
+		};
+		size_t i;
+		for (i = 0; i < sizeof vnni / sizeof vnni[0]; i++)
+			if (!strcmp(uarchs[ua].name, vnni[i].ua)) {
+				double c = L(MOVG2X) + vnni[i].lat + L(MOVX2G);
+				sb_printf(b, ",\n  sudot4x8: %g, sudot4x8sat: %g, "
+				    "sdot2x16: %g, sdot2x16sat: %g", c, c, c, c);
+			}
+	}
+	sb_puts(b, "\n}\n");
 #undef L
 }
 

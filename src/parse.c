@@ -303,6 +303,17 @@ static const struct bfn bfns[] = {
 	{"arcosh", O_ACOSH, 1}, {"atanh", O_ATANH, 1}, {"artanh", O_ATANH, 1},
 	/* hyper.c: only when called, conj(z); a bare re or arg is a name */
 	{"conj", O_CONJ, 1}, {"re", O_RE, 1}, {"im", O_IM, 1}, {"arg", O_ARG, 1},
+	/* dot.c: packed integer dot products */
+	{"udot4x8", O_UDOT4X8, 2}, {"sdot4x8", O_SDOT4X8, 2},
+	{"sudot4x8", O_SUDOT4X8, 2}, {"udot2x16", O_UDOT2X16, 2},
+	{"sdot2x16", O_SDOT2X16, 2}, {"sudot2x16", O_SUDOT2X16, 2},
+	{"udot8x4", O_UDOT8X4, 2}, {"sdot8x4", O_SDOT8X4, 2},
+	{"sudot8x4", O_SUDOT8X4, 2},
+	{"udot4x8sat", O_UDOT4X8S, 3}, {"sdot4x8sat", O_SDOT4X8S, 3},
+	{"sudot4x8sat", O_SUDOT4X8S, 3}, {"udot2x16sat", O_UDOT2X16S, 3},
+	{"sdot2x16sat", O_SDOT2X16S, 3}, {"sudot2x16sat", O_SUDOT2X16S, 3},
+	{"udot8x4sat", O_UDOT8X4S, 3}, {"sdot8x4sat", O_SDOT8X4S, 3},
+	{"sudot8x4sat", O_SUDOT8X4S, 3},
 	{NULL, 0, 0}
 };
 
@@ -473,6 +484,8 @@ apply_builtin(struct P *p, const struct bfn *b, nid *args, int n)
 		fail("%s takes %d argument%s", b->name, b->arity,
 		    b->arity == 1 ? "" : "s");
 	a = args[0];
+	if (IS_DOT(b->op))
+		return mk_dot(b->op, args[0], args[1], b->arity == 3 ? args[2] : 0);
 	if (b->arity == 3)
 		return mk_fma(args[0], args[1], args[2]);
 	if (b->arity == 2)
@@ -1402,13 +1415,71 @@ static const char prelude[] =
      * diverge what a split warp adds ("keep-up").  The costs are on a 1/8
      * grid (exact binary fractions, within 1% of the measurements).  f16
      * is not measured: GP108 has no f16 arithmetic.
+     *
+     * Dot products: DP4A (OpUDot/OpSDot on 4 x 8-bit packed lanes) is
+     * one instruction, measured as udot4x8 + iadd = 2.14 and sdot4x8 +
+     * iadd = 2.00 (x_dp4a alone 1.14): dot4x8 is 1.  sudot4x8 is the
+     * same instruction (IDP4A.S8.U8) and was not measured separately.
+     * udot4x8sat measured 6.47: DP4A has no saturating form, the driver
+     * emulates it.  No 2 x 16 or 8 x 4 form: those are not listed, so
+     * they are unavailable here (sm_61's DP2A multiplies 16-bit lanes by
+     * 8-bit ones, which SPIR-V cannot say).
      */
     "model gt1030 {\n"
     "  iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,\n"
     "  cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0,\n"
     "  fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,\n"
     "  load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,\n"
-    "  atomic_shared: 6.625, atomic_global: 50, store: 15\n"
+    "  atomic_shared: 6.625, atomic_global: 50, store: 15,\n"
+    "  dot4x8: 1, dot4x8sat: 6.5\n"
+    "}\n"
+    /*
+     * Later NVIDIA parts: ESTIMATES, not measurements.  The classes the
+     * CUDA C++ Programming Guide's table of arithmetic throughput
+     * (results per clock per SM) covers are its ratios to fp32 add; the
+     * rest (division emulation, select, memory, branches, barriers,
+     * atomics) are gt1030's measurements, carried over unchanged.
+     *
+     * sm75 (Turing): fp32 64/clk; int add, logic, shift, compare and
+     * IMAD 64 (so imul 1: a 32-bit multiply is one IMAD from Volta on);
+     * popc/clz and conversions 16; SFU 16; fp64 2.  IDP4A issues on the
+     * integer pipe at the IMAD rate (64): dot4x8 1.  No saturating
+     * IDP4A: dot4x8sat as on sm_61 (the same emulation, at the same
+     * int:fp32 rate of 1:1).  cmp: the table's ratio plus the 0.375
+     * gt1030 measured above its own (the comparison's bool result).
+     */
+    "model sm75 : gt1030 {\n"
+    "  iadd: 1, logic: 1, shift: 1, imul: 1, cmp: 1.375, minmax: 1,\n"
+    "  bitcnt: 4, conv: 4, fdiv: 3, fsqrt: 4, ftrans: 4, f64: 32,\n"
+    "  dot4x8: 1, dot4x8sat: 6.5\n"
+    "}\n"
+    /*
+     * sm86 (Ampere GA10x): fp32 128/clk (two FP32 paths), the integer
+     * pipe 64: every integer class costs twice an fadd; SFU 16; fp64 2.
+     * dot4x8 2 (IDP4A at the integer rate), dot4x8sat 13 (the sm_61
+     * emulation at half the fp32 rate).  Estimates, as above.
+     */
+    "model sm86 : gt1030 {\n"
+    "  iadd: 2, logic: 2, shift: 2, imul: 2, cmp: 2.75, minmax: 2,\n"
+    "  bitcnt: 8, conv: 8, fdiv: 6, fsqrt: 8, ftrans: 8, f64: 64,\n"
+    "  dot4x8: 2, dot4x8sat: 13\n"
+    "}\n"
+    /*
+     * rdna2 (AMD gfx10.3): ESTIMATES from AMD's RDNA2 ISA guide and
+     * published rates, not measurements; memory, branches, barriers and
+     * atomics are gt1030's, carried over.  32-bit integer multiply
+     * (v_mul_lo_u32) and the transcendental unit are quarter rate, fp64
+     * 1/16.  The dot instructions are full rate and have a clamp bit, so
+     * the saturating forms cost the same: v_dot4_u32_u8, v_dot4_i32_i8
+     * (4 x 8 bits), v_dot8_u32_u4, v_dot8_i32_i4 (8 x 4 bits).  No mixed
+     * signedness (RDNA3's v_dot4_i32_iu8) and no 2 x 16-bit integer dot.
+     */
+    "model rdna2 : gt1030 {\n"
+    "  iadd: 1, logic: 1, shift: 1, imul: 4, cmp: 1.375, minmax: 1,\n"
+    "  bitcnt: 1, conv: 1, fdiv: 3, fsqrt: 4, ftrans: 4, f64: 16,\n"
+    "  dot4x8: none, dot4x8sat: none,\n"
+    "  udot4x8: 1, sdot4x8: 1, udot4x8sat: 1, sdot4x8sat: 1,\n"
+    "  udot8x4: 1, sdot8x4: 1, udot8x4sat: 1, sdot8x4sat: 1\n"
     "}\n";
 
 static void
@@ -1530,10 +1601,25 @@ parse_model(struct P *p)
 		adv(p);
 		if (!accept(p, T_COLON))
 			expect(p, T_ASSIGN);
+		if ((k <= -100 || k >= C_DOT_FIRST) && is_kw(p, "none")) {
+			/* a dot form taken away from an inherited model */
+			int j, j0 = k <= -100 ? -k - 100 : k;
+			adv(p);
+			for (j = j0; j < j0 + (k <= -100 ? 3 : 1); j++)
+				m->c[j] = INFINITY;
+			continue;
+		}
 		v = number(p);
 		if (k == -1) {
-			for (k = 0; k < C_NCLASS; k++)
+			/* every class the model has anyway: dot forms are
+			 * listed one by one */
+			for (k = 0; k < C_NBASE; k++)
 				m->c[k] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
+				    (float)N.ki[v];
+		} else if (k <= -100) {
+			int j;
+			for (j = -k - 100; j < -k - 100 + 3; j++)
+				m->c[j] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
 				    (float)N.ki[v];
 		} else {
 			m->c[k] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
