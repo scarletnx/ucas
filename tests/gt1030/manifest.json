@@ -4,6 +4,7 @@
   {
    "name": "iadd",
    "kind": "alu",
+   "base": null,
    "ops": {
     "iadd": 1
    },
@@ -36,6 +37,7 @@
   {
    "name": "isub",
    "kind": "alu",
+   "base": null,
    "ops": {
     "iadd": 1
    },
@@ -58,6 +60,7 @@
   {
    "name": "xor_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 1,
     "iadd": 1
@@ -91,6 +94,7 @@
   {
    "name": "and_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 1,
     "iadd": 1
@@ -124,6 +128,7 @@
   {
    "name": "or_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 1,
     "iadd": 1
@@ -157,6 +162,7 @@
   {
    "name": "not_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 1,
     "iadd": 1
@@ -190,6 +196,7 @@
   {
    "name": "lop3_select",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 4,
     "iadd": 1
@@ -213,6 +220,7 @@
   {
    "name": "lop3_xor3",
    "kind": "alu",
+   "base": null,
    "ops": {
     "logic": 2,
     "iadd": 1
@@ -236,6 +244,7 @@
   {
    "name": "shl_var",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1
    },
@@ -268,6 +277,7 @@
   {
    "name": "shr_var",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1
    },
@@ -300,6 +310,7 @@
   {
    "name": "sar_var",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1
    },
@@ -332,6 +343,7 @@
   {
    "name": "shr_const_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1,
     "iadd": 1
@@ -365,6 +377,7 @@
   {
    "name": "shl_const_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1,
     "iadd": 1
@@ -398,6 +411,7 @@
   {
    "name": "rotl",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 2,
     "logic": 2
@@ -431,6 +445,7 @@
   {
    "name": "imul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "imul": 1
    },
@@ -463,6 +478,7 @@
   {
    "name": "imad",
    "kind": "alu",
+   "base": null,
    "ops": {
     "imul": 1,
     "iadd": 1
@@ -486,6 +502,7 @@
   {
    "name": "imul_const",
    "kind": "alu",
+   "base": null,
    "ops": {
     "imul": 1,
     "iadd": 1
@@ -519,6 +536,7 @@
   {
    "name": "imul_pow2",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1,
     "iadd": 1
@@ -552,6 +570,7 @@
   {
    "name": "umulhi",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_imulhi": 1,
     "iadd": 1
@@ -585,6 +604,7 @@
   {
    "name": "udiv",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idiv": 1,
     "iadd": 1
@@ -618,6 +638,7 @@
   {
    "name": "umod",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idiv": 1,
     "iadd": 1
@@ -651,6 +672,7 @@
   {
    "name": "sdiv",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idiv": 1,
     "iadd": 1
@@ -684,6 +706,7 @@
   {
    "name": "udiv_const",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idivk": 1,
     "iadd": 1
@@ -717,6 +740,7 @@
   {
    "name": "umod_const",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idivk": 1,
     "iadd": 1
@@ -750,6 +774,7 @@
   {
    "name": "sdiv_const",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idivk": 1,
     "iadd": 1
@@ -783,6 +808,7 @@
   {
    "name": "udiv_pow2",
    "kind": "alu",
+   "base": null,
    "ops": {
     "idivk": 1,
     "iadd": 1
@@ -816,6 +842,7 @@
   {
    "name": "cmp_select",
    "kind": "alu",
+   "base": null,
    "ops": {
     "cmp": 1,
     "select": 1
@@ -839,6 +866,7 @@
   {
    "name": "select",
    "kind": "alu",
+   "base": null,
    "ops": {
     "select": 1
    },
@@ -861,6 +889,7 @@
   {
    "name": "cmp_select_eq",
    "kind": "alu",
+   "base": null,
    "ops": {
     "cmp": 1,
     "select": 1
@@ -884,6 +913,7 @@
   {
    "name": "umin_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 1,
     "iadd": 1
@@ -917,6 +947,7 @@
   {
    "name": "smax_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 1,
     "iadd": 1
@@ -950,6 +981,7 @@
   {
    "name": "uclamp_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 2,
     "iadd": 1
@@ -973,6 +1005,7 @@
   {
    "name": "bitcount",
    "kind": "alu",
+   "base": null,
    "ops": {
     "bitcnt": 1,
     "iadd": 1
@@ -1006,6 +1039,7 @@
   {
    "name": "findmsb",
    "kind": "alu",
+   "base": null,
    "ops": {
     "bitcnt": 1,
     "iadd": 1
@@ -1039,6 +1073,7 @@
   {
    "name": "findlsb",
    "kind": "alu",
+   "base": null,
    "ops": {
     "bitcnt": 1,
     "iadd": 1
@@ -1072,6 +1107,7 @@
   {
    "name": "bitreverse",
    "kind": "alu",
+   "base": null,
    "ops": {
     "bitcnt": 1,
     "iadd": 1
@@ -1105,6 +1141,7 @@
   {
    "name": "bfe",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1,
     "iadd": 1
@@ -1138,6 +1175,7 @@
   {
    "name": "bfi",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 1
    },
@@ -1170,6 +1208,7 @@
   {
    "name": "f2u2f",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 2,
     "fmul": 1,
@@ -1204,6 +1243,7 @@
   {
    "name": "i2f_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 2,
     "fmul": 1,
@@ -1238,6 +1278,7 @@
   {
    "name": "floor_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 1,
     "fmul": 1,
@@ -1272,6 +1313,7 @@
   {
    "name": "fract_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 1,
     "fmul": 1,
@@ -1306,6 +1348,7 @@
   {
    "name": "round_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 1,
     "fmul": 1,
@@ -1340,6 +1383,7 @@
   {
    "name": "f16_roundtrip",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 2,
     "fadd": 1
@@ -1373,6 +1417,7 @@
   {
    "name": "f16_pack_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 3,
     "iadd": 1
@@ -1406,6 +1451,7 @@
   {
    "name": "f32_f64_roundtrip",
    "kind": "alu",
+   "base": null,
    "ops": {
     "conv": 3,
     "f64": 1
@@ -1439,6 +1485,7 @@
   {
    "name": "bitcast",
    "kind": "alu",
+   "base": null,
    "ops": {
     "bitcast": 3,
     "iadd": 1
@@ -1472,6 +1519,7 @@
   {
    "name": "u16_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "iadd": 1
    },
@@ -1504,6 +1552,7 @@
   {
    "name": "u8_mul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "imul": 1,
     "iadd": 1
@@ -1537,6 +1586,7 @@
   {
    "name": "fadd",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fadd": 1
    },
@@ -1569,6 +1619,7 @@
   {
    "name": "fmul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 1
    },
@@ -1601,6 +1652,7 @@
   {
    "name": "ffma",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 1
    },
@@ -1623,6 +1675,7 @@
   {
    "name": "fmad_contract",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 1,
     "fadd": 1
@@ -1646,6 +1699,7 @@
   {
    "name": "fmad_precise",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 1,
     "fadd": 1
@@ -1669,6 +1723,7 @@
   {
    "name": "fneg_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fadd": 2
    },
@@ -1691,6 +1746,7 @@
   {
    "name": "fabs_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 1,
     "fadd": 1
@@ -1724,6 +1780,7 @@
   {
    "name": "fmin_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 1,
     "fadd": 1
@@ -1757,6 +1814,7 @@
   {
    "name": "fclamp_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "minmax": 2,
     "fadd": 1
@@ -1780,6 +1838,7 @@
   {
    "name": "fcmp_select",
    "kind": "alu",
+   "base": null,
    "ops": {
     "cmp": 1,
     "select": 1
@@ -1803,6 +1862,7 @@
   {
    "name": "fmix",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 1
    },
@@ -1825,6 +1885,7 @@
   {
    "name": "length3",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fmul": 3
    },
@@ -1857,6 +1918,7 @@
   {
    "name": "fdiv",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fdiv": 1,
     "fadd": 1
@@ -1890,6 +1952,7 @@
   {
    "name": "frcp",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fdiv": 1,
     "fadd": 1
@@ -1923,6 +1986,7 @@
   {
    "name": "fdiv_const",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fdiv": 1,
     "fadd": 1
@@ -1956,6 +2020,7 @@
   {
    "name": "fsqrt",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fsqrt": 1
    },
@@ -1988,6 +2053,7 @@
   {
    "name": "frsqrt",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2020,6 +2086,7 @@
   {
    "name": "exp2",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2052,6 +2119,7 @@
   {
    "name": "log2",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2084,6 +2152,7 @@
   {
    "name": "exp",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2116,6 +2185,7 @@
   {
    "name": "log",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2148,6 +2218,7 @@
   {
    "name": "sin",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2180,6 +2251,7 @@
   {
    "name": "cos",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 1
    },
@@ -2212,6 +2284,7 @@
   {
    "name": "tan",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 2,
     "fdiv": 1
@@ -2245,6 +2318,7 @@
   {
    "name": "asin",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4,
     "fmul": 1
@@ -2278,6 +2352,7 @@
   {
    "name": "acos",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4,
     "fmul": 1
@@ -2311,6 +2386,7 @@
   {
    "name": "atan",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4
    },
@@ -2343,6 +2419,7 @@
   {
    "name": "atan2",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4
    },
@@ -2375,6 +2452,7 @@
   {
    "name": "sinh",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4
    },
@@ -2407,6 +2485,7 @@
   {
    "name": "tanh",
    "kind": "alu",
+   "base": null,
    "ops": {
     "ftrans": 4
    },
@@ -2439,6 +2518,7 @@
   {
    "name": "pow",
    "kind": "alu",
+   "base": null,
    "ops": {
     "fpow": 1
    },
@@ -2471,6 +2551,7 @@
   {
    "name": "dadd",
    "kind": "alu",
+   "base": null,
    "ops": {
     "f64": 1
    },
@@ -2503,6 +2584,7 @@
   {
    "name": "dmul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "f64": 1
    },
@@ -2535,6 +2617,7 @@
   {
    "name": "dfma",
    "kind": "alu",
+   "base": null,
    "ops": {
     "f64": 1
    },
@@ -2557,6 +2640,7 @@
   {
    "name": "ddiv",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_f64div": 1,
     "f64": 1
@@ -2590,6 +2674,7 @@
   {
    "name": "dsqrt",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_f64sqrt": 1
    },
@@ -2622,6 +2707,7 @@
   {
    "name": "u64_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_i64add": 1
    },
@@ -2654,6 +2740,7 @@
   {
    "name": "u64_mul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_i64mul": 1
    },
@@ -2686,6 +2773,7 @@
   {
    "name": "u64_shl",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_i64shl": 1,
     "x_i64and": 1
@@ -2719,6 +2807,7 @@
   {
    "name": "udot4x8",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_dp4a": 1,
     "iadd": 1
@@ -2752,6 +2841,7 @@
   {
    "name": "sdot4x8",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_dp4a": 1,
     "iadd": 1
@@ -2785,6 +2875,7 @@
   {
    "name": "udot4x8sat",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_dp4a": 1
    },
@@ -2817,6 +2908,7 @@
   {
    "name": "udot4x8_emul",
    "kind": "alu",
+   "base": null,
    "ops": {
     "shift": 8,
     "imul": 4,
@@ -2851,6 +2943,7 @@
   {
    "name": "sg_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_sg_reduce": 1,
     "iadd": 1
@@ -2884,6 +2977,7 @@
   {
    "name": "sg_inclusive_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_sg_scan": 1,
     "iadd": 1
@@ -2917,6 +3011,7 @@
   {
    "name": "sg_clustered_add4",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_sg_cluster4": 1,
     "iadd": 1
@@ -2950,6 +3045,7 @@
   {
    "name": "sg_shuffle",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1
    },
@@ -2982,6 +3078,7 @@
   {
    "name": "sg_shuffle_xor",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1,
     "iadd": 1
@@ -3015,6 +3112,7 @@
   {
    "name": "sg_broadcast",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1,
     "iadd": 1
@@ -3048,6 +3146,7 @@
   {
    "name": "sg_broadcast_first",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1,
     "iadd": 1
@@ -3081,6 +3180,7 @@
   {
    "name": "sg_quad_swap",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1,
     "iadd": 1
@@ -3114,6 +3214,7 @@
   {
    "name": "sg_ballot",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_ballot": 1,
     "logic": 1,
@@ -3149,6 +3250,7 @@
   {
    "name": "sg_any",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_vote": 1,
     "logic": 1,
@@ -3174,6 +3276,7 @@
   {
    "name": "sg_rotate",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_shfl": 1,
     "iadd": 1
@@ -3207,6 +3310,7 @@
   {
    "name": "sg_partition",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_match": 1,
     "logic": 1,
@@ -3241,6 +3345,7 @@
   {
    "name": "sg_partitioned_add",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_part_reduce": 1,
     "iadd": 1
@@ -3274,6 +3379,7 @@
   {
    "name": "clock_read",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_clock": 1,
     "iadd": 1
@@ -3297,6 +3403,7 @@
   {
    "name": "clock_realtime_read",
    "kind": "alu",
+   "base": null,
    "ops": {
     "x_rtclock": 1,
     "iadd": 1
@@ -3320,6 +3427,7 @@
   {
    "name": "load_dram",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_dram": 1,
     "iadd": 1
@@ -3343,6 +3451,7 @@
   {
    "name": "load_l2",
    "kind": "mem",
+   "base": null,
    "ops": {
     "load": 1,
     "iadd": 1
@@ -3366,6 +3475,7 @@
   {
    "name": "load_bcast",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_bcast": 1,
     "iadd": 1
@@ -3389,6 +3499,7 @@
   {
    "name": "load_ubo",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_ubo": 1,
     "iadd": 1
@@ -3412,6 +3523,7 @@
   {
    "name": "load_ubo_divergent",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_ubo_div": 1,
     "iadd": 1
@@ -3435,6 +3547,7 @@
   {
    "name": "load_shared",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_shared": 1,
     "iadd": 1
@@ -3458,6 +3571,7 @@
   {
    "name": "load_shared_conflict",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_load_shared_conflict": 1,
     "iadd": 1
@@ -3481,6 +3595,7 @@
   {
    "name": "store_dram",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_store_dram": 1,
     "iadd": 1
@@ -3504,6 +3619,7 @@
   {
    "name": "store_l2",
    "kind": "mem",
+   "base": null,
    "ops": {
     "store": 1,
     "iadd": 1
@@ -3527,6 +3643,7 @@
   {
    "name": "store_shared",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_store_shared": 1,
     "iadd": 1
@@ -3550,6 +3667,7 @@
   {
    "name": "atomic_global_dram",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_global_dram": 1,
     "iadd": 1
@@ -3573,6 +3691,7 @@
   {
    "name": "atomic_global",
    "kind": "mem",
+   "base": null,
    "ops": {
     "atomic_global": 1,
     "iadd": 1
@@ -3596,6 +3715,7 @@
   {
    "name": "atomic_global_red",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_red_global": 1,
     "iadd": 1
@@ -3619,6 +3739,7 @@
   {
    "name": "atomic_global_same",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_global_same": 1,
     "iadd": 1
@@ -3642,6 +3763,7 @@
   {
    "name": "atomic_global_cas",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_cas_global": 1,
     "iadd": 1
@@ -3665,6 +3787,7 @@
   {
    "name": "atomic_global_f32",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_global_f32": 1,
     "fadd": 1
@@ -3690,6 +3813,7 @@
   {
    "name": "atomic_global_u64",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_global_u64": 1,
     "x_i64add": 1
@@ -3713,6 +3837,7 @@
   {
    "name": "atomic_shared",
    "kind": "mem",
+   "base": null,
    "ops": {
     "atomic_shared": 1,
     "iadd": 1
@@ -3736,6 +3861,7 @@
   {
    "name": "atomic_shared_same",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_shared_same": 1,
     "iadd": 1
@@ -3759,6 +3885,7 @@
   {
    "name": "atomic_shared_f32",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_atomic_shared_f32": 1,
     "fadd": 1
@@ -3784,6 +3911,7 @@
   {
    "name": "barrier",
    "kind": "mem",
+   "base": null,
    "ops": {
     "barrier": 2,
     "x_store_shared": 1,
@@ -3809,6 +3937,7 @@
   {
    "name": "barrier_wg1024",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_barrier1024": 2,
     "x_store_shared": 1,
@@ -3834,6 +3963,7 @@
   {
    "name": "subgroup_barrier",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_sg_barrier": 2,
     "x_store_shared": 1,
@@ -3859,6 +3989,7 @@
   {
    "name": "tex_fetch",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_tex_fetch": 1,
     "fadd": 1
@@ -3885,6 +4016,7 @@
   {
    "name": "tex_bilinear",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_tex_bilinear": 1,
     "fadd": 1
@@ -3911,6 +4043,7 @@
   {
    "name": "tex_bilinear_rgba32f",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_tex_bilinear_rgba32f": 1,
     "fadd": 1
@@ -3937,6 +4070,7 @@
   {
    "name": "image_load",
    "kind": "mem",
+   "base": null,
    "ops": {
     "x_image_load": 1,
     "iadd": 1
@@ -3963,6 +4097,7 @@
   {
    "name": "branch_uniform_m2",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "fmul": 2,
@@ -3988,6 +4123,7 @@
   {
    "name": "branch_divergent_m2",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "diverge": 1,
@@ -4014,6 +4150,7 @@
   {
    "name": "branch_uniform_m8",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "fmul": 8,
@@ -4039,6 +4176,7 @@
   {
    "name": "branch_divergent_m8",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "diverge": 1,
@@ -4065,6 +4203,7 @@
   {
    "name": "branch_uniform_m32",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "fmul": 32,
@@ -4090,6 +4229,7 @@
   {
    "name": "branch_divergent_m32",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "diverge": 1,
@@ -4116,6 +4256,7 @@
   {
    "name": "branch_flatten_m2",
    "kind": "branch",
+   "base": null,
    "ops": {
     "select": 1,
     "fmul": 4,
@@ -4141,6 +4282,7 @@
   {
    "name": "branch_flatten_m8",
    "kind": "branch",
+   "base": null,
    "ops": {
     "select": 1,
     "fmul": 16,
@@ -4166,6 +4308,7 @@
   {
    "name": "branch_expect_m8",
    "kind": "branch",
+   "base": null,
    "ops": {
     "branch": 1,
     "fmul": 8,
@@ -4189,20 +4332,1055 @@
    }
   },
   {
-   "name": "frag_fadd",
-   "kind": "frag",
+   "name": "vert_fadd",
+   "kind": "vert",
+   "base": "fadd",
    "ops": {
     "fadd": 1
    },
    "fit": false,
    "ty": "float",
-   "chains": 4,
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "the reference: every cost is a ratio to it (this stage)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fadd.a.spv",
+    "b": "spv/vert_fadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_fmul",
+   "kind": "vert",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fmul.a.spv",
+    "b": "spv/vert_fmul.b.spv"
+   }
+  },
+  {
+   "name": "vert_ffma",
+   "kind": "vert",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_ffma.a.spv",
+    "b": "spv/vert_ffma.b.spv"
+   }
+  },
+  {
+   "name": "vert_iadd",
+   "kind": "vert",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_iadd.a.spv",
+    "b": "spv/vert_iadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_xor_add",
+   "kind": "vert",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_xor_add.a.spv",
+    "b": "spv/vert_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_shl_var",
+   "kind": "vert",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_shl_var.a.spv",
+    "b": "spv/vert_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "vert_imul",
+   "kind": "vert",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_imul.a.spv",
+    "b": "spv/vert_imul.b.spv"
+   }
+  },
+  {
+   "name": "vert_udiv",
+   "kind": "vert",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udiv.a.spv",
+    "b": "spv/vert_udiv.b.spv"
+   }
+  },
+  {
+   "name": "vert_udiv_const",
+   "kind": "vert",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 8,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udiv_const.a.spv",
+    "b": "spv/vert_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "vert_cmp_select",
+   "kind": "vert",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_cmp_select.a.spv",
+    "b": "spv/vert_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "vert_umin_add",
+   "kind": "vert",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_umin_add.a.spv",
+    "b": "spv/vert_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_bitcount",
+   "kind": "vert",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
    "unroll": [
     8,
     16
    ],
    "iters": 9,
-   "note": "the fragment reference",
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_bitcount.a.spv",
+    "b": "spv/vert_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "vert_f2u2f",
+   "kind": "vert",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_f2u2f.a.spv",
+    "b": "spv/vert_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "vert_fdiv",
+   "kind": "vert",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fdiv.a.spv",
+    "b": "spv/vert_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "vert_fsqrt",
+   "kind": "vert",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_fsqrt.a.spv",
+    "b": "spv/vert_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "vert_exp2",
+   "kind": "vert",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_exp2.a.spv",
+    "b": "spv/vert_exp2.b.spv"
+   }
+  },
+  {
+   "name": "vert_sin",
+   "kind": "vert",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 12,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sin.a.spv",
+    "b": "spv/vert_sin.b.spv"
+   }
+  },
+  {
+   "name": "vert_pow",
+   "kind": "vert",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_pow.a.spv",
+    "b": "spv/vert_pow.b.spv"
+   }
+  },
+  {
+   "name": "vert_dadd",
+   "kind": "vert",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_dadd.a.spv",
+    "b": "spv/vert_dadd.b.spv"
+   }
+  },
+  {
+   "name": "vert_udot4x8",
+   "kind": "vert",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_udot4x8.a.spv",
+    "b": "spv/vert_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "vert_sg_add",
+   "kind": "vert",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 5,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sg_add.a.spv",
+    "b": "spv/vert_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "vert_sg_shuffle",
+   "kind": "vert",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/vert_sg_shuffle.a.spv",
+    "b": "spv/vert_sg_shuffle.b.spv"
+   }
+  },
+  {
+   "name": "geom_fadd",
+   "kind": "geom",
+   "base": "fadd",
+   "ops": {
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "the reference: every cost is a ratio to it (this stage)",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fadd.a.spv",
+    "b": "spv/geom_fadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_fmul",
+   "kind": "geom",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fmul.a.spv",
+    "b": "spv/geom_fmul.b.spv"
+   }
+  },
+  {
+   "name": "geom_ffma",
+   "kind": "geom",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_ffma.a.spv",
+    "b": "spv/geom_ffma.b.spv"
+   }
+  },
+  {
+   "name": "geom_iadd",
+   "kind": "geom",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 138,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_iadd.a.spv",
+    "b": "spv/geom_iadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_xor_add",
+   "kind": "geom",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_xor_add.a.spv",
+    "b": "spv/geom_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_shl_var",
+   "kind": "geom",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 69,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_shl_var.a.spv",
+    "b": "spv/geom_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "geom_imul",
+   "kind": "geom",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_imul.a.spv",
+    "b": "spv/geom_imul.b.spv"
+   }
+  },
+  {
+   "name": "geom_udiv",
+   "kind": "geom",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 6,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udiv.a.spv",
+    "b": "spv/geom_udiv.b.spv"
+   }
+  },
+  {
+   "name": "geom_udiv_const",
+   "kind": "geom",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 23,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udiv_const.a.spv",
+    "b": "spv/geom_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "geom_cmp_select",
+   "kind": "geom",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_cmp_select.a.spv",
+    "b": "spv/geom_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "geom_umin_add",
+   "kind": "geom",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 46,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_umin_add.a.spv",
+    "b": "spv/geom_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_bitcount",
+   "kind": "geom",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 28,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_bitcount.a.spv",
+    "b": "spv/geom_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "geom_f2u2f",
+   "kind": "geom",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_f2u2f.a.spv",
+    "b": "spv/geom_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "geom_fdiv",
+   "kind": "geom",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 13,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fdiv.a.spv",
+    "b": "spv/geom_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "geom_fsqrt",
+   "kind": "geom",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_fsqrt.a.spv",
+    "b": "spv/geom_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "geom_exp2",
+   "kind": "geom",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_exp2.a.spv",
+    "b": "spv/geom_exp2.b.spv"
+   }
+  },
+  {
+   "name": "geom_sin",
+   "kind": "geom",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 35,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sin.a.spv",
+    "b": "spv/geom_sin.b.spv"
+   }
+  },
+  {
+   "name": "geom_pow",
+   "kind": "geom",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 14,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_pow.a.spv",
+    "b": "spv/geom_pow.b.spv"
+   }
+  },
+  {
+   "name": "geom_dadd",
+   "kind": "geom",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_dadd.a.spv",
+    "b": "spv/geom_dadd.b.spv"
+   }
+  },
+  {
+   "name": "geom_udot4x8",
+   "kind": "geom",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_udot4x8.a.spv",
+    "b": "spv/geom_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "geom_sg_add",
+   "kind": "geom",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 15,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sg_add.a.spv",
+    "b": "spv/geom_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "geom_sg_shuffle",
+   "kind": "geom",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 17,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/geom_sg_shuffle.a.spv",
+    "b": "spv/geom_sg_shuffle.b.spv"
+   }
+  },
+  {
+   "name": "frag_fadd",
+   "kind": "frag",
+   "base": "fadd",
+   "ops": {
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "the reference: every cost is a ratio to it (this stage)",
    "vkext": [],
    "args": [],
    "files": {
@@ -4211,8 +5389,503 @@
    }
   },
   {
+   "name": "frag_fmul",
+   "kind": "frag",
+   "base": "fmul",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fmul.a.spv",
+    "b": "spv/frag_fmul.b.spv"
+   }
+  },
+  {
+   "name": "frag_ffma",
+   "kind": "frag",
+   "base": "ffma",
+   "ops": {
+    "fmul": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "ucas prices Fma as fmul",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_ffma.a.spv",
+    "b": "spv/frag_ffma.b.spv"
+   }
+  },
+  {
+   "name": "frag_iadd",
+   "kind": "frag",
+   "base": "iadd",
+   "ops": {
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 4,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_iadd.a.spv",
+    "b": "spv/frag_iadd.b.spv"
+   }
+  },
+  {
+   "name": "frag_xor_add",
+   "kind": "frag",
+   "base": "xor_add",
+   "ops": {
+    "logic": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_xor_add.a.spv",
+    "b": "spv/frag_xor_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_shl_var",
+   "kind": "frag",
+   "base": "shl_var",
+   "ops": {
+    "shift": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "counts past 31 are undefined in SPIR-V; the hardware clamps",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_shl_var.a.spv",
+    "b": "spv/frag_shl_var.b.spv"
+   }
+  },
+  {
+   "name": "frag_imul",
+   "kind": "frag",
+   "base": "imul",
+   "ops": {
+    "imul": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "XMAD sequence on sm_61",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_imul.a.spv",
+    "b": "spv/frag_imul.b.spv"
+   }
+  },
+  {
+   "name": "frag_udiv",
+   "kind": "frag",
+   "base": "udiv",
+   "ops": {
+    "idiv": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "emulated: no divide unit",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udiv.a.spv",
+    "b": "spv/frag_udiv.b.spv"
+   }
+  },
+  {
+   "name": "frag_udiv_const",
+   "kind": "frag",
+   "base": "udiv_const",
+   "ops": {
+    "idivk": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "multiply-high and shift",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udiv_const.a.spv",
+    "b": "spv/frag_udiv_const.b.spv"
+   }
+  },
+  {
+   "name": "frag_cmp_select",
+   "kind": "frag",
+   "base": "cmp_select",
+   "ops": {
+    "cmp": 1,
+    "select": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "the values only move between chains, nothing to fold",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_cmp_select.a.spv",
+    "b": "spv/frag_cmp_select.b.spv"
+   }
+  },
+  {
+   "name": "frag_umin_add",
+   "kind": "frag",
+   "base": "umin_add",
+   "ops": {
+    "minmax": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_umin_add.a.spv",
+    "b": "spv/frag_umin_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_bitcount",
+   "kind": "frag",
+   "base": "bitcount",
+   "ops": {
+    "bitcnt": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_bitcount.a.spv",
+    "b": "spv/frag_bitcount.b.spv"
+   }
+  },
+  {
+   "name": "frag_f2u2f",
+   "kind": "frag",
+   "base": "f2u2f",
+   "ops": {
+    "conv": 2,
+    "fmul": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_f2u2f.a.spv",
+    "b": "spv/frag_f2u2f.b.spv"
+   }
+  },
+  {
+   "name": "frag_fdiv",
+   "kind": "frag",
+   "base": "fdiv",
+   "ops": {
+    "fdiv": 1,
+    "fadd": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fdiv.a.spv",
+    "b": "spv/frag_fdiv.b.spv"
+   }
+  },
+  {
+   "name": "frag_fsqrt",
+   "kind": "frag",
+   "base": "fsqrt",
+   "ops": {
+    "fsqrt": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_fsqrt.a.spv",
+    "b": "spv/frag_fsqrt.b.spv"
+   }
+  },
+  {
+   "name": "frag_exp2",
+   "kind": "frag",
+   "base": "exp2",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_exp2.a.spv",
+    "b": "spv/frag_exp2.b.spv"
+   }
+  },
+  {
+   "name": "frag_sin",
+   "kind": "frag",
+   "base": "sin",
+   "ops": {
+    "ftrans": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sin.a.spv",
+    "b": "spv/frag_sin.b.spv"
+   }
+  },
+  {
+   "name": "frag_pow",
+   "kind": "frag",
+   "base": "pow",
+   "ops": {
+    "fpow": 1
+   },
+   "fit": false,
+   "ty": "float",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_pow.a.spv",
+    "b": "spv/frag_pow.b.spv"
+   }
+  },
+  {
+   "name": "frag_dadd",
+   "kind": "frag",
+   "base": "dadd",
+   "ops": {
+    "f64": 1
+   },
+   "fit": false,
+   "ty": "double",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "fp64 is 1/32 rate on GP108",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_dadd.a.spv",
+    "b": "spv/frag_dadd.b.spv"
+   }
+  },
+  {
+   "name": "frag_udot4x8",
+   "kind": "frag",
+   "base": "udot4x8",
+   "ops": {
+    "x_dp4a": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_udot4x8.a.spv",
+    "b": "spv/frag_udot4x8.b.spv"
+   }
+  },
+  {
+   "name": "frag_sg_add",
+   "kind": "frag",
+   "base": "sg_add",
+   "ops": {
+    "x_sg_reduce": 1,
+    "iadd": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sg_add.a.spv",
+    "b": "spv/frag_sg_add.b.spv"
+   }
+  },
+  {
+   "name": "frag_sg_shuffle",
+   "kind": "frag",
+   "base": "sg_shuffle",
+   "ops": {
+    "x_shfl": 1
+   },
+   "fit": false,
+   "ty": "uint",
+   "chains": 8,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 2,
+   "note": "index out of range reads an undefined value; timing is the same",
+   "vkext": [],
+   "args": [],
+   "files": {
+    "a": "spv/frag_sg_shuffle.a.spv",
+    "b": "spv/frag_sg_shuffle.b.spv"
+   }
+  },
+  {
    "name": "frag_dfdx",
    "kind": "frag",
+   "base": null,
    "ops": {
     "x_deriv": 1,
     "fadd": 1
@@ -4236,6 +5909,7 @@
   {
    "name": "frag_dfdy_fine",
    "kind": "frag",
+   "base": null,
    "ops": {
     "x_deriv": 1,
     "fadd": 1
@@ -4259,6 +5933,7 @@
   {
    "name": "frag_fwidth",
    "kind": "frag",
+   "base": null,
    "ops": {
     "x_deriv": 2,
     "minmax": 2,
@@ -4283,6 +5958,7 @@
   {
    "name": "frag_tex_implicit",
    "kind": "frag",
+   "base": null,
    "ops": {
     "x_tex_implicit": 1,
     "fmul": 1,
@@ -4306,6 +5982,569 @@
     "a": "spv/frag_tex_implicit.a.spv",
     "b": "spv/frag_tex_implicit.b.spv"
    }
+  }
+ ],
+ "io": [
+  {
+   "group": "vs_outputs",
+   "mode": "run",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "vec4 varyings a vertex shader writes (rasterizer discard)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_out1",
+     "file": "spv/vs_out1.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out2",
+     "file": "spv/vs_out2.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out4",
+     "file": "spv/vs_out4.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out8",
+     "file": "spv/vs_out8.spv",
+     "args": []
+    },
+    {
+     "name": "vs_out16",
+     "file": "spv/vs_out16.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "vs_attr_count",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "rgba32_sfloat vec4 attributes a vertex reads",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_in1",
+     "file": "spv/vs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in2",
+     "file": "spv/vs_in2.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in4",
+     "file": "spv/vs_in4.spv",
+     "args": []
+    },
+    {
+     "name": "vs_in8",
+     "file": "spv/vs_in8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "vs_attr_format",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "the format of one vec4 attribute (bytes a vertex: 16, 8, 8, 4, 4, 4, 4)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_attr_rgba32_sfloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba32_sfloat"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba16_sfloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba16_sfloat"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba16_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba16_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba8_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba8_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_rgba8_snorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=rgba8_snorm"
+     ]
+    },
+    {
+     "name": "vs_attr_a2bgr10_unorm",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=a2bgr10_unorm"
+     ]
+    },
+    {
+     "name": "vs_attr_b10g11r11_ufloat",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--attr",
+      "0=b10g11r11_ufloat"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "vs_index",
+   "mode": "sweep",
+   "stage": "vert",
+   "unit": "vertex",
+   "note": "non-indexed, sequential and random u32 indices (vertex reuse)",
+   "args": [],
+   "items": [
+    {
+     "name": "vs_index_none",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "none"
+     ]
+    },
+    {
+     "name": "vs_index_seq",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "seq"
+     ]
+    },
+    {
+     "name": "vs_index_random",
+     "file": "spv/vs_in1.spv",
+     "args": [
+      "--index",
+      "random"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "gs_amplify",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "points a geometry shader emits for each input point (one vec4 each)",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_emit1",
+     "file": "spv/gs_emit1.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit2",
+     "file": "spv/gs_emit2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4",
+     "file": "spv/gs_emit4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit8",
+     "file": "spv/gs_emit8.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit16",
+     "file": "spv/gs_emit16.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit32",
+     "file": "spv/gs_emit32.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "gs_outputs",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "vec4 outputs of each of 4 emitted points",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_emit4_out1",
+     "file": "spv/gs_emit4_out1.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out2",
+     "file": "spv/gs_emit4_out2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out4",
+     "file": "spv/gs_emit4_out4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_emit4_out8",
+     "file": "spv/gs_emit4_out8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "gs_invocations",
+   "mode": "run",
+   "stage": "geom",
+   "unit": "primitive",
+   "note": "4 points a primitive, from 1, 2 or 4 invocations",
+   "args": [],
+   "items": [
+    {
+     "name": "gs_inv1_emit4",
+     "file": "spv/gs_inv1_emit4.spv",
+     "args": []
+    },
+    {
+     "name": "gs_inv2_emit2",
+     "file": "spv/gs_inv2_emit2.spv",
+     "args": []
+    },
+    {
+     "name": "gs_inv4_emit1",
+     "file": "spv/gs_inv4_emit1.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_inputs",
+   "mode": "run",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "vec4 inputs a fragment shader interpolates",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_in1",
+     "file": "spv/fs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in2",
+     "file": "spv/fs_in2.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in4",
+     "file": "spv/fs_in4.spv",
+     "args": []
+    },
+    {
+     "name": "fs_in8",
+     "file": "spv/fs_in8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_rt_format",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "the render target format (bytes a pixel: 4, 4, 8, 8, 16, 4, 4, 4)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_rt_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba8_srgb",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_srgb"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba16_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_r32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=r32_sfloat"
+     ]
+    },
+    {
+     "name": "fs_rt_a2bgr10_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=a2bgr10_unorm"
+     ]
+    },
+    {
+     "name": "fs_rt_b10g11r11_ufloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=b10g11r11_ufloat"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_blend",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "blending on the render target",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_blend_none_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "alpha"
+     ]
+    },
+    {
+     "name": "fs_blend_add_rgba8_unorm",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba8_unorm",
+      "--blend",
+      "add"
+     ]
+    },
+    {
+     "name": "fs_blend_none_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba16_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba16_sfloat",
+      "--blend",
+      "alpha"
+     ]
+    },
+    {
+     "name": "fs_blend_none_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat",
+      "--blend",
+      "none"
+     ]
+    },
+    {
+     "name": "fs_blend_alpha_rgba32_sfloat",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--rt",
+      "0=rgba32_sfloat",
+      "--blend",
+      "alpha"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_msaa",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "samples of the render target (the shader runs once a pixel)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_msaa1",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "1"
+     ]
+    },
+    {
+     "name": "fs_msaa2",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "2"
+     ]
+    },
+    {
+     "name": "fs_msaa4",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "4"
+     ]
+    },
+    {
+     "name": "fs_msaa8",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--samples",
+      "8"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "fs_targets",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "rgba8_unorm render targets a fragment shader writes",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_out1",
+     "file": "spv/fs_out1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out2",
+     "file": "spv/fs_out2.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out4",
+     "file": "spv/fs_out4.spv",
+     "args": []
+    },
+    {
+     "name": "fs_out8",
+     "file": "spv/fs_out8.spv",
+     "args": []
+    }
+   ]
+  },
+  {
+   "group": "fs_depth",
+   "mode": "sweep",
+   "stage": "frag",
+   "unit": "pixel",
+   "note": "a depth attachment, tested and written (cleared each pass)",
+   "args": [],
+   "items": [
+    {
+     "name": "fs_depth_none",
+     "file": "spv/fs_in1.spv",
+     "args": []
+    },
+    {
+     "name": "fs_depth_d16",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d16_unorm",
+      "--depth-test",
+      "--depth-write"
+     ]
+    },
+    {
+     "name": "fs_depth_d24s8",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d24_unorm_s8_uint",
+      "--depth-test",
+      "--depth-write"
+     ]
+    },
+    {
+     "name": "fs_depth_d32",
+     "file": "spv/fs_in1.spv",
+     "args": [
+      "--depth",
+      "d32_sfloat",
+      "--depth-test",
+      "--depth-write"
+     ]
+    }
+   ]
   }
  ],
  "probe": "spv/probe_sm.spv"
