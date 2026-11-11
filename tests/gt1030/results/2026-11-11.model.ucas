@@ -1,0 +1,9 @@
+# measured on the GT 1030 by tests/gt1030/run.py
+model gt1030_measured {
+  iadd: 1.00, logic: 1.00, shift: 2.00, imul: 3.00, idiv: 28.52, idivk: 8.79,
+  cmp: 2.39, select: 1.62, minmax: 1.06, bitcnt: 3.00, conv: 2.99,
+  bitcast: 0.00, fadd: 1.00, fmul: 1.01, fdiv: 3.00, fsqrt: 4.00,
+  ftrans: 4.00, fpow: 8.00, f64: 32.39, load: 6.93, branch: 6.20,
+  diverge: 14.33, barrier: 9.15, atomic_shared: 6.58, atomic_global: 49.90,
+  store: 15.04
+}
