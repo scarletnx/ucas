@@ -62,11 +62,11 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       cost under gt1030: 3 -> 2 each time it runs
       relies on: n in {6, 7} where line 47 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: n * 2; n in 6..7 (proved range); udot4x8's sum is in 12..14: it does not wrap
   Quant (line 58), called from QuantWord (line 79)
-    the loop at line 64: d = -2 and 2 never change the result: -1..1 is enough; line 66: `c > int(top)` can be `false` (the result is the same)
+    the loop at line 64: d = -2 and 2 never change the result: -1..1 is enough; line 61: `(t * int(top) + 127) / 255` can be `int(uint(t * int(top) + 127) / 255u)` (the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)); line 66: `c > int(top)` can be `false` (the result is the same)
       uint Quant(int t, uint p) {
           const uint n = StoredBits();
           const uint top = (1u << n) - 1u;
-          const int guess = (t * int(top) + 127) / 255;
+          const int guess = int(uint(t * int(top) + 127) / 255u);
           uint best = 0u;
           int best_d = 1000;
           for (int d = -1; d <= 1; d++) {
@@ -87,7 +87,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return best;
       }
     proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (2560 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 377.375 -> 229.5 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 377.375 -> 217.25 per call
     relies on: t in 0..255; p in 0..1; sh_cb in {5, 6, 7, 8}; sh_pk in {0, 1, 2} at every call: QuantWord (line 79)
     line 61: a sum of products as one dot product
       t * int(top) + 127
@@ -110,6 +110,12 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       cost under gt1030: 9 -> 5 each time it runs
       relies on: w in 0..64; Ch(q0, c) in 0..255; Ch(q1, c) in 0..255 where line 86 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (64 - w) * l1; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: w * l2; 64 - w in 0..64 (proved range); l1 in 0..255 (proved range); w in 0..64 (proved range); l2 in 0..255 (proved range); udot4x8's sum is in 0..16320: it does not wrap; udot4x8's sum is in 0..16320: it does not wrap
   Eval (line 97), called from Try (line 170)
+    line 116: the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)
+      dd / 2
+        ->  int(uint(dd) / 2u)
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (520200 points)
+      cost under gt1030: 7 -> 2 each time it runs
+      relies on: dd in 1..260100 where line 116 runs
     line 117: the min never bites
       min((t64 * top + 32u) / 64u, top)
         ->  (t64 * top + 32u) / 64u

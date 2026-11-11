@@ -5260,6 +5260,27 @@ x_options(int x, int *opt, const char **why, int max)
 			opt[n++] = g->c;
 		}
 	}
+	/*
+	 * a signed division or remainder whose operands are never negative
+	 * here: the unsigned one (trunc(a/b) = floor(a/b) for a >= 0, b > 0,
+	 * and the bits read as uint are the same numbers); kept when the
+	 * model prices it lower
+	 */
+	if (g->k == X_BIN && (g->op == OP_DIV || g->op == OP_MOD) &&
+	    g->ty == TI && n < max) {
+		int aa = g->a, bb = g->b, op = g->op, ln = g->line, ua, ub, d;
+		ua = new_call(B_UINT, TU, &aa, 1, ln);
+		ub = G.x[XR(bb)].k == X_NUM ? new_num(TU, G.x[XR(bb)].v, ln) :
+		    new_call(B_UINT, TU, &bb, 1, ln);
+		d = new_bin(op, TU, ua, ub, ln);
+		g = &G.x[x];
+		why[n] = g->op == OP_DIV ? "the signed division of operands "
+		    "never negative here, unsigned (trunc = floor for a >= 0, b > 0)" :
+		    "the signed remainder of operands never negative here, "
+		    "unsigned (a - b trunc(a/b) = a mod b for a >= 0, b > 0)";
+		opt[n++] = new_call(B_INT, TI, &d, 1, ln);
+		g = &G.x[x];
+	}
 	if (g->k == X_BIN && g->op >= OP_LT && g->op <= OP_NE && n + 2 <= max) {
 		why[n] = "the compare is always true";
 		opt[n++] = new_num(TB, 1, g->line);
@@ -5282,6 +5303,8 @@ x_candidate(int x)
 	    G.x[g->b].k == X_NUM))
 		return 1;
 	if (g->k == X_BIN && g->op == OP_MOD && G.x[g->b].k == X_NUM)
+		return 1;
+	if (g->k == X_BIN && (g->op == OP_DIV || g->op == OP_MOD) && g->ty == TI)
 		return 1;
 	if (g->k == X_SEL)
 		return 1;
@@ -5608,6 +5631,7 @@ search_whole(int f)
 	struct sbuf what = {0};
 	double c0;
 	uint8_t *tried_s, *tried_x;
+	int tried_n;
 	int *xs, *ss, nx, nss, cap;
 
 	if (!whole_ok(f) || !fn_dom(f, &D))
@@ -5626,7 +5650,8 @@ search_whole(int f)
 	c0 = scost(G.f[f].body);
 	cap = G.nx + G.ns + 64;
 	tried_s = xcalloc((size_t)G.ns + 64, 1);
-	tried_x = xcalloc((size_t)G.nx + 4096, 1);
+	tried_n = G.nx + 4096;
+	tried_x = xcalloc((size_t)tried_n, 1);
 	xs = xmalloc((size_t)cap * sizeof *xs);
 	ss = xmalloc((size_t)cap * sizeof *ss);
 	/* statements first: branches, then the ends of constant-bound loops */
@@ -5719,18 +5744,24 @@ search_whole(int f)
 			int x = xs[i], opt[4], n, j;
 			const char *why[4];
 			char t0[160];
-			if (x >= G.nx + 4096 || tried_x[x] || !x_candidate(x))
+			double c0;
+			if (x >= tried_n || tried_x[x] || !x_candidate(x))
 				continue;
 			tried_x[x] = 1;
 			xtext(t0, sizeof t0, x);
 			n = x_options(x, opt, why, 4);
+			c0 = xcost(x);
 			for (j = 0; j < n && !again; j++) {
+				/* only what the model prices lower */
+				if (xcost(opt[j]) >= c0)
+					continue;
 				xrep[x] = opt[j];
 				if (fn_same(f, &D, ref, rub, NULL, 0)) {
 					char t1[160];
 					xtext(t1, sizeof t1, opt[j]);
-					sb_printf(&what, "%sline %d: `%s` can be `%s` (the result "
-					    "is the same)", kept ? "; " : "", G.x[x].line, t0, t1);
+					sb_printf(&what, "%sline %d: `%s` can be `%s` (%s)", kept ?
+					    "; " : "", G.x[x].line, t0, t1, strncmp(why[j],
+					    "the signed", 10) ? "the result is the same" : why[j]);
 					kept++;
 					again = 1;
 				} else
