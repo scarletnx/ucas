@@ -113,6 +113,7 @@ model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
@@ -161,6 +162,7 @@ model flat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 1, select: 1, minmax: 4, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
@@ -171,6 +173,7 @@ model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, 
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 > lop3(a: u32, b: u32, c: u32, k: u32) = ((a & b) | (~a & c)) + k
 > cost lop3
 cost of lop3 under gt1030: 2 (5 operations, shared subterms counted once)
@@ -260,6 +263,7 @@ model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
@@ -308,6 +312,7 @@ model flat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp:
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 1, select: 1, minmax: 4, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
@@ -318,6 +323,7 @@ model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, 
   fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
 model nolop { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
@@ -328,6 +334,7 @@ model nolop { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp
   fuse fneg(a: float) = -a : 0 in fadd fmul
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   fuse andn(a: int, b: int) = a & ~b : logic
+  folds f32 -> f16 -> f32
 > cost lop3 model nolop
 cost of lop3 under nolop: 4 (5 operations, shared subterms counted once)
   iadd             1 x 1     = 1

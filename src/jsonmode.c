@@ -244,6 +244,17 @@ static const struct jcmd cmds[] = {
 	    "the target")}},
 	{"cost", "cost", 1, 0, "price under a cost model",
 	    {FN, NMO("model", " model %s", "the model (the active one)")}},
+	{"dword", "dword", 1, 0, "f64 arithmetic over f32 (alone, or as "
+	    "double-word pairs) where the model prices that lower, with a "
+	    "derived error bound and its conditions",
+	    {FN, NUO("tol", " tol %s", "relative error allowed"),
+	    NUO("atol", " atol %s", "absolute error allowed"),
+	    NUO("ulp", " ulp %s", "for a final f32: ulp beyond its own rounding"),
+	    NMO("model", " model %s", "the model (the active one)")}},
+	{"foldproof", "foldproof", 1, 0, "the float round trips the model's "
+	    "driver folds, and their rounding as integer arithmetic it cannot "
+	    "fold, proved equal",
+	    {FN, NMO("model", " model %s", "the model (the active one)")}},
 	{"gates", "gates", 1, 0, "minimal gate network, with proof",
 	    {FN, NMO("basis", " basis %s", "c, a64, a64sha, x86bmi, nand ..."),
 	    IO("max", " max %s", "maximum cost (12)"), IO("nodes",

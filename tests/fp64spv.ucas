@@ -1,0 +1,37 @@
+# fp64 in a shader: a double computation that ends in a float becomes f32
+# instructions when the active model prices that lower and the derived
+# bound meets the requirement; the operations of the error-free
+# transformations are decorated NoContraction, and the Float64 capability
+# goes with the last f64 value.
+simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); }
+```
+# under a model whose f64 is as cheap as its f32 nothing is rewritten
+simplify nofile under zen4, x in [1, 2], y in [3, 4]
+```glsl
+float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); }
+```
+# a square root and a quotient; the integer is converted exactly
+simplify nofile under gt1030, a in [1, 100], n in [1, 1000]
+```glsl
+float g(float a, uint n) { double d = a; return float(sqrt(d * d + 1.0lf) / double(n)); }
+```
+# a result that stays double is left alone, and so is its capability
+simplify nofile
+```glsl
+double h(float x) { double a = x; return a * a + 1.0lf; }
+```
+# a conversion round trip the model says the driver folds: reported with
+# an input where the folded program differs; `foldproof` writes the
+# rounding as integer instructions
+simplify nofile, c in [0.5, 8]
+```glsl
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+float q(float c) { return float(float16_t(c)) * 2.0; }
+```
+simplify nofile, fold-proof, c in [0.5, 8]
+```glsl
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+float q(float c) { return float(float16_t(c)) * 2.0; }
+```

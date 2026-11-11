@@ -1,0 +1,6 @@
+{"id": 1, "cmd": "dword", "args": {"f": {"name": "dsq", "body": "f32(f64(x) * f64(x) - f64(y) * f64(y))", "params": [{"name": "x", "type": "f32", "range": [1, 2]}, {"name": "y", "type": "f32", "range": [3, 4]}]}}}
+{"id": 2, "cmd": "dword", "args": {"f": "dsq", "model": "zen4"}}
+{"id": 3, "cmd": "dword", "args": {"f": "dsq", "ulp": 4}}
+{"id": 4, "cmd": "cost", "args": {"f": {"name": "q", "body": "f32(f16(x)) * 2", "params": [{"name": "x", "type": "f32", "range": [0.5, 8]}]}}}
+{"id": 5, "cmd": "foldproof", "args": {"f": "q"}}
+{"id": 6, "cmd": "foldproof", "args": {"f": "q", "model": "zen4"}}

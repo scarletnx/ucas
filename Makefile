@@ -12,6 +12,9 @@ SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 SRCS+=	forms.c
 # properties: monotonic, period, identify, zeros, ...
 SRCS+=	props.c
+# fp64 as pairs of f32 (double-word arithmetic); the driver's folds
+SRCS+=	dword.c fpfold.c
+spirv.o spirv.pieo: spv_dword.inc
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
 # complex, quaternion, octonion and Cayley-Dickson numbers

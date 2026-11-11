@@ -1,11 +1,8 @@
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
-simplify: 64 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 9 -> 9 (+0.0%)
-  counting the strength reductions any driver also does: 35.5 -> 9 (-74.6%)
-  also done by any driver compiler (1 rewrite, -26.5; kept in the written module, not counted above): 1 a divide by a power of two is a shift
-  beyond those, no cheaper form of an integer instruction could be proved
+simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 9 -> 9 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 7: the shader has no main function)
-  (nofile: simplified.spvasm, 2124 bytes, checksum bbcc96e7)

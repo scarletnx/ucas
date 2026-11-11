@@ -301,10 +301,14 @@ enum {
 #define DOT_CLASS(op) (C_DOT_FIRST + ((op) - O_DOT_FIRST))
 #define C_DIVK(k) ((k) + 1)	/* the division class by a constant */
 int div_class(nid n);		/* model.c: an integer / or %'s class */
+#define MAXFOLD 4
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];
 	char desc[160];
+	/* float round trips T -> M -> T the driver drops (fpfold.c) */
+	ty_t fold[MAXFOLD][2];
+	int nfold;
 };
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);

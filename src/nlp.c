@@ -36,6 +36,7 @@
 #include "ring.h"
 #include "absalg.h"
 #include "img.h"
+#include "dword.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -7275,6 +7276,12 @@ translate(const char *sent)
 			emit(r);
 			return 1;
 		}
+		/* fp64 as f32 pairs, the driver's folds (dword.c) */
+		if ((r = dword_nlp_raw(sent)) != NULL) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
 	}
 	{
 		/* abstract algebra (absalg_cmd.c) */
@@ -7515,7 +7522,9 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"monotonic", "monotone", "period", "periodic", "identify", "parity",
 	"symmetry", "bounded", "injective", "surjective", "bijective",
 	"continuity", "discontinuities", "convexity", "convex", "concave",
-	"asymptotes", "zeros", "roots", NULL};
+	"asymptotes", "zeros", "roots",
+	/* dword.c, fpfold.c */
+	"dword", "foldproof", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",
@@ -7734,6 +7743,16 @@ nlp_is_english(const char *s, size_t n)
 	}
 	if (prove_is_cmd(s + i, n - i))
 		return 0;	/* theorem NAME: ..., prove NAME (prove_cmd.c) */
+	{
+		/* "avoid fp64 in f", "make f fold-proof" (dword.c) */
+		char line[1000];
+		if (n - i < sizeof line) {
+			memcpy(line, s + i, n - i);
+			line[n - i] = 0;
+			if (dword_nlp_raw(line) != NULL)
+				return 1;
+		}
+	}
 	if (homalg_line(s + i, n - i))	/* homology X with Z/2 (homalg) */
 		return 0;
 	{
@@ -8332,7 +8351,8 @@ simplify_piece(struct sbuf *piece, int c)
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    "faster", "speed", "speedup", "quicker", NULL};
 	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
-	char ulp[32] = "", num[32] = "", fl[96] = "";
+	char ulp[32] = "", num[32] = "", fl[200] = "";
+	int f_foldproof = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
@@ -8426,6 +8446,7 @@ simplify_piece(struct sbuf *piece, int c)
 				f_exact = 1;
 			if (!strncmp(lw, "approx", 6))
 				f_approx = 1;
+
 			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
 			    !ulp[0])
 				snprintf(ulp, sizeof ulp, "%s", num);
@@ -8471,6 +8492,26 @@ simplify_piece(struct sbuf *piece, int c)
 	    f_exact && !ulp[0] ? " exact" : "", ulp[0] ? " ulp " : "", ulp,
 	    f_approx ? " approx" : "", f_percomp ? " percomp" : "",
 	    f_fn == 1 ? " functions" : f_fn == 2 ? " nofunctions" : "");
+	{
+		/* in the request's own lines (not its # comments): "foldproof",
+		 * "fold-proof": the folded round trips' rounding kept */
+		const char *ls = p;
+		while (*ls) {
+			const char *le = strchr(ls, '\n'), *h;
+			char ln[512];
+			size_t n = le ? (size_t)(le - ls) : strlen(ls);
+			snprintf(ln, sizeof ln, "%.*s", (int)(n < 511 ? n : 511), ls);
+			ls += n + (le != NULL);
+			h = ln + strspn(ln, " \t");
+			if (*h == '#' || *h == '\x1e')
+				continue;
+			if (strstr(h, "foldproof") || strstr(h, "fold-proof") ||
+			    strstr(h, "fold proof"))
+				f_foldproof = 1;
+		}
+	}
+	snprintf(fl + strlen(fl), sizeof fl - strlen(fl), "%s", f_foldproof ?
+	    " foldproof" : "");
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		struct sbuf as = {0};

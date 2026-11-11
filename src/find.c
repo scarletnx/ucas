@@ -19,6 +19,7 @@
 #include "x86.h"
 #include "fuse.h"
 #include "irw.h"
+#include "dword.h"
 
 #include <math.h>
 #include <setjmp.h>
@@ -1960,8 +1961,11 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 {
 	(void)opsel;
 	if (TY_FP(N.ty[f->body])) {
-		if (float_rewrites(f) && (f->np != 1 ||
-		    TYK(f->p[0].ty) != K_FLOAT))
+		/* its rewrites by identities, and its f64 arithmetic over f32
+		 * (dword.c); the bit-level families are for one float parameter */
+		int said = float_rewrites(f);
+		said += dword_find(f);
+		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT))
 			return;
 		find_float(f, want);
 		return;
