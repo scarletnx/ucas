@@ -2,7 +2,7 @@
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
 simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 7 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 13 -> 6 (-53.8%)
+  integer arithmetic cost under gt1030 (each instruction once): 12 -> 6 (-50.0%)
   by kind:
        1  a sum of products as one dot product          -7
   rewrites:

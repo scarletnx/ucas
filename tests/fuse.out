@@ -1,0 +1,499 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Div7: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume x 0 999
+simplify: 54 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming x in [0, 999] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 47.75 -> 23.25 (-51.3%)
+  by kind:
+       1  operands never negative: the unsigned divide  -12.25
+       1  operands never negative: the unsigned remainder  -12.25
+  rewrites:
+    %40 = OpSDiv %int %30 %int_7
+      ->  OpBitcast %int (OpUDiv %uint (OpBitcast %uint %30) %ucas_uint_7)   (operands never negative: the unsigned divide; -12.25)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    %42 = OpSMod %int %30 %int_10
+      ->  OpBitcast %int (OpUMod %uint (OpBitcast %uint %30) %ucas_uint_10)   (operands never negative: the unsigned remainder; -12.25)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    nothing cheaper than its cost 61.75 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1945 bytes, checksum 5153409d)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Div7: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
+> use flat
+cost model: flat
+> spvsimplify nofile assume x 0 999
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming x in [0, 999] (every load of it)
+  integer arithmetic cost under flat (each instruction once): 23.25 -> 23.25 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    nothing cheaper than its cost 61.75 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Lo: called from a compute shader's main(), its arguments read from a buffer
+  Hi: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 78 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 2 (-75.0%)
+  by kind:
+       1  a compare and select of its operands is a min  -3
+       1  a compare and select of its operands is a max  -3
+  rewrites:
+    %75 = OpSelect %int %72 %47 %50
+      ->  OpExtInst %int %2 SMin %47 %50   (a compare and select of its operands is a min; -3)
+      (line 1: int Lo(int a, int b) { return a < b ? a : b; })
+    %83 = OpSelect %uint %80 %62 %59
+      ->  OpExtInst %uint %2 UMax %62 %59   (a compare and select of its operands is a max; -3)
+      (line 2: uint Hi(uint a, uint b) { return a < b ? b : a; })
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2522 bytes, checksum f246fa0f)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Lo: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model selcheap : gt1030 { cmp: 1, select: 1, minmax: 4 }
+> use selcheap
+cost model: selcheap
+> spvsimplify nofile
+simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under selcheap (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Mix: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 3)
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Bucket (line 4), called from main (line 7)
+    line 4: `v / 10` can be `int(uint(v) / 10u)` (the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)); line 4: `v % 7` can be `int(uint(v) % 7u)` (the signed remainder of operands never negative here, unsigned (a - b trunc(a/b) = a mod b for a >= 0, b > 0))
+      int Bucket(int v) {
+          return int(uint(v) / 10u) + int(uint(v) % 7u);
+      }
+    proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (1024 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 47.75 -> 23.25 per call
+    relies on: v in 0..1023 at every call: main (line 7)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use flat
+cost model: flat
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  nothing found at the function level
+> use gt1030
+cost model: gt1030
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model rpl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 1, conv: 4, bitcast: 3, fadd: 3, fmul: 3, fdiv: 10, fsqrt: 15, ftrans: 18, fpow: 54, f64: 1, load: 4, branch: 1, diverge: 6.5, barrier: 33, atomic_shared: 8, atomic_global: 8, store: 1, sdiv: 14, sdivk: 5, irem: 14, iremk: 5, srem: 14, sremk: 5, sudot4x8: 10, sdot2x16: 10, sudot4x8sat: 10, sdot2x16sat: 10 }
+model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model flat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 28.5, sdivk: 8.75, irem: 32.25, iremk: 13.5, srem: 32.25, sremk: 13.5, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 1, select: 1, minmax: 4, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+> lop3(a: u32, b: u32, c: u32, k: u32) = ((a & b) | (~a & c)) + k
+> cost lop3
+cost of lop3 under gt1030: 2 (5 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 3)
+> x3(a: u32, b: u32, c: u32, k: u32) = (a xor b xor c) + k
+> cost x3
+cost of x3 under gt1030: 2 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 1)
+> imad(a: u32, b: u32, c: u32) = a * b + c
+> cost imad
+cost of imad under gt1030: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> imk(a: u32, b: u32) = a * 0x9e3779b1 + b
+> cost imk
+cost of imk under gt1030: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> shl(a: u32, b: u32) = (a << 3) + b
+> cost shl
+cost of shl under gt1030: 2 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+> p2(a: u32, b: u32) = a * 8 + b
+> cost p2
+cost of p2 under gt1030: 2 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+> ud16(a: u32, b: u32) = a / 16 + b
+> cost ud16
+cost of ud16 under gt1030: 2 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
+> rotl(a: u32, b: u32) = (a << 7) | ((a >> 25) xor b)
+> cost rotl
+cost of rotl under gt1030: 5 (4 operations, shared subterms counted once)
+  shift            2 x 2     = 4
+  fused by the model (one instruction for several operations):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 1)
+> fm(a: f32, b: f32, c: f32) = a * b + c
+> cost fm
+cost of fm under gt1030: 1 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
+> fn(a: f32, b: f32) = -a + b
+> cost fn
+cost of fn under gt1030: 1 (2 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    fneg             1 x 0     = 0  (-a, a source modifier; saves 1)
+> fa(a: f32, b: f32) = abs(a) - b
+> cost fa
+cost of fa under gt1030: 1 (2 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    fabs             1 x 0     = 0  (abs(a), a source modifier; saves 1)
+> dm(a: f64, b: f64, c: f64) = a * b + c
+> cost dm
+cost of dm under gt1030: 32.375 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    ffma             1 x 32.375 = 32.375  (a*b + c, contracted: one rounding; saves 32.375)
+> sh(a: u32, b: u32, c: u32) = a * b + (a * b) * c
+> cost sh
+cost of sh under gt1030: 6 (3 operations, shared subterms counted once)
+  imul             1 x 3     = 3
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> l4(a: u32, b: u32, c: u32, d: u32) = (a & b) | (c xor d)
+> cost l4
+cost of l4 under gt1030: 2 (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 1)
+> model nolop : gt1030 { nofuse lop3, fuse andn(a: int, b: int) = a & ~b : logic }
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model rpl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 1, conv: 4, bitcast: 3, fadd: 3, fmul: 3, fdiv: 10, fsqrt: 15, ftrans: 18, fpow: 54, f64: 1, load: 4, branch: 1, diverge: 6.5, barrier: 33, atomic_shared: 8, atomic_global: 8, store: 1, sdiv: 14, sdivk: 5, irem: 14, iremk: 5, srem: 14, sremk: 5, sudot4x8: 10, sdot2x16: 10, sudot4x8sat: 10, sdot2x16sat: 10 }
+model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model flat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 28.5, sdivk: 8.75, irem: 32.25, iremk: 13.5, srem: 32.25, sremk: 13.5, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model selcheap { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 1, select: 1, minmax: 4, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model nolop { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5 }
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  fuse andn(a: int, b: int) = a & ~b : logic
+> cost lop3 model nolop
+cost of lop3 under nolop: 4 (5 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  logic            2 x 1     = 2
+  fused by the model (one instruction for several operations):
+    andn             1 x 1     = 1  (a & ~b; saves 1)
+> model plain { iadd: 1, logic: 1, imul: 3 }
+> cost imad model plain
+cost of imad under plain: 4 (2 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  imul             1 x 3     = 3
+> model bad : gt1030 { fuse f(a: int) = a : iadd }
+fuse.ucas:107:41: error: a fusion's pattern is an operation
+    model bad : gt1030 { fuse f(a: int) = a : iadd }
+                                            ^
+> model bad2 : gt1030 { fuse f(a: int) = -a : nosuchclass }
+fuse.ucas:108:45: error: unknown cost class 'nosuchclass' (see 'models')
+    model bad2 : gt1030 { fuse f(a: int) = -a : nosuchclass }
+                                                ^
+> dv(a: u32, b: u32, c: i32, d: i32) = a / b + a / 7 + a % b + a % 7 + u32(c / d + c / 7 + c % d + c % 7 + c / 4)
+> cost dv
+cost of dv under gt1030: 220.5 (17 operations, shared subterms counted once)
+  iadd             8 x 1     = 8
+  shift            1 x 7     = 7
+  idiv             1 x 28.5  = 28.5
+  idivk            1 x 8.75  = 8.75
+  sdiv             1 x 36    = 36
+  sdivk            1 x 21    = 21
+  irem             1 x 32.25 = 32.25
+  iremk            1 x 13.5  = 13.5
+  srem             1 x 39.75 = 39.75
+  sremk            1 x 25.75 = 25.75
+> sd(a: i32 in 0..1000, b: i32) = a / 7 + b
+> find sd 1
+find sd: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  i32(u32(a)/7) + b                        the signed division a/7 as u32 (its operands are never negative) (derived; checked by SAT)
+      holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
+      a / 7 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sm(a: i32 in 0..100000) = a % 10
+> find sm 1
+find sm: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 14  i32(u32(a) % 10)                         the signed remainder a % 10 as u32 (its operands are never negative) (derived; checked on every point)
+      holds where a >= 0 (a in [0, 100000]: its range) and 10 >= 1 (10 in [10, 10]: a constant)
+      a % 10 on i32 is a - b*trunc(a/b), with the sign of the dividend; with a >= 0 and b >= 1 it is a - b*floor(a/b), in [0, b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned remainder (at most a < 2^31) converts back to i32 unchanged
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sn(a: i32 in -5..1000) = a / 7
+> find sn 1
+find sn: 1006 points, computing in i32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16677 distinct columns, bank full; 'more' continues]
+> model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
+> use flat
+cost model: flat
+> find sd 1
+find sd: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from flat
+  derived, but not cheaper under flat (cost 10, as written 10): the signed division a/7 as u32 (its operands are never negative)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> mn(a: i32, b: i32) = a < b ? a : b
+> find mn 1
+find mn: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 1   min(a, b)                                the select a < b ? a : b as min(a, b) (derived; checked by SAT)
+      holds everywhere: integers are totally ordered
+      the select takes a exactly where b is above it (a < b), and b otherwise; where they are equal both arms are the same value; integers are totally ordered, so that is min(a, b) at every point
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mx(a: u32, b: u32) = a < b ? b : a
+> find mx 1
+find mx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 1   max(a, b)                                the select a < b ? b : a as max(a, b) (derived; checked by SAT)
+      holds everywhere: integers are totally ordered
+      the select takes b exactly where a is below it (a < b), and a otherwise; where they are equal both arms are the same value; integers are totally ordered, so that is max(a, b) at every point
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cl(x: i32) = x < 0 ? 0 : x > 255 ? 255 : x
+> find cl 1
+find cl: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   x < 0 ? 0 : min(x, 255)                  the select x > 255 ? 255 : x as min(x, 255) (derived; checked by SAT)
+      holds everywhere: integers are totally ordered
+      the select takes 255 exactly where x is above it (x > 255), and x otherwise; where they are equal both arms are the same value; integers are totally ordered, so that is min(x, 255) at every point
+  cost 2   max(min(x, 255), 0)                      all of them: the select x > 255 ? 255 : x as min(x, 255), then the clamp x < 0 ? 0 : min(x, 255) as max(min(x, 255), 0) (derived)
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> fmn(a: f32, b: f32) = a < b ? a : b
+> find fmn
+find fmn: rewrites by identities the model prices lower (cost 4 as written, under gt1030)
+  cost 1   min(a, b)                                the select a < b ? a : b as min(a, b) (derived)
+      holds where neither compared value is NaN (GLSL leaves min and max undefined there; the select takes the second arm), and where they are zeros of opposite signs the zero's sign may differ (both allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      the select takes a exactly where b is above it (a < b), and b otherwise; where they are equal both arms are the same value; floats other than NaN are ordered (with -0 = +0), so that is min(a, b) wherever no operand is NaN, up to the sign of a zero
+> fcl(x: f32) = x < 0 ? 0 : x > 1 ? 1 : x
+> find fcl 1
+find fcl: rewrites by identities the model prices lower (cost 8 as written, under gt1030)
+  cost 5   x < 0 ? 0 : min(x, 1)                    the select x > 1 ? 1 : x as min(x, 1) (derived)
+      holds where neither compared value is NaN (GLSL leaves min and max undefined there; the select takes the second arm), and where they are zeros of opposite signs the zero's sign may differ (both allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      the select takes 1 exactly where x is above it (x > 1), and x otherwise; where they are equal both arms are the same value; floats other than NaN are ordered (with -0 = +0), so that is min(x, 1) wherever no operand is NaN, up to the sign of a zero
+  cost 2   max(min(x, 1), 0)                        all of them: the select x > 1 ? 1 : x as min(x, 1), then the clamp x < 0 ? 0 : min(x, 1) as max(min(x, 1), 0) (derived)
+find fcl: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact x < 0 ? 0 : x > 1 ? 1 : x costs 8 under gt1030; refine a family with a Newton step and check it with 'error']
+> model selcheap : gt1030 { cmp: 1, select: 1, minmax: 4 }
+> use selcheap
+cost model: selcheap
+> find mn 1
+find mn: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from selcheap
+  derived, but not cheaper under selcheap (cost 4, as written 2): the select a < b ? a : b as min(a, b)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find fmn
+find fmn: derived, but not cheaper under selcheap (cost 4, as written 2): the select a < b ? a : b as min(a, b)
+> use gt1030
+cost model: gt1030
+> ud(a: u32 in 0..60000, b: u32 in 30..4000) = a / b
+> find ud 1
+find ud: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 23  u32(t1 + i32(t2 >= i32(b)) - i32(t2 < 0)) where t1 = i32(f32(i32(a))/f32(i32(b))), t2 = i32(a) - t1*i32(b) the division a/b through f32 with one correction step (derived; checked on a sample, with ucas's correctly rounded division; the derivation covers 2.5 ulp)
+      holds where a in [0, 60000] (its range), b in [30, 4000] (its range): both below 2^24, the divisor >= 1, and 5*2^-24 * 60000/30 = 0.000596 < 1
+      a, b < 2^24: f32(a) and f32(b) are exact
+      p = f32(a) / f32(b) is within 2.5 ulp of x = a/b (Vulkan's OpFDiv; correctly rounded is 0.5 ulp), and ulp(x) <= 2^-23 x, so |p - x| <= 5*2^-24 x <= 5*2^-24 * 60000/30 = 0.000596
+      p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
+      r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
+      (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> um(a: u32 in 0..60000, b: u32 in 30..4000) = a % b
+> find um 1
+find um: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 27  u32(i32(a) - (t1 + i32(t2 >= i32(b)) - i32(t2 < 0))*i32(b)) where t1 = i32(f32(i32(a))/f32(i32(b))), t2 = i32(a) - t1*i32(b) the remainder a % b through f32 with one correction step (derived; checked on a sample, with ucas's correctly rounded division; the derivation covers 2.5 ulp)
+      holds where a in [0, 60000] (its range), b in [30, 4000] (its range): both below 2^24, the divisor >= 1, and 5*2^-24 * 60000/30 = 0.000596 < 1
+      a, b < 2^24: f32(a) and f32(b) are exact
+      p = f32(a) / f32(b) is within 2.5 ulp of x = a/b (Vulkan's OpFDiv; correctly rounded is 0.5 ulp), and ulp(x) <= 2^-23 x, so |p - x| <= 5*2^-24 x <= 5*2^-24 * 60000/30 = 0.000596
+      p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
+      r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
+      and a % b = a - floor(x)*b
+      (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ub(a: u32 in 0..16000000, b: u32 in 1..4000) = a / b
+> find ub 1
+find ub: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  not applied (it would cost 23): the division a/b through f32 with one correction step
+      needs a in [0, 16000000] (its range), b in [1, 4000] (its range): both below 2^24, the divisor >= 1, but 5*2^-24 * 16000000/1 = 4.768 is not below 1
+      a, b < 2^24: f32(a) and f32(b) are exact
+      p = f32(a) / f32(b) is within 2.5 ulp of x = a/b (Vulkan's OpFDiv; correctly rounded is 0.5 ulp), and ulp(x) <= 2^-23 x, so |p - x| <= 5*2^-24 x <= 5*2^-24 * 16000000/1 = 4.768
+      that is not below 1: trunc(p) can be off by more than one, which one correction step does not fix (it would need a/b < 3355443)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model slowconv : gt1030 { conv: 10 }
+> use slowconv
+cost model: slowconv
+> find ud 1
+find ud: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from slowconv
+  derived, but not cheaper under slowconv (cost 44, as written 29): the division a/b through f32 with one correction step
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

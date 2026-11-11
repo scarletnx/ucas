@@ -166,7 +166,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `convexity F` (`convex`, `concave`) | intervals of convexity, inflection points, a chord witness |
 | `asymptotes F` | vertical, horizontal and oblique; exact for rational functions, from limits otherwise |
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
-| `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
+| `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  Identities the model prices lower join them (a signed division of non-negative operands as unsigned, compare and select as min/max, clamps, a division by a variable through f32), each with its derivation and the conditions it holds under (see [Rewrites the prices make worthwhile](#rewrites-the-prices-make-worthwhile)); floats get these too.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
@@ -1296,7 +1296,11 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,
   load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
   atomic_shared: 6.625, atomic_global: 50, store: 15,
-  dot4x8: 1, dot4x8sat: 6.5 }
+  dot4x8: 1, dot4x8sat: 6.5
+  sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a * b + c : imul
+  ... }
 model mine : gt1030 { imul: 1 }
 ```
 
@@ -1310,9 +1314,143 @@ is 1/32 rate (`f64` multiplies the cost of every f64 float operation;
 f64 division and sqrt are library calls, about 300 and 570).  load,
 store and atomic_global are cache-resident accesses; streams from DRAM
 cost 90 to 140.  DP4A is the dot4x8 class (see Dot products below).
-The report also has what the classes do not show: LOP3 and
-multiply-add fusion, subgroup operations, textures.
-`cd tests/gt1030 && ./run.py` measures again (it needs the GPU).
+The report also has what the classes do not show: subgroup operations,
+textures; the fusions it measured are in the model (below).  `cd
+tests/gt1030 && ./run.py` measures again (it needs the GPU).
+
+Integer division has a class for each kind: `idiv`/`idivk` unsigned
+(by a variable, by a constant), `sdiv`/`sdivk` signed, `irem`/`iremk`
+and `srem`/`sremk` the remainders.  A model that does not give them
+prices them as its `idiv`/`idivk` (so a model written before keeps its
+prices), and a signed remainder it does not give is the signed
+division plus what a remainder adds to the unsigned one.  `uN` and
+`bool` divide unsigned, `iN` and `int` signed.  Whatever the model, an
+unsigned division by 2^k is priced as the shift (its remainder as the
+mask) that every compiler makes of it, and a signed one as its three
+shifts and an add.  On the GT 1030 (both runs, less the add each test
+step has): udiv 28.5, by 7 8.75; umod 32.25, by 7 13.5; sdiv 36, by 7
+21; a signed remainder is not measured (39.75 and 25.75 by the rule).
+
+### Fusions
+
+Several operations that one instruction does are declared in the
+model, not in ucas:
+
+```
+fuse NAME(a: int, b: int, c: int) = a * b + c : imul
+fuse NAME(a: int, k: const, b: int) = (a << k) + b : shift
+fuse NAME(a: float, b: float, c: float) = a * b + c : fmul contract
+fuse NAME(a: float) = -a : 0 in fadd fmul
+fuse NAME = lut 3 : logic
+nofuse NAME
+```
+
+A fusion's inputs are `int`, `float`, `const` (a constant) or `any`;
+its pattern is an expression over them, matched with commutative
+operands either way round (and `x << k` also matches `x * 2^k`, `x >>
+k` an unsigned `x / 2^k`); its price is a sum of numbers and classes
+(`2*shift + iadd`).  `contract` marks one that rounds once where the
+operations round twice (a*b + c as FFMA): it is not used on a SPIR-V
+result decorated NoContraction (`precise`).  `in CLASS ...` makes it
+a modifier: the operation costs that much where every use of it is an
+operation of those classes (a negation or abs folded into the add that
+reads it).  `lut K` is any tree of bitwise logic (and, or, xor, not)
+with at most K inputs, LOP3 or vpternlog.  A derived model inherits
+its parent's fusions; `nofuse NAME` drops one.  `models` lists them.
+
+Pricing covers the expression's DAG with them, the instruction
+selection of a compiler: a value used more than once is computed once
+and is an input to everything that uses it, which cuts the DAG into
+trees, and in each tree dynamic programming takes the cheapest of each
+node by itself, each pattern rooted there (its inner nodes used only
+inside it) and each k-feasible cut of its logic cone for a lut.  That is
+the cheapest cover that never computes a value twice.  `cost` lists the
+fusions it used, `find` and `simplify` (SPIR-V) price with them.
+
+gt1030 has the fusions its corpus measured, each from a test that
+fails the per-class sum: `lop3` (lop3_select, 4 logic ops and an add,
+2.00; lop3_xor3 2.00), `imad` (imad and imul_const, 3.0: the add folds
+into the XMAD chain), `shl_add` and `shr_add` (shl_const_add,
+shr_const_add, imul_pow2, udiv_pow2: 2.0, a shift by a constant and an
+add cost one shift; the corpus cannot tell that from a constant shift
+costing 1), `ffma`, `ffms`, `ffmr` (fmad_contract 1.0; fmad_precise,
+NoContraction, 2.0), `fneg`, `fabs` (fneg_add, fabs_add: 1.0).  rotl,
+two shifts and two logic ops, is priced 5 (two shifts and a LOP3)
+against 4.41 measured.  The x86 models keep their bases (vpternlog,
+andn) for `gates` and `find`, not fusions.
+
+```
+> cost lop3(a: u32, b: u32, c: u32, k: u32) = ((a & b) | (~a & c)) + k
+cost of lop3 under gt1030: 2 (5 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    lop3             1 x 1     = 1  (bitwise logic of up to 3 inputs; saves 3)
+> cost sh(a: u32, b: u32, c: u32) = a * b + (a * b) * c
+cost of sh under gt1030: 6 (3 operations, shared subterms counted once)
+  imul             1 x 3     = 3
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+```
+
+### Rewrites the prices make worthwhile
+
+`find` (and `simplify` on SPIR-V) also try identities that hold on the
+domain the user gave, and keep one only when the active model prices
+it lower; each comes with its derivation and the conditions it holds
+under, proved from the parameters' ranges and the where clause
+(interval arithmetic, or bound.c's monotonicity proofs), then checked
+again on the domain as a second opinion (every point, SAT, or a sample
+when floats are in it).  src/irw.c:
+
+- a signed division or remainder whose dividend is never negative and
+  divisor at least 1 is the unsigned one (trunc = floor there, and the
+  bits read as unsigned are the same numbers);
+- `x < y ? x : y` is `min(x, y)`, and the other compares and arms
+  (integers: everywhere; floats: where neither value is NaN, the sign
+  of a zero may change, both allowed by Vulkan's default float
+  controls);
+- a clamp written with selects, `x < lo ? lo : min(x, hi)`, is `max(lo,
+  min(x, hi))` when lo <= hi is proved (and the mirror image);
+- a division or remainder by a variable through f32: q0 = trunc(f32(a)
+  / f32(b)), r0 = a - q0 b, then q0 + (r0 >= b) - (r0 < 0).  f32(a),
+  f32(b) are exact below 2^24, Vulkan's division is within 2.5 ulp and
+  ulp(x) <= 2^-23 x, so |p - x| <= 5*2^-24 a/b; below 1, q0 is within
+  one of floor(a/b) and r0 in [-b, 2b) says which.  The bound is
+  printed with the domain's numbers; when it is not below 1 the
+  rewrite is shown as not applied, with why.  Its check evaluates with
+  ucas's correctly rounded division, so after it no operation is
+  dropped on an evaluation's word (correctly rounded, the correction
+  is never needed; at 2.5 ulp it is).
+
+```
+> sd(a: i32 in 0..1000, b: i32) = a / 7 + b
+> find sd 1
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  i32(u32(a)/7) + b                        the signed division a/7 as u32 (its operands are never negative) (derived; checked by SAT)
+      holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
+      ...
+> ud(a: u32 in 0..60000, b: u32 in 30..4000) = a / b
+> find ud 1
+  cost 23  u32(t1 + i32(t2 >= i32(b)) - i32(t2 < 0)) where t1 = i32(f32(i32(a))/f32(i32(b))), t2 = i32(a) - t1*i32(b) the division a/b through f32 with one correction step ...
+      holds where a in [0, 60000] (its range), b in [30, 4000] (its range): both below 2^24, the divisor >= 1, and 5*2^-24 * 60000/30 = 0.000596 < 1
+```
+
+Under gt1030 the signed division by 7 (21) becomes the unsigned one
+(8.75), min costs 1 against a compare and a select (4), and the float
+path 23 against 28.5.  Under a model where they are not cheaper
+(`model selcheap : gt1030 { cmp: 1, select: 1, minmax: 4 }`, or one
+where conversions are dear) find says "derived, but not cheaper" and
+leaves the function as it is.  In SPIR-V, OpSDiv/OpSRem/OpSMod become
+OpUDiv/OpUMod on the bits (bitcasts in and out: OpUDiv wants an
+unsigned result type) and OpSelect of a compare of its own arms
+SMin/UMin/SMax/UMax (the compare goes too when nothing else uses it),
+each proved by SAT under the request's assumptions and kept when the
+model's prices say so; the totals are priced with the fusions and the
+fusions used are listed.  The function level (GLSL) offers the same
+signed-to-unsigned division where the calls' domains keep the operands
+non-negative, checked on the whole inferred domain and kept when the
+model prices it lower.  A request's `use MODEL` and model definitions
+run before its simplify.
 
 `cost F` counts each shared subterm once (and prints the body's shared
 subterms once, named, so the rest of the report can refer to them) and

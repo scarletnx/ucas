@@ -1,0 +1,162 @@
+# Fusions, signedness-aware division and the rewrites they make
+# worthwhile (src/fuse.c, src/irw.c).  SPIR-V first: a fenced block
+# takes the text before it as its request.
+# simplify: SPIR-V's OpSDiv and OpSMod of operands the assumption keeps
+# non-negative become unsigned (bitcasts in and out: OpUDiv wants an
+# unsigned type), proved by SAT
+SAT simplify x in [0, 1000) nofile
+```glsl
+int Div7(int x) { return x / 7 + x % 10; }
+```
+# a model where signed division costs what unsigned does: nothing to gain
+model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
+use flat
+SAT simplify x in [0, 1000) nofile
+```glsl
+int Div7(int x) { return x / 7 + x % 10; }
+```
+use gt1030
+# OpSelect of a compare of its arms: SMin/UMax under gt1030, not under a
+# model where a compare and a select are cheaper than a min
+SAT simplify nofile
+```glsl
+int Lo(int a, int b) { return a < b ? a : b; }
+uint Hi(uint a, uint b) { return a < b ? b : a; }
+```
+model selcheap : gt1030 { cmp: 1, select: 1, minmax: 4 }
+use selcheap
+SAT simplify nofile
+```glsl
+int Lo(int a, int b) { return a < b ? a : b; }
+```
+use gt1030
+# simplify prices the module with the model's fusions
+SAT simplify nofile
+```glsl
+uint Mix(uint a, uint b, uint c, uint k) { return ((a & b) | (~a & c)) + a * k + (b << 2u); }
+```
+
+# the function level: every call keeps v in 0..1023, so the signed
+# division and remainder become unsigned; not under flat
+simplify functions nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int o[]; };
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    o[i] = Bucket(i);
+}
+```
+use flat
+simplify functions nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int o[]; };
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    o[i] = Bucket(i);
+}
+```
+
+use gt1030
+# Fusions: what a cost model says one instruction does (fuse lines),
+# priced by the cheapest cover of the expression's DAG.  gt1030 declares
+# the ones its corpus measured (tests/gt1030/results/2026-11-11.md).
+models
+lop3(a: u32, b: u32, c: u32, k: u32) = ((a & b) | (~a & c)) + k
+cost lop3
+x3(a: u32, b: u32, c: u32, k: u32) = (a xor b xor c) + k
+cost x3
+imad(a: u32, b: u32, c: u32) = a * b + c
+cost imad
+imk(a: u32, b: u32) = a * 0x9e3779b1 + b
+cost imk
+shl(a: u32, b: u32) = (a << 3) + b
+cost shl
+p2(a: u32, b: u32) = a * 8 + b
+cost p2
+ud16(a: u32, b: u32) = a / 16 + b
+cost ud16
+rotl(a: u32, b: u32) = (a << 7) | ((a >> 25) xor b)
+cost rotl
+fm(a: f32, b: f32, c: f32) = a * b + c
+cost fm
+fn(a: f32, b: f32) = -a + b
+cost fn
+fa(a: f32, b: f32) = abs(a) - b
+cost fa
+dm(a: f64, b: f64, c: f64) = a * b + c
+cost dm
+# a product used twice is computed once: one imad, not two
+sh(a: u32, b: u32, c: u32) = a * b + (a * b) * c
+cost sh
+# four inputs do not fit one 3-input lut: two
+l4(a: u32, b: u32, c: u32, d: u32) = (a & b) | (c xor d)
+cost l4
+# a model of one's own: the fusions are inherited, one dropped, one added
+model nolop : gt1030 { nofuse lop3, fuse andn(a: int, b: int) = a & ~b : logic }
+models
+cost lop3 model nolop
+# a model without fusions prices every operation
+model plain { iadd: 1, logic: 1, imul: 3 }
+cost imad model plain
+model bad : gt1030 { fuse f(a: int) = a : iadd }
+model bad2 : gt1030 { fuse f(a: int) = -a : nosuchclass }
+
+# Division by signedness: unsigned, signed, quotient, remainder, by a
+# constant or a variable; a power of two is a shift (unsigned) or three
+# shifts and an add (signed)
+dv(a: u32, b: u32, c: i32, d: i32) = a / b + a / 7 + a % b + a % 7 + u32(c / d + c / 7 + c % d + c % 7 + c / 4)
+cost dv
+
+# find: a signed division of non-negative operands as unsigned
+sd(a: i32 in 0..1000, b: i32) = a / 7 + b
+find sd 1
+sm(a: i32 in 0..100000) = a % 10
+find sm 1
+# the dividend can be negative: no rewrite
+sn(a: i32 in -5..1000) = a / 7
+find sn 1
+# a model where signed division costs what unsigned does: nothing to gain
+model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
+use flat
+find sd 1
+use gt1030
+
+# find: compare and select as min/max, clamps as min of max
+mn(a: i32, b: i32) = a < b ? a : b
+find mn 1
+mx(a: u32, b: u32) = a < b ? b : a
+find mx 1
+cl(x: i32) = x < 0 ? 0 : x > 255 ? 255 : x
+find cl 1
+# floats: the same, with the NaN and signed-zero conditions
+fmn(a: f32, b: f32) = a < b ? a : b
+find fmn
+fcl(x: f32) = x < 0 ? 0 : x > 1 ? 1 : x
+find fcl 1
+# a model where compare and select are cheaper than min: it must not fire
+model selcheap : gt1030 { cmp: 1, select: 1, minmax: 4 }
+use selcheap
+find mn 1
+find fmn
+use gt1030
+
+# find: a division by a variable through f32, exact by its error bound
+ud(a: u32 in 0..60000, b: u32 in 30..4000) = a / b
+find ud 1
+um(a: u32 in 0..60000, b: u32 in 30..4000) = a % b
+find um 1
+# 5*2^-24 * max(a/b) is not below 1: one correction step is not enough
+ub(a: u32 in 0..16000000, b: u32 in 1..4000) = a / b
+find ub 1
+# conversions too dear: the hardware division stays
+model slowconv : gt1030 { conv: 10 }
+use slowconv
+find ud 1
+use gt1030
+

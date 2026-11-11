@@ -221,7 +221,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
   [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
 > find g 1
 find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm86
-  cost 4   c + a*b                                  exact (proved by SAT)
+  cost 2   c + a*b                                  exact (proved by SAT)
   [searched every term up to cost 4: 10469 distinct columns; 'more' continues]
 > use zen4
 cost model: zen4
@@ -313,7 +313,7 @@ exec of SPIR-V (27 instructions), entry %main, 4 lanes in lockstep, cost model g
 cost model: gt1030
 > spvsimplify nofile
 simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 12 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 24 -> 1 (-95.8%)
+  integer arithmetic cost under gt1030 (each instruction once): 21 -> 1 (-95.2%)
   by kind:
        1  a sum of products as one dot product          -23
   rewrites:
@@ -339,7 +339,9 @@ simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 cost model: nodot
 > spvsimplify nofile
 simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under nodot (each instruction once): 24 -> 24 (+0.0%)
+  integer arithmetic cost under nodot (each instruction once): 21 -> 21 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             3 x 3     = 9  (a*b + c; saves 3)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
@@ -348,7 +350,7 @@ simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 cost model: gt1030
 > spvsimplify nofile
 simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 7 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 13 -> 6 (-53.8%)
+  integer arithmetic cost under gt1030 (each instruction once): 12 -> 6 (-50.0%)
   by kind:
        1  a sum of products as one dot product          -7
   rewrites:
@@ -386,7 +388,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
 simplify: 21 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 1 dead instruction removed
   assuming pa in [0, 255] (every load of it)
   assuming pb in [0, 255] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once): 4 -> 2 (-50.0%)
+  integer arithmetic cost under gt1030 (each instruction once): 3 -> 2 (-33.3%)
   by kind:
        1  a sum of products as one dot product          -2
   rewrites:

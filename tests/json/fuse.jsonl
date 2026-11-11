@@ -1,0 +1,3 @@
+{"id": 1, "cmd": "cost", "args": {"f": {"body": "((a & b) | (~a & c)) + a * b + c", "params": [{"name": "a", "type": "u32"}, {"name": "b", "type": "u32"}, {"name": "c", "type": "u32"}]}}}
+{"id": 2, "cmd": "find", "args": {"f": {"body": "a / 7 + b", "params": [{"name": "a", "type": "i32", "range": [0, 1000]}, {"name": "b", "type": "i32"}]}, "n": 1}}
+{"id": 3, "cmd": "find", "args": {"f": {"body": "a < b ? a : b", "params": [{"name": "a", "type": "f32"}, {"name": "b", "type": "f32"}]}}}
