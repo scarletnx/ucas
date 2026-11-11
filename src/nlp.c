@@ -7714,6 +7714,11 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	/* a model or basis definition (its class names, "minmax", are not
+	 * English) */
+	if (n - i > 6 && (!strncmp(s + i, "model ", 6) ||
+	    !strncmp(s + i, "basis ", 6)) && memchr(s + i, '{', n - i))
+		return 0;
 	/* cfront: "c optimize ...", "c lower ...", "c targets" are ucas */
 	if (n - i > 2 && s[i] == 'c' && s[i + 1] == ' ' &&
 	    (!strncmp(s + i + 2, "optimi", 6) || !strncmp(s + i + 2, "lower", 5) ||
@@ -8302,6 +8307,21 @@ find_assumptions(const char *t, struct sbuf *opt)
  * c set (a C block) the statement is `c optimize` (cf_cmd.c): the budget,
  * the ranges ("n in [0, 32)"), a target named, check, bench, wrapv.
  */
+/*
+ * A line of a simplify request that is a statement of its own and runs
+ * before it: `use MODEL`, a model or basis definition.
+ */
+static int
+setting_line(const char *q, size_t n)
+{
+	while (n && (*q == ' ' || *q == '\t'))
+		q++, n--;
+	if (n > 4 && !strncmp(q, "use ", 4))
+		return 1;
+	return n > 6 && (!strncmp(q, "model ", 6) || !strncmp(q, "basis ", 6)) &&
+	    memchr(q, '{', n) != NULL;
+}
+
 static int
 simplify_piece(struct sbuf *piece, int c)
 {
@@ -8459,7 +8479,8 @@ simplify_piece(struct sbuf *piece, int c)
 		while (*q0) {
 			const char *e = strchr(q0, '\n');
 			size_t ln = e ? (size_t)(e - q0) : strlen(q0);
-			if (*q0 != '\x1e' && *q0 != '#') {	/* not comments */
+			if (*q0 != '\x1e' && *q0 != '#' &&	/* not comments */
+			    !setting_line(q0, ln)) {
 				char *line = xmalloc(ln + 1);
 				int t;
 				const struct cf_target *tg;
@@ -8506,13 +8527,25 @@ simplify_piece(struct sbuf *piece, int c)
 		assume_opts = as.p;
 	}
 	{
-		const char *q = p, *e;
+		const char *q = p, *e, *at = NULL;
+		/* the command goes on the last line of the request that is not
+		 * a setting (`use m`, a model) run before it */
+		for (q = p; *q; q = *e ? e + 1 : e) {
+			e = strchr(q, '\n');
+			if (e == NULL)
+				e = q + strlen(q);
+			if (*q != '\x1e' && e > q && !setting_line(q, (size_t)(e - q)))
+				at = q;
+		}
+		q = p;
 		while (*q) {
 			e = strchr(q, '\n');
 			if (e == NULL)
 				e = q + strlen(q);
-			if (*q == '\x1e')
+			if (*q == '\x1e' || setting_line(q, (size_t)(e - q)))
 				sb_printf(&out, "%.*s\n", (int)(e - q), q);
+			else if (q != at)
+				sb_putc(&out, '\n');
 			else if (first && e > q && c) {
 				sb_printf(&out, "c optimize%s%s%s%s%s%s%s%s%s\n",
 				    c_target, budget[0] ? " budget " : "", budget,
