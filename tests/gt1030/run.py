@@ -23,20 +23,31 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-PRELUDE = dict(iadd=1, logic=1, shift=2, imul=3, idiv=24, idivk=5, cmp=2, select=1, minmax=2, bitcnt=4,
-               conv=4, bitcast=0, fadd=1, fmul=1, fdiv=10, fsqrt=8, ftrans=4, fpow=10, f64=32, load=8,
-               branch=2, diverge=6, barrier=20, atomic_shared=8, atomic_global=64, store=8)
+# the prelude's gt1030 (src/parse.c), set from the 2026-11-11 run
+PRELUDE = dict(iadd=1, logic=1, shift=2, imul=3, idiv=28.5, idivk=8.75, cmp=2.375, select=1.625, minmax=1,
+               bitcnt=3, conv=3, bitcast=0, fadd=1, fmul=1, fdiv=3, fsqrt=4, ftrans=4, fpow=8, f64=32.375,
+               load=6.875, branch=6.25, diverge=14.375, barrier=9.125, atomic_shared=6.625, atomic_global=50,
+               store=15)
 CLASSES = list(PRELUDE)
 
 PUSH = ['seed=u32:1', 'k=u32:2654435769', 'k2=u32:5', 'kf=f32:1.0000001', 'kf2=f32:0.5']
 
 
-def sp_cmd(sp, shaders, iters, extra):
+COMPUTE_KINDS = ('alu', 'mem', 'branch')
+
+
+def ref_name(test):
+    """the fadd every test of a stage is measured against"""
+    return 'fadd' if test['kind'] in COMPUTE_KINDS else test['kind'] + '_fadd'
+
+
+def sp_cmd(sp, shaders, iters, extra, compute=True):
     cmd = [sp] + shaders
     cmd += ['--push', 'iters=u32:%d' % iters]
     for p in PUSH:
         cmd += ['--push', p]
-    cmd += ['--bind', '0.0=fill=noise', '--buffer-size', '32M']
+    if compute:
+        cmd += ['--bind', '0.0=fill=noise', '--buffer-size', '32M']
     return cmd + extra
 
 
@@ -115,8 +126,6 @@ def run_all(args, man):
     out_dir = args.out
     os.makedirs(os.path.join(out_dir, 'raw'), exist_ok=True)
     by = {t['name']: t for t in man['tests']}
-    ref = by['fadd']
-    fref = by['frag_fadd']
     only = set(args.only.split(',')) if args.only else None
     res = {}
     # the probe first: SM count and warp slots
@@ -131,10 +140,11 @@ def run_all(args, man):
         if only and name not in only:
             continue
         r = res.setdefault(name, {})
-        rf = fref if test['kind'] == 'frag' else ref
+        rf = by[ref_name(test)]
         shaders = [rf['files']['a'], rf['files']['b'], test['files']['a'], test['files']['b']]
         extra = ['--runs', str(args.runs), '--json', '--quiet'] + test['args']
-        if test['kind'] != 'frag':
+        compute = test['kind'] in COMPUTE_KINDS
+        if compute:
             extra += ['--size', '65536']
         for v in test['vkext']:
             extra += ['--ext', v]
@@ -143,11 +153,11 @@ def run_all(args, man):
         # the tightest of up to args.tries runs is kept
         best = None
         for attempt in range(args.tries):
-            d = run_sp(sp_cmd(sp, shaders, test['iters'], extra), os.path.join(out_dir, 'raw', name + '.log'))
+            d = run_sp(sp_cmd(sp, shaders, test['iters'], extra, compute), os.path.join(out_dir, 'raw', name + '.log'))
             if d is None:
                 break
             tp = throughput(test, d, rf)
-            if name in ('fadd', 'frag_fadd'):   # its own reference: 1 by definition
+            if name == rf['name']:   # its own reference: 1 by definition
                 cost, err = 1.0, tp['x']['err'] / tp['x']['ns']
             else:
                 cost = tp['x']['ns'] / tp['ref']['ns']
@@ -176,6 +186,49 @@ def run_all(args, man):
         with open(os.path.join(out_dir, 'results.json'), 'w') as fh:
             json.dump(res, fh, indent=1)
     return res
+
+
+def per_unit(sh, unit):
+    """ns a vertex, input primitive or pixel of one shader of a run, and its half interval"""
+    t, e = med(sh)
+    n = sh['invocations_per_rep']
+    if unit == 'primitive':
+        n = (sh.get('pipeline_statistics_per_rep') or {}).get('ia_primitives') or n
+    return t / n, e / n
+
+
+def run_io(args, man, res):
+    out = res.setdefault('_io', {})
+    only = set(args.only.split(',')) if args.only else None
+    for g in man['io']:
+        if only and g['group'] not in only:
+            continue
+        rows = []
+        log = os.path.join(args.out, 'raw', 'io_' + g['group'] + '.log')
+        base = ['--runs', str(args.runs), '--json', '--quiet'] + g['args']
+        if g['mode'] == 'run':
+            files = [x['file'] for x in g['items']]
+            d = run_sp([args.sp] + files + base, log)
+            if d is not None:
+                for x, sh in zip(g['items'], d['shaders']):
+                    ns, err = per_unit(sh, g['unit'])
+                    rows.append(dict(name=x['name'], ns=ns, err=err, stats=sh.get('pipeline_statistics_per_rep')))
+            else:
+                rows.append(dict(name=g['group'], error=open(log).read()[-600:]))
+        else:
+            for x in g['items']:
+                d = run_sp([args.sp, x['file']] + base + x['args'], log + '.' + x['name'])
+                if d is None:
+                    rows.append(dict(name=x['name'], error=open(log + '.' + x['name']).read()[-600:]))
+                    continue
+                ns, err = per_unit(d['shaders'][0], g['unit'])
+                rows.append(dict(name=x['name'], ns=ns, err=err, clock_mhz=sm_clock(d),
+                                 stats=d['shaders'][0].get('pipeline_statistics_per_rep')))
+        out[g['group']] = rows
+        print('%-16s %s' % (g['group'], '  '.join('%s %.3g' % (r['name'], r['ns']) if 'ns' in r else
+                                                  '%s FAILED' % r['name'] for r in rows)), flush=True)
+        with open(os.path.join(args.out, 'results.json'), 'w') as fh:
+            json.dump(res, fh, indent=1)
 
 
 def probe_summary(path):
@@ -268,7 +321,41 @@ def report(man, res, costs, out_dir):
             t['name'], ' *' if t['fit'] else '', fmt_ops(t['ops']), r['cost'], r['err'],
             '%.2f' % f if f is not None else '-', '%g' % p if p is not None else '-',
             '%.0f' % bps if bps is not None else '-', '%.1f' % lat if lat is not None else '-', t['note']))
-    L.append('\n`*` primary test of a class (used in the fit).\n\n## Model\n\n```\n%s```\n' % model_text(costs))
+    L.append('\n`*` primary test of a class (used in the fit).\n')
+    # the same steps in each stage, each against its own stage's fadd
+    bases = [t['base'] for t in man['tests'] if t.get('base') and t['kind'] == 'vert']
+    if bases:
+        L.append('\n## Stages\n\nThe same steps in a compute, vertex, geometry and fragment shader, each a ratio to the '
+                 'fadd of its own stage (the stage\'s I/O is fixed and cancels).\n\n'
+                 '| test | compute | vertex | geometry | fragment |\n|---|---:|---:|---:|---:|\n')
+        for bname in bases:
+            cells = []
+            for st in ('', 'vert_', 'geom_', 'frag_'):
+                r = res.get(st + bname, {})
+                cells.append('%.2f ± %.2f' % (r['cost'], r['err']) if 'cost' in r else '-')
+            L.append('| %s | %s |\n' % (bname, ' | '.join(cells)))
+    io = res.get('_io')
+    if io:
+        L.append('\n## Stage I/O\n\nns a unit (vertex, input primitive, pixel) over the whole GPU, the ratio to the '
+                 'group\'s first item, and the same time in fadd steps of that stage (its fadd\'s ns a lane-step). '
+                 '"run" groups share one run; "sweep" items are runs of their own (other options), so their ratios '
+                 'carry the clock drift between runs.\n')
+        for g in man['io']:
+            rows = io.get(g['group'])
+            if not rows:
+                continue
+            fr = res.get({'vert': 'vert_fadd', 'geom': 'geom_fadd', 'frag': 'frag_fadd'}[g['stage']], {})
+            fns = fr.get('tp', {}).get('x', {}).get('ns')
+            L.append('\n### %s (%s, a %s)\n\n%s\n\n| item | ns | ratio | fadd steps |\n|---|---:|---:|---:|\n'
+                     % (g['group'], g['mode'], g['unit'], g['note']))
+            first = next((r['ns'] for r in rows if 'ns' in r), None)
+            for r in rows:
+                if 'ns' not in r:
+                    L.append('| %s | FAILED | | |\n' % r['name'])
+                    continue
+                L.append('| %s | %.4g ± %.2g | %.2f | %s |\n' % (r['name'], r['ns'], r['err'], r['ns'] / first,
+                                                              '%.1f' % (r['ns'] / fns) if fns else '-'))
+    L.append('\n## Model\n\n```\n%s```\n' % model_text(costs))
     with open(os.path.join(out_dir, 'report.md'), 'w') as fh:
         fh.write(''.join(L))
     with open(os.path.join(out_dir, 'model.ucas'), 'w') as fh:
@@ -303,6 +390,8 @@ def main():
     ap.add_argument('--tries', type=int, default=3, help='runs of a test whose interval is wide')
     ap.add_argument('--max-rel-err', type=float, default=0.03, help='the interval a test aims at')
     ap.add_argument('--analyse')
+    ap.add_argument('--no-io', action='store_true', help='skip the graphics I/O groups')
+    ap.add_argument('--io-only', action='store_true', help='only the graphics I/O groups')
     args = ap.parse_args()
     man = json.load(open(os.path.join(HERE, 'manifest.json')))
     if args.analyse:
@@ -310,7 +399,10 @@ def main():
         res = json.load(open(os.path.join(args.out, 'results.json')))
     else:
         args.out = os.path.abspath(args.out)
-        res = run_all(args, man)
+        os.makedirs(os.path.join(args.out, 'raw'), exist_ok=True)
+        res = run_all(args, man) if not args.io_only else {}
+        if not args.no_io:
+            run_io(args, man, res)
         with open(os.path.join(args.out, 'results.json'), 'w') as fh:
             json.dump(res, fh, indent=1)
     costs = fit(man, res)
