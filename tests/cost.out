@@ -1,5 +1,5 @@
 > models
-model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5, cmp: 2, select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32, load: 8, branch: 2, diverge: 6, barrier: 20, atomic_shared: 8, atomic_global: 64, store: 8 }
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15 }
 model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1 }
 model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1 }
 model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1 }
@@ -10,9 +10,9 @@ model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, 
 model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1 }
 > rsqrt(x: f32) = 1/sqrt(x)
 > cost rsqrt
-cost of rsqrt under gt1030: 18 (2 operations, shared subterms counted once)
-  fdiv             1 x 10    = 10
-  fsqrt            1 x 8     = 8
+cost of rsqrt under gt1030: 7 (2 operations, shared subterms counted once)
+  fdiv             1 x 3     = 3
+  fsqrt            1 x 4     = 4
 > quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
     where y = asfloat(0x5f3759df - (asuint(x) >> 1))
 > cost quake
@@ -26,53 +26,53 @@ cost of quake under gt1030: 8 (9 operations, shared subterms counted once)
   fmul             4 x 1     = 4
 > d(x: f64) = x * x + 1
 > cost d
-cost of d under gt1030: 64 (2 operations, shared subterms counted once)
-  fadd             1 x 32    = 32
-  fmul             1 x 32    = 32
+cost of d under gt1030: 64.75 (2 operations, shared subterms counted once)
+  fadd             1 x 32.375 = 32.375
+  fmul             1 x 32.375 = 32.375
 > k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
 > cost k
-cost of k under gt1030: 17 (6 operations, shared subterms counted once)
-  cmp              1 x 2     = 2
-  select           1 x 1     = 1
+cost of k under gt1030: 14 (6 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
   fadd             1 x 1     = 1
   fmul             1 x 1     = 1
-  fsqrt            1 x 8     = 8
+  fsqrt            1 x 4     = 4
   ftrans           1 x 4     = 4
-  ?: on x > 0  (arms cost 14 and 0)
-      select: +1   uniform branch: +2   divergent branch: +8
+  ?: on x > 0  (arms cost 10 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
-  estimate with the best form per ?: : 17
+  estimate with the best form per ?: : 14
 > ku(x: f32 uniform, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
 > cost ku
-cost of ku under gt1030: 17 (6 operations, shared subterms counted once)
-  cmp              1 x 2     = 2
-  select           1 x 1     = 1
+cost of ku under gt1030: 14 (6 operations, shared subterms counted once)
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
   fadd             1 x 1     = 1
   fmul             1 x 1     = 1
-  fsqrt            1 x 8     = 8
+  fsqrt            1 x 4     = 4
   ftrans           1 x 4     = 4
-  ?: on x > 0  (arms cost 14 and 0)
-      select: +1   uniform branch: +2   divergent branch: +8  (condition is uniform)
+  ?: on x > 0  (arms cost 10 and 0)
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625  (condition is uniform)
       -> select
-  estimate with the best form per ?: : 17
+  estimate with the best form per ?: : 14
 > w(i: u32, v: u32) = barrier(atomic_add_shared(i, v) + 1)
 > cost w
-cost of w under gt1030: 29 (3 operations, shared subterms counted once)
+cost of w under gt1030: 16.75 (3 operations, shared subterms counted once)
   iadd             1 x 1     = 1
-  barrier          1 x 20    = 20
-  atomic_shared    1 x 8     = 8
+  barrier          1 x 9.125 = 9.125
+  atomic_shared    1 x 6.625 = 6.625
 > wg(i: u32, v: u32) = atomic_max(i, v)
 > cost wg
-cost of wg under gt1030: 64 (1 operations, shared subterms counted once)
-  atomic_global    1 x 64    = 64
+cost of wg under gt1030: 50 (1 operations, shared subterms counted once)
+  atomic_global    1 x 50    = 50
 > div(a: u32, b: u32) = a / b
 > cost div
-cost of div under gt1030: 24 (1 operations, shared subterms counted once)
-  idiv             1 x 24    = 24
+cost of div under gt1030: 28.5 (1 operations, shared subterms counted once)
+  idiv             1 x 28.5  = 28.5
 > div7(a: u32) = a / 7
 > cost div7
-cost of div7 under gt1030: 5 (1 operations, shared subterms counted once)
-  idivk            1 x 5     = 5
+cost of div7 under gt1030: 8.75 (1 operations, shared subterms counted once)
+  idivk            1 x 8.75  = 8.75
 > model mine : gt1030 { imul: 1, idiv: 4 }
 > cost div model mine
 cost of div under mine: 4 (1 operations, shared subterms counted once)

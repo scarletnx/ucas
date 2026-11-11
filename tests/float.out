@@ -12,7 +12,7 @@ fit guess to rsqrt (max relative error, 4096 sample points):
 > find rsqrt 2
 find rsqrt: IEEE bit-level families, magic constant K fitted for max relative error
   max rel 0.03421    cost 3     asfloat(1597465581 - (asuint(x) >> 1))        (x^-1/2 family)
-  [exact 1/sqrt(x) costs 18 under gt1030; refine a family with a Newton step and check it with 'error']
+  [exact 1/sqrt(x) costs 7 under gt1030; refine a family with a Newton step and check it with 'error']
 > quake(x: f32) = y * (1.5f - 0.5f * x * y * y)
     where y = asfloat(0x5f3759df - (asuint(x) >> 1))
 > error quake ~ rsqrt

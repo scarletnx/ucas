@@ -250,7 +250,7 @@ approx tanh(x) on [-3, 3] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131061 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   identity  9     horner+fma  1.32 ulp                 1.57e-07      7.87e-08      29   at x=-0.551567852  *
+  1   identity  9     horner+fma  1.32 ulp                 1.57e-07      7.87e-08      22   at x=-0.551567852  *
       P | 1 - 2/(exp(2|x|) + 1): copysign(a < 0.550000012 ? p : 1.0 - 2.0/(e + 1.0), x) where a = abs(x), s = a*a, p = fma(a*s, fma(fma(fma(0.0164374672, s, -0.052671846), s, 0.133207276), s, -0.333329469), a), e = exp(2.0*a)
   2   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-1.86081905e-09
       x*P(x^2): x*fma(fma(fma(-0.00152674236, s, 0.0306036901), s, -0.224170253), s, 0.975032032) where s = x*x
@@ -345,7 +345,7 @@ approx cosh(x) on [-3, 3] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131029 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   identity  -     -           0.994 ulp                1.11e-07      9.39e-07      18   at x=-2.64367127  *
+  1   identity  -     -           0.994 ulp                1.11e-07      9.39e-07      10   at x=-2.64367127  *
       (e + 1/e)/2, e = exp(|x|): 0.5*(e + 1.0/e) where a = abs(x), e = exp(a)
   2   minimax   4     horner+fma  1.66e+05 ulp             0.0113        0.113         3    at x=1.22375834
       P(x^2): fma(fma(0.0598213971, s, 0.455278039), s, 1.01126039) where s = x*x

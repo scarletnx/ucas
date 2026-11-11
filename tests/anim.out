@@ -1,70 +1,70 @@
 > animate random sample prefix sum scan n=8 at 30 fps using gt1030 seed 1 nofile
 prefix sum of 8 u32 values (random), cost model gt1030
   random values (seed 1): 4 8 1 3 5 3 1 3
-  per element: load 8, add 1, barrier 20, divergence 8
+  per element: load 6.875, add 1, barrier 9.125, divergence 20.625
     algorithm      levels     time     work
-    Hillis-Steele       3      139      537   <- animated
-    Blelloch            7      334      414
-    sequential          7      127      127
+    Hillis-Steele       3      145      464   <- animated
+    Blelloch            7      294      358
+    sequential          7      110      110
   Hillis-Steele levels:
-    d=1        7 ops  lane   25 +diverge +barrier  t = 0..53
-    d=2        6 ops  lane   25 +diverge +barrier  t = 53..106
-    d=4        4 ops  lane   25 +diverge  t = 106..139
+    d=1        7 ops  lane 21.625 +diverge +barrier  t = 0..51.375
+    d=2        6 ops  lane 21.625 +diverge +barrier  t = 51.375..102.75
+    d=4        4 ops  lane 21.625 +diverge  t = 102.75..145
   result: 4 12 13 16 21 24 25 28
-  animation: 420x242, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 23.2 cost units; 224631 bytes
-  (nofile: GIF checksum 3ce45124)
+  animation: 420x242, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 24.2 cost units; 236206 bytes
+  (nofile: GIF checksum b72493ac)
 > animate blelloch scan n 8 fps 24 seconds 4 nofile
 prefix sum of 8 u32 values (1..n), cost model gt1030
   values: 1 2 3 4 5 6 7 8
-  per element: load 8, add 1, barrier 20, divergence 8
+  per element: load 6.875, add 1, barrier 9.125, divergence 20.625
     algorithm      levels     time     work
-    Hillis-Steele       3      139      537
-    Blelloch            7      334      414   <- animated
-    sequential          7      127      127
+    Hillis-Steele       3      145      464
+    Blelloch            7      294      358   <- animated
+    sequential          7      110      110
   Blelloch levels:
-    up 1       4 ops  lane   25 +barrier  t = 0..45
-    up 2       2 ops  lane   25 +diverge +barrier  t = 45..98
-    up 4       1 ops  lane   25 +diverge +barrier  t = 98..151
-    clear      0 ops  lane    8 +barrier  t = 151..179
-    down 4     1 ops  lane   33 +diverge +barrier  t = 179..240
-    down 2     2 ops  lane   33 +diverge +barrier  t = 240..301
-    down 1     4 ops  lane   33  t = 301..334
+    up 1       4 ops  lane 21.625 +barrier  t = 0..30.75
+    up 2       2 ops  lane 21.625 +diverge +barrier  t = 30.75..82.125
+    up 4       1 ops  lane 21.625 +diverge +barrier  t = 82.125..133.5
+    clear      0 ops  lane 6.875 +barrier  t = 133.5..149.5
+    down 4     1 ops  lane 28.5 +diverge +barrier  t = 149.5..207.75
+    down 2     2 ops  lane 28.5 +diverge +barrier  t = 207.75..266
+    down 1     4 ops  lane 28.5  t = 266..294.5
   result: 0 1 3 6 10 15 21 28
-  animation: 420x402, 132 frames at 24 fps (4.0 s, then the result for 1.5 s), 1 s = 83.5 cost units; 169333 bytes
-  (nofile: GIF checksum 5a1922bb)
+  animation: 420x402, 132 frames at 24 fps (4.0 s, then the result for 1.5 s), 1 s = 73.6 cost units; 184410 bytes
+  (nofile: GIF checksum 9c551bb6)
 > animate sequential scan values 3, 1, 7, 0, 4, 1, 6, 3 nofile
 prefix sum of 8 u32 values (given), cost model gt1030
   values: 3 1 7 0 4 1 6 3
-  per element: load 8, add 1, barrier 20, divergence 8
+  per element: load 6.875, add 1, barrier 9.125, divergence 20.625
     algorithm      levels     time     work
-    Hillis-Steele       3      139      537
-    Blelloch            7      334      414
-    sequential          7      127      127   <- animated
+    Hillis-Steele       3      145      464
+    Blelloch            7      294      358
+    sequential          7      110      110   <- animated
   sequential levels:
     7 steps of load + add + store (the running sum stays in a register), no barriers
   result: 3 4 11 11 15 16 22 25
-  animation: 420x162, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 21.2 cost units; 206584 bytes
-  (nofile: GIF checksum 10221cdf)
+  animation: 420x162, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 18.4 cost units; 200918 bytes
+  (nofile: GIF checksum 94c32dfc)
 > animate scan n 500 fps 30 seconds 2 nofile
   note: n = 500 is over the cap: using 100
 prefix sum of 100 u32 values (1..n), cost model gt1030
   values: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 ...
-  per element: load 8, add 1, barrier 20, divergence 8
+  per element: load 6.875, add 1, barrier 9.125, divergence 20.625
     algorithm      levels     time     work
-    Hillis-Steele       7      351    16357   <- animated
-    Blelloch           15      790     7374
-    sequential         99     1691     1691
+    Hillis-Steele       7      350    14137   <- animated
+    Blelloch           15      733     6373
+    sequential         99     1467     1467
   Hillis-Steele levels:
-    d=1       99 ops  lane   25 +diverge +barrier  t = 0..53
-    d=2       98 ops  lane   25 +diverge +barrier  t = 53..106
-    d=4       96 ops  lane   25 +diverge +barrier  t = 106..159
-    d=8       92 ops  lane   25 +diverge +barrier  t = 159..212
-    d=16      84 ops  lane   25 +diverge +barrier  t = 212..265
-    d=32      68 ops  lane   25 +diverge +barrier  t = 265..318
-    d=64      36 ops  lane   25 +diverge  t = 318..351
+    d=1       99 ops  lane 21.625 +diverge +barrier  t = 0..51.375
+    d=2       98 ops  lane 21.625 +diverge +barrier  t = 51.375..102.75
+    d=4       96 ops  lane 21.625 +diverge +barrier  t = 102.75..154.125
+    d=8       92 ops  lane 21.625 +diverge +barrier  t = 154.125..205.5
+    d=16      84 ops  lane 21.625 +diverge +barrier  t = 205.5..256.875
+    d=32      68 ops  lane 21.625 +diverge +barrier  t = 256.875..308.25
+    d=64      36 ops  lane 21.625 +diverge  t = 308.25..350.5
   result: 1 3 6 10 15 21 28 36 45 55 66 78 91 105 120 136 153 171 190 210 231 253 276 300 ...
-  animation: 756x402, 105 frames at 30 fps (2.0 s, then the result for 1.5 s), 1 s = 175.5 cost units; 183836 bytes
-  (nofile: GIF checksum c64a6568)
+  animation: 756x402, 105 frames at 30 fps (2.0 s, then the result for 1.5 s), 1 s = 175.2 cost units; 204161 bytes
+  (nofile: GIF checksum f18e3a3e)
 > animate scan n 8 fps 90 nofile
 anim.ucas:6:31: error: animate: fps from 1 to 60
     animate scan n 8 fps 90 nofile
@@ -84,43 +84,43 @@ exec of (1 << x) + x, cost model gt1030, 4 lanes in lockstep; x: u32
 exec of x > 1 ? x*x*x : x + 7, cost model gt1030, 4 lanes in lockstep; x: u32
   result per lane: 7 8 8 27
   serial form:
-    t0 = x > 1                                   cmp            2  t = 0..2  -> 0 0 1 1
-    branch on t0: then {2,3} else {0,1} diverges branch         2  t = 2..4
-    t1 = x * x                                   imul           3  t = 4..7  lanes {2,3}  -> - - 4 9
-    t2 = t1 * x                                  imul           3  t = 7..10  lanes {2,3}  -> - - 8 27
-    t3 = x + 7                                   iadd           1  t = 10..11  lanes {0,1}  -> 7 8 - -
-    reconverge (keep-up)                         diverge        6  t = 11..17
-    t4 = t2 | t3  (per lane)                                    0  t = 17..17  -> 7 8 8 27
-  time 17 for every lane; lanes busy 79% (14 lane-units idle: masked, or waiting for an atomic)
-  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 2.8 cost units; 126422 bytes
-  (nofile: GIF checksum d9721262)
+    t0 = x > 1                                   cmp        2.375  t = 0..2.375  -> 0 0 1 1
+    branch on t0: then {2,3} else {0,1} diverges branch      6.25  t = 2.375..8.625
+    t1 = x * x                                   imul           3  t = 8.625..11.625  lanes {2,3}  -> - - 4 9
+    t2 = t1 * x                                  imul           3  t = 11.625..14.625  lanes {2,3}  -> - - 8 27
+    t3 = x + 7                                   iadd           1  t = 14.625..15.625  lanes {0,1}  -> 7 8 - -
+    reconverge (keep-up)                         diverge    14.375  t = 15.625..30
+    t4 = t2 | t3  (per lane)                                    0  t = 30..30  -> 7 8 8 27
+  time 30 for every lane; lanes busy 88% (14 lane-units idle: masked, or waiting for an atomic)
+  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 5.0 cost units; 131800 bytes
+  (nofile: GIF checksum 09aaf8da)
 > animate exec of 32-bit x < 100 ? x*3 : x/3 nofile
   note: 32-bit: every variable is u32 (say "signed 32-bit" for i32)
 exec of x < 100 ? 3x : x/3, cost model gt1030, 4 lanes in lockstep; x: u32
   result per lane: 0 3 6 9
   serial form:
-    t0 = x < 100                                 cmp            2  t = 0..2  -> 1 1 1 1
-    branch on t0: then {0,1,2,3} else {} uniform branch         2  t = 2..4
-    t1 = 3 * x                                   imul           3  t = 4..7  -> 0 3 6 9
-    t2 = t1  (per lane)                                         0  t = 7..7  -> 0 3 6 9
-  time 7 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.2 cost units; 57524 bytes
-  (nofile: GIF checksum 5a9c29fb)
+    t0 = x < 100                                 cmp        2.375  t = 0..2.375  -> 1 1 1 1
+    branch on t0: then {0,1,2,3} else {} uniform branch      6.25  t = 2.375..8.625
+    t1 = 3 * x                                   imul           3  t = 8.625..11.625  -> 0 3 6 9
+    t2 = t1  (per lane)                                         0  t = 11.625..11.625  -> 0 3 6 9
+  time 11.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 632x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.9 cost units; 84305 bytes
+  (nofile: GIF checksum 6db74ad4)
 > animate exec of u32 barrier(atomic_add_shared(x, 1) + x) * 2 nofile
   note: every variable is u32
 exec of 2barrier(atomic_add_shared(x, 1) + x), cost model gt1030, 4 lanes in lockstep; x: u32
   result per lane: 0 4 8 12
   serial form:
-    t0 = atomic_add_shared(x, 1)  (lane 0)       atomic_shared     8  t = 0..8  lanes {0}  -> 0 - - -
-    t0 = atomic_add_shared(x, 1)  (lane 1)       atomic_shared     8  t = 8..16  lanes {1}  -> - 1 - -
-    t0 = atomic_add_shared(x, 1)  (lane 2)       atomic_shared     8  t = 16..24  lanes {2}  -> - - 2 -
-    t0 = atomic_add_shared(x, 1)  (lane 3)       atomic_shared     8  t = 24..32  lanes {3}  -> - - - 3
-    t1 = t0 + x                                  iadd           1  t = 32..33  -> 0 2 4 6
-    barrier()                                    barrier       20  t = 33..53
-    t2 = 2 * t1                                  shift          2  t = 53..55  -> 0 4 8 12
-  time 55 for every lane; lanes busy 20% (96 lane-units idle: masked, or waiting for an atomic)
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 9.2 cost units; 135210 bytes
-  (nofile: GIF checksum 4a9c7544)
+    t0 = atomic_add_shared(x, 1)  (lane 0)       atomic_shared 6.625  t = 0..6.625  lanes {0}  -> 0 - - -
+    t0 = atomic_add_shared(x, 1)  (lane 1)       atomic_shared 6.625  t = 6.625..13.25  lanes {1}  -> - 1 - -
+    t0 = atomic_add_shared(x, 1)  (lane 2)       atomic_shared 6.625  t = 13.25..19.875  lanes {2}  -> - - 2 -
+    t0 = atomic_add_shared(x, 1)  (lane 3)       atomic_shared 6.625  t = 19.875..26.5  lanes {3}  -> - - - 3
+    t1 = t0 + x                                  iadd           1  t = 26.5..27.5  -> 0 2 4 6
+    barrier()                                    barrier    9.125  t = 27.5..36.625
+    t2 = 2 * t1                                  shift          2  t = 36.625..38.625  -> 0 4 8 12
+  time 38.625 for every lane; lanes busy 25% (79.5 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 6.4 cost units; 138118 bytes
+  (nofile: GIF checksum 9554498f)
 > animate exec of signed 16-bit x*x - 3 lanes 32 nofile
   note: 16-bit: every variable is i16
 exec of x*x - 3, cost model gt1030, 32 lanes in lockstep; x: i16

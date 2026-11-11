@@ -1391,21 +1391,24 @@ static const char prelude[] =
     "basis avx512 : x86bmi { ternlog(x, y, z) = lut }\n"
     "basis nand { nand(x, y) = ~(x & y) }\n"
     /*
-     * NVIDIA GT 1030 (GP108, sm_61) through SPIR-V.  Relative issue cost
-     * per warp instruction, from the sm_61 per-SM throughput table:
-     * fp32 add/mul/fma 128/clk -> 1; int add/logic 128 -> 1; shifts and
-     * compares 64 -> 2; 32-bit IMUL is an XMAD sequence -> 3; integer
-     * division is emulated -> 24, by a constant it is mul+shift -> 5;
-     * SFU (rsqrt, rcp, sin, cos, ex2, lg2) 32 -> 4; conversions 32 -> 4;
-     * fp64 is 1/32 rate -> 32; IEEE fdiv/sqrt are SFU + Newton fixups.
-     * A divergent branch runs both arms plus reconvergence ("keep-up").
+     * NVIDIA GT 1030 (GP108, sm_61) through SPIR-V, measured on the card
+     * (driver 580.178.04) by tests/gt1030: issue cost per SPIR-V
+     * operation relative to fadd, from throughput with the SMs full
+     * (tests/gt1030/results/2026-11-11.md).  Integer division is
+     * emulated (by a constant: multiply-high and shifts); fdiv, sqrt and
+     * the SFU functions are 1/4 rate; fp64 is 1/32.  load, store and
+     * atomic_global are cache-resident accesses (DRAM-bound streams cost
+     * 90-140); branch is a taken uniform branch with its reconvergence,
+     * diverge what a split warp adds ("keep-up").  The costs are on a 1/8
+     * grid (exact binary fractions, within 1% of the measurements).  f16
+     * is not measured: GP108 has no f16 arithmetic.
      */
     "model gt1030 {\n"
-    "  iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5, cmp: 2,\n"
-    "  select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0,\n"
-    "  fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32,\n"
-    "  load: 8, branch: 2, diverge: 6, barrier: 20,\n"
-    "  atomic_shared: 8, atomic_global: 64, store: 8\n"
+    "  iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,\n"
+    "  cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0,\n"
+    "  fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,\n"
+    "  load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,\n"
+    "  atomic_shared: 6.625, atomic_global: 50, store: 15\n"
     "}\n";
 
 static void

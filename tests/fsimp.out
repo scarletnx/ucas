@@ -6,10 +6,10 @@ simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-float simplify: 3 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 42 (-17.6%)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v3bool %44 %29
@@ -34,22 +34,6 @@ float simplify: 3 rewrites of float instructions applied, each with a derivation
           where the original is undefined (c in [-inf, -0.055000003]) any result refines it
           every difference is in the sign of a zero or an infinity against a NaN: within Vulkan's default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved
         not bit-exact at c in [-8.40779e-45, -0] (original +0, select -0); c = +inf (original NaN, select +inf)
-        (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
-    %61 = OpExtInst %v3float %2 Pow %60 %26
-      -> %ucas_f2l = OpExtInst %v3float %2 Log2 %60
-         %ucas_f2m = OpFMul %v3float %ucas_f2l %26
-         %61 = OpExtInst %v3float %2 Exp2 %ucas_f2m
-      (pow as exp2(y * log2 x); -3)
-      proof: within the original's Vulkan precision (derived), not bit-exact
-        where it is used, the base (c + 0.055) * 0.94786733 is in [0.090473935, +inf] or NaN (only the select's side for it)
-          Vulkan: pow: inherited from exp2(y * log2(x)); exp2: 3 + 2|x| ulp; log2: 3 ulp outside [0.5, 2], absolute error < 2^-21 inside; the rewrite is that expression, so its bound is the original's by definition: within
-          against the correctly rounded pow: L = log2(q)(1 + d1), t = y L (1 + d2), |t^ - t| <= |t|(2u + u^2) with |t| <= 152 here, so exp2(t^)(1 + d3) = q^y 2^(t^ - t)(1 + d3): relative error < 1.26e-05, under 213 ulp of a result within 0.5 ulp
-          considered, none cheaper than exp2(y * log2 x) at 9:
-            x^2.4 as x*x*pow(x, 0.4): a pow remains (10 + 2)
-            the integer seed asfloat(int(2.4 * (asuint(q) - 0x3f800000)) + 0x3f800000 + bias) (Mitchell: log2(1 + m) - m is in [0, 0.0861]): 11, error up to 2^(0.146) - 1 = 0.107 with the best bias (more with Newton steps)
-          polynomial approximations need a bounded base: assume a range (e.g. `c in [0, 1]`) to have them listed
-        not bit-exact: c = 0.04045: original 0.0031308066, rewrite 0.0031308061 (2 ulp apart)
-        bound against the reference: 212 ulp
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
     %60 = OpFMul %v3float %58 %71
       -> %60 = OpExtInst %v3float %2 Fma %44 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
@@ -79,8 +63,11 @@ float simplify: 3 rewrites of float instructions applied, each with a derivation
           Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.534 <= 2.5, so it is within the precision the division already had
         not bit-exact: c = -12.920044: / 12.92 gives -1.0000033, * 0.07739938 gives -1.0000035 (the quotient within |delta| of a rounding midpoint)
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
-  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (2) when the lanes agree, and both sides plus 6 when they diverge (keep-up)
-  (nofile: simplified.spvasm, 3176 bytes, checksum 3126c8e3)
+  not applied:
+    %61 = OpExtInst %v3float %2 Pow %60 %26   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
+  (nofile: simplified.spvasm, 3088 bytes, checksum 2bde1ef4)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   decode: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -89,11 +76,11 @@ simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-float simplify: 3 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 42 (-22.2%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 42 (-17.6%)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v3bool %44 %29
@@ -115,22 +102,6 @@ float simplify: 3 rewrites of float instructions applied, each with a derivation
             b = -0 and a*0 = +0: never
           every difference is in the sign of a zero or an infinity against a NaN: within Vulkan's default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved
         not bit-exact at c = -0 (original +0, select -0)
-        (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
-    %61 = OpExtInst %v3float %2 Pow %60 %26
-      -> %ucas_f2l = OpExtInst %v3float %2 Log2 %60
-         %ucas_f2m = OpFMul %v3float %ucas_f2l %26
-         %61 = OpExtInst %v3float %2 Exp2 %ucas_f2m
-      (pow as exp2(y * log2 x); -3)
-      proof: within the original's Vulkan precision (derived), not bit-exact
-        where it is used, the base (c + 0.055) * 0.94786733 is in [0.090473935, 1] (only the select's side for it)
-          Vulkan: pow: inherited from exp2(y * log2(x)); exp2: 3 + 2|x| ulp; log2: 3 ulp outside [0.5, 2], absolute error < 2^-21 inside; the rewrite is that expression, so its bound is the original's by definition: within
-          against the correctly rounded pow: L = log2(q)(1 + d1), t = y L (1 + d2), |t^ - t| <= |t|(2u + u^2) with |t| <= 8.319 here, so exp2(t^)(1 + d3) = q^y 2^(t^ - t)(1 + d3): relative error < 7.47e-07, under 13.5 ulp of a result within 0.5 ulp
-          considered, none cheaper than exp2(y * log2 x) at 9:
-            x^2.4 as x*x*pow(x, 0.4): a pow remains (10 + 2)
-            x^2.4 by 3 sqrt and 3 multiplies (exponent 2.375): 27, and an approximation: q^(0.0250001) - 1 reaches 0.0583 on the base's range
-            the integer seed asfloat(int(2.4 * (asuint(q) - 0x3f800000)) + 0x3f800000 + bias) (Mitchell: log2(1 + m) - m is in [0, 0.0861]): 11, error up to 2^(0.146) - 1 = 0.107 with the best bias (more with Newton steps)
-        not bit-exact: c = 0.04045: original 0.0031308066, rewrite 0.0031308061 (2 ulp apart)
-        bound against the reference: 13 ulp
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
     %60 = OpFMul %v3float %58 %71
       -> %60 = OpExtInst %v3float %2 Fma %44 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
@@ -161,20 +132,21 @@ float simplify: 3 rewrites of float instructions applied, each with a derivation
         not bit-exact: c = 0.02523446: / 12.92 gives 0.0019531315, * 0.07739938 gives 0.0019531318 (the quotient within |delta| of a rounding midpoint)
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
   approximations (cheaper, not applied: say `approx ulp N` to allow one):
-    pow ~ degree-2 minimax polynomial, cost 3 (-7): relative error < 0.079 (1.43013e+06 ulp), beyond the original's precision
-    pow ~ degree-3 minimax polynomial, cost 4 (-6): relative error < 0.00761 (128665 ulp), beyond the original's precision
-    pow ~ degree-4 minimax polynomial, cost 5 (-5): relative error < 0.00162 (27249 ulp), beyond the original's precision
-    pow ~ degree-5 minimax polynomial, cost 6 (-4): relative error < 0.000591 (9916 ulp), beyond the original's precision
-    pow ~ degree-6 minimax polynomial, cost 7 (-3): relative error < 0.000354 (5945 ulp), beyond the original's precision
-    pow ~ degree-7 minimax polynomial, cost 8 (-2): relative error < 0.000333 (5590 ulp), beyond the original's precision
-    pow ~ degree-8 minimax polynomial, cost 9 (-1): relative error < 0.000349 (5865 ulp), beyond the original's precision
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.079 (1.43013e+06 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00761 (128665 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00162 (27249 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.000591 (9916 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.000354 (5945 ulp), beyond the original's precision
         relative minimax of q^2.4 on [0.090473935, 1] (remez.c), t = q - 0.546875, coefficients rounded to f32, Horner with fma:
-          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 1.77e-05 relative
-          plus rounding (gamma_16 = 16 u/(1 - 16 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000349 relative in all, the worst near q = 0.0905
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000116 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000354 relative in all, the worst near q = 0.0905
           against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
-        P(t) = fma(fma(fma(fma(fma(fma(fma(fma(-0.318302542, t, 0.00576813985), t, 0.0497525856), t, 0.0694303587), t, -0.097155273), t, 0.31977126), t, 1.31989348), t, 1.03103888), t, 0.234926), t = q - 0.546875
-  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (2) when the lanes agree, and both sides plus 6 when they diverge (keep-up)
-  (nofile: simplified.spvasm, 3176 bytes, checksum 3126c8e3)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.170326233, t, 0.0395413302), t, -0.0579296909), t, 0.327347875), t, 1.31810999), t, 1.03068686), t, 0.234929577), t = q - 0.546875
+  not applied:
+    %61 = OpExtInst %v3float %2 Pow %60 %26   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
+  (nofile: simplified.spvasm, 3088 bytes, checksum 2bde1ef4)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   decode: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -187,7 +159,7 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 54 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 51 (+0.0%)
   mode: bit-exact only
   nothing applied: no cheaper float form could be proved bit-exact
   done already by spirv-opt -O (the GLSL divides, the module multiplies):
@@ -206,23 +178,21 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
         not bit-exact: c = 0.40375137: / 12.92 gives 0.031250104, * 0.07739938 gives 0.031250108 (the quotient within |delta| of a rounding midpoint)
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
   approximations (cheaper, not applied: say `approx ulp N` to allow one):
-    pow ~ degree-2 minimax polynomial, cost 3 (-7): relative error < 0.133 (2.53526e+06 ulp), beyond the original's precision
-    pow ~ degree-3 minimax polynomial, cost 4 (-6): relative error < 0.0164 (279074 ulp), beyond the original's precision
-    pow ~ degree-4 minimax polynomial, cost 5 (-5): relative error < 0.00443 (74724 ulp), beyond the original's precision
-    pow ~ degree-5 minimax polynomial, cost 6 (-4): relative error < 0.00195 (32781 ulp), beyond the original's precision
-    pow ~ degree-6 minimax polynomial, cost 7 (-3): relative error < 0.00134 (22588 ulp), beyond the original's precision
-    pow ~ degree-7 minimax polynomial, cost 8 (-2): relative error < 0.00126 (21235 ulp), beyond the original's precision
-    pow ~ degree-8 minimax polynomial, cost 9 (-1): relative error < 0.0013 (21874 ulp), beyond the original's precision
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.133 (2.53526e+06 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.0164 (279074 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00443 (74724 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00195 (32781 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.00134 (22588 ulp), beyond the original's precision
         relative minimax of q^2.4 on [0.052132703, 1] (remez.c), t = q - 0.5234375, coefficients rounded to f32, Horner with fma:
-          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 7.17e-05 relative
-          plus rounding (gamma_16 = 16 u/(1 - 16 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.0013 relative in all, the worst near q = 0.05215
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000427 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00134 relative in all, the worst near q = 0.05215
           against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
-        P(t) = fma(fma(fma(fma(fma(fma(fma(fma(-0.79848516, t, -0.147481143), t, 0.213161364), t, 0.142867729), t, -0.11963471), t, 0.32094875), t, 1.29715633), t, 0.969897866), t, 0.211487606), t = q - 0.5234375
+        P(t) = fma(fma(fma(fma(fma(fma(-0.321610957, t, -0.00430197129), t, -0.0275906865), t, 0.350870997), t, 1.29383314), t, 0.968598843), t, 0.21146147), t = q - 0.5234375
   not applied:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63   (mix by a step as a select)
         not bit-exact: c = -0 (original +0, select -0)
     %61 = OpExtInst %v3float %2 Pow %60 %26   (pow as exp2(y * log2 x))
-        not bit-exact: c = -0: original 0.00083380495, rewrite 0.0008338049 (1 ulp apart)
+        not cheaper under gt1030
     %60 = OpFMul %v3float %58 %71   (add and multiply as one fma)
         not bit-exact: c = 0.02516423: original 0.07598506, rewrite 0.07598505 (1 ulp apart)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
@@ -237,7 +207,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
   the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 54 -> 45 (-16.7%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 42 (-17.6%)
   mode: within 4 ulp of the reference (approximations too)
   rewrites, the largest savings first:
     %64 = OpExtInst %v3float %2 FMix %55 %61 %63
@@ -290,22 +260,20 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
         not bit-exact: c = 0.02523446: / 12.92 gives 0.0019531315, * 0.07739938 gives 0.0019531318 (the quotient within |delta| of a rounding midpoint)
         (line 1: vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3)
   approximations (cheaper, applied only within `ulp N`):
-    pow ~ degree-2 minimax polynomial, cost 3 (-7): relative error < 0.079 (1.43013e+06 ulp), beyond the original's precision
-    pow ~ degree-3 minimax polynomial, cost 4 (-6): relative error < 0.00761 (128665 ulp), beyond the original's precision
-    pow ~ degree-4 minimax polynomial, cost 5 (-5): relative error < 0.00162 (27249 ulp), beyond the original's precision
-    pow ~ degree-5 minimax polynomial, cost 6 (-4): relative error < 0.000591 (9916 ulp), beyond the original's precision
-    pow ~ degree-6 minimax polynomial, cost 7 (-3): relative error < 0.000354 (5945 ulp), beyond the original's precision
-    pow ~ degree-7 minimax polynomial, cost 8 (-2): relative error < 0.000333 (5590 ulp), beyond the original's precision
-    pow ~ degree-8 minimax polynomial, cost 9 (-1): relative error < 0.000349 (5865 ulp), beyond the original's precision
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.079 (1.43013e+06 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00761 (128665 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00162 (27249 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.000591 (9916 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.000354 (5945 ulp), beyond the original's precision
         relative minimax of q^2.4 on [0.090473935, 1] (remez.c), t = q - 0.546875, coefficients rounded to f32, Horner with fma:
-          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 1.77e-05 relative
-          plus rounding (gamma_16 = 16 u/(1 - 16 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000349 relative in all, the worst near q = 0.0905
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000116 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000354 relative in all, the worst near q = 0.0905
           against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
-        P(t) = fma(fma(fma(fma(fma(fma(fma(fma(-0.318302542, t, 0.00576813985), t, 0.0497525856), t, 0.0694303587), t, -0.097155273), t, 0.31977126), t, 1.31989348), t, 1.03103888), t, 0.234926), t = q - 0.546875
+        P(t) = fma(fma(fma(fma(fma(fma(-0.170326233, t, 0.0395413302), t, -0.0579296909), t, 0.327347875), t, 1.31810999), t, 1.03068686), t, 0.234929577), t = q - 0.546875
   not applied:
     %61 = OpExtInst %v3float %2 Pow %60 %26   (pow as exp2(y * log2 x))
-        its bound (13 ulp) exceeds 4 ulp
-  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (2) when the lanes agree, and both sides plus 6 when they diverge (keep-up)
+        not cheaper under gt1030
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
   (nofile: simplified.spvasm, 3088 bytes, checksum 2bde1ef4)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   shade: called from a compute shader's main(), its arguments read from a buffer
@@ -315,24 +283,11 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   the vec2 %50: its lanes x, y compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 28 -> 18 (-35.7%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 22 -> 18 (-18.2%)
   rewrites, the largest savings first:
-    %47 = OpExtInst %v2float %2 Sqrt %35
-      -> %ucas_f2z = OpExtInst %v2float %2 InverseSqrt %35
-         %47 = OpFMul %v2float %35 %ucas_f2z
-      (sqrt as x * inversesqrt(x); -6)
-      proof: within the original's Vulkan precision (derived), not bit-exact
-        where it is used, v in [0.25, +inf] or NaN
-          x > 0, so inversesqrt(x) is defined; with z = inversesqrt(x) = (1/sqrt x)(1 + z'), x*z = sqrt(x)(1 + z')
-          Vulkan: sqrt: inherited from 1.0 / inversesqrt(x); inversesqrt: 2 ulp; both forms carry the same inversesqrt error z' (first order; the second-order term |z'|^2 < 2^-44 is far below the slack), then the original divides (2.5 ulp) where the rewrite multiplies (0.5 ulp): within
-          x = +inf: sqrt gives +inf, inf * inversesqrt(inf) = inf * 0 = NaN (an infinity against a NaN: default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved)
-          against the reference (correctly rounded sqrt and inversesqrt): |r - sqrt x| <= (2u + u^2)|sqrt x| + ... < 3u: under 3 ulp of a result within 0.5 ulp of it
-        not bit-exact: v = 3.4028233e+38: original 1.8446743e+19, rewrite 1.8446744e+19 (1 ulp apart)
-        bound against the reference: 2 ulp
-        (line 1: vec2 shade(vec2 v) { return mix(v * 2.0, sqrt(v), step(vec2(0.25), v)); })
     %50 = OpExtInst %v2float %2 FMix %45 %47 %49
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v2bool %35 %20
          %50 = OpSelect %v2float %ucas_f1 %47 %45
@@ -357,21 +312,24 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
           every difference is in the sign of a zero or an infinity against a NaN: within Vulkan's default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved
         not bit-exact at v in [1.7014118e+38, +inf] (original NaN, select 1.3043818e+19)
         (line 1: vec2 shade(vec2 v) { return mix(v * 2.0, sqrt(v), step(vec2(0.25), v)); })
-  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (2) when the lanes agree, and both sides plus 6 when they diverge (keep-up)
-  (nofile: simplified.spvasm, 2081 bytes, checksum c95b847d)
+  not applied:
+    %47 = OpExtInst %v2float %2 Sqrt %35   (sqrt as x * inversesqrt(x))
+        not cheaper under gt1030
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
+  (nofile: simplified.spvasm, 2032 bytes, checksum 4b0ce591)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   blend: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
 simplify: 68 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5 -> 5 (+0.0%)
-  counting the strength reductions any driver also does: 28 -> 5 (-82.1%)
-  also done by any driver compiler (2 rewrites, -23; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+  counting the strength reductions any driver also does: 32.5 -> 5 (-84.6%)
+  also done by any driver compiler (2 rewrites, -27.5; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
   beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 4 (-33.3%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
   rewrites, the largest savings first:
     %67 = OpExtInst %float %2 FMix %61 %64 %66
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_bool %48 %float_0_5
@@ -396,7 +354,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
           every difference is in the sign of a zero or an infinity against a NaN: within Vulkan's default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved
         not bit-exact at x in [-1.4013e-45, -0] (original +0, select -0); x = +inf (original NaN, select 1); x = NaN (original NaN, select 1)
         (line 3: return mix(x * 0.5, float(m & 255u), step(0.5, x));)
-  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (2) when the lanes agree, and both sides plus 6 when they diverge (keep-up)
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
   (nofile: simplified.spvasm, 2320 bytes, checksum 89a906ba)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   tone: called from a compute shader's main(), its arguments read from a buffer

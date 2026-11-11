@@ -9,7 +9,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return (i * Weight_K + 32u) >> 6u;
       }
     proof: exhaustive: ucas equiv of the function and the form, case by case (28 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 24 -> 6 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 30 -> 6 per call
     relies on: i <= 2^sh_ib - 1 (beyond it the function is not this form); the analysis shows it at lines 120, 122, 129; not at lines 194 (Index(fit_lo, fit_hi, k) up to 15 there), 298 (Index(fit_lo, fit_hi, k) up to 15 there): true there only if those values keep to it; line 215 never runs (the analysis reaches no call there)
   Widen (line 45), called from Decoded (lines 53, 54), Quant (line 68)
     the branch `if (n == 8u) { return v; }` (line 46) never changes the result; line 47: `((v << (8u - n)) | (v >> (2u * n - 8u))) & 255u` can be `(v << (8u - n)) | (v >> (2u * n - 8u))` (the result is the same)
@@ -17,7 +17,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return (v << (8u - n)) | (v >> (2u * n - 8u));
       }
     proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (448 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 14 -> 9 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 18.625 -> 9 per call
     relies on: v in 0..2^n - 1; n in {6, 7, 8} at every call: Decoded (lines 53, 54), Quant (line 68)
     per case a multiply and a shift: Widen(v) = (v * K) >> 6u with K = 260, 129, 64 for n = 6; n = 7; n = 8, a constant per case
       /* Widen_K: K for the case, set once per case (260, 129, 64 for n = 6; n = 7; n = 8) */
@@ -25,7 +25,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return (v * Widen_K) >> 6u;
       }
     proof: exhaustive: ucas equiv of the function and the form, case by case (448 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 14 -> 6 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 18.625 -> 6 per call
     relies on: the inferred domain (v in 0..2^n - 1; n in {6, 7, 8}): the form holds on all of it
   Quant (line 58), called from QuantWord (line 79)
     the loop at line 64: d = -2 and 2 never change the result: -1..1 is enough; line 66: `c > int(top)` can be `false` (the result is the same)
@@ -53,7 +53,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return best;
       }
     proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (2560 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 236 -> 139 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 365.125 -> 217.25 per call
     relies on: t in 0..255; p in 0..1; sh_cb in {5, 6, 7, 8}; sh_pk in {0, 1, 2} at every call: QuantWord (line 79)
   TexelError (line 82), called from Eval (lines 120, 122, 129)
     line 86: an interpolation with one multiply; int(Ch(q1, c)) - int(Ch(q0, c)) is already computed in Step (line 93)
@@ -67,8 +67,8 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       min((t64 * top + 32u) / 64u, top)
         ->  (t64 * top + 32u) / 64u
       proof: exhaustive: ucas equiv on every recorded value of its leaves (195 points)
-      cost under gt1030: 8 -> 6 each time it runs
+      cost under gt1030: 7 -> 6 each time it runs
       relies on: t64 in 0..64; top in {3, 7, 15} where line 117 runs
   invariant calls (a dataflow fact: neither the arguments nor anything the callee reads is written in the loop, and the callee writes nothing):
-    PAllowed(s) at line 163 (in Try) is the same on every pass of FitSubset's loop at line 280, which calls Try at line 318: hoist it out of the loop at line 280 (compute it before the loop and pass it to Try); it costs 718 a call under gt1030, 4 passes: 2154 saved a run of the loop
+    PAllowed(s) at line 163 (in Try) is the same on every pass of FitSubset's loop at line 280, which calls Try at line 318: hoist it out of the loop at line 280 (compute it before the loop and pass it to Try); it costs 809.25 a call under gt1030, 4 passes: 2427.75 saved a run of the loop
   also invariant in their loops, but cheap (cost < 8 a call): Ch(q0, 0u) (line 113), Ch(q0, 1u) (line 113), Ch(q0, 2u) (line 114), Ch(q0, 3u) (line 114), StoredBits() (line 52)

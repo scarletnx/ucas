@@ -1284,20 +1284,26 @@ needs about 9).
 ## Cost models
 
 ```
-model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 24, idivk: 5,
-  cmp: 2, select: 1, minmax: 2, bitcnt: 4, conv: 4, bitcast: 0,
-  fadd: 1, fmul: 1, fdiv: 10, fsqrt: 8, ftrans: 4, fpow: 10, f64: 32,
-  load: 8, branch: 2, diverge: 6, barrier: 20,
-  atomic_shared: 8, atomic_global: 64 }
+model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
+  cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0,
+  fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375,
+  load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
+  atomic_shared: 6.625, atomic_global: 50, store: 15 }
 model mine : gt1030 { imul: 1 }
 ```
 
 `gt1030` (NVIDIA GP108, sm_61, through SPIR-V) is built in and active.
-Its numbers are relative issue costs from the sm_61 throughput table:
-fp32 is full rate, 32-bit integer multiply is an XMAD sequence, integer
-division is emulated, the SFU ops are quarter rate, fp64 is 1/32 rate
-(`f64` multiplies the cost of every f64 float operation).  They are
-estimates, not measurements.
+Its numbers are issue costs relative to fadd, measured on a GT 1030 by
+the SPIR-V corpus in tests/gt1030 (snx-shaderperf, throughput with the
+SMs full; the report is tests/gt1030/results/2026-11-11.md): fp32 is
+full rate, 32-bit integer multiply is an XMAD sequence, integer
+division is emulated, fdiv, sqrt and the SFU ops are quarter rate, fp64
+is 1/32 rate (`f64` multiplies the cost of every f64 float operation;
+f64 division and sqrt are library calls, about 300 and 570).  load,
+store and atomic_global are cache-resident accesses; streams from DRAM
+cost 90 to 140.  The report also has what the classes do not show:
+LOP3 and multiply-add fusion, DP4A, subgroup operations, textures.
+`cd tests/gt1030 && ./run.py` measures again (it needs the GPU).
 
 `cost F` counts each shared subterm once (and prints the body's shared
 subterms once, named, so the rest of the report can refer to them) and

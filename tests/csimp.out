@@ -68,8 +68,8 @@ simplify: 55 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 > spvsimplify nofile
 simplify: 53 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 4 -> 4 (+0.0%)
-  counting the strength reductions any driver also does: 27 -> 4 (-85.2%)
-  also done by any driver compiler (2 rewrites, -23; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+  counting the strength reductions any driver also does: 31.5 -> 4 (-87.3%)
+  also done by any driver compiler (2 rewrites, -27.5; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
   beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 1794 bytes, checksum 041ecdc9)

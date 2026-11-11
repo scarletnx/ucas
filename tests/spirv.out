@@ -5,31 +5,31 @@ exec of SPIR-V (38 instructions), entry %main, 4 lanes in lockstep, cost model g
   after:  %_: 0.98 1 -0.86 1.82
   serial form:
     %18 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_0                0  t = 0..0  -> &%_[0] &%_[0] &%_[0] &%_[0]
-    %19 = OpLoad %float %18                      load           8  t = 0..8  -> 0.98 0.98 0.98 0.98
-    %20 = OpConvertFToS %int %19                 conv           4  t = 8..12  -> 0 0 0 0
-    %21 = OpExtInst %int %2 SMin %int_1 %20      minmax         2  t = 12..14  -> 0 0 0 0
-    %24 = OpExtInst %int %2 SMax %int_0 %21      minmax         2  t = 14..16  -> 0 0 0 0
-    %25 = OpBitcast %uint %24                                   0  t = 16..16  -> 0 0 0 0
-    %28 = OpISub %uint %uint_1 %25               iadd           1  t = 16..17  -> 1 1 1 1
-    %29 = OpBitcast %int %28                                    0  t = 17..17  -> 1 1 1 1
-    %30 = OpConvertSToF %float %29               conv           4  t = 17..21  -> 1 1 1 1
-    %31 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_1                0  t = 21..21  -> &%_[1] &%_[1] &%_[1] &%_[1]
-    OpStore %31 %30                              store          8  t = 21..29
-  time 29 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 710x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 4.8 cost units; 145710 bytes
-  (nofile: GIF checksum 24ef331a)
+    %19 = OpLoad %float %18                      load       6.875  t = 0..6.875  -> 0.98 0.98 0.98 0.98
+    %20 = OpConvertFToS %int %19                 conv           3  t = 6.875..9.875  -> 0 0 0 0
+    %21 = OpExtInst %int %2 SMin %int_1 %20      minmax         1  t = 9.875..10.875  -> 0 0 0 0
+    %24 = OpExtInst %int %2 SMax %int_0 %21      minmax         1  t = 10.875..11.875  -> 0 0 0 0
+    %25 = OpBitcast %uint %24                                   0  t = 11.875..11.875  -> 0 0 0 0
+    %28 = OpISub %uint %uint_1 %25               iadd           1  t = 11.875..12.875  -> 1 1 1 1
+    %29 = OpBitcast %int %28                                    0  t = 12.875..12.875  -> 1 1 1 1
+    %30 = OpConvertSToF %float %29               conv           3  t = 12.875..15.875  -> 1 1 1 1
+    %31 = OpAccessChain %_ptr_Uniform_float %_ %int_0 %uint_1                0  t = 15.875..15.875  -> &%_[1] &%_[1] &%_[1] &%_[1]
+    OpStore %31 %30                              store         15  t = 15.875..30.875
+  time 30.875 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 710x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 5.1 cost units; 151978 bytes
+  (nofile: GIF checksum 91c68668)
 > animate exec seed 3 nofile
   input %19: float, random per lane (say "%19 = 2.5" in the request to set it)
 exec of SPIR-V (18 instructions), entry %main, 4 lanes in lockstep, cost model gt1030
   buffers start with random values (seed 3)
   serial form:
-    %20 = OpConvertFToS %int %19                 conv           4  t = 0..4  -> -1 0 0 -1
-    %21 = OpExtInst %int %2 SMin %int_1 %20      minmax         2  t = 4..6  -> -1 0 0 -1
-    %24 = OpExtInst %int %2 SMax %int_0 %21      minmax         2  t = 6..8  -> 0 0 0 0
-    %28 = OpISub %int %int_1 %24                 iadd           1  t = 8..9  -> 1 1 1 1
-  time 9 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.5 cost units; 71590 bytes
-  (nofile: GIF checksum 54382d59)
+    %20 = OpConvertFToS %int %19                 conv           3  t = 0..3  -> -1 0 0 -1
+    %21 = OpExtInst %int %2 SMin %int_1 %20      minmax         1  t = 3..4  -> -1 0 0 -1
+    %24 = OpExtInst %int %2 SMax %int_0 %21      minmax         1  t = 4..5  -> 0 0 0 0
+    %28 = OpISub %int %int_1 %24                 iadd           1  t = 5..6  -> 1 1 1 1
+  time 6 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.0 cost units; 58192 bytes
+  (nofile: GIF checksum 2b9acbfe)
 > animate exec %x = 2.5 seed 1 nofile
   input %x: float, given
   output %y: float (stored to; its values are listed after the run)
@@ -50,38 +50,38 @@ exec of SPIR-V (50 instructions), entry %main, 4 lanes in lockstep, cost model g
     %i = OpLoad %uint %gid                                      0  t = 0..0  -> 0 1 2 3
     OpStore %acc %uint_0                                        0  t = 0..0
     %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 0..0  -> 0 0 0 0
-    %c = OpULessThan %bool %n %i                 cmp            2  t = 0..2  -> false true true true
-    OpBranchConditional %c %body %done           branch         2  t = 2..4
-    %a = OpLoad %uint %acc                                      0  t = 4..4  lanes {1,2,3}  -> - 0 0 0
-    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 4..5  lanes {1,2,3}  -> - 0 0 0
-    OpStore %acc %a2                                            0  t = 5..5  lanes {1,2,3}
-    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 5..6  lanes {1,2,3}  -> - 1 1 1
-    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 6..6  lanes {1,2,3}  -> - 1 1 1
-    %c = OpULessThan %bool %n %i                 cmp            2  t = 6..8  lanes {1,2,3}  -> - false true true
-    OpBranchConditional %c %body %done           branch         2  t = 8..10  lanes {1,2,3}
-    %a = OpLoad %uint %acc                                      0  t = 10..10  lanes {2,3}  -> - - 0 0
-    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 10..11  lanes {2,3}  -> - - 1 1
-    OpStore %acc %a2                                            0  t = 11..11  lanes {2,3}
-    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 11..12  lanes {2,3}  -> - - 2 2
-    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 12..12  lanes {2,3}  -> - - 2 2
-    %c = OpULessThan %bool %n %i                 cmp            2  t = 12..14  lanes {2,3}  -> - - false true
-    OpBranchConditional %c %body %done           branch         2  t = 14..16  lanes {2,3}
-    %a = OpLoad %uint %acc                                      0  t = 16..16  lanes {3}  -> - - - 1
-    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 16..17  lanes {3}  -> - - - 3
-    OpStore %acc %a2                                            0  t = 17..17  lanes {3}
-    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 17..18  lanes {3}  -> - - - 3
-    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 18..18  lanes {3}  -> - - - 3
-    %c = OpULessThan %bool %n %i                 cmp            2  t = 18..20  lanes {3}  -> - - - false
-    OpBranchConditional %c %body %done           branch         2  t = 20..22  lanes {3}
-    reconverge after the loop (keep-up)          diverge        6  t = 22..28
-    %sum = OpLoad %uint %acc                                    0  t = 28..28  -> 0 0 1 3
-    %odd = OpBitwiseAnd %uint %i %uint_1         logic          1  t = 28..29  -> 0 1 0 1
-    %isodd = OpIEqual %bool %odd %uint_1         cmp            2  t = 29..31  -> false true false true
-    OpBranchConditional %isodd %t %e             branch         2  t = 31..33
-    %x = OpIMul %uint %sum %uint_2               imul           3  t = 33..36  lanes {1,3}  -> - 0 - 6
-    %y = OpIAdd %uint %sum %uint_2               iadd           1  t = 36..37  lanes {0,2}  -> 2 - 3 -
-    reconverge (keep-up)                         diverge        6  t = 37..43
-    %r = OpPhi %uint %x %t %y %e                                0  t = 43..43  -> 2 0 3 6
-  time 43 for every lane; lanes busy 74% (32 lane-units idle: masked, or waiting for an atomic)
-  animation: 614x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 7.2 cost units; 298862 bytes
-  (nofile: GIF checksum 177c241e)
+    %c = OpULessThan %bool %n %i                 cmp        2.375  t = 0..2.375  -> false true true true
+    OpBranchConditional %c %body %done           branch      6.25  t = 2.375..8.625
+    %a = OpLoad %uint %acc                                      0  t = 8.625..8.625  lanes {1,2,3}  -> - 0 0 0
+    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 8.625..9.625  lanes {1,2,3}  -> - 0 0 0
+    OpStore %acc %a2                                            0  t = 9.625..9.625  lanes {1,2,3}
+    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 9.625..10.625  lanes {1,2,3}  -> - 1 1 1
+    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 10.625..10.625  lanes {1,2,3}  -> - 1 1 1
+    %c = OpULessThan %bool %n %i                 cmp        2.375  t = 10.625..13  lanes {1,2,3}  -> - false true true
+    OpBranchConditional %c %body %done           branch      6.25  t = 13..19.25  lanes {1,2,3}
+    %a = OpLoad %uint %acc                                      0  t = 19.25..19.25  lanes {2,3}  -> - - 0 0
+    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 19.25..20.25  lanes {2,3}  -> - - 1 1
+    OpStore %acc %a2                                            0  t = 20.25..20.25  lanes {2,3}
+    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 20.25..21.25  lanes {2,3}  -> - - 2 2
+    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 21.25..21.25  lanes {2,3}  -> - - 2 2
+    %c = OpULessThan %bool %n %i                 cmp        2.375  t = 21.25..23.625  lanes {2,3}  -> - - false true
+    OpBranchConditional %c %body %done           branch      6.25  t = 23.625..29.875  lanes {2,3}
+    %a = OpLoad %uint %acc                                      0  t = 29.875..29.875  lanes {3}  -> - - - 1
+    %a2 = OpIAdd %uint %a %n                     iadd           1  t = 29.875..30.875  lanes {3}  -> - - - 3
+    OpStore %acc %a2                                            0  t = 30.875..30.875  lanes {3}
+    %n1 = OpIAdd %uint %n %uint_1                iadd           1  t = 30.875..31.875  lanes {3}  -> - - - 3
+    %n = OpPhi %uint %uint_0 %entry %n1 %cont                   0  t = 31.875..31.875  lanes {3}  -> - - - 3
+    %c = OpULessThan %bool %n %i                 cmp        2.375  t = 31.875..34.25  lanes {3}  -> - - - false
+    OpBranchConditional %c %body %done           branch      6.25  t = 34.25..40.5  lanes {3}
+    reconverge after the loop (keep-up)          diverge    14.375  t = 40.5..54.875
+    %sum = OpLoad %uint %acc                                    0  t = 54.875..54.875  -> 0 0 1 3
+    %odd = OpBitwiseAnd %uint %i %uint_1         logic          1  t = 54.875..55.875  -> 0 1 0 1
+    %isodd = OpIEqual %bool %odd %uint_1         cmp        2.375  t = 55.875..58.25  -> false true false true
+    OpBranchConditional %isodd %t %e             branch      6.25  t = 58.25..64.5
+    %x = OpIMul %uint %sum %uint_2               imul           3  t = 64.5..67.5  lanes {1,3}  -> - 0 - 6
+    %y = OpIAdd %uint %sum %uint_2               iadd           1  t = 67.5..68.5  lanes {0,2}  -> 2 - 3 -
+    reconverge (keep-up)                         diverge    14.375  t = 68.5..82.875
+    %r = OpPhi %uint %x %t %y %e                                0  t = 82.875..82.875  -> 2 0 3 6
+  time 82.875 for every lane; lanes busy 78% (34.25 lane-units idle: masked, or waiting for an atomic)
+  animation: 614x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 13.8 cost units; 309529 bytes
+  (nofile: GIF checksum b8e16ea7)

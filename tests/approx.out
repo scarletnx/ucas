@@ -115,9 +115,9 @@ approx log(x) on [0.5, 100] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 130987 f32 in [0.5, 100]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   reduced   9     horner+fma  1.27 ulp                 1.06e-07      2.76e-07      21   at x=0.689826965  *
+  1   reduced   9     horner+fma  1.27 ulp                 1.06e-07      2.76e-07      20   at x=0.689826965  *
       e*ln2 + m*P(m), exponent split: fma(ex, 0.693115234, fma(ex, 3.19461833e-05, fma(m*m, fma(fma(fma(fma(fma(fma(fma(0.0869270191, m, -0.142591968), m, 0.14925617), m, -0.165812626), m, 0.19962506), m, -0.250013977), m, 0.333338976), m, -0.499999881), m))) where u = asuint(x) - 0x3f3504f3, ex = f32(i32(u) >> 23), m = asfloat(asuint(x) - (u & 0xff800000)) - 1.0
-  2   reduced   2     horner+fma  3.3e+05 ulp              0.0198        0.00686       14   at x=1.03164339
+  2   reduced   2     horner+fma  3.3e+05 ulp              0.0198        0.00686       13   at x=1.03164339
       e*ln2 + m*P(m), exponent split: fma(ex, 0.693115234, fma(ex, 3.19461833e-05, m*fma(-0.480425775, m, 1.01913702))) where u = asuint(x) - 0x3f3504f3, ex = f32(i32(u) >> 23), m = asfloat(asuint(x) - (u & 0xff800000)) - 1.0
   13 more: 'approx more [n]'
 > approx atan(x) in -10..10 ulp 2 nosplit norational list 2
@@ -134,9 +134,9 @@ approx atan(x) on [-10, 10] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131091 f32 in [-10, 10]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   reduced   17    horner+fma  1.77 ulp                 1.58e-07      1.61e-07      28   at x=-1.01640344  *
+  1   reduced   17    horner+fma  1.77 ulp                 1.58e-07      1.61e-07      21.625 at x=-1.01640344  *
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = fma(r*s, fma(fma(fma(fma(fma(fma(fma(0.00291939103, s, -0.0163631011), s, 0.0432046317), s, -0.0755165592), s, 0.106657684), s, -0.14211002), s, 0.199937671), s, -0.333331525), r)
-  2   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       21   at x=-1.818979e-12
+  2   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       14.625 at x=-1.818979e-12
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(-0.211864173, s, 0.987309217)
   9 more: 'approx more [n]'
 > approx 1/sqrt(x) in 0.01..100 ulp 2 nosplit norational list 3
@@ -239,7 +239,7 @@ approx g on [-1, 1] as real
       P(x^2): 0.94117647058823528 - 0.47058823529411764*s where s = x*x
   2   minimax   4     horner                               0.0101        0.0101        5    at x=-1
       P(x^2): 0.98989898989898994 + s*(0.32323232323232326*s - 0.80808080808080807) where s = x*x
-  3   rational  2/2   horner                               1.92e-16      1.64e-16      14   at x=-0.755112006
+  3   rational  2/2   horner                               1.92e-16      1.64e-16      7    at x=-0.755112006
       P(x^2)/Q(x^2): (1.0 + 4.1292856178647142e-20*s)/(1.0 + 1.0*s) where s = x*x
   5 more: 'approx more [n]' (dominated or worse)
 > approx exp(-x*x) in -2..2 degree 6 norational list 3
@@ -255,7 +255,7 @@ approx exp(-x*x) on [-2, 2] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   6     horner+fma  1.19e+06 ulp             0.0709        0.0709        4    at x=0.000204538315
       P(x^2): fma(fma(fma(-0.0183976851, s, 0.194773912), s, -0.712761343), s, 0.929132402) where s = x*x
-  2   piecewise 6     horner+fma  289 ulp                  1.76e-05      1.11e-05      19   at x=-1.8620584
+  2   piecewise 6     horner+fma  289 ulp                  1.76e-05      1.11e-05      23.375 at x=-1.8620584
       2 pieces, of |x|: fma(fma(fma(fma(fma(fma(k6, t, k5), t, k4), t, k3), t, k2), t, k1), t, k0) where a = abs(x), lo = a < 1.0, t = a - (lo ? f32(0.5) : f32(1.5)), k0 = lo ? f32(0.778797686) : f32(0.105400808), k1 = lo ? f32(-0.778688729) : f32(-0.316214859), k2 = lo ? f32(-0.38921234) : f32(0.368790239), k3 = lo ? f32(0.645394802) : f32(-0.157362849), k4 = lo ? f32(0.0310641248) : f32(-0.0651190877), k5 = lo ? f32(-0.236730218) : f32(0.0959755555), k6 = lo ? f32(0.0324558802) : f32(-0.0277707856)
   3   minimax   6     estrin+fma  1.19e+06 ulp             0.0709        0.0709        5    at x=0.000204538315
       P(x^2): fma(fma(-0.0183976851, s, 0.194773912), s2, fma(-0.712761343, s, 0.929132402)) where s = x*x, s2 = s*s
@@ -287,6 +287,6 @@ approx sin(x) on [-100, 100] as f64, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 132796 f64 in [-100, 100]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   reduced   13    horner+fma  1.48 ulp                 2.32e-16      1.65e-16      648  at x=-91.9127184  *
+  1   reduced   13    horner+fma  1.48 ulp                 2.32e-16      1.65e-16      656.5 at x=-91.9127184  *
       quadrant r=x-k*pi/2 (3-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(fma(fma(fma(fma(1.5890165763480382e-10, s, -2.5050660648150814e-08), s, 2.7557313203521987e-06), s, -0.00019841269828859708), s, 0.0083333333333218042), s, -0.1666666666666663), r) : fma(fma(fma(fma(fma(fma(2.0630099438987169e-09, s, -2.7555233299654548e-07), s, 2.480157859219434e-05), s, -0.0013888888870429968), s, 0.041666666666485865), s, -0.49999999999999406), s, 1.0)) xor ((q & 2) << 62)) where j = x*0.63661977236758138 + 6755399441055744.0, q = asuint(j), k = j - 6755399441055744.0, r = fma(k, -2.0222662487959506e-21, fma(k, -6.077100506303966e-11, fma(k, -1.5707963267341256, x))), s = r*r
   8 more: 'approx more [n]'
