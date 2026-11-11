@@ -5459,6 +5459,31 @@ mark(int x, int calls)
 	return nrc++;
 }
 
+/* an integer sum with a product in it, or a product: for search_dot */
+static int
+has_prod(int x, int depth)
+{
+	const struct gx *g = &G.x[XR(x)];
+
+	if (depth > 12 || g->k != X_BIN)
+		return 0;
+	if (g->op == OP_MUL)
+		return 1;
+	if (g->op != OP_ADD && g->op != OP_SUB && g->op != OP_SHL)
+		return 0;
+	return has_prod(g->a, depth + 1) || has_prod(g->b, depth + 1);
+}
+
+static int
+dot_candidate(int x)
+{
+	const struct gx *g = &G.x[x];
+
+	return (g->ty == TU || g->ty == TI) && g->k == X_BIN &&
+	    (g->op == OP_ADD || g->op == OP_SUB || g->op == OP_MUL) &&
+	    has_prod(x, 0);
+}
+
 static void
 mark_all(void)
 {
@@ -5473,7 +5498,8 @@ mark_all(void)
 				continue;
 			if (G.x[x].k == X_CALL && G.x[x].sym >= 0)
 				mark(x, 1);
-			else if (x_candidate(x) || match_lerp(x, &w, &a, &b, &c, &s))
+			else if (x_candidate(x) || match_lerp(x, &w, &a, &b, &c, &s) ||
+			    dot_candidate(x))
 				mark(x, 0);
 		}
 	}
@@ -5985,6 +6011,187 @@ search_expr(int f)
 				break;
 			}
 		}
+	}
+	free(xs);
+	free(covered);
+}
+
+/*
+ * Sums of products as dot products (dot.c): an integer sum with a
+ * product in it, read into ucas over its leaves (each ranged by the
+ * values recorded where it runs, the rows as the where clause), searched
+ * under the active model's 4 x 8-bit forms and proved there.  GLSL has
+ * no built-in for them, so the replacement says how to declare one
+ * (GL_EXT_spirv_intrinsics, as SPV_KHR_integer_dot_product's ids).
+ */
+static int dot_hinted;	/* the declaration was shown once */
+
+static void
+search_dot(int f)
+{
+	int *xs, nx = 0, i, cap = G.nx + 64;
+	uint8_t *covered = xcalloc((size_t)G.nx + 1, 1);
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	reach_s(G.f[f].body, xs, &nx, NULL, NULL, cap);
+	for (i = 0; i < nx; i++) {
+		int x = xs[i], nl, w, b, j, r, *map, ok;
+		const struct rec *R;
+		int64_t blo[MAXP], bhi[MAXP];
+		char names[MAXP + 8][40];
+		int tys[MAXP + 8];
+		struct ut U;
+		struct uframe F0 = {0, -1, -1, 0};
+		struct sbuf ta = {0}, wh = {0};
+		struct av *rows;
+		struct func fn;
+		struct dotres dr;
+		nid na;
+		if (x >= xfn_n || x > G.nx || recn[x] < 0 || covered[x] ||
+		    !dot_candidate(x))
+			continue;
+		R = &RC[recn[x]];
+		nl = R->nl;
+		w = R->nl + R->nex;
+		if (R->nbox == 0 || nl == 0 || nl > MAXP)
+			continue;
+		rows = xmalloc((size_t)R->nbox * (size_t)nl * sizeof *rows);
+		ok = 1;
+		for (b = 0; b < R->nbox; b++)
+			for (j = 0; j < nl; j++) {
+				rows[b * nl + j] = R->box[b * w + j];
+				if (rows[b * nl + j].bot)
+					ok = 0;
+			}
+		for (j = 0; j < nl && ok; j++) {
+			blo[j] = rows[j].lo;
+			bhi[j] = rows[j].hi;
+			for (r = 1; r < R->nbox; r++) {
+				if (rows[r * nl + j].lo < blo[j])
+					blo[j] = rows[r * nl + j].lo;
+				if (rows[r * nl + j].hi > bhi[j])
+					bhi[j] = rows[r * nl + j].hi;
+			}
+			tys[j] = G.x[R->lf[j]].ty;
+			/* the leaf's own name when it is one */
+			xtext(names[j], sizeof names[j], R->lf[j]);
+			{
+				const char *q = names[j];
+				int idn = isalpha((unsigned char)*q) || *q == '_';
+				for (; *q && idn; q++)
+					idn = isalnum((unsigned char)*q) || *q == '_';
+				if (!idn)
+					snprintf(names[j], sizeof names[j], "l%d", j);
+			}
+		}
+		if (!ok) {
+			free(rows);
+			continue;
+		}
+		map = xmalloc(((size_t)G.nx + 1) * sizeof *map);
+		for (j = 0; j <= G.nx; j++)
+			map[j] = -1;
+		bind_leaves(R, x, x, map);
+		memset(&U, 0, sizeof U);
+		U.ok = 1;
+		U.leaf = map;
+		U.inst = 1;
+		u_x(&U, &ta, x, &F0);
+		/* u_x names the leaves l0, l1, ...: the source's own names
+		 * where they are names */
+		for (j = 0; j < nl && ta.p; j++) {
+			char lj[16];
+			struct sbuf nb = {0};
+			const char *q = ta.p, *m;
+			size_t ll;
+			snprintf(lj, sizeof lj, "l%d", j);
+			ll = strlen(lj);
+			while ((m = strstr(q, lj)) != NULL) {
+				int word = (m == ta.p || !(isalnum((unsigned char)m[-1]) ||
+				    m[-1] == '_')) && !(isalnum((unsigned char)m[ll]) ||
+				    m[ll] == '_');
+				sb_printf(&nb, "%.*s%s", (int)(m - q), q, word ? names[j] :
+				    lj);
+				q = m + ll;
+			}
+			sb_puts(&nb, q);
+			free(ta.p);
+			ta = nb;
+		}
+		if (R->nbox > 1)
+			where_text(&wh, names, tys, nl, rows, R->nbox, blo, bhi);
+		ok = U.ok && u_parse(&fn, nl, names, tys, blo, bhi, ta.p,
+		    R->nbox > 1 ? wh.p : NULL, &na) == 0;
+		free(ta.p);
+		free(wh.p);
+		free(map);
+		free(rows);
+		if (!ok)
+			continue;
+		dot_search(&fn, 1, &dr);
+		if (dr.status == DOT_PROVED) {
+			struct prop *p = prop_new(f, P_EXPR, G.x[x].line);
+			char t0[300];
+			struct sbuf d = {0};
+			int sub[512], ns2 = 0, q;
+			const char *ds;
+			reach_x(x, sub, &ns2, 512);
+			for (q = 0; q < ns2; q++)
+				if (sub[q] <= G.nx)
+					covered[sub[q]] = 1;
+			xtext(t0, sizeof t0, x);
+			snprintf(p->what, sizeof p->what, "a sum of products as one "
+			    "dot product");
+			sb_printf(&p->text, "%s\n  ->  %s", t0, shared_str(dr.body,
+			    280));
+			/* the leaves that are not names */
+			{
+				int any = 0;
+				for (j = 0; j < nl; j++) {
+					char lt[200], ln[16];
+					snprintf(ln, sizeof ln, "l%d", j);
+					if (strcmp(names[j], ln))
+						continue;
+					xtext(lt, sizeof lt, R->lf[j]);
+					sb_printf(&p->text, "%s%s = %s", any ? ", " :
+					    "\n  where ", ln, lt);
+					any = 1;
+				}
+			}
+			if (!dot_hinted++)
+				sb_puts(&p->text, "\n  (GLSL has no built-in for it: "
+				    "declare it, e.g. #extension GL_EXT_spirv_intrinsics "
+				    ": require; spirv_instruction(extensions = "
+				    "[\"SPV_KHR_integer_dot_product\"], capabilities = "
+				    "[6019, 6018], id = 4451) uint udot4x8(uint a, uint b, "
+				    "spirv_literal int fmt); and call it with fmt 0; id "
+				    "4450 is sdot4x8 (int), 4452 sudot4x8)");
+			if (!strcmp(dr.kind, "lanes"))
+				snprintf(p->proof, sizeof p->proof, "by lanes: each lane "
+				    "of each word shown to be its factor (SAT), the dot "
+				    "is the exact sum of its lane products, the other "
+				    "terms regrouped mod 2^32");
+			else
+				snprintf(p->proof, sizeof p->proof, "%s, over the values "
+				    "its leaves take where it runs", sb_str(&dr.proof));
+			p->c0 = dr.before;
+			p->c1 = dr.after;
+			rec_domain(&d, x);
+			snprintf(p->domain, sizeof p->domain, "%s", d.p ? d.p : "");
+			{
+				struct sbuf rl = {0};
+				sb_printf(&rl, "%s where line %d runs; ", d.p ? d.p : "",
+				    G.x[x].line);
+				for (ds = sb_str(&dr.desc); *ds; ds++)
+					if (*ds == '\n')
+						sb_puts(&rl, "; ");
+					else
+						sb_putc(&rl, *ds);
+				snprintf(p->relies, sizeof p->relies, "%s", sb_str(&rl));
+				free(rl.p);
+			}
+			free(d.p);
+		}
+		dotres_free(&dr);
 	}
 	free(xs);
 	free(covered);
@@ -6881,6 +7088,7 @@ glslfn_pass(const char *src, double budget, int only)
 	memset(&G, 0, sizeof G);
 	memset(&A, 0, sizeof A);
 	G.cur = -1;
+	dot_hinted = 0;
 	if (parse_source(src) != 0) {
 		printf("function level: not run (%s)\n", G.why);
 		return;
@@ -6928,6 +7136,7 @@ glslfn_pass(const char *src, double budget, int only)
 			search_whole(f);
 		else
 			search_expr(f);
+		search_dot(f);
 	}
 	search_invariant();
 	report(rounds, secs);
