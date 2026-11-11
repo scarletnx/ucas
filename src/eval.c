@@ -543,15 +543,105 @@ lambert_w(double x, int branch)
 
 /* ---- IEEE helpers ---- */
 
+/*
+ * binary16: a sign bit, 5 exponent bits (bias 15) and 10 fraction bits.
+ * Its finite values are m 2^(e - 10) with an integer |m| < 2^11 and
+ * -14 <= e <= 15: the subnormals are the multiples of 2^-24 below 2^-14,
+ * the largest finite value is 65504 = (2^11 - 1) 2^5.  The host has no
+ * such type in C99, so the rounding is done here, on the double.
+ *
+ * fround16(v): v rounded to nearest, ties to even, for any double v.
+ *
+ * Derivation.  Let a = |v|, finite and nonzero.  At or above the overflow
+ * threshold 65520 = 2^16 (1 - 2^-12), the midpoint of 65504 and 2^16 (which
+ * ties to the even 2^16, out of range), the result is inf.  Below it, let
+ * a lie in [2^e, 2^(e + 1)) (frexp), e raised to -14 for the subnormals: the
+ * binary16 values around a are the multiples of u = 2^(e - 10).  q = a / u
+ * is exact (a power of two, and 2^-1050 <= q < 2^11), f = floor(q) and
+ * d = q - f are exact (d is a multiple of q's last place below 1), so
+ * comparing d with 1/2 decides the rounding with no error, f's parity the
+ * tie; (f or f + 1) u is exact, at most 2^11 u, the next binade's first
+ * value, and below 2^16 as a < 65520 gives q < 2047.5.  A result of 0 keeps
+ * v's sign.
+ */
+static double
+fround16(double v)
+{
+	double a = fabs(v), u, q, f, d;
+	int e;
+
+	if (isnan(v) || isinf(v) || a == 0)
+		return v;
+	if (a >= 65520.0)
+		return v < 0 ? -INFINITY : INFINITY;
+	(void)frexp(a, &e);	/* a in [2^(e - 1), 2^e) */
+	e = e - 1 < -14 ? -14 : e - 1;
+	u = ldexp(1.0, e - 10);
+	q = a / u;
+	f = floor(q);
+	d = q - f;
+	if (d > 0.5 || (d == 0.5 && fmod(f, 2.0) != 0))
+		f += 1;
+	return copysign(f * u, v);
+}
+
 double
 fround(int w, double v)
 {
-	return w == 32 ? (double)(float)v : v;
+	return w == 32 ? (double)(float)v : w == 16 ? fround16(v) : v;
+}
+
+/*
+ * The bits of a binary16 value (v is rounded first).  A NaN keeps its sign
+ * and its fraction's top 10 bits, which is where frombits puts a binary16
+ * NaN's fraction: asuint(asfloat(b)) is b.  A NaN whose top 10 fraction bits
+ * are 0 (one made in double with a low payload) is the quiet NaN 0x7e00.
+ */
+static uint64_t
+fbits16(double v)
+{
+	uint64_t u, sign;
+	double a;
+	int e;
+
+	memcpy(&u, &v, 8);
+	sign = u >> 63 << 15;
+	if (isnan(v)) {
+		uint64_t frac = u >> 42 & 0x3ff;
+		return sign | 0x7c00 | (frac ? frac : 0x200);
+	}
+	a = fabs(fround16(v));
+	if (isinf(a))
+		return sign | 0x7c00;
+	if (a < 6.103515625e-05)	/* 2^-14: subnormal, or 0 */
+		return sign | (uint64_t)(a * 16777216.0);
+	(void)frexp(a, &e);
+	return sign | (uint64_t)(e - 1 + 15) << 10 |
+	    ((uint64_t)ldexp(a, 10 - (e - 1)) & 0x3ff);
+}
+
+static double
+frombits16(uint64_t b)
+{
+	uint64_t frac = b & 0x3ff, u;
+	int e = (int)(b >> 10 & 0x1f);
+	double v;
+
+	if (e == 31) {
+		u = (b >> 15 & 1) << 63 | 0x7ff0000000000000ULL | frac << 42;
+		memcpy(&v, &u, 8);
+		return v;
+	}
+	v = e ? ldexp((double)(frac | 0x400), e - 25) :
+	    ldexp((double)frac, -24);
+	return b >> 15 & 1 ? -v : v;
 }
 
 uint64_t
 fbits(int w, double v)
 {
+	if (w == 16)
+		return fbits16(v);
 	if (w == 32) {
 		float f = (float)v;
 		uint32_t u;
@@ -567,6 +657,8 @@ fbits(int w, double v)
 double
 frombits(int w, uint64_t b)
 {
+	if (w == 16)
+		return frombits16(b);
 	if (w == 32) {
 		uint32_t u = (uint32_t)b;
 		float f;
@@ -579,12 +671,26 @@ frombits(int w, uint64_t b)
 	}
 }
 
+/* the decimal digits that tell every value of a float of w bits apart */
+int
+fdigits(int w)
+{
+	return w == 16 ? 5 : w == 32 ? 9 : 17;
+}
+
+/* the sign bit of a float of w bits */
+static uint64_t
+fsign(int w)
+{
+	return 1ULL << (w - 1);
+}
+
 /* a total order on the non-NaN values: consecutive keys are adjacent floats */
 int64_t
 fkey(int w, double v)
 {
 	uint64_t u = fbits(w, v);
-	uint64_t sign = w == 32 ? 0x80000000ULL : 0x8000000000000000ULL;
+	uint64_t sign = fsign(w);
 
 	if (u & sign)
 		return -(int64_t)(u & (sign - 1));
@@ -594,7 +700,7 @@ fkey(int w, double v)
 double
 fromkey(int w, int64_t k)
 {
-	uint64_t sign = w == 32 ? 0x80000000ULL : 0x8000000000000000ULL;
+	uint64_t sign = fsign(w);
 
 	if (k < 0)
 		return frombits(w, (uint64_t)(-k) | sign);
@@ -850,15 +956,25 @@ fma64(double a, double b, double c)
  * Signed zeros: x = 0 gives e = 0 and s = p + c with IEEE's sign rule,
  * as fma's.  Infinite or NaN operands: no rounding question, s is the
  * IEEE result (inf * 0 and inf - inf give NaN) and step 3 is skipped.
+ *
+ * fma16(a, b, c), the binary16 one, is the same derivation with F the
+ * binary16 grid and fround's rounding to it in place of the cast:
+ * 1. the product has at most 22 significant bits and |p| lies in
+ *    [2^-48, 2^32) or is 0; 2. |p + c| < 2^33, and a nonzero sum is a
+ *    multiple of 2^-48, far above binary64's subnormals; 4. in a binade
+ *    [2^k, 2^(k+1)) with k >= -14, F-midpoints (and the overflow threshold
+ *    2^16 (1 - 2^-12)) are multiples of 2^(k-11) = 2^41 ulp_D; below 2^-14
+ *    they are multiples of 2^-25, and there ulp_D <= 2^-67.  42 spare
+ *    bits where 2 suffice.
  */
-double
-fma32(double a, double b, double c)
+static double
+fma_narrow(int w, double a, double b, double c)
 {
 	double p = a * b, s = p + c, bb, e;
 	uint64_t u;
 
 	if (!isfinite(s))
-		return (double)(float)s;
+		return fround(w, s);
 	bb = s - p;
 	e = (p - (s - bb)) + (c - bb);
 	if (e != 0) {
@@ -872,12 +988,26 @@ fma32(double a, double b, double c)
 			memcpy(&s, &u, sizeof s);
 		}
 	}
-	return (double)(float)s;
+	return fround(w, s);
+}
+
+double
+fma32(double a, double b, double c)
+{
+	return fma_narrow(32, a, b, c);
+}
+
+double
+fma16(double a, double b, double c)
+{
+	return fma_narrow(16, a, b, c);
 }
 
 /*
  * IEEE semantics: computed in double, then rounded to the width (for f32
- * this is the correctly rounded result for + - * / sqrt).  NaN and inf are
+ * and f16 this is the correctly rounded result for + - * / sqrt: binary64's
+ * 53 bits are at least twice the width's 24 or 11, plus 2, so rounding the
+ * rounded double is rounding the exact value).  NaN and inf are
  * ordinary values; the flags only record where they first appear.
  */
 double
@@ -980,6 +1110,8 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 	if (op == O_FMA) {
 		if (TYK(t) == K_FLOAT && TYW(t) == 32)
 			*rr = fma32(N.kr[a], N.kr[b], N.kr[c]);
+		else if (TYK(t) == K_FLOAT && TYW(t) == 16)
+			*rr = fma16(N.kr[a], N.kr[b], N.kr[c]);
 		else
 			*rr = fma64(N.kr[a], N.kr[b], N.kr[c]);
 		return isfinite(*rr);
@@ -1183,9 +1315,9 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			if (real) {
 				memcpy(orr, in_r + (size_t)p->ki[k] * CH,
 				    np * sizeof *orr);
-				if (t->k == K_FLOAT && t->w == 32)
+				if (t->k == K_FLOAT && t->w != 64)
 					for (i = 0; i < np; i++)
-						orr[i] = (float)orr[i];
+						orr[i] = fround(t->w, orr[i]);
 			} else
 				for (i = 0; i < np; i++)
 					o[i] = inorm(t, (uint64_t)
@@ -1224,7 +1356,7 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 		}
 		case O_FMA: {
 			/*
-			 * fma64 and fma32, correctly rounded (the
+			 * fma64, fma32 and fma16, correctly rounded (the
 			 * derivations are at fma64 and fma32).
 			 */
 			const double *av = COLR(p, a), *bv = COLR(p, b);
@@ -1239,6 +1371,7 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					continue;
 				}
 				orr[i] = fw == 32 ? fma32(av[i], bv[i], cv[i]) :
+				    fw == 16 ? fma16(av[i], bv[i], cv[i]) :
 				    fma64(av[i], bv[i], cv[i]);
 				if (fw && isnan(orr[i]) && !isnan(av[i]) &&
 				    !isnan(bv[i]) && !isnan(cv[i]))
@@ -1644,8 +1777,8 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 			/* every float in the range, by ordered key */
 			int w = TYW(p->ty);
 			double mx = w == 32 ? 3.4028234663852886e38 :
-			    1.7976931348623157e308;
-			d->real[j] = w == 32 ? 2 : 3;
+			    w == 16 ? 65504.0 : 1.7976931348623157e308;
+			d->real[j] = w == 32 ? 2 : w == 16 ? 4 : 3;
 			d->rlo[j] = p->ranged ? p->rlo : -mx;
 			d->rhi[j] = p->ranged ? p->rhi : mx;
 			d->lo[j] = fkey(w, d->rlo[j]);
@@ -1697,7 +1830,7 @@ diter_next(struct diter *d, int64_t *in_i, double *in_r)
 		for (j = 0; j < d->np; j++) {
 			size_t at = (size_t)j * CH + i;
 			if (d->real[j] >= 2) {
-				int w = d->real[j] == 2 ? 32 : 64;
+				int w = d->real[j] == 2 ? 32 : d->real[j] == 4 ? 16 : 64;
 				uint64_t sz = (uint64_t)d->hi[j] - (uint64_t)d->lo[j] + 1;
 				uint64_t r;
 				if (d->exhaustive) {
@@ -1766,7 +1899,7 @@ fmt_val(struct sbuf *b, ty_t t, int64_t vi, double vr)
 		sb_printf(b, "%.6g", vr);
 		break;
 	case K_FLOAT:
-		sb_printf(b, TYW(t) == 32 ? "%.9g" : "%.17g", vr);
+		sb_printf(b, "%.*g", fdigits(TYW(t)), vr);
 		break;
 	case K_UINT:
 		if (TYW(t) == 64)

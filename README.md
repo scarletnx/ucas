@@ -82,7 +82,7 @@ Types:
 | type | meaning |
 |------|---------|
 | `real` | the real line; `sqrt(-1)`, `1/0` are *undefined* (outside the domain) |
-| `f32`, `f64` (`float`, `double`) | IEEE binary32/64: every result rounds, `1/0` is inf, `sqrt(-1)` is NaN |
+| `f16`, `f32`, `f64` (`float`, `double` for the last two) | IEEE binary16/32/64: every result rounds (to nearest, ties to even; subnormals and all), `1/0` is inf, `sqrt(-1)` is NaN |
 | `int` | unbounded integers (checked against the int64 range) |
 | `uN`, `iN` (1..64; also `uint8_t`...) | wrapping machine integers |
 | `bool` | 0 or 1 |
@@ -91,7 +91,7 @@ Types:
 
 `real` and `int` are the *ideal* twins of the machine types: `wrap`
 compares a function against itself evaluated with every `uN`/`iN` as
-`int` and every `f32`/`f64` as `real`.
+`int` and every `f16`/`f32`/`f64` as `real`.
 
 A parameter can carry a range (`x: u8 in 1..12`, or just `x in 0..9`),
 and `uniform` (its value is the same across a GPU warp; see `cost`).
@@ -106,7 +106,7 @@ clz ctz popcount sec csc cot atan copysign fma asin acos atan2 sinh cosh
 tanh asinh acosh atanh` (also `arcsin arccos arctan arsinh arcosh artanh`;
 `45°` is `45*pi/180`), Lambert W (`W(x)`, also `W0`,
 `lambertw`, `productlog`: the principal branch; `Wm1(x)`: the -1 branch; a
-bare `W` without a call stays a variable), conversions `u8(x) f32(x) real(n) int(x)`, bit casts
+bare `W` without a call stays a variable), conversions `u8(x) f16(x) f32(x) real(n) int(x)`, bit casts
 `asuint asint asfloat` (`bits` = `asuint`), effects `barrier(e)`,
 `atomic_{add,sub,min,max,and,or,xor,xchg}[_shared](x, v)`.  C float
 literals (`1.5f`) are `f32`.
@@ -2799,7 +2799,15 @@ Data-oriented throughout (see `src/ucas.h`):
   one flat array, deduplicated by column hash (observational
   equivalence).
 - Float domains are enumerated in IEEE key order, so `x: f32 in 1..2`
-  is every float in that interval.
+  is every float in that interval.  An `f16` parameter has 63487 finite
+  values, so a function of one is analysed on all of them: a float form of
+  an integer formula (`u8(floor(f16(x) * f16(1 / 3)))` for `x / 3`, the
+  fp16 arithmetic a mobile GPU does fastest) is proved by `equiv`, not
+  sampled, while the integer inputs stay within 2^22 points.
+- `f16` has no host type in C99: `fround`, `fbits` and `frombits`
+  (src/eval.c) round and convert on the double, and `fma16` rounds once by
+  the same round-to-odd step as `fma32`.  `asuint`/`asfloat` take and give
+  16 bits and keep a NaN's payload.
 
 ## Limits (for now)
 
@@ -2811,6 +2819,10 @@ Data-oriented throughout (see `src/ucas.h`):
   real parameters get the gradient only.
 - `find` builds terms of up to about 5-6 operations before the bank
   (128 MB) fills; constants come from a small pool plus solved holes.
+- `f16` is priced as `f32` by the cost models (none has a class for half
+  floats yet) and `approx` has no f16 format.  A float `equiv` is by
+  enumeration: two unranged f16 parameters are 2^32 points, past the 2^22
+  that are enumerated, and are sampled (SAT covers the integers only).
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding

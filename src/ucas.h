@@ -85,7 +85,7 @@ typedef uint32_t nid;
 typedef uint16_t ty_t;
 /*
  * K_REAL is the mathematical real line (evaluated in double, domain errors
- * are undefined).  K_FLOAT is an IEEE binary32/64 machine type: every result
+ * are undefined).  K_FLOAT is an IEEE binary16/32/64 machine type: every result
  * is rounded, x/0 is inf, sqrt(-1) is NaN, and those are values, not errors.
  */
 enum { K_LIT = 1, K_BOOL, K_UINT, K_SINT, K_INT, K_REAL, K_FLOAT };
@@ -96,6 +96,7 @@ enum { K_LIT = 1, K_BOOL, K_UINT, K_SINT, K_INT, K_REAL, K_FLOAT };
 #define TY_BOOL TY(K_BOOL, 1)
 #define TY_INT TY(K_INT, 64)
 #define TY_REAL TY(K_REAL, 64)
+#define TY_F16 TY(K_FLOAT, 16)
 #define TY_F32 TY(K_FLOAT, 32)
 #define TY_F64 TY(K_FLOAT, 64)
 #define TY_FP(t) (TYK(t) == K_REAL || TYK(t) == K_FLOAT)
@@ -176,6 +177,7 @@ nid mk_barrier(nid a);
 nid mk_atomic(int kind, nid a, nid v);
 nid mk_fma(nid a, nid b, nid c);
 double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
+double fma16(double a, double b, double c);	/* f16 fma, correctly rounded */
 double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
 int atomic_lookup(const char *s, size_t n, int *kind);
 nid subst(nid root, const nid *map, int nmap);
@@ -305,6 +307,7 @@ double scalar_real(int op, double a, double b, uint8_t *fl);
 double scalar_float(int op, int w, double a, double b, uint8_t *fl);
 double lambert_w(double x, int branch);   /* NaN outside the domain */
 double fround(int w, double v);
+int fdigits(int w);                 /* digits that print a float exactly */
 int64_t fkey(int w, double v);      /* IEEE value -> ordered integer key */
 double fromkey(int w, int64_t k);
 uint64_t fbits(int w, double v);
@@ -340,7 +343,7 @@ struct diter {
 	int np;
 	int64_t lo[MAXP], hi[MAXP];  /* integer bounds, or IEEE keys */
 	double rlo[MAXP], rhi[MAXP];
-	uint8_t real[MAXP];          /* 1 real grid, 2 f32 keys, 3 f64 keys */
+	uint8_t real[MAXP];          /* 1 real grid; keys: 2 f32, 3 f64, 4 f16 */
 	uint8_t narrowed[MAXP];      /* bounds tightened by the where clause */
 	int exhaustive;
 	uint64_t total, pos, limit;
