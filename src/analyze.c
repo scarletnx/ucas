@@ -2040,6 +2040,13 @@ equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
 		return 0;
 	}
 	nsat_equiv(f, a, b, NSAT_BUDGET, &pr->sat);
+	if (pr->sat.status == -1) {
+		/* again with the parameters cut to their ranges' bits: a
+		 * smaller circuit for the same question */
+		nsat_narrow = 1;
+		nsat_equiv(f, a, b, NSAT_BUDGET, &pr->sat);
+		nsat_narrow = 0;
+	}
 	pr->sat_status = pr->sat.status;
 	pr->sat_why = pr->sat.why;
 	if (pr->sat.status == 0)

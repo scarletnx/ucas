@@ -18,6 +18,7 @@ int nsat_supported(const struct func *f);
 int nsat_equiv(const struct func *f, nid a, nid b, long budget,
     struct nsat_res *out);
 
+extern int nsat_narrow;	/* parameters' bits beyond their ranges are fixed */
 #define NSAT_BUDGET 100000   /* conflicts */
 #define NSAT_SECONDS 2.0     /* and CPU seconds */
 

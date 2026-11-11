@@ -682,6 +682,38 @@ in_bounds(const struct param *p, const struct word *x)
 	return aig_and(B.g, r, L_NOT(w_slt(B.g, &k, x)));
 }
 
+/*
+ * nsat_narrow: a parameter whose range fits in fewer bits than its type
+ * gets only those as inputs; the bits above are 0 (lo >= 0) or copies of
+ * the sign bit.  That is what the range assumption says anyway (it is
+ * still asserted), but the circuit shrinks: a u32 multiply of operands
+ * in 0..255 becomes an 8 x 8 one.
+ */
+int nsat_narrow;
+
+static void
+narrow_input(struct word *x, const struct param *p)
+{
+	int64_t lo, hi;
+	int k, i;
+
+	if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64 && (!p->ranged ||
+	    p->lo < 0 || p->hi < 0))
+		return;
+	param_bounds(p, &lo, &hi);
+	if (lo >= 0) {
+		k = bits_for((uint64_t)hi);
+		for (i = k; i < x->w; i++)
+			x->b[i] = L_FALSE;
+		return;
+	}
+	for (k = 1; k < 64; k++)
+		if (lo >= -((int64_t)1 << (k - 1)) && hi < ((int64_t)1 << (k - 1)))
+			break;
+	for (i = k; i < x->w; i++)
+		x->b[i] = x->b[k - 1];
+}
+
 int
 nsat_supported(const struct func *f)
 {
@@ -714,6 +746,8 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	for (j = 0; j < f->np; j++) {
 		struct word x;
 		w_input(B.g, &x, bw(f->p[j].ty));
+		if (nsat_narrow)
+			narrow_input(&x, &f->p[j]);
 		ext64(&B.par[j], &x, f->p[j].ty);
 		assume = aig_and(B.g, assume, in_bounds(&f->p[j], &B.par[j]));
 	}

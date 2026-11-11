@@ -1810,6 +1810,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	rep_str("model", sym_str(model_active()->name));
 	peephole(&F.f);
 	parametric(&F.f);
+	dot_find(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();
