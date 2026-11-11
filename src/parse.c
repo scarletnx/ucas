@@ -25,6 +25,7 @@
 #include "cfront.h"
 #include "prove.h"
 #include "props.h"
+#include "dword.h"
 #include "ring.h"
 #include "absalg.h"
 #include "viz.h"
@@ -1455,6 +1456,9 @@ static const char prelude[] =
     "  fuse ffmr(a: float, b: float, c: float) = c - a * b : fmul contract\n"
     "  fuse fneg(a: float) = -a : 0 in fadd fmul\n"
     "  fuse fabs(a: float) = abs(a) : 0 in fadd fmul\n"
+    /* measured: the f32 -> f16 -> f32 round trip costs nothing and does
+     * not round (tests/gt1030/results/2026-11-11.md, f16 round trip) */
+    "  folds f32 -> f16 -> f32\n"
     "}\n"
     /*
      * Later NVIDIA parts: ESTIMATES, not measurements.  The classes the
@@ -1471,10 +1475,14 @@ static const char prelude[] =
      * int:fp32 rate of 1:1).  cmp: the table's ratio plus the 0.375
      * gt1030 measured above its own (the comparison's bool result).
      */
+    /* (`folds none` in these three: the f16 round trip is a measurement
+     * of GP108's driver, where f16 has no arithmetic, and is not carried
+     * over to parts that were not measured) */
     "model sm75 : gt1030 {\n"
     "  iadd: 1, logic: 1, shift: 1, imul: 1, cmp: 1.375, minmax: 1,\n"
     "  bitcnt: 4, conv: 4, fdiv: 3, fsqrt: 4, ftrans: 4, f64: 32,\n"
     "  dot4x8: 1, dot4x8sat: 6.5\n"
+    "  folds none\n"
     "}\n"
     /*
      * sm86 (Ampere GA10x): fp32 128/clk (two FP32 paths), the integer
@@ -1486,6 +1494,7 @@ static const char prelude[] =
     "  iadd: 2, logic: 2, shift: 2, imul: 2, cmp: 2.75, minmax: 2,\n"
     "  bitcnt: 8, conv: 8, fdiv: 6, fsqrt: 8, ftrans: 8, f64: 64,\n"
     "  dot4x8: 2, dot4x8sat: 13\n"
+    "  folds none\n"
     "}\n"
     /*
      * rdna2 (AMD gfx10.3): ESTIMATES from AMD's RDNA2 ISA guide and
@@ -1503,6 +1512,7 @@ static const char prelude[] =
     "  dot4x8: none, dot4x8sat: none,\n"
     "  udot4x8: 1, sdot4x8: 1, udot4x8sat: 1, sdot4x8sat: 1,\n"
     "  udot8x4: 1, sdot8x4: 1, udot8x4sat: 1, sdot8x4sat: 1\n"
+    "  folds none\n"
     "}\n";
 
 static void
@@ -1711,6 +1721,8 @@ parse_model(struct P *p)
 		adv(p);
 		memcpy(m->c, parent->c, sizeof m->c);
 		fuse_inherit(m, parent);
+		memcpy(m->fold, parent->fold, sizeof m->fold);
+		m->nfold = parent->nfold;
 		inherited = 1;
 	}
 	skip_nl(p);
@@ -1727,6 +1739,44 @@ parse_model(struct P *p)
 		s = ttext(p, p->i, &n);
 		if (pk(p) != T_ID)
 			fail("expected a cost class");
+		if (n == 5 && !memcmp(s, "folds", 5)) {
+			/* folds T -> M -> T: a round trip the driver drops */
+			ty_t ty[3];
+			int j;
+			adv(p);
+			accept(p, T_COLON);
+			if (accept_kw(p, "none")) {	/* not the parent's either */
+				m->nfold = 0;
+				continue;
+			}
+			for (j = 0; j < 3; j++) {
+				size_t tn;
+				const char *ts = ttext(p, p->i, &tn);
+				if (pk(p) != T_ID || !ty_parse(ts, tn, &ty[j]) ||
+				    TYK(ty[j]) != K_FLOAT)
+					fail("folds: expected a float type (folds f32 "
+					    "-> f16 -> f32)");
+				adv(p);
+				if (j < 2 && !accept(p, T_ARROW))
+					fail("folds: expected '->' (folds f32 -> f16 "
+					    "-> f32)");
+			}
+			if (ty[0] != ty[2] || TYW(ty[1]) >= TYW(ty[0]))
+				fail("folds: a round trip T -> M -> T through a "
+				    "narrower M, not %s -> %s -> %s", ty_str(ty[0]),
+				    ty_str(ty[1]), ty_str(ty[2]));
+			for (j = 0; j < m->nfold; j++)
+				if (m->fold[j][0] == ty[0] && m->fold[j][1] == ty[1])
+					break;
+			if (j == m->nfold) {
+				if (m->nfold == MAXFOLD)
+					fail("folds: at most %d per model", MAXFOLD);
+				m->fold[j][0] = ty[0];
+				m->fold[j][1] = ty[1];
+				m->nfold++;
+			}
+			continue;
+		}
 		k = (n == 3 && !memcmp(s, "all", 3)) ? -1 : cclass_find(s, n);
 		if (k == -2)
 			fail("unknown cost class '%.*s' (see 'models')", (int)n, s);
@@ -2253,6 +2303,8 @@ statement(struct P *p)
 					fapprox = 1;
 				else if (accept_kw(p, "percomp"))
 					fpercomp = 1;
+				else if (accept_kw(p, "foldproof"))
+					spirv_dword_opts(1);	/* folded round trips kept */
 				else
 					adv(p);
 			}
@@ -2287,6 +2339,9 @@ statement(struct P *p)
 		}
 		/* monotonic, period, identify, zeros ... (props.c) */
 		if (props_command(p))
+			return;
+		/* dword, foldproof: fp64 as f32 pairs, driver folds (dword.h) */
+		if (dword_command(p) || fold_command(p))
 			return;
 		/* approx (approx.c) */
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {

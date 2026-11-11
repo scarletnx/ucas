@@ -8,6 +8,7 @@
  */
 #include "calc.h"
 #include "fuse.h"
+#include "dword.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -324,7 +325,7 @@ node_cost(const struct model *m, nid n, int *cls)
 void
 cmd_models(void)
 {
-	int i;
+	int i, k;
 	struct sbuf b = {0};
 
 	for (i = 0; i < nmodels; i++) {
@@ -333,6 +334,11 @@ cmd_models(void)
 		printf("model %s%s {%s }\n", sym_str(models[i].name),
 		    &models[i] == active ? " (active)" : "", sb_str(&b));
 		fuse_print_models(&models[i]);
+		for (k = 0; k < models[i].nfold; k++)
+			printf("  folds %s -> %s -> %s\n",
+			    ty_str(models[i].fold[k][0]),
+			    ty_str(models[i].fold[k][1]),
+			    ty_str(models[i].fold[k][0]));
 	}
 	free(b.p);
 }
@@ -738,8 +744,8 @@ print_loop(const struct func *f, const struct lprice *lp)
 
 #define MAXSEL_SHOWN 12
 
-void
-cmd_cost(struct func *f, struct model *m)
+static void
+cost_report(struct func *f, struct model *m, const struct func *src)
 {
 	uint32_t lim = N.n, g;
 	uint8_t *all = xcalloc(lim, 1), *cut = xcalloc(lim, 1);
@@ -880,6 +886,8 @@ cmd_cost(struct func *f, struct model *m)
 			print_loop(f, &lps[k]);
 		rep_end();
 	}
+	if (src != f)
+		fold_cost_notes(src, m);
 	rep_list("selects");
 	best_total = total;
 	/*
@@ -985,4 +993,19 @@ cmd_cost(struct func *f, struct model *m)
 	cur_eff = NULL;
 	cur_in = cur_fused = NULL;
 	fg_free(&cur_fg);
+}
+
+/*
+ * F is priced as the model's driver runs it: the float round trips the
+ * model says are folded (fpfold.c) are gone before anything is counted,
+ * so what they sat between fuses as it would; the report then says which
+ * and whether F leaned on their rounding.
+ */
+void
+cmd_cost(struct func *f, struct model *m)
+{
+	struct func v = *f;
+
+	v.body = fold_apply(m, f->body);
+	cost_report(v.body != f->body ? &v : f, m, f);
 }

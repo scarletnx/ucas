@@ -1,0 +1,74 @@
+# fp64 without fp64: a double computation over f32, with f32 alone or as
+# double-word pairs (hi + lo of two f32, built on the error-free 2Sum,
+# Fast2Sum and 2Prod), when the active cost model prices that below its
+# f64 operations and the derived error bound meets what the result needs.
+# gt1030 (f64 at 1/32 rate) takes the pairs; an x86 model (f64 as cheap as
+# f32) takes nothing.
+#
+# a difference of squares in double, the result an f32
+dsq(x: f32 in 1..2, y: f32 in 3..4) = f32(f64(x) * f64(x) - f64(y) * f64(y))
+cost dsq
+dword dsq
+# the form is a function: priced, and measured against the double version
+cost dsq_dw
+error dsq_dw ~ dsq
+# the same request under a model with cheap f64: no candidate is cheaper
+dword dsq model zen4
+# a looser requirement: f32 alone meets 4 ulp, and is cheaper still
+dword dsq ulp 4
+# overlapping ranges: x*x - y*y can cancel, so there is no relative
+# bound; an absolute tolerance is met
+can(x: f32 in 1..2, y: f32 in 1..2) = f32(f64(x) * f64(x) - f64(y) * f64(y))
+dword can
+dword can atol 1e-12
+# division and square root
+hyp(a: f32 in 1..100, b: f32 in 1..100) = f32(f64(a) / sqrt(f64(a) * f64(a) + f64(b) * f64(b)))
+dword hyp
+# an f64 result needs a tolerance; the pair is recombined
+acc(x: f32 in 0.5..2, y: f32 in 0.5..2) = f64(x) * f64(y) / (f64(x) + f64(y))
+dword acc
+dword acc tol 1e-12
+# the prices decide: one f64 multiply-add, which the model fuses, costs
+# less than its pair and the recombination
+one(x: f32 in 0.5..2, y: f32 in 0.5..2) = f64(x) * f64(y) + f64(x)
+dword one tol 1e-12
+# an f64 parameter is split in place, a constant when it is read
+sc(t: f64 in 0.1..10, x: f32 in 1..2) = f32((t * f64(x) + 0.1) / (t + f64(x)))
+dword sc
+# integers: up to 24 bits convert exactly, a u32 in two exact parts
+iu(i: u32, x: f32 in 1..2) = f32(f64(i) * f64(x))
+dword iu
+# what has no pair form stays in f64 and is split
+tr(x: f32 in 0.1..1) = f32(sin(f64(x)) * f64(x))
+dword tr
+# no ranges: the bound holds under conditions the caller keeps
+nr(x: f32, y: f32) = f32(f64(x) * f64(y) * f64(x))
+dword nr
+# English
+avoid fp64 in tr
+dsq without doubles, within 4 ulp
+emulate doubles in hyp on zen4
+# find says so
+find dsq
+# a conversion round trip the driver folds: gt1030 declares f32 -> f16 ->
+# f32 (measured: dropped), so it costs nothing there and does not round
+q(x: f32 in 0.5..8) = f32(f16(x)) * 2
+cost q
+foldproof q
+cost q_fp
+# every f32: subnormal results, overflow to infinity, NaN
+qa(x: f32) = f32(f16(x))
+foldproof qa
+# an integer of 11 bits is an f16 value: nothing is lost
+qi(i: u8) = f32(f16(f32(i))) + 1
+cost qi
+foldproof qi
+# a model that folds nothing computes the round trip as written
+cost q model zen4
+foldproof q model zen4
+# a model can declare the fold
+model mine : zen4 { folds f32 -> f16 -> f32 }
+cost q model mine
+# English
+make qi fold-proof
+does the driver fold q under zen4

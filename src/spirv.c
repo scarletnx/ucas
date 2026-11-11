@@ -6668,11 +6668,14 @@ spirv_float_opts(int mode, double ulp, int approx, int percomp, int only)
 	fopt_only = only;
 }
 
+/* float simplify's type: binary32, scalar or vector (its reference and
+ * its precision table are binary32's; f64 is spv_dword.inc's) */
 static int
 is_float_t(int t)
 {
-	return t >= 0 && V.id[t].kind == K_TYPE && (T(t)->k == S_FLOAT ||
-	    (T(t)->k == S_VEC && T(T(t)->e)->k == S_FLOAT));
+	return t >= 0 && V.id[t].kind == K_TYPE && ((T(t)->k == S_FLOAT &&
+	    T(t)->w == 32) || (T(t)->k == S_VEC && T(T(t)->e)->k == S_FLOAT &&
+	    T(T(t)->e)->w == 32));
 }
 
 /* the input name of a load (its variable or buffer member), else NULL */
@@ -6962,6 +6965,10 @@ fprice_ins(const char *op, const char *ext, int rt)
 	if (rt >= 0 && V.id[rt].kind != K_TYPE &&
 	    !strncmp(V.id[rt].name, "%ucas_v", 7))
 		n = atoi(V.id[rt].name + 7);
+	/* a float of another width is not this pass's to price */
+	if (rt >= 0 && V.id[rt].kind == K_TYPE && (T(rt)->k == S_FLOAT ||
+	    (T(rt)->k == S_VEC && T(T(rt)->e)->k == S_FLOAT)) && !is_float_t(rt))
+		return 0;
 
 	if (!strcmp(op, "OpFAdd") || !strcmp(op, "OpFSub") ||
 	    !strcmp(op, "OpFNegate"))
@@ -7985,6 +7992,8 @@ float_pass(const char *text, int *changed)
 	return out.p;
 }
 
+#include "spv_dword.inc"	/* fp64 as f32 pairs, the driver's folds */
+
 static char *orig_mod;	/* the module before the rewrites */
 
 /*
@@ -8721,8 +8730,17 @@ spirv_simplify(const char *src, double budget, int nofile)
 	memset(&V, 0, sizeof V);
 	/* the float instructions, on the module as the integer part left it */
 	{
-		int fch = 0;
-		char *ft = float_pass(out.p ? out.p : "", &fch);
+		int fch = 0, dch = 0;
+		char *ft, *dt;
+		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
+		ft = float_pass(out.p ? out.p : "", &fch);
+		/* f64 over f32 and folded round trips, on what that left */
+		dt = dword_pass(fch ? ft : out.p ? out.p : "", &dch);
+		if (dch) {
+			free(ft);
+			ft = dt;
+			fch = 1;
+		}
 		if (fch)
 			deliver_file("simplified.spvasm", "text/plain", ft, strlen(ft),
 			    nofile);

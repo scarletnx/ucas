@@ -170,6 +170,8 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp |
 | `cost F [model m]`, `use m`, `models` | price F under a cost model |
+| `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
+| `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -1300,7 +1302,8 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a * b + c : imul
-  ... }
+  ...
+  folds f32 -> f16 -> f32 }
 model mine : gt1030 { imul: 1 }
 ```
 
@@ -1614,6 +1617,184 @@ for a GLSL expression over the values its leaves take at its calls,
 with the declaration GLSL needs (GLSL has no built-in for these).
 Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 
+### Driver folds
+
+A model can say which float round trips its driver drops:
+
+```
+model gt1030 { ..., folds f32 -> f16 -> f32 }
+model mine : zen4 { folds f32 -> f16 -> f32 }
+```
+
+`folds T -> M -> T` (M narrower than T), a line of the model's block like
+its `fuse` lines, declares that the conversion to M and back costs
+nothing and does not round (`folds none` drops what the parent
+declared: sm75, sm86 and rdna2 do, the fold being a measurement of
+GP108's driver and not an estimate to carry over): measured on the GT 1030, where
+the f32 -> f16 -> f32 round trip is dropped (tests/gt1030, "f16 round
+trip").  Nothing in the code names a driver; a model without the line
+prices the conversions as written.
+
+`cost` prices F as the driver runs it, the folded round trips gone
+before anything is counted (so what they sat between fuses as it
+would), and says whether
+the program relies on its rounding: proved harmless when the operand is
+an M value already (an integer that fits the significand, a value
+converted from M), checked on every point of a small domain, and
+otherwise searched for an input where the folded program differs.
+
+```
+> q(x: f32 in 0.5..8) = f32(f16(x)) * 2
+> cost q
+cost of q under gt1030: 1 (1 operations, shared subterms counted once)
+  fmul             1 x 1     = 1
+  the driver folds f32 -> f16 -> f32 (model gt1030): f32(f16(x)) is priced 0 and computes x itself
+      warning: q relies on that rounding (quantisation): at x=0.717493892: the program expects 0.717285156, the folded one gives 0.717493892
+      `foldproof q` gives the rounding in a form no float fold reaches
+> foldproof q
+  ...
+    fold-proof: asfloat(asuint(x) + 4095 + (asuint(x) >> 13 & 1) & 0xffffe000)
+      cost 6 under gt1030 (the round trip as written would be 6; folded it is 0 and does not round)
+    proof:
+      1. between 2^-14 and 2^16 the f16 values of a binade are the f32 values whose 13 low mantissa
+         bits are 0; ... rounding the value to f16 (nearest, ties to even) is rounding
+         the pattern to a multiple of 2^13 (nearest, ties to the even quotient)
+      2. (b + 4095 + (b >> 13 & 1)) & ~8191 is that rounding of b, for every 32-bit b: against
+         q = b >> 13, r = b mod 2^13, (q + (r > 2^12 or r = 2^12 and q odd)) << 13: proved by SAT
+      3. the range: every operand is 0 or has 2^-14 <= |x| < 65520 ...
+    check (not the proof): 726 bit patterns ... all equal to the evaluator's round trip
+  defined q_fp = ...
+```
+
+`foldproof F` rewrites every folded round trip of F: the identity where
+nothing is lost, otherwise integer rounding of the mantissa bits, which
+is IEEE round-to-nearest-even to M bit for bit.  The short form above is
+taken when the operand's range keeps every result a normal M value; with
+no such range the full form also gives subnormal results (the grid fixed
+at 2^(emin - mant), the quotient by a variable shift), infinity past the
+largest M value, NaN for NaN and the sign of zero.  The grid argument is
+in words; the add-and-mask rounding is proved against its definition by
+SAT on every bit pattern, and a labelled secondary check compares the
+form with the evaluator's own round trip on ties and their neighbours at
+every mantissa bit of every binade.  The function `F_fp` is defined.
+
+In a shader, `simplify` reports a folded `OpFConvert` pair the same way
+and, asked with `foldproof` ("simplify, fold-proof"), writes the integer
+instructions into the module.
+
+## fp64 without fp64
+
+`dword F` takes a function whose value is an f64 computation (or
+`f32(...)` of one) and builds it over f32 in two ways: with f32 alone
+(every operation rounded to f32), and as double-word arithmetic, where a
+value is an unevaluated sum hi + lo of two f32 with |lo| <= u |hi|, u =
+2^-24, on the error-free transformations 2Sum, Fast2Sum and 2Prod (with
+fma).  Each candidate gets a bound on its error against the exact value,
+and is priced under the model; the cheapest one whose bound meets the
+requirement replaces the f64 operations when it costs less than they do.
+Under gt1030 (f64 at 1/32 rate, division and sqrt library calls) the
+pairs usually win; under an x86 model, where f64 costs what f32 does,
+nothing is rewritten.  Both sides are priced by the model's cover with
+its fusions: a lone f64 multiply-add that gt1030 fuses (38.375) stays,
+its pair and the recombination costing more (50.375); in the pairs a
+negation feeding an fma is the free source modifier it is on the card.
+No fusion absorbs an operation of an error-free transformation: each is
+read more than once.
+
+```
+> dsq(x: f32 in 1..2, y: f32 in 3..4) = f32(f64(x) * f64(x) - f64(y) * f64(y))
+> dword dsq
+dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 3.997e-16 (3.6 u64) relative
+  f32 alone   cost 2       error <= 2.146e-07 (3.6 u) relative: as f32 within 0.5 + 3.6 ulp
+  f32 pairs   cost 13      error <= 2.203e-14 (6.2 u^2) relative: as f32 within 0.5 + 3.7e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; ...)
+  -> f32 pairs: cost 13 against 73.75 (-82.4%), 15 f32 operations for 6
+  the form:
+    t1 = x * x                               !
+    ...
+    t15 = t3 + t14                           !
+    result: t15
+    ! 11 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
+      f64(y)*f64(y)                            [9, 16]                  0 u^2          2Prod (exact)
+      f64(x)*f64(x) - f64(y)*f64(y)            [-15, -5]                6.2 u^2        SloppyDWPlusDW
+  derivation ...
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 16, below 2^127 (derived from the ranges)
+    no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 2.1 u^2 (the bound: 6.2); the f64 program's 0 u64
+  defined dsq_dw: the form as a function (cost dsq_dw, error dsq_dw ~ dsq)
+> dword dsq model zen4
+  -> not rewritten: the form that meets the requirement costs 45, the f64 operations 21 under zen4
+```
+
+The requirement is what the result feeds: for `f32(...)` the default is
+ten guard bits (within 0.5 + 2^-10 ulp of the exact value), `ulp X`
+changes it, and a loose one is met by f32 alone (`dword dsq ulp 4`: cost
+2); `tol R` is a relative bound and `atol T` an absolute one, and an f64
+result needs one of them (the pair is then recombined as f64(hi) +
+f64(lo), or handed over as two f32: an interface change that is
+proposed, not made).
+
+The algorithms are those of Joldes, Muller and Popescu, "Tight and
+rigorous error bounds for basic building blocks of double-word
+arithmetic" (ACM TOMS 44(2), 2017):
+
+| operation | algorithm | f32 operations | derived here | the paper |
+|---|---|---:|---:|---:|
+| FP + FP, FP x FP | 2Sum, 2Prod | 6, 3 | exact | exact |
+| pair + FP | DWPlusFP | 10 | (1 + kappa) u^2 | 2 u^2 |
+| pair + pair | SloppyDWPlusDW | 11 | (1 + 2 kappa) u^2 | 3 u^2, same signs |
+| pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2 | 3 u^2 |
+| pair x FP | DWTimesFP3 | 7 | 2 u^2 | 2 u^2 |
+| pair x pair | DWTimesDW3 | 10 | 6 u^2 | 5 u^2 |
+| pair / FP | DWDivFP3 | 11 | 7 u^2 | 3 u^2 |
+| pair / pair | DWDivDW2 | 15 | 18 u^2 | 15 u^2 |
+| sqrt(pair) | one Newton step | 9 | 5.125 u^2 | |
+
+The bounds used are the ones the standard model fl(a op b) = (a op b)(1 +
+d), |d| <= u, gives line by line with the transformations exact; the
+report prints each derivation.  They are a little above the paper's,
+whose proofs are case analyses (an exact subtraction here, a Sterbenz
+case there), and an addition's depends on kappa = (|x| + |y|) / |x + y|,
+the largest over the parameters' ranges: 1 for operands of one sign.
+Where kappa is not bounded (the ranges let a sum cancel) no relative
+bound exists, for the f64 program either; the absolute bound, which
+every value also carries, then answers `atol`.  The cheaper sloppy
+addition is taken while its bound meets the requirement and its
+Fast2Sum precondition follows from the ranges; the accurate one
+otherwise.
+
+What is stated with a result: the ranges every value takes; no overflow
+(derived from the ranges, or left to the caller when a parameter has
+none); no underflow of an error term (a product below 2^-102 adds at
+most 2^-149); divisors away from 0; a positive operand for sqrt (at 0
+the Newton step is 0/0); finite inputs.  Scaling by a power of two,
+negation and abs are exact.  An f64 parameter is split in place (hi =
+f32(v), lo = f32(v - hi), one f64 subtraction), a constant when it is
+read; integers up to 24 bits convert exactly and a 32-bit one in two
+exact parts; an operation with no pair form (sin, pow ...) stays in f64
+and its value is split.  A sampled check against the exact value in long
+double is printed as that: a check, not the proof.
+
+`find F` mentions the form in a line when one is cheaper.  In a shader,
+`simplify` rewrites every scalar f64 computation that ends in a
+conversion to f32 (its inputs f32 values and integers converted to f64,
+f64 constants; ranges from the request, `x in [1, 2]`): the f32
+instructions replace the f64 ones, the operations of the error-free
+transformations are decorated NoContraction, the Float64 capability and
+type go when nothing uses them, and spirv-as and spirv-val are run on the
+result ("spirv-val accepts the written module").  `ulp N` in the request
+is the requirement; `exact` rewrites nothing (a pair is not bit-exact).
+Not rewritten: f64 vectors and matrices, a value read by more than one
+result, results that stay f64.
+
 ### Long expressions
 
 Reports print an expression with its shared subterms named: a subterm
@@ -1714,6 +1895,10 @@ correctly rounded pow for c in [0, 1]) and the add and multiply one fma
 (2.16 <= 2.5 ulp): 18 -> 14 per component under gt1030.  No polynomial
 cheaper than the pow is within its precision on the base's range
 [0.0905, 1] (the best, degree 7, is 3.3e-4 relative).
+
+The float part is binary32's: values of another width (f64, f16) are
+inputs to it, and their own instructions are not priced or rewritten
+here (f64 has its own part, see "fp64 without fp64").
 
 Not done yet: proofs for two or more float inputs that interact (a
 second input is kept as an interval, so its sets are "possibly"); bit-

@@ -1,0 +1,656 @@
+> dsq(x: f32 in 1..2, y: f32 in 3..4) = f32(f64(x) * f64(x) - f64(y) * f64(y))
+> cost dsq
+cost of dsq under gt1030: 73.75 (6 operations, shared subterms counted once)
+  conv             3 x 3     = 9
+  fmul             1 x 32.375 = 32.375
+  fused by the model (one instruction for several operations):
+    ffms             1 x 32.375 = 32.375  (a*b - c, contracted: one rounding; saves 32.375)
+> dword dsq
+dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 3.997e-16 (3.6 u64) relative
+  f32 alone   cost 2       error <= 2.146e-07 (3.6 u) relative: as f32 within 0.5 + 3.6 ulp
+  f32 pairs   cost 13      error <= 2.203e-14 (6.2 u^2) relative: as f32 within 0.5 + 3.7e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> f32 pairs: cost 13 against 73.75 (-82.4%), 15 f32 operations for 6
+  the form:
+    t1 = x * x                               !
+    t2 = y * y                               !
+    t3 = t1 - t2                             !
+    t4 = -t1
+    t5 = fma(x, x, t4)                       !
+    t6 = -t2
+    t7 = fma(y, y, t6)                       !
+    t8 = t3 + t2                             !
+    t9 = t3 - t8                             !
+    t10 = t1 - t8                            !
+    t11 = t2 + t9                            !
+    t12 = t10 - t11                          !
+    t13 = t5 - t7
+    t14 = t12 + t13
+    t15 = t3 + t14                           !
+    result: t15
+    ! 11 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
+      f64(y)*f64(y)                            [9, 16]                  0 u^2          2Prod (exact)
+      f64(x)*f64(x) - f64(y)*f64(y)            [-15, -5]                6.2 u^2        SloppyDWPlusDW
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
+      s + t = a + b exactly (Knuth), |t| <= u |s|
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    SloppyDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); v = RN(xl + yl); w = RN(sl + v);
+      (zh, zl) = Fast2Sum(sh, w): zh + zl = x~ + y~ + d1 (xl + yl) + d2 (sl + v): at most
+      u (u A) + u (u |sh| + (1 + u) u A), A = |xh| + |yh|: 3.000 u^2 |x~ + y~| at kappa = 1,
+      (1 + 2 kappa) u^2 in general, kappa = (|x| + |y|) / |x + y| the largest on the ranges
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 16, below 2^127 (derived from the ranges)
+    no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 2.1 u^2 (the bound: 6.2); the f64 program's 0 u64
+  defined dsq_dw: the form as a function (cost dsq_dw, error dsq_dw ~ dsq)
+> cost dsq_dw
+cost of dsq_dw under gt1030: 13 (15 operations, shared subterms counted once)
+  shared subterms (named once, used below):
+    t1 = x*x - y*y
+    t2 = t1 + y*y
+  fadd             9 x 1     = 9
+  fmul             4 x 1     = 4
+  fused by the model (one instruction for several operations):
+    fneg             2 x 0     = 0  (-a, a source modifier; saves 2)
+> error dsq_dw ~ dsq
+error of dsq_dw against dsq:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+> dword dsq model zen4
+dword dsq under zen4: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 21      error against the exact value <= 3.997e-16 (3.6 u64) relative
+  f32 alone   cost 9       error <= 2.146e-07 (3.6 u) relative: as f32 within 0.5 + 3.6 ulp
+  f32 pairs   cost 45      error <= 2.203e-14 (6.2 u^2) relative: as f32 within 0.5 + 3.7e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> not rewritten: the form that meets the requirement costs 45, the f64 operations 21 under zen4
+> dword dsq ulp 4
+dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 3.997e-16 (3.6 u64) relative
+  f32 alone   cost 2       error <= 2.146e-07 (3.6 u) relative: as f32 within 0.5 + 3.6 ulp
+  f32 pairs   cost 13      error <= 2.203e-14 (6.2 u^2) relative: as f32 within 0.5 + 3.7e-07 ulp
+  required: the f32 result within 0.5 + 4 ulp of the exact value (ulp)
+  -> f32 alone: cost 2 against 73.75 (-97.3%), 3 f32 operations for 6
+  the form:
+    t1 = x * x
+    t2 = y * y
+    t3 = t1 - t2
+    result: t3
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(x)                            [1, 4]                   1 u            one f32 multiply
+      f64(y)*f64(y)                            [9, 16]                  1 u            one f32 multiply
+      f64(x)*f64(x) - f64(y)*f64(y)            [-15, -5]                3.6 u          one f32 add
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 16, below 2^127 (derived from the ranges)
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 2.4 u (the bound: 3.6); the f64 program's 0 u64
+  defined dsq_dw: the form as a function (cost dsq_dw, error dsq_dw ~ dsq)
+> can(x: f32 in 1..2, y: f32 in 1..2) = f32(f64(x) * f64(x) - f64(y) * f64(y))
+> dword can
+dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 1.221e-15 absolute (no relative bound: a sum may cancel)
+  f32 alone   cost 2       error <= 6.557e-07 absolute (no relative bound: a sum may cancel)
+  f32 pairs   cost 22      error <= 4.974e-14 absolute (no relative bound: a sum may cancel)
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> not rewritten: no f32 form's derived bound meets the requirement
+> dword can atol 1e-12
+dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 1.221e-15 absolute (no relative bound: a sum may cancel)
+  f32 alone   cost 2       error <= 6.557e-07 absolute (no relative bound: a sum may cancel)
+  f32 pairs   cost 22      error <= 4.974e-14 absolute (no relative bound: a sum may cancel)
+  required: absolute error <= 1e-12 (atol)
+  -> f32 pairs: cost 22 against 73.75 (-70.2%), 24 f32 operations for 6
+  the form:
+    t1 = x * x                               !
+    t2 = y * y                               !
+    t3 = t1 - t2                             !
+    t4 = -t1
+    t5 = fma(x, x, t4)                       !
+    t6 = -t2
+    t7 = fma(y, y, t6)                       !
+    t8 = t3 + t2                             !
+    t9 = t3 - t8                             !
+    t10 = t1 - t8                            !
+    t11 = t2 + t9                            !
+    t12 = t10 - t11                          !
+    t13 = t5 - t7                            !
+    t14 = t12 + t13
+    t15 = t3 + t14                           !
+    t16 = t15 - t3                           !
+    t17 = t14 - t16                          !
+    t18 = t13 + t7                           !
+    t19 = t13 - t18                          !
+    t20 = t5 - t18                           !
+    t21 = t7 + t19                           !
+    t22 = t20 - t21                          !
+    t23 = t22 + t17
+    t24 = t15 + t23                          !
+    result: t24
+    ! 20 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
+      f64(y)*f64(y)                            [1, 4]                   0 u^2          2Prod (exact)
+      f64(x)*f64(x) - f64(y)*f64(y)            [-3, 3]                  4.97e-14 abs   AccurateDWPlusDW
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
+      s + t = a + b exactly (Knuth), |t| <= u |s|
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    AccurateDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); (th, tl) = 2Sum(xl, yl); c = RN(sl + th);
+      (vh, vl) = Fast2Sum(sh, c); w = RN(tl + vl); (zh, zl) = Fast2Sum(vh, w):
+      zh + zl = x~ + y~ + d1 (sl + th) + d2 (tl + vl): 3.000 u^2 |x~ + y~| at kappa = 1,
+      (2 + kappa) u^2 in general (the paper proves 3 u^2 / (1 - 4u) for every kappa)
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 4, below 2^127 (derived from the ranges)
+    no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition in an addition whose cancellation the ranges do not bound: by the paper's
+      proof for AccurateDWPlusDW and DWPlusFP, not derived here
+  check (sampled, not a proof): 4094 points of the domain, the largest error against the exact value
+    (long double) 1.9 u^2; the f64 program's 0 u64
+  defined can_dw: the form as a function (cost can_dw, error can_dw ~ can)
+> hyp(a: f32 in 1..100, b: f32 in 1..100) = f32(f64(a) / sqrt(f64(a) * f64(a) + f64(b) * f64(b)))
+> dword hyp
+dword hyp under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 300.375 error against the exact value <= 3.331e-16 (3 u64) relative
+  f32 alone   cost 9       error <= 1.788e-07 (3 u) relative: as f32 within 0.5 + 3 ulp
+  f32 pairs   cost 43      error <= 8.749e-14 (24.62 u^2) relative: as f32 within 0.5 + 1.47e-06 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> f32 pairs: cost 43 against 300.375 (-85.7%), 38 f32 operations for 8
+  the form:
+    t1 = a * a                               !
+    t2 = b * b                               !
+    t3 = t1 + t2                             !
+    t4 = -t1
+    t5 = fma(a, a, t4)                       !
+    t6 = -t2
+    t7 = fma(b, b, t6)                       !
+    t8 = t3 - t2                             !
+    t9 = t3 - t8                             !
+    t10 = t1 - t8                            !
+    t11 = t2 - t9                            !
+    t12 = t10 + t11                          !
+    t13 = t5 + t7
+    t14 = t12 + t13
+    t15 = t3 + t14                           !
+    t16 = t15 - t3                           !
+    t17 = t14 - t16                          !
+    t18 = sqrt(t15)
+    t19 = -t18
+    t20 = fma(t19, t18, t15)                 !
+    t21 = t17 + t20
+    t22 = t18 + t18
+    t23 = t21 / t22
+    t24 = t18 + t23                          !
+    t25 = t24 - t18                          !
+    t26 = t23 - t25                          !
+    t27 = a / t24
+    t28 = t24 * t27                          !
+    t29 = -t28
+    t30 = fma(t24, t27, t29)                 !
+    t31 = fma(t26, t27, t30)
+    t32 = t28 + t31                          !
+    t33 = t32 - t28                          !
+    t34 = t31 - t33                          !
+    t35 = a - t32
+    t36 = t35 - t34
+    t37 = t36 / t24
+    t38 = t27 + t37                          !
+    result: t38
+    ! 23 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(a)*f64(a)                            [1, 1e+04]               0 u^2          2Prod (exact)
+      f64(b)*f64(b)                            [1, 1e+04]               0 u^2          2Prod (exact)
+      f64(a)*f64(a) + f64(b)*f64(b)            [2, 2e+04]               3 u^2          SloppyDWPlusDW
+      sqrt(f64(a)*f64(a) + f64(b)*f64(b))      [1.414, 141.4]           6.625 u^2      Newton sqrt
+      f64(a)/sqrt(f64(a)*f64(a) + f64(b)*f6... [0.007071, 70.71]        24.62 u^2      DWDivDW2
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
+      s + t = a + b exactly (Knuth), |t| <= u |s|
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    SloppyDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); v = RN(xl + yl); w = RN(sl + v);
+      (zh, zl) = Fast2Sum(sh, w): zh + zl = x~ + y~ + d1 (xl + yl) + d2 (sl + v): at most
+      u (u A) + u (u |sh| + (1 + u) u A), A = |xh| + |yh|: 3.000 u^2 |x~ + y~| at kappa = 1,
+      (1 + 2 kappa) u^2 in general, kappa = (|x| + |y|) / |x + y| the largest on the ranges
+    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 = fma(xl, y, cl1); (zh, zl) = Fast2Sum(ch, cl3):
+      zh + zl = x~ y + d (xl y + cl1), |xl y| and |cl1| <= u |xh y|: 2.000 u^2 |x~ y|
+    DWDivDW2(x~, y~): th = RN(xh / yh); r~ = DWTimesFP3(y~, th); d = RN(RN(xh - rh) + RN(xl - rl));
+      tl = RN(d / yh); (zh, zl) = Fast2Sum(th, tl): the residual x~ - y~ th is at most 3u |xh|;
+      r~, the three roundings, the division and yh for y~ give 18.000 u^2 |x~ / y~| (the paper: 15 u^2)
+    sqrt(x~): sh = RN(sqrt(xh)); r = fma(-sh, sh, xh) (exact); sl = RN(RN(xl + r) / (2 sh));
+      (zh, zl) = Fast2Sum(sh, sl): one Newton step, sqrt(x~) = sh + (x~ - sh^2) / (sh + sqrt(x~));
+      2 sh for the denominator and the roundings give 5.125 u^2 sqrt(x~)
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 2e+04, below 2^127 (derived from the ranges)
+    no underflow: the 4 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 3.5 u^2 (the bound: 24.62); the f64 program's 1.7 u64
+  defined hyp_dw: the form as a function (cost hyp_dw, error hyp_dw ~ hyp)
+> acc(x: f32 in 0.5..2, y: f32 in 0.5..2) = f64(x) * f64(y) / (f64(x) + f64(y))
+> dword acc
+dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 167.875 error against the exact value <= 3.331e-16 (3 u64) relative
+  f32 alone   cost 8       error <= 1.788e-07 (3 u) relative
+  f32 pairs   cost 64.375  error <= 6.395e-14 (18 u^2) relative
+  required: the result stays f64 and no tolerance was given: `tol R` or `atol T` says how much of it is needed
+  -> not rewritten: no f32 form's derived bound meets the requirement
+     the pairs would be taken for tol >= 6.39e-14
+> dword acc tol 1e-12
+dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 167.875 error against the exact value <= 3.331e-16 (3 u64) relative
+  f32 alone   cost 8       error <= 1.788e-07 (3 u) relative
+  f32 pairs   cost 64.375  error <= 6.395e-14 (18 u^2) relative
+  required: relative error <= 1e-12 (tol)
+  -> f32 pairs: cost 64.375 against 167.875 (-61.7%), 27 f32 operations for 5
+     the result is recombined as f64(hi) + f64(lo) (exact); a consumer that takes the pair saves
+     that f64 addition: an interface change, not made here
+  the form:
+    t1 = x * y                               !
+    t2 = x + y                               !
+    t3 = t1 / t2
+    t4 = -t1
+    t5 = fma(x, y, t4)                       !
+    t6 = t2 - y                              !
+    t7 = t2 - t6                             !
+    t8 = x - t6                              !
+    t9 = y - t7                              !
+    t10 = t8 + t9                            !
+    t11 = t2 * t3                            !
+    t12 = -t11
+    t13 = fma(t2, t3, t12)                   !
+    t14 = fma(t10, t3, t13)
+    t15 = t11 + t14                          !
+    t16 = t15 - t11                          !
+    t17 = t14 - t16                          !
+    t18 = t1 - t15
+    t19 = t5 - t17
+    t20 = t18 + t19
+    t21 = t20 / t2
+    t22 = t3 + t21                           !
+    t23 = t22 - t3                           !
+    t24 = t21 - t23                          !
+    t25 = f64(t24)
+    t26 = f64(t22)
+    t27 = t26 + t25
+    result: t27
+    ! 16 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(y)                            [0.25, 4]                0 u^2          2Prod (exact)
+      f64(x) + f64(y)                          [1, 4]                   0 u^2          2Sum (exact)
+      f64(x)*f64(y)/(f64(x) + f64(y))          [0.0625, 4]              18 u^2         DWDivDW2
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
+      s + t = a + b exactly (Knuth), |t| <= u |s|
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 = fma(xl, y, cl1); (zh, zl) = Fast2Sum(ch, cl3):
+      zh + zl = x~ y + d (xl y + cl1), |xl y| and |cl1| <= u |xh y|: 2.000 u^2 |x~ y|
+    DWDivDW2(x~, y~): th = RN(xh / yh); r~ = DWTimesFP3(y~, th); d = RN(RN(xh - rh) + RN(xl - rl));
+      tl = RN(d / yh); (zh, zl) = Fast2Sum(th, tl): the residual x~ - y~ th is at most 3u |xh|;
+      r~, the three roundings, the division and yh for y~ give 18.000 u^2 |x~ / y~| (the paper: 15 u^2)
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 4, below 2^127 (derived from the ranges)
+    no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 4.4 u^2 (the bound: 18); the f64 program's 0.98 u64
+  defined acc_dw: the form as a function (cost acc_dw, error acc_dw ~ acc)
+> one(x: f32 in 0.5..2, y: f32 in 0.5..2) = f64(x) * f64(y) + f64(x)
+> dword one tol 1e-12
+dword one under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 38.375  error against the exact value <= 2.22e-16 (2 u64) relative
+  f32 alone   cost 4       error <= 1.192e-07 (2 u) relative
+  f32 pairs   cost 50.375  error <= 7.105e-15 (2 u^2) relative
+  required: relative error <= 1e-12 (tol)
+  -> not rewritten: the form that meets the requirement costs 50.375, the f64 operations 38.375 under gt1030
+> sc(t: f64 in 0.1..10, x: f32 in 1..2) = f32((t * f64(x) + 0.1) / (t + f64(x)))
+> dword sc
+dword sc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 167.875 error against the exact value <= 4.441e-16 (4 u64) relative
+  f32 alone   cost 8       error <= 3.576e-07 (6 u) relative: as f32 within 0.5 + 6 ulp
+  f32 pairs   cost 84.375  error <= 9.592e-14 (27 u^2) relative: as f32 within 0.5 + 1.61e-06 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> f32 pairs: cost 84.375 against 167.875 (-49.7%), 45 f32 operations for 6
+     1 f64 parameter is split here with an f64 subtraction each; a caller that passes (hi, lo) as two
+     f32 saves that and the fp64 capability: an interface change, not made here
+  the form:
+    t1 = f32(t)
+    t2 = t1 * x                              !
+    t3 = t1 + x                              !
+    t4 = f64(t1)
+    t5 = t - t4
+    t6 = f32(t5)
+    t7 = -t2
+    t8 = fma(t1, x, t7)                      !
+    t9 = fma(t6, x, t8)
+    t10 = t2 + t9                            !
+    t11 = t10 - t2                           !
+    t12 = t9 - t11                           !
+    t13 = t10 + 0.100000001                  !
+    t14 = t13 - 0.100000001                  !
+    t15 = t13 - t14                          !
+    t16 = t10 - t14                          !
+    t17 = 0.100000001 - t15                  !
+    t18 = t16 + t17                          !
+    t19 = t12 + -1.49011614e-09
+    t20 = t18 + t19
+    t21 = t13 + t20                          !
+    t22 = t21 - t13                          !
+    t23 = t20 - t22                          !
+    t24 = t3 - x                             !
+    t25 = t3 - t24                           !
+    t26 = t1 - t24                           !
+    t27 = x - t25                            !
+    t28 = t26 + t27                          !
+    t29 = t6 + t28
+    t30 = t3 + t29                           !
+    t31 = t30 - t3                           !
+    t32 = t29 - t31                          !
+    t33 = t21 / t30
+    t34 = t30 * t33                          !
+    t35 = -t34
+    t36 = fma(t30, t33, t35)                 !
+    t37 = fma(t32, t33, t36)
+    t38 = t34 + t37                          !
+    t39 = t38 - t34                          !
+    t40 = t37 - t39                          !
+    t41 = t21 - t38
+    t42 = t23 - t40
+    t43 = t41 + t42
+    t44 = t43 / t30
+    t45 = t33 + t44                          !
+    result: t45
+    ! 29 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      t*f64(x)                                 [0.1, 20]                3 u^2          DWTimesFP3
+      t*f64(x) + 0.10000000000000001           [0.2, 20.1]              6 u^2          SloppyDWPlusDW
+      t + f64(x)                               [1.1, 12]                3 u^2          DWPlusFP
+      (t*f64(x) + 0.10000000000000001)/(t +... [0.01667, 18.27]         27 u^2         DWDivDW2
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    an f64 value v as a pair: hi = RN32(v), lo = RN32(v - hi); |v - hi| <= u |v| and its rounding
+      loses at most u of that: |v - hi - lo| <= u^2 |v|
+    2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
+      s + t = a + b exactly (Knuth), |t| <= u |s|
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    DWPlusFP(x~, y): (sh, sl) = 2Sum(xh, y); v = RN(xl + sl); (zh, zl) = Fast2Sum(sh, v):
+      zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is at most u (u |xh| + u |sh|),
+      2.000 u^2 |x~ + y| when no cancellation (kappa = 1), (1 + kappa) u^2 in general
+    SloppyDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); v = RN(xl + yl); w = RN(sl + v);
+      (zh, zl) = Fast2Sum(sh, w): zh + zl = x~ + y~ + d1 (xl + yl) + d2 (sl + v): at most
+      u (u A) + u (u |sh| + (1 + u) u A), A = |xh| + |yh|: 3.000 u^2 |x~ + y~| at kappa = 1,
+      (1 + 2 kappa) u^2 in general, kappa = (|x| + |y|) / |x + y| the largest on the ranges
+    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 = fma(xl, y, cl1); (zh, zl) = Fast2Sum(ch, cl3):
+      zh + zl = x~ y + d (xl y + cl1), |xl y| and |cl1| <= u |xh y|: 2.000 u^2 |x~ y|
+    DWDivDW2(x~, y~): th = RN(xh / yh); r~ = DWTimesFP3(y~, th); d = RN(RN(xh - rh) + RN(xl - rl));
+      tl = RN(d / yh); (zh, zl) = Fast2Sum(th, tl): the residual x~ - y~ th is at most 3u |xh|;
+      r~, the three roundings, the division and yh for y~ give 18.000 u^2 |x~ / y~| (the paper: 15 u^2)
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 20.1, below 2^127 (derived from the ranges)
+    no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 3.8 u^2 (the bound: 27); the f64 program's 3.1 u64
+  defined sc_dw: the form as a function (cost sc_dw, error sc_dw ~ sc)
+> iu(i: u32, x: f32 in 1..2) = f32(f64(i) * f64(x))
+> dword iu
+dword iu under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 41.375  error against the exact value <= 1.11e-16 (1 u64) relative
+  f32 alone   cost 4       error <= 1.192e-07 (2 u) relative: as f32 within 0.5 + 2 ulp
+  f32 pairs   cost 15      error <= 7.105e-15 (2 u^2) relative: as f32 within 0.5 + 1.19e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> f32 pairs: cost 15 against 41.375 (-63.7%), 12 f32 operations for 4
+  the form:
+    t1 = i & 4095
+    t2 = i - t1
+    t3 = f32(t1)
+    t4 = f32(t2)
+    t5 = t4 + t3                             !
+    t6 = t5 - t4                             !
+    t7 = t3 - t6                             !
+    t8 = t5 * x                              !
+    t9 = -t8
+    t10 = fma(t5, x, t9)                     !
+    t11 = fma(t7, x, t10)
+    t12 = t8 + t11                           !
+    result: t12
+    ! 6 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(i)*f64(x)                            [0, 8.59e+09]            2 u^2          DWTimesFP3
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 = fma(xl, y, cl1); (zh, zl) = Fast2Sum(ch, cl3):
+      zh + zl = x~ y + d (xl y + cl1), |xl y| and |cl1| <= u |xh y|: 2.000 u^2 |x~ y|
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 8.59e+09, below 2^127 (derived from the ranges)
+    no underflow: 1 error-free product, exact while the product is 0 or at least 2^-102 in
+      magnitude; below that each adds at most 2^-149 (absolute): not excluded by the ranges
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 4093 points of the domain, the largest error against the exact value
+    (long double) 1.3 u^2 (the bound: 2); the f64 program's 1 u64
+  defined iu_dw: the form as a function (cost iu_dw, error iu_dw ~ iu)
+> tr(x: f32 in 0.1..1) = f32(sin(f64(x)) * f64(x))
+> dword tr
+dword tr under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 167.875 error against the exact value <= 1.11e-16 (1 u64) relative
+  f32 alone   cost 136.5   error <= 1.192e-07 (2 u) relative: as f32 within 0.5 + 2 ulp
+  f32 pairs   cost 177.875 error <= 1.066e-14 (3 u^2) relative: as f32 within 0.5 + 1.79e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> not rewritten: the form that meets the requirement costs 177.875, the f64 operations 167.875 under gt1030
+> nr(x: f32, y: f32) = f32(f64(x) * f64(y) * f64(x))
+> dword nr
+dword nr under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 2.22e-16 (2 u64) relative
+  f32 alone   cost 2       error <= 1.192e-07 (2 u) relative: as f32 within 0.5 + 2 ulp
+  f32 pairs   cost 6       error <= 7.105e-15 (2 u^2) relative: as f32 within 0.5 + 1.19e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> f32 pairs: cost 6 against 73.75 (-91.9%), 8 f32 operations for 5
+  the form:
+    t1 = x * y                               !
+    t2 = -t1
+    t3 = fma(x, y, t2)                       !
+    t4 = t1 * x                              !
+    t5 = -t4
+    t6 = fma(t1, x, t5)                      !
+    t7 = fma(t3, x, t6)
+    t8 = t4 + t7                             !
+    result: t8
+    ! 5 operations of the error-free transformations: exact only as written, so they are
+      NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(y)                            (no range)               0 u^2          2Prod (exact)
+      f64(x)*f64(y)*f64(x)                     (no range)               2 u^2          DWTimesFP3
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+    Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+    2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+      (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 = fma(xl, y, cl1); (zh, zl) = Fast2Sum(ch, cl3):
+      zh + zl = x~ y + d (xl y + cl1), |xl y| and |cl1| <= u |xh y|: 2.000 u^2 |x~ y|
+    composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+      a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: every value below 2^127 in magnitude: not derived (a parameter has no range), to be
+      ensured by the caller
+    no underflow: 2 error-free products, exact while the product is 0 or at least 2^-102 in
+      magnitude; below that each adds at most 2^-149 (absolute): not excluded by the ranges
+    Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+  check (sampled, not a proof): 1716 points of the domain, the largest error against the exact value
+    (long double) 1.4 u^2 (the bound: 2); the f64 program's 0.97 u64
+  defined nr_dw: the form as a function (cost nr_dw, error nr_dw ~ nr)
+> avoid fp64 in tr
+  ucas: dword tr
+dword tr under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 167.875 error against the exact value <= 1.11e-16 (1 u64) relative
+  f32 alone   cost 136.5   error <= 1.192e-07 (2 u) relative: as f32 within 0.5 + 2 ulp
+  f32 pairs   cost 177.875 error <= 1.066e-14 (3 u^2) relative: as f32 within 0.5 + 1.79e-07 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> not rewritten: the form that meets the requirement costs 177.875, the f64 operations 167.875 under gt1030
+> dsq without doubles, within 4 ulp
+  ucas: dword dsq ulp 4
+dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 73.75   error against the exact value <= 3.997e-16 (3.6 u64) relative
+  f32 alone   cost 2       error <= 2.146e-07 (3.6 u) relative: as f32 within 0.5 + 3.6 ulp
+  f32 pairs   cost 13      error <= 2.203e-14 (6.2 u^2) relative: as f32 within 0.5 + 3.7e-07 ulp
+  required: the f32 result within 0.5 + 4 ulp of the exact value (ulp)
+  -> f32 alone: cost 2 against 73.75 (-97.3%), 3 f32 operations for 6
+  the form:
+    t1 = x * x
+    t2 = y * y
+    t3 = t1 - t2
+    result: t3
+  each value: its range, the derived error bound, the algorithm:
+      f64(x)*f64(x)                            [1, 4]                   1 u            one f32 multiply
+      f64(y)*f64(y)                            [9, 16]                  1 u            one f32 multiply
+      f64(x)*f64(x) - f64(y)*f64(y)            [-15, -5]                3.6 u          one f32 add
+  conditions:
+    finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+    no overflow: the largest value is 16, below 2^127 (derived from the ranges)
+  check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+    (long double) 2.4 u (the bound: 3.6); the f64 program's 0 u64
+  defined dsq_dw: the form as a function (cost dsq_dw, error dsq_dw ~ dsq)
+> emulate doubles in hyp on zen4
+  ucas: dword hyp model zen4
+dword hyp under zen4: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+  as written  cost 46      error against the exact value <= 3.331e-16 (3 u64) relative
+  f32 alone   cost 34      error <= 1.788e-07 (3 u) relative: as f32 within 0.5 + 3 ulp
+  f32 pairs   cost 147     error <= 8.749e-14 (24.62 u^2) relative: as f32 within 0.5 + 1.47e-06 ulp
+  required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
+  -> not rewritten: the form that meets the requirement costs 147, the f64 operations 46 under zen4
+> find dsq
+find dsq: its f64 arithmetic as f32 pairs (double-word arithmetic) costs 13, the f64 operations 73.75 under gt1030;
+  `dword dsq` derives the error bound and prints the form
+> q(x: f32 in 0.5..8) = f32(f16(x)) * 2
+> cost q
+cost of q under gt1030: 1 (1 operations, shared subterms counted once)
+  fmul             1 x 1     = 1
+  the driver folds f32 -> f16 -> f32 (model gt1030): f32(f16(x)) is priced 0 and computes x itself
+      warning: q relies on that rounding (quantisation): at x=0.717493892: the program expects 0.717285156, the folded one gives 0.717493892
+      `foldproof q` gives the rounding in a form no float fold reaches
+> foldproof q
+foldproof q under gt1030: 1 conversion round trip the driver folds
+  f32(f16(x)), its operand in [0.5, 8]: gt1030 folds f32 -> f16 -> f32, so the card computes the operand itself
+    the program relies on the rounding: at x=0.717493892: the program expects 0.717285156, the folded one gives 0.717493892
+    fold-proof: asfloat(asuint(x) + 4095 + (asuint(x) >> 13 & 1) & 0xffffe000)
+      cost 6 under gt1030 (the round trip as written would be 6; folded it is 0 and does not round)
+    proof:
+      1. between 2^-14 and 2^16 the f16 values of a binade are the f32 values whose 13 low mantissa
+         bits are 0; the bit pattern grows with |x| and a carry out of the mantissa is the next
+         binade's first value, so rounding the value to f16 (nearest, ties to even) is rounding
+         the pattern to a multiple of 2^13 (nearest, ties to the even quotient)
+      2. (b + 4095 + (b >> 13 & 1)) & ~8191 is that rounding of b, for every 32-bit b: against
+         q = b >> 13, r = b mod 2^13, (q + (r > 2^12 or r = 2^12 and q odd)) << 13: proved by SAT (both sides bit-blasted)
+      3. the range: every operand is 0 or has 2^-14 <= |x| < 65520, so no result is subnormal or
+         infinite and the carry never reaches the sign bit
+    check (not the proof): 726 bit patterns, both signs, exponent fields 126..130, ties and their
+      neighbours at every mantissa bit: all equal to the evaluator's round trip
+  defined q_fp = 2asfloat(asuint(x) + 4095 + (asuint(x) >> 13 & 1) & 0xffffe000)
+  cost under gt1030: 7 (as written, folded: 1)
+> cost q_fp
+cost of q_fp under gt1030: 7 (8 operations, shared subterms counted once)
+  iadd             2 x 1     = 2
+  logic            2 x 1     = 2
+  shift            1 x 2     = 2
+  bitcast          2 x 0     = 0
+  fmul             1 x 1     = 1
+> qa(x: f32) = f32(f16(x))
+> foldproof qa
+foldproof qa under gt1030: 1 conversion round trip the driver folds
+  f32(f16(x)): gt1030 folds f32 -> f16 -> f32, so the card computes the operand itself
+    the program relies on the rounding: at x=-3.40282347e+38: the program expects -inf, the folded one gives -3.40282347e+38
+    fold-proof: asfloat((t1 >> 0x17 < 113 ? asuint(5.96046448e-08f32(t4 + ((1 << t3 - 1) - 1) + (t4 >> t3 & 1) >> t3)) : t1 > 2139095040 ? t1 : t2 >= 1199570944 ? 2139095040 : t2) | asuint(x) & 0x80000000) where t1 = asuint(x) & 0x7fffffff, t2 = t1 + 4095 + (t1 >> 13 & 1) & 0xffffe000, t3 = min(126 - (t1 >> 0x17), 25), t4 = t1 & 0x7fffff | 0x800000
+      cost 40 under gt1030 (the round trip as written would be 6; folded it is 0 and does not round)
+    proof:
+      1. between 2^-14 and 2^16 the f16 values of a binade are the f32 values whose 13 low mantissa
+         bits are 0; the bit pattern grows with |x| and a carry out of the mantissa is the next
+         binade's first value, so rounding the value to f16 (nearest, ties to even) is rounding
+         the pattern to a multiple of 2^13 (nearest, ties to the even quotient)
+      2. (b + 4095 + (b >> 13 & 1)) & ~8191 is that rounding of b, for every 32-bit b: against
+         q = b >> 13, r = b mod 2^13, (q + (r > 2^12 or r = 2^12 and q odd)) << 13: proved by SAT (both sides bit-blasted)
+      3. a pattern rounded to 2^16 or more is infinity (|x| >= 65520 rounds past the largest f16);
+         a NaN stays a NaN; the sign is put back
+      4. below 2^-14 the f16 grid is fixed at 2^-24: with exponent field e the significand
+         (1.m, 24 bits) loses k = 126 - e bits (at most 25: more leave 0); the quotient q is
+         (sig + 2^(k-1) - 1 + (sig >> k & 1)) >> k, for every sig and k in 14..25 against its
+         definition: proved by SAT (both sides bit-blasted); q <= 2^10, so f32(q) * 2^-24 is exact
+    check (not the proof): 92672 bit patterns, both signs, exponent fields 0..255, ties and their
+      neighbours at every mantissa bit: all equal to the evaluator's round trip
+  defined qa_fp = asfloat((t1 >> 0x17 < 113 ? asuint(5.96046448e-08f32(t4 + ((1 << t3 - 1) - 1) + (t4 >> t3 & 1) >> t3)) : t1 > 2139095040 ? t1 : t2 >= 1199570944 ? 2139095040 : t2) | asuint(x) & 0x80000000) where t1 = asuint(x) & 0x7fffffff, t2 = t1 + 4095 + (t1 >> 13 & 1) & 0xffffe000, t3 = min(126 - (t1 >> 0x17), 25), t4 = t1 & 0x7fffff | 0x800000
+  cost under gt1030: 40 (as written, folded: 0)
+> qi(i: u8) = f32(f16(f32(i))) + 1
+> cost qi
+cost of qi under gt1030: 4 (2 operations, shared subterms counted once)
+  conv             1 x 3     = 3
+  fadd             1 x 1     = 1
+  the driver folds f32 -> f16 -> f32 (model gt1030): f32(f16(f32(i))) is priced 0 and computes f32(i) itself
+      nothing is lost: its operand is an integer that fits the significand, so the round trip never rounds
+> foldproof qi
+foldproof qi under gt1030: 1 conversion round trip the driver folds
+  f32(f16(f32(i))), its operand in [0, 255]: gt1030 folds f32 -> f16 -> f32, so the card computes the operand itself
+    nothing is lost: its operand is an integer that fits the significand; the round trip is the identity here and can go
+  defined qi_fp = f32(i) + 1
+  cost under gt1030: 4 (as written, folded: 4)
+> cost q model zen4
+cost of q under zen4: 11 (3 operations, shared subterms counted once)
+  conv             2 x 4     = 8
+  fmul             1 x 3     = 3
+> foldproof q model zen4
+foldproof q under zen4: 1 round trip, none folded: the model declares no fold for it, so the conversions run as written and nothing changes
+> model mine : zen4 { folds f32 -> f16 -> f32 }
+> cost q model mine
+cost of q under mine: 3 (1 operations, shared subterms counted once)
+  fmul             1 x 3     = 3
+  the driver folds f32 -> f16 -> f32 (model mine): f32(f16(x)) is priced 0 and computes x itself
+      warning: q relies on that rounding (quantisation): at x=0.717493892: the program expects 0.717285156, the folded one gives 0.717493892
+      `foldproof q` gives the rounding in a form no float fold reaches
+> make qi fold-proof
+  ucas: foldproof qi
+foldproof qi under gt1030: 1 conversion round trip the driver folds
+  f32(f16(f32(i))), its operand in [0, 255]: gt1030 folds f32 -> f16 -> f32, so the card computes the operand itself
+    nothing is lost: its operand is an integer that fits the significand; the round trip is the identity here and can go
+  defined qi_fp = f32(i) + 1
+  cost under gt1030: 4 (as written, folded: 4)
+> does the driver fold q under zen4
+  ucas: foldproof q model zen4
+foldproof q under zen4: 1 round trip, none folded: the model declares no fold for it, so the conversions run as written and nothing changes
