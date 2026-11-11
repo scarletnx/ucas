@@ -2454,6 +2454,8 @@ enter_block(int lbl, uint32_t mask)
 }
 
 /* execute one non-terminator instruction for the lanes in mask */
+static int exec_idot(const struct sins *I, uint32_t mask, int rt);
+
 static void
 exec_one(const struct sins *I, uint32_t mask)
 {
@@ -2761,7 +2763,7 @@ exec_one(const struct sins *I, uint32_t mask)
 		return;
 	}
 	if (exec_image(I, mask, rt, st, nc) || exec_matrix(I, mask, rt, st) ||
-	    exec_glslvec(I, mask, rt, st, nc))
+	    exec_glslvec(I, mask, rt, st, nc) || exec_idot(I, mask, rt))
 		return;
 	if (!strcmp(I->op, "OpFunctionCall")) {
 		int fn = opid(I, 1), at = V.id[fn].func_at, p = 0, j, lb = -1;
@@ -2860,6 +2862,124 @@ exec_one(const struct sins *I, uint32_t mask)
 		k = emit(I, I_OP, cls, cost, mask);
 		emit_vals(k, I, mask);
 	}
+}
+
+/*
+ * SPV_KHR_integer_dot_product: OpUDot, OpSDot, OpSUDot and their AccSat
+ * forms, on 32-bit words of 4 x 8-bit lanes (PackedVectorFormat4x8Bit)
+ * or on integer vectors.  The plain forms give the exact sum's low bits
+ * in the result's width, the AccSat forms the exact sum plus the
+ * accumulator, saturated (unsigned for OpUDotAccSat, signed otherwise).
+ * Priced by the model's class for the form (dot.c), or, where the model
+ * has none, as the multiplies and adds it stands for.
+ */
+static void
+idot_shape(const struct sins *I, int *n, int *w, int *packed)
+{
+	int a = opid(I, 1), at = type_of(a) >= 0 ? type_of(a) : V.id[a].type;
+
+	*packed = !strcmp(I->opnd[I->nop - 1], "PackedVectorFormat4x8Bit") ||
+	    !strcmp(I->opnd[I->nop - 1], "PackedVectorFormat4x8BitKHR");
+	if (*packed || T(at)->k != S_VEC) {
+		*n = 4;
+		*w = 8;
+		return;
+	}
+	*n = T(at)->n;
+	*w = T(scalar_of(at))->w;
+}
+
+static int
+idot_parts(const char *op, int *su, int *sa, int *sb, int *sat)
+{
+	const char *r;
+
+	if (!strncmp(op, "OpUDot", 6))
+		*sa = *sb = 0, r = op + 6, *su = 0;
+	else if (!strncmp(op, "OpSUDot", 7))
+		*sa = 1, *sb = 0, r = op + 7, *su = 1;
+	else if (!strncmp(op, "OpSDot", 6))
+		*sa = *sb = 1, r = op + 6, *su = 0;
+	else
+		return 0;
+	if (!strncmp(r, "AccSat", 6))
+		*sat = 1, r += 6;
+	else
+		*sat = 0;
+	return *r == 0 || !strcmp(r, "KHR");
+}
+
+static double
+idot_cost(const struct sins *I, int *cls)
+{
+	int n, w, packed, su, sa, sb, sat, op;
+	const struct model *m = model_active();
+
+	idot_parts(I->op, &su, &sa, &sb, &sat);
+	idot_shape(I, &n, &w, &packed);
+	op = dot_op(n, w, sa, sb, sat);
+	if (op && cclass_available(m, DOT_CLASS(op))) {
+		*cls = DOT_CLASS(op);
+		return m->c[*cls];
+	}
+	/* the lanes taken apart, multiplied and added */
+	*cls = C_IMUL;
+	return n * (m->c[C_IMUL] + m->c[C_IADD]) + (packed ? 2 * n *
+	    m->c[C_SHIFT] : 0) + (sat ? 2 * m->c[C_MINMAX] : 0);
+}
+
+static int
+exec_idot(const struct sins *I, uint32_t mask, int rt)
+{
+	int su, sa, sb, sat, n, w, packed, l, i, k, cls, a, b, acc = -1;
+	int rw, rs;
+	double cost;
+
+	if (!idot_parts(I->op, &su, &sa, &sb, &sat) || rt < 0)
+		return 0;
+	idot_shape(I, &n, &w, &packed);
+	a = opid(I, 1);
+	b = opid(I, 2);
+	if (sat)
+		acc = opid(I, 3);
+	rw = T(rt)->w;
+	rs = sa || sb;
+	(void)su;
+	for (l = 0; l < V.lanes; l++) {
+		struct lval x, y, *r;
+		int64_t sum = 0;
+		if (!(mask >> l & 1))
+			continue;
+		x = val(a, l);
+		y = val(b, l);
+		for (i = 0; i < n; i++) {
+			uint64_t ux = packed ? x.b[0] >> (8 * i) : x.b[i];
+			uint64_t uy = packed ? y.b[0] >> (8 * i) : y.b[i];
+			int64_t vx = (int64_t)(ux & wmask(w)), vy = (int64_t)(uy & wmask(w));
+			if (sa && w < 64 && (vx >> (w - 1) & 1))
+				vx -= (int64_t)1 << w;
+			if (sb && w < 64 && (vy >> (w - 1) & 1))
+				vy -= (int64_t)1 << w;
+			sum += vx * vy;
+		}
+		r = LV(I->res, l);
+		memset(r, 0, sizeof *r);
+		if (sat) {
+			int64_t c = geti(rt, val(acc, l).b[0]), lo, hi;
+			if (!rs)
+				c = (int64_t)(val(acc, l).b[0] & wmask(rw));
+			lo = rs ? (rw >= 64 ? INT64_MIN : -((int64_t)1 << (rw - 1))) : 0;
+			hi = rs ? (rw >= 64 ? INT64_MAX : ((int64_t)1 << (rw - 1)) - 1) :
+			    (rw >= 63 ? INT64_MAX : ((int64_t)1 << rw) - 1);
+			sum += c;
+			sum = sum < lo ? lo : sum > hi ? hi : sum;
+		}
+		r->b[0] = (uint64_t)sum & wmask(rw);
+	}
+	cost = idot_cost(I, &cls);
+	k = emit(I, I_OP, cls, cost, mask);
+	emit_vals(k, I, mask);
+	return 1;
 }
 
 static int
@@ -5816,6 +5936,514 @@ range_search(int root, int line, struct sbuf *out)
 	free(f);
 }
 
+/* ---- dot products: sums of products as one instruction (dot.c) ---- */
+
+static int
+is_idot(int k)
+{
+	int su, sa, sb, sat;
+
+	return V.in[k].res >= 0 && idot_parts(V.in[k].op, &su, &sa, &sb, &sat);
+}
+
+/* the capabilities and the extension, those the module lacks */
+static void
+dot_caps_out(struct sbuf *out)
+{
+	static const char *const cap[] = {"DotProduct",
+		"DotProductInput4x8BitPacked", NULL};
+	int i, k, have;
+
+	for (i = 0; cap[i]; i++) {
+		have = 0;
+		for (k = 0; k < SP.orig_nin; k++)
+			if (!strcmp(V.in[k].op, "OpCapability") && V.in[k].nop >= 1 &&
+			    (!strcmp(V.in[k].opnd[0], cap[i]) ||
+			    (!strncmp(V.in[k].opnd[0], cap[i], strlen(cap[i])) &&
+			    !strcmp(V.in[k].opnd[0] + strlen(cap[i]), "KHR"))))
+				have = 1;
+		if (!have)
+			sb_printf(out, "OpCapability %s\n", cap[i]);
+	}
+	have = 0;
+	for (k = 0; k < SP.orig_nin; k++)
+		if (!strcmp(V.in[k].op, "OpExtension") && V.in[k].nop >= 1 &&
+		    strstr(V.in[k].opnd[0], "SPV_KHR_integer_dot_product"))
+			have = 1;
+	if (!have)
+		sb_puts(out, "OpExtension \"SPV_KHR_integer_dot_product\"\n");
+}
+
+/*
+ * A maximal sum of pure integer instructions (an add, subtract, negate
+ * or multiply whose value is used by something other than an add or a
+ * subtract) is read into a ucas function: its free inputs (loads, phis,
+ * anything else) are the parameters, with their types and the assumed
+ * ranges.  dot.c searches it under the active model and proves what it
+ * finds; the result is written back as SPIR-V before the sum's last
+ * instruction: OpUDot, OpSDot, OpSUDot (or their AccSat forms) on
+ * PackedVectorFormat4x8Bit words, with the shifts, ors and constants
+ * that pack them, and the module gets the capabilities and the
+ * extension.  The translation is checked against the interpreter's
+ * arithmetic on 64 samples before anything is written.
+ */
+#define DOTMAXP MAXP
+
+struct spvdot {
+	int leaf[DOTMAXP], nleaf;
+	struct func f;
+	nid *memo;
+	int fail;
+	int k;			/* new instructions go before this one */
+	struct { nid n; int id; } em[256];
+	int nem;
+	int ty32[2];		/* the module's u32 and i32 type ids */
+	int ndot;		/* dot instructions written */
+};
+
+static int dotcaps;		/* the module needs the dot capabilities */
+
+static ty_t
+spv_ty(int t)
+{
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_INT || T(t)->w > 64)
+		return 0;
+	return TY(T(t)->sign ? K_SINT : K_UINT, T(t)->w);
+}
+
+static nid
+spv_leaf(struct spvdot *c, int id)
+{
+	ty_t t = spv_ty(V.id[id].type);
+	int j;
+	int64_t lo, hi;
+
+	for (j = 0; j < c->nleaf; j++)
+		if (c->leaf[j] == id)
+			return mk_var((uint32_t)j, c->f.p[j].name, c->f.p[j].ty);
+	if (!t || c->nleaf == DOTMAXP) {
+		c->fail = 1;
+		return mk_const_i(TY(K_UINT, 32), 0);
+	}
+	j = c->nleaf++;
+	c->leaf[j] = id;
+	memset(&c->f.p[j], 0, sizeof c->f.p[j]);
+	c->f.p[j].name = sym_cstr(V.id[id].name);
+	c->f.p[j].ty = t;
+	if (assumed(id, &lo, &hi)) {
+		c->f.p[j].ranged = 1;
+		c->f.p[j].lo = lo;
+		c->f.p[j].hi = hi;
+	}
+	c->f.np = c->nleaf;
+	return mk_var((uint32_t)j, c->f.p[j].name, t);
+}
+
+static nid
+spv_node(struct spvdot *c, int id, int depth)
+{
+	int k, base;
+	const struct sins *I;
+	ty_t t, ut, st;
+	nid x[3] = {0, 0, 0}, r = 0;
+	uint64_t kv;
+
+	id = res_of(id);
+	if (c->memo[id])
+		return c->memo[id];
+	t = spv_ty(V.id[id].type);
+	if (V.id[id].kind == K_CONST && !V.id[id].spec && t)
+		return c->memo[id] = mk_const_i(t, int_norm(t,
+		    (int64_t)V.id[id].c[0]));
+	k = SP.def[id];
+	if (!t || k < 0 || SP.dead[k] || !pure_ins(k) || depth > 16)
+		return c->memo[id] = spv_leaf(c, id);
+	I = &V.in[k];
+	base = first_arg(I);
+	ut = TY(K_UINT, TYW(t));
+	st = TY(K_SINT, TYW(t));
+#define OPN(q) (I->opnd[base + (q)])
+#define IS(o) (!strcmp(I->op, o))
+	if (IS("OpIAdd") || IS("OpISub") || IS("OpIMul") || IS("OpBitwiseAnd") ||
+	    IS("OpBitwiseOr") || IS("OpBitwiseXor")) {
+		int op = IS("OpIAdd") ? O_ADD : IS("OpISub") ? O_SUB : IS("OpIMul") ?
+		    O_MUL : IS("OpBitwiseAnd") ? O_AND : IS("OpBitwiseOr") ? O_OR :
+		    O_XOR;
+		x[0] = mk_cast(t, spv_node(c, idx(OPN(0)), depth + 1));
+		x[1] = mk_cast(t, spv_node(c, idx(OPN(1)), depth + 1));
+		r = mk_bin(op, x[0], x[1]);
+	} else if (IS("OpSNegate") || IS("OpNot")) {
+		x[0] = mk_cast(t, spv_node(c, idx(OPN(0)), depth + 1));
+		r = mk_un(IS("OpNot") ? O_NOT : O_NEG, x[0]);
+	} else if (IS("OpShiftLeftLogical") || IS("OpShiftRightLogical") ||
+	    IS("OpShiftRightArithmetic")) {
+		ty_t vt = IS("OpShiftRightLogical") ? ut :
+		    IS("OpShiftRightArithmetic") ? st : t;
+		x[0] = mk_cast(vt, spv_node(c, idx(OPN(0)), depth + 1));
+		x[1] = spv_node(c, idx(OPN(1)), depth + 1);
+		r = mk_bin(IS("OpShiftLeftLogical") ? O_SHL : O_SHR, x[0], x[1]);
+	} else if (IS("OpBitFieldUExtract") && const_of(idx(OPN(1)), &kv) &&
+	    kv < 64 && const_of(idx(OPN(2)), &kv)) {
+		uint64_t off, cnt;
+		const_of(idx(OPN(1)), &off);
+		const_of(idx(OPN(2)), &cnt);
+		if (cnt == 0 || off + cnt > (uint64_t)TYW(t))
+			return c->memo[id] = spv_leaf(c, id);
+		x[0] = mk_cast(ut, spv_node(c, idx(OPN(0)), depth + 1));
+		if (off)
+			x[0] = mk_bin(O_SHR, x[0], mk_const_i(ut, (int64_t)off));
+		r = cnt < (uint64_t)TYW(t) ? mk_bin(O_AND, x[0], mk_const_i(ut,
+		    (int64_t)wmask((int)cnt))) : x[0];
+	} else if (IS("OpUConvert") || IS("OpSConvert") || IS("OpBitcast")) {
+		int a = res_of(idx(OPN(0)));
+		ty_t at = spv_ty(V.id[a].type);
+		if (!at)
+			return c->memo[id] = spv_leaf(c, id);
+		x[0] = spv_node(c, a, depth + 1);
+		if (IS("OpUConvert"))
+			x[0] = mk_cast(TY(K_UINT, TYW(at)), x[0]);
+		else if (IS("OpSConvert"))
+			x[0] = mk_cast(TY(K_SINT, TYW(at)), x[0]);
+		r = x[0];
+	} else
+		return c->memo[id] = spv_leaf(c, id);
+#undef OPN
+#undef IS
+	return c->memo[id] = mk_cast(t, r);
+}
+
+/* a new instruction "res = op type a b ..." before c->k; its id */
+static int
+dot_ins(struct spvdot *c, const char *op, int rt, const char *const *opnd,
+    int n)
+{
+	char nm[40];
+	struct sins N;
+	int nid_, nk, i, at;
+
+	if (V.nin >= SP.orig_nin + 1000 || V.nid + 8 >= SP.orig_nid + 1024) {
+		c->fail = 1;
+		return -1;
+	}
+	snprintf(nm, sizeof nm, "%%ucas_d%d", V.nin);
+	nid_ = idx(nm);
+	memset(&N, 0, sizeof N);
+	snprintf(N.op, sizeof N.op, "%s", op);
+	N.res = nid_;
+	N.opnd[0] = strdup(V.id[rt].tok);
+	for (i = 0; i < n; i++)
+		N.opnd[1 + i] = strdup(opnd[i]);
+	N.nop = 1 + n;
+	N.text = xmalloc(400);
+	at = snprintf(N.text, 400, "%s = %s %s", nm, op, V.id[rt].tok);
+	for (i = 0; i < n && at < 380; i++)
+		at += snprintf(N.text + at, 400 - (size_t)at, " %s", opnd[i]);
+	if (V.nin == V.cap) {
+		V.cap *= 2;
+		V.in = xrealloc(V.in, (size_t)V.cap * sizeof *V.in);
+	}
+	nk = V.nin++;
+	V.in[nk] = N;
+	SP.def[nid_] = nk;
+	V.id[nid_].type = rt;
+	V.id[nid_].kind = K_VALUE;
+	SP.before[nk] = c->k;
+	return nid_;
+}
+
+static int
+ty_id(struct spvdot *c, ty_t t)
+{
+	if (TYW(t) != 32 || (TYK(t) != K_UINT && TYK(t) != K_SINT))
+		return -1;
+	return c->ty32[TYK(t) == K_SINT];
+}
+
+/* the SPIR-V id computing node n (the ucas form of the rewrite) */
+static int
+dot_emit(struct spvdot *c, nid n)
+{
+	int i, op = N.op[n], rt, a, b, r = -1;
+	const char *o[4];
+
+	for (i = 0; i < c->nem; i++)
+		if (c->em[i].n == n)
+			return c->em[i].id;
+	if (c->fail)
+		return -1;
+	if (op == O_VAR) {
+		int leaf = c->leaf[N.ki[n]];
+		rt = ty_id(c, N.ty[n]);
+		if (rt < 0 || spv_ty(V.id[leaf].type) != N.ty[n]) {
+			c->fail = 1;
+			return -1;
+		}
+		r = leaf;
+		goto done;
+	}
+	rt = ty_id(c, N.ty[n]);
+	if (rt < 0) {
+		c->fail = 1;
+		return -1;
+	}
+	if (op == O_CONST) {
+		r = const_id(rt, (uint64_t)N.ki[n] & 0xffffffffULL);
+		if (r < 0)
+			c->fail = 1;
+		goto done;
+	}
+	if (op == O_CAST) {
+		ty_t at = N.ty[N.a[n]];
+		a = dot_emit(c, N.a[n]);
+		if (a < 0 || TYW(at) != 32 || !TY_ISINT(at)) {
+			c->fail = 1;
+			return -1;
+		}
+		if (at == N.ty[n])
+			r = a;
+		else {
+			o[0] = V.id[a].tok;
+			r = dot_ins(c, "OpBitcast", rt, o, 1);
+		}
+		goto done;
+	}
+	if (IS_DOT(op)) {
+		const struct dotform *df = dot_form(op);
+		char nm[40];
+		int acc = -1;
+		if (df->lanes != 4 || df->bits != 8) {
+			c->fail = 1;	/* only the packed 4 x 8 forms are written */
+			return -1;
+		}
+		a = dot_emit(c, N.a[n]);
+		b = dot_emit(c, N.b[n]);
+		if (df->sat)
+			acc = dot_emit(c, N.c[n]);
+		if (a < 0 || b < 0 || (df->sat && acc < 0))
+			return -1;
+		snprintf(nm, sizeof nm, "Op%sDot%s", df->sa && df->sb ? "S" :
+		    df->sa ? "SU" : "U", df->sat ? "AccSat" : "");
+		o[0] = V.id[a].tok;
+		o[1] = V.id[b].tok;
+		i = 2;
+		if (df->sat)
+			o[i++] = V.id[acc].tok;
+		o[i++] = "PackedVectorFormat4x8Bit";
+		r = dot_ins(c, nm, rt, o, i);
+		dotcaps = 1;
+		c->ndot++;
+		goto done;
+	}
+	{
+		const char *sop = NULL;
+		switch (op) {
+		case O_ADD: sop = "OpIAdd"; break;
+		case O_SUB: sop = "OpISub"; break;
+		case O_MUL: sop = "OpIMul"; break;
+		case O_AND: sop = "OpBitwiseAnd"; break;
+		case O_OR: sop = "OpBitwiseOr"; break;
+		case O_XOR: sop = "OpBitwiseXor"; break;
+		case O_SHL: sop = "OpShiftLeftLogical"; break;
+		case O_SHR: sop = TYK(N.ty[n]) == K_SINT ?
+		    "OpShiftRightArithmetic" : "OpShiftRightLogical"; break;
+		case O_NEG: sop = "OpSNegate"; break;
+		case O_NOT: sop = "OpNot"; break;
+		}
+		if (!sop) {
+			c->fail = 1;
+			return -1;
+		}
+		a = dot_emit(c, N.a[n]);
+		if (a < 0)
+			return -1;
+		o[0] = V.id[a].tok;
+		if (opinfo[op].arity == 2) {
+			b = dot_emit(c, N.b[n]);
+			if (b < 0)
+				return -1;
+			o[1] = V.id[b].tok;
+		}
+		r = dot_ins(c, sop, rt, o, opinfo[op].arity);
+	}
+done:
+	if (r >= 0 && c->nem < 256) {
+		c->em[c->nem].n = n;
+		c->em[c->nem++].id = r;
+	}
+	return r;
+}
+
+/* the translation agrees with the interpreter on 64 samples */
+static int
+dot_translation_ok(struct spvdot *c, int root, nid body)
+{
+	struct plan p;
+	int64_t in_i[MAXP * CH];
+	double in_r[MAXP * CH];
+	int s, j, ok = 1;
+	nid roots[1];
+
+	roots[0] = body;
+	plan_build(&p, roots, 1, 0);
+	memset(in_r, 0, sizeof in_r);
+	for (s = 0; s < 64 && ok; s++) {
+		SP.sample = 300 + s;
+		SP.stamp++;
+		for (j = 0; j < c->nleaf; j++)
+			in_i[(size_t)j * CH] = int_norm(c->f.p[j].ty,
+			    (int64_t)evalid(c->leaf[j]));
+		plan_run(&p, 1, in_i, in_r);
+		if (COLF(&p, p.root[0])[0] & F_UNDEF)
+			continue;
+		ok = ((uint64_t)COLI(&p, p.root[0])[0] &
+		    wmask(int_width(V.id[res_of(root)].type))) == evalid(root);
+	}
+	plan_free(&p);
+	return ok;
+}
+
+static int
+dot_type_ids(int *ty32)
+{
+	int i;
+
+	ty32[0] = ty32[1] = -1;
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_INT &&
+		    V.id[i].t.w == 32) {
+			if (V.id[i].t.sign && ty32[1] < 0)
+				ty32[1] = i;
+			if (!V.id[i].t.sign && ty32[0] < 0)
+				ty32[0] = i;
+		}
+	return ty32[0] >= 0 || ty32[1] >= 0;
+}
+
+/*
+ * The pass.  Each rewrite goes to the log (from, to, why, gain) and its
+ * lanes and proof to rep; the dot instructions' cost to *dcost.
+ */
+struct dotlog {
+	char from[160], to[160];
+	double gain, before, after;
+	int line;
+	char *desc, *proof;	/* malloc'd */
+};
+
+static int
+dot_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
+{
+	int k, n = 0, i, ty32[2];
+	int *sumuse = xcalloc((size_t)(V.nid + 1024), sizeof *sumuse);
+	int nmodel = 0;
+
+	if (!dot_type_ids(ty32)) {
+		free(sumuse);
+		return 0;
+	}
+	for (i = O_DOT_FIRST; i <= O_DOT_LAST; i++)
+		if (dot_form(i)->lanes == 4 && dot_form(i)->bits == 8 &&
+		    cclass_available(model_active(), DOT_CLASS(i)))
+			nmodel = 1;
+	for (k = 0; k < SP.orig_nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (SP.dead[k] || !pure_ins(k))
+			continue;
+		if (!strcmp(I->op, "OpIAdd") || !strcmp(I->op, "OpISub") ||
+		    !strcmp(I->op, "OpSNegate"))
+			for (i = 1; i < I->nop; i++)
+				if (I->opnd[i][0] == '%')
+					sumuse[res_of(idx(I->opnd[i]))]++;
+	}
+	for (k = 0; k < SP.orig_nin && (double)clock() / CLOCKS_PER_SEC <
+	    SP.deadline; k++) {
+		struct spvdot c;
+		struct dotres r;
+		const struct sins *I = &V.in[k];
+		int root, fin, w;
+		if (SP.dead[k] || !pure_ins(k))
+			continue;
+		if (strcmp(I->op, "OpIAdd") && strcmp(I->op, "OpISub") &&
+		    strcmp(I->op, "OpIMul") && strcmp(I->op, "OpSNegate"))
+			continue;
+		root = I->res;
+		w = int_width(V.id[root].type);
+		if (w != 32 || SP.uses[root] <= sumuse[root])
+			continue;
+		memset(&c, 0, sizeof c);
+		c.memo = xcalloc((size_t)(V.nid + 1024), sizeof *c.memo);
+		c.k = k;
+		c.ty32[0] = ty32[0];
+		c.ty32[1] = ty32[1];
+		c.f.anon = 1;
+		c.f.body = spv_node(&c, root, 0);
+		free(c.memo);
+		if (c.fail || c.nleaf == 0)
+			continue;
+		if (!nmodel || n >= maxlog)
+			continue;
+		dot_search(&c.f, 1, &r);
+		if (r.status != DOT_PROVED || !dot_translation_ok(&c, root,
+		    r.body)) {
+			dotres_free(&r);
+			continue;
+		}
+		{
+			int nin0 = V.nin, nid0 = V.nid, nk0 = SP.nnewk;
+			fin = dot_emit(&c, r.body);
+			if (c.fail || fin < 0) {
+				/* take back what was written */
+				for (i = nin0; i < V.nin; i++) {
+					int j;
+					for (j = 0; j < V.in[i].nop; j++)
+						free(V.in[i].opnd[j]);
+					free(V.in[i].text);
+				}
+				V.nin = nin0;
+				(void)nid0;
+				SP.nnewk = nk0;
+				dotres_free(&r);
+				continue;
+			}
+		}
+		SP.alias[root] = fin;
+		SP.dead[k] = 1;
+		{
+			char to[200];
+			char sl[160];
+			snprintf(to, sizeof to, "%s", shared_str(r.body, 150));
+			snprintf(log[n].from, sizeof log[n].from, "%s", I->text);
+			snprintf(log[n].to, sizeof log[n].to, "%s", to);
+			log[n].gain = r.before - r.after;
+			log[n].before = r.before;
+			log[n].after = r.after;
+			log[n].line = ins_line(k);
+			log[n].desc = strdup(sb_str(&r.desc));
+			log[n].proof = strdup(sb_str(&r.proof));
+			sb_printf(rep, "    %s\n      ->  %s   (cost %g -> %g)\n",
+			    I->text, to, (double)r.before, (double)r.after);
+			src_line(ins_line(k), sl, sizeof sl);
+			if (sl[0])
+				sb_printf(rep, "%s", sl);
+			{
+				const char *s = sb_str(&r.desc), *e;
+				while (*s) {
+					e = strchr(s, '\n');
+					if (!e)
+						e = s + strlen(s);
+					sb_printf(rep, "      %.*s\n", (int)(e - s), s);
+					s = *e ? e + 1 : e;
+				}
+			}
+			sb_printf(rep, "      %s\n", sb_str(&r.proof));
+		}
+		n++;
+		dotres_free(&r);
+	}
+	free(sumuse);
+	return n;
+}
+
 /* "n in [0, 32)" for the next simplify */
 static struct {
 	char name[40];
@@ -7206,6 +7834,7 @@ void
 spirv_simplify(const char *src, double budget, int nofile)
 {
 	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0, nfwd = 0, ndst = 0;
+	int ndotrw = 0;
 	int ntriv = 0;
 	double tgain = 0;
 	char *range_report = NULL;
@@ -7214,21 +7843,27 @@ spirv_simplify(const char *src, double budget, int nofile)
 		char from[160], to[160];
 		const char *why;
 		double gain;
-		int line, algebra, trivial;
+		int line, algebra, trivial, dot;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
+	struct dotlog dotl[32];
+	int ndotlog = 0;
 	double before = 0, after = 0;
-	struct sbuf out = {0}, list = {0};
+	struct sbuf out = {0}, list = {0}, dotrep = {0};
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
+	dotcaps = 0;
 	SP.force_id = -1;
 	code_block_used = 1;
 	V.glsl = -1;
 	V.lanes = 1;
 	V.rng = 1;
 	cols = 1;
+	/* this module's own OpSource text, not a previous one's */
+	free(src_text);
+	src_text = NULL;
 	parse(src);
 	if (fnl_mode == 1) {
 		/* the function level alone (glslfn.c) */
@@ -7341,6 +7976,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
 			    V.in[k].opnd[2] : NULL;
 			before += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
+		} else if (is_idot(k)) {
+			int cls;
+			before += idot_cost(&V.in[k], &cls);
 		}
 	/* in order: a rewrite is seen by the instructions after it */
 	for (k = 0; k < SP.orig_nin; k++) {
@@ -7421,6 +8059,25 @@ spirv_simplify(const char *src, double budget, int nofile)
 		nrw++;
 		SP.proved++;
 	}
+	/* sums of products as dot products, under the active model */
+	{
+		struct dotlog dl[32];
+		int nd = dot_pass(&dotrep, dl, 32), q;
+		for (q = 0; q < nd && nlog < MAXLOG; q++) {
+			struct rwlog *L = &rl[nlog++];
+			snprintf(L->from, sizeof L->from, "%s", dl[q].from);
+			snprintf(L->to, sizeof L->to, "%s", dl[q].to);
+			L->why = "a sum of products as one dot product";
+			L->gain = dl[q].gain;
+			L->line = dl[q].line;
+			L->dot = 1;
+		}
+		ndotlog = nd;
+		memcpy(dotl, dl, (size_t)nd * sizeof *dl);
+		nrw += nd;
+		ndotrw = nd;
+		SP.proved += nd;
+	}
 	/* dead pure instructions: no uses left */
 	{
 		int *uses = xcalloc((size_t)(V.nid + 1024), sizeof *uses), changed = 1;
@@ -7457,6 +8114,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
 			    V.in[k].opnd[2] : NULL;
 			after += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
+		} else if (!SP.dead[k] && is_idot(k)) {
+			int cls;
+			after += idot_cost(&V.in[k], &cls);
 		}
 	/* range search on stored and returned values with a bounded input */
 	if (SP.nas > 0) {
@@ -7485,7 +8145,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	/* the module, rewritten */
 	{
-		int first_fn = -1;
+		int first_fn = -1, last_cap = -1;
+		for (k = 0; k < SP.orig_nin; k++)
+			if (!strcmp(V.in[k].op, "OpCapability"))
+				last_cap = k;
 		for (k = 0; k < V.nin; k++)
 			if (!strcmp(V.in[k].op, "OpFunction")) {
 				first_fn = k;
@@ -7508,15 +8171,21 @@ spirv_simplify(const char *src, double budget, int nofile)
 				}
 			if (k >= SP.orig_nin)
 				break;
+			if (dotcaps && k == last_cap + 1)
+				dot_caps_out(&out);
 			{
 				int q;
 				for (q = SP.orig_nin; q < V.nin; q++)
 					if (SP.before[q] == k && !SP.dead[q]) {
 						const struct sins *N = &V.in[q];
-						sb_printf(&out, "%s = %s %s %s %s\n",
-						    V.id[N->res].tok, N->op, N->opnd[0],
-						    V.id[res_of(idx(N->opnd[1]))].tok,
-						    V.id[res_of(idx(N->opnd[2]))].tok);
+						int j;
+						sb_printf(&out, "%s = %s %s", V.id[N->res].tok,
+						    N->op, N->opnd[0]);
+						for (j = 1; j < N->nop; j++)
+							sb_printf(&out, " %s", N->opnd[j][0] == '%' ?
+							    V.id[res_of(idx(N->opnd[j]))].tok :
+							    N->opnd[j]);
+						sb_putc(&out, '\n');
 					}
 			}
 			if (SP.dead[k])
@@ -7549,10 +8218,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		for (i = 0; i < nlog; i++)
 			nal += rl[i].algebra;
 		printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
-		    "(bit-precise: equal for every input)", SP.orig_nin, nrw - nal,
-		    nrw - nal == 1 ? "" : "s");
+		    "(bit-precise: equal for every input)", SP.orig_nin, nrw - nal -
+		    ndotrw, nrw - nal - ndotrw == 1 ? "" : "s");
 		if (nal)
 			printf(" and %d by algebra mod 2^w", nal);
+		if (ndotrw)
+			printf(", %d sum%s of products made dot products (proved by "
+			    "dot.c, below)", ndotrw, ndotrw == 1 ? "" : "s");
 		printf(", %d dead instruction%s removed\n", ndead,
 		    ndead == 1 ? "" : "s");
 	}
@@ -7602,12 +8274,30 @@ spirv_simplify(const char *src, double budget, int nofile)
 		rep_str("why", rl[i].why);
 		rep_num("gain", rl[i].gain);
 		rep_int("line", rl[i].line);
-		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : "sat");
+		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : rl[i].dot ?
+		    "dot" : "sat");
 		if (ntriv)
 			rep_bool("driver_trivial", rl[i].trivial);
 		rep_end();
 	}
 	rep_end();
+	if (ndotlog) {
+		rep_list("dot_products");
+		for (i = 0; i < ndotlog; i++) {
+			rep_obj(NULL);
+			rep_str("from", dotl[i].from);
+			rep_str("to", dotl[i].to);
+			rep_int("line", dotl[i].line);
+			rep_num("cost_before", dotl[i].before);
+			rep_num("cost_after", dotl[i].after);
+			rep_str("relies_on", dotl[i].desc);
+			rep_str("proof", dotl[i].proof);
+			rep_end();
+			free(dotl[i].desc);
+			free(dotl[i].proof);
+		}
+		rep_end();
+	}
 	if (nlog)
 		rep_proof("sat", "each rewrite bit-blasted and proved equal for "
 		    "every input (refinement)");
@@ -7708,6 +8398,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 	else
 		printf("  nothing to rewrite: no cheaper form of an integer "
 		    "instruction could be proved\n");
+	if (dotrep.n) {
+		printf("  dot products (a sum of products as one instruction, "
+		    "laid out and proved by dot.c under %s):\n",
+		    sym_str(model_active()->name));
+		fputs(dotrep.p, stdout);
+	}
+	free(dotrep.p);
 	if (range_report) {
 		fputs(range_report, stdout);
 		free(range_report);

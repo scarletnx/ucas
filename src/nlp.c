@@ -8318,7 +8318,7 @@ simplify_piece(struct sbuf *piece, int c)
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
 				 * function level": 2 */
 	int c_check = 0, c_bench = 0, c_wrapv = 0, c_trace = 0;
-	char c_target[48] = "";
+	char c_target[48] = "", use_model[40] = "";
 	char prevw[64] = "", lastw[64] = "";
 	struct sbuf out = {0};
 
@@ -8479,6 +8479,26 @@ simplify_piece(struct sbuf *piece, int c)
 						snprintf(c_target, sizeof c_target, " target %s",
 						    tg->name);
 				}
+				/* SPIR-V: a cost model named ("under sm86", "for
+				 * rdna2", "model gt1030") is made the active one */
+				for (t = 0; !c && !use_model[0] && model_nth(t); t++) {
+					const char *nm = sym_str(model_nth(t)->name);
+					static const char *const pre[] = {"under ", "for ",
+					    "on ", "model ", "with ", NULL};
+					size_t tl = strlen(nm);
+					int u;
+					for (u = 0; pre[u]; u++) {
+						char want[80];
+						const char *m;
+						snprintf(want, sizeof want, "%s%s", pre[u], nm);
+						m = strstr(line, want);
+						if (m && (m == line || !isalnum((unsigned char)
+						    m[-1])) && !isalnum((unsigned char)
+						    m[strlen(pre[u]) + tl]))
+							snprintf(use_model, sizeof use_model, "%s",
+							    nm);
+					}
+				}
 				free(line);
 			}
 			q0 += ln + (e != NULL);
@@ -8501,6 +8521,8 @@ simplify_piece(struct sbuf *piece, int c)
 				    c_trace ? " trace" : "", nofile ? " nofile" : "");
 				first = 0;
 			} else if (first && e > q) {
+				if (use_model[0])
+					sb_printf(&out, "use %s; ", use_model);
 				sb_printf(&out, "spvsimplify%s%s%s%s%s\n", budget[0] ?
 				    " budget " : "", budget, nofile ? " nofile" : "",
 				    assume_opts ? assume_opts : "", fl);

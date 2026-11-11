@@ -577,7 +577,9 @@ static const struct jcmd cmds[] = {
 	    BO("functions", "", "GLSL: the function-level pass alone (true) or "
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
-	    "range (closed)", NULL}}},
+	    "range (closed)", NULL},
+	    NMO("model", "", "the cost model to price and choose under (made "
+	    "the active one; the dot products it offers are used)")}},
 	/* cfront: C99 in, proved and x86-64-optimised C out (cf_*.c) */
 	{"c_optimize", "c optimize", 1, 0, "C99 in, faster C out for an "
 	    "x86-64 target: each rewrite proved (exhaustively, by SAT, by a "
@@ -2372,6 +2374,11 @@ cmd_spirv(struct req *r, const char **code)
 		if ((v = jv_get(r->args, "nofile")) != NULL && v->t == J_TRUE)
 			sb_puts(&r->stmt, " nofile");
 		return 1;
+	}
+	if ((v = jv_get(r->args, "model")) != NULL && v->t == J_STR) {
+		if (!is_ident(v->s))
+			return bad(r, "bad_request", "model: a model's name");
+		sb_printf(&r->stmt, "use %s; ", v->s);
 	}
 	sb_puts(&r->stmt, "spvsimplify");
 	if ((v = jv_get(r->args, "budget")) != NULL) {
