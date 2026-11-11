@@ -1,11 +1,10 @@
 ---
 name: ucas
-version: 1.0.0
-description: Run ucas, the computer algebra system for programmers, from the shell (no MCP needed) to prove two integer formulas equal on their whole domain (enumerated or by SAT), find where an expression wraps or hits C undefined behaviour, get the exact range of a value, search cheaper equivalent forms, price an expression under a CPU or GPU cost model, rewrite C99 into proved faster C for an x86-64 target, and simplify a SPIR-V or GLSL shader with each rewrite proved. Use when a change rests on integer arithmetic that must be right for every input (an encoder, a decoder, a recompiler's lowering, a bit trick, a clamp), when a hot path needs its cost on a given core, or when a sampled test is all there is and a proof is wanted.
+version: 1.1.0
+description: Run ucas, the computer algebra system for programmers, through its MCP server when the client has it loaded and from the shell when it does not, to prove two integer formulas equal on their whole domain (enumerated or by SAT), find where an expression wraps or hits C undefined behaviour, get the exact range of a value, search cheaper equivalent forms, price an expression under a CPU or GPU cost model, rewrite C99 into proved faster C for an x86-64 target, and simplify a SPIR-V or GLSL shader with each rewrite proved. Use when a change rests on integer arithmetic that must be right for every input (an encoder, a decoder, a recompiler's lowering, a bit trick, a clamp), when a hot path needs its cost on a given core, or when a sampled test is all there is and a proof is wanted.
 triggers:
   - ucas
-  - usa o ucas
-  - prova com o ucas
+  - prove it with ucas
   - prove these are equal
   - is this formula right for every input
   - where does this overflow
@@ -16,13 +15,31 @@ allowed-tools:
   - Read
 ---
 
-# ucas: proofs and costs for integer and float formulas, from the shell
+# ucas: proofs and costs for integer and float formulas, through MCP or the shell
 
-DraVee, 2026-11-11: "E precisa usar o ucas sem ser por mcp, faca a skill de acordo com o readme e tals (seria ate bom
-colocar como PR la)". The MCP server (`ucas --mcp`) is there only when a client loads it; the command line always is.
-Everything here follows ucas's README.md, which is the reference: this file is the short way in.
+The MCP server (`ucas --mcp`) is there only when a client has loaded it; the command line always is. Both speak the
+same JSON frontend, so a request written for one works in the other. Everything here follows ucas's README.md, which is
+the reference: this file is the short way in.
 
-## Use
+## Through MCP, when the server is loaded
+
+Its tools show as `mcp__ucas__<tool>` (the README's "MCP server"). By default there is one tool per area, called with an
+`op` and that op's `args`, the JSON frontend's arguments: `analyze` (equiv range domain wrap find cost gates ...),
+`calculus`, `algebra`, `properties`, `rings`, `transforms`, `c` (c_optimize c_lower c_targets), `x86` (mca, models,
+intrinsics), `session` (define state assume reset schema), and `ucas`, `english`, `spirv_simplify` with their own
+schemas. The answer's `structuredContent` is the JSON response (`proof`, `checks`, `conditions`, `error`); `isError`
+is true when it was not ok, and an ambiguity is an error naming the `args.assume` key to answer it with. For example:
+
+```json
+{"name": "analyze", "arguments": {"op": "equiv", "args": {"f": {"name": "avg", "body": "(x & y) + ((x xor y) >> 1)",
+  "params": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]}, "g": "u32((u64(x) + u64(y)) >> 1)"}}}
+```
+
+gives `structuredContent.proof = {"kind": "sat", "text": "proved by SAT: 745 AIG nodes, 818 conflicts"}`. To load it
+in Claude Code: `claude mcp add ucas -- /path/to/ucas --mcp` (add `--dir DIR` for the GIFs and modules some commands
+write), or a project's `.mcp.json` entry, enabled in its settings. Without it, the shell below does the same.
+
+## From the shell
 
 `ucas.sh`, beside this file, finds the binary and runs it with the same arguments: `$UCAS`, else `ucas` on PATH,
 else `UCAS_BIN` in the nearest `.claude/skills.env` above the working folder, else this repository's `./ucas`
@@ -141,5 +158,6 @@ for less.
 ## Test
 
 `sh .claude/skills/ucas/test.sh`: runs the recipes above against the binary `ucas.sh` finds and checks their answers
-(the SAT proof, the counterexample, the range, the JSON proof kind, the wrap witness), and that `ucas.sh` refuses
+(the SAT proof, the counterexample, the range, the JSON proof kind, the wrap witness, an MCP `analyze` call), and that
+`ucas.sh` refuses
 with no binary. Offline, a few seconds. With no binary at all it fails with ucas.sh's message.

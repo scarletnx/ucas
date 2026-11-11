@@ -39,6 +39,14 @@ check "cost: under a CPU model" "$out" 'under zen4'
 out=$("$U" --json -e '{"id": 1, "cmd": "equiv", "args": {"f": {"name": "avg", "body": "(x & y) + ((x xor y) >> 1)", "params": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]}, "g": "u32((u64(x) + u64(y)) >> 1)"}}' 2>&1)
 check "json: ok, with the proof's kind" "$out" '"ok": true.*"proof": \{"kind": "sat"'
 
+out=$(printf '%s\n' \
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "skill-test", "version": "0"}}}' \
+    '{"jsonrpc": "2.0", "method": "notifications/initialized"}' \
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "analyze", "arguments": {"op": "equiv", "args": {"f": {"name": "avg", "body": "(x & y) + ((x xor y) >> 1)", "params": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]}, "g": "u32((u64(x) + u64(y)) >> 1)"}}}}' \
+    | "$U" --mcp --dir "$t" 2>&1 | grep '"id": *2')
+check "mcp: analyze's equiv is no error" "$out" '"isError": ?false'
+check "mcp: analyze's equiv answers with the proof's kind" "$out" '"proof": ?\{"kind": ?"sat"'
+
 # the system's tools stay on PATH (ucas.sh needs sed and dirname), but no folder that holds a ucas
 p=; for dir in /usr/local/bin /usr/bin /bin; do [ -x "$dir/ucas" ] || p=${p:+$p:}$dir; done
 out=$(cd "$t" && env -u UCAS PATH="$p" /bin/sh "$U" which 2>&1); rc=$?
