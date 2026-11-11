@@ -58,7 +58,7 @@ fib[n]
 evaluation schemes for s under gt1030
 sum(i, 0, n, 3i^2 + 2i + 1)
   iterating: 17.25 per iteration, up to 1001 iterations: 17267.2
-  closed form: 22.75 (8 ops): (n + 1)*(2n^2 + 3n + 2)/2
+  closed form: 21 (8 ops): (n + 1)*(2n^2 + 3n + 2)/2
     matches the loop at 1001 points; cheaper than iterating from 2 iterations on
   strength reduction: the body is a degree-2 polynomial in i; keep its 2 differences and update them by additions
     per iteration: Horner 8, differences 2

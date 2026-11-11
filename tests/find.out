@@ -5,8 +5,8 @@
 find g: 4 points, computing in u8, costs from gt1030
   dropping operations of g (cost 16 as written; each checked on the whole domain):
   cost 12  x == 0 ? 3 : x == 1 ? 5 : x == 2 ? 7 : 9 drops the ?: on x == 3 (it always takes the first arm) (exhaustive)
+  cost 2   2x + 3                                   affine fit
   cost 2   x + x + 3                                affine fit
-  cost 3   2x + 3                                   affine fit
   cost 3   3 - (-x - x)                             exact
   [searched every term up to cost 3: 5096 distinct columns; 'more' continues]
 > equiv g 2x + 3
@@ -35,10 +35,10 @@ find sq: 16 points, computing in u8, costs from gt1030
            udot4x8's sum is in 0..225: it does not wrap
            exhaustive
   cost 3   x*x                                      exact
-  cost 5   x + (x*x - x)                            exact
-  [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]
+  cost 3   x^2                                      polynomial (Horner)
+  [searched every term up to cost 3: 16682 distinct columns; 'more' continues]
 > more 2
 more for sq:
+  cost 5   x + (x*x - x)                            exact
   cost 7   [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225][x] lookup table (baseline)
-  cost 8   x^2                                      polynomial (Horner)
   [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]

@@ -4678,8 +4678,17 @@ xcost(int x)
 		case OP_DIV: case OP_MOD:
 			if (is_pow2k(g->b, &k) && opnd_ty(g) == TU)
 				return c + m->c[g->op == OP_DIV ? C_SHIFT : C_LOGIC];
-			return c + (G.x[XR(g->b)].k == X_NUM ? m->c[C_IDIVK] :
-			    m->c[C_IDIV]);
+			{
+				/* signed or unsigned, by a constant or not */
+				int u = opnd_ty(g) == TU, cls = g->op == OP_DIV ?
+				    (u ? C_IDIV : C_SDIV) : (u ? C_IREM : C_SREM);
+				if (is_pow2k(g->b, &k))	/* signed by 2^k: shifts */
+					return c + (g->op == OP_DIV ? 3 * m->c[C_SHIFT] +
+					    m->c[C_IADD] : 2 * m->c[C_SHIFT] +
+					    2 * m->c[C_IADD] + m->c[C_LOGIC]);
+				return c + m->c[G.x[XR(g->b)].k == X_NUM ?
+				    C_DIVK(cls) : cls];
+			}
 		case OP_SHL: case OP_SHR: return c + m->c[C_SHIFT];
 		case OP_LT: case OP_LE: case OP_GT: case OP_GE: case OP_EQ:
 		case OP_NE: return c + m->c[C_CMP];

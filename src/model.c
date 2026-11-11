@@ -7,6 +7,7 @@
  * a divergent branch, where the warp runs both arms ("keep-up").
  */
 #include "calc.h"
+#include "fuse.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -18,6 +19,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"fadd", "fmul", "fdiv", "fsqrt", "ftrans", "fpow", "f64",
 	"load", "branch", "diverge", "barrier", "atomic_shared",
 	"atomic_global", "store",
+	"sdiv", "sdivk", "irem", "iremk", "srem", "sremk",
 	/* in the order of the O_*DOT* ops (DOT_CLASS) */
 	"udot4x8", "sdot4x8", "sudot4x8", "udot2x16", "sdot2x16", "sudot2x16",
 	"udot8x4", "sdot8x4", "sudot8x4",
@@ -145,6 +147,28 @@ fpclass(int k)
 	return k >= C_FADD && k <= C_FPOW;
 }
 
+/*
+ * An integer division's class: unsigned (uN, bool) or signed (iN, int),
+ * quotient or remainder, by a variable or by a constant.  An unsigned
+ * division by a power of two is a shift and its remainder a mask, which
+ * is what every compiler makes of them.
+ */
+int
+div_class(nid n)
+{
+	ty_t t = N.ty[n];
+	int sgn = TYK(t) == K_SINT || TYK(t) == K_INT || TYK(t) == K_LIT;
+	int k = N.op[n] == O_DIV ? (sgn ? C_SDIV : C_IDIV) :
+	    (sgn ? C_SREM : C_IREM);
+	nid b = N.b[n];
+
+	if (!is_const(b))
+		return k;
+	if (!sgn && N.ki[b] > 0 && !(N.ki[b] & (N.ki[b] - 1)))
+		return N.op[n] == O_DIV ? C_SHIFT : C_LOGIC;
+	return C_DIVK(k);
+}
+
 float
 node_cost(const struct model *m, nid n, int *cls)
 {
@@ -168,7 +192,19 @@ node_cost(const struct model *m, nid n, int *cls)
 			k = fp ? C_FMUL : C_IMUL;
 		break;
 	case O_DIV: case O_MOD:
-		k = fp ? C_FDIV : is_const(N.b[n]) ? C_IDIVK : C_IDIV;
+		k = fp ? C_FDIV : div_class(n);
+		if (!fp && (TYK(t) == K_SINT || TYK(t) == K_INT) &&
+		    is_const(N.b[n]) && N.ki[N.b[n]] > 1 &&
+		    !(N.ki[N.b[n]] & (N.ki[N.b[n]] - 1))) {
+			/*
+			 * signed by 2^k: (x + ((x >> w-1) >>> (w-k))) >> k, three
+			 * shifts and an add; the remainder x - ((x + that bias) &
+			 * -2^k), two shifts, two adds and a mask
+			 */
+			*cls = C_SHIFT;
+			return op == O_DIV ? 3 * m->c[C_SHIFT] + m->c[C_IADD] :
+			    2 * m->c[C_SHIFT] + 2 * m->c[C_IADD] + m->c[C_LOGIC];
+		}
 		break;
 	case O_POW:
 		if (fp) {
@@ -296,8 +332,33 @@ cmd_models(void)
 		model_classes_text(&b, &models[i]);
 		printf("model %s%s {%s }\n", sym_str(models[i].name),
 		    &models[i] == active ? " (active)" : "", sb_str(&b));
+		fuse_print_models(&models[i]);
 	}
 	free(b.p);
+}
+
+/*
+ * The cover of the function being priced (fuse.c): each node's share of
+ * the price (a fusion's at its root, 0 for what it absorbs), and which
+ * nodes a fusion took (they are tallied apart from the classes).
+ */
+static const float *cur_eff;
+static const uint8_t *cur_in, *cur_fused;
+static struct fgraph cur_fg;
+static struct fuse_tally cur_tally;
+
+static float
+ncost(const struct model *m, nid g, int *cls)
+{
+	float c = node_cost(m, g, cls);
+
+	return cur_eff && cur_in[g] ? cur_eff[g] : c;
+}
+
+static int
+fused(nid g)
+{
+	return cur_fused && cur_fused[g];
 }
 
 /* ---- pricing a function ---- */
@@ -363,7 +424,7 @@ sum_cost(const struct model *m, const uint8_t *mark, uint32_t lim)
 
 	for (g = 1; g < lim; g++)
 		if (mark[g])
-			s += node_cost(m, g, &cls);
+			s += ncost(m, g, &cls);
 	return s;
 }
 
@@ -546,7 +607,7 @@ price_loop(const struct model *m, const struct func *f, nid n,
 		float c;
 		if (outer[g] || !(ini[g] || bod[g]))
 			continue;
-		c = node_cost(m, g, &cls);
+		c = ncost(m, g, &cls);
 		if (cls < 0)
 			continue;
 		if (bod[g] && (node_slots(g) & bound)) {
@@ -570,16 +631,25 @@ price_loop(const struct model *m, const struct func *f, nid n,
 	/* by class: once, and per iteration times the worst trip count */
 	{
 		double t = lp->worst < 0 ? 1 : lp->worst;
+		uint8_t *once = xcalloc(lim, 1);
 		for (g = 1; g < lim; g++) {
 			float c;
 			if (outer[g] || !(ini[g] || bod[g]))
 				continue;
-			c = node_cost(m, g, &cls);
+			c = ncost(m, g, &cls);
 			if (cls < 0)
+				continue;
+			once[g] = !lp->var[g];
+			if (fused(g))
 				continue;
 			bycls[cls] += lp->var[g] ? (float)(c * t) : c;
 			cnt[cls] += lp->var[g] ? (int)t : 1;
 		}
+		if (cur_fused) {
+			fg_tally(&cur_fg, lp->var, t, &cur_tally);
+			fg_tally(&cur_fg, once, 1, &cur_tally);
+		}
+		free(once);
 		if (isfor) {
 			bycls[C_IADD] += (float)(m->c[C_IADD] * t);
 			cnt[C_IADD] += (int)t;
@@ -682,17 +752,51 @@ cmd_cost(struct func *f, struct model *m)
 	struct sbuf cb = {0};
 
 	reach(f->body, all, 0, 0);
+	/* the cover by the model's fusions: outside loops and in their
+	 * bodies, each loop's state a result of its own */
+	{
+		uint8_t *cm = xcalloc(lim, 1), *fz = xcalloc(lim, 1);
+		nid *pins = xmalloc((size_t)lim * sizeof *pins);
+		int np = 0, i;
+		float *eff = xcalloc(lim, sizeof *eff);
+		memcpy(cm, all, lim);
+		pins[np++] = f->body;
+		for (g = 1; g < lim; g++)
+			if (all[g] && N.op[g] == O_LOOP) {
+				uint32_t e = loop_ent(g), s = loops.st[e], q;
+				for (q = 0; q < loops.nst[e]; q++) {
+					reach(loops.init[s + q], cm, 0, 0);
+					reach(loops.next[s + q], cm, 0, 0);
+					pins[np++] = loops.init[s + q];
+					pins[np++] = loops.next[s + q];
+				}
+				reach(loops.cond[e], cm, 0, 0);
+				pins[np++] = loops.cond[e];
+			}
+		memset(&cur_tally, 0, sizeof cur_tally);
+		fuse_cover_nodes(m, cm, lim, pins, np, 0, eff, &cur_fg);
+		for (i = 0; i < cur_fg.n; i++)
+			if (cur_fg.fz[i] >= 0)
+				fz[cur_fg.id[i]] = 1;
+		cur_eff = eff;
+		cur_in = cm;
+		cur_fused = fz;
+		free(pins);
+	}
 	for (g = 1; g < lim; g++) {
 		if (!all[g] || N.op[g] == O_LOOP)
 			continue;
-		c = node_cost(m, g, &cls);
+		c = ncost(m, g, &cls);
 		if (cls < 0)
 			continue;
-		bycls[cls] += c;
-		cnt[cls]++;
+		if (!fused(g)) {
+			bycls[cls] += c;
+			cnt[cls]++;
+		}
 		total += c;
 		nops++;
 	}
+	fg_tally(&cur_fg, all, 1, &cur_tally);
 	avg_total = total;
 	for (g = 1; g < lim; g++)
 		if (all[g] && N.op[g] == O_LOOP) {
@@ -749,6 +853,13 @@ cmd_cost(struct func *f, struct model *m)
 			rep_end();
 		}
 	rep_end();
+	if (cur_tally.n) {
+		printf("  fused by the model (one instruction for several "
+		    "operations):\n");
+		rep_list("fusions");
+		fuse_tally_print(&cur_tally, "    ");
+		rep_end();
+	}
 	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
 		if (cnt[k] && !cclass_available(m, k))
 			break;
@@ -868,4 +979,10 @@ cmd_cost(struct func *f, struct model *m)
 	free(all);
 	free(cut);
 	free(seen);
+	free((void *)cur_eff);
+	free((void *)cur_in);
+	free((void *)cur_fused);
+	cur_eff = NULL;
+	cur_in = cur_fused = NULL;
+	fg_free(&cur_fg);
 }

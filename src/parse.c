@@ -30,6 +30,7 @@
 #include "viz.h"
 #include "xform.h"
 #include "x86.h"
+#include "fuse.h"
 int homalg_command(struct P *p);	/* homalg.h */
 int ec_command(struct P *p);	/* ec.h (absalg.h names a parameter I) */
 
@@ -1432,6 +1433,28 @@ static const char prelude[] =
     "  load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,\n"
     "  atomic_shared: 6.625, atomic_global: 50, store: 15,\n"
     "  dot4x8: 1, dot4x8sat: 6.5\n"
+    /*
+     * Signed division and the remainders (udiv, umod, sdiv and by 7, the
+     * mean of the two runs, less the add each step has); a signed
+     * remainder is not measured: sdiv plus what a remainder adds.  The
+     * fusions the per-class prices miss, from the tests that measure
+     * them: lop3_select and lop3_xor3 (one LOP3: 2.00 with the add),
+     * imad and imul_const (the add folds into the XMAD chain: 3.0),
+     * shl_const_add, shr_const_add, imul_pow2 and udiv_pow2 (2.0: a
+     * shift by a constant and an add cost one shift), fmad_contract
+     * (FFMA: 1.0; fmad_precise, NoContraction, 2.0), fneg_add and
+     * fabs_add (source modifiers: 1.0).
+     */
+    "  sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5\n"
+    "  fuse lop3 = lut 3 : logic\n"
+    "  fuse imad(a: int, b: int, c: int) = a * b + c : imul\n"
+    "  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift\n"
+    "  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift\n"
+    "  fuse ffma(a: float, b: float, c: float) = a * b + c : fmul contract\n"
+    "  fuse ffms(a: float, b: float, c: float) = a * b - c : fmul contract\n"
+    "  fuse ffmr(a: float, b: float, c: float) = c - a * b : fmul contract\n"
+    "  fuse fneg(a: float) = -a : 0 in fadd fmul\n"
+    "  fuse fabs(a: float) = abs(a) : 0 in fadd fmul\n"
     "}\n"
     /*
      * Later NVIDIA parts: ESTIMATES, not measurements.  The classes the
@@ -1564,6 +1587,108 @@ parse_basis(struct P *p)
 	expect_eos(p);
 }
 
+/*
+ * In a model: `fuse NAME(a: int, ...) = PATTERN : COST [contract] [in
+ * CLASS ...]`, `fuse NAME = lut K : COST`, `nofuse NAME` (src/fuse.h).
+ * COST is a sum of numbers, classes and number*class.
+ */
+static void
+parse_fuse(struct P *p, struct model *m)
+{
+	static const char *const kinds[] = {"int", "float", "const", "any"};
+	struct fusion f;
+	struct func tmp;
+	int off = is_kw(p, "nofuse"), k;
+	size_t n;
+	const char *s;
+	nid v;
+
+	adv(p);
+	if (pk(p) != T_ID)
+		fail("expected a fusion name");
+	memset(&f, 0, sizeof f);
+	memset(&tmp, 0, sizeof tmp);
+	f.name = tsym(p, p->i);
+	adv(p);
+	if (off) {
+		fuse_remove(m, f.name);
+		return;
+	}
+	if (accept(p, T_LP)) {
+		do {
+			if (pk(p) != T_ID || tmp.np == FUSE_MAXP)
+				fail("a fusion takes 1 to %d named inputs", FUSE_MAXP);
+			tmp.p[tmp.np].name = f.pname[tmp.np] = tsym(p, p->i);
+			adv(p);
+			expect(p, T_COLON);
+			for (k = 0; k < 4 && !is_kw(p, kinds[k]); k++)
+				;
+			if (k == 4)
+				fail("a fusion's input is int, float, const or any");
+			adv(p);
+			f.pkind[tmp.np] = (uint8_t)k;
+			tmp.p[tmp.np].ty = k == FP_FLOAT ? TY_F32 : TY_INT;
+			tmp.np++;
+		} while (accept(p, T_COMMA));
+		expect(p, T_RP);
+		f.np = tmp.np;
+	}
+	expect(p, T_ASSIGN);
+	if (is_kw(p, "lut") && pk2(p) == T_NUM) {
+		adv(p);
+		v = number(p);
+		f.lut = (int)N.ki[v];
+		if (f.lut < 2 || f.lut > 6 || f.np)
+			fail("lut takes 2 to 6 inputs and no named ones");
+	} else {
+		if (!f.np)
+			fail("expected `lut K` or named inputs: fuse %s(a: int, ...)",
+			    sym_str(f.name));
+		p->fn = &tmp;
+		f.pat = parse_expr(p, 0);
+		p->fn = NULL;
+		if (N.op[f.pat] == O_VAR || N.op[f.pat] == O_CONST)
+			fail("a fusion's pattern is an operation");
+	}
+	expect(p, T_COLON);
+	do {
+		double mul = 1;
+		if (pk(p) == T_NUM) {
+			v = number(p);
+			mul = TY_FP(N.ty[v]) ? N.kr[v] : (double)N.ki[v];
+			if (!accept(p, T_STAR)) {
+				f.k += (float)mul;
+				continue;
+			}
+		}
+		s = ttext(p, p->i, &n);
+		if (pk(p) != T_ID || (k = cclass_find(s, n)) < 0)
+			fail("unknown cost class '%.*s' (see 'models')", (int)n, s);
+		if (f.nt == FUSE_MAXT)
+			fail("a fusion's cost has at most %d classes", FUSE_MAXT);
+		adv(p);
+		f.tcls[f.nt] = (int8_t)k;
+		f.tmul[f.nt++] = (float)mul;
+	} while (accept(p, T_PLUS));
+	for (;;) {
+		if (accept_kw(p, "contract"))
+			f.contract = 1;
+		else if (accept_kw(p, "in")) {
+			while (pk(p) == T_ID && (s = ttext(p, p->i, &n)) != NULL &&
+			    (k = cclass_find(s, n)) >= 0) {
+				f.users |= 1ULL << k;
+				adv(p);
+			}
+			if (!f.users)
+				fail("`in` lists the cost classes that absorb it");
+			if (opinfo[N.op[f.pat]].arity < 1 || f.lut)
+				fail("a modifier is one operation");
+		} else
+			break;
+	}
+	fuse_add(m, &f);
+}
+
 static void
 parse_model(struct P *p)
 {
@@ -1571,18 +1696,21 @@ parse_model(struct P *p)
 	size_t n;
 	const char *s;
 	int k, inherited = 0, store_given = 0;
+	uint64_t given = 0;
 	nid v;
 
 	adv(p);
 	if (pk(p) != T_ID)
 		fail("expected a model name");
 	m = model_new(tsym(p, p->i));
+	fuse_reset(m);
 	adv(p);
 	if (accept(p, T_COLON)) {
 		if (pk(p) != T_ID || (parent = model_find(tsym(p, p->i))) == NULL)
 			fail("unknown model");
 		adv(p);
 		memcpy(m->c, parent->c, sizeof m->c);
+		fuse_inherit(m, parent);
 		inherited = 1;
 	}
 	skip_nl(p);
@@ -1592,6 +1720,10 @@ parse_model(struct P *p)
 			;
 		if (accept(p, T_RC))
 			break;
+		if (is_kw(p, "fuse") || is_kw(p, "nofuse")) {
+			parse_fuse(p, m);
+			continue;
+		}
 		s = ttext(p, p->i, &n);
 		if (pk(p) != T_ID)
 			fail("expected a cost class");
@@ -1626,11 +1758,28 @@ parse_model(struct P *p)
 			    (float)N.ki[v];
 			if (k == C_STORE)
 				store_given = 1;
+			given |= 1ULL << k;
 		}
 	}
 	/* a model that does not price stores: as dear as its loads */
 	if (!inherited && !store_given)
 		m->c[C_STORE] = m->c[C_LOAD];
+	/*
+	 * nor signed division or remainders: as its divisions; a signed
+	 * remainder not given is the signed division plus what a remainder
+	 * adds to the unsigned one
+	 */
+	if (!inherited) {
+		for (k = 0; k < 2; k++) {
+			if (!(given >> (C_SDIV + k) & 1))
+				m->c[C_SDIV + k] = m->c[C_IDIV + k];
+			if (!(given >> (C_IREM + k) & 1))
+				m->c[C_IREM + k] = m->c[C_IDIV + k];
+			if (!(given >> (C_SREM + k) & 1))
+				m->c[C_SREM + k] = m->c[C_SDIV + k] +
+				    m->c[C_IREM + k] - m->c[C_IDIV + k];
+		}
+	}
 	expect_eos(p);
 }
 
@@ -1654,7 +1803,7 @@ help(void)
 "  f(x: u8, y: i16 in -5..5) = expr [where y = expr, cond]\n"
 "  g = x^2 + 1               free variables become parameters\n"
 "  basis name [: parent] { gate(x, y) = expr [cost n]; ... }\n"
-"  model name [: parent] { class: cost, ... }\n"
+"  model name [: parent] { class: cost, ..., fuse f(a: int, ...) = expr : cost }\n"
 "types: real (math), f16 f32 f64 (IEEE), int (math), uN iN (wrapping), bool\n"
 "commands (F is a function name or an expression like isqrt(x: u4))\n"
 "  show F | parse EXPR | table F [max n] | funcs | models | help\n"

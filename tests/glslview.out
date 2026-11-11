@@ -5,7 +5,7 @@
 > spvsimplify nofile assume n 1 31
 simplify: 72 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
   assuming n in [1, 31] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once): 10 -> 8 (-20.0%)
+  integer arithmetic cost under gt1030 (each instruction once): 10 -> 7 (-30.0%)
   by kind:
        1  a shift of a shift is one shift by the sum    -2
   rewrites:
@@ -33,18 +33,20 @@ simplify: 72 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
-simplify: 63 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 34.5 -> 6 (-82.6%)
-  counting the strength reductions any driver also does: 62 -> 6 (-90.3%)
-  also done by any driver compiler (2 rewrites, -27.5; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+simplify: 63 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 6 -> 5 (-16.7%)
+  counting the strength reductions any driver also does: 7 -> 5 (-28.6%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
   by kind:
-       1  equals its operand                            -28.5
+       1  equals its operand                            -1
   rewrites:
     %38 = OpUMod %uint %36 %uint_256
-      ->  %36   (equals its operand; -28.5)
+      ->  %36   (equals its operand; -1)
       (line 6: v[i] = (v[i] * 16u) / 8u + (v[i] & 255u) % 256u;)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 2148 bytes, checksum f714b49d)
+  (nofile: simplified.spvasm, 2096 bytes, checksum 2d64ffe6)
   GLSL view (spirv-cross's reconstruction of the SPIR-V, with its own names, not your source):
     --- original.glsl (spirv-opt -O)
     +++ simplified.glsl
@@ -52,10 +54,10 @@ simplify: 63 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal f
      void main()
      {
     -    _6.v[gl_GlobalInvocationID.x] = ((_6.v[gl_GlobalInvocationID.x] * 16u) / 8u) + ((_6.v[gl_GlobalInvocationID.x] & 255u) % 256u);
-    +    _6.v[gl_GlobalInvocationID.x] = ((_6.v[gl_GlobalInvocationID.x] << 4u) >> 3u) + (_6.v[gl_GlobalInvocationID.x] & 255u);
+    +    _6.v[gl_GlobalInvocationID.x] = ((_6.v[gl_GlobalInvocationID.x] << 4u) / 8u) + (_6.v[gl_GlobalInvocationID.x] & 255u);
      }
 
-  (nofile: simplified.glsl, 292 bytes, checksum 0fd635e4)
+  (nofile: simplified.glsl, 291 bytes, checksum 802b35f2)
   (nofile: original.glsl, 300 bytes, checksum 263c288b)
 > spvsimplify nofile
   input %x: uint

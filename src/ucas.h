@@ -283,6 +283,10 @@ enum {
 	C_FADD, C_FMUL, C_FDIV, C_FSQRT, C_FTRANS, C_FPOW, C_F64,
 	C_LOAD, C_BRANCH, C_DIVERGE, C_BARRIER, C_ATOM_SH, C_ATOM_GL,
 	C_STORE,
+	/* signed division and the remainders, each by a variable and by a
+	 * constant (the K class is always the one after); a model that does
+	 * not give them prices them as idiv/idivk */
+	C_SDIV, C_SDIVK, C_IREM, C_IREMK, C_SREM, C_SREMK,
 	C_NBASE,
 	/*
 	 * Dot products, one class per form (u, s, su; 4x8, 2x16, 8x4; plain
@@ -295,6 +299,8 @@ enum {
 };
 /* the class of a dot op; IS_DOT(op) */
 #define DOT_CLASS(op) (C_DOT_FIRST + ((op) - O_DOT_FIRST))
+#define C_DIVK(k) ((k) + 1)	/* the division class by a constant */
+int div_class(nid n);		/* model.c: an integer / or %'s class */
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];

@@ -1437,10 +1437,14 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 		return C_IADD;
 	if (!strcmp(op, "OpIMul"))
 		return C_IMUL;
-	if (!strcmp(op, "OpSDiv") || !strcmp(op, "OpUDiv") ||
-	    !strcmp(op, "OpSRem") || !strcmp(op, "OpSMod") ||
-	    !strcmp(op, "OpUMod"))
+	if (!strcmp(op, "OpUDiv"))
 		return C_IDIV;
+	if (!strcmp(op, "OpSDiv"))
+		return C_SDIV;
+	if (!strcmp(op, "OpUMod"))
+		return C_IREM;
+	if (!strcmp(op, "OpSRem") || !strcmp(op, "OpSMod"))
+		return C_SREM;
 	if (!strcmp(op, "OpFAdd") || !strcmp(op, "OpFSub") ||
 	    !strcmp(op, "OpFNegate"))
 		return C_FADD;
@@ -4870,14 +4874,51 @@ blast_reset(void)
 	SP.g = aig_new();
 }
 
-/* the cost of an instruction under the model */
+static int const_of(int id, uint64_t *v);
+
+/*
+ * The cost of an instruction under the model; a division's divisor b
+ * (an id, or -1) picks the class by a constant, and a power of two
+ * makes it a shift (unsigned) or the shifts and add of a signed one.
+ */
 static double
-ins_cost(const char *op, const char *ext, int rt)
+ins_cost_b(const char *op, const char *ext, int rt, int b)
 {
 	double mul = 1;
 	int cls = cost_class(op, ext && ext[0] ? ext : NULL, rt, &mul);
+	const struct model *m = model_active();
+	uint64_t v;
 
-	return cls >= 0 ? model_active()->c[cls] * mul : 0;
+	if (cls == C_IDIV || cls == C_SDIV || cls == C_IREM || cls == C_SREM) {
+		if (b >= 0 && const_of(b, &v)) {
+			int w = int_width(rt), sg = cls == C_SDIV || cls == C_SREM;
+			if (v > 1 && !(v & (v - 1)) && (!sg || (w > 0 && w <= 64 &&
+			    !(v >> (w - 1)))))
+				return !sg ? m->c[cls == C_IDIV ? C_SHIFT : C_LOGIC] :
+				    cls == C_SDIV ? 3 * m->c[C_SHIFT] + m->c[C_IADD] :
+				    2 * m->c[C_SHIFT] + 2 * m->c[C_IADD] +
+				    m->c[C_LOGIC];
+			cls = C_DIVK(cls);
+		}
+	}
+	return cls >= 0 ? m->c[cls] * mul : 0;
+}
+
+static double
+ins_cost(const char *op, const char *ext, int rt)
+{
+	return ins_cost_b(op, ext, rt, -1);
+}
+
+/* instruction k's cost (its divisor read from its operands) */
+static double
+ins_cost_k(int k)
+{
+	const struct sins *I = &V.in[k];
+	int ext = !strcmp(I->op, "OpExtInst");
+
+	return ins_cost_b(I->op, ext ? I->opnd[2] : NULL, idx(I->opnd[0]),
+	    !ext && I->nop >= 3 && I->opnd[2][0] == '%' ? idx(I->opnd[2]) : -1);
 }
 
 /*
@@ -5044,7 +5085,7 @@ ins_cand(struct cand *c, const char *op, const char *ext, int rt, int a0,
 	c->a[1] = a1;
 	c->a[2] = a2;
 	c->na = a2 >= 0 ? 3 : a1 >= 0 ? 2 : 1;
-	c->cost = ins_cost(op, ext, rt);
+	c->cost = ins_cost_b(op, ext, rt, a1);
 	c->why = why;
 	return 1;
 }
@@ -5178,7 +5219,7 @@ aff_dead_cost(int id, int base, int rt)
 				if (from_dead >= SP.uses[cone[j]]) {
 					dead[j] = 1;
 					changed = 1;
-					c += ins_cost(V.in[SP.def[cone[j]]].op, NULL, rt);
+					c += ins_cost_k(SP.def[cone[j]]);
 				}
 			}
 		}
@@ -5387,6 +5428,51 @@ candidates(int k, struct cand *cs, int max)
 		    const_id(rt, (uint64_t)log2u(cv)), -1, I->op[2] == 'U' ?
 		    "a divide by a power of two is a shift" :
 		    "the dividend is never negative: a shift");
+	/*
+	 * a signed division or remainder of operands that are never
+	 * negative (the divisor never 0) is the unsigned one: trunc(a/b) =
+	 * floor(a/b) for a >= 0, b > 0, and the bits read as unsigned are
+	 * the same numbers.  SAT decides it under the assumptions; the
+	 * model's sdiv/udiv (srem/irem) prices decide whether it is wanted.
+	 */
+	if ((!strcmp(I->op, "OpSDiv") || !strcmp(I->op, "OpSRem") ||
+	    !strcmp(I->op, "OpSMod")) && nargs == 2 && n < max &&
+	    !(const_of(arg[1], &cv) && is_pow2(cv)))
+		n += ins_cand(&cs[n], I->op[3] == 'D' ? "OpUDiv" : "OpUMod", NULL,
+		    rt, arg[0], arg[1], -1, I->op[3] == 'D' ?
+		    "operands never negative: the unsigned divide" :
+		    "operands never negative: the unsigned remainder");
+	/*
+	 * a compare of the two arms and a select of them is a min or a max
+	 * (x < y ? x : y = min(x, y): integers are totally ordered); the
+	 * compare goes too when the select is its only use
+	 */
+	if (!strcmp(I->op, "OpSelect") && nargs == 3 && V.glsl >= 0 &&
+	    n < max && w > 1) {
+		int cd = SP.def[arg[0]];
+		static const char *const cmps[] = {"OpSLessThan",
+		    "OpSLessThanEqual", "OpSGreaterThan", "OpSGreaterThanEqual",
+		    "OpULessThan", "OpULessThanEqual", "OpUGreaterThan",
+		    "OpUGreaterThanEqual", NULL};
+		if (cd >= 0 && !SP.dead[cd] && in_list(V.in[cd].op, cmps) &&
+		    V.in[cd].nop >= 3) {
+			const char *co = V.in[cd].op;
+			int x = res_of(idx(V.in[cd].opnd[1]));
+			int y = res_of(idx(V.in[cd].opnd[2]));
+			int lt = strstr(co, "Less") != NULL, sg = co[2] == 'S';
+			if ((arg[1] == x && arg[2] == y) ||
+			    (arg[1] == y && arg[2] == x)) {
+				int mn = lt == (arg[1] == x);
+				n += ins_cand(&cs[n], "OpExtInst", sg ? (mn ? "SMin" :
+				    "SMax") : (mn ? "UMin" : "UMax"), rt, arg[1], arg[2],
+				    -1, mn ? "a compare and select of its operands is a "
+				    "min" : "a compare and select of its operands is a "
+				    "max");
+				cs[n - 1].extra = SP.uses[arg[0]] == 1 ?
+				    ins_cost_k(cd) : 0;
+			}
+		}
+	}
 	if ((!strcmp(I->op, "OpUMod") || !strcmp(I->op, "OpSRem") ||
 	    !strcmp(I->op, "OpSMod")) && const_of(arg[1], &cv) && is_pow2(cv) &&
 	    n < max)
@@ -6476,6 +6562,7 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
 /* ---- float simplify (fsimp.c does the mathematics) ---- */
 
 #include "fsimp.h"
+#include "fuse.h"
 
 static struct {
 	char name[40];
@@ -7841,6 +7928,104 @@ float_pass(const char *text, int *changed)
 
 static char *orig_mod;	/* the module before the rewrites */
 
+/*
+ * The live integer instructions as a DAG for the model's fusions
+ * (fuse.c): in order, with their operands that are not such
+ * instructions (loads, constants, phis) as leaves; a result something
+ * else uses (a store, a phi, a branch) is computed as it is.
+ */
+static double
+spv_cover(struct fuse_tally *t)
+{
+	static const struct {
+		const char *op;
+		int o;
+	} map[] = {{"OpIAdd", O_ADD}, {"OpISub", O_SUB}, {"OpIMul", O_MUL},
+	    {"OpSNegate", O_NEG}, {"OpBitwiseAnd", O_AND},
+	    {"OpBitwiseOr", O_OR}, {"OpBitwiseXor", O_XOR}, {"OpNot", O_NOT},
+	    {"OpShiftLeftLogical", O_SHL}, {"OpShiftRightLogical", O_SHR},
+	    {"OpShiftRightArithmetic", O_SHR}, {"OpUDiv", O_DIV},
+	    {"OpSDiv", O_DIV}, {NULL, 0}};
+	int nid_ = V.nid + 1024, *gi = xmalloc((size_t)nid_ * sizeof *gi);
+	int nins = 0, nleaf = 0, k, i, j, q;
+	struct fgraph G;
+	double total;
+
+	for (i = 0; i < nid_; i++)
+		gi[i] = -1;
+	for (k = 0; k < V.nin; k++)
+		if (pure_ins(k))
+			gi[V.in[k].res] = nins++;
+	for (k = 0; k < V.nin; k++)
+		if (pure_ins(k))
+			for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++) {
+				int a = res_of(idx(V.in[k].opnd[i]));
+				if (gi[a] < 0)
+					gi[a] = nins + nleaf++;
+			}
+	fg_init(&G, nins + nleaf);
+	for (i = 0; i < nid_; i++)
+		if (gi[i] >= nins) {
+			j = gi[i];
+			G.op[j] = O_NONE;
+			if (V.id[i].kind == K_CONST && !V.id[i].spec) {
+				G.op[j] = O_CONST;
+				G.isk[j] = 1;
+				G.kv[j] = (int64_t)V.id[i].c[0];
+			}
+		}
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		double mul;
+		int base;
+		if (!pure_ins(k))
+			continue;
+		j = gi[I->res];
+		G.id[j] = (uint32_t)k;
+		G.op[j] = O_NONE;
+		for (q = 0; map[q].op; q++)
+			if (!strcmp(I->op, map[q].op))
+				G.op[j] = (uint8_t)map[q].o;
+		G.uns[j] = !strcmp(I->op, "OpUDiv");
+		G.isbool[j] = int_width(idx(I->opnd[0])) == 1;
+		G.own[j] = (float)ins_cost_k(k);
+		G.cls[j] = cost_class(I->op, !strcmp(I->op, "OpExtInst") ?
+		    I->opnd[2] : NULL, idx(I->opnd[0]), &mul);
+		base = first_arg(I);
+		for (i = base; i < I->nop && i - base < 3; i++) {
+			int a = gi[res_of(idx(I->opnd[i]))];
+			G.uses[a]++;
+			if (G.op[j] != O_NONE)
+				G.arg[j][i - base] = a;
+			else
+				G.pinned[a] = 1;
+		}
+	}
+	/* used by anything else: a result */
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (SP.dead[k] || pure_ins(k) || !strncmp(I->op, "OpName", 6) ||
+		    !strncmp(I->op, "OpMemberName", 12) ||
+		    !strncmp(I->op, "OpDecorate", 10) ||
+		    !strncmp(I->op, "OpMemberDecorate", 16))
+			continue;
+		for (i = 0; i < I->nop; i++)
+			if (I->opnd[i][0] == '%') {
+				int a = gi[res_of(idx(I->opnd[i]))];
+				if (a >= 0 && a < nins) {
+					G.pinned[a] = 1;
+					G.uses[a]++;
+				}
+			}
+	}
+	total = fg_cover(model_active(), &G);
+	if (t)
+		fg_tally(&G, NULL, 1, t);
+	fg_free(&G);
+	free(gi);
+	return total;
+}
+
 void
 spirv_simplify(const char *src, double budget, int nofile)
 {
@@ -7859,6 +8044,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	struct dotlog dotl[32];
 	int ndotlog = 0;
 	double before = 0, after = 0;
+	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0};
 	clock_t t0 = clock();
 
@@ -7982,12 +8168,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 	SP.rng = 0x51c3a5e1ULL;
 	SP.deadline = (double)t0 / CLOCKS_PER_SEC + budget;
 	SP.g = aig_new();
+	before = spv_cover(NULL);
 	for (k = 0; k < V.nin; k++)
-		if (pure_ins(k)) {
-			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
-			    V.in[k].opnd[2] : NULL;
-			before += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
-		} else if (is_idot(k)) {
+		if (is_idot(k)) {
 			int cls;
 			before += idot_cost(&V.in[k], &cls);
 		}
@@ -8002,7 +8185,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			continue;
 		rt = idx(V.in[k].opnd[0]);
 		ext = !strcmp(V.in[k].op, "OpExtInst") ? V.in[k].opnd[2] : NULL;
-		cost = ins_cost(V.in[k].op, ext, rt);
+		(void)ext;
+		cost = ins_cost_k(k);
 		nc = candidates(k, cs, 12);
 		/* the cheapest that is cheaper and proves */
 		for (;;) {
@@ -8120,12 +8304,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 		free(uses);
 	}
+	memset(&ftally, 0, sizeof ftally);
+	after = spv_cover(&ftally);
 	for (k = 0; k < V.nin; k++)
-		if (!SP.dead[k] && pure_ins(k)) {
-			const char *ext = !strcmp(V.in[k].op, "OpExtInst") ?
-			    V.in[k].opnd[2] : NULL;
-			after += ins_cost(V.in[k].op, ext, idx(V.in[k].opnd[0]));
-		} else if (!SP.dead[k] && is_idot(k)) {
+		if (!SP.dead[k] && is_idot(k)) {
 			int cls;
 			after += idot_cost(&V.in[k], &cls);
 		}
@@ -8355,6 +8537,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 		for (j = 0; j < nk; j++)
 			printf("%s %d %s", j ? ";" : "", cnt[j], kinds[j]);
 		printf("\n");
+	}
+	if (ftally.n) {
+		/* the model's fusions in the rewritten module (both totals are
+		 * priced with them) */
+		printf("  fused by the model in the result (one instruction for "
+		    "several):\n");
+		rep_list("fusions");
+		fuse_tally_print(&ftally, "    ");
+		rep_end();
 	}
 	if (nlog - ntriv > 0) {
 		/* by kind, then the largest savings first */

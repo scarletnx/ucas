@@ -17,6 +17,8 @@
  */
 #include "calc.h"
 #include "x86.h"
+#include "fuse.h"
+#include "irw.h"
 
 #include <math.h>
 #include <setjmp.h>
@@ -292,6 +294,13 @@ add_match(int kind, int cost, nid e, const char *why)
 	int i;
 	uint64_t sig = signature(e);
 
+	/* the bank adds its operations' prices; the model's fusions may
+	 * make the form cheaper than that */
+	if (fuse_count(model_active()) && e) {
+		int fc = (int)(fuse_expr_cost(model_active(), e) + 0.5f);
+		if (fc < cost)
+			cost = fc;
+	}
 	for (i = 0; i < F.nm; i++)
 		if (F.m[i].e == e || (F.m[i].sig == sig && kind != M_FORM &&
 		    F.m[i].kind != M_FORM)) {
@@ -911,39 +920,11 @@ forms(const int64_t *xs)
 
 /* ---- float targets ---- */
 
+/* e's price under the active model: the cheapest cover by its fusions */
 static float
 expr_cost(nid e)
 {
-	uint8_t *mark = xcalloc(N.n, 1);
-	nid *st = xmalloc(N.n * sizeof *st), n;
-	uint32_t sp = 0, j;
-	float c = 0;
-	int cls;
-
-	st[sp++] = e;
-	mark[e] = 1;
-	while (sp) {
-		n = st[--sp];
-		c += node_cost(model_active(), n, &cls);
-		if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_UNDEF)
-			continue;
-		if (N.op[n] == O_TABLE) {
-			for (j = 0; j < N.b[n]; j++)
-				if (!mark[N.lst[N.a[n] + j]])
-					mark[N.lst[N.a[n] + j]] = 1,
-					st[sp++] = N.lst[N.a[n] + j];
-			continue;
-		}
-		if (N.a[n] && !mark[N.a[n]])
-			mark[N.a[n]] = 1, st[sp++] = N.a[n];
-		if (N.b[n] && !mark[N.b[n]])
-			mark[N.b[n]] = 1, st[sp++] = N.b[n];
-		if (N.c[n] && !mark[N.c[n]])
-			mark[N.c[n]] = 1, st[sp++] = N.c[n];
-	}
-	free(mark);
-	free(st);
-	return c;
+	return fuse_expr_cost(model_active(), e);
 }
 
 static void
@@ -1037,7 +1018,9 @@ find_float(struct func *f, int want)
 struct pcand {
 	nid e;
 	int cost;
-	char what[120];
+	char what[200];
+	int derived;		/* irw.c: an identity, proved by derivation */
+	int loose;		/* irw.c: it relies on a GPU's looser floats */
 };
 
 static int
@@ -1131,6 +1114,8 @@ cand_add(struct pcand **c, int *nc, int *cap, nid root, nid e,
 	(*c)[*nc].e = e;
 	(*c)[*nc].cost = icost(e);
 	snprintf((*c)[*nc].what, sizeof (*c)[*nc].what, "%s", what);
+	(*c)[*nc].derived = 0;
+	(*c)[*nc].loose = 0;
 	(*nc)++;
 }
 
@@ -1244,6 +1229,87 @@ proof_word(const struct eqproof *pr)
 	    "proved by SAT" : "sampled, not proved";
 }
 
+/* the rewrites irw.c derives for root, added to the candidates */
+static int
+with_rewrites(const struct func *f, nid root, struct pcand **c, int nc)
+{
+	struct irw *r;
+	int nr = irw_cands(f, root, &r), i, cap = nc;
+
+	for (i = 0; i < nr; i++) {
+		if (r[i].nearmiss)
+			continue;
+		*c = xrealloc(*c, (size_t)(cap + 1) * sizeof **c);
+		cap++;
+		(*c)[nc].e = r[i].e;
+		(*c)[nc].cost = icost(r[i].e);
+		snprintf((*c)[nc].what, sizeof (*c)[nc].what, "%s", r[i].what);
+		(*c)[nc].derived = 1;
+		(*c)[nc].loose = r[i].loose;
+		nc++;
+	}
+	irw_free(r, nr);
+	qsort(*c, (size_t)nc, sizeof **c, cmp_pcand);
+	return nc;
+}
+
+/*
+ * The rewrites by identities (irw.c) that the model prices lower than
+ * the function as written: each with the conditions it holds under and
+ * its derivation, then checked again on the domain (exhaustively, by
+ * SAT, or sampled when floats are involved) as a second opinion.  One
+ * that would be cheaper but is not proved says why.
+ */
+static void
+rewrites(const struct func *f, int base)
+{
+	struct irw *r;
+	int nr = irw_cands(f, f->body, &r), i, shown = 0;
+	struct sbuf w = {0};
+
+	for (i = 0; i < nr; i++) {
+		struct eqproof pr;
+		int cost = icost(r[i].e), bad;
+		if (cost >= base)
+			continue;
+		if (r[i].nearmiss) {
+			printf("  not applied (it would cost %d): %s\n", cost,
+			    r[i].what);
+			irw_print(&r[i], "      ");
+			rep_obj(NULL);
+			rep_num("cost", cost);
+			rep_str("rewrite", r[i].what);
+			rep_str("not_proved", r[i].proof);
+			rep_end();
+			continue;
+		}
+		sb_clear(&w);
+		bad = equiv_decide(f, f->body, r[i].e, &w, &pr);
+		if (!shown++)
+			printf("  rewrites the model prices lower (each derived, with "
+			    "what it holds under):\n");
+		printf("  cost %-3d %-40s %s (derived; %s%s%s)\n", cost,
+		    shared_str(r[i].e, 300), r[i].what, bad ? "but contradicted "
+		    "by the check: " : pr.how == EQ_EXHAUSTIVE ? "checked on every "
+		    "point" : pr.how == EQ_SAT ? "checked by SAT" : "checked on a "
+		    "sample", bad ? sb_str(&w) : "", r[i].loose ? ", with ucas's "
+		    "correctly rounded division; the derivation covers 2.5 ulp" :
+		    "");
+		irw_print(&r[i], "      ");
+		rep_obj(NULL);
+		rep_num("cost", cost);
+		rep_expr("expr", r[i].e);
+		rep_str("rewrite", r[i].what);
+		rep_str("holds_where", r[i].cond);
+		rep_str("derivation", r[i].proof);
+		rep_str("check", bad ? "counterexample" : pr.how == EQ_EXHAUSTIVE ?
+		    "exhaustive" : pr.how == EQ_SAT ? "sat" : "sampled");
+		rep_end();
+	}
+	irw_free(r, nr);
+	free(w.p);
+}
+
 /*
  * Peephole candidates from the function's own DAG, before the enumerative
  * bank: each single drop that holds (cheapest first), then the drops
@@ -1255,8 +1321,8 @@ peephole(const struct func *f)
 	struct pcand *c;
 	int nc, i, shown = 0, proofs = 0, round, base = icost(f->body);
 	nid cur = f->body;
-	struct sbuf steps = {0}, w = {0};
-	int nsteps = 0, more = 0;
+	struct sbuf steps = {0}, steps2 = {0}, w = {0};
+	int nsteps = 0, more = 0, nderived = 0, loose = 0;
 	const char *last = "exhaustive";
 
 	clock_t t0 = clock();
@@ -1310,24 +1376,39 @@ peephole(const struct func *f)
 	free(c);
 	if (more)
 		printf("  ... %d more single drops hold (not listed)\n", more);
+	rewrites(f, base);
 	/* the fixpoint: take the cheapest proved drop until none is left */
 	for (round = 0; round < PEEP_ROUNDS && proofs < PEEP_PROOFS; round++) {
 		int took = 0, cc = icost(cur);
 		nc = peep_cands(cur, &c);
+		nc = with_rewrites(f, cur, &c, nc);
 		for (i = 0; i < nc && proofs < PEEP_PROOFS; i++) {
 			struct eqproof pr;
 			if (c[i].cost >= cc || !quick_refines(f, c[i].e))
+				continue;
+			/*
+			 * after a rewrite that relies on a GPU's float precision,
+			 * a drop checked with ucas's exact floats may remove what
+			 * that precision needs (a correction step): only
+			 * derivations from here on
+			 */
+			if (loose && !c[i].derived)
 				continue;
 			if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
 				break;
 			proofs++;
 			if (equiv_decide(f, f->body, c[i].e, NULL, &pr) ||
-			    pr.how == EQ_SAMPLED)
+			    (pr.how == EQ_SAMPLED && !c[i].derived))
 				continue;
 			if (pr.how == EQ_SAT)
 				last = "proved by SAT";
+			if (c[i].derived)
+				nderived++;
+			loose |= c[i].loose;
 			sb_printf(&steps, "%s%s", nsteps ? ", then " : "",
 			    c[i].what);
+			sb_printf(&steps2, "%s%s%s", nsteps ? ", then " : "",
+			    c[i].derived ? "" : "drops ", c[i].what);
 			nsteps++;
 			cur = c[i].e;
 			took = 1;
@@ -1339,16 +1420,20 @@ peephole(const struct func *f)
 	}
 	rep_end();
 	if (nsteps >= 2) {
-		printf("  cost %-3d %-40s all of them: drops %s (%s)\n",
-		    icost(cur), shared_str(cur, 300), sb_str(&steps), last);
+		printf("  cost %-3d %-40s all of them: %s%s (%s%s)\n",
+		    icost(cur), shared_str(cur, 300), nderived ? "" : "drops ",
+		    sb_str(nderived ? &steps2 : &steps), !nderived ? "" :
+		    nderived == nsteps ? "derived" : "derived; the drops ",
+		    nderived == nsteps ? "" : last);
 		rep_obj("peephole_fixpoint");
 		rep_num("cost", icost(cur));
 		rep_expr("expr", cur);
-		rep_str("drops", sb_str(&steps));
+		rep_str("drops", sb_str(nderived ? &steps2 : &steps));
 		rep_str("proof", strcmp(last, "exhaustive") ? "sat" : "exhaustive");
 		rep_end();
 	}
 	free(steps.p);
+	free(steps2.p);
 	free(w.p);
 }
 

@@ -1020,7 +1020,7 @@ definitions
   f(x: u8, y: i16 in -5..5) = expr [where y = expr, cond]
   g = x^2 + 1               free variables become parameters
   basis name [: parent] { gate(x, y) = expr [cost n]; ... }
-  model name [: parent] { class: cost, ... }
+  model name [: parent] { class: cost, ..., fuse f(a: int, ...) = expr : cost }
 types: real (math), f16 f32 f64 (IEEE), int (math), uN iN (wrapping), bool
 commands (F is a function name or an expression like isqrt(x: u4))
   show F | parse EXPR | table F [max n] | funcs | models | help

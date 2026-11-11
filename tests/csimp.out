@@ -59,20 +59,22 @@ simplify: 50 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
 simplify: 55 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  integer arithmetic cost under gt1030 (each instruction once): 5 -> 5 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   f: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
-simplify: 53 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+simplify: 53 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 4 -> 4 (+0.0%)
-  counting the strength reductions any driver also does: 31.5 -> 4 (-87.3%)
-  also done by any driver compiler (2 rewrites, -27.5; kept in the written module, not counted above): 1 a multiply by a power of two is a shift; 1 a divide by a power of two is a shift
+  counting the strength reductions any driver also does: 5 -> 4 (-20.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 1794 bytes, checksum 041ecdc9)
+  (nofile: simplified.spvasm, 1742 bytes, checksum d979d285)
   note: the ```c code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)
   note: the ```spv code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)
 > c lower

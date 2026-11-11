@@ -87,7 +87,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
           return best;
       }
     proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (2560 points)
-    cost under gt1030 (a loop priced per iteration times its trips): 365.125 -> 217.25 per call
+    cost under gt1030 (a loop priced per iteration times its trips): 377.375 -> 229.5 per call
     relies on: t in 0..255; p in 0..1; sh_cb in {5, 6, 7, 8}; sh_pk in {0, 1, 2} at every call: QuantWord (line 79)
     line 61: a sum of products as one dot product
       t * int(top) + 127
