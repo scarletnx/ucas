@@ -2,6 +2,8 @@ work/
 *.got
 *.diff
 ucas
+# the skill's folder has the binary's name
+!/.claude/skills/ucas/
 ucas.full
 ucas.debug
 *.o
