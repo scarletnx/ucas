@@ -1265,7 +1265,7 @@ render_params(struct req *r, struct sbuf *b, const struct jv *ps)
 				sb_printf(b, ": %s", tys[atoi(a) - 1]);
 			else {
 				rep_ask("param_type", what, tys, 2, 0, "give "
-				    "params[].type (real, int, f32, f64, u8, i32, bool, "
+				    "params[].type (real, int, f16, f32, f64, u8, i32, bool, "
 				    "complex ...)");
 				return bad(r, "ambiguous", "%s", what);
 			}
@@ -2135,7 +2135,7 @@ static const char schema_defs[] =
 "{\"type\": \"array\", \"items\": {\"$ref\": \"#/$defs/expression\"}}]},"
 " \"params\": {\"type\": \"array\", \"items\": {\"type\": \"object\", "
 "\"required\": [\"name\"], \"properties\": {\"name\": {\"$ref\": "
-"\"#/$defs/name\"}, \"type\": {\"description\": \"real int bool f32 f64 "
+"\"#/$defs/name\"}, \"type\": {\"description\": \"real int bool f16 f32 f64 "
 "uN iN complex c64 quat oct sed cd(N)\", \"type\": \"string\"}, \"range\": "
 "{\"$ref\": \"#/$defs/interval\"}, \"uniform\": {\"type\": \"boolean\"}}, "
 "\"additionalProperties\": false}},"

@@ -1,0 +1,124 @@
+> id(x: f16) = x
+> range id
+range of id -> f16:
+  [-65504, 65504]
+  over all 63487 points of the domain
+> bits(b: u16) = asuint(asfloat(b))
+> same(b: u16) = b
+> equiv bits same
+bits and same are equal on the domain of bits (exhaustive)
+> back(x: f16) = asfloat(asuint(x))
+> equiv back id
+back and id are equal on the domain of back (exhaustive)
+> show asuint(f16(1))
+_() = 15360
+  -> u16
+> show asuint(f16(-0.0))
+_() = 32768
+  -> u16
+> show asfloat(u16(0x7c00))
+_() = inf
+  -> f16
+> nanbits(x: f16 in -4..-1) = asuint(sqrt(x)) & 0x7fff
+> range nanbits
+range of nanbits -> u16:
+  32256..32256   (1 distinct values)
+  values: 32256
+  fits in u15
+  over all 2049 points of the domain
+> sub(n: u16 in 0..1023) = real(asfloat(n)) * 16777216
+> subn(n: u16 in 0..1023) = real(n)
+> equiv sub subn
+sub and subn are equal on the domain of sub (exhaustive)
+> show asuint(f16(2.9802322387695312e-08))
+_() = 0
+  -> u16
+> show asuint(f16(2.9802322387695316e-08))
+_() = 1
+  -> u16
+> r11(k: u32 in 0..65519) = k < 2048 ? k : (q + (rem > half || (rem == half && (q & 1) == 1) ? 1 : 0)) << e
+    where e = 21 - clz(k), q = k >> e, rem = k & ((1 << e) - 1), half = 1 << (e - 1)
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((k & ((1 << (21 - clz(k))) - 1)) > (1 << ((21 - clz(k)) - 1)))
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((k & ((1 << (21 - clz(k))) - 1)) == (1 << ((21 - clz(k)) - 1)))
+> cast(k: u32 in 0..65519) = u32(f16(k))
+> equiv cast r11
+cast and r11 are equal on the domain of cast (exhaustive)
+> show f16(2049)
+_() = 2048
+  -> f16
+> show f16(2051)
+_() = 2052
+  -> f16
+> show f16(65519)
+_() = 65504
+  -> f16
+> show f16(65520)
+_() = inf
+  -> f16
+> show f16(0.1)
+_() = 0.099976
+  -> f16
+> third(x: f16 in 1..2) = x / 3
+> wrap third
+wrap analysis of third:
+  x/3   (f16)
+      nnan holds (no NaN from non-NaN inputs)
+      ninf holds
+  end to end vs the real-number result: max abs error 0.000163, max rel error 0.000325, max 0 ulp (correctly rounded)
+      worst relative error at x=1.501
+  over all 1025 points of the domain
+> twice(x: f16 in 32000..65504) = x * 2
+> wrap twice
+wrap analysis of twice:
+  2x   (f16)
+      nnan holds (no NaN from non-NaN inputs)
+      ninf fails: inf at 1024 points, e.g. x=32768
+  end to end vs the real-number result: max abs error 0, max rel error 0, max 0 ulp (correctly rounded)
+      the float result is infinite where the real one is finite at 1024 points (overflow)
+  over all 1072 points of the domain
+> root(x: f16 in -1..1) = sqrt(x)
+> wrap root
+wrap analysis of root:
+  sqrt(x)   (f16)
+      nnan fails: NaN at 15360 points, e.g. x=-1
+      ninf holds
+  end to end vs the real-number result: max abs error 0.000244, max rel error 0.000488, max 0 ulp (correctly rounded)
+      worst relative error at x=6.1095e-05
+  over all 30721 points of the domain
+> top(x: f16 in 65472..65504) = x + 16
+> wrap top
+wrap analysis of top:
+  x + 16   (f16)
+      nnan holds (no NaN from non-NaN inputs)
+      ninf fails: inf at 1 points, e.g. x=65504
+  end to end vs the real-number result: max abs error 16, max rel error 0.000244, max 0 ulp (correctly rounded)
+      worst relative error at x=65472
+      the float result is infinite where the real one is finite at 1 points (overflow)
+  over all 2 points of the domain
+> range top
+range of top -> f16:
+  [65472, inf]
+  IEEE: NaN at 0 points, ±inf at 1 points
+  over all 2 points of the domain
+> exact(a: u32 in 0..255, b: u32 in 0..255, c: u32 in 0..63) = r11(a * b + c)
+> fused(a: u32 in 0..255, b: u32 in 0..255, c: u32 in 0..63) = u32(fma(f16(a), f16(b), f16(c)))
+> equiv fused exact
+fused and exact are equal on the domain of fused (exhaustive)
+> twostep(a: u32 in 0..255, b: u32 in 0..255, c: u32 in 0..63) = u32(f16(a) * f16(b) + f16(c))
+> equiv twostep exact
+twostep and exact differ at 762380 points, e.g. a=229, b=9, c=1: 2060 vs 2062
+> div3(x: u8) = x / 3
+> mul3(x: u8) = u8(floor(f16(x) * f16(1 / 3)))
+> equiv mul3 div3
+mul3 and div3 are equal on the domain of mul3 (exhaustive)
+> ideal3(x: u8) = u8(floor(real(x) * real(f16(1 / 3))))
+> equiv ideal3 div3
+ideal3 and div3 differ at 85 points, e.g. x=3: 0 vs 1
+> mix(x: f16, y: f32) = x + y
+> show mix
+mix(x: f16, y: f32) = f32(x) + y
+  -> f32
+> approx third
+f16.ucas:73:13: error: approx fits f32, f64 or real formats: x is f16, which it has no coefficients, error bounds or C for
+    approx third
+                ^

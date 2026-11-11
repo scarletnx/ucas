@@ -1676,8 +1676,8 @@ cmd_crit(struct func *f)
 	fl = r.p.root[0];
 	dl = r.p.root[1];
 	if (TYK(f->p[0].ty) == K_FLOAT && !f->p[0].ranged) {
-		printf("  give %s a range (x: f32 in a..b)\n",
-		    sym_str(f->p[0].name));
+		printf("  give %s a range (x: %s in a..b)\n",
+		    sym_str(f->p[0].name), ty_str(f->p[0].ty));
 		plan_free(&dp);
 		run_close(&r);
 		return;

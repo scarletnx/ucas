@@ -3046,6 +3046,10 @@ cmd_approx(struct P *p)
 	}
 	if (!(lo < hi) || !isfinite(lo) || !isfinite(hi))
 		fail("the interval must be finite and non-empty");
+	if (TYK(A.f.p[0].ty) == K_FLOAT && TYW(A.f.p[0].ty) == 16)
+		fail("approx fits f32, f64 or real formats: %s is f16, which it "
+		    "has no coefficients, error bounds or C for",
+		    sym_str(A.f.p[0].name));
 	if (o->fmt < 0)
 		o->fmt = TYK(A.f.p[0].ty) == K_FLOAT ? TYW(A.f.p[0].ty) : 32;
 	if (o->fma < 0)

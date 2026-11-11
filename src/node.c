@@ -107,7 +107,7 @@ ty_str(ty_t t)
 	case K_LIT:
 	case K_INT: return "int";
 	case K_REAL: return "real";
-	case K_FLOAT: return TYW(t) == 32 ? "f32" : "f64";
+	case K_FLOAT: return TYW(t) == 32 ? "f32" : TYW(t) == 16 ? "f16" : "f64";
 	case K_BOOL: return "bool";
 	case K_UINT: snprintf(b, 16, "u%d", TYW(t)); return b;
 	case K_SINT: snprintf(b, 16, "i%d", TYW(t)); return b;
@@ -129,6 +129,10 @@ ty_parse(const char *s, size_t n, ty_t *out)
 	w[n] = 0;
 	if (!strcmp(w, "real")) {
 		*out = TY_REAL;
+		return 1;
+	}
+	if (!strcmp(w, "f16")) {
+		*out = TY_F16;
 		return 1;
 	}
 	if (!strcmp(w, "float") || !strcmp(w, "f32")) {
@@ -580,7 +584,7 @@ mk_un(int op, nid a)
 	case O_ASINT:
 		if (TYK(t) == K_REAL || TYK(t) == K_LIT) {
 			if (!is_const(a))
-				fail("%s needs an f32 or f64 operand (real is "
+				fail("%s needs an f16, f32 or f64 operand (real is "
 				    "the mathematical line and has no bits)",
 				    opinfo[op].name);
 			note("constant read as f32 for %s", opinfo[op].name);
@@ -588,7 +592,8 @@ mk_un(int op, nid a)
 			t = TY_F32;
 		}
 		if (TYK(t) != K_FLOAT)
-			fail("%s needs an f32 or f64 operand", opinfo[op].name);
+			fail("%s needs an f16, f32 or f64 operand",
+			    opinfo[op].name);
 		t = TY(op == O_ASUINT ? K_UINT : K_SINT, TYW(t));
 		if (is_const(a) && (r = folded(op, t, a, 0, 0)) != 0)
 			return r;
@@ -604,8 +609,9 @@ mk_un(int op, nid a)
 			a = conv(a, TY(K_UINT, w));
 			t = N.ty[a];
 		}
-		if (TYW(t) != 32 && TYW(t) != 64)
-			fail("asfloat needs 32 or 64 bits, not %s", ty_str(t));
+		if (TYW(t) != 16 && TYW(t) != 32 && TYW(t) != 64)
+			fail("asfloat needs 16, 32 or 64 bits, not %s",
+			    ty_str(t));
 		t = TY(K_FLOAT, TYW(t));
 		if (is_const(a) && (r = folded(op, t, a, 0, 0)) != 0)
 			return r;
@@ -1092,7 +1098,7 @@ pr_const(struct sbuf *b, nid n, int hex)
 	double v;
 
 	if (TYK(t) == K_FLOAT) {
-		sb_printf(b, TYW(t) == 32 ? "%.9g" : "%.17g", N.kr[n]);
+		sb_printf(b, "%.*g", fdigits(TYW(t)), N.kr[n]);
 		return;
 	}
 	if (TYK(t) == K_REAL) {
@@ -1135,7 +1141,9 @@ c_type(ty_t t)
 		snprintf(s, 16, "%sint%d_t", TYK(t) == K_UINT ? "u" : "", w);
 		return s;
 	case K_REAL: return "double";
-	case K_FLOAT: return TYW(t) == 32 ? "float" : "double";
+	case K_FLOAT:
+		return TYW(t) == 32 ? "float" : TYW(t) == 16 ? "_Float16" :
+		    "double";
 	case K_BOOL: return "_Bool";
 	}
 	return "int64_t";

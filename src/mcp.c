@@ -41,7 +41,7 @@ struct group {
 static const struct group groups[] = {
 	{"analyze", "Analyse a function",
 	    "Exhaustive or sampled analysis of a function over its domain "
-	    "(machine types u8..u64, i8..i64, f32, f64, real, int): values, "
+	    "(machine types u8..u64, i8..i64, f16, f32, f64, real, int): values, "
 	    "range, where it is defined, wrapping and C UB, critical points, "
 	    "equivalence of two functions (with a counterexample), error and "
 	    "fit of an approximation, cost under a GPU cost model, minimal "

@@ -966,7 +966,7 @@ find_float(struct func *f, int want)
 	struct func g;
 
 	if (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)
-		fail("find on a float result needs one f32/f64 parameter");
+		fail("find on a float result needs one f16, f32 or f64 parameter");
 	xt = f->p[0].ty;
 	ut = TY(K_UINT, TYW(xt));
 	printf("find %s: IEEE bit-level families, magic constant K fitted "

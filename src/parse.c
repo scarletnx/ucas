@@ -509,7 +509,7 @@ ident(struct P *p)
 	}
 	if ((r = calc_ident(p)) != 0)
 		return r;
-	/* type conversion: u8(x), f32(x), real(n) */
+	/* type conversion: u8(x), f32(x), f16(x), real(n) */
 	if (pk2(p) == T_LP && ty_parse(s, n, &ct)) {
 		adv(p);
 		na = parse_args(p, args, 1);
@@ -1166,8 +1166,8 @@ parse_params(struct P *p, struct func *f, int *typed)
 			} else {
 				s = ttext(p, p->i, &n);
 				if (pk(p) != T_ID || !ty_parse(s, n, &t))
-					fail("unknown type '%.*s' (real, f32, f64, "
-					    "int, bool, uN, iN)", (int)n, s);
+					fail("unknown type '%.*s' (real, f16, f32, "
+					    "f64, int, bool, uN, iN)", (int)n, s);
 				pp->ty = t;
 				adv(p);
 			}
@@ -1566,7 +1566,7 @@ help(void)
 "  g = x^2 + 1               free variables become parameters\n"
 "  basis name [: parent] { gate(x, y) = expr [cost n]; ... }\n"
 "  model name [: parent] { class: cost, ... }\n"
-"types: real (math), f32 f64 (IEEE), int (math), uN iN (wrapping), bool\n"
+"types: real (math), f16 f32 f64 (IEEE), int (math), uN iN (wrapping), bool\n"
 "commands (F is a function name or an expression like isqrt(x: u4))\n"
 "  show F | parse EXPR | table F [max n] | funcs | models | help\n"
 "  range F [nocrit] | domain F | wrap F | crit F | diff F [x]\n"
