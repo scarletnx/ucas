@@ -1992,9 +1992,13 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	(void)opsel;
 	fuse_domain(f);		/* prices that depend on proved ranges */
 	if (TY_FP(N.ty[f->body])) {
-		/* its rewrites by identities, and its f64 arithmetic over f32
-		 * (dword.c); the bit-level families are for one float parameter */
+		/* its rewrites by identities, the texture unit's section (in
+		 * the same report), and its f64 arithmetic over f32 (dword.c);
+		 * the bit-level families are for one float parameter */
 		int said = float_rewrites(f);
+		if (!said)
+			rep_begin("find");
+		said += tex_find(f);
 		said += dword_find(f);
 		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)) {
 			fuse_domain(NULL);

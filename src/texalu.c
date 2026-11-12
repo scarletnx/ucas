@@ -2492,8 +2492,9 @@ print_lines(const char *ind, const char *s)
 	}
 }
 
-/* the report, for the command (all = 1) and for find's section */
-static void
+/* the report, for the command (all = 1) and for find's section (1 when
+ * that has something to say) */
+static int
 tex_report(const struct func *f, double tol, int all)
 {
 	struct texres r;
@@ -2504,7 +2505,7 @@ tex_report(const struct func *f, double tol, int all)
 	if (!all && st != TEXR_PROVED && st != TEXR_NOTCHEAPER &&
 	    st != TEXR_OVERTOL) {
 		texres_free(&r);
-		return;
+		return 0;
 	}
 	if (all)
 		rep_begin("texalu");
@@ -2552,12 +2553,13 @@ tex_report(const struct func *f, double tol, int all)
 	if (!all)
 		rep_end();
 	texres_free(&r);
+	return 1;
 }
 
-void
+int
 tex_find(const struct func *f)
 {
-	tex_report(f, 0, 0);
+	return tex_report(f, 0, 0);
 }
 
 int
