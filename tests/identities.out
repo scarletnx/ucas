@@ -175,7 +175,7 @@ find q: 256 points, computing in u32, costs from gt1030
       (31v + 127)/255 at v = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)
       with i = v, M = 249 and A = 1014: each value w has w*2^11 <= i*M + A < (w + 1)*2^11 (the closest: 0 above at v = 218, 12 below at v = 37), so (i*M + A) >> 11 is w
       i*M + A stays in 0..65535, inside u32: computed mod 2^32 from v itself, as v*0xf9 + 0x3f6, it is the same number
-  dot products under gt1030 (sums of products laid into lanes; cost 12.75 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 11.75 as written):
   cost 10.75 (udot4x8(v, 0x1f) + 127)/255
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: v * 31
            v in 0..255 (proved range)
@@ -229,7 +229,7 @@ find qb: 1024 points (sampled; matches verified on the whole domain), computing 
       (31(v & 0xff) + 127)/255 at v & 0xff = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)
       with i = v & 0xff, M = 249 and A = 1014: each value w has w*2^11 <= i*M + A < (w + 1)*2^11 (the closest: 0 above at v & 0xff = 218, 12 below at v & 0xff = 37), so (i*M + A) >> 11 is w
       i*M + A stays in 0..65535, inside u32: computed mod 2^32 from v & 0xff itself, as v & 0xff*0xf9 + 0x3f6, it is the same number
-  dot products under gt1030 (sums of products laid into lanes; cost 14.75 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 13.75 as written):
   cost 11.75 (udot4x8(v, 0x1f) + 127)/255 + y
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (v & 0xff) * 31
            v & 0xff is bits 0..7 of v: lane 0 as it is

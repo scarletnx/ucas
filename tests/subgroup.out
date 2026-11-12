@@ -243,7 +243,7 @@ find s8: 1024 points (sampled; matches verified on the whole domain), computing 
 > find t3 1
   note: the result is int: searching in u32
 find t3: 512 points, computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 24.625 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 23.625 as written):
   cost 22.625 int(int(udot4x8([3, 1, 4, 1, 5, 9, 2, 6][j], [3, 1, 4, 1, 5, 9, 2, 6][k])) + [3, 1, 4, 1, 5, 9, 2, 6][i])
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: ([3, 1, 4, 1, 5, 9, 2, 6][j]) * ([3, 1, 4, 1, 5, 9, 2, 6][k])
            [3, 1, 4, 1, 5, 9, 2, 6][j] in 1..9 (proved range)
@@ -322,7 +322,7 @@ cost model: nosg
 > find t3 1
   note: the result is int: searching in u32
 find t3: 512 points, computing in u32, costs from nosg
-  dot products under nosg (sums of products laid into lanes; cost 24.625 as written):
+  dot products under nosg (sums of products laid into lanes; cost 23.625 as written):
   cost 22.625 int(int(udot4x8([3, 1, 4, 1, 5, 9, 2, 6][j], [3, 1, 4, 1, 5, 9, 2, 6][k])) + [3, 1, 4, 1, 5, 9, 2, 6][i])
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: ([3, 1, 4, 1, 5, 9, 2, 6][j]) * ([3, 1, 4, 1, 5, 9, 2, 6][k])
            [3, 1, 4, 1, 5, 9, 2, 6][j] in 1..9 (proved range)

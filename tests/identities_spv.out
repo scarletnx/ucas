@@ -33,7 +33,7 @@ simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
       (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
   dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
     %82 = OpIAdd %uint %78 %81
-      ->  t1 + (%54 - udot4x8(t1, 10) << 4) where t1 = 205%54 >> 11   (cost 12 -> 10)
+      ->  t1 + (%54 - udot4x8(t1, 10) << 4) where t1 = 205%54 >> 11   (cost 11 -> 9)
       (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
       udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205%54 >> 11) * 10
       205%54 >> 11 in 0..99 (proved range)

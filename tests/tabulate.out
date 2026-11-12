@@ -10,8 +10,8 @@ find bc: 240 points, computing in u32, costs from gt1030
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
   cost 25  u32(t2 + i32(t3 >= i32(m)) - i32(t3 < 0)) where t1 = 64i + m/2, t2 = i32((asfloat(t1 | 0x4b000000) - 8388608)/(asfloat(m | 0x4b000000) - 8388608)), t3 = i32(t1) - t2*i32(m) all of them: the division (64i + m/2)/m through f32 with one correction step, then the conversion f32(i32(m)) by the bits of 2^23, then the conversion f32(i32(64i + m/2)) by the bits of 2^23 (derived)
-  dot products under gt1030 (sums of products laid into lanes; cost 33.5 as written):
-  cost 32.5 (udot4x8(i, 0x40) + m/2)/m
+  dot products under gt1030 (sums of products laid into lanes; cost 32.5 as written):
+  cost 31.5 (udot4x8(i, 0x40) + m/2)/m
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: i * 64
            i in 0..15 (proved range)
            udot4x8's sum is in 0..960: it does not wrap
@@ -33,7 +33,7 @@ find sq: 256 points, computing in u32, costs from gt1030
       x*M/2^11 = x/7 + x*3/(7*2^11): the excess is below 1/7 while x*3 < 2^11, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^11) = floor(x/7)
       x <= 450: x*3 <= 1350 < 2^11, and x*M <= 131850 < 2^32, so the product does not wrap in u32
   cost 10  u32(asint(293(t1*t1 + t2*t2) + 12582912) - 1262485504) >> 11 where t1 = asfloat(a | 0x4b000000) - 8388608, t2 = asfloat(b | 0x4b000000) - 8388608 all of them: the division (a*a + b*b)/7 as a multiply and a shift in u32, then the integer arithmetic 293(a*a + b*b) on f32, converted by the bits (derived)
-  dot products under gt1030 (sums of products laid into lanes; cost 15.75 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 14.75 as written):
   cost 12.75 udot4x8(t1, t1)/7 where t1 = a | b << 8
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: a * a, lane 1: b * b
            a in 0..15 (proved range)
@@ -153,8 +153,8 @@ find bc: 240 points, computing in u32, costs from dearload
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
   cost 25  u32(t2 + i32(t3 >= i32(m)) - i32(t3 < 0)) where t1 = 64i + m/2, t2 = i32((asfloat(t1 | 0x4b000000) - 8388608)/(asfloat(m | 0x4b000000) - 8388608)), t3 = i32(t1) - t2*i32(m) all of them: the division (64i + m/2)/m through f32 with one correction step, then the conversion f32(i32(m)) by the bits of 2^23, then the conversion f32(i32(64i + m/2)) by the bits of 2^23 (derived)
-  dot products under dearload (sums of products laid into lanes; cost 33.5 as written):
-  cost 32.5 (udot4x8(i, 0x40) + m/2)/m
+  dot products under dearload (sums of products laid into lanes; cost 32.5 as written):
+  cost 31.5 (udot4x8(i, 0x40) + m/2)/m
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: i * 64
            i in 0..15 (proved range)
            udot4x8's sum is in 0..960: it does not wrap

@@ -27,6 +27,7 @@
  * the forms the active cost model offers (dot_find).
  */
 #include "calc.h"
+#include "fuse.h"
 #include "nodesat.h"
 
 #include <math.h>
@@ -828,7 +829,11 @@ rebuild_sum(const struct sum *s, const struct group *g, int ng, int sat,
 	}
 }
 
-/* the cost of a DAG under the model, each node once */
+/*
+ * The cost of a DAG under the model, each node once, class by class: what
+ * the search below steers by (a group's gain shows at once, where the
+ * cover would hide it inside a multiply-add it breaks).
+ */
 static float
 price_dag(nid e)
 {
@@ -873,6 +878,18 @@ price_dag(nid e)
 	free(seen);
 	free(st);
 	return c;
+}
+
+/*
+ * The cost as cost and find price it: the cheapest cover by the model's
+ * fusions (fuse.c).  What is reported, and what decides: a sum as written
+ * is an IMAD chain where the model has one, and the dot products have to
+ * beat that.
+ */
+static float
+price_cover(nid e)
+{
+	return fuse_expr_cost(S.m, e);
 }
 
 struct cand {
@@ -1291,9 +1308,9 @@ dot_search(const struct func *f, int fmask, struct dotres *r)
 	plan_ival(&S.p, &g, S.iv);
 	nr = roots_of(f->body, rt, MAXROOT);
 	sums = xcalloc((size_t)(nr ? nr : 1), sizeof *sums);
-	r->before = price_dag(f->body);
+	r->before = price_cover(f->body);
 	memset(&best, 0, sizeof best);
-	best.cost = r->before;
+	best.cost = price_dag(f->body);
 	for (j = 0; j < nr; j++) {
 		struct sum *s = &sums[j];
 		int i, lanes = 0, small = 0, field = 0;
@@ -1331,12 +1348,15 @@ dot_search(const struct func *f, int fmask, struct dotres *r)
 	}
 	if (any && !nfmt)
 		r->status = DOT_UNAVAILABLE;
+	/* cheaper class by class is not yet cheaper: the cover decides */
+	if (best.body && price_cover(best.body) >= r->before)
+		best.body = 0;
 	if (best.body) {
 		struct sbuf w = {0};
 		int bad = prove_cand(f, &best, &r->proof, &w, &r->kind);
 		describe(&r->desc, &best);
 		r->body = best.body;
-		r->after = best.cost;
+		r->after = price_cover(best.body);
 		r->status = bad == 1 ? DOT_WRONG : bad ? DOT_UNPROVED : DOT_PROVED;
 		if (bad == 1) {
 			sb_clear(&r->proof);

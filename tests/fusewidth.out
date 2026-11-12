@@ -41,6 +41,20 @@ cost model: xmad2
 cost of m1 under xmad2: 3 (2 operations, shared subterms counted once)
   fused by the model (one instruction for several operations):
     imad             1 x 3     = 3  (a*b + c; saves 1)
+> m6(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a * b + c
+> use xmad
+cost model: xmad
+> find m6 1
+find m6: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from xmad
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> m7(a: u32 in 0..255, b: u32) = a * 8 + b
+> use gt1030
+cost model: gt1030
+> find m7 1
+find m7: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  cost 2   b + (a << 3)                             exact (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model noprice : gt1030 { fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
 > use noprice
 cost model: noprice
@@ -49,7 +63,7 @@ cost of m1 under noprice: 3 (2 operations, shared subterms counted once)
   fused by the model (one instruction for several operations):
     imad             1 x 3     = 3  (a*b + c; saves 1)
 > model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
-fusewidth.ucas:32:32: error: a fusion's input is int, float, const, any, or an integer of a proved width (u1 to u32, s1 to s32)
+fusewidth.ucas:43:32: error: a fusion's input is int, float, const, any, or an integer of a proved width (u1 to u32, s1 to s32)
     model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
                                    ^
 > model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }
@@ -87,6 +101,6 @@ cost of s1 under gt1030: 3 (4 operations, shared subterms counted once)
   fused by the model (one instruction for several operations):
     ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
 > model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
-fusewidth.ucas:50:65: error: a fusion is a source modifier (in) or a result modifier (on), not both
+fusewidth.ucas:61:65: error: a fusion is a source modifier (in) or a result modifier (on), not both
     model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
                                                                     ^

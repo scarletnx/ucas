@@ -22,6 +22,7 @@
  * the animation (anim.c) with its cost under the active model.
  */
 #include "ucas.h"
+#include "fuse.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -6538,7 +6539,9 @@ dot_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 			continue;
 		if (!nmodel || n >= maxlog)
 			continue;
+		fuse_domain(&c.f);	/* the cover's ranges are the sum's */
 		dot_search(&c.f, 1, &r);
+		fuse_domain(NULL);
 		if (r.status != DOT_PROVED || !dot_translation_ok(&c, root,
 		    r.body)) {
 			dotres_free(&r);
