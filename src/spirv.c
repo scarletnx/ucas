@@ -1651,7 +1651,11 @@ alu(const char *op, int rt, int at, uint64_t a, uint64_t b, uint64_t c,
 	if (OP("OpFNegate")) return putf(rt, -fa);
 	if (OP("OpShiftLeftLogical")) return puti(rt, (int64_t)(ua << (ub & 63)));
 	if (OP("OpShiftRightLogical")) return puti(rt, (int64_t)(ua >> (ub & 63)));
-	if (OP("OpShiftRightArithmetic")) return puti(rt, ia >> (ub & 63));
+	if (OP("OpShiftRightArithmetic")) {
+		/* the sign bit of the bits, whatever the type's signedness */
+		int sw = 64 - T(at)->w;
+		return puti(rt, ((int64_t)(ua << sw) >> sw) >> (ub & 63));
+	}
 	if (OP("OpBitwiseAnd")) return puti(rt, (int64_t)(ua & ub));
 	if (OP("OpBitwiseOr")) return puti(rt, (int64_t)(ua | ub));
 	if (OP("OpBitwiseXor")) return puti(rt, (int64_t)(ua ^ ub));
