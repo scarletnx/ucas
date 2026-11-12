@@ -179,6 +179,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
 | `texalu F [tol E] [under m]` | table reads and weighted sums of neighbouring entries as reads through the texture unit, where the model prices them lower, each proved, with what the pipeline needs for it (see "The texture unit as an ALU") |
+| `texenc T [rows W] [tol E]` | a constant table as BC4 blocks: endpoints, selectors and bytes, exact or within E, every pair of endpoints tried (see "Tables as compressed textures") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -1100,7 +1101,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 
 | area | commands |
 |------|----------|
-| look, analysis | `show table parse range domain wrap crit equiv fit error cost gates find texalu more approx approx_more` |
+| look, analysis | `show table parse range domain wrap crit equiv fit error cost gates find texalu texenc more approx approx_more` |
 | calculus | `diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed dsolve` |
 | algebra | `expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute` |
 | properties | `monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes` |
@@ -1303,7 +1304,7 @@ an `op` and the op's `args`:
 
 | tool | ops |
 |------|-----|
-| `analyze` | show table parse range domain wrap crit equiv fit error cost gates find texalu more approx approx_more |
+| `analyze` | show table parse range domain wrap crit equiv fit error cost gates find texalu texenc more approx approx_more |
 | `calculus` | diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed scheme continuous dsolve |
 | `algebra` | expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute |
 | `properties` | monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes |
@@ -2778,6 +2779,56 @@ compare samplers, gather, array layers, sRGB and the other formats
 half floats), normalised coordinates for the filters, and SPIR-V
 written for a read (a module cannot add its own binding).  None of
 those has a measured price yet either.
+
+### Tables as compressed textures
+
+A block-compressed format decodes in fixed function: a few parameters
+a block, interpolated by the decoder.  A table the decoder's palette
+reproduces is stored in less than its bytes and read like any other
+texture.  `texenc T [rows W] [tol E]` (src/texenc.c) searches such an
+encoding with the table as its target, not an image.
+
+BC4 (RGTC1, unsigned): a 4 x 4 block is 8 bytes, two 8-bit endpoints
+r0, r1 and sixteen 3-bit selectors, least significant first, texel
+(x, y) at bits 3(4y + x).  With r0 > r1 the palette is r0, r1 and
+((8 - i) r0 + (i - 1) r1)/7 for i = 2..7; otherwise r0, r1, ((6 - i) r0
++ (i - 1) r1)/5 for i = 2..5, then 0 and 255.  A texel is its palette
+entry over 255, a rational, and a read returns its f32.  The encoder
+tries every pair of endpoints (65536) with each texel on its nearest
+palette entry, and keeps the smallest largest error, then the smallest
+sum of squares, then the first found: the answer depends on the table
+alone.  The table is read as rows of W (4 unless given); texels beyond
+it in a block are don't-cares; whole numbers 0..255 are stored as
+k/255.
+
+```
+> R = [255, 219, 183, 147, 111, 75, 39, 3, 255, 3, 39, 75, 111, 147, 183, 219]
+> texenc R
+texenc R: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2, bytes ff 03 d0 58 3f c8 5d 4e
+  decodes to [1, 0.858823538, 0.717647076, ...]
+  exact: every texel is its entry's f32 over 255 (16 texels a block against 8 palette values, every pair of endpoints tried)
+> texenc Q tol 0.01                         (sixteen different values)
+  not exact: the closest blocks are within 0.0514 of the table (entry 3: 0.300000012 as 0.248627454), every pair of endpoints tried
+  more than the 0.01 allowed (tol)
+```
+
+An 8-level ramp, or one of 6 levels with 0 and 1, is exact in half the
+bytes of R8; the decoded table is what a nearest or filtered read of
+the texture returns, so the `fetch_` and `tex_` operations take it as
+their table, and `texalu` says when the 8-bit texture it proposes is
+exact as BC4 blocks.  The bytes for R and for a 6-level table were
+decoded by ffmpeg's RGTC1 decoder to the same values.  In English:
+"compress R as BC4", "encode Q as bc4 within 0.02, rows of 8".  JSON
+and MCP: `texenc` (table, rows, tol).
+
+Not priced: no model has a class for a read of a compressed texture
+apart from its uncompressed one (none is measured), so nothing is
+rewritten on BC4's account; `texenc` gives the asset and its proof.
+Not done: BC5 (two BC4 blocks, one a channel), ASTC (weight grids,
+dual planes, partitions, HDR endpoints), BC6H and BC7, ETC2/EAC, the
+sRGB variants, and a polynomial split between a table's knots and a
+residual in the ALU.
 
 ### Long expressions
 

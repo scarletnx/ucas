@@ -30,6 +30,7 @@
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
 #include "texalu.h"
+#include "texenc.h"
 #include "ucas.h"
 #include "cfront.h"
 #include "prove.h"
@@ -7386,6 +7387,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* a table as a compressed texture (texenc.c) */
+		const char *r = texenc_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7821,6 +7831,14 @@ nlp_is_english(const char *s, size_t n)
 		return 1;
 	if (s[n - 1] == '?')
 		return 1;
+	if (n - i < 400 && n - i > 7 && strncmp(s + i, "texenc ", 7) != 0) {
+		/* "compress K as BC4": a table's name and the format */
+		char line[400];
+		memcpy(line, s + i, n - i);
+		line[n - i] = 0;
+		if (texenc_nlp_english(line))
+			return 1;
+	}
 	/* a model or basis definition (its class names, "minmax", are not
 	 * English) */
 	if (n - i > 6 && (!strncmp(s + i, "model ", 6) ||
@@ -7839,6 +7857,8 @@ nlp_is_english(const char *s, size_t n)
 		return 0;
 	if (n - i > 7 && !strncmp(s + i, "texalu ", 7))
 		return 0;	/* texalu F tol E under M (texalu.c) */
+	if (n - i > 7 && !strncmp(s + i, "texenc ", 7))
+		return 0;	/* texenc T rows W tol E (texenc.c) */
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));

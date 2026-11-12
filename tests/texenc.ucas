@@ -1,0 +1,33 @@
+# Constant tables as BC4 blocks (src/texenc.c): the decoder's palette is
+# exact, the encoder tries every pair of endpoints with the table as its
+# target.
+
+# two endpoints and six steps of 1/7 between them: an 8-level ramp is
+# exact in half the bytes of R8 (the bytes decode the same in ffmpeg)
+R = [255, 219, 183, 147, 111, 75, 39, 3, 255, 3, 39, 75, 111, 147, 183, 219]
+texenc R
+# r0 <= r1: four steps of 1/5, then 0 and 1
+S = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1]
+texenc S
+# sixteen different values do not fit eight palette entries: the closest
+Q = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 0.95, 0.85, 0.75, 0.65, 0.55]
+texenc Q
+texenc Q tol 0.01
+texenc Q tol 0.1
+# rows of 8: two blocks, each with its own endpoints; a last row that
+# does not fill its block is padded with don't-cares
+L = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+texenc L rows 8
+# what BC4 cannot hold says so
+texenc [0.5, 2]
+texenc [1, 2, 3] rows 0
+texenc x + 1
+# the decoded table is what a read returns: as a texel of a filtered read
+show tex_linear8([1, 0.858823538, 0.717647076, 0.576470613], 1.5)
+# texalu says when its texture is exact as BC4
+model cal : gt1030 { tex_nearest: 5, tex_within: 2 }
+s4(x: u8 in 0..2, y: u8 in 0..2) = R[y*4 + x] + R[y*4 + x + 1] + R[y*4 + x + 4] + R[y*4 + x + 5]
+texalu s4 under cal
+# in English
+compress R as BC4
+encode Q as bc4 within 0.02, rows of 8

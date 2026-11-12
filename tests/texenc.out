@@ -1,0 +1,92 @@
+> R = [255, 219, 183, 147, 111, 75, 39, 3, 255, 3, 39, 75, 111, 147, 183, 219]
+> texenc R
+texenc R: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2, bytes ff 03 d0 58 3f c8 5d 4e
+  decodes to [1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538]
+  exact: every texel is its entry's f32 over 255 (16 texels a block against 8 palette values, every pair of endpoints tried)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> S = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1]
+> texenc S
+texenc S: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): endpoints 0, 255 (four steps of 1/5, then 0 and 1), selectors 0 2 3 4 5 1 5 4 3 2 0 2 3 4 5 1, bytes 00 ff d0 d8 94 13 34 36
+  decodes to [0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1]
+  exact: every texel is its entry's f32 (16 texels a block against 8 palette values, every pair of endpoints tried)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> Q = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 0.95, 0.85, 0.75, 0.65, 0.55]
+> texenc Q
+texenc Q: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): endpoints 25, 217 (four steps of 1/5, then 0 and 1), selectors 6 0 2 2 3 4 4 5 1 1 7 7 1 5 5 4, bytes 19 d9 86 34 b2 c9 9f 96
+  decodes to [0, 0.0980392173, 0.248627454, 0.248627454, 0.399215698, 0.549803913, 0.549803913, 0.700392187, 0.850980401, 0.850980401, 1, 1, 0.850980401, 0.700392187, 0.700392187, 0.549803913]
+  not exact: the closest blocks are within 0.0514 of the table (entry 3: 0.300000012 as 0.248627454), every pair of endpoints tried
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> texenc Q tol 0.01
+texenc Q: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): endpoints 25, 217 (four steps of 1/5, then 0 and 1), selectors 6 0 2 2 3 4 4 5 1 1 7 7 1 5 5 4, bytes 19 d9 86 34 b2 c9 9f 96
+  decodes to [0, 0.0980392173, 0.248627454, 0.248627454, 0.399215698, 0.549803913, 0.549803913, 0.700392187, 0.850980401, 0.850980401, 1, 1, 0.850980401, 0.700392187, 0.700392187, 0.549803913]
+  not exact: the closest blocks are within 0.0514 of the table (entry 3: 0.300000012 as 0.248627454), every pair of endpoints tried
+  more than the 0.01 allowed (tol)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> texenc Q tol 0.1
+texenc Q: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): endpoints 25, 217 (four steps of 1/5, then 0 and 1), selectors 6 0 2 2 3 4 4 5 1 1 7 7 1 5 5 4, bytes 19 d9 86 34 b2 c9 9f 96
+  decodes to [0, 0.0980392173, 0.248627454, 0.248627454, 0.399215698, 0.549803913, 0.549803913, 0.700392187, 0.850980401, 0.850980401, 1, 1, 0.850980401, 0.700392187, 0.700392187, 0.549803913]
+  not exact: the closest blocks are within 0.0514 of the table (entry 3: 0.300000012 as 0.248627454), every pair of endpoints tried
+  within the 0.1 allowed (tol)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> L = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+> texenc L rows 8
+texenc L: 24 entries as BC4, rows of 8 (8 x 3 texels): 2 blocks, 16 bytes (24 as R8_UNORM, 96 as R32_SFLOAT)
+  block (0, 0): endpoints 96, 4 (six steps of 1/7 between them), selectors 1 6 4 2 7 5 3 2 6 4 2 0 0 0 0 0, bytes 60 04 31 f5 4e a6 00 00
+  block (1, 0): endpoints 199, 100 (six steps of 1/7 between them), selectors 1 6 4 2 7 5 3 2 6 4 2 0 0 0 0 0, bytes c7 64 31 f5 4e a6 00 00
+  decodes to [0.0156862754, 0.118767507, 0.221848741, 0.324929982, 0.392156869, 0.503081262, 0.614005625, 0.724929988, 0.0672268942, 0.170308128, 0.273389369, 0.324929982, 0.447619051, 0.558543444, 0.669467807, 0.724929988, 0.118767507, 0.221848741, 0.324929982, 0.376470596, 0.503081262, 0.614005625, 0.724929988, 0.78039217]
+  not exact: the closest blocks are within 0.0251 of the table (entry 11: 0.349999994 as 0.324929982), every pair of endpoints tried
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> texenc [0.5, 2]
+texenc.ucas:22:16: error: texenc: BC4 holds numbers from 0 to 1 (or whole numbers 0 to 255, read as k/255); the table has an entry that is neither
+    texenc [0.5, 2]
+                   ^
+> texenc [1, 2, 3] rows 0
+texenc.ucas:23:24: error: texenc: rows W, the texels in a row, is 1 to 4096, not 0
+    texenc [1, 2, 3] rows 0
+                           ^
+> texenc x + 1
+texenc.ucas:24:13: error: texenc takes a table [t0, t1, ...] (or its name), not x + 1
+    texenc x + 1
+                ^
+> show tex_linear8([1, 0.858823538, 0.717647076, 0.576470613], 1.5)
+_() = 0.858823538
+  -> f32
+> model cal : gt1030 { tex_nearest: 5, tex_within: 2 }
+> s4(x: u8 in 0..2, y: u8 in 0..2) = R[y*4 + x] + R[y*4 + x + 1] + R[y*4 + x + 4] + R[y*4 + x + 5]
+> texalu s4 under cal
+texalu s4: reads through the texture unit under cal (cost 35.5 as written):
+  cost 33.625 int(1020tex_bilinear8([1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 2.57e-05; in all 0.000391
+      the entries' sum is a whole number and the reads are within 0.000451 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        the same texels are exact as BC4_UNORM blocks, 8 bytes against 16 (texenc; a BC4 read is not priced apart)
+        setup (the descriptor, the upload) is not in the model: not measured
+> compress R as BC4
+  ucas: texenc R
+texenc R: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2, bytes ff 03 d0 58 3f c8 5d 4e
+  decodes to [1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538]
+  exact: every texel is its entry's f32 over 255 (16 texels a block against 8 palette values, every pair of endpoints tried)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> encode Q as bc4 within 0.02, rows of 8
+  ucas: texenc Q rows 8 tol 0.02
+texenc Q: 16 entries as BC4, rows of 8 (8 x 2 texels): 2 blocks, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): endpoints 20, 239 (four steps of 1/5, then 0 and 1), selectors 6 0 2 2 5 1 7 1 0 0 0 0 0 0 0 0, bytes 14 ef 86 d4 3c 00 00 00
+  block (1, 0): endpoints 212, 107 (six steps of 1/7 between them), selectors 1 7 5 3 0 2 4 6 0 0 0 0 0 0 0 0, bytes d4 6b 79 07 d1 00 00 00
+  decodes to [0, 0.0784313753, 0.250196069, 0.250196069, 0.419607848, 0.478431374, 0.596078455, 0.713725507, 0.765490174, 0.937254906, 1, 0.937254906, 0.831372559, 0.772549033, 0.654901981, 0.53725493]
+  not exact: the closest blocks are within 0.0502 of the table (entry 2: 0.200000003 as 0.250196069), every pair of endpoints tried
+  more than the 0.02 allowed (tol)
+  a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
