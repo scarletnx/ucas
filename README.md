@@ -3836,7 +3836,7 @@ derivative) and `cost` work on loops as on any expression.
 | command | |
 |---------|--|
 | `closed F` | closed forms of the loops in F, innermost first, each checked against direct iteration on F's domain; a form that disagrees is rejected and shown as such |
-| `scheme F [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
+| `scheme F [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), from degree 4 the forms with fewer multiplications (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
 | `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
 | `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
 | `integrate F [from a to b] numerically qmc [points N] [replicates R] [seed K] [noscramble] [owen]` | a quasi-Monte Carlo estimate on Sobol points (src/qmc.c): over from..to, or without them over the box of every parameter's range, in up to 8 dimensions.  The direction numbers are Joe and Kuo's; by default 8 replicates of 4096 points (N a power of two) run, each under a random digital shift, and the answer is their mean with its standard error: an estimate from the replicates' spread, labelled as one, with "not converged" when they differ by more than 5% of the value (a pole between the points looks like that), and "a spike" when the largest value met is over 50 times the mean size: around an integrable singularity the replicates agree on a value that is off and their spread understates the error (1/sqrt(|x|) on [-1, 1]: 3.9796 with a standard error of 0.0018, for 4).  `owen` scrambles each replicate by a nested uniform (Owen) scrambling instead of a shift (Burley's hash-based form: every bit of a coordinate flipped by a function of the bits above it): for a smooth integrand its error falls faster, about n^-1.5 against the shift's n^-1 (exp(x y) on the unit square, 16 replicates: standard error 7.9e-06 at 1024 points and 1.4e-07 at 16384, against 7.5e-05 and 4.5e-06), and the same replicates estimate it.  `noscramble` runs the one unshifted sequence and gives no error estimate (with `owen`: refused).  A side at infinity (`from 0 to inf`, a parameter with no range: the whole line) is a change of variable onto [0, 1): x = a + t/(1 - t) for [a, inf), x = b - t/(1 - t) for (-inf, b], x = s/(1 - s^2) with s = 2t - 1 for the whole line, the integrand times the derivative, and the line says which; the spike and "not converged" lines judge the transformed integrand (exp(-x^2) over the line: 1.772453851; 1/x from 1 to inf: both, and no value to trust).  A coordinate is the centre of its 2^-32 cell, so the box's ends are never evaluated; points where the integrand is undefined are left out and counted.  It is also the fallback of a definite integral with no antiderivative here that Gauss-Kronrod refuses (an undefined or infinite point inside): the estimate when the replicates agree, one line saying it settles nothing when they do not |
@@ -3901,6 +3901,55 @@ algebra").
 Not done: limits of several variables, Taylor series of several variables
 beyond symbolic coefficients, partial fractions (the transforms carry a
 small one, xfrat.c), the n-th derivative of products.
+
+### Polynomials in fewer multiplications
+
+From degree 4 `scheme` also lists three forms that trade
+multiplications for additions (src/scheme.c):
+
+- **Knuth**: coefficients adapted beforehand (TAOCP 4.6.4).  A quartic
+  is `u4*((y + x + a2)*y + a3)` with `y = (x + a0)*x + a1`, three
+  multiplications (two when monic) for Horner's four; a sextic takes
+  four for six, its coefficients fixed by one real root of a cubic (of
+  up to three, the one that keeps them smallest).  A higher degree
+  takes Horner steps under a sextic or a quartic.
+- **P-S blocks** (Paterson and Stockmeyer): the powers up to x^s once,
+  blocks of s coefficients over them, Horner in x^s, with the s that
+  prices lowest.  Only about 2 sqrt(n) of its multiplications have a
+  variable on both sides, so it pays when the coefficients are cheap
+  to multiply by (0, 1, a power of two) or repeat: x^8 + x^7 + ... + 1
+  is `(((x*x + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1))*(x*x) +
+  (x + 1)`, 14 under gt1030 against Horner's 22.
+- **P-S split** (from degree 7): their monic splitting
+  `p = (x^m + c)*q + r`, q and r monic of degree m - 1 and split again,
+  over x^2, x^4, ...: n/2 + log2 n multiplications, and no division
+  when the polynomial is monic.
+
+Each is built together with the polynomial it expands to, its constants
+as the type rounds them.  An integer form is listed only when that
+expansion is the polynomial itself, coefficient by coefficient modulo
+the type's width: an identity of Z, so it holds for every x and through
+wrapping, beyond the points the line above it checks.  It needs whole
+adapted coefficients: for Knuth's quartic a leading coefficient that
+divides the others and an odd x^3 coefficient after that division.  A
+float form says how far its expansion is from the polynomial, as a part
+of the largest coefficient (the adapted coefficients are rounded to the
+type), and is not listed past 64 roundings; the measured difference is
+on the line above.  The adapted forms add and subtract larger numbers
+than the polynomial's own, so they are less exact, most of all near a
+zero of the polynomial, where Horner's last multiplication by x keeps
+the relative error small.
+
+The last line prices every form with the model's fusions counted, which
+the cost column does not: under gt1030 a float Horner is n FFMAs, so
+nothing here beats it in floats (degree 5: Horner 5, P-S blocks 6,
+Estrin and Knuth 7), and the forms are listed as derived.  They win on
+the integer pipe, where a multiply costs 3 adds (4 under rdna2) even
+inside an IMAD: `x^4 + 7x^3 + 5x^2 + 3x + 9` in u32 is
+`((x + 3)*x + 24 + x - 55)*((x + 3)*x + 24) + 753`, 9 against Horner's
+10.  Under sm75 (imul 1) Horner stays ahead.  Not priced: u64 and
+emulated f64 polynomials, where a multiply is dearest, because no class
+prices a 64-bit multiply.
 
 ### What is checked, and what is approximate
 

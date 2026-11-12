@@ -3,8 +3,12 @@
  * Cheap evaluation schemes, priced with the active cost model:
  *
  *   polynomials    naive (pow), powers by multiplication, Horner, Estrin
- *                  (cost and critical path); forward differences for
- *                  tabulating at consecutive integers (d additions a point)
+ *                  (cost and critical path); from degree 4 the forms with
+ *                  fewer multiplications (Knuth's adapted coefficients,
+ *                  Paterson and Stockmeyer's blocks and splitting) and the
+ *                  cheapest once the model's fusions are counted; forward
+ *                  differences for tabulating at consecutive integers (d
+ *                  additions a point)
  *   powers         x^n by squaring: the addition chain against pow()
  *   loops          iteration against the closed form (and the trip count
  *                  where the closed form wins), the matrix power of a
@@ -14,6 +18,7 @@
  * Every rewritten form is evaluated against the original on the domain.
  */
 #include "calc.h"
+#include "fuse.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -83,7 +88,7 @@ dag_cost(const struct model *m, nid root, int *nops, float *depth)
 
 struct cmpres {
 	uint64_t n, bad;
-	double maxrel;
+	double maxrel, atzero;	/* atzero: the form's size where the value is 0 */
 	int exact;
 };
 
@@ -124,9 +129,11 @@ compare(const struct func *f, nid a, nid b, struct cmpres *r)
 					r->bad++;
 					continue;
 				}
-				if (x != y)
+				if (x == 0)
+					r->atzero = fmax(r->atzero, fabs(y));
+				else if (x != y)
 					r->maxrel = fmax(r->maxrel, fabs(x - y) /
-					    fmax(fabs(x), 1e-300));
+					    fabs(x));
 			}
 		}
 		plan_free(&p);
@@ -145,11 +152,14 @@ print_cmp(const struct cmpres *r)
 	else if (r->bad)
 		printf("NOT FINITE at %llu of %llu points",
 		    (unsigned long long)r->bad, (unsigned long long)r->n);
-	else if (r->maxrel == 0)
+	else if (r->maxrel == 0 && r->atzero == 0)
 		printf("bit-identical at %llu points", (unsigned long long)r->n);
-	else
+	else {
 		printf("max relative difference %.2g (rounding) at %llu points",
 		    r->maxrel, (unsigned long long)r->n);
+		if (r->atzero != 0)
+			printf("; %.2g where the value is 0", r->atzero);
+	}
 }
 
 static void
@@ -182,6 +192,444 @@ mkc(ty_t t, double v)
 	return KR(v);
 }
 
+/*
+ * ---- polynomials in fewer multiplications ----
+ *
+ * Three forms that trade multiplications for additions, so they pay where
+ * a multiplication is dearer than an addition and nothing fuses the two:
+ *
+ *   Knuth      coefficients adapted beforehand (TAOCP 4.6.4): a quartic
+ *              u4 ((y + x + a2) y + a3), y = (x + a0) x + a1, in three
+ *              multiplications, a sextic in four (one root of a cubic picks
+ *              its coefficients); higher degrees take Horner steps below one
+ *   P-S blocks Paterson and Stockmeyer: the powers up to x^s once, a block
+ *              of s coefficients over them, Horner in x^s; about 2 sqrt(n)
+ *              multiplications of two variables, the rest by a coefficient
+ *   P-S split  their monic splitting: p = (x^m + c) q + r with q and r monic
+ *              of degree m - 1, over x^2, x^4, ...; n/2 + log2 n in all
+ *
+ * A form is built as a node and, beside it, as the polynomial it expands
+ * to with its constants as the type rounds them: in whole numbers exactly
+ * (an integer form is listed only when it is the polynomial itself, which
+ * holds for every x of a wrapping type too), in floats to tell how far the
+ * rounded adapted coefficients are from the polynomial.
+ */
+struct pe {
+	nid e;
+	int deg;
+	double c[13];
+	int64_t ci[13];
+};
+
+static struct {
+	ty_t t;
+	nid x;
+	int fp, fail;
+} A;
+
+static int
+iadd_ok(int64_t a, int64_t b, int64_t *r)
+{
+	if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
+		return 0;
+	*r = a + b;
+	return 1;
+}
+
+static int
+imul_ok(int64_t a, int64_t b, int64_t *r)
+{
+	if (a == 0 || b == 0) {
+		*r = 0;
+		return 1;
+	}
+	if (a == INT64_MIN || b == INT64_MIN ||
+	    llabs(a) > INT64_MAX / llabs(b))
+		return 0;
+	*r = a * b;
+	return 1;
+}
+
+/* |v| as a constant of the type, and the value the type gives it */
+static nid
+pe_k(double av, double *r)
+{
+	nid k;
+
+	if (!A.fp && (av != floor(av) || av > 9e15)) {
+		A.fail = 1;
+		av = 0;
+	}
+	k = mkc(A.t, av);
+	if (!num_of(k, r))
+		*r = av;
+	return k;
+}
+
+static struct pe
+pe_var(void)
+{
+	struct pe r;
+
+	memset(&r, 0, sizeof r);
+	r.e = A.x;
+	r.deg = 1;
+	r.c[1] = 1;
+	r.ci[1] = 1;
+	return r;
+}
+
+static struct pe
+pe_neg(struct pe a)
+{
+	int i;
+
+	a.e = mk_un(O_NEG, a.e);
+	for (i = 0; i <= a.deg; i++) {
+		a.c[i] = -a.c[i];
+		a.ci[i] = -a.ci[i];
+	}
+	return a;
+}
+
+static struct pe
+pe_addc(struct pe a, double v)
+{
+	double r;
+	nid k;
+
+	if (v == 0)
+		return a;
+	k = pe_k(fabs(v), &r);
+	a.e = v < 0 ? SUB(a.e, k) : ADD(a.e, k);
+	a.c[0] += v < 0 ? -r : r;
+	if (!A.fp && !iadd_ok(a.ci[0], (int64_t)(v < 0 ? -r : r), &a.ci[0]))
+		A.fail = 1;
+	return a;
+}
+
+static struct pe
+pe_const(double v)
+{
+	struct pe r;
+	double q;
+
+	memset(&r, 0, sizeof r);
+	r.e = pe_k(fabs(v), &q);
+	r.c[0] = q;
+	r.ci[0] = A.fp ? 0 : (int64_t)q;
+	return v < 0 ? pe_neg(r) : r;
+}
+
+static struct pe
+pe_add2(struct pe a, struct pe b, int sub)
+{
+	int i;
+
+	a.e = sub ? SUB(a.e, b.e) : ADD(a.e, b.e);
+	if (b.deg > a.deg)
+		a.deg = b.deg;
+	for (i = 0; i <= a.deg; i++) {
+		a.c[i] += sub ? -b.c[i] : b.c[i];
+		if (!A.fp && !iadd_ok(a.ci[i], sub ? -b.ci[i] : b.ci[i],
+		    &a.ci[i]))
+			A.fail = 1;
+	}
+	return a;
+}
+
+static struct pe
+pe_mul(struct pe a, struct pe b)
+{
+	struct pe r;
+	int i, j;
+	int64_t v;
+
+	memset(&r, 0, sizeof r);
+	r.e = MUL(a.e, b.e);
+	r.deg = a.deg + b.deg;
+	if (r.deg > 12) {
+		A.fail = 1;
+		r.deg = 12;
+		return r;
+	}
+	for (i = 0; i <= a.deg; i++)
+		for (j = 0; j <= b.deg; j++) {
+			r.c[i + j] += a.c[i] * b.c[j];
+			if (!A.fp && (!imul_ok(a.ci[i], b.ci[j], &v) ||
+			    !iadd_ok(r.ci[i + j], v, &r.ci[i + j])))
+				A.fail = 1;
+		}
+	return r;
+}
+
+/* v a: nothing for 1, a negation for -1, the constant first */
+static struct pe
+pe_mulc(double v, struct pe a)
+{
+	double r;
+	nid k;
+	int i;
+
+	if (fabs(v) != 1) {
+		k = pe_k(fabs(v), &r);
+		a.e = MUL(k, a.e);
+		for (i = 0; i <= a.deg; i++) {
+			a.c[i] *= r;
+			if (!A.fp && !imul_ok(a.ci[i], (int64_t)r, &a.ci[i]))
+				A.fail = 1;
+		}
+	}
+	return v < 0 ? pe_neg(a) : a;
+}
+
+/* a x + v */
+static struct pe
+pe_step(struct pe a, double v)
+{
+	return pe_addc(pe_mul(a, pe_var()), v);
+}
+
+/*
+ * How far a form's expansion is from the polynomial c[0..d], as a part of
+ * its largest coefficient; a whole-number form is 0 (the polynomial, modulo
+ * the type's width) or -1.
+ */
+static double
+pe_resid(const struct pe *a, const double *c, int d)
+{
+	double big = 0, worst = 0;
+	int i, n = a->deg > d ? a->deg : d;
+
+	if (A.fail)
+		return -1;
+	if (!A.fp) {
+		uint64_t mask = TY_SIZED(A.t) && TYW(A.t) < 64 ?
+		    ((uint64_t)1 << TYW(A.t)) - 1 : ~(uint64_t)0;
+		for (i = 0; i <= n; i++) {
+			uint64_t want = i <= d ? (uint64_t)(int64_t)c[i] : 0;
+			if (((uint64_t)a->ci[i] - want) & mask)
+				return -1;
+		}
+		return 0;
+	}
+	for (i = 0; i <= d; i++)
+		big = fmax(big, fabs(c[i]));
+	for (i = 0; i <= n; i++)
+		worst = fmax(worst, fabs(a->c[i] - (i <= d ? c[i] : 0)));
+	return isfinite(worst) ? worst / big : -1;
+}
+
+/* Knuth's quartic, u[0..4] */
+static struct pe
+knuth4(const double *u)
+{
+	double a0 = (u[3] / u[4] - 1) / 2, b = u[2] / u[4] - a0 * (a0 + 1),
+	    a1 = u[1] / u[4] - a0 * b, a2 = b - 2 * a1,
+	    a3 = u[0] / u[4] - a1 * (a1 + a2);
+	struct pe x = pe_var(), y = pe_addc(pe_mul(pe_addc(x, a0), x), a1);
+
+	return pe_mulc(u[4], pe_addc(pe_mul(pe_addc(pe_add2(y, x, 0), a2), y),
+	    a3));
+}
+
+/*
+ * Knuth's sextic, u[0..6]: z = (x + a0) x + a1, w = (x + a2) z + a3,
+ * u6 ((w + z + a4) w + a5).  With v = u/u6, A = (v5 - 1)/2 and
+ * b0 = (v4 - A^2 - A)/2, matching the powers of x leaves a0 = t a root of
+ *   t^3 - (2A + 1) t^2 + (4 c0 + 2 (b0 - g0)) t + 4 (b0 g0 - v1),
+ * c0 = v2 - b0^2 - A v3 + (2A^2 + A) b0, g0 = v3 - (2A + 1) b0, and the
+ * other five follow from it.  A cubic has a real root; of up to three the
+ * one with the smallest coefficients is taken, a whole one for integers.
+ */
+static struct pe
+knuth6(const double *u)
+{
+	double v[6], Av, b0, c0, g0, p, q, r, lo, hi, t[3], bm = -1;
+	double best[6] = {0};
+	struct pe x = pe_var(), z, w;
+	int i, k, nt = 1;
+
+	for (i = 0; i < 6; i++)
+		v[i] = u[i] / u[6];
+	Av = (v[5] - 1) / 2;
+	b0 = (v[4] - Av * Av - Av) / 2;
+	c0 = v[2] - b0 * b0 - Av * v[3] + (2 * Av * Av + Av) * b0;
+	g0 = v[3] - (2 * Av + 1) * b0;
+	p = -(2 * Av + 1);
+	q = 4 * c0 + 2 * (b0 - g0);
+	r = 4 * (b0 * g0 - v[1]);
+	hi = 1 + fmax(fabs(p), fmax(fabs(q), fabs(r)));
+	lo = -hi;
+	for (i = 0; i < 200; i++) {
+		double mid = (lo + hi) / 2;
+		if (((mid + p) * mid + q) * mid + r > 0)
+			hi = mid;
+		else
+			lo = mid;
+	}
+	t[0] = (lo + hi) / 2;
+	{
+		/* the other two, of t^2 + (p + t0) t + (q + t0 (p + t0)) */
+		double b1 = p + t[0], c1 = q + t[0] * b1, disc = b1 * b1 - 4 * c1;
+		if (disc >= 0) {
+			double s = -(b1 + (b1 < 0 ? -sqrt(disc) : sqrt(disc))) / 2;
+			t[nt++] = s;
+			if (s != 0)
+				t[nt++] = c1 / s;
+		}
+	}
+	for (k = 0; k < nt; k++) {
+		double tt = A.fp ? t[k] : floor(t[k] + 0.5), a[6], B, C, mx = 0;
+		B = b0 - tt / 2;
+		a[0] = tt;
+		a[2] = Av - tt;
+		a[1] = B - tt * a[2];
+		C = c0 - Av / 2 * tt + tt * tt / 4;
+		a[4] = v[3] - 2 * Av * B - 2 * C - B - tt * Av - a[1];
+		a[3] = C - a[1] * a[2];
+		a[5] = v[0] - C * C - a[1] * C - a[4] * C;
+		for (i = 0; i < 6; i++)
+			mx = fmax(mx, fabs(a[i]));
+		if (!isfinite(mx))
+			continue;
+		if (!A.fp)
+			for (i = 0; i < 6; i++)
+				if (a[i] != floor(a[i]))
+					mx = -1;
+		if (mx >= 0 && (bm < 0 || mx < bm)) {
+			bm = mx;
+			memcpy(best, a, sizeof best);
+		}
+	}
+	if (bm < 0) {
+		A.fail = 1;
+		return x;
+	}
+	z = pe_addc(pe_mul(pe_addc(x, best[0]), x), best[1]);
+	w = pe_addc(pe_mul(pe_addc(x, best[2]), z), best[3]);
+	return pe_mulc(u[6], pe_addc(pe_mul(pe_addc(pe_add2(w, z, 0), best[4]),
+	    w), best[5]));
+}
+
+/* the adapted form of the top core + 1 coefficients, Horner below it */
+static struct pe
+knuth(const double *c, int d, int core)
+{
+	struct pe a = core == 6 ? knuth6(c + d - 6) : knuth4(c + d - 4);
+	int k;
+
+	for (k = d - core - 1; k >= 0; k--)
+		a = pe_step(a, c[k]);
+	return a;
+}
+
+/* blocks of s coefficients over 1, x, ..., x^(s-1), Horner in x^s */
+static struct pe
+ps_blocks(const double *c, int d, int s)
+{
+	struct pe pw[13], acc, blk;
+	int i, j, have = 0;
+
+	pw[1] = pe_var();
+	for (i = 2; i <= s; i++)
+		pw[i] = pe_mul(pw[i / 2], pw[i - i / 2]);
+	memset(&acc, 0, sizeof acc);
+	for (j = d / s; j >= 0; j--) {
+		int hb = 0;
+		memset(&blk, 0, sizeof blk);
+		for (i = s - 1; i >= 0; i--) {
+			double v = j * s + i <= d ? c[j * s + i] : 0;
+			struct pe term;
+			if (v == 0)
+				continue;
+			if (i == 0) {
+				blk = hb ? pe_addc(blk, v) : pe_const(v);
+				hb = 1;
+				continue;
+			}
+			term = pe_mulc(fabs(v), pw[i]);
+			blk = !hb ? (v < 0 ? pe_neg(term) : term) :
+			    pe_add2(blk, term, v < 0);
+			hb = 1;
+		}
+		if (!have) {
+			acc = blk;	/* the top block holds c[d] */
+			have = 1;
+			continue;
+		}
+		acc = acc.deg == 0 ? pe_mulc(A.fp ? acc.c[0] :
+		    (double)acc.ci[0], pw[s]) : pe_mul(acc, pw[s]);
+		if (hb && blk.deg == 0)
+			acc = pe_addc(acc, A.fp ? blk.c[0] : (double)blk.ci[0]);
+		else if (hb)
+			acc = pe_add2(acc, blk, 0);
+	}
+	return acc;
+}
+
+/* p[0..n] monic, n + 1 a power of two; xp[m] = x^m for m a power of two */
+static struct pe
+ps_monic(const double *p, int n, const struct pe *xp)
+{
+	double q[8], r[8], cc;
+	int m = (n + 1) / 2, i;
+
+	if (n == 1)
+		return pe_addc(xp[1], p[0]);
+	cc = p[m - 1] - 1;
+	for (i = 0; i < m; i++) {
+		q[i] = p[m + i];
+		r[i] = p[i] - cc * q[i];
+	}
+	r[m - 1] = 1;
+	return pe_add2(pe_mul(pe_addc(xp[m], cc), ps_monic(q, m - 1, xp)),
+	    ps_monic(r, m - 1, xp), 0);
+}
+
+/*
+ * The splitting on the top n + 1 coefficients, n the largest 2^k - 1 up
+ * to d, made monic by the leading one; Horner below it.
+ */
+static struct pe
+ps_split(const double *c, int d)
+{
+	struct pe xp[9], a;
+	double p[13];
+	int n = 1, i, k;
+
+	while (2 * n + 1 <= d)
+		n = 2 * n + 1;
+	for (i = 0; i <= n; i++) {
+		p[i] = c[d - n + i] / c[d];
+		if (!A.fp && p[i] != floor(p[i]))
+			A.fail = 1;
+	}
+	p[n] = 1;
+	xp[1] = pe_var();
+	for (i = 2; i <= (n + 1) / 2; i *= 2)
+		xp[i] = pe_mul(xp[i / 2], xp[i / 2]);
+	a = pe_mulc(c[d], ps_monic(p, n, xp));
+	for (k = d - n - 1; k >= 0; k--)
+		a = pe_step(a, c[k]);
+	return a;
+}
+
+/* a form's line, and under it what its expansion is */
+static void
+line_pe(const struct model *m, const char *name, const struct pe *a,
+    double resid, const struct func *f)
+{
+	line(m, name, a->e, f, f->body);
+	if (resid == 0)
+		printf("  %-10s expands to the polynomial itself%s\n", "",
+		    A.fp ? "" : ": equal for every x");
+	else
+		printf("  %-10s expands to the polynomial within %.2g of its "
+		    "largest coefficient (the adapted ones are rounded)\n", "",
+		    resid);
+}
+
 static int
 poly_scheme(const struct model *m, struct func *f)
 {
@@ -189,7 +637,10 @@ poly_scheme(const struct model *m, struct func *f)
 	double c[13];
 	int s, d, k;
 	ty_t t = N.ty[f->body];
-	nid x, naive = 0, mulp = 0, horner, estrin, pw[13];
+	nid x, naive = 0, mulp = 0, horner, estrin, pw[13], forms[8];
+	const char *names[8];
+	double cr[13], tol;
+	int nf = 3, shown = 0;
 
 	for (s = 0; s < f->np; s++)
 		if (npoly_of(f->body, s, &P, 12) && P.deg >= 2)
@@ -274,8 +725,122 @@ poly_scheme(const struct model *m, struct func *f)
 	line(m, "products", mulp, f, f->body);
 	line(m, "Horner", horner, f, f->body);
 	line(m, "Estrin", estrin, f, f->body);
+	names[0] = "products";
+	forms[0] = mulp;
+	names[1] = "Horner";
+	forms[1] = horner;
+	names[2] = "Estrin";
+	forms[2] = estrin;
+	/* fewer multiplications: adapted coefficients, blocks, the splitting */
+	A.t = t;
+	A.x = x;
+	A.fp = TY_FP(t);
+	for (k = 0; k <= d; k++)
+		if (!num_of(mkc(t, c[k]), &cr[k]))
+			cr[k] = c[k];
+	/* an adapted form may be off by 64 roundings of a coefficient: past
+	 * that its coefficients have cancelled and it is not the polynomial */
+	tol = !A.fp ? 0 : TYK(t) == K_FLOAT && TYW(t) == 32 ? 0x1p-18 :
+	    TYK(t) == K_FLOAT && TYW(t) == 16 ? 0x1p-5 : 0x1p-47;
+	if (d >= 4) {
+		struct pe a, best;
+		double r = -1, rb = 0;
+		float cb = -1, cc;
+		int core, sb = 0;
+
+		memset(&a, 0, sizeof a);
+		for (core = d >= 6 ? 6 : 4; core >= 4; core -= 2) {
+			A.fail = 0;
+			a = knuth(cr, d, core);
+			r = pe_resid(&a, cr, d);
+			if (r >= 0 && r <= tol)
+				break;
+		}
+		if (core >= 4) {
+			line_pe(m, "Knuth", &a, r, f);
+			names[nf] = "Knuth";
+			forms[nf++] = a.e;
+			shown |= 1;
+		} else if (A.fp && r >= 0)
+			printf("  %-10s not listed: its adapted coefficients "
+			    "cancel (the expansion is off by %.2g of the largest "
+			    "coefficient)\n", "Knuth", r);
+		else
+			printf("  %-10s not listed: its adapted coefficients are "
+			    "not %s here\n", "Knuth", A.fp ? "finite" :
+			    "whole numbers");
+		fuse_domain(f);		/* the block size that prices lowest */
+		for (k = 2; k <= (d + 1) / 2; k++) {
+			A.fail = 0;
+			a = ps_blocks(cr, d, k);
+			r = pe_resid(&a, cr, d);
+			if (r < 0 || r > tol)
+				continue;
+			cc = fuse_expr_cost(m, a.e);
+			if (cb < 0 || cc < cb) {
+				cb = cc;
+				best = a;
+				rb = r;
+				sb = k;
+			}
+		}
+		fuse_domain(NULL);
+		if (sb) {
+			line_pe(m, "P-S blocks", &best, rb, f);
+			names[nf] = "P-S blocks";
+			forms[nf++] = best.e;
+			shown |= 2;
+		}
+		if (d >= 7) {
+			A.fail = 0;
+			a = ps_split(cr, d);
+			r = pe_resid(&a, cr, d);
+			if (r >= 0 && r <= tol) {
+				line_pe(m, "P-S split", &a, r, f);
+				names[nf] = "P-S split";
+				forms[nf++] = a.e;
+				shown |= 4;
+			} else if (A.fp)
+				printf("  %-10s not listed: its coefficients cancel "
+				    "(the expansion is off by %.2g of the largest "
+				    "coefficient)\n", "P-S split", r);
+			else
+				printf("  %-10s not listed: the leading coefficient "
+				    "does not divide the others\n", "P-S split");
+		}
+	}
 	printf("  (depth is the critical path: Estrin trades operations for "
 	    "parallelism)\n");
+	if (shown & 1)
+		printf("  (Knuth: coefficients adapted beforehand, fewer "
+		    "multiplications and more additions than Horner%s)\n",
+		    A.fp ? "; its sums cancel, so it is less exact near a zero "
+		    "of the polynomial" : "");
+	if (shown & 6)
+		printf("  (P-S: Paterson and Stockmeyer;%s%s%s)\n", shown & 2 ?
+		    " blocks of coefficients over the first powers, Horner in "
+		    "the next" : "", (shown & 6) == 6 ? ";" : "", shown & 4 ?
+		    " the splitting (x^m + c)*q + r into monic halves" : "");
+	if (d >= 4) {
+		/* what the model's fusions make of each: Horner is all FFMAs */
+		float cost[8];
+		int bi = 0;
+
+		fuse_domain(f);
+		for (k = 0; k < nf; k++) {
+			cost[k] = fuse_expr_cost(m, forms[k]);
+			if (cost[k] < cost[bi])
+				bi = k;
+		}
+		fuse_domain(NULL);
+		printf("  cheapest with %s's fusions counted: %s %g;", sym_str(
+		    m->name), names[bi], (double)cost[bi]);
+		for (k = 0; k < nf; k++)
+			if (k != bi)
+				printf("%s %s %g", k == (bi == 0) ? "" : ",",
+				    names[k], (double)cost[k]);
+		printf("\n");
+	}
 	/* forward differences for consecutive integers */
 	if (!TY_FP(f->p[s].ty) && f->np == 1) {
 		int64_t lo, hi, D[13], v, j, n, bad = 0;
