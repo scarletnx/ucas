@@ -4,3 +4,4 @@
 {"id": 4, "cmd": "rop", "args": {"f": {"body": "d + 1", "params": [{"name": "d", "type": "u8"}]}, "model": "fixed"}}
 {"id": 5, "cmd": "rop", "args": {"f": {"body": "d * 3 + s", "params": [{"name": "s", "type": "u32"}, {"name": "d", "type": "u32"}]}}}
 {"id": 6, "cmd": "rop", "args": {"f": {"body": "min(d, s)", "params": [{"name": "s", "type": "u64"}, {"name": "d", "type": "u64"}]}}}
+{"id": 7, "cmd": "rop", "args": {"f": {"body": "x > y", "params": [{"name": "x", "type": "i32", "range": [0, 63]}, {"name": "y", "type": "i32", "range": [0, 63]}]}}}

@@ -461,3 +461,49 @@ rop hits: hits = d + u32(s != 0 ? 1 : 0), applied once per fragment (s what a fr
       price: rop_query 3 a fragment under qm, against 54 (one global atomic, atomic_global 50 + 4 for the value it brings): cheaper
       pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel), the fragment shader discarding where s is 0; vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> tri(x: i32 in 0..255, y: i32 in 0..255) = x + 2*y >= 40 && 3*x - y < 400 && y <= 200 - x
+> rop tri
+rop tri: tri(x, y) = x + 2y >= 40 && 3x - y < 400 && y <= 200 - x, a predicate of the pixel (x, y) over [0, 255] x [0, 255]
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  rasterisation: a convex polygon of 5 vertices drawn over the grid (3 triangles as a fan), its coverage tri(x, y)
+      holds where the grid's pixels are the framebuffer's, x and y their coordinates
+      its edges cover a pixel's centre exactly where tri holds (checked on every point of the domain) and pass through no centre (checked on every point of the domain), so the rasteriser's tie rule never decides; the vertices are multiples of 1/16, Vulkan's coarsest sub-pixel grid (subPixelPrecisionBits >= 4), so no device moves them; a centre on one of the fan's diagonals is in exactly one of its triangles
+      price: rop_raster is not priced by gt1030 (not measured): unavailable
+      pipeline: a draw of 3 triangles as a fan over the window positions (41, 0), (133.5, 0), (150.5, 51), (0, 201.5), (0, 20.5) (pixel (x, y) is the framebuffer's: x and y below maxFramebufferWidth and Height), no culling, a viewport covering the grid; the fragment shader runs on the pixels where tri holds, instead of a test in every invocation
+  not in any price: the draw's setup (a render pass, the pipeline, 5 vertices)
+> half(x: i32 in 0..63, y: i32 in 0..63) = x > y
+> rop half
+rop half: half(x, y) = x > y, a predicate of the pixel (x, y) over [0, 63] x [0, 63]
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  rasterisation: a convex polygon of 3 vertices drawn over the grid (1 triangle as a fan), its coverage half(x, y)
+      holds where the grid's pixels are the framebuffer's, x and y their coordinates
+      its edges cover a pixel's centre exactly where half holds (checked on every point of the domain) and pass through no centre (checked on every point of the domain), so the rasteriser's tie rule never decides; the vertices are multiples of 1/16, Vulkan's coarsest sub-pixel grid (subPixelPrecisionBits >= 4), so no device moves them; a centre on one of the fan's diagonals is in exactly one of its triangles
+      price: rop_raster is not priced by gt1030 (not measured): unavailable
+      pipeline: a draw of 1 triangle as a fan over the window positions (0.5, 0), (64, 0), (64, 63.5) (pixel (x, y) is the framebuffer's: x and y below maxFramebufferWidth and Height), no culling, a viewport covering the grid; the fragment shader runs on the pixels where half holds, instead of a test in every invocation
+  not in any price: the draw's setup (a render pass, the pipeline, 3 vertices)
+> disc(x: i32 in 0..63, y: i32 in 0..63) = x*x + y*y < 900
+> rop disc
+rop disc: disc(x, y) = x*x + y*y < 900, a predicate of the pixel (x, y) over [0, 63] x [0, 63]
+  no fixed-function state in the catalogue computes it: the rasteriser tests a conjunction of half-planes, a x + b y + c >= 0 (or <, <=, >) in x and y, and disc is not one
+> steep(x: i32 in 0..255, y: i32 in 0..255) = 97*x - 31*y >= 5
+> rop steep
+rop steep: steep(x, y) = 97x - 31y >= 5, a predicate of the pixel (x, y) over [0, 255] x [0, 255]
+  the half-planes bound a convex polygon of 4 vertices, but no point of Vulkan's coarsest sub-pixel grid (1/16) at or next to each corner gives edges that test their half-plane at every pixel centre of the grid
+> uw(x: u32 in 0..255, y: u32 in 0..255) = 3*x - y < 400
+> rop uw
+rop uw: uw(x, y) = 3x - y < 400, a predicate of the pixel (x, y) over [0, 255] x [0, 255]
+  the half-planes, read over the integers, give a polygon with the vertices (0, 0), (133.5, 0), (218.8125, 256), (0, 256), but uw is not its coverage on its domain (a point differs): its own arithmetic wraps or rounds where the half-planes' does not (x and y as i32 keep a small grid's compares exact)
+> none(x: i32 in 0..15, y: i32 in 0..15) = x > 20
+> rop none
+rop none: none(x, y) = x > 20, a predicate of the pixel (x, y) over [0, 15] x [0, 15]
+  no pixel of the grid is inside every half-plane: a draw would cover nothing
+> model rz : gt1030 { rop_raster: 1 }
+> rop tri model rz
+rop tri: tri(x, y) = x + 2y >= 40 && 3x - y < 400 && y <= 200 - x, a predicate of the pixel (x, y) over [0, 255] x [0, 255]
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  rasterisation: a convex polygon of 5 vertices drawn over the grid (3 triangles as a fan), its coverage tri(x, y)
+      holds where the grid's pixels are the framebuffer's, x and y their coordinates
+      its edges cover a pixel's centre exactly where tri holds (checked on every point of the domain) and pass through no centre (checked on every point of the domain), so the rasteriser's tie rule never decides; the vertices are multiples of 1/16, Vulkan's coarsest sub-pixel grid (subPixelPrecisionBits >= 4), so no device moves them; a centre on one of the fan's diagonals is in exactly one of its triangles
+      price: rop_raster 1 a fragment under rz, against 16.125 (the test in every invocation of the grid): cheaper
+      pipeline: a draw of 3 triangles as a fan over the window positions (41, 0), (133.5, 0), (150.5, 51), (0, 201.5), (0, 20.5) (pixel (x, y) is the framebuffer's: x and y below maxFramebufferWidth and Height), no culling, a viewport covering the grid; the fragment shader runs on the pixels where tri holds, instead of a test in every invocation
+  not in any price: the draw's setup (a render pass, the pipeline, 5 vertices)

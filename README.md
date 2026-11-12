@@ -170,7 +170,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp; for a float G also how much of it rounding can be, to first order: the worst case, the high-probability bound and the expected size (see "Probabilistic rounding error") |
 | `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
-| `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
+| `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
@@ -2635,6 +2635,41 @@ contribution updates the same cell: a query counts a whole draw, so
 more cells take a draw and a query each.  Pipeline statistics
 (fragment shader invocations and the like) are not offered: Vulkan lets
 each implementation count invocations its own way.
+
+**A predicate of the pixel.**  When F returns a bool of two integer
+parameters with ranges, P(x, y) over a grid of pixels, `rop` looks for
+the draw whose coverage it is: the rasteriser's edge functions test
+half-planes, so a conjunction of a x + b y + c >= 0 (or <, <=, >) is a
+convex polygon drawn over the grid, and the fragment shader runs only
+where P holds instead of a test in every invocation.  On integers
+a x + b y + c >= 0 is 2(a x + b y + c) + 1 > 0, which is odd at every
+pixel centre (x + 1/2, y + 1/2), so the polygon (the grid's box cut by
+those lines) has edges through no centre and the tie rule never
+decides.  Its corners go on 1/16, the coarsest sub-pixel grid Vulkan
+allows (subPixelPrecisionBits >= 4), so no device moves them: the
+nearest point or one of its eight neighbours, chosen so that each edge
+tests its half-plane at every centre of the grid (checked row by row,
+exactly).  The coverage of the resulting polygon is then compared with
+P on P's domain (every point, or SAT), and that no centre lies on an
+edge as well.
+
+```
+> tri(x: i32 in 0..255, y: i32 in 0..255) = x + 2*y >= 40 && 3*x - y < 400 && y <= 200 - x
+> rop tri
+  rasterisation: a convex polygon of 5 vertices drawn over the grid (3 triangles as a fan), its coverage tri(x, y)
+      its edges cover a pixel's centre exactly where tri holds (checked on every point of the domain) and pass through no centre (...)
+      price: rop_raster is not priced by gt1030 (not measured): unavailable
+      pipeline: a draw of 3 triangles as a fan over the window positions (41, 0), (133.5, 0), (150.5, 51), (0, 201.5), (0, 20.5) ...
+```
+
+Refused, each saying why: a predicate that is no conjunction of
+half-planes (`x*x + y*y < 900`); a line too steep for the 1/16 grid at
+every corner near it (`97*x - 31*y >= 5`: its centres are 1/204 of a
+pixel from it); a predicate whose own arithmetic wraps where the
+half-planes do not (`3*x - y < 400` in u32); one no pixel satisfies.
+The grid starts at 0 and stays inside 16384 (the framebuffer's pixels).
+Priced by `rop_raster` a fragment, against the predicate's own cost in
+every invocation.
 
 **Nothing is recognised by name.**  Every state is compared with F on
 F's domain: integer states on every point or by SAT; a blend equation
