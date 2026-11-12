@@ -349,6 +349,13 @@ find qb: 1024 points, computing in i32, costs from gt1030
       M = ceil(2^23/255) = 32897, so M*255 = 2^23 + 127
       x*M/2^23 = x/255 + x*127/(255*2^23): the excess is below 1/255 while x*127 < 2^23, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^23) = floor(x/255)
       x <= 32512: x*127 <= 4129024 < 2^23, and x*M <= 1069547264 < 2^32, so the product does not wrap in u32
+  cost 65  t7*t7 < t4*t4 && t7*t7 <= t5*t5 ? t6 : t5*t5 < t4*t4 ? t3 : t2 where m = (1 << b) - 1, t1 = 2b - 8, t2 = i32(0.00392156886f32(v*m + 127)), t3 = t2 > 0 ? t2 - 1 : t2, t4 = (t2 << 8 - b | t2 >> t1) - v, t5 = (t3 << 8 - b | t3 >> t1) - v, t6 = t2 < m ? t2 + 1 : t2, t7 = (t6 << 8 - b | t6 >> t1) - v (v*((1 << b) - 1) + 127)/255 on the f32 pipe: the conversion of f32((v*((1 << b) - 1) + 127)) * 0.00392156886 (1/255 rounded up to an f32) (derived; checked on every point)
+      holds where (v*((1 << b) - 1) + 127) in [127, 32512], inside [0, 2^24), and 32512 (0.00392156886 - 1/255) + ulp/2 < 1/255: 7.54e-06 + 3.81e-06 < 0.00392
+      (v*((1 << b) - 1) + 127) < 2^24 converts to f32 exactly
+      0.00392156886 = 0x1.010102p-8 is 1/255 rounded up to an f32, above it by 2.32e-10
+      q0 = floor((v*((1 << b) - 1) + 127)/255) is an integer below 2^24, an f32, and f32((v*((1 << b) - 1) + 127)) * 0.00392156886 >= (v*((1 << b) - 1) + 127)/255 >= q0: the product rounded to nearest is not below q0
+      (v*((1 << b) - 1) + 127)/255 <= q0 + 254/255, so the exact product is at most q0 + 254/255 + 7.54e-06 (32512 times the excess); it is below 128, where rounding adds at most 3.81e-06: it stays below q0 + 1, as 7.54e-06 + 3.81e-06 < 1/255
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (v*((1 << b) - 1) + 127) / 255
   derived, but not cheaper under gt1030 (cost 79, as written 79): the map q > 0 ? q - 1 : q where q = (v*((1 << b) - 1) + 127)/255 of (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32
   cost 11  i32(32897u32(v*((1 << b) - 1) + 127) >> 0x17) all of them: drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm), then drops the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm), then the division (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32 (derived; the drops exhaustive)
   split on b (4 values), fitted (v*K + C) >> S per case: S = 12, C = 2048
