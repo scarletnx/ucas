@@ -36,6 +36,19 @@
  *   3. the piece's bound in the metric: ulp of the exact value (relative)
  *	or absolute; the certificate is the largest over the pieces.
  *
+ * A range reduction's candidate is taken piece by piece where its integer
+ * side is one value: a node whose computed value is one number on the
+ * whole piece is frozen to it (ucas's own constant folding gives it, so
+ * it is what the program computes), R uses it as a constant, and its
+ * error is 0.  Integers are followed as intervals where the operation is
+ * monotone (asuint of a float of one sign, a constant added, shifts, a
+ * mask of high bits); a float's bits moved by a frozen multiple of 2^mant
+ * and read back are the float times a power of two, and a frozen sign
+ * bit xor-ed in its negation.  An operation is exact when every result it
+ * can have is a multiple of its quantum q within 2^prec q (Cody-Waite's
+ * k c1 step, Sterbenz), or a product by a frozen power of two that cannot
+ * underflow.  A select's untaken side is not evaluated.
+ *
  * Interval arithmetic is in long double with outward rounding: +, -, *,
  * / and sqrt round in the needed direction by their exact error terms
  * (TwoSum, Dekker's product), so an exact result stays a point; the
@@ -484,7 +497,69 @@ struct prog {
 	uint8_t *fw;		/* a float node's width (32, 64); 0: exact */
 	signed char *dec;	/* the branch a node took on the piece */
 	int slot;
+	nid *g;			/* the node it was made from */
+	/* on the piece: the nodes that could not be evaluated (each with
+	 * why), and those whose computed value is one number there (fz,
+	 * fv) or another's times +-2^xs exactly (xsrc >= 0: a bit trick) */
+	uint8_t *bad, *fz, *xneg;
+	char (*why)[120];
+	ld *fv;
+	int64_t *fi;		/* a frozen integer's value, in its type */
+	int *xsrc, *xs;
 };
+
+/* the operand k reads for its value on the piece (-1 none): a select
+ * reads its taken side, a frozen node nothing, a bit trick its source */
+static int
+uses(const struct prog *P, int k, int i)
+{
+	int op = P->op[k], ar = opinfo[op].arity;
+
+	if (P->fz[k])
+		return -1;
+	if (op == O_ASFLOAT && P->xsrc[k] >= 0)
+		return i == 0 ? P->xsrc[k] : -1;
+	if (op == O_SEL) {
+		if (i == 0)
+			return P->a[k];
+		if (i == 1 && P->dec[P->a[k]] >= 0)
+			return P->dec[P->a[k]] ? P->b[k] : P->c[k];
+		return -1;
+	}
+	if (op == O_CONST || op == O_VAR || i >= ar)
+		return -1;
+	return i == 0 ? P->a[k] : i == 1 ? P->b[k] : P->c[k];
+}
+
+static int
+opbad(const struct prog *P, int k)
+{
+	int i, q;
+
+	for (i = 0; i < 3; i++)
+		if ((q = uses(P, k, i)) >= 0 && P->bad[q])
+			return 1;
+	return 0;
+}
+
+/* why the root could not be evaluated: the first node on its way down
+ * whose operands could */
+static void
+bad_why(const struct prog *P, char *out, size_t on)
+{
+	int k = P->root, i, q, again = 1;
+
+	while (again) {
+		again = 0;
+		for (i = 0; i < 3; i++)
+			if ((q = uses(P, k, i)) >= 0 && P->bad[q]) {
+				k = q;
+				again = 1;
+				break;
+			}
+	}
+	snprintf(out, on, "%s", P->why[k]);
+}
 
 static int
 cand_op(int op)
@@ -495,6 +570,9 @@ cand_op(int op)
 	case O_ABS: case O_COPYSIGN: case O_EQ: case O_NE: case O_LT:
 	case O_LE: case O_GT: case O_GE: case O_LAND: case O_LOR:
 	case O_LNOT: case O_SEL: case O_MIN: case O_MAX:
+	/* a range reduction's integer side and bit tricks, the machine exp */
+	case O_ASUINT: case O_ASINT: case O_ASFLOAT: case O_SHL: case O_SHR:
+	case O_AND: case O_OR: case O_XOR: case O_EXP:
 		return 1;
 	}
 	return 0;
@@ -581,10 +659,21 @@ prog_make(struct prog *P, nid body, int slot, int cand, char *why,
 		P->b = xcalloc(P->n, sizeof *P->b);
 		P->c = xcalloc(P->n, sizeof *P->c);
 		P->k = xcalloc(P->n, sizeof *P->k);
+		P->g = xcalloc(P->n, sizeof *P->g);
+		P->bad = xcalloc(P->n, 1);
+		P->fz = xcalloc(P->n, 1);
+		P->xneg = xcalloc(P->n, 1);
+		P->why = xcalloc(P->n, sizeof *P->why);
+		P->fv = xcalloc(P->n, sizeof *P->fv);
+		P->fi = xcalloc(P->n, sizeof *P->fi);
+		P->xsrc = xcalloc(P->n, sizeof *P->xsrc);
+		P->xs = xcalloc(P->n, sizeof *P->xs);
 		for (g = 1, k = 0; g < N.n; g++) {
 			if (!mark[g])
 				continue;
 			map[g] = k;
+			P->g[k] = g;
+			P->xsrc[k] = -1;
 			P->op[k] = N.op[g];
 			P->k[k] = TY_FP(N.ty[g]) ? (ld)N.kr[g] : (ld)N.ki[g];
 			if (cand == 2 && TYK(N.ty[g]) == K_FLOAT)
@@ -607,6 +696,15 @@ prog_make(struct prog *P, nid body, int slot, int cand, char *why,
 static void
 prog_free(struct prog *P)
 {
+	free(P->g);
+	free(P->bad);
+	free(P->fz);
+	free(P->xneg);
+	free(P->why);
+	free(P->fv);
+	free(P->fi);
+	free(P->xsrc);
+	free(P->xs);
 	free(P->op);
 	free(P->fw);
 	free(P->dec);
@@ -778,6 +876,28 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 		int op = P->op[k], d;
 		for (i = 0; i < n; i++)
 			o[i] = ivp(0);
+		P->bad[k] = 0;
+		if (P->fz[k]) {
+			/* its computed value is that number on the whole piece */
+			o[0] = ivp(P->fv[k]);
+			continue;
+		}
+		if (op == O_ASFLOAT && P->xsrc[k] >= 0) {
+			/* +-2^xs times its source, exactly */
+			const struct iv *s = JN(P, P->xsrc[k]);
+			ld sc = ldexpl(P->xneg[k] ? -1 : 1, P->xs[k]);
+			if (P->bad[P->xsrc[k]]) {
+				P->bad[k] = 1;
+				continue;
+			}
+			for (i = 0; i < n; i++)
+				o[i] = iscale(s[i], sc);
+			continue;
+		}
+		if (opbad(P, k)) {
+			P->bad[k] = 1;
+			continue;
+		}
 		switch (op) {
 		case O_CONST:
 			o[0] = ivp(P->k[k]);
@@ -815,8 +935,8 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			break;
 		case O_DIV:
 			if (!jdiv(a, b, o, n)) {
-				snprintf(C->why, sizeof C->why, "a divisor can be 0");
-				return 0;
+				snprintf(P->why[k], sizeof P->why[k], "a divisor can be 0");
+				goto bad;
 			}
 			break;
 		case O_EXP:
@@ -830,9 +950,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			break;
 		case O_LOG:
 			if (!(a[0].lo > 0)) {
-				snprintf(C->why, sizeof C->why, "log's argument can "
+				snprintf(P->why[k], sizeof P->why[k], "log's argument can "
 				    "be 0 or less");
-				return 0;
+				goto bad;
 			}
 			o[0] = el_mono(O_LOG, a[0], 1);
 			for (j = 1; j < n; j++) {
@@ -844,9 +964,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			break;
 		case O_SQRT:
 			if (!(a[0].lo > 0 || (n == 1 && a[0].lo >= 0))) {
-				snprintf(C->why, sizeof C->why, "sqrt's argument can "
+				snprintf(P->why[k], sizeof P->why[k], "sqrt's argument can "
 				    "be 0 or less");
-				return 0;
+				goto bad;
 			}
 			o[0] = iv2(sqrt_r(a[0].lo, 0), sqrt_r(a[0].hi, 1));
 			for (j = 1; j < n; j++) {
@@ -866,9 +986,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			else {
 				int ok;
 				if (op == O_TAN && crit_in(a[0], PI_L / 2, -1)) {
-					snprintf(C->why, sizeof C->why, "tan has a pole "
+					snprintf(P->why[k], sizeof P->why[k], "tan has a pole "
 					    "there");
-					return 0;
+					goto bad;
 				}
 				for (i = 0; i < n; i++)
 					t3[i] = ivp(i == 0);
@@ -876,9 +996,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 				    jdiv(t2, t1, o, n) : jdiv(t3, op == O_SEC ? t2 : t1,
 				    o, n);
 				if (!ok) {
-					snprintf(C->why, sizeof C->why, "%s has a pole "
+					snprintf(P->why[k], sizeof P->why[k], "%s has a pole "
 					    "there", opinfo[op].name);
-					return 0;
+					goto bad;
 				}
 				if (op == O_TAN)
 					o[0] = el_mono(O_TAN, a[0], 1);
@@ -918,9 +1038,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			else if (op == O_ACOSH)
 				ok = a[0].lo >= 1 && (n == 1 || a[0].lo > 1);
 			if (!ok) {
-				snprintf(C->why, sizeof C->why, "%s's argument leaves "
+				snprintf(P->why[k], sizeof P->why[k], "%s's argument leaves "
 				    "its domain there", opinfo[op].name);
-				return 0;
+				goto bad;
 			}
 			f0 = el_mono(op, a[0], op == O_ACOS ? -1 : 1);
 			if (n == 1) {
@@ -938,9 +1058,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 				t4[0] = iadd(t4[0], ivp(1));
 			}
 			if (!jinv(a, t4, op != O_ATANH, f0, o, n, t1, t2, t3)) {
-				snprintf(C->why, sizeof C->why, "%s's derivative is "
+				snprintf(P->why[k], sizeof P->why[k], "%s's derivative is "
 				    "unbounded there", opinfo[op].name);
-				return 0;
+				goto bad;
 			}
 			if (op == O_ACOS)
 				for (i = 1; i < n; i++)
@@ -971,9 +1091,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 					o[j] = idiv(s, iscale(a[0], j));
 				}
 			} else {
-				snprintf(C->why, sizeof C->why, "pow's base can be 0 "
+				snprintf(P->why[k], sizeof P->why[k], "pow's base can be 0 "
 				    "or less");
-				return 0;
+				goto bad;
 			}
 			break;
 		}
@@ -1011,9 +1131,9 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			}
 			d = P->dec[k];
 			if (d == 0) {
-				snprintf(C->why, sizeof C->why, "%s is undecided "
+				snprintf(P->why[k], sizeof P->why[k], "%s is undecided "
 				    "there", opinfo[op].name);
-				return 0;
+				goto bad;
 			}
 			if (op == O_ABS || op == O_COPYSIGN)
 				for (i = 0; i < n; i++)
@@ -1045,32 +1165,39 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 			}
 			d = P->dec[k];
 			if (d < 0) {
-				snprintf(C->why, sizeof C->why, "a comparison is "
+				snprintf(P->why[k], sizeof P->why[k], "a comparison is "
 				    "undecided there");
-				return 0;
+				goto bad;
 			}
 			o[0] = ivp(d);
 			break;
 		case O_SEL:
 			d = P->dec[P->a[k]];
 			if (d < 0) {
-				snprintf(C->why, sizeof C->why, "a select's condition "
+				snprintf(P->why[k], sizeof P->why[k], "a select's condition "
 				    "is undecided there");
-				return 0;
+				goto bad;
 			}
 			memcpy(o, d ? b : JN(P, P->c[k]), n * sizeof *o);
 			break;
 		default:
-			snprintf(C->why, sizeof C->why, "%s has no interval rule",
+			snprintf(P->why[k], sizeof P->why[k], "%s has no interval rule",
 			    opinfo[op].name);
-			return 0;
+			goto bad;
 		}
 		for (i = 0; i < n; i++)
 			if (!isfinite(o[i].lo) || !isfinite(o[i].hi)) {
-				snprintf(C->why, sizeof C->why, "a value is unbounded "
+				snprintf(P->why[k], sizeof P->why[k], "a value is unbounded "
 				    "there");
-				return 0;
+				goto bad;
 			}
+		continue;
+bad:
+		P->bad[k] = 1;
+	}
+	if (P->bad[P->root]) {
+		bad_why(P, C->why, sizeof C->why);
+		return 0;
 	}
 	return 1;
 }
@@ -1084,6 +1211,11 @@ struct rnode {
 	ld rho, eta;		/* |computed - v| <= rho |v| + eta */
 	ld rho0, eta0;		/* before the node's own rounding */
 	int rounds;		/* this node rounds (not exact on the piece) */
+	ld q;			/* every computed value is a multiple of q
+				 * (INFINITY: it is 0) */
+	int iok;		/* an integer: its values are ilo..ihi, in its
+				 * type's order */
+	int64_t ilo, ihi;
 };
 
 struct rctx {
@@ -1091,6 +1223,7 @@ struct rctx {
 	struct iv T;		/* x - z on the piece */
 	int hasz;
 	ld z;
+	int mexp;		/* the candidate rounds a machine exp */
 	char why[200];
 };
 
@@ -1119,21 +1252,75 @@ rmig(const struct rctx *c, const struct rnode *r)
 	return fmaxl(mig(r->v), mul_r(mig(tpow_abs(c, r->p)), mig(r->w), 0));
 }
 
+static int
+fmt_prec(int w)
+{
+	return w == 32 ? 24 : 53;
+}
+
+static int
+fmt_emin(int w)
+{
+	return w == 32 ? -126 : -1022;
+}
+
 /* the format's unit roundoff, least normal, half the least subnormal */
 static void
 fmt_consts(int w, ld *u, ld *nmin, ld *eta)
 {
-	int prec = w == 32 ? 24 : 53, emin = w == 32 ? -126 : -1022;
-
-	*u = ldexpl(1, -prec);
-	*nmin = ldexpl(1, emin);
-	*eta = ldexpl(1, emin - prec);
+	*u = ldexpl(1, -fmt_prec(w));
+	*nmin = ldexpl(1, fmt_emin(w));
+	*eta = ldexpl(1, fmt_emin(w) - fmt_prec(w));
 }
 
 static ld
 fmt_max(int w)
 {
 	return w == 32 ? (ld)FLT_MAX : (ld)DBL_MAX;
+}
+
+/* v rounded to the format (to nearest) */
+static ld
+rn_fmt(int w, ld v)
+{
+	return w == 32 ? (ld)(float)v : (ld)(double)v;
+}
+
+/* the spacing of the format's floats at |v| (the least subnormal's at 0) */
+static ld
+ulp_w(int w, ld v)
+{
+	int e = v == 0 ? fmt_emin(w) : ilogbl(fabsl(v));
+
+	if (e < fmt_emin(w))
+		e = fmt_emin(w);
+	return ldexpl(1, e - fmt_prec(w) + 1);
+}
+
+/* the largest power of two a float v of the format is a multiple of */
+static ld
+quant_of(int w, ld v)
+{
+	ld q, m;
+
+	if (v == 0)
+		return INFINITY;
+	q = ulp_w(w, v);
+	m = fabsl(v) / q;	/* a whole number below 2^prec */
+	while (fmodl(m, 2) == 0) {
+		m /= 2;
+		q *= 2;
+	}
+	return q;
+}
+
+/* the computed values of r: its exact range widened by its error */
+static struct iv
+computed(const struct rnode *r)
+{
+	ld e = add_r(mul_r(r->rho, mag(r->v), 1), r->eta, 1);
+
+	return iv2(add_r(r->v.lo, -e, 0), add_r(r->v.hi, e, 1));
 }
 
 /* (1 + a)(1 + b) - 1, rounded up */
@@ -1161,6 +1348,7 @@ sum_step(const struct rctx *c, const struct rnode *a, const struct rnode *b,
 		wb = ineg(wb);
 	o->w = iadd(wa, wb);
 	o->eta0 = add_r(a->eta, b->eta, 1);
+	o->q = fminl(a->q, b->q);
 	/* the same sign: |a| + |b| = |a + b| */
 	sa = sign_dec(a->v);
 	sb = sign_dec(b->v);
@@ -1188,27 +1376,292 @@ sum_step(const struct rctx *c, const struct rnode *a, const struct rnode *b,
 	}
 }
 
+/* a constant node of q's type holding its frozen value */
+static nid
+const_of(const struct prog *P, int q)
+{
+	ty_t t = N.ty[P->g[q]];
+
+	if (!TY_FP(t))
+		return mk_const_i(t, P->fi[q]);
+	if (TYK(t) == K_FLOAT)
+		return mk_cast(t, mk_const_r((double)P->fv[q]));
+	return mk_const_r((double)P->fv[q]);
+}
+
+/*
+ * Node k's value from its operands' frozen values, by ucas's own
+ * constant folding, so exactly what the program computes there; 0 when
+ * it does not fold (undefined, or not a constant).
+ */
+static int
+fold_node(struct prog *P, int k)
+{
+	nid g = P->g[k], r, o[3] = {0, 0, 0};
+	int op = P->op[k], i, ar = opinfo[op].arity;
+
+	if (op == O_CONST)
+		r = g;
+	else if (op == O_VAR)
+		return 0;
+	else {
+		int src[3] = {P->a[k], P->b[k], P->c[k]};
+		for (i = 0; i < ar && i < 3; i++) {
+			if (!P->fz[src[i]])
+				return 0;
+			o[i] = const_of(P, src[i]);
+		}
+		r = op == O_CAST ? mk_cast(N.ty[g], o[0]) : mk_like(g, o[0], o[1],
+		    o[2]);
+	}
+	if (N.op[r] != O_CONST)
+		return 0;
+	P->fz[k] = 1;
+	if (TY_FP(N.ty[r])) {
+		P->fv[k] = N.kr[r];
+		P->fi[k] = 0;
+	} else {
+		P->fi[k] = N.ki[r];
+		P->fv[k] = (ld)N.ki[r];
+	}
+	return 1;
+}
+
+/* an integer type's range and order: 0 when it is not one of u8..u64,
+ * i8..i64, bool */
+static int
+int_range(ty_t t, int64_t *lo, int64_t *hi)
+{
+	int w = TYW(t);
+
+	if (TYK(t) == K_BOOL) {
+		*lo = 0;
+		*hi = 1;
+		return 1;
+	}
+	if (TYK(t) == K_UINT && w <= 63) {
+		*lo = 0;
+		*hi = (int64_t)(((uint64_t)1 << w) - 1);
+		return 1;
+	}
+	if (TYK(t) == K_UINT && w == 64) {
+		*lo = 0;		/* the half below 2^63 */
+		*hi = INT64_MAX;
+		return 1;
+	}
+	if (TYK(t) == K_SINT && w <= 64) {
+		*lo = w == 64 ? INT64_MIN : -((int64_t)1 << (w - 1));
+		*hi = w == 64 ? INT64_MAX : ((int64_t)1 << (w - 1)) - 1;
+		return 1;
+	}
+	return 0;
+}
+
+/* the interval [lo, hi] of mathematical values in type t: as is, or
+ * moved by 2^w when all of it wrapped the same way (unsigned) */
+static int
+int_fit(ty_t t, ld lo, ld hi, int64_t *ilo, int64_t *ihi)
+{
+	int64_t tlo, thi;
+
+	if (!int_range(t, &tlo, &thi) || lo > hi)
+		return 0;
+	if (TYK(t) == K_UINT && TYW(t) <= 32) {
+		ld m = ldexpl(1, TYW(t));
+		if (hi < 0) {
+			lo += m;
+			hi += m;
+		} else if (lo > thi) {
+			lo -= m;
+			hi -= m;
+		}
+	}
+	if (lo < (ld)tlo || hi > (ld)thi)
+		return 0;
+	*ilo = (int64_t)lo;
+	*ihi = (int64_t)hi;
+	return 1;
+}
+
+/* the bits of a float node's computed values, all of one sign, as an
+ * interval of its unsigned type */
+static int
+bits_range(int w, struct iv cv, int64_t *lo, int64_t *hi)
+{
+	ld a, b;
+
+	if (cv.lo >= 0) {
+		a = rn_fmt(w, cv.lo);
+		if (a < cv.lo)
+			a = w == 32 ? (ld)nextafterf((float)a, INFINITY) :
+			    (ld)nextafter((double)a, INFINITY);
+		b = rn_fmt(w, cv.hi);
+		if (b > cv.hi)
+			b = w == 32 ? (ld)nextafterf((float)b, -INFINITY) :
+			    (ld)nextafter((double)b, -INFINITY);
+		if (a > b || isinf(b))
+			return 0;
+		*lo = (int64_t)fbits(w, (double)a);
+		*hi = (int64_t)fbits(w, (double)b);
+		return w == 32 || *hi >= 0;
+	}
+	return 0;
+}
+
+/* an integer node's interval from its operands', where the operation is
+ * monotone; 0 when it is not followed */
+static int
+int_step(const struct prog *P, const struct rctx *c, int k, struct rnode *o)
+{
+	const struct rnode *a = &c->R[P->a[k]];
+	ty_t t = N.ty[P->g[k]];
+	int op = P->op[k];
+	int64_t bv = P->fz[P->b[k]] ? P->fi[P->b[k]] : 0;
+
+	switch (op) {
+	case O_ASUINT:
+	case O_ASINT: {
+		int w = P->fw[P->a[k]];
+		return w && bits_range(w, computed(a), &o->ilo, &o->ihi);
+	}
+	case O_ADD:
+	case O_SUB:
+		if (!a->iok || !P->fz[P->b[k]])
+			return 0;
+		return op == O_ADD ? int_fit(t, (ld)a->ilo + bv, (ld)a->ihi + bv,
+		    &o->ilo, &o->ihi) : int_fit(t, (ld)a->ilo - bv, (ld)a->ihi -
+		    bv, &o->ilo, &o->ihi);
+	case O_SHR:
+		if (!a->iok || !P->fz[P->b[k]] || bv < 0 || bv >= TYW(t))
+			return 0;
+		/* unsigned: logical; signed: arithmetic, both monotone */
+		o->ilo = a->ilo >> bv;
+		o->ihi = a->ihi >> bv;
+		return 1;
+	case O_SHL:
+		if (!a->iok || !P->fz[P->b[k]] || bv < 0 || bv >= 62)
+			return 0;
+		return int_fit(t, ldexpl((ld)a->ilo, (int)bv), ldexpl((ld)a->ihi,
+		    (int)bv), &o->ilo, &o->ihi);
+	case O_AND:
+		/* x & m is one value where every x shares the bits m covers
+		 * from its lowest up */
+		if (a->iok && P->fz[P->b[k]] && bv > 0) {
+			int tz = 0;
+			while (!((bv >> tz) & 1))
+				tz++;
+			if ((a->ilo >> tz) == (a->ihi >> tz)) {
+				o->ilo = o->ihi = int_norm(t, a->ilo & bv);
+				return 1;
+			}
+		}
+		return 0;
+	case O_CAST:
+		if (!a->iok || !TY_ISINT(t))
+			return 0;
+		return int_fit(t, (ld)a->ilo, (ld)a->ihi, &o->ilo, &o->ihi) ||
+		    (TYK(t) == K_SINT && int_fit(t, (ld)a->ilo - ldexpl(1,
+		    TYW(t)), (ld)a->ihi - ldexpl(1, TYW(t)), &o->ilo, &o->ihi));
+	}
+	return 0;
+}
+
 /*
  * The rounding errors of the candidate's nodes on the piece (x in X),
- * and its branches decided on the computed values.  0 (why) when a
- * branch is undecided, a value can overflow, or a divisor be 0.
+ * and its branches decided on the computed values.  A node whose
+ * computed value is one number on the whole piece is frozen to it (the
+ * reduction's integer side, the shifter's round, the 2^k); a float's
+ * bits moved by a frozen multiple of 2^mant and read back are that float
+ * times a power of two.  0 (why) when a node the result needs cannot be
+ * evaluated.
  */
 static int
 prog_round(struct prog *P, struct rctx *c, struct iv X)
 {
-	int k;
+	int k, i;
 
 	for (k = 0; k < P->n; k++) {
 		struct rnode *o = &c->R[k], *a = &c->R[P->a[k]], *b = &c->R[P->b[k]];
-		int op = P->op[k], w = P->fw[k], d;
+		int op = P->op[k], w = P->fw[k], d, intk;
 		ld u = 0, nmin = 0, eta = 0;
+		ty_t t = N.ty[P->g[k]];
 
 		if (w)
 			fmt_consts(w, &u, &nmin, &eta);
 		memset(o, 0, sizeof *o);
+		P->bad[k] = 0;
+		P->fz[k] = 0;
+		P->xsrc[k] = -1;
+		P->xs[k] = 0;
+		P->xneg[k] = 0;
+		P->why[k][0] = 0;
+		intk = !TY_FP(t);
+		/* every operand one number: the node is one number too */
+		if (op != O_VAR && op != O_SEL) {
+			int all = 1, src[3] = {P->a[k], P->b[k], P->c[k]};
+			for (i = 0; i < opinfo[op].arity && i < 3; i++)
+				all &= P->fz[src[i]];
+			if (all && fold_node(P, k)) {
+				o->v = o->w = ivp(P->fv[k]);
+				o->q = w ? quant_of(w, P->fv[k]) : 0;
+				o->iok = intk;
+				o->ilo = o->ihi = P->fi[k];
+				if (op == O_CONST || TYK(t) == K_BOOL || (op >= O_EQ &&
+				    op <= O_LOR) || op == O_LNOT)
+					P->dec[k] = (signed char)(P->fv[k] != 0);
+				continue;
+			}
+		}
+		if (opbad(P, k)) {
+			P->bad[k] = 1;
+			continue;
+		}
+		if (intk && op != O_EQ && op != O_NE && op != O_LT && op != O_LE &&
+		    op != O_GT && op != O_GE && op != O_LAND && op != O_LOR &&
+		    op != O_LNOT) {
+			/* the integer side: an interval, frozen when a point; the
+			 * bits of a float keep where they came from */
+			o->iok = int_step(P, c, k, o);
+			if ((op == O_ASUINT || op == O_ASINT) && P->fw[P->a[k]])
+				P->xsrc[k] = P->a[k];
+			else if ((op == O_ADD || op == O_SUB || op == O_XOR) &&
+			    P->xsrc[P->a[k]] >= 0 && P->fz[P->b[k]]) {
+				int fwv = P->fw[P->xsrc[P->a[k]]], mant = fmt_prec(fwv) - 1;
+				int64_t cv = P->fi[P->b[k]];
+				int64_t cs = TYW(t) < 64 && cv >= ((int64_t)1 << (TYW(t) -
+				    1)) ? cv - ((int64_t)1 << TYW(t)) : cv;
+				P->xsrc[k] = P->xsrc[P->a[k]];
+				P->xs[k] = P->xs[P->a[k]];
+				P->xneg[k] = P->xneg[P->a[k]];
+				if (op == O_XOR && cv == 0)
+					;
+				else if (op == O_XOR && TYW(t) == fwv &&
+				    (uint64_t)cv == (uint64_t)1 << (fwv - 1))
+					P->xneg[k] ^= 1;
+				else if (op != O_XOR && cs % ((int64_t)1 << mant) == 0)
+					P->xs[k] += (int)((op == O_ADD ? cs : -cs) >>
+					    mant);
+				else
+					P->xsrc[k] = -1;
+			}
+			if (o->iok && o->ilo == o->ihi) {
+				P->fz[k] = 1;
+				P->fi[k] = o->ilo;
+				P->fv[k] = (ld)o->ilo;
+				o->v = o->w = ivp((ld)o->ilo);
+			}
+			if (!o->iok && P->xsrc[k] < 0) {
+				snprintf(P->why[k], sizeof P->why[k], "the integers' `%s` "
+				    "is not one value there, nor a float's bits moved by a "
+				    "power of two", opinfo[op].name);
+				goto bad;
+			}
+			continue;
+		}
 		switch (op) {
 		case O_CONST:
 			o->v = o->w = ivp(P->k[k]);
+			o->q = w ? quant_of(w, P->k[k]) : 0;
 			P->dec[k] = P->k[k] != 0;	/* a constant condition */
 			break;
 		case O_VAR:
@@ -1218,15 +1671,67 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 				o->w = ivp(1);
 			} else
 				o->w = X;
+			o->q = w ? (mig(X) > 0 ? ulp_w(w, mig(X)) : ulp_w(w, 0)) : 0;
 			break;
+		case O_ASFLOAT: {
+			/* a float's bits moved by a frozen multiple of 2^mant and
+			 * read back: +-2^xs times it, while every computed value
+			 * keeps a normal exponent */
+			int src = P->xsrc[P->a[k]], ebits, e1, e2;
+			const struct rnode *sr;
+			struct iv cv;
+			ld sc;
+			if (src < 0 || P->fw[src] != w) {
+				snprintf(P->why[k], sizeof P->why[k], "asfloat of bits "
+				    "that are not a float's moved by a power of two");
+				goto bad;
+			}
+			sr = &c->R[src];
+			cv = computed(sr);
+			ebits = w == 32 ? 8 : 11;
+			if (P->xs[P->a[k]] != 0) {
+				if (!(mig(cv) >= ldexpl(1, fmt_emin(w)))) {
+					snprintf(P->why[k], sizeof P->why[k], "a float moved by "
+					    "2^%d can be 0 or subnormal there", P->xs[P->a[k]]);
+					goto bad;
+				}
+				e1 = ilogbl(mig(cv)) + (1 << (ebits - 1)) - 1;
+				e2 = ilogbl(mag(cv)) + (1 << (ebits - 1)) - 1;
+				if (e1 + P->xs[P->a[k]] < 1 || e2 + P->xs[P->a[k]] >
+				    (1 << ebits) - 2) {
+					snprintf(P->why[k], sizeof P->why[k], "a float moved by "
+					    "2^%d leaves the normal exponents there",
+					    P->xs[P->a[k]]);
+					goto bad;
+				}
+			}
+			P->xsrc[k] = src;
+			P->xs[k] = P->xs[P->a[k]];
+			P->xneg[k] = P->xneg[P->a[k]];
+			sc = ldexpl(P->xneg[k] ? -1 : 1, P->xs[k]);
+			*o = *sr;
+			o->v = iscale(sr->v, sc);
+			o->w = iscale(sr->w, sc);
+			o->eta = mul_r(sr->eta, fabsl(sc), 1);
+			o->rho0 = o->rho;
+			o->eta0 = o->eta;
+			o->q = mul_r(sr->q, fabsl(sc), 0);
+			o->rounds = 0;
+			break;
+		}
 		case O_CAST:
 		case O_BARRIER:
+			if (op == O_CAST && !TY_FP(N.ty[P->g[P->a[k]]])) {
+				snprintf(P->why[k], sizeof P->why[k], "an integer that is "
+				    "not one value there, read as a float");
+				goto bad;
+			}
 			*o = *a;
 			o->rho0 = a->rho;
 			o->eta0 = a->eta;
 			/* a cast to a narrower float rounds */
 			o->rounds = op == O_CAST && w && w < 64 && (P->fw[P->a[k]] ==
-			    0 || P->fw[P->a[k]] > w) && P->op[P->a[k]] != O_CONST;
+			    0 || P->fw[P->a[k]] > w);
 			break;
 		case O_NEG:
 			*o = *a;
@@ -1249,9 +1754,9 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 				d = d && sb ? d * sb : 0;
 			}
 			if (d == 0) {
-				snprintf(c->why, sizeof c->why, "%s is undecided there",
-				    opinfo[op].name);
-				return 0;
+				snprintf(P->why[k], sizeof P->why[k], "%s is undecided "
+				    "there", opinfo[op].name);
+				goto bad;
 			}
 			P->dec[k] = (signed char)d;
 			if (d < 0) {
@@ -1263,28 +1768,16 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 		case O_SUB:
 			sum_step(c, a, b, op == O_SUB, o);
 			if (c->hasz && c->z != 0 && a->p == 0 && b->p == 0 &&
-			    P->op[P->a[k]] == O_VAR && P->op[P->b[k]] == O_CONST &&
-			    P->k[P->b[k]] == (op == O_SUB ? c->z : -c->z)) {
+			    (P->op[P->a[k]] == O_VAR || (P->op[P->a[k]] == O_ASFLOAT &&
+			    P->xsrc[P->a[k]] >= 0 && P->op[P->xsrc[P->a[k]]] == O_VAR &&
+			    P->xs[P->a[k]] == 0 && !P->xneg[P->a[k]])) &&
+			    P->fz[P->b[k]] && P->fv[P->b[k]] == (op == O_SUB ? c->z :
+			    -c->z)) {
 				/* x - z: t itself */
 				o->p = 1;
 				o->w = ivp(1);
 			}
 			o->rounds = w != 0;
-			if (w && a->rho == 0 && a->eta == 0 && b->rho == 0 &&
-			    b->eta == 0) {
-				/* exact operands: x - y is exact by Sterbenz when
-				 * y/2 <= x <= 2y; a sum with 0 is exact */
-				struct iv av = a->v, bv = op == O_SUB ? b->v :
-				    ineg(b->v);
-				if (iszero(a->v) || iszero(b->v))
-					o->rounds = 0;
-				else if (av.lo > 0 && bv.lo > 0 && av.lo >= bv.hi / 2 &&
-				    av.hi <= 2 * bv.lo)
-					o->rounds = 0;
-				else if (av.hi < 0 && bv.hi < 0 && -av.hi >= -bv.lo /
-				    2 && -av.lo <= -2 * bv.hi)
-					o->rounds = 0;
-			}
 			break;
 		case O_MUL:
 		case O_FMA:
@@ -1295,31 +1788,50 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 			o->eta0 = add_r(add_r(mul_r(mul_r(rmag(c, a), 1 + a->rho, 1),
 			    b->eta, 1), mul_r(mul_r(rmag(c, b), 1 + b->rho, 1), a->eta,
 			    1), 1), mul_r(a->eta, b->eta, 1), 1);
+			o->q = mul_r(a->q, b->q, 0);
 			o->rounds = w != 0;
 			if (op == O_FMA) {
 				struct rnode ab = *o, s;
-				sum_step(c, &(struct rnode){ab.v, ab.w, ab.p, ab.rho0,
-				    ab.eta0, 0, 0, 0}, &c->R[P->c[k]], 0, &s);
+				ab.rho = ab.rho0;
+				ab.eta = ab.eta0;
+				sum_step(c, &ab, &c->R[P->c[k]], 0, &s);
 				s.rounds = o->rounds;
 				*o = s;
 			} else if (w && (iszero(a->v) || iszero(b->v)))
 				o->rounds = 0;
+			else if (w) {
+				/* times a frozen power of two: exact, unless the result
+				 * can be subnormal */
+				int pa = P->fz[P->a[k]] && P->fv[P->a[k]] != 0 &&
+				    frexpl(P->fv[P->a[k]], &d) == 0.5L * (P->fv[P->a[k]] <
+				    0 ? -1 : 1);
+				int pb = P->fz[P->b[k]] && P->fv[P->b[k]] != 0 &&
+				    frexpl(P->fv[P->b[k]], &d) == 0.5L * (P->fv[P->b[k]] <
+				    0 ? -1 : 1);
+				ld em = add_r(mul_r(o->rho0, rmag(c, o), 1), o->eta0, 1);
+				if ((pa || pb) && add_r(rmig(c, o), -em, 0) >= nmin)
+					o->rounds = 0;
+			}
 			break;
 		case O_DIV: {
 			ld mb = rmig(c, b), rb;
-			/* b = w when p = 0: its range is in both intervals */
-			struct iv bv = iv2(fmaxl(b->v.lo, b->w.lo), fminl(b->v.hi,
-			    b->w.hi));
-			if (b->p != 0 || !(mb > 0) || has0(bv)) {
-				snprintf(c->why, sizeof c->why, "a divisor can be 0 "
+			struct iv bw = b->w, bv;
+			/* a divisor with the zero's factor, away from the zero: as
+			 * it is (t^p w, t without 0 here) */
+			if (b->p > 0 && !has0(c->T))
+				bw = imul(b->w, tpow(c, b->p));
+			/* then b = bw: its range is in both intervals */
+			bv = iv2(fmaxl(b->v.lo, bw.lo), fminl(b->v.hi, bw.hi));
+			if ((b->p != 0 && has0(c->T)) || !(mb > 0) || has0(bv)) {
+				snprintf(P->why[k], sizeof P->why[k], "a divisor can be 0 "
 				    "there");
-				return 0;
+				goto bad;
 			}
 			rb = add_r(b->rho, div_r(b->eta, mb, 1), 1);
 			if (!(rb < 0.5L)) {
-				snprintf(c->why, sizeof c->why, "a divisor's error is "
+				snprintf(P->why[k], sizeof P->why[k], "a divisor's error is "
 				    "as large as it there");
-				return 0;
+				goto bad;
 			}
 			o->v = idiv(a->v, bv);
 			o->p = a->p;
@@ -1329,24 +1841,43 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 			o->rounds = w != 0;
 			break;
 		}
+		case O_EXP: {
+			/* the machine exp: libm's double exp (taken within 2^-52),
+			 * then rounded to the format; the operand's error e moves it
+			 * by at most a factor exp(e) */
+			ld ea = add_r(mul_r(a->rho, mag(a->v), 1), a->eta, 1);
+			o->v = el_mono(O_EXP, a->v, 1);
+			o->w = o->v;
+			o->p = 0;
+			o->rho0 = add_r(el_r(O_EXP, ea, 1), -1, 1);
+			o->eta0 = 0;
+			if (!(o->rho0 < 1)) {
+				snprintf(P->why[k], sizeof P->why[k], "exp's argument "
+				    "error is too large there");
+				goto bad;
+			}
+			o->rho0 = rel_comb(o->rho0, ldexpl(1, -52));
+			o->rounds = w != 0;
+			c->mexp = 1;
+			break;
+		}
 		case O_MIN:
 		case O_MAX:
 		case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT:
 		case O_GE: {
 			/* decided on the computed values: exact +- the error */
-			struct iv ca = a->v, cb = b->v;
-			ld ea = add_r(mul_r(a->rho, mag(a->v), 1), a->eta, 1);
-			ld eb = add_r(mul_r(b->rho, mag(b->v), 1), b->eta, 1);
-			ca = iv2(add_r(ca.lo, -ea, 0), add_r(ca.hi, ea, 1));
-			cb = iv2(add_r(cb.lo, -eb, 0), add_r(cb.hi, eb, 1));
+			struct iv ca = a->iok ? iv2((ld)a->ilo, (ld)a->ihi) :
+			    computed(a);
+			struct iv cb = b->iok ? iv2((ld)b->ilo, (ld)b->ihi) :
+			    computed(b);
 			if (op == O_MIN || op == O_MAX) {
 				d = ca.hi <= cb.lo ? 1 : cb.hi <= ca.lo ? -1 : 0;
 				if (op == O_MAX)
 					d = -d;
 				if (d == 0) {
-					snprintf(c->why, sizeof c->why, "%s is undecided "
+					snprintf(P->why[k], sizeof P->why[k], "%s is undecided "
 					    "there", opinfo[op].name);
-					return 0;
+					goto bad;
 				}
 				P->dec[k] = (signed char)d;
 				*o = d > 0 ? *a : *b;
@@ -1376,20 +1907,31 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 		case O_SEL:
 			d = P->dec[P->a[k]];
 			if (d < 0) {
-				snprintf(c->why, sizeof c->why, "a select's condition "
-				    "is undecided there");
-				return 0;
+				snprintf(P->why[k], sizeof P->why[k], "a select's "
+				    "condition is undecided there");
+				goto bad;
 			}
 			*o = d ? *b : c->R[P->c[k]];
 			o->rounds = 0;
+			{
+				int s2 = d ? P->b[k] : P->c[k];
+				if (P->fz[s2]) {
+					P->fz[k] = 1;
+					P->fv[k] = P->fv[s2];
+					P->fi[k] = P->fi[s2];
+				}
+				P->xsrc[k] = P->xsrc[s2];
+				P->xs[k] = P->xs[s2];
+				P->xneg[k] = P->xneg[s2];
+			}
 			break;
 		default:
-			snprintf(c->why, sizeof c->why, "%s has no rounding rule",
-			    opinfo[op].name);
-			return 0;
+			snprintf(P->why[k], sizeof P->why[k], "the candidate's %s "
+			    "has no rounding rule here", opinfo[op].name);
+			goto bad;
 		}
 		if (op == O_ADD || op == O_SUB || op == O_MUL || op == O_FMA ||
-		    op == O_DIV || (op == O_CAST && o->rounds)) {
+		    op == O_DIV || op == O_EXP || (op == O_CAST && o->rounds)) {
 			ld vm, vn, em;
 			if (op == O_CAST && o->rounds) {
 				o->rho0 = a->rho;
@@ -1399,28 +1941,58 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 			vn = rmig(c, o);
 			em = add_r(mul_r(o->rho0, vm, 1), o->eta0, 1);
 			if (w && add_r(vm, em, 1) >= fmt_max(w)) {
-				snprintf(c->why, sizeof c->why, "a value can overflow "
-				    "there");
-				return 0;
+				snprintf(P->why[k], sizeof P->why[k], "a value can "
+				    "overflow there");
+				goto bad;
+			}
+			if (o->rounds && op != O_EXP && op != O_DIV &&
+			    !(op == O_CAST)) {
+				/* exact when every possible result is a float: a
+				 * multiple of q no larger than 2^prec q (Sterbenz's
+				 * subtractions, Cody-Waite's k c1 steps, sums with 0) */
+				if (o->q >= ulp_w(w, 0) && add_r(vm, em, 1) <=
+				    ldexpl(o->q, fmt_prec(w)))
+					o->rounds = 0;
 			}
 			if (o->rounds) {
 				/* fl(s) = s (1 + d), plus e where s can be subnormal
-				 * (a sum that small is exact) */
+				 * (a sum that small is exact); one value on the piece
+				 * when every s rounds to the same float */
+				struct iv sr = iv2(add_r(o->v.lo, -em, 0), add_r(o->v.hi,
+				    em, 1));
+				if (rn_fmt(w, sr.lo) == rn_fmt(w, sr.hi)) {
+					P->fz[k] = 1;
+					P->fv[k] = rn_fmt(w, sr.lo);
+					P->fi[k] = 0;
+					memset(o, 0, sizeof *o);
+					o->v = o->w = ivp(P->fv[k]);
+					o->q = quant_of(w, P->fv[k]);
+					continue;
+				}
 				o->rho = rel_comb(o->rho0, u);
 				o->eta = mul_r(o->eta0, 1 + u, 1);
 				if (op != O_ADD && op != O_SUB && add_r(vn, -em, 0) <
 				    nmin)
 					o->eta = add_r(o->eta, eta, 1);
+				vn = add_r(vn, -em, 0);
+				o->q = vn > 0 ? ulp_w(w, vn) : ulp_w(w, 0);
 			} else {
 				o->rho = o->rho0;
 				o->eta = o->eta0;
 			}
 		} else if (op != O_ABS && op != O_COPYSIGN && op != O_NEG &&
 		    op != O_SEL && op != O_MIN && op != O_MAX && op != O_CAST &&
-		    op != O_BARRIER) {
+		    op != O_BARRIER && op != O_ASFLOAT) {
 			o->rho = o->rho0 = 0;
 			o->eta = o->eta0 = 0;
 		}
+		continue;
+bad:
+		P->bad[k] = 1;
+	}
+	if (P->bad[P->root]) {
+		bad_why(P, c->why, sizeof c->why);
+		return 0;
 	}
 	return 1;
 }
@@ -1524,24 +2096,105 @@ poly_mag(const struct iv *c, int n, ld dm, struct iv rem, int K, ld *mx,
 }
 
 /* the last rounding of the candidate: its root under exact sign changes,
- * selects, min and max */
+ * selects, min and max, and exact scalings by powers of two (*scale
+ * gets theirs: the root is that node's value times it) */
 static int
-last_round(const struct acrun *A)
+last_round(const struct acrun *A, ld *scale)
 {
-	int q = A->C.root;
+	const struct prog *C = &A->C;
+	int q = C->root, d;
 
+	*scale = 1;
 	for (;;) {
-		int op = A->C.op[q];
+		int op = C->op[q];
+		if (C->fz[q])
+			return q;
 		if (op == O_NEG || op == O_ABS || op == O_COPYSIGN ||
 		    op == O_BARRIER || (op == O_CAST && !A->rc.R[q].rounds))
-			q = A->C.a[q];
+			q = C->a[q];
 		else if (op == O_SEL)
-			q = A->C.dec[A->C.a[q]] ? A->C.b[q] : A->C.c[q];
+			q = C->dec[C->a[q]] ? C->b[q] : C->c[q];
 		else if (op == O_MIN || op == O_MAX)
-			q = A->C.dec[q] > 0 ? A->C.a[q] : A->C.b[q];
-		else
+			q = C->dec[q] > 0 ? C->a[q] : C->b[q];
+		else if (op == O_ASFLOAT && C->xsrc[q] >= 0) {
+			*scale = ldexpl(*scale, C->xs[q]);
+			q = C->xsrc[q];
+		} else if (op == O_MUL && !A->rc.R[q].rounds && (C->fz[C->a[q]] ||
+		    C->fz[C->b[q]]) && frexpl(C->fz[C->a[q]] ? C->fv[C->a[q]] :
+		    C->fv[C->b[q]], &d) == (C->fz[C->a[q]] ? C->fv[C->a[q]] :
+		    C->fv[C->b[q]]) / fabsl(C->fz[C->a[q]] ? C->fv[C->a[q]] :
+		    C->fv[C->b[q]]) * 0.5L) {
+			ld p2 = C->fz[C->a[q]] ? C->fv[C->a[q]] : C->fv[C->b[q]];
+			*scale *= fabsl(p2);
+			q = C->fz[C->a[q]] ? C->b[q] : C->a[q];
+		} else
 			return q;
 	}
+}
+
+/* an error e at x in the metric, against f in F: its bound (lo 0) or a
+ * lower bound of it (lo 1); -1 when there is none */
+static ld
+metric_at(const struct acrun *A, ld e, struct iv F, int lo)
+{
+	if (A->rel && A->w)
+		return lo ? e / ulp_fmt(A, mag(F)) : div_r(e, ulp_fmt(A, mig(F)),
+		    1);
+	if (A->rel) {
+		if (e == 0)
+			return 0;
+		if (lo)
+			return mag(F) > 0 ? e / mag(F) : 0;
+		return mig(F) > 0 ? div_r(e, mig(F), 1) : -1;
+	}
+	return e;
+}
+
+/*
+ * A piece of one float x: the candidate's and the target's values there,
+ * their distance and the root's rounding directly (no Taylor, nor a
+ * division by (x - z): at x = z both are 0, the candidate exactly).
+ */
+static int
+point_piece(struct acrun *A, struct piece *pc, struct iv X)
+{
+	struct iv R0, F0, E0;
+	ld rho = 0, eta = 0, err;
+
+	if (!prog_jets(&A->F, &A->jf, X, 1, 1)) {
+		snprintf(A->why, sizeof A->why, "%s", A->jf.why);
+		return 0;
+	}
+	if (A->w) {
+		A->rc.T = isub(X, ivp(A->z));
+		if (!prog_round(&A->C, &A->rc, X)) {
+			snprintf(A->why, sizeof A->why, "%s", A->rc.why);
+			return 0;
+		}
+		rho = A->rc.R[A->C.root].rho;
+		eta = A->rc.R[A->C.root].eta;
+	} else if (!prog_jets(&A->C, &A->jc, X, 1, 1)) {
+		snprintf(A->why, sizeof A->why, "%s", A->jc.why);
+		return 0;
+	}
+	if (!prog_jets(&A->C, &A->jc, X, 1, 0)) {
+		snprintf(A->why, sizeof A->why, "%s", A->jc.why);
+		return 0;
+	}
+	R0 = A->jc.J[(size_t)A->C.root * (ACERT_K_MAX + 1)];
+	F0 = A->jf.J[(size_t)A->F.root * (ACERT_K_MAX + 1)];
+	E0 = isub(R0, F0);
+	err = add_r(add_r(mag(E0), mul_r(rho, mag(R0), 1), 1), eta, 1);
+	pc->total = metric_at(A, err, F0, 0);
+	pc->approx = metric_at(A, mag(E0), F0, 0);
+	pc->reached = metric_at(A, mig(E0), F0, 1);
+	pc->worst = X.lo;
+	if (!(pc->total >= 0) || !(pc->approx >= 0) || !isfinite(pc->total)) {
+		snprintf(A->why, sizeof A->why, "the target is 0 there and the "
+		    "candidate is not");
+		return 0;
+	}
+	return 1;
 }
 
 /*
@@ -1559,6 +2212,8 @@ piece_eval(struct acrun *A, struct piece *pc)
 	int K = A->K, atz, n0 = 0, i;
 
 	A->why[0] = 0;
+	if (l == r)
+		return point_piece(A, pc, X);
 	atz = A->k0 > 0 && l <= A->z && A->z <= r;
 	/* the branches on X, and the order-K coefficients on it */
 	if (!prog_jets(&A->F, &A->jf, X, K + 1, 1)) {
@@ -1669,15 +2324,16 @@ piece_eval(struct acrun *A, struct piece *pc)
 	if (!A->w) {
 		ab = tot = A->rel ? eps : qemx;
 	} else {
-		const struct rnode *rt = &A->rc.R[last_round(A)];
+		ld scale;
+		const struct rnode *rt = &A->rc.R[last_round(A, &scale)];
 		ld ulpmin = ldexpl(1, A->emin - A->prec + 1);
 		ld rho0 = rt->rounds ? rt->rho0 : rt->rho;
-		ld eta0 = rt->rounds ? rt->eta0 : rt->eta, fin = 0;
+		ld eta0 = mul_r(rt->rounds ? rt->eta0 : rt->eta, scale, 1), fin = 0;
 		if (A->rel) {
 			/* in ulps of f: |y| / ulp(y) < 2^prec, and on X at most
 			 * max|f| / ulp(min|f|) */
 			ld Q = ldexpl(1, A->prec), delta, lo_s, hi_s, ratio;
-			if (fmn >= ldexpl(1, A->emin))
+			if (fmn > 0)
 				Q = fminl(Q, div_r(fmx, ulp_fmt(A, fmn), 1));
 			ab = mul_r(eps, Q, 1);
 			/* before the last rounding: rho0 |R| + eta0 + |E|, |R| <=
@@ -1910,6 +2566,7 @@ acert_run(nid target, nid cand, ld lo, ld hi, int w, int rel, int k0, ld z,
 	res->ok = 1;
 	res->why[0] = 0;
 	res->pieces = np;
+	res->mexp = A.rc.mexp;
 	for (i = 0; i < np; i++) {
 		if (pc[i].total > res->bound) {
 			res->bound = (double)pc[i].total;

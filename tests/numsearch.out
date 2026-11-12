@@ -259,7 +259,7 @@ approx it on [0, 0.5] as f32, fma
   1   minimax   3     horner+fma  1.04e+03 ulp             6.98e-05      2.98e-05      3    at x=0.00195303548
       x*P(x^2): x*fma(-0.164585575, s, 0.999937952) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1877 evaluations on 3000 sample points: 1105 -> 1041 ulp there; on the table's measure 1105 -> 1041 ulp: kept, certified below
-      certified: at most 1051 ulp for every f32 x in [0, 0.5], 1245 pieces: the coefficients' error at most 1049 (1041 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      certified: at most 1050 ulp for every f32 x in [0, 0.5], 1245 pieces: the coefficients' error at most 1049 (1041 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.04, probable no better (under 16 operations), expected 0.817; `error ap1 ~ F` says what each means
   2   rational  3/2   horner+fma  3.76 ulp                 2.88e-07      1.1e-07       7    at x=0.0297703519
       x*P(x^2)/Q(x^2): x*fma(-0.116177753, s, 1.00000012)/fma(0.0504966788, s, 1.0) where s = x*x

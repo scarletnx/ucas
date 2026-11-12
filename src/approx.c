@@ -2814,10 +2814,11 @@ print_rows(int from, int to)
 				    "most %.4g (%.4g reached at a piece's middle), rounding "
 				    "the rest (each operation's result (1 + d), |d| <= u, "
 				    "carried through); Taylor of order %d on intervals, "
-				    "libm's long double functions taken within 2^%d\n",
+				    "libm's long double functions taken within 2^%d%s\n",
 				    ac.bound, un, fmt_name(A.w), (double)A.lo,
 				    (double)A.hi, ac.pieces, ac.approx, ac.reached,
-				    ac.order, ac.slack);
+				    ac.order, ac.slack, ac.mexp ? ", the candidate's exp "
+				    "(libm's double exp) within 2^-52" : "");
 		}
 		rep_obj(NULL);
 		rep_int("rank", i + 1);
