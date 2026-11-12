@@ -297,6 +297,7 @@ d1(nid e, uint32_t slot)
 		break;
 	case O_FLOOR:
 	case O_CEIL:
+	case O_ROUNDEVEN:
 	case O_SIGN:
 		r = C(0);
 		break;

@@ -1984,6 +1984,7 @@ iv_of(nid e, int s, struct rng x, struct rng *memo, uint8_t *done)
 		break;
 	case O_FLOOR:
 	case O_CEIL:
+	case O_ROUNDEVEN:
 		a = iv_of(N.a[e], s, x, memo, done);
 		r = rg(floor(a.lo), ceil(a.hi));
 		break;
@@ -2128,7 +2129,8 @@ discont_op(nid e)
 {
 	int op = N.op[e];
 
-	if (op == O_FLOOR || op == O_CEIL || op == O_SIGN || op == O_SEL ||
+	if (op == O_FLOOR || op == O_CEIL || op == O_ROUNDEVEN || op == O_SIGN ||
+	    op == O_SEL ||
 	    op == O_MOD || op == O_INDEX || op == O_LOOP || op == O_CAST ||
 	    (opinfo[op].fl & OF_CMP) || op == O_LAND || op == O_LOR ||
 	    op == O_LNOT || (opinfo[op].fl & OF_INT))
@@ -4535,6 +4537,7 @@ kinds_of(nid e, int s, struct kinds *k)
 	case O_SIGN:
 	case O_FLOOR:
 	case O_CEIL:
+	case O_ROUNDEVEN:
 	case O_MIN:
 	case O_MAX:
 	case O_SEL:

@@ -220,6 +220,9 @@ iv1(struct bctx *c, nid n)
 	case O_CEIL:
 		r = mk(ceil(a.lo), ceil(a.hi));
 		break;
+	case O_ROUNDEVEN:
+		r = mk(nearbyint(a.lo), nearbyint(a.hi));
+		break;
 	case O_POW:
 		if (b.ok && b.lo == b.hi && b.lo >= 0 && b.lo == floor(b.lo) &&
 		    a.lo >= 0)
@@ -331,7 +334,7 @@ mono(struct bctx *c, nid n, int j)
 		return comb(mono(c, N.a[n], j), mono(c, N.b[n], j));
 	case O_CAST:
 	case O_SQRT: case O_ISQRT: case O_EXP: case O_LOG: case O_ATAN:
-	case O_FLOOR: case O_CEIL:
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
 		return mono(c, N.a[n], j);
 	case O_POW:
 		a = iv(c, N.a[n]);

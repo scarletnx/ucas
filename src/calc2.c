@@ -1152,6 +1152,11 @@ kink_cands(nid e, struct cand *c, int n)
 		case O_CEIL:
 			n = add_cand(c, n, KK_INT, a, g);
 			break;
+		case O_ROUNDEVEN:
+			/* a jump wherever a crosses a half integer */
+			n = add_cand(c, n, KK_INT, mk_bin(O_SUB, a,
+			    mk_cast(N.ty[a], mk_const_r(0.5))), g);
+			break;
 		case O_SQRT:
 			n = add_cand(c, n, KK_VERT, a, g);
 			break;
@@ -3852,6 +3857,7 @@ lim_body(nid e, struct lctx *c)
 	case O_SIGN:
 	case O_FLOOR:
 	case O_CEIL:
+	case O_ROUNDEVEN:
 		la = lim(A, c);
 		if (la.k == LV_NUM) {
 			double L = la.v;
@@ -3859,6 +3865,16 @@ lim_body(nid e, struct lctx *c)
 			if (op == O_SIGN)
 				return L != 0 ? LN(L > 0 ? 1 : -1) : s ? LN(s) :
 				    LK(LV_UNKNOWN);
+			if (op == O_ROUNDEVEN) {
+				/* continuous but at the half integers */
+				if (L - floor(L) != 0.5)
+					return LN(nearbyint(L));
+				if (s == 0)
+					return LK(LV_UNKNOWN);
+				lstep(c, "%s -> %s from %s", node_str(A), fnum(L), s > 0 ?
+				    "above" : "below");
+				return LN(s > 0 ? L + 0.5 : L - 0.5);
+			}
 			if (L != floor(L))
 				return LN(op == O_FLOOR ? floor(L) : ceil(L));
 			if (s == 0)

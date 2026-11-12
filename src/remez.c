@@ -30,7 +30,8 @@ lsupported(int op)
 	switch (op) {
 	case O_CONST: case O_VAR: case O_NEG: case O_ABS: case O_SIGN:
 	case O_SQRT: case O_EXP: case O_LOG: case O_SIN: case O_COS:
-	case O_TAN: case O_FLOOR: case O_CEIL: case O_CAST: case O_ADD:
+	case O_TAN: case O_FLOOR: case O_CEIL: case O_ROUNDEVEN: case O_CAST:
+	case O_ADD:
 	case O_SUB: case O_MUL: case O_DIV: case O_POW: case O_MIN:
 	case O_MAX: case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT:
 	case O_GE: case O_LAND: case O_LOR: case O_LNOT: case O_SEL:
@@ -176,6 +177,7 @@ lref_eval(struct lref *r, ld x)
 		case O_LAMBERTWM1: v[k] = lambert_w((double)a, 1); break;
 		case O_FLOOR: v[k] = floorl(a); break;
 		case O_CEIL: v[k] = ceill(a); break;
+		case O_ROUNDEVEN: v[k] = nearbyintl(a); break;
 		case O_CAST: v[k] = a; break;
 		case O_BARRIER: v[k] = a; break;
 		case O_ADD: v[k] = a + b; break;
@@ -550,9 +552,15 @@ lref_taylor(struct lref *r, ld c, int n, ld *out)
 		case O_SIGN:
 		case O_FLOOR:
 		case O_CEIL:
+		case O_ROUNDEVEN:
 			if (r->op[k] == O_SIGN)
 				o[0] = a[0] == 0 ? (ok = 0) : (a[0] > 0 ? 1 : -1);
-			else {
+			else if (r->op[k] == O_ROUNDEVEN) {
+				/* a jump at each half integer */
+				if (a[0] - floorl(a[0]) == 0.5L)
+					ok = 0;
+				o[0] = nearbyintl(a[0]);
+			} else {
 				if (a[0] == floorl(a[0]))
 					ok = 0;
 				o[0] = r->op[k] == O_FLOOR ? floorl(a[0]) :

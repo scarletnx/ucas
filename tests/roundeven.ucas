@@ -1,0 +1,30 @@
+# roundeven(x): to the nearest integer, a tie to the even one (C23
+# roundeven, GLSL roundEven, SPIR-V RoundEven); C's round sends a tie
+# away from zero instead
+re(x: real in -3..3) = roundeven(x)
+table re max 5
+re(2.5)
+re(3.5)
+re(-2.5)
+discontinuities roundeven(x) in 0..3
+limit roundeven(x) x -> 1.5+
+limit roundeven(x) x -> 1.5-
+rd(x: real in 0..10) = roundeven(x/3)
+range rd
+# on f32, the add of 1.5*2^23 rounds to nearest even itself:
+# roundeven(x) is that add and its subtraction, i32(roundeven(x)) the add
+# read as bits (an FADD and an IADD against a conversion), and a multiple
+# of 2^k the add of 1.5*2^(23+k)
+rq(x: f32 in -1000..1000) = i32(roundeven(x))
+find rq 1
+rr(x: f32 in -1000..1000) = roundeven(x)
+find rr 1
+rm(x: f32 in -1000..1000) = roundeven(x * 0.25) * 4
+find rm 1
+# past 2^22 the add no longer rounds to integers: nothing derived
+rv(x: f32 in -10000000..10000000) = roundeven(x)
+find rv 1
+# the rounding analysis: a jump at each half integer
+rh(x: f32 in 0..40) = roundeven(x * 0.1) * 10
+rhx(x: f32 in 0..40) = f32(roundeven(f64(x) * 0.1) * 10)
+error rh ~ rhx

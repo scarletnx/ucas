@@ -101,7 +101,7 @@ operators (`& | xor << >> % ~ [] match`), with a note.
 Expressions: `+ - * / % ^` (power), `mod`, `& | xor ⊕ ~ << >>`,
 comparisons (chains allowed), `&& || ! and or not`, `c ? a : b`,
 `x in a..b`, `|x|`, `[t0, t1, ...][i]` (lookup table), `x²`,
-functions `sin cos tan exp log ln sqrt isqrt abs floor ceil sign min max
+functions `sin cos tan exp log ln sqrt isqrt abs floor ceil roundeven sign min max
 clz ctz popcount sec csc cot atan copysign fma asin acos atan2 sinh cosh
 tanh asinh acosh atanh` (also `arcsin arccos arctan arsinh arcosh artanh`;
 `45°` is `45*pi/180`), Lambert W (`W(x)`, also `W0`,
@@ -1901,6 +1901,9 @@ forms up to the sign of a zero); f32 only.
 | `iN(x)` | `asint(x + 1.5*2^23) - 0x4B400000` | x an integer in [-2^22, 2^22) inside iN | x + 1.5*2^23 is an integer in [2^23, 2^24), exact; its mantissa holds it |
 | `floor(x)`, `ceil(x)` | `r > x ? r - 1 : r` (`r < x ? r + 1 : r`), r = (x + 1.5*2^23) - 1.5*2^23 | \|x\| <= 2^22; a zero result may change sign | the add rounds to the nearest integer, ties to even; one compare corrects it |
 | `floor(x)`, `ceil(x)` | `x` | x an integer | |
+| `roundeven(x)` | `(x + 1.5*2^23) - 1.5*2^23` | \|x\| <= 2^22; a zero result may change sign | the add rounds to the nearest integer, a tie to the even one, exactly roundeven(x) + 1.5*2^23; the subtraction is exact |
+| `iN(roundeven(x))` | `asint(x + 1.5*2^23) - 0x4B400000` | -2^22 <= x < 2^22 - 1/2, inside iN | the add rounds x itself; its mantissa holds roundeven(x) |
+| `roundeven(x * 2^-k) * 2^k` | `(x + 1.5*2^(23+k)) - 1.5*2^(23+k)` | \|x\| <= 2^(22+k), \|k\| <= 20 | the f32 in [2^(23+k), 2^(24+k)) are the multiples of 2^k: the add rounds x to the nearest one, a tie to the even multiple |
 | `f32(iN(x))`, `iN(f32(i))` | `x`, `i` | x an integer inside iN; \|i\| <= 2^24 | both conversions are exact |
 | `f32(1 << k)` | `asfloat((k + 127) << 23)` | 1 << k does not wrap | 2^k is an f32: sign 0, exponent field k + 127, mantissa 0 |
 | `x * f32(1 << k)` | `asfloat(asint(x) + (k << 23))` | x normal and never 0, x * 2^k < 2^128 | the product keeps the mantissa and is exact; the add reaches only the exponent field |

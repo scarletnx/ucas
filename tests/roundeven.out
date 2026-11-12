@@ -1,0 +1,94 @@
+> re(x: real in -3..3) = roundeven(x)
+> table re max 5
+  x=-3  ->  -3
+  x=-2.7  ->  -3
+  x=-2.4  ->  -2
+  x=-2.1  ->  -2
+  x=-1.8  ->  -2
+> re(2.5)
+2
+> re(3.5)
+4
+> re(-2.5)
+-2
+> discontinuities roundeven(x) in 0..3
+discontinuities of roundeven(x):
+  x = 0.5 (~1/2): jump from 0 to 1 (size 1) (f = 0 there)
+  x = 1.5 (~3/2): jump from 1 to 2 (size 1) (f = 2 there)
+  x = 2.5 (~5/2): jump from 2 to 3 (size 1) (f = 2 there)
+  checked numerically: a grid of 20001 points, jumps located by bisection, limits from both sides
+> limit roundeven(x) x -> 1.5+
+limit of roundeven(x) as x -> 3/2+ (from the right):
+  continuous at x = 3/2: substitute
+  = 2
+  numeric from the right (a + h, h = 0.1*2^-k, k = 0..21): 2, 2, 2, 2, 2, 2
+    extrapolated (Richardson): 2 (estimated error 0): agrees
+> limit roundeven(x) x -> 1.5-
+limit of roundeven(x) as x -> 3/2- (from the left):
+  x -> 3/2 from below
+  = 1
+  numeric from the left (a - h, h = 0.1*2^-k, k = 0..21): 1, 1, 1, 1, 1, 1
+    extrapolated (Richardson): 1 (estimated error 0): agrees
+> rd(x: real in 0..10) = roundeven(x/3)
+> range rd
+range of rd:
+  [0, 3]   min at x ≈ 0, max at x ≈ 7.5005
+  grid of 20001 points over [0, 10], extrema refined at critical points
+> rq(x: f32 in -1000..1000) = i32(roundeven(x))
+> find rq 1
+find rq: rewrites by identities the model prices lower (cost 6 as written, under gt1030)
+  cost 2   asint(x + 12582912) - 1262485504         i32(roundeven(x)) by the bits of 1.5*2^23, the add rounding x (derived)
+      holds where x in [-1000, 1000], inside [-2^22, 2^22 - 1/2) and i32
+      x + 1.5*2^23 lies in [2^23, 2^24), where the f32 are the integers: the add rounds x to the nearest integer, a tie to the even one, giving roundeven(x) + 1.5*2^23 exactly (below 2^22 - 1/2, roundeven(x) stays below 2^22 and the sum below 2^24)
+      its bits are 0x4B000000 + (roundeven(x) + 2^22) = 0x4B400000 + roundeven(x) (exponent field 150): subtracting 0x4B400000 leaves roundeven(x)
+      i32 of an integer is that integer
+  cost 5   asint(roundeven(x) + 12582912) - 1262485504 the conversion i32(roundeven(x)) by the bits of 1.5*2^23 (derived)
+      holds where roundeven(x) is an integer in [-1000, 1000], inside [-2^22, 2^22) and i32
+      roundeven(x) + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (roundeven(x) + 2^22) = 0x4B400000 + roundeven(x) (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves roundeven(x)
+      i32(roundeven(x)) truncates toward zero: of an integer it is that integer
+  cost 5   i32(x + 12582912 - 12582912)             roundeven(x) by adding and subtracting 1.5*2^23 (derived)
+      holds where x in [-1000, 1000], inside [-2^22, 2^22]; where the result is zero its sign may differ (allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      x + 1.5*2^23 lies in [2^23, 2^24], where the f32 are the integers: the add rounds x to the nearest integer, a tie to the even one, giving roundeven(x) + 1.5*2^23 exactly
+      subtracting 1.5*2^23 leaves roundeven(x), an integer up to 2^22 in magnitude, an f32: no rounding
+> rr(x: f32 in -1000..1000) = roundeven(x)
+> find rr 1
+find rr: rewrites by identities the model prices lower (cost 3 as written, under gt1030)
+  cost 2   x + 12582912 - 12582912                  roundeven(x) by adding and subtracting 1.5*2^23 (derived)
+      holds where x in [-1000, 1000], inside [-2^22, 2^22]; where the result is zero its sign may differ (allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      x + 1.5*2^23 lies in [2^23, 2^24], where the f32 are the integers: the add rounds x to the nearest integer, a tie to the even one, giving roundeven(x) + 1.5*2^23 exactly
+      subtracting 1.5*2^23 leaves roundeven(x), an integer up to 2^22 in magnitude, an f32: no rounding
+find rr: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact roundeven(x) costs 3 under gt1030; refine a family with a Newton step and check it with 'error']
+> rm(x: f32 in -1000..1000) = roundeven(x * 0.25) * 4
+> find rm 1
+find rm: rewrites by identities the model prices lower (cost 5 as written, under gt1030)
+  cost 2   x + 50331648 - 50331648                  4roundeven(0.25x), x to the nearest multiple of 2^2, by adding and subtracting 1.5*2^25 (derived)
+      holds where x in [-1000, 1000], inside [-2^24, 2^24]; where the result is zero its sign may differ
+      x * 2^-2 rounds only below 2^-126 in magnitude, far under 1/2, where roundeven gives 0 either way, and the integer it gives times 2^2 is exact: roundeven(x * 2^-2) * 2^2 is x rounded to the nearest multiple of 2^2, a tie to the even multiple
+      x + 1.5*2^25 lies in [2^25, 2^26], where the f32 are the multiples of 2^2: the add rounds x the same way, exactly
+      subtracting 1.5*2^25 leaves that multiple, at most 2^24 in magnitude and a multiple of 2^2, an f32: no rounding
+  cost 3   4(0.25x + 12582912 - 12582912)           roundeven(0.25x) by adding and subtracting 1.5*2^23 (derived)
+      holds where 0.25x in [-250.000015, 250.000015], inside [-2^22, 2^22]; where the result is zero its sign may differ (allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (0.25x) + 1.5*2^23 lies in [2^23, 2^24], where the f32 are the integers: the add rounds (0.25x) to the nearest integer, a tie to the even one, giving roundeven((0.25x)) + 1.5*2^23 exactly
+      subtracting 1.5*2^23 leaves roundeven((0.25x)), an integer up to 2^22 in magnitude, an f32: no rounding
+find rm: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact 4roundeven(0.25x) costs 5 under gt1030; refine a family with a Newton step and check it with 'error']
+> rv(x: f32 in -10000000..10000000) = roundeven(x)
+> find rv 1
+find rv: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact roundeven(x) costs 3 under gt1030; refine a family with a Newton step and check it with 'error']
+> rh(x: f32 in 0..40) = roundeven(x * 0.1) * 10
+> rhx(x: f32 in 0..40) = f32(roundeven(f64(x) * 0.1) * 10)
+> error rh ~ rhx
+error of rh against rhx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded; relative to the value, the largest over 101 inputs
+    choices: 1 floor, ceil or roundeven; at no input of the sample is one within its operands' error of going the other way
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07

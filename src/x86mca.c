@@ -595,7 +595,7 @@ lower1(struct low *L, nid n)
 		x = emit(L, XC_CVTI2F, n, a, -1, -1);
 		x = emit(L, XC_VFSQRTD, n, x, -1, -1);
 		return emit(L, XC_CVTF2I, n, x, -1, -1);
-	case O_FLOOR: case O_CEIL:
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
 		return emit(L, XC_VROUND, n, a, -1, -1);
 	case O_BARRIER:
 		return a;

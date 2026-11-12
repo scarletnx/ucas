@@ -31,6 +31,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_TAN] = {"tan", 1, OF_REALFN | OF_PARTIAL},
 	[O_FLOOR] = {"floor", 1, 0},
 	[O_CEIL] = {"ceil", 1, 0},
+	[O_ROUNDEVEN] = {"roundeven", 1, 0},
 	[O_CLZ] = {"clz", 1, OF_INT},
 	[O_CTZ] = {"ctz", 1, OF_INT},
 	[O_POPCNT] = {"popcount", 1, OF_INT},
@@ -634,6 +635,7 @@ mk_un(int op, nid a)
 		break;
 	case O_FLOOR:
 	case O_CEIL:
+	case O_ROUNDEVEN:
 		if (TY_ISINT(t))
 			return a;
 		break;

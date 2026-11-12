@@ -338,7 +338,7 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_FMA:			/* full rate, like a multiply */
 		k = C_FMUL;
 		break;
-	case O_FLOOR: case O_CEIL:
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
 		k = C_CONV;
 		break;
 	case O_CLZ: case O_CTZ: case O_POPCNT:
