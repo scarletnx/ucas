@@ -7995,12 +7995,88 @@ glanes(char *b, size_t n, int gj, const int *grp, const int *lane_of, int ngr)
 
 /* a polynomial's: the function it stands for, from its why ("exp2 ~
  * degree-2 ..."); the rest by their kind */
+/* an approximation's kind: listed with its error */
+static int
+approx_kind(int k)
+{
+	return k == FXR_POLY || k == FXR_LOGDOM;
+}
+
 /* a polynomial the shader had, refitted (fsimp.c an_fewer) */
 static int
 is_refit(const struct fxrw *r)
 {
 	return r && r->kind == FXR_POLY && !strncmp(r->why, "polynomial of "
 	    "degree", 20);
+}
+
+/* node x of graph g as an operand of a result of type rt: its value
+ * when it has that type, else -2 when it is a component of an input
+ * vector (refit_comp), else -1 */
+static int refit_comp(const struct fxg *g, int x, int rt);
+
+static int
+operand_ok(const struct fxg *g, int x, int rt)
+{
+	int xs = x >= 0 ? g->n[x].sid : -1;
+
+	if (xs < 0)
+		return -1;
+	if (type_of(xs) == rt)
+		return xs;
+	if (ncomp(rt) > 1 && type_of(xs) == scalar_of(rt))
+		return -3;	/* a scalar the vector result splats */
+	return refit_comp(g, x, rt) >= 0 ? -2 : -1;
+}
+
+/* the token of node x as an operand (a component read out first when
+ * it is one of an input vector, a scalar splatted when the result is a
+ * vector of it; its name made from tmp and c) */
+static const char *
+operand_tok(struct sbuf *s, const struct fxg *g, int x, int rt,
+    const char *RT, int tmp, int c, char *buf, size_t nb)
+{
+	int xs = g->n[x].sid, i;
+
+	if (type_of(xs) == rt)
+		return V.id[xs].tok;
+	snprintf(buf, nb, "%%ucas_f%dc%d", tmp, c);
+	if (ncomp(rt) > 1 && type_of(xs) == scalar_of(rt)) {
+		sb_printf(s, "%s = OpCompositeConstruct %s", buf, RT);
+		for (i = 0; i < ncomp(rt); i++)
+			sb_printf(s, " %s", V.id[xs].tok);
+		sb_puts(s, "\n");
+		return buf;
+	}
+	sb_printf(s, "%s = OpCompositeExtract %s %s %d\n", buf, RT,
+	    V.id[xs].tok, refit_comp(g, x, rt));
+	return buf;
+}
+
+/* a whole-expression rewrite (a refit, a product in the log domain) can
+ * be written: each operand is a value of the result's type, or one it
+ * reads (a component, a splat); else the reason, in why */
+static int
+whole_writable(const struct fxg *g, const struct fxrw *r, int rt, char *why,
+    size_t nw)
+{
+	int f2, bad = -1;
+
+	if (r->kind == FXR_LOGDOM)
+		for (f2 = 0; f2 < r->nf && bad < 0; f2++) {
+			if (operand_ok(g, r->fa[f2], rt) == -1)
+				bad = r->fa[f2];
+			else if (r->fy[f2] >= 0 && operand_ok(g, r->fy[f2], rt) == -1)
+				bad = r->fy[f2];
+		}
+	else if (operand_ok(g, r->x, rt) == -1 || operand_ok(g, r->x, rt) == -3)
+		bad = r->x;
+	if (bad < 0)
+		return 1;
+	snprintf(why, nw, "not written: its operand %s is not a value of the "
+	    "result's type", g->n[bad].sid >= 0 ? V.id[g->n[bad].sid].tok :
+	    "(a value inside the expression)");
+	return 0;
 }
 
 /* the component of its vector an input lane is, for a scalar result of
@@ -8045,6 +8121,7 @@ kind_text(int kind)
 	case FXR_POWEXP: return "pow as exp2(y * log2 x)";
 	case FXR_SQRT: return "sqrt as x * inversesqrt(x)";
 	case FXR_POLY: return "pow as a polynomial";
+	case FXR_LOGDOM: return "a product of powers as exp2 of a sum of logs";
 	}
 	return "?";
 }
@@ -8075,9 +8152,9 @@ rep_lane(const struct fxrw *rr, const char *lanes)
 	rep_str("proof", proof_key(rr));
 	if (rr->ulp > 0)
 		rep_num("ulp_bound", rr->ulp);
-	if (rr->kind == FXR_POLY)
+	if (approx_kind(rr->kind))
 		rep_num("rel_error", rr->rel);
-	if (rr->kind == FXR_POLY && rr->abserr > 0)
+	if (approx_kind(rr->kind) && rr->abserr > 0)
 		rep_num("abs_error", rr->abserr);
 	if (!rr->exact && rr->exc[0])
 		rep_str("not_exact_at", rr->exc);
@@ -8317,17 +8394,20 @@ float_pass(const char *text, int *changed)
 		struct fxrw *r = pl[i].rw[0];
 		unsigned char in[FX_MAXN];
 		int gj, q, all = pl[i].ng > 0;
-		if (!is_refit(r))
+		if (!is_refit(r) && pl[i].kind != FXR_LOGDOM)
 			continue;
 		for (q = 0; q < pl[i].ng; q++)
-			all = all && fx_accept(pl[i].rw[q], &fopt);
+			all = all && fx_accept(pl[i].rw[q], &fopt) && whole_writable(
+			    &G[(int)((pl[i].rw[q] - RW) / 48)], pl[i].rw[q],
+			    idx(V.in[pl[i].k].opnd[0]), pl[i].rw[q]->sinkfail,
+			    sizeof pl[i].rw[q]->sinkfail);
 		if (!all)
 			continue;
 		gj = (int)((r - RW) / 48);
-		fx_refit_inner(&G[gj], r->node, in);
+		fx_inner(&G[gj], r, in);
 		for (q = 0; q < G[gj].nn && q < FX_MAXN; q++)
 			if (in[q] && q != r->node && G[gj].n[q].ins >= 0)
-				inner[G[gj].n[q].ins] = 1;
+				inner[G[gj].n[q].ins] = pl[i].kind == FXR_LOGDOM ? 2 : 1;
 	}
 	/* accepted: every lane group of the instruction allows it, and what
 	 * it depends on is applied; one rewrite per instruction (the most
@@ -8354,18 +8434,10 @@ float_pass(const char *text, int *changed)
 					struct fxrw *r = P->rw[q];
 					if (!fx_accept(r, &fopt))
 						ok = 0;
-					if (ok && is_refit(r)) {
-						int gj = (int)((r - RW) / 48);
-						int xs = G[gj].n[r->x].sid;
-						if (xs < 0 || (type_of(xs) != rt &&
-						    refit_comp(&G[gj], r->x, rt) < 0)) {
-							snprintf(r->sinkfail, sizeof r->sinkfail, "not "
-							    "written: its variable %s is not a value of "
-							    "the result's type", xs >= 0 ? V.id[xs].tok :
-							    "(none)");
-							ok = 0;
-						}
-					}
+					if (ok && (is_refit(r) || r->kind == FXR_LOGDOM) &&
+					    !whole_writable(&G[(int)((r - RW) / 48)], r, rt,
+					    r->sinkfail, sizeof r->sinkfail))
+						ok = 0;
 					if (r->dep >= 0) {
 						/* the select it relies on, in the same group */
 						struct fxrw *d = NULL;
@@ -8498,6 +8570,59 @@ float_pass(const char *text, int *changed)
 			sb_printf(&s, "%s = OpFMul %s %s %%ucas_f%dz\n", R, RT,
 			    I->opnd[3], tmp);
 			break;
+		case FXR_LOGDOM: {
+			const struct fxrw *r0 = P->rw[0];
+			const struct fxg *gg = &G[(int)((r0 - RW) / 48)];
+			char acc[48], vb[48], yb[48], tb[48];
+			int f2, l2, c = 0;
+			tmp++;
+			for (f2 = 0; f2 < r0->nf; f2++) {
+				const char *v = operand_tok(&s, gg, r0->fa[f2], rt, RT, tmp,
+				    c++, vb, sizeof vb), *y = NULL;
+				int one = r0->fy[f2] < 0, mone = one;
+				if (!r0->fe[f2]) {
+					snprintf(tb, sizeof tb, "%%ucas_f%dl%d", tmp, f2);
+					sb_printf(&s, "%s = OpExtInst %s %s Log2 %s\n", tb, RT, GL,
+					    v);
+					snprintf(vb, sizeof vb, "%s", tb);
+					v = vb;
+				}
+				for (l2 = 0; l2 < n && l2 < 4; l2++) {
+					one = one && lv[f2][l2] == 1;
+					mone = mone && lv[f2][l2] == -1;
+				}
+				if (r0->fy[f2] >= 0)
+					y = operand_tok(&s, gg, r0->fy[f2], rt, RT, tmp, c++, yb,
+					    sizeof yb);
+				else if (!one && !mone)
+					y = fconst(&decl, rt, lv[f2], n);
+				snprintf(tb, sizeof tb, "%%ucas_f%ds%d", tmp, f2);
+				if (f2 == 0) {
+					if (one)
+						snprintf(tb, sizeof tb, "%s", v);
+					else if (mone)
+						sb_printf(&s, "%s = OpFNegate %s %s\n", tb, RT, v);
+					else
+						sb_printf(&s, "%s = OpFMul %s %s %s\n", tb, RT, v, y);
+				} else if (one)
+					sb_printf(&s, "%s = OpFAdd %s %s %s\n", tb, RT, acc, v);
+				else if (mone)
+					sb_printf(&s, "%s = OpFSub %s %s %s\n", tb, RT, acc, v);
+				else
+					sb_printf(&s, "%s = OpExtInst %s %s Fma %s %s %s\n", tb, RT,
+					    GL, v, y, acc);
+				snprintf(acc, sizeof acc, "%s", tb);
+			}
+			for (l2 = 0; l2 < n && l2 < 4 && lv[FX_MAXF][l2] == 0; l2++)
+				;
+			if (l2 < n && l2 < 4) {
+				sb_printf(&s, "%%ucas_f%dk = OpFAdd %s %s %s\n", tmp, RT, acc,
+				    fconst(&decl, rt, lv[FX_MAXF], n));
+				snprintf(acc, sizeof acc, "%%ucas_f%dk", tmp);
+			}
+			sb_printf(&s, "%s = OpExtInst %s %s Exp2 %s\n", R, RT, GL, acc);
+			break;
+		}
 		case FXR_POLY: {
 			int d = P->deg, e;
 			char prev[48], tv[48], xb[48];
@@ -8646,7 +8771,7 @@ float_pass(const char *text, int *changed)
 				nd++;
 			else if (pl[i].applied)
 				ord[no++] = i;
-			else if (pl[i].kind == FXR_POLY)
+			else if (approx_kind(pl[i].kind) && !inner[pl[i].k])
 				napx++;
 			else
 				nrej++;
@@ -8759,7 +8884,7 @@ float_pass(const char *text, int *changed)
 		rep_list("approximations");
 		for (i = 0; i < npl; i++) {
 			int c;
-			if (pl[i].kind != FXR_POLY || pl[i].applied)
+			if (!approx_kind(pl[i].kind) || pl[i].applied || inner[pl[i].k])
 				continue;
 			rep_obj(NULL);
 			rep_str("instruction", V.in[pl[i].k].text);
@@ -8776,7 +8901,7 @@ float_pass(const char *text, int *changed)
 		for (i = 0; i < npl; i++) {
 			int c;
 			if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
-			    pl[i].kind == FXR_POLY)
+			    approx_kind(pl[i].kind))
 				continue;
 			rep_obj(NULL);
 			rep_str("instruction", V.in[pl[i].k].text);
@@ -8922,7 +9047,8 @@ float_pass(const char *text, int *changed)
 			for (i = 0; i < npl; i++) {
 				struct fxrw *r = pl[i].rw[0];
 				int c, any = 0;
-				if (pl[i].kind != FXR_POLY || pl[i].applied)
+				if (!approx_kind(pl[i].kind) || pl[i].applied ||
+				    inner[pl[i].k])
 					continue;
 				for (c = 0; c < pl[i].ng; c++)
 					any |= pl[i].rw[c]->approx;
@@ -8945,10 +9071,10 @@ float_pass(const char *text, int *changed)
 						    pl[i].rw[c]->sinkfail);
 						break;
 					}
-				if (i == npl - 1 || pl[i + 1].kind != FXR_POLY ||
+				if (i == npl - 1 || pl[i + 1].kind != pl[i].kind ||
 				    pl[i + 1].k != pl[i].k) {
 					pr_lines(&rep, r->proof.p, "        ");
-					{
+					if (pl[i].kind == FXR_POLY) {
 						int e;
 						sb_printf(&rep, "        P(t) = ");
 						for (e = 0; e < r->deg; e++)
@@ -8968,7 +9094,7 @@ float_pass(const char *text, int *changed)
 				struct fxrw *r = NULL;
 				int c;
 				if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
-				    pl[i].kind == FXR_POLY)
+				    approx_kind(pl[i].kind))
 					continue;
 				for (c = 0; c < pl[i].ng; c++)
 					if (!fx_accept(pl[i].rw[c], &fopt))
@@ -8978,8 +9104,9 @@ float_pass(const char *text, int *changed)
 				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
 				    kind_text(pl[i].kind));
 				if (inner[pl[i].k]) {
-					sb_printf(&rep, "        inside a polynomial that is "
-					    "refitted as a whole\n");
+					sb_printf(&rep, "        %s\n", inner[pl[i].k] == 2 ?
+					    "inside a product that is rewritten in the log domain" :
+					    "inside a polynomial that is refitted as a whole");
 					continue;
 				}
 				if (pl[i].ng > 1) {

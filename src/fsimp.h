@@ -84,9 +84,12 @@ enum {
 	FXR_FMA2,	/* x * K + B -> fma(x, K, B) */
 	FXR_POWEXP,	/* pow(q, y) -> exp2(y * log2(q)) */
 	FXR_SQRT,	/* sqrt(x) -> x * inversesqrt(x) */
-	FXR_POLY	/* pow(q, y) (or exp2, log2, sqrt, inversesqrt of q)
+	FXR_POLY,	/* pow(q, y) (or exp2, log2, sqrt, inversesqrt of q)
 			 * ~ P(q - c), an approximation */
+	FXR_LOGDOM	/* a product of powers -> exp2 of a sum of logs */
 };
+
+#define FX_MAXF 8
 
 #define FX_MAXK 16
 
@@ -117,6 +120,12 @@ struct fxrw {
 	int sink;		/* accepted by the root's sink budget */
 	double sinkdev;		/* the root's deviation with it (and the rest) */
 	char sinkfail[200];	/* why the budget refuses it */
+	/* FXR_LOGDOM: factor j is base fa[j] (its log2 taken) to the power
+	 * fy[j] (a node, or -1 for the constant k[j]), or, when fe[j], the
+	 * exponent fa[j] of an exp2 (no log); k[FX_MAXF] the log2 of the
+	 * constant factors */
+	int nf, fa[FX_MAXF], fy[FX_MAXF];
+	unsigned char fe[FX_MAXF];
 	struct sbuf proof;	/* the derivation, lines */
 };
 
@@ -135,9 +144,10 @@ int fx_rewrites(struct fxg *g, int root, const struct fxopt *o,
     struct fxrw *rw, int max);
 int fx_accept(const struct fxrw *r, const struct fxopt *o);
 void fx_free(struct fxrw *rw, int n);
-/* the operations of the polynomial a refit (FXR_POLY of a polynomial the
- * graph had) replaces, its root among them, marked in in[FX_MAXN] */
-int fx_refit_inner(const struct fxg *g, int node, unsigned char *in);
+/* the operations a rewrite of a whole (a refitted polynomial, a product
+ * in the log domain) replaces, its root among them, marked in
+ * in[FX_MAXN]; 0 for any other rewrite */
+int fx_inner(const struct fxg *g, const struct fxrw *r, unsigned char *in);
 /* "%.9g" with -0, inf, nan spelt */
 const char *fx_str(float v, char *b, size_t n);
 /* the per-component cost of a node's operation as lowered */
