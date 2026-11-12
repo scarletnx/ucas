@@ -541,6 +541,8 @@ int inst_class(int op);
 nid inst_expand(int op, nid a, nid b, nid c);
 /* find: the instructions the active model has, for the patterns they are */
 void inst_find(const struct func *f);
+/* swar.c: lane operations on packed words, word-wide */
+void swar_find(const struct func *f);
 
 /* ---- tab.c ---- */
 /* find: a function of at most 16 input bits as one load of a table */

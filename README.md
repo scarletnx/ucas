@@ -3205,6 +3205,67 @@ field`, m one run of bits p..p+n-1 and the field `(ins << p) & m` or
 with xor or +).  It does not write Op[US]MulExtended (a struct result
 and its extract) yet.
 
+### Packed lanes
+
+A u32 often carries lanes: four 8-bit channels, two 16-bit halves,
+eight nibbles.  Code that works on each lane takes it out with a shift
+and a mask, computes, and puts it back; the same result comes from a
+few operations on the whole word (SIMD within a register), and `find`
+offers that form where the active model prices it lower (src/swar.c):
+
+```
+> avg8(a: u32, b: u32) = (((a & 255) + (b & 255)) >> 1) | ((((a >> 8) & 255) + ((b >> 8) & 255)) >> 1) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) >> 1) << 16 | (((a >> 24) + (b >> 24)) >> 1) << 24
+> find avg8 1
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 37 as written):
+  cost 4   (a & b) + (((a xor b) & 0xfefefefe) >> 1)
+           4 x 8-bit lanes, (a + b) >> 1 in each: what both have plus half of what one has
+           checked by SAT
+```
+
+The lanes are unsigned, 8 x 4, 4 x 8 or 2 x 16 bits, the same
+operation in every lane of one or two words.  With H the lanes' top
+bits, L the other bits and ONE the lanes' low bits:
+
+| in each lane | the word-wide form | gt1030, 4 x 8 bits: as written, then |
+|---|---|---|
+| `a + b` | `((a & L) + (b & L)) xor ((a xor b) & H)` | 35, 5 |
+| `a - b` | `((a | H) - (b & L)) xor (~(a xor b) & H)` | 33, 5 |
+| `(a + b) >> 1` | `(a & b) + (((a xor b) & ~ONE) >> 1)` | 37, 4 |
+| `(a + b + 1) >> 1` | `(a | b) - (((a xor b) & ~ONE) >> 1)` | |
+| `a >= b ? all ones : 0` | `M(G)`, `G = ((a & ~b) | (~(a xor b) & ((a | H) - (b & L)))) & H` the lanes' top bits and `M(G) = (G - (G >> (w - 1))) | G` the whole lanes | 42, 9 |
+| `a > b ? all ones : 0` | the same with not (b >= a) | |
+| `max(a, b)`, `min(a, b)` | `b xor ((a xor b) & M)`, `a xor ((a xor b) & M)`, M the mask of a >= b | 30, 12 |
+| `abs(a - b)` | max - min in one subtraction: no lane borrows | 38, 14 |
+| `min(a + b, 2^w - 1)` | `S | M(((a & b) | ((a | b) & ~S)) & H)`, S the lanes' sum | 33, 11 |
+| `max(a - b, 0)` | `D & M`, D the lanes' difference, M the mask of a >= b | 34, 12 |
+| `a == b ? all ones : 0` | `M(~(((x & L) + L) | x) & H)`, `x = a xor b`; `!=` without the not | 42, 8 |
+
+Which of these a value is, if any, is not read from how it is written
+but from what it computes: every subterm that fits a u32 and reads one
+or two u32 parameters is run on 256 pairs of words (random ones, and
+ones whose bytes or halves are equal, 0 or all ones, so compares and
+saturation show), and each lane of the result is compared with each
+lane operation's, the operands either way round.  With one word the
+other operand is a constant, looked for lane by lane among the lane's
+256 values (16-bit lanes need two words).  That makes a candidate, not
+a result: the subterm is replaced where the model prices the function
+lower and the function so rewritten is proved equal on its
+domain like every other rewrite of `find` (by SAT for two words); one
+the proof refuses is dropped.  The words are whole u32 parameters: one
+with a range is left alone.  JSON: `packed_lanes` (`cost_before`,
+`cost`, `expr`, `derivation`, `check`).
+
+Under sm75, where the integer pipe runs at one price, the forms still
+win (max of four bytes: 21 as written, 11).  Two 16-bit minimums are
+11 as written and 12 through the mask, so nothing is offered.
+
+Not done: signed lanes, a different operation in each lane, lanes of
+other widths, shifts inside the lanes, two products with a common
+factor in one multiply and a two-term dot product as the middle term
+of one (they need a lane-packing search over values that are not yet
+in one word, as dot.c does for sums of products), and the same in
+`simplify` on SPIR-V.
+
 ### Functions as tables
 
 A function of few input bits can be one load.  find's closed forms

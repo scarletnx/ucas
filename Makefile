@@ -8,6 +8,8 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 SRCS+=	fuse.c irw.c idrw.c
 # integers as floats and floats as integers: more rewrites for irw.c
 SRCS+=	ifx.c
+# lanes packed in a word, worked on all at once: more rewrites for find
+SRCS+=	swar.c
 # graphics fixed function (blending, logic ops, stencil) as compute
 SRCS+=	rop.c
 # the texture unit's fixed function as operations
