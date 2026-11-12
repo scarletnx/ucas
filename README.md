@@ -2599,6 +2599,11 @@ from the parameters (`s: u32 in 0..255`).
 | advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, and the piecewise OVERLAY, HARDLIGHT, SOFTLIGHT, COLORDODGE, COLORBURN, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
 | depth test | VK_COMPARE_OP_LESS (a min) or GREATER_OR_EQUAL (a max): the value's high bits are the key, its low bits a payload the test keeps with it in a colour target (an argmin, an argmax) | D32_SFLOAT and an R8 to R32G32_UINT target | `rop_depth` |
 | occlusion query | a precise VK_QUERY_TYPE_OCCLUSION around the draw: d + (s != 0), or d + 1, counted over every contribution | one cell for a whole draw | `rop_query` |
+| transfer | vkCmdFillBuffer, vkCmdClearColorImage: every cell set to one constant, no shader | buffers, images | `rop_fill` |
+
+Two more kinds of F, below: a predicate P(x, y) of a pixel (the
+rasteriser's coverage, `rop_raster`) and 4 or 8 samples of a pixel (the
+depth and stencil resolve modes, `rop_resolve`).
 
 A logic op on a u64 cell works on an R32G32_UINT target, a word a
 channel (a logic op is bitwise).
