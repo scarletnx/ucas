@@ -60,6 +60,10 @@ find badd: 1024 points (sampled; matches verified on the whole domain), computin
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 333 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 32 as written):
+  cost 5   (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080
+           4 x 8-bit lanes, a + b in each: the lanes' top bits go apart, so no carry crosses a lane
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model lanes : gt1030 { simd4x8: 1, msad: 1, pk16: 1 }
@@ -89,6 +93,10 @@ find badd: 1024 points (sampled; matches verified on the whole domain), computin
   instructions under lanes (each for the pattern it is; cost 32 as written):
   cost 1   add4x8(a, b)
            (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8… (100 more characters): add4x8(a, b), lane by lane, told at 48 random points
+           checked by SAT
+  packed lanes under lanes (every lane in one word-wide operation; cost 32 as written):
+  cost 5   (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080
+           4 x 8-bit lanes, a + b in each: the lanes' top bits go apart, so no carry crosses a lane
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
