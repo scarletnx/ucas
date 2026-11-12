@@ -16,6 +16,11 @@ stoke m9
 stoke m9 model sm75
 # another seed is another run
 stoke m9 seed 7
+# the chain prices a program as the report does: the cover of its
+# expression, so a dead shift costs nothing and a shift and an add are
+# one instruction; one chain from m9 itself reaches x + 8x (priced
+# instruction by instruction no chain of seeds 1 to 12 did)
+stoke m9 steps 100000 restarts 1 seed 11
 # find, then the search
 find xr 2 stoke
 # Schwartz-Zippel: polynomials compared at random points mod 2^61 - 1
