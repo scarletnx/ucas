@@ -1573,7 +1573,7 @@ hy_parse(const char *body, struct func *f, int nexp, struct hscan *S,
 
 /* ---- statements ---- */
 
-static const char *const ucas_cmds[] = {"texalu", "show", "table", "range", "domain",
+static const char *const ucas_cmds[] = {"texalu", "texenc", "show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "plot", "plot3d", "neighbourhood", "neighborhood", "animate",
 	"approx", "help", "funcs", "models", "use", "more", "parse", "closed",

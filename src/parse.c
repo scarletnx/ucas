@@ -25,6 +25,7 @@
 #include "cfront.h"
 #include "prove.h"
 #include "texalu.h"
+#include "texenc.h"
 #include "props.h"
 #include "dword.h"
 #include "memk.h"
@@ -2521,6 +2522,9 @@ statement(struct P *p)
 	 * when hyper.c would read it as a value */
 	/* texalu F: reads through the texture unit (texalu.h) */
 	if (pk(p) == T_ID && texalu_command(p))
+		return;
+	/* texenc T: a table as BC4 blocks (texenc.h) */
+	if (pk(p) == T_ID && texenc_command(p))
 		return;
 	if (pk(p) == T_ID && ring_command(p))
 		return;
