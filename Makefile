@@ -24,6 +24,7 @@ spirv.o spirv.pieo: spv_dword.inc
 # the memory side of a cost model: bank conflicts, integer atomics
 SRCS+=	memk.c
 spirv.o spirv.pieo: spv_mem.inc
+spirv.o spirv.pieo: spv_sg.inc
 # stochastic search: MCMC over programs, identity testing, hash search
 SRCS+=	stoch.c
 # numerical search (annealing, CMA-ES), rounding error models, Sobol QMC
