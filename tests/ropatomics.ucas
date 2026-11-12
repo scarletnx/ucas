@@ -4,7 +4,7 @@
 # rop's catalogue says which state computes it.  Proposed only where the
 # model prices that state below the atomic; gt1030 prices none, so it
 # says nothing there.
-model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
+model fixed : gt1030 { rop_blend: 2, rop_logic: 60, rop_depth: 4 }
 #
 # under gt1030 nothing is said about the atomic
 simplify nofile
@@ -95,5 +95,22 @@ void main() {
     uint v = inb.px[gl_GlobalInvocationID.x];
     atomicAdd(hb.hist[v & 255u], 1u);
     inb.px[gl_GlobalInvocationID.x] = hb.hist[v & 255u];
+}
+```
+# a visibility buffer: a 64-bit min of (depth << 32) | id is the depth
+# test keeping the id, against the 64-bit atomic
+simplify nofile under fixed, vb in [0, 4539628424389459967]
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uvec4 tri[]; } inb;
+layout(std430, set = 0, binding = 1) buffer V { uint64_t vb[]; } vbb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uvec4 t = inb.tri[i];
+    uint depth = t.y % 1056964608u;
+    atomicMin(vbb.vb[t.x & 65535u], (uint64_t(depth) << 32) | uint64_t(i));
 }
 ```

@@ -100,3 +100,28 @@ two(a: u32 uniform, b: u32 uniform, d: u32) = d + a + b
 rop two
 sg(s: i32, d: i32) = d + s
 rop sg
+
+# the depth test: a min or a max whose high bits are the key and whose
+# low bits, the payload, ride in a colour target (an argmin).  The key
+# goes in as the float whose bits are key + 2^23, which D32_SFLOAT keeps
+# and compares exactly below 0x3F000000; the fewest low bits are left
+# out of the key for it to fit.  On a tie the test keeps one by the
+# order the fragments come in, so the payloads must come in increasing
+# order (the contribution's index in the draw).
+am(s: u64, d: u64) = min(d, s)
+rop am
+# a 32-bit key and a 32-bit payload, when the range keeps the key below
+# 0x3F000000; max is GREATER_OR_EQUAL (reversed-Z, an argmax)
+pk(s: u64 in 0..4539628424389459967, d: u64 in 0..4539628424389459967) = min(s, d)
+rop pk
+far(s: u32, d: u32) = max(s, d)
+rop far
+# values that fit the depth whole: the test alone, ties are equal values
+near(s: u32 in 0..1000000, d: u32 in 0..1000000) = min(d, s)
+rop near
+# priced against the 64-bit atomic it replaces
+model depthy : gt1030 { rop_depth: 4 }
+rop am model depthy
+# u64 cells: a logic op on two 32-bit channels
+bits64(s: u64, d: u64) = d | s
+rop bits64

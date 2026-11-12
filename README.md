@@ -170,7 +170,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp; for a float G also how much of it rounding can be, to first order: the worst case, the high-probability bound and the expected size (see "Probabilistic rounding error") |
 | `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
-| `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops) that compute the per-cell update F(s, d) of a scatter, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
+| `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
@@ -2184,9 +2184,11 @@ exact is said (the counts below 2^24); a state the model prices at or
 above the atomic, or does not price, is named with that price.  The
 cell's array must be touched by nothing else in the shader: a load, a
 store or another kind of atomic on it means a render target cannot
-serve it in the pass that blends into it, and is said so.  Signed
-atomics and 64-bit ones are not proposed (rop's targets take u8 to u32
-and f32), workgroup memory never is (no target holds it).  Under a
+serve it in the pass that blends into it, and is said so.  A 64-bit
+min or max is the depth test keeping a payload (the visibility buffer's
+`atomicMin(vb[p], (uint64_t(depth) << 32) | id)`), priced against
+`atomic_global_64`.  Signed atomics are not proposed (rop takes
+unsigned integers), workgroup memory never is (no target holds it).  Under a
 model that prices none of rop's classes (gt1030) the pass says nothing
 (tests/ropatomics.ucas).
 
@@ -2570,8 +2572,8 @@ F's parameters are the cell's value (the one named `d` or `dst`, else
 the last), what a fragment brings (the first other one), optionally a
 second value of the fragment (dual-source blending) and one `uniform`
 parameter, a pipeline constant (the blend constant, the stencil
-reference); all of one type, u8, u16, u32 or f32.  Ranges come from
-the parameters (`s: u32 in 0..255`).
+reference); all of one type, u8, u16, u32, u64 or f32.  Ranges come
+from the parameters (`s: u32 in 0..255`).
 
 **The catalogue**, each state with its exact result:
 
@@ -2581,6 +2583,42 @@ the parameters (`s: u32 in 0..255`).
 | stencil op | the 8 VkStencilOp on d (and the reference), under a write mask of the low or the high bits: counters mod 256 or saturating, an invert, a replace | the 8-bit stencil value | `rop_stencil` |
 | blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
 | advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
+| depth test | VK_COMPARE_OP_LESS (a min) or GREATER_OR_EQUAL (a max): the value's high bits are the key, its low bits a payload the test keeps with it in a colour target (an argmin, an argmax) | D32_SFLOAT and an R8 to R32G32_UINT target | `rop_depth` |
+
+A logic op on a u64 cell works on an R32G32_UINT target, a word a
+channel (a logic op is bitwise).
+
+**The depth test** keeps the fragment whose key wins, and with it the
+fragment's colour: a min (LESS) or a max (GREATER_OR_EQUAL, as with
+reversed Z) of values whose high bits are the key, the payload in the
+low bits carried by a colour attachment written where the test passes.
+A key goes in as the depth whose f32 bits are key + 2^23: normal (no
+flush of denormals), in [2^-126, 1) (no clamp to the depth range), and
+increasing with the key while it is below 0x3F000000, so D32_SFLOAT
+keeps it as written and its compare is the keys' integer compare;
+nothing rounds.  The fewest low bits are left out of the key for it to
+fit, from the parameters' ranges: a u32 below 0x3F000000 is its own key
+and needs no payload, an unbounded u32 leaves 3 bits out (an R8_UINT
+payload), an unbounded u64 35 (R32G32_UINT), a u64 whose range keeps
+the high word below 0x3F000000 the conventional 32.  With a payload the
+test keeps `s >> b < d >> b ? s : d`, which SAT proves equal to the min
+wherever the keys differ or the new payload is the larger: on a tie the
+test keeps one of the two by the order the fragments come in, so the
+payloads must come in increasing order (the contribution's index in the
+draw: a cell's fragments pass in primitive order).  UNORM depth
+formats are not offered: their conversion rounds (to measure).
+
+```
+> am(s: u64, d: u64) = min(d, s)
+> rop am
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment holding the key s >> 35, the payload s & 0x7ffffffff in an R32G32_UINT colour attachment written where the test passes: min(s, d)
+      holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (...); the keys below 0x3F000000 (at most 536870911, from the parameters' ranges)
+      the test keeps s >> 35 < d >> 35 ? s : d, which is min(s, d) wherever the keys differ or the new payload is the larger (proved by SAT); ...
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+```
+
+A u64 update is priced against `atomic_global_64` (a 64-bit atomic, or
+a 64-bit compare-and-swap loop around the update).
 
 **Nothing is recognised by name.**  Every state is compared with F on
 F's domain: integer states on every point or by SAT; a blend equation
@@ -2614,7 +2652,7 @@ sequential loop over the fragments, not for atomics.
 
 **Prices.**  Each family has a cost class, the price of one fragment
 through that state.  No built-in model lists them (the corpus measures
-none: tests/gt1030 needs blend, logic-op and stencil state first), and
+none: tests/gt1030 needs blend, logic-op, stencil and depth state first), and
 an unpriced form is unavailable; `rop` says so and still shows the
 proof.  With a model that prices one, it is compared with the update
 as a global atomic, by the model's memory kinds: `atomic_global` for
@@ -2639,7 +2677,7 @@ do.  English: "the blend state for acc", "the logic op for a | b with
 u32 a and b", "the fixed-function forms of cnt on fixed", "show me
 the blending for acc".  `simplify` asks the same catalogue about a
 module's atomics (see [Memory kinds](#memory-kinds): a scatter's
-atomics as fixed function).  Not yet: the depth test as an argmin, occlusion
+atomics as fixed function).  Not yet: occlusion
 queries as counts, MSAA resolve, blits and the other fixed-function
 ideas are not in the catalogue; separate alpha, sRGB and the
 piecewise advanced operations (overlay, the lights, dodge, burn) are

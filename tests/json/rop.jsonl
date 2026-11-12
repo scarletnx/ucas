@@ -3,3 +3,4 @@
 {"id": 3, "cmd": "ucas", "args": {"source": "model fixed : gt1030 { rop_stencil: 3 }"}}
 {"id": 4, "cmd": "rop", "args": {"f": {"body": "d + 1", "params": [{"name": "d", "type": "u8"}]}, "model": "fixed"}}
 {"id": 5, "cmd": "rop", "args": {"f": {"body": "d * 3 + s", "params": [{"name": "s", "type": "u32"}, {"name": "d", "type": "u32"}]}}}
+{"id": 6, "cmd": "rop", "args": {"f": {"body": "min(d, s)", "params": [{"name": "s", "type": "u64"}, {"name": "d", "type": "u64"}]}}}
