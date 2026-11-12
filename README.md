@@ -1904,7 +1904,7 @@ forms up to the sign of a zero); f32 only.
 | `f32(iN(x))`, `iN(f32(i))` | `x`, `i` | x an integer inside iN; \|i\| <= 2^24 | both conversions are exact |
 | `f32(1 << k)` | `asfloat((k + 127) << 23)` | 1 << k does not wrap | 2^k is an f32: sign 0, exponent field k + 127, mantissa 0 |
 | `x * f32(1 << k)` | `asfloat(asint(x) + (k << 23))` | x normal and never 0, x * 2^k < 2^128 | the product keeps the mantissa and is exact; the add reaches only the exponent field |
-| `31 - clz(x)` (W-1 for a W-bit x) | `(asint(f32(x)) >> 23) - 127` | 1 <= x < 2^24 | f32(x) is exact there, and its exponent field is floor(log2 x) + 127 |
+| `31 - clz(x)` (W-1 for a W-bit x) | `(asint(f32(x)) >> 23) - 127` | x >= 1, and x misses every [2^(e+1) - 2^(e-24), 2^(e+1)) for e >= 24 (from 1: up to 2^25 - 2) | f32(x) is exact up to 2^24; past it, it rounds to nearest even and stays in x's binade unless x is within half a step of the next power of two, so its exponent field is floor(log2 x) + 127; a range that reaches such an x gets the rewrite as not applied, with that x |
 | integer `+`, `-`, `*` | the same on f32, conversions at the ends | every value in it inside (-2^24, 2^24) | f32 holds those integers: no operation rounds, contracted into an fma or not |
 
 A float is known to be an integer when it is a floor, a ceil, a

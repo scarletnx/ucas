@@ -62,10 +62,19 @@ find lg 1
 # conversion-rate floor
 fr(x: f32 in -1000..1000, y: f32 in 0..1) = floor(x) + y
 find fr 1
-use gt1030
-# 2^24 is where f32(x) starts to round: not derived
+# past 2^24 f32(x) rounds, and the exponent field holds while the
+# rounding stays in x's binade: up to 2^25 - 2 from 1; where counting
+# bits is dearer than a conversion, the conversion wins
+model slowclz : sm86 { bitcnt: 16 }
+use slowclz
 lgx(x: u32 in 1..16777216) = 31 - clz(x)
 find lgx 1
+lgy(x: u32 in 1..33554430) = 31 - clz(x)
+find lgy 1
+# 2^25 - 1 rounds up to 2^25: not applied, and the first such x named
+lgz(x: u32 in 1..33554431) = 31 - clz(x)
+find lgz 1
+use gt1030
 
 # integer arithmetic on the fp32 pipe: every value below 2^24, so no
 # float operation rounds.  With operands that are floats already the
