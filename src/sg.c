@@ -151,7 +151,20 @@ sg_expand(int op, nid a, nid b, nid c)
 	nid r = 0, e[SG_MAXW], v;
 
 	/* the other lanes' values of a parameter are not known here */
-	if ((v = lane_copy_in(a, 0)) != 0)
+	if ((v = lane_copy_in(a, 0)) != 0 && N.kr[v] != 0) {
+		/* a loop's state that follows one */
+		const char *from = sym_str((uint32_t)N.kr[v]);
+		fail("%s reads %s in every lane, and %s is a loop's value that "
+		    "follows %s, a value per lane: each lane has its own %s, and "
+		    "ucas does not run the loop in every lane at once to know the "
+		    "others', so the value depends on the other lanes and has "
+		    "none here (cost prices it at the worst%s%s%s)",
+		    opinfo[op].name, sym_str(N.a[v]), sym_str(N.a[v]), from,
+		    sym_str(N.a[v]), strcmp(from, "lane") ? "; declare " : "",
+		    strcmp(from, "lane") ? from : "", strcmp(from, "lane") ?
+		    " uniform for an exact value" : "");
+	}
+	if (v != 0)
 		fail("%s reads %s in every lane, and %s has a value in each "
 		    "lane that ucas does not know for the others: the value "
 		    "depends on the other lanes, so it has none here (cost "

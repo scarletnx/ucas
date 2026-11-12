@@ -479,6 +479,9 @@ nid sg_lane(void);		/* the lane's index inside an operand */
  * parameter that is not uniform: no exact value, priced at the worst */
 #define SG_COPY_SLOT 300
 nid sg_lane_copy(int slot, uint32_t name, ty_t t, int W);	/* node.c */
+/* a loop state's (slot) value in the lane it is read in, for a state that
+ * follows a value per lane (from: its name): priced as a parameter's */
+nid sg_state_copy(int slot, uint32_t name, ty_t t, int W, uint32_t from);
 int sg_is_lane(nid n);		/* a variable named lane: the lane itself */
 int sg_has_lane(nid e);		/* the bound lane is free in e */
 nid sg_lower_once(nid root);	/* node.c: sg_lower without its memory */

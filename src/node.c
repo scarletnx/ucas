@@ -402,6 +402,14 @@ sg_lane_copy(int slot, uint32_t name, ty_t t, int W)
 }
 
 nid
+sg_state_copy(int slot, uint32_t name, ty_t t, int W, uint32_t from)
+{
+	/* b: the W lanes it is read in; kr: what it follows (a name) */
+	return intern(O_VAR, t, name, (nid)W, 0, SG_COPY_SLOT + slot,
+	    (double)from, NF_VAR | NF_LANEREAD);
+}
+
+nid
 mk_undef(ty_t t)
 {
 	return intern(O_UNDEF, t, 0, 0, 0, 0, 0.0, NF_PARTIAL);
