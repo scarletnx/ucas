@@ -1,0 +1,111 @@
+# Which addresses are the same in every lane of a warp: a varying branch
+# makes varying what depends on the side a lane took, and nothing else.
+#
+# a loop counter stays uniform under a varying branch in its body: only
+# the read at the per-lane index is priced load_ubo_div
+simplify nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0;
+    for (uint r = 0u; r < 8u; r++) {
+        if (((i >> r) & 1u) != 0u)
+            s += ubo.w[r];
+    }
+    outb.o[i] = s + ubo.w[i & 63u];
+}
+```
+# lanes that leave a loop at different iterations: inside it the counter
+# is the same in every lane still there, after it it is not
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0;
+    uint r = 0u;
+    while (r < 63u && ubo.w[r] < float(i)) {
+        s += ubo.w[r + 1u];
+        r++;
+    }
+    outb.o[i] = s + ubo.w[r];
+}
+```
+# an index two sides of a varying branch set differently varies; one a
+# uniform branch sets does not
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { uint n; float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint a = 3u, b = 5u;
+    if ((i & 1u) != 0u) {
+        a = uint(ubo.w[1]);
+        outb.o[i + 64u] = 1.0;
+    }
+    if (ubo.n > 5u) {
+        b = uint(ubo.w[2]);
+        outb.o[i + 128u] = 2.0;
+    }
+    float x = ubo.w[a & 63u];
+    float y = ubo.w[b & 63u];
+    outb.o[i] = x + y;
+}
+```
+# a break under a uniform condition after a varying branch that has met
+# again: every lane leaves together, the counter stays uniform after it
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { uint n; float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint r = 0u;
+    for (; r < 60u; r++) {
+        if (((i >> r) & 1u) != 0u)
+            outb.o[i + 64u] = float(r);
+        if (ubo.w[r] > float(ubo.n))
+            break;
+    }
+    outb.o[i] = ubo.w[r];
+}
+```
+# an inner do-while its lanes leave at different counts, in an outer loop
+# every lane goes round together: the outer counter is uniform, the inner
+# one is not once its loop is over; q is set in the inner loop to what no
+# iteration changes, so it is uniform after it too
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std140, set = 0, binding = 0) uniform U { float w[64]; } ubo;
+layout(set = 0, binding = 1) buffer O { float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0;
+    for (uint r = 0u; r < 4u; r++) {
+        uint c = 0u, q;
+        do {
+            c++;
+            q = uint(ubo.w[60]) & 7u;
+            s += ubo.w[c];
+        } while (c < 8u && s < float(i));
+        s += ubo.w[r + 16u];
+        s += ubo.w[c + 32u];
+        s += ubo.w[q + 48u];
+    }
+    outb.o[i] = s;
+}
+```
