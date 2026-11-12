@@ -1950,6 +1950,17 @@ Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 A sum with one lane of a word in it is searched too: `((x >> 8) & 255)
 + y` is `udot4x8(x, 0x100) + y` under gt1030 (2 against 4), the dot
 with a one-hot constant word being that byte and the add the sum's own.
+A byte read signed is a signed lane as it is, however the sign is
+extended: `i32(i8(x >> 8)) + y`, the C idiom `((x << 16) >> 24) + y` on
+an i32, `x >> 24` on an i32, and in SPIR-V OpBitFieldSExtract
+(`bitfieldExtract` of an int) are `sudot4x8(x, 0x100) + y` and the like:
+the sign extension for the price of the dot, and the sum of a word's four
+signed bytes is `sudot4x8(x, 0x1010101)` (14 against 1 under gt1030).
+The field is read from the word outward (the shifts, a mask, then each
+conversion), so a conversion that changes how its bits read (`u8` of an
+`i8`) is followed, and one that cannot keep a negative value (`u16` of
+an `i8`) ends the field.  Signed and unsigned bytes of one word do not
+share a word's side.
 With `0x01010101` it is the sum of a word's bytes, with powers of two a
 weighted one.  A lone field is not a sum and stays as it is.
 

@@ -1,0 +1,49 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile nofunctions
+simplify: 62 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 3 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 7 -> 1 (-85.7%)
+  by kind:
+       1  a sum of products as one dot product          -8
+  rewrites:
+    %38 = OpIAdd %int %34 %37
+      ->  sudot4x8(%28, 0x1000500)   (a sum of products as one dot product; -8)
+      (line 7: b.d[i] = bitfieldExtract(x, 8, 8) * 5 + bitfieldExtract(x, 24, 8);)
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %38 = OpIAdd %int %34 %37
+      ->  sudot4x8(%28, 0x1000500)   (cost 9 -> 1)
+      (line 7: b.d[i] = bitfieldExtract(x, 8, 8) * 5 + bitfieldExtract(x, 24, 8);)
+      sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 1: (%28 << 16 >> 0x18) * 5, lane 3: (%28 >> 0x18) * 1
+      %28 << 16 >> 0x18 is bits 8..15 of %28 read signed: lane 1 as it is
+      %28 >> 0x18 is bits 24..31 of %28 read signed: lane 3 as it is
+      the word's other lanes meet zero lanes
+      sudot4x8's sum is in -768..762: it does not wrap
+      proved by SAT: 799 AIG nodes, 0 conflicts
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2164 bytes, checksum 4299802f)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 9 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 14 -> 1 (-92.9%)
+  by kind:
+       1  a sum of products as one dot product          -13
+  rewrites:
+    %46 = OpIAdd %int %43 %45
+      ->  sudot4x8(%28, 0x1010101)   (a sum of products as one dot product; -13)
+      (line 7: b.d[i] = ((x << 24) >> 24) + ((x << 16) >> 24) + ((x << 8) >> 24) + (x >> 24);)
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %46 = OpIAdd %int %43 %45
+      ->  sudot4x8(%28, 0x1010101)   (cost 14 -> 1)
+      (line 7: b.d[i] = ((x << 24) >> 24) + ((x << 16) >> 24) + ((x << 8) >> 24) + (x >> 24);)
+      sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 0: (%28 << 24 >> 0x18) * 1, lane 1: (%28 << 16 >> 0x18) * 1, lane 2: (%28 << 8 >> 0x18) * 1, lane 3: (%28 >> 0x18) * 1
+      %28 << 24 >> 0x18 is bits 0..7 of %28 read signed: lane 0 as it is
+      %28 << 16 >> 0x18 is bits 8..15 of %28 read signed: lane 1 as it is
+      %28 << 8 >> 0x18 is bits 16..23 of %28 read signed: lane 2 as it is
+      %28 >> 0x18 is bits 24..31 of %28 read signed: lane 3 as it is
+      sudot4x8's sum is in -512..508: it does not wrap
+      proved by SAT: 786 AIG nodes, 0 conflicts
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2166 bytes, checksum c561809a)

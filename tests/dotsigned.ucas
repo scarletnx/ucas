@@ -1,0 +1,33 @@
+# A field of a word read signed is a signed lane of it as it is
+# (src/dot.c, field_of): the dot with a constant word is the sign
+# extension of the field and its multiply, for the price of the dot.
+
+# one byte, sign-extended, plus anything
+sx(x: u32, y: i32 in -8..7) = i32(i8(x >> 8)) + y
+find sx 1
+show sx(0x8000, 3)
+# the low two bytes signed, with weights
+sw(x: u32) = i32(i8(x)) * 3 + i32(i8(x >> 8)) * 5
+find sw 1
+# the C idioms on an i32: the arithmetic shift of the top byte, and a
+# byte moved to the top and shifted back
+rs(x: i32, y: i32 in -100..100) = (x >> 24) * 7 + ((x << 8) >> 24) * 9 + y
+find rs 1
+# the sum of a word's four signed bytes
+s4(x: i32) = ((x << 24) >> 24) + ((x << 16) >> 24) + ((x << 8) >> 24) + (x >> 24)
+find s4 1
+# a signed byte and an unsigned byte of one word are not one word's
+# lanes: two dots
+mx(x: u32, y: i32 in -8..7) = i32(i8(x)) * 3 + i32((x >> 8) & 255) * 5 + y
+find mx 1
+# a conversion that reads the bits unsigned again: an unsigned lane
+un(x: u32, y: u32 in 0..15) = u32(u8(i8(x >> 8))) + y
+find un 1
+# a negative byte in a u16 is not the byte's value: no lane
+bad(x: u32) = i32(u16(i8(x >> 8))) * 3
+find bad 1
+# under a model without the dot forms nothing is rewritten
+model nodot : gt1030 { dot4x8: none, dot4x8sat: none }
+use nodot
+find sx 1
+use gt1030
