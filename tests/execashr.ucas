@@ -1,0 +1,9 @@
+# animate exec: OpShiftRightArithmetic fills with the sign bit of the
+# bits, whatever the type's signedness (a uint operand too)
+animate exec %px = lane lanes 4 seed 1 nofile
+```spv
+%l = OpLoad %uint %px
+%b = OpShiftLeftLogical %uint %l %uint_30
+%s = OpShiftRightArithmetic %uint %b %uint_31
+%t = OpShiftRightArithmetic %int %b %uint_31
+```
