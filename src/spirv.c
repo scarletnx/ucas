@@ -10593,7 +10593,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
-	struct sbuf sgrep = {0};
+	struct sbuf sgrep = {0}, sgprop = {0};
 	struct sbuf idrep2 = {0};
 	int nidk[3] = {0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
@@ -10865,6 +10865,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		nrw += nd;
 		SP.proved += nd;
 	}
+	/* subgroup forms that need the pipeline's subgroup size: said */
+	sg_proposals(&sgprop);
 	/* dead pure instructions: no uses left */
 	{
 		int *uses = xcalloc((size_t)(V.nid + 1024), sizeof *uses), changed = 1;
@@ -11269,6 +11271,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep2.p, stdout);
 	}
 	free(idrep2.p);
+	if (sgprop.n) {
+		printf("  subgroup forms that need the subgroup's size fixed, "
+		    "proposed (pipeline state: the module is not changed), under "
+		    "%s:\n", sym_str(model_active()->name));
+		fputs(sgprop.p, stdout);
+	}
+	free(sgprop.p);
 	if (sgrep.n) {
 		printf("  subgroup sums of bits (a value that is 0 or 1 in every "
 		    "lane, summed over the lanes, is a ballot's bit count), under "

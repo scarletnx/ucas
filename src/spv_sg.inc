@@ -765,3 +765,179 @@ sg_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 	}
 	return n;
 }
+
+/* a name or a decoration: says nothing of how an id is used */
+static int
+sg_debug_ins(const char *op)
+{
+	return !strncmp(op, "OpName", 6) || !strncmp(op, "OpMemberName", 12) ||
+	    !strncmp(op, "OpDecorate", 10) || !strncmp(op, "OpMemberDecorate",
+	    16);
+}
+
+/*
+ * Subgroup forms that need the subgroup's size W fixed and every lane of
+ * it active, which a module cannot say (in Vulkan both are the pipeline's
+ * state), so they are proposed with the host-side change, the module left
+ * as it is:
+ *
+ *   a scan (OpGroupNonUniformIAdd InclusiveScan or ExclusiveScan) as a
+ *   ladder of ceil(log2 W) steps, each a shuffle up by 1, 2, 4 ... and an
+ *   add where the lane is at least that far up (a compare and a select),
+ *   the exclusive one less the lane's own value; the steps are per W, and
+ *   a shuffle from a lane that is not active is undefined;
+ *
+ *   a constant table of at most W entries read at a dynamic index (glslang
+ *   stores it into a Function variable before each read) held one entry a
+ *   lane, lane l reading entry l once, each read a shuffle from the lane
+ *   its index names.
+ *
+ * The scan is priced as the module's instructions are, under the model's
+ * warp; a table's read as a `load` (simplify's totals leave Function
+ * memory out); only a cheaper form is said.  The number of proposals.
+ */
+static int
+sg_proposals(struct sbuf *rep)
+{
+	const struct model *m = model_active();
+	int W = (int)m->par[MP_WARP], k, j, n = 0, steps = 0;
+	char need[400], sl[160];
+	double shufc;
+
+	if (W < 2 || W > SG_MAXW)
+		return 0;
+	while ((1 << steps) < W)
+		steps++;
+	snprintf(need, sizeof need, "it needs the subgroup's size fixed at %d "
+	    "and every lane of it active: requiredSubgroupSize %d "
+	    "(VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), "
+	    "VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a "
+	    "compute stage, and no branch the lanes disagree on around it", W,
+	    W);
+	/* scans as ladders */
+	shufc = sg_price_op("OpGroupNonUniformShuffleUp", NULL, W);
+	for (k = 0; k < SP.orig_nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *gop;
+		uint64_t sv;
+		int rt, cls, ex;
+		double before, after, stepc;
+
+		if (SP.dead[k] || strcmp(I->op, "OpGroupNonUniformIAdd") ||
+		    I->res < 0 || I->nop != 4)
+			continue;
+		gop = I->opnd[2];
+		ex = !strcmp(gop, "ExclusiveScan");
+		if ((!ex && strcmp(gop, "InclusiveScan")) ||
+		    !const_of(res_of(idx(I->opnd[1])), &sv) || sv != 3)
+			continue;
+		rt = idx(I->opnd[0]);
+		if (V.id[rt].kind != K_TYPE || T(rt)->k != S_INT)
+			continue;
+		before = sg_price(I, W, &cls);
+		stepc = shufc + ins_cost("OpUGreaterThanEqual", NULL, rt) +
+		    ins_cost("OpSelect", NULL, rt) + ins_cost("OpIAdd", NULL, rt);
+		after = steps * stepc + (ex ? ins_cost("OpISub", NULL, rt) : 0);
+		if (!isfinite(before) || !isfinite(after) ||
+		    !(after < before - 1e-9))
+			continue;
+		src_line(ins_line(k), sl, sizeof sl);
+		sb_printf(rep, "    %s\n%s      as a ladder of %d steps, each a "
+		    "shuffle up by 1, 2, 4 ... %d added where the lane is at least "
+		    "that far up (a compare and a select)%s: cost %g -> %g\n      "
+		    "%s\n", I->text, sl, steps, 1 << (steps - 1), ex ? ", less the "
+		    "lane's own value" : "", before, after, need);
+		n++;
+	}
+	/* constant tables as registers of the subgroup */
+	for (j = 0; j < V.nid; j++) {
+		int t = V.id[j].type, nread = 0, first = 1, line = -1;
+		double before = 0, one = 0, after;
+		char lines[80] = "";
+
+		if (V.id[j].kind != K_CONST || V.id[j].spec || t < 0 ||
+		    V.id[t].kind != K_TYPE || T(t)->k != S_ARRAY || T(t)->n < 1 ||
+		    T(t)->n > W || T(T(t)->e)->k != S_INT)
+			continue;
+		for (k = 0; k < SP.orig_nin; k++) {
+			const struct sins *S = &V.in[k];
+			int var, q, ok = 1, reads = 0;
+			double c;
+			if (SP.dead[k] || strcmp(S->op, "OpStore") || S->nop < 2 ||
+			    res_of(idx(S->opnd[1])) != j)
+				continue;
+			var = res_of(idx(S->opnd[0]));
+			if (V.id[var].kind != K_VAR || (V.id[var].sc != SC_FUNCTION &&
+			    V.id[var].sc != SC_PRIVATE))
+				continue;
+			/* every other use of var: a dynamic index read by loads */
+			c = 0;
+			for (q = 0; q < SP.orig_nin && ok; q++) {
+				const struct sins *A = &V.in[q];
+				int i, r;
+				uint64_t kv;
+				if (SP.dead[q] || q == k || sg_debug_ins(A->op))
+					continue;
+				for (i = 0; i < A->nop; i++)
+					if (A->opnd[i][0] == '%' && res_of(idx(A->opnd[i])) ==
+					    var)
+						break;
+				if (i == A->nop)
+					continue;
+				if (!strcmp(A->op, "OpStore") || strcmp(A->op,
+				    "OpAccessChain") || i != 1 || A->nop != 3 ||
+				    const_of(res_of(idx(A->opnd[2])), &kv)) {
+					ok = 0;
+					break;
+				}
+				for (r = 0; r < SP.orig_nin; r++) {
+					const struct sins *L = &V.in[r];
+					int u;
+					if (SP.dead[r] || r == q || sg_debug_ins(L->op))
+						continue;
+					for (u = 0; u < L->nop; u++)
+						if (L->opnd[u][0] == '%' && res_of(idx(L->opnd[u]))
+						    == A->res)
+							break;
+					if (u == L->nop)
+						continue;
+					if (strcmp(L->op, "OpLoad") || u != 1) {
+						ok = 0;
+						break;
+					}
+					c += m->c[C_LOAD];
+					reads++;
+					if (line < 0 || ins_line(r) != line) {
+						line = ins_line(r);
+						if (line > 0 && strlen(lines) < sizeof lines - 12)
+							snprintf(lines + strlen(lines), sizeof lines -
+							    strlen(lines), "%s%d", lines[0] ? ", " : "",
+							    line);
+					}
+				}
+			}
+			if (!ok || reads == 0)
+				continue;
+			before += c;
+			nread += reads;
+			if (first) {
+				one = m->c[C_LOAD];	/* lane l's entry */
+				first = 0;
+			}
+		}
+		if (nread < 1)
+			continue;
+		after = one + nread * sg_price_op("OpGroupNonUniformShuffle", NULL,
+		    W);
+		if (!isfinite(after) || !(after < before - 1e-9))
+			continue;
+		sb_printf(rep, "    %s, a table of %d entries read %d time%s at a "
+		    "dynamic index%s%s%s\n      as a register of the subgroup, lane "
+		    "l holding entry l (one read of the table), each read a shuffle "
+		    "from the lane its index names: cost %g -> %g\n      %s\n",
+		    V.id[j].tok, T(t)->n, nread, nread == 1 ? "" : "s", lines[0] ?
+		    " (line " : "", lines, lines[0] ? ")" : "", before, after, need);
+		n++;
+	}
+	return n;
+}
