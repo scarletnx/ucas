@@ -106,16 +106,13 @@ exec of SPIR-V (67 instructions), entry main, 4 lanes in lockstep, cost model gt
     %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
     %26 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_1 %16 iadd           1  t = 0..1  -> &outb[1] &outb[2] &outb[3] &outb[4]
     %29 = OpLoad %uint %26                       load       6.875  t = 1..7.875  -> 8 1 3 5
-    %32 = OpAtomicCompareExchange %uint %26 %uint_1 %uint_0 %uint_0 %16 %29 atomic_global_cas 143.5  t = 7.875..151.375  lanes {0}  -> 8 - - -
-    %32 = OpAtomicCompareExchange %uint %26 %uint_1 %uint_0 %uint_0 %16 %29 atomic_global_cas 143.5  t = 151.375..294.875  lanes {1}  -> - 1 - -
-    %32 = OpAtomicCompareExchange %uint %26 %uint_1 %uint_0 %uint_0 %16 %29 atomic_global_cas 143.5  t = 294.875..438.375  lanes {2}  -> - - 3 -
-    %32 = OpAtomicCompareExchange %uint %26 %uint_1 %uint_0 %uint_0 %16 %29 atomic_global_cas 143.5  t = 438.375..581.875  lanes {3}  -> - - - 5
-    %35 = OpAccessChain %_ptr_StorageBuffer_ulong %outb %int_0                0  t = 581.875..581.875  -> &outb[0] &outb[0] &outb[0] &outb[0]
-    %37 = OpUConvert %ulong %16                  conv           3  t = 581.875..584.875  -> 0 1 2 3
-    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 584.875..849.5  lanes {0}  -> 4 - - -
-    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 849.5..1114.12  lanes {1}  -> - 4 - -
-    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 1114.12..1378.75  lanes {2}  -> - - 5 -
-    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 1378.75..1643.38  lanes {3}  -> - - - 7
-  time 1643.38 for every lane; lanes busy 25% (4897.5 lane-units idle: masked, or waiting for an atomic)
-  animation: 794x288, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 273.9 cost units; 214750 bytes
-  (nofile: GIF checksum db1a1d35)
+    %32 = OpAtomicCompareExchange %uint %26 %uint_1 %uint_0 %uint_0 %16 %29 atomic_global_cas 143.5  t = 7.875..151.375  -> 8 1 3 5
+    %35 = OpAccessChain %_ptr_StorageBuffer_ulong %outb %int_0                0  t = 151.375..151.375  -> &outb[0] &outb[0] &outb[0] &outb[0]
+    %37 = OpUConvert %ulong %16                  conv           3  t = 151.375..154.375  -> 0 1 2 3
+    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 154.375..419  lanes {0}  -> 4 - - -
+    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 419..683.625  lanes {1}  -> - 4 - -
+    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 683.625..948.25  lanes {2}  -> - - 5 -
+    %38 = OpAtomicIAdd %ulong %35 %uint_1 %uint_0 %37 atomic_global_64 264.625  t = 948.25..1212.88  lanes {3}  -> - - - 7
+  time 1212.88 for every lane; lanes busy 35% (3175.5 lane-units idle: masked, or waiting for an atomic)
+  animation: 794x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 202.1 cost units; 178692 bytes
+  (nofile: GIF checksum 51cf7e87)

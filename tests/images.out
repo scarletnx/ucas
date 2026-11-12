@@ -407,13 +407,11 @@ exec of SPIR-V (68 instructions), entry main, 4 lanes in lockstep, cost model gt
     %41 = OpBitcast %int %36                                    0  t = 54..54  -> 13 1 5 5
     %42 = OpCompositeConstruct %v2int %41 %int_0                0  t = 54..54  -> (13,0) (1,0) (5,0) (5,0)
     %45 = OpImageTexelPointer %_ptr_Image_uint %hist %42 %uint_0 iadd           1  t = 54..55  ->    
-    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 55..105  lanes {0}  -> 0 - - -
-    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 105..155  lanes {1}  -> - 0 - -
-    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 155..205  lanes {2}  -> - - 0 -
-    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 205..255  lanes {3}  -> - - - 1
-  time 255 for every lane; lanes busy 41% (600 lane-units idle: masked, or waiting for an atomic)
-  animation: 728x530, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 42.5 cost units; 168594 bytes
-  (nofile: GIF checksum d44f881f)
+    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 55..105  lanes {0,1,2}  -> 0 0 0 -
+    %46 = OpAtomicIAdd %uint %45 %uint_1 %uint_0 %uint_1 atomic_global    50  t = 105..155  lanes {3}  -> - - - 1
+  time 155 for every lane; lanes busy 68% (200 lane-units idle: masked, or waiting for an atomic)
+  animation: 728x504, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 25.8 cost units; 162452 bytes
+  (nofile: GIF checksum f311e9e7)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec of this seed 9 input 2 gradient input 3 R32F nofile
