@@ -552,6 +552,120 @@ note_dear(struct sgf *g, const char *what, float c, float base)
 	    (double)base, what);
 }
 
+
+/*
+ * A segmented scan as sg_segscan writes it, sg_scan(v, l) -
+ * sg_shuffle(sg_scan(v) - v, start) with start the last head at or below
+ * l: the sum of v over the lanes start..l.  When v is 0 or 1 in every
+ * lane that is the number of those lanes where it is not 0, the set bits
+ * of the ballot from bit start to bit l, with no scan and no shuffle.
+ */
+static int
+segscan_parts(nid x, nid *v, nid *l, nid *start)
+{
+	nid a, sh, q, qs, qv;
+
+	if (N.op[x] != O_SUB)
+		return 0;
+	a = N.a[x];
+	sh = N.b[x];
+	if (N.op[a] != O_SGSCAN || N.op[sh] != O_SGSHUF)
+		return 0;
+	q = N.a[sh];
+	if (N.op[q] != O_SUB)
+		return 0;
+	qs = N.a[q];
+	qv = N.b[q];
+	if (N.op[qv] == O_CAST)
+		qv = N.a[qv];
+	if (N.op[qs] != O_SGSCAN || N.a[qs] != N.a[a] || qv != N.a[a] ||
+	    !sg_is_lane(N.b[qs]) || sg_width(qs) != sg_width(a))
+		return 0;
+	*v = N.a[a];
+	*l = N.b[a];
+	*start = N.b[sh];
+	return 1;
+}
+
+static nid
+segscans(struct sgf *g, nid cur, float *cost)
+{
+	int round;
+
+	for (round = 0; round < 8; round++) {
+		nid st[MAXSGN], *stk, best = 0, bx = 0, x;
+		uint8_t *seen;
+		uint32_t sp = 0, j;
+		int n = 0, i;
+		float bc = *cost;
+
+		seen = xcalloc(N.n, 1);
+		stk = xmalloc(N.n * sizeof *stk);
+		stk[sp++] = cur;
+		seen[cur] = 1;
+		while (sp && n < MAXSGN) {
+			nid e = stk[--sp];
+			if (!(N.fl[e] & NF_SG) || N.op[e] == O_CONST ||
+			    N.op[e] == O_VAR || N.op[e] == O_UNDEF)
+				continue;
+			if (N.op[e] == O_SUB && N.op[N.a[e]] == O_SGSCAN)
+				st[n++] = e;
+			for (j = 0; j < (N.op[e] == O_TABLE ? N.b[e] : 3); j++) {
+				nid c = N.op[e] == O_TABLE ? N.lst[N.a[e] + j] : j == 0 ?
+				    N.a[e] : j == 1 ? N.b[e] : N.c[e];
+				if (c && c < N.n && !seen[c]) {
+					seen[c] = 1;
+					stk[sp++] = c;
+				}
+			}
+		}
+		free(seen);
+		free(stk);
+		for (i = 0; i < n; i++) {
+			nid v, l, start, to, cand;
+			int W;
+			int64_t lo, hi;
+			ty_t bt;
+			float c;
+			x = st[i];
+			if (!segscan_parts(x, &v, &l, &start))
+				continue;
+			W = sg_width(N.a[x]);
+			if (!sg_range_of(g->f, v, W, &lo, &hi) || lo < 0 || hi > 1)
+				continue;
+			bt = TY(K_UINT, W > 32 ? 64 : 32);
+			to = mk_bin(O_AND, mk_bin(O_AND, ballot_of(v, W),
+			    mk_bin(O_SUB, mk_bin(O_SHL, mk_const_i(bt, 2),
+			    mk_cast(bt, l)), mk_const_i(bt, 1))), mk_bin(O_SHL,
+			    mk_const_i(bt, -1), mk_cast(bt, start)));
+			to = mk_cast(N.ty[x], mk_un(O_POPCNT, to));
+			cand = sg_replaced(cur, x, to);
+			if (!cand)
+				continue;
+			c = price(g, cand);
+			if (c < bc) {
+				bc = c;
+				best = cand;
+				bx = x;
+			} else if (c >= *cost && isfinite(c))
+				note_dear(g, "a segmented scan of a value that is 0 or 1 "
+				    "in every lane as the ballot's bits from the last "
+				    "head to the lane", c, *cost);
+		}
+		if (!best)
+			break;
+		sb_printf(&g->why, "%s: a segmented scan of %s, which is 0 or 1 in "
+		    "every lane (its range, by intervals): its sum over the lanes "
+		    "from the last head at or below the lane to the lane is the "
+		    "number of those lanes where it is not 0, the set bits of the "
+		    "ballot from that head's bit to the lane's\n",
+		    node_str(bx), node_str(N.a[N.a[bx]]));
+		cur = best;
+		*cost = bc;
+	}
+	return cur;
+}
+
 /*
  * Sums and scans, one at a time, the best first: bits through the
  * ballot, a scan as a ladder.
@@ -1464,6 +1578,8 @@ sg_find(const struct func *f)
 	if (!TY_ISINT(N.ty[cur]))
 		return;
 	before = cost = price(&g, cur);
+	if (N.fl[cur] & NF_SG)
+		cur = segscans(&g, cur, &cost);
 	if (N.fl[cur] & NF_SG)
 		cur = sums_and_scans(&g, cur, &cost);
 	cur = tables(&g, cur, &cost);

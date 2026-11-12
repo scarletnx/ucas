@@ -438,7 +438,8 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * operation that is itself a value per lane (a scan, a shuffle by the
  * lane) reads the lane it runs in.
  */
-enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT };
+enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
+	SGF_SEG };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
@@ -454,6 +455,7 @@ static const struct sgfn {
 	{"sg_broadcast", "subgroupBroadcast", SGF_BCAST, O_SGSHUF, 2},
 	{"sg_broadcast_first", "subgroupBroadcastFirst", SGF_BCAST1, O_SGSHUF, 1},
 	{"sg_rotate", "subgroupRotate", SGF_ROT, O_SGSHUF, 2},
+	{"sg_segscan", "sg_segscan", SGF_SEG, O_SGSCAN, 2},
 	{NULL, NULL, 0, 0, 0}
 };
 
@@ -538,6 +540,8 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		nid map[MAXP] = {0};
 		map[j] = mk_cast(p->fn->p[j].ty, sg_lane());
 		v = subst(v, map, j + 1);
+		if (g->kind == SGF_SEG)
+			args[1] = subst(args[1], map, j + 1);
 		here = param_var(p, j);
 	} else if (p->sg_depth)
 		here = sg_lane();
@@ -549,6 +553,26 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	case SGF_EXCL:
 		v = mk_sg(O_SGSCAN, v, here, w);
 		return mk_bin(O_SUB, v, mk_cast(N.ty[v], args[0]));
+	case SGF_SEG: {
+		/*
+		 * the sum of v over the lanes from the last head at or below
+		 * this one (lane 0 when none is) to this one: the scan here
+		 * less the exclusive scan in that lane, read by a shuffle;
+		 * that lane is the highest set bit of the heads' ballot, lane
+		 * 0's bit added, at or below this lane
+		 */
+		ty_t bt = TY(K_UINT, W > 32 ? 64 : 32), u = TY(K_UINT, 32);
+		nid hb = mk_sg(O_SGBALLOT, args[1], w, 0), m, start, q;
+		m = mk_bin(O_SUB, mk_bin(O_SHL, mk_const_i(bt, 2), mk_cast(bt,
+		    here)), mk_const_i(bt, 1));
+		start = mk_bin(O_SUB, mk_const_i(u, W > 32 ? 63 : 31),
+		    mk_cast(u, mk_un(O_CLZ, mk_bin(O_AND, mk_bin(O_OR, hb,
+		    mk_const_i(bt, 1)), m))));
+		q = mk_sg(O_SGSCAN, v, sg_lane(), w);
+		q = mk_bin(O_SUB, q, mk_cast(N.ty[q], v));
+		v = mk_sg(O_SGSCAN, v, here, w);
+		return mk_bin(O_SUB, v, mk_sg(O_SGSHUF, q, start, w));
+	}
 	case SGF_SHUFXOR:
 		return mk_sg(O_SGSHUF, v, mk_bin(O_XOR, here, args[1]), w);
 	case SGF_BCAST:
