@@ -7455,6 +7455,22 @@ glanes(char *b, size_t n, int gj, const int *grp, const int *lane_of, int ngr)
 	b[at] = 0;
 }
 
+/* a polynomial's: the function it stands for, from its why ("exp2 ~
+ * degree-2 ..."); the rest by their kind */
+static const char *
+rw_kind_text(const struct fxrw *r)
+{
+	static char b[48];
+	size_t n;
+
+	if (r == NULL || r->kind != FXR_POLY)
+		return NULL;
+	n = strcspn(r->why, " ");
+	snprintf(b, sizeof b, "%.*s as a polynomial", (int)(n < 20 ? n : 20),
+	    r->why);
+	return b;
+}
+
 static const char *
 kind_text(int kind)
 {
@@ -7498,6 +7514,8 @@ rep_lane(const struct fxrw *rr, const char *lanes)
 		rep_num("ulp_bound", rr->ulp);
 	if (rr->kind == FXR_POLY)
 		rep_num("rel_error", rr->rel);
+	if (rr->kind == FXR_POLY && rr->abserr > 0)
+		rep_num("abs_error", rr->abserr);
 	if (!rr->exact && rr->exc[0])
 		rep_str("not_exact_at", rr->exc);
 	if (rr->wit[0])
@@ -8105,7 +8123,8 @@ float_pass(const char *text, int *changed)
 			rep_obj(NULL);
 			rep_str("instruction", V.in[P->k].text);
 			rep_lines("replacement", repl[P->k]);
-			rep_str("kind", kind_text(P->kind));
+			rep_str("kind", P->kind == FXR_POLY ? rw_kind_text(P->rw[0]) :
+			    kind_text(P->kind));
 			rep_num("cost_delta", -P->gain);
 			rep_str("proof", proof_key(r));
 			rep_str("proof_text", proof_kind(r));
@@ -8146,7 +8165,8 @@ float_pass(const char *text, int *changed)
 				continue;
 			rep_obj(NULL);
 			rep_str("instruction", V.in[pl[i].k].text);
-			rep_str("kind", kind_text(pl[i].kind));
+			rep_str("kind", pl[i].kind == FXR_POLY ?
+			    rw_kind_text(pl[i].rw[0]) : kind_text(pl[i].kind));
 			rep_list("lanes");
 			for (c = 0; c < pl[i].ng; c++)
 				rep_lane(pl[i].rw[c], NULL);
@@ -8220,7 +8240,8 @@ float_pass(const char *text, int *changed)
 					p += ln + (e != NULL);
 				}
 			}
-			sb_printf(&rep, "      (%s; -%g)\n", kind_text(P->kind), P->gain);
+			sb_printf(&rep, "      (%s; -%g)\n", P->kind == FXR_POLY ?
+			    rw_kind_text(P->rw[0]) : kind_text(P->kind), P->gain);
 			for (g2 = 0; g2 < P->ng; g2++)
 				if (!P->rw[g2]->exact)
 					r = P->rw[g2];
@@ -8290,9 +8311,17 @@ float_pass(const char *text, int *changed)
 					continue;
 				for (c = 0; c < pl[i].ng; c++)
 					any |= pl[i].rw[c]->approx;
-				sb_printf(&rep, "    %s, cost %g (-%g): relative error < %.3g (%g ulp), %s\n",
-				    r->why, r->cost, r->gain, r->rel, r->ulp, any ? "beyond the "
-				    "original's precision" : "within the original's precision");
+				if (r->rel > 0 || r->abserr <= 0)
+					sb_printf(&rep, "    %s, cost %g (-%g): relative error "
+					    "< %.3g (%g ulp), %s\n", r->why, r->cost, r->gain,
+					    r->rel, r->ulp, any ? "beyond the original's "
+					    "precision" : "within the original's precision");
+				else
+					sb_printf(&rep, "    %s, cost %g (-%g): absolute error "
+					    "< %.3g (the function is 0 inside the range: no "
+					    "relative bound), %s\n", r->why, r->cost, r->gain,
+					    r->abserr, any ? "beyond the original's precision" :
+					    "within the original's precision");
 				for (c = 0; c < pl[i].ng; c++)
 					if (pl[i].rw[c]->sinkfail[0]) {
 						sb_printf(&rep, "      the sink refuses it: %s\n",
@@ -8310,7 +8339,8 @@ float_pass(const char *text, int *changed)
 						sb_printf(&rep, "%.9g", (double)r->k[1]);
 						for (e = 1; e <= r->deg; e++)
 							sb_printf(&rep, ", t, %.9g)", (double)r->k[1 + e]);
-						sb_printf(&rep, ", t = q - %.9g\n", (double)r->k[0]);
+						sb_printf(&rep, ", t = %s - %.9g\n", strncmp(r->why,
+						    "pow ", 4) ? "x" : "q", (double)r->k[0]);
 					}
 				}
 			}

@@ -84,7 +84,8 @@ enum {
 	FXR_FMA2,	/* x * K + B -> fma(x, K, B) */
 	FXR_POWEXP,	/* pow(q, y) -> exp2(y * log2(q)) */
 	FXR_SQRT,	/* sqrt(x) -> x * inversesqrt(x) */
-	FXR_POLY	/* pow(q, y) ~ P(q - c), an approximation */
+	FXR_POLY	/* pow(q, y) (or exp2, log2, sqrt, inversesqrt of q)
+			 * ~ P(q - c), an approximation */
 };
 
 #define FX_MAXK 16
@@ -104,7 +105,10 @@ struct fxrw {
 				 * the coefficients from the highest) */
 	double ulp;		/* derived bound against the reference, -1 */
 	double gain;		/* per component, under the model */
-	double rel;		/* FXR_POLY: certified relative error */
+	double rel;		/* FXR_POLY: certified relative error (0: none,
+				 * the function is 0 inside the range) */
+	double abserr;		/* FXR_POLY: certified absolute error, or 0
+				 * (pow's: relative only) */
 	double cost;		/* of the replacement, per component */
 	char why[80];
 	char exc[400];		/* where it is not bit-exact (and why) */

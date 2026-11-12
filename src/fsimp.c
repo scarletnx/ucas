@@ -1942,6 +1942,243 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 	}
 }
 
+/* ---- exp2, log2, sqrt, inversesqrt as polynomials ---- */
+
+#define PF_LN2 0.693147180559945309417L
+
+/*
+ * f on a bounded range, by its value, first derivative and the largest
+ * |f''| on a piece (each monotone there, so the larger end's), and the
+ * precision Vulkan gives it there (a lower bound, absolute: n ulp of a
+ * value v is at least n u |v|).
+ */
+static ld
+pf_val(int op, ld x)
+{
+	switch (op) {
+	case FX_EXP2: return exp2l(x);
+	case FX_LOG2: return log2l(x);
+	case FX_SQRT: return sqrtl(x);
+	}
+	return 1 / sqrtl(x);
+}
+
+static ld
+pf_d1(int op, ld x)
+{
+	switch (op) {
+	case FX_EXP2: return exp2l(x) * (ld)PF_LN2;
+	case FX_LOG2: return 1 / (x * (ld)PF_LN2);
+	case FX_SQRT: return 0.5L / sqrtl(x);
+	}
+	return -0.5L / (x * sqrtl(x));
+}
+
+static double
+pf_d2max(int op, double l, double r)
+{
+	switch (op) {
+	case FX_EXP2: return exp2(r) * PF_LN2 * PF_LN2;
+	case FX_LOG2: return 1 / (l * l * PF_LN2);
+	case FX_SQRT: return 0.25 / (l * sqrt(l));
+	}
+	return 0.75 / (l * l * sqrt(l));
+}
+
+static double
+pf_allow(int op, double l, double r)
+{
+	double fmn = fmin(fabs((double)pf_val(op, l)), fabs((double)pf_val(op,
+	    r))), L;
+
+	switch (op) {
+	case FX_EXP2:	/* 3 + 2|x| ulp */
+		return (3 + 2 * fmin(fabs(l), fabs(r)) * (l * r > 0)) * U24 * fmn;
+	case FX_LOG2:	/* absolute 2^-21 inside [0.5, 2], 3 ulp outside */
+		if (l >= 0.5 && r <= 2)
+			return 0x1p-21;
+		L = (l <= 1 && r >= 1) ? 0 : fmn;
+		return l < 0.5 && r > 0.5 ? fmin(0x1p-21, 3 * U24 * L) :
+		    3 * U24 * L;
+	}
+	return 2 * U24 * fmn;	/* inversesqrt 2 ulp; sqrt inherits it */
+}
+
+static const char *
+pf_name(int op)
+{
+	return op == FX_EXP2 ? "exp2" : op == FX_LOG2 ? "log2" : op == FX_SQRT ?
+	    "sqrt" : "inversesqrt";
+}
+
+struct pfctx {
+	int op;
+};
+
+static ld
+pffn(void *ctx, ld x)
+{
+	return pf_val(((struct pfctx *)ctx)->op, x);
+}
+
+/*
+ * The certified absolute error of P(x - c) (f32 coefficients a[0..n],
+ * Horner with fma) against f on [xa, xb], on 4096 pieces (geometric for
+ * a range above 0, even otherwise), and whether it stays within f's
+ * precision there.
+ */
+static void
+pf_cert(int op, float xa, float xb, float c, const float *a, int n,
+    double *real, double *total, int *within, double *worst_x)
+{
+	const int NP = 4096;
+	int geo = xa > 0, p, i;
+	double ratio = geo ? pow((double)xb / xa, 1.0 / NP) : 0;
+	double step = ((double)xb - xa) / NP, l = xa;
+	double gam = 2 * n * U24 / (1 - 2 * n * U24);
+
+	*real = *total = 0;
+	*within = 1;
+	*worst_x = xa;
+	for (p = 0; p < NP; p++) {
+		double r = p == NP - 1 ? xb : geo ? l * ratio : xa + (p + 1) * step;
+		double h = r - l, T = fmax(fabs(l - c), fabs(r - c));
+		double S = 0, S1 = 0, M2 = 0, eabs, rt, tot;
+		ld m = ((ld)l + r) / 2, t = m - c, pv = 0, pd = 0;
+		for (i = n; i >= 0; i--) {
+			pd = pd * t + pv;
+			pv = pv * t + a[i];
+		}
+		for (i = 0; i <= n; i++) {
+			S += fabs(a[i]) * pow(T, i);
+			if (i >= 1)
+				S1 += i * fabs(a[i]) * pow(T, i - 1);
+			if (i >= 2)
+				M2 += i * (i - 1) * fabs(a[i]) * pow(T, i - 2);
+		}
+		M2 += pf_d2max(op, l, r);
+		eabs = fabsl(pv - pf_val(op, m)) + fabsl(pd - pf_d1(op, m)) * h /
+		    2 + M2 * h * h / 8 + 1e-17 * (S + fabs((double)pf_val(op, r)) +
+		    fabs((double)pf_val(op, l)));
+		/* t = fl(x - c): exact when c is 0, and (Sterbenz) when c/2 <=
+		 * x <= 2c */
+		rt = (c == 0 || (c > 0 && l >= c / 2 && r <= 2 * c)) ? 0 :
+		    S1 * U24 * T;
+		tot = (eabs + gam * S + rt) * (1 + gam);
+		if (eabs > *real)
+			*real = eabs;
+		if (tot > *total) {
+			*total = tot;
+			*worst_x = m;
+		}
+		if (tot > pf_allow(op, l, r))
+			*within = 0;
+		l = r;
+	}
+}
+
+static void
+an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
+    int max, int node, int dep)
+{
+	const struct fxn *n = &g->n[node];
+	int op = n->op, x = n->a, deg;
+	struct fiv rx = fx_range(g, x, dom);
+	struct pfctx pc;
+	struct fitprob pb;
+	struct fitres fr;
+	double cf = fx_price(op), fmn;
+	float c0;
+
+	/* a bounded range, inside the function's domain (above 0 for log2
+	 * and inversesqrt; sqrt's derivative grows without bound at 0) */
+	if (rx.empty || rx.nan || isinf(rx.lo) || isinf(rx.hi) || !(rx.lo <
+	    rx.hi) || (op != FX_EXP2 && !(rx.lo > 0)) || (op == FX_EXP2 &&
+	    (rx.lo < -126 || rx.hi > 127)))
+		return;
+	{
+		double mid = ((double)rx.lo + rx.hi) / 2;
+		int e = mid != 0 ? ilogb(mid) : 0;
+		c0 = mid != 0 ? (float)ldexp(round(ldexp(mid, 6 - e)), e - 6) : 0;
+	}
+	fmn = fmin(fabs((double)pf_val(op, rx.lo)), fabs((double)pf_val(op,
+	    rx.hi)));
+	if (op == FX_LOG2 && rx.lo <= 1 && rx.hi >= 1)
+		fmn = 0;	/* a zero inside: no relative bound */
+	memset(&pb, 0, sizeof pb);
+	pc.op = op;
+	pb.f = pffn;
+	pb.fctx = &pc;
+	pb.xa = rx.lo;
+	pb.xb = rx.hi;
+	pb.c = c0;
+	pb.k0 = 0;
+	pb.step = 1;
+	pb.rel = 0;
+	pb.nd = 0;
+	pb.method = FM_REMEZ;
+	for (deg = 1; deg <= 12; deg++) {
+		double cost = deg * fx_price(FX_FMA) + fx_price(FX_SUB);
+		double real, tot, wx;
+		float a[16];
+		int within, i;
+		struct fxrw *pr;
+		if (cost >= cf)
+			break;
+		pb.nt = deg + 1;
+		if (!fit_run(&pb, &fr))
+			continue;
+		for (i = 0; i <= deg; i++)
+			a[i] = (float)fr.num[i];
+		pf_cert(op, rx.lo, rx.hi, c0, a, deg, &real, &tot, &within, &wx);
+		pr = new_rw(rw, nrw, max, FXR_POLY, node);
+		if (pr == NULL)
+			return;
+		pr->dep = dep;
+		pr->x = x;
+		pr->deg = deg;
+		pr->approx = !within;
+		pr->vulkan = within;
+		pr->exact = 0;
+		pr->k[0] = c0;
+		for (i = 0; i <= deg && i + 1 < FX_MAXK; i++)
+			pr->k[1 + i] = a[deg - i];
+		pr->nk = deg + 2;
+		pr->cost = cost;
+		pr->gain = cf - cost;
+		pr->abserr = tot;
+		pr->rel = fmn > 0 ? tot / fmn : 0;
+		pr->ulp = fmn > 0 ? floor((pr->rel + U24) * 0x1p24 * (1 + pr->rel))
+		    : -1;
+		snprintf(pr->why, sizeof pr->why, "%s ~ degree-%d minimax "
+		    "polynomial", pf_name(op), deg);
+		sb_printf(&pr->proof, "absolute minimax of %s(x) on [%s, %s] "
+		    "(remez.c), t = x - %s, coefficients rounded to f32, Horner "
+		    "with fma:\n", pf_name(op), fs(rx.lo), fs(rx.hi), fs(c0));
+		sb_printf(&pr->proof, "  real error certified on 4096 %s pieces "
+		    "(|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by "
+		    "sum i(i-1)|a_i| T^(i-2) + max|%s''| on the piece): %.3g "
+		    "absolute\n", rx.lo > 0 ? "geometric" : "even", pf_name(op),
+		    real);
+		sb_printf(&pr->proof, "  plus rounding (gamma_%d = %d u/(1 - %d u) "
+		    "times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by "
+		    "Sterbenz for x in [c/2, 2c]): %.3g absolute in all, the worst "
+		    "near x = %.4g%s\n",
+		    2 * deg, 2 * deg, 2 * deg, tot, wx, fmn > 0 ? "" : " (the "
+		    "function is 0 inside the range: no relative bound)");
+		sb_printf(&pr->proof, "  against %s's precision on each piece (%s, "
+		    "the lower bounds): %s\n", pf_name(op), op == FX_EXP2 ?
+		    "3 + 2|x| ulp" : op == FX_LOG2 ? "3 ulp outside [0.5, 2], "
+		    "absolute 2^-21 inside" : "2 ulp", within ? "within on every "
+		    "piece" : "exceeds it (an approximation)");
+		snprintf(pr->fail, sizeof pr->fail, "%s", within ? "" : op ==
+		    FX_EXP2 ? "exceeds the precision exp2 already had" : op ==
+		    FX_LOG2 ? "exceeds the precision log2 already had" : op ==
+		    FX_SQRT ? "exceeds the precision sqrt already had" :
+		    "exceeds the precision inversesqrt already had");
+	}
+}
+
 #undef P
 
 /* ---- the search ---- */
@@ -2163,6 +2400,8 @@ sink_own(const struct sinkctx *s, const struct fxrw *r)
 
 	if (r->exact)
 		return 0;
+	if (r->kind == FXR_POLY && r->abserr > 0)
+		return r->abserr + 0x1p-24 * mag + 0x1p-149;
 	if (r->kind == FXR_POLY && r->rel > 0)
 		return (r->rel + 0x1p-24) * mag;
 	if (r->ulp < 0 && r->kind == FXR_FMA2) {
@@ -2456,6 +2695,9 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			an_pow(g, reach[i], rw, &nrw, max, i, o, rdep[i]);
 			continue;
 		}
+		if ((n->op == FX_EXP2 || n->op == FX_LOG2 || n->op == FX_SQRT ||
+		    n->op == FX_ISQRT) && !is_k(g, n->a, NULL))
+			an_poly(g, reach[i], rw, &nrw, max, i, rdep[i]);
 		if (n->op == FX_SQRT && !is_k(g, n->a, NULL)) {
 			if ((r = new_rw(rw, &nrw, max, FXR_SQRT, i)) == NULL)
 				break;
