@@ -1,0 +1,21 @@
+# cost: the divergence of a ?: in an arm of a branch, and of a ?: in a
+# loop body.  A ?: in an arm of a branch runs only for the lanes that
+# take that arm, so its warps are counted over those lanes and its
+# choice weighed by how many warps get there; one in a loop body is
+# counted at every iteration, over the lanes that run it.
+#
+# warps of 32 consecutive i: the outer condition holds for whole warps
+# (a branch); the inner one is reached by a quarter of the warps, and on
+# their lanes it never holds
+nest(i: u32 in 0..4095) = (i >> 5) % 4 == 0 ? ((i >> 5) % 4 == 1 ? i * i * i * i * i : i + 1) : i * 3
+cost nest consecutive i
+# the same inner condition where every lane gets to it: a quarter of the
+# warps take its first arm
+flat(i: u32 in 0..4095) = (i >> 5) % 4 == 1 ? i * i * i * i * i : i + 1
+cost flat consecutive i
+# a ?: in a loop body whose condition changes with the iteration but not
+# within an aligned warp: at each iteration the whole warp takes one arm
+lp(i: u32 in 0..1023) = { s: u32 = i; for j in 0..15 { s = ((i >> 5) + j) % 2 == 0 ? s * s * s * 7 : s + j }; s }
+cost lp consecutive i
+# the lanes independent: at each iteration half of them take each arm
+cost lp

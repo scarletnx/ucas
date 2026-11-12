@@ -44,8 +44,16 @@ int pit_check(const struct func *f, nid a, nid b, int trials, uint64_t seed,
  * counted, *exact when every case was), independent lanes otherwise
  * (returns 1: split = 1 - p^warp - (1 - p)^warp).  0: not measured.
  */
-int diverge_stats(const struct func *f, nid cond, int warp, double *p,
-    double *all_t, double *all_f, int *exact, uint64_t *points);
+int diverge_stats(const struct func *f, nid cond, nid reach, uint32_t loop,
+    int warp, double *p, double *all_t, double *all_f, double *reached,
+    int *exact, uint64_t *points);
+#define LOOP_NONE 0xffffffffu
+
+/* loop.c: a ?: in loop e's body, counted at each iteration over the lanes
+ * that run it, in windows of warp; reading the counts turns it off */
+void loop_probe(uint32_t e, nid cond, int warp);
+void loop_probe_counts(uint64_t *nw, uint64_t *nat, uint64_t *naf,
+    uint64_t *n, uint64_t *nt);
 
 /*
  * A loop across a warp of `warp` lanes, for cost: the warp runs until its

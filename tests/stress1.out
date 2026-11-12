@@ -165,15 +165,19 @@ cost of quant under gt1030: 190.25 (0 operations outside loops and 1 loop, share
     loop total: 190.25
   ?: on q > 31  (arms cost 0 and 0)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +11.4883   (per iteration: P(true) = 0.01406 over all 1280 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.3644)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   ?: on q < 0  (arms cost 0 and 4)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +11.4883   (per iteration: P(true) = 0.01406 over all 1280 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.3644)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   ?: on t1*t1 < berr  (arms cost 0 and 0)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +20.625   (per iteration: P(true) = 0.5766 over all 1280 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   ?: on t1*t1 < berr  (arms cost 0 and 0)  [in a loop body: per iteration]
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      expected branch: +20.625   (per iteration: P(true) = 0.5766 over all 1280 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   estimate with the best form per ?: : 190.25
 > tri(n: u32 in 0..1000, k: u32 in 1..4) = { s: u32 = 0; for i in 1..n/k { s += i*i }; s }

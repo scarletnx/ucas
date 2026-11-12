@@ -92,7 +92,9 @@ tab_split(const struct func *f)
 			dat = p;
 			daf = 1 - p;
 		} else {
-			if (!diverge_stats(f, cond, W, &dp, &dat, &daf, &exact, &pts))
+			double reached;
+			if (!diverge_stats(f, cond, 0, LOOP_NONE, W, &dp, &dat, &daf,
+			    &reached, &exact, &pts))
 				continue;
 			cost = m->c[C_CMP] + m->c[C_BRANCH] + dat * lcost + daf *
 			    fcost + (1 - dat - daf) * (lcost + fcost +

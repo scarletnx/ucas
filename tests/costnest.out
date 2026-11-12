@@ -1,0 +1,72 @@
+> nest(i: u32 in 0..4095) = (i >> 5) % 4 == 0 ? ((i >> 5) % 4 == 1 ? i * i * i * i * i : i + 1) : i * 3
+> cost nest consecutive i
+cost of nest under gt1030: 27 (12 operations, shared subterms counted once)
+  shared subterms (named once, used below):
+    t1 = (i >> 5) % 4
+  iadd             1 x 1     = 1
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  imul             5 x 3     = 15
+  cmp              2 x 2.375 = 4.75
+  select           2 x 1.625 = 3.25
+  ?: on t1 == 1  (arms cost 12 and 1)
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: -5.75   (32 warps of 32 consecutive lanes, all counted: 0 all true, 1 all false, 0 split)
+      reached only by the lanes that take its arm of 1 enclosing branch (the true arm of the ?: on t1 == 0): 0.25 of the warps; the fractions above are of those, and the choice is weighed by it
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  ?: on t1 == 0  (arms cost 17 and 3)
+      select: +1.625   uniform branch: +3.25   divergent branch: +20.625
+      expected branch: -7.25   (128 warps of 32 consecutive lanes, all counted: 0.25 all true, 0.75 all false, 0 split)
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 16.2812
+> flat(i: u32 in 0..4095) = (i >> 5) % 4 == 1 ? i * i * i * i * i : i + 1
+> cost flat consecutive i
+cost of flat under gt1030: 20 (9 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  imul             4 x 3     = 12
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  ?: on (i >> 5) % 4 == 1  (arms cost 12 and 1)
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: -3   (128 warps of 32 consecutive lanes, all counted: 0.25 all true, 0.75 all false, 0 split)
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 15.375
+> lp(i: u32 in 0..1023) = { s: u32 = i; for j in 0..15 { s = ((i >> 5) + j) % 2 == 0 ? s * s * s * 7 : s + j }; s }
+> cost lp consecutive i
+cost of lp under gt1030: 508 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd            48 x 1     = 48
+  shift           17 x 6.70588 = 114
+  imul            48 x 3     = 144
+  cmp             32 x 2.375 = 76
+  select          16 x 1.625 = 26
+  branch          16 x 6.25  = 100
+  loop j in 0..15:
+    per iteration: body 22 + overhead 9.625 (index add, compare, branch) = 31.625
+    trip count: 16 (constant bounds)
+    once: 2 (initial values and loop-invariant subterms, hoisted)
+    loop total: 508
+  ?: on (int(i >> 5) + j) % 2 == 0  (arms cost 9 and 1)  [in a loop body: per iteration]
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: +1.25   (per iteration: 512 warp-iterations of 32 consecutive lanes, all counted: 0.5 all true, 0.5 all false, 0 split)
+      -> branch (its expected cost) (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 502
+> cost lp
+cost of lp under gt1030: 508 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd            48 x 1     = 48
+  shift           17 x 6.70588 = 114
+  imul            48 x 3     = 144
+  cmp             32 x 2.375 = 76
+  select          16 x 1.625 = 26
+  branch          16 x 6.25  = 100
+  loop j in 0..15:
+    per iteration: body 22 + overhead 9.625 (index add, compare, branch) = 31.625
+    trip count: 16 (constant bounds)
+    once: 2 (initial values and loop-invariant subterms, hoisted)
+    loop total: 508
+  ?: on (int(i >> 5) + j) % 2 == 0  (arms cost 9 and 1)  [in a loop body: per iteration]
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: +20.625   (per iteration: P(true) = 0.5 over all 16384 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 508

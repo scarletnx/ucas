@@ -588,27 +588,33 @@ warp_walk(const struct func *f, struct plan *pl, uint32_t wloc, int lane,
 }
 
 struct dvw {
-	uint32_t loc;
-	uint64_t nt, n, nat, naf, nw;
+	uint32_t loc, rloc;	/* the condition; the lanes that reach it */
+	uint64_t nt, n, nat, naf, nw, nwv;
 };
 
-/* a warp of a ?:'s condition: how many lanes hold it, all or none */
+/* a warp of a ?:'s condition: how many of the lanes that reach it hold
+ * it, all or none; nwv counts the warps, nw those it is reached in */
 static void
 dv_warp(void *ctx, const struct plan *pl, const uint8_t *ok, uint32_t np)
 {
 	struct dvw *s = ctx;
-	uint32_t k, t = 0, w = 0;
+	uint32_t k, t = 0, w = 0, a = 0;
 
 	for (k = 0; k < np; k++)
 		if (ok[k]) {
 			w++;
+			if (s->loc == NOTOK || (s->rloc != NOTOK &&
+			    !COLI(pl, s->rloc)[k]))
+				continue;
+			a++;
 			t += COLI(pl, s->loc)[k] != 0;
 		}
-	if (w) {
+	s->nwv += w > 0;
+	if (a) {
 		s->nw++;
-		s->n += w;
+		s->n += a;
 		s->nt += t;
-		s->nat += t == w;
+		s->nat += t == a;
 		s->naf += t == 0;
 	}
 }
@@ -619,42 +625,69 @@ dv_warp(void *ctx, const struct plan *pl, const uint8_t *ok, uint32_t np)
  * then the aligned runs of `warp` values of it, counted (2).  Only the
  * parameters the condition reads are enumerated; *exact: every case of
  * them was, not a sample.
+ *
+ * reach (0: every lane): the lanes that get to the ?: at all, those that
+ * take its arm of the enclosing branches.  A warp none of whose lanes
+ * does skips it; *reached is the fraction of warps that do not, and
+ * *all_t, *all_f are fractions of those, over the lanes that reach it
+ * (independent lanes, a lane reaching with probability r: a warp with
+ * 1 - (1 - r)^warp, all true with (1 - r + r p)^warp - (1 - r)^warp).
+ *
+ * loop (LOOP_NONE: none): cond is in that loop's body; it is counted at
+ * every iteration, over the lanes that run it (loop.c's probe), the
+ * whole function evaluated, every parameter drawn.
  */
 int
-diverge_stats(const struct func *f, nid cond, int warp, double *p,
-    double *all_t, double *all_f, int *exact, uint64_t *points)
+diverge_stats(const struct func *f, nid cond, nid reach, uint32_t loop,
+    int warp, double *p, double *all_t, double *all_f, double *reached,
+    int *exact, uint64_t *points)
 {
 	struct func g = *f;
 	struct plan pl;
-	nid roots[2];
+	nid roots[3];
 	int64_t *in_i;
 	double *in_r;
 	uint8_t ok[CH], used[MAXP] = {0}, *mark;
-	uint32_t loc, wloc, np, k;
-	int lane = dv_cons;
-	uint64_t nt = 0, n = 0;
+	uint32_t loc, rloc, wloc, np, k;
+	int j, lane = dv_cons, nr = 0;
+	uint64_t nt = 0, n = 0, nv = 0;
 
 	*exact = 0;
 	*points = 0;
+	*reached = 1;
 	if (warp < 2 || warp > CH)
 		return 0;
 	mark = xcalloc(N.n, 1);
 	used_params(cond, used, mark);
+	used_params(reach, used, mark);
 	used_params(f->where, used, mark);
 	free(mark);
+	if (loop != LOOP_NONE)
+		for (j = 0; j < g.np; j++)
+			used[j] = 1;
 	if (!hold_unused(&g, used, lane))
 		lane = -1;
 	f = &g;
-	roots[0] = cond;
-	roots[1] = f->where;
-	plan_build(&pl, roots, 2, 0);
-	loc = plan_loc(&pl, cond);
+	roots[nr++] = loop != LOOP_NONE ? f->body : cond;
+	if (reach)
+		roots[nr++] = reach;
+	roots[nr++] = f->where;
+	plan_build(&pl, roots, (uint32_t)nr, 0);
+	loc = loop != LOOP_NONE ? NOTOK : plan_loc(&pl, cond);
+	rloc = reach ? plan_loc(&pl, reach) : NOTOK;
 	wloc = f->where ? plan_loc(&pl, f->where) : NOTOK;
+	if (loop != LOOP_NONE)
+		loop_probe(loop, cond, warp);
 	if (lane >= 0) {
 		struct dvw s = {0};
 		s.loc = loc;
+		s.rloc = rloc;
 		warp_walk(f, &pl, wloc, lane, warp, dv_warp, &s, exact);
 		plan_free(&pl);
+		if (loop != LOOP_NONE)
+			loop_probe_counts(&s.nw, &s.nat, &s.naf, &s.n, &s.nt);
+		else
+			*reached = s.nwv ? (double)s.nw / (double)s.nwv : 0;
 		if (s.nw == 0)
 			return 0;
 		*p = (double)s.nt / (double)s.n;
@@ -674,7 +707,11 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 			plan_run(&pl, np, in_i, in_r);
 			valid_mask(&pl, wloc, np, ok);
 			for (k = 0; k < np; k++)
-				if (ok[k] && !(COLF(&pl, loc)[k] & F_UNDEF)) {
+				if (ok[k] && loc != NOTOK && !(COLF(&pl, loc)[k] &
+				    F_UNDEF)) {
+					nv++;
+					if (rloc != NOTOK && !COLI(&pl, rloc)[k])
+						continue;
 					n++;
 					nt += COLI(&pl, loc)[k] != 0;
 				}
@@ -683,8 +720,20 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 	plan_free(&pl);
 	free(in_i);
 	free(in_r);
-	if (n == 0)
+	if (loop != LOOP_NONE) {
+		uint64_t nw, nat, naf;
+		loop_probe_counts(&nw, &nat, &naf, &n, &nt);
+		nv = n;
+	}
+	if (nv == 0)
 		return 0;
+	if (n == 0) {
+		/* no lane of the sample reaches it */
+		*reached = 0;
+		*p = *all_t = *all_f = 0;
+		*points = nv;
+		return 1;
+	}
 	*p = (double)nt / (double)n;
 	/* a sample that never (or always) saw it bounds it: the rule of
 	 * three, 3/n at 95% confidence */
@@ -692,9 +741,13 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 		*p = nt == 0 ? 3.0 / (double)n : 1 - 3.0 / (double)n;
 		*exact = -1;
 	}
-	*all_t = ipow(*p, warp);
-	*all_f = ipow(1 - *p, warp);
-	*points = n;
+	{
+		double r = (double)n / (double)nv, none = ipow(1 - r, warp);
+		*reached = 1 - none;
+		*all_t = (ipow(1 - r + r * *p, warp) - none) / *reached;
+		*all_f = (ipow(1 - r * *p, warp) - none) / *reached;
+	}
+	*points = loop != LOOP_NONE ? n : nv;
 	return 1;
 }
 
