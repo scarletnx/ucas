@@ -2496,6 +2496,16 @@ under; the whole is then checked against the function on its domain
   of fields that share no bit).  When every row has one bit the lane
   takes that bit of the word, its position `lane + b`, `b - lane` or
   `lane xor b` when the rows follow one of those and a table otherwise.
+- A table read at the lane's index (the register above, a bit slice's
+  rows or shifts) whose entries are a closed form of the lane, `c + k
+  lane` (every entry checked) or one of find's maps of one small-range
+  value (a table in one constant, read at `lane & (2^b - 1)` so that
+  every lane shifts inside the word; a multiply and a shift), is that
+  form: the lane's index costs no load.  The odd bits of a word into a
+  byte shift by `2 lane + 1` (8.375 under a model with 8 lanes, 13.25
+  with the table).  For a register the same form at each lookup's own
+  index needs no shuffle at all; where that is cheaper the report says
+  so with its price, and the register stays the load.
 
 ```
 > f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)
