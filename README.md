@@ -3834,7 +3834,7 @@ Every claim is derived, not sampled:
 | x * K + B -> fma(x, K, B) | a multiply-add | a contraction Vulkan already allows (no `NoContraction`) |
 | pow(q, y) -> exp2(y * log2 q) | q > 0 where it is used | the expression pow's precision is defined by; against the correctly rounded pow, 2^(|t|(2u + u^2))(1 + u) - 1 with |t| = |y log2 q| bounded on q's range |
 | sqrt(x) -> x * inversesqrt(x) | x > 0 where it is used | both carry inversesqrt's error; the original divides (2.5 ulp), the rewrite multiplies (0.5 ulp) |
-| pow(q, y) ~ P(q - c) | q bounded where it is used | relative minimax (remez.c) with f32 coefficients; its real error certified on 4096 geometric pieces by a second-order Taylor bound with explicit derivative bounds, plus gamma_2n for Horner with fma; compared with pow's allowance piece by piece: listed as approximations unless within |
+| pow(q, y) ~ P(q - c) | q bounded where it is used | relative minimax (remez.c) with f32 coefficients (with `search`, moved by whole ulps where the certificate improves); its real error certified on 4096 geometric pieces by a second-order Taylor bound with explicit derivative bounds, plus gamma_2n for Horner with fma; compared with pow's allowance piece by piece: listed as approximations unless within |
 
 "Where it is used" matters: after `mix(a, b, step(e, x))` becomes a
 select, `b` is only used where x >= e (or NaN), so its pow's base, a
@@ -3847,13 +3847,22 @@ Options: `exact` applies bit-exact rewrites only; `ulp N` applies those
 whose derived bound against the reference is at most N ulp (a select is
 0 ulp: its finite results are identical); `approx` with `ulp N` also
 applies an approximation within N ulp.  Without an option, rewrites
-within the original's Vulkan precision apply.  Costs count every
-component, with step as a compare and a select and mix as a subtract
-and an fma (as lowered).  The report lists the rewrites by savings with
-their proofs, what spirv-opt -O already did (with the same
-derivation), approximations with their certified errors, near misses
-with their counterexamples, and the dead-side note: a select still runs
-both sides; a branch would skip one where the lanes agree.
+within the original's Vulkan precision apply.  `search anneal` or
+`search cmaes` (`seed K`, else UCAS_SEED, else 1) offers the polynomial
+approximations (pow's, exp2's, log2's, sqrt's, inversesqrt's) approx's
+coefficient searches (src/numsearch.c, see "Coefficient search"): from
+the f32 coefficients the rounded fit gave, by whole ulps, the objective
+the certificate's own bound (the real error, plus gamma_2n for Horner
+with fma and fl(q - c)'s rounding) at 2000 points of the range; what it
+finds replaces those coefficients only when the certificate, the same
+derivation as theirs, is better, and the derivation gets a `search:`
+line with both certified errors.  Costs count every component, with step
+as a compare and a select and mix as a subtract and an fma (as lowered).
+The report lists the rewrites by savings with their proofs, what
+spirv-opt -O already did (with the same derivation), approximations with
+their certified errors, near misses with their counterexamples, and the
+dead-side note: a select still runs both sides; a branch would skip one
+where the lanes agree.
 
 The user's sRGB decode, `vec3 decode(vec3 c) { return mix(c / 12.92,
 pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }`:

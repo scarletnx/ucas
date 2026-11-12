@@ -48,3 +48,10 @@ simplify with floats, c in [0, 1] nofile
 ```glsl
 vec3 tone(vec3 c) { return (c + vec3(0.1, 0.2, 0.3)) / vec3(2.0, 4.0, 1.5); }
 ```
+# the polynomial approximations searched (approx's annealing over their
+# f32 coefficients' ulps): what is found replaces the rounded fit's
+# coefficients only when its certificate is better
+simplify this shader with floats, c in [0, 1], search its polynomials by simulated annealing nofile
+```glsl
+vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+```
