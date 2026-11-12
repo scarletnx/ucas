@@ -74,8 +74,7 @@ function level: not run (the GLSL parser refused it: line 12: the shader has no 
 memory under gt1030:
   %34 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %32
       (line 8: atomicAdd(acc[i & 7u], float(i & 255u) * 0.25);)
-    (count: the workgroup's 64 invocations, once each; the array and its other accesses are not rewritten here:
-    the change below is for every access of it)
+    (count: the workgroup's 64 invocations, once each)
 intatomic 0.25f32(lane & 0xff) under gt1030: a shared float atomic add of 0.25f32(lane & 0xff), at most 64 into one cell
   the float add costs 24.25, an integer one 6.625
   the addend is k 2^-2 with |k| <= 255, exactly: every leaf is an integer or a binary constant, the
@@ -87,6 +86,14 @@ intatomic 0.25f32(lane & 0xff) under gt1030: a shared float atomic add of 0.25f3
      the cell is an i32 holding the sum times 2^2; every other access of it changes too: a store of v
      stores i32(v * 2^2), a read is f32(cell) * 2^-2 (a conversion and a multiply: 4 a read)
   defined _ia: the atomic's old value read back as a float
+    acc becomes i32 holding its value times 4, written into the module (workgroup memory is the module's own):
+      the add on line 8: OpAtomicIAdd of i32(lane & 0xff)
+      1 load converted back: f32(cell) * 0.25 (4 each)
+      its value stays within 16320 2^-2 (the stores' largest, 0, and 64 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
+      priced: the adds and their addends 7.625, the conversions 4: 11.625 against 29.25 (-60.3%)
+  the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 2871 bytes, checksum bff42da0)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > use zen4
