@@ -41,7 +41,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"tex_nearest",
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
 	"mul16",
-	"rop_blend", "rop_adv", "rop_logic", "rop_stencil",
+	"rop_blend", "rop_adv", "rop_logic", "rop_stencil", "rop_depth",
 	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm", "bfi",
 	"mulwide",
 };

@@ -2508,13 +2508,13 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 		else if (!flt && sign)
 			why = "a signed atomic: rop takes unsigned integers (issue "
 			    "#206)";
-		else if (!flt && w != 32)
-			why = "rop's integer targets here are 32-bit";
+		else if (!flt && w != 32 && w != 64)
+			why = "rop's integer cells here are 32 or 64 bits";
 		if (why) {
 			printf("      not proposed: %s\n", why);
 			continue;
 		}
-		ty = flt ? TY_F32 : TY(K_UINT, 32);
+		ty = flt ? TY_F32 : TY(K_UINT, w);
 		/* s: the value, or the 1 an increment adds */
 		if (!strcmp(a, "IIncrement") || !strcmp(a, "IDecrement")) {
 			slo = shi = 1;
@@ -2541,7 +2541,8 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 					plan_ival(&pl, &G->f, iv);
 					if (pl.root[0] < pl.n && !iv[pl.root[0]].top &&
 					    !iv[pl.root[0]].wrap && iv[pl.root[0]].lo >= 0 &&
-					    iv[pl.root[0]].hi <= (int64_t)UINT32_MAX) {
+					    (w == 64 || iv[pl.root[0]].hi <=
+					    (int64_t)UINT32_MAX)) {
 						slo = iv[pl.root[0]].lo;
 						shi = iv[pl.root[0]].hi;
 						sr = 1;

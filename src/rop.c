@@ -18,6 +18,9 @@
  *   advanced       VK_EXT_blend_operation_advanced on opaque colours:
  *                  MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE,
  *                  EXCLUSION
+ *   depth test     LESS or GREATER_OR_EQUAL on D32_SFLOAT: a min or max
+ *                  whose high bits are the key and whose low bits, the
+ *                  payload, ride in a colour target (an argmin)
  *
  * Nothing is recognised by name: every state is compared with F on F's
  * domain.  Integers are decided on every point or by SAT; a blend
@@ -30,7 +33,8 @@
  * A state is a proposal: it changes the pipeline (a render target, a
  * blend or stencil state, one point per contribution), which is spelled
  * out, and it is priced by a class of its own (rop_blend, rop_adv,
- * rop_logic, rop_stencil) that a model lists only once it is measured.
+ * rop_logic, rop_stencil, rop_depth) that a model lists only once it is
+ * measured.
  */
 #include "calc.h"
 #include "alg.h"
@@ -364,7 +368,21 @@ order(struct rctx *c)
 static const char *
 uint_format(int w)
 {
-	return w == 8 ? "R8_UINT" : w == 16 ? "R16_UINT" : "R32_UINT";
+	return w <= 8 ? "R8_UINT" : w <= 16 ? "R16_UINT" : w <= 32 ? "R32_UINT" :
+	    "R32G32_UINT";
+}
+
+/* the largest value of the parameter in slot, from its type and range */
+static uint64_t
+umax_of(const struct rctx *c, int slot)
+{
+	const struct param *p = &c->f->p[slot];
+	int64_t lo, hi;
+
+	if (TYW(p->ty) == 64 && !p->ranged)
+		return UINT64_MAX;
+	param_bounds(p, &lo, &hi);
+	return (uint64_t)hi;
 }
 
 static void
@@ -377,7 +395,7 @@ logic_ops(struct rctx *c)
 	nid s = c->vs, d = c->vd, e;
 	int k;
 	const char *how;
-	char st[200], pl[400];
+	char st[320], pl[400];
 
 	if (c->flt || c->nsrc != 1 || c->ic >= 0)
 		return;
@@ -404,8 +422,10 @@ logic_ops(struct rctx *c)
 		if (same(c->f, c->f->body, e, &how) != 1)
 			continue;
 		snprintf(st, sizeof st, "VK_LOGIC_OP_%s on an unsigned integer "
-		    "target (%s): %s", name[k], uint_format(c->w), shared_str(e,
-		    80));
+		    "target (%s%s): %s", name[k], uint_format(c->w), c->w == 64 ?
+		    ", the low word in R and the high one in G: a logic op works "
+		    "bit by bit, so the two channels compute it" : "",
+		    shared_str(e, 80));
 		snprintf(pl, sizeof pl, "VkPipelineColorBlendStateCreateInfo: "
 		    "logicOpEnable, logicOp = VK_LOGIC_OP_%s (the logicOp "
 		    "feature); an %s colour attachment; one point per "
@@ -636,6 +656,16 @@ mulr(double alo, double ahi, double blo, double bhi, double *lo, double *hi)
 	}
 }
 
+/* an integer-valued double as text: exact below 2^53, else rounded */
+static void
+num53(double x, char *b, size_t n)
+{
+	if (fabs(x) < 9007199254740992.0)
+		snprintf(b, n, "%.0f", x);
+	else
+		snprintf(b, n, "about %.6g", x);
+}
+
 /* is e only +, -, * of the parameters and constants (integers) */
 static int
 int_poly(nid e, int depth)
@@ -748,8 +778,8 @@ blend_eq(struct rctx *c)
 				continue;
 			param_bounds(&c->f->p[slots[j]], &l, &h);
 			lo[atoms[j]] = (double)l;
-			hi[atoms[j]] = (double)h;
-			mx = fmax(mx, fmax(fabs((double)l), fabs((double)h)));
+			hi[atoms[j]] = (double)umax_of(c, slots[j]);
+			mx = fmax(mx, fmax(fabs((double)l), hi[atoms[j]]));
 		}
 		bf_range(&q, bsf, lo, hi, &flo, &fhi);
 		mx = fmax(mx, fmax(fabs(flo), fabs(fhi)));
@@ -772,25 +802,28 @@ blend_eq(struct rctx *c)
 		mx = fmax(mx, fmax(fabs(rlo), fabs(rhi)));
 		ok = mx < P24 && rlo >= 0 && rhi < ldexp(1.0, c->w);
 		if (!ok) {
+			char nx[40], nl[40], nh[40];
+			num53(mx, nx, sizeof nx);
+			num53(rlo, nl, sizeof nl);
+			num53(rhi, nh, sizeof nh);
 			say(c, "  blending: VK_BLEND_OP_%s with %s and %s would "
 			    "compute it (%s), but is not exact on this domain: its "
-			    "values reach %.0f in magnitude and its result [%.0f, "
-			    "%.0f]; f32 holds integers below 2^24 = 16777216, and "
-			    "the result must stay inside u%d\n", opn[bop],
-			    bf_name[bsf], bf_name[bdf], sb_str(&eq), mx, rlo, rhi,
-			    c->w);
-			if (c->quiet && !c->best->near[0])
+			    "values reach %s in magnitude and its result [%s, %s]; "
+			    "f32 holds integers below 2^24 = 16777216, and the result "
+			    "must stay inside u%d\n", opn[bop], bf_name[bsf],
+			    bf_name[bdf], sb_str(&eq), nx, nl, nh, c->w);
+			if (!c->quiet)
+				rep_strf("not_exact", "blending %s: values up to %s, "
+				    "result in [%s, %s]", sb_str(&eq), nx, nl, nh);
+			else if (!c->best->near[0]) {
 				c->best->bound = 1;
-			if (c->quiet && !c->best->near[0])
 				snprintf(c->best->near, sizeof c->best->near,
 				    "VK_BLEND_OP_%s with %s and %s computes it (%s), "
 				    "exactly while its values stay below 2^24 = 16777216 "
-				    "and its result inside u%d: here they reach %.0f, the "
-				    "result [%.0f, %.0f]", opn[bop], bf_name[bsf],
-				    bf_name[bdf], sb_str(&eq), c->w, mx, rlo, rhi);
-			else
-				rep_strf("not_exact", "blending %s: values up to %.0f, "
-				    "result in [%.0f, %.0f]", sb_str(&eq), mx, rlo, rhi);
+				    "and its result inside u%d: here they reach %s, the "
+				    "result [%s, %s]", opn[bop], bf_name[bsf],
+				    bf_name[bdf], sb_str(&eq), c->w, nx, nl, nh);
+			}
 			goto out;
 		}
 		sb_printf(&holds, "the operands, the factors, both products and "
@@ -947,6 +980,129 @@ advanced(struct rctx *c)
 	form(c, "advanced blending", st, holds, pr, C_ROP_ADV, pl);
 }
 
+/* ---- the depth test: a min or a max that keeps a payload ---- */
+
+/*
+ * A key k is written as the depth whose f32 bits are k + 2^23: a normal
+ * float (no flush of denormals can touch it) in [2^-126, 1), so no clamp
+ * to the viewport's depth range either, and increasing with k while
+ * k < DEPTH_KEYS.  D32_SFLOAT stores it as written, and the depth compare
+ * of two such floats is the compare of their keys: nothing rounds.
+ */
+#define DEPTH_KEYS 0x3F000000ull
+
+static void
+depth_test(struct rctx *c)
+{
+	nid s = c->vs, d = c->vd, e, g, keep, ks, kd, cond;
+	ty_t t = c->ty;
+	int mx, b, w = c->w;
+	uint64_t top, kmax, mask;
+	const char *how, *cmp, *fmt;
+	char st[400], hold[400], pr[700], pl[700], key[80], pay[80], gt[120];
+
+	if (c->flt || c->nsrc != 1 || c->ic >= 0)
+		return;
+	/* F is the min or the max of s and d on F's domain */
+	for (mx = 0; mx < 2; mx++)
+		if (same(c->f, c->f->body, mk_bin(mx ? O_MAX : O_MIN, s, d), &how)
+		    == 1)
+			break;
+	if (mx == 2)
+		return;
+	/* the key: the fewest low bits left out so that it fits */
+	top = umax_of(c, c->is) > umax_of(c, c->id) ? umax_of(c, c->is) :
+	    umax_of(c, c->id);
+	for (b = 0; b < w && (top >> b) >= DEPTH_KEYS; b++)
+		;
+	kmax = top >> b;
+	mask = b == 64 ? UINT64_MAX : ((uint64_t)1 << b) - 1;
+	/* LESS keeps the cell on a tie, GREATER_OR_EQUAL takes the new one */
+	cmp = mx ? (b ? "GREATER_OR_EQUAL" : "GREATER") : "LESS";
+	if (b == 0) {
+		snprintf(key, sizeof key, "%s", pname(c, c->is));
+		snprintf(st, sizeof st, "VK_COMPARE_OP_%s on a D32_SFLOAT depth "
+		    "attachment, the value its own key: %s(%s, %s)", cmp, mx ?
+		    "max" : "min", pname(c, c->is), pname(c, c->id));
+		snprintf(hold, sizeof hold, "the values stay below 0x3F000000 "
+		    "(at most %llu, from the parameters' ranges)", (unsigned long
+		    long)top);
+		snprintf(pr, sizeof pr, "the update is %s(%s, %s) (%s); a key's "
+		    "depth is the f32 whose bits are key + 2^23, normal, in "
+		    "[2^-126, 1) and increasing with the key, so the depth "
+		    "compare is the keys' integer compare and nothing rounds; on "
+		    "a tie both values are the same", mx ? "max" : "min",
+		    pname(c, c->is), pname(c, c->id), how);
+		snprintf(pl, sizeof pl, "VkPipelineDepthStencilStateCreateInfo: "
+		    "depthTestEnable, depthWriteEnable, depthCompareOp = "
+		    "VK_COMPARE_OP_%s; a D32_SFLOAT depth attachment cleared to "
+		    "(or copied from) the cells' keys; one point per "
+		    "contribution, its position the cell, gl_FragDepth = "
+		    "uintBitsToFloat(%s + 0x00800000); the cell's value is the "
+		    "depth's bits - 0x00800000", cmp, pname(c, c->is));
+		form(c, "depth test", st, hold, pr, C_ROP_DEPTH, pl);
+		return;
+	}
+	/*
+	 * with a payload: the test keeps (ks cmp kd) ? s : d, which is the
+	 * min or the max wherever the keys differ or the payloads come in
+	 * increasing order; proved there, and refuted where they do not
+	 */
+	ks = mk_bin(O_SHR, s, mk_const_i(t, b));
+	kd = mk_bin(O_SHR, d, mk_const_i(t, b));
+	keep = mx ? mk_bin(O_GE, ks, kd) : mk_bin(O_LT, ks, kd);
+	g = mk_sel(keep, s, d);
+	cond = mk_bin(O_LOR, mk_bin(O_NE, ks, kd), mk_bin(O_GT, mk_bin(O_AND,
+	    s, mk_const_i(t, (int64_t)mask)), mk_bin(O_AND, d, mk_const_i(t,
+	    (int64_t)mask))));
+	e = mk_sel(cond, g, c->f->body);
+	if (same(c->f, c->f->body, e, &how) != 1)
+		return;
+	fmt = uint_format(b);
+	snprintf(gt, sizeof gt, "%s >> %d %s %s >> %d ? %s : %s", pname(c,
+	    c->is), b, mx ? ">=" : "<", pname(c, c->id), b, pname(c, c->is),
+	    pname(c, c->id));
+	snprintf(key, sizeof key, "%s >> %d", pname(c, c->is), b);
+	snprintf(pay, sizeof pay, "%s & 0x%llx", pname(c, c->is),
+	    (unsigned long long)mask);
+	snprintf(st, sizeof st, "VK_COMPARE_OP_%s on a D32_SFLOAT depth "
+	    "attachment holding the key %s, the payload %s in an %s colour "
+	    "attachment written where the test passes: %s(%s, %s)", cmp, key,
+	    pay, fmt, mx ? "max" : "min", pname(c, c->is), pname(c, c->id));
+	snprintf(hold, sizeof hold, "two values that meet in a cell differ in "
+	    "their keys, or come in increasing order of payload (the payload "
+	    "the contribution's index in the draw: a cell's fragments pass in "
+	    "primitive order); the keys below 0x3F000000 (at most %llu, from "
+	    "the parameters' ranges)", (unsigned long long)kmax);
+	if (!mx)
+		snprintf(pr, sizeof pr, "the test keeps %s, which is min(%s, %s) "
+		    "wherever the keys differ or the new payload is the larger "
+		    "(%s); on a tie the test keeps the cell, and min keeps the "
+		    "smaller payload, hence the order; a key's depth is the f32 "
+		    "whose bits are key + 2^23, normal, in [2^-126, 1) and "
+		    "increasing with the key, so the depth compare is the keys' "
+		    "integer compare and nothing rounds", gt,
+		    pname(c, c->is), pname(c, c->id), how);
+	else
+		snprintf(pr, sizeof pr, "the test keeps %s, which is max(%s, %s) "
+		    "wherever the keys differ or the new payload is the larger "
+		    "(%s); on a tie GREATER_OR_EQUAL takes the new value, and max "
+		    "the larger payload, hence the order; a key's depth is the "
+		    "f32 whose bits are key + 2^23, normal, in [2^-126, 1) and "
+		    "increasing with the key, so the depth compare is the keys' "
+		    "integer compare and nothing rounds", gt,
+		    pname(c, c->is), pname(c, c->id), how);
+	snprintf(pl, sizeof pl, "VkPipelineDepthStencilStateCreateInfo: "
+	    "depthTestEnable, depthWriteEnable, depthCompareOp = "
+	    "VK_COMPARE_OP_%s; a D32_SFLOAT depth attachment and an %s colour "
+	    "attachment (blending off), cleared to (or copied from) the cells' "
+	    "keys and payloads; one point per contribution, its position the "
+	    "cell, gl_FragDepth = uintBitsToFloat(uint(%s) + 0x00800000), its "
+	    "colour %s; the cell's value is (key << %d) | payload, the key the "
+	    "depth's bits - 0x00800000", cmp, fmt, key, pay, b);
+	form(c, "depth test", st, hold, pr, C_ROP_DEPTH, pl);
+}
+
 /* ---- the command ---- */
 
 static int
@@ -994,9 +1150,9 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 	c->flt = c->ty == TY_F32;
 	c->w = TYW(c->ty);
 	if (!c->flt && !(TYK(c->ty) == K_UINT && (c->w == 8 || c->w == 16 ||
-	    c->w == 32))) {
-		snprintf(why, sizeof why, "rop works on u8, u16, u32 (integer "
-		    "targets, stencil) and f32 (float targets), not %s",
+	    c->w == 32 || c->w == 64))) {
+		snprintf(why, sizeof why, "rop works on u8, u16, u32, u64 (integer "
+		    "targets, stencil, depth) and f32 (float targets), not %s",
 		    ty_str(c->ty));
 		return why;
 	}
@@ -1045,7 +1201,17 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 	 * compare-and-swap have classes of their own, priced as
 	 * atomic_global by a model that does not list them)
 	 */
-	if (native_atomic(c) && !(c->flt && N.op[f->body] == O_ADD)) {
+	if (c->w == 64) {
+		float b = native_atomic(c) ? 0 : fuse_expr_cost(m, f->body);
+		c->against = model_cost(m, C_ATOM_GL_64) + b;
+		if (native_atomic(c))
+			sb_printf(&c->againstwhy, "one global 64-bit atomic, "
+			    "atomic_global_64");
+		else
+			sb_printf(&c->againstwhy, "a global 64-bit compare-and-swap "
+			    "around the update: atomic_global_64 %g + %g",
+			    (double)model_cost(m, C_ATOM_GL_64), (double)b);
+	} else if (native_atomic(c) && !(c->flt && N.op[f->body] == O_ADD)) {
 		c->against = m->c[C_ATOM_GL];
 		sb_printf(&c->againstwhy, "one global atomic, atomic_global");
 	} else if (native_atomic(c)) {
@@ -1071,6 +1237,7 @@ catalogue(struct rctx *c)
 	minmax_blend(c);
 	blend_eq(c);
 	advanced(c);
+	depth_test(c);
 }
 
 static void
@@ -1109,7 +1276,8 @@ cmd_rop(struct func *f, struct model *m)
 	else
 		printf("  no fixed-function state in the catalogue computes it "
 		    "(logic ops, stencil ops, the blend equation with its "
-		    "factors, min, max, the advanced blend operations)\n");
+		    "factors, min, max, the advanced blend operations, the depth "
+		    "test)\n");
 	if (c.nforms && c.ordered && !c.flt)
 		printf("  as the result depends on the order, a state above "
 		    "stands for a sequential loop over the fragments in "

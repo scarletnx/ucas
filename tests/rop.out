@@ -14,7 +14,7 @@ rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the
 rop big: big = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result does not depend on the order of the fragments: big(s2, big(s1, d)) = big(s1, big(s2, d)) (proved by SAT)
   blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 8589934590 in magnitude and its result [0, 8589934590]; f32 holds integers below 2^24 = 16777216, and the result must stay inside u32
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
 > wsum(s: u32 in 0..255, w: u32 in 0..16, d: u32 in 0..100000) = d + s*w
 > rop wsum
 rop wsum: wsum = d + s*w, applied once per fragment (s what a fragment brings, w its second value, d the cell's value)
@@ -147,6 +147,11 @@ rop lo: lo = min(s, d), applied once per fragment (s what a fragment brings, d t
       checked on every point of the domain; the result is one of the two values; exact if the conversion to UNORM rounds to nearest (the float's error is far below half a step; Vulkan prefers nearest and allows either neighbour: to measure)
       price: rop_blend is not priced by gt1030 (not measured): unavailable
       pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MIN, srcColorBlendFactor = dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R8_UNORM colour attachment; one point per contribution, its position the cell, its colour s/255
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment, the value its own key: min(s, d)
+      holds where the values stay below 0x3F000000 (at most 255, from the parameters' ranges)
+      the update is min(s, d) (checked on every point of the domain); a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds; on a tie both values are the same
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment cleared to (or copied from) the cells' keys; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(s + 0x00800000); the cell's value is the depth's bits - 0x00800000
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
 > fa(s: f32, d: f32) = d + s
 > rop fa
@@ -235,12 +240,12 @@ rop dif: dif = abs(d - s), applied once per fragment (s what a fragment brings, 
 rop difx: difx = abs(d - s), applied once per fragment (s what a fragment brings, d the cell's value)
   order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
   advanced blending: VK_BLEND_OP_DIFFERENCE_EXT would compute it, but is defined on colours in [0, 1]: give s and d that range (s: f32 in 0..1)
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
 > nope(s: u32, d: u32) = d * 3 + s
 > rop nope
 rop nope: nope = 3d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result depends on the order of the fragments (nope(s2, nope(s1, d)) is not nope(s1, nope(s2, d))): a draw applies them in primitive order, atomics in any
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
 > model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
 > rop acc model fixed
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
@@ -340,6 +345,71 @@ rop.ucas:100:8: error: rop takes one uniform parameter (the blend constant or th
            ^
 > sg(s: i32, d: i32) = d + s
 > rop sg
-rop.ucas:102:7: error: rop works on u8, u16, u32 (integer targets, stencil) and f32 (float targets), not i32
+rop.ucas:102:7: error: rop works on u8, u16, u32, u64 (integer targets, stencil, depth) and f32 (float targets), not i32
     rop sg
           ^
+> am(s: u64, d: u64) = min(d, s)
+> rop am
+rop am: am = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: am(s2, am(s1, d)) = am(s1, am(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment holding the key s >> 35, the payload s & 0x7ffffffff in an R32G32_UINT colour attachment written where the test passes: min(s, d)
+      holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (the payload the contribution's index in the draw: a cell's fragments pass in primitive order); the keys below 0x3F000000 (at most 536870911, from the parameters' ranges)
+      the test keeps s >> 35 < d >> 35 ? s : d, which is min(s, d) wherever the keys differ or the new payload is the larger (proved by SAT); on a tie the test keeps the cell, and min keeps the smaller payload, hence the order; a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment and an R32G32_UINT colour attachment (blending off), cleared to (or copied from) the cells' keys and payloads; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(uint(s >> 35) + 0x00800000), its colour s & 0x7ffffffff; the cell's value is (key << 35) | payload, the key the depth's bits - 0x00800000
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> pk(s: u64 in 0..4539628424389459967, d: u64 in 0..4539628424389459967) = min(s, d)
+> rop pk
+rop pk: pk = min(s, d), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: pk(s2, pk(s1, d)) = pk(s1, pk(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment holding the key s >> 32, the payload s & 0xffffffff in an R32_UINT colour attachment written where the test passes: min(s, d)
+      holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (the payload the contribution's index in the draw: a cell's fragments pass in primitive order); the keys below 0x3F000000 (at most 1056964607, from the parameters' ranges)
+      the test keeps s >> 32 < d >> 32 ? s : d, which is min(s, d) wherever the keys differ or the new payload is the larger (proved by SAT); on a tie the test keeps the cell, and min keeps the smaller payload, hence the order; a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment and an R32_UINT colour attachment (blending off), cleared to (or copied from) the cells' keys and payloads; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(uint(s >> 32) + 0x00800000), its colour s & 0xffffffff; the cell's value is (key << 32) | payload, the key the depth's bits - 0x00800000
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> far(s: u32, d: u32) = max(s, d)
+> rop far
+rop far: far = max(s, d), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: far(s2, far(s1, d)) = far(s1, far(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth test: VK_COMPARE_OP_GREATER_OR_EQUAL on a D32_SFLOAT depth attachment holding the key s >> 3, the payload s & 0x7 in an R8_UINT colour attachment written where the test passes: max(s, d)
+      holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (the payload the contribution's index in the draw: a cell's fragments pass in primitive order); the keys below 0x3F000000 (at most 536870911, from the parameters' ranges)
+      the test keeps s >> 3 >= d >> 3 ? s : d, which is max(s, d) wherever the keys differ or the new payload is the larger (proved by SAT); on a tie GREATER_OR_EQUAL takes the new value, and max the larger payload, hence the order; a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL; a D32_SFLOAT depth attachment and an R8_UINT colour attachment (blending off), cleared to (or copied from) the cells' keys and payloads; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(uint(s >> 3) + 0x00800000), its colour s & 0x7; the cell's value is (key << 3) | payload, the key the depth's bits - 0x00800000
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> near(s: u32 in 0..1000000, d: u32 in 0..1000000) = min(d, s)
+> rop near
+rop near: near = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: near(s2, near(s1, d)) = near(s1, near(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment, the value its own key: min(s, d)
+      holds where the values stay below 0x3F000000 (at most 1000000, from the parameters' ranges)
+      the update is min(s, d) (proved by SAT); a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds; on a tie both values are the same
+      price: rop_depth is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment cleared to (or copied from) the cells' keys; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(s + 0x00800000); the cell's value is the depth's bits - 0x00800000
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> model depthy : gt1030 { rop_depth: 4 }
+> rop am model depthy
+rop am: am = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: am(s2, am(s1, d)) = am(s1, am(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment holding the key s >> 35, the payload s & 0x7ffffffff in an R32G32_UINT colour attachment written where the test passes: min(s, d)
+      holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (the payload the contribution's index in the draw: a cell's fragments pass in primitive order); the keys below 0x3F000000 (at most 536870911, from the parameters' ranges)
+      the test keeps s >> 35 < d >> 35 ? s : d, which is min(s, d) wherever the keys differ or the new payload is the larger (proved by SAT); on a tie the test keeps the cell, and min keeps the smaller payload, hence the order; a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds
+      price: rop_depth 4 a fragment under depthy, against 264.625 (one global 64-bit atomic, atomic_global_64): cheaper
+      pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment and an R32G32_UINT colour attachment (blending off), cleared to (or copied from) the cells' keys and payloads; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(uint(s >> 35) + 0x00800000), its colour s & 0x7ffffffff; the cell's value is (key << 35) | payload, the key the depth's bits - 0x00800000
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> bits64(s: u64, d: u64) = d | s
+> rop bits64
+rop bits64: bits64 = d | s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: bits64(s2, bits64(s1, d)) = bits64(s1, bits64(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  logic op: VK_LOGIC_OP_OR on an unsigned integer target (R32G32_UINT, the low word in R and the high one in G: a logic op works bit by bit, so the two channels compute it): s | d
+      proved by SAT
+      price: rop_logic is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendStateCreateInfo: logicOpEnable, logicOp = VK_LOGIC_OP_OR (the logicOp feature); an R32G32_UINT colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
