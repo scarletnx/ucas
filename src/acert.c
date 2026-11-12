@@ -40,7 +40,8 @@
  * / and sqrt round in the needed direction by their exact error terms
  * (TwoSum, Dekker's product), so an exact result stays a point; the
  * long double functions of libm (sinl, expl, logl, atanl...) are taken
- * within ACERT_SLACK of the true value, except at their exact points
+ * within ACERT_SLACK of the true value (relative, 32 to 64 of long
+ * double's ulps), except at their exact points
  * (sin 0 = 0, cos 0 = 1, log 1 = 0, ...).  That is the one assumption,
  * and the report states it.
  */
@@ -54,8 +55,11 @@
 
 #define PI_L 3.14159265358979323846264338327950288L
 
-/* the libm functions' error, relative (2^-58: 64 of long double's ulps) */
-#define ACERT_SLACK 0x1p-58L
+/* the libm functions' error, relative: 32 to 64 of long double's ulps
+ * (2^-58 where long double is x87's; 2^-47 where it is double, whose
+ * libm is off by 2^-53 and more) */
+#define ACERT_SLACK_EXP (6 - LDBL_MANT_DIG)
+#define ACERT_SLACK ldexpl(1, ACERT_SLACK_EXP)
 /* a piece is refined while its coefficients' bound exceeds what was
  * reached anywhere by more than this fraction of the largest total */
 #define ACERT_TAU (1.0L / 128)
@@ -1744,6 +1748,7 @@ acert_run(nid target, nid cand, ld lo, ld hi, int w, int rel, int k0, ld z,
 	A.prec = w == 32 ? 24 : 53;
 	A.emin = w == 32 ? -126 : -1022;
 	res->order = A.K;
+	res->slack = ACERT_SLACK_EXP;
 	if (A.k0 >= A.K) {
 		snprintf(res->why, sizeof res->why, "the target's zero has order "
 		    "%d, the Taylor order here is %d", A.k0, A.K);
