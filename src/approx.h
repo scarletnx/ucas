@@ -96,6 +96,8 @@ struct acert {
 	int order;		/* Taylor's order K */
 	int slack;		/* libm's long double functions taken within
 				 * 2^slack, relative */
+	int mexp;		/* the candidate's exp taken as libm's double
+				 * exp within 2^-52, then rounded */
 };
 void acert_run(nid target, nid cand, ld lo, ld hi, int w, int rel, int k0,
     ld z, struct acert *r);

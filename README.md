@@ -736,12 +736,33 @@ a case the table measures on every float).  The coefficients' part, what
 a search moves, lands near what is reached; the rounding part is a
 priori, every rounding at its bound and aligned, so it is above what the
 rounding does in practice (sin of degree 5 above: 24.88 against the
-measured 24.16, 23.84 of it the coefficients').  Not certified, with the
-reason on the line: a range reduction's candidate (its bit operations,
-asfloat and the shifts, have no interval rule: tests/approxsearch.ucas),
-a target with an operation that has none (lambertw, atan2), and a
-relative bound where the target is 0 beyond the fit's factor, or where
-the candidate is not 0 with it.
+measured 24.16, 23.84 of it the coefficients').
+
+A range reduction's candidate is certified piece by piece where its
+integer side is one value.  A node whose computed value is one number on
+the whole piece is frozen to it, by ucas's own constant folding, so
+exactly as the program computes it: the shifter's j = x/ln2 + 1.5 2^23
+once every value of the piece rounds to the same float, the k and the
+quadrant's q read from its bits, the 2^k built in the exponent.  The
+integers in between are followed as intervals (asuint of a float of one
+sign, a constant added, shifts, a mask of high bits), so log's exponent
+and sqrt's halved one freeze within a binade.  A float's bits moved by a
+frozen multiple of 2^mant and read back are that float times a power of
+two, while its exponent stays normal; a frozen sign bit xor-ed in is its
+negation.  An operation is exact when every result it can have is a
+multiple of its quantum q no larger than 2^prec q (Cody-Waite's k c1
+step, Sterbenz's subtractions), and so is a product by a frozen power of
+two that cannot underflow.  Where the intervals cannot decide (k changes
+inside the piece), pieces are halved, down to one float if need be,
+where every operation freezes.  A select's untaken side is not evaluated
+(atan's 1/|x| below 1).  The candidate's own exp (sinh's and tanh's
+identities) is libm's double exp, taken within 2^-52 and then rounded,
+and the line says so.
+
+Not certified, with the reason on the line: bits that are not a float's
+moved by a power of two, a target with an operation that has no interval
+rule (lambertw, atan2), and a relative bound where the target is 0
+beyond the fit's factor, or where the candidate is not 0 with it.
 
 ### Probabilistic rounding error
 
