@@ -1,0 +1,34 @@
+# Hermite's identity in closed (src/closed.c): a value rounded down T
+# times, each time against another of the T offsets j/T, adds up to the
+# value rounded once, T times finer.  It is why a rounding by a counter
+# or by a hash of one loses nothing over a whole period.
+
+# the offsets in order
+h8(x: real in 0..10) = sum(i, 0, 7, floor(x + real(i)/8))
+closed h8
+# any T consecutive indices; the first offset moves into the floor
+h16(x: real in -3..3) = sum(i, 5, 20, floor(x + real(i)/16))
+closed h16
+# the offsets by a hash of the index that is a bijection of 0..255: an
+# 8-bit store accumulated 256 times keeps the value to 1/256 of a step
+hh(x: real in 0..1) = sum(i, 0, 255, floor(255x + real((i*37 + 11) & 255)/256))
+closed hh
+# the offset as a multiple of 1/T, the hash an xor
+hx(x: real in 0..1) = sum(i, 0, 15, floor(16x + 0.0625*real(i xor 5)))
+closed hx
+# against rounding to nearest every time, at x = 0.123: 8029 by the
+# hash, 7936 by rounding, for 8029.44
+show hh(0.123)
+rn(x: real in 0..1) = sum(i, 0, 255, floor(255x + 0.5))
+closed rn
+show rn(0.123)
+show 256*255*0.123
+
+# not one period: an offset twice, a period cut short, a period that is
+# not a power of two (its offsets are not exact in binary)
+hb(x: real in 0..1) = sum(i, 0, 255, floor(255x + real((i*2) & 255)/256))
+closed hb
+h7(x: real in 0..10) = sum(i, 0, 6, floor(x + real(i)/8))
+closed h7
+h5(x: real in 0..1) = sum(i, 0, 4, floor(255x + real(i)/5))
+closed h5

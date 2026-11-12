@@ -29,7 +29,7 @@
 enum {
 	M_FREE, M_FAUL, M_GEOM, M_AGEO, M_TELE, M_PFRAC, M_SPLITMOD, M_SPLITLT,
 	M_LINREC, M_AFFINE, M_ACC, M_POWMAP, M_MOBIUS, M_QUAD, M_TRIP,
-	M_PRODPOW, M_PRODTELE, M_PRODRAT, M_LAST, M_N
+	M_PRODPOW, M_PRODTELE, M_PRODRAT, M_LAST, M_HERMITE, M_N
 };
 static const char *const mname[M_N] = {
 	"constant body", "Faulhaber (polynomial in the index)", "geometric",
@@ -41,6 +41,7 @@ static const char *const mname[M_N] = {
 	"quadratic map conjugate to y' = y^2", "trip count",
 	"product of powers", "telescoping product",
 	"ratio of shifted linear factors", "last value",
+	"Hermite's identity (floors over one period)",
 };
 static unsigned cl_meth;
 static struct sbuf cl_extra;
@@ -952,6 +953,79 @@ sum_telescoping(nid body, int s, nid lo, nid hi)
 	return 0;
 }
 
+/*
+ * Hermite's identity: sum(j, 0, T - 1, floor(z + j/T)) = floor(T z).  A
+ * value rounded down T times, each time against another of the T offsets
+ * j/T, adds up to the value rounded once, T times finer: what an ordered
+ * dither does, and a rounding by a counter or by a hash of one over a
+ * whole period of it.  The body is floor(z + g(i)/T) with z free of the
+ * index and g an integer that takes every value c, c + 1, ..., c + T - 1
+ * once as i runs lo..hi (g is run at each i: a hash that is a bijection
+ * of the T indices is one); the sum is floor(T z + c).  T is a constant
+ * power of two up to 2^12, so that the offsets are exact where the
+ * check evaluates them.
+ */
+#define HERMITE_MAX 4096
+
+static nid
+sum_hermite(nid body, int s, nid lo, nid hi)
+{
+	nid e, z, off, g = 0;
+	int64_t l, h, T, c0 = 0, k, *vals;
+	double d;
+	uint8_t *seen;
+	int ok = 1;
+
+	if (N.op[body] != O_FLOOR || TYK(N.ty[N.a[body]]) != K_REAL)
+		return 0;
+	e = N.a[body];
+	if (N.op[e] != O_ADD || !int_of(lo, &l) || !int_of(hi, &h))
+		return 0;
+	T = h - l + 1;
+	if (T < 2 || T > HERMITE_MAX || (T & (T - 1)))
+		return 0;
+	z = has_slot(N.a[e], s) ? N.b[e] : N.a[e];
+	off = has_slot(N.a[e], s) ? N.a[e] : N.b[e];
+	if (has_slot(z, s))
+		return 0;
+	/* the offset: g/T, or g times 1/T */
+	if (N.op[off] == O_DIV && num_of(N.b[off], &d) && d == (double)T)
+		g = N.a[off];
+	else if (N.op[off] == O_MUL && num_of(N.a[off], &d) &&
+	    d * (double)T == 1)
+		g = N.b[off];
+	else if (N.op[off] == O_MUL && num_of(N.b[off], &d) &&
+	    d * (double)T == 1)
+		g = N.a[off];
+	if (g && N.op[g] == O_CAST)
+		g = N.a[g];
+	if (!g || TY_FP(N.ty[g]) || node_slots(g) != ((uint64_t)1 << s))
+		return 0;
+	/* g at every index (substituted, which folds it): each of T
+	 * consecutive integers once */
+	vals = xcalloc((size_t)T, sizeof *vals);
+	seen = xcalloc((size_t)T, 1);
+	for (k = 0; k < T && ok; k++) {
+		ok = int_of(at(g, s, mk_const_i(N.ty[lo], l + k)), &vals[k]);
+		if (ok && (k == 0 || vals[k] < c0))
+			c0 = vals[k];
+	}
+	for (k = 0; k < T && ok; k++) {
+		int64_t v = vals[k] - c0;
+		if (v < 0 || v >= T || seen[v])
+			ok = 0;
+		else
+			seen[v] = 1;
+	}
+	free(vals);
+	free(seen);
+	if (!ok)
+		return 0;
+	METH(M_HERMITE);
+	e = MUL(KR((double)T), z);
+	return mk_un(O_FLOOR, c0 ? ADD(e, KR((double)c0)) : e);
+}
+
 /* P(i)/Q(i) with Q = lead * prod (i + a_j), distinct integers a_j */
 static nid
 sum_pfrac(nid body, int s, nid lo, nid hi)
@@ -1146,6 +1220,8 @@ sum_closed(nid body, int s, nid lo, nid hi, const char **how)
 		goto out;
 	}
 	if ((r = sum_telescoping(body, s, lo, hi)) != 0)
+		goto out;
+	if ((r = sum_hermite(body, s, lo, hi)) != 0)
 		goto out;
 	if (npoly_of(body, s, &P, 11)) {
 		int j;
