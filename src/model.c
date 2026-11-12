@@ -43,6 +43,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"mul16",
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil",
 	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm", "bfi",
+	"mulwide",
 };
 
 /*
