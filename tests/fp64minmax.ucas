@@ -1,0 +1,15 @@
+# min and max of double-word pairs: the pair is chosen by the sign of the
+# difference of the two, high words then low words, and the choice adds at
+# most 3 u^2 to the larger of the operands' bounds.
+a(x: f32 in 1..2, y: f32 in 3..4, z: f32 in 1..5) = f32(min(f64(x) * f64(y), f64(z) * f64(z)) + f64(x))
+dword a
+b(x: f32 in 1..2, y: f32 in 3..4, z: f32 in 1..5) = f32(max(f64(x) * f64(y), f64(z) * f64(z)) * f64(y))
+dword b
+# two f32 values: the instruction itself compares them exactly
+c(x: f32 in 1..2, y: f32 in 3..4) = f32(min(f64(x), f64(y)) * f64(y))
+dword c
+# operands of opposite signs, and a range that crosses zero
+d(x: f32 in -2..2, y: f32 in 1..3) = f32(max(f64(x) * f64(y), f64(x) * f64(x)) * f64(y))
+dword d
+# where f64 costs what f32 does nothing is offered
+dword a model zen4
