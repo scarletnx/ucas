@@ -503,6 +503,258 @@ madwide_of(const struct func *f, nid x, struct sbuf *why)
 	return 0;
 }
 
+/* n without its conversions */
+static nid
+bare(nid n)
+{
+	while (N.op[n] == O_CAST && TY_ISINT(N.ty[n]))
+		n = N.a[n];
+	return n;
+}
+
+/* p as byte i of a u32 word w: (w >> 8i) & 255, w & 255, w >> 24 or
+ * bfe(w, 8i, 8) */
+static int
+byte_field(nid p, nid *w, int *i)
+{
+	nid t;
+	uint32_t k;
+	int s;
+
+	p = bare(p);
+	if (N.op[p] == O_BFE && is_const(N.b[p]) && is_const(N.c[p]) &&
+	    N.ki[N.c[p]] == 8 && N.ki[N.b[p]] % 8 == 0) {
+		*w = N.a[p];
+		*i = (int)N.ki[N.b[p]] / 8;
+		return 1;
+	}
+	if (cshift(p, O_SHR, U32, &t, &s) && s == 24) {
+		*w = t;
+		*i = 3;
+		return 1;
+	}
+	if (!and_const(p, &t, &k) || k != 255)
+		return 0;
+	if (cshift(t, O_SHR, U32, w, &s) && s % 8 == 0 && s <= 24) {
+		*i = s / 8;
+		return 1;
+	}
+	if (N.ty[t] != U32)
+		return 0;
+	*w = t;
+	*i = 0;
+	return 1;
+}
+
+/* t as |a.byte[i] - b.byte[i]|: max(p, q) - min(p, q) or abs(p - q) */
+static int
+byte_absdiff(nid t, nid *a, nid *b, int *i)
+{
+	nid p, q, x, y;
+	int i2;
+
+	t = bare(t);
+	if (N.op[t] == O_SUB && N.op[N.a[t]] == O_MAX && N.op[N.b[t]] ==
+	    O_MIN) {
+		x = N.a[t];
+		y = N.b[t];
+		if (!((N.a[x] == N.a[y] && N.b[x] == N.b[y]) ||
+		    (N.a[x] == N.b[y] && N.b[x] == N.a[y])))
+			return 0;
+		p = N.a[x];
+		q = N.b[x];
+	} else if (N.op[t] == O_ABS && N.op[bare(N.a[t])] == O_SUB) {
+		p = N.a[bare(N.a[t])];
+		q = N.b[bare(N.a[t])];
+	} else
+		return 0;
+	return byte_field(p, a, i) && byte_field(q, b, &i2) && i2 == *i;
+}
+
+#define MAXTERM 16
+
+static int
+sum_terms(nid x, ty_t t, nid *out, int n)
+{
+	if (N.op[x] == O_ADD && N.ty[x] == t) {
+		n = sum_terms(N.a[x], t, out, n);
+		return n < 0 ? n : sum_terms(N.b[x], t, out, n);
+	}
+	if (n == MAXTERM)
+		return -1;
+	out[n++] = x;
+	return n;
+}
+
+/* x, a sum with the four bytes' differences of two words in it: usad4x8,
+ * the rest of the sum its accumulator */
+static nid
+usad_of(nid x, struct sbuf *why)
+{
+	nid tm[MAXTERM], a, b, a0 = 0, b0 = 0, c = 0;
+	int n, k, i, seen = 0;
+	uint8_t used[MAXTERM] = {0};
+
+	if (N.op[x] != O_ADD || !TY_ISINT(N.ty[x]) || N.ty[x] == TY_BOOL ||
+	    (n = sum_terms(x, N.ty[x], tm, 0)) < 4)
+		return 0;
+	for (k = 0; k < n; k++) {
+		if (!byte_absdiff(tm[k], &a, &b, &i))
+			continue;
+		if (!a0) {
+			a0 = a;
+			b0 = b;
+		}
+		if (!((a == a0 && b == b0) || (a == b0 && b == a0)) ||
+		    ((seen >> i) & 1))
+			continue;
+		seen |= 1 << i;
+		used[k] = 1;
+	}
+	if (seen != 15)
+		return 0;
+	for (k = 0; k < n; k++)
+		if (!used[k])
+			c = c ? mk_bin(O_ADD, c, tm[k]) : tm[k];
+	sb_printf(why, "%s: the sum of the four bytes' absolute differences "
+	    "of %s and %s%s%s", shared_str(x, 80), node_str(a0), node_str(b0),
+	    c ? ", plus " : "", c ? node_str(c) : "");
+	return mk_cast(N.ty[x], mk_inst(O_USAD4X8, a0, b0, c ? c : ku(U32, 0)));
+}
+
+/*
+ * x, a u32 of one or two u32 words and constants, as a byte permute:
+ * each result byte one byte of b:a (b the second word, or 0) or eight
+ * copies of one byte's sign bit, told at random points of the words and
+ * then checked with the function.  For what the GF(2) matrix of one word
+ * does not say: two words, a byte's sign, a byte of zeros.
+ */
+#define BP_SAMPLES 48
+
+static nid
+byteperm_of(const struct func *f, nid x, struct sbuf *why)
+{
+	uint64_t sl = node_slots(x), rs = 0x9e3779b97f4a7c15ULL;
+	int slot[2] = {-1, -1}, ns = 0, j, i, smp, nib[4];
+	uint16_t cand[4] = {0xffff, 0xffff, 0xffff, 0xffff};
+	struct plan pl;
+	int64_t *in_i;
+	double *in_r;
+	nid w[2], roots[1] = {x};
+	uint32_t loc, sel = 0;
+
+	if (N.ty[x] != U32 || N.op[x] == O_VAR || IS_INST(N.op[x]) ||
+	    (sl >> MAXP) || (N.fl[x] & NF_SG))
+		return 0;
+	for (j = 0; j < f->np; j++)
+		if ((sl >> j) & 1) {
+			if (ns == 2 || f->p[j].ty != U32)
+				return 0;
+			slot[ns++] = j;
+		}
+	if (ns == 0)
+		return 0;
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	for (smp = 0; smp < BP_SAMPLES; smp++)
+		for (j = 0; j < ns; j++) {
+			rs ^= rs << 13;
+			rs ^= rs >> 7;
+			rs ^= rs << 17;
+			in_i[(size_t)slot[j] * CH + smp] = (int64_t)(uint32_t)rs;
+		}
+	plan_build(&pl, roots, 1, 0);
+	loc = plan_loc(&pl, x);
+	plan_run(&pl, BP_SAMPLES, in_i, in_r);
+	for (smp = 0; smp < BP_SAMPLES; smp++) {
+		uint64_t ab;
+		uint32_t r = (uint32_t)COLI(&pl, loc)[smp];
+		if (COLF(&pl, loc)[smp] & F_UNDEF) {
+			cand[0] = 0;
+			break;
+		}
+		ab = (uint32_t)in_i[(size_t)slot[0] * CH + smp] | (ns == 2 ?
+		    (uint64_t)(uint32_t)in_i[(size_t)slot[1] * CH + smp] << 32 :
+		    0);
+		for (i = 0; i < 4; i++)
+			for (j = 0; j < 16; j++) {
+				uint32_t by = (uint32_t)(ab >> (8 * (j & 7))) &
+				    255;
+				if (j & 8)
+					by = (by & 128) ? 255 : 0;
+				if (((r >> (8 * i)) & 255) != by)
+					cand[i] &= (uint16_t)~(1u << j);
+			}
+	}
+	plan_free(&pl);
+	free(in_i);
+	free(in_r);
+	for (i = 0; i < 4; i++) {
+		for (j = 0; j < 16 && !((cand[i] >> j) & 1); j++)
+			;
+		if (j == 16)
+			return 0;
+		nib[i] = j;
+		sel |= (uint32_t)j << (4 * i);
+	}
+	/* one word moving its whole bytes is the GF(2) pattern's */
+	if (ns == 1 && nib[0] < 4 && nib[1] < 4 && nib[2] < 4 && nib[3] < 4)
+		return 0;
+	w[0] = mk_var((uint32_t)slot[0], f->p[slot[0]].name, U32);
+	w[1] = ns == 2 ? mk_var((uint32_t)slot[1], f->p[slot[1]].name, U32) :
+	    ku(U32, 0);
+	sb_printf(why, "%s: bytes %x, %x, %x, %x of %s:%s (8 and up: a byte's "
+	    "sign), told at %d random points", shared_str(x, 80), nib[0],
+	    nib[1], nib[2], nib[3], node_str(w[1]), node_str(w[0]),
+	    BP_SAMPLES);
+	return mk_inst(O_BYTEPERM, w[0], w[1], ku(U32, sel));
+}
+
+/* x, a word of a 64-bit shift of hi:lo: u32((hi:lo) >> k) is funr,
+ * u32(((hi:lo) << k) >> 32) funl, k in 1..31 */
+static nid
+funnel64_of(nid x, struct sbuf *why)
+{
+	nid s, w, hi, lo, sh;
+	int k, j, left = 0;
+
+	if (N.op[x] != O_CAST || N.ty[x] != U32)
+		return 0;
+	s = N.a[x];
+	if (N.op[s] != O_SHR || N.ty[s] != U64 || !is_const(N.b[s]))
+		return 0;
+	k = (int)N.ki[N.b[s]];
+	w = N.a[s];
+	if (k == 32 && N.op[w] == O_SHL && N.ty[w] == U64 &&
+	    is_const(N.b[w]) && N.ki[N.b[w]] >= 1 && N.ki[N.b[w]] <= 31) {
+		left = 1;
+		k = (int)N.ki[N.b[w]];
+		w = N.a[w];
+	} else if (k < 1 || k > 31)
+		return 0;
+	if (N.op[w] != O_OR && N.op[w] != O_ADD && N.op[w] != O_XOR)
+		return 0;
+	for (j = 0; j < 2; j++) {
+		sh = j ? N.b[w] : N.a[w];
+		lo = j ? N.a[w] : N.b[w];
+		if (N.op[sh] != O_SHL || !is_const(N.b[sh]) ||
+		    N.ki[N.b[sh]] != 32)
+			continue;
+		hi = N.a[sh];
+		if (N.op[hi] != O_CAST || N.op[lo] != O_CAST ||
+		    TYK(N.ty[N.a[hi]]) != K_UINT || TYW(N.ty[N.a[hi]]) > 32 ||
+		    TYK(N.ty[N.a[lo]]) != K_UINT || TYW(N.ty[N.a[lo]]) > 32)
+			continue;
+		hi = mk_cast(U32, N.a[hi]);
+		lo = mk_cast(U32, N.a[lo]);
+		sb_printf(why, "%s: the %s word of the 64-bit (%s:%s) %s %d",
+		    shared_str(x, 80), left ? "high" : "low", node_str(hi),
+		    node_str(lo), left ? "<<" : ">>", k);
+		return mk_inst(left ? O_FUNL : O_FUNR, hi, lo, kint(k));
+	}
+	return 0;
+}
+
 /* x as the instruction of pattern p; 0 when it is not that pattern */
 static nid
 pattern(const struct func *f, int p, nid x, struct sbuf *why)
@@ -696,11 +948,17 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		break;
 	case 8:		/* that product plus a u64 */
 		return madwide_of(f, x, why);
+	case 9:		/* the four bytes' |a - b| summed */
+		return usad_of(x, why);
+	case 10:	/* bytes of two words, signs of bytes */
+		return byteperm_of(f, x, why);
+	case 11:	/* a word of a 64-bit shift of two words */
+		return funnel64_of(x, why);
 	}
 	return 0;
 }
 
-#define NPAT 9
+#define NPAT 12
 
 /*
  * The low word of a product, a * b in u32, where the function also reads
