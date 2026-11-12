@@ -2901,7 +2901,7 @@ exec_one(const struct sins *I, uint32_t mask)
 		static const char *const known[] = {"IAdd", "ISub", "IIncrement",
 			"IDecrement", "SMin", "SMax", "UMin", "UMax", "And", "Or",
 			"Xor", "Exchange", "Store", "Load", "CompareExchange",
-			"FAddEXT", NULL};
+			"FAddEXT", "FMinEXT", "FMaxEXT", NULL};
 		const struct model *mo = model_active();
 		int p = opid(I, 1), sc, cls, j, same = 0, nact = 0, wt, first = -1;
 		int round[64] = {0}, nround = 1;
@@ -2914,11 +2914,12 @@ exec_one(const struct sins *I, uint32_t mask)
 		if (!known[j])
 			fail("SPIR-V: %s is not run by the executor", I->op);
 		sc = pv.var >= 0 ? V.id[pv.var].sc : SC_SHARED;
-		/* a float add has its own class; a model without it prices it
-		 * as an integer atomic */
+		/* a float add, min or max has its own class; a model without
+		 * it prices it as an integer atomic */
 		cls = sc == SC_WG ? C_ATOM_SH : C_ATOM_GL;
 		wt = I->res >= 0 ? opid(I, 0) : type_of(opid(I, 3));
-		if (!strcmp(a, "FAddEXT") && model_lists(mo, sc == SC_WG ?
+		if ((!strcmp(a, "FAddEXT") || !strcmp(a, "FMinEXT") || !strcmp(a,
+		    "FMaxEXT")) && model_lists(mo, sc == SC_WG ?
 		    C_ATOM_SH_F : C_ATOM_GL_F))
 			cls = sc == SC_WG ? C_ATOM_SH_F : C_ATOM_GL_F;
 		else if (sc != SC_WG && !strcmp(a, "CompareExchange") &&
@@ -2978,6 +2979,9 @@ exec_one(const struct sins *I, uint32_t mask)
 			    V.id[ptr.var].nslots ? ptr.off : 0];
 			if (!strcmp(a, "IAdd")) *m = puti(st, geti(st, old) + geti(st, x));
 			else if (!strcmp(a, "FAddEXT")) *m = putf(st, getf(st, old) + getf(st, x));
+			/* FMin and FMax: a NaN operand gives the other */
+			else if (!strcmp(a, "FMinEXT")) *m = putf(st, fmin(getf(st, old), getf(st, x)));
+			else if (!strcmp(a, "FMaxEXT")) *m = putf(st, fmax(getf(st, old), getf(st, x)));
 			else if (!strcmp(a, "ISub")) *m = puti(st, geti(st, old) - geti(st, x));
 			else if (!strcmp(a, "IIncrement")) *m = puti(st, geti(st, old) + 1);
 			else if (!strcmp(a, "IDecrement")) *m = puti(st, geti(st, old) - 1);

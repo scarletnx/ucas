@@ -2749,6 +2749,439 @@ mem_append(const struct model *m, struct mem_out *o)
 	}
 }
 
+/* ---- float atomic min and max as integer ones on ordered keys ---- */
+
+/* the float whose key is k: res = asfloat(k ^ (~(k >>> 31) | 0x80000000)) */
+static void
+mem_key_decode(struct sbuf *c, const char *ut, const char *ft, const char *k,
+    const char *res, const char *c31, const char *ctop, int stem, int *serial)
+{
+	char sh[48], nt[48], mo[48], b[48];
+
+	snprintf(sh, sizeof sh, "%%ucas_ia%d_%d", stem, ++*serial);
+	snprintf(nt, sizeof nt, "%%ucas_ia%d_%d", stem, ++*serial);
+	snprintf(mo, sizeof mo, "%%ucas_ia%d_%d", stem, ++*serial);
+	snprintf(b, sizeof b, "%%ucas_ia%d_%d", stem, ++*serial);
+	sb_printf(c, "%s = OpShiftRightArithmetic %s %s %s\n", sh, ut, k, c31);
+	sb_printf(c, "%s = OpNot %s %s\n", nt, ut, sh);
+	sb_printf(c, "%s = OpBitwiseOr %s %s %s\n", mo, ut, nt, ctop);
+	sb_printf(c, "%s = OpBitwiseXor %s %s %s\n", b, ut, k, mo);
+	sb_printf(c, "%s = OpBitcast %s %s\n", res, ft, b);
+}
+
+/*
+ * The float atomic min or max into workgroup variable var, with its loads
+ * and stores, as an integer one on keys that order as the floats: for b
+ * the bits, key = b ^ ((b >>> 31) | 0x80000000) (>>> arithmetic): a
+ * non-negative float gets its bits with the top bit set, a negative one
+ * its bits inverted, below every non-negative key.  A NaN operand goes
+ * in as its operation's identity (0 for max, all ones for min), as FMin
+ * and FMax ignore a NaN operand, and a stored NaN as the identity of the
+ * variable's atomics, which reads back as a NaN; -0 and +0 order as -0 <
+ * +0, which FMin and FMax leave open.  Every access converts: loads and
+ * old values decode, stores encode (a constant at once).  Written when
+ * the whole price falls; a variable that takes both min and max only
+ * when every store is a constant other than a NaN (a stored NaN would
+ * need the identity of both).  Workgroup memory is the module's own.
+ * 1 when written.
+ */
+static int
+mem_fminmax(int var, const struct model *m, struct mem_out *o,
+    struct mem_retype *rt)
+{
+	int lev[MEM_MAXLEV + 1], nlev = 0, t, k, i, ft, kvar = -1, nat = 0;
+	int nld = 0, nst = 0, nkst = 0, nmax = 0, mixed, isMax, written = 0;
+	int *chain_lev, *kind, bad_k = -1, nold = 0, ut, bt, serial = 0;
+	int kst = -1, knan = -1;
+	const char *an = V.id[var].name, *bad = NULL, *what;
+	double cf = 0, ci = 0, enc, dec, one, sel, cmp;
+	char c31[48], ctop[48], cmin[48], cmax[48], where[48];
+	struct sbuf c = {0};
+
+	if (*an == '%')
+		an++;
+	chain_lev = xcalloc((size_t)V.nin + 1, sizeof *chain_lev);
+	kind = xcalloc((size_t)V.nin + 1, sizeof *kind);
+	t = T(V.id[var].type)->e;
+	while (nlev < MEM_MAXLEV && V.id[t].kind == K_TYPE && T(t)->k ==
+	    S_ARRAY) {
+		lev[nlev++] = t;
+		t = T(t)->e;
+	}
+	lev[nlev] = ft = t;
+	if (V.id[t].kind != K_TYPE || T(t)->k != S_FLOAT || T(t)->w != 32)
+		bad = "its element is not an f32 (nor an array of them)";
+	/* kind: 1 load, 2 store, 3 constant store, 4 atomic */
+	for (k = 0; k < V.nin && !bad; k++) {
+		const struct sins *I = &V.in[k];
+		int ch, d = -1;
+		if (I->res == var && !strcmp(I->op, "OpVariable")) {
+			kvar = k;
+			if (I->nop > 2) {
+				bad = "it has an initializer";
+				bad_k = k;
+			}
+			continue;
+		}
+		if (mem_debug_op(I->op))
+			continue;
+		for (i = 0; i < I->nop && d < 0; i++)
+			if (I->opnd[i][0] == '%' && mem_base_var(idx(I->opnd[i]),
+			    &ch) == var)
+				d = i;
+		if (d < 0)
+			continue;
+		if ((!strcmp(I->op, "OpAccessChain") || !strcmp(I->op,
+		    "OpInBoundsAccessChain") || !strcmp(I->op, "OpCopyObject")) &&
+		    d == 1 && I->res >= 0) {
+			int pt = idx(I->opnd[0]), j;
+			for (j = 0; j <= nlev; j++)
+				if (V.id[pt].kind == K_TYPE && T(pt)->k == S_PTR &&
+				    T(pt)->e == lev[j])
+					break;
+			if (j > nlev) {
+				bad = "an access chain reaches a type outside its own";
+				bad_k = k;
+			} else
+				chain_lev[k] = j + 1;
+		} else if (!strcmp(I->op, "OpLoad") && d == 1 && I->res >= 0 &&
+		    idx(I->opnd[0]) == ft) {
+			kind[k] = 1;
+			nld++;
+		} else if (!strcmp(I->op, "OpStore") && d == 0 && I->nop >= 2 &&
+		    V.id[idx(I->opnd[1])].type == ft) {
+			int v = idx(I->opnd[1]);
+			kind[k] = V.id[v].kind == K_CONST ? 3 : 2;
+			nst += kind[k] == 2;
+			nkst += kind[k] == 3;
+			if (kind[k] == 2 && kst < 0)
+				kst = k;
+			if (kind[k] == 3 && knan < 0 && isnan(frombits(32,
+			    V.id[v].c[0])))
+				knan = k;
+		} else if ((!strcmp(I->op, "OpAtomicFMinEXT") || !strcmp(I->op,
+		    "OpAtomicFMaxEXT")) && d == 1 && I->nop >= 5 &&
+		    idx(I->opnd[0]) == ft) {
+			nmax += !strcmp(I->op, "OpAtomicFMaxEXT");
+			kind[k] = 4;
+			nat++;
+			nold += mem_used(I->res);
+		} else {
+			bad = "an access of a kind this rewrite does not convert";
+			bad_k = k;
+		}
+	}
+	mixed = nmax > 0 && nmax < nat;
+	isMax = nmax > 0;
+	what = mixed ? "min and max" : isMax ? "max" : "min";
+	if (!bad && mixed && kst >= 0) {
+		bad = "it takes both atomic min and max, and a value stored into "
+		    "it may be a NaN, which has no key for both";
+		bad_k = kst;
+	}
+	if (!bad && mixed && knan >= 0) {
+		bad = "it takes both atomic min and max, and a NaN is stored into "
+		    "it, which has no key for both";
+		bad_k = knan;
+	}
+	if (!bad && nat == 0)
+		bad = "no atomic min or max";
+	ut = mem_find_type(S_INT, 32);
+	bt = mem_find_type(S_BOOL, 0);
+	if (!bad && (ut < 0 || bt < 0))
+		bad = "the module has no 32-bit unsigned type or no bool";
+	/* the prices: an encode is a shift, two logic ops, a NaN test and a
+	 * select; a decode a shift and three logic ops */
+	one = (double)model_cost(m, C_ATOM_SH);
+	cmp = (double)m->c[C_CMP];
+	sel = (double)m->c[C_SELECT];
+	enc = (double)m->c[C_SHIFT] + 2 * (double)m->c[C_LOGIC] + cmp + sel;
+	dec = (double)m->c[C_SHIFT] + 3 * (double)m->c[C_LOGIC];
+	cf = nat * (double)model_cost(m, C_ATOM_SH_F);
+	ci = nat * (one + enc) + nold * dec + nld * dec + nst * enc;
+	if (!bad && !(ci < cf))
+		bad = "not cheaper with its loads and stores converted";
+	mem_hdr(o, m);
+	if (bad) {
+		printf("  float atomic %s into %s: left as it is: %s", what, an,
+		    bad);
+		if (!strncmp(bad, "not cheaper", 11))
+			printf(": %g against %g", ci, cf);
+		if (bad_k >= 0)
+			printf(" (%s)", mem_where(bad_k, where, sizeof where));
+		printf("\n");
+		goto out;
+	}
+	rt->var = var;
+	rt->kvar = kvar;
+	rt->nlev = nlev;
+	memcpy(rt->lev, lev, sizeof rt->lev);
+	rt->stem = mem_free_stem("ucas_ia", 1);
+	snprintf(rt->ity, sizeof rt->ity, "%s", V.id[ut].tok);
+	mem_kconst(o->decl, V.id[ut].tok, 0, 31, c31, sizeof c31);
+	mem_kconst(o->decl, V.id[ut].tok, 0, 0x80000000LL, ctop, sizeof ctop);
+	if (nmax < nat)
+		mem_kconst(o->decl, V.id[ut].tok, 0, 0xFFFFFFFFLL, cmin,
+		    sizeof cmin);
+	if (nmax > 0)
+		mem_kconst(o->decl, V.id[ut].tok, 0, 0, cmax, sizeof cmax);
+#define MM_NAME(b) snprintf(b, sizeof b, "%%ucas_ia%d_%d", rt->stem, ++serial)
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		char b[48], sh[48], mo[48], key[48], nan[48], kk[48], nt[48];
+		int j;
+		if (chain_lev[k]) {
+			snprintf(o->newty[k], 48, "%%ucas_ia%d_p%d", rt->stem,
+			    chain_lev[k] - 1);
+			continue;
+		}
+		if (!kind[k])
+			continue;
+		sb_clear(&c);
+		if (kind[k] == 2 || kind[k] == 4) {
+			/* the key of the value written or combined */
+			const char *x = I->opnd[kind[k] == 2 ? 1 : 4];
+			MM_NAME(b);
+			MM_NAME(sh);
+			MM_NAME(mo);
+			MM_NAME(key);
+			MM_NAME(nan);
+			MM_NAME(kk);
+			sb_printf(&c, "%s = OpBitcast %s %s\n", b, rt->ity, x);
+			sb_printf(&c, "%s = OpShiftRightArithmetic %s %s %s\n", sh,
+			    rt->ity, b, c31);
+			sb_printf(&c, "%s = OpBitwiseOr %s %s %s\n", mo, rt->ity, sh,
+			    ctop);
+			sb_printf(&c, "%s = OpBitwiseXor %s %s %s\n", key, rt->ity, b,
+			    mo);
+			sb_printf(&c, "%s = OpIsNan %s %s\n", nan, V.id[bt].tok, x);
+			/* a NaN operand: its own atomic's identity; a NaN stored:
+			 * that of the variable's (one kind, as stores of a value
+			 * are refused when it takes both) */
+			sb_printf(&c, "%s = OpSelect %s %s %s %s\n", kk, rt->ity, nan,
+			    (kind[k] == 4 ? !strcmp(I->op, "OpAtomicFMaxEXT") :
+			    isMax) ? cmax : cmin, key);
+		}
+		if (kind[k] == 3) {
+			/* a constant: its key at once */
+			int v = idx(I->opnd[1]);
+			uint32_t bb = (uint32_t)V.id[v].c[0], kv;
+			int isn = (bb & 0x7F800000u) == 0x7F800000u && (bb & 0x7FFFFFu);
+			kv = isn ? (isMax ? 0 : 0xFFFFFFFFu) : bb ^ ((uint32_t)((int32_t)
+			    bb >> 31) | 0x80000000u);
+			mem_kconst(o->decl, V.id[ut].tok, 0, (int64_t)kv, kk, sizeof kk);
+		}
+		if (kind[k] == 2 || kind[k] == 3) {
+			sb_printf(&c, "OpStore %s %s", I->opnd[0], kk);
+			for (j = 2; j < I->nop; j++)
+				sb_printf(&c, " %s", I->opnd[j]);
+			sb_putc(&c, '\n');
+		} else if (kind[k] == 4) {
+			int used = mem_used(I->res);
+			if (used)
+				MM_NAME(nt);
+			else
+				snprintf(nt, sizeof nt, "%s", V.id[I->res].tok);
+			sb_printf(&c, "%s = OpAtomic%s %s %s %s %s %s\n", nt,
+			    !strcmp(I->op, "OpAtomicFMaxEXT") ? "UMax" : "UMin",
+			    rt->ity, I->opnd[1], I->opnd[2], I->opnd[3], kk);
+			if (used)
+				mem_key_decode(&c, rt->ity, V.id[ft].tok, nt,
+				    V.id[I->res].tok, c31, ctop, rt->stem, &serial);
+		} else if (kind[k] == 1) {
+			MM_NAME(nt);
+			sb_printf(&c, "%s = OpLoad %s", nt, rt->ity);
+			for (j = 1; j < I->nop; j++)
+				sb_printf(&c, " %s", I->opnd[j]);
+			sb_putc(&c, '\n');
+			mem_key_decode(&c, rt->ity, V.id[ft].tok, nt, V.id[I->res].tok,
+			    c31, ctop, rt->stem, &serial);
+		}
+		o->repl[k] = c.p;
+		c.p = NULL;
+		c.n = c.cap = 0;
+	}
+#undef MM_NAME
+	printf("  float atomic %s into %s: %d atomic%s, %d load%s, %d store%s: "
+	    "an integer atomic %s on keys that order as the floats, %g against "
+	    "%g (atomic_shared_f %g each)\n", what, an, nat, nat == 1 ? "" :
+	    "s", nld, nld == 1 ? "" : "s", nst + nkst, nst + nkst == 1 ? "" :
+	    "s", what, ci, cf, (double)model_cost(m, C_ATOM_SH_F));
+	printf("    the key of a float with bits b is b ^ ((b >>> 31) | "
+	    "0x80000000): a non-negative float keeps its bits with the top bit "
+	    "set, a negative one gets them inverted, below every non-negative "
+	    "key, so the keys order as the floats (-0 below +0, which FMin and "
+	    "FMax leave open)\n");
+	if (mixed)
+		printf("    a NaN operand goes in as its operation's identity "
+		    "(0xFFFFFFFF for a min, 0 for a max), as FMin and FMax ignore "
+		    "it; every store is a constant other than a NaN\n");
+	else
+		printf("    a NaN goes in as the %s's identity (%s) and reads back "
+		    "as a NaN, as F%s ignores a NaN operand\n", what, isMax ? "0" :
+		    "0xFFFFFFFF", isMax ? "Max" : "Min");
+	printf("    each atomic: atomic_shared %g + the key %g; each load and "
+	    "each old value read: the decode %g; each store of a value: the key "
+	    "%g (a constant's at once)\n    written into the module (workgroup "
+	    "memory is the module's own)\n", one, enc, dec, enc);
+	if (kvar >= 0)
+		o->repl[kvar] = xcalloc(1, 1);
+	written = 1;
+out:
+	free(c.p);
+	free(chain_lev);
+	free(kind);
+	return written;
+}
+
+/*
+ * A float atomic min or max into a storage buffer: the keys of
+ * mem_fminmax would make it an integer one, but the buffer is read outside
+ * the module (other shaders, the host), so its type is an interface: a
+ * proposal, priced with this module's conversions.
+ */
+static void
+mem_fminmax_buf(int k, int var, const struct model *m, struct mem_out *o)
+{
+	const struct sins *I = &V.in[k];
+	int mx = !strcmp(I->op, "OpAtomicFMaxEXT"), ck, q, nload = 0;
+	int nstore = 0, nat = 0, nold = 0, nmax = 0;
+	const char *bn = V.id[var].name;
+	double one, fl, enc, dec, ci, cf;
+	char sl[200], what[96];
+
+	if (*bn == '%')
+		bn++;
+	ck = mem_root_chain(idx(I->opnd[1]), var);
+	/* a member is reported once, at its first atomic */
+	for (q = 0; q < k && ck >= 0; q++) {
+		const struct sins *J = &V.in[q];
+		int c2;
+		if ((!strcmp(J->op, "OpAtomicFMinEXT") || !strcmp(J->op,
+		    "OpAtomicFMaxEXT")) && J->nop >= 2 && J->opnd[1][0] == '%' &&
+		    (c2 = mem_root_chain(idx(J->opnd[1]), var)) >= 0 &&
+		    !strcmp(V.in[c2].opnd[2], V.in[ck].opnd[2]))
+			return;
+	}
+	mem_hdr(o, m);
+	printf("  %s\n", I->text);
+	src_line(ins_line(k), sl, sizeof sl);
+	fputs(sl, stdout);
+	if (V.id[idx(I->opnd[0])].kind != K_TYPE || T(idx(I->opnd[0]))->w !=
+	    32) {
+		printf("    its type is not f32: no keys for it here\n");
+		return;
+	}
+	/* the member, and this module's other accesses of it */
+	snprintf(what, sizeof what, "the buffer %s", bn);
+	if (ck >= 0) {
+		int stt = T(V.id[var].type)->e, mi = idx(V.in[ck].opnd[2]);
+		if (V.id[stt].kind == K_TYPE && T(stt)->k == S_STRUCT &&
+		    V.id[mi].kind == K_CONST)
+			snprintf(what, sizeof what, "%s in the buffer %s",
+			    mem_member(stt, (int)V.id[mi].c[0]), bn);
+		for (q = 0; q < V.nin; q++) {
+			const struct sins *J = &V.in[q];
+			int at = !strcmp(J->op, "OpAtomicFMinEXT") ||
+			    !strcmp(J->op, "OpAtomicFMaxEXT");
+			int pi = !strcmp(J->op, "OpLoad") ? 1 : !strcmp(J->op,
+			    "OpStore") ? 0 : at ? 1 : -1, c2;
+			if (pi < 0 || J->nop <= pi || J->opnd[pi][0] != '%' ||
+			    (c2 = mem_root_chain(idx(J->opnd[pi]), var)) < 0 ||
+			    strcmp(V.in[c2].opnd[2], V.in[ck].opnd[2]) != 0)
+				continue;
+			if (at) {
+				nat++;
+				nmax += !strcmp(J->op, "OpAtomicFMaxEXT");
+				nold += J->res >= 0 && mem_used(J->res);
+			} else if (J->op[2] == 'L')
+				nload++;
+			else
+				nstore++;
+		}
+	} else {
+		nat = 1;
+		nmax = mx;
+		nold = I->res >= 0 && mem_used(I->res);
+	}
+	if (nmax > 0 && nmax < nat && nstore > 0) {
+		printf("    %s takes both atomic min and max, and a value stored "
+		    "into it may be a NaN, which has no key for both: no keys for "
+		    "it\n", what);
+		return;
+	}
+	one = (double)model_cost(m, C_ATOM_GL);
+	fl = (double)model_cost(m, C_ATOM_GL_F);
+	enc = (double)m->c[C_SHIFT] + 2 * (double)m->c[C_LOGIC] +
+	    (double)m->c[C_CMP] + (double)m->c[C_SELECT];
+	dec = (double)m->c[C_SHIFT] + 3 * (double)m->c[C_LOGIC];
+	cf = nat * fl;
+	ci = nat * (one + enc) + (nold + nload) * dec + nstore * enc;
+	if (!(ci < cf)) {
+		printf("    as an integer atomic on keys that order as the floats: "
+		    "%g against %g, not cheaper\n", ci, cf);
+		return;
+	}
+	printf("    proposal (an interface change, not applied): %s becomes "
+	    "u32 holding keys that order as the floats, key = b ^ ((b >>> 31) | "
+	    "0x80000000) for the bits b:\n", what);
+	printf("      here the operand's key goes to");
+	if (nat > nmax)
+		printf(" OpAtomicUMin for %d atomic min%s", nat - nmax, nat -
+		    nmax == 1 ? "" : "s");
+	if (nat > nmax && nmax > 0)
+		printf(" and");
+	if (nmax > 0)
+		printf(" OpAtomicUMax for %d atomic max%s", nmax, nmax == 1 ? "" :
+		    "es");
+	printf(" (a NaN as the identity: %s), %d load%s "
+	    "and %d old value%s decoded (k ^ (~(k >>> 31) | 0x80000000)), %d "
+	    "store%s encoded: %g against %g (atomic_global %g, atomic_global_f "
+	    "%g)\n", nmax == 0 ? "0xFFFFFFFF" : nmax == nat ? "0" :
+	    "0xFFFFFFFF for a min, 0 for a max", nload, nload == 1 ? "" : "s",
+	    nold, nold == 1 ? "" : "s", nstore, nstore == 1 ? "" : "s", ci, cf,
+	    one, fl);
+	printf("      every other shader that reads or writes it converts the "
+	    "same way, and so do the host's upload and readback (a cell no "
+	    "value reached yet holds the identity of the atomics into it and "
+	    "reads back as a NaN; one that both kinds reach starts from a "
+	    "value)\n");
+}
+
+/* no f32 atomic min or max left: the module stops asking for it (the
+ * extension stays while it declares the f16 or f64 one) */
+static void
+mem_drop_fminmax_caps(char **repl)
+{
+	int k, f32 = 0, other = 0;
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if ((!strcmp(I->op, "OpAtomicFMinEXT") || !strcmp(I->op,
+		    "OpAtomicFMaxEXT")) && repl[k] == NULL && I->nop >= 1 &&
+		    T(idx(I->opnd[0]))->w == 32)
+			f32 = 1;
+		if (!strcmp(I->op, "OpCapability") && I->nop >= 1 &&
+		    (!strcmp(I->opnd[0], "AtomicFloat16MinMaxEXT") ||
+		    !strcmp(I->opnd[0], "AtomicFloat64MinMaxEXT")))
+			other = 1;
+	}
+	if (f32)
+		return;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpCapability") && I->nop >= 1 &&
+		    !strcmp(I->opnd[0], "AtomicFloat32MinMaxEXT")) {
+			repl[k] = xcalloc(1, 1);
+			printf("  the module no longer declares AtomicFloat32MinMaxEXT: "
+			    "it runs where the device has no float atomic min and max\n");
+		}
+		if (!other && !strcmp(I->op, "OpExtension") && I->nop >= 1 &&
+		    strstr(I->opnd[0], "SPV_EXT_shader_atomic_float_min_max"))
+			repl[k] = xcalloc(1, 1);
+	}
+}
+
 /* ---- the pass ---- */
 
 static char *
@@ -2768,7 +3201,7 @@ mem_pass(const char *text, int *changed)
 	char (*newname)[40];
 	char **repl, (*newty)[48];
 	struct mem_retype rt[MEM_MAXARR];
-	int nrt = 0, done_var[64], ndone = 0;
+	int nrt = 0, done_var[64], ndone = 0, nminmax = 0;
 	struct mem_out mo;
 
 	*changed = 0;
@@ -2996,8 +3429,30 @@ mem_pass(const char *text, int *changed)
 			mem_fatomic_buf(k, var, lsize, m, &mo);
 			continue;
 		}
+		if (var >= 0 && (!strcmp(I->op, "OpAtomicFMinEXT") ||
+		    !strcmp(I->op, "OpAtomicFMaxEXT")) && I->nop >= 5 &&
+		    (!strcmp(mem_sc(var), "StorageBuffer") || (!strcmp(mem_sc(var),
+		    "Uniform") && mem_bufferblock(var)))) {
+			mem_fminmax_buf(k, var, m, &mo);
+			continue;
+		}
 		if (var < 0 || strcmp(mem_sc(var), "Workgroup") != 0)
 			continue;
+		if ((!strcmp(I->op, "OpAtomicFMinEXT") || !strcmp(I->op,
+		    "OpAtomicFMaxEXT")) && I->nop >= 5) {
+			for (a = 0; a < ndone; a++)
+				if (done_var[a] == var)
+					break;
+			if (a == ndone && ndone < 64) {
+				done_var[ndone++] = var;
+				if (nrt < MEM_MAXARR && mem_fminmax(var, m, &mo,
+				    &rt[nrt])) {
+					nrt++;
+					nminmax++;
+					*changed = 1;
+				}
+			}
+		}
 		if (!strcmp(I->op, "OpAtomicFAddEXT") && I->nop >= 5) {
 			for (a = 0; a < ndone; a++)
 				if (done_var[a] == var)
@@ -3158,8 +3613,10 @@ mem_pass(const char *text, int *changed)
 	 * (a padded row grows the outermost array) */
 	for (i = 0; i < nrt; i++)
 		mem_retype_decl(&rt[i], &decl, newidx, newname);
-	if (nrt > 0)
+	if (nrt > nminmax)
 		mem_drop_fadd_caps(repl);
+	if (nminmax > 0)
+		mem_drop_fminmax_caps(repl);
 	if (*changed) {
 		int first_fn = -1;
 		for (k = 0; k < V.nin; k++)
