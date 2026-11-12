@@ -2721,6 +2721,15 @@ is offered: `texalu` says which number is missing.
   the lowest price under the model is taken, by dynamic programming
   over the entries (greedily past 16).
 
+The texture's format comes from the table: bytes (R8_UNORM, priced
+`tex_sample`) when every entry is k/255, or a whole number 0..255
+(stored as k/255, the read scaled by 255), or one of evenly spaced
+levels lo + step m with at most 256 of them (the bytes are m, spread
+over 0..255 when the largest m divides 255; the read is mapped back by
+one multiply-add, whose rounding is in the bound); 32-bit floats
+(`tex_sample_f32`) otherwise.  A table of levels is read as f32 when
+the map back would put the bound over what is allowed.
+
 A filtered read's error against the exact weighted sum is derived:
 |S| times (the weight's move times the largest step between
 neighbouring texels, plus `tex_within` ulps, plus the texels' rounding
@@ -2780,8 +2789,7 @@ its reason.  In English: "what can the texture unit compute of f",
 Not done: texels split between taps (a 3 x 3 kernel in four reads),
 trilinear and anisotropic filters, mip levels as means, min/max and
 compare samplers, gather, array layers, sRGB and the other formats
-(an 8-bit table of evenly spaced levels through an affine map, R16,
-half floats), normalised coordinates for the filters, and SPIR-V
+(R16, half floats), normalised coordinates for the filters, and SPIR-V
 written for a read (a module cannot add its own binding).  None of
 those has a measured price yet either.
 
