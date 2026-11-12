@@ -1165,7 +1165,9 @@ peep_cands(nid root, struct pcand **out)
 			st[sp++] = N.b[n];
 		if (N.c[n])
 			st[sp++] = N.c[n];
-		if (!TY_ISINT(N.ty[n]) || op == O_INDEX)
+		/* a subgroup operation's operand is a value per lane, not
+		 * something the operation could be dropped for */
+		if (!TY_ISINT(N.ty[n]) || op == O_INDEX || IS_SG(op))
 			continue;
 		switch (op) {
 		case O_SEL:
@@ -2006,6 +2008,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	peephole(&F.f);
 	parametric(&F.f);
 	dot_find(&F.f);
+	sg_find(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();

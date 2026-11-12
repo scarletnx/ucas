@@ -426,8 +426,8 @@ fdiv_simp(struct bctx *c, nid n, struct sbuf *steps)
 			n = mk_cast(N.ty[n], a);
 		else if (opinfo[N.op[n]].arity == 1)
 			n = mk_un(N.op[n], a);
-		else if (IS_DOT(N.op[n]))
-			n = mk_dot(N.op[n], a, b, N.c[n]);
+		else if (IS_DOT(N.op[n]) || IS_SG(N.op[n]))
+			n = mk_op(N.op[n], a, b, N.c[n]);
 		else
 			n = mk_bin(N.op[n], a, b);
 		bctx_reset(c);

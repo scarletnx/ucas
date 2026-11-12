@@ -37,6 +37,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_shared_same", "atomic_shared_f", "atomic_global_f",
 	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
+	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
 };
 
 /*
@@ -86,8 +87,9 @@ model_new(uint32_t name)
 	m->c[C_BITCAST] = 0;
 	m->c[C_F64] = 1;
 	/* an instruction the target may not have: absent unless listed */
-	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
-		m->c[k] = INFINITY;
+	for (k = 0; k < C_NCLASS; k++)
+		if (C_ABSENT(k))
+			m->c[k] = INFINITY;
 	return m;
 }
 
@@ -162,6 +164,9 @@ model_classes_text(struct sbuf *b, const struct model *m)
 	for (k = 0; k < MP_NPAR; k++)
 		if (m->par[k] != 0)
 			sb_printf(b, ", %s: %g", mparam_name[k], (double)m->par[k]);
+	for (k = C_SG_FIRST; k <= C_SG_LAST; k++)
+		if (cclass_available(m, k))
+			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
 }
 
 static int
@@ -343,7 +348,8 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_LOOP:
 		return loop_cost(m, n, cls);
 	default:
-		k = IS_DOT(op) ? DOT_CLASS(op) : C_IADD;
+		k = IS_DOT(op) ? DOT_CLASS(op) : IS_SG(op) ? sg_class(op) :
+		    C_IADD;
 	}
 	*cls = k;
 	c = m->c[k] * mul;
@@ -445,6 +451,11 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen)
 		return 0;
 	case O_ATOMIC:
 		return 1;   /* the old value differs per invocation */
+	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
+		/* one value for the subgroup, whatever its lanes hold */
+		return 0;
+	case O_SGSHUF: case O_SGSCAN:
+		return 1;
 	}
 	return depends_nonuniform(f, N.a[n], seen) ||
 	    depends_nonuniform(f, N.b[n], seen) ||
@@ -778,15 +789,27 @@ static void
 cost_report(struct func *f, struct model *m, const struct func *src)
 {
 	uint32_t lim = N.n, g;
-	uint8_t *all = xcalloc(lim, 1), *cut = xcalloc(lim, 1);
-	uint8_t *seen = xcalloc(lim, 1);
+	uint8_t *all, *cut, *seen;
 	float bycls[C_NCLASS] = {0}, total = 0, avg_total, best_total, c;
 	int cnt[C_NCLASS] = {0}, cls, k, nops = 0, nsel = 0, nloop = 0;
 	int varying = 0;
 	struct lprice *lps = NULL;
 	struct shmap *sh;
 	struct sbuf cb = {0};
+	struct func flat;
 
+	/* subgroup operations: priced as one lane runs them, a value per
+	 * lane once whether an operation or the lane itself reads it; new
+	 * nodes, so before anything is sized by N.n */
+	if (N.fl[f->body] & NF_SG) {
+		flat = *f;
+		flat.body = sg_priced(f, f->body);
+		f = &flat;
+		lim = N.n;
+	}
+	all = xcalloc(lim, 1);
+	cut = xcalloc(lim, 1);
+	seen = xcalloc(lim, 1);
 	reach(f->body, all, 0, 0);
 	/* the cover by the model's fusions: outside loops and in their
 	 * bodies, each loop's state a result of its own */
@@ -896,13 +919,13 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		fuse_tally_print(&cur_tally, "    ");
 		rep_end();
 	}
-	for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
-		if (cnt[k] && !cclass_available(m, k))
+	for (k = 0; k < C_NCLASS; k++)
+		if (C_ABSENT(k) && cnt[k] && !cclass_available(m, k))
 			break;
-	if (k <= C_DOT_LAST) {
+	if (k < C_NCLASS) {
 		rep_list("unavailable");
-		for (k = C_DOT_FIRST; k <= C_DOT_LAST; k++)
-			if (cnt[k] && !cclass_available(m, k)) {
+		for (k = 0; k < C_NCLASS; k++)
+			if (C_ABSENT(k) && cnt[k] && !cclass_available(m, k)) {
 				printf("  %s is not available under %s (the model "
 				    "lists no such instruction)\n", cclass_name[k],
 				    sym_str(m->name));

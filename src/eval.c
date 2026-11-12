@@ -1149,13 +1149,25 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 /* ---- plans ---- */
 
 void
-plan_build(struct plan *p, const nid *roots, uint32_t nr, int ideal)
+plan_build(struct plan *p, const nid *roots0, uint32_t nr, int ideal)
 {
-	uint8_t *mark = xcalloc(N.n, 1);
-	uint32_t *map = xcalloc(N.n, sizeof *map);
-	nid *stack = xmalloc(N.n * sizeof *stack), g;
+	uint8_t *mark;
+	uint32_t *map;
+	nid *stack, g, *roots = xmalloc((nr + 1) * sizeof *roots);
 	uint32_t sp = 0, i, k, nl = 0, j;
 
+	/* subgroup operations spelled out over their lanes (sg.c): new
+	 * nodes, so before anything is sized by N.n */
+	for (i = 0; i < nr; i++) {
+		roots[i] = sg_lower(roots0[i]);
+		if (roots[i] && sg_has_lane(roots[i]))
+			fail("lane is a value per lane: outside a subgroup "
+			    "operation it has to be a parameter, f(..., lane: "
+			    "u32 in 0..N-1)");
+	}
+	mark = xcalloc(N.n, 1);
+	map = xcalloc(N.n, sizeof *map);
+	stack = xmalloc(N.n * sizeof *stack);
 	memset(p, 0, sizeof *p);
 	for (i = 0; i < nr; i++)
 		if (roots[i] && !mark[roots[i]])
@@ -1243,6 +1255,7 @@ plan_build(struct plan *p, const nid *roots, uint32_t nr, int ideal)
 	free(mark);
 	free(map);
 	free(stack);
+	free(roots);
 }
 
 void
@@ -1270,6 +1283,9 @@ plan_loc(const struct plan *p, nid g)
 {
 	uint32_t lo = 0, hi = p->n;
 
+	g = sg_lower(g);	/* as plan_build took it */
+	if (sg_has_lane(g))	/* part of a value per lane: no column */
+		return NOTOK;
 	while (lo < hi) {
 		uint32_t m = (lo + hi) / 2;
 		if (p->gid[m] < g)

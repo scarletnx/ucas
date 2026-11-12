@@ -921,6 +921,10 @@ list_conditions(const struct func *f, int *nc)
 			COND("0 <= %s < %u  (table index)", node_str(N.b[n]),
 			    N.b[N.a[n]]);
 			break;
+		case O_SGSHUF:
+			COND("0 <= %s < %d  (a lane of the subgroup)",
+			    node_str(N.b[n]), sg_width(n));
+			break;
 		case O_UNDEF:
 			COND("an arm of match/piecewise covers the input");
 			break;

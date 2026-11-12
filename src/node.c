@@ -103,6 +103,13 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_UDOT8X4S] = {"udot8x4sat", 3, OF_INT},
 	[O_SDOT8X4S] = {"sdot8x4sat", 3, OF_INT},
 	[O_SUDOT8X4S] = {"sudot8x4sat", 3, OF_INT},
+	/* sg.c: the last operand is the subgroup's size */
+	[O_SGBALLOT] = {"sg_ballot", 2, 0},
+	[O_SGANY] = {"sg_any", 2, 0},
+	[O_SGALL] = {"sg_all", 2, 0},
+	[O_SGADD] = {"sg_add", 2, OF_INT},
+	[O_SGSHUF] = {"sg_shuffle", 3, 0},
+	[O_SGSCAN] = {"sg_scan", 3, OF_INT},
 };
 
 static const char *const atomic_names[] = {
@@ -375,7 +382,7 @@ mk_undef(ty_t t)
 nid
 mk_raw(int op, ty_t t, nid a, nid b, nid c, int64_t ki, int fl)
 {
-	fl |= (child_fl(a) | child_fl(b) | child_fl(c)) & NF_VAR;
+	fl |= (child_fl(a) | child_fl(b) | child_fl(c)) & NF_INH;
 	return intern(op, t, a, b, c, ki, 0.0, fl);
 }
 
@@ -439,7 +446,7 @@ node(int op, ty_t t, nid a, nid b, nid c)
 {
 	int fl = node_partial(op, t, a, b, c);
 
-	fl |= (child_fl(a) | child_fl(b) | child_fl(c)) & NF_VAR;
+	fl |= (child_fl(a) | child_fl(b) | child_fl(c)) & NF_INH;
 	return intern(op, t, a, b, c, 0, 0.0, fl);
 }
 
@@ -656,6 +663,8 @@ mk_bin(int op, nid a, nid b)
 
 	if (IS_DOT(op))
 		return mk_dot(op, a, b, 0);
+	if (IS_SG(op))
+		return mk_sg(op, a, b, 0);
 	switch (op) {
 	case O_LAND:
 	case O_LOR:
@@ -884,6 +893,8 @@ mk_op(int op, nid a, nid b, nid c)
 {
 	if (IS_DOT(op))
 		return mk_dot(op, a, b, c);
+	if (IS_SG(op))
+		return mk_sg(op, a, b, c);
 	if (op == O_SEL)
 		return mk_sel(a, b, c);
 	if (op == O_FMA)
@@ -925,7 +936,7 @@ nid
 mk_barrier(nid a)
 {
 	return intern(O_BARRIER, N.ty[a], a, 0, 0, ++effect_serial, 0.0,
-	    N.fl[a] & (NF_PARTIAL | NF_VAR));
+	    N.fl[a] & (NF_PARTIAL | NF_INH));
 }
 
 nid
@@ -942,7 +953,7 @@ mk_atomic(int kind, nid a, nid v)
 	v = conv(v, t);
 	return intern(O_ATOMIC, t, a, v, 0,
 	    (int64_t)kind | (++effect_serial << 8), 0.0,
-	    (N.fl[a] | N.fl[v]) & (NF_PARTIAL | NF_VAR));
+	    (N.fl[a] | N.fl[v]) & (NF_PARTIAL | NF_INH));
 }
 
 int
@@ -1020,7 +1031,7 @@ mk_table(const nid *e, uint32_t n)
 			return r;
 	N.nlst += n;
 	r = intern(O_TABLE, t, st, n, 0, 0, 0.0,
-	    fl & (NF_PARTIAL | NF_VAR));
+	    fl & (NF_PARTIAL | NF_INH));
 	if (r >= tabhcap) {
 		uint32_t c = newcap(tabhcap, r + 1);
 		tabhash = xrealloc(tabhash, c * sizeof *tabhash);
@@ -1047,7 +1058,7 @@ mk_index(nid tab, nid i)
 			return N.lst[N.a[tab] + (uint32_t)N.ki[i]];
 		return mk_undef(N.ty[tab]);
 	}
-	fl = NF_PARTIAL | ((N.fl[tab] | N.fl[i]) & NF_VAR);
+	fl = NF_PARTIAL | ((N.fl[tab] | N.fl[i]) & NF_INH);
 	return intern(O_INDEX, N.ty[tab], tab, i, 0, 0, 0.0, fl);
 }
 
@@ -1055,6 +1066,11 @@ mk_index(nid tab, nid i)
 
 static nid *smemo;
 static uint32_t smemon;
+/* sg_lower: subgroup operations are spelled out over their lanes, and
+ * what has none is left as it is */
+static int sg_lowering;
+/* sg_flat: the bound lane is replaced inside the operations too */
+static int sg_capture;
 
 static nid
 rebuild(nid n, const nid *map, int nmap)
@@ -1063,6 +1079,8 @@ rebuild(nid n, const nid *map, int nmap)
 	uint32_t i;
 
 	if (n == 0 || n >= smemon)
+		return n;
+	if (sg_lowering && !(N.fl[n] & NF_SG))
 		return n;
 	if (smemo[n])
 		return smemo[n];
@@ -1106,12 +1124,38 @@ rebuild(nid n, const nid *map, int nmap)
 		    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
 		break;
 	case O_LOOP:
+		/* spelling out stops at a loop: its body is spelled out
+		 * where the loop is run (plan_build takes sg_lower again) */
+		if (sg_lowering) {
+			r = n;
+			break;
+		}
 		r = loop_remake(n, rebuild(N.a[n], map, nmap),
 		    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap), map,
 		    nmap);
 		break;
 	default:
-		if (IS_DOT(N.op[n]))
+		if (IS_SG(N.op[n])) {
+			/* the operands first: an operation inside one is
+			 * spelled out before the one around it */
+			nid a, b, c;
+			int low = sg_lowering;
+			if (nmap > SG_LANE_SLOT && map[SG_LANE_SLOT] &&
+			    !sg_capture) {
+				/* the lane of its value per lane is its own */
+				nid m2[SG_LANE_SLOT + 1];
+				memcpy(m2, map, sizeof m2);
+				m2[SG_LANE_SLOT] = 0;
+				a = subst(N.a[n], m2, SG_LANE_SLOT + 1);
+			} else
+				a = rebuild(N.a[n], map, nmap);
+			b = rebuild(N.b[n], map, nmap);
+			c = rebuild(N.c[n], map, nmap);
+			sg_lowering = 0;
+			r = low ? sg_expand(N.op[n], a, b, c) :
+			    mk_sg(N.op[n], a, b, c);
+			sg_lowering = low;
+		} else if (IS_DOT(N.op[n]))
 			r = mk_dot(N.op[n], rebuild(N.a[n], map, nmap),
 			    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
 		else if (opinfo[N.op[n]].arity == 1)
@@ -1136,6 +1180,40 @@ subst(nid root, const nid *map, int nmap)
 	free(smemo);
 	smemo = saved;
 	smemon = savedn;
+	return r;
+}
+
+/* every subgroup operation of root spelled out (sg.c keeps the results) */
+nid
+sg_lower_once(nid root)
+{
+	int low = sg_lowering;
+	nid r;
+
+	sg_lowering = 1;
+	r = subst(root, NULL, 0);
+	sg_lowering = low;
+	return r;
+}
+
+/*
+ * e as one lane runs it, for pricing: the bound lane of every operation
+ * is the lane itself (to), so a value computed in each lane is one node
+ * whether an operation reads it across the lanes or the lane uses it.
+ */
+nid
+sg_flat(nid e, nid to)
+{
+	nid map[SG_LANE_SLOT + 1], r;
+	int cap = sg_capture;
+
+	if (e == 0 || !(N.fl[e] & NF_SG))
+		return e;
+	memset(map, 0, sizeof map);
+	map[SG_LANE_SLOT] = to;
+	sg_capture = 1;
+	r = subst(e, map, SG_LANE_SLOT + 1);
+	sg_capture = cap;
 	return r;
 }
 
@@ -1472,6 +1550,19 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		}
 		sb_putc(b, ')');
 		break;
+	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
+	case O_SGSHUF: case O_SGSCAN:
+		/* without the subgroup's size, which reading them back takes
+		 * from the lane parameter or the model again; a scan's lane
+		 * only when it is not the lane itself */
+		sb_printf(b, "%s(", opinfo[op].name);
+		pr(b, N.a[n], 0, pc, 0);
+		if (op == O_SGSHUF || (op == O_SGSCAN && !sg_is_lane(N.b[n]))) {
+			sb_puts(b, ", ");
+			pr(b, N.b[n], 0, pc, 0);
+		}
+		sb_putc(b, ')');
+		break;
 	default:
 		s = opinfo[op].name;
 		if (c && op == O_POPCNT)
@@ -1589,6 +1680,16 @@ print_paren(struct sbuf *b, nid n)
 			print_paren(b, N.a[n]);
 			sb_putc(b, ')');
 		}
+		return;
+	}
+	if (IS_SG(op)) {
+		sb_printf(b, "%s(", opinfo[op].name);
+		print_paren(b, N.a[n]);
+		if (op == O_SGSHUF || (op == O_SGSCAN && !sg_is_lane(N.b[n]))) {
+			sb_puts(b, ", ");
+			print_paren(b, N.b[n]);
+		}
+		sb_putc(b, ')');
 		return;
 	}
 	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA ||
