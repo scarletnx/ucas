@@ -788,6 +788,32 @@ core_search(struct core *k, const struct nsopt *o, struct nsres *res)
 	return res->after < res->before;
 }
 
+/* several cores searched, each on its own sample: the evaluations
+ * summed, the objective the largest of theirs before and after; 1 when
+ * one of them moved */
+static int
+cores_search(struct core **ks, int nk, struct nsres *sr, int *nsx)
+{
+	int i, moved = 0;
+
+	memset(sr, 0, sizeof *sr);
+	*nsx = 0;
+	for (i = 0; i < nk; i++) {
+		struct nsres r;
+		if (ks[i]->nsx <= 0)
+			continue;
+		moved |= core_search(ks[i], &A.o.search, &r);
+		sr->evals += r.evals;
+		sr->accepted += r.accepted;
+		if (r.before > sr->before)
+			sr->before = r.before;
+		if (r.after > sr->after)
+			sr->after = r.after;
+		*nsx += ks[i]->nsx;
+	}
+	return moved;
+}
+
 static void
 core_free(struct core *k)
 {
@@ -1590,7 +1616,103 @@ direct_rationals(void)
 	core_free(&k);
 }
 
+/*
+ * The walk's candidate is A.cd[A.nc - 2] (its measure mw) and the
+ * search's c2 the last one (NULL: none was made): c2 is kept only when
+ * the table's measure agrees it is better.  The one left carries the
+ * search's report and is returned.
+ */
+static struct cand *
+search_settle(struct cand *c2, double mw, const struct nsres *sr, int nsx)
+{
+	struct cand *c;
+	double ms = -1;
+	int kept = 0;
+
+	if (c2) {
+		ms = cmetric(c2);
+		if (ms < mw) {
+			struct cand t = A.cd[A.nc - 2];
+			A.cd[A.nc - 2] = A.cd[A.nc - 1];
+			A.cd[A.nc - 1] = t;
+			kept = 1;
+		}
+		free(A.cd[A.nc - 1].text);
+		A.nc--;
+	}
+	c = &A.cd[A.nc - 1];
+	c->skind = A.o.search.kind;
+	c->skept = kept;
+	c->snsx = nsx;
+	c->sevals = sr->evals;
+	c->sbefore = sr->before;
+	c->safter = sr->after;
+	c->smw = mw;
+	c->sms = ms;
+	return c;
+}
+
 /* ---- piecewise: two pieces, coefficients chosen by a select ---- */
+
+/* the two pieces as one candidate: a = |x| (folded) or x; t = a -
+ * c(piece); Horner in t, each coefficient a select of the pieces' */
+static void
+piece_text(const struct core *k, int nt, double B, int fold,
+    struct sbuf *full, char *shape, size_t ns)
+{
+	struct sbuf body = {0};
+	struct blist l = {0};
+	char kb[48], tmp[160];
+	int j;
+
+	bl_add(&l, "a", fold ? "abs(x)" : "x");
+	kfmt(kb, sizeof kb, B, A.w ? A.w : 64);
+	snprintf(tmp, sizeof tmp, "a < %s", kb);
+	bl_add(&l, "lo", tmp);
+	{
+		char c0[48], c1[48];
+		kfmt(c0, sizeof c0, rnd(A.w, k[0].pb.c), A.w ? A.w : 64);
+		kfmt(c1, sizeof c1, rnd(A.w, k[1].pb.c), A.w ? A.w : 64);
+		/* typed constants: a select of reals would convert */
+		snprintf(tmp, sizeof tmp, "a - (lo ? %s(%s) : %s(%s))",
+		    fmt_name(A.w), c0, fmt_name(A.w), c1);
+		bl_add(&l, "t", tmp);
+	}
+	for (j = 0; j < nt; j++) {
+		char c0[48], c1[48], nm[8];
+		kfmt(c0, sizeof c0, k[0].ir.coef[j], A.w ? A.w : 64);
+		kfmt(c1, sizeof c1, k[1].ir.coef[j], A.w ? A.w : 64);
+		snprintf(nm, sizeof nm, "k%d", j);
+		snprintf(tmp, sizeof tmp, "lo ? %s(%s) : %s(%s)",
+		    fmt_name(A.w), c0, fmt_name(A.w), c1);
+		bl_add(&l, nm, tmp);
+	}
+	{
+		struct sbuf h = {0};
+		sb_printf(&h, "k%d", nt - 1);
+		for (j = nt - 2; j >= 0; j--) {
+			struct sbuf h2 = {0};
+			if (A.o.fma && A.w)
+				sb_printf(&h2, "fma(%s, t, k%d)", sb_str(&h), j);
+			else
+				sb_printf(&h2, "k%d + t*%s%s%s", j,
+				    j == nt - 2 ? "" : "(", sb_str(&h),
+				    j == nt - 2 ? "" : ")");
+			free(h.p);
+			h = h2;
+		}
+		if (fold && A.odd)
+			sb_printf(&body, "copysign(%s, x)", sb_str(&h));
+		else
+			sb_puts(&body, sb_str(&h));
+		free(h.p);
+	}
+	compose(full, sb_str(&body), &l);
+	snprintf(shape, ns, "2 pieces%s", fold ? (A.odd ?
+	    ", copysign(.., x)" : ", of |x|") : "");
+	bl_free(&l);
+	free(body.p);
+}
 
 static void
 piecewise(void)
@@ -1610,9 +1732,8 @@ piecewise(void)
 	pa[1] = B;
 	pb_[1] = b;
 	for (nt = 2; nt <= 8; nt++) {
-		struct sbuf body = {0}, full = {0};
-		struct blist l = {0};
-		char kb[48], tmp[160], shape[40];
+		struct sbuf full = {0};
+		char shape[40];
 		struct cand *c;
 		double worst = 0;
 		int ok = 1;
@@ -1663,58 +1784,27 @@ piecewise(void)
 			any = 1;
 		}
 		printf(" %d: %.3g", nt - 1, worst);
-		/* a = |x| (folded) or x; t = a - c(piece); Horner in t */
-		bl_add(&l, "a", fold ? "abs(x)" : "x");
-		kfmt(kb, sizeof kb, B, A.w ? A.w : 64);
-		snprintf(tmp, sizeof tmp, "a < %s", kb);
-		bl_add(&l, "lo", tmp);
-		{
-			char c0[48], c1[48];
-			kfmt(c0, sizeof c0, rnd(A.w, k[0].pb.c), A.w ? A.w : 64);
-			kfmt(c1, sizeof c1, rnd(A.w, k[1].pb.c), A.w ? A.w : 64);
-			/* typed constants: a select of reals would convert */
-			snprintf(tmp, sizeof tmp, "a - (lo ? %s(%s) : %s(%s))",
-			    fmt_name(A.w), c0, fmt_name(A.w), c1);
-			bl_add(&l, "t", tmp);
-		}
-		for (j = 0; j < nt; j++) {
-			char c0[48], c1[48], nm[8];
-			kfmt(c0, sizeof c0, k[0].ir.coef[j], A.w ? A.w : 64);
-			kfmt(c1, sizeof c1, k[1].ir.coef[j], A.w ? A.w : 64);
-			snprintf(nm, sizeof nm, "k%d", j);
-			snprintf(tmp, sizeof tmp, "lo ? %s(%s) : %s(%s)",
-			    fmt_name(A.w), c0, fmt_name(A.w), c1);
-			bl_add(&l, nm, tmp);
-		}
-		{
-			struct sbuf h = {0};
-			sb_printf(&h, "k%d", nt - 1);
-			for (j = nt - 2; j >= 0; j--) {
-				struct sbuf h2 = {0};
-				if (A.o.fma && A.w)
-					sb_printf(&h2, "fma(%s, t, k%d)", sb_str(&h), j);
-				else
-					sb_printf(&h2, "k%d + t*%s%s%s", j,
-					    j == nt - 2 ? "" : "(", sb_str(&h),
-					    j == nt - 2 ? "" : ")");
-				free(h.p);
-				h = h2;
-			}
-			if (fold && A.odd)
-				sb_printf(&body, "copysign(%s, x)", sb_str(&h));
-			else
-				sb_puts(&body, sb_str(&h));
-			free(h.p);
-		}
-		compose(&full, sb_str(&body), &l);
-		snprintf(shape, sizeof shape, "2 pieces%s", fold ? (A.odd ?
-		    ", copysign(.., x)" : ", of |x|") : "");
+		piece_text(k, nt, B, fold, &full, shape, sizeof shape);
 		c = submit("piecewise", shape, A.o.fma && A.w ? "horner+fma" :
 		    "horner", nt - 1, 0, sb_str(&full));
+		if (c && A.w && A.o.search.kind && k[0].nsx > 0 && k[1].nsx > 0) {
+			/* both pieces' coefficients moved, each on its piece's
+			 * sample; kept only if the table's measure agrees */
+			struct core *ks[2] = {&k[0], &k[1]};
+			struct nsres sr;
+			double mw = cmetric(c);
+			int nsx = 0;
+			struct cand *c2 = NULL;
+			if (cores_search(ks, 2, &sr, &nsx)) {
+				sb_clear(&full);
+				piece_text(k, nt, B, fold, &full, shape, sizeof shape);
+				c2 = submit("piecewise", shape, A.o.fma && A.w ?
+				    "horner+fma" : "horner", nt - 1, 0, sb_str(&full));
+			}
+			c = search_settle(c2, mw, &sr, nsx);
+		}
 		if (c)
 			c->rerr = worst;
-		bl_free(&l);
-		free(body.p);
 		free(full.p);
 	}
 	if (any)
@@ -1887,6 +1977,12 @@ cw_text(char *t, size_t n, double c1, double c2, int fm)
 	}
 }
 
+/* a reduction built again with its cores searched (reductions) */
+static struct {
+	int on, moved, nsx;
+	struct nsres sr;
+} RS;
+
 static int
 core_make(struct core *k, ldfn f, ld a, ld b, int k0, int step, ld c,
     int nt, const char *var, const char *sname)
@@ -1910,6 +2006,19 @@ core_make(struct core *k, ldfn f, ld a, ld b, int k0, int step, ld c,
 	if (!fit_run(&k->pb, &k->fr))
 		return 0;
 	core_round(k, A.o.refine);
+	if (RS.on && k->w && k->nsx > 0) {
+		struct core *ks[1] = {k};
+		struct nsres r;
+		int nsx;
+		RS.moved |= cores_search(ks, 1, &r, &nsx);
+		RS.sr.evals += r.evals;
+		RS.sr.accepted += r.accepted;
+		if (r.before > RS.sr.before)
+			RS.sr.before = r.before;
+		if (r.after > RS.sr.after)
+			RS.sr.after = r.after;
+		RS.nsx += nsx;
+	}
 	return 1;
 }
 
@@ -2331,18 +2440,35 @@ reductions(void)
 			struct cand *c;
 			int deg = reduction(list[i], L, &full, shape, sizeof shape);
 			double m;
+			const char *kind, *form;
 			if (deg == 0) {
 				free(full.p);
 				break;
 			}
-			c = submit(list[i] == R_HYP ? "identity" : deg < 0 ?
-			    "bithack" : list[i] == R_SINCOS ||
-			    list[i] == R_COSSHIFT || list[i] == R_COSHALF ||
-			    list[i] == R_TANHALF ? "identity" : list[i] == R_SQRTN ?
-			    "seed+nwt" : "reduced", shape,
-			    deg < 0 ? "-" : A.o.fma ? "horner+fma" : "horner", deg,
-			    0, sb_str(&full));
+			kind = list[i] == R_HYP ? "identity" : deg < 0 ? "bithack" :
+			    list[i] == R_SINCOS || list[i] == R_COSSHIFT ||
+			    list[i] == R_COSHALF || list[i] == R_TANHALF ? "identity" :
+			    list[i] == R_SQRTN ? "seed+nwt" : "reduced";
+			form = deg < 0 ? "-" : A.o.fma ? "horner+fma" : "horner";
+			c = submit(kind, shape, form, deg, 0, sb_str(&full));
 			free(full.p);
+			if (c && deg > 0 && A.w && A.o.search.kind) {
+				/* the same reduction, its cores searched; kept
+				 * only if the table's measure agrees */
+				struct sbuf f2 = {0};
+				char sh2[40];
+				struct cand *c2 = NULL;
+				double mw = cmetric(c);
+				memset(&RS, 0, sizeof RS);
+				RS.on = 1;
+				reduction(list[i], L, &f2, sh2, sizeof sh2);
+				RS.on = 0;
+				if (RS.moved)
+					c2 = submit(kind, sh2, form, deg, 0, sb_str(&f2));
+				free(f2.p);
+				if (RS.nsx > 0)
+					c = search_settle(c2, mw, &RS.sr, RS.nsx);
+			}
 			if (c == NULL)
 				break;
 			m = cmetric(c);
