@@ -2464,7 +2464,12 @@ subgroup, all W lanes active:
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
 `sg_shuffle_xor(v, k)` = `sg_shuffle(v, lane xor k)`, `sg_broadcast(v,
 i)`, `sg_broadcast_first(v)` (lane 0), `sg_rotate(v, d)` =
-`sg_shuffle(v, (lane + d) % W)`.  GLSL's names are read as well
+`sg_shuffle(v, (lane + d) % W)`, and the segmented scan `sg_segscan(v,
+h)`, which restarts at the lanes where h holds (the heads): in lane l
+the sum of v over the lanes from the last head at or below l (lane 0
+when none is) to l, written `sg_scan(v) - sg_shuffle(sg_exclusive(v),
+s)` with s the highest set bit, at or below l, of the heads' ballot
+with lane 0's bit added.  GLSL's names are read as well
 (`subgroupBallot` ... `subgroupRotate`).  Sums are of integers: the
 order of a float sum is the implementation's, so it has no exact value
 and is refused.
@@ -2523,6 +2528,11 @@ under; the whole is then checked against the function on its domain
 - A sum or a scan of a value that is 0 or 1 in every lane (its range,
   by intervals) counts lanes: `popcount(sg_ballot(v != 0))`, and for
   the scan the ballot's bits 0..lane, `& ((2 << lane) - 1)`.
+- A segmented scan of a value that is 0 or 1 in every lane counts the
+  ballot's bits from the head's to the lane's, `popcount(sg_ballot(v
+  != 0) & ((2 << lane) - 1) & (~0 << s))`: no scan and no shuffle
+  (82.625 -> 25.75 under gt1030, 8 lanes); of anything else it keeps
+  its scan and shuffle, and the scan the forms below.
 - A scan of anything is a ladder of ceil(log2 W) shuffles and adds
   (Hillis and Steele): after the step for d a lane holds the sum of the
   2d lanes ending at it.  Proved for any value per lane: with a free

@@ -164,3 +164,18 @@ h5(a: u32 in 0..15, b: u32 in 0..15, c: u32 in 0..15, d: u32 in 0..15, e: u32 in
 find h5 1
 p4(i: u32 in 2..9, j: u32 in 2..9, k: u32 in 2..9, y: u32) = popcount(i * 37 % 17) + popcount(j * 37 % 17) + popcount(k * 37 % 17) + y
 find p4 1
+# a segmented scan restarts at the lanes marked as heads: the sum over
+# the lanes from the last head at or below the lane (lane 0 when none
+# is) to the lane; written with the others (the scan less the exclusive
+# scan in the head's lane), so it equals the loop that restarts
+seg(x: u8 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> lane) & 1, ((y >> lane) & 1) != 0)
+show seg(0xff, 0x11, 3)
+show seg(0xff, 0x11, 4)
+show seg(0xff, 0x11, 7)
+segref(x: u8 uniform, y: u8 uniform, lane: u32 in 0..7) = { s = 0; for j in 0..7 { s = j <= lane ? (((y >> j) & 1) != 0 ? ((x >> j) & 1) : s + ((x >> j) & 1)) : s }; s }
+equiv seg segref
+# of bits it is the ballot's bits from the head to the lane (82.625 ->
+# 25.75 under gt1030); of nibbles it stays the scan and a shuffle
+find seg 1
+sn(x: u32 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> (4*lane)) & 15, ((y >> lane) & 1) != 0)
+find sn 1
