@@ -3663,7 +3663,9 @@ line, `layout(push_constant)`, `T a[N] = { ... }` (as `T[N](...)`),
 `#extension` lines, and `const` on a local (GLSL ES wants a constant
 expression there; the word is remembered for the suggestions).  A
 declaration or function the parser still refuses is left out, and the
-report names it and why.  Integer scalars, arrays and constant tables
+report names it and why, also when the function level then does not
+run (main left out leaves a shader with no main: the line under "not
+run" says what went first).  Integer scalars, arrays and constant tables
 are understood; floats, vectors and structs are opaque.
 
 **Domains.** An abstract interpretation runs from `main` (or from every

@@ -57,6 +57,7 @@ simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): layout (line 5: 'uint64_t' is not a type); main (line 12: 'outb' is not declared)
 memory under gt1030:
   atomics by kind, priced a warp instruction:
     %41 = OpAtomicCompareExchange %uint %39 %uint_1 %uint_0 %uint_0 %16 %uint_0

@@ -7,6 +7,7 @@ simplify: 63 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+  left out before that (the parser refused them): f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'f' is declared)
 fp64 and conversions under gt1030:
   %67 = OpFConvert %float %66
       (line 1: float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); })
@@ -73,6 +74,7 @@ simplify: 63 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+  left out before that (the parser refused them): f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'f' is declared)
 fp64 and conversions under zen4:
   %67 = OpFConvert %float %66
       (line 1: float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); })
@@ -94,6 +96,7 @@ simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+  left out before that (the parser refused them): g (line 1: '1.0lf' is not a number); main (line 10008: no function 'g' is declared)
 fp64 and conversions under gt1030:
   %66 = OpFConvert %float %65
       (line 1: float g(float a, uint n) { double d = a; return float(sqrt(d * d + 1.0lf) / double(n)); })
@@ -182,6 +185,7 @@ simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10009: the shader has no main function)
+  left out before that (the parser refused them): h (line 1: '1.0lf' is not a number); layout (line 10003: 'double' is a word GLSL ES 3.10 reserves); main (line 10007: 'ucas_args' is not declared)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   q: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -191,6 +195,7 @@ simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10009: the shader has no main function)
+  left out before that (the parser refused them): q (line 2: no function 'float16_t' is declared); main (line 10007: no function 'q' is declared)
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
@@ -222,6 +227,7 @@ simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10009: the shader has no main function)
+  left out before that (the parser refused them): q (line 2: no function 'float16_t' is declared); main (line 10007: no function 'q' is declared)
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)

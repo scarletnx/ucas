@@ -402,6 +402,7 @@ simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+  left out before that (the parser refused them): layout (line 3: image2D has no precision here: give it lowp, mediump or highp, or set a default with 'precision mediump image2D;'); layout (line 4: image2D has no precision here: give it lowp, mediump or highp, or set a default with 'precision mediump image2D;'); main (line 7: 'src' is not declared)
 float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec4 %60: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything

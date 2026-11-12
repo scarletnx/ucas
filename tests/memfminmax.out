@@ -6,6 +6,7 @@ simplify: 113 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicMax takes (float, float))
 memory under gt1030:
   float atomic max into best: 1 atomic, 1 load, 1 store: an integer atomic max on keys that order as the floats, 19.625 against 24.25 (atomic_shared_f 24.25 each)
     the key of a float with bits b is b ^ ((b >>> 31) | 0x80000000): a non-negative float keeps its bits with the top bit set, a negative one gets them inverted, below every non-negative key, so the keys order as the floats (-0 below +0, which FMin and FMax leave open)
@@ -23,6 +24,7 @@ simplify: 105 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicMin takes (float, float))
 memory under gt1030:
   float atomic min into lo: 2 atomics, 1 load, 1 store: an integer atomic min on keys that order as the floats, 42.25 against 48.5 (atomic_shared_f 24.25 each)
     the key of a float with bits b is b ^ ((b >>> 31) | 0x80000000): a non-negative float keeps its bits with the top bit set, a negative one gets them inverted, below every non-negative key, so the keys order as the floats (-0 below +0, which FMin and FMax leave open)
@@ -49,6 +51,7 @@ simplify: 104 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicMin takes (float, float))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
@@ -68,6 +71,7 @@ simplify: 112 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicMin takes (float, float))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
@@ -98,6 +102,7 @@ simplify: 106 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicMin takes (float, float))
 memory under gt1030:
   float atomic min and max into c: left as it is: it takes both atomic min and max, and a value stored into it may be a NaN, which has no key for both (on line 9)
   atomics by kind, priced a warp instruction:
@@ -117,6 +122,7 @@ simplify: 93 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): main (line 10: no overload of atomicMax takes (float, float))
 memory under gt1030:
   float atomic max into hi: left as it is: an access of a kind this rewrite does not convert (on line 13)
   atomics by kind, priced a warp instruction:
@@ -140,6 +146,7 @@ simplify: 91 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+  left out before that (the parser refused them): main (line 8: no overload of atomicMax takes (float, float))
 memory under gt1030:
   %39 = OpAtomicFMaxEXT %float %30 %uint_1 %uint_0 %37
       (line 8: atomicMax(outb.peak[i & 7u], inb.v[i]);)
@@ -154,6 +161,7 @@ simplify: 81 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+  left out before that (the parser refused them): main (line 8: no overload of atomicMin takes (float, float))
 memory under gt1030:
   %35 = OpAtomicFMinEXT %float %26 %uint_1 %uint_0 %33
       (line 8: atomicMin(outb.range[0], inb.v[i]);)

@@ -6,6 +6,7 @@ simplify: 90 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+  left out before that (the parser refused them): main (line 10: no overload of atomicAdd takes (float, float))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
@@ -52,6 +53,7 @@ simplify: 87 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+  left out before that (the parser refused them): main (line 10: no overload of atomicAdd takes (float, float))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
@@ -89,6 +91,7 @@ simplify: 98 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %49 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %47
       (line 11: atomicAdd(acc[i & 7u], float(inb.v[i] & 1023u) * 0.5);)
@@ -125,6 +128,7 @@ simplify: 100 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal 
   beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+  left out before that (the parser refused them): main (line 11: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %55 = OpAtomicFAddEXT %float %49 %uint_1 %uint_0 %53
       (line 11: atomicAdd(sh[lane * 32u + 5u], float(lane & 3u));)
@@ -173,6 +177,7 @@ simplify: 79 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+  left out before that (the parser refused them): main (line 10: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %43 = OpAtomicFAddEXT %float %40 %uint_1 %uint_0 %float_1
       (line 10: atomicAdd(acc[i & 7u], 1.0);)
@@ -197,6 +202,7 @@ simplify: 105 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+  left out before that (the parser refused them): main (line 10: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %48 = OpAtomicFAddEXT %float %45 %uint_1 %uint_0 %float_0_5
       (line 10: atomicAdd(acc[(i + r) & 7u], 0.5);)
@@ -217,6 +223,7 @@ simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+  left out before that (the parser refused them): main (line 8: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %29 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %float_1
       (line 8: atomicAdd(acc[i & 7u], 1.0);)
@@ -241,6 +248,7 @@ simplify: 99 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+  left out before that (the parser refused them): main (line 8: no overload of atomicAdd takes (float, float))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
@@ -269,6 +277,7 @@ simplify: 74 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level: not run (the GLSL parser refused it: line 10: the shader has no main function)
+  left out before that (the parser refused them): main (line 7: no overload of atomicAdd takes (float, float))
 memory under gt1030:
   %38 = OpAtomicFAddEXT %float %30 %uint_1 %uint_0 %36
       (line 7: atomicAdd(outb.total[i & 7u], float(i & 255u) * 0.25);)

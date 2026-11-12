@@ -872,6 +872,9 @@ parse_source(const char *src)
 		}
 		if (SG->ntoks == 0)
 			break;	/* nothing was read: no piece to drop */
+		if (SG->pos < SG->ntoks && SG->toks[SG->pos].kind == TK_EOF)
+			break;	/* the whole program refused (no main, a call
+				 * with no body): no piece of it to blame */
 		{
 			/* drop what it refused: the top-level piece around it */
 			size_t at = SG->toks[SG->pos < SG->ntoks ? SG->pos :
@@ -7372,6 +7375,11 @@ glslfn_pass(const char *src, double budget, int only)
 	dot_hinted = 0;
 	if (parse_source(src) != 0) {
 		printf("function level: not run (%s)\n", G.why);
+		/* the last refusal can be a consequence of these (main left
+		 * out, then no main) */
+		if (dropped[0])
+			printf("  left out before that (the parser refused them): "
+			    "%s\n", dropped);
 		return;
 	}
 	prepare();
