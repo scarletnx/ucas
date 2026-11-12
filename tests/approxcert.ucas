@@ -17,3 +17,13 @@ approx exp(x) in 1..1.0625 degree 3 as f32 norational nosplit noreduce list 1 po
 approx sin(x) - 0.3 in 0..0.6 degree 4 as f32 norational nosplit noreduce list 1 search anneal budget 300
 # f64: Taylor of order 6
 approx atan(x) in 0..0.5 degree 11 as f64 norational nosplit noreduce list 1 search anneal budget 200
+# range reductions (#286): the integer side frozen where it is one value
+# on a piece, the bit tricks read as scalings by powers of two, the
+# Cody-Waite steps exact by their quanta.  exp's 2^k * P(r) is in
+# approxsearch.ucas; here log's exponent split, sin's quadrants (abs),
+# atan's reciprocal above 1 (a select's other side not evaluated) and
+# tanh's identity, whose exp is the machine's
+approx log(x) in 0.1..10 degree 5 as f32 norational nosplit list 3 search anneal budget 200
+approx sin(x) in -10..10 degree 5 as f32 norational nosplit list 1 search anneal budget 200
+approx atan(x) in -4..4 degree 7 as f32 norational nosplit list 1 search anneal budget 200
+approx tanh(x) in -3..3 degree 5 as f32 norational nosplit list 1 search anneal budget 200
