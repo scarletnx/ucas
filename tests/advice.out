@@ -19,7 +19,7 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 8: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 9: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)
-  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw)
+  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
     a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
     not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 3 a pixel is worth 3 a vertex and 1 more varying
     %79 = OpFAdd %float %75 %78   (3)
@@ -108,4 +108,65 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
-advice: nothing in this module depends only on its uniforms, or is affine in its varyings
+advice: nothing in this module depends only on its uniforms or its flat inputs, or is affine in its varyings
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 83 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 13: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %59: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 12 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a primitive: 5 instructions costing 11 every pixel read only flat inputs and values of the draw
+    a flat input is the provoking vertex's output, the same at every pixel of the primitive: computed in the vertex shader and passed as 1 flat output, each pixel reads the value it computes now (no interpolation)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 11 a pixel is worth 11 a vertex and 1 more flat varying
+    %40 = OpVectorTimesScalar %v3float %38 %25   (11)
+        (line 9: vec3 t = tint.rgb * tint.a * m;)
+  once a vertex: 2 instructions costing 4 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
+    a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 1 more varying
+    %59 = OpCompositeConstruct %v4float %56 %57 %58 %float_1   (4)
+        (line 11: col = vec4(t * h, 1.0);)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 14.75 every run (1 of arithmetic, 2 loads at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 7.875 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %38 = OpFMul %float %34 %37   (14.75)
+        (line 7: o[i] = o[i] * (u.a * u.b);)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 59 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 1 (-50.0%)
+  rewrites, the largest savings first:
+    %32 = OpFAdd %float %30 %float_1
+      -> %32 = OpExtInst %float %2 Fma %28 %float_2 %float_1
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          K = 2^1: x*K is exact unless it underflows, so fl(x*K + B) is the same rounding of the same number (bit-exact where x*K is normal or zero)
+        bound against the reference: 1 ulp
+        (line 6: o[i] = o[i] * 2.0 + 1.0;)
+  (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)

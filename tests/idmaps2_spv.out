@@ -55,3 +55,9 @@ simplify: 79 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       bits [4*i, 4*i + 4) of 0x60b2 hold the value at %26 = i, less the least value: shifting right by that many bits times %26 and masking reads it
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 2648 bytes, checksum 26e02e5a)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 4 instructions that read only constants, uniform blocks and push constants cost 12.875 every run (6 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 6 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %ucas_d82 = OpIAdd %uint %ucas_d81 %uint_1   (12.875)
+        (line 10: t = p.k == 0u ? 3u : t;)

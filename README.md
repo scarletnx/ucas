@@ -3293,9 +3293,10 @@ there).
 
 ### Advice: what could leave the shader
 
-`simplify ... advice` ("and advise", "what could be hoisted") adds a
-report of what the module computes that changes less often than it
-runs.  Nothing is rewritten: the change is to the pipeline's interface
+`simplify` adds a report of what the module computes that changes less
+often than it runs, whenever it finds some; `advice` ("and advise",
+"what could be hoisted") also has it say when it finds none.  Nothing
+is rewritten: the change is to the pipeline's interface
 (a push constant, a uniform, a varying), which is the host's.  Each
 instruction gets the lowest frequency its operands allow (src/spirv.c,
 advice_pass):
@@ -3303,10 +3304,15 @@ advice_pass):
 - **constant**;
 - **draw**: reads only constants, uniform blocks, push constants and
   specialization constants;
+- **primitive** (fragment shaders): reads only flat inputs and values
+  of the draw.  A flat input is the provoking vertex's output, the same
+  at every pixel of the primitive, so what is computed from it could be
+  computed in the vertex shader and passed flat: each pixel reads the
+  value it computes now (no interpolation);
 - **vertex** (fragment shaders): affine in the float inputs that are
   not flat, centroid, sample or built-in: sums, differences, and
   products, quotients, dots, matrix products and mixes whose other
-  operands are of the draw.  A varying is v = sum b_i v_i over the
+  operands are of the draw or the primitive.  A varying is v = sum b_i v_i over the
   vertices with sum b_i = 1 (perspective-correct barycentrics), and an
   affine f has f(v) = sum b_i f(v_i), so f computed at the vertices and
   interpolated is the same real number at every pixel;
@@ -3324,8 +3330,8 @@ conversions and selections are exact or correctly rounded on a host as
 in the shader, and the report counts the divisions, square roots and
 transcendentals, which are only within Vulkan's precision in the
 shader and may differ from a host's in the last places.  For the
-vertex the report gives the derivation and the cost a pixel, and no
-verdict: no model has a price for a vertex or a varying yet (the
+primitive and the vertex the report gives the derivation and the cost
+a pixel, and no verdict: no model has a price for a vertex or a varying yet (the
 GT 1030 run measured them: a vertex about 300 fadd steps, a pixel's
 inputs free up to two vec4, about 3.4 a vec4 for the third and fourth
 and 15 from the fifth; tests/gt1030 results, "Stage I/O"), and an
@@ -3341,14 +3347,15 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 9: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 10: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)
-  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw)
+  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
     not priced: gt1030 has no price for a vertex or for a varying, ...
     %79 = OpFAdd %float %75 %78   (3)
         (line 13: float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);)
 ```
 
-JSON: `advice: true`; the result gains `advice_draw` and
-`advice_vertex`.
+JSON: the result gains `advice_draw`, `advice_primitive` and
+`advice_vertex` where there are such values (`advice: true` also
+says when there are none).
 
 ## Function level
 

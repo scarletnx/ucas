@@ -67,6 +67,16 @@ memory under gt1030:
       and fills it by std430, which packs arrays and structs tighter than std140:
         w: offset 16 -> 4, array stride 16 -> 4, size 1024 -> 256 bytes
       reads at a uniform address would then cost 6.875 instead of 4.125: worth it when the divergent ones dominate
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 3 instructions that read only constants, uniform blocks and push constants cost 29 every run (8.375 of arithmetic, 3 loads at 6.875)
+    computed once a draw and passed in as 3 values (push constants or a uniform block: 3 loads, 20.625), that saves 8.375 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %39 = OpConvertFToU %uint %38   (9.875)
+        (line 9: a = uint(ubo.w[1]);)
+    %53 = OpUGreaterThan %bool %52 %uint_5   (9.25)
+        (line 12: if (ubo.n > 5u) {)
+    %59 = OpConvertFToU %uint %58   (9.875)
+        (line 13: b = uint(ubo.w[2]);)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
@@ -74,6 +84,12 @@ simplify: 117 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   integer arithmetic cost under gt1030 (each instruction once): 9.75 -> 9.75 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 9.875 every run (3 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 3 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %61 = OpConvertUToF %float %60   (9.875)
+        (line 11: if (ubo.w[r] > float(ubo.n)))
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
@@ -93,3 +109,9 @@ memory under gt1030:
       and fills it by std430, which packs arrays and structs tighter than std140:
         w: offset 0 -> 0, array stride 16 -> 4, size 1024 -> 256 bytes
       reads at a uniform address would then cost 6.875 instead of 4.125: worth it when the divergent ones dominate
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 3 instructions that read only constants, uniform blocks and push constants cost 18.75 every run (5 of arithmetic, 2 loads at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 11.875 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %87 = OpLoad %float %86   (18.75)
+        (line 17: s += ubo.w[q + 48u];)
