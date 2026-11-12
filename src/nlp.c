@@ -29,6 +29,7 @@
  * kept for the session.  Otherwise the default reading is taken and a note
  * says how to choose the other one ("assume ..." or a rephrasing).
  */
+#include "texalu.h"
 #include "ucas.h"
 #include "cfront.h"
 #include "prove.h"
@@ -7376,6 +7377,15 @@ translate(const char *sent)
 			return 1;
 		}
 	}
+	{
+		/* the texture unit (texalu.c) */
+		const char *r = texalu_nlp_raw(sent);
+		if (r) {
+			sb_clear(&out);
+			emit(r);
+			return 1;
+		}
+	}
 	if (setjmp(nl_jmp)) {
 		dry = 0;
 		quiet = 0;
@@ -7827,6 +7837,8 @@ nlp_is_english(const char *s, size_t n)
 	if ((n - i > 6 && !strncmp(s + i, "banks ", 6)) ||
 	    (n - i > 10 && !strncmp(s + i, "intatomic ", 10)))
 		return 0;
+	if (n - i > 7 && !strncmp(s + i, "texalu ", 7))
+		return 0;	/* texalu F tol E under M (texalu.c) */
 	{
 		/* ring_nlp.c: "inverse 3 mod 7" is ucas, "x ≡ 2 mod 3 and ..." not */
 		int r = ring_nlp_english(s + i, (unsigned long)(n - i));

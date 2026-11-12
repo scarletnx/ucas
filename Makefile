@@ -10,6 +10,8 @@ SRCS+=	fuse.c irw.c idrw.c
 SRCS+=	ifx.c
 # graphics fixed function (blending, logic ops, stencil) as compute
 SRCS+=	rop.c
+# the texture unit's fixed function as operations
+SRCS+=	texalu.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 # complex, polar and trig forms; asin acos atan2 sinh cosh tanh ...

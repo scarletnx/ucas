@@ -1,0 +1,413 @@
+> K = [10, 20, 30, 40, 50, 60, 70]
+> show fetch_repeat(K, -1)
+_() = 70
+  -> int
+> show fetch_mirror(K, 7)
+_() = 70
+  -> int
+> show fetch_mirror(K, -1)
+_() = 10
+  -> int
+> show fetch_clamp(K, 9)
+_() = 70
+  -> int
+> show fetch_mirror_clamp(K, -3)
+_() = 30
+  -> int
+> show fetch_border(K, 7, 99)
+_() = 99
+  -> int
+> m(i: i8 in -9..16) = fetch_mirror(K, i)
+> table m max 26
+  i=-9  ->  60
+  i=-8  ->  70
+  i=-7  ->  70
+  i=-6  ->  60
+  i=-5  ->  50
+  i=-4  ->  40
+  i=-3  ->  30
+  i=-2  ->  20
+  i=-1  ->  10
+  i=0  ->  10
+  i=1  ->  20
+  i=2  ->  30
+  i=3  ->  40
+  i=4  ->  50
+  i=5  ->  60
+  i=6  ->  70
+  i=7  ->  70
+  i=8  ->  60
+  i=9  ->  50
+  i=10  ->  40
+  i=11  ->  30
+  i=12  ->  20
+  i=13  ->  10
+  i=14  ->  10
+  i=15  ->  20
+  i=16  ->  30
+> r(i: i8) = fetch_repeat(K, i)
+> rd(i: i8) = K[((i % 7) + 7) % 7]
+> equiv r rd
+r and rd are equal on the domain of r (exhaustive)
+> mc(i: i8) = fetch_mirror_clamp(K, i)
+> mcd(i: i8) = K[min(max(i, -1 - i), 6)]
+> equiv mc mcd
+mc and mcd are equal on the domain of mc (exhaustive)
+> range r
+range of r -> int:
+  10..70
+  fits in u7
+  over all 256 points of the domain
+> show tex_linear8([0, 1, 4, 9], 1.5)
+_() = 1
+  -> f32
+> show tex_linear8([0, 1, 4, 9], 2.0)
+_() = 2.5
+  -> f32
+> show tex_linear8([0, 1, 4, 9], 2.25)
+_() = 3.25
+  -> f32
+> show tex_linear8([0, 1, 4, 9], 1.501)
+_() = 1
+  -> f32
+> show tex_linear4([0, 1, 4, 9], 2.03)
+_() = 2.5
+  -> f32
+> show tex_linear8([0, 1, 4, 9], -3)
+_() = 0
+  -> f32
+> show tex_linear8([0, 1, 4, 9], 30)
+_() = 9
+  -> f32
+> show tex_bilinear8([0, 1, 4, 9], 2, 1, 1)
+_() = 3.5
+  -> f32
+> show tex_bilinear8([0, 1, 4, 9], 2, 1.25, 0.5)
+_() = 0.75
+  -> f32
+> show tex_linear8([0.1, 0.7], 0.75)
+_() = 0.25
+  -> f32
+> show asuint(tex_linear8([f32(1099511627776), f32(1.5)], 0.75))
+_() = 1396703232
+  -> u32
+> show asuint(tex_linear8([f32(1099511627776), f32(-1.5)], 0.75))
+_() = 1396703232
+  -> u32
+> show asuint(tex_bilinear14([f32(3e-30), f32(1), f32(-1), f32(7e20)], 2, 0.9, 1.3))
+_() = 1631734852
+  -> u32
+> show tex_linear20([0, 1], 0.5)
+texalu.ucas:42:31: error: tex_linear: the sub-texel grid has 1 to 14 bits, not 20
+    show tex_linear20([0, 1], 0.5)
+                                  ^
+> show tex_bilinear8([0, 1, 4], 2, 1, 1)
+texalu.ucas:43:39: error: tex_bilinear: a table of 3 texels is not rows of 2
+    show tex_bilinear8([0, 1, 4], 2, 1, 1)
+                                          ^
+> show fetch_repeat(K, 1.5)
+texalu.ucas:44:26: error: fetch_repeat takes an integer texel index, not real
+    show fetch_repeat(K, 1.5)
+                             ^
+> l(x: f32 in 0..4) = tex_linear8([0, 1, 4, 9], x)
+> cost l
+cost of l under gt1030: 54.75 (1 operations, shared subterms counted once)
+  tex_sample_f32   1 x 54.75 = 54.75
+> cost r
+cost of r under gt1030: inf (1 operations, shared subterms counted once)
+  tex_nearest      1 x inf   = inf
+  tex_nearest is not available under gt1030 (the model lists no such instruction)
+> u(x: f32 in 0..3) = tex_linear8([0, 0.2, 0.4, 1], x)
+> cost u
+cost of u under gt1030: 21.625 (1 operations, shared subterms counted once)
+  tex_sample       1 x 21.625 = 21.625
+> f(i: u16 in 0..1000) = K[i % 7]
+> texalu f
+texalu f: the texture unit under gt1030 (cost 20.375 as written): nothing taken
+  gt1030 lists no tex_nearest: a nearest read with an address mode is not available
+> B = [3, 9, 27, 81, 243, 1, 200, 100, 50, 25, 12, 6, 0, 255, 128, 64]
+> s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
+> texalu s4
+texalu s4: the texture unit under gt1030 (cost 35.5 as written): nothing taken
+  gt1030 does not say how far its filter is from the exact weighted sum (tex_within): no filtered read is proved
+> model cal : gt1030 { tex_nearest: 5, tex_within: 2 }
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model rpl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 1, conv: 4, bitcast: 3, fadd: 3, fmul: 3, fdiv: 10, fsqrt: 15, ftrans: 18, fpow: 54, f64: 1, load: 4, branch: 1, diverge: 6.5, barrier: 33, atomic_shared: 8, atomic_global: 8, store: 1, sdiv: 14, sdivk: 5, irem: 14, iremk: 5, srem: 14, sremk: 5, sudot4x8: 10, sdot2x16: 10, sudot4x8sat: 10, sdot2x16sat: 10 }
+model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model cal { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, tex_nearest: 5, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, tex_within: 2, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+> texalu f under cal
+texalu f: reads through the texture unit under cal (cost 20.375 as written):
+  cost 9   fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i % 7 = i mod 7
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [0, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> h(i: i32 in -5..12) = K[min(max(i, 0), 6)]
+> texalu h under cal
+texalu h: the texture unit under cal (cost 8.875 as written): nothing taken
+  derived, but not cheaper under cal (cost 9, as written 8.875):
+  [10, 20, 30, 40, 50, 60, 70][min(max(i, 0), 6)] is fetch_clamp([10, 20, 30, 40, 50, 60, 70], i)
+> tri(i: u8 in 0..13) = K[i < 7 ? i : 13 - i]
+> texalu tri under cal
+texalu tri: reads through the texture unit under cal (cost 11.875 as written):
+  cost 9   fetch_mirror([10, 20, 30, 40, 50, 60, 70], i)
+      [10, 20, 30, 40, 50, 60, 70][i < 7 ? i : 13 - i] is fetch_mirror([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i < 7 ? i : 13 - i = min(r, 13 - r) with r = i mod 14
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 1.61e-06 of a texel's centre for i in [0, 13] (its range), and the unit snaps by less than 2^-8: 1.61e-06 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, MIRRORED_REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> b(i: i32 in -5..12) = i >= 0 && i < 7 ? K[i] : 0
+> texalu b under cal
+texalu b: reads through the texture unit under cal (cost 14.25 as written):
+  cost 9   fetch_border([10, 20, 30, 40, 50, 60, 70], i, 0)
+      i >= 0 && i < 7 ? [10, 20, 30, 40, 50, 60, 70][i] : 0 is fetch_border([10, 20, 30, 40, 50, 60, 70], i, 0)
+      holds where the read is defined: there the condition is 0 <= i < 7, the other arm the border's value
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 1.49e-06 of a texel's centre for i in [-5, 12] (its range), and the unit snaps by less than 2^-8: 1.49e-06 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, CLAMP_TO_BORDER with a transparent black border, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> p(i: u8 in 0..6) = K[i]
+> texalu p under cal
+texalu p: no table read or weighted sum of neighbouring entries the texture unit could compute
+> w(i: i32) = K[i % 7]
+> texalu w under cal
+texalu w: the texture unit under cal (cost 32.625 as written): nothing taken
+  [10, 20, 30, 40, 50, 60, 70][i % 7] agrees with fetch_repeat([10, 20, 30, 40, 50, 60, 70], i) on the points tried, but i is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
+> texalu s4 under cal
+texalu s4: reads through the texture unit under cal (cost 35.5 as written):
+  cost 33.625 int(1020tex_bilinear8([0.0117647061, 0.0352941193, 0.105882354, 0.31764707, 0.952941179, 0.00392156886, 0.784313738, 0.392156869, 0.196078435, 0.0980392173, 0.0470588244, 0.0235294122, 0, 1, 0.501960814, 0.250980407], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395
+      the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> model dear : cal { tex_sample: 40 }
+> texalu s4 under dear
+texalu s4: the texture unit under dear (cost 35.5 as written): nothing taken
+  derived, but not cheaper under dear (cost 52, as written 35.5):
+  4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+> G = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5]
+> g(i: i32 in 0..6) = 0.25*G[i] + 0.75*G[i+1]
+> mx(i: i32 in 0..6, t: f32 in 0..1) = (1 - t)*G[i] + t*G[i+1]
+> model texel : gt1030 { load: 43.125, tex_within: 2 }
+> texalu g under texel
+texalu g: the texture unit under texel (cost 89.25 as written): nothing taken
+  derived, but within 2.4e-07 of the exact sum, more than the 1.19e-07 allowed (the sum's own rounding as written): tol 2.4e-07 takes it
+  2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.75
+> texalu g tol 1e-6 under texel
+texalu g: reads through the texture unit under texel (cost 89.25 as written):
+  cost 61.75 real(tex_linear8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], f32(i) + 1.25))
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.75
+      holds where i in [0, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = 0.75 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 2.4e-07
+      against the exact weighted sum of the entries the reads are within 2.4e-07; as written, the sum's own f32 rounding is within 1.19e-07 (gamma_2 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 7 points: largest difference 5.96e-09
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 8 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu mx under texel
+texalu mx: the texture unit under texel (cost 96.25 as written): nothing taken
+  derived, but within 0.00391 of the exact sum, more than the 2.38e-07 allowed (the sum's own rounding as written): tol 0.00391 takes it
+  2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+> texalu mx tol 0.01 under texel
+texalu mx: reads through the texture unit under texel (cost 96.25 as written):
+  cost 59.75 tex_linear8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], f32(i) + 0.5 + t)
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+      holds where t in [0, 1] (its range): the fraction t is in [0, 1]; i in [0, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-18: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 1 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 0.00391
+      against the exact weighted sum of the entries the reads are within 0.00391; as written, the sum's own f32 rounding is within 2.38e-07 (gamma_2 times the sum of |w t|, 2)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00194
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 8 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> P = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1, 0, 0, 1, 1, 0.2, 0.2, 0.4, 0.4, 1]
+> bl(x: u8 in 0..3, y: u8 in 0..3, s: f32 in 0..1, t: f32 in 0..1) = (1-s)*(1-t)*P[y*5+x] + s*(1-t)*P[y*5+x+1] + (1-s)*t*P[y*5+x+5] + s*t*P[y*5+x+6]
+> texalu bl tol 0.01 under texel
+texalu bl: reads through the texture unit under texel (cost 200.5 as written):
+  cost 31.625 tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + 0.5 + s, f32(y) + 0.5 + t)
+      4 entries of the 5 x 5 table from offset (0, 0), weights' sum 1: one read at fraction s along x, t along y
+      holds where s in [0, 1] (its range): the fraction s is in [0, 1]; t in [0, 1] (its range): the fraction t is in [0, 1]; x in [0, 3], y in [0, 3] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1 with u = s, v = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-19: the read moves by at most 0.00391 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 2.38e-08; in all 0.00782
+      against the exact weighted sum of the entries the reads are within 0.00782; as written, the sum's own f32 rounding is within 9.54e-07 (gamma_4 times the sum of |w t|, 4)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00216
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 5 x 5, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> ga(x: u8 in 1..3, y: u8 in 1..3) = (P[y*5+x-6] + 2*P[y*5+x-5] + P[y*5+x-4] + 2*P[y*5+x-1] + 4*P[y*5+x] + 2*P[y*5+x+1] + P[y*5+x+4] + 2*P[y*5+x+5] + P[y*5+x+6])/16
+> texalu ga under texel
+texalu ga: the texture unit under texel (cost 410.125 as written): nothing taken
+  derived, but within 0.00586 of the exact sum, more than the 5.36e-07 allowed (the sum's own rounding as written): tol 0.00586 takes it
+  4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.5625: one read at fraction 0.333333 along x, 0.666667 along y
+  2 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.1875: one read at fraction 0 along x, 0.333333 along y
+  2 entries of the 5 x 5 table from offset (0, 1), weights' sum 0.1875: one read at fraction 0.333333 along x, 0 along y
+> texalu ga tol 0.01 under texel
+texalu ga: reads through the texture unit under texel (cost 410.125 as written):
+  cost 133 real(0.5625tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, t1, f32(y) + 0.166666672) + 0.1875tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + -0.5, f32(y) + 0.833333313) + 0.1875te… (435 more characters)
+      4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.5625: one read at fraction 0.333333 along x, 0.666667 along y
+      2 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.1875: one read at fraction 0 along x, 0.333333 along y
+      2 entries of the 5 x 5 table from offset (0, 1), weights' sum 0.1875: one read at fraction 0.333333 along x, 0 along y
+      holds where x in [1, 3], y in [1, 3] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.5625 with u = 0.333333, v = 0.666667 those are the entries' weights to within 5.55e-17
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0.00391 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.34e-07; the texels as f32: 1.34e-08; in all 0.0044
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.1875 with u = 0, v = 0.333333 those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
+        the filter is within 2 ulp of that sum (the model's tex_within): 4.47e-08; the texels as f32: 4.47e-09; in all 0.000733
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.1875 with u = 0.333333, v = 0 those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 1 and 1
+        the filter is within 2 ulp of that sum (the model's tex_within): 4.47e-08; the texels as f32: 4.47e-09; in all 0.000733
+      against the exact weighted sum of the entries the reads are within 0.00586; as written, the sum's own f32 rounding is within 5.36e-07 (gamma_9 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 0.000684
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 5 x 5, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> bad(x: u8 in 0..4, y: u8 in 0..3, s: f32 in 0..1) = (1-s)*P[y*5+x] + s*P[y*5+x+1]
+> texalu bad tol 0.01 under texel
+texalu bad: the texture unit under texel (cost 99.25 as written): nothing taken
+  entries of the 5 x 5 table are neighbours in (1 - s)*f32([0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1, 0, 0, 1, 1, 0.2, 0.2, 0.4, 0.4, 1][… (147 more characters), but a read of them could leave the table: x in [0, 4], y in [0, 3] (a filter clamps at the edge, the table's index does not)
+> dif(i: i32 in 0..6) = G[i+1] - G[i]
+> texalu dif tol 0.01 under texel
+texalu dif: the texture unit under texel (cost 88.25 as written): nothing taken
+  entries of the 8 x 1 table are neighbours in [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5][i + 1] - [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5][i], but their weights do not sum to a constant other than 0
+> use cal
+cost model: cal
+> find f 1
+  note: the result is int: searching in u16
+find f: 1001 points, computing in u16, costs from cal
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 17  [10, 20, 30, 40, 50, 60, 70][u16(u32(i) - 7(1171u32(i) >> 13))] the remainder i % 7 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where i in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+      and x % 7 = x - 7*floor(x/7)
+  cost 16  [10, 20, 30, 40, 50, 60, 70][u32(i) - 7(1171u32(i) >> 13)] all of them: the remainder i % 7 as a multiply and a shift in u32, then drops the conversion u16(...) (derived; the drops exhaustive)
+  reads through the texture unit under cal (cost 20.375 as written):
+  cost 9   fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i % 7 = i mod 7
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [0, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16760 distinct columns, bank full; 'more' continues]
+> what can the texture unit compute of tri?
+  ucas: texalu tri
+texalu tri: reads through the texture unit under cal (cost 11.875 as written):
+  cost 9   fetch_mirror([10, 20, 30, 40, 50, 60, 70], i)
+      [10, 20, 30, 40, 50, 60, 70][i < 7 ? i : 13 - i] is fetch_mirror([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i < 7 ? i : 13 - i = min(r, 13 - r) with r = i mod 14
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 1.61e-06 of a texel's centre for i in [0, 13] (its range), and the unit snaps by less than 2^-8: 1.61e-06 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, MIRRORED_REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> use the sampler for mx within 0.01 under texel
+  ucas: texalu mx tol 0.01 under texel
+texalu mx: reads through the texture unit under texel (cost 96.25 as written):
+  cost 59.75 tex_linear8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], f32(i) + 0.5 + t)
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+      holds where t in [0, 1] (its range): the fraction t is in [0, 1]; i in [0, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-18: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 1 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 0.00391
+      against the exact weighted sum of the entries the reads are within 0.00391; as written, the sum's own f32 rounding is within 2.38e-07 (gamma_2 times the sum of |w t|, 2)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00194
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 8 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> use gt1030
+cost model: gt1030

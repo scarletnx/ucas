@@ -169,7 +169,7 @@ fa_rebuild(nid n)
 		r = a == N.a[n] && b == N.b[n] && c == N.c[n] ? n :
 		    N.op[n] == O_ATOMIC || N.op[n] == O_BARRIER ? n :
 		    N.op[n] == O_CAST ? mk_cast(N.ty[n], a) :
-		    N.op[n] == O_INDEX ? mk_index(a, b) : mk_op(N.op[n], a, b, c);
+		    N.op[n] == O_INDEX ? mk_index(a, b) : mk_like(n, a, b, c);
 	}
 	}
 	return fa_memo[n] = r;
@@ -542,6 +542,9 @@ replace(nid n)
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], replace(N.a[n]));
+		else if (IS_TEX(N.op[n]))
+			r = mk_like(n, replace(N.a[n]), replace(N.b[n]),
+			    N.c[n] ? replace(N.c[n]) : 0);
 		else
 			r = mk_bin(N.op[n], replace(N.a[n]), replace(N.b[n]));
 	}

@@ -6,6 +6,7 @@
  * expressions get equal ids.
  */
 #include "calc.h"
+#include "texalu.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -120,6 +121,13 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_MED3] = {"med3", 3, OF_INT},
 	[O_USAD4X8] = {"usad4x8", 3, OF_INT},
 	[O_BYTEPERM] = {"byteperm", 3, OF_INT},
+	[O_FETCH_REPEAT] = {"fetch_repeat", 2, 0},
+	[O_FETCH_MIRROR] = {"fetch_mirror", 2, 0},
+	[O_FETCH_CLAMP] = {"fetch_clamp", 2, 0},
+	[O_FETCH_MCLAMP] = {"fetch_mirror_clamp", 2, 0},
+	[O_FETCH_BORDER] = {"fetch_border", 3, 0},
+	[O_TEX_LINEAR] = {"tex_linear", 2, 0},
+	[O_TEX_BILINEAR] = {"tex_bilinear", 3, 0},
 };
 
 static const char *const atomic_names[] = {
@@ -679,6 +687,14 @@ mk_bin(int op, nid a, nid b)
 		return mk_sg(op, a, b, 0);
 	if (IS_INST(op))
 		return mk_inst(op, a, b, 0);
+	if (IS_TEX(op)) {
+		/* a rebuilder that knows neither the node's grid nor its
+		 * third operand: mk_like() keeps both */
+		if (op == O_FETCH_BORDER || !IS_FETCH(op))
+			fail("%s cannot be rebuilt from two operands",
+			    opinfo[op].name);
+		return mk_tex(op, 0, a, b, 0);
+	}
 	switch (op) {
 	case O_LAND:
 	case O_LOR:
@@ -899,6 +915,86 @@ mk_dot(int op, nid a, nid b, nid acc)
 	    (r = folded(op, t, a, b, acc)) != 0)
 		return r;
 	return node(op, t, a, b, acc);
+}
+
+/*
+ * A read through the texture unit (texalu.h has the semantics): a is the
+ * table; a fetch_ read takes an integer index b (and the border's value
+ * c), a filter the coordinates b (and c), its texels and coordinates
+ * f32.  ki is TEX_KI(bits, width).  Constant operands fold.
+ */
+static double
+tex_const_texel(void *ctx, int64_t j)
+{
+	nid a = *(nid *)ctx;
+
+	return N.kr[N.lst[N.a[a] + (uint32_t)j]];
+}
+
+nid
+mk_tex(int op, int64_t ki, nid a, nid b, nid c)
+{
+	uint32_t n, j;
+	int fl, bits = TEX_BITS(ki), allk = 1;
+	int64_t w = TEX_WIDTH(ki);
+
+	if (N.op[a] != O_TABLE || N.b[a] == 0)
+		fail("%s takes a table [t0, t1, ...] first", opinfo[op].name);
+	n = N.b[a];
+	if (IS_FETCH(op)) {
+		if (!TY_ISINT(N.ty[b]))
+			fail("%s takes an integer texel index, not %s",
+			    opinfo[op].name, ty_str(N.ty[b]));
+		c = op == O_FETCH_BORDER ? conv(c, N.ty[a]) : 0;
+		if (N.op[b] == O_UNDEF)
+			return mk_undef(N.ty[a]);
+		if (is_const(b)) {
+			int64_t t = tex_wrap(op, N.ki[b], n);
+			return t < 0 ? c : N.lst[N.a[a] + (uint32_t)t];
+		}
+		fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
+		return intern(op, N.ty[a], a, b, c, 0, 0.0, fl);
+	}
+	if (bits < 1 || bits > TEX_MAXBITS)
+		fail("%s: the sub-texel grid has 1 to %d bits, not %d",
+		    opinfo[op].name, TEX_MAXBITS, bits);
+	if (op == O_TEX_BILINEAR) {
+		if (w < 1 || n % w)
+			fail("tex_bilinear: a table of %u texels is not rows of "
+			    "%lld", n, (long long)w);
+	} else {
+		w = 0;
+		c = 0;
+	}
+	if (N.ty[a] != TY_F32) {
+		nid *e = xmalloc(n * sizeof *e);
+		for (j = 0; j < n; j++)
+			e[j] = mk_cast(TY_F32, N.lst[N.a[a] + j]);
+		a = mk_table(e, n);
+		free(e);
+		if (N.ty[a] != TY_F32)
+			fail("%s takes numbers as texels", opinfo[op].name);
+	}
+	b = mk_cast(TY_F32, b);
+	if (c)
+		c = mk_cast(TY_F32, c);
+	if (N.op[b] == O_UNDEF || (c && N.op[c] == O_UNDEF))
+		return mk_undef(TY_F32);
+	for (j = 0; j < n; j++)
+		allk &= is_const(N.lst[N.a[a] + j]);
+	if (allk && is_const(b) && (!c || is_const(c)))
+		return mk_const_fp(TY_F32, tex_filter(op, TEX_KI(bits, w), n,
+		    N.kr[b], c ? N.kr[c] : 0, tex_const_texel, &a));
+	fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
+	return intern(op, TY_F32, a, b, c, TEX_KI(bits, w), 0.0, fl);
+}
+
+nid
+mk_like(nid n, nid a, nid b, nid c)
+{
+	if (IS_TEX(N.op[n]))
+		return mk_tex(N.op[n], N.ki[n], a, b, c);
+	return mk_op(N.op[n], a, b, c);
 }
 
 /* any operation from its operands (the generic rebuilders) */
@@ -1151,7 +1247,10 @@ rebuild(nid n, const nid *map, int nmap)
 		    nmap);
 		break;
 	default:
-		if (IS_SG(N.op[n])) {
+		if (IS_TEX(N.op[n]))
+			r = mk_tex(N.op[n], N.ki[n], rebuild(N.a[n], map, nmap),
+			    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
+		else if (IS_SG(N.op[n])) {
 			/* the operands first: an operation inside one is
 			 * spelled out before the one around it */
 			nid a, b, c;
@@ -1552,6 +1651,22 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 	case O_LOOP:
 		loop_print(b, n, pc);
 		break;
+	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
+	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
+	case O_TEX_BILINEAR:
+		tex_print_name(b, n);
+		sb_putc(b, '(');
+		pr(b, N.a[n], 0, pc, 0);
+		if (op == O_TEX_BILINEAR)
+			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
+		sb_puts(b, ", ");
+		pr(b, N.b[n], 0, pc, 0);
+		if (N.c[n]) {
+			sb_puts(b, ", ");
+			pr(b, N.c[n], 0, pc, 0);
+		}
+		sb_putc(b, ')');
+		break;
 	case O_UDOT4X8: case O_SDOT4X8: case O_SUDOT4X8:
 	case O_UDOT2X16: case O_SDOT2X16: case O_SUDOT2X16:
 	case O_UDOT8X4: case O_SDOT8X4: case O_SUDOT8X4:
@@ -1711,6 +1826,21 @@ print_paren(struct sbuf *b, nid n)
 		if (op == O_SGSHUF || (op == O_SGSCAN && !sg_is_lane(N.b[n]))) {
 			sb_puts(b, ", ");
 			print_paren(b, N.b[n]);
+		}
+		sb_putc(b, ')');
+		return;
+	}
+	if (IS_TEX(op)) {
+		tex_print_name(b, n);
+		sb_putc(b, '(');
+		print_paren(b, N.a[n]);
+		if (op == O_TEX_BILINEAR)
+			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
+		sb_puts(b, ", ");
+		print_paren(b, N.b[n]);
+		if (N.c[n]) {
+			sb_puts(b, ", ");
+			print_paren(b, N.c[n]);
 		}
 		sb_putc(b, ')');
 		return;

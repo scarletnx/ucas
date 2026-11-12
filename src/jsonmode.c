@@ -240,6 +240,12 @@ static const struct jcmd cmds[] = {
 	{"find", "find", 1, 0, "cheaper implementations under the cost model",
 	    {FN, IO("n", " %s", "how many (5)"), IO("max", " max %s",
 	    "maximum cost")}},
+	{"texalu", "texalu", 1, 0, "table reads and weighted sums of "
+	    "neighbouring entries as reads through the texture unit, where the "
+	    "model prices them lower, with the pipeline change they need",
+	    {FN, NUO("tol", " tol %s", "the error allowed on a filtered sum "
+	    "(the sum's own rounding)"), NMO("model", " under %s",
+	    "the model (the active one)")}},
 	{"more", "more", 0, 0, "the next results of the last find",
 	    {IO("n", " %s", "how many")}},
 	{"stoke", "stoke", 1, 0, "MCMC (Metropolis-Hastings) over straight-"

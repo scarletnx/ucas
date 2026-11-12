@@ -24,6 +24,7 @@
 #include "ucas.h"
 #include "cfront.h"
 #include "prove.h"
+#include "texalu.h"
 #include "props.h"
 #include "dword.h"
 #include "memk.h"
@@ -712,6 +713,27 @@ ident(struct P *p)
 		if (parse_args(p, args, 2) != 2)
 			fail("atomics take (value, operand)");
 		return mk_atomic(kind, args[0], args[1]);
+	}
+	/* the texture unit's reads (texalu.h) */
+	if (pk2(p) == T_LP && (kind = tex_lookup(s, n, &na)) != 0) {
+		int bits = na, want = kind == O_FETCH_BORDER ? 3 :
+		    kind == O_TEX_BILINEAR ? 4 : 2;
+		adv(p);
+		if (parse_args(p, args, 4) != want)
+			fail("%s takes %s", opinfo[kind].name, kind ==
+			    O_TEX_BILINEAR ? "(table, width, x, y)" : kind ==
+			    O_FETCH_BORDER ? "(table, index, border value)" :
+			    IS_FETCH(kind) ? "(table, index)" : "(table, x)");
+		if (kind == O_TEX_BILINEAR) {
+			if (!is_const(args[1]) || !TY_ISINT(N.ty[args[1]]) ||
+			    N.ki[args[1]] < 1 || N.ki[args[1]] > 0xffffff)
+				fail("tex_bilinear's width is a constant from 1 to "
+				    "16777215, not %s", node_str(args[1]));
+			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]), args[0],
+			    args[2], args[3]);
+		}
+		return mk_tex(kind, TEX_KI(bits, 0), args[0], args[1],
+		    kind == O_FETCH_BORDER ? args[2] : 0);
 	}
 	if ((b = builtin(p, at)) != NULL) {
 		adv(p);
@@ -1664,6 +1686,16 @@ static const char prelude[] =
     "  atomic_global_cas: 143.5, atomic_global_stream: 137.5,\n"
     "  tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75,\n"
     "  image_load: 31.875\n"
+    /*
+     * The texture unit (texalu.c): the two filtered reads above are an
+     * explicit-LOD bilinear read of an rgba8 texture (x_tex_bilinear,
+     * 21.65 and 21.31) and of an rgba32f one (54.80).  A nearest sampled
+     * read was not measured, so tex_nearest is not listed, and neither
+     * is tex_within (how far the filter's result is from the exact
+     * weighted sum): nothing filtered is offered until a test measures
+     * it.  subtexel is the driver's subTexelPrecisionBits.
+     */
+    "  subtexel: 8\n"
     /* measured: the f32 -> f16 -> f32 round trip costs nothing and does
      * not round (tests/gt1030/results/2026-11-11.md, f16 round trip) */
     "  folds f32 -> f16 -> f32\n"
@@ -1966,6 +1998,7 @@ parse_model(struct P *p)
 			fail("unknown model");
 		adv(p);
 		memcpy(m->c, parent->c, sizeof m->c);
+		memcpy(m->par, parent->par, sizeof m->par);
 		fuse_inherit(m, parent);
 		memcpy(m->fold, parent->fold, sizeof m->fold);
 		m->nfold = parent->nfold;
@@ -2026,7 +2059,8 @@ parse_model(struct P *p)
 		}
 		k = (n == 3 && !memcmp(s, "all", 3)) ? -1 : cclass_find(s, n);
 		if (k == -2) {
-			/* banks, bank_bytes, warp: parameters, not prices */
+			/* parameters, not prices: banks, bank_bytes, warp (memk.h);
+			 * subtexel, tex_within (texalu.h); `none` takes one back */
 			int q;
 			for (q = 0; q < MP_NPAR; q++)
 				if (strlen(mparam_name[q]) == n && !memcmp(s,
@@ -2036,10 +2070,26 @@ parse_model(struct P *p)
 				adv(p);
 				if (!accept(p, T_COLON))
 					expect(p, T_ASSIGN);
+				if (is_kw(p, "none")) {
+					adv(p);
+					m->par[q] = 0;
+					continue;
+				}
 				v = number(p);
 				m->par[q] = TY_FP(N.ty[v]) ? (float)N.kr[v] :
 				    (float)N.ki[v];
-				if (!(m->par[q] >= 1) || m->par[q] > 4096)
+				if (q == MP_SUBTEXEL) {
+					if (m->par[q] < 1 || m->par[q] > TEX_MAXBITS ||
+					    m->par[q] != (int)m->par[q])
+						fail("subtexel: a whole number of bits from 1 "
+						    "to %d, not %g", TEX_MAXBITS,
+						    (double)m->par[q]);
+				} else if (q == MP_TEX_WITHIN) {
+					if (!(m->par[q] > 0 && m->par[q] <= 1e6f))
+						fail("tex_within: more than 0 and at most 1e6 "
+						    "ulps, not %g (none: not stated)",
+						    (double)m->par[q]);
+				} else if (!(m->par[q] >= 1) || m->par[q] > 4096)
 					fail("%s: a count from 1 to 4096, not %g",
 					    mparam_name[q], (double)m->par[q]);
 				continue;
@@ -2469,6 +2519,9 @@ statement(struct P *p)
 	diag_tok = p->i;
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
+	/* texalu F: reads through the texture unit (texalu.h) */
+	if (pk(p) == T_ID && texalu_command(p))
+		return;
 	if (pk(p) == T_ID && ring_command(p))
 		return;
 	if (pk(p) == T_ID && prove_command(p))	/* theorem, prove ... (prove.h) */

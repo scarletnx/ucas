@@ -178,6 +178,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
+| `texalu F [tol E] [under m]` | table reads and weighted sums of neighbouring entries as reads through the texture unit, where the model prices them lower, each proved, with what the pipeline needs for it (see "The texture unit as an ALU") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -1099,7 +1100,7 @@ still in `files`) and raw `ucas`/`english` statements of those.  By area:
 
 | area | commands |
 |------|----------|
-| look, analysis | `show table parse range domain wrap crit equiv fit error cost gates find more approx approx_more` |
+| look, analysis | `show table parse range domain wrap crit equiv fit error cost gates find texalu more approx approx_more` |
 | calculus | `diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed dsolve` |
 | algebra | `expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute` |
 | properties | `monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes` |
@@ -1302,7 +1303,7 @@ an `op` and the op's `args`:
 
 | tool | ops |
 |------|-----|
-| `analyze` | show table parse range domain wrap crit equiv fit error cost gates find more approx approx_more |
+| `analyze` | show table parse range domain wrap crit equiv fit error cost gates find texalu more approx approx_more |
 | `calculus` | diff grad hessian laplacian jacobian wronskian limit taylor implicit integrate antiderivative closed scheme continuous dsolve |
 | `algebra` | expand factor simplify together cancel collect apart gcd lcm resultant discriminant quo rem divide solve substitute |
 | `properties` | monotonic period identify zeros parity symmetry bounded injective surjective bijective continuity convexity asymptotes |
@@ -2631,6 +2632,157 @@ of the domain with the function computed elsewhere (it needs a
 distribution of the inputs to price the branch), a texture fetch as the
 table (no measured price), wide loads, a shared-memory table read by
 broadcast.
+
+### The texture unit as an ALU
+
+A sampler addresses, converts and filters in fixed function.  Those
+are operations of the language, with exact semantics (src/texalu.c),
+on a table `T = [t0, t1, ...]` of n texels:
+
+| op | value |
+|---|---|
+| `fetch_repeat(T, i)` | `T[i mod n]` (floored: REPEAT) |
+| `fetch_mirror(T, i)` | `T[min(r, 2n - 1 - r)]`, r = i mod 2n (MIRRORED_REPEAT) |
+| `fetch_clamp(T, i)` | `T[min(max(i, 0), n - 1)]` (CLAMP_TO_EDGE) |
+| `fetch_mirror_clamp(T, i)` | `T[min(max(i, -1 - i), n - 1)]` (MIRROR_CLAMP_TO_EDGE) |
+| `fetch_border(T, i, k)` | `0 <= i < n ? T[i] : k` (CLAMP_TO_BORDER) |
+| `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
+| `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
+
+The `fetch_` reads take an integer texel index of any type and are
+total (Vulkan's wrapping of a nearest read's integer coordinate).  The
+filters take texel coordinates (texel j's centre at j + 1/2,
+unnormalizedCoordinates), their texels are f32, their weights are on
+the sub-texel grid of B bits (1 to 14; `tex_linear8`: 1/256), and the
+weighted sum is exact and rounded once to f32.  They fold, evaluate,
+have interval bounds, and a `fetch_` read is bit-blasted for `equiv`
+through its definition.
+
+```
+> show fetch_mirror([10, 20, 30, 40, 50, 60, 70], -1)
+_() = 10
+> show tex_linear8([0, 1, 4, 9], 2.25)      (3/4 of 1 and 1/4 of 4... of texels 1 and 2)
+_() = 3.25
+> show tex_bilinear8([0, 1, 4, 9], 2, 1, 1)  (the corner of four texels: their mean)
+_() = 3.5
+```
+
+**Cost classes and parameters.**  `tex_nearest` prices a `fetch_` read
+(its coordinate, (i + 1/2)/n made from the index, costs a `conv` and an
+`fmul` more), `tex_sample` a filtered read of an 8-bit normalised
+texture (every texel k/255), `tex_sample_f32` one of a 32-bit float
+texture.  They are memory kinds (above) in a model's list, but a read
+through the unit has no fallback: a model that does not list the
+class cannot use the operation (`none` takes it away).  Two parameters, which are not prices,
+say what the hardware's unit does beyond the definition above:
+`subtexel: B`, the bits of a texel it resolves (Vulkan's
+subTexelPrecisionBits: a coordinate or a weight is snapped to that
+grid, by less than 2^-B either way), and `tex_within: U`, how many ulps
+of the result its filter may be from the exact weighted sum.  A
+rewrite is offered only where it holds whichever way the unit snaps
+and rounds within those two; a model that does not state them gets
+nothing that depends on them.
+
+gt1030 lists what the 2026-11-11 run measured: `tex_sample: 21.625`
+(x_tex_bilinear, rgba8, explicit LOD: 21.65 and 21.31),
+`tex_sample_f32: 54.75` (rgba32f: 54.80) and `subtexel: 8` (the
+driver's limit).  A nearest sampled read was not measured, and neither
+was the filter's exactness, so under gt1030 as it stands nothing below
+is offered: `texalu` says which number is missing.
+
+**The rewrites.**  `texalu F [tol E] [under M]` (and a section of
+`find`, and the function level of `simplify` on GLSL) looks for:
+
+- a table read `T[e]`, or a select between one and a constant, whose
+  index is an address mode of one of its subterms i: `T[i % 7]`,
+  `T[i < 7 ? i : 13 - i]`, `T[min(max(i, 0), 6)]`, `0 <= i && i < 7 ?
+  T[i] : 0`.  The recogniser only proposes (every subterm, every
+  mode); the identity `e = mode(i)` wherever the read is defined is
+  between integers and is proved by enumeration or SAT.  The
+  coordinate is (i + 1/2)/n made in f32, within (|i| + 1/2) 2^-23 of a
+  texel's centre, and the unit snaps by less than 2^-subtexel: the
+  rewrite needs their sum below 1/2 on i's proved range (|i| up to
+  about 4 million at 8 bits), and says so when the range is not known;
+- a weighted sum of table entries.  The sum is normalised to
+  sum w_k T[e_k] + rest (through +, -, products with weights, a
+  division by a constant, fma; an integer sum where intervals show it
+  does not wrap), the weights as forms c0 + c1 s + c2 t + c3 st over at
+  most two float variables (constants, `1 - t` and `t`, `(1-s)(1-t)`
+  ...), the indices as affine forms over the same variables.  The
+  table is read as rows of W when every index variable's coefficient
+  is 1 or W and W divides the table.  Entries that are neighbours are
+  covered by blocks (2 x 2, a pair along x, a pair along y), each one
+  filtered read: the block's weights must sum to a constant S, be
+  S(1-u)(1-v), S u(1-v), S(1-u)v, S uv for fractions u, v in [0, 1]
+  (each linear in one variable, shown on the variables' ranges), and
+  its texels must be inside the table on the indices' proved ranges
+  (a filter clamps at the edge, an index does not).  The cover with
+  the lowest price under the model is taken, by dynamic programming
+  over the entries (greedily past 16).
+
+A filtered read's error against the exact weighted sum is derived:
+|S| times (the weight's move times the largest step between
+neighbouring texels, plus `tex_within` ulps, plus the texels' rounding
+to f32) and the f32 products and adds around it.  A fraction that is a
+constant on the 2^-subtexel grid, with a coordinate that f32 holds
+exactly, does not move; any other is snapped by less than
+2^-subtexel.  The rewrite is taken when that bound is within `tol E`,
+or, without `tol`, within the bound of the sum's own f32 rounding as
+written (gamma_n times the sum of |w t|).  An integer sum of entries
+0..255 (stored as k/255 in an R8_UNORM texture) is taken only when the
+bound is below 1/2: then `floor(v + 1/2)` is the sum exactly.  The
+result is evaluated again against the original on the domain with
+ucas's own filter, as a second opinion that is labelled as one.
+
+Every rewrite is kept only when the function is cheaper under the
+active model, and comes with what the pipeline needs for it, as a
+proposal that is never applied: the texture (format, size, contents),
+the sampler state, the binding and the GLSL that reads it.  The setup
+(the descriptor, the upload) is not priced: it is not measured.
+
+```
+> model cal : gt1030 { tex_nearest: 5, tex_within: 2 }
+> f(i: u16 in 0..1000) = [10, 20, 30, 40, 50, 60, 70][i % 7]
+> texalu f under cal
+texalu f: reads through the texture unit under cal (cost 20.375 as written):
+  cost 9   fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      ...
+      holds where the read is defined: there i % 7 = i mod 7
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [0, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
+> texalu s4 under cal                       (B: 16 bytes)
+  cost 33.625 int(1020tex_bilinear8([...], 4, f32(x) + 1, f32(y) + 1) + 0.5)      (35.5 as written)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      ...
+      the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum
+> texalu f                                  (gt1030)
+texalu f: the texture unit under gt1030 (cost 20.375 as written): nothing taken
+  gt1030 lists no tex_nearest: a nearest read with an address mode is not available
+```
+
+Under `cal`, `T[min(max(i, 0), 6)]` stays (8.875 against 9: "derived,
+but not cheaper"), and with `tex_sample: 40` so does the sum of four.
+A mix `(1 - t) T[i] + t T[i + 1]` is one read at fraction t, within
+2^-8 times the largest step, so it needs `tol`; a fixed pair at
+fraction 3/4 is within the filter's own rounding.  A 3 x 3 kernel is
+three taps and one entry.  Weights of both signs, a footprint that can
+leave the table, an index beyond f32's reach are refused, each with
+its reason.  In English: "what can the texture unit compute of f",
+"use the sampler for mx within 0.01 under texel".  JSON and MCP:
+`texalu` (f, tol, model).
+
+Not done: texels split between taps (a 3 x 3 kernel in four reads),
+trilinear and anisotropic filters, mip levels as means, min/max and
+compare samplers, gather, array layers, sRGB and the other formats
+(an 8-bit table of evenly spaced levels through an affine map, R16,
+half floats), normalised coordinates for the filters, and SPIR-V
+written for a read (a module cannot add its own binding).  None of
+those has a measured price yet either.
 
 ### Long expressions
 
