@@ -151,3 +151,42 @@ void main() {
     col = vec4(q, m, f, 1.0);
 }
 ```
+# a fragment shader's discard on the sign of a value affine in the
+# (perspective-correct) varyings against one of the draw is what a clip
+# distance does: the clipper removes the part, no fragment runs there
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec3 wpos;
+layout(location = 0) out vec4 col;
+layout(push_constant) uniform PC { vec4 plane; } pc;
+void main() {
+    if (dot(wpos, pc.plane.xyz) + pc.plane.w < 0.0) discard;
+    col = vec4(wpos, 1.0);
+}
+```
+# not with a noperspective varying (a clip distance interpolates in clip
+# space), nor in a shader that writes memory others see before it
+# discards (a clipped fragment never runs)
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) noperspective in float np;
+layout(location = 0) out vec4 col;
+void main() {
+    if (np > 0.5) discard;
+    col = vec4(np);
+}
+```
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in float h;
+layout(location = 0) out vec4 col;
+layout(std430, binding = 0) buffer B { uint seen; } bb;
+void main() {
+    atomicAdd(bb.seen, 1u);
+    if (h < 0.25) discard;
+    col = vec4(h);
+}
+```

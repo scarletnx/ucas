@@ -4011,9 +4011,24 @@ proposal (the vertex input state changes) and not priced: no model
 prices an attribute, and the GT 1030 run measured that the format
 barely matters while the count does (tests/advicevertex.ucas).
 
+**A discard the clipper could do.**  In a fragment shader, a discard on
+the sign of a value affine in the perspective-correct varyings,
+compared with a value of the draw (`if (dot(wpos, pc.plane.xyz) +
+pc.plane.w < 0.0) discard;`), is what a clip distance does: the vertex
+shader writes the difference as gl_ClipDistance, interpolated in clip
+space as those varyings are, and the clipper removes the part where it
+is below 0, so no fragment runs there.  Equal as real functions (the
+plane itself aside); not offered, and said, for a value that reads a
+noperspective varying, or in a shader that does more than write its
+outputs (a store others see, an atomic, an image write), which a
+clipped fragment would not do.  Not priced: no model prices a
+fragment's whole run.  The viewport transform is fixed function
+already; depth clamp and viewport arrays and swizzles are not offered.
+
 JSON: the result gains `advice_draw`, `advice_primitive`,
-`advice_vertex` and `advice_screen` where there are such values
-(`advice: true` also says when there are none).
+`advice_vertex`, `advice_screen`, `advice_vertex_inputs` and
+`advice_clip` where there are such values (`advice: true` also says
+when there are none).
 
 ## Function level
 
