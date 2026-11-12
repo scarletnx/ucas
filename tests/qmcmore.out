@@ -1,0 +1,26 @@
+> g(x: real in 0..1, y: real in 0..1) = exp(x * y)
+> integrate g numerically qmc points 1024 replicates 16
+∫ exp(x*y) numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 1.317852236, standard error 7.5e-05
+    16 randomised replicates of 1024 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 16 replicates' spread: +-0.00016 at 95% if their means are normal (t = 2.131), which nothing proves
+> integrate g numerically qmc points 1024 replicates 16 owen
+∫ exp(x*y) numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 1.317891724, standard error 7.9e-06
+    16 randomised replicates of 1024 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a nested uniform (Owen) scrambling each, from a hash; seed 1)
+    the error is estimated from the 16 replicates' spread: +-1.7e-05 at 95% if their means are normal (t = 2.131), which nothing proves
+> integrate g numerically qmc points 16384 replicates 16
+∫ exp(x*y) numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 1.317901463, standard error 4.5e-06
+    16 randomised replicates of 16384 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 16 replicates' spread: +-9.6e-06 at 95% if their means are normal (t = 2.131), which nothing proves
+> integrate g numerically qmc points 16384 replicates 16 owen
+∫ exp(x*y) numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 1.317902348, standard error 1.4e-07
+    16 randomised replicates of 16384 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a nested uniform (Owen) scrambling each, from a hash; seed 1)
+    the error is estimated from the 16 replicates' spread: +-3e-07 at 95% if their means are normal (t = 2.131), which nothing proves
+> integrate x^2 from 0 to 1 numerically qmc owen noscramble
+∫ x^2 numerically, x from 0 to 1
+qmcmore.ucas:13:58: error: qmc: owen scrambles each replicate and noscramble runs one unscrambled sequence: not both
+    integrate x^2 from 0 to 1 numerically qmc owen noscramble
+                                                             ^

@@ -231,7 +231,9 @@ static const struct jcmd cmds[] = {
 	    IO("points", " points %s", "qmc: points a replicate, a power of "
 	    "two (4096)"), IO("replicates", " replicates %s", "qmc: "
 	    "randomised replicates (8)"), IO("seed", " seed %s", "qmc: the "
-	    "random seed (UCAS_SEED, else 1)")}},
+	    "random seed (UCAS_SEED, else 1)"), BO("owen", " owen", "qmc: a "
+	    "nested uniform (Owen) scrambling of each replicate, not a digital "
+	    "shift")}},
 	{"antiderivative", "antiderivative", 1, 0, "an antiderivative + C",
 	    {FN, NMO("var", " wrt %s", "the variable")}},
 	/* compare, search */

@@ -12,6 +12,16 @@
  * the mean of the R integrals and its error the standard error of that
  * mean, which is an estimate from R numbers and not a bound.
  *
+ * `owen` scrambles each replicate's points by a nested uniform (Owen)
+ * scrambling instead: every bit of a coordinate flipped by a random
+ * function of the bits above it, so each elementary interval's points
+ * are permuted within it.  Its variance falls faster than a shift's for
+ * smooth integrands (n^-3 against n^-2 for the mean square, Owen 1997),
+ * and the replicates' spread estimates it from the same R.  The bits
+ * come from Burley's hash ("Practical Hash-based Owen Scrambling", JCGT
+ * 9(4), 2020): Laine and Karras's permutation with his constants on the
+ * bit-reversed coordinate, a different seed per replicate and dimension.
+ *
  * A coordinate is taken at the centre of its 2^-32 cell, so the ends of
  * the box are never evaluated.  Points where the integrand is undefined
  * are left out and counted.
@@ -73,6 +83,33 @@ sobol_point(uint32_t k, int dim, uint32_t *x)
 	}
 }
 
+static uint32_t
+rev32(uint32_t x)
+{
+	x = (x >> 1 & 0x55555555u) | (x & 0x55555555u) << 1;
+	x = (x >> 2 & 0x33333333u) | (x & 0x33333333u) << 2;
+	x = (x >> 4 & 0x0f0f0f0fu) | (x & 0x0f0f0f0fu) << 4;
+	x = (x >> 8 & 0x00ff00ffu) | (x & 0x00ff00ffu) << 8;
+	return x >> 16 | x << 16;
+}
+
+/*
+ * Owen's nested uniform scrambling, hash-based: reversed, a product by an
+ * even constant only carries into higher bits, so in the coordinate's
+ * own order each bit is flipped by a function of the bits above it
+ */
+static uint32_t
+owen32(uint32_t x, uint32_t seed)
+{
+	x = rev32(x);
+	x += seed;
+	x ^= x * 0x6c50b47cu;
+	x ^= x * 0xb82f1e52u;
+	x ^= x * 0xc7afe638u;
+	x ^= x * 0x8d22f6e6u;
+	return rev32(x);
+}
+
 void
 qmc_defaults(struct qmcopt *o)
 {
@@ -80,6 +117,7 @@ qmc_defaults(struct qmcopt *o)
 	o->reps = 8;
 	o->seed = stoch_seed();
 	o->fallback = 0;
+	o->owen = 0;
 }
 
 int
@@ -108,6 +146,10 @@ qmc_options(struct P *p, struct qmcopt *o)
 	}
 	if (cmdp_kw(p, "noscramble")) {
 		o->reps = 0;
+		return 1;
+	}
+	if (cmdp_kw(p, "owen")) {
+		o->owen = 1;
 		return 1;
 	}
 	return 0;
@@ -169,6 +211,9 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 			dim++;
 		}
 	}
+	if (o->owen && o->reps <= 0)
+		fail("qmc: owen scrambles each replicate and noscramble runs one "
+		    "unscrambled sequence: not both");
 	if (dim < 1 || dim > QMC_MAXDIM)
 		fail("qmc: 1 to %d dimensions, not %d", QMC_MAXDIM, dim);
 	for (j = 0; j < dim; j++)
@@ -188,10 +233,12 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 			uint32_t np = 0, q;
 			for (; np < CH && k < o->points; np++, k++) {
 				sobol_point((uint32_t)k, dim, x);
-				for (j = 0; j < dim; j++)
+				for (j = 0; j < dim; j++) {
+					uint32_t y = o->reps <= 0 ? x[j] : o->owen ?
+					    owen32(x[j], shift[j]) : x[j] ^ shift[j];
 					in_r[(size_t)map[j] * CH + np] = lo[j] + (hi[j] -
-					    lo[j]) * (((double)(x[j] ^ shift[j]) + 0.5) /
-					    4294967296.0);
+					    lo[j]) * (((double)y + 0.5) / 4294967296.0);
+				}
 			}
 			plan_run(&p, np, in_i, in_r);
 			for (q = 0; q < np; q++) {
@@ -225,6 +272,8 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 	rep_int("points", o->points);
 	rep_int("replicates", o->reps);
 	rep_int("seed", (long long)o->seed);
+	rep_str("scrambling", o->reps <= 0 ? "none" : o->owen ? "owen" :
+	    "digital shift");
 	rep_num("estimate", mean);
 	if (undef == total) {
 		printf("%squasi-Monte Carlo: the integrand is undefined at all %ld "
@@ -248,9 +297,11 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 		printf("%squasi-Monte Carlo (an estimate, not a proof): %.10g, "
 		    "standard error %.2g\n", ind, mean, se);
 		printf("%s  %d randomised replicates of %ld Sobol points in %d "
-		    "dimension%s (Joe-Kuo direction numbers, a random digital "
-		    "shift each; seed %llu)\n", ind, o->reps, o->points, dim,
-		    dim == 1 ? "" : "s", (unsigned long long)o->seed);
+		    "dimension%s (Joe-Kuo direction numbers, %s each%s; seed "
+		    "%llu)\n", ind, o->reps, o->points, dim, dim == 1 ? "" : "s",
+		    o->owen ? "a nested uniform (Owen) scrambling" :
+		    "a random digital shift", o->owen ? ", from a hash" : "",
+		    (unsigned long long)o->seed);
 		printf("%s  the error is estimated from the %d replicates' spread: "
 		    "+-%.2g at 95%% if their means are normal (t = %.3f), which "
 		    "nothing proves\n", ind, o->reps, t95(o->reps - 1) * se,
@@ -263,6 +314,7 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 		printf("%s  %ld Sobol points in %d dimension%s (Joe-Kuo direction "
 		    "numbers), not randomised: no error estimate (drop noscramble "
 		    "for one)\n", ind, o->points, dim, dim == 1 ? "" : "s");
+
 	}
 	if (total > undef && asum > 0 && amax > 50 * asum / (double)(total -
 	    undef))
