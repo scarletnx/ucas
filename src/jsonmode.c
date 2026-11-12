@@ -620,6 +620,9 @@ static const struct jcmd cmds[] = {
 	    NUO("ulp", "", "float rewrites: within N ulp of the reference"),
 	    BO("approx", "", "float rewrites: approximations too (with ulp)"),
 	    BO("percomp", "", "float rewrites: per vector component"),
+	    {"sink", P_TEXT, 0, "", "float rewrites: the format the stored "
+	    "and returned floats end in (unorm8, rgba8, r8g8b8a8_unorm, "
+	    "rgb10a2, f16): one step of it is the error budget", NULL},
 	    BO("functions", "", "GLSL: the function-level pass alone (true) or "
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
@@ -2457,6 +2460,16 @@ cmd_spirv(struct req *r, const char **code)
 		sb_puts(&r->stmt, " approx");
 	if ((v = jv_get(r->args, "percomp")) != NULL && v->t == J_TRUE)
 		sb_puts(&r->stmt, " percomp");
+	if ((v = jv_get(r->args, "sink")) != NULL) {
+		const char *q;
+		if (v->t != J_STR || !v->s[0])
+			return bad(r, "bad_request", "sink: a format's name");
+		for (q = v->s; *q; q++)
+			if (!isalnum((unsigned char)*q) && *q != '_')
+				return bad(r, "bad_request", "sink: a format's name "
+				    "(letters, digits, _)");
+		sb_printf(&r->stmt, " sink %s", v->s);
+	}
 	if ((v = jv_get(r->args, "functions")) != NULL)
 		sb_puts(&r->stmt, v->t == J_TRUE ? " functions" : " nofunctions");
 	if ((v = jv_get(r->args, "float_ranges")) != NULL)

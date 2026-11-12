@@ -1,0 +1,455 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  ToLinear: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink unorm8
+simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 3 rewrites of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
+  the vec3 %64: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 33 (-35.3%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00162 of it
+  rewrites, the largest savings first:
+    %61 = OpExtInst %v3float %2 Pow %60 %26
+      -> %ucas_f2t = OpFSub %v3float %60 %ucas_k3_3f0c0000_3f0c0000_3f0c0000
+         %ucas_f2h1 = OpExtInst %v3float %2 Fma %ucas_k3_be37b25f_be37b25f_be37b25f %ucas_f2t %ucas_k3_3ea197cb_3ea197cb_3ea197cb
+         %ucas_f2h2 = OpExtInst %v3float %2 Fma %ucas_f2h1 %ucas_f2t %ucas_k3_3faaa2a9_3faaa2a9_3faaa2a9
+         %ucas_f2h3 = OpExtInst %v3float %2 Fma %ucas_f2h2 %ucas_f2t %ucas_k3_3f8442d1_3f8442d1_3f8442d1
+         %61 = OpExtInst %v3float %2 Fma %ucas_f2h3 %ucas_f2t %ucas_k3_3e70781d_3e70781d_3e70781d
+      (pow as a polynomial; -9)
+      proof: an approximation (derived bound)
+        relative minimax of q^2.4 on [0.090473935, 1] (remez.c), t = q - 0.546875, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.00145 relative
+          plus rounding (gamma_8 = 8 u/(1 - 8 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00162 relative in all, the worst near q = 0.0905
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 0.00162; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.00162 of the 0.00392 one step allows
+        bound against the reference: 27249 ulp
+        (line 1: vec3 ToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(ve)
+    %64 = OpExtInst %v3float %2 FMix %55 %61 %63
+      -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_v3bool %44 %29
+         %64 = OpSelect %v3float %ucas_f1 %61 %55
+      (mix by a step as a select; -6)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        step(e, x) = x < e ? 0 : 1 (GLSL.std.450 Step: NaN fails x < e, so it gives 1) and mix(a, b, t) = a*(1 - t) + b*t (FMix), so t is 0 or 1 and
+          t = 0: a*1 + b*0 = a, unless b is +-inf or NaN (b*0 is NaN), or a = -0 and b*0 = +0 (-0 + +0 = +0)
+          t = 1: a*0 + b*1 = b, unless a is +-inf or NaN, or b = -0 and a*0 = +0
+          the select !(x < e) ? b : a (OpFUnordGreaterThanEqual: true for NaN, as step) is a or b exactly
+          t = 0 for c in [-0, 0.040449996]: a = c * 0.07739938, b = pow(((c + 0.055) * 0.94786733), 2.4)
+          t = 1 for c in [0.04045, 1]
+          by monotonicity in c (each a preimage of a value class):
+            b = +inf, b*0 = NaN: never
+            b = -inf, b*0 = NaN: never
+            a = -0 and b*0 = +0: for c = -0 (original +0, select -0)
+            a = +inf, a*0 = NaN: never
+            a = -inf, a*0 = NaN: never
+            b = -0 and a*0 = +0: never
+          every difference is in the sign of a zero or an infinity against a NaN: within Vulkan's default float controls (no SignedZeroInfNanPreserve): the sign of a zero, infinities and NaNs need not be preserved
+        not bit-exact at c = -0 (original +0, select -0)
+        (line 1: vec3 ToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(ve)
+    %60 = OpFMul %v3float %58 %71
+      -> %60 = OpExtInst %v3float %2 Fma %44 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [0.04045, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.040450003: original 0.090473935, rewrite 0.09047394 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 ToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(ve)
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %60 = OpFMul %v3float %58 %71   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 ToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(ve)
+    %55 = OpFMul %v3float %44 %69   (spirv-opt -O: x / 12.92 as x * 0.07739938)
+        k = fl(1/12.92) = 0.07739938; k*d = 1 + delta with delta = 2.03e-09 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.534 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.534 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c = 0.02523446: / 12.92 gives 0.0019531315, * 0.07739938 gives 0.0019531318 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 ToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(ve)
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.079 (1.43013e+06 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.079, more than the 0.00392 a step of the sink allows
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00761 (128665 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00761, more than the 0.00392 a step of the sink allows
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.000591 (9916 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.000354 (5945 ulp), beyond the original's precision
+        relative minimax of q^2.4 on [0.090473935, 1] (remez.c), t = q - 0.546875, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000116 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000354 relative in all, the worst near q = 0.0905
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.170326233, t, 0.0395413302), t, -0.0579296909), t, 0.327347875), t, 1.31810999), t, 1.03068686), t, 0.234929577), t = q - 0.546875
+  not applied:
+    %61 = OpExtInst %v3float %2 Pow %60 %26   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
+  (nofile: simplified.spvasm, 4616 bytes, checksum 19e5e0d4)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %49: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 30 -> 27 (-10.0%)
+  rewrites, the largest savings first:
+    %48 = OpFMul %v3float %46 %53
+      -> %48 = OpExtInst %v3float %2 Fma %35 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [-0, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.02516423: original 0.07598506, rewrite 0.07598505 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %48 = OpFMul %v3float %46 %53   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.133 (2.53526e+06 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.0164 (279074 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00443 (74724 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00195 (32781 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.00134 (22588 ulp), beyond the original's precision
+        relative minimax of q^2.4 on [0.052132703, 1] (remez.c), t = q - 0.5234375, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000427 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00134 relative in all, the worst near q = 0.05215
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.321610957, t, -0.00430197129), t, -0.0275906865), t, 0.350870997), t, 1.29383314), t, 0.968598843), t, 0.21146147), t = q - 0.5234375
+  not applied:
+    %49 = OpExtInst %v3float %2 Pow %48 %22   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 2597 bytes, checksum e5cd16ee)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink unorm16
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %49: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 30 -> 27 (-10.0%)
+  sink unorm16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 1.53e-05, the rewrites accepted use at most 1.34e-06 of it
+  rewrites, the largest savings first:
+    %48 = OpFMul %v3float %46 %53
+      -> %48 = OpExtInst %v3float %2 Fma %35 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [-0, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.02516423: original 0.07598506, rewrite 0.07598505 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %48 = OpFMul %v3float %46 %53   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.133 (2.53526e+06 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.133, more than the 1.53e-05 a step of the sink allows
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.0164 (279074 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0164, more than the 1.53e-05 a step of the sink allows
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00443 (74724 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00444, more than the 1.53e-05 a step of the sink allows
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00195 (32781 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00195, more than the 1.53e-05 a step of the sink allows
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.00134 (22588 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00135, more than the 1.53e-05 a step of the sink allows
+        relative minimax of q^2.4 on [0.052132703, 1] (remez.c), t = q - 0.5234375, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000427 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00134 relative in all, the worst near q = 0.05215
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.321610957, t, -0.00430197129), t, -0.0275906865), t, 0.350870997), t, 1.29383314), t, 0.968598843), t, 0.21146147), t = q - 0.5234375
+  not applied:
+    %49 = OpExtInst %v3float %2 Pow %48 %22   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 2597 bytes, checksum e5cd16ee)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink RGBA8_UNORM
+simplify: 65 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %57: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 36 -> 33 (-8.3%)
+  sink RGBA8_UNORM: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 6.39e-06 of it
+  rewrites, the largest savings first:
+    %53 = OpFMul %v3float %51 %62
+      -> %53 = OpExtInst %v3float %2 Fma %40 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [-0, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.02516423: original 0.07598506, rewrite 0.07598505 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)) * 3.0 - 1.0; })
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %53 = OpFMul %v3float %51 %62   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)) * 3.0 - 1.0; })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.133 (2.53526e+06 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.4, more than the 0.00392 a step of the sink allows
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.0164 (279074 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0491, more than the 0.00392 a step of the sink allows
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00443 (74724 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0133, more than the 0.00392 a step of the sink allows
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00195 (32781 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00586, more than the 0.00392 a step of the sink allows
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.00134 (22588 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00404, more than the 0.00392 a step of the sink allows
+        relative minimax of q^2.4 on [0.052132703, 1] (remez.c), t = q - 0.5234375, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000427 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00134 relative in all, the worst near q = 0.05215
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.321610957, t, -0.00430197129), t, -0.0275906865), t, 0.350870997), t, 1.29383314), t, 0.968598843), t, 0.21146147), t = q - 0.5234375
+  not applied:
+    %54 = OpExtInst %v3float %2 Pow %53 %22   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 2799 bytes, checksum 4a16a2ce)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink f16
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %49: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [0.25, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 30 -> 21 (-30.0%)
+  sink f16: one step is at least 0.000488281 of the value (for magnitudes from 6.1e-05): the rewrites may move a stored value by that fraction of its least magnitude in all, which is within one step of the format
+    budget 2.48e-05, the rewrites accepted use at most 2.24e-05 of it
+  rewrites, the largest savings first:
+    %49 = OpExtInst %v3float %2 Pow %48 %22
+      -> %ucas_f1t = OpFSub %v3float %48 %ucas_k3_3f260000_3f260000_3f260000
+         %ucas_f1h1 = OpExtInst %v3float %2 Fma %ucas_k3_3d428088_3d428088_3d428088 %ucas_f1t %ucas_k3_bd90a126_bd90a126_bd90a126
+         %ucas_f1h2 = OpExtInst %v3float %2 Fma %ucas_f1h1 %ucas_f1t %ucas_k3_3e93d6c9_3e93d6c9_3e93d6c9
+         %ucas_f1h3 = OpExtInst %v3float %2 Fma %ucas_f1h2 %ucas_f1t %ucas_k3_3fb4d69e_3fb4d69e_3fb4d69e
+         %ucas_f1h4 = OpExtInst %v3float %2 Fma %ucas_f1h3 %ucas_f1t %ucas_k3_3fa7839e_3fa7839e_3fa7839e
+         %49 = OpExtInst %v3float %2 Fma %ucas_f1h4 %ucas_f1t %ucas_k3_3eb50810_3eb50810_3eb50810
+      (pow as a polynomial; -6)
+      proof: an approximation (derived bound)
+        relative minimax of q^2.4 on [0.28909954, 1] (remez.c), t = q - 0.6484375, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 8.04e-06 relative
+          plus rounding (gamma_10 = 10 u/(1 - 10 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 2.1e-05 relative in all, the worst near q = 0.2891
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 2.11e-05; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 2.24e-05 of the 2.48e-05 one step allows
+        bound against the reference: 353 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+    %48 = OpFMul %v3float %46 %53
+      -> %48 = OpExtInst %v3float %2 Fma %35 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [0.25, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.3327501: original 0.36753568, rewrite 0.36753565 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %48 = OpFMul %v3float %46 %53   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.0126 (214619 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0126, more than the 2.48e-05 a step of the sink allows
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.000604 (10146 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.000606, more than the 2.48e-05 a step of the sink allows
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 7.04e-05 (1181 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 7.18e-05, more than the 2.48e-05 a step of the sink allows
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 1.65e-05 (277 ulp), beyond the original's precision
+        relative minimax of q^2.4 on [0.28909954, 1] (remez.c), t = q - 0.6484375, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 1.58e-06 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 1.65e-05 relative in all, the worst near q = 0.2891
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.0356922038, t, 0.0365038812), t, -0.0652423725), t, 0.290364683), t, 1.41264439), t, 1.30865896), t, 0.353576988), t = q - 0.6484375
+  not applied:
+    %49 = OpExtInst %v3float %2 Pow %48 %22   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 4402 bytes, checksum 7ab5a4f4)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink f16
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec3 %39: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 24 -> 24 (+0.0%)
+  sink f16: one step is at least 0.000488281 of the value (for magnitudes from 6.1e-05): the rewrites may move a stored value by that fraction of its least magnitude in all, which is within one step of the format
+    the value's magnitude can go below 6.1e-05, where a step of the format is not that fraction of it: no budget (assume a range that keeps it away from 0)
+  nothing applied: no cheaper float form could be proved
+  not applied:
+    %39 = OpExtInst %v3float %2 Pow %29 %16   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model powcheap : gt1030 { fpow: 2 }
+> use powcheap
+cost model: powcheap
+> spvsimplify nofile assume c 0 1 float sink unorm8
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under powcheap (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %49: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under powcheap (each component counted; step = compare + select, mix = subtract + fma): 12 -> 9 (-25.0%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 1.34e-06 of it
+  rewrites, the largest savings first:
+    %48 = OpFMul %v3float %46 %53
+      -> %48 = OpExtInst %v3float %2 Fma %35 %ucas_k3_3f72a76f_3f72a76f_3f72a76f %ucas_k3_3d55891a_3d55891a_3d55891a
+      (add and multiply as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        the source divides: T = (x + 0.055) / 1.055; K1 = fl(1/d) = 0.94786733, K2 = fl(0.055/d) = 0.052132703 (re-optimised for T), with K1 = (1/d)(1 + e1), K2 = (A/d)(1 + e2), e1 = -1.25e-08, e2 = -7.05e-09
+          where it is used, c in [-0, 1]
+          x and A have the same sign, so |x e1 + A e2| / |x + A| <= max(|e1|, |e2|) = 1.25e-08 = 0.209 u: x*K1 + K2 = T(1 + e), |e| <= 1.25e-08
+          fma rounds once: |r - T| <= (0.5 + 2^24 * 1.25e-08) ulp = 0.709 ulp; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded): at most (1 + 0.209) ulp = 1.21 ulp
+          the original divides s = fl(x + A) by d: allowed anything within 2.5 ulp of s/d (OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126])); |r - s/d| <= |r - T| + |x + A - s|/d <= 1.21 + ulp(s)/(2d) <= 1.21 + 2^ceil(log2 d)/(2d) = 2.16 ulp, <= 2.5: within
+          against the reference fl(fl(x + A) * K) (itself within (2u + 1.25e-08) of T): |r - ref| < 2.04e-07 |T| < 3.42 ulp
+        not bit-exact: c = 0.02516423: original 0.07598506, rewrite 0.07598505 (1 ulp apart)
+        bound against the reference: 3 ulp
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %48 = OpFMul %v3float %46 %53   (spirv-opt -O: x / 1.055 as x * 0.94786733)
+        k = fl(1/1.055) = 0.94786733; k*d = 1 + delta with delta = -1.25e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 0.709 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 0.709 <= 2.5, so it is within the precision the division already had
+        not bit-exact: c + 0.055 = 0.52750045: / 1.055 gives 0.5000005, * 0.94786733 gives 0.5000004 (the quotient within |delta| of a rounding midpoint)
+        (line 1: vec3 Gamma(vec3 c) { return pow((c + 0.055) / 1.055, vec3(2.4)); })
+  not applied:
+    %49 = OpExtInst %v3float %2 Pow %48 %22   (pow as exp2(y * log2 x))
+        not cheaper under powcheap
+  (nofile: simplified.spvasm, 2597 bytes, checksum e5cd16ee)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile float
+simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %60: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 34 -> 19 (-44.1%)
+  sink Rgba8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00383 of it
+  rewrites, the largest savings first:
+    %46 = OpExtInst %v3float %2 Pow %43 %45
+      -> %ucas_f1t = OpFSub %v3float %43 %ucas_k3_3f000000_3f000000_3f000000
+         %ucas_f1h1 = OpExtInst %v3float %2 Fma %ucas_k3_3f35487e_3f35487e_3f35487e %ucas_f1t %ucas_k3_bee8d1d1_bee8d1d1_bee8d1d1
+         %ucas_f1h2 = OpExtInst %v3float %2 Fma %ucas_f1h1 %ucas_f1t %ucas_k3_3f22cb4d_3f22cb4d_3f22cb4d
+         %46 = OpExtInst %v3float %2 Fma %ucas_f1h2 %ucas_f1t %ucas_k3_3f3bd019_3f3bd019_3f3bd019
+      (pow as a polynomial; -12)
+      proof: an approximation (derived bound)
+        relative minimax of q^0.45 on [0.125, 0.875] (remez.c), t = q - 0.5, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.00407 relative
+          plus rounding (gamma_6 = 6 u/(1 - 6 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00407 relative in all, the worst near q = 0.1854
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 0.00383; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.00383 of the 0.00392 one step allows
+        bound against the reference: 68521 ulp
+        (line 8: vec3 enc = pow(c.rgb * 0.75 + 0.125, vec3(0.45));)
+    %43 = OpFAdd %v3float %40 %67
+      -> %43 = OpExtInst %v3float %2 Fma %38 %ucas_k3_3f400000_3f400000_3f400000 %67
+      (multiply-add as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 8: vec3 enc = pow(c.rgb * 0.75 + 0.125, vec3(0.45));)
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.0137 (233470 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0129, more than the 0.00392 a step of the sink allows
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00133 (22377 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.000464 (7796 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.00017 (2846 ulp), beyond the original's precision
+        relative minimax of q^0.45 on [0.125, 0.875] (remez.c), t = q - 0.5, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000168 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.00017 relative in all, the worst near q = 0.125
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-3.60148525, t, 1.42745399), t, -0.0995844975), t, 0.313291132), t, -0.378500342), t, 0.659934938), t, 0.732151628), t = q - 0.5
+  not applied:
+    %46 = OpExtInst %v3float %2 Pow %43 %45   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 4318 bytes, checksum 64a95511)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Gamma: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink rgba32f
+sink.ucas:62:51: error: simplify: sink FORMAT is unormN or snormN (2 to 23 bits), f16, or a format's name with fewer bits than f32 (rgba8, rgba8_snorm, rgb10a2, rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb): 'rgba32f' is none of them
+    spvsimplify nofile assume c 0 1 float sink rgba32f
+                                                      ^
+  note: the ```spv code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)

@@ -2235,6 +2235,87 @@ The float part is binary32's: values of another width (f64, f16) are
 inputs to it, and their own instructions are not priced or rewritten
 here (f64 has its own part, see "fp64 without fp64").
 
+### The sink: precision from the stored format backwards
+
+A float that ends in a format with fewer bits than f32 does not need
+f32's precision on the way.  `simplify ... sink FORMAT` says what the
+module's stored and returned floats end in, and an image store's
+format (`layout(rgba8)`, in its OpTypeImage) is read from the module:
+
+| sink | one step |
+|---|---|
+| `unormN` (`rgba8`, `r8g8b8a8_unorm`, `rgb10a2`: its widest channel) | 1/(2^N - 1), absolute |
+| `snormN` (`rgba8_snorm`) | 1/(2^(N-1) - 1), absolute |
+| an sRGB format (`b8g8r8a8_srgb`) | 1/(12.92 (2^N - 1)): 8 bits of the encoded value, whose slope is at most 12.92 |
+| `f16` (`rgba16f`, `r16g16b16a16_sfloat`) | 2^-11 of the value, for magnitudes from 2^-14 |
+
+Integer formats and 32-bit floats are not sinks (`sink rgba32f` is an
+error).  In English: "for an RGBA8_UNORM target", "the format is
+rgb10a2", `sink unorm8`.
+
+One step is the budget at the root: the UNORM conversion clamps to
+[0, 1], scales by 2^N - 1 and rounds; rounding to nearest (what Vulkan
+asks of an implementation; it allows either neighbour) two values
+within one step are stored as the same integer or as neighbours.  Exact
+equality of the stored integer cannot be promised on a continuous
+domain (any change moves some value across a rounding boundary), so the
+budget is "within one step", against the reference, wherever the
+reference's value is a number.
+
+The budget is carried from the root to each rewrite (src/fsimp.c,
+sink_pass).  A rewrite's own bound is an absolute deviation E at its
+node, and
+
+    dev(n) = E(n) + sum over operands k of max|dn/dk| dev(k) + 4 ulp(n)
+
+with max|dn/dk| bounded on the operands' ranges where the node is used
+(1 for add, min, max and a select's sides; the other factor's magnitude
+for a multiply; |y| q^(y-1) for pow; the polynomial's own sum i |a_i|
+T^(i-1) where one replaces a pow), and 4 ulp where an operation whose
+operand moved rounds again.  A compare or a step whose operand moves
+has no bound.  The ranges are the unperturbed program's, and a
+perturbed operand leaves its range by at most its deviation: a second
+pass bounds the derivatives on each range widened by twice the first
+pass's deviation and must find every deviation inside that widening,
+which makes the bound hold (the deviations grow continuously with the
+rewrites' errors and would have to cross the widening first).
+
+The rewrites the other rules accept (within the original's Vulkan
+precision) move the root too and are counted first; then each node's
+cheapest remaining rewrite is taken, the largest savings first, while
+the root stays within the budget.  What the active model does not
+price lower is never a candidate, so under a model where pow is cheap
+the sink changes nothing.
+
+```
+simplify float c in [0, 1] sink unorm8
+  float cost under gt1030: 51 -> 33 (-35.3%)
+  sink unorm8: one step is 0.00392157. ...
+    budget 0.00392, the rewrites accepted use at most 0.00162 of it
+    %61 = OpExtInst %v3float %2 Pow %60 %26
+      -> ... four Fma ...   (pow as a polynomial; -9)
+          relative minimax of q^2.4 on [0.090473935, 1] ...: 0.00162 relative in all
+          the sink: its own bound moves this value by at most 0.00162; carried to the stored value ... at most 0.00162 of the 0.00392 one step allows
+```
+
+That is the sRGB decode above: with the 8-bit sink the pow is a
+degree-4 polynomial (the select keeps it on [0.0905, 1]); without a
+sink the polynomials are only listed, and `sink unorm16` refuses every
+degree cheaper than the pow ("it would move the stored value by up to
+0.00135, more than the 1.53e-05 a step of the sink allows").  When the
+value is scaled after the pow (`pow(...) * 3.0 - 1.0`) the pow's share
+of the step is a third and the degree that fitted no longer does.  An
+`imageStore` into an rgba8 image of `pow(c.rgb * 0.75 + 0.125,
+vec3(0.45))`, c clamped to [0, 1], needs no request word: 34 -> 19, a
+degree-3 polynomial using 0.00383 of the 0.00392.  A `clamp` is read as
+min(max(x, lo), hi), so what follows it knows its range.
+
+Left to the other parts of ucas: an integer function of few inputs
+whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
+8-bit x) is `find`'s, which checks every point and offers tables and
+multiply-shifts; a branch never taken on the domain and a mask that
+drops nothing are `find`'s peephole and `simplify`'s SAT rewrites.
+
 Not done yet: proofs for two or more float inputs that interact (a
 second input is kept as an interval, so its sets are "possibly"); bit-
 level SAT for small float pieces; joining two vec2 operations into one
