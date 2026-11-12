@@ -135,6 +135,9 @@ int fx_rewrites(struct fxg *g, int root, const struct fxopt *o,
     struct fxrw *rw, int max);
 int fx_accept(const struct fxrw *r, const struct fxopt *o);
 void fx_free(struct fxrw *rw, int n);
+/* the operations of the polynomial a refit (FXR_POLY of a polynomial the
+ * graph had) replaces, its root among them, marked in in[FX_MAXN] */
+int fx_refit_inner(const struct fxg *g, int node, unsigned char *in);
 /* "%.9g" with -0, inf, nan spelt */
 const char *fx_str(float v, char *b, size_t n);
 /* the per-component cost of a node's operation as lowered */
