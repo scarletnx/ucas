@@ -983,6 +983,18 @@ print_loop(const struct model *m, const struct func *f,
 }
 
 #define MAXSEL_SHOWN 12
+#define MAXENC 8		/* enclosing branches a ?: is reached through */
+
+/* one ?: as cost prices it */
+struct selp {
+	nid s, encl;		/* the ?:; its first enclosing branch's */
+	int k;			/* the loop whose body it is in, -1 */
+	int nonuni, dmode, dexact, nenc, encarm;
+	float ex[2], sel, uni, div, expd, pick;
+	double dp, dat, daf, reached, times;
+	uint64_t dpts;
+	const char *name;
+};
 
 static void
 cost_report(struct func *f, struct model *m, const struct func *src)
@@ -1161,126 +1173,206 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 	best_total = total;
 	/*
 	 * Every ?: outside loops (its arms priced against the whole body)
-	 * and inside a loop's body (against that body, times its trips).
+	 * and inside a loop's body (against that body, times its trips, its
+	 * divergence counted at every iteration).  Outside loops the outer
+	 * ones are decided first: a ?: in an arm of a branch is reached only
+	 * by the lanes that take that arm, and its divergence is counted over
+	 * those.
 	 */
-	for (k = -1; k < nloop; k++) {
-		const uint8_t *in = k < 0 ? all : lps[k].var;
-		double times = k < 0 ? 1 : lps[k].worst < 0 ? 1 : lps[k].worst;
-		for (g = 1; g < lim; g++) {
-			nid s = g, arm[2];
-			float ex[2], sel, uni, div, expd = 0;
-			double dp = 0, dat = 0, daf = 0;
-			uint64_t dpts = 0;
-			int i, nonuni, dmode, dexact = 0;
+	{
+		struct selp *sp = NULL;
+		int nsp = 0, q;
+		uint8_t *nenc = xcalloc(lim, 1);
+		nid (*enc)[MAXENC] = xcalloc(lim, sizeof *enc);
+		uint8_t (*encarm)[MAXENC] = xcalloc(lim, sizeof *encarm);
 
-			if (!in[g] || N.op[g] != O_SEL)
-				continue;
-			nsel++;
+		for (k = -1; k < nloop; k++)
+			for (g = 1; g < lim; g++)
+				if ((k < 0 ? all[g] : lps[k].var[g]) && N.op[g] == O_SEL) {
+					sp = xrealloc(sp, (size_t)(nsp + 1) * sizeof *sp);
+					memset(&sp[nsp], 0, sizeof *sp);
+					sp[nsp].s = g;
+					sp[nsp].k = k;
+					nsp++;
+				}
+		/* an operand is made before what reads it: outer ones last */
+		for (q = nsp - 1; q >= 0; q--) {
+			struct selp *x = &sp[q];
+			nid s = x->s, arm[2], rch = 0;
+			uint8_t *only[2];
+			int i, j;
+
+			k = x->k;
 			arm[0] = N.b[s];
 			arm[1] = N.c[s];
 			for (i = 0; i < 2; i++) {
-				uint8_t *only = xcalloc(lim, 1);
-				uint32_t h, q;
+				uint32_t h, qq;
+				only[i] = xcalloc(lim, 1);
 				memset(cut, 0, lim);
 				if (k < 0)
 					reach(f->body, cut, s, arm[i]);
 				else {
 					uint32_t e = lps[k].e, st = loops.st[e];
-					for (q = 0; q < loops.nst[e]; q++)
-						reach(loops.next[st + q], cut, s, arm[i]);
+					for (qq = 0; qq < loops.nst[e]; qq++)
+						reach(loops.next[st + qq], cut, s, arm[i]);
 					reach(loops.cond[e], cut, s, arm[i]);
 				}
-				reach(arm[i], only, 0, 0);
+				reach(arm[i], only[i], 0, 0);
 				for (h = 0; h < lim; h++)
 					if (cut[h] || (k >= 0 && !lps[k].var[h]))
-						only[h] = 0;
-				ex[i] = sum_cost(m, only, lim);
-				free(only);
+						only[i][h] = 0;
+				x->ex[i] = sum_cost(m, only[i], lim);
 			}
 			memset(seen, 0, lim);
-			nonuni = depends_nonuniform(f, N.a[s], seen, ~0ULL);
-			sel = m->c[C_SELECT];
-			uni = m->c[C_BRANCH] + (ex[0] > ex[1] ? ex[0] : ex[1]) -
-			    ex[0] - ex[1];
-			div = m->c[C_BRANCH] + m->c[C_DIVERGE];
+			x->nonuni = depends_nonuniform(f, N.a[s], seen, ~0ULL);
+			x->sel = m->c[C_SELECT];
+			x->uni = m->c[C_BRANCH] + (x->ex[0] > x->ex[1] ? x->ex[0] :
+			    x->ex[1]) - x->ex[0] - x->ex[1];
+			x->div = m->c[C_BRANCH] + m->c[C_DIVERGE];
+			x->times = k < 0 ? 1 : lps[k].worst < 0 ? 1 : lps[k].worst;
+			x->reached = 1;
+			/* the lanes that get here: those that take its arm of
+			 * every enclosing branch */
+			if (k < 0)
+				for (j = 0; j < nenc[s]; j++) {
+					nid c = N.a[enc[s][j]], t;
+					if (N.fl[c] & NF_LANEREAD)
+						continue;	/* not countable: every lane */
+					t = encarm[s][j] == 0 ? mk_bool(c) : mk_un(O_LNOT, c);
+					rch = rch ? mk_bin(O_LAND, rch, t) : t;
+				}
+			x->nenc = k < 0 ? nenc[s] : 0;
+			x->encl = x->nenc ? enc[s][0] : 0;
+			x->encarm = x->nenc ? encarm[s][0] : 0;
 			/*
 			 * A branch on a varying condition, on average: the warps
 			 * that agree skip the other arm, the ones that split pay
 			 * the divergence (stoch.c counts or estimates how many).
 			 */
-			dmode = 0;
+			x->dmode = 0;
 			/* a condition that reads other lanes' values has no
 			 * frequency to count: its worst, the divergent branch */
-			if (nonuni && k < 0 && m->par[MP_WARP] >= 2 &&
+			if (x->nonuni && m->par[MP_WARP] >= 2 &&
 			    !(N.fl[N.a[s]] & NF_LANEREAD))
-				dmode = diverge_stats(f, N.a[s], (int)m->par[MP_WARP], &dp, &dat,
-				    &daf, &dexact, &dpts);
-			if (dmode)
-				expd = m->c[C_BRANCH] + (float)((1 - dat - daf) *
-				    (double)m->c[C_DIVERGE] - dat * (double)ex[1] -
-				    daf * (double)ex[0]);
-			{
-				float pick = nonuni ? (dmode ? (sel <= expd ? sel : expd) :
-				    (sel < div ? sel : div)) : (sel < uni ? sel : uni);
-				const char *name = nonuni ? (dmode ? (sel <= expd ?
-				    "select" : "branch (its expected cost)") :
-				    (sel <= div ? "select" : "divergent branch")) :
-				    (sel <= uni ? "select" : "uniform branch");
-				best_total += (float)((pick - sel) * times);
-				if (nsel > MAXSEL_SHOWN)
-					continue;
-				sb_clear(&cb);
-				print_with(&cb, N.a[s], sh, 160);
-				printf("  ?: on %s  (arms cost %g and %g)%s\n",
-				    sb_str(&cb), (double)ex[0],
-				    (double)ex[1], k < 0 ? "" :
-				    "  [in a loop body: per iteration]");
-				printf("      select: %+g   uniform branch: %+g   "
-				    "divergent branch: %+g%s\n", (double)sel,
-				    (double)(uni), (double)div, nonuni ? "" :
-				    "  (condition is uniform)");
-				if (dmode == 2)
-					printf("      expected branch: %+g   (%llu warps of "
-					    "%d consecutive lanes%s: %.4g all true, %.4g "
-					    "all false, %.4g split)\n", (double)expd,
-					    (unsigned long long)dpts, (int)m->par[MP_WARP],
-					    dexact ? ", all counted" : ", sampled", dat, daf,
-					    1 - dat - daf);
-				else if (dmode == 1)
-					printf("      expected branch: %+g   (P(true) %s "
-					    "%.4g%s%s%llu points; %d independent lanes split "
-					    "with probability 1 - p^%d - (1 - p)^%d = %.4g)\n",
-					    (double)expd, dexact < 0 ? (dp < 0.5 ? "<=" : ">=") :
-					    "=", dp, dexact < 0 ? " at 95% confidence: " : " over ",
-					    dexact < 0 ? (dp < 0.5 ? "never in a sample of " :
-					    "always in a sample of ") : dexact ? "all " :
-					    "a sample of ", (unsigned long long)dpts,
-					    (int)m->par[MP_WARP], (int)m->par[MP_WARP],
-					    (int)m->par[MP_WARP], 1 - dat - daf);
-				rep_obj(NULL);
-				sb_clear(&cb);
-				print_with(&cb, N.a[s], sh, 300);
-				rep_str("condition", sb_str(&cb));
-				rep_num("select", sel);
-				rep_num("uniform_branch", uni);
-				rep_num("divergent_branch", div);
-				rep_bool("uniform_condition", !nonuni);
-				if (dmode) {
-					rep_num("expected_branch", expd);
-					rep_num("p_true", dp);
-					rep_num("p_split", 1 - dat - daf);
-					rep_str("lanes", dmode == 2 ? "consecutive" :
-					    "independent");
-				}
-				rep_str("best", name);
-				if (k >= 0)
-					rep_bool("in_loop", 1);
-				rep_end();
-				printf("      -> %s%s\n", name, nonuni ?
-				    " (condition varies per invocation; mark "
-				    "parameters 'uniform' if it does not)" : "");
+				x->dmode = diverge_stats(f, N.a[s], rch, k < 0 ?
+				    LOOP_NONE : lps[k].e, (int)m->par[MP_WARP], &x->dp,
+				    &x->dat, &x->daf, &x->reached, &x->dexact, &x->dpts);
+			if (x->dmode)
+				x->expd = m->c[C_BRANCH] + (float)((1 - x->dat -
+				    x->daf) * (double)m->c[C_DIVERGE] - x->dat *
+				    (double)x->ex[1] - x->daf * (double)x->ex[0]);
+			x->pick = x->nonuni ? (x->dmode ? (x->sel <= x->expd ?
+			    x->sel : x->expd) : (x->sel < x->div ? x->sel :
+			    x->div)) : (x->sel < x->uni ? x->sel : x->uni);
+			x->name = x->nonuni ? (x->dmode ? (x->sel <= x->expd ?
+			    "select" : "branch (its expected cost)") : (x->sel <=
+			    x->div ? "select" : "divergent branch")) : (x->sel <=
+			    x->uni ? "select" : "uniform branch");
+			if (x->dmode && x->reached == 0) {
+				x->pick = x->sel;
+				x->name = "select";
 			}
+			best_total += (float)((x->pick - x->sel) * x->times *
+			    x->reached);
+			/* a branch: what only its arms reach is reached by their
+			 * lanes alone */
+			if (k < 0 && strcmp(x->name, "select"))
+				for (i = 0; i < 2; i++) {
+					uint32_t h;
+					for (h = 1; h < lim; h++)
+						if (only[i][h] && h != s && N.op[h] == O_SEL &&
+						    nenc[h] < MAXENC) {
+							enc[h][nenc[h]] = s;
+							encarm[h][nenc[h]++] = (uint8_t)i;
+						}
+				}
+			free(only[0]);
+			free(only[1]);
 		}
+		/* listed in the order they always were */
+		for (q = 0; q < nsp; q++) {
+			const struct selp *x = &sp[q];
+			nid s = x->s;
+			const char *per = x->k < 0 ? "" : "per iteration: ";
+
+			nsel++;
+			if (nsel > MAXSEL_SHOWN)
+				continue;
+			sb_clear(&cb);
+			print_with(&cb, N.a[s], sh, 160);
+			printf("  ?: on %s  (arms cost %g and %g)%s\n", sb_str(&cb),
+			    (double)x->ex[0], (double)x->ex[1], x->k < 0 ? "" :
+			    "  [in a loop body: per iteration]");
+			printf("      select: %+g   uniform branch: %+g   "
+			    "divergent branch: %+g%s\n", (double)x->sel,
+			    (double)(x->uni), (double)x->div, x->nonuni ? "" :
+			    "  (condition is uniform)");
+			if (x->dmode && x->reached == 0)
+				printf("      no warp of the sample reaches it (its "
+				    "enclosing branches send every lane elsewhere): "
+				    "its form costs nothing there\n");
+			else if (x->dmode == 2)
+				printf("      expected branch: %+g   (%s%llu %s of %d "
+				    "consecutive lanes%s: %.4g all true, %.4g all false, "
+				    "%.4g split)\n", (double)x->expd, per,
+				    (unsigned long long)x->dpts, x->k < 0 ? "warps" :
+				    "warp-iterations", (int)m->par[MP_WARP], x->dexact ?
+				    ", all counted" : ", sampled", x->dat, x->daf, 1 -
+				    x->dat - x->daf);
+			else if (x->dmode == 1)
+				printf("      expected branch: %+g   (%sP(true) %s "
+				    "%.4g%s%s%llu %s; %d independent lanes split "
+				    "with probability 1 - p^%d - (1 - p)^%d = %.4g)\n",
+				    (double)x->expd, per, x->dexact < 0 ? (x->dp < 0.5 ?
+				    "<=" : ">=") : "=", x->dp, x->dexact < 0 ?
+				    " at 95% confidence: " : " over ", x->dexact < 0 ?
+				    (x->dp < 0.5 ? "never in a sample of " :
+				    "always in a sample of ") : x->dexact ? "all " :
+				    "a sample of ", (unsigned long long)x->dpts, x->k < 0 ?
+				    "points" : "lane-iterations", (int)m->par[MP_WARP],
+				    (int)m->par[MP_WARP], (int)m->par[MP_WARP], 1 -
+				    x->dat - x->daf);
+			if (x->dmode && x->nenc && x->reached > 0) {
+				sb_clear(&cb);
+				print_with(&cb, N.a[x->encl], sh, 100);
+				printf("      reached only by the lanes that take its arm "
+				    "of %d enclosing branch%s (the %s arm of the ?: on "
+				    "%s%s): %.4g of the warps; the fractions above are of "
+				    "those, and the choice is weighed by it\n", x->nenc,
+				    x->nenc == 1 ? "" : "es", x->encarm ? "false" : "true",
+				    sb_str(&cb), x->nenc > 1 ? ", ..." : "", x->reached);
+			}
+			rep_obj(NULL);
+			sb_clear(&cb);
+			print_with(&cb, N.a[s], sh, 300);
+			rep_str("condition", sb_str(&cb));
+			rep_num("select", x->sel);
+			rep_num("uniform_branch", x->uni);
+			rep_num("divergent_branch", x->div);
+			rep_bool("uniform_condition", !x->nonuni);
+			if (x->dmode) {
+				rep_num("expected_branch", x->expd);
+				rep_num("p_true", x->dp);
+				rep_num("p_split", 1 - x->dat - x->daf);
+				rep_str("lanes", x->dmode == 2 ? "consecutive" :
+				    "independent");
+				if (x->k >= 0)
+					rep_bool("per_iteration", 1);
+				if (x->nenc)
+					rep_num("reached", x->reached);
+			}
+			rep_str("best", x->name);
+			if (x->k >= 0)
+				rep_bool("in_loop", 1);
+			rep_end();
+			printf("      -> %s%s\n", x->name, x->nonuni ?
+			    " (condition varies per invocation; mark "
+			    "parameters 'uniform' if it does not)" : "");
+		}
+		free(sp);
+		free(nenc);
+		free(enc);
+		free(encarm);
 	}
 	rep_end();
 	if (nsel > MAXSEL_SHOWN) {

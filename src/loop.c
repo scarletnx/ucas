@@ -11,6 +11,7 @@
  * not check.
  */
 #include "calc.h"
+#include "stoch.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -449,6 +450,71 @@ put_states(struct lbuf *B, uint32_t e, uint32_t np)
 	}
 }
 
+/*
+ * A probe on one loop's iterations (stoch.c, cost's expected divergence
+ * of a ?: in its body): at each iteration, the lanes that run the body,
+ * in windows of `warp` lanes, and how many of them take cond.
+ */
+static struct {
+	uint32_t e;
+	nid cond;
+	int warp;		/* 0: off */
+	uint64_t nw, nat, naf, n, nt;
+} lpr;
+
+void
+loop_probe(uint32_t e, nid cond, int warp)
+{
+	memset(&lpr, 0, sizeof lpr);
+	lpr.e = e;
+	lpr.cond = cond;
+	lpr.warp = warp;
+}
+
+void
+loop_probe_counts(uint64_t *nw, uint64_t *nat, uint64_t *naf, uint64_t *n,
+    uint64_t *nt)
+{
+	*nw = lpr.nw;
+	*nat = lpr.nat;
+	*naf = lpr.naf;
+	*n = lpr.n;
+	*nt = lpr.nt;
+	lpr.warp = 0;
+}
+
+static void
+probe_iter(struct lpc *c, const struct lbuf *B, uint32_t np, int64_t it,
+    int isfor)
+{
+	uint32_t cl = plan_loc(&c->p, lpr.cond), l, base, W = (uint32_t)lpr.warp;
+
+	if (cl == NOTOK)
+		return;
+	for (base = 0; base < np; base += W) {
+		uint64_t t = 0, w = 0;
+		for (l = base; l < np && l < base + W; l++) {
+			if (B->dead[l] || B->fin[l] || (isfor && it >= B->trip[l]))
+				continue;
+			/* a while loop whose condition fails here runs no body */
+			if (!isfor && ((COLF(&c->p, c->cond)[l] & F_UNDEF) ||
+			    !COLI(&c->p, c->cond)[l]))
+				continue;
+			if (COLF(&c->p, cl)[l] & F_UNDEF)
+				continue;
+			w++;
+			t += COLI(&c->p, cl)[l] != 0;
+		}
+		if (w) {
+			lpr.nw++;
+			lpr.n += w;
+			lpr.nt += t;
+			lpr.nat += t == w;
+			lpr.naf += t == 0;
+		}
+	}
+}
+
 void
 loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,
     const double *in_r)
@@ -538,6 +604,8 @@ loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,
 			}
 		put_states(B, e, np);
 		plan_run(&c->p, np, B->vi, B->vr);
+		if (lpr.warp && e == lpr.e)
+			probe_iter(c, B, np, it, isfor);
 		for (l = 0; l < np; l++) {
 			if (B->dead[l] || B->fin[l] || (isfor && it >= B->trip[l]))
 				continue;

@@ -1679,7 +1679,29 @@ aligned runs of w consecutive values of i are then counted, all of them
 when they are few enough (`i < 16000` over 0..32767 splits no warp:
 +1.64 against +20.6).  The choice between select and branch follows the
 expected price; the divergent price stays in the line as the worst
-case.  Loops' selects and models without a warp are priced as before.
+case.  Models without a warp are priced as before.
+
+A ?: in an arm of a branch runs only for the lanes that take that arm.
+The outer ?: are decided first; for one inside an arm of those that
+became branches, the warps are counted over the lanes that reach it
+(independent lanes: a lane reaches it with probability r, a warp with
+1 - (1 - r)^w, all true with (1 - r + r p)^w - (1 - r)^w), the line says
+which fraction of the warps reach it, and the choice is weighed by that
+fraction.  A ?: in a loop body is counted at every iteration over the
+lanes that run it (the loop evaluated as it runs, a probe on its body),
+and its price is per iteration, times the trip count:
+
+```
+> cost nest consecutive i    # (i >> 5) % 4 == 0 ? ((i >> 5) % 4 == 1 ? i*i*i*i*i : i + 1) : i * 3
+  ?: on t1 == 1  (arms cost 12 and 1)
+      expected branch: -5.75   (32 warps of 32 consecutive lanes, all counted: 0 all true, 1 all false, 0 split)
+      reached only by the lanes that take its arm of 1 enclosing branch (the true arm of the ?: on t1 == 0): 0.25 of the warps; ...
+> cost lp consecutive i      # for j in 0..15 { s = ((i >> 5) + j) % 2 == 0 ? s*s*s*7 : s + j }
+      expected branch: +1.25   (per iteration: 512 warp-iterations of 32 consecutive lanes, all counted: 0.5 all true, 0.5 all false, 0 split)
+```
+
+tests/costnest.ucas has these, the same inner ?: where every lane gets
+to it, and the loop with independent lanes (a select there).
 Barriers and atomics have value semantics for one invocation
 (`barrier(e)` is `e`, an atomic returns the old value), so they can
 appear in expressions and be priced.  They are never merged by
