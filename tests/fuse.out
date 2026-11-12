@@ -2,24 +2,48 @@
   Div7: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile assume x 0 999
-simplify: 54 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 2 divisions by a constant made a multiply and a shift (derived, below), 10 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once): 47.75 -> 23.25 (-51.3%)
+  integer arithmetic cost under gt1030 (each instruction once): 47.75 -> 13 (-72.8%)
   by kind:
-       1  operands never negative: the unsigned divide  -12.25
-       1  operands never negative: the unsigned remainder  -12.25
+       2  a division by a constant of a bounded dividend as a multiply and a shift  -32.75
+       1  a sum of products as one dot product          -2
   rewrites:
-    %40 = OpSDiv %int %30 %int_7
-      ->  OpBitcast %int (OpUDiv %uint (OpBitcast %uint %30) %ucas_uint_7)   (operands never negative: the unsigned divide; -12.25)
-      (line 1: int Div7(int x) { return x / 7 + x % 10; })
     %42 = OpSMod %int %30 %int_10
-      ->  OpBitcast %int (OpUMod %uint (OpBitcast %uint %30) %ucas_uint_10)   (operands never negative: the unsigned remainder; -12.25)
+      ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (a division by a constant of a bounded dividend as a multiply and a shift; -16.75)
       (line 1: int Div7(int x) { return x / 7 + x % 10; })
-  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+    %40 = OpSDiv %int %30 %int_7
+      ->  i32(1171u32(%30) >> 13)   (a division by a constant of a bounded dividend as a multiply and a shift; -16)
       (line 1: int Div7(int x) { return x / 7 + x % 10; })
-    nothing cheaper than its cost 61.75 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
+    %43 = OpIAdd %int %40 %42
+      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (a sum of products as one dot product; -2)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %43 = OpIAdd %int %40 %42
+      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (cost 15 -> 13)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205u32(%30) >> 11) * 10
+      205u32(%30) >> 11 in 0..99 (proved range)
+      udot4x8's sum is in 0..990: it does not wrap
+      exhaustive
+  divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under gt1030):
+    %40 = OpSDiv %int %30 %int_7
+      ->  i32(1171u32(%30) >> 13)   (cost 21 -> 5)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      holds where %30 in [0, 999] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 999: x*5 <= 4995 < 2^13, and x*M <= 1169829 < 2^32, so the product does not wrap in u32
+    %42 = OpSMod %int %30 %int_10
+      ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (cost 25.75 -> 9)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      holds where %30 in [0, 999] (its range)
+      M = ceil(2^11/10) = 205, so M*10 = 2^11 + 2
+      x*M/2^11 = x/10 + x*2/(10*2^11): the excess is below 1/10 while x*2 < 2^11, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^11) = floor(x/10)
+      x <= 999: x*2 <= 1998 < 2^11, and x*M <= 204795 < 2^32, so the product does not wrap in u32
+      and x % 10 = x - 10*floor(x/10)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 1945 bytes, checksum 5153409d)
+  (nofile: simplified.spvasm, 2412 bytes, checksum 0feab7ac)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Div7: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -27,14 +51,48 @@ simplify: 54 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal f
 > use flat
 cost model: flat
 > spvsimplify nofile assume x 0 999
-simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 2 divisions by a constant made a multiply and a shift (derived, below), 10 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under flat (each instruction once): 23.25 -> 23.25 (+0.0%)
-  nothing to rewrite: no cheaper form of an integer instruction could be proved
-  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+  integer arithmetic cost under flat (each instruction once): 23.25 -> 13 (-44.1%)
+  by kind:
+       2  a division by a constant of a bounded dividend as a multiply and a shift  -8.25
+       1  a sum of products as one dot product          -2
+  rewrites:
+    %42 = OpSMod %int %30 %int_10
+      ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (a division by a constant of a bounded dividend as a multiply and a shift; -4.5)
       (line 1: int Div7(int x) { return x / 7 + x % 10; })
-    nothing cheaper than its cost 61.75 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
+    %40 = OpSDiv %int %30 %int_7
+      ->  i32(1171u32(%30) >> 13)   (a division by a constant of a bounded dividend as a multiply and a shift; -3.75)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    %43 = OpIAdd %int %40 %42
+      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (a sum of products as one dot product; -2)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under flat):
+    %43 = OpIAdd %int %40 %42
+      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (cost 15 -> 13)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205u32(%30) >> 11) * 10
+      205u32(%30) >> 11 in 0..99 (proved range)
+      udot4x8's sum is in 0..990: it does not wrap
+      exhaustive
+  divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under flat):
+    %40 = OpSDiv %int %30 %int_7
+      ->  i32(1171u32(%30) >> 13)   (cost 8.75 -> 5)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      holds where %30 in [0, 999] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 999: x*5 <= 4995 < 2^13, and x*M <= 1169829 < 2^32, so the product does not wrap in u32
+    %42 = OpSMod %int %30 %int_10
+      ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (cost 13.5 -> 9)
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+      holds where %30 in [0, 999] (its range)
+      M = ceil(2^11/10) = 205, so M*10 = 2^11 + 2
+      x*M/2^11 = x/10 + x*2/(10*2^11): the excess is below 1/10 while x*2 < 2^11, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^11) = floor(x/10)
+      x <= 999: x*2 <= 1998 < 2^11, and x*M <= 204795 < 2^32, so the product does not wrap in u32
+      and x % 10 = x - 10*floor(x/10)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2412 bytes, checksum 0feab7ac)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Lo: called from a compute shader's main(), its arguments read from a buffer
   Hi: called from a compute shader's main(), its arguments read from a buffer
@@ -375,6 +433,12 @@ find sd: 1024 points (sampled; matches verified on the whole domain), computing 
       holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
       a / 7 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
       0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
+  cost 6   i32(1171u32(a) >> 13) + b                the division a/7 as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where a in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  cost 5   (1171u32(a) >> 13) + u32(b)              all of them: the division a/7 as a multiply and a shift in u32, then drops the conversion i32(...) (derived; the drops proved by SAT)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > sm(a: i32 in 0..100000) = a % 10
@@ -385,6 +449,11 @@ find sm: 1024 points (sampled; matches verified on the whole domain), computing 
       holds where a >= 0 (a in [0, 100000]: its range) and 10 >= 1 (10 in [10, 10]: a constant)
       a % 10 on i32 is a - b*trunc(a/b), with the sign of the dividend; with a >= 0 and b >= 1 it is a - b*floor(a/b), in [0, b)
       0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned remainder (at most a < 2^31) converts back to i32 unchanged
+  not applied (it would cost 9): the remainder a % 10 as a multiply and a shift in u32
+      needs a <= 81919 (it is in [0, 100000]: its range)
+      M = ceil(2^19/10) = 52429, so M*10 = 2^19 + 2
+      x*M/2^19 = x/10 + x*2/(10*2^19): the excess is below 1/10 while x*2 < 2^19, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^19) = floor(x/10)
+      that and a product below 2^32 need x <= 81919 (the most any shift allows, with 2^19); here x reaches 100000
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > sn(a: i32 in -5..1000) = a / 7
@@ -398,6 +467,13 @@ cost model: flat
 > find sd 1
 find sd: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from flat
   derived, but not cheaper under flat (cost 10, as written 10): the signed division a/7 as u32 (its operands are never negative)
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 6   i32(1171u32(a) >> 13) + b                the division a/7 as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where a in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  cost 5   (1171u32(a) >> 13) + u32(b)              all of them: the division a/7 as a multiply and a shift in u32, then drops the conversion i32(...) (derived; the drops proved by SAT)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

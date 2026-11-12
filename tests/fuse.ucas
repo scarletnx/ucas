@@ -8,7 +8,7 @@ SAT simplify x in [0, 1000) nofile
 ```glsl
 int Div7(int x) { return x / 7 + x % 10; }
 ```
-# a model where signed division costs what unsigned does: nothing to gain
+# signed division at the unsigned price: only idrw.c's multiply-shift gains
 model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
 use flat
 SAT simplify x in [0, 1000) nofile
@@ -121,7 +121,7 @@ find sm 1
 # the dividend can be negative: no rewrite
 sn(a: i32 in -5..1000) = a / 7
 find sn 1
-# a model where signed division costs what unsigned does: nothing to gain
+# signed division at the unsigned price: only idrw.c's multiply-shift gains
 model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }
 use flat
 find sd 1

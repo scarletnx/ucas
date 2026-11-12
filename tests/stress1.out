@@ -273,6 +273,7 @@ find wref: 28 points, computing in u32, costs from gt1030
       p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  derived, but not cheaper under gt1030 (cost 40, as written 36): the map ((1 << ib) - 1)/2 of ib as a table in one constant (3 entries of 4 bits)
   split on ib (3 values), fitted (i*K + C) >> S per case: S = 3, C = 4
   cost 37  i*(511/((1 << ib) - 1)) + 4 >> 3
            K = 511/((1 << ib) - 1) (a constant over 2^case - 1) depends only on ib: compute it once where ib is set; 5 per use once K is known (exhaustive)
@@ -319,7 +320,12 @@ find qb: 1024 points, computing in i32, costs from gt1030
       holds where v*((1 << b) - 1) + 127 >= 0 (v*((1 << b) - 1) + 127 in [127, 32512]: interval arithmetic over the parameters' ranges) and 255 >= 1 (255 in [255, 255]: a constant)
       v*((1 << b) - 1) + 127 / 255 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
       0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
-  cost 15  i32(u32(v*((1 << b) - 1) + 127)/255)     all of them: drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm), then drops the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm), then the signed division (v*((1 << b) - 1) + 127)/255 as u32 (its operands are never negative) (derived; the drops exhaustive)
+  cost 63  t7*t7 < t4*t4 && t7*t7 <= t5*t5 ? t6 : t5*t5 < t4*t4 ? t3 : t2 where m = (1 << b) - 1, t1 = 2b - 8, t2 = i32(32897u32(v*m + 127) >> 0x17), t3 = t2 > 0 ? t2 - 1 : t2, t4 = (t2 << 8 - b | t2 >> t1) - v, t5 = (t3 << 8 - b | t3 >> t1) - v, t6 = t2 < m ? t2 + 1 : t2, t7 = (t6 << 8 - b | t6 >> t1) - v the division (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where v*((1 << b) - 1) + 127 in [127, 32512] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^23/255) = 32897, so M*255 = 2^23 + 127
+      x*M/2^23 = x/255 + x*127/(255*2^23): the excess is below 1/255 while x*127 < 2^23, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^23) = floor(x/255)
+      x <= 32512: x*127 <= 4129024 < 2^23, and x*M <= 1069547264 < 2^32, so the product does not wrap in u32
+  cost 11  i32(32897u32(v*((1 << b) - 1) + 127) >> 0x17) all of them: drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm), then drops the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm), then the division (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32 (derived; the drops exhaustive)
   split on b (4 values), fitted (v*K + C) >> S per case: S = 12, C = 2048
   cost 17  v*(b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047) + 2048 >> 12
            K = b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047 (one constant per case) depends only on b: compute it once where b is set; 5 per use once K is known (exhaustive)
