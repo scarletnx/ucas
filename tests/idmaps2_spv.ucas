@@ -1,0 +1,38 @@
+# A map of one small-range value in a shader (src/idrw.c, by the SPIR-V
+# identities pass): a chain of selects on x & 7 as a table in one
+# constant; and a membership test (an or of compares) as one bit of a
+# constant.  A chain written as nested ?: becomes branches and phis, which
+# the pass does not read: these are flat.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint k = b.d[i] & 7u;
+  uint t = 4u;
+  t = k == 3u ? 6u : t;
+  t = k == 2u ? 2u : t;
+  t = k == 1u ? 9u : t;
+  t = k == 0u ? 5u : t;
+  bool odd = k == 1u || k == 4u || k == 6u;
+  b.d[i] = t + (odd ? 100u : 0u);
+}
+```
+# the key a value whose range the request assumes (a uniform's)
+simplify nofile nofunctions under gt1030, k in [0, 3]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint k; } p;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint t = 7u;
+  t = p.k == 2u ? 1u : t;
+  t = p.k == 1u ? 12u : t;
+  t = p.k == 0u ? 3u : t;
+  b.d[i] = t + i;
+}
+```

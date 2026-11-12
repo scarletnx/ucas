@@ -1,0 +1,57 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile nofunctions
+simplify: 84 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 2 maps of one value made a table or a multiply (derived, below), 11 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 26.375 -> 16 (-39.3%)
+  by kind:
+       2  a map of one small-range value as a table or a multiply and a shift  -11.375
+  rewrites:
+    %54 = OpSelect %uint %51 %uint_5 %49
+      ->  (0x22224073 >> ((%27 & 7) << 2) & 15) + 2   (a map of one small-range value as a table or a multiply and a shift; -7.625)
+      (line 11: t = k == 0u ? 5u : t;)
+    %64 = OpLogicalOr %bool %61 %63
+      ->  bool(0x52 >> (%27 & 7))   (a map of one small-range value as a table or a multiply and a shift; -3.75)
+      (line 12: bool odd = k == 1u || k == 4u || k == 6u;)
+  divisibility tests and maps of one value (derived by idrw.c: a multiply and a compare, a table in one constant, a multiply and a shift; kept under gt1030):
+    %54 = OpSelect %uint %51 %uint_5 %49
+      ->  (0x22224073 >> ((%27 & 7) << 2) & 15) + 2   (cost 17 -> 9.375)
+      (line 11: t = k == 0u ? 5u : t;)
+      the map %27 & 7 == 0 ? 5 : %27 & 7 == 1 ? 9 : %27 & 7 == 2 ? 2 : %27… (17 more characters) of %27 & 7 as a table in one constant (8 entries of 4 bits)
+      the price counts 2.375 for what it drops that something else reads too: that stays
+      holds where %27 & 7 in [0, 7] (interval arithmetic over the parameters' ranges)
+      %27 & 7 == 0 ? 5 : %27 & 7 == 1 ? 9 : %27 & 7 == 2 ? 2 : %27… (17 more characters) at %27 & 7 = 0..7 is [5, 9, 2, 6, 4, 4, 4, 4] (evaluated at each of the 8)
+      bits [4*i, 4*i + 4) of 0x22224073 hold the value at %27 & 7 = i, less the least value: shifting right by that many bits times %27 & 7 and masking reads it
+    %64 = OpLogicalOr %bool %61 %63
+      ->  bool(0x52 >> (%27 & 7))   (cost 10.125 -> 6.375)
+      (line 12: bool odd = k == 1u || k == 4u || k == 6u;)
+      the map %27 & 7 == 1 || %27 & 7 == 4 || %27 & 7 == 6 of %27 & 7 as a table in one constant (8 entries of 1 bit)
+      the price counts 2.375 for what it drops that something else reads too: that stays
+      holds where %27 & 7 in [0, 7] (interval arithmetic over the parameters' ranges)
+      %27 & 7 == 1 || %27 & 7 == 4 || %27 & 7 == 6 at %27 & 7 = 0..7 is [0, 1, 0, 0, 1, 0, 1, 0] (evaluated at each of the 8)
+      bits [1*i, 1*i + 1) of 0x52 hold the value at %27 & 7 = i: shifting right by %27 & 7 and taking the low bit reads it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2817 bytes, checksum c27246f9)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile assume k 0 3 nofunctions
+simplify: 79 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 map of one value made a table or a multiply (derived, below), 5 dead instructions removed
+  assuming k in [0, 3] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 13 -> 7 (-46.2%)
+  by kind:
+       1  a map of one small-range value as a table or a multiply and a shift  -6
+  rewrites:
+    %44 = OpSelect %uint %41 %uint_3 %38
+      ->  (0x60b2 >> (%26 << 2) & 15) + 1   (a map of one small-range value as a table or a multiply and a shift; -6)
+      (line 10: t = p.k == 0u ? 3u : t;)
+  divisibility tests and maps of one value (derived by idrw.c: a multiply and a compare, a table in one constant, a multiply and a shift; kept under gt1030):
+    %44 = OpSelect %uint %41 %uint_3 %38
+      ->  (0x60b2 >> (%26 << 2) & 15) + 1   (cost 12 -> 6)
+      (line 10: t = p.k == 0u ? 3u : t;)
+      the map %26 == 0 ? 3 : %26 == 1 ? 12 : %26 == 2 ? 1 : 7 of %26 as a table in one constant (4 entries of 4 bits)
+      holds where %26 in [0, 3] (its range)
+      %26 == 0 ? 3 : %26 == 1 ? 12 : %26 == 2 ? 1 : 7 at %26 = 0..3 is [3, 12, 1, 7] (evaluated at each of the 4)
+      bits [4*i, 4*i + 4) of 0x60b2 hold the value at %26 = i, less the least value: shifting right by that many bits times %26 and masking reads it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2648 bytes, checksum 26e02e5a)

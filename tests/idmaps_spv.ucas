@@ -1,0 +1,21 @@
+# Divisibility tests and maps of one value in a shader (src/idrw.c, by
+# the SPIR-V identities pass): the same derivations find makes, written
+# back when the model prices them lower.
+
+# n % d == r as a multiply and a compare (unsigned, any r; signed, r = 0,
+# and GLSL's % on an int is OpSMod, 0 where OpSRem is); a remainder that
+# something else reads too stays, and so does its compare (the multiply
+# would come on top)
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  int sx = int(x);
+  uint m = x % 6u;
+  b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) + (m == 0u ? 1u : m);
+}
+```
