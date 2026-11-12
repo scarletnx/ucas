@@ -1,0 +1,24 @@
+> spvsimplify nofile
+simplify: 61 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  1 texel fetch of an image whose type holds f32 texels: a sampled read of those is tex_sample_f32 54.75, not below tex_fetch 43.125
+> spvsimplify nofile
+simplify: 61 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  texel fetches (tex_fetch 43.125; a sampled read, tex_sample, 21.625):
+    %37 = OpImageFetch %17 %36 %35 Lod %23
+    a candidate worth testing (not applied: it needs a sampler, and the model's price is for bilinear rgba8):
+      textureLod(sampler2D(tex, nearest), (vec2(p) + 0.5) / vec2(textureSize(tex, 0)), 0.0) for texelFetch(tex, p, 0):
+      1 fetch at 21.625 instead of 43.125 (-21.5)
+      the same texel, for every size up to 2^20 and 0 <= p < size: p + 0.5 is exact in f32 (p < 2^23);
+      the quotient is within 2.5 ulp (Vulkan's OpFDiv), so u * size is within (p + 0.5) * 2.5 * 2^-23 < 0.32
+      of p + 0.5; the sampler's fixed point (at least 4 sub-texel bits) moves it by at most 1/32 more;
+      nearest takes floor(u * size) = p.  Out of range a fetch is undefined, a sample clamps: a refinement.
+      the sampler: magFilter = minFilter = NEAREST, mipmapMode = NEAREST, any address mode, no anisotropy,
+      no compare; with unnormalizedCoordinates = VK_TRUE the coordinate is vec2(p) + 0.5 and nothing is divided

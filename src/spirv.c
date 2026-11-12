@@ -1917,7 +1917,7 @@ static int
 exec_image(const struct sins *I, uint32_t mask, int rt, int st, int nc)
 {
 	const char *op = I->op;
-	int l, c, k;
+	int l, c, k, cls, f32 = 0;
 
 	if (!strncmp(op, "OpDPd", 5) || !strncmp(op, "OpFwidth", 8)) {
 		int a = opid(I, 1), fw = op[2] == 'F';
@@ -2094,8 +2094,11 @@ exec_image(const struct sins *I, uint32_t mask, int rt, int st, int nc)
 				put_result(LV(I->res, l), rt, v, nc);
 			}
 		}
-		k = emit(I, I_OP, wr ? C_STORE : C_LOAD, model_active()->c[wr ?
-		    C_STORE : C_LOAD], mask);
+		/* a fetch, a storage image's read: their own kinds (load where
+		 * the model lists neither) */
+		cls = wr ? C_STORE : op[7] == 'F' ? C_TEX_FETCH : C_IMAGE_LOAD;
+		k = emit(I, I_OP, model_class(model_active(), cls),
+		    (double)model_cost(model_active(), cls), mask);
 		emit_vals(k, I, mask);
 		return 1;
 	}
@@ -2197,8 +2200,15 @@ exec_image(const struct sins *I, uint32_t mask, int rt, int st, int nc)
 			tex_sample(&G.t[ti], s, &rq, out);
 			G.nsample++;
 			put_result(LV(I->res, l), rt, out, nc);
+			if (tex_fmts[G.t[ti].fmt].cls == TC_FLOAT &&
+			    tex_fmts[G.t[ti].fmt].b[0] == 32)
+				f32 = 1;
 		}
-		k = emit(I, I_OP, C_LOAD, model_active()->c[C_LOAD], mask);
+		/* a filtered read: its kind, an f32 texture's apart (measured on
+		 * rgba8 and rgba32f) */
+		cls = f32 ? C_TEX_SAMPLE_F32 : C_TEX_SAMPLE;
+		k = emit(I, I_OP, model_class(model_active(), cls),
+		    (double)model_cost(model_active(), cls), mask);
 		emit_vals(k, I, mask);
 		return 1;
 	}

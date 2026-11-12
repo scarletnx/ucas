@@ -24,6 +24,7 @@ const char *memk_nlp_raw(const char *sent);	/* nlp.c */
 
 /* a class's price under m: its own, or its fallback's when m lists none */
 float model_cost(const struct model *m, int cls);
+int model_class(const struct model *m, int cls);
 int model_lists(const struct model *m, int cls);
 
 /* the conflict degree of index e over a warp of f's lane parameter (the

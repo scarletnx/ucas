@@ -56,6 +56,16 @@ model_lists(const struct model *m, int cls)
 	return cls < C_MEM_FIRST || cls > C_MEM_LAST || !isnan(m->c[cls]);
 }
 
+/* the class a price comes from: cls, or the fallback m lists */
+int
+model_class(const struct model *m, int cls)
+{
+	while (cls >= C_MEM_FIRST && cls <= C_MEM_LAST && isnan(m->c[cls]) &&
+	    fallback[cls] >= 0)
+		cls = fallback[cls];
+	return cls;
+}
+
 float
 model_cost(const struct model *m, int cls)
 {
