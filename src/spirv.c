@@ -9725,6 +9725,18 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    "lane, summed over the lanes, is a ballot's bit count), under "
 		    "%s:\n", sym_str(model_active()->name));
 		fputs(sgrep.p, stdout);
+		if (nsglog) {
+			char why[200];
+			int v = dw_validate(out.p ? out.p : "", why, sizeof why);
+			if (v == 1)
+				printf("  spirv-val accepts the written module\n");
+			else if (v == 0)
+				printf("  spirv-val REJECTS the written module: %s\n",
+				    why);
+			else
+				printf("  spirv-as and spirv-val cannot run here: the "
+				    "written module is not validated\n");
+		}
 	}
 	free(sgrep.p);
 	if (range_report) {

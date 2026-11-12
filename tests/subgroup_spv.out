@@ -141,6 +141,7 @@ simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       (line 11: int s = subgroupAdd(int(x < 9u));)
       %53 is %52 ? 1 : 0, so its sum over the lanes is the number of those lanes where it is not 0: the set bits of their ballot, which OpGroupNonUniformBallotBitCount Reduce counts
       holds for any subgroup size and any set of active lanes: both sides count the active lanes only
+  spirv-val accepts the written module
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 3458 bytes, checksum 722953f8)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
