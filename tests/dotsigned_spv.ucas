@@ -1,0 +1,27 @@
+# A field of a word read signed, in a shader (src/dot.c field_of, read by
+# the SPIR-V dot pass): see dotsigned.ucas.
+
+# in a shader, bitfieldExtract of an int (OpBitFieldSExtract)
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  int x = b.d[i];
+  b.d[i] = bitfieldExtract(x, 8, 8) * 5 + bitfieldExtract(x, 24, 8);
+}
+```
+# and the C idiom
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  int x = b.d[i];
+  b.d[i] = ((x << 24) >> 24) + ((x << 16) >> 24) + ((x << 8) >> 24) + (x >> 24);
+}
+```
