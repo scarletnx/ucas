@@ -969,12 +969,17 @@ atomic_lookup(const char *s, size_t n, int *kind)
 	return 0;
 }
 
+/* tables by their entries: open addressing over the table nodes */
+static uint32_t *tabht, tabcap, tabn;
+static uint32_t *tabhash, tabhcap;	/* by node */
+
 nid
 mk_table(const nid *e, uint32_t n)
 {
 	ty_t t = TY_LIT;
-	uint32_t i, st;
+	uint32_t i, st, j, h = 2166136261u;
 	int mix = 0, fl = 0;
+	nid r;
 
 	for (i = 0; i < n; i++)
 		t = i ? common(t, N.ty[e[i]], &mix) : N.ty[e[i]];
@@ -988,9 +993,44 @@ mk_table(const nid *e, uint32_t n)
 	for (i = 0; i < n; i++) {
 		N.lst[st + i] = conv(e[i], t);
 		fl |= N.fl[N.lst[st + i]];
+		h = (h ^ N.lst[st + i]) * 16777619u;
 	}
+	/*
+	 * A table with these entries already: the same node, as for any
+	 * other expression (a rebuilt copy of a table is that table, and
+	 * two lookups of it at one index are one load).
+	 */
+	h = (h ^ t ^ (n << 16)) * 16777619u;
+	if ((tabn + 1) * 2 > tabcap) {
+		uint32_t oc = tabcap, *o = tabht, q;
+		tabcap = tabcap ? tabcap * 2 : 256;
+		tabht = xcalloc(tabcap, sizeof *tabht);
+		for (q = 0; q < oc; q++)
+			if (o[q]) {
+				j = tabhash[o[q]] & (tabcap - 1);
+				while (tabht[j])
+					j = (j + 1) & (tabcap - 1);
+				tabht[j] = o[q];
+			}
+		free(o);
+	}
+	for (j = h & (tabcap - 1); (r = tabht[j]) != 0; j = (j + 1) & (tabcap - 1))
+		if (tabhash[r] == h && N.ty[r] == t && N.b[r] == n &&
+		    !memcmp(&N.lst[N.a[r]], &N.lst[st], n * sizeof *N.lst))
+			return r;
 	N.nlst += n;
-	return intern(O_TABLE, t, st, n, 0, 0, 0.0, fl & (NF_PARTIAL | NF_VAR));
+	r = intern(O_TABLE, t, st, n, 0, 0, 0.0,
+	    fl & (NF_PARTIAL | NF_VAR));
+	if (r >= tabhcap) {
+		uint32_t c = newcap(tabhcap, r + 1);
+		tabhash = xrealloc(tabhash, c * sizeof *tabhash);
+		memset(tabhash + tabhcap, 0, (c - tabhcap) * sizeof *tabhash);
+		tabhcap = c;
+	}
+	tabhash[r] = h;
+	tabht[j] = r;
+	tabn++;
+	return r;
 }
 
 nid
