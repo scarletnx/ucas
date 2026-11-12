@@ -79,7 +79,7 @@ struct P;
 int texalu_command(struct P *p);		/* parse.c */
 const char *texalu_nlp_raw(const char *sent);	/* nlp.c */
 /* find's section: the sampled reads the model prices lower */
-void tex_find(const struct func *f);
+int tex_find(const struct func *f);
 
 enum { TEXR_NONE, TEXR_PROVED, TEXR_NOTCHEAPER, TEXR_UNAVAILABLE,
 	TEXR_OVERTOL };
