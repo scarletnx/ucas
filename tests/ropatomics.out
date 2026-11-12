@@ -70,7 +70,7 @@ simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 9: the shader has no main function)
+function level: not run (the GLSL parser left main out: main (line 7: the built-in function imageAtomicAdd is not in GLSL ES 3.10))
 memory under fixed:
   a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
     %36 = OpAtomicIAdd %uint %35 %uint_1 %uint_0 %uint_1
@@ -91,7 +91,7 @@ simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 1 -> 1 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10: the shader has no main function)
+function level: not run (the GLSL parser left main out: main (line 8: no overload of atomicAdd takes (float, float)))
 memory under fixed:
   %44 = OpAtomicFAddEXT %float %39 %uint_1 %uint_0 %42
       (line 8: atomicAdd(ab.acc[uint(s.x) & 1023u], s.w);)
@@ -136,7 +136,7 @@ simplify: 89 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 23.5 -> 23.5 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 13: the shader has no main function)
+function level: not run (the GLSL parser left main out: layout (line 6: 'uint64_t' is not a type); main (line 11: 'vbb' is not declared))
 memory under fixed:
   atomics by kind, priced a warp instruction:
     %54 = OpAtomicUMin %ulong %46 %uint_1 %uint_0 %53
