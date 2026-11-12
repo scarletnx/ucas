@@ -10,20 +10,7 @@ polynomial of degree 5 in x:
              max relative difference 1.8e-06 (rounding) at 2471 points
   Estrin     cost 10     depth 4     10 ops  4 - x + (x + 7)*(x*x) + (3x - 2)*(x*x*(x*x))
              max relative difference 1.7e-06 (rounding) at 2471 points
-  Knuth      cost 10     depth 10    10 ops  3(((x - 0.833333313)*x + 2.72685194 + x - 4.98148155)*((x - 0.833333313)*x + 2.72685194) + 5.81470776)*x + 4
-             max relative difference 1.1e-05 (rounding) at 2471 points
-             expands to the polynomial within 4e-08 of its largest coefficient (the adapted ones are rounded)
-  P-S blocks cost 10     depth 6     10 ops  ((3x - 2)*(x*x) + (x + 7))*(x*x) + (-x + 4)
-             max relative difference 1.7e-06 (rounding) at 2471 points
-             expands to the polynomial itself
   (depth is the critical path: Estrin trades operations for parallelism)
-  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
-  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
-  comp.      cost 59     depth 17    59 ops  compensated Horner, s + c: Horner's s, and the rounding error of each product (an fma) and each sum (2Sum) run through a second Horner c
-             error against the exact polynomial at 2471 points, as a part of p~(|x|) (the polynomial of the coefficients' sizes): 5.9e-08, Horner's 1.6e-07; the bounds are 6e-08 = max u |p|/p~ + gamma_10^2 and 6e-07 = gamma_10
-             it gains where the polynomial cancels (|p| far under p~): its first term is the last rounding alone
-             with gt1030's fusions counted: 50, against 164.875 for Horner in f64 and 5 in f32; its error-free products and sums must stay as written (NoContraction)
-  cheapest with gt1030's fusions counted: Horner 5; products 10, Estrin 7, Knuth 7, P-S blocks 6
 > q(x: int in 0..1000) = 2x^3 + 3x^2 + 5
 > scheme q
 evaluation schemes for q under gt1030
@@ -40,8 +27,33 @@ polynomial of degree 3 in x:
   differences, for x = 0, 1, ...: start d0 = 5 d1 = 5 d2 = 18 d3 = 12
     per point: d0 += d1; d1 += d2; d2 += d3; (3 additions, cost 3 a point after the start)
     check: equals the polynomial at all 1001 points 0..1000
+> scheme p more
+evaluation schemes for p under gt1030
+polynomial of degree 5 in x:
+  as written cost 33     depth 14    12 ops  3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+  pow()      cost 33     depth 14    12 ops  3x^5 - 2x^4 + x^3 + 7x^2 - x + 4
+  products   cost 12     depth 10    12 ops  3(x*x*x*x*x) - 2(x*x*x*x) + x*x*x + 7(x*x) - x + 4
+             max relative difference 1.9e-07 (rounding) at 2471 points
+  Horner     cost 10     depth 10    10 ops  ((((3x - 2)*x + 1)*x + 7)*x - 1)*x + 4
+             max relative difference 1.8e-06 (rounding) at 2471 points
+  Estrin     cost 10     depth 4     10 ops  4 - x + (x + 7)*(x*x) + (3x - 2)*(x*x*(x*x))
+             max relative difference 1.7e-06 (rounding) at 2471 points
+  Knuth      cost 10     depth 10    10 ops  3(((x - 0.833333313)*x + 2.72685194 + x - 4.98148155)*((x - 0.833333313)*x + 2.72685194) + 5.81470776)*x + 4
+             max relative difference 1.1e-05 (rounding) at 2471 points
+             expands to the polynomial within 4e-08 of its largest coefficient (the adapted ones are rounded)
+  P-S blocks cost 10     depth 6     10 ops  ((3x - 2)*(x*x) + (x + 7))*(x*x) + (-x + 4)
+             max relative difference 1.7e-06 (rounding) at 2471 points
+             expands to the polynomial itself
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  comp.      cost 59     depth 17    59 ops  compensated Horner, s + c: Horner's s, and the rounding error of each product (an fma) and each sum (2Sum) run through a second Horner c
+             error against the exact polynomial at 2471 points, as a part of p~(|x|) (the polynomial of the coefficients' sizes): 5.9e-08, Horner's 1.6e-07; the bounds are 6e-08 = max u |p|/p~ + gamma_10^2 and 6e-07 = gamma_10
+             it gains where the polynomial cancels (|p| far under p~): its first term is the last rounding alone
+             with gt1030's fusions counted: 50, against 164.875 for Horner in f64 and 5 in f32; its error-free products and sums must stay as written (NoContraction)
+  cheapest with gt1030's fusions counted: Horner 5; products 10, Estrin 7, Knuth 7, P-S blocks 6
 > k4(x: u32) = x^4 + 7x^3 + 5x^2 + 3x + 9
-> scheme k4
+> scheme k4 more
 evaluation schemes for k4 under gt1030
 polynomial of degree 4 in x:
   as written cost 31     depth 13    10 ops  x^4 + 7x^3 + 5x^2 + 3x + 9
@@ -66,7 +78,7 @@ polynomial of degree 4 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
 > k4e(x: u32) = x^4 + 6x^3 + 5x^2 + 3x + 9
-> scheme k4e
+> scheme k4e more
 evaluation schemes for k4e under gt1030
 polynomial of degree 4 in x:
   as written cost 31     depth 13    10 ops  x^4 + 6x^3 + 5x^2 + 3x + 9
@@ -88,7 +100,7 @@ polynomial of degree 4 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
 > k4n(x: int in -100..100) = 2x^4 + 14x^3 - 10x^2 + 6x - 18
-> scheme k4n
+> scheme k4n more
 evaluation schemes for k4n under gt1030
 polynomial of degree 4 in x:
   as written cost 33     depth 15    11 ops  2x^4 + 14x^3 - 10x^2 + 6x - 18
@@ -113,7 +125,7 @@ polynomial of degree 4 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
     check: equals the polynomial at all 201 points -100..100
 > ones(x: u32) = x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
-> scheme ones
+> scheme ones more
 evaluation schemes for ones under gt1030
 polynomial of degree 8 in x:
   as written cost 92     depth 29    15 ops  x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
@@ -141,7 +153,7 @@ polynomial of degree 8 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; d7 += d8; (8 additions, cost 8 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
 > i7(x: u32) = x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
-> scheme i7
+> scheme i7 more
 evaluation schemes for i7 under gt1030
 polynomial of degree 7 in x:
   as written cost 88     depth 25    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
@@ -168,7 +180,7 @@ polynomial of degree 7 in x:
   differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 636 d3 = 4482 d4 = 14448 d5 = 22800 d6 = 17280 d7 = 5040
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
-> scheme i7 model rdna2
+> scheme i7 more model rdna2
 evaluation schemes for i7 under rdna2
 polynomial of degree 7 in x:
   as written cost 115    depth 31    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
@@ -195,7 +207,7 @@ polynomial of degree 7 in x:
   differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 636 d3 = 4482 d4 = 14448 d5 = 22800 d6 = 17280 d7 = 5040
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
-> scheme i7 model sm75
+> scheme i7 more model sm75
 evaluation schemes for i7 under sm75
 polynomial of degree 7 in x:
   as written cost 34     depth 13    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
@@ -223,7 +235,7 @@ polynomial of degree 7 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
 > i7n(x: u32) = 3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
-> scheme i7n
+> scheme i7n more
 evaluation schemes for i7n under gt1030
 polynomial of degree 7 in x:
   as written cost 88     depth 28    19 ops  3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
@@ -246,7 +258,7 @@ polynomial of degree 7 in x:
     per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
     check: equals the polynomial at all 100001 points 0..100000
 > s6(x: f32 in -1..1) = x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
-> scheme s6
+> scheme s6 more
 evaluation schemes for s6 under gt1030
 polynomial of degree 6 in x:
   as written cost 42     depth 15    14 ops  x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
@@ -272,7 +284,7 @@ polynomial of degree 6 in x:
              with gt1030's fusions counted: 57, against 197.25 for Horner in f64 and 6 in f32; its error-free products and sums must stay as written (NoContraction)
   cheapest with gt1030's fusions counted: Horner 6; products 11, Estrin 8, Knuth 7, P-S blocks 7
 > s7(x: f64 in -1..1) = 2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
-> scheme s7
+> scheme s7 more
 evaluation schemes for s7 under gt1030
 polynomial of degree 7 in x:
   as written cost 1683.5 depth 518   17 ops  2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
@@ -297,7 +309,7 @@ polynomial of degree 7 in x:
   (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
   cheapest with gt1030's fusions counted: Horner 226.625; products 420.875, Estrin 323.75, Knuth 291.375, P-S blocks 291.375, P-S split 356.125
 > d12(x: real in -1..1) = x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
-> scheme d12
+> scheme d12 more
 evaluation schemes for d12 under gt1030
 polynomial of degree 12 in x:
   as written cost 98     depth 21    28 ops  x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
@@ -322,7 +334,7 @@ polynomial of degree 12 in x:
   (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
   cheapest with gt1030's fusions counted: Horner 12; products 23, Estrin 16, Knuth 13, P-S blocks 14, P-S split 16
 > c5(x: f32 in 0.9..1.1) = x^5 - 5x^4 + 10x^3 - 10x^2 + 5x - 1
-> scheme c5
+> scheme c5 more
 evaluation schemes for c5 under gt1030
 polynomial of degree 5 in x:
   as written cost 34     depth 14    13 ops  x^5 - 5x^4 + 10x^3 - 10x^2 + 5x - 1
@@ -348,7 +360,7 @@ polynomial of degree 5 in x:
              with gt1030's fusions counted: 47, against 164.875 for Horner in f64 and 5 in f32; its error-free products and sums must stay as written (NoContraction)
   cheapest with gt1030's fusions counted: Horner 5; products 9, Estrin 7, Knuth 5, P-S blocks 6
 > c3(x: f32 in 0..1e-30) = x^3 + 2x^2 + 1.25x
-> scheme c3
+> scheme c3 more
 evaluation schemes for c3 under gt1030
 polynomial of degree 3 in x:
   as written cost 13     depth 10     6 ops  x^3 + 2x^2 + 1.25x

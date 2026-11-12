@@ -4208,7 +4208,7 @@ derivative) and `cost` work on loops as on any expression.
 | command | |
 |---------|--|
 | `closed F` | closed forms of the loops in F, innermost first, each checked against direct iteration on F's domain; a form that disagrees is rejected and shown as such |
-| `scheme F [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), from degree 4 the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
+| `scheme F [more] [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), with `more` also, from degree 4, the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
 | `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
 | `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
 | `integrate F [from a to b] numerically qmc [points N] [replicates R] [seed K] [noscramble] [owen]` | a quasi-Monte Carlo estimate on Sobol points (src/qmc.c): over from..to, or without them over the box of every parameter's range, in up to 8 dimensions.  The direction numbers are Joe and Kuo's; by default 8 replicates of 4096 points (N a power of two) run, each under a random digital shift, and the answer is their mean with its standard error: an estimate from the replicates' spread, labelled as one, with "not converged" when they differ by more than 5% of the value (a pole between the points looks like that), and "a spike" when the largest value met is over 50 times the mean size: around an integrable singularity the replicates agree on a value that is off and their spread understates the error (1/sqrt(|x|) on [-1, 1]: 3.9796 with a standard error of 0.0018, for 4).  `owen` scrambles each replicate by a nested uniform (Owen) scrambling instead of a shift (Burley's hash-based form: every bit of a coordinate flipped by a function of the bits above it): for a smooth integrand its error falls faster, about n^-1.5 against the shift's n^-1 (exp(x y) on the unit square, 16 replicates: standard error 7.9e-06 at 1024 points and 1.4e-07 at 16384, against 7.5e-05 and 4.5e-06), and the same replicates estimate it.  `noscramble` runs the one unshifted sequence and gives no error estimate (with `owen`: refused).  A side at infinity (`from 0 to inf`, a parameter with no range: the whole line) is a change of variable onto [0, 1): x = a + t/(1 - t) for [a, inf), x = b - t/(1 - t) for (-inf, b], x = s/(1 - s^2) with s = 2t - 1 for the whole line, the integrand times the derivative, and the line says which; the spike and "not converged" lines judge the transformed integrand (exp(-x^2) over the line: 1.772453851; 1/x from 1 to inf: both, and no value to trust).  A coordinate is the centre of its 2^-32 cell, so the box's ends are never evaluated; points where the integrand is undefined are left out and counted.  It is also the fallback of a definite integral with no antiderivative here that Gauss-Kronrod refuses (an undefined or infinite point inside): the estimate when the replicates agree, one line saying it settles nothing when they do not |
@@ -4276,8 +4276,11 @@ small one, xfrat.c), the n-th derivative of products.
 
 ### Polynomials in fewer multiplications
 
-From degree 4 `scheme` also lists three forms that trade
-multiplications for additions (src/scheme.c):
+`scheme F more` lists, beyond Horner and Estrin, three forms from
+degree 4 that trade multiplications for additions, compensated Horner
+for an f32 polynomial, and the cheapest of them all with the model's
+fusions counted (src/scheme.c).  Without the word the output is
+Horner's and Estrin's alone.  The three forms:
 
 - **Knuth**: coefficients adapted beforehand (TAOCP 4.6.4).  A quartic
   is `u4*((y + x + a2)*y + a3)` with `y = (x + a0)*x + a1`, three
@@ -4323,7 +4326,7 @@ inside an IMAD: `x^4 + 7x^3 + 5x^2 + 3x + 9` in u32 is
 emulated f64 polynomials, where a multiply is dearest, because no class
 prices a 64-bit multiply.
 
-For an f32 polynomial `scheme` also lists **compensated Horner**
+For an f32 polynomial `scheme F more` also lists **compensated Horner**
 (`comp.`): Horner's rule with the rounding error of every product (2Prod:
 an fma) and every sum (2Sum) kept, run through a second Horner and added
 back.  It is the way to more than f32 gives without f64: by Graillat,

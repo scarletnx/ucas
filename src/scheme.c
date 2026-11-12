@@ -796,7 +796,7 @@ line_pe(const struct model *m, const char *name, const struct pe *a,
 }
 
 static int
-poly_scheme(const struct model *m, struct func *f)
+poly_scheme(const struct model *m, struct func *f, int more)
 {
 	struct npoly P;
 	double c[13];
@@ -907,7 +907,7 @@ poly_scheme(const struct model *m, struct func *f)
 	 * that its coefficients have cancelled and it is not the polynomial */
 	tol = !A.fp ? 0 : TYK(t) == K_FLOAT && TYW(t) == 32 ? 0x1p-18 :
 	    TYK(t) == K_FLOAT && TYW(t) == 16 ? 0x1p-5 : 0x1p-47;
-	if (d >= 4) {
+	if (more && d >= 4) {
 		struct pe a, best;
 		double r = -1, rb = 0;
 		float cb = -1, cc;
@@ -986,9 +986,9 @@ poly_scheme(const struct model *m, struct func *f)
 		    " blocks of coefficients over the first powers, Horner in "
 		    "the next" : "", (shown & 6) == 6 ? ";" : "", shown & 4 ?
 		    " the splitting (x^m + c)*q + r into monic halves" : "");
-	if (TYK(t) == K_FLOAT && TYW(t) == 32)
+	if (more && TYK(t) == K_FLOAT && TYW(t) == 32)
 		comp_scheme(m, f, cr, d, horner);
-	if (d >= 4) {
+	if (more && d >= 4) {
 		/* what the model's fusions make of each: Horner is all FFMAs */
 		float cost[8];
 		int bi = 0;
@@ -1418,7 +1418,7 @@ loop_scheme(const struct model *m, struct func *f, nid n)
 }
 
 void
-cmd_scheme(struct func *f, struct model *mm)
+cmd_scheme(struct func *f, struct model *mm, int more)
 {
 	const struct model *m = mm ? mm : model_active();
 	nid loops[8];
@@ -1427,7 +1427,7 @@ cmd_scheme(struct func *f, struct model *mm)
 
 	printf("evaluation schemes for %s under %s\n", f->anon ?
 	    node_str(f->body) : sym_str(f->name), sym_str(m->name));
-	any = poly_scheme(m, f);
+	any = poly_scheme(m, f, more);
 	if (!any)
 		pow_scheme(m, f);
 	seen = xcalloc(N.n, 1);

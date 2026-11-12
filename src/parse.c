@@ -2440,7 +2440,7 @@ help(void)
 "    [at a]\n"
 "loops and calculus\n"
 "  sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }\n"
-"  closed F | scheme F [model m] | continuous F\n"
+"  closed F | scheme F [more] [model m] | continuous F\n"
 "  integrate F [wrt x] [from a to b] | antiderivative F [wrt x]\n"
 "  diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)\n"
 "  jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]\n"
