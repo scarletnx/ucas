@@ -41,6 +41,7 @@
  */
 #include "calc.h"
 #include "fuse.h"
+#include "irw.h"
 #include "sg.h"
 
 #include <math.h>
@@ -639,6 +640,118 @@ sums_and_scans(struct sgf *g, nid cur, float *cost)
 }
 
 /*
+ * cand reads `read`, a constant table read at the lane's index, whose
+ * entries at 0..n-1 are the ones anything uses (a lane past n is never
+ * read, or its bit is cut away): cand with the read as a closed form of
+ * the lane where that prices lower, since the lane's index costs no load.
+ * The forms: c + k lane when the entries are that (each checked), and
+ * find's maps of one small-range value (idrw.c: a table in one
+ * constant, a multiply and a shift), each derived and read back at every
+ * lane 0..n-1.  A map is evaluated in every lane of the subgroup, so one
+ * that is not defined in all of them (a shift past the width beyond the
+ * table) reads lane & (2^b - 1) instead, 2^b >= n, which is the lane
+ * itself at 0..n-1.  *cost is cand's price, lowered when a form is
+ * taken; how says which.
+ */
+static nid
+lane_forms(struct sgf *g, nid cand, nid read, int n, int W, float *cost,
+    struct sbuf *how, nid *formp)
+{
+	struct func f;
+	struct irw *r;
+	nid best = cand, tab = N.a[read], map[SG_LANE_SLOT + 1], e[SG_MAXW];
+	int nr, i, l;
+
+	*formp = 0;
+	if (n < 2 || n > W || N.op[tab] != O_TABLE || (int)N.b[tab] < n)
+		return cand;
+	for (i = 0; i < n; i++)
+		e[i] = N.lst[N.a[tab] + i];
+	memset(&f, 0, sizeof f);
+	f.anon = 1;
+	f.np = 1;
+	f.p[0].name = sym_cstr("lane");
+	f.p[0].ty = TY(K_UINT, 32);
+	f.p[0].ranged = 1;
+	f.p[0].lo = 0;
+	f.p[0].hi = n - 1;
+	f.body = mk_index(mk_table(e, (uint32_t)n), mk_var(0, f.p[0].name,
+	    f.p[0].ty));
+	/* c + k lane: every entry checked */
+	if (is_const(e[0]) && is_const(e[1])) {
+		int64_t c0 = N.ki[e[0]], k = N.ki[e[1]] - c0;
+		for (i = 2; i < n && is_const(e[i]) && N.ki[e[i]] == c0 + k * i; i++)
+			;
+		if (i == n && k != 0) {
+			ty_t t = N.ty[read];
+			nid L = mk_cast(t, sg_lane()), form, c2;
+			float c;
+			form = k == 1 ? L : mk_bin(O_MUL, L, mk_const_i(t, k));
+			if (c0)
+				form = mk_bin(O_ADD, form, mk_const_i(t, c0));
+			c2 = sg_replaced(cand, read, form);
+			if (c2 && (c = price(g, c2)) < *cost) {
+				*cost = c;
+				best = c2;
+				*formp = form;
+				sb_clear(how);
+				sb_printf(how, "entry i is ");
+				if (c0)
+					sb_printf(how, "%lld + ", (long long)c0);
+				sb_printf(how, "%lld i at i = 0..%d, each checked",
+				    (long long)k, n - 1);
+			}
+		}
+	}
+	nr = irw_cands(&f, f.body, &r);
+	memset(map, 0, sizeof map);
+	for (i = 0; i < nr; i++) {
+		nid form, c2, at, L = sg_lane();
+		float c;
+		int ok = 1, masked = 0;
+		if (r[i].nearmiss || !r[i].derived)
+			continue;
+		for (l = 0; l < W && ok; l++) {
+			map[0] = mk_const_i(TY(K_UINT, 32), l);
+			at = subst(r[i].e, map, 1);
+			ok = N.op[at] != O_UNDEF && !(N.fl[at] & NF_PARTIAL);
+		}
+		if (!ok) {
+			/* every lane reads a lane of the table's own range */
+			int64_t m = 1;
+			while (m < n)
+				m <<= 1;
+			for (l = 0, ok = 1; l < W && ok; l++) {
+				map[0] = mk_const_i(TY(K_UINT, 32), l & (m - 1));
+				at = subst(r[i].e, map, 1);
+				ok = N.op[at] != O_UNDEF && !(N.fl[at] & NF_PARTIAL);
+			}
+			if (!ok)
+				continue;
+			L = mk_bin(O_AND, L, mk_const_i(TY(K_UINT, 32), m - 1));
+			masked = 1;
+		}
+		map[0] = L;
+		form = mk_cast(N.ty[read], subst(r[i].e, map, 1));
+		c2 = sg_replaced(cand, read, form);
+		if (!c2)
+			continue;
+		c = price(g, c2);
+		if (c < *cost) {
+			*cost = c;
+			best = c2;
+			*formp = form;
+			sb_clear(how);
+			sb_printf(how, "%s, holds where %s%s", r[i].what, r[i].cond,
+			    masked ? "; read at lane & mask, the lane itself there and "
+			    "inside the table's range past it" : "");
+		}
+	}
+	irw_free(r, nr);
+	return best;
+}
+
+/*
  * A constant table of at most W entries as a register of the subgroup:
  * lane i holds entry i (the table read once in each lane, by the lane's
  * index), and a lookup is a shuffle.  Every lookup of the table, or none.
@@ -688,16 +801,70 @@ tables(struct sgf *g, nid cur, float *cost)
 		if (!cand || !done)
 			continue;
 		c = price(g, cand);
-		if (!(c < *cost))
-			continue;
-		sb_printf(&g->why, "the table %s, read %d time%s: lane i holds "
-		    "entry i (the table read once in each lane, at the lane's "
-		    "index%s), and sg_shuffle(v, i) is v in lane i, so each "
-		    "lookup is one shuffle; an index outside the table stays "
-		    "outside (undefined before, %s now)\n", shared_str(tab, 80),
-		    done, done == 1 ? "" : "s", (int)N.b[tab] < W ?
-		    ", the lanes past its end holding 0" : "", (int)N.b[tab] < W ?
-		    "0 or undefined" : "undefined");
+		{
+			struct sbuf how = {0};
+			float cl = c;
+			nid form, c2 = lane_forms(g, cand, reg, (int)N.b[tab], W, &cl,
+			    &how, &form);
+			int closed = 0;
+			if (form) {
+				/* a form a lane computes for itself, each lookup can
+				 * compute at its own index without the shuffle: the
+				 * register is worth it only below that */
+				nid dir = cur, map[SG_LANE_SLOT + 1], y;
+				float cd = INFINITY;
+				memset(map, 0, sizeof map);
+				for (k = 0; k < MAXSGN && dir; k++) {
+					n = gather_all(dir, 1, nd);
+					for (i = 0, y = 0; i < n && !y; i++)
+						if (N.a[nd[i]] == tab)
+							y = nd[i];
+					if (!y)
+						break;
+					map[SG_LANE_SLOT] = mk_cast(TY(K_UINT, 32), N.b[y]);
+					dir = sg_replaced(dir, y, subst(form, map,
+					    SG_LANE_SLOT + 1));
+				}
+				if (dir)
+					cd = price(g, dir);
+				if (cd <= cl) {
+					if (!strstr(sb_str(&g->notes), "computed at each"))
+						sb_printf(&g->notes, "  subgroup forms: the table "
+						    "%s is a closed form of the index (%s): "
+						    "computed at each lookup's own index, without a "
+						    "register or a shuffle, the function costs %g "
+						    "(as written %g)\n", shared_str(tab, 80),
+						    sb_str(&how), (double)cd, (double)*cost);
+				} else {
+					closed = 1;
+					cand = c2;
+					c = cl;
+				}
+			}
+			if (!(c < *cost)) {
+				free(how.p);
+				continue;
+			}
+			if (closed)
+				sb_printf(&g->why, "the table %s, read %d time%s: lane i "
+				    "computes entry i from its own index, without a load "
+				    "(%s), and sg_shuffle(v, i) is v in lane i, so each "
+				    "lookup is one shuffle; an index outside the table "
+				    "stays outside (undefined before, the form's value "
+				    "there or undefined now)\n", shared_str(tab, 80), done,
+				    done == 1 ? "" : "s", sb_str(&how));
+			else
+				sb_printf(&g->why, "the table %s, read %d time%s: lane i "
+				    "holds entry i (the table read once in each lane, at "
+				    "the lane's index%s), and sg_shuffle(v, i) is v in "
+				    "lane i, so each lookup is one shuffle; an index "
+				    "outside the table stays outside (undefined before, "
+				    "%s now)\n", shared_str(tab, 80), done, done == 1 ?
+				    "" : "s", (int)N.b[tab] < W ? ", the lanes past its "
+				    "end holding 0" : "", (int)N.b[tab] < W ?
+				    "0 or undefined" : "undefined");
+			free(how.p);
+		}
 		cur = cand;
 		*cost = c;
 	}
@@ -863,19 +1030,20 @@ ctz64(uint64_t v)
  * kind: 0 parity, 1 a table of shifts, 2.. a closed shift.
  */
 static nid
-lane_bit(const struct aff *m, nid x, int W, int kind)
+lane_bit(const struct aff *m, nid x, int W, int kind, nid *read)
 {
 	int n = int_width(N.ty[x]), i;
 	nid L = sg_lane(), e[SG_MAXW], s = 0, one = mk_const_i(N.ty[x], 1);
 	int64_t sh[SG_MAXW];
 
+	*read = 0;
 	if (kind == 0) {
 		for (i = 0; i < W; i++)
 			e[i] = mk_const_i(N.ty[x], (int64_t)(i < m->w ? m->row[i] :
 			    0));
+		*read = mk_index(mk_table(e, (uint32_t)W), L);
 		return mk_bin(O_NE, mk_bin(O_AND, mk_un(O_POPCNT, mk_bin(O_AND, x,
-		    mk_index(mk_table(e, (uint32_t)W), L))), mk_const_i(TY_LIT,
-		    1)), mk_const_i(TY_LIT, 0));
+		    *read)), mk_const_i(TY_LIT, 1)), mk_const_i(TY_LIT, 0));
 	}
 	if (m->w != W)
 		return 0;
@@ -888,7 +1056,7 @@ lane_bit(const struct aff *m, nid x, int W, int kind)
 	case 1:
 		for (i = 0; i < W; i++)
 			e[i] = mk_const_i(TY(K_UINT, 32), sh[i]);
-		s = mk_index(mk_table(e, (uint32_t)W), L);
+		s = *read = mk_index(mk_table(e, (uint32_t)W), L);
 		break;
 	case 2:		/* (lane + b) mod n, n a power of two */
 	case 3:		/* (b - lane) mod n */
@@ -930,7 +1098,8 @@ bitslice(struct sgf *g, nid cur, float *cost)
 	    "lane's index xor a constant"};
 	uint64_t kk;
 	const struct func *f = g->f;
-	int W = (int)g->m->par[MP_WARP], slot = -1, j, kind, bk = -1;
+	int W = (int)g->m->par[MP_WARP], slot = -1, j, kind, bk = -1, closed = 0;
+	struct sbuf how2 = {0};
 	uint64_t slots = node_slots(cur);
 	struct aff *m;
 	nid x, best = 0;
@@ -957,7 +1126,9 @@ bitslice(struct sgf *g, nid cur, float *cost)
 	}
 	x = mk_var((uint32_t)slot, f->p[slot].name, f->p[slot].ty);
 	for (kind = 0; kind < 5; kind++) {
-		nid b = lane_bit(m, x, W, kind), cand;
+		nid rd, b = lane_bit(m, x, W, kind, &rd), cand;
+		struct sbuf h = {0};
+		int took = 0;
 		float c;
 		if (!b)
 			continue;
@@ -966,23 +1137,41 @@ bitslice(struct sgf *g, nid cur, float *cost)
 			cand = mk_bin(O_XOR, cand, mk_const_i(bt, (int64_t)m->k));
 		cand = mk_cast(t, cand);
 		c = price(g, cand);
+		if (rd) {
+			/* the rows (or shifts) a lane reads, as a closed form of
+			 * the lane; a row past the result's width is cut away */
+			nid fm, c2 = lane_forms(g, cand, rd, kind == 0 ? m->w : W, W,
+			    &c, &h, &fm);
+			took = c2 != cand;
+			cand = c2;
+		}
 		if (c < bc) {
 			bc = c;
 			best = cand;
 			bk = kind;
+			closed = took;
+			sb_clear(&how2);
+			if (took)
+				sb_puts(&how2, sb_str(&h));
 		}
+		free(h.p);
 	}
 	kk = m->k;
 	free(m);
-	if (!best)
+	if (!best) {
+		free(how2.p);
 		return cur;
+	}
 	sb_printf(&g->why, "every operation of the function is linear over "
 	    "GF(2) in the bits of %s (xor, not, shifts and masks by constants, "
 	    "conversions, an or or a sum of fields that share no bit), so bit i "
 	    "of the result is the parity of %s & row[i]%s; lane i works that "
-	    "bit out (%s) and the ballot puts it at bit i\n",
+	    "bit out (%s%s%s) and the ballot puts it at bit i\n",
 	    sym_str(f->p[slot].name), sym_str(f->p[slot].name), kk ?
-	    ", xor bit i of a constant" : "", how[bk]);
+	    ", xor bit i of a constant" : "", how[bk], closed ? "; the table "
+	    "read without a load, from the lane's index: " : "", closed ?
+	    sb_str(&how2) : "");
+	free(how2.p);
 	*cost = bc;
 	return best;
 }
