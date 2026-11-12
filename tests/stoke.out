@@ -2,38 +2,45 @@
 > stoke xr
 stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 1; xr as written costs 3
-  800000 proposals, 666113 accepted, 664981 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  800000 proposals, 680347 accepted, 674093 at distance 0 on the 40 tests (0 counterexamples joined them), 5 verified
   cost 1      y xor x
       every input enumerated
-  cost 1      (y | x) xor x & y
+  cost 1      (y | x) xor y & x
       every input enumerated
   -> 1 against 3 (-66.7%)
 > sm(x: u16, y: u16) = (x & y) + (x | y)
 > stoke sm steps 100000 restarts 3
 stoke sm under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   3 chains of 100000 proposals, seed 1; sm as written costs 3
-  300000 proposals, 250692 accepted, 250321 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
-  cost 1      x + y
+  300000 proposals, 256258 accepted, 256007 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      y + x
       proved by SAT
   -> 1 against 3 (-66.7%)
 > m9(x: u8) = x * 9
 > stoke m9
 stoke m9 under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 1; m9 as written costs 3
-  800000 proposals, 600836 accepted, 516609 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
-  cost 2      x + 8x
+  800000 proposals, 615691 accepted, 565554 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 2      8x + x
       every input enumerated
   -> 2 against 3 (-33.3%)
 > stoke m9 model sm75
 stoke m9 under sm75: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 1; m9 as written costs 1
-  800000 proposals, 610536 accepted, 419235 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
+  800000 proposals, 618319 accepted, 567626 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
   -> nothing cheaper than 1 was found and verified (the search is stochastic: more `steps`, another `seed`)
 > stoke m9 seed 7
 stoke m9 under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 7; m9 as written costs 3
-  800000 proposals, 622217 accepted, 265537 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
-  cost 2      x + (x << 3)
+  800000 proposals, 634222 accepted, 474068 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 2      x + 8x
+      every input enumerated
+  -> 2 against 3 (-33.3%)
+> stoke m9 steps 100000 restarts 1 seed 11
+stoke m9 under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
+  1 chain of 100000 proposals, seed 11; m9 as written costs 3
+  100000 proposals, 82696 accepted, 82696 at distance 0 on the 40 tests (0 counterexamples joined them), 3 verified
+  cost 2      (x << 3) + x
       every input enumerated
   -> 2 against 3 (-33.3%)
 > find xr 2 stoke
@@ -43,10 +50,10 @@ find xr: 1024 points (sampled; matches verified on the whole domain), computing 
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 1; xr as written costs 3
-  800000 proposals, 666113 accepted, 664981 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  800000 proposals, 680347 accepted, 674093 at distance 0 on the 40 tests (0 counterexamples joined them), 5 verified
   cost 1      y xor x
       every input enumerated
-  cost 1      (y | x) xor x & y
+  cost 1      (y | x) xor y & x
       every input enumerated
   -> 1 against 3 (-66.7%)
 > pa(x: u32, y: u32) = (x + y) * (x + y)
@@ -232,8 +239,8 @@ phash sw8 under zen4: 8 keys, the compare chain costs 16; seed 1
   ucas: stoke xr seed 3
 stoke xr under gt1030: Metropolis-Hastings over programs of up to 8 instructions (add sub mul and or xor shl shr not neg),
   4 chains of 200000 proposals, seed 3; xr as written costs 3
-  800000 proposals, 667102 accepted, 666520 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
-  cost 1      x xor y
+  800000 proposals, 683687 accepted, 682390 at distance 0 on the 40 tests (0 counterexamples joined them), 4 verified
+  cost 1      y xor x
       every input enumerated
   cost 1      (x | y) xor x & y
       every input enumerated

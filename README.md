@@ -2932,7 +2932,11 @@ swaps two; it is accepted by Metropolis-Hastings on
 
     cost = Hamming distance to F on the test inputs + the price under the model
 
-(the tests: the ends of the ranges and 36 random points).  `restarts`
+(the tests: the ends of the ranges and 36 random points).  The price is
+the report's own, the cover of the program's expression by the model's
+fusions: an instruction the result does not read costs nothing, and a
+multiply-add or a shift-add counts as the one instruction it is, so the
+fusions steer the chain.  Prices are cached by the live instructions.  `restarts`
 (4) chains of `steps` (200000) proposals run: the first starts from F
 itself when F is straight-line in those operations (optimisation), the
 others from random programs (synthesis).  A program at distance 0 is a

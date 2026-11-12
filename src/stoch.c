@@ -9,7 +9,9 @@
  * earlier results and constants; a proposal changes an opcode, an
  * operand, a constant, a whole instruction, or swaps two, and is accepted
  * by Metropolis-Hastings on cost = Hamming distance to the target on a
- * set of test inputs + the program's price under the model.  Chains
+ * set of test inputs + the program's price under the model, as the
+ * report prices it: the instructions the result reads, covered by the
+ * model's fusions (a multiply-add, a shift-add).  Chains
  * start from the function itself when it is straight-line (the
  * optimisation phase) and from random programs (synthesis).  A program
  * at distance 0 is only a candidate: it is verified on the whole domain
@@ -1109,7 +1111,6 @@ static struct {
 	int W, len, np, nt;
 	uint64_t mask;
 	uint64_t tin[ST_MAXT][MAXP], tout[ST_MAXT];
-	float oc[SO_N];
 	/* statistics */
 	uint64_t proposals, accepted, zeros, verified, cex;
 } ST;
@@ -1178,11 +1179,136 @@ popc(uint64_t v)
 	return n;
 }
 
+/*
+ * The program's price: the report's own, the cover of its expression by
+ * the model's fusions (a * b + c one imad, a shift and an add one
+ * instruction), so what the result does not read costs nothing.  A chain
+ * meets the same programs again and again: the prices are kept by the
+ * program's live instructions, renumbered, and the expression is built
+ * only for a program not met lately.
+ */
+#define ST_CACHE 4096
+#define ST_KEY (3 * ST_MAXLEN)
+
+static struct {
+	uint64_t (*key)[ST_KEY];
+	uint64_t *h;
+	int *len;		/* 0: an empty slot */
+	double *cost;
+} SC;
+
+static void
+sc_free(void)
+{
+	free(SC.key);
+	free(SC.h);
+	free(SC.len);
+	free(SC.cost);
+	memset(&SC, 0, sizeof SC);
+}
+
+/* the live instructions, renumbered (dead code and unused slots gone, a
+ * read of an unused slot the constant 0 it reads as); their count */
+static int
+sp_live(const struct sprog *p, struct sins1 *out)
+{
+	uint8_t live[ST_MAXLEN] = {0};
+	int map[ST_MAXLEN], i, q, last = -1, n = 0;
+
+	for (i = 0; i < ST.len; i++)
+		if (p->in[i].op != SO_UNUSED)
+			last = i;
+	if (last < 0)
+		return 0;
+	live[last] = 1;
+	for (i = last; i >= 0; i--) {
+		const struct sins1 *I = &p->in[i];
+		if (!live[i])
+			continue;
+		if (I->a.kind == 1 && p->in[I->a.ix].op != SO_UNUSED)
+			live[I->a.ix] = 1;
+		if (!so_unary(I->op) && I->b.kind == 1 &&
+		    p->in[I->b.ix].op != SO_UNUSED)
+			live[I->b.ix] = 1;
+	}
+	for (i = 0; i <= last; i++) {
+		struct sins1 I;
+		if (!live[i])
+			continue;
+		memset(&I, 0, sizeof I);
+		I.op = p->in[i].op;
+		for (q = 0; q < (so_unary(I.op) ? 1 : 2); q++) {
+			const struct sopnd *s = q ? &p->in[i].b : &p->in[i].a;
+			struct sopnd *o = q ? &I.b : &I.a;
+			o->kind = s->kind;
+			if (s->kind == 0)
+				o->ix = s->ix;
+			else if (s->kind == 1 && p->in[s->ix].op != SO_UNUSED)
+				o->ix = (uint8_t)map[s->ix];
+			else {
+				o->kind = 2;
+				o->k = s->kind == 2 ? s->k : 0;
+			}
+		}
+		map[i] = n;
+		out[n++] = I;
+	}
+	return n;
+}
+
+/* the live instructions as words: three an instruction */
+static int
+sp_key(const struct sins1 *in, int n, uint64_t *key)
+{
+	int i, at = 0;
+
+	for (i = 0; i < n; i++) {
+		key[at++] = (uint64_t)in[i].op | (uint64_t)in[i].a.kind << 8 |
+		    (uint64_t)in[i].a.ix << 16 | (uint64_t)in[i].b.kind << 24 |
+		    (uint64_t)in[i].b.ix << 32;
+		key[at++] = in[i].a.k;
+		key[at++] = in[i].b.k;
+	}
+	return at;
+}
+
+static nid sp_node(const struct sprog *p);
+
+static double
+sp_perf(const struct sprog *p)
+{
+	struct sins1 in[ST_MAXLEN];
+	uint64_t key[ST_KEY], h = 0x9e3779b97f4a7c15ULL;
+	int n = sp_live(p, in), kn, i;
+	size_t s;
+
+	if (n == 0)
+		return 0;
+	kn = sp_key(in, n, key);
+	for (i = 0; i < kn; i++) {
+		h = (h ^ key[i]) * 0xff51afd7ed558ccdULL;
+		h ^= h >> 32;
+	}
+	if (SC.key == NULL) {
+		SC.key = xcalloc(ST_CACHE, sizeof *SC.key);
+		SC.h = xcalloc(ST_CACHE, sizeof *SC.h);
+		SC.len = xcalloc(ST_CACHE, sizeof *SC.len);
+		SC.cost = xcalloc(ST_CACHE, sizeof *SC.cost);
+	}
+	s = (size_t)(h % ST_CACHE);
+	if (SC.len[s] == kn && SC.h[s] == h && !memcmp(SC.key[s], key,
+	    (size_t)kn * sizeof *key))
+		return SC.cost[s];
+	SC.h[s] = h;
+	SC.len[s] = kn;
+	memcpy(SC.key[s], key, (size_t)kn * sizeof *key);
+	return SC.cost[s] = dag_cost(ST.m, sp_node(p));
+}
+
 static double
 sp_cost(const struct sprog *p, int *dist)
 {
-	double perf = 0;
-	int d = 0, t, i, bad;
+	int d = 0, t, bad;
 
 	for (t = 0; t < ST.nt; t++) {
 		bad = 0;
@@ -1190,10 +1316,8 @@ sp_cost(const struct sprog *p, int *dist)
 		if (bad)
 			d += ST.W;
 	}
-	for (i = 0; i < ST.len; i++)
-		perf += (double)ST.oc[p->in[i].op];
 	*dist = d;
-	return (double)d + perf;
+	return (double)d + sp_perf(p);
 }
 
 static const uint64_t so_pool[] = {0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32,
@@ -1518,11 +1642,7 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 	ST.len = len;
 	ST.np = f->np;
 	ST.mask = wmask64(ST.W);
-	ST.oc[SO_ADD] = ST.oc[SO_SUB] = ST.oc[SO_NEG] = m->c[C_IADD];
-	ST.oc[SO_MUL] = m->c[C_IMUL];
-	ST.oc[SO_AND] = ST.oc[SO_OR] = ST.oc[SO_XOR] = ST.oc[SO_NOT] =
-	    m->c[C_LOGIC];
-	ST.oc[SO_SHL] = ST.oc[SO_SHR] = m->c[C_SHIFT];
+	sc_free();
 	rseed(seed);
 	/* the tests: the ends of the ranges, then random points */
 	for (j = 0; j < f->np; j++)
@@ -1627,6 +1747,7 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 		(void)best;
 	}
 	st_add_test(NULL);
+	sc_free();
 	printf("  %llu proposals, %llu accepted, %llu at distance 0 on the "
 	    "%d tests (%llu counterexamples joined them), %llu verified\n",
 	    (unsigned long long)ST.proposals, (unsigned long long)ST.accepted,
