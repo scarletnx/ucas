@@ -346,7 +346,14 @@ mk_loop(uint32_t e, int res, nid lo, nid hi, nid q)
 	    (int64_t)((uint64_t)e | ((uint64_t)res << 32)), fl);
 	if (node_slots(n) != 0 && !(N.fl[n] & NF_VAR))
 		N.fl[n] |= NF_VAR;
-	if (node_slots(n) == 0) {
+	/* subgroup operations in the body, and a lane it reads (sg.c) */
+	for (k = 0; k < loops.nst[e]; k++)
+		N.fl[n] |= (N.fl[loops.init[s + k]] | N.fl[loops.next[s + k]]) &
+		    (NF_SG | NF_LANE);
+	if (loops.cond[e])
+		N.fl[n] |= N.fl[loops.cond[e]] & (NF_SG | NF_LANE);
+	/* nothing free in it (not even a subgroup's lane): its value */
+	if (node_slots(n) == 0 && !(N.fl[n] & NF_LANE)) {
 		uint64_t sk = loop_skipped;
 		if (fold_loop(n, &vi, &vr)) {
 			loop_skipped = sk;
@@ -619,7 +626,7 @@ static void
 remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 {
 	struct loopdef d;
-	nid m2[NSLOT];
+	nid m2[SG_LANE_SLOT + 1];
 	uint64_t vals = 0;
 	int j, k, lo = 64, hi = -1, delta = 0, any = 0;
 
@@ -631,6 +638,18 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 			vals |= node_slots(map[j]);
 			any = 1;
 		}
+	/* the lane of a subgroup operation's operand (sg.c) has no slot
+	 * among the 64: the body's flags say whether it reads it */
+	if (nmap > SG_LANE_SLOT && map[SG_LANE_SLOT]) {
+		int fl = (d.cond ? N.fl[d.cond] : 0) | (d.aux ? N.fl[d.aux] : 0);
+		for (k = 0; k < d.nst; k++)
+			fl |= N.fl[d.init[k]] | N.fl[d.next[k]];
+		if (fl & NF_LANE) {
+			m2[SG_LANE_SLOT] = map[SG_LANE_SLOT];
+			vals |= node_slots(map[SG_LANE_SLOT]);
+			any = 1;
+		}
+	}
 	if (!any) {
 		*ne = e;
 		return;
@@ -667,13 +686,14 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 			d.sslot[k] += delta;
 	}
 	for (k = 0; k < d.nst; k++) {
-		d.init[k] = subst(d.init[k], m2, NSLOT);
-		d.next[k] = mk_cast(d.sty[k], subst(d.next[k], m2, NSLOT));
+		d.init[k] = subst(d.init[k], m2, SG_LANE_SLOT + 1);
+		d.next[k] = mk_cast(d.sty[k], subst(d.next[k], m2,
+		    SG_LANE_SLOT + 1));
 	}
 	if (d.cond)
-		d.cond = subst(d.cond, m2, NSLOT);
+		d.cond = subst(d.cond, m2, SG_LANE_SLOT + 1);
 	if (d.aux)
-		d.aux = subst(d.aux, m2, NSLOT);
+		d.aux = subst(d.aux, m2, SG_LANE_SLOT + 1);
 	*ne = loop_intern(&d);
 }
 
@@ -770,8 +790,8 @@ xr1(struct xr *x, nid n)
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], xr1(x, N.a[n]));
-		else if (IS_DOT(N.op[n]))
-			r = mk_dot(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]),
+		else if (IS_DOT(N.op[n]) || IS_SG(N.op[n]))
+			r = mk_op(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]),
 			    N.c[n] ? xr1(x, N.c[n]) : 0);
 		else
 			r = mk_bin(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]));

@@ -287,7 +287,7 @@ blast1(struct nctx *c, nid n)
 	case O_VAR: {
 		int s = (int)N.ki[n];
 		struct nctx *q = c;
-		while (q && !((q->bound >> s) & 1))
+		while (q && (s >= 64 || !((q->bound >> s) & 1)))
 			q = q->up;
 		if (q)
 			x = q->env[s];
@@ -733,7 +733,11 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	uint32_t va, vb, vw = 0;
 	lit assume = L_TRUE, goal;
 	int j, r;
+	nid where = sg_lower(f->where);
 
+	/* subgroup operations as the circuits of their lanes (sg.c) */
+	a = sg_lower(a);
+	b = sg_lower(b);
 	memset(out, 0, sizeof *out);
 	memset(&B, 0, sizeof B);
 	if (!nsat_supported(f) || !bw(N.ty[a])) {
@@ -753,11 +757,11 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	}
 	b = mk_cast(N.ty[a], b);
 	ctx_init(&root, NULL, 0);
-	if (f->where)
-		vw = blast(&root, f->where);
+	if (where)
+		vw = blast(&root, where);
 	va = blast(&root, a);
 	vb = blast(&root, b);
-	if (f->where)
+	if (where)
 		assume = aig_and(B.g, assume, aig_and(B.g, D(vw), nz(V(vw))));
 	if (B.why) {
 		out->status = -2;

@@ -93,6 +93,7 @@ struct P {
 	int nb;
 	uint32_t bname[MAXBIND];
 	nid bval[MAXBIND];
+	int sg_depth;     /* inside a subgroup operation's arguments */
 };
 
 enum {
@@ -421,6 +422,155 @@ new_auto_param(struct P *p, uint32_t name)
 
 static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
 
+/*
+ * Subgroup operations (sg.c), by ucas's names and GLSL's.  The subgroup's
+ * size is the range of the function's `lane` parameter (lane: u32 in
+ * 0..31), else the active model's `warp`.  In an operand that is a
+ * value per lane the parameter becomes the operation's bound lane; an
+ * operation that is itself a value per lane (a scan, a shuffle by the
+ * lane) reads the lane it runs in.
+ */
+enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT };
+static const struct sgfn {
+	const char *name, *glsl;
+	int kind, op, arity;
+} sgfns[] = {
+	{"sg_ballot", "subgroupBallot", SGF_OP, O_SGBALLOT, 1},
+	{"sg_any", "subgroupAny", SGF_OP, O_SGANY, 1},
+	{"sg_all", "subgroupAll", SGF_OP, O_SGALL, 1},
+	{"sg_add", "subgroupAdd", SGF_OP, O_SGADD, 1},
+	{"sg_shuffle", "subgroupShuffle", SGF_OP, O_SGSHUF, 2},
+	{"sg_scan", "subgroupInclusiveAdd", SGF_OP, O_SGSCAN, 1},
+	{"sg_exclusive", "subgroupExclusiveAdd", SGF_EXCL, O_SGSCAN, 1},
+	{"sg_shuffle_xor", "subgroupShuffleXor", SGF_SHUFXOR, O_SGSHUF, 2},
+	{"sg_broadcast", "subgroupBroadcast", SGF_BCAST, O_SGSHUF, 2},
+	{"sg_broadcast_first", "subgroupBroadcastFirst", SGF_BCAST1, O_SGSHUF, 1},
+	{"sg_rotate", "subgroupRotate", SGF_ROT, O_SGSHUF, 2},
+	{NULL, NULL, 0, 0, 0}
+};
+
+static const struct sgfn *
+sg_builtin(struct P *p, uint32_t i)
+{
+	int k;
+
+	if (i + 1 >= p->t->n || p->t->kind[i + 1] != T_LP)
+		return NULL;
+	for (k = 0; sgfns[k].name; k++)
+		if (tok_is(p->t, i, sgfns[k].name) || tok_is(p->t, i, sgfns[k].glsl))
+			return &sgfns[k];
+	return NULL;
+}
+
+static int
+sg_lane_param(struct P *p)
+{
+	return param_slot(p, sym_cstr("lane"));
+}
+
+/*
+ * A value per lane is a function of the lane and of what the lanes share:
+ * a parameter that is not `uniform` has one value in each lane, which an
+ * operand evaluated in every lane cannot name.
+ */
+static void
+sg_shared_only(struct P *p, nid e, const char *what)
+{
+	uint64_t mask = 0;
+	int j, s;
+
+	if (p->fn == NULL)
+		return;
+	for (j = 0; j < p->fn->np; j++)
+		if (!p->fn->p[j].uniform)
+			mask |= 1ULL << j;
+	/* a name the expression brought in itself (no declaration to say
+	 * either way): the reading that makes sense, said */
+	while (p->autop && (s = sg_reads(e, mask)) != 0) {
+		p->fn->p[s - 1].uniform = 1;
+		mask &= ~(1ULL << (s - 1));
+		note("%s is read across the lanes by %s: taken as shared by "
+		    "the lanes (uniform)", sym_str(p->fn->p[s - 1].name), what);
+	}
+	if ((s = sg_reads(e, mask)) != 0)
+		fail("%s reads %s in every lane, and %s is a value per lane (not "
+		    "`uniform`): declare it %s: %s uniform, or write the lanes' "
+		    "values as a function of lane (a bit or a field of a "
+		    "shared word, a table's entry)", what,
+		    sym_str(p->fn->p[s - 1].name), sym_str(p->fn->p[s - 1].name),
+		    sym_str(p->fn->p[s - 1].name), p->fn->p[s - 1].ty ?
+		    ty_str(p->fn->p[s - 1].ty) : "u32");
+}
+
+static nid
+sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
+{
+	int j = sg_lane_param(p), W = 0;
+	int64_t lo, hi;
+	nid w, v, here = 0;
+
+	if (n != g->arity && !(g->op == O_SGSCAN && g->kind == SGF_OP && n == 2))
+		fail("%s takes %d argument%s", g->name, g->arity,
+		    g->arity == 1 ? "" : "s");
+	if (j >= 0 && TY_ISINT(p->fn->p[j].ty)) {
+		param_bounds(&p->fn->p[j], &lo, &hi);
+		if (lo == 0 && hi >= 1 && hi < SG_MAXW)
+			W = (int)hi + 1;
+	}
+	if (!W)
+		W = (int)model_active()->par[MP_WARP];
+	if (W < 2 || W > SG_MAXW)
+		fail("%s needs the subgroup's size: give the function a "
+		    "parameter lane: u32 in 0..N-1, or use a model that states "
+		    "`warp: N` (2 to %d)", g->name, SG_MAXW);
+	w = mk_const_i(TY_LIT, W);
+	/* the value per lane: the parameter is the operation's own lane */
+	v = args[0];
+	if (j >= 0) {
+		nid map[MAXP] = {0};
+		map[j] = mk_cast(p->fn->p[j].ty, sg_lane());
+		v = subst(v, map, j + 1);
+		here = param_var(p, j);
+	} else if (p->sg_depth)
+		here = sg_lane();
+	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
+	    g->kind == SGF_ROT))
+		fail("%s is a value per lane: give the function a parameter "
+		    "lane: u32 in 0..%d", g->name, W - 1);
+	switch (g->kind) {
+	case SGF_EXCL:
+		v = mk_sg(O_SGSCAN, v, here, w);
+		return mk_bin(O_SUB, v, mk_cast(N.ty[v], args[0]));
+	case SGF_SHUFXOR:
+		return mk_sg(O_SGSHUF, v, mk_bin(O_XOR, here, args[1]), w);
+	case SGF_BCAST:
+		return mk_sg(O_SGSHUF, v, args[1], w);
+	case SGF_BCAST1:
+		return mk_sg(O_SGSHUF, v, mk_const_i(TY_LIT, 0), w);
+	case SGF_ROT:
+		return mk_sg(O_SGSHUF, v, mk_bin(O_MOD, mk_bin(O_ADD,
+		    mk_cast(TY(K_UINT, 32), here), mk_cast(TY(K_UINT, 32),
+		    args[1])), mk_const_i(TY(K_UINT, 32), W)), w);
+	}
+	if (g->op == O_SGSHUF)
+		return mk_sg(O_SGSHUF, v, args[1], w);
+	if (g->op == O_SGSCAN)
+		return mk_sg(O_SGSCAN, v, n == 2 ? args[1] : here, w);
+	return mk_sg(g->op, v, w, 0);
+}
+
+static nid
+sg_call(struct P *p, const struct sgfn *g, nid *args, int n)
+{
+	nid r = sg_apply(p, g, args, n);
+
+	sg_shared_only(p, r, g->name);
+	if (!p->sg_depth && sg_has_lane(r))
+		fail("%s: lane is a value per lane; outside the operand it has "
+		    "to be a parameter, f(..., lane: u32 in 0..N-1)", g->name);
+	return r;
+}
+
 static int
 next_is_fn(struct P *p)
 {
@@ -515,6 +665,7 @@ ident(struct P *p)
 	size_t n;
 	const char *s = ttext(p, at, &n);
 	const struct bfn *b;
+	const struct sgfn *sf;
 	struct func *g;
 	nid args[MAXP], r;
 	ty_t ct;
@@ -523,6 +674,19 @@ ident(struct P *p)
 	if ((r = value_name(p, s, n)) != 0) {
 		adv(p);
 		return r;
+	}
+	/* the lane of a subgroup operation's operand, when the function
+	 * has no parameter of that name */
+	if (p->sg_depth && n == 4 && !memcmp(s, "lane", 4)) {
+		adv(p);
+		return sg_lane();
+	}
+	if ((sf = sg_builtin(p, at)) != NULL && !func_find(name)) {
+		adv(p);
+		p->sg_depth++;
+		na = parse_args(p, args, 3);
+		p->sg_depth--;
+		return sg_call(p, sf, args, na);
 	}
 	if ((r = calc_ident(p)) != 0)
 		return r;
@@ -629,8 +793,11 @@ call_user(struct P *p, struct func *g, nid *args, int na)
 			    sym_str(g->name), ty_str(have), ty_str(want));
 		map[j] = mk_cast(want, args[j]);
 	}
-	(void)p;
-	return subst(g->body, map, na);
+	{
+		nid r = subst(g->body, map, na);
+		sg_shared_only(p, r, sym_str(g->name));
+		return r;
+	}
 }
 
 /* ---- match / piecewise ---- */
@@ -1437,6 +1604,18 @@ static const char prelude[] =
     "  atomic_shared: 6.625, atomic_global: 50, store: 15,\n"
     "  dot4x8: 1, dot4x8sat: 6.5\n"
     /*
+     * Subgroups (a warp: 32 lanes), from the same run.  A shuffle is
+     * 4.00 (sg_shuffle; by xor, broadcast, rotate and the quad swap 4.00
+     * to 4.07 with the add their step has), the sum over the lanes 32.63
+     * and the inclusive scan 60.24 (each less the step's add).  The
+     * ballot and the votes fit below zero: ballot((a & 1) != 0) + b is
+     * 3.65 and any((a & 1) != 0) ? b : c 4.51 where the and, the compare
+     * and the add or select alone are 4.375 and 5 (the compare's bool is
+     * never made), so they are priced 0 and their compare as a compare.
+     */
+    "  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4,\n"
+    "  sg_scan: 60.25\n"
+    /*
      * Signed division and the remainders (udiv, umod, sdiv and by 7, the
      * mean of the two runs, less the add each step has); a signed
      * remainder is not measured: sdiv plus what a remainder adds.  The
@@ -1828,12 +2007,13 @@ parse_model(struct P *p)
 		if (!accept(p, T_COLON))
 			expect(p, T_ASSIGN);
 		if ((k <= -100 || k >= C_DOT_FIRST) && is_kw(p, "none")) {
-			/* a dot form taken away from an inherited model */
+			/* a dot form (or a subgroup operation) taken away from
+			 * an inherited model */
 			int j, j0 = k <= -100 ? -k - 100 : k;
 			adv(p);
 			/* (a memory kind: back to its fallback's price) */
 			for (j = j0; j < j0 + (k <= -100 ? 3 : 1); j++)
-				m->c[j] = j >= C_MEM_FIRST ? NAN : INFINITY;
+				m->c[j] = C_ABSENT(j) ? INFINITY : NAN;
 			continue;
 		}
 		v = number(p);

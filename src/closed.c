@@ -356,8 +356,8 @@ tidy1(nid e, nid *memo, uint32_t lim)
 	default:
 		if (opinfo[N.op[e]].arity == 1)
 			r = mk_un(N.op[e], tidy1(N.a[e], memo, lim));
-		else if (IS_DOT(N.op[e]))
-			r = mk_dot(N.op[e], tidy1(N.a[e], memo, lim),
+		else if (IS_DOT(N.op[e]) || IS_SG(N.op[e]))
+			r = mk_op(N.op[e], tidy1(N.a[e], memo, lim),
 			    tidy1(N.b[e], memo, lim),
 			    N.c[e] ? tidy1(N.c[e], memo, lim) : 0);
 		else
@@ -2694,8 +2694,8 @@ cl_walk(nid n, nid *memo, uint32_t lim)
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], cl_walk(N.a[n], memo, lim));
-		else if (IS_DOT(N.op[n]))
-			r = mk_dot(N.op[n], cl_walk(N.a[n], memo, lim),
+		else if (IS_DOT(N.op[n]) || IS_SG(N.op[n]))
+			r = mk_op(N.op[n], cl_walk(N.a[n], memo, lim),
 			    cl_walk(N.b[n], memo, lim),
 			    N.c[n] ? cl_walk(N.c[n], memo, lim) : 0);
 		else

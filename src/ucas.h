@@ -136,11 +136,23 @@ enum {
 	O_UDOT8X4, O_SDOT8X4, O_SUDOT8X4,
 	O_UDOT4X8S, O_SDOT4X8S, O_SUDOT4X8S, O_UDOT2X16S, O_SDOT2X16S,
 	O_SUDOT2X16S, O_UDOT8X4S, O_SDOT8X4S, O_SUDOT8X4S,
+	/*
+	 * sg.c: operations on the lanes of a subgroup of W invocations.  The
+	 * operand is a value per lane, a function of the lane's index (the
+	 * bound variable `lane`) and of values the lanes share; the last
+	 * operand is W.  ballot(p): bit l is p in lane l; any, all; add: the
+	 * sum over the lanes; shuffle(v, i): v in lane i; scan(v, l): the
+	 * sum of v over lanes 0..l (see sg.c for the exact semantics)
+	 */
+	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN,
 	O_NOPS
 };
 #define O_DOT_FIRST O_UDOT4X8
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
+#define O_SG_FIRST O_SGBALLOT
+#define O_SG_LAST O_SGSCAN
+#define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define OF_COMM 1
 #define OF_INT 2      /* integer operands only */
 #define OF_REALFN 4   /* operand promoted to real */
@@ -159,6 +171,10 @@ extern const struct opinfo opinfo[O_NOPS];
 /* ---- node.c ---- */
 #define NF_PARTIAL 1 /* this subterm can be undefined */
 #define NF_VAR 2     /* depends on a parameter */
+#define NF_SG 4      /* has a subgroup operation in it (sg.c) */
+#define NF_LANE 8    /* the lane of a subgroup operation's operand is free
+		      * in it: part of a value per lane */
+#define NF_INH (NF_VAR | NF_SG | NF_LANE)   /* an operand's, its user's */
 struct nodes {
 	uint8_t *op;
 	uint8_t *fl;
@@ -191,6 +207,7 @@ nid mk_atomic(int kind, nid a, nid v);
 nid mk_fma(nid a, nid b, nid c);
 nid mk_dot(int op, nid a, nid b, nid acc);  /* dot.c; acc 0 unless _SAT */
 nid mk_op(int op, nid a, nid b, nid c);     /* any op from its operands */
+nid mk_sg(int op, nid a, nid b, nid c);     /* sg.c; the last operand is W */
 double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
 double fma16(double a, double b, double c);	/* f16 fma, correctly rounded */
 double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
@@ -306,8 +323,20 @@ enum {
 	C_ATOM_GL_STREAM, C_TEX_FETCH, C_TEX_SAMPLE, C_TEX_SAMPLE_F32,
 	C_IMAGE_LOAD,
 	C_MEM_LAST = C_IMAGE_LOAD,
+	/*
+	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
+	 * forms: the ballot, the votes (any, all), the sum over the lanes,
+	 * the shuffle (and broadcast, shuffle by xor, rotate) and the
+	 * inclusive scan.
+	 */
+	C_SG_BALLOT, C_SG_VOTE, C_SG_ADD, C_SG_SHUF, C_SG_SCAN,
 	C_NCLASS
 };
+#define C_SG_FIRST C_SG_BALLOT
+#define C_SG_LAST C_SG_SCAN
+/* an instruction the target may not have: absent unless the model lists it */
+#define C_ABSENT(k) (((k) >= C_DOT_FIRST && (k) <= C_DOT_LAST) || \
+    ((k) >= C_SG_FIRST && (k) <= C_SG_LAST))
 /* the class of a dot op; IS_DOT(op) */
 #define DOT_CLASS(op) (C_DOT_FIRST + ((op) - O_DOT_FIRST))
 #define C_DIVK(k) ((k) + 1)	/* the division class by a constant */
@@ -366,6 +395,30 @@ struct dotres {
 /* fmask: 1 the 4 x 8 forms, 2 the 2 x 16, 4 the 8 x 4 */
 int dot_search(const struct func *f, int fmask, struct dotres *r);
 void dotres_free(struct dotres *r);
+
+/* ---- sg.c: operations on the lanes of a subgroup ---- */
+/* the bound variable `lane`: above the 64 slots of parameters, loops and
+ * closed forms (calc.h), so no slot mask or loop renumbering sees it;
+ * NF_LANE says where it is free */
+#define SG_LANE_SLOT 100
+#define SG_MAXW 64
+nid sg_lane(void);		/* the lane's index inside an operand */
+int sg_is_lane(nid n);		/* a variable named lane: the lane itself */
+int sg_has_lane(nid e);		/* the bound lane is free in e */
+nid sg_lower_once(nid root);	/* node.c: sg_lower without its memory */
+nid sg_flat(nid e, nid to);	/* node.c: the bound lane replaced by to */
+/* f's body as one lane runs it: what cost and find price */
+nid sg_priced(const struct func *f, nid e);
+int sg_class(int op);		/* its cost class */
+int sg_width(nid n);		/* W of a subgroup node */
+/* the operation spelled out over its W lanes, operands already lowered */
+nid sg_expand(int op, nid a, nid b, nid c);
+/* a parameter of mask that a subgroup operation of e reads per lane */
+int sg_reads(nid e, uint64_t mask);
+/* e with every subgroup operation spelled out (e itself when it has none) */
+nid sg_lower(nid e);
+/* find: forms the active model's subgroup operations make cheaper */
+void sg_find(const struct func *f);
 
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */

@@ -3,7 +3,7 @@
 PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c sat.c glslc.c \
-	plot.c fsimp.c nodesat.c bound.c codelang.c spvcross.c dot.c
+	plot.c fsimp.c nodesat.c bound.c codelang.c spvcross.c dot.c sg.c
 # fusions in cost models (cover pricing) and the integer rewrites
 SRCS+=	fuse.c irw.c idrw.c
 # calc: loops, closed forms, calculus, evaluation schemes
