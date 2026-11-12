@@ -3255,12 +3255,22 @@ the proof refuses is dropped.  The words are whole u32 parameters: one
 with a range is left alone.  JSON: `packed_lanes` (`cost_before`,
 `cost`, `expr`, `derivation`, `check`).
 
+The operation may be in some of the lanes only, the others kept from
+one of the words or constant: the colour of an RGBA8 word worked on and
+its alpha kept.  The form is then chosen under the lanes' mask,
+`pass xor ((form xor pass) & mask)`, one LOP3 more, or the second
+operand's lanes are cleared where the first is kept and the operation
+leaves it alone against 0, whichever prices lower: the colours added
+and a's alpha kept is 26 as written and 6, averaged with b's alpha 29
+and 5, the saturating add with an opaque alpha 26 and 12.
+
 Under sm75, where the integer pipe runs at one price, the forms still
 win (max of four bytes: 21 as written, 11).  Two 16-bit minimums are
 11 as written and 12 through the mask, so nothing is offered.
 
-Not done: signed lanes, a different operation in each lane, lanes of
-other widths, shifts inside the lanes, two products with a common
+Not done: signed lanes, a different operation in each lane as one form
+(each lane's own form is taken where it is cheaper), lanes of other
+widths, shifts inside the lanes, two products with a common
 factor in one multiply and a two-term dot product as the middle term
 of one (they need a lane-packing search over values that are not yet
 in one word, as dot.c does for sums of products), and the same in

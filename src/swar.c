@@ -22,6 +22,12 @@
  *   a -sat b D & M(a >= b), D the lanes' difference
  *   a == b   M(~(((x & L) + L) | x) & H), x = a ^ b; != without the ~
  *
+ * The operation may be in some of the lanes only, the others kept from
+ * one of the words or constant (the colour of an RGBA8 word worked on,
+ * its alpha kept): the form is then chosen under the lanes' mask, or, where
+ * the kept lanes are the first operand's and the operation leaves it alone
+ * against 0, the second operand's lanes are cleared there (swar_mixed).
+ *
  * The lanes are unsigned.  Which form a value is, if any, is read from
  * its values: it is run on words whose lanes are random, equal, zero and
  * all ones, and each lane of the result is compared with the lane
@@ -188,10 +194,72 @@ lane_fits(const uint32_t *va, const uint32_t *vb, const uint32_t *vr, int op,
 	return 1;
 }
 
+/* lane k of every sampled result is the same lane of v, or is c */
+static int
+lane_is(const uint32_t *vr, const uint32_t *v, int w, int k, uint32_t c)
+{
+	uint32_t lm = (1u << w) - 1;
+	int smp;
+
+	for (smp = 0; smp < SW_SAMPLES; smp++)
+		if (((vr[smp] >> k) & lm) != (v ? (v[smp] >> k) & lm : c))
+			return 0;
+	return 1;
+}
+
 struct swhit {
 	int op, w, swap;	/* swap: the lane operation is op(b, a) */
 	nid a, b;		/* the words; b a constant when one is read */
+	/* the lanes the operation is in; the others are a's (ma), b's (mb)
+	 * or the constant kc's */
+	uint32_t ms, ma, mb, kc;
 };
+
+/*
+ * The form of a hit whose operation is in some lanes only.  Where the
+ * other lanes are all the first operand's and the operation leaves it
+ * alone against 0 (or, for min, against all ones), the second operand's
+ * lanes are cleared (set) there and the operation runs on every lane
+ * (direct); otherwise the lanes are chosen by their mask.  0: no such
+ * form.
+ */
+static nid
+swar_mixed(const struct swhit *h, int direct)
+{
+	nid p = h->swap ? h->b : h->a, q = h->swap ? h->a : h->b, f, pass = 0;
+	uint32_t mp = h->swap ? h->mb : h->ma, mq = h->swap ? h->ma : h->mb;
+
+	if (direct) {
+		if (lops[h->op].comm && mp == 0 && h->kc == 0) {
+			nid t = p;
+			p = q;
+			q = t;
+			mq = 0;
+		}
+		if (mq || h->kc)
+			return 0;
+		switch (h->op) {
+		case L_ADD: case L_SUB: case L_MAX: case L_ABSD: case L_SATADD:
+		case L_SATSUB:
+			return swar_form(h->op, p, AND(q, k32(h->ms)), h->w);
+		case L_MIN:
+			return swar_form(h->op, p, OR(q, k32(~h->ms)), h->w);
+		}
+		return 0;
+	}
+	f = swar_form(h->op, p, q, h->w);
+	if (h->ma)
+		pass = h->mb || h->kc ? AND(h->a, k32(h->ma)) : h->a;
+	if (h->mb) {
+		nid t = h->ma || h->kc ? AND(h->b, k32(h->mb)) : h->b;
+		pass = pass ? OR(pass, t) : t;
+	}
+	if (h->kc)
+		pass = pass ? OR(pass, k32(h->kc)) : k32(h->kc);
+	if (!pass)
+		return AND(f, k32(h->ms));
+	return XOR(pass, AND(XOR(f, pass), k32(h->ms)));
+}
 
 /*
  * The lane operations x's values agree with, for a value x of one or two
@@ -295,7 +363,8 @@ swar_of(const struct func *f, nid x, struct swhit *out, int max)
 		if (ns == 1 && w > 8)
 			continue;
 		for (op = 0; op < 2 * L_N && n < max; op++) {
-			uint32_t kw = 0, c = 0;
+			uint32_t kw = 0, c = 0, ms = 0, ma = 0, mb = 0, kc = 0;
+			uint32_t lm = (1u << w) - 1;
 
 			sw = op >= L_N;
 			if (sw && lops[op - L_N].comm)
@@ -308,15 +377,34 @@ swar_of(const struct func *f, nid x, struct swhit *out, int max)
 					if (lane_fits(va, ns == 2 ? vb : NULL,
 					    vr, op % L_N, sw, w, k, c))
 						break;
-				if (c == nc)
+				if (c < nc) {
+					kw |= c << k;
+					ms |= lm << k;
+					continue;
+				}
+				/* of two words: a lane kept from one of them,
+				 * or the same in every sample */
+				if (ns != 2)
 					break;
-				kw |= c << k;
+				c = (vr[0] >> k) & lm;
+				if (lane_is(vr, va, w, k, 0))
+					ma |= lm << k;
+				else if (lane_is(vr, vb, w, k, 0))
+					mb |= lm << k;
+				else if (lane_is(vr, NULL, w, k, c))
+					kc |= c << k;
+				else
+					break;
 			}
-			if (k < 32)
+			if (k < 32 || ms == 0)
 				continue;
 			out[n].op = op % L_N;
 			out[n].w = w;
 			out[n].swap = sw;
+			out[n].ms = ms;
+			out[n].ma = ma;
+			out[n].mb = mb;
+			out[n].kc = kc;
 			out[n].a = var_of(slot[0], f->p[slot[0]].name, U32);
 			out[n].b = ns == 2 ? var_of(slot[1], f->p[slot[1]].name,
 			    U32) : k32(kw);
@@ -396,14 +484,27 @@ swar_find(const struct func *f)
 			nh = swar_of(f, nd[i], hit, 16);
 			for (j = 0; j < nh; j++) {
 				const struct swhit *h = &hit[j];
-				nid to = h->swap ? swar_form(h->op, h->b, h->a,
-				    h->w) : swar_form(h->op, h->a, h->b, h->w);
-				nid cand = sg_replaced(cur, nd[i], mk_cast(
-				    N.ty[nd[i]], to));
+				nid to, cand, alt;
 				float c;
+				if (h->ms == 0xffffffff)
+					to = h->swap ? swar_form(h->op, h->b, h->a,
+					    h->w) : swar_form(h->op, h->a, h->b,
+					    h->w);
+				else
+					to = swar_mixed(h, 0);
+				cand = sg_replaced(cur, nd[i], mk_cast(N.ty[nd[i]],
+				    to));
 				if (!cand)
 					continue;
 				c = fuse_expr_cost(m, cand);
+				/* some lanes only: the cheaper of its two forms */
+				if (h->ms != 0xffffffff && (alt = swar_mixed(h,
+				    1)) != 0 && (alt = sg_replaced(cur, nd[i],
+				    mk_cast(N.ty[nd[i]], alt))) != 0 &&
+				    fuse_expr_cost(m, alt) < c) {
+					cand = alt;
+					c = fuse_expr_cost(m, alt);
+				}
 				if (c >= bc)
 					continue;
 				/* the samples guessed; the domain decides */
@@ -420,8 +521,30 @@ swar_find(const struct func *f)
 				sb_printf(&best_why, "%d x %d-bit lanes, ",
 				    32 / h->w, h->w);
 				sb_printf(&best_why, lops[h->op].name, pa, pb);
-				sb_printf(&best_why, " in each: %s",
-				    lops[h->op].how);
+				if (h->ms == 0xffffffff)
+					sb_printf(&best_why, " in each: %s",
+					    lops[h->op].how);
+				else {
+					operand(pa, sizeof pa, h->a);
+					operand(pb, sizeof pb, h->b);
+					sb_printf(&best_why, " in the lanes of "
+					    "0x%08x: %s", (unsigned)h->ms,
+					    lops[h->op].how);
+					if (h->ma)
+						sb_printf(&best_why, "; 0x%08x "
+						    "kept from %s", (unsigned)
+						    h->ma, pa);
+					if (h->mb)
+						sb_printf(&best_why, "; 0x%08x "
+						    "kept from %s", (unsigned)
+						    h->mb, pb);
+					if (~(h->ms | h->ma | h->mb) && h->kc)
+						sb_printf(&best_why, "; the rest "
+						    "the constant 0x%08x",
+						    (unsigned)h->kc);
+					else if (~(h->ms | h->ma | h->mb))
+						sb_printf(&best_why, "; the rest 0");
+				}
 			}
 		}
 		if (!best)

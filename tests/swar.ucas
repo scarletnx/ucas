@@ -60,11 +60,25 @@ use sm75
 find max8 1
 use gt1030
 
-# nothing to say: the lanes differ, or the word-wide form is not cheaper
+# the operation in some lanes only, the others kept from a word or
+# constant: an RGBA8 colour worked on, its alpha kept, b's, opaque, zero
+rgbadd(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) + ((b >> 8) & 255)) & 255) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) & 255) << 16 | (a & 0xff000000)
+find rgbadd 1
+rgbavg(a: u32, b: u32) = (((a & 255) + (b & 255)) >> 1) | ((((a >> 8) & 255) + ((b >> 8) & 255)) >> 1) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) >> 1) << 16 | (b & 0xff000000)
+find rgbavg 1
+rgbsat(a: u32, b: u32) = min((a & 255) + (b & 255), 255) | min(((a >> 8) & 255) + ((b >> 8) & 255), 255) << 8 | min(((a >> 16) & 255) + ((b >> 16) & 255), 255) << 16 | 0xff000000
+find rgbsat 1
+rgbmin(a: u32, b: u32) = min(a & 255, b & 255) | min((a >> 8) & 255, (b >> 8) & 255) << 8 | min((a >> 16) & 255, (b >> 16) & 255) << 16 | (a & 0xff000000)
+find rgbmin 1
+rgbdiff(a: u32, b: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) | (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16
+find rgbdiff 1
+# a different operation in two lanes: the one lane whose form is cheaper
+two(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) - ((b >> 8) & 255)) & 255) << 8
+find two 1
+
+# nothing to say: the word-wide form is not cheaper
 # (two 16-bit minimums are 11 as written, 12 through the mask)
 min16(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16
 find min16 1
-two(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) - ((b >> 8) & 255)) & 255) << 8
-find two 1
 plain(a: u32, b: u32) = a + b
 find plain 1
