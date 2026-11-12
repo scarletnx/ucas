@@ -1,0 +1,123 @@
+> show add4x8(0x80ff7f01, 0x80020102)
+_() = 98307
+  -> u32
+> show sub4x8(0x01000302, 0x02010103)
+_() = 4294902527
+  -> u32
+> show absdiff4x8(0x10f00105, 0xf0100501)
+_() = 3772777476
+  -> u32
+> show min4x8(0x10f00105, 0xf0100501)
+_() = 269484289
+  -> u32
+> show max4x8(0x10f00105, 0xf0100501)
+_() = 4042261765
+  -> u32
+> show add2x16(0xffff7fff, 0x00020001)
+_() = 98304
+  -> u32
+> show sub2x16(0x00000001, 0x00010002)
+_() = 4294967295
+  -> u32
+> show mul2x16(0x00030007, 0x00050009)
+_() = 983103
+  -> u32
+> show min2x16(0x8000ffff, 0x00010001)
+_() = 65537
+  -> u32
+> show smin2x16(0x8000ffff, 0x00010001)
+_() = 2147549183
+  -> u32
+> show smax2x16(0x8000ffff, 0x00010001)
+_() = 65537
+  -> u32
+> show msad4x8(0x00102030, 0xff302010, 5)
+_() = 69
+  -> u32
+> ad1(x: u32 in 0..1023, y: u32 in 0..1023) = absdiff4x8(x, y)
+> ad2(x: u32 in 0..1023, y: u32 in 0..1023) = absdiff4x8(y, x)
+> equiv ad1 ad2
+ad1 and ad2 are equal on the domain of ad1 (exhaustive)
+> badd(a: u32, b: u32) = ((a & 0xff) + (b & 0xff) & 0xff) | ((((a >> 8) & 0xff) + ((b >> 8) & 0xff) & 0xff) << 8) | ((((a >> 16) & 0xff) + ((b >> 16) & 0xff) & 0xff) << 16) | ((((a >> 24) + (b >> 24)) & 0xff) << 24)
+> find badd 1
+find badd: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of badd (cost 32 as written; each checked on the whole domain):
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 31  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | (a >> 0x18) + (b >> 0x18) << 24 drops & 255 (proved by SAT)
+  cost 31  (a & 0xff) + b & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  ... 1 more single drops hold (not listed)
+  cost 23  a + b & 0xff | ((a >> 8) + (b >> 8) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10) & 0xff) << 16 | (a >> 0x18) + (b >> 0x18) << 24 all of them: drops & 255, then & 255, then & 255, then & 255, then & 255, then & 255, then & 255 (proved by SAT)
+  dot products under gt1030 (sums of products laid into lanes; cost 32 as written):
+  cost 28  (a & 0xff) + (b & 0xff) & 0xff | (udot4x8(a, 0x100) + udot4x8(b, 0x100) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 333 AIG nodes, 0 conflicts
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model lanes : gt1030 { simd4x8: 1, msad: 1, pk16: 1 }
+> use lanes
+cost model: lanes
+> find badd 1
+find badd: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from lanes
+  dropping operations of badd (cost 32 as written; each checked on the whole domain):
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 30  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  cost 31  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | (a >> 0x18) + (b >> 0x18) << 24 drops & 255 (proved by SAT)
+  cost 31  (a & 0xff) + b & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24 drops & 255 (proved by SAT)
+  ... 1 more single drops hold (not listed)
+  cost 23  a + b & 0xff | ((a >> 8) + (b >> 8) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10) & 0xff) << 16 | (a >> 0x18) + (b >> 0x18) << 24 all of them: drops & 255, then & 255, then & 255, then & 255, then & 255, then & 255, then & 255 (proved by SAT)
+  dot products under lanes (sums of products laid into lanes; cost 32 as written):
+  cost 28  (a & 0xff) + (b & 0xff) & 0xff | (udot4x8(a, 0x100) + udot4x8(b, 0x100) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | ((a >> 0x18) + (b >> 0x18) & 0xff) << 24
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 333 AIG nodes, 0 conflicts
+  instructions under lanes (each for the pattern it is; cost 32 as written):
+  cost 1   add4x8(a, b)
+           (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8… (100 more characters): add4x8(a, b), lane by lane, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> swar(a: u32, b: u32) = ((a & 0x7f7f7f7f) + (b & 0x7f7f7f7f)) xor ((a xor b) & 0x80808080)
+> find swar 1
+find swar: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from lanes
+  instructions under lanes (each for the pattern it is; cost 5 as written):
+  cost 1   add4x8(a, b)
+           (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080: add4x8(a, b), lane by lane, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> hmin(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | (min(a >> 16, b >> 16) << 16)
+> find hmin 1
+find hmin: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from lanes
+  instructions under lanes (each for the pattern it is; cost 11 as written):
+  cost 1   min2x16(a, b)
+           min(a & 0xffff, b & 0xffff) | min(a >> 0x10, b >> 0x10) << 16: min2x16(a, b), lane by lane, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> md(r: u32, s: u32) = ((r & 0xff) == 0 ? 0 : max(r & 0xff, s & 0xff) - min(r & 0xff, s & 0xff)) + ((r >> 8 & 0xff) == 0 ? 0 : max(r >> 8 & 0xff, s >> 8 & 0xff) - min(r >> 8 & 0xff, s >> 8 & 0xff)) + ((r >> 16 & 0xff) == 0 ? 0 : max(r >> 16 & 0xff, s >> 16 & 0xff) - min(r >> 16 & 0xff, s >> 16 & 0xff)) + ((r >> 24) == 0 ? 0 : max(r >> 24, s >> 24) - min(r >> 24, s >> 24))
+> find md 1
+find md: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from lanes
+  instructions under lanes (each for the pattern it is; cost 49 as written):
+  cost 1   msad4x8(r, s, 0)
+           (r & 0xff == 0 ? 0 : max(r & 0xff, s & 0xff) - min(r & 0xff, s & 0xff)) + (t1 ==… (249 more characters): msad4x8(r, s, 0), lane by lane, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

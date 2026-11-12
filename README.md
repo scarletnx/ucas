@@ -3121,10 +3121,14 @@ printing and for the price.
 | `bfi(base, ins, p, n)` | base with bits p..p+n-1 replaced by the low n bits of ins; p and n constant, p + n <= 32 | OpBitFieldInsert; BFI; v_bfi_b32 with its mask |
 | `mulwide(a, b)`, `madwide(a, b, c)` | the 64-bit product of two u32 (u64), and that plus the u64 c (wrapping) | IMAD.WIDE.U32; v_mad_u64_u32 |
 | `bytesel(hi, lo, s)` | byte i is chosen by byte i of s from the eight of hi:lo (0..3 lo's, 4..7 hi's): 8 to 11 eight copies of the sign bit of byte 1, 3, 5 or 7, 12 the byte 0, 13 and up 255 | v_perm_b32 (hi its S0, lo its S1) |
+| `add4x8`, `sub4x8`, `absdiff4x8`, `min4x8`, `max4x8` `(a, b)` | the four bytes lane by lane, unsigned: the sum and the difference mod 256, \|a - b\|, the smaller, the larger | the video SIMD forms with no merge and no saturation (PTX vadd4, vsub4, vabsdiff4, vmin4, vmax4; on sm_50 and up the driver may emulate some) |
+| `msad4x8(a, b, c)` | c plus \|a.byte[i] - b.byte[i]\| over the bytes where a's byte is not 0 (u32, wrapping) | v_msad_u8; DXIL's MSAD |
+| `add2x16`, `sub2x16`, `mul2x16`, `min2x16`, `max2x16`, `smin2x16`, `smax2x16` `(a, b)` | the two 16-bit halves lane by lane: the sum, the difference and the low half of the product mod 2^16, the smaller and the larger unsigned or signed | v_pk_add_u16, v_pk_sub_u16, v_pk_mul_lo_u16, v_pk_min/max_u16/i16 (no clamp) |
 
 **Cost classes.**  `bfe` (both fields), `brev`, `mulhi` (both),
 `funnel` (both), `med3`, `sad4x8`, `byteperm`, `bfi`, `mulwide` (both),
-`bytesel`.  A model that does not
+`bytesel`, `simd4x8` (the five byte ops), `msad`, `pk16` (the seven
+16-bit ops).  A model that does not
 list one cannot use it, and no built-in model lists any: none is
 measured yet (the GT 1030 corpus has no test for them), so under
 gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
@@ -3158,6 +3162,13 @@ cheaper, then checked on the domain (src/inst.c, `pattern`):
   sign-extended), the byte 0 or 255; whole bytes of one word moved too
   (`bytesel(x, x, 0x00010203)` swaps them).  With both classes the
   cheaper wins (tests/bytesel.ucas);
+- a u32 of two words that is one of the lane-wise operations of them, in
+  either order, where the model has its class: its value at 48 random
+  points told against each, then the check on the domain.  So the bytes
+  added one by one, the carry-free SWAR add `((a & 0x7f7f7f7f) + (b &
+  0x7f7f7f7f)) xor ((a xor b) & 0x80808080)`, two halves' minimum and a
+  masked sum of byte differences are each one instruction
+  (tests/lanewise.ucas);
 - `(base & ~m) | field`, or with xor or +, m the bits p..p+n-1 and the
   field `(ins << p) & m`, `(ins & (2^n - 1)) << p`, or `ins << p` where
   ins's range keeps it in n bits: `bfi(base, ins, p, n)`;
@@ -3204,7 +3215,7 @@ The rest of the instructions a model may want, and where each stands:
 | DP4A, v_dot4, v_dot8 | the dot forms |
 | REDUX, DPP row shifts and broadcasts, ds_swizzle, ds_bpermute, v_permlane16 | the subgroup operations' classes; reductions other than add, and a DPP shuffle folded into an operand, are not there yet |
 | IMAD.WIDE.S32, v_mad_i64_i32 | the signed wide product: not an operation yet |
-| VADD4, VMNMX, VABSDIFF4 without the sum, v_msad, v_qsad, v_lerp_u8, v_pk_* | not yet |
+| v_qsad_pk_u16_u8, v_mqsad, v_lerp_u8, VMNMX's 32-bit form with its third operand, saturating and merging video modes | not yet: v_lerp_u8's rounding and the qsad windows have no second definition on this machine to check against |
 | v_cubeid/sc/tc/ma, v_trig_preop, v_ldexp, v_frexp, med3 of floats (its NaN rule) | float instructions: not yet |
 | FSWZADD, the quad swaps | subgroup (quad) operations: not yet |
 | the SALU as a parallel pipe, Intel's region addressing | need pipes and operand modes in the model, which prices issue cost per class only |
@@ -5436,8 +5447,9 @@ Data-oriented throughout (see `src/ucas.h`):
   partitioned and quad operations, min/max/bitwise reductions and float
   sums are not operations yet.
 - The catalogue's instructions (bfe, brev, mulhi, funnel shifts, med3,
-  usad4x8, byteperm, bfi, mulwide, bytesel) are priced by no built-in
-  model: none is measured.
+  usad4x8, byteperm, bfi, mulwide, bytesel, the lane-wise byte and
+  16-bit ops, msad4x8) are priced by no built-in model: none is
+  measured.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding

@@ -341,6 +341,13 @@ static const struct bfn bfns[] = {
 	{"byteperm", O_BYTEPERM, 3}, {"bfi", O_BFI, 4},
 	{"mulwide", O_MULWIDE, 2}, {"madwide", O_MADWIDE, 3},
 	{"bytesel", O_BYTESEL, 3},
+	{"add4x8", O_ADD4X8, 2}, {"sub4x8", O_SUB4X8, 2},
+	{"absdiff4x8", O_ABSDIFF4X8, 2}, {"min4x8", O_MIN4X8, 2},
+	{"max4x8", O_MAX4X8, 2}, {"msad4x8", O_MSAD4X8, 3},
+	{"add2x16", O_ADD2X16, 2}, {"sub2x16", O_SUB2X16, 2},
+	{"mul2x16", O_MUL2X16, 2}, {"min2x16", O_MIN2X16, 2},
+	{"max2x16", O_MAX2X16, 2}, {"smin2x16", O_SMIN2X16, 2},
+	{"smax2x16", O_SMAX2X16, 2},
 	{NULL, 0, 0}
 };
 
