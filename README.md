@@ -722,9 +722,10 @@ pieces at most); the certificate is the largest piece's bound.  The
 intervals are long double, each +, -, *, / and sqrt rounded outward by
 its exact error term (TwoSum, Dekker's product), so an exact result stays
 a point; libm's long double functions (sinl, expl, logl, ...) are the one
-thing taken on trust, within 2^-58 of the true value (64 of their ulps),
-except at their exact points (sin 0 = 0, cos 0 = 1, exp 0 = 1, log 1 =
-0), and the line says so.
+thing taken on trust, within 32 to 64 of their ulps of the true value
+(2^-58 where long double is x87's, 2^-47 where it is double), except at
+their exact points (sin 0 = 0, cos 0 = 1, exp 0 = 1, log 1 = 0), and the
+line says so.
 
 ```
       certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2035 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
