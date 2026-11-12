@@ -361,12 +361,53 @@ static const struct sgbi {
 	{"subgroupQuadSwapDiagonal", "T T", 'g'},
 };
 
-/* its built-in variables, read as values the function level does not
- * know: renamed snx... (the same length) and declared uniform */
+/* its built-in variables, and Vulkan's that GLSL ES 3.10 lacks, read as
+ * values the function level does not know: renamed snx... (the same
+ * length) and declared uniform */
 static const char *const sg_vars[] = {"gl_SubgroupSize",
     "gl_SubgroupInvocationID", "gl_NumSubgroups", "gl_SubgroupID",
     "gl_SubgroupEqMask", "gl_SubgroupGeMask", "gl_SubgroupGtMask",
-    "gl_SubgroupLeMask", "gl_SubgroupLtMask"};
+    "gl_SubgroupLeMask", "gl_SubgroupLtMask", "gl_VertexIndex",
+    "gl_InstanceIndex", "gl_BaseVertex", "gl_BaseInstance", "gl_DrawID",
+    "gl_SampleID", "gl_ViewIndex", "gl_Layer", "gl_ViewportIndex"};
+
+static const char *
+sg_var_type(const char *name)
+{
+	return strstr(name, "Mask") ? "uvec4" : strstr(name, "Subgroup") ?
+	    "uint" : "int";
+}
+
+/*
+ * Types of GL_EXT_shader_8bit_storage and 16bit_storage, which snxglslc
+ * does not have.  As a type, each is the 32-bit one it widens to (a
+ * buffer's member read is a value the level does not know either way);
+ * as a constructor, which truncates, a function of the stubs below, so
+ * its value is one the level does not know.
+ */
+static const struct nty {
+	const char *name, *as, *ctor;
+} narrow_types[] = {
+	{"uint8_t", "uint", "ucas_u8"}, {"int8_t", "int", "ucas_i8"},
+	{"uint16_t", "uint", "ucas_u16"}, {"int16_t", "int", "ucas_i16"},
+	{"float16_t", "float", "ucas_f16"},
+	{"u8vec2", "uvec2", "ucas_u8v2"}, {"u8vec3", "uvec3", "ucas_u8v3"},
+	{"u8vec4", "uvec4", "ucas_u8v4"}, {"i8vec2", "ivec2", "ucas_i8v2"},
+	{"i8vec3", "ivec3", "ucas_i8v3"}, {"i8vec4", "ivec4", "ucas_i8v4"},
+	{"u16vec2", "uvec2", "ucas_u16v2"}, {"u16vec3", "uvec3", "ucas_u16v3"},
+	{"u16vec4", "uvec4", "ucas_u16v4"}, {"i16vec2", "ivec2", "ucas_i16v2"},
+	{"i16vec3", "ivec3", "ucas_i16v3"}, {"i16vec4", "ivec4", "ucas_i16v4"},
+	{"f16vec2", "vec2", "ucas_f16v2"}, {"f16vec3", "vec3", "ucas_f16v3"},
+	{"f16vec4", "vec4", "ucas_f16v4"},
+};
+#define NNARROW (sizeof narrow_types / sizeof narrow_types[0])
+
+/* layout qualifiers of Vulkan's GLSL that GLSL ES 3.10 has not, and the
+ * function level has no use for: taken out of their layout(...) */
+static const char *const vk_layout[] = {"offset", "constant_id", "align",
+    "input_attachment_index", "component", "index", "xfb_buffer",
+    "xfb_offset", "xfb_stride", "depth_any", "depth_greater", "depth_less",
+    "depth_unchanged", "origin_upper_left", "pixel_center_integer", NULL};
 
 static size_t sg_stub_from, sg_stub_to;	/* the declarations' bytes */
 
@@ -434,10 +475,72 @@ es_prelude(struct sbuf *o, const char *src, int stage)
 	for (k = 0; k < sizeof sg_vars / sizeof sg_vars[0]; k++)
 		for (i = 0; src[i]; i++)
 			if (word_at(src, i, sg_vars[k])) {
-				sb_printf(o, "uniform highp %s snx%s; ", strstr(sg_vars[k],
-				    "Mask") ? "uvec4" : "uint", sg_vars[k] + 3);
+				/* a vertex shader writes gl_Layer and gl_ViewportIndex */
+				sb_printf(o, "%shighp %s snx%s; ", stage ==
+				    SNX_GLSLC_VERTEX && (!strcmp(sg_vars[k], "gl_Layer") ||
+				    !strcmp(sg_vars[k], "gl_ViewportIndex")) ? "" : "uniform ",
+				    sg_var_type(sg_vars[k]), sg_vars[k] + 3);
 				break;
 			}
+	/* the narrow types' constructors: one argument of any number type */
+	for (k = 0; k < NNARROW; k++) {
+		static const char *const from[] = {"int", "uint", "float", "ivec2",
+		    "ivec3", "ivec4", "uvec2", "uvec3", "uvec4", "vec2", "vec3",
+		    "vec4", NULL};
+		const struct nty *t = &narrow_types[k];
+		const char *const *f;
+		size_t nl = strlen(t->name);
+		char last = t->as[strlen(t->as) - 1];
+		for (i = 0; src[i]; i++)
+			if (word_at(src, i, t->name)) {
+				size_t e = i + nl;
+				while (src[e] == ' ' || src[e] == '\t')
+					e++;
+				if (src[e] == '(')
+					break;
+			}
+		if (!src[i])
+			continue;
+		for (f = from; *f; f++) {
+			char fl = (*f)[strlen(*f) - 1];
+			/* a scalar from a scalar, a vector from one as wide */
+			if ((isdigit((unsigned char)last) || isdigit((unsigned char)fl)) &&
+			    last != fl)
+				continue;
+			sb_printf(o, "%s %s(highp %s p1) { return %s(0); } ", t->as,
+			    t->ctor, *f, t->as);
+		}
+	}
+	/* GL_EXT_integer_dot_product: every pairing of signed and unsigned */
+	{
+		static const char *const dn[] = {"dotPacked4x8EXT",
+		    "dotPacked4x8AccSatEXT", "dotEXT", "dotAccSatEXT"};
+		static const char *const sg[] = {"int", "uint"};
+		for (k = 0; k < 4; k++) {
+			int a, b2, w;
+			for (i = 0; src[i] && !word_at(src, i, dn[k]); i++)
+				;
+			if (!src[i])
+				continue;
+			for (w = k < 2 ? 1 : 2; w <= (k < 2 ? 1 : 4); w++)
+				for (a = 0; a < 2; a++)
+					for (b2 = 0; b2 < 2; b2++) {
+						const char *r = sg[a & b2];
+						char ta[8], tb[8];
+						if (w == 1) {
+							snprintf(ta, sizeof ta, "%s", sg[a]);
+							snprintf(tb, sizeof tb, "%s", sg[b2]);
+						} else {
+							snprintf(ta, sizeof ta, "%cvec%d", sg[a][0], w);
+							snprintf(tb, sizeof tb, "%cvec%d", sg[b2][0], w);
+						}
+						sb_printf(o, "%s %s(highp %s p1, highp %s p2%s%s%s) "
+						    "{ return %s(0); } ", r, dn[k], ta, tb,
+						    k & 1 ? ", highp " : "", k & 1 ? r : "",
+						    k & 1 ? " p3" : "", r);
+					}
+		}
+	}
 	for (k = 0; k < sizeof sg_builtins / sizeof sg_builtins[0]; k++) {
 		const struct sgbi *b = &sg_builtins[k];
 		const char *const *f;
@@ -462,6 +565,7 @@ es_text(const char *src, int stage)
 	size_t i, n = strlen(src);
 	int pre = 1;	/* the prelude: on the first line of code */
 	int ifs = 0;	/* #if depth: the prelude goes outside any */
+	int spec = 0;	/* after layout(constant_id): 1 to its const, 2 to its = */
 
 	sg_stub_from = sg_stub_to = 0;
 	sb_puts(&b, "");
@@ -476,14 +580,24 @@ es_text(const char *src, int stage)
 		    8)) {
 			size_t e = strcspn(src + i, "\n");
 			if (memmem(src + i, e, " es", 3) == NULL)
-				sb_puts(&b, "#version 310 es");
+				sb_puts(&b, "#version 320 es");
 			else
 				sb_printf(&b, "%.*s", (int)e, src + i);
 			i += e;
 			continue;
 		}
-		if ((i == 0 || src[i - 1] == '\n') && !strncmp(src + i,
-		    "#extension", 10)) {
+		if ((i == 0 || src[i - 1] == '\n') && !strncmp(src + i, "#line", 5)) {
+			/* the file's name goes (GL_GOOGLE_cpp_style_line_directive) */
+			int q = 0;
+			while (i < n && src[i] != '\n') {
+				q |= src[i] == '"';
+				sb_putc(&b, q ? ' ' : src[i]);
+				i++;
+			}
+			continue;
+		}
+		if ((i == 0 || src[i - 1] == '\n') && (!strncmp(src + i,
+		    "#extension", 10) || !strncmp(src + i, "#pragma", 7))) {
 			while (i < n && src[i] != '\n') {
 				sb_putc(&b, ' ');
 				i++;
@@ -516,6 +630,52 @@ es_text(const char *src, int stage)
 			if (k < sizeof sg_vars / sizeof sg_vars[0])
 				continue;
 		}
+		/* a specialization constant: a uniform, its default left out (the
+		 * value is the pipeline's, not the one written) */
+		if (spec == 1 && word_at(src, i, "const")) {
+			sb_puts(&b, "uniform");
+			i += 5;
+			spec = 2;
+			continue;
+		}
+		if (spec && src[i] == ';')
+			spec = 0;
+		if (spec == 2 && src[i] == '=') {
+			while (i < n && src[i] != ';') {
+				sb_putc(&b, src[i] == '\n' ? '\n' : ' ');
+				i++;
+			}
+			continue;
+		}
+		/* GL_EXT_spirv_intrinsics' declarations of the module's modes */
+		if (src[i] == 's' && (word_at(src, i, "spirv_execution_mode") ||
+		    word_at(src, i, "spirv_execution_mode_id"))) {
+			while (i < n && src[i] != ';') {
+				sb_putc(&b, src[i] == '\n' ? '\n' : ' ');
+				i++;
+			}
+			if (i < n) {
+				sb_putc(&b, ' ');
+				i++;
+			}
+			continue;
+		}
+		if (isalpha((unsigned char)src[i]) && (i == 0 || !(isalnum(
+		    (unsigned char)src[i - 1]) || src[i - 1] == '_'))) {
+			size_t k;
+			for (k = 0; k < NNARROW; k++)
+				if (word_at(src, i, narrow_types[k].name))
+					break;
+			if (k < NNARROW) {
+				size_t e = i + strlen(narrow_types[k].name);
+				while (src[e] == ' ' || src[e] == '\t')
+					e++;
+				sb_puts(&b, src[e] == '(' ? narrow_types[k].ctor :
+				    narrow_types[k].as);
+				i += strlen(narrow_types[k].name);
+				continue;
+			}
+		}
 		if (word_at(src, i, "layout")) {
 			/* layout(...push_constant...): blanked */
 			size_t e = i + 6, depth = 0;
@@ -533,6 +693,58 @@ es_text(const char *src, int stage)
 				if (memmem(src + i, k - i, "push_constant", 13) != NULL) {
 					for (; i < k; i++)
 						sb_putc(&b, src[i] == '\n' ? '\n' : ' ');
+					continue;
+				}
+				/* Vulkan's qualifiers out of the list; the lines kept */
+				{
+					size_t a = e + 1, kept = 0, nls = 0, q;
+					struct sbuf l = {0};
+					sb_puts(&l, "");
+					while (a < k - 1) {
+						size_t z = a, w0, w1;
+						int d2 = 0, v;
+						while (z < k - 1 && (src[z] != ',' || d2 > 0)) {
+							if (src[z] == '(' || src[z] == '[')
+								d2++;
+							else if (src[z] == ')' || src[z] == ']')
+								d2--;
+							z++;
+						}
+						w0 = a;
+						while (w0 < z && isspace((unsigned char)src[w0]))
+							w0++;
+						w1 = w0;
+						while (w1 < z && (isalnum((unsigned char)src[w1]) ||
+						    src[w1] == '_'))
+							w1++;
+						for (v = 0; vk_layout[v]; v++)
+							if (strlen(vk_layout[v]) == w1 - w0 &&
+							    !strncmp(src + w0, vk_layout[v], w1 - w0))
+								break;
+						if (vk_layout[v] && !strcmp(vk_layout[v],
+						    "constant_id"))
+							spec = 1;
+						if (!vk_layout[v] && w1 > w0) {
+							size_t z1 = z;
+							while (z1 > w0 && isspace((unsigned char)
+							    src[z1 - 1]))
+								z1--;
+							sb_printf(&l, "%s%.*s", kept ? ", " : "",
+							    (int)(z1 - w0), src + w0);
+							kept++;
+						}
+						a = z + 1;
+					}
+					for (q = i; q < k; q++)
+						nls += src[q] == '\n';
+					if (kept)
+						sb_printf(&b, "layout(%s)", l.p);
+					else
+						sb_putc(&b, ' ');
+					while (nls--)
+						sb_putc(&b, '\n');
+					free(l.p);
+					i = k;
 					continue;
 				}
 			}
@@ -1015,9 +1227,15 @@ parse_source(const char *src, int stage)
 	size_t ws = snx_glslc_workspace_size();
 	GlslcResult *res = xcalloc(1, sizeof *res);
 	char *t1 = es_text(src, stage), *t2;
-	int tries, ok = 0;
+	int tries, ok = 0, vulkan = 1;
 	uint32_t s, n;
 
+	{
+		/* not GLSL ES: Vulkan's GLSL, with its implicit conversions */
+		const char *v = strstr(src, "#version");
+		if (v != NULL && memmem(v, strcspn(v, "\n"), " es", 3) != NULL)
+			vulkan = 0;
+	}
 	dropped[0] = 0;
 	if (strlen(t1) > SNX_GLSLC_MAX_SOURCE) {
 		snprintf(G.why, sizeof G.why, "the source is %zu bytes, more than "
@@ -1056,6 +1274,7 @@ parse_source(const char *src, int stage)
 		SG = glslc_open(m, ws, (GlslcStage)stage, t2, strlen(t2), res);
 		if (SG == NULL)
 			break;
+		SG->implicit = vulkan;
 		if (glslc_run(SG, GLSLC_PASS_PARSE, NULL, 0) == 0) {
 			ok = 1;
 			break;
