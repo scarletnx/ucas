@@ -8968,17 +8968,30 @@ spv_cover(struct fuse_tally *t)
 	    {"OpShiftRightArithmetic", O_SHR}, {"OpUDiv", O_DIV},
 	    {"OpSDiv", O_DIV}, {NULL, 0}};
 	int nid_ = V.nid + 1024, *gi = xmalloc((size_t)nid_ * sizeof *gi);
-	int nins = 0, nleaf = 0, k, i, j, q;
+	int nins = 0, nleaf = 0, k, i, j, q, o, *ord, no = 0;
 	struct fgraph G;
 	double total;
 
 	for (i = 0; i < nid_; i++)
 		gi[i] = -1;
-	for (k = 0; k < V.nin; k++)
-		if (pure_ins(k))
-			gi[V.in[k].res] = nins++;
-	for (k = 0; k < V.nin; k++)
-		if (pure_ins(k))
+	/* in the module's order: what a rewrite added goes before the
+	 * instruction it was written for, so an operand comes before its
+	 * user */
+	ord = xmalloc((size_t)(V.nin ? V.nin : 1) * sizeof *ord);
+	for (k = 0; k < SP.orig_nin; k++) {
+		for (q = SP.orig_nin; q < V.nin; q++)
+			if (SP.before[q] == k)
+				ord[no++] = q;
+		ord[no++] = k;
+	}
+	for (q = SP.orig_nin; q < V.nin; q++)
+		if (SP.before[q] < 0 || SP.before[q] >= SP.orig_nin)
+			ord[no++] = q;
+	for (o = 0; o < no; o++)
+		if (pure_ins(ord[o]))
+			gi[V.in[ord[o]].res] = nins++;
+	for (o = 0; o < no; o++)
+		if (pure_ins(k = ord[o]))
 			for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++) {
 				int a = res_of(idx(V.in[k].opnd[i]));
 				if (gi[a] < 0)
@@ -8995,8 +9008,8 @@ spv_cover(struct fuse_tally *t)
 				G.kv[j] = (int64_t)V.id[i].c[0];
 			}
 		}
-	for (k = 0; k < V.nin; k++) {
-		const struct sins *I = &V.in[k];
+	for (o = 0; o < no; o++) {
+		const struct sins *I = &V.in[k = ord[o]];
 		double mul;
 		int base;
 		if (!pure_ins(k))
@@ -9044,6 +9057,7 @@ spv_cover(struct fuse_tally *t)
 		fg_tally(&G, NULL, 1, t);
 	fg_free(&G);
 	free(gi);
+	free(ord);
 	return total;
 }
 
