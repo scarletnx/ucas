@@ -6,3 +6,6 @@
 {"id": 6, "cmd": "cost", "args": {"f": "fetch_repeat([1, 2, 3], i: u8)"}}
 {"id": 7, "cmd": "ucas", "args": {"source": "use cal"}}
 {"id": 8, "cmd": "find", "args": {"f": {"body": "K[i < 7 ? i : 13 - i]", "params": [{"name": "i", "type": "u8", "range": [0, 13]}]}, "n": 1}}
+{"id": 9, "cmd": "ucas", "args": {"source": "model texeln : gt1030 { load: 43.125, tex_nearest: 5, tex_within: 2 }\nG = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5]\nuse texeln"}}
+{"id": 10, "cmd": "find", "args": {"f": {"body": "G[i]", "params": [{"name": "i", "type": "i32", "range": [0, 7]}]}, "n": 1}}
+{"id": 11, "cmd": "find", "args": {"f": {"body": "0.25*G[i] + 0.75*G[i+1]", "params": [{"name": "i", "type": "i32", "range": [0, 6]}]}, "n": 1}}

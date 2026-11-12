@@ -461,3 +461,24 @@ texalu mx: reads through the texture unit under texel (cost 96.25 as written):
         setup (the descriptor, the upload) is not in the model: not measured
 > use gt1030
 cost model: gt1030
+> model texeln : texel { tex_nearest: 5 }
+> use texeln
+cost model: texeln
+> gp(i: i32 in 0..7) = G[i]
+> find gp 1
+  reads through the texture unit under texeln (cost 43.125 as written):
+  cost 9   fetch_clamp([0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], i)
+      [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5][i] is fetch_clamp([0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], i)
+      holds where the read is defined: there i is in 0..7, where every address mode is the plain read
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 8.94e-07 of a texel's centre for i in [0, 7] (its range), and the unit snaps by less than 2^-8: 8.94e-07 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT (each entry as its f32), 8 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 8.0), 0.0).r
+> find g 1
+  the texture unit under texeln (cost 89.25 as written): nothing taken
+  derived, but within 2.4e-07 of the exact sum, more than the 1.19e-07 allowed (the sum's own rounding as written): tol 2.4e-07 takes it
+  2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.75
+> use gt1030
+cost model: gt1030
