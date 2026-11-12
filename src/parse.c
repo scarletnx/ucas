@@ -326,7 +326,7 @@ static const struct bfn bfns[] = {
 	{"bfe", O_BFE, 3}, {"sbfe", O_SBFE, 3}, {"brev", O_BREV, 1},
 	{"mulhi", O_MULHI, 2}, {"smulhi", O_SMULHI, 2}, {"funl", O_FUNL, 3},
 	{"funr", O_FUNR, 3}, {"med3", O_MED3, 3}, {"usad4x8", O_USAD4X8, 3},
-	{"byteperm", O_BYTEPERM, 3},
+	{"byteperm", O_BYTEPERM, 3}, {"bfi", O_BFI, 4},
 	{NULL, 0, 0}
 };
 
@@ -648,6 +648,20 @@ apply_builtin(struct P *p, const struct bfn *b, nid *args, int n)
 	a = args[0];
 	if (IS_DOT(b->op))
 		return mk_dot(b->op, args[0], args[1], b->arity == 3 ? args[2] : 0);
+	if (b->op == O_BFI) {
+		/* four operands: the field's place and width ride in one */
+		if (!is_const(args[2]) || !is_const(args[3]) ||
+		    !TY_ISINT(N.ty[args[2]]) || !TY_ISINT(N.ty[args[3]]))
+			fail("bfi takes a constant offset and count: %s and %s",
+			    node_str(args[2]), node_str(args[3]));
+		if (N.ki[args[2]] < 0 || N.ki[args[3]] < 0 ||
+		    N.ki[args[2]] + N.ki[args[3]] > 32)
+			fail("bfi: bits %lld..%lld are not a field of a 32-bit "
+			    "word", (long long)N.ki[args[2]],
+			    (long long)(N.ki[args[2]] + N.ki[args[3]] - 1));
+		return mk_inst(O_BFI, args[0], args[1], bfi_field((int)
+		    N.ki[args[2]], (int)N.ki[args[3]]));
+	}
 	if (IS_INST(b->op))
 		return mk_inst(b->op, args[0], b->arity >= 2 ? args[1] : 0,
 		    b->arity == 3 ? args[2] : 0);
@@ -739,7 +753,7 @@ ident(struct P *p)
 	if ((b = builtin(p, at)) != NULL) {
 		adv(p);
 		if (pk(p) == T_LP) {
-			na = parse_args(p, args, 3);
+			na = parse_args(p, args, b->arity > 3 ? b->arity : 3);
 			return apply_builtin(p, b, args, na);
 		}
 		if (b->arity != 1)

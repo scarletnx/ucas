@@ -34,6 +34,11 @@
  *                      s, whose low three bits are the byte's number and
  *                      whose top bit, when set, replaces the byte by
  *                      eight copies of its sign bit
+ *   bfi(base, ins, p, n)
+ *                      base with bits p..p+n-1 replaced by the low n bits
+ *                      of ins (u32), p and n constant (a node has three
+ *                      operands, so they ride in one, bfi_field):
+ *                      OpBitFieldInsert
  *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
@@ -69,6 +74,8 @@ inst_class(int op)
 		return C_MED3;
 	case O_USAD4X8:
 		return C_SAD4X8;
+	case O_BFI:
+		return C_BFI;
 	}
 	return C_BYTEPERM;
 }
@@ -77,6 +84,19 @@ static nid
 ku(ty_t t, uint64_t v)
 {
 	return mk_const_i(t, (int64_t)v);
+}
+
+nid
+bfi_field(int p, int n)
+{
+	return mk_const_i(TY_LIT, (int64_t)p | (int64_t)n << 6);
+}
+
+/* the mask of bits p..p+n-1 */
+static uint32_t
+field_mask(int p, int n)
+{
+	return n == 0 ? 0 : (uint32_t)(0xffffffffu >> (32 - n)) << p;
 }
 
 static nid
@@ -179,6 +199,13 @@ inst_expand(int op, nid a, nid b, nid c)
 			    mk_bin(O_MIN, p, q)));
 		}
 		break;
+	case O_BFI: {
+		uint32_t m = field_mask(BFI_P(N.ki[c]), BFI_N(N.ki[c]));
+		r = mk_bin(O_OR, mk_bin(O_AND, a, ku(U32, ~m)), mk_bin(O_AND,
+		    mk_bin(O_SHL, b, ku(U32, (uint64_t)BFI_P(N.ki[c]) & 31)),
+		    ku(U32, m)));
+		break;
+	}
 	case O_BYTEPERM:
 		w = mk_bin(O_OR, mk_bin(O_SHL, mk_cast(U64, b), ku(U64, 32)),
 		    mk_cast(U64, a));
@@ -219,6 +246,14 @@ mk_inst(int op, nid a, nid b, nid c)
 		b = mk_cast(U32, b);
 		if (ar == 3)
 			c = mk_cast(U32, c);
+		break;
+	case O_BFI:
+		if (!is_const(c) || BFI_P(N.ki[c]) + BFI_N(N.ki[c]) > 32 ||
+		    N.ki[c] < 0)
+			fail("bfi: its field is a constant offset and count of a "
+			    "32-bit word, not %s", node_str(c));
+		a = mk_cast(U32, a);
+		b = mk_cast(U32, b);
 		break;
 	case O_SMULHI:
 		a = mk_cast(I32, a);
@@ -302,6 +337,92 @@ cshift(nid n, int op, ty_t t, nid *x, int *k)
 	*x = N.a[n];
 	*k = (int)N.ki[N.b[n]];
 	return 1;
+}
+
+/* the constant operand of an and, and the other one */
+static int
+and_const(nid n, nid *other, uint32_t *k)
+{
+	if (N.op[n] != O_AND || N.ty[n] != U32)
+		return 0;
+	if (is_const(N.b[n])) {
+		*k = (uint32_t)N.ki[N.b[n]];
+		*other = N.a[n];
+		return 1;
+	}
+	if (is_const(N.a[n])) {
+		*k = (uint32_t)N.ki[N.a[n]];
+		*other = N.b[n];
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * r as the field part of a bit field insert at bits p..p+n-1 (mask m):
+ * (ins << p) & m, (ins & (2^n - 1)) << p, or ins << p (ins itself when
+ * p is 0) where ins's range keeps it in n bits; the inserted value, or 0
+ */
+static nid
+bfi_ins(const struct func *f, nid r, int p, int n, uint32_t m,
+    struct sbuf *how)
+{
+	nid t, ins;
+	uint32_t k;
+	int s;
+	int64_t lo, hi;
+
+	if (and_const(r, &t, &k) && k == m && (p == 0 || (cshift(t, O_SHL, U32,
+	    &ins, &s) && s == p)))
+		return p == 0 ? t : ins;
+	if (p > 0 && cshift(r, O_SHL, U32, &t, &s) && s == p) {
+		if (and_const(t, &ins, &k) && k == (m >> p))
+			return ins;
+		r = t;
+	} else if (p > 0)
+		return 0;
+	if (sg_range_of(f, r, 32, &lo, &hi) && lo >= 0 && hi <= (int64_t)(m >>
+	    p)) {
+		sb_printf(how, " (%s <= %lld, by intervals)", node_str(r),
+		    (long long)hi);
+		return r;
+	}
+	return 0;
+}
+
+/* x, a word's field replaced, as bfi: (base & ~m) | field, with or, xor
+ * or +, m the field's bits */
+static nid
+bfi_of(const struct func *f, nid x, struct sbuf *why)
+{
+	int j, n, q, op = N.op[x];
+
+	if ((op != O_OR && op != O_XOR && op != O_ADD) || N.ty[x] != U32)
+		return 0;
+	for (j = 0; j < 2; j++) {
+		nid l = j ? N.b[x] : N.a[x], r = j ? N.a[x] : N.b[x];
+		nid base, ins;
+		uint32_t kk, m;
+		struct sbuf how = {0};
+		if (!and_const(l, &base, &kk) || (m = ~kk) == 0 ||
+		    m == 0xffffffffu)
+			continue;
+		for (q = 0; !((m >> q) & 1); q++)
+			;
+		for (n = 0; q + n < 32 && ((m >> (q + n)) & 1); n++)
+			;
+		if (m != field_mask(q, n) ||
+		    (ins = bfi_ins(f, r, q, n, m, &how)) == 0) {
+			free(how.p);
+			continue;
+		}
+		sb_printf(why, "%s: bits %d..%d of %s replaced by the low %d "
+		    "bits of %s%s", shared_str(x, 80), q, q + n - 1,
+		    node_str(base), n, node_str(ins), sb_str(&how));
+		free(how.p);
+		return mk_inst(O_BFI, base, ins, bfi_field(q, n));
+	}
+	return 0;
 }
 
 /* x as the instruction of pattern p; 0 when it is not that pattern */
@@ -481,11 +602,13 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		free(m2);
 		return r;
 	}
+	case 6:		/* (base & ~m) | field, m the field's bits p..p+n-1 */
+		return bfi_of(f, x, why);
 	}
 	return 0;
 }
 
-#define NPAT 6
+#define NPAT 7
 #define MAXNODE 512
 
 static int
@@ -520,9 +643,9 @@ inst_find(const struct func *f)
 	float before, cost;
 	int k, iter, bad;
 
-	for (k = C_BFE; k <= C_BYTEPERM && !cclass_available(m, k); k++)
+	for (k = C_BFE; k <= C_BFI && !cclass_available(m, k); k++)
 		;
-	if (k > C_BYTEPERM || !TY_ISINT(N.ty[cur]))
+	if (k > C_BFI || !TY_ISINT(N.ty[cur]))
 		return;
 	nd = xmalloc(MAXNODE * sizeof *nd);
 	before = cost = fuse_expr_cost(m, sg_priced(f, cur));

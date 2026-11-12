@@ -121,6 +121,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_MED3] = {"med3", 3, OF_INT},
 	[O_USAD4X8] = {"usad4x8", 3, OF_INT},
 	[O_BYTEPERM] = {"byteperm", 3, OF_INT},
+	[O_BFI] = {"bfi", 3, OF_INT},
 	[O_FETCH_REPEAT] = {"fetch_repeat", 2, 0},
 	[O_FETCH_MIRROR] = {"fetch_mirror", 2, 0},
 	[O_FETCH_CLAMP] = {"fetch_clamp", 2, 0},
@@ -1710,7 +1711,11 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
 		}
-		if (opinfo[op].arity == 3) {
+		if (op == O_BFI)
+			/* the field's offset and count, which ride in one */
+			sb_printf(b, ", %d, %d", BFI_P(N.ki[N.c[n]]),
+			    BFI_N(N.ki[N.c[n]]));
+		else if (opinfo[op].arity == 3) {
 			sb_puts(b, ", ");
 			/* a byte permute's selector reads by its nibbles */
 			pr(b, N.c[n], 0, pc, op == O_BYTEPERM);
@@ -1852,7 +1857,10 @@ print_paren(struct sbuf *b, nid n)
 		print_paren(b, N.a[n]);
 		sb_puts(b, ", ");
 		print_paren(b, N.b[n]);
-		if (opinfo[op].arity == 3) {
+		if (op == O_BFI)
+			sb_printf(b, ", %d, %d", BFI_P(N.ki[N.c[n]]),
+			    BFI_N(N.ki[N.c[n]]));
+		else if (opinfo[op].arity == 3) {
 			sb_puts(b, ", ");
 			print_paren(b, N.c[n]);
 		}

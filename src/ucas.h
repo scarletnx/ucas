@@ -149,10 +149,10 @@ enum {
 	 * inst.c: single instructions that targets have, each defined by an
 	 * expression over the operations above (bit fields, bit reversal,
 	 * the high half of a product, funnel shifts, the median of three,
-	 * a sum of byte differences, a byte permute)
+	 * a sum of byte differences, a byte permute, a bit field insert)
 	 */
 	O_BFE, O_SBFE, O_BREV, O_MULHI, O_SMULHI, O_FUNL, O_FUNR, O_MED3,
-	O_USAD4X8, O_BYTEPERM,
+	O_USAD4X8, O_BYTEPERM, O_BFI,
 	/*
 	 * texalu.c: the texture unit's fixed function as operations.  A
 	 * nearest read with an address mode on an integer texel index
@@ -175,7 +175,7 @@ enum {
 #define O_SG_FIRST O_SGBALLOT
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
-#define IS_INST(op) ((op) >= O_BFE && (op) <= O_BYTEPERM)
+#define IS_INST(op) ((op) >= O_BFE && (op) <= O_BFI)
 /* built from all three operands by mk_op (the generic rebuilders) */
 #define IS_OP3(op) (IS_DOT(op) || IS_SG(op) || IS_INST(op))
 #define OF_COMM 1
@@ -235,6 +235,10 @@ nid mk_dot(int op, nid a, nid b, nid acc);  /* dot.c; acc 0 unless _SAT */
 nid mk_op(int op, nid a, nid b, nid c);     /* any op from its operands */
 nid mk_sg(int op, nid a, nid b, nid c);     /* sg.c; the last operand is W */
 nid mk_inst(int op, nid a, nid b, nid c);   /* inst.c */
+/* bfi's field (offset p, count n) as its one constant operand */
+nid bfi_field(int p, int n);
+#define BFI_P(k) ((int)((k) & 63))
+#define BFI_N(k) ((int)((k) >> 6))
 /* texalu.c's operations; ki as the node keeps it (TEX_KI) */
 nid mk_tex(int op, int64_t ki, nid a, nid b, nid c);
 /* a node like n on other operands (the generic rebuilders) */
@@ -378,7 +382,7 @@ enum {
 	 */
 	C_ROP_BLEND, C_ROP_ADV, C_ROP_LOGIC, C_ROP_STENCIL,
 	/* the catalogue's instructions (inst.c), absent unless listed */
-	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM,
+	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
