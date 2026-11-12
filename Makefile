@@ -8,6 +8,8 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 SRCS+=	fuse.c irw.c idrw.c
 # integers as floats and floats as integers: more rewrites for irw.c
 SRCS+=	ifx.c
+# graphics fixed function (blending, logic ops, stencil) as compute
+SRCS+=	rop.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 # complex, polar and trig forms; asin acos atan2 sinh cosh tanh ...

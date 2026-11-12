@@ -1,0 +1,102 @@
+# Graphics fixed function as compute (src/rop.c): the update a scatter
+# applies to a cell, F(s, d), against the catalogue of fixed-function
+# states.  Every state is compared with F on F's domain; each is a
+# proposal with its pipeline, priced by a class no built-in model lists
+# (nothing is measured yet).
+
+# a histogram of bytes: additive blending on a float target is exact
+# while the counts stay below 2^24, and then the order does not matter
+acc(s: u32 in 0..255, d: u32 in 0..1000000) = d + s
+rop acc
+# the same sum without a bound: the blend equation is the same, f32 is
+# not exact, and integer targets do not blend
+big(s: u32, d: u32) = d + s
+rop big
+# a weighted sum: the weight is a second output (dual-source blending),
+# or a pipeline constant when it is uniform
+wsum(s: u32 in 0..255, w: u32 in 0..16, d: u32 in 0..100000) = d + s*w
+rop wsum
+wk(s: u32 in 0..255, k: u32 in 0..16 uniform, d: u32 in 0..100000) = d + s*k
+rop wk
+
+# bitsets: logic ops on an unsigned integer target, any order
+bits(s: u32, d: u32) = d | s
+rop bits
+tog(s: u16, d: u16) = d xor s
+rop tog
+clr(s: u8, d: u8) = d & ~s
+rop clr
+# a logic op whose result depends on the order: still that state, for
+# a sequential loop, not for atomics
+ord(s: u32, d: u32) = s & ~d
+rop ord
+
+# counters in the stencil buffer: wrapping, saturating, under a write
+# mask, the reference value
+cnt(d: u8) = d + 1
+rop cnt
+sat(d: u8) = d == 255 ? 255 : d + 1
+rop sat
+low(d: u8) = (d & 0xf0) | ((d + 1) & 0x0f)
+rop low
+ref(k: u8 uniform, d: u8) = k
+rop ref
+inv(d: u8) = ~d
+rop inv
+
+# bytes on a normalized target: the clamp to [0, 1] is a saturating
+# add; min and max
+sadd(s: u8, d: u8) = u8(min(u32(d) + u32(s), 255))
+rop sadd
+lo(s: u8, d: u8) = min(s, d)
+rop lo
+
+# floats: one add (exact if the blender rounds to nearest), min, and
+# equations that are several operations (equal as real functions)
+fa(s: f32, d: f32) = d + s
+rop fa
+fm(s: f32, d: f32) = min(d, s)
+rop fm
+kb(s: f32, k: f32 uniform, d: f32) = d + s*k
+rop kb
+lerp(s: f32, t: f32, d: f32) = s*t + d*(1.0 - t)
+rop lerp
+# screen and exclusion are blend equations with ONE_MINUS factors, and
+# advanced blend operations too; a difference is only the latter, and
+# needs colours in [0, 1]
+scr(s: f32 in 0..1, d: f32 in 0..1) = s + d - s*d
+rop scr
+exc(s: f32 in 0..1, d: f32 in 0..1) = s + d - 2.0*s*d
+rop exc
+dif(s: f32 in 0..1, d: f32 in 0..1) = abs(d - s)
+rop dif
+difx(s: f32, d: f32) = abs(d - s)
+rop difx
+
+# nothing in the catalogue: a multiply of the cell by 3 is no factor
+nope(s: u32, d: u32) = d * 3 + s
+rop nope
+
+# with a model that prices the states: cheaper than the atomic or not
+model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
+rop acc model fixed
+rop bits under fixed
+use fixed
+rop cnt
+# a float add is priced against the float atomic, an update that is no
+# atomic against a compare-and-swap loop
+rop fa
+rop kb
+use gt1030
+
+# English, and what rop refuses
+the blend state for acc
+the logic op for a | b with u32 a and b
+show me the fixed-function forms of cnt on fixed
+rop sat model nomodel
+bad(s: u32, d: f32) = d + 1.0
+rop bad
+two(a: u32 uniform, b: u32 uniform, d: u32) = d + a + b
+rop two
+sg(s: i32, d: i32) = d + s
+rop sg

@@ -1,0 +1,5 @@
+{"id": 1, "cmd": "rop", "args": {"f": {"body": "d + s", "params": [{"name": "s", "type": "u32", "range": [0, 255]}, {"name": "d", "type": "u32", "range": [0, 1000000]}]}}}
+{"id": 2, "cmd": "rop", "args": {"f": {"body": "d | s", "params": [{"name": "s", "type": "u32"}, {"name": "d", "type": "u32"}]}}}
+{"id": 3, "cmd": "ucas", "args": {"source": "model fixed : gt1030 { rop_stencil: 3 }"}}
+{"id": 4, "cmd": "rop", "args": {"f": {"body": "d + 1", "params": [{"name": "d", "type": "u8"}]}, "model": "fixed"}}
+{"id": 5, "cmd": "rop", "args": {"f": {"body": "d * 3 + s", "params": [{"name": "s", "type": "u32"}, {"name": "d", "type": "u32"}]}}}

@@ -1473,7 +1473,7 @@ enum {
 	C_NONE, C_EVAL, C_SHOW, C_TABLE, C_RANGE, C_DOMAIN, C_WRAP, C_CRIT,
 	C_DIFF, C_EQUIV, C_GATES, C_FIND, C_FIT, C_ERROR, C_COST, C_DEF,
 	C_RAW, C_PROP, C_APPROX, C_INTEG, C_CLOSED, C_SCHEME, C_CONT, C_DSOLVE,
-	C_PCMD, C_PLOT
+	C_PCMD, C_PLOT, C_ROP
 };
 enum { PR_COMM, PR_ASSOC, PR_ADD, PR_IDEM, PR_ODD, PR_EVEN, PR_ODDV,
 	PR_EVENV };
@@ -4518,6 +4518,14 @@ noun_cmd(void)
 		return C_FIND;
 	if (mat("cost|price|expense|latency") || mat("gpu cost"))
 		return C_COST;
+	/* rop.c: "the blend state for d + s", "a logic op for d | s",
+	 * "fixed function for acc" */
+	if (mat("?fixed|fixed-function blend|blending|logic|stencil|raster "
+	    "state|states|mode|modes|op|ops|operation|operations|equation") ||
+	    mat("fixed function ?state|states|form|forms") ||
+	    mat("fixed-function state|states|form|forms") ||
+	    mat("blending") || mat("rop|rops"))
+		return C_ROP;
 	if (mat("?truth table|tabulation") || mat("list|table of values") ||
 	    mat("values")) {
 		mat("?of values|outputs");
@@ -7075,6 +7083,10 @@ finish(void)
 		emit(Q.model[0] ? S("cost %s model %s", a, Q.model) :
 		    S("cost %s", a));
 		break;
+	case C_ROP:
+		emit(Q.model[0] ? S("rop %s model %s", a, Q.model) :
+		    S("rop %s", a));
+		break;
 	case C_FIND:
 		emit(S("find %s%s%s", a, Q.count ? S(" %d", Q.count) : "",
 		    Q.maxc ? S(" max %d", Q.maxc) : ""));
@@ -7589,7 +7601,7 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	"wrap", "crit", "diff", "equiv", "gates", "find", "fit", "error",
 	"cost", "use", "more", "parse", "funcs", "models", "help", "basis",
 	"model", "approx", "closed", "scheme", "continuous", "integrate",
-	"dsolve", "pde", "animate",
+	"dsolve", "pde", "animate", "rop",
 	/* props.c */
 	"monotonic", "monotone", "period", "periodic", "identify", "parity",
 	"symmetry", "bounded", "injective", "surjective", "bijective",
