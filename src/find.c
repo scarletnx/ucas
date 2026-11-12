@@ -1022,6 +1022,7 @@ struct pcand {
 	char what[200];
 	int derived;		/* irw.c: an identity, proved by derivation */
 	int loose;		/* irw.c: it relies on a GPU's looser floats */
+	int nosat;		/* irw.c: checked on the domain's points only */
 };
 
 static int
@@ -1230,6 +1231,25 @@ proof_word(const struct eqproof *pr)
 	    "proved by SAT" : "sampled, not proved";
 }
 
+/*
+ * The second opinion on a derived rewrite: equiv_decide, or for one
+ * SAT does not finish on (a multiplier against a divider: its derivation
+ * is the proof) the domain's points alone, all of them or a sample.
+ */
+static int
+derived_check(const struct func *f, nid e, int nosat, struct sbuf *w,
+    struct eqproof *pr)
+{
+	int sampled = 0, bad;
+
+	if (!nosat)
+		return equiv_decide(f, f->body, e, w, pr);
+	memset(pr, 0, sizeof *pr);
+	bad = equiv_check(f, f->body, e, w, &sampled);
+	pr->how = sampled ? EQ_SAMPLED : EQ_EXHAUSTIVE;
+	return bad;
+}
+
 /* the rewrites irw.c derives for root, added to the candidates */
 static int
 with_rewrites(const struct func *f, nid root, struct pcand **c, int nc)
@@ -1247,6 +1267,7 @@ with_rewrites(const struct func *f, nid root, struct pcand **c, int nc)
 		snprintf((*c)[nc].what, sizeof (*c)[nc].what, "%s", r[i].what);
 		(*c)[nc].derived = 1;
 		(*c)[nc].loose = r[i].loose;
+		(*c)[nc].nosat = r[i].nosat;
 		nc++;
 	}
 	irw_free(r, nr);
@@ -1290,7 +1311,7 @@ rewrites(const struct func *f, int base)
 			continue;
 		}
 		sb_clear(&w);
-		bad = equiv_decide(f, f->body, r[i].e, &w, &pr);
+		bad = derived_check(f, r[i].e, r[i].nosat, &w, &pr);
 		if (!shown++)
 			printf("  rewrites the model prices lower (each derived, with "
 			    "what it holds under):\n");
@@ -1403,8 +1424,8 @@ peephole(const struct func *f)
 			if ((double)(clock() - t0) / CLOCKS_PER_SEC > PEEP_SECONDS)
 				break;
 			proofs++;
-			if (equiv_decide(f, f->body, c[i].e, NULL, &pr) ||
-			    (pr.how == EQ_SAMPLED && !c[i].derived))
+			if (derived_check(f, c[i].e, c[i].derived && c[i].nosat,
+			    NULL, &pr) || (pr.how == EQ_SAMPLED && !c[i].derived))
 				continue;
 			if (pr.how == EQ_SAT)
 				last = "proved by SAT";

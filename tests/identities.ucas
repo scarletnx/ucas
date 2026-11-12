@@ -1,0 +1,61 @@
+# Identities solved for the function at hand (src/idrw.c): find offers
+# each with its derivation and keeps it only where the active model
+# prices it lower.
+
+# a divisibility test by a constant: a multiply and a compare (d odd)
+dv(n: u32) = n % 7 == 0
+find dv 1
+# an even divisor adds a rotation; a remainder other than 0 an add
+de(n: u32, a: u32, b: u32) = n % 12 != 5 ? a : b
+find de 1
+# signed: the multiples of 6 on both sides of 0
+ds(n: i32) = n % 6 == 0
+find ds 1
+# 16 bits: the domain is small enough to check every point
+d16(n: u16) = n % 100 == 0
+find d16 1
+# a model where a multiply costs more than the remainder: not cheaper
+model muldear : gt1030 { imul: 20 }
+use muldear
+find dv 1
+use gt1030
+
+# a division by a constant whose dividend has a proved bound: one
+# multiply and one shift in u32
+d(x: u32 in 0..99, y: u32) = x / 10 + y
+find d 1
+r(x: i32 in 0..9999) = x % 100
+find r 1
+# the bound is too large for any shift: says what it would need
+big(x: u32 in 0..10000000) = x / 7
+find big 1
+use muldear
+find d 1
+use gt1030
+
+# a map of one small-range variable, read at each of its values: a
+# table in one constant
+mem(x: u32 in 0..31, y: u32) = (x == 3 || x == 5 || x == 11 || x == 17 || x == 30) ? y : 0
+find mem 1
+sw(x: u32 in 0..7, y: u32) = (x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) + y
+find sw 1
+sg(x: i32 in -3..4, y: i32) = (x < 0 ? -1 : x > 0 ? 1 : 0) * y
+find sg 1
+# 33 values of one bit do not fit 32 bits: nothing offered
+m33(x: u32 in 0..32, y: u32) = (x == 3 || x == 32) ? y : 0
+find m33 1
+# a model where a shift by a variable is dear: derived, not cheaper
+model shiftdear : gt1030 { shift: 20 }
+use shiftdear
+find sw 1
+use gt1030
+
+# or a multiply and a shift, (x M + A) >> s, solved from the values
+q(v: u32 in 0..255) = (v*31 + 127)/255
+find q 1
+# ten bits to a percentage, rounded: one multiply-shift
+pc(x: u32 in 0..1023, y: u32) = (x*100 + 511)/1023 + y
+find pc 1
+# a map that is not a floor of a line: nothing offered
+dg(x: u32 in 0..999) = x < 10 ? 1 : x < 100 ? 2 : 3
+find dg 1

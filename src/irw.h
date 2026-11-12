@@ -17,7 +17,29 @@ struct irw {
 				 * rounded f32: checks by evaluation do not
 				 * cover it, and nothing may be dropped from it
 				 * on their word */
+	int nosat;		/* a multiplier against a divider: SAT does not
+				 * finish on it; the derivation is the proof
+				 * and the second opinion is the domain's
+				 * points (all of them, or a sample) */
 };
+
+/* ranges of root's subterms on f's domain (g: f with the parameters'
+ * ranges narrowed by the where clause) */
+struct ivc {
+	const struct func *f;
+	struct func g;
+	struct plan p;
+	struct ival *iv;
+	nid root;
+};
+int irw_range(struct ivc *c, nid s, int64_t need_lo, int64_t *lo, int64_t *hi,
+    char *why, size_t nwhy);
+struct irw *irw_add(struct irw **out, int *n, int *cap, nid root, nid from,
+    nid to, const char *what, const char *cond, const char *proof, int keep);
+/* idrw.c: identities solved exactly or found by search (see there) */
+void idrw_node(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap);
+void idrw_maps(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap);
 int irw_cands(const struct func *f, nid root, struct irw **out);
 void irw_free(struct irw *r, int n);
 void irw_print(const struct irw *r, const char *ind);

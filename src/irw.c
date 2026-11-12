@@ -30,14 +30,6 @@
 
 /* ---- ranges of subterms on f's domain ---- */
 
-struct ivc {
-	const struct func *f;
-	struct func g;
-	struct plan p;
-	struct ival *iv;
-	nid root;
-};
-
 static void
 ivc_open(struct ivc *c, const struct func *f, nid root)
 {
@@ -425,6 +417,23 @@ rw_fdiv(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 }
 
 int
+irw_range(struct ivc *c, nid s, int64_t need_lo, int64_t *lo, int64_t *hi,
+    char *why, size_t nwhy)
+{
+	return range_of(c, s, need_lo, lo, hi, why, nwhy);
+}
+
+struct irw *
+irw_add(struct irw **out, int *n, int *cap, nid root, nid from, nid to,
+    const char *what, const char *cond, const char *proof, int keep)
+{
+	int before = *n;
+
+	add(out, n, cap, root, from, to, what, cond, proof, keep);
+	return *n > before ? &(*out)[*n - 1] : NULL;
+}
+
+int
 irw_cands(const struct func *f, nid root, struct irw **out)
 {
 	uint8_t *mark;
@@ -468,7 +477,9 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 			}
 			if (op == O_SEL)
 				rw_minmax(&c, root, n, out, &cnt, &cap);
+			idrw_node(&c, root, n, out, &cnt, &cap);
 		}
+		idrw_maps(&c, root, out, &cnt, &cap);
 	}
 	memcpy(fail_jmp, saved, sizeof saved);
 	note_mute--;

@@ -1,0 +1,202 @@
+> dv(n: u32) = n % 7 == 0
+> find dv 1
+  note: the result is bool: searching in u32
+find dv: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   3067833783n <= 613566756                 the divisibility test n % 7 == 0 as a multiply and a compare (derived; checked on a sample)
+      holds where n is any u32 (the multiply wraps mod 2^32)
+      7 is odd, and 7 * 0xb6db6db7 = 1 mod 2^32
+      t(n) = n*0xb6db6db7 takes each 32-bit word to a different one (a bijection): a multiply by an odd number does
+      the multiples of 7 are q*7 for q = 0..613566756 (floor((2^32 - 1)/7)); there n * 0xb6db6db7 = q mod 2^32: t takes them onto 0..613566756
+      a bijection takes every other n outside 0..613566756: t(n) <= 613566756 exactly where n % 7 == 0
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> de(n: u32, a: u32, b: u32) = n % 12 != 5 ? a : b
+> find de 1
+find de: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 12  t1 >> 2 | t1 << 30 > 357913940 ? a : b where t1 = 2863311531n + 2863311529 the divisibility test n % 12 != 5 as a multiply, a rotation and a compare (derived; checked on a sample)
+      holds where n is any u32 (the multiply wraps mod 2^32)
+      12 = 2^2 * 3 with 3 odd, and 3 * 0xaaaaaaab = 1 mod 2^32; c = 0xaaaaaaa9 is -r * that inverse mod 2^32
+      t(n) = rotr(n*0xaaaaaaab + c, 2) takes each 32-bit word to a different one (a bijection): a multiply by an odd number, an add and a rotation each do
+      the n with n % 12 = 5 are 5 + q*12 for q = 0..357913940 (floor((2^32 - 1 - 5)/12)); there (n - 5) * 0xaaaaaaab = q * 2^k mod 2^32, below 2^32 because q*12 is, and rotated right by 2 it is q: t takes them onto 0..357913940
+      a bijection takes every other n outside 0..357913940: t(n) <= 357913940 exactly where n % 12 == 5
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ds(n: i32) = n % 6 == 0
+> find ds 1
+  note: the result is bool: searching in i32
+find ds: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  t1 >> 1 | t1 << 31 <= 715827882 where t1 = 2863311531u32(n) + 715827882 the divisibility test n % 6 == 0 as a multiply, a rotation and a compare (derived; checked on a sample)
+      holds where n is any i32 (the multiply wraps mod 2^32)
+      6 = 2^1 * 3 with 3 odd, and 3 * 0xaaaaaaab = 1 mod 2^32; c = 0x2aaaaaaa is A * 2^k mod 2^32
+      t(n) = rotr(n*0xaaaaaaab + c, 1) takes each 32-bit word to a different one (a bijection): a multiply by an odd number, an add and a rotation each do
+      the multiples of 6 in i32 are q*6 for q = -A..357913941 (A = floor(2^31/6) = 357913941); there n * 0xaaaaaaab + c = (q + A) * 2^k mod 2^32, below 2^32 because (q + A)*6 is, and rotated right by 1 it is q + A: t takes them onto 0..715827882
+      a bijection takes every other n outside 0..715827882: t(n) <= 715827882 exactly where n % 6 == 0
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> d16(n: u16) = n % 100 == 0
+> find d16 1
+  note: the result is bool: searching in u16
+find d16: 1024 points (sampled; matches verified on the whole domain), computing in u16, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  23593n >> 2 | 23593n << 14 <= 655        the divisibility test n % 100 == 0 as a multiply, a rotation and a compare (derived; checked on every point)
+      holds where n is any u16 (the multiply wraps mod 2^16)
+      100 = 2^2 * 25 with 25 odd, and 25 * 0x5c29 = 1 mod 2^16
+      t(n) = rotr(n*0x5c29, 2) takes each 16-bit word to a different one (a bijection): a multiply by an odd number and a rotation each do
+      the multiples of 100 are q*100 for q = 0..655 (floor((2^16 - 1)/100)); there n * 0x5c29 = q * 2^k mod 2^16, below 2^16 because q*100 is, and rotated right by 2 it is q: t takes them onto 0..655
+      a bijection takes every other n outside 0..655: t(n) <= 655 exactly where n % 100 == 0
+  not applied (it would cost 12): the remainder n % 100 as a multiply and a shift in u32
+      needs n <= 51199 (it is in [0, 65535]: its range)
+      M = ceil(2^23/100) = 83887, so M*100 = 2^23 + 92
+      x*M/2^23 = x/100 + x*92/(100*2^23): the excess is below 1/100 while x*92 < 2^23, and x/100 is at least 1/100 below the next integer, so floor(x*M/2^23) = floor(x/100)
+      that and a product below 2^32 need x <= 51199 (the most any shift allows, with 2^23); here x reaches 65535
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model muldear : gt1030 { imul: 20 }
+> use muldear
+cost model: muldear
+> find dv 1
+  note: the result is bool: searching in u32
+find dv: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from muldear
+  derived, but not cheaper under muldear (cost 22, as written 16): the divisibility test n % 7 == 0 as a multiply and a compare
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> d(x: u32 in 0..99, y: u32) = x / 10 + y
+> find d 1
+find d: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   (103x >> 10) + y                         the division x/10 as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where x in [0, 99] (its range)
+      M = ceil(2^10/10) = 103, so M*10 = 2^10 + 6
+      x*M/2^10 = x/10 + x*6/(10*2^10): the excess is below 1/10 while x*6 < 2^10, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^10) = floor(x/10)
+      x <= 99: x*6 <= 594 < 2^10, and x*M <= 10197 < 2^32, so the product does not wrap in u32
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> r(x: i32 in 0..9999) = x % 100
+> find r 1
+find r: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 14  i32(u32(x) % 100)                        the signed remainder x % 100 as u32 (its operands are never negative) (derived; checked on every point)
+      holds where x >= 0 (x in [0, 9999]: its range) and 100 >= 1 (100 in [100, 100]: a constant)
+      x % 100 on i32 is a - b*trunc(a/b), with the sign of the dividend; with a >= 0 and b >= 1 it is a - b*floor(a/b), in [0, b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned remainder (at most a < 2^31) converts back to i32 unchanged
+  cost 9   i32(u32(x) - 100(5243u32(x) >> 0x13))    the remainder x % 100 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where x in [0, 9999] (its range)
+      M = ceil(2^19/100) = 5243, so M*100 = 2^19 + 12
+      x*M/2^19 = x/100 + x*12/(100*2^19): the excess is below 1/100 while x*12 < 2^19, and x/100 is at least 1/100 below the next integer, so floor(x*M/2^19) = floor(x/100)
+      x <= 9999: x*12 <= 119988 < 2^19, and x*M <= 52424757 < 2^32, so the product does not wrap in u32
+      and x % 100 = x - 100*floor(x/100)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> big(x: u32 in 0..10000000) = x / 7
+> find big 1
+find big: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  not applied (it would cost 5): the division x/7 as a multiply and a shift in u32
+      needs x <= 57343 (it is in [0, 10000000]: its range)
+      M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
+      x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
+      that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 10000000
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use muldear
+cost model: muldear
+> find d 1
+find d: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from muldear
+  derived, but not cheaper under muldear (cost 22, as written 10): the division x/10 as a multiply and a shift in u32
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> mem(x: u32 in 0..31, y: u32) = (x == 3 || x == 5 || x == 11 || x == 17 || x == 30) ? y : 0
+> find mem 1
+find mem: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   bool(0x40020828 >> x) ? y : 0            the map x == 3 || x == 5 || x == 11 || x == 17 || x == 30 of x as a table in one constant (32 entries of 1 bit) (derived; checked by SAT)
+      holds where x in [0, 31] (its range)
+      x == 3 || x == 5 || x == 11 || x == 17 || x == 30 at x = 0..31 is [0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, ... (16 more)] (evaluated at each of the 32)
+      bits [1*i, 1*i + 1) of 0x40020828 hold the value at x = i: shifting right by x and taking the low bit reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sw(x: u32 in 0..7, y: u32) = (x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) + y
+> find sw 1
+find sw: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 6   (0x900173 >> (x << 2) & 15) + y          the map u32(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) of x as a table in one constant (8 entries of 4 bits) (derived; checked by SAT)
+      holds where x in [0, 7] (its range)
+      u32(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) at x = 0..7 is [3, 7, 1, 0, 0, 9, 0, 0] (evaluated at each of the 8)
+      bits [4*i, 4*i + 4) of 0x900173 hold the value at x = i: shifting right by that many bits times x and masking reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sg(x: i32 in -3..4, y: i32) = (x < 0 ? -1 : x > 0 ? 1 : 0) * y
+> find sg 1
+find sg: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  (i32(0xaa40 >> (u32(x + 3) << 1) & 3) - 1)*y the map i32(x < 0 ? -1 : x > 0 ? 1 : 0) of x as a table in one constant (8 entries of 2 bits) (derived; checked by SAT)
+      holds where x in [-3, 4] (its range)
+      i32(x < 0 ? -1 : x > 0 ? 1 : 0) at x = -3..4 is [-1, -1, -1, 0, 1, 1, 1, 1] (evaluated at each of the 8)
+      bits [2*i, 2*i + 2) of 0xaa40 hold the value at x = lo + i, less the least value: shifting right by that many bits times the offset from lo and masking reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> m33(x: u32 in 0..32, y: u32) = (x == 3 || x == 32) ? y : 0
+> find m33 1
+find m33: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model shiftdear : gt1030 { shift: 20 }
+> use shiftdear
+cost model: shiftdear
+> find sw 1
+find sw: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from shiftdear
+  derived, but not cheaper under shiftdear (cost 42, as written 17): the map u32(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) of x as a table in one constant (8 entries of 4 bits)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> q(v: u32 in 0..255) = (v*31 + 127)/255
+> find q 1
+find q: 256 points, computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 8   8225(31v + 127) >> 0x15                  the division (31v + 127)/255 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where 31v + 127 in [127, 8032] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^21/255) = 8225, so M*255 = 2^21 + 223
+      x*M/2^21 = x/255 + x*223/(255*2^21): the excess is below 1/255 while x*223 < 2^21, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^21) = floor(x/255)
+      x <= 8032: x*223 <= 1791136 < 2^21, and x*M <= 66063200 < 2^32, so the product does not wrap in u32
+  cost 5   249v + 1014 >> 11                        the map (31v + 127)/255 of v as a multiply and a shift in u32 (derived; checked on every point)
+      holds where v in [0, 255] (its range)
+      (31v + 127)/255 at v = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)
+      with i = v, M = 249 and A = 1014: each value w has w*2^11 <= i*M + A < (w + 1)*2^11 (the closest: 0 above at v = 218, 12 below at v = 37), so (i*M + A) >> 11 is w
+      i*M + A stays in 0..65535, inside u32: computed mod 2^32 from v itself, as v*0xf9 + 0x3f6, it is the same number
+  dot products under gt1030 (sums of products laid into lanes; cost 12.75 as written):
+  cost 10.75 (udot4x8(v, 0x1f) + 127)/255
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: v * 31
+           v in 0..255 (proved range)
+           udot4x8's sum is in 0..7905: it does not wrap
+           exhaustive
+  cost 7   [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11… (648 more characters) lookup table (baseline)
+  [searched every term up to cost 4: 65536 distinct columns, bank full; 'more' continues]
+> pc(x: u32 in 0..1023, y: u32) = (x*100 + 511)/1023 + y
+> find pc 1
+find pc: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  not applied (it would cost 8): the division (100x + 511)/1023 as a multiply and a shift in u32
+      needs 100x + 511 <= 65471 (it is in [511, 102811]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^26/1023) = 65601, so M*1023 = 2^26 + 959
+      x*M/2^26 = x/1023 + x*959/(1023*2^26): the excess is below 1/1023 while x*959 < 2^26, and x/1023 is at least 1/1023 below the next integer, so floor(x*M/2^26) = floor(x/1023)
+      that and a product below 2^32 need x <= 65471 (the most any shift allows, with 2^26); here x reaches 102811
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   (3203x + 16442 >> 15) + y                the map (100x + 511)/1023 of x as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where x in [0, 1023] (its range)
+      (100x + 511)/1023 at x = 0..1023 is [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ... (1008 more)] (evaluated at each of the 1024)
+      with i = x, M = 3203 and A = 16442: each value w has w*2^15 <= i*M + A < (w + 1)*2^15 (the closest: 0 above at x = 578, 14 below at x = 445), so (i*M + A) >> 15 is w
+      i*M + A stays in 0..3309567, inside u32: computed mod 2^32 from x itself, as x*0xc83 + 0x403a, it is the same number
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> dg(x: u32 in 0..999) = x < 10 ? 1 : x < 100 ? 2 : 3
+> find dg 1
+  note: the result is int: searching in u32
+find dg: 1000 points, computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16777 distinct columns, bank full; 'more' continues]
