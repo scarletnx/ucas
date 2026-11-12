@@ -934,9 +934,43 @@ puti(int st, int64_t v)
 	return (uint64_t)v & wmask(y->w);
 }
 
+/*
+ * spirv-dis writes an infinity or a NaN of w bits as a hex float whose exponent is one
+ * past the largest (0x1p+128, 0x1.8p+128 for a float), the fraction's bits left-aligned
+ * after the point; strtod reads that as a finite double, which rounds to an infinity
+ */
+static int
+parse_fspecial(int w, const char *s, uint64_t *bits)
+{
+	int fw = w == 16 ? 10 : w == 32 ? 23 : 52;
+	long emax = w == 16 ? 16 : w == 32 ? 128 : 1024;
+	uint64_t sign = 0, frac = 0;
+	int n = 0;
+
+	if (*s == '-' || *s == '+')
+		sign = *s++ == '-';
+	if (strncmp(s, "0x1", 3) && strncmp(s, "0X1", 3))
+		return 0;
+	s += 3;
+	if (*s == '.')
+		for (s++; isxdigit((unsigned char)*s) && n < 16; s++, n++)
+			frac = frac << 4 |
+			    (uint64_t)(isdigit((unsigned char)*s) ? *s - '0' :
+			    tolower((unsigned char)*s) - 'a' + 10);
+	if ((*s != 'p' && *s != 'P') || strtol(s + 1, NULL, 10) != emax)
+		return 0;
+	frac = 4 * n > fw ? frac >> (4 * n - fw) : frac << (fw - 4 * n);
+	*bits = sign << (w - 1) | wmask(w - 1 - fw) << fw | (frac & wmask(fw));
+	return 1;
+}
+
 static uint64_t
 parse_literal(int st, const char *s)
 {
+	uint64_t b;
+
+	if (T(st)->k == S_FLOAT && parse_fspecial(T(st)->w, s, &b))
+		return b;
 	if (T(st)->k == S_FLOAT)
 		return putf(st, strtod(s, NULL));
 	if (s[0] == '-')
