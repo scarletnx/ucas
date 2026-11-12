@@ -2,3 +2,4 @@
 {"id": 2, "cmd": "spirv_simplify", "args": {"code": "vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }", "lang": "glsl", "float_only": true, "exact": true, "float_ranges": {"c": [0, 1]}, "nofile": true}}
 {"id": 3, "cmd": "spirv_simplify", "args": {"code": "vec3 decode(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }", "lang": "glsl", "float_only": true, "approx": true, "ulp": 4, "float_ranges": {"c": [0, 1]}, "nofile": true}}
 {"id": 4, "cmd": "spirv_simplify", "args": {"code": "vec3 tone(vec3 c) { return (c + vec3(0.1, 0.2, 0.3)) / vec3(2.0, 4.0, 1.5); }", "percomp": true, "nofile": true}}
+{"id": 5, "cmd": "spirv_simplify", "args": {"code": "vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }", "lang": "glsl", "float_only": true, "float_ranges": {"c": [0, 1]}, "search": "anneal", "seed": 2, "nofile": true}}

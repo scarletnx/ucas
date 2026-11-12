@@ -644,6 +644,10 @@ static const struct jcmd cmds[] = {
 	    NUO("ulp", "", "float rewrites: within N ulp of the reference"),
 	    BO("approx", "", "float rewrites: approximations too (with ulp)"),
 	    BO("percomp", "", "float rewrites: per vector component"),
+	    {"search", P_ENUM, 0, "", "float rewrites: the polynomials' "
+	    "coefficient search after rounding, kept when its certificate is "
+	    "better", "anneal|cmaes"},
+	    IO("seed", "", "the search's seed (UCAS_SEED, else 1)"),
 	    BO("advice", "", "also report what could leave the shader: values "
 	    "of a draw's frequency, and in a fragment shader what is affine in "
 	    "the varyings"),
@@ -2487,6 +2491,17 @@ cmd_spirv(struct req *r, const char **code)
 		sb_puts(&r->stmt, " approx");
 	if ((v = jv_get(r->args, "percomp")) != NULL && v->t == J_TRUE)
 		sb_puts(&r->stmt, " percomp");
+	if ((v = jv_get(r->args, "search")) != NULL) {
+		if (v->t != J_STR || (strcmp(v->s, "anneal") &&
+		    strcmp(v->s, "cmaes")))
+			return bad(r, "bad_request", "search: anneal or cmaes");
+		sb_printf(&r->stmt, " search %s", v->s);
+	}
+	if ((v = jv_get(r->args, "seed")) != NULL) {
+		sb_puts(&r->stmt, " seed ");
+		if (!render_num(r, &r->stmt, v, "seed"))
+			return 0;
+	}
 	if ((v = jv_get(r->args, "advice")) != NULL && v->t == J_TRUE)
 		sb_puts(&r->stmt, " advice");
 	if ((v = jv_get(r->args, "sink")) != NULL) {

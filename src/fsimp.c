@@ -24,6 +24,7 @@
  */
 #include "fsimp.h"
 #include "approx.h"
+#include "numsearch.h"
 
 #include <float.h>
 #include <math.h>
@@ -1688,6 +1689,130 @@ an_sqrt(struct fxg *g, const struct fiv *dom, struct fxrw *r, int x)
 	r->exact = 0;
 }
 
+/* ---- the coefficient searches on the polynomials (numsearch.c) ---- */
+
+#define FXS_NP 2000
+
+/* the certificate's bound (poly_cert's relative one, pf_cert's absolute
+ * one) at points of the range, P's coefficients a whole number of ulps
+ * from base[] */
+struct fxsctx {
+	const float *base;
+	float a[16];
+	int n, rel, np;
+	float c;
+	float xs[FXS_NP];
+	ld ys[FXS_NP];
+};
+
+static double
+fxs_obj(void *ctx, const int *off)
+{
+	struct fxsctx *s = ctx;
+	double worst = 0, gam = 2 * s->n * U24 / (1 - 2 * s->n * U24);
+	int i, j;
+
+	for (i = 0; i <= s->n; i++) {
+		float v = s->base[i];
+		for (j = 0; j < abs(off[i]); j++)
+			v = nextafterf(v, off[i] > 0 ? INFINITY : -INFINITY);
+		s->a[i] = v;
+	}
+	for (i = 0; i < s->np; i++) {
+		ld t = (ld)s->xs[i] - s->c, pv = 0, fy = fabsl(s->ys[i]);
+		double T = fabs((double)t), S = 0, S1 = 0, ex, rt, tot;
+		int exact = s->c == 0 || (s->c > 0 && s->xs[i] >= s->c / 2 &&
+		    s->xs[i] <= 2 * s->c);
+		for (j = s->n; j >= 0; j--)
+			pv = pv * t + s->a[j];
+		for (j = 0; j <= s->n; j++) {
+			S += fabs(s->a[j]) * pow(T, j);
+			if (j >= 1)
+				S1 += j * fabs(s->a[j]) * pow(T, j - 1);
+		}
+		ex = (double)fabsl(pv - s->ys[i]);
+		rt = exact ? 0 : S1 * U24 * T;
+		if (s->rel)
+			tot = (1 + ex / (double)fy) * (1 + gam * S / (double)fy) *
+			    (1 + rt / (double)fy) - 1;
+		else
+			tot = (ex + gam * S + rt) * (1 + gam);
+		if (!(tot <= 1e300))
+			return INFINITY;
+		if (tot > worst)
+			worst = tot;
+	}
+	return worst;
+}
+
+/*
+ * The search the options name, over the f32 coefficients a[0..n] of
+ * P(x - c) on [xa, xb], from where rounding the fit left them; the
+ * objective the certificate's bound (relative or absolute) at 2000
+ * points of the range (1000 Chebyshev-spaced, 1000 even in the floats'
+ * order).  found[] gets what it finds; 1 when that is better there.
+ */
+static int
+fx_search(const struct fxopt *o, ldfn f, void *fc, float xa, float xb,
+    float c, int rel, const float *a, int n, float *found,
+    struct nsres *res, int *npts)
+{
+	struct fxsctx *s = xcalloc(1, sizeof *s);
+	struct nsopt no;
+	int best[16], i, m = FXS_NP / 2, moved;
+	int64_t ka = fkey(32, xa), kb = fkey(32, xb);
+
+	s->base = a;
+	s->n = n;
+	s->rel = rel;
+	s->c = c;
+	for (i = 0; i < 2 * m; i++) {
+		float x = i < m ? (float)(xa + (1 - cosl(3.14159265358979323846L *
+		    i / (m - 1))) * ((ld)xb - xa) / 2) : (float)fromkey(32, ka +
+		    (int64_t)(((ld)kb - ka) * (i - m) / (m - 1)));
+		ld y;
+		if (!(x >= xa && x <= xb))
+			continue;
+		y = f(fc, x);
+		if (!isfinite(y) || (rel && y == 0))
+			continue;
+		s->xs[s->np] = x;
+		s->ys[s->np++] = y;
+	}
+	ns_defaults(&no);
+	no.kind = o->search;
+	no.seed = o->seed;
+	memset(best, 0, sizeof best);
+	ns_run(n + 1, fxs_obj, s, &no, best, res);
+	fxs_obj(s, best);
+	memcpy(found, s->a, (size_t)(n + 1) * sizeof *found);
+	moved = res->after < res->before;
+	*npts = s->np;
+	free(s);
+	return moved;
+}
+
+/* the search's line in a polynomial's derivation */
+static void
+fx_search_line(struct sbuf *b, const struct fxopt *o, const struct nsres *sr,
+    int np, int moved, double cert0, double cert1, const char *unit)
+{
+	sb_printf(b, "  search: %s over the f32 coefficients' ulp offsets from "
+	    "the rounded fit's, seed %llu, %ld evaluations of the bound above "
+	    "at %d points of the range: %.6g -> %.6g %s there",
+	    ns_name(o->search),
+	    (unsigned long long)o->seed, sr->evals, np, sr->before, sr->after,
+	    unit);
+	if (!moved)
+		sb_printf(b, " (nothing better found)\n");
+	else if (cert1 < cert0)
+		sb_printf(b, "; certified as above: %.6g against the rounded fit's "
+		    "%.6g: kept\n", cert1, cert0);
+	else
+		sb_printf(b, "; certified %.6g against the rounded fit's %.6g: not "
+		    "kept\n", cert1, cert0);
+}
+
 /* ---- pow(q, y) -> exp2(y * log2 q), approximations ---- */
 
 struct powctx {
@@ -1888,9 +2013,10 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 		for (deg = 2; deg <= 12; deg++) {
 			double cost = deg * fx_price(FX_FMA) + fx_price(FX_SUB);
 			float a[16];
-			double real, tot, wq;
-			int within, i;
+			double real, tot, wq, scert0 = 0, scert1 = 0;
+			int within, i, smoved = 0, snp = 0;
 			struct fxrw *pr;
+			struct nsres sr;
 			if (cost >= cpow)
 				break;
 			pb.nt = deg + 1;
@@ -1900,6 +2026,26 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 				a[i] = (float)fr.num[i];
 			poly_cert(y, rq.lo, rq.hi, c0, a, deg, &real, &tot, &within,
 			    &wq);
+			if (o->search) {
+				float b[16];
+				double real2, tot2, wq2;
+				int within2;
+				smoved = fx_search(o, powfn, &pc, rq.lo, rq.hi, c0, 1, a,
+				    deg, b, &sr, &snp);
+				scert0 = scert1 = tot;
+				if (smoved) {
+					poly_cert(y, rq.lo, rq.hi, c0, b, deg, &real2, &tot2,
+					    &within2, &wq2);
+					scert1 = tot2;
+					if (tot2 < tot) {
+						memcpy(a, b, (size_t)(deg + 1) * sizeof *a);
+						real = real2;
+						tot = tot2;
+						within = within2;
+						wq = wq2;
+					}
+				}
+			}
 			pr = new_rw(rw, nrw, max, FXR_POLY, node);
 			if (pr == NULL)
 				return;
@@ -1933,6 +2079,9 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 			    "(log2's error times y through exp2, plus exp2's 3 + 2|t| "
 			    "ulp, the lower bounds): %s\n", within ? "within on every "
 			    "piece" : "exceeds it (an approximation)");
+			if (o->search)
+				fx_search_line(&pr->proof, o, &sr, snp, smoved, scert0,
+				    scert1, "relative");
 			snprintf(pr->fail, sizeof pr->fail, "%s", within ? "" :
 			    "exceeds the precision pow already had");
 			(void)best_cost;
@@ -2079,7 +2228,7 @@ pf_cert(int op, float xa, float xb, float c, const float *a, int n,
 
 static void
 an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
-    int max, int node, int dep)
+    int max, int node, const struct fxopt *o, int dep)
 {
 	const struct fxn *n = &g->n[node];
 	int op = n->op, x = n->a, deg;
@@ -2119,10 +2268,11 @@ an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 	pb.method = FM_REMEZ;
 	for (deg = 1; deg <= 12; deg++) {
 		double cost = deg * fx_price(FX_FMA) + fx_price(FX_SUB);
-		double real, tot, wx;
+		double real, tot, wx, scert0 = 0, scert1 = 0;
 		float a[16];
-		int within, i;
+		int within, i, smoved = 0, snp = 0;
 		struct fxrw *pr;
+		struct nsres sr;
 		if (cost >= cf)
 			break;
 		pb.nt = deg + 1;
@@ -2131,6 +2281,26 @@ an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 		for (i = 0; i <= deg; i++)
 			a[i] = (float)fr.num[i];
 		pf_cert(op, rx.lo, rx.hi, c0, a, deg, &real, &tot, &within, &wx);
+		if (o->search) {
+			float b[16];
+			double real2, tot2, wx2;
+			int within2;
+			smoved = fx_search(o, pffn, &pc, rx.lo, rx.hi, c0, 0, a, deg,
+			    b, &sr, &snp);
+			scert0 = scert1 = tot;
+			if (smoved) {
+				pf_cert(op, rx.lo, rx.hi, c0, b, deg, &real2, &tot2,
+				    &within2, &wx2);
+				scert1 = tot2;
+				if (tot2 < tot) {
+					memcpy(a, b, (size_t)(deg + 1) * sizeof *a);
+					real = real2;
+					tot = tot2;
+					within = within2;
+					wx = wx2;
+				}
+			}
+		}
 		pr = new_rw(rw, nrw, max, FXR_POLY, node);
 		if (pr == NULL)
 			return;
@@ -2171,6 +2341,9 @@ an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 		    "3 + 2|x| ulp" : op == FX_LOG2 ? "3 ulp outside [0.5, 2], "
 		    "absolute 2^-21 inside" : "2 ulp", within ? "within on every "
 		    "piece" : "exceeds it (an approximation)");
+		if (o->search)
+			fx_search_line(&pr->proof, o, &sr, snp, smoved, scert0, scert1,
+			    "absolute");
 		snprintf(pr->fail, sizeof pr->fail, "%s", within ? "" : op ==
 		    FX_EXP2 ? "exceeds the precision exp2 already had" : op ==
 		    FX_LOG2 ? "exceeds the precision log2 already had" : op ==
@@ -2697,7 +2870,7 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		}
 		if ((n->op == FX_EXP2 || n->op == FX_LOG2 || n->op == FX_SQRT ||
 		    n->op == FX_ISQRT) && !is_k(g, n->a, NULL))
-			an_poly(g, reach[i], rw, &nrw, max, i, rdep[i]);
+			an_poly(g, reach[i], rw, &nrw, max, i, o, rdep[i]);
 		if (n->op == FX_SQRT && !is_k(g, n->a, NULL)) {
 			if ((r = new_rw(rw, &nrw, max, FXR_SQRT, i)) == NULL)
 				break;

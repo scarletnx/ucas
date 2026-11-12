@@ -6945,6 +6945,7 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
 #include "fsimp.h"
 #include "fuse.h"
 #include "irw.h"
+#include "numsearch.h"
 
 /*
  * Divisions and remainders by a constant whose dividend the assumptions
@@ -7503,11 +7504,14 @@ root_sink(struct fxg *g, const char *imgfmt, const char *by)
 }
 
 void
-spirv_float_opts(int mode, double ulp, int approx, int percomp, int only)
+spirv_float_opts(int mode, double ulp, int approx, int percomp, int only,
+    int search, uint64_t seed)
 {
 	fopt.mode = mode;
 	fopt.ulp = ulp;
 	fopt.approx = approx;
+	fopt.search = search;
+	fopt.seed = seed;
 	fopt_percomp = percomp;
 	fopt_only = only;
 }
@@ -8605,6 +8609,10 @@ float_pass(const char *text, int *changed)
 		if (fopt.mode == 2)
 			rep_num("ulp", fopt.ulp);
 		rep_bool("approx", fopt.approx);
+		if (fopt.search) {
+			rep_str("search", fopt.search == NS_ANNEAL ? "anneal" : "cmaes");
+			rep_int("seed", (long long)fopt.seed);
+		}
 		rep_bool("percomp", fopt_percomp);
 		{
 			int any = 0;
@@ -9569,7 +9577,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 		free(V.in);
 		memset(&V, 0, sizeof V);
-		spirv_float_opts(0, 0, 0, 0, 0);
+		spirv_float_opts(0, 0, 0, 0, 0, 0, 1);
 		spirv_sink_opt(NULL);
 		advice_on = 0;
 		fnl_mode = 0;
@@ -10317,7 +10325,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		orig_mod = NULL;
 	}
 	free(out.p);
-	spirv_float_opts(0, 0, 0, 0, 0);
+	spirv_float_opts(0, 0, 0, 0, 0, 0, 1);
 	spirv_sink_opt(NULL);
 	advice_on = 0;
 	fnl_mode = 0;

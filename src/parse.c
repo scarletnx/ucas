@@ -2791,6 +2791,8 @@ statement(struct P *p)
 		if (is_kw(p, "spvsimplify")) {
 			double budget = 6, ulp = 0;
 			int nofile = 0, fmode = 0, fapprox = 0, fpercomp = 0, fonly = 0;
+			int fsearch = 0;
+			uint64_t fseed = stoch_seed();
 			adv(p);
 			spirv_fn_opts(0);
 			while (!at_eos(p)) {
@@ -2847,7 +2849,30 @@ statement(struct P *p)
 					fmode = 2;
 				} else if (accept_kw(p, "approx"))
 					fapprox = 1;
-				else if (accept_kw(p, "percomp"))
+				else if (accept_kw(p, "search")) {
+					/* the polynomials' coefficient search (fsimp.c) */
+					char sw[24];
+					if (!cmdp_word(p, sw, sizeof sw))
+						sw[0] = 0;
+					if (!strcmp(sw, "anneal") || !strcmp(sw, "annealing"))
+						fsearch = NS_ANNEAL;
+					else if (!strcmp(sw, "cmaes") || !strcmp(sw, "cma"))
+						fsearch = NS_CMAES;
+					else
+						fail("simplify: search is anneal or cmaes (the float "
+						    "polynomials' coefficient search), not '%s'", sw);
+				} else if (accept_kw(p, "seed")) {
+					nid nn;
+					double v;
+					if (pk(p) != T_NUM)
+						fail("simplify: seed K, a whole number");
+					nn = number(p);
+					v = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+					if (!(v >= 0) || v > 9e15 || v != floor(v))
+						fail("simplify: seed is a whole number from 0, not %g",
+						    v);
+					fseed = (uint64_t)v;
+				} else if (accept_kw(p, "percomp"))
 					fpercomp = 1;
 				else if (accept_kw(p, "foldproof"))
 					spirv_dword_opts(1);	/* folded round trips kept */
@@ -2866,7 +2891,8 @@ statement(struct P *p)
 				else
 					adv(p);
 			}
-			spirv_float_opts(fmode, ulp, fapprox, fpercomp, fonly);
+			spirv_float_opts(fmode, ulp, fapprox, fpercomp, fonly, fsearch,
+			    fseed);
 			if (code_block == NULL)
 				fail("simplify: attach the SPIR-V (a ```spv block or a "
 				    "file)");

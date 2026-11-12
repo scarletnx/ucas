@@ -8557,6 +8557,8 @@ simplify_piece(struct sbuf *piece, int c)
 	int f_foldproof = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
+	int f_search = 0;	/* "with simulated annealing", "using cma-es" */
+	char seed[32] = "";	/* "seed 3" */
 	int f_advice = 0;	/* "advice", "advise", "what could be hoisted" */
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
 				 * function level": 2 */
@@ -8583,6 +8585,14 @@ simplify_piece(struct sbuf *piece, int c)
 				continue;
 			}
 			if (!isalpha((unsigned char)*q)) {
+				if (isdigit((unsigned char)*q) && !strcmp(lw, "seed") &&
+				    !cmt) {
+					size_t b = 0;
+					while (isdigit((unsigned char)*q) && b + 1 < sizeof seed)
+						seed[b++] = *q++;
+					seed[b] = 0;
+					continue;
+				}
 				if (isdigit((unsigned char)*q) && !strcmp(lw, "budget")) {
 					size_t b = 0;
 					while ((isdigit((unsigned char)*q) || *q == '.') &&
@@ -8651,6 +8661,10 @@ simplify_piece(struct sbuf *piece, int c)
 				f_exact = 1;
 			if (!strncmp(lw, "approx", 6))
 				f_approx = 1;
+			if (!strcmp(lw, "anneal") || !strcmp(lw, "annealing"))
+				f_search = 1;
+			if (!strcmp(lw, "cmaes") || !strcmp(lw, "cma"))
+				f_search = 2;
 			if (!strcmp(lw, "advice") || !strcmp(lw, "advise") ||
 			    !strcmp(lw, "hoist") || !strcmp(lw, "hoisted") ||
 			    !strcmp(lw, "hoisting"))
@@ -8699,10 +8713,14 @@ simplify_piece(struct sbuf *piece, int c)
 		return 0;
 	if (!c)
 		find_sink(p, sink, sizeof sink);
-	snprintf(fl, sizeof fl, "%s%s%s%s%s%s%s", f_float ? " float" : "",
+	snprintf(fl, sizeof fl, "%s%s%s%s%s%s%s%s", f_float ? " float" : "",
 	    f_exact && !ulp[0] ? " exact" : "", ulp[0] ? " ulp " : "", ulp,
 	    f_approx ? " approx" : "", f_percomp ? " percomp" : "",
-	    f_fn == 1 ? " functions" : f_fn == 2 ? " nofunctions" : "");
+	    f_fn == 1 ? " functions" : f_fn == 2 ? " nofunctions" : "",
+	    f_search == 1 ? " search anneal" : f_search == 2 ? " search cmaes" :
+	    "");
+	if (f_search && seed[0])
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " seed %s", seed);
 	{
 		/* in the request's own lines (not its # comments): "foldproof",
 		 * "fold-proof": the folded round trips' rounding kept */

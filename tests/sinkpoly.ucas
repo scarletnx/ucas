@@ -24,6 +24,12 @@ simplify float c in [0, 1] nofile
 ```glsl
 vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
 ```
+# the polynomials searched by CMA-ES (seed 3): each keeps the rounded
+# fit's coefficients unless what the search finds certifies better
+simplify float c in [0, 1] search cmaes seed 3 nofile
+```glsl
+vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
+```
 # where the functions cost 2, no polynomial is cheaper
 simplify float c in [0, 1] sink unorm8 under cheaptrans nofile
 ```glsl
