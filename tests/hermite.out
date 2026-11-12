@@ -1,0 +1,51 @@
+> h8(x: real in 0..10) = sum(i, 0, 7, floor(x + real(i)/8))
+> closed h8
+sum(i, 0, 7, floor(x + real(i)/8))
+  = floor(8x)
+  method: Hermite's identity (floors over one period)
+  check: equals direct iteration at all 201 points of the domain
+> h16(x: real in -3..3) = sum(i, 5, 20, floor(x + real(i)/16))
+> closed h16
+sum(i, 5, 20, floor(x + real(i)/16))
+  = floor(16x + 5)
+  method: Hermite's identity (floors over one period)
+  check: equals direct iteration at all 201 points of the domain
+> hh(x: real in 0..1) = sum(i, 0, 255, floor(255x + real((i*37 + 11) & 255)/256))
+> closed hh
+sum(i, 0, 255, floor(255x + real(37i + 11 & 0xff)/256))
+  = floor(65280x)
+  method: Hermite's identity (floors over one period)
+  check: equals direct iteration at all 201 points of the domain
+> hx(x: real in 0..1) = sum(i, 0, 15, floor(16x + 0.0625*real(i xor 5)))
+> closed hx
+sum(i, 0, 15, floor(16x + 0.0625real(i xor 5)))
+  = floor(256x)
+  method: Hermite's identity (floors over one period)
+  check: equals direct iteration at all 201 points of the domain
+> show hh(0.123)
+_() = 8029
+  -> real
+> rn(x: real in 0..1) = sum(i, 0, 255, floor(255x + 0.5))
+> closed rn
+sum(i, 0, 255, floor(255x + 0.5))
+  = 256floor(255x + 0.5)
+  method: constant body
+  check: equals direct iteration at all 201 points of the domain
+> show rn(0.123)
+_() = 7936
+  -> real
+> show 256*255*0.123
+_() = 8029.44
+  -> real
+> hb(x: real in 0..1) = sum(i, 0, 255, floor(255x + real((i*2) & 255)/256))
+> closed hb
+sum(i, 0, 255, floor(255x + real(2i & 0xff)/256))
+  no closed form found
+> h7(x: real in 0..10) = sum(i, 0, 6, floor(x + real(i)/8))
+> closed h7
+sum(i, 0, 6, floor(x + real(i)/8))
+  no closed form found
+> h5(x: real in 0..1) = sum(i, 0, 4, floor(255x + real(i)/5))
+> closed h5
+sum(i, 0, 4, floor(255x + real(i)/5))
+  no closed form found

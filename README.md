@@ -4346,6 +4346,20 @@ What is found:
   `r` guarded by `r == 1 ? ...`), telescoping `g(i) - g(i+k)`, rational
   bodies with integer poles whose residues cancel (partial fractions),
   branches on `i % m` and on `i < c` (the sum is split), linearity;
+- a floor against the offsets of one period (Hermite's identity):
+  `sum(i, 0, T - 1, floor(z + g(i)/T))` is `floor(T z + c)` when g takes
+  each of c, c + 1, ..., c + T - 1 once, T a constant power of two up
+  to 4096 and z real.  g is run at every index, so the index itself, a
+  counter in any order or a hash that is a bijection of the T indices
+  all serve: a value rounded down T times against them adds up to the
+  value rounded once, T times finer.  It is what makes a rounding by a
+  hash lose nothing over a whole period: `floor(255x + real((37i + 11)
+  & 255)/256)` summed over 256 indices is `floor(65280x)`, 8029 at x =
+  0.123 for an exact 8029.44, where rounding to nearest every time
+  gives 7936.  Not found: a period cut short or an offset met twice
+  (the sum is then not that floor), a period that is not a power of two
+  (its offsets are not exact where the check runs them), and the same
+  sum written as a loop;
 - products: constants, `r^e(i)`, `exp(e(i))`, telescoping ratios, ratios
   of shifted linear factors;
 - recurrences and loops: affine steps with constant coefficients in any
