@@ -2691,6 +2691,19 @@ blending and depth test are the same operations.  Alpha-to-coverage
 input, not an operation) are not offered.  Priced by `rop_resolve` a
 pixel, against reading the samples (`tex_fetch` each) and F.
 
+**The transfer engine.**  An update that sets every cell to one
+constant (`d = 7`, a literal read in the cell's type, or anything equal
+to 0 or to all ones on the domain) is a memset, which the transfer
+engine does without a shader: vkCmdFillBuffer repeats a 32-bit word
+(the byte or the half repeated to fill it, a float's bits; a u64 whose
+two words differ takes vkCmdClearColorImage on R32G32_UINT), and
+vkCmdClearColorImage writes a clear value.  It holds when every cell of
+the range gets a contribution.  An update that does not read the cell
+is priced against a store (`store`, plus what computes the value), not
+an atomic.  A blit's 2:1 box average and a mip chain built by blits
+are means whose rounding is the implementation's, as the colour
+resolve's: said with it, not offered.  Priced by `rop_fill` a cell.
+
 **Nothing is recognised by name.**  Every state is compared with F on
 F's domain: integer states on every point or by SAT; a blend equation
 by expanding it and F to the same polynomial (so `s + d - s*d` is

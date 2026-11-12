@@ -23,6 +23,8 @@
  *                  payload, ride in a colour target (an argmin)
  *   query          a precise occlusion query: d + (s != 0) counted over
  *                  a whole draw, one counter
+ *   transfer       vkCmdFillBuffer, vkCmdClearColorImage: every cell set
+ *                  to one constant, no shader
  *
  * A predicate P(x, y) over a grid of pixels is a coverage instead: when it
  * is the conjunction of half-planes a x + b y + c >= 0, the rasteriser's
@@ -1117,6 +1119,73 @@ depth_test(struct rctx *c)
 	form(c, "depth test", st, hold, pr, C_ROP_DEPTH, pl);
 }
 
+/* ---- the transfer engine: a fill ---- */
+
+/*
+ * An update that sets every cell to one constant k is a memset, which
+ * the transfer engine does without a shader: vkCmdFillBuffer repeats a
+ * 32-bit word (k repeated to fill it for u8 and u16, the float's bits
+ * for f32), vkCmdClearColorImage writes a clear value.  A blit's 2:1
+ * box average and a mip chain built by blits are means whose rounding
+ * Vulkan leaves to the implementation: not offered (see the resolve).
+ */
+static void
+transfer_fill(struct rctx *c)
+{
+	nid b = c->f->body;
+	uint64_t k = 0, word;
+	int ok = 0, j;
+	const char *how = "a constant";
+	char st[300], pr[400], pl[600], kv[64];
+
+	if (c->ic >= 0)
+		return;
+	if (N.op[b] == O_CONST)
+		ok = 1;
+	else if (!c->flt)
+		for (j = 0; j < 2 && !ok; j++) {
+			/* 0 or all ones, whatever d and s are */
+			nid e = j ? mk_un(O_NOT, mk_const_i(c->ty, 0)) :
+			    mk_const_i(c->ty, 0);
+			if (same(c->f, b, e, &how) == 1) {
+				ok = 1;
+				b = e;
+			}
+		}
+	if (!ok)
+		return;
+	if (c->flt) {
+		float fv = (float)N.kr[b];
+		uint32_t u;
+		memcpy(&u, &fv, sizeof u);
+		k = u;
+		snprintf(kv, sizeof kv, "%.9g", (double)fv);
+	} else {
+		k = (uint64_t)N.ki[b] & (c->w == 64 ? UINT64_MAX : ((uint64_t)1 <<
+		    c->w) - 1);
+		snprintf(kv, sizeof kv, "%llu", (unsigned long long)k);
+	}
+	word = c->w == 8 ? k * 0x01010101u : c->w == 16 ? k * 0x00010001u :
+	    k & 0xffffffffu;
+	snprintf(st, sizeof st, "vkCmdFillBuffer of the word 0x%08llx, or "
+	    "vkCmdClearColorImage with %s: every cell %s", (unsigned long
+	    long)word, kv, kv);
+	if (c->w == 64 && (k >> 32) != (k & 0xffffffffu))
+		snprintf(st, sizeof st, "vkCmdClearColorImage of an R32G32_UINT "
+		    "image with (0x%08llx, 0x%08llx): every cell %s", (unsigned
+		    long long)(k & 0xffffffffu), (unsigned long long)(k >> 32), kv);
+	snprintf(pr, sizeof pr, "the update is the constant %s (%s): every "
+	    "cell ends as %s whatever it held, which is what a fill writes; the "
+	    "transfer writes the bits it is given, so nothing rounds", kv, how,
+	    kv);
+	snprintf(pl, sizeof pl, "no pipeline: vkCmdFillBuffer(buffer, offset, "
+	    "size, 0x%08llx) on the cells' range (offset and size multiples of "
+	    "4), or vkCmdClearColorImage on an image of them, recorded where "
+	    "the dispatch was", (unsigned long long)word);
+	form(c, "transfer", st, "every cell of the range gets a contribution "
+	    "(the fill writes all of it)", pr, C_ROP_FILL, pl);
+}
+
 /* ---- an occlusion query: one counter for a whole draw ---- */
 
 /*
@@ -1732,10 +1801,11 @@ cmd_resolve(struct func *f, struct model *m)
 		ar_release(mk);
 		if (eq)
 			printf("  colour resolve: vkCmdResolveImage computes the mean "
-			    "of the %d samples, but its arithmetic is the "
+			    "of the %d samples%s, but its arithmetic is the "
 			    "implementation's (Vulkan fixes neither the order of the "
 			    "adds nor their rounding): not offered until measured\n",
-			    n);
+			    n, n == 4 ? ", as a 2:1 blit with VK_FILTER_LINEAR does "
+			    "of 2 x 2 texels (a mip level from the one above)" : "");
 	}
 	if (c.nforms) {
 		rep_end();
@@ -1862,7 +1932,15 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 	 * compare-and-swap have classes of their own, priced as
 	 * atomic_global by a model that does not list them)
 	 */
-	if ((x = native_atomic(c)) != 0) {
+	if (!has_slot(f->body, c->id)) {
+		/* the cell's old value is not read: a store */
+		float b = fuse_expr_cost(m, f->body);
+		c->against = m->c[C_STORE] + b;
+		sb_printf(&c->againstwhy, "one store, store");
+		if (b > 0)
+			sb_printf(&c->againstwhy, " %g + %g for the value",
+			    (double)m->c[C_STORE], (double)b);
+	} else if ((x = native_atomic(c)) != 0) {
 		/* the atomic, and what computes the value it brings */
 		float b = fuse_expr_cost(m, x);
 		int cls = c->w == 64 ? C_ATOM_GL_64 : c->flt && (N.op[f->body] ==
@@ -1901,11 +1979,48 @@ catalogue(struct rctx *c)
 	advanced(c);
 	depth_test(c);
 	query_count(c);
+	transfer_fill(c);
+}
+
+/*
+ * An update that is a literal (d = 7) has the literal's type: f with the
+ * literal as the cell's type, in *copy, when it holds it; f otherwise
+ * (rop_setup then says the types differ).
+ */
+static struct func *
+literal_update(struct func *f, struct func *copy)
+{
+	nid b = f->body;
+	int id = f->np - 1, j;
+	ty_t t;
+
+	int lit = TYK(N.ty[b]) == K_INT || TYK(N.ty[b]) == K_LIT;
+
+	if (f->np < 1 || N.op[b] != O_CONST || (!lit && TYK(N.ty[b]) !=
+	    K_REAL))
+		return f;
+	for (j = 0; j < f->np; j++)
+		if (!strcmp(sym_str(f->p[j].name), "d") ||
+		    !strcmp(sym_str(f->p[j].name), "dst"))
+			id = j;
+	t = f->p[id].ty;
+	*copy = *f;
+	if (t == TY_F32 && TYK(N.ty[b]) == K_REAL)
+		copy->body = mk_cast(TY_F32, b);
+	else if (TYK(t) == K_UINT && lit && N.ki[b] >= 0 &&
+	    (TYW(t) == 64 || N.ki[b] < ((int64_t)1 << TYW(t))))
+		copy->body = mk_const_i(t, N.ki[b]);
+	else if (t == TY_F32 && lit)
+		copy->body = mk_cast(TY_F32, mk_const_r((double)N.ki[b]));
+	else
+		return f;
+	return copy;
 }
 
 static void
 cmd_rop(struct func *f, struct model *m)
 {
+	struct func lit;
 	struct rctx c;
 	const char *fn = f->anon ? "the update" : sym_str(f->name), *why;
 
@@ -1917,6 +2032,7 @@ cmd_rop(struct func *f, struct model *m)
 		cmd_resolve(f, m);
 		return;
 	}
+	f = literal_update(f, &lit);
 	memset(&c, 0, sizeof c);
 	why = rop_setup(&c, f, m);
 	if (why) {
@@ -1948,7 +2064,7 @@ cmd_rop(struct func *f, struct model *m)
 		printf("  no fixed-function state in the catalogue computes it "
 		    "(logic ops, stencil ops, the blend equation with its "
 		    "factors, min, max, the advanced blend operations, the depth "
-		    "test, an occlusion query)\n");
+		    "test, an occlusion query, a fill)\n");
 	if (c.nforms && c.ordered && !c.flt)
 		printf("  as the result depends on the order, a state above "
 		    "stands for a sequential loop over the fragments in "
