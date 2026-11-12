@@ -22,7 +22,9 @@
  * and, written with them: sg_exclusive(v) = sg_scan(v) - v,
  * sg_shuffle_xor(v, k) = sg_shuffle(v, lane xor k), sg_broadcast(v, i) =
  * sg_shuffle(v, i), sg_broadcast_first(v) = sg_shuffle(v, 0),
- * sg_rotate(v, d) = sg_shuffle(v, (lane + d) mod W).
+ * sg_rotate(v, d) = sg_shuffle(v, (lane + d) mod W), and sg_sort(v), in
+ * lane l the l-th smallest of v over the lanes: the bitonic network
+ * (sg_sorted).
  *
  * In an operand that is a value per lane, the lane's index is the bound
  * variable `lane` (slot SG_LANE_SLOT); everything else in it is shared by
@@ -289,6 +291,129 @@ sg_has_lane(nid e)
 	return e && (N.fl[e] & NF_LANE) != 0;
 }
 
+/* ---- sorting the lanes ---- */
+
+/*
+ * Batcher's bitonic network over W = 2^m lanes: for k = 2, 4 ... W, then
+ * j = k/2 ... 1, each lane and lane xor j compare and exchange, the lane
+ * keeping the smaller when (lane & j) == 0 and (lane & k) == 0 agree: the
+ * aligned blocks of k lanes come out ascending where lane & k is 0,
+ * descending elsewhere, and the last, k = W, ascending.  m(m + 1)/2 steps
+ * of a shuffle, a min and a max.
+ */
+static int
+keeps_min(int l, int j, int k)
+{
+	return ((l & j) == 0) == ((l & k) == 0);
+}
+
+/* keeps_min at lane l; in the last stage (k = W) lane & k is 0 */
+static nid
+keeps_min_at(nid l, int j, int k, int W)
+{
+	ty_t u = TY(K_UINT, 32);
+	nid z = mk_const_i(u, 0);
+	nid lo = mk_bin(O_EQ, mk_bin(O_AND, l, mk_const_i(u, j)), z);
+
+	return k == W ? lo : mk_bin(O_EQ, lo, mk_bin(O_EQ, mk_bin(O_AND, l,
+	    mk_const_i(u, k)), z));
+}
+
+/* one compare and exchange: at lane l, s and p the values of l and of its
+ * partner */
+static nid
+exchange(nid s, nid p, nid l, int j, int k, int W)
+{
+	return mk_sel(keeps_min_at(l, j, k, W), mk_bin(O_MIN, s, p),
+	    mk_bin(O_MAX, s, p));
+}
+
+nid
+sg_sorted(nid v, nid here, nid at, int W)
+{
+	nid w = mk_const_i(TY_LIT, W), L = sg_lane(), sb = v, sl = 0;
+	nid map[SG_LANE_SLOT + 1];
+	ty_t u = TY(K_UINT, 32);
+	int j, k;
+
+	if (W < 2 || (W & (W - 1)))
+		return 0;
+	if (!at) {
+		memset(map, 0, sizeof map);
+		map[SG_LANE_SLOT] = here = mk_cast(u, here);
+		sl = subst(v, map, SG_LANE_SLOT + 1);
+	}
+	/* sb is the value in every lane (the shuffles read it), sl in here */
+	for (k = 2; k <= W; k *= 2)
+		for (j = k / 2; j >= 1; j /= 2) {
+			nid kj = mk_const_i(u, j), pb, pl;
+			pb = mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, L, kj), w);
+			if (!at) {
+				pl = mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, here, kj),
+				    w);
+				sl = exchange(sl, pl, here, j, k, W);
+			}
+			sb = exchange(sb, pb, L, j, k, W);
+		}
+	return at ? mk_sg(O_SGSHUF, sb, mk_cast(u, at), w) : sl;
+}
+
+/*
+ * The network sorts every input: by the 0-1 principle it is enough that
+ * it sorts every input of 0s and 1s, and that follows from each stage.
+ * After the stage for k/2 the two halves of a block of k lanes are sorted
+ * in opposite directions, the lower ascending (keeps_min), so a block of
+ * 0s and 1s is 0^a 1^b 0^c; the merge of the stage for k (j = k/2 ... 1)
+ * is run on each of those, at a block of each direction, and must sort
+ * it.  Checked once per W.
+ */
+/* the merge of the stage for k, at the block of k lanes from base, sorts
+ * 0^a 1^b 0^(k - a - b) in the block's direction */
+static int
+merge_sorts(int base, int k, int a, int b)
+{
+	int x[SG_MAXW], i, j, up = (base & k) == 0;
+
+	for (i = 0; i < k; i++)
+		x[i] = i >= a && i < a + b;
+	for (j = k / 2; j >= 1; j /= 2)
+		for (i = 0; i < k; i++) {
+			int pi = i ^ j, lo, hi;
+			if (pi < i)
+				continue;
+			lo = x[i] < x[pi] ? x[i] : x[pi];
+			hi = x[i] ^ x[pi] ^ lo;
+			x[i] = keeps_min(base + i, j, k) ? lo : hi;
+			x[pi] = keeps_min(base + pi, j, k) ? lo : hi;
+		}
+	for (i = 0; i + 1 < k; i++)
+		if (up ? x[i] > x[i + 1] : x[i] < x[i + 1])
+			return 0;
+	return 1;
+}
+
+static int
+sort_proved(int W, int *cases)
+{
+	static int8_t known[SG_MAXW + 1];
+	static int ncase[SG_MAXW + 1];
+	int k, base, a, b, ok = 1, n = 0;
+
+	if (known[W]) {
+		*cases = ncase[W];
+		return known[W] > 0;
+	}
+	for (k = 2; k <= W && ok; k *= 2)
+		for (base = 0; base < (k < W ? 2 * k : k) && ok; base += k)
+			for (a = 0; a <= k && ok; a++)
+				for (b = 0; a + b <= k && ok; b++, n++)
+					ok = merge_sorts(base, k, a, b);
+	known[W] = ok ? 1 : -1;
+	ncase[W] = n;
+	*cases = n;
+	return ok;
+}
+
 /* ---- find: forms the model's subgroup operations make cheaper ---- */
 
 /*
@@ -305,7 +430,9 @@ sg_has_lane(nid e)
  *   a constant table of at most W entries, held one entry per lane and
  *     read by a shuffle;
  *   a GF(2)-linear function of a word the lanes share: each lane works
- *     out one bit of the result and the ballot puts the bits together.
+ *     out one bit of the result and the ballot puts the bits together;
+ *   an order statistic of a value per lane, however written: the
+ *     bitonic network, read where it is needed.
  */
 struct sgf {
 	const struct func *f;
@@ -502,8 +629,8 @@ ladder_proved(int W)
 	return ok;
 }
 
-/* the subgroup operations of e (kind 0: sums and scans) or its lookups
- * in constant tables (kind 1), in out (at most max) */
+/* the subgroup operations of e (kind 0: sums and scans; 2: shuffles) or
+ * its lookups in constant tables (kind 1), in out (at most max) */
 static int
 gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 {
@@ -512,7 +639,7 @@ gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 	if (e == 0 || seen[e] || n == max)
 		return n;
 	seen[e] = 1;
-	if (kind == 0 && !(N.fl[e] & NF_SG))
+	if (kind != 1 && !(N.fl[e] & NF_SG))
 		return n;
 	if (N.op[e] == O_CONST || N.op[e] == O_VAR || N.op[e] == O_UNDEF)
 		return n;
@@ -525,6 +652,17 @@ gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 		out[n++] = e;
 	if (kind == 1 && N.op[e] == O_INDEX && !(N.fl[N.a[e]] & NF_VAR))
 		out[n++] = e;
+	if (kind == 2 && N.op[e] == O_SGSHUF)
+		out[n++] = e;
+	if (kind == 2 && N.op[e] == O_LOOP) {
+		/* the shuffles of a loop over the lanes are in its body */
+		uint32_t le = loop_ent(e), st = loops.st[le], k;
+		for (k = 0; k < loops.nst[le]; k++) {
+			n = gather(loops.init[st + k], kind, out, n, max, seen);
+			n = gather(loops.next[st + k], kind, out, n, max, seen);
+		}
+		n = gather(loops.cond[le], kind, out, n, max, seen);
+	}
 	n = gather(N.a[e], kind, out, n, max, seen);
 	n = gather(N.b[e], kind, out, n, max, seen);
 	return gather(N.c[e], kind, out, n, max, seen);
@@ -552,6 +690,180 @@ note_dear(struct sgf *g, const char *what, float c, float base)
 	    (double)base, what);
 }
 
+
+/* ---- order statistics of the lanes ---- */
+
+#define SORT_SAMPLES 1024
+
+struct lanev {
+	int64_t v;
+	ty_t t;
+};
+
+static int
+cmp_lanev(const void *a, const void *b)
+{
+	const struct lanev *x = a, *y = b;
+
+	if (TYK(x->t) == K_UINT && TYW(x->t) == 64)
+		return (uint64_t)x->v < (uint64_t)y->v ? -1 :
+		    (uint64_t)x->v > (uint64_t)y->v;
+	return x->v < y->v ? -1 : x->v > y->v;
+}
+
+/*
+ * Which order statistic of v over the W lanes e is at the domain's points
+ * (every one when there are at most SORT_SAMPLES, a sample otherwise):
+ * *k = 0..W-1 the k-th smallest wherever it is read, -1 v sorted
+ * ascending along the lanes (lane l the l-th smallest), -2 descending.
+ * 0 when it is none of them at some point.
+ */
+static int
+order_stat(const struct func *f, nid e, nid v, nid lanep, int W, int *k)
+{
+	struct diter d;
+	struct plan p;
+	nid roots[SG_MAXW + 3];
+	uint32_t loc[SG_MAXW + 3], np, i, wloc;
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	/* the k still possible */
+	uint64_t ks = ((uint64_t)1 << (W - 1) << 1) - 1;
+	int l, nr = 0, asc = lanep != 0, desc = lanep != 0, any = 0;
+	uint8_t ok[CH];
+
+	roots[nr++] = e;
+	roots[nr++] = f->where;
+	roots[nr++] = lanep;
+	for (l = 0; l < W; l++)
+		roots[nr++] = in_lane(v, l);
+	plan_build(&p, roots, nr, 0);
+	for (l = 0; l < nr; l++)
+		loc[l] = roots[l] ? plan_loc(&p, roots[l]) : NOTOK;
+	wloc = f->where ? loc[1] : NOTOK;
+	diter_init(&d, f, SORT_SAMPLES, 2, SORT_SAMPLES);
+	while ((ks || asc || desc) && (np = diter_next(&d, in_i, in_r)) != 0) {
+		plan_run(&p, np, in_i, in_r);
+		valid_mask(&p, wloc, np, ok);
+		for (i = 0; i < np; i++) {
+			struct lanev s[SG_MAXW];
+			int64_t r, at = 0;
+			int und = (COLF(&p, loc[0])[i] & F_UNDEF) != 0;
+			if (!ok[i])
+				continue;
+			for (l = 0; l < W; l++) {
+				und |= (COLF(&p, loc[3 + l])[i] & F_UNDEF) != 0;
+				s[l].v = COLI(&p, loc[3 + l])[i];
+				s[l].t = N.ty[v];
+			}
+			if (und)
+				continue;
+			qsort(s, (size_t)W, sizeof *s, cmp_lanev);
+			r = COLI(&p, loc[0])[i];
+			any = 1;
+			for (l = 0; l < W; l++)
+				if (s[l].v != r)
+					ks &= ~((uint64_t)1 << l);
+			if (lanep) {
+				at = COLI(&p, loc[2])[i];
+				if (at < 0 || at >= W)
+					asc = desc = 0;
+				else {
+					asc &= s[at].v == r;
+					desc &= s[W - 1 - at].v == r;
+				}
+			}
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	if (!any)
+		return 0;
+	for (l = 0; l < W; l++)
+		if ((ks >> l) & 1) {
+			*k = l;
+			return 1;
+		}
+	if (asc || desc) {
+		*k = asc ? -1 : -2;
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * A function whose value is an order statistic of a value per lane v (the
+ * least, the median, the greatest, the k-th smallest; or v sorted along
+ * the lanes, the first k lanes then holding the top k), however it is
+ * written: a loop over the lanes that counts with ballots, a chain of
+ * selections.  It is told by evaluating the function beside the lanes'
+ * values sorted, at the domain's points, and written as the bitonic
+ * network read at the lane it needs (the whole is then checked).
+ */
+static nid
+sorts(struct sgf *g, nid cur, float *cost)
+{
+	nid shuf[MAXSGN], cand[MAXSGN], lp = lane_param(g->f);
+	int ns, nc = 0, i, j, W, k, cases, m;
+
+	ns = gather_all(cur, 2, shuf);
+	for (i = 0; i < ns; i++) {
+		nid v = N.a[shuf[i]];
+		for (j = 0; j < nc && cand[j] != v; j++)
+			;
+		if (j == nc && TY_ISINT(N.ty[v]) && N.ty[v] != TY_BOOL &&
+		    TYK(N.ty[v]) != K_LIT && (N.fl[v] & NF_LANE) &&
+		    !(N.fl[v] & NF_SG))
+			cand[nc++] = v;
+	}
+	for (i = 0; i < nc; i++) {
+		nid v = cand[i], at, r;
+		float c;
+		struct sbuf what = {0};
+		W = sg_width(shuf[0]);
+		if ((W & (W - 1)) || !order_stat(g->f, cur, v, lp, W, &k) ||
+		    !sort_proved(W, &cases))
+			continue;
+		at = k >= 0 ? mk_const_i(TY(K_UINT, 32), k) : k == -1 ? 0 :
+		    mk_bin(O_SUB, mk_const_i(TY(K_UINT, 32), W - 1), lp);
+		r = mk_cast(N.ty[cur], sg_sorted(v, lp, at, W));
+		c = price(g, r);
+		if (k == 0)
+			sb_puts(&what, "the least");
+		else if (k == W - 1)
+			sb_puts(&what, "the greatest");
+		else if (k >= 0)
+			sb_printf(&what, "the order statistic k = %d (0 the "
+			    "least, %d the greatest%s)", k, W - 1, k == W / 2 ||
+			    k == W / 2 - 1 ? "; a median" : "");
+		else if (k == -1)
+			sb_puts(&what, "sorted ascending along the lanes");
+		else
+			sb_puts(&what, "sorted descending along the lanes (the "
+			    "top k in the first k)");
+		sb_printf(&what, " of %s over the %d lanes", shared_str(v, 80),
+		    W);
+		if (c >= *cost) {
+			note_dear(g, sb_str(&what), c, *cost);
+			free(what.p);
+			continue;
+		}
+		for (m = 0; (1 << m) < W; m++)
+			;
+		sb_printf(&g->why, "%s, by Batcher's bitonic network: %d steps "
+		    "of a shuffle by lane xor j, a min and a max%s\n",
+		    sb_str(&what), m * (m + 1) / 2, k == -1 ? "" : ", then the "
+		    "lane it needs read by a shuffle");
+		sb_printf(&g->why, "the network sorts every input: by the 0-1 "
+		    "principle, as each stage's merge sorts every block 0^a 1^b "
+		    "0^c its halves make (%d blocks run)\n", cases);
+		*cost = c;
+		free(what.p);
+		return r;
+	}
+	return cur;
+}
 
 /*
  * A segmented scan as sg_segscan writes it, sg_scan(v, l) -
@@ -1579,6 +1891,8 @@ sg_find(const struct func *f)
 		return;
 	before = cost = price(&g, cur);
 	if (N.fl[cur] & NF_SG)
+		cur = sorts(&g, cur, &cost);
+	if (cur == f->body && (N.fl[cur] & NF_SG))
 		cur = segscans(&g, cur, &cost);
 	if (N.fl[cur] & NF_SG)
 		cur = sums_and_scans(&g, cur, &cost);

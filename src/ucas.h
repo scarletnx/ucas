@@ -478,6 +478,10 @@ int sg_width(nid n);		/* W of a subgroup node */
 nid sg_expand(int op, nid a, nid b, nid c);
 /* a parameter of mask that a subgroup operation of e reads per lane */
 int sg_reads(nid e, uint64_t mask);
+/* v sorted along W = 2^m lanes by the bitonic network, in the lane `here`
+ * runs in, or read at lane `at` (0: here's own); 0 when W is not a power
+ * of two */
+nid sg_sorted(nid v, nid here, nid at, int W);
 /* e with every subgroup operation spelled out (e itself when it has none) */
 nid sg_lower(nid e);
 /* find: forms the active model's subgroup operations make cheaper */
