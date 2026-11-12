@@ -110,6 +110,16 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_SGADD] = {"sg_add", 2, OF_INT},
 	[O_SGSHUF] = {"sg_shuffle", 3, 0},
 	[O_SGSCAN] = {"sg_scan", 3, OF_INT},
+	[O_BFE] = {"bfe", 3, OF_INT},
+	[O_SBFE] = {"sbfe", 3, OF_INT},
+	[O_BREV] = {"brev", 1, OF_INT},
+	[O_MULHI] = {"mulhi", 2, OF_INT},
+	[O_SMULHI] = {"smulhi", 2, OF_INT},
+	[O_FUNL] = {"funl", 3, OF_INT},
+	[O_FUNR] = {"funr", 3, OF_INT},
+	[O_MED3] = {"med3", 3, OF_INT},
+	[O_USAD4X8] = {"usad4x8", 3, OF_INT},
+	[O_BYTEPERM] = {"byteperm", 3, OF_INT},
 };
 
 static const char *const atomic_names[] = {
@@ -561,6 +571,8 @@ mk_un(int op, nid a)
 	ty_t t = N.ty[a];
 	nid r;
 
+	if (IS_INST(op))
+		return mk_inst(op, a, 0, 0);
 	if (N.op[a] == O_UNDEF && op != O_LNOT)
 		return a;
 	switch (op) {
@@ -665,6 +677,8 @@ mk_bin(int op, nid a, nid b)
 		return mk_dot(op, a, b, 0);
 	if (IS_SG(op))
 		return mk_sg(op, a, b, 0);
+	if (IS_INST(op))
+		return mk_inst(op, a, b, 0);
 	switch (op) {
 	case O_LAND:
 	case O_LOR:
@@ -895,6 +909,8 @@ mk_op(int op, nid a, nid b, nid c)
 		return mk_dot(op, a, b, c);
 	if (IS_SG(op))
 		return mk_sg(op, a, b, c);
+	if (IS_INST(op))
+		return mk_inst(op, a, b, c);
 	if (op == O_SEL)
 		return mk_sel(a, b, c);
 	if (op == O_FMA)
@@ -1155,6 +1171,12 @@ rebuild(nid n, const nid *map, int nmap)
 			r = low ? sg_expand(N.op[n], a, b, c) :
 			    mk_sg(N.op[n], a, b, c);
 			sg_lowering = low;
+		} else if (IS_INST(N.op[n])) {
+			nid a = rebuild(N.a[n], map, nmap);
+			nid b = rebuild(N.b[n], map, nmap);
+			nid c = rebuild(N.c[n], map, nmap);
+			r = sg_lowering ? inst_expand(N.op[n], a, b, c) :
+			    mk_inst(N.op[n], a, b, c);
 		} else if (IS_DOT(N.op[n]))
 			r = mk_dot(N.op[n], rebuild(N.a[n], map, nmap),
 			    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
@@ -1575,7 +1597,8 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		}
 		if (opinfo[op].arity == 3) {
 			sb_puts(b, ", ");
-			pr(b, N.c[n], 0, pc, 0);
+			/* a byte permute's selector reads by its nibbles */
+			pr(b, N.c[n], 0, pc, op == O_BYTEPERM);
 		}
 		sb_putc(b, ')');
 	}
@@ -1693,7 +1716,8 @@ print_paren(struct sbuf *b, nid n)
 		return;
 	}
 	if (op == O_MIN || op == O_MAX || op == O_COPYSIGN || op == O_FMA ||
-	    op == O_ATAN2 || IS_DOT(op)) {
+	    op == O_ATAN2 || IS_DOT(op) || (IS_INST(op) &&
+	    opinfo[op].arity >= 2)) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
 		sb_puts(b, ", ");

@@ -41,6 +41,7 @@
  */
 #include "calc.h"
 #include "fuse.h"
+#include "sg.h"
 
 #include <math.h>
 #include <setjmp.h>
@@ -341,8 +342,8 @@ price(const struct sgf *g, nid e)
 }
 
 /* root with from replaced by to; 0 when the result cannot be built */
-static nid
-replaced(nid root, nid from, nid to)
+nid
+sg_replaced(nid root, nid from, nid to)
 {
 	jmp_buf saved;
 	nid r = 0;
@@ -361,8 +362,8 @@ replaced(nid root, nid from, nid to)
  * 0..W-1): the parameters' ranges narrowed by the where clause, then
  * intervals.
  */
-static int
-range_of(const struct func *f, nid e, int W, int64_t *lo, int64_t *hi)
+int
+sg_range_of(const struct func *f, nid e, int W, int64_t *lo, int64_t *hi)
 {
 	struct func g = *f;
 	int64_t blo[MAXP], bhi[MAXP];
@@ -568,9 +569,9 @@ sums_and_scans(struct sgf *g, nid cur, float *cost)
 			nid x = nd[i], v = N.a[x], to, cand;
 			int scan = N.op[x] == O_SGSCAN, W = sg_width(x);
 			int64_t lo, hi, llo = 0, lhi = 0;
-			int bits = range_of(g->f, v, W, &lo, &hi) && lo >= 0 &&
+			int bits = sg_range_of(g->f, v, W, &lo, &hi) && lo >= 0 &&
 			    hi <= 1;
-			int lok = !scan || (range_of(g->f, N.b[x], W, &llo, &lhi) &&
+			int lok = !scan || (sg_range_of(g->f, N.b[x], W, &llo, &lhi) &&
 			    llo >= 0 && lhi <= W - 1);
 			ty_t bt = TY(K_UINT, W > 32 ? 64 : 32);
 			for (o = 0; o < 2; o++) {
@@ -589,7 +590,7 @@ sums_and_scans(struct sgf *g, nid cur, float *cost)
 					to = mk_cast(N.ty[x], mk_un(O_POPCNT, to));
 				} else
 					to = ladder(v, N.b[x], W);
-				cand = replaced(cur, x, to);
+				cand = sg_replaced(cur, x, to);
 				if (!cand)
 					continue;
 				c = price(g, cand);
@@ -680,7 +681,7 @@ tables(struct sgf *g, nid cur, float *cost)
 					x = nd[i];
 			if (!x)
 				break;
-			cand = replaced(cand, x, mk_sg(O_SGSHUF, reg, N.b[x],
+			cand = sg_replaced(cand, x, mk_sg(O_SGSHUF, reg, N.b[x],
 			    mk_const_i(TY_LIT, W)));
 			done++;
 		}
@@ -709,11 +710,6 @@ tables(struct sgf *g, nid cur, float *cost)
  * expression: xor, not, shifts and masks by constants, conversions, and
  * an or or a sum of fields that cannot both be 1 at any bit.
  */
-struct aff {
-	uint64_t row[64];
-	uint64_t k;
-	int w;
-};
 
 static uint64_t
 wmask(int w)
@@ -731,8 +727,8 @@ int_width(ty_t t)
 #define BIT0(a, i) ((a)->row[i] == 0 && !(((a)->k >> (i)) & 1))
 #define BIT1(a, i) ((a)->row[i] == 0 && (((a)->k >> (i)) & 1))
 
-static int
-affine(nid e, int slot, struct aff *r, int depth)
+int
+gf2_affine(nid e, int slot, struct aff *r, int depth)
 {
 	struct aff a, b;
 	int w = int_width(N.ty[e]), i, op = N.op[e];
@@ -754,7 +750,7 @@ affine(nid e, int slot, struct aff *r, int depth)
 			r->row[i] = 1ULL << i;
 		return 1;
 	case O_NOT:
-		if (!affine(N.a[e], slot, r, depth + 1))
+		if (!gf2_affine(N.a[e], slot, r, depth + 1))
 			return 0;
 		r->k ^= wmask(w);
 		r->w = w;
@@ -762,7 +758,7 @@ affine(nid e, int slot, struct aff *r, int depth)
 	case O_CAST: {
 		ty_t ta = N.ty[N.a[e]];
 		int wa = int_width(ta), sgn = TYK(ta) == K_SINT;
-		if (!affine(N.a[e], slot, &a, depth + 1))
+		if (!gf2_affine(N.a[e], slot, &a, depth + 1))
 			return 0;
 		if (!wa)
 			wa = a.w;
@@ -778,7 +774,7 @@ affine(nid e, int slot, struct aff *r, int depth)
 	case O_SHL: case O_SHR: {
 		int64_t s;
 		int sgn = TYK(N.ty[e]) == K_SINT;
-		if (!is_const(N.b[e]) || !affine(N.a[e], slot, &a, depth + 1))
+		if (!is_const(N.b[e]) || !gf2_affine(N.a[e], slot, &a, depth + 1))
 			return 0;
 		s = N.ki[N.b[e]];
 		if (s < 0 || s >= w)
@@ -795,8 +791,8 @@ affine(nid e, int slot, struct aff *r, int depth)
 		return 1;
 	}
 	case O_XOR: case O_AND: case O_OR: case O_ADD:
-		if (!affine(N.a[e], slot, &a, depth + 1) ||
-		    !affine(N.b[e], slot, &b, depth + 1))
+		if (!gf2_affine(N.a[e], slot, &a, depth + 1) ||
+		    !gf2_affine(N.b[e], slot, &b, depth + 1))
 			return 0;
 		for (i = 0; i < w; i++) {
 			const struct aff *keep = NULL;
@@ -955,7 +951,7 @@ bitslice(struct sgf *g, nid cur, float *cost)
 	    !int_width(f->p[slot].ty))
 		return cur;
 	m = xmalloc(sizeof *m);
-	if (!affine(cur, slot, m, 0)) {
+	if (!gf2_affine(cur, slot, m, 0)) {
 		free(m);
 		return cur;
 	}

@@ -320,6 +320,11 @@ static const struct bfn bfns[] = {
 	{"sdot2x16sat", O_SDOT2X16S, 3}, {"sudot2x16sat", O_SUDOT2X16S, 3},
 	{"udot8x4sat", O_UDOT8X4S, 3}, {"sdot8x4sat", O_SDOT8X4S, 3},
 	{"sudot8x4sat", O_SUDOT8X4S, 3},
+	/* inst.c: the catalogue's instructions */
+	{"bfe", O_BFE, 3}, {"sbfe", O_SBFE, 3}, {"brev", O_BREV, 1},
+	{"mulhi", O_MULHI, 2}, {"smulhi", O_SMULHI, 2}, {"funl", O_FUNL, 3},
+	{"funr", O_FUNR, 3}, {"med3", O_MED3, 3}, {"usad4x8", O_USAD4X8, 3},
+	{"byteperm", O_BYTEPERM, 3},
 	{NULL, 0, 0}
 };
 
@@ -641,6 +646,9 @@ apply_builtin(struct P *p, const struct bfn *b, nid *args, int n)
 	a = args[0];
 	if (IS_DOT(b->op))
 		return mk_dot(b->op, args[0], args[1], b->arity == 3 ? args[2] : 0);
+	if (IS_INST(b->op))
+		return mk_inst(b->op, args[0], b->arity >= 2 ? args[1] : 0,
+		    b->arity == 3 ? args[2] : 0);
 	if (b->arity == 3)
 		return mk_fma(args[0], args[1], args[2]);
 	if (b->arity == 2)

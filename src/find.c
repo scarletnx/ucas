@@ -2028,6 +2028,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	parametric(&F.f);
 	dot_find(&F.f);
 	sg_find(&F.f);
+	inst_find(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();

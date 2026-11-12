@@ -40,6 +40,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
 	"mul16",
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil",
+	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm",
 };
 
 /*
@@ -351,7 +352,7 @@ node_cost(const struct model *m, nid n, int *cls)
 		return loop_cost(m, n, cls);
 	default:
 		k = IS_DOT(op) ? DOT_CLASS(op) : IS_SG(op) ? sg_class(op) :
-		    C_IADD;
+		    IS_INST(op) ? inst_class(op) : C_IADD;
 	}
 	*cls = k;
 	c = m->c[k] * mul;

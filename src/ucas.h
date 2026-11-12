@@ -145,6 +145,14 @@ enum {
 	 * sum of v over lanes 0..l (see sg.c for the exact semantics)
 	 */
 	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN,
+	/*
+	 * inst.c: single instructions that targets have, each defined by an
+	 * expression over the operations above (bit fields, bit reversal,
+	 * the high half of a product, funnel shifts, the median of three,
+	 * a sum of byte differences, a byte permute)
+	 */
+	O_BFE, O_SBFE, O_BREV, O_MULHI, O_SMULHI, O_FUNL, O_FUNR, O_MED3,
+	O_USAD4X8, O_BYTEPERM,
 	O_NOPS
 };
 #define O_DOT_FIRST O_UDOT4X8
@@ -153,6 +161,9 @@ enum {
 #define O_SG_FIRST O_SGBALLOT
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
+#define IS_INST(op) ((op) >= O_BFE && (op) <= O_BYTEPERM)
+/* built from all three operands by mk_op (the generic rebuilders) */
+#define IS_OP3(op) (IS_DOT(op) || IS_SG(op) || IS_INST(op))
 #define OF_COMM 1
 #define OF_INT 2      /* integer operands only */
 #define OF_REALFN 4   /* operand promoted to real */
@@ -171,7 +182,8 @@ extern const struct opinfo opinfo[O_NOPS];
 /* ---- node.c ---- */
 #define NF_PARTIAL 1 /* this subterm can be undefined */
 #define NF_VAR 2     /* depends on a parameter */
-#define NF_SG 4      /* has a subgroup operation in it (sg.c) */
+#define NF_SG 4      /* has an operation that sg_lower spells out: a
+		      * subgroup operation (sg.c) or an instruction (inst.c) */
 #define NF_LANE 8    /* the lane of a subgroup operation's operand is free
 		      * in it: part of a value per lane */
 #define NF_INH (NF_VAR | NF_SG | NF_LANE)   /* an operand's, its user's */
@@ -208,6 +220,7 @@ nid mk_fma(nid a, nid b, nid c);
 nid mk_dot(int op, nid a, nid b, nid acc);  /* dot.c; acc 0 unless _SAT */
 nid mk_op(int op, nid a, nid b, nid c);     /* any op from its operands */
 nid mk_sg(int op, nid a, nid b, nid c);     /* sg.c; the last operand is W */
+nid mk_inst(int op, nid a, nid b, nid c);   /* inst.c */
 double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
 double fma16(double a, double b, double c);	/* f16 fma, correctly rounded */
 double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
@@ -344,6 +357,8 @@ enum {
 	 * the model lists them (nothing is priced before it is measured).
 	 */
 	C_ROP_BLEND, C_ROP_ADV, C_ROP_LOGIC, C_ROP_STENCIL,
+	/* the catalogue's instructions (inst.c), absent unless listed */
+	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
@@ -437,6 +452,13 @@ int sg_reads(nid e, uint64_t mask);
 nid sg_lower(nid e);
 /* find: forms the active model's subgroup operations make cheaper */
 void sg_find(const struct func *f);
+
+/* ---- inst.c: the catalogue of single instructions ---- */
+int inst_class(int op);
+/* the instruction as the expression that defines it */
+nid inst_expand(int op, nid a, nid b, nid c);
+/* find: the instructions the active model has, for the patterns they are */
+void inst_find(const struct func *f);
 
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */
