@@ -1499,6 +1499,79 @@ cost of quant under gt1030: 134 (0 operations outside loops and 1 loop, ...)
 
 `find` takes its operation costs from the active model.
 
+### Identities solved for the function
+
+Some rewrites have no fixed right-hand side: their constants are solved
+from the divisor, or from the values a subterm takes on its domain
+(src/idrw.c).  They reach `find` and `simplify` the same way as the
+rewrites above: each is a candidate with its derivation and the
+conditions it holds under, kept only where the active model prices it
+lower, and otherwise listed as "derived, but not cheaper".
+
+- **A divisibility test by a constant**, `n % d == r` (or `!=`), as a
+  multiply and a compare.  With d = 2^k e, e odd, the map n ->
+  rotr((n - r) e^-1, k) is a bijection of the machine word, and it takes
+  the n with that remainder onto 0..B, B = floor((2^w - 1 - r)/d); so
+  the test is `rotr(n*einv + c, k) <= B`.  Signed n (r = 0) the same,
+  with the multiples on both sides of 0 moved onto 0..B by the added
+  constant.  u8 to u32 and i8 to i32; the derivation prints e^-1, c and
+  B.  SAT does not finish on a multiplier against a divider, so the
+  second opinion here is the domain's points (all of them when there
+  are few, a sample otherwise) and the derivation is the proof.
+- **A division or remainder by a constant whose dividend has a proved
+  bound** N, as one multiply and one shift in u32: M = ceil(2^s/d) with
+  N (M d - 2^s) < 2^s (the excess stays below 1/d) and N M < 2^32 (the
+  product does not wrap).  The bound comes from the parameters' ranges,
+  the where clause, interval arithmetic or bound.c's proofs.  When N is
+  too large for every shift, find says what the dividend would have to
+  stay below (`not applied ... needs x <= 57343`).
+- **A map of one variable with a small range** (compares and selects, a
+  table, quotients; at most 4096 values), read at every value of the
+  variable:
+  - as a table in one constant, `(C >> b*(x - lo)) & (2^b - 1)`, when
+    its entries fit 32 bits (b a power of two when that fits, so that
+    the index is a shift; a bool is the low bit; the least value is
+    added back when it is not 0);
+  - as a multiply and a shift, `(x*M + A) >> s`: for each s, the offsets
+    A that serve a multiplier M are an interval whose width is concave
+    in M, so the least s with a pair is found exactly, and the
+    derivation prints the two values of x where the fit is tightest.
+
+  The largest such subterms are tried first, their operands where
+  neither form fits.
+
+```
+> dv(n: u32) = n % 7 == 0
+> find dv 1
+  cost 5   3067833783n <= 613566756                 the divisibility test n % 7 == 0 as a multiply and a compare (derived; checked on a sample)
+      holds where n is any u32 (the multiply wraps mod 2^32)
+      7 is odd, and 7 * 0xb6db6db7 = 1 mod 2^32
+      t(n) = n*0xb6db6db7 takes each 32-bit word to a different one (a bijection): a multiply by an odd number does
+      the multiples of 7 are q*7 for q = 0..613566756 (floor((2^32 - 1)/7)); there n * 0xb6db6db7 = q mod 2^32: t takes them onto 0..613566756
+      a bijection takes every other n outside 0..613566756: t(n) <= 613566756 exactly where n % 7 == 0
+> d(x: u32 in 0..99, y: u32) = x / 10 + y
+> find d 1
+  cost 5   (103x >> 10) + y                         the division x/10 as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where x in [0, 99] (its range)
+      M = ceil(2^10/10) = 103, so M*10 = 2^10 + 6
+      ...
+      x <= 99: x*6 <= 594 < 2^10, and x*M <= 10197 < 2^32, so the product does not wrap in u32
+> sw(x: u32 in 0..7, y: u32) = (x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) + y
+> find sw 1
+  cost 6   (0x900173 >> (x << 2) & 15) + y          the map ... of x as a table in one constant (8 entries of 4 bits) (derived; checked by SAT)
+> q(v: u32 in 0..255) = (v*31 + 127)/255
+> find q 1
+  cost 5   249v + 1014 >> 11                        the map (31v + 127)/255 of v as a multiply and a shift in u32 (derived; checked on every point)
+```
+
+Under gt1030 the divisibility test costs 5.375 against 15.875 (a
+remainder by a constant is 13.5, a multiply 3), the division and its add 5 against
+9.75, the table 6 against 17 for four compares and selects, and the
+quantisation 5 against 11.75.  Under a model where the multiply is dear
+(`model muldear : gt1030 { imul: 20 }`) or a shift by a variable is
+(`{ shift: 20 }`) find says "derived, but not cheaper" and leaves the
+function as it is.
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the

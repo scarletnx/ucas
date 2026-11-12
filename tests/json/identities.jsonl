@@ -1,0 +1,4 @@
+{"id": 1, "cmd": "find", "args": {"f": {"body": "n % 7 == 0 ? a : b", "params": [{"name": "n", "type": "u32"}, {"name": "a", "type": "u32"}, {"name": "b", "type": "u32"}]}, "n": 1}}
+{"id": 2, "cmd": "find", "args": {"f": {"body": "x / 10 + y", "params": [{"name": "x", "type": "u32", "range": [0, 99]}, {"name": "y", "type": "u32"}]}, "n": 1}}
+{"id": 3, "cmd": "find", "args": {"f": {"body": "(x == 0 ? 3 : x == 1 ? 7 : x == 2 ? 1 : x == 5 ? 9 : 0) + y", "params": [{"name": "x", "type": "u32", "range": [0, 7]}, {"name": "y", "type": "u32"}]}, "n": 1}}
+{"id": 4, "cmd": "find", "args": {"f": {"body": "x / 7", "params": [{"name": "x", "type": "u32", "range": [0, 10000000]}]}, "n": 1}}
