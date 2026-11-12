@@ -15,3 +15,8 @@ find isprime 2
 sq(x: u8 in 0..15) = x * x
 find sq 2
 more 2
+
+# A bitcast is not dropped: the bits of a float are not the float (the
+# candidate used to print "error: shift needs integer operands").
+pb(i: u32 in 0..1000) = asint(asfloat(i | 0x40000000) * 2.0) >> 3
+find pb 1
