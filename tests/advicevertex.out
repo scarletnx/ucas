@@ -1,0 +1,52 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 110 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 18.75 -> 18.75 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: main (line 14: 'gl_InstanceIndex' is not declared (names starting with gl_ are GLSL's own)))
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec3 %44: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %41 = OpFMul %float %39 %float_0_00392156886   (spirv-opt -O: x / 255 as x * 0.003921569)
+        k = fl(1/255) = 0.003921569; k*d = 1 + delta with delta = 5.91e-08 (k*d is exact in double)
+          x*k = (x/d)(1 + delta), so |fl(x*k) - x/d| <= ulp/2 + |x/d| |delta| < (0.5 + 2^24 |delta|) ulp = 1.49 ulp (|v| < 2^24 ulp(v); subnormal results alike)
+          x/d correctly rounded is within 0.5 ulp, and both are floats: they differ by at most 1 ulp
+          Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 1.49 <= 2.5, so it is within the precision the division already had
+        not bit-exact: float(%20) = 255.00195: / 255 gives 1.0000076, * 0.003921569 gives 1.0000077 (the quotient within |delta| of a rounding midpoint)
+        (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  vertex inputs: what the input assembler computes before the shader runs (each a proposal: the vertex input state changes; not priced: gt1030 has no price for an attribute, and the GT 1030 run measured that the format barely matters while the count does):
+    %14 = OpBitwiseAnd %uint %12 %uint_255   (1 every vertex)
+        (line 8: uint r = packed & 255u;)
+      component 0 of the same bytes read as R8G8B8A8_UINT (proved by SAT): an attribute on packed's binding and offset with that format, or R8_UINT at offset + 0
+      and %37 = OpConvertUToF %float %14: the USCALED format of that component gives it as a float, exactly (a field of at most 16 bits is an f32 as it is)
+    %20 = OpBitwiseAnd %uint %19 %uint_255   (3 every vertex)
+        (line 9: uint g = (packed >> 8) & 255u;)
+      component 1 of the same bytes read as R8G8B8A8_UINT (proved by SAT): an attribute on packed's binding and offset with that format, or R8_UINT at offset + 1
+      and %39 = OpConvertUToF %float %20: the USCALED format of that component gives it as a float, exactly (a field of at most 16 bits is an f32 as it is)
+      and %41 = OpFMul %float %39 %float_0_00392156886: the UNORM format gives the field over 255 as a real number; the shader's product and the format's conversion may differ in the last bit
+    %27 = OpShiftRightArithmetic %int %25 %int_24   (4 every vertex)
+        (line 10: int sb = int(packed << 8) >> 24;)
+      component 2 of the same bytes read as R8G8B8A8_SINT (proved by SAT): an attribute on packed's binding and offset with that format, or R8_SINT at offset + 2
+      and %43 = OpConvertSToF %float %27: the SSCALED format of that component gives it as a float, exactly (a field of at most 16 bits is an f32 as it is)
+    %31 = OpShiftRightLogical %uint %12 %int_16   (2 every vertex)
+        (line 11: uint hi = packed >> 16;)
+      component 1 of the same bytes read as R16G16_UINT (proved by SAT): an attribute on packed's binding and offset with that format, or R16_UINT at offset + 2
+      and %48 = OpConvertUToF %float %31: the USCALED format of that component gives it as a float, exactly (a field of at most 16 bits is an f32 as it is)
+    %56 = OpUDiv %uint %54 %uint_3   (28.5 every vertex)
+        (line 14: row = uint(gl_InstanceIndex) / 3u;)
+      gl_InstanceIndex / 3 (proved by SAT) is the element an instance-rate attribute with divisor 3 fetches from a buffer holding 0, 1, 2, ... (VK_EXT_vertex_attribute_divisor, core in Vulkan 1.4): it fetches element firstInstance + (InstanceIndex - firstInstance) / divisor, which is this when firstInstance is 0
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 93 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 17.5 -> 17.5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: main (line 10: 'gl_InstanceIndex' is not declared (names starting with gl_ are GLSL's own)))
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, or is what a vertex format or an instance divisor computes

@@ -1,0 +1,44 @@
+# simplify ... advice on a vertex shader: what the input assembler could
+# compute before the shader runs (src/spirv.c, adv_vertex_inputs).  A
+# field of an input word is a component of the same bytes read with
+# another vertex format (a byte, a half, signed or not; as a float, the
+# SCALED and NORM formats); gl_InstanceIndex divided by a constant is
+# what an instance-rate attribute with that divisor fetches from a
+# buffer of 0, 1, 2, ...  Each is proved; none is priced (no model
+# prices an attribute).
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in uint packed;
+layout(location = 1) in vec2 pos;
+layout(location = 0) out vec3 col;
+layout(location = 1) flat out uint row;
+layout(location = 2) out float lum;
+void main() {
+    uint r = packed & 255u;
+    uint g = (packed >> 8) & 255u;
+    int sb = int(packed << 8) >> 24;
+    uint hi = packed >> 16;
+    col = vec3(float(r), float(g) / 255.0, float(sb));
+    lum = float(hi);
+    row = uint(gl_InstanceIndex) / 3u;
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+```
+# not fields of a format (a nibble, a 12-bit field), not a division by a
+# constant: nothing to say
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in uint packed;
+layout(location = 1) in vec2 pos;
+layout(location = 1) flat out uint a;
+layout(location = 2) flat out uint b;
+layout(location = 3) flat out uint c;
+void main() {
+    a = packed & 15u;
+    b = (packed >> 4) & 4095u;
+    c = uint(gl_InstanceIndex) % 5u;
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+```

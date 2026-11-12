@@ -107,7 +107,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
-advice: nothing in this module depends only on its uniforms or its flat inputs, or is affine in its varyings or in gl_FragCoord
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, or is what a vertex format or an instance divisor computes
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile advice
