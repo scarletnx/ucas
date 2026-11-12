@@ -391,6 +391,8 @@ enum {
 	C_ROP_QUERY,
 	/* a pixel's coverage by a convex polygon: the edge functions */
 	C_ROP_RASTER,
+	/* a depth or stencil resolve of a multisampled pixel */
+	C_ROP_RESOLVE,
 	/* the catalogue's instructions (inst.c), absent unless listed */
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_MULWIDE,

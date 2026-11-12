@@ -26,7 +26,9 @@
  *
  * A predicate P(x, y) over a grid of pixels is a coverage instead: when it
  * is the conjunction of half-planes a x + b y + c >= 0, the rasteriser's
- * edge functions test it, a convex polygon drawn over the grid.
+ * edge functions test it, a convex polygon drawn over the grid.  A
+ * function of 4 or 8 values of one type, none the cell, is a pixel's
+ * samples: the depth and stencil resolve modes (SAMPLE_ZERO, MIN, MAX).
  *
  * Nothing is recognised by name: every state is compared with F on F's
  * domain.  Integers are decided on every point or by SAT; a blend
@@ -1571,6 +1573,186 @@ cmd_raster(struct func *f, struct model *m)
 	free(vs.p);
 }
 
+/* ---- a multisampled pixel's resolve ---- */
+
+/*
+ * F(x0, ..., x(n-1)), n = 4 or 8 samples of a pixel: the resolve of a
+ * depth or stencil attachment at the end of a subpass
+ * (VK_KHR_depth_stencil_resolve) takes SAMPLE_ZERO, the MIN or the MAX
+ * of them, which picks one of the values: exact, on S8_UINT for bytes,
+ * on D32_SFLOAT for floats and for integers below 0x3F000000 written as
+ * the float whose bits are value + 2^23 (as the depth test does).  A
+ * colour resolve is a mean whose arithmetic Vulkan leaves to the
+ * implementation: said, not offered.
+ */
+static int
+resolve_kind(const struct func *f)
+{
+	int j;
+
+	if (f->np != 4 && f->np != 8)
+		return 0;
+	for (j = 0; j < f->np; j++)
+		if (f->p[j].ty != f->p[0].ty || f->p[j].uniform ||
+		    !strcmp(sym_str(f->p[j].name), "d") ||
+		    !strcmp(sym_str(f->p[j].name), "dst"))
+			return 0;
+	return 1;
+}
+
+/* e is a tree of op (O_MIN or O_MAX) whose leaves are the n parameters,
+ * each once: their min or max as real numbers (NaN aside) */
+static int
+minmax_tree(nid e, int op, uint32_t *seen, int depth)
+{
+	if (depth > 16)
+		return 0;
+	if (N.op[e] == op)
+		return minmax_tree(N.a[e], op, seen, depth + 1) &&
+		    minmax_tree(N.b[e], op, seen, depth + 1);
+	if (N.op[e] != O_VAR || N.ki[e] < 0 || N.ki[e] >= 8 ||
+	    (*seen >> N.ki[e] & 1))
+		return 0;
+	*seen |= 1u << N.ki[e];
+	return 1;
+}
+
+static void
+cmd_resolve(struct func *f, struct model *m)
+{
+	static const char *const mode[3] = {"SAMPLE_ZERO", "MIN", "MAX"};
+	ty_t t = f->p[0].ty;
+	int n = f->np, w = TYW(t), flt = t == TY_F32, k, j, stencil;
+	nid x[8], e, sum = 0;
+	uint64_t top = 0;
+	const char *how, *fn = f->anon ? "F" : sym_str(f->name), *att;
+	struct rctx c;
+	struct sbuf st = {0}, hold = {0}, pr = {0}, pl = {0};
+
+	if (!flt && !(TYK(t) == K_UINT && (w == 8 || w == 16 || w == 32)))
+		fail("rop reads %d values of one type as a pixel's samples: u8, "
+		    "u16, u32 or f32, not %s", n, ty_str(t));
+	if (N.ty[f->body] != t)
+		fail("the resolved value (%s) must have the samples' type (%s)",
+		    ty_str(N.ty[f->body]), ty_str(t));
+	memset(&c, 0, sizeof c);
+	c.f = f;
+	c.m = m;
+	for (j = 0; j < n; j++) {
+		x[j] = mk_var((uint32_t)j, f->p[j].name, t);
+		if (!flt && umax_of(&c, j) > top)
+			top = umax_of(&c, j);
+	}
+	c.against = (float)n * model_cost(m, C_TEX_FETCH) + fuse_expr_cost(m,
+	    f->body);
+	sb_printf(&c.againstwhy, "reading the %d samples, %d tex_fetch, and %s "
+	    "itself", n, n, fn);
+	printf("rop %s: %s = %s, a resolve of a pixel's %d samples (%s to %s)\n",
+	    fn, fn, shared_str(f->body, 200), n, sym_str(f->p[0].name),
+	    sym_str(f->p[n - 1].name));
+	rep_begin("rop");
+	rep_expr("resolve", f->body);
+	rep_str("model", sym_str(m->name));
+	stencil = !flt && w == 8;
+	att = stencil ? "S8_UINT stencil" : "D32_SFLOAT depth";
+	for (k = 0; k < 3; k++) {
+		e = x[0];
+		for (j = 1; j < n && k > 0; j++)
+			e = mk_bin(k == 1 ? O_MIN : O_MAX, e, x[j]);
+		if (flt && k > 0) {
+			/* floats: the tree of mins or maxes, read as real numbers */
+			uint32_t seen = 0;
+			if (!minmax_tree(f->body, k == 1 ? O_MIN : O_MAX, &seen, 0) ||
+			    seen != (1u << n) - 1)
+				continue;
+			how = "the same samples, compared as real numbers";
+		} else if (same(f, f->body, e, &how) != 1)
+			continue;
+		if (!flt && !stencil && top >= DEPTH_KEYS) {
+			printf("  depth resolve: VK_RESOLVE_MODE_%s would compute it, "
+			    "but the samples reach %llu: D32_SFLOAT holds integers "
+			    "below 0x3F000000 exactly (as the float whose bits are "
+			    "the value + 2^23)\n", mode[k], (unsigned long long)top);
+			continue;
+		}
+		sb_printf(&st, "VK_RESOLVE_MODE_%s_BIT on %s %d-sample %s "
+		    "attachment: %s", mode[k], n == 8 ? "an" : "a", n, att,
+		    k == 0 ? sym_str(f->p[0].name) : k == 1 ? "the least sample" :
+		    "the greatest sample");
+		if (flt) {
+			int unit = 1;
+			for (j = 0; j < n; j++)
+				unit &= f->p[j].ranged && f->p[j].rlo >= 0 &&
+				    f->p[j].rhi <= 1;
+			sb_printf(&hold, "no sample is NaN (a min or max of a NaN is "
+			    "not fixed) or subnormal (a depth may be flushed to "
+			    "zero)%s; the sign of a zero result may differ", unit ?
+			    "" : ", and every sample is in [0, 1], the depth range "
+			    "(VK_EXT_depth_range_unrestricted lifts it)");
+		}
+		else if (!stencil)
+			sb_printf(&hold, "the samples stay below 0x3F000000 (at most "
+			    "%llu, from the parameters' ranges)", (unsigned long
+			    long)top);
+		sb_printf(&pr, "%s is %s (%s); a resolve mode other than the mean "
+		    "picks one of the samples, so nothing rounds%s", fn, k == 0 ?
+		    "the first sample" : k == 1 ? "their min" : "their max", how,
+		    stencil || flt ? "" : "; a value goes in as the depth whose "
+		    "f32 bits are value + 2^23 and comes back as those bits - 2^23, "
+		    "increasing with it, so the depth chosen is the value's");
+		sb_printf(&pl, "VkSubpassDescriptionDepthStencilResolve: %s = "
+		    "VK_RESOLVE_MODE_%s_BIT (VK_KHR_depth_stencil_resolve, core in "
+		    "1.2; the mode in supported%sResolveModes); a %d-sample %s "
+		    "attachment whose samples are %s to %s%s, resolved into a "
+		    "single-sample one at the end of the subpass", stencil ?
+		    "stencilResolveMode" : "depthResolveMode", mode[k], stencil ?
+		    "Stencil" : "Depth", n, att, sym_str(f->p[0].name),
+		    sym_str(f->p[n - 1].name), stencil || flt ? "" : " (written "
+		    "as gl_FragDepth = uintBitsToFloat(value + 0x00800000))");
+		form(&c, stencil ? "stencil resolve" : "depth resolve",
+		    sb_str(&st), sb_str(&hold), sb_str(&pr), C_ROP_RESOLVE,
+		    sb_str(&pl));
+		break;	/* the three modes are distinct functions */
+	}
+	/* the mean: a colour resolve, not offered */
+	for (j = 0; j < n; j++)
+		sum = sum ? mk_bin(O_ADD, sum, x[j]) : x[j];
+	if (flt && !c.nforms) {
+		nid a = real_guarded(f->body, 1), b = real_guarded(mk_bin(O_DIV,
+		    sum, mk_cast(t, mk_const_r((double)n))), 1);
+		struct rf ra, rb;
+		size_t mk = ar_mark();
+		int eq = 0;
+		atoms_reset();
+		if (a && b && rf_of(a, &ra, NULL) && rf_of(b, &rb, NULL)) {
+			ra = rf_norm(ra);
+			rb = rf_norm(rb);
+			eq = mp_eq(ra.n, rb.n) && mp_eq(ra.d, rb.d) && !alg_ovf;
+		}
+		ar_release(mk);
+		if (eq)
+			printf("  colour resolve: vkCmdResolveImage computes the mean "
+			    "of the %d samples, but its arithmetic is the "
+			    "implementation's (Vulkan fixes neither the order of the "
+			    "adds nor their rounding): not offered until measured\n",
+			    n);
+	}
+	if (c.nforms) {
+		rep_end();
+		printf("  not in any price: the subpass and its multisampled "
+		    "attachment\n");
+	} else
+		printf("  no resolve mode computes it (SAMPLE_ZERO, MIN, MAX of the "
+		    "depth or stencil samples; the mean of a colour resolve is "
+		    "not offered)\n");
+	rep_int("count", c.nforms);
+	free(c.againstwhy.p);
+	free(st.p);
+	free(hold.p);
+	free(pr.p);
+	free(pl.p);
+}
+
 /* ---- the command ---- */
 
 /*
@@ -1729,6 +1911,10 @@ cmd_rop(struct func *f, struct model *m)
 
 	if (N.ty[f->body] == TY_BOOL) {
 		cmd_raster(f, m);
+		return;
+	}
+	if (resolve_kind(f)) {
+		cmd_resolve(f, m);
 		return;
 	}
 	memset(&c, 0, sizeof c);

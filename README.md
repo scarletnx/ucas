@@ -2671,6 +2671,26 @@ The grid starts at 0 and stays inside 16384 (the framebuffer's pixels).
 Priced by `rop_raster` a fragment, against the predicate's own cost in
 every invocation.
 
+**A pixel's samples.**  A function of 4 or 8 values of one type, none
+named `d` or `dst` and none uniform, is read as the samples of a
+multisampled pixel.  The resolve of a depth or stencil attachment at the
+end of a subpass (VK_KHR_depth_stencil_resolve, core in Vulkan 1.2)
+takes VK_RESOLVE_MODE_SAMPLE_ZERO_BIT, MIN_BIT or MAX_BIT of them: one
+of the samples, so nothing rounds.  Bytes resolve on S8_UINT; floats on
+D32_SFLOAT (no NaN, no subnormal, inside the depth range [0, 1] unless
+VK_EXT_depth_range_unrestricted, the sign of a zero not kept); integers
+below 0x3F000000 on D32_SFLOAT as the float whose bits are value + 2^23,
+as the depth test writes them.  Integer modes are proved on F's domain;
+for floats a tree of mins (or maxes) over every sample, each once, is
+their min as real numbers.  A colour resolve (vkCmdResolveImage) is a
+mean whose arithmetic Vulkan leaves to the implementation (the order of
+the adds, their rounding): said, not offered until measured.  Two
+samples read as an update (a cell and a fragment), whose MIN and MAX
+blending and depth test are the same operations.  Alpha-to-coverage
+(the implementation's quantise-and-dither) and the sample mask (an
+input, not an operation) are not offered.  Priced by `rop_resolve` a
+pixel, against reading the samples (`tex_fetch` each) and F.
+
 **Nothing is recognised by name.**  Every state is compared with F on
 F's domain: integer states on every point or by SAT; a blend equation
 by expanding it and F to the same polynomial (so `s + d - s*d` is

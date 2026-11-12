@@ -507,3 +507,42 @@ rop tri: tri(x, y) = x + 2y >= 40 && 3x - y < 400 && y <= 200 - x, a predicate o
       price: rop_raster 1 a fragment under rz, against 16.125 (the test in every invocation of the grid): cheaper
       pipeline: a draw of 3 triangles as a fan over the window positions (41, 0), (133.5, 0), (150.5, 51), (0, 201.5), (0, 20.5) (pixel (x, y) is the framebuffer's: x and y below maxFramebufferWidth and Height), no culling, a viewport covering the grid; the fragment shader runs on the pixels where tri holds, instead of a test in every invocation
   not in any price: the draw's setup (a render pass, the pipeline, 5 vertices)
+> dmin(a: f32 in 0..1, b: f32 in 0..1, c: f32 in 0..1, e: f32 in 0..1) = min(min(a, b), min(c, e))
+> rop dmin
+rop dmin: dmin = min(min(a, b), min(c, e)), a resolve of a pixel's 4 samples (a to e)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth resolve: VK_RESOLVE_MODE_MIN_BIT on a 4-sample D32_SFLOAT depth attachment: the least sample
+      holds where no sample is NaN (a min or max of a NaN is not fixed) or subnormal (a depth may be flushed to zero); the sign of a zero result may differ
+      dmin is their min (the same samples, compared as real numbers); a resolve mode other than the mean picks one of the samples, so nothing rounds
+      price: rop_resolve is not priced by gt1030 (not measured): unavailable
+      pipeline: VkSubpassDescriptionDepthStencilResolve: depthResolveMode = VK_RESOLVE_MODE_MIN_BIT (VK_KHR_depth_stencil_resolve, core in 1.2; the mode in supportedDepthResolveModes); a 4-sample D32_SFLOAT depth attachment whose samples are a to e, resolved into a single-sample one at the end of the subpass
+  not in any price: the subpass and its multisampled attachment
+> smax(a: u8, b: u8, c: u8, e: u8) = max(a, max(b, max(c, e)))
+> rop smax
+rop smax: smax = max(a, max(b, max(c, e))), a resolve of a pixel's 4 samples (a to e)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  stencil resolve: VK_RESOLVE_MODE_MAX_BIT on a 4-sample S8_UINT stencil attachment: the greatest sample
+      smax is their max (proved by SAT); a resolve mode other than the mean picks one of the samples, so nothing rounds
+      price: rop_resolve is not priced by gt1030 (not measured): unavailable
+      pipeline: VkSubpassDescriptionDepthStencilResolve: stencilResolveMode = VK_RESOLVE_MODE_MAX_BIT (VK_KHR_depth_stencil_resolve, core in 1.2; the mode in supportedStencilResolveModes); a 4-sample S8_UINT stencil attachment whose samples are a to e, resolved into a single-sample one at the end of the subpass
+  not in any price: the subpass and its multisampled attachment
+> z8(a: u32 in 0..1000, b: u32 in 0..1000, c: u32 in 0..1000, e: u32 in 0..1000, g: u32 in 0..1000, h: u32 in 0..1000, i: u32 in 0..1000, j: u32 in 0..1000) = a
+> rop z8
+rop z8: z8 = a, a resolve of a pixel's 8 samples (a to j)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  depth resolve: VK_RESOLVE_MODE_SAMPLE_ZERO_BIT on an 8-sample D32_SFLOAT depth attachment: a
+      holds where the samples stay below 0x3F000000 (at most 1000, from the parameters' ranges)
+      z8 is the first sample (proved by SAT); a resolve mode other than the mean picks one of the samples, so nothing rounds; a value goes in as the depth whose f32 bits are value + 2^23 and comes back as those bits - 2^23, increasing with it, so the depth chosen is the value's
+      price: rop_resolve is not priced by gt1030 (not measured): unavailable
+      pipeline: VkSubpassDescriptionDepthStencilResolve: depthResolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT (VK_KHR_depth_stencil_resolve, core in 1.2; the mode in supportedDepthResolveModes); a 8-sample D32_SFLOAT depth attachment whose samples are a to j (written as gl_FragDepth = uintBitsToFloat(value + 0x00800000)), resolved into a single-sample one at the end of the subpass
+  not in any price: the subpass and its multisampled attachment
+> big4(a: u32, b: u32, c: u32, e: u32) = min(min(a, b), min(c, e))
+> rop big4
+rop big4: big4 = min(min(a, b), min(c, e)), a resolve of a pixel's 4 samples (a to e)
+  depth resolve: VK_RESOLVE_MODE_MIN would compute it, but the samples reach 4294967295: D32_SFLOAT holds integers below 0x3F000000 exactly (as the float whose bits are the value + 2^23)
+  no resolve mode computes it (SAMPLE_ZERO, MIN, MAX of the depth or stencil samples; the mean of a colour resolve is not offered)
+> mean(a: f32, b: f32, c: f32, e: f32) = (a + b + c + e) / 4.0
+> rop mean
+rop mean: mean = (a + b + c + e)/4, a resolve of a pixel's 4 samples (a to e)
+  colour resolve: vkCmdResolveImage computes the mean of the 4 samples, but its arithmetic is the implementation's (Vulkan fixes neither the order of the adds nor their rounding): not offered until measured
+  no resolve mode computes it (SAMPLE_ZERO, MIN, MAX of the depth or stencil samples; the mean of a colour resolve is not offered)
