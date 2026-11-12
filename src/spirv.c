@@ -2825,7 +2825,7 @@ exec_one(const struct sins *I, uint32_t mask)
 			"Xor", "Exchange", "Store", "Load", "CompareExchange",
 			"FAddEXT", NULL};
 		const struct model *mo = model_active();
-		int p = opid(I, 1), sc, cls, j;
+		int p = opid(I, 1), sc, cls, j, same = 0, nact = 0, wt, first = -1;
 		struct lval pv = val(p, 0);
 		const char *a = I->op + 8;
 		double cost;
@@ -2837,9 +2837,39 @@ exec_one(const struct sins *I, uint32_t mask)
 		/* a float add has its own class; a model without it prices it
 		 * as an integer atomic */
 		cls = sc == SC_WG ? C_ATOM_SH : C_ATOM_GL;
+		wt = I->res >= 0 ? opid(I, 0) : type_of(opid(I, 3));
 		if (!strcmp(a, "FAddEXT") && model_lists(mo, sc == SC_WG ?
 		    C_ATOM_SH_F : C_ATOM_GL_F))
 			cls = sc == SC_WG ? C_ATOM_SH_F : C_ATOM_GL_F;
+		else if (sc != SC_WG && !strcmp(a, "CompareExchange") &&
+		    model_lists(mo, C_ATOM_GL_CAS))
+			cls = C_ATOM_GL_CAS;
+		else if (sc != SC_WG && wt >= 0 && T(wt)->w == 64 &&
+		    model_lists(mo, C_ATOM_GL_64))
+			cls = C_ATOM_GL_64;
+		else if (sc == SC_WG && model_lists(mo, C_ATOM_SH_SAME)) {
+			/* every active lane on one address: one warp instruction
+			 * that serialises its lanes, priced for its share of a warp
+			 * (atomic_shared_same is 32 lanes on one address) */
+			same = 1;
+			for (l = 0; l < V.lanes; l++)
+				if (mask >> l & 1) {
+					struct lval q = val(p, l);
+					nact++;
+					if (first < 0)
+						first = l;
+					else if (q.var != val(p, first).var || q.off !=
+					    val(p, first).off)
+						same = 0;
+				}
+			same = same && nact > 1;
+		}
+		if (same) {
+			double w = mo->par[MP_WARP] >= 2 ? mo->par[MP_WARP] : 32;
+			cls = C_ATOM_SH_SAME;
+			k = emit(I, I_ATOMIC, cls, (double)model_cost(mo, cls) *
+			    (nact < w ? nact : w) / w, mask);
+		}
 		cost = (double)model_cost(mo, cls);
 		for (l = 0; l < V.lanes; l++) {
 			struct lval ptr, *r;
@@ -2892,8 +2922,9 @@ exec_one(const struct sins *I, uint32_t mask)
 				memset(r, 0, sizeof *r);
 				r->b[0] = old;
 			}
-			/* one lane at a time */
-			k = emit(I, I_ATOMIC, cls, cost, 1u << l);
+			/* one lane at a time, or the warp's one instruction */
+			if (!same)
+				k = emit(I, I_ATOMIC, cls, cost, 1u << l);
 			if (I->res >= 0 && k >= 0) {
 				char buf[64];
 				fmt(buf, sizeof buf, V.id[I->res].type, LV(I->res, l));
