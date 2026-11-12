@@ -28,6 +28,7 @@
 #include "dword.h"
 #include "memk.h"
 #include "stoch.h"
+#include "numsearch.h"
 #include "ring.h"
 #include "absalg.h"
 #include "viz.h"
@@ -216,7 +217,7 @@ static const char *const keywords[] = {
 };
 static const char *const stopwords[] = {
 	"basis", "max", "ops", "model", "as", "using", "to", "metric",
-	"nodes", "from", "wrt", "steps", "nocrit", NULL
+	"nodes", "from", "wrt", "steps", "nocrit", "numerically", NULL
 };
 
 static int

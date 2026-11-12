@@ -1277,6 +1277,8 @@ calc_command(struct P *p)
 	if (is_kw(p, "integrate") || tok_is(p->t, p->i, "\xe2\x88\xab") ||
 	    is_kw(p, "antiderivative") || is_kw(p, "primitive")) {
 		/* antiderivative F [wrt x]: integrate without bounds */
+		struct qmcopt qo;
+		int numq = 0;
 		int anti = !is_kw(p, "integrate") && !tok_is(p->t, p->i,
 		    "\xe2\x88\xab");
 		adv(p);
@@ -1305,10 +1307,40 @@ calc_command(struct P *p)
 				if (!accept_kw(p, "to"))
 					expect(p, T_DOTDOT);
 				b = cs_const_expr(p);
+			} else if (accept_kw(p, "numerically")) {
+				/* by name: quasi-Monte Carlo (qmc.c) */
+				if (!accept_kw(p, "qmc"))
+					fail("integrate ... numerically qmc [points N] "
+					    "[replicates R] [seed K] [noscramble] (without "
+					    "it a definite integral is checked by adaptive "
+					    "Gauss-Kronrod)");
+				qmc_defaults(&qo);
+				while (qmc_options(p, &qo))
+					;
+				numq = 1;
 			} else
 				break;
 		}
 		expect_eos(p);
+		if (numq) {
+			double av = 0, bv = 0;
+			if (anti)
+				fail("an antiderivative is not a number: integrate F "
+				    "from a to b numerically qmc");
+			if (a && (!num_of(a, &av) || !num_of(b, &bv)))
+				fail("qmc: the bounds must be numbers");
+			notes_flush();
+			printf("\xe2\x88\xab %s numerically", node_str(f->body));
+			if (a)
+				printf(", %s from %g to %g\n", f->np > slot ?
+				    sym_str(f->p[slot].name) : "x", av, bv);
+			else
+				printf(", over the box of its parameters' ranges\n");
+			rep_begin("integrate");
+			rep_expr("integrand", f->body);
+			qmc_integrate(f, f->body, a ? slot : -1, av, bv, &qo, "  ");
+			return 1;
+		}
 		if (anti && a)
 			fail("an antiderivative is indefinite: for the definite "
 			    "integral say integrate F from a to b");

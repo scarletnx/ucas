@@ -20,6 +20,8 @@ SRCS+=	memk.c
 spirv.o spirv.pieo: spv_mem.inc
 # stochastic search: MCMC over programs, identity testing, hash search
 SRCS+=	stoch.c
+# numerical search (annealing, CMA-ES), rounding error models, Sobol QMC
+SRCS+=	numsearch.c rounderr.c qmc.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
 # complex, quaternion, octonion and Cayley-Dickson numbers

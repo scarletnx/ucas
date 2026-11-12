@@ -11,6 +11,7 @@
 #include "ucas.h"
 #include "nodesat.h"
 #include "bound.h"
+#include "numsearch.h"
 #include "stoch.h"
 
 #include <math.h>
@@ -2288,6 +2289,12 @@ cmd_error(struct func *g, struct func *f)
 	printf("error of %s against %s:\n", fname(g), fname(f));
 	rep_begin("error");
 	print_err(&e, N.ty[a]);
+	if (TYK(N.ty[g->body]) == K_FLOAT) {
+		/* how much of that can be rounding: worst case and probable */
+		struct rounderr re;
+		rounderr_measure(g, 0, &re);
+		rounderr_print(&re, "  ", 1);
+	}
 	free(e.wabs.p);
 	free(e.wrel.p);
 	free(e.wbad.p);

@@ -13,6 +13,7 @@ approx sin(x) on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  1.82e+03 ulp             0.000122      0.000108      4    at x=-1.16394172e-10
       x*P(x^2): x*fma(fma(0.00760290353, s, -0.165960118), s, 0.999891818) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 3.07, probable no better (under 16 operations), expected 0.926; `error ap1 ~ F` says what each means
   2   minimax   7     horner+fma  17.1 ulp (17.1)          1.86e-06      1.02e-06      5    at x=-1.5704608
       x*P(x^2): x*fma(fma(fma(-0.000184881399, s, 0.00831189938), s, -0.16665554), s, 0.999999046) where s = x*x
   3   minimax   9     horner+fma  1.53 ulp (1.66)          9.1e-08       9.09e-08      6    at x=-1.5408833
@@ -34,6 +35,7 @@ approx sin(x) on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  2.19e+03 ulp             0.000135      0.000129      4    at x=-1.16394172e-10  exact pts yes  keep +21%
       x*P(x^2): x*fma(fma(0.00755796302, s, -0.165867969), s, 0.999869227) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 3.07, probable no better (under 16 operations), expected 0.926; `error ap1 ~ F` says what each means
   2   minimax   7     horner+fma  18.9 ulp (20)            2.11e-06      1.12e-06      5    at x=-1.48613846  exact pts yes  keep +16%
       x*P(x^2): x*fma(fma(fma(-0.000184409757, s, 0.0083103599), s, -0.166654333), s, 0.999998927) where s = x*x
   3   minimax   9     horner+fma  1.53 ulp (1.81)          9.1e-08       9.09e-08      6    at x=-1.5408833  exact pts yes  keep +12%
@@ -46,6 +48,11 @@ error of ap3 against s:
   max rel error 1.18475e-07 (1.18e-05%) at x=0.527182758
   mean rel error 1.54859e-10 over 65536 points
   max 1 ulp
+  rounding, first order in u = 2^-24: 6 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  1.62e-07 (2.72 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 5.52 u here (it gains from about 16 operations of similar weight on)
+    expected    4.75e-08 (0.797 u): the root mean square if they are independent and uniform in [-u, u]
+    for 6 operations of equal weight: gamma_6 = 6 u / (1 - 6 u) = 3.58e-07, gamma~_6(4) = 4 sqrt(6) u = 5.84e-07
 > cost ap3
 cost of ap3 under gt1030: 6 (6 operations, shared subterms counted once)
   fmul             6 x 1     = 6
@@ -84,6 +91,7 @@ ap1(float x)
 	const float t2 = fmaf(t1, -3.19461833e-05f, fmaf(t1, -0.693115234f, x));
 	return (fmaf(fmaf(fmaf(fmaf(fmaf(fmaf(0.0013830032f, t2, 0.00836862344f), t2, 0.0416681878f), t2, 0.166665226f), t2, 0.49999994f), t2, 1.0f), t2, 1.0f) * ucas_asfloat32(((ucas_asuint32(t0) << 23) + 0x3f800000u)));
 }
+      rounding of ap1: not analysed (asfloat is not analysed)
   2   reduced   2     horner+fma  2.4e+04 ulp              0.00173       33.1          11   at x=6.05218601
       2^k * P(r), r = x - k*ln2: (fma(fma(0.496251076, r, 1.01489055), r, 1.00044489))*asfloat((asuint(j) << 23) + 0x3f800000) where j = x*1.44269502 + 12582912.0, k = j - 12582912.0, r = fma(k, -3.19461833e-05, fma(k, -0.693115234, x))
 #ifndef UCAS_BITCAST32
@@ -117,6 +125,7 @@ approx log(x) on [0.5, 100] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   reduced   9     horner+fma  1.27 ulp                 1.06e-07      2.76e-07      20   at x=0.689826965  *
       e*ln2 + m*P(m), exponent split: fma(ex, 0.693115234, fma(ex, 3.19461833e-05, fma(m*m, fma(fma(fma(fma(fma(fma(fma(0.0869270191, m, -0.142591968), m, 0.14925617), m, -0.165812626), m, 0.19962506), m, -0.250013977), m, 0.333338976), m, -0.499999881), m))) where u = asuint(x) - 0x3f3504f3, ex = f32(i32(u) >> 23), m = asfloat(asuint(x) - (u & 0xff800000)) - 1.0
+      rounding of ap1: not analysed (>> is not analysed)
   2   reduced   2     horner+fma  3.3e+05 ulp              0.0198        0.00686       13   at x=1.03164339
       e*ln2 + m*P(m), exponent split: fma(ex, 0.693115234, fma(ex, 3.19461833e-05, m*fma(-0.480425775, m, 1.01913702))) where u = asuint(x) - 0x3f3504f3, ex = f32(i32(u) >> 23), m = asfloat(asuint(x) - (u & 0xff800000)) - 1.0
   13 more: 'approx more [n]'
@@ -136,6 +145,7 @@ approx atan(x) on [-10, 10] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   reduced   17    horner+fma  1.77 ulp                 1.58e-07      1.61e-07      21.625 at x=-1.01640344  *
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = fma(r*s, fma(fma(fma(fma(fma(fma(fma(0.00291939103, s, -0.0163631011), s, 0.0432046317), s, -0.0755165592), s, 0.106657684), s, -0.14211002), s, 0.199937671), s, -0.333331525), r)
+      rounding of ap1: not analysed (copysign is not analysed)
   2   reduced   3     horner+fma  2.13e+05 ulp             0.0127        0.00994       14.625 at x=-1.818979e-12
       |x|>1: pi/2 - atan(1/|x|), copysign: copysign(a > 1.0 ? 1.57079637 - p : p, x) where a = abs(x), r = a > 1.0 ? 1.0/a : a, s = r*r, p = r*fma(-0.211864173, s, 0.987309217)
   9 more: 'approx more [n]'
@@ -156,6 +166,7 @@ approx 1/sqrt(x) on [0.00999999978, 100] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   seed+nwt  6     horner+fma  1.95 ulp                 1.26e-07      1.14e-06      24   at x=66.9537888  *
       2^-k * P(m) seed + 1 Newton step: fma(y0, fma(-(h*y0), y0, 0.5), y0) where u = asuint(x), kb = ((u >> 23) + 130) >> 1, m = asfloat(u - ((kb - 128) << 24)), t = m - 1.0, y0 = asfloat(asuint(fma(fma(fma(fma(fma(fma(0.110007837, t, -0.300791502), t, 0.349690825), t, -0.318412602), t, 0.3656905), t, -0.499111354), t, 1.00017524)) - ((kb - 128) << 23)), h = 0.5*x
+      rounding of ap1: not analysed (asfloat is not analysed)
   2   bithack   -     -           2.84e+04 ulp             0.00175       0.0175        8    at x=4.0000658
       bit hack + 1 Newton step: y1 where y0 = asfloat(0x5f375a86 - (asuint(x) >> 1)), h = 0.5*x, y1 = y0*(1.5 - h*y0*y0)
   3   bithack   -     -           73.3 ulp                 4.72e-06      4.69e-05      12   at x=64.0136719
@@ -180,6 +191,7 @@ approx cos(x) on [0, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   identity  3     horner+fma  1.21e+05 ulp             0.00722       0.0072        5    at x=2.32875302e-10
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(-0.146206215, s, 0.992784619) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
+      rounding of ap1, first order, 5 operations, relative, in u = 2^-24: worst case 4, probable no better (under 16 operations), expected 1.15; `error ap1 ~ F` says what each means
   2   identity  5     horner+fma  1.81e+03 ulp             0.000108      0.000108      6    at x=1.55519271
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(0.00760275777, s, -0.16595982), s, 0.999891758) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
   3   identity  7     horner+fma  17.5 ulp                 1.05e-06      1.04e-06      7    at x=0.106301703
@@ -214,6 +226,7 @@ approx tan(x) on [-1.39999998, 1.39999998] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   rational  5/4   horner+fma  4.15 ulp (4.15)          3.27e-07      1.86e-06      8    at x=-1.31185782  *
       x*P(x^2)/Q(x^2): x*fma(fma(0.00111710653, s, -0.111948349), s, 1.0)/fma(fma(0.0162101109, s, -0.445281416), s, 1.0) where s = x*x
+      rounding of ap1, first order, 7 operations, relative, in u = 2^-24: worst case 12.2, probable no better (under 16 operations), expected 3.46; `error ap1 ~ F` says what each means
   2   rational  7/2   horner+fma  4.97 ulp                 3.85e-07      1.81e-06      8    at x=-0.444534987  *
       x*P(x^2)/Q(x^2): x*fma(fma(fma(-7.90835547e-05, s, -0.00175103522), s, -0.071952574), s, 1.00000012)/fma(-0.405282676, s, 1.0) where s = x*x
   3   rational  9/2   horner+fma  3.22 ulp (3.22)          2.45e-07      1.24e-06      9    at x=-1.31895018  *
@@ -255,6 +268,7 @@ approx exp(-x*x) on [-2, 2] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   6     horner+fma  1.19e+06 ulp             0.0709        0.0709        4    at x=0.000204538315
       P(x^2): fma(fma(fma(-0.0183976851, s, 0.194773912), s, -0.712761343), s, 0.929132402) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 177, probable no better (under 16 operations), expected 72.9; `error ap1 ~ F` says what each means
   2   piecewise 6     horner+fma  289 ulp                  1.76e-05      1.11e-05      23.375 at x=-1.8620584
       2 pieces, of |x|: fma(fma(fma(fma(fma(fma(k6, t, k5), t, k4), t, k3), t, k2), t, k1), t, k0) where a = abs(x), lo = a < 1.0, t = a - (lo ? f32(0.5) : f32(1.5)), k0 = lo ? f32(0.778797686) : f32(0.105400808), k1 = lo ? f32(-0.778688729) : f32(-0.316214859), k2 = lo ? f32(-0.38921234) : f32(0.368790239), k3 = lo ? f32(0.645394802) : f32(-0.157362849), k4 = lo ? f32(0.0310641248) : f32(-0.0651190877), k5 = lo ? f32(-0.236730218) : f32(0.0959755555), k6 = lo ? f32(0.0324558802) : f32(-0.0277707856)
   3   minimax   6     estrin+fma  1.19e+06 ulp             0.0709        0.0709        5    at x=0.000204538315
@@ -273,6 +287,7 @@ approx sqrt(x) on [0, 1] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   2     horner+fma  0.0676 abs               inf           0.0676        2    at x=0.603784263
       P(x): fma(fma(-1.06554115, x, 1.9302994), x, 0.0676208958)
+      rounding of ap1, first order, 2 operations, relative, in u = 2^-24: worst case 1.93, probable no better (under 16 operations), expected 0.788; `error ap1 ~ F` says what each means
 > approx sin(x) in -100..100 as f64 ulp 2 nosplit norational list 1
 approx sin(x) on [-100, 100] as f64, fma
   checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 100]
@@ -289,4 +304,5 @@ approx sin(x) on [-100, 100] as f64, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   reduced   13    horner+fma  1.48 ulp                 2.32e-16      1.65e-16      656.5 at x=-91.9127184  *
       quadrant r=x-k*pi/2 (3-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(fma(fma(fma(fma(1.5890165763480382e-10, s, -2.5050660648150814e-08), s, 2.7557313203521987e-06), s, -0.00019841269828859708), s, 0.0083333333333218042), s, -0.1666666666666663), r) : fma(fma(fma(fma(fma(fma(2.0630099438987169e-09, s, -2.7555233299654548e-07), s, 2.480157859219434e-05), s, -0.0013888888870429968), s, 0.041666666666485865), s, -0.49999999999999406), s, 1.0)) xor ((q & 2) << 62)) where j = x*0.63661977236758138 + 6755399441055744.0, q = asuint(j), k = j - 6755399441055744.0, r = fma(k, -2.0222662487959506e-21, fma(k, -6.077100506303966e-11, fma(k, -1.5707963267341256, x))), s = r*r
+      rounding of ap1: not analysed (asfloat is not analysed)
   8 more: 'approx more [n]'

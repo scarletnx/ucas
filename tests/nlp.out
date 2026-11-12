@@ -229,6 +229,7 @@ error of quake against rsqrt:
   max rel error 0.00175224 (0.175%) at x=14.9190588
   mean rel error 0.000943339 over 65536 points
   max 28402 ulp
+  rounding: not analysed (asfloat is not analysed)
 > find the best constant for guess to approximate rsqrt
   ucas: fit guess ~ rsqrt
 fit guess to rsqrt (max relative error, 4096 sample points):
@@ -281,6 +282,7 @@ approx it on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   cheb      4     horner+fma  0.00061 abs              1.33e+04      0.00061       3    at x=0.000245948235
       P(x^2): fma(fma(0.0367740616, s, -0.49553737), s, 0.999389827) where s = x*x
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 3.04e+03, probable no better (under 16 operations), expected 1.25e+03; `error ap1 ~ F` says what each means
 > cos from -90deg to 90 deg using chebysev polynomaial of degree 4, yes critical
   note: read "chebysev" as "chebyshev"
   note: read "polynomaial" as "polynomial"
@@ -306,6 +308,7 @@ approx it on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   cheb      4     horner+fma  0.00239 abs              5.46e+04      0.00239       3    at x=-1.57079566  exact pts yes  keep +300%
       P(x^2): fma(fma(0.0383687839, s, -0.498988509), s, 1.0) where s = x*x
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 739, probable no better (under 16 operations), expected 304; `error ap1 ~ F` says what each means
 > cos with cheby poly of degree 2
   note: no interval given: using -pi/2 to pi/2 (say "on a to b")
   ucas: it(x) = cos(x)
@@ -328,6 +331,7 @@ approx it on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   cheb      2     horner+fma  0.0292 abs               6.13e+05      0.0292        2    at x=0.000271611469
       P(x^2): fma(-0.404317319, s, 0.970800996) where s = x*x
+      rounding of ap1, first order, 2 operations, relative, in u = 2^-24: worst case 44.5, probable no better (under 16 operations), expected 25.1; `error ap1 ~ F` says what each means
 > integrate x squared
   ucas: it(x) = x^2
   ucas: integrate it

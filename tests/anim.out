@@ -185,6 +185,7 @@ approx it on [-1.57079637, 1.57079637] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   cheb      4     horner+fma  0.00239 abs              5.46e+04      0.00239       3    at x=-1.57079566  exact pts yes  keep +300%
       P(x^2): fma(fma(0.0383687839, s, -0.498988509), s, 1.0) where s = x*x
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 739, probable no better (under 16 operations), expected 304; `error ap1 ~ F` says what each means
   2   cheb      6     horner+fma  2.69e-05 abs             614           2.69e-05      4    at x=1.57079446  exact pts yes  keep +300%
       P(x^2): fma(fma(fma(-0.00129987358, s, 0.0415850282), s, -0.499988824), s, 1.0) where s = x*x
   3   cheb      8     horner+fma  1.31e-07 abs             1.26          1.31e-07      5    at x=-1.50162232  exact pts yes  keep +300%

@@ -168,7 +168,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `gates F [basis b] [max k] [as c]` | minimal gate network over a basis, with proof of minimality; `as c` also prints a C function |
 | `find F [n] [max cost]`, `more [n]` | other implementations, cheapest first under the active cost model; `more` resumes the search.  First the function's own operations that never bite are dropped (a mask, min, max, clamp or ?: replaced by an operand, a conversion removed), each checked on the whole domain (exhaustively or by SAT) and listed with what it drops, then applied repeatedly to the smallest form.  Identities the model prices lower join them (a signed division of non-negative operands as unsigned, compare and select as min/max, clamps, a division by a variable through f32), each with its derivation and the conditions it holds under (see [Rewrites the prices make worthwhile](#rewrites-the-prices-make-worthwhile)); floats get these too.  With two integer parameters, one of which has at most 8 values (by its range and the where clause), find splits on it and fits `(x*K + C) >> S` exactly per case (the smallest S with one C for every case; S = 0 is `x*K + C`, C = 0 is `(x*K) >> S`); K is offered as a function of the case when one fits (`A / ((1 << c) - 1)`, `A >> c`, `A / c`) and as a select chain, each verified on the whole domain and marked "K depends only on c: compute it once where c is set" with its cost per use once K is known.  BC7's `(i*64 + m/2)/m` with m = (1 << ib) - 1 becomes `(i*K + 4) >> 3` with K = 170, 73, 34 (or 511/m); `x / d` for d in 1..6 becomes a multiply and a shift per d |
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
-| `error G ~ F` | max/mean relative error, max absolute error, ulp |
+| `error G ~ F` | max/mean relative error, max absolute error, ulp; for a float G also how much of it rounding can be, to first order: the worst case, the high-probability bound and the expected size (see "Probabilistic rounding error") |
 | `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
@@ -623,9 +623,94 @@ defined as `ap1`, `ap2`, ... (`name p` changes the prefix), so `error`,
 | `at c` | expansion point for a non-symmetric fit (default: 0 when inside, a zero at an endpoint, else the midpoint) |
 | `fma`, `nofma` | Horner/Estrin with or without `fma` (default with) |
 | `norefine` | keep the naively rounded coefficients |
+| `search walk\|anneal\|cmaes` | the coefficient search after rounding: the ulp walk alone (the default), then simulated annealing, or CMA-ES, over the coefficients' ulp offsets (see "Coefficient search") |
+| `budget N`, `seed K` | the search's objective evaluations (2000) and seed (`UCAS_SEED`, else 1) |
+| `temp T0[..T1]` | anneal: the temperature's ends, as fractions of the starting error (0.1..0.001) |
+| `pop P`, `sigma S` | cmaes: the population (8 + the number of coefficients) and the first step in ulps (2) |
 | `norational`, `nosplit`, `noreduce` | skip rational fits, two-piece splits, range reductions |
 | `list n`, `points n` | how many to list (default: the Pareto front, at most 8); sample size (default 131072) |
 | `approx more [n]` | the next candidates of the last `approx` |
+
+### Coefficient search
+
+Rounding a fit's coefficients to f32 or f64 moves the error off the
+optimum, so approx walks each coefficient by a few ulps while the
+measured error drops.  That is a coordinate descent: it stops where no
+single small step helps.  `search anneal` and `search cmaes` start from
+there and move several coefficients at once (src/numsearch.c):
+
+- **anneal**: one coefficient moves by a few ulps; a worse point is
+  accepted with probability exp(-dE/T), T falling geometrically from
+  `temp` T0 to T1 times the starting error over `budget` evaluations.
+- **cmaes**: CMA-ES, a Gaussian over the offsets whose mean, step and
+  covariance follow the better half of each generation of `pop` samples,
+  each rounded to whole ulps before it is measured.  Linear
+  recombination weights and sums of twelve uniforms stand in for the
+  usual logarithmic weights and normal deviates, and exp is computed in
+  place: no libm function is in the loop, so a seed gives the same run
+  everywhere.
+
+The objective is the largest error on the core's sample (3000 points).
+What a search finds is measured again on the table's sample, like every
+candidate, and kept only when that measure agrees it is better; the
+candidate's `search:` line gives the method, the seed, the evaluations,
+the error before and after on both samples, and the label: measured
+(on every float when the table says "all of them"), not certified.
+
+```
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
+  1   minimax   5     horner+fma  24.2 ulp (25.6) ...
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+  2   rational  5/2   horner+fma  2.38 ulp ...
+      search: ... 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
+```
+
+The searches run on the polynomial and rational forms; two-piece splits
+and range reductions keep the walk.
+
+### Probabilistic rounding error
+
+`error G ~ F`, for a float G, adds how much of the error rounding can
+be (src/rounderr.c); approx gives the same three numbers, in units of u
+and in one line, for its best candidate.  Every rounded
+operation i returns its exact result times (1 + d_i), |d_i| <= u; to
+first order the computed value is the exact one plus sum c_i d_i, where
+c_i is the operation's value times the sensitivity of the result to it
+(one reverse sweep of the expression at each input).  From the same
+c_i, relative to the value and the largest over a sample of inputs:
+
+| line | formula | holds |
+|---|---|---|
+| worst case | u sum \|c_i\| | always, to first order: every error at its bound and aligned.  For n operations of equal weight it is n u, the classical gamma_n = n u/(1 - n u) |
+| probable | lambda u sqrt(sum c_i^2), lambda = 4 | with probability at least 1 - 2 exp(-lambda^2/2) = 0.99933 at one input, if the d_i are independent with mean zero (Hoeffding's inequality; for equal weights Higham and Mary's gamma~_n = lambda sqrt(n) u) |
+| expected | u sqrt(sum c_i^2 / 3) | the root mean square if the d_i are independent and uniform in [-u, u] |
+
+The independence is a model, not a theorem (rounding errors are
+deterministic), and the probability is over that model at one input,
+not over inputs: the report says so.  The probable bound only gains
+from about lambda^2 = 16 operations of similar weight on; below that the
+line says it is no better than the worst case.  Operations are taken as
+correctly rounded (a libm's or a GPU's functions are not always).
+Not analysed, and said: floor, ceil, bit operations, conversions to
+integers, a variable exponent.  Code built on error-free transformations
+breaks the model on purpose: its errors are exact and cancel by
+construction, so for a double-word form these lines overestimate
+(`dsq_dw` above: 2.8 u worst case by this analysis, 6.2 u^2 by its own
+derivation).
+
+```
+> s20(x: f32 in 1..2) = x+x*x+x+x*x+ ... +x      # twenty additions of x and x*x
+> error s20 ~ e20
+  max rel error 3.23201e-07 (3.23e-05%) at x=1.533
+  mean rel error 9.30717e-08 over 1001 points
+  rounding, first order in u = 2^-24: 21 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  6.92e-07 (11.6 u): every error at its bound and aligned, u sum |c_i|
+    probable    6.74e-07 (11.3 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    9.72e-08 (1.63 u): the root mean square if they are independent and uniform in [-u, u]
+```
+
+(The measured maximum, 3.2e-07, is under both bounds, and the measured
+mean, 9.3e-08, is where the expected line puts it.)
 
 What it does, in order:
 
@@ -2738,6 +2823,7 @@ derivative) and `cost` work on loops as on any expression.
 | `scheme F [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
 | `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
 | `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
+| `integrate F [from a to b] numerically qmc [points N] [replicates R] [seed K] [noscramble]` | a quasi-Monte Carlo estimate on Sobol points (src/qmc.c): over from..to, or without them over the box of every parameter's range, in up to 8 dimensions.  The direction numbers are Joe and Kuo's; by default 8 replicates of 4096 points (N a power of two) run, each under a random digital shift, and the answer is their mean with its standard error: an estimate from the replicates' spread, labelled as one, with "not converged" when they differ by more than 5% of the value (a pole between the points looks like that), and "a spike" when the largest value met is over 50 times the mean size: around an integrable singularity the replicates agree on a value that is off and their spread understates the error (1/sqrt(|x|) on [-1, 1]: 3.9796 with a standard error of 0.0018, for 4).  `noscramble` runs the one unshifted sequence and gives no error estimate.  A coordinate is the centre of its 2^-32 cell, so the box's ends are never evaluated; points where the integrand is undefined are left out and counted.  It is also the fallback of a definite integral with no antiderivative here that Gauss-Kronrod refuses (an undefined or infinite point inside): the estimate when the replicates agree, one line saying it settles nothing when they do not |
 | `dsolve y [from a] [to b] [steps n]` | ODEs: linear systems with constant coefficients symbolically, otherwise numerically (Dormand-Prince 5(4), adaptive); PDEs by finite differences |
 
 What is found:

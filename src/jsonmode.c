@@ -224,7 +224,14 @@ static const struct jcmd cmds[] = {
 	    {"from", P_NUM, 0, " from %s", "lower bound (with to)", NULL},
 	    {"to", P_NUM, 0, " to %s", "upper bound (with from)", NULL},
 	    TO("around", " around %s", "a contour for a complex integrand: "
-	    "\"|z| = 1\"")}},
+	    "\"|z| = 1\""),
+	    BO("qmc", " numerically qmc", "a quasi-Monte Carlo estimate on "
+	    "Sobol points: over from..to, or without them over the box of "
+	    "every parameter's range"),
+	    IO("points", " points %s", "qmc: points a replicate, a power of "
+	    "two (4096)"), IO("replicates", " replicates %s", "qmc: "
+	    "randomised replicates (8)"), IO("seed", " seed %s", "qmc: the "
+	    "random seed (UCAS_SEED, else 1)")}},
 	{"antiderivative", "antiderivative", 1, 0, "an antiderivative + C",
 	    {FN, NMO("var", " wrt %s", "the variable")}},
 	/* compare, search */

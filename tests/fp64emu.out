@@ -70,6 +70,11 @@ error of dsq_dw against dsq:
   max rel error 0 (0%) at -
   mean rel error 0 over 65536 points
   max 0 ulp
+  rounding, first order in u = 2^-24: 13 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  1.65e-07 (2.76 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 8.11 u here (it gains from about 16 operations of similar weight on)
+    expected    6.97e-08 (1.17 u): the root mean square if they are independent and uniform in [-u, u]
+    for 13 operations of equal weight: gamma_13 = 13 u / (1 - 13 u) = 7.75e-07, gamma~_13(4) = 4 sqrt(13) u = 8.6e-07
 > dword dsq model zen4
 dword dsq under zen4: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 21      error against the exact value <= 3.997e-16 (3.6 u64) relative
