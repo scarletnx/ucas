@@ -8569,7 +8569,7 @@ simplify_piece(struct sbuf *piece, int c)
 		return 0;
 	/* the words */
 	{
-		int cmt = 0;	/* a comment line: no float options */
+		int cmt = 0;	/* a comment line: its words ask for nothing */
 		const char *q = p;
 		while (*q) {
 			size_t n = 0;
@@ -8614,6 +8614,13 @@ simplify_piece(struct sbuf *piece, int c)
 			lw[n] = 0;
 			while (isalpha((unsigned char)*q))
 				q++;
+			/* a comment's words ask for nothing ("# ... run ..." over a
+			 * simplify request) */
+			if (cmt) {
+				per = 0;
+				num[0] = 0;
+				continue;
+			}
 			for (k = 0; w[k]; k++)
 				if (!strcmp(lw, w[k]))
 					hit = 1;
@@ -8636,11 +8643,6 @@ simplify_piece(struct sbuf *piece, int c)
 				c_trace = 1;
 			/* float simplify: "with floats", "bit-exact only", "allow
 			 * approximations within 2 ulp", "per component" */
-			if (cmt) {
-				per = 0;
-				num[0] = 0;
-				continue;
-			}
 			if (!strcmp(lw, "float") || !strcmp(lw, "floats") ||
 			    !strcmp(lw, "floating"))
 				f_float = 1;
@@ -8833,6 +8835,9 @@ run_text(const char *src, const char *file, int echo)
 	const char *rest = src, *next;
 	int lines = 0;
 
+	/* the models and definitions first: a request names them ("under
+	 * zen4") before anything has run */
+	ucas_prelude();
 	/* one run: the questions' answers are queued once, for all pieces */
 	nlp_asked = 0;
 	img_gallery_clear();
