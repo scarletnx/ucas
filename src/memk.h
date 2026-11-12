@@ -51,9 +51,25 @@ struct bankswz {
 };
 int memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
     const struct model *m, struct bankswz *out);
-/* intatomic's report for f (a float atomic add in it, or the addend) */
+/* intatomic's report for f (a float atomic add in it, or the addend),
+ * count the adds into one cell (0: not known, and the most that fit is
+ * said instead); *out, when given, the decision */
+struct intatom {
+	int ok;			/* cheaper, and exact (or within tol) */
+	int exact;		/* on the grid: no rounding at all */
+	int g;			/* the cell holds the sum times 2^-g */
+	double kmax;		/* each addend is k 2^g with |k| <= kmax */
+	double fits;		/* the most adds whose sum fits 32 bits */
+	double cost_f, cost_i;	/* addend and atomic: float, integer */
+	nid form;		/* the integer addend, over f's parameters */
+};
 void memk_intatomic(struct func *f, long count, double tol, int global,
-    const struct model *m);
+    const struct model *m, struct intatom *out);
+/* v 2^-g as an i32 expression: exact when fix_grid puts v on the grid
+ * 2^g with |v| 2^-g below 2^31 (its bound holds every step on the way;
+ * the conversions dropped where v's structure allows, else v scaled by
+ * a power of two and converted) */
+nid memk_fixform(nid v, int g);
 
 /* the fixed-point grid of a float expression: its values are k 2^g for
  * integers |k| <= *kmax, and its f32 evaluation is exact; 0: none */

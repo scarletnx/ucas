@@ -1,0 +1,276 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 90 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 8 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  %48 = OpAtomicFAddEXT %float %41 %uint_1 %uint_0 %45
+      (line 10: float before = atomicAdd(hist[i & 3u][(i >> 2) & 15u], float(i & 7u));)
+    (count: the workgroup's 64 invocations, once each)
+intatomic f32(lane & 7) under gt1030: a shared float atomic add of f32(lane & 7), at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^0 with |k| <= 7, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 448 2^0: it fits 32 bits (448 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(lane & 7)
+  -> atomic_add_shared(cell, i32(lane & 7)): addend and atomic cost 7.625 against 28.25 (-73.0%)
+     the cell is an i32 holding the sum; every other access of it changes too: a store of v stores
+     i32(v), a read is f32(cell) (a conversion: 3 a read)
+  defined _ia: the atomic's old value read back as a float
+    hist becomes i32 holding its value, written into the module (workgroup memory is the module's own):
+      the add on line 10: OpAtomicIAdd of i32(lane & 7)
+      1 load converted back: f32(cell) (3 each)
+      the store on line 8: the i32 constant 0
+      its value stays within 448 (the stores' largest, 0, and 64 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
+      priced: the adds and their addends 7.625, the conversions 6: 13.625 against 28.25 (-51.8%)
+  the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3441 bytes, checksum 35712161)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 87 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 5 -> 5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  %44 = OpAtomicFAddEXT %float %36 %uint_1 %uint_0 %42
+      (line 10: atomicAdd(acc[(i * 5u) & 63u], float(i & 3u) * 0.25);)
+    (count: the workgroup's 64 invocations, once each)
+intatomic 0.25f32(lane & 3) under gt1030: a shared float atomic add of 0.25f32(lane & 3), at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-2 with |k| <= 3, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 192 2^-2: it fits 32 bits (192 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(lane & 3)
+  -> atomic_add_shared(cell, i32(lane & 3)): addend and atomic cost 7.625 against 29.25 (-73.9%)
+     the cell is an i32 holding the sum times 2^2; every other access of it changes too: a store of v
+     stores i32(v * 2^2), a read is f32(cell) * 2^-2 (a conversion and a multiply: 4 a read)
+  defined _ia: the atomic's old value read back as a float
+    acc becomes i32 holding its value times 4, written into the module (workgroup memory is the module's own):
+      the add on line 10: OpAtomicIAdd of i32(lane & 3)
+      1 load converted back: f32(cell) * 0.25 (4 each)
+      the store on line 8: i32(v * 4) (4), v = 0.5f32(lane) on the grid 2^-1
+      its value stays within 318 2^-2 (the stores' largest, 126, and 64 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
+      a stored -0.0 reads back as 0.0 (equal under every comparison; the zero's sign is not kept)
+      priced: the adds and their addends 7.625, the conversions 8: 15.625 against 29.25 (-46.6%)
+  the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3307 bytes, checksum 7d63d1d8)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 98 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+memory under gt1030:
+  %49 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %47
+      (line 11: atomicAdd(acc[i & 7u], float(inb.v[i] & 1023u) * 0.5);)
+    (count: the workgroup's 64 invocations, once each)
+intatomic 0.5f32(v41 & 0x3ff) under gt1030: a shared float atomic add of 0.5f32(v41 & 0x3ff), at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-1 with |k| <= 1023, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 65472 2^-1: it fits 32 bits (65472 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(v41 & 0x3ff)
+  -> atomic_add_shared(cell, i32(v41 & 0x3ff)): addend and atomic cost 7.625 against 29.25 (-73.9%)
+     the cell is an i32 holding the sum times 2^1; every other access of it changes too: a store of v
+     stores i32(v * 2^1), a read is f32(cell) * 2^-1 (a conversion and a multiply: 4 a read)
+  defined _ia: the atomic's old value read back as a float
+    acc becomes i32 holding its value times 2, written into the module (workgroup memory is the module's own):
+      the add on line 11: OpAtomicIAdd of i32(v41 & 0x3ff)
+      1 load converted back: f32(cell) * 0.5 (4 each)
+      the store on line 9: the i32 constant 0 (0 times 2)
+      its value stays within 65472 2^-1 (the stores' largest, 0, and 64 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
+      priced: the adds and their addends 7.625, the conversions 4: 11.625 against 29.25 (-60.3%)
+  the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3599 bytes, checksum 3258c763)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 100 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 6.375 -> 8.375 (+31.4%)
+  counting the strength reductions any driver also does: 8.375 -> 8.375 (+0.0%)
+  also done by any driver compiler (2 rewrites, -2; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          2 x 2     = 4  ((a << k) + b; saves 2)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+memory under gt1030:
+  %55 = OpAtomicFAddEXT %float %49 %uint_1 %uint_0 %53
+      (line 11: atomicAdd(sh[lane * 32u + 5u], float(lane & 3u));)
+    (count: the workgroup's 32 invocations, once each)
+intatomic f32(lane & 3) under gt1030: a shared float atomic add of f32(lane & 3), at most 32 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^0 with |k| <= 3, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 32 of them is at most 96 2^0: it fits 32 bits (96 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(lane & 3)
+  -> atomic_add_shared(cell, i32(lane & 3)): addend and atomic cost 7.625 against 28.25 (-73.0%)
+     the cell is an i32 holding the sum; every other access of it changes too: a store of v stores
+     i32(v), a read is f32(cell) (a conversion: 3 a read)
+  defined _ia: the atomic's old value read back as a float
+    sh becomes i32 holding its value, written into the module (workgroup memory is the module's own):
+      the add on line 11: OpAtomicIAdd of i32(lane & 3)
+      1 load converted back: f32(cell) (3 each)
+      the store on line 9: the i32 constant 0
+      its value stays within 96 (the stores' largest, 0, and 32 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
+      priced: the adds and their addends 7.625, the conversions 3: 10.625 against 28.25 (-62.4%)
+  workgroup array sh (1024 elements of 4 bytes, 2 accesses):
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _sh_1 = (v70 << 5) + lane
+    lane parameter lane; conflict degree 1: index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 32 cases enumerated too
+    price 3
+  _sh_2 = (lane << 5) + 5
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  -> swizzle every index i of the array: i + (i >> 5)
+     it is strictly increasing (i + 1 lands after i), so no two indices meet; the array grows to 1055 elements: every index enumerated
+     _sh_1_sw = t1 + (t1 >> 5) where t1 = (v70 << 5) + lane
+       conflict degree 1 (index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 32 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_2_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 5
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     total 10 against 130 (-92.3%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 2 access chains of the array index it through the swizzle
+  the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3664 bytes, checksum 9835251c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 79 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+memory under gt1030:
+  %43 = OpAtomicFAddEXT %float %40 %uint_1 %uint_0 %float_1
+      (line 10: atomicAdd(acc[i & 7u], 1.0);)
+    (count: the workgroup's 64 invocations, once each)
+intatomic 1 under gt1030: a shared float atomic add of 1, at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^0 with |k| <= 1, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 64 2^0: it fits 32 bits (64 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: 1
+  -> atomic_add_shared(cell, 1): addend and atomic cost 6.625 against 24.25 (-72.7%)
+     the cell is an i32 holding the sum; every other access of it changes too: a store of v stores
+     i32(v), a read is f32(cell) (a conversion: 3 a read)
+  defined _ia: the atomic's old value read back as a float
+    acc is left as it is: a store puts a value there that is not on a binary grid (on line 8)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 105 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6.375 -> 6.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 14: the shader has no main function)
+memory under gt1030:
+  %48 = OpAtomicFAddEXT %float %45 %uint_1 %uint_0 %float_0_5
+      (line 10: atomicAdd(acc[(i + r) & 7u], 0.5);)
+    (count: not known: the add is in a loop, or outside the entry point's function)
+intatomic 0.5 under gt1030: a shared float atomic add of 0.5; how many reach one cell is not known here
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-1 with |k| <= 1, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  exact while at most 2147483647 of them reach one cell: their sum then fits 32 bits
+  the integer addend: 1
+  -> the integer add of 1: addend and atomic cost 6.625 against 24.25 (-72.7%), exact for up to 2147483647 adds into one cell
+    acc is left as it is: how many adds reach one cell is not known (on line 10)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+memory under gt1030:
+  %29 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %float_1
+      (line 8: atomicAdd(acc[i & 7u], 1.0);)
+    (count: the workgroup's 64 invocations, once each)
+intatomic 1 under gt1030: a shared float atomic add of 1, at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^0 with |k| <= 1, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 64 2^0: it fits 32 bits (64 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: 1
+  -> atomic_add_shared(cell, 1): addend and atomic cost 6.625 against 24.25 (-72.7%)
+     the cell is an i32 holding the sum; every other access of it changes too: a store of v stores
+     i32(v), a read is f32(cell) (a conversion: 3 a read)
+  defined _ia: the atomic's old value read back as a float
+    acc is left as it is: an access of a kind this rewrite does not convert, OpAtomicExchange (on line 10)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 99 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  %34 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %32
+      (line 8: atomicAdd(acc[i & 7u], float(i & 3u) * 0.5);)
+    (count: the workgroup's 64 invocations, once each)
+intatomic 0.5f32(lane & 3) under gt1030: a shared float atomic add of 0.5f32(lane & 3), at most 64 into one cell
+  the float add costs 24.25, an integer one 6.625
+  the addend is k 2^-1 with |k| <= 3, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  the sum of 64 of them is at most 192 2^-1: it fits 32 bits (192 < 2^31), so the integer sum is the exact sum
+  the float sum would be exact too (it stays within 24 bits): the two agree bit for bit, in every order
+  the integer addend: i32(lane & 3)
+  -> atomic_add_shared(cell, i32(lane & 3)): addend and atomic cost 7.625 against 29.25 (-73.9%)
+     the cell is an i32 holding the sum times 2^1; every other access of it changes too: a store of v
+     stores i32(v * 2^1), a read is f32(cell) * 2^-1 (a conversion and a multiply: 4 a read)
+  defined _ia: the atomic's old value read back as a float
+    acc is left as it is: not cheaper with its loads and stores converted: 31.625 against 29.25
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 74 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 10: the shader has no main function)
+memory under gt1030:
+  %38 = OpAtomicFAddEXT %float %30 %uint_1 %uint_0 %36
+      (line 7: atomicAdd(outb.total[i & 7u], float(i & 255u) * 0.25);)
+    (count: not known here: every invocation of the dispatch may add into one cell of the buffer)
+intatomic 0.25f32(v15 & 0xff) under gt1030: a global float atomic add of 0.25f32(v15 & 0xff); how many reach one cell is not known here
+  the float add costs 138.75, an integer one 50
+  the addend is k 2^-2 with |k| <= 255, exactly: every leaf is an integer or a binary constant, the
+  operations keep the grid, and no f32 value on the way needs more than 24 bits, so none rounds
+  exact while at most 8421504 of them reach one cell: their sum then fits 32 bits
+  the integer addend: i32(v15 & 0xff)
+  -> the integer add of i32(v15 & 0xff): addend and atomic cost 51 against 143.75 (-64.5%), exact for up to 8421504 adds into one cell
+    proposal (an interface change, not applied): total in the buffer outb becomes i32, holding its value times 4:
+      here the add is OpAtomicIAdd of i32(v15 & 0xff), 1 load f32(cell) * 0.25
+      every other shader that reads or writes it, and the host's upload and readback, convert the same way;
+      the dispatch must send at most 8421504 adds into one cell

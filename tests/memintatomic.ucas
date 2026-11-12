@@ -1,0 +1,153 @@
+# A float atomic add on workgroup memory written as an integer one: the
+# variable becomes i32 on the addends' grid, every access converted, when
+# every add and store is exact there and the whole module gets cheaper.
+#
+# a two-level array zeroed by stores; the add's old value is read
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float hist[4][16];
+void main() {
+    uint i = gl_LocalInvocationIndex;
+    hist[i >> 4][i & 15u] = 0.0;
+    barrier();
+    float before = atomicAdd(hist[i & 3u][(i >> 2) & 15u], float(i & 7u));
+    barrier();
+    outb.o[i] = hist[i >> 4][i & 15u] + before;
+}
+```
+# a store on a coarser grid than the adds: the cell takes the finer one
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float acc[64];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    acc[i] = float(i) * 0.5;
+    barrier();
+    atomicAdd(acc[(i * 5u) & 63u], float(i & 3u) * 0.25);
+    barrier();
+    outb.o[i] = acc[i];
+}
+```
+# an addend read from a buffer: the integer form reads the same value
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) buffer I { uint v[]; } inb;
+shared float acc[8];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    acc[i & 7u] = 0.0;
+    barrier();
+    atomicAdd(acc[i & 7u], float(inb.v[i] & 1023u) * 0.5);
+    barrier();
+    outb.o[i] = acc[i & 7u];
+}
+```
+# a 32 x 32 block whose column reads conflict: the swizzle and the i32
+# cell both go into every access
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float sh[1024];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    for (uint r = 0u; r < 32u; r++)
+        sh[r * 32u + lane] = 0.0;
+    barrier();
+    atomicAdd(sh[lane * 32u + 5u], float(lane & 3u));
+    barrier();
+    outb.o[lane] = sh[lane * 32u + 5u];
+}
+```
+# a store from a buffer: not on a grid, so the array stays f32
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float acc[64];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    acc[i] = outb.o[i];
+    barrier();
+    atomicAdd(acc[i & 7u], 1.0);
+    barrier();
+    outb.o[i] = acc[i];
+}
+```
+# the add in a loop of a length the host gives: how many adds reach a
+# cell is not known
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) uniform U { uint n; } u;
+shared float acc[8];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    for (uint r = 0u; r < u.n; r++)
+        atomicAdd(acc[(i + r) & 7u], 0.5);
+    barrier();
+    outb.o[i] = acc[i & 7u];
+}
+```
+# an exchange on the same array: not converted, so nothing is
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float acc[8];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    atomicAdd(acc[i & 7u], 1.0);
+    barrier();
+    outb.o[i] = atomicExchange(acc[i & 7u], 0.0);
+}
+```
+# six reads of the sum: their conversions cost more than the add saves
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+shared float acc[8];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    atomicAdd(acc[i & 7u], float(i & 3u) * 0.5);
+    barrier();
+    outb.o[i] = acc[0] + acc[1] * acc[2] - acc[3] * acc[4] + acc[5];
+}
+```
+# a storage buffer is read outside the module: a proposal, never applied
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float total[8]; float o[]; } outb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    atomicAdd(outb.total[i & 7u], float(i & 255u) * 0.25);
+    outb.o[i] = outb.total[i & 7u];
+}
+```

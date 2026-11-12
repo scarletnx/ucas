@@ -856,18 +856,35 @@ int_form(nid e, int g, ty_t it)
 	return 0;
 }
 
+nid
+memk_fixform(nid v, int g)
+{
+	ty_t it = TY(K_SINT, 32);
+	nid form = int_form(v, g, it);
+
+	/* the scaled value converted: exact, it is an integer */
+	if (form == 0)
+		form = mk_cast(it, g == 0 ? v : mk_bin(O_MUL, v,
+		    mk_cast(N.ty[v], mk_const_r(ldexp(1.0, -g)))));
+	return form;
+}
+
 void
 memk_intatomic(struct func *f, long count, double tol, int global,
-    const struct model *m)
+    const struct model *m, struct intatom *out)
 {
 	nid at = find_fatomic(f->body), v, cell = 0, k, form;
 	struct sbuf why = {0};
 	const char *fn = f->anon ? shared_str(f->body, 120) : sym_str(f->name);
 	int shared = !global, g = 0, havegrid, s;
-	double kmax = 0, cf, ci, cconv, vmag = 0;
+	double kmax = 0, cf, ci, cconv, vmag = 0, fits = 0;
 	ty_t it = TY(K_SINT, 32);
 	const char *sc;
+	struct intatom none;
 
+	if (out == NULL)
+		out = &none;
+	memset(out, 0, sizeof *out);
 	if (at) {
 		v = N.b[at];
 		cell = N.a[at];
@@ -886,9 +903,14 @@ memk_intatomic(struct func *f, long count, double tol, int global,
 	}
 	cf = (double)model_cost(m, shared ? C_ATOM_SH_F : C_ATOM_GL_F);
 	ci = (double)model_cost(m, shared ? C_ATOM_SH : C_ATOM_GL);
-	printf("intatomic %s under %s: a %s float atomic add of %s, at most "
-	    "%ld into one cell\n", fn, sym_str(m->name), sc, shared_str(v, 160),
-	    count);
+	if (count > 0)
+		printf("intatomic %s under %s: a %s float atomic add of %s, at "
+		    "most %ld into one cell\n", fn, sym_str(m->name), sc,
+		    shared_str(v, 160), count);
+	else
+		printf("intatomic %s under %s: a %s float atomic add of %s; how "
+		    "many reach one cell is not known here\n", fn,
+		    sym_str(m->name), sc, shared_str(v, 160));
 	printf("  the float add costs %g, an integer one %g\n", cf, ci);
 	rep_num("cost_float", cf);
 	if (cf <= ci) {
@@ -905,29 +927,31 @@ memk_intatomic(struct func *f, long count, double tol, int global,
 		    "leaf is an integer or a binary constant, the\n  operations "
 		    "keep the grid, and no f32 value on the way needs more than "
 		    "24 bits, so none rounds\n", g, kmax);
-		if (total > 2147483647.0) {
+		if (count <= 0) {
+			fits = kmax > 0 ? floor(2147483647.0 / kmax) : HUGE_VAL;
+			if (kmax > 0)
+				printf("  exact while at most %.0f of them reach one "
+				    "cell: their sum then fits 32 bits\n", fits);
+			else
+				printf("  the addend is 0: any number of them fits\n");
+		} else if (total > 2147483647.0) {
 			printf("  -> not rewritten: %ld addends of up to %.0f can "
 			    "reach %.0f, past 2^31 - 1; fewer adds (`count N`) or "
 			    "a narrower range\n", count, kmax, total);
 			rep_bool("rewritten", 0);
 			free(why.p);
 			return;
-		}
-		printf("  the sum of %ld of them is at most %.0f 2^%d: it fits "
-		    "32 bits (%.0f < 2^31), so the integer sum is the exact "
-		    "sum\n", count, total, g, total);
-		form = int_form(v, g, it);
-		if (form == 0) {
-			/* the scaled value converted: exact, it is an integer */
-			form = mk_cast(it, g == 0 ? v : mk_bin(O_MUL, v,
-			    mk_cast(N.ty[v], mk_const_r(ldexp(1.0, -g)))));
-		}
+		} else
+			printf("  the sum of %ld of them is at most %.0f 2^%d: it "
+			    "fits 32 bits (%.0f < 2^31), so the integer sum is the "
+			    "exact sum\n", count, total, g, total);
+		form = memk_fixform(v, g);
 		cconv = expr_cost_under(m, form, 0) - expr_cost_under(m, v, 0);
-		if (total <= 16777216.0)
+		if (count > 0 && total <= 16777216.0)
 			printf("  the float sum would be exact too (it stays "
 			    "within 24 bits): the two agree bit for bit, in "
 			    "every order\n");
-		else
+		else if (count > 0)
 			printf("  the float sum rounds once it passes 24 bits "
 			    "(%.0f here), by an amount that depends on the order "
 			    "the\n  invocations arrive in; the integer sum does "
@@ -944,6 +968,13 @@ memk_intatomic(struct func *f, long count, double tol, int global,
 		if (!(tol > 0)) {
 			printf("  -> not rewritten: `tol T` allows a rounded "
 			    "scaling (T: absolute error on the sum)\n");
+			rep_bool("rewritten", 0);
+			free(why.p);
+			return;
+		}
+		if (count <= 0) {
+			printf("  -> not rewritten: a rounded addend's error grows "
+			    "with the number of adds, which is not known here\n");
 			rep_bool("rewritten", 0);
 			free(why.p);
 			return;
@@ -1017,6 +1048,24 @@ memk_intatomic(struct func *f, long count, double tol, int global,
 		    "cost %g, the float ones %g under %s\n", ci, cf,
 		    sym_str(m->name));
 		rep_bool("rewritten", 0);
+		return;
+	}
+	out->ok = 1;
+	out->exact = havegrid;
+	out->g = g;
+	out->kmax = kmax;
+	out->fits = count > 0 ? (double)count : fits;
+	out->cost_f = cf;
+	out->cost_i = ci;
+	out->form = form;
+	if (count <= 0) {
+		printf("  -> the integer add of %s: addend and atomic cost %g "
+		    "against %g (%+.1f%%), exact for up to %.0f adds into one "
+		    "cell\n", shared_str(form, 200), ci, cf, 100 * (ci - cf) / cf,
+		    fits);
+		rep_bool("rewritten", 0);
+		rep_num("fits", fits);
+		rep_num("cost", ci);
 		return;
 	}
 	{
@@ -1184,7 +1233,7 @@ memk_command(struct P *p)
 			}
 		}
 		notes_flush();
-		memk_intatomic(f, count, tol, global, m);
+		memk_intatomic(f, count, tol, global, m, NULL);
 	}
 	return 1;
 }

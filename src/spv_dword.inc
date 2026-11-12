@@ -599,10 +599,14 @@ dwe_const(struct dwemit *E, nid n)
 			    tt, (unsigned long long)v);
 	}
 	{
-		/* once: the name with its " = " */
+		/* once: the name with its " = ", and not when the module has it
+		 * (a pass before this one wrote it) */
 		char key[80];
+		int i, have = 0;
 		snprintf(key, sizeof key, "%s = ", b);
-		if (E->decl->p == NULL || !strstr(E->decl->p, key))
+		for (i = 0; i < V.nid && !have; i++)
+			have = V.id[i].kind == K_CONST && !strcmp(V.id[i].tok, b);
+		if (!have && (E->decl->p == NULL || !strstr(E->decl->p, key)))
 			sb_puts(E->decl, line);
 	}
 	return b;

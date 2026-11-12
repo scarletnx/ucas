@@ -2081,8 +2081,21 @@ under a varying `if` in its body, an index a uniform `if` chooses.
   and the sampler state it needs.  Not applied.
 - A float atomic add on workgroup memory (`OpAtomicFAddEXT`):
   `intatomic`'s analysis of its addend, with the workgroup's size as
-  the count; the array's other accesses are listed as what must change,
-  not rewritten.
+  the count when the add runs once an invocation (in the entry point,
+  in no loop).  Workgroup memory is the module's own, so the variable
+  (an f32 or arrays of them) is rewritten when every add is exact on a
+  common grid 2^g, every store puts a value on that grid (a constant,
+  or a value `intatomic` proves on one), the largest stored value plus
+  every add stays within 32 bits, and the module costs less with each
+  load converted back (f32(cell) * 2^g) and each store converted
+  (i32(v * 2^-g)): it becomes i32, each add an `OpAtomicIAdd` of the
+  integer addend, and with no f32 add left the module stops declaring
+  `AtomicFloat32AddEXT`.  Any other access (an exchange, a whole-array
+  load) leaves it f32, with the reason.  A stored -0.0 reads back as
+  +0.0.  An add into a storage buffer is a *proposal*: the buffer is
+  read outside the module, the count is the dispatch's, so the report
+  gives the most adds into one cell that stay exact and what the other
+  readers and the host convert.
 - A workgroup array whose accesses conflict: `banks` on their index
   expressions (the lane is gl_LocalInvocationID.x or
   gl_LocalInvocationIndex in a one-dimensional workgroup; a loop counter
