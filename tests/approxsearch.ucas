@@ -1,0 +1,10 @@
+# approx's searches (search anneal, search cmaes) on the forms beside the
+# polynomial and rational ones: the core of a range reduction and the two
+# pieces of a split, each core moved on its own sample from where the
+# ulp walk stopped, and the candidate kept only when the table's measure
+# agrees it is better (measured, not certified)
+#
+# exp on [-4, 4]: x = k ln 2 + r, the core a polynomial in r
+approx exp(x) in -4..4 degree 5 as f32 norational nosplit list 1 search anneal budget 300
+# exp on [0, 1] without a reduction: the two pieces' coefficients
+approx exp(x) in 0..1 degree 4 as f32 norational noreduce list 3 search anneal budget 400

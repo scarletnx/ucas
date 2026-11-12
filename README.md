@@ -668,8 +668,14 @@ the error before and after on both samples, and the label: measured
       search: ... 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
 ```
 
-The searches run on the polynomial and rational forms; two-piece splits
-and range reductions keep the walk.
+The searches run on every form with coefficients: the polynomial and
+rational ones, the core of a range reduction and the two pieces of a
+split.  Each core is moved on its own sample, with the whole budget
+(two pieces: twice the evaluations), and the line gives the larger of
+the cores' objectives before and after; the candidate rebuilt from the
+moved cores is kept only when the table's measure agrees it is better
+(tests/approxsearch.ucas: exp's reduced core 2.064 -> 1.96 ulp, its two
+pieces 8.841 -> 7.905).
 
 ### Probabilistic rounding error
 
