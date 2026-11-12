@@ -42,6 +42,12 @@
  *   mulwide(a, b)      the 64-bit product of two u32 (u64)
  *   madwide(a, b, c)   that product plus the u64 c (wrapping): IMAD.WIDE,
  *                      v_mad_u64_u32
+ *   bytesel(hi, lo, s) each byte of the result chosen by a byte of s from
+ *                      the eight bytes of hi:lo (byte 0 the low byte of
+ *                      lo, byte 4 the low byte of hi): selector 0..7 that
+ *                      byte, 8..11 eight copies of the sign bit of byte
+ *                      1, 3, 5 or 7, 12 the byte 0, 13 and up 255:
+ *                      v_perm_b32 (hi its S0, lo its S1)
  *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
@@ -81,6 +87,8 @@ inst_class(int op)
 		return C_BFI;
 	case O_MULWIDE: case O_MADWIDE:
 		return C_MULWIDE;
+	case O_BYTESEL:
+		return C_BYTESEL;
 	}
 	return C_BYTEPERM;
 }
@@ -234,6 +242,28 @@ inst_expand(int op, nid a, nid b, nid c)
 			r = mk_bin(O_OR, r, mk_bin(O_SHL, by, ku(U32, 8 * i)));
 		}
 		break;
+	case O_BYTESEL:
+		w = mk_bin(O_OR, mk_bin(O_SHL, mk_cast(U64, a), ku(U64, 32)),
+		    mk_cast(U64, b));
+		r = ku(U32, 0);
+		for (i = 0; i < 4; i++) {
+			nid s = mk_bin(O_AND, mk_bin(O_SHR, c, ku(U32, 8 * i)),
+			    ku(U32, 255));
+			/* the byte's number masked to 0..7, the sign's (byte 2k + 1)
+			 * to 0..3: every shift in range whichever is taken */
+			nid by = byte_of(w, mk_cast(U64, mk_bin(O_SHL, mk_bin(O_AND,
+			    s, ku(U32, 7)), ku(U32, 3))));
+			nid sg = mk_bin(O_AND, mk_bin(O_SHR, w, mk_cast(U64,
+			    mk_bin(O_ADD, mk_bin(O_SHL, mk_bin(O_AND, s, ku(U32, 3)),
+			    ku(U32, 4)), ku(U32, 15)))), ku(U64, 1));
+			sg = mk_sel(mk_bin(O_NE, sg, ku(U64, 0)), ku(U32, 255),
+			    ku(U32, 0));
+			by = mk_sel(mk_bin(O_GE, s, ku(U32, 13)), ku(U32, 255),
+			    mk_sel(mk_bin(O_EQ, s, ku(U32, 12)), ku(U32, 0),
+			    mk_sel(mk_bin(O_GE, s, ku(U32, 8)), sg, by)));
+			r = mk_bin(O_OR, r, mk_bin(O_SHL, by, ku(U32, 8 * i)));
+		}
+		break;
 	}
 	return mk_cast(t, r);
 }
@@ -253,7 +283,7 @@ mk_inst(int op, nid a, nid b, nid c)
 	case O_BFE: case O_SBFE: case O_BREV:
 		a = mk_cast(U32, a);
 		break;
-	case O_MULHI: case O_USAD4X8: case O_BYTEPERM:
+	case O_MULHI: case O_USAD4X8: case O_BYTEPERM: case O_BYTESEL:
 		a = mk_cast(U32, a);
 		b = mk_cast(U32, b);
 		if (ar == 3)
@@ -623,41 +653,47 @@ usad_of(nid x, struct sbuf *why)
 }
 
 /*
- * x, a u32 of one or two u32 words and constants, as a byte permute:
- * each result byte one byte of b:a (b the second word, or 0) or eight
- * copies of one byte's sign bit, told at random points of the words and
- * then checked with the function.  For what the GF(2) matrix of one word
- * does not say: two words, a byte's sign, a byte of zeros.
+ * x, a u32 of one or two u32 words and constants, told byte by byte at
+ * random points of the words, then checked with the function: what each
+ * result byte can be among byteperm's choices (bp: bit j for byte j of
+ * b:a, j + 8 for that byte's sign; with one word b is 0) and bytesel's
+ * (bs: byte j of hi:lo, 8 + k the sign of byte 2k + 1, 12 the byte 0, 13
+ * the byte 255; with one word hi is the word again).  For what the GF(2)
+ * matrix of one word does not say: two words, a byte's sign, a constant
+ * byte.  0 when x is not of that kind.
  */
 #define BP_SAMPLES 48
 
-static nid
-byteperm_of(const struct func *f, nid x, struct sbuf *why)
+static int
+byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
+    uint16_t *bs)
 {
 	uint64_t sl = node_slots(x), rs = 0x9e3779b97f4a7c15ULL;
-	int slot[2] = {-1, -1}, ns = 0, j, i, smp, nib[4];
-	uint16_t cand[4] = {0xffff, 0xffff, 0xffff, 0xffff};
+	int j, i, smp;
 	struct plan pl;
 	int64_t *in_i;
 	double *in_r;
-	nid w[2], roots[1] = {x};
-	uint32_t loc, sel = 0;
+	nid roots[1] = {x};
+	uint32_t loc;
 
+	*ns = 0;
 	if (N.ty[x] != U32 || N.op[x] == O_VAR || IS_INST(N.op[x]) ||
 	    (sl >> MAXP) || (N.fl[x] & NF_SG))
 		return 0;
 	for (j = 0; j < f->np; j++)
 		if ((sl >> j) & 1) {
-			if (ns == 2 || f->p[j].ty != U32)
+			if (*ns == 2 || f->p[j].ty != U32)
 				return 0;
-			slot[ns++] = j;
+			slot[(*ns)++] = j;
 		}
-	if (ns == 0)
+	if (*ns == 0)
 		return 0;
+	for (i = 0; i < 4; i++)
+		bp[i] = bs[i] = 0xffff;
 	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
 	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
 	for (smp = 0; smp < BP_SAMPLES; smp++)
-		for (j = 0; j < ns; j++) {
+		for (j = 0; j < *ns; j++) {
 			rs ^= rs << 13;
 			rs ^= rs >> 7;
 			rs ^= rs << 17;
@@ -667,28 +703,52 @@ byteperm_of(const struct func *f, nid x, struct sbuf *why)
 	loc = plan_loc(&pl, x);
 	plan_run(&pl, BP_SAMPLES, in_i, in_r);
 	for (smp = 0; smp < BP_SAMPLES; smp++) {
-		uint64_t ab;
 		uint32_t r = (uint32_t)COLI(&pl, loc)[smp];
+		uint32_t lo = (uint32_t)in_i[(size_t)slot[0] * CH + smp];
+		uint64_t ab = lo | (*ns == 2 ? (uint64_t)(uint32_t)in_i[
+		    (size_t)slot[1] * CH + smp] << 32 : 0);
+		uint64_t hl = *ns == 2 ? ab : lo | (uint64_t)lo << 32;
 		if (COLF(&pl, loc)[smp] & F_UNDEF) {
-			cand[0] = 0;
+			bp[0] = bs[0] = 0;
 			break;
 		}
-		ab = (uint32_t)in_i[(size_t)slot[0] * CH + smp] | (ns == 2 ?
-		    (uint64_t)(uint32_t)in_i[(size_t)slot[1] * CH + smp] << 32 :
-		    0);
-		for (i = 0; i < 4; i++)
+		for (i = 0; i < 4; i++) {
+			uint32_t rb = (r >> (8 * i)) & 255;
 			for (j = 0; j < 16; j++) {
-				uint32_t by = (uint32_t)(ab >> (8 * (j & 7))) &
-				    255;
+				uint32_t by = (uint32_t)(ab >> (8 * (j & 7))) & 255;
 				if (j & 8)
 					by = (by & 128) ? 255 : 0;
-				if (((r >> (8 * i)) & 255) != by)
-					cand[i] &= (uint16_t)~(1u << j);
+				if (rb != by)
+					bp[i] &= (uint16_t)~(1u << j);
 			}
+			for (j = 0; j < 14; j++) {
+				uint32_t by = j < 8 ? (uint32_t)(hl >> (8 * j)) & 255 :
+				    j < 12 ? ((hl >> (16 * (j - 8) + 15)) & 1) * 255 :
+				    j == 12 ? 0 : 255;
+				if (rb != by)
+					bs[i] &= (uint16_t)~(1u << j);
+			}
+		}
 	}
 	plan_free(&pl);
 	free(in_i);
 	free(in_r);
+	for (i = 0; i < 4; i++)
+		bs[i] &= 0x3fff;
+	return 1;
+}
+
+/* x as byteperm(a, b, s) */
+static nid
+byteperm_of(const struct func *f, nid x, struct sbuf *why)
+{
+	int slot[2] = {-1, -1}, ns, j, i, nib[4];
+	uint16_t cand[4], bs[4];
+	nid w[2];
+	uint32_t sel = 0;
+
+	if (!byte_choices(f, x, slot, &ns, cand, bs))
+		return 0;
 	for (i = 0; i < 4; i++) {
 		for (j = 0; j < 16 && !((cand[i] >> j) & 1); j++)
 			;
@@ -708,6 +768,37 @@ byteperm_of(const struct func *f, nid x, struct sbuf *why)
 	    nib[1], nib[2], nib[3], node_str(w[1]), node_str(w[0]),
 	    BP_SAMPLES);
 	return mk_inst(O_BYTEPERM, w[0], w[1], ku(U32, sel));
+}
+
+/* x as bytesel(hi, lo, s): whole bytes of one word moved too, which only
+ * byteperm's GF(2) pattern offers otherwise */
+static nid
+bytesel_of(const struct func *f, nid x, struct sbuf *why)
+{
+	int slot[2] = {-1, -1}, ns, j, i, by[4];
+	uint16_t bp[4], cand[4];
+	nid lo, hi;
+	uint32_t sel = 0;
+
+	if (!byte_choices(f, x, slot, &ns, bp, cand))
+		return 0;
+	for (i = 0; i < 4; i++) {
+		for (j = 0; j < 14 && !((cand[i] >> j) & 1); j++)
+			;
+		if (j == 14)
+			return 0;
+		by[i] = j;
+		sel |= (uint32_t)j << (8 * i);
+	}
+	if (ns == 1 && sel == 0x03020100u)
+		return 0;	/* the word itself */
+	lo = mk_var((uint32_t)slot[0], f->p[slot[0]].name, U32);
+	hi = ns == 2 ? mk_var((uint32_t)slot[1], f->p[slot[1]].name, U32) : lo;
+	sb_printf(why, "%s: selectors %d, %d, %d, %d over %s:%s (8 to 11: the "
+	    "sign of byte 1, 3, 5, 7; 12: 0; 13: 255), told at %d random "
+	    "points", shared_str(x, 80), by[0], by[1], by[2], by[3],
+	    node_str(hi), node_str(lo), BP_SAMPLES);
+	return mk_inst(O_BYTESEL, hi, lo, ku(U32, sel));
 }
 
 /* x, a word of a 64-bit shift of hi:lo: u32((hi:lo) >> k) is funr,
@@ -954,11 +1045,13 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		return byteperm_of(f, x, why);
 	case 11:	/* a word of a 64-bit shift of two words */
 		return funnel64_of(x, why);
+	case 12:	/* bytes, signs of bytes 1, 3, 5, 7, 0 and 255 */
+		return bytesel_of(f, x, why);
 	}
 	return 0;
 }
 
-#define NPAT 12
+#define NPAT 13
 
 /*
  * The low word of a product, a * b in u32, where the function also reads
@@ -1037,9 +1130,9 @@ inst_find(const struct func *f)
 	float before, cost;
 	int k, iter, bad;
 
-	for (k = C_BFE; k <= C_MULWIDE && !cclass_available(m, k); k++)
+	for (k = C_BFE; k <= C_BYTESEL && !cclass_available(m, k); k++)
 		;
-	if (k > C_MULWIDE || !TY_ISINT(N.ty[cur]))
+	if (k > C_BYTESEL || !TY_ISINT(N.ty[cur]))
 		return;
 	nd = xmalloc(MAXNODE * sizeof *nd);
 	before = cost = fuse_expr_cost(m, sg_priced(f, cur));

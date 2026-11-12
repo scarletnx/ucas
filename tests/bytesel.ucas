@@ -1,0 +1,29 @@
+# bytesel(hi, lo, s), v_perm_b32: byte i of the result is chosen by byte
+# i of s from the eight bytes of hi:lo (0..3 lo's, 4..7 hi's): 8 to 11
+# the sign of byte 1, 3, 5 or 7 copied eight times, 12 the byte 0, 13
+# and up 255
+show bytesel(0x88776655, 0x44332211, 0x00010203)
+show bytesel(0x88776655, 0x44332211, 0x04050607)
+show bytesel(0xf8776655, 0x44b3a211, 0x0b0a0908)
+show bytesel(0xf8776655, 0x44b3a211, 0x0d0c0e0c)
+# its definition, against the same bytes written out
+s1(x: u32, y: u32) = bytesel(x, y, 0x0d090c05)
+s2(x: u32, y: u32) = ((x >> 8) & 0xff) | (((y >> 31) * 0xff) << 16) | 0xff000000
+equiv s1 s2
+# no built-in model lists it: not available
+swap(x: u32) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+find swap 1
+# a model with it and not byteperm: one word's bytes moved, a 16-bit
+# half's sign, two words with constant bytes
+model sel : gt1030 { bytesel: 1 }
+use sel
+find swap 1
+sx(x: u32) = u32(i32(x << 16) >> 16)
+find sx 1
+mix(a: u32, b: u32) = (a & 0xff) | (b & 0xff00) | 0xff000000
+find mix 1
+# with both, the cheaper one
+model selperm : gt1030 { bytesel: 2, byteperm: 1 }
+use selperm
+find swap 1
+use gt1030

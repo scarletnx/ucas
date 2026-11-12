@@ -330,6 +330,7 @@ static const struct bfn bfns[] = {
 	{"funr", O_FUNR, 3}, {"med3", O_MED3, 3}, {"usad4x8", O_USAD4X8, 3},
 	{"byteperm", O_BYTEPERM, 3}, {"bfi", O_BFI, 4},
 	{"mulwide", O_MULWIDE, 2}, {"madwide", O_MADWIDE, 3},
+	{"bytesel", O_BYTESEL, 3},
 	{NULL, 0, 0}
 };
 
