@@ -1,0 +1,31 @@
+# exp2, log2, sqrt and inversesqrt as polynomials under a sink
+# (src/fsimp.c, an_poly): each costs 4 under gt1030 (ftrans, fsqrt), a
+# polynomial of degree 1 or 2 on the argument's range 2 or 3; the sink
+# takes the cheapest whose certified absolute error, carried to the
+# stored value with the other rewrites', stays within one step
+model cheaptrans : gt1030 { ftrans: 2, fsqrt: 2 }
+# exp2 on [0, 0.5], into an 8-bit target
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
+```
+# log2 on [0.5, 1]: 0 at 1, so the bound is absolute only
+simplify float c in [0.5, 1] sink unorm8 nofile
+```glsl
+float Lum(float c) { return log2(c) * 0.25 + 0.5; }
+```
+# sqrt fits within the step, inversesqrt (steeper on [0.25, 1]) does not
+simplify float c in [0.25, 1] sink unorm8 nofile
+```glsl
+float Fade(float c) { return sqrt(c) * 0.5 + inversesqrt(c) * 0.25; }
+```
+# no sink: the polynomials are only listed
+simplify float c in [0, 1] nofile
+```glsl
+vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
+```
+# where the functions cost 2, no polynomial is cheaper
+simplify float c in [0, 1] sink unorm8 under cheaptrans nofile
+```glsl
+vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
+```

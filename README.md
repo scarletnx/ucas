@@ -3183,6 +3183,20 @@ vec3(0.45))`, c clamped to [0, 1], needs no request word: 34 -> 19, a
 degree-3 polynomial using 0.00383 of the 0.00392.  A `clamp` is read as
 min(max(x, lo), hi), so what follows it knows its range.
 
+exp2, log2, sqrt and inversesqrt get the same treatment where their
+argument's range is bounded (above 0 for the last three): an absolute
+minimax polynomial of each degree cheaper than the function (under
+gt1030 each costs 4, a degree-1 polynomial 2 and a degree-2 one 3),
+certified the same way with the function's own second derivative
+(ln2^2 2^x, 1/(ln2 x^2), x^-1.5/4, 3 x^-2.5/4) and compared with its
+Vulkan precision (exp2 3 + 2|x| ulp, log2 3 ulp or 2^-21 absolute in
+[0.5, 2], inversesqrt and sqrt 2 ulp, lower bounds).  The bound is
+absolute, so log2 over a range holding 1 (where it is 0) has no
+relative one and says so.  Under an 8-bit sink `sqrt(c) * 0.5` on
+[0.25, 1] becomes a degree-2 polynomial (0.00175 of the step) while
+`inversesqrt(c) * 0.25` beside it, steeper there, is refused
+(tests/sinkpoly.ucas).
+
 Left to the other parts of ucas: an integer function of few inputs
 whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
 8-bit x) is `find`'s, which checks every point and offers tables and
