@@ -525,3 +525,31 @@ find p4: 1024 points (sampled; matches verified on the whole domain), computing 
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> seg(x: u8 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> lane) & 1, ((y >> lane) & 1) != 0)
+> show seg(0xff, 0x11, 3)
+_() = 4
+  -> u8
+> show seg(0xff, 0x11, 4)
+_() = 1
+  -> u8
+> show seg(0xff, 0x11, 7)
+_() = 4
+  -> u8
+> segref(x: u8 uniform, y: u8 uniform, lane: u32 in 0..7) = { s = 0; for j in 0..7 { s = j <= lane ? (((y >> j) & 1) != 0 ? ((x >> j) & 1) : s + ((x >> j) & 1)) : s }; s }
+> equiv seg segref
+seg and segref are equal on the domain of seg (exhaustive)
+> find seg 1
+find seg: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 82.625 as written):
+  cost 25.75 u8(popcount(sg_ballot(x >> lane & 1 != 0) & t1 & 4294967295 << 31 - clz((sg_ballot(y >> lane & 1 != 0) | 1) & t1))) where t1 = (2 << lane) - 1
+           sg_scan(x >> lane & 1) - sg_shuffle(sg_scan(x >> lane & 1) - (x >> lane & 1), 31 - clz((sg_ballot(y >> lane & 1 != 0) | 1) & (2 << lane) - 1)): a segmented scan of x >> lane & 1, which is 0 or 1 in every lane (its range, by intervals): its sum over the lanes from the last head at or below the lane to the lane is the number of those lanes where it is not 0, the set bits of the ballot from that head's bit to the lane's
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sn(x: u32 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> (4*lane)) & 15, ((y >> lane) & 1) != 0)
+> find sn 1
+find sn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms: derived, but not cheaper under gt1030 (cost 114.625, as written 84.625): a scan as a ladder of shuffles and adds
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
