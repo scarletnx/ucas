@@ -247,6 +247,175 @@ find mix: 1024 points (sampled; matches verified on the whole domain), computing
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> show bfi(0xdeadbeef, 5, 8, 4)
+_() = 3735926255
+  -> u32
+> show bfi(0xdeadbeef, 0xffffffff, 0, 32)
+_() = 4294967295
+  -> u32
+> show bfi(0xdeadbeef, 7, 12, 0)
+_() = 3735928559
+  -> u32
+> show mulwide(0xffffffff, 0xffffffff)
+_() = 18446744065119617025
+  -> u64
+> show madwide(0xffffffff, 0xffffffff, 0xffffffffffffffff)
+_() = 18446744065119617024
+  -> u64
+> range bfi(x: u32, 3, 4, 2)
+range of bfi(x, 3, 4, 2) -> u32:
+  48..4294967295
+  fits in u32
+  sampled 65536 points (domain has 4294967296 points); not exhaustive
+  sound bound (intervals): 48..4294967295
+> bi1(x: u32, y: u32) = bfi(x, y, 8, 8)
+> bi2(x: u32, y: u32) = (x & 0xffff00ff) | ((y << 8) & 0xff00)
+> equiv bi1 bi2
+bi1 and bi2 are equal on the domain of bi1 (proved by SAT: 65 AIG nodes, 0 conflicts)
+> show bi1
+bi1(x: u32, y: u32) = bfi(x, y, 8, 8)
+  -> u32
+> mw1(a: u32, b: u32, c: u64) = madwide(a, b, c)
+> mw2(a: u32, b: u32, c: u64) = u64(a) * u64(b) + c
+> equiv mw1 mw2
+mw1 and mw2 are equal on the domain of mw1 (proved by SAT: 10492 AIG nodes, 0 conflicts)
+> badi(x: u32) = bfi(x, 1, 30, 5)
+catalogue.ucas:121:32: error: bfi: bits 30..34 are not a field of a 32-bit word
+    badi(x: u32) = bfi(x, 1, 30, 5)
+                                   ^
+> badv(x: u32, p: u32) = bfi(x, 1, p, 2)
+catalogue.ucas:122:39: error: bfi takes a constant offset and count: p and 2
+    badv(x: u32, p: u32) = bfi(x, 1, p, 2)
+                                          ^
+> model cat2 : cat { bfi: 1, mulwide: 1 }
+> use cat2
+cost model: cat2
+> find bi2 1
+find bi2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 4 as written):
+  cost 1   bfi(x, y, 8, 8)
+           x & 0xffff00ff | y << 8 & 0xff00: bits 8..15 of x replaced by the low 8 bits of y
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> bi3(x: u32, y: u32) = (x & 0xffffff0f) xor ((y & 15) << 4)
+> find bi3 1
+find bi3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 4 as written):
+  cost 1   bfi(x, y, 4, 4)
+           x & 0xffffff0f xor (y & 15) << 4: bits 4..7 of x replaced by the low 4 bits of y
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> bi4(x: u32, y: u8) = (x & 0xff0000ff) + (u32(y) << 8)
+> find bi4 1
+find bi4: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  cost 1   bfi(x, u32(y), 8, 16)
+           (x & 0xff0000ff) + (u32(y) << 8): bits 8..23 of x replaced by the low 16 bits of u32(y) (u32(y) <= 255, by intervals)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find mw2 1
+find mw2: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  cost 1   madwide(a, b, c)
+           u64(a)*u64(b) + c: the 64-bit product of two words plus c
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mw3(a: u64 in 0..100000, b: u32) = a * u64(b) + 1
+> find mw3 1
+find mw3: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  cost 1   madwide(u32(a), b, 1)
+           a*u64(b) + 1: the 64-bit product of two words plus 1 (a <= 100000, by intervals)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> pr(a: u32, b: u32) = (a * b) xor mulhi(a, b)
+> find pr 1
+find pr: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 5 as written):
+  cost 4   u32(mulwide(a, b)) xor u32(mulwide(a, b) >> 0x20)
+           a*b and mulhi(a, b): the low and the high word of one 64-bit product
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sad(a: u32, b: u32, c: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) + (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) + (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) + (max(a >> 24, b >> 24) - min(a >> 24, b >> 24)) + c
+> find sad 1
+find sad: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 34 as written):
+  cost 1   usad4x8(a, b, c)
+           max(a & 0xff, b & 0xff) - min(a & 0xff, b & 0xff) + (max(t1, t2) - min(t1, t2)) … (182 more characters): the sum of the four bytes' absolute differences of a and b, plus c
+           checked on a sample of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sad2(a: u32, b: u32) = abs(int(a & 255) - int(b & 255)) + abs(int((a >> 8) & 255) - int((b >> 8) & 255)) + abs(int((a >> 16) & 255) - int((b >> 16) & 255)) + abs(int(a >> 24) - int(b >> 24))
+> find sad2 1
+  note: the result is int: searching in u32
+find sad2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  dot products under cat2 (sums of products laid into lanes; cost 29 as written):
+  cost 25  abs(int(a & 0xff) - int(b & 0xff)) + abs(int(udot4x8(a, 0x100)) - int(udot4x8(b, 0x100))) + abs(int(a >> 0x10 & 0xff) - int(b >> 0x10 & 0xff)) + abs(int(a >> 0x18) - int(b >> 0x18))
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 3384 AIG nodes, 0 conflicts
+  instructions under cat2 (each for the pattern it is; cost 29 as written):
+  cost 1   int(usad4x8(a, b, 0))
+           abs(int(a & 0xff) - int(b & 0xff)) + abs(int(a >> 8 & 0xff) - int(b >> 8 & 0xff)… (93 more characters): the sum of the four bytes' absolute differences of a and b
+           checked on a sample of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mix2(a: u32, b: u32) = (a & 0xff) | (b & 0xff00) | ((a >> 8) & 0xff0000) | (b & 0xff000000)
+> find mix2 1
+find mix2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 6 as written):
+  cost 1   byteperm(a, b, 0x7350)
+           a & 0xff | b & 0xff00 | a >> 8 & 0xff0000 | b & 0xff000000: bytes 0, 5, 3, 7 of b:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sg1(a: u32) = ((a >> 8) & 0xff) | ((a & 0x8000) != 0 ? 0xffffff00 : 0)
+> find sg1 1
+find sg1: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 8 as written):
+  cost 1   byteperm(a, 0, 0x9991)
+           a >> 8 & 0xff | u32(a & 0x8000 != 0 ? 4294967040 : 0): bytes 1, 9, 9, 9 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> zb(a: u32) = (a >> 8) & 0xff00
+> find zb 1
+find zb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 3 as written):
+  cost 1   byteperm(a, 0, 0x4424)
+           a >> 8 & 0xff00: bytes 4, 2, 4, 4 of 0:a (8 and up: a byte's sign), told at 48 random points
+           checked by SAT
+  cost 3   a >> 8 & 0xff00ff00                      mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> f64r(hi: u32, lo: u32) = u32(((u64(hi) << 32) | u64(lo)) >> 12)
+> find f64r 1
+find f64r: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 5 as written):
+  cost 1   funr(hi, lo, 12)
+           u32((u64(hi) << 32 | u64(lo)) >> 12): the low word of the 64-bit (hi:lo) >> 12
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> f64l(hi: u32, lo: u32) = u32((((u64(hi) << 32) | u64(lo)) << 12) >> 32)
+> find f64l 1
+find f64l: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat2
+  instructions under cat2 (each for the pattern it is; cost 7 as written):
+  cost 1   funl(hi, lo, 12)
+           u32((u64(hi) << 32 | u64(lo)) << 12 >> 0x20): the high word of the 64-bit (hi:lo) << 12
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
 cost model: gt1030
 > models
@@ -311,6 +480,17 @@ model cat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 
   fuse fabs(a: float) = abs(a) : 0 in fadd fmul
   folds f32 -> f16 -> f32
 model onlybfe { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, bfe: 1 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+model cat2 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, subtexel: 8, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1, bfi: 1, mulwide: 1 }
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a*b + c : imul
   fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift

@@ -3,3 +3,6 @@
 {"id": 3, "cmd": "ucas", "args": {"source": "model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }\nuse cat"}}
 {"id": 4, "cmd": "find", "args": {"f": {"body": "((x << 4) >> 20) + max(lo, min(y, 90))", "params": [{"name": "x", "type": "u32"}, {"name": "lo", "type": "u32", "range": [0, 50]}, {"name": "y", "type": "u32"}]}, "n": 1}}
 {"id": 5, "cmd": "range", "args": {"f": "sbfe(x: u32, 4, 8)"}}
+{"id": 6, "cmd": "ucas", "args": {"source": "model cat2 : cat { bfi: 1, mulwide: 1 }\nuse cat2"}}
+{"id": 7, "cmd": "find", "args": {"f": {"body": "(x & 0xffff00ff) | ((y & 255) << 8)", "params": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]}, "n": 1}}
+{"id": 8, "cmd": "find", "args": {"f": {"body": "u64(a) * u64(b) + c", "params": [{"name": "a", "type": "u32"}, {"name": "b", "type": "u32"}, {"name": "c", "type": "u64"}]}, "n": 1}}

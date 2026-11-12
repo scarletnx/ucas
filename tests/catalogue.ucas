@@ -102,5 +102,57 @@ find mix 1
 model onlybfe : gt1030 { bfe: 1 }
 use onlybfe
 find mix 1
+
+# bfi: base with bits p..p+n-1 replaced by the low n bits of ins (p and
+# n constant); the 64-bit product of two words, and that plus a u64
+show bfi(0xdeadbeef, 5, 8, 4)
+show bfi(0xdeadbeef, 0xffffffff, 0, 32)
+show bfi(0xdeadbeef, 7, 12, 0)
+show mulwide(0xffffffff, 0xffffffff)
+show madwide(0xffffffff, 0xffffffff, 0xffffffffffffffff)
+range bfi(x: u32, 3, 4, 2)
+bi1(x: u32, y: u32) = bfi(x, y, 8, 8)
+bi2(x: u32, y: u32) = (x & 0xffff00ff) | ((y << 8) & 0xff00)
+equiv bi1 bi2
+show bi1
+mw1(a: u32, b: u32, c: u64) = madwide(a, b, c)
+mw2(a: u32, b: u32, c: u64) = u64(a) * u64(b) + c
+equiv mw1 mw2
+badi(x: u32) = bfi(x, 1, 30, 5)
+badv(x: u32, p: u32) = bfi(x, 1, p, 2)
+# a model that lists them too
+model cat2 : cat { bfi: 1, mulwide: 1 }
+use cat2
+# a field replaced: masked after the shift, before it, or a value whose
+# range fits the field
+find bi2 1
+bi3(x: u32, y: u32) = (x & 0xffffff0f) xor ((y & 15) << 4)
+find bi3 1
+bi4(x: u32, y: u8) = (x & 0xff0000ff) + (u32(y) << 8)
+find bi4 1
+# the wide product (an operand whose range stays in a word is one), its
+# multiply-add, and both words of one product
+find mw2 1
+mw3(a: u64 in 0..100000, b: u32) = a * u64(b) + 1
+find mw3 1
+pr(a: u32, b: u32) = (a * b) xor mulhi(a, b)
+find pr 1
+# the four bytes' differences summed, as max - min and as abs
+sad(a: u32, b: u32, c: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) + (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) + (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) + (max(a >> 24, b >> 24) - min(a >> 24, b >> 24)) + c
+find sad 1
+sad2(a: u32, b: u32) = abs(int(a & 255) - int(b & 255)) + abs(int((a >> 8) & 255) - int((b >> 8) & 255)) + abs(int((a >> 16) & 255) - int((b >> 16) & 255)) + abs(int(a >> 24) - int(b >> 24))
+find sad2 1
+# bytes of two words, a byte's sign, a byte of zeros
+mix2(a: u32, b: u32) = (a & 0xff) | (b & 0xff00) | ((a >> 8) & 0xff0000) | (b & 0xff000000)
+find mix2 1
+sg1(a: u32) = ((a >> 8) & 0xff) | ((a & 0x8000) != 0 ? 0xffffff00 : 0)
+find sg1 1
+zb(a: u32) = (a >> 8) & 0xff00
+find zb 1
+# a word of a 64-bit shift of two words
+f64r(hi: u32, lo: u32) = u32(((u64(hi) << 32) | u64(lo)) >> 12)
+find f64r 1
+f64l(hi: u32, lo: u32) = u32((((u64(hi) << 32) | u64(lo)) << 12) >> 32)
+find f64l 1
 use gt1030
 models

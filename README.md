@@ -2746,9 +2746,11 @@ printing and for the price.
 | `med3(a, b, c)` | the median of three integers; with lo <= hi, `med3(x, lo, hi)` is x clamped | v_med3_i32/u32; SClamp, UClamp where lo <= hi |
 | `usad4x8(a, b, c)` | c plus the sum of the absolute differences of the four bytes of a and b | v_sad_u8 |
 | `byteperm(a, b, s)` | each byte one of the eight of b:a: nibble i of s picks result byte i by its low three bits, and its top bit asks for eight copies of that byte's sign bit | PRMT (the form without a mode) |
+| `bfi(base, ins, p, n)` | base with bits p..p+n-1 replaced by the low n bits of ins; p and n constant, p + n <= 32 | OpBitFieldInsert; BFI; v_bfi_b32 with its mask |
+| `mulwide(a, b)`, `madwide(a, b, c)` | the 64-bit product of two u32 (u64), and that plus the u64 c (wrapping) | IMAD.WIDE.U32; v_mad_u64_u32 |
 
 **Cost classes.**  `bfe` (both fields), `brev`, `mulhi` (both),
-`funnel` (both), `med3`, `sad4x8`, `byteperm`.  A model that does not
+`funnel` (both), `med3`, `sad4x8`, `byteperm`, `bfi`, `mulwide` (both).  A model that does not
 list one cannot use it, and no built-in model lists any: none is
 measured yet (the GT 1030 corpus has no test for them), so under
 gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
@@ -2771,7 +2773,26 @@ cheaper, then checked on the domain (src/inst.c, `pattern`):
 - a subterm that permutes the bits of one word, read off its GF(2)
   matrix (derived from its structure, as for the subgroups): the
   reversal is `brev`, a rotation `funl(w, w, k)`, whole bytes moved
-  `byteperm(w, w, s)`.
+  `byteperm(w, w, s)`;
+- a u32 of one or two words whose every byte is a byte of b:a, a byte
+  of zeros (b is then 0) or eight copies of a byte's sign: `byteperm(a,
+  b, s)`, each byte's source told at 48 random points (the check on the
+  domain then decides): bytes of two words, `(a & 0xff) | (b & 0xff00)
+  | ...`, and a byte sign-extended;
+- `(base & ~m) | field`, or with xor or +, m the bits p..p+n-1 and the
+  field `(ins << p) & m`, `(ins & (2^n - 1)) << p`, or `ins << p` where
+  ins's range keeps it in n bits: `bfi(base, ins, p, n)`;
+- `u64(a) * u64(b)`, each operand a word or narrower widened, a
+  constant below 2^32 or a value whose range stays below it:
+  `mulwide(a, b)`, and plus a u64 `madwide(a, b, c)`; the low word `a *
+  b` of a product whose high word the function also reads (`mulhi(a,
+  b)` or its pattern): both words from one `mulwide`;
+- a sum with the four bytes' differences of two words in it, each
+  `max(p, q) - min(p, q)` or `abs(p - q)` of the bytes as shifts and
+  masks or `bfe`: `usad4x8(a, b, c)`, c the rest of the sum;
+- a word of a 64-bit shift of two words, `u32((hi:lo) >> k)` and
+  `u32(((hi:lo) << k) >> 32)` with hi:lo written `(u64(hi) << 32) |
+  u64(lo)` and k in 1..31: `funr(hi, lo, k)`, `funl(hi, lo, k)`.
 
 ```
 > model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
@@ -2803,8 +2824,7 @@ The rest of the instructions a model may want, and where each stands:
 | POPC, FLO, v_ffbh/v_ffbl | `popcount`, `clz`, `ctz` (class `bitcnt`) |
 | DP4A, v_dot4, v_dot8 | the dot forms |
 | REDUX, DPP row shifts and broadcasts, ds_swizzle, ds_bpermute, v_permlane16 | the subgroup operations' classes; reductions other than add, and a DPP shuffle folded into an operand, are not there yet |
-| BFI, OpBitFieldInsert | not an operation yet (it has four operands; nodes have three) |
-| IMAD.WIDE, v_mad_u64_u32 | a u64 multiply is `imul` on u64; no class of its own |
+| IMAD.WIDE.S32, v_mad_i64_i32 | the signed wide product: not an operation yet |
 | v_perm_b32 | its selector is a byte per result byte with its own encoding, not `byteperm`'s nibbles: no operation yet |
 | VADD4, VMNMX, VABSDIFF4 without the sum, v_msad, v_qsad, v_lerp_u8, v_pk_* | not yet |
 | v_cubeid/sc/tc/ma, v_trig_preop, v_ldexp, v_frexp, med3 of floats (its NaN rule) | float instructions: not yet |
@@ -4840,7 +4860,8 @@ Data-oriented throughout (see `src/ucas.h`):
   partitioned and quad operations, min/max/bitwise reductions and float
   sums are not operations yet.
 - The catalogue's instructions (bfe, brev, mulhi, funnel shifts, med3,
-  usad4x8, byteperm) are priced by no built-in model: none is measured.
+  usad4x8, byteperm, bfi, mulwide) are priced by no built-in model: none
+  is measured.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding
