@@ -1,7 +1,7 @@
 # simplify writes the catalogue's SPIR-V instructions and prices them by
 # the catalogue's classes where the model lists them (bfe, bfi, brev,
 # mulhi), by what it priced them before where it does not.
-model cat : gt1030 { bfe: 1, brev: 1 }
+model cat : gt1030 { bfe: 1, brev: 1, bfi: 1 }
 #
 # The bits of one word reversed by five swaps: one OpBitReverse (gt1030
 # lists no brev: priced as its bit count class); and a field of an int
@@ -55,5 +55,19 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     uint x = b.d[i];
     b.d[i] = (x >> 24) | ((x >> 8) & 0xff00u) | ((x << 8) & 0xff0000u) | (x << 24);
+}
+```
+# a field put into a word, (base & ~m) | ((v << p) & m) and (base & ~m)
+# | ((v & 2^n - 1) << p): one OpBitFieldInsert each
+simplify nofile nofunctions under cat
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint w = b.d[i], v = b.d[i + 64u];
+    b.d[i] = (w & 0xffff00ffu) | ((v << 8) & 0x0000ff00u);
+    b.d[i + 128u] = (w & 0xfffc0fffu) | ((v & 63u) << 12);
 }
 ```

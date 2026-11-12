@@ -1,6 +1,6 @@
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
-> model cat : gt1030 { bfe: 1, brev: 1 }
+> model cat : gt1030 { bfe: 1, brev: 1, bfi: 1 }
 > use gt1030
 cost model: gt1030
 > spvsimplify nofile nofunctions
@@ -44,3 +44,21 @@ simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
     lop3             2 x 1     = 2  (bitwise logic of up to 3 inputs; saves 2)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cat
+cost model: cat
+> spvsimplify nofile nofunctions
+simplify: 77 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 6 dead instructions removed
+  integer arithmetic cost under cat (each instruction once): 10 -> 4 (-60.0%)
+  by kind:
+       2  a field put into a word is one bitfield insert  -8
+  rewrites:
+    %43 = OpBitwiseOr %uint %37 %42
+      ->  OpBitFieldInsert %uint %27 %33 %ucas_uint_8 %ucas_uint_8   (a field put into a word is one bitfield insert; -4)
+      (line 7: b.d[i] = (w & 0xffff00ffu) | ((v << 8) & 0x0000ff00u);)
+    %56 = OpBitwiseOr %uint %50 %55
+      ->  OpBitFieldInsert %uint %27 %33 %ucas_uint_12 %ucas_uint_6   (a field put into a word is one bitfield insert; -4)
+      (line 8: b.d[i + 128u] = (w & 0xfffc0fffu) | ((v & 63u) << 12);)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2534 bytes, checksum 51a9b97f)
