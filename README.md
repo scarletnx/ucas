@@ -3916,6 +3916,34 @@ a sink takes.  The factors' operations give way to it ("inside a
 product that is rewritten in the log domain"); a scalar exponent of a
 vector product is splatted.
 
+A function of one value on a bounded range (an expression whose only
+input is that value, the largest: what reads it also reads another
+input) is, under a sink, also offered as a table read: N = 2^k + 1
+texels of its values, each moved by a quarter of the neighbouring
+segments' errors at their midpoints (half the error of a segment of
+even curvature), read with the linear filter at texel coordinate
+fma(x, A, B).  It is a proposal, never applied (the module cannot add
+the texture's binding): the report gives the read in GLSL, the texture
+and the sampler the pipeline needs, and the texels in tableN.bin (R8
+bytes, or little-endian f32).  The line between texels is bounded
+against the original's f32 value on every float of the range, piece by
+piece with the interval arithmetic of the original's own operations (a
+piece above the goal is halved, down to two adjacent floats, which are
+evaluated); to that go the coordinate's rounding and the unit's snap of
+a weight (the model's subtexel) times the largest step between texels,
+the filter's own error (tex_within) and an R8 read's fma back to the
+value.  The sink's budget is carried down to the value: the largest
+bound that keeps the stored value within the step with the rewrites
+taken, several reads sharing what those leave.  The smallest table
+within it is taken, the cheaper read first (tex_sample: R8 and two fmas;
+tex_sample_f32: f32 and one), where it costs less than the operations
+it replaces.  A filmic curve of c on [0, 1] into an 8-bit target (31
+at gt1030's prices) is a 33-texel R8 read (23.6) within 0.00338 of the
+0.00392 a step allows, under a model that states tex_within; gt1030
+does not (how far its filter is from the exact weighted sum is not
+measured), so under it the report says so and offers nothing
+(tests/sinktable.ucas).
+
 Left to the other parts of ucas: an integer function of few inputs
 whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
 8-bit x) is `find`'s, which checks every point and offers tables and
@@ -3926,7 +3954,8 @@ Not done yet: proofs for two or more float inputs that interact (a
 second input is kept as an interval, so its sets are "possibly"); bit-
 level SAT for small float pieces; joining two vec2 operations into one
 vec4 (the gt1030 model prices components, so it would save nothing
-there).
+there); several functions of one value in the channels of one texture
+(one read for a colour ramp's three).
 
 ### Advice: what could leave the shader
 

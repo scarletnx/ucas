@@ -1,0 +1,57 @@
+# a function of one bounded value as a filtered read of a table of its
+# values (src/fsimp.c, an_table): proposed, never applied (a module
+# cannot add the texture's binding), only under a sink, whose budget
+# carried down to the value bounds the table's own error; the smallest
+# table within it, the cheaper format first, where the read costs less
+# than the operations it replaces
+model texsink : gt1030 { tex_within: 1 }
+use texsink
+# a filmic curve into an 8-bit target: 33 texels as bytes
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545) * 0.9 + sqrt(c) * 0.1; }
+```
+# per component of a vector: one table for the three lanes
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+vec3 FilmV(vec3 c) { vec3 x = exp2(c * 8.0 - 4.0); vec3 t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, vec3(0.4545)); }
+```
+# two values: a table for each function of one of them
+simplify float a in [0, 1], b in [0, 1] sink unorm8 nofile
+```glsl
+float Two(float a, float b) { float x = exp2(a * 8.0 - 4.0), y = exp2(b * 6.0 - 3.0); return pow(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0.4545) * 0.5 + pow(y * (2.51 * y + 0.03) / (y * (2.43 * y + 0.59) + 0.14), 0.4545) * 0.5; }
+```
+# 12 bits: bytes are too coarse, and an f32 read costs more than the curve
+simplify float c in [0, 1] sink unorm12 nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
+# where the f32 read costs less: 65 texels as f32
+model texsink32 : texsink { tex_sample_f32: 12 }
+use texsink32
+simplify float c in [0, 1] sink unorm12 nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
+# 16 bits: the samples fit 2049 texels, the proof does not get there
+simplify float c in [0, 1] sink unorm16 nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
+use texsink
+# no range for c: a table needs one
+simplify float sink unorm8 nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
+# no sink: nothing is proposed
+simplify float c in [0, 1] nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
+use gt1030
+# gt1030 does not say how far its filter is from the exact weighted sum
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Curve(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545); }
+```
