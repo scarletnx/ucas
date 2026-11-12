@@ -38,7 +38,8 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.28e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816330407, s, -0.166634634), x) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
+      certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2035 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
@@ -62,7 +63,8 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  25 ulp (25.6)            1.96e-06      1.3e-06       4    at x=0.252571374
       x*P(x^2): fma(x*s, fma(0.00816328637, s, -0.166633993), x) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 24.94 -> 24.31 ulp there; on the table's measure 25.07 -> 24.95 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 24.94 -> 24.31 ulp there; on the table's measure 25.07 -> 24.95 ulp: kept, certified below
+      certified: at most 25.57 ulp for every f32 x in [0, 0.785398126], 2032 pieces: the coefficients' error at most 24.54 (24.37 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
@@ -86,7 +88,8 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816331618, s, -0.166634634), x) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
+      certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2034 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
@@ -110,7 +113,8 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816330872, s, -0.166634634), x) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
+      certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2034 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
@@ -254,7 +258,8 @@ approx it on [0, 0.5] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   3     horner+fma  1.04e+03 ulp             6.98e-05      2.98e-05      3    at x=0.00195303548
       x*P(x^2): x*fma(-0.164585575, s, 0.999937952) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1877 evaluations on 3000 sample points: 1105 -> 1041 ulp there; on the table's measure 1105 -> 1041 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1877 evaluations on 3000 sample points: 1105 -> 1041 ulp there; on the table's measure 1105 -> 1041 ulp: kept, certified below
+      certified: at most 1051 ulp for every f32 x in [0, 0.5], 1245 pieces: the coefficients' error at most 1049 (1041 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.04, probable no better (under 16 operations), expected 0.817; `error ap1 ~ F` says what each means
   2   rational  3/2   horner+fma  3.76 ulp                 2.88e-07      1.1e-07       7    at x=0.0297703519
       x*P(x^2)/Q(x^2): x*fma(-0.116177753, s, 1.00000012)/fma(0.0504966788, s, 1.0) where s = x*x

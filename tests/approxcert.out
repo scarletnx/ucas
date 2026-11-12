@@ -1,0 +1,108 @@
+> approx sin(x) in -1.5707963..1.5707963 degree 5 as f32 norational nosplit noreduce list 1 search anneal budget 300
+approx sin(x) on [-1.57079625, 1.57079625] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1.57079625]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    0.000134     0.000135     0.000108     
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131101 f32 in [-1.57079625, 1.57079625]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  1.81e+03 ulp             0.000122      0.000108      4    at x=-1.16394172e-10
+      x*P(x^2): x*fma(fma(0.0076028984, s, -0.165960312), s, 0.999891996) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 1816 -> 1812 ulp there; on the table's measure 1816 -> 1812 ulp: kept, certified below
+      certified: at most 1828 ulp for every f32 x in [-1.57079625, 1.57079625], 2809 pieces: the coefficients' error at most 1826 (1812 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 3.07, probable no better (under 16 operations), expected 0.926; `error ap1 ~ F` says what each means
+> approx log(x) in 1..1.5 degree 5 as f32 norational nosplit noreduce list 1 search anneal budget 300
+  note: log(x) has special points at the interval's ends (at x = 1 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx log(x) on [1, 1.5] as f32, fma
+  checked: simple zero at x = 1: fitting (x-1.0)*P(t), exact zero
+  metric: relative error
+  checked: the target equals log(x) at 33 points: range reductions and identities for log apply
+  fits in real arithmetic (max relative error of (x-1.0)*P(t)):
+    deg  cheb interp  cheb econ    minimax
+    5    4.05e-06     3.86e-06     3.79e-06     
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 98303 f32 in [1, 1.5]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  59 ulp (64)              4.08e-06      1.5e-06       6    at x=1.00006104
+      (x-1.0)*P(t): t*fma(fma(fma(fma(0.0821432024, t, -0.208483562), t, 0.326669842), t, -0.499608696), t, 0.999996483) where t = x - 1.0
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 58.18 -> 57.79 ulp there; on the table's measure 60.02 -> 59.02 ulp: kept, certified below
+      certified: at most 61.08 ulp for every f32 x in [1, 1.5], 314 pieces: the coefficients' error at most 59.08 (58.97 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 6 operations, relative, in u = 2^-24: worst case 3.16, probable no better (under 16 operations), expected 1; `error ap1 ~ F` says what each means
+  1 more: 'approx more [n]' (dominated or worse)
+> approx tanh(x) in 0..1 degree 3 as f32 nosplit noreduce list 2 search anneal budget 300
+  note: tanh(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx tanh(x) on [0, 1] as f32, fma
+  checked: tanh(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 1]
+  metric: relative error
+  checked: the target equals tanh(x) at 33 points: range reductions and identities for tanh apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    3    0.0117       0.0119       0.0113       
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00211 (0.0152) 3/2 1.48e-05 (0.000408) 1/4 4.75e-05 (0.00147) 3/4 5.85e-08 (6.24e-06)
+    1/6 1.13e-06 (0.000146) 3/6 3.06e-10 (1.31e-07)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130809 f32 in [0, 1]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   3     horner+fma  1.9e+05 ulp              0.0113        0.00863       3    at x=2.27371927e-13
+      x*P(x^2): x*fma(-0.235703185, s, 0.988666475) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 299 evaluations on 3000 sample points: 1.901e+05 -> 1.901e+05 ulp there; on the table's measure 1.902e+05 -> 1.901e+05 ulp: kept, certified below
+      certified: at most 1.915e+05 ulp for every f32 x in [0, 1], 600 pieces: the coefficients' error at most 1.915e+05 (1.901e+05 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.31, probable no better (under 16 operations), expected 0.836; `error ap1 ~ F` says what each means
+  2   rational  3/2   horner+fma  236 ulp                  2.05e-05      1.1e-05       7    at x=0.00389939523
+      x*P(x^2)/Q(x^2): x*fma(0.0639821813, s, 0.999985993)/fma(0.397007644, s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 296 evaluations on 3000 sample points: 249 -> 235 ulp there; on the table's measure 250.1 -> 236.1 ulp: kept, certified below
+      certified: at most 241 ulp for every f32 x in [0, 1], 2109 pieces: the coefficients' error at most 236.9 (235 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+  2 more: 'approx more [n]'
+> approx exp(x) in 1..1.0625 degree 3 as f32 norational nosplit noreduce list 1 points 600000 search anneal budget 300
+approx exp(x) on [1, 1.0625] as f32, fma
+  metric: relative error
+  checked: the target equals exp(x) at 33 points: range reductions and identities for exp apply
+  fits in real arithmetic (max relative error of P(t)):
+    deg  cheb interp  cheb econ    minimax
+    3    5.09e-09     5.11e-09     4.97e-09     
+  candidates ranked by max ulp and cost under gt1030 (every float); defined as ap1..:
+  measured on 524289 f32 in [1, 1.0625] (all of them); ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   3     horner+fma  0.988 ulp (0.99)         8.34e-08      2.36e-07      4    at x=1.06246877
+      P(t): fma(fma(fma(0.467404634, t, 1.40240014), t, 2.80456924), t, 2.80456924) where t = x - 1.03125
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 0.9759 -> 0.9656 ulp there; on the table's measure 0.9896 -> 0.9879 ulp: kept, certified below
+      certified: at most 1.007 ulp for every f32 x in [1, 1.0625], 34 pieces: the coefficients' error at most 0.4845 (0.4769 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.06, probable no better (under 16 operations), expected 0.578; `error ap1 ~ F` says what each means
+  1 more: 'approx more [n]' (dominated or worse)
+> approx sin(x) - 0.3 in 0..0.6 degree 4 as f32 norational nosplit noreduce list 1 search anneal budget 300
+approx sin(x) - 0.3 on [0, 0.600000024] as f32, fma
+  metric: absolute error (the function crosses zero away from the expansion point)
+  fits in real arithmetic (max absolute error of P(x)):
+    deg  cheb interp  cheb econ    minimax
+    4    1.22e-06     1.21e-06     1.2e-06      
+  candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131063 f32 in [0, 0.600000024]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   4     horner+fma  1.23e-06 abs             73.8          1.23e-06      4    at x=0.542897701
+      P(x): fma(fma(fma(fma(0.0122488011, x, -0.173027664), x, 0.00135327759), x, 0.99989903), x, -0.29999879)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 1.228e-06 -> 1.224e-06 abs there; on the table's measure 1.237e-06 -> 1.232e-06 abs: kept, certified below
+      certified: at most 1.261e-06 abs for every f32 x in [0, 0.600000024], 66 pieces: the coefficients' error at most 1.217e-06 (1.21e-06 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 74.7, probable no better (under 16 operations), expected 41.3; `error ap1 ~ F` says what each means
+  1 more: 'approx more [n]'
+> approx atan(x) in 0..0.5 degree 11 as f64 norational nosplit noreduce list 1 search anneal budget 200
+  note: atan(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx atan(x) on [0, 0.5] as f64, fma
+  checked: atan(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.5]
+  metric: relative error
+  checked: the target equals atan(x) at 33 points: range reductions and identities for atan apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    11   5.04e-09     4.8e-09      4.76e-09     
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131032 f64 in [0, 0.5]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   11    horner+fma  4.28e+07 ulp             4.76e-09      2.2e-09       226.625 at x=8.32492615e-258
+      x*P(x^2): x*fma(fma(fma(fma(fma(-0.050803829026559173, s, 0.10124402803074349), s, -0.1416620816019456), s, 0.19993280708291986), s, -0.33333193376213399), s, 0.99999999524490935) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 200 evaluations on 3000 sample points: 4.282e+07 -> 4.282e+07 ulp there; on the table's measure 4.283e+07 -> 4.283e+07 ulp: kept, certified below
+      certified: at most 4.317e+07 ulp for every f64 x in [0, 0.5], 10447 pieces: the coefficients' error at most 4.317e+07 (4.283e+07 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 6 on intervals, libm's long double functions taken within 2^-58
+      rounding of ap1, first order, 7 operations, relative, in u = 2^-53: worst case 2.16, probable no better (under 16 operations), expected 0.819; `error ap1 ~ F` says what each means
+  1 more: 'approx more [n]' (dominated or worse)
