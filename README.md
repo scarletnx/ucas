@@ -3543,6 +3543,23 @@ relative one and says so.  Under an 8-bit sink `sqrt(c) * 0.5` on
 `inversesqrt(c) * 0.25` beside it, steeper there, is refused
 (tests/sinkpoly.ucas).
 
+A polynomial the shader already evaluates (a fitted curve, a Taylor
+series: adds, multiplies, fmas and negations of one variable and
+constants, Horner or expanded, every load of an input one variable) is
+refitted the same way to each lower degree that costs less than its
+operations, on the range its variable reaches: the error against its
+exact value is certified on 4096 pieces with its own second derivative,
+and the rounding of both evaluations is added (gamma_k times the
+magnitudes its k operations reach, for the original).  A degree-4 curve
+`(((0.12 c - 0.35) c + 0.41) c + 0.7) c + 0.05` on [0, 1] into an 8-bit
+target becomes `fma(fma(0.102, c, 0.785), c, 0.0463)` (8 -> 2, 0.00368
+of the 0.00392 a step allows).  It is offered only as a whole: an
+operation of it also read elsewhere keeps it as it is, and the
+rewrites of its own operations give way ("inside a polynomial that is
+refitted as a whole").  Its variable is written as the value it is, or
+a component of an input vector where the result is that component's
+type; otherwise the report says it is not written.
+
 Left to the other parts of ucas: an integer function of few inputs
 whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
 8-bit x) is `find`'s, which checks every point and offers tables and

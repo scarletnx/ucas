@@ -29,3 +29,34 @@ simplify float c in [0, 1] sink unorm8 under cheaptrans nofile
 ```glsl
 vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; }
 ```
+use gt1030
+# a polynomial already in the shader, refitted to fewer terms on its
+# variable's range: the degree-4 curve takes degree 2 under an 8-bit sink
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Curve(float c) { return (((0.12 * c - 0.35) * c + 0.41) * c + 0.7) * c + 0.05; }
+```
+# the same per component of a vector, and expanded (its own fma gives way)
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+vec3 Curve3(vec3 c) { return (((0.12 * c - 0.35) * c + 0.41) * c + 0.7) * c + 0.05; }
+```
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Expand(float c) { float c2 = c * c; return 0.05 + 0.7 * c + 0.41 * c2 - 0.35 * c2 * c + 0.12 * c2 * c2; }
+```
+# one component of a vector input: read out of it
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Comp(vec3 c) { return (((0.12 * c.y - 0.35) * c.y + 0.41) * c.y + 0.7) * c.y + 0.05; }
+```
+# a step of the curve also read elsewhere: kept
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+vec2 Two(float c) { float h = (0.12 * c - 0.35) * c + 0.41; return vec2((((h * c) + 0.7) * c + 0.05), h); }
+```
+# no sink: listed only
+simplify float c in [0, 1] nofile
+```glsl
+float Curve(float c) { return (((0.12 * c - 0.35) * c + 0.41) * c + 0.7) * c + 0.05; }
+```
