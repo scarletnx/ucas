@@ -33,3 +33,16 @@ model dearload : gt1030 { load: 60 }
 use dearload
 find bc 1
 use gt1030
+
+# a domain too large for one table: a table for its first 2^16 values,
+# the function past them.  Each value as likely: on a parameter the lanes
+# share the warp takes one side (39.75 -> 26.83 expected); on one with a
+# value in each lane a warp almost always splits and pays both sides, and
+# nothing is offered; nor where a load is dear
+pg(x: u32 uniform in 0..99999) = (x * x % 1000003) / 7 + x % 13
+find pg 1
+ph(x: u32 in 0..99999) = (x * x % 1000003) / 7 + x % 13
+find ph 1
+use dearload
+find pg 1
+use gt1030

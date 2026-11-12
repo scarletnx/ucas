@@ -163,3 +163,62 @@ find bc: 240 points, computing in u32, costs from dearload
   [searched every term up to cost 4: 69905 distinct columns, bank full; 'more' continues]
 > use gt1030
 cost model: gt1030
+> pg(x: u32 uniform in 0..99999) = (x * x % 1000003) / 7 + x % 13
+> find pg 1
+find pg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 35  x*x % 1000003/7 + (x - 13(20165x >> 0x12)) the remainder x % 13 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where x in [0, 99999] (its range)
+      M = ceil(2^18/13) = 20165, so M*13 = 2^18 + 1
+      x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
+      x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
+      and x % 13 = x - 13*floor(x/13)
+  not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
+      needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
+      x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
+      that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  a table for part of the domain under gt1030 (the function past it; cost 39.75 as written):
+  cost 26.83 x < 65536 ? T[x] : x*x % 1000003/7 + x % 13   (expected; T the 65536 values at x = 0..65535)
+           entry i is the function at x = i, all 65536 evaluated; past them the function itself, so the select is the function everywhere
+           x is the same in every lane: the warp takes one side, the table's with probability 0.6554 (each of the 100000 values as likely): compare and branch, then 6.875 or 39.75
+           as a select (both sides computed) 50.625; K searched over the table sizes 2^k up to 65536
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ph(x: u32 in 0..99999) = (x * x % 1000003) / 7 + x % 13
+> find ph 1
+find ph: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 35  x*x % 1000003/7 + (x - 13(20165x >> 0x12)) the remainder x % 13 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where x in [0, 99999] (its range)
+      M = ceil(2^18/13) = 20165, so M*13 = 2^18 + 1
+      x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
+      x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
+      and x % 13 = x - 13*floor(x/13)
+  not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
+      needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
+      x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
+      that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use dearload
+cost model: dearload
+> find pg 1
+find pg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from dearload
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 35  x*x % 1000003/7 + (x - 13(20165x >> 0x12)) the remainder x % 13 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where x in [0, 99999] (its range)
+      M = ceil(2^18/13) = 20165, so M*13 = 2^18 + 1
+      x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
+      x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
+      and x % 13 = x - 13*floor(x/13)
+  not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
+      needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
+      x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
+      that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

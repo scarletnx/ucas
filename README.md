@@ -2663,11 +2663,23 @@ gt1030 { load: 60 }`) nothing is offered.
 A table of at most W entries can also sit in a register of the
 subgroup (Subgroups, above); that form is offered for a table the
 function reads several times, since read once the load into the lanes
-costs more than the lookup it saves.  Not there yet: a table for part
-of the domain with the function computed elsewhere (it needs a
-distribution of the inputs to price the branch), a texture fetch as the
-table (no measured price), wide loads, a shared-memory table read by
-broadcast.
+costs more than the lookup it saves.
+
+A function of one parameter whose range is too large for a table can
+have one for part of it: `x < K ? T[x - lo] : f(x)`, T the function at
+every point of lo..K-1 (each evaluated, so the select is the function
+everywhere).  Its price is an expectation over the range, each value as
+likely: a select computes both sides; on a `uniform` parameter the warp
+takes one side, the table's with probability p = P(x < K); on one with
+a value in each lane a warp splits with the probability `cost` uses for
+a ?: (stoch.c) and then pays both sides and the divergence.  K is
+searched over the table sizes 2^k up to 2^16, and the cheapest is
+offered when it is below the function as written: `(x*x % 1000003)/7 +
+x % 13` with a uniform x in 0..99999 is 26.83 expected against 39.75
+(p = 0.655), and with a value in each lane nothing (a warp of 32 almost
+always splits).  Not there yet: other distributions than the uniform
+one, a texture fetch as the table (no measured price), wide loads, a
+shared-memory table read by broadcast.
 
 ### The texture unit as an ALU
 
