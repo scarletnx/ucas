@@ -1,0 +1,6 @@
+{"id": 1, "cmd": "find", "args": {"f": {"body": "sg_scan((x >> lane) & 1)", "params": [{"name": "x", "type": "u8", "uniform": true}, {"name": "lane", "type": "u32", "range": [0, 7]}]}, "n": 1}}
+{"id": 2, "cmd": "cost", "args": {"f": {"body": "sg_shuffle(x >> lane, 3) + sg_add(x & lane)", "params": [{"name": "x", "type": "u32", "uniform": true}]}}}
+{"id": 3, "cmd": "ucas", "args": {"source": "model nosg : gt1030 { sg_scan: none, sg_ballot: none, sg_shuffle: none }\nuse nosg"}}
+{"id": 4, "cmd": "cost", "args": {"f": {"body": "sg_scan((x >> lane) & 1)", "params": [{"name": "x", "type": "u8", "uniform": true}, {"name": "lane", "type": "u32", "range": [0, 7]}]}}}
+{"id": 5, "cmd": "find", "args": {"f": {"body": "sg_scan((x >> lane) & 1)", "params": [{"name": "x", "type": "u8", "uniform": true}, {"name": "lane", "type": "u32", "range": [0, 7]}]}, "n": 1}}
+{"id": 6, "cmd": "range", "args": {"f": {"body": "sg_ballot(x > lane)", "params": [{"name": "x", "type": "u32", "range": [0, 40], "uniform": true}]}}}
