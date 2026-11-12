@@ -152,6 +152,11 @@ rop lo: lo = min(s, d), applied once per fragment (s what a fragment brings, d t
       checked on every point of the domain; the result is one of the two values; exact if the conversion to UNORM rounds to nearest (the float's error is far below half a step; Vulkan prefers nearest and allows either neighbour: to measure)
       price: rop_blend is not priced by gt1030 (not measured): unavailable
       pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MIN, srcColorBlendFactor = dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R8_UNORM colour attachment; one point per contribution, its position the cell, its colour s/255
+  blending: VK_BLEND_OP_MIN on a float target (R16_SFLOAT): min(s, d), the integers as floats
+      holds where the values stay below 2^11 in magnitude (at most 255, from the parameters' ranges)
+      the update is the min (checked on every point of the domain); every value is an integer f16 holds, and the blend picks one of the two: nothing rounds
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MIN; an R16_SFLOAT colour attachment; one point per contribution, its position the cell, its colour float(s)
   depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment, the value its own key: min(s, d)
       holds where the values stay below 0x3F000000 (at most 255, from the parameters' ranges)
       the update is min(s, d) (checked on every point of the domain); a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds; on a tie both values are the same
@@ -360,9 +365,10 @@ rop.ucas:100:8: error: rop takes one uniform parameter (the blend constant or th
            ^
 > sg(s: i32, d: i32) = d + s
 > rop sg
-rop.ucas:102:7: error: rop works on u8, u16, u32, u64 (integer targets, stencil, depth) and f32 (float targets), not i32
-    rop sg
-          ^
+rop sg: sg = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: sg(s2, sg(s1, d)) = sg(s1, sg(s2, d)) (proved by SAT)
+  blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 4294967296 in magnitude and its result [-4294967296, 4294967294]; f32 holds integers below 2^24 = 16777216, and the result must stay inside i32
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
 > am(s: u64, d: u64) = min(d, s)
 > rop am
 rop am: am = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
@@ -389,6 +395,7 @@ rop pk: pk = min(s, d), applied once per fragment (s what a fragment brings, d t
 > rop far
 rop far: far = max(s, d), applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result does not depend on the order of the fragments: far(s2, far(s1, d)) = far(s1, far(s2, d)) (proved by SAT)
+  blending: VK_BLEND_OP_MAX would compute it on a float target, but the values reach 4294967295: f32 holds integers below 2^24 = 16777216
   fixed-function states that compute it (each a proposal: the pipeline changes):
   depth test: VK_COMPARE_OP_GREATER_OR_EQUAL on a D32_SFLOAT depth attachment holding the key s >> 3, the payload s & 0x7 in an R8_UINT colour attachment written where the test passes: max(s, d)
       holds where two values that meet in a cell differ in their keys, or come in increasing order of payload (the payload the contribution's index in the draw: a cell's fragments pass in primitive order); the keys below 0x3F000000 (at most 536870911, from the parameters' ranges)
@@ -401,6 +408,11 @@ rop far: far = max(s, d), applied once per fragment (s what a fragment brings, d
 rop near: near = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result does not depend on the order of the fragments: near(s2, near(s1, d)) = near(s1, near(s2, d)) (proved by SAT)
   fixed-function states that compute it (each a proposal: the pipeline changes):
+  blending: VK_BLEND_OP_MIN on a float target (R32_SFLOAT): min(s, d), the integers as floats
+      holds where the values stay below 2^24 in magnitude (at most 1000000, from the parameters' ranges)
+      the update is the min (proved by SAT); every value is an integer f32 holds, and the blend picks one of the two: nothing rounds
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MIN; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour float(s)
   depth test: VK_COMPARE_OP_LESS on a D32_SFLOAT depth attachment, the value its own key: min(s, d)
       holds where the values stay below 0x3F000000 (at most 1000000, from the parameters' ranges)
       the update is min(s, d) (proved by SAT); a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds; on a tie both values are the same
@@ -600,4 +612,47 @@ rop z: z = 7, applied once per fragment (d the cell's value)
       the update is the constant 7 (a constant): every cell ends as 7 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
       price: rop_fill 0.25 a fragment under fl, against 15 (one store, store): cheaper
       pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0x00000007) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> sgb(s: i32 in -100..100, d: i32 in -1000000..1000000) = d + s
+> rop sgb
+rop sgb: sgb = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: sgb(s2, sgb(s1, d)) = sgb(s1, sgb(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d
+      holds where the operands, the factors, both products and the result stay below 2^24 in magnitude (at most 1000100, the result in [-1000100, 1000100], from the parameters' ranges)
+      sgb and s + d expand to the same polynomial; every value is an integer below 2^24, which f32 holds, so no step of the blender rounds whatever its arithmetic, and the integer result (inside i32: no wrap) is the polynomial's
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> small(s: u32 in 0..15, d: u32 in 0..2000) = d + s
+> rop small
+rop small: small = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: small(s2, small(s1, d)) = small(s1, small(s2, d)) (checked on every point of the domain)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R16_SFLOAT, half the bytes of R32_SFLOAT): s + d
+      holds where the operands, the factors, both products and the result stay below 2^11 in magnitude (at most 2015, the result in [0, 2015], from the parameters' ranges)
+      small and s + d expand to the same polynomial; every value is an integer below 2^11, which f16 holds, so no step of the blender rounds whatever its arithmetic, and the integer result (inside u32: no wrap) is the polynomial's
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R16_SFLOAT colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> sm(s: i32 in -1000..1000, d: i32 in -1000..1000) = min(d, s)
+> rop sm
+rop sm: sm = min(d, s), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: sm(s2, sm(s1, d)) = sm(s1, sm(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  blending: VK_BLEND_OP_MIN on a float target (R16_SFLOAT): min(s, d), the integers as floats
+      holds where the values stay below 2^11 in magnitude (at most 1000, from the parameters' ranges)
+      the update is the min (checked on every point of the domain); every value is an integer f16 holds, and the blend picks one of the two: nothing rounds
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MIN; an R16_SFLOAT colour attachment; one point per contribution, its position the cell, its colour float(s)
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> ix(s: i16, d: i16) = d xor s
+> rop ix
+rop ix: ix = d xor s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: ix(s2, ix(s1, d)) = ix(s1, ix(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  logic op: VK_LOGIC_OP_XOR on a signed integer target (R16_SINT): s xor d
+      proved by SAT
+      price: rop_logic is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendStateCreateInfo: logicOpEnable, logicOp = VK_LOGIC_OP_XOR (the logicOp feature); an R16_SINT colour attachment; one point per contribution, its position the cell, its colour s
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back

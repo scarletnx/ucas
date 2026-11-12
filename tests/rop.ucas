@@ -183,3 +183,15 @@ z64(d: u64) = 4294967297
 rop z64
 model fl : gt1030 { rop_fill: 0.25 }
 rop z model fl
+
+# signed data blends on a float target as unsigned data does; values
+# below 2^11 fit R16_SFLOAT, half the bytes; integer min and max on a
+# float target; a logic op on a SINT target
+sgb(s: i32 in -100..100, d: i32 in -1000000..1000000) = d + s
+rop sgb
+small(s: u32 in 0..15, d: u32 in 0..2000) = d + s
+rop small
+sm(s: i32 in -1000..1000, d: i32 in -1000..1000) = min(d, s)
+rop sm
+ix(s: i16, d: i16) = d xor s
+rop ix

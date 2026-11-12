@@ -2187,8 +2187,9 @@ store or another kind of atomic on it means a render target cannot
 serve it in the pass that blends into it, and is said so.  A 64-bit
 min or max is the depth test keeping a payload (the visibility buffer's
 `atomicMin(vb[p], (uint64_t(depth) << 32) | id)`), priced against
-`atomic_global_64`.  Signed atomics are not proposed (rop takes
-unsigned integers), workgroup memory never is (no target holds it).  Under a
+`atomic_global_64`.  A signed atomic (an add, SMin, SMax on an int)
+is an i32 update; workgroup memory is never proposed (no target holds
+it).  Under a
 model that prices none of rop's classes (gt1030) the pass says nothing
 (tests/ropatomics.ucas).
 
@@ -2584,16 +2585,17 @@ F's parameters are the cell's value (the one named `d` or `dst`, else
 the last), what a fragment brings (the first other one), optionally a
 second value of the fragment (dual-source blending) and one `uniform`
 parameter, a pipeline constant (the blend constant, the stencil
-reference); all of one type, u8, u16, u32, u64 or f32.  Ranges come
+reference); all of one type, u8, u16, u32, u64, i8, i16, i32 or f32.
+Ranges come
 from the parameters (`s: u32 in 0..255`).
 
 **The catalogue**, each state with its exact result:
 
 | family | states | on | class |
 |---|---|---|---|
-| logic op | the 16 VkLogicOp: bitwise functions of (s, d) | unsigned integer targets | `rop_logic` |
+| logic op | the 16 VkLogicOp: bitwise functions of (s, d) | integer targets, UINT or SINT | `rop_logic` |
 | stencil op | the 8 VkStencilOp on d (and the reference), under a write mask of the low or the high bits: counters mod 256 or saturating, an invert, a replace | the 8-bit stencil value | `rop_stencil` |
-| blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
+| blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT, or R16_SFLOAT when every value is below 2^11); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
 | advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
 | depth test | VK_COMPARE_OP_LESS (a min) or GREATER_OR_EQUAL (a max): the value's high bits are the key, its low bits a payload the test keeps with it in a colour target (an argmin, an argmax) | D32_SFLOAT and an R8 to R32G32_UINT target | `rop_depth` |
 | occlusion query | a precise VK_QUERY_TYPE_OCCLUSION around the draw: d + (s != 0), or d + 1, counted over every contribution | one cell for a whole draw | `rop_query` |
@@ -2727,10 +2729,13 @@ said with it:
 
 - integer data on a float target is exact when the ranges keep the
   operands, the factors, both products and the result below 2^24,
-  where no f32 operation can round (and the result inside its uN):
-  then the blender's arithmetic does not matter.  Without that bound
-  the state is shown as not exact, with the numbers; integer targets
-  do not blend;
+  where no f32 operation can round (and the result inside its type, uN
+  or iN, signed data blending as well): then the blender's arithmetic
+  does not matter.  Below 2^11 an f16 holds them all, so the target is
+  R16_SFLOAT, half the bytes.  MIN and MAX of integers on a float
+  target pick one of the two values, exact under the same bounds.
+  Without the bound the state is shown as not exact, with the numbers;
+  integer targets do not blend;
 - one f32 operation (ADD with ONE and ONE, MIN, MAX) is exact if the
   blender rounds to nearest; several are equal as real functions only,
   since Vulkan fixes neither their rounding nor whether the multiply

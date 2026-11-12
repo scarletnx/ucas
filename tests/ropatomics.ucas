@@ -150,3 +150,15 @@ void main() {
     }
 }
 ```
+# a signed atomic: an i32 update, its max on a float target
+simplify nofile under fixed, best in [-100000, 100000]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer I { uint px[]; } inb;
+layout(std430, binding = 1) buffer B { int best[]; } bb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicMax(bb.best[v >> 24], int(v & 65535u) - 30000);
+}
+```
