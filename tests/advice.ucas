@@ -73,3 +73,45 @@ void main() {
     o[i] = o[i] * 2.0 + 1.0;
 }
 ```
+# flat inputs are the provoking vertex's, the same at every pixel of the
+# primitive: what reads only them and the draw's values is once a
+# primitive (not priced, as a vertex); a flat value times a varying is
+# still affine in it
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec3 wpos;
+layout(location = 1) flat in uint mat;
+layout(location = 2) flat in vec4 tint;
+layout(location = 0) out vec4 col;
+layout(push_constant) uniform PC { float gain; } pc;
+void main() {
+    float m = float(mat) * 0.25 + pc.gain;
+    vec3 t = tint.rgb * tint.a * m;
+    float h = wpos.y * tint.w;
+    col = vec4(t * h, 1.0);
+}
+```
+# without the word: advice is said when there is some, and nothing is
+# said when there is none
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+layout(binding = 1) uniform U { float a; float b; } u;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = o[i] * (u.a * u.b);
+}
+```
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = o[i] * 2.0 + 1.0;
+}
+```
