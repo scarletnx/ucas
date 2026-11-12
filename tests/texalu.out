@@ -417,6 +417,24 @@ find f: 1001 points, computing in u16, costs from cal
       x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
       x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
       and x % 7 = x - 7*floor(x/7)
+  cost 18  [10, 20, 30, 40, 50, 60, 70][i - 7u16(0.142857149f32(i))] i % 7 as i - 7 q on the f32 pipe, q the conversion of f32(i) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where i in [0, 1000], inside [0, 2^24), and 1000 (0.142857149 - 1/7) + ulp/2 < 1/7: 6.39e-06 + 7.63e-06 < 0.143
+      i < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(i/7) is an integer below 2^24, an f32, and f32(i) * 0.142857149 >= i/7 >= q0: the product rounded to nearest is not below q0
+      i/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 6.39e-06 (1000 times the excess); it is below 256, where rounding adds at most 7.63e-06: it stays below q0 + 1, as 6.39e-06 + 7.63e-06 < 1/7
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = i / 7
+      i - 7 q0 = i % 7, in [0, 7): the integer operations do not wrap
+  cost 18  [10, 20, 30, 40, 50, 60, 70][u16(asint(fma(floor(0.142857149f32(i)), -7, f32(i)) + 12582912) - 1262485504)] i % 7 as fma(-floor(f32(i) * 0.142857149), 7, f32(i)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where i in [0, 1000], inside [0, 2^24), and 1000 (0.142857149 - 1/7) + ulp/2 < 1/7: 6.39e-06 + 7.63e-06 < 0.143
+      i < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(i/7) is an integer below 2^24, an f32, and f32(i) * 0.142857149 >= i/7 >= q0: the product rounded to nearest is not below q0
+      i/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 6.39e-06 (1000 times the excess); it is below 256, where rounding adds at most 7.63e-06: it stays below q0 + 1, as 6.39e-06 + 7.63e-06 < 1/7
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = i / 7, and so is its floor
+      the fma rounds f32(i) - 7 q0 = i % 7 once: an integer in [0, 7), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   cost 16  [10, 20, 30, 40, 50, 60, 70][u32(i) - 7(1171u32(i) >> 13)] all of them: the remainder i % 7 as a multiply and a shift in u32, then drops the conversion u16(...) (derived; the drops exhaustive)
   subgroup forms: the table [10, 20, 30, 40, 50, 60, 70] is a closed form of the index (entry i is 10 + 10 i at i = 0..6, each checked): computed at each lookup's own index, without a register or a shuffle, the function costs 16.5 (as written 20.375)
   reads through the texture unit under cal (cost 20.375 as written):

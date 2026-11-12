@@ -1,0 +1,22 @@
+# x / k and x % k by a constant on the f32 pipe: f32(x) times 1/k rounded
+# up to an f32, truncated, for an x below 2^24 where that is exact
+#
+# a remainder over 22 bits, where a multiply and a shift in u32 no longer
+# serves: x - 13 q, or all in f32 through an fma read back by the bits
+m13(x: u22) = x % 13
+find m13 1
+# the quotient alone
+d13(x: u22) = x / 13
+find d13 1
+# below 2^23 the margin holds for 7; over 24 bits one x rounds up: not
+# applied, with that x
+m7(x: u23) = x % 7
+find m7 1
+m7w(x: u24) = x % 7
+find m7w 1
+# a range past the margin where no x rounds up: every x was tried
+d3t(x: u32 in 0..12582913) = x / 3
+find d3t 1
+# a signed operand that is never negative
+s10(a: i32 in 0..100000) = a % 10
+find s10 1
