@@ -373,5 +373,6 @@ find qb: 1024 points, computing in i32, costs from gt1030
            1024 entries of i32 (4096 bytes of constant data), one for each point of v in 0..255, b in 4..7; entry k is the function at the point with index k = u32(v) | u32(b - 4) << 8, all 1024 evaluated
            priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
            checked on every point of the domain
+           the entries are exact as BC4_UNORM blocks, rows of 4: 512 bytes against 4096 as i32 (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
