@@ -40,6 +40,7 @@
   = log(abs(x)) + C
   check: d/dx of it equals the integrand at 400 points of [-1, 1] (max difference 0)
   numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+  quasi-Monte Carlo does not settle either: 8 replicates of 4096 Sobol points give -0.072 with a standard error of 1.1: no value (a pole, or an integral that does not exist)
 > integrate sin(x)^2 from 0 to pi
 ∫ sin(x)^2 dx
   = x/2 - sin(2x)/4 + C

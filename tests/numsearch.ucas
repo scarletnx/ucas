@@ -1,0 +1,61 @@
+# Numerical search, probabilistic error, quasi-Monte Carlo.  Everything
+# random is seeded (`seed K`, else UCAS_SEED, else 1) and uses + - * /
+# and sqrt only, so a run is the same on every libm.
+#
+# approx rounds a fit's coefficients and walks each by ulps (the default,
+# `search walk`); `search anneal` and `search cmaes` then move several at
+# once from where the walk stopped.  What they find on their sample is
+# kept only when the table's own measure agrees, and is labelled measured
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 1000
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 3000
+# an option out of range is refused with its value
+approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
+approx sin(x) in 0..0.5 degree 3 as f32 search greedy
+# error: beside the measured error, how much of it rounding can be, to
+# first order: the worst case, the high-probability bound (independent
+# rounding errors: Hoeffding, Higham and Mary) and the expected size
+h(x: f32 in 0.5..2) = fma(fma(fma(0.25f, x, -0.5f), x, 1.5f), x, 2.0f)
+p(x: real in 0.5..2) = ((0.25 * x - 0.5) * x + 1.5) * x + 2
+error h ~ p
+# twenty additions: from about sixteen operations on the probable bound
+# is below the worst case
+s20(x: f32 in 1..2) = x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x
+e20(x: real in 1..2) = 11*x + 10*x*x
+error s20 ~ e20
+# a cancellation: the weights c_i grow, and so do all three
+cn(x: f32 in 1..1.001) = (x * x - 1.0f) - (x - 1.0f)
+ce(x: real in 1..1.001) = (x * x - 1) - (x - 1)
+error cn ~ ce
+# what is not analysed says which operation stops it
+fl(x: f32 in 1..8) = floor(x) * 0.5f
+error fl ~ fl
+# quasi-Monte Carlo integration on Sobol points (Joe-Kuo direction
+# numbers), by name: over from..to ...
+integrate x^2 from 0 to 1 numerically qmc
+integrate x^2 from 0 to 1 numerically qmc points 65536 replicates 4 seed 7
+integrate x^2 from 0 to 1 numerically qmc noscramble points 1024
+# ... or over the box of every parameter's range
+g(x: real in 0..1, y: real in 0..2) = x * y + x * x
+integrate g numerically qmc
+# eight dimensions, unshifted: the first 32 points of the sequence (the
+# value is the one scipy's Sobol points give: 3.334960939)
+k8(a: real in 0..1, b: real in 0..1, c: real in 0..1, d: real in 0..1, e: real in 0..1, f: real in 0..1, g: real in 0..1, h: real in 0..1) = a*b + 2*c*d + 3*e*f + 4*g*h + a*h + b*g + c*f + d*e
+integrate k8 numerically qmc noscramble points 32
+# the fallback of a definite integral with no antiderivative here that
+# adaptive Gauss-Kronrod refuses: an integrable singularity (the value is
+# 4: the replicates agree on less, and the spike line says why not to
+# trust their spread) ...
+integrate 1/sqrt(|x|) from -1 to 1
+# ... and a pole, where the replicates do not agree and it says so
+integrate sign(x - 0.3) / (x - 0.3) from 0 to 1
+# refused with what is wrong
+integrate g numerically
+integrate x^2 from 0 to 1 numerically qmc points 1000
+u2(n: u8, x: real in 0..1) = n * x
+integrate u2 numerically qmc
+# English
+integrate x squared from 0 to 2 with quasi-monte carlo
+approximate sin on 0 to 0.5 with degree 3 as f32 using simulated annealing

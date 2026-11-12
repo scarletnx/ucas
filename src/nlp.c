@@ -75,6 +75,7 @@ static int clarify(const char *key, const char *what,
     const char *const *opt, int nopt, int dflt, const char *hint);
 static int interactive(void);
 static int dry, quiet;
+static int qmc_tail;	/* the sentence asked for a quasi-Monte Carlo integral */
 
 /* for commands that need a decision at run time (approx's endpoints) */
 int
@@ -1504,6 +1505,7 @@ static struct {
 	char acc[32];          /* approx: "error 1e-6" or "ulp 2" */
 	int ends;              /* approx: 1 keep endpoints, -1 free */
 	char method[16];       /* approx: cheb, econ, minimax */
+	char search[16];       /* approx: anneal, cmaes (numsearch.c) */
 	int crit;             /* critical points asked for explicitly */
 	int steps;            /* dsolve: output steps */
 	char ode[32];         /* dsolve: the unknown */
@@ -3234,6 +3236,19 @@ parse_option(void)
 		strcpy(Q.method, "minimax");
 		mat("?polynomial|polynomials|poly|polys|approximation|fit|exchange|"
 		    "algorithm|strategy|method");
+		return 1;
+	}
+	/* the coefficient search: "with simulated annealing", "using cma-es" */
+	if (mat("simulated annealing") || mat("annealing|anneal")) {
+		strcpy(Q.search, "anneal");
+		mat("?search|strategy|method");
+		return 1;
+	}
+	if (mat("cmaes|cma") || mat("covariance matrix adaptation")) {
+		mat("?-");
+		mat("?es");
+		strcpy(Q.search, "cmaes");
+		mat("?search|strategy|method");
 		return 1;
 	}
 	if (mat("taylor ?series|polynomial|poly|expansion")) {
@@ -6844,6 +6859,8 @@ emit_approx(void)
 		    Q.emit_c ? " c" : "");
 	if (Q.crit)
 		sb_printf(&sb, " keep crit");
+	if (Q.search[0])
+		sb_printf(&sb, " search %s", Q.search);
 	emit(sb.p);
 	free(sb.p);
 }
@@ -6894,6 +6911,8 @@ finish(void)
 			sb_printf(&sb, " wrt %s", Q.wrt);
 		if (lo)
 			sb_printf(&sb, " from %s to %s", lo, hi);
+		if (qmc_tail)	/* "... with quasi-Monte Carlo" (qmc.c) */
+			sb_printf(&sb, " numerically qmc");
 		emit(sb.p);
 		free(sb.p);
 		return;
@@ -7250,11 +7269,47 @@ spellfix(void)
 	}
 }
 
+/*
+ * "integrate F ... with quasi-Monte Carlo | by qmc | on Sobol points": the
+ * phrase is taken out of the sentence and the integral gets `numerically
+ * qmc`.  Only where the sentence asks for an integral.
+ */
+static const char *
+qmc_phrase(const char *sent)
+{
+	static char buf[2048];
+	static const char *const ph[] = {" numerically with quasi-monte carlo",
+		" numerically by quasi-monte carlo", " with quasi-monte carlo",
+		" by quasi-monte carlo", " using quasi-monte carlo",
+		" numerically with qmc", " numerically by qmc", " with qmc",
+		" by qmc", " using qmc", " with sobol points", " on sobol points",
+		" using sobol points", NULL};
+	size_t n = strlen(sent), i, k;
+	int j;
+
+	qmc_tail = 0;
+	if (n >= sizeof buf || !(strcasestr(sent, "integra") != NULL))
+		return sent;
+	for (j = 0; ph[j]; j++) {
+		k = strlen(ph[j]);
+		for (i = 0; i + k <= n; i++)
+			if (!strncasecmp(sent + i, ph[j], k) && (sent[i + k] == 0 ||
+			    !isalnum((unsigned char)sent[i + k]))) {
+				memcpy(buf, sent, i);
+				strcpy(buf + i, sent + i + k);
+				qmc_tail = 1;
+				return buf;
+			}
+	}
+	return sent;
+}
+
 /* translate one sentence; 0 when it failed (and said why) */
 static int
 translate(const char *sent)
 {
 	need_more = NULL;
+	sent = qmc_phrase(sent);
 	{
 		/* an equation or ODE to classify: props.c reads it as written */
 		const char *r = props_nlp_raw(sent);

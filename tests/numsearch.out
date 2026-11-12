@@ -1,0 +1,264 @@
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2
+  note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx sin(x) on [0, 0.785398126] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    1.58e-06     1.59e-06     1.51e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00097 (0.00717) 3/2 1.67e-06 (5.41e-05) 1/4 1.62e-05 (0.000463) 5/2 2.32e-09 (3.08e-07)
+    3/4 7.39e-09 (9.38e-07) 1/6 2.65e-07 (2.92e-05) 5/4 4.4e-12 (2.3e-09) 3/6 3.16e-11 (1.59e-08) 5/6 8.57e-15 (1.78e-11)
+  piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  25.1 ulp (25.6)          1.91e-06      1.34e-06      4    at x=0.252619326
+      x*P(x^2): fma(x*s, fma(0.00816328265, s, -0.166633904), x) where s = x*x
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
+  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
+  3 more: 'approx more [n]'
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
+  note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx sin(x) on [0, 0.785398126] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    1.58e-06     1.59e-06     1.51e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00097 (0.00717) 3/2 1.67e-06 (5.41e-05) 1/4 1.62e-05 (0.000463) 5/2 2.32e-09 (3.08e-07)
+    3/4 7.39e-09 (9.38e-07) 1/6 2.65e-07 (2.92e-05) 5/4 4.4e-12 (2.3e-09) 3/6 3.16e-11 (1.59e-08) 5/6 8.57e-15 (1.78e-11)
+  piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  24.2 ulp (25.6)          2.28e-06      1.43e-06      4    at x=0.252667248
+      x*P(x^2): fma(x*s, fma(0.00816330407, s, -0.166634634), x) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
+  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1985 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
+  3 more: 'approx more [n]'
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 1000
+  note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx sin(x) on [0, 0.785398126] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    1.58e-06     1.59e-06     1.51e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00097 (0.00717) 3/2 1.67e-06 (5.41e-05) 1/4 1.62e-05 (0.000463) 5/2 2.32e-09 (3.08e-07)
+    3/4 7.39e-09 (9.38e-07) 1/6 2.65e-07 (2.92e-05) 5/4 4.4e-12 (2.3e-09) 3/6 3.16e-11 (1.59e-08) 5/6 8.57e-15 (1.78e-11)
+  piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  24.2 ulp (25.6)          2.28e-06      1.43e-06      4    at x=0.252667248
+      x*P(x^2): fma(x*s, fma(0.00816329475, s, -0.166634634), x) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 998 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
+  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 1000 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
+  3 more: 'approx more [n]'
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes
+  note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx sin(x) on [0, 0.785398126] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    1.58e-06     1.59e-06     1.51e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00097 (0.00717) 3/2 1.67e-06 (5.41e-05) 1/4 1.62e-05 (0.000463) 5/2 2.32e-09 (3.08e-07)
+    3/4 7.39e-09 (9.38e-07) 1/6 2.65e-07 (2.92e-05) 5/4 4.4e-12 (2.3e-09) 3/6 3.16e-11 (1.59e-08) 5/6 8.57e-15 (1.78e-11)
+  piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
+      x*P(x^2): fma(x*s, fma(0.00816331618, s, -0.166634634), x) where s = x*x
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 1991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
+  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 1993 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
+  3 more: 'approx more [n]'
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 3000
+  note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx sin(x) on [0, 0.785398126] as f32, fma
+  checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    5    1.58e-06     1.59e-06     1.51e-06     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.00097 (0.00717) 3/2 1.67e-06 (5.41e-05) 1/4 1.62e-05 (0.000463) 5/2 2.32e-09 (3.08e-07)
+    3/4 7.39e-09 (9.38e-07) 1/6 2.65e-07 (2.92e-05) 5/4 4.4e-12 (2.3e-09) 3/6 3.16e-11 (1.59e-08) 5/6 8.57e-15 (1.78e-11)
+  piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
+      x*P(x^2): fma(x*s, fma(0.00816330872, s, -0.166634634), x) where s = x*x
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 2977 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
+  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+      x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 2977 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
+  3 more: 'approx more [n]'
+> approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
+numsearch.ucas:15:63: error: sigma: a first step from above 0 to 64 ulps, not 100
+    approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
+                                                                  ^
+> approx sin(x) in 0..0.5 degree 3 as f32 search greedy
+numsearch.ucas:16:48: error: search is walk (the ulp walk alone, the default), anneal or cmaes
+    approx sin(x) in 0..0.5 degree 3 as f32 search greedy
+                                                   ^
+> h(x: f32 in 0.5..2) = fma(fma(fma(0.25f, x, -0.5f), x, 1.5f), x, 2.0f)
+> p(x: real in 0.5..2) = ((0.25 * x - 0.5) * x + 1.5) * x + 2
+> error h ~ p
+error of h against p:
+  max abs error 4.42516e-07 at x=1.838
+  max rel error 9.5779e-08 (9.58e-06%) at x=1.838
+  mean rel error 2.45867e-08 over 1001 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 3 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  9.54e-08 (1.6 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4.66 u here (it gains from about 16 operations of similar weight on)
+    expected    4.01e-08 (0.673 u): the root mean square if they are independent and uniform in [-u, u]
+    for 3 operations of equal weight: gamma_3 = 3 u / (1 - 3 u) = 1.79e-07, gamma~_3(4) = 4 sqrt(3) u = 4.13e-07
+> s20(x: f32 in 1..2) = x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x+x*x+x
+> e20(x: real in 1..2) = 11*x + 10*x*x
+> error s20 ~ e20
+error of s20 against e20:
+  max abs error 1.64954e-05 at x=1.892
+  max rel error 3.23201e-07 (3.23e-05%) at x=1.533
+  mean rel error 9.30717e-08 over 1001 points
+  max 5 ulp
+  rounding, first order in u = 2^-24: 21 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  6.92e-07 (11.6 u): every error at its bound and aligned, u sum |c_i|
+    probable    6.74e-07 (11.3 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    9.72e-08 (1.63 u): the root mean square if they are independent and uniform in [-u, u]
+    for 21 operations of equal weight: gamma_21 = 21 u / (1 - 21 u) = 1.25e-06, gamma~_21(4) = 4 sqrt(21) u = 1.09e-06
+> cn(x: f32 in 1..1.001) = (x * x - 1.0f) - (x - 1.0f)
+> ce(x: real in 1..1.001) = (x * x - 1) - (x - 1)
+> error cn ~ ce
+error of cn against ce:
+  max abs error 1.14902e-07 at x=1.00024
+  max rel error 0.0463266 (4.63%) at x=1
+  mean rel error 0.000259587 over 1001 points
+  max 407494 ulp
+  rounding, first order in u = 2^-24: 4 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4095 inputs
+    worst case  0.5 (8.39e+06 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 3.36e+07 u here (it gains from about 16 operations of similar weight on)
+    expected    0.289 (4.84e+06 u): the root mean square if they are independent and uniform in [-u, u]
+    for 4 operations of equal weight: gamma_4 = 4 u / (1 - 4 u) = 2.38e-07, gamma~_4(4) = 4 sqrt(4) u = 4.77e-07
+> fl(x: f32 in 1..8) = floor(x) * 0.5f
+> error fl ~ fl
+error of fl against fl:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding: not analysed (floor is not analysed)
+> integrate x^2 from 0 to 1 numerically qmc
+∫ x^2 numerically, x from 0 to 1
+  quasi-Monte Carlo (an estimate, not a proof): 0.3333323652, standard error 2e-05
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 8 replicates' spread: +-4.8e-05 at 95% if their means are normal (t = 2.365), which nothing proves
+> integrate x^2 from 0 to 1 numerically qmc points 65536 replicates 4 seed 7
+∫ x^2 numerically, x from 0 to 1
+  quasi-Monte Carlo (an estimate, not a proof): 0.3333319503, standard error 1.9e-06
+    4 randomised replicates of 65536 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 7)
+    the error is estimated from the 4 replicates' spread: +-5.9e-06 at 95% if their means are normal (t = 3.182), which nothing proves
+> integrate x^2 from 0 to 1 numerically qmc noscramble points 1024
+∫ x^2 numerically, x from 0 to 1
+  quasi-Monte Carlo (an estimate, not a proof): 0.3328452111
+    1024 Sobol points in 1 dimension (Joe-Kuo direction numbers), not randomised: no error estimate (drop noscramble for one)
+> g(x: real in 0..1, y: real in 0..2) = x * y + x * x
+> integrate g numerically qmc
+∫ x*y + x*x numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 1.666833777, standard error 0.00012
+    8 randomised replicates of 4096 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 8 replicates' spread: +-0.00029 at 95% if their means are normal (t = 2.365), which nothing proves
+> k8(a: real in 0..1, b: real in 0..1, c: real in 0..1, d: real in 0..1, e: real in 0..1, f: real in 0..1, g: real in 0..1, h: real in 0..1) = a*b + 2*c*d + 3*e*f + 4*g*h + a*h + b*g + c*f + d*e
+> integrate k8 numerically qmc noscramble points 32
+∫ a*b + 2c*d + 3e*f + 4g*h + a*h + b*g + c*f + d*e numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 3.334960939
+    32 Sobol points in 8 dimensions (Joe-Kuo direction numbers), not randomised: no error estimate (drop noscramble for one)
+> integrate 1/sqrt(|x|) from -1 to 1
+∫ 1/sqrt(abs(x)) dx
+  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)
+  numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+  quasi-Monte Carlo (an estimate, not a proof): 3.979602288, standard error 0.0018
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 8 replicates' spread: +-0.0042 at 95% if their means are normal (t = 2.365), which nothing proves
+    a spike: the largest value met is 54 times the mean size, so a few points carry the integral; the replicates then agree on a value that is off (usually too small) and their spread understates the error
+> integrate sign(x - 0.3) / (x - 0.3) from 0 to 1
+∫ sign(x - 0.3)/(x - 0.3) dx
+  no antiderivative found (the rules here cover polynomials, powers and exp/sin/cos/tan/log of a linear argument, times a polynomial)
+  numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
+  quasi-Monte Carlo does not settle either: 8 replicates of 4096 Sobol points give 27 with a standard error of 4.9: no value (a pole, or an integral that does not exist)
+> integrate g numerically
+numsearch.ucas:55:24: error: integrate ... numerically qmc [points N] [replicates R] [seed K] [noscramble] (without it a definite integral is checked by adaptive Gauss-Kronrod)
+    integrate g numerically
+                           ^
+> integrate x^2 from 0 to 1 numerically qmc points 1000
+numsearch.ucas:56:54: error: qmc: points N, a power of two from 2 to 4194304
+    integrate x^2 from 0 to 1 numerically qmc points 1000
+                                                         ^
+> u2(n: u8, x: real in 0..1) = n * x
+> integrate u2 numerically qmc
+∫ real(n)*x numerically, over the box of its parameters' ranges
+numsearch.ucas:58:29: error: qmc: parameter n is u8; the box is over real (or float) parameters
+    integrate u2 numerically qmc
+                                ^
+> integrate x squared from 0 to 2 with quasi-monte carlo
+  ucas: it(x) = x^2
+  ucas: integrate it from 0 to 2 numerically qmc
+∫ x^2 numerically, x from 0 to 2
+  quasi-Monte Carlo (an estimate, not a proof): 2.666658921, standard error 0.00016
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    the error is estimated from the 8 replicates' spread: +-0.00039 at 95% if their means are normal (t = 2.365), which nothing proves
+> approximate sin on 0 to 0.5 with degree 3 as f32 using simulated annealing
+  ucas: it(x in 0..0.5) = sin(x)
+  ucas: approx it degree 3 as f32 search anneal
+  note: it has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
+approx it on [0, 0.5] as f32, fma
+  checked: it is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.5]
+  metric: relative error
+  checked: the target equals sin(x) at 33 points: range reductions and identities for sin apply
+  fits in real arithmetic (max relative error of x*P(x^2)):
+    deg  cheb interp  cheb econ    minimax
+    3    6.71e-05     6.72e-05     6.59e-05     
+  rational fits (num/den degree: minimax, Pade; max rel error):
+    1/2 0.000155 (0.0012) 3/2 1.08e-07 (3.48e-06) 1/4 1.03e-06 (3.15e-05) 3/4 1.93e-10 (2.46e-08)
+    1/6 6.69e-09 (8.07e-07) 3/6 3.34e-13 (1.69e-10)
+  piecewise (2 pieces split at 0.25, max rel error): 1: 0.00522 2: 0.0013 3: 2.07e-06
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130721 f32 in [0, 0.5]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   minimax   3     horner+fma  1.04e+03 ulp             6.98e-05      2.98e-05      3    at x=0.00195303548
+      x*P(x^2): x*fma(-0.164585575, s, 0.999937952) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1877 evaluations on 3000 sample points: 1105 -> 1041 ulp there; on the table's measure 1105 -> 1041 ulp: kept (measured on that sample, not certified)
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.04, probable no better (under 16 operations), expected 0.817; `error ap1 ~ F` says what each means
+  2   rational  3/2   horner+fma  3.76 ulp                 2.88e-07      1.1e-07       7    at x=0.0297703519
+      x*P(x^2)/Q(x^2): x*fma(-0.116177753, s, 1.00000012)/fma(0.0504966788, s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 3.285 -> 3.285 ulp there (nothing better found)
+  3   rational  3/4   horner+fma  2.4 ulp                  1.83e-07      6.33e-08      8    at x=0.251781493
+      x*P(x^2)/Q(x^2): x*fma(-0.105283923, s, 1.0)/fma(fma(0.00189761177, s, 0.0613827147), s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1989 evaluations on 3000 sample points: 2.08 -> 2.08 ulp there (nothing better found)
+  4   rational  3/6   horner+fma  2.4 ulp (2.4)            1.92e-07      7.11e-08      10   at x=0.252307922
+      x*P(x^2)/Q(x^2): x*fma(fma(0.0, s, -0.102367878), s, 1.0)/fma(fma(fma(5.98008955e-05, s, 0.00238312408), s, 0.0642987639), s, 1.0) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1989 evaluations on 3000 sample points: 1.76 -> 1.76 ulp there (nothing better found)
+  1 more: 'approx more [n]' (dominated or worse)

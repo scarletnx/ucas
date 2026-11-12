@@ -29,6 +29,8 @@
  * candidate.
  */
 #include "approx.h"
+#include "numsearch.h"
+#include "stoch.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -58,6 +60,7 @@ struct aopt {
 	int method_given;	/* `method` named: report that method's fit */
 	int compare;		/* ...but still search every other shape */
 	int ends_free;		/* do not ask about special endpoints */
+	struct nsopt search;	/* a stochastic search after the ulp walk */
 };
 
 struct cand {
@@ -75,6 +78,11 @@ struct cand {
 	int keepok;		/* -1 n/a */
 	int bad;		/* NaN/inf where the target is finite */
 	int front, meets, useless;
+	/* numsearch.c ran from this candidate's walked coefficients */
+	int skind, skept, snsx;
+	long sevals;
+	double sbefore, safter;	/* on the search's own sample */
+	double smw, sms;	/* the walk's and the search's, on the table's */
 };
 
 static struct {
@@ -105,7 +113,7 @@ static const char *const optwords[] = {
 	"in", "degree", "error", "ulp", "as", "relative", "absolute", "odd",
 	"even", "nosym", "keep", "weight", "at", "fma", "nofma", "norefine",
 	"list", "name", "points", "norational", "noreduce", "nosplit", "method",
-	"compare", "free",
+	"compare", "free", "search", "budget", "temp", "pop", "sigma", "seed",
 	NULL
 };
 
@@ -733,6 +741,53 @@ core_round(struct core *k, int refine)
 	k->obj = best;
 }
 
+/* numsearch.c's objective: the coefficients a whole number of ulps from
+ * the walk's, measured on the core's sample */
+struct sctx {
+	struct core *k;
+	double base[2 * AMAXC];
+	int map[2 * AMAXC], n;
+};
+
+static double
+search_obj(void *ctx, const int *off)
+{
+	struct sctx *s = ctx;
+	int i, j;
+
+	for (i = 0; i < s->n; i++) {
+		double v = s->base[s->map[i]];
+		int d = off[i] > 0 ? 1 : -1, c = off[i] > 0 ? off[i] : -off[i];
+		for (j = 0; j < c; j++)
+			v = nextfl(s->k->w, v, d);
+		s->k->ir.coef[s->map[i]] = v;
+	}
+	return core_obj(s->k);
+}
+
+/* the search the options name, from the core's coefficients; 1 when it
+ * found better ones on the sample (then they are the core's) */
+static int
+core_search(struct core *k, const struct nsopt *o, struct nsres *res)
+{
+	struct sctx s;
+	int best[2 * AMAXC], nn = k->fr.nn, nd = k->fr.nd, i;
+
+	memset(&s, 0, sizeof s);
+	s.k = k;
+	memcpy(s.base, k->ir.coef, sizeof s.base);
+	for (i = 0; i < nn + nd; i++) {
+		if (i == nn || (k->lead1 && i == 0))
+			continue;	/* den[0] = 1 and a pinned 1 stay */
+		s.map[s.n++] = i;
+	}
+	memset(best, 0, sizeof best);
+	ns_run(s.n, search_obj, &s, o, best, res);
+	search_obj(&s, best);
+	core_build_ir(k);
+	return res->after < res->before;
+}
+
 static void
 core_free(struct core *k)
 {
@@ -1167,6 +1222,54 @@ machine_forms(struct core *k, const char *kind, const char *shape, int deg,
 			ir_text(&k->ir, &body, &l);
 			compose(&full, sb_str(&body), &l);
 			c = submit(kind, shape, fname, deg, qdeg, sb_str(&full));
+		}
+		if (c && first && A.w && A.o.search.kind && k->nsx > 0) {
+			/*
+			 * the search starts where the walk stopped; what it finds
+			 * is kept only if the table's measure agrees it is better
+			 */
+			struct nsres sr;
+			double walked[2 * AMAXC], mw = cmetric(c), ms = -1;
+			int kept = 0;
+			memcpy(walked, coef, sizeof walked);
+			memcpy(k->ir.coef, coef, sizeof coef);
+			core_build_ir(k);
+			if (core_search(k, &A.o.search, &sr)) {
+				struct cand *c2;
+				double found[2 * AMAXC];
+				memcpy(found, k->ir.coef, sizeof found);
+				sb_clear(&body);
+				sb_clear(&full);
+				bl_free(&l);
+				ir_text(&k->ir, &body, &l);
+				compose(&full, sb_str(&body), &l);
+				c2 = submit(kind, shape, fname, deg, qdeg, sb_str(&full));
+				if (c2) {
+					ms = cmetric(c2);
+					if (ms < mw) {
+						struct cand t = A.cd[A.nc - 2];
+						A.cd[A.nc - 2] = A.cd[A.nc - 1];
+						A.cd[A.nc - 1] = t;
+						memcpy(coef, found, sizeof coef);
+						kept = 1;
+					}
+					free(A.cd[A.nc - 1].text);
+					A.nc--;
+				}
+			}
+			if (!kept) {
+				memcpy(k->ir.coef, walked, sizeof walked);
+				core_build_ir(k);
+			}
+			c = &A.cd[A.nc - 1];
+			c->skind = A.o.search.kind;
+			c->skept = kept;
+			c->snsx = k->nsx;
+			c->sevals = sr.evals;
+			c->sbefore = sr.before;
+			c->safter = sr.after;
+			c->smw = mw;
+			c->sms = ms;
 		}
 		if (c) {
 			c->rerr = rerr;
@@ -2547,6 +2650,24 @@ print_rows(int from, int to)
 		printf("\n");
 		snprintf(nm, sizeof nm, "%s%d", A.o.name, i + 1);
 		printf("      %s: %s\n", c->shape, c->text);
+		if (c->skind) {
+			const char *un = A.rel ? "ulp" : "abs";
+			printf("      search: %s over the coefficients' ulp offsets "
+			    "from the walk's, seed %llu, %ld evaluations on %d "
+			    "sample points: %.4g -> %.4g %s there", ns_name(c->skind),
+			    (unsigned long long)A.o.search.seed, c->sevals, c->snsx,
+			    c->sbefore, c->safter, un);
+			if (c->sms < 0)
+				printf(" (nothing better found)\n");
+			else if (c->skept)
+				printf("; on the table's measure %.4g -> %.4g %s: "
+				    "kept (measured%s, not certified)\n", c->smw, c->sms,
+				    un, A.exhaustive ? " on every float" : " on that "
+				    "sample");
+			else
+				printf("; on the table's measure %.4g against the "
+				    "walk's %.4g %s: not kept\n", c->sms, c->smw, un);
+		}
 		rep_obj(NULL);
 		rep_int("rank", i + 1);
 		rep_str("name", nm);
@@ -2568,10 +2689,31 @@ print_rows(int from, int to)
 		if (c->bad)
 			rep_int("bad_points", c->bad);
 		rep_bool("meets_target", c->meets);
+		if (c->skind) {
+			rep_obj("search");
+			rep_str("method", c->skind == NS_ANNEAL ? "anneal" : "cmaes");
+			rep_int("seed", (long long)A.o.search.seed);
+			rep_int("evaluations", c->sevals);
+			rep_int("sample_points", c->snsx);
+			rep_num("sample_before", c->sbefore);
+			rep_num("sample_after", c->safter);
+			rep_num("measure_walk", c->smw);
+			if (c->sms >= 0)
+				rep_num("measure_search", c->sms);
+			rep_bool("kept", c->skept);
+			rep_str("label", "measured, not certified");
+			rep_end();
+		}
 		rep_end();
 		f = define(nm, c->text);
 		if (f && A.o.emitc)
 			emit_c(f, nm);
+		if (f && A.w && i == 0 && from == 0) {
+			/* how much of the best one's error can be rounding */
+			struct rounderr re;
+			rounderr_measure(f, 0, &re);
+			rounderr_line(&re, "      ", nm);
+		}
 	}
 	if (to > A.nc)
 		to = A.nc;
@@ -2915,6 +3057,9 @@ cmd_approx(struct P *p)
 	o->sym = -1;
 	o->fma = -1;
 	o->refine = 1;
+	ns_defaults(&o->search);
+	o->search.kind = NS_NONE;
+	o->search.seed = stoch_seed();
 	o->list = 0;
 	o->npts = 1 << 17;
 	o->rational = 1;
@@ -3028,7 +3173,47 @@ cmd_approx(struct P *p)
 			o->compare = 1;
 		else if (cmdp_kw(p, "free"))
 			o->ends_free = 1;
-		else if (cmdp_kw(p, "norational"))
+		else if (cmdp_kw(p, "search")) {
+			if (cmdp_kw(p, "anneal") || cmdp_kw(p, "annealing"))
+				o->search.kind = NS_ANNEAL;
+			else if (cmdp_kw(p, "cmaes") || cmdp_kw(p, "cma"))
+				o->search.kind = NS_CMAES;
+			else if (cmdp_kw(p, "walk"))
+				o->search.kind = NS_NONE;
+			else
+				fail("search is walk (the ulp walk alone, the default), "
+				    "anneal or cmaes");
+		} else if (cmdp_kw(p, "budget")) {
+			double v = cmdp_number(p, optwords);
+			if (!(v >= 10) || v > 1e7)
+				fail("budget: evaluations from 10 to 10000000, not %g", v);
+			o->search.budget = (long)v;
+		} else if (cmdp_kw(p, "temp")) {
+			o->search.t0 = cmdp_number(p, optwords);
+			o->search.t1 = o->search.t0 / 100;
+			if (cmdp_tok(p, T_DOTDOT))
+				o->search.t1 = cmdp_number(p, optwords);
+			if (!(o->search.t0 > 0) || !(o->search.t1 > 0) ||
+			    o->search.t1 > o->search.t0)
+				fail("temp: T0..T1 with T0 >= T1 > 0 (fractions of the "
+				    "starting error), not %g..%g", o->search.t0,
+				    o->search.t1);
+		} else if (cmdp_kw(p, "pop")) {
+			double v = cmdp_number(p, optwords);
+			if (!(v >= 4) || v > 1000)
+				fail("pop: a population from 4 to 1000, not %g", v);
+			o->search.pop = (int)v;
+		} else if (cmdp_kw(p, "sigma")) {
+			o->search.sigma = cmdp_number(p, optwords);
+			if (!(o->search.sigma > 0) || o->search.sigma > 64)
+				fail("sigma: a first step from above 0 to 64 ulps, not "
+				    "%g", o->search.sigma);
+		} else if (cmdp_kw(p, "seed")) {
+			double v = cmdp_number(p, optwords);
+			if (!(v >= 0) || v > 9e15)
+				fail("seed: a whole number, not %g", v);
+			o->search.seed = (uint64_t)v;
+		} else if (cmdp_kw(p, "norational"))
 			o->rational = 0;
 		else if (cmdp_kw(p, "noreduce"))
 			o->reduce = 0;

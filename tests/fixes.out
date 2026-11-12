@@ -220,6 +220,7 @@ approx asinh(x) on [-1, 1] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   3     horner+fma  8.52e+04 ulp             0.00511       0.00448       3    at x=-5.16979994e-26
       x*P(x^2): x*fma(-0.118023947, s, 0.994921327) where s = x*x
+      rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.13, probable no better (under 16 operations), expected 0.82; `error ap1 ~ F` says what each means
   2   minimax   5     horner+fma  8.92e+03 ulp             0.000554      0.000469      4    at x=-1.03393632e-25
       x*P(x^2): x*fma(fma(0.0380428135, s, -0.15566887), s, 0.999468267) where s = x*x
   3   minimax   7     horner+fma  1.06e+03 ulp             6.44e-05      5.56e-05      5    at x=-2.70928534e-20
@@ -252,6 +253,7 @@ approx tanh(x) on [-3, 3] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   identity  9     horner+fma  1.32 ulp                 1.57e-07      7.87e-08      22   at x=-0.551567852  *
       P | 1 - 2/(exp(2|x|) + 1): copysign(a < 0.550000012 ? p : 1.0 - 2.0/(e + 1.0), x) where a = abs(x), s = a*a, p = fma(a*s, fma(fma(fma(0.0164374672, s, -0.052671846), s, 0.133207276), s, -0.333329469), a), e = exp(2.0*a)
+      rounding of ap1: not analysed (copysign is not analysed)
   2   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-1.86081905e-09
       x*P(x^2): x*fma(fma(fma(-0.00152674236, s, 0.0306036901), s, -0.224170253), s, 0.975032032) where s = x*x
   3   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-9.30409527e-10
@@ -291,6 +293,7 @@ approx acos(x) on [-0.899999976, 0.899999976] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   1     horner+fma  1.21e+06 ulp             0.0743        0.162         1    at x=-0.416127235
       P(x): fma(-1.26084006, x, 1.6192801)
+      rounding of ap1, first order, 1 operation, relative, in u = 2^-24: worst case 1, probable no better (under 16 operations), expected 0.577; `error ap1 ~ F` says what each means
   2   minimax   2     horner+fma  8.03e+05 ulp             0.0517        0.139         2    at x=-0.31864956
       P(x): fma(fma(-0.155473009, x, -1.1539849), x, 1.63885665)
   65 more: 'approx more [n]'
@@ -318,6 +321,7 @@ approx atanh(x) on [-0.5, 0.5] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   1     horner+fma  7.88e+05 ulp             0.0909        0.0258        1    at x=-3.38805424e-21
       x*P(x^2): x*1.04698932 where s = x*x
+      rounding of ap1, first order, 1 operation, relative, in u = 2^-24: worst case 1, probable no better (under 16 operations), expected 0.577; `error ap1 ~ F` says what each means
   2   minimax   3     horner+fma  3.37e+04 ulp             0.00201       0.0011        3    at x=-3.38805424e-21
       x*P(x^2): x*fma(0.393656552, s, 0.997990668) where s = x*x
   43 more: 'approx more [n]'
@@ -347,6 +351,7 @@ approx cosh(x) on [-3, 3] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   identity  -     -           0.994 ulp                1.11e-07      9.39e-07      10   at x=-2.64367127  *
       (e + 1/e)/2, e = exp(|x|): 0.5*(e + 1.0/e) where a = abs(x), e = exp(a)
+      rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 3, probable no better (under 16 operations), expected 0.998; `error ap1 ~ F` says what each means
   2   minimax   4     horner+fma  1.66e+05 ulp             0.0113        0.113         3    at x=1.22375834
       P(x^2): fma(fma(0.0598213971, s, 0.455278039), s, 1.01126039) where s = x*x
   46 more: 'approx more [n]'

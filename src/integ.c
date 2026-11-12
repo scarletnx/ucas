@@ -8,6 +8,7 @@
  * pending intervals' nodes go through the plan together.
  */
 #include "calc.h"
+#include "numsearch.h"
 #include "calc2.h"   /* c2_antideriv: atan, asin, log|P|, P log(u) */
 #include "alg.h"     /* alg_antideriv: rational functions and more methods */
 
@@ -655,7 +656,9 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 		printf("  (the excluded points are removable singularities: the "
 		    "definite integral does not depend on them)\n");
 	if (f->np != 1) {
-		printf("  a definite integral needs the other parameters fixed\n");
+		printf("  a definite integral needs the other parameters fixed "
+		    "(`integrate F numerically qmc` integrates over the box of "
+		    "every parameter's range)\n");
 		return;
 	}
 	rep_obj("definite");
@@ -716,8 +719,17 @@ cmd_integrate(struct func *f, int slot, nid an, nid bn)
 				    fabs(v - sv) <= 10 * err + 1e-12 * fabs(sv) ? "" :
 				    "  (MORE than the error estimate: check the "
 				    "antiderivative's continuity)");
-		} else
+		} else {
 			printf("  numeric: the integrand is undefined or infinite "
 			    "inside the interval (singular or divergent)\n");
+			if (!symok && isfinite(a) && isfinite(b)) {
+				/* nothing else gave a number: quasi-Monte Carlo,
+				 * which steps over the points it cannot evaluate */
+				struct qmcopt qo;
+				qmc_defaults(&qo);
+				qo.fallback = 1;
+				qmc_integrate(f, ibody, slot, a, b, &qo, "  ");
+			}
+		}
 	}
 }
