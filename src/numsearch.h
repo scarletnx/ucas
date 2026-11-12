@@ -79,10 +79,11 @@ struct qmcopt {
 	uint64_t seed;
 	int fallback;		/* not asked for by name: one line when the
 				 * replicates do not agree */
+	int owen;		/* nested uniform scrambling, not a shift */
 };
 void qmc_defaults(struct qmcopt *o);
 /* the options after `numerically`: qmc [points N] [replicates R] [seed K]
- * [noscramble]; 0 when the next word is none of them */
+ * [noscramble] [owen]; 0 when the next word is none of them */
 int qmc_options(struct P *p, struct qmcopt *o);
 /* the integral of e over slot in [a, b] when slot >= 0, else over the
  * box of f's parameters' ranges; prints the estimate and its error */

@@ -1,0 +1,13 @@
+# integrate ... numerically qmc: Owen's nested uniform scrambling (owen)
+# beside the digital shift
+#
+# a smooth integrand: the shift's standard error falls about like 1/n,
+# the scrambling's like n^-1.5 (sixteen times the points: 17 and 56
+# times smaller); the value is sum 1/((k+1)^2 k!) = 1.3179021514...
+g(x: real in 0..1, y: real in 0..1) = exp(x * y)
+integrate g numerically qmc points 1024 replicates 16
+integrate g numerically qmc points 1024 replicates 16 owen
+integrate g numerically qmc points 16384 replicates 16
+integrate g numerically qmc points 16384 replicates 16 owen
+# the two do not go together
+integrate x^2 from 0 to 1 numerically qmc owen noscramble
