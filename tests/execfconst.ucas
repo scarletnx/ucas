@@ -1,0 +1,16 @@
+# animate exec: a float constant spirv-dis writes with the exponent one
+# past the largest is an infinity (0x1p+128) or a NaN with its fraction
+# (0x1.8p+128 the quiet one, 0x1.000002p+128 a payload of 1), signed
+animate exec seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 4) in;
+layout(set = 0, binding = 0) buffer O { uint o[4]; } outb;
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    float v = i == 0u ? uintBitsToFloat(0x7fc00000u) :
+        i == 1u ? uintBitsToFloat(0xff800000u) :
+        i == 2u ? uintBitsToFloat(0x7f800001u) : uintBitsToFloat(0xffc00003u);
+    outb.o[i] = floatBitsToUint(v);
+}
+```
