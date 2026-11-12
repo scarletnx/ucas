@@ -40,6 +40,8 @@
  *
  * The suggestions are GLSL text for the user; the module is not changed.
  */
+#include "texalu.h"
+
 #include <ctype.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -5428,6 +5430,8 @@ add_leaf(struct rec *R, int x)
 	return 1;
 }
 
+static int leaf_tables;	/* marking a candidate of search_tex */
+
 static int
 leaves_of(struct rec *R, int x)
 {
@@ -5444,6 +5448,12 @@ leaves_of(struct rec *R, int x)
 			return 0;
 		return add_leaf(R, x);
 	case X_IDX:
+		/* for search_tex a constant table's read is not a leaf: its
+		 * index's leaves are */
+		if (leaf_tables && G.x[g->a].k == X_VAR &&
+		    G.y[G.x[g->a].sym].tab)
+			return leaves_of(R, g->b);
+		return add_leaf(R, x);
 	case X_MEM:
 		return add_leaf(R, x);
 	case X_CALL:
@@ -5518,6 +5528,57 @@ dot_candidate(int x)
 	    has_prod(x, 0);
 }
 
+/* a read of a constant table: for search_tex */
+static int
+table_read(int x)
+{
+	const struct gx *g = &G.x[XR(x)];
+
+	return g->k == X_IDX && G.x[g->a].k == X_VAR && G.y[G.x[g->a].sym].tab &&
+	    G.y[G.x[g->a].sym].arr <= 256;
+}
+
+static int
+table_reads(int x, int depth)
+{
+	const struct gx *g = &G.x[XR(x)];
+
+	if (depth > 12)
+		return 0;
+	if (table_read(x))
+		return 1;
+	if (g->k != X_BIN || (g->op != OP_ADD && g->op != OP_SUB &&
+	    g->op != OP_MUL && g->op != OP_SHL))
+		return 0;
+	return table_reads(g->a, depth + 1) + table_reads(g->b, depth + 1);
+}
+
+/*
+ * An integer table read, a select of one against a constant, or a sum
+ * with two or more table reads in it: what the texture unit could
+ * compute (texalu.c).  Only under a model that prices such reads: the
+ * values of its leaves are recorded for nothing otherwise.
+ */
+static int
+tex_candidate(int x)
+{
+	const struct gx *g = &G.x[x];
+	const struct model *m = model_active();
+
+	if (g->ty != TU && g->ty != TI)
+		return 0;
+	if (!m->par[MP_SUBTEXEL] || !(cclass_available(m, C_TEX_NEAREST) ||
+	    (cclass_available(m, C_TEX_SAMPLE) && m->par[MP_TEX_WITHIN])))
+		return 0;
+	if (g->k == X_IDX)
+		return table_read(x);
+	if (g->k == X_SEL)
+		return (table_read(g->b) && G.x[XR(g->c)].k == X_NUM) ||
+		    (table_read(g->c) && G.x[XR(g->b)].k == X_NUM);
+	return g->k == X_BIN && (g->op == OP_ADD || g->op == OP_SUB) &&
+	    table_reads(x, 0) >= 2;
+}
+
 static void
 mark_all(void)
 {
@@ -5535,6 +5596,11 @@ mark_all(void)
 			else if (x_candidate(x) || match_lerp(x, &w, &a, &b, &c, &s) ||
 			    dot_candidate(x))
 				mark(x, 0);
+			else if (tex_candidate(x)) {
+				leaf_tables = 1;
+				mark(x, 0);
+				leaf_tables = 0;
+			}
 		}
 	}
 	free(xs);
@@ -6234,6 +6300,179 @@ search_dot(int f)
 			free(d.p);
 		}
 		dotres_free(&dr);
+	}
+	free(xs);
+	free(covered);
+}
+
+/*
+ * Table reads through the texture unit (texalu.c): a read whose index is
+ * an address mode of a subterm, a select against a border, a sum of
+ * neighbouring entries as one filtered read.  The expression is read
+ * into ucas over its leaves, as for the dot products, and searched under
+ * the active model; what is proved and cheaper there is proposed with
+ * what the pipeline needs for it, since GLSL alone cannot say it.
+ */
+static void
+search_tex(int f)
+{
+	int *xs, nx = 0, i, cap = G.nx + 64;
+	uint8_t *covered = xcalloc((size_t)G.nx + 1, 1);
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	reach_s(G.f[f].body, xs, &nx, NULL, NULL, cap);
+	for (i = 0; i < nx; i++) {
+		int x = xs[i], nl, w, b, j, r, *map, ok;
+		const struct rec *R;
+		int64_t blo[MAXP], bhi[MAXP];
+		char names[MAXP + 8][40];
+		int tys[MAXP + 8];
+		struct ut U;
+		struct uframe F0 = {0, -1, -1, 0};
+		struct sbuf ta = {0}, wh = {0};
+		struct av *rows;
+		struct func fn;
+		struct texres tr;
+		nid na;
+		if (x >= xfn_n || x > G.nx || recn[x] < 0 || covered[x] ||
+		    !tex_candidate(x))
+			continue;
+		R = &RC[recn[x]];
+		nl = R->nl;
+		w = R->nl + R->nex;
+		if (R->nbox == 0 || nl == 0 || nl > MAXP)
+			continue;
+		rows = xmalloc((size_t)R->nbox * (size_t)nl * sizeof *rows);
+		ok = 1;
+		for (b = 0; b < R->nbox; b++)
+			for (j = 0; j < nl; j++) {
+				rows[b * nl + j] = R->box[b * w + j];
+				if (rows[b * nl + j].bot)
+					ok = 0;
+			}
+		for (j = 0; j < nl && ok; j++) {
+			blo[j] = rows[j].lo;
+			bhi[j] = rows[j].hi;
+			for (r = 1; r < R->nbox; r++) {
+				if (rows[r * nl + j].lo < blo[j])
+					blo[j] = rows[r * nl + j].lo;
+				if (rows[r * nl + j].hi > bhi[j])
+					bhi[j] = rows[r * nl + j].hi;
+			}
+			tys[j] = G.x[R->lf[j]].ty;
+			xtext(names[j], sizeof names[j], R->lf[j]);
+			{
+				const char *q = names[j];
+				int idn = isalpha((unsigned char)*q) || *q == '_';
+				for (; *q && idn; q++)
+					idn = isalnum((unsigned char)*q) || *q == '_';
+				if (!idn)
+					snprintf(names[j], sizeof names[j], "l%d", j);
+			}
+		}
+		if (!ok) {
+			free(rows);
+			continue;
+		}
+		map = xmalloc(((size_t)G.nx + 1) * sizeof *map);
+		for (j = 0; j <= G.nx; j++)
+			map[j] = -1;
+		bind_leaves(R, x, x, map);
+		memset(&U, 0, sizeof U);
+		U.ok = 1;
+		U.leaf = map;
+		U.inst = 1;
+		u_x(&U, &ta, x, &F0);
+		for (j = 0; j < nl && ta.p; j++) {
+			char lj[16];
+			struct sbuf nb = {0};
+			const char *q = ta.p, *m;
+			size_t ll;
+			snprintf(lj, sizeof lj, "l%d", j);
+			ll = strlen(lj);
+			while ((m = strstr(q, lj)) != NULL) {
+				int word = (m == ta.p || !(isalnum((unsigned char)m[-1]) ||
+				    m[-1] == '_')) && !(isalnum((unsigned char)m[ll]) ||
+				    m[ll] == '_');
+				sb_printf(&nb, "%.*s%s", (int)(m - q), q, word ? names[j] :
+				    lj);
+				q = m + ll;
+			}
+			sb_puts(&nb, q);
+			free(ta.p);
+			ta = nb;
+		}
+		if (R->nbox > 1)
+			where_text(&wh, names, tys, nl, rows, R->nbox, blo, bhi);
+		ok = U.ok && u_parse(&fn, nl, names, tys, blo, bhi, ta.p,
+		    R->nbox > 1 ? wh.p : NULL, &na) == 0;
+		free(ta.p);
+		free(wh.p);
+		free(map);
+		free(rows);
+		if (!ok)
+			continue;
+		if (tex_search(&fn, 0, &tr) == TEXR_PROVED) {
+			struct prop *p = prop_new(f, P_EXPR, G.x[x].line);
+			char t0[300];
+			struct sbuf d = {0}, rl = {0};
+			int sub[512], ns2 = 0, q;
+			const char *ds;
+			reach_x(x, sub, &ns2, 512);
+			for (q = 0; q < ns2; q++)
+				if (sub[q] <= G.nx)
+					covered[sub[q]] = 1;
+			xtext(t0, sizeof t0, x);
+			snprintf(p->what, sizeof p->what, "table reads through the "
+			    "texture unit (a proposal: the pipeline changes)");
+			sb_printf(&p->text, "%s\n  ->  %s", t0, shared_str(tr.body,
+			    280));
+			{
+				int any = 0;
+				for (j = 0; j < nl; j++) {
+					char lt[200], ln[16];
+					snprintf(ln, sizeof ln, "l%d", j);
+					if (strcmp(names[j], ln))
+						continue;
+					xtext(lt, sizeof lt, R->lf[j]);
+					sb_printf(&p->text, "%s%s = %s", any ? ", " :
+					    "\n  where ", ln, lt);
+					any = 1;
+				}
+			}
+			sb_puts(&p->text, "\n  the pipeline needs:");
+			for (ds = sb_str(&tr.pipeline); *ds;) {
+				const char *e = strchr(ds, '\n');
+				if (!e)
+					e = ds + strlen(ds);
+				sb_printf(&p->text, "\n    %.*s", (int)(e - ds), ds);
+				ds = *e ? e + 1 : e;
+			}
+			snprintf(p->proof, sizeof p->proof, "%s, over the values its "
+			    "leaves take where it runs", tr.exact ? "equal, by the "
+			    "derivation it relies on (texalu)" : "within a derived "
+			    "error bound (texalu)");
+			p->c0 = tr.before;
+			p->c1 = tr.after;
+			rec_domain(&d, x);
+			snprintf(p->domain, sizeof p->domain, "%s", d.p ? d.p : "");
+			sb_printf(&rl, "%s where line %d runs; ", d.p ? d.p : "",
+			    G.x[x].line);
+			for (ds = sb_str(&tr.holds); *ds; ds++)
+				if (*ds == '\n')
+					sb_puts(&rl, "; ");
+				else
+					sb_putc(&rl, *ds);
+			sb_puts(&rl, "; ");
+			for (ds = sb_str(&tr.proof); *ds; ds++)
+				if (*ds == '\n')
+					sb_puts(&rl, "; ");
+				else
+					sb_putc(&rl, *ds);
+			snprintf(p->relies, sizeof p->relies, "%s", sb_str(&rl));
+			free(rl.p);
+			free(d.p);
+		}
+		texres_free(&tr);
 	}
 	free(xs);
 	free(covered);
@@ -7179,6 +7418,7 @@ glslfn_pass(const char *src, double budget, int only)
 		else
 			search_expr(f);
 		search_dot(f);
+		search_tex(f);
 	}
 	search_invariant();
 	report(rounds, secs);
