@@ -17,6 +17,10 @@
  *   - floor(x), ceil(x) for |x| <= 2^22 by adding and subtracting
  *     1.5*2^23 (round to nearest even) and one compare; of an
  *     integer-valued x, x itself;
+ *   - roundeven(x) for |x| <= 2^22 is that add and subtraction alone,
+ *     iN(roundeven(x)) for -2^22 <= x < 2^22 - 1/2 the add read as bits,
+ *     and roundeven(x * 2^-k) * 2^k, x to the nearest multiple of 2^k,
+ *     the add and subtraction of 1.5*2^(23+k);
  *   - f32(iN(x)) of an integer-valued x is x; iN(f32(i)) below 2^24 is
  *     i;
  *   - f32(1 << k) is asfloat((k + 127) << 23): the exponent field;
@@ -160,12 +164,14 @@ fval_of(struct ivc *c, nid n, struct fval *v, int depth)
 		v->integral = 1;
 		return;
 	}
-	case O_FLOOR: case O_CEIL:
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
 		fval_of(c, N.a[n], &A, depth + 1);
 		if (!A.ok)
 			return;
-		v->lo = op == O_FLOOR ? floor(A.lo) : ceil(A.lo);
-		v->hi = op == O_FLOOR ? floor(A.hi) : ceil(A.hi);
+		v->lo = op == O_FLOOR ? floor(A.lo) : op == O_CEIL ? ceil(A.lo) :
+		    nearbyint(A.lo);
+		v->hi = op == O_FLOOR ? floor(A.hi) : op == O_CEIL ? ceil(A.hi) :
+		    nearbyint(A.hi);
 		v->ok = v->integral = 1;
 		return;
 	case O_NEG:
@@ -450,6 +456,35 @@ rw_f2i(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 			sb_clear(&pf);
 		}
 	}
+	/* iN(roundeven(y)): the add rounds y itself */
+	if (N.op[x] == O_ROUNDEVEN && is_f32(N.a[x])) {
+		nid y = N.a[x];
+		struct fval Y;
+		fval_of(c, y, &Y, 0);
+		if (Y.ok && Y.lo >= -P22 && Y.hi < P22 - 0.5 && fits_ty(t,
+		    (int64_t)nearbyint(Y.lo), (int64_t)nearbyint(Y.hi))) {
+			struct nm YS;
+			const char *ys = nm(&YS, y);
+			to = magic_f2i(t, y);
+			snprintf(what, sizeof what, "%s by the bits of 1.5*2^23, the "
+			    "add rounding %s", sstr(n), sstr(y));
+			snprintf(cond, sizeof cond, "%s in [%.9g, %.9g], inside "
+			    "[-2^22, 2^22 - 1/2) and %s", sstr(y), Y.lo, Y.hi,
+			    ty_str(t));
+			sb_printf(&pf, "%s + 1.5*2^23 lies in [2^23, 2^24), where the "
+			    "f32 are the integers: the add rounds %s to the nearest "
+			    "integer, a tie to the even one, giving roundeven(%s) + "
+			    "1.5*2^23 exactly (below 2^22 - 1/2, roundeven(%s) stays "
+			    "below 2^22 and the sum below 2^24)\nits bits are 0x4B000000 "
+			    "+ (roundeven(%s) + 2^22) = 0x4B400000 + roundeven(%s) "
+			    "(exponent field 150): subtracting 0x4B400000 leaves "
+			    "roundeven(%s)\n%s of an integer is that integer", ys, ys, ys,
+			    ys, ys, ys, ys, ty_str(t));
+			irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf),
+			    1);
+			sb_clear(&pf);
+		}
+	}
 	fval_of(c, x, &X, 0);
 	if (!X.ok || !X.integral || X.lo < -P22 || X.hi >= P22 ||
 	    !fits_ty(t, (int64_t)X.lo, (int64_t)X.hi)) {
@@ -465,6 +500,131 @@ rw_f2i(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 	sb_printf(&pf, "\n%s(%s) truncates toward zero: of an integer it is "
 	    "that integer", ty_str(t), sstr(x));
 	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* roundeven(x) of an f32 x: the magic add and subtraction */
+static void
+rw_roundeven(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid x = N.a[n], to;
+	struct fval X;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+	struct nm XS;
+	const char *xs;
+
+	if (!is_f32(n) || !is_f32(x))
+		return;
+	fval_of(c, x, &X, 0);
+	if (!X.ok)
+		return;
+	if (X.integral) {
+		snprintf(what, sizeof what, "%s as %s (it is an integer already)",
+		    sstr(n), sstr(x));
+		snprintf(cond, sizeof cond, "%s is an integer in [%.9g, %.9g]",
+		    sstr(x), X.lo, X.hi);
+		sb_puts(&pf, "roundeven of an integer is that integer");
+		irw_add(out, cnt, cap, root, n, x, what, cond, sb_str(&pf), 1);
+		free(pf.p);
+		return;
+	}
+	if (X.lo < -P22 || X.hi > P22)
+		return;
+	to = mk_bin(O_SUB, mk_bin(O_ADD, x, kf(MAGIC)), kf(MAGIC));
+	snprintf(what, sizeof what, "%s by adding and subtracting 1.5*2^23",
+	    sstr(n));
+	snprintf(cond, sizeof cond, "%s in [%.9g, %.9g], inside [-2^22, 2^22]; "
+	    "where the result is zero its sign may differ (allowed by Vulkan's "
+	    "default float controls, without SignedZeroInfNanPreserve)",
+	    sstr(x), X.lo, X.hi);
+	xs = nm(&XS, x);
+	sb_printf(&pf, "%s + 1.5*2^23 lies in [2^23, 2^24], where the f32 are "
+	    "the integers: the add rounds %s to the nearest integer, a tie to "
+	    "the even one, giving roundeven(%s) + 1.5*2^23 exactly\nsubtracting "
+	    "1.5*2^23 leaves roundeven(%s), an integer up to 2^22 in magnitude, "
+	    "an f32: no rounding", xs, xs, xs, xs);
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* k when e is the f32 constant 2^k, |k| <= 20; else 0 with *ok 0 */
+static int
+pow2_const(nid e, int *ok)
+{
+	double v, m;
+	int k;
+
+	*ok = 0;
+	if (!is_const(e) || !is_f32(e))
+		return 0;
+	v = N.kr[e];
+	if (!(v > 0))
+		return 0;
+	m = frexp(v, &k);
+	if (m != 0.5 || k - 1 < -20 || k - 1 > 20)
+		return 0;
+	*ok = 1;
+	return k - 1;
+}
+
+/* roundeven(x * 2^-k) * 2^k: x to the nearest multiple of 2^k */
+static void
+rw_roundmul(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid r, z, x, to;
+	int i, j, k, kk, ok, ok2;
+	struct fval X;
+	double C, lim;
+	char what[200], cond[300], cs[48];
+	struct sbuf pf = {0};
+	struct nm XS;
+	const char *xs;
+
+	if (N.op[n] != O_MUL || !is_f32(n))
+		return;
+	for (i = 0; i < 2; i++) {
+		r = i ? N.b[n] : N.a[n];
+		k = pow2_const(i ? N.a[n] : N.b[n], &ok);
+		if (!ok || N.op[r] != O_ROUNDEVEN || N.op[N.a[r]] != O_MUL)
+			continue;
+		z = N.a[r];
+		for (j = 0; j < 2; j++) {
+			x = j ? N.b[z] : N.a[z];
+			kk = pow2_const(j ? N.a[z] : N.b[z], &ok2);
+			if (!ok2 || kk != -k || !is_f32(x))
+				continue;
+			fval_of(c, x, &X, 0);
+			lim = ldexp(1, 22 + k);
+			if (!X.ok || X.lo < -lim || X.hi > lim)
+				continue;
+			C = 1.5 * ldexp(1, 23 + k);
+			to = mk_bin(O_SUB, mk_bin(O_ADD, x, mk_cast(TY_F32,
+			    mk_const_r(C))), mk_cast(TY_F32, mk_const_r(C)));
+			snprintf(cs, sizeof cs, "1.5*2^%d", 23 + k);
+			snprintf(what, sizeof what, "%s, %s to the nearest multiple of "
+			    "2^%d, by adding and subtracting %s", sstr(n), sstr(x), k,
+			    cs);
+			snprintf(cond, sizeof cond, "%s in [%.9g, %.9g], inside "
+			    "[-2^%d, 2^%d]; where the result is zero its sign may differ",
+			    sstr(x), X.lo, X.hi, 22 + k, 22 + k);
+			xs = nm(&XS, x);
+			sb_printf(&pf, "%s * 2^%d rounds only below 2^-126 in "
+			    "magnitude, far under 1/2, where roundeven gives 0 either "
+			    "way, and the integer it gives times 2^%d is exact: "
+			    "roundeven(%s * 2^%d) * 2^%d is %s rounded to the nearest "
+			    "multiple of 2^%d, a tie to the even multiple\n"
+			    "%s + %s lies in [2^%d, 2^%d], where the f32 are the multiples "
+			    "of 2^%d: the add rounds %s the same way, exactly\nsubtracting "
+			    "%s leaves that multiple, at most 2^%d in magnitude and a "
+			    "multiple of 2^%d, an f32: no rounding", xs, -k, k, xs, -k, k,
+			    xs, k, xs, cs, 23 + k, 24 + k, k, xs, cs, 22 + k, k);
+			irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+			sb_clear(&pf);
+		}
+	}
 	free(pf.p);
 }
 
@@ -878,7 +1038,11 @@ ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
 	case O_FLOOR: case O_CEIL:
 		rw_floor(c, root, n, out, cnt, cap);
 		break;
+	case O_ROUNDEVEN:
+		rw_roundeven(c, root, n, out, cnt, cap);
+		break;
 	case O_MUL:
+		rw_roundmul(c, root, n, out, cnt, cap);
 		rw_ldexp(c, root, n, out, cnt, cap);
 		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
 		break;

@@ -125,7 +125,7 @@ collect(nid e)
 		return -1;
 	case O_CAST: case O_NEG: case O_ABS: case O_SQRT: case O_EXP:
 	case O_LOG: case O_SIN: case O_COS: case O_TAN: case O_FLOOR:
-	case O_CEIL:
+	case O_CEIL: case O_ROUNDEVEN:
 		a = collect(N.a[e]);
 		break;
 	case O_ADD: case O_SUB: case O_MUL: case O_DIV: case O_POW:
@@ -163,7 +163,7 @@ collect(nid e)
 	x->b = b;
 	x->c = c;
 	switch (N.op[e]) {
-	case O_FLOOR: case O_CEIL: x->choice = CH_STEP; break;
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN: x->choice = CH_STEP; break;
 	case O_CAST:
 		if (!TY_FP(t) && TY_FP(N.ty[N.a[e]]))
 			x->choice = CH_CONV;
@@ -587,6 +587,7 @@ sweep(const struct func *g, const int64_t *in_i, const double *in_r,
 		case O_TAN: x->v = tanl(a); break;
 		case O_FLOOR: x->v = floorl(a); break;
 		case O_CEIL: x->v = ceill(a); break;
+		case O_ROUNDEVEN: x->v = nearbyintl(a); break;
 		case O_ADD: x->v = a + b; break;
 		case O_SUB: x->v = a - b; break;
 		case O_MUL: x->v = a * b; break;
@@ -627,7 +628,7 @@ node_err(int r)
 }
 
 static const char *const choice_name[] = {
-	"", "floor or ceil", "conversion to an integer", "copysign",
+	"", "floor, ceil or roundeven", "conversion to an integer", "copysign",
 	"min or max", "select (?:)",
 };
 
@@ -645,15 +646,16 @@ choice_extra(int d, char *why, size_t wn)
 
 	switch (x->choice) {
 	case CH_STEP: case CH_CONV:
-		/* a jump of 1 at each integer (a conversion: not at 0) */
-		k = nearbyintl(va);
+		/* a jump of 1 at each integer (a conversion: not at 0;
+		 * roundeven: at each half integer) */
+		k = N.op[x->id] == O_ROUNDEVEN ? floorl(va) + 0.5L : nearbyintl(va);
 		if (x->choice == CH_CONV && k == 0)
 			return 0;
 		e = node_err(x->a);
 		if (e <= 0 || fabsl(va - k) > e)
 			return 0;
 		snprintf(why, wn, "the operand of %s, %.6Lg, is within its error "
-		    "%.3Lg of %.0Lf", x->choice == CH_STEP ?
+		    "%.3Lg of %.6Lg", x->choice == CH_STEP ?
 		    opinfo[N.op[x->id]].name : "a conversion to an integer", va, e,
 		    k);
 		return w;

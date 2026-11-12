@@ -470,6 +470,7 @@ scalar_real(int op, double a, double b, uint8_t *fl)
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
+	case O_ROUNDEVEN: r = nearbyint(a); break;
 	case O_MIN: r = a < b ? a : b; break;
 	case O_MAX: r = a > b ? a : b; break;
 	case O_EQ: return a == b;
@@ -1054,6 +1055,7 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 	case O_COPYSIGN: r = copysign(a, b); break;
 	case O_FLOOR: r = floor(a); break;
 	case O_CEIL: r = ceil(a); break;
+	case O_ROUNDEVEN: r = nearbyint(a); break;
 	case O_MIN: r = fmin(a, b); break;
 	case O_MAX: r = fmax(a, b); break;
 	case O_EQ: return a == b;

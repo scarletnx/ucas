@@ -164,6 +164,9 @@ enum {
 	 */
 	O_FETCH_REPEAT, O_FETCH_MIRROR, O_FETCH_CLAMP, O_FETCH_MCLAMP,
 	O_FETCH_BORDER, O_TEX_LINEAR, O_TEX_BILINEAR,
+	/* to the nearest integer, a tie to the even one (C23 roundeven,
+	 * GLSL roundEven, SPIR-V RoundEven) */
+	O_ROUNDEVEN,
 	O_NOPS
 };
 #define O_TEX_FIRST O_FETCH_REPEAT

@@ -293,6 +293,7 @@ static const struct bfn bfns[] = {
 	{"exp", O_EXP, 1}, {"log", O_LOG, 1}, {"ln", O_LOG, 1},
 	{"sqrt", O_SQRT, 1}, {"isqrt", O_ISQRT, 1}, {"abs", O_ABS, 1},
 	{"floor", O_FLOOR, 1}, {"ceil", O_CEIL, 1}, {"sign", O_SIGN, 1},
+	{"roundeven", O_ROUNDEVEN, 1},
 	{"sgn", O_SIGN, 1}, {"clz", O_CLZ, 1}, {"ctz", O_CTZ, 1},
 	{"popcount", O_POPCNT, 1}, {"popcnt", O_POPCNT, 1},
 	{"min", O_MIN, 2}, {"max", O_MAX, 2},
