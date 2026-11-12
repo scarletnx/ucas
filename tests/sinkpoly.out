@@ -1,0 +1,159 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Glow: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model cheaptrans : gt1030 { ftrans: 2, fsqrt: 2 }
+> spvsimplify nofile assume c 0 1 float sink unorm8
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  the vec3 %43: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 18 -> 12 (-33.3%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00224 of it
+  rewrites, the largest savings first:
+    %42 = OpExtInst %v3float %2 Exp2 %41
+      -> %ucas_f1t = OpFSub %v3float %41 %ucas_k3_3e800000_3e800000_3e800000
+         %42 = OpExtInst %v3float %2 Fma %ucas_k3_3f5413cd_3f5413cd_3f5413cd %ucas_f1t %ucas_k3_3f995cf6_3f995cf6_3f995cf6
+      (exp2 as a polynomial; -6)
+      proof: an approximation (derived bound)
+        absolute minimax of exp2(x) on [-0, 0.5] (remez.c), t = x - 0.25, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 0.00896 absolute
+          plus rounding (gamma_2 = 2 u/(1 - 2 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.00896 absolute in all, the worst near x = 6.104e-05
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 0.00896; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.00224 of the 0.00392 one step allows
+        bound against the reference: 151629 ulp
+        (line 1: vec3 Glow(vec3 c) { return exp2(c * 0.5) * 0.25; })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 0.000259 (4344 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-0, 0.5] (remez.c), t = x - 0.25, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 0.000259 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.000259 absolute in all, the worst near x = 0.4999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.286573648, t, 0.827393353), t, 1.18919587), t = x - 0.25
+  (nofile: simplified.spvasm, 2552 bytes, checksum 5653024c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Lum: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink unorm8
+simplify: 55 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming c in [0.5, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 4 (-33.3%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00124 of it
+  rewrites, the largest savings first:
+    %42 = OpFAdd %float %41 %float_0_5
+      -> %42 = OpExtInst %float %2 Fma %40 %float_0_25 %float_0_5
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          K = 2^-2: x*K is exact unless it underflows, so fl(x*K + B) is the same rounding of the same number (bit-exact where x*K is normal or zero)
+        bound against the reference: 1 ulp
+        (line 1: float Lum(float c) { return log2(c) * 0.25 + 0.5; })
+    %40 = OpExtInst %float %2 Log2 %30
+      -> %ucas_f1t = OpFSub %float %30 %ucas_float_3f400000
+         %ucas_f1h1 = OpExtInst %float %2 Fma %ucas_float_bfb08ff9 %ucas_f1t %ucas_float_3ffd7889
+         %40 = OpExtInst %float %2 Fma %ucas_f1h1 %ucas_f1t %ucas_float_bed3dc02
+      (log2 as a polynomial; -1)
+      proof: an approximation (derived bound)
+        absolute minimax of log2(x) on [0.5, 1] (remez.c), t = x - 0.75, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|log2''| on the piece): 0.00494 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.00494 absolute in all, the worst near x = 0.9999 (the function is 0 inside the range: no relative bound)
+          against log2's precision on each piece (3 ulp outside [0.5, 2], absolute 2^-21 inside, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 0.00494; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.00124 of the 0.00392 one step allows
+        (line 1: float Lum(float c) { return log2(c) * 0.25 + 0.5; })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    log2 ~ degree-1 minimax polynomial, cost 2 (-2): absolute error < 0.043 (the function is 0 inside the range: no relative bound), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0108, more than the 0.00392 a step of the sink allows
+  (nofile: simplified.spvasm, 2151 bytes, checksum 7f78004c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Fade: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink unorm8
+simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  assuming c in [0.25, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 11 -> 10 (-9.1%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00175 of it
+  rewrites, the largest savings first:
+    %43 = OpExtInst %float %2 Sqrt %33
+      -> %ucas_f1t = OpFSub %float %33 %ucas_float_3f200000
+         %ucas_f1h1 = OpExtInst %float %2 Fma %ucas_float_be98c341 %ucas_f1t %ucas_float_3f28468f
+         %43 = OpExtInst %float %2 Fma %ucas_f1h1 %ucas_f1t %ucas_float_3f4abdbb
+      (sqrt as a polynomial; -1)
+      proof: an approximation (derived bound)
+        absolute minimax of sqrt(x) on [0.25, 1] (remez.c), t = x - 0.625, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|sqrt''| on the piece): 0.0035 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.0035 absolute in all, the worst near x = 0.25
+          against sqrt's precision on each piece (2 ulp, the lower bounds): exceeds it (an approximation)
+          the sink: its own bound moves this value by at most 0.0035; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.00175 of the 0.00392 one step allows
+        bound against the reference: 118359 ulp
+        (line 1: float Fade(float c) { return sqrt(c) * 0.5 + inversesqrt(c) * 0.25; })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    inversesqrt ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 0.127 (2.39342e+06 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0317, more than the 0.00392 a step of the sink allows
+    inversesqrt ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 0.0355 (617538 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.00889, more than the 0.00392 a step of the sink allows
+        absolute minimax of inversesqrt(x) on [0.25, 1] (remez.c), t = x - 0.625, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|inversesqrt''| on the piece): 0.0355 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.0355 absolute in all, the worst near x = 0.25
+          against inversesqrt's precision on each piece (2 ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(1.80765665, t, -1.23854911), t, 1.24579823), t = x - 0.625
+    sqrt ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 0.0417 (728183 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0104, more than the 0.00392 a step of the sink allows
+  not applied:
+    %43 = OpExtInst %float %2 Sqrt %33   (sqrt as x * inversesqrt(x))
+        not cheaper under gt1030
+  (nofile: simplified.spvasm, 2240 bytes, checksum dbf02ebf)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Glow: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec3 %43: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 18 -> 18 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 0.00896 (151629 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 0.000259 (4344 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-0, 0.5] (remez.c), t = x - 0.25, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 0.000259 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.000259 absolute in all, the worst near x = 0.4999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.286573648, t, 0.827393353), t, 1.18919587), t = x - 0.25
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Glow: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cheaptrans
+cost model: cheaptrans
+> spvsimplify nofile assume c 0 1 float sink unorm8
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under cheaptrans (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec3 %43: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under cheaptrans (each component counted; step = compare + select, mix = subtract + fma): 12 -> 12 (+0.0%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+  nothing applied: no cheaper float form could be proved
