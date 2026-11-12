@@ -1296,7 +1296,7 @@ dot_search(const struct func *f, int fmask, struct dotres *r)
 	best.cost = r->before;
 	for (j = 0; j < nr; j++) {
 		struct sum *s = &sums[j];
-		int i, lanes = 0, small = 0;
+		int i, lanes = 0, small = 0, field = 0;
 		s->root = rt[j];
 		s->t = N.ty[rt[j]];
 		s->ok = 1;
@@ -1313,8 +1313,17 @@ dot_search(const struct func *f, int fmask, struct dotres *r)
 				small++;
 				if (N.op[s->tm[i].n] == O_MUL)
 					lanes = 1;
+				/* a lane of a word as it is: the dot with a
+				 * one-hot constant word is that field (and
+				 * the rest of the sum its add) */
+				for (k = 0; k < nfmt; k++)
+					if (fac_lane(&s->tm[i].f[0], fmt[k][0],
+					    fmt[k][1]) >= 0 || fac_lane(
+					    &s->tm[i].f[1], fmt[k][0],
+					    fmt[k][1]) >= 0)
+						field = 1;
 			}
-		if (!lanes && small < 2)
+		if (!lanes && small < 2 && !field)
 			continue;
 		any |= lanes;
 		if (nfmt)
