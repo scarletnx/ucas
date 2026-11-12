@@ -169,3 +169,17 @@ big4(a: u32, b: u32, c: u32, e: u32) = min(min(a, b), min(c, e))
 rop big4
 mean(a: f32, b: f32, c: f32, e: f32) = (a + b + c + e) / 4.0
 rop mean
+
+# every cell set to one constant: the transfer engine's fill or clear,
+# no shader (a literal update is read in the cell's type); priced
+# against a store
+z(d: u32) = 7
+rop z
+zb(d: u8) = 255
+rop zb
+zf(d: f32) = 0.5
+rop zf
+z64(d: u64) = 4294967297
+rop z64
+model fl : gt1030 { rop_fill: 0.25 }
+rop z model fl

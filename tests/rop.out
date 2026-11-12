@@ -14,7 +14,7 @@ rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the
 rop big: big = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result does not depend on the order of the fragments: big(s2, big(s1, d)) = big(s1, big(s2, d)) (proved by SAT)
   blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 8589934590 in magnitude and its result [0, 8589934590]; f32 holds integers below 2^24 = 16777216, and the result must stay inside u32
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
 > wsum(s: u32 in 0..255, w: u32 in 0..16, d: u32 in 0..100000) = d + s*w
 > rop wsum
 rop wsum: wsum = d + s*w, applied once per fragment (s what a fragment brings, w its second value, d the cell's value)
@@ -245,12 +245,12 @@ rop dif: dif = abs(d - s), applied once per fragment (s what a fragment brings, 
 rop difx: difx = abs(d - s), applied once per fragment (s what a fragment brings, d the cell's value)
   order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
   advanced blending: VK_BLEND_OP_DIFFERENCE_EXT would compute it, but is defined on colours in [0, 1]: give s and d that range (s: f32 in 0..1)
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
 > nope(s: u32, d: u32) = d * 3 + s
 > rop nope
 rop nope: nope = 3d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result depends on the order of the fragments (nope(s2, nope(s1, d)) is not nope(s1, nope(s2, d))): a draw applies them in primitive order, atomics in any
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)
 > model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
 > rop acc model fixed
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
@@ -544,5 +544,60 @@ rop big4: big4 = min(min(a, b), min(c, e)), a resolve of a pixel's 4 samples (a 
 > mean(a: f32, b: f32, c: f32, e: f32) = (a + b + c + e) / 4.0
 > rop mean
 rop mean: mean = (a + b + c + e)/4, a resolve of a pixel's 4 samples (a to e)
-  colour resolve: vkCmdResolveImage computes the mean of the 4 samples, but its arithmetic is the implementation's (Vulkan fixes neither the order of the adds nor their rounding): not offered until measured
+  colour resolve: vkCmdResolveImage computes the mean of the 4 samples, as a 2:1 blit with VK_FILTER_LINEAR does of 2 x 2 texels (a mip level from the one above), but its arithmetic is the implementation's (Vulkan fixes neither the order of the adds nor their rounding): not offered until measured
   no resolve mode computes it (SAMPLE_ZERO, MIN, MAX of the depth or stencil samples; the mean of a colour resolve is not offered)
+> z(d: u32) = 7
+> rop z
+rop z: z = 7, applied once per fragment (d the cell's value)
+  order: every fragment applies the same update: their order is immaterial
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  transfer: vkCmdFillBuffer of the word 0x00000007, or vkCmdClearColorImage with 7: every cell 7
+      holds where every cell of the range gets a contribution (the fill writes all of it)
+      the update is the constant 7 (a constant): every cell ends as 7 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
+      price: rop_fill is not priced by gt1030 (not measured): unavailable
+      pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0x00000007) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> zb(d: u8) = 255
+> rop zb
+rop zb: zb = 255, applied once per fragment (d the cell's value)
+  order: every fragment applies the same update: their order is immaterial
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  transfer: vkCmdFillBuffer of the word 0xffffffff, or vkCmdClearColorImage with 255: every cell 255
+      holds where every cell of the range gets a contribution (the fill writes all of it)
+      the update is the constant 255 (a constant): every cell ends as 255 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
+      price: rop_fill is not priced by gt1030 (not measured): unavailable
+      pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0xffffffff) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> zf(d: f32) = 0.5
+> rop zf
+rop zf: zf = 0.5, applied once per fragment (d the cell's value)
+  order: every fragment applies the same update: their order is immaterial
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  transfer: vkCmdFillBuffer of the word 0x3f000000, or vkCmdClearColorImage with 0.5: every cell 0.5
+      holds where every cell of the range gets a contribution (the fill writes all of it)
+      the update is the constant 0.5 (a constant): every cell ends as 0.5 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
+      price: rop_fill is not priced by gt1030 (not measured): unavailable
+      pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0x3f000000) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> z64(d: u64) = 4294967297
+> rop z64
+rop z64: z64 = 4294967297, applied once per fragment (d the cell's value)
+  order: every fragment applies the same update: their order is immaterial
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  transfer: vkCmdFillBuffer of the word 0x00000001, or vkCmdClearColorImage with 4294967297: every cell 4294967297
+      holds where every cell of the range gets a contribution (the fill writes all of it)
+      the update is the constant 4294967297 (a constant): every cell ends as 4294967297 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
+      price: rop_fill is not priced by gt1030 (not measured): unavailable
+      pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0x00000001) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> model fl : gt1030 { rop_fill: 0.25 }
+> rop z model fl
+rop z: z = 7, applied once per fragment (d the cell's value)
+  order: every fragment applies the same update: their order is immaterial
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  transfer: vkCmdFillBuffer of the word 0x00000007, or vkCmdClearColorImage with 7: every cell 7
+      holds where every cell of the range gets a contribution (the fill writes all of it)
+      the update is the constant 7 (a constant): every cell ends as 7 whatever it held, which is what a fill writes; the transfer writes the bits it is given, so nothing rounds
+      price: rop_fill 0.25 a fragment under fl, against 15 (one store, store): cheaper
+      pipeline: no pipeline: vkCmdFillBuffer(buffer, offset, size, 0x00000007) on the cells' range (offset and size multiples of 4), or vkCmdClearColorImage on an image of them, recorded where the dispatch was
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
