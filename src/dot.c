@@ -211,6 +211,7 @@ struct fac {
 	int64_t k;
 	nid word;            /* a bit field: (word >> sh) & (2^w - 1) */
 	int sh, w;
+	int sfield;          /* the field is read signed: iN(word >> sh) */
 };
 
 struct term {
@@ -277,53 +278,92 @@ mwidth(ty_t t)
 	return TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 0;
 }
 
-/* (w >> sh) & (2^wd - 1), possibly through conversions */
+/*
+ * A bit field of a word: bits sh .. sh + w - 1 of it, read unsigned
+ * (zero above them) or signed (their top bit copied above them).  Read
+ * from the word outward:
+ *
+ *   word >> s, a logical shift: bits s.. unsigned; an arithmetic one
+ *     (a signed word): the same bits signed;
+ *   (word << c) >> b, b >= c, the shift arithmetic: bits b - c .. W - c - 1
+ *     read signed (the sign extension of a field, as C writes it);
+ *   & (2^m - 1): the low m bits of that, unsigned;
+ *   then the conversions, innermost first: one narrower than the field
+ *     keeps its low bits, read the way the new type reads them; one as
+ *     narrow as the field reads its bits the new type's way; one wider
+ *     keeps the value, which a signed field has only in a signed type.
+ */
 static void
 field_of(struct fac *x)
 {
-	nid n = x->n, w;
-	int mw = 64, s = 0;
-	int64_t m;
+	nid n = x->n, w, cv[16];
+	int nc = 0, m, sg, s, W, i, top;
 
 	while (N.op[n] == O_CAST && TY_ISINT(N.ty[N.a[n]]) &&
-	    mwidth(N.ty[N.a[n]]) && mwidth(N.ty[n])) {
-		ty_t from = N.ty[N.a[n]], to = N.ty[n];
-		if (TYW(to) < TYW(from) && TYK(to) == K_UINT) {
-			if (TYW(to) < mw)
-				mw = TYW(to);
-		} else if (!(TYW(to) >= TYW(from) && (TYK(from) == K_UINT ||
-		    TYK(to) == K_SINT)))
-			return;
+	    mwidth(N.ty[N.a[n]]) && mwidth(N.ty[n]) && nc < 16) {
+		cv[nc++] = n;
 		n = N.a[n];
 	}
+	m = 64;
 	if (N.op[n] == O_AND && (is_const(N.b[n]) || is_const(N.a[n]))) {
 		nid kk = is_const(N.b[n]) ? N.b[n] : N.a[n];
-		m = N.ki[kk];
-		if (m <= 0 || (m & (m + 1)))
+		int64_t k = N.ki[kk];
+		if (k <= 0 || (k & (k + 1)))
 			return;
-		if (bits_for((uint64_t)m) < mw)
-			mw = bits_for((uint64_t)m);
+		m = bits_for((uint64_t)k);
 		n = kk == N.b[n] ? N.a[n] : N.b[n];
 	}
+	/* the shifted word: bits s .. top - 1 of w, signed when sg */
 	if (N.op[n] == O_SHR && is_const(N.b[n]) && mwidth(N.ty[n])) {
-		w = N.a[n];
-		s = (int)N.ki[N.b[n]];
-		if (s <= 0 || s >= mwidth(N.ty[w]))
+		nid a = N.a[n];
+		int b = (int)N.ki[N.b[n]], c = 0;
+		if (TYK(N.ty[a]) == K_SINT && N.op[a] == O_SHL &&
+		    is_const(N.b[a]) && N.ty[N.a[a]] == N.ty[a]) {
+			c = (int)N.ki[N.b[a]];
+			a = N.a[a];
+		}
+		w = a;
+		W = mwidth(N.ty[w]);
+		if (W == 0 || b <= 0 || c < 0 || c > b || b >= W)
 			return;
-		if (TYK(N.ty[w]) == K_SINT && s + mw > mwidth(N.ty[w]))
-			return;   /* an arithmetic shift brings in sign bits */
-	} else if (mw < 64 && mwidth(N.ty[n])) {
+		s = b - c;
+		top = W - c;
+		sg = TYK(N.ty[w]) == K_SINT;
+	} else if (mwidth(N.ty[n])) {
 		w = n;
+		W = mwidth(N.ty[w]);
 		s = 0;
+		top = W;
+		sg = TYK(N.ty[w]) == K_SINT;
 	} else
 		return;
-	if (mwidth(N.ty[w]) == 0 || mwidth(N.ty[w]) > 32)
+	if (W > 32)
 		return;
-	if (mw > mwidth(N.ty[w]) - s)
-		mw = mwidth(N.ty[w]) - s;
+	if (m < top - s) {
+		top = s + m;	/* masked: the low m bits, unsigned */
+		sg = 0;
+	} else if (m < 64 && sg && m > top - s)
+		return;		/* the mask keeps sign bits as data */
+	else if (m < 64)
+		sg = 0;		/* masked at the field's own top */
+	/* the conversions, innermost first */
+	for (i = nc - 1; i >= 0; i--) {
+		ty_t from = N.ty[N.a[cv[i]]], to = N.ty[cv[i]];
+		int wt = TYW(to), ws = TYW(from), st = TYK(to) == K_SINT;
+		if (wt <= top - s) {
+			top = s + wt;	/* its low bits, read its way */
+			sg = st;
+		} else if (sg && (!st || (wt > ws && TYK(from) != K_SINT)))
+			return;	/* wider than the field, the value stays, but a
+				 * signed field's negative values need a signed
+				 * type (from a signed one when it widens) */
+	}
+	if (top - s >= W)
+		return;		/* the whole word: not a field */
 	x->word = w;
 	x->sh = s;
-	x->w = mw;
+	x->w = top - s;
+	x->sfield = sg;
 }
 
 static void
@@ -339,6 +379,18 @@ fac_init(struct fac *x, nid n)
 	}
 	x->ok = TY_ISINT(N.ty[n]) && iv_of(n, &x->lo, &x->hi, &wrap);
 	field_of(x);
+	if (x->word && !x->isk) {
+		/* a field's values are its width's, whatever the intervals
+		 * made of the shifts (an arithmetic one is not read there) */
+		int64_t flo = x->sfield ? -((int64_t)1 << (x->w - 1)) : 0;
+		int64_t fhi = x->sfield ? ((int64_t)1 << (x->w - 1)) - 1 :
+		    ((int64_t)1 << x->w) - 1;
+		if (!x->ok || x->lo < flo)
+			x->lo = flo;
+		if (!x->ok || x->hi > fhi)
+			x->hi = fhi;
+		x->ok = 1;
+	}
 }
 
 static void
@@ -416,9 +468,24 @@ collect(struct sum *s, nid n, int sign, int exact)
 		if (!TY_ISINT(from) || from == TY_BOOL)
 			break;
 		if (mwidth(to) && mwidth(from) >= mwidth(to)) {
-			/* narrowing: mod 2^W of the inner value */
-			collect(s, N.a[n], sign, exact);
-			return;
+			/* narrowing: mod 2^W of the inner value when W is
+			 * the sum's own width; below it (a byte of a word
+			 * in a 32-bit sum) the conversion is a value of
+			 * its own, unless the inner value fits anyway */
+			if (!exact && mwidth(to) >= mwidth(s->t)) {
+				collect(s, N.a[n], sign, exact);
+				return;
+			}
+			if (iv_of(N.a[n], &lo, &hi, &wrap) && !wrap) {
+				struct ity it;
+				ity_of(&it, to, 0);
+				if (it.k == K_UINT ? lo >= 0 && (uint64_t)hi <=
+				    it.mask : lo >= it.smin && hi <= it.smax) {
+					collect(s, N.a[n], sign, exact);
+					return;
+				}
+			}
+			break;
 		}
 		if (iv_of(N.a[n], &lo, &hi, &wrap) && !wrap) {
 			struct ity it;
@@ -462,7 +529,7 @@ fac_lane(const struct fac *x, int L, int b)
 		return -1;
 	if (x->w == b)
 		return x->sh / b;
-	if (x->w < b && x->sh + x->w == mwidth(N.ty[w]) &&
+	if (!x->sfield && x->w < b && x->sh + x->w == mwidth(N.ty[w]) &&
 	    TYK(N.ty[w]) == K_UINT)
 		return x->sh / b;
 	return -1;
@@ -571,8 +638,11 @@ layout(const struct sum *s, uint32_t set, uint32_t orient, int L, int b,
 		for (i = 0; i < n; i++) {
 			const struct fac *x = side[sd][i];
 			int r = fac_signs(x, b);
+			/* a word's lane as it is: read the way the field is
+			 * (signed only when it is, or when its top bit is 0) */
 			if (mode[sd])
-				r &= 1 | (x->hi < ((int64_t)1 << (b - 1)) ? 2 : 0);
+				r &= x->sfield ? 2 : 1 | (x->hi < ((int64_t)1 <<
+				    (b - 1)) ? 2 : 0);
 			signs[sd] &= r;
 		}
 	if (!signs[0] || !signs[1])
@@ -1064,9 +1134,9 @@ describe(struct sbuf *b, const struct cand *c)
 				char line[300];
 				if (fromword)
 					snprintf(line, sizeof line, "\n%s is bits %d..%d of "
-					    "%s: lane %d as it is", shared_str(x->n, 60),
+					    "%s%s: lane %d as it is", shared_str(x->n, 60),
 					    x->sh, x->sh + x->w - 1, shared_str(x->word, 40),
-					    g->lane[j]);
+					    x->sfield ? " read signed" : "", g->lane[j]);
 				else
 					snprintf(line, sizeof line, "\n%s in %lld..%lld "
 					    "(proved range)", shared_str(x->n, 60),
