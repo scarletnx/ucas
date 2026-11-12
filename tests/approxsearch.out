@@ -11,7 +11,7 @@ approx exp(x) on [-4, 4] as f32, fma
   1   reduced   5     horner+fma  1.96 ulp                 1.67e-07      6.9e-06       14   at x=-2.92808414
       2^k * P(r), r = x - k*ln2: (fma(fma(fma(fma(fma(0.00828962773, r, 0.0419033617), r, 0.166676983), r, 0.499991), r, 0.999999642), r, 1.0))*asfloat((asuint(j) << 23) + 0x3f800000) where j = x*1.44269502 + 12582912.0, k = j - 12582912.0, r = fma(k, -3.19461833e-05, fma(k, -0.693115234, x))
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 1.863 -> 1.783 ulp there; on the table's measure 2.064 -> 1.96 ulp: kept (measured on that sample, not certified)
-      rounding of ap1: not analysed (asfloat is not analysed)
+      rounding of ap1: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
   2 more: 'approx more [n]' (dominated or worse)
 > approx exp(x) in 0..1 degree 4 as f32 norational noreduce list 3 search anneal budget 400
 approx exp(x) on [0, 1] as f32, fma
