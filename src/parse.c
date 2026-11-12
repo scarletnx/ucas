@@ -439,7 +439,7 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG };
+	SGF_SEG, SGF_SORT };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
@@ -456,6 +456,7 @@ static const struct sgfn {
 	{"sg_broadcast_first", "subgroupBroadcastFirst", SGF_BCAST1, O_SGSHUF, 1},
 	{"sg_rotate", "subgroupRotate", SGF_ROT, O_SGSHUF, 2},
 	{"sg_segscan", "sg_segscan", SGF_SEG, O_SGSCAN, 2},
+	{"sg_sort", "sg_sort", SGF_SORT, O_SGSHUF, 1},
 	{NULL, NULL, 0, 0, 0}
 };
 
@@ -546,7 +547,7 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	} else if (p->sg_depth)
 		here = sg_lane();
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
-	    g->kind == SGF_ROT))
+	    g->kind == SGF_ROT || g->kind == SGF_SORT))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
 	switch (g->kind) {
@@ -573,6 +574,16 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		v = mk_sg(O_SGSCAN, v, here, w);
 		return mk_bin(O_SUB, v, mk_sg(O_SGSHUF, q, start, w));
 	}
+	case SGF_SORT:
+		/* in lane l the l-th smallest of v over the lanes */
+		if (!TY_ISINT(N.ty[v]) || N.ty[v] == TY_BOOL)
+			fail("sg_sort sorts integers: v is %s", ty_str(N.ty[v]));
+		if (TYK(N.ty[v]) == K_LIT)
+			v = mk_cast(TY(K_INT, 32), v);
+		if ((v = sg_sorted(v, here, 0, W)) == 0)
+			fail("sg_sort: the bitonic network needs a power-of-two "
+			    "subgroup, and this one has %d lanes", W);
+		return v;
 	case SGF_SHUFXOR:
 		return mk_sg(O_SGSHUF, v, mk_bin(O_XOR, here, args[1]), w);
 	case SGF_BCAST:
