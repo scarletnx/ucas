@@ -8,7 +8,7 @@ simplify: 63 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under zen4 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+function level: not run (the GLSL parser left main out: f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'f' is declared))
 fp64 and conversions under zen4:
   %67 = OpFConvert %float %66
       (line 1: float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); })
@@ -28,7 +28,7 @@ simplify: 63 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+function level: not run (the GLSL parser left main out: f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'f' is declared))
 fp64 and conversions under gt1030:
   %67 = OpFConvert %float %66
       (line 1: float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); })

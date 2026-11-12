@@ -212,7 +212,20 @@ T(int t)
 
 /* ---- parsing ---- */
 
-void glslfn_pass(const char *src, double budget, int only);
+void glslfn_pass(const char *src, double budget, int only, const char *model);
+
+/* the execution model of the module's first entry point ("GLCompute",
+ * "Fragment" ...), or NULL */
+static const char *
+entry_model(void)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpEntryPoint") && V.in[k].nop >= 1)
+			return V.in[k].opnd[0];
+	return NULL;
+}
 /*
  * Whether an elapsed time is worth printing: shorter than half a second is
  * noise, not news, and UCAS_NO_TIMES (set by `make test`) leaves times out
@@ -9562,7 +9575,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		/* the function level alone (glslfn.c) */
 		rep_begin("spirv_simplify");
 		if (src_text != NULL)
-			glslfn_pass(src_text, budget, 1);
+			glslfn_pass(src_text, budget, 1, entry_model());
 		else
 			printf("function level: the module carries no GLSL source "
 			    "(OpSource): give the GLSL, or compile it with -g\n");
@@ -10263,7 +10276,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	/* the function level: the GLSL source's functions (glslfn.c) */
 	if (src_text != NULL && fnl_mode != 2)
-		glslfn_pass(src_text, budget, 0);
+		glslfn_pass(src_text, budget, 0, entry_model());
 	free(list.p);
 	free(rl);
 	free(SP.dl);
