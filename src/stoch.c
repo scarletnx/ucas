@@ -468,6 +468,148 @@ used_params(nid e, uint8_t *used, uint8_t *mark)
 	used_params(N.c[e], used, mark);
 }
 
+/* what f reads besides its lane index is held at one value; 0 when a float
+ * is read beside the index (the lanes are then independent) */
+static int
+hold_unused(struct func *g, const uint8_t *used, int lane)
+{
+	int j;
+
+	for (j = 0; j < g->np; j++) {
+		if (used[j] || j == lane)
+			continue;
+		if (TY_ISINT(g->p[j].ty)) {
+			int64_t lo, hi;
+			param_bounds(&g->p[j], &lo, &hi);
+			g->p[j].ranged = 1;
+			g->p[j].lo = g->p[j].hi = lo;
+			g->p[j].rlo = g->p[j].rhi = (double)lo;
+		} else {
+			double v = g->p[j].ranged ? g->p[j].rlo : 0;
+			g->p[j].ranged = 1;
+			g->p[j].rlo = g->p[j].rhi = v;
+		}
+	}
+	if (lane >= 0)
+		for (j = 0; j < g->np; j++)
+			if (j != lane && used[j] && !TY_ISINT(g->p[j].ty))
+				return 0;
+	return 1;
+}
+
+/*
+ * The warps: the aligned runs of `warp` values of the parameter in slot
+ * lane, the other parameters at each of their values (every case when
+ * there are at most DV_MAXCASES, *exact; 4096 drawn otherwise).  fn gets
+ * each warp's lanes after pl ran on them, ok[k] when lane k meets the
+ * where clause (at wloc).
+ */
+static void
+warp_walk(const struct func *f, struct plan *pl, uint32_t wloc, int lane,
+    int warp, void (*fn)(void *, const struct plan *, const uint8_t *,
+    uint32_t), void *ctx, int *exact)
+{
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	int64_t lo[MAXP], hi[MAXP], cur[MAXP];
+	uint64_t total = 1, wins, c;
+	uint64_t rs = 0x9e3779b97f4a7c15ULL;
+	uint8_t ok[CH];
+	uint32_t k, np;
+	int j;
+
+	for (j = 0; j < f->np; j++) {
+		lo[j] = hi[j] = 0;
+		if (TY_ISINT(f->p[j].ty))
+			param_bounds(&f->p[j], &lo[j], &hi[j]);
+		else
+			in_r[(size_t)j * CH] = f->p[j].rlo;
+	}
+	for (j = 0; j < f->np; j++)
+		if (!TY_ISINT(f->p[j].ty))
+			for (k = 1; k < CH; k++)
+				in_r[(size_t)j * CH + k] = in_r[(size_t)j * CH];
+	wins = (uint64_t)(hi[lane] / warp - lo[lane] / warp) + 1;
+	for (j = 0; j < f->np; j++)
+		if (j != lane) {
+			uint64_t sz = (uint64_t)(hi[j] - lo[j]) + 1;
+			total = sz == 0 || sz > DV_MAXCASES || total * sz >
+			    DV_MAXCASES ? DV_MAXCASES + 1 : total * sz;
+		}
+	total = wins == 0 || wins > DV_MAXCASES || total * wins >
+	    DV_MAXCASES ? DV_MAXCASES + 1 : total * wins;
+	*exact = total <= DV_MAXCASES;
+	for (j = 0; j < f->np; j++)
+		cur[j] = j == lane ? lo[j] / warp : lo[j];
+	for (c = 0; c < (*exact ? total : 4096); c++) {
+		int64_t base;
+		uint32_t w;
+		if (!*exact)
+			for (j = 0; j < f->np; j++) {
+				uint64_t span = j == lane ? wins :
+				    (uint64_t)(hi[j] - lo[j]) + 1;
+				rs ^= rs << 13;
+				rs ^= rs >> 7;
+				rs ^= rs << 17;
+				cur[j] = (j == lane ? lo[j] / warp : lo[j]) +
+				    (int64_t)(span ? rs % span : rs >> 1);
+			}
+		base = cur[lane] * warp;
+		np = 0;
+		for (w = 0; w < (uint32_t)warp; w++) {
+			int64_t l = base + w;
+			if (l < lo[lane] || l > hi[lane])
+				continue;
+			for (j = 0; j < f->np; j++)
+				in_i[(size_t)j * CH + np] = j == lane ? l :
+				    cur[j];
+			np++;
+		}
+		if (np) {
+			plan_run(pl, np, in_i, in_r);
+			valid_mask(pl, wloc, np, ok);
+			fn(ctx, pl, ok, np);
+		}
+		if (*exact)
+			for (j = 0; j < f->np; j++) {
+				int64_t top = j == lane ? hi[j] / warp : hi[j];
+				if (cur[j] < top) {
+					cur[j]++;
+					break;
+				}
+				cur[j] = j == lane ? lo[j] / warp : lo[j];
+			}
+	}
+	free(in_i);
+	free(in_r);
+}
+
+struct dvw {
+	uint32_t loc;
+	uint64_t nt, n, nat, naf, nw;
+};
+
+/* a warp of a ?:'s condition: how many lanes hold it, all or none */
+static void
+dv_warp(void *ctx, const struct plan *pl, const uint8_t *ok, uint32_t np)
+{
+	struct dvw *s = ctx;
+	uint32_t k, t = 0, w = 0;
+
+	for (k = 0; k < np; k++)
+		if (ok[k]) {
+			w++;
+			t += COLI(pl, s->loc)[k] != 0;
+		}
+	if (w) {
+		s->nw++;
+		s->n += w;
+		s->nt += t;
+		s->nat += t == w;
+		s->naf += t == 0;
+	}
+}
+
 /*
  * The lanes are independent draws from the domain (1: split = 1 - p^warp
  * - (1 - p)^warp) unless a parameter was named consecutive: the warps are
@@ -486,7 +628,7 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 	double *in_r;
 	uint8_t ok[CH], used[MAXP] = {0}, *mark;
 	uint32_t loc, wloc, np, k;
-	int j, lane = dv_cons;
+	int lane = dv_cons;
 	uint64_t nt = 0, n = 0;
 
 	*exact = 0;
@@ -497,122 +639,29 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 	used_params(cond, used, mark);
 	used_params(f->where, used, mark);
 	free(mark);
-	/* what the condition does not read is held at one value */
-	for (j = 0; j < g.np; j++) {
-		if (used[j] || j == lane)
-			continue;
-		if (TY_ISINT(g.p[j].ty)) {
-			int64_t lo, hi;
-			param_bounds(&g.p[j], &lo, &hi);
-			g.p[j].ranged = 1;
-			g.p[j].lo = g.p[j].hi = lo;
-			g.p[j].rlo = g.p[j].rhi = (double)lo;
-		} else {
-			double v = g.p[j].ranged ? g.p[j].rlo : 0;
-			g.p[j].ranged = 1;
-			g.p[j].rlo = g.p[j].rhi = v;
-		}
-	}
+	if (!hold_unused(&g, used, lane))
+		lane = -1;
 	f = &g;
-	if (lane >= 0)
-		for (j = 0; j < f->np; j++)
-			if (j != lane && used[j] && !TY_ISINT(f->p[j].ty))
-				lane = -1;	/* a float beside the index: independent */
 	roots[0] = cond;
 	roots[1] = f->where;
 	plan_build(&pl, roots, 2, 0);
 	loc = plan_loc(&pl, cond);
 	wloc = f->where ? plan_loc(&pl, f->where) : NOTOK;
-	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
-	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
 	if (lane >= 0) {
-		/* the warps: aligned runs of the index */
-		int64_t lo[MAXP], hi[MAXP], cur[MAXP];
-		uint64_t total = 1, wins, c, nat = 0, naf = 0, nw = 0;
-		uint64_t rs = 0x9e3779b97f4a7c15ULL;
-		for (j = 0; j < f->np; j++) {
-			lo[j] = hi[j] = 0;
-			if (TY_ISINT(f->p[j].ty))
-				param_bounds(&f->p[j], &lo[j], &hi[j]);
-			else
-				in_r[(size_t)j * CH] = f->p[j].rlo;
-		}
-		for (j = 0; j < f->np; j++)
-			if (!TY_ISINT(f->p[j].ty))
-				for (k = 1; k < CH; k++)
-					in_r[(size_t)j * CH + k] = in_r[(size_t)j * CH];
-		wins = (uint64_t)(hi[lane] / warp - lo[lane] / warp) + 1;
-		for (j = 0; j < f->np; j++)
-			if (j != lane) {
-				uint64_t sz = (uint64_t)(hi[j] - lo[j]) + 1;
-				total = sz == 0 || sz > DV_MAXCASES || total * sz >
-				    DV_MAXCASES ? DV_MAXCASES + 1 : total * sz;
-			}
-		total = wins == 0 || wins > DV_MAXCASES || total * wins >
-		    DV_MAXCASES ? DV_MAXCASES + 1 : total * wins;
-		*exact = total <= DV_MAXCASES;
-		for (j = 0; j < f->np; j++)
-			cur[j] = j == lane ? lo[j] / warp : lo[j];
-		for (c = 0; c < (*exact ? total : 4096); c++) {
-			int64_t base;
-			uint32_t t = 0, w;
-			if (!*exact)
-				for (j = 0; j < f->np; j++) {
-					uint64_t span = j == lane ? wins :
-					    (uint64_t)(hi[j] - lo[j]) + 1;
-					rs ^= rs << 13;
-					rs ^= rs >> 7;
-					rs ^= rs << 17;
-					cur[j] = (j == lane ? lo[j] / warp : lo[j]) +
-					    (int64_t)(span ? rs % span : rs >> 1);
-				}
-			base = cur[lane] * warp;
-			np = 0;
-			for (w = 0; w < (uint32_t)warp; w++) {
-				int64_t l = base + w;
-				if (l < lo[lane] || l > hi[lane])
-					continue;
-				for (j = 0; j < f->np; j++)
-					in_i[(size_t)j * CH + np] = j == lane ? l : cur[j];
-				np++;
-			}
-			if (np) {
-				plan_run(&pl, np, in_i, in_r);
-				valid_mask(&pl, wloc, np, ok);
-				for (k = 0, w = 0; k < np; k++)
-					if (ok[k]) {
-						w++;
-						t += COLI(&pl, loc)[k] != 0;
-					}
-				if (w) {
-					nw++;
-					n += w;
-					nt += t;
-					nat += t == w;
-					naf += t == 0;
-				}
-			}
-			if (*exact)
-				for (j = 0; j < f->np; j++) {
-					int64_t top = j == lane ? hi[j] / warp : hi[j];
-					if (cur[j] < top) {
-						cur[j]++;
-						break;
-					}
-					cur[j] = j == lane ? lo[j] / warp : lo[j];
-				}
-		}
+		struct dvw s = {0};
+		s.loc = loc;
+		warp_walk(f, &pl, wloc, lane, warp, dv_warp, &s, exact);
 		plan_free(&pl);
-		free(in_i);
-		free(in_r);
-		if (nw == 0)
+		if (s.nw == 0)
 			return 0;
-		*p = (double)nt / (double)n;
-		*all_t = (double)nat / (double)nw;
-		*all_f = (double)naf / (double)nw;
-		*points = nw;
+		*p = (double)s.nt / (double)s.n;
+		*all_t = (double)s.nat / (double)s.nw;
+		*all_f = (double)s.naf / (double)s.nw;
+		*points = s.nw;
 		return 2;
 	}
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
 	{
 		/* independent lanes: the condition's frequency on the domain */
 		struct diter d;
