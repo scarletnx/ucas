@@ -1843,8 +1843,14 @@ other access of the cell becomes; `F_ia` is defined.
 silent when it has nothing to say.  An address is uniform when it
 depends only on constants, uniform blocks read at uniform addresses and
 the workgroup's builtins; invocation builtins, buffer contents and
-function parameters vary per lane; a phi is uniform when its inputs are
-and no branch of its function has a varying condition.
+function parameters vary per lane.  A branch on a varying condition
+makes varying what depends on the side a lane took: the phis of the
+blocks where two paths from the branch meet that share no other block,
+and, when the branch lets lanes leave a loop at different iterations,
+every value read after the loop that it changes as it goes round (inside
+the loop the lanes still there are on the same iteration).  A phi after a varying branch that it
+does not depend on stays uniform when its inputs are: a loop counter
+under a varying `if` in its body, an index a uniform `if` chooses.
 
 - A uniform block read at a per-lane address, where `load_ubo_div` is
   above `load`: moving the block to a storage buffer is *proposed*, with

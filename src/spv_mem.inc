@@ -26,8 +26,13 @@
  * An address is uniform when it depends only on constants, uniform
  * blocks read at uniform addresses and the workgroup's own builtins;
  * the invocation builtins, buffer contents and function parameters vary
- * per lane.  A phi is uniform when its inputs are and no branch of its
- * function has a varying condition.
+ * per lane.  A branch on a varying condition splits the warp, and what
+ * depends on which side a lane took varies with it: the phis of the
+ * blocks where two paths from the branch that share no other block meet,
+ * and, when the branch lets lanes leave a loop at different iterations,
+ * every value read after that loop that it changes as it goes round.
+ * Nothing else does: a phi
+ * after an unrelated varying branch stays uniform when its inputs are.
  */
 #include "memk.h"
 
@@ -99,19 +104,280 @@ mem_bufferblock(int var)
 	return 0;
 }
 
+/*
+ * The control flow of the bodies: blocks, their edges, the loops (a
+ * header's OpLoopMerge names the merge block; the loop is what the header
+ * reaches without passing it, since structured control flow leaves a loop
+ * only there or by ending the function).
+ */
+static struct {
+	int nblk;
+	int *ins_blk;		/* per instruction: its block, -1 outside one */
+	int *lab_blk;		/* per id: the block the label opens, -1 */
+	int *term;		/* per block: its last instruction */
+	int *poff, *pred;	/* per block: its predecessors */
+	int nloop;
+	int *lhdr, *lmerge;	/* per loop: the header and merge blocks */
+	char *lin;		/* nloop x nblk: the block is in the loop */
+	char *ldiv;		/* per loop: lanes leave at different iterations */
+	char *itv;		/* per id: may differ from one iteration to the next */
+	char *join;		/* per block: paths from a varying branch meet */
+	char *done;		/* per block: its varying branch is accounted */
+} MC;
+
+static int
+mem_is_label(const char *o)
+{
+	return o[0] == '%' && MC.lab_blk[idx(o)] >= 0;
+}
+
+static void
+mem_cfg(void)
+{
+	int k, b = -1, i, e, l, *cnt, *stack, sp;
+
+	memset(&MC, 0, sizeof MC);
+	MC.ins_blk = xmalloc((size_t)(V.nin + 1) * sizeof *MC.ins_blk);
+	MC.lab_blk = xmalloc((size_t)(V.nid + 1) * sizeof *MC.lab_blk);
+	for (i = 0; i <= V.nid; i++)
+		MC.lab_blk[i] = -1;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpLabel") && I->res >= 0) {
+			b = MC.nblk++;
+			MC.lab_blk[I->res] = b;
+		} else if (!strcmp(I->op, "OpFunctionEnd") || !strcmp(I->op,
+		    "OpFunction"))
+			b = -1;
+		MC.ins_blk[k] = b;
+	}
+	MC.term = xmalloc((size_t)(MC.nblk + 1) * sizeof *MC.term);
+	for (k = 0; k < V.nin; k++)
+		if (MC.ins_blk[k] >= 0)
+			MC.term[MC.ins_blk[k]] = k;
+	/* the predecessors, and the loops */
+	cnt = xcalloc((size_t)MC.nblk + 2, sizeof *cnt);
+	for (b = 0; b < MC.nblk; b++) {
+		const struct sins *I = &V.in[MC.term[b]];
+		for (i = 0; i < I->nop; i++)
+			if (mem_is_label(I->opnd[i]))
+				cnt[MC.lab_blk[idx(I->opnd[i])] + 1]++;
+		if (MC.term[b] > 0 && !strcmp(V.in[MC.term[b] - 1].op,
+		    "OpLoopMerge") && MC.ins_blk[MC.term[b] - 1] == b)
+			MC.nloop++;
+	}
+	MC.poff = xmalloc((size_t)(MC.nblk + 2) * sizeof *MC.poff);
+	MC.poff[0] = 0;
+	for (b = 0; b < MC.nblk; b++)
+		MC.poff[b + 1] = MC.poff[b] + cnt[b + 1];
+	MC.pred = xmalloc((size_t)(MC.poff[MC.nblk] + 1) * sizeof *MC.pred);
+	memset(cnt, 0, ((size_t)MC.nblk + 2) * sizeof *cnt);
+	for (b = 0; b < MC.nblk; b++) {
+		const struct sins *I = &V.in[MC.term[b]];
+		for (i = 0; i < I->nop; i++)
+			if (mem_is_label(I->opnd[i])) {
+				e = MC.lab_blk[idx(I->opnd[i])];
+				MC.pred[MC.poff[e] + cnt[e]++] = b;
+			}
+	}
+	free(cnt);
+	MC.lhdr = xmalloc((size_t)(MC.nloop + 1) * sizeof *MC.lhdr);
+	MC.lmerge = xmalloc((size_t)(MC.nloop + 1) * sizeof *MC.lmerge);
+	MC.lin = xcalloc((size_t)(MC.nloop + 1) * (size_t)(MC.nblk + 1), 1);
+	MC.ldiv = xcalloc((size_t)MC.nloop + 1, 1);
+	MC.join = xcalloc((size_t)MC.nblk + 1, 1);
+	MC.done = xcalloc((size_t)MC.nblk + 1, 1);
+	stack = xmalloc((size_t)(MC.nblk + 1) * sizeof *stack);
+	for (b = 0, l = 0; b < MC.nblk; b++) {
+		const struct sins *M;
+		char *in;
+		if (MC.term[b] == 0 || MC.ins_blk[MC.term[b] - 1] != b)
+			continue;
+		M = &V.in[MC.term[b] - 1];
+		if (strcmp(M->op, "OpLoopMerge") != 0 || M->nop < 1 ||
+		    !mem_is_label(M->opnd[0]))
+			continue;
+		MC.lhdr[l] = b;
+		MC.lmerge[l] = MC.lab_blk[idx(M->opnd[0])];
+		in = MC.lin + (size_t)l * (size_t)(MC.nblk + 1);
+		sp = 0;
+		stack[sp++] = b;
+		in[b] = 1;
+		while (sp > 0) {
+			const struct sins *I = &V.in[MC.term[stack[--sp]]];
+			for (i = 0; i < I->nop; i++) {
+				if (!mem_is_label(I->opnd[i]))
+					continue;
+				e = MC.lab_blk[idx(I->opnd[i])];
+				if (e == MC.lmerge[l] || in[e])
+					continue;
+				in[e] = 1;
+				stack[sp++] = e;
+			}
+		}
+		l++;
+	}
+	MC.nloop = l;
+	free(stack);
+	/* what a loop can change as it goes round: its phis and what is
+	 * computed from them (memory a loop writes is varying already) */
+	MC.itv = xcalloc((size_t)V.nid + 1, 1);
+	for (e = 1; e;) {
+		e = 0;
+		for (k = 0; k < V.nin; k++) {
+			const struct sins *I = &V.in[k];
+			int r = I->res, v = 0;
+			if (r < 0 || SP.def[r] != k || MC.itv[r] || (b = MC.ins_blk[k]) < 0)
+				continue;
+			for (l = 0; l < MC.nloop && !v; l++)
+				v = MC.lin[(size_t)l * (size_t)(MC.nblk + 1) + (size_t)b];
+			if (!v)
+				continue;
+			v = !strcmp(I->op, "OpPhi");
+			for (i = 1; i < I->nop && !v; i++)
+				v = I->opnd[i][0] == '%' && MC.itv[idx(I->opnd[i])];
+			if (v)
+				MC.itv[r] = e = 1;
+		}
+	}
+}
+
+static void
+mem_cfg_free(void)
+{
+	free(MC.ins_blk);
+	free(MC.lab_blk);
+	free(MC.term);
+	free(MC.poff);
+	free(MC.pred);
+	free(MC.lhdr);
+	free(MC.lmerge);
+	free(MC.lin);
+	free(MC.ldiv);
+	free(MC.itv);
+	free(MC.join);
+	free(MC.done);
+	memset(&MC, 0, sizeof MC);
+}
+
+/* value id, read by instruction k, is the same in every lane there */
+static int
+mem_uni_at(int id, int k)
+{
+	int d, l, bd, bu;
+
+	if (!mem_uni[id])
+		return 0;
+	d = SP.def[id];
+	if (d < 0 || (bd = MC.ins_blk[d]) < 0 || !MC.itv[id])
+		return 1;
+	bu = k >= 0 ? MC.ins_blk[k] : -1;
+	for (l = 0; l < MC.nloop; l++) {
+		const char *in = MC.lin + (size_t)l * (size_t)(MC.nblk + 1);
+		if (MC.ldiv[l] && in[bd] && (bu < 0 || !in[bu]))
+			return 0;
+	}
+	return 1;
+}
+
+/*
+ * The branch that ends block h has a varying condition.  Each block the
+ * branch reaches is labelled with the last block every path to it from
+ * the branch goes through: the target of an edge of the branch for what
+ * only that edge reaches, the block itself where paths with different
+ * labels meet.  Such a block is a join: two paths from the branch that
+ * share nothing else end in it, so which predecessor a lane came from
+ * depends on the condition.  A loop around the branch whose merge block
+ * and whose back edge carry different labels is left by some lanes while
+ * others go round.  1 when a join or a loop was newly marked.
+ */
+static int
+mem_split(int h)
+{
+	int *lab = xmalloc((size_t)(MC.nblk + 1) * sizeof *lab);
+	const char **hin = xcalloc((size_t)MC.nblk + 1, sizeof *hin);
+	int b, q, l, pass, ch = 1, changed = 0;
+
+	for (b = 0; b < MC.nblk; b++)
+		lab[b] = -1;
+	/* lanes that left a loop around the branch meet again at its merge
+	 * block before any of them is back at its header: the header of
+	 * such a loop hears of the branch by its back edge alone */
+	for (l = 0; l < MC.nloop; l++) {
+		const char *in = MC.lin + (size_t)l * (size_t)(MC.nblk + 1);
+		if (in[h])
+			hin[MC.lhdr[l]] = in;
+	}
+	for (pass = 0; ch && pass < 2 * MC.nblk + 8; pass++) {
+		ch = 0;
+		for (b = 0; b < MC.nblk; b++) {
+			int s = -1;
+			for (q = MC.poff[b]; q < MC.poff[b + 1]; q++) {
+				int c = MC.pred[q] == h ? b : lab[MC.pred[q]];
+				if (c < 0 || (hin[b] && !hin[b][MC.pred[q]]))
+					continue;
+				if (s < 0)
+					s = c;
+				else if (s != c)
+					s = b;
+			}
+			if (s != lab[b]) {
+				lab[b] = s;
+				ch = 1;
+			}
+		}
+	}
+	for (b = 0; b < MC.nblk; b++) {
+		int nlab = 0, first = -1;
+		if (lab[b] < 0)
+			continue;
+		for (q = MC.poff[b]; q < MC.poff[b + 1]; q++) {
+			int c = MC.pred[q] == h ? b : lab[MC.pred[q]];
+			if (c < 0 || (hin[b] && !hin[b][MC.pred[q]]))
+				continue;
+			if (nlab == 0) {
+				first = c;
+				nlab = 1;
+			} else if (c != first)
+				nlab = 2;
+		}
+		/* labels still moving: every block the branch reaches */
+		if ((nlab == 2 || ch) && !MC.join[b]) {
+			MC.join[b] = 1;
+			changed = 1;
+		}
+	}
+	for (l = 0; l < MC.nloop; l++) {
+		const char *in = MC.lin + (size_t)l * (size_t)(MC.nblk + 1);
+		int hd = MC.lhdr[l], lh = -1, lm = lab[MC.lmerge[l]];
+		if (!in[h] || MC.ldiv[l])
+			continue;
+		/* what comes round by the back edge */
+		for (q = MC.poff[hd]; q < MC.poff[hd + 1]; q++) {
+			int c = MC.pred[q] == h ? hd : lab[MC.pred[q]];
+			if (in[MC.pred[q]] && c >= 0)
+				lh = c;
+		}
+		if (ch ? (lh >= 0 || lm >= 0) : (lh >= 0 && lm >= 0 && lh != lm)) {
+			MC.ldiv[l] = 1;
+			changed = 1;
+		}
+	}
+	free(lab);
+	free(hin);
+	return changed;
+}
+
 static void
 mem_uniformity(void)
 {
-	int k, i, ch = 1, pass, varying_branch = 0;
+	int k, i, b, ch = 1, more = 1;
 
 	/* everything starts uniform and falls: the greatest fixed point */
 	mem_uni = xmalloc((size_t)V.nid + 1);
 	memset(mem_uni, 1, (size_t)V.nid + 1);
-	for (pass = 0; pass < 2; pass++) {
-		if (pass == 1)
-			for (k = 0; k < V.nin; k++)
-				if (!strcmp(V.in[k].op, "OpPhi") && V.in[k].res >= 0)
-					mem_uni[V.in[k].res] = 0;
+	mem_cfg();
+	while (more) {
 		ch = 1;
 		while (ch) {
 			ch = 0;
@@ -133,13 +399,16 @@ mem_uniformity(void)
 					    "PushConstant") || !strcmp(sc, "UniformConstant")) {
 						if (chain >= 0)
 							for (i = 2; i < V.in[chain].nop; i++)
-								if (!mem_uni[idx(V.in[chain].opnd[i])])
+								if (!mem_uni_at(idx(V.in[chain].opnd[i]),
+								    k))
 									u = 0;
 					} else
 						u = 0;
 				} else if (!strcmp(I->op, "OpPhi")) {
+					if (MC.ins_blk[k] >= 0 && MC.join[MC.ins_blk[k]])
+						u = 0;
 					for (i = 1; i < I->nop && u; i += 2)
-						if (!mem_uni[idx(I->opnd[i])])
+						if (!mem_uni_at(idx(I->opnd[i]), k))
 							u = 0;
 				} else if (!strcmp(I->op, "OpFunctionParameter") ||
 				    !strcmp(I->op, "OpFunctionCall") || !strncmp(I->op,
@@ -152,7 +421,7 @@ mem_uniformity(void)
 				else
 					for (i = 1; i < I->nop; i++)
 						if (I->opnd[i][0] == '%' &&
-						    !mem_uni[idx(I->opnd[i])])
+						    !mem_uni_at(idx(I->opnd[i]), k))
 							u = 0;
 				if (!u) {
 					mem_uni[r] = 0;
@@ -160,13 +429,17 @@ mem_uniformity(void)
 				}
 			}
 		}
-		for (k = 0; k < V.nin; k++)
-			if ((!strcmp(V.in[k].op, "OpBranchConditional") ||
-			    !strcmp(V.in[k].op, "OpSwitch")) && V.in[k].nop >= 1 &&
-			    !mem_uni[idx(V.in[k].opnd[0])])
-				varying_branch = 1;
-		if (!varying_branch)
-			break;
+		more = 0;
+		for (b = 0; b < MC.nblk; b++) {
+			const struct sins *I = &V.in[MC.term[b]];
+			if (MC.done[b] || (strcmp(I->op, "OpBranchConditional") != 0 &&
+			    strcmp(I->op, "OpSwitch") != 0) || I->nop < 1 ||
+			    I->opnd[0][0] != '%' || mem_uni_at(idx(I->opnd[0]),
+			    MC.term[b]))
+				continue;
+			MC.done[b] = 1;
+			more |= mem_split(b);
+		}
 	}
 }
 
@@ -282,6 +555,7 @@ struct memg {
 	nid node[256];
 	int nmemo;
 	int lsize;		/* the lane parameter's range: LocalSize.x */
+	int at;			/* the instruction that reads the value */
 	int fail;
 };
 
@@ -416,7 +690,7 @@ memg_build(struct memg *G, int id, int depth)
 		goto done;
 	}
 	if (k < 0 || depth > 48 || ty == 0)
-		return memg_param(G, id, ty, mem_uni[id], 0);
+		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 	I = &V.in[k];
 	/* the lane: gl_LocalInvocationIndex, or gl_LocalInvocationID.x */
 	if (!strcmp(I->op, "OpLoad")) {
@@ -426,7 +700,7 @@ memg_build(struct memg *G, int id, int depth)
 		    V.in[chain].nop == 3 && V.id[idx(V.in[chain].opnd[2])].kind ==
 		    K_CONST && V.id[idx(V.in[chain].opnd[2])].c[0] == 0)))
 			return memg_param(G, var, ty, 0, 1);
-		return memg_param(G, id, ty, mem_uni[id], 0);
+		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 	}
 	if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3 &&
 	    atoi(I->opnd[2]) == 0) {
@@ -436,7 +710,7 @@ memg_build(struct memg *G, int id, int depth)
 			if (var >= 0 && V.id[var].builtin == B_LOCALID && chain < 0)
 				return memg_param(G, var, ty, 0, 1);
 		}
-		return memg_param(G, id, ty, mem_uni[id], 0);
+		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 	}
 	if (I->nop >= 3) {
 		static const struct { const char *op; int o; } bin[] = {
@@ -473,7 +747,7 @@ memg_build(struct memg *G, int id, int depth)
 		r = mk_un(O_NEG, memg_build(G, idx(I->opnd[1]), depth + 1));
 		goto done;
 	}
-	return memg_param(G, id, ty, mem_uni[id], 0);
+	return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 done:
 	if (G->nmemo < 256) {
 		G->id[G->nmemo] = id;
@@ -556,7 +830,7 @@ mem_pass(const char *text, int *changed)
 			nubo++;
 			if (chain >= 0)
 				for (i = 2; i < V.in[chain].nop; i++)
-					if (!mem_uni[idx(V.in[chain].opnd[i])])
+					if (!mem_uni_at(idx(V.in[chain].opnd[i]), k))
 						div = 1;
 			if (!div)
 				continue;
@@ -586,7 +860,7 @@ mem_pass(const char *text, int *changed)
 				if (v2 != var || chain < 0)
 					continue;
 				for (i = 2; i < V.in[chain].nop; i++)
-					if (!mem_uni[idx(V.in[chain].opnd[i])])
+					if (!mem_uni_at(idx(V.in[chain].opnd[i]), k))
 						div = 1;
 				if (!div)
 					continue;
@@ -701,6 +975,7 @@ mem_pass(const char *text, int *changed)
 			struct memg *G = xcalloc(1, sizeof *G);
 			nid v;
 			G->lsize = lsize[0];
+			G->at = k;
 			G->f.name = sym_cstr("_fadd");
 			G->f.anon = 1;
 			v = memg_build(G, idx(I->opnd[4]), 0);
@@ -767,6 +1042,7 @@ mem_pass(const char *text, int *changed)
 				struct bankres br;
 				G[q] = xcalloc(1, sizeof **G);
 				G[q]->lsize = lsize[0];
+				G[q]->at = arr[i].chain[q];
 				G[q]->f.body = mk_cast(TY(K_UINT, 32), memg_build(G[q],
 				    idx(V.in[arr[i].chain[q]].opnd[2]), 0));
 				if (G[q]->fail)
@@ -920,6 +1196,7 @@ mem_pass(const char *text, int *changed)
 	free(decl.p);
 	free(mem_uni);
 	mem_uni = NULL;
+	mem_cfg_free();
 	free(SP.def);
 	SP.def = NULL;
 	for (k = 0; k < V.nin; k++) {
