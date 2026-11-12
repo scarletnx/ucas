@@ -282,6 +282,10 @@ static const struct jcmd cmds[] = {
 	    "driver folds, and their rounding as integer arithmetic it cannot "
 	    "fold, proved equal",
 	    {FN, NMO("model", " model %s", "the model (the active one)")}},
+	{"rop", "rop", 1, 0, "graphics fixed-function states (blending, logic "
+	    "ops, stencil) that compute a per-cell update F(s, d), each proved "
+	    "and priced",
+	    {FN, NMO("model", " model %s", "the model (the active one)")}},
 	{"banks", "banks", 1, 0, "the bank-conflict degree of shared-memory "
 	    "index expressions over a warp, and a proved index swizzle that "
 	    "lowers it when the model prices conflicts",

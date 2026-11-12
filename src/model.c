@@ -39,6 +39,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
 	"mul16",
+	"rop_blend", "rop_adv", "rop_logic", "rop_stencil",
 };
 
 /*

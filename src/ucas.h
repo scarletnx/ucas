@@ -337,6 +337,13 @@ enum {
 	 * dot forms, unavailable unless the model lists it.
 	 */
 	C_MUL16,
+	/*
+	 * rop.c: graphics fixed function doing a scatter's update, a
+	 * fragment each: the blend equation (and min, max), the advanced
+	 * blend operations, logic ops, stencil ops.  Unavailable unless
+	 * the model lists them (nothing is priced before it is measured).
+	 */
+	C_ROP_BLEND, C_ROP_ADV, C_ROP_LOGIC, C_ROP_STENCIL,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
@@ -373,6 +380,10 @@ extern const char *const mparam_name[MP_NPAR];
 float node_cost(const struct model *m, nid n, int *cls);
 void cmd_cost(struct func *f, struct model *m);
 void cmd_models(void);
+
+/* ---- rop.c: graphics fixed function as compute ---- */
+struct P;
+int rop_command(struct P *p);
 
 /* ---- dot.c: packed integer dot products ---- */
 struct dotform {

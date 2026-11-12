@@ -44,11 +44,13 @@ static const struct group groups[] = {
 	    "(machine types u8..u64, i8..i64, f16, f32, f64, real, int): values, "
 	    "range, where it is defined, wrapping and C UB, critical points, "
 	    "equivalence of two functions (with a counterexample), error and "
-	    "fit of an approximation, cost under a GPU cost model, minimal "
+	    "fit of an approximation, cost under a GPU cost model, the "
+	    "graphics fixed-function states (blending, logic ops, stencil) "
+	    "that compute a scatter's update, minimal "
 	    "gate networks (with a proof of minimality), cheaper equivalent "
 	    "implementations, polynomial/rational approximations.",
-	    "show table parse range domain wrap crit equiv fit error cost gates "
-	    "find more approx approx_more dword foldproof banks intatomic "
+	    "show table parse range domain wrap crit equiv fit error cost rop "
+	    "gates find more approx approx_more dword foldproof banks intatomic "
 	    "stoke pit phash"},
 	{"calculus", "Calculus",
 	    "Derivatives (higher, partial, mixed), gradient, Hessian, "

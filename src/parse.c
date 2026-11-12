@@ -2504,6 +2504,8 @@ statement(struct P *p)
 			return;
 		if (calc2_command(p))
 			return;
+		if (rop_command(p))	/* fixed function as compute (rop.c) */
+			return;
 		/* simplify a SPIR-V block (spirv.c), from "SAT simplify" ... */
 		if (is_kw(p, "spvsimplify")) {
 			double budget = 6, ulp = 0;
