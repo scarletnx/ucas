@@ -440,6 +440,7 @@ extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
 int cclass_available(const struct model *m, int k);
 void model_classes_text(struct sbuf *b, const struct model *m);
+void model_names(char *out, size_t n);
 struct model *model_new(uint32_t name);
 struct model *model_active(void);
 struct model *model_nth(int i);

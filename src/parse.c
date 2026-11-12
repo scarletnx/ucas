@@ -2955,8 +2955,14 @@ statement(struct P *p)
 			return;
 		}
 		if (CMD("use")) {
-			if (pk(p) != T_ID || (m = model_find(tsym(p, p->i))) == NULL)
-				fail("unknown model");
+			if (pk(p) != T_ID || (m = model_find(tsym(p, p->i))) == NULL) {
+				char nm[640];
+				size_t n = 0;
+				const char *s = pk(p) == T_ID ? ttext(p, p->i, &n) : "";
+				model_names(nm, sizeof nm);
+				fail("unknown model %s%.*s%s (the models: %s)", n ? "'" :
+				    "", (int)n, s, n ? "'" : "", nm);
+			}
 			adv(p);
 			expect_eos(p);
 			model_set_active(m);

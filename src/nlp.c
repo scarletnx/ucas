@@ -8475,6 +8475,59 @@ find_assumptions(const char *t, struct sbuf *opt)
  * c set (a C block) the statement is `c optimize` (cf_cmd.c): the budget,
  * the ranges ("n in [0, 32)"), a target named, check, bench, wrapv.
  */
+/* an identifier at s: its length, or 0 */
+static size_t
+ident_len(const char *s)
+{
+	size_t n = 0;
+
+	if (!isalpha((unsigned char)*s) && *s != '_')
+		return 0;
+	while (isalnum((unsigned char)s[n]) || s[n] == '_')
+		n++;
+	return n;
+}
+
+/*
+ * The name a request line gives a cost model with "under NAME" or "model
+ * NAME" (an article may come between: "under the sm86 model"), whether a
+ * model has it or not; 0 when the line names none.  "for", "on" and
+ * "with" are ordinary words in a request: they name a model only when a
+ * model has the name after them.
+ */
+static int
+request_model_word(const char *line, char *out, size_t nout)
+{
+	static const char *const pre[] = {"under ", "model ", NULL};
+	static const char *const art[] = {"the ", "a ", "an ", NULL};
+	int u, k;
+
+	for (u = 0; pre[u]; u++) {
+		const char *m = line;
+		while ((m = strstr(m, pre[u])) != NULL) {
+			const char *w = m + strlen(pre[u]);
+			size_t n;
+			if (m != line && (isalnum((unsigned char)m[-1]) ||
+			    m[-1] == '_')) {
+				m = w;
+				continue;
+			}
+			for (k = 0; art[k]; k++)
+				if (!strncmp(w, art[k], strlen(art[k]))) {
+					w += strlen(art[k]);
+					break;
+				}
+			if ((n = ident_len(w)) != 0 && n < nout) {
+				memcpy(out, w, n);
+				out[n] = 0;
+				return 1;
+			}
+			m = w;
+		}
+	}
+	return 0;
+}
+
 /*
  * A line of a simplify request that is a statement of its own and runs
  * before it: `use MODEL`, a model or basis definition.
@@ -8561,8 +8614,11 @@ simplify_piece(struct sbuf *piece, int c)
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
 				 * function level": 2 */
 	int c_check = 0, c_bench = 0, c_wrapv = 0, c_trace = 0;
-	char c_target[48] = "", use_model[40] = "";
+	char c_target[48] = "", use_model[40] = "", bad_model[40] = "";
 	char prevw[64] = "", lastw[64] = "";
+	/* the models the piece defines: they run before the request does */
+	uint32_t here_models[8];
+	int nhere = 0, nmod = 0;
 	struct sbuf out = {0};
 
 	if (p == NULL)
@@ -8729,6 +8785,22 @@ simplify_piece(struct sbuf *piece, int c)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " advice");
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
+		const char *q0 = p;
+		while (*q0) {
+			const char *e = strchr(q0, '\n'), *s = q0;
+			size_t ln = e ? (size_t)(e - q0) : strlen(q0), n;
+			while (*s == ' ' || *s == '\t')
+				s++;
+			if (*q0 != '\x1e' && setting_line(q0, ln) &&
+			    !strncmp(s, "model ", 6) && (n = ident_len(s + 6)) != 0 &&
+			    nhere < (int)(sizeof here_models / sizeof here_models[0]))
+				here_models[nhere++] = sym_intern(s + 6, n);
+			q0 += ln + (e != NULL);
+		}
+		while (model_nth(nmod))
+			nmod++;
+	}
+	{
 		struct sbuf as = {0};
 		const char *q0 = p;
 		/* assumptions from the text lines (not directives) */
@@ -8757,9 +8829,12 @@ simplify_piece(struct sbuf *piece, int c)
 						    tg->name);
 				}
 				/* SPIR-V: a cost model named ("under sm86", "for
-				 * rdna2", "model gt1030") is made the active one */
-				for (t = 0; !c && !use_model[0] && model_nth(t); t++) {
-					const char *nm = sym_str(model_nth(t)->name);
+				 * rdna2", "model gt1030"), one defined or one the
+				 * piece defines, is made the active one */
+				for (t = 0; !c && !use_model[0] && t < nmod + nhere;
+				    t++) {
+					const char *nm = sym_str(t < nmod ?
+					    model_nth(t)->name : here_models[t - nmod]);
 					static const char *const pre[] = {"under ", "for ",
 					    "on ", "model ", "with ", NULL};
 					size_t tl = strlen(nm);
@@ -8774,6 +8849,18 @@ simplify_piece(struct sbuf *piece, int c)
 						    m[strlen(pre[u]) + tl]))
 							snprintf(use_model, sizeof use_model, "%s",
 							    nm);
+					}
+				}
+				/* "under NAME" with no model NAME: not the active
+				 * model in its place, an error that names it */
+				if (!c && !use_model[0] && !bad_model[0]) {
+					char w[40];
+					if (request_model_word(line, w, sizeof w)) {
+						int known = model_find(sym_cstr(w)) != NULL;
+						for (t = 0; !known && t < nhere; t++)
+							known = here_models[t] == sym_cstr(w);
+						snprintf(known ? use_model : bad_model, 40,
+						    "%s", w);
 					}
 				}
 				free(line);
@@ -8808,6 +8895,11 @@ simplify_piece(struct sbuf *piece, int c)
 				    assume_opts ? assume_opts : "", c_check ? " check" : "",
 				    c_bench ? " bench" : "", c_wrapv ? " wrapv" : "",
 				    c_trace ? " trace" : "", nofile ? " nofile" : "");
+				first = 0;
+			} else if (first && e > q && bad_model[0] && !use_model[0]) {
+				/* its error, and nothing run under another model */
+				sb_printf(&out, "use %s\n", bad_model);
+				code_block_used = 1;
 				first = 0;
 			} else if (first && e > q) {
 				if (use_model[0])

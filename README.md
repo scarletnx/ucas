@@ -1651,7 +1651,8 @@ fusions used are listed.  The function level (GLSL) offers the same
 signed-to-unsigned division where the calls' domains keep the operands
 non-negative, checked on the whole inferred domain and kept when the
 model prices it lower.  A request's `use MODEL` and model definitions
-run before its simplify.
+run before its simplify, and a model defined there is one the request
+can name.
 
 `cost F` counts each shared subterm once (and prints the body's shared
 subterms once, named, so the rest of the report can refer to them) and
@@ -2076,8 +2077,11 @@ and the shifts and ors that pack, adding `OpCapability DotProduct`,
 "SPV_KHR_integer_dot_product"` when the module lacks them; spirv-val
 accepts it, and spirv-cross writes the instruction through
 GL_EXT_spirv_intrinsics (tests/dot_view.ucas).  "simplify under sm86"
-(for, on, model NAME) makes that model the active one first; the JSON
-`spirv_simplify` takes `model`.  The function level proposes the same
+(for, on, model NAME; "under the sm86 model") makes that model the
+active one first; "under NAME" or "model NAME" with no model of that
+name is `use NAME`'s error, which lists the models, and the request
+does not run (tests/firstmodel.ucas); the JSON `spirv_simplify` takes
+`model`.  The function level proposes the same
 for a GLSL expression over the values its leaves take at its calls,
 with the declaration GLSL needs (GLSL has no built-in for these).
 Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.

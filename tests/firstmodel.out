@@ -84,3 +84,31 @@ fp64 and conversions under gt1030:
   no f64 value is left: the Float64 capability and the type are removed
   spirv-val accepts the written module
   (nofile: simplified.spvasm, 2862 bytes, checksum a7017558)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use nosuchmodel
+firstmodel.ucas:15:5: error: unknown model 'nosuchmodel' (the models: gt1030, sm75, sm86, rdna2, skl, skx, glc, rpl, zen4, x86v2, x86v3, x86v4)
+    use nosuchmodel
+        ^
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model lanesum : gt1030 { iadd: 2 }
+> use lanesum
+cost model: lanesum
+> spvsimplify nofile
+simplify: 56 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under lanesum (each instruction once), beyond what spirv-opt -O and a driver's back end do: 3 -> 3 (+0.0%)
+  counting the strength reductions any driver also does: 4 -> 3 (-25.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1957 bytes, checksum 3d3e43ba)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use sm75
+cost model: sm75
+> spvsimplify nofile
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under sm75 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
