@@ -1,0 +1,20 @@
+# A loop's state that follows a value per lane (a parameter that is not
+# uniform, the lane, another such state) has a value in each lane; a
+# subgroup operation reads its copy in each lane, as a parameter's: cost
+# prices those reads at the worst, every iteration, and a value is
+# refused, naming what the state follows.
+t(c: u32 in 0..15) = { k = 0; x = c; while sg_any(x != 0) { x = x & (x - 1); k += 1 }; k }
+range t
+cost t
+# through another state
+t2(c: u32 in 0..15) = { a = c; b = 0; k = 0; while sg_any(b != 5) { b = a; a = a + 1; k += 1 }; k }
+range t2
+# a state that follows the lane
+z(lane: u32 in 0..3) = { x = lane; k = 0; while sg_any(x != 0) { x = x >> 1; k += 1 }; k }
+range z
+# a state set by a sum over the lanes is shared by them: exact
+v(lane: u32 in 0..3) = { k = 0; while sg_any(k < 20) { k = k + sg_add(lane) }; k }
+range v
+# so is one that reads only shared values, read against the lane
+w(lane: u32 in 0..31, x: u32 in 0..3 uniform) = { k: u32 = 0; s: u32 = 0; while sg_any(k < lane + x) { k += 1; s += lane }; s }
+show w(3, 1)

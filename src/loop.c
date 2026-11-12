@@ -88,6 +88,9 @@ node_slots(nid n)
 		break;
 	case O_VAR:
 		m = N.ki[n] < 64 ? 1ULL << N.ki[n] : 0;
+		/* a loop state's copy in another lane changes with the state */
+		if (N.ki[n] >= SG_COPY_SLOT + MAXP && N.ki[n] < SG_COPY_SLOT + 64)
+			m = 1ULL << (N.ki[n] - SG_COPY_SLOT);
 		break;
 	case O_TABLE:
 		for (j = 0; j < N.b[n]; j++)

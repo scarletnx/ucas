@@ -2660,7 +2660,15 @@ and a `?:` on what it gives as a divergent branch, the report naming
 the parameter), and it has no exact value: `show`, `range`, `equiv`,
 `domain`, `wrap` and `find` refuse it saying so.  A call passes it on:
 `q(5)` with q's x read across the lanes is 5 in every lane, and a
-uniform argument is the same in each.
+uniform argument is the same in each.  So does a loop's state that
+follows such a value: one whose initial or next value reads a parameter
+that is not `uniform`, the lane, a scan, or another such state (not
+through a vote, a ballot or a sum, which the lanes share).  Read across
+the lanes (`while sg_any(x != 0)` with x = c), its copy in each lane is
+priced at the worst every iteration, and a value is refused naming what
+the state follows (tests/sglanestate.ucas).  A state that reads only
+shared values (`k += 1` under `sg_any(k < lane + x)`, x uniform) stays
+shared and exact.
 
 `sg_active(m)`, m a uniform parameter of the function, says which lanes
 run (bit l for lane l) for the function's subgroup operations after it;

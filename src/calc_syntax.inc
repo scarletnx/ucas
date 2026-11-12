@@ -664,6 +664,101 @@ cs_assigned(struct P *p, uint32_t a, uint32_t b, uint32_t *names, int max)
 	return n;
 }
 
+/*
+ * What makes n a value per lane: a parameter that is not uniform (its
+ * name), a loop state of lanes (what that one follows), a scan's lane
+ * ("lane"); not what goes in a vote, a ballot or a sum, whose value the
+ * lanes share, nor a shuffle's value at a shared index.  0: none.
+ */
+static uint32_t
+cs_per_lane(struct P *p, nid n, uint64_t lanes, uint8_t *seen)
+{
+	uint32_t r, j;
+	int k;
+
+	if (n == 0 || n >= N.n || seen[n])
+		return 0;
+	seen[n] = 1;
+	switch (N.op[n]) {
+	case O_CONST:
+	case O_UNDEF:
+		return 0;
+	case O_VAR:
+		k = (int)N.ki[n];
+		if (k >= 0 && k < p->fn->np && !p->fn->p[k].uniform)
+			return p->fn->p[k].name;
+		if (k >= MAXP && k < 64 && (lanes >> k & 1))
+			return p->lane_from[k];
+		return 0;
+	case O_TABLE:
+		for (j = 0; j < N.b[n]; j++)
+			if ((r = cs_per_lane(p, N.lst[N.a[n] + j], lanes, seen)) != 0)
+				return r;
+		return 0;
+	case O_SGSCAN:
+		return sym_cstr("lane");
+	case O_SGSHUF:
+		return cs_per_lane(p, N.b[n], lanes, seen);
+	case O_LOOP: {
+		uint64_t f = loops.free[(uint32_t)N.ki[n]];
+		for (k = 0; k < 64; k++)
+			if ((f >> k & 1) && ((k < p->fn->np && !p->fn->p[k].uniform) ||
+			    (k >= MAXP && (lanes >> k & 1))))
+				return k < p->fn->np ? p->fn->p[k].name : p->lane_from[k];
+		break;
+	}
+	default:
+		if (IS_SG(N.op[n]))
+			return 0;
+	}
+	if ((r = cs_per_lane(p, N.a[n], lanes, seen)) != 0 ||
+	    (r = cs_per_lane(p, N.b[n], lanes, seen)) != 0)
+		return r;
+	return cs_per_lane(p, N.c[n], lanes, seen);
+}
+
+/*
+ * The states of a loop (slots base + 1 ..) that follow a value per lane:
+ * an initial or a next value reads one, or reads such a state; *from,
+ * *name and *ty of each are set.  The loops around it count with theirs.
+ */
+static uint64_t
+cs_lane_states(struct P *p, int base, int m, const nid *init, const nid *next,
+    const uint32_t *names, const ty_t *sty)
+{
+	uint64_t lanes = p->lanest, mine = 0;
+	int j, more = 1;
+
+	if (p->fn == NULL || p->autop)
+		return 0;
+	while (more) {
+		more = 0;
+		for (j = 0; j < m; j++) {
+			int s = base + 1 + j;
+			uint8_t *seen;
+			uint32_t o;
+			if (s >= 64 || (lanes >> s & 1))
+				continue;
+			seen = xcalloc(N.n, 1);
+			o = cs_per_lane(p, init[j], lanes, seen);
+			if (!o) {
+				memset(seen, 0, N.n);
+				o = cs_per_lane(p, next[j], lanes, seen);
+			}
+			free(seen);
+			if (o) {
+				lanes |= 1ULL << s;
+				mine |= 1ULL << s;
+				p->lane_from[s] = o;
+				p->lane_name[s] = names[j];
+				p->lane_ty[s] = sty[j];
+				more = 1;
+			}
+		}
+	}
+	return mine;
+}
+
 static void
 cs_loop(struct P *p, int kind)
 {
@@ -731,8 +826,10 @@ cs_loop(struct P *p, int kind)
 		hi = mk_cast(TY_INT, hi);
 	}
 	for (tries = 0;; tries++) {
-		int saved_nb = p->nb, retry = 0;
+		int saved_nb = p->nb, retry = 0, lretry = 0;
 		nid res = 0;
+		uint64_t sgread0 = p->sgread;
+		p->sgread = 0;
 		memcpy(snap, p->bval, sizeof snap);
 		cs_base = saved_base + 1 + m;
 		if (cs_base + 1 >= PHSLOT)
@@ -763,12 +860,37 @@ cs_loop(struct P *p, int kind)
 				retry = 1;
 			}
 		}
+		{
+			/* a state that follows a value per lane, read across the
+			 * lanes by a subgroup operation of the loop: once more,
+			 * with its copies in the other lanes */
+			nid in0[MAXST];
+			uint32_t nm[MAXST];
+			uint64_t lm = 0, mine = 0;
+			for (j = 0; j < m; j++) {
+				in0[j] = snap[bidx[j]];
+				nm[j] = p->bname[bidx[j]];
+				if (saved_base + 1 + j < 64)
+					mine |= 1ULL << (saved_base + 1 + j);
+			}
+			if (p->sgread & mine & ~p->lanest)
+				lm = cs_lane_states(p, saved_base, m, in0, next, nm,
+				    sty);
+			if (lm & p->sgread & ~p->lanest) {
+				p->lanest |= lm;
+				lretry = 1;
+			}
+		}
+		p->sgread |= sgread0;
 		p->nb = saved_nb;
 		memcpy(p->bval, snap, sizeof snap);
 		cs_base = saved_base;
-		if (!retry || tries == 3)
+		if ((!retry || tries >= 3) && !lretry)
 			break;
 	}
+	/* the slots are the next loop's */
+	for (j = 0; j < m && saved_base + 1 + j < 64; j++)
+		p->lanest &= ~(1ULL << (saved_base + 1 + j));
 	memset(&d, 0, sizeof d);
 	d.kind = kind;
 	d.orig = LO_BLOCK;

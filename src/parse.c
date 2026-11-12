@@ -99,6 +99,15 @@ struct P {
 	int sg_depth;     /* inside a subgroup operation's arguments */
 	nid sgmask;       /* sg_active(m): the lanes that run, or 0 (all) */
 	int sgops;        /* subgroup operations built so far */
+	/*
+	 * Loop states (bit = slot) that follow a value per lane (cs_loop):
+	 * a subgroup operation reads each one's copy in the other lanes, as a
+	 * parameter's.  sgread: the loop slots subgroup operations have read
+	 * across the lanes.
+	 */
+	uint64_t lanest, sgread;
+	uint32_t lane_name[64], lane_from[64];	/* the state's, what it follows */
+	ty_t lane_ty[64];
 };
 
 enum {
@@ -627,6 +636,23 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 			v = subst(v, map, p->fn->np);
 			if (g->kind == SGF_SEG)
 				args[1] = subst(args[1], map, p->fn->np);
+		}
+	}
+	/* a loop's state that follows a value per lane: the same */
+	if (p->fn && !p->autop) {
+		uint64_t st = (node_slots(v) | (g->kind == SGF_SEG ?
+		    node_slots(args[1]) : 0)) & ~((1ULL << MAXP) - 1);
+		p->sgread |= st;
+		if (st & p->lanest) {
+			nid smap[64] = {0};
+			int s;
+			for (s = MAXP; s < 64; s++)
+				if ((st & p->lanest) >> s & 1)
+					smap[s] = sg_state_copy(s, p->lane_name[s],
+					    p->lane_ty[s], W, p->lane_from[s]);
+			v = subst(v, smap, 64);
+			if (g->kind == SGF_SEG)
+				args[1] = subst(args[1], smap, 64);
 		}
 	}
 	if (g->kind == SGF_ACTIVE)
