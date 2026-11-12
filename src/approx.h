@@ -75,4 +75,27 @@ int fit_run(const struct fitprob *pb, struct fitres *r);
 ld fit_eval(const struct fitprob *pb, const struct fitres *r, ld x);
 void fit_measure(const struct fitprob *pb, struct fitres *r);
 
+/*
+ * acert.c: a bound on a candidate's error that holds on the whole
+ * interval, derived (Taylor arithmetic on intervals for the
+ * approximation, the standard rounding model for the rest).  target: a
+ * body of one real variable (slot 0); cand: approx's candidate (x: a
+ * w-bit float, or real when w = 0, slot 0); rel: ulp of the exact value
+ * (w > 0) or relative (w = 0), else absolute; k0 > 0: the target has a
+ * zero of that order at z, which the fit's factor (x - z)^k0 matches.
+ */
+struct acert {
+	int ok;
+	char why[240];		/* not certified: why (and where) */
+	double bound;		/* the total, in the metric */
+	double approx;		/* the approximation's part (no rounding) */
+	double reached;		/* that part at the pieces' middles: a lower
+				 * bound of its largest value */
+	double worst;		/* the middle of the piece with the bound */
+	long pieces, evals;
+	int order;		/* Taylor's order K */
+};
+void acert_run(nid target, nid cand, ld lo, ld hi, int w, int rel, int k0,
+    ld z, struct acert *r);
+
 #endif

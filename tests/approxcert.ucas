@@ -1,0 +1,19 @@
+# approx certifies what a search keeps: a bound derived for every float
+# of the interval (acert.c), beside the table's measure, which samples.
+# The coefficients' error by Taylor arithmetic on intervals, the rounding
+# by the standard model carried through the program; the bound is never
+# below the measure, and the coefficients' part is close to what it
+# reaches at the pieces' middles.
+#
+# sin's x*P(x^2) on both sides of its zero: the zero divided out
+approx sin(x) in -1.5707963..1.5707963 degree 5 as f32 norational nosplit noreduce list 1 search anneal budget 300
+# log's (x - 1)*P(x - 1): the zero at the interval's end, x - 1 exact
+approx log(x) in 1..1.5 degree 5 as f32 norational nosplit noreduce list 1 search anneal budget 300
+# a rational, x*P(x^2)/Q(x^2): the division's error is carried too
+approx tanh(x) in 0..1 degree 3 as f32 nosplit noreduce list 2 search anneal budget 300
+# every float measured: the bound is above the table's exhaustive number
+approx exp(x) in 1..1.0625 degree 3 as f32 norational nosplit noreduce list 1 points 600000 search anneal budget 300
+# an absolute metric: the target crosses 0 inside
+approx sin(x) - 0.3 in 0..0.6 degree 4 as f32 norational nosplit noreduce list 1 search anneal budget 300
+# f64: Taylor of order 6
+approx atan(x) in 0..0.5 degree 11 as f64 norational nosplit noreduce list 1 search anneal budget 200

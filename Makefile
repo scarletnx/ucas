@@ -31,6 +31,8 @@ spirv.o spirv.pieo: spv_sg.inc
 SRCS+=	stoch.c
 # numerical search (annealing, CMA-ES), rounding error models, Sobol QMC
 SRCS+=	numsearch.c rounderr.c qmc.c
+# a derived bound on an approximation over its whole interval
+SRCS+=	acert.c
 # calc2: derivatives and their conditions, limits, series, Wronskians
 SRCS+=	calc2.c
 # complex, quaternion, octonion and Cayley-Dickson numbers

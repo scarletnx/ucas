@@ -2747,6 +2747,7 @@ print_rows(int from, int to)
 	for (i = from; i < to && i < A.nc; i++) {
 		struct cand *c = &A.cd[i];
 		struct func *f;
+		struct acert ac;
 		if (c->qdeg)
 			snprintf(deg, sizeof deg, "%d/%d", c->deg, c->qdeg);
 		else if (c->deg >= 0)
@@ -2776,6 +2777,17 @@ print_rows(int from, int to)
 		printf("\n");
 		snprintf(nm, sizeof nm, "%s%d", A.o.name, i + 1);
 		printf("      %s: %s\n", c->shape, c->text);
+		f = define(nm, c->text);
+		memset(&ac, 0, sizeof ac);
+		if (c->skind && c->skept && A.w) {
+			/* what the search kept, certified on the whole interval */
+			if (f)
+				acert_run(A.f.body, f->body, A.lo, A.hi, A.w, A.rel,
+				    A.k0, A.c, &ac);
+			else
+				snprintf(ac.why, sizeof ac.why, "the candidate did not "
+				    "parse back");
+		}
 		if (c->skind) {
 			const char *un = A.rel ? "ulp" : "abs";
 			printf("      search: %s over the coefficients' ulp offsets "
@@ -2785,14 +2797,27 @@ print_rows(int from, int to)
 			    c->sbefore, c->safter, un);
 			if (c->sms < 0)
 				printf(" (nothing better found)\n");
+			else if (c->skept && ac.ok)
+				printf("; on the table's measure %.4g -> %.4g %s: "
+				    "kept, certified below\n", c->smw, c->sms, un);
 			else if (c->skept)
 				printf("; on the table's measure %.4g -> %.4g %s: "
-				    "kept (measured%s, not certified)\n", c->smw, c->sms,
-				    un, A.exhaustive ? " on every float" : " on that "
-				    "sample");
+				    "kept (measured%s, not certified: %s)\n", c->smw,
+				    c->sms, un, A.exhaustive ? " on every float" :
+				    " on that sample", ac.why);
 			else
 				printf("; on the table's measure %.4g against the "
 				    "walk's %.4g %s: not kept\n", c->sms, c->smw, un);
+			if (ac.ok)
+				printf("      certified: at most %.4g %s for every %s x in "
+				    "[%.9g, %.9g], %ld pieces: the coefficients' error at "
+				    "most %.4g (%.4g reached at a piece's middle), rounding "
+				    "the rest (each operation's result (1 + d), |d| <= u, "
+				    "carried through); Taylor of order %d on intervals, "
+				    "libm's long double functions taken within 2^-58\n",
+				    ac.bound, un, fmt_name(A.w), (double)A.lo,
+				    (double)A.hi, ac.pieces, ac.approx, ac.reached,
+				    ac.order);
 		}
 		rep_obj(NULL);
 		rep_int("rank", i + 1);
@@ -2827,11 +2852,21 @@ print_rows(int from, int to)
 			if (c->sms >= 0)
 				rep_num("measure_search", c->sms);
 			rep_bool("kept", c->skept);
-			rep_str("label", "measured, not certified");
+			rep_str("label", ac.ok ? "certified" :
+			    "measured, not certified");
+			if (ac.ok) {
+				rep_obj("certificate");
+				rep_num("bound", ac.bound);
+				rep_num("approximation", ac.approx);
+				rep_num("reached", ac.reached);
+				rep_int("pieces", ac.pieces);
+				rep_int("taylor_order", ac.order);
+				rep_end();
+			} else if (c->skept && ac.why[0])
+				rep_str("not_certified", ac.why);
 			rep_end();
 		}
 		rep_end();
-		f = define(nm, c->text);
 		if (f && A.o.emitc)
 			emit_c(f, nm);
 		if (f && A.w && i == 0 && from == 0) {
