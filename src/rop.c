@@ -24,6 +24,10 @@
  *   query          a precise occlusion query: d + (s != 0) counted over
  *                  a whole draw, one counter
  *
+ * A predicate P(x, y) over a grid of pixels is a coverage instead: when it
+ * is the conjunction of half-planes a x + b y + c >= 0, the rasteriser's
+ * edge functions test it, a convex polygon drawn over the grid.
+ *
  * Nothing is recognised by name: every state is compared with F on F's
  * domain.  Integers are decided on every point or by SAT; a blend
  * equation by expanding both sides to the same polynomial, and it is
@@ -246,7 +250,7 @@ to_real(nid e, int flt, int depth)
 
 /* the same, guarded: building it must not end the command */
 static nid
-as_real(const struct rctx *c, nid e)
+real_guarded(nid e, int flt)
 {
 	jmp_buf saved;
 	volatile nid r = 0;
@@ -254,11 +258,17 @@ as_real(const struct rctx *c, nid e)
 	memcpy(saved, fail_jmp, sizeof saved);
 	note_mute++;
 	if (setjmp(fail_jmp) == 0)
-		r = to_real(e, c->flt, 0);
+		r = to_real(e, flt, 0);
 	note_mute--;
 	memcpy(fail_jmp, saved, sizeof saved);
 	notes_drop();
 	return r;
+}
+
+static nid
+as_real(const struct rctx *c, nid e)
+{
+	return real_guarded(e, c->flt);
 }
 
 static void
@@ -1165,6 +1175,402 @@ query_count(struct rctx *c)
 	form(c, "occlusion query", st, hold, pr, C_ROP_QUERY, pl);
 }
 
+/* ---- edge functions: a convex polygon's coverage of a grid ---- */
+
+#define RMAXH 8			/* half-planes */
+#define RMAXV (RMAXH + 4)	/* the box's 4 edges, then one a half-plane */
+
+/* P's conjuncts, each a <, <=, > or >=: their count, -1 for anything else */
+static int
+conjuncts(nid e, nid *out, int n)
+{
+	int op = N.op[e];
+
+	if (n < 0)
+		return n;
+	if (op == O_LAND)
+		return conjuncts(N.b[e], out, conjuncts(N.a[e], out, n));
+	if ((op != O_LT && op != O_LE && op != O_GT && op != O_GE) ||
+	    n == RMAXH)
+		return -1;
+	out[n] = e;
+	return n + 1;
+}
+
+/*
+ * The comparison e as h(x, y) = a x + b y + c >= 0 with integers a, b, c,
+ * read over the reals (x, y integers: a strict compare is one more).  It
+ * only proposes: the coverage built from it is compared with P itself.
+ */
+static int
+halfplane(nid e, const struct func *f, int64_t *a, int64_t *b, int64_t *c)
+{
+	nid g = real_guarded(mk_bin(O_SUB, N.a[e], N.b[e]), 0), x, y;
+	struct mp G, k;
+	aq ka, kb, kc;
+	size_t mk;
+	int ax, ay, ok = 0, op = N.op[e];
+	int64_t l;
+
+	if (!g)
+		return 0;
+	mk = ar_mark();
+	atoms_reset();
+	x = mk_var(0, f->p[0].name, TY_REAL);
+	y = mk_var(1, f->p[1].name, TY_REAL);
+	ax = atom_of(x);
+	ay = atom_of(y);
+	if (mp_of(g, &G) && nat == 2 && !alg_ovf && mp_tdeg(G) <= 1) {
+		k = mp_coef(G, ax, 1);
+		ok = mp_isconst(k, &ka);
+		k = mp_coef(G, ay, 1);
+		ok = ok && mp_isconst(k, &kb);
+		k = mp_coef(mp_coef(G, ax, 0), ay, 0);
+		ok = ok && mp_isconst(k, &kc) && !alg_ovf;
+	}
+	ar_release(mk);
+	if (!ok)
+		return 0;
+	l = lcm64(lcm64(ka.d, kb.d), kc.d);
+	if (l <= 0 || l > 1000000)
+		return 0;
+	*a = ka.n * (l / ka.d);
+	*b = kb.n * (l / kb.d);
+	*c = kc.n * (l / kc.d);
+	if (op == O_LT || op == O_LE) {
+		*a = -*a;
+		*b = -*b;
+		*c = -*c;
+	}
+	if (op == O_LT || op == O_GT)
+		*c -= 1;
+	return llabs(*a) < (1 << 20) && llabs(*b) < (1 << 20) &&
+	    llabs(*c) < ((int64_t)1 << 40);
+}
+
+/*
+ * The polygon v[0..n) clipped to A X + B Y + C >= 0 (Sutherland-Hodgman).
+ * lab[i] is the constraint edge i (v[i] to v[i + 1]) lies on: the new
+ * edge along the line gets lab, the cut pieces keep theirs.
+ */
+static int
+clip_poly(double (*v)[2], int *labv, int n, double A, double B, double C,
+    int lab)
+{
+	double o[RMAXV + 2][2];
+	int ol[RMAXV + 2], i, m = 0;
+
+	for (i = 0; i < n; i++) {
+		const double *p = v[i], *q = v[(i + 1) % n];
+		double fp = A * p[0] + B * p[1] + C, fq = A * q[0] + B * q[1] + C;
+		if (m > RMAXV)
+			return -1;
+		if (fp >= 0) {
+			o[m][0] = p[0];
+			o[m][1] = p[1];
+			ol[m++] = labv[i];
+		}
+		if ((fp >= 0) != (fq >= 0)) {
+			double t = fp / (fp - fq);
+			o[m][0] = p[0] + t * (q[0] - p[0]);
+			o[m][1] = p[1] + t * (q[1] - p[1]);
+			/* leaving: the line runs on; entering: the old edge does */
+			ol[m++] = fp >= 0 ? lab : labv[i];
+		}
+	}
+	if (m > RMAXV)
+		return -1;
+	memcpy(v, o, (size_t)m * sizeof o[0]);
+	memcpy(labv, ol, (size_t)m * sizeof ol[0]);
+	return m;
+}
+
+/* floor(a / b), b != 0 */
+static int64_t
+fdiv64(int64_t a, int64_t b)
+{
+	int64_t q = a / b;
+
+	return (a % b != 0 && ((a < 0) != (b < 0))) ? q - 1 : q;
+}
+
+/*
+ * The x of row y where p x + r > 0 (p, r integers), inside [x0, x1]:
+ * [*lo, *hi] (empty: lo > hi); *tie when p x + r = 0 at an x there.
+ */
+static void
+ray_of(int64_t p, int64_t r, int64_t x0, int64_t x1, int64_t *lo,
+    int64_t *hi, int *tie)
+{
+	*tie = 0;
+	if (p == 0) {
+		*lo = r > 0 ? x0 : x1 + 1;
+		*hi = x1;
+		*tie = r == 0;
+		return;
+	}
+	if (r % p == 0 && -r / p >= x0 && -r / p <= x1)
+		*tie = 1;
+	if (p > 0) {
+		*lo = fdiv64(-r, p) + 1;
+		*hi = x1;
+	} else {
+		/* p x + r > 0 <=> -p x < r <=> x <= (r - 1) / -p */
+		*lo = x0;
+		*hi = fdiv64(r - 1, -p);
+		if (*hi > x1)
+			*hi = x1;
+	}
+	if (*lo < x0)
+		*lo = x0;
+}
+
+/*
+ * The edge from (ax, ay) to (bx, by) (1/16 units), its inside on the side
+ * orient * E > 0, tests at every pixel centre of the box what the
+ * half-plane h = (a, b, c) (a x + b y + c >= 0; box: a = b = 0, c = 0)
+ * does, and passes through none.
+ */
+static int
+edge_ok(int64_t ax, int64_t ay, int64_t bx, int64_t by, int orient,
+    const int64_t *h, const int64_t *lo, const int64_t *hi)
+{
+	int64_t y;
+
+	for (y = lo[1]; y <= hi[1]; y++) {
+		/* E = (bx - ax)(Y - ay) - (by - ay)(X - ax), X = 16x + 8 */
+		int64_t p = -(by - ay) * 16 * orient;
+		int64_t r = ((bx - ax) * (16 * y + 8 - ay) - (by - ay) * (8 - ax)) *
+		    orient;
+		int64_t el, eh, hl, hh;
+		int tie, t2;
+		ray_of(p, r, lo[0], hi[0], &el, &eh, &tie);
+		if (tie)
+			return 0;
+		/* h: a x + (b y + c) >= 0 is a x + (b y + c) + 1 > 0 */
+		ray_of(h[0], h[1] * y + h[2] + 1, lo[0], hi[0], &hl, &hh, &t2);
+		if (el > eh && hl > hh)
+			continue;
+		if (el != hl || eh != hh)
+			return 0;
+	}
+	return 1;
+}
+
+static void
+cmd_raster(struct func *f, struct model *m)
+{
+	static const int dx[9] = {0, -1, 1, 0, 0, -1, -1, 1, 1};
+	static const int dy[9] = {0, 0, 0, -1, 1, -1, 1, -1, 1};
+	nid cj[RMAXH], cov = 0, tie = 0, X, Y;
+	double v[RMAXV + 2][2], area2 = 0;
+	int64_t lo[2], hi[2], vx[RMAXV + 2], vy[RMAXV + 2], hp[RMAXH][3];
+	int64_t bx[RMAXV + 2], by[RMAXV + 2], box[3] = {0, 0, 0};
+	int nh, i, n, j, r1, r2, lab[RMAXV + 2], found = 0, orient, c0;
+	int from[RMAXV + 2][9];
+	uint8_t ok[RMAXV + 2][9];
+	ty_t W = TY(K_SINT, 64);
+	const char *how = "", *how2 = "", *fn = f->anon ? "P" :
+	    sym_str(f->name);
+	struct sbuf st = {0}, pl = {0}, pr = {0}, vs = {0};
+	struct rctx c;
+
+	if (f->np != 2 || !TY_ISINT(f->p[0].ty) || !TY_ISINT(f->p[1].ty))
+		fail("rop takes a predicate of a pixel, P(x, y) with two integer "
+		    "parameters (the grid's coordinates, with their ranges)");
+	if (f->where)
+		fail("rop does not take a where clause: give x and y ranges");
+	for (i = 0; i < 2; i++) {
+		param_bounds(&f->p[i], &lo[i], &hi[i]);
+		if (lo[i] < 0 || hi[i] > 16383)
+			fail("%s runs over [%lld, %lld]: a grid of pixels starts at 0 "
+			    "and stays inside the largest framebuffer, 16384 (give "
+			    "it a range: %s: u32 in 0..1023)", sym_str(f->p[i].name),
+			    (long long)lo[i], (long long)hi[i], sym_str(f->p[i].name));
+	}
+	printf("rop %s: %s(%s, %s) = %s, a predicate of the pixel (%s, %s) over "
+	    "[%lld, %lld] x [%lld, %lld]\n", fn, fn, sym_str(f->p[0].name),
+	    sym_str(f->p[1].name), shared_str(f->body, 200),
+	    sym_str(f->p[0].name), sym_str(f->p[1].name), (long long)lo[0],
+	    (long long)hi[0], (long long)lo[1], (long long)hi[1]);
+	rep_begin("rop");
+	rep_expr("predicate", f->body);
+	rep_str("model", sym_str(m->name));
+	nh = conjuncts(f->body, cj, 0);
+	/* the grid's box, in window coordinates: its pixels' centres */
+	v[0][0] = (double)lo[0];
+	v[0][1] = (double)lo[1];
+	v[1][0] = (double)hi[0] + 1;
+	v[1][1] = (double)lo[1];
+	v[2][0] = (double)hi[0] + 1;
+	v[2][1] = (double)hi[1] + 1;
+	v[3][0] = (double)lo[0];
+	v[3][1] = (double)hi[1] + 1;
+	for (i = 0; i < 4; i++)
+		lab[i] = -1;	/* a side of the box */
+	n = 4;
+	for (i = 0; i < nh && n >= 3; i++) {
+		if (!halfplane(cj[i], f, &hp[i][0], &hp[i][1], &hp[i][2])) {
+			nh = -1;
+			break;
+		}
+		/*
+		 * a x + b y + c >= 0 on integers is 2(a x + b y + c) + 1 > 0,
+		 * odd at every centre (X, Y) = (x + 1/2, y + 1/2): no centre is
+		 * on the line 2a X + 2b Y + 2c - a - b + 1 = 0
+		 */
+		n = clip_poly(v, lab, n, 2.0 * (double)hp[i][0], 2.0 *
+		    (double)hp[i][1], 2.0 * (double)hp[i][2] - (double)hp[i][0] -
+		    (double)hp[i][1] + 1.0, i);
+	}
+	if (nh <= 0 || n < 0) {
+		printf("  no fixed-function state in the catalogue computes it: "
+		    "the rasteriser tests a conjunction of half-planes, a x + b y "
+		    "+ c >= 0 (or <, <=, >) in x and y, and %s is not one\n", fn);
+		rep_int("count", 0);
+		return;
+	}
+	for (i = 0; i < n; i++)
+		area2 += v[i][0] * v[(i + 1) % n][1] - v[(i + 1) % n][0] * v[i][1];
+	if (n < 3 || fabs(area2) < 1e-9) {
+		printf("  no pixel of the grid is inside every half-plane: a draw "
+		    "would cover nothing\n");
+		rep_int("count", 0);
+		return;
+	}
+	/*
+	 * the vertices on Vulkan's coarsest sub-pixel grid, 1/16: each the
+	 * nearest point or one of its 8 neighbours, chosen so that every
+	 * edge tests its constraint at every pixel centre of the box (checked
+	 * row by row, exactly): a walk round the polygon from each first
+	 * choice, keeping every choice an edge allows
+	 */
+	orient = area2 > 0 ? 1 : -1;
+	for (i = 0; i < n; i++) {
+		bx[i] = llround(v[i][0] * 16);
+		by[i] = llround(v[i][1] * 16);
+	}
+	for (c0 = 0; c0 < 9 && !found; c0++) {
+		int k, a2, b2, last = -1;
+		memset(ok, 0, sizeof ok);
+		ok[0][c0] = 1;
+		for (k = 0; k < n && !found; k++) {
+			int nk = (k + 1) % n;
+			const int64_t *h = lab[k] < 0 ? box : hp[lab[k]];
+			for (a2 = 0; a2 < 9 && !found; a2++) {
+				if (!ok[k][a2])
+					continue;
+				for (b2 = 0; b2 < 9 && !found; b2++) {
+					if ((nk == 0 && b2 != c0) || (nk != 0 && ok[nk][b2]))
+						continue;
+					if (!edge_ok(bx[k] + dx[a2], by[k] + dy[a2], bx[nk] +
+					    dx[b2], by[nk] + dy[b2], orient, h, lo, hi))
+						continue;
+					if (nk == 0) {
+						found = 1;
+						last = a2;
+					} else {
+						ok[nk][b2] = 1;
+						from[nk][b2] = a2;
+					}
+				}
+			}
+		}
+		if (found) {
+			int cur = last;
+			vx[0] = bx[0] + dx[c0];
+			vy[0] = by[0] + dy[c0];
+			for (k = n - 1; k >= 1; k--) {
+				vx[k] = bx[k] + dx[cur];
+				vy[k] = by[k] + dy[cur];
+				cur = from[k][cur];
+			}
+		}
+	}
+	if (!found) {
+		printf("  the half-planes bound a convex polygon of %d vertices, "
+		    "but no point of Vulkan's coarsest sub-pixel grid (1/16) at or "
+		    "next to each corner gives edges that test their half-plane at "
+		    "every pixel centre of the grid\n", n);
+		rep_int("count", 0);
+		return;
+	}
+	/* the proof: the polygon's edges over the pixel centres, 16x + 8 */
+	X = mk_bin(O_ADD, mk_bin(O_MUL, mk_const_i(W, 16), mk_cast(W, mk_var(0,
+	    f->p[0].name, f->p[0].ty))), mk_const_i(W, 8));
+	Y = mk_bin(O_ADD, mk_bin(O_MUL, mk_const_i(W, 16), mk_cast(W, mk_var(1,
+	    f->p[1].name, f->p[1].ty))), mk_const_i(W, 8));
+	for (i = 0; i < n; i++) {
+		nid e, in, on;
+		j = (i + 1) % n;
+		/* orient ((Xj - Xi)(Y - Yi) - (Yj - Yi)(X - Xi)), > 0 inside */
+		e = mk_bin(O_SUB, mk_bin(O_MUL, mk_const_i(W, orient * (vx[j] -
+		    vx[i])), mk_bin(O_SUB, Y, mk_const_i(W, vy[i]))), mk_bin(O_MUL,
+		    mk_const_i(W, orient * (vy[j] - vy[i])), mk_bin(O_SUB, X,
+		    mk_const_i(W, vx[i]))));
+		in = mk_bin(O_GT, e, mk_const_i(W, 0));
+		on = mk_bin(O_EQ, e, mk_const_i(W, 0));
+		cov = cov ? mk_bin(O_LAND, cov, in) : in;
+		tie = tie ? mk_bin(O_LOR, tie, on) : on;
+	}
+	r1 = same(f, f->body, cov, &how);
+	r2 = r1 == 1 ? same(f, tie, mk_const_i(TY_BOOL, 0), &how2) : -1;
+	for (i = 0; i < n; i++)
+		sb_printf(&vs, "%s(%.10g, %.10g)", i ? ", " : "", (double)vx[i] / 16,
+		    (double)vy[i] / 16);
+	if (r1 != 1 || r2 != 1) {
+		/* the row-by-row check said otherwise: the proof decides */
+		if (r1 != 1)
+			printf("  the half-planes, read over the integers, give a "
+			    "polygon with the vertices %s, but %s is not its coverage "
+			    "on its domain (%s): its own arithmetic wraps or rounds "
+			    "where the half-planes' does not (x and y as i32 keep "
+			    "a small grid's compares exact)\n", sb_str(&vs), fn,
+			    r1 == 0 ? "a point differs" : "not decided");
+		else
+			printf("  a polygon with the vertices %s covers what %s does, "
+			    "but a pixel centre may lie on one of its edges (not "
+			    "decided), where the tie rule would choose\n",
+			    sb_str(&vs), fn);
+		rep_int("count", 0);
+		free(vs.p);
+		return;
+	}
+	sb_printf(&st, "a convex polygon of %d vertices drawn over the grid "
+	    "(%d triangle%s as a fan), its coverage %s(%s, %s)", n, n - 2,
+	    n == 3 ? "" : "s", fn, sym_str(f->p[0].name),
+	    sym_str(f->p[1].name));
+	sb_printf(&pr, "its edges cover a pixel's centre exactly where %s holds "
+	    "(%s) and pass through no centre (%s), so the rasteriser's tie rule "
+	    "never decides; the vertices are multiples of 1/16, Vulkan's "
+	    "coarsest sub-pixel grid (subPixelPrecisionBits >= 4), so no device "
+	    "moves them; a centre on one of the fan's diagonals is in exactly "
+	    "one of its triangles", fn, how, how2);
+	sb_printf(&pl, "a draw of %d triangle%s as a fan over the window "
+	    "positions %s (pixel (x, y) is the framebuffer's: x and y below "
+	    "maxFramebufferWidth and Height), no culling, a viewport covering "
+	    "the grid; the fragment shader runs on the pixels where %s holds, "
+	    "instead of a test in every invocation", n - 2, n == 3 ? "" : "s",
+	    sb_str(&vs), fn);
+	memset(&c, 0, sizeof c);
+	c.f = f;
+	c.m = m;
+	c.against = fuse_expr_cost(m, f->body);
+	sb_printf(&c.againstwhy, "the test in every invocation of the grid");
+	form(&c, "rasterisation", sb_str(&st), "the grid's pixels are the "
+	    "framebuffer's, x and y their coordinates", sb_str(&pr),
+	    C_ROP_RASTER, sb_str(&pl));
+	rep_end();
+	printf("  not in any price: the draw's setup (a render pass, the "
+	    "pipeline, %d vertices)\n", n);
+	rep_int("count", 1);
+	free(c.againstwhy.p);
+	free(st.p);
+	free(pr.p);
+	free(pl.p);
+	free(vs.p);
+}
+
 /* ---- the command ---- */
 
 /*
@@ -1321,6 +1727,10 @@ cmd_rop(struct func *f, struct model *m)
 	struct rctx c;
 	const char *fn = f->anon ? "the update" : sym_str(f->name), *why;
 
+	if (N.ty[f->body] == TY_BOOL) {
+		cmd_raster(f, m);
+		return;
+	}
 	memset(&c, 0, sizeof c);
 	why = rop_setup(&c, f, m);
 	if (why) {

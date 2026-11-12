@@ -135,3 +135,23 @@ h64(s: u64, d: u64) = d + (s != 0 ? 1 : 0)
 rop h64
 model qm : gt1030 { rop_query: 3 }
 rop hits model qm
+
+# a predicate of the pixel over a grid: a conjunction of half-planes is
+# what the rasteriser's edge functions test, a convex polygon drawn over
+# the grid (its vertices on the 1/16 sub-pixel grid every device has,
+# its edges through no pixel centre)
+tri(x: i32 in 0..255, y: i32 in 0..255) = x + 2*y >= 40 && 3*x - y < 400 && y <= 200 - x
+rop tri
+half(x: i32 in 0..63, y: i32 in 0..63) = x > y
+rop half
+# not half-planes, too steep for the 1/16 grid, wrapping in u32, empty
+disc(x: i32 in 0..63, y: i32 in 0..63) = x*x + y*y < 900
+rop disc
+steep(x: i32 in 0..255, y: i32 in 0..255) = 97*x - 31*y >= 5
+rop steep
+uw(x: u32 in 0..255, y: u32 in 0..255) = 3*x - y < 400
+rop uw
+none(x: i32 in 0..15, y: i32 in 0..15) = x > 20
+rop none
+model rz : gt1030 { rop_raster: 1 }
+rop tri model rz
