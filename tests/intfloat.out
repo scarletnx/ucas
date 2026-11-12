@@ -1,0 +1,220 @@
+> cv(i: u32 in 0..1000) = f32(i)
+> find cv 1
+find cv: rewrites by identities the model prices lower (cost 3 as written, under gt1030)
+  cost 2   asfloat(i | 0x4b000000) - 8388608        the conversion f32(i) by the bits of 2^23 (derived)
+      holds where i in [0, 1000], inside [0, 2^23)
+      0 <= i < 2^23: i | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa i, the f32 2^23 + i exactly (one unit in the last place there is 1)
+      2^23 + i - 2^23 = i is an integer below 2^24, an f32: the subtraction does not round
+      f32(i) is exact below 2^24: both are i
+> cvs(i: i32 in -4194304..4194303) = f32(i)
+> find cvs 1
+find cvs: rewrites by identities the model prices lower (cost 3 as written, under gt1030)
+  cost 2   asfloat(i + 1262485504) - 12582912       the conversion f32(i) by the bits of 1.5*2^23 (derived)
+      holds where i in [-4194304, 4194303], inside [-2^22, 2^22)
+      -2^22 <= i < 2^22: 0x4B400000 are the bits of 1.5*2^23 (exponent field 150, mantissa 2^22), and adding i moves the mantissa inside [0, 2^23) without reaching the exponent: the bits of the f32 1.5*2^23 + i exactly
+      subtracting 1.5*2^23 leaves i, an integer below 2^24, an f32: the subtraction does not round
+      f32(i) is exact below 2^24: both are i
+> cvx(i: u32 in 0..8388608) = u32(f32(i) * 0.5)
+> find cvx 1
+find cvx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  cost 2   i >> 1                                   exact (sampled)
+  [searched every term up to cost 2: 1076 distinct columns; 'more' continues]
+> cve(i: u32 in 8388000..8388607) = f32(i)
+> cvr(i: u32 in 8388000..8388607) = asfloat(i | 0x4B000000) - 8388608.0
+> equiv cve cvr
+cve and cvr are equal on the domain of cve (exhaustive)
+> cvse(i: i32 in -4194304..-4194000) = f32(i)
+> cvsr(i: i32 in -4194304..-4194000) = asfloat(i + 0x4B400000) - 12582912.0
+> equiv cvse cvsr
+cvse and cvsr are equal on the domain of cvse (exhaustive)
+> model convcheap : gt1030 { conv: 1 }
+> use convcheap
+cost model: convcheap
+> find cv 1
+find cv: derived, but not cheaper under convcheap (cost 2, as written 1): the conversion f32(i) by the bits of 2^23
+> use gt1030
+cost model: gt1030
+> fi(x: f32 in 0..1000) = i32(floor(x))
+> find fi 1
+find fi: rewrites by identities the model prices lower (cost 6 as written, under gt1030)
+  cost 5   asint(floor(x) + 12582912) - 1262485504  the conversion i32(floor(x)) by the bits of 1.5*2^23 (derived)
+      holds where floor(x) is an integer in [0, 1000], inside [-2^22, 2^22) and i32
+      floor(x) + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (floor(x) + 2^22) = 0x4B400000 + floor(x) (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves floor(x)
+      i32(floor(x)) truncates toward zero: of an integer it is that integer
+find fi: derived, but not cheaper under gt1030 (cost 10, as written 6): floor(x) by adding and subtracting 1.5*2^23, and one compare
+> fn(x: f32 in 0..1000) = i32(x * 0.5)
+> find fn 1
+intfloat.ucas:37:10: error: find needs integer parameters (or a float result)
+    find fn 1
+             ^
+> rt(i: u32 in 0..100) = u32(f32(i)) + 1
+> find rt 1
+find rt: 101 points, computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 1   i + 1                                    u32(f32(i)) as i (an integer below 2^24 converted and back) (derived; checked on every point)
+      holds where i in [0, 100], inside [-2^24, 2^24] and u32
+      f32 holds every integer up to 2^24 in magnitude: f32(i) is i, and truncating an integer leaves it
+  cost 6   u32(asint(f32(i) + 12582912) - 1262485504) + 1 the conversion u32(f32(i)) by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where f32(i) is an integer in [0, 100], inside [-2^22, 2^22) and u32
+      f32(i) + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (f32(i) + 2^22) = 0x4B400000 + f32(i) (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves f32(i)
+      u32(f32(i)) truncates toward zero: of an integer it is that integer
+  cost 6   u32(asfloat(i | 0x4b000000) - 8388608) + 1 the conversion f32(i) by the bits of 2^23 (derived; checked on every point)
+      holds where i in [0, 100], inside [0, 2^23)
+      0 <= i < 2^23: i | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa i, the f32 2^23 + i exactly (one unit in the last place there is 1)
+      2^23 + i - 2^23 = i is an integer below 2^24, an f32: the subtraction does not round
+      f32(i) is exact below 2^24: both are i
+  cost 1   i + 1                                    affine fit
+  [searched every term up to cost 1: 54 distinct columns; 'more' continues]
+> fl(i: u32 in 0..100) = floor(f32(i))
+> find fl 1
+find fl: rewrites by identities the model prices lower (cost 6 as written, under gt1030)
+  cost 3   f32(i)                                   floor(f32(i)) as f32(i) (it is an integer already) (derived)
+      holds where f32(i) is an integer in [0, 100]
+      floor of an integer is that integer
+  cost 5   floor(asfloat(i | 0x4b000000) - 8388608) the conversion f32(i) by the bits of 2^23 (derived)
+      holds where i in [0, 100], inside [0, 2^23)
+      0 <= i < 2^23: i | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa i, the f32 2^23 + i exactly (one unit in the last place there is 1)
+      2^23 + i - 2^23 = i is an integer below 2^24, an f32: the subtraction does not round
+      f32(i) is exact below 2^24: both are i
+  cost 2   asfloat(i | 0x4b000000) - 8388608        all of them: floor(f32(i)) as f32(i) (it is an integer already), then the conversion f32(i) by the bits of 2^23 (derived)
+> p2(k: u32 in 0..31) = f32(1 << k)
+> find p2 1
+find p2: rewrites by identities the model prices lower (cost 5 as written, under gt1030)
+  cost 3   asfloat(k + 127 << 23)                   f32(1 << k) as its bits, the exponent field k + 127 (derived)
+      holds where k in [0, 31]: 1 << k is 2^k, not wrapped
+      2^k is a power of two below 2^128: an f32, so the conversion is exact
+      its bits are sign 0, exponent field k + 127 (in [127, 158], a normal number) and mantissa 0: (k + 127) << 23
+> ld(x: f32 in 1..2, k: u32 in 0..20) = x * f32(1 << k)
+> find ld 1
+find ld: rewrites by identities the model prices lower (cost 6 as written, under gt1030)
+  cost 2   asfloat(asint(x) + (i32(k) << 23))       x*f32(1 << k) as an add of k to the exponent field of x (derived)
+      holds where x in [1, 2] (normal, never zero), k in [0, 20], and 2 * 2^20 < 2^128
+      x = m * 2^e with 1 <= |m| < 2 and e >= -126: its bits hold e + 127 in the exponent field (bits 23..30)
+      x * 2^k = m * 2^(e + k) has the same mantissa and sign, and e + k <= 127: it is an f32, so the multiply does not round, and its exponent field is e + 127 + k
+      adding k << 23 to the bits adds k to that field; the field stays in [1, 254], so nothing carries into the sign
+  cost 4   x*asfloat(k + 127 << 23)                 f32(1 << k) as its bits, the exponent field k + 127 (derived)
+      holds where k in [0, 20]: 1 << k is 2^k, not wrapped
+      2^k is a power of two below 2^128: an f32, so the conversion is exact
+      its bits are sign 0, exponent field k + 127 (in [127, 147], a normal number) and mantissa 0: (k + 127) << 23
+  cost 5   x*(asfloat(1 << k | 0x4b000000) - 8388608) the conversion f32(1 << k) by the bits of 2^23 (derived)
+      holds where 1 << k in [1, 1048576], inside [0, 2^23)
+      0 <= (1 << k) < 2^23: (1 << k) | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa (1 << k), the f32 2^23 + (1 << k) exactly (one unit in the last place there is 1)
+      2^23 + (1 << k) - 2^23 = (1 << k) is an integer below 2^24, an f32: the subtraction does not round
+      f32(1 << k) is exact below 2^24: both are (1 << k)
+> ldz(x: f32 in 0..2, k: u32 in 0..20) = x * f32(1 << k)
+> find ldz 1
+find ldz: rewrites by identities the model prices lower (cost 6 as written, under gt1030)
+  cost 4   x*asfloat(k + 127 << 23)                 f32(1 << k) as its bits, the exponent field k + 127 (derived)
+      holds where k in [0, 20]: 1 << k is 2^k, not wrapped
+      2^k is a power of two below 2^128: an f32, so the conversion is exact
+      its bits are sign 0, exponent field k + 127 (in [127, 147], a normal number) and mantissa 0: (k + 127) << 23
+  cost 5   x*(asfloat(1 << k | 0x4b000000) - 8388608) the conversion f32(1 << k) by the bits of 2^23 (derived)
+      holds where 1 << k in [1, 1048576], inside [0, 2^23)
+      0 <= (1 << k) < 2^23: (1 << k) | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa (1 << k), the f32 2^23 + (1 << k) exactly (one unit in the last place there is 1)
+      2^23 + (1 << k) - 2^23 = (1 << k) is an integer below 2^24, an f32: the subtraction does not round
+      f32(1 << k) is exact below 2^24: both are (1 << k)
+> lde(x: f32 in 1..2, k: u32 in 0..20) = asfloat(asint(x) + (i32(k) << 23))
+> equiv ld lde
+ld and lde are equal on the domain of ld (sampled, not proved; no SAT proof: a float or real value)
+> lg(x: u32 in 1..8000000) = 31 - clz(x)
+> find lg 1
+find lg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  derived, but not cheaper under gt1030 (cost 6, as written 4): 31 - clz(x), floor(log2(x)), as the exponent field of f32(x)
+  derived, but not cheaper under gt1030 (cost 5, as written 4): 31 - clz(x), floor(log2(x)), as the exponent field of f32(x), converted by the bits of 2^23
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use sm86
+cost model: sm86
+> find lg 1
+find lg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm86
+  derived, but not cheaper under sm86 (cost 12, as written 10): 31 - clz(x), floor(log2(x)), as the exponent field of f32(x)
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   u32((asint(asfloat(x | 0x4b000000) - 8388608) >> 0x17) - 127) 31 - clz(x), floor(log2(x)), as the exponent field of f32(x), converted by the bits of 2^23 (derived; checked on a sample)
+      holds where x in [1, 8000000], inside [1, 2^24)
+      31 - clz(x) is the index e of the highest set bit of x: 2^e <= x < 2^(e+1)
+      x < 2^24: f32(x) is exact (from 2^24 on, rounding to nearest could carry into the next power of two), so its exponent field is e + 127 and its sign bit 0
+      the bits shifted right by 23 are e + 127
+      0 <= x < 2^23: x | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa x, the f32 2^23 + x exactly (one unit in the last place there is 1)
+      2^23 + x - 2^23 = x is an integer below 2^24, an f32: the subtraction does not round
+  nothing new up to cost 6 (term bank full)
+  [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
+> fr(x: f32 in -1000..1000, y: f32 in 0..1) = floor(x) + y
+> find fr 1
+find fr: rewrites by identities the model prices lower (cost 9 as written, under sm86)
+  cost 8   (t1 > x ? t1 - 1 : t1) + y where t1 = x + 12582912 - 12582912 floor(x) by adding and subtracting 1.5*2^23, and one compare (derived)
+      holds where x in [-1000, 1000], inside [-2^22, 2^22]; where the result is zero its sign may differ (allowed by Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      x + 1.5*2^23 lies in [2^23, 2^24], where the f32 are the integers: the add rounds it to the nearest integer (ties to even), r + 1.5*2^23 with r = round(x)
+      subtracting 1.5*2^23 from an integer in [2^23, 2^24] gives r, an integer up to 2^22 in magnitude, an f32: no rounding
+      |r - x| <= 1/2, so floor(x) is r where r <= x and r - 1 otherwise (an exact f32 subtraction of integers)
+> use gt1030
+cost model: gt1030
+> lgx(x: u32 in 1..16777216) = 31 - clz(x)
+> find lgx 1
+find lgx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> tx(x: f32 in 0..1000, y: f32 in 0..100) = i32(floor(x)) * i32(floor(y)) + 7
+> find tx 1
+find tx: rewrites by identities the model prices lower (cost 15 as written, under gt1030)
+  cost 10  i32(floor(x)*floor(y) + 7)               the integer arithmetic i32(floor(x))*i32(floor(y)) + 7 on f32 (derived)
+      holds where every value in it is an integer in [0, 100007], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      2 operands are integer-valued floats converted to an integer: the float is used as it is
+      the result converts back exactly: it is an integer inside i32
+  cost 9   asint(floor(x)*floor(y) + 7 + 12582912) - 1262485504 the integer arithmetic i32(floor(x))*i32(floor(y)) + 7 on f32, converted by the bits (derived)
+      holds where every value in it is an integer in [0, 100007], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      2 operands are integer-valued floats converted to an integer: the float is used as it is
+      the float result + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (the float result + 2^22) = 0x4B400000 + the float result (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves the float result
+  cost 14  i32(floor(x))*(asint(floor(y) + 12582912) - 1262485504) + 7 the conversion i32(floor(y)) by the bits of 1.5*2^23 (derived)
+      holds where floor(y) is an integer in [0, 100], inside [-2^22, 2^22) and i32
+      floor(y) + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (floor(y) + 2^22) = 0x4B400000 + floor(y) (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves floor(y)
+      i32(floor(y)) truncates toward zero: of an integer it is that integer
+find tx: derived, but not cheaper under gt1030 (cost 19, as written 15): floor(y) by adding and subtracting 1.5*2^23, and one compare
+  cost 14  (asint(floor(x) + 12582912) - 1262485504)*i32(floor(y)) + 7 the conversion i32(floor(x)) by the bits of 1.5*2^23 (derived)
+      holds where floor(x) is an integer in [0, 1000], inside [-2^22, 2^22) and i32
+      floor(x) + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (floor(x) + 2^22) = 0x4B400000 + floor(x) (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves floor(x)
+      i32(floor(x)) truncates toward zero: of an integer it is that integer
+find tx: derived, but not cheaper under gt1030 (cost 19, as written 15): floor(x) by adding and subtracting 1.5*2^23, and one compare
+> ma(a: u32 in 0..4000, b: u32 in 0..4000, c: u32 in 0..1000) = a * b + c
+> find ma 1
+find ma: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model fprich : gt1030 { imul: 12 }
+> use fprich
+cost model: fprich
+> find ma 1
+find ma: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from fprich
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  u32((asfloat(a | 0x4b000000) - 8388608)*(asfloat(b | 0x4b000000) - 8388608) + (asfloat(c | 0x4b000000) - 8388608)) the integer arithmetic a*b + c on f32, converted by the bits (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 16001000], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      3 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
+      the result converts back exactly: it is an integer inside u32
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> mb(a: u32 in 0..5000, b: u32 in 0..4000) = a * b
+> use fprich
+cost model: fprich
+> find mb 1
+find mb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from fprich
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model fprich16 : fprich { mul16: 1
+    fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
+> use fprich16
+cost model: fprich16
+> find ma 1
+find ma: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from fprich16
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

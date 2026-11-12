@@ -6,6 +6,8 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 	plot.c fsimp.c nodesat.c bound.c codelang.c spvcross.c dot.c sg.c
 # fusions in cost models (cover pricing) and the integer rewrites
 SRCS+=	fuse.c irw.c idrw.c
+# integers as floats and floats as integers: more rewrites for irw.c
+SRCS+=	ifx.c
 # calc: loops, closed forms, calculus, evaluation schemes
 SRCS+=	loop.c cnum.c closed.c integ.c ode.c scheme.c cancel.c
 # complex, polar and trig forms; asin acos atan2 sinh cosh tanh ...

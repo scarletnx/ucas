@@ -1,0 +1,94 @@
+# Integers as floats and floats as integers (src/ifx.c).  Every rewrite
+# is derived; find keeps one only when the active model prices it lower.
+
+# conversions by the bits of 2^23: a logic op and an fadd against a
+# conversion (gt1030: 2 against 3)
+cv(i: u32 in 0..1000) = f32(i)
+find cv 1
+# signed, by the bits of 1.5*2^23
+cvs(i: i32 in -4194304..4194303) = f32(i)
+find cvs 1
+# outside the ranges nothing is derived: 2^23 is one too many for the
+# or, and past 2^22 the add would reach the exponent
+cvx(i: u32 in 0..8388608) = u32(f32(i) * 0.5)
+find cvx 1
+# the ends of both ranges, on every point
+cve(i: u32 in 8388000..8388607) = f32(i)
+cvr(i: u32 in 8388000..8388607) = asfloat(i | 0x4B000000) - 8388608.0
+equiv cve cvr
+cvse(i: i32 in -4194304..-4194000) = f32(i)
+cvsr(i: i32 in -4194304..-4194000) = asfloat(i + 0x4B400000) - 12582912.0
+equiv cvse cvsr
+# a model where a conversion costs what an add does: derived, not cheaper
+model convcheap : gt1030 { conv: 1 }
+use convcheap
+find cv 1
+use gt1030
+
+# float to integer: an integer-valued float (a floor here) read from the
+# mantissa of x + 1.5*2^23; the floor by the same add is derived too,
+# and dearer here
+fi(x: f32 in 0..1000) = i32(floor(x))
+find fi 1
+# a float that is not known to be an integer: i32() truncates, the add
+# rounds to nearest, so nothing is derived (and find's search itself
+# needs integer parameters)
+fn(x: f32 in 0..1000) = i32(x * 0.5)
+find fn 1
+# conversions that cancel
+rt(i: u32 in 0..100) = u32(f32(i)) + 1
+find rt 1
+fl(i: u32 in 0..100) = floor(f32(i))
+find fl 1
+
+# the exponent field: 2^k, and a multiply by it as an add on the bits
+p2(k: u32 in 0..31) = f32(1 << k)
+find p2 1
+ld(x: f32 in 1..2, k: u32 in 0..20) = x * f32(1 << k)
+find ld 1
+# x may be zero: no add on its exponent field, only the 2^k
+ldz(x: f32 in 0..2, k: u32 in 0..20) = x * f32(1 << k)
+find ldz 1
+lde(x: f32 in 1..2, k: u32 in 0..20) = asfloat(asint(x) + (i32(k) << 23))
+equiv ld lde
+
+# floor(log2(x)) from the exponent field of f32(x): dearer than clz on
+# gt1030, cheaper where counting bits is dear (sm86: 8)
+lg(x: u32 in 1..8000000) = 31 - clz(x)
+find lg 1
+use sm86
+find lg 1
+# and there a floor by adding and subtracting 1.5*2^23 beats the
+# conversion-rate floor
+fr(x: f32 in -1000..1000, y: f32 in 0..1) = floor(x) + y
+find fr 1
+use gt1030
+# 2^24 is where f32(x) starts to round: not derived
+lgx(x: u32 in 1..16777216) = 31 - clz(x)
+find lgx 1
+
+# integer arithmetic on the fp32 pipe: every value below 2^24, so no
+# float operation rounds.  With operands that are floats already the
+# multiply-add is an FFMA and two conversions go
+tx(x: f32 in 0..1000, y: f32 in 0..100) = i32(floor(x)) * i32(floor(y)) + 7
+find tx 1
+# from integers the conversions cost more than the IMAD saves (gt1030)
+ma(a: u32 in 0..4000, b: u32 in 0..4000, c: u32 in 0..1000) = a * b + c
+find ma 1
+# a model with a dear integer multiply: it moves
+model fprich : gt1030 { imul: 12 }
+use fprich
+find ma 1
+use gt1030
+# a product that can pass 2^24 stays an integer multiply
+mb(a: u32 in 0..5000, b: u32 in 0..4000) = a * b
+use fprich
+find mb 1
+# the same dear multiply, but with a 16 x 16 multiply-add the model
+# prices 1 for operands proved to fit (the ranges reach find's prices):
+# it stays an integer
+model fprich16 : fprich { mul16: 1
+  fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
+use fprich16
+find ma 1
+use gt1030

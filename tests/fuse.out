@@ -544,6 +544,7 @@ find ud: 1024 points (sampled; matches verified on the whole domain), computing 
       p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  cost 21  u32(t1 + i32(t2 >= i32(b)) - i32(t2 < 0)) where t1 = i32((asfloat(a | 0x4b000000) - 8388608)/(asfloat(b | 0x4b000000) - 8388608)), t2 = i32(a) - t1*i32(b) all of them: the division a/b through f32 with one correction step, then the conversion f32(i32(b)) by the bits of 2^23, then the conversion f32(i32(a)) by the bits of 2^23 (derived)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > um(a: u32 in 0..60000, b: u32 in 30..4000) = a % b
@@ -558,6 +559,7 @@ find um: 1024 points (sampled; matches verified on the whole domain), computing 
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       and a % b = a - floor(x)*b
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  cost 25  u32(i32(a) - (t1 + i32(t2 >= i32(b)) - i32(t2 < 0))*i32(b)) where t1 = i32((asfloat(a | 0x4b000000) - 8388608)/(asfloat(b | 0x4b000000) - 8388608)), t2 = i32(a) - t1*i32(b) all of them: the remainder a % b through f32 with one correction step, then the conversion f32(i32(b)) by the bits of 2^23, then the conversion f32(i32(a)) by the bits of 2^23 (derived)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > ub(a: u32 in 0..16000000, b: u32 in 1..4000) = a / b

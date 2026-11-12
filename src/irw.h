@@ -12,6 +12,8 @@ struct irw {
 	char cond[400];		/* what it holds under, and why that holds */
 	char *proof;		/* the derivation, one step a line */
 	int nearmiss;		/* not proved: the derivation says why */
+	int quiet;		/* not worth a "derived, but not cheaper" line
+				 * (ifx.c: every integer product has one) */
 	int loose;		/* relies on a GPU's float precision (2.5 ulp
 				 * division), looser than ucas's correctly
 				 * rounded f32: checks by evaluation do not
@@ -41,6 +43,9 @@ void idrw_node(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
     int *cap);
 void idrw_maps(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap);
 int irw_cands(const struct func *f, nid root, struct irw **out);
+/* ifx.c: integers as floats and floats as integers, at node n of root */
+void ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
+    struct irw **out, int *cnt, int *cap);
 void irw_free(struct irw *r, int n);
 void irw_print(const struct irw *r, const char *ind);
 

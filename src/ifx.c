@@ -1,0 +1,893 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * Integers as floats and floats as integers: identities between the two
+ * number systems of a 32-bit word that seed find (through irw.c), each
+ * with its derivation and the conditions it holds under.  As in irw.c,
+ * nothing here decides: find keeps one only when the active cost model
+ * prices it lower.  f32 only; every condition is proved from the
+ * parameters' ranges and the where clause (integer intervals from
+ * irw.c, float ranges and integrality from the small analysis below).
+ *
+ *   - f32(i) for 0 <= i < 2^23 is asfloat(i | 0x4B000000) - 2^23 (the
+ *     bits of 2^23 + i, then an exact subtraction); for -2^22 <= i <
+ *     2^22, asfloat(i + 0x4B400000) - 1.5*2^23;
+ *   - iN(x) for an integer-valued x in [-2^22, 2^22) is asint(x +
+ *     1.5*2^23) - 0x4B400000 (the add is exact; it reads the integer in
+ *     the mantissa);
+ *   - floor(x), ceil(x) for |x| <= 2^22 by adding and subtracting
+ *     1.5*2^23 (round to nearest even) and one compare; of an
+ *     integer-valued x, x itself;
+ *   - f32(iN(x)) of an integer-valued x is x; iN(f32(i)) below 2^24 is
+ *     i;
+ *   - f32(1 << k) is asfloat((k + 127) << 23): the exponent field;
+ *   - x * f32(1 << k) for a normal x whose product stays normal is
+ *     asfloat(asint(x) + (k << 23)): ldexp by an add on the bits;
+ *   - W-1 - clz(x), floor(log2(x)), for 1 <= x < 2^24 is (asint(f32(x))
+ *     >> 23) - 127: the exponent field of the exact conversion;
+ *   - integer +, -, * whose every value stays inside (-2^24, 2^24) run
+ *     on floats without rounding: the multiply-adds become a*b + c on
+ *     f32 (an FFMA where the model contracts), conversions at the ends.
+ */
+#include "calc.h"
+#include "irw.h"
+
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define P23 8388608.0		/* 2^23 */
+#define P24 16777216.0		/* 2^24 */
+#define MAGIC 12582912.0	/* 1.5 * 2^23 */
+#define MAGIC_BITS 0x4B400000LL	/* its bits */
+#define P23_BITS 0x4B000000LL	/* the bits of 2^23 */
+#define P22 4194304.0		/* 2^22 */
+
+static const ty_t U32 = TY(K_UINT, 32), I32 = TY(K_SINT, 32);
+
+/* ---- what is known of an f32 subterm on the domain ---- */
+
+struct fval {
+	double lo, hi;		/* its values lie in [lo, hi], finite */
+	int ok;			/* the bounds hold, and it is never NaN */
+	int integral;		/* every value is an integer */
+};
+
+static void fval_of(struct ivc *c, nid n, struct fval *v, int depth);
+
+static int
+is_f32(nid n)
+{
+	return N.ty[n] == TY_F32;
+}
+
+/* one f32 step outward: a bound of a rounded result from the real one */
+static double
+out_lo(double v)
+{
+	return (double)nextafterf((float)v, -INFINITY);
+}
+
+static double
+out_hi(double v)
+{
+	return (double)nextafterf((float)v, INFINITY);
+}
+
+/* does [lo, hi] fit the integer type t */
+static int
+fits_ty(ty_t t, int64_t lo, int64_t hi)
+{
+	struct ity it;
+
+	if (TYK(t) == K_INT || TYK(t) == K_LIT)
+		return 1;
+	ity_of(&it, t, 0);
+	if (it.k == K_UINT || it.k == K_BOOL)
+		return lo >= 0 && (it.w >= 63 || (uint64_t)hi <= it.mask);
+	return lo >= it.smin && hi <= it.smax;
+}
+
+/* an integer subterm's range on the domain, when it does not wrap */
+static int
+irange(struct ivc *c, nid a, int64_t *lo, int64_t *hi)
+{
+	char why[200];
+	uint32_t k;
+
+	if (!TY_ISINT(N.ty[a]) || TYK(N.ty[a]) == K_LIT)
+		return 0;
+	if (is_const(a)) {
+		*lo = *hi = N.ki[a];
+		return 1;
+	}
+	/* a float truncated: from the float's range, when it fits */
+	if (N.op[a] == O_CAST && is_f32(N.a[a])) {
+		struct fval X;
+		fval_of(c, N.a[a], &X, 1);
+		if (!X.ok || fabs(X.lo) > 9e18 || fabs(X.hi) > 9e18)
+			return 0;
+		*lo = (int64_t)trunc(X.lo);
+		*hi = (int64_t)trunc(X.hi);
+		return fits_ty(N.ty[a], *lo, *hi);
+	}
+	k = plan_loc(&c->p, a);
+	if (k == NOTOK || c->iv[k].top || c->iv[k].wrap)
+		return 0;
+	return irw_range(c, a, INT64_MIN, lo, hi, why, sizeof why);
+}
+
+static void
+fval_of(struct ivc *c, nid n, struct fval *v, int depth)
+{
+	struct fval A, B, C;
+	int op = N.op[n];
+	double x[4], lo, hi;
+	int j;
+
+	memset(v, 0, sizeof *v);
+	if (depth > 48)
+		return;
+	if (op == O_CONST && TY_FP(N.ty[n])) {
+		double k = TYK(N.ty[n]) == K_FLOAT ? N.kr[n] : fround(32, N.kr[n]);
+		if (!isfinite(k))
+			return;
+		v->lo = v->hi = k;
+		v->ok = 1;
+		v->integral = k == floor(k);
+		return;
+	}
+	if (!is_f32(n))
+		return;
+	switch (op) {
+	case O_VAR: {
+		const struct param *pp = &c->g.p[N.ki[n]];
+		if (!pp->ranged || !isfinite(pp->rlo) || !isfinite(pp->rhi))
+			return;
+		v->lo = pp->rlo;
+		v->hi = pp->rhi;
+		v->ok = 1;
+		return;
+	}
+	case O_CAST: {
+		int64_t ilo, ihi;
+		if (!irange(c, N.a[n], &ilo, &ihi))
+			return;
+		/* the conversion rounds to nearest, which is monotone; an
+		 * f32 that is a rounded integer is an integer */
+		v->lo = fround(32, (double)ilo);
+		v->hi = fround(32, (double)ihi);
+		v->ok = 1;
+		v->integral = 1;
+		return;
+	}
+	case O_FLOOR: case O_CEIL:
+		fval_of(c, N.a[n], &A, depth + 1);
+		if (!A.ok)
+			return;
+		v->lo = op == O_FLOOR ? floor(A.lo) : ceil(A.lo);
+		v->hi = op == O_FLOOR ? floor(A.hi) : ceil(A.hi);
+		v->ok = v->integral = 1;
+		return;
+	case O_NEG:
+		fval_of(c, N.a[n], &A, depth + 1);
+		if (!A.ok)
+			return;
+		v->lo = -A.hi;
+		v->hi = -A.lo;
+		v->ok = 1;
+		v->integral = A.integral;
+		return;
+	case O_ABS:
+		fval_of(c, N.a[n], &A, depth + 1);
+		if (!A.ok)
+			return;
+		v->lo = A.lo > 0 ? A.lo : A.hi < 0 ? -A.hi : 0;
+		v->hi = fabs(A.lo) > fabs(A.hi) ? fabs(A.lo) : fabs(A.hi);
+		v->ok = 1;
+		v->integral = A.integral;
+		return;
+	case O_MIN: case O_MAX:
+		fval_of(c, N.a[n], &A, depth + 1);
+		fval_of(c, N.b[n], &B, depth + 1);
+		if (!A.ok || !B.ok)
+			return;
+		if (op == O_MIN) {
+			v->lo = A.lo < B.lo ? A.lo : B.lo;
+			v->hi = A.hi < B.hi ? A.hi : B.hi;
+		} else {
+			v->lo = A.lo > B.lo ? A.lo : B.lo;
+			v->hi = A.hi > B.hi ? A.hi : B.hi;
+		}
+		v->ok = 1;
+		v->integral = A.integral && B.integral;
+		return;
+	case O_SEL:
+		fval_of(c, N.b[n], &A, depth + 1);
+		fval_of(c, N.c[n], &B, depth + 1);
+		if (!A.ok || !B.ok)
+			return;
+		v->lo = A.lo < B.lo ? A.lo : B.lo;
+		v->hi = A.hi > B.hi ? A.hi : B.hi;
+		v->ok = 1;
+		v->integral = A.integral && B.integral;
+		return;
+	case O_ADD: case O_SUB: case O_MUL: case O_FMA:
+		fval_of(c, N.a[n], &A, depth + 1);
+		fval_of(c, N.b[n], &B, depth + 1);
+		if (!A.ok || !B.ok)
+			return;
+		if (op == O_ADD) {
+			lo = A.lo + B.lo;
+			hi = A.hi + B.hi;
+		} else if (op == O_SUB) {
+			lo = A.lo - B.hi;
+			hi = A.hi - B.lo;
+		} else {
+			x[0] = A.lo * B.lo;
+			x[1] = A.lo * B.hi;
+			x[2] = A.hi * B.lo;
+			x[3] = A.hi * B.hi;
+			lo = hi = x[0];
+			for (j = 1; j < 4; j++) {
+				lo = x[j] < lo ? x[j] : lo;
+				hi = x[j] > hi ? x[j] : hi;
+			}
+		}
+		v->integral = A.integral && B.integral;
+		if (op == O_FMA) {
+			fval_of(c, N.c[n], &C, depth + 1);
+			if (!C.ok)
+				return;
+			lo += C.lo;
+			hi += C.hi;
+			v->integral = v->integral && C.integral;
+		}
+		/*
+		 * integers below 2^24 in magnitude: the exact result is an
+		 * f32 and the bounds are exact (the doubles above hold
+		 * integers below 2^49 exactly); otherwise one f32 step
+		 * outward covers the double's and the f32's rounding
+		 */
+		if (!(v->integral && lo >= -P24 && hi <= P24)) {
+			if (!(fabs(lo) < 1e38 && fabs(hi) < 1e38))
+				return;
+			lo = out_lo(lo);
+			hi = out_hi(hi);
+		}
+		v->lo = lo;
+		v->hi = hi;
+		v->ok = 1;
+		return;
+	default:
+		return;
+	}
+}
+
+/* ---- helpers ---- */
+
+static const char *
+sstr(nid e)
+{
+	return shared_str(e, 60);
+}
+
+/* the same, in parentheses when it is an operation written infix */
+static const char *
+pstr(nid e)
+{
+	static char buf[4][80];
+	static int at;
+	char *b = buf[at++ & 3];
+	int op = N.op[e];
+
+	if (op == O_CONST || op == O_VAR || opinfo[op].arity == 1 ||
+	    op == O_CAST || op == O_MIN || op == O_MAX || op == O_FMA)
+		return sstr(e);
+	snprintf(b, sizeof buf[0], "(%s)", sstr(e));
+	return b;
+}
+
+static nid
+kf(double v)
+{
+	return mk_const_i(TY_F32, (int64_t)v);
+}
+
+/* f32(a) by the bits, when a's range allows it (0: it does not) */
+static nid
+magic_i2f(nid a, int64_t lo, int64_t hi)
+{
+	/* a 32-bit integer read as another 32-bit type has the same bits,
+	 * and the same value inside these ranges */
+	while (N.op[a] == O_CAST && TY_SIZED(N.ty[a]) && TYW(N.ty[a]) == 32 &&
+	    TY_SIZED(N.ty[N.a[a]]) && TYW(N.ty[N.a[a]]) == 32 &&
+	    N.ty[N.a[a]] != TY_BOOL)
+		a = N.a[a];
+	if (lo >= 0 && hi < (int64_t)P23)
+		return mk_bin(O_SUB, mk_un(O_ASFLOAT, mk_bin(O_OR, mk_cast(U32,
+		    a), mk_const_i(U32, P23_BITS))), kf(P23));
+	if (lo >= -(int64_t)P22 && hi < (int64_t)P22)
+		return mk_bin(O_SUB, mk_un(O_ASFLOAT, mk_bin(O_ADD, mk_cast(I32,
+		    a), mk_const_i(I32, MAGIC_BITS))), kf(MAGIC));
+	return 0;
+}
+
+/* t(x) by the bits, for an integer-valued x in [-2^22, 2^22) */
+static nid
+magic_f2i(ty_t t, nid x)
+{
+	return mk_cast(t, mk_bin(O_SUB, mk_un(O_ASINT, mk_bin(O_ADD, x,
+	    kf(MAGIC))), mk_const_i(I32, MAGIC_BITS)));
+}
+
+/* e as text for a derivation (kept: shared_str's buffers rotate) */
+struct nm {
+	char s[96];
+};
+
+static const char *
+nm(struct nm *b, nid e)
+{
+	snprintf(b->s, sizeof b->s, "%s", pstr(e));
+	return b->s;
+}
+
+static void
+i2f_proof(struct sbuf *pf, nid a, int64_t lo, int64_t hi)
+{
+	struct nm A;
+	const char *i = nm(&A, a);
+
+	if (lo >= 0 && hi < (int64_t)P23)
+		sb_printf(pf, "0 <= %s < 2^23: %s | 0x4B000000 is the bit "
+		    "pattern with sign 0, exponent field 150 and mantissa %s, the "
+		    "f32 2^23 + %s exactly (one unit in the last place there is "
+		    "1)\n2^23 + %s - 2^23 = %s is an integer below 2^24, an f32: "
+		    "the subtraction does not round", i, i, i, i, i, i);
+	else
+		sb_printf(pf, "-2^22 <= %s < 2^22: 0x4B400000 are the bits of "
+		    "1.5*2^23 (exponent field 150, mantissa 2^22), and adding %s "
+		    "moves the mantissa inside [0, 2^23) without reaching the "
+		    "exponent: the bits of the f32 1.5*2^23 + %s exactly\n"
+		    "subtracting 1.5*2^23 leaves %s, an integer below 2^24, an "
+		    "f32: the subtraction does not round", i, i, i, i);
+}
+
+/* name: what to call x in the text (NULL: x as it is written) */
+static void
+f2i_proof(struct sbuf *pf, nid x, const char *name)
+{
+	struct nm X;
+	const char *f = name ? name : nm(&X, x);
+
+	sb_printf(pf, "%s + 1.5*2^23 is an integer in [2^23, 2^24), where "
+	    "every integer is an f32: the add does not round\nits bits are "
+	    "0x4B000000 + (%s + 2^22) = 0x4B400000 + %s (exponent field 150, "
+	    "the mantissa the integer less 2^23): subtracting 0x4B400000 "
+	    "leaves %s", f, f, f, f);
+}
+
+/* ---- the candidates ---- */
+
+/* f32(a) of an integer a */
+static void
+rw_i2f(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
+{
+	nid a = N.a[n], to;
+	int64_t lo, hi;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+	struct fval X;
+	struct nm A;
+
+	if (!is_f32(n) || TY_FP(N.ty[a]))
+		return;
+	/* f32(iN(x)) of an integer-valued x that fits: x itself */
+	if (N.op[a] == O_CAST && is_f32(N.a[a])) {
+		nid x = N.a[a];
+		fval_of(c, x, &X, 0);
+		if (X.ok && X.integral && fabs(X.lo) < 9e18 && fabs(X.hi) < 9e18 &&
+		    fits_ty(N.ty[a], (int64_t)X.lo, (int64_t)X.hi)) {
+			snprintf(what, sizeof what, "%s as %s (an integer-valued "
+			    "float converted and back)", sstr(n), sstr(x));
+			snprintf(cond, sizeof cond, "%s is an integer in [%.9g, "
+			    "%.9g], inside %s", sstr(x), X.lo, X.hi,
+			    ty_str(N.ty[a]));
+			sb_printf(&pf, "%s(%s) truncates toward zero: of an integer "
+			    "inside the type it is the same integer\nthat integer "
+			    "came from an f32, so it is one: converting back does "
+			    "not round", ty_str(N.ty[a]), sstr(x));
+			irw_add(out, cnt, cap, root, n, x, what, cond, sb_str(&pf),
+			    1);
+			sb_clear(&pf);
+		}
+	}
+	if (!irange(c, a, &lo, &hi) || (to = magic_i2f(a, lo, hi)) == 0) {
+		free(pf.p);
+		return;
+	}
+	snprintf(what, sizeof what, "the conversion %s by the bits of %s",
+	    sstr(n), lo >= 0 ? "2^23" : "1.5*2^23");
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside %s", sstr(a),
+	    (long long)lo, (long long)hi, lo >= 0 ? "[0, 2^23)" :
+	    "[-2^22, 2^22)");
+	i2f_proof(&pf, a, lo, hi);
+	sb_printf(&pf, "\nf32(%s) is exact below 2^24: both are %s", sstr(a),
+	    nm(&A, a));
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* iN(x) of an f32 x */
+static void
+rw_f2i(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
+{
+	nid x = N.a[n], to;
+	ty_t t = N.ty[n];
+	struct fval X;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+
+	if (!TY_ISINT(t) || t == TY_BOOL || !is_f32(x))
+		return;
+	/* iN(f32(i)) below 2^24: i */
+	if (N.op[x] == O_CAST && TY_ISINT(N.ty[N.a[x]])) {
+		nid i = N.a[x];
+		int64_t lo, hi;
+		if (irange(c, i, &lo, &hi) && lo >= -(int64_t)P24 &&
+		    hi <= (int64_t)P24 && fits_ty(t, lo, hi)) {
+			to = mk_cast(t, i);
+			snprintf(what, sizeof what, "%s as %s (an integer below "
+			    "2^24 converted and back)", sstr(n), sstr(to));
+			snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside "
+			    "[-2^24, 2^24] and %s", sstr(i), (long long)lo,
+			    (long long)hi, ty_str(t));
+			sb_printf(&pf, "f32 holds every integer up to 2^24 in "
+			    "magnitude: f32(%s) is %s, and truncating an integer "
+			    "leaves it", sstr(i), sstr(i));
+			irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf),
+			    1);
+			sb_clear(&pf);
+		}
+	}
+	fval_of(c, x, &X, 0);
+	if (!X.ok || !X.integral || X.lo < -P22 || X.hi >= P22 ||
+	    !fits_ty(t, (int64_t)X.lo, (int64_t)X.hi)) {
+		free(pf.p);
+		return;
+	}
+	to = magic_f2i(t, x);
+	snprintf(what, sizeof what, "the conversion %s by the bits of 1.5*2^23",
+	    sstr(n));
+	snprintf(cond, sizeof cond, "%s is an integer in [%.9g, %.9g], inside "
+	    "[-2^22, 2^22) and %s", sstr(x), X.lo, X.hi, ty_str(t));
+	f2i_proof(&pf, x, NULL);
+	sb_printf(&pf, "\n%s(%s) truncates toward zero: of an integer it is "
+	    "that integer", ty_str(t), sstr(x));
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* floor(x), ceil(x) of an f32 x */
+static void
+rw_floor(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid x = N.a[n], r, to;
+	struct fval X;
+	int fl = N.op[n] == O_FLOOR;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+	struct nm XS;
+	const char *xs;
+
+	if (!is_f32(n) || !is_f32(x))
+		return;
+	fval_of(c, x, &X, 0);
+	if (!X.ok)
+		return;
+	if (X.integral) {
+		snprintf(what, sizeof what, "%s as %s (it is an integer already)",
+		    sstr(n), sstr(x));
+		snprintf(cond, sizeof cond, "%s is an integer in [%.9g, %.9g]",
+		    sstr(x), X.lo, X.hi);
+		sb_printf(&pf, "%s of an integer is that integer",
+		    fl ? "floor" : "ceil");
+		irw_add(out, cnt, cap, root, n, x, what, cond, sb_str(&pf), 1);
+		free(pf.p);
+		return;
+	}
+	if (X.lo < -P22 || X.hi > P22)
+		return;
+	r = mk_bin(O_SUB, mk_bin(O_ADD, x, kf(MAGIC)), kf(MAGIC));
+	to = fl ? mk_sel(mk_bin(O_GT, r, x), mk_bin(O_SUB, r, kf(1)), r) :
+	    mk_sel(mk_bin(O_LT, r, x), mk_bin(O_ADD, r, kf(1)), r);
+	snprintf(what, sizeof what, "%s by adding and subtracting 1.5*2^23, "
+	    "and one compare", sstr(n));
+	snprintf(cond, sizeof cond, "%s in [%.9g, %.9g], inside [-2^22, 2^22]; "
+	    "where the result is zero its sign may differ (allowed by Vulkan's "
+	    "default float controls, without SignedZeroInfNanPreserve)",
+	    sstr(x), X.lo, X.hi);
+	xs = nm(&XS, x);
+	sb_printf(&pf, "%s + 1.5*2^23 lies in [2^23, 2^24], where the f32 are "
+	    "the integers: the add rounds it to the nearest integer (ties to "
+	    "even), r + 1.5*2^23 with r = round(%s)\nsubtracting 1.5*2^23 from "
+	    "an integer in [2^23, 2^24] gives r, an integer up to 2^22 in "
+	    "magnitude, an f32: no rounding\n|r - %s| <= 1/2, so %s(%s) is r "
+	    "where r %s %s and r %s 1 otherwise (an exact f32 subtraction of "
+	    "integers)", xs, sstr(x), xs, fl ? "floor" : "ceil", sstr(x),
+	    fl ? "<=" : ">=", xs, fl ? "-" : "+");
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* n is f32(1 << k): k, and its range inside the exponents that hold */
+static int
+pow2_of(struct ivc *c, nid n, nid *k, int64_t *klo, int64_t *khi)
+{
+	nid s;
+	ty_t t;
+	int w;
+
+	if (N.op[n] != O_CAST || !is_f32(n))
+		return 0;
+	s = N.a[n];
+	if (N.op[s] != O_SHL || !is_const(N.a[s]) || N.ki[N.a[s]] != 1 ||
+	    TY_FP(N.ty[s]))
+		return 0;
+	*k = N.b[s];
+	if (!irange(c, *k, klo, khi))
+		return 0;
+	t = N.ty[s];
+	w = TY_SIZED(t) ? TYW(t) : 64;
+	/* 1 << k must be 2^k in its type (no wrap, not the sign bit) */
+	if (*klo < 0 || *khi > (TYK(t) == K_UINT ? w - 1 : w - 2) || *khi > 127)
+		return 0;
+	return 1;
+}
+
+/* f32(1 << k): the exponent field */
+static void
+rw_pow2(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid k, to;
+	int64_t klo, khi;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+	struct nm K;
+	const char *ks;
+
+	if (!pow2_of(c, n, &k, &klo, &khi))
+		return;
+	to = mk_un(O_ASFLOAT, mk_bin(O_SHL, mk_bin(O_ADD, mk_cast(U32, k),
+	    mk_const_i(U32, 127)), mk_const_i(U32, 23)));
+	ks = nm(&K, k);
+	snprintf(what, sizeof what, "%s as its bits, the exponent field %s + "
+	    "127", sstr(n), ks);
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld]: 1 << %s is 2^%s, not "
+	    "wrapped", sstr(k), (long long)klo, (long long)khi, ks, ks);
+	sb_printf(&pf, "2^%s is a power of two below 2^128: an f32, so the "
+	    "conversion is exact\nits bits are sign 0, exponent field %s + 127 "
+	    "(in [%lld, %lld], a normal number) and mantissa 0: (%s + 127) << "
+	    "23", ks, ks, (long long)klo + 127, (long long)khi + 127, ks);
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* x * f32(1 << k): an add on x's exponent field */
+static void
+rw_ldexp(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid x, k = 0, to;
+	int64_t klo = 0, khi = 0;
+	struct fval X;
+	double amin, amax;
+	char what[200], cond[400];
+	struct sbuf pf = {0};
+	struct nm XS, K;
+	const char *xs, *ks;
+	int j;
+
+	if (!is_f32(n))
+		return;
+	for (j = 0; j < 2; j++)
+		if (pow2_of(c, j ? N.a[n] : N.b[n], &k, &klo, &khi))
+			break;
+	if (j == 2)
+		return;
+	x = j ? N.b[n] : N.a[n];
+	fval_of(c, x, &X, 0);
+	if (!X.ok || !(X.lo > 0 || X.hi < 0))
+		return;
+	amin = X.lo > 0 ? X.lo : -X.hi;
+	amax = X.lo > 0 ? X.hi : -X.lo;
+	/* x normal, and x * 2^k below 2^128 */
+	if (amin < ldexp(1.0, -126) || amax * ldexp(1.0, (int)khi) >=
+	    ldexp(1.0, 128))
+		return;
+	to = mk_un(O_ASFLOAT, mk_bin(O_ADD, mk_un(O_ASINT, x), mk_bin(O_SHL,
+	    mk_cast(I32, k), mk_const_i(I32, 23))));
+	xs = nm(&XS, x);
+	ks = nm(&K, k);
+	snprintf(what, sizeof what, "%s as an add of %s to the exponent field "
+	    "of %s", sstr(n), ks, xs);
+	snprintf(cond, sizeof cond, "%s in [%.9g, %.9g] (normal, never zero), "
+	    "%s in [%lld, %lld], and %.9g * 2^%lld < 2^128", sstr(x), X.lo,
+	    X.hi, sstr(k), (long long)klo, (long long)khi, amax,
+	    (long long)khi);
+	sb_printf(&pf, "%s = m * 2^e with 1 <= |m| < 2 and e >= -126: its "
+	    "bits hold e + 127 in the exponent field (bits 23..30)\n%s * 2^%s "
+	    "= m * 2^(e + %s) has the same mantissa and sign, and e + %s <= "
+	    "127: it is an f32, so the multiply does not round, and its "
+	    "exponent field is e + 127 + %s\nadding %s << 23 to the bits adds "
+	    "%s to that field; the field stays in [1, 254], so nothing "
+	    "carries into the sign", xs, xs, ks, ks, ks, ks, ks, ks);
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	free(pf.p);
+}
+
+/* W-1 - clz(x): the exponent field of f32(x) */
+static void
+rw_ilog2(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid z = N.b[n], x, f, to;
+	ty_t t = N.ty[n], tx;
+	int64_t lo, hi;
+	int v;
+	char what[200], cond[300];
+	struct sbuf pf = {0};
+	struct nm XS;
+	const char *xs;
+
+	if (N.op[n] != O_SUB || !TY_ISINT(t) || !is_const(N.a[n]) ||
+	    N.op[z] != O_CLZ)
+		return;
+	x = N.a[z];
+	tx = N.ty[x];
+	if (!TY_SIZED(tx) || N.ki[N.a[n]] != TYW(tx) - 1 ||
+	    !irange(c, x, &lo, &hi) || lo < 1 || hi >= (int64_t)P24)
+		return;
+	xs = nm(&XS, x);
+	for (v = 0; v < 2; v++) {
+		f = v ? magic_i2f(x, lo, hi) : mk_cast(TY_F32, x);
+		if (!f)
+			continue;
+		to = mk_cast(t, mk_bin(O_SUB, mk_bin(O_SHR, mk_un(O_ASINT, f),
+		    mk_const_i(I32, 23)), mk_const_i(I32, 127)));
+		snprintf(what, sizeof what, "%s, floor(log2(%s)), as the exponent "
+		    "field of f32(%s)%s", sstr(n), sstr(x), sstr(x), v ?
+		    ", converted by the bits of 2^23" : "");
+		snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside [1, "
+		    "2^24)", sstr(x), (long long)lo, (long long)hi);
+		sb_clear(&pf);
+		sb_printf(&pf, "%d - clz(%s) is the index e of the highest set "
+		    "bit of %s: 2^e <= %s < 2^(e+1)\n%s < 2^24: f32(%s) is exact "
+		    "(from 2^24 on, rounding to nearest could carry into the next "
+		    "power of two), so its exponent field is e + 127 and its sign "
+		    "bit 0\nthe bits shifted right by 23 are e + 127", TYW(tx) - 1,
+		    sstr(x), xs, xs, xs, sstr(x));
+		if (v) {
+			sb_putc(&pf, '\n');
+			i2f_proof(&pf, x, lo, hi);
+		}
+		irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	}
+	free(pf.p);
+}
+
+/* ---- integer arithmetic on the fp32 pipe ---- */
+
+struct fcone {
+	struct ivc *c;
+	int magic;		/* conversions by the bits where they hold */
+	int nmul, nconv, nmagic, nback;
+	int64_t lo, hi;		/* the widest range met */
+	int bad;
+};
+
+static int
+cone_op(nid a)
+{
+	int op = N.op[a];
+
+	return (op == O_ADD || op == O_SUB || op == O_MUL || op == O_NEG) &&
+	    TY_ISINT(N.ty[a]) && N.ty[a] != TY_BOOL;
+}
+
+/*
+ * The f32 that holds integer a's value exactly, and that value's range
+ * [*lo, *hi]: intervals of its own (the plan's do not see through a
+ * float converted to an integer), each inside (-2^24, 2^24) and inside
+ * its node's type, so the machine integers are the ideal ones.  0 and
+ * bad when there is none.
+ */
+static nid
+cone_fl(struct fcone *k, nid a, int depth, int64_t *lo, int64_t *hi)
+{
+	int64_t alo, ahi, blo = 0, bhi = 0, x[4];
+	nid fa, fb = 0, m;
+	int j;
+
+	if (k->bad || depth > 40)
+		goto bad;
+	if (cone_op(a)) {
+		fa = cone_fl(k, N.a[a], depth + 1, &alo, &ahi);
+		if (N.op[a] != O_NEG)
+			fb = cone_fl(k, N.b[a], depth + 1, &blo, &bhi);
+		if (k->bad)
+			return 0;
+		switch (N.op[a]) {
+		case O_NEG:
+			*lo = -ahi;
+			*hi = -alo;
+			break;
+		case O_ADD:
+			*lo = alo + blo;
+			*hi = ahi + bhi;
+			break;
+		case O_SUB:
+			*lo = alo - bhi;
+			*hi = ahi - blo;
+			break;
+		default:	/* below 2^24 each: the products fit 2^48 */
+			x[0] = alo * blo;
+			x[1] = alo * bhi;
+			x[2] = ahi * blo;
+			x[3] = ahi * bhi;
+			*lo = *hi = x[0];
+			for (j = 1; j < 4; j++) {
+				*lo = x[j] < *lo ? x[j] : *lo;
+				*hi = x[j] > *hi ? x[j] : *hi;
+			}
+			k->nmul++;
+		}
+		if (*lo <= -(int64_t)P24 || *hi >= (int64_t)P24 ||
+		    !fits_ty(N.ty[a], *lo, *hi))
+			goto bad;
+		if (*lo < k->lo)
+			k->lo = *lo;
+		if (*hi > k->hi)
+			k->hi = *hi;
+		return N.op[a] == O_NEG ? mk_un(O_NEG, fa) : mk_bin(N.op[a], fa,
+		    fb);
+	}
+	if (!irange(k->c, a, lo, hi) || *lo <= -(int64_t)P24 ||
+	    *hi >= (int64_t)P24)
+		goto bad;
+	if (*lo < k->lo)
+		k->lo = *lo;
+	if (*hi > k->hi)
+		k->hi = *hi;
+	if (is_const(a))
+		return kf((double)N.ki[a]);
+	/* an integer-valued float converted: the float itself */
+	if (N.op[a] == O_CAST && is_f32(N.a[a])) {
+		struct fval X;
+		fval_of(k->c, N.a[a], &X, 0);
+		if (X.ok && X.integral) {
+			k->nback++;
+			return N.a[a];
+		}
+		goto bad;	/* its truncation is not exact arithmetic */
+	}
+	if (k->magic && (m = magic_i2f(a, *lo, *hi)) != 0) {
+		k->nmagic++;
+		return m;
+	}
+	k->nconv++;
+	return mk_cast(TY_F32, a);
+bad:
+	k->bad = 1;
+	return 0;
+}
+
+static void
+rw_fpipe(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
+    struct irw **out, int *cnt, int *cap)
+{
+	ty_t t = N.ty[n];
+	int v;
+	nid prev = 0;
+	char what[200], cond[400];
+	struct sbuf pf = {0};
+
+	if (!cone_op(n) || N.op[n] == O_NEG)
+		return;
+	/* the operands that are part of this cone are not cones of their
+	 * own: the largest one is the candidate */
+	if (N.a[n] < lim && cone_op(N.a[n]))
+		inner[N.a[n]] = 1;
+	if (N.b[n] && N.b[n] < lim && cone_op(N.b[n]))
+		inner[N.b[n]] = 1;
+	if (n < lim && inner[n])
+		return;
+	for (v = 0; v < 2; v++) {
+		struct fcone k;
+		nid f, to;
+		int64_t lo, hi;
+		struct irw *r;
+		int om;
+
+		memset(&k, 0, sizeof k);
+		k.c = c;
+		k.magic = v;
+		k.lo = INT64_MAX;
+		k.hi = INT64_MIN;
+		f = cone_fl(&k, n, 0, &lo, &hi);
+		if (k.bad || !f || !k.nmul)
+			break;
+		om = v && lo >= -(int64_t)P22 && hi < (int64_t)P22;
+		to = om ? magic_f2i(t, f) : mk_cast(t, f);
+		if (to == prev)
+			break;
+		prev = to;
+		snprintf(what, sizeof what, "the integer arithmetic %s on f32%s",
+		    sstr(n), v ? ", converted by the bits" : "");
+		snprintf(cond, sizeof cond, "every value in it is an integer in "
+		    "[%lld, %lld], inside (-2^24, 2^24) (interval arithmetic over "
+		    "the parameters' ranges)", (long long)k.lo, (long long)k.hi);
+		sb_clear(&pf);
+		sb_printf(&pf, "f32 holds every integer below 2^24 in magnitude: "
+		    "each operand converts exactly, and each +, -, * has an exact "
+		    "result that is such an integer, so no operation rounds (a*b "
+		    "+ c contracted into one fma rounds a*b + c once: the same "
+		    "integer)");
+		if (k.nback)
+			sb_printf(&pf, "\n%d operand%s converted to an integer: "
+			    "the float is used as it is", k.nback, k.nback == 1 ?
+			    " is an integer-valued float" :
+			    "s are integer-valued floats");
+		if (k.nmagic)
+			sb_printf(&pf, "\n%d operand%s converted by the bits: i | "
+			    "0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 "
+			    "<= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + "
+			    "i, and subtracting that constant is exact", k.nmagic,
+			    k.nmagic == 1 ? "" : "s");
+		if (om) {
+			sb_putc(&pf, '\n');
+			f2i_proof(&pf, f, "the float result");
+		} else
+			sb_printf(&pf, "\nthe result converts back exactly: it is "
+			    "an integer inside %s", ty_str(t));
+		/* every integer product has these: said only when cheaper */
+		r = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+		if (r)
+			r->quiet = 1;
+	}
+	free(pf.p);
+}
+
+/*
+ * The candidates at node n of root (irw_cands calls it for every
+ * operation, parents first); inner marks the nodes below lim that are
+ * part of a larger integer cone.
+ */
+void
+ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
+    struct irw **out, int *cnt, int *cap)
+{
+	switch (N.op[n]) {
+	case O_CAST:
+		rw_pow2(c, root, n, out, cnt, cap);
+		rw_i2f(c, root, n, out, cnt, cap);
+		rw_f2i(c, root, n, out, cnt, cap);
+		break;
+	case O_FLOOR: case O_CEIL:
+		rw_floor(c, root, n, out, cnt, cap);
+		break;
+	case O_MUL:
+		rw_ldexp(c, root, n, out, cnt, cap);
+		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
+		break;
+	case O_SUB:
+		rw_ilog2(c, root, n, out, cnt, cap);
+		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
+		break;
+	case O_ADD:
+		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
+		break;
+	}
+}

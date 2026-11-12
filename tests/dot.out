@@ -67,6 +67,13 @@ cost model: gt1030
 > f(x: u32) = (x & 255)*3 + ((x >> 8) & 255)*5 + ((x >> 16) & 255)*7 + (x >> 24)*9
 > find f 1
 find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 20  u32(asint(3(asfloat(x & 0xff | 0x4b000000) - 8388608) + 5(asfloat(x >> 8 & 0xff | 0x4b000000) - 8388608) + 7(asfloat(x >> 0x10 & 0xff | 0x4b000000) - 8388608) + 9(asfloat(x >> 0x18 | 0x4b000000) - 8388608) + 12582912) - 1262485504) the integer arithmetic 3(x & 0xff) + 5(x >> 8 & 0xff) + 7(x >> 0x10 & 0xff) + 9(x >… (7 more characters) on f32, converted by the bits (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 6120], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      4 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
+      the float result + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (the float result + 2^22) = 0x4B400000 + the float result (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves the float result
   dot products under gt1030 (sums of products laid into lanes; cost 24 as written):
   cost 1   udot4x8(x, 0x9070503)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * 3, lane 1: (x >> 8 & 0xff) * 5, lane 2: (x >> 0x10 & 0xff) * 7, lane 3: (x >> 0x18) * 9
@@ -189,6 +196,13 @@ find pk: 1024 points (sampled; matches verified on the whole domain), computing 
 cost model: nodot
 > find f 1
 find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from nodot
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 20  u32(asint(3(asfloat(x & 0xff | 0x4b000000) - 8388608) + 5(asfloat(x >> 8 & 0xff | 0x4b000000) - 8388608) + 7(asfloat(x >> 0x10 & 0xff | 0x4b000000) - 8388608) + 9(asfloat(x >> 0x18 | 0x4b000000) - 8388608) + 12582912) - 1262485504) the integer arithmetic 3(x & 0xff) + 5(x >> 8 & 0xff) + 7(x >> 0x10 & 0xff) + 9(x >… (7 more characters) on f32, converted by the bits (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 6120], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      4 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
+      the float result + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (the float result + 2^22) = 0x4B400000 + the float result (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves the float result
   dot products: nodot has no dot product forms (products of lane-sized factors are left as they are)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
@@ -271,6 +285,11 @@ find k2: 1024 points (sampled; matches verified on the whole domain), computing 
 > n(x: u32) = (x & 15)*(x >> 28) + ((x >> 4) & 15)*3
 > find n 1
 find n: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from rdna2
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  u32(f32(x & 15)*f32(x >> 0x1c) + 3f32(x >> 4 & 15)) the integer arithmetic (x & 15)*(x >> 0x1c) + 3(x >> 4 & 15) on f32 (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 270], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      the result converts back exactly: it is an integer inside u32
   dot products under rdna2 (sums of products laid into lanes; cost 13 as written):
   cost 3   udot8x4(x >> 0x1c | 0x30, x)
            udot8x4 (8 x 4-bit lanes, unsigned): lane 0: (x >> 0x1c) * (x & 15), lane 1: (x >> 4 & 15) * 3

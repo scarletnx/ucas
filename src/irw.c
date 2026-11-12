@@ -17,7 +17,9 @@
  *   - a division (or remainder) by a variable through f32: q0 =
  *     trunc(f32(a) / f32(b)), r0 = a - q0 b, then one step each way,
  *     exact when a, b < 2^24 and 5 * 2^-24 * max(a/b) < 1 (Vulkan's
- *     2.5 ulp division).
+ *     2.5 ulp division);
+ *   - the identities between integers and f32 of ifx.c (conversions by
+ *     the bits, the exponent field, integer arithmetic on floats).
  */
 #include "calc.h"
 #include "bound.h"
@@ -436,7 +438,7 @@ irw_add(struct irw **out, int *n, int *cap, nid root, nid from, nid to,
 int
 irw_cands(const struct func *f, nid root, struct irw **out)
 {
-	uint8_t *mark;
+	uint8_t *mark, *inner;
 	nid *st, n;
 	uint32_t sp = 0, lim = N.n;
 	struct ivc c;
@@ -447,6 +449,7 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 	if (!TY_ISINT(N.ty[root]) && TYK(N.ty[root]) != K_FLOAT)
 		return 0;
 	mark = xcalloc(lim, 1);
+	inner = xcalloc(lim, 1);
 	st = xmalloc(lim * sizeof *st);
 	ivc_open(&c, f, root);
 	memcpy(saved, fail_jmp, sizeof saved);
@@ -469,6 +472,7 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 				st[sp++] = N.b[n];
 			if (N.c[n])
 				st[sp++] = N.c[n];
+			ifx_cands(&c, root, n, inner, lim, out, &cnt, &cap);
 			if (op == O_DIV || op == O_MOD) {
 				if (!TY_ISINT(N.ty[n]))
 					continue;
@@ -486,6 +490,7 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 	notes_drop();
 	ivc_close(&c);
 	free(mark);
+	free(inner);
 	free(st);
 	return cnt;
 }
