@@ -3199,9 +3199,11 @@ shift; a driver does that too, so it is listed apart), and an integer
 made of one word's bits through ands, ors, xors and constant shifts,
 up to the 16 levels the proof expands, as OpBitReverse of the word when
 the random runs and the proof say it is one (five swaps: -32 under a
-model that lists brev at 1; tests/catalogue_spv.ucas).  It does not write
-OpBitFieldInsert (its four operands do not fit a candidate's three) nor
-Op[US]MulExtended (a struct result and its extract) yet.
+model that lists brev at 1; tests/catalogue_spv.ucas).  `(base & ~m) |
+field`, m one run of bits p..p+n-1 and the field `(ins << p) & m` or
+`(ins & (2^n - 1)) << p`, is OpBitFieldInsert of ins's low n bits (or
+with xor or +).  It does not write Op[US]MulExtended (a struct result
+and its extract) yet.
 
 ### Functions as tables
 

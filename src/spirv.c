@@ -4351,7 +4351,7 @@ struct cand {
 	int id;			/* RW_ID: the operand */
 	uint64_t v;		/* RW_CONST */
 	char op[40], ext[24];	/* RW_INS: the instruction */
-	int a[3], na;		/* its operands (ids) */
+	int a[4], na;		/* its operands (ids) */
 	double cost;
 	const char *why;
 	int via_u, ut;		/* RW_INS on the bits as unsigned type ut:
@@ -4761,7 +4761,7 @@ evalid(int id)
 static uint64_t
 evalcand(const struct cand *c, int rt)
 {
-	uint64_t x[3] = {0};
+	uint64_t x[4] = {0};
 	int i, ok = 1, at;
 
 	if (c->kind == RW_ID)
@@ -4776,6 +4776,12 @@ evalcand(const struct cand *c, int rt)
 		    evalid(c->pre_a[1]), 0, &ok) & wmask(int_width(pt));
 	}
 	at = V.id[res_of(c->a[0])].type;
+	if (!strcmp(c->op, "OpBitFieldInsert")) {
+		int off = (int)(x[2] & 63), cnt = (int)(x[3] & 127);
+		uint64_t m = cnt >= 64 ? ~0ULL : wmask(cnt) << off;
+		return (uint64_t)puti(rt, (int64_t)((x[0] & ~m) | (x[1] << off &
+		    m))) & wmask(int_width(rt));
+	}
 	if (c->ext[0])
 		return glsl(c->ext, rt, at, x[0], x[1], x[2], &ok) &
 		    wmask(int_width(rt));
@@ -5310,6 +5316,7 @@ ins_cand(struct cand *c, const char *op, const char *ext, int rt, int a0,
 	c->a[0] = a0;
 	c->a[1] = a1;
 	c->a[2] = a2;
+	c->a[3] = -1;
 	c->na = a2 >= 0 ? 3 : a1 >= 0 ? 2 : 1;
 	c->cost = ins_cost_b(op, ext, rt, a1);
 	c->why = why;
@@ -5631,6 +5638,92 @@ one_leaf(int id, int depth, int *leaf)
 	return 1;
 }
 
+/* id as x & k (either order), k a constant: x and k */
+static int
+and_k(int id, int *x, uint64_t *k)
+{
+	int d = SP.def[id];
+
+	if (d < 0 || SP.dead[d] || strcmp(V.in[d].op, "OpBitwiseAnd"))
+		return 0;
+	if (const_of(res_of(idx(V.in[d].opnd[2])), k)) {
+		*x = res_of(idx(V.in[d].opnd[1]));
+		return 1;
+	}
+	if (const_of(res_of(idx(V.in[d].opnd[1])), k)) {
+		*x = res_of(idx(V.in[d].opnd[2]));
+		return 1;
+	}
+	return 0;
+}
+
+/* id as x << k, k a constant */
+static int
+shl_k(int id, int *x, uint64_t *k)
+{
+	int d = SP.def[id];
+
+	if (d < 0 || SP.dead[d] || strcmp(V.in[d].op, "OpShiftLeftLogical") ||
+	    !const_of(res_of(idx(V.in[d].opnd[2])), k))
+		return 0;
+	*x = res_of(idx(V.in[d].opnd[1]));
+	return 1;
+}
+
+/* id's instruction's cost when nothing but its one user reads it */
+static double
+only_use_cost(int id)
+{
+	return SP.def[id] >= 0 && SP.uses[id] == 1 ? ins_cost_k(SP.def[id]) : 0;
+}
+
+/*
+ * l = base & ~m and r the field of a bitfield insert at bits p..p+n-1 (m
+ * those bits, 0 < n < w): r = (ins << p) & m, (ins & (2^n - 1)) << p, or
+ * ins & m with p = 0.  *extra: what goes dead with them.
+ */
+static int
+bfi_parts(int l, int r, int w, int *base, int *ins, int *p, int *nb,
+    double *extra)
+{
+	uint64_t km, k2, sh, m, all = wmask(w);
+	int t, t2;
+
+	if (!and_k(l, base, &km))
+		return 0;
+	m = ~km & all;
+	if (m == 0 || m == all)
+		return 0;
+	for (*p = 0; !(m >> *p & 1); (*p)++)
+		;
+	for (*nb = 0; *p + *nb < w && (m >> (*p + *nb) & 1); (*nb)++)
+		;
+	if ((wmask(*nb) << *p) != m)
+		return 0;	/* not one run of bits */
+	*extra = only_use_cost(l);
+	if (and_k(r, &t, &k2) && (k2 & all) == m) {
+		*extra += only_use_cost(r);
+		if (*p == 0) {
+			*ins = t;
+			return 1;
+		}
+		if (shl_k(t, ins, &sh) && sh == (uint64_t)*p) {
+			if (SP.uses[r] == 1)
+				*extra += only_use_cost(t);
+			return 1;
+		}
+		return 0;
+	}
+	if (*p > 0 && shl_k(r, &t2, &sh) && sh == (uint64_t)*p &&
+	    and_k(t2, ins, &k2) && (k2 & all) == wmask(*nb)) {
+		*extra += only_use_cost(r);
+		if (SP.uses[r] == 1)
+			*extra += only_use_cost(t2);
+		return 1;
+	}
+	return 0;
+}
+
 static int
 candidates(int k, struct cand *cs, int max)
 {
@@ -5884,6 +5977,30 @@ candidates(int k, struct cand *cs, int max)
 			n += ins_cand(&cs[n], "OpBitReverse", NULL, rt, leaf, -1, -1,
 			    "the bits of one word reversed are one bit reverse");
 			cs[n - 1].extra = aff_dead_cost(I->res, leaf, rt);
+		}
+	}
+	/* (base & ~m) | field, m the bits p..p+n-1 and the field (ins << p) &
+	 * m or (ins & (2^n - 1)) << p (ins itself for p = 0): one bitfield
+	 * insert of ins's low n bits */
+	if ((!strcmp(I->op, "OpBitwiseOr") || !strcmp(I->op, "OpBitwiseXor") ||
+	    !strcmp(I->op, "OpIAdd")) && w > 1 && w <= 64 && n < max) {
+		int i;
+		for (i = 0; i < 2 && n < max; i++) {
+			int base, ins, p, nb;
+			double extra;
+			if (bfi_parts(arg[i], arg[1 - i], w, &base, &ins, &p, &nb,
+			    &extra)) {
+				n += ins_cand(&cs[n], "OpBitFieldInsert", NULL, rt, base,
+				    ins, const_id(rt, (uint64_t)p),
+				    "a field put into a word is one bitfield insert");
+				cs[n - 1].a[3] = const_id(rt, (uint64_t)nb);
+				cs[n - 1].na = cs[n - 1].a[2] >= 0 && cs[n - 1].a[3] >= 0 ?
+				    4 : 0;
+				cs[n - 1].extra = extra;
+				if (cs[n - 1].na == 0)
+					n--;	/* no constant id for p or n */
+				break;
+			}
 		}
 	}
 	(void)w;
