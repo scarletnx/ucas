@@ -101,3 +101,29 @@ model fprich16 : fprich { mul16: 1
 use fprich16
 find ma 1
 use gt1030
+
+# two products with a common factor are one product: two fields packed
+# in a word take one multiply.  With | the ranges must keep the fields
+# apart (a*c below 2^12); with + it is distributivity modulo 2^32
+pk(a: u32 in 0..1023, b: u32 in 0..1023, c: u32 in 0..3) = a*c | (b*c) << 12
+find pk 1
+pp(a: u32, b: u32, c: u32) = a*c + ((b*c) << 12)
+find pp 1
+pc(a: u32, b: u32, c: u32) = a*c + b*c
+find pc 1
+ps(a: i32, b: i32, c: i32) = a*c - 5*(c*b)
+find ps 1
+# a field that can reach the next one: not derived
+pkx(a: u32 in 0..4095, b: u32 in 0..1023, c: u32 in 0..3) = a*c | (b*c) << 12
+find pkx 1
+# the same in a mantissa: floats that hold integers, every value below
+# 2^24 (12291000 here), so nothing rounds
+pf(x: f32 in 0..1000, y: f32 in 0..1000, c: f32 in 0..3) = floor(x)*floor(c) + 4096*(floor(y)*floor(c))
+find pf 1
+# past 2^24 a product would round: not derived
+pfx(x: f32 in 0..1000, y: f32 in 0..5000, c: f32 in 0..3) = floor(x)*floor(c) + 4096*(floor(y)*floor(c))
+find pfx 1
+# where the integer pipe is half rate (sm86) the packed product is 8 to 4
+use sm86
+find pk 1
+use gt1030

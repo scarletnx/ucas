@@ -249,3 +249,70 @@ find ma: 1024 points (sampled; matches verified on the whole domain), computing 
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
 cost model: gt1030
+> pk(a: u32 in 0..1023, b: u32 in 0..1023, c: u32 in 0..3) = a*c | (b*c) << 12
+> find pk 1
+find pk: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   (a + (b << 12))*c                        a*c | b*c << 12 as one product by the common factor c (derived; checked on every point)
+      holds where a*c in [0, 3069] (interval arithmetic over the parameters' ranges), below 2^12, and the other side a multiple of 2^12: no bit in both, so the or is their sum
+      modulo 2^32 multiplication distributes over addition, and a shift left by k or a constant factor moves inside the product: p*c + K*(q*c) = (p + K*q)*c
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> pp(a: u32, b: u32, c: u32) = a*c + ((b*c) << 12)
+> find pp 1
+find pp: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   (a + (b << 12))*c                        a*c + (b*c << 12) as one product by the common factor c (derived; checked on a sample)
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition, and a shift left by k or a constant factor moves inside the product: p*c + K*(q*c) = (p + K*q)*c
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> pc(a: u32, b: u32, c: u32) = a*c + b*c
+> find pc 1
+find pc: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 4   (a + b)*c                                a*c + b*c as one product by the common factor c (derived; checked on a sample)
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition, and a shift left by k or a constant factor moves inside the product: p*c + K*(q*c) = (p + K*q)*c
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ps(a: i32, b: i32, c: i32) = a*c - 5*(c*b)
+> find ps 1
+find ps: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   (a - 5b)*c                               a*c - 5(c*b) as one product by the common factor c (derived; checked on a sample)
+      holds where any operands: i32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over subtraction, and a shift left by k or a constant factor moves inside the product: p*c - K*(q*c) = (p - K*q)*c
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> pkx(a: u32 in 0..4095, b: u32 in 0..1023, c: u32 in 0..3) = a*c | (b*c) << 12
+> find pkx 1
+find pkx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> pf(x: f32 in 0..1000, y: f32 in 0..1000, c: f32 in 0..3) = floor(x)*floor(c) + 4096*(floor(y)*floor(c))
+> find pf 1
+find pf: rewrites by identities the model prices lower (cost 12 as written, under gt1030)
+  cost 11  (floor(x) + 4096floor(y))*floor(c)       floor(x)*floor(c) + 4096(floor(y)*floor(c)) as one product by the common factor floor(c) (derived)
+      holds where floor(x), floor(y) and floor(c) are integers, and every value on both sides is at most 12291000 in magnitude, below 2^24
+      f32 holds every integer below 2^24 in magnitude, so no product or sum on either side rounds, and in the integers multiplication distributes over addition, and a shift left by k or a constant factor moves inside the product: p*floor(c) + K*(q*floor(c)) = (p + K*q)*floor(c)
+find pf: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(c) by adding and subtracting 1.5*2^23, and one compare
+find pf: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(y) by adding and subtracting 1.5*2^23, and one compare
+find pf: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(x) by adding and subtracting 1.5*2^23, and one compare
+> pfx(x: f32 in 0..1000, y: f32 in 0..5000, c: f32 in 0..3) = floor(x)*floor(c) + 4096*(floor(y)*floor(c))
+> find pfx 1
+find pfx: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(c) by adding and subtracting 1.5*2^23, and one compare
+find pfx: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(y) by adding and subtracting 1.5*2^23, and one compare
+find pfx: derived, but not cheaper under gt1030 (cost 16, as written 12): floor(x) by adding and subtracting 1.5*2^23, and one compare
+> use sm86
+cost model: sm86
+> find pk 1
+find pk: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm86
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 4   (a + (b << 12))*c                        a*c | b*c << 12 as one product by the common factor c (derived; checked on every point)
+      holds where a*c in [0, 3069] (interval arithmetic over the parameters' ranges), below 2^12, and the other side a multiple of 2^12: no bit in both, so the or is their sum
+      modulo 2^32 multiplication distributes over addition, and a shift left by k or a constant factor moves inside the product: p*c + K*(q*c) = (p + K*q)*c
+  nothing new up to cost 6 (term bank full)
+  [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
