@@ -21,6 +21,8 @@
  *   depth test     LESS or GREATER_OR_EQUAL on D32_SFLOAT: a min or max
  *                  whose high bits are the key and whose low bits, the
  *                  payload, ride in a colour target (an argmin)
+ *   query          a precise occlusion query: d + (s != 0) counted over
+ *                  a whole draw, one counter
  *
  * Nothing is recognised by name: every state is compared with F on F's
  * domain.  Integers are decided on every point or by SAT; a blend
@@ -33,8 +35,8 @@
  * A state is a proposal: it changes the pipeline (a render target, a
  * blend or stencil state, one point per contribution), which is spelled
  * out, and it is priced by a class of its own (rop_blend, rop_adv,
- * rop_logic, rop_stencil, rop_depth) that a model lists only once it is
- * measured.
+ * rop_logic, rop_stencil, rop_depth, rop_query) that a model lists only
+ * once it is measured.
  */
 #include "calc.h"
 #include "alg.h"
@@ -1103,21 +1105,91 @@ depth_test(struct rctx *c)
 	form(c, "depth test", st, hold, pr, C_ROP_DEPTH, pl);
 }
 
+/* ---- an occlusion query: one counter for a whole draw ---- */
+
+/*
+ * A precise occlusion query counts the samples that pass the fragment
+ * tests, exactly (VK_QUERY_CONTROL_PRECISE_BIT).  With no depth or stencil
+ * test, single-sampled points and a fragment shader that discards where s
+ * is 0, that is how many contributions have s != 0: F = d + (s != 0), or
+ * d + 1 with no source, when every contribution updates the one cell.
+ * Read with VK_QUERY_RESULT_64_BIT the count is exact, and the cell's add
+ * of it wraps in the cell's width as F does.  Pipeline statistics are not
+ * offered: Vulkan lets each implementation count invocations its own way.
+ */
+static void
+query_count(struct rctx *c)
+{
+	nid one, zero, e;
+	const char *how;
+	char st[300], hold[300], pr[600], pl[700], cnt[90], cw[80];
+
+	if (c->flt || c->ic >= 0 || c->nsrc > 1)
+		return;
+	one = mk_const_i(c->ty, 1);
+	zero = mk_const_i(c->ty, 0);
+	e = mk_bin(O_ADD, c->vd, c->nsrc ? mk_sel(mk_bin(O_NE, c->vs, zero),
+	    one, zero) : one);
+	if (same(c->f, c->f->body, e, &how) != 1)
+		return;
+	/* what counts: every fragment, or those where s is not 0 */
+	snprintf(cw, sizeof cw, "%s != 0", c->nsrc ? pname(c, c->is) : "");
+	if (c->nsrc)
+		snprintf(cnt, sizeof cnt, "(%s)", cw);
+	else
+		snprintf(cnt, sizeof cnt, "1");
+	snprintf(st, sizeof st, "VK_QUERY_TYPE_OCCLUSION, precise, around the "
+	    "draw: the fragments that pass, counted: %s + %s", pname(c, c->id),
+	    cnt);
+	snprintf(hold, sizeof hold, "every contribution updates the same cell: "
+	    "a query counts a whole draw (more cells: a draw and a query "
+	    "each)");
+	snprintf(pr, sizeof pr, "the update is %s + %s (%s); a precise "
+	    "occlusion query counts every sample that passes the fragment "
+	    "tests, which with no depth or stencil test and one sample a "
+	    "point%s%s%s is one a contribution%s%s; read as 64 bits the count "
+	    "is exact, and adding it to the cell wraps in u%d as the update "
+	    "does", pname(c, c->id), cnt, how, c->nsrc ? ", a discard where " :
+	    "", c->nsrc ? pname(c, c->is) : "", c->nsrc ? " is 0," : "",
+	    c->nsrc ? " with " : "", c->nsrc ? cw : "", c->w);
+	snprintf(pl, sizeof pl, "VkQueryPoolCreateInfo: queryType = "
+	    "VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with "
+	    "VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) "
+	    "around a draw of one point per contribution, anywhere (no depth "
+	    "or stencil test, one sample a pixel)%s%s%s; "
+	    "vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a "
+	    "buffer, and the cell's %s + count once after the draw",
+	    c->nsrc ? ", the fragment shader discarding where " : "",
+	    c->nsrc ? pname(c, c->is) : "", c->nsrc ? " is 0" : "",
+	    pname(c, c->id));
+	form(c, "occlusion query", st, hold, pr, C_ROP_QUERY, pl);
+}
+
 /* ---- the command ---- */
 
-static int
+/*
+ * The value an atomic would bring when F is d op X, X free of the cell,
+ * with op one the target has as an atomic (32 or 64 bits, or f32): X,
+ * else 0 (a compare-and-swap loop then).
+ */
+static nid
 native_atomic(const struct rctx *c)
 {
-	nid b = c->f->body;
+	nid b = c->f->body, x;
 	int op = N.op[b];
 
-	if (c->nsrc != 1 || c->ic >= 0)
+	if (!c->flt && c->w != 32 && c->w != 64)
+		return 0;	/* no atomic narrower than a word */
+	if (!(op == O_ADD || op == O_SUB || op == O_MIN || op == O_MAX ||
+	    (!c->flt && (op == O_AND || op == O_OR || op == O_XOR))))
 		return 0;
-	if (!(op == O_ADD || op == O_MIN || op == O_MAX || (!c->flt &&
-	    (op == O_AND || op == O_OR || op == O_XOR))))
+	if (N.a[b] == c->vd)
+		x = N.b[b];
+	else if (N.b[b] == c->vd && op != O_SUB)
+		x = N.a[b];
+	else
 		return 0;
-	return (N.a[b] == c->vs && N.b[b] == c->vd) || (N.a[b] == c->vd &&
-	    N.b[b] == c->vs);
+	return has_slot(x, c->id) ? 0 : x;
 }
 
 /*
@@ -1129,6 +1201,7 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 {
 	static char why[200];
 	int j;
+	nid x;
 
 	c->f = f;
 	c->m = m;
@@ -1201,23 +1274,24 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 	 * compare-and-swap have classes of their own, priced as
 	 * atomic_global by a model that does not list them)
 	 */
-	if (c->w == 64) {
-		float b = native_atomic(c) ? 0 : fuse_expr_cost(m, f->body);
+	if ((x = native_atomic(c)) != 0) {
+		/* the atomic, and what computes the value it brings */
+		float b = fuse_expr_cost(m, x);
+		int cls = c->w == 64 ? C_ATOM_GL_64 : c->flt && (N.op[f->body] ==
+		    O_ADD || N.op[f->body] == O_SUB) ? C_ATOM_GL_F : C_ATOM_GL;
+		c->against = model_cost(m, cls) + b;
+		sb_printf(&c->againstwhy, "one global %s, %s", cls == C_ATOM_GL_64 ?
+		    "64-bit atomic" : cls == C_ATOM_GL_F ? "float atomic add" :
+		    "atomic", cclass_name[cls]);
+		if (b > 0)
+			sb_printf(&c->againstwhy, " %g + %g for the value it brings",
+			    (double)model_cost(m, cls), (double)b);
+	} else if (c->w == 64) {
+		float b = fuse_expr_cost(m, f->body);
 		c->against = model_cost(m, C_ATOM_GL_64) + b;
-		if (native_atomic(c))
-			sb_printf(&c->againstwhy, "one global 64-bit atomic, "
-			    "atomic_global_64");
-		else
-			sb_printf(&c->againstwhy, "a global 64-bit compare-and-swap "
-			    "around the update: atomic_global_64 %g + %g",
-			    (double)model_cost(m, C_ATOM_GL_64), (double)b);
-	} else if (native_atomic(c) && !(c->flt && N.op[f->body] == O_ADD)) {
-		c->against = m->c[C_ATOM_GL];
-		sb_printf(&c->againstwhy, "one global atomic, atomic_global");
-	} else if (native_atomic(c)) {
-		c->against = model_cost(m, C_ATOM_GL_F);
-		sb_printf(&c->againstwhy, "one global float atomic add, "
-		    "atomic_global_f");
+		sb_printf(&c->againstwhy, "a global 64-bit compare-and-swap "
+		    "around the update: atomic_global_64 %g + %g",
+		    (double)model_cost(m, C_ATOM_GL_64), (double)b);
 	} else {
 		float b = fuse_expr_cost(m, f->body);
 		c->against = model_cost(m, C_ATOM_GL_CAS) + b;
@@ -1238,6 +1312,7 @@ catalogue(struct rctx *c)
 	blend_eq(c);
 	advanced(c);
 	depth_test(c);
+	query_count(c);
 }
 
 static void
@@ -1277,7 +1352,7 @@ cmd_rop(struct func *f, struct model *m)
 		printf("  no fixed-function state in the catalogue computes it "
 		    "(logic ops, stencil ops, the blend equation with its "
 		    "factors, min, max, the advanced blend operations, the depth "
-		    "test)\n");
+		    "test, an occlusion query)\n");
 	if (c.nforms && c.ordered && !c.flt)
 		printf("  as the result depends on the order, a state above "
 		    "stands for a sequential loop over the fragments in "

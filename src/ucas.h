@@ -387,6 +387,8 @@ enum {
 	C_ROP_BLEND, C_ROP_ADV, C_ROP_LOGIC, C_ROP_STENCIL,
 	/* the depth test keeping a payload: a min or max with an argument */
 	C_ROP_DEPTH,
+	/* a precise occlusion query: a count over a whole draw */
+	C_ROP_QUERY,
 	/* the catalogue's instructions (inst.c), absent unless listed */
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_MULWIDE,

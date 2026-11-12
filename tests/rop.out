@@ -14,7 +14,7 @@ rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the
 rop big: big = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result does not depend on the order of the fragments: big(s2, big(s1, d)) = big(s1, big(s2, d)) (proved by SAT)
   blending: VK_BLEND_OP_ADD with ONE and ONE would compute it (s + d), but is not exact on this domain: its values reach 8589934590 in magnitude and its result [0, 8589934590]; f32 holds integers below 2^24 = 16777216, and the result must stay inside u32
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
 > wsum(s: u32 in 0..255, w: u32 in 0..16, d: u32 in 0..100000) = d + s*w
 > rop wsum
 rop wsum: wsum = d + s*w, applied once per fragment (s what a fragment brings, w its second value, d the cell's value)
@@ -87,6 +87,11 @@ rop cnt: cnt = d + 1, applied once per fragment (d the cell's value)
       checked on every point of the domain
       price: rop_stencil is not priced by gt1030 (not measured): unavailable
       pipeline: VkStencilOpState: passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP, writeMask = 0xff; a stencil attachment (S8_UINT); one fragment per contribution, its position the cell
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + 1
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + 1 (checked on every point of the domain); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point is one a contribution; read as 64 bits the count is exact, and adding it to the cell wraps in u8 as the update does
+      price: rop_query is not priced by gt1030 (not measured): unavailable
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel); vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
 > sat(d: u8) = d == 255 ? 255 : d + 1
 > rop sat
@@ -240,12 +245,12 @@ rop dif: dif = abs(d - s), applied once per fragment (s what a fragment brings, 
 rop difx: difx = abs(d - s), applied once per fragment (s what a fragment brings, d the cell's value)
   order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
   advanced blending: VK_BLEND_OP_DIFFERENCE_EXT would compute it, but is defined on colours in [0, 1]: give s and d that range (s: f32 in 0..1)
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
 > nope(s: u32, d: u32) = d * 3 + s
 > rop nope
 rop nope: nope = 3d + s, applied once per fragment (s what a fragment brings, d the cell's value)
   order: the result depends on the order of the fragments (nope(s2, nope(s1, d)) is not nope(s1, nope(s2, d))): a draw applies them in primitive order, atomics in any
-  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query)
 > model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
 > rop acc model fixed
 rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
@@ -276,6 +281,11 @@ rop cnt: cnt = d + 1, applied once per fragment (d the cell's value)
       checked on every point of the domain
       price: rop_stencil is not priced by fixed (not measured): unavailable
       pipeline: VkStencilOpState: passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP, writeMask = 0xff; a stencil attachment (S8_UINT); one fragment per contribution, its position the cell
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + 1
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + 1 (checked on every point of the domain); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point is one a contribution; read as 64 bits the count is exact, and adding it to the cell wraps in u8 as the update does
+      price: rop_query is not priced by fixed (not measured): unavailable
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel); vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
 > rop fa
 rop fa: fa = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
@@ -292,7 +302,7 @@ rop kb: kb = d + s*k, applied once per fragment (s what a fragment brings, d the
   fixed-function states that compute it (each a proposal: the pipeline changes):
   blending: VK_BLEND_OP_ADD, source factor CONSTANT_COLOR, destination factor ONE on a float target (R32_SFLOAT): s*k + d
       kb and s*k + d expand to the same polynomial; the blender does 2 operations whose rounding Vulkan does not fix (it may fuse the multiply and the add): equal as real functions, bit for bit only where every step is exact
-      price: rop_blend 2 a fragment under fixed, against 144.5 (a global compare-and-swap around the update: atomic_global_cas 143.5 + 1): cheaper
+      price: rop_blend 2 a fragment under fixed, against 139.75 (one global float atomic add, atomic_global_f 138.75 + 1 for the value it brings): cheaper
       pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_CONSTANT_COLOR, dstColorBlendFactor = VK_BLEND_FACTOR_ONE, blendConstants = k; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour s
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
 > use gt1030
@@ -328,6 +338,11 @@ rop cnt: cnt = d + 1, applied once per fragment (d the cell's value)
       checked on every point of the domain
       price: rop_stencil is not priced by fixed (not measured): unavailable
       pipeline: VkStencilOpState: passOp = VK_STENCIL_OP_INCREMENT_AND_WRAP, writeMask = 0xff; a stencil attachment (S8_UINT); one fragment per contribution, its position the cell
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + 1
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + 1 (checked on every point of the domain); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point is one a contribution; read as 64 bits the count is exact, and adding it to the cell wraps in u8 as the update does
+      price: rop_query is not priced by fixed (not measured): unavailable
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel); vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
 > rop sat model nomodel
 rop.ucas:96:22: error: unknown model (see 'models')
@@ -412,4 +427,37 @@ rop bits64: bits64 = d | s, applied once per fragment (s what a fragment brings,
       proved by SAT
       price: rop_logic is not priced by gt1030 (not measured): unavailable
       pipeline: VkPipelineColorBlendStateCreateInfo: logicOpEnable, logicOp = VK_LOGIC_OP_OR (the logicOp feature); an R32G32_UINT colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> hits(s: u32, d: u32) = d + (s != 0 ? 1 : 0)
+> rop hits
+rop hits: hits = d + u32(s != 0 ? 1 : 0), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: hits(s2, hits(s1, d)) = hits(s1, hits(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + (s != 0)
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + (s != 0) (proved by SAT); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point, a discard where s is 0, is one a contribution with s != 0; read as 64 bits the count is exact, and adding it to the cell wraps in u32 as the update does
+      price: rop_query is not priced by gt1030 (not measured): unavailable
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel), the fragment shader discarding where s is 0; vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> h64(s: u64, d: u64) = d + (s != 0 ? 1 : 0)
+> rop h64
+rop h64: h64 = d + u64(s != 0 ? 1 : 0), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: h64(s2, h64(s1, d)) = h64(s1, h64(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + (s != 0)
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + (s != 0) (proved by SAT); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point, a discard where s is 0, is one a contribution with s != 0; read as 64 bits the count is exact, and adding it to the cell wraps in u64 as the update does
+      price: rop_query is not priced by gt1030 (not measured): unavailable
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel), the fragment shader discarding where s is 0; vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> model qm : gt1030 { rop_query: 3 }
+> rop hits model qm
+rop hits: hits = d + u32(s != 0 ? 1 : 0), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: hits(s2, hits(s1, d)) = hits(s1, hits(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  occlusion query: VK_QUERY_TYPE_OCCLUSION, precise, around the draw: the fragments that pass, counted: d + (s != 0)
+      holds where every contribution updates the same cell: a query counts a whole draw (more cells: a draw and a query each)
+      the update is d + (s != 0) (proved by SAT); a precise occlusion query counts every sample that passes the fragment tests, which with no depth or stencil test and one sample a point, a discard where s is 0, is one a contribution with s != 0; read as 64 bits the count is exact, and adding it to the cell wraps in u32 as the update does
+      price: rop_query 3 a fragment under qm, against 54 (one global atomic, atomic_global 50 + 4 for the value it brings): cheaper
+      pipeline: VkQueryPoolCreateInfo: queryType = VK_QUERY_TYPE_OCCLUSION; vkCmdBeginQuery with VK_QUERY_CONTROL_PRECISE_BIT (the occlusionQueryPrecise feature) around a draw of one point per contribution, anywhere (no depth or stencil test, one sample a pixel), the fragment shader discarding where s is 0; vkCmdCopyQueryPoolResults with VK_QUERY_RESULT_64_BIT into a buffer, and the cell's d + count once after the draw
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
