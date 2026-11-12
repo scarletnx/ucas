@@ -325,6 +325,7 @@ find qb: 1024 points, computing in i32, costs from gt1030
       M = ceil(2^23/255) = 32897, so M*255 = 2^23 + 127
       x*M/2^23 = x/255 + x*127/(255*2^23): the excess is below 1/255 while x*127 < 2^23, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^23) = floor(x/255)
       x <= 32512: x*127 <= 4129024 < 2^23, and x*M <= 1069547264 < 2^32, so the product does not wrap in u32
+  derived, but not cheaper under gt1030 (cost 79, as written 79): the map q > 0 ? q - 1 : q where q = (v*((1 << b) - 1) + 127)/255 of (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32
   cost 11  i32(32897u32(v*((1 << b) - 1) + 127) >> 0x17) all of them: drops the ?: on t3*t3 < t2*t2 && t3*t3 <= t4*t4 wher... (it always takes the second arm), then drops the ?: on t3*t3 < t2*t2 where q = (v*((1 << b)... (it always takes the second arm), then the division (v*((1 << b) - 1) + 127)/255 as a multiply and a shift in u32 (derived; the drops exhaustive)
   split on b (4 values), fitted (v*K + C) >> S per case: S = 12, C = 2048
   cost 17  v*(b == 4 ? 241 : b == 5 ? 498 : b == 6 ? 1012 : 2047) + 2048 >> 12
