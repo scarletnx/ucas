@@ -3775,6 +3775,20 @@ refitted as a whole").  Its variable is written as the value it is, or
 a component of an input vector where the result is that component's
 type; otherwise the report says it is not written.
 
+A product of powers (with exp2s, plain factors, divisors and positive
+constants among its factors) is the exp2 of the sum of its exponents
+times the log2 of its bases, every base above 0 where it is used:
+`pow(a, 2.4) * pow(b, 0.7)` is 17 under gt1030 (two pows and a
+multiply) against two log2, a multiply, an fma and an exp2 (14).
+Against the reference each log2 and the exp2 are correctly rounded, so
+each term is off by y L (2u + u^2), the sum by gamma_(k-1) of the terms'
+magnitudes, the result by 2^D (1 + u) - 1 relatively with D what the
+exponent is off by, plus the reference's own rounding of its
+operations: about 11 ulp there, an approximation that `approx ulp N` or
+a sink takes.  The factors' operations give way to it ("inside a
+product that is rewritten in the log domain"); a scalar exponent of a
+vector product is splatted.
+
 Left to the other parts of ucas: an integer function of few inputs
 whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
 8-bit x) is `find`'s, which checks every point and offers tables and

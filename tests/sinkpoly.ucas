@@ -60,3 +60,25 @@ simplify float c in [0, 1] nofile
 ```glsl
 float Curve(float c) { return (((0.12 * c - 0.35) * c + 0.41) * c + 0.7) * c + 0.05; }
 ```
+# a product of powers as exp2 of the sum of its exponents times log2 of
+# its bases: listed as an approximation without a sink (17 -> 14)
+simplify float a in [0.5, 2], b in [0.25, 4] nofile
+```glsl
+float Spec(float a, float b) { return pow(a, 2.4) * pow(b, 0.7); }
+```
+# under a sink, with a divisor and an exp2 among the factors
+simplify float a in [0.5, 2], b in [0.25, 4] sink unorm8 nofile
+```glsl
+float Ratio(float a, float b) { return pow(a, 2.4) / pow(b, 0.7) * exp2(a * 0.25); }
+```
+# per lane of a vector, a constant factor's log added, a scalar exponent
+# splatted
+simplify float c in [0.25, 1], g in [1, 4] sink unorm8 nofile
+```glsl
+vec3 Tone(vec3 c, float g) { return pow(c, vec3(2.2)) * pow(c, vec3(g * 0.1)) * 0.8; }
+```
+# a base that can be 0 has no log2: left as it is
+simplify float a in [0, 2], b in [0.25, 4] sink unorm8 nofile
+```glsl
+float Zero(float a, float b) { return pow(a, 2.4) * pow(b, 0.7); }
+```

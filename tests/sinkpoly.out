@@ -346,3 +346,157 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
           real error against its exact value, certified on 4096 even pieces: 0.000938 absolute
           plus the rounding of the new evaluation (gamma_6 times sum |a_i||t|^i) and of the original (gamma_8 times the magnitudes its operations reach, 7.77e-07): 0.000939 absolute in all, the worst near x = 0.9999
         P(t) = fma(fma(fma(-0.109999999, t, 0.25999999), t, 0.729999959), t, 0.0490625016), t = x - 0
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Spec: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming a in [0.5, 2] (each component; no NaN)
+  assuming b in [0.25, 4] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 17 -> 17 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    a product of powers as exp2 of a sum of logs, cost 14 (-3): relative error < 7.09e-07 (11 ulp), beyond the original's precision
+        pow(a, 2.4) * pow(b, 0.7) as exp2 of the sum of its 2 terms (of a, b; 2 log2), the sum in [-3.8, 3.8] where it is used
+          against the reference (log2, exp2, pow correctly rounded): each log2 L(1 + d1), each term y L (1 + d1)(1 + d2), the sum gamma_1 of its terms' magnitudes (3.8): the exponent is off by at most 6.79e-07, the result by 2^that (1 + u) - 1 = 5.31e-07 relatively
+          plus the reference's own rounding of its 3 operations (gamma_3): 7.09e-07 relative, 9.88e-06 absolute at most (the product reaches 2^3.8), 11 ulp
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.0269 (462790 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00994 (168438 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00414 (69789 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00185 (31159 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.000872 (14639 ulp), beyond the original's precision
+        relative minimax of q^0.7 on [0.25, 4] (remez.c), t = q - 2.125, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000866 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000872 relative in all, the worst near q = 0.2501
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.0018784412, t, 0.00166190509), t, 0.00492200581), t, 0.00654257787), t, -0.0476753674), t, 0.558451533), t, 1.69639075), t = q - 2.125
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.0174 (296386 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00093 (15614 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.000117 (1968 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 3.39e-05 (569 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 2.44e-05 (410 ulp), beyond the original's precision
+        relative minimax of q^2.4 on [0.5, 2] (remez.c), t = q - 1.25, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 2.91e-06 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 2.44e-05 relative in all, the worst near q = 0.5001
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.00364234485, t, 0.00674384786), t, -0.022504095), t, 0.195828959), t, 1.83667135), t, 3.28008103), t, 1.70838261), t = q - 1.25
+  not applied:
+    %48 = OpExtInst %float %2 Pow %36 %float_0_699999988   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+    %46 = OpExtInst %float %2 Pow %33 %float_2_4000001   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Ratio: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink unorm8
+simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  assuming a in [0.5, 2] (each component; no NaN)
+  assuming b in [0.25, 4] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 25 -> 16 (-36.0%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.00237 of it
+  rewrites, the largest savings first:
+    %58 = OpFMul %float %54 %57
+      -> %ucas_f1l0 = OpExtInst %float %2 Log2 %38
+         %ucas_f1s0 = OpFMul %float %ucas_f1l0 %ucas_float_4019999a
+         %ucas_f1l1 = OpExtInst %float %2 Log2 %41
+         %ucas_f1s1 = OpExtInst %float %2 Fma %ucas_f1l1 %ucas_float_bf333333 %ucas_f1s0
+         %ucas_f1s2 = OpFAdd %float %ucas_f1s1 %56
+         %58 = OpExtInst %float %2 Exp2 %ucas_f1s2
+      (a product of powers as exp2 of a sum of logs; -9)
+      proof: an approximation (derived bound)
+        (pow(a, 2.4) / pow(b, 0.7)) * exp2((a * 0.25)) as exp2 of the sum of its 3 terms (of a, b, a * 0.25; 2 log2), the sum in [-3.675, 4.3] where it is used
+          against the reference (log2, exp2, pow correctly rounded): each log2 L(1 + d1), each term y L (1 + d1)(1 + d2), the sum gamma_2 of its terms' magnitudes (4.3): the exponent is off by at most 9.66e-07, the result by 2^that (1 + u) - 1 = 7.29e-07 relatively
+          plus the reference's own rounding of its 5 operations (gamma_5): 1.03e-06 relative, 2.02e-05 absolute at most (the product reaches 2^4.3), 17 ulp
+          the sink: its own bound moves this value by at most 3.99e-05; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 3.99e-05 of the 0.00392 one step allows
+        bound against the reference: 17 ulp
+        (line 1: float Ratio(float a, float b) { return pow(a, 2.4) / pow(b, 0.7) * exp2(a * 0.25); })
+  not applied:
+    %53 = OpExtInst %float %2 Pow %41 %float_0_699999988   (pow as exp2(y * log2 x))
+        inside a product that is rewritten in the log domain
+    %51 = OpExtInst %float %2 Pow %38 %float_2_4000001   (pow as exp2(y * log2 x))
+        inside a product that is rewritten in the log domain
+  (nofile: simplified.spvasm, 2388 bytes, checksum e7e32247)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Tone: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume g 1 4 float sink unorm8
+simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  the vec3 %62: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [0.25, 1] (each component; no NaN)
+  assuming g in [1, 4] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 55 -> 46 (-16.4%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 0.000397 of it
+  rewrites, the largest savings first:
+    %62 = OpVectorTimesScalar %v3float %61 %float_0_800000012
+      -> %ucas_f1l0 = OpExtInst %v3float %2 Log2 %41
+         %ucas_f1s0 = OpFMul %v3float %ucas_f1l0 %ucas_k3_400ccccd_400ccccd_400ccccd
+         %ucas_f1l1 = OpExtInst %v3float %2 Log2 %41
+         %ucas_f1c2 = OpCompositeConstruct %v3float %58 %58 %58
+         %ucas_f1s1 = OpExtInst %v3float %2 Fma %ucas_f1l1 %ucas_f1c2 %ucas_f1s0
+         %ucas_f1k = OpFAdd %v3float %ucas_f1s1 %ucas_k3_bea4d3c2_bea4d3c2_bea4d3c2
+         %62 = OpExtInst %v3float %2 Exp2 %ucas_f1k
+      (a product of powers as exp2 of a sum of logs; -9)
+      proof: an approximation (derived bound)
+        (pow(c, 2.2) * pow(c, (g * 0.1))) * 0.8 as exp2 of the sum of its 3 terms (of c, c; 2 log2), the sum in [-5.522, -0.3219] where it is used
+          against the reference (log2, exp2, pow correctly rounded): each log2 L(1 + d1), each term y L (1 + d1)(1 + d2), the sum gamma_2 of its terms' magnitudes (5.522): the exponent is off by at most 1.3e-06, the result by 2^that (1 + u) - 1 = 9.59e-07 relatively
+          plus the reference's own rounding of its 4 operations (gamma_4): 1.2e-06 relative, 9.58e-07 absolute at most (the product reaches 2^-0.3219), 20 ulp
+          the sink: its own bound moves this value by at most 1.91e-06; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 0.000397 of the 0.00392 one step allows
+        bound against the reference: 20 ulp
+        (line 1: vec3 Tone(vec3 c, float g) { return pow(c, vec3(2.2)) * pow(c, vec3(g * 0.1)) * 0.8; })
+  not applied:
+    %55 = OpExtInst %v3float %2 Pow %41 %18   (pow as exp2(y * log2 x))
+        inside a product that is rewritten in the log domain
+  (nofile: simplified.spvasm, 2972 bytes, checksum 041acbd3)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Zero: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume a 0 2 float sink unorm8
+simplify: 60 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming a in [-0, 2] (each component; no NaN)
+  assuming b in [0.25, 4] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 17 -> 17 (+0.0%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.0269 (462790 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.374, more than the 0.00392 a step of the sink allows
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.00994 (168438 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.138, more than the 0.00392 a step of the sink allows
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 0.00414 (69789 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0577, more than the 0.00392 a step of the sink allows
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 0.00185 (31159 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0258, more than the 0.00392 a step of the sink allows
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 0.000872 (14639 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0122, more than the 0.00392 a step of the sink allows
+        relative minimax of q^0.7 on [0.25, 4] (remez.c), t = q - 2.125, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.000866 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 0.000872 relative in all, the worst near q = 0.2501
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-0.0018784412, t, 0.00166190509), t, 0.00492200581), t, 0.00654257787), t, -0.0476753674), t, 0.558451533), t, 1.69639075), t = q - 2.125
+  not applied:
+    %48 = OpExtInst %float %2 Pow %36 %float_0_699999988   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+    %46 = OpExtInst %float %2 Pow %33 %float_2_4000001   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
