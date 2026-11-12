@@ -132,9 +132,9 @@ find lg: 1024 points (sampled; matches verified on the whole domain), computing 
   derived, but not cheaper under sm86 (cost 12, as written 10): 31 - clz(x), floor(log2(x)), as the exponent field of f32(x)
   rewrites the model prices lower (each derived, with what it holds under):
   cost 7   u32((asint(asfloat(x | 0x4b000000) - 8388608) >> 0x17) - 127) 31 - clz(x), floor(log2(x)), as the exponent field of f32(x), converted by the bits of 2^23 (derived; checked on a sample)
-      holds where x in [1, 8000000], inside [1, 2^24)
+      holds where x in [1, 8000000], inside [1, 2^24]
       31 - clz(x) is the index e of the highest set bit of x: 2^e <= x < 2^(e+1)
-      x < 2^24: f32(x) is exact (from 2^24 on, rounding to nearest could carry into the next power of two), so its exponent field is e + 127 and its sign bit 0
+      x <= 2^24: f32(x) is exact, so its exponent field is e + 127 and its sign bit 0
       the bits shifted right by 23 are e + 127
       0 <= x < 2^23: x | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa x, the f32 2^23 + x exactly (one unit in the last place there is 1)
       2^23 + x - 2^23 = x is an integer below 2^24, an f32: the subtraction does not round
@@ -148,13 +148,44 @@ find fr: rewrites by identities the model prices lower (cost 9 as written, under
       x + 1.5*2^23 lies in [2^23, 2^24], where the f32 are the integers: the add rounds it to the nearest integer (ties to even), r + 1.5*2^23 with r = round(x)
       subtracting 1.5*2^23 from an integer in [2^23, 2^24] gives r, an integer up to 2^22 in magnitude, an f32: no rounding
       |r - x| <= 1/2, so floor(x) is r where r <= x and r - 1 otherwise (an exact f32 subtraction of integers)
-> use gt1030
-cost model: gt1030
+> model slowclz : sm86 { bitcnt: 16 }
+> use slowclz
+cost model: slowclz
 > lgx(x: u32 in 1..16777216) = 31 - clz(x)
 > find lgx 1
-find lgx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  nothing new up to cost 3 (term bank full)
-  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+find lgx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from slowclz
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 12  u32((asint(f32(x)) >> 0x17) - 127)       31 - clz(x), floor(log2(x)), as the exponent field of f32(x) (derived; checked on a sample)
+      holds where x in [1, 16777216], inside [1, 2^24]
+      31 - clz(x) is the index e of the highest set bit of x: 2^e <= x < 2^(e+1)
+      x <= 2^24: f32(x) is exact, so its exponent field is e + 127 and its sign bit 0
+      the bits shifted right by 23 are e + 127
+  nothing new up to cost 6 (term bank full)
+  [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
+> lgy(x: u32 in 1..33554430) = 31 - clz(x)
+> find lgy 1
+find lgy: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from slowclz
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 12  u32((asint(f32(x)) >> 0x17) - 127)       31 - clz(x), floor(log2(x)), as the exponent field of f32(x) (derived; checked on a sample)
+      holds where x in [1, 33554430], which misses every x that rounds up into the next power of two
+      31 - clz(x) is the index e of the highest set bit of x: 2^e <= x < 2^(e+1)
+      past 2^24 f32(x) rounds to nearest even: in [2^e, 2^(e+1)) the f32 are 2^(e-23) apart, so it rounds up to 2^(e+1) only from 2^(e+1) - 2^(e-24) on (half a step below; the tie goes to the even 2^(e+1)), and elsewhere stays in [2^e, 2^(e+1))
+      [1, 33554430] stays below 2^25 - 1, the first x that rounds up (e = 24), so f32(x) keeps the exponent e, its field e + 127, its sign bit 0
+      the bits shifted right by 23 are e + 127
+  nothing new up to cost 6 (term bank full)
+  [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
+> lgz(x: u32 in 1..33554431) = 31 - clz(x)
+> find lgz 1
+find lgz: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from slowclz
+  not applied (it would cost 12): 31 - clz(x), floor(log2(x)), as the exponent field of f32(x)
+      needs x in [1, 33554431]
+      31 - clz(x) is the index e of the highest set bit of x: 2^e <= x < 2^(e+1)
+      past 2^24 f32(x) rounds to nearest even: in [2^e, 2^(e+1)) the f32 are 2^(e-23) apart, so it rounds up to 2^(e+1) only from 2^(e+1) - 2^(e-24) on (half a step below; the tie goes to the even 2^(e+1)), and elsewhere stays in [2^e, 2^(e+1))
+      but x = 33554431 is in [2^25 - 2^0, 2^25): f32(x) is 2^25, whose exponent field is 25 + 127, not 24 + 127
+  nothing new up to cost 6 (term bank full)
+  [searched every term up to cost 6: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
 > tx(x: f32 in 0..1000, y: f32 in 0..100) = i32(floor(x)) * i32(floor(y)) + 7
 > find tx 1
 find tx: rewrites by identities the model prices lower (cost 15 as written, under gt1030)

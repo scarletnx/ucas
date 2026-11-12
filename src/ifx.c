@@ -22,8 +22,11 @@
  *   - f32(1 << k) is asfloat((k + 127) << 23): the exponent field;
  *   - x * f32(1 << k) for a normal x whose product stays normal is
  *     asfloat(asint(x) + (k << 23)): ldexp by an add on the bits;
- *   - W-1 - clz(x), floor(log2(x)), for 1 <= x < 2^24 is (asint(f32(x))
- *     >> 23) - 127: the exponent field of the exact conversion;
+ *   - W-1 - clz(x), floor(log2(x)), for x >= 1 is (asint(f32(x)) >> 23)
+ *     - 127, the exponent field of the conversion, where the conversion
+ *     is exact (below 2^24) or does not round up into the next power of
+ *     two (x below 2^(e+1) - 2^(e-24) in each binade [2^e, 2^(e+1))
+ *     the range meets: up to 2^25 - 2 from 1);
  *   - integer +, -, * whose every value stays inside (-2^24, 2^24) run
  *     on floats without rounding: the multiply-adds become a*b + c on
  *     f32 (an FFMA where the model contracts), conversions at the ends.
@@ -635,8 +638,8 @@ rw_ilog2(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 {
 	nid z = N.b[n], x, f, to;
 	ty_t t = N.ty[n], tx;
-	int64_t lo, hi;
-	int v;
+	int64_t lo, hi, bad = -1;
+	int v, e, be = 0, nzone = 0;
 	char what[200], cond[300];
 	struct sbuf pf = {0};
 	struct nm XS;
@@ -648,8 +651,25 @@ rw_ilog2(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 	x = N.a[z];
 	tx = N.ty[x];
 	if (!TY_SIZED(tx) || N.ki[N.a[n]] != TYW(tx) - 1 ||
-	    !irange(c, x, &lo, &hi) || lo < 1 || hi >= (int64_t)P24)
+	    !irange(c, x, &lo, &hi) || lo < 1 || hi >= ((int64_t)1 << 62))
 		return;
+	/*
+	 * Past 2^24 f32(x) rounds to nearest even: in [2^e, 2^(e+1)) the f32
+	 * are 2^(e-23) apart, so x goes up into 2^(e+1) from half a step
+	 * below it on (2^(e+1) - 2^(e-24), a tie going to the even 2^(e+1)).
+	 * The range must miss every such zone, binade by binade.
+	 */
+	for (e = 24; e < 62 && bad < 0; e++) {
+		int64_t zlo = ((int64_t)1 << (e + 1)) - ((int64_t)1 << (e - 24));
+		int64_t zhi = ((int64_t)1 << (e + 1)) - 1;
+		if (zlo > hi)
+			break;
+		if (lo <= zhi && hi >= zlo) {
+			bad = lo > zlo ? lo : zlo;
+			be = e;
+		}
+		nzone++;
+	}
 	xs = nm(&XS, x);
 	for (v = 0; v < 2; v++) {
 		f = v ? magic_i2f(x, lo, hi) : mk_cast(TY_F32, x);
@@ -660,15 +680,48 @@ rw_ilog2(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 		snprintf(what, sizeof what, "%s, floor(log2(%s)), as the exponent "
 		    "field of f32(%s)%s", sstr(n), sstr(x), sstr(x), v ?
 		    ", converted by the bits of 2^23" : "");
-		snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside [1, "
-		    "2^24)", sstr(x), (long long)lo, (long long)hi);
 		sb_clear(&pf);
 		sb_printf(&pf, "%d - clz(%s) is the index e of the highest set "
-		    "bit of %s: 2^e <= %s < 2^(e+1)\n%s < 2^24: f32(%s) is exact "
-		    "(from 2^24 on, rounding to nearest could carry into the next "
-		    "power of two), so its exponent field is e + 127 and its sign "
-		    "bit 0\nthe bits shifted right by 23 are e + 127", TYW(tx) - 1,
-		    sstr(x), xs, xs, xs, sstr(x));
+		    "bit of %s: 2^e <= %s < 2^(e+1)\n", TYW(tx) - 1, sstr(x), xs,
+		    xs);
+		if (hi <= (int64_t)P24) {
+			snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside [1, "
+			    "2^24]", sstr(x), (long long)lo, (long long)hi);
+			sb_printf(&pf, "%s <= 2^24: f32(%s) is exact, so its exponent "
+			    "field is e + 127 and its sign bit 0", xs, sstr(x));
+		} else {
+			if (v)
+				continue;	/* the bits of 2^23 hold below 2^23 */
+			snprintf(cond, sizeof cond, "%s in [%lld, %lld]%s", sstr(x),
+			    (long long)lo, (long long)hi, bad < 0 ? ", which misses "
+			    "every x that rounds up into the next power of two" : "");
+			sb_printf(&pf, "past 2^24 f32(%s) rounds to nearest even: in "
+			    "[2^e, 2^(e+1)) the f32 are 2^(e-23) apart, so it rounds "
+			    "up to 2^(e+1) only from 2^(e+1) - 2^(e-24) on (half a step "
+			    "below; the tie goes to the even 2^(e+1)), and elsewhere "
+			    "stays in [2^e, 2^(e+1))\n", xs);
+			if (bad >= 0) {
+				sb_printf(&pf, "but %s = %lld is in [2^%d - 2^%d, 2^%d): "
+				    "f32(%s) is 2^%d, whose exponent field is %d + 127, not "
+				    "%d + 127", xs, (long long)bad, be + 1, be - 24, be + 1,
+				    xs, be + 1, be + 1, be);
+				irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf),
+				    0);
+				continue;
+			}
+			if (nzone == 0)
+				sb_printf(&pf, "[%lld, %lld] stays below 2^25 - 1, the "
+				    "first x that rounds up (e = 24)", (long long)lo,
+				    (long long)hi);
+			else
+				sb_printf(&pf, "[%lld, %lld] meets none of those, binade "
+				    "by binade (e = 24 to %d: from 2^25 - 1, 2^26 - 2, ..., "
+				    "2^(e+1) - 2^(e-24))", (long long)lo, (long long)hi, 23 +
+				    nzone);
+			sb_printf(&pf, ", so f32(%s) keeps the exponent e, its field e + "
+			    "127, its sign bit 0", sstr(x));
+		}
+		sb_printf(&pf, "\nthe bits shifted right by 23 are e + 127");
 		if (v) {
 			sb_putc(&pf, '\n');
 			i2f_proof(&pf, x, lo, hi);
