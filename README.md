@@ -2229,6 +2229,7 @@ arithmetic" (ACM TOMS 44(2), 2017):
 | pair / FP | DWDivFP3 | 11 | 7 u^2 | 3 u^2 |
 | pair / pair | DWDivDW2 | 15 | 18 u^2 | 15 u^2 |
 | sqrt(pair) | one Newton step | 9 | 5.125 u^2 | |
+| min, max of pairs | the pair by the sign of (xh - yh) + (xl - yl) | 6 | the larger operand's + 3 u^2 | |
 
 The bounds used are the ones the standard model fl(a op b) = (a op b)(1 +
 d), |d| <= u, gives line by line with the transformations exact; the
@@ -2248,7 +2249,12 @@ What is stated with a result: the ranges every value takes; no overflow
 none); no underflow of an error term (a product below 2^-102 adds at
 most 2^-149); divisors away from 0; a positive operand for sqrt (at 0
 the Newton step is 0/0); finite inputs.  Scaling by a power of two,
-negation and abs are exact.  An f64 parameter is split in place (hi =
+negation and abs are exact.  min and max choose one of their two pairs:
+xh - yh is exact when the high words are within a factor of two
+(Sterbenz), and then the difference's sign is the pairs' unless they are
+within u^2 (|xh| + |yh|) of each other, where either one is that close
+to the right one; farther apart the high words decide.  Two single f32
+are compared by the instruction itself.  An f64 parameter is split in place (hi =
 f32(v), lo = f32(v - hi), one f64 subtraction), a constant when it is
 read; integers up to 24 bits convert exactly and a 32-bit one in two
 exact parts; an operation with no pair form (sin, pow ...) stays in f64
@@ -2291,8 +2297,9 @@ them, and the price is of what goes:
 - A group with more than 8 inputs is cut at the values its results
   share: they stay f64 and are split.
 
-Not rewritten: results that stay f64, and an f64 `min`, `max` or
-comparison (the arithmetic under one is an input split in place).
+`min`, `max` and `clamp` of f64 values are read too (FMin, FMax, NMin,
+NMax, FClamp).  Not rewritten: results that stay f64, and an f64
+comparison (the arithmetic under one stays f64).
 
 ### Fixed function as compute
 

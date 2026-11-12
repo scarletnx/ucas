@@ -102,6 +102,18 @@ mat_f64(int t, int *cols, int *rows)
 	return vec_float_w(T(t)->e, rows) == 64;
 }
 
+/* GLSL.std.450's float minimum and maximum (the N forms differ only on
+ * a NaN, which the forms do not carry anyway): O_MIN, O_MAX, or 0 */
+static int
+dw_minmax(const char *ext)
+{
+	if (!strcmp(ext, "FMin") || !strcmp(ext, "NMin"))
+		return O_MIN;
+	if (!strcmp(ext, "FMax") || !strcmp(ext, "NMax"))
+		return O_MAX;
+	return 0;
+}
+
 static void
 dwg_ins(struct dwg *G, int k)
 {
@@ -392,6 +404,15 @@ dwg_comp(struct dwg *G, int id, int ci, int depth)
 			int v = idx(I->opnd[3]);
 			r = mk_bin(O_DIV, dwg_comp(G, v, ci, depth + 1),
 			    mk_un(O_SQRT, dwg_dot(G, v, v, n, depth + 1)));
+		} else if (dw_minmax(I->opnd[2]) && I->nop >= 5) {
+			a = dwg_comp(G, idx(I->opnd[3]), ci, depth + 1);
+			b = dwg_comp(G, idx(I->opnd[4]), ci, depth + 1);
+			r = mk_bin(dw_minmax(I->opnd[2]), a, b);
+		} else if (!strcmp(I->opnd[2], "FClamp") && I->nop >= 6) {
+			a = dwg_comp(G, idx(I->opnd[3]), ci, depth + 1);
+			b = dwg_comp(G, idx(I->opnd[4]), ci, depth + 1);
+			c = dwg_comp(G, idx(I->opnd[5]), ci, depth + 1);
+			r = mk_bin(O_MIN, mk_bin(O_MAX, a, b), c);
 		}
 	}
 	if (r == 0)
@@ -464,6 +485,15 @@ dwg_build(struct dwg *G, int id, int depth)
 			b = dwg_build(G, idx(I->opnd[4]), depth + 1);
 			c = dwg_build(G, idx(I->opnd[5]), depth + 1);
 			r = mk_fma(a, b, c);
+		} else if (dw_minmax(I->opnd[2]) && I->nop >= 5) {
+			a = dwg_build(G, idx(I->opnd[3]), depth + 1);
+			b = dwg_build(G, idx(I->opnd[4]), depth + 1);
+			r = mk_bin(dw_minmax(I->opnd[2]), a, b);
+		} else if (!strcmp(I->opnd[2], "FClamp") && I->nop >= 6) {
+			a = dwg_build(G, idx(I->opnd[3]), depth + 1);
+			b = dwg_build(G, idx(I->opnd[4]), depth + 1);
+			c = dwg_build(G, idx(I->opnd[5]), depth + 1);
+			r = mk_bin(O_MIN, mk_bin(O_MAX, a, b), c);
 		} else if (!strcmp(I->opnd[2], "Length")) {
 			int v = idx(I->opnd[3]);
 			if (vec_float_w(V.id[v].type, &n) == 64)

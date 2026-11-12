@@ -1,0 +1,17 @@
+# fp64 min, max and clamp in a shader, scalar and on vectors
+simplify nofile under gt1030, x in [1, 2], y in [3, 4], z in [1, 5]
+```glsl
+float f(float x, float y, float z) { double a = x, b = y, c = z; return float(clamp(a * b, c * c, b * b) + a); }
+```
+simplify nofile, v in [1, 2], w in [1, 2]
+```glsl
+vec2 g(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(min(V * V, V * W) + W); }
+```
+simplify nofile, v in [1, 2], w in [-2, 2]
+```glsl
+vec2 h(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(max(V * W, W * W) * V); }
+```
+simplify nofile under zen4, v in [1, 2], w in [1, 2]
+```glsl
+vec2 g(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(min(V * V, V * W) + W); }
+```

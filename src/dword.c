@@ -65,7 +65,7 @@ enum {
 	DB_2SUM = 1, DB_F2SUM = 2, DB_2PROD = 4, DB_ADD_FP = 8,
 	DB_ADD_SLOPPY = 16, DB_ADD_ACC = 32, DB_MUL_FP = 64, DB_MUL_DD = 128,
 	DB_DIV_FP = 256, DB_DIV_DD = 512, DB_SQRT = 1024, DB_SPLIT = 2048,
-	DB_SINGLE = 4096
+	DB_SINGLE = 4096, DB_MINMAX = 8192
 };
 
 #define MAXLEAF 48
@@ -746,6 +746,67 @@ scale(const struct dv *x, double k)
 	return z;
 }
 
+/*
+ * min(x~, y~), max(x~, y~): one of the two pairs, chosen by the sign of
+ * d = RN(RN(xh - yh) + RN(xl - yl)).  With xh and yh within a factor of
+ * two xh - yh is exact (Sterbenz) and d has the sign of
+ * (x~ - y~) + d1 (xl - yl), |d1| <= u: the wrong pair is chosen only when
+ * |x~ - y~| <= u |xl - yl| <= u^2 (|xh| + |yh|), and then it is within
+ * that of the right one.  Farther apart, or of opposite signs,
+ * |xh - yh| >= max(|xh|, |yh|) / 2 and the low words cannot turn the
+ * sign.  So the choice adds at most 3 u^2 (relative) to the larger of the
+ * operands' bounds: min and max move no farther than their operands do.
+ * Two single f32 are compared exactly by the instruction itself.
+ */
+#define DW_PICK (3 * U * U * SLACK)
+
+static struct dv
+lower_minmax(nid n)
+{
+	struct dv x = lower(N.a[n]), y = lower(N.b[n]), z;
+	int mx = N.op[n] == O_MAX;
+	long double er, ea, mag;
+	nid dh, dl, d, c, zero = f32k(0);
+
+	memset(&z, 0, sizeof z);
+	if (x.iv.top || y.iv.top)
+		z.iv = iv_top();
+	else if (mx)
+		z.iv = iv_make(x.iv.lo > y.iv.lo ? x.iv.lo : y.iv.lo,
+		    x.iv.hi > y.iv.hi ? x.iv.hi : y.iv.hi);
+	else
+		z.iv = iv_make(x.iv.lo < y.iv.lo ? x.iv.lo : y.iv.lo,
+		    x.iv.hi < y.iv.hi ? x.iv.hi : y.iv.hi);
+	er = x.e.rel > y.e.rel ? x.e.rel : y.e.rel;
+	ea = x.e.abs_ > y.e.abs_ ? x.e.abs_ : y.e.abs_;
+	z.e64.rel = x.e64.rel > y.e64.rel ? x.e64.rel : y.e64.rel;
+	z.e64.abs_ = x.e64.abs_ > y.e64.abs_ ? x.e64.abs_ : y.e64.abs_;
+	if (!x.lo && !y.lo) {
+		z.hi = mk_bin(N.op[n], x.hi, y.hi);
+		z.e.rel = er;
+		z.e.abs_ = ea;
+		row(n, &z, mx ? "max of two f32 (the choice is exact)" :
+		    "min of two f32 (the choice is exact)");
+		track(&z);
+		return z;
+	}
+	L.used |= DB_MINMAX;
+	dh = mk_bin(O_SUB, x.hi, y.hi);
+	dl = x.lo && y.lo ? mk_bin(O_SUB, x.lo, y.lo) : x.lo ? x.lo :
+	    mk_un(O_NEG, y.lo);
+	d = mk_bin(O_ADD, dh, dl);
+	c = mx ? mk_bin(O_LT, zero, d) : mk_bin(O_LT, d, zero);
+	z.hi = mk_sel(c, x.hi, y.hi);
+	z.lo = mk_sel(c, x.lo ? x.lo : zero, y.lo ? y.lo : zero);
+	mag = iv_mag(&x.iv) > iv_mag(&y.iv) ? iv_mag(&x.iv) : iv_mag(&y.iv);
+	z.e.rel = er + DW_PICK * (1 + er);
+	z.e.abs_ = ea + lmul(DW_PICK, mag + ea);
+	row(n, &z, mx ? "the larger pair, by the sign of (xh - yh) + (xl - yl)"
+	    : "the smaller pair, by the sign of (xh - yh) + (xl - yl)");
+	track(&z);
+	return z;
+}
+
 static struct dv
 lower_add(nid n, int sub)
 {
@@ -1172,6 +1233,11 @@ lower1(nid n)
 		return lower_sqrt(n);
 	case O_FMA:
 		return lower_fma(n);
+	case O_MIN:
+	case O_MAX:
+		if (N.b[n] && TY_FP(N.ty[N.a[n]]) && TY_FP(N.ty[N.b[n]]))
+			return lower_minmax(n);
+		break;
 	}
 	/* no double-word form: the value stays in f64 and is split */
 	L.opaque++;
@@ -1394,6 +1460,15 @@ derivations(struct sbuf *o, unsigned used)
 {
 	sb_puts(o, "  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = "
 	    "xh + xl has |xl| <= u |xh|):\n");
+	if (used & DB_MINMAX)
+		sb_puts(o, "    min, max(x~, y~): d = RN(RN(xh - yh) + RN(xl - yl)), "
+		    "the pair with d < 0 (max: 0 < d), else the other.  With\n"
+		    "      xh, yh within a factor of two xh - yh is exact "
+		    "(Sterbenz) and d has the sign of x~ - y~ unless\n"
+		    "      |x~ - y~| <= u^2 (|xh| + |yh|), where either pair is "
+		    "that close to the other; farther apart the high\n"
+		    "      words decide.  The choice adds at most 3.000 u^2 to "
+		    "the larger of the operands' bounds\n");
 	if (used & DB_SPLIT)
 		sb_puts(o, "    an f64 value v as a pair: hi = RN32(v), lo = "
 		    "RN32(v - hi); |v - hi| <= u |v| and its rounding\n"
@@ -1738,6 +1813,16 @@ exact(nid n)
 			a = exact(N.a[n]);
 			b = exact(N.b[n]);
 			r = a * b + exact(N.c[n]);
+			break;
+		case O_MIN:
+			a = exact(N.a[n]);
+			b = exact(N.b[n]);
+			r = a < b ? a : b;
+			break;
+		case O_MAX:
+			a = exact(N.a[n]);
+			b = exact(N.b[n]);
+			r = a > b ? a : b;
 			break;
 		default:
 			r = leafval(n);
