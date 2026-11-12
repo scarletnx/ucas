@@ -38,6 +38,16 @@
  * to negations (RN(-x) = -RN(x)), and only when nothing outside uses
  * their inner values; Fast2Sum's and 2Prod's preconditions are checked
  * at each input, and where one fails its operations round there.
+ *
+ * Choices are where a small error can make a large one: floor, ceil and
+ * a conversion to an integer jump by 1 at the integers, copysign by twice
+ * its magnitude where its sign operand crosses 0, and min, max and ?:
+ * take one side or the other.  The sweep follows what the exact values
+ * do; at each input, where an operand is within its own first-order
+ * error (a sweep rooted at it) of the point where the choice changes, the
+ * worst case adds what the other side would bring, and the report counts
+ * those inputs and names the first.  Exact operations stay exact: floor,
+ * ceil, copysign, a float's bits read back as the float.
  */
 #include "numsearch.h"
 
@@ -52,9 +62,13 @@ struct rnode {
 	int a, b, c;		/* operand indices, -1 */
 	int rounds;		/* a rounded float operation */
 	int eft;		/* inside error-free transformation eft - 1 */
+	int choice;		/* a choice (CH_*), or 0 */
 	ld u;
-	ld v, adj;
+	ld v;
 };
+
+/* what can go the other way (rounderr.h's struct rounderr counts these) */
+enum { CH_NONE, CH_STEP, CH_CONV, CH_SIGN, CH_MINMAX, CH_SEL };
 
 enum { EF_2SUM, EF_FAST2SUM, EF_2PROD };
 
@@ -75,6 +89,7 @@ static struct {
 	char why[120];
 	struct reft *e;
 	int ne, ecap;
+	ld *adj, *adj2;		/* d result / d node; d node r / d node */
 } R;
 
 static ld
@@ -95,13 +110,27 @@ collect(nid e)
 	switch (N.op[e]) {
 	case O_CONST: case O_VAR:
 		break;
+	case O_ASFLOAT:
+		/* a float's bits read back: the float itself */
+		if ((N.op[N.a[e]] == O_ASUINT || N.op[N.a[e]] == O_ASINT) &&
+		    N.ty[N.a[N.a[e]]] == t) {
+			i = collect(N.a[N.a[e]]);
+			if (i >= 0 && e < R.nix)
+				R.ix[e] = i + 1;
+			return i;
+		}
+		if (!R.why[0])
+			snprintf(R.why, sizeof R.why, "asfloat of an integer that "
+			    "is not a float's bits read back");
+		return -1;
 	case O_CAST: case O_NEG: case O_ABS: case O_SQRT: case O_EXP:
-	case O_LOG: case O_SIN: case O_COS: case O_TAN:
+	case O_LOG: case O_SIN: case O_COS: case O_TAN: case O_FLOOR:
+	case O_CEIL:
 		a = collect(N.a[e]);
 		break;
 	case O_ADD: case O_SUB: case O_MUL: case O_DIV: case O_POW:
 	case O_LT: case O_LE: case O_GT: case O_GE: case O_EQ: case O_NE:
-	case O_MIN: case O_MAX:
+	case O_MIN: case O_MAX: case O_COPYSIGN:
 		a = collect(N.a[e]);
 		b = collect(N.b[e]);
 		break;
@@ -111,14 +140,15 @@ collect(nid e)
 		c = collect(N.c[e]);
 		break;
 	default:
-		if (!R.why[0])
+		if (!R.why[0] && (N.op[e] == O_ASUINT || N.op[e] == O_ASINT))
+			snprintf(R.why, sizeof R.why, "%s, its bits used as an "
+			    "integer", opinfo[N.op[e]].name);
+		else if (!R.why[0])
 			snprintf(R.why, sizeof R.why, "%s", opinfo[N.op[e]].name);
 		return -1;
 	}
 	if (N.op[e] == O_POW && !is_const(N.b[e]) && !R.why[0])
 		snprintf(R.why, sizeof R.why, "a power with a variable exponent");
-	if (N.op[e] == O_CAST && !TY_FP(t) && !R.why[0])
-		snprintf(R.why, sizeof R.why, "a conversion to %s", ty_str(t));
 	if (R.why[0])
 		return -1;
 	if (R.nn == R.cap) {
@@ -132,6 +162,16 @@ collect(nid e)
 	x->a = a;
 	x->b = b;
 	x->c = c;
+	switch (N.op[e]) {
+	case O_FLOOR: case O_CEIL: x->choice = CH_STEP; break;
+	case O_CAST:
+		if (!TY_FP(t) && TY_FP(N.ty[N.a[e]]))
+			x->choice = CH_CONV;
+		break;
+	case O_COPYSIGN: x->choice = CH_SIGN; break;
+	case O_MIN: case O_MAX: x->choice = CH_MINMAX; break;
+	case O_SEL: x->choice = CH_SEL; break;
+	}
 	if (TYK(t) == K_FLOAT) {
 		x->u = unit(t);
 		switch (N.op[e]) {
@@ -448,61 +488,46 @@ param_val(const struct func *g, nid e, const int64_t *in_i,
 	    (ld)in_i[(size_t)s * CH + k];
 }
 
-/* values forward, adjoints backward; 0 when a value is not finite */
+/* an integer of type t from v: wrapped to its width as the machine does */
+static ld
+int_wrap(ty_t t, ld v)
+{
+	ld m, h;
+
+	if (!TY_SIZED(t) || TYW(t) >= 64)
+		return v;
+	m = ldexpl(1, TYW(t));
+	h = fmodl(v, m);
+	if (h < 0)
+		h += m;
+	if (TYK(t) == K_SINT && h >= m / 2)
+		h -= m;
+	return h;
+}
+
+/* d root / d node for every node up to root, into adj; 0 when one is not
+ * finite */
 static int
-sweep(const struct func *g, const int64_t *in_i, const double *in_r,
-    uint32_t k)
+backprop(int root, ld *adj)
 {
 	int i;
 
-	for (i = 0; i < R.nn; i++) {
+	for (i = 0; i <= root; i++)
+		adj[i] = 0;
+	adj[root] = 1;
+	for (i = root; i >= 0; i--) {
 		struct rnode *x = &R.n[i];
 		ld a = x->a >= 0 ? R.n[x->a].v : 0, b = x->b >= 0 ? R.n[x->b].v : 0;
-		ld c = x->c >= 0 ? R.n[x->c].v : 0;
-		switch (N.op[x->id]) {
-		case O_CONST:
-			x->v = TY_FP(N.ty[x->id]) ? (ld)N.kr[x->id] : (ld)N.ki[x->id];
-			break;
-		case O_VAR: x->v = param_val(g, x->id, in_i, in_r, k); break;
-		case O_CAST: x->v = a; break;
-		case O_NEG: x->v = -a; break;
-		case O_ABS: x->v = fabsl(a); break;
-		case O_SQRT: x->v = sqrtl(a); break;
-		case O_EXP: x->v = expl(a); break;
-		case O_LOG: x->v = logl(a); break;
-		case O_SIN: x->v = sinl(a); break;
-		case O_COS: x->v = cosl(a); break;
-		case O_TAN: x->v = tanl(a); break;
-		case O_ADD: x->v = a + b; break;
-		case O_SUB: x->v = a - b; break;
-		case O_MUL: x->v = a * b; break;
-		case O_DIV: x->v = a / b; break;
-		case O_POW: x->v = powl(a, b); break;
-		case O_MIN: x->v = a < b ? a : b; break;
-		case O_MAX: x->v = a > b ? a : b; break;
-		case O_LT: x->v = a < b; break;
-		case O_LE: x->v = a <= b; break;
-		case O_GT: x->v = a > b; break;
-		case O_GE: x->v = a >= b; break;
-		case O_EQ: x->v = a == b; break;
-		case O_NE: x->v = a != b; break;
-		case O_FMA: x->v = a * b + c; break;
-		case O_SEL: x->v = a != 0 ? b : c; break;
-		}
-		if (!isfinite((double)x->v))
-			return 0;
-		x->adj = 0;
-	}
-	R.n[R.nn - 1].adj = 1;
-	for (i = R.nn - 1; i >= 0; i--) {
-		struct rnode *x = &R.n[i];
-		ld a = x->a >= 0 ? R.n[x->a].v : 0, b = x->b >= 0 ? R.n[x->b].v : 0;
-		ld w = x->adj;
-#define TO(j, d) do { if ((j) >= 0) R.n[j].adj += w * (d); } while (0)
+		ld w = adj[i];
+#define TO(j, d) do { if ((j) >= 0) adj[j] += w * (d); } while (0)
 		if (w == 0)
 			continue;
 		switch (N.op[x->id]) {
-		case O_CAST: TO(x->a, 1); break;
+		case O_CAST:
+			/* to an integer: a step, nothing flows back */
+			if (TY_FP(N.ty[x->id]))
+				TO(x->a, 1);
+			break;
 		case O_NEG: TO(x->a, -1); break;
 		case O_ABS: TO(x->a, a < 0 ? -1 : 1); break;
 		case O_SQRT: TO(x->a, 1 / (2 * x->v)); break;
@@ -520,12 +545,157 @@ sweep(const struct func *g, const int64_t *in_i, const double *in_r,
 		case O_MAX: TO(a > b ? x->a : x->b, 1); break;
 		case O_FMA: TO(x->a, b); TO(x->b, a); TO(x->c, 1); break;
 		case O_SEL: TO(a != 0 ? x->b : x->c, 1); break;
+		case O_COPYSIGN:
+			TO(x->a, (signbit(a) ? -1 : 1) * (signbit(b) ? -1 : 1));
+			break;
 		}
 #undef TO
-		if (!isfinite((double)x->adj))
+		if (!isfinite((double)adj[i]))
 			return 0;
 	}
 	return 1;
+}
+
+/* values forward, adjoints backward; 0 when a value is not finite */
+static int
+sweep(const struct func *g, const int64_t *in_i, const double *in_r,
+    uint32_t k)
+{
+	int i;
+
+	for (i = 0; i < R.nn; i++) {
+		struct rnode *x = &R.n[i];
+		ld a = x->a >= 0 ? R.n[x->a].v : 0, b = x->b >= 0 ? R.n[x->b].v : 0;
+		ld c = x->c >= 0 ? R.n[x->c].v : 0;
+		ty_t t = N.ty[x->id];
+		switch (N.op[x->id]) {
+		case O_CONST:
+			x->v = TY_FP(t) ? (ld)N.kr[x->id] : (ld)N.ki[x->id];
+			break;
+		case O_VAR: x->v = param_val(g, x->id, in_i, in_r, k); break;
+		case O_CAST:
+			x->v = TY_FP(t) ? a : int_wrap(t, TY_FP(N.ty[N.a[x->id]]) ?
+			    truncl(a) : a);
+			break;
+		case O_NEG: x->v = -a; break;
+		case O_ABS: x->v = fabsl(a); break;
+		case O_SQRT: x->v = sqrtl(a); break;
+		case O_EXP: x->v = expl(a); break;
+		case O_LOG: x->v = logl(a); break;
+		case O_SIN: x->v = sinl(a); break;
+		case O_COS: x->v = cosl(a); break;
+		case O_TAN: x->v = tanl(a); break;
+		case O_FLOOR: x->v = floorl(a); break;
+		case O_CEIL: x->v = ceill(a); break;
+		case O_ADD: x->v = a + b; break;
+		case O_SUB: x->v = a - b; break;
+		case O_MUL: x->v = a * b; break;
+		case O_DIV: x->v = a / b; break;
+		case O_POW: x->v = powl(a, b); break;
+		case O_MIN: x->v = a < b ? a : b; break;
+		case O_MAX: x->v = a > b ? a : b; break;
+		case O_LT: x->v = a < b; break;
+		case O_LE: x->v = a <= b; break;
+		case O_GT: x->v = a > b; break;
+		case O_GE: x->v = a >= b; break;
+		case O_EQ: x->v = a == b; break;
+		case O_NE: x->v = a != b; break;
+		case O_FMA: x->v = a * b + c; break;
+		case O_SEL: x->v = a != 0 ? b : c; break;
+		case O_COPYSIGN: x->v = copysignl(a, b); break;
+		}
+		if (!isfinite((double)x->v))
+			return 0;
+	}
+	return backprop(R.nn - 1, R.adj);
+}
+
+/* the first-order bound of node r's absolute error at this input: u sum
+ * |z_i dr/dz_i| over the operations that round here */
+static ld
+node_err(int r)
+{
+	ld s = 0;
+	int i;
+
+	if (r < 0 || !backprop(r, R.adj2))
+		return 0;
+	for (i = 0; i <= r; i++)
+		if (R.n[i].rounds && !(R.n[i].eft && R.e[R.n[i].eft - 1].holds))
+			s += fabsl(R.adj2[i] * R.n[i].v) * R.n[i].u;
+	return s;
+}
+
+static const char *const choice_name[] = {
+	"", "floor or ceil", "conversion to an integer", "copysign",
+	"min or max", "select (?:)",
+};
+
+/*
+ * At this input, what choice d adds to the worst case when it can go
+ * the other way (0 when it cannot); why says how, for the first.
+ */
+static ld
+choice_extra(int d, char *why, size_t wn)
+{
+	struct rnode *x = &R.n[d];
+	ld w = fabsl(R.adj[d]), va = x->a >= 0 ? R.n[x->a].v : 0;
+	ld vb = x->b >= 0 ? R.n[x->b].v : 0, e, ea, eb, k;
+	int p, q, cop;
+
+	switch (x->choice) {
+	case CH_STEP: case CH_CONV:
+		/* a jump of 1 at each integer (a conversion: not at 0) */
+		k = nearbyintl(va);
+		if (x->choice == CH_CONV && k == 0)
+			return 0;
+		e = node_err(x->a);
+		if (e <= 0 || fabsl(va - k) > e)
+			return 0;
+		snprintf(why, wn, "the operand of %s, %.6Lg, is within its error "
+		    "%.3Lg of %.0Lf", x->choice == CH_STEP ?
+		    opinfo[N.op[x->id]].name : "a conversion to an integer", va, e,
+		    k);
+		return w;
+	case CH_SIGN:
+		e = node_err(x->b);
+		if (e <= 0 || fabsl(vb) > e || va == 0)
+			return 0;
+		snprintf(why, wn, "copysign's sign operand %.3Lg is within its "
+		    "error %.3Lg of 0", vb, e);
+		return w * 2 * fabsl(va);
+	case CH_MINMAX:
+		ea = node_err(x->a);
+		eb = node_err(x->b);
+		if (ea + eb <= 0 || fabsl(va - vb) > ea + eb)
+			return 0;
+		snprintf(why, wn, "%s's sides %.6Lg and %.6Lg are closer than "
+		    "their errors %.3Lg + %.3Lg", opinfo[N.op[x->id]].name, va, vb,
+		    ea, eb);
+		/* the side the exact values do not take, and its own error */
+		return w * (fabsl(va - vb) + ((N.op[x->id] == O_MIN) == (va < vb) ?
+		    eb : ea));
+	case CH_SEL:
+		cop = N.op[R.n[x->a].id];
+		if (cop != O_LT && cop != O_LE && cop != O_GT && cop != O_GE &&
+		    cop != O_EQ && cop != O_NE)
+			return 0;
+		p = R.n[x->a].a;
+		q = R.n[x->a].b;
+		if (p < 0 || q < 0 || !TY_FP(N.ty[R.n[p].id]))
+			return 0;
+		ea = node_err(p);
+		eb = node_err(q);
+		if (ea + eb <= 0 || fabsl(R.n[p].v - R.n[q].v) > ea + eb)
+			return 0;
+		snprintf(why, wn, "the condition of ?: compares %.6Lg and %.6Lg, "
+		    "closer than their errors %.3Lg + %.3Lg", R.n[p].v, R.n[q].v,
+		    ea, eb);
+		vb = R.n[x->b].v;
+		k = R.n[x->c].v;
+		return w * (fabsl(vb - k) + node_err(va != 0 ? x->c : x->b));
+	}
+	return 0;
 }
 
 #define RE_SAMPLE 4096
@@ -564,7 +734,7 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 	nid roots[2];
 	uint8_t ok[CH];
 	uint32_t np, k, wloc;
-	int i, root, bad;
+	int i, root, bad, flip;
 
 	memset(r, 0, sizeof *r);
 	r->lambda = lambda > 0 ? lambda : 4;
@@ -592,7 +762,10 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 	for (i = 0; i < R.nn; i++) {
 		r->nops += R.n[i].rounds && !R.n[i].eft;
 		r->nexact += R.n[i].rounds && R.n[i].eft;
+		r->choices[R.n[i].choice]++;
 	}
+	R.adj = xcalloc((size_t)R.nn, sizeof *R.adj);
+	R.adj2 = xcalloc((size_t)R.nn, sizeof *R.adj2);
 	/* the where clause decides which inputs count */
 	roots[0] = g->where ? g->where : g->body;
 	roots[1] = 0;
@@ -621,12 +794,28 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 			for (i = 0; i < R.nn; i++)
 				if (R.n[i].rounds && !(R.n[i].eft &&
 				    R.e[R.n[i].eft - 1].holds)) {
-					ld c = fabsl(R.n[i].adj * R.n[i].v) * R.n[i].u;
+					ld c = fabsl(R.adj[i] * R.n[i].v) * R.n[i].u;
 					s1 += c;
 					s2 += c * c;
 				}
+			/* a choice that can go the other way: in the worst case */
+			flip = 0;
+			for (i = 0; i < R.nn; i++)
+				if (R.n[i].choice) {
+					char why[200];
+					ld x = choice_extra(i, why, sizeof why);
+					if (x > 0 && !flip++ && !r->flips) {
+						struct sbuf at = {0};
+						fmt_point(&at, g, in_i, in_r, k);
+						snprintf(r->flipwhy, sizeof r->flipwhy, "%s, at "
+						    "%.60s", why, sb_str(&at));
+						free(at.p);
+					}
+					s1 += x;
+				}
 			if (!isfinite((double)s1))
 				continue;
+			r->flips += flip > 0;
 			r->points++;
 			s1 /= gv;
 			s2 = sqrtl(s2) / gv;
@@ -644,6 +833,8 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 	free(R.ix);
 	free(R.n);
 	free(R.e);
+	free(R.adj);
+	free(R.adj2);
 	r->ok = r->points > 0;
 	if (!r->ok)
 		snprintf(r->why, sizeof r->why, "no input of the sample gives a "
@@ -685,6 +876,29 @@ eft_print(const struct rounderr *r, const char *ind, int e)
 		    "(checked, not proved)\n", ind);
 }
 
+/* the choices, and whether one can go the other way */
+static void
+choice_print(const struct rounderr *r, const char *ind)
+{
+	int k, n = 0;
+
+	for (k = 1; k < 6; k++)
+		if (r->choices[k])
+			printf("%s %d %s", n++ ? "," : "", r->choices[k],
+			    choice_name[k]);
+	if (!n)
+		return;
+	if (r->flips)
+		printf("; at %llu of the %llu inputs one can go the other way, "
+		    "and the worst case adds what the other side brings there "
+		    "(the probable and expected lines do not); the first: %s\n",
+		    (unsigned long long)r->flips, (unsigned long long)r->points,
+		    r->flipwhy);
+	else
+		printf("; at no input of the sample is one within its operands' "
+		    "error of going the other way\n");
+}
+
 void
 rounderr_print(const struct rounderr *r, const char *ind, int rep)
 {
@@ -703,6 +917,11 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 	printf("; relative to the value, the largest over %llu inputs\n",
 	    (unsigned long long)r->points);
 	eft_print(r, ind, e);
+	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
+	    r->choices[5]) {
+		printf("%s  choices:", ind);
+		choice_print(r, ind);
+	}
 	printf("%s  worst case  %.3g (%.3g u): every error at its bound and "
 	    "aligned, u sum |c_i|\n", ind, r->worst, r->worst / u);
 	if (r->prob < r->worst)
@@ -718,7 +937,7 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 	printf("%s  expected    %.3g (%.3g u): the root mean square if they "
 	    "are independent and uniform in [-u, u]\n", ind, r->rms,
 	    r->rms / u);
-	if (r->nops > 0 && r->nops * u < 1)
+	if (r->nops > 1 && r->nops * u < 1)
 		printf("%s  for %d operations of equal weight: gamma_%d = %d u / "
 		    "(1 - %d u) = %.3g, gamma~_%d(%g) = %g sqrt(%d) u = %.3g\n", ind,
 		    r->nops, r->nops, r->nops, r->nops, r->nops * u / (1 - r->nops *
@@ -739,6 +958,12 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 		    r->eft[2]);
 		rep_int("exact_operations", r->nexact);
 		rep_int("precondition_failures", (long long)r->eftfail);
+	}
+	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
+	    r->choices[5]) {
+		rep_int("choices", r->choices[1] + r->choices[2] + r->choices[3] +
+		    r->choices[4] + r->choices[5]);
+		rep_int("choice_flips", (long long)r->flips);
 	}
 	rep_str("assumptions", r->eft[0] + r->eft[1] + r->eft[2] ? "first "
 	    "order; operations correctly rounded; error-free transformations "
@@ -774,6 +999,9 @@ rounderr_line(const struct rounderr *r, const char *ind, const char *name)
 	else
 		printf(", probable no better (under %g operations)", r->lambda *
 		    r->lambda);
-	printf(", expected %.3g; `error %s ~ F` says what each means\n",
-	    r->rms / u, name);
+	printf(", expected %.3g", r->rms / u);
+	if (r->flips)
+		printf(", a choice can go the other way at %llu inputs (in the "
+		    "worst case)", (unsigned long long)r->flips);
+	printf("; `error %s ~ F` says what each means\n", name);
 }

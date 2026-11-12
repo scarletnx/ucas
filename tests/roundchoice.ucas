@@ -1,0 +1,36 @@
+# the rounding analysis (error F ~ G) through choices: floor, ceil and a
+# conversion to an integer jump at the integers, copysign where its sign
+# operand crosses 0, min, max and ?: where their sides or the compared
+# values are closer than their errors.  Where an operand is within its
+# own error of that point, the worst case adds what the other side
+# brings, and the report names the first such input.
+#
+# a quantizer: x * 0.1 rounds, so at a multiple of 10 the conversion can
+# land on either integer; ten steps of 10 in the sample's edges
+qz(x: f32 in 0..100) = f32(i32(x * 0.1)) * 10
+qzx(x: f32 in 0..100) = f32(i32(f64(x) * 0.1)) * 10
+error qz ~ qzx
+# floor and ceil the same; at no input of [0.3, 0.7] is 4x near an integer
+fl(x: f32 in 0.3..0.7) = floor(x * 4) + ceil(x * 4) + x
+flx(x: f32 in 0.3..0.7) = f32(floor(f64(x) * 4) + ceil(f64(x) * 4) + f64(x))
+error fl ~ flx
+# copysign: the sign operand y * 0.1 - 0.1 is 0 at y = 1, where an
+# error turns x into -x
+cs(x: f32 in 1..2, y: f32 in -1..1) = copysign(x, y * 0.1 - 0.1)
+csx(x: f32 in 1..2, y: f32 in -1..1) = f32(copysign(f64(x), f64(y) * 0.1 - 0.1))
+error cs ~ csx
+# min of two values that meet: the other side is close, so little is added
+mn(x: f32 in 0..2, y: f32 in 0..2) = min(x * 3, y * 3) + 1
+mnx(x: f32 in 0..2, y: f32 in 0..2) = f32(min(f64(x) * 3, f64(y) * 3) + 1)
+error mn ~ mnx
+# ?: whose condition can flip at x = 1: the sides are x and 2x apart
+sel(x: f32 in 1..2) = x * 0.1 > 0.1 ? 2 * x : x
+selx(x: f32 in 1..2) = f32(f64(x) * 0.1 > 0.1 ? 2 * f64(x) : f64(x))
+error sel ~ selx
+# a float's bits read back: exact
+rb(x: f32 in 1..2) = asfloat(asuint(x)) * 3
+rbx(x: f32 in 1..2) = f32(f64(x) * 3)
+error rb ~ rbx
+# bits changed in between are not analysed
+qs(x: f32 in 1..2) = asfloat(0x5f3759df - (asuint(x) >> 1))
+error qs ~ 1 / sqrt(x)

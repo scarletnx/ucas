@@ -1,0 +1,90 @@
+> qz(x: f32 in 0..100) = f32(i32(x * 0.1)) * 10
+> qzx(x: f32 in 0..100) = f32(i32(f64(x) * 0.1)) * 10
+> error qz ~ qzx
+error of qz against qzx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 3 rounded operations, each taken as correctly rounded; relative to the value, the largest over 121 inputs
+    choices: 1 conversion to an integer; at 1 of the 121 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a conversion to an integer, 10, is within its error 5.96e-07 of 10, at x=100
+    worst case  0.1 (1.68e+06 u): every error at its bound and aligned, u sum |c_i|
+    probable    3.37e-07 (5.66 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    4.87e-08 (0.816 u): the root mean square if they are independent and uniform in [-u, u]
+    for 3 operations of equal weight: gamma_3 = 3 u / (1 - 3 u) = 1.79e-07, gamma~_3(4) = 4 sqrt(3) u = 4.13e-07
+> fl(x: f32 in 0.3..0.7) = floor(x * 4) + ceil(x * 4) + x
+> flx(x: f32 in 0.3..0.7) = f32(floor(f64(x) * 4) + ceil(f64(x) * 4) + f64(x))
+> error fl ~ flx
+error of fl against flx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 3 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 2 floor or ceil; at no input of the sample is one within its operands' error of going the other way
+    worst case  1.14e-07 (1.91 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 5.41 u here (it gains from about 16 operations of similar weight on)
+    expected    4.65e-08 (0.78 u): the root mean square if they are independent and uniform in [-u, u]
+    for 3 operations of equal weight: gamma_3 = 3 u / (1 - 3 u) = 1.79e-07, gamma~_3(4) = 4 sqrt(3) u = 4.13e-07
+> cs(x: f32 in 1..2, y: f32 in -1..1) = copysign(x, y * 0.1 - 0.1)
+> csx(x: f32 in 1..2, y: f32 in -1..1) = f32(copysign(f64(x), f64(y) * 0.1 - 0.1))
+> error cs ~ csx
+error of cs against csx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 copysign; at 1 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: copysign's sign operand 0 is within its error 5.96e-09 of 0, at x=2, y=1
+    worst case  2 (3.36e+07 u): every error at its bound and aligned, u sum |c_i|
+    probable    0 (0 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> mn(x: f32 in 0..2, y: f32 in 0..2) = min(x * 3, y * 3) + 1
+> mnx(x: f32 in 0..2, y: f32 in 0..2) = f32(min(f64(x) * 3, f64(y) * 3) + 1)
+> error mn ~ mnx
+error of mn against mnx:
+  max abs error 2.38419e-07 at x=0.385094434, y=0.478781193
+  max rel error 1.16513e-07 (1.17e-05%) at x=0.846045971, y=0.00771258259
+  mean rel error 2.94114e-11 over 65536 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 3 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 min or max; at 1 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: min's sides 6 and 6 are closer than their errors 3.58e-07 + 3.58e-07, at x=2, y=2
+    worst case  1.62e-07 (2.71 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 5.27 u here (it gains from about 16 operations of similar weight on)
+    expected    4.53e-08 (0.76 u): the root mean square if they are independent and uniform in [-u, u]
+    for 3 operations of equal weight: gamma_3 = 3 u / (1 - 3 u) = 1.79e-07, gamma~_3(4) = 4 sqrt(3) u = 4.13e-07
+> sel(x: f32 in 1..2) = x * 0.1 > 0.1 ? 2 * x : x
+> selx(x: f32 in 1..2) = f32(f64(x) * 0.1 > 0.1 ? 2 * f64(x) : f64(x))
+> error sel ~ selx
+error of sel against selx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 select (?:); at 1 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the condition of ?: compares 0.1 and 0.1, closer than their errors 5.96e-09 + 0, at x=1
+    worst case  1 (1.68e+07 u): every error at its bound and aligned, u sum |c_i|
+    probable    2.38e-07 (4 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> rb(x: f32 in 1..2) = asfloat(asuint(x)) * 3
+> rbx(x: f32 in 1..2) = f32(f64(x) * 3)
+> error rb ~ rbx
+error of rb against rbx:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> qs(x: f32 in 1..2) = asfloat(0x5f3759df - (asuint(x) >> 1))
+> error qs ~ 1 / sqrt(x)
+error of qs against 1/sqrt(x):
+  max abs error 0.169721 at x=0.04
+  max rel error 0.0342885 (3.43%) at x=3.74
+  mean rel error 0.0236166 over 500 points
+  max 566817 ulp
+  rounding: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)

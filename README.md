@@ -694,8 +694,30 @@ not over inputs: the report says so.  The probable bound only gains
 from about lambda^2 = 16 operations of similar weight on; below that the
 line says it is no better than the worst case.  Operations are taken as
 correctly rounded (a libm's or a GPU's functions are not always).
-Not analysed, and said: floor, ceil, bit operations, conversions to
-integers, a variable exponent.
+Not analysed, and said: bit operations, a bit cast whose bits are used
+as an integer or changed before they are read back as a float, a
+variable exponent.  A float's bits read back (`asfloat(asuint(x))`),
+floor, ceil and copysign are exact.
+
+Choices are where a small error can make a large one: floor, ceil and a
+conversion to an integer jump by 1 at the integers, copysign by twice
+its magnitude where its sign operand crosses 0, and min, max and `?:`
+(on a comparison of floats) take one side or the other.  The sweep
+follows the side the exact values take; at each input, where an operand
+is within its own first-order error of the point where the choice
+changes (a sweep rooted at that operand), the worst case adds what the
+other side brings: the jump times the result's sensitivity to it, or
+the distance between the sides plus the other side's own error.  The
+report counts those inputs and names the first; the probable and
+expected lines stay those of the side taken.
+
+```
+> error qz ~ qzx       # f32(i32(x * 0.1)) * 10, x in 0..100
+    choices: 1 conversion to an integer; at 1 of the 121 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a conversion to an integer, 10, is within its error 5.96e-07 of 10, at x=100
+    worst case  0.1 (1.68e+06 u): every error at its bound and aligned, u sum |c_i|
+```
+
+tests/roundchoice.ucas has one of each.
 
 Error-free transformations break the independence on purpose: 2Sum
 (Knuth's six operations), Fast2Sum (Dekker's three) and 2Prod

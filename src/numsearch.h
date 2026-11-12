@@ -66,6 +66,10 @@ struct rounderr {
 	int nexact;		/* their rounded operations, not in nops */
 	uint64_t eftfail;	/* inputs where a precondition failed */
 	char eftwhy[240];	/* the first: which, on what, where */
+	int choices[6];		/* rounderr.c's CH_*: floor or ceil, conversion
+				 * to an integer, copysign, min or max, ?: */
+	uint64_t flips;		/* inputs where one can go the other way */
+	char flipwhy[300];	/* the first: how, and where */
 };
 /* g: a float function; lambda <= 0: 4 */
 void rounderr_measure(const struct func *g, double lambda,
