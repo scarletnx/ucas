@@ -656,3 +656,75 @@ rop ix: ix = d xor s, applied once per fragment (s what a fragment brings, d the
       price: rop_logic is not priced by gt1030 (not measured): unavailable
       pipeline: VkPipelineColorBlendStateCreateInfo: logicOpEnable, logicOp = VK_LOGIC_OP_XOR (the logicOp feature); an R16_SINT colour attachment; one point per contribution, its position the cell, its colour s
   not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> ov(s: f32 in 0..1, d: f32 in 0..1) = d <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+> rop ov
+rop ov: ov = d <= 0.5 ? 2s*d : 1 - 2(1 - s)*(1 - d), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_OVERLAY_EXT on opaque colours (VK_EXT_blend_operation_advanced): d <= 0.5 ? 2sd : 1 - 2(1 - s)(1 - d)
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 2 cells of their 1 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_OVERLAY_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> hl(s: f32 in 0..1, d: f32 in 0..1) = s <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+> rop hl
+rop hl: hl = s <= 0.5 ? 2s*d : 1 - 2(1 - s)*(1 - d), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_HARDLIGHT_EXT on opaque colours (VK_EXT_blend_operation_advanced): s <= 0.5 ? 2sd : 1 - 2(1 - s)(1 - d)
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 2 cells of their 1 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_HARDLIGHT_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> dodge(s: f32 in 0..1, d: f32 in 0..1) = d <= 0.0 ? 0.0 : (s < 1.0 ? min(1.0, d/(1.0 - s)) : 1.0)
+> rop dodge
+rop dodge: dodge = d <= 0 ? 0 : s < 1 ? min(d/(1 - s), 1) : 1, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_COLORDODGE_EXT on opaque colours (VK_EXT_blend_operation_advanced): d <= 0 ? 0 : s < 1 ? min(1, d/(1 - s)) : 1
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 8 cells of their 3 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_COLORDODGE_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> burn(s: f32 in 0..1, d: f32 in 0..1) = d >= 1.0 ? 1.0 : (s > 0.0 ? 1.0 - min(1.0, (1.0 - d)/s) : 0.0)
+> rop burn
+rop burn: burn = d >= 1 ? 1 : s > 0 ? 1 - min((1 - d)/s, 1) : 0, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_COLORBURN_EXT on opaque colours (VK_EXT_blend_operation_advanced): d >= 1 ? 1 : s > 0 ? 1 - min(1, (1 - d)/s) : 0
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 8 cells of their 3 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_COLORBURN_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> soft(s: f32 in 0..1, d: f32 in 0..1) = s <= 0.5 ? d - (1.0 - 2.0*s)*d*(1.0 - d) : (d <= 0.25 ? d + (2.0*s - 1.0)*d*((16.0*d - 12.0)*d + 3.0) : d + (2.0*s - 1.0)*(sqrt(d) - d))
+> rop soft
+rop soft: soft = s <= 0.5 ? d - (1 - 2s)*d*(1 - d) : d <= 0.25 ? d + t1*d*((16d - 12)*d + 3) : d + t1*(sqrt(d) - d) where t1 = 2s - 1, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_SOFTLIGHT_EXT on opaque colours (VK_EXT_blend_operation_advanced): s <= 0.5 ? d - (1 - 2s) d (1 - d) : d <= 0.25 ? d + (2s - 1) d ((16d - 12) d + 3) : d + (2s - 1)(sqrt(d) - d)
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 4 cells of their 2 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_SOFTLIGHT_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> ov2(s: f32 in 0..1, d: f32 in 0..1) = 0.5 >= d ? 2.0*d*s : 1.0 - 2.0*(1.0 - d)*(1.0 - s)
+> rop ov2
+rop ov2: ov2 = 0.5 >= d ? 2d*s : 1 - 2(1 - d)*(1 - s), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  advanced blending: VK_BLEND_OP_OVERLAY_EXT on opaque colours (VK_EXT_blend_operation_advanced): d <= 0.5 ? 2sd : 1 - 2(1 - s)(1 - d)
+      holds where the colours are in [0, 1] (the parameters' ranges) and opaque
+      the update and the operation's f(s, d) are the same rational function in each of the 2 cells of their 1 conditions (min taken as a condition, a square root as itself); the blender's rounding is not fixed by the extension: equal as real functions, bit for bit to measure
+      price: rop_adv is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_OVERLAY_EXT (the VK_EXT_blend_operation_advanced extension, alpha 1 on both sides); a UNORM or float colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+> ovx(s: f32, d: f32) = d <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+> rop ovx
+rop ovx: ovx = d <= 0.5 ? 2s*d : 1 - 2(1 - s)*(1 - d), applied once per fragment (s what a fragment brings, d the cell's value)
+  order: not shown independent of the order of the fragments: a draw applies them in primitive order, atomics in any
+  advanced blending: VK_BLEND_OP_OVERLAY_EXT would compute it, but is defined on colours in [0, 1]: give s and d that range (s: f32 in 0..1)
+  no fixed-function state in the catalogue computes it (logic ops, stencil ops, the blend equation with its factors, min, max, the advanced blend operations, the depth test, an occlusion query, a fill)

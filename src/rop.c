@@ -902,6 +902,215 @@ out:
 	free(pl.p);
 }
 
+/* ---- the piecewise advanced operations, branch by branch ---- */
+
+#define PWC 6		/* distinct conditions */
+
+/*
+ * e over the reals with its ?:, min and max as decisions (min(a, b) is
+ * a <= b ? a : b), its compares and square roots kept: 0 for anything
+ * else.
+ */
+static nid
+pw_real(nid e, int depth)
+{
+	int op = N.op[e];
+	nid a, b, c;
+
+	if (depth > 60)
+		return 0;
+	if (op == O_VAR)
+		return mk_var((uint32_t)N.ki[e], N.a[e], TY_REAL);
+	if (op == O_CONST)
+		return mk_const_r(TY_FP(N.ty[e]) ? N.kr[e] : (double)N.ki[e]);
+	if (op == O_CAST && TY_FP(N.ty[e]))
+		return pw_real(N.a[e], depth + 1);
+	if (op == O_NEG || op == O_SQRT) {
+		a = pw_real(N.a[e], depth + 1);
+		return a ? mk_un(op, a) : 0;
+	}
+	if (op == O_SEL) {
+		/* a select: N.a the condition, N.b and N.c the two values */
+		c = pw_real(N.a[e], depth + 1);
+		a = pw_real(N.b[e], depth + 1);
+		b = pw_real(N.c[e], depth + 1);
+		return a && b && c ? mk_sel(c, a, b) : 0;
+	}
+	if (op == O_ADD || op == O_SUB || op == O_MUL || op == O_DIV ||
+	    op == O_LT || op == O_LE || op == O_GT || op == O_GE) {
+		a = pw_real(N.a[e], depth + 1);
+		b = pw_real(N.b[e], depth + 1);
+		return a && b ? mk_bin(op, a, b) : 0;
+	}
+	if (op == O_MIN || op == O_MAX) {
+		a = pw_real(N.a[e], depth + 1);
+		b = pw_real(N.b[e], depth + 1);
+		return a && b ? mk_sel(mk_bin(op == O_MIN ? O_LE : O_GE, a, b), a,
+		    b) : 0;
+	}
+	return 0;
+}
+
+/* a compare as "x >= 0" or "x > 0": its x as a rational function */
+static int
+pw_cond(nid c, struct rf *x, int *strict)
+{
+	int op = N.op[c];
+	nid d;
+
+	if (op == O_LT || op == O_LE)
+		d = mk_bin(O_SUB, N.b[c], N.a[c]);
+	else if (op == O_GT || op == O_GE)
+		d = mk_bin(O_SUB, N.a[c], N.b[c]);
+	else
+		return 0;
+	*strict = op == O_LT || op == O_GT;
+	if (!rf_of(d, x, NULL) || alg_ovf)
+		return 0;
+	*x = rf_norm(*x);
+	return 1;
+}
+
+/* the distinct conditions of e's decisions, added to c[0..*n) */
+static int
+pw_conds(nid e, nid *c, int *n, int depth)
+{
+	int op = N.op[e], i, k;
+
+	if (depth > 60)
+		return 0;
+	if (op == O_SEL) {
+		struct rf x, y;
+		int sx, sy, same_as = -1;
+		if (!pw_cond(N.a[e], &x, &sx))
+			return 0;
+		for (i = 0; i < *n && same_as < 0; i++)
+			if (pw_cond(c[i], &y, &sy) && sx == sy && mp_eq(x.n, y.n) &&
+			    mp_eq(x.d, y.d))
+				same_as = i;
+		if (same_as < 0) {
+			if (*n == PWC)
+				return 0;
+			c[(*n)++] = N.a[e];
+		}
+		return pw_conds(N.b[e], c, n, depth + 1) && pw_conds(N.c[e], c, n,
+		    depth + 1);
+	}
+	k = 1;
+	if (opinfo[op].arity >= 1 && op != O_VAR && op != O_CONST)
+		k = pw_conds(N.a[e], c, n, depth + 1);
+	if (k && opinfo[op].arity >= 2)
+		k = pw_conds(N.b[e], c, n, depth + 1);
+	return k;
+}
+
+/* e with each decision taken as the conditions' truth (bit i of mask) */
+static nid
+pw_pick(nid e, const nid *c, int n, unsigned mask, int depth)
+{
+	int op = N.op[e], i;
+	struct rf x, y;
+	int sx, sy;
+
+	if (depth > 60 || op == O_VAR || op == O_CONST)
+		return e;
+	if (op == O_SEL) {
+		if (!pw_cond(N.a[e], &x, &sx))
+			return 0;
+		for (i = 0; i < n; i++)
+			if (pw_cond(c[i], &y, &sy) && sx == sy && mp_eq(x.n, y.n) &&
+			    mp_eq(x.d, y.d))
+				return pw_pick(mask >> i & 1 ? N.b[e] : N.c[e], c, n, mask,
+				    depth + 1);
+		return 0;
+	}
+	if (op == O_NEG || op == O_SQRT) {
+		nid a = pw_pick(N.a[e], c, n, mask, depth + 1);
+		return a ? mk_un(op, a) : 0;
+	}
+	{
+		nid a = pw_pick(N.a[e], c, n, mask, depth + 1);
+		nid b = pw_pick(N.b[e], c, n, mask, depth + 1);
+		return a && b ? mk_bin(op, a, b) : 0;
+	}
+}
+
+/*
+ * f and g, real and piecewise, are the same rational function in every
+ * cell of their conditions' truth table (the conditions compared as
+ * rational functions, so `d <= 0.5` and `0.5 >= d` are one): 1, with the
+ * number of conditions in *nc; 0 not shown.
+ */
+static int
+pw_same(nid f, nid g, int *nc)
+{
+	nid c[PWC];
+	int n = 0, ok = 1;
+	unsigned m;
+	size_t mk = ar_mark();
+
+	atoms_reset();
+	if (!pw_conds(f, c, &n, 0) || !pw_conds(g, c, &n, 0) || n == 0) {
+		ar_release(mk);
+		return 0;
+	}
+	for (m = 0; m < 1u << n && ok; m++) {
+		nid a = pw_pick(f, c, n, m, 0), b = pw_pick(g, c, n, m, 0);
+		struct rf ra, rb;
+		ok = a && b && rf_of(a, &ra, NULL) && rf_of(b, &rb, NULL) &&
+		    !alg_ovf;
+		if (ok) {
+			ra = rf_norm(ra);
+			rb = rf_norm(rb);
+			ok = mp_eq(ra.n, rb.n) && mp_eq(ra.d, rb.d);
+		}
+	}
+	ar_release(mk);
+	*nc = n;
+	return ok;
+}
+
+/* VK_EXT_blend_operation_advanced's piecewise f(Cs, Cd), opaque colours */
+static nid
+pw_op(int k, nid s, nid d)
+{
+	nid one = mk_const_r(1), two = mk_const_r(2), half = mk_const_r(0.5);
+	nid ms = mk_bin(O_SUB, one, s), md = mk_bin(O_SUB, one, d);
+	nid mul2 = mk_bin(O_MUL, two, mk_bin(O_MUL, s, d));
+	nid scr2 = mk_bin(O_SUB, one, mk_bin(O_MUL, two, mk_bin(O_MUL, ms,
+	    md)));
+
+	switch (k) {
+	case 0:		/* OVERLAY */
+		return mk_sel(mk_bin(O_LE, d, half), mul2, scr2);
+	case 1:		/* HARDLIGHT */
+		return mk_sel(mk_bin(O_LE, s, half), mul2, scr2);
+	case 2: {	/* SOFTLIGHT */
+		nid t = mk_bin(O_SUB, mk_bin(O_MUL, two, s), one);
+		nid a = mk_bin(O_SUB, d, mk_bin(O_MUL, mk_bin(O_SUB, one,
+		    mk_bin(O_MUL, two, s)), mk_bin(O_MUL, d, md)));
+		nid b = mk_bin(O_ADD, d, mk_bin(O_MUL, t, mk_bin(O_MUL, d,
+		    mk_bin(O_ADD, mk_bin(O_MUL, mk_bin(O_SUB, mk_bin(O_MUL,
+		    mk_const_r(16), d), mk_const_r(12)), d), mk_const_r(3)))));
+		nid e = mk_bin(O_ADD, d, mk_bin(O_MUL, t, mk_bin(O_SUB,
+		    mk_un(O_SQRT, d), d)));
+		return mk_sel(mk_bin(O_LE, s, half), a, mk_sel(mk_bin(O_LE, d,
+		    mk_const_r(0.25)), b, e));
+	}
+	case 3: {	/* COLORDODGE */
+		nid q = mk_bin(O_DIV, d, ms);
+		return mk_sel(mk_bin(O_LE, d, mk_const_r(0)), mk_const_r(0),
+		    mk_sel(mk_bin(O_LT, s, one), mk_bin(O_MIN, one, q), one));
+	}
+	default: {	/* COLORBURN */
+		nid q = mk_bin(O_DIV, md, s);
+		return mk_sel(mk_bin(O_GE, d, one), one, mk_sel(mk_bin(O_GT, s,
+		    mk_const_r(0)), mk_bin(O_SUB, one, mk_bin(O_MIN, one, q)),
+		    mk_const_r(0)));
+	}
+	}
+}
+
 /* ---- floats: min, max, the advanced blend operations ---- */
 
 static int
@@ -990,6 +1199,64 @@ minmax_blend(struct rctx *c)
 	    "two values, nothing rounds", C_ROP_BLEND, pl);
 }
 
+static int unit_range(const struct rctx *c, int slot);
+
+static void
+advanced_pw(struct rctx *c)
+{
+	static const char *const name[5] = {"OVERLAY", "HARDLIGHT",
+	    "SOFTLIGHT", "COLORDODGE", "COLORBURN"};
+	static const char *const def[5] = {
+	    "d <= 0.5 ? 2sd : 1 - 2(1 - s)(1 - d)",
+	    "s <= 0.5 ? 2sd : 1 - 2(1 - s)(1 - d)",
+	    "s <= 0.5 ? d - (1 - 2s) d (1 - d) : d <= 0.25 ? d + (2s - 1) d "
+	    "((16d - 12) d + 3) : d + (2s - 1)(sqrt(d) - d)",
+	    "d <= 0 ? 0 : s < 1 ? min(1, d/(1 - s)) : 1",
+	    "d >= 1 ? 1 : s > 0 ? 1 - min(1, (1 - d)/s) : 0"};
+	nid body = pw_real(c->f->body, 0), s, d;
+	int k, nc = 0;
+	char st[300], pr[400], pl[500];
+
+	if (!body)
+		return;
+	s = mk_var((uint32_t)c->is, c->f->p[c->is].name, TY_REAL);
+	d = mk_var((uint32_t)c->id, c->f->p[c->id].name, TY_REAL);
+	/* the definitions go through pw_real too: a min there is built as
+	 * the update's is, the same condition the same way round */
+	for (k = 0; k < 5; k++) {
+		nid g = pw_real(pw_op(k, s, d), 0);
+		if (g && pw_same(body, g, &nc))
+			break;
+	}
+	if (k == 5)
+		return;
+	snprintf(st, sizeof st, "VK_BLEND_OP_%s_EXT on opaque colours "
+	    "(VK_EXT_blend_operation_advanced): %s", name[k], def[k]);
+	if (!unit_range(c, c->is) || !unit_range(c, c->id)) {
+		say(c, "  advanced blending: VK_BLEND_OP_%s_EXT would compute it, "
+		    "but is defined on colours in [0, 1]: give %s and %s that "
+		    "range (%s: f32 in 0..1)\n", name[k], pname(c, c->is),
+		    pname(c, c->id), pname(c, c->is));
+		if (!c->quiet)
+			rep_strf("needs_range", "VK_BLEND_OP_%s_EXT needs colours in "
+			    "[0, 1]", name[k]);
+		return;
+	}
+	snprintf(pr, sizeof pr, "the update and the operation's f(s, d) are "
+	    "the same rational function in each of the %d cells of their %d "
+	    "conditions (min taken as a condition, a square root as itself); "
+	    "the blender's rounding is not fixed by the extension: equal as "
+	    "real functions, bit for bit to measure", 1 << nc, nc);
+	snprintf(pl, sizeof pl, "VkPipelineColorBlendAttachmentState: "
+	    "blendEnable, colorBlendOp = alphaBlendOp = VK_BLEND_OP_%s_EXT "
+	    "(the VK_EXT_blend_operation_advanced extension, alpha 1 on both "
+	    "sides); a UNORM or float colour attachment; one point per "
+	    "contribution, its position the cell, its colour %s", name[k],
+	    pname(c, c->is));
+	form(c, "advanced blending", st, "the colours are in [0, 1] (the "
+	    "parameters' ranges) and opaque", pr, C_ROP_ADV, pl);
+}
+
 static void
 advanced(struct rctx *c)
 {
@@ -1005,8 +1272,10 @@ advanced(struct rctx *c)
 	if (!c->flt || c->nsrc != 1 || c->ic >= 0)
 		return;
 	body = as_real(c, c->f->body);
-	if (!body)
+	if (!body) {	/* a ?: or a square root: the piecewise operations */
+		advanced_pw(c);
 		return;
+	}
 	s = mk_var((uint32_t)c->is, c->f->p[c->is].name, TY_REAL);
 	d = mk_var((uint32_t)c->id, c->f->p[c->id].name, TY_REAL);
 	mk = ar_mark();
@@ -1035,8 +1304,10 @@ advanced(struct rctx *c)
 		}
 	}
 	ar_release(mk);
-	if (hit < 0)
+	if (hit < 0) {
+		advanced_pw(c);
 		return;
+	}
 	snprintf(st, sizeof st, "VK_BLEND_OP_%s_EXT on opaque colours "
 	    "(VK_EXT_blend_operation_advanced): %s", name[hit], hit == 0 ?
 	    "s*d" : hit == 1 ? "s + d - s*d" : hit == 2 ? "min(s, d)" :

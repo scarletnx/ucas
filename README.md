@@ -2596,7 +2596,7 @@ from the parameters (`s: u32 in 0..255`).
 | logic op | the 16 VkLogicOp: bitwise functions of (s, d) | integer targets, UINT or SINT | `rop_logic` |
 | stencil op | the 8 VkStencilOp on d (and the reference), under a write mask of the low or the high bits: counters mod 256 or saturating, an invert, a replace | the 8-bit stencil value | `rop_stencil` |
 | blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT, or R16_SFLOAT when every value is below 2^11); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
-| advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
+| advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, and the piecewise OVERLAY, HARDLIGHT, SOFTLIGHT, COLORDODGE, COLORBURN, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
 | depth test | VK_COMPARE_OP_LESS (a min) or GREATER_OR_EQUAL (a max): the value's high bits are the key, its low bits a payload the test keeps with it in a colour target (an argmin, an argmax) | D32_SFLOAT and an R8 to R32G32_UINT target | `rop_depth` |
 | occlusion query | a precise VK_QUERY_TYPE_OCCLUSION around the draw: d + (s != 0), or d + 1, counted over every contribution | one cell for a whole draw | `rop_query` |
 
@@ -2782,11 +2782,25 @@ do.  English: "the blend state for acc", "the logic op for a | b with
 u32 a and b", "the fixed-function forms of cnt on fixed", "show me
 the blending for acc".  `simplify` asks the same catalogue about a
 module's atomics (see [Memory kinds](#memory-kinds): a scatter's
-atomics as fixed function).  Not yet: MSAA resolve, blits and the
-other fixed-function
-ideas are not in the catalogue; separate alpha, sRGB and the
-piecewise advanced operations (overlay, the lights, dodge, burn) are
-not either.
+atomics as fixed function).
+
+**The piecewise advanced operations** (OVERLAY, HARDLIGHT, SOFTLIGHT,
+COLORDODGE, COLORBURN) are defined by cases: `d <= 0.5 ? 2sd : 1 -
+2(1 - s)(1 - d)` for OVERLAY, a min and divisions for the dodge and the
+burn, a square root in SOFTLIGHT.  An update is compared with each case
+by case: the conditions of both (a min taken as `a <= b ? a : b`, and
+`d <= 0.5` and `0.5 >= d` the same condition, as rational functions)
+make a truth table, and in each of its cells the two values must be
+one rational function, a square root an atom of it.  Equal as real
+functions, like the other advanced operations; the blender's rounding
+is to measure.
+
+Not offered, each for its reason: a colour resolve's mean and a blit's
+box filter (their rounding is the implementation's); separate alpha
+factors (a second update on the alpha channel: F is one value); sRGB
+targets (the blender decodes the colour and encodes the result, a
+transfer function each way); the HSL advanced operations (functions
+of the whole colour, not of one channel).
 
 ### Subgroups
 

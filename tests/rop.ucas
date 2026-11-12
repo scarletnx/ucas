@@ -195,3 +195,22 @@ sm(s: i32 in -1000..1000, d: i32 in -1000..1000) = min(d, s)
 rop sm
 ix(s: i16, d: i16) = d xor s
 rop ix
+
+# the piecewise advanced operations, compared case by case: the
+# extension's overlay, hard light, dodge, burn and soft light as it
+# writes them; overlay with its condition the other way round; and
+# without the ranges that make them colours
+ov(s: f32 in 0..1, d: f32 in 0..1) = d <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+rop ov
+hl(s: f32 in 0..1, d: f32 in 0..1) = s <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+rop hl
+dodge(s: f32 in 0..1, d: f32 in 0..1) = d <= 0.0 ? 0.0 : (s < 1.0 ? min(1.0, d/(1.0 - s)) : 1.0)
+rop dodge
+burn(s: f32 in 0..1, d: f32 in 0..1) = d >= 1.0 ? 1.0 : (s > 0.0 ? 1.0 - min(1.0, (1.0 - d)/s) : 0.0)
+rop burn
+soft(s: f32 in 0..1, d: f32 in 0..1) = s <= 0.5 ? d - (1.0 - 2.0*s)*d*(1.0 - d) : (d <= 0.25 ? d + (2.0*s - 1.0)*d*((16.0*d - 12.0)*d + 3.0) : d + (2.0*s - 1.0)*(sqrt(d) - d))
+rop soft
+ov2(s: f32 in 0..1, d: f32 in 0..1) = 0.5 >= d ? 2.0*d*s : 1.0 - 2.0*(1.0 - d)*(1.0 - s)
+rop ov2
+ovx(s: f32, d: f32) = d <= 0.5 ? 2.0*s*d : 1.0 - 2.0*(1.0 - s)*(1.0 - d)
+rop ovx
