@@ -2547,8 +2547,15 @@ out lane by lane they are ordinary expressions, which is how they are
 evaluated, bounded and bit-blasted, so `range`, `equiv`, `domain`,
 `wrap` and `find` work on them as on anything else; the node keeps the
 operation for printing and for the price.  A parameter that is not
-`uniform` has a value in each lane and cannot be read across the lanes:
-that is an error which says so.  W is the range of the function's
+`uniform` has a value in each lane, which ucas does not know for the
+other lanes: read across the lanes (`sg_add(c)`, `sg_shuffle(x, 3)`)
+it is taken as the value in the lane read, priced at the worst (each of
+the W lanes read through a shuffle, a load under a model without one,
+and a `?:` on what it gives as a divergent branch, the report naming
+the parameter), and it has no exact value: `show`, `range`, `equiv`,
+`domain`, `wrap` and `find` refuse it saying so.  A call passes it on:
+`q(5)` with q's x read across the lanes is 5 in every lane, and a
+uniform argument is the same in each.  W is the range of the function's
 `lane` parameter (`lane: u32 in 0..7` is 8 lanes; such a function is
 itself a value per lane), else the active model's `warp: N` (the count
 the memory kinds use, above); without either the operations are

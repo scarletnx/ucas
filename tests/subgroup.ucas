@@ -50,9 +50,24 @@ range lk
 # a shuffle from a lane that is not there is undefined
 sh(i: u32 in 0..40) = sg_shuffle(lane + 100, i)
 domain sh
-# refused, each with why: a parameter that has a value in each lane read
-# across the lanes, a sum of floats, no subgroup size, lane outside
+# a parameter that has a value in each lane read across the lanes: the
+# other lanes' values are not known, so cost prices it at the worst and
+# what needs its value refuses; a call that passes a constant (the same
+# in every lane) or a uniform value has one
 q(x: u32) = sg_shuffle(x, 3)
+cost q
+range q
+find q 1
+show q(5)
+qs(c: u32 in 0..15, lane: u32 in 0..7) = { x = c; sg_add(x) + c }
+cost qs
+equiv qs qs
+qv(c: u32 in 0..15, a: u32, b: u32) = sg_any(c > 3) ? a * b : a + b
+cost qv
+qc(y: u32 uniform) = q(y) + 1
+show qc(6)
+# refused, each with why: a sum of floats, no subgroup size, lane
+# outside
 z(x: f32 uniform) = sg_add(x)
 p(x: u32 uniform) = sg_shuffle(lane, lane + 1)
 model nosize { all: 1 }
