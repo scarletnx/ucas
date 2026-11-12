@@ -46,6 +46,8 @@ struct irw *irw_add(struct irw **out, int *n, int *cap, nid root, nid from,
 void idrw_node(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
     int *cap);
 void idrw_maps(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap);
+/* x / d for x in [0, n] as (x M) >> s in u32: s, or 0 when none serves */
+int idrw_divk(uint64_t n, uint64_t d, uint64_t *m);
 int irw_cands(const struct func *f, nid root, struct irw **out);
 /* ifx.c: integers as floats and floats as integers, at node n of root */
 void ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,

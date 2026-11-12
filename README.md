@@ -2127,11 +2127,24 @@ under a varying `if` in its body, an index a uniform `if` chooses.
   gives the most adds into one cell that stay exact and what the other
   readers and the host convert.
 - A workgroup array whose accesses conflict: `banks` on their index
-  expressions (the lane is gl_LocalInvocationID.x or
-  gl_LocalInvocationIndex in a one-dimensional workgroup; a loop counter
-  is uniform with the range its loop gives it).  A proved swizzle is
-  written into every access chain of the array (and the array's length
-  for a padded row), and spirv-val is run on the result.
+  expressions (the lane is the linear invocation index,
+  gl_LocalInvocationIndex, in a workgroup of any shape, and
+  gl_LocalInvocationID's components are taken from it: x = i % X,
+  y = i / X % Y, z = i / (X Y), x the index itself when the workgroup is
+  one-dimensional; a loop counter is uniform with the range its loop
+  gives it).  An element of a nested array is read by its index laid
+  flat; up to 32 access chains of an array are searched together.  A
+  proved swizzle is written into every access chain of the array (the
+  array's length grows for a padded row; a nested array's indices are
+  taken apart again level by level, a division or remainder by a length
+  that is no power of two as one multiply and one shift (the index is
+  below the array's size, so idrw.c's M and s serve it), and a padded row
+  there must be its own innermost row, which grows by one element while
+  the indices stay), and spirv-val is run on the result; the price of
+  laying the indices flat and taking them apart is that of what is
+  written.  An array read otherwise (structs
+  as elements, an access to a row, a chain through another chain, more
+  than 32 chains) is said to be not analysed, with the reason.
 ### Driver folds
 
 A model can say which float round trips its driver drops:

@@ -554,7 +554,8 @@ struct memg {
 	int id[256];
 	nid node[256];
 	int nmemo;
-	int lsize;		/* the lane parameter's range: LocalSize.x */
+	int lsize;		/* the workgroup's invocations (0: not known) */
+	int lx, ly;		/* LocalSize.x and .y, for the lane's components */
 	int at;			/* the instruction that reads the value */
 	int fail;
 };
@@ -622,6 +623,20 @@ mem_counter(int id, int64_t *lo, int64_t *hi)
 		return *hi >= *lo;
 	}
 	return 0;
+}
+
+/* the lane parameter's key among the SPIR-V ids: it is read from more
+ * than one builtin, and stands for none of them */
+#define MEM_LANE (-2)
+
+/* the workgroup's shape for the lane: LocalSize */
+static void
+memg_lanes(struct memg *G, const int *lsize)
+{
+	G->lx = lsize[0];
+	G->ly = lsize[1];
+	G->lsize = lsize[0] <= 0 ? 0 : lsize[0] * (lsize[1] > 0 ? lsize[1] : 1) *
+	    (lsize[2] > 0 ? lsize[2] : 1);
 }
 
 static nid
@@ -692,29 +707,46 @@ memg_build(struct memg *G, int id, int depth)
 	if (k < 0 || depth > 48 || ty == 0)
 		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 	I = &V.in[k];
-	/* the lane: gl_LocalInvocationIndex, or gl_LocalInvocationID.x */
-	if (!strcmp(I->op, "OpLoad")) {
-		int chain, var = mem_base_var(idx(I->opnd[1]), &chain);
-		if (var >= 0 && (V.id[var].builtin == B_LOCALINDEX ||
-		    (V.id[var].builtin == B_LOCALID && chain >= 0 &&
-		    V.in[chain].nop == 3 && V.id[idx(V.in[chain].opnd[2])].kind ==
-		    K_CONST && V.id[idx(V.in[chain].opnd[2])].c[0] == 0))) {
-			r = memg_param(G, var, ty, 0, 1);
-			goto done;
-		}
-		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
-	}
-	if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3 &&
-	    atoi(I->opnd[2]) == 0) {
-		int s = idx(I->opnd[1]), ks = SP.def[s];
-		if (ks >= 0 && !strcmp(V.in[ks].op, "OpLoad")) {
-			int chain, var = mem_base_var(idx(V.in[ks].opnd[1]), &chain);
-			if (var >= 0 && V.id[var].builtin == B_LOCALID && chain < 0) {
-				r = memg_param(G, var, ty, 0, 1);
-				goto done;
+	/* the lane: the linear invocation index (gl_LocalInvocationIndex),
+	 * and gl_LocalInvocationID's components from it (x the index itself
+	 * in a one-dimensional workgroup) */
+	{
+		int comp = -1;
+		if (!strcmp(I->op, "OpLoad")) {
+			int chain, var = mem_base_var(idx(I->opnd[1]), &chain);
+			if (var >= 0 && V.id[var].builtin == B_LOCALINDEX)
+				comp = 3;
+			else if (var >= 0 && V.id[var].builtin == B_LOCALID &&
+			    chain >= 0 && V.in[chain].nop == 3 &&
+			    V.id[idx(V.in[chain].opnd[2])].kind == K_CONST)
+				comp = (int)V.id[idx(V.in[chain].opnd[2])].c[0];
+		} else if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3) {
+			int sv = idx(I->opnd[1]), ks = SP.def[sv];
+			if (ks >= 0 && !strcmp(V.in[ks].op, "OpLoad")) {
+				int chain, var = mem_base_var(idx(V.in[ks].opnd[1]),
+				    &chain);
+				if (var >= 0 && V.id[var].builtin == B_LOCALID &&
+				    chain < 0)
+					comp = atoi(I->opnd[2]);
 			}
 		}
-		return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
+		if (comp >= 0 && comp <= 3 && TY_ISINT(ty)) {
+			nid L = memg_param(G, MEM_LANE, ty, 0, 1);
+			int x = G->lx > 0 ? G->lx : 1, y = G->ly > 0 ? G->ly : 1;
+			if (comp == 3 || (comp == 0 && G->lsize == x))
+				r = L;
+			else if (comp == 0)
+				r = mk_bin(O_MOD, L, mk_const_i(ty, x));
+			else if (comp == 1)
+				r = mk_bin(O_MOD, mk_bin(O_DIV, L, mk_const_i(ty, x)),
+				    mk_const_i(ty, y));
+			else
+				r = mk_bin(O_DIV, L, mk_const_i(ty, (int64_t)x * y));
+			goto done;
+		}
+		if (!strcmp(I->op, "OpLoad") || !strcmp(I->op,
+		    "OpCompositeExtract"))
+			return memg_param(G, id, ty, mem_uni_at(id, G->at), 0);
 	}
 	if (I->nop >= 3) {
 		static const struct { const char *op; int o; } bin[] = {
@@ -761,7 +793,9 @@ done:
 }
 
 #define MEM_MAXARR 8
-#define MEM_MAXACC 8
+#define MEM_MAXACC 8		/* a variable's float adds, its stores */
+#define MEM_MAXCH 32		/* an array's access chains, for its banks */
+#define MEM_MAXDIM 8		/* the levels of a nested array */
 
 /* ---- a float atomic add as an integer one, written in ---- */
 
@@ -987,11 +1021,32 @@ mem_emitter(const struct memg *G, struct dwg *D, struct sbuf *code,
 	return E;
 }
 
+/* every parameter form reads has a SPIR-V value to read it from (the
+ * lane has one only where a builtin was read as it, unchanged) */
+static int
+mem_form_ok(const struct dwemit *E, nid n, int depth)
+{
+	int i;
+
+	for (i = 0; i < E->nmemo; i++)
+		if (E->memo_n[i] == n)
+			return 1;
+	if (N.op[n] == O_VAR)
+		return E->G->psid[N.ki[n]] >= 0;
+	if (N.op[n] == O_CONST)
+		return 1;
+	return depth < 64 && (!N.a[n] || mem_form_ok(E, N.a[n], depth + 1)) &&
+	    (!N.b[n] || mem_form_ok(E, N.b[n], depth + 1)) && (!N.c[n] ||
+	    mem_form_ok(E, N.c[n], depth + 1));
+}
+
 /* the i32 value of form into out (an id); 0 when it cannot be written */
 static int
 mem_emit_int(struct dwemit *E, nid form, const char *ity, char *out,
     size_t n)
 {
+	if (!mem_form_ok(E, form, 0))
+		return 0;
 	if (N.op[form] == O_CAST && TY_FP(N.ty[N.a[form]])) {
 		char a[40];
 		snprintf(a, sizeof a, "%s", dwe(E, N.a[form]));
@@ -1144,7 +1199,7 @@ mem_fatomic(int var, const int *lsize, const struct model *m,
 	for (q = 0; q < nad; q++) {
 		const struct sins *I = &V.in[ad[q].k];
 		ad[q].G = xcalloc(1, sizeof *ad[q].G);
-		ad[q].G->lsize = lsize[0];
+		memg_lanes(ad[q].G, lsize);
 		ad[q].G->at = ad[q].k;
 		ad[q].G->f.name = sym_cstr("_fadd");
 		ad[q].G->f.anon = 1;
@@ -1197,7 +1252,7 @@ mem_fatomic(int var, const int *lsize, const struct model *m,
 		int sg;
 		double sk;
 		st[q].G = xcalloc(1, sizeof *st[q].G);
-		st[q].G->lsize = lsize[0];
+		memg_lanes(st[q].G, lsize);
 		st[q].G->at = st[q].k;
 		st[q].v = memg_build(st[q].G, idx(I->opnd[1]), 0);
 		st[q].konst = N.op[st[q].v] == O_CONST;
@@ -1490,7 +1545,7 @@ mem_fatomic_buf(int k, int var, const int *lsize, const struct model *m,
 
 	if (*bn == '%')
 		bn++;
-	G->lsize = lsize[0];
+	memg_lanes(G, lsize);
 	G->at = k;
 	G->f.name = sym_cstr("_fadd");
 	G->f.anon = 1;
@@ -1623,6 +1678,285 @@ mem_drop_fadd_caps(char **repl)
 	}
 }
 
+/* the array levels of var's type (its pointee), outermost first: their
+ * lengths and type ids, and the element under them; how many */
+static int
+mem_levels(int var, int64_t *len, int *lt, int *elt)
+{
+	int t = T(V.id[var].type)->e, n = 0;
+
+	while (V.id[t].kind == K_TYPE && T(t)->k == S_ARRAY && n < MEM_MAXDIM) {
+		if (len)
+			len[n] = T(t)->n;
+		if (lt)
+			lt[n] = t;
+		n++;
+		t = T(t)->e;
+	}
+	if (elt)
+		*elt = t;
+	return n;
+}
+
+/* a constant of integer type tt (its token), declared once in decl */
+static void
+mem_kconst(struct sbuf *decl, const char *tt, int sign, int64_t v, char *out,
+    size_t n)
+{
+	char key[64];
+
+	snprintf(out, n, "%%ucas_m%s_%s%lld", tt + 1, v < 0 ? "n" : "",
+	    (long long)(v < 0 ? -v : v));
+	snprintf(key, sizeof key, "%s = ", out);
+	if (decl->p == NULL || !strstr(decl->p, key))
+		sb_printf(decl, "%s = OpConstant %s %lld\n", out, tt, sign ?
+		    (long long)v : (long long)(uint32_t)v);
+}
+
+/* the swizzle of index ix (of type it) into a new id, named into name */
+static void
+mem_swz_code(struct sbuf *c, struct sbuf *decl, const struct bankswz *z,
+    int banks, const char *ix, int it, char *name, size_t nn, int *serial)
+{
+	const char *tt = V.id[it].tok;
+	char ks[48], km[48], r[40], t1[40];
+
+	mem_kconst(decl, tt, T(it)->sign, z->s, ks, sizeof ks);
+	if (z->kind != SW_PAD)
+		mem_kconst(decl, tt, T(it)->sign, banks - 1, km, sizeof km);
+	snprintf(r, sizeof r, "%%ucas_sw%d", ++*serial);
+	snprintf(t1, sizeof t1, "%%ucas_sw%d", ++*serial);
+	snprintf(name, nn, "%%ucas_sw%d", ++*serial);
+	sb_printf(c, "%s = OpShiftRightLogical %s %s %s\n", r, tt, ix, ks);
+	if (z->kind == SW_XOR) {
+		sb_printf(c, "%s = OpBitwiseAnd %s %s %s\n", t1, tt, r, km);
+		sb_printf(c, "%s = OpBitwiseXor %s %s %s\n", name, tt, ix, t1);
+	} else if (z->kind == SW_PAD)
+		sb_printf(c, "%s = OpIAdd %s %s %s\n", name, tt, ix, r);
+	else {
+		char t2[40], t3[40], kn[48];
+		snprintf(t2, sizeof t2, "%%ucas_sw%d", ++*serial);
+		snprintf(t3, sizeof t3, "%%ucas_sw%d", ++*serial);
+		snprintf(kn, sizeof kn, "%%ucas_mn%s_%d", tt + 1, banks - 1);
+		if (decl->p == NULL || !strstr(decl->p, kn))
+			sb_printf(decl, "%s = OpConstant %s %lld\n", kn, tt,
+			    T(it)->sign ? (long long)~(int64_t)(banks - 1) :
+			    (long long)(uint32_t)~(uint32_t)(banks - 1));
+		sb_printf(c, "%s = OpIAdd %s %s %s\n", t1, tt, ix, r);
+		sb_printf(c, "%s = OpBitwiseAnd %s %s %s\n", t2, tt, t1, km);
+		sb_printf(c, "%s = OpBitwiseAnd %s %s %s\n", t3, tt, ix, kn);
+		sb_printf(c, "%s = OpBitwiseOr %s %s %s\n", name, tt, t3, t2);
+	}
+}
+
+static int
+mem_log2(int64_t v)
+{
+	int k = 0;
+
+	if (v <= 0 || (v & (v - 1)))
+		return -1;
+	while ((int64_t)1 << k < v)
+		k++;
+	return k;
+}
+
+/*
+ * v / d (rem: v % d) for v in [0, vmax], as written into the module: a
+ * shift or a mask for a power of two, else one multiply and one shift
+ * (idrw.c's M and s, the remainder v - d q) while some s serves vmax, a
+ * division otherwise
+ */
+static nid
+mem_divk_node(nid v, int64_t d, int64_t vmax, int rem)
+{
+	ty_t u = TY(K_UINT, 32);
+	uint64_t M = 0;
+	int s = mem_log2(d) >= 0 ? 0 : idrw_divk((uint64_t)vmax, (uint64_t)d,
+	    &M);
+	nid q;
+
+	if (!s)
+		return mk_bin(rem ? O_MOD : O_DIV, v, mk_const_i(u, d));
+	q = mk_bin(O_SHR, mk_bin(O_MUL, v, mk_const_i(u, (int64_t)M)),
+	    mk_const_i(u, s));
+	return rem ? mk_bin(O_SUB, v, mk_bin(O_MUL, q, mk_const_i(u, d))) : q;
+}
+
+/* the same into the module: out names the result */
+static void
+mem_divk_code(struct sbuf *c, struct sbuf *decl, const char *tt, int sign,
+    const char *v, int64_t d, int64_t vmax, int rem, char *out, size_t on,
+    int *serial)
+{
+	uint64_t M = 0;
+	int k = mem_log2(d), s = k >= 0 ? 0 : idrw_divk((uint64_t)vmax,
+	    (uint64_t)d, &M);
+	char kd[48], km[48], ks[48], p[40], t[40];
+
+	snprintf(out, on, "%%ucas_sw%d", ++*serial);
+	if (!s) {
+		mem_kconst(decl, tt, sign, k < 0 ? d : rem ? d - 1 : k, kd,
+		    sizeof kd);
+		sb_printf(c, "%s = %s %s %s %s\n", out, k >= 0 ? rem ?
+		    "OpBitwiseAnd" : "OpShiftRightLogical" : rem ? "OpUMod" :
+		    "OpUDiv", tt, v, kd);
+		return;
+	}
+	mem_kconst(decl, tt, sign, (int64_t)M, km, sizeof km);
+	mem_kconst(decl, tt, sign, s, ks, sizeof ks);
+	snprintf(p, sizeof p, "%%ucas_sw%d", ++*serial);
+	sb_printf(c, "%s = OpIMul %s %s %s\n", p, tt, v, km);
+	sb_printf(c, "%s = OpShiftRightLogical %s %s %s\n", out, tt, p, ks);
+	if (!rem)
+		return;
+	mem_kconst(decl, tt, sign, d, kd, sizeof kd);
+	snprintf(t, sizeof t, "%%ucas_sw%d", ++*serial);
+	sb_printf(c, "%s = OpIMul %s %s %s\n", t, tt, out, kd);
+	snprintf(out, on, "%%ucas_sw%d", ++*serial);
+	sb_printf(c, "%s = OpISub %s %s %s\n", out, tt, v, t);
+}
+
+/* what laying a nested array's indices flat (i0 stride0 + ...) and
+ * taking them apart again ((sw / stride) % length) costs one access under
+ * m, by the cover, as mem_swizzle_array writes it */
+static double
+mem_flat_price(int nlev, const int64_t *len, const int64_t *stride,
+    const struct model *m)
+{
+	ty_t u = TY(K_UINT, 32);
+	nid roots[MEM_MAXDIM + 1], flat = 0, sw;
+	int j, n = 0;
+	int64_t size = len[0] * stride[0];
+
+	for (j = 0; j < nlev; j++) {
+		nid x = mk_var((uint32_t)j, sym_cstr("i"), u);
+		if (stride[j] != 1)
+			x = mk_bin(O_MUL, x, mk_const_i(u, stride[j]));
+		flat = flat ? mk_bin(O_ADD, flat, x) : x;
+	}
+	roots[n++] = flat;
+	sw = mk_var((uint32_t)nlev, sym_cstr("sw"), u);
+	for (j = 0; j < nlev; j++) {
+		nid v = sw;
+		int64_t vmax = size - 1;
+		if (stride[j] != 1) {
+			v = mem_divk_node(v, stride[j], vmax, 0);
+			vmax /= stride[j];
+		}
+		if (j > 0)
+			v = mem_divk_node(v, len[j], vmax, 1);
+		roots[n++] = v;
+	}
+	return (double)fuse_roots_cost(m, roots, n);
+}
+
+/*
+ * The swizzle z written into every access chain of an array (number a):
+ * one index through it (a padded row grows the array's type), or, for a
+ * nested array, the element's index laid flat, swizzled and taken apart
+ * again level by level; a padded row there is the innermost rows one
+ * element longer, the indices as they are.
+ */
+static void
+mem_swizzle_array(const int *chains, int nch, int nlev, const int64_t *len,
+    const int64_t *stride, const int *lt, const struct bankswz *z,
+    const struct model *m, int a, struct mem_out *o, int *newidx,
+    char (*newname)[40], int *serial)
+{
+	int banks = (int)m->par[MP_BANKS], q, j, grow = -1;
+
+	if (z->kind == SW_PAD)
+		grow = nlev == 1 ? lt[0] : lt[nlev - 1];
+	for (q = 0; q < nch && !(nlev > 1 && z->kind == SW_PAD); q++) {
+		int ck = chains[q], it = -1;
+		const struct sins *I = &V.in[ck];
+		struct sbuf c = {0}, r = {0};
+		char flat[40], sw[40], ix[MEM_MAXDIM][48];
+		const char *tt;
+		if (nlev == 1) {
+			mem_swz_code(&c, o->decl, z, banks, I->opnd[2],
+			    V.id[idx(I->opnd[2])].type, newname[ck], 40, serial);
+			o->pre[ck] = c.p;
+			newidx[ck] = 1;
+			continue;
+		}
+		/* one integer type for the arithmetic: the first variable
+		 * index's; the others are read as it */
+		for (j = 0; j < nlev && it < 0; j++)
+			if (V.id[idx(I->opnd[2 + j])].kind != K_CONST)
+				it = V.id[idx(I->opnd[2 + j])].type;
+		if (it < 0)
+			it = V.id[idx(I->opnd[2])].type;
+		tt = V.id[it].tok;
+		for (j = 0; j < nlev; j++) {
+			int x = idx(I->opnd[2 + j]);
+			if (V.id[x].type == it)
+				snprintf(ix[j], sizeof ix[j], "%s", I->opnd[2 + j]);
+			else if (V.id[x].kind == K_CONST)
+				mem_kconst(o->decl, tt, T(it)->sign, geti(V.id[x].type,
+				    V.id[x].c[0]), ix[j], sizeof ix[j]);
+			else {
+				snprintf(ix[j], sizeof ix[j], "%%ucas_sw%d", ++*serial);
+				sb_printf(&c, "%s = OpBitcast %s %s\n", ix[j], tt,
+				    I->opnd[2 + j]);
+			}
+		}
+		/* flat = i0 stride0 + ... */
+		snprintf(flat, sizeof flat, "%s", ix[nlev - 1]);
+		for (j = nlev - 2; j >= 0; j--) {
+			char kst[48], prod[40], sum[40];
+			mem_kconst(o->decl, tt, T(it)->sign, stride[j], kst,
+			    sizeof kst);
+			snprintf(prod, sizeof prod, "%%ucas_sw%d", ++*serial);
+			snprintf(sum, sizeof sum, "%%ucas_sw%d", ++*serial);
+			sb_printf(&c, "%s = OpIMul %s %s %s\n", prod, tt, ix[j], kst);
+			sb_printf(&c, "%s = OpIAdd %s %s %s\n", sum, tt, prod, flat);
+			snprintf(flat, sizeof flat, "%s", sum);
+		}
+		mem_swz_code(&c, o->decl, z, banks, flat, it, sw, sizeof sw, serial);
+		/* and apart again: (sw / stride) % length at each level */
+		sb_printf(&r, "%s = %s %s %s", V.id[I->res].tok, I->op,
+		    o->newty[ck][0] ? o->newty[ck] : I->opnd[0], I->opnd[1]);
+		for (j = 0; j < nlev; j++) {
+			char d[40], e[40];
+			const char *v = sw;
+			int64_t vmax = len[0] * stride[0] - 1;
+			if (stride[j] != 1) {
+				mem_divk_code(&c, o->decl, tt, T(it)->sign, sw,
+				    stride[j], vmax, 0, d, sizeof d, serial);
+				v = d;
+				vmax /= stride[j];
+			}
+			if (j > 0) {
+				mem_divk_code(&c, o->decl, tt, T(it)->sign, v, len[j],
+				    vmax, 1, e, sizeof e, serial);
+				v = e;
+			}
+			sb_printf(&r, " %s", v);
+		}
+		for (j = 2 + nlev; j < I->nop; j++)
+			sb_printf(&r, " %s", I->opnd[j]);
+		sb_putc(&r, '\n');
+		o->pre[ck] = c.p;
+		free(o->repl[ck]);
+		o->repl[ck] = r.p;
+	}
+	if (grow >= 0)
+		for (q = 0; q < V.nin; q++)
+			if (V.in[q].res == grow && !strcmp(V.in[q].op, "OpTypeArray") &&
+			    V.in[q].nop >= 2) {
+				struct sbuf c = {0};
+				int lty = V.id[idx(V.in[q].opnd[1])].type;
+				sb_printf(&c, "%%ucas_len%d = OpConstant %s %lld\n", a,
+				    V.id[lty].tok, nlev == 1 ? (long long)z->size :
+				    (long long)len[nlev - 1] + 1);
+				o->pre[q] = c.p;
+				newidx[q] = 2;
+				snprintf(newname[q], 40, "%%ucas_len%d", a);
+			}
+}
+
 /* ---- the pass ---- */
 
 static char *
@@ -1634,7 +1968,8 @@ mem_pass(const char *text, int *changed)
 	int k, i, hdr = 0, lsize[3] = {0, 0, 0}, serial = 0;
 	int nubo = 0, nubodiv = 0, nfetch = 0, nfatom = 0;
 	struct {
-		int var, chain[MEM_MAXACC], nch, total;
+		int var, chain[MEM_MAXCH], nch, total;
+		const char *why;	/* not analysed: the reason */
 	} arr[MEM_MAXARR];
 	int narr = 0;
 	int *newidx;		/* per access chain: the swizzled index id name */
@@ -1873,7 +2208,7 @@ mem_pass(const char *text, int *changed)
 				    "more than 64 workgroup variables\n", I->text);
 			}
 		}
-		if (chain < 0 || V.in[chain].nop != 3)
+		if (chain < 0)
 			continue;
 		for (a = 0; a < narr; a++)
 			if (arr[a].var == var)
@@ -1881,46 +2216,80 @@ mem_pass(const char *text, int *changed)
 		if (a == narr) {
 			if (narr == MEM_MAXARR)
 				continue;
-			arr[narr].var = var;
-			arr[narr].nch = 0;
-			arr[narr++].total = 0;
+			memset(&arr[narr], 0, sizeof arr[narr]);
+			arr[narr++].var = var;
 		}
 		arr[a].total++;
+		/* an element, through every level, from the variable itself */
+		if (!arr[a].why) {
+			int et, nl = mem_levels(var, NULL, NULL, &et);
+			if (idx(V.in[chain].opnd[1]) != var)
+				arr[a].why = "an access goes through another access "
+				    "chain";
+			else if (V.in[chain].nop - 2 > nl && T(et)->k == S_STRUCT)
+				arr[a].why = "its elements are structs: an access "
+				    "reaches a member (offsets from a layout the module "
+				    "does not fix)";
+			else if (V.in[chain].nop - 2 != nl)
+				arr[a].why = "an access reaches a row or a vector's "
+				    "component, not one element";
+		}
 		for (i = 0; i < arr[a].nch; i++)
 			if (arr[a].chain[i] == chain)
 				break;
-		if (i == arr[a].nch && arr[a].nch < MEM_MAXACC)
+		if (i == arr[a].nch && arr[a].nch < MEM_MAXCH)
 			arr[a].chain[arr[a].nch++] = chain;
-		else if (i == arr[a].nch)
-			arr[a].nch = MEM_MAXACC + 1;	/* too many to search */
+		else if (i == arr[a].nch && !arr[a].why)
+			arr[a].why = "more than 32 access chains";
 	}
 	if ((int)m->par[MP_BANKS] > 0 && model_cost(m, C_BANK_CONFLICT) > 0)
 		for (i = 0; i < narr; i++) {
-			struct memg *G[MEM_MAXACC];
-			uint32_t names[MEM_MAXACC];
+			struct memg *G[MEM_MAXCH];
+			uint32_t names[MEM_MAXCH];
 			struct bankswz z;
 			const char *an = V.id[arr[i].var].name;
-			int at = T(V.id[arr[i].var].type)->e, elem = 4, al, es, q;
+			int64_t len[MEM_MAXDIM], stride[MEM_MAXDIM], size = 1;
+			int lt[MEM_MAXDIM], et, nlev, elem = 4, al, q, j;
 			int ok = 1, worst = 1;
 
-			if (arr[i].nch > MEM_MAXACC || T(at)->k != S_ARRAY ||
-			    (lsize[1] > 1 || lsize[2] > 1))
+			if (*an == '%')
+				an++;
+			nlev = mem_levels(arr[i].var, len, lt, &et);
+			if (nlev == 0)
+				continue;	/* one value, not an array */
+			if (arr[i].why) {
+				MEM_HDR();
+				printf("  workgroup array %s: not analysed: %s\n", an,
+				    arr[i].why);
 				continue;
-			mem_layout(T(at)->e, 1, &al, &es);
-			elem = es;
+			}
+			mem_layout(et, 1, &al, &elem);
+			for (j = nlev - 1; j >= 0; j--) {
+				stride[j] = size;
+				size *= len[j];
+			}
 			for (q = 0; q < arr[i].nch; q++) {
 				struct func *h;
 				char nm[40];
 				struct bankres br;
+				const struct sins *C = &V.in[arr[i].chain[q]];
+				nid flat = 0;
 				G[q] = xcalloc(1, sizeof **G);
-				G[q]->lsize = lsize[0];
+				memg_lanes(G[q], lsize);
 				G[q]->at = arr[i].chain[q];
-				G[q]->f.body = mk_cast(TY(K_UINT, 32), memg_build(G[q],
-				    idx(V.in[arr[i].chain[q]].opnd[2]), 0));
+				/* the element's index in the array laid flat */
+				for (j = 0; j < nlev; j++) {
+					nid x = mk_cast(TY(K_UINT, 32), memg_build(G[q],
+					    idx(C->opnd[2 + j]), 0));
+					if (stride[j] != 1)
+						x = mk_bin(O_MUL, x, mk_const_i(TY(K_UINT, 32),
+						    stride[j]));
+					flat = flat ? mk_bin(O_ADD, flat, x) : x;
+				}
+				G[q]->f.body = flat;
 				if (G[q]->fail)
 					ok = 0;
-				snprintf(nm, sizeof nm, "_%.30s_%d", *an == '%' ? an + 1 :
-				    an, q + 1);
+				snprintf(nm, sizeof nm, "_%.30s_%d", an, q + 1);
 				G[q]->f.name = sym_cstr(nm);
 				h = func_new(G[q]->f.name);
 				*h = G[q]->f;
@@ -1932,89 +2301,41 @@ mem_pass(const char *text, int *changed)
 			/* nothing to say about an array without conflicts */
 			if (ok && worst > 1) {
 				MEM_HDR();
-				printf("  workgroup array %s (%d elements of %d bytes, "
-				    "%d access%s):\n", *an == '%' ? an + 1 : an,
-				    T(at)->n, elem, arr[i].nch, arr[i].nch == 1 ? "" :
-				    "es");
-				if (memk_banks(names, arr[i].nch, T(at)->n, elem, m,
-				    &z)) {
-					/* every access chain takes the swizzle */
-					for (q = 0; q < arr[i].nch; q++) {
-						int ck = arr[i].chain[q];
-						const char *ix = V.in[ck].opnd[2];
-						int it = V.id[idx(ix)].type;
-						const char *tt = V.id[it].tok;
-						struct sbuf c = {0};
-						char r[40], t1[40], kc[2][48];
-						int banks = (int)m->par[MP_BANKS], cv[2], j;
-						cv[0] = z.s;
-						cv[1] = banks - 1;
-						for (j = 0; j < (z.kind == SW_PAD ? 1 : 2); j++) {
-							snprintf(kc[j], sizeof kc[j], "%%ucas_m%s_%d",
-							    tt + 1, cv[j]);
-							if (decl.p == NULL || !strstr(decl.p, kc[j]))
-								sb_printf(&decl, "%s = OpConstant %s "
-								    "%d\n", kc[j], tt, cv[j]);
-						}
-						snprintf(r, sizeof r, "%%ucas_sw%d", ++serial);
-						snprintf(t1, sizeof t1, "%%ucas_sw%d", ++serial);
-						snprintf(newname[ck], 40, "%%ucas_sw%d", ++serial);
-						sb_printf(&c, "%s = OpShiftRightLogical %s %s "
-						    "%s\n", r, tt, ix, kc[0]);
-						if (z.kind == SW_XOR) {
-							sb_printf(&c, "%s = OpBitwiseAnd %s %s %s\n",
-							    t1, tt, r, kc[1]);
-							sb_printf(&c, "%s = OpBitwiseXor %s %s %s\n",
-							    newname[ck], tt, ix, t1);
-						} else if (z.kind == SW_PAD) {
-							sb_printf(&c, "%s = OpIAdd %s %s %s\n",
-							    newname[ck], tt, ix, r);
-						} else {
-							char t2[40], t3[40], km[48];
-							snprintf(t2, sizeof t2, "%%ucas_sw%d",
-							    ++serial);
-							snprintf(t3, sizeof t3, "%%ucas_sw%d",
-							    ++serial);
-							snprintf(km, sizeof km, "%%ucas_mn%s_%d",
-							    tt + 1, banks - 1);
-							if (decl.p == NULL || !strstr(decl.p, km))
-								sb_printf(&decl, "%s = OpConstant %s "
-								    "%lld\n", km, tt, T(it)->sign ?
-								    (long long)~(int64_t)(banks - 1) :
-								    (long long)(uint32_t)~(uint32_t)(banks
-								    - 1));
-							sb_printf(&c, "%s = OpIAdd %s %s %s\n", t1, tt,
-							    ix, r);
-							sb_printf(&c, "%s = OpBitwiseAnd %s %s %s\n",
-							    t2, tt, t1, kc[1]);
-							sb_printf(&c, "%s = OpBitwiseAnd %s %s %s\n",
-							    t3, tt, ix, km);
-							sb_printf(&c, "%s = OpBitwiseOr %s %s %s\n",
-							    newname[ck], tt, t3, t2);
-						}
-						pre[ck] = c.p;
-						newidx[ck] = 1;
+				printf("  workgroup array %s (%lld elements of %d bytes",
+				    an, (long long)size, elem);
+				if (nlev > 1) {
+					printf(", laid flat from");
+					for (j = 0; j < nlev; j++)
+						printf(" [%lld]", (long long)len[j]);
+				}
+				printf(", %d access%s):\n", arr[i].nch, arr[i].nch == 1 ?
+				    "" : "es");
+				double extra = nlev > 1 ? mem_flat_price(nlev, len, stride,
+				    m) : 0;
+				if (extra > 0)
+					printf("    a swizzle lays each access's indices flat "
+					    "and takes them apart again: %g an access, in its "
+					    "price below\n", extra);
+				if (memk_banks(names, arr[i].nch, size, elem, nlev > 1 ?
+				    len[nlev - 1] : 0, extra, m, &z)) {
+					if (nlev > 1 && z.kind == SW_PAD &&
+					    len[nlev - 1] != (int64_t)1 << z.s)
+						printf("    not written: the padded rows of %lld "
+						    "elements are not the array's own rows of "
+						    "%lld\n", (long long)1 << z.s,
+						    (long long)len[nlev - 1]);
+					else {
+						mem_swizzle_array(arr[i].chain, arr[i].nch, nlev, len,
+						    stride, lt, &z, m, i, &mo, newidx, newname,
+						    &serial);
+						printf("    written into the module: the %d access "
+						    "chain%s of the array index it through the "
+						    "swizzle%s\n", arr[i].nch, arr[i].nch == 1 ? "" :
+						    "s", nlev > 1 && z.kind == SW_PAD ? " (its rows "
+						    "one element longer, the indices as they are)" :
+						    "");
+						*changed = 1;
 					}
-					if (z.kind == SW_PAD) {
-						/* the array grows: a new length for its type */
-						for (q = 0; q < V.nin; q++)
-							if (V.in[q].res == at && !strcmp(V.in[q].op,
-							    "OpTypeArray") && V.in[q].nop >= 2) {
-								struct sbuf c = {0};
-								int lt = V.id[idx(V.in[q].opnd[1])].type;
-								sb_printf(&c, "%%ucas_len%d = OpConstant %s "
-								    "%lld\n", i, V.id[lt].tok,
-								    (long long)z.size);
-								pre[q] = c.p;
-								newidx[q] = 2;
-								snprintf(newname[q], 40, "%%ucas_len%d", i);
-							}
-					}
-					printf("    written into the module: the %d access "
-					    "chain%s of the array index it through the "
-					    "swizzle\n", arr[i].nch, arr[i].nch == 1 ? "" :
-					    "s");
-					*changed = 1;
 				}
 			}
 			for (q = 0; q < arr[i].nch; q++)

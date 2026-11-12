@@ -1,0 +1,84 @@
+# Bank conflicts beyond a one-dimensional workgroup and one index: the
+# lane is the linear invocation index (gl_LocalInvocationID's components
+# taken from it), an element of a nested array its index laid flat.
+#
+# a 16 x 16 tile read transposed in a 16 x 16 workgroup: the column read
+# puts 16 lanes on one bank; the rows grow by one element, the indices
+# stay as they are
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint t[16][16];
+void main() {
+    uint x = gl_LocalInvocationID.x, y = gl_LocalInvocationID.y;
+    t[y][x] = outb.o[y * 16u + x];
+    barrier();
+    outb.o[y * 16u + x] = t[x][y];
+}
+```
+# a three-dimensional workgroup: x picks the row of 32, every lane of a
+# warp on one bank
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 8, local_size_y = 2, local_size_z = 2) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint s[256];
+void main() {
+    uint x = gl_LocalInvocationID.x, z = gl_LocalInvocationID.z;
+    s[x * 32u + z] = outb.o[gl_LocalInvocationIndex];
+    barrier();
+    outb.o[gl_LocalInvocationIndex] = s[x * 32u + z];
+}
+```
+# an array with ten accesses: more than eight are searched together
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint sh[1024];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    sh[l * 32u] = outb.o[l];
+    barrier();
+    outb.o[l] = sh[l * 32u] + sh[l * 32u + 1u] + sh[l * 32u + 2u] +
+        sh[l * 32u + 3u] + sh[l * 32u + 4u] + sh[l * 32u + 5u] +
+        sh[l * 32u + 6u] + sh[l * 32u + 7u] + sh[l * 32u + 8u];
+}
+```
+# rows of 48 cannot be padded (a padded row must be the array's own, and
+# a row of 48 is no power of two): the swizzle that adds the row into the
+# bank bits is the cheapest, where the xor collapses lanes 2l apart; the
+# flat index is taken apart by a multiply and a shift (i / 48 below 1536)
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint a[32][48];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    for (uint c = 0u; c < 48u; c++)
+        a[l][c] = outb.o[l * 48u + c];
+    barrier();
+    outb.o[l] = a[l][(l * 2u) % 48u];
+}
+```
+# an array of structs: an access reaches a member, not analysed
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+struct P { uint a, b; };
+shared P ps[64];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    ps[l * 2u].a = l;
+    barrier();
+    outb.o[l] = ps[l * 2u].a;
+}
+```

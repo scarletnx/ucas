@@ -170,8 +170,8 @@ rw_divis(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 /* ---- x / d and x % d, x <= N, by one multiply and one shift ---- */
 
 /* the least s with M = ceil(2^s/d), N (M d - 2^s) < 2^s and N M < 2^32 */
-static int
-divk_solve(uint64_t N_, uint64_t d, uint64_t *M)
+int
+idrw_divk(uint64_t N_, uint64_t d, uint64_t *M)
 {
 	int s;
 
@@ -228,7 +228,7 @@ rw_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 	/* a dividend that takes its whole type: nothing was proved of it */
 	full = TY_SIZED(t) && TYW(t) <= 32 && ahi == (TYK(t) == K_SINT ?
 	    (1LL << (TYW(t) - 1)) - 1 : (1LL << TYW(t)) - 1);
-	s = divk_solve((uint64_t)ahi, (uint64_t)d, &M);
+	s = idrw_divk((uint64_t)ahi, (uint64_t)d, &M);
 	if (!s) {
 		if (full && TYW(t) == 32)
 			return;
