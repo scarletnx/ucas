@@ -2391,17 +2391,6 @@ pl_cert(const ld *b, int nb, float xa, float xb, float c, const float *a,
 	}
 }
 
-int
-fx_refit_inner(const struct fxg *g, int node, unsigned char *in)
-{
-	static struct plinfo P[FX_MAXN];
-	int i;
-
-	for (i = 0; i <= node && i < g->nn; i++)
-		pl_of(g, i, P);
-	memset(in, 0, FX_MAXN);
-	return P[node].leaf ? 0 : pl_mark(g, P, node, P[node].x, in);
-}
 
 /*
  * A polynomial the shader already evaluates (a fitted curve, a Taylor
@@ -2510,6 +2499,251 @@ an_fewer(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 		snprintf(pr->fail, sizeof pr->fail, "an approximation of the "
 		    "polynomial: only a sink takes it");
 	}
+}
+
+/* ---- products and powers in the log domain ---- */
+
+struct ldfac {
+	int a, y, e, neg;	/* base (or exp2's exponent when e), exponent node
+				 * or -1, negated (a divisor) */
+	float yk;		/* the constant exponent */
+};
+
+/* the factors of the product under i, and its own operations in in[] */
+static int
+ld_collect(const struct fxg *g, int i, int neg, struct ldfac *f, int nf,
+    ld *logk, uint8_t *in, int *bad)
+{
+	const struct fxn *n = &g->n[i];
+	float k;
+
+	if (*bad)
+		return nf;
+	if ((n->op == FX_MUL || n->op == FX_DIV) && !in[i]) {
+		in[i] = 1;
+		nf = ld_collect(g, n->a, neg, f, nf, logk, in, bad);
+		return ld_collect(g, n->b, n->op == FX_DIV ? !neg : neg, f, nf,
+		    logk, in, bad);
+	}
+	if (is_k(g, i, &k)) {
+		if (!(k > 0) || isinf(k)) {
+			*bad = 1;
+			return nf;
+		}
+		*logk += (neg ? -1 : 1) * log2l((ld)k);
+		return nf;
+	}
+	if (nf == FX_MAXF) {
+		*bad = 1;
+		return nf;
+	}
+	memset(&f[nf], 0, sizeof f[nf]);
+	f[nf].neg = neg;
+	f[nf].y = -1;
+	f[nf].yk = 1;
+	if (n->op == FX_POW && !in[i]) {
+		in[i] = 1;
+		f[nf].a = n->a;
+		if (is_k(g, n->b, &k))
+			f[nf].yk = k;
+		else if (neg)
+			*bad = 1;	/* a variable power of a divisor: not read */
+		else
+			f[nf].y = n->b;
+	} else if (n->op == FX_EXP2 && !in[i]) {
+		in[i] = 1;
+		f[nf].a = n->a;
+		f[nf].e = 1;
+	} else
+		f[nf].a = i;
+	return nf + 1;
+}
+
+/*
+ * A product of powers (and of exp2s, plain factors, divisors and positive
+ * constants) as exp2 of the sum of its exponents times log2 of its bases:
+ * pow(a, x) * pow(b, y) is 16 + 1 under gt1030 against two log2, a
+ * multiply, an fma and an exp2.  Against the reference (log2, exp2 and
+ * pow correctly rounded, every operation rounded): each log2 L(1 + d1),
+ * each term y L (1 + d1)(1 + d2), the sum rounding gamma_(k-1) of the
+ * terms' magnitudes, so the exponent is off by at most D and the result
+ * 2^D (1 + u) - 1 relatively, plus the reference's own rounding of its
+ * operations; an approximation, for `approx ulp N` or a sink.
+ */
+static void
+an_logdom(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
+    int max, int node, int dep)
+{
+	struct ldfac f[FX_MAXF];
+	uint8_t in[FX_MAXN] = {0};
+	int nf, bad = 0, i, j, nlog = 0, ops = 0, terms;
+	ld logk = 0;
+	double cf = 0, cost, tlog = 0, tall = 0, slo, shi, D, rel, relrw, gk, gt;
+	struct fxrw *r;
+	struct sbuf why = {0};
+
+	nf = ld_collect(g, node, 0, f, 0, &logk, in, &bad);
+	if (bad || nf < 2)
+		return;
+	/* what goes with it: an operation also read outside it stays */
+	for (i = 0; i < g->nn; i++) {
+		int inner = 0;
+		if (!in[i] || i == node)
+			continue;
+		for (j = 0; j < g->nn; j++)
+			if (in[j] && (g->n[j].a == i || g->n[j].b == i))
+				inner++;
+		if (g->n[i].uses > inner)
+			return;
+	}
+	for (i = 0; i < g->nn; i++)
+		if (in[i]) {
+			cf += fx_price(g->n[i].op);
+			ops++;
+		}
+	slo = shi = (double)logk;
+	for (j = 0; j < nf; j++) {
+		struct fiv ra = fx_range(g, f[j].a, dom), ry;
+		double llo, lhi, ylo, yhi, p[4], mn, mx, m;
+		int q;
+		if (ra.empty || ra.nan || isinf(ra.lo) || isinf(ra.hi))
+			return;
+		if (f[j].e) {
+			llo = ra.lo;
+			lhi = ra.hi;
+		} else {
+			if (!tlt(0.0f, ra.lo))
+				return;	/* log2 of 0 or less */
+			llo = log2((double)ra.lo);
+			lhi = log2((double)ra.hi);
+			nlog++;
+		}
+		if (f[j].y >= 0) {
+			ry = fx_range(g, f[j].y, dom);
+			if (ry.empty || ry.nan || isinf(ry.lo) || isinf(ry.hi))
+				return;
+			ylo = ry.lo;
+			yhi = ry.hi;
+		} else
+			ylo = yhi = f[j].neg ? -(double)f[j].yk : f[j].yk;
+		p[0] = ylo * llo;
+		p[1] = ylo * lhi;
+		p[2] = yhi * llo;
+		p[3] = yhi * lhi;
+		mn = mx = p[0];
+		for (q = 1; q < 4; q++) {
+			mn = fmin(mn, p[q]);
+			mx = fmax(mx, p[q]);
+		}
+		slo += mn;
+		shi += mx;
+		m = fmax(fabs(mn), fabs(mx));
+		tall += m;
+		if (!f[j].e)
+			tlog += m;
+	}
+	if (slo < -126 || shi > 126)
+		return;		/* a result outside the normal range */
+	/* the new form: the logs, a term each (the first a multiply unless
+	 * its power is 1; then an fma, or an add when it is 1), the
+	 * constants' log in one add, one exp2 */
+	terms = nf + (logk != 0);
+	cost = nlog * fx_price(FX_LOG2) + fx_price(FX_EXP2);
+	for (j = 0; j < nf; j++) {
+		int unit = f[j].y < 0 && (f[j].yk == 1 || f[j].yk == -1);
+		if (j == 0)
+			cost += unit && !f[j].neg ? 0 : unit ? fx_price(FX_NEG) :
+			    fx_price(FX_MUL);
+		else
+			cost += unit ? fx_price(FX_ADD) : fx_price(FX_FMA);
+	}
+	if (logk != 0)
+		cost += fx_price(FX_ADD);
+	if (cost >= cf)
+		return;
+	r = new_rw(rw, nrw, max, FXR_LOGDOM, node);
+	if (r == NULL)
+		return;
+	r->dep = dep;
+	r->nf = nf;
+	for (j = 0; j < nf; j++) {
+		r->fa[j] = f[j].a;
+		r->fy[j] = f[j].y;
+		r->fe[j] = (unsigned char)f[j].e;
+		r->k[j] = f[j].y >= 0 ? 1 : f[j].neg ? -f[j].yk : f[j].yk;
+	}
+	r->k[FX_MAXF] = (float)logk;
+	r->nk = FX_MAXF + 1;
+	r->cost = cost;
+	r->gain = cf - cost;
+	r->approx = 1;
+	r->exact = r->vulkan = 0;
+	gt = (terms - 1) * U24 / (1 - (terms - 1) * U24);
+	gk = ops * U24 / (1 - ops * U24);
+	D = tlog * (2 * U24 + U24 * U24) + gt * (tall + fabs((double)logk)) *
+	    (1 + 2 * U24) + fabs((double)logk) * U24;
+	relrw = exp2(D) * (1 + U24) - 1;
+	rel = relrw + gk * (1 + relrw);
+	r->rel = rel;
+	r->abserr = rel * exp2(shi);
+	r->ulp = floor(rel * 0x1p24 * (1 + rel));
+	for (j = 0; j < nf; j++)
+		sb_printf(&why, "%s%s", j ? ", " : "", xstr(g, f[j].a));
+	snprintf(r->why, sizeof r->why, "a product of powers as exp2 of a sum "
+	    "of logs");
+	sb_printf(&r->proof, "%s as exp2 of the sum of its %d terms (of %s; "
+	    "%d log2), the sum in [%.4g, %.4g] where it is used\n", xstr(g,
+	    node), terms, sb_str(&why), nlog, slo, shi);
+	sb_printf(&r->proof, "  against the reference (log2, exp2, pow "
+	    "correctly rounded): each log2 L(1 + d1), each term y L (1 + d1)(1 + "
+	    "d2), the sum gamma_%d of its terms' magnitudes (%.4g): the "
+	    "exponent is off by at most %.3g, the result by 2^that (1 + u) - 1 = "
+	    "%.3g relatively\n", terms - 1, tall + fabs((double)logk), D, relrw);
+	sb_printf(&r->proof, "  plus the reference's own rounding of its %d "
+	    "operations (gamma_%d): %.3g relative, %.3g absolute at most (the "
+	    "product reaches 2^%.4g), %g ulp\n", ops, ops, rel, r->abserr, shi,
+	    r->ulp);
+	snprintf(r->fail, sizeof r->fail, "an approximation: `approx ulp N` "
+	    "or a sink takes it");
+	free(why.p);
+}
+
+int
+fx_inner(const struct fxg *g, const struct fxrw *r, unsigned char *in)
+{
+	static struct plinfo P[FX_MAXN];
+	int i;
+
+	memset(in, 0, FX_MAXN);
+	if (r->kind == FXR_LOGDOM) {
+		struct ldfac f[FX_MAXF];
+		ld logk = 0;
+		int bad = 0;
+		ld_collect(g, r->node, 0, f, 0, &logk, in, &bad);
+		for (i = 0; i < FX_MAXN && i < g->nn; i++)
+			if (in[i])
+				return 1;
+		return 0;
+	}
+	if (r->kind != FXR_POLY || strncmp(r->why, "polynomial of degree", 20))
+		return 0;
+	for (i = 0; i <= r->node && i < g->nn; i++)
+		pl_of(g, i, P);
+	return P[r->node].leaf ? 0 : pl_mark(g, P, r->node, P[r->node].x, in);
+}
+
+/* i, a multiply or a divide, is a product's root: nothing that is read
+ * multiplies or divides by it */
+static int
+ld_whole(const struct fxg *g, int i, int nn0, const char *seen)
+{
+	int j;
+
+	for (j = i + 1; j < nn0; j++)
+		if (seen[j] && (g->n[j].op == FX_MUL || g->n[j].op == FX_DIV) &&
+		    (g->n[j].a == i || g->n[j].b == i))
+			return 0;
+	return 1;
 }
 
 /* ---- the search ---- */
@@ -2979,6 +3213,10 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			if (whole)
 				an_fewer(g, reach[i], rw, &nrw, max, i, pl, rdep[i]);
 		}
+		/* a product whose factors include powers, the whole of it */
+		if ((n->op == FX_MUL || n->op == FX_DIV) && ld_whole(g, i, nn0,
+		    seen))
+			an_logdom(g, reach[i], rw, &nrw, max, i, rdep[i]);
 		if (n->op == FX_DIV && is_k(g, n->b, &k) && k != 0 &&
 		    !is_k(g, n->a, NULL)) {
 			float K = (float)(1.0 / (double)k);
