@@ -1,0 +1,37 @@
+# the rounding analysis (error F ~ G) and error-free transformations:
+# 2Sum, Fast2Sum and 2Prod compute the rounding error of a sum or a
+# product exactly.  Taken as exact as a whole, the error of the operation
+# they correct cancels where the result adds the error term back, instead
+# of counting as independent roundings.
+#
+# a sum of products carried as a pair, two 2Prod and a 2Sum (Ogita, Rump
+# and Oishi's Dot2 for two terms): 1 u, the last rounding; the naive sum
+# cancels and its analysis says so
+dot2(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = (a*b + c*d) + (((a*b - ((a*b + c*d) - c*d)) + (c*d - ((a*b + c*d) - ((a*b + c*d) - c*d)))) + (fma(a, b, -(a*b)) + fma(c, d, -(c*d))))
+dot(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = f32(f64(a) * f64(b) + f64(c) * f64(d))
+error dot2 ~ dot
+naive(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = a*b + c*d
+error naive ~ dot
+# Fast2Sum, x taken first: x's exponent is at least y's on these ranges
+fast(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y - ((x + y) - x))
+fsum(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + f64(y))
+error fast ~ fsum
+# y can be the larger: where it is, the operations round
+fast4(x: f32 in 1..2, y: f32 in 0..4) = (x + y) + (y - ((x + y) - x))
+fsum4(x: f32 in 1..2, y: f32 in 0..4) = f32(f64(x) + f64(y))
+error fast4 ~ fsum4
+# the same written with y taken first: it fails wherever y < 1
+yfirst(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + ((y - (x + y)) + x)
+error yfirst ~ fsum
+# its inner value used outside it: not taken, every operation rounds
+lone(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y - ((x + y) - x)) + ((x + y) - x)
+lonex(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + 2 * f64(y))
+error lone ~ lonex
+# a wrong sign is no error-free transformation
+wrong(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y + ((x + y) - x))
+wrongx(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + 3 * f64(y))
+error wrong ~ wrongx
+# 2Prod under 2^-102: the product's error need not be representable
+tiny(x: f32 in 1e-17..1e-16, y: f32 in 1e-17..1e-16) = x*y + fma(x, y, -(x*y))
+tinyx(x: f32 in 1e-17..1e-16, y: f32 in 1e-17..1e-16) = f32(f64(x) * f64(y))
+error tiny ~ tinyx

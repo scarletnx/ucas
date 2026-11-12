@@ -61,6 +61,11 @@ struct rounderr {
 	double rms;		/* ... of u sqrt(sum c_i^2 / 3) / |g| */
 	double lambda, conf;	/* conf = 1 - 2 exp(-lambda^2 / 2) */
 	char why[120];		/* not analysed: the operation */
+	int eft[3];		/* error-free transformations taken as exact:
+				 * 2Sum, Fast2Sum, 2Prod */
+	int nexact;		/* their rounded operations, not in nops */
+	uint64_t eftfail;	/* inputs where a precondition failed */
+	char eftwhy[240];	/* the first: which, on what, where */
 };
 /* g: a float function; lambda <= 0: 4 */
 void rounderr_measure(const struct func *g, double lambda,

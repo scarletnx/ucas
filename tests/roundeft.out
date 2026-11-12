@@ -1,0 +1,112 @@
+> dot2(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = (a*b + c*d) + (((a*b - ((a*b + c*d) - c*d)) + (c*d - ((a*b + c*d) - ((a*b + c*d) - c*d)))) + (fma(a, b, -(a*b)) + fma(c, d, -(c*d))))
+> dot(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = f32(f64(a) * f64(b) + f64(c) * f64(d))
+> error dot2 ~ dot
+error of dot2 against dot:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 6 rounded operations, each taken as correctly rounded, and 7 in error-free transformations; relative to the value, the largest over 4096 inputs
+    error-free transformations: 1 2Sum (s + t = a + b, Knuth), 2 2Prod (p + e = a b by an fma while |a b| >= 2^-102); taken as exact, so the errors of the sums and products they correct cancel to first order where the result adds the error terms back; what is left is of order u^2, not in these lines (`dword` derives it)
+    the preconditions hold at every input of the sample (checked, not proved)
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 6 operations of equal weight: gamma_6 = 6 u / (1 - 6 u) = 3.58e-07, gamma~_6(4) = 4 sqrt(6) u = 5.84e-07
+> naive(a: f32 in 1..2, b: f32 in 1..2, c: f32 in -2..-1, d: f32 in 1..2) = a*b + c*d
+> error naive ~ dot
+error of naive against dot:
+  max abs error 2.38419e-07 at a=1.782341, b=1.9809773, c=-1.17812204, d=1.2906363
+  max rel error 0.00175426 (0.175%) at a=1.24896502, b=1.7420696, c=-1.35794115, d=1.60231674
+  mean rel error 5.68959e-07 over 65536 points
+  max 16354 ulp
+  rounding, first order in u = 2^-24: 3 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  0.000862 (1.45e+04 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4.09e+04 u here (it gains from about 16 operations of similar weight on)
+    expected    0.000352 (5.91e+03 u): the root mean square if they are independent and uniform in [-u, u]
+    for 3 operations of equal weight: gamma_3 = 3 u / (1 - 3 u) = 1.79e-07, gamma~_3(4) = 4 sqrt(3) u = 4.13e-07
+> fast(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y - ((x + y) - x))
+> fsum(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + f64(y))
+> error fast ~ fsum
+error of fast against fsum:
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 65536 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded, and 2 in error-free transformations; relative to the value, the largest over 4096 inputs
+    error-free transformations: 1 Fast2Sum (s + t = a + b while a, taken first, has an exponent at least b's, Dekker); taken as exact, so the errors of the sums and products they correct cancel to first order where the result adds the error terms back; what is left is of order u^2, not in these lines (`dword` derives it)
+    the preconditions hold at every input of the sample (checked, not proved)
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> fast4(x: f32 in 1..2, y: f32 in 0..4) = (x + y) + (y - ((x + y) - x))
+> fsum4(x: f32 in 1..2, y: f32 in 0..4) = f32(f64(x) + f64(y))
+> error fast4 ~ fsum4
+error of fast4 against fsum4:
+  max abs error 4.76837e-07 at x=1.65249169, y=3.35374951
+  max rel error 1.18258e-07 (1.18e-05%) at x=1.10558736, y=2.92657495
+  mean rel error 9.51431e-11 over 65536 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded, and 2 in error-free transformations; relative to the value, the largest over 4096 inputs
+    error-free transformations: 1 Fast2Sum (s + t = a + b while a, taken first, has an exponent at least b's, Dekker); taken as exact, so the errors of the sums and products they correct cancel to first order where the result adds the error terms back; what is left is of order u^2, not in these lines (`dword` derives it)
+    a precondition fails at 27 of the 4096 inputs, where those operations count as rounded; the first: Fast2Sum on x + y: the operand taken first has the smaller exponent, at x=2, y=4
+    worst case  1.07e-07 (1.79 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 5.11 u here (it gains from about 16 operations of similar weight on)
+    expected    4.39e-08 (0.737 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> yfirst(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + ((y - (x + y)) + x)
+> error yfirst ~ fsum
+error of yfirst against fsum:
+  max abs error 2.38419e-07 at x=1.85602558, y=0.164646432
+  max rel error 1.19155e-07 (1.19e-05%) at x=1.98842716, y=0.012478482
+  mean rel error 2.52683e-10 over 65536 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded, and 2 in error-free transformations; relative to the value, the largest over 4096 inputs
+    error-free transformations: 1 Fast2Sum (s + t = a + b while a, taken first, has an exponent at least b's, Dekker); taken as exact, so the errors of the sums and products they correct cancel to first order where the result adds the error terms back; what is left is of order u^2, not in these lines (`dword` derives it)
+    a precondition fails at 4095 of the 4096 inputs, where those operations count as rounded; the first: Fast2Sum on x + y: the operand taken first has the smaller exponent, at x=2, y=0.5
+    worst case  1.19e-07 (2 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 5.66 u here (it gains from about 16 operations of similar weight on)
+    expected    4.87e-08 (0.816 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> lone(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y - ((x + y) - x)) + ((x + y) - x)
+> lonex(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + 2 * f64(y))
+> error lone ~ lonex
+error of lone against lonex:
+  max abs error 4.76837e-07 at x=1.96454823, y=0.184466124
+  max rel error 2.28373e-07 (2.28e-05%) at x=1.91464794, y=0.0866630077
+  mean rel error 8.13444e-09 over 65536 points
+  max 2 ulp
+  rounding, first order in u = 2^-24: 5 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  1.79e-07 (3 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 6.93 u here (it gains from about 16 operations of similar weight on)
+    expected    5.96e-08 (1 u): the root mean square if they are independent and uniform in [-u, u]
+    for 5 operations of equal weight: gamma_5 = 5 u / (1 - 5 u) = 2.98e-07, gamma~_5(4) = 4 sqrt(5) u = 5.33e-07
+> wrong(x: f32 in 1..2, y: f32 in 0..0.5) = (x + y) + (y + ((x + y) - x))
+> wrongx(x: f32 in 1..2, y: f32 in 0..0.5) = f32(f64(x) + 3 * f64(y))
+> error wrong ~ wrongx
+error of wrong against wrongx:
+  max abs error 4.76837e-07 at x=1.83384776, y=0.439781785
+  max rel error 2.20366e-07 (2.2e-05%) at x=1.02365065, y=0.0194241405
+  mean rel error 1.08174e-08 over 65536 points
+  max 2 ulp
+  rounding, first order in u = 2^-24: 4 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    worst case  1.79e-07 (3 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 8.94 u here (it gains from about 16 operations of similar weight on)
+    expected    7.69e-08 (1.29 u): the root mean square if they are independent and uniform in [-u, u]
+    for 4 operations of equal weight: gamma_4 = 4 u / (1 - 4 u) = 2.38e-07, gamma~_4(4) = 4 sqrt(4) u = 4.77e-07
+> tiny(x: f32 in 1e-17..1e-16, y: f32 in 1e-17..1e-16) = x*y + fma(x, y, -(x*y))
+> tinyx(x: f32 in 1e-17..1e-16, y: f32 in 1e-17..1e-16) = f32(f64(x) * f64(y))
+> error tiny ~ tinyx
+error of tiny against tinyx:
+  max abs error 4.59177e-41 at x=1.69964622e-17, y=3.9881696e-17
+  max rel error 6.77405e-08 (6.77e-06%) at x=1.69964622e-17, y=3.9881696e-17
+  mean rel error 1.03364e-12 over 65536 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded, and 1 in error-free transformations; relative to the value, the largest over 4096 inputs
+    error-free transformations: 1 2Prod (p + e = a b by an fma while |a b| >= 2^-102); taken as exact, so the errors of the sums and products they correct cancel to first order where the result adds the error terms back; what is left is of order u^2, not in these lines (`dword` derives it)
+    a precondition fails at 4096 of the 4096 inputs, where those operations count as rounded; the first: 2Prod on x*y: the product is below 2^-102 in magnitude, where its error need not be representable, at x=1.00000007e-17, y=1.00000007e-17
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
