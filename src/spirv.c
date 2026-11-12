@@ -7978,6 +7978,29 @@ glanes(char *b, size_t n, int gj, const int *grp, const int *lane_of, int ngr)
 
 /* a polynomial's: the function it stands for, from its why ("exp2 ~
  * degree-2 ..."); the rest by their kind */
+/* a polynomial the shader had, refitted (fsimp.c an_fewer) */
+static int
+is_refit(const struct fxrw *r)
+{
+	return r && r->kind == FXR_POLY && !strncmp(r->why, "polynomial of "
+	    "degree", 20);
+}
+
+/* the component of its vector an input lane is, for a scalar result of
+ * that component's type; -1 when x is not that */
+static int
+refit_comp(const struct fxg *g, int x, int rt)
+{
+	int xs = g->n[x].sid, t;
+
+	if (xs < 0 || g->n[x].op != FX_IN || ncomp(rt) != 1)
+		return -1;
+	t = type_of(xs);
+	if (t < 0 || T(t)->k != S_VEC || scalar_of(t) != rt)
+		return -1;
+	return g->in[g->n[x].in].lane;
+}
+
 static const char *
 rw_kind_text(const struct fxrw *r)
 {
@@ -7986,6 +8009,8 @@ rw_kind_text(const struct fxrw *r)
 
 	if (r == NULL || r->kind != FXR_POLY)
 		return NULL;
+	if (is_refit(r))
+		return "a polynomial with fewer terms";
 	n = strcspn(r->why, " ");
 	snprintf(b, sizeof b, "%.*s as a polynomial", (int)(n < 20 ? n : 20),
 	    r->why);
@@ -8076,7 +8101,7 @@ float_pass(const char *text, int *changed)
 	struct fplan *pl = xcalloc(256, sizeof *pl);
 	int npl = 0, preserve = 0, nroots = 0, napplied = 0;
 	int tmp = 0;	/* names of new ids: %ucas_fN */
-	char **repl, *dead;
+	char **repl, *dead, *inner;
 	struct sbuf decl = {0}, out = {0}, rep = {0}, lanes_txt = {0};
 	double before = 0, after = 0;
 	int nlanes_total = 0;
@@ -8268,6 +8293,25 @@ float_pass(const char *text, int *changed)
 				pl[p].rw[pl[p].ng++] = r;
 		}
 	}
+	/* the instructions inside a polynomial that is refitted as a whole:
+	 * no rewrite of their own */
+	inner = xcalloc((size_t)V.nin, 1);
+	for (i = 0; i < npl; i++) {
+		struct fxrw *r = pl[i].rw[0];
+		unsigned char in[FX_MAXN];
+		int gj, q, all = pl[i].ng > 0;
+		if (!is_refit(r))
+			continue;
+		for (q = 0; q < pl[i].ng; q++)
+			all = all && fx_accept(pl[i].rw[q], &fopt);
+		if (!all)
+			continue;
+		gj = (int)((r - RW) / 48);
+		fx_refit_inner(&G[gj], r->node, in);
+		for (q = 0; q < G[gj].nn && q < FX_MAXN; q++)
+			if (in[q] && q != r->node && G[gj].n[q].ins >= 0)
+				inner[G[gj].n[q].ins] = 1;
+	}
 	/* accepted: every lane group of the instruction allows it, and what
 	 * it depends on is applied; one rewrite per instruction (the most
 	 * gain) */
@@ -8287,12 +8331,24 @@ float_pass(const char *text, int *changed)
 								groups++;
 								break;
 							}
-				if (P->ng < groups)
+				if (P->ng < groups || inner[P->k])
 					ok = 0;
 				for (q = 0; q < P->ng && ok; q++) {
 					struct fxrw *r = P->rw[q];
 					if (!fx_accept(r, &fopt))
 						ok = 0;
+					if (ok && is_refit(r)) {
+						int gj = (int)((r - RW) / 48);
+						int xs = G[gj].n[r->x].sid;
+						if (xs < 0 || (type_of(xs) != rt &&
+						    refit_comp(&G[gj], r->x, rt) < 0)) {
+							snprintf(r->sinkfail, sizeof r->sinkfail, "not "
+							    "written: its variable %s is not a value of "
+							    "the result's type", xs >= 0 ? V.id[xs].tok :
+							    "(none)");
+							ok = 0;
+						}
+					}
 					if (r->dep >= 0) {
 						/* the select it relies on, in the same group */
 						struct fxrw *d = NULL;
@@ -8427,19 +8483,40 @@ float_pass(const char *text, int *changed)
 			break;
 		case FXR_POLY: {
 			int d = P->deg, e;
-			char prev[48];
+			char prev[48], tv[48], xb[48];
+			const char *xv = I->opnd[3];
 			tmp++;
-			sb_printf(&s, "%%ucas_f%dt = OpFSub %s %s %s\n", tmp, RT,
-			    I->opnd[3], fconst(&decl, rt, lv[0], n));
+			if (is_refit(P->rw[0])) {
+				const struct fxg *gg = &G[(int)((P->rw[0] - RW) / 48)];
+				int xs = gg->n[P->rw[0]->x].sid;
+				xv = V.id[xs].tok;
+				if (type_of(xs) != rt) {
+					/* a component of a vector input */
+					sb_printf(&s, "%%ucas_f%dx = OpCompositeExtract %s %s "
+					    "%d\n", tmp, RT, xv, refit_comp(gg,
+					    P->rw[0]->x, rt));
+					snprintf(xb, sizeof xb, "%%ucas_f%dx", tmp);
+					xv = xb;
+				}
+			}
+			snprintf(tv, sizeof tv, "%%ucas_f%dt", tmp);
+			if (is_refit(P->rw[0]) && lv[0][0] == 0 && (n < 2 ||
+			    lv[0][1] == 0) && (n < 3 || lv[0][2] == 0) && (n < 4 ||
+			    lv[0][3] == 0))
+				/* centred at 0: t is x itself */
+				snprintf(tv, sizeof tv, "%s", xv);
+			else
+				sb_printf(&s, "%s = OpFSub %s %s %s\n", tv, RT, xv,
+				    fconst(&decl, rt, lv[0], n));
 			snprintf(prev, sizeof prev, "%s", fconst(&decl, rt, lv[1], n));
 			for (e = 1; e <= d; e++) {
 				const char *ce = fconst(&decl, rt, lv[1 + e], n);
 				if (e == d)
-					sb_printf(&s, "%s = OpExtInst %s %s Fma %s %%ucas_f%dt "
-					    "%s\n", R, RT, GL, prev, tmp, ce);
+					sb_printf(&s, "%s = OpExtInst %s %s Fma %s %s %s\n", R, RT,
+					    GL, prev, tv, ce);
 				else {
-					sb_printf(&s, "%%ucas_f%dh%d = OpExtInst %s %s Fma %s "
-					    "%%ucas_f%dt %s\n", tmp, e, RT, GL, prev, tmp, ce);
+					sb_printf(&s, "%%ucas_f%dh%d = OpExtInst %s %s Fma %s %s "
+					    "%s\n", tmp, e, RT, GL, prev, tv, ce);
 					snprintf(prev, sizeof prev, "%%ucas_f%dh%d", tmp, e);
 				}
 			}
@@ -8845,7 +8922,9 @@ float_pass(const char *text, int *changed)
 					    "within the original's precision");
 				for (c = 0; c < pl[i].ng; c++)
 					if (pl[i].rw[c]->sinkfail[0]) {
-						sb_printf(&rep, "      the sink refuses it: %s\n",
+						sb_printf(&rep, "      %s%s\n", strncmp(pl[i].rw[c]->
+						    sinkfail, "not written", 11) ? "the sink refuses "
+						    "it: " : "",
 						    pl[i].rw[c]->sinkfail);
 						break;
 					}
@@ -8881,6 +8960,11 @@ float_pass(const char *text, int *changed)
 					r = pl[i].rw[0];
 				sb_printf(&rep, "    %s   (%s)\n", V.in[pl[i].k].text,
 				    kind_text(pl[i].kind));
+				if (inner[pl[i].k]) {
+					sb_printf(&rep, "        inside a polynomial that is "
+					    "refitted as a whole\n");
+					continue;
+				}
 				if (pl[i].ng > 1) {
 					char lb[16];
 					glanes(lb, sizeof lb, (int)((r - RW) / 48), grp, lane_of,
@@ -8940,6 +9024,7 @@ float_pass(const char *text, int *changed)
 		free(repl[k]);
 	free(repl);
 	free(dead);
+	free(inner);
 	free(decl.p);
 	free(rep.p);
 	free(lanes_txt.p);

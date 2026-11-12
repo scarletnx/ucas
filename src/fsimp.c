@@ -2181,6 +2181,337 @@ an_poly(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 
 #undef P
 
+/* ---- a polynomial already in the graph, refitted to fewer terms ---- */
+
+#define PL_MAXD 12
+
+struct plinfo {
+	int ok, x, deg;		/* a polynomial of degree deg in node x */
+	int leaf;		/* the variable itself: x (an input's every
+				 * load is one variable) */
+	ld c[PL_MAXD + 1];	/* its exact coefficients, of x^0 first */
+};
+
+/* node i as a polynomial in one node that is not one (its x): adds,
+ * subtracts, multiplies, fmas and negations of it and of constants */
+static void
+pl_of(const struct fxg *g, int i, struct plinfo *P)
+{
+	const struct fxn *n = &g->n[i];
+	struct plinfo *A = n->a >= 0 ? &P[n->a] : NULL, *B = n->b >= 0 ?
+	    &P[n->b] : NULL, *C = n->c >= 0 ? &P[n->c] : NULL;
+	struct plinfo *r = &P[i];
+	int j, k, x = -1;
+
+	memset(r, 0, sizeof *r);
+	r->x = -1;
+	if (n->op == FX_K) {
+		r->ok = 1;
+		r->c[0] = n->k;
+		return;
+	}
+	if (n->op == FX_ADD || n->op == FX_SUB || n->op == FX_MUL ||
+	    n->op == FX_FMA || n->op == FX_NEG) {
+		struct plinfo *o[3] = {A, B, C};
+		int no = n->op == FX_NEG ? 1 : n->op == FX_FMA ? 3 : 2, good = 1;
+		for (j = 0; j < no; j++) {
+			if (o[j] == NULL || !o[j]->ok)
+				good = 0;
+			else if (o[j]->x >= 0) {
+				if (x >= 0 && x != o[j]->x)
+					good = 0;
+				x = o[j]->x;
+			}
+		}
+		if (good) {
+			ld t[2 * PL_MAXD + 2] = {0};
+			int dt = 0;
+			if (n->op == FX_NEG) {
+				for (j = 0; j <= A->deg; j++)
+					t[j] = -A->c[j];
+				dt = A->deg;
+			} else if (n->op == FX_ADD || n->op == FX_SUB) {
+				dt = A->deg > B->deg ? A->deg : B->deg;
+				for (j = 0; j <= dt; j++)
+					t[j] = (j <= A->deg ? A->c[j] : 0) + (n->op == FX_SUB ?
+					    -1 : 1) * (j <= B->deg ? B->c[j] : 0);
+			} else {
+				dt = A->deg + B->deg;
+				for (j = 0; j <= A->deg; j++)
+					for (k = 0; k <= B->deg; k++)
+						t[j + k] += A->c[j] * B->c[k];
+				if (n->op == FX_FMA) {
+					if (C->deg > dt)
+						dt = C->deg;
+					for (j = 0; j <= C->deg; j++)
+						t[j] += C->c[j];
+				}
+			}
+			if (dt <= PL_MAXD) {
+				r->ok = 1;
+				r->x = x;
+				r->deg = dt;
+				for (j = 0; j <= dt; j++)
+					r->c[j] = t[j];
+				return;
+			}
+		}
+	}
+	/* anything else is a variable for the nodes above it; the loads of
+	 * one input are one variable */
+	r->ok = r->leaf = 1;
+	r->x = i;
+	if (n->op == FX_IN || n->op == FX_CVT)
+		for (j = 0; j < i; j++)
+			if (g->n[j].op == n->op && g->n[j].in == n->in) {
+				r->x = j;
+				break;
+			}
+	r->deg = 1;
+	r->c[1] = 1;
+}
+
+/* the polynomial's own operations under root (in x), marked in in[] */
+static int
+pl_mark(const struct fxg *g, const struct plinfo *P, int i, int x,
+    uint8_t *in)
+{
+	const struct fxn *n = &g->n[i];
+	int k = 0;
+
+	if (i < 0 || P[i].leaf || in[i] || n->op == FX_K)
+		return 0;
+	in[i] = 1;
+	k = 1;
+	k += pl_mark(g, P, n->a, x, in);
+	if (n->op != FX_NEG)
+		k += pl_mark(g, P, n->b, x, in);
+	if (n->op == FX_FMA)
+		k += pl_mark(g, P, n->c, x, in);
+	return k;
+}
+
+/* the largest magnitude the polynomial's operations reach with |x| <= X,
+ * each operand by its own (the sum of products the rounding acts on) */
+static double
+pl_mag(const struct fxg *g, const struct plinfo *P, int i, double X)
+{
+	const struct fxn *n = &g->n[i];
+
+	if (P[i].leaf)
+		return X;
+	switch (n->op) {
+	case FX_K: return fabs(n->k);
+	case FX_NEG: return pl_mag(g, P, n->a, X);
+	case FX_ADD: case FX_SUB:
+		return pl_mag(g, P, n->a, X) + pl_mag(g, P, n->b, X);
+	case FX_MUL: return pl_mag(g, P, n->a, X) * pl_mag(g, P, n->b, X);
+	case FX_FMA:
+		return pl_mag(g, P, n->a, X) * pl_mag(g, P, n->b, X) +
+		    pl_mag(g, P, n->c, X);
+	}
+	return X;
+}
+
+struct plctx {
+	const ld *b;
+	int n;
+};
+
+static ld
+plfn(void *ctx, ld x)
+{
+	const struct plctx *p = ctx;
+	ld v = 0;
+	int i;
+
+	for (i = p->n; i >= 0; i--)
+		v = v * x + p->b[i];
+	return v;
+}
+
+/*
+ * The certified absolute error of Q(x - c) (f32 coefficients a[0..m],
+ * Horner with fma) against the polynomial B (exact coefficients b[0..n]
+ * in x) on [xa, xb], on 4096 even pieces, its rounding included.
+ */
+static void
+pl_cert(const ld *b, int nb, float xa, float xb, float c, const float *a,
+    int m, double *real, double *total, double *worst_x, double *minabs)
+{
+	const int NP = 4096;
+	int p, i;
+	double step = ((double)xb - xa) / NP, l = xa;
+	double gam = 2 * m * U24 / (1 - 2 * m * U24);
+
+	*real = *total = 0;
+	*worst_x = xa;
+	*minabs = INFINITY;
+	for (p = 0; p < NP; p++) {
+		double r = p == NP - 1 ? xb : xa + (p + 1) * step;
+		double h = r - l, T = fmax(fabs(l - c), fabs(r - c));
+		double X = fmax(fabs(l), fabs(r)), S = 0, S1 = 0, M2 = 0, e, rt, tot;
+		double B2 = 0, lowb;
+		ld mid = ((ld)l + r) / 2, t = mid - c, qv = 0, qd = 0, bv = 0, bd = 0;
+		for (i = m; i >= 0; i--) {
+			qd = qd * t + qv;
+			qv = qv * t + a[i];
+		}
+		for (i = nb; i >= 0; i--) {
+			bd = bd * mid + bv;
+			bv = bv * mid + b[i];
+		}
+		for (i = 0; i <= m; i++) {
+			S += fabs(a[i]) * pow(T, i);
+			if (i >= 1)
+				S1 += i * fabs(a[i]) * pow(T, i - 1);
+			if (i >= 2)
+				M2 += i * (i - 1) * fabs(a[i]) * pow(T, i - 2);
+		}
+		for (i = 2; i <= nb; i++)
+			B2 += i * (i - 1) * fabs((double)b[i]) * pow(X, i - 2);
+		M2 += B2;
+		/* |B| on the piece, from below: its value at the middle less
+		 * what its slope and curvature can take away */
+		lowb = fabs((double)bv) - fabs((double)bd) * h / 2 - B2 * h * h / 8;
+		if (lowb < *minabs)
+			*minabs = lowb > 0 ? lowb : 0;
+		e = fabsl(qv - bv) + fabsl(qd - bd) * h / 2 + M2 * h * h / 8 +
+		    1e-17 * (S + fabs((double)bv));
+		rt = (c == 0 || (c > 0 && l >= c / 2 && r <= 2 * c)) ? 0 :
+		    S1 * U24 * T;
+		tot = (e + gam * S + rt) * (1 + gam);
+		if (e > *real)
+			*real = e;
+		if (tot > *total) {
+			*total = tot;
+			*worst_x = (double)mid;
+		}
+		l = r;
+	}
+}
+
+int
+fx_refit_inner(const struct fxg *g, int node, unsigned char *in)
+{
+	static struct plinfo P[FX_MAXN];
+	int i;
+
+	for (i = 0; i <= node && i < g->nn; i++)
+		pl_of(g, i, P);
+	memset(in, 0, FX_MAXN);
+	return P[node].leaf ? 0 : pl_mark(g, P, node, P[node].x, in);
+}
+
+/*
+ * A polynomial the shader already evaluates (a fitted curve, a Taylor
+ * series), refitted on the range its variable reaches to a lower degree:
+ * an approximation of it, offered for a sink to take.  Its error is the
+ * refit's, certified against the polynomial's exact value, plus the
+ * rounding of the new evaluation and of the original one (gamma_k times
+ * the magnitudes its k operations reach, Higham's bound for a sum of
+ * products).
+ */
+static void
+an_fewer(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
+    int max, int node, const struct plinfo *P, int dep)
+{
+	const struct plinfo *pl = &P[node];
+	int x = pl->x, ops, i, deg;
+	uint8_t in[FX_MAXN] = {0};
+	struct fiv rx = fx_range(g, x, dom);
+	double cf = 0, X, gk, r0;
+	struct plctx pc;
+	struct fitprob pb;
+	struct fitres fr;
+	float c0;
+
+	if (rx.empty || rx.nan || isinf(rx.lo) || isinf(rx.hi) ||
+	    !(rx.lo < rx.hi))
+		return;
+	ops = pl_mark(g, P, node, x, in);
+	/* what goes with it: an operation also read outside it stays */
+	for (i = 0; i < g->nn; i++) {
+		int j, inner = 0;
+		if (!in[i] || i == node)
+			continue;
+		for (j = 0; j < g->nn; j++)
+			if (in[j] && (g->n[j].a == i || g->n[j].b == i ||
+			    g->n[j].c == i))
+				inner++;
+		if (g->n[i].uses > inner)
+			return;
+	}
+	for (i = 0; i < g->nn; i++)
+		if (in[i])
+			cf += fx_price(g->n[i].op);
+	X = fmax(fabs(rx.lo), fabs(rx.hi));
+	gk = ops * U24 / (1 - ops * U24);
+	r0 = gk * pl_mag(g, P, node, X);
+	/* centred at 0 when the range starts near it (no subtract) */
+	c0 = rx.lo >= -(rx.hi - rx.lo) && rx.lo <= (rx.hi - rx.lo) ? 0 :
+	    (float)(((double)rx.lo + rx.hi) / 2);
+	memset(&pb, 0, sizeof pb);
+	pc.b = pl->c;
+	pc.n = pl->deg;
+	pb.f = plfn;
+	pb.fctx = &pc;
+	pb.xa = rx.lo;
+	pb.xb = rx.hi;
+	pb.c = c0;
+	pb.step = 1;
+	pb.method = FM_REMEZ;
+	for (deg = 1; deg < pl->deg; deg++) {
+		double cost = deg * fx_price(FX_FMA) + (c0 != 0 ? fx_price(FX_SUB) :
+		    0), real, tot, wx, fmn;
+		float a[PL_MAXD + 1];
+		struct fxrw *pr;
+		if (cost >= cf)
+			break;
+		pb.nt = deg + 1;
+		if (!fit_run(&pb, &fr))
+			continue;
+		for (i = 0; i <= deg; i++)
+			a[i] = (float)fr.num[i];
+		pl_cert(pl->c, pl->deg, rx.lo, rx.hi, c0, a, deg, &real, &tot, &wx,
+		    &fmn);
+		tot += r0;
+		pr = new_rw(rw, nrw, max, FXR_POLY, node);
+		if (pr == NULL)
+			return;
+		pr->dep = dep;
+		pr->x = x;
+		pr->deg = deg;
+		pr->approx = 1;
+		pr->exact = pr->vulkan = 0;
+		pr->k[0] = c0;
+		for (i = 0; i <= deg && i + 1 < FX_MAXK; i++)
+			pr->k[1 + i] = a[deg - i];
+		pr->nk = deg + 2;
+		pr->cost = cost;
+		pr->gain = cf - cost;
+		pr->abserr = tot;
+		pr->rel = fmn > 0 ? tot / fmn : 0;
+		pr->ulp = fmn > 0 ? floor((pr->rel + U24) * 0x1p24 * (1 + pr->rel)) :
+		    -1;
+		snprintf(pr->why, sizeof pr->why, "polynomial of degree %d ~ "
+		    "degree-%d minimax polynomial", pl->deg, deg);
+		sb_printf(&pr->proof, "the degree-%d polynomial in %s (%d "
+		    "operations) refitted: absolute minimax on [%s, %s] (remez.c), "
+		    "t = x - %s, coefficients rounded to f32, Horner with fma:\n",
+		    pl->deg, xstr(g, x), ops, fs(rx.lo), fs(rx.hi), fs(c0));
+		sb_printf(&pr->proof, "  real error against its exact value, "
+		    "certified on 4096 even pieces: %.3g absolute\n", real);
+		sb_printf(&pr->proof, "  plus the rounding of the new evaluation "
+		    "(gamma_%d times sum |a_i||t|^i) and of the original "
+		    "(gamma_%d times the magnitudes its operations reach, %.3g): "
+		    "%.3g absolute in all, the worst near x = %.4g\n", 2 * deg, ops,
+		    r0, tot, wx);
+		snprintf(pr->fail, sizeof pr->fail, "an approximation of the "
+		    "polynomial: only a sink takes it");
+	}
+}
+
 /* ---- the search ---- */
 
 /* ---- the sink: an error budget at the root, carried to the rewrites ---- */
@@ -2541,6 +2872,7 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 	static struct fiv reach[FX_MAXN][FX_MAXIN];
 	static char seen[FX_MAXN];
 	static int rdep[FX_MAXN];
+	static struct plinfo pl[FX_MAXN];
 	int nrw = 0, i, j, nn0 = g->nn;
 	int selrw[FX_MAXN];
 
@@ -2622,6 +2954,9 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			}
 		}
 	}
+	/* each node as a polynomial in one variable, operands first */
+	for (i = 0; i < nn0; i++)
+		pl_of(g, i, pl);
 	/* 3: the other rewrites, on the domain each node is used on */
 	for (i = root; i >= 0; i--) {
 		const struct fxn *n = &g->n[i];
@@ -2629,6 +2964,21 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		float k, k2;
 		if (!seen[i] || i >= nn0)
 			continue;
+		/* a polynomial of degree 2 or more, the whole of it (no
+		 * operation above it extends it in the same variable) */
+		if ((n->op == FX_ADD || n->op == FX_SUB || n->op == FX_MUL ||
+		    n->op == FX_FMA || n->op == FX_NEG) && pl[i].x >= 0 &&
+		    !pl[i].leaf && pl[i].deg >= 2) {
+			int whole = 1;
+			for (j = i + 1; j < nn0 && whole; j++) {
+				const struct fxn *m = &g->n[j];
+				if (seen[j] && pl[j].x == pl[i].x && !pl[j].leaf &&
+				    (m->a == i || m->b == i || m->c == i))
+					whole = 0;
+			}
+			if (whole)
+				an_fewer(g, reach[i], rw, &nrw, max, i, pl, rdep[i]);
+		}
 		if (n->op == FX_DIV && is_k(g, n->b, &k) && k != 0 &&
 		    !is_k(g, n->a, NULL)) {
 			float K = (float)(1.0 / (double)k);
