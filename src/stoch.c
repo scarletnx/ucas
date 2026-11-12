@@ -45,6 +45,7 @@
 #include "stoch.h"
 #include "nodesat.h"
 #include "fuse.h"
+#include "texenc.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -977,6 +978,23 @@ struct phf {
 	int disp[64];
 };
 
+/* the displacement table under a hash's index */
+static nid
+ph_table_in(nid n)
+{
+	nid t;
+
+	if (N.op[n] == O_TABLE)
+		return n;
+	if (n == 0 || N.op[n] == O_CONST || N.op[n] == O_VAR)
+		return 0;
+	if (N.a[n] && (t = ph_table_in(N.a[n])))
+		return t;
+	if (N.b[n] && (t = ph_table_in(N.b[n])))
+		return t;
+	return 0;
+}
+
 static uint64_t
 wmask64(int w)
 {
@@ -1137,7 +1155,7 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 	struct phk key[PH_MAXKEYS];
 	int64_t raw[PH_MAXKEYS], lo, hi;
 	int nraw = 0, nk = 0, i, j, W, b0, b, covered, found = 0, tried = 0;
-	nid x, n, dflt, best_form = 0, xu;
+	nid x, n, dflt, best_form = 0, xu, best_v = 0, best_k = 0, best_i = 0;
 	ty_t u;
 	struct phf best, h;
 	double cchain, cbest = 0;
@@ -1215,7 +1233,7 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 			if (kind == PH_DISP && b != b0)
 				continue;
 			for (t = 0; t < tries; t++) {
-				nid form, idx, vt[1 << 12], kt[1 << 12];
+				nid form, idx, vt[1 << 12], kt[1 << 12], vtab, ktab;
 				double c;
 				int size = 1 << b, slot;
 				memset(&h, 0, sizeof h);
@@ -1261,16 +1279,21 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 					}
 				}
 				idx = ph_node(&h, xu);
-				form = mk_index(mk_table(vt, (uint32_t)size), idx);
+				vtab = mk_table(vt, (uint32_t)size);
+				ktab = mk_table(kt, (uint32_t)size);
+				form = mk_index(vtab, idx);
 				if (!covered)
-					form = mk_sel(mk_bin(O_EQ, mk_index(mk_table(kt,
-					    (uint32_t)size), idx), x), form, dflt);
+					form = mk_sel(mk_bin(O_EQ, mk_index(ktab, idx), x),
+					    form, dflt);
 				c = dag_cost(m, form);
 				if (!found || c < cbest - 1e-9) {
 					found = 1;
 					cbest = c;
 					best = h;
 					best_form = form;
+					best_v = vtab;
+					best_k = ktab;
+					best_i = idx;
 				}
 				/* the first of a kind is its cheapest shape */
 				break;
@@ -1331,6 +1354,12 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 		free(w.p);
 		free(how.p);
 	}
+	/* the tables as BC4, where that holds them exactly */
+	texenc_note(best_v, 0, "values", "     ");
+	if (!covered)
+		texenc_note(best_k, 0, "keys", "     ");
+	if (best.kind == PH_DISP)
+		texenc_note(ph_table_in(best_i), 0, "displacements", "     ");
 	{
 		struct func copy = *f, *g;
 		char nm[96];

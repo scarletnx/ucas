@@ -28,6 +28,15 @@ struct texenc {
 };
 int texenc_bc4(nid tab, int W, struct texenc *e);
 void texenc_free(struct texenc *e);
+/*
+ * A table ucas emits (find's, phash's) searched for a lossless BC4
+ * layout: rows of natw (a width the table has, 0: none) and of 4, 8, ...
+ * up to its size, the exact one with the fewest bytes (fewer than the
+ * table's own) into *W and *bytes; 0 when there is none.
+ */
+int texenc_lossless(nid tab, int natw, int *W, int *bytes);
+/* its line in a report: under ind, the entries named by what */
+void texenc_note(nid tab, int natw, const char *what, const char *ind);
 
 struct P;
 int texenc_command(struct P *p);		/* parse.c */

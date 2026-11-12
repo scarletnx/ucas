@@ -348,6 +348,55 @@ cmd_texenc5(const struct func *f, const struct func *g, int W, double tol,
 	texenc_free(&e[1]);
 }
 
+int
+texenc_lossless(nid tab, int natw, int *W, int *bytes)
+{
+	struct texenc e;
+	int w, n, k, best = 0, stored;
+
+	if (N.op[tab] != O_TABLE || N.b[tab] < 2)
+		return 0;
+	n = (int)N.b[tab];
+	stored = n * ((TYW(N.ty[N.lst[N.a[tab]]]) + 7) / 8);
+	for (k = -1, w = natw; k <= 12; w = 4 << ++k) {
+		if (w < 1 || w > 4096 || (k >= 0 && w > 4 && w / 2 >= n) ||
+		    (k >= 0 && w == natw))
+			continue;
+		if (!texenc_bc4(tab, w, &e))
+			return 0;	/* not numbers BC4 holds */
+		if (e.err == 0 && e.bw * e.bh * 8 < stored && (!best ||
+		    e.bw * e.bh * 8 < *bytes)) {
+			best = 1;
+			*W = w;
+			*bytes = e.bw * e.bh * 8;
+		}
+		texenc_free(&e);
+	}
+	return best;
+}
+
+void
+texenc_note(nid tab, int natw, const char *what, const char *ind)
+{
+	int W, bytes, n;
+	ty_t t;
+
+	if (!texenc_lossless(tab, natw, &W, &bytes))
+		return;
+	n = (int)N.b[tab];
+	t = N.ty[N.lst[N.a[tab]]];
+	printf("%sthe %s are exact as BC4_UNORM blocks, rows of %d: %d bytes "
+	    "against %d as %s (texenc; a read returns k/255; a compressed "
+	    "read has no price of its own, so what is priced stays as it is)\n",
+	    ind, what, W, bytes, n * ((TYW(t) + 7) / 8), ty_str(t));
+	rep_obj("bc4");
+	rep_str("entries", what);
+	rep_int("width", W);
+	rep_int("bytes", bytes);
+	rep_int("bytes_as_stored", (long long)n * ((TYW(t) + 7) / 8));
+	rep_end();
+}
+
 static void
 cmd_texenc(const struct func *f, int W, double tol, int has_tol)
 {
