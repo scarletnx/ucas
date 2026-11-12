@@ -191,6 +191,10 @@ cost of tri under gt1030: 12653.5 (worst case; 1 operation outside loops and 1 l
     trip count: at most 1000, average 260.2 over all 4004 points
     once: 0 (initial values and loop-invariant subterms, hoisted)
     loop total: 12625 worst case, 3284.74 on average
+    in a warp of 32 lanes (independent draws from the domain, all 4004 points): it runs until its last lane leaves, 880.2 iterations on average, and its lanes leave at different counts with probability 1
+      exit per lane: 0 + 880.2 x 12.625 + 1 x 14.375 diverge (the lanes that left keep up) = 11126.3
+      exit on a vote: 0 + 880.2 x (12.625 + 0 sg_vote + 1 x 1.625 select) = 12542.2  (while sg_any(i <= int(n/k)), a select keeping s where it fails)
+      -> exit per lane
 > lg(n: int in 1..1000) = { x = n; k = 0; while x > 1 { x = x / 2; k += 1 }; k }
 > cost lg
 cost of lg under gt1030: 149.625 (worst case; 0 operations outside loops and 1 loop, shared subterms counted once)
@@ -204,6 +208,10 @@ cost of lg under gt1030: 149.625 (worst case; 0 operations outside loops and 1 l
     trip count: at most 9, average 7.987, measured by running it on all 1000 points
     once: 0 (initial values and loop-invariant subterms, hoisted)
     loop total: 149.625 worst case, 132.784 on average
+    in a warp of 32 lanes (independent draws from the domain, all 1000 points): it runs until its last lane leaves, 9 iterations on average, and its lanes leave at different counts with probability 1
+      exit per lane: 0 + 9 x 16.625 + 1 x 14.375 diverge (the lanes that left keep up) = 164
+      exit on a vote: 0 + 9 x (16.625 + 0 sg_vote + 2 x 1.625 select) = 178.875  (while sg_any(x > 1), a select keeping x and k where it fails)
+      -> exit per lane
 > t64(t: int in 0..260100, dd: int in 1..260100) = (t*64 + dd/2)/dd where t <= dd
 > range t64
 range of t64 -> int:

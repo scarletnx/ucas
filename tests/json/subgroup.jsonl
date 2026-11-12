@@ -5,3 +5,4 @@
 {"id": 5, "cmd": "find", "args": {"f": {"body": "sg_scan((x >> lane) & 1)", "params": [{"name": "x", "type": "u8", "uniform": true}, {"name": "lane", "type": "u32", "range": [0, 7]}]}, "n": 1}}
 {"id": 6, "cmd": "range", "args": {"f": {"body": "sg_ballot(x > lane)", "params": [{"name": "x", "type": "u32", "range": [0, 40], "uniform": true}]}}}
 {"id": 7, "cmd": "spirv_simplify", "args": {"code": "#version 450\n#extension GL_KHR_shader_subgroup_arithmetic : require\nlayout(local_size_x = 32) in;\nlayout(std430, binding = 0) buffer B { uint d[64]; } b;\nvoid main() {\n  uint i = gl_GlobalInvocationID.x;\n  uint x = b.d[i];\n  b.d[i] = subgroupExclusiveAdd(x > 5u ? 1u : 0u) + subgroupAdd(x & 1u);\n}\n", "nofile": true, "model": "gt1030", "functions": false}}
+{"id": 8, "cmd": "cost", "args": {"f": {"body": "{ x = c; while x != 0 { x = x & (x - 1) }; x }", "params": [{"name": "c", "type": "u32", "range": [0, 15]}]}}}
