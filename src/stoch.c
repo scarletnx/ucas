@@ -695,6 +695,168 @@ diverge_stats(const struct func *f, nid cond, int warp, double *p,
 	return 1;
 }
 
+struct wtrip {
+	uint32_t loc[2];
+	int counted;            /* loc[0] is the count, else lo and hi */
+	double *t;              /* independent lanes: every count measured */
+	uint64_t n, cap, nw, nsplit;
+	double summax;
+};
+
+/* the trip count in lane k; 0 when it is undefined there */
+static int
+lane_trips(const struct wtrip *s, const struct plan *pl, uint32_t k,
+    double *t)
+{
+	if (s->counted) {
+		if (COLF(pl, s->loc[0])[k] & F_UNDEF)
+			return 0;
+		*t = (double)COLI(pl, s->loc[0])[k];
+	} else {
+		if ((COLF(pl, s->loc[0])[k] | COLF(pl, s->loc[1])[k]) & F_UNDEF)
+			return 0;
+		*t = (double)COLI(pl, s->loc[1])[k] -
+		    (double)COLI(pl, s->loc[0])[k] + 1;
+	}
+	if (*t < 0)
+		*t = 0;
+	return 1;
+}
+
+/* a warp of a loop: the most trips of its lanes, and whether they differ */
+static void
+trip_warp(void *ctx, const struct plan *pl, const uint8_t *ok, uint32_t np)
+{
+	struct wtrip *s = ctx;
+	double t, mx = 0, first = -1;
+	uint32_t k;
+	int split = 0;
+
+	for (k = 0; k < np; k++)
+		if (ok[k] && lane_trips(s, pl, k, &t)) {
+			if (first < 0)
+				first = t;
+			split |= t != first;
+			if (t > mx)
+				mx = t;
+		}
+	if (first < 0)
+		return;
+	s->nw++;
+	s->nsplit += split;
+	s->summax += mx;
+}
+
+static int
+cmp_dbl(const void *a, const void *b)
+{
+	double x = *(const double *)a, y = *(const double *)b;
+
+	return x < y ? -1 : x > y;
+}
+
+int
+warp_trips(const struct func *f, nid trips, nid lo, nid hi, int warp,
+    double *emax, double *split, int *exact, uint64_t *points)
+{
+	struct func g = *f;
+	struct plan pl;
+	struct wtrip s = {0};
+	nid roots[3];
+	uint8_t used[MAXP] = {0}, *mark;
+	int nr = 0, lane = dv_cons;
+	uint32_t wloc;
+
+	*exact = 0;
+	*points = 0;
+	if (warp < 2 || warp > CH)
+		return 0;
+	s.counted = trips != 0;
+	if (s.counted)
+		roots[nr++] = trips;
+	else {
+		roots[nr++] = lo;
+		roots[nr++] = hi;
+	}
+	roots[nr++] = f->where;
+	plan_build(&pl, roots, nr, 0);
+	s.loc[0] = plan_loc(&pl, roots[0]);
+	s.loc[1] = s.counted ? s.loc[0] : plan_loc(&pl, roots[1]);
+	wloc = f->where ? plan_loc(&pl, f->where) : NOTOK;
+	if (lane >= 0) {
+		mark = xcalloc(N.n, 1);
+		used_params(roots[0], used, mark);
+		if (!s.counted)
+			used_params(roots[1], used, mark);
+		used_params(f->where, used, mark);
+		free(mark);
+		if (!hold_unused(&g, used, lane))
+			lane = -1;
+	}
+	if (lane >= 0) {
+		warp_walk(&g, &pl, wloc, lane, warp, trip_warp, &s, exact);
+		plan_free(&pl);
+		if (s.nw == 0)
+			return 0;
+		*emax = s.summax / (double)s.nw;
+		*split = (double)s.nsplit / (double)s.nw;
+		*points = s.nw;
+		return 2;
+	}
+	{
+		/* independent lanes: every count over the domain, sorted; a warp
+		 * takes the most of `warp` draws, so its count is at most t with
+		 * probability F(t)^warp, and its lanes agree with probability
+		 * sum_t P(t)^warp */
+		struct diter d;
+		int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+		double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+		uint8_t ok[CH];
+		uint32_t np, k;
+		uint64_t i, j;
+		double t, fb = 0, agree = 0;
+
+		diter_init(&d, f, 1u << 16, 2, 4096);
+		*exact = d.exhaustive;
+		while ((np = diter_next(&d, in_i, in_r)) != 0) {
+			plan_run(&pl, np, in_i, in_r);
+			valid_mask(&pl, wloc, np, ok);
+			for (k = 0; k < np; k++)
+				if (ok[k] && lane_trips(&s, &pl, k, &t)) {
+					if (s.n == s.cap) {
+						s.cap = s.cap ? 2 * s.cap : 1024;
+						s.t = xrealloc(s.t, s.cap *
+						    sizeof *s.t);
+					}
+					s.t[s.n++] = t;
+				}
+		}
+		plan_free(&pl);
+		free(in_i);
+		free(in_r);
+		if (s.n == 0) {
+			free(s.t);
+			return 0;
+		}
+		qsort(s.t, s.n, sizeof *s.t, cmp_dbl);
+		*emax = 0;
+		for (i = 0; i < s.n; i = j) {
+			double pt, fa;
+			for (j = i; j < s.n && s.t[j] == s.t[i]; j++)
+				;
+			pt = (double)(j - i) / (double)s.n;
+			fa = (double)j / (double)s.n;
+			*emax += s.t[i] * (ipow(fa, warp) - ipow(fb, warp));
+			agree += ipow(pt, warp);
+			fb = fa;
+		}
+		*split = 1 - agree;
+		*points = s.n;
+		free(s.t);
+		return 1;
+	}
+}
+
 /* ---- phash ---- */
 
 #define PH_MAXKEYS 256
