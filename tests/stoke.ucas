@@ -21,6 +21,18 @@ stoke m9 seed 7
 # one instruction; one chain from m9 itself reaches x + 8x (priced
 # instruction by instruction no chain of seeds 1 to 12 did)
 stoke m9 steps 100000 restarts 1 seed 11
+# what f has joins the set: compares and a select (a multiply by the low
+# bit beats them here), a load from its table (a shift beats it), the dot
+# forms the model prices where a value is 32 bits wide (one udot4x8 adds
+# four bytes), zext and sext between its widths
+sl(x: u32, y: u32) = (x & 1) != 0 ? y : 0
+stoke sl steps 60000 restarts 2
+lk(x: u8) = u8([1, 2, 4, 8, 16, 32, 64, 128][x & 7])
+stoke lk steps 60000 restarts 2 seed 6
+bs(x: u32) = (x & 255) + (x >> 8 & 255) + (x >> 16 & 255) + (x >> 24)
+stoke bs steps 50000 restarts 2
+z(x: u8) = u32(x) & 255
+stoke z steps 50000 restarts 2
 # find, then the search
 find xr 2 stoke
 # Schwartz-Zippel: polynomials compared at random points mod 2^61 - 1

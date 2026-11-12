@@ -2926,9 +2926,16 @@ is verified or labelled; nothing sampled is called a proof.
 **stoke.**  `stoke F` is Markov-chain Monte Carlo over straight-line
 programs, after STOKE (Schkufza, Sharma, Aiken 2013).  A program is up
 to `len` (8) instructions from add sub mul and or xor shl shr not neg
-on the inputs, earlier results and constants.  A proposal changes an
-opcode, an operand, a constant, a whole instruction (or removes it), or
-swaps two; it is accepted by Metropolis-Hastings on
+on the inputs, earlier results and constants.  What F has joins the
+set: its compares, selects or signed shifts bring ltu lts eq, sel and
+sar; its widths, each a width an instruction can take (its operands
+read at that width, zero-extended or cut), bring zext and sext; each of
+its tables of integer constants a load; a value 32 bits wide the dot
+forms the model prices (and 0x01010101 among the constants).  F as
+written lowers to such a program, and without any of them the search
+is the one it always was, draw for draw.  A proposal changes an
+opcode or a width, an operand, a constant, a whole instruction (or
+removes it), or swaps two; it is accepted by Metropolis-Hastings on
 
     cost = Hamming distance to F on the test inputs + the price under the model
 
