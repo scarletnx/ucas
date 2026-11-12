@@ -155,3 +155,17 @@ none(x: i32 in 0..15, y: i32 in 0..15) = x > 20
 rop none
 model rz : gt1030 { rop_raster: 1 }
 rop tri model rz
+
+# 4 or 8 values of one type, none the cell, are a pixel's samples: the
+# depth and stencil resolve modes pick one (SAMPLE_ZERO, MIN, MAX); the
+# mean of a colour resolve is the implementation's arithmetic
+dmin(a: f32 in 0..1, b: f32 in 0..1, c: f32 in 0..1, e: f32 in 0..1) = min(min(a, b), min(c, e))
+rop dmin
+smax(a: u8, b: u8, c: u8, e: u8) = max(a, max(b, max(c, e)))
+rop smax
+z8(a: u32 in 0..1000, b: u32 in 0..1000, c: u32 in 0..1000, e: u32 in 0..1000, g: u32 in 0..1000, h: u32 in 0..1000, i: u32 in 0..1000, j: u32 in 0..1000) = a
+rop z8
+big4(a: u32, b: u32, c: u32, e: u32) = min(min(a, b), min(c, e))
+rop big4
+mean(a: f32, b: f32, c: f32, e: f32) = (a + b + c + e) / 4.0
+rop mean
