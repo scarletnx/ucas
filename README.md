@@ -2469,10 +2469,15 @@ h)`, which restarts at the lanes where h holds (the heads): in lane l
 the sum of v over the lanes from the last head at or below l (lane 0
 when none is) to l, written `sg_scan(v) - sg_shuffle(sg_exclusive(v),
 s)` with s the highest set bit, at or below l, of the heads' ballot
-with lane 0's bit added.  GLSL's names are read as well
-(`subgroupBallot` ... `subgroupRotate`).  Sums are of integers: the
-order of a float sum is the implementation's, so it has no exact value
-and is refused.
+with lane 0's bit added, and `sg_sort(v)`, in lane l the l-th smallest
+of v over the lanes (integers, W a power of two), written as Batcher's
+bitonic network: for k = 2, 4 ... W and then j = k/2 ... 1, a lane and
+lane xor j compare and exchange, the lane keeping the smaller when
+`(lane & j) == 0` and `(lane & k) == 0` agree; m(m + 1)/2 steps of a
+shuffle, a min and a max for W = 2^m (3 for 4 lanes, 15 for 32).
+GLSL's names are read as well (`subgroupBallot` ... `subgroupRotate`).
+Sums are of integers: the order of a float sum is the implementation's,
+so it has no exact value and is refused.
 
 In an operand that is a value per lane, `lane` is the lane's index and
 everything else is shared by the lanes, so the lanes' inputs are
@@ -2566,6 +2571,21 @@ under; the whole is then checked against the function on its domain
   entry per lane as above: five reads of `(x*x + 3) % 11`, x in 0..15,
   86.5 -> 30.875 under gt1030.  The dearest such function is tried, and
   kept only when the register makes the whole cheaper.
+- An order statistic of a value per lane v, however it is written (a
+  loop over the lanes counting with ballots, a chain of selections):
+  the least, a median, the greatest or any k-th smallest, or v sorted
+  ascending or descending along the lanes (the top k in the first k
+  lanes).  It is told by evaluating the function beside the lanes'
+  values sorted, at the domain's points (all of them when there are at
+  most 1024, a sample otherwise), and written as `sg_sort`'s network,
+  read in the lane itself or by one shuffle: a median of 4 nibbles
+  counted with ballots, 133.5 -> 43 under gt1030, of 32 lanes 1196 ->
+  172.  The network sorts every input: by the 0-1 principle it is
+  enough that it sorts every input of 0s and 1s, and after the stage
+  for k/2 the halves of a block of k lanes are sorted in opposite
+  directions, so such a block is 0^a 1^b 0^c; the stage's merge is run
+  on every one of those, at a block of each direction (27 blocks for 4
+  lanes, 999 for 32).
 
 ```
 > f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)

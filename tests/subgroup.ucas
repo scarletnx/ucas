@@ -179,3 +179,23 @@ equiv seg segref
 find seg 1
 sn(x: u32 uniform, y: u8 uniform, lane: u32 in 0..7) = sg_segscan((x >> (4*lane)) & 15, ((y >> lane) & 1) != 0)
 find sn 1
+# sg_sort: in lane l the l-th smallest of the lanes' values, by Batcher's
+# bitonic network (3 steps for 4 lanes); the nibbles 2, 4, 1, 3 sorted
+s4(x: u16 uniform, lane: u32 in 0..3) = sg_sort((x >> (4*lane)) % 16)
+show s4(0x3142, 0)
+show s4(0x3142, 3)
+s4ref(x: u16 uniform, lane: u32 in 0..3) = { v0 = x % 16; v1 = (x >> 4) % 16; v2 = (x >> 8) % 16; v3 = (x >> 12) % 16; r = 0; for i in 0..3 { vi = i == 0 ? v0 : i == 1 ? v1 : i == 2 ? v2 : v3; lt = (v0 < vi) + (v1 < vi) + (v2 < vi) + (v3 < vi); le = (v0 <= vi) + (v1 <= vi) + (v2 <= vi) + (v3 <= vi); r = lt <= lane && lane < le ? vi : r }; r }
+equiv s4 s4ref
+# a non-power-of-two subgroup has no bitonic network
+s3(x: u16 uniform, lane: u32 in 0..2) = sg_sort((x >> (4*lane)) % 16)
+# an order statistic written as a loop over the lanes, counting with
+# ballots, is the network read where it is needed: a median ...
+md(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { vi = sg_shuffle(v, i); lt = popcount(sg_ballot(v < vi)); le = popcount(sg_ballot(v <= vi)); m = lt <= 1 && 1 < le ? vi : m }; m }
+find md 1
+# ... the lanes sorted descending, the first k lanes the top k ...
+dn(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; r = 0; for i in 0..3 { vi = sg_shuffle(v, i); gt = popcount(sg_ballot(v > vi)); ge = popcount(sg_ballot(v >= vi)); r = gt <= lane && lane < ge ? vi : r }; r }
+find dn 1
+# ... and the greatest: the network read at the top lane costs less than
+# the loop's four trips
+mx(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { m = max(m, sg_shuffle(v, i)) }; m }
+find mx 1

@@ -553,3 +553,59 @@ find sn: 1024 points (sampled; matches verified on the whole domain), computing 
   subgroup forms: derived, but not cheaper under gt1030 (cost 114.625, as written 84.625): a scan as a ladder of shuffles and adds
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> s4(x: u16 uniform, lane: u32 in 0..3) = sg_sort((x >> (4*lane)) % 16)
+> show s4(0x3142, 0)
+_() = 1
+  -> u16
+> show s4(0x3142, 3)
+_() = 4
+  -> u16
+> s4ref(x: u16 uniform, lane: u32 in 0..3) = { v0 = x % 16; v1 = (x >> 4) % 16; v2 = (x >> 8) % 16; v3 = (x >> 12) % 16; r = 0; for i in 0..3 { vi = i == 0 ? v0 : i == 1 ? v1 : i == 2 ? v2 : v3; lt = (v0 < vi) + (v1 < vi) + (v2 < vi) + (v3 < vi); le = (v0 <= vi) + (v1 <= vi) + (v2 <= vi) + (v3 <= vi); r = lt <= lane && lane < le ? vi : r }; r }
+> equiv s4 s4ref
+s4 and s4ref are equal on the domain of s4 (exhaustive)
+> s3(x: u16 uniform, lane: u32 in 0..2) = sg_sort((x >> (4*lane)) % 16)
+subgroup.ucas:190:70: error: sg_sort: the bitonic network needs a power-of-two subgroup, and this one has 3 lanes
+    s3(x: u16 uniform, lane: u32 in 0..2) = sg_sort((x >> (4*lane)) % 16)
+                                                                         ^
+> md(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { vi = sg_shuffle(v, i); lt = popcount(sg_ballot(v < vi)); le = popcount(sg_ballot(v <= vi)); m = lt <= 1 && 1 < le ? vi : m }; m }
+> find md 1
+  note: the result is int: searching in u32
+find md: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..3; m = 0 then popcount(sg_ballot(t1 < vi)) <= 1 && 1 < popcount(sg_ballot(t1 <= vi)) ? int(vi) : m).m where… (47 more characters) priced as 4 iterations x 33.375 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 133.5 as written):
+  cost 43  int(sg_shuffle(t3 ? min(t7, t8) : max(t7, t8), 1)) where t1 = (x >> 4lane) % 16, t2 = sg_shuffle(t1, lane xor 1), t3 = lane & 1 == 0, t4 = lane & 2 == 0, t5 = t3 == t4 ? min(t1, t2) : max(t1, t2), t6 = sg_shuffle(t5, lane xor 2), t7 = t4 ? min(t5, t6) : max(t5, t6), t8 = sg_shuffle(t7, lane xor 1)
+           the order statistic k = 1 (0 the least, 3 the greatest; a median) of (x >> 4lane) % 16 over the 4 lanes, by Batcher's bitonic network: 3 steps of a shuffle by lane xor j, a min and a max, then the lane it needs read by a shuffle
+           the network sorts every input: by the 0-1 principle, as each stage's merge sorts every block 0^a 1^b 0^c its halves make (27 blocks run)
+           holds in a full subgroup (all 4 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..3; m = 0 then popcount(sg_ballot(t1 < vi)) <= 1 && 1 < popcount(sg_ballot(t1 <= vi)) ? int(vi) : m).m where… (47 more characters) priced as 4 iterations x 33.375 (listed under branch)
+> dn(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; r = 0; for i in 0..3 { vi = sg_shuffle(v, i); gt = popcount(sg_ballot(v > vi)); ge = popcount(sg_ballot(v >= vi)); r = gt <= lane && lane < ge ? vi : r }; r }
+> find dn 1
+  note: the result is int: searching in u32
+find dn: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..3; r = 0 then popcount(sg_ballot(t1 > vi)) <= lane && lane < popcount(sg_ballot(t1 >= vi)) ? int(vi) : r).r… (53 more characters) priced as 4 iterations x 33.375 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 133.5 as written):
+  cost 44  int(sg_shuffle(t3 ? min(t7, t8) : max(t7, t8), 3 - lane)) where t1 = (x >> 4lane) % 16, t2 = sg_shuffle(t1, lane xor 1), t3 = lane & 1 == 0, t4 = lane & 2 == 0, t5 = t3 == t4 ? min(t1, t2) : max(t1, t2), t6 = sg_shuffle(t5, lane xor 2), t7 = t4 ? min(t5, t6) : max(t5, t6), t8 = sg_shuffle(t7, lane xor 1)
+           sorted descending along the lanes (the top k in the first k) of (x >> 4lane) % 16 over the 4 lanes, by Batcher's bitonic network: 3 steps of a shuffle by lane xor j, a min and a max, then the lane it needs read by a shuffle
+           the network sorts every input: by the 0-1 principle, as each stage's merge sorts every block 0^a 1^b 0^c its halves make (27 blocks run)
+           holds in a full subgroup (all 4 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..3; r = 0 then popcount(sg_ballot(t1 > vi)) <= lane && lane < popcount(sg_ballot(t1 >= vi)) ? int(vi) : r).r… (53 more characters) priced as 4 iterations x 33.375 (listed under branch)
+> mx(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { m = max(m, sg_shuffle(v, i)) }; m }
+> find mx 1
+  note: the result is int: searching in u32
+find mx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..3; m = 0 then max(m, int(sg_shuffle((x >> 4lane) % 16, i)))).m priced as 4 iterations x 16.25 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 65 as written):
+  cost 43  int(sg_shuffle(t3 ? min(t7, t8) : max(t7, t8), 3)) where t1 = (x >> 4lane) % 16, t2 = sg_shuffle(t1, lane xor 1), t3 = lane & 1 == 0, t4 = lane & 2 == 0, t5 = t3 == t4 ? min(t1, t2) : max(t1, t2), t6 = sg_shuffle(t5, lane xor 2), t7 = t4 ? min(t5, t6) : max(t5, t6), t8 = sg_shuffle(t7, lane xor 1)
+           the greatest of (x >> 4lane) % 16 over the 4 lanes, by Batcher's bitonic network: 3 steps of a shuffle by lane xor j, a min and a max, then the lane it needs read by a shuffle
+           the network sorts every input: by the 0-1 principle, as each stage's merge sorts every block 0^a 1^b 0^c its halves make (27 blocks run)
+           holds in a full subgroup (all 4 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..3; m = 0 then max(m, int(sg_shuffle((x >> 4lane) % 16, i)))).m priced as 4 iterations x 16.25 (listed under branch)
