@@ -460,6 +460,10 @@ nid inst_expand(int op, nid a, nid b, nid c);
 /* find: the instructions the active model has, for the patterns they are */
 void inst_find(const struct func *f);
 
+/* ---- tab.c ---- */
+/* find: a function of at most 16 input bits as one load of a table */
+void tab_find(const struct func *f);
+
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */
 #define F_UW 2     /* the result wrapped as an unsigned value */
