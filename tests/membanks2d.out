@@ -1,0 +1,162 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 73 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 1 -> 2 (+100.0%)
+  counting the strength reductions any driver also does: 2 -> 2 (+0.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array t (256 elements of 4 bytes, laid flat from [16] [16], 2 accesses):
+    a swizzle lays each access's indices flat and takes them apart again: 5 an access, in its price below
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _t_1 = 16(lane/16 % 16) + lane % 16
+    lane parameter lane; conflict degree 1: index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 8 cases enumerated too
+    price 3
+  _t_2 = 16(lane % 16) + lane/16 % 16
+    lane parameter lane; conflict degree 8: every warp and every value of the uniform parameters enumerated: 8 cases
+    price 31
+  -> swizzle every index i of the array: i xor (i >> 5 & 31)
+     applied twice it gives i back (the row i >> 5 is not changed by it), so it is a bijection of [0, 256): every index enumerated
+     _t_1_sw = t1 xor t1 >> 5 & 0x1f where t1 = 16(lane/16 % 16) + lane % 16
+       conflict degree 1 (every warp and every value of the uniform parameters enumerated: 8 cases): price 3 + 8 for the swizzle
+     _t_2_sw = t1 xor t1 >> 5 & 0x1f where t1 = 16(lane % 16) + lane/16 % 16
+       conflict degree 2 (every warp and every value of the uniform parameters enumerated: 8 cases): price 7 + 8 for the swizzle
+     total 26 against 34 (-23.5%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 2 access chains of the array index it through the swizzle
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3614 bytes, checksum dc9069c8)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 76 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 1 -> 2 (+100.0%)
+  counting the strength reductions any driver also does: 2 -> 2 (+0.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array s (256 elements of 4 bytes, 1 access):
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _s_1 = (lane % 8 << 5) + lane/16
+    lane parameter lane; conflict degree 8: every warp and every value of the uniform parameters enumerated: 1 cases
+    price 31
+  -> swizzle every index i of the array: i + (i >> 3)
+     it is strictly increasing (i + 1 lands after i), so no two indices meet; the array grows to 287 elements: every index enumerated
+     _s_1_sw = t1 + (t1 >> 3) where t1 = (lane % 8 << 5) + lane/16
+       conflict degree 1 (every warp and every value of the uniform parameters enumerated: 1 cases): price 3 + 2 for the swizzle
+     total 5 against 31 (-83.9%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 1 access chain of the array index it through the swizzle
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 2947 bytes, checksum 46f1a030)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 110 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 18 -> 18 (+0.0%)
+  counting the strength reductions any driver also does: 19 -> 18 (-5.3%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array sh (1024 elements of 4 bytes, 9 accesses):
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _sh_1 = lane << 5
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_2 = (lane << 5) + 1
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_3 = (lane << 5) + 2
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_4 = (lane << 5) + 3
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_5 = (lane << 5) + 4
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_6 = (lane << 5) + 5
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_7 = (lane << 5) + 6
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_8 = (lane << 5) + 7
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  _sh_9 = (lane << 5) + 8
+    lane parameter lane; conflict degree 32: index = 32 lane + b: two lanes share a bank when 32 divides 32 (l - l'), that is when 1 divides l - l', so 32 gcd(32, 32) / 32 = 32 lanes a bank; all 1 cases enumerated too
+    price 127
+  -> swizzle every index i of the array: i + (i >> 5)
+     it is strictly increasing (i + 1 lands after i), so no two indices meet; the array grows to 1055 elements: every index enumerated
+     _sh_1_sw = (lane << 5) + (lane << 5 >> 5)
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_2_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 1
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_3_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 2
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_4_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 3
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_5_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 4
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_6_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 5
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_7_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 6
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_8_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 7
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     _sh_9_sw = t1 + (t1 >> 5) where t1 = (lane << 5) + 8
+       conflict degree 1 (index = 33 lane + b: two lanes share a bank when 32 divides 33 (l - l'), that is when 32 divides l - l', so 32 gcd(33, 32) / 32 = 1 lane a bank; all 1 cases enumerated too): price 3 + 2 for the swizzle
+     total 45 against 1143 (-96.1%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 9 access chains of the array index it through the swizzle
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4641 bytes, checksum 64120758)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 21.875 -> 21.875 (+0.0%)
+  counting the strength reductions any driver also does: 22.875 -> 21.875 (-4.4%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array a (1536 elements of 4 bytes, laid flat from [32] [48], 2 accesses):
+    a swizzle lays each access's indices flat and takes them apart again: 12 an access, in its price below
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _a_1 = 48lane + v64
+    lane parameter lane; conflict degree 16: index = 48 lane + b: two lanes share a bank when 32 divides 48 (l - l'), that is when 2 divides l - l', so 32 gcd(48, 32) / 32 = 16 lanes a bank; all 48 cases enumerated too
+    price 63
+  _a_2 = 48lane + (lane << 1) % 48
+    lane parameter lane; conflict degree 3: every warp and every value of the uniform parameters enumerated: 1 cases
+    price 11
+  -> swizzle every index i of the array: (i & ~31) | (i + (i >> 5) & 31)
+     subtracting the row from the bank bits gives i back, so it is a bijection of [0, 1536): every index enumerated
+     _a_1_sw = t1 & 0xffffffe0 | t1 + (t1 >> 5) & 0x1f where t1 = 48lane + v64
+       conflict degree 2 (every warp and every value of the uniform parameters enumerated: 48 cases): price 7 + 16 for the swizzle
+     _a_2_sw = t1 & 0xffffffe0 | t1 + (t1 >> 5) & 0x1f where t1 = 48lane + (lane << 1) % 48
+       conflict degree 2 (every warp and every value of the uniform parameters enumerated: 1 cases): price 7 + 16 for the swizzle
+     total 46 against 74 (-37.8%); every access of the array takes the swizzle, reads and writes alike
+    written into the module: the 2 access chains of the array index it through the swizzle
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4647 bytes, checksum 906f0f1c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 72 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 2 -> 2 (+0.0%)
+  counting the strength reductions any driver also does: 3 -> 2 (-33.3%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under gt1030:
+  workgroup array ps: not analysed: its elements are structs: an access reaches a member (offsets from a layout the module does not fix)
+  (nofile: simplified.spvasm, 2424 bytes, checksum 9fe888d8)

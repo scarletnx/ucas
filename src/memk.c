@@ -398,7 +398,7 @@ swz_prove(const struct swz *z, int banks, int64_t size, int *how,
 	return !bad && pr.how != EQ_SAMPLED;
 }
 
-#define MAXACC 8
+#define MAXACC 32
 
 static const char *
 how_text(int how)
@@ -433,7 +433,7 @@ degree_text(const struct bankres *r, int banks, int warp, int same,
 
 int
 memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
-    const struct model *m, struct bankswz *out)
+    int64_t row, double extra, const struct model *m, struct bankswz *out)
 {
 	struct func *fs[MAXACC];
 	int same = elem == (int)m->par[MP_BANK_BYTES];
@@ -535,8 +535,11 @@ memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
 		for (s = 1; s <= smax; s++) {
 			double c = 0;
 			int ok = 1;
-			/* xor and add need the row above the bank bits */
+			/* xor and add need the row above the bank bits; a padded
+			 * row is the array's own when it has rows */
 			if (kind != SW_PAD && ((1 << s) < banks || size % banks))
+				continue;
+			if (kind == SW_PAD && row > 0 && ((int64_t)1 << s) != row)
 				continue;
 			z.kind = kind;
 			z.s = s;
@@ -547,7 +550,7 @@ memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
 				    !r1[k].exact)
 					ok = 0;
 				c += bank_price(m, 0, r1[k].degree) +
-				    expr_cost_under(m, e, fs[k]->body);
+				    expr_cost_under(m, e, fs[k]->body) + extra;
 			}
 			if (ok && c < bestc - 1e-9) {
 				bestc = c;
@@ -593,7 +596,7 @@ memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
 			    "price %g + %g for the swizzle\n", nm,
 			    shared_str(e, 200), r1[k].degree, db,
 			    bank_price(m, 0, r1[k].degree), expr_cost_under(m, e,
-			    src));
+			    src) + extra);
 			rep_obj(NULL);
 			rep_str("defined", nm);
 			rep_expr("index", e);
@@ -1202,7 +1205,7 @@ memk_command(struct P *p)
 				fail("banks: an index is an integer, %s is not",
 				    shared_str(func_find(names[k])->body, 80));
 		notes_flush();
-		memk_banks(names, nf, size, elem, m, NULL);
+		memk_banks(names, nf, size, elem, 0, 0, m, NULL);
 		return 1;
 	}
 	{

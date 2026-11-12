@@ -43,14 +43,17 @@ double bank_price(const struct model *m, int store, int degree);
 
 /* banks' report for the accesses named (functions); 1 and the swizzle
  * when one is cheaper and proved: i xor (i >> s & banks - 1), the row
- * added into the bank bits, or i + (i >> s) with the array grown to size */
+ * added into the bank bits, or i + (i >> s) with the array grown to size
+ * (a padded row of row elements, when row > 0: a nested array's own);
+ * extra, what writing any swizzle adds to each access (a nested array's
+ * indices laid flat and taken apart again) */
 enum { SW_XOR, SW_ADD, SW_PAD };
 struct bankswz {
 	int kind, s;
 	int64_t size;
 };
 int memk_banks(const uint32_t *names, int nf, int64_t size, int elem,
-    const struct model *m, struct bankswz *out);
+    int64_t row, double extra, const struct model *m, struct bankswz *out);
 /* intatomic's report for f (a float atomic add in it, or the addend),
  * count the adds into one cell (0: not known, and the most that fit is
  * said instead); *out, when given, the decision */

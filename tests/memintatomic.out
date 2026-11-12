@@ -31,6 +31,16 @@ intatomic f32(lane & 7) under gt1030: a shared float atomic add of f32(lane & 7)
       the store on line 8: the i32 constant 0
       its value stays within 448 (the stores' largest, 0, and 64 invocations' adds): within 24 bits, so the f32 version held the same values, bit for bit
       priced: the adds and their addends 7.625, the conversions 6: 13.625 against 28.25 (-51.8%)
+  workgroup array hist (64 elements of 4 bytes, laid flat from [4] [16], 2 accesses):
+    a swizzle lays each access's indices flat and takes them apart again: 5 an access, in its price below
+banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a shared load 3, each further address on a bank +4
+  _hist_1 = 16(lane >> 4) + (lane & 15)
+    lane parameter lane; conflict degree 1: index = 1 lane + b: two lanes share a bank when 32 divides 1 (l - l'), that is when 32 divides l - l', so 32 gcd(1, 32) / 32 = 1 lane a bank; all 2 cases enumerated too
+    price 3
+  _hist_2 = 16(lane & 3) + (lane >> 2 & 15)
+    lane parameter lane; conflict degree 2: every warp and every value of the uniform parameters enumerated: 2 cases
+    price 7
+  -> not rewritten: no swizzle (row xored or added into the bank bits, a padded row) makes the 2 accesses cheaper than 10 under gt1030
   the module no longer declares AtomicFloat32AddEXT: it runs where the device has no float atomic add
   spirv-val accepts the written module
   (nofile: simplified.spvasm, 3441 bytes, checksum 35712161)
