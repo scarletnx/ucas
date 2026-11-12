@@ -74,6 +74,49 @@ texalu s4: reads through the texture unit under cal (cost 35.5 as written):
         one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
         the same texels are exact as BC4_UNORM blocks, 8 bytes against 16 (texenc; a BC4 read is not priced apart)
         setup (the descriptor, the upload) is not in the model: not measured
+> texenc R, S
+texenc R, S: 16 entries a channel as BC5 (red R, green S), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT)
+  block (0, 0) red: endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2
+  block (0, 0) green: endpoints 0, 255 (four steps of 1/5, then 0 and 1), selectors 0 2 3 4 5 1 5 4 3 2 0 2 3 4 5 1
+  block (0, 0) bytes ff 03 d0 58 3f c8 5d 4e 00 ff d0 d8 94 13 34 36
+  red: decodes to [1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538]
+  red: exact: every texel is its entry's f32 over 255
+  green: decodes to [0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1]
+  green: exact: every texel is its entry's f32
+  a read of the texture is that read of the decoded tables, red and green; no model prices a BC5 read apart from its uncompressed one: not measured
+> texenc R, Q tol 0.06
+texenc R, Q: 16 entries a channel as BC5 (red R, green Q), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT)
+  block (0, 0) red: endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2
+  block (0, 0) green: endpoints 25, 217 (four steps of 1/5, then 0 and 1), selectors 6 0 2 2 3 4 4 5 1 1 7 7 1 5 5 4
+  block (0, 0) bytes ff 03 d0 58 3f c8 5d 4e 19 d9 86 34 b2 c9 9f 96
+  red: decodes to [1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538]
+  red: exact: every texel is its entry's f32 over 255
+  green: decodes to [0, 0.0980392173, 0.248627454, 0.248627454, 0.399215698, 0.549803913, 0.549803913, 0.700392187, 0.850980401, 0.850980401, 1, 1, 0.850980401, 0.700392187, 0.700392187, 0.549803913]
+  green: not exact: the closest blocks are within 0.0514 of the table (entry 3: 0.300000012 as 0.248627454), every pair of endpoints tried
+  green: within the 0.06 allowed (tol)
+  a read of the texture is that read of the decoded tables, red and green; no model prices a BC5 read apart from its uncompressed one: not measured
+> M = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.95, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2]
+> texenc L, M rows 8
+texenc L, M: 24 entries a channel as BC5 (red L, green M), rows of 8 (8 x 3 texels): 2 blocks, 32 bytes (48 as R8G8_UNORM, 192 as R32G32_SFLOAT)
+  block (0, 0) red: endpoints 96, 4 (six steps of 1/7 between them), selectors 1 6 4 2 7 5 3 2 6 4 2 0 0 0 0 0
+  block (0, 0) green: endpoints 250, 151 (six steps of 1/7 between them), selectors 0 2 4 6 2 3 5 7 2 4 6 1 0 0 0 0
+  block (0, 0) bytes 60 04 31 f5 4e a6 00 00 fa 97 10 ad f5 a2 03 00
+  block (1, 0) red: endpoints 199, 100 (six steps of 1/7 between them), selectors 1 6 4 2 7 5 3 2 6 4 2 0 0 0 0 0
+  block (1, 0) green: endpoints 148, 49 (six steps of 1/7 between them), selectors 0 2 4 6 2 3 5 7 2 4 6 1 0 0 0 0
+  block (1, 0) bytes c7 64 31 f5 4e a6 00 00 94 31 10 ad f5 a2 03 00
+  red: decodes to [0.0156862754, 0.118767507, 0.221848741, 0.324929982, 0.392156869, 0.503081262, 0.614005625, 0.724929988, 0.0672268942, 0.170308128, 0.273389369, 0.324929982, 0.447619051, 0.558543444, 0.669467807, 0.724929988, 0.118767507, 0.221848741, 0.324929982, 0.376470596, 0.503081262, 0.614005625, 0.724929988, 0.78039217]
+  red: not exact: the closest blocks are within 0.0251 of the table (entry 11: 0.349999994 as 0.324929982), every pair of endpoints tried
+  green: decodes to [0.980392158, 0.924929976, 0.814005613, 0.70308125, 0.580392182, 0.52493, 0.414005607, 0.303081244, 0.924929976, 0.869467795, 0.758543432, 0.647619069, 0.52493, 0.469467789, 0.358543426, 0.247619048, 0.924929976, 0.814005613, 0.70308125, 0.592156887, 0.52493, 0.414005607, 0.303081244, 0.192156866]
+  green: not exact: the closest blocks are within 0.0251 of the table (entry 8: 0.949999988 as 0.924929976), every pair of endpoints tried
+  a read of the texture is that read of the decoded tables, red and green; no model prices a BC5 read apart from its uncompressed one: not measured
+> texenc R, L
+texenc.ucas:39:12: error: texenc: BC5's two channels are tables of one shape; R has 16 entries and L 24
+    texenc R, L
+               ^
+> texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+texenc.ucas:40:61: error: texenc: a BC5 channel holds numbers from 0 to 1 (or whole numbers 0 to 255, read as k/255); the second table has an entry that is neither
+    texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                                                                ^
 > compress R as BC4
   ucas: texenc R
 texenc R: 16 entries as BC4, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
@@ -90,3 +133,14 @@ texenc Q: 16 entries as BC4, rows of 8 (8 x 2 texels): 2 blocks, 16 bytes (16 as
   not exact: the closest blocks are within 0.0502 of the table (entry 2: 0.200000003 as 0.250196069), every pair of endpoints tried
   more than the 0.02 allowed (tol)
   a nearest or filtered read of the texture is that read of the decoded table (fetch_..., tex_linear...); no model prices a BC4 read apart from its uncompressed one: not measured
+> compress R and S as BC5
+  ucas: texenc R, S
+texenc R, S: 16 entries a channel as BC5 (red R, green S), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT)
+  block (0, 0) red: endpoints 255, 3 (six steps of 1/7 between them), selectors 0 2 3 4 5 6 7 1 0 1 7 6 5 4 3 2
+  block (0, 0) green: endpoints 0, 255 (four steps of 1/5, then 0 and 1), selectors 0 2 3 4 5 1 5 4 3 2 0 2 3 4 5 1
+  block (0, 0) bytes ff 03 d0 58 3f c8 5d 4e 00 ff d0 d8 94 13 34 36
+  red: decodes to [1, 0.858823538, 0.717647076, 0.576470613, 0.435294122, 0.294117659, 0.152941182, 0.0117647061, 1, 0.0117647061, 0.152941182, 0.294117659, 0.435294122, 0.576470613, 0.717647076, 0.858823538]
+  red: exact: every texel is its entry's f32 over 255
+  green: decodes to [0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1]
+  green: exact: every texel is its entry's f32
+  a read of the texture is that read of the decoded tables, red and green; no model prices a BC5 read apart from its uncompressed one: not measured
