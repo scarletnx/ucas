@@ -16,18 +16,29 @@ void main() {
     outb.o[i] = acc[i & 1u];
 }
 ```
-# an atomic it does not run is refused by name
+# a float atomic min and max run too (FMin, FMax: a NaN operand gives
+# the other): lanes 0, 1, 2 and a NaN, min 0 and max 2
 animate exec seed 1 nofile
 ```glsl
 #version 450
 #extension GL_EXT_shader_atomic_float2 : require
 layout(local_size_x = 4) in;
 layout(set = 0, binding = 0) buffer O { float o[4]; } outb;
-shared float m;
+shared float m, mx;
 void main() {
     uint i = gl_LocalInvocationID.x;
-    atomicMin(m, float(i));
+    if (i == 0u) { m = 10.0; mx = -10.0; }
     barrier();
-    outb.o[i] = m;
+    float v = i == 3u ? uintBitsToFloat(0x7fc00000u) : float(i);
+    atomicMin(m, v);
+    atomicMax(mx, v);
+    barrier();
+    outb.o[i] = m + mx;
 }
+```
+# an atomic it does not run is refused by name
+animate exec lanes 4 seed 1 nofile
+```spv
+%v = OpVariable %_ptr_Function_uint Function
+%r = OpAtomicCompareExchangeWeak %uint %v %uint_1 %uint_0 %uint_0 %uint_1 %uint_0
 ```
