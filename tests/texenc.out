@@ -157,6 +157,13 @@ find sd: 1001 points, computing in i32, costs from gt1030
       M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
       x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
       x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  cost 7   i32(0.142857149f32(a))                   a/7 on the f32 pipe: the conversion of f32(a) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where a in [0, 1000], inside [0, 2^24), and 1000 (0.142857149 - 1/7) + ulp/2 < 1/7: 6.39e-06 + 7.63e-06 < 0.143
+      a < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(a/7) is an integer below 2^24, an f32, and f32(a) * 0.142857149 >= a/7 >= q0: the product rounded to nearest is not below q0
+      a/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 6.39e-06 (1000 times the excess); it is below 256, where rounding adds at most 7.63e-06: it stays below q0 + 1, as 6.39e-06 + 7.63e-06 < 1/7
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = a / 7
   a table under gt1030 (the function at every point of its domain; cost 21 as written):
   cost 6.875 [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, … (4083 more characters)
            1001 entries of i32 (4004 bytes of constant data), one for each point of a in 0..1000; entry k is the function at the point with index k = u32(a), all 1001 evaluated
