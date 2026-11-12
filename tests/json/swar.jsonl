@@ -1,0 +1,2 @@
+{"id": 1, "cmd": "find", "args": {"f": {"body": "(((a & 0xffff) + (b & 0xffff)) & 0xffff) | (((a >> 16) + (b >> 16)) & 0xffff) << 16", "params": [{"name": "a", "type": "u32"}, {"name": "b", "type": "u32"}]}, "n": 1}}
+{"id": 2, "cmd": "find", "args": {"f": {"body": "min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16", "params": [{"name": "a", "type": "u32"}, {"name": "b", "type": "u32"}]}, "n": 1}}

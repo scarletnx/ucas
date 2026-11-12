@@ -1,0 +1,70 @@
+# Packed lanes in a u32 worked on all at once (src/swar.c): find reads a
+# value that is one operation in every lane of its words from its values,
+# writes the word-wide form and proves the whole function equal.
+
+# 4 x 8 bits: add and subtract, the top bits apart
+add8(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) + ((b >> 8) & 255)) & 255) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) & 255) << 16 | ((((a >> 24) & 255) + ((b >> 24) & 255)) & 255) << 24
+find add8 1
+# the operands the other way round: b - a
+rsub8(a: u32, b: u32) = (((b & 255) - (a & 255)) & 255) | ((((b >> 8) & 255) - ((a >> 8) & 255)) & 255) << 8 | ((((b >> 16) & 255) - ((a >> 16) & 255)) & 255) << 16 | (((b >> 24) - (a >> 24)) & 255) << 24
+find rsub8 1
+# 2 x 16 bits
+sub16(a: u32, b: u32) = (((a & 0xffff) - (b & 0xffff)) & 0xffff) | (((a >> 16) - (b >> 16)) & 0xffff) << 16
+find sub16 1
+# 8 x 4 bits
+add4(a: u32, b: u32) = (((a & 15) + (b & 15)) & 15) | ((((a >> 4) & 15) + ((b >> 4) & 15)) & 15) << 4 | ((((a >> 8) & 15) + ((b >> 8) & 15)) & 15) << 8 | ((((a >> 12) & 15) + ((b >> 12) & 15)) & 15) << 12 | ((((a >> 16) & 15) + ((b >> 16) & 15)) & 15) << 16 | ((((a >> 20) & 15) + ((b >> 20) & 15)) & 15) << 20 | ((((a >> 24) & 15) + ((b >> 24) & 15)) & 15) << 24 | (((a >> 28) + (b >> 28)) & 15) << 28
+find add4 1
+
+# averages, floor and ceiling
+avg8(a: u32, b: u32) = (((a & 255) + (b & 255)) >> 1) | ((((a >> 8) & 255) + ((b >> 8) & 255)) >> 1) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) >> 1) << 16 | (((a >> 24) + (b >> 24)) >> 1) << 24
+find avg8 1
+avgc16(a: u32, b: u32) = (((a & 0xffff) + (b & 0xffff) + 1) >> 1) | (((a >> 16) + (b >> 16) + 1) >> 1) << 16
+find avgc16 1
+
+# through a mask of whole lanes: max, min, |a - b|
+max8(a: u32, b: u32) = max(a & 255, b & 255) | max((a >> 8) & 255, (b >> 8) & 255) << 8 | max((a >> 16) & 255, (b >> 16) & 255) << 16 | max(a >> 24, b >> 24) << 24
+find max8 1
+min8(a: u32, b: u32) = min(a & 255, b & 255) | min((a >> 8) & 255, (b >> 8) & 255) << 8 | min((a >> 16) & 255, (b >> 16) & 255) << 16 | min(a >> 24, b >> 24) << 24
+find min8 1
+absd8(a: u32, b: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) | (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16 | (max(a >> 24, b >> 24) - min(a >> 24, b >> 24)) << 24
+find absd8 1
+
+# saturation
+sat8(a: u32, b: u32) = min((a & 255) + (b & 255), 255) | min(((a >> 8) & 255) + ((b >> 8) & 255), 255) << 8 | min(((a >> 16) & 255) + ((b >> 16) & 255), 255) << 16 | min((a >> 24) + (b >> 24), 255) << 24
+find sat8 1
+ssub8(a: u32, b: u32) = ((a & 255) - min(a & 255, b & 255)) | (((a >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (((a >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16 | ((a >> 24) - min(a >> 24, b >> 24)) << 24
+find ssub8 1
+
+# compares as masks of whole lanes
+eq8(a: u32, b: u32) = ((a & 255) == (b & 255) ? 255 : 0) | (((a >> 8) & 255) == ((b >> 8) & 255) ? 255 : 0) << 8 | (((a >> 16) & 255) == ((b >> 16) & 255) ? 255 : 0) << 16 | ((a >> 24) == (b >> 24) ? 255 : 0) << 24
+find eq8 1
+ne16(a: u32, b: u32) = ((a & 0xffff) != (b & 0xffff) ? 0xffff : 0) | ((a >> 16) != (b >> 16) ? 0xffff : 0) << 16
+find ne16 1
+ge8(a: u32, b: u32) = ((a & 255) >= (b & 255) ? 255 : 0) | (((a >> 8) & 255) >= ((b >> 8) & 255) ? 255 : 0) << 8 | (((a >> 16) & 255) >= ((b >> 16) & 255) ? 255 : 0) << 16 | ((a >> 24) >= (b >> 24) ? 255 : 0) << 24
+find ge8 1
+lt16(a: u32, b: u32) = ((a & 0xffff) < (b & 0xffff) ? 0xffff : 0) | ((a >> 16) < (b >> 16) ? 0xffff : 0) << 16
+find lt16 1
+
+# one word: the other is a constant, found lane by lane
+inc8(a: u32) = (((a & 255) + 3) & 255) | ((((a >> 8) & 255) + 200) & 255) << 8 | ((((a >> 16) & 255) + 1) & 255) << 16 | (((a >> 24) + 77) & 255) << 24
+find inc8 1
+clamp8(a: u32) = min(a & 255, 235) | min((a >> 8) & 255, 240) << 8 | min((a >> 16) & 255, 240) << 16 | (a >> 24) << 24
+find clamp8 1
+
+# a value inside a larger function
+mix(a: u32, b: u32, c: u32) = c + ((((a & 255) + (b & 255)) >> 1) | ((((a >> 8) & 255) + ((b >> 8) & 255)) >> 1) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) >> 1) << 16 | (((a >> 24) + (b >> 24)) >> 1) << 24)
+find mix 1
+
+# where the integer pipe costs as much as a multiply (sm75), the same
+use sm75
+find max8 1
+use gt1030
+
+# nothing to say: the lanes differ, or the word-wide form is not cheaper
+# (two 16-bit minimums are 11 as written, 12 through the mask)
+min16(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16
+find min16 1
+two(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) - ((b >> 8) & 255)) & 255) << 8
+find two 1
+plain(a: u32, b: u32) = a + b
+find plain 1

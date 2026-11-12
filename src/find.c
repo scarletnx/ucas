@@ -2030,6 +2030,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	dot_find(&F.f);
 	sg_find(&F.f);
 	inst_find(&F.f);
+	swar_find(&F.f);
 	tab_find(&F.f);
 	tex_find(&F.f);
 	rep_list("implementations");
