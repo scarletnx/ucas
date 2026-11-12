@@ -32,6 +32,13 @@ find sq: 256 points, computing in u32, costs from gt1030
       M = ceil(2^11/7) = 293, so M*7 = 2^11 + 3
       x*M/2^11 = x/7 + x*3/(7*2^11): the excess is below 1/7 while x*3 < 2^11, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^11) = floor(x/7)
       x <= 450: x*3 <= 1350 < 2^11, and x*M <= 131850 < 2^32, so the product does not wrap in u32
+  cost 13  u32(0.142857149f32(a*a + b*b))           (a*a + b*b)/7 on the f32 pipe: the conversion of f32((a*a + b*b)) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where (a*a + b*b) in [0, 450], inside [0, 2^24), and 450 (0.142857149 - 1/7) + ulp/2 < 1/7: 2.87e-06 + 3.81e-06 < 0.143
+      (a*a + b*b) < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor((a*a + b*b)/7) is an integer below 2^24, an f32, and f32((a*a + b*b)) * 0.142857149 >= (a*a + b*b)/7 >= q0: the product rounded to nearest is not below q0
+      (a*a + b*b)/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 2.87e-06 (450 times the excess); it is below 128, where rounding adds at most 3.81e-06: it stays below q0 + 1, as 2.87e-06 + 3.81e-06 < 1/7
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (a*a + b*b) / 7
   cost 10  u32(asint(293(t1*t1 + t2*t2) + 12582912) - 1262485504) >> 11 where t1 = asfloat(a | 0x4b000000) - 8388608, t2 = asfloat(b | 0x4b000000) - 8388608 all of them: the division (a*a + b*b)/7 as a multiply and a shift in u32, then the integer arithmetic 293(a*a + b*b) on f32, converted by the bits (derived)
   dot products under gt1030 (sums of products laid into lanes; cost 14.75 as written):
   cost 12.75 udot4x8(t1, t1)/7 where t1 = a | b << 8
@@ -91,12 +98,26 @@ find big: 1024 points (sampled; matches verified on the whole domain), computing
       M = ceil(2^14/5) = 3277, so M*5 = 2^14 + 1
       x*M/2^14 = x/5 + x*1/(5*2^14): the excess is below 1/5 while x*1 < 2^14, and x/5 is at least 1/5 below the next integer, so floor(x*M/2^14) = floor(x/5)
       x <= 9365: x*1 <= 9365 < 2^14, and x*M <= 30689105 < 2^32, so the product does not wrap in u32
+  cost 17  u16(0.200000003f32(x/7 + 3))             (x/7 + 3)/5 on the f32 pipe: the conversion of f32((x/7 + 3)) * 0.200000003 (1/5 rounded up to an f32) (derived; checked on every point)
+      holds where (x/7 + 3) in [3, 9365], inside [0, 2^24), and 9365 (0.200000003 - 1/5) + ulp/2 < 1/5: 2.79e-05 + 6.1e-05 < 0.2
+      (x/7 + 3) < 2^24 converts to f32 exactly
+      0.200000003 = 0x1.99999ap-3 is 1/5 rounded up to an f32, above it by 2.98e-09
+      q0 = floor((x/7 + 3)/5) is an integer below 2^24, an f32, and f32((x/7 + 3)) * 0.200000003 >= (x/7 + 3)/5 >= q0: the product rounded to nearest is not below q0
+      (x/7 + 3)/5 <= q0 + 4/5, so the exact product is at most q0 + 4/5 + 2.79e-05 (9365 times the excess); it is below 2048, where rounding adds at most 6.1e-05: it stays below q0 + 1, as 2.79e-05 + 6.1e-05 < 1/5
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (x/7 + 3) / 5
   not applied (it would cost 16): the division x/7 as a multiply and a shift in u32
       needs x <= 57343 (it is in [0, 65535]: its range)
       M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
       x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
       that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 65535
-  cost 15  3277u32(x/7 + 3) >> 14                   all of them: the division (x/7 + 3)/5 as a multiply and a shift in u32, then drops the conversion u16(...) (derived; the drops exhaustive)
+  cost 17  (u16(0.142857149f32(x)) + 3)/5           x/7 on the f32 pipe: the conversion of f32(x) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where x in [0, 65535], inside [0, 2^24), and 65535 (0.142857149 - 1/7) + ulp/2 < 1/7: 0.000419 + 0.000488 < 0.143
+      x < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(x/7) is an integer below 2^24, an f32, and f32(x) * 0.142857149 >= x/7 >= q0: the product rounded to nearest is not below q0
+      x/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 0.000419 (65535 times the excess); it is below 16384, where rounding adds at most 0.000488: it stays below q0 + 1, as 0.000419 + 0.000488 < 1/7
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 7
+  cost 12  3277u32(u16(0.142857149(asfloat(u32(x) | 0x4b000000) - 8388608)) + 3) >> 14 all of them: the division (x/7 + 3)/5 as a multiply and a shift in u32, then x/7 on the f32 pipe: the conversion of f32(x) * 0.142857149 (1/7 rounded up to an f32), then drops the conversion u16(...), then the conversion f32(x) by the bits of 2^23 (derived; the drops exhaustive)
   a table under gt1030 (the function at every point of its domain; cost 18.5 as written):
   cost 6.875 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, … (354277 more characters)
            65536 entries of u16 (131072 bytes of constant data), one for each point of x in 0..65535; entry k is the function at the point with index k = u32(x), all 65536 evaluated
@@ -173,11 +194,37 @@ find pg: 1024 points (sampled; matches verified on the whole domain), computing 
       x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
       x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
       and x % 13 = x - 13*floor(x/13)
+  cost 37  x*x % 1000003/7 + (x - 13u32(0.0769230798f32(x))) x % 13 as x - 13 q on the f32 pipe, q the conversion of f32(x) * 0.0769230798 (1/13 rounded up to an f32) (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13
+      x - 13 q0 = x % 13, in [0, 13): the integer operations do not wrap
+  cost 36  x*x % 1000003/7 + u32(asint(fma(floor(0.0769230798f32(x)), -13, f32(x)) + 12582912) - 1262485504) x % 13 as fma(-floor(f32(x) * 0.0769230798), 13, f32(x)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13, and so is its floor
+      the fma rounds f32(x) - 13 q0 = x % 13 once: an integer in [0, 13), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
       needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
       M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
       x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
       that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  cost 38  u32(0.142857149f32(x*x % 1000003)) + x % 13 x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where (x*x % 1000003) in [0, 1000002], inside [0, 2^24), and 1000002 (0.142857149 - 1/7) + ulp/2 < 1/7: 0.00639 + 0.00781 < 0.143
+      (x*x % 1000003) < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor((x*x % 1000003)/7) is an integer below 2^24, an f32, and f32((x*x % 1000003)) * 0.142857149 >= (x*x % 1000003)/7 >= q0: the product rounded to nearest is not below q0
+      (x*x % 1000003)/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 0.00639 (1000002 times the excess); it is below 262144, where rounding adds at most 0.00781: it stays below q0 + 1, as 0.00639 + 0.00781 < 1/7
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (x*x % 1000003) / 7
+  cost 33  u32(0.142857149(asfloat(x*x % 1000003 | 0x4b000000) - 8388608)) + (x - 13(20165x >> 0x12)) all of them: the remainder x % 13 as a multiply and a shift in u32, then x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32), then the conversion f32(x*x % 1000003) by the bits of 2^23 (derived)
   a table for part of the domain under gt1030 (the function past it; cost 39.75 as written):
   cost 26.83 x < 65536 ? T[x] : x*x % 1000003/7 + x % 13   (expected; T the 65536 values at x = 0..65535)
            entry i is the function at x = i, all 65536 evaluated; past them the function itself, so the select is the function everywhere
@@ -195,11 +242,37 @@ find ph: 1024 points (sampled; matches verified on the whole domain), computing 
       x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
       x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
       and x % 13 = x - 13*floor(x/13)
+  cost 37  x*x % 1000003/7 + (x - 13u32(0.0769230798f32(x))) x % 13 as x - 13 q on the f32 pipe, q the conversion of f32(x) * 0.0769230798 (1/13 rounded up to an f32) (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13
+      x - 13 q0 = x % 13, in [0, 13): the integer operations do not wrap
+  cost 36  x*x % 1000003/7 + u32(asint(fma(floor(0.0769230798f32(x)), -13, f32(x)) + 12582912) - 1262485504) x % 13 as fma(-floor(f32(x) * 0.0769230798), 13, f32(x)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13, and so is its floor
+      the fma rounds f32(x) - 13 q0 = x % 13 once: an integer in [0, 13), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
       needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
       M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
       x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
       that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  cost 38  u32(0.142857149f32(x*x % 1000003)) + x % 13 x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where (x*x % 1000003) in [0, 1000002], inside [0, 2^24), and 1000002 (0.142857149 - 1/7) + ulp/2 < 1/7: 0.00639 + 0.00781 < 0.143
+      (x*x % 1000003) < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor((x*x % 1000003)/7) is an integer below 2^24, an f32, and f32((x*x % 1000003)) * 0.142857149 >= (x*x % 1000003)/7 >= q0: the product rounded to nearest is not below q0
+      (x*x % 1000003)/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 0.00639 (1000002 times the excess); it is below 262144, where rounding adds at most 0.00781: it stays below q0 + 1, as 0.00639 + 0.00781 < 1/7
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (x*x % 1000003) / 7
+  cost 33  u32(0.142857149(asfloat(x*x % 1000003 | 0x4b000000) - 8388608)) + (x - 13(20165x >> 0x12)) all of them: the remainder x % 13 as a multiply and a shift in u32, then x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32), then the conversion f32(x*x % 1000003) by the bits of 2^23 (derived)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use dearload
@@ -213,11 +286,37 @@ find pg: 1024 points (sampled; matches verified on the whole domain), computing 
       x*M/2^18 = x/13 + x*1/(13*2^18): the excess is below 1/13 while x*1 < 2^18, and x/13 is at least 1/13 below the next integer, so floor(x*M/2^18) = floor(x/13)
       x <= 99999: x*1 <= 99999 < 2^18, and x*M <= 2016479835 < 2^32, so the product does not wrap in u32
       and x % 13 = x - 13*floor(x/13)
+  cost 37  x*x % 1000003/7 + (x - 13u32(0.0769230798f32(x))) x % 13 as x - 13 q on the f32 pipe, q the conversion of f32(x) * 0.0769230798 (1/13 rounded up to an f32) (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13
+      x - 13 q0 = x % 13, in [0, 13): the integer operations do not wrap
+  cost 36  x*x % 1000003/7 + u32(asint(fma(floor(0.0769230798f32(x)), -13, f32(x)) + 12582912) - 1262485504) x % 13 as fma(-floor(f32(x) * 0.0769230798), 13, f32(x)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where x in [0, 99999], inside [0, 2^24), and 99999 (0.0769230798 - 1/13) + ulp/2 < 1/13: 0.000287 + 0.000244 < 0.0769
+      x < 2^24 converts to f32 exactly
+      0.0769230798 = 0x1.3b13b2p-4 is 1/13 rounded up to an f32, above it by 2.87e-09
+      q0 = floor(x/13) is an integer below 2^24, an f32, and f32(x) * 0.0769230798 >= x/13 >= q0: the product rounded to nearest is not below q0
+      x/13 <= q0 + 12/13, so the exact product is at most q0 + 12/13 + 0.000287 (99999 times the excess); it is below 8192, where rounding adds at most 0.000244: it stays below q0 + 1, as 0.000287 + 0.000244 < 1/13
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 13, and so is its floor
+      the fma rounds f32(x) - 13 q0 = x % 13 once: an integer in [0, 13), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   not applied (it would cost 35): the division x*x % 1000003/7 as a multiply and a shift in u32
       needs x*x % 1000003 <= 57343 (it is in [0, 1000002]: interval arithmetic over the parameters' ranges)
       M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
       x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
       that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 1000002
+  cost 38  u32(0.142857149f32(x*x % 1000003)) + x % 13 x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where (x*x % 1000003) in [0, 1000002], inside [0, 2^24), and 1000002 (0.142857149 - 1/7) + ulp/2 < 1/7: 0.00639 + 0.00781 < 0.143
+      (x*x % 1000003) < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor((x*x % 1000003)/7) is an integer below 2^24, an f32, and f32((x*x % 1000003)) * 0.142857149 >= (x*x % 1000003)/7 >= q0: the product rounded to nearest is not below q0
+      (x*x % 1000003)/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 0.00639 (1000002 times the excess); it is below 262144, where rounding adds at most 0.00781: it stays below q0 + 1, as 0.00639 + 0.00781 < 1/7
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (x*x % 1000003) / 7
+  cost 33  u32(0.142857149(asfloat(x*x % 1000003 | 0x4b000000) - 8388608)) + (x - 13(20165x >> 0x12)) all of them: the remainder x % 13 as a multiply and a shift in u32, then x*x % 1000003/7 on the f32 pipe: the conversion of f32((x*x % 1000003)) * 0.142857149 (1/7 rounded up to an f32), then the conversion f32(x*x % 1000003) by the bits of 2^23 (derived)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

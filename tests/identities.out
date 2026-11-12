@@ -52,6 +52,24 @@ find d16: 1024 points (sampled; matches verified on the whole domain), computing
       M = ceil(2^23/100) = 83887, so M*100 = 2^23 + 92
       x*M/2^23 = x/100 + x*92/(100*2^23): the excess is below 1/100 while x*92 < 2^23, and x/100 is at least 1/100 below the next integer, so floor(x*M/2^23) = floor(x/100)
       that and a product below 2^32 need x <= 51199 (the most any shift allows, with 2^23); here x reaches 65535
+  cost 13  n - 100u16(0.0100000007f32(n)) == 0      n % 100 as n - 100 q on the f32 pipe, q the conversion of f32(n) * 0.0100000007 (1/100 rounded up to an f32) (derived; checked on every point)
+      holds where n in [0, 65535], inside [0, 2^24), and 65535 (0.0100000007 - 1/100) + ulp/2 < 1/100: 4.64e-05 + 3.05e-05 < 0.01
+      n < 2^24 converts to f32 exactly
+      0.0100000007 = 0x1.47ae16p-7 is 1/100 rounded up to an f32, above it by 7.08e-10
+      q0 = floor(n/100) is an integer below 2^24, an f32, and f32(n) * 0.0100000007 >= n/100 >= q0: the product rounded to nearest is not below q0
+      n/100 <= q0 + 99/100, so the exact product is at most q0 + 99/100 + 4.64e-05 (65535 times the excess); it is below 1024, where rounding adds at most 3.05e-05: it stays below q0 + 1, as 4.64e-05 + 3.05e-05 < 1/100
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = n / 100
+      n - 100 q0 = n % 100, in [0, 100): the integer operations do not wrap
+  cost 13  u16(asint(fma(floor(0.0100000007f32(n)), -100, f32(n)) + 12582912) - 1262485504) == 0 n % 100 as fma(-floor(f32(n) * 0.0100000007), 100, f32(n)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where n in [0, 65535], inside [0, 2^24), and 65535 (0.0100000007 - 1/100) + ulp/2 < 1/100: 4.64e-05 + 3.05e-05 < 0.01
+      n < 2^24 converts to f32 exactly
+      0.0100000007 = 0x1.47ae16p-7 is 1/100 rounded up to an f32, above it by 7.08e-10
+      q0 = floor(n/100) is an integer below 2^24, an f32, and f32(n) * 0.0100000007 >= n/100 >= q0: the product rounded to nearest is not below q0
+      n/100 <= q0 + 99/100, so the exact product is at most q0 + 99/100 + 4.64e-05 (65535 times the excess); it is below 1024, where rounding adds at most 3.05e-05: it stays below q0 + 1, as 4.64e-05 + 3.05e-05 < 1/100
+      the conversion to u16 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = n / 100, and so is its floor
+      the fma rounds f32(n) - 100 q0 = n % 100 once: an integer in [0, 100), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model muldear : gt1030 { imul: 20 }
@@ -74,6 +92,13 @@ find d: 1024 points (sampled; matches verified on the whole domain), computing i
       M = ceil(2^10/10) = 103, so M*10 = 2^10 + 6
       x*M/2^10 = x/10 + x*6/(10*2^10): the excess is below 1/10 while x*6 < 2^10, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^10) = floor(x/10)
       x <= 99: x*6 <= 594 < 2^10, and x*M <= 10197 < 2^32, so the product does not wrap in u32
+  cost 8   u32(0.100000001f32(x)) + y               x/10 on the f32 pipe: the conversion of f32(x) * 0.100000001 (1/10 rounded up to an f32) (derived; checked on a sample)
+      holds where x in [0, 99], inside [0, 2^24), and 99 (0.100000001 - 1/10) + ulp/2 < 1/10: 1.48e-07 + 4.77e-07 < 0.1
+      x < 2^24 converts to f32 exactly
+      0.100000001 = 0x1.99999ap-4 is 1/10 rounded up to an f32, above it by 1.49e-09
+      q0 = floor(x/10) is an integer below 2^24, an f32, and f32(x) * 0.100000001 >= x/10 >= q0: the product rounded to nearest is not below q0
+      x/10 <= q0 + 9/10, so the exact product is at most q0 + 9/10 + 1.48e-07 (99 times the excess); it is below 16, where rounding adds at most 4.77e-07: it stays below q0 + 1, as 1.48e-07 + 4.77e-07 < 1/10
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 10
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > r(x: i32 in 0..9999) = x % 100
@@ -90,6 +115,24 @@ find r: 1024 points (sampled; matches verified on the whole domain), computing i
       x*M/2^19 = x/100 + x*12/(100*2^19): the excess is below 1/100 while x*12 < 2^19, and x/100 is at least 1/100 below the next integer, so floor(x*M/2^19) = floor(x/100)
       x <= 9999: x*12 <= 119988 < 2^19, and x*M <= 52424757 < 2^32, so the product does not wrap in u32
       and x % 100 = x - 100*floor(x/100)
+  cost 11  x - 100i32(0.0100000007f32(x))           x % 100 as x - 100 q on the f32 pipe, q the conversion of f32(x) * 0.0100000007 (1/100 rounded up to an f32) (derived; checked on every point)
+      holds where x in [0, 9999], inside [0, 2^24), and 9999 (0.0100000007 - 1/100) + ulp/2 < 1/100: 7.08e-06 + 3.81e-06 < 0.01
+      x < 2^24 converts to f32 exactly
+      0.0100000007 = 0x1.47ae16p-7 is 1/100 rounded up to an f32, above it by 7.08e-10
+      q0 = floor(x/100) is an integer below 2^24, an f32, and f32(x) * 0.0100000007 >= x/100 >= q0: the product rounded to nearest is not below q0
+      x/100 <= q0 + 99/100, so the exact product is at most q0 + 99/100 + 7.08e-06 (9999 times the excess); it is below 128, where rounding adds at most 3.81e-06: it stays below q0 + 1, as 7.08e-06 + 3.81e-06 < 1/100
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 100
+      x - 100 q0 = x % 100, in [0, 100): the integer operations do not wrap
+  cost 10  asint(fma(floor(0.0100000007f32(x)), -100, f32(x)) + 12582912) - 1262485504 x % 100 as fma(-floor(f32(x) * 0.0100000007), 100, f32(x)) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on every point)
+      holds where x in [0, 9999], inside [0, 2^24), and 9999 (0.0100000007 - 1/100) + ulp/2 < 1/100: 7.08e-06 + 3.81e-06 < 0.01
+      x < 2^24 converts to f32 exactly
+      0.0100000007 = 0x1.47ae16p-7 is 1/100 rounded up to an f32, above it by 7.08e-10
+      q0 = floor(x/100) is an integer below 2^24, an f32, and f32(x) * 0.0100000007 >= x/100 >= q0: the product rounded to nearest is not below q0
+      x/100 <= q0 + 99/100, so the exact product is at most q0 + 99/100 + 7.08e-06 (9999 times the excess); it is below 128, where rounding adds at most 3.81e-06: it stays below q0 + 1, as 7.08e-06 + 3.81e-06 < 1/100
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 100, and so is its floor
+      the fma rounds f32(x) - 100 q0 = x % 100 once: an integer in [0, 100), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
   a table under gt1030 (the function at every point of its domain; cost 25.75 as written):
   cost 6.875 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 4… (38848 more characters)
            10000 entries of i32 (40000 bytes of constant data), one for each point of x in 0..9999; entry k is the function at the point with index k = u32(x), all 10000 evaluated
@@ -105,6 +148,14 @@ find big: 1024 points (sampled; matches verified on the whole domain), computing
       M = ceil(2^19/7) = 74899, so M*7 = 2^19 + 5
       x*M/2^19 = x/7 + x*5/(7*2^19): the excess is below 1/7 while x*5 < 2^19, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^19) = floor(x/7)
       that and a product below 2^32 need x <= 57343 (the most any shift allows, with 2^19); here x reaches 10000000
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   u32(0.142857149f32(x))                   x/7 on the f32 pipe: the conversion of f32(x) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on a sample)
+      holds where x in [0, 10000000], inside [0, 2^24), and 10000000 (0.142857149 - 1/7) + ulp/2 < 1/7: 0.0639 + 0.0625 < 0.143
+      x < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(x/7) is an integer below 2^24, an f32, and f32(x) * 0.142857149 >= x/7 >= q0: the product rounded to nearest is not below q0
+      x/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 0.0639 (10000000 times the excess); it is below 2097152, where rounding adds at most 0.0625: it stays below q0 + 1, as 0.0639 + 0.0625 < 1/7
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 7
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use muldear
@@ -112,6 +163,15 @@ cost model: muldear
 > find d 1
 find d: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from muldear
   derived, but not cheaper under muldear (cost 22, as written 10): the division x/10 as a multiply and a shift in u32
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 8   u32(0.100000001f32(x)) + y               x/10 on the f32 pipe: the conversion of f32(x) * 0.100000001 (1/10 rounded up to an f32) (derived; checked on a sample)
+      holds where x in [0, 99], inside [0, 2^24), and 99 (0.100000001 - 1/10) + ulp/2 < 1/10: 1.48e-07 + 4.77e-07 < 0.1
+      x < 2^24 converts to f32 exactly
+      0.100000001 = 0x1.99999ap-4 is 1/10 rounded up to an f32, above it by 1.49e-09
+      q0 = floor(x/10) is an integer below 2^24, an f32, and f32(x) * 0.100000001 >= x/10 >= q0: the product rounded to nearest is not below q0
+      x/10 <= q0 + 9/10, so the exact product is at most q0 + 9/10 + 1.48e-07 (99 times the excess); it is below 16, where rounding adds at most 4.77e-07: it stays below q0 + 1, as 1.48e-07 + 4.77e-07 < 1/10
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = x / 10
+  cost 7   u32(0.100000001(asfloat(x | 0x4b000000) - 8388608)) + y all of them: x/10 on the f32 pipe: the conversion of f32(x) * 0.100000001 (1/10 rounded up to an f32), then the conversion f32(x) by the bits of 2^23 (derived)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
@@ -170,6 +230,13 @@ find q: 256 points, computing in u32, costs from gt1030
       M = ceil(2^21/255) = 8225, so M*255 = 2^21 + 223
       x*M/2^21 = x/255 + x*223/(255*2^21): the excess is below 1/255 while x*223 < 2^21, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^21) = floor(x/255)
       x <= 8032: x*223 <= 1791136 < 2^21, and x*M <= 66063200 < 2^32, so the product does not wrap in u32
+  cost 10  u32(0.00392156886f32(31v + 127))         (31v + 127)/255 on the f32 pipe: the conversion of f32((31v + 127)) * 0.00392156886 (1/255 rounded up to an f32) (derived; checked on every point)
+      holds where (31v + 127) in [127, 8032], inside [0, 2^24), and 8032 (0.00392156886 - 1/255) + ulp/2 < 1/255: 1.86e-06 + 9.54e-07 < 0.00392
+      (31v + 127) < 2^24 converts to f32 exactly
+      0.00392156886 = 0x1.010102p-8 is 1/255 rounded up to an f32, above it by 2.32e-10
+      q0 = floor((31v + 127)/255) is an integer below 2^24, an f32, and f32((31v + 127)) * 0.00392156886 >= (31v + 127)/255 >= q0: the product rounded to nearest is not below q0
+      (31v + 127)/255 <= q0 + 254/255, so the exact product is at most q0 + 254/255 + 1.86e-06 (8032 times the excess); it is below 32, where rounding adds at most 9.54e-07: it stays below q0 + 1, as 1.86e-06 + 9.54e-07 < 1/255
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (31v + 127) / 255
   cost 5   249v + 1014 >> 11                        the map (31v + 127)/255 of v as a multiply and a shift in u32 (derived; checked on every point)
       holds where v in [0, 255] (its range)
       (31v + 127)/255 at v = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)
@@ -192,6 +259,13 @@ find pc: 1024 points (sampled; matches verified on the whole domain), computing 
       x*M/2^26 = x/1023 + x*959/(1023*2^26): the excess is below 1/1023 while x*959 < 2^26, and x/1023 is at least 1/1023 below the next integer, so floor(x*M/2^26) = floor(x/1023)
       that and a product below 2^32 need x <= 65471 (the most any shift allows, with 2^26); here x reaches 102811
   rewrites the model prices lower (each derived, with what it holds under):
+  cost 11  u32(0.000977517222f32(100x + 511)) + y   (100x + 511)/1023 on the f32 pipe: the conversion of f32((100x + 511)) * 0.000977517222 (1/1023 rounded up to an f32) (derived; checked on a sample)
+      holds where (100x + 511) in [511, 102811], inside [0, 2^24), and 102811 (0.000977517222 - 1/1023) + ulp/2 < 1/1023: 1.19e-05 + 3.81e-06 < 0.000978
+      (100x + 511) < 2^24 converts to f32 exactly
+      0.000977517222 = 0x1.004012p-10 is 1/1023 rounded up to an f32, above it by 1.16e-10
+      q0 = floor((100x + 511)/1023) is an integer below 2^24, an f32, and f32((100x + 511)) * 0.000977517222 >= (100x + 511)/1023 >= q0: the product rounded to nearest is not below q0
+      (100x + 511)/1023 <= q0 + 1022/1023, so the exact product is at most q0 + 1022/1023 + 1.19e-05 (102811 times the excess); it is below 128, where rounding adds at most 3.81e-06: it stays below q0 + 1, as 1.19e-05 + 3.81e-06 < 1/1023
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (100x + 511) / 1023
   cost 5   (3203x + 16442 >> 15) + y                the map (100x + 511)/1023 of x as a multiply and a shift in u32 (derived; checked on a sample)
       holds where x in [0, 1023] (its range)
       (100x + 511)/1023 at x = 0..1023 is [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ... (1008 more)] (evaluated at each of the 1024)
@@ -224,6 +298,13 @@ find qb: 1024 points (sampled; matches verified on the whole domain), computing 
       M = ceil(2^21/255) = 8225, so M*255 = 2^21 + 223
       x*M/2^21 = x/255 + x*223/(255*2^21): the excess is below 1/255 while x*223 < 2^21, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^21) = floor(x/255)
       x <= 8032: x*223 <= 1791136 < 2^21, and x*M <= 66063200 < 2^32, so the product does not wrap in u32
+  cost 12  u32(0.00392156886f32(31(v & 0xff) + 127)) + y (31(v & 0xff) + 127)/255 on the f32 pipe: the conversion of f32((31(v & 0xff) + 127)) * 0.00392156886 (1/255 rounded up to an f32) (derived; checked on a sample)
+      holds where (31(v & 0xff) + 127) in [127, 8032], inside [0, 2^24), and 8032 (0.00392156886 - 1/255) + ulp/2 < 1/255: 1.86e-06 + 9.54e-07 < 0.00392
+      (31(v & 0xff) + 127) < 2^24 converts to f32 exactly
+      0.00392156886 = 0x1.010102p-8 is 1/255 rounded up to an f32, above it by 2.32e-10
+      q0 = floor((31(v & 0xff) + 127)/255) is an integer below 2^24, an f32, and f32((31(v & 0xff) + 127)) * 0.00392156886 >= (31(v & 0xff) + 127)/255 >= q0: the product rounded to nearest is not below q0
+      (31(v & 0xff) + 127)/255 <= q0 + 254/255, so the exact product is at most q0 + 254/255 + 1.86e-06 (8032 times the excess); it is below 32, where rounding adds at most 9.54e-07: it stays below q0 + 1, as 1.86e-06 + 9.54e-07 < 1/255
+      the conversion to u32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (31(v & 0xff) + 127) / 255
   cost 6   (249(v & 0xff) + 1014 >> 11) + y         the map (31(v & 0xff) + 127)/255 of v & 0xff as a multiply and a shift in u32 (derived; checked on a sample)
       holds where v & 0xff in [0, 255] (interval arithmetic over the parameters' ranges)
       (31(v & 0xff) + 127)/255 at v & 0xff = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)

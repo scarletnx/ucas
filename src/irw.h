@@ -52,6 +52,9 @@ int irw_cands(const struct func *f, nid root, struct irw **out);
 /* ifx.c: integers as floats and floats as integers, at node n of root */
 void ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
     struct irw **out, int *cnt, int *cap);
+/* ifx.c: x / k and x % k by a constant on the f32 pipe */
+void ifx_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap);
 void irw_free(struct irw *r, int n);
 void irw_print(const struct irw *r, const char *ind);
 

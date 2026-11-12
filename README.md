@@ -1919,6 +1919,26 @@ offers its conversions both ways, plain and by the bits; since almost
 every function has such a piece, it is listed only when cheaper (the
 others say "derived, but not cheaper" as the rewrites above do).
 
+A division or remainder of an integer x in [0, 2^24) by a constant k
+(no power of two) goes to the f32 pipe: q = iN(f32(x) * c), c the f32
+at or above 1/k nearest to it, and x % k = x - k q or, all in f32,
+`fma(-floor(f32(x) * c), k, f32(x))` read back by the bits (the
+remainder is an integer below k: the fma does not round).  f32(x) c is
+at least x/k, so the product rounded to nearest is not below
+floor(x/k); it stays below the next integer while hi (c - 1/k) plus
+half an ulp of hi c is below 1/k, which holds for every k when x <
+2^22 (`x: u22`, `x % 13`: 0.012 + 0.0156 < 1/13).  Past that margin
+every x of the range is tried (up to 2^24 of them, counting the
+quotient), and a range where one x rounds up gets the rewrite as not
+applied, with that x (`x: u24`, `x % 7`: 12582912).  Under gt1030 the
+quotient costs 7 (6 with f32(x) by the bits) against `idivk` 8.75 and
+the remainder 10 against `iremk` 13.5, where the multiply and shift in
+u32 no longer serves (past x = 212991 for 13).  The correction step
+that would take every x below 2^24 (a compare and a select on the
+fma's remainder) costs more than `iremk` under gt1030, and a product
+past 2^24 (a modular multiply by a modulus above 2^12) needs 2Prod,
+which waits for a price of the 64-bit multiply.
+
 ```
 > cv(i: u32 in 0..1000) = f32(i)
 > find cv 1

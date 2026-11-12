@@ -26,7 +26,10 @@
  *     >> 23) - 127: the exponent field of the exact conversion;
  *   - integer +, -, * whose every value stays inside (-2^24, 2^24) run
  *     on floats without rounding: the multiply-adds become a*b + c on
- *     f32 (an FFMA where the model contracts), conversions at the ends.
+ *     f32 (an FFMA where the model contracts), conversions at the ends;
+ *   - x / k for a constant k and 0 <= x < 2^24 is iN(f32(x) * c), c = 1/k
+ *     rounded up to an f32, where the product never reaches the next
+ *     integer (a margin, or every x tried); x % k is x - k q, or an fma.
  */
 #include "calc.h"
 #include "irw.h"
@@ -519,6 +522,184 @@ rw_floor(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 	    fl ? "<=" : ">=", xs, fl ? "-" : "+");
 	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
 	free(pf.p);
+}
+
+/*
+ * x / k and x % k, k a constant > 2 and no power of two, for an integer
+ * 0 <= x <= X < 2^24, on the f32 pipe: q = iN(f32(x) * c), c = 1/k
+ * rounded up to an f32, and x % k = x - k q, or all in f32 as
+ * fma(-floor(f32(x) c), k, f32(x)) read back by the bits (the remainder
+ * is an integer below k, exact in the fma).  floor(x/k) <= x c, so the
+ * product rounded to nearest is not below that integer; it stays below
+ * the next one while X (c - 1/k) plus half an ulp of X c is below 1/k
+ * (the fraction of x/k is at most 1 - 1/k).  Where that margin does not
+ * hold, every x of the range is tried; a range where some x fails gets
+ * the rewrite as not applied, with that x.
+ */
+/*
+ * The first x in [lo, hi] where trunc(f32(x) * cf) is not x / k, or -1:
+ * every x tried (up to 2^24 of them, the quotient kept by counting), and
+ * the answer kept for the next asker of the same range (find asks once a
+ * node, and a module asks for each of its nodes).
+ */
+static int64_t
+divk_tried(int64_t k, float cf, int64_t lo, int64_t hi)
+{
+	static struct {
+		int64_t k, lo, hi, bad;
+	} memo[16];
+	static int nmemo, next;
+	int64_t v, q = lo / k, r = lo % k, bad = -1;
+	int i;
+
+	for (i = 0; i < nmemo; i++)
+		if (memo[i].k == k && memo[i].lo == lo && memo[i].hi == hi)
+			return memo[i].bad;
+	for (v = lo; v <= hi; v++) {
+		if ((int64_t)((float)v * cf) != q) {
+			bad = v;
+			break;
+		}
+		if (++r == k) {
+			r = 0;
+			q++;
+		}
+	}
+	i = next;
+	next = (next + 1) % 16;
+	if (nmemo < 16)
+		nmemo++;
+	memo[i].k = k;
+	memo[i].lo = lo;
+	memo[i].hi = hi;
+	memo[i].bad = bad;
+	return bad;
+}
+
+static void
+rw_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid x = N.a[n], d = N.b[n], q, to, xf, p, r;
+	ty_t t = N.ty[n];
+	int64_t lo, hi, k, bad = -1;
+	int rem = N.op[n] == O_MOD, e, m;
+	size_t at;
+	float cf;
+	double ex, hulp;
+	char what[200], cond[400], cs[40];
+	struct sbuf pf = {0};
+	struct nm XS;
+	const char *xs;
+
+	if (!TY_ISINT(t) || t == TY_BOOL || TYK(t) == K_LIT || !is_const(d) ||
+	    N.ty[x] != t)
+		return;
+	k = N.ki[d];
+	if (k <= 2 || (k & (k - 1)) == 0 || k >= (int64_t)P24)
+		return;
+	if (!irange(c, x, &lo, &hi) || lo < 0 || hi >= (int64_t)P24 || hi < k)
+		return;
+	/* the f32 at or above 1/k nearest to it (cf k is exact in double) */
+	cf = (float)(1.0 / (double)k);
+	while ((double)cf * (double)k < 1.0)
+		cf = nextafterf(cf, INFINITY);
+	while ((double)nextafterf(cf, 0.0f) * (double)k >= 1.0)
+		cf = nextafterf(cf, 0.0f);
+	/* hi (cf - 1/k), and half an ulp where hi cf lies */
+	ex = (double)hi * ((double)cf * (double)k - 1.0) / (double)k;
+	(void)frexp((double)hi * (double)cf, &e);
+	hulp = ldexp(1.0, e - 1 - 24);
+	m = ex + hulp < 1.0 / (double)k;
+	if (!m)
+		bad = divk_tried(k, cf, lo, hi);
+	xf = mk_cast(TY_F32, x);
+	p = mk_bin(O_MUL, xf, mk_cast(TY_F32, mk_const_r(cf)));
+	q = mk_cast(t, p);
+	to = rem ? mk_bin(O_SUB, x, mk_bin(O_MUL, q, mk_const_i(t, k))) : q;
+	xs = nm(&XS, x);
+	snprintf(cs, sizeof cs, "%.9g", (double)cf);
+	if (rem)
+		snprintf(what, sizeof what, "%s as %s - %lld q on the f32 pipe, q "
+		    "the conversion of f32(%s) * %s (1/%lld rounded up to an f32)",
+		    sstr(n), xs, (long long)k, xs, cs, (long long)k);
+	else
+		snprintf(what, sizeof what, "%s on the f32 pipe: the conversion of "
+		    "f32(%s) * %s (1/%lld rounded up to an f32)", sstr(n), xs, cs,
+		    (long long)k);
+	if (m)
+		snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside [0, 2^24), "
+		    "and %lld (%s - 1/%lld) + ulp/2 < 1/%lld: %.3g + %.3g < %.3g",
+		    xs, (long long)lo, (long long)hi, (long long)hi, cs,
+		    (long long)k, (long long)k, ex, hulp, 1.0 / (double)k);
+	else if (bad < 0)
+		snprintf(cond, sizeof cond, "%s in [%lld, %lld], inside [0, 2^24), "
+		    "every value of it tried (past the margin)", xs, (long long)lo,
+		    (long long)hi);
+	else
+		snprintf(cond, sizeof cond, "%s in [%lld, %lld]: at %s = %lld the "
+		    "product rounds up to %lld, not %lld", xs, (long long)lo,
+		    (long long)hi, xs, (long long)bad, (long long)(bad / k + 1),
+		    (long long)(bad / k));
+	sb_printf(&pf, "%s < 2^24 converts to f32 exactly\n%s = %a is 1/%lld "
+	    "rounded up to an f32, above it by %.3g\nq0 = floor(%s/%lld) is an "
+	    "integer below 2^24, an f32, and f32(%s) * %s >= %s/%lld >= q0: the "
+	    "product rounded to nearest is not below q0", xs, cs, (double)cf,
+	    (long long)k, ex / (double)hi, xs, (long long)k, xs, cs, xs,
+	    (long long)k);
+	if (m)
+		sb_printf(&pf, "\n%s/%lld <= q0 + %lld/%lld, so the exact product "
+		    "is at most q0 + %lld/%lld + %.3g (%lld times the excess); it "
+		    "is below %.9g, where rounding adds at most %.3g: it stays "
+		    "below q0 + 1, as %.3g + %.3g < 1/%lld", xs, (long long)k,
+		    (long long)(k - 1), (long long)k, (long long)(k - 1),
+		    (long long)k, ex, (long long)hi, ldexp(1.0, e), hulp, ex, hulp,
+		    (long long)k);
+	else
+		sb_printf(&pf, "\nthe margin does not cover the range (%.3g + %.3g "
+		    "against 1/%lld): every %s in [%lld, %lld] was tried", ex,
+		    hulp, (long long)k, xs, (long long)lo, (long long)hi);
+	sb_printf(&pf, "\nthe conversion to %s truncates toward zero: of a "
+	    "value in [q0, q0 + 1) it is q0 = %s / %lld", ty_str(t), xs,
+	    (long long)k);
+	if (!rem) {
+		irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf),
+		    bad < 0);
+		free(pf.p);
+		return;
+	}
+	at = pf.n;
+	sb_printf(&pf, "\n%s - %lld q0 = %s %% %lld, in [0, %lld): the "
+	    "integer operations do not wrap", xs, (long long)k, xs,
+	    (long long)k, (long long)k);
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), bad < 0);
+	if (k > (int64_t)P22) {
+		free(pf.p);
+		return;
+	}
+	/* all in f32: floor where the conversion truncated, then the fma */
+	r = mk_fma(mk_un(O_FLOOR, p), kf((double)-k), xf);
+	to = magic_f2i(t, r);
+	snprintf(what, sizeof what, "%s as fma(-floor(f32(%s) * %s), %lld, "
+	    "f32(%s)) on the f32 pipe, read back by the bits of 1.5*2^23",
+	    sstr(n), xs, cs, (long long)k, xs);
+	pf.n = at;
+	pf.p[at] = 0;
+	sb_printf(&pf, ", and so is its floor\nthe fma rounds f32(%s) - %lld q0 "
+	    "= %s %% %lld once: an integer in [0, %lld), an f32, so it does not "
+	    "round\n", xs, (long long)k, xs, (long long)k, (long long)k);
+	f2i_proof(&pf, r, "that remainder");
+	irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), bad < 0);
+	free(pf.p);
+}
+
+/* x / k and x % k by a constant on the f32 pipe (irw.c calls it after its
+ * own candidates for the node, so theirs keep their places) */
+void
+ifx_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	rw_divk(c, root, n, out, cnt, cap);
 }
 
 /* n is f32(1 << k): k, and its range inside the exponents that hold */

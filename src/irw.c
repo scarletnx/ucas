@@ -482,6 +482,8 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 			if (op == O_SEL)
 				rw_minmax(&c, root, n, out, &cnt, &cap);
 			idrw_node(&c, root, n, out, &cnt, &cap);
+			if (op == O_DIV || op == O_MOD)
+				ifx_divk(&c, root, n, out, &cnt, &cap);
 		}
 		idrw_maps(&c, root, out, &cnt, &cap);
 	}
