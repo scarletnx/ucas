@@ -94,6 +94,8 @@ struct acert {
 	double worst;		/* the middle of the piece with the bound */
 	long pieces, evals;
 	int order;		/* Taylor's order K */
+	int slack;		/* libm's long double functions taken within
+				 * 2^slack, relative */
 };
 void acert_run(nid target, nid cand, ld lo, ld hi, int w, int rel, int k0,
     ld z, struct acert *r);
