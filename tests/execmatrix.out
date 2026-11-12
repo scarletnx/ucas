@@ -1,0 +1,69 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  h: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (64 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: ucas_args: 0.98 -0.11 -0.86 1.82 -0.38 -1.55 0.87
+  after:  ucas_args: 2.9582 -0.11 -0.86 1.82 -0.38 -1.55 0.87
+  serial form:
+    %39 = OpAccessChain %_ptr_StorageBuffer_v3float %ucas_args %int_1                0  t = 0..0  -> &ucas_args[1] &ucas_args[1] &ucas_args[1] &ucas_args[1]
+    %40 = OpLoad %v3float %39                    load       6.875  t = 0..6.875  -> (-0.11,-0.86,1.82) (-0.11,-0.86,1.82) (-0.11,-0.86,1.82) (-0.11,-0.86,1.82)
+    %42 = OpAccessChain %_ptr_StorageBuffer_v3float %ucas_args %int_2                0  t = 6.875..6.875  -> &ucas_args[4] &ucas_args[4] &ucas_args[4] &ucas_args[4]
+    %43 = OpLoad %v3float %42                    load       6.875  t = 6.875..13.75  -> (-0.38,-1.55,0.87) (-0.38,-1.55,0.87) (-0.38,-1.55,0.87) (-0.38,-1.55,0.87)
+    %57 = OpFConvert %v3double %40               conv           9  t = 13.75..22.75  -> (-0.11,-0.86,1.82) (-0.11,-0.86,1.82) (-0.11,-0.86,1.82) (-0.11,-0.86,1.82)
+    %59 = OpFConvert %v3double %43               conv           9  t = 22.75..31.75  -> (-0.38,-1.55,0.87) (-0.38,-1.55,0.87) (-0.38,-1.55,0.87) (-0.38,-1.55,0.87)
+    %62 = OpDot %double %57 %59                  fmul       97.125  t = 31.75..128.875  -> 2.9582 2.9582 2.9582 2.9582
+    %63 = OpFConvert %float %62                  conv           3  t = 128.875..131.875  -> 2.9582 2.9582 2.9582 2.9582
+    %46 = OpAccessChain %_ptr_StorageBuffer_float %ucas_args %int_0                0  t = 131.875..131.875  -> &ucas_args[0] &ucas_args[0] &ucas_args[0] &ucas_args[0]
+    OpStore %46 %63                              store         15  t = 131.875..146.875
+  time 146.875 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 758x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 24.5 cost units; 167214 bytes
+  (nofile: GIF checksum 832062df)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  h2: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (74 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: ucas_args: 0.98 -0.11 -0.86 1.82 -0.38 -1.55 0.87
+  after:  ucas_args: 1.1328 -0.11 -0.86 1.82 -0.38 -1.55 0.87
+  serial form:
+    %50 = OpAccessChain %_ptr_StorageBuffer_v2float %ucas_args %int_1                0  t = 0..0  -> &ucas_args[1] &ucas_args[1] &ucas_args[1] &ucas_args[1]
+    %51 = OpLoad %v2float %50                    load       6.875  t = 0..6.875  -> (-0.11,-0.86) (-0.11,-0.86) (-0.11,-0.86) (-0.11,-0.86)
+    %54 = OpAccessChain %_ptr_StorageBuffer_mat2v2float %ucas_args %int_2                0  t = 6.875..6.875  -> &ucas_args[3] &ucas_args[3] &ucas_args[3] &ucas_args[3]
+    %55 = OpLoad %mat2v2float %54                load       6.875  t = 6.875..13.75  -> [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0.
+    %68 = OpFConvert %v2double %51               conv           6  t = 13.75..19.75  -> (-0.11,-0.86) (-0.11,-0.86) (-0.11,-0.86) (-0.11,-0.86)
+    %70 = OpCompositeExtract %v2float %55 0                     0  t = 19.75..19.75  -> (1.82,-0.38) (1.82,-0.38) (1.82,-0.38) (1.82,-0.38)
+    %71 = OpFConvert %v2double %70               conv           6  t = 19.75..25.75  -> (1.82,-0.38) (1.82,-0.38) (1.82,-0.38) (1.82,-0.38)
+    %72 = OpCompositeExtract %v2float %55 1                     0  t = 25.75..25.75  -> (-1.55,0.87) (-1.55,0.87) (-1.55,0.87) (-1.55,0.87)
+    %73 = OpFConvert %v2double %72               conv           6  t = 25.75..31.75  -> (-1.55,0.87) (-1.55,0.87) (-1.55,0.87) (-1.55,0.87)
+    %74 = OpCompositeConstruct %mat2v2double %71 %73                0  t = 31.75..31.75  -> [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0. [(1.82,-0.38),(-1.55,0.
+    %77 = OpMatrixTimesVector %v2double %74 %68  fmul       129.5  t = 31.75..161.25  -> (1.1328,-0.7064) (1.1328,-0.7064) (1.1328,-0.7064) (1.1328,-0.7064)
+    %78 = OpCompositeExtract %double %77 0                      0  t = 161.25..161.25  -> 1.1328 1.1328 1.1328 1.1328
+    %79 = OpFConvert %float %78                  conv           3  t = 161.25..164.25  -> 1.1328 1.1328 1.1328 1.1328
+    %58 = OpAccessChain %_ptr_StorageBuffer_float %ucas_args %int_0                0  t = 164.25..164.25  -> &ucas_args[0] &ucas_args[0] &ucas_args[0] &ucas_args[0]
+    OpStore %58 %79                              store         15  t = 164.25..179.25
+  time 179.25 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 782x301, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 29.9 cost units; 187359 bytes
+  (nofile: GIF checksum f7074372)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  h3: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (62 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: ucas_args: 0.98 -0.11 -0.86 1.82 -0.38 -1.55 0.87 0.29 -1.95 0.52 1.63 -0.44 0.1 -0.99 -1.85
+  after:  ucas_args: 4.4957 1.009 3.4257 1.82 -0.38 -1.55 0.87 0.29 -1.95 0.52 1.63 -0.44 0.1 -0.99 -1.85
+  serial form:
+    %32 = OpAccessChain %_ptr_StorageBuffer_v3float %ucas_args %int_1                0  t = 0..0  -> &ucas_args[3] &ucas_args[3] &ucas_args[3] &ucas_args[3]
+    %33 = OpLoad %v3float %32                    load       6.875  t = 0..6.875  -> (1.82,-0.38,-1.55) (1.82,-0.38,-1.55) (1.82,-0.38,-1.55) (1.82,-0.38,-1.55)
+    %36 = OpAccessChain %_ptr_StorageBuffer_mat3v3float %ucas_args %int_2                0  t = 6.875..6.875  -> &ucas_args[6] &ucas_args[6] &ucas_args[6] &ucas_args[6]
+    %37 = OpLoad %mat3v3float %36                load       6.875  t = 6.875..13.75  -> [(0.87,0.29,-1.95),(0.5 [(0.87,0.29,-1.95),(0.5 [(0.87,0.29,-1.95),(0.5 [(0.87,0.29,-1.95),(0.5
+    %47 = OpTranspose %mat3v3float %37                          0  t = 13.75..13.75  -> [(0.87,0.52,0.1),(0.29, [(0.87,0.52,0.1),(0.29, [(0.87,0.52,0.1),(0.29, [(0.87,0.52,0.1),(0.29,
+    %49 = OpMatrixTimesVector %v3float %47 %33   fmul           9  t = 13.75..22.75  -> (4.4957,1.009,3.4257) (4.4957,1.009,3.4257) (4.4957,1.009,3.4257) (4.4957,1.009,3.4257)
+    %39 = OpAccessChain %_ptr_StorageBuffer_v3float %ucas_args %int_0                0  t = 22.75..22.75  -> &ucas_args[0] &ucas_args[0] &ucas_args[0] &ucas_args[0]
+    OpStore %39 %49                              store         15  t = 22.75..37.75
+  time 37.75 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 782x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 6.3 cost units; 137063 bytes
+  (nofile: GIF checksum 500b0d4f)

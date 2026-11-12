@@ -39,48 +39,48 @@ exec of SPIR-V (159 instructions), entry main, 4 lanes in lockstep, cost model g
     %76 = OpVectorShuffle %v3float %46 %46 0 1 2                0  t = 71.125..71.125  -> (2.251,1.4353,0.6) (1.5333,2.3098,1.7843) (1.1333,2.1686,2.2314) (2.251,0.66667,0.31765)
     %78 = OpVectorTimesScalar %v3float %76 %63   fmul           3  t = 71.125..74.125  -> (4.2016,2.679,1.1199) (2.2487,3.3874,2.6168) (2.5687,4.9153,5.0575) (4.2016,1.2444,0.5929)
     %144 = OpCompositeInsert %mat3v3float %78 %73 1                0  t = 74.125..74.125  -> [(1,0,0),(4.2016,2.679, [(1,0,0),(2.2487,3.3874 [(1,0,0),(2.5687,4.9153 [(1,0,0),(4.2016,1.2444
-    %83 = OpTranspose %mat3v3float %144          fmul           9  t = 74.125..83.125  -> [(1,4.2016,0),(0,2.679, [(1,2.2487,0),(0,3.3874 [(1,2.5687,0),(0,4.9153 [(1,4.2016,0),(0,1.2444
-    %85 = OpCompositeExtract %float %19 0                       0  t = 83.125..83.125  -> 0.50781 0.52344 0.50781 0.52344
-    %86 = OpCompositeExtract %float %19 1                       0  t = 83.125..83.125  -> 0.50781 0.50781 0.52344 0.52344
-    %87 = OpCompositeConstruct %v3float %85 %86 %float_1                0  t = 83.125..83.125  -> (0.50781,0.50781,1) (0.52344,0.50781,1) (0.50781,0.52344,1) (0.52344,0.52344,1)
-    %88 = OpMatrixTimesVector %v3float %83 %87   fmul           3  t = 83.125..86.125  -> (0.50781,4.614,1) (0.52344,5.514,1) (0.50781,8.9348,1) (0.52344,3.4435,1)
-    %91 = OpCompositeExtract %float %88 2                       0  t = 86.125..86.125  -> 1 1 1 1
-    %93 = OpFOrdLessThan %bool %91 %float_0      cmp        2.375  t = 86.125..88.5  -> false false false false
-    OpBranchConditional %93 %94 %95              branch      6.25  t = 88.5..94.75
-    %99 = OpLoad %12 %tex                        load       6.875  t = 94.75..101.625  -> tex1+smp1 tex1+smp1 tex1+smp1 tex1+smp1
-    %100 = OpImage %11 %99                                      0  t = 101.625..101.625  -> tex1 tex1 tex1 tex1
-    %101 = OpImageQuerySizeLod %v2int %100 %int_0                0  t = 101.625..101.625  -> (64,64) (64,64) (64,64) (64,64)
-    %102 = OpConvertSToF %v2float %101           conv           6  t = 101.625..107.625  -> (64,64) (64,64) (64,64) (64,64)
-    %107 = OpCompositeExtract %float %88 0                      0  t = 107.625..107.625  -> 0.50781 0.52344 0.50781 0.52344
-    %108 = OpCompositeExtract %float %88 1                      0  t = 107.625..107.625  -> 4.614 5.514 8.9348 3.4435
-    %110 = OpCompositeConstruct %v4float %107 %108 %91 %63                0  t = 107.625..107.625  -> (0.50781,4.614,1,1.8665 (0.52344,5.514,1,1.4665 (0.50781,8.9348,1,2.266 (0.52344,3.4435,1,1.866
-    %112 = OpCompositeExtract %float %102 0                     0  t = 107.625..107.625  -> 64 64 64 64
-    %113 = OpCompositeExtract %float %102 1                     0  t = 107.625..107.625  -> 64 64 64 64
-    %114 = OpCompositeConstruct %v4float %112 %113 %float_0 %float_0                0  t = 107.625..107.625  -> (64,64,0,0) (64,64,0,0) (64,64,0,0) (64,64,0,0)
-    %115 = OpFAdd %v4float %110 %114             fadd           4  t = 107.625..111.625  -> (64.508,68.614,1,1.8665 (64.523,69.514,1,1.4665 (64.508,72.935,1,2.2665 (64.523,67.443,1,1.8665
-    %119 = OpOuterProduct %mat2v2float %19 %19   fmul           4  t = 111.625..115.625  -> [(0.25787,0.25787),(0.2 [(0.27399,0.26581),(0.2 [(0.25787,0.26581),(0.2 [(0.27399,0.27399),(0.2
-    %120 = OpCompositeExtract %v2float %119 0                   0  t = 115.625..115.625  -> (0.25787,0.25787) (0.27399,0.26581) (0.25787,0.26581) (0.27399,0.27399)
-    %121 = OpCompositeExtract %float %120 0                     0  t = 115.625..115.625  -> 0.25787 0.27399 0.25787 0.27399
-    %122 = OpCompositeExtract %float %120 1                     0  t = 115.625..115.625  -> 0.25787 0.26581 0.26581 0.27399
-    %123 = OpCompositeConstruct %v4float %121 %122 %float_0 %float_0                0  t = 115.625..115.625  -> (0.25787,0.25787,0,0) (0.27399,0.26581,0,0) (0.25787,0.26581,0,0) (0.27399,0.27399,0,0)
-    %124 = OpFAdd %v4float %115 %123             fadd           4  t = 115.625..119.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
-    OpStore %o %124                                             0  t = 119.625..119.625
-    %125 = OpLoad %v4float %o                                   0  t = 119.625..119.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
-    %126 = OpVectorShuffle %v2float %125 %125 0 1                0  t = 119.625..119.625  -> (64.766,68.872) (64.797,69.78) (64.766,73.201) (64.797,67.717)
-    %127 = OpLoad %v4float %o                                   0  t = 119.625..119.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
-    %128 = OpVectorShuffle %v2float %127 %127 2 3                0  t = 119.625..119.625  -> (1,1.8665) (1,1.4665) (1,2.2665) (1,1.8665)
-    %131 = OpExtInst %v2float %2 SmoothStep %146 %147 %128 minmax         2  t = 119.625..121.625  -> (1,1) (1,1) (1,1) (1,1)
-    %135 = OpExtInst %v2float %2 Step %148 %19   minmax         2  t = 121.625..123.625  -> (1,1) (1,1) (1,1) (1,1)
-    %136 = OpExtInst %v2float %2 FMix %126 %131 %135 fmul           2  t = 123.625..125.625  -> (1,1) (1,1) (1,1) (1,1)
-    %138 = OpAccessChain %_ptr_Output_float %o %uint_0                0  t = 125.625..125.625  -> &o[0] &o[0] &o[0] &o[0]
-    %139 = OpCompositeExtract %float %136 0                     0  t = 125.625..125.625  -> 1 1 1 1
-    OpStore %138 %139                                           0  t = 125.625..125.625
-    %140 = OpAccessChain %_ptr_Output_float %o %uint_1                0  t = 125.625..125.625  -> &o[1] &o[1] &o[1] &o[1]
-    %141 = OpCompositeExtract %float %136 1                     0  t = 125.625..125.625  -> 1 1 1 1
-    OpStore %140 %141                                           0  t = 125.625..125.625
-  time 125.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 752x634, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 20.9 cost units; 511872 bytes
-  (nofile: GIF checksum 1328a75a)
+    %83 = OpTranspose %mat3v3float %144                         0  t = 74.125..74.125  -> [(1,4.2016,0),(0,2.679, [(1,2.2487,0),(0,3.3874 [(1,2.5687,0),(0,4.9153 [(1,4.2016,0),(0,1.2444
+    %85 = OpCompositeExtract %float %19 0                       0  t = 74.125..74.125  -> 0.50781 0.52344 0.50781 0.52344
+    %86 = OpCompositeExtract %float %19 1                       0  t = 74.125..74.125  -> 0.50781 0.50781 0.52344 0.52344
+    %87 = OpCompositeConstruct %v3float %85 %86 %float_1                0  t = 74.125..74.125  -> (0.50781,0.50781,1) (0.52344,0.50781,1) (0.50781,0.52344,1) (0.52344,0.52344,1)
+    %88 = OpMatrixTimesVector %v3float %83 %87   fmul           9  t = 74.125..83.125  -> (0.50781,4.614,1) (0.52344,5.514,1) (0.50781,8.9348,1) (0.52344,3.4435,1)
+    %91 = OpCompositeExtract %float %88 2                       0  t = 83.125..83.125  -> 1 1 1 1
+    %93 = OpFOrdLessThan %bool %91 %float_0      cmp        2.375  t = 83.125..85.5  -> false false false false
+    OpBranchConditional %93 %94 %95              branch      6.25  t = 85.5..91.75
+    %99 = OpLoad %12 %tex                        load       6.875  t = 91.75..98.625  -> tex1+smp1 tex1+smp1 tex1+smp1 tex1+smp1
+    %100 = OpImage %11 %99                                      0  t = 98.625..98.625  -> tex1 tex1 tex1 tex1
+    %101 = OpImageQuerySizeLod %v2int %100 %int_0                0  t = 98.625..98.625  -> (64,64) (64,64) (64,64) (64,64)
+    %102 = OpConvertSToF %v2float %101           conv           6  t = 98.625..104.625  -> (64,64) (64,64) (64,64) (64,64)
+    %107 = OpCompositeExtract %float %88 0                      0  t = 104.625..104.625  -> 0.50781 0.52344 0.50781 0.52344
+    %108 = OpCompositeExtract %float %88 1                      0  t = 104.625..104.625  -> 4.614 5.514 8.9348 3.4435
+    %110 = OpCompositeConstruct %v4float %107 %108 %91 %63                0  t = 104.625..104.625  -> (0.50781,4.614,1,1.8665 (0.52344,5.514,1,1.4665 (0.50781,8.9348,1,2.266 (0.52344,3.4435,1,1.866
+    %112 = OpCompositeExtract %float %102 0                     0  t = 104.625..104.625  -> 64 64 64 64
+    %113 = OpCompositeExtract %float %102 1                     0  t = 104.625..104.625  -> 64 64 64 64
+    %114 = OpCompositeConstruct %v4float %112 %113 %float_0 %float_0                0  t = 104.625..104.625  -> (64,64,0,0) (64,64,0,0) (64,64,0,0) (64,64,0,0)
+    %115 = OpFAdd %v4float %110 %114             fadd           4  t = 104.625..108.625  -> (64.508,68.614,1,1.8665 (64.523,69.514,1,1.4665 (64.508,72.935,1,2.2665 (64.523,67.443,1,1.8665
+    %119 = OpOuterProduct %mat2v2float %19 %19   fmul           4  t = 108.625..112.625  -> [(0.25787,0.25787),(0.2 [(0.27399,0.26581),(0.2 [(0.25787,0.26581),(0.2 [(0.27399,0.27399),(0.2
+    %120 = OpCompositeExtract %v2float %119 0                   0  t = 112.625..112.625  -> (0.25787,0.25787) (0.27399,0.26581) (0.25787,0.26581) (0.27399,0.27399)
+    %121 = OpCompositeExtract %float %120 0                     0  t = 112.625..112.625  -> 0.25787 0.27399 0.25787 0.27399
+    %122 = OpCompositeExtract %float %120 1                     0  t = 112.625..112.625  -> 0.25787 0.26581 0.26581 0.27399
+    %123 = OpCompositeConstruct %v4float %121 %122 %float_0 %float_0                0  t = 112.625..112.625  -> (0.25787,0.25787,0,0) (0.27399,0.26581,0,0) (0.25787,0.26581,0,0) (0.27399,0.27399,0,0)
+    %124 = OpFAdd %v4float %115 %123             fadd           4  t = 112.625..116.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
+    OpStore %o %124                                             0  t = 116.625..116.625
+    %125 = OpLoad %v4float %o                                   0  t = 116.625..116.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
+    %126 = OpVectorShuffle %v2float %125 %125 0 1                0  t = 116.625..116.625  -> (64.766,68.872) (64.797,69.78) (64.766,73.201) (64.797,67.717)
+    %127 = OpLoad %v4float %o                                   0  t = 116.625..116.625  -> (64.766,68.872,1,1.8665 (64.797,69.78,1,1.4665) (64.766,73.201,1,2.2665 (64.797,67.717,1,1.8665
+    %128 = OpVectorShuffle %v2float %127 %127 2 3                0  t = 116.625..116.625  -> (1,1.8665) (1,1.4665) (1,2.2665) (1,1.8665)
+    %131 = OpExtInst %v2float %2 SmoothStep %146 %147 %128 minmax         2  t = 116.625..118.625  -> (1,1) (1,1) (1,1) (1,1)
+    %135 = OpExtInst %v2float %2 Step %148 %19   minmax         2  t = 118.625..120.625  -> (1,1) (1,1) (1,1) (1,1)
+    %136 = OpExtInst %v2float %2 FMix %126 %131 %135 fmul           2  t = 120.625..122.625  -> (1,1) (1,1) (1,1) (1,1)
+    %138 = OpAccessChain %_ptr_Output_float %o %uint_0                0  t = 122.625..122.625  -> &o[0] &o[0] &o[0] &o[0]
+    %139 = OpCompositeExtract %float %136 0                     0  t = 122.625..122.625  -> 1 1 1 1
+    OpStore %138 %139                                           0  t = 122.625..122.625
+    %140 = OpAccessChain %_ptr_Output_float %o %uint_1                0  t = 122.625..122.625  -> &o[1] &o[1] &o[1] &o[1]
+    %141 = OpCompositeExtract %float %136 1                     0  t = 122.625..122.625  -> 1 1 1 1
+    OpStore %140 %141                                           0  t = 122.625..122.625
+  time 122.625 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 752x634, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 20.4 cost units; 499850 bytes
+  (nofile: GIF checksum 9528c111)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec of this seed 2 nofile
@@ -500,18 +500,18 @@ exec of SPIR-V (67 instructions), entry main, 4 lanes in lockstep, cost model gt
     %31 = OpCompositeConstruct %v3float %float_0_25 %29 %float_0                0  t = 2..2  -> (0.25,2.625,0) (0.25,2.625,0) (0.25,2.875,0) (0.25,2.875,0)
     %33 = OpCompositeConstruct %mat3v3float %30 %31 %57                0  t = 2..2  -> [(1.625,0.5,0),(0.25,2. [(1.875,0.5,0),(0.25,2. [(1.625,0.5,0),(0.25,2. [(1.875,0.5,0),(0.25,2.
     %36 = OpExtInst %mat3v3float %2 MatrixInverse %33 fmul           2  t = 2..4  -> [(0.63396,-0.12075,0),( [(0.54723,-0.10423,0),( [(0.6323,-0.10997,0),(- [(0.54599,-0.094955,0),
-    %42 = OpMatrixTimesMatrix %mat3v3float %36 %33 fmul           9  t = 4..13  -> [(1,0,0),(0,1,0),(0,0,1 [(1,8.3819e-09,0),(1.39 [(1,-1.8626e-09,0),(-2. [(1,5.5879e-09,0),(-4.6
-    %45 = OpCompositeExtract %float %42 0 0                     0  t = 13..13  -> 1 1 1 1
-    %47 = OpExtInst %float %2 Determinant %33    fmul           2  t = 13..15  -> 4.1406 4.7969 4.5469 5.2656
-    %49 = OpFMul %float %47 %float_0_125         fmul           1  t = 15..16  -> 0.51758 0.59961 0.56836 0.6582
-    %50 = OpLoad %v2float %uv                                   0  t = 16..16  -> (0.625,0.625) (0.875,0.625) (0.625,0.875) (0.875,0.875)
-    %53 = OpOuterProduct %mat2v2float %50 %50    fmul           4  t = 16..20  -> [(0.39062,0.39062),(0.3 [(0.76562,0.54688),(0.5 [(0.39062,0.54688),(0.5 [(0.76562,0.76562),(0.7
-    %55 = OpCompositeExtract %float %53 1 1                     0  t = 20..20  -> 0.39062 0.39062 0.76562 0.76562
-    %56 = OpCompositeConstruct %v4float %45 %49 %55 %float_1                0  t = 20..20  -> (1,0.51758,0.39062,1) (1,0.59961,0.39062,1) (1,0.56836,0.76562,1) (1,0.6582,0.76562,1)
-    OpStore %o %56                                              0  t = 20..20
-  time 20 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
-  animation: 728x569, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 3.3 cost units; 98330 bytes
-  (nofile: GIF checksum 107611a9)
+    %42 = OpMatrixTimesMatrix %mat3v3float %36 %33 fmul          27  t = 4..31  -> [(1,0,0),(0,1,0),(0,0,1 [(1,8.3819e-09,0),(1.39 [(1,-1.8626e-09,0),(-2. [(1,5.5879e-09,0),(-4.6
+    %45 = OpCompositeExtract %float %42 0 0                     0  t = 31..31  -> 1 1 1 1
+    %47 = OpExtInst %float %2 Determinant %33    fmul           2  t = 31..33  -> 4.1406 4.7969 4.5469 5.2656
+    %49 = OpFMul %float %47 %float_0_125         fmul           1  t = 33..34  -> 0.51758 0.59961 0.56836 0.6582
+    %50 = OpLoad %v2float %uv                                   0  t = 34..34  -> (0.625,0.625) (0.875,0.625) (0.625,0.875) (0.875,0.875)
+    %53 = OpOuterProduct %mat2v2float %50 %50    fmul           4  t = 34..38  -> [(0.39062,0.39062),(0.3 [(0.76562,0.54688),(0.5 [(0.39062,0.54688),(0.5 [(0.76562,0.76562),(0.7
+    %55 = OpCompositeExtract %float %53 1 1                     0  t = 38..38  -> 0.39062 0.39062 0.76562 0.76562
+    %56 = OpCompositeConstruct %v4float %45 %49 %55 %float_1                0  t = 38..38  -> (1,0.51758,0.39062,1) (1,0.59961,0.39062,1) (1,0.56836,0.76562,1) (1,0.6582,0.76562,1)
+    OpStore %o %56                                              0  t = 38..38
+  time 38 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 728x569, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 6.3 cost units; 98912 bytes
+  (nofile: GIF checksum 466cef40)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec of this seed 12 input 1 file img/ramp8.png input 2 file img/g16.jpg input 3 file img/g16.bmp input 4 file img/g16.gif nofile
