@@ -131,7 +131,7 @@ enum {
 
 typedef struct {
     GlslcView text; /* the token's text in the source, or in the synthesized text with GLSLC_TF_SYNTH */
-    uint16_t site;  /* where an error about it points: its own place, or the macro use it came out of */
+    uint32_t site;  /* where an error about it points: its own place, or the macro use it came out of */
     uint8_t kind;
     uint8_t flags;
 } GlslcToken;
@@ -152,8 +152,7 @@ typedef struct {
 } GlslcMacro;
 
 typedef struct {
-    uint16_t pos; /* the first source byte the directive numbers */
-    uint16_t pad;
+    uint32_t pos; /* the first source byte the directive numbers */
     uint32_t line; /* that byte's line */
 } GlslcLineMark;
 
@@ -608,6 +607,7 @@ typedef struct {
     void* bind_user;
     int map_default; /* the map places the default uniform block too */
     int flip_y;      /* gl_FragCoord and gl_PointCoord read through the push constant's flip */
+    int implicit;    /* ucas: GLSL 4.x's implicit conversions (int to uint, both to float) are made, for Vulkan GLSL */
     jmp_buf fail;
     /* the raw scanner */
     uint32_t cur;

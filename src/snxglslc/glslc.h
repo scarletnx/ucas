@@ -22,7 +22,7 @@
 #include <stdint.h>
 
 /* The bounds of one compilation. Positions and indices are 16 bits, so none is past 65535 */
-#define SNX_GLSLC_MAX_SOURCE       65535u  /* bytes of source: a view's position is 16 bits */
+#define SNX_GLSLC_MAX_SOURCE       1048576u /* bytes of source (65535 in ScarletNX, whose positions are 16 bits) */
 #define SNX_GLSLC_MAX_TOKENS       32768u  /* tokens after preprocessing, the end included */
 #define SNX_GLSLC_MAX_MACROS       512u    /* #define'd names, predefined ones included */
 #define SNX_GLSLC_MAX_MACRO_TOKENS 8192u   /* the parameters and bodies of every macro */
@@ -46,7 +46,8 @@ typedef enum { SNX_GLSLC_VERTEX = 0, SNX_GLSLC_FRAGMENT = 1, SNX_GLSLC_COMPUTE =
 
 /* A piece of the source: source[pos, pos + len) */
 typedef struct {
-    uint16_t pos, len;
+    uint32_t pos; /* 32 bits in ucas: a Vulkan shader with its includes is past 64 KiB */
+    uint16_t len;
 } GlslcView;
 
 /* What the shader's interface became, for the caller to bind: GLSL ES names its inputs and resources, Vulkan numbers
