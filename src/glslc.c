@@ -24,13 +24,20 @@
 
 #include "ucas.h"
 
-#define MAXTOOL (256 * 1024)
+/*
+ * A tool's output is kept whole or the run fails: a disassembly cut short
+ * reads as a module whose branches lead nowhere.  A large shader's is a
+ * few megabytes (BC7 with its ASTC decoder: 0.5 MiB; with the ASTC
+ * encoder: 1.1 MiB), and spirv-opt -O takes 8 s and 480 MiB on that one.
+ */
+#define MAXTOOL (32UL << 20)
 
-/* run argv with limits; its output (both streams) into out */
+/* run argv with limits; its output (both streams) into out; -2 when the
+ * output is more than MAXTOOL */
 int
 tool_run(char *const argv[], struct sbuf *out)
 {
-	int fd[2], st = 0;
+	int fd[2], st = 0, over = 0;
 	pid_t pid;
 	char tmp[4096];
 	ssize_t r;
@@ -43,8 +50,8 @@ tool_run(char *const argv[], struct sbuf *out)
 		return -1;
 	}
 	if (pid == 0) {
-		struct rlimit cpu = {5, 5}, mem = {512UL << 20, 512UL << 20},
-		    fsz = {8UL << 20, 8UL << 20};
+		struct rlimit cpu = {60, 60}, mem = {2048UL << 20, 2048UL << 20},
+		    fsz = {32UL << 20, 32UL << 20};
 		int nul = open("/dev/null", O_RDONLY);
 		setrlimit(RLIMIT_CPU, &cpu);
 		setrlimit(RLIMIT_AS, &mem);
@@ -59,12 +66,18 @@ tool_run(char *const argv[], struct sbuf *out)
 		_exit(127);
 	}
 	close(fd[1]);
-	while ((r = read(fd[0], tmp, sizeof tmp)) > 0)
-		if (out->n < MAXTOOL)
-			sb_printf(out, "%.*s", (int)r, tmp);
+	while ((r = read(fd[0], tmp, sizeof tmp)) > 0) {
+		if (out->n + (size_t)r > MAXTOOL) {
+			over = 1;
+			continue;	/* drained, so the tool ends */
+		}
+		sb_printf(out, "%.*s", (int)r, tmp);
+	}
 	close(fd[0]);
 	while (waitpid(pid, &st, 0) < 0)
 		;
+	if (over)
+		return -2;
 	return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
@@ -294,6 +307,63 @@ guess_decl(const char *src, const char *name, struct sbuf *decl,
 	    "how it is used");
 }
 
+/* word w in src, as a whole word */
+static int
+has_word(const char *src, const char *w)
+{
+	size_t n = strlen(w);
+	const char *p = src;
+
+	while ((p = strstr(p, w)) != NULL) {
+		if ((p == src || !(isalnum((unsigned char)p[-1]) || p[-1] == '_')) &&
+		    !(isalnum((unsigned char)p[n]) || p[n] == '_'))
+			return 1;
+		p += n;
+	}
+	return 0;
+}
+
+/*
+ * The stage src is compiled as: what it says ("#pragma shader_stage(X)",
+ * glslang's own way), else the block's tag (```vert, ```frag, ```comp: a
+ * file's extension), else what only one stage has: a workgroup, a written
+ * gl_Position or the vertex's index, a fragment's built-ins.
+ */
+static const char *
+glsl_stage(const char *src, int has_main)
+{
+	static const char *const st[][2] = {{"vertex", "vert"}, {"fragment",
+	    "frag"}, {"compute", "comp"}, {"geometry", "geom"}, {"tesscontrol",
+	    "tesc"}, {"tesseval", "tese"}, {"vert", "vert"}, {"frag", "frag"},
+	    {"comp", "comp"}, {"geom", "geom"}, {"tesc", "tesc"}, {"tese",
+	    "tese"}};
+	const char *p = strstr(src, "#pragma shader_stage");
+	size_t k;
+
+	if (p != NULL && (p = strchr(p, '(')) != NULL) {
+		p++;
+		while (*p == ' ')
+			p++;
+		for (k = 0; k < 6; k++)
+			if (!strncmp(p, st[k][0], strlen(st[k][0])))
+				return st[k][1];
+	}
+	if (!has_main)
+		return "comp";
+	for (k = 6; k < 12; k++)
+		if (!strcmp(code_block_lang, st[k][0]))
+			return st[k][1];
+	if (strstr(src, "local_size") || has_word(src, "gl_GlobalInvocationID") ||
+	    has_word(src, "gl_LocalInvocationID") ||
+	    has_word(src, "gl_LocalInvocationIndex") ||
+	    has_word(src, "gl_WorkGroupID"))
+		return "comp";
+	if (has_word(src, "gl_Position") || has_word(src, "gl_VertexIndex") ||
+	    has_word(src, "gl_InstanceIndex") || has_word(src, "gl_VertexID"))
+		return "vert";
+	return "frag";
+}
+
 /*
  * src (GLSL) to SPIR-V assembly in out; 1 on success, else 0 with the
  * compiler's errors in notes
@@ -302,30 +372,44 @@ int
 glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes)
 {
 	struct sbuf body = {0}, decl = {0}, full = {0}, log = {0};
-	const char *stage;
+	const char *stage, *env = "vulkan1.1";
 	int tries, ok = 0, has_main = strstr(src, "main") != NULL &&
 	    strstr(src, "void main") != NULL;
 
-	if (has_main)
-		stage = strstr(src, "gl_FragCoord") || strstr(src, "out vec4") ?
-		    "frag" : strstr(src, "gl_Position") ? "vert" : "comp";
-	else
-		stage = "comp";
-	if (has_main && !strcmp(stage, "comp") && !strstr(src, "local_size") &&
-	    !strstr(src, "gl_GlobalInvocationID") &&
-	    !strstr(src, "gl_LocalInvocation"))
-		stage = "frag";
+	stage = glsl_stage(src, has_main);
 	sb_puts(&body, src);
+	{
+		/* #line directives blanked: the lines reported are the text's own
+		 * (a preprocessed shader names its included files there) */
+		char *l = body.p;
+		while (l != NULL && *l) {
+			char *e = strchr(l, '\n'), *c = l;
+			while (*c == ' ' || *c == '\t')
+				c++;
+			if (*c == '#') {
+				c++;
+				while (*c == ' ' || *c == '\t')
+					c++;
+				if (!strncmp(c, "line", 4) && !isalnum((unsigned char)c[4]) &&
+				    c[4] != '_')
+					for (c = l; *c && *c != '\n'; c++)
+						*c = ' ';
+			}
+			l = e ? e + 1 : NULL;
+		}
+	}
 	for (tries = 0; tries < 8; tries++) {
 		char path[] = "/tmp/ucas-glsl-XXXXXX.glsl";
 		char spv[] = "/tmp/ucas-glsl-XXXXXX.spv";
 		char st[8];
+		char tenv[16];
 		char *argv[] = {"glslangValidator", "-g", "-V", "--target-env",
-		    "vulkan1.1", "-S", st, "-o", spv, path, NULL};
+		    tenv, "-S", st, "-o", spv, path, NULL};
 		const char *e, *l;
 		int changed = 0;
 
 		snprintf(st, sizeof st, "%s", stage);
+		snprintf(tenv, sizeof tenv, "%s", env);
 		sb_clear(&full);
 		sb_puts(&full, "");
 		{
@@ -380,9 +464,11 @@ glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes)
 				/* optimized as a real pipeline would: spirv-opt -O */
 				if (nb > 0) {
 					char opath[] = "/tmp/ucas-opt-XXXXXX.spv";
-					char *oargv[] = {"spirv-opt", "-O", spv, "-o", opath,
-					    NULL};
+					char oenv[32];
+					char *oargv[] = {"spirv-opt", "-O", oenv, spv, "-o",
+					    opath, NULL};
 					struct sbuf olog = {0};
+					snprintf(oenv, sizeof oenv, "--target-env=%s", env);
 					if (tool_tmp(opath, "", 0) == 0) {
 						if (tool_run(oargv, &olog) == 0) {
 							FILE *of = fopen(opath, "rb");
@@ -409,6 +495,13 @@ glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes)
 					free(olog.p);
 				}
 				ok = nb > 0 && spv_disassemble(bin, nb, out);
+				if (nb > 0 && !ok) {
+					/* not the compiler's error: the reason is said */
+					sb_printf(notes, "  the module could not be disassembled "
+					    "(spirv-dis missing, or its text is more than %lu "
+					    "MiB)\n", MAXTOOL >> 20);
+					sb_clear(out);
+				}
 				free(bin);
 				/* the temporary file's name (in OpString) as a fixed one */
 				if (ok && out->p) {
@@ -442,6 +535,15 @@ glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes)
 				continue;
 			guess_decl(src, name, &decl, notes);
 			changed = 1;
+		}
+		if (!changed && !strcmp(env, "vulkan1.1") && log.p != NULL &&
+		    (strstr(log.p, "required extension not requested") ||
+		    strstr(log.p, "not supported for this version") ||
+		    strstr(log.p, "requires SPIR-V") || strstr(log.p, "SPIR-V 1."))) {
+			/* what Vulkan 1.1 has only as an extension (gl_Layer written
+			 * by a vertex shader, the integer dot products): 1.3 has it */
+			env = "vulkan1.3";
+			continue;
 		}
 		if (!changed) {
 			/* the errors, without the banner */

@@ -287,6 +287,16 @@ parse(const char *src)
 				src_text = xmalloc((size_t)(z - q) + 1);
 				memcpy(src_text, q + 1, (size_t)(z > q ? z - q - 1 : 0));
 				src_text[z > q ? z - q - 1 : 0] = 0;
+				{
+					/* spirv-dis writes a quote as \" and a backslash as \\ */
+					char *r = src_text, *w = src_text;
+					while (*r) {
+						if (r[0] == '\\' && (r[1] == '"' || r[1] == '\\'))
+							r++;
+						*w++ = *r++;
+					}
+					*w = 0;
+				}
 			}
 			n = (int)(end - p);
 			if ((size_t)n + 1 > linecap) {
