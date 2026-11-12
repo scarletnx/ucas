@@ -200,3 +200,61 @@ find pc: 1024 points (sampled; matches verified on the whole domain), computing 
 find dg: 1000 points, computing in u32, costs from gt1030
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16777 distinct columns, bank full; 'more' continues]
+> fld(v: u32, y: u32) = (((v >> 3) & 7) == 0 ? 3 : ((v >> 3) & 7) == 1 ? 7 : ((v >> 3) & 7) == 2 ? 1 : ((v >> 3) & 7) == 5 ? 9 : 0) + y
+> find fld 1
+find fld: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 9   (0x900173 >> ((v >> 3 & 7) << 2) & 15) + y the map u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : … (24 more characters) of v >> 3 & 7 as a table in one constant (8 entries of 4 bits) (derived; checked by SAT)
+      holds where v >> 3 & 7 in [0, 7] (interval arithmetic over the parameters' ranges)
+      u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : … (24 more characters) at v >> 3 & 7 = 0..7 is [3, 7, 1, 0, 0, 9, 0, 0] (evaluated at each of the 8)
+      bits [4*i, 4*i + 4) of 0x900173 hold the value at v >> 3 & 7 = i: shifting right by that many bits times v >> 3 & 7 and masking reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> qb(v: u32, y: u32) = ((v & 255)*31 + 127)/255 + y
+> find qb 1
+find qb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 9   (8225(31(v & 0xff) + 127) >> 0x15) + y   the division (31(v & 0xff) + 127)/255 as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where 31(v & 0xff) + 127 in [127, 8032] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^21/255) = 8225, so M*255 = 2^21 + 223
+      x*M/2^21 = x/255 + x*223/(255*2^21): the excess is below 1/255 while x*223 < 2^21, and x/255 is at least 1/255 below the next integer, so floor(x*M/2^21) = floor(x/255)
+      x <= 8032: x*223 <= 1791136 < 2^21, and x*M <= 66063200 < 2^32, so the product does not wrap in u32
+  cost 6   (249(v & 0xff) + 1014 >> 11) + y         the map (31(v & 0xff) + 127)/255 of v & 0xff as a multiply and a shift in u32 (derived; checked on a sample)
+      holds where v & 0xff in [0, 255] (interval arithmetic over the parameters' ranges)
+      (31(v & 0xff) + 127)/255 at v & 0xff = 0..255 is [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, ... (240 more)] (evaluated at each of the 256)
+      with i = v & 0xff, M = 249 and A = 1014: each value w has w*2^11 <= i*M + A < (w + 1)*2^11 (the closest: 0 above at v & 0xff = 218, 12 below at v & 0xff = 37), so (i*M + A) >> 11 is w
+      i*M + A stays in 0..65535, inside u32: computed mod 2^32 from v & 0xff itself, as v & 0xff*0xf9 + 0x3f6, it is the same number
+  dot products under gt1030 (sums of products laid into lanes; cost 14.75 as written):
+  cost 11.75 (udot4x8(v, 0x1f) + 127)/255 + y
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (v & 0xff) * 31
+           v & 0xff is bits 0..7 of v: lane 0 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..7905: it does not wrap
+           proved by SAT: 2443 AIG nodes, 0 conflicts
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> wide(v: u32, y: u32) = ((v & 31) == 3 ? 1 : (v & 31) == 9 ? 2 : (v & 31) == 30 ? 3 : 0) + y
+> find wide 1
+find wide: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> it(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 }
+> find it 1
+  note: the result is int: searching in u8
+find it: 12 points, computing in u8, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 6   int(0x3bbeecc >> (u32(m) << 1) & 3) + 28 the map m == 2 ? 28 : m == 4 || m == 6 || m == 9 || m == 11 ? 30 : 3… (1 more characters) of m as a table in one constant (12 entries of 2 bits) (derived; checked on every point)
+      holds where m in [1, 12] (its range)
+      m == 2 ? 28 : m == 4 || m == 6 || m == 9 || m == 11 ? 30 : 3… (1 more characters) at m = 1..12 is [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] (evaluated at each of the 12)
+      bits [2*i, 2*i + 2) of 0x3bbeecc hold the value at m = i, less the least value: shifting right by that many bits times m and masking reads it
+  cost 6   u8(0x3bbeecc >> (u32(m) << 1) & 3) + 28  packed table in one constant
+  [searched every term up to cost 5: 1398101 distinct columns, bank full; 'more' continues]
+> use shiftdear
+cost model: shiftdear
+> find fld 1
+find fld: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from shiftdear
+  derived, but not cheaper under shiftdear (cost 63, as written 38): the map u32(t1 == 0 ? 3 : t1 == 1 ? 7 : t1 == 2 ? 1 : t1 == 5 ? 9 : … (24 more characters) of v >> 3 & 7 as a table in one constant (8 entries of 4 bits)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030

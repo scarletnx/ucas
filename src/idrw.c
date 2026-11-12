@@ -294,6 +294,12 @@ idrw_node(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 
 struct mapv {
 	nid s, x;		/* the map and its variable */
+	nid from, key;		/* in the function: the subterm that is the map,
+				 * and what its variable stands for (x itself,
+				 * or the subterm a fresh x was put in place
+				 * of) */
+	ty_t t;			/* the type the result is computed in */
+	char why[120];		/* why the key stays in lo..hi */
 	int64_t lo, hi;		/* the variable's range */
 	int K;
 	int64_t *v;		/* the map's value at lo + i */
@@ -344,7 +350,7 @@ values_text(struct sbuf *b, const struct mapv *m)
 {
 	int i;
 
-	sb_printf(b, "%s at %s = %lld..%lld is [", sstr(m->s), sstr(m->x),
+	sb_printf(b, "%s at %s = %lld..%lld is [", sstr(m->from), sstr(m->key),
 	    (long long)m->lo, (long long)m->hi);
 	for (i = 0; i < m->K && i < MAP_LISTED; i++)
 		sb_printf(b, "%s%lld", i ? ", " : "", (long long)m->v[i]);
@@ -359,7 +365,7 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
     int *cnt, int *cap)
 {
 	static const int widths[] = {1, 2, 4, 8, 16};
-	ty_t t = N.ty[m->s];
+	ty_t t = m->t;
 	uint64_t span = (uint64_t)(m->vmax - m->vmin), C = 0, bmask;
 	int b = bits_for(span), bw = 0, i, direct, off;
 	nid idx, sh, r, to;
@@ -398,18 +404,20 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 			to = mk_bin(O_ADD, to, mk_const_i(t, m->vmin));
 	}
 	snprintf(what, sizeof what, "the map %s of %s as a table in one "
-	    "constant (%d entries of %d bit%s)", sstr(m->s), sstr(m->x), m->K,
+	    "constant (%d entries of %d bit%s)", sstr(m->from), sstr(m->key), m->K,
 	    bw, bw > 1 ? "s" : "");
-	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (its range)",
-	    sstr(m->x), (long long)m->lo, (long long)m->hi);
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (%s)", sstr(m->key),
+	    (long long)m->lo, (long long)m->hi, m->why);
 	values_text(&pf, m);
 	sb_printf(&pf, "\nbits [%d*i, %d*i + %d) of 0x%llx hold the value at "
 	    "%s = %s%s: shifting right by %s%s%s reads it", bw, bw, bw,
-	    (unsigned long long)C, sstr(m->x), direct ? "i" : "lo + i",
+	    (unsigned long long)C, sstr(m->key), direct ? "i" : "lo + i",
 	    m->vmin ? ", less the least value" : "", bw > 1 ? "that many "
-	    "bits times " : "", direct ? sstr(m->x) : "the offset from lo",
+	    "bits times " : "", direct ? sstr(m->key) : "the offset from lo",
 	    t == TY_BOOL ? " and taking the low bit" : " and masking");
-	irw_add(out, cnt, cap, root, m->s, to, what, cond, sb_str(&pf), 1);
+	if (m->key != m->x)
+		to = xreplace(to, m->x, m->key);
+	irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf), 1);
 	free(pf.p);
 	return 1;
 }
@@ -452,7 +460,7 @@ static int
 map_mulshift(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
     int *cnt, int *cap)
 {
-	ty_t t = N.ty[m->s];
+	ty_t t = m->t;
 	int64_t base = m->vmin < 0 ? m->vmin : 0, wmax = m->vmax - base;
 	int64_t dv = m->v[m->K - 1] - m->v[0], M = 0, alo = 0, ahi = 0, A;
 	int s, found = 0, i, ilo = 0, ihi = 0;
@@ -516,24 +524,27 @@ map_mulshift(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 	if (base)
 		to = mk_bin(O_ADD, to, mk_const_i(t, base));
 	snprintf(what, sizeof what, "the map %s of %s as a multiply and a "
-	    "shift in u32", sstr(m->s), sstr(m->x));
-	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (its range)",
-	    sstr(m->x), (long long)m->lo, (long long)m->hi);
+	    "shift in u32", sstr(m->from), sstr(m->key));
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (%s)", sstr(m->key),
+	    (long long)m->lo, (long long)m->hi, m->why);
 	values_text(&pf, m);
 	sb_printf(&pf, "\nwith i = %s%s, M = %lld and A = %lld: each value%s "
 	    "w has w*2^%d <= i*M + A < (w + 1)*2^%d (the closest: %lld above at "
 	    "%s = %lld, %lld below at %s = %lld), so (i*M + A) >> %d is w",
-	    sstr(m->x), m->lo ? " - lo" : "", (long long)M, (long long)A,
+	    sstr(m->key), m->lo ? " - lo" : "", (long long)M, (long long)A,
 	    base ? ", less the least one," : "", s, s, (long long)(A - alo),
-	    sstr(m->x), (long long)(m->lo + ilo), (long long)(ahi - A),
-	    sstr(m->x), (long long)(m->lo + ihi), s);
+	    sstr(m->key), (long long)(m->lo + ilo), (long long)(ahi - A),
+	    sstr(m->key), (long long)(m->lo + ihi), s);
 	sb_printf(&pf, "\ni*M + A stays in 0..%lld, inside u32: computed mod "
 	    "2^32 from %s itself, as %s*0x%x", (long long)((wmax + 1) *
-	    (1LL << s) - 1), sstr(m->x), sstr(m->x), Mu);
+	    (1LL << s) - 1), sstr(m->key), sstr(m->key), Mu);
 	if (Au)
 		sb_printf(&pf, " + 0x%x", Au);
 	sb_printf(&pf, ", it is the same number");
-	rw = irw_add(out, cnt, cap, root, m->s, to, what, cond, sb_str(&pf), 1);
+	if (m->key != m->x)
+		to = xreplace(to, m->x, m->key);
+	rw = irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf),
+	    1);
 	if (rw)
 		rw->nosat = 1;
 	free(pf.p);
@@ -599,37 +610,42 @@ map_info(nid n, struct mapinfo *mi, nid *var)
 		}
 }
 
+/* m: the map (s over x in lo..hi, from and key set); slot is x's */
 static int
-map_try(struct ivc *c, nid root, nid s, nid x, int slot, struct irw **out,
+map_try(struct ivc *c, nid root, struct mapv *m, int slot, struct irw **out,
     int *cnt, int *cap)
 {
-	struct mapv m;
+	nid s = m->s, x = m->x;
 	int added = 0;
 
-	memset(&m, 0, sizeof m);
-	if (!c->g.p[slot].ranged || N.ty[x] == TY_BOOL || N.ty[s] == TY_LIT)
+	if (N.ty[x] == TY_BOOL || N.ty[x] == TY_LIT)
 		return 0;
-	m.s = s;
-	m.x = x;
-	m.lo = c->g.p[slot].lo;
-	m.hi = c->g.p[slot].hi;
-	if (m.hi < m.lo || m.hi - m.lo >= MAP_POINTS || m.hi - m.lo < 1 ||
-	    m.lo <= -(1LL << 31) || m.hi >= (1LL << 32))
+	/* literal arms: the map is computed as an int where it is the whole
+	 * function (find searches in a machine type anyway) */
+	m->t = N.ty[m->from];
+	if (m->t == TY_LIT) {
+		if (m->from != root)
+			return 0;
+		m->t = TY_INT;
+	}
+	if (m->hi < m->lo || m->hi - m->lo >= MAP_POINTS || m->hi - m->lo < 1 ||
+	    m->lo <= -(1LL << 31) || m->hi >= (1LL << 32))
 		return 0;
-	m.K = (int)(m.hi - m.lo + 1);
+	m->K = (int)(m->hi - m->lo + 1);
 	/* one compare of the variable: a threshold is already one operation */
 	if ((opinfo[N.op[s]].fl & OF_CMP) && (N.a[s] == x || is_const(N.a[s])) &&
 	    (N.b[s] == x || is_const(N.b[s])))
 		return 0;
-	if (map_values(c, &m, slot) && m.vmin != m.vmax) {
-		added |= map_lut(c, root, &m, out, cnt, cap);
+	if (map_values(c, m, slot) && m->vmin != m->vmax) {
+		added |= map_lut(c, root, m, out, cnt, cap);
 		/* a quotient of the variable itself is rw_divk's, and one
 		 * by a power of two is already a shift */
 		if (!((N.op[s] == O_DIV || N.op[s] == O_MOD) && is_const(N.b[s])
 		    && (N.a[s] == x || pow2(N.ki[N.b[s]]))))
-			added |= map_mulshift(c, root, &m, out, cnt, cap);
+			added |= map_mulshift(c, root, m, out, cnt, cap);
 	}
-	free(m.v);
+	free(m->v);
+	m->v = NULL;
 	return added;
 }
 
@@ -655,6 +671,100 @@ map_push(nid n, nid *st, uint32_t sp)
 	return sp;
 }
 
+/*
+ * Maps whose key is not a parameter but a subterm with a small proved
+ * range, (v >> 3) & 7: the largest subterms that read the parameters
+ * only through that key are evaluated with a fresh variable in its
+ * place, at each value of its range, and the table or the multiply-
+ * shift is written back on the key itself.  Keys are taken innermost
+ * first, so the largest map that fits is the one offered; a subterm
+ * that already has a candidate is left alone.
+ */
+#define MAP_KEYS 24
+
+static void
+map_keys(struct ivc *c, nid root, const struct mapinfo *mi, uint8_t *took,
+    nid *st, struct irw **out, int *cnt, int *cap)
+{
+	uint32_t lim = (uint32_t)root + 1, sp;
+	uint8_t *fk, *seedk, *mark;
+	nid k, n;
+	int nkey = 0, slot = c->f->np;
+
+	if (slot >= MAXP)
+		return;		/* no parameter slot left for the key */
+	fk = xmalloc(lim);
+	seedk = xmalloc(lim);
+	mark = xmalloc(lim);
+	for (k = 1; k < root && nkey < MAP_KEYS; k++) {
+		int64_t lo, hi;
+		struct mapv m;
+		nid xv;
+
+		if (!mi[k].reach || !mi[k].ok || !mi[k].sup || N.op[k] == O_CONST
+		    || N.op[k] == O_VAR || N.ty[k] == TY_BOOL || N.ty[k] == TY_LIT ||
+		    TY_FP(N.ty[k]))
+			continue;
+		memset(&m, 0, sizeof m);
+		if (!irw_range(c, k, INT64_MIN, &lo, &hi, m.why, sizeof m.why) ||
+		    hi - lo < 1 || hi - lo >= MAP_POINTS)
+			continue;
+		nkey++;
+		/* what is a function of k alone, above it */
+		memset(fk, 0, lim);
+		memset(seedk, 0, lim);
+		memset(mark, 0, lim);
+		fk[k] = 1;
+		for (n = k + 1; n < lim; n++) {
+			nid o[3] = {N.a[n], N.b[n], N.c[n]};
+			int i, dep = 0, bad = 0, sd = map_seed(N.op[n]);
+			if (!mi[n].reach || !mi[n].ok || N.op[n] == O_CONST ||
+			    N.op[n] == O_VAR || N.op[n] == O_TABLE)
+				continue;
+			for (i = 0; i < 3; i++) {
+				if (!o[i])
+					continue;
+				if (o[i] < lim && fk[o[i]]) {
+					dep = 1;
+					sd |= seedk[o[i]];
+				} else if (!is_const(o[i]) && !(N.op[o[i]] == O_TABLE &&
+				    !mi[o[i]].sup))
+					bad = 1;	/* reads something else */
+			}
+			fk[n] = (uint8_t)(dep && !bad);
+			seedk[n] = (uint8_t)(fk[n] && sd);
+		}
+		xv = 0;
+		sp = 0;
+		st[sp++] = root;
+		while (sp) {
+			n = st[--sp];
+			if (n <= k || n >= lim || mark[n] || took[n])
+				continue;
+			mark[n] = 1;
+			if (fk[n] && seedk[n]) {
+				if (!xv)
+					xv = mk_var((uint32_t)slot, sym_cstr("key"), N.ty[k]);
+				m.from = n;
+				m.key = k;
+				m.x = xv;
+				m.s = xreplace(n, k, xv);
+				m.lo = lo;
+				m.hi = hi;
+				if (m.s && m.s != n && map_try(c, root, &m, slot, out,
+				    cnt, cap)) {
+					took[n] = 1;
+					continue;
+				}
+			}
+			sp = map_push(n, st, sp);
+		}
+	}
+	free(fk);
+	free(seedk);
+	free(mark);
+}
+
 /* the largest subterms that read one small-range parameter and decide
  * or divide; where neither form fits, their operands in turn */
 void
@@ -662,7 +772,7 @@ idrw_maps(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap)
 {
 	uint32_t lim = N.n, sp = 0;
 	struct mapinfo *mi = xcalloc(lim, sizeof *mi);
-	uint8_t *mark = xcalloc(lim, 1);
+	uint8_t *mark = xcalloc(lim, 1), *took = xcalloc(lim, 1);
 	nid *st = xmalloc(((size_t)lim * 3 + N.nlst + 4) * sizeof *st);
 	nid var[MAXP] = {0}, n;
 
@@ -685,15 +795,27 @@ idrw_maps(struct ivc *c, nid root, struct irw **out, int *cnt, int *cap)
 		mark[n] = 1;
 		if (mi[n].ok && mi[n].seed && mi[n].sup && !(mi[n].sup &
 		    (mi[n].sup - 1))) {
+			struct mapv m;
 			int slot = 0;
 			while (!((mi[n].sup >> slot) & 1))
 				slot++;
-			if (map_try(c, root, n, var[slot], slot, out, cnt, cap))
+			memset(&m, 0, sizeof m);
+			m.s = m.from = n;
+			m.x = m.key = var[slot];
+			m.lo = c->g.p[slot].lo;
+			m.hi = c->g.p[slot].hi;
+			snprintf(m.why, sizeof m.why, "its range");
+			if (c->g.p[slot].ranged && map_try(c, root, &m, slot, out,
+			    cnt, cap)) {
+				took[n] = 1;
 				continue;
+			}
 		}
 		sp = map_push(n, st, sp);
 	}
+	map_keys(c, root, mi, took, st, out, cnt, cap);
 	free(mi);
 	free(mark);
+	free(took);
 	free(st);
 }

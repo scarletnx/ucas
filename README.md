@@ -1699,7 +1699,14 @@ lower, and otherwise listed as "derived, but not cheaper".
     derivation prints the two values of x where the fit is tightest.
 
   The largest such subterms are tried first, their operands where
-  neither form fits.
+  neither form fits.  The key need not be a parameter: a subterm with a
+  small proved range (`(v >> 3) & 7`, `v & 255`) is one too, for the
+  largest subterms that read the parameters only through it; they are
+  evaluated with a fresh variable in its place and the table or the
+  multiply-shift is written on the key itself (innermost keys first, so
+  the largest map that fits is the one offered).  A map with literal
+  arms (`match m { 2 => 28, ... }`) is read as an int where it is the
+  whole function.
 
 ```
 > dv(n: u32) = n % 7 == 0
