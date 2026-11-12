@@ -2791,10 +2791,27 @@ exec_one(const struct sins *I, uint32_t mask)
 		return;
 	}
 	if (!strncmp(I->op, "OpAtomic", 8)) {
-		int p = opid(I, 1), sc;
+		static const char *const known[] = {"IAdd", "ISub", "IIncrement",
+			"IDecrement", "SMin", "SMax", "UMin", "UMax", "And", "Or",
+			"Xor", "Exchange", "Store", "Load", "CompareExchange",
+			"FAddEXT", NULL};
+		const struct model *mo = model_active();
+		int p = opid(I, 1), sc, cls, j;
 		struct lval pv = val(p, 0);
 		const char *a = I->op + 8;
+		double cost;
+		for (j = 0; known[j] && strcmp(a, known[j]) != 0; j++)
+			;
+		if (!known[j])
+			fail("SPIR-V: %s is not run by the executor", I->op);
 		sc = pv.var >= 0 ? V.id[pv.var].sc : SC_SHARED;
+		/* a float add has its own class; a model without it prices it
+		 * as an integer atomic */
+		cls = sc == SC_WG ? C_ATOM_SH : C_ATOM_GL;
+		if (!strcmp(a, "FAddEXT") && model_lists(mo, sc == SC_WG ?
+		    C_ATOM_SH_F : C_ATOM_GL_F))
+			cls = sc == SC_WG ? C_ATOM_SH_F : C_ATOM_GL_F;
+		cost = (double)model_cost(mo, cls);
 		for (l = 0; l < V.lanes; l++) {
 			struct lval ptr, *r;
 			uint64_t *m, old, x = 0, tw = 0;
@@ -2821,6 +2838,7 @@ exec_one(const struct sins *I, uint32_t mask)
 			    V.id[ptr.var].slotty[ptr.off >= 0 && ptr.off <
 			    V.id[ptr.var].nslots ? ptr.off : 0];
 			if (!strcmp(a, "IAdd")) *m = puti(st, geti(st, old) + geti(st, x));
+			else if (!strcmp(a, "FAddEXT")) *m = putf(st, getf(st, old) + getf(st, x));
 			else if (!strcmp(a, "ISub")) *m = puti(st, geti(st, old) - geti(st, x));
 			else if (!strcmp(a, "IIncrement")) *m = puti(st, geti(st, old) + 1);
 			else if (!strcmp(a, "IDecrement")) *m = puti(st, geti(st, old) - 1);
@@ -2846,9 +2864,7 @@ exec_one(const struct sins *I, uint32_t mask)
 				r->b[0] = old;
 			}
 			/* one lane at a time */
-			k = emit(I, I_ATOMIC, sc == SC_WG ? C_ATOM_SH : C_ATOM_GL,
-			    model_active()->c[sc == SC_WG ? C_ATOM_SH : C_ATOM_GL],
-			    1u << l);
+			k = emit(I, I_ATOMIC, cls, cost, 1u << l);
 			if (I->res >= 0 && k >= 0) {
 				char buf[64];
 				fmt(buf, sizeof buf, V.id[I->res].type, LV(I->res, l));
