@@ -10163,6 +10163,159 @@ adv_vertex_inputs(struct sbuf *rep, const struct model *m)
 	free(seen);
 }
 
+/* ---- advice: a discard the clipper could do ---- */
+
+/* the cone under id reads an Input decorated d (a NoPerspective one) */
+static int
+adv_reads_decorated(int id, const char *d, int depth)
+{
+	int k = SP.def[id], i;
+	const struct sins *I;
+
+	if (k < 0 || depth > 64)
+		return 0;
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpLoad") || !strcmp(I->op, "OpAccessChain") ||
+	    !strcmp(I->op, "OpInBoundsAccessChain")) {
+		int chain, var = mem_base_var(idx(I->opnd[1]), &chain);
+		if (var >= 0 && adv_decorated(var, d))
+			return 1;
+	}
+	for (i = first_arg(I); i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && adv_reads_decorated(idx(I->opnd[i]),
+		    d, depth + 1))
+			return 1;
+	return 0;
+}
+
+/* the instruction of the module that does something besides writing
+ * its outputs (a store to memory others see, an atomic, an image
+ * write): its index, -1 none */
+static int
+adv_effect(void)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strncmp(I->op, "OpAtomic", 8) || !strcmp(I->op,
+		    "OpImageWrite"))
+			return k;
+		if (!strcmp(I->op, "OpStore") && I->nop >= 1) {
+			int chain, var = mem_base_var(idx(I->opnd[0]), &chain);
+			const char *sc = var >= 0 ? mem_sc(var) : "";
+			if (var < 0 || (strcmp(sc, "Output") && strcmp(sc, "Function")
+			    && strcmp(sc, "Private")))
+				return k;
+		}
+	}
+	return -1;
+}
+
+/*
+ * A fragment shader's discard on the sign of a value affine in the
+ * perspective-correct varyings, compared with a value of the draw: the
+ * vertex shader could write the difference as gl_ClipDistance, which is
+ * interpolated in clip space as those varyings are, and the clipper
+ * removes the part where it is below 0, so no fragment runs there.
+ * Only for a shader whose sole effect is its outputs: a clipped fragment
+ * never runs, a discarded one ran up to the discard.  Not priced: no
+ * model prices a fragment's whole run or the clipper.
+ */
+static void
+adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
+{
+	int k, j, n = 0, eff = -2;
+	char sl[160];
+
+	for (k = 1; k < V.nin; k++) {
+		const struct sins *I = &V.in[k], *C;
+		const char *lab, *why = NULL;
+		int br = -1, kill_true = 0, c, a, b, va, sign, l = k - 1;
+		if (strcmp(I->op, "OpKill") && strcmp(I->op, "OpTerminateInvocation"))
+			continue;
+		while (l > 0 && mem_debug_op(V.in[l].op))
+			l--;	/* OpLine and the like, which -g keeps */
+		if (strcmp(V.in[l].op, "OpLabel") || V.in[l].res < 0)
+			continue;	/* a block that only discards */
+		lab = V.id[V.in[l].res].tok;
+		for (j = 0; j < V.nin && br < 0; j++)
+			if (!strcmp(V.in[j].op, "OpBranchConditional") &&
+			    V.in[j].nop >= 3 && (!strcmp(V.in[j].opnd[1], lab) ||
+			    !strcmp(V.in[j].opnd[2], lab)))
+				br = j;
+		if (br < 0)
+			continue;
+		kill_true = !strcmp(V.in[br].opnd[1], lab);
+		c = SP.def[idx(V.in[br].opnd[0])];
+		if (c < 0)
+			continue;
+		C = &V.in[c];
+		if (C->nop < 3 || (strncmp(C->op, "OpFOrd", 6) && strncmp(C->op,
+		    "OpFUnord", 8)) || (!strstr(C->op, "LessThan") &&
+		    !strstr(C->op, "GreaterThan")))
+			continue;
+		a = idx(C->opnd[1]);
+		b = idx(C->opnd[2]);
+		if (fq[a] == FQ_VERTEX && fq[b] <= FQ_DRAW)
+			va = a;
+		else if (fq[b] == FQ_VERTEX && fq[a] <= FQ_DRAW)
+			va = b;
+		else
+			continue;
+		if (eff == -2)
+			eff = adv_effect();
+		if (adv_reads_decorated(va, "NoPerspective", 0))
+			why = "the value reads a noperspective varying, and a clip "
+			    "distance is interpolated in clip space";
+		else if (eff >= 0)
+			why = "the shader does more than write its outputs (a store "
+			    "others see, an atomic or an image write), which a clipped "
+			    "fragment would not do";
+		/* kept where a >= b (or a > b): the distance a - b; else b - a */
+		sign = strstr(C->op, "LessThan") != NULL ? 1 : -1;
+		if (!kill_true)
+			sign = -sign;
+		if (!rep->n)
+			sb_printf(rep, "advice (changes outside the module; nothing "
+			    "here is rewritten), priced under %s:\n",
+			    sym_str(m->name));
+		if (!n++) {
+			sb_printf(rep, "  discards the clipper could do (each a "
+			    "proposal: the vertex shader writes gl_ClipDistance and no "
+			    "fragment runs where it is below 0; not priced: %s has no "
+			    "price for a fragment's whole run):\n", sym_str(m->name));
+			rep_list("advice_clip");
+		}
+		sb_printf(rep, "    %s\n", C->text);
+		src_line(ins_line(c), sl, sizeof sl);
+		if (sl[0])
+			sb_printf(rep, "  %s", sl);
+		rep_obj(NULL);
+		rep_str("instruction", C->text);
+		rep_int("line", ins_line(c));
+		if (why) {
+			sb_printf(rep, "      not offered: %s\n", why);
+			rep_str("not_offered", why);
+		} else {
+			sb_printf(rep, "      the fragment is discarded where it %s, %s "
+			    "affine in the perspective-correct varyings and %s a value "
+			    "of the draw: gl_ClipDistance[i] = %s - %s at each vertex keeps "
+			    "the rest (the plane where they are equal aside), since a "
+			    "clip distance is interpolated in clip space as those "
+			    "varyings are; equal as real functions, the clipper's "
+			    "arithmetic and the interpolation's rounding apart\n",
+			    kill_true ? "holds" : "fails", V.id[va].tok, V.id[va == a ?
+			    b : a].tok, sign > 0 ? V.id[a].tok : V.id[b].tok, sign > 0 ?
+			    V.id[b].tok : V.id[a].tok);
+			rep_str("clip_distance", "offered");
+		}
+		rep_end();
+	}
+	if (n)
+		rep_end();
+}
+
 static void
 advice_pass(const char *text, int asked)
 {
@@ -10436,11 +10589,13 @@ advice_pass(const char *text, int asked)
 	}
 	if (!strcmp(stage, "Vertex"))
 		adv_vertex_inputs(&rep, m);
+	if (!strcmp(stage, "Fragment"))
+		adv_clip(&rep, m, fq);
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
 		    "its uniforms or its flat inputs, is affine in its varyings "
-		    "or in gl_FragCoord, or is what a vertex format or an "
-		    "instance divisor computes\n");
+		    "or in gl_FragCoord, is what a vertex format or an instance "
+		    "divisor computes, or is a discard the clipper could do\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);

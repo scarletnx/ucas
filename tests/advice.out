@@ -107,7 +107,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
-advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, or is what a vertex format or an instance divisor computes
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, or is a discard the clipper could do
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile advice
@@ -206,3 +206,45 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 7: float num = gl_FragCoord.x * pc.pl.x + pc.pl.y;)
     %41 = OpFAdd %float %37 %40   (2)
         (line 8: float den = gl_FragCoord.y * pc.pl.z + pc.pl.w;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 70 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a vertex: 2 instructions costing 2 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
+    a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 2 a pixel is worth 2 a vertex and 1 more varying
+    %28 = OpFAdd %float %22 %27   (2)
+        (line 6: if (dot(wpos, pc.plane.xyz) + pc.plane.w < 0.0) discard;)
+  discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
+    %31 = OpFOrdLessThan %bool %28 %float_0
+        (line 6: if (dot(wpos, pc.plane.xyz) + pc.plane.w < 0.0) discard;)
+      the fragment is discarded where it holds, %28 affine in the perspective-correct varyings and %float_0 a value of the draw: gl_ClipDistance[i] = %28 - %float_0 at each vertex keeps the rest (the plane where they are equal aside), since a clip distance is interpolated in clip space as those varyings are; equal as real functions, the clipper's arithmetic and the interpolation's rounding apart
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 45 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 2: 'noperspective' is a word GLSL ES 3.10 reserves); main (line 5: 'np' is not declared))
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
+    %13 = OpFOrdGreaterThan %bool %10 %float_0_5
+        (line 5: if (np > 0.5) discard;)
+      not offered: the value reads a noperspective varying, and a clip distance is interpolated in clip space
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 63 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
+    %24 = OpFOrdLessThan %bool %21 %float_0_25
+        (line 7: if (h < 0.25) discard;)
+      not offered: the shader does more than write its outputs (a store others see, an atomic or an image write), which a clipped fragment would not do
