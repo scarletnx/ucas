@@ -70,7 +70,6 @@ simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: main (line 7: the built-in function imageAtomicAdd is not in GLSL ES 3.10))
 memory under fixed:
   a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
     %36 = OpAtomicIAdd %uint %35 %uint_1 %uint_0 %uint_1

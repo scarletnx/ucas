@@ -1,0 +1,54 @@
+# The function level reads Vulkan's GLSL whole: what GLSL ES (the parser's
+# language) has not is brought to it or declared ahead of the code.
+# 8-bit storage types, a specialization constant (a value it does not know,
+# not its default), a global initialized from one, layout(offset), the
+# implicit conversions (int to uint, both to float), an image read and
+# written, fma, and a file's #line directive with its name:
+simplify functions nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_8bit_storage : require
+#line 1 "/src/bucket.comp"
+layout(local_size_x = 64) in;
+layout(constant_id = 0) const uint SCALE = 1u;
+layout(std430, binding = 0) buffer B { uint8_t o[]; };
+layout(binding = 1, rgba8) uniform image2D img;
+layout(push_constant) uniform P { layout(offset = 16) uint base; };
+const uint twice = SCALE * 2u;
+int Bucket(int v) { return v / 10 + v % 7; }
+uint Scaled(uint v) { return v / twice; }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    uint u = Bucket(i) + 1;
+    float f = fma(u, 2, 1);
+    vec4 c = imageLoad(img, ivec2(i, 0));
+    imageStore(img, ivec2(i, 0), c * f);
+    o[base + i] = uint8_t(u + Scaled(u) + min(u, 3));
+}
+```
+# A vertex shader is compiled as one when the block's tag says so (a file's
+# extension), or by gl_VertexIndex and gl_Position; gl_Layer is written:
+simplify functions nofile
+```vert
+#version 450
+#extension GL_ARB_shader_viewport_layer_array : require
+layout(location = 0) out vec2 uv;
+layout(push_constant) uniform P { uint layer; };
+int Corner(int v) { return v / 2 + v % 2; }
+void main() {
+    int k = gl_VertexIndex & 3;
+    uv = vec2(float(Corner(k)), float(k & 1));
+    gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+    gl_Layer = int(layer);
+}
+```
+# "#pragma shader_stage" says it too, whatever the tag:
+simplify functions nofile
+```glsl
+#version 450
+#pragma shader_stage(fragment)
+layout(location = 0) flat in int k;
+layout(location = 0) out vec4 col;
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() { col = vec4(Bucket(k & 1023) + gl_SampleID, 0, 0, 1); }
+```
