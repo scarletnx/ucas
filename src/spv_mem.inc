@@ -2339,6 +2339,285 @@ mem_atomics(const struct model *m, struct mem_out *o, int *changed)
 	}
 }
 
+/* ---- a scatter's atomic as fixed function (rop.c) ---- */
+
+/*
+ * The cell an atomic's pointer names: a buffer's variable and the member
+ * its access chain starts with, or an image's variable (through
+ * OpImageTexelPointer).  *member is the member's constant (NULL: none).
+ * -1: neither.
+ */
+static int
+mem_cell(int ptr, const char **member, int *img)
+{
+	int chain, var, k = SP.def[ptr];
+
+	*member = NULL;
+	*img = 0;
+	if (k >= 0 && !strcmp(V.in[k].op, "OpImageTexelPointer") &&
+	    V.in[k].nop >= 2) {
+		*img = 1;
+		var = idx(V.in[k].opnd[1]);
+		return V.id[var].kind == K_VAR ? var : -1;
+	}
+	var = mem_base_var(ptr, &chain);
+	if (var < 0)
+		return -1;
+	if (chain >= 0 && V.in[chain].nop >= 3) {
+		int t = V.id[var].type;
+		if (t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_PTR &&
+		    V.id[T(t)->e].kind == K_TYPE && T(T(t)->e)->k == S_STRUCT)
+			*member = V.in[chain].opnd[2];
+	}
+	return var;
+}
+
+/* the update an atomic applies, as rop reads it: F(s, d) */
+static int
+mem_rop_op(const char *a, int *op, int *flt)
+{
+	static const struct { const char *a; int op, flt; } t[] = {
+		{"IAdd", O_ADD, 0}, {"ISub", O_SUB, 0}, {"IIncrement", O_ADD, 0},
+		{"IDecrement", O_SUB, 0}, {"UMin", O_MIN, 0}, {"UMax", O_MAX, 0},
+		{"And", O_AND, 0}, {"Or", O_OR, 0}, {"Xor", O_XOR, 0},
+		{"FAddEXT", O_ADD, 1}, {"FMinEXT", O_MIN, 1}, {"FMaxEXT", O_MAX, 1},
+		{NULL, 0, 0}};
+	int i;
+
+	for (i = 0; t[i].a; i++)
+		if (!strcmp(a, t[i].a)) {
+			*op = t[i].op;
+			*flt = t[i].flt;
+			return 1;
+		}
+	return 0;
+}
+
+/*
+ * A buffer's or an image's atomic whose old value no invocation reads is
+ * the update F(s, d) = d op s of a scatter: rop's catalogue says which
+ * fixed-function state computes it.  Where the model prices one below the
+ * atomic, it is proposed with the pipeline it needs (the dispatch becomes
+ * a draw of one point per atomic; nothing is written).  s's range is what
+ * the value's computation gives it, d's the assumption on the buffer
+ * member or the image (`hist in [0, 1000000]`): without one, d is any
+ * value of its type.
+ */
+static void
+mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
+{
+	int k, j, shown = 0;
+	char sl[200];
+
+	if (!cclass_available(m, C_ROP_BLEND) && !cclass_available(m,
+	    C_ROP_ADV) && !cclass_available(m, C_ROP_LOGIC) &&
+	    !cclass_available(m, C_ROP_STENCIL))
+		return;		/* the model prices no state: nothing to offer */
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *a = I->op + 8, *member, *sc, *cn, *why = NULL;
+		int var, img, op, flt, t, w, sign, other = -1;
+		int64_t dlo = 0, dhi = 0, slo = 0, shi = 0;
+		int dr = 0, sr = 0;
+		struct rop_offer ro;
+		struct func f;
+		ty_t ty;
+		nid vs, vd;
+
+		if (strncmp(I->op, "OpAtomic", 8) != 0 || I->res < 0 ||
+		    I->nop < 4 || mem_used(I->res) || !mem_rop_op(a, &op, &flt))
+			continue;
+		var = mem_cell(idx(I->opnd[1]), &member, &img);
+		if (var < 0)
+			continue;
+		sc = mem_sc(var);
+		if (!img && strcmp(sc, "StorageBuffer") != 0 && !(!strcmp(sc,
+		    "Uniform") && mem_bufferblock(var)))
+			continue;	/* workgroup memory: no target holds it */
+		t = idx(I->opnd[0]);
+		w = T(t)->w;
+		sign = T(t)->sign;
+		/* the cell's name: the member's, else the variable's */
+		{
+			static char nb[64];
+			const char *vn = V.id[var].name;
+			int st = T(V.id[var].type)->e, mi;
+			if (*vn == '%')
+				vn++;
+			cn = vn;
+			if (member != NULL && V.id[idx(member)].kind == K_CONST) {
+				mi = (int)V.id[idx(member)].c[0];
+				for (j = 0; j < V.nin; j++)
+					if (!strcmp(V.in[j].op, "OpMemberName") &&
+					    V.in[j].nop >= 3 && idx(V.in[j].opnd[0]) == st &&
+					    atoi(V.in[j].opnd[1]) == mi) {
+						const char *mn = V.in[j].opnd[2];
+						snprintf(nb, sizeof nb, "%.*s", (int)strlen(mn) - 2,
+						    mn + 1);
+						cn = nb;
+						break;
+					}
+			}
+		}
+		/* every other access of the cell's array: the same atomic */
+		for (j = 0; j < V.nin && other < 0; j++) {
+			const struct sins *J = &V.in[j];
+			const char *m2;
+			int i2, v2, ptr;
+			if (j == k)
+				continue;
+			if (!strcmp(J->op, "OpLoad") || !strncmp(J->op, "OpAtomic", 8))
+				ptr = J->nop >= 2 ? idx(J->opnd[1]) : -1;
+			else if (!strcmp(J->op, "OpStore") || !strcmp(J->op,
+			    "OpCopyMemory"))
+				ptr = J->nop >= 1 ? idx(J->opnd[0]) : -1;
+			else
+				continue;
+			if (ptr < 0)
+				continue;
+			if (img && !strcmp(J->op, "OpLoad") && ptr == var) {
+				other = j;	/* the image itself, for a read or write */
+				break;
+			}
+			v2 = mem_cell(ptr, &m2, &i2);
+			if (v2 != var || (member && m2 && strcmp(member, m2) != 0))
+				continue;
+			if (strcmp(J->op, I->op) != 0 || mem_used(J->res))
+				other = j;
+		}
+		if (!shown++) {
+			mem_hdr(o, m);
+			printf("  a scatter's atomics as fixed function (rop: each a "
+			    "proposal, not applied; the dispatch becomes a draw):\n");
+		}
+		printf("    %s\n", I->text);
+		src_line(ins_line(k), sl, sizeof sl);
+		fputs(sl, stdout);
+		if (other >= 0) {
+			src_line(ins_line(other), sl, sizeof sl);
+			printf("      not proposed: %s is also %s here, which a render "
+			    "target cannot serve in the pass that blends into it:\n"
+			    "      %s\n", cn, strncmp(V.in[other].op, "OpAtomic", 8) ?
+			    "read or written" : "updated by another operation",
+			    V.in[other].text);
+			fputs(sl, stdout);
+			continue;
+		}
+		if (flt && w != 32)
+			why = "rop's float targets are f32";
+		else if (!flt && sign)
+			why = "a signed atomic: rop takes unsigned integers (issue "
+			    "#206)";
+		else if (!flt && w != 32)
+			why = "rop's integer targets here are 32-bit";
+		if (why) {
+			printf("      not proposed: %s\n", why);
+			continue;
+		}
+		ty = flt ? TY_F32 : TY(K_UINT, 32);
+		/* s: the value, or the 1 an increment adds */
+		if (!strcmp(a, "IIncrement") || !strcmp(a, "IDecrement")) {
+			slo = shi = 1;
+			sr = 1;
+		} else if (!flt && I->nop >= 5) {
+			int vid = idx(I->opnd[4]);
+			if (V.id[vid].kind == K_CONST && !V.id[vid].spec) {
+				slo = shi = geti(t, V.id[vid].c[0]);
+				sr = 1;
+			} else {
+				struct memg *G = xcalloc(1, sizeof *G);
+				nid v;
+				memg_lanes(G, lsize);
+				G->at = k;
+				G->f.name = sym_cstr("_ropv");
+				G->f.anon = 1;
+				v = memg_build(G, vid, 0);
+				if (!G->fail && TY_ISINT(N.ty[v])) {
+					struct plan pl;
+					struct ival *iv;
+					nid r0 = v;
+					plan_build(&pl, &r0, 1, 0);
+					iv = xcalloc(pl.n ? pl.n : 1, sizeof *iv);
+					plan_ival(&pl, &G->f, iv);
+					if (pl.root[0] < pl.n && !iv[pl.root[0]].top &&
+					    !iv[pl.root[0]].wrap && iv[pl.root[0]].lo >= 0 &&
+					    iv[pl.root[0]].hi <= (int64_t)UINT32_MAX) {
+						slo = iv[pl.root[0]].lo;
+						shi = iv[pl.root[0]].hi;
+						sr = 1;
+					}
+					free(iv);
+					plan_free(&pl);
+				}
+				free(G);
+			}
+		}
+		for (j = 0; j < SP.nas && !flt; j++)
+			if (name_is(cn, SP.as[j].name) || !strcmp(cn, SP.as[j].name)) {
+				dlo = SP.as[j].lo;
+				dhi = SP.as[j].hi;
+				dr = 1;
+			}
+		memset(&f, 0, sizeof f);
+		f.name = sym_cstr(cn);
+		f.anon = 1;
+		f.np = 2;
+		f.p[0].name = sym_cstr("v");
+		f.p[0].ty = ty;
+		f.p[0].ranged = sr;
+		f.p[0].lo = slo;
+		f.p[0].hi = shi;
+		f.p[1].name = sym_cstr("d");
+		f.p[1].ty = ty;
+		f.p[1].ranged = dr;
+		f.p[1].lo = dlo;
+		f.p[1].hi = dhi;
+		vs = mk_var(0, f.p[0].name, ty);
+		vd = mk_var(1, f.p[1].name, ty);
+		f.body = mk_bin(op, vd, vs);
+		printf("      the update: d = %s (d a cell of %s, v what the atomic "
+		    "brings, %s)\n", shared_str(f.body, 60), cn, ty_str(ty));
+		if (flt)
+			printf("        d and v: any value (a float update needs no "
+			    "range)\n");
+		else {
+			if (dr)
+				printf("        d in [%lld, %lld] (assumed)", (long long)dlo,
+				    (long long)dhi);
+			else
+				printf("        d: any value (no assumption on %s)", cn);
+			if (sr && slo == shi)
+				printf(", v = %lld\n", (long long)slo);
+			else if (sr)
+				printf(", v in [%lld, %lld] (from its computation)\n",
+				    (long long)slo, (long long)shi);
+			else
+				printf(", v: any value\n");
+		}
+		if (rop_offer(&f, (struct model *)m, &ro) != 1) {
+			printf("      not proposed: %s\n", ro.near[0] ? ro.near :
+			    "no state the model prices below the atomic computes it");
+			if (ro.bound && !dr)
+				printf("      (if %s's values are bounded, say so: `%s in "
+				    "[0, N]`)\n", cn, cn);
+			continue;
+		}
+		printf("      %s: %s\n", ro.family, ro.state);
+		if (ro.holds[0])
+			printf("        holds where %s\n", ro.holds);
+		printf("        %s\n", ro.proof);
+		printf("        price: %s %g a fragment under %s, against %g (%s): "
+		    "%+g a contribution\n", cclass_name[ro.cls], (double)ro.cost,
+		    sym_str(m->name), (double)ro.against, ro.againstwhy,
+		    (double)ro.cost - (double)ro.against);
+		printf("        pipeline: %s; the invocation that ran the atomic "
+		    "draws a point at the cell instead (its %s %s the point's "
+		    "position), and %s's values come from the target after the "
+		    "draw (copied or converted back)\n", ro.pipeline, img ?
+		    "coordinate in" : "index into", cn, cn);
+	}
+}
+
 /* ---- the pass ---- */
 
 static char *
@@ -2742,6 +3021,7 @@ mem_pass(const char *text, int *changed)
 				free(G[q]);
 		}
 	mem_atomics(m, &mo, changed);
+	mem_rop(m, lsize, &mo);
 	/* the variables that became i32: their types, after the bank pass
 	 * (a padded row grows the outermost array) */
 	for (i = 0; i < nrt; i++)
