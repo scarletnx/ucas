@@ -1,0 +1,33 @@
+# animate exec on workgroup memory: a load or a store is priced as its
+# kind (load_shared, store_shared), with the bank conflicts of the
+# addresses the lanes use
+#
+# a column of a 32 x 32 block: every lane on bank 0 (the store and the
+# first load), then a row: one address a bank
+animate exec lanes 32 seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint sh[1024];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    sh[lane * 32u] = lane;
+    barrier();
+    outb.o[lane] = sh[lane * 32u] + sh[lane];
+}
+```
+# under a model that lists no memory kinds they are a load and a store
+animate exec lanes 32 seed 1 nofile zen4
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint sh[1024];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    sh[lane * 32u] = lane;
+    barrier();
+    outb.o[lane] = sh[lane * 32u] + sh[lane];
+}
+```

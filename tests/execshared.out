@@ -1,0 +1,48 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec lanes 32 seed 1 nofile
+exec of SPIR-V (71 instructions), entry main, 32 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3 5 3 1 3 6 1 2 6 3 6 3 3
+  after:  outb: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+  note: 16 accesses outside a variable (first: outb): read as 0 and writes dropped, as with robustBufferAccess; random inputs may not be valid data for this shader
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0
+    %16 = OpLoad %uint %15                                      0  t = 0..0
+    %23 = OpIMul %uint %16 %uint_32              imul           3  t = 0..3
+    %26 = OpAccessChain %_ptr_Workgroup_uint %sh %23 iadd           1  t = 3..4
+    OpStore %26 %16                              store_shared   127  t = 4..131
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 131..140.125
+    %39 = OpLoad %uint %26                       load_shared   127  t = 140.125..267.125
+    %41 = OpAccessChain %_ptr_Workgroup_uint %sh %16 iadd           1  t = 267.125..268.125
+    %42 = OpLoad %uint %41                       load_shared     3  t = 268.125..271.125
+    %43 = OpIAdd %uint %39 %42                   iadd           1  t = 271.125..272.125
+    %45 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 272.125..273.125
+    OpStore %45 %43                              store         15  t = 273.125..288.125
+  time 288.125 for every lane; lanes busy 97% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 1604x394, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 48.0 cost units; 348311 bytes
+  (nofile: GIF checksum 4990065a)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec lanes 32 seed 1 nofile zen4
+exec of SPIR-V (71 instructions), entry main, 32 lanes in lockstep, cost model zen4
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3 5 3 1 3 6 1 2 6 3 6 3 3
+  after:  outb: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+  note: 16 accesses outside a variable (first: outb): read as 0 and writes dropped, as with robustBufferAccess; random inputs may not be valid data for this shader
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0
+    %16 = OpLoad %uint %15                                      0  t = 0..0
+    %23 = OpIMul %uint %16 %uint_32              imul           3  t = 0..3
+    %26 = OpAccessChain %_ptr_Workgroup_uint %sh %23 iadd           1  t = 3..4
+    OpStore %26 %16                              store          1  t = 4..5
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier       33  t = 5..38
+    %39 = OpLoad %uint %26                       load           4  t = 38..42
+    %41 = OpAccessChain %_ptr_Workgroup_uint %sh %16 iadd           1  t = 42..43
+    %42 = OpLoad %uint %41                       load           4  t = 43..47
+    %43 = OpIAdd %uint %39 %42                   iadd           1  t = 47..48
+    %45 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 48..49
+    OpStore %45 %43                              store          1  t = 49..50
+  time 50 for every lane; lanes busy 34% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 1604x394, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 8.3 cost units; 360250 bytes
+  (nofile: GIF checksum e555cc35)

@@ -110,6 +110,7 @@ static struct {
 } V;
 
 #include "img.h"
+#include "memk.h"
 
 /*
  * Images: every image, sampled image and sampler binding (and each
@@ -1507,6 +1508,53 @@ emit_vals(int k, const struct sins *I, uint32_t mask)
 		}
 }
 
+/*
+ * A load or a store of workgroup memory by the lanes of mask through
+ * pointer p: its kind's price with the bank conflicts of the addresses
+ * the lanes use (the largest number of different addresses on one bank,
+ * each after the first at bank_conflict).  A model that lists no memory
+ * kinds prices it as any load or store, as before.  *cls: the class it is
+ * shown under.
+ */
+static double
+wg_price(int p, uint32_t mask, int store, int *cls)
+{
+	const struct model *m = model_active();
+	int banks = (int)m->par[MP_BANKS], bytes = (int)m->par[MP_BANK_BYTES];
+	long addr[NL];
+	int n = 0, l, i, j, deg = 1, kind = store ? C_STORE_SHARED :
+	    C_LOAD_SHARED;
+
+	*cls = model_lists(m, kind) ? kind : store ? C_STORE : C_LOAD;
+	if (banks <= 0 || bytes <= 0)
+		return bank_price(m, store, 1);
+	for (l = 0; l < V.lanes; l++) {
+		struct lval a;
+		const struct sid *d;
+		long at = 0;
+		if (!(mask >> l & 1))
+			continue;
+		a = val(p, l);
+		d = &V.id[a.var];
+		/* the byte the access starts at: the slots before it */
+		for (i = 0; i < a.off && i < d->nslots; i++)
+			at += T(d->slotty[i])->w > 32 ? 8 : 4;
+		for (i = 0; i < n; i++)
+			if (addr[i] == at)
+				break;
+		if (i == n)
+			addr[n++] = at;
+	}
+	for (i = 0; i < n; i++) {
+		int same = 0;
+		for (j = 0; j < n; j++)
+			same += addr[j] / bytes % banks == addr[i] / bytes % banks;
+		if (same > deg)
+			deg = same;
+	}
+	return bank_price(m, store, deg);
+}
+
 /* ---- arithmetic ---- */
 
 static uint64_t
@@ -2527,9 +2575,13 @@ exec_one(const struct sins *I, uint32_t mask)
 			for (i = 0; i < nwords(pt); i++)
 				*slot(a.var, l, a.off + i) = x.b[i];
 		}
-		k = emit(I, I_OP, sc == SC_SHARED || sc == SC_WG ? C_STORE : -1,
-		    sc == SC_SHARED || sc == SC_WG ? model_active()->c[C_STORE] : 0,
-		    mask);
+		if (sc == SC_WG) {
+			int cls;
+			double c = wg_price(p, mask, 1, &cls);
+			k = emit(I, I_OP, cls, c, mask);
+		} else
+			k = emit(I, I_OP, sc == SC_SHARED ? C_STORE : -1,
+			    sc == SC_SHARED ? model_active()->c[C_STORE] : 0, mask);
 		(void)k;
 		return;
 	}
@@ -2547,8 +2599,13 @@ exec_one(const struct sins *I, uint32_t mask)
 			for (i = 0; i < nwords(rt); i++)
 				r->b[i] = *slot(a.var, l, a.off + i);
 		}
-		k = emit(I, I_OP, shared_sc(sc) ? C_LOAD : -1, shared_sc(sc) ?
-		    model_active()->c[C_LOAD] : 0, mask);
+		if (sc == SC_WG) {
+			int cls;
+			double c = wg_price(p, mask, 0, &cls);
+			k = emit(I, I_OP, cls, c, mask);
+		} else
+			k = emit(I, I_OP, shared_sc(sc) ? C_LOAD : -1, shared_sc(sc) ?
+			    model_active()->c[C_LOAD] : 0, mask);
 		emit_vals(k, I, mask);
 		return;
 	}
