@@ -1706,6 +1706,9 @@ parse_fuse(struct P *p, struct model *m)
 		else if (accept_kw(p, "in")) {
 			while (pk(p) == T_ID && (s = ttext(p, p->i, &n)) != NULL &&
 			    (k = cclass_find(s, n)) >= 0) {
+				if (k >= 64)
+					fail("`in %s`: a modifier's users are among "
+					    "the first 64 classes", cclass_name[k]);
 				f.users |= 1ULL << k;
 				adv(p);
 			}
@@ -1851,7 +1854,8 @@ parse_model(struct P *p)
 			if (k == C_STORE)
 				store_given = 1;
 			if (k < C_NBASE)
-				given |= 1ULL << k;
+				if (k < 64)	/* the classes it asks about are */
+					given |= 1ULL << k;
 		}
 	}
 	/* a model that does not price stores: as dear as its loads */

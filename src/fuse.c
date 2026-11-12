@@ -138,7 +138,7 @@ fuse_text(struct sbuf *b, const struct fusion *f)
 		sb_puts(b, " contract");
 	if (f->users) {
 		sb_puts(b, " in");
-		for (k = 0; k < C_NCLASS; k++)
+		for (k = 0; k < C_NCLASS && k < 64; k++)
 			if (f->users >> k & 1)
 				sb_printf(b, " %s", cclass_name[k]);
 	}
@@ -506,6 +506,7 @@ fg_cover(const struct model *m, struct fgraph *g)
 		for (j = 0; j < n; j++)
 			for (k = 0; k < 3; k++)
 				if (g->arg[j][k] >= 0 && (g->cls[j] < 0 ||
+				    g->cls[j] >= 64 ||	/* the mask's width */
 				    !(f->users >> g->cls[j] & 1)))
 					bad[g->arg[j][k]] = 1;
 		for (i = 0; i < n; i++) {
