@@ -21,6 +21,7 @@
 #include "memk.h"
 #include "report.h"
 #include "texalu.h"
+#include "texenc.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -2056,6 +2057,19 @@ seed_sum(nid body, nid root)
 		    "(the shader sees k/255)" : g.ti.cls == C_TEX_SAMPLE ?
 		    " times 255 as bytes" : " as f32", g.H > 1 ? "vec2(x, y)" :
 		    "x");
+		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1) {
+			/* the same texels in half the bytes, when BC4's palettes
+			 * hold them exactly (texenc.c) */
+			struct texenc te;
+			if (texenc_bc4(g.ti.tab, (int)g.W, &te)) {
+				if (te.err == 0 && te.bw * te.bh * 8 < g.W * g.H)
+					sb_printf(&pipe, "\nthe same texels are exact as "
+					    "BC4_UNORM blocks, %d bytes against %lld "
+					    "(texenc; a BC4 read is not priced apart)",
+					    te.bw * te.bh * 8, (long long)(g.W * g.H));
+				texenc_free(&te);
+			}
+		}
 		(void)sx;
 		(void)sy;
 	}
