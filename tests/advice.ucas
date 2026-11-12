@@ -115,3 +115,39 @@ void main() {
     o[i] = o[i] * 2.0 + 1.0;
 }
 ```
+# gl_FragCoord is the window position, the depth and 1/w, each affine
+# across a primitive in window coordinates: what is affine in it, with
+# the draw's values as coefficients, is a noperspective varying (once a
+# vertex); a vignette's offset from the centre is, its squared length is
+# not
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) out vec4 col;
+layout(push_constant) uniform PC { vec2 invres; vec2 centre; float k; } pc;
+void main() {
+    vec2 uv = gl_FragCoord.xy * pc.invres;
+    vec2 d = uv - pc.centre;
+    float v = 1.0 - dot(d, d) * pc.k;
+    col = vec4(v, v, v, 1.0);
+}
+```
+# a projective term: its numerator and its denominator are each affine
+# (two noperspective varyings), the division stays per pixel; mixed with
+# a perspective-correct varying, or scaled by a flat value, it is per run
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 tc;
+layout(location = 1) flat in float fl;
+layout(location = 0) out vec4 col;
+layout(push_constant) uniform PC { vec4 pl; } pc;
+void main() {
+    float num = gl_FragCoord.x * pc.pl.x + pc.pl.y;
+    float den = gl_FragCoord.y * pc.pl.z + pc.pl.w;
+    float q = num / den;
+    float m = gl_FragCoord.x + tc.x;
+    float f = gl_FragCoord.y * fl;
+    col = vec4(q, m, f, 1.0);
+}
+```

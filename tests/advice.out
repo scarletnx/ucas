@@ -107,7 +107,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
-advice: nothing in this module depends only on its uniforms or its flat inputs, or is affine in its varyings
+advice: nothing in this module depends only on its uniforms or its flat inputs, or is affine in its varyings or in gl_FragCoord
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile advice
@@ -168,3 +168,41 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %46: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a vertex, in window coordinates: 2 instructions costing 4 every pixel are affine in gl_FragCoord (sums, and products with values of the draw)
+    gl_FragCoord is the window position, the depth and 1/w, each affine across a primitive in window coordinates, as a noperspective varying v = sum b_i v_i is (the barycentrics b_i of the window position): an affine f has f(v) = sum b_i f(v_i), so computed in the vertex shader from each vertex's window position (the viewport transform of gl_Position) and passed as 1 noperspective varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 1 more varying
+    %30 = OpFSub %v2float %24 %29   (4)
+        (line 6: vec2 d = uv - pc.centre;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 87 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %67: 4 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 9 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a vertex, in window coordinates: 4 instructions costing 4 every pixel are affine in gl_FragCoord (sums, and products with values of the draw)
+    gl_FragCoord is the window position, the depth and 1/w, each affine across a primitive in window coordinates, as a noperspective varying v = sum b_i v_i is (the barycentrics b_i of the window position): an affine f has f(v) = sum b_i f(v_i), so computed in the vertex shader from each vertex's window position (the viewport transform of gl_Position) and passed as 2 noperspective varyings, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 2 more varyings
+    %30 = OpFAdd %float %26 %29   (2)
+        (line 7: float num = gl_FragCoord.x * pc.pl.x + pc.pl.y;)
+    %41 = OpFAdd %float %37 %40   (2)
+        (line 8: float den = gl_FragCoord.y * pc.pl.z + pc.pl.w;)
