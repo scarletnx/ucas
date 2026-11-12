@@ -1135,6 +1135,8 @@ fx_accept(const struct fxrw *r, const struct fxopt *o)
 {
 	if (r->kind == FXR_DIVNOTE || !r->refine || r->gain <= 0)
 		return 0;
+	if (r->sink)
+		return 1;
 	if (r->approx)
 		return o->approx && o->mode == 2 && r->ulp >= 0 && r->ulp <= o->ulp;
 	if (o->mode == 1)
@@ -1944,6 +1946,355 @@ an_pow(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
 
 /* ---- the search ---- */
 
+/* ---- the sink: an error budget at the root, carried to the rewrites ---- */
+
+/*
+ * A value that ends in a format with fewer bits than f32 (an 8-bit
+ * UNORM target, a 16-bit float) may move by one step of that format
+ * (g->sink, absolute, or g->sinkrel, relative) without the stored
+ * result moving by more than one.  That budget at the root is what the
+ * rewrites under it may spend together: each rewrite's own bound is an
+ * absolute deviation E at its node, and the deviations are carried up
+ * to the root through every operation,
+ *
+ *   dev(n) = E(n) + sum over operands k of max|dn/dk| dev(k) + 4 ulp(n)
+ *
+ * (the 4 ulp: an operation whose operand moved rounds again), max|dn/dk|
+ * bounded on the operands' ranges where the node is used.  The ranges a
+ * derivative is bounded on are those of the unperturbed program; the
+ * perturbed operands leave them by at most their deviation, so a second
+ * pass bounds the derivatives on each range widened by twice the first
+ * pass's deviation and must find every deviation inside that widening:
+ * then no operand can have left the widened range (the deviations grow
+ * continuously with the size of the rewrites' errors and would have to
+ * cross it first), and the second pass's bound holds.  A compare or a
+ * step whose operand moves has no bound, and a select takes the larger
+ * of its sides.
+ */
+#define SINK_SLOP 4
+#define LN2 0.693147180559945309417
+
+/*
+ * Magnitudes are taken over the numbers an interval holds: where the
+ * reference's value is NaN or undefined nothing is claimed.
+ */
+static double
+fi_mag(struct fiv a, double w)
+{
+	if (a.empty)
+		return 0;
+	return fmax(fabs((double)a.lo), fabs((double)a.hi)) + w;
+}
+
+/* the least |v| on the interval widened by w; 0 when that reaches 0 */
+static double
+fi_least(struct fiv a, double w)
+{
+	double lo = (double)a.lo - w, hi = (double)a.hi + w;
+
+	if (a.empty || (lo <= 0 && hi >= 0))
+		return 0;
+	return fmin(fabs(lo), fabs(hi));
+}
+
+struct sinkctx {
+	const struct fxg *g;
+	int root;
+	struct fiv R[FX_MAXN];		/* each node where it is used */
+	struct fiv Rop[FX_MAXN][4];	/* its operands there */
+	const struct fxrw *at[FX_MAXN];	/* the rewrite taken at a node */
+	double E[FX_MAXN];		/* and its own deviation */
+};
+
+/* max |d node / d operand c| with the operands widened by w[] */
+static double
+sink_part(const struct sinkctx *s, int i, int c, const double *w)
+{
+	const struct fxn *n = &s->g->n[i];
+	int ch[4] = {n->a, n->b, n->c, n->d};
+	const struct fiv *o = s->Rop[i];
+	double wa = ch[0] >= 0 ? w[ch[0]] : 0, wb = ch[1] >= 0 ? w[ch[1]] : 0;
+	double wc = ch[2] >= 0 ? w[ch[2]] : 0, m, lo, hi;
+
+	switch (n->op) {
+	case FX_ADD: case FX_SUB: case FX_NEG: case FX_ABS: case FX_MIN:
+	case FX_MAX:
+		return 1;
+	case FX_MUL:
+		return c == 0 ? fi_mag(o[1], wb) : fi_mag(o[0], wa);
+	case FX_FMA:
+		return c == 0 ? fi_mag(o[1], wb) : c == 1 ? fi_mag(o[0], wa) : 1;
+	case FX_DIV:
+		m = fi_least(o[1], wb);
+		if (m <= 0)
+			return INFINITY;
+		return c == 0 ? 1 / m : fi_mag(o[0], wa) / (m * m);
+	case FX_POW: {
+		double y;
+		if (c != 0 || o[1].empty || o[1].lo != o[1].hi || wb > 0)
+			return INFINITY;	/* a moving exponent: not bounded here */
+		y = o[1].lo;
+		lo = (double)o[0].lo - wa;
+		hi = (double)o[0].hi + wa;
+		if (o[0].empty || lo <= 0)
+			return INFINITY;
+		/* |y| q^(y-1) is monotone in q: the larger end */
+		return fabs(y) * fmax(pow(lo, y - 1), pow(hi, y - 1));
+	}
+	case FX_EXP2:
+		if (o[0].empty)
+			return INFINITY;
+		return LN2 * exp2((double)o[0].hi + wa);
+	case FX_LOG2:
+		lo = (double)o[0].lo - wa;
+		if (o[0].empty || lo <= 0)
+			return INFINITY;
+		return 1 / (LN2 * lo);
+	case FX_SQRT:
+		lo = (double)o[0].lo - wa;
+		if (o[0].empty || lo <= 0)
+			return INFINITY;
+		return 1 / (2 * sqrt(lo));
+	case FX_ISQRT:
+		lo = (double)o[0].lo - wa;
+		if (o[0].empty || lo <= 0)
+			return INFINITY;
+		return 0.5 * pow(lo, -1.5);
+	case FX_MIX:	/* a (1 - t) + b t */
+		if (o[2].empty)
+			return INFINITY;
+		lo = (double)o[2].lo - wc;
+		hi = (double)o[2].hi + wc;
+		if (c == 0)
+			return fmax(fabs(1 - lo), fabs(1 - hi));
+		if (c == 1)
+			return fmax(fabs(lo), fabs(hi));
+		return fi_mag(o[0], wa) + fi_mag(o[1], wb);
+	case FX_SELGE:
+		return c >= 2 ? 1 : INFINITY;
+	}
+	return INFINITY;	/* a step, or an operation not known here */
+}
+
+/* max |P'| of a polynomial rewrite on its base widened by w */
+static double
+sink_polylip(const struct sinkctx *s, const struct fxrw *r, double w)
+{
+	struct fiv q = s->Rop[r->node][0];
+	double c = r->k[0], T, lip = 0, tp = 1;
+	int j;
+
+	if (q.empty)
+		return INFINITY;
+	T = fmax(fabs((double)q.lo - w - c), fabs((double)q.hi + w - c));
+	/* P(t) = sum a_j t^j, a_j = k[1 + deg - j] */
+	for (j = 1; j <= r->deg; j++) {
+		lip += j * fabs((double)r->k[1 + r->deg - j]) * tp;
+		tp *= T;
+	}
+	return lip;
+}
+
+/* one pass: the deviations with the ranges widened by w[] (NULL: 0) */
+static void
+sink_carry(const struct sinkctx *s, const double *w, double *dev)
+{
+	static const double zero[FX_MAXN];
+	int i, c;
+
+	if (w == NULL)
+		w = zero;
+	for (i = 0; i <= s->root; i++) {
+		const struct fxn *n = &s->g->n[i];
+		int ch[4] = {n->a, n->b, n->c, n->d}, moved = 0;
+		double d = 0;
+
+		dev[i] = 0;
+		if (n->op == FX_IN || n->op == FX_K || n->op == FX_CVT ||
+		    n->op == FX_OPQ || s->R[i].empty)
+			continue;
+		for (c = 0; c < 4; c++) {
+			double p;
+			if (ch[c] < 0 || dev[ch[c]] == 0)
+				continue;
+			moved = 1;
+			if (s->at[i] && s->at[i]->kind == FXR_POLY)
+				p = c == 0 ? sink_polylip(s, s->at[i], w[ch[0]]) :
+				    INFINITY;
+			else
+				p = sink_part(s, i, c, w);
+			if (n->op == FX_SELGE && c >= 2)
+				d = fmax(d, p * dev[ch[c]]);	/* one side runs */
+			else
+				d += p * dev[ch[c]];
+		}
+		if (moved)
+			d += SINK_SLOP * (0x1p-23 * fi_mag(s->R[i], w[i]) + 0x1p-149);
+		dev[i] = d + s->E[i];
+	}
+}
+
+/* the root's deviation with the rewrites in s->at; INFINITY: no bound */
+static double
+sink_dev(const struct sinkctx *s)
+{
+	static double d1[FX_MAXN], d2[FX_MAXN], w[FX_MAXN];
+	int i;
+
+	sink_carry(s, NULL, d1);
+	for (i = 0; i <= s->root; i++) {
+		if (!isfinite(d1[i]))
+			return INFINITY;
+		w[i] = 2 * d1[i];
+	}
+	sink_carry(s, w, d2);
+	for (i = 0; i <= s->root; i++)
+		if (!isfinite(d2[i]) || (d1[i] > 0 && !(d2[i] < w[i])) ||
+		    (d1[i] == 0 && d2[i] != 0))
+			return INFINITY;
+	return d2[s->root];
+}
+
+/* a rewrite's own deviation at its node (absolute), from its bound */
+static double
+sink_own(const struct sinkctx *s, const struct fxrw *r)
+{
+	double mag = fi_mag(s->R[r->node], 0);
+
+	if (r->exact)
+		return 0;
+	if (r->kind == FXR_POLY && r->rel > 0)
+		return (r->rel + 0x1p-24) * mag;
+	if (r->ulp < 0 && r->kind == FXR_FMA2) {
+		/* fl(fl(x K) + B) against fma(x, K, B): the product's rounding
+		 * and the sum's, half an ulp each; x K is no larger than the
+		 * sum of the add's operands' magnitudes */
+		double ops = fi_mag(s->Rop[r->node][0], 0) +
+		    fi_mag(s->Rop[r->node][1], 0);
+		return 0x1p-24 * ops + 0x1p-24 * mag + 0x1p-148;
+	}
+	if (r->ulp < 0)
+		return INFINITY;
+	return r->ulp * (0x1p-23 * mag + 0x1p-149);
+}
+
+static int
+sink_gain_cmp(const void *a, const void *b)
+{
+	const struct fxrw *x = *(const struct fxrw *const *)a;
+	const struct fxrw *y = *(const struct fxrw *const *)b;
+
+	if (x->gain != y->gain)
+		return x->gain > y->gain ? -1 : 1;
+	return x < y ? -1 : x > y;
+}
+
+/*
+ * The rewrites the sink's budget allows: first those the other rules
+ * accept anyway (they move the root too, and the budget pays for
+ * them), then each node's cheapest remaining rewrite, the largest
+ * savings first, while the root stays within the budget.
+ */
+static void
+sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
+    int nrw, struct fiv (*reach)[FX_MAXIN])
+{
+	static struct sinkctx s;
+	static struct fiv r[FX_MAXN];
+	const struct fxrw *cand[64];
+	struct fiv top;
+	double budget, dev, base;
+	int i, c, nc = 0, taken = 0;
+
+	if (g->sink <= 0 && g->sinkrel <= 0)
+		return;
+	memset(&s, 0, sizeof s);
+	s.g = g;
+	s.root = root;
+	for (i = 0; i <= root; i++) {
+		const struct fxn *n = &g->n[i];
+		int ch[4] = {n->a, n->b, n->c, n->d};
+		ranges(g, i, reach[i], r);
+		s.R[i] = r[i];
+		for (c = 0; c < 4; c++)
+			if (ch[c] >= 0)
+				s.Rop[i][c] = r[ch[c]];
+	}
+	top = s.R[root];
+	if (g->sink > 0)
+		budget = g->sink;
+	else {
+		/* a relative step: of the least magnitude the root takes */
+		double least = fi_least(top, 0);
+		if (least <= 0 || least < g->sinkmin) {
+			snprintf(g->sinknote, sizeof g->sinknote, "the value's "
+			    "magnitude can go below %.3g, where a step of the format "
+			    "is not that fraction of it: no budget (assume a range "
+			    "that keeps it away from 0)", g->sinkmin);
+			return;
+		}
+		budget = g->sinkrel * least;
+	}
+	g->sinkbudget = budget;
+	/* what the other rules accept: one per node, the most gain */
+	for (i = 0; i < nrw; i++) {
+		const struct fxrw *x = &rw[i];
+		if (!fx_accept(x, o) || x->node > root)
+			continue;
+		if (!s.at[x->node] || x->gain > s.at[x->node]->gain)
+			s.at[x->node] = x;
+	}
+	for (i = 0; i <= root; i++)
+		if (s.at[i])
+			s.E[i] = sink_own(&s, s.at[i]);
+	base = sink_dev(&s);
+	if (!(base <= budget)) {
+		snprintf(g->sinknote, sizeof g->sinknote, "the rewrites within "
+		    "the original's precision already move the stored value by "
+		    "up to %.3g of the %.3g a step allows: nothing more is taken",
+		    base, budget);
+		return;
+	}
+	g->sinkdev = base;
+	for (i = 0; i < nrw && nc < 64; i++)
+		if (!fx_accept(&rw[i], o) && rw[i].kind != FXR_DIVNOTE &&
+		    rw[i].refine && rw[i].gain > 0 && rw[i].node <= root)
+			cand[nc++] = &rw[i];
+	qsort(cand, (size_t)nc, sizeof *cand, sink_gain_cmp);
+	for (i = 0; i < nc; i++) {
+		const struct fxrw *x = cand[i], *old = s.at[x->node];
+		double olde = s.E[x->node];
+		struct fxrw *xm = &rw[x - rw];
+
+		if (old && old->gain >= x->gain)
+			continue;
+		/* whichever of the two is applied, the larger bound covers it */
+		s.at[x->node] = x;
+		s.E[x->node] = fmax(sink_own(&s, x), old ? olde : 0);
+		dev = sink_dev(&s);
+		if (!(dev <= budget)) {
+			snprintf(xm->sinkfail, sizeof xm->sinkfail, "it would move "
+			    "the stored value by up to %.3g, more than the %.3g a "
+			    "step of the sink allows", dev, budget);
+			s.at[x->node] = old;
+			s.E[x->node] = olde;
+			continue;
+		}
+		xm->sink = 1;
+		xm->sinkdev = dev;
+		g->sinkdev = dev;
+		taken++;
+		sb_printf(&xm->proof, "  the sink: its own bound moves this value "
+		    "by at most %.3g; carried to the stored value through every "
+		    "operation above it (max |derivative| on the ranges, widened "
+		    "by twice the deviation and checked to stay inside; 4 ulp "
+		    "where an operation rounds again), together with the other "
+		    "rewrites taken: at most %.3g of the %.3g one step allows\n",
+		    s.E[x->node], dev, budget);
+	}
+	(void)taken;
+}
+
 int
 fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
     int max)
@@ -2113,6 +2464,7 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			continue;
 		}
 	}
+	sink_pass(g, root, o, rw, nrw, reach);
 	g->nn = nn0;	/* the evaluation nodes go */
 	return nrw;
 }

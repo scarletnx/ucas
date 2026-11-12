@@ -6781,6 +6781,154 @@ spirv_fn_opts(int mode)
 	fnl_mode = mode;
 }
 
+/*
+ * The sink of the module's stored and returned floats, by request
+ * (`sink unorm8`): a format with fewer bits than f32, whose step is the
+ * error budget float simplify may spend (fsimp.c).  An image store with
+ * a format in its type has its own.  One step: 1/(2^n - 1) for unormN,
+ * 1/(2^(n-1) - 1) for snormN (absolute); 2^-11 of the value for f16,
+ * whose 11 significant bits make every normal step at least that.
+ */
+static struct {
+	double abs, rel, min;
+	char name[48];
+} fsink;
+
+/*
+ * A format's name to its step: unormN, snormN, f16, or the channels and
+ * the kind as SPIR-V and Vulkan write them (Rgba8, Rgba8Snorm, Rgb10A2,
+ * Rgba16f, R8G8B8A8_UNORM, B8G8R8A8_SRGB, R16G16B16A16_SFLOAT).  With
+ * channels of different widths the widest sets the step for all (the
+ * smallest step).  An sRGB format stores 8 bits of the encoded value:
+ * the encoding's slope is at most 12.92, so one step is at least
+ * 1/(12.92 (2^n - 1)) of the linear value the shader writes.  Integer
+ * formats and floats of 32 bits are not sinks.
+ */
+static int
+sink_lookup(const char *fmt, double *abs, double *rel, double *min)
+{
+	char b[48];
+	const char *q;
+	size_t i, n = 0;
+	int bits = 0, kind = -1;	/* 0 unorm, 1 snorm, 2 float, 3 srgb */
+
+	for (i = 0; fmt[i] && n + 1 < sizeof b; i++)
+		if (fmt[i] != '_')
+			b[n++] = (char)tolower((unsigned char)fmt[i]);
+	b[n] = 0;
+	q = b;
+	if (!strncmp(q, "vkformat", 8))
+		q += 8;
+	if ((!strncmp(q, "unorm", 5) || !strncmp(q, "snorm", 5)) &&
+	    isdigit((unsigned char)q[5])) {
+		bits = atoi(q + 5);
+		kind = q[0] == 's';
+		for (q += 5; isdigit((unsigned char)*q); q++)
+			;
+		if (*q)
+			return 0;
+	} else if (!strcmp(q, "f16") || !strcmp(q, "half")) {
+		bits = 16;
+		kind = 2;
+	} else {
+		/* channel letters and their bits, then the kind */
+		while (*q && strchr("rgbax", *q)) {
+			int v;
+			while (*q && strchr("rgbax", *q))
+				q++;
+			if (!isdigit((unsigned char)*q))
+				return 0;
+			v = atoi(q);
+			if (v > bits)
+				bits = v;
+			while (isdigit((unsigned char)*q))
+				q++;
+		}
+		if (!bits)
+			return 0;
+		if (!*q || !strncmp(q, "unorm", 5))
+			kind = 0;
+		else if (!strncmp(q, "snorm", 5))
+			kind = 1;
+		else if (!strncmp(q, "srgb", 4))
+			kind = 3;
+		else if (!strcmp(q, "f") || !strncmp(q, "sfloat", 6) ||
+		    !strcmp(q, "float"))
+			kind = 2;
+		else
+			return 0;	/* an integer format, or not a format */
+	}
+	if (kind == 2 ? bits != 16 : bits < 2 || bits > 23)
+		return 0;
+	*abs = *rel = *min = 0;
+	if (kind == 2) {
+		*rel = 0x1p-11;
+		*min = 0x1p-14;
+	} else {
+		*abs = 1.0 / (double)((1 << (kind == 1 ? bits - 1 : bits)) - 1);
+		if (kind == 3)
+			*abs /= 12.92;
+	}
+	return 1;
+}
+
+int
+spirv_sink_known(const char *fmt)
+{
+	double a, r, m;
+
+	return sink_lookup(fmt, &a, &r, &m);
+}
+
+/* 0: not a sink ucas knows */
+int
+spirv_sink_opt(const char *fmt)
+{
+	if (fmt == NULL) {
+		memset(&fsink, 0, sizeof fsink);
+		return 1;
+	}
+	if (!sink_lookup(fmt, &fsink.abs, &fsink.rel, &fsink.min))
+		return 0;
+	snprintf(fsink.name, sizeof fsink.name, "%s", fmt);
+	return 1;
+}
+
+/* the format in the type of the image an OpImageWrite stores to */
+static const char *
+image_format(int img)
+{
+	int k, t;
+
+	if (img < 0 || img >= V.nid)
+		return NULL;
+	t = V.id[img].type;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpFunction"))
+			break;
+		if (I->res == t && !strcmp(I->op, "OpTypeImage") && I->nop >= 7)
+			return I->opnd[6];
+	}
+	return NULL;
+}
+
+/* a root's sink: the image's format, else the request's */
+static void
+root_sink(struct fxg *g, const char *imgfmt)
+{
+	if (imgfmt && sink_lookup(imgfmt, &g->sink, &g->sinkrel, &g->sinkmin)) {
+		snprintf(g->sinkname, sizeof g->sinkname, "%s", imgfmt);
+		return;
+	}
+	if (imgfmt)
+		return;		/* an image whose format has f32's bits or more */
+	g->sink = fsink.abs;
+	g->sinkrel = fsink.rel;
+	g->sinkmin = fsink.min;
+	snprintf(g->sinkname, sizeof g->sinkname, "%s", fsink.name);
+}
+
 void
 spirv_float_opts(int mode, double ulp, int approx, int percomp, int only)
 {
@@ -7036,6 +7184,19 @@ fx_build(struct fxg *g, int id, int lane, int depth)
 				op = fx_ext[i].op, na = fx_ext[i].na;
 		base = 3;
 	}
+	/* clamp(x, lo, hi) is min(max(x, lo), hi) (GLSL.std.450 FClamp): two
+	 * nodes for the one instruction, so that what follows knows x's
+	 * range */
+	if (op < 0 && !strcmp(I->op, "OpExtInst") && I->nop >= 6 &&
+	    idx(I->opnd[1]) == V.glsl && !strcmp(I->opnd[2], "FClamp")) {
+		int x = fx_opnd(g, I->opnd[3], lane, depth), lo, hi, mx;
+		if (x < 0 || (lo = fx_opnd(g, I->opnd[4], lane, depth)) < 0 ||
+		    (hi = fx_opnd(g, I->opnd[5], lane, depth)) < 0 ||
+		    (mx = fx_new(g, FX_MAX, x, lo, -1, k, id)) < 0)
+			return -1;
+		r = fx_new(g, FX_MIN, mx, hi, -1, k, id);
+		goto done;
+	}
 	if (op < 0 || I->nop < base + na)
 		return fx_leaf(g, id, lane);
 	{
@@ -7059,7 +7220,8 @@ fx_same(const struct fxg *a, const struct fxg *b)
 {
 	int i;
 
-	if (a->nn != b->nn || a->nin != b->nin)
+	if (a->nn != b->nn || a->nin != b->nin || a->sink != b->sink ||
+	    a->sinkrel != b->sinkrel)
 		return 0;
 	for (i = 0; i < a->nn; i++) {
 		const struct fxn *x = &a->n[i], *y = &b->n[i];
@@ -7378,14 +7540,25 @@ float_pass(const char *text, int *changed)
 	for (k = 0; k < V.nin && ngr < 60; k++) {
 		const struct sins *I = &V.in[k];
 		int v = -1, n, l, r0;
+		const char *imgfmt = NULL;
 		if (!strcmp(I->op, "OpStore") && I->nop >= 2)
 			v = idx(I->opnd[1]);
 		else if (!strcmp(I->op, "OpReturnValue") && I->nop >= 1)
 			v = idx(I->opnd[0]);
+		else if (!strcmp(I->op, "OpImageWrite") && I->nop >= 3 &&
+		    (imgfmt = image_format(idx(I->opnd[0]))) != NULL &&
+		    sink_lookup(imgfmt, &(double){0}, &(double){0}, &(double){0}))
+			v = idx(I->opnd[2]);	/* a format with a step: a sink */
+		else
+			imgfmt = NULL;
+		/* a texel is usually put together from its lanes: the
+		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
-		    fprice_ins(V.in[SP.def[v]].op, !strcmp(V.in[SP.def[v]].op,
+		    (fprice_ins(V.in[SP.def[v]].op, !strcmp(V.in[SP.def[v]].op,
 		    "OpExtInst") ? V.in[SP.def[v]].opnd[2] : NULL,
-		    V.id[v].type) <= 0)
+		    V.id[v].type) <= 0 && !(imgfmt && (!strcmp(V.in[SP.def[v]].op,
+		    "OpCompositeConstruct") || !strcmp(V.in[SP.def[v]].op,
+		    "OpVectorShuffle")))))
 			continue;
 		n = ncomp(V.id[v].type);
 		nroots++;
@@ -7399,6 +7572,7 @@ float_pass(const char *text, int *changed)
 			root = fx_build(g, v, l, 0);
 			if (root < 0)
 				continue;
+			root_sink(g, imgfmt);
 			{
 				static char sl[200];
 				src_line(ins_line(SP.def[v]), sl, sizeof sl);
@@ -7842,6 +8016,33 @@ float_pass(const char *text, int *changed)
 			rep_num("ulp", fopt.ulp);
 		rep_bool("approx", fopt.approx);
 		rep_bool("percomp", fopt_percomp);
+		{
+			int any = 0;
+			for (j = 0; j < ngr; j++)
+				any |= grp[j] == j && (G[j].sink > 0 || G[j].sinkrel > 0);
+			if (any) {
+				rep_list("sinks");
+				for (j = 0; j < ngr; j++) {
+					const struct fxg *g = &G[j];
+					if (grp[j] != j || (g->sink <= 0 && g->sinkrel <= 0))
+						continue;
+					rep_obj(NULL);
+					rep_str("format", g->sinkname);
+					if (g->sink > 0)
+						rep_num("step", g->sink);
+					else
+						rep_num("relative_step", g->sinkrel);
+					if (g->sinkbudget > 0) {
+						rep_num("budget", g->sinkbudget);
+						rep_num("used", g->sinkdev);
+					}
+					if (g->sinknote[0])
+						rep_str("note", g->sinknote);
+					rep_end();
+				}
+				rep_end();
+			}
+		}
 		rep_list("rewrites");
 		for (q = 0; q < no; q++) {
 			struct fplan *P = &pl[ord[q]];
@@ -7908,6 +8109,36 @@ float_pass(const char *text, int *changed)
 		else if (fopt.mode == 2)
 			sb_printf(&rep, "  mode: within %g ulp of the reference%s\n",
 			    fopt.ulp, fopt.approx ? " (approximations too)" : "");
+		for (j = 0; j < ngr; j++) {
+			const struct fxg *g = &G[j];
+			int z, first = 1;
+			if (grp[j] != j || (g->sink <= 0 && g->sinkrel <= 0))
+				continue;
+			for (z = 0; z < j; z++)
+				if (grp[z] == z && !strcmp(G[z].sinkname, g->sinkname))
+					first = 0;
+			if (first && g->sink > 0)
+				sb_printf(&rep, "  sink %s: one step is %.6g.  The "
+				    "conversion clamps, scales and rounds; rounding to "
+				    "nearest (what Vulkan asks of it; it allows either "
+				    "neighbour), a value within one step of the "
+				    "reference's is stored as the same integer or the "
+				    "next.  The rewrites may move a stored value by that "
+				    "much in all, wherever the reference's is a number\n",
+				    g->sinkname, g->sink);
+			else if (first)
+				sb_printf(&rep, "  sink %s: one step is at least %.6g of "
+				    "the value (for magnitudes from %.3g): the rewrites "
+				    "may move a stored value by that fraction of its "
+				    "least magnitude in all, which is within one step "
+				    "of the format\n", g->sinkname, g->sinkrel,
+				    g->sinkmin);
+			if (g->sinknote[0])
+				sb_printf(&rep, "    %s\n", g->sinknote);
+			else if (g->sinkdev > 0)
+				sb_printf(&rep, "    budget %.3g, the rewrites accepted "
+				    "use at most %.3g of it\n", g->sinkbudget, g->sinkdev);
+		}
 		for (q = 0; q < no; q++) {
 			struct fplan *P = &pl[ord[q]];
 			char sl[200];
@@ -8002,6 +8233,12 @@ float_pass(const char *text, int *changed)
 				sb_printf(&rep, "    %s, cost %g (-%g): relative error < %.3g (%g ulp), %s\n",
 				    r->why, r->cost, r->gain, r->rel, r->ulp, any ? "beyond the "
 				    "original's precision" : "within the original's precision");
+				for (c = 0; c < pl[i].ng; c++)
+					if (pl[i].rw[c]->sinkfail[0]) {
+						sb_printf(&rep, "      the sink refuses it: %s\n",
+						    pl[i].rw[c]->sinkfail);
+						break;
+					}
 				if (i == npl - 1 || pl[i + 1].kind != FXR_POLY ||
 				    pl[i + 1].k != pl[i].k) {
 					pr_lines(&rep, r->proof.p, "        ");
@@ -8275,6 +8512,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		free(V.in);
 		memset(&V, 0, sizeof V);
 		spirv_float_opts(0, 0, 0, 0, 0);
+		spirv_sink_opt(NULL);
 		fnl_mode = 0;
 		return;
 	}
@@ -8937,5 +9175,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0);
+	spirv_sink_opt(NULL);
 	fnl_mode = 0;
 }

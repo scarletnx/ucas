@@ -8391,6 +8391,59 @@ setting_line(const char *q, size_t n)
 	    memchr(q, '{', n) != NULL;
 }
 
+/*
+ * The sink a simplify request names: `sink FORMAT`, a word with unorm or
+ * snorm in it (unorm8, RGBA8_UNORM), or a format's name on a line that
+ * says target, format, attachment or framebuffer ("for an rgba8
+ * target").  Comment and directive lines say nothing.
+ */
+static void
+find_sink(const char *text, char *out, size_t nout)
+{
+	static const char *const trig[] = {"target", "format", "attachment",
+	    "framebuffer", NULL};
+	const char *q = text;
+
+	out[0] = 0;
+	while (*q && !out[0]) {
+		const char *e = strchr(q, '\n'), *t;
+		size_t ln = e ? (size_t)(e - q) : strlen(q);
+		int after_sink = 0, said = 0, k;
+
+		if (*q != '\x1e' && *q != '#') {
+			for (k = 0; trig[k]; k++) {
+				const char *m = q;
+				while ((m = strstr(m, trig[k])) != NULL && m < q + ln) {
+					said = 1;
+					break;
+				}
+			}
+			for (t = q; t < q + ln && !out[0]; ) {
+				char w[48], lw[48];
+				size_t n = 0, j;
+				if (!isalpha((unsigned char)*t)) {
+					t++;
+					continue;
+				}
+				while (t < q + ln && (isalnum((unsigned char)*t) ||
+				    *t == '_') && n + 1 < sizeof w)
+					w[n++] = *t++;
+				w[n] = 0;
+				while (t < q + ln && (isalnum((unsigned char)*t) ||
+				    *t == '_'))
+					t++;
+				for (j = 0; j <= n; j++)
+					lw[j] = (char)tolower((unsigned char)w[j]);
+				if (after_sink || (spirv_sink_known(w) && (said ||
+				    strstr(lw, "unorm") || strstr(lw, "snorm"))))
+					snprintf(out, nout, "%s", w);
+				after_sink = !strcmp(lw, "sink");
+			}
+		}
+		q += ln + (e != NULL);
+	}
+}
+
 static int
 simplify_piece(struct sbuf *piece, int c)
 {
@@ -8401,7 +8454,7 @@ simplify_piece(struct sbuf *piece, int c)
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    "faster", "speed", "speedup", "quicker", NULL};
 	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
-	char ulp[32] = "", num[32] = "", fl[200] = "";
+	char ulp[32] = "", num[32] = "", fl[280] = "", sink[48] = "";
 	int f_foldproof = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
@@ -8538,6 +8591,8 @@ simplify_piece(struct sbuf *piece, int c)
 	}
 	if (!hit || anim)
 		return 0;
+	if (!c)
+		find_sink(p, sink, sizeof sink);
 	snprintf(fl, sizeof fl, "%s%s%s%s%s%s%s", f_float ? " float" : "",
 	    f_exact && !ulp[0] ? " exact" : "", ulp[0] ? " ulp " : "", ulp,
 	    f_approx ? " approx" : "", f_percomp ? " percomp" : "",
@@ -8562,6 +8617,8 @@ simplify_piece(struct sbuf *piece, int c)
 	}
 	snprintf(fl + strlen(fl), sizeof fl - strlen(fl), "%s", f_foldproof ?
 	    " foldproof" : "");
+	if (sink[0])
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink %s", sink);
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		struct sbuf as = {0};

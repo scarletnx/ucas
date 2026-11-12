@@ -57,6 +57,17 @@ struct fxg {
 	int nin;
 	int preserve;		/* SignedZeroInfNanPreserve in the module */
 	const char *srcline;	/* the GLSL line of the root, or NULL */
+	/*
+	 * The sink the root ends in: one step of its format, absolute
+	 * (sink) or relative to the value (sinkrel, for values of at least
+	 * sinkmin in magnitude); 0: none.  fx_rewrites fills the rest: the
+	 * budget in the value's units, how much of it the accepted rewrites
+	 * use, and why nothing was taken.
+	 */
+	double sink, sinkrel, sinkmin;
+	char sinkname[48];
+	double sinkbudget, sinkdev;
+	char sinknote[240];
 };
 
 /* an interval of f32 values in the total order, plus NaN / undefined */
@@ -99,6 +110,9 @@ struct fxrw {
 	char exc[400];		/* where it is not bit-exact (and why) */
 	char wit[300];		/* a witness: input, both values */
 	char fail[300];		/* why it is not within precision */
+	int sink;		/* accepted by the root's sink budget */
+	double sinkdev;		/* the root's deviation with it (and the rest) */
+	char sinkfail[200];	/* why the budget refuses it */
 	struct sbuf proof;	/* the derivation, lines */
 };
 

@@ -2348,6 +2348,16 @@ statement(struct P *p)
 					fpercomp = 1;
 				else if (accept_kw(p, "foldproof"))
 					spirv_dword_opts(1);	/* folded round trips kept */
+				else if (accept_kw(p, "sink")) {
+					char fm[48];
+					if (!cmdp_word(p, fm, sizeof fm) ||
+					    !spirv_sink_opt(fm))
+						fail("simplify: sink FORMAT is unormN or snormN (2 "
+						    "to 23 bits), f16, or a format's name with fewer "
+						    "bits than f32 (rgba8, rgba8_snorm, rgb10a2, "
+						    "rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb): '%s' is "
+						    "none of them", fm);
+				}
 				else
 					adv(p);
 			}
