@@ -1,0 +1,12 @@
+# The first request of a file names a cost model: the models are defined
+# before the English is read, so "under zen4" makes zen4 the active one
+simplify nofile under zen4, x in [1, 2], y in [3, 4]
+```glsl
+float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); }
+```
+# a comment's words ask for nothing: a run of the shader is not what
+# this comment requests, the line under it does
+simplify nofile under gt1030, x in [1, 2], y in [3, 4]
+```glsl
+float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); }
+```

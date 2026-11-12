@@ -1,6 +1,8 @@
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   f: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
 > spvsimplify nofile assume x 1 2 assume y 3 4 assume z 1 5
 simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
