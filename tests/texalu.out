@@ -348,6 +348,55 @@ texalu ga: reads through the texture unit under texel (cost 410.125 as written):
         a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
         one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
         setup (the descriptor, the upload) is not in the model: not measured
+> V = [10.0, 60.0, 110.0, 265.0, 10.0, 265.0, 60.0, 110.0]
+> lv(i: i32 in 0..6, t: f32 in 0..1) = (1 - t)*V[i] + t*V[i+1]
+> texalu lv tol 2 under texel
+texalu lv: reads through the texture unit under texel (cost 96.25 as written):
+  cost 27.625 255tex_linear8([0, 0.196078435, 0.392156869, 1, 0, 1, 0.196078435, 0.392156869], f32(i) + 0.5 + t) + 10
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+      holds where t in [0, 1] (its range): the fraction t is in [0, 1]; i in [0, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 255 with u = t those are the entries' weights (an entry is 10 + 255 times its texel k/255: the weights' sum times 10 is added back)
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-18: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 255 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 6.08e-05; the texels as f32: 1.64e-06; in all 0.997
+      against the exact weighted sum of the entries the reads are within 0.997; as written, the sum's own f32 rounding is within 6.32e-05 (gamma_2 times the sum of |w t|, 530)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.498
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 8 x 1, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> H = [1.5, 2.25, 3.0, 2.25, 1.5, 2.25, 3.0, 2.25, 1.5, 2.25, 3.0, 2.25, 1.5, 2.25, 3.0, 2.25]
+> qh(x: u8 in 0..2, y: u8 in 0..2) = 0.25*H[y*4+x] + 0.25*H[y*4+x+1] + 0.25*H[y*4+x+4] + 0.25*H[y*4+x+5]
+> texalu qh under texel
+texalu qh: reads through the texture unit under texel (cost 181.5 as written):
+  cost 65.75 real(tex_bilinear8([1.5, 2.25, 3, 2.25, 1.5, 2.25, 3, 2.25, 1.5, 2.25, 3, 2.25, 1.5, 2.25, 3, 2.25], 4, f32(x) + 1, f32(y) + 1))
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 1: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 7.15e-07; the texels as f32: 0; in all 7.15e-07
+      against the exact weighted sum of the entries the reads are within 7.15e-07; as written, the sum's own f32 rounding is within 7.15e-07 (gamma_4 times the sum of |w t|, 3)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 0
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 4 x 4, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu qh tol 1e-5 under texel
+texalu qh: reads through the texture unit under texel (cost 181.5 as written):
+  cost 33.625 real(191.25tex_bilinear8([0, 0.00392156886, 0.00784313772, 0.00392156886, 0, 0.00392156886, 0.00784313772, 0.00392156886, 0, 0.00392156886, 0.00784313772, 0.00392156886, 0, 0.00392156886, 0.00784313772, 0.00392156886], 4, f32(x) + 1, f32(y) + 1) + 1.5)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 1: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 191.25 with u = 0.5, v = 0.5 those are the entries' weights (an entry is 1.5 + 191.25 times its texel k/255: the weights' sum times 1.5 is added back)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 3.58e-07; the texels as f32: 8.87e-08; in all 1.16e-06
+      against the exact weighted sum of the entries the reads are within 1.16e-06; as written, the sum's own f32 rounding is within 7.15e-07 (gamma_4 times the sum of |w t|, 3)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 0
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
 > bad(x: u8 in 0..4, y: u8 in 0..3, s: f32 in 0..1) = (1-s)*P[y*5+x] + s*P[y*5+x+1]
 > texalu bad tol 0.01 under texel
 texalu bad: the texture unit under texel (cost 99.25 as written): nothing taken
