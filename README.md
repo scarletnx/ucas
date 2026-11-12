@@ -2249,6 +2249,13 @@ format (`layout(rgba8)`, in its OpTypeImage) is read from the module:
 | an sRGB format (`b8g8r8a8_srgb`) | 1/(12.92 (2^N - 1)): 8 bits of the encoded value, whose slope is at most 12.92 |
 | `f16` (`rgba16f`, `r16g16b16a16_sfloat`) | 2^-11 of the value, for magnitudes from 2^-14 |
 
+The argument of `packUnorm4x8`, `packSnorm4x8`, `packUnorm2x16` and
+`packSnorm2x16` has the function's own width as its sink (GLSL defines
+them as round(clamp(c, 0, 1) * 255) and the like), with no word in the
+request.  A stored or returned vector put together from its lanes
+(`o[i] = vec4(enc, a)`) is a root like any other when float arithmetic
+is under the construct.
+
 Integer formats and 32-bit floats are not sinks (`sink rgba32f` is an
 error).  In English: "for an RGBA8_UNORM target", "the format is
 rgb10a2", `sink unorm8`.

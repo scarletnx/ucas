@@ -6913,12 +6913,61 @@ image_format(int img)
 	return NULL;
 }
 
-/* a root's sink: the image's format, else the request's */
+/*
+ * GLSL's pack functions round their argument to 8 or 16 bits themselves
+ * (packUnorm4x8: round(clamp(c, 0, 1) * 255)): the format their
+ * argument ends in, or NULL.
+ */
+static const char *
+pack_format(const struct sins *I)
+{
+	static const char *const pk[][2] = {{"PackUnorm4x8", "unorm8"},
+	    {"PackSnorm4x8", "snorm8"}, {"PackUnorm2x16", "unorm16"},
+	    {"PackSnorm2x16", "snorm16"}};
+	size_t i;
+
+	if (strcmp(I->op, "OpExtInst") || I->nop < 4 || V.glsl < 0 ||
+	    idx(I->opnd[1]) != V.glsl)
+		return NULL;
+	for (i = 0; i < sizeof pk / sizeof *pk; i++)
+		if (!strcmp(I->opnd[2], pk[i][0]))
+			return pk[i][1];
+	return NULL;
+}
+
+static double fprice_ins(const char *op, const char *ext, int rt);
+
+/* float arithmetic under a value put together from lanes (a construct,
+ * a shuffle, an extract or a copy of one) */
+static int
+float_under(int v, int depth)
+{
+	const struct sins *I;
+	int i;
+
+	if (v < 0 || SP.def[v] < 0 || depth > 8)
+		return 0;
+	I = &V.in[SP.def[v]];
+	if (fprice_ins(I->op, !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
+	    I->opnd[2] : NULL, V.id[v].type) > 0)
+		return 1;
+	if (strcmp(I->op, "OpCompositeConstruct") && strcmp(I->op,
+	    "OpVectorShuffle") && strcmp(I->op, "OpCompositeExtract") &&
+	    strcmp(I->op, "OpCopyObject"))
+		return 0;
+	for (i = 1; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && float_under(idx(I->opnd[i]), depth + 1))
+			return 1;
+	return 0;
+}
+
+/* a root's sink: the image's or the pack function's format (named by
+ * what set it), else the request's */
 static void
-root_sink(struct fxg *g, const char *imgfmt)
+root_sink(struct fxg *g, const char *imgfmt, const char *by)
 {
 	if (imgfmt && sink_lookup(imgfmt, &g->sink, &g->sinkrel, &g->sinkmin)) {
-		snprintf(g->sinkname, sizeof g->sinkname, "%s", imgfmt);
+		snprintf(g->sinkname, sizeof g->sinkname, "%s", by ? by : imgfmt);
 		return;
 	}
 	if (imgfmt)
@@ -7540,7 +7589,7 @@ float_pass(const char *text, int *changed)
 	for (k = 0; k < V.nin && ngr < 60; k++) {
 		const struct sins *I = &V.in[k];
 		int v = -1, n, l, r0;
-		const char *imgfmt = NULL;
+		const char *imgfmt = NULL, *sinkby = NULL;
 		if (!strcmp(I->op, "OpStore") && I->nop >= 2)
 			v = idx(I->opnd[1]);
 		else if (!strcmp(I->op, "OpReturnValue") && I->nop >= 1)
@@ -7549,16 +7598,15 @@ float_pass(const char *text, int *changed)
 		    (imgfmt = image_format(idx(I->opnd[0]))) != NULL &&
 		    sink_lookup(imgfmt, &(double){0}, &(double){0}, &(double){0}))
 			v = idx(I->opnd[2]);	/* a format with a step: a sink */
-		else
+		else if ((imgfmt = pack_format(I)) != NULL) {
+			v = idx(I->opnd[3]);	/* rounded by the function itself */
+			sinkby = I->opnd[2];
+		} else
 			imgfmt = NULL;
-		/* a texel is usually put together from its lanes: the
+		/* a stored value is usually put together from its lanes: the
 		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
-		    (fprice_ins(V.in[SP.def[v]].op, !strcmp(V.in[SP.def[v]].op,
-		    "OpExtInst") ? V.in[SP.def[v]].opnd[2] : NULL,
-		    V.id[v].type) <= 0 && !(imgfmt && (!strcmp(V.in[SP.def[v]].op,
-		    "OpCompositeConstruct") || !strcmp(V.in[SP.def[v]].op,
-		    "OpVectorShuffle")))))
+		    !float_under(v, 0))
 			continue;
 		n = ncomp(V.id[v].type);
 		nroots++;
@@ -7572,7 +7620,7 @@ float_pass(const char *text, int *changed)
 			root = fx_build(g, v, l, 0);
 			if (root < 0)
 				continue;
-			root_sink(g, imgfmt);
+			root_sink(g, imgfmt, sinkby);
 			{
 				static char sl[200];
 				src_line(ins_line(SP.def[v]), sl, sizeof sl);
@@ -8117,7 +8165,16 @@ float_pass(const char *text, int *changed)
 			for (z = 0; z < j; z++)
 				if (grp[z] == z && !strcmp(G[z].sinkname, g->sinkname))
 					first = 0;
-			if (first && g->sink > 0)
+			if (first && g->sink > 0 && !strncmp(g->sinkname, "Pack", 4))
+				sb_printf(&rep, "  sink %s: one step is %.6g.  The "
+				    "function clamps, scales and rounds to nearest (GLSL's "
+				    "round; the direction of an exact tie is the "
+				    "implementation's): a value within one step of the "
+				    "reference's is packed as the same integer or the "
+				    "next.  The rewrites may move its argument by that "
+				    "much in all, wherever the reference's is a number\n",
+				    g->sinkname, g->sink);
+			else if (first && g->sink > 0)
 				sb_printf(&rep, "  sink %s: one step is %.6g.  The "
 				    "conversion clamps, scales and rounds; rounding to "
 				    "nearest (what Vulkan asks of it; it allows either "

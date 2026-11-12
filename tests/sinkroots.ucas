@@ -1,0 +1,56 @@
+# Roots and sinks of float simplify that are not a plain store of an
+# arithmetic result (src/spirv.c, float_pass).
+# a stored vector put together from its lanes: the pow under the
+# construct is analysed, and with the request's sink it is a polynomial
+simplify float sink unorm8 nofile
+```glsl
+#version 450
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { vec4 o[]; };
+layout(std430, binding = 1) readonly buffer S { vec4 s[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    vec4 c = clamp(s[i], 0.0, 1.0);
+    vec3 enc = pow(c.rgb * 0.75 + 0.125, vec3(0.45));
+    o[i] = vec4(enc, c.a);
+}
+```
+# packUnorm4x8 rounds its argument to 8 bits itself: a sink with no word
+# in the request
+simplify float nofile
+```glsl
+#version 450
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { uint o[]; };
+layout(std430, binding = 1) readonly buffer S { vec4 s[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    vec4 c = clamp(s[i], 0.0, 1.0);
+    o[i] = packUnorm4x8(vec4(pow(c.rgb * 0.75 + 0.125, vec3(0.45)), c.a));
+}
+```
+# packUnorm2x16: 16 bits, and no polynomial cheaper than the pow fits
+simplify float nofile
+```glsl
+#version 450
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { uint o[]; };
+layout(std430, binding = 1) readonly buffer S { vec2 s[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    vec2 c = clamp(s[i], 0.0, 1.0);
+    o[i] = packUnorm2x16(pow(c * 0.75 + 0.125, vec2(0.45)));
+}
+```
+# a construct of loads alone: nothing to analyse
+simplify float nofile
+```glsl
+#version 450
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { vec4 o[]; };
+layout(std430, binding = 1) readonly buffer S { vec4 s[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = vec4(s[i].zyx, 1.0);
+}
+```
