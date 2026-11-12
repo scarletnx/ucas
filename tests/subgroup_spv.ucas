@@ -1,0 +1,125 @@
+# The subgroup instructions in SPIR-V (src/spv_sg.inc): animate exec runs
+# them, the lanes it runs being one subgroup, each priced as the ucas
+# operation it stands for (sg.c); simplify writes a sum or a scan over the
+# lanes of a value that is 0 or 1 in every lane as a ballot's bit count,
+# when the model prices that lower.
+model cheapsum : gt1030 { sg_add: 1, sg_scan: 2 }
+model noballot : gt1030 { sg_ballot: none }
+
+# every instruction, on 8 lanes whose x is 0 5 2 7 4 1 6 3; the exclusive
+# scan is the inclusive one less the lane's value (one add more), a
+# shuffle by xor, up or down a shuffle and its index; a read of a lane
+# that is not there is undefined (0 here, counted); a min or max over the
+# lanes has no operation of the model yet: it runs at cost 0, said
+animate exec %px = lane lanes 8 seed 1 nofile
+```spv
+%l = OpLoad %uint %px
+%m = OpIMul %uint %l %uint_5
+%x = OpBitwiseAnd %uint %m %uint_7
+%p = OpUGreaterThan %bool %x %uint_3
+%bl = OpGroupNonUniformBallot %v4uint %uint_3 %p
+%n = OpGroupNonUniformBallotBitCount %uint %uint_3 InclusiveScan %bl
+%nx = OpGroupNonUniformBallotBitCount %uint %uint_3 ExclusiveScan %bl
+%nr = OpGroupNonUniformBallotBitCount %uint %uint_3 Reduce %bl
+%any = OpGroupNonUniformAny %bool %uint_3 %p
+%all = OpGroupNonUniformAll %bool %uint_3 %p
+%eq = OpGroupNonUniformAllEqual %bool %uint_3 %x
+%el = OpGroupNonUniformElect %bool %uint_3
+%s = OpGroupNonUniformIAdd %uint %uint_3 Reduce %x
+%is = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %x
+%xs = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %x
+%cs = OpGroupNonUniformIAdd %uint %uint_3 ClusteredReduce %x %uint_4
+%mx = OpGroupNonUniformUMax %uint %uint_3 Reduce %x
+%sh = OpGroupNonUniformShuffle %uint %uint_3 %x %uint_2
+%sx = OpGroupNonUniformShuffleXor %uint %uint_3 %x %uint_1
+%up = OpGroupNonUniformShuffleUp %uint %uint_3 %x %uint_1
+%dn = OpGroupNonUniformShuffleDown %uint %uint_3 %x %uint_1
+%bc = OpGroupNonUniformBroadcast %uint %uint_3 %x %uint_5
+%bf = OpGroupNonUniformBroadcastFirst %uint %uint_3 %x
+%lsb = OpGroupNonUniformBallotFindLSB %uint %uint_3 %bl
+%msb = OpGroupNonUniformBallotFindMSB %uint %uint_3 %bl
+%ex = OpGroupNonUniformBallotBitExtract %bool %uint_3 %bl %uint_1
+%ib = OpGroupNonUniformInverseBallot %bool %uint_3 %bl
+OpStore %y %n
+```
+
+# a branch leaves lanes 2 and 6 out: they take no part in the sums; the
+# second shader is the first with the sums of bits written as the bit
+# counts of their ballots, and leaves the same buffer
+animate exec lanes 8 seed 1 nofile
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { uint d[8]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  if (x > 2u)
+    b.d[i] = subgroupExclusiveAdd(x & 1u) + 100u * subgroupAdd(x > 5u ? 1u : 0u);
+}
+```
+animate exec lanes 8 seed 1 nofile
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_ballot : require
+layout(local_size_x = 8) in;
+layout(std430, binding = 0) buffer B { uint d[8]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  if (x > 2u)
+    b.d[i] = subgroupBallotExclusiveBitCount(subgroupBallot((x & 1u) != 0u)) +
+        100u * subgroupBallotBitCount(subgroupBallot(x > 5u));
+}
+```
+
+# simplify under gt1030 (the sum 32.625, the scan 60.25, a ballot 0, a
+# compare 2.375, a bit count 3): a stream compaction's offset (an
+# exclusive scan of a select of 1 and 0), a count of odd values, a scan of
+# one bit of a field, and a signed count; the scan of x itself is not of
+# bits, and stays
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 32) in;
+layout(std430, binding = 0) buffer B { uint d[64]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  uint at = subgroupExclusiveAdd(x > 5u ? 1u : 0u);
+  uint odd = subgroupAdd(x & 1u);
+  uint f = subgroupInclusiveAdd(bitfieldExtract(x, 3, 1));
+  int s = subgroupAdd(int(x < 9u));
+  uint all = subgroupInclusiveAdd(x);
+  b.d[at] = x + odd + f + uint(s) + all;
+}
+```
+
+# where the sum and the scan cost less than the ballot's form (a model
+# that says so), or the model has no ballot, each is said and left
+simplify nofile nofunctions under cheapsum
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 32) in;
+layout(std430, binding = 0) buffer B { uint d[64]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  b.d[i] = subgroupExclusiveAdd(x > 5u ? 1u : 0u) + subgroupAdd(x & 1u);
+}
+```
+simplify nofile nofunctions under noballot
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 32) in;
+layout(std430, binding = 0) buffer B { uint d[64]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  b.d[i] = subgroupAdd(x & 1u);
+}
+```
