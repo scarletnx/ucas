@@ -1191,6 +1191,10 @@ peep_cands(nid root, struct pcand **out)
 			break;
 		default:
 			if (opinfo[op].arity == 1) {
+				/* the bits of a float (asint, asuint) are not
+				 * the float: nothing to drop */
+				if (!TY_ISINT(N.ty[N.a[n]]))
+					break;
 				snprintf(what, sizeof what, "%s(...)",
 				    opinfo[op].name);
 				cand_add(&c, &nc, &cap, root,

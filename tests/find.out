@@ -52,3 +52,8 @@ more for sq:
   cost 5   x + (x*x - x)                            exact
   cost 7   [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225][x] lookup table (baseline)
   [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]
+> pb(i: u32 in 0..1000) = asint(asfloat(i | 0x40000000) * 2.0) >> 3
+> find pb 1
+find pb: 1001 points, computing in i32, costs from gt1030
+  cost 2   (i32(i) >> 3) + 135266304                affine fit
+  [searched every term up to cost 2: 1075 distinct columns; 'more' continues]
