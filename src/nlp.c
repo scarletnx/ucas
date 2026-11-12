@@ -8543,6 +8543,56 @@ setting_line(const char *q, size_t n)
 	    memchr(q, '{', n) != NULL;
 }
 
+/* a line with words that is not a comment, a directive or a setting */
+static int
+piece_text_line(const char *q, size_t n)
+{
+	size_t i = 0;
+
+	while (i < n && (q[i] == ' ' || q[i] == '\t' || q[i] == '\r'))
+		i++;
+	return i < n && q[0] != '\x1e' && q[i] != '#' && !setting_line(q, n);
+}
+
+/*
+ * The request of a piece, the statement just before its block: the last
+ * line with words and the lines it continues (an indented line continues
+ * the one above), with the piece's directives and settings; the other
+ * lines are left empty, so the line count stays.
+ */
+static char *
+request_lines(const char *src)
+{
+	const char *q, *e, *at = NULL, *rs = NULL;
+	struct sbuf b = {0};
+
+	for (q = src; *q; q = *e ? e + 1 : e) {
+		e = strchr(q, '\n');
+		if (e == NULL)
+			e = q + strlen(q);
+		if (piece_text_line(q, (size_t)(e - q)))
+			at = q;
+	}
+	for (rs = at; rs != NULL && rs > src && (*rs == ' ' || *rs == '\t'); ) {
+		const char *a = rs - 1;
+		while (a > src && a[-1] != '\n')
+			a--;
+		rs = a;
+	}
+	sb_puts(&b, "");
+	for (q = src; *q; q = *e ? e + 1 : e) {
+		e = strchr(q, '\n');
+		if (e == NULL)
+			e = q + strlen(q);
+		if (*q == '\x1e' || setting_line(q, (size_t)(e - q)) || (at != NULL &&
+		    q >= rs && q <= at))
+			sb_printf(&b, "%.*s", (int)(e - q), q);
+		if (*e)
+			sb_putc(&b, '\n');
+	}
+	return b.p;
+}
+
 /*
  * The sink a simplify request names: `sink FORMAT`, a word with unorm or
  * snorm in it (unorm8, RGBA8_UNORM), or a format's name on a line that
@@ -8605,7 +8655,7 @@ simplify_piece(struct sbuf *piece, int c)
 	    "superoptimize", "superoptimise", "superoptimization", "peephole",
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    "faster", "speed", "speedup", "quicker", NULL};
-	char *p = piece->p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
+	char *p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
 	char ulp[32] = "", num[32] = "", fl[280] = "", sink[48] = "";
 	int f_foldproof = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
@@ -8621,8 +8671,11 @@ simplify_piece(struct sbuf *piece, int c)
 	int nhere = 0, nmod = 0;
 	struct sbuf out = {0};
 
-	if (p == NULL)
+	if (piece->p == NULL)
 		return 0;
+	/* the request alone is read; the piece's other lines run as they
+	 * are, before it */
+	p = request_lines(piece->p);
 	/* the words */
 	{
 		int cmt = 0;	/* a comment line: its words ask for nothing */
@@ -8751,8 +8804,10 @@ simplify_piece(struct sbuf *piece, int c)
 				num[0] = 0;
 		}
 	}
-	if (!hit || anim)
+	if (!hit || anim) {
+		free(p);
 		return 0;
+	}
 	if (!c)
 		find_sink(p, sink, sizeof sink);
 	snprintf(fl, sizeof fl, "%s%s%s%s%s%s%s", f_float ? " float" : "",
@@ -8870,7 +8925,7 @@ simplify_piece(struct sbuf *piece, int c)
 		assume_opts = as.p;
 	}
 	{
-		const char *q = p, *e, *at = NULL;
+		const char *q = p, *e, *at = NULL, *o = piece->p, *oe;
 		/* the command goes on the last line of the request that is not
 		 * a setting (`use m`, a model) run before it */
 		for (q = p; *q; q = *e ? e + 1 : e) {
@@ -8885,8 +8940,13 @@ simplify_piece(struct sbuf *piece, int c)
 			e = strchr(q, '\n');
 			if (e == NULL)
 				e = q + strlen(q);
+			oe = strchr(o, '\n');
+			if (oe == NULL)
+				oe = o + strlen(o);
 			if (*q == '\x1e' || setting_line(q, (size_t)(e - q)))
 				sb_printf(&out, "%.*s\n", (int)(e - q), q);
+			else if (q == e)	/* not the request's: as it is */
+				sb_printf(&out, "%.*s\n", (int)(oe - o), o);
 			else if (q != at)
 				sb_putc(&out, '\n');
 			else if (first && e > q && c) {
@@ -8911,9 +8971,11 @@ simplify_piece(struct sbuf *piece, int c)
 			} else
 				sb_putc(&out, '\n');
 			q = *e ? e + 1 : e;
+			o = *oe ? oe + 1 : oe;
 		}
 	}
 	free(assume_opts);
+	free(p);
 	free(piece->p);
 	*piece = out;
 	return 1;
