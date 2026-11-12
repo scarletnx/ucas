@@ -1442,6 +1442,13 @@ vcomp(int id)
 
 /* ---- costs ---- */
 
+/* the catalogue's class k (inst.c) where the model lists it, else fb */
+static int
+cat_class(int k, int fb)
+{
+	return cclass_available(model_active(), k) ? k : fb;
+}
+
 static int
 cost_class(const char *op, const char *ext, int st, double *mul)
 {
@@ -1498,10 +1505,18 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	if (!strncmp(op, "OpBitwise", 9) || !strcmp(op, "OpNot") ||
 	    !strncmp(op, "OpLogical", 9))
 		return C_LOGIC;
-	if (!strcmp(op, "OpBitCount") || !strcmp(op, "OpBitReverse"))
+	if (!strcmp(op, "OpBitCount"))
 		return C_BITCNT;
+	/* the catalogue's classes where the model has them, else what the
+	 * instruction was priced as before there were any */
+	if (!strcmp(op, "OpBitReverse"))
+		return cat_class(C_BREV, C_BITCNT);
+	if (!strcmp(op, "OpBitFieldInsert"))
+		return cat_class(C_BFI, C_SHIFT);
 	if (!strncmp(op, "OpBitField", 10))
-		return C_SHIFT;
+		return cat_class(C_BFE, C_SHIFT);
+	if (!strcmp(op, "OpUMulExtended") || !strcmp(op, "OpSMulExtended"))
+		return cat_class(C_MULHI, C_IMUL);
 	if (strstr(op, "Equal") || strstr(op, "Less") || strstr(op, "Greater") ||
 	    !strcmp(op, "OpIsNan") || !strcmp(op, "OpIsInf"))
 		return fl ? C_CMP : C_CMP;
@@ -5586,6 +5601,36 @@ uint_type(int w)
 }
 
 /* candidates for instruction k, cheapest first */
+/*
+ * The one word id is made of through bitwise ops and shifts by constants
+ * (constants aside), within depth levels: *leaf, 1; 0 when there are two
+ * or more, or none
+ */
+static int
+one_leaf(int id, int depth, int *leaf)
+{
+	static const char *const ops[] = {"OpBitwiseAnd", "OpBitwiseOr",
+	    "OpBitwiseXor", "OpShiftLeftLogical", "OpShiftRightLogical", NULL};
+	int k = SP.def[id], i;
+	uint64_t v;
+
+	if (const_of(id, &v))
+		return 1;
+	if (k < 0 || depth == 0 || SP.dead[k] || !in_list(V.in[k].op, ops)) {
+		if (*leaf >= 0 && *leaf != id)
+			return 0;
+		*leaf = id;
+		return 1;
+	}
+	if (!strncmp(V.in[k].op, "OpShift", 7) && !const_of(res_of(idx(
+	    V.in[k].opnd[2])), &v))
+		return 0;	/* a shift by a variable */
+	for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++)
+		if (!one_leaf(res_of(idx(V.in[k].opnd[i])), depth - 1, leaf))
+			return 0;
+	return 1;
+}
+
 static int
 candidates(int k, struct cand *cs, int max)
 {
@@ -5810,6 +5855,37 @@ candidates(int k, struct cand *cs, int max)
 				break;
 			}
 		}
+	/* (x << j) >> k, k >= j: the field k - j .. w - j - 1 of x, sign- or
+	 * zero-extended by the right shift */
+	if ((!strcmp(I->op, "OpShiftRightArithmetic") ||
+	    !strcmp(I->op, "OpShiftRightLogical")) && w > 1 && n < max) {
+		int d = SP.def[arg[0]];
+		uint64_t j, kk;
+		if (d >= 0 && !SP.dead[d] && !strcmp(V.in[d].op,
+		    "OpShiftLeftLogical") && const_of(arg[1], &kk) &&
+		    const_of(res_of(idx(V.in[d].opnd[2])), &j) && j <= kk &&
+		    kk < (uint64_t)w && j > 0) {
+			n += ins_cand(&cs[n], !strcmp(I->op, "OpShiftRightArithmetic") ?
+			    "OpBitFieldSExtract" : "OpBitFieldUExtract", NULL, rt,
+			    res_of(idx(V.in[d].opnd[1])), const_id(rt, kk - j),
+			    const_id(rt, (uint64_t)w - kk),
+			    "two shifts by constants are one bitfield extract");
+			cs[n - 1].extra = SP.uses[arg[0]] == 1 ? ins_cost_k(d) : 0;
+		}
+	}
+	/* the bits of one word in reverse order, however many swaps make it:
+	 * one bit reverse (the random runs and the proof decide) */
+	if ((!strcmp(I->op, "OpBitwiseOr") || !strcmp(I->op, "OpBitwiseXor") ||
+	    !strcmp(I->op, "OpIAdd")) && w > 1 && n < max) {
+		int leaf = -1, i, ok = 1;
+		for (i = 0; i < 2 && ok; i++)
+			ok = one_leaf(arg[i], 15, &leaf);	/* the proof's 16 levels */
+		if (ok && leaf >= 0 && V.id[leaf].type == rt) {
+			n += ins_cand(&cs[n], "OpBitReverse", NULL, rt, leaf, -1, -1,
+			    "the bits of one word reversed are one bit reverse");
+			cs[n - 1].extra = aff_dead_cost(I->res, leaf, rt);
+		}
+	}
 	(void)w;
 	return n;
 }
@@ -5887,7 +5963,8 @@ driver_trivial(int k, const struct cand *c)
 		"a remainder by a power of two is a mask",
 		"an extract at bit 0 is a mask",
 		"a shift then a mask is one bitfield extract",
-		"two shifts by constants are one", NULL
+		"two shifts by constants are one",
+		"two shifts by constants are one bitfield extract", NULL
 	};
 	const struct sins *I = &V.in[k];
 	int base = first_arg(I), na = I->nop - base, i, nk = 0, w;

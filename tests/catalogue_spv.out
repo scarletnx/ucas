@@ -1,0 +1,46 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model cat : gt1030 { bfe: 1, brev: 1 }
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 112 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 23 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 31 -> 5 (-83.9%)
+  counting the strength reductions any driver also does: 33 -> 5 (-84.8%)
+  also done by any driver compiler (1 rewrite, -2; kept in the written module, not counted above): 1 two shifts by constants are one bitfield extract
+  by kind:
+       1  the bits of one word reversed are one bit reverse  -30
+  rewrites:
+    %69 = OpBitwiseOr %uint %66 %68
+      ->  OpBitReverse %uint %27   (the bits of one word reversed are one bit reverse; -30)
+      (line 12: x = (x >> 16) | (x << 16);)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2912 bytes, checksum 50f21932)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cat
+cost model: cat
+> spvsimplify nofile nofunctions
+simplify: 112 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 23 dead instructions removed
+  integer arithmetic cost under cat (each instruction once), beyond what spirv-opt -O and a driver's back end do: 30 -> 2 (-93.3%)
+  counting the strength reductions any driver also does: 33 -> 2 (-93.9%)
+  also done by any driver compiler (1 rewrite, -3; kept in the written module, not counted above): 1 two shifts by constants are one bitfield extract
+  by kind:
+       1  the bits of one word reversed are one bit reverse  -32
+  rewrites:
+    %69 = OpBitwiseOr %uint %66 %68
+      ->  OpBitReverse %uint %27   (the bits of one word reversed are one bit reverse; -32)
+      (line 12: x = (x >> 16) | (x << 16);)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2912 bytes, checksum 50f21932)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cat
+cost model: cat
+> spvsimplify nofile nofunctions
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under cat (each instruction once): 11 -> 11 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    lop3             2 x 1     = 2  (bitwise logic of up to 3 inputs; saves 2)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

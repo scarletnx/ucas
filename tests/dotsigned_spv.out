@@ -28,8 +28,10 @@ simplify: 62 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 > use gt1030
 cost model: gt1030
 > spvsimplify nofile nofunctions
-simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 9 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 14 -> 1 (-92.9%)
+simplify: 68 SPIR-V instructions, 3 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 9 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 8 -> 1 (-87.5%)
+  counting the strength reductions any driver also does: 14 -> 1 (-92.9%)
+  also done by any driver compiler (3 rewrites, -6; kept in the written module, not counted above): 3 two shifts by constants are one bitfield extract
   by kind:
        1  a sum of products as one dot product          -13
   rewrites:

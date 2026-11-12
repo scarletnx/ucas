@@ -3189,8 +3189,19 @@ The rest of the instructions a model may want, and where each stands:
 | FSWZADD, the quad swaps | subgroup (quad) operations: not yet |
 | the SALU as a parallel pipe, Intel's region addressing | need pipes and operand modes in the model, which prices issue cost per class only |
 
-`simplify` on SPIR-V has its own bitfield-extract rewrite (priced by
-its instruction classes); it does not write these operations yet.
+`simplify` on SPIR-V prices OpBitFieldUExtract and OpBitFieldSExtract
+by `bfe`, OpBitFieldInsert by `bfi`, OpBitReverse by `brev` and
+Op[US]MulExtended by `mulhi` where the model lists them; where it does
+not, as before (a shift, a bit count, a multiply).  Besides the shift
+then a mask, it writes two shifts by constants, `(x << j) >> k`, as the
+bitfield extract of bits k - j .. w - j - 1 (signed for an arithmetic
+shift; a driver does that too, so it is listed apart), and an integer
+made of one word's bits through ands, ors, xors and constant shifts,
+up to the 16 levels the proof expands, as OpBitReverse of the word when
+the random runs and the proof say it is one (five swaps: -32 under a
+model that lists brev at 1; tests/catalogue_spv.ucas).  It does not write
+OpBitFieldInsert (its four operands do not fit a candidate's three) nor
+Op[US]MulExtended (a struct result and its extract) yet.
 
 ### Functions as tables
 
