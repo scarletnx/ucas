@@ -8360,6 +8360,407 @@ float_pass(const char *text, int *changed)
 #include "spv_dword.inc"	/* fp64 as f32 pairs, the driver's folds */
 #include "spv_mem.inc"	/* memory kinds: what their prices make worth doing */
 
+/* ---- advice: values that change less often than the shader runs ---- */
+
+/*
+ * A shader runs once a pixel (or an invocation), but part of what it
+ * computes depends only on constants, uniforms and push constants: that
+ * part is the same for a whole draw, and could be computed once and
+ * passed in.  In a fragment shader, what is affine in the varyings
+ * could be computed at the vertices and interpolated.  Neither can be
+ * done inside the module (the interface changes), so `simplify ...
+ * advice` only reports them, priced under the active model: each
+ * instruction gets the lowest frequency its operands allow,
+ *
+ *   constant < draw (uniform blocks, push constants) < vertex (affine
+ *   in non-flat float inputs of a fragment shader) < every run
+ *
+ * and the values of a lower frequency that something of a higher one
+ * uses are what would be passed in.  Affine: sums, differences, and
+ * products, quotients, dots, matrix products and mixes with every other
+ * operand of draw frequency; anything else of a varying is per run.
+ */
+enum { FQ_CONST, FQ_DRAW, FQ_VERTEX, FQ_RUN };
+static int advice_on;
+
+void
+spirv_advice_opt(int on)
+{
+	advice_on = on;
+}
+
+static int
+adv_decorated(int id, const char *d)
+{
+	int k;
+
+	for (k = 0; k < V.nin && strcmp(V.in[k].op, "OpFunction"); k++)
+		if (!strcmp(V.in[k].op, "OpDecorate") && V.in[k].nop >= 2 &&
+		    idx(V.in[k].opnd[0]) == id && !strcmp(V.in[k].opnd[1], d))
+			return 1;
+	return 0;
+}
+
+/* an instruction's price: float instructions per component, the rest by
+ * their class */
+static double
+adv_price(const struct sins *I)
+{
+	const char *ext = !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
+	    I->opnd[2] : NULL;
+	int rt = idx(I->opnd[0]), cls;
+	double mul = 1, c = fprice_ins(I->op, ext, rt);
+
+	if (c > 0)
+		return c;
+	cls = cost_class(I->op, ext, rt, &mul);
+	return cls >= 0 && cls < C_NCLASS && cclass_available(model_active(),
+	    cls) ? model_active()->c[cls] * mul : 0;
+}
+
+/* computes from its operands alone, the same on the host as here */
+static int
+adv_pure(const struct sins *I)
+{
+	static const char *const core[] = {"OpFAdd", "OpFSub", "OpFMul",
+	    "OpFDiv", "OpFNegate", "OpFRem", "OpFMod", "OpIAdd", "OpISub",
+	    "OpIMul", "OpUDiv", "OpSDiv", "OpUMod", "OpSMod", "OpSRem",
+	    "OpSNegate", "OpShiftLeftLogical", "OpShiftRightLogical",
+	    "OpShiftRightArithmetic", "OpBitwiseAnd", "OpBitwiseOr",
+	    "OpBitwiseXor", "OpNot", "OpSelect", "OpIEqual", "OpINotEqual",
+	    "OpConvertFToU", "OpConvertFToS", "OpConvertSToF", "OpConvertUToF",
+	    "OpBitcast", "OpUConvert", "OpSConvert", "OpFConvert",
+	    "OpCompositeConstruct", "OpCompositeExtract", "OpCompositeInsert",
+	    "OpVectorShuffle", "OpCopyObject", "OpVectorTimesScalar",
+	    "OpMatrixTimesScalar", "OpVectorTimesMatrix", "OpMatrixTimesVector",
+	    "OpMatrixTimesMatrix", "OpDot", "OpTranspose", "OpLogicalAnd",
+	    "OpLogicalOr", "OpLogicalNot", "OpLogicalEqual",
+	    "OpLogicalNotEqual", NULL};
+
+	if (!strcmp(I->op, "OpExtInst"))
+		return I->nop >= 4 && V.glsl >= 0 && idx(I->opnd[1]) == V.glsl;
+	return in_list(I->op, core) || !strncmp(I->op, "OpFOrd", 6) ||
+	    !strncmp(I->op, "OpFUnord", 8) || !strncmp(I->op, "OpULess", 7) ||
+	    !strncmp(I->op, "OpUGreater", 10) || !strncmp(I->op, "OpSLess", 7) ||
+	    !strncmp(I->op, "OpSGreater", 10);
+}
+
+/* correctly rounded (or exact) in the shader as on a host: the rest is
+ * within the precision Vulkan allows and may differ in the last places */
+static int
+adv_exact(const struct sins *I)
+{
+	static const char *const ext[] = {"FAbs", "FSign", "Floor", "Ceil",
+	    "Trunc", "FMin", "FMax", "FClamp", "SAbs", "SSign", "SMin", "SMax",
+	    "SClamp", "UMin", "UMax", "UClamp", "Step", NULL};
+
+	if (!strcmp(I->op, "OpExtInst"))
+		return in_list(I->opnd[2], ext);
+	return strcmp(I->op, "OpFDiv") && strcmp(I->op, "OpFRem") &&
+	    strcmp(I->op, "OpFMod");
+}
+
+/* an affine operation: at most one operand of vertex frequency, in a
+ * place where the result is linear in it */
+static int
+adv_affine(const struct sins *I, const uint8_t *fq)
+{
+	int base = first_arg(I), i, nv = 0, at = -1;
+	const char *e = !strcmp(I->op, "OpExtInst") ? I->opnd[2] : "";
+
+	for (i = base; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] == FQ_VERTEX) {
+			nv++;
+			at = i - base;
+		}
+	if (!strcmp(I->op, "OpFAdd") || !strcmp(I->op, "OpFSub") ||
+	    !strcmp(I->op, "OpFNegate") || !strcmp(I->op, "OpCompositeConstruct")
+	    || !strcmp(I->op, "OpCompositeExtract") ||
+	    !strcmp(I->op, "OpVectorShuffle") || !strcmp(I->op, "OpCopyObject"))
+		return 1;
+	if (!strcmp(I->op, "OpFMul") || !strcmp(I->op, "OpVectorTimesScalar") ||
+	    !strcmp(I->op, "OpMatrixTimesVector") ||
+	    !strcmp(I->op, "OpVectorTimesMatrix") || !strcmp(I->op, "OpDot") ||
+	    !strcmp(I->op, "OpMatrixTimesScalar"))
+		return nv == 1;
+	if (!strcmp(I->op, "OpFDiv"))
+		return nv == 1 && at == 0;
+	if (!strcmp(e, "FMix"))		/* x (1 - a) + y a, a of the draw */
+		return I->nop >= 6 && fq[idx(I->opnd[5])] <= FQ_DRAW;
+	if (!strcmp(e, "Fma"))		/* a b + c: one of a, b of the draw */
+		return I->nop >= 6 && (fq[idx(I->opnd[3])] <= FQ_DRAW ||
+		    fq[idx(I->opnd[4])] <= FQ_DRAW);
+	return 0;
+}
+
+struct advroot {
+	int k;			/* the instruction */
+	double cost;		/* of what it is computed from, at its frequency */
+	int nins, nload, ninexact;
+};
+
+/* the instructions of frequency f under k, each once (seen) */
+static void
+adv_cone(int k, int f, const uint8_t *fq, char *seen, struct advroot *r,
+    const double *price, int depth)
+{
+	const struct sins *I = &V.in[k];
+	int i;
+
+	if (seen[k] || depth > 400)
+		return;
+	seen[k] = 1;
+	if (!strcmp(I->op, "OpLoad"))
+		r->nload++;
+	else if (price[k] > 0) {
+		r->nins++;
+		r->ninexact += !adv_exact(I);
+	}
+	r->cost += price[k];
+	for (i = 1; i < I->nop; i++) {
+		int a, d;
+		if (I->opnd[i][0] != '%')
+			continue;
+		a = idx(I->opnd[i]);
+		d = SP.def[a];
+		if (d >= 0 && fq[a] == f)
+			adv_cone(d, f, fq, seen, r, price, depth + 1);
+	}
+}
+
+static void
+advice_pass(const char *text)
+{
+	const struct model *m = model_active();
+	uint8_t *fq, *used;
+	double *price;
+	char *seen, stage[24] = "";
+	struct advroot root[2][64];
+	int nroot[2] = {0, 0}, k, i, f, body = -1;
+	struct sbuf rep = {0};
+
+	memset(&V, 0, sizeof V);
+	symmap_reset();
+	V.glsl = -1;
+	V.lanes = 1;
+	V.rng = 1;
+	cols = 1;
+	parse(text);
+	declare();
+	fq = xcalloc((size_t)(V.nid + 64), 1);
+	used = xcalloc((size_t)(V.nid + 64), 1);
+	price = xcalloc((size_t)V.nin + 1, sizeof *price);
+	seen = xcalloc((size_t)V.nin + 1, 1);
+	SP.def = xmalloc((size_t)(V.nid + 64) * sizeof *SP.def);
+	for (i = 0; i < V.nid + 64; i++) {
+		SP.def[i] = -1;
+		fq[i] = FQ_RUN;
+	}
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpEntryPoint") && I->nop >= 1 && !stage[0])
+			snprintf(stage, sizeof stage, "%s", I->opnd[0]);
+		if (!strcmp(I->op, "OpFunction") && body < 0)
+			body = k;
+	}
+	/* constants, and the variables by where their value comes from */
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_CONST && !V.id[i].spec)
+			fq[i] = FQ_CONST;
+		else if (V.id[i].kind == K_CONST || V.id[i].kind == K_TYPE ||
+		    V.id[i].kind == K_EXT)
+			fq[i] = V.id[i].kind == K_CONST ? FQ_DRAW : FQ_CONST;
+	for (k = 0; k < V.nin && k != body; k++) {
+		const struct sins *I = &V.in[k];
+		int t, e;
+		if (strcmp(I->op, "OpVariable") || I->res < 0 || I->nop < 2)
+			continue;
+		t = idx(I->opnd[0]);
+		e = V.id[t].kind == K_TYPE ? T(t)->e : -1;
+		if (!strcmp(I->opnd[1], "PushConstant") ||
+		    (!strcmp(I->opnd[1], "Uniform") && e >= 0 &&
+		    !adv_decorated(e, "BufferBlock")))
+			fq[I->res] = FQ_DRAW;
+		else if (!strcmp(I->opnd[1], "Input") && !strcmp(stage, "Fragment")
+		    && e >= 0 && is_float_t(e) && !adv_decorated(I->res, "Flat") &&
+		    !adv_decorated(I->res, "BuiltIn") &&
+		    !adv_decorated(I->res, "Centroid") &&
+		    !adv_decorated(I->res, "Sample"))
+			fq[I->res] = FQ_VERTEX;
+	}
+	for (k = body < 0 ? V.nin : body; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int base, c = FQ_CONST;
+		if (I->res < 0 || I->nop < 1 || I->opnd[0][0] != '%' ||
+		    V.id[idx(I->opnd[0])].kind != K_TYPE)
+			continue;
+		SP.def[I->res] = k;
+		V.id[I->res].type = idx(I->opnd[0]);
+		if (!strcmp(I->op, "OpAccessChain") ||
+		    !strcmp(I->op, "OpInBoundsAccessChain") ||
+		    !strcmp(I->op, "OpLoad")) {
+			/* a pointer into a variable, or its value: the variable's
+			 * frequency (a function's own variable: unknown stores) */
+			for (i = 1; i < I->nop; i++)
+				if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] > c)
+					c = fq[idx(I->opnd[i])];
+			fq[I->res] = (uint8_t)c;
+			if (!strcmp(I->op, "OpLoad") && c == FQ_DRAW)
+				price[k] = m->c[C_LOAD];
+			continue;
+		}
+		if (!adv_pure(I))
+			continue;	/* per run */
+		base = first_arg(I);
+		for (i = base; i < I->nop; i++)
+			if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] > c)
+				c = fq[idx(I->opnd[i])];
+		if (c == FQ_VERTEX && !adv_affine(I, fq))
+			c = FQ_RUN;
+		fq[I->res] = (uint8_t)c;
+		if (c == FQ_DRAW || c == FQ_VERTEX)
+			price[k] = adv_price(I);
+	}
+	/* the highest frequency that uses each value */
+	for (k = body < 0 ? V.nin : body; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int mine = I->res >= 0 && SP.def[I->res] == k ? fq[I->res] : FQ_RUN;
+		for (i = 0; i < I->nop; i++)
+			if (I->opnd[i][0] == '%' && idx(I->opnd[i]) != I->res &&
+			    mine > used[idx(I->opnd[i])])
+				used[idx(I->opnd[i])] = (uint8_t)mine;
+	}
+	/* the roots: a draw or vertex value that something more frequent
+	 * uses, and that costs something to compute */
+	for (k = body < 0 ? V.nin : body; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		struct advroot r;
+		if (I->res < 0 || SP.def[I->res] != k)
+			continue;
+		f = fq[I->res];
+		if ((f != FQ_DRAW && f != FQ_VERTEX) || used[I->res] <= f)
+			continue;
+		memset(&r, 0, sizeof r);
+		memset(seen, 0, (size_t)V.nin + 1);
+		r.k = k;
+		adv_cone(k, f, fq, seen, &r, price, 0);
+		if (r.nins == 0 || nroot[f - FQ_DRAW] >= 64)
+			continue;
+		root[f - FQ_DRAW][nroot[f - FQ_DRAW]++] = r;
+	}
+	for (f = FQ_DRAW; f <= FQ_VERTEX; f++) {
+		int z = f - FQ_DRAW, n = nroot[z], nins = 0, nload = 0, ninx = 0;
+		double tot = 0, arith, pass, save;
+		struct advroot all;
+		if (n == 0)
+			continue;
+		/* everything under the roots, each instruction once */
+		memset(&all, 0, sizeof all);
+		memset(seen, 0, (size_t)V.nin + 1);
+		for (i = 0; i < n; i++)
+			adv_cone(root[z][i].k, f, fq, seen, &all, price, 0);
+		tot = all.cost;
+		nins = all.nins;
+		nload = all.nload;
+		ninx = all.ninexact;
+		arith = tot - nload * m->c[C_LOAD];
+		pass = n * m->c[C_LOAD];
+		save = tot - pass;
+		if (!rep.n)
+			sb_printf(&rep, "advice (changes outside the module; nothing "
+			    "here is rewritten), priced under %s:\n", sym_str(m->name));
+		rep_obj(f == FQ_DRAW ? "advice_draw" : "advice_vertex");
+		rep_int("instructions", nins);
+		rep_num("cost", tot);
+		rep_int("values", n);
+		if (f == FQ_DRAW) {
+			sb_printf(&rep, "  once a draw: %d instruction%s that read%s "
+			    "only constants, uniform blocks and push constants cost%s "
+			    "%g every run (%g of arithmetic, %d load%s at %g)\n", nins,
+			    nins == 1 ? "" : "s", nins == 1 ? "s" : "", nins == 1 ?
+			    "s" : "", tot, arith, nload, nload == 1 ? "" : "s",
+			    (double)m->c[C_LOAD]);
+			if (save > 0)
+				sb_printf(&rep, "    computed once a draw and passed in "
+				    "as %d value%s (push constants or a uniform block: "
+				    "%d load%s, %g), that saves %g every run\n", n, n == 1 ?
+				    "" : "s", n, n == 1 ? "" : "s", pass, save);
+			else
+				sb_printf(&rep, "    derived, but not cheaper under %s: "
+				    "passing %d value%s costs %d load%s (%g) against "
+				    "%g\n", sym_str(m->name), n, n == 1 ? "" : "s", n,
+				    n == 1 ? "" : "s", pass, tot);
+			rep_num("saves", save);
+			sb_printf(&rep, "    the same instructions on the same values: "
+			    "add, subtract, multiply, conversions and selections are "
+			    "exact or correctly rounded on a host as in the shader");
+			if (ninx)
+				sb_printf(&rep, "; %d of them (divisions, square roots, "
+				    "transcendentals) are only within Vulkan's precision "
+				    "in the shader and may differ from a host's in the "
+				    "last places", ninx);
+			sb_puts(&rep, "\n");
+			rep_int("within_vulkan_precision", ninx);
+		} else {
+			sb_printf(&rep, "  once a vertex: %d instruction%s costing %g "
+			    "every pixel are affine in the varyings (sums, and "
+			    "products with values of the draw)\n", nins, nins == 1 ?
+			    "" : "s", tot);
+			sb_printf(&rep, "    a varying is v = sum b_i v_i over the "
+			    "vertices with sum b_i = 1 (perspective-correct "
+			    "barycentrics), and an affine f has f(v) = sum b_i "
+			    "f(v_i): computed in the vertex shader and passed as %d "
+			    "varying%s, the interpolated value is the same real "
+			    "number at every pixel; in floats the two differ by the "
+			    "interpolation's rounding (not bit-exact)\n", n, n == 1 ?
+			    "" : "s");
+			sb_printf(&rep, "    not priced: %s has no price for a vertex "
+			    "or for a varying, so nothing says when %g a pixel is "
+			    "worth %g a vertex and %d more varying%s\n",
+			    sym_str(m->name), tot, tot, n, n == 1 ? "" : "s");
+			rep_bool("priced", 0);
+		}
+		rep_list("values");
+		for (i = 0; i < n; i++) {
+			char sl[160];
+			if (i < 8) {
+				sb_printf(&rep, "    %s   (%g)\n", V.in[root[z][i].k].text,
+				    root[z][i].cost);
+				src_line(ins_line(root[z][i].k), sl, sizeof sl);
+				if (sl[0])
+					sb_printf(&rep, "  %s", sl);
+			}
+			rep_obj(NULL);
+			rep_str("instruction", V.in[root[z][i].k].text);
+			rep_num("cost", root[z][i].cost);
+			rep_int("line", ins_line(root[z][i].k));
+			rep_end();
+		}
+		if (n > 8)
+			sb_printf(&rep, "    ... and %d more\n", n - 8);
+		rep_end();
+		rep_end();
+	}
+	if (!rep.n)
+		sb_printf(&rep, "advice: nothing in this module depends only on "
+		    "its uniforms, or is affine in its varyings\n");
+	fputs(rep.p, stdout);
+	free(rep.p);
+	free(fq);
+	free(used);
+	free(price);
+	free(seen);
+	free(SP.def);
+	SP.def = NULL;
+	for (k = 0; k < V.nin; k++) {
+		for (i = 0; i < V.in[k].nop; i++)
+			free(V.in[k].opnd[i]);
+		free(V.in[k].text);
+	}
+	free(V.in);
+	memset(&V, 0, sizeof V);
+}
+
 static char *orig_mod;	/* the module before the rewrites */
 
 /*
@@ -8513,6 +8914,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		memset(&V, 0, sizeof V);
 		spirv_float_opts(0, 0, 0, 0, 0);
 		spirv_sink_opt(NULL);
+		advice_on = 0;
 		fnl_mode = 0;
 		return;
 	}
@@ -9169,6 +9571,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		/* spirv-cross's GLSL of it, beside spirv-opt -O's */
 		if (fch || nrw + ndead > 0)
 			spvcross_after_simplify(orig_mod, fch ? ft : out.p, nofile);
+		if (advice_on)
+			advice_pass(fch ? ft : out.p ? out.p : "");
 		free(ft);
 		free(orig_mod);
 		orig_mod = NULL;
@@ -9176,5 +9580,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0);
 	spirv_sink_opt(NULL);
+	advice_on = 0;
 	fnl_mode = 0;
 }
