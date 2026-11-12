@@ -10,7 +10,16 @@ polynomial of degree 5 in x:
              max relative difference 1.8e-06 (rounding) at 2471 points
   Estrin     cost 10     depth 4     10 ops  4 - x + (x + 7)*(x*x) + (3x - 2)*(x*x*(x*x))
              max relative difference 1.7e-06 (rounding) at 2471 points
+  Knuth      cost 10     depth 10    10 ops  3(((x - 0.833333313)*x + 2.72685194 + x - 4.98148155)*((x - 0.833333313)*x + 2.72685194) + 5.81470776)*x + 4
+             max relative difference 1.1e-05 (rounding) at 2471 points
+             expands to the polynomial within 4e-08 of its largest coefficient (the adapted ones are rounded)
+  P-S blocks cost 10     depth 6     10 ops  ((3x - 2)*(x*x) + (x + 7))*(x*x) + (-x + 4)
+             max relative difference 1.7e-06 (rounding) at 2471 points
+             expands to the polynomial itself
   (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Horner 5; products 10, Estrin 7, Knuth 7, P-S blocks 6
 > q(x: int in 0..1000) = 2x^3 + 3x^2 + 5
 > scheme q
 evaluation schemes for q under gt1030
@@ -27,6 +36,283 @@ polynomial of degree 3 in x:
   differences, for x = 0, 1, ...: start d0 = 5 d1 = 5 d2 = 18 d3 = 12
     per point: d0 += d1; d1 += d2; d2 += d3; (3 additions, cost 3 a point after the start)
     check: equals the polynomial at all 1001 points 0..1000
+> k4(x: u32) = x^4 + 7x^3 + 5x^2 + 3x + 9
+> scheme k4
+evaluation schemes for k4 under gt1030
+polynomial of degree 4 in x:
+  as written cost 31     depth 13    10 ops  x^4 + 7x^3 + 5x^2 + 3x + 9
+  pow()      cost 31     depth 13    10 ops  x^4 + 7x^3 + 5x^2 + 3x + 9
+  products   cost 22     depth 13    10 ops  x*x*x*x + 7(x*x*x) + 5(x*x) + 3x + 9
+             equal at all 4096 points checked
+  Horner     cost 13     depth 13     7 ops  (((x + 7)*x + 5)*x + 3)*x + 9
+             equal at all 4096 points checked
+  Estrin     cost 19     depth 9      9 ops  3x + 9 + (7x + 5)*(x*x) + x*x*(x*x)
+             equal at all 4096 points checked
+  Knuth      cost 11     depth 11     7 ops  ((x + 3)*x + 24 + x - 55)*((x + 3)*x + 24) + 753
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 16     depth 9      8 ops  (x*x + (7x + 5))*(x*x) + (3x + 9)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Knuth 9; products 19, Horner 10, Estrin 15, P-S blocks 13
+  differences, for x = 0, 1, ...: start d0 = 9 d1 = 16 d2 = 66 d3 = 78 d4 = 24
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> k4e(x: u32) = x^4 + 6x^3 + 5x^2 + 3x + 9
+> scheme k4e
+evaluation schemes for k4e under gt1030
+polynomial of degree 4 in x:
+  as written cost 31     depth 13    10 ops  x^4 + 6x^3 + 5x^2 + 3x + 9
+  pow()      cost 31     depth 13    10 ops  x^4 + 6x^3 + 5x^2 + 3x + 9
+  products   cost 22     depth 13    10 ops  x*x*x*x + 6(x*x*x) + 5(x*x) + 3x + 9
+             equal at all 4096 points checked
+  Horner     cost 13     depth 13     7 ops  (((x + 6)*x + 5)*x + 3)*x + 9
+             equal at all 4096 points checked
+  Estrin     cost 19     depth 9      9 ops  3x + 9 + (6x + 5)*(x*x) + x*x*(x*x)
+             equal at all 4096 points checked
+  Knuth      not listed: its adapted coefficients are not whole numbers here
+  P-S blocks cost 16     depth 9      8 ops  (x*x + (6x + 5))*(x*x) + (3x + 9)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Horner 10; products 19, Estrin 15, P-S blocks 13
+  differences, for x = 0, 1, ...: start d0 = 9 d1 = 15 d2 = 60 d3 = 72 d4 = 24
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> k4n(x: int in -100..100) = 2x^4 + 14x^3 - 10x^2 + 6x - 18
+> scheme k4n
+evaluation schemes for k4n under gt1030
+polynomial of degree 4 in x:
+  as written cost 33     depth 15    11 ops  2x^4 + 14x^3 - 10x^2 + 6x - 18
+  pow()      cost 33     depth 15    11 ops  2x^4 + 14x^3 - 10x^2 + 6x - 18
+  products   cost 24     depth 15    11 ops  2(x*x*x*x) + 14(x*x*x) - 10(x*x) + 6x - 18
+             equal at all 201 points checked
+  Horner     cost 15     depth 15     8 ops  (((2x + 14)*x - 10)*x + 6)*x - 18
+             equal at all 201 points checked
+  Estrin     cost 21     depth 9     10 ops  6x - 18 + (14x - 10)*(x*x) + 2(x*x*(x*x))
+             equal at all 201 points checked
+  Knuth      cost 13     depth 13     8 ops  2(((x + 3)*x + 54 + x - 125)*((x + 3)*x + 54) + 3825)
+             equal at all 201 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 18     depth 10     9 ops  (2(x*x) + (14x - 10))*(x*x) + (6x - 18)
+             equal at all 201 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Knuth 11; products 22, Horner 13, Estrin 19, P-S blocks 16
+  differences, for x = -100, -99, ...: start d0 = 185899382 d1 = -7462988 d2 = 226892 d3 = -4644 d4 = 48
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; (4 additions, cost 4 a point after the start)
+    check: equals the polynomial at all 201 points -100..100
+> ones(x: u32) = x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+> scheme ones
+evaluation schemes for ones under gt1030
+polynomial of degree 8 in x:
+  as written cost 92     depth 29    15 ops  x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+  pow()      cost 92     depth 29    15 ops  x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+  products   cost 29     depth 29    15 ops  x*x*x*x*x*x*x*x + x*x*x*x*x*x*x + x*x*x*x*x*x + x*x*x*x*x + x*x*x*x + x*x*x + x*x + x + 1
+             equal at all 4096 points checked
+  Horner     cost 29     depth 29    15 ops  (((((((x + 1)*x + 1)*x + 1)*x + 1)*x + 1)*x + 1)*x + 1)*x + 1
+             equal at all 4096 points checked
+  Estrin     cost 19     depth 12     9 ops  x + 1 + (x + 1)*(x*x) + (x + 1 + (x + 1)*(x*x))*(x*x*(x*x)) + x*x*(x*x)*(x*x*(x*x))
+             equal at all 4096 points checked
+  Knuth      cost 24     depth 23    14 ops  ((((x - 1)*((x + 1)*x + 1) + 2 + ((x + 1)*x + 1) - 2)*((x - 1)*((x + 1)*x + 1) + 2) + 1)*x + 1)*x + 1
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 17     depth 16     9 ops  (((x*x + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S split  cost 19     depth 15     9 ops  (x*x*(x*x)*(x*x*(x + 1) + (x + 1)) + (x*x*(x + 1) + (x + 1)))*x + 1
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with gt1030's fusions counted: P-S blocks 14; products 28, Horner 22, Estrin 16, Knuth 19, P-S split 16
+  differences, for x = 0, 1, ...: start d0 = 1 d1 = 8 d2 = 494 d3 = 8334 d4 = 51048 d5 = 144720 d6 = 207360 d7 = 146160 d8 = 40320
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; d7 += d8; (8 additions, cost 8 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> i7(x: u32) = x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+> scheme i7
+evaluation schemes for i7 under gt1030
+polynomial of degree 7 in x:
+  as written cost 88     depth 25    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  pow()      cost 88     depth 25    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  products   cost 43     depth 25    19 ops  x*x*x*x*x*x*x + 3(x*x*x*x*x*x) + 5(x*x*x*x*x) + 7(x*x*x*x) + 9(x*x*x) + 11(x*x) + 13x + 15
+             equal at all 4096 points checked
+  Horner     cost 25     depth 25    13 ops  ((((((x + 3)*x + 5)*x + 7)*x + 9)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+  Estrin     cost 31     depth 11    15 ops  13x + 15 + (9x + 11)*(x*x) + (5x + 7 + (x + 3)*(x*x))*(x*x*(x*x))
+             equal at all 4096 points checked
+  Knuth      cost 23     depth 23    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 28     depth 15    14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S split  cost 25     depth 12    15 ops  (x*x*(x*x) + 8)*((x*x + 4)*(x + 3) + (x - 5)) + ((x*x - 28)*(x - 13) + (x - 405))
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with gt1030's fusions counted: Knuth 18; products 37, Horner 19, Estrin 25, P-S blocks 22, P-S split 21
+  differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 636 d3 = 4482 d4 = 14448 d5 = 22800 d6 = 17280 d7 = 5040
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> scheme i7 model rdna2
+evaluation schemes for i7 under rdna2
+polynomial of degree 7 in x:
+  as written cost 115    depth 31    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  pow()      cost 115    depth 31    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  products   cost 55     depth 31    19 ops  x*x*x*x*x*x*x + 3(x*x*x*x*x*x) + 5(x*x*x*x*x) + 7(x*x*x*x) + 9(x*x*x) + 11(x*x) + 13x + 15
+             equal at all 4096 points checked
+  Horner     cost 31     depth 31    13 ops  ((((((x + 3)*x + 5)*x + 7)*x + 9)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+  Estrin     cost 39     depth 14    15 ops  13x + 15 + (9x + 11)*(x*x) + (5x + 7 + (x + 3)*(x*x))*(x*x*(x*x))
+             equal at all 4096 points checked
+  Knuth      cost 28     depth 28    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 35     depth 19    14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S split  cost 30     depth 15    15 ops  (x*x*(x*x) + 8)*((x*x + 4)*(x + 3) + (x - 5)) + ((x*x - 28)*(x - 13) + (x - 405))
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with rdna2's fusions counted: Knuth 23; products 49, Horner 25, Estrin 33, P-S blocks 29, P-S split 26
+  differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 636 d3 = 4482 d4 = 14448 d5 = 22800 d6 = 17280 d7 = 5040
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> scheme i7 model sm75
+evaluation schemes for i7 under sm75
+polynomial of degree 7 in x:
+  as written cost 34     depth 13    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  pow()      cost 34     depth 13    19 ops  x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  products   cost 19     depth 13    19 ops  x*x*x*x*x*x*x + 3(x*x*x*x*x*x) + 5(x*x*x*x*x) + 7(x*x*x*x) + 9(x*x*x) + 11(x*x) + 13x + 15
+             equal at all 4096 points checked
+  Horner     cost 13     depth 13    13 ops  ((((((x + 3)*x + 5)*x + 7)*x + 9)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+  Estrin     cost 15     depth 5     15 ops  13x + 15 + (9x + 11)*(x*x) + (5x + 7 + (x + 3)*(x*x))*(x*x*(x*x))
+             equal at all 4096 points checked
+  Knuth      cost 13     depth 13    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S blocks cost 14     depth 7     14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S split  cost 15     depth 6     15 ops  (x*x*(x*x) + 8)*((x*x + 4)*(x + 3) + (x - 5)) + ((x*x - 28)*(x - 13) + (x - 405))
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with sm75's fusions counted: Horner 7; products 13, Estrin 9, Knuth 8, P-S blocks 8, P-S split 11
+  differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 636 d3 = 4482 d4 = 14448 d5 = 22800 d6 = 17280 d7 = 5040
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> i7n(x: u32) = 3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+> scheme i7n
+evaluation schemes for i7n under gt1030
+polynomial of degree 7 in x:
+  as written cost 88     depth 28    19 ops  3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  pow()      cost 88     depth 28    19 ops  3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+  products   cost 43     depth 28    19 ops  3(x*x*x*x*x*x*x) + x*x*x*x*x*x + 5(x*x*x*x*x) + 7(x*x*x*x) + 9(x*x*x) + 11(x*x) + 13x + 15
+             equal at all 4096 points checked
+  Horner     cost 28     depth 28    14 ops  ((((((3x + 1)*x + 5)*x + 7)*x + 9)*x + 11)*x + 13)*x + 15
+             equal at all 4096 points checked
+  Estrin     cost 34     depth 12    16 ops  13x + 15 + (9x + 11)*(x*x) + (5x + 7 + (3x + 1)*(x*x))*(x*x*(x*x))
+             equal at all 4096 points checked
+  Knuth      not listed: its adapted coefficients are not whole numbers here
+  P-S blocks cost 31     depth 16    15 ops  (((3x + 1)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
+             equal at all 4096 points checked
+             expands to the polynomial itself: equal for every x
+  P-S split  not listed: the leading coefficient does not divide the others
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Horner 21; products 37, Estrin 27, P-S blocks 24
+  differences, for x = 0, 1, ...: start d0 = 15 d1 = 49 d2 = 764 d3 = 7014 d4 = 28128 d5 = 52800 d6 = 46080 d7 = 15120
+    per point: d0 += d1; d1 += d2; d2 += d3; d3 += d4; d4 += d5; d5 += d6; d6 += d7; (7 additions, cost 7 a point after the start)
+    check: equals the polynomial at all 100001 points 0..100000
+> s6(x: f32 in -1..1) = x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+> scheme s6
+evaluation schemes for s6 under gt1030
+polynomial of degree 6 in x:
+  as written cost 42     depth 15    14 ops  x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+  pow()      cost 42     depth 15    14 ops  x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+  products   cost 14     depth 11    14 ops  x*x*x*x*x*x + 2(x*x*x*x*x) - 3(x*x*x*x) + x*x*x + 5(x*x) - x + 1
+             max relative difference 8.6e-08 (rounding) at 4096 points
+  Horner     cost 11     depth 11    11 ops  (((((x + 2)*x - 3)*x + 1)*x + 5)*x - 1)*x + 1
+             max relative difference 1.2e-07 (rounding) at 4096 points
+  Estrin     cost 11     depth 5     11 ops  1 - x + (x + 5)*(x*x) + (2x - 3 + x*x)*(x*x*(x*x))
+             max relative difference 1.7e-07 (rounding) at 4096 points
+  Knuth      cost 10     depth 9     10 ops  ((x - 5.3213191)*((x + 5.8213191)*x + 26.1914368) + 145.498978 + ((x + 5.8213191)*x + 26.1914368) - 30.7827454)*((x - 5.3213191)*((x + 5.8213191)*x + 26.1914368) + 145.498978) - 8.40139675
+             max relative difference 0.00012 (rounding) at 4096 points
+             expands to the polynomial within 1.3e-06 of its largest coefficient (the adapted ones are rounded)
+  P-S blocks cost 11     depth 7     11 ops  ((x*x + (2x - 3))*(x*x) + (x + 5))*(x*x) + (-x + 1)
+             max relative difference 1.8e-07 (rounding) at 4096 points
+             expands to the polynomial itself
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next)
+  cheapest with gt1030's fusions counted: Horner 6; products 11, Estrin 8, Knuth 7, P-S blocks 7
+> s7(x: f64 in -1..1) = 2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+> scheme s7
+evaluation schemes for s7 under gt1030
+polynomial of degree 7 in x:
+  as written cost 1683.5 depth 518   17 ops  2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+  pow()      cost 1683.5 depth 518   17 ops  2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+  products   cost 550.375 depth 453.25 17 ops  2(x*x*x*x*x*x*x) + x*x*x*x*x*x + 2(x*x*x*x*x) - 3(x*x*x*x) + x*x*x + 5(x*x) - x + 1
+             max relative difference 1.8e-16 (rounding) at 4096 points
+  Horner     cost 453.25 depth 453.25 14 ops  ((((((2x + 1)*x + 2)*x - 3)*x + 1)*x + 5)*x - 1)*x + 1
+             max relative difference 1.8e-16 (rounding) at 4096 points
+  Estrin     cost 420.875 depth 194.25 13 ops  1 - x + (x + 5)*(x*x) + (2x - 3 + (2x + 1)*(x*x))*(x*x*(x*x))
+             max relative difference 3.6e-16 (rounding) at 4096 points
+  Knuth      cost 420.875 depth 388.5 13 ops  2(((x - 2.3298266444481808)*((x + 2.0798266444481808)*x + 4.399472209844534) + 11.289647811800281 + ((x + 2.0798266444481808)*x + 4.399472209844534) - 7.2357143592107782)*((x - 2.3298266444481808)*((x + 2.0798266444481808)*x + 4.399472209844534) + 11.289647811800281) + 1.3678196370550832)*x + 1
+             max relative difference 7.2e-16 (rounding) at 4096 points; 2e-15 where the value is 0
+             expands to the polynomial within 3.6e-16 of its largest coefficient (the adapted ones are rounded)
+  P-S blocks cost 420.875 depth 259   13 ops  (((2x + 1)*(x*x) + (2x - 3))*(x*x) + (x + 5))*(x*x) + (-x + 1)
+             max relative difference 3.6e-16 (rounding) at 4096 points
+             expands to the polynomial itself
+  P-S split  cost 485.625 depth 194.25 15 ops  2((x*x*(x*x) - 0.5)*(x*x*(x + 0.5) + (x - 1.5)) + ((x*x - 1)*(x + 2.75) + (x + 2.5)))
+             max relative difference 8.9e-16 (rounding) at 4096 points
+             expands to the polynomial itself
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with gt1030's fusions counted: Horner 226.625; products 420.875, Estrin 323.75, Knuth 291.375, P-S blocks 291.375, P-S split 356.125
+> d12(x: real in -1..1) = x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
+> scheme d12
+evaluation schemes for d12 under gt1030
+polynomial of degree 12 in x:
+  as written cost 98     depth 21    28 ops  x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
+  pow()      cost 98     depth 21    28 ops  x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
+  products   cost 28     depth 23    28 ops  x*x*x*x*x*x*x*x*x*x*x*x - 3(x*x*x*x*x*x*x*x*x*x*x) + 2(x*x*x*x*x*x*x*x*x*x) + x*x*x*x*x*x*x*x*x - x*x*x*x*x*x*x*x + 4(x*x*x*x*x*x*x) + x*x*x*x*x*x - 2(x*x*x*x*x) + x*x*x*x + 3(x*x*x) - x*x + x - 5
+             max relative difference 3e-15 (rounding) at 201 points
+  Horner     cost 23     depth 23    23 ops  (((((((((((x - 3)*x + 2)*x + 1)*x - 1)*x + 4)*x + 1)*x - 2)*x + 1)*x + 3)*x - 1)*x + 1)*x - 5
+             max relative difference 7.8e-15 (rounding) at 201 points
+  Estrin     cost 23     depth 7     23 ops  x - 5 + (3x - 1)*(x*x) + (1 - 2x + (4x + 1)*(x*x))*(x*x*(x*x)) + (x - 1 + (2 - 3x)*(x*x) + x*x*(x*x))*(x*x*(x*x)*(x*x*(x*x)))
+             max relative difference 3.1e-15 (rounding) at 201 points
+  Knuth      cost 22     depth 21    22 ops  ((((((((x - 3.652010358)*((x + 1.652010358)*x + 5.207153761) + 22.35087438 + ((x + 1.652010358)*x + 5.207153761) - 10.04973841)*((x - 3.652010358)*((x + 1.652010358)*x + 5.207153761) + 22.35087438) + 6.029082792)*x - 2)*x + 1)*x + 3)*x - 1)*x + 1)*x - 5
+             max relative difference 2.3e-14 (rounding) at 201 points
+             expands to the polynomial within 5.3e-16 of its largest coefficient (the adapted ones are rounded)
+  P-S blocks cost 21     depth 13    21 ops  (((((x*x + (2 - 3x))*(x*x) + (x - 1))*(x*x) + (4x + 1))*(x*x) + (1 - 2x))*(x*x) + (3x - 1))*(x*x) + (x - 5)
+             max relative difference 3.9e-15 (rounding) at 201 points
+             expands to the polynomial itself
+  P-S split  cost 25     depth 16    25 ops  ((((((x*x*(x*x) - 2)*((x*x + 1)*(x - 3) + (x + 4)) + ((x*x + 4)*(x - 2) + (x + 8)))*x + 1)*x + 3)*x - 1)*x + 1)*x - 5
+             max relative difference 7.8e-15 (rounding) at 201 points
+             expands to the polynomial itself
+  (depth is the critical path: Estrin trades operations for parallelism)
+  (Knuth: coefficients adapted beforehand, fewer multiplications and more additions than Horner; its sums cancel, so it is less exact near a zero of the polynomial)
+  (P-S: Paterson and Stockmeyer; blocks of coefficients over the first powers, Horner in the next; the splitting (x^m + c)*q + r into monic halves)
+  cheapest with gt1030's fusions counted: Horner 12; products 23, Estrin 16, Knuth 13, P-S blocks 14, P-S split 16
 > r(x: f32) = x^13
 > scheme r
 evaluation schemes for r under gt1030

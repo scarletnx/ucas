@@ -6,6 +6,32 @@ scheme p
 q(x: int in 0..1000) = 2x^3 + 3x^2 + 5
 scheme q
 
+# fewer multiplications: Knuth's adapted coefficients (whole ones in u32:
+# the identity holds for every x), Paterson-Stockmeyer's blocks and
+# splitting, and the cheapest once the model's fusions are counted
+k4(x: u32) = x^4 + 7x^3 + 5x^2 + 3x + 9
+scheme k4
+k4e(x: u32) = x^4 + 6x^3 + 5x^2 + 3x + 9
+scheme k4e
+k4n(x: int in -100..100) = 2x^4 + 14x^3 - 10x^2 + 6x - 18
+scheme k4n
+ones(x: u32) = x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1
+scheme ones
+i7(x: u32) = x^7 + 3x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+scheme i7
+scheme i7 model rdna2
+scheme i7 model sm75
+i7n(x: u32) = 3x^7 + x^6 + 5x^5 + 7x^4 + 9x^3 + 11x^2 + 13x + 15
+scheme i7n
+# a sextic in floats: one root of a cubic gives the coefficients
+s6(x: f32 in -1..1) = x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+scheme s6
+# a zero of the polynomial at x = -1, where no relative difference exists
+s7(x: f64 in -1..1) = 2x^7 + x^6 + 2x^5 - 3x^4 + x^3 + 5x^2 - x + 1
+scheme s7
+d12(x: real in -1..1) = x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
+scheme d12
+
 # powers by squaring
 r(x: f32) = x^13
 scheme r
