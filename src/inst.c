@@ -48,6 +48,21 @@
  *                      byte, 8..11 eight copies of the sign bit of byte
  *                      1, 3, 5 or 7, 12 the byte 0, 13 and up 255:
  *                      v_perm_b32 (hi its S0, lo its S1)
+ *   add4x8, sub4x8, absdiff4x8, min4x8, max4x8 (a, b)
+ *                      the four bytes of two u32 lane by lane, unsigned:
+ *                      the sum and the difference mod 256, |a - b|, the
+ *                      smaller, the larger (the video SIMD forms with no
+ *                      merge or saturation: vadd4, vsub4, vabsdiff4,
+ *                      vmin4, vmax4)
+ *   msad4x8(a, b, c)   c plus |a.byte[i] - b.byte[i]| over the bytes
+ *                      where a's byte is not 0 (u32, wrapping):
+ *                      v_msad_u8, DXIL's MSAD
+ *   add2x16, sub2x16, mul2x16, min2x16, max2x16, smin2x16, smax2x16
+ *   (a, b)             the two 16-bit halves lane by lane: the sum, the
+ *                      difference and the low half of the product mod
+ *                      2^16, the smaller and the larger unsigned or
+ *                      signed: v_pk_add_u16, v_pk_sub_u16,
+ *                      v_pk_mul_lo_u16, v_pk_min/max_u16/i16 (no clamp)
  *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
@@ -89,6 +104,14 @@ inst_class(int op)
 		return C_MULWIDE;
 	case O_BYTESEL:
 		return C_BYTESEL;
+	case O_ADD4X8: case O_SUB4X8: case O_ABSDIFF4X8: case O_MIN4X8:
+	case O_MAX4X8:
+		return C_SIMD4X8;
+	case O_MSAD4X8:
+		return C_MSAD;
+	case O_ADD2X16: case O_SUB2X16: case O_MUL2X16: case O_MIN2X16:
+	case O_MAX2X16: case O_SMIN2X16: case O_SMAX2X16:
+		return C_PK16;
 	}
 	return C_BYTEPERM;
 }
@@ -141,6 +164,58 @@ byte_of(nid w, nid k8)
 {
 	return mk_cast(U32, mk_bin(O_AND, mk_bin(O_SHR, w, k8), ku(N.ty[w],
 	    255)));
+}
+
+/* lane l of w (u32), wd bits wide, as a u32 */
+static nid
+lane_of(nid w, int l, int wd)
+{
+	return mk_bin(O_AND, mk_bin(O_SHR, w, ku(U32, (uint64_t)(l * wd))),
+	    ku(U32, (1u << wd) - 1));
+}
+
+/* the lane-wise ops: lane l of the result from lanes p, q of a, b */
+static nid
+lanewise(int op, nid a, nid b)
+{
+	int wd = op <= O_MSAD4X8 ? 8 : 16, n = 32 / wd, l;
+	uint32_t m = (1u << wd) - 1;
+	nid r = ku(U32, 0);
+
+	for (l = 0; l < n; l++) {
+		nid p = lane_of(a, l, wd), q = lane_of(b, l, wd), v = 0;
+		switch (op) {
+		case O_ADD4X8: case O_ADD2X16:
+			v = mk_bin(O_ADD, p, q);
+			break;
+		case O_SUB4X8: case O_SUB2X16:
+			v = mk_bin(O_SUB, p, q);
+			break;
+		case O_MUL2X16:
+			v = mk_bin(O_MUL, p, q);
+			break;
+		case O_ABSDIFF4X8:
+			v = mk_bin(O_SUB, mk_bin(O_MAX, p, q), mk_bin(O_MIN, p, q));
+			break;
+		case O_MIN4X8: case O_MIN2X16:
+			v = mk_bin(O_MIN, p, q);
+			break;
+		case O_MAX4X8: case O_MAX2X16:
+			v = mk_bin(O_MAX, p, q);
+			break;
+		case O_SMIN2X16: case O_SMAX2X16:
+			/* the halves as i16: x ^ 0x8000 - 0x8000 in i32 */
+			p = mk_bin(O_SUB, mk_cast(I32, mk_bin(O_XOR, p, ku(U32, 0x8000))),
+			    ku(I32, 0x8000));
+			q = mk_bin(O_SUB, mk_cast(I32, mk_bin(O_XOR, q, ku(U32, 0x8000))),
+			    ku(I32, 0x8000));
+			v = mk_cast(U32, mk_bin(op == O_SMIN2X16 ? O_MIN : O_MAX, p, q));
+			break;
+		}
+		r = mk_bin(O_OR, r, mk_bin(O_SHL, mk_bin(O_AND, v, ku(U32, m)),
+		    ku(U32, (uint64_t)(l * wd))));
+	}
+	return r;
 }
 
 nid
@@ -242,6 +317,21 @@ inst_expand(int op, nid a, nid b, nid c)
 			r = mk_bin(O_OR, r, mk_bin(O_SHL, by, ku(U32, 8 * i)));
 		}
 		break;
+	case O_ADD4X8: case O_SUB4X8: case O_ABSDIFF4X8: case O_MIN4X8:
+	case O_MAX4X8: case O_ADD2X16: case O_SUB2X16: case O_MUL2X16:
+	case O_MIN2X16: case O_MAX2X16: case O_SMIN2X16: case O_SMAX2X16:
+		r = lanewise(op, a, b);
+		break;
+	case O_MSAD4X8:
+		r = c;
+		for (i = 0; i < 4; i++) {
+			nid p = byte_of(a, ku(U32, 8 * i));
+			nid q = byte_of(b, ku(U32, 8 * i));
+			r = mk_bin(O_ADD, r, mk_sel(mk_bin(O_NE, p, ku(U32, 0)),
+			    mk_bin(O_SUB, mk_bin(O_MAX, p, q), mk_bin(O_MIN, p, q)),
+			    ku(U32, 0)));
+		}
+		break;
 	case O_BYTESEL:
 		w = mk_bin(O_OR, mk_bin(O_SHL, mk_cast(U64, a), ku(U64, 32)),
 		    mk_cast(U64, b));
@@ -284,6 +374,10 @@ mk_inst(int op, nid a, nid b, nid c)
 		a = mk_cast(U32, a);
 		break;
 	case O_MULHI: case O_USAD4X8: case O_BYTEPERM: case O_BYTESEL:
+	case O_ADD4X8: case O_SUB4X8: case O_ABSDIFF4X8: case O_MIN4X8:
+	case O_MAX4X8: case O_MSAD4X8: case O_ADD2X16: case O_SUB2X16:
+	case O_MUL2X16: case O_MIN2X16: case O_MAX2X16: case O_SMIN2X16:
+	case O_SMAX2X16:
 		a = mk_cast(U32, a);
 		b = mk_cast(U32, b);
 		if (ar == 3)
@@ -653,23 +747,19 @@ usad_of(nid x, struct sbuf *why)
 }
 
 /*
- * x, a u32 of one or two u32 words and constants, told byte by byte at
- * random points of the words, then checked with the function: what each
- * result byte can be among byteperm's choices (bp: bit j for byte j of
- * b:a, j + 8 for that byte's sign; with one word b is 0) and bytesel's
- * (bs: byte j of hi:lo, 8 + k the sign of byte 2k + 1, 12 the byte 0, 13
- * the byte 255; with one word hi is the word again).  For what the GF(2)
- * matrix of one word does not say: two words, a byte's sign, a constant
- * byte.  0 when x is not of that kind.
+ * x, a u32 of one or two u32 words and constants, run at random points of
+ * the words: its slots, how many, and at sample k the words w0[k], w1[k]
+ * (0 with one word) and x's value r[k].  0 when x is not of that kind or
+ * is undefined at a point.
  */
 #define BP_SAMPLES 48
 
 static int
-byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
-    uint16_t *bs)
+word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
+    uint32_t *w1, uint32_t *r)
 {
 	uint64_t sl = node_slots(x), rs = 0x9e3779b97f4a7c15ULL;
-	int j, i, smp;
+	int j, smp, ok = 1;
 	struct plan pl;
 	int64_t *in_i;
 	double *in_r;
@@ -688,8 +778,6 @@ byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
 		}
 	if (*ns == 0)
 		return 0;
-	for (i = 0; i < 4; i++)
-		bp[i] = bs[i] = 0xffff;
 	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
 	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
 	for (smp = 0; smp < BP_SAMPLES; smp++)
@@ -703,17 +791,44 @@ byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
 	loc = plan_loc(&pl, x);
 	plan_run(&pl, BP_SAMPLES, in_i, in_r);
 	for (smp = 0; smp < BP_SAMPLES; smp++) {
-		uint32_t r = (uint32_t)COLI(&pl, loc)[smp];
-		uint32_t lo = (uint32_t)in_i[(size_t)slot[0] * CH + smp];
-		uint64_t ab = lo | (*ns == 2 ? (uint64_t)(uint32_t)in_i[
-		    (size_t)slot[1] * CH + smp] << 32 : 0);
-		uint64_t hl = *ns == 2 ? ab : lo | (uint64_t)lo << 32;
-		if (COLF(&pl, loc)[smp] & F_UNDEF) {
-			bp[0] = bs[0] = 0;
-			break;
-		}
+		if (COLF(&pl, loc)[smp] & F_UNDEF)
+			ok = 0;
+		r[smp] = (uint32_t)COLI(&pl, loc)[smp];
+		w0[smp] = (uint32_t)in_i[(size_t)slot[0] * CH + smp];
+		w1[smp] = *ns == 2 ? (uint32_t)in_i[(size_t)slot[1] * CH + smp] : 0;
+	}
+	plan_free(&pl);
+	free(in_i);
+	free(in_r);
+	return ok;
+}
+
+/*
+ * x, a u32 of one or two u32 words and constants, told byte by byte at
+ * random points of the words, then checked with the function: what each
+ * result byte can be among byteperm's choices (bp: bit j for byte j of
+ * b:a, j + 8 for that byte's sign; with one word b is 0) and bytesel's
+ * (bs: byte j of hi:lo, 8 + k the sign of byte 2k + 1, 12 the byte 0, 13
+ * the byte 255; with one word hi is the word again).  For what the GF(2)
+ * matrix of one word does not say: two words, a byte's sign, a constant
+ * byte.  0 when x is not of that kind.
+ */
+static int
+byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
+    uint16_t *bs)
+{
+	uint32_t w0[BP_SAMPLES], w1[BP_SAMPLES], r[BP_SAMPLES];
+	int j, i, smp;
+
+	if (!word_samples(f, x, slot, ns, w0, w1, r))
+		return 0;
+	for (i = 0; i < 4; i++)
+		bp[i] = bs[i] = 0xffff;
+	for (smp = 0; smp < BP_SAMPLES; smp++) {
+		uint64_t ab = w0[smp] | (uint64_t)w1[smp] << 32;
+		uint64_t hl = *ns == 2 ? ab : w0[smp] | (uint64_t)w0[smp] << 32;
 		for (i = 0; i < 4; i++) {
-			uint32_t rb = (r >> (8 * i)) & 255;
+			uint32_t rb = (r[smp] >> (8 * i)) & 255;
 			for (j = 0; j < 16; j++) {
 				uint32_t by = (uint32_t)(ab >> (8 * (j & 7))) & 255;
 				if (j & 8)
@@ -730,12 +845,79 @@ byte_choices(const struct func *f, nid x, int *slot, int *ns, uint16_t *bp,
 			}
 		}
 	}
-	plan_free(&pl);
-	free(in_i);
-	free(in_r);
 	for (i = 0; i < 4; i++)
 		bs[i] &= 0x3fff;
 	return 1;
+}
+
+/* the lane-wise ops in C, for find's samples (inst_expand defines them) */
+static uint32_t
+lanewise_c(int op, uint32_t a, uint32_t b)
+{
+	int wd = op <= O_MSAD4X8 ? 8 : 16, l;
+	uint32_t m = (1u << wd) - 1, r = 0;
+
+	for (l = 0; l < 32 / wd; l++) {
+		uint32_t p = (a >> (l * wd)) & m, q = (b >> (l * wd)) & m, v = 0;
+		int32_t sp = (int32_t)(p ^ 0x8000) - 0x8000;
+		int32_t sq = (int32_t)(q ^ 0x8000) - 0x8000;
+		switch (op) {
+		case O_ADD4X8: case O_ADD2X16: v = p + q; break;
+		case O_SUB4X8: case O_SUB2X16: v = p - q; break;
+		case O_MUL2X16: v = p * q; break;
+		case O_ABSDIFF4X8: v = p > q ? p - q : q - p; break;
+		case O_MIN4X8: case O_MIN2X16: v = p < q ? p : q; break;
+		case O_MAX4X8: case O_MAX2X16: v = p > q ? p : q; break;
+		case O_SMIN2X16: v = (uint32_t)(sp < sq ? sp : sq); break;
+		case O_SMAX2X16: v = (uint32_t)(sp > sq ? sp : sq); break;
+		case O_MSAD4X8:
+			r += p ? (p > q ? p - q : q - p) : 0;
+			continue;
+		}
+		r |= (v & m) << (l * wd);
+	}
+	return r;
+}
+
+/*
+ * x, a u32 of two words, as a lane-wise op of them (either order) that
+ * the model has: its value at random points told against each, then
+ * checked with the function
+ */
+static nid
+lanewise_of(const struct func *f, nid x, struct sbuf *why)
+{
+	static const int ops[] = {O_ADD4X8, O_SUB4X8, O_ABSDIFF4X8, O_MIN4X8,
+	    O_MAX4X8, O_MSAD4X8, O_ADD2X16, O_SUB2X16, O_MUL2X16, O_MIN2X16,
+	    O_MAX2X16, O_SMIN2X16, O_SMAX2X16};
+	const struct model *m = model_active();
+	uint32_t w0[BP_SAMPLES], w1[BP_SAMPLES], r[BP_SAMPLES];
+	int slot[2] = {-1, -1}, ns, k, o, smp;
+
+	if (!word_samples(f, x, slot, &ns, w0, w1, r) || ns != 2)
+		return 0;
+	for (k = 0; k < (int)(sizeof ops / sizeof ops[0]); k++) {
+		if (!cclass_available(m, inst_class(ops[k])))
+			continue;
+		for (o = 0; o < 2; o++) {
+			nid a, b;
+			for (smp = 0; smp < BP_SAMPLES; smp++)
+				if (r[smp] != lanewise_c(ops[k], o ? w1[smp] : w0[smp],
+				    o ? w0[smp] : w1[smp]))
+					break;
+			if (smp < BP_SAMPLES)
+				continue;
+			a = mk_var((uint32_t)slot[o], f->p[slot[o]].name, U32);
+			b = mk_var((uint32_t)slot[1 - o], f->p[slot[1 - o]].name, U32);
+			sb_printf(why, "%s: %s(%s, %s%s), lane by lane, told at %d "
+			    "random points", shared_str(x, 80), opinfo[ops[k]].name,
+			    node_str(a), node_str(b), ops[k] == O_MSAD4X8 ? ", 0" : "",
+			    BP_SAMPLES);
+			return mk_inst(ops[k], a, b, ops[k] == O_MSAD4X8 ?
+			    ku(U32, 0) : 0);
+		}
+	}
+	return 0;
 }
 
 /* x as byteperm(a, b, s) */
@@ -1047,11 +1229,13 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		return funnel64_of(x, why);
 	case 12:	/* bytes, signs of bytes 1, 3, 5, 7, 0 and 255 */
 		return bytesel_of(f, x, why);
+	case 13:	/* two words' bytes or halves lane by lane */
+		return lanewise_of(f, x, why);
 	}
 	return 0;
 }
 
-#define NPAT 13
+#define NPAT 14
 
 /*
  * The low word of a product, a * b in u32, where the function also reads
@@ -1130,9 +1314,9 @@ inst_find(const struct func *f)
 	float before, cost;
 	int k, iter, bad;
 
-	for (k = C_BFE; k <= C_BYTESEL && !cclass_available(m, k); k++)
+	for (k = C_BFE; k <= C_PK16 && !cclass_available(m, k); k++)
 		;
-	if (k > C_BYTESEL || !TY_ISINT(N.ty[cur]))
+	if (k > C_PK16 || !TY_ISINT(N.ty[cur]))
 		return;
 	nd = xmalloc(MAXNODE * sizeof *nd);
 	before = cost = fuse_expr_cost(m, sg_priced(f, cur));

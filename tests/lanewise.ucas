@@ -1,0 +1,33 @@
+# The four bytes and the two 16-bit halves of two words, lane by lane:
+# each operation is its expansion, so these are exact
+show add4x8(0x80ff7f01, 0x80020102)
+show sub4x8(0x01000302, 0x02010103)
+show absdiff4x8(0x10f00105, 0xf0100501)
+show min4x8(0x10f00105, 0xf0100501)
+show max4x8(0x10f00105, 0xf0100501)
+show add2x16(0xffff7fff, 0x00020001)
+show sub2x16(0x00000001, 0x00010002)
+show mul2x16(0x00030007, 0x00050009)
+show min2x16(0x8000ffff, 0x00010001)
+show smin2x16(0x8000ffff, 0x00010001)
+show smax2x16(0x8000ffff, 0x00010001)
+# v_msad_u8: a byte of a (the reference) that is 0 adds nothing
+show msad4x8(0x00102030, 0xff302010, 5)
+ad1(x: u32 in 0..1023, y: u32 in 0..1023) = absdiff4x8(x, y)
+ad2(x: u32 in 0..1023, y: u32 in 0..1023) = absdiff4x8(y, x)
+equiv ad1 ad2
+# no built-in model lists them: under gt1030 find leaves the patterns
+badd(a: u32, b: u32) = ((a & 0xff) + (b & 0xff) & 0xff) | ((((a >> 8) & 0xff) + ((b >> 8) & 0xff) & 0xff) << 8) | ((((a >> 16) & 0xff) + ((b >> 16) & 0xff) & 0xff) << 16) | ((((a >> 24) + (b >> 24)) & 0xff) << 24)
+find badd 1
+# under a model with them: the byte adds written out, the carry-free SWAR
+# add, two halves' unsigned minimum, a masked sum of byte differences
+model lanes : gt1030 { simd4x8: 1, msad: 1, pk16: 1 }
+use lanes
+find badd 1
+swar(a: u32, b: u32) = ((a & 0x7f7f7f7f) + (b & 0x7f7f7f7f)) xor ((a xor b) & 0x80808080)
+find swar 1
+hmin(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | (min(a >> 16, b >> 16) << 16)
+find hmin 1
+md(r: u32, s: u32) = ((r & 0xff) == 0 ? 0 : max(r & 0xff, s & 0xff) - min(r & 0xff, s & 0xff)) + ((r >> 8 & 0xff) == 0 ? 0 : max(r >> 8 & 0xff, s >> 8 & 0xff) - min(r >> 8 & 0xff, s >> 8 & 0xff)) + ((r >> 16 & 0xff) == 0 ? 0 : max(r >> 16 & 0xff, s >> 16 & 0xff) - min(r >> 16 & 0xff, s >> 16 & 0xff)) + ((r >> 24) == 0 ? 0 : max(r >> 24, s >> 24) - min(r >> 24, s >> 24))
+find md 1
+use gt1030

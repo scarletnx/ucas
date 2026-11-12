@@ -151,10 +151,15 @@ enum {
 	 * the high half of a product, funnel shifts, the median of three,
 	 * a sum of byte differences, a byte permute, a bit field insert,
 	 * the 64-bit product of two words and its multiply-add, a byte
-	 * select with a selector byte per result byte)
+	 * select with a selector byte per result byte, the four bytes' and
+	 * the two halves' lane-wise arithmetic, a masked sum of byte
+	 * differences)
 	 */
 	O_BFE, O_SBFE, O_BREV, O_MULHI, O_SMULHI, O_FUNL, O_FUNR, O_MED3,
 	O_USAD4X8, O_BYTEPERM, O_BFI, O_MULWIDE, O_MADWIDE, O_BYTESEL,
+	O_ADD4X8, O_SUB4X8, O_ABSDIFF4X8, O_MIN4X8, O_MAX4X8, O_MSAD4X8,
+	O_ADD2X16, O_SUB2X16, O_MUL2X16, O_MIN2X16, O_MAX2X16, O_SMIN2X16,
+	O_SMAX2X16,
 	/*
 	 * texalu.c: the texture unit's fixed function as operations.  A
 	 * nearest read with an address mode on an integer texel index
@@ -180,7 +185,7 @@ enum {
 #define O_SG_FIRST O_SGBALLOT
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
-#define IS_INST(op) ((op) >= O_BFE && (op) <= O_BYTESEL)
+#define IS_INST(op) ((op) >= O_BFE && (op) <= O_SMAX2X16)
 /* built from all three operands by mk_op (the generic rebuilders) */
 #define IS_OP3(op) (IS_DOT(op) || IS_SG(op) || IS_INST(op))
 #define OF_COMM 1
@@ -403,7 +408,7 @@ enum {
 	C_ROP_XFB,
 	/* the catalogue's instructions (inst.c), absent unless listed */
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
-	C_MULWIDE, C_BYTESEL,
+	C_MULWIDE, C_BYTESEL, C_SIMD4X8, C_MSAD, C_PK16,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT

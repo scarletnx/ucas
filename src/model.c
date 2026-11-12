@@ -44,7 +44,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil", "rop_depth",
 	"rop_query", "rop_raster", "rop_resolve", "rop_fill", "rop_xfb",
 	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm", "bfi",
-	"mulwide", "bytesel",
+	"mulwide", "bytesel", "simd4x8", "msad", "pk16",
 };
 
 /*
