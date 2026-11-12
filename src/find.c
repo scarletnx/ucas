@@ -20,6 +20,7 @@
 #include "fuse.h"
 #include "irw.h"
 #include "dword.h"
+#include "texalu.h"
 
 #include <math.h>
 #include <setjmp.h>
@@ -2030,6 +2031,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	sg_find(&F.f);
 	inst_find(&F.f);
 	tab_find(&F.f);
+	tex_find(&F.f);
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();

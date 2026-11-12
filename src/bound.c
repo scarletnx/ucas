@@ -100,7 +100,7 @@ iv1(struct bctx *c, nid n)
 		return mk(c->lo[N.ki[n]], c->hi[N.ki[n]]);
 	}
 	if (opinfo[N.op[n]].arity == 0 || N.op[n] == O_INDEX ||
-	    N.op[n] == O_LOOP || N.op[n] == O_TABLE)
+	    N.op[n] == O_LOOP || N.op[n] == O_TABLE || IS_TEX(N.op[n]))
 		return bad;
 	a = iv(c, N.a[n]);
 	if (!a.ok)
@@ -414,7 +414,8 @@ fdiv_simp(struct bctx *c, nid n, struct sbuf *steps)
 	nid a, b, r;
 
 	if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_TABLE ||
-	    N.op[n] == O_LOOP || N.op[n] == O_INDEX || N.op[n] == O_UNDEF)
+	    N.op[n] == O_LOOP || N.op[n] == O_INDEX || N.op[n] == O_UNDEF ||
+	    IS_TEX(N.op[n]))
 		return n;
 	a = N.a[n] ? fdiv_simp(c, N.a[n], steps) : 0;
 	b = opinfo[N.op[n]].arity >= 2 && N.b[n] ? fdiv_simp(c, N.b[n], steps) :
