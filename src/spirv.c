@@ -9410,15 +9410,20 @@ float_pass(const char *text, int *changed)
  *
  *   constant < draw (uniform blocks, push constants) < primitive (flat
  *   inputs of a fragment shader: the provoking vertex's) < vertex
- *   (affine in non-flat float inputs of a fragment shader) < every run
+ *   (affine in non-flat float inputs of a fragment shader) < screen
+ *   (affine in gl_FragCoord) < every run
  *
  * and the values of a lower frequency that something of a higher one
  * uses are what would be passed in.  Affine: sums, differences, and
  * products, quotients, dots, matrix products and mixes with every other
  * operand of draw or primitive frequency (the same at every pixel of a
- * primitive); anything else of a varying is per run.
+ * primitive); anything else of a varying is per run.  gl_FragCoord is
+ * the window position, the depth and 1/w, each affine across a
+ * primitive in window coordinates: what is affine in it, with
+ * coefficients of the draw, is a noperspective varying.  A value that
+ * mixes it with the (perspective-correct) varyings is per run.
  */
-enum { FQ_CONST, FQ_DRAW, FQ_PRIM, FQ_VERTEX, FQ_RUN };
+enum { FQ_CONST, FQ_DRAW, FQ_PRIM, FQ_VERTEX, FQ_SCREEN, FQ_RUN };
 static int advice_on;
 
 void
@@ -9498,16 +9503,16 @@ adv_exact(const struct sins *I)
 	    strcmp(I->op, "OpFMod");
 }
 
-/* an affine operation: at most one operand of vertex frequency, in a
- * place where the result is linear in it */
+/* an affine operation: at most one operand of frequency f (vertex or
+ * screen), in a place where the result is linear in it */
 static int
-adv_affine(const struct sins *I, const uint8_t *fq)
+adv_affine(const struct sins *I, const uint8_t *fq, int f)
 {
 	int base = first_arg(I), i, nv = 0, at = -1;
 	const char *e = !strcmp(I->op, "OpExtInst") ? I->opnd[2] : "";
 
 	for (i = base; i < I->nop; i++)
-		if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] == FQ_VERTEX) {
+		if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] == f) {
 			nv++;
 			at = i - base;
 		}
@@ -9573,8 +9578,8 @@ advice_pass(const char *text, int asked)
 	uint8_t *fq, *used;
 	double *price;
 	char *seen, stage[24] = "";
-	struct advroot root[3][64];
-	int nroot[3] = {0, 0, 0}, k, i, f, body = -1;
+	struct advroot root[4][64];
+	int nroot[4] = {0, 0, 0, 0}, k, i, f, body = -1, mix;
 	struct sbuf rep = {0};
 
 	memset(&V, 0, sizeof V);
@@ -9623,6 +9628,9 @@ advice_pass(const char *text, int asked)
 		    && adv_decorated(I->res, "Flat"))
 			fq[I->res] = FQ_PRIM;
 		else if (!strcmp(I->opnd[1], "Input") && !strcmp(stage, "Fragment")
+		    && V.id[I->res].builtin == B_FRAGCOORD)
+			fq[I->res] = FQ_SCREEN;
+		else if (!strcmp(I->opnd[1], "Input") && !strcmp(stage, "Fragment")
 		    && e >= 0 && is_float_t(e) && !adv_decorated(I->res, "Flat") &&
 		    !adv_decorated(I->res, "BuiltIn") &&
 		    !adv_decorated(I->res, "Centroid") &&
@@ -9653,13 +9661,23 @@ advice_pass(const char *text, int asked)
 		if (!adv_pure(I))
 			continue;	/* per run */
 		base = first_arg(I);
+		mix = 0;
 		for (i = base; i < I->nop; i++)
-			if (I->opnd[i][0] == '%' && fq[idx(I->opnd[i])] > c)
-				c = fq[idx(I->opnd[i])];
-		if (c == FQ_VERTEX && !adv_affine(I, fq))
+			if (I->opnd[i][0] == '%') {
+				int q = fq[idx(I->opnd[i])];
+				mix |= 1 << q;
+				if (q > c)
+					c = q;
+			}
+		if (c == FQ_VERTEX && !adv_affine(I, fq, FQ_VERTEX))
+			c = FQ_RUN;
+		/* in window coordinates the coefficients are the draw's: a flat
+		 * value or a varying beside it is not affine in it */
+		if (c == FQ_SCREEN && ((mix & (1 << FQ_PRIM | 1 << FQ_VERTEX)) ||
+		    !adv_affine(I, fq, FQ_SCREEN)))
 			c = FQ_RUN;
 		fq[I->res] = (uint8_t)c;
-		if (c == FQ_DRAW || c == FQ_PRIM || c == FQ_VERTEX)
+		if (c == FQ_DRAW || c == FQ_PRIM || c == FQ_VERTEX || c == FQ_SCREEN)
 			price[k] = adv_price(I);
 	}
 	/* the highest frequency that uses each value */
@@ -9679,8 +9697,8 @@ advice_pass(const char *text, int asked)
 		if (I->res < 0 || SP.def[I->res] != k)
 			continue;
 		f = fq[I->res];
-		if ((f != FQ_DRAW && f != FQ_PRIM && f != FQ_VERTEX) ||
-		    used[I->res] <= f)
+		if ((f != FQ_DRAW && f != FQ_PRIM && f != FQ_VERTEX && f !=
+		    FQ_SCREEN) || used[I->res] <= f)
 			continue;
 		memset(&r, 0, sizeof r);
 		memset(seen, 0, (size_t)V.nin + 1);
@@ -9690,7 +9708,7 @@ advice_pass(const char *text, int asked)
 			continue;
 		root[f - FQ_DRAW][nroot[f - FQ_DRAW]++] = r;
 	}
-	for (f = FQ_DRAW; f <= FQ_VERTEX; f++) {
+	for (f = FQ_DRAW; f <= FQ_SCREEN; f++) {
 		int z = f - FQ_DRAW, n = nroot[z], nins = 0, nload = 0, ninx = 0;
 		double tot = 0, arith, pass, save;
 		struct advroot all;
@@ -9712,7 +9730,8 @@ advice_pass(const char *text, int asked)
 			sb_printf(&rep, "advice (changes outside the module; nothing "
 			    "here is rewritten), priced under %s:\n", sym_str(m->name));
 		rep_obj(f == FQ_DRAW ? "advice_draw" : f == FQ_PRIM ?
-		    "advice_primitive" : "advice_vertex");
+		    "advice_primitive" : f == FQ_VERTEX ? "advice_vertex" :
+		    "advice_screen");
 		rep_int("instructions", nins);
 		rep_num("cost", tot);
 		rep_int("values", n);
@@ -9760,6 +9779,28 @@ advice_pass(const char *text, int asked)
 			    sym_str(m->name), tot, tot, n, n == 1 ? "" : "s");
 			rep_bool("priced", 0);
 			rep_int("within_vulkan_precision", ninx);
+		} else if (f == FQ_SCREEN) {
+			sb_printf(&rep, "  once a vertex, in window coordinates: %d "
+			    "instruction%s costing %g every pixel %s affine in "
+			    "gl_FragCoord (sums, and products with values of the "
+			    "draw)\n", nins, nins == 1 ? "" : "s", tot, nins == 1 ?
+			    "is" : "are");
+			sb_printf(&rep, "    gl_FragCoord is the window position, the "
+			    "depth and 1/w, each affine across a primitive in window "
+			    "coordinates, as a noperspective varying v = sum b_i v_i "
+			    "is (the barycentrics b_i of the window position): an "
+			    "affine f has f(v) = sum b_i f(v_i), so computed in the "
+			    "vertex shader from each vertex's window position (the "
+			    "viewport transform of gl_Position) and passed as %d "
+			    "noperspective varying%s, the interpolated value is the "
+			    "same real number at every pixel; in floats the two "
+			    "differ by the interpolation's rounding (not "
+			    "bit-exact)\n", n, n == 1 ? "" : "s");
+			sb_printf(&rep, "    not priced: %s has no price for a vertex "
+			    "or for a varying, so nothing says when %g a pixel is "
+			    "worth %g a vertex and %d more varying%s\n",
+			    sym_str(m->name), tot, tot, n, n == 1 ? "" : "s");
+			rep_bool("priced", 0);
 		} else {
 			sb_printf(&rep, "  once a vertex: %d instruction%s costing %g "
 			    "every pixel are affine in the varyings (sums, and "
@@ -9804,7 +9845,7 @@ advice_pass(const char *text, int asked)
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
 		    "its uniforms or its flat inputs, or is affine in its "
-		    "varyings\n");
+		    "varyings or in gl_FragCoord\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);

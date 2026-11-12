@@ -3942,8 +3942,22 @@ advice_pass):
   vertices with sum b_i = 1 (perspective-correct barycentrics), and an
   affine f has f(v) = sum b_i f(v_i), so f computed at the vertices and
   interpolated is the same real number at every pixel;
-- **every run**: the rest (textures, storage buffers, built-ins, a
-  function's own variables, anything not affine of a varying).
+- **window coordinates** (fragment shaders): affine in gl_FragCoord,
+  with values of the draw as the coefficients.  gl_FragCoord is the
+  window position, the depth and 1/w, each affine across a primitive in
+  window coordinates, as a `noperspective` varying is: f computed in
+  the vertex shader from each vertex's window position (the viewport
+  transform of gl_Position) and passed noperspective is the same real
+  number at every pixel.  A flat value or a varying beside it makes the
+  value per run (each vertex would pass its own flat value, and a
+  varying interpolates with other weights).  A smooth varying is the
+  projective case, (a x + b y + c)/(d x + e y + f) with the
+  primitive's own 1/w below; a quotient of two affine terms with another
+  denominator shows as its two terms, each a noperspective varying, the
+  division staying per pixel;
+- **every run**: the rest (textures, storage buffers, the other
+  built-ins, a function's own variables, anything not affine of a
+  varying).
 
 The values of a lower frequency that something of a higher one uses
 are what would be passed in.  For the draw the report prices both
@@ -3979,9 +3993,9 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 13: float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);)
 ```
 
-JSON: the result gains `advice_draw`, `advice_primitive` and
-`advice_vertex` where there are such values (`advice: true` also
-says when there are none).
+JSON: the result gains `advice_draw`, `advice_primitive`,
+`advice_vertex` and `advice_screen` where there are such values
+(`advice: true` also says when there are none).
 
 ## Function level
 
