@@ -2298,8 +2298,19 @@ them, and the price is of what goes:
   share: they stay f64 and are split.
 
 `min`, `max` and `clamp` of f64 values are read too (FMin, FMax, NMin,
-NMax, FClamp).  Not rewritten: results that stay f64, and an f64
-comparison (the arithmetic under one stays f64).
+NMax, FClamp).  An f64 comparison is a result of its own (`dword F`
+with a comparison for F; in a shader the ordered compares and
+FUnordNotEqual): a bool, not a value with an error to spend, so it is
+rewritten only where the answer cannot change.  Either both sides are
+exact in f64 (no operation on the way rounds: f32 values converted and
+products of two of them, 48 significant bits) and in the form (a
+derived error of 0, the error-free products), and the pairs are compared
+high word first, then low where the high words tie (a normalized pair's
+high word is its value rounded, and rounding keeps order); or the
+sides' ranges, widened by the f64 program's errors, do not meet, and the
+comparison is a constant.  A sampled check counts the points where the
+form and the f64 comparison differ, inside the conditions.  Not
+rewritten: results that stay f64.
 
 ### Fixed function as compute
 

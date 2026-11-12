@@ -1,0 +1,5 @@
+# the ranges decide the comparison: it is a constant
+simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float f(float x, float y) { double a = double(x) * double(x), b = double(y) * double(y); return a < b ? 1.0 : 0.0; }
+```

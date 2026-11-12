@@ -1,0 +1,29 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  f: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume x 1 2 assume y 3 4
+simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 4 -> 4 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+fp64 and conversions under gt1030:
+  %73 = OpFOrdLessThan %bool %65 %70
+      (line 1: float f(float x, float y) { double a = double(x) * double(x), b = double(y) * double(y); r)
+    dword f64(x)*f64(x) < f64(y)*f64(y) under gt1030: a comparison of f64 values over f32 (u = 2^-24, u64 = 2^-53)
+      as written  cost 73.125  both sides exact in f64 (48 and 48 significant bits, no operation rounds)
+      f32 alone   cost 0       sides 5.96e-08 (1 u) relative and 5.96e-08 (1 u) relative: decided by the ranges
+      f32 pairs   cost 0       sides 0 (0 u^2) relative and 0 (0 u^2) relative: decided by the ranges
+      required: the same answer as the f64 comparison for every input: both sides exact (in f64 and in the
+        form), or ranges that, widened by the f64 errors, decide it
+      the sides lie in [1, 4] and [9, 16], each within its f64 error: true for every input
+      -> true: cost 0 against 73.125 (-100.0%), 0 f32 operations for 5
+      check (sampled, not a proof): 4096 points of the domain, 0 where the form and the f64 comparison differ
+    written as 0 f32 instructions, 0 of them NoContraction, in place of 4 f64 ones
+  no f64 value is left: the Float64 capability and the type are removed
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 1988 bytes, checksum def4fd9c)
