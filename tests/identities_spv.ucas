@@ -1,0 +1,22 @@
+# Divisions and remainders by a constant in SPIR-V (src/idrw.c through
+# simplify): with the dividend bounded by the request's assumption they
+# become one multiply and one shift where the model prices that lower.
+SAT simplify x in [0, 1000) nofile
+```glsl
+uint Dec(uint x) { return x / 10u + x % 10u * 16u; }
+int Q(int x) { return (x * 31 + 127) / 255; }
+int R(int x) { return x % 7; }
+```
+# a model where a multiply is dear: the divisions stay
+model muldear : gt1030 { imul: 20 }
+use muldear
+SAT simplify x in [0, 1000) nofile
+```glsl
+uint Dec(uint x) { return x / 10u + x % 10u * 16u; }
+```
+# no bound on the dividend: nothing is derived
+use gt1030
+SAT simplify nofile
+```glsl
+uint Dec(uint x) { return x / 10u + x % 10u * 16u; }
+```

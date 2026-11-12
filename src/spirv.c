@@ -6621,6 +6621,129 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
 
 #include "fsimp.h"
 #include "fuse.h"
+#include "irw.h"
+
+/*
+ * Divisions and remainders by a constant whose dividend the assumptions
+ * bound (idrw.c): the instruction and what its dividend is computed from
+ * are read into a ucas function as for the dot products, irw_cands
+ * derives the multiply and the shift for the proved bound, and it is
+ * written back before the instruction when the active model prices it
+ * lower.  The derivation is the proof; the translation is checked
+ * against the interpreter on 64 samples.
+ */
+static int
+idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
+{
+	const struct model *m = model_active();
+	int k, n = 0, i, ty32[2];
+
+	if (!dot_type_ids(ty32))
+		return 0;
+	for (k = 0; k < SP.orig_nin && n < maxlog && (double)clock() /
+	    CLOCKS_PER_SEC < SP.deadline; k++) {
+		struct spvdot c;
+		const struct sins *I = &V.in[k];
+		struct irw *r;
+		int root, fin, nr, best = -1, base, uns, div, nin0, nk0;
+		uint64_t dv;
+		ty_t t, vt;
+		nid body;
+		float before, after = 0;
+		char sl[160];
+		const char *s, *e;
+
+		if (SP.dead[k] || !pure_ins(k))
+			continue;
+		uns = !strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpUMod");
+		div = !strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpSDiv");
+		if (!uns && strcmp(I->op, "OpSDiv") && strcmp(I->op, "OpSRem") &&
+		    strcmp(I->op, "OpSMod"))
+			continue;
+		root = I->res;
+		base = first_arg(I);
+		if (I->nop < base + 2 || int_width(V.id[root].type) != 32 ||
+		    !const_of(idx(I->opnd[base + 1]), &dv) || dv < 3 ||
+		    dv >= (1ULL << 31))
+			continue;
+		t = spv_ty(V.id[root].type);
+		vt = TY(uns ? K_UINT : K_SINT, 32);
+		memset(&c, 0, sizeof c);
+		c.memo = xcalloc((size_t)(V.nid + 1024), sizeof *c.memo);
+		c.k = k;
+		c.ty32[0] = ty32[0];
+		c.ty32[1] = ty32[1];
+		c.f.anon = 1;
+		body = mk_cast(t, mk_bin(div ? O_DIV : O_MOD, mk_cast(vt,
+		    spv_node(&c, idx(I->opnd[base]), 0)), mk_const_i(vt,
+		    (int64_t)dv)));
+		c.f.body = body;
+		free(c.memo);
+		if (!t || c.fail || c.nleaf == 0)
+			continue;
+		before = fuse_expr_cost(m, body);
+		nr = irw_cands(&c.f, body, &r);
+		/* nosat: the solved identities, whose derivation is the proof
+		 * (the signed-as-unsigned ones are the SAT pass's) */
+		for (i = 0; i < nr; i++) {
+			float cost;
+			if (r[i].nearmiss || !r[i].nosat)
+				continue;
+			cost = fuse_expr_cost(m, r[i].e);
+			if (cost < before && (best < 0 || cost < after)) {
+				best = i;
+				after = cost;
+			}
+		}
+		if (best < 0 || !dot_translation_ok(&c, root, r[best].e)) {
+			irw_free(r, nr);
+			continue;
+		}
+		nin0 = V.nin;
+		nk0 = SP.nnewk;
+		fin = dot_emit(&c, r[best].e);
+		if (c.fail || fin < 0) {
+			/* take back what was written */
+			for (i = nin0; i < V.nin; i++) {
+				int j;
+				for (j = 0; j < V.in[i].nop; j++)
+					free(V.in[i].opnd[j]);
+				free(V.in[i].text);
+			}
+			V.nin = nin0;
+			SP.nnewk = nk0;
+			irw_free(r, nr);
+			continue;
+		}
+		SP.alias[root] = fin;
+		SP.dead[k] = 1;
+		snprintf(log[n].from, sizeof log[n].from, "%s", I->text);
+		snprintf(log[n].to, sizeof log[n].to, "%s", shared_str(r[best].e,
+		    150));
+		log[n].gain = before - after;
+		log[n].before = before;
+		log[n].after = after;
+		log[n].line = ins_line(k);
+		log[n].desc = strdup(r[best].cond);
+		log[n].proof = strdup(r[best].proof);
+		sb_printf(rep, "    %s\n      ->  %s   (cost %g -> %g)\n", I->text,
+		    log[n].to, (double)before, (double)after);
+		src_line(ins_line(k), sl, sizeof sl);
+		if (sl[0])
+			sb_printf(rep, "%s", sl);
+		sb_printf(rep, "      holds where %s\n", r[best].cond);
+		for (s = r[best].proof; *s; s = *e ? e + 1 : e) {
+			e = strchr(s, '\n');
+			if (!e)
+				e = s + strlen(s);
+			sb_printf(rep, "      %.*s\n", (int)(e - s), s);
+		}
+		n++;
+		irw_free(r, nr);
+	}
+	return n;
+}
+
 
 static struct {
 	char name[40];
@@ -8099,11 +8222,11 @@ spirv_simplify(const char *src, double budget, int nofile)
 		double gain;
 		int line, algebra, trivial, dot;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
-	struct dotlog dotl[32];
-	int ndotlog = 0;
+	struct dotlog dotl[32], idl[32];
+	int ndotlog = 0, nidlog = 0;
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
-	struct sbuf out = {0}, list = {0}, dotrep = {0};
+	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
@@ -8232,6 +8355,24 @@ spirv_simplify(const char *src, double budget, int nofile)
 			int cls;
 			before += idot_cost(&V.in[k], &cls);
 		}
+	/* divisions by a constant of a bounded dividend, under the model:
+	 * first, so that a signed one is not left as an unsigned division */
+	{
+		int nd = idrw_pass(&idrep, idl, 32), q;
+		for (q = 0; q < nd && nlog < MAXLOG; q++) {
+			struct rwlog *L = &rl[nlog++];
+			snprintf(L->from, sizeof L->from, "%s", idl[q].from);
+			snprintf(L->to, sizeof L->to, "%s", idl[q].to);
+			L->why = "a division by a constant of a bounded dividend as "
+			    "a multiply and a shift";
+			L->gain = idl[q].gain;
+			L->line = idl[q].line;
+			L->dot = 2;
+		}
+		nidlog = nd;
+		nrw += nd;
+		SP.proved += nd;
+	}
 	/* in order: a rewrite is seen by the instructions after it */
 	for (k = 0; k < SP.orig_nin; k++) {
 		struct cand cs[12];
@@ -8470,12 +8611,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 			nal += rl[i].algebra;
 		printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
 		    "(bit-precise: equal for every input)", SP.orig_nin, nrw - nal -
-		    ndotrw, nrw - nal - ndotrw == 1 ? "" : "s");
+		    ndotrw - nidlog, nrw - nal - ndotrw - nidlog == 1 ? "" : "s");
 		if (nal)
 			printf(" and %d by algebra mod 2^w", nal);
 		if (ndotrw)
 			printf(", %d sum%s of products made dot products (proved by "
 			    "dot.c, below)", ndotrw, ndotrw == 1 ? "" : "s");
+		if (nidlog)
+			printf(", %d division%s by a constant made a multiply and a "
+			    "shift (derived, below)", nidlog, nidlog == 1 ? "" : "s");
 		printf(", %d dead instruction%s removed\n", ndead,
 		    ndead == 1 ? "" : "s");
 	}
@@ -8525,8 +8669,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		rep_str("why", rl[i].why);
 		rep_num("gain", rl[i].gain);
 		rep_int("line", rl[i].line);
-		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : rl[i].dot ?
-		    "dot" : "sat");
+		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : rl[i].dot == 2 ?
+		    "derivation" : rl[i].dot ? "dot" : "sat");
 		if (ntriv)
 			rep_bool("driver_trivial", rl[i].trivial);
 		rep_end();
@@ -8546,6 +8690,23 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_end();
 			free(dotl[i].desc);
 			free(dotl[i].proof);
+		}
+		rep_end();
+	}
+	if (nidlog) {
+		rep_list("identities");
+		for (i = 0; i < nidlog; i++) {
+			rep_obj(NULL);
+			rep_str("from", idl[i].from);
+			rep_str("to", idl[i].to);
+			rep_int("line", idl[i].line);
+			rep_num("cost_before", idl[i].before);
+			rep_num("cost_after", idl[i].after);
+			rep_str("holds_where", idl[i].desc);
+			rep_str("derivation", idl[i].proof);
+			rep_end();
+			free(idl[i].desc);
+			free(idl[i].proof);
 		}
 		rep_end();
 	}
@@ -8665,6 +8826,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(dotrep.p, stdout);
 	}
 	free(dotrep.p);
+	if (idrep.n) {
+		printf("  divisions by a constant (the dividend's bound makes one "
+		    "multiply and one shift exact; derived by idrw.c, kept under "
+		    "%s):\n", sym_str(model_active()->name));
+		fputs(idrep.p, stdout);
+	}
+	free(idrep.p);
 	if (range_report) {
 		fputs(range_report, stdout);
 		free(range_report);

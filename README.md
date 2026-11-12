@@ -1572,6 +1572,17 @@ quantisation 5 against 11.75.  Under a model where the multiply is dear
 (`{ shift: 20 }`) find says "derived, but not cheaper" and leaves the
 function as it is.
 
+In SPIR-V, `simplify` reads each OpUDiv, OpUMod, OpSDiv, OpSRem and
+OpSMod by a constant, with what its dividend is computed from, into a
+ucas function whose inputs carry the request's assumptions (`simplify x
+in [0, 1000)`), derives the multiply and the shift for the proved bound
+and writes them back (OpIMul, OpShiftRightLogical, bitcasts for a
+signed type) where the model prices them lower: the report's
+"divisions by a constant" section has each one's derivation, and the
+JSON result an `identities` list.  Without a bound on the dividend
+nothing is derived.  The translation is checked against the
+interpreter on 64 samples; the written module passes spirv-val.
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the
