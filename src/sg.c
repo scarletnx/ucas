@@ -871,6 +871,198 @@ tables(struct sgf *g, nid cur, float *cost)
 	return cur;
 }
 
+
+/*
+ * One function of a small-range value read at several keys (h(i) +
+ * h(j)*h(k), h(x) = (x*x + 3) % 11, i, j, k in 0..7) as a constant table
+ * of its values read at each key: tables() can then hold it one entry
+ * per lane and read it by shuffles.  tab.c tabulates a function read
+ * once, where a register costs more than the load; here the repeats pay
+ * for it.  A subterm is such a read when it reads one parameter, and two
+ * are the same function when putting one variable for their parameters
+ * makes them the same node; the table is that function at every point of
+ * the keys' range, each evaluated (a point where it is undefined, and
+ * none is taken).  The largest such function by its price is tried, and
+ * kept only when tables() makes the whole cheaper.
+ */
+#define FT_MAX 512	/* subterms looked at */
+
+static nid
+funcs_as_tables(struct sgf *g, nid cur, float *cost)
+{
+	const struct func *f = g->f;
+	int W = (int)g->m->par[MP_WARP], nn = 0, i, j, best = -1, nocc, K;
+	nid *nd, *canon, x, T, cand, e[SG_MAXW], map[MAXP];
+	int *slot;
+	uint8_t *seen;
+	nid *st;
+	uint32_t sp = 0;
+	float bp = 0, c2;
+	int64_t lo = INT64_MAX, hi = INT64_MIN, vals[SG_MAXW];
+	size_t wn = g->why.n, nnn = g->notes.n;
+
+	if (W < 2 || W > SG_MAXW || !cclass_available(g->m, C_SG_SHUF) ||
+	    (N.fl[cur] & NF_SG))
+		return cur;
+	nd = xmalloc(FT_MAX * sizeof *nd);
+	canon = xmalloc(FT_MAX * sizeof *canon);
+	slot = xmalloc(FT_MAX * sizeof *slot);
+	seen = xcalloc(N.n, 1);
+	st = xmalloc(N.n * sizeof *st);
+	st[sp++] = cur;
+	seen[cur] = 1;
+	while (sp && nn < FT_MAX) {
+		nid n = st[--sp];
+		uint64_t sl = node_slots(n);
+		uint32_t k;
+		int op = N.op[n];
+		if (op == O_CONST || op == O_VAR || op == O_UNDEF || op == O_TABLE ||
+		    op == O_LOOP)
+			continue;
+		if (TY_ISINT(N.ty[n]) && N.ty[n] != TY_BOOL && sl &&
+		    !(sl & (sl - 1)) && !(N.fl[n] & NF_LANE) && op != O_CAST) {
+			for (j = 0; !((sl >> j) & 1); j++)
+				;
+			if (j < f->np && TY_ISINT(f->p[j].ty)) {
+				memset(map, 0, sizeof map);
+				map[j] = mk_var(0, sym_cstr("x"), f->p[j].ty);
+				nd[nn] = n;
+				slot[nn] = j;
+				canon[nn++] = subst(n, map, MAXP);
+			}
+		}
+		for (k = 0; k < 3; k++) {
+			nid a = k == 0 ? N.a[n] : k == 1 ? N.b[n] : N.c[n];
+			if (a && a < N.n && !seen[a]) {
+				seen[a] = 1;
+				st[sp++] = a;
+			}
+		}
+	}
+	free(seen);
+	free(st);
+	/* the dearest function read at two or more different parameters */
+	for (i = 0; i < nn; i++) {
+		int other = 0;
+		float pc;
+		for (j = 0; j < nn && !other; j++)
+			other = canon[j] == canon[i] && slot[j] != slot[i];
+		if (!other || (pc = fuse_expr_cost(g->m, canon[i])) <= bp)
+			continue;
+		bp = pc;
+		best = i;
+	}
+	if (best < 0)
+		goto none;
+	/* the keys' range */
+	for (i = 0, nocc = 0; i < nn; i++)
+		if (canon[i] == canon[best]) {
+			int64_t l, h;
+			param_bounds(&f->p[slot[i]], &l, &h);
+			if (l < lo)
+				lo = l;
+			if (h > hi)
+				hi = h;
+			nocc++;
+		}
+	if (hi < lo || hi - lo + 1 > W || hi - lo < 1)
+		goto none;
+	K = (int)(hi - lo + 1);
+	/* the function at every point */
+	{
+		struct func tf;
+		struct plan p;
+		int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+		double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+		nid roots[1];
+		int bad = 0;
+		memset(&tf, 0, sizeof tf);
+		tf.anon = 1;
+		tf.np = 1;
+		tf.p[0].name = sym_cstr("x");
+		tf.p[0].ty = f->p[slot[best]].ty;
+		tf.body = canon[best];
+		roots[0] = canon[best];
+		plan_build(&p, roots, 1, 0);
+		for (i = 0; i < K; i++)
+			in_i[i] = lo + i;
+		plan_run(&p, (uint32_t)K, in_i, in_r);
+		for (i = 0; i < K && !bad; i++) {
+			if (COLF(&p, p.root[0])[i] & F_UNDEF)
+				bad = 1;
+			vals[i] = int_norm(N.ty[canon[best]], COLI(&p, p.root[0])[i]);
+		}
+		plan_free(&p);
+		free(in_i);
+		free(in_r);
+		(void)tf;
+		if (bad)
+			goto none;
+	}
+	for (i = 0; i < K; i++)
+		e[i] = mk_const_i(N.ty[canon[best]], vals[i]);
+	T = mk_table(e, (uint32_t)K);
+	cand = cur;
+	for (i = 0; i < nn && cand; i++)
+		if (canon[i] == canon[best]) {
+			nid key = mk_var((uint32_t)slot[i], f->p[slot[i]].name,
+			    f->p[slot[i]].ty);
+			if (lo)
+				key = mk_bin(O_SUB, key, mk_const_i(f->p[slot[i]].ty, lo));
+			cand = sg_replaced(cand, nd[i], mk_cast(N.ty[nd[i]],
+			    mk_index(T, key)));
+		}
+	if (!cand)
+		goto none;
+	c2 = *cost;
+	x = tables(g, cand, &c2);
+	if (x == cand || !(c2 < *cost)) {
+		/* nothing of it: take back what tables() said */
+		g->why.n = wn;
+		if (g->why.p)
+			g->why.p[wn] = 0;
+		g->notes.n = nnn;
+		if (g->notes.p)
+			g->notes.p[nnn] = 0;
+		goto none;
+	}
+	{
+		/* this line before the register's */
+		struct sbuf w = {0};
+		sb_printf(&w, "%s is read at %d keys (", shared_str(canon[best],
+		    80), nocc);
+		{
+			int sl, said = 0;
+			for (sl = 0; sl < f->np; sl++)
+				for (i = 0; i < nn; i++)
+					if (canon[i] == canon[best] && slot[i] == sl) {
+						sb_printf(&w, "%s%s", said++ ? ", " : "",
+						    sym_str(f->p[sl].name));
+						break;
+					}
+		}
+		sb_printf(&w, "); at x = %lld..%lld, every point evaluated, it is "
+		    "the table %s\n", (long long)lo, (long long)hi,
+		    shared_str(T, 80));
+		sb_puts(&w, g->why.p + wn);
+		g->why.n = wn;
+		if (g->why.p)
+			g->why.p[wn] = 0;
+		sb_puts(&g->why, sb_str(&w));
+		free(w.p);
+	}
+	*cost = c2;
+	free(nd);
+	free(canon);
+	free(slot);
+	return x;
+none:
+	free(nd);
+	free(canon);
+	free(slot);
+	return cur;
+}
+
 /*
  * A GF(2)-affine map of one word: bit i of the result is the parity of
  * x & row[i], xor bit i of k.  Derived from the structure of the
@@ -1275,6 +1467,8 @@ sg_find(const struct func *f)
 	if (N.fl[cur] & NF_SG)
 		cur = sums_and_scans(&g, cur, &cost);
 	cur = tables(&g, cur, &cost);
+	if (cur == f->body)
+		cur = funcs_as_tables(&g, cur, &cost);
 	if (cur == f->body)
 		cur = bitslice(&g, cur, &cost);
 	if (g.notes.n)
