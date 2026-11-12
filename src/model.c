@@ -225,7 +225,17 @@ node_cost(const struct model *m, nid n, int *cls)
 	float mul = 1, c;
 
 	switch (op) {
-	case O_CONST: case O_VAR: case O_UNDEF: case O_TABLE:
+	case O_VAR:
+		/* a parameter's value in the other lanes, at the worst: each
+		 * of the W lanes read through a shuffle (a load without one) */
+		if (N.ki[n] >= SG_COPY_SLOT) {
+			k = cclass_available(m, C_SG_SHUF) ? C_SG_SHUF : C_LOAD;
+			*cls = k;
+			return m->c[k] * (float)N.b[n];
+		}
+		*cls = -1;
+		return 0;
+	case O_CONST: case O_UNDEF: case O_TABLE:
 		*cls = -1;
 		return 0;
 	case O_ADD: case O_SUB: case O_NEG:
@@ -478,8 +488,10 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen,
 	case O_ATOMIC:
 		return 1;   /* the old value differs per invocation */
 	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
-		/* one value for the subgroup, whatever its lanes hold */
-		return 0;
+		/* one value for the subgroup, whatever its lanes hold; of a
+		 * value whose other lanes are not known, taken as varying (at
+		 * the worst) */
+		return (N.fl[N.a[n]] & NF_LANEREAD) != 0;
 	case O_SGSHUF: case O_SGSCAN:
 		return 1;
 	}
@@ -738,7 +750,10 @@ price_loop(const struct model *m, const struct func *f, nid n,
 		lp->over = m->c[C_IADD] + m->c[C_CMP] + m->c[C_BRANCH];
 	else
 		lp->over = m->c[C_BRANCH];
-	if (!isfor)
+	if (N.fl[n] & NF_LANEREAD)
+		/* it reads other lanes' values: no count to measure */
+		lp->worst = lp->avg = lp->best = -1;
+	else if (!isfor)
 		trip_while(f, n, lp);
 	else if (int_of(N.a[n], &lo) && int_of(N.b[n], &hi)) {
 		lp->known = lp->sound = lp->exh = 1;
@@ -924,8 +939,10 @@ print_loop(const struct model *m, const struct func *f,
 	    "index add, compare, branch" : "branch; the compare is in the "
 	    "condition", (double)(lp->body + lp->over));
 	if (lp->worst < 0)
-		printf("    trip count: not known (a while loop that could not "
-		    "be measured); priced as one iteration\n");
+		printf("    trip count: not known (%s); priced as one "
+		    "iteration\n", (N.fl[lp->n] & NF_LANEREAD) ? "it reads "
+		    "other lanes' values" : "a while loop that could not be "
+		    "measured");
 	else if (lp->measured)
 		printf("    trip count: %s %.0f, average %.4g, measured by running "
 		    "it on %s%llu points\n", lp->exh ? "at most" : "up to",
@@ -1096,6 +1113,21 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			rep_end();
 		}
 	rep_end();
+	if (N.fl[f->body] & NF_LANEREAD) {
+		/* the parameters read in the other lanes, at the worst */
+		rep_list("lane_reads");
+		for (g = 1; g < lim; g++) {
+			if (!all[g] || N.op[g] != O_VAR || N.ki[g] < SG_COPY_SLOT)
+				continue;
+			printf("  %s read in the other lanes (a value per lane, not "
+			    "known there): at the worst, each of its %d lanes read "
+			    "through a %s, and a ?: on what it gives priced as "
+			    "divergent\n", sym_str(N.a[g]), (int)N.b[g],
+			    cclass_available(m, C_SG_SHUF) ? "shuffle" : "load");
+			rep_str(NULL, sym_str(N.a[g]));
+		}
+		rep_end();
+	}
 	if (cur_tally.n) {
 		printf("  fused by the model (one instruction for several "
 		    "operations):\n");
@@ -1177,7 +1209,10 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			 * the divergence (stoch.c counts or estimates how many).
 			 */
 			dmode = 0;
-			if (nonuni && k < 0 && m->par[MP_WARP] >= 2)
+			/* a condition that reads other lanes' values has no
+			 * frequency to count: its worst, the divergent branch */
+			if (nonuni && k < 0 && m->par[MP_WARP] >= 2 &&
+			    !(N.fl[N.a[s]] & NF_LANEREAD))
 				dmode = diverge_stats(f, N.a[s], (int)m->par[MP_WARP], &dp, &dat,
 				    &daf, &dexact, &dpts);
 			if (dmode)

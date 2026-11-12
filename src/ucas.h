@@ -201,7 +201,10 @@ extern const struct opinfo opinfo[O_NOPS];
 		      * subgroup operation (sg.c) or an instruction (inst.c) */
 #define NF_LANE 8    /* the lane of a subgroup operation's operand is free
 		      * in it: part of a value per lane */
-#define NF_INH (NF_VAR | NF_SG | NF_LANE)   /* an operand's, its user's */
+#define NF_LANEREAD 16 /* reads a parameter's value in another lane, which
+			* has no exact value here (sg_lane_copy) */
+#define NF_INH (NF_VAR | NF_SG | NF_LANE | NF_LANEREAD)   /* an operand's,
+							  * its user's */
 struct nodes {
 	uint8_t *op;
 	uint8_t *fl;
@@ -472,6 +475,10 @@ void dotres_free(struct dotres *r);
 #define SG_LANE_SLOT 100
 #define SG_MAXW 64
 nid sg_lane(void);		/* the lane's index inside an operand */
+/* parameter slot's value in the lane an operand is read in, for a
+ * parameter that is not uniform: no exact value, priced at the worst */
+#define SG_COPY_SLOT 300
+nid sg_lane_copy(int slot, uint32_t name, ty_t t, int W);	/* node.c */
 int sg_is_lane(nid n);		/* a variable named lane: the lane itself */
 int sg_has_lane(nid e);		/* the bound lane is free in e */
 nid sg_lower_once(nid root);	/* node.c: sg_lower without its memory */
