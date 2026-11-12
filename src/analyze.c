@@ -926,6 +926,16 @@ list_conditions(const struct func *f, int *nc)
 			COND("0 <= %s < %d  (a lane of the subgroup)",
 			    node_str(N.b[n]), sg_width(n));
 			break;
+		case O_BFE: case O_SBFE:
+			if (!is_const(N.b[n]) || !is_const(N.c[n]))
+				COND("%s + %s <= 32  (a field of the word)",
+				    node_str(N.b[n]), node_str(N.c[n]));
+			break;
+		case O_FUNL: case O_FUNR:
+			if (!is_const(N.c[n]))
+				COND("0 <= %s < 32  (funnel shift amount)",
+				    node_str(N.c[n]));
+			break;
 		case O_UNDEF:
 			COND("an arm of match/piecewise covers the input");
 			break;
