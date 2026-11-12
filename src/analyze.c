@@ -852,7 +852,9 @@ list_conditions(const struct func *f, int *nc)
 			mark[N.a[n]] = 1, st[sp++] = N.a[n];
 		if (N.b[n] && !mark[N.b[n]])
 			mark[N.b[n]] = 1, st[sp++] = N.b[n];
-		if (N.c[n] && !mark[N.c[n]])
+		/* a shuffle under sg_active: said below as the lane it reads */
+		if (N.c[n] && !mark[N.c[n]] && !(N.op[n] == O_SEL &&
+		    N.op[N.c[n]] == O_UNDEF && sg_active_of(N.a[n], NULL)))
 			mark[N.c[n]] = 1, st[sp++] = N.c[n];
 		if (TYK(N.ty[n]) == K_FLOAT)
 			continue;
@@ -864,6 +866,12 @@ list_conditions(const struct func *f, int *nc)
 		__VA_ARGS__); printf("  C assumes %s\n", cb_); (*nc)++; \
 		rep_obj(NULL); rep_str("kind", "c_assumes"); \
 		rep_str("text", cb_); rep_end(); } while (0)
+		if (N.op[n] == O_SEL && N.op[N.c[n]] == O_UNDEF &&
+		    sg_active_of(N.a[n], NULL)) {
+			nid ln = 0, am = sg_active_of(N.a[n], &ln);
+			COND("lane %s is active in %s  (sg_active: a shuffle reads "
+			    "it)", node_str(ln), node_str(am));
+		}
 		switch (N.op[n]) {
 		case O_DIV:
 		case O_MOD:
