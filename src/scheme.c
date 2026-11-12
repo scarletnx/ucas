@@ -6,7 +6,9 @@
  *                  (cost and critical path); from degree 4 the forms with
  *                  fewer multiplications (Knuth's adapted coefficients,
  *                  Paterson and Stockmeyer's blocks and splitting) and the
- *                  cheapest once the model's fusions are counted; forward
+ *                  cheapest once the model's fusions are counted; for f32
+ *                  compensated Horner, measured against the exact value
+ *                  and against its bound; forward
  *                  differences for tabulating at consecutive integers (d
  *                  additions a point)
  *   powers         x^n by squaring: the addition chain against pow()
@@ -615,6 +617,169 @@ ps_split(const double *c, int d)
 	return a;
 }
 
+/*
+ * ---- compensated Horner ----
+ *
+ * Horner's rule with the rounding error of every product (2Prod: an fma)
+ * and every sum (2Sum, Knuth) kept and run through a second Horner, then
+ * added back: s + c.  Graillat, Langlois and Louvet ("Algorithms for
+ * accurate, validated and fast polynomial evaluation"): where nothing
+ * underflows the result is as good as Horner's in twice the precision
+ * rounded once,
+ *   |comp - p(x)| <= u |p(x)| + gamma_2n^2 p~(|x|),
+ * against Horner's gamma_2n p~(|x|), with p~ the polynomial of the
+ * coefficients' absolute values and gamma_k = k u / (1 - k u).  Both are
+ * measured against the exact value and checked against these bounds.
+ */
+static nid
+comp_horner(const double *c, int d)
+{
+	nid s = mkc(A.t, c[d]), cc = 0, p, pi, sg, a1, b1, k, e;
+	int i;
+
+	for (i = d - 1; i >= 0; i--) {
+		if (i == d - 1 && c[d] == 1) {
+			p = A.x;	/* 1 x is exact */
+			pi = 0;
+		} else {
+			p = MUL(s, A.x);
+			pi = mk_fma(s, A.x, mk_un(O_NEG, p));
+		}
+		if (c[i] != 0) {
+			k = mkc(A.t, c[i]);
+			s = ADD(p, k);
+			a1 = SUB(s, k);
+			b1 = SUB(s, a1);
+			sg = ADD(SUB(p, a1), SUB(k, b1));
+			e = pi ? ADD(pi, sg) : sg;
+		} else {
+			s = p;
+			e = pi;
+		}
+		if (cc && e)
+			cc = ADD(MUL(cc, A.x), e);
+		else if (cc)
+			cc = MUL(cc, A.x);
+		else
+			cc = e;
+	}
+	return cc ? ADD(s, cc) : s;
+}
+
+/* the f32 polynomial c[0..d] at x in doubles, compensated: its error is
+ * far under an f32 form's, so it stands for the exact value */
+static double
+poly_ref(const double *c, int d, double x)
+{
+	double s = c[d], cc = 0, p, pi, t, bb, sg;
+	int i;
+
+	for (i = d - 1; i >= 0; i--) {
+		p = s * x;
+		pi = fma(s, x, -p);
+		t = p + c[i];
+		bb = t - p;
+		sg = (p - (t - bb)) + (c[i] - bb);
+		s = t;
+		cc = cc * x + (pi + sg);
+	}
+	return s + cc;
+}
+
+/*
+ * The compensated form's line for an f32 polynomial: what it costs, and
+ * its error and Horner's against the exact value on the domain, each
+ * with its bound.
+ */
+static void
+comp_scheme(const struct model *m, const struct func *f, const double *c,
+    int d, nid horner)
+{
+	const double u = 0x1p-24, g = 2 * d * u / (1 - 2 * d * u);
+	nid comp = comp_horner(c, d), h64, roots[4];
+	double eh = 0, ec = 0, bc = 0;
+	uint64_t n = 0, over = 0;
+	struct plan p;
+	struct diter it;
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	uint8_t ok[CH];
+	uint32_t np, i;
+	int nops, k;
+	float depth, cost;
+
+	roots[0] = horner;
+	roots[1] = comp;
+	roots[2] = A.x;
+	roots[3] = f->where;
+	plan_build(&p, roots, 4, 0);
+	diter_init(&it, f, 1u << 16, 201, 4096);
+	while ((np = diter_next(&it, in_i, in_r)) != 0) {
+		plan_run(&p, np, in_i, in_r);
+		valid_mask(&p, f->where ? p.root[3] : NOTOK, np, ok);
+		for (i = 0; i < np; i++) {
+			double x = COLR(&p, p.root[2])[i], ref, pt = 0, dh, dc;
+			if (!ok[i] || !isfinite(x))
+				continue;
+			ref = poly_ref(c, d, x);
+			for (k = d; k >= 0; k--)
+				pt = pt * fabs(x) + fabs(c[k]);
+			dh = fabs(COLR(&p, p.root[0])[i] - ref);
+			dc = fabs(COLR(&p, p.root[1])[i] - ref);
+			if (!isfinite(ref) || !isfinite(pt) || !isfinite(dh) ||
+			    !isfinite(dc))
+				continue;
+			if (pt == 0)
+				continue;
+			n++;
+			eh = fmax(eh, dh / pt);
+			ec = fmax(ec, dc / pt);
+			bc = fmax(bc, u * fabs(ref) / pt + g * g);
+			if (dh > g * pt || dc > u * fabs(ref) + g * g * pt)
+				over++;
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	cost = dag_cost(m, comp, &nops, &depth);
+	printf("  %-10s cost %-6g depth %-5g %2d ops  compensated Horner, s + "
+	    "c: Horner's s, and the rounding error of each product (an fma) "
+	    "and each sum (2Sum) run through a second Horner c\n", "comp.",
+	    (double)cost, (double)depth, nops);
+	if (n == 0) {
+		printf("  %-10s no finite point of the domain to measure it "
+		    "on\n", "");
+		return;
+	}
+	printf("  %-10s error against the exact polynomial at %llu points, as "
+	    "a part of p~(|x|) (the polynomial of the coefficients' sizes): "
+	    "%.2g, Horner's %.2g; the bounds are %.2g = max u |p|/p~ + "
+	    "gamma_%d^2 and %.2g = gamma_%d\n", "", (unsigned long long)n, ec,
+	    eh, bc, 2 * d, g, 2 * d);
+	if (over)
+		printf("  %-10s a bound is exceeded at %llu points (it holds "
+		    "where nothing underflows)\n", "", (unsigned long long)over);
+	else
+		printf("  %-10s it gains where the polynomial cancels (|p| far "
+		    "under p~): its first term is the last rounding alone\n",
+		    "");
+	/* the other way to that accuracy: Horner in f64 */
+	h64 = mk_cast(TY_F64, mk_const_r(c[d]));
+	for (k = d - 1; k >= 0; k--) {
+		h64 = MUL(h64, mk_cast(TY_F64, A.x));
+		if (c[k] != 0)
+			h64 = ADD(h64, mk_cast(TY_F64, mk_const_r(c[k])));
+	}
+	fuse_domain(f);
+	printf("  %-10s with %s's fusions counted: %g, against %g for Horner "
+	    "in f64 and %g in f32; its error-free products and sums must "
+	    "stay as written (NoContraction)\n", "", sym_str(m->name),
+	    (double)fuse_expr_cost(m, comp), (double)fuse_expr_cost(m, h64),
+	    (double)fuse_expr_cost(m, horner));
+	fuse_domain(NULL);
+}
+
 /* a form's line, and under it what its expansion is */
 static void
 line_pe(const struct model *m, const char *name, const struct pe *a,
@@ -821,6 +986,8 @@ poly_scheme(const struct model *m, struct func *f)
 		    " blocks of coefficients over the first powers, Horner in "
 		    "the next" : "", (shown & 6) == 6 ? ";" : "", shown & 4 ?
 		    " the splitting (x^m + c)*q + r into monic halves" : "");
+	if (TYK(t) == K_FLOAT && TYW(t) == 32)
+		comp_scheme(m, f, cr, d, horner);
 	if (d >= 4) {
 		/* what the model's fusions make of each: Horner is all FFMAs */
 		float cost[8];
