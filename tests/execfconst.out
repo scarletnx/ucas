@@ -1,0 +1,26 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (89 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3
+  after:  outb: 2143289344 4286578688 2139095041 4290772995
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    %22 = OpIEqual %bool %16 %uint_0             cmp        2.375  t = 0..2.375  -> true false false false
+    OpBranchConditional %22 %24 %28              branch      6.25  t = 2.375..8.625
+    %31 = OpIEqual %bool %16 %uint_1             cmp        2.375  t = 8.625..11  lanes {1,2,3}  -> - true false false
+    OpBranchConditional %31 %33 %37              branch      6.25  t = 11..17.25  lanes {1,2,3}
+    %40 = OpIEqual %bool %16 %uint_2             cmp        2.375  t = 17.25..19.625  lanes {2,3}  -> - - true false
+    %72 = OpSelect %float %40 %float_0x1_000002p_128 %float_n0x1_800006p_128 select     1.625  t = 19.625..21.25  lanes {2,3}  -> - - nan -nan
+    reconverge (keep-up)                         diverge    14.375  t = 21.25..35.625  lanes {1,2,3}
+    %66 = OpPhi %float %float_n0x1p_128 %33 %72 %37                0  t = 35.625..35.625  lanes {1,2,3}  -> - -inf nan -nan
+    reconverge (keep-up)                         diverge    14.375  t = 35.625..50
+    %67 = OpPhi %float %float_0x1_8p_128 %24 %66 %34                0  t = 50..50  -> nan -inf nan -nan
+    %61 = OpBitcast %uint %67                                   0  t = 50..50  -> 2143289344 4286578688 2139095041 4290772995
+    %63 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 50..51  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    OpStore %63 %61                              store         15  t = 51..66
+  time 66 for every lane; lanes busy 88% (10.375 lane-units idle: masked, or waiting for an atomic)
+  animation: 800x301, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 11.0 cost units; 204619 bytes
+  (nofile: GIF checksum ac6998c7)
