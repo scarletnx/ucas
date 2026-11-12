@@ -47,6 +47,20 @@ int pit_check(const struct func *f, nid a, nid b, int trials, uint64_t seed,
 int diverge_stats(const struct func *f, nid cond, int warp, double *p,
     double *all_t, double *all_f, int *exact, uint64_t *points);
 
+/*
+ * A loop across a warp of `warp` lanes, for cost: the warp runs until its
+ * last lane leaves, so it takes the most of its lanes' trip counts
+ * (*emax, on average), and its lanes leave together only when their
+ * counts are equal (*split: the probability that they do not).  The
+ * count is `trips`, an expression of f's parameters, or, when trips is
+ * 0, hi - lo + 1 (none when negative).  The warps are the aligned runs of
+ * the index named consecutive (returns 2: counted, *exact when every
+ * case was), independent draws from the domain otherwise (1: from the
+ * counts at its points, every one when *exact).  0: not measured.
+ */
+int warp_trips(const struct func *f, nid trips, nid lo, nid hi, int warp,
+    double *emax, double *split, int *exact, uint64_t *points);
+
 /* cost F consecutive NAME: the parameter slot whose values run along the
  * lanes of a warp (-1: none, the lanes are independent) */
 void diverge_consecutive(int slot);

@@ -449,8 +449,11 @@ reach(nid n, uint8_t *mark, nid skip_from, nid skip_to)
 		reach(N.c[n], mark, skip_from, skip_to);
 }
 
+/* vslots: the loop variables (by slot) that vary; a caller that does not
+ * look at their inputs itself takes them all as varying */
 static int
-depends_nonuniform(const struct func *f, nid n, uint8_t *seen)
+depends_nonuniform(const struct func *f, nid n, uint8_t *seen,
+    uint64_t vslots)
 {
 	uint32_t j;
 
@@ -459,14 +462,16 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen)
 	seen[n] = 1;
 	switch (N.op[n]) {
 	case O_VAR:
-		/* a loop's own variables follow its (possibly varying) inputs */
-		return N.ki[n] >= f->np || !f->p[N.ki[n]].uniform;
+		if (N.ki[n] >= f->np)
+			return N.ki[n] >= NSLOT || (vslots >> N.ki[n] & 1);
+		return !f->p[N.ki[n]].uniform;
 	case O_CONST:
 	case O_UNDEF:
 		return 0;
 	case O_TABLE:
 		for (j = 0; j < N.b[n]; j++)
-			if (depends_nonuniform(f, N.lst[N.a[n] + j], seen))
+			if (depends_nonuniform(f, N.lst[N.a[n] + j], seen,
+			    vslots))
 				return 1;
 		return 0;
 	case O_ATOMIC:
@@ -477,9 +482,9 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen)
 	case O_SGSHUF: case O_SGSCAN:
 		return 1;
 	}
-	return depends_nonuniform(f, N.a[n], seen) ||
-	    depends_nonuniform(f, N.b[n], seen) ||
-	    depends_nonuniform(f, N.c[n], seen);
+	return depends_nonuniform(f, N.a[n], seen, vslots) ||
+	    depends_nonuniform(f, N.b[n], seen, vslots) ||
+	    depends_nonuniform(f, N.c[n], seen, vslots);
 }
 
 static float
@@ -513,6 +518,12 @@ struct lprice {
 	uint64_t pts;
 	float once, body, over;
 	uint8_t *var;        /* per-iteration nodes */
+	/* a warp whose lanes run different trip counts (wmode as warp_trips
+	 * returns it): the most trips of its lanes on average, the chance
+	 * they differ, how many states the vote keeps by a select */
+	int wmode, wexact, nkeep;
+	double wmax, wsplit;
+	uint64_t wpts;
 };
 
 static void
@@ -589,12 +600,31 @@ trip_range(const struct func *f, nid lo, nid hi, struct lprice *lp)
  * counting the iterations, evaluated over the domain (exact when it is
  * enumerated, a sample otherwise).
  */
-static void
-trip_while(const struct func *f, nid n, struct lprice *lp)
+/* the while loop n with one more state counting its iterations, its
+ * result; 0 when no state is left for it */
+static nid
+trip_counter(nid n)
 {
 	struct loopdef d;
 	uint32_t e = loop_ent(n);
 	int slot = KSLOT - 1;
+
+	loop_get(e, &d);
+	if (d.nst >= MAXST || ((loops.bound[e] | loops.free[e]) >> slot) & 1)
+		return 0;
+	d.sslot[d.nst] = slot;
+	d.sname[d.nst] = sym_cstr("_trips");
+	d.sty[d.nst] = TY_INT;
+	d.init[d.nst] = mk_const_i(TY_INT, 0);
+	d.next[d.nst] = mk_bin(O_ADD, var_of(slot, d.sname[d.nst], TY_INT),
+	    mk_const_i(TY_INT, 1));
+	d.nst++;
+	return mk_loop(loop_intern(&d), d.nst - 1, N.a[n], N.b[n], N.c[n]);
+}
+
+static void
+trip_while(const struct func *f, nid n, struct lprice *lp)
+{
 	struct diter it;
 	struct plan p;
 	nid cntr, roots[2];
@@ -603,17 +633,8 @@ trip_while(const struct func *f, nid n, struct lprice *lp)
 	uint32_t np, i;
 
 	lp->worst = lp->avg = lp->best = -1;
-	loop_get(e, &d);
-	if (d.nst >= MAXST || ((loops.bound[e] | loops.free[e]) >> slot) & 1)
+	if ((cntr = trip_counter(n)) == 0)
 		return;
-	d.sslot[d.nst] = slot;
-	d.sname[d.nst] = sym_cstr("_trips");
-	d.sty[d.nst] = TY_INT;
-	d.init[d.nst] = mk_const_i(TY_INT, 0);
-	d.next[d.nst] = mk_bin(O_ADD, var_of(slot, d.sname[d.nst], TY_INT),
-	    mk_const_i(TY_INT, 1));
-	d.nst++;
-	cntr = mk_loop(loop_intern(&d), d.nst - 1, N.a[n], N.b[n], N.c[n]);
 	roots[0] = cntr;
 	roots[1] = f->where;
 	in_i = xcalloc((size_t)NSLOT * CH, sizeof *in_i);
@@ -648,6 +669,35 @@ trip_while(const struct func *f, nid n, struct lprice *lp)
 	plan_free(&p);
 	free(in_i);
 	free(in_r);
+}
+
+/* a loop's trip count may differ between the lanes (1): its bounds, or
+ * the condition with the states that vary (a state varies when its
+ * initial or next value reads a varying parameter or state; a vote does
+ * not); -1 when states vary and the count does not */
+static int
+loop_varies(const struct func *f, nid n)
+{
+	uint32_t e = loop_ent(n), s = loops.st[e], k;
+	uint8_t *seen = xcalloc(N.n, 1);
+	uint64_t vs = 0, was;
+	int v;
+
+	do {
+		was = vs;
+		for (k = 0; k < loops.nst[e]; k++) {
+			memset(seen, 0, N.n);
+			if (depends_nonuniform(f, loops.init[s + k], seen, vs) ||
+			    depends_nonuniform(f, loops.next[s + k], seen, vs))
+				vs |= 1ULL << loops.sslot[s + k];
+		}
+	} while (vs != was);
+	memset(seen, 0, N.n);
+	v = loops.kind[e] == LK_FOR ? depends_nonuniform(f, N.a[n], seen, vs) ||
+	    depends_nonuniform(f, N.b[n], seen, vs) :
+	    depends_nonuniform(f, loops.cond[e], seen, vs);
+	free(seen);
+	return v ? 1 : vs ? -1 : 0;
 }
 
 static void
@@ -695,6 +745,27 @@ price_loop(const struct model *m, const struct func *f, nid n,
 		    0;
 	} else
 		trip_range(f, N.a[n], N.b[n], lp);
+	/*
+	 * Under a model with a warp, a loop whose lanes run different trip
+	 * counts (its inputs vary per invocation, its count over the domain):
+	 * the warp's count, the most of its lanes'.
+	 */
+	if (m->par[MP_WARP] >= 2 && lp->worst >= 0 && !lp->known &&
+	    lp->best != lp->worst && !(loops.free[e] >> MAXP))
+		lp->wmode = loop_varies(f, n);
+	if (lp->wmode > 0) {
+		nid tc = isfor ? 0 : trip_counter(n);
+		lp->wmode = 0;
+		if (isfor || tc)
+			lp->wmode = warp_trips(f, tc, isfor ? N.a[n] : 0,
+			    isfor ? N.b[n] : 0, (int)m->par[MP_WARP], &lp->wmax,
+			    &lp->wsplit, &lp->wexact, &lp->wpts);
+		for (k = 0; k < loops.nst[e]; k++) {
+			nid nx = loops.next[s + k];
+			lp->nkeep += !(N.op[nx] == O_VAR &&
+			    N.ki[nx] == loops.sslot[s + k]);
+		}
+	}
 	/* by class: once, and per iteration times the worst trip count */
 	{
 		double t = lp->worst < 0 ? 1 : lp->worst;
@@ -738,11 +809,90 @@ lp_total(const struct lprice *lp, double trips)
 	return lp->once + (float)(trips * (lp->body + lp->over));
 }
 
+/*
+ * A warp runs a loop until its last lane leaves.  Leaving per lane, the
+ * lanes that left are masked off and wait for the rest (the keep-up),
+ * and the warps whose lanes leave at different counts pay the
+ * divergence once, on reconverging after the loop.  Leaving on a vote,
+ * sg_any(c), every lane runs every iteration and nothing diverges, but
+ * each state takes a select to stay put in the lanes where c fails.
+ */
 static void
-print_loop(const struct func *f, const struct lprice *lp)
+print_warp(const struct model *m, const struct lprice *lp, const char *cond)
+{
+	uint32_t e = lp->e, s = loops.st[e], k;
+	int i;
+	float per = lp->body + lp->over, vc = m->c[C_SG_VOTE];
+	double lane = lp->once + lp->wmax * per + lp->wsplit * m->c[C_DIVERGE];
+	double vote = lp->once + lp->wmax * (per + vc + lp->nkeep *
+	    m->c[C_SELECT]);
+	int novote = class_missing(m, C_SG_VOTE), isvote;
+	struct sbuf b = {0};
+
+	if (lp->wmode < 0) {
+		printf("    in a warp of %d lanes: its lanes leave together, "
+		    "the condition being uniform\n", (int)m->par[MP_WARP]);
+		rep_obj("warp");
+		rep_int("lanes", (int)m->par[MP_WARP]);
+		rep_bool("leave_together", 1);
+		rep_end();
+		return;
+	}
+	isvote = !novote && vote < lane;
+	printf("    in a warp of %d lanes (%s %s%llu %s): it runs until its "
+	    "last lane leaves, %.4g iterations on average, and its lanes leave "
+	    "at different counts with probability %.4g\n", (int)m->par[MP_WARP],
+	    lp->wmode == 2 ? "aligned runs of the consecutive index," :
+	    "independent draws from the domain,", lp->wexact ? "all " :
+	    "a sample of ", (unsigned long long)lp->wpts, lp->wmode == 2 ?
+	    "warps" : "points", lp->wmax, lp->wsplit);
+	printf("      exit per lane: %g + %.4g x %g + %.4g x %g diverge (the "
+	    "lanes that left keep up) = %g\n", (double)lp->once, lp->wmax,
+	    (double)per, lp->wsplit, (double)m->c[C_DIVERGE], lane);
+	for (k = 0, i = 0; k < loops.nst[e]; k++) {
+		nid nx = loops.next[s + k];
+		if (N.op[nx] == O_VAR && N.ki[nx] == loops.sslot[s + k])
+			continue;
+		i++;
+		sb_printf(&b, "%s%s", i == 1 ? "" : i == lp->nkeep ? " and " :
+		    ", ", sym_str(loops.sname[s + k]));
+	}
+	if (novote)
+		printf("      exit on a vote: sg_vote is not available under %s "
+		    "(the model lists no such instruction)\n", sym_str(m->name));
+	else
+		printf("      exit on a vote: %g + %.4g x (%g + %g sg_vote + %d "
+		    "x %g select) = %g  (while sg_any(%s)%s%s%s)\n",
+		    (double)lp->once, lp->wmax, (double)per, (double)vc,
+		    lp->nkeep, (double)m->c[C_SELECT], vote, cond, b.n ?
+		    ", a select keeping " : "", b.n ? sb_str(&b) : "", b.n ?
+		    " where it fails" : "");
+	printf("      -> %s\n", isvote ? "exit on a vote" : "exit per lane");
+	rep_obj("warp");
+	rep_int("lanes", (int)m->par[MP_WARP]);
+	rep_str("lanes_are", lp->wmode == 2 ? "consecutive" : "independent");
+	rep_int(lp->wmode == 2 ? "warps" : "points", (long long)lp->wpts);
+	rep_bool("all_counted", lp->wexact);
+	rep_num("trips_most_average", lp->wmax);
+	rep_num("p_split", lp->wsplit);
+	rep_num("exit_per_lane", lane);
+	if (novote)
+		rep_null("exit_on_vote");
+	else
+		rep_num("exit_on_vote", vote);
+	rep_strf("vote", "while sg_any(%s)", cond);
+	rep_int("selects_kept", lp->nkeep);
+	rep_str("best", isvote ? "exit on a vote" : "exit per lane");
+	rep_end();
+	free(b.p);
+}
+
+static void
+print_loop(const struct model *m, const struct func *f,
+    const struct lprice *lp)
 {
 	uint32_t e = lp->e;
-	char head[160];
+	char head[160], cond[160];
 	struct sbuf b = {0};
 	float tw = lp_total(lp, lp->worst);
 
@@ -757,6 +907,15 @@ print_loop(const struct func *f, const struct lprice *lp)
 	}
 	cap_text(&b, 0, 80);
 	snprintf(head, sizeof head, "%s", sb_str(&b));
+	/* the condition a vote reads: a for loop's is its index within hi */
+	sb_clear(&b);
+	if (loops.kind[e] == LK_FOR) {
+		sb_printf(&b, "%s <= ", sym_str(loops.name[e]));
+		print_node(&b, N.b[lp->n], NULL);
+	} else
+		print_shared(&b, loops.cond[e], 60);
+	cap_text(&b, 0, 80);
+	snprintf(cond, sizeof cond, "%s", sb_str(&b));
 	free(b.p);
 	printf("  loop %s:\n", head);
 	printf("    per iteration: body %g + overhead %g (%s) = %g\n",
@@ -800,6 +959,8 @@ print_loop(const struct func *f, const struct lprice *lp)
 	}
 	rep_num("total_worst", tw);
 	rep_num("total_average", lp_total(lp, lp->avg));
+	if (lp->wmode)
+		print_warp(m, lp, cond);
 	rep_end();
 }
 
@@ -958,7 +1119,7 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 	if (nloop) {
 		rep_list("loops");
 		for (k = 0; k < nloop; k++)
-			print_loop(f, &lps[k]);
+			print_loop(m, f, &lps[k]);
 		rep_end();
 	}
 	if (src != f)
@@ -1004,7 +1165,7 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				free(only);
 			}
 			memset(seen, 0, lim);
-			nonuni = depends_nonuniform(f, N.a[s], seen);
+			nonuni = depends_nonuniform(f, N.a[s], seen, ~0ULL);
 			sel = m->c[C_SELECT];
 			uni = m->c[C_BRANCH] + (ex[0] > ex[1] ? ex[0] : ex[1]) -
 			    ex[0] - ex[1];
