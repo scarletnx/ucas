@@ -21,7 +21,7 @@ error of quake against rsqrt:
   max rel error 0.00175224 (0.175%) at x=14.9190588
   mean rel error 0.000943339 over 65536 points
   max 28402 ulp
-  rounding: not analysed (asfloat is not analysed)
+  rounding: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
 > sum(x: f32 in 1..2) = x + 1e-8 - x
 > range sum
 range of sum -> f32:
