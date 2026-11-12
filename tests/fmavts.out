@@ -1,0 +1,23 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Scale: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  the vec3 %43: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 3 (-50.0%)
+  rewrites, the largest savings first:
+    %43 = OpFAdd %v3float %41 %44
+      -> %43 = OpExtInst %v3float %2 Fma %31 %ucas_k3_3f400000_3f400000_3f400000 %44
+      (multiply-add as one fma; -3)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        not bit-exact: c = 0.02287657: original 0.14215744, rewrite 0.14215742 (1 ulp apart)
+        (line 1: vec3 Scale(vec3 c) { return c * 0.75 + 0.125; })
+  (nofile: simplified.spvasm, 2060 bytes, checksum bf3dbddf)

@@ -1,0 +1,7 @@
+# A vector times a scalar plus a constant as one fma: the multiply is
+# OpVectorTimesScalar, whose scalar Fma wants as a vector constant
+# (this crashed: the writer looked for an OpFMul).
+simplify float c in [0, 1] nofile
+```glsl
+vec3 Scale(vec3 c) { return c * 0.75 + 0.125; }
+```

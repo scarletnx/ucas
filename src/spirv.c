@@ -7630,14 +7630,19 @@ float_pass(const char *text, int *changed)
 			break;
 		}
 		case FXR_FMA2: {
-			int a = idx(I->opnd[1]), m, x, kk;
-			int mi = SP.def[a] >= 0 && !strcmp(V.in[SP.def[a]].op, "OpFMul") ?
-			    1 : 2;
+			/* the multiply is OpFMul, or OpVectorTimesScalar (vector
+			 * first; Fma wants its scalar as a vector constant) */
+			int a = idx(I->opnd[1]), m, x, kk, vts;
+			int mi = SP.def[a] >= 0 && (!strcmp(V.in[SP.def[a]].op,
+			    "OpFMul") || !strcmp(V.in[SP.def[a]].op,
+			    "OpVectorTimesScalar")) ? 1 : 2;
 			m = SP.def[idx(I->opnd[mi])];
-			x = V.id[idx(V.in[m].opnd[1])].kind == K_CONST ? 2 : 1;
+			vts = !strcmp(V.in[m].op, "OpVectorTimesScalar");
+			x = !vts && V.id[idx(V.in[m].opnd[1])].kind == K_CONST ? 2 : 1;
 			kk = 3 - x;
 			sb_printf(&s, "%s = OpExtInst %s %s Fma %s %s %s\n", R, RT, GL,
-			    V.in[m].opnd[x], V.in[m].opnd[kk], I->opnd[3 - mi]);
+			    V.in[m].opnd[x], vts ? fconst(&decl, rt, lv[0], n) :
+			    V.in[m].opnd[kk], I->opnd[3 - mi]);
 			break;
 		}
 		case FXR_POWEXP:
