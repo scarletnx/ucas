@@ -1,0 +1,20 @@
+# A comparison of f64 values is a bool, not a value with an error to
+# spend: the f32 forms replace the f64 arithmetic only where the answer
+# cannot change.
+#
+# both sides exact, in f64 and as pairs (products of f32 values): the
+# pairs compared high word first, then low; ranges that keep the products
+# from overflowing or underflowing an f32
+pc(x: f32 in 1..1000, y: f32 in 1..1000, z: f32 in 1..1000, w: f32 in 1..1000) = f64(x) * f64(y) < f64(z) * f64(w)
+dword pc
+pe(x: f32 in 1..1000, y: f32 in 1..1000, z: f32 in 1..1000, w: f32 in 1..1000) = f64(x) * f64(y) == f64(z) * f64(w)
+dword pe
+# without ranges the conditions are the caller's
+pu(x: f32, y: f32, z: f32, w: f32) = f64(x) * f64(y) <= f64(z) * f64(w)
+dword pu
+# ranges that decide it: a constant
+pr(x: f32 in 1..2, y: f32 in 3..4) = f64(x) * f64(x) < f64(y) * f64(y)
+dword pr
+# a side that rounds in f64 (three factors): not rewritten
+pn(x: f32, y: f32, z: f32, w: f32) = f64(x) * f64(y) * f64(z) < f64(w)
+dword pn

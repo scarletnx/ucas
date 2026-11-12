@@ -1,0 +1,6 @@
+# A comparison of f64 values in a shader: its sides exact as pairs, the
+# comparison is written over f32 and the f64 instructions go
+simplify nofile
+```glsl
+float f(float x, float y, float z, float w) { double a = double(x) * double(y), b = double(z) * double(w); return a < b ? 1.0 : 0.0; }
+```

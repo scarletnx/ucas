@@ -663,8 +663,18 @@ dwe(struct dwemit *E, nid n)
 	if (N.op[n] == O_CONST) {
 		const char *k;
 		if (t == TY_BOOL) {
-			E->fail = 1;
-			return "%ucas_bool_const";
+			char line[160], bt[48];
+			snprintf(bt, sizeof bt, "%s", bool_type(E->decl, 1));
+			snprintf(nm, sizeof nm, "%%ucas_%s", N.ki[n] ? "true" :
+			    "false");
+			snprintf(line, sizeof line, "%s = OpConstant%s %s\n", nm,
+			    N.ki[n] ? "True" : "False", bt);
+			if (E->decl->p == NULL || !strstr(E->decl->p, line))
+				sb_puts(E->decl, line);
+			i = E->nmemo++;
+			E->memo_n[i] = n;
+			snprintf(E->memo_s[i], 40, "%s", nm);
+			return E->memo_s[i];
 		}
 		k = dwe_const(E, n);
 		i = E->nmemo++;
@@ -866,6 +876,7 @@ dw_validate(const char *text, char *why, size_t n)
 
 struct dwsink {
 	int k, src, n;		/* the conversion, its operand, its components */
+	int cmp, src2;		/* a comparison (O_LT ...) and its second operand */
 	int stay;		/* not rewritten */
 	int grp;		/* the first result of its group */
 	int cone[256], ncone;	/* the f64 instructions under it */
@@ -897,12 +908,33 @@ dw_conv32(int j)
 	return scalar_float_w(t) != 64 && vec_float_w(t, &n) != 64;
 }
 
+/* a comparison of f64 values as dword reads it (O_LT ...); 0 another op.
+ * Unordered < and ordered != differ from ucas's own on a NaN only, which
+ * the forms' conditions (finite inputs) exclude, but they are left alone */
+static int
+dw_cmp_op(const char *op)
+{
+	static const struct { const char *s; int op; } t[] = {
+		{"OpFOrdLessThan", O_LT}, {"OpFOrdLessThanEqual", O_LE},
+		{"OpFOrdGreaterThan", O_GT}, {"OpFOrdGreaterThanEqual", O_GE},
+		{"OpFOrdEqual", O_EQ}, {"OpFUnordNotEqual", O_NE}, {NULL, 0}};
+	int i;
+
+	for (i = 0; t[i].s; i++)
+		if (!strcmp(op, t[i].s))
+			return t[i].op;
+	return 0;
+}
+
 static void
 dw_roots(struct dwg *G, struct dwsink *S)
 {
 	int i;
 
-	if (S->n == 1 && scalar_float_w(V.id[S->src].type) == 64)
+	if (S->cmp)
+		S->root[0] = mk_bin(S->cmp, dwg_build(G, S->src, 0), dwg_build(G,
+		    S->src2, 0));
+	else if (S->n == 1 && scalar_float_w(V.id[S->src].type) == 64)
 		S->root[0] = dwg_build(G, S->src, 0);
 	else
 		for (i = 0; i < S->n; i++)
@@ -992,7 +1024,8 @@ dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
 					    idx(V.in[t].opnd[o]) == rid)
 						inside++;
 			for (t = 0; t < nsk; t++)
-				if (!sk[t].stay && sk[t].src == rid)
+				if (!sk[t].stay && (sk[t].src == rid || (sk[t].cmp &&
+				    sk[t].src2 == rid)))
 					inside++;
 			if (inside == uses[rid])
 				continue;
@@ -1089,7 +1122,8 @@ dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
 				if (dw_keep[G->ins[q]] || sk[s].n > 1)
 					r1.anyprice = 1;
 			for (i = 0; i < sk[s].n; i++) {
-				sk[s].body[i] = mk_cast(TY_F32, sk[s].root[i]);
+				sk[s].body[i] = sk[s].cmp ? sk[s].root[i] :
+				    mk_cast(TY_F32, sk[s].root[i]);
 				G->f.body = sk[s].body[i];
 				sk[s].nlow = i + 1;
 				if (!dword_lower(&G->f, m, &r1, &sk[s].res[i],
@@ -1261,6 +1295,8 @@ dw_write(struct dwsink *sk, int nsk, int *uses, const int *blk,
 			S->nex = E->nex - x0;
 			*need_glsl |= E->need_glsl;
 			uses[S->src]--;
+			if (S->cmp)
+				uses[S->src2]--;
 			/* what the written code reads stays */
 			for (j = 0; j < S->G->f.np; j++)
 				if (E->puse[j]) {
@@ -1330,7 +1366,7 @@ dword_pass(const char *text, int *changed)
 	}
 	/* the f64 results: which are rewritten, and their code */
 	for (k = 0, i = 1; k < V.nin; k++)
-		i += !strcmp(V.in[k].op, "OpFConvert");
+		i += !strcmp(V.in[k].op, "OpFConvert") || dw_cmp_op(V.in[k].op);
 	sk = xcalloc((size_t)i, sizeof *sk);
 	blk = xcalloc((size_t)V.nin + 1, sizeof *blk);
 	dw_leaf = xcalloc((size_t)V.nid + 64, 1);
@@ -1341,6 +1377,18 @@ dword_pass(const char *text, int *changed)
 		if (!strcmp(I->op, "OpLabel"))
 			i++;
 		blk[k] = i;
+		if (dw_cmp_op(I->op) && I->nop >= 3 && I->res >= 0 &&
+		    SP.def[I->res] == k && scalar_float_w(V.id[idx(I->opnd[1])].type)
+		    == 64 && scalar_float_w(V.id[idx(I->opnd[2])].type) == 64) {
+			sk[nsk].k = k;
+			sk[nsk].cmp = dw_cmp_op(I->op);
+			sk[nsk].src = idx(I->opnd[1]);
+			sk[nsk].src2 = idx(I->opnd[2]);
+			sk[nsk].n = 1;
+			sk[nsk].grp = nsk;
+			nsk++;
+			continue;
+		}
 		if (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 || I->res < 0 ||
 		    SP.def[I->res] != k)
 			continue;
@@ -1401,8 +1449,9 @@ dword_pass(const char *text, int *changed)
 		char sl[200];
 		int src;
 
-		if (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 || I->res < 0 ||
-		    SP.def[I->res] != k)
+		if ((strcmp(I->op, "OpFConvert") != 0 && !(cursk < nsk &&
+		    sk[cursk].k == k && sk[cursk].cmp)) || I->nop < 2 ||
+		    I->res < 0 || SP.def[I->res] != k)
 			continue;
 		if (cursk < nsk && sk[cursk].k == k) {
 			S = &sk[cursk++];

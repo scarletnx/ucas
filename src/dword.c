@@ -1615,6 +1615,13 @@ listing(struct sbuf *o, const struct cand *c)
 		case O_MUL: sym = " * "; break;
 		case O_DIV: sym = " / "; break;
 		case O_LT: sym = " < "; break;
+		case O_LE: sym = " <= "; break;
+		case O_GT: sym = " > "; break;
+		case O_GE: sym = " >= "; break;
+		case O_EQ: sym = " == "; break;
+		case O_NE: sym = " != "; break;
+		case O_LAND: sym = " && "; break;
+		case O_LOR: sym = " || "; break;
 		case O_AND: sym = " & "; break;
 		}
 		if (sym) {
@@ -1958,6 +1965,362 @@ dword_res_free(struct dwres *r)
 	r->eft = NULL;
 }
 
+/* ---- a comparison of f64 values ---- */
+
+/*
+ * The result is a bool, not a value with an error to spend: the f32
+ * forms of the two sides replace the f64 arithmetic only where the
+ * answer cannot change.  Either both sides are exact, in f64 and in the
+ * form (products and sums of f32 values that the ranges keep within the
+ * formats), so the f64 comparison is the exact one and so is the form's:
+ * pairs compared high word first, then low (a normalized pair's high
+ * word is its value rounded, and rounding keeps order); or the ranges of
+ * the two sides, widened by the f64 program's error, do not meet, and
+ * the comparison is a constant.
+ */
+struct cmpc {
+	struct dv a, b;
+	int exact, konst, kval;
+	int bits[2];		/* each side's significant bits in f64; -1 */
+	nid body;
+	double cost;
+	int nops;
+	struct cand c;		/* the lowering's facts, for the report */
+};
+
+/*
+ * The significant bits n needs as an f64 when no operation on the way
+ * rounds: an f32 converted 24, an integer its width (or its range's), a
+ * constant its mantissa's, a product the sum of its factors' (two f32 make
+ * 48: exact in f64), a negation or a scaling by a power of two its
+ * operand's.  -1: not known to be exact (a sum needs its operands'
+ * exponents, a quotient rounds).
+ */
+static int
+f64_bits(const struct func *f, nid n, int depth)
+{
+	int a, b;
+	double k;
+
+	if (depth > 32)
+		return -1;
+	switch (N.op[n]) {
+	case O_CAST:
+		if (N.ty[N.a[n]] == TY_F32)
+			return 24;
+		if (TY_ISINT(N.ty[N.a[n]])) {
+			struct iv iv = leaf_iv(f, N.a[n], 0);
+			long double m = iv.top ? 0 : iv_mag(&iv);
+			int w = 0;
+			if (iv.top)
+				return TY_SIZED(N.ty[N.a[n]]) && TYW(N.ty[N.a[n]]) <= 53 ?
+				    TYW(N.ty[N.a[n]]) : -1;
+			while (w < 64 && m >= 1)
+				m /= 2, w++;
+			return w <= 53 ? w : -1;
+		}
+		return -1;
+	case O_CONST: {
+		double v = fabs(N.kr[n]), mnt;
+		int e, bits = 0;
+		if (isnan(v) || isinf(v))
+			return -1;
+		if (v == 0)
+			return 0;
+		mnt = frexp(v, &e);
+		while (mnt != floor(mnt) && bits < 60)
+			mnt *= 2, bits++;
+		return bits <= 53 ? bits : -1;
+	}
+	case O_NEG:
+		return f64_bits(f, N.a[n], depth + 1);
+	case O_MUL:
+		if (pow2_const(N.a[n], &k))
+			return f64_bits(f, N.b[n], depth + 1);
+		if (pow2_const(N.b[n], &k))
+			return f64_bits(f, N.a[n], depth + 1);
+		a = f64_bits(f, N.a[n], depth + 1);
+		b = N.b[n] == N.a[n] ? a : f64_bits(f, N.b[n], depth + 1);
+		return a >= 0 && b >= 0 && a + b <= 53 ? a + b : -1;
+	case O_DIV:
+		if (pow2_const(N.b[n], &k))
+			return f64_bits(f, N.a[n], depth + 1);
+		return -1;
+	}
+	return -1;
+}
+
+static int
+is_cmp_op(int op)
+{
+	return op == O_LT || op == O_LE || op == O_GT || op == O_GE ||
+	    op == O_EQ || op == O_NE;
+}
+
+/* the comparison body of f, both sides f64 (0: f has none) */
+static nid
+cmp_root(const struct func *f)
+{
+	nid b = f->body;
+
+	if (is_cmp_op(N.op[b]) && N.ty[N.a[b]] == TY_F64 &&
+	    N.ty[N.b[b]] == TY_F64)
+		return b;
+	return 0;
+}
+
+/* a op b on pairs: the high words first, the low words where they tie */
+static nid
+cmp_form(int op, const struct dv *a, const struct dv *b)
+{
+	nid ah = a->hi, bh = b->hi, al, bl;
+
+	if (!a->lo && !b->lo)
+		return mk_bin(op, ah, bh);
+	al = a->lo ? a->lo : f32k(0);
+	bl = b->lo ? b->lo : f32k(0);
+	switch (op) {
+	case O_EQ:
+		return mk_bin(O_LAND, mk_bin(O_EQ, ah, bh), mk_bin(O_EQ, al, bl));
+	case O_NE:
+		return mk_bin(O_LOR, mk_bin(O_NE, ah, bh), mk_bin(O_NE, al, bl));
+	}
+	/* a < b: ah < bh, or ah == bh and al < bl; likewise <=, >, >= with
+	 * the strict high-word test */
+	return mk_bin(O_LOR, mk_bin(op == O_LT || op == O_LE ? O_LT : O_GT, ah,
+	    bh), mk_bin(O_LAND, mk_bin(O_EQ, ah, bh), mk_bin(op, al, bl)));
+}
+
+/* the comparison's value when the widened ranges decide it: 1 true, 0
+ * false, -1 not decided */
+static int
+cmp_decided(int op, const struct dv *a, const struct dv *b)
+{
+	long double alo, ahi, blo, bhi;
+
+	if (a->iv.top || b->iv.top || isinf(a->e64.abs_) || isinf(b->e64.abs_))
+		return -1;
+	alo = (long double)a->iv.lo - a->e64.abs_;
+	ahi = (long double)a->iv.hi + a->e64.abs_;
+	blo = (long double)b->iv.lo - b->e64.abs_;
+	bhi = (long double)b->iv.hi + b->e64.abs_;
+	switch (op) {
+	case O_LT: return ahi < blo ? 1 : alo >= bhi ? 0 : -1;
+	case O_LE: return ahi <= blo ? 1 : alo > bhi ? 0 : -1;
+	case O_GT: return alo > bhi ? 1 : ahi <= blo ? 0 : -1;
+	case O_GE: return alo >= bhi ? 1 : ahi < blo ? 0 : -1;
+	case O_EQ: return ahi < blo || bhi < alo ? 0 : -1;
+	case O_NE: return ahi < blo || bhi < alo ? 1 : -1;
+	}
+	return -1;
+}
+
+static void
+cmp_cand(const struct func *f, const struct model *m, int mode,
+    uint32_t lim, struct cmpc *r)
+{
+	uint8_t *acc = xcalloc(lim, 1);
+	nid root = cmp_root(f);
+	int op = N.op[root];
+
+	memset(r, 0, sizeof *r);
+	lower_reset(f, mode, lim, acc);
+	r->a = lower(N.a[root]);
+	r->b = lower(N.b[root]);
+	r->kval = cmp_decided(op, &r->a, &r->b);
+	r->konst = r->kval >= 0;
+	r->bits[0] = f64_bits(f, N.a[root], 0);
+	r->bits[1] = f64_bits(f, N.b[root], 0);
+	r->exact = r->a.e.abs_ == 0 && r->b.e.abs_ == 0 && r->bits[0] >= 0 &&
+	    r->bits[1] >= 0 && !L.opaque && !L.splitvar;
+	if (r->konst)
+		r->body = mk_const_i(TY_BOOL, r->kval);
+	else
+		r->body = cmp_form(op, &r->a, &r->b);
+	r->cost = dag_cost(m, r->body, &r->nops);
+	r->c.mode = mode;
+	r->c.body = r->body;
+	r->c.used = L.used;
+	r->c.maxmag = L.maxmag;
+	r->c.mag_unknown = L.mag_unknown;
+	r->c.uflow = L.uflow;
+	r->c.nprod = L.nprod;
+	r->c.div0 = L.div0;
+	r->c.sqrt0 = L.sqrt0;
+	r->c.pre_cited = L.pre_cited;
+	r->c.opaque = L.opaque;
+	r->c.splitvar = L.splitvar;
+	r->c.table = L.table.p ? strdup(L.table.p) : strdup("");
+	r->c.neft = N.n;
+	r->c.eft = xcalloc(r->c.neft, 1);
+	if (L.eft)
+		memcpy(r->c.eft, L.eft, L.eftcap < r->c.neft ? L.eftcap :
+		    r->c.neft);
+	free(acc);
+	L.acc = NULL;
+}
+
+/* the form against the f64 comparison at sampled points, where the
+ * conditions hold (each side 0 or between 2^-90 and 2^120 in magnitude) */
+static void
+cmp_check(struct sbuf *o, const struct func *f, nid form)
+{
+	struct plan p;
+	struct diter d;
+	nid roots[5];
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	uint8_t ok[CH];
+	uint32_t np, k, lf, lr, la, lb, wloc;
+	long n = 0, bad = 0, out = 0;
+
+	roots[0] = form;
+	roots[1] = f->body;
+	roots[2] = N.a[f->body];
+	roots[3] = N.b[f->body];
+	roots[4] = f->where;
+	plan_build(&p, roots, 5, 0);
+	wloc = f->where ? plan_loc(&p, f->where) : NOTOK;
+	lf = plan_loc(&p, form);
+	lr = plan_loc(&p, f->body);
+	la = plan_loc(&p, N.a[f->body]);
+	lb = plan_loc(&p, N.b[f->body]);
+	diter_init(&d, f, DW_SAMPLE, 65, DW_SAMPLE);
+	while ((np = diter_next(&d, in_i, in_r)) != 0) {
+		plan_run(&p, np, in_i, in_r);
+		valid_mask(&p, wloc, np, ok);
+		for (k = 0; k < np; k++) {
+			double va = fabs(COLR(&p, la)[k]), vb = fabs(COLR(&p, lb)[k]);
+			if (!ok[k] || (COLF(&p, lr)[k] & F_UNDEF))
+				continue;
+			if (va > 0x1p120 || vb > 0x1p120 || (va != 0 && va < 0x1p-90) ||
+			    (vb != 0 && vb < 0x1p-90)) {
+				out++;
+				continue;
+			}
+			n++;
+			bad += (COLI(&p, lf)[k] != 0) != (COLI(&p, lr)[k] != 0);
+		}
+	}
+	sb_printf(o, "  check (sampled, not a proof): %ld points of the domain, "
+	    "%ld where the form and the f64 comparison differ", n, bad);
+	if (out)
+		sb_printf(o, " (%ld more outside the conditions: a side past "
+		    "2^120 or below 2^-90)", out);
+	sb_putc(o, '\n');
+	rep_int("check_points", n);
+	rep_int("check_differ", bad);
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+}
+
+static int
+cmp_lower(const struct func *f, const struct model *m,
+    const struct dwreq *rq, struct dwres *out, struct sbuf *o)
+{
+	struct cmpc r[2];
+	uint32_t lim = N.n;
+	int best = -1, i, n64;
+	double c64 = dag_cost(m, f->body, &n64);
+	const char *fn = f->anon ? shared_str(f->body, 120) : sym_str(f->name);
+	char ea[120], eb[120];
+
+	cmp_cand(f, m, 0, lim, &r[0]);
+	cmp_cand(f, m, 1, lim, &r[1]);
+	for (i = 0; i < 2; i++)
+		if ((r[i].exact || r[i].konst) && (rq->anyprice || r[i].cost <
+		    c64) && (best < 0 || r[i].cost < r[best].cost))
+			best = i;
+	if (o) {
+		sb_printf(o, "dword %s under %s: a comparison of f64 values over "
+		    "f32 (u = 2^-24, u64 = 2^-53)\n", fn, sym_str(m->name));
+		if (r[1].bits[0] >= 0 && r[1].bits[1] >= 0)
+			sb_printf(o, "  as written  cost %-7.6g both sides exact in "
+			    "f64 (%d and %d significant bits, no operation "
+			    "rounds)\n", c64, r[1].bits[0], r[1].bits[1]);
+		else
+			sb_printf(o, "  as written  cost %-7.6g the sides' errors "
+			    "against their exact values <= %s and %s\n", c64,
+			    r[1].bits[0] >= 0 ? "0 (exact)" : err_text(&r[1].a.e64,
+			    U64, "u64", ea, sizeof ea), r[1].bits[1] >= 0 ?
+			    "0 (exact)" : err_text(&r[1].b.e64, U64, "u64", eb,
+			    sizeof eb));
+		for (i = 0; i < 2; i++)
+			sb_printf(o, "  %-11s cost %-7.6g sides %s and %s: %s\n", i ?
+			    "f32 pairs" : "f32 alone", r[i].cost, err_text(&r[i].a.e,
+			    i ? U * U : U, i ? "u^2" : "u", ea, sizeof ea),
+			    err_text(&r[i].b.e, i ? U * U : U, i ? "u^2" : "u", eb,
+			    sizeof eb), r[i].konst ? "decided by the ranges" :
+			    r[i].exact ? "both exact, in f64 too" : "not both exact");
+		sb_puts(o, "  required: the same answer as the f64 comparison for "
+		    "every input: both sides exact (in f64 and in the\n    form), "
+		    "or ranges that, widened by the f64 errors, decide it\n");
+	}
+	if (best < 0) {
+		int able = r[0].exact || r[0].konst || r[1].exact || r[1].konst;
+		if (able)
+			snprintf(out->why, sizeof out->why, "not rewritten: the "
+			    "form that gives the same answer costs %g, the f64 "
+			    "comparison %g under %s", r[r[1].exact || r[1].konst ?
+			    1 : 0].cost, c64, sym_str(m->name));
+		else
+			snprintf(out->why, sizeof out->why, "not rewritten: a "
+			    "side is not exact (in f64 or as f32 pairs) and the "
+			    "ranges do not decide the comparison");
+		if (o)
+			sb_printf(o, "  -> %s\n", out->why);
+		out->cost64 = c64;
+		out->cost = r[1].cost;
+		out->rel = out->abs_ = LINF;
+		cand_free(&r[0].c);
+		cand_free(&r[1].c);
+		return 0;
+	}
+	out->fired = 1;
+	out->mode = best;
+	out->hi = r[best].body;
+	out->lo = 0;
+	out->body = r[best].body;
+	out->cost64 = c64;
+	out->cost = r[best].cost;
+	out->rel = out->abs_ = 0;
+	if (o) {
+		const struct cmpc *b = &r[best];
+		if (b->konst)
+			sb_printf(o, "  the sides lie in [%.6g, %.6g] and [%.6g, "
+			    "%.6g], each within its f64 error: %s for every "
+			    "input\n", b->a.iv.lo, b->a.iv.hi, b->b.iv.lo, b->b.iv.hi,
+			    b->kval ? "true" : "false");
+		sb_printf(o, "  -> %s: cost %g against %g (%+.1f%%), %d f32 "
+		    "operations for %d\n", b->konst ? b->kval ? "true" : "false" :
+		    best ? "f32 pairs" : "f32 alone", b->cost, c64, 100 * (b->cost -
+		    c64) / c64, b->nops, n64);
+		if (!b->konst) {
+			if (best)
+				sb_puts(o, "     the pairs compared high word first, "
+				    "then low where the high words tie: a normalized "
+				    "pair's\n     high word is its value rounded, and "
+				    "rounding keeps order\n");
+			sb_puts(o, "  the form:\n");
+			listing(o, &b->c);
+			sb_puts(o, "  each value: its range, the derived error "
+			    "bound, the algorithm:\n");
+			sb_puts(o, b->c.table);
+			if (best)
+				derivations(o, b->c.used);
+			conditions(o, &b->c);
+		}
+		cmp_check(o, f, b->body);
+	}
+	out->eft = r[best].c.eft;
+	out->neft = r[best].c.neft;
+	r[best].c.eft = NULL;
+	cand_free(&r[0].c);
+	cand_free(&r[1].c);
+	return 1;
+}
+
 int
 dword_lower(const struct func *f, const struct model *m,
     const struct dwreq *rq, struct dwres *out, struct sbuf *o)
@@ -1971,6 +2334,8 @@ dword_lower(const struct func *f, const struct model *m,
 	const char *fn = f->anon ? shared_str(f->body, 120) : sym_str(f->name);
 
 	memset(out, 0, sizeof *out);
+	if (cmp_root(f) && has_f64(f->body))
+		return cmp_lower(f, m, rq, out, o);
 	if (root == 0 || !has_f64(f->body)) {
 		snprintf(out->why, sizeof out->why, "%s has no f64 arithmetic "
 		    "whose result is its value (f64, or f32(...) of it)", fn);
