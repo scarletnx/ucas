@@ -2581,6 +2581,52 @@ The rest of the instructions a model may want, and where each stands:
 `simplify` on SPIR-V has its own bitfield-extract rewrite (priced by
 its instruction classes); it does not write these operations yet.
 
+### Functions as tables
+
+A function of few input bits can be one load.  find's closed forms
+already offer the plain lookup table for one parameter of at most 256
+values; src/tab.c is the general case.  When the parameters the function
+reads have, by their ranges and the where clause, at most 2^16 points
+between them, the function is evaluated at every one and becomes a
+table read at an index packed from the parameters: fields side by side
+when every range is a power of two (`a | b << 4`), mixed radix otherwise
+(`i + 16(m - 1)`).  It is offered only where the active model prices
+the load and the index below the function as written.  The proof is
+the tabulation: entry k is the function at point k, every point
+evaluated (0 where the function is undefined or the where clause
+fails, which a refinement allows), and the check on the domain
+afterwards is exhaustive.
+
+```
+> bc(i: u32 in 0..15, m: u32 in 1..15) = (i*64 + m/2)/m
+> find bc 1                                  (gt1030: load 6.875)
+  a table under gt1030 (the function at every point of its domain; cost 32.5 as written):
+  cost 9.875 [0, 64, 128, 192, 256, 320, ... (859 more characters)
+           240 entries of u32 (960 bytes of constant data), one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1), all 240 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+> big(x: u16) = (x/7 + 3)/5
+> find big 1
+  cost 6.875 [0, 0, 0, ...
+           65536 entries of u16 (131072 bytes of constant data), ...
+```
+
+The price is the model's `load`, which gt1030 measured on a
+cache-resident access (a stream from DRAM costs 90 there): the report
+gives the table's size so that it can be judged against that.  `a + b`
+stays (1 against 9.875), a domain of more than 2^16 points is not
+tabulated, and under a model whose loads are dear (`model dearload :
+gt1030 { load: 60 }`) nothing is offered.
+
+A table of at most W entries can also sit in a register of the
+subgroup (Subgroups, above); that form is offered for a table the
+function reads several times, since read once the load into the lanes
+costs more than the lookup it saves.  Not there yet: a table for part
+of the domain with the function computed elsewhere (it needs a
+distribution of the inputs to price the branch), a texture fetch as the
+table (no measured price), wide loads, a shared-memory table read by
+broadcast.
+
 ### Long expressions
 
 Reports print an expression with its shared subterms named: a subterm

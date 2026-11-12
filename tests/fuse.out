@@ -459,6 +459,11 @@ find sm: 1024 points (sampled; matches verified on the whole domain), computing 
 > sn(a: i32 in -5..1000) = a / 7
 > find sn 1
 find sn: 1006 points, computing in i32, costs from gt1030
+  a table under gt1030 (the function at every point of its domain; cost 21 as written):
+  cost 7.875 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, … (4102 more characters)
+           1006 entries of i32 (4024 bytes of constant data), one for each point of a in -5..1000; entry k is the function at the point with index k = u32(a + 5), all 1006 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16677 distinct columns, bank full; 'more' continues]
 > model flat : gt1030 { sdiv: 28.5, sdivk: 8.75, srem: 32.25, sremk: 13.5 }

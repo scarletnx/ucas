@@ -1,0 +1,35 @@
+# A function of few input bits as a table (src/tab.c): when the
+# parameters it reads have at most 2^16 points between them, find
+# evaluates it at every one and offers one load, where the active model
+# prices the load and the index below the function as written.
+
+# two parameters, 240 points: the index is mixed radix
+bc(i: u32 in 0..15, m: u32 in 1..15) = (i*64 + m/2)/m
+find bc 1
+# every range a power of two: the fields side by side
+sq(a: u32 in 0..15, b: u32 in 0..15) = (a*a + b*b)/7
+find sq 1
+# a negative lower bound; the where clause narrows the points
+qd(v: i32 in 0..63, d: i32 in -2..1) = (v + d)*(v + d)/9
+find qd 1
+wh(a: u8, b: u8) = a / b where b > 0 && b < 16 && a < 64
+find wh 1
+# one parameter with more than 256 values (up to 256, the plain lookup
+# table is among find's own forms)
+big(x: u16) = (x/7 + 3)/5
+find big 1
+# points where the function is undefined get a 0: the table agrees
+# wherever the function is defined
+pd(a: u32 in 0..31, b: u32 in 0..15) = (a*a)/b
+find pd 1
+
+# not offered: cheaper as written; too many points; a model whose loads
+# are dear
+ch(a: u32 in 0..15, b: u32 in 0..15) = a + b
+find ch 1
+wide(a: u32 in 0..1000, b: u32 in 1..1000) = a / b
+find wide 1
+model dearload : gt1030 { load: 60 }
+use dearload
+find bc 1
+use gt1030
