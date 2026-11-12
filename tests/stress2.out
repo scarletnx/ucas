@@ -93,7 +93,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       t * int(top) + 127
         ->  i32(udot4x8(t, i32(top))) + 127
       proof: exhaustive, over the values its leaves take where it runs
-      cost under gt1030: 4 -> 2 each time it runs
+      cost under gt1030: 3 -> 2 each time it runs
       relies on: t in 0..255; top in {63, 127, 255} where line 61 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: t * i32(top); t in 0..255 (proved range); i32(top) in 63..255 (proved range); udot4x8's sum is in 0..65025: it does not wrap
   TexelError (line 82), called from Eval (lines 120, 122, 129)
     line 86: an interpolation with one multiply; int(Ch(q1, c)) - int(Ch(q0, c)) is already computed in Step (line 93)
@@ -107,7 +107,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
         ->  udot4x8(64 - w, l1) + udot4x8(w, l2) + 32
         where l1 = Ch(q0, c), l2 = Ch(q1, c)
       proof: proved by SAT: 2996 AIG nodes, 13038 conflicts, over the values its leaves take where it runs
-      cost under gt1030: 9 -> 5 each time it runs
+      cost under gt1030: 8 -> 5 each time it runs
       relies on: w in 0..64; Ch(q0, c) in 0..255; Ch(q1, c) in 0..255 where line 86 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (64 - w) * l1; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: w * l2; 64 - w in 0..64 (proved range); l1 in 0..255 (proved range); w in 0..64 (proved range); l2 in 0..255 (proved range); udot4x8's sum is in 0..16320: it does not wrap; udot4x8's sum is in 0..16320: it does not wrap
   Eval (line 97), called from Try (line 170)
     line 116: the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)
@@ -126,7 +126,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       t64 * top + 32u
         ->  udot4x8(t64, top) + 32
       proof: exhaustive, over the values its leaves take where it runs
-      cost under gt1030: 4 -> 2 each time it runs
+      cost under gt1030: 3 -> 2 each time it runs
       relies on: t64 in 0..64; top in {3, 7, 15} where line 117 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: t64 * top; t64 in 0..64 (proved range); top in 3..15 (proved range); udot4x8's sum is in 0..960: it does not wrap
     line 138: a sum of products as one dot product
       k * 4u

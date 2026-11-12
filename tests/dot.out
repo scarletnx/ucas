@@ -74,7 +74,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
       4 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
       the float result + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (the float result + 2^22) = 0x4B400000 + the float result (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves the float result
-  dot products under gt1030 (sums of products laid into lanes; cost 24 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 21 as written):
   cost 1   udot4x8(x, 0x9070503)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * 3, lane 1: (x >> 8 & 0xff) * 5, lane 2: (x >> 0x10 & 0xff) * 7, lane 3: (x >> 0x18) * 9
            x & 0xff is bits 0..7 of x: lane 0 as it is
@@ -88,7 +88,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
 > g(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
 > find g 1
 find g: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 4 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 3 as written):
   cost 2   udot4x8(a, b) + c
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: a * b
            a in 0..255 (proved range)
@@ -112,7 +112,7 @@ find h: 1024 points (sampled; matches verified on the whole domain), computing i
 > p(x: u32, y: u32) = (x & 255)*(y & 255) + ((x >> 8) & 255)*((y >> 8) & 255) + ((x >> 16) & 255)*((y >> 16) & 255) + (x >> 24)*(y >> 24)
 > find p 1
 find p: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 33 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 30 as written):
   cost 1   udot4x8(x, y)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * (y & 0xff), lane 1: (x >> 8 & 0xff) * (y >> 8 & 0xff), lane 2: (x >> 0x10 & 0xff) * (y >> 0x10 & 0xff), lane 3: (x >> 0x18) * (y >> 0x18)
            x & 0xff is bits 0..7 of x: lane 0 as it is
@@ -130,7 +130,7 @@ find p: 1024 points (sampled; matches verified on the whole domain), computing i
 > s(a: i8, b: i8, c: i8, d: i8) = i32(a)*3 - i32(b)*5 + i32(c)*d
 > find s 1
 find s: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 11 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 10 as written):
   cost 6   sudot4x8(i32(a), 3) - sudot4x8(i32(b), 5) + sdot4x8(u32(i32(c)) & 0xff, i32(d))
            sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 0: i32(a) * 3
            sudot4x8 (4 x 8-bit lanes, signed x unsigned): lane 0: i32(b) * 5
@@ -146,7 +146,7 @@ find s: 1024 points (sampled; matches verified on the whole domain), computing i
 > e8(x: u32, y: u32) = (x & 255)*1 + ((x >> 8) & 255)*2 + ((x >> 16) & 255)*3 + (x >> 24)*4 + (y & 255)*5 + ((y >> 8) & 255)*6 + ((y >> 16) & 255)*7 + (y >> 24)*8
 > find e8 1
 find e8: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 43 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 36 as written):
   cost 3   udot4x8(y, 0x8070605) + udot4x8(x, 0x4030201)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (y & 0xff) * 5, lane 1: (y >> 8 & 0xff) * 6, lane 2: (y >> 0x10 & 0xff) * 7, lane 3: (y >> 0x18) * 8
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * 1, lane 1: (x >> 8 & 0xff) * 2, lane 2: (x >> 0x10 & 0xff) * 3, lane 3: (x >> 0x18) * 4
@@ -165,7 +165,7 @@ find e8: 1024 points (sampled; matches verified on the whole domain), computing 
 > bs(x: u32) = (x & 255) + ((x >> 8) & 255) + ((x >> 16) & 255) + (x >> 24)
 > find bs 1
 find bs: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 12 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 11 as written):
   cost 1   udot4x8(x, 0x1010101)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * 1, lane 1: (x >> 8 & 0xff) * 1, lane 2: (x >> 0x10 & 0xff) * 1, lane 3: (x >> 0x18) * 1
            x & 0xff is bits 0..7 of x: lane 0 as it is
@@ -179,7 +179,7 @@ find bs: 1024 points (sampled; matches verified on the whole domain), computing 
 > pk(x: u32, w: u32 in 0..15) = (x & 255)*w + ((x >> 8) & 255)*(16 - w)
 > find pk 1
 find pk: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
-  dot products under gt1030 (sums of products laid into lanes; cost 12 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 11 as written):
   cost 5   udot4x8(x, w | 16 - w << 8)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * w, lane 1: (x >> 8 & 0xff) * (16 - w)
            x & 0xff is bits 0..7 of x: lane 0 as it is
@@ -222,7 +222,7 @@ find f: 1024 points (sampled; matches verified on the whole domain), computing i
 cost model: sm86
 > find f 1
 find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sm86
-  dot products under sm86 (sums of products laid into lanes; cost 26 as written):
+  dot products under sm86 (sums of products laid into lanes; cost 20 as written):
   cost 2   udot4x8(x, 0x9070503)
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (x & 0xff) * 3, lane 1: (x >> 8 & 0xff) * 5, lane 2: (x >> 0x10 & 0xff) * 7, lane 3: (x >> 0x18) * 9
            x & 0xff is bits 0..7 of x: lane 0 as it is
@@ -261,7 +261,7 @@ cost model: rdna2
 > k(a: u32 in 0..255, b: u32 in 0..255, c: u32 in 0..1000000) = a*b + c
 > find k 1
 find k: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from rdna2
-  dot products under rdna2 (sums of products laid into lanes; cost 5 as written):
+  dot products under rdna2 (sums of products laid into lanes; cost 4 as written):
   cost 1   udot4x8sat(a, b, c)
            udot4x8sat (4 x 8-bit lanes, unsigned): lane 0: a * b
            a in 0..255 (proved range)
@@ -273,7 +273,7 @@ find k: 1024 points (sampled; matches verified on the whole domain), computing i
 > k2(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a*b + c
 > find k2 1
 find k2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from rdna2
-  dot products under rdna2 (sums of products laid into lanes; cost 5 as written):
+  dot products under rdna2 (sums of products laid into lanes; cost 4 as written):
   cost 2   udot4x8(a, b) + c
            udot4x8 (4 x 8-bit lanes, unsigned): lane 0: a * b
            a in 0..255 (proved range)
@@ -290,7 +290,7 @@ find n: 1024 points (sampled; matches verified on the whole domain), computing i
       holds where every value in it is an integer in [0, 270], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
       f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
       the result converts back exactly: it is an integer inside u32
-  dot products under rdna2 (sums of products laid into lanes; cost 13 as written):
+  dot products under rdna2 (sums of products laid into lanes; cost 12 as written):
   cost 3   udot8x4(x >> 0x1c | 0x30, x)
            udot8x4 (8 x 4-bit lanes, unsigned): lane 0: (x >> 0x1c) * (x & 15), lane 1: (x >> 4 & 15) * 3
            x >> 0x1c in 0..15 (proved range)
@@ -334,14 +334,14 @@ cost model: gt1030
 simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 12 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 21 -> 1 (-95.2%)
   by kind:
-       1  a sum of products as one dot product          -23
+       1  a sum of products as one dot product          -20
   rewrites:
     %53 = OpIAdd %uint %47 %52
-      ->  udot4x8(%27, 0x9070503)   (a sum of products as one dot product; -23)
+      ->  udot4x8(%27, 0x9070503)   (a sum of products as one dot product; -20)
       (line 7: b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;)
   dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
     %53 = OpIAdd %uint %47 %52
-      ->  udot4x8(%27, 0x9070503)   (cost 24 -> 1)
+      ->  udot4x8(%27, 0x9070503)   (cost 21 -> 1)
       (line 7: b.d[i] = (x & 255u)*3u + ((x >> 8) & 255u)*5u + ((x >> 16) & 255u)*7u + (x >> 24)*9u;)
       udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (%27 & 0xff) * 3, lane 1: (%27 >> 8 & 0xff) * 5, lane 2: (%27 >> 0x10 & 0xff) * 7, lane 3: (%27 >> 0x18) * 9
       %27 & 0xff is bits 0..7 of %27: lane 0 as it is
@@ -371,14 +371,14 @@ cost model: gt1030
 simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 7 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 12 -> 6 (-50.0%)
   by kind:
-       1  a sum of products as one dot product          -7
+       1  a sum of products as one dot product          -6
   rewrites:
     %71 = OpIAdd %uint %64 %70
-      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (a sum of products as one dot product; -7)
+      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (a sum of products as one dot product; -6)
       (line 4: uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); })
   dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
     %71 = OpIAdd %uint %64 %70
-      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (cost 13 -> 6)
+      ->  udot4x8(%52, %38 & 15 | 16 - (%38 & 15) << 8)   (cost 12 -> 6)
       (line 4: uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); })
       udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (%52 & 0xff) * (%38 & 15), lane 1: (%52 >> 8 & 0xff) * (16 - (%38 & 15))
       %52 & 0xff is bits 0..7 of %52: lane 0 as it is
@@ -396,7 +396,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
         ->  udot4x8(a, w | 16 - w << 8)
         (GLSL has no built-in for it: declare it, e.g. #extension GL_EXT_spirv_intrinsics : require; spirv_instruction(extensions = ["SPV_KHR_integer_dot_product"], capabilities = [6019, 6018], id = 4451) uint udot4x8(uint a, uint b, spirv_literal int fmt); and call it with fmt 0; id 4450 is sdot4x8 (int), 4452 sudot4x8)
       proof: by lanes: each lane of each word shown to be its factor (SAT), the dot is the exact sum of its lane products, the other terms regrouped mod 2^32
-      cost under gt1030: 12 -> 5 each time it runs
+      cost under gt1030: 11 -> 5 each time it runs
       relies on: w in 0..15 where line 4 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (a & 0xff) * w, lane 1: (a >> 8 & 0xff) * (16 - w); a & 0xff is bits 0..7 of a: lane 0 as it is; w in 0..15 (proved range); a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is; 16 - w in 1..16 (proved range); the word's other lanes meet zero lanes; udot4x8's sum is in 0..7905: it does not wrap
   (nofile: simplified.spvasm, 2370 bytes, checksum 19c4e853)
 > spvsimplify nofile assume pa 0 255 assume pb 0 255
@@ -409,13 +409,13 @@ simplify: 21 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   assuming pb in [0, 255] (every load of it)
   integer arithmetic cost under gt1030 (each instruction once): 3 -> 2 (-33.3%)
   by kind:
-       1  a sum of products as one dot product          -2
+       1  a sum of products as one dot product          -1
   rewrites:
     %s = OpIAdd %uint %m %c
-      ->  udot4x8(%a, %b) + %c   (a sum of products as one dot product; -2)
+      ->  udot4x8(%a, %b) + %c   (a sum of products as one dot product; -1)
   dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
     %s = OpIAdd %uint %m %c
-      ->  udot4x8(%a, %b) + %c   (cost 4 -> 2)
+      ->  udot4x8(%a, %b) + %c   (cost 3 -> 2)
       udot4x8 (4 x 8-bit lanes, unsigned): lane 0: %a * %b
       %a in 0..255 (proved range)
       %b in 0..255 (proved range)

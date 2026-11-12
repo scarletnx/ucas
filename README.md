@@ -1895,7 +1895,7 @@ The report says what each lane relies on.
 ```
 > f(x: u32) = (x & 255)*3 + ((x >> 8) & 255)*5 + ((x >> 16) & 255)*7 + (x >> 24)*9
 > find f 1                                  (gt1030)
-  dot products under gt1030 (sums of products laid into lanes; cost 24 as written):
+  dot products under gt1030 (sums of products laid into lanes; cost 21 as written):
   cost 1   udot4x8(x, 0x9070503)
            x & 0xff is bits 0..7 of x: lane 0 as it is
            ...
@@ -1917,9 +1917,14 @@ form); under rdna2 `a*b + c` with c in 0..1000000 becomes
 `udot4x8sat(a, b, c)` (the clamp is free there and cannot act), and
 with c a full u32 it stays `udot4x8(a, b) + c`.  Note that ucas types
 `a*b` of two u8 as a u8 (it wraps): `h(a: u8, b: u8, c: u32) = a*b + c`
-becomes `u32(u8(udot4x8(a, b))) + c`.  And since gt1030 measured DP4A
-at 1 and a shift at 2, a product with a small power of two can come out
-as a dot too: that is the model speaking.
+becomes `u32(u8(udot4x8(a, b))) + c`.  The cost as written, and the
+cost that a dot product has to beat, is the cover's, with the model's
+fusions (what `cost` prints): `a*b + c` is one IMAD (3) under gt1030
+and the dot with its add (2) still wins, `a*8 + b` is one shift-add
+(2) and stays (the dot and the add are 2 too), and under a model with
+a 16 x 16 multiply-add at 1 (`mul16`) the product of two bytes stays
+an XMAD.  The search itself steers class by class, where a group's
+gain shows before the cover hides it inside a multiply-add it breaks.
 
 **SPIR-V and GLSL.**  `animate exec` runs OpUDot, OpSDot, OpSUDot and
 their AccSat forms, packed or on vectors, priced by the model's class

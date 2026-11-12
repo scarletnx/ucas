@@ -25,6 +25,17 @@ cost m5
 model xmad2 : xmad { mul16: none }
 use xmad2
 cost m1
+# dot products are priced against the cover, with the fusions: a
+# product of two bytes plus c (under gt1030 a dot and an add, 2 against
+# one IMAD's 3: tests/dot.ucas) stays one XMAD (1) under xmad; a
+# multiply by 8 plus b is a shift-add (2), which a dot and an add do
+# not beat
+m6(a: u32 in 0..255, b: u32 in 0..255, c: u32) = a * b + c
+use xmad
+find m6 1
+m7(a: u32 in 0..255, b: u32) = a * 8 + b
+use gt1030
+find m7 1
 # the fusions without the price: the form is not available
 model noprice : gt1030 { fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
 use noprice
