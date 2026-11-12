@@ -24,6 +24,7 @@
  */
 #include "fsimp.h"
 #include "approx.h"
+#include "memk.h"
 
 #include <float.h>
 #include <math.h>
@@ -1133,7 +1134,9 @@ int fx_accept(const struct fxrw *r, const struct fxopt *o);
 int
 fx_accept(const struct fxrw *r, const struct fxopt *o)
 {
-	if (r->kind == FXR_DIVNOTE || !r->refine || r->gain <= 0)
+	/* a table read is proposed, never written */
+	if (r->kind == FXR_DIVNOTE || r->kind == FXR_TABLE || !r->refine ||
+	    r->gain <= 0)
 		return 0;
 	if (r->sink)
 		return 1;
@@ -2746,6 +2749,478 @@ ld_whole(const struct fxg *g, int i, int nn0, const char *seen)
 	return 1;
 }
 
+/* ---- a table read: a function of one bounded value ---- */
+
+/*
+ * A function of one value x on [lo, hi] (an expression whose only input
+ * is x) is a table of its values at N evenly spaced knots, read with the
+ * texture unit's linear filter: texel j holds the value at x_j = lo + j h,
+ * h = (hi - lo)/(N - 1), and its centre is at texel coordinate j + 1/2,
+ * so x reads at X = (x - lo)/h + 1/2 = fma(x, A, B) the line between the
+ * two texels around it.  The line's distance from the original's f32
+ * value is bounded piece by piece: on [p, q] the original's f32 values
+ * lie in the interval its own operations give on [p, q] (fx_range: the
+ * same rounding, so no rounding analysis of its own), the line's within
+ * its values at p, q and the knots between; a piece whose bound is above
+ * the goal is halved, down to two adjacent floats, where both values are
+ * evaluated.  To that: the coordinate's f32 error and the unit's snap of
+ * a weight (by less than 2^-subtexel) times the largest step between
+ * neighbouring texels, the filter's own (tex_within ulps of the exact
+ * weighted sum), and an R8 read's fma back to the value.
+ */
+
+#define TAB_MAXK 11		/* N = 2^k + 1 texels, k = 1..11 */
+#define TAB_MAXN ((1 << TAB_MAXK) + 1)
+#define TAB_WORK 200000		/* intervals per certification */
+#define TAB_TIGHT 50000		/* of them for the tighter bound first */
+#define TAB_ALL 400000		/* for every table tried for one value */
+
+static long tab_left;		/* what is left of TAB_ALL */
+
+struct tabw {
+	const struct fxg *g;
+	int node, in, n;
+	ld lo, hi, h;		/* the knots */
+	const ld *v;		/* the texels' values */
+};
+
+/* the original's f32 value at x; *bad when it is not a finite number */
+static ld
+tab_f(const struct tabw *t, float x, int *bad)
+{
+	float in[FX_MAXIN] = {0};
+	int u = 0;
+	float v;
+
+	in[t->in] = x;
+	v = fx_eval(t->g, t->node, in, &u);
+	if (u || !isfinite(v))
+		*bad = 1;
+	return v;
+}
+
+/* the line through the texels, at x in [lo, hi] */
+static ld
+tab_line(const struct tabw *t, ld x)
+{
+	ld s = (x - t->lo) / t->h;
+	int j = (int)floorl(s);
+
+	if (j < 0)
+		j = 0;
+	if (j > t->n - 2)
+		j = t->n - 2;
+	return t->v[j] + (t->v[j + 1] - t->v[j]) * (s - j);
+}
+
+/* the knots' values: the function at each, or (shift) moved by a
+ * quarter of the neighbouring segments' errors at their midpoints, which
+ * halves the error of a segment of even curvature; 0: not finite */
+static int
+tab_targets(const struct tabw *t, ld *v, int shift)
+{
+	static ld e[TAB_MAXN];
+	int j, bad = 0;
+
+	for (j = 0; j < t->n; j++)
+		v[j] = tab_f(t, j == t->n - 1 ? (float)t->hi : (float)(t->lo +
+		    j * t->h), &bad);
+	if (!shift)
+		return !bad;
+	for (j = 0; j + 1 < t->n; j++)
+		e[j] = tab_f(t, (float)(t->lo + (j + 0.5L) * t->h), &bad) -
+		    (v[j] + v[j + 1]) / 2;
+	for (j = 0; j < t->n; j++)
+		v[j] += j == 0 ? e[0] / 2 : j == t->n - 1 ? e[j - 1] / 2 :
+		    (e[j - 1] + e[j]) / 4;
+	return !bad;
+}
+
+/* the largest |f - line| at eight points a segment */
+static double
+tab_est(const struct tabw *t)
+{
+	double m = 0;
+	int j, s, bad = 0;
+
+	for (j = 0; j + 1 < t->n; j++)
+		for (s = 0; s <= 8; s++) {
+			float x = (float)(t->lo + (j + s / 8.0L) * t->h);
+			if (x < t->lo)
+				x = (float)t->lo;
+			if (x > t->hi)
+				x = (float)t->hi;
+			m = fmax(m, fabsl(tab_f(t, x, &bad) - tab_line(t, x)));
+		}
+	return bad ? INFINITY : m;
+}
+
+/* the most |f - line| over every float of [lo, hi], bounded piece by
+ * piece within goal; -1 when a piece cannot be brought within it (two
+ * adjacent floats, or the work runs out) */
+static double
+tab_cert(const struct tabw *t, double goal, long work_max, int *npieces,
+    double *wx)
+{
+	static float st[512][2];
+	struct fiv dom[FX_MAXIN];
+	double worst = 0;
+	int j, sp, work = 0, k;
+
+	for (k = 0; k < FX_MAXIN; k++)
+		dom[k] = fi_pt(0);
+	*npieces = 0;
+	for (j = 0; j + 1 < t->n; j++) {
+		st[0][0] = j == 0 ? (float)t->lo : (float)(t->lo + j * t->h);
+		st[0][1] = j + 2 == t->n ? (float)t->hi : (float)(t->lo + (j + 1) *
+		    t->h);
+		sp = 1;
+		while (sp > 0) {
+			float p = st[sp - 1][0], q = st[sp - 1][1], m;
+			struct fiv F;
+			ld a, b, lmin, lmax;
+			double e;
+			int bad = 0;
+			sp--;
+			if (++work > work_max || --tab_left < 0)
+				return -1;
+			m = (float)(((double)p + q) / 2);
+			if (!(m > p && m < q)) {
+				/* nothing between them: the two floats themselves */
+				e = fmax(fabsl(tab_f(t, p, &bad) - tab_line(t, p)),
+				    fabsl(tab_f(t, q, &bad) - tab_line(t, q)));
+				if (bad || !(e <= goal))
+					return -1;
+				if (e > worst)
+					worst = e, *wx = p;
+				++*npieces;
+				continue;
+			}
+			dom[t->in] = fi_pt(p);
+			dom[t->in].hi = q;
+			F = fx_range(t->g, t->node, dom);
+			if (F.empty || F.nan || F.undef || !isfinite(F.lo) ||
+			    !isfinite(F.hi))
+				return -1;
+			a = tab_line(t, p);
+			b = tab_line(t, q);
+			lmin = a < b ? a : b;
+			lmax = a < b ? b : a;
+			for (k = (int)ceill((p - t->lo) / t->h); k < t->n &&
+			    t->lo + k * t->h < q; k++)
+				if (k >= 0 && t->lo + k * t->h > p) {
+					lmin = t->v[k] < lmin ? t->v[k] : lmin;
+					lmax = t->v[k] > lmax ? t->v[k] : lmax;
+				}
+			e = fmax((double)(F.hi - lmin), (double)(lmax - F.lo));
+			if (e <= goal) {
+				if (e > worst)
+					worst = e, *wx = p;
+				++*npieces;
+				continue;
+			}
+			if (sp + 2 > 512)
+				return -1;
+			st[sp][0] = m;
+			st[sp][1] = q;
+			st[sp + 1][0] = p;
+			st[sp + 1][1] = m;
+			sp += 2;
+		}
+	}
+	return worst;
+}
+
+struct tabres {
+	int n, fmt, shift, pieces, uncert;
+	double E, Ei, Ec, Ef, Ed, est, dmax, cx, wx;
+	float A, B, S, O;
+	float tab[TAB_MAXN];
+};
+
+/* r's function as a table of n texels in format fmt, its own error
+ * within goal: 1 with *o filled (o->est and o->E also when 0: the
+ * sampled distance and the rest's part, for the report) */
+static int
+tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
+    double goal, struct tabres *o)
+{
+	static ld tv[TAB_MAXN], act[TAB_MAXN], best[TAB_MAXN];
+	static long kq[TAB_MAXN];
+	const struct model *m = model_active();
+	struct tabw t;
+	ld Aex, Bex, xmax;
+	double snap = ldexp(1, -(int)m->par[MP_SUBTEXEL]);
+	double W = m->par[MP_TEX_WITHIN], bestv = INFINITY;
+	int j, sh;
+
+	t.g = g;
+	t.node = r->node;
+	t.in = r->tin;
+	t.n = n;
+	t.lo = r->k[4];
+	t.hi = r->k[5];
+	t.h = (t.hi - t.lo) / (n - 1);
+	Aex = (n - 1) / (t.hi - t.lo);
+	Bex = 0.5L - t.lo * Aex;
+	memset(o, 0, sizeof *o);
+	o->n = n;
+	o->fmt = fmt;
+	o->A = (float)Aex;
+	o->B = (float)Bex;
+	xmax = fmaxl(fabsl(t.lo), fabsl(t.hi));
+	/* fl(fma(x, A, B)) against (x - lo)/h + 1/2: A and B rounded, then
+	 * the fma's own half ulp */
+	o->cx = (double)(xmax * fabsl(o->A - Aex) + fabsl(o->B - Bex) + U24 *
+	    (xmax * fabsl((ld)o->A) + fabsl((ld)o->B))) + 0x1p-149;
+	o->est = INFINITY;
+	for (sh = 0; sh < 2; sh++) {
+		ld lo = 0, hi = 0, dmax = 0, vmax = 0;
+		double Ec, Ef, Ed, est;
+		float S = 0, O = 0;
+		t.v = tv;
+		if (!tab_targets(&t, tv, sh))
+			return 0;
+		for (j = 0; j < n; j++) {
+			lo = j == 0 || tv[j] < lo ? tv[j] : lo;
+			hi = j == 0 || tv[j] > hi ? tv[j] : hi;
+		}
+		if (fmt == FXT_R8) {
+			O = (float)lo;
+			S = (float)(hi - lo);
+			if (!(S > 0))
+				return 0;
+			for (j = 0; j < n; j++) {
+				long q = lroundl((tv[j] - O) / S * 255);
+				kq[j] = q < 0 ? 0 : q > 255 ? 255 : q;
+				act[j] = O + S * (ld)kq[j] / 255;
+			}
+		} else
+			for (j = 0; j < n; j++)
+				act[j] = (float)tv[j];
+		for (j = 0; j < n; j++) {
+			if (j + 1 < n && fabsl(act[j + 1] - act[j]) > dmax)
+				dmax = fabsl(act[j + 1] - act[j]);
+			vmax = fabsl(act[j]) > vmax ? fabsl(act[j]) : vmax;
+		}
+		Ec = (double)dmax * (snap + o->cx);
+		Ef = W * 0x1p-23 * (fmt == FXT_R8 ? fabs(S) : (double)vmax);
+		Ed = fmt == FXT_R8 ? U24 * (fabs(O) + fabs(S)) + 0x1p-149 : 0;
+		t.v = act;
+		est = tab_est(&t);
+		if (est + Ec + Ef + Ed < bestv) {
+			bestv = est + Ec + Ef + Ed;
+			o->shift = sh;
+			o->est = est;
+			o->Ec = Ec;
+			o->Ef = Ef;
+			o->Ed = Ed;
+			o->dmax = (double)dmax;
+			o->S = S;
+			o->O = O;
+			memcpy(best, act, (size_t)n * sizeof *act);
+			for (j = 0; j < n; j++)
+				o->tab[j] = fmt == FXT_R8 ? (float)kq[j] : (float)act[j];
+		}
+	}
+	o->E = o->Ec + o->Ef + o->Ed + 0x1p-149;
+	if (!(o->est + o->E <= goal))
+		return 0;
+	t.v = best;
+	/* close to what the samples show first, then the whole allowance */
+	o->Ei = -1;
+	if (o->est * 1.25 < goal - o->E)
+		o->Ei = tab_cert(&t, o->est * 1.25, TAB_TIGHT, &o->pieces, &o->wx);
+	if (o->Ei < 0)
+		o->Ei = tab_cert(&t, goal - o->E, TAB_WORK, &o->pieces, &o->wx);
+	if (o->Ei < 0) {
+		o->uncert = 1;
+		return 0;
+	}
+	o->E += o->Ei;
+	return 1;
+}
+
+/* the smallest table within r->tmax, the cheaper format first: r's
+ * table, cost and derivation; else why not, in r->sinkfail */
+static int
+tab_pick(const struct fxg *g, struct fxrw *r)
+{
+	static struct tabres o, near;
+	const struct model *m = model_active();
+	double c[2], cf = r->gain + r->cost;
+	int f, k, fmt[2] = {FXT_R8, FXT_R32F}, have = 0;
+
+	c[0] = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] +
+	    2 * fx_price(FX_FMA) : INFINITY;
+	c[1] = model_lists(m, C_TEX_SAMPLE_F32) ? m->c[C_TEX_SAMPLE_F32] +
+	    fx_price(FX_FMA) : INFINITY;
+	if (c[1] < c[0]) {
+		double z = c[0];
+		c[0] = c[1];
+		c[1] = z;
+		fmt[0] = FXT_R32F;
+		fmt[1] = FXT_R8;
+	}
+	near.est = INFINITY;
+	tab_left = TAB_ALL;
+	for (f = 0; f < 2; f++) {
+		if (!(c[f] < cf))
+			continue;
+		for (k = 1; k <= TAB_MAXK; k++) {
+			if (tab_try(g, r, (1 << k) + 1, fmt[f], r->tmax, &o))
+				goto found;
+			if (o.est + o.E < near.est + near.E)
+				near = o;
+		}
+		have = 1;
+	}
+	if (have && isfinite(near.est))
+		snprintf(r->sinkfail, sizeof r->sinkfail, "no table of up to %d "
+		    "texels is within the %.3g its value may move: %d texels %s "
+		    "come to about %.3g (sampled)%s", TAB_MAXN, r->tmax, near.n,
+		    near.fmt == FXT_R8 ? "R8" : "R32F", near.est + near.E,
+		    near.uncert ? ", not proved within it on every float before "
+		    "the pieces ran out" : "");
+	else
+		snprintf(r->sinkfail, sizeof r->sinkfail, "no table of up to %d "
+		    "texels is within the %.3g its value may move", TAB_MAXN,
+		    r->tmax);
+	return 0;
+found:
+	free(r->tab);
+	r->tab = xmalloc((size_t)o.n * sizeof *r->tab);
+	memcpy(r->tab, o.tab, (size_t)o.n * sizeof *r->tab);
+	r->ntab = o.n;
+	r->tfmt = o.fmt;
+	r->k[0] = o.A;
+	r->k[1] = o.B;
+	r->k[2] = o.S;
+	r->k[3] = o.O;
+	r->cost = c[f];
+	r->gain = cf - c[f];
+	r->abserr = o.E;
+	sb_printf(&r->proof, "a table of %d texels at x_j = %.9g + j h, h = %.9g, "
+	    "each the value there%s, %s, read with linear filtering at texel "
+	    "coordinate fma(x, %.9g, %.9g) (texel j's centre at j + 1/2):\n",
+	    o.n, (double)(r->k[4] + 0.0f), (double)(((ld)r->k[5] - r->k[4]) /
+	    (o.n - 1)), o.shift ?
+	    " moved by a quarter of the two neighbouring segments' errors at "
+	    "their midpoints" : "", o.fmt == FXT_R8 ? "stored as bytes k for "
+	    "the R8 read k/255 that fma(r, S, O) turns back" : "stored as f32",
+	    (double)o.A, (double)o.B);
+	sb_printf(&r->proof, "  the line between texels against the original's "
+	    "f32 value, on every float of the range: within %.3g (%d pieces, "
+	    "each bounded by the interval of the original's own operations on "
+	    "it against the line's values at its ends and knots; sampled at 9 "
+	    "points a segment, %.3g)\n", o.Ei, o.pieces, o.est);
+	sb_printf(&r->proof, "  the coordinate: f32 moves it by at most %.3g "
+	    "texel and the unit snaps a weight by less than 2^-%d, times the "
+	    "largest step between neighbouring texels (%.3g): %.3g\n", o.cx,
+	    (int)m->par[MP_SUBTEXEL], o.dmax, o.Ec);
+	sb_printf(&r->proof, "  the filter within %g ulp of the exact weighted "
+	    "sum (the model's tex_within): %.3g%s", m->par[MP_TEX_WITHIN], o.Ef,
+	    o.fmt == FXT_R8 ? "" : "\n");
+	if (o.fmt == FXT_R8)
+		sb_printf(&r->proof, "; fma(r, %.9g, %.9g) rounds once: %.3g\n",
+		    (double)o.S, (double)o.O, o.Ed);
+	sb_printf(&r->proof, "  in all %.3g, against the %.3g its value may "
+	    "move\n", o.E, r->tmax);
+	return 1;
+}
+
+/* i's function of one value, the largest (no operation that reads i
+ * has the same one input), as a table read where the model prices the
+ * read below the operations that go with it; only under a sink, whose
+ * budget sink_pass carries down to it */
+static void
+an_table(struct fxg *g, const struct fiv *dom, struct fxrw *rw, int *nrw,
+    int max, int node, int in, int dep)
+{
+	const struct model *m = model_active();
+	uint8_t sub[FX_MAXN] = {0}, dead[FX_MAXN] = {0};
+	double cf = 0, c8, c32;
+	struct fiv F;
+	struct fxrw *r;
+	int i, j, x = -1;
+
+	if ((g->sink <= 0 && g->sinkrel <= 0) || dep >= 0 || dom[in].empty)
+		return;
+	/* the operations under it; those read only there go with it */
+	sub[node] = 1;
+	for (i = node; i >= 0; i--) {
+		const struct fxn *n = &g->n[i];
+		if (!sub[i])
+			continue;
+		if (n->op == FX_IN || n->op == FX_CVT) {
+			x = i;
+			continue;
+		}
+		if (n->a >= 0) sub[n->a] = 1;
+		if (n->b >= 0) sub[n->b] = 1;
+		if (n->c >= 0) sub[n->c] = 1;
+		if (n->d >= 0) sub[n->d] = 1;
+	}
+	dead[node] = 1;
+	for (i = node - 1; i >= 0; i--) {
+		const struct fxn *n = &g->n[i];
+		int refs = 0;
+		if (!sub[i] || n->op == FX_IN || n->op == FX_K || n->op == FX_CVT ||
+		    n->op == FX_OPQ)
+			continue;
+		for (j = i + 1; j <= node; j++)
+			if (dead[j])
+				refs += (g->n[j].a == i) + (g->n[j].b == i) +
+				    (g->n[j].c == i) + (g->n[j].d == i);
+		if (refs > 0 && n->uses <= refs)
+			dead[i] = 1;
+	}
+	for (i = 0; i <= node; i++)
+		if (dead[i])
+			cf += fx_price(g->n[i].op);
+	c8 = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] +
+	    2 * fx_price(FX_FMA) : INFINITY;
+	c32 = model_lists(m, C_TEX_SAMPLE_F32) ? m->c[C_TEX_SAMPLE_F32] +
+	    fx_price(FX_FMA) : INFINITY;
+	if (x < 0 || !(fmin(c8, c32) < cf))
+		return;
+	F = fx_range(g, node, dom);
+	if (isfinite(dom[in].lo) && isfinite(dom[in].hi) && !dom[in].nan &&
+	    (!(dom[in].lo < dom[in].hi) || (F.lo == F.hi && !F.empty &&
+	    !F.nan && !F.undef)))
+		return;		/* one value on the range */
+	if ((r = new_rw(rw, nrw, max, FXR_TABLE, node)) == NULL)
+		return;
+	r->x = x;
+	r->tin = in;
+	r->approx = 1;
+	r->exact = r->vulkan = 0;
+	r->k[4] = dom[in].lo;
+	r->k[5] = dom[in].hi;
+	r->nk = 6;
+	r->cost = fmin(c8, c32);
+	r->gain = cf - r->cost;
+	snprintf(r->why, sizeof r->why, "a function of %s on [%.9g, %.9g] as "
+	    "a table read", g->in[in].name, (double)(dom[in].lo + 0.0f),
+	    (double)(dom[in].hi + 0.0f));
+	if (!isfinite(dom[in].lo) || !isfinite(dom[in].hi) || dom[in].nan)
+		snprintf(r->fail, sizeof r->fail, "a table needs %s's range to be "
+		    "bounded and without NaN (assume one: %s in [a, b])",
+		    g->in[in].name, g->in[in].name);
+	else if (F.empty || F.nan || F.undef || !isfinite(F.lo) ||
+	    !isfinite(F.hi))
+		snprintf(r->fail, sizeof r->fail, "its value can be NaN, infinite "
+		    "or undefined on the range: no table holds it");
+	else if (!m->par[MP_SUBTEXEL])
+		snprintf(r->fail, sizeof r->fail, "%s does not say what its "
+		    "texture unit resolves (subtexel): no table read is offered",
+		    sym_str(m->name));
+	else if (!m->par[MP_TEX_WITHIN])
+		snprintf(r->fail, sizeof r->fail, "%s does not say how far its "
+		    "filter is from the exact weighted sum (tex_within): no table "
+		    "read is offered", sym_str(m->name));
+}
+
 /* ---- the search ---- */
 
 /* ---- the sink: an error budget at the root, carried to the rewrites ---- */
@@ -2915,6 +3390,11 @@ sink_carry(const struct sinkctx *s, const double *w, double *dev)
 		if (n->op == FX_IN || n->op == FX_K || n->op == FX_CVT ||
 		    n->op == FX_OPQ || s->R[i].empty)
 			continue;
+		if (s->at[i] && s->at[i]->kind == FXR_TABLE) {
+			/* a read: what is under it no longer reaches it */
+			dev[i] = s->E[i];
+			continue;
+		}
 		for (c = 0; c < 4; c++) {
 			double p;
 			if (ch[c] < 0 || dev[ch[c]] == 0)
@@ -2941,18 +3421,36 @@ static double
 sink_dev(const struct sinkctx *s)
 {
 	static double d1[FX_MAXN], d2[FX_MAXN], w[FX_MAXN];
-	int i;
+	static char live[FX_MAXN];
+	int i, cut = 0;
 
+	/* what reaches the root: all of it, but under a table read only
+	 * what something else also reads */
+	for (i = 0; i <= s->root; i++)
+		cut |= s->at[i] && s->at[i]->kind == FXR_TABLE;
+	memset(live, !cut, sizeof live);
+	if (cut) {
+		live[s->root] = 1;
+		for (i = s->root; i >= 0; i--) {
+			const struct fxn *n = &s->g->n[i];
+			if (!live[i] || (s->at[i] && s->at[i]->kind == FXR_TABLE))
+				continue;
+			if (n->a >= 0) live[n->a] = 1;
+			if (n->b >= 0) live[n->b] = 1;
+			if (n->c >= 0) live[n->c] = 1;
+			if (n->d >= 0) live[n->d] = 1;
+		}
+	}
 	sink_carry(s, NULL, d1);
 	for (i = 0; i <= s->root; i++) {
-		if (!isfinite(d1[i]))
+		if (live[i] && !isfinite(d1[i]))
 			return INFINITY;
-		w[i] = 2 * d1[i];
+		w[i] = live[i] ? 2 * d1[i] : 0;
 	}
 	sink_carry(s, w, d2);
 	for (i = 0; i <= s->root; i++)
-		if (!isfinite(d2[i]) || (d1[i] > 0 && !(d2[i] < w[i])) ||
-		    (d1[i] == 0 && d2[i] != 0))
+		if (live[i] && (!isfinite(d2[i]) || (d1[i] > 0 && !(d2[i] <
+		    w[i])) || (d1[i] == 0 && d2[i] != 0)))
 			return INFINITY;
 	return d2[s->root];
 }
@@ -2991,6 +3489,168 @@ sink_gain_cmp(const void *a, const void *b)
 	if (x->gain != y->gain)
 		return x->gain > y->gain ? -1 : 1;
 	return x < y ? -1 : x > y;
+}
+
+/* the table reads, when the sink gives nothing to spend */
+static void
+tab_nobudget(struct fxrw *rw, int nrw)
+{
+	int i;
+
+	for (i = 0; i < nrw; i++)
+		if (rw[i].kind == FXR_TABLE && !rw[i].fail[0])
+			snprintf(rw[i].sinkfail, sizeof rw[i].sinkfail, "the sink "
+			    "leaves nothing for it (its note above)");
+}
+
+/* the most deviation at node that keeps the stored value within target,
+ * the rest as it is in s */
+static double
+sink_room(struct sinkctx *s, int node, double target)
+{
+	double lo = 0, hi;
+	int it;
+
+	for (hi = target; hi < 0x1p100; hi *= 2) {
+		s->E[node] = hi;
+		if (!(sink_dev(s) <= target))
+			break;
+		lo = hi;
+	}
+	for (it = 0; it < 60 && hi < 0x1p100; it++) {
+		double mid = (lo + hi) / 2;
+		s->E[node] = mid;
+		if (sink_dev(s) <= target)
+			lo = mid;
+		else
+			hi = mid;
+	}
+	s->E[node] = 0;
+	return lo;
+}
+
+/*
+ * The table reads, on what the sink took.  Together first: every one in
+ * place (a read cuts off what is under it), each given the most its own
+ * error may move it while the stored value stays within its share of
+ * what the rest leaves, the others exact or at the bound already chosen;
+ * the smallest table within that.  When those do not hold together (a
+ * read that found no table leaves its operations in), each alone, with
+ * the whole budget.
+ */
+static void
+sink_tables(struct sinkctx *s, struct fxrw *rw, int nrw, int root,
+    double budget)
+{
+	static const struct fxrw *old[16];
+	static double olde[16], cost0[16], gain0[16];
+	struct fxrw *t[16];
+	int nt = 0, i, pass;
+	double d0 = 0, d;
+
+	for (i = 0; i < nrw && nt < 16; i++)
+		if (rw[i].kind == FXR_TABLE && !rw[i].fail[0] && rw[i].node <= root)
+			t[nt++] = &rw[i];
+	for (i = 0; i < nt; i++) {
+		old[i] = s->at[t[i]->node];
+		olde[i] = s->E[t[i]->node];
+		cost0[i] = t[i]->cost;
+		gain0[i] = t[i]->gain;
+	}
+	for (pass = 0; pass < 2 && nt > 0; pass++) {
+		int together = pass == 0, n = t[0]->node;
+		for (i = 0; i < nt; i++) {
+			struct fxrw *r = t[i];
+			free(r->proof.p);
+			memset(&r->proof, 0, sizeof r->proof);
+			free(r->tab);
+			r->tab = NULL;
+			r->ntab = 0;
+			r->sink = 0;
+			r->sinkfail[0] = 0;
+			r->cost = cost0[i];
+			r->gain = gain0[i];
+			s->at[r->node] = together ? r : old[i];
+			s->E[r->node] = together ? 0 : olde[i];
+		}
+		if (together)
+			d0 = sink_dev(s);
+		for (i = 0; i < nt; i++) {
+			struct fxrw *r = t[i];
+			double target;
+			int got = 0;
+			n = r->node;
+			if (!together) {
+				s->at[n] = r;
+				s->E[n] = 0;
+				d0 = sink_dev(s);
+			}
+			if (!(d0 <= budget))
+				snprintf(r->sinkfail, sizeof r->sinkfail, "the rewrites "
+				    "taken already move the stored value by up to %.3g of "
+				    "the %.3g a step allows", d0, budget);
+			else {
+				/* together: the reads before it at their bounds, up to
+				 * its share more */
+				target = together ? d0 + (budget - d0) * (i + 1) / nt :
+				    budget;
+				r->tmax = sink_room(s, n, target);
+				if (!(r->tmax > 0))
+					snprintf(r->sinkfail, sizeof r->sinkfail, "the stored "
+					    "value cannot move at all where it is read");
+				else
+					got = tab_pick(s->g, r);
+			}
+			if (got)
+				s->E[n] = r->abserr;
+			if (!together && got) {
+				r->sinkdev = sink_dev(s);
+				r->sink = 1;
+				sb_printf(&r->proof, "  the sink: the most it may move this "
+				    "value is the largest bound that, carried to the stored "
+				    "value with the other rewrites taken (as for them), stays "
+				    "within the step; with this table's, at most %.3g of the "
+				    "%.3g one step allows\n", r->sinkdev, budget);
+			}
+			if (!together || !got) {
+				s->at[n] = old[i];
+				s->E[n] = olde[i];
+			}
+		}
+		if (!together)
+			break;
+		d = sink_dev(s);
+		if (!(d0 <= budget))
+			break;	/* alone, less is cut off */
+		if (d <= budget) {
+			for (i = 0; i < nt; i++)
+				if (t[i]->tab) {
+					t[i]->sink = 1;
+					t[i]->sinkdev = d;
+					if (nt == 1)
+						sb_printf(&t[i]->proof, "  the sink: the most it "
+						    "may move this value is the largest bound that, "
+						    "carried to the stored value with the other "
+						    "rewrites taken (as for them), stays within the "
+						    "step; with this table's, at most %.3g of the %.3g "
+						    "one step allows\n", d, budget);
+					else
+						sb_printf(&t[i]->proof, "  the sink: with the %d "
+						    "table reads here in place, exact, and the other "
+						    "rewrites taken, the stored value moves by %.3g; "
+						    "the reads in turn, those before at their bounds, "
+						    "each takes the largest bound that keeps it within "
+						    "one more of %d equal shares of the rest of the "
+						    "%.3g one step allows; with every read's, at most "
+						    "%.3g\n", nt, d0, nt, budget, d);
+				}
+			break;
+		}
+	}
+	for (i = 0; i < nt; i++) {
+		s->at[t[i]->node] = old[i];
+		s->E[t[i]->node] = olde[i];
+	}
 }
 
 /*
@@ -3035,6 +3695,7 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			    "magnitude can go below %.3g, where a step of the format "
 			    "is not that fraction of it: no budget (assume a range "
 			    "that keeps it away from 0)", g->sinkmin);
+			tab_nobudget(rw, nrw);
 			return;
 		}
 		budget = g->sinkrel * least;
@@ -3057,12 +3718,14 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		    "the original's precision already move the stored value by "
 		    "up to %.3g of the %.3g a step allows: nothing more is taken",
 		    base, budget);
+		/* a table read cuts off what is under it: it may still fit */
+		sink_tables(&s, rw, nrw, root, budget);
 		return;
 	}
 	g->sinkdev = base;
 	for (i = 0; i < nrw && nc < 64; i++)
 		if (!fx_accept(&rw[i], o) && rw[i].kind != FXR_DIVNOTE &&
-		    rw[i].refine && rw[i].gain > 0 && rw[i].node <= root)
+		    rw[i].kind != FXR_TABLE && rw[i].refine && rw[i].gain > 0 && rw[i].node <= root)
 			cand[nc++] = &rw[i];
 	qsort(cand, (size_t)nc, sizeof *cand, sink_gain_cmp);
 	for (i = 0; i < nc; i++) {
@@ -3097,6 +3760,8 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		    s.E[x->node], dev, budget);
 	}
 	(void)taken;
+	/* the table reads, on what was taken */
+	sink_tables(&s, rw, nrw, root, budget);
 }
 
 int
@@ -3107,6 +3772,7 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 	static char seen[FX_MAXN];
 	static int rdep[FX_MAXN];
 	static struct plinfo pl[FX_MAXN];
+	static unsigned dm[FX_MAXN];
 	int nrw = 0, i, j, nn0 = g->nn;
 	int selrw[FX_MAXN];
 
@@ -3188,9 +3854,18 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 			}
 		}
 	}
-	/* each node as a polynomial in one variable, operands first */
-	for (i = 0; i < nn0; i++)
+	/* each node as a polynomial in one variable, operands first; and the
+	 * inputs it depends on */
+	for (i = 0; i < nn0; i++) {
+		const struct fxn *n = &g->n[i];
 		pl_of(g, i, pl);
+		dm[i] = n->op == FX_IN || n->op == FX_CVT || n->op == FX_OPQ ?
+		    1u << n->in : 0;
+		if (n->a >= 0) dm[i] |= dm[n->a];
+		if (n->b >= 0) dm[i] |= dm[n->b];
+		if (n->c >= 0) dm[i] |= dm[n->c];
+		if (n->d >= 0) dm[i] |= dm[n->d];
+	}
 	/* 3: the other rewrites, on the domain each node is used on */
 	for (i = root; i >= 0; i--) {
 		const struct fxn *n = &g->n[i];
@@ -3217,6 +3892,22 @@ fx_rewrites(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		if ((n->op == FX_MUL || n->op == FX_DIV) && ld_whole(g, i, nn0,
 		    seen))
 			an_logdom(g, reach[i], rw, &nrw, max, i, rdep[i]);
+		/* a function of one value, the largest (nothing that reads it
+		 * has the same one input) */
+		if (dm[i] && !(dm[i] & (dm[i] - 1)) && n->op != FX_IN &&
+		    n->op != FX_K && n->op != FX_CVT && n->op != FX_OPQ) {
+			int whole = 1, in = 0;
+			for (j = i + 1; j < nn0 && whole; j++) {
+				const struct fxn *m = &g->n[j];
+				if (seen[j] && dm[j] == dm[i] && (m->a == i || m->b == i ||
+				    m->c == i || m->d == i))
+					whole = 0;
+			}
+			while (!(dm[i] >> in & 1))
+				in++;
+			if (whole)
+				an_table(g, reach[i], rw, &nrw, max, i, in, rdep[i]);
+		}
 		if (n->op == FX_DIV && is_k(g, n->b, &k) && k != 0 &&
 		    !is_k(g, n->a, NULL)) {
 			float K = (float)(1.0 / (double)k);
@@ -3304,6 +3995,8 @@ fx_free(struct fxrw *rw, int n)
 {
 	int i;
 
-	for (i = 0; i < n; i++)
+	for (i = 0; i < n; i++) {
 		free(rw[i].proof.p);
+		free(rw[i].tab);
+	}
 }

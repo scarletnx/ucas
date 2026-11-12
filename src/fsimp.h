@@ -86,7 +86,10 @@ enum {
 	FXR_SQRT,	/* sqrt(x) -> x * inversesqrt(x) */
 	FXR_POLY,	/* pow(q, y) (or exp2, log2, sqrt, inversesqrt of q)
 			 * ~ P(q - c), an approximation */
-	FXR_LOGDOM	/* a product of powers -> exp2 of a sum of logs */
+	FXR_LOGDOM,	/* a product of powers -> exp2 of a sum of logs */
+	FXR_TABLE	/* a function of one bounded value -> a filtered
+			 * read of a table of its values (a proposal: a
+			 * module cannot add the texture's binding) */
 };
 
 #define FX_MAXF 8
@@ -126,8 +129,19 @@ struct fxrw {
 	 * constant factors */
 	int nf, fa[FX_MAXF], fy[FX_MAXF];
 	unsigned char fe[FX_MAXF];
+	/* FXR_TABLE: input tin (node x one of its reads) on [k[4], k[5]];
+	 * ntab texels tab[] (R8: the bytes k, read as k/255) in format
+	 * tfmt (FXT_R8, FXT_R32F); the read at texel coordinate
+	 * fma(x, k[0], k[1]), an R8 read's r turned back by fma(r, k[2],
+	 * k[3]); tmax the most its own error may be, the sink's budget
+	 * carried down to it */
+	int tin, ntab, tfmt;
+	float *tab;
+	double tmax;
 	struct sbuf proof;	/* the derivation, lines */
 };
+
+enum { FXT_R8 = 1, FXT_R32F };
 
 struct fxopt {
 	int mode;		/* 0 within Vulkan precision, 1 exact, 2 ulp N */
