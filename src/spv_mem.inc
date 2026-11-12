@@ -2124,11 +2124,22 @@ mem_pass(const char *text, int *changed)
 	{
 		double cf = (double)model_cost(m, C_TEX_FETCH);
 		double cs = (double)model_cost(m, C_TEX_SAMPLE);
-		int shown = 0;
+		double c32 = (double)model_cost(m, C_TEX_SAMPLE_F32);
+		int shown = 0, nf32 = 0;
 		for (k = 0; k < V.nin && cs < cf; k++) {
 			const struct sins *I = &V.in[k];
+			int it;
 			if (strcmp(I->op, "OpImageFetch") != 0 || I->res < 0)
 				continue;
+			/* an image whose type says f32 texels: its sampled read is
+			 * tex_sample_f32's */
+			it = I->nop >= 2 ? V.id[idx(I->opnd[1])].type : -1;
+			if (it >= 0 && V.id[it].kind == K_TYPE && T(it)->ifmt >= 0 &&
+			    tex_fmts[T(it)->ifmt].cls == TC_FLOAT &&
+			    tex_fmts[T(it)->ifmt].b[0] == 32 && !(c32 < cf)) {
+				nf32++;
+				continue;
+			}
 			nfetch++;
 			if (!shown++) {
 				MEM_HDR();
@@ -2163,6 +2174,13 @@ mem_pass(const char *text, int *changed)
 			    "anisotropy,\n      no compare; with "
 			    "unnormalizedCoordinates = VK_TRUE the coordinate is "
 			    "vec2(p) + 0.5 and nothing is divided\n");
+		}
+		if (nf32) {
+			MEM_HDR();
+			printf("  %d texel fetch%s of an image whose type holds f32 "
+			    "texels: a sampled read of those is tex_sample_f32 %g, "
+			    "not below tex_fetch %g\n", nf32, nf32 == 1 ? "" : "es",
+			    c32, cf);
 		}
 	}
 	/* float atomic adds on workgroup memory; the workgroup arrays */
