@@ -32,6 +32,15 @@ scheme s7
 d12(x: real in -1..1) = x^12 - 3x^11 + 2x^10 + x^9 - x^8 + 4x^7 + x^6 - 2x^5 + x^4 + 3x^3 - x^2 + x - 5
 scheme d12
 
+# compensated Horner for f32: (x - 1)^5 expanded cancels near 1, where
+# Horner keeps 2.6e-08 of the coefficients' size and the compensated form
+# 1.9e-14, for 47 against f64 Horner's 164.875
+c5(x: f32 in 0.9..1.1) = x^5 - 5x^4 + 10x^3 - 10x^2 + 5x - 1
+scheme c5
+# its bound holds where nothing underflows: not for x down to 0 here
+c3(x: f32 in 0..1e-30) = x^3 + 2x^2 + 1.25x
+scheme c3
+
 # powers by squaring
 r(x: f32) = x^13
 scheme r
