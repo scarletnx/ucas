@@ -1,0 +1,115 @@
+# The texture unit as an ALU (src/texalu.c): reads with an address mode
+# and linear filters as operations, their cost classes, and the rewrites
+# into them a model's prices make worthwhile (and only then).
+
+# semantics: the address modes on an integer texel index, total
+K = [10, 20, 30, 40, 50, 60, 70]
+show fetch_repeat(K, -1)
+show fetch_mirror(K, 7)
+show fetch_mirror(K, -1)
+show fetch_clamp(K, 9)
+show fetch_mirror_clamp(K, -3)
+show fetch_border(K, 7, 99)
+m(i: i8 in -9..16) = fetch_mirror(K, i)
+table m max 26
+# each is its definition on plain operations
+r(i: i8) = fetch_repeat(K, i)
+rd(i: i8) = K[((i % 7) + 7) % 7]
+equiv r rd
+mc(i: i8) = fetch_mirror_clamp(K, i)
+mcd(i: i8) = K[min(max(i, -1 - i), 6)]
+equiv mc mcd
+range r
+# a linear filter: texel j's centre at j + 1/2, weights on the grid of
+# the bits in the name (8: 1/256), clamped to the edge, one rounding
+show tex_linear8([0, 1, 4, 9], 1.5)
+show tex_linear8([0, 1, 4, 9], 2.0)
+show tex_linear8([0, 1, 4, 9], 2.25)
+show tex_linear8([0, 1, 4, 9], 1.501)
+show tex_linear4([0, 1, 4, 9], 2.03)
+show tex_linear8([0, 1, 4, 9], -3)
+show tex_linear8([0, 1, 4, 9], 30)
+# rows of 2: the corner of four texels is their mean
+show tex_bilinear8([0, 1, 4, 9], 2, 1, 1)
+show tex_bilinear8([0, 1, 4, 9], 2, 1.25, 0.5)
+# one rounding of the exact sum: 0.1 and 0.7 as f32, weights 3/4 and 1/4
+show tex_linear8([0.1, 0.7], 0.75)
+# texels 2^40 apart: the small one still decides the last bit
+show asuint(tex_linear8([f32(1099511627776), f32(1.5)], 0.75))
+show asuint(tex_linear8([f32(1099511627776), f32(-1.5)], 0.75))
+show asuint(tex_bilinear14([f32(3e-30), f32(1), f32(-1), f32(7e20)], 2, 0.9, 1.3))
+# what does not fit says so
+show tex_linear20([0, 1], 0.5)
+show tex_bilinear8([0, 1, 4], 2, 1, 1)
+show fetch_repeat(K, 1.5)
+
+# a model prices only the classes it lists: gt1030 has the measured
+# filtered reads, no nearest read, and does not say how exact its filter is
+l(x: f32 in 0..4) = tex_linear8([0, 1, 4, 9], x)
+cost l
+cost r
+u(x: f32 in 0..3) = tex_linear8([0, 0.2, 0.4, 1], x)
+cost u
+
+# the rewrites.  gt1030 as measured: nothing is offered, and why
+f(i: u16 in 0..1000) = K[i % 7]
+texalu f
+B = [3, 9, 27, 81, 243, 1, 200, 100, 50, 25, 12, 6, 0, 255, 128, 64]
+s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
+texalu s4
+
+# a model that says what a calibration would: a nearest read at 5, the
+# filter within 2 ulp
+model cal : gt1030 { tex_nearest: 5, tex_within: 2 }
+models
+# i % 7 (13.5 and a load) is the REPEAT mode's read
+texalu f under cal
+# the other modes, each from its index: a clamp is no cheaper as a read
+h(i: i32 in -5..12) = K[min(max(i, 0), 6)]
+texalu h under cal
+tri(i: u8 in 0..13) = K[i < 7 ? i : 13 - i]
+texalu tri under cal
+b(i: i32 in -5..12) = i >= 0 && i < 7 ? K[i] : 0
+texalu b under cal
+# a plain read stays a read; an index out of f32's reach is refused
+p(i: u8 in 0..6) = K[i]
+texalu p under cal
+w(i: i32) = K[i % 7]
+texalu w under cal
+# the sum of 2 x 2 neighbours is one filtered read at their corner,
+# exactly: the weights are on the grid and the sum is a whole number
+texalu s4 under cal
+# a model where it is not cheaper leaves it
+model dear : cal { tex_sample: 40 }
+texalu s4 under dear
+# float weights: a fixed pair at fraction 3/4 is within the filter's
+# rounding, a mix by t is snapped to 1/256
+G = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5]
+g(i: i32 in 0..6) = 0.25*G[i] + 0.75*G[i+1]
+mx(i: i32 in 0..6, t: f32 in 0..1) = (1 - t)*G[i] + t*G[i+1]
+# with table reads as dear as texel fetches (gt1030's texelFetch)
+model texel : gt1030 { load: 43.125, tex_within: 2 }
+texalu g under texel
+texalu g tol 1e-6 under texel
+texalu mx under texel
+texalu mx tol 0.01 under texel
+# a bilinear blend of four entries of a 5 x 5 table of 8-bit levels
+P = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1, 0, 0, 1, 1, 0.2, 0.2, 0.4, 0.4, 1]
+bl(x: u8 in 0..3, y: u8 in 0..3, s: f32 in 0..1, t: f32 in 0..1) = (1-s)*(1-t)*P[y*5+x] + s*(1-t)*P[y*5+x+1] + (1-s)*t*P[y*5+x+5] + s*t*P[y*5+x+6]
+texalu bl tol 0.01 under texel
+# a 3 x 3 kernel: three taps and one entry left, fractions 1/3 off the grid
+ga(x: u8 in 1..3, y: u8 in 1..3) = (P[y*5+x-6] + 2*P[y*5+x-5] + P[y*5+x-4] + 2*P[y*5+x-1] + 4*P[y*5+x] + 2*P[y*5+x+1] + P[y*5+x+4] + 2*P[y*5+x+5] + P[y*5+x+6])/16
+texalu ga under texel
+texalu ga tol 0.01 under texel
+# the footprint must stay inside the table: x up to 4 would leave the row
+bad(x: u8 in 0..4, y: u8 in 0..3, s: f32 in 0..1) = (1-s)*P[y*5+x] + s*P[y*5+x+1]
+texalu bad tol 0.01 under texel
+# weights of both signs are not a filter's
+dif(i: i32 in 0..6) = G[i+1] - G[i]
+texalu dif tol 0.01 under texel
+# find has the section, in English too
+use cal
+find f 1
+what can the texture unit compute of tri?
+use the sampler for mx within 0.01 under texel
+use gt1030

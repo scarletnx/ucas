@@ -790,6 +790,9 @@ xr1(struct xr *x, nid n)
 	default:
 		if (opinfo[N.op[n]].arity == 1)
 			r = mk_un(N.op[n], xr1(x, N.a[n]));
+		else if (IS_TEX(N.op[n]))
+			r = mk_tex(N.op[n], N.ki[n], xr1(x, N.a[n]),
+			    xr1(x, N.b[n]), N.c[n] ? xr1(x, N.c[n]) : 0);
 		else if (IS_DOT(N.op[n]) || IS_SG(N.op[n]))
 			r = mk_op(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]),
 			    N.c[n] ? xr1(x, N.c[n]) : 0);

@@ -145,8 +145,22 @@ enum {
 	 * sum of v over lanes 0..l (see sg.c for the exact semantics)
 	 */
 	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN,
+	/*
+	 * texalu.c: the texture unit's fixed function as operations.  A
+	 * nearest read with an address mode on an integer texel index
+	 * (fetch_repeat(T, i) ...), and a linear filter on texel coordinates
+	 * with its weights on the sub-texel grid (tex_linear8(T, x),
+	 * tex_bilinear8(T, W, x, y)); ki holds the grid's bits and the
+	 * table's width (see texalu.h for the exact semantics)
+	 */
+	O_FETCH_REPEAT, O_FETCH_MIRROR, O_FETCH_CLAMP, O_FETCH_MCLAMP,
+	O_FETCH_BORDER, O_TEX_LINEAR, O_TEX_BILINEAR,
 	O_NOPS
 };
+#define O_TEX_FIRST O_FETCH_REPEAT
+#define O_TEX_LAST O_TEX_BILINEAR
+#define IS_TEX(op) ((op) >= O_TEX_FIRST && (op) <= O_TEX_LAST)
+#define IS_FETCH(op) ((op) >= O_FETCH_REPEAT && (op) <= O_FETCH_BORDER)
 #define O_DOT_FIRST O_UDOT4X8
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
@@ -208,6 +222,10 @@ nid mk_fma(nid a, nid b, nid c);
 nid mk_dot(int op, nid a, nid b, nid acc);  /* dot.c; acc 0 unless _SAT */
 nid mk_op(int op, nid a, nid b, nid c);     /* any op from its operands */
 nid mk_sg(int op, nid a, nid b, nid c);     /* sg.c; the last operand is W */
+/* texalu.c's operations; ki as the node keeps it (TEX_KI) */
+nid mk_tex(int op, int64_t ki, nid a, nid b, nid c);
+/* a node like n on other operands (the generic rebuilders) */
+nid mk_like(nid n, nid a, nid b, nid c);
 double fma32(double a, double b, double c);	/* f32 fma, correctly rounded */
 double fma16(double a, double b, double c);	/* f16 fma, correctly rounded */
 double fma64(double a, double b, double c);	/* f64 fma, correctly rounded */
@@ -322,7 +340,9 @@ enum {
 	C_ATOM_SH_SAME, C_ATOM_SH_F, C_ATOM_GL_F, C_ATOM_GL_64, C_ATOM_GL_CAS,
 	C_ATOM_GL_STREAM, C_TEX_FETCH, C_TEX_SAMPLE, C_TEX_SAMPLE_F32,
 	C_IMAGE_LOAD,
-	C_MEM_LAST = C_IMAGE_LOAD,
+	/* a nearest sampled read with an address mode (texalu.c) */
+	C_TEX_NEAREST,
+	C_MEM_LAST = C_TEX_NEAREST,
 	/*
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,
@@ -356,8 +376,18 @@ enum {
 #define C_DIVK(k) ((k) + 1)	/* the division class by a constant */
 int div_class(nid n);		/* model.c: an integer / or %'s class */
 #define MAXFOLD 4
-/* a model's parameters that are not prices */
-enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_NPAR };
+/*
+ * A model's parameters that are not prices (0: the model does not say).
+ * memk.c: banks, bank_bytes, warp.  texalu.c: what the texture unit does
+ * to a coordinate and a filtered result,
+ *   subtexel    bits of a texel the address unit resolves (Vulkan's
+ *               subTexelPrecisionBits): coordinates and filter weights
+ *               snap to a grid of 2^-subtexel
+ *   tex_within  how far, in ulps of the result, a filtered read may be
+ *               from the exact weighted sum of its texels
+ */
+enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
+	MP_NPAR };
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];

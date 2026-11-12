@@ -15,6 +15,8 @@
  */
 #include "ucas.h"
 
+#include "texalu.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1111,6 +1113,8 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 		*ri = dot_scalar(op, 0, N.ki[a], N.ki[b], c ? N.ki[c] : 0, &fl);
 		return !(fl & F_UNDEF);
 	}
+	if (IS_TEX(op))		/* mk_tex folds its own */
+		return 0;
 	if (op == O_FMA) {
 		if (TYK(t) == K_FLOAT && TYW(t) == 32)
 			*rr = fma32(N.kr[a], N.kr[b], N.kr[c]);
@@ -1296,6 +1300,23 @@ plan_loc(const struct plan *p, nid g)
 	return lo < p->n && p->gid[lo] == g ? lo : NOTOK;
 }
 
+/* texel j of a table in the plan, at point i (tex_filter's callback) */
+struct texcol {
+	const struct plan *p;
+	uint32_t st, i;
+	uint8_t fl;
+};
+
+static double
+tex_col_texel(void *ctx, int64_t j)
+{
+	struct texcol *t = ctx;
+	uint32_t e = t->p->lst[t->st + (uint32_t)j];
+
+	t->fl |= COLF(t->p, e)[t->i];
+	return COLR(t->p, e)[t->i];
+}
+
 void
 plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 {
@@ -1426,6 +1447,50 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 				o[i] = dot_scalar(op, p->ideal, av[i], bv[i],
 				    sat ? COLI(p, c)[i] : 0, &f);
 				of[i] = f;
+			}
+			continue;
+		}
+		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
+		case O_FETCH_MCLAMP: case O_FETCH_BORDER: {
+			/* a nearest read: the address mode makes it total */
+			const int64_t *iv = COLI(p, b);
+			const uint8_t *ifl = COLF(p, b);
+			uint32_t st = p->a[a], cnt = p->b[a];
+			for (i = 0; i < np; i++) {
+				int64_t j = iv[i];
+				uint32_t e;
+				if (TYK(p->ty[b]) == K_UINT)
+					j = (int64_t)asu(&p->it[b], j);
+				if (ifl[i] & F_UNDEF) {
+					o[i] = 0;
+					orr[i] = 0;
+					of[i] = F_UNDEF;
+					continue;
+				}
+				j = tex_wrap(op, j, cnt);
+				e = j < 0 ? c : p->lst[st + (uint32_t)j];
+				o[i] = COLI(p, e)[i];
+				orr[i] = COLR(p, e)[i];
+				of[i] = COLF(p, e)[i] & F_UNDEF;
+			}
+			continue;
+		}
+		case O_TEX_LINEAR: case O_TEX_BILINEAR: {
+			struct texcol tc;
+			uint32_t cnt = p->b[a];
+			tc.p = p;
+			tc.st = p->a[a];
+			for (i = 0; i < np; i++) {
+				uint8_t f = COLF(p, b)[i] & F_UNDEF;
+				if (op == O_TEX_BILINEAR)
+					f |= COLF(p, c)[i] & F_UNDEF;
+				tc.i = i;
+				tc.fl = 0;
+				o[i] = 0;
+				orr[i] = f ? 0 : tex_filter(op, p->ki[k], cnt,
+				    COLR(p, b)[i], op == O_TEX_BILINEAR ?
+				    COLR(p, c)[i] : 0, tex_col_texel, &tc);
+				of[i] = (f | tc.fl) & F_UNDEF;
 			}
 			continue;
 		}
@@ -1590,6 +1655,23 @@ plan_live(const struct plan *p, uint32_t np, uint8_t *lv)
 					lb[i] = 1;
 			}
 			break;
+		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
+		case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
+		case O_TEX_BILINEAR: {
+			/* the coordinates, and any texel */
+			uint32_t st = p->a[a], cnt = p->b[a], j;
+			for (i = 0; i < np; i++) {
+				if (!l[i])
+					continue;
+				lb[i] = 1;
+				if (p->op[k] == O_FETCH_BORDER ||
+				    p->op[k] == O_TEX_BILINEAR)
+					lc[i] = 1;
+				for (j = 0; j < cnt; j++)
+					lv[(size_t)p->lst[st + j] * CH + i] = 1;
+			}
+			break;
+		}
 		case O_INDEX: {
 			const int64_t *iv = COLI(p, b);
 			uint32_t st = p->a[a], cnt = p->b[a];
@@ -2167,15 +2249,26 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 			v->hi = B->hi > C->hi ? B->hi : C->hi;
 			break;
 		}
+		case O_FETCH_BORDER:
+			/* a texel or the border's value */
+			if (out[p->c[k]].top)
+				ok = 0;
+			/* FALLTHROUGH */
+		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
+		case O_FETCH_MCLAMP:
 		case O_INDEX: {
 			uint32_t st = p->a[p->a[k]], cnt = p->b[p->a[k]];
+			if (op == O_FETCH_BORDER) {
+				v->lo = out[p->c[k]].lo;
+				v->hi = out[p->c[k]].hi;
+			}
 			for (j = 0; j < cnt; j++) {
 				struct ival *e = &out[p->lst[st + j]];
 				if (e->top)
 					ok = 0;
-				if (!j || e->lo < v->lo)
+				if ((!j && op != O_FETCH_BORDER) || e->lo < v->lo)
 					v->lo = e->lo;
-				if (!j || e->hi > v->hi)
+				if ((!j && op != O_FETCH_BORDER) || e->hi > v->hi)
 					v->hi = e->hi;
 			}
 			break;

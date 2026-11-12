@@ -10,6 +10,7 @@
 #include "fuse.h"
 #include "dword.h"
 #include "memk.h"
+#include "texalu.h"
 
 #include <math.h>
 #include "stoch.h"
@@ -37,6 +38,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_shared_same", "atomic_shared_f", "atomic_global_f",
 	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
+	"tex_nearest",
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
 	"mul16",
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil",
@@ -50,7 +52,8 @@ static const char *const dot_group[6] = {
 	"dot4x8", "dot2x16", "dot8x4", "dot4x8sat", "dot2x16sat", "dot8x4sat",
 };
 
-const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp"};
+const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp",
+	"subtexel", "tex_within"};
 
 #define MAXMODEL 32
 static struct model models[MAXMODEL];
@@ -169,6 +172,18 @@ model_classes_text(struct sbuf *b, const struct model *m)
 	for (k = C_SG_FIRST; k < C_NCLASS; k++)
 		if (cclass_available(m, k))
 			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
+}
+
+/* an operation's class the model cannot use: a dot form or a subgroup
+ * operation it does not list, or a read through the texture unit it
+ * does not price */
+static int
+class_missing(const struct model *m, int k)
+{
+	if (C_ABSENT(k))
+		return !cclass_available(m, k);
+	return (k == C_TEX_NEAREST || k == C_TEX_SAMPLE ||
+	    k == C_TEX_SAMPLE_F32) && !model_lists(m, k);
 }
 
 static int
@@ -350,6 +365,8 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_LOOP:
 		return loop_cost(m, n, cls);
 	default:
+		if (IS_TEX(op))
+			return tex_cost(m, n, cls);
 		k = IS_DOT(op) ? DOT_CLASS(op) : IS_SG(op) ? sg_class(op) :
 		    C_IADD;
 	}
@@ -924,12 +941,12 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		rep_end();
 	}
 	for (k = 0; k < C_NCLASS; k++)
-		if (C_ABSENT(k) && cnt[k] && !cclass_available(m, k))
+		if (cnt[k] && class_missing(m, k))
 			break;
 	if (k < C_NCLASS) {
 		rep_list("unavailable");
 		for (k = 0; k < C_NCLASS; k++)
-			if (C_ABSENT(k) && cnt[k] && !cclass_available(m, k)) {
+			if (cnt[k] && class_missing(m, k)) {
 				printf("  %s is not available under %s (the model "
 				    "lists no such instruction)\n", cclass_name[k],
 				    sym_str(m->name));

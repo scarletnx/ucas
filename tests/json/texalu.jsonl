@@ -1,0 +1,8 @@
+{"id": 1, "cmd": "ucas", "args": {"source": "model cal : gt1030 { tex_nearest: 5, tex_within: 2 }\nK = [10, 20, 30, 40, 50, 60, 70]\nB = [3, 9, 27, 81, 243, 1, 200, 100, 50, 25, 12, 6, 0, 255, 128, 64]"}}
+{"id": 2, "cmd": "texalu", "args": {"f": {"body": "K[i % 7]", "params": [{"name": "i", "type": "u16", "range": [0, 1000]}]}, "model": "cal"}}
+{"id": 3, "cmd": "texalu", "args": {"f": {"body": "K[i % 7]", "params": [{"name": "i", "type": "u16", "range": [0, 1000]}]}}}
+{"id": 4, "cmd": "texalu", "args": {"f": {"body": "B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]", "params": [{"name": "x", "type": "u8", "range": [0, 2]}, {"name": "y", "type": "u8", "range": [0, 2]}]}, "model": "cal"}}
+{"id": 5, "cmd": "texalu", "args": {"f": {"body": "(1 - t)*[0.1, 0.5, 0.25, 0.75][i] + t*[0.1, 0.5, 0.25, 0.75][i + 1]", "params": [{"name": "i", "type": "i32", "range": [0, 2]}, {"name": "t", "type": "f32", "range": [0, 1]}]}, "tol": 0.01, "model": "cal"}}
+{"id": 6, "cmd": "cost", "args": {"f": "fetch_repeat([1, 2, 3], i: u8)"}}
+{"id": 7, "cmd": "ucas", "args": {"source": "use cal"}}
+{"id": 8, "cmd": "find", "args": {"f": {"body": "K[i < 7 ? i : 13 - i]", "params": [{"name": "i", "type": "u8", "range": [0, 13]}]}, "n": 1}}
