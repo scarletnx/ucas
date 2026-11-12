@@ -267,9 +267,9 @@ find T: 8 points, computing in u32, costs from gt1030
       bits [4*i, 4*i + 4) of 0x51840302 hold the value at i = i, less the least value: shifting right by that many bits times i and masking reads it
   cost 6   (0x51840302 >> (i << 2) & 15) + 1        packed table in one constant
   [searched every term up to cost 5: 2097152 distinct columns, bank full; 'more' continues]
-> brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
-> find brev 1
-find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+> rev32(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+> find rev32 1
+find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost 29 as written):
   cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
            every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit: that bit of the word, its position a constant less the lane's index) and the ballot puts it at bit i
@@ -277,9 +277,9 @@ find brev: 1024 points (sampled; matches verified on the whole domain), computin
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
-> bswap(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
-> find bswap 1
-find bswap: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+> swap32(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+> find swap32 1
+find swap32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   subgroup forms under gt1030 (each derived, with what it holds under; cost 11 as written):
   cost 6.375 sg_ballot(x >> (lane xor 0x18) & 1 != 0)
            every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit: that bit of the word, its position the lane's index xor a constant) and the ballot puts it at bit i
@@ -331,8 +331,8 @@ find t3: 512 points, computing in u32, costs from nosg
            exhaustive
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 32768 distinct columns, bank full; 'more' continues]
-> find brev 1
-find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from nosg
+> find rev32 1
+find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from nosg
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > model dear : gt1030 { sg_shuffle: 20, sg_ballot: 30 }
@@ -353,8 +353,8 @@ find f1: 1024 points (sampled; matches verified on the whole domain), computing 
            checked on every point of the domain
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
-> find brev 1
-find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from dear
+> find rev32 1
+find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from dear
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030

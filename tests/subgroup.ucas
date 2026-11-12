@@ -97,11 +97,11 @@ find t3 1
 find T 1
 # a GF(2)-linear function of a shared word, one bit per lane: the bit
 # reversal of a word, written as swaps
-brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
-find brev 1
+rev32(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+find rev32 1
 # the byte swap; and a model with 8 lanes for a byte
-bswap(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
-find bswap 1
+swap32(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+find swap32 1
 model w8 : gt1030 { warp: 8 }
 use w8
 nib(x: u8 uniform) = { a = ((x >> 1) & 0x55) | ((x & 0x55) << 1); b = ((a >> 2) & 0x33) | ((a & 0x33) << 2); u8((b >> 4) | (b << 4)) xor 0xa5 }
@@ -118,12 +118,12 @@ find brevv 1
 # where they are dear says what was derived
 use nosg
 find t3 1
-find brev 1
+find rev32 1
 model dear : gt1030 { sg_shuffle: 20, sg_ballot: 30 }
 use dear
 find s8 1
 find f1 1
-find brev 1
+find rev32 1
 use gt1030
 
 # the carry word of a wide add, one word per lane, is one add of two

@@ -1,0 +1,106 @@
+# The catalogue of single instructions (src/inst.c): operations defined
+# by an expression over the base ones, priced by the models that list
+# them (none of the built-in ones does yet), and offered by find for the
+# patterns they are.
+
+# values: bit fields, zero- and sign-extended
+show bfe(0xdeadbeef, 8, 12)
+show sbfe(0xdeadbeef, 8, 12)
+show bfe(0xdeadbeef, 0, 32)
+show bfe(0xdeadbeef, 5, 0)
+# bit reversal; the high half of a product, unsigned and signed
+show brev(1)
+show brev(0x80000001)
+show mulhi(0xffffffff, 0xffffffff)
+show smulhi(-1, 0x7fffffff)
+show smulhi(-2147483648, -2147483648)
+# funnel shifts: the high word of (hi:lo) << k, the low word of
+# (hi:lo) >> k; with one word twice, a rotate
+show funl(0x12345678, 0x9abcdef0, 8)
+show funr(0x12345678, 0x9abcdef0, 8)
+show funl(0x12345678, 0x12345678, 0)
+# the median of three; a sum of byte differences plus an accumulator
+show med3(5, 1, 9)
+show med3(-5, 1, 9)
+show med3(15, 9, 1)
+show usad4x8(0x01020304, 0x04030201, 10)
+# a byte permute of b:a: nibble i of the selector picks result byte i,
+# its top bit asking for the byte's sign instead
+show byteperm(0x44332211, 0x88776655, 0x0123)
+show byteperm(0x44332211, 0x88776655, 0x7654)
+show byteperm(0x443322f1, 0x88776655, 0x8088)
+# ranges come from the definitions
+range bfe(x: u32, 4, 8)
+range med3(x: i32, -3, 7)
+# each is its definition
+d1(x: u32) = bfe(x, 8, 8)
+d2(x: u32) = (x >> 8) & 255
+equiv d1 d2
+ro1(x: u32 in 0..1023, k: u32 in 0..31) = funl(x, x, k)
+ro2(x: u32 in 0..1023, k: u32 in 0..31) = k == 0 ? x : (x << k) | (x >> (32 - k))
+equiv ro1 ro2
+mh1(a: u32 in 4294967000..4294967295, b: u32 in 0..4095) = mulhi(a, b)
+mh2(a: u32 in 4294967000..4294967295, b: u32 in 0..4095) = u32((u64(a) * u64(b)) >> 32)
+equiv mh1 mh2
+sa1(a: u32 in 0..1023, b: u32 in 0..1023) = usad4x8(a, b, 7)
+sa2(a: u32 in 0..1023, b: u32 in 0..1023) = abs(int(a & 255) - int(b & 255)) + abs(int(a >> 8) - int(b >> 8)) + 7
+equiv sa1 sa2
+bp1(x: u32) = byteperm(x, 0, 0x0123)
+bp2(x: u32) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+equiv bp1 bp2
+# a constant field that leaves the word and a shift past 31 are refused;
+# variable ones are conditions of the domain
+bad1(x: u32) = bfe(x, 30, 5)
+bad2(x: u32, y: u32) = funl(x, y, 32)
+vf(x: u32 in 0..3, p: u32 in 0..40, n: u32 in 0..40) = bfe(x, p, n)
+domain vf
+vs(x: u32 in 0..3, y: u32 in 0..3, k: u32 in 0..40) = funr(x, y, k)
+domain vs
+
+# no built-in model lists them: not available, and find leaves the
+# patterns as they are
+cost d1
+find d2 1
+rev32(x: u32) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+find rev32 1
+
+# a model that lists them, each at 1
+model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
+use cat
+cost d1
+# a shift and a mask, two shifts: a bit field
+find d2 1
+top(x: u32) = (x << 4) >> 20
+find top 1
+# two shifts in i32: the field with its sign
+sx(x: i32) = (x << 20) >> 24
+find sx 1
+# a rotate is a funnel shift of the word with itself
+r7(x: u32) = (x << 7) | (x >> 25)
+find r7 1
+# the high half of a 64-bit product; a division by 5 as compilers write
+# it is that and a shift
+h1(a: u32, b: u32) = u32((u64(a) * u64(b)) >> 32)
+find h1 1
+h2(a: i32, b: i32) = i32((i64(a) * i64(b)) >> 32)
+find h2 1
+d5(a: u32) = u32((u64(a) * 0xcccccccd) >> 34)
+find d5 1
+# a clamp is the median when its bounds are in order (proved from the
+# ranges); when they may cross it is not, and stays
+cl(x: i32, lo: i32 in -10..5, hi: i32 in 5..90) = max(lo, min(x, hi))
+find cl 1
+cx(x: i32, lo: i32 in -10..5, hi: i32 in 4..90) = max(lo, min(x, hi))
+find cx 1
+# permutations of a word's bits, read off its GF(2) matrix: the bit
+# reversal written as five swaps, the byte swap, inside a larger sum
+find rev32 1
+find bp2 1
+mix(x: u32, y: u32) = ((x << 4) >> 20) + rev32(y)
+find mix 1
+# a model with only some of them takes only those
+model onlybfe : gt1030 { bfe: 1 }
+use onlybfe
+find mix 1
+use gt1030
+models
