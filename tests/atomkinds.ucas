@@ -1,0 +1,106 @@
+# atomics by kind (src/spv_mem.inc, src/spirv.c): every lane on one
+# address (the pointer's indices uniform: atomic_shared_same, a warp
+# instruction that serialises its lanes), 64 bits and a compare and swap
+# on a buffer (atomic_global_64, atomic_global_cas), each priced by its
+# class.  An add of one workgroup address becomes a sum over the lanes and
+# one atomic by an elected lane where the model prices that lower.
+model cheapscan : gt1030 { sg_add: 1, sg_scan: 2 }
+#
+# a counter every lane bumps, its old value unread: written
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint cnt[4];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l < 4u) cnt[l] = 0u;
+    barrier();
+    atomicAdd(cnt[2], 1u);
+    barrier();
+    outb.o[l] = cnt[2];
+}
+```
+# each lane's old value read: the broadcast and the scan cost more than
+# they save under gt1030, and less where the scan is cheap
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint cnt[4];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l < 4u) cnt[l] = 0u;
+    barrier();
+    uint old = atomicAdd(cnt[0], l + 1u);
+    barrier();
+    outb.o[l] = old + cnt[0];
+}
+```
+simplify nofile under cheapscan
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint cnt[4];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l < 4u) cnt[l] = 0u;
+    barrier();
+    uint old = atomicAdd(cnt[0], l + 1u);
+    barrier();
+    outb.o[l] = old + cnt[0];
+}
+```
+# a buffer: a compare and swap, and a 64-bit add (a proposal: the buffer's
+# element type would change); the lane's own address is no same-address
+# case
+simplify nofile under gt1030
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) buffer O { uint64_t total; uint o[]; } outb;
+shared uint cnt[64];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    cnt[l] = 0u;
+    barrier();
+    atomicAdd(cnt[l], 1u);
+    atomicCompSwap(outb.o[l], 0u, l);
+    atomicAdd(outb.total, uint64_t(l));
+}
+```
+# animate exec prices the warp's one instruction for its 32 lanes
+animate exec lanes 32 seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 32) in;
+layout(std430, set = 0, binding = 0) buffer O { uint o[]; } outb;
+shared uint cnt[4];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l < 4u) cnt[l] = 0u;
+    barrier();
+    atomicAdd(cnt[2], 1u);
+    barrier();
+    outb.o[l] = cnt[2];
+}
+```
+# and the buffer's compare and swap and 64-bit add by their classes
+animate exec lanes 4 seed 1 nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+layout(local_size_x = 4) in;
+layout(std430, set = 0, binding = 0) buffer O { uint64_t total; uint o[]; } outb;
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    atomicCompSwap(outb.o[l], outb.o[l], l);
+    atomicAdd(outb.total, uint64_t(l));
+}
+```

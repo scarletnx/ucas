@@ -1957,6 +1957,388 @@ mem_swizzle_array(const int *chains, int nch, int nlev, const int64_t *len,
 			}
 }
 
+/* ---- atomics by kind; a sum over the lanes and one atomic ---- */
+
+/* spv_sg.inc: one subgroup instruction's price, NAN or INFINITY none */
+static double sg_price_op(const char *op, const char *gop, int W);
+
+/* the module's type of kind k (S_BOOL, or S_INT of width w, unsigned):
+ * its id, -1 when it has none */
+static int
+mem_find_type(int k, int w)
+{
+	int i;
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == k && (k != S_INT ||
+		    (V.id[i].t.w == w && !V.id[i].t.sign)))
+			return i;
+	return -1;
+}
+
+static int
+mem_has_cap(const char *cap)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpCapability") && V.in[k].nop >= 1 &&
+		    !strcmp(V.in[k].opnd[0], cap))
+			return 1;
+	return 0;
+}
+
+/* the module's uvec4 of ut, declared with the pass's declarations when
+ * it has none */
+static int
+mem_find_vec4(int ut, struct mem_out *o)
+{
+	int i;
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_VEC &&
+		    V.id[i].t.n == 4 && V.id[i].t.e == ut)
+			return i;
+	sb_printf(o->decl, "%%ucas_v4uint = OpTypeVector %s 4\n", V.id[ut].tok);
+	i = idx("%ucas_v4uint");
+	V.id[i].kind = K_TYPE;
+	memset(&V.id[i].t, 0, sizeof V.id[i].t);
+	V.id[i].t.k = S_VEC;
+	V.id[i].t.n = 4;
+	V.id[i].t.e = ut;
+	return i;
+}
+
+/* a true of type bt: the module's, or one declared */
+static void
+mem_true(int bt, struct mem_out *o, char *out, size_t n)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpConstantTrue") && V.in[k].res >= 0 &&
+		    V.in[k].nop >= 1 && idx(V.in[k].opnd[0]) == bt) {
+			snprintf(out, n, "%s", V.id[V.in[k].res].tok);
+			return;
+		}
+	snprintf(out, n, "%%ucas_true");
+	if (V.id[idx(out)].kind != K_CONST) {
+		sb_printf(o->decl, "%%ucas_true = OpConstantTrue %s\n",
+		    V.id[bt].tok);
+		V.id[idx(out)].kind = K_CONST;
+	}
+}
+
+/*
+ * The atomic k as a sum over the lanes and one atomic by the elected lane
+ * (an add, a subtract, an increment or a decrement of one address): its
+ * block split at a selection on OpGroupNonUniformElect.  0, with *why,
+ * when it cannot be written.
+ */
+static int
+mem_aggregate(int k, int ag, int bits, struct mem_out *o, int *capk,
+    const char **why)
+{
+	const struct sins *I = &V.in[k];
+	const char *a = I->op + 8, *tt = I->opnd[0];
+	int j, lab = -1, used = mem_used(I->res), sub, bt, ut;
+	char sc3[48], one[48], zero[48], e[48], sm[48], t[48], mm[48], o1[48],
+	    o2[48], b[48], x[48], cur[48], bl[48], tru[48];
+	const char *v;
+	struct sbuf c = {0};
+
+	sub = !strcmp(a, "ISub") || !strcmp(a, "IDecrement");
+	if (o->pre[k] || o->repl[k]) {
+		*why = "it is rewritten already";
+		return 0;
+	}
+	for (j = k - 1; j >= 0 && lab < 0; j--)
+		if (!strcmp(V.in[j].op, "OpLabel"))
+			lab = j;
+		else if (!strcmp(V.in[j].op, "OpFunction"))
+			break;
+	if (lab < 0 || V.in[lab].res < 0) {
+		*why = "no block around it";
+		return 0;
+	}
+	for (j = k + 1; j < V.nin; j++) {
+		const char *op = V.in[j].op;
+		if (!strcmp(op, "OpLoopMerge")) {
+			*why = "its block is a loop's header, which stays whole";
+			return 0;
+		}
+		if (o->pre[j] || o->repl[j]) {
+			*why = "its block has another rewrite after it";
+			return 0;
+		}
+		if (!strcmp(op, "OpBranch") || !strcmp(op, "OpBranchConditional") ||
+		    !strcmp(op, "OpSwitch") || !strncmp(op, "OpReturn", 8) ||
+		    !strcmp(op, "OpKill") || !strcmp(op, "OpUnreachable") ||
+		    !strcmp(op, "OpTerminateInvocation"))
+			break;
+	}
+	ut = mem_find_type(S_INT, 32);
+	bt = mem_find_type(S_BOOL, 0);
+	if (ut < 0) {
+		*why = "the module has no 32-bit unsigned type for the scope";
+		return 0;
+	}
+	snprintf(cur, sizeof cur, "%s", V.id[V.in[lab].res].tok);
+	/* the successors' phis: their parent is now the merge block */
+	for (j = 0; j < V.nin; j++) {
+		const struct sins *P = &V.in[j];
+		int q, hit = 0;
+		if (strcmp(P->op, "OpPhi") != 0)
+			continue;
+		for (q = 2; q < P->nop; q += 2)
+			hit |= !strcmp(P->opnd[q], cur);
+		if (hit && (o->pre[j] || o->repl[j])) {
+			*why = "a successor's phi is rewritten already";
+			return 0;
+		}
+	}
+	snprintf(mm, sizeof mm, "%%ucas_ag%d_m", ag);
+	for (j = 0; j < V.nin; j++) {
+		const struct sins *P = &V.in[j];
+		struct sbuf r = {0};
+		int q, hit = 0;
+		if (strcmp(P->op, "OpPhi") != 0)
+			continue;
+		for (q = 2; q < P->nop; q += 2)
+			hit |= !strcmp(P->opnd[q], cur);
+		if (!hit)
+			continue;
+		sb_printf(&r, "%s = OpPhi", V.id[P->res].tok);
+		for (q = 0; q < P->nop; q++)
+			sb_printf(&r, " %s", q >= 2 && q % 2 == 0 && !strcmp(P->opnd[q],
+			    cur) ? mm : P->opnd[q]);
+		sb_putc(&r, '\n');
+		o->repl[j] = r.p;
+	}
+	if (bt < 0) {
+		sb_puts(o->decl, "%ucas_bool = OpTypeBool\n");
+		bt = idx("%ucas_bool");
+		V.id[bt].kind = K_TYPE;
+		memset(&V.id[bt].t, 0, sizeof V.id[bt].t);
+		V.id[bt].t.k = S_BOOL;
+	}
+	mem_kconst(o->decl, V.id[ut].tok, 0, 3, sc3, sizeof sc3);
+	mem_kconst(o->decl, tt, T(idx(tt))->sign, 1, one, sizeof one);
+	mem_kconst(o->decl, tt, T(idx(tt))->sign, 0, zero, sizeof zero);
+	v = !strcmp(a, "IAdd") || !strcmp(a, "ISub") ? I->opnd[4] : one;
+	snprintf(e, sizeof e, "%%ucas_ag%d_e", ag);
+	snprintf(sm, sizeof sm, "%%ucas_ag%d_s", ag);
+	snprintf(t, sizeof t, "%%ucas_ag%d_t", ag);
+	snprintf(o1, sizeof o1, "%%ucas_ag%d_o1", ag);
+	snprintf(o2, sizeof o2, "%%ucas_ag%d_o2", ag);
+	snprintf(b, sizeof b, "%%ucas_ag%d_b", ag);
+	snprintf(x, sizeof x, "%%ucas_ag%d_x", ag);
+	sb_printf(&c, "%s = OpGroupNonUniformElect %s %s\n", e, V.id[bt].tok,
+	    sc3);
+	if (bits) {
+		/* adds of 1: the lanes counted by a ballot */
+		int vt = mem_find_vec4(ut, o);
+		snprintf(bl, sizeof bl, "%%ucas_ag%d_bl", ag);
+		mem_true(bt, o, tru, sizeof tru);
+		sb_printf(&c, "%s = OpGroupNonUniformBallot %s %s %s\n", bl,
+		    V.id[vt].tok, sc3, tru);
+		sb_printf(&c, "%s = OpGroupNonUniformBallotBitCount %s %s Reduce "
+		    "%s\n", sm, tt, sc3, bl);
+	} else
+		sb_printf(&c, "%s = OpGroupNonUniformIAdd %s %s Reduce %s\n", sm,
+		    tt, sc3, v);
+	sb_printf(&c, "OpSelectionMerge %s None\n", mm);
+	sb_printf(&c, "OpBranchConditional %s %s %s\n", e, t, mm);
+	sb_printf(&c, "%s = OpLabel\n", t);
+	sb_printf(&c, "%s = OpAtomic%s %s %s %s %s %s\n", o1, sub ? "ISub" :
+	    "IAdd", tt, I->opnd[1], I->opnd[2], I->opnd[3], sm);
+	sb_printf(&c, "OpBranch %s\n", mm);
+	sb_printf(&c, "%s = OpLabel\n", mm);
+	if (used) {
+		sb_printf(&c, "%s = OpPhi %s %s %s %s %s\n", o2, tt, o1, t, zero, cur);
+		sb_printf(&c, "%s = OpGroupNonUniformBroadcastFirst %s %s %s\n", b,
+		    tt, sc3, o2);
+		if (bits)
+			sb_printf(&c, "%s = OpGroupNonUniformBallotBitCount %s %s "
+			    "ExclusiveScan %s\n", x, tt, sc3, bl);
+		else
+			sb_printf(&c, "%s = OpGroupNonUniformIAdd %s %s ExclusiveScan "
+			    "%s\n", x, tt, sc3, v);
+		sb_printf(&c, "%s = %s %s %s %s\n", V.id[I->res].tok, sub ?
+		    "OpISub" : "OpIAdd", tt, b, x);
+	}
+	o->repl[k] = c.p;
+	*capk |= (bits ? 4 : 1) | (used || bits ? 2 : 0);
+	return 1;
+}
+
+/* an add or subtract of 1 (an increment, a decrement, or the constant) */
+static int
+mem_adds_one(const struct sins *I)
+{
+	const char *a = I->op + 8;
+	int x;
+
+	if (!strcmp(a, "IIncrement") || !strcmp(a, "IDecrement"))
+		return 1;
+	if ((strcmp(a, "IAdd") && strcmp(a, "ISub")) || I->nop < 5)
+		return 0;
+	x = idx(I->opnd[4]);
+	return V.id[x].kind == K_CONST && geti(V.id[x].type, V.id[x].c[0]) == 1;
+}
+
+/*
+ * The atomics of workgroup arrays and buffers, by kind: every lane on one
+ * address (the pointer's indices uniform), 64 bits, a compare and swap,
+ * each priced by its class a warp instruction.  An add, subtract,
+ * increment or decrement of a workgroup array at one address becomes a
+ * sum over the lanes and one atomic by an elected lane where the model
+ * prices that lower; a 64-bit add to a buffer is priced as two 32-bit
+ * words and proposed, since the buffer's element type would change.
+ */
+static void
+mem_atomics(const struct model *m, struct mem_out *o, int *changed)
+{
+	int W = m->par[MP_WARP] >= 2 ? (int)m->par[MP_WARP] : 32;
+	int k, i, shown = 0, ag = 0, capk = 0;
+	char sl[200];
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *a = I->op + 8, *sc, *why = NULL;
+		int chain, var, uni = 1, w, wg, cls = -1, add;
+		if (strncmp(I->op, "OpAtomic", 8) != 0 || I->res < 0 ||
+		    I->nop < 4 || !strcmp(a, "FAddEXT"))
+			continue;
+		var = mem_base_var(idx(I->opnd[1]), &chain);
+		if (var < 0)
+			continue;
+		sc = mem_sc(var);
+		wg = !strcmp(sc, "Workgroup");
+		if (!wg && strcmp(sc, "StorageBuffer") != 0 && !(!strcmp(sc,
+		    "Uniform") && mem_bufferblock(var)))
+			continue;
+		if (chain >= 0)
+			for (i = 2; i < V.in[chain].nop; i++)
+				if (!mem_uni_at(idx(V.in[chain].opnd[i]), k))
+					uni = 0;
+		w = T(idx(I->opnd[0]))->w;
+		add = !strcmp(a, "IAdd") || !strcmp(a, "ISub") ||
+		    !strcmp(a, "IIncrement") || !strcmp(a, "IDecrement");
+		if (wg && uni && model_lists(m, C_ATOM_SH_SAME))
+			cls = C_ATOM_SH_SAME;
+		else if (!wg && !strcmp(a, "CompareExchange") &&
+		    model_lists(m, C_ATOM_GL_CAS))
+			cls = C_ATOM_GL_CAS;
+		else if (!wg && w == 64 && model_lists(m, C_ATOM_GL_64))
+			cls = C_ATOM_GL_64;
+		if (cls < 0)
+			continue;
+		if (!shown++) {
+			if (!*o->hdr)
+				printf("memory under %s:\n", sym_str(m->name));
+			(*o->hdr)++;
+			printf("  atomics by kind, priced a warp instruction:\n");
+		}
+		printf("    %s\n", I->text);
+		src_line(ins_line(k), sl, sizeof sl);
+		fputs(sl, stdout);
+		if (cls == C_ATOM_SH_SAME) {
+			double same = (double)model_cost(m, C_ATOM_SH_SAME);
+			int used = mem_used(I->res), bits = mem_adds_one(I);
+			double el = sg_price_op("OpGroupNonUniformElect", NULL, W);
+			double ba = sg_price_op("OpGroupNonUniformBallot", NULL, W);
+			double rd = bits ? ba + sg_price_op(
+			    "OpGroupNonUniformBallotBitCount", "Reduce", W) :
+			    sg_price_op("OpGroupNonUniformIAdd", "Reduce", W);
+			double bf = sg_price_op("OpGroupNonUniformBroadcastFirst", NULL,
+			    W);
+			double xs = bits ? sg_price_op("OpGroupNonUniformBallotBitCount",
+			    "ExclusiveScan", W) : sg_price_op("OpGroupNonUniformIAdd",
+			    "ExclusiveScan", W);
+			double one = (double)model_cost(m, C_ATOM_SH);
+			double br = (double)m->c[C_BRANCH], ia = (double)m->c[C_IADD];
+			double dv = (double)m->c[C_DIVERGE];
+			double after = el + rd + br + dv + one + (used ? bf + xs + ia :
+			    0);
+			printf("      every lane on one address (its indices are "
+			    "uniform): atomic_shared_same %g\n", same);
+			if (!add || w != 32)
+				printf("      not rewritten: %s\n", !add ? "only an add, a "
+				    "subtract, an increment or a decrement sums over the "
+				    "lanes" : "a sum over the lanes of 64 bits needs "
+				    "Int64 beside the arithmetic");
+			else if (!isfinite(after))
+				printf("      not rewritten: the model has no price for a "
+				    "subgroup instruction it needs (elect %g, reduce %g%s)\n",
+				    el, rd, used ? ", broadcast and scan for the old value" :
+				    "");
+			else {
+				printf("      a sum over the lanes and one atomic by the "
+				    "elected lane: elect %g + %s %g + a branch %g that "
+				    "diverges %g + atomic_shared %g", el, bits ? "a ballot's "
+				    "bit count (adds of 1)" : "IAdd Reduce", rd, br, dv, one);
+				if (used)
+					printf(" + the old value each lane reads, BroadcastFirst "
+					    "%g + %s ExclusiveScan %g + an add %g", bf, bits ?
+					    "BallotBitCount" : "IAdd", xs, ia);
+				printf(" = %g against %g\n", after, same);
+				if (!(after < same))
+					printf("      -> not rewritten: no cheaper\n");
+				else if (!mem_aggregate(k, ag, bits, o, &capk, &why))
+					printf("      -> not rewritten: %s\n", why);
+				else {
+					printf("      -> written: the block splits at a selection "
+					    "on OpGroupNonUniformElect (%+g a warp instruction)\n",
+					    after - same);
+					ag++;
+					*changed = 1;
+				}
+			}
+		} else if (cls == C_ATOM_GL_CAS)
+			printf("      a compare and swap: atomic_global_cas %g, against "
+			    "atomic_global %g for an operation the hardware has\n",
+			    (double)model_cost(m, C_ATOM_GL_CAS),
+			    (double)model_cost(m, C_ATOM_GL));
+		else {
+			double c64 = (double)model_cost(m, C_ATOM_GL_64);
+			double c32 = (double)model_cost(m, C_ATOM_GL);
+			printf("      64 bits: atomic_global_64 %g\n", c64);
+			if (add && !mem_used(I->res))
+				printf("      proposal (the buffer's element type changes, "
+				    "not applied): two 32-bit words, the low one's atomic "
+				    "and, when its add carries\n      (old + v below old), "
+				    "an atomic increment of the high one: %g and a branch "
+				    "%g (the increment once a carry) against %g;\n      "
+				    "readers see the pair whole once the adds are done, "
+				    "not between them\n", c32, (double)m->c[C_BRANCH], c64);
+		}
+	}
+	if (capk) {
+		struct sbuf c = {0};
+		if (!mem_has_cap("GroupNonUniform"))
+			sb_puts(&c, "OpCapability GroupNonUniform\n");
+		if ((capk & 1) && !mem_has_cap("GroupNonUniformArithmetic"))
+			sb_puts(&c, "OpCapability GroupNonUniformArithmetic\n");
+		if ((capk & 2) && !mem_has_cap("GroupNonUniformBallot"))
+			sb_puts(&c, "OpCapability GroupNonUniformBallot\n");
+		for (k = 0; k < V.nin; k++)
+			if (!strcmp(V.in[k].op, "OpCapability"))
+				break;
+		if (c.p) {
+			if (k < V.nin) {
+				struct sbuf p2 = {0};
+				sb_puts(&p2, c.p);
+				if (o->pre[k])
+					sb_puts(&p2, o->pre[k]);
+				free(o->pre[k]);
+				o->pre[k] = p2.p;
+			}
+			free(c.p);
+		}
+	}
+}
+
 /* ---- the pass ---- */
 
 static char *
@@ -2359,6 +2741,7 @@ mem_pass(const char *text, int *changed)
 			for (q = 0; q < arr[i].nch; q++)
 				free(G[q]);
 		}
+	mem_atomics(m, &mo, changed);
 	/* the variables that became i32: their types, after the bank pass
 	 * (a padded row grows the outermost array) */
 	for (i = 0; i < nrt; i++)
