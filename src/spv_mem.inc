@@ -2372,6 +2372,30 @@ mem_cell(int ptr, const char **member, int *img)
 	return var;
 }
 
+/* the name of a cell's array: its member's (OpMemberName), else its
+ * variable's */
+static const char *
+mem_cell_name(int var, const char *member, char *buf, size_t n)
+{
+	const char *vn = V.id[var].name;
+	int st = T(V.id[var].type)->e, mi, j;
+
+	if (*vn == '%')
+		vn++;
+	snprintf(buf, n, "%s", vn);
+	if (member == NULL || V.id[idx(member)].kind != K_CONST)
+		return buf;
+	mi = (int)V.id[idx(member)].c[0];
+	for (j = 0; j < V.nin; j++)
+		if (!strcmp(V.in[j].op, "OpMemberName") && V.in[j].nop >= 3 &&
+		    idx(V.in[j].opnd[0]) == st && atoi(V.in[j].opnd[1]) == mi) {
+			const char *mn = V.in[j].opnd[2];
+			snprintf(buf, n, "%.*s", (int)strlen(mn) - 2, mn + 1);
+			break;
+		}
+	return buf;
+}
+
 /* the update an atomic applies, as rop reads it: F(s, d) */
 static int
 mem_rop_op(const char *a, int *op, int *flt)
@@ -2416,6 +2440,7 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
 		const char *a = I->op + 8, *member, *sc, *cn, *why = NULL;
+		char cnbuf[64];
 		int var, img, op, flt, t, w, sign, other = -1;
 		int64_t dlo = 0, dhi = 0, slo = 0, shi = 0;
 		int dr = 0, sr = 0;
@@ -2438,27 +2463,7 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 		w = T(t)->w;
 		sign = T(t)->sign;
 		/* the cell's name: the member's, else the variable's */
-		{
-			static char nb[64];
-			const char *vn = V.id[var].name;
-			int st = T(V.id[var].type)->e, mi;
-			if (*vn == '%')
-				vn++;
-			cn = vn;
-			if (member != NULL && V.id[idx(member)].kind == K_CONST) {
-				mi = (int)V.id[idx(member)].c[0];
-				for (j = 0; j < V.nin; j++)
-					if (!strcmp(V.in[j].op, "OpMemberName") &&
-					    V.in[j].nop >= 3 && idx(V.in[j].opnd[0]) == st &&
-					    atoi(V.in[j].opnd[1]) == mi) {
-						const char *mn = V.in[j].opnd[2];
-						snprintf(nb, sizeof nb, "%.*s", (int)strlen(mn) - 2,
-						    mn + 1);
-						cn = nb;
-						break;
-					}
-			}
-		}
+		cn = mem_cell_name(var, member, cnbuf, sizeof cnbuf);
 		/* every other access of the cell's array: the same atomic */
 		for (j = 0; j < V.nin && other < 0; j++) {
 			const struct sins *J = &V.in[j];
@@ -2616,6 +2621,131 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 		    "position), and %s's values come from the target after the "
 		    "draw (copied or converted back)\n", ro.pipeline, img ?
 		    "coordinate in" : "index into", cn, cn);
+	}
+}
+
+/* ---- an append through a counter as transform feedback ---- */
+
+/*
+ * idx = atomicAdd(count, 1); out[idx] = v: stream compaction, each
+ * invocation that gets there appending one element at the slot the
+ * counter hands out.  Transform feedback writes what a geometry (or
+ * vertex) shader emits, in primitive order, with no atomic, and keeps
+ * the count in its counter buffer: the elements end in one of the orders
+ * the atomic allows.  Proposed where the model prices that (rop_xfb an
+ * element) below the atomic; the index must serve only the stores.
+ */
+static void
+mem_append(const struct model *m, struct mem_out *o)
+{
+	int k, j, i, shown = 0;
+	char sl[200];
+
+	if (!cclass_available(m, C_ROP_XFB))
+		return;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		const char *a = I->op + 8, *member, *why = NULL, *cn, *tn = NULL;
+		int var, img, chain, nstore = 0, uni = 1, one, tvar = -1;
+		const char *tmem = NULL;
+		char cnb[64], tnb[64];
+		if (strncmp(I->op, "OpAtomic", 8) != 0 || I->res < 0 ||
+		    !mem_used(I->res))
+			continue;
+		if (strcmp(a, "IIncrement") && strcmp(a, "IAdd"))
+			continue;
+		one = !strcmp(a, "IIncrement") || mem_adds_one(I);
+		var = mem_cell(idx(I->opnd[1]), &member, &img);
+		if (var < 0 || img || (strcmp(mem_sc(var), "StorageBuffer") &&
+		    !(!strcmp(mem_sc(var), "Uniform") && mem_bufferblock(var))))
+			continue;
+		(void)mem_base_var(idx(I->opnd[1]), &chain);
+		if (chain >= 0)
+			for (i = 3; i < V.in[chain].nop; i++)
+				if (V.id[idx(V.in[chain].opnd[i])].kind != K_CONST)
+					uni = 0;
+		if (!uni || !one)
+			continue;	/* not one counter, or not one element */
+		/* every use of the old value: an index of a store's chain */
+		for (j = 0; j < V.nin && !why; j++) {
+			const struct sins *J = &V.in[j];
+			int q, uses = 0;
+			if (j == k)
+				continue;
+			for (q = 0; q < J->nop; q++)
+				if (J->opnd[q][0] == '%' && idx(J->opnd[q]) == I->res)
+					uses++;
+			if (!uses)
+				continue;
+			if ((!strcmp(J->op, "OpAccessChain") || !strcmp(J->op,
+			    "OpInBoundsAccessChain")) && J->res >= 0 && J->nop >= 3 &&
+			    idx(J->opnd[1]) != I->res) {
+				int tc, v2 = mem_base_var(J->res, &tc), u, ok = 1;
+				const char *m2 = NULL;
+				int i2;
+				if (v2 >= 0)
+					(void)mem_cell(J->res, &m2, &i2);
+				/* the chain is only stored through */
+				for (u = 0; u < V.nin && ok; u++) {
+					const struct sins *U = &V.in[u];
+					int r2;
+					for (r2 = 0; r2 < U->nop; r2++)
+						if (U->opnd[r2][0] == '%' && idx(U->opnd[r2]) ==
+						    J->res && !(r2 == 0 && !strcmp(U->op,
+						    "OpStore")))
+							ok = 0;
+				}
+				if (!ok || v2 < 0 || v2 == var) {
+					why = "a slot it hands out is also read";
+					break;
+				}
+				if (tvar >= 0 && tvar != v2) {
+					why = "the slot indexes more than one array";
+					break;
+				}
+				tvar = v2;
+				tmem = m2;
+				nstore++;
+				continue;
+			}
+			why = "its old value is used other than as the slot of a "
+			    "store";
+		}
+		if (!why && nstore == 0)
+			why = "no store goes through the slot";
+		mem_hdr(o, m);
+		if (!shown++)
+			printf("  appends through a counter as transform feedback (a "
+			    "proposal, not applied: the elements are emitted by a "
+			    "geometry or vertex shader and captured):\n");
+		printf("    %s\n", I->text);
+		src_line(ins_line(k), sl, sizeof sl);
+		fputs(sl, stdout);
+		cn = mem_cell_name(var, member, cnb, sizeof cnb);
+		if (why) {
+			printf("      not proposed: %s\n", why);
+			continue;
+		}
+		tn = mem_cell_name(tvar, tmem, tnb, sizeof tnb);
+		printf("      each invocation that gets here appends one element "
+		    "to %s at the slot %s hands out (%d store%s through it): "
+		    "transform feedback writes what a shader emits in primitive "
+		    "order, with no atomic, and the elements end in one of the "
+		    "orders the atomic allows\n", tn, cn, nstore, nstore == 1 ?
+		    "" : "s");
+		printf("      price: %s %g an element under %s, against %g (one "
+		    "global atomic, atomic_global): %+g an element\n",
+		    cclass_name[C_ROP_XFB], (double)m->c[C_ROP_XFB],
+		    sym_str(m->name), (double)model_cost(m, C_ATOM_GL),
+		    (double)m->c[C_ROP_XFB] - (double)model_cost(m, C_ATOM_GL));
+		printf("      pipeline: VK_EXT_transform_feedback: the stored values "
+		    "as the outputs of a geometry shader (EmitVertex where this "
+		    "invocation appends; a vertex shader of points when each "
+		    "appends once) with XfbBuffer, XfbStride and Offset "
+		    "decorations, %s as the transform feedback buffer, "
+		    "vkCmdBeginTransformFeedbackEXT and End around the draw, and "
+		    "%s from its counter buffer (the bytes written over the "
+		    "stride)\n", tn, cn);
 	}
 }
 
@@ -3023,6 +3153,7 @@ mem_pass(const char *text, int *changed)
 		}
 	mem_atomics(m, &mo, changed);
 	mem_rop(m, lsize, &mo);
+	mem_append(m, &mo);
 	/* the variables that became i32: their types, after the bank pass
 	 * (a padded row grows the outermost array) */
 	for (i = 0; i < nrt; i++)

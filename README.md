@@ -2192,6 +2192,18 @@ unsigned integers), workgroup memory never is (no target holds it).  Under a
 model that prices none of rop's classes (gt1030) the pass says nothing
 (tests/ropatomics.ucas).
 
+**Appends as transform feedback.**  `i = atomicAdd(count, 1u);
+out[i] = v` is stream compaction: each invocation that gets there
+appends one element at the slot a counter hands out.  Transform
+feedback (VK_EXT_transform_feedback) writes what a geometry or vertex
+shader emits, in primitive order, with no atomic, and keeps the count
+in its counter buffer, so the elements end in one of the orders the
+atomic allows.  `simplify` proposes it where the model prices
+`rop_xfb` (an element) below the atomic; the counter must be one cell
+(its indices constant) that each append moves by 1, and the slot must
+serve only stores into one array (a slot read for anything else is
+refused, and said so).
+
 **Bank conflicts.**  `banks F [, G ...]` takes the index expressions of
 the accesses to one shared array.  The first integer parameter that is
 not `uniform` is the lane: a warp is `warp` consecutive values of it

@@ -395,6 +395,8 @@ enum {
 	C_ROP_RESOLVE,
 	/* the transfer engine's fill or clear, a cell */
 	C_ROP_FILL,
+	/* an element appended by transform feedback */
+	C_ROP_XFB,
 	/* the catalogue's instructions (inst.c), absent unless listed */
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_MULWIDE,
