@@ -332,7 +332,9 @@ static const struct jcmd cmds[] = {
 	{"closed", "closed", 1, 0, "closed forms of sums, products, loops",
 	    {FN}},
 	{"scheme", "scheme", 0, 0, "evaluation schemes priced",
-	    {FN, NMO("model", " model %s", "the model")}},
+	    {FN, BO("more", " more", "a polynomial's forms beyond Horner "
+	    "and Estrin too: Knuth, Paterson-Stockmeyer, compensated Horner"),
+	    NMO("model", " model %s", "the model")}},
 	{"continuous", "continuous", 0, 0, "sums as integrals, loops as ODEs",
 	    {FN}},
 	{"dsolve", "dsolve", 1, 0, "solve a defined ODE (symbolic or numeric)",

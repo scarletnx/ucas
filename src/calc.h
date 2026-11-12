@@ -175,7 +175,8 @@ void pde_define(uint32_t name, struct pde *pd);
 void cmd_pde(uint32_t name, nid tend, int steps);
 
 /* scheme.c */
-void cmd_scheme(struct func *f, struct model *m);
+/* more: a polynomial's forms beyond Horner and Estrin too */
+void cmd_scheme(struct func *f, struct model *m, int more);
 float dag_cost(const struct model *m, nid root, int *nops, float *depth);
 
 /* parsing a source fragment as an expression (calc_syntax.inc) */

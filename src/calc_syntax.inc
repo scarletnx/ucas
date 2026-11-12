@@ -1379,8 +1379,12 @@ calc_command(struct P *p)
 	if (is_kw(p, "closed") || is_kw(p, "scheme") || is_kw(p, "continuous")) {
 		int which = is_kw(p, "closed") ? 0 : is_kw(p, "scheme") ? 1 : 2;
 		struct model *m = NULL;
+		int more = 0;
 		adv(p);
 		f = cmd_func(p);
+		/* scheme F more: the forms beyond Horner and Estrin too */
+		if (which == 1)
+			more = accept_kw(p, "more");
 		if (which == 1 && accept_kw(p, "model")) {
 			if (pk(p) != T_ID || (m = model_find(tsym(p, p->i))) == NULL)
 				fail("unknown model");
@@ -1391,7 +1395,7 @@ calc_command(struct P *p)
 		if (which == 0)
 			cmd_closed(f);
 		else if (which == 1)
-			cmd_scheme(f, m);
+			cmd_scheme(f, m, more);
 		else
 			cmd_continuous(f);
 		return 1;

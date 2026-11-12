@@ -1041,7 +1041,7 @@ commands (F is a function name or an expression like isqrt(x: u4))
     [at a]
 loops and calculus
   sum(i, lo, hi, e) | prod(...) | x[0] = c; x[k+1] = ... | { for/while/if }
-  closed F | scheme F [model m] | continuous F
+  closed F | scheme F [more] [model m] | continuous F
   integrate F [wrt x] [from a to b] | antiderivative F [wrt x]
   diff F [x y ...] [n] | grad|hessian|laplacian F [at a, b] | F'' | F'(a)
   jacobian F, G [wrt x, y] [at ...] | ddir F along v [at p] [raw]
