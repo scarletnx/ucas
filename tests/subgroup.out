@@ -1,0 +1,376 @@
+> show sg_ballot(lane < 5)
+_() = 31
+  -> u32
+> show sg_ballot(lane % 3 == 0)
+_() = 1227133513
+  -> u32
+> show sg_any(lane == 31)
+_() = 1
+  -> bool
+> show sg_all(lane < 31)
+_() = 0
+  -> bool
+> show sg_add(lane)
+_() = 496
+  -> u32
+> show sg_shuffle(lane * lane, 7)
+_() = 49
+  -> u32
+> b(x: u32 uniform) = sg_ballot(((x >> lane) & 1) != 0)
+> id(x: u32 uniform) = x
+> equiv b id
+b and id are equal on the domain of b (proved by SAT: 33 AIG nodes, 0 conflicts)
+> s8(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 3)
+> show s8
+s8(x: u8 uniform, lane: u32 in 0..7) = sg_scan(x >> lane & 3)
+  -> u8
+> show s8(0xb5, 0)
+_() = 1
+  -> u8
+> show s8(0xb5, 3)
+_() = 6
+  -> u8
+> show s8(0xb5, 7)
+_() = 13
+  -> u8
+> range s8
+range of s8 -> u8:
+  0..22   (23 distinct values)
+  values: 0..22
+  fits in u5
+  over all 2048 points of the domain
+> xs8(x: u8 uniform, lane: u32 in 0..7) = sg_exclusive((x >> lane) & 3)
+> show xs8
+xs8(x: u8 uniform, lane: u32 in 0..7) = sg_scan(x >> lane & 3) - (x >> lane & 3)
+  -> u8
+> show xs8(0xb5, 3)
+_() = 4
+  -> u8
+> x8(x: u8 uniform, lane: u32 in 0..7) = sg_shuffle_xor((x >> lane) & 1, 1)
+> show x8
+x8(x: u8 uniform, lane: u32 in 0..7) = sg_shuffle(x >> lane & 1, lane xor 1)
+  -> u8
+> show x8(2, 0)
+_() = 1
+  -> u8
+> r8(x: u8 uniform, lane: u32 in 0..7) = subgroupRotate((x >> lane) & 1, 3)
+> show r8
+r8(x: u8 uniform, lane: u32 in 0..7) = sg_shuffle(x >> lane & 1, (lane + 3) % 8)
+  -> u8
+> show r8(8, 0)
+_() = 1
+  -> u8
+> bc(x: u8 uniform, lane: u32 in 0..7) = subgroupBroadcast(x >> lane, 2) + sg_broadcast_first(x >> lane)
+> show bc(0xb5, 5)
+_() = 226
+  -> u8
+> h8(x: u8 uniform, lane: u32 in 0..7) = sg_ballot(sg_shuffle_xor((x >> lane) & 1, 1) != 0)
+> show h8(6, 0)
+_() = 9
+  -> u32
+> lp(x: u8 uniform, lane: u32 in 0..7) = sg_scan(sum(i in 0..1, (x >> ((lane + i) & 7)) & 1))
+> show lp(3, 7)
+_() = 4
+  -> u8
+> range lp
+range of lp -> u8:
+  0..16   (16 distinct values)
+  values: 0..14, 16
+  fits in u5
+  over all 2048 points of the domain
+> lk(x: u8 uniform, lane: u32 in 0..7) = { s = 0; for i in 0..2 { s += sg_shuffle((x >> lane) & 1, (lane + i) & 7) }; s }
+> show lk(1, 7)
+_() = 1
+  -> int
+> range lk
+range of lk -> int:
+  0..3
+  fits in u2
+  over all 2048 points of the domain
+> sh(i: u32 in 0..40) = sg_shuffle(lane + 100, i)
+> domain sh
+domain of sh:
+  i: u32, 0..40
+  requires 0 <= i < 32  (a lane of the subgroup)
+  defined at 32 of 41 points
+  defined for: 0..31
+  undefined e.g. at i=32; i=33; i=34; i=35
+  over all 41 points of the domain
+> q(x: u32) = sg_shuffle(x, 3)
+subgroup.ucas:55:29: error: sg_shuffle reads x in every lane, and x is a value per lane (not `uniform`): declare it x: u32 uniform, or write the lanes' values as a function of lane (a bit or a field of a shared word, a table's entry)
+    q(x: u32) = sg_shuffle(x, 3)
+                                ^
+> z(x: f32 uniform) = sg_add(x)
+subgroup.ucas:56:30: error: sg_add of floats: the order of the additions is the implementation's, so the sum has no exact value; integers only
+    z(x: f32 uniform) = sg_add(x)
+                                 ^
+> p(x: u32 uniform) = sg_shuffle(lane, lane + 1)
+subgroup.ucas:57:47: error: sg_shuffle: lane is a value per lane; outside the operand it has to be a parameter, f(..., lane: u32 in 0..N-1)
+    p(x: u32 uniform) = sg_shuffle(lane, lane + 1)
+                                                  ^
+> model nosize { all: 1 }
+> use nosize
+cost model: nosize
+> n(x: u32 uniform) = sg_add(x & lane)
+subgroup.ucas:60:37: error: sg_add needs the subgroup's size: give the function a parameter lane: u32 in 0..N-1, or use a model that states `warp: N` (2 to 64)
+    n(x: u32 uniform) = sg_add(x & lane)
+                                        ^
+> use gt1030
+cost model: gt1030
+> cost s8
+cost of s8 under gt1030: 63.25 (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  sg_scan          1 x 60.25 = 60.25
+> v(x: u32 uniform, a: u32, c: u32) = sg_any(((x >> lane) & 1) != 0) ? a * c : a + c
+> cost v
+cost of v under gt1030: 11 (7 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  imul             1 x 3     = 3
+  cmp              1 x 2.375 = 2.375
+  select           1 x 1.625 = 1.625
+  sg_vote          1 x 0     = 0
+  ?: on sg_any(x >> lane & 1 != 0)  (arms cost 3 and 1)
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625  (condition is uniform)
+      -> select
+  estimate with the best form per ?: : 11
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model rpl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 1, conv: 4, bitcast: 3, fadd: 3, fmul: 3, fdiv: 10, fsqrt: 15, ftrans: 18, fpow: 54, f64: 1, load: 4, branch: 1, diverge: 6.5, barrier: 33, atomic_shared: 8, atomic_global: 8, store: 1, sdiv: 14, sdivk: 5, irem: 14, iremk: 5, srem: 14, sremk: 5, sudot4x8: 10, sdot2x16: 10, sudot4x8sat: 10, sdot2x16sat: 10 }
+model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model nosize { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 1, idivk: 1, cmp: 1, select: 1, minmax: 1, bitcnt: 1, conv: 1, bitcast: 1, fadd: 1, fmul: 1, fdiv: 1, fsqrt: 1, ftrans: 1, fpow: 1, f64: 1, load: 1, branch: 1, diverge: 1, barrier: 1, atomic_shared: 1, atomic_global: 1, store: 1, sdiv: 1, sdivk: 1, irem: 1, iremk: 1, srem: 1, sremk: 1 }
+> model nosg : gt1030 { sg_scan: none, sg_ballot: none, sg_shuffle: none }
+> use nosg
+cost model: nosg
+> cost s8
+cost of s8 under nosg: inf (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  sg_scan          1 x inf   = inf
+  sg_scan is not available under nosg (the model lists no such instruction)
+> use gt1030
+cost model: gt1030
+> model modk : gt1030 { fuse kneg(a: int) = -a : 0 in idivk }
+> use modk
+cost model: modk
+> ng(x: u32 uniform) = sg_add(-(x & lane))
+> cost ng
+cost of ng under modk: 34.625 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  logic            1 x 1     = 1
+  sg_add           1 x 32.625 = 32.625
+> use gt1030
+cost model: gt1030
+> f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)
+> find f1 1
+find f1: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 63.25 as written):
+  cost 13.375 u8(popcount(sg_ballot(x >> lane & 1 != 0) & (2 << lane) - 1))
+           sg_scan(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over lanes 0..lane is the number of those lanes where it is not 0: the set bits of the ballot at positions 0..lane, which (2 << lane) - 1 keeps
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> c1(x: u8 uniform, lane: u32 in 0..7) = sg_add((x >> lane) & 1)
+> find c1 1
+find c1: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 35.625 as written):
+  cost 9.375 u8(popcount(sg_ballot(x >> lane & 1 != 0)))
+           sg_add(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over the 8 lanes is the number of lanes where it is not 0: the set bits of the ballot
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find s8 1
+find s8: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 63.25 as written):
+  cost 33  (x >> lane & 3) + (lane >= 1 ? sg_shuffle(t1, lane - 1) : 0) + (lane >= 2 ? sg_shuffle(t2, lane - 2) : 0) + (lane >= 4 ? sg_shuffle(t2 + (lane >= 2 ? sg_shuffle(t2, lane - 2) : 0), lane - 4) : 0) where t1 = x >> lane & 3, t2 = t1 + (lane >= 1 ? sg_shuffle(t1, lane - 1) : 0)
+           sg_scan(x >> lane & 3): a ladder of 3 shuffles and adds: after the step for d a lane holds the sum of the 2d lanes ending at it; proved for any value per lane (with a free word in each lane, every lane's result is the words of lanes 0..lane, each once: + associates and commutes mod 2^N)
+           holds in a full subgroup (all 8 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> T(i: u32 in 0..7) = [3, 1, 4, 1, 5, 9, 2, 6][i]
+> t3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = T(i) + T(j) * T(k)
+> find t3 1
+  note: the result is int: searching in u32
+find t3: 512 points, computing in u32, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 24.625 as written):
+  cost 22.625 int(int(udot4x8([3, 1, 4, 1, 5, 9, 2, 6][j], [3, 1, 4, 1, 5, 9, 2, 6][k])) + [3, 1, 4, 1, 5, 9, 2, 6][i])
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: ([3, 1, 4, 1, 5, 9, 2, 6][j]) * ([3, 1, 4, 1, 5, 9, 2, 6][k])
+           [3, 1, 4, 1, 5, 9, 2, 6][j] in 1..9 (proved range)
+           [3, 1, 4, 1, 5, 9, 2, 6][k] in 1..9 (proved range)
+           udot4x8's sum is in 1..81: it does not wrap
+           exhaustive
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 23.625 as written):
+  cost 21.875 sg_shuffle(t1, i) + sg_shuffle(t1, j)*sg_shuffle(t1, k) where t1 = [3, 1, 4, 1, 5, 9, 2, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][lane]
+           the table [3, 1, 4, 1, 5, 9, 2, 6], read 3 times: lane i holds entry i (the table read once in each lane, at the lane's index, the lanes past its end holding 0), and sg_shuffle(v, i) is v in lane i, so each lookup is one shuffle; an index outside the table stays outside (undefined before, 0 or undefined now)
+           holds in a full subgroup (all 32 lanes active); needs shuffle (GL_KHR_shader_subgroup_shuffle)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 32768 distinct columns, bank full; 'more' continues]
+> find T 1
+  note: the result is int: searching in u32
+find T: 8 points, computing in u32, costs from gt1030
+  cost 6   (0x51840302 >> (i << 2) & 15) + 1        packed table in one constant
+  [searched every term up to cost 5: 2097152 distinct columns, bank full; 'more' continues]
+> brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+> find brev 1
+find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 29 as written):
+  cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit: that bit of the word, its position a constant less the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> bswap(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+> find bswap 1
+find bswap: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 11 as written):
+  cost 6.375 sg_ballot(x >> (lane xor 0x18) & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit: that bit of the word, its position the lane's index xor a constant) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model w8 : gt1030 { warp: 8 }
+> use w8
+cost model: w8
+> nib(x: u8 uniform) = { a = ((x >> 1) & 0x55) | ((x & 0x55) << 1); b = ((a >> 2) & 0x33) | ((a & 0x33) << 2); u8((b >> 4) | (b << 4)) xor 0xa5 }
+> find nib 1
+find nib: 256 points, computing in u8, costs from w8
+  subgroup forms under w8 (each derived, with what it holds under; cost 17 as written):
+  cost 8.375 u8(sg_ballot(x >> 7 - lane & 1 != 0) xor 0xa5)
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i], xor bit i of a constant; lane i works that bit out (every row has one bit: that bit of the word, its position a constant less the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  cost 7   [165, 37, 229, 101, 133, 5, 197, 69, 181, 53, 245, 117, 149, 21, 213, 85, 173, 45, 237, 109, 141, 13, 205, 77, 189, 61, 253, 125, 157, 29, 221, 93, 161, 33, 225, 97, 129, 1, 193, 65, 177, 49, 241, 113, 145, 17, 209, 81, 169, 41, 233, 105, 137, 9, 201, 73, 185, 57, 249, 121, 153, 25, 217, 89, 167, 39… (873 more characters) lookup table (baseline)
+  [searched every term up to cost 4: 65536 distinct columns, bank full; 'more' continues]
+> par(x: u8 uniform) = { a = x xor (x << 1) xor (x << 3); b = a xor (a >> 2) xor (a >> 5); c = b xor (b << 4) xor (b >> 1); d = c xor (c << 2) xor (c >> 3) xor (c << 6); u8(d xor (d >> 4) xor (d << 5)) }
+> find par 1
+find par: 256 points, computing in u8, costs from w8
+  subgroup forms under w8 (each derived, with what it holds under; cost 28 as written):
+  cost 15.25 u8(sg_ballot(popcount(x & [167, 174, 206, 60, 185, 191, 139, 227][lane]) & 1 != 0))
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (that parity, the rows in a table read at the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  cost 7   [0, 241, 231, 22, 47, 222, 200, 57, 126, 143, 153, 104, 81, 160, 182, 71, 56, 201, 223, 46, 23, 230, 240, 1, 70, 183, 161, 80, 105, 152, 142, 127, 187, 74, 92, 173, 148, 101, 115, 130, 197, 52, 34, 211, 234, 27, 13, 252, 131, 114, 100, 149, 172, 93, 75, 186, 253, 12, 26, 235, 210, 35, 53, 196, 132, … (875 more characters) lookup table (baseline)
+  [searched every term up to cost 4: 65536 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> brevv(x: u32) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); (a >> 16) | (a << 16) }
+> find brevv 1
+find brevv: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use nosg
+cost model: nosg
+> find t3 1
+  note: the result is int: searching in u32
+find t3: 512 points, computing in u32, costs from nosg
+  dot products under nosg (sums of products laid into lanes; cost 24.625 as written):
+  cost 22.625 int(int(udot4x8([3, 1, 4, 1, 5, 9, 2, 6][j], [3, 1, 4, 1, 5, 9, 2, 6][k])) + [3, 1, 4, 1, 5, 9, 2, 6][i])
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: ([3, 1, 4, 1, 5, 9, 2, 6][j]) * ([3, 1, 4, 1, 5, 9, 2, 6][k])
+           [3, 1, 4, 1, 5, 9, 2, 6][j] in 1..9 (proved range)
+           [3, 1, 4, 1, 5, 9, 2, 6][k] in 1..9 (proved range)
+           udot4x8's sum is in 1..81: it does not wrap
+           exhaustive
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 32768 distinct columns, bank full; 'more' continues]
+> find brev 1
+find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from nosg
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model dear : gt1030 { sg_shuffle: 20, sg_ballot: 30 }
+> use dear
+cost model: dear
+> find s8 1
+find s8: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from dear
+  subgroup forms: derived, but not cheaper under dear (cost 81, as written 63.25): a scan as a ladder of shuffles and adds
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find f1 1
+find f1: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from dear
+  subgroup forms: derived, but not cheaper under dear (cost 81, as written 63.25): a scan as a ladder of shuffles and adds
+  subgroup forms under dear (each derived, with what it holds under; cost 63.25 as written):
+  cost 43.375 u8(popcount(sg_ballot(x >> lane & 1 != 0) & (2 << lane) - 1))
+           sg_scan(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so its sum over lanes 0..lane is the number of those lanes where it is not 0: the set bits of the ballot at positions 0..lane, which (2 << lane) - 1 keeps
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find brev 1
+find brev: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from dear
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> ripple(g: u8, p: u8) = { c = 0; r = 0; for i in 0..7 { r = r | (c << i); c = ((g >> i) & 1) | (((p >> i) & 1) & c) }; r } where (g & p) == 0
+> ks(g: u8, p: u8) = u8(((g << 1) + p) xor p) where (g & p) == 0
+> equiv ripple ks
+ripple and ks are equal on the domain of ripple (exhaustive)
+> add8(a: u8 uniform, b: u8 uniform, lane: u32 in 0..3) = { s = ((a >> (2*lane)) & 3) + ((b >> (2*lane)) & 3); g = sg_ballot(s > 3); p = sg_ballot(s == 3); c = ((g << 1) + p) xor p; u8(sg_add(((s + ((c >> lane) & 1)) & 3) << (2*lane))) }
+> ref8(a: u8 uniform, b: u8 uniform, lane: u32 in 0..3) = a + b
+> equiv add8 ref8
+add8 and ref8 are equal on the domain of add8 (exhaustive)
+> ex(x: u32, y: u32) = ((x >> 8) & 255) + y
+> find ex 1
+find ex: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 4 as written):
+  cost 2   udot4x8(x, 0x100) + y
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (x >> 8 & 0xff) * 1
+           x >> 8 & 0xff is bits 8..15 of x: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 228 AIG nodes, 0 conflicts
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

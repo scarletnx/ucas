@@ -1,0 +1,142 @@
+# Operations on the lanes of a subgroup (src/sg.c): what they compute,
+# their cost classes, and the forms find derives with them when the
+# active model prices them lower (and only then).
+
+# semantics, in a full subgroup; the active model's has 32 lanes.  With
+# nothing but the lane in it an operand is known: the result folds
+show sg_ballot(lane < 5)
+show sg_ballot(lane % 3 == 0)
+show sg_any(lane == 31)
+show sg_all(lane < 31)
+show sg_add(lane)
+show sg_shuffle(lane * lane, 7)
+# a value per lane is a function of the lane and of what the lanes share:
+# here the lanes' inputs are the bits of a shared word
+b(x: u32 uniform) = sg_ballot(((x >> lane) & 1) != 0)
+id(x: u32 uniform) = x
+equiv b id
+# a lane parameter makes the function a value per lane, and its range is
+# the subgroup's size: 8 lanes
+s8(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 3)
+show s8
+show s8(0xb5, 0)
+show s8(0xb5, 3)
+show s8(0xb5, 7)
+range s8
+# written with the others: the exclusive scan, shuffle by xor, broadcast,
+# rotate, and GLSL's names
+xs8(x: u8 uniform, lane: u32 in 0..7) = sg_exclusive((x >> lane) & 3)
+show xs8
+show xs8(0xb5, 3)
+x8(x: u8 uniform, lane: u32 in 0..7) = sg_shuffle_xor((x >> lane) & 1, 1)
+show x8
+show x8(2, 0)
+r8(x: u8 uniform, lane: u32 in 0..7) = subgroupRotate((x >> lane) & 1, 3)
+show r8
+show r8(8, 0)
+bc(x: u8 uniform, lane: u32 in 0..7) = subgroupBroadcast(x >> lane, 2) + sg_broadcast_first(x >> lane)
+show bc(0xb5, 5)
+# one inside another: the inner one runs in every lane of the outer
+h8(x: u8 uniform, lane: u32 in 0..7) = sg_ballot(sg_shuffle_xor((x >> lane) & 1, 1) != 0)
+show h8(6, 0)
+# loops on either side: one in the value per lane (it reads the lane), one
+# around an operation
+lp(x: u8 uniform, lane: u32 in 0..7) = sg_scan(sum(i in 0..1, (x >> ((lane + i) & 7)) & 1))
+show lp(3, 7)
+range lp
+lk(x: u8 uniform, lane: u32 in 0..7) = { s = 0; for i in 0..2 { s += sg_shuffle((x >> lane) & 1, (lane + i) & 7) }; s }
+show lk(1, 7)
+range lk
+# a shuffle from a lane that is not there is undefined
+sh(i: u32 in 0..40) = sg_shuffle(lane + 100, i)
+domain sh
+# refused, each with why: a parameter that has a value in each lane read
+# across the lanes, a sum of floats, no subgroup size, lane outside
+q(x: u32) = sg_shuffle(x, 3)
+z(x: f32 uniform) = sg_add(x)
+p(x: u32 uniform) = sg_shuffle(lane, lane + 1)
+model nosize { all: 1 }
+use nosize
+n(x: u32 uniform) = sg_add(x & lane)
+use gt1030
+
+# prices: one instruction of the model's class, its operand once in each
+# lane; a vote is one value for the subgroup, so a ?: on it is uniform
+cost s8
+v(x: u32 uniform, a: u32, c: u32) = sg_any(((x >> lane) & 1) != 0) ? a * c : a + c
+cost v
+models
+# a model that does not list an operation cannot use it
+model nosg : gt1030 { sg_scan: none, sg_ballot: none, sg_shuffle: none }
+use nosg
+cost s8
+use gt1030
+# a modifier is folded into the classes it names and no other: a negation
+# that a division by a constant absorbs is still an operation under a sum
+# over the lanes
+model modk : gt1030 { fuse kneg(a: int) = -a : 0 in idivk }
+use modk
+ng(x: u32 uniform) = sg_add(-(x & lane))
+cost ng
+use gt1030
+
+# find under gt1030 (the scan measured 60.25, a shuffle 4, a ballot with
+# its compare 2.375): a scan of bits is a count of ballot bits
+f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)
+find f1 1
+# and their sum over the lanes
+c1(x: u8 uniform, lane: u32 in 0..7) = sg_add((x >> lane) & 1)
+find c1 1
+# a scan of anything: a ladder of shuffles and adds
+find s8 1
+# a table read three times: one entry per lane, each lookup a shuffle
+T(i: u32 in 0..7) = [3, 1, 4, 1, 5, 9, 2, 6][i]
+t3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = T(i) + T(j) * T(k)
+find t3 1
+# read once it is dearer as a register: nothing
+find T 1
+# a GF(2)-linear function of a shared word, one bit per lane: the bit
+# reversal of a word, written as swaps
+brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+find brev 1
+# the byte swap; and a model with 8 lanes for a byte
+bswap(x: u32 uniform) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+find bswap 1
+model w8 : gt1030 { warp: 8 }
+use w8
+nib(x: u8 uniform) = { a = ((x >> 1) & 0x55) | ((x & 0x55) << 1); b = ((a >> 2) & 0x33) | ((a & 0x33) << 2); u8((b >> 4) | (b << 4)) xor 0xa5 }
+find nib 1
+# rows of several bits: the parity of a masked word
+par(x: u8 uniform) = { a = x xor (x << 1) xor (x << 3); b = a xor (a >> 2) xor (a >> 5); c = b xor (b << 4) xor (b >> 1); d = c xor (c << 2) xor (c >> 3) xor (c << 6); u8(d xor (d >> 4) xor (d << 5)) }
+find par 1
+use gt1030
+# the word is not shared by the lanes: nothing
+brevv(x: u32) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); (a >> 16) | (a << 16) }
+find brevv 1
+
+# under a model without the operations nothing is rewritten, and one
+# where they are dear says what was derived
+use nosg
+find t3 1
+find brev 1
+model dear : gt1030 { sg_shuffle: 20, sg_ballot: 30 }
+use dear
+find s8 1
+find f1 1
+find brev 1
+use gt1030
+
+# the carry word of a wide add, one word per lane, is one add of two
+# ballots: g the lanes that carry out, p those that pass a carry on
+ripple(g: u8, p: u8) = { c = 0; r = 0; for i in 0..7 { r = r | (c << i); c = ((g >> i) & 1) | (((p >> i) & 1) & c) }; r } where (g & p) == 0
+ks(g: u8, p: u8) = u8(((g << 1) + p) xor p) where (g & p) == 0
+equiv ripple ks
+# a u8 add as 4 lanes of 2 bits
+add8(a: u8 uniform, b: u8 uniform, lane: u32 in 0..3) = { s = ((a >> (2*lane)) & 3) + ((b >> (2*lane)) & 3); g = sg_ballot(s > 3); p = sg_ballot(s == 3); c = ((g << 1) + p) xor p; u8(sg_add(((s + ((c >> lane) & 1)) & 3) << (2*lane))) }
+ref8(a: u8 uniform, b: u8 uniform, lane: u32 in 0..3) = a + b
+equiv add8 ref8
+
+# dot products: a byte of a word plus anything is DP4A with a one-hot
+# constant word (the add is the sum's)
+ex(x: u32, y: u32) = ((x >> 8) & 255) + y
+find ex 1

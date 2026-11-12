@@ -1304,6 +1304,7 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
   atomic_shared: 6.625, atomic_global: 50, store: 15,
   dot4x8: 1, dot4x8sat: 6.5
+  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25
   sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a * b + c : imul
@@ -1321,9 +1322,11 @@ division is emulated, fdiv, sqrt and the SFU ops are quarter rate, fp64
 is 1/32 rate (`f64` multiplies the cost of every f64 float operation;
 f64 division and sqrt are library calls, about 300 and 570).  load,
 store and atomic_global are cache-resident accesses; streams from DRAM
-cost 90 to 140.  DP4A is the dot4x8 class (see Dot products below).
-The report also has what the classes do not show: subgroup operations,
-textures; the fusions it measured are in the model (below).  `cd
+cost 90 to 140.  DP4A is the dot4x8 class (see Dot products below), the
+subgroup operations the `sg_` classes (see Subgroups below).
+The report also has what the classes do not show: textures, the
+clustered and partitioned subgroup operations; the fusions it measured
+are in the model (below).  `cd
 tests/gt1030 && ./run.py` measures again (it needs the GPU).
 
 Integer division has a class for each kind: `idiv`/`idivk` unsigned
@@ -1728,6 +1731,11 @@ for a GLSL expression over the values its leaves take at its calls,
 with the declaration GLSL needs (GLSL has no built-in for these).
 Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 
+A sum with one lane of a word in it is searched too: `((x >> 8) & 255)
++ y` is `udot4x8(x, 0x100) + y` under gt1030 (2 against 4), the dot
+with a one-hot constant word being that byte and the add the sum's own.
+With `0x01010101` it is the sum of a word's bytes, with powers of two a
+weighted one.  A lone field is not a sum and stays as it is.
 
 ### Memory kinds
 
@@ -2036,6 +2044,137 @@ result ("spirv-val accepts the written module").  `ulp N` in the request
 is the requirement; `exact` rewrites nothing (a pair is not bit-exact).
 Not rewritten: f64 vectors and matrices, a value read by more than one
 result, results that stay f64.
+
+### Subgroups
+
+A subgroup is W invocations that run in lockstep (a warp, a wave), lane
+0 to lane W - 1.  A value is per lane or shared by the lanes (a
+`uniform` parameter, a constant).  These operations read a value in
+every lane at once (src/sg.c), each defined exactly for a full
+subgroup, all W lanes active:
+
+| op | value | SPIR-V, GLSL |
+|---|---|---|
+| `sg_ballot(p)` | the word whose bit l is p in lane l: u32, u64 when W > 32 | OpGroupNonUniformBallot, `subgroupBallot` |
+| `sg_any(p)`, `sg_all(p)` | p in some lane, in every lane | OpGroupNonUniformAny/All |
+| `sg_add(v)` | the sum of v over the lanes, in v's type (wrapping) | OpGroupNonUniformIAdd Reduce, `subgroupAdd` |
+| `sg_shuffle(v, i)` | v in lane i; undefined when i is not in 0..W-1 | OpGroupNonUniformShuffle |
+| `sg_scan(v)` | in lane l, the sum of v over lanes 0..l | OpGroupNonUniformIAdd InclusiveScan, `subgroupInclusiveAdd` |
+
+and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
+`sg_shuffle_xor(v, k)` = `sg_shuffle(v, lane xor k)`, `sg_broadcast(v,
+i)`, `sg_broadcast_first(v)` (lane 0), `sg_rotate(v, d)` =
+`sg_shuffle(v, (lane + d) % W)`.  GLSL's names are read as well
+(`subgroupBallot` ... `subgroupRotate`).  Sums are of integers: the
+order of a float sum is the implementation's, so it has no exact value
+and is refused.
+
+In an operand that is a value per lane, `lane` is the lane's index and
+everything else is shared by the lanes, so the lanes' inputs are
+written as a function of the lane: a bit or a field of a shared word, a
+table's entry.  That is what makes the operations exact here: spelled
+out lane by lane they are ordinary expressions, which is how they are
+evaluated, bounded and bit-blasted, so `range`, `equiv`, `domain`,
+`wrap` and `find` work on them as on anything else; the node keeps the
+operation for printing and for the price.  A parameter that is not
+`uniform` has a value in each lane and cannot be read across the lanes:
+that is an error which says so.  W is the range of the function's
+`lane` parameter (`lane: u32 in 0..7` is 8 lanes; such a function is
+itself a value per lane), else the active model's `warp: N` (the count
+the memory kinds use, above); without either the operations are
+refused.
+
+```
+> show sg_ballot(lane % 3 == 0)
+_() = 1227133513
+> b(x: u32 uniform) = sg_ballot(((x >> lane) & 1) != 0)
+> equiv b id                                 (id(x) = x)
+b and id are equal on the domain of b (proved by SAT: 33 AIG nodes, 0 conflicts)
+> s8(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 3)
+> show s8(0xb5, 3)
+_() = 6
+> sh(i: u32 in 0..40) = sg_shuffle(lane + 100, i)
+> domain sh
+  requires 0 <= i < 32  (a lane of the subgroup)
+```
+
+**Cost classes.**  `sg_ballot`, `sg_vote` (any, all), `sg_add`,
+`sg_shuffle`, `sg_scan`; like the dot forms, a model that does not list
+one cannot use it (`sg_scan: none` takes one away).  An operation costs its class once and its operand
+once in each lane: a value computed in every lane is priced once,
+whether an operation reads it across the lanes or the lane uses it
+itself.  A ballot, a vote and a sum are one value for the subgroup, so
+a `?:` on them is priced as a uniform branch.  gt1030, measured
+(tests/gt1030, each step less its add): a shuffle 4.00 (by xor,
+broadcast, rotate and the quad swap 4.00 to 4.07 with their add, so
+those are priced one logic or add above their measurement), the sum
+32.63, the inclusive scan 60.24.  The ballot and the votes fit below
+zero (`ballot((a & 1) != 0) + b` is 3.65 where the and, the compare and
+the add alone are 4.375: the compare's bool is never made), so they are
+priced 0 and their compare as a compare, 0.7 above the measurement.
+The estimated models (sm75, sm86, rdna2) inherit these unchanged.
+
+**What find derives.**  Each form is built by a recogniser, priced as
+one lane runs it, kept only when the whole function gets cheaper under
+the active model, and printed with its derivation and what it holds
+under; the whole is then checked against the function on its domain
+(every point, SAT, or a sample).
+
+- A sum or a scan of a value that is 0 or 1 in every lane (its range,
+  by intervals) counts lanes: `popcount(sg_ballot(v != 0))`, and for
+  the scan the ballot's bits 0..lane, `& ((2 << lane) - 1)`.
+- A scan of anything is a ladder of ceil(log2 W) shuffles and adds
+  (Hillis and Steele): after the step for d a lane holds the sum of the
+  2d lanes ending at it.  Proved for any value per lane: with a free
+  word in each lane, every lane's result is the words of lanes 0..lane,
+  each once.
+- A constant table of at most W entries can sit one entry per lane (the
+  table read once in each lane, at the lane's index) and be read by a
+  shuffle: no memory, no bank conflicts.  Every lookup of the table or
+  none.
+- A GF(2)-linear function of one shared word, bit by bit: lane i works
+  out bit i of the result, the parity of x & row[i], and the ballot
+  puts the 32 bits together.  Linearity is derived from the structure
+  (xor, not, shifts and masks by constants, conversions, an or or a sum
+  of fields that share no bit).  When every row has one bit the lane
+  takes that bit of the word, its position `lane + b`, `b - lane` or
+  `lane xor b` when the rows follow one of those and a table otherwise.
+
+```
+> f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)
+> find f1 1                                  (gt1030)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 63.25 as written):
+  cost 13.375 u8(popcount(sg_ballot(x >> lane & 1 != 0) & (2 << lane) - 1))
+           sg_scan(x >> lane & 1): x >> lane & 1 is 0 or 1 in every lane (its range, by intervals), so ...
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+> find s8 1
+  cost 33  (x >> lane & 3) + (lane >= 1 ? sg_shuffle(t1, lane - 1) : 0) + (lane >= 2 ? sg_shuffle(t2, lane - 2) : 0) + ...
+> t3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = T(i) + T(j) * T(k)       (T an 8-entry table)
+> find t3 1
+  cost 21.875 sg_shuffle(t1, i) + sg_shuffle(t1, j)*sg_shuffle(t1, k) where t1 = [3, 1, 4, 1, 5, 9, 2, 6, 0, ...][lane]
+> brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); ... (d >> 16) | (d << 16) }
+> find brev 1                                (29 as written: five swaps)
+  cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
+```
+
+The table read once (6.875) is dearer as a register (10.875) and stays;
+under a model without the operations nothing is proposed; under one
+where they are dear (`model dear : gt1030 { sg_shuffle: 20 }`) find
+says "derived, but not cheaper" with both prices; a word that is not
+`uniform` is not sliced.
+
+The carry word of a wide add, one word per lane, is one add of two
+ballots: with g the lanes whose sum carries out and p those that pass
+a carry on, the carries into the lanes are `((g << 1) + p) xor p`
+(`equiv` against the bit-serial recurrence proves it, where g & p ==
+0).  tests/subgroup.ucas adds two words as lanes of limbs this way and
+proves the result equal to `a + b`.
+
+Not there yet: `animate exec` and `simplify` do not run or write the
+OpGroupNonUniform instructions; a subgroup with inactive lanes; inputs
+that are a free value in each lane (they need more than a function's 8
+parameters).
 
 ### Long expressions
 
@@ -3751,6 +3890,10 @@ Data-oriented throughout (see `src/ucas.h`):
   floats yet) and `approx` has no f16 format.  A float `equiv` is by
   enumeration: two unranged f16 parameters are 2^32 points, past the 2^22
   that are enumerated, and are sampled (SAT covers the integers only).
+- Subgroup operations are exact for a full subgroup whose per-lane
+  values are functions of the lane and of shared values; clustered,
+  partitioned and quad operations, min/max/bitwise reductions and float
+  sums are not operations yet.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding
