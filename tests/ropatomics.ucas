@@ -4,7 +4,7 @@
 # rop's catalogue says which state computes it.  Proposed only where the
 # model prices that state below the atomic; gt1030 prices none, so it
 # says nothing there.
-model fixed : gt1030 { rop_blend: 2, rop_logic: 60, rop_depth: 4 }
+model fixed : gt1030 { rop_blend: 2, rop_logic: 60, rop_depth: 4, rop_xfb: 4 }
 #
 # under gt1030 nothing is said about the atomic
 simplify nofile
@@ -112,5 +112,41 @@ void main() {
     uvec4 t = inb.tri[i];
     uint depth = t.y % 1056964608u;
     atomicMin(vbb.vb[t.x & 65535u], (uint64_t(depth) << 32) | uint64_t(i));
+}
+```
+# stream compaction: a slot from a counter, a store into it, is what
+# transform feedback appends in primitive order with no atomic (one of
+# the orders the atomic allows)
+simplify nofile under fixed
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer I { vec4 pts[]; } inb;
+layout(std430, binding = 1) buffer C { uint count; } cb;
+layout(std430, binding = 2) buffer O { vec4 kept[]; } ob;
+void main() {
+    vec4 p = inb.pts[gl_GlobalInvocationID.x];
+    if (p.w > 0.5) {
+        uint i = atomicAdd(cb.count, 1u);
+        ob.kept[i] = p;
+    }
+}
+```
+# the slot read for something else: not an append transform feedback
+# makes
+simplify nofile under fixed
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer I { vec4 pts[]; } inb;
+layout(std430, binding = 1) buffer C { uint count; } cb;
+layout(std430, binding = 2) buffer O { vec4 kept[]; } ob;
+void main() {
+    vec4 p = inb.pts[gl_GlobalInvocationID.x];
+    if (p.w > 0.5) {
+        uint i = atomicAdd(cb.count, 1u);
+        ob.kept[i] = p;
+        inb.pts[gl_GlobalInvocationID.x].w = float(i);
+    }
 }
 ```

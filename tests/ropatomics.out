@@ -1,6 +1,6 @@
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
-> model fixed : gt1030 { rop_blend: 2, rop_logic: 60, rop_depth: 4 }
+> model fixed : gt1030 { rop_blend: 2, rop_logic: 60, rop_depth: 4, rop_xfb: 4 }
 > spvsimplify nofile
 simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
@@ -152,3 +152,33 @@ memory under fixed:
         the test keeps v >> 33 < d >> 33 ? v : d, which is min(v, d) wherever the keys differ or the new payload is the larger (proved by SAT); on a tie the test keeps the cell, and min keeps the smaller payload, hence the order; a key's depth is the f32 whose bits are key + 2^23, normal, in [2^-126, 1) and increasing with the key, so the depth compare is the keys' integer compare and nothing rounds
         price: rop_depth 4 a fragment under fixed, against 264.625 (one global 64-bit atomic, atomic_global_64): -260.625 a contribution
         pipeline: VkPipelineDepthStencilStateCreateInfo: depthTestEnable, depthWriteEnable, depthCompareOp = VK_COMPARE_OP_LESS; a D32_SFLOAT depth attachment and an R32G32_UINT colour attachment (blending off), cleared to (or copied from) the cells' keys and payloads; one point per contribution, its position the cell, gl_FragDepth = uintBitsToFloat(uint(v >> 33) + 0x00800000), its colour v & 0x1ffffffff; the cell's value is (key << 33) | payload, the key the depth's bits - 0x00800000; the invocation that ran the atomic draws a point at the cell instead (its index into vb the point's position), and vb's values come from the target after the draw (copied or converted back)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile
+simplify: 95 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under fixed (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  appends through a counter as transform feedback (a proposal, not applied: the elements are emitted by a geometry or vertex shader and captured):
+    %45 = OpAtomicIAdd %uint %43 %uint_1 %uint_0 %uint_1
+      (line 9: uint i = atomicAdd(cb.count, 1u);)
+      each invocation that gets here appends one element to kept at the slot count hands out (1 store through it): transform feedback writes what a shader emits in primitive order, with no atomic, and the elements end in one of the orders the atomic allows
+      price: rop_xfb 4 an element under fixed, against 50 (one global atomic, atomic_global): -46 an element
+      pipeline: VK_EXT_transform_feedback: the stored values as the outputs of a geometry shader (EmitVertex where this invocation appends; a vertex shader of points when each appends once) with XfbBuffer, XfbStride and Offset decorations, kept as the transform feedback buffer, vkCmdBeginTransformFeedbackEXT and End around the draw, and count from its counter buffer (the bytes written over the stride)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile
+simplify: 99 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under fixed (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  appends through a counter as transform feedback (a proposal, not applied: the elements are emitted by a geometry or vertex shader and captured):
+    %45 = OpAtomicIAdd %uint %43 %uint_1 %uint_0 %uint_1
+      (line 9: uint i = atomicAdd(cb.count, 1u);)
+      not proposed: its old value is used other than as the slot of a store
