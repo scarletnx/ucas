@@ -1,0 +1,33 @@
+# animate exec runs a float atomic add, priced by its own class: four
+# lanes add 0, 0.25, 0.5 and 0.75 into two cells, which read 0.5 and 1
+animate exec seed 1 nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 8) in;
+layout(set = 0, binding = 0) buffer O { float o[8]; } outb;
+shared float acc[2];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    acc[i & 1u] = 0.0;
+    barrier();
+    atomicAdd(acc[i & 1u], float(i) * 0.25);
+    barrier();
+    outb.o[i] = acc[i & 1u];
+}
+```
+# an atomic it does not run is refused by name
+animate exec seed 1 nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 4) in;
+layout(set = 0, binding = 0) buffer O { float o[4]; } outb;
+shared float m;
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    atomicMin(m, float(i));
+    barrier();
+    outb.o[i] = m;
+}
+```

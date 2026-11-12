@@ -1,0 +1,37 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (79 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  note: the workgroup has 8 invocations (LocalSize 8 1 1); these are the first 4 (add `lanes 32` for a warp), so shared memory the others would write stays as it started
+  before: outb: 0.98 -0.11 -0.86 1.82 -0.38 -1.55 0.87 0.29
+  after:  outb: 0.5 1 0.5 1 -0.38 -1.55 0.87 0.29
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    %24 = OpBitwiseAnd %uint %16 %uint_1         logic          1  t = 0..1  -> 0 1 0 1
+    %27 = OpAccessChain %_ptr_Workgroup_float %acc %24 iadd           1  t = 1..2  -> &acc[0] &acc[1] &acc[0] &acc[1]
+    OpStore %27 %float_0                         store_shared     3  t = 2..5
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 5..14.125
+    %33 = OpConvertUToF %float %16               conv           3  t = 14.125..17.125  -> 0 1 2 3
+    %35 = OpFMul %float %33 %float_0_25          fmul           1  t = 17.125..18.125  -> 0 0.25 0.5 0.75
+    %36 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %35 atomic_shared_f 24.25  t = 18.125..42.375  lanes {0}  -> 0 - - -
+    %36 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %35 atomic_shared_f 24.25  t = 42.375..66.625  lanes {1}  -> - 0 - -
+    %36 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %35 atomic_shared_f 24.25  t = 66.625..90.875  lanes {2}  -> - - 0 -
+    %36 = OpAtomicFAddEXT %float %27 %uint_1 %uint_0 %35 atomic_shared_f 24.25  t = 90.875..115.125  lanes {3}  -> - - - 0.25
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 115.125..124.25
+    %48 = OpLoad %float %27                      load_shared     3  t = 124.25..127.25  -> 0.5 1 0.5 1
+    %50 = OpAccessChain %_ptr_StorageBuffer_float %outb %int_0 %16 iadd           1  t = 127.25..128.25  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    OpStore %50 %48                              store         15  t = 128.25..143.25
+  time 143.25 for every lane; lanes busy 36% (291 lane-units idle: masked, or waiting for an atomic)
+  animation: 764x314, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 23.9 cost units; 256989 bytes
+  (nofile: GIF checksum 0e84c7e2)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (71 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 0.98 -0.11 -0.86 1.82
+execfadd.ucas:20:27: error: SPIR-V: OpAtomicFMinEXT is not run by the executor
+    animate exec seed 1 nofile
+                              ^
