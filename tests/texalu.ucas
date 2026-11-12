@@ -124,3 +124,12 @@ find f 1
 what can the texture unit compute of tri?
 use the sampler for mx within 0.01 under texel
 use gt1030
+# find's float path has the texture unit's section too: a float table
+# read is a nearest read where the model prices one, and a float sum of
+# entries says what its read would need
+model texeln : texel { tex_nearest: 5 }
+use texeln
+gp(i: i32 in 0..7) = G[i]
+find gp 1
+find g 1
+use gt1030

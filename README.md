@@ -3302,7 +3302,8 @@ was the filter's exactness, so under gt1030 as it stands nothing below
 is offered: `texalu` says which number is missing.
 
 **The rewrites.**  `texalu F [tol E] [under M]` (and a section of
-`find`, and the function level of `simplify` on GLSL) looks for:
+`find`, for integer and float results alike, and the function level of
+`simplify` on GLSL) looks for:
 
 - a table read `T[e]`, or a select between one and a constant, whose
   index is an address mode of one of its subterms i: `T[i % 7]`,
