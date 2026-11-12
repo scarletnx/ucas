@@ -1,0 +1,99 @@
+# simplify proposes a fixed-function state for a module's atomics
+# (src/spv_mem.inc through rop.c): an atomic on a buffer or an image whose
+# old value no invocation reads is a scatter's update d = d op v, and
+# rop's catalogue says which state computes it.  Proposed only where the
+# model prices that state below the atomic; gt1030 prices none, so it
+# says nothing there.
+model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
+#
+# under gt1030 nothing is said about the atomic
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uint px[]; } inb;
+layout(std430, set = 0, binding = 1) buffer H { uint hist[]; } hb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicAdd(hb.hist[v & 255u], 1u);
+}
+```
+# a histogram of bytes: additive blending on a float target, exact while
+# the counts stay below 2^24, which the assumption on the buffer's
+# contents gives
+simplify nofile under fixed, hist in [0, 1000000]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uint px[]; } inb;
+layout(std430, set = 0, binding = 1) buffer H { uint hist[]; } hb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicAdd(hb.hist[v & 255u], 1u);
+}
+```
+# the same without the assumption: not exact, and what would make it so;
+# a weight read from the data is bounded by its computation
+simplify nofile under fixed
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uint px[]; } inb;
+layout(std430, set = 0, binding = 1) buffer H { uint hist[]; } hb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicAdd(hb.hist[v & 255u], v >> 24);
+}
+```
+# a bitset: the logic op computes it, but fixed prices it above the atomic
+simplify nofile under fixed
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uint px[]; } inb;
+layout(std430, set = 0, binding = 1) buffer B { uint bits[]; } bb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicOr(bb.bits[v >> 5], 1u << (v & 31u));
+}
+```
+# an image: the target is the image itself
+simplify nofile under fixed, img in [0, 4096]
+```glsl
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { uvec2 pt[]; } inb;
+layout(set = 0, binding = 1, r32ui) uniform uimage2D img;
+void main() {
+    uvec2 p = inb.pt[gl_LocalInvocationIndex] & 255u;
+    imageAtomicAdd(img, ivec2(p), 1u);
+}
+```
+# a float add: one f32 operation in the blender (exact if it rounds to
+# nearest), against the float atomic
+simplify nofile under fixed
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer I { vec4 sp[]; } inb;
+layout(std430, set = 0, binding = 1) buffer A { float acc[]; } ab;
+void main() {
+    vec4 s = inb.sp[gl_GlobalInvocationID.x];
+    atomicAdd(ab.acc[uint(s.x) & 1023u], s.w);
+}
+```
+# the cell read or updated another way in the same shader: no target
+# serves it
+simplify nofile under fixed, hist in [0, 1000000]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) buffer I { uint px[]; } inb;
+layout(std430, set = 0, binding = 1) buffer H { uint hist[]; } hb;
+void main() {
+    uint v = inb.px[gl_GlobalInvocationID.x];
+    atomicAdd(hb.hist[v & 255u], 1u);
+    inb.px[gl_GlobalInvocationID.x] = hb.hist[v & 255u];
+}
+```

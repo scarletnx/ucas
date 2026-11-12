@@ -38,6 +38,7 @@
 #include "memk.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,7 +56,25 @@ struct rctx {
 	int nforms, navail;
 	float against;
 	struct sbuf againstwhy;
+	/*
+	 * rop_offer (simplify): nothing printed; the cheapest form the model
+	 * prices below the atomic is kept, and why a form was refused
+	 */
+	int quiet;
+	struct rop_offer *best;
 };
+
+static void
+say(const struct rctx *c, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (c->quiet)
+		return;
+	va_start(ap, fmt);
+	vprintf(fmt, ap);
+	va_end(ap);
+}
 
 static const char *
 pname(const struct rctx *c, int slot)
@@ -93,6 +112,36 @@ static void
 form(struct rctx *c, const char *family, const char *state,
     const char *holds, const char *proof, int cls, const char *pipeline)
 {
+	if (c->quiet) {
+		struct rop_offer *o = c->best;
+		c->nforms++;
+		if (!cclass_available(c->m, cls) || !(c->m->c[cls] < c->against)) {
+			if (!o->found && !o->near[0] && !cclass_available(c->m, cls))
+				snprintf(o->near, sizeof o->near, "%s (a %s) computes "
+				    "it, but %s does not price %s (not measured)", state,
+				    family, sym_str(c->m->name), cclass_name[cls]);
+			else if (!o->found && !o->near[0])
+				snprintf(o->near, sizeof o->near, "%s (a %s) computes "
+				    "it, at %s %g a fragment: not below %g (%s)", state,
+				    family, cclass_name[cls], (double)c->m->c[cls],
+				    (double)c->against, sb_str(&c->againstwhy));
+			return;
+		}
+		if (o->found && !(c->m->c[cls] < o->cost))
+			return;
+		o->found = 1;
+		o->cls = cls;
+		o->cost = c->m->c[cls];
+		o->against = c->against;
+		snprintf(o->family, sizeof o->family, "%s", family);
+		snprintf(o->state, sizeof o->state, "%s", state);
+		snprintf(o->holds, sizeof o->holds, "%s", holds ? holds : "");
+		snprintf(o->proof, sizeof o->proof, "%s", proof);
+		snprintf(o->pipeline, sizeof o->pipeline, "%s", pipeline);
+		snprintf(o->againstwhy, sizeof o->againstwhy, "%s",
+		    sb_str(&c->againstwhy));
+		return;
+	}
 	if (!c->nforms++) {
 		printf("  fixed-function states that compute it (each a proposal: "
 		    "the pipeline changes):\n");
@@ -723,15 +772,25 @@ blend_eq(struct rctx *c)
 		mx = fmax(mx, fmax(fabs(rlo), fabs(rhi)));
 		ok = mx < P24 && rlo >= 0 && rhi < ldexp(1.0, c->w);
 		if (!ok) {
-			printf("  blending: VK_BLEND_OP_%s with %s and %s would "
+			say(c, "  blending: VK_BLEND_OP_%s with %s and %s would "
 			    "compute it (%s), but is not exact on this domain: its "
 			    "values reach %.0f in magnitude and its result [%.0f, "
 			    "%.0f]; f32 holds integers below 2^24 = 16777216, and "
 			    "the result must stay inside u%d\n", opn[bop],
 			    bf_name[bsf], bf_name[bdf], sb_str(&eq), mx, rlo, rhi,
 			    c->w);
-			rep_strf("not_exact", "blending %s: values up to %.0f, "
-			    "result in [%.0f, %.0f]", sb_str(&eq), mx, rlo, rhi);
+			if (c->quiet && !c->best->near[0])
+				c->best->bound = 1;
+			if (c->quiet && !c->best->near[0])
+				snprintf(c->best->near, sizeof c->best->near,
+				    "VK_BLEND_OP_%s with %s and %s computes it (%s), "
+				    "exactly while its values stay below 2^24 = 16777216 "
+				    "and its result inside u%d: here they reach %.0f, the "
+				    "result [%.0f, %.0f]", opn[bop], bf_name[bsf],
+				    bf_name[bdf], sb_str(&eq), c->w, mx, rlo, rhi);
+			else
+				rep_strf("not_exact", "blending %s: values up to %.0f, "
+				    "result in [%.0f, %.0f]", sb_str(&eq), mx, rlo, rhi);
 			goto out;
 		}
 		sb_printf(&holds, "the operands, the factors, both products and "
@@ -866,12 +925,13 @@ advanced(struct rctx *c)
 	if (!holds && c->nforms)
 		return;		/* a state above computes it already */
 	if (!holds) {
-		printf("  advanced blending: VK_BLEND_OP_%s_EXT would compute it, "
+		say(c, "  advanced blending: VK_BLEND_OP_%s_EXT would compute it, "
 		    "but is defined on colours in [0, 1]: give %s and %s that "
 		    "range (%s: f32 in 0..1)\n", name[hit], pname(c, c->is),
 		    pname(c, c->id), pname(c, c->is));
-		rep_strf("needs_range", "VK_BLEND_OP_%s_EXT needs colours in "
-		    "[0, 1]", name[hit]);
+		if (!c->quiet)
+			rep_strf("needs_range", "VK_BLEND_OP_%s_EXT needs colours in "
+			    "[0, 1]", name[hit]);
 		return;
 	}
 	snprintf(pr, sizeof pr, "the update and the operation's f(s, d) expand "
@@ -904,89 +964,126 @@ native_atomic(const struct rctx *c)
 	    N.b[b] == c->vs);
 }
 
-static void
-cmd_rop(struct func *f, struct model *m)
+/*
+ * The roles of f's parameters and what the update is priced against.
+ * NULL, or why rop cannot take f (the text of the command's error).
+ */
+static const char *
+rop_setup(struct rctx *c, struct func *f, struct model *m)
 {
-	struct rctx c;
+	static char why[200];
 	int j;
-	const char *fn = f->anon ? "the update" : sym_str(f->name);
 
-	memset(&c, 0, sizeof c);
-	c.f = f;
-	c.m = m;
-	c.is = c.it = c.ic = -1;
+	c->f = f;
+	c->m = m;
+	c->is = c->it = c->ic = -1;
 	if (f->np < 1)
-		fail("rop needs an update F(s, d): d (the parameter of that name, "
-		    "or dst, else the last one) is the cell's value, s what a "
-		    "fragment brings");
+		return "rop needs an update F(s, d): d (the parameter of that "
+		    "name, or dst, else the last one) is the cell's value, s what "
+		    "a fragment brings";
 	if (f->where)
-		fail("rop does not take a where clause: give the parameters "
-		    "ranges (s: u32 in 0..255)");
+		return "rop does not take a where clause: give the parameters "
+		    "ranges (s: u32 in 0..255)";
 	/* the cell: the parameter named d or dst, else the last one */
-	c.id = f->np - 1;
+	c->id = f->np - 1;
 	for (j = 0; j < f->np; j++)
 		if (!strcmp(sym_str(f->p[j].name), "d") ||
 		    !strcmp(sym_str(f->p[j].name), "dst"))
-			c.id = j;
-	c.ty = f->p[c.id].ty;
-	c.flt = c.ty == TY_F32;
-	c.w = TYW(c.ty);
-	if (!c.flt && !(TYK(c.ty) == K_UINT && (c.w == 8 || c.w == 16 ||
-	    c.w == 32)))
-		fail("rop works on u8, u16, u32 (integer targets, stencil) and f32 "
-		    "(float targets), not %s", ty_str(c.ty));
-	if (N.ty[f->body] != c.ty)
-		fail("the update's result (%s) must have the cell's type (%s)",
-		    ty_str(N.ty[f->body]), ty_str(c.ty));
-	for (j = 0; j < f->np; j++) {
-		if (j == c.id)
-			continue;
-		if (f->p[j].ty != c.ty)
-			fail("%s is %s and the cell %s: one type for the sources, the "
-			    "constant and the cell", sym_str(f->p[j].name),
-			    ty_str(f->p[j].ty), ty_str(c.ty));
-		if (f->p[j].uniform) {
-			if (c.ic >= 0)
-				fail("rop takes one uniform parameter (the blend "
-				    "constant or the stencil reference)");
-			c.ic = j;
-		} else if (c.is < 0)
-			c.is = j;
-		else if (c.it < 0)
-			c.it = j;
-		else
-			fail("rop takes at most two sources (dual-source blending)");
+			c->id = j;
+	c->ty = f->p[c->id].ty;
+	c->flt = c->ty == TY_F32;
+	c->w = TYW(c->ty);
+	if (!c->flt && !(TYK(c->ty) == K_UINT && (c->w == 8 || c->w == 16 ||
+	    c->w == 32))) {
+		snprintf(why, sizeof why, "rop works on u8, u16, u32 (integer "
+		    "targets, stencil) and f32 (float targets), not %s",
+		    ty_str(c->ty));
+		return why;
 	}
-	if (f->p[c.id].uniform)
-		fail("%s is the cell's value: it cannot be uniform",
-		    sym_str(f->p[c.id].name));
-	c.nsrc = (c.is >= 0) + (c.it >= 0);
-	c.vd = mk_var((uint32_t)c.id, f->p[c.id].name, c.ty);
-	if (c.is >= 0)
-		c.vs = mk_var((uint32_t)c.is, f->p[c.is].name, c.ty);
-	if (c.it >= 0)
-		c.vt = mk_var((uint32_t)c.it, f->p[c.it].name, c.ty);
-	if (c.ic >= 0)
-		c.vc = mk_var((uint32_t)c.ic, f->p[c.ic].name, c.ty);
+	if (N.ty[f->body] != c->ty) {
+		snprintf(why, sizeof why, "the update's result (%s) must have the "
+		    "cell's type (%s)", ty_str(N.ty[f->body]), ty_str(c->ty));
+		return why;
+	}
+	for (j = 0; j < f->np; j++) {
+		if (j == c->id)
+			continue;
+		if (f->p[j].ty != c->ty) {
+			snprintf(why, sizeof why, "%s is %s and the cell %s: one type "
+			    "for the sources, the constant and the cell",
+			    sym_str(f->p[j].name), ty_str(f->p[j].ty), ty_str(c->ty));
+			return why;
+		}
+		if (f->p[j].uniform) {
+			if (c->ic >= 0)
+				return "rop takes one uniform parameter (the blend "
+				    "constant or the stencil reference)";
+			c->ic = j;
+		} else if (c->is < 0)
+			c->is = j;
+		else if (c->it < 0)
+			c->it = j;
+		else
+			return "rop takes at most two sources (dual-source blending)";
+	}
+	if (f->p[c->id].uniform) {
+		snprintf(why, sizeof why, "%s is the cell's value: it cannot be "
+		    "uniform", sym_str(f->p[c->id].name));
+		return why;
+	}
+	c->nsrc = (c->is >= 0) + (c->it >= 0);
+	c->vd = mk_var((uint32_t)c->id, f->p[c->id].name, c->ty);
+	if (c->is >= 0)
+		c->vs = mk_var((uint32_t)c->is, f->p[c->is].name, c->ty);
+	if (c->it >= 0)
+		c->vt = mk_var((uint32_t)c->it, f->p[c->it].name, c->ty);
+	if (c->ic >= 0)
+		c->vc = mk_var((uint32_t)c->ic, f->p[c->ic].name, c->ty);
 	/*
 	 * what it is priced against: the same update as a global atomic,
 	 * by the model's memory kinds (memk.c: a float add and a
 	 * compare-and-swap have classes of their own, priced as
 	 * atomic_global by a model that does not list them)
 	 */
-	if (native_atomic(&c) && !(c.flt && N.op[f->body] == O_ADD)) {
-		c.against = m->c[C_ATOM_GL];
-		sb_printf(&c.againstwhy, "one global atomic, atomic_global");
-	} else if (native_atomic(&c)) {
-		c.against = model_cost(m, C_ATOM_GL_F);
-		sb_printf(&c.againstwhy, "one global float atomic add, "
+	if (native_atomic(c) && !(c->flt && N.op[f->body] == O_ADD)) {
+		c->against = m->c[C_ATOM_GL];
+		sb_printf(&c->againstwhy, "one global atomic, atomic_global");
+	} else if (native_atomic(c)) {
+		c->against = model_cost(m, C_ATOM_GL_F);
+		sb_printf(&c->againstwhy, "one global float atomic add, "
 		    "atomic_global_f");
 	} else {
 		float b = fuse_expr_cost(m, f->body);
-		c.against = model_cost(m, C_ATOM_GL_CAS) + b;
-		sb_printf(&c.againstwhy, "a global compare-and-swap around the "
+		c->against = model_cost(m, C_ATOM_GL_CAS) + b;
+		sb_printf(&c->againstwhy, "a global compare-and-swap around the "
 		    "update: atomic_global_cas %g + %g", (double)model_cost(m,
 		    C_ATOM_GL_CAS), (double)b);
+	}
+	return NULL;
+}
+
+static void
+catalogue(struct rctx *c)
+{
+	logic_ops(c);
+	stencil_ops(c);
+	unorm_blend(c);
+	minmax_blend(c);
+	blend_eq(c);
+	advanced(c);
+}
+
+static void
+cmd_rop(struct func *f, struct model *m)
+{
+	struct rctx c;
+	const char *fn = f->anon ? "the update" : sym_str(f->name), *why;
+
+	memset(&c, 0, sizeof c);
+	why = rop_setup(&c, f, m);
+	if (why) {
+		free(c.againstwhy.p);
+		fail("%s", why);
 	}
 	{
 		struct sbuf who = {0};
@@ -1006,12 +1103,7 @@ cmd_rop(struct func *f, struct model *m)
 	rep_expr("update", f->body);
 	rep_str("model", sym_str(m->name));
 	order(&c);
-	logic_ops(&c);
-	stencil_ops(&c);
-	unorm_blend(&c);
-	minmax_blend(&c);
-	blend_eq(&c);
-	advanced(&c);
+	catalogue(&c);
 	if (c.nforms)
 		rep_end();
 	else
@@ -1028,6 +1120,46 @@ cmd_rop(struct func *f, struct model *m)
 		    "target back\n");
 	rep_int("count", c.nforms);
 	free(c.againstwhy.p);
+}
+
+/*
+ * simplify's question (spv_mem.inc): the cheapest state of the catalogue
+ * that computes f and that m prices below f as a global atomic.  1 found
+ * (in *o), 0 none (o->near may say what would), -1 f is not an update rop
+ * takes (o->near says why).  Nothing is printed or reported.
+ */
+int
+rop_offer(struct func *f, struct model *m, struct rop_offer *o)
+{
+	struct rctx c;
+	jmp_buf saved;
+	volatile int r = -1;
+	int ron = rep_on;
+	const char *why;
+
+	memset(o, 0, sizeof *o);
+	memset(&c, 0, sizeof c);
+	c.quiet = 1;
+	c.best = o;
+	memcpy(saved, fail_jmp, sizeof saved);
+	note_mute++;
+	rep_on = 0;
+	if (setjmp(fail_jmp) == 0) {
+		why = rop_setup(&c, f, m);
+		if (why)
+			snprintf(o->near, sizeof o->near, "%s", why);
+		else {
+			catalogue(&c);
+			r = o->found;
+		}
+	} else
+		snprintf(o->near, sizeof o->near, "rop could not read the update");
+	rep_on = ron;
+	note_mute--;
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	free(c.againstwhy.p);
+	return r;
 }
 
 int

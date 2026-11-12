@@ -438,6 +438,17 @@ void cmd_models(void);
 /* ---- rop.c: graphics fixed function as compute ---- */
 struct P;
 int rop_command(struct P *p);
+/* simplify's question: the cheapest state that computes an atomic's update
+ * F(s, d) and that the model prices below the atomic (rop.c) */
+struct rop_offer {
+	int found, cls;
+	float cost, against;
+	char family[24], state[320], holds[400], proof[700], pipeline[700];
+	char againstwhy[160];
+	char near[400];		/* none found: what would compute it, or why not */
+	int bound;		/* near: exact only while the values are bounded */
+};
+int rop_offer(struct func *f, struct model *m, struct rop_offer *o);
 
 /* ---- dot.c: packed integer dot products ---- */
 struct dotform {

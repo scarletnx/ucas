@@ -2156,6 +2156,40 @@ workgroup address as the warp's one `atomic_shared_same`, for its share
 of a warp's lanes, and a buffer's compare and swap and 64-bit atomic by
 their classes (tests/atomkinds.ucas).
 
+**A scatter's atomics as fixed function.**  An atomic on a buffer or a
+storage image whose old value no invocation reads is a scatter's update
+d = d op v (an add, subtract, increment, decrement, unsigned min or
+max, and, or, xor, a float add, min or max).  `simplify` asks
+[rop](#fixed-function-as-compute)'s catalogue which fixed-function state
+computes it, and proposes the state the model prices below the atomic,
+with its proof and its pipeline: the invocation that ran the atomic
+draws a point at the cell instead, and the cell's values come from the
+render target after the draw.  v's range is what its computation gives
+it; d's is an assumption on the buffer member or the image, by its
+name, since a module does not say what its buffers hold:
+
+```
+> simplify nofile under fixed, hist in [0, 1000000]     (atomicAdd(hb.hist[v & 255u], 1u))
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %35 = OpAtomicIAdd %uint %33 %uint_1 %uint_0 %uint_1
+      the update: d = d + v (d a cell of hist, v what the atomic brings, u32)
+        d in [0, 1000000] (assumed), v = 1
+      blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): v + d
+        ...
+        price: rop_blend 2 a fragment under fixed, against 50 (one global atomic, atomic_global): -48 a contribution
+```
+
+Without the assumption the add is not proposed, and what would make it
+exact is said (the counts below 2^24); a state the model prices at or
+above the atomic, or does not price, is named with that price.  The
+cell's array must be touched by nothing else in the shader: a load, a
+store or another kind of atomic on it means a render target cannot
+serve it in the pass that blends into it, and is said so.  Signed
+atomics and 64-bit ones are not proposed (rop's targets take u8 to u32
+and f32), workgroup memory never is (no target holds it).  Under a
+model that prices none of rop's classes (gt1030) the pass says nothing
+(tests/ropatomics.ucas).
+
 **Bank conflicts.**  `banks F [, G ...]` takes the index expressions of
 the accesses to one shared array.  The first integer parameter that is
 not `uniform` is the lane: a warp is `warp` consecutive values of it
@@ -2603,8 +2637,9 @@ draw (a render target, the blend or stencil state printed, one point
 per contribution whose position is the cell), which the host has to
 do.  English: "the blend state for acc", "the logic op for a | b with
 u32 a and b", "the fixed-function forms of cnt on fixed", "show me
-the blending for acc".  Not yet: simplify does not propose a state
-for a module's atomics; the depth test as an argmin, occlusion
+the blending for acc".  `simplify` asks the same catalogue about a
+module's atomics (see [Memory kinds](#memory-kinds): a scatter's
+atomics as fixed function).  Not yet: the depth test as an argmin, occlusion
 queries as counts, MSAA resolve, blits and the other fixed-function
 ideas are not in the catalogue; separate alpha, sRGB and the
 piecewise advanced operations (overlay, the lights, dodge, burn) are

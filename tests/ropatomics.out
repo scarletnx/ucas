@@ -1,0 +1,128 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
+> spvsimplify nofile
+simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile assume hist 0 1000000
+simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming hist in [0, 1000000] (every load of it)
+  integer arithmetic cost under fixed (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %35 = OpAtomicIAdd %uint %33 %uint_1 %uint_0 %uint_1
+      (line 7: atomicAdd(hb.hist[v & 255u], 1u);)
+      the update: d = d + v (d a cell of hist, v what the atomic brings, u32)
+        d in [0, 1000000] (assumed), v = 1
+      blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): v + d
+        holds where the operands, the factors, both products and the result stay below 2^24 in magnitude (at most 1000001, the result in [1, 1000001], from the parameters' ranges)
+        the update and v + d expand to the same polynomial; every value is an integer below 2^24, which f32 holds, so no step of the blender rounds whatever its arithmetic, and the integer result (inside u32: no wrap) is the polynomial's
+        price: rop_blend 2 a fragment under fixed, against 50 (one global atomic, atomic_global): -48 a contribution
+        pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour v; the invocation that ran the atomic draws a point at the cell instead (its index into hist the point's position), and hist's values come from the target after the draw (copied or converted back)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile
+simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under fixed (each instruction once): 3 -> 3 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %38 = OpAtomicIAdd %uint %33 %uint_1 %uint_0 %36
+      (line 7: atomicAdd(hb.hist[v & 255u], v >> 24);)
+      the update: d = d + v (d a cell of hist, v what the atomic brings, u32)
+        d: any value (no assumption on hist), v in [0, 255] (from its computation)
+      not proposed: VK_BLEND_OP_ADD with ONE and ONE computes it (v + d), exactly while its values stay below 2^24 = 16777216 and its result inside u32: here they reach 4294967550, the result [0, 4294967550]
+      (if hist's values are bounded, say so: `hist in [0, N]`)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile
+simplify: 74 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under fixed (each instruction once): 5 -> 5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %39 = OpAtomicOr %uint %33 %uint_1 %uint_0 %38
+      (line 7: atomicOr(bb.bits[v >> 5], 1u << (v & 31u));)
+      the update: d = d | v (d a cell of bits, v what the atomic brings, u32)
+        d: any value (no assumption on bits), v in [1, 2147483648] (from its computation)
+      not proposed: VK_LOGIC_OP_OR on an unsigned integer target (R32_UINT): v | d (a logic op) computes it, at rop_logic 60 a fragment: not below 50 (one global atomic, atomic_global)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile assume img 0 4096
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming img in [0, 4096] (every load of it)
+  integer arithmetic cost under fixed (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 9: the shader has no main function)
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %36 = OpAtomicIAdd %uint %35 %uint_1 %uint_0 %uint_1
+      (line 7: imageAtomicAdd(img, ivec2(p), 1u);)
+      the update: d = d + v (d a cell of img, v what the atomic brings, u32)
+        d in [0, 4096] (assumed), v = 1
+      blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): v + d
+        holds where the operands, the factors, both products and the result stay below 2^24 in magnitude (at most 4097, the result in [1, 4097], from the parameters' ranges)
+        the update and v + d expand to the same polynomial; every value is an integer below 2^24, which f32 holds, so no step of the blender rounds whatever its arithmetic, and the integer result (inside u32: no wrap) is the polynomial's
+        price: rop_blend 2 a fragment under fixed, against 50 (one global atomic, atomic_global): -48 a contribution
+        pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour v; the invocation that ran the atomic draws a point at the cell instead (its coordinate in img the point's position), and img's values come from the target after the draw (copied or converted back)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile
+simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under fixed (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 10: the shader has no main function)
+memory under fixed:
+  %44 = OpAtomicFAddEXT %float %39 %uint_1 %uint_0 %42
+      (line 8: atomicAdd(ab.acc[uint(s.x) & 1023u], s.w);)
+    (count: not known here: every invocation of the dispatch may add into one cell of the buffer)
+intatomic v42 under fixed: a global float atomic add of v42; how many reach one cell is not known here
+  the float add costs 138.75, an integer one 50
+  no exact fixed point: v42 is not on a binary grid (only integers, binary constants, + - * and powers of two keep one)
+  -> not rewritten: `tol T` allows a rounded scaling (T: absolute error on the sum)
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %44 = OpAtomicFAddEXT %float %39 %uint_1 %uint_0 %42
+      (line 8: atomicAdd(ab.acc[uint(s.x) & 1023u], s.w);)
+      the update: d = d + v (d a cell of acc, v what the atomic brings, f32)
+        d and v: any value (a float update needs no range)
+      blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): v + d
+        the update and v + d expand to the same polynomial; one f32 operation: exact if the blender rounds it to nearest (Vulkan asks for the target's precision, not the rounding: to measure)
+        price: rop_blend 2 a fragment under fixed, against 138.75 (one global float atomic add, atomic_global_f): -136.75 a contribution
+        pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour v; the invocation that ran the atomic draws a point at the cell instead (its index into acc the point's position), and acc's values come from the target after the draw (copied or converted back)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile assume hist 0 1000000
+simplify: 72 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming hist in [0, 1000000] (every load of it)
+  integer arithmetic cost under fixed (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %35 = OpAtomicIAdd %uint %33 %uint_1 %uint_0 %uint_1
+      (line 7: atomicAdd(hb.hist[v & 255u], 1u);)
+      not proposed: hist is also read or written here, which a render target cannot serve in the pass that blends into it:
+      %41 = OpLoad %uint %33
+      (line 8: inb.px[gl_GlobalInvocationID.x] = hb.hist[v & 255u];)
