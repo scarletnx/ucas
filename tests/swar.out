@@ -272,9 +272,87 @@ find max8: 1024 points (sampled; matches verified on the whole domain), computin
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
 cost model: gt1030
-> min16(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16
-> find min16 1
-find min16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+> rgbadd(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) + ((b >> 8) & 255)) & 255) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) & 255) << 16 | (a & 0xff000000)
+> find rgbadd 1
+find rgbadd: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of rgbadd (cost 26 as written; each checked on the whole domain):
+  cost 24  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 24  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 24  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 24  (a & 0xff) + (b & 0xff) & 0xff | ((a >> 8) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 25  (a & 0xff) + b & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 25  a + (b & 0xff) & 0xff | ((a >> 8 & 0xff) + (b >> 8 & 0xff) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000 drops & 255 (proved by SAT)
+  cost 18  a + b & 0xff | ((a >> 8) + (b >> 8) & 0xff) << 8 | ((a >> 0x10) + (b >> 0x10) & 0xff) << 16 | a & 0xff000000 all of them: drops & 255, then & 255, then & 255, then & 255, then & 255, then & 255 (proved by SAT)
+  dot products under gt1030 (sums of products laid into lanes; cost 26 as written):
+  cost 22  (a & 0xff) + (b & 0xff) & 0xff | (udot4x8(a, 0x100) + udot4x8(b, 0x100) & 0xff) << 8 | ((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) & 0xff) << 16 | a & 0xff000000
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 266 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 26 as written):
+  cost 6   a xor ((a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080 xor a) & 0xffffff
+           4 x 8-bit lanes, a + b in the lanes of 0x00ffffff: the lanes' top bits go apart, so no carry crosses a lane; 0xff000000 kept from a
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rgbavg(a: u32, b: u32) = (((a & 255) + (b & 255)) >> 1) | ((((a >> 8) & 255) + ((b >> 8) & 255)) >> 1) << 8 | ((((a >> 16) & 255) + ((b >> 16) & 255)) >> 1) << 16 | (b & 0xff000000)
+> find rgbavg 1
+find rgbavg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 29 as written):
+  cost 25  (a & 0xff) + (b & 0xff) >> 1 | udot4x8(a, 0x100) + udot4x8(b, 0x100) >> 1 << 8 | (a >> 0x10 & 0xff) + (b >> 0x10 & 0xff) >> 1 << 16 | b & 0xff000000
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 266 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 29 as written):
+  cost 5   b xor ((a & b) + (((a xor b) & 0xfefefefe) >> 1) xor b) & 0xffffff
+           4 x 8-bit lanes, (a + b) >> 1 in the lanes of 0x00ffffff: what both have plus half of what one has; 0xff000000 kept from b
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rgbsat(a: u32, b: u32) = min((a & 255) + (b & 255), 255) | min(((a >> 8) & 255) + ((b >> 8) & 255), 255) << 8 | min(((a >> 16) & 255) + ((b >> 16) & 255), 255) << 16 | 0xff000000
+> find rgbsat 1
+find rgbsat: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 26 as written):
+  cost 22  min((a & 0xff) + (b & 0xff), 255) | min(udot4x8(a, 0x100) + udot4x8(b, 0x100), 255) << 8 | min((a >> 0x10 & 0xff) + (b >> 0x10 & 0xff), 255) << 16 | 0xff000000
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (a >> 8 & 0xff) * 1
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (b >> 8 & 0xff) * 1
+           a >> 8 & 0xff is bits 8..15 of a: lane 1 as it is
+           the word's other lanes meet zero lanes
+           b >> 8 & 0xff is bits 8..15 of b: lane 1 as it is
+           the word's other lanes meet zero lanes
+           udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
+           proved by SAT: 314 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 26 as written):
+  cost 12  ((t1 | (t2 - (t2 >> 7) | t2)) xor 0xff000000) & 0xffffff xor 0xff000000 where t1 = (a & 0x7f7f7f7f) + (b & 0x7f7f7f7f) xor (a xor b) & 0x80808080, t2 = (a & b | (a | b) & ~t1) & 0x80808080
+           4 x 8-bit lanes, min(a + b, the lane's largest) in the lanes of 0x00ffffff: the sum, all ones where a lane carried; the rest the constant 0xff000000
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rgbmin(a: u32, b: u32) = min(a & 255, b & 255) | min((a >> 8) & 255, (b >> 8) & 255) << 8 | min((a >> 16) & 255, (b >> 16) & 255) << 16 | (a & 0xff000000)
+> find rgbmin 1
+find rgbmin: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 23 as written):
+  cost 12  a xor (a xor (a xor b) & (t1 - (t1 >> 7) | t1) xor a) & 0xffffff where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080
+           4 x 8-bit lanes, min(a, b) in the lanes of 0x00ffffff: chosen by whole lanes from the top bit a word-wide compare leaves; 0xff000000 kept from a
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rgbdiff(a: u32, b: u32) = (max(a & 255, b & 255) - min(a & 255, b & 255)) | (max((a >> 8) & 255, (b >> 8) & 255) - min((a >> 8) & 255, (b >> 8) & 255)) << 8 | (max((a >> 16) & 255, (b >> 16) & 255) - min((a >> 16) & 255, (b >> 16) & 255)) << 16
+> find rgbdiff 1
+find rgbdiff: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 28 as written):
+  cost 15  (b xor t2) - (a xor t2) & 0xffffff where t1 = (a & ~b | ~(a xor b) & (a | 0x80808080) - (b & 0x7f7f7f7f)) & 0x80808080, t2 = (a xor b) & (t1 - (t1 >> 7) | t1)
+           4 x 8-bit lanes, |a - b| in the lanes of 0x00ffffff: max - min, which borrows from no lane; the rest 0
+           checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > two(a: u32, b: u32) = (((a & 255) + (b & 255)) & 255) | ((((a >> 8) & 255) - ((b >> 8) & 255)) & 255) << 8
@@ -296,6 +374,15 @@ find two: 1024 points (sampled; matches verified on the whole domain), computing
            the word's other lanes meet zero lanes
            udot4x8's sum is in 0..255: it does not wrap; udot4x8's sum is in 0..255: it does not wrap
            proved by SAT: 200 AIG nodes, 0 conflicts
+  packed lanes under gt1030 (every lane in one word-wide operation; cost 14 as written):
+  cost 9   (a & 0xff) + (b & 0xff) & 0xff | ((a | 0x80808080) - (b & 0x7f7f7f7f) xor ~(a xor b) & 0x80808080) & 0xff00
+           4 x 8-bit lanes, a - b in the lanes of 0x0000ff00: the lanes' top bits go apart, so no carry crosses a lane; the rest 0
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> min16(a: u32, b: u32) = min(a & 0xffff, b & 0xffff) | min(a >> 16, b >> 16) << 16
+> find min16 1
+find min16: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > plain(a: u32, b: u32) = a + b
