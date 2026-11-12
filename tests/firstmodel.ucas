@@ -10,3 +10,29 @@ simplify nofile under gt1030, x in [1, 2], y in [3, 4]
 ```glsl
 float f(float x, float y) { double a = x, b = y; return float(a * a - b * b); }
 ```
+# a name no model has: the error names it and the models, and the request
+# does not run under the active model in its place
+simplify nofile under nosuchmodel
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() { uint i = gl_GlobalInvocationID.x; b.d[i] = (b.d[i] * 4u) & 0xffu; }
+```
+# a model defined beside the request that names it is the request's
+model lanesum : gt1030 { iadd: 2 }
+simplify nofile under lanesum
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() { uint i = gl_GlobalInvocationID.x; b.d[i] = (b.d[i] * 4u) & 0xffu; }
+```
+# an article between the word and the name
+simplify nofile under the sm75 model
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() { uint i = gl_GlobalInvocationID.x; b.d[i] = (b.d[i] * 4u) & 0xffu; }
+```

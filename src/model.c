@@ -106,6 +106,19 @@ cclass_available(const struct model *m, int k)
 	return isfinite(m->c[k]);
 }
 
+/* the models' names, ", " between them (an unknown name's error) */
+void
+model_names(char *out, size_t n)
+{
+	size_t l = 0;
+	int i;
+
+	out[0] = 0;
+	for (i = 0; i < nmodels && l < n; i++)
+		l += (size_t)snprintf(out + l, n - l, "%s%s", i ? ", " : "",
+		    sym_str(models[i].name));
+}
+
 /* the i-th model, NULL past the last (jsonmode.c's state) */
 struct model *
 model_nth(int i)
