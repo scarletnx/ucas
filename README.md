@@ -1454,6 +1454,49 @@ reads it).  `lut K` is any tree of bitwise logic (and, or, xor, not)
 with at most K inputs, LOP3 or vpternlog.  A derived model inherits
 its parent's fusions; `nofuse NAME` drops one.  `models` lists them.
 
+Two more forms say what the classes alone cannot:
+
+```
+fuse NAME(a: u16, b: u16, c: int) = a * b + c : mul16
+fuse NAME(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul
+```
+
+An input `uN` (`sN`), N from 1 to 32, is an integer proved inside
+[0, 2^N) (inside [-2^(N-1), 2^(N-1))): its range comes from the
+function being priced (`cost` and `find`: the parameters' ranges, the
+where clause, then intervals over the operations) and from the types
+(a `u16`, `x & 0xffff`, `x >> 16` of a u32).  That is how a multiply
+of narrow operands gets its own price: the class `mul16` is there for
+it, and like the dot forms a model that does not list it cannot use
+it (a fusion priced by it is then unavailable).  `on CLASS ...` makes
+the fusion a result modifier, the mirror image of `in`: the pattern
+folds into the instruction that makes its input when that is an
+operation of those classes used only there (a clamp to [0, 1] into a
+saturating add, multiply or fma).  SPIR-V simplify prices without
+ranges, so a fusion with a proved width does not apply there yet.
+
+gt1030 lists neither: no test in the corpus measures a 16 x 16
+multiply-add (XMAD alone) against IMUL or a saturating result against
+the clamp, and nothing is priced before it is measured.  With a model
+that has them:
+
+```
+> model xmad : gt1030 { mul16: 1
+    fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16
+    fuse mul16(a: u16, b: u16) = a * b : mul16 }
+> m1(a: u32 in 0..60000, b: u32 in 0..60000, c: u32) = a * b + c
+> cost m1                                   (3 under gt1030: an IMAD)
+cost of m1 under xmad: 1 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    xmad             1 x 1     = 1  (a*b + c; saves 3)
+> model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }
+> cost s1(x: f32, y: f32, z: f32) = min(max(x * y + z, 0.0), 1.0)
+cost of s1 under sat: 1 (4 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
+    fsat             1 x 0     = 0  (min(max(a, 0), 1), a result modifier; saves 2)
+```
+
 Pricing covers the expression's DAG with them, the instruction
 selection of a compiler: a value used more than once is computed once
 and is an input to everything that uses it, which cuts the DAG into

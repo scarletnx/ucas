@@ -330,13 +330,20 @@ enum {
 	 * inclusive scan.
 	 */
 	C_SG_BALLOT, C_SG_VOTE, C_SG_ADD, C_SG_SHUF, C_SG_SCAN,
+	/*
+	 * A multiply of two 16-bit operands into 32 bits (XMAD on the
+	 * NVIDIA parts whose 32-bit multiply is a chain of them): the price
+	 * a model's fusions over inputs of a proved width refer to.  As the
+	 * dot forms, unavailable unless the model lists it.
+	 */
+	C_MUL16,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
 #define C_SG_LAST C_SG_SCAN
 /* an instruction the target may not have: absent unless the model lists it */
 #define C_ABSENT(k) (((k) >= C_DOT_FIRST && (k) <= C_DOT_LAST) || \
-    ((k) >= C_SG_FIRST && (k) <= C_SG_LAST))
+    (k) >= C_SG_FIRST)	/* the subgroups, and what comes after them */
 /* the class of a dot op; IS_DOT(op) */
 #define DOT_CLASS(op) (C_DOT_FIRST + ((op) - O_DOT_FIRST))
 #define C_DIVK(k) ((k) + 1)	/* the division class by a constant */

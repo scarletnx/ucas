@@ -38,6 +38,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
+	"mul16",
 };
 
 /*
@@ -164,7 +165,7 @@ model_classes_text(struct sbuf *b, const struct model *m)
 	for (k = 0; k < MP_NPAR; k++)
 		if (m->par[k] != 0)
 			sb_printf(b, ", %s: %g", mparam_name[k], (double)m->par[k]);
-	for (k = C_SG_FIRST; k <= C_SG_LAST; k++)
+	for (k = C_SG_FIRST; k < C_NCLASS; k++)
 		if (cclass_available(m, k))
 			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
 }
@@ -833,7 +834,9 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				pins[np++] = loops.cond[e];
 			}
 		memset(&cur_tally, 0, sizeof cur_tally);
+		fuse_domain(f);
 		fuse_cover_nodes(m, cm, lim, pins, np, 0, eff, &cur_fg);
+		fuse_domain(NULL);
 		for (i = 0; i < cur_fg.n; i++)
 			if (cur_fg.fz[i] >= 0)
 				fz[cur_fg.id[i]] = 1;

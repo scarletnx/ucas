@@ -99,6 +99,20 @@ fuse_count(const struct model *m)
 
 static const char *const pkname[] = {"int", "float", "const", "any"};
 
+/* does model m have a fusion whose input has a proved width */
+static int
+wants_ranges(const struct model *m)
+{
+	int i, k;
+
+	for (i = 0; i < nfz; i++)
+		if (fz[i].model == m->name)
+			for (k = 0; k < fz[i].np; k++)
+				if (fz[i].pbits[k])
+					return 1;
+	return 0;
+}
+
 void
 fuse_text(struct sbuf *b, const struct fusion *f)
 {
@@ -110,8 +124,13 @@ fuse_text(struct sbuf *b, const struct fusion *f)
 	if (f->np) {
 		sb_putc(b, '(');
 		for (i = 0; i < f->np; i++)
-			sb_printf(b, "%s%s: %s", i ? ", " : "",
-			    sym_str(f->pname[i]), pkname[f->pkind[i]]);
+			if (f->pbits[i])
+				sb_printf(b, "%s%s: %c%d", i ? ", " : "",
+				    sym_str(f->pname[i]), f->psgn[i] ? 's' : 'u',
+				    f->pbits[i]);
+			else
+				sb_printf(b, "%s%s: %s", i ? ", " : "",
+				    sym_str(f->pname[i]), pkname[f->pkind[i]]);
 		sb_putc(b, ')');
 	}
 	sb_puts(b, " = ");
@@ -140,6 +159,12 @@ fuse_text(struct sbuf *b, const struct fusion *f)
 		sb_puts(b, " in");
 		for (k = 0; k < C_NCLASS && k < 64; k++)
 			if (f->users >> k & 1)
+				sb_printf(b, " %s", cclass_name[k]);
+	}
+	if (f->makers) {
+		sb_puts(b, " on");
+		for (k = 0; k < C_NCLASS; k++)
+			if (f->makers >> k & 1)
 				sb_printf(b, " %s", cclass_name[k]);
 	}
 }
@@ -234,6 +259,9 @@ fg_free(struct fgraph *g)
 	free(g->by);
 	free(g->own0);
 	free(g->id);
+	free(g->lo);
+	free(g->hi);
+	free(g->ranged);
 	memset(g, 0, sizeof *g);
 }
 
@@ -325,6 +353,12 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 		case FP_INT:
 			if (g->fp[i] || g->isbool[i])
 				return 0;
+			if (f->pbits[sl]) {
+				int64_t top = 1LL << (f->pbits[sl] - f->psgn[sl]);
+				if (!g->ranged || !g->ranged[i] || g->hi[i] >= top ||
+				    g->lo[i] < (f->psgn[sl] ? -top : 0))
+					return 0;
+			}
 			break;
 		case FP_FLOAT:
 			if (!g->fp[i])
@@ -551,6 +585,18 @@ fg_cover(const struct model *m, struct fgraph *g)
 			mst_init(&s);
 			if (!fmatch(g, f, f->pat, i, i, &s))
 				continue;
+			/* a result modifier: each input's maker is an operation
+			 * of its classes, used only here */
+			for (l = 0; f->makers && l < f->np; l++) {
+				int b = s.bind[l];
+				if (f->pkind[l] == FP_CONST)
+					continue;
+				if (b < 0 || g->isk[b] || !inner_ok(g, b) ||
+				    g->cls[b] < 0 || !(f->makers >> g->cls[b] & 1))
+					break;
+			}
+			if (f->makers && l < f->np)
+				continue;
 			c = fuse_price(m, f, g->f64[i]);
 			for (l = 0; l < f->np; l++) {
 				int b = s.bind[l], d;
@@ -743,8 +789,8 @@ fuse_tally_print(const struct fuse_tally *t, const char *ind)
 		printf("%s%-14s %3g x %-5g = %g  (%s%s; saves %g)\n", ind,
 		    sym_str(f->name), t->cnt[j], t->cnt[j] ? t->cost[j] /
 		    t->cnt[j] : 0, t->cost[j], sb_str(&b), f->users ?
-		    ", a source modifier" : f->contract ? ", contracted: one "
-		    "rounding" : "", t->saved[j]);
+		    ", a source modifier" : f->makers ? ", a result modifier" :
+		    f->contract ? ", contracted: one rounding" : "", t->saved[j]);
 		rep_obj(NULL);
 		rep_str("fusion", sym_str(f->name));
 		rep_str("pattern", sb_str(&b));
@@ -776,6 +822,237 @@ ix_of(const nid *v, int n, nid g)
 			hi = mid - 1;
 	}
 	return -1;
+}
+
+/* ---- ranges, for inputs of a proved width ---- */
+
+static struct {
+	int on, np;
+	uint32_t name[MAXP];
+	ty_t ty[MAXP];
+	int64_t lo[MAXP], hi[MAXP];
+} dom;
+
+void
+fuse_domain(const struct func *f)
+{
+	int64_t lo[MAXP], hi[MAXP];
+	int j;
+
+	dom.on = 0;
+	if (f == NULL)
+		return;
+	for (j = 0; j < f->np; j++) {
+		lo[j] = hi[j] = 0;
+		if (TY_ISINT(f->p[j].ty))
+			param_bounds(&f->p[j], &lo[j], &hi[j]);
+	}
+	where_bounds(f, lo, hi, NULL);
+	dom.np = f->np;
+	for (j = 0; j < f->np; j++) {
+		dom.name[j] = f->p[j].name;
+		dom.ty[j] = f->p[j].ty;
+		dom.lo[j] = lo[j];
+		dom.hi[j] = hi[j];
+	}
+	dom.on = 1;
+}
+
+/* the whole range of integer type t; 0 when it has none to give */
+static int
+ty_range(ty_t t, int64_t *lo, int64_t *hi)
+{
+	struct ity it;
+
+	if (!TY_SIZED(t) || TYW(t) > 62)
+		return 0;
+	ity_of(&it, t, 0);
+	if (it.k == K_SINT) {
+		*lo = it.smin;
+		*hi = it.smax;
+	} else {
+		*lo = 0;
+		*hi = (int64_t)it.mask;
+	}
+	return 1;
+}
+
+static int
+mul_fits(int64_t a, int64_t b, int64_t *r)
+{
+	const int64_t lim = 1LL << 31;
+
+	if (a <= -lim || a >= lim || b <= -lim || b >= lim)
+		return 0;
+	*r = a * b;
+	return 1;
+}
+
+/*
+ * Each integer node's range: its operands' intervals (sound, on ideal
+ * integers below 2^62), cut to the node's type when they leave it (the
+ * machine value wraps: only the type bounds it then).
+ */
+static void
+cover_ranges(struct fgraph *G, const nid *v, int cnt)
+{
+	const int64_t big = 1LL << 61;
+	int i, j;
+
+	G->lo = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->lo);
+	G->hi = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->hi);
+	G->ranged = xcalloc((size_t)(cnt ? cnt : 1), 1);
+	for (i = 0; i < cnt; i++) {
+		nid g = v[i];
+		ty_t t = N.ty[g];
+		int op = N.op[g], a = G->arg[i][0], b = G->arg[i][1];
+		int c = G->arg[i][2], ok = 0;
+		int64_t lo = 0, hi = 0, x[4], tlo, thi;
+		int ra = a >= 0 && G->ranged[a], rb = b >= 0 && G->ranged[b];
+
+		if (TY_FP(t))
+			continue;
+		if (op == O_CONST) {
+			/* a u64 past 2^63 is held as a negative number */
+			if (N.ki[g] < 0 && TYK(t) == K_UINT)
+				continue;
+			G->lo[i] = G->hi[i] = N.ki[g];
+			G->ranged[i] = 1;
+			continue;
+		}
+		if (t == TY_BOOL || (opinfo[op].fl & OF_CMP)) {
+			G->hi[i] = 1;
+			G->ranged[i] = 1;
+			continue;
+		}
+		switch (op) {
+		case O_VAR: {
+			int64_t sl = N.ki[g];
+			if (dom.on && sl >= 0 && sl < dom.np && dom.name[sl] ==
+			    N.a[g] && dom.ty[sl] == t) {
+				lo = dom.lo[sl];
+				hi = dom.hi[sl];
+				ok = TYK(t) != K_INT || (lo > -big && hi < big);
+			}
+			break;
+		}
+		case O_ADD:
+			ok = ra && rb;
+			lo = ok ? G->lo[a] + G->lo[b] : 0;
+			hi = ok ? G->hi[a] + G->hi[b] : 0;
+			break;
+		case O_SUB:
+			ok = ra && rb;
+			lo = ok ? G->lo[a] - G->hi[b] : 0;
+			hi = ok ? G->hi[a] - G->lo[b] : 0;
+			break;
+		case O_MUL:
+			ok = ra && rb && mul_fits(G->lo[a], G->lo[b], &x[0]) &&
+			    mul_fits(G->lo[a], G->hi[b], &x[1]) &&
+			    mul_fits(G->hi[a], G->lo[b], &x[2]) &&
+			    mul_fits(G->hi[a], G->hi[b], &x[3]);
+			if (ok) {
+				lo = hi = x[0];
+				for (j = 1; j < 4; j++) {
+					lo = x[j] < lo ? x[j] : lo;
+					hi = x[j] > hi ? x[j] : hi;
+				}
+			}
+			break;
+		case O_AND:
+			/* with a non-negative operand: at most that operand */
+			if (ra && G->lo[a] >= 0 && rb && G->lo[b] >= 0) {
+				ok = 1;
+				hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+			} else if (ra && G->lo[a] >= 0) {
+				ok = 1;
+				hi = G->hi[a];
+			} else if (rb && G->lo[b] >= 0) {
+				ok = 1;
+				hi = G->hi[b];
+			}
+			break;
+		case O_OR: case O_XOR:
+			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0) {
+				int64_t m = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+				int bb = bits_for((uint64_t)m);
+				ok = bb < 62;
+				hi = ok ? (1LL << bb) - 1 : 0;
+			}
+			break;
+		case O_SHR:
+			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+			    G->hi[b] < 63) {
+				ok = 1;
+				lo = G->lo[a] >> G->hi[b];
+				hi = G->hi[a] >> G->lo[b];
+			}
+			break;
+		case O_SHL:
+			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+			    G->hi[b] < 61 && G->hi[a] < (big >> G->hi[b])) {
+				ok = 1;
+				lo = G->lo[a] << G->lo[b];
+				hi = G->hi[a] << G->hi[b];
+			}
+			break;
+		case O_DIV:
+			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+				ok = 1;
+				lo = G->lo[a] / G->hi[b];
+				hi = G->hi[a] / G->lo[b];
+			}
+			break;
+		case O_MOD:
+			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+				ok = 1;
+				hi = G->hi[a] < G->hi[b] - 1 ? G->hi[a] : G->hi[b] - 1;
+			}
+			break;
+		case O_MIN: case O_MAX:
+			if (ra && rb) {
+				ok = 1;
+				if (op == O_MIN) {
+					lo = G->lo[a] < G->lo[b] ? G->lo[a] : G->lo[b];
+					hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+				} else {
+					lo = G->lo[a] > G->lo[b] ? G->lo[a] : G->lo[b];
+					hi = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+				}
+			}
+			break;
+		case O_SEL:
+			if (rb && c >= 0 && G->ranged[c]) {
+				ok = 1;
+				lo = G->lo[b] < G->lo[c] ? G->lo[b] : G->lo[c];
+				hi = G->hi[b] > G->hi[c] ? G->hi[b] : G->hi[c];
+			}
+			break;
+		case O_CAST:
+			if (ra && !G->fp[a]) {
+				ok = 1;
+				lo = G->lo[a];
+				hi = G->hi[a];
+			}
+			break;
+		}
+		if (ok && (lo <= -big || hi >= big || (lo < 0 &&
+		    TYK(t) == K_UINT)))
+			ok = 0;		/* (a u64 below 0 wraps) */
+		if (ty_range(t, &tlo, &thi)) {
+			/* outside the type the machine value wraps */
+			if (!ok || lo < tlo || hi > thi) {
+				lo = tlo;
+				hi = thi;
+			}
+			ok = 1;
+		}
+		if (!ok)
+			continue;
+		G->lo[i] = lo;
+		G->hi[i] = hi;
+		G->ranged[i] = 1;
+	}
 }
 
 /* the cover of the nodes v[0..cnt) (ascending nids: operands first) */
@@ -844,6 +1121,8 @@ cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
 		if (e >= 0)
 			G->pinned[e] = 1;
 	}
+	if (wants_ranges(m))
+		cover_ranges(G, v, cnt);
 	return fg_cover(m, G);
 }
 

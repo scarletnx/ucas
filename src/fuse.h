@@ -17,6 +17,7 @@
 #define MAXFUSE 96
 
 enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
+#define FUSE_MAXBITS 32		/* an input's proved width: u1 .. u32, s1 .. s32 */
 
 /*
  * fuse NAME(a: int, b: int, c: int) = a * b + c : imul
@@ -29,12 +30,25 @@ enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
  * `contract` marks a fusion that rounds once where the operations round
  * twice (a*b + c as an fma): it applies only where contraction is
  * allowed (not to a SPIR-V result decorated NoContraction).
+ * fuse NAME(a: u16, b: u16, c: int) = a * b + c : mul16
+ *                                    an input of a proved width: uN, an
+ *                                    integer proved inside [0, 2^N), sN
+ *                                    inside [-2^(N-1), 2^(N-1)), from the
+ *                                    ranges of the function being priced
+ *                                    (fuse_domain) and the types
+ * fuse NAME(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul
+ *                                    a result modifier: the pattern folds
+ *                                    into the instruction that makes its
+ *                                    input, when that is an operation of
+ *                                    those classes used only here
  */
 struct fusion {
 	uint32_t model, name;
 	int np;
 	uint32_t pname[FUSE_MAXP];
 	uint8_t pkind[FUSE_MAXP];
+	uint8_t pbits[FUSE_MAXP];	/* FP_INT of a proved width; 0: any */
+	uint8_t psgn[FUSE_MAXP];	/* that width is signed (sN) */
 	nid pat;		/* over O_VAR slots 0..np-1; 0 for a lut */
 	int lut;		/* inputs of a lut fusion, else 0 */
 	int nt;			/* cost: k + sum tmul[i] * class tcls[i] */
@@ -42,6 +56,7 @@ struct fusion {
 	float tmul[FUSE_MAXT];
 	float k;
 	uint64_t users;		/* a modifier: the classes that absorb it */
+	uint64_t makers;	/* a result modifier: the classes it folds into */
 	int contract;
 };
 
@@ -69,6 +84,8 @@ struct fgraph {
 	float *own;
 	int *cls;
 	uint32_t *id;		/* the caller's id of each node */
+	int64_t *lo, *hi;	/* an integer node's proved range, where */
+	uint8_t *ranged;	/* ranged[i]; NULL: no ranges at all */
 	/* the cover */
 	float *eff;		/* each node's share: its fusion's price at the
 				 * root, 0 when absorbed, else its own cost */
@@ -98,5 +115,12 @@ float fuse_cover_nodes(const struct model *m, const uint8_t *mark,
     uint32_t lim, const nid *pins, int npins, int loops_own, float *eff,
     struct fgraph *keep);
 float fuse_expr_cost(const struct model *m, nid root);
+/*
+ * The function whose nodes are priced next (NULL: none): its parameters'
+ * ranges, narrowed by its where clause, are what a fusion input of a
+ * proved width (uN, sN) is matched against.  Without it the types alone
+ * bound the values.
+ */
+void fuse_domain(const struct func *f);
 
 #endif

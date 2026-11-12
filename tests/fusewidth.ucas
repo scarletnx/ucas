@@ -1,0 +1,50 @@
+# The model language for multiplies of narrow operands and saturating
+# results (src/fuse.c): fusion inputs of a proved width, the mul16
+# class, result modifiers.
+
+# mul16: a class a model may list (unavailable otherwise), for fusions
+# over inputs of a proved width.  gt1030 does not list it: not measured
+m1(a: u32 in 0..60000, b: u32 in 0..60000, c: u32) = a * b + c
+m2(a: u32, b: u32, c: u32) = (a & 0xffff) * (b >> 16) + c
+m3(a: u32, b: u32) = a * b
+m4(a: i32 in -30000..30000, b: i32 in -100..100) = a * b
+m5(a: u32, b: u32) = a * b where a < 50000 && b < 1000
+cost m1
+model xmad : gt1030 { mul16: 1
+  fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16
+  fuse mul16(a: u16, b: u16) = a * b : mul16
+  fuse smul16(a: s16, b: s16) = a * b : mul16 }
+use xmad
+cost m1
+cost m2
+cost m3
+cost m4
+cost m5
+# a model derived from it has the class and the fusions; mul16: none
+# takes the class away
+model xmad2 : xmad { mul16: none }
+use xmad2
+cost m1
+# the fusions without the price: the form is not available
+model noprice : gt1030 { fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
+use noprice
+cost m1
+model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
+
+# a result modifier: the clamp to [0, 1] folded into the instruction
+# that makes its input (a saturating add, multiply or fma)
+model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }
+use sat
+s1(x: f32, y: f32, z: f32) = min(max(x * y + z, 0.0), 1.0)
+s2(x: f32, y: f32) = min(max(x + y, 0.0), 1.0) * 2.0
+cost s1
+cost s2
+# not into a square root (no such class listed), nor into a value used
+# elsewhere too
+s3(x: f32) = min(max(sqrt(x), 0.0), 1.0)
+s4(x: f32, y: f32) = { t = x * y; min(max(t, 0.0), 1.0) + t }
+cost s3
+cost s4
+use gt1030
+cost s1
+model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
