@@ -14,7 +14,9 @@
  *   - OpSwitch groups the lanes by target;
  *   - OpReturn, OpKill and friends retire lanes; OpFunctionCall runs the
  *     callee with the caller's mask;
- *   - OpControlBarrier stalls every lane, atomics serialize the lanes.
+ *   - OpControlBarrier stalls every lane; an atomic is a warp instruction
+ *     for the lanes on distinct addresses, replayed once more for each
+ *     further lane on the busiest address.
  * Memory: Uniform, StorageBuffer, Workgroup, PushConstant and
  * UniformConstant variables are shared by the lanes; Function, Private,
  * Input and Output are per lane.  Values are raw bit patterns per
@@ -2826,8 +2828,10 @@ exec_one(const struct sins *I, uint32_t mask)
 			"FAddEXT", NULL};
 		const struct model *mo = model_active();
 		int p = opid(I, 1), sc, cls, j, same = 0, nact = 0, wt, first = -1;
+		int round[64] = {0}, nround = 1;
 		struct lval pv = val(p, 0);
 		const char *a = I->op + 8;
+		const void *addr[64] = {0};
 		double cost;
 		for (j = 0; known[j] && strcmp(a, known[j]) != 0; j++)
 			;
@@ -2922,14 +2926,46 @@ exec_one(const struct sins *I, uint32_t mask)
 				memset(r, 0, sizeof *r);
 				r->b[0] = old;
 			}
-			/* one lane at a time, or the warp's one instruction */
-			if (!same)
-				k = emit(I, I_ATOMIC, cls, cost, 1u << l);
-			if (I->res >= 0 && k >= 0) {
-				char buf[64];
-				fmt(buf, sizeof buf, V.id[I->res].type, LV(I->res, l));
-				xr_val(k, l, buf);
+			if (same) {
+				/* the warp's one instruction: the values on it */
+				if (I->res >= 0 && k >= 0) {
+					char buf[64];
+					fmt(buf, sizeof buf, V.id[I->res].type,
+					    LV(I->res, l));
+					xr_val(k, l, buf);
+				}
+				continue;
 			}
+			/* the lanes before it on its address: its replay */
+			addr[l] = texw != NULL ? (const void *)texw : (const void *)m;
+			for (j = 0; j < l; j++)
+				if ((mask >> j & 1) && addr[j] == addr[l])
+					round[l]++;
+			if (round[l] + 1 > nround)
+				nround = round[l] + 1;
+		}
+		/*
+		 * One warp instruction for lanes on distinct addresses, the
+		 * class's price per warp; the lanes on one address go one at a
+		 * time, so it is replayed once more for each further lane on the
+		 * busiest address.  The lanes ran above in their order, which
+		 * is the order the replays give.
+		 */
+		for (j = 0; !same && j < nround; j++) {
+			uint32_t rm = 0;
+			for (l = 0; l < V.lanes; l++)
+				if ((mask >> l & 1) && round[l] == j)
+					rm |= 1u << l;
+			k = emit(I, I_ATOMIC, cls, cost, rm);
+			if (I->res < 0 || k < 0)
+				continue;
+			for (l = 0; l < V.lanes; l++)
+				if (rm >> l & 1) {
+					char buf[64];
+					fmt(buf, sizeof buf, V.id[I->res].type,
+					    LV(I->res, l));
+					xr_val(k, l, buf);
+				}
 		}
 		return;
 	}
