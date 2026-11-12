@@ -1,0 +1,147 @@
+# A float atomic min or max on workgroup memory written as an integer
+# one on keys that order as the floats, every access converted, when the
+# variable's atomics are all min or all max and the module gets cheaper.
+#
+# a max into four cells set by a constant: the constant's key at once
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float best[4];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l < 4u) best[l] = -3.0e38;
+    barrier();
+    atomicMax(best[l & 3u], inb.v[l]);
+    barrier();
+    if (l < 4u) outb.o[l] = best[l];
+}
+```
+# two mins into one cell set from a buffer: the stored value takes its
+# key, a NaN the min's identity
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float lo;
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l == 0u) lo = inb.v[64];
+    barrier();
+    atomicMin(lo, inb.v[l]);
+    atomicMin(lo, inb.v[l] * 0.5);
+    barrier();
+    outb.o[l] = lo;
+}
+```
+# one min whose old value is read: the decodes cost more than it saves
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float lo;
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l == 0u) lo = 1.0e30;
+    barrier();
+    float before = atomicMin(lo, inb.v[l]);
+    barrier();
+    outb.o[l] = lo + before;
+}
+```
+# a bounding range, min into one cell and max into the other, set by
+# constants: each NaN operand takes its own atomic's identity
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float range[2];
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l == 0u) { range[0] = 3.0e38; range[1] = -3.0e38; }
+    barrier();
+    atomicMin(range[0], inb.v[l]);
+    atomicMax(range[1], inb.v[l]);
+    barrier();
+    outb.o[l] = range[1] - range[0];
+}
+```
+# a min and a max into one cell set from a buffer: the stored value may
+# be a NaN, which has no key for both
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float c;
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    if (l == 0u) c = inb.v[128];
+    barrier();
+    atomicMin(c, inb.v[l]);
+    atomicMax(c, inb.v[l + 64u]);
+    barrier();
+    outb.o[l] = c;
+}
+```
+# an exchange on the same cell: not converted, so nothing is
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+shared float hi;
+void main() {
+    uint l = gl_LocalInvocationID.x;
+    atomicMax(hi, inb.v[l]);
+    atomicMax(hi, inb.v[l + 64u]);
+    barrier();
+    outb.o[l] = atomicExchange(hi, 0.0);
+}
+```
+# a max into a storage buffer: read outside the module, a proposal
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float peak[8]; float o[]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    atomicMax(outb.peak[i & 7u], inb.v[i]);
+    outb.o[i] = outb.peak[(i + 1u) & 7u];
+}
+```
+# a min and a max into one buffer member: the proposal says which
+# identity each takes
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float2 : require
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) buffer O { float range[2]; } outb;
+layout(set = 0, binding = 1) readonly buffer I { float v[]; } inb;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    atomicMin(outb.range[0], inb.v[i]);
+    atomicMax(outb.range[1], inb.v[i]);
+}
+```

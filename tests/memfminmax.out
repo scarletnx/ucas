@@ -1,0 +1,162 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 113 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 3.375 -> 3.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+memory under gt1030:
+  float atomic max into best: 1 atomic, 1 load, 1 store: an integer atomic max on keys that order as the floats, 19.625 against 24.25 (atomic_shared_f 24.25 each)
+    the key of a float with bits b is b ^ ((b >>> 31) | 0x80000000): a non-negative float keeps its bits with the top bit set, a negative one gets them inverted, below every non-negative key, so the keys order as the floats (-0 below +0, which FMin and FMax leave open)
+    a NaN goes in as the max's identity (0) and reads back as a NaN, as FMax ignores a NaN operand
+    each atomic: atomic_shared 6.625 + the key 8; each load and each old value read: the decode 5; each store of a value: the key 8 (a constant's at once)
+    written into the module (workgroup memory is the module's own)
+  the module no longer declares AtomicFloat32MinMaxEXT: it runs where the device has no float atomic min and max
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4583 bytes, checksum 66e8c87e)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 105 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2.375 -> 2.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+memory under gt1030:
+  float atomic min into lo: 2 atomics, 1 load, 1 store: an integer atomic min on keys that order as the floats, 42.25 against 48.5 (atomic_shared_f 24.25 each)
+    the key of a float with bits b is b ^ ((b >>> 31) | 0x80000000): a non-negative float keeps its bits with the top bit set, a negative one gets them inverted, below every non-negative key, so the keys order as the floats (-0 below +0, which FMin and FMax leave open)
+    a NaN goes in as the min's identity (0xFFFFFFFF) and reads back as a NaN, as FMin ignores a NaN operand
+    each atomic: atomic_shared 6.625 + the key 8; each load and each old value read: the decode 5; each store of a value: the key 8 (a constant's at once)
+    written into the module (workgroup memory is the module's own)
+  atomics by kind, priced a warp instruction:
+    %41 = OpAtomicFMinEXT %float %lo %uint_1 %uint_0 %39
+      (line 11: atomicMin(lo, inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+    %47 = OpAtomicFMinEXT %float %lo %uint_1 %uint_0 %46
+      (line 12: atomicMin(lo, inb.v[l] * 0.5);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+  the module no longer declares AtomicFloat32MinMaxEXT: it runs where the device has no float atomic min and max
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4885 bytes, checksum 0f52c317)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 104 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2.375 -> 2.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  float atomic min into lo: left as it is: not cheaper with its loads and stores converted: 24.625 against 24.25
+  atomics by kind, priced a warp instruction:
+    %41 = OpAtomicFMinEXT %float %lo %uint_1 %uint_0 %39
+      (line 11: float before = atomicMin(lo, inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 112 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 2.375 -> 2.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  float atomic min and max into range: 2 atomics, 2 loads, 2 stores: an integer atomic min and max on keys that order as the floats, 39.25 against 48.5 (atomic_shared_f 24.25 each)
+    the key of a float with bits b is b ^ ((b >>> 31) | 0x80000000): a non-negative float keeps its bits with the top bit set, a negative one gets them inverted, below every non-negative key, so the keys order as the floats (-0 below +0, which FMin and FMax leave open)
+    a NaN operand goes in as its operation's identity (0xFFFFFFFF for a min, 0 for a max), as FMin and FMax ignore it; every store is a constant other than a NaN
+    each atomic: atomic_shared 6.625 + the key 8; each load and each old value read: the decode 5; each store of a value: the key 8 (a constant's at once)
+    written into the module (workgroup memory is the module's own)
+  atomics by kind, priced a warp instruction:
+    %46 = OpAtomicFMinEXT %float %36 %uint_1 %uint_0 %44
+      (line 11: atomicMin(range[0], inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+    %51 = OpAtomicFMaxEXT %float %47 %uint_1 %uint_0 %44
+      (line 12: atomicMax(range[1], inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+  the module no longer declares AtomicFloat32MinMaxEXT: it runs where the device has no float atomic min and max
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 5416 bytes, checksum 20a6253a)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 106 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 3.375 -> 3.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 16: the shader has no main function)
+memory under gt1030:
+  float atomic min and max into c: left as it is: it takes both atomic min and max, and a value stored into it may be a NaN, which has no key for both (on line 9)
+  atomics by kind, priced a warp instruction:
+    %41 = OpAtomicFMinEXT %float %c %uint_1 %uint_0 %39
+      (line 11: atomicMin(c, inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+    %47 = OpAtomicFMaxEXT %float %c %uint_1 %uint_0 %46
+      (line 12: atomicMax(c, inb.v[l + 64u]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 93 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 15: the shader has no main function)
+memory under gt1030:
+  float atomic max into hi: left as it is: an access of a kind this rewrite does not convert (on line 13)
+  atomics by kind, priced a warp instruction:
+    %31 = OpAtomicFMaxEXT %float %hi %uint_1 %uint_0 %29
+      (line 10: atomicMax(hi, inb.v[l]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+    %37 = OpAtomicFMaxEXT %float %hi %uint_1 %uint_0 %36
+      (line 11: atomicMax(hi, inb.v[l + 64u]);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+    %46 = OpAtomicExchange %float %hi %uint_1 %uint_0 %float_0
+      (line 13: outb.o[l] = atomicExchange(hi, 0.0);)
+      every lane on one address (its indices are uniform): atomic_shared_same 63.75
+      not rewritten: only an add, a subtract, an increment or a decrement sums over the lanes
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 91 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 3 -> 3 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+memory under gt1030:
+  %39 = OpAtomicFMaxEXT %float %30 %uint_1 %uint_0 %37
+      (line 8: atomicMax(outb.peak[i & 7u], inb.v[i]);)
+    proposal (an interface change, not applied): peak in the buffer outb becomes u32 holding keys that order as the floats, key = b ^ ((b >>> 31) | 0x80000000) for the bits b:
+      here the operand's key goes to OpAtomicUMax for 1 atomic max (a NaN as the identity: 0), 1 load and 0 old values decoded (k ^ (~(k >>> 31) | 0x80000000)), 0 stores encoded: 63 against 138.75 (atomic_global 50, atomic_global_f 138.75)
+      every other shader that reads or writes it converts the same way, and so do the host's upload and readback (a cell no value reached yet holds the identity of the atomics into it and reads back as a NaN; one that both kinds reach starts from a value)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 81 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser refused it: line 11: the shader has no main function)
+memory under gt1030:
+  %35 = OpAtomicFMinEXT %float %26 %uint_1 %uint_0 %33
+      (line 8: atomicMin(outb.range[0], inb.v[i]);)
+    proposal (an interface change, not applied): range in the buffer outb becomes u32 holding keys that order as the floats, key = b ^ ((b >>> 31) | 0x80000000) for the bits b:
+      here the operand's key goes to OpAtomicUMin for 1 atomic min and OpAtomicUMax for 1 atomic max (a NaN as the identity: 0xFFFFFFFF for a min, 0 for a max), 0 loads and 0 old values decoded (k ^ (~(k >>> 31) | 0x80000000)), 0 stores encoded: 116 against 277.5 (atomic_global 50, atomic_global_f 138.75)
+      every other shader that reads or writes it converts the same way, and so do the host's upload and readback (a cell no value reached yet holds the identity of the atomics into it and reads back as a NaN; one that both kinds reach starts from a value)

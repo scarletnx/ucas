@@ -27,9 +27,48 @@ exec of SPIR-V (79 instructions), entry main, 4 lanes in lockstep, cost model gt
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > animate exec seed 1 nofile
-exec of SPIR-V (71 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+exec of SPIR-V (115 instructions), entry main, 4 lanes in lockstep, cost model gt1030
   buffers start with random values (seed 1)
   before: outb: 0.98 -0.11 -0.86 1.82
-execfadd.ucas:20:27: error: SPIR-V: OpAtomicFMinEXT is not run by the executor
-    animate exec seed 1 nofile
-                              ^
+  after:  outb: 2 2 2 2
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    OpStore %9 %16                                              0  t = 0..0
+    %19 = OpIEqual %bool %16 %uint_0             cmp        2.375  t = 0..2.375  -> true false false false
+    OpBranchConditional %19 %20 %21              branch      6.25  t = 2.375..8.625
+    OpStore %m %float_10                         store_shared     3  t = 8.625..11.625  lanes {0}
+    OpStore %mx %float_n10                       store_shared     3  t = 11.625..14.625  lanes {0}
+    reconverge (keep-up)                         diverge    14.375  t = 14.625..29
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 29..38.125
+    %34 = OpIEqual %bool %16 %uint_3             cmp        2.375  t = 38.125..40.5  -> false false false true
+    OpBranchConditional %34 %36 %40              branch      6.25  t = 40.5..46.75
+    OpStore %35 %float_0x1_8p_128                               0  t = 46.75..46.75  lanes {3}
+    %42 = OpConvertUToF %float %16               conv           3  t = 46.75..49.75  lanes {0,1,2}  -> 0 1 2 -
+    OpStore %35 %42                                             0  t = 49.75..49.75  lanes {0,1,2}
+    reconverge (keep-up)                         diverge    14.375  t = 49.75..64.125
+    %64 = OpPhi %float %float_0x1_8p_128 %36 %42 %40                0  t = 64.125..64.125  -> 0 1 2 nan
+    OpStore %v %64                                              0  t = 64.125..64.125
+    %46 = OpAtomicFMinEXT %float %m %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 64.125..88.375  lanes {0}  -> 10 - - -
+    %46 = OpAtomicFMinEXT %float %m %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 88.375..112.625  lanes {1}  -> - 0 - -
+    %46 = OpAtomicFMinEXT %float %m %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 112.625..136.875  lanes {2}  -> - - 0 -
+    %46 = OpAtomicFMinEXT %float %m %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 136.875..161.125  lanes {3}  -> - - - 0
+    %48 = OpAtomicFMaxEXT %float %mx %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 161.125..185.375  lanes {0}  -> -10 - - -
+    %48 = OpAtomicFMaxEXT %float %mx %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 185.375..209.625  lanes {1}  -> - 0 - -
+    %48 = OpAtomicFMaxEXT %float %mx %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 209.625..233.875  lanes {2}  -> - - 1 -
+    %48 = OpAtomicFMaxEXT %float %mx %uint_1 %uint_0 %64 atomic_shared_f 24.25  t = 233.875..258.125  lanes {3}  -> - - - 2
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 258.125..267.25
+    %57 = OpLoad %float %m                       load_shared     3  t = 267.25..270.25  -> 0 0 0 0
+    %58 = OpLoad %float %mx                      load_shared     3  t = 270.25..273.25  -> 2 2 2 2
+    %59 = OpFAdd %float %57 %58                  fadd           1  t = 273.25..274.25  -> 2 2 2 2
+    %61 = OpAccessChain %_ptr_StorageBuffer_float %outb %int_0 %16 iadd           1  t = 274.25..275.25  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    OpStore %61 %59                              store         15  t = 275.25..290.25
+  time 290.25 for every lane; lanes busy 42% (603 lane-units idle: masked, or waiting for an atomic)
+  animation: 764x418, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 48.4 cost units; 391244 bytes
+  (nofile: GIF checksum 9b03a458)
+> animate exec lanes 4 seed 1 nofile
+exec of SPIR-V (15 instructions), entry %main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+execfadd.ucas:40:35: error: SPIR-V: OpAtomicCompareExchangeWeak is not run by the executor
+    animate exec lanes 4 seed 1 nofile
+                                      ^
