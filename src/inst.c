@@ -39,6 +39,9 @@
  *                      of ins (u32), p and n constant (a node has three
  *                      operands, so they ride in one, bfi_field):
  *                      OpBitFieldInsert
+ *   mulwide(a, b)      the 64-bit product of two u32 (u64)
+ *   madwide(a, b, c)   that product plus the u64 c (wrapping): IMAD.WIDE,
+ *                      v_mad_u64_u32
  *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
@@ -76,6 +79,8 @@ inst_class(int op)
 		return C_SAD4X8;
 	case O_BFI:
 		return C_BFI;
+	case O_MULWIDE: case O_MADWIDE:
+		return C_MULWIDE;
 	}
 	return C_BYTEPERM;
 }
@@ -116,6 +121,8 @@ inst_type(int op, nid a, nid b, nid c)
 	case O_MED3:
 		/* the operands' common type, as their sum would have */
 		return N.ty[sum_type(a, b, c)];
+	case O_MULWIDE: case O_MADWIDE:
+		return U64;
 	}
 	return U32;
 }
@@ -199,6 +206,11 @@ inst_expand(int op, nid a, nid b, nid c)
 			    mk_bin(O_MIN, p, q)));
 		}
 		break;
+	case O_MULWIDE: case O_MADWIDE:
+		r = mk_bin(O_MUL, mk_cast(U64, a), mk_cast(U64, b));
+		if (op == O_MADWIDE)
+			r = mk_bin(O_ADD, r, c);
+		break;
 	case O_BFI: {
 		uint32_t m = field_mask(BFI_P(N.ki[c]), BFI_N(N.ki[c]));
 		r = mk_bin(O_OR, mk_bin(O_AND, a, ku(U32, ~m)), mk_bin(O_AND,
@@ -246,6 +258,12 @@ mk_inst(int op, nid a, nid b, nid c)
 		b = mk_cast(U32, b);
 		if (ar == 3)
 			c = mk_cast(U32, c);
+		break;
+	case O_MULWIDE: case O_MADWIDE:
+		a = mk_cast(U32, a);
+		b = mk_cast(U32, b);
+		if (op == O_MADWIDE)
+			c = mk_cast(U64, c);
 		break;
 	case O_BFI:
 		if (!is_const(c) || BFI_P(N.ki[c]) + BFI_N(N.ki[c]) > 32 ||
@@ -390,6 +408,42 @@ bfi_ins(const struct func *f, nid r, int p, int n, uint32_t m,
 	return 0;
 }
 
+/* q, a u64, as the u32 it widens: a word or narrower unsigned widened, a
+ * constant below 2^32, or a value whose range stays below it; 0 if not */
+static nid
+narrow32(const struct func *f, nid q, struct sbuf *how)
+{
+	int64_t lo, hi;
+
+	if (N.op[q] == O_CAST && TYK(N.ty[N.a[q]]) == K_UINT &&
+	    TYW(N.ty[N.a[q]]) <= 32)
+		return mk_cast(U32, N.a[q]);
+	if (is_const(q))
+		return (uint64_t)N.ki[q] <= 0xffffffffULL ? ku(U32,
+		    (uint64_t)N.ki[q]) : 0;
+	if (sg_range_of(f, q, 32, &lo, &hi) && lo >= 0 && hi <= 0xffffffffLL) {
+		sb_printf(how, " (%s <= %lld, by intervals)", node_str(q),
+		    (long long)hi);
+		return mk_cast(U32, q);
+	}
+	return 0;
+}
+
+/* x, a u64 product of two words: *a and *b those words */
+static int
+wide_product(const struct func *f, nid x, nid *a, nid *b, struct sbuf *how)
+{
+	if (N.op[x] == O_MULWIDE) {
+		*a = N.a[x];
+		*b = N.b[x];
+		return 1;
+	}
+	if (N.op[x] != O_MUL || N.ty[x] != U64)
+		return 0;
+	return (*a = narrow32(f, N.a[x], how)) != 0 &&
+	    (*b = narrow32(f, N.b[x], how)) != 0;
+}
+
 /* x, a word's field replaced, as bfi: (base & ~m) | field, with or, xor
  * or +, m the field's bits */
 static nid
@@ -421,6 +475,30 @@ bfi_of(const struct func *f, nid x, struct sbuf *why)
 		    node_str(base), n, node_str(ins), sb_str(&how));
 		free(how.p);
 		return mk_inst(O_BFI, base, ins, bfi_field(q, n));
+	}
+	return 0;
+}
+
+/* x, a wide product plus a u64, as madwide */
+static nid
+madwide_of(const struct func *f, nid x, struct sbuf *why)
+{
+	nid a, b;
+	int j;
+
+	if (N.op[x] != O_ADD || N.ty[x] != U64)
+		return 0;
+	for (j = 0; j < 2; j++) {
+		nid pr = j ? N.b[x] : N.a[x], c = j ? N.a[x] : N.b[x];
+		struct sbuf how = {0};
+		if (wide_product(f, pr, &a, &b, &how)) {
+			sb_printf(why, "%s: the 64-bit product of two words "
+			    "plus %s%s", shared_str(x, 80), node_str(c),
+			    sb_str(&how));
+			free(how.p);
+			return mk_inst(O_MADWIDE, a, b, c);
+		}
+		free(how.p);
 	}
 	return 0;
 }
@@ -604,11 +682,69 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 	}
 	case 6:		/* (base & ~m) | field, m the field's bits p..p+n-1 */
 		return bfi_of(f, x, why);
+	case 7:		/* u64(a) * u64(b), a and b words */
+		if (op == O_MUL && N.ty[x] == U64) {
+			struct sbuf how = {0};
+			if (wide_product(f, x, &a, &b, &how)) {
+				sb_printf(why, "%s: the 64-bit product of two "
+				    "words%s", shared_str(x, 80), sb_str(&how));
+				free(how.p);
+				return mk_inst(O_MULWIDE, a, b, 0);
+			}
+			free(how.p);
+		}
+		break;
+	case 8:		/* that product plus a u64 */
+		return madwide_of(f, x, why);
 	}
 	return 0;
 }
 
-#define NPAT 7
+#define NPAT 9
+
+/*
+ * The low word of a product, a * b in u32, where the function also reads
+ * its high word (mulhi(a, b), or the pattern it is): both from one wide
+ * product.  The candidate, or 0.
+ */
+static nid
+wide_pair(const struct func *f, nid cur, const nid *nd, int n, nid x,
+    struct sbuf *why)
+{
+	nid w, hi, cand;
+	int i;
+	struct sbuf scratch = {0};
+
+	if (N.op[x] != O_MUL || N.ty[x] != U32)
+		return 0;
+	for (i = 0; i < n; i++) {
+		hi = nd[i];
+		if (N.op[hi] != O_MULHI) {
+			nid h = pattern(f, 3, hi, &scratch);
+			sb_clear(&scratch);
+			if (!h || N.op[h] != O_MULHI)
+				continue;
+			if (!((N.a[h] == N.a[x] && N.b[h] == N.b[x]) ||
+			    (N.a[h] == N.b[x] && N.b[h] == N.a[x])))
+				continue;
+		} else if (!((N.a[hi] == N.a[x] && N.b[hi] == N.b[x]) ||
+		    (N.a[hi] == N.b[x] && N.b[hi] == N.a[x])))
+			continue;
+		w = mk_inst(O_MULWIDE, N.a[x], N.b[x], 0);
+		cand = sg_replaced(cur, x, mk_cast(U32, w));
+		if (cand)
+			cand = sg_replaced(cand, hi, mk_cast(N.ty[hi],
+			    mk_bin(O_SHR, w, ku(U64, 32))));
+		if (!cand)
+			continue;
+		sb_printf(why, "%s and %s: the low and the high word of one "
+		    "64-bit product", shared_str(x, 60), shared_str(hi, 60));
+		free(scratch.p);
+		return cand;
+	}
+	free(scratch.p);
+	return 0;
+}
 #define MAXNODE 512
 
 static int
@@ -643,9 +779,9 @@ inst_find(const struct func *f)
 	float before, cost;
 	int k, iter, bad;
 
-	for (k = C_BFE; k <= C_BFI && !cclass_available(m, k); k++)
+	for (k = C_BFE; k <= C_MULWIDE && !cclass_available(m, k); k++)
 		;
-	if (k > C_BFI || !TY_ISINT(N.ty[cur]))
+	if (k > C_MULWIDE || !TY_ISINT(N.ty[cur]))
 		return;
 	nd = xmalloc(MAXNODE * sizeof *nd);
 	before = cost = fuse_expr_cost(m, sg_priced(f, cur));
@@ -656,7 +792,18 @@ inst_find(const struct func *f)
 		float bc = cost;
 
 		free(seen);
-		for (i = 0; i < n; i++)
+		for (i = 0; i < n; i++) {
+			nid cand;
+			float c;
+			sb_clear(&one);
+			cand = wide_pair(f, cur, nd, n, nd[i], &one);
+			if (cand && (c = fuse_expr_cost(m, sg_priced(f, cand))) <
+			    bc) {
+				bc = c;
+				best = cand;
+				sb_clear(&best_why);
+				sb_puts(&best_why, sb_str(&one));
+			}
 			for (p = 0; p < NPAT; p++) {
 				nid to, cand;
 				float c;
@@ -675,6 +822,7 @@ inst_find(const struct func *f)
 					sb_puts(&best_why, sb_str(&one));
 				}
 			}
+		}
 		if (!best)
 			break;
 		sb_printf(&why, "%s\n", sb_str(&best_why));
