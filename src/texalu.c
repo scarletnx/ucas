@@ -341,6 +341,7 @@ struct repl {
 	double err, eorig;	/* filtered: the bounds, new and as written */
 	int exact, filtered, ok;
 	int plain;		/* the read as it is, through the unit */
+	int levels;		/* a float table read as 8-bit levels */
 	struct sbuf what, holds, proof, pipe, why;
 };
 
@@ -356,6 +357,8 @@ static struct {
 	int nr;
 	int unavail[C_NCLASS];	/* a class a candidate needed */
 	int noulp, nobits;
+	double tol;		/* the error the request allows */
+	int nolevels;		/* float tables as f32 only (seed_sum's retry) */
 	struct sbuf far;	/* an index identity out of f32's reach */
 	struct sbuf nosum;	/* neighbours that are not one read, and why */
 } X;
@@ -926,10 +929,12 @@ struct tinfo {
 	nid tab;		/* the source's table */
 	int64_t n;
 	int isint;		/* integers 0..255: stored as k/255 */
+	int levels;		/* floats lo + (hi - lo) k/255: stored as k/255 */
 	int cls;
 	double tmax, trep;	/* max |v|, max |v - its texel| */
 	nid tex;		/* the f32 table the read takes */
-	double scale;		/* the read times this is the source's units */
+	double scale, off;	/* an entry is off + scale times its texel */
+	double rmax;		/* the largest scale times a texel */
 };
 
 static int
@@ -962,13 +967,70 @@ table_info(nid tab, struct tinfo *ti)
 	ti->cls = u8 || un ? C_TEX_SAMPLE : C_TEX_SAMPLE_F32;
 	if (u8)
 		ti->scale = 255;
+	ti->rmax = ti->tmax;
+	if (!u8 && !un && !X.nolevels) {
+		/*
+		 * Evenly spaced levels: every entry lo + step m for a whole m
+		 * of at most 255.  The texture holds bytes k (m spread over
+		 * 0..255 when the largest m divides 255, so the filter works
+		 * on the whole range; m itself otherwise), the read is mapped
+		 * back by one multiply-add, and what the entries differ from
+		 * that by (a few ulps at most, or it is not taken) is in trep.
+		 */
+		double lo = cval(N.lst[N.a[tab]]), hi = lo, step = 0, gap = INFINITY;
+		double worst = 0, mmax, spread;
+		uint32_t i2;
+		for (j = 1; j < n; j++) {
+			double v = cval(N.lst[N.a[tab] + j]);
+			if (v < lo)
+				lo = v;
+			if (v > hi)
+				hi = v;
+		}
+		for (j = 0; j < n; j++)		/* the smallest gap */
+			for (i2 = 0; i2 < n; i2++) {
+				double d = cval(N.lst[N.a[tab] + j]) - cval(N.lst[N.a[tab] +
+				    i2]);
+				if (d > 0 && d < gap)
+					gap = d;
+			}
+		/* first the whole range as 255 steps, then the smallest gap
+		 * as the step */
+		for (i2 = 0; i2 < 2 && !ti->levels && hi > lo; i2++) {
+			step = i2 == 0 ? (hi - lo) / 255 : gap;
+			mmax = floor((hi - lo) / step + 0.5);
+			if (mmax < 1 || mmax > 255)
+				continue;
+			worst = 0;
+			spread = fmod(255, mmax) == 0 ? 255 / mmax : 1;
+			for (j = 0; j < n; j++) {
+				double v = cval(N.lst[N.a[tab] + j]), k = floor((v - lo) /
+				    step + 0.5) * spread, d = fabs(v - (lo + step / spread *
+				    255 * (double)(float)(k / 255)));
+				if (d > worst)
+					worst = d;
+			}
+			if (worst <= ldexp(ti->tmax, -21)) {
+				ti->levels = 1;
+				ti->cls = C_TEX_SAMPLE;
+				ti->scale = step / spread * 255;
+				ti->off = lo;
+				ti->rmax = hi - lo;
+			}
+		}
+	}
 	e = xmalloc(n * sizeof *e);
 	for (j = 0; j < n; j++) {
-		double v = cval(N.lst[N.a[tab] + j]), t = (double)(float)(v /
-		    ti->scale), d = fabs(v - t * ti->scale);
+		double v = cval(N.lst[N.a[tab] + j]), t, d;
+		if (ti->levels)
+			t = (double)(float)(floor((v - ti->off) / ti->scale * 255 +
+			    0.5) / 255);
+		else
+			t = (double)(float)(v / ti->scale);
+		d = fabs(v - (ti->off + t * ti->scale));
 		if (d > ti->trep)
 			ti->trep = d;
-		e[j] = kf(v / ti->scale);
+		e[j] = kf(t);
 	}
 	ti->tex = mk_table(e, n);
 	free(e);
@@ -1802,7 +1864,7 @@ max_diff(nid a, nid b, uint64_t *pts, int *sampled)
 }
 
 static void
-seed_sum(nid body, nid root)
+seed_sum1(nid body, nid root)
 {
 	struct sum *s = xcalloc(1, sizeof *s);
 	struct block blk[MAXTERM];
@@ -1810,7 +1872,7 @@ seed_sum(nid body, nid root)
 	nid taps = 0, to, ity_root = 0;
 	double enew = 0, mabs = 0, mtap = 0, u = ldexp(1.0, -24);
 	int i, j, ng = 0, ntap = 0, nleft = 0, isint, nterm = 0, njoin = 0;
-	int allpos = 1;
+	int allpos = 1, levels = 0;
 	struct sbuf what = {0}, holds = {0}, proof = {0}, pipe = {0};
 
 	(void)ity_root;
@@ -1962,6 +2024,9 @@ seed_sum(nid body, nid root)
 				    g.ti.tex, x, 0);
 			if (S * g.ti.scale != 1)
 				tap = mk_bin(O_MUL, kf(S * g.ti.scale), tap);
+			levels |= g.ti.levels;
+			if (g.ti.off != 0)	/* the levels' map back, with the product */
+				tap = mk_bin(O_ADD, tap, kf(S * g.ti.off));
 			if (S < 0)
 				allpos = 0;
 			if (taps)
@@ -1973,11 +2038,13 @@ seed_sum(nid body, nid root)
 					cnt++;
 				}
 			/* the snapped weights, the filter, the texels' rounding,
-			 * the weights not reproduced, and the scale: its
-			 * constant's rounding and the product's */
+			 * the weights not reproduced, and the map back to the
+			 * entries: the scale's constant and product, the offset's
+			 * constant and add */
 			e = fabs(S) * (dwx * g.dxmax + dwy * g.dymax + X.ulp *
-			    2 * u * g.ti.tmax + g.ti.trep) + b->resid * g.ti.tmax +
-			    (S * g.ti.scale != 1 ? 2 * u * fabs(S) * g.ti.tmax : 0);
+			    2 * u * g.ti.rmax + g.ti.trep) + b->resid * g.ti.tmax +
+			    ((S * g.ti.scale != 1 ? 2 : 0) + (g.ti.off != 0 ? 2 : 0)) *
+			    u * fabs(S) * (fabs(g.ti.off) + g.ti.rmax);
 			enew += e;
 			mtap += fabs(S) * g.ti.tmax;
 			ntap++;
@@ -2017,8 +2084,12 @@ seed_sum(nid body, nid root)
 				sb_puts(&holds, " is in [0, 1]");
 			}
 			sb_printf(&proof, " those are the entries' weights%s",
-			    g.ti.scale != 1 ? " (the texels are the entries / 255)" :
-			    "");
+			    g.ti.levels ? "" : g.ti.scale != 1 ?
+			    " (the texels are the entries / 255)" : "");
+			if (g.ti.levels)
+				sb_printf(&proof, " (an entry is %.9g + %.9g times its "
+				    "texel k/255: the weights' sum times %.9g is "
+				    "added back)", g.ti.off, g.ti.scale, g.ti.off);
 			if (b->resid > 0)
 				sb_printf(&proof, " to within %s", fmt_g(b->resid));
 			if (gx && gy)
@@ -2036,7 +2107,7 @@ seed_sum(nid body, nid root)
 			sb_printf(&proof, "\n  the filter is within %g ulp of that "
 			    "sum (the model's tex_within): %s; the texels as f32: "
 			    "%s; in all %s", X.ulp, fmt_g(fabs(S) * X.ulp * 2 * u *
-			    g.ti.tmax), fmt_g(fabs(S) * g.ti.trep), fmt_g(e));
+			    g.ti.rmax), fmt_g(fabs(S) * g.ti.trep), fmt_g(e));
 		}
 		sb_printf(&holds, "%s", holds.n ? "; " : "holds where ");
 		if (g.xe)
@@ -2054,10 +2125,11 @@ seed_sum(nid body, nid root)
 		    "shader reads textureLod(s, %s, 0.0).r", pipe.n ? "\n" : "",
 		    g.ti.cls == C_TEX_SAMPLE ? "R8_UNORM" : "R32_SFLOAT",
 		    (long long)g.W, (long long)g.H, g.ti.isint ? " as bytes "
-		    "(the shader sees k/255)" : g.ti.cls == C_TEX_SAMPLE ?
-		    " times 255 as bytes" : " as f32", g.H > 1 ? "vec2(x, y)" :
-		    "x");
-		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1) {
+		    "(the shader sees k/255)" : g.ti.levels ? "' levels k as "
+		    "bytes (evenly spaced: the shader maps k/255 back)" :
+		    g.ti.cls == C_TEX_SAMPLE ? " times 255 as bytes" : " as f32",
+		    g.H > 1 ? "vec2(x, y)" : "x");
+		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1 && !g.ti.levels) {
 			/* the same texels in half the bytes, when BC4's palettes
 			 * hold them exactly (texenc.c) */
 			struct texenc te;
@@ -2125,6 +2197,7 @@ seed_sum(nid body, nid root)
 		goto out;
 	r->to = to;
 	r->filtered = 1;
+	r->levels = levels;
 	r->exact = isint;
 	r->err = enew;
 	r->eorig = isint ? 0 : (nterm * u / (1 - nterm * u)) * mabs;
@@ -2182,6 +2255,30 @@ out:
 	free(proof.p);
 	free(pipe.p);
 	free(s);
+}
+
+/*
+ * A float table of evenly spaced levels is read as bytes (the cheaper
+ * class) when its bound is within what is allowed; when the map back
+ * costs more precision than that, as f32.
+ */
+static void
+seed_sum(nid body, nid root)
+{
+	int n0 = X.nr;
+	struct repl *r;
+
+	seed_sum1(body, root);
+	if (X.nr == n0)
+		return;
+	r = &X.r[X.nr - 1];
+	if (!r->levels || r->exact || r->err <= (X.tol > r->eorig ? X.tol :
+	    r->eorig))
+		return;
+	drop_repl(r);
+	X.nolevels = 1;
+	seed_sum1(body, root);
+	X.nolevels = 0;
 }
 
 /* ---- the driver ---- */
@@ -2255,6 +2352,7 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	memset(&X, 0, sizeof X);
 	X.f = f;
 	X.m = model_active();
+	X.tol = tol;
 	X.bits = (int)X.m->par[MP_SUBTEXEL];
 	X.ulp = X.m->par[MP_TEX_WITHIN];
 	res->tol = tol;
