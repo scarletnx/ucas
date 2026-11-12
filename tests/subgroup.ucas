@@ -140,3 +140,19 @@ equiv add8 ref8
 # constant word (the add is the sum's)
 ex(x: u32, y: u32) = ((x >> 8) & 255) + y
 find ex 1
+
+# a table read at the lane's index whose entries are a closed form of
+# the lane needs no load: the bit slice's shift table 0, 2, 4, ... is
+# 2 lane, the odd bits' 1 + 2 lane (13.25 each with the load, under w8)
+use w8
+ev(x: u32 uniform) = u8((x & 1) | ((x >> 1) & 2) | ((x >> 2) & 4) | ((x >> 3) & 8) | ((x >> 4) & 16) | ((x >> 5) & 32) | ((x >> 6) & 64) | ((x >> 7) & 128))
+find ev 1
+od(x: u32 uniform) = u8(((x >> 1) & 1) | ((x >> 2) & 2) | ((x >> 3) & 4) | ((x >> 4) & 8) | ((x >> 5) & 16) | ((x >> 6) & 32) | ((x >> 7) & 64) | ((x >> 8) & 128))
+find od 1
+use gt1030
+# a register whose entries are a closed form of the lane: the same form
+# at each lookup's own index needs no shuffle, costs less, and is said;
+# the register stays the load
+A(i: u32 in 0..7) = [3, 5, 7, 9, 11, 13, 15, 17][i]
+a3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = A(i) + A(j) * A(k)
+find a3 1
