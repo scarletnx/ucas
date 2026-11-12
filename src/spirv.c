@@ -6308,6 +6308,20 @@ spv_node(struct spvdot *c, int id, int depth)
 			x[0] = mk_bin(O_SHR, x[0], mk_const_i(ut, (int64_t)off));
 		r = cnt < (uint64_t)TYW(t) ? mk_bin(O_AND, x[0], mk_const_i(ut,
 		    (int64_t)wmask((int)cnt))) : x[0];
+	} else if (IS("OpBitFieldSExtract") && const_of(idx(OPN(1)), &kv) &&
+	    kv < 64 && const_of(idx(OPN(2)), &kv)) {
+		/* the field moved to the top and shifted back, arithmetic */
+		uint64_t off, cnt;
+		const_of(idx(OPN(1)), &off);
+		const_of(idx(OPN(2)), &cnt);
+		if (cnt == 0 || off + cnt > (uint64_t)TYW(t))
+			return c->memo[id] = spv_leaf(c, id);
+		x[0] = mk_cast(st, spv_node(c, idx(OPN(0)), depth + 1));
+		if (off + cnt < (uint64_t)TYW(t))
+			x[0] = mk_bin(O_SHL, x[0], mk_const_i(st, (int64_t)(TYW(t) -
+			    off - cnt)));
+		r = cnt < (uint64_t)TYW(t) ? mk_bin(O_SHR, x[0], mk_const_i(st,
+		    (int64_t)(TYW(t) - cnt))) : x[0];
 	} else if (IS("OpUConvert") || IS("OpSConvert") || IS("OpBitcast")) {
 		int a = res_of(idx(OPN(0)));
 		ty_t at = spv_ty(V.id[a].type);
