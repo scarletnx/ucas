@@ -2854,10 +2854,23 @@ under gt1030 a stream compaction's offset, `subgroupExclusiveAdd(x > 5u
 prices, or with the class the model lacks, and left
 (tests/subgroup_spv.ucas).
 
-Not there yet: the forms that need the subgroup's size fixed and all
-its lanes active (a scan as a ladder of shuffles, a table in a
-register) are not written into a module, since a Vulkan pipeline fixes
-the size (`requiredSubgroupSize`) outside it; a segmented scan under
+The forms that need the subgroup's size W fixed and all its lanes
+active are proposed, not written: a Vulkan pipeline fixes the size
+(`requiredSubgroupSize`, with full subgroups for a compute stage)
+outside the module.  An inclusive or exclusive scan of any value
+(OpGroupNonUniformIAdd) as a ladder of ceil(log2 W) steps, each a
+shuffle up by 1, 2, 4 ... added where the lane is at least that far up
+(a compare and a select), the exclusive one less the lane's own value;
+and a constant table of at most W entries read at a dynamic index (the
+Function variable glslang stores it into before each read) held one
+entry a lane, lane l reading entry l once, each read a shuffle from the
+lane its index names.  Each is priced like the module under the model's
+warp and said, with the host-side change, only when cheaper: under
+gt1030 a scan of 60.25 is a ladder of 50, and an 8-entry table read
+three times 20.625 -> 18.875, its reads priced as loads (simplify's
+totals leave Function memory out) (tests/sgpropose_spv.ucas).
+
+Not there yet: a segmented scan under
 `sg_active`; an exact value for inputs read in the other lanes (they
 need more than a function's 8 parameters).
 

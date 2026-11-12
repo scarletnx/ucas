@@ -120,6 +120,11 @@ simplify: 88 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
     %41 = OpGroupNonUniformIAdd %uint %uint_3 Reduce %40
       ->  OpGroupNonUniformBallotBitCount Reduce of the ballot of %40 != 0   (a sum of bits over the lanes as a ballot's bit count; -27.25)
       (line 9: uint odd = subgroupAdd(x & 1u);)
+  subgroup forms that need the subgroup's size fixed, proposed (pipeline state: the module is not changed), under gt1030:
+    %57 = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %28
+      (line 12: uint all = subgroupInclusiveAdd(x);)
+      as a ladder of 5 steps, each a shuffle up by 1, 2, 4 ... 16 added where the lane is at least that far up (a compare and a select): cost 60.25 -> 50
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
   subgroup sums of bits (a value that is 0 or 1 in every lane, summed over the lanes, is a ballot's bit count), under gt1030:
     %37 = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %35
       ->  OpGroupNonUniformBallotBitCount ExclusiveScan of the ballot of %33   (cost 62.875 -> 7)

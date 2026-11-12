@@ -1,0 +1,30 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 103 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 135.5 -> 135.5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  subgroup forms that need the subgroup's size fixed, proposed (pipeline state: the module is not changed), under gt1030:
+    %32 = OpGroupNonUniformIAdd %uint %uint_3 InclusiveScan %28
+      (line 9: uint s = subgroupInclusiveAdd(x);)
+      as a ladder of 5 steps, each a shuffle up by 1, 2, 4 ... 16 added where the lane is at least that far up (a compare and a select): cost 60.25 -> 50
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
+    %36 = OpGroupNonUniformIAdd %uint %uint_3 ExclusiveScan %35
+      (line 10: uint e = subgroupExclusiveAdd(x * 3u);)
+      as a ladder of 5 steps, each a shuffle up by 1, 2, 4 ... 16 added where the lane is at least that far up (a compare and a select), less the lane's own value: cost 61.25 -> 51
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
+    %49, a table of 8 entries read 3 times at a dynamic index (line 11)
+      as a register of the subgroup, lane l holding entry l (one read of the table), each read a shuffle from the lane its index names: cost 20.625 -> 18.875
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

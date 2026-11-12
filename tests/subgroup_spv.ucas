@@ -78,7 +78,7 @@ void main() {
 # compare 2.375, a bit count 3): a stream compaction's offset (an
 # exclusive scan of a select of 1 and 0), a count of odd values, a scan of
 # one bit of a field, and a signed count; the scan of x itself is not of
-# bits, and stays
+# bits: it stays, and its ladder is proposed (sgpropose_spv.ucas)
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
