@@ -1,0 +1,62 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (71 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3
+  after:  outb: 1 1 1 1
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    %23 = OpAccessChain %_ptr_Workgroup_uint %cnt %16 iadd           1  t = 0..1  -> &cnt[0] &cnt[1] &cnt[2] &cnt[3]
+    OpStore %23 %uint_0                          store_shared     3  t = 1..4
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 4..13.125
+    %30 = OpAtomicIAdd %uint %23 %uint_1 %uint_0 %uint_1 atomic_shared 6.625  t = 13.125..19.75  -> 0 0 0 0
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 19.75..28.875
+    %40 = OpLoad %uint %23                       load_shared     3  t = 28.875..31.875  -> 1 1 1 1
+    %42 = OpIAdd %uint %40 %30                   iadd           1  t = 31.875..32.875  -> 1 1 1 1
+    %44 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 32.875..33.875  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    OpStore %44 %42                              store         15  t = 33.875..48.875
+  time 48.875 for every lane; lanes busy 63% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 764x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 8.1 cost units; 191816 bytes
+  (nofile: GIF checksum c2ad14bb)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (72 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3
+  after:  outb: 2 2 3 3
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    %23 = OpBitwiseAnd %uint %16 %uint_1         logic          1  t = 0..1  -> 0 1 0 1
+    %25 = OpAccessChain %_ptr_Workgroup_uint %cnt %23 iadd           1  t = 1..2  -> &cnt[0] &cnt[1] &cnt[0] &cnt[1]
+    OpStore %25 %uint_0                          store_shared     3  t = 2..5
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 5..14.125
+    %31 = OpAtomicIAdd %uint %25 %uint_1 %uint_0 %uint_1 atomic_shared 6.625  t = 14.125..20.75  lanes {0,1}  -> 0 0 - -
+    %31 = OpAtomicIAdd %uint %25 %uint_1 %uint_0 %uint_1 atomic_shared 6.625  t = 20.75..27.375  lanes {2,3}  -> - - 1 1
+    OpControlBarrier %uint_2 %uint_2 %uint_264   barrier    9.125  t = 27.375..36.5
+    %43 = OpLoad %uint %25                       load_shared     3  t = 36.5..39.5  -> 2 2 2 2
+    %45 = OpIAdd %uint %43 %31                   iadd           1  t = 39.5..40.5  -> 2 2 3 3
+    %47 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 40.5..41.5  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    OpStore %47 %45                              store         15  t = 41.5..56.5
+  time 56.5 for every lane; lanes busy 56% (26.5 lane-units idle: masked, or waiting for an atomic)
+  animation: 764x275, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 9.4 cost units; 214258 bytes
+  (nofile: GIF checksum 0c0d5727)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> animate exec seed 1 nofile
+exec of SPIR-V (54 instructions), entry main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  before: outb: 4 8 1 3
+  after:  outb: 5 10 4 7
+  serial form:
+    %15 = OpAccessChain %_ptr_Input_uint %gl_LocalInvocationID %uint_0                0  t = 0..0  -> &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0 &gl_LocalInvocationID[0
+    %16 = OpLoad %uint %15                                      0  t = 0..0  -> 0 1 2 3
+    %26 = OpAccessChain %_ptr_StorageBuffer_uint %outb %int_0 %16 iadd           1  t = 0..1  -> &outb[0] &outb[1] &outb[2] &outb[3]
+    %29 = OpIAdd %uint %16 %uint_1               iadd           1  t = 1..2  -> 1 2 3 4
+    %30 = OpAtomicIAdd %uint %26 %uint_1 %uint_0 %29 atomic_global    50  t = 2..52  -> 4 8 1 3
+  time 52 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 764x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 8.7 cost units; 123362 bytes
+  (nofile: GIF checksum db437a88)

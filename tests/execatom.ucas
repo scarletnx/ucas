@@ -1,0 +1,46 @@
+# animate exec prices an integer atomic as warp instructions: one for the
+# lanes on distinct addresses, the class's price per warp, and one more
+# for each further lane on the busiest address, which go one at a time.
+# Four lanes add 1 into four cells: one atomic_shared
+animate exec seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 4) in;
+layout(set = 0, binding = 0) buffer O { uint o[4]; } outb;
+shared uint cnt[4];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    cnt[i] = 0u;
+    barrier();
+    uint before = atomicAdd(cnt[i], 1u);
+    barrier();
+    outb.o[i] = cnt[i] + before;
+}
+```
+# into two cells: two lanes on each, so two
+animate exec seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 4) in;
+layout(set = 0, binding = 0) buffer O { uint o[4]; } outb;
+shared uint cnt[2];
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    cnt[i & 1u] = 0u;
+    barrier();
+    uint before = atomicAdd(cnt[i & 1u], 1u);
+    barrier();
+    outb.o[i] = cnt[i & 1u] + before;
+}
+```
+# a buffer's cells, one a lane: one atomic_global
+animate exec seed 1 nofile
+```glsl
+#version 450
+layout(local_size_x = 4) in;
+layout(set = 0, binding = 0) buffer O { uint o[4]; } outb;
+void main() {
+    uint i = gl_LocalInvocationID.x;
+    atomicAdd(outb.o[i], i + 1u);
+}
+```
