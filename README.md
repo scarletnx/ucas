@@ -1744,6 +1744,79 @@ JSON result an `identities` list.  Without a bound on the dividend
 nothing is derived.  The translation is checked against the
 interpreter on 64 samples; the written module passes spirv-val.
 
+### Integers as floats, floats as integers
+
+The identities between the two number systems of a 32-bit word are
+rewrites of the same kind (src/ifx.c): each is derived, with the
+ranges it holds on, and `find` keeps one only when the active model
+prices it lower.  All of them are exact, bit for bit (the two floor
+forms up to the sign of a zero); f32 only.
+
+| as written | rewritten | holds where | derivation |
+|---|---|---|---|
+| `f32(i)` | `asfloat(i \| 0x4B000000) - 2^23` | 0 <= i < 2^23 | the bits are those of 2^23 + i (exponent field 150, mantissa i); the subtraction is exact |
+| `f32(i)` | `asfloat(i + 0x4B400000) - 1.5*2^23` | -2^22 <= i < 2^22 | the same from 1.5*2^23: the add stays in the mantissa |
+| `iN(x)` | `asint(x + 1.5*2^23) - 0x4B400000` | x an integer in [-2^22, 2^22) inside iN | x + 1.5*2^23 is an integer in [2^23, 2^24), exact; its mantissa holds it |
+| `floor(x)`, `ceil(x)` | `r > x ? r - 1 : r` (`r < x ? r + 1 : r`), r = (x + 1.5*2^23) - 1.5*2^23 | \|x\| <= 2^22; a zero result may change sign | the add rounds to the nearest integer, ties to even; one compare corrects it |
+| `floor(x)`, `ceil(x)` | `x` | x an integer | |
+| `f32(iN(x))`, `iN(f32(i))` | `x`, `i` | x an integer inside iN; \|i\| <= 2^24 | both conversions are exact |
+| `f32(1 << k)` | `asfloat((k + 127) << 23)` | 1 << k does not wrap | 2^k is an f32: sign 0, exponent field k + 127, mantissa 0 |
+| `x * f32(1 << k)` | `asfloat(asint(x) + (k << 23))` | x normal and never 0, x * 2^k < 2^128 | the product keeps the mantissa and is exact; the add reaches only the exponent field |
+| `31 - clz(x)` (W-1 for a W-bit x) | `(asint(f32(x)) >> 23) - 127` | 1 <= x < 2^24 | f32(x) is exact there, and its exponent field is floor(log2 x) + 127 |
+| integer `+`, `-`, `*` | the same on f32, conversions at the ends | every value in it inside (-2^24, 2^24) | f32 holds those integers: no operation rounds, contracted into an fma or not |
+
+A float is known to be an integer when it is a floor, a ceil, a
+converted integer, or a sum, difference, product, min, max or select
+of such; its range comes from the parameters' ranges (`x: f32 in
+0..1000`) by intervals, widened by one f32 step where an operation
+can round.  The last row takes the largest piece of integer
+arithmetic whose values all stay below 2^24 (intervals of its own,
+which see through a float converted to an integer), uses an operand
+that is a converted integer-valued float as the float it was, and
+offers its conversions both ways, plain and by the bits; since almost
+every function has such a piece, it is listed only when cheaper (the
+others say "derived, but not cheaper" as the rewrites above do).
+
+```
+> cv(i: u32 in 0..1000) = f32(i)
+> find cv 1
+find cv: rewrites by identities the model prices lower (cost 3 as written, under gt1030)
+  cost 2   asfloat(i | 0x4b000000) - 8388608        the conversion f32(i) by the bits of 2^23 (derived)
+      holds where i in [0, 1000], inside [0, 2^23)
+      0 <= i < 2^23: i | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa i, the f32 2^23 + i exactly (one unit in the last place there is 1)
+      2^23 + i - 2^23 = i is an integer below 2^24, an f32: the subtraction does not round
+      f32(i) is exact below 2^24: both are i
+> ld(x: f32 in 1..2, k: u32 in 0..20) = x * f32(1 << k)
+> find ld 1
+  cost 2   asfloat(asint(x) + (i32(k) << 23))       x*f32(1 << k) as an add of k to the exponent field of x (derived)
+      holds where x in [1, 2] (normal, never zero), k in [0, 20], and 2 * 2^20 < 2^128
+      ...
+> tx(x: f32 in 0..1000, y: f32 in 0..100) = i32(floor(x)) * i32(floor(y)) + 7
+> find tx 1
+  cost 10  i32(floor(x)*floor(y) + 7)               the integer arithmetic i32(floor(x))*i32(floor(y)) + 7 on f32 (derived)
+      holds where every value in it is an integer in [0, 100007], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      ...
+```
+
+Under gt1030 a conversion (3) becomes a logic op and an add (2), a
+multiply by 2^k (shift, conversion and multiply: 6) one shift-add on
+the bits (2), and integer arithmetic on values that were floats goes
+back to floats (15 to 9 above: an FFMA, and the conversions it no
+longer needs).  The floor by the magic add costs 7 against 3 and the
+exponent field for floor(log2 x) 5 against clz's 4: derived, not
+applied.  Under sm86, where conversions and bit counts are quarter
+rate on the integer pipe (8), both apply (the log 7 against 10, the
+floor 7.4 against 8); under a model whose conversions cost an add
+(`model convcheap : gt1030 { conv: 1 }`) none of the conversions
+does; integer multiply-adds of integers stay IMADs under gt1030 (3
+against 10 with the conversions) and move to FFMA under a model
+whose multiply is dear enough (`imul: 12`).  A function with float
+parameters and an integer result gets these rewrites from `find`
+although its search needs integer parameters.  Not yet: the same in
+SPIR-V and GLSL (find only), f16 and f64, a round-to-nearest
+operation for the magic add to stand for (ucas has floor, ceil and
+the truncating conversion), 48-bit products by 2Prod.
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the

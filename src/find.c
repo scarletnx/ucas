@@ -1299,7 +1299,7 @@ rewrites(const struct func *f, int base)
 		struct eqproof pr;
 		int cost = icost(r[i].e), bad;
 		if (cost >= base) {
-			if (!r[i].nearmiss)
+			if (!r[i].nearmiss && !r[i].quiet)
 				printf("  derived, but not cheaper under %s (cost %d, as "
 				    "written %d): %s\n", sym_str(model_active()->name),
 				    cost, base, r[i].what);
@@ -1924,7 +1924,7 @@ float_rewrites(struct func *f)
 		int nr = irw_cands(f, cur, &r), i, best = -1, bc = icost(cur);
 		for (i = 0; i < nr; i++) {
 			int c = icost(r[i].e);
-			if (!r[i].nearmiss && c >= bc && round == 0) {
+			if (!r[i].nearmiss && !r[i].quiet && c >= bc && round == 0) {
 				printf("find %s: derived, but not cheaper under %s (cost %d, "
 				    "as written %d): %s\n", f->anon ? node_str(f->body) :
 				    sym_str(f->name), sym_str(model_active()->name), c, bc,
@@ -1986,6 +1986,8 @@ float_rewrites(struct func *f)
 void
 cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 {
+	int j, fpar = 0;
+
 	(void)opsel;
 	fuse_domain(f);		/* prices that depend on proved ranges */
 	if (TY_FP(N.ty[f->body])) {
@@ -1998,6 +2000,14 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 			return;
 		}
 		find_float(f, want);
+		fuse_domain(NULL);
+		return;
+	}
+	/* an integer result over float parameters: the search enumerates
+	 * integer domains, but the rewrites by identities are derived */
+	for (j = 0; j < f->np; j++)
+		fpar |= TY_FP(f->p[j].ty) != 0;
+	if (fpar && float_rewrites(f)) {
 		fuse_domain(NULL);
 		return;
 	}
