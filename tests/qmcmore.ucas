@@ -1,5 +1,5 @@
 # integrate ... numerically qmc: Owen's nested uniform scrambling (owen)
-# beside the digital shift
+# beside the digital shift, and boxes with infinite sides
 #
 # a smooth integrand: the shift's standard error falls about like 1/n,
 # the scrambling's like n^-1.5 (sixteen times the points: 17 and 56
@@ -11,3 +11,13 @@ integrate g numerically qmc points 16384 replicates 16
 integrate g numerically qmc points 16384 replicates 16 owen
 # the two do not go together
 integrate x^2 from 0 to 1 numerically qmc owen noscramble
+# infinite sides: x = a + t/(1 - t), b - t/(1 - t), s/(1 - s^2)
+integrate exp(-x^2) from -inf to inf numerically qmc
+integrate exp(-x) from 0 to inf numerically qmc owen
+integrate 1/(1 + x^2) from -inf to 0 numerically qmc
+integrate exp(-x) from inf to 0 numerically qmc
+# a parameter with no range runs over the whole line
+h(x: real, y: real in 0..1) = exp(-x*x) * y
+integrate h numerically qmc owen
+# a divergent one still says so
+integrate 1/x from 1 to inf numerically qmc

@@ -24,3 +24,42 @@
 qmcmore.ucas:13:58: error: qmc: owen scrambles each replicate and noscramble runs one unscrambled sequence: not both
     integrate x^2 from 0 to 1 numerically qmc owen noscramble
                                                              ^
+> integrate exp(-x^2) from -inf to inf numerically qmc
+∫ exp(-x^2) numerically, x from -inf to inf
+  quasi-Monte Carlo (an estimate, not a proof): 1.772453851, standard error 7.1e-16
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = s/(1 - s^2), s = 2t - 1, for the whole line
+    the error is estimated from the 8 replicates' spread: +-1.7e-15 at 95% if their means are normal (t = 2.365), which nothing proves
+> integrate exp(-x) from 0 to inf numerically qmc owen
+∫ exp(-x) numerically, x from 0 to inf
+  quasi-Monte Carlo (an estimate, not a proof): 0.9999995891, standard error 1.6e-06
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a nested uniform (Owen) scrambling each, from a hash; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = a + t/(1 - t) for [a, inf)
+    the error is estimated from the 8 replicates' spread: +-3.9e-06 at 95% if their means are normal (t = 2.365), which nothing proves
+> integrate 1/(1 + x^2) from -inf to 0 numerically qmc
+∫ 1/(x^2 + 1) numerically, x from -inf to 0
+  quasi-Monte Carlo (an estimate, not a proof): 1.570796331, standard error 1.4e-09
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = b - t/(1 - t) for (-inf, b]
+    the error is estimated from the 8 replicates' spread: +-3.3e-09 at 95% if their means are normal (t = 2.365), which nothing proves
+> integrate exp(-x) from inf to 0 numerically qmc
+∫ exp(-x) numerically, x from inf to 0
+  quasi-Monte Carlo (an estimate, not a proof): -1.000000967, standard error 2e-05
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = a + t/(1 - t) for [a, inf)
+    the error is estimated from the 8 replicates' spread: +-4.8e-05 at 95% if their means are normal (t = 2.365), which nothing proves
+> h(x: real, y: real in 0..1) = exp(-x*x) * y
+> integrate h numerically qmc owen
+∫ exp(-x*x)*y numerically, over the box of its parameters' ranges
+  quasi-Monte Carlo (an estimate, not a proof): 0.8862259852, standard error 8.6e-06
+    8 randomised replicates of 4096 Sobol points in 2 dimensions (Joe-Kuo direction numbers, a nested uniform (Owen) scrambling each, from a hash; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = s/(1 - s^2), s = 2t - 1, for the whole line
+    the error is estimated from the 8 replicates' spread: +-2e-05 at 95% if their means are normal (t = 2.365), which nothing proves
+> integrate 1/x from 1 to inf numerically qmc
+∫ 1/x numerically, x from 1 to inf
+  quasi-Monte Carlo (an estimate, not a proof): 10.89064404, standard error 0.64
+    8 randomised replicates of 4096 Sobol points in 1 dimension (Joe-Kuo direction numbers, a random digital shift each; seed 1)
+    infinite sides onto t in [0, 1), the integrand times the derivative: x = a + t/(1 - t) for [a, inf)
+    the error is estimated from the 8 replicates' spread: +-1.5 at 95% if their means are normal (t = 2.365), which nothing proves
+    a spike: the largest value met is 2144 times the mean size, so a few points carry the integral; the replicates then agree on a value that is off (usually too small) and their spread understates the error
+    not converged: the replicates differ by 6% of the value (standard error); more points, or the integral does not exist (a pole between the points looks like this)

@@ -2,3 +2,4 @@
 {"id": 2, "cmd": "integrate", "args": {"f": {"name": "g", "body": "x * y + x * x", "params": [{"name": "x", "type": "real", "range": [0, 1]}, {"name": "y", "type": "real", "range": [0, 2]}]}, "qmc": true}}
 {"id": 3, "cmd": "error", "args": {"g": {"name": "h", "body": "fma(fma(0.25f, x, -0.5f), x, 1.5f)", "params": [{"name": "x", "type": "f32", "range": [0.5, 2]}]}, "f": {"name": "p", "body": "(0.25 * x - 0.5) * x + 1.5", "params": [{"name": "x", "type": "real", "range": [0.5, 2]}]}}}
 {"id": 4, "cmd": "approx", "args": {"f": "sin(x)", "in": [0, 0.5], "options": "degree 3 as f32 list 1 free norational nosplit noreduce search anneal budget 500"}}
+{"id": 5, "cmd": "integrate", "args": {"f": "exp(-x)", "from": 0, "to": "inf", "qmc": true, "owen": true, "points": 1024, "replicates": 4}}
