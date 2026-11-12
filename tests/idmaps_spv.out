@@ -1,5 +1,7 @@
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 81 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 3 divisibility tests made a multiply and a compare (derived, below), 4 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 85.25 -> 41.5 (-51.3%)
