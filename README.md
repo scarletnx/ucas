@@ -657,13 +657,15 @@ The objective is the largest error on the core's sample (3000 points).
 What a search finds is measured again on the table's sample, like every
 candidate, and kept only when that measure agrees it is better; the
 candidate's `search:` line gives the method, the seed, the evaluations,
-the error before and after on both samples, and the label: measured
-(on every float when the table says "all of them"), not certified.
+the error before and after on both samples, and the label: certified
+(the next line, see "Certified bounds"), or measured (on every float
+when the table says "all of them") with the reason it is not certified.
 
 ```
 > approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
   1   minimax   5     horner+fma  24.2 ulp (25.6) ...
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
+      certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2035 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (...)
   2   rational  5/2   horner+fma  2.38 ulp ...
       search: ... 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
 ```
@@ -676,6 +678,69 @@ the cores' objectives before and after; the candidate rebuilt from the
 moved cores is kept only when the table's measure agrees it is better
 (tests/approxsearch.ucas: exp's reduced core 2.064 -> 1.96 ulp, its two
 pieces 8.841 -> 7.905).
+
+### Certified bounds
+
+What a search keeps gets a bound that holds for every float of the
+interval, derived (src/acert.c), not sampled.  The interval is cut into
+pieces with float ends, even in the floats' order (so geometric in x)
+and split where the candidate or the target branches (at 0 and at the
+constants a select, abs or copysign compares x with).  On each piece X:
+
+- the coefficients' error E = R - f, R the candidate in exact arithmetic
+  with its rounded constants, by Taylor's theorem at the piece's middle
+  m: E(x) = sum_{k<K} E_k(m) (x - m)^k + E_K(xi) (x - m)^K.  The E_k(m)
+  come from Taylor arithmetic (the recurrences of products, quotients,
+  exp, log, sin and cos, atan, sqrt, ...) on intervals at the point m,
+  and E_K(xi) from the same recurrences on X itself, whose result holds
+  the coefficient of every point of X.  K = 2 is float simplify's |E(m)|
+  + |E'(m)| h/2 + max|E''| h^2/8 (src/fsimp.c); f32 takes K = 3 and f64
+  K = 6, which the 2^-53 of f64 needs;
+- a relative bound divides by |f|.  Where f has a zero that the fit's
+  factor matches (sin's x*P(x^2), log's (x - 1)*P(x - 1)), E and f are
+  divided by (x - z)^k0 first: on the piece that holds z by Taylor at z,
+  where E's first k0 coefficients must come out exactly 0, elsewhere by
+  the division of their Taylor coefficients;
+- the rounding: each operation returns fl(v) = v (1 + d), |d| <= u, plus
+  half the least subnormal where its result can be subnormal (a sum that
+  small is exact, and so are Sterbenz's subtractions and sums with 0).
+  Each value's error rho |v| + eta is carried through the program, |v|
+  bounded on X by intervals and kept as t^p w (t = x - z), so that a sum
+  next to the zero is divided by its cofactor, not by 0; a sum that
+  varies more than twice over X (a cancellation) carries its error as
+  eta, absolute;
+- in ulps of f, D = (rho (1 + eps) + eps) max|f| / ulp(min|f|) + eta /
+  ulp(min|f|) before the last rounding, eps the coefficients' relative
+  error; that rounding adds half an ulp of f where its operand s and f
+  share a binade, and at most D where they do not (a power of two, a
+  float, lies between them, so |fl(s) - s| <= |s - f|).  Absolute: rho
+  |R| + eta + |E| + half an ulp of the largest result.
+
+A piece whose coefficients' bound exceeds the largest error reached at
+any piece's middle by more than 1/128 of the total is halved (24576
+pieces at most); the certificate is the largest piece's bound.  The
+intervals are long double, each +, -, *, / and sqrt rounded outward by
+its exact error term (TwoSum, Dekker's product), so an exact result stays
+a point; libm's long double functions (sinl, expl, logl, ...) are the one
+thing taken on trust, within 2^-58 of the true value (64 of their ulps),
+except at their exact points (sin 0 = 0, cos 0 = 1, exp 0 = 1, log 1 =
+0), and the line says so.
+
+```
+      certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2035 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
+```
+
+The bound is never below the table's measure (tests/approxcert.ucas has
+a case the table measures on every float).  The coefficients' part, what
+a search moves, lands near what is reached; the rounding part is a
+priori, every rounding at its bound and aligned, so it is above what the
+rounding does in practice (sin of degree 5 above: 24.88 against the
+measured 24.16, 23.84 of it the coefficients').  Not certified, with the
+reason on the line: a range reduction's candidate (its bit operations,
+asfloat and the shifts, have no interval rule: tests/approxsearch.ucas),
+a target with an operation that has none (lambertw, atan2), and a
+relative bound where the target is 0 beyond the fit's factor, or where
+the candidate is not 0 with it.
 
 ### Probabilistic rounding error
 

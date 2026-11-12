@@ -10,7 +10,7 @@ approx exp(x) on [-4, 4] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   reduced   5     horner+fma  1.96 ulp                 1.67e-07      6.9e-06       14   at x=-2.92808414
       2^k * P(r), r = x - k*ln2: (fma(fma(fma(fma(fma(0.00828962773, r, 0.0419033617), r, 0.166676983), r, 0.499991), r, 0.999999642), r, 1.0))*asfloat((asuint(j) << 23) + 0x3f800000) where j = x*1.44269502 + 12582912.0, k = j - 12582912.0, r = fma(k, -3.19461833e-05, fma(k, -0.693115234, x))
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 1.863 -> 1.783 ulp there; on the table's measure 2.064 -> 1.96 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 300 evaluations on 3000 sample points: 1.863 -> 1.783 ulp there; on the table's measure 2.064 -> 1.96 ulp: kept (measured on that sample, not certified: the candidate's asfloat has no interval rule here)
       rounding of ap1: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
   2 more: 'approx more [n]' (dominated or worse)
 > approx exp(x) in 0..1 degree 4 as f32 norational noreduce list 3 search anneal budget 400
@@ -26,10 +26,12 @@ approx exp(x) on [0, 1] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   4     horner+fma  214 ulp                  1.9e-05       4.61e-05      4    at x=0.31663996
       P(x): fma(fma(fma(fma(0.0679845288, x, 0.143049657), x, 0.508123577), x, 0.999068856), x, 1.00001895)
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 398 evaluations on 3000 sample points: 252.5 -> 213.3 ulp there; on the table's measure 253 -> 213.7 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 398 evaluations on 3000 sample points: 252.5 -> 213.3 ulp there; on the table's measure 253 -> 213.7 ulp: kept, certified below
+      certified: at most 215.7 ulp for every f32 x in [0, 1], 69 pieces: the coefficients' error at most 214.6 (213.1 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.97, probable no better (under 16 operations), expected 0.701; `error ap1 ~ F` says what each means
   2   piecewise 4     horner+fma  7.91 ulp                 8.13e-07      1.71e-06      17.125 at x=0.546288252
       2 pieces: fma(fma(fma(fma(k4, t, k3), t, k2), t, k1), t, k0) where a = x, lo = a < 0.5, t = a - (lo ? f32(0.25) : f32(0.75)), k0 = lo ? f32(1.28402519) : f32(2.11699963), k1 = lo ? f32(1.28401315) : f32(2.11697817), k2 = lo ? f32(0.642027259) : f32(1.05852628), k3 = lo ? f32(0.214837238) : f32(0.354207426), k4 = lo ? f32(0.05336193) : f32(0.0879789963)
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 800 evaluations on 6000 sample points: 8.819 -> 7.879 ulp there; on the table's measure 8.841 -> 7.905 ulp: kept (measured on that sample, not certified)
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 800 evaluations on 6000 sample points: 8.819 -> 7.879 ulp there; on the table's measure 8.841 -> 7.905 ulp: kept, certified below
+      certified: at most 8.186 ulp for every f32 x in [0, 1], 96 pieces: the coefficients' error at most 7.418 (7.359 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
   3   minimax   4     estrin+fma  214 ulp                  1.9e-05       4.62e-05      6    at x=0.322453648
       P(x): fma(0.0679845288, x4, fma(fma(0.143049657, x, 0.508123577), x2, fma(0.999068856, x, 1.00001895))) where x2 = x*x, x4 = x2*x2
