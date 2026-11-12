@@ -10,8 +10,8 @@ simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
   counting the strength reductions any driver also does: 74 -> 23 (-68.9%)
   also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
-    imad             1 x 3     = 3  (a*b + c; saves 1)
     shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+    imad             1 x 3     = 3  (a*b + c; saves 1)
   by kind:
        4  a division by a constant of a bounded dividend as a multiply and a shift  -44
        1  a sum of products as one dot product          -2

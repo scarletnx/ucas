@@ -86,7 +86,7 @@ simplify: 90 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 > spvsimplify nofile assume n 1 31
 simplify: 72 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
   assuming n in [1, 31] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once): 10 -> 7 (-30.0%)
+  integer arithmetic cost under gt1030 (each instruction once): 10 -> 8 (-20.0%)
   by kind:
        1  a shift of a shift is one shift by the sum    -2
   rewrites:
