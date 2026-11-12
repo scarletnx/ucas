@@ -66,6 +66,31 @@ cost s8
 v(x: u32 uniform, a: u32, c: u32) = sg_any(((x >> lane) & 1) != 0) ? a * c : a + c
 cost v
 models
+# a loop whose lanes leave at different counts runs until the warp's
+# last lane leaves: leaving per lane, the warp pays the divergence once;
+# leaving on a vote, a select a trip keeps each state in the lanes that
+# are done.  Clearing the low bits of 0..15 takes 0 to 4 trips: the vote
+pc(c: u32 in 0..15) = { x = c; while x != 0 { x = x & (x - 1) }; x }
+cost pc
+# 9 trips in nearly every warp: per lane; with consecutive lanes one warp
+# in 32 splits (n = 1..31), the others run their one count
+lg(n: int in 1..1000) = { x = n; k = 0; while x > 1 { x = x / 2; k += 1 }; k }
+cost lg
+cost lg consecutive n
+# a for loop whose bound varies: its states are kept, the index is not
+tri(n: u32 in 0..40) = { s: u32 = 0; for i in 1..n { s += i*i }; s }
+cost tri
+# a loop that leaves on a vote, or on a uniform bound: the lanes leave
+# together, whatever their states hold
+vl(lane: u32 in 0..31, x: u32 in 0..3 uniform) = { k: u32 = 0; s: u32 = 0; while sg_any(k < lane + x) { k += 1; s += lane }; s }
+cost vl
+ub(n: u32 in 0..40 uniform, a: u32) = { s: u32 = a; for i in 1..n { s += i*a }; s }
+cost ub
+# a model without the vote has only the exit per lane
+model novote : gt1030 { sg_vote: none }
+use novote
+cost pc
+use gt1030
 # a model that does not list an operation cannot use it
 model nosg : gt1030 { sg_scan: none, sg_ballot: none, sg_shuffle: none }
 use nosg

@@ -1189,7 +1189,10 @@ What the results hold beyond the common fields:
   each implementation's `proof`; `cost` has `shared` (the named
   subterms), `loops` (`body`, `overhead`, `once`, `trips_worst`,
   `trips_average`, `trips_known`, `trips_bound_sound`, `total_worst`,
-  `total_average`), `average_total`, `selects_not_listed` and
+  `total_average`, and under a model with a warp `warp`: `lanes`,
+  `lanes_are`, `points` or `warps`, `all_counted`, `trips_most_average`,
+  `p_split`, `exit_per_lane`, `exit_on_vote` (null without `sg_vote`),
+  `vote`, `selects_kept`, `best`; or `leave_together`), `average_total`, `selects_not_listed` and
   `unavailable` (dot forms the model does not have); `range` has
   `proved_bound` (`min`, `max`, `min_exact`, `max_exact` and the steps).
   Any result list is cut at 500 entries (`KEY_omitted`).
@@ -1640,6 +1643,39 @@ times the trip count.  The trip count is exact for constant bounds;
 otherwise the worst case over the parameters' ranges (a sound interval
 bound, or the maximum when the domain is enumerated) and the average over
 the domain; a `while` loop's trip count is measured by running it.
+
+Under a model with a `warp`, a loop whose lanes can run different trip
+counts (its bounds, or its condition through the states it reads, vary
+per invocation, and the count varies over the domain) is also priced as
+a warp runs it: until its last lane leaves, two ways.  Leaving per lane,
+the lanes that left are masked off and wait for the rest (the keep-up),
+and a warp whose lanes leave at different counts pays `diverge` once,
+reconverging after the loop.  Leaving on a vote, `while sg_any(c)`,
+every lane runs every iteration and nothing diverges, but each state the
+loop changes takes a select to keep its value in the lanes where c
+fails, and the vote is an `sg_vote`.  The warp's count is the most of
+its lanes': for independent lanes, from the counts over the domain (the
+most of w draws is at most t with probability F(t)^w, and the lanes
+agree with probability the sum of P(t)^w), or counted over the aligned
+runs of the index `cost F consecutive i` names.  The cheaper way is
+marked, so the vote is offered where it is cheaper: clearing the low
+bit of 0..15 until none is left takes 0 to 4 trips, few enough that the
+keep-up's divergence costs more than a select a trip.
+
+```
+> pc(c: u32 in 0..15) = { x = c; while x != 0 { x = x & (x - 1) }; x }
+> cost pc
+  ...
+    in a warp of 32 lanes (independent draws from the domain, all 16 points): it runs until its last lane leaves, 3.873 iterations on average, and its lanes leave at different counts with probability 1
+      exit per lane: 0 + 3.873 x 10.625 + 1 x 14.375 diverge (the lanes that left keep up) = 55.5278
+      exit on a vote: 0 + 3.873 x (10.625 + 0 sg_vote + 1 x 1.625 select) = 47.4468  (while sg_any(x != 0), a select keeping x where it fails)
+      -> exit on a vote
+```
+
+`x = n; k = 0; while x > 1 { x = x / 2; k += 1 }` over 1..1000 runs 9
+trips in nearly every warp of independent lanes, and leaving per lane
+is cheaper (164 against 178.9).  A loop whose condition is uniform, a
+vote among them, says that its lanes leave together.
 
 ```
 > quant(v: i32 in 0..255) = { best = 0; berr = 100000; q0 = (v*31 + 127)/255
@@ -2520,7 +2556,10 @@ one cannot use it (`sg_scan: none` takes one away).  An operation costs its clas
 once in each lane: a value computed in every lane is priced once,
 whether an operation reads it across the lanes or the lane uses it
 itself.  A ballot, a vote and a sum are one value for the subgroup, so
-a `?:` on them is priced as a uniform branch.  gt1030, measured
+a `?:` on them is priced as a uniform branch, and the lanes of a loop
+that leaves on a vote leave together (see [Rewrites the prices make
+worthwhile](#rewrites-the-prices-make-worthwhile) for a loop priced
+both ways).  gt1030, measured
 (tests/gt1030, each step less its add): a shuffle 4.00 (by xor,
 broadcast, rotate and the quad swap 4.00 to 4.07 with their add, so
 those are priced one logic or add above their measurement), the sum
