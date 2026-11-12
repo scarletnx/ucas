@@ -6538,19 +6538,21 @@ dot_ins(struct spvdot *c, const char *op, int rt, const char *const *opnd,
 		c->fail = 1;
 		return -1;
 	}
+	/* the operands are copied first: they may point into V.id, which
+	 * idx() moves when it grows */
+	memset(&N, 0, sizeof N);
+	for (i = 0; i < n; i++)
+		N.opnd[1 + i] = strdup(opnd[i]);
 	snprintf(nm, sizeof nm, "%%ucas_d%d", V.nin);
 	nid_ = idx(nm);
-	memset(&N, 0, sizeof N);
 	snprintf(N.op, sizeof N.op, "%s", op);
 	N.res = nid_;
 	N.opnd[0] = strdup(V.id[rt].tok);
-	for (i = 0; i < n; i++)
-		N.opnd[1 + i] = strdup(opnd[i]);
 	N.nop = 1 + n;
 	N.text = xmalloc(400);
 	at = snprintf(N.text, 400, "%s = %s %s", nm, op, V.id[rt].tok);
 	for (i = 0; i < n && at < 380; i++)
-		at += snprintf(N.text + at, 400 - (size_t)at, " %s", opnd[i]);
+		at += snprintf(N.text + at, 400 - (size_t)at, " %s", N.opnd[1 + i]);
 	if (V.nin == V.cap) {
 		V.cap *= 2;
 		V.in = xrealloc(V.in, (size_t)V.cap * sizeof *V.in);
@@ -6884,6 +6886,7 @@ dot_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 				continue;
 			}
 		}
+		I = &V.in[k];	/* dot_emit() may have moved V.in */
 		SP.alias[root] = fin;
 		SP.dead[k] = 1;
 		{
@@ -7219,6 +7222,7 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
 			free(c.memo);
 			continue;
 		}
+		I = &V.in[k];	/* dot_emit() may have moved V.in */
 		SP.alias[root] = fin;
 		SP.dead[k] = 1;
 		snprintf(log[n].from, sizeof log[n].from, "%s", I->text);
