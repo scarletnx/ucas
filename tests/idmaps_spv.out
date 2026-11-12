@@ -1,0 +1,50 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile nofunctions
+simplify: 81 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 3 divisibility tests made a multiply and a compare (derived, below), 4 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 85.25 -> 41.5 (-51.3%)
+  fused by the model in the result (one instruction for several):
+    imad             2 x 3     = 6  (a*b + c; saves 2)
+  by kind:
+       3  a divisibility test as a multiply and a compare  -43.75
+  rewrites:
+    %56 = OpIEqual %bool %55 %int_0
+      ->  3435973837u32(i32(%27)) + 429496729 <= 858993458   (a divisibility test as a multiply and a compare; -22.75)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+    %41 = OpIEqual %bool %39 %uint_0
+      ->  2863311531%27 <= 1431655765   (a divisibility test as a multiply and a compare; -10.5)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+    %49 = OpINotEqual %bool %47 %uint_2
+      ->  3067833783%27 + 2454267026 > 613566756   (a divisibility test as a multiply and a compare; -10.5)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+  divisibility tests and maps of one value (derived by idrw.c: a multiply and a compare, a table in one constant, a multiply and a shift; kept under gt1030):
+    %41 = OpIEqual %bool %39 %uint_0
+      ->  2863311531%27 <= 1431655765   (cost 15.875 -> 5.375)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+      the divisibility test %27 % 3 == 0 as a multiply and a compare
+      holds where %27 is any u32 (the multiply wraps mod 2^32)
+      3 is odd, and 3 * 0xaaaaaaab = 1 mod 2^32
+      t(n) = n*0xaaaaaaab takes each 32-bit word to a different one (a bijection): a multiply by an odd number does
+      the multiples of 3 are q*3 for q = 0..1431655765 (floor((2^32 - 1)/3)); there n * 0xaaaaaaab = q mod 2^32: t takes them onto 0..1431655765
+      a bijection takes every other n outside 0..1431655765: t(n) <= 1431655765 exactly where %27 % 3 == 0
+    %49 = OpINotEqual %bool %47 %uint_2
+      ->  3067833783%27 + 2454267026 > 613566756   (cost 15.875 -> 5.375)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+      the divisibility test %27 % 7 != 2 as a multiply and a compare
+      holds where %27 is any u32 (the multiply wraps mod 2^32)
+      7 is odd, and 7 * 0xb6db6db7 = 1 mod 2^32; c = 0x92492492 is -r * that inverse mod 2^32
+      t(n) = n*0xb6db6db7 + c takes each 32-bit word to a different one (a bijection): a multiply by an odd number, an add each do
+      the n with n % 7 = 2 are 2 + q*7 for q = 0..613566756 (floor((2^32 - 1 - 2)/7)); there (n - 2) * 0xb6db6db7 = q mod 2^32: t takes them onto 0..613566756
+      a bijection takes every other n outside 0..613566756: t(n) <= 613566756 exactly where %27 % 7 == 2
+    %56 = OpIEqual %bool %55 %int_0
+      ->  3435973837u32(i32(%27)) + 429496729 <= 858993458   (cost 28.125 -> 5.375)
+      (line 9: b.d[i] = (x % 3u == 0u ? 10u : 20u) + (x % 7u != 2u ? 1u : 0u) + (sx % 5 == 0 ? 7u : 3u) +)
+      the divisibility test i32(%27) % 5 == 0 as a multiply and a compare
+      holds where i32(%27) is any i32 (the multiply wraps mod 2^32)
+      %55 is OpSMod, whose remainder takes the divisor's sign where % (OpSRem) takes the dividend's; either is 0 exactly where 5 divides the dividend
+      5 is odd, and 5 * 0xcccccccd = 1 mod 2^32; c = 0x19999999 is A * 2^k mod 2^32
+      t(n) = n*0xcccccccd + c takes each 32-bit word to a different one (a bijection): a multiply by an odd number, an add each do
+      the multiples of 5 in i32 are q*5 for q = -A..429496729 (A = floor(2^31/5) = 429496729); there n * 0xcccccccd + c = (q + A) mod 2^32: t takes them onto 0..858993458
+      a bijection takes every other n outside 0..858993458: t(n) <= 858993458 exactly where i32(%27) % 5 == 0
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3342 bytes, checksum 47ef3583)

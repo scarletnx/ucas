@@ -1754,6 +1754,24 @@ JSON result an `identities` list.  Without a bound on the dividend
 nothing is derived.  The translation is checked against the
 interpreter on 64 samples; the written module passes spirv-val.
 
+The same pass takes two more roots, reading compares, selects and logic
+operations under them as well.  A divisibility test, OpIEqual or
+OpINotEqual of a remainder by a constant (one nothing else reads) and a
+constant, becomes the multiply and the compare (`x % 3u == 0u` 15.875 ->
+5.375 under gt1030; GLSL's `%` on an int is OpSMod, whose remainder is 0
+exactly where OpSRem's is, so `sx % 5 == 0` goes too).  A map of one
+small-range value, the top of a chain of OpSelect or an OpLogicalOr or
+OpLogicalAnd of compares, becomes a table in one constant or a multiply
+and a shift, the key's range from the module (`x & 7`) or the request's
+assumptions: four compares and selects on `x & 7` 17 -> 7, the
+membership test `k == 1u || k == 4u || k == 6u` one bit of 0x52.  What
+the rewrite drops but something else reads (a compare the optimizer
+shares between two chains) stays, and its price is added to the new
+form's.  A chain written as nested `?:` becomes branches and phis, which
+this does not read.  These go in the report's "divisibility tests and
+maps of one value" section (tests/idmaps_spv.ucas,
+tests/idmaps2_spv.ucas).
+
 ### Integers as floats, floats as integers
 
 The identities between the two number systems of a 32-bit word are
