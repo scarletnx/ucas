@@ -1,0 +1,58 @@
+# fp64 in a shader, past one scalar result at a time: results that share
+# f64 values, f64 vectors and matrices, an f64 value another reader keeps.
+# Each is decided by the active model's prices, what is shared counted
+# once on both sides.
+#
+# two results read one product: its pair is written once
+simplify nofile under gt1030, x in [1, 2], y in [3, 4]
+```glsl
+vec2 f(float x, float y) { double a = x, b = y; double d = a * b; return vec2(float(d + a), float(d * b)); }
+```
+# a complex square and add on dvec2, the conversion of the whole vector
+simplify nofile, zx in [1, 2], zy in [0.25, 0.5], c in [0.25, 2]
+```glsl
+vec2 g(float zx, float zy, vec2 c) { dvec2 Z = dvec2(zx, zy), C = dvec2(c); dvec2 r = dvec2(Z.x * Z.x - Z.y * Z.y, 2.0lf * Z.x * Z.y) + C; return vec2(r); }
+```
+# a dot product of dvec3
+simplify nofile, a in [1, 2], b in [1, 2]
+```glsl
+float h(vec3 a, vec3 b) { dvec3 A = dvec3(a), B = dvec3(b); return float(dot(A, B)); }
+```
+# a dmat2 times a dvec2
+simplify nofile, c0 in [1, 2], c1 in [1, 2], v in [1, 2]
+```glsl
+vec2 m(vec2 c0, vec2 c1, vec2 v) { dmat2 M = dmat2(dvec2(c0), dvec2(c1)); return vec2(M * dvec2(v)); }
+```
+# the product is also stored as a double: it stays f64 for the store and
+# is computed again as a pair for the result, which is cheaper than
+# splitting the f64 value
+simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float k(float x, float y, out double keep) { double a = x, b = y; double d = a * b; keep = d; return float(d * a + b); }
+```
+# a quotient stored as a double and returned as a float: only the
+# conversion would go, and no f32 form that meets the requirement is
+# cheaper than it
+simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float q(float x, float y, out double keep) { double a = x, b = y; double d = a / b; keep = d; return float(d); }
+```
+# three results of one product, two of them in other blocks: its pair is
+# written again where the first result's block does not come before, and
+# priced so
+simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float t(float x, float y, out float o) { double a = x, b = y; double d = a * b; o = float(d + a); if (x > 1.5) { o = 0.0; return float(d * b); } return float(d * a); }
+```
+# nine inputs under three results (a function has 8 parameters): the dot
+# product they share stays f64 and is split once for the three, which is
+# cheaper together and not one at a time
+simplify nofile, a in [1, 2], b in [1, 2], c in [1, 2]
+```glsl
+vec3 s(vec3 a, vec3 b, vec3 c) { dvec3 A = dvec3(a), B = dvec3(b), C = dvec3(c); double s = dot(A, B); return vec3(float(s * C.x), float(s * C.y), float(s * C.z)); }
+```
+# under a model whose f64 is as cheap as its f32 nothing is rewritten
+simplify nofile under zen4, zx in [1, 2], zy in [0.25, 0.5], c in [0.25, 2]
+```glsl
+vec2 g(float zx, float zy, vec2 c) { dvec2 Z = dvec2(zx, zy), C = dvec2(c); dvec2 r = dvec2(Z.x * Z.x - Z.y * Z.y, 2.0lf * Z.x * Z.y) + C; return vec2(r); }
+```

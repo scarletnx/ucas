@@ -48,27 +48,84 @@ scalar_int_w(int t, int *sign)
 
 /* ---- a SPIR-V f64 value as a ucas expression ---- */
 
+/*
+ * The f64 values of a group of results as expressions over one set of
+ * inputs.  An input is a SPIR-V value or one component of it (pcomp: -1
+ * the value, 0..3 a vector's component, 16 + 4 * column + row a
+ * matrix's).  dw_leaf marks the f64 values that stay as they are (another
+ * result that keeps its f64 reads them): they are inputs too.
+ */
 struct dwg {
 	struct func f;
 	int psid[MAXP];		/* the SPIR-V value of each parameter */
-	int id[256];
-	nid node[256];
+	int pcomp[MAXP];
+	int id[512], comp[512];
+	nid node[512];
 	int nmemo;
-	int ins[256];		/* the f64 instructions under the root */
+	int ins[256];		/* the f64 instructions under the roots */
 	int nins;
 	int toomany;
 };
 
+static char *dw_leaf;
+static char *dw_keep;	/* per instruction: under a result, and stays for another */
+static int dw_recompute;	/* a value that stays is computed again in f32 */
+static int dw_rdepth;
+
+static int dwg_leaf_range(int sid, int comp, double *lo, double *hi);
+
 static int
-dwg_param(struct dwg *G, int sid, ty_t ty)
+vec_float_w(int t, int *n)
 {
-	char nb[48], nm[56];
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_VEC)
+		return 0;
+	*n = T(t)->n;
+	return scalar_float_w(T(t)->e);
+}
+
+static int
+vec_int_w(int t, int *n, int *sign)
+{
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_VEC)
+		return 0;
+	*n = T(t)->n;
+	return scalar_int_w(T(t)->e, sign);
+}
+
+/* a matrix of f64 columns: its columns and rows */
+static int
+mat_f64(int t, int *cols, int *rows)
+{
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_MAT)
+		return 0;
+	*cols = T(t)->n;
+	return vec_float_w(T(t)->e, rows) == 64;
+}
+
+static void
+dwg_ins(struct dwg *G, int k)
+{
+	int i;
+
+	for (i = 0; i < G->nins; i++)
+		if (G->ins[i] == k)
+			return;
+	if (G->nins < 256)
+		G->ins[G->nins++] = k;
+	else
+		G->toomany = 1;
+}
+
+static int
+dwg_param(struct dwg *G, int sid, int comp, ty_t ty)
+{
+	char nb[48], nm[64];
 	const char *n;
 	struct param *p;
 	int j;
 
 	for (j = 0; j < G->f.np; j++)
-		if (G->psid[j] == sid)
+		if (G->psid[j] == sid && G->pcomp[j] == comp)
 			return j;
 	if (G->f.np == MAXP) {
 		G->toomany = 1;
@@ -76,6 +133,7 @@ dwg_param(struct dwg *G, int sid, ty_t ty)
 	}
 	j = G->f.np++;
 	G->psid[j] = sid;
+	G->pcomp[j] = comp;
 	n = load_name(sid, nb, sizeof nb);
 	if (n == NULL) {
 		n = V.id[sid].name;
@@ -83,15 +141,22 @@ dwg_param(struct dwg *G, int sid, ty_t ty)
 			n++;
 	}
 	if (!isalpha((unsigned char)*n) && *n != '_')
-		snprintf(nm, sizeof nm, "v%s", n);
+		snprintf(nm, sizeof nm, "v%.40s", n);
 	else
-		snprintf(nm, sizeof nm, "%s", n);
+		snprintf(nm, sizeof nm, "%.40s", n);
+	if (comp >= 16)
+		snprintf(nm + strlen(nm), sizeof nm - strlen(nm), "_%d%d",
+		    (comp - 16) / 4, (comp - 16) % 4);
+	else if (comp >= 0)
+		snprintf(nm + strlen(nm), sizeof nm - strlen(nm), "_%c",
+		    "xyzw"[comp & 3]);
 	p = &G->f.p[j];
 	memset(p, 0, sizeof *p);
 	p->name = sym_cstr(nm);
 	p->ty = ty;
 	if (ty == TY_F32) {
 		int q;
+		/* a range given for a vector holds for each component */
 		for (q = 0; q < dw_nfas; q++)
 			if (name_is(n, pend_fas[q].name) || !strcmp(n,
 			    pend_fas[q].name)) {
@@ -101,7 +166,7 @@ dwg_param(struct dwg *G, int sid, ty_t ty)
 				if (p->rlo == 0)
 					p->rlo = 0;	/* -0: the same interval */
 			}
-	} else if (TY_ISINT(ty)) {
+	} else if (TY_ISINT(ty) && comp < 0) {
 		int64_t lo, hi;
 		if (assumed(sid, &lo, &hi)) {
 			p->ranged = 1;
@@ -110,47 +175,259 @@ dwg_param(struct dwg *G, int sid, ty_t ty)
 			p->rlo = (double)lo;
 			p->rhi = (double)hi;
 		}
+	} else if (ty == TY_F64 && dw_leaf[sid]) {
+		double lo, hi;
+		if (dwg_leaf_range(sid, comp, &lo, &hi)) {
+			p = &G->f.p[j];
+			p->ranged = 1;
+			p->rlo = lo;
+			p->rhi = hi;
+		}
 	}
 	return j;
 }
 
 static nid
-dwg_var(struct dwg *G, int sid, ty_t ty)
+dwg_var(struct dwg *G, int sid, int comp, ty_t ty)
 {
-	int j = dwg_param(G, sid, ty);
+	int j = dwg_param(G, sid, comp, ty);
 
 	return mk_var((uint32_t)j, G->f.p[j].name, ty);
+}
+
+static nid dwg_build(struct dwg *G, int id, int depth);
+static nid dwg_comp(struct dwg *G, int id, int ci, int depth);
+
+static nid
+dwg_memo(struct dwg *G, int id, int comp, nid r)
+{
+	if (G->nmemo < 512) {
+		G->id[G->nmemo] = id;
+		G->comp[G->nmemo] = comp;
+		G->node[G->nmemo++] = r;
+	}
+	return r;
+}
+
+static nid dwg_mcomp(struct dwg *G, int id, int col, int row, int depth);
+
+/*
+ * The range of an f64 value that stays, from the ranges of what it is
+ * computed from: interval arithmetic in f64 itself, whose rounding is
+ * monotone, so the computed value lies between the computed ends.
+ */
+static int
+dwg_leaf_range(int sid, int comp, double *lo, double *hi)
+{
+	struct dwg *T;
+	nid e;
+	int ok;
+
+	if (dw_rdepth > 6)
+		return 0;
+	T = xcalloc(1, sizeof *T);
+	T->f.name = sym_cstr("_leaf");
+	T->f.anon = 1;
+	dw_leaf[sid] = 0;
+	dw_rdepth++;
+	e = comp < 0 ? dwg_build(T, sid, 0) : comp >= 16 ? dwg_mcomp(T, sid,
+	    (comp - 16) / 4, (comp - 16) % 4, 0) : dwg_comp(T, sid, comp, 0);
+	dw_rdepth--;
+	dw_leaf[sid] = 1;
+	ok = !T->toomany && N.op[e] != O_VAR && dword_interval(&T->f, e, lo, hi);
+	free(T);
+	return ok;
+}
+
+/* the sum of the products of two vectors' components */
+static nid
+dwg_dot(struct dwg *G, int a, int b, int n, int depth)
+{
+	nid r = 0, p;
+	int j;
+
+	for (j = 0; j < n; j++) {
+		p = mk_bin(O_MUL, dwg_comp(G, a, j, depth), dwg_comp(G, b, j,
+		    depth));
+		r = j ? mk_bin(O_ADD, r, p) : p;
+	}
+	return r;
+}
+
+/* one entry of an f64 matrix */
+static nid
+dwg_mcomp(struct dwg *G, int id, int col, int row, int depth)
+{
+	int k = SP.def[id], i, comp = 16 + 4 * col + row, cols, rows;
+	const struct sins *I;
+	nid r = 0;
+
+	for (i = 0; i < G->nmemo; i++)
+		if (G->id[i] == id && G->comp[i] == comp)
+			return G->node[i];
+	if (k < 0 || depth > 48 || dw_leaf[id] || !mat_f64(V.id[id].type,
+	    &cols, &rows) || col >= cols || row >= rows)
+		return dwg_var(G, id, comp, TY_F64);
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpCompositeConstruct") && I->nop == 1 + cols)
+		r = dwg_comp(G, idx(I->opnd[1 + col]), row, depth + 1);
+	else if (!strcmp(I->op, "OpTranspose") && I->nop >= 2)
+		r = dwg_mcomp(G, idx(I->opnd[1]), row, col, depth + 1);
+	else if (!strcmp(I->op, "OpMatrixTimesScalar") && I->nop >= 3)
+		r = mk_bin(O_MUL, dwg_mcomp(G, idx(I->opnd[1]), col, row,
+		    depth + 1), dwg_build(G, idx(I->opnd[2]), depth + 1));
+	else if (!strcmp(I->op, "OpMatrixTimesMatrix") && I->nop >= 3) {
+		int a = idx(I->opnd[1]), b = idx(I->opnd[2]), ac, ar, j;
+		if (mat_f64(V.id[a].type, &ac, &ar)) {
+			nid q;
+			for (j = 0; j < ac; j++) {
+				q = mk_bin(O_MUL, dwg_mcomp(G, a, j, row, depth + 1),
+				    dwg_mcomp(G, b, col, j, depth + 1));
+				r = j ? mk_bin(O_ADD, r, q) : q;
+			}
+		}
+	}
+	if (r == 0)
+		return dwg_var(G, id, comp, TY_F64);
+	dwg_ins(G, k);
+	return dwg_memo(G, id, comp, r);
+}
+
+/* one component of an f64 vector */
+static nid
+dwg_comp(struct dwg *G, int id, int ci, int depth)
+{
+	int k = SP.def[id], i, t = V.id[id].type, n = 0, sg, m;
+	const struct sins *I;
+	nid r = 0, a, b, c;
+
+	for (i = 0; i < G->nmemo; i++)
+		if (G->id[i] == id && G->comp[i] == ci)
+			return G->node[i];
+	if (vec_float_w(t, &n) != 64 || ci >= n)
+		return dwg_var(G, id, ci, TY_F64);
+	if (V.id[id].kind == K_CONST && !V.id[id].spec && ci < V.id[id].nc)
+		return dwg_memo(G, id, ci, mk_cast(TY_F64, mk_const_r(getf(T(t)->e,
+		    V.id[id].c[ci]))));
+	if (k < 0 || depth > 48 || dw_leaf[id])
+		return dwg_var(G, id, ci, TY_F64);
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpFConvert") && I->nop >= 2) {
+		int s = idx(I->opnd[1]);
+		if (vec_float_w(V.id[s].type, &m) == 32 && m == n)
+			r = mk_cast(TY_F64, dwg_var(G, s, ci, TY_F32));
+	} else if ((!strcmp(I->op, "OpConvertSToF") || !strcmp(I->op,
+	    "OpConvertUToF")) && I->nop >= 2) {
+		int s = idx(I->opnd[1]), w = vec_int_w(V.id[s].type, &m, &sg);
+		if (w > 0 && w <= 32 && m == n)
+			r = mk_cast(TY_F64, dwg_var(G, s, ci, TY(I->op[9] == 'U' ?
+			    K_UINT : K_SINT, w)));
+	} else if (!strcmp(I->op, "OpFNegate") && I->nop >= 2) {
+		r = mk_un(O_NEG, dwg_comp(G, idx(I->opnd[1]), ci, depth + 1));
+	} else if ((!strcmp(I->op, "OpFAdd") || !strcmp(I->op, "OpFSub") ||
+	    !strcmp(I->op, "OpFMul") || !strcmp(I->op, "OpFDiv")) &&
+	    I->nop >= 3) {
+		a = dwg_comp(G, idx(I->opnd[1]), ci, depth + 1);
+		b = dwg_comp(G, idx(I->opnd[2]), ci, depth + 1);
+		r = mk_bin(I->op[3] == 'A' ? O_ADD : I->op[3] == 'S' ? O_SUB :
+		    I->op[3] == 'M' ? O_MUL : O_DIV, a, b);
+	} else if (!strcmp(I->op, "OpVectorTimesScalar") && I->nop >= 3) {
+		a = dwg_comp(G, idx(I->opnd[1]), ci, depth + 1);
+		b = dwg_build(G, idx(I->opnd[2]), depth + 1);
+		r = mk_bin(O_MUL, a, b);
+	} else if (!strcmp(I->op, "OpCompositeConstruct")) {
+		int at = 0, o;
+		for (o = 1; o < I->nop && r == 0; o++) {
+			int s = idx(I->opnd[o]);
+			if (vec_float_w(V.id[s].type, &m) == 64) {
+				if (ci < at + m)
+					r = dwg_comp(G, s, ci - at, depth + 1);
+				at += m;
+			} else if (scalar_float_w(V.id[s].type) == 64) {
+				if (ci == at)
+					r = dwg_build(G, s, depth + 1);
+				at++;
+			} else
+				break;
+		}
+	} else if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3) {
+		/* a matrix's column */
+		int mt = idx(I->opnd[1]), col = atoi(I->opnd[2]), mc, mr;
+		if (mat_f64(V.id[mt].type, &mc, &mr) && col >= 0 && col < mc &&
+		    ci < mr)
+			r = dwg_mcomp(G, mt, col, ci, depth + 1);
+	} else if (!strcmp(I->op, "OpVectorShuffle") && I->nop >= 4 + ci) {
+		int v1 = idx(I->opnd[1]), v2 = idx(I->opnd[2]);
+		long lit = strtol(I->opnd[3 + ci], NULL, 10);
+		if (vec_float_w(V.id[v1].type, &m) == 64 && lit >= 0 && lit < 8)
+			r = lit < m ? dwg_comp(G, v1, (int)lit, depth + 1) :
+			    dwg_comp(G, v2, (int)lit - m, depth + 1);
+	} else if (!strcmp(I->op, "OpMatrixTimesVector") && I->nop >= 3) {
+		int mt = idx(I->opnd[1]), v = idx(I->opnd[2]), mc, mr, j;
+		if (mat_f64(V.id[mt].type, &mc, &mr) && ci < mr)
+			for (j = 0; j < mc; j++) {
+				a = mk_bin(O_MUL, dwg_mcomp(G, mt, j, ci, depth + 1),
+				    dwg_comp(G, v, j, depth + 1));
+				r = j ? mk_bin(O_ADD, r, a) : a;
+			}
+	} else if (!strcmp(I->op, "OpVectorTimesMatrix") && I->nop >= 3) {
+		int v = idx(I->opnd[1]), mt = idx(I->opnd[2]), mc, mr, j;
+		if (mat_f64(V.id[mt].type, &mc, &mr) && ci < mc)
+			for (j = 0; j < mr; j++) {
+				a = mk_bin(O_MUL, dwg_comp(G, v, j, depth + 1),
+				    dwg_mcomp(G, mt, ci, j, depth + 1));
+				r = j ? mk_bin(O_ADD, r, a) : a;
+			}
+	} else if (!strcmp(I->op, "OpExtInst") && I->nop >= 4 &&
+	    idx(I->opnd[1]) == V.glsl) {
+		if (!strcmp(I->opnd[2], "Sqrt") || !strcmp(I->opnd[2], "FAbs")) {
+			a = dwg_comp(G, idx(I->opnd[3]), ci, depth + 1);
+			r = mk_un(I->opnd[2][0] == 'S' ? O_SQRT : O_ABS, a);
+		} else if (!strcmp(I->opnd[2], "Fma") && I->nop >= 6) {
+			a = dwg_comp(G, idx(I->opnd[3]), ci, depth + 1);
+			b = dwg_comp(G, idx(I->opnd[4]), ci, depth + 1);
+			c = dwg_comp(G, idx(I->opnd[5]), ci, depth + 1);
+			r = mk_fma(a, b, c);
+		} else if (!strcmp(I->opnd[2], "Normalize")) {
+			int v = idx(I->opnd[3]);
+			r = mk_bin(O_DIV, dwg_comp(G, v, ci, depth + 1),
+			    mk_un(O_SQRT, dwg_dot(G, v, v, n, depth + 1)));
+		}
+	}
+	if (r == 0)
+		return dwg_var(G, id, ci, TY_F64);
+	dwg_ins(G, k);
+	return dwg_memo(G, id, ci, r);
 }
 
 static nid
 dwg_build(struct dwg *G, int id, int depth)
 {
-	int k = SP.def[id], i, t = V.id[id].type, sg;
+	int k = SP.def[id], i, t = V.id[id].type, sg, n;
 	const struct sins *I;
 	nid r = 0, a, b, c;
 
 	for (i = 0; i < G->nmemo; i++)
-		if (G->id[i] == id)
+		if (G->id[i] == id && G->comp[i] == -1)
 			return G->node[i];
 	if (V.id[id].kind == K_CONST && !V.id[id].spec &&
-	    scalar_float_w(t) == 64) {
-		r = mk_cast(TY_F64, mk_const_r(getf(t, V.id[id].c[0])));
-		goto done;
-	}
-	if (k < 0 || depth > 48)
-		return dwg_var(G, id, TY_F64);
+	    scalar_float_w(t) == 64)
+		return dwg_memo(G, id, -1, mk_cast(TY_F64, mk_const_r(getf(t,
+		    V.id[id].c[0]))));
+	if (k < 0 || depth > 48 || dw_leaf[id])
+		return dwg_var(G, id, -1, TY_F64);
 	I = &V.in[k];
 	if (I->nop < 2 || scalar_float_w(idx(I->opnd[0])) != 64)
-		return dwg_var(G, id, TY_F64);
+		return dwg_var(G, id, -1, TY_F64);
 	if (!strcmp(I->op, "OpFConvert")) {
 		int s = idx(I->opnd[1]);
 		if (scalar_float_w(V.id[s].type) == 32)
-			r = mk_cast(TY_F64, dwg_var(G, s, TY_F32));
+			r = mk_cast(TY_F64, dwg_var(G, s, -1, TY_F32));
 	} else if (!strcmp(I->op, "OpConvertSToF") || !strcmp(I->op,
 	    "OpConvertUToF")) {
 		int s = idx(I->opnd[1]), w = scalar_int_w(V.id[s].type, &sg);
 		if (w > 0 && w <= 32)
-			r = mk_cast(TY_F64, dwg_var(G, s, TY(I->op[9] == 'U' ?
+			r = mk_cast(TY_F64, dwg_var(G, s, -1, TY(I->op[9] == 'U' ?
 			    K_UINT : K_SINT, w)));
 	} else if (!strcmp(I->op, "OpFNegate")) {
 		a = dwg_build(G, idx(I->opnd[1]), depth + 1);
@@ -163,6 +440,20 @@ dwg_build(struct dwg *G, int id, int depth)
 			r = mk_bin(I->op[3] == 'A' ? O_ADD : I->op[3] == 'S' ? O_SUB :
 			    I->op[3] == 'M' ? O_MUL : O_DIV, a, b);
 		}
+	} else if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3) {
+		int s = idx(I->opnd[1]), ci = atoi(I->opnd[2]);
+		if (vec_float_w(V.id[s].type, &n) == 64 && ci >= 0 && ci < n)
+			r = dwg_comp(G, s, ci, depth + 1);
+	} else if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 4) {
+		int s = idx(I->opnd[1]), col = atoi(I->opnd[2]);
+		int row = atoi(I->opnd[3]), cols, rows;
+		if (mat_f64(V.id[s].type, &cols, &rows) && col >= 0 &&
+		    col < cols && row >= 0 && row < rows)
+			r = dwg_mcomp(G, s, col, row, depth + 1);
+	} else if (!strcmp(I->op, "OpDot") && I->nop >= 3) {
+		int va = idx(I->opnd[1]), vb = idx(I->opnd[2]);
+		if (vec_float_w(V.id[va].type, &n) == 64)
+			r = dwg_dot(G, va, vb, n, depth + 1);
 	} else if (!strcmp(I->op, "OpExtInst") && I->nop >= 4 &&
 	    idx(I->opnd[1]) == V.glsl) {
 		if (!strcmp(I->opnd[2], "Sqrt") || !strcmp(I->opnd[2], "FAbs")) {
@@ -173,18 +464,27 @@ dwg_build(struct dwg *G, int id, int depth)
 			b = dwg_build(G, idx(I->opnd[4]), depth + 1);
 			c = dwg_build(G, idx(I->opnd[5]), depth + 1);
 			r = mk_fma(a, b, c);
+		} else if (!strcmp(I->opnd[2], "Length")) {
+			int v = idx(I->opnd[3]);
+			if (vec_float_w(V.id[v].type, &n) == 64)
+				r = mk_un(O_SQRT, dwg_dot(G, v, v, n, depth + 1));
+		} else if (!strcmp(I->opnd[2], "Distance") && I->nop >= 5) {
+			int va = idx(I->opnd[3]), vb = idx(I->opnd[4]), j;
+			if (vec_float_w(V.id[va].type, &n) == 64) {
+				for (j = 0; j < n; j++) {
+					a = mk_bin(O_SUB, dwg_comp(G, va, j, depth + 1),
+					    dwg_comp(G, vb, j, depth + 1));
+					a = mk_bin(O_MUL, a, a);
+					r = j ? mk_bin(O_ADD, r, a) : a;
+				}
+				r = mk_un(O_SQRT, r);
+			}
 		}
 	}
 	if (r == 0)
-		return dwg_var(G, id, TY_F64);
-	if (G->nins < 256)
-		G->ins[G->nins++] = k;
-done:
-	if (G->nmemo < 256) {
-		G->id[G->nmemo] = id;
-		G->node[G->nmemo++] = r;
-	}
-	return r;
+		return dwg_var(G, id, -1, TY_F64);
+	dwg_ins(G, k);
+	return dwg_memo(G, id, -1, r);
 }
 
 /* ---- a ucas form as SPIR-V instructions ---- */
@@ -194,7 +494,10 @@ struct dwemit {
 	const struct dwg *G;
 	nid memo_n[1024];
 	char memo_s[1024][40];
+	uint8_t memo_d[1024];	/* decorated NoContraction */
 	int nmemo;
+	uint8_t puse[MAXP];	/* the parameters the written code reads */
+	int nex;		/* components taken out of a vector */
 	const uint8_t *eft;
 	uint32_t neft;
 	int isl, serial;
@@ -275,23 +578,54 @@ dwe_const(struct dwemit *E, nid n)
 	return b;
 }
 
+/* a float operation a contraction could fuse */
+static int
+dwe_rounds(nid n)
+{
+	return TYK(N.ty[n]) == K_FLOAT && (N.op[n] == O_ADD || N.op[n] == O_SUB ||
+	    N.op[n] == O_MUL || N.op[n] == O_DIV || N.op[n] == O_NEG);
+}
+
 static const char *
 dwe(struct dwemit *E, nid n)
 {
 	char a[40], b[40], c[40], nm[40];
 	const char *op = NULL, *ext = NULL, *rt;
 	ty_t t = N.ty[n], ta;
-	int i, fl, arith = 0;
+	int i, fl, arith = 0, deco = 0;
 
 	for (i = 0; i < E->nmemo; i++)
-		if (E->memo_n[i] == n)
+		if (E->memo_n[i] == n) {
+			/* written for a result that did not lean on its rounding */
+			if (!E->memo_d[i] && dwe_rounds(n) && n < E->neft && E->eft &&
+			    E->eft[n]) {
+				sb_printf(E->deco, "OpDecorate %s NoContraction\n",
+				    E->memo_s[i]);
+				E->memo_d[i] = 1;
+				E->ndeco++;
+			}
 			return E->memo_s[i];
+		}
 	if (E->nmemo >= 1024) {
 		E->fail = 1;
 		return "%ucas_toolong";
 	}
-	if (N.op[n] == O_VAR)
-		return V.id[E->G->psid[N.ki[n]]].tok;
+	if (N.op[n] == O_VAR) {
+		int j = (int)N.ki[n], pc = E->G->pcomp[j];
+		E->puse[j] = 1;
+		if (pc < 0)
+			return V.id[E->G->psid[j]].tok;
+		rt = dwe_type(E, t);
+		snprintf(nm, sizeof nm, "%%ucas_dw%d_%d", E->isl, ++E->serial);
+		if (pc >= 16)
+			sb_printf(E->code, "%s = OpCompositeExtract %s %s %d %d\n", nm,
+			    rt, V.id[E->G->psid[j]].tok, (pc - 16) / 4, (pc - 16) % 4);
+		else
+			sb_printf(E->code, "%s = OpCompositeExtract %s %s %d\n", nm,
+			    rt, V.id[E->G->psid[j]].tok, pc);
+		E->nex++;
+		goto named;
+	}
 	if (N.op[n] == O_CONST) {
 		const char *k;
 		if (t == TY_BOOL) {
@@ -301,6 +635,7 @@ dwe(struct dwemit *E, nid n)
 		k = dwe_const(E, n);
 		i = E->nmemo++;
 		E->memo_n[i] = n;
+		E->memo_d[i] = 1;
 		snprintf(E->memo_s[i], 40, "%s", k);
 		return E->memo_s[i];
 	}
@@ -401,10 +736,12 @@ dwe(struct dwemit *E, nid n)
 	if (arith && n < E->neft && E->eft && E->eft[n]) {
 		sb_printf(E->deco, "OpDecorate %s NoContraction\n", nm);
 		E->ndeco++;
+		deco = 1;
 	}
 named:
 	i = E->nmemo++;
 	E->memo_n[i] = n;
+	E->memo_d[i] = (uint8_t)deco;
 	snprintf(E->memo_s[i], 40, "%s", nm);
 	return E->memo_s[i];
 }
@@ -421,6 +758,31 @@ dw_indent(const char *text, const char *ind)
 		printf("%s%.*s\n", ind, (int)(e - p), p);
 		p = *e ? e + 1 : e;
 	}
+}
+
+/* a component's report: the lemmas of the derivation are said once, when
+ * they are the first component's word for word */
+static void
+dw_report(const char *text, const char *first)
+{
+	const char *d = strstr(text, "\n  derivation ("), *e, *fd, *fe;
+
+	if (first == NULL || d == NULL || (e = strstr(d, "\n  conditions:")) ==
+	    NULL || (fd = strstr(first, "\n  derivation (")) == NULL || (fe =
+	    strstr(fd, "\n  conditions:")) == NULL || e - d != fe - fd ||
+	    strncmp(d, fd, (size_t)(e - d)) != 0) {
+		dw_indent(text, "    ");
+		return;
+	}
+	{
+		char *head = xmalloc((size_t)(d - text) + 2);
+		memcpy(head, text, (size_t)(d - text) + 1);
+		head[d - text + 1] = 0;
+		dw_indent(head, "    ");
+		free(head);
+	}
+	printf("      derivation: the lemmas of the first component\n");
+	dw_indent(e + 1, "    ");
 }
 
 /* spirv-as and spirv-val on the written module: 1 accepted, 0 rejected
@@ -466,16 +828,428 @@ dw_validate(const char *text, char *why, size_t n)
 	return res;
 }
 
+/* ---- the f64 results of a module, grouped by what they share ---- */
+
+struct dwsink {
+	int k, src, n;		/* the conversion, its operand, its components */
+	int stay;		/* not rewritten */
+	int grp;		/* the first result of its group */
+	int cone[256], ncone;	/* the f64 instructions under it */
+	nid root[4], body[4];
+	struct dwres res[4];
+	struct sbuf rep[4];
+	int nlow;		/* how many of its components were lowered */
+	char why[240];
+	struct dwg *G;		/* its group's inputs */
+	struct sbuf code;
+	int failed, nins, ndeco, nex, nsplit;
+	int priced;		/* stays for its group's price: its forms met */
+	int last, members, gnins, gstay;	/* its group: the last one, how many */
+	double gold, gnew;	/* its group's price: as written, the forms */
+};
+
+/* a conversion of an f32 or an integer to f64: exact, and free to read
+ * again from its operand */
+static int
+dw_conv32(int j)
+{
+	const struct sins *I = &V.in[j];
+	int n, t;
+
+	if ((strcmp(I->op, "OpFConvert") != 0 && strcmp(I->op, "OpConvertSToF")
+	    != 0 && strcmp(I->op, "OpConvertUToF") != 0) || I->nop < 2)
+		return 0;
+	t = V.id[idx(I->opnd[1])].type;
+	return scalar_float_w(t) != 64 && vec_float_w(t, &n) != 64;
+}
+
+static void
+dw_roots(struct dwg *G, struct dwsink *S)
+{
+	int i;
+
+	if (S->n == 1 && scalar_float_w(V.id[S->src].type) == 64)
+		S->root[0] = dwg_build(G, S->src, 0);
+	else
+		for (i = 0; i < S->n; i++)
+			S->root[i] = dwg_comp(G, S->src, i, 0);
+}
+
+static void
+dw_release(struct dwsink *S)
+{
+	int i;
+
+	for (i = 0; i < S->nlow; i++) {
+		dword_res_free(&S->res[i]);
+		free(S->rep[i].p);
+		memset(&S->rep[i], 0, sizeof S->rep[i]);
+	}
+	S->nlow = 0;
+}
+
+/*
+ * Which results are rewritten, and with which inputs.  A result's f64
+ * instructions go only when nothing else reads them, so:
+ *   an f64 value read by something that keeps its f64 (a store, a phi, a
+ *   result that is not rewritten) stays, and is an input of the results
+ *   above it (dw_leaf);
+ *   results that share f64 instructions form a group with one set of
+ *   inputs, so the forms share what the f64 code shared;
+ *   a group is rewritten when each form meets its requirement and the
+ *   forms together cost less than the f64 instructions they replace,
+ *   what is shared counted once on both sides (a form is written again in
+ *   each block that needs it, and priced so).
+ * A result that falls out leaves its f64 values to the others as inputs,
+ * and the rest is planned again.
+ */
+static double
+dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
+    const struct model *m, const struct dwreq *rq)
+{
+	double saved = 0;
+	int *own = xmalloc((size_t)(V.nin + 1) * sizeof *own);
+	int again = 1, round, s, t, q, i, o, j;
+
+	for (round = 0; again && round < 4096; round++) {
+		again = 0;
+		for (s = 0; s < nsk; s++) {
+			if (sk[s].G && sk[s].grp == s)
+				free(sk[s].G);
+		}
+		for (s = 0; s < nsk; s++) {
+			sk[s].G = NULL;
+			if (!sk[s].stay)
+				dw_release(&sk[s]);
+		}
+		/* the instructions under each, with the inputs so far */
+		for (s = 0; s < nsk; s++) {
+			struct dwg *G1;
+			if (sk[s].stay)
+				continue;
+			G1 = xcalloc(1, sizeof *G1);
+			dw_roots(G1, &sk[s]);
+			sk[s].ncone = G1->nins;
+			memcpy(sk[s].cone, G1->ins, (size_t)G1->nins * sizeof(int));
+			if (G1->toomany || G1->nins == 0) {
+				sk[s].stay = 1;
+				snprintf(sk[s].why, sizeof sk[s].why, "not rewritten: %s",
+				    G1->toomany ? "more than 8 inputs" :
+				    dw_leaf[sk[s].src] ? "its operand is an f64 value "
+				    "that stays (something else reads it too)" :
+				    "its operand is an f64 value computed elsewhere (a "
+				    "load, a call, a phi)");
+			}
+			free(G1);
+		}
+		/* a value something else reads stays, and is an input */
+		for (j = 0; j < V.nin; j++)
+			own[j] = dw_keep[j] = 0;
+		for (s = 0; s < nsk; s++)
+			for (q = 0; q < sk[s].ncone && !sk[s].stay; q++)
+				own[sk[s].cone[q]] = 1;
+		for (j = 0; j < V.nin; j++) {
+			int rid = V.in[j].res, inside = 0;
+			if (!own[j] || rid < 0)
+				continue;
+			for (t = 0; t < V.nin; t++)
+				for (o = 1; own[t] && o < V.in[t].nop; o++)
+					if (V.in[t].opnd[o][0] == '%' &&
+					    idx(V.in[t].opnd[o]) == rid)
+						inside++;
+			for (t = 0; t < nsk; t++)
+				if (!sk[t].stay && sk[t].src == rid)
+					inside++;
+			if (inside == uses[rid])
+				continue;
+			/* a conversion of an f32 or an integer stays for whoever
+			 * else reads it and is read here from its operand */
+			if (dw_conv32(j) || dw_recompute)
+				dw_keep[j] = 1;
+			else {
+				dw_leaf[rid] = 1;
+				again = 1;
+			}
+		}
+		if (again)
+			continue;
+		/* results that share an f64 instruction: one group */
+		for (s = 0; s < nsk; s++)
+			sk[s].grp = s;
+		for (j = 0; j < V.nin; j++)
+			own[j] = -1;
+		for (s = 0; s < nsk; s++)
+			for (q = 0; q < sk[s].ncone && !sk[s].stay; q++) {
+				int c = sk[s].cone[q], x = s, y;
+				if (own[c] < 0) {
+					own[c] = s;
+					continue;
+				}
+				for (y = own[c]; sk[y].grp != y; y = sk[y].grp)
+					;
+				for (; sk[x].grp != x; x = sk[x].grp)
+					;
+				if (x < y)
+					sk[y].grp = x;
+				else
+					sk[x].grp = y;
+			}
+		for (s = 0; s < nsk; s++) {
+			int x = s;
+			for (; sk[x].grp != x; x = sk[x].grp)
+				;
+			sk[s].grp = x;
+		}
+		for (s = 0; s < nsk; s++) {
+			struct dwg *G;
+			if (sk[s].stay || sk[s].grp != s)
+				continue;
+			G = xcalloc(1, sizeof *G);
+			G->f.name = sym_cstr("_fp64");
+			G->f.anon = 1;
+			for (t = s; t < nsk; t++)
+				if (!sk[t].stay && sk[t].grp == s) {
+					sk[t].G = G;
+					dw_roots(G, &sk[t]);
+				}
+			if (!G->toomany)
+				continue;
+			/* too many inputs together: what two of them share stays
+			 * f64, and each is on its own */
+			for (j = 0; j < V.nin; j++)
+				own[j] = 0;
+			for (t = s; t < nsk; t++)
+				for (q = 0; q < sk[t].ncone && !sk[t].stay &&
+				    sk[t].grp == s; q++)
+					own[sk[t].cone[q]]++;
+			for (j = 0; j < V.nin; j++)
+				if (own[j] > 1 && V.in[j].res >= 0 && !dw_conv32(j) &&
+				    !dw_leaf[V.in[j].res]) {
+					dw_leaf[V.in[j].res] = 1;
+					again = 1;
+				}
+			if (!again)
+				for (t = s; t < nsk; t++)
+					if (!sk[t].stay && sk[t].grp == s) {
+						sk[t].stay = 1;
+						snprintf(sk[t].why, sizeof sk[t].why,
+						    "not rewritten: more than 8 inputs");
+						again = 1;
+					}
+			for (j = 0; j < V.nin; j++)
+				own[j] = -1;
+		}
+		if (again)
+			continue;
+		/* each result's form: priced against its own f64 code when
+		 * that is all that goes, with its group otherwise */
+		for (s = 0; s < nsk; s++) {
+			struct dwg *G = sk[s].G;
+			struct dwreq r1 = *rq;
+			if (sk[s].stay)
+				continue;
+			for (t = 0; t < nsk; t++)
+				if (t != s && !sk[t].stay && sk[t].grp == sk[s].grp)
+					r1.anyprice = 1;
+			for (q = 0; q < G->nins; q++)
+				if (dw_keep[G->ins[q]] || sk[s].n > 1)
+					r1.anyprice = 1;
+			for (i = 0; i < sk[s].n; i++) {
+				sk[s].body[i] = mk_cast(TY_F32, sk[s].root[i]);
+				G->f.body = sk[s].body[i];
+				sk[s].nlow = i + 1;
+				if (!dword_lower(&G->f, m, &r1, &sk[s].res[i],
+				    &sk[s].rep[i])) {
+					sk[s].stay = 1;
+					again = 1;
+					break;
+				}
+			}
+		}
+		if (again)
+			continue;
+		/* a group's price */
+		for (s = 0; s < nsk; s++) {
+			nid old[320], new[256], kept[64];
+			int nold = 0, nnew = 0, nkept = 0, cur = -1, members = 0;
+			int last = s, nroots, gone;
+			double cold, cnew = 0;
+			if (sk[s].stay || sk[s].grp != s)
+				continue;
+			for (t = s; t < nsk; t++) {
+				if (sk[t].stay || sk[t].grp != s)
+					continue;
+				if (blk[sk[t].k] != cur && nnew) {
+					cnew += (double)fuse_roots_cost(m, new, nnew);
+					nnew = 0;
+				}
+				cur = blk[sk[t].k];
+				for (i = 0; i < sk[t].n && nold < 256; i++) {
+					old[nold++] = sk[t].body[i];
+					new[nnew++] = sk[t].res[i].body;
+				}
+				members++;
+				last = t;
+			}
+			if (nnew)
+				cnew += (double)fuse_roots_cost(m, new, nnew);
+			/* what goes: the f64 instructions less the ones that stay */
+			nroots = nold;
+			gone = sk[s].G->nins;
+			for (q = 0; q < sk[s].G->nmemo; q++) {
+				int d = SP.def[sk[s].G->id[q]];
+				if (d >= 0 && dw_keep[d] && nkept < 64) {
+					kept[nkept++] = sk[s].G->node[q];
+					old[nold++] = sk[s].G->node[q];
+				}
+			}
+			/* what a staying instruction reads stays with it */
+			for (q = 0; q < sk[s].G->nins; q++)
+				own[sk[s].G->ins[q]] = dw_keep[sk[s].G->ins[q]] ? -2 : -1;
+			for (i = 1; i;) {
+				i = 0;
+				for (q = 0; q < sk[s].G->nins; q++) {
+					const struct sins *I = &V.in[sk[s].G->ins[q]];
+					if (own[sk[s].G->ins[q]] != -2)
+						continue;
+					for (o = 1; o < I->nop; o++) {
+						int d = I->opnd[o][0] == '%' ?
+						    SP.def[idx(I->opnd[o])] : -1;
+						for (j = 0; d >= 0 && j < sk[s].G->nins; j++)
+							if (sk[s].G->ins[j] == d && own[d] == -1) {
+								own[d] = -2;
+								i = 1;
+							}
+					}
+				}
+			}
+			for (q = 0; q < sk[s].G->nins; q++) {
+				gone -= own[sk[s].G->ins[q]] == -2;
+				own[sk[s].G->ins[q]] = -1;
+			}
+			cold = (double)fuse_roots_cost(m, old, nold);
+			if (nkept)
+				cold -= (double)fuse_roots_cost(m, kept, nkept);
+			for (t = s; t < nsk; t++) {
+				if (sk[t].stay || sk[t].grp != s)
+					continue;
+				sk[t].members = members;
+				sk[t].last = t == last;
+				sk[t].gold = cold;
+				sk[t].gnew = cnew;
+				sk[t].gnins = gone;
+				sk[t].gstay = sk[s].G->nins - gone;
+				if ((nroots > 1 || nkept) && !(cnew < cold)) {
+					sk[t].stay = 1;
+					sk[t].priced = 1;
+					snprintf(sk[t].why, sizeof sk[t].why, "not "
+					    "rewritten: the f32 form%s cost%s %g, the f64 "
+					    "instructions that would go %g under %s",
+					    nroots == 1 ? "" : "s", nroots == 1 ? "s" : "",
+					    cnew, cold, sym_str(m->name));
+				}
+			}
+		}
+	}
+	if (again)
+		for (s = 0; s < nsk; s++)
+			if (!sk[s].stay) {
+				sk[s].stay = 1;
+				snprintf(sk[s].why, sizeof sk[s].why, "not rewritten: "
+				    "the results that share f64 values did not settle "
+				    "into groups");
+			}
+	for (s = 0; s < nsk; s++)
+		if (!sk[s].stay && sk[s].grp == s)
+			saved += sk[s].gold - sk[s].gnew;
+	free(own);
+	return saved;
+}
+
+/* the forms of the results that are rewritten, as instructions in place
+ * of each conversion; a value two results share is written once where
+ * the first is in the same block as the second */
+static void
+dw_write(struct dwsink *sk, int nsk, int *uses, const int *blk,
+    struct sbuf *decl, struct sbuf *deco, int *isl, int *need_glsl)
+{
+	int s, t, i, j;
+
+	for (s = 0; s < nsk; s++) {
+		struct dwemit *E;
+		int cur = -1;
+		if (sk[s].stay || sk[s].grp != s)
+			continue;
+		E = xcalloc(1, sizeof *E);
+		E->decl = decl;
+		E->deco = deco;
+		E->G = sk[s].G;
+		E->isl = ++*isl;
+		for (t = s; t < nsk; t++) {
+			struct dwsink *S = &sk[t];
+			const struct sins *I = &V.in[S->k];
+			char nm[4][40];
+			int n0 = E->nins, d0 = E->ndeco, x0 = E->nex;
+			if (S->stay || S->grp != s)
+				continue;
+			if (blk[S->k] != cur)
+				E->nmemo = 0;
+			cur = blk[S->k];
+			E->code = &S->code;
+			E->fail = 0;
+			memset(E->puse, 0, sizeof E->puse);
+			for (i = 0; i < S->n; i++) {
+				E->eft = S->res[i].eft;
+				E->neft = S->res[i].neft;
+				E->root = S->res[i].body;
+				E->final = S->n == 1 ? V.id[I->res].tok : NULL;
+				snprintf(nm[i], sizeof nm[i], "%s", dwe(E, S->res[i].body));
+			}
+			if (E->fail) {
+				S->failed = 1;
+				free(S->code.p);
+				memset(&S->code, 0, sizeof S->code);
+				E->nmemo = 0;
+				cur = -1;
+				continue;
+			}
+			if (S->n > 1) {
+				sb_printf(&S->code, "%s = OpCompositeConstruct %s",
+				    V.id[I->res].tok, V.id[idx(I->opnd[0])].tok);
+				for (i = 0; i < S->n; i++)
+					sb_printf(&S->code, " %s", nm[i]);
+				sb_putc(&S->code, '\n');
+			} else if (strcmp(nm[0], V.id[I->res].tok) != 0)
+				sb_printf(&S->code, "%s = OpCopyObject %s %s\n",
+				    V.id[I->res].tok, V.id[idx(I->opnd[0])].tok, nm[0]);
+			S->nins = E->nins - n0;
+			S->ndeco = E->ndeco - d0;
+			S->nex = E->nex - x0;
+			*need_glsl |= E->need_glsl;
+			uses[S->src]--;
+			/* what the written code reads stays */
+			for (j = 0; j < S->G->f.np; j++)
+				if (E->puse[j]) {
+					uses[S->G->psid[j]]++;
+					if (dw_leaf[S->G->psid[j]])
+						S->nsplit++;
+				}
+		}
+		free(E);
+	}
+}
+
 static char *
 dword_pass(const char *text, int *changed)
 {
 	struct sbuf decl = {0}, deco = {0}, out = {0};
 	char **repl, *dead;
-	int k, i, nsink = 0, napplied = 0, nfold = 0, nfoldfix = 0, need_glsl = 0;
+	int k, i, i2 = 0, nsink = 0, napplied = 0, nfold = 0, nfoldfix = 0, need_glsl = 0;
 	int f64t = -1, isl = 0, has64 = 0, hdr = 0;
 	const struct model *m = model_active();
 	struct dwreq rq = {DW_DEFAULT, 0};
-	int *uses;
+	struct dwsink *sk;
+	int *uses, *blk, nsk = 0, cursk = 0;
 
 	*changed = 0;
 	memset(&V, 0, sizeof V);
@@ -520,17 +1294,169 @@ dword_pass(const char *text, int *changed)
 		rq.kind = DW_ULP;
 		rq.v = fopt.ulp > 0 ? fopt.ulp : 0x1p-10;
 	}
+	/* the f64 results: which are rewritten, and their code */
+	for (k = 0, i = 1; k < V.nin; k++)
+		i += !strcmp(V.in[k].op, "OpFConvert");
+	sk = xcalloc((size_t)i, sizeof *sk);
+	blk = xcalloc((size_t)V.nin + 1, sizeof *blk);
+	dw_leaf = xcalloc((size_t)V.nid + 64, 1);
+	dw_keep = xcalloc((size_t)V.nin + 1, 1);
+	for (k = 0, i = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int n = 1, src, t;
+		if (!strcmp(I->op, "OpLabel"))
+			i++;
+		blk[k] = i;
+		if (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 || I->res < 0 ||
+		    SP.def[I->res] != k)
+			continue;
+		t = idx(I->opnd[0]);
+		src = idx(I->opnd[1]);
+		if (scalar_float_w(t) == 32) {
+			if (scalar_float_w(V.id[src].type) != 64)
+				continue;
+		} else if (vec_float_w(t, &n) != 32 || vec_float_w(V.id[src].type,
+		    &i2) != 64 || i2 != n)
+			continue;
+		sk[nsk].k = k;
+		sk[nsk].src = src;
+		sk[nsk].n = n;
+		sk[nsk].grp = nsk;
+		nsk++;
+	}
+	/* an f64 value that stays for another reader: split where the
+	 * results above it need it, or computed again in f32; the plan that
+	 * saves more under the model */
+	{
+		struct dwsink *sk2 = xmalloc(((size_t)nsk + 1) * sizeof *sk2);
+		char *leaf2 = xcalloc((size_t)V.nid + 64, 1), *leaf1 = dw_leaf;
+		char *keep2 = xcalloc((size_t)V.nin + 1, 1), *keep1 = dw_keep;
+		double s1, s2;
+
+		memcpy(sk2, sk, ((size_t)nsk + 1) * sizeof *sk2);
+		dw_recompute = 0;
+		s1 = dw_plan(sk, nsk, uses, blk, m, &rq);
+		dw_leaf = leaf2;
+		dw_keep = keep2;
+		dw_recompute = 1;
+		s2 = dw_plan(sk2, nsk, uses, blk, m, &rq);
+		dw_recompute = 0;
+		if (s2 >= s1) {
+			struct dwsink *x = sk;
+			sk = sk2;
+			sk2 = x;
+			leaf2 = leaf1;
+			keep2 = keep1;
+		} else {
+			dw_leaf = leaf1;
+			dw_keep = keep1;
+		}
+		for (k = 0; k < nsk; k++) {
+			if (sk2[k].G && sk2[k].grp == k)
+				free(sk2[k].G);
+			dw_release(&sk2[k]);
+		}
+		free(sk2);
+		free(leaf2);
+		free(keep2);
+	}
+	dw_write(sk, nsk, uses, blk, &decl, &deco, &isl, &need_glsl);
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
-		struct dwg *G;
-		struct dwres res;
-		struct sbuf rep = {0};
+		struct dwsink *S;
 		char sl[200];
-		nid root;
-		int src, q, shared = 0;
+		int src;
 
 		if (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 || I->res < 0 ||
-		    SP.def[I->res] != k || scalar_float_w(idx(I->opnd[0])) != 32)
+		    SP.def[I->res] != k)
+			continue;
+		if (cursk < nsk && sk[cursk].k == k) {
+			S = &sk[cursk++];
+			has64 = 1;
+			nsink++;
+			if (!hdr++)
+				printf("fp64 and conversions under %s:\n",
+				    sym_str(m->name));
+			printf("  %s\n", I->text);
+			src_line(ins_line(k), sl, sizeof sl);
+			fputs(sl, stdout);
+			for (i = 0; i < S->nlow; i++) {
+				char *cut = S->priced && S->rep[i].p ? strstr(S->rep[i].p,
+				    "\n  -> ") : NULL;
+				/* what its form alone would save is not what goes */
+				if (cut)
+					cut[1] = 0;
+				if (S->rep[i].p)
+					dw_report(S->rep[i].p, i ? S->rep[0].p : NULL);
+				else
+					printf("    %s\n", S->res[i].why);
+			}
+			if (S->stay) {
+				if (S->why[0])
+					printf("    %s\n", S->why);
+				continue;
+			}
+			if (S->failed) {
+				printf("    not written: an operation of the form has "
+				    "no SPIR-V instruction here\n");
+				continue;
+			}
+			repl[k] = S->code.p;
+			S->code.p = NULL;
+			napplied++;
+			if (S->nsplit)
+				printf("    %d f64 value%s under it stay%s f64 (read by "
+				    "what keeps its f64) and %s split here\n", S->nsplit,
+				    S->nsplit == 1 ? "" : "s", S->nsplit == 1 ? "s" : "",
+				    S->nsplit == 1 ? "is" : "are");
+			if (S->gstay && (S->last || (S->members == 1 && S->n == 1)))
+				printf("    %d of the %d f64 instructions under it stay "
+				    "for what else reads them: their values are "
+				    "computed again here, in f32;\n    the %d that go"
+				    "%s cost%s %g, the form%s %g (%+.1f%%) under %s\n",
+				    S->gstay, S->gstay + S->gnins, S->gnins,
+				    S->gnins == 1 ? "es" : "", S->gnins == 1 ? "s" : "",
+				    S->gold,
+				    S->members == 1 && S->n == 1 ? "" : "s", S->gnew,
+				    100 * (S->gnew - S->gold) / S->gold, sym_str(m->name));
+			if (S->members == 1 && S->n == 1) {
+				printf("    written as %d f32 instruction%s, %d of them "
+				    "NoContraction, in place of %d f64 one%s\n",
+				    S->nins, S->nins == 1 ? "" : "s", S->ndeco,
+				    S->gnins, S->gnins == 1 ? "" : "s");
+				continue;
+			}
+			printf("    written as %d f32 instruction%s, %d of them "
+			    "NoContraction", S->nins, S->nins == 1 ? "" : "s",
+			    S->ndeco);
+			if (S->nex)
+				printf(", and %d component%s taken out of a vector",
+				    S->nex, S->nex == 1 ? "" : "s");
+			putchar('\n');
+			if (S->last) {
+				if (S->members > 1) {
+					int t, first = 1;
+					printf("    with");
+					for (t = 0; t < nsk; t++)
+						if (&sk[t] != S && !sk[t].stay &&
+						    sk[t].grp == S->grp) {
+							printf("%s %s", first ? "" : ",",
+							    V.id[V.in[sk[t].k].res].tok);
+							first = 0;
+						}
+					printf(", which share%s its f64 values:",
+					    S->members == 2 ? "s" : "");
+				} else
+					printf("    its %d components together:", S->n);
+				printf(" cost %g against %g (%+.1f%%) under %s, what "
+				    "they share counted once; in place of %d f64 "
+				    "instruction%s\n", S->gnew, S->gold, 100 *
+				    (S->gnew - S->gold) / S->gold, sym_str(m->name),
+				    S->gnins, S->gnins == 1 ? "" : "s");
+			}
+			continue;
+		}
+		if (scalar_float_w(idx(I->opnd[0])) != 32)
 			continue;
 		src = idx(I->opnd[1]);
 		/* a folded round trip: f32 <- f16 <- f32 */
@@ -546,7 +1472,7 @@ dword_pass(const char *text, int *changed)
 
 			F2->f.name = sym_cstr("_trip");
 			F2->f.anon = 1;
-			x = dwg_var(F2, idx(V.in[SP.def[src]].opnd[1]), TY_F32);
+			x = dwg_var(F2, idx(V.in[SP.def[src]].opnd[1]), -1, TY_F32);
 			trip = mk_cast(TY_F32, mk_cast(TY_F16, x));
 			F2->f.body = trip;
 			if (!hdr++)
@@ -593,88 +1519,6 @@ dword_pass(const char *text, int *changed)
 			free(F2);
 			continue;
 		}
-		if (scalar_float_w(V.id[src].type) != 64)
-			continue;
-		has64 = 1;
-		G = xcalloc(1, sizeof *G);
-		G->f.name = sym_cstr("_fp64");
-		G->f.anon = 1;
-		root = dwg_build(G, src, 0);
-		nsink++;
-		if (!hdr++)
-			printf("fp64 and conversions under %s:\n", sym_str(m->name));
-		printf("  %s\n", I->text);
-		src_line(ins_line(k), sl, sizeof sl);
-		fputs(sl, stdout);
-		if (G->toomany || G->nins == 0) {
-			printf("    not rewritten: %s\n", G->toomany ? "more than "
-			    "8 inputs" : "its operand is an f64 value computed "
-			    "elsewhere (a load, a call, a phi)");
-			free(G);
-			continue;
-		}
-		/* a value another result also reads would be computed twice */
-		for (q = 0; q < G->nins && !shared; q++) {
-			int rid = V.in[G->ins[q]].res, inside = rid == src, j, o;
-			for (j = 0; j < G->nins; j++)
-				for (o = 1; o < V.in[G->ins[j]].nop; o++)
-					if (V.in[G->ins[j]].opnd[o][0] == '%' &&
-					    idx(V.in[G->ins[j]].opnd[o]) == rid)
-						inside++;
-			if (inside != uses[rid])
-				shared = 1;
-		}
-		if (shared) {
-			printf("    not rewritten: an f64 value under it is read by "
-			    "another result too (one result at a time)\n");
-			free(G);
-			continue;
-		}
-		G->f.body = mk_cast(TY_F32, root);
-		if (dword_lower(&G->f, m, &rq, &res, &rep)) {
-			struct dwemit *E = xcalloc(1, sizeof *E);
-			struct sbuf code = {0};
-			E->code = &code;
-			E->decl = &decl;
-			E->deco = &deco;
-			E->G = G;
-			E->eft = res.eft;
-			E->neft = res.neft;
-			E->isl = ++isl;
-			E->root = res.body;
-			E->final = V.id[I->res].tok;
-			if (N.op[res.body] == O_VAR || N.op[res.body] == O_CONST)
-				sb_printf(&code, "%s = OpCopyObject %s %s\n",
-				    V.id[I->res].tok, V.id[idx(I->opnd[0])].tok,
-				    dwe(E, res.body));
-			else
-				dwe(E, res.body);
-			dw_indent(rep.p ? rep.p : "", "    ");
-			if (E->fail)
-				printf("    not written: an operation of the form has "
-				    "no SPIR-V instruction here\n");
-			else {
-				repl[k] = code.p;
-				code.p = NULL;
-				need_glsl |= E->need_glsl;
-				napplied++;
-				uses[src]--;
-				printf("    written as %d f32 instruction%s, %d of them "
-				    "NoContraction, in place of %d f64 one%s\n",
-				    E->nins, E->nins == 1 ? "" : "s", E->ndeco,
-				    G->nins, G->nins == 1 ? "" : "s");
-			}
-			free(code.p);
-			free(E);
-		} else {
-			if (rep.p)
-				dw_indent(rep.p, "    ");
-			else
-				printf("    %s\n", res.why);
-		}
-		dword_res_free(&res);
-		free(rep.p);
-		free(G);
 	}
 	if (napplied + nfoldfix > 0) {
 		/* what the rewrites left unread */
@@ -687,7 +1531,11 @@ dword_pass(const char *text, int *changed)
 				    SP.def[I->res] != k || uses[I->res] > 0 ||
 				    !(fpure(I) || !strcmp(I->op, "OpFConvert") ||
 				    !strcmp(I->op, "OpConvertSToF") ||
-				    !strcmp(I->op, "OpConvertUToF")))
+				    !strcmp(I->op, "OpConvertUToF") ||
+				    !strcmp(I->op, "OpDot") || !strncmp(I->op,
+				    "OpMatrixTimes", 13) || !strcmp(I->op,
+				    "OpVectorTimesMatrix") || !strcmp(I->op,
+				    "OpTranspose")))
 					continue;
 				dead[k] = 1;
 				ch = 1;
@@ -827,6 +1675,18 @@ dword_pass(const char *text, int *changed)
 	free(decl.p);
 	free(deco.p);
 	free(uses);
+	for (k = 0; k < nsk; k++) {
+		if (sk[k].G && sk[k].grp == k)
+			free(sk[k].G);
+		dw_release(&sk[k]);
+		free(sk[k].code.p);
+	}
+	free(sk);
+	free(blk);
+	free(dw_leaf);
+	dw_leaf = NULL;
+	free(dw_keep);
+	dw_keep = NULL;
 	free(SP.def);
 	SP.def = NULL;
 	for (k = 0; k < V.nin; k++) {

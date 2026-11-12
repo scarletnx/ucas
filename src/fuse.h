@@ -122,5 +122,7 @@ float fuse_expr_cost(const struct model *m, nid root);
  * bound the values.
  */
 void fuse_domain(const struct func *f);
+/* several expressions: what they share is covered once */
+float fuse_roots_cost(const struct model *m, const nid *roots, int nroots);
 
 #endif

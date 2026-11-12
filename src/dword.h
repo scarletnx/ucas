@@ -22,6 +22,8 @@ enum { DW_DEFAULT, DW_TOL, DW_ATOL, DW_ULP };
 struct dwreq {
 	int kind;
 	double v;
+	int anyprice;		/* the cheapest form that meets it, whatever the
+				 * f64 operations cost: the caller prices */
 };
 
 /* the cheapest f32 form of f's f64 arithmetic under m that meets rq */

@@ -1895,7 +1895,7 @@ dword_lower(const struct func *f, const struct model *m,
 	run_cand(f, m, rq, 0, lim, &c[0]);
 	run_cand(f, m, rq, 1, lim, &c[1]);
 	for (i = 0; i < 2; i++)
-		if (c[i].meets && c[i].cost < c64 && (best < 0 ||
+		if (c[i].meets && (rq->anyprice || c[i].cost < c64) && (best < 0 ||
 		    c[i].cost < c[best].cost))
 			best = i;
 	if (o) {
