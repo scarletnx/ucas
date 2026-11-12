@@ -24,6 +24,10 @@
  *       padded with don't-cares): each block's endpoints, selectors and
  *       bytes, the table it decodes to, and whether that is the table
  *       exactly (as f32) or within E
+ *   texenc T, U [rows W] [tol E]
+ *       T and U, two tables of one shape, as BC5 (RGTC2): a block is 16
+ *       bytes, T's BC4 block (red) then U's (green), each channel
+ *       encoded on its own
  */
 #include "calc.h"
 #include "report.h"
@@ -199,6 +203,151 @@ texenc_bc4(nid tab, int W, struct texenc *e)
 	return 1;
 }
 
+/* block k's endpoints, selectors and bytes, printed and reported */
+static void
+pr_block(const unsigned char *q, struct sbuf *b)
+{
+	uint64_t bits = 0;
+	int i;
+
+	for (i = 0; i < 6; i++)
+		bits |= (uint64_t)q[2 + i] << (8 * i);
+	printf("endpoints %d, %d (%s), selectors", q[0], q[1], q[0] > q[1] ?
+	    "six steps of 1/7 between them" : "four steps of 1/5, then 0 and 1");
+	sb_clear(b);
+	for (i = 0; i < 16; i++) {
+		printf(" %d", (int)(bits >> (3 * i) & 7));
+		sb_printf(b, "%s%d", i ? " " : "", (int)(bits >> (3 * i) & 7));
+	}
+	rep_int("r0", q[0]);
+	rep_int("r1", q[1]);
+	rep_str("selectors", sb_str(b));
+}
+
+/* a channel's decoded table, and how close it is */
+static void
+pr_channel(const char *name, const struct texenc *e, double tol, int has_tol,
+    struct sbuf *b)
+{
+	int i;
+
+	sb_clear(b);
+	sb_putc(b, '[');
+	for (i = 0; i < e->n; i++)
+		sb_printf(b, "%s%.9g", i ? ", " : "", e->dec[i]);
+	sb_putc(b, ']');
+	printf("  %sdecodes to %s\n", name, sb_str(b));
+	rep_str("decoded", sb_str(b));
+	rep_bool("exact", e->err == 0);
+	rep_num("max_error", e->err);
+	if (e->err == 0)
+		printf("  %sexact: every texel is its entry's f32%s\n", name,
+		    e->isint ? " over 255" : "");
+	else {
+		printf("  %snot exact: the closest blocks are within %.3g of the "
+		    "table (entry %d: %.9g as %.9g), every pair of endpoints "
+		    "tried\n", name, e->err, e->at, e->target[e->at],
+		    e->dec[e->at]);
+		if (has_tol) {
+			printf("  %s%s the %g allowed (tol)\n", name, e->err <= tol ?
+			    "within" : "more than", tol);
+			rep_bool("within_tol", e->err <= tol);
+		}
+	}
+}
+
+/*
+ * Two tables of one shape as BC5: each its own BC4 channel, red the
+ * first; a block is the red channel's 8 bytes, then the green's.
+ */
+static void
+cmd_texenc5(const struct func *f, const struct func *g, int W, double tol,
+    int has_tol)
+{
+	struct texenc e[2];
+	const struct func *fs[2] = {f, g};
+	const char *nm[2], *ch[2] = {"red", "green"};
+	struct sbuf b = {0};
+	int c, k, i, nb;
+
+	for (c = 0; c < 2; c++) {
+		nm[c] = fs[c]->anon ? (c ? "the second table" : "the first table") :
+		    sym_str(fs[c]->name);
+		if (fs[c]->np != 0 || N.op[fs[c]->body] != O_TABLE)
+			fail("texenc takes tables [t0, t1, ...] (or their names), not "
+			    "%s", fs[c]->anon ? node_str(fs[c]->body) :
+			    sym_str(fs[c]->name));
+	}
+	if (N.b[f->body] != N.b[g->body])
+		fail("texenc: BC5's two channels are tables of one shape; %s has "
+		    "%u entries and %s %u", nm[0], N.b[f->body], nm[1],
+		    N.b[g->body]);
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	for (c = 0; c < 2; c++)
+		if (!texenc_bc4(fs[c]->body, W, &e[c])) {
+			if (c)
+				texenc_free(&e[0]);
+			fail("texenc: a BC5 channel holds numbers from 0 to 1 (or "
+			    "whole numbers 0 to 255, read as k/255); %s has an entry "
+			    "that is neither", nm[c]);
+		}
+	nb = e[0].bw * e[0].bh;
+	rep_begin("texenc");
+	rep_str("format", "BC5_UNORM");
+	rep_int("entries", e[0].n);
+	rep_int("width", e[0].W);
+	rep_int("height", e[0].H);
+	rep_int("bytes", nb * 16);
+	printf("texenc %s, %s: %d entr%s a channel as BC5 (red %s, green %s), "
+	    "rows of %d (%d x %d texels): %d block%s, %d bytes (%d as "
+	    "R8G8_UNORM, %d as R32G32_SFLOAT)\n", nm[0], nm[1], e[0].n,
+	    e[0].n == 1 ? "y" : "ies", nm[0], nm[1], e[0].W, e[0].W, e[0].H, nb,
+	    nb == 1 ? "" : "s", nb * 16, 2 * e[0].W * e[0].H,
+	    8 * e[0].W * e[0].H);
+	rep_list("blocks");
+	for (k = 0; k < nb; k++) {
+		rep_obj(NULL);
+		rep_int("x", k % e[0].bw);
+		rep_int("y", k / e[0].bw);
+		for (c = 0; c < 2; c++) {
+			printf("  block (%d, %d) %s: ", k % e[0].bw, k / e[0].bw, ch[c]);
+			rep_obj(ch[c]);
+			pr_block(e[c].bytes + 8 * k, &b);
+			rep_end();
+			printf("\n");
+		}
+		sb_clear(&b);
+		printf("  block (%d, %d) bytes", k % e[0].bw, k / e[0].bw);
+		for (c = 0; c < 2; c++)
+			for (i = 0; i < 8; i++) {
+				printf(" %02x", e[c].bytes[8 * k + i]);
+				sb_printf(&b, "%s%02x", c || i ? " " : "",
+				    e[c].bytes[8 * k + i]);
+			}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	for (c = 0; c < 2; c++) {
+		char pre[16];
+		snprintf(pre, sizeof pre, "%s: ", ch[c]);
+		rep_obj(ch[c]);
+		pr_channel(pre, &e[c], tol, has_tol, &b);
+		rep_end();
+	}
+	rep_bool("exact", e[0].err == 0 && e[1].err == 0);
+	if (has_tol)
+		rep_bool("within_tol", e[0].err <= tol && e[1].err <= tol);
+	printf("  a read of the texture is that read of the decoded tables, red "
+	    "and green; no model prices a BC5 read apart from its uncompressed "
+	    "one: not measured\n");
+	free(b.p);
+	texenc_free(&e[0]);
+	texenc_free(&e[1]);
+}
+
 static void
 cmd_texenc(const struct func *f, int W, double tol, int has_tol)
 {
@@ -289,11 +438,27 @@ cmd_texenc(const struct func *f, int W, double tol, int has_tol)
 	texenc_free(&e);
 }
 
+/* a table: a defined one by its name (before a comma too), or an
+ * expression */
+static struct func *
+texenc_table(struct P *p, const char *const *stop)
+{
+	uint32_t at = cmdp_pos(p);
+	char w[64];
+	struct func *f;
+
+	if (cmdp_word(p, w, sizeof w) && (f = func_find(sym_cstr(w))) != NULL &&
+	    cmdp_at(p, T_COMMA))
+		return f;
+	cmdp_seek(p, at);
+	return cmdp_func(p, stop);
+}
+
 int
 texenc_command(struct P *p)
 {
 	static const char *const stop[] = {"rows", "tol", NULL};
-	struct func *f;
+	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
@@ -305,7 +470,9 @@ texenc_command(struct P *p)
 		cmdp_seek(p, at);
 		return 0;
 	}
-	f = cmdp_func(p, stop);
+	f = texenc_table(p, stop);
+	if (cmdp_tok(p, T_COMMA))
+		g = cmdp_func(p, stop);
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -320,7 +487,10 @@ texenc_command(struct P *p)
 			cmdp_fail_here(p);
 	}
 	notes_flush();
-	cmd_texenc(f, (int)W, tol, has_tol);
+	if (g)
+		cmd_texenc5(f, g, (int)W, tol, has_tol);
+	else
+		cmd_texenc(f, (int)W, tol, has_tol);
 	return 1;
 }
 
@@ -333,11 +503,11 @@ const char *
 texenc_nlp_raw(const char *sent)
 {
 	static char out[200];
-	char w[48], prev[48] = "", prev2[48] = "", fn[48] = "", tol[32] = "",
-	    rows[16] = "";
+	char w[48], prev[48] = "", prev2[48] = "", fn[48] = "", fn2[48] = "",
+	    tol[32] = "", rows[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0;
+	int hit = 0, bc5 = 0;
 
 	if (n > 400)
 		return NULL;
@@ -358,23 +528,27 @@ texenc_nlp_raw(const char *sent)
 		if (!strcmp(w, "bc4") || !strcmp(w, "BC4") || !strcmp(w, "rgtc") ||
 		    !strcmp(w, "RGTC") || !strcmp(w, "rgtc1") || !strcmp(w, "RGTC1"))
 			hit = 1;
+		else if (!strcmp(w, "bc5") || !strcmp(w, "BC5") || !strcmp(w,
+		    "rgtc2") || !strcmp(w, "RGTC2"))
+			hit = bc5 = 1;
 		else if ((!strcmp(prev, "within") || !strcmp(prev, "tol")) &&
 		    (w[0] == '.' || (w[0] >= '0' && w[0] <= '9')))
 			snprintf(tol, sizeof tol, "%s", w);
 		else if ((!strcmp(prev, "rows") || (!strcmp(prev, "of") &&
 		    !strcmp(prev2, "rows"))) && w[0] >= '0' && w[0] <= '9')
 			snprintf(rows, sizeof rows, "%s", w);
-		else if (!fn[0] && func_find(sym_cstr(w)) &&
+		else if (!fn2[0] && func_find(sym_cstr(w)) &&
 		    func_find(sym_cstr(w))->np == 0 &&
 		    N.op[func_find(sym_cstr(w))->body] == O_TABLE)
-			snprintf(fn, sizeof fn, "%s", w);
+			snprintf(fn[0] ? fn2 : fn, sizeof fn, "%s", w);
 		snprintf(prev2, sizeof prev2, "%s", prev);
 		snprintf(prev, sizeof prev, "%s", w);
 	}
-	if (!hit || !fn[0])
+	if (!hit || !fn[0] || (bc5 && !fn2[0]))
 		return NULL;
-	snprintf(out, sizeof out, "texenc %s%s%s%s%s", fn, rows[0] ? " rows " :
-	    "", rows, tol[0] ? " tol " : "", tol);
+	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s", fn, bc5 ? ", " : "",
+	    bc5 ? fn2 : "", rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "",
+	    tol);
 	return out;
 }
 
@@ -400,5 +574,6 @@ texenc_nlp_english(const char *line)
 		if (!strcmp(w, verbs[i]))
 			verb = 1;
 	return verb && (strstr(line, "BC4") || strstr(line, "bc4") ||
-	    strstr(line, "RGTC") || strstr(line, "rgtc"));
+	    strstr(line, "BC5") || strstr(line, "bc5") || strstr(line, "RGTC") ||
+	    strstr(line, "rgtc"));
 }

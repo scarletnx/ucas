@@ -248,9 +248,12 @@ static const struct jcmd cmds[] = {
 	    {FN, NUO("tol", " tol %s", "the error allowed on a filtered sum "
 	    "(the sum's own rounding)"), NMO("model", " under %s",
 	    "the model (the active one)")}},
-	{"texenc", "texenc", 1, 0, "a constant table as BC4 blocks: endpoints, "
-	    "selectors and bytes, exact or within a tolerance",
+	{"texenc", "texenc", 1, 0, "a constant table as BC4 blocks (two of "
+	    "one shape as BC5): endpoints, selectors and bytes, exact or within "
+	    "a tolerance",
 	    {E("table", " %s", "the table: [t0, t1, ...] or its name"),
+	    EO("green", ", %s", "a second table of the same shape: the two as "
+	    "BC5, the first red and this one green"),
 	    IO("rows", " rows %s", "texels in a row (4)"), NUO("tol", " tol %s",
 	    "the error allowed on an entry")}},
 	{"more", "more", 0, 0, "the next results of the last find",
