@@ -125,6 +125,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_BFI] = {"bfi", 3, OF_INT},
 	[O_MULWIDE] = {"mulwide", 2, OF_INT},
 	[O_MADWIDE] = {"madwide", 3, OF_INT},
+	[O_BYTESEL] = {"bytesel", 3, OF_INT},
 	[O_FETCH_REPEAT] = {"fetch_repeat", 2, 0},
 	[O_FETCH_MIRROR] = {"fetch_mirror", 2, 0},
 	[O_FETCH_CLAMP] = {"fetch_clamp", 2, 0},
@@ -1737,8 +1738,9 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			    BFI_N(N.ki[N.c[n]]));
 		else if (opinfo[op].arity == 3) {
 			sb_puts(b, ", ");
-			/* a byte permute's selector reads by its nibbles */
-			pr(b, N.c[n], 0, pc, op == O_BYTEPERM);
+			/* a byte permute's selector reads by its nibbles, a
+			 * byte select's by its bytes */
+			pr(b, N.c[n], 0, pc, op == O_BYTEPERM || op == O_BYTESEL);
 		}
 		sb_putc(b, ')');
 	}

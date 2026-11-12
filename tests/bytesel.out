@@ -1,0 +1,63 @@
+> show bytesel(0x88776655, 0x44332211, 0x00010203)
+_() = 287454020
+  -> u32
+> show bytesel(0x88776655, 0x44332211, 0x04050607)
+_() = 1432778632
+  -> u32
+> show bytesel(0xf8776655, 0x44b3a211, 0x0b0a0908)
+_() = 4278190335
+  -> u32
+> show bytesel(0xf8776655, 0x44b3a211, 0x0d0c0e0c)
+_() = 4278255360
+  -> u32
+> s1(x: u32, y: u32) = bytesel(x, y, 0x0d090c05)
+> s2(x: u32, y: u32) = ((x >> 8) & 0xff) | (((y >> 31) * 0xff) << 16) | 0xff000000
+> equiv s1 s2
+s1 and s2 are equal on the domain of s1 (proved by SAT: 65 AIG nodes, 0 conflicts)
+> swap(x: u32) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+> find swap 1
+find swap: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model sel : gt1030 { bytesel: 1 }
+> use sel
+cost model: sel
+> find swap 1
+find swap: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sel
+  instructions under sel (each for the pattern it is; cost 11 as written):
+  cost 1   bytesel(x, x, 0x10203)
+           x >> 0x18 | x >> 8 & 0xff00 | x << 8 & 0xff0000 | x << 24: selectors 3, 2, 1, 0 over x:x (8 to 11: the sign of byte 1, 3, 5, 7; 12: 0; 13: 255), told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sx(x: u32) = u32(i32(x << 16) >> 16)
+> find sx 1
+find sx: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sel
+  instructions under sel (each for the pattern it is; cost 4 as written):
+  cost 1   bytesel(x, x, 0x8080100)
+           u32(i32(x << 16) >> 0x10): selectors 0, 1, 8, 8 over x:x (8 to 11: the sign of byte 1, 3, 5, 7; 12: 0; 13: 255), told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mix(a: u32, b: u32) = (a & 0xff) | (b & 0xff00) | 0xff000000
+> find mix 1
+find mix: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from sel
+  instructions under sel (each for the pattern it is; cost 3 as written):
+  cost 1   bytesel(b, a, 0xd0c0500)
+           a & 0xff | b & 0xff00 | 0xff000000: selectors 0, 5, 12, 13 over b:a (8 to 11: the sign of byte 1, 3, 5, 7; 12: 0; 13: 255), told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model selperm : gt1030 { bytesel: 2, byteperm: 1 }
+> use selperm
+cost model: selperm
+> find swap 1
+find swap: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from selperm
+  instructions under selperm (each for the pattern it is; cost 11 as written):
+  cost 1   byteperm(x, x, 0x123)
+           x >> 0x18 | x >> 8 & 0xff00 | x << 8 & 0xff0000 | x << 24: the bytes 3, 2, 1, 0 of x (linear over GF(2) by its structure, every row one bit, whole bytes moved)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
