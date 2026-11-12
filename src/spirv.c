@@ -7498,6 +7498,7 @@ static struct {
 static int npend_fas;
 static struct fxopt fopt;
 static int fopt_percomp, fopt_only;
+static int fopt_nofile;	/* the table reads' texels: a checksum only */
 
 void
 spirv_assume_float(const char *name, double lo, double hi, int lo_open,
@@ -8326,6 +8327,7 @@ kind_text(int kind)
 	case FXR_SQRT: return "sqrt as x * inversesqrt(x)";
 	case FXR_POLY: return "pow as a polynomial";
 	case FXR_LOGDOM: return "a product of powers as exp2 of a sum of logs";
+	case FXR_TABLE: return "a function of one value as a table read";
 	}
 	return "?";
 }
@@ -8383,6 +8385,193 @@ proof_kind(const struct fxrw *r)
 		return "within the original's Vulkan precision (derived), not "
 		    "bit-exact";
 	return "an approximation (derived bound)";
+}
+
+/*
+ * The table reads float simplify proposes (fsimp.c an_table): never
+ * written, since the module cannot add the texture's binding; each with
+ * the read in GLSL, what the pipeline needs, its derivation, and its
+ * texels as a file of their own (tableN.bin: R8 bytes, or little-endian
+ * f32), numbered in the order they are listed.
+ */
+static const char *
+tab_fmt(const struct fxrw *r)
+{
+	return r->tfmt == FXT_R8 ? "R8_UNORM" : "R32_SFLOAT";
+}
+
+/* a float literal of GLSL: "%.9g" with a point */
+static const char *
+tab_lit(float v)
+{
+	static char ring[4][40];
+	static int at;
+	char *b = ring[at++ & 3];
+
+	snprintf(b, 40, "%.9g", (double)v);
+	if (!strpbrk(b, ".en"))
+		strcat(b, ".0");
+	return b;
+}
+
+/* the read in GLSL: x the input (float(x) for an integer's) */
+static void
+tab_glsl(struct sbuf *b, const struct fxg *g, const struct fxrw *r)
+{
+	const struct fxin *in = &g->in[r->tin];
+	char x[64];
+
+	snprintf(x, sizeof x, in->cvt ? "float(%s)" : "%s", in->name);
+	if (r->tfmt == FXT_R8)
+		sb_printf(b, "fma(textureLod(T, fma(%s, %s, %s), 0.0).r, %s, %s)",
+		    x, tab_lit(r->k[0]), tab_lit(r->k[1]), tab_lit(r->k[2]),
+		    tab_lit(r->k[3]));
+	else
+		sb_printf(b, "textureLod(T, fma(%s, %s, %s), 0.0).r", x,
+		    tab_lit(r->k[0]), tab_lit(r->k[1]));
+}
+
+static void
+tab_text(struct sbuf *rep, const struct fplan *pl, int npl,
+    const struct fxg *G, struct fxrw *RW, const int *grp, const int *lane_of,
+    int ngr)
+{
+	int i, c, nf = 0;
+
+	sb_printf(rep, "  table reads (a proposal, never applied: a module "
+	    "cannot add the texture's binding):\n");
+	for (i = 0; i < npl; i++) {
+		int vec;
+		if (pl[i].kind != FXR_TABLE)
+			continue;
+		vec = ncomp(idx(V.in[pl[i].k].opnd[0])) > 1;
+		sb_printf(rep, "    %s\n", V.in[pl[i].k].text);
+		for (c = 0; c < pl[i].ng; c++) {
+			struct fxrw *r = pl[i].rw[c];
+			const struct fxg *g = &G[(int)((r - RW) / 48)];
+			const char *ind = pl[i].ng > 1 ? "        " : "      ";
+			int j;
+			if (pl[i].ng > 1) {
+				char lb[16];
+				glanes(lb, sizeof lb, (int)((r - RW) / 48), grp, lane_of,
+				    ngr);
+				sb_printf(rep, "      lane%s %s:\n", strlen(lb) > 1 ? "s" :
+				    "", lb);
+			}
+			sb_printf(rep, "%s%s, cost %g (-%g)\n", ind, r->why, r->cost,
+			    r->gain);
+			if (r->fail[0] || !r->sink) {
+				sb_printf(rep, "%s  %s\n", ind, r->fail[0] ? r->fail :
+				    r->sinkfail);
+				continue;
+			}
+			sb_printf(rep, "%s  as ", ind);
+			tab_glsl(rep, g, r);
+			sb_printf(rep, "%s\n", vec ? ", component by component" : "");
+			sb_printf(rep, "%s  T: a texture %s, %d x 1, one level, the "
+			    "texels in table%d.bin%s; a sampler: LINEAR mag and min "
+			    "filters, NEAREST mipmap mode, CLAMP_TO_EDGE, "
+			    "unnormalizedCoordinates, lod 0; one combined image sampler "
+			    "more in the layout\n", ind, tab_fmt(r), r->ntab, ++nf,
+			    r->tfmt == FXT_R8 ? " as bytes" : " as f32");
+			pr_lines(rep, r->proof.p, pl[i].ng > 1 ? "          " :
+			    "        ");
+			if (r->ntab <= 17) {
+				sb_printf(rep, "%s  texels:", ind);
+				for (j = 0; j < r->ntab; j++)
+					sb_printf(rep, " %.9g", (double)r->tab[j]);
+				sb_puts(rep, "\n");
+			}
+		}
+	}
+}
+
+static void
+tab_json(const struct fplan *P, struct fxrw *RW, const int *grp,
+    const int *lane_of, int ngr)
+{
+	int c;
+
+	if (!rep_on)
+		return;
+	rep_obj(NULL);
+	rep_str("instruction", V.in[P->k].text);
+	rep_list("lanes");
+	for (c = 0; c < P->ng; c++) {
+		const struct fxrw *r = P->rw[c];
+		rep_obj(NULL);
+		if (P->ng > 1) {
+			char lb[16];
+			glanes(lb, sizeof lb, (int)((r - RW) / 48), grp, lane_of, ngr);
+			rep_str("lanes", lb);
+		}
+		rep_str("why", r->why);
+		rep_num("cost", r->cost);
+		rep_num("gain", r->gain);
+		if (r->fail[0] || !r->sink) {
+			rep_str("refused", r->fail[0] ? r->fail : r->sinkfail);
+			rep_end();
+			continue;
+		}
+		rep_str("format", tab_fmt(r));
+		rep_list("texels");	/* R8: the bytes; R32F: the f32 values */
+		{
+			int j;
+			for (j = 0; j < r->ntab; j++)
+				rep_num(NULL, r->tab[j]);
+		}
+		rep_end();
+		rep_num("coord_scale", r->k[0]);
+		rep_num("coord_offset", r->k[1]);
+		if (r->tfmt == FXT_R8) {
+			rep_num("value_scale", r->k[2]);
+			rep_num("value_offset", r->k[3]);
+		}
+		rep_num("abs_error", r->abserr);
+		rep_num("sink_used", r->sinkdev);
+		rep_lines("derivation", r->proof.p);
+		rep_end();
+	}
+	rep_end();
+	rep_end();
+}
+
+/* each table's texels, in the order tab_text numbered them */
+static void
+tab_files(const struct fplan *pl, int npl, struct fxrw *RW)
+{
+	int i, c, j, nf = 0;
+
+	(void)RW;
+	for (i = 0; i < npl; i++) {
+		if (pl[i].kind != FXR_TABLE)
+			continue;
+		for (c = 0; c < pl[i].ng; c++) {
+			const struct fxrw *r = pl[i].rw[c];
+			unsigned char *b;
+			size_t n;
+			char name[32];
+			if (r->fail[0] || !r->sink)
+				continue;
+			n = (size_t)r->ntab * (r->tfmt == FXT_R8 ? 1 : 4);
+			b = xmalloc(n);
+			for (j = 0; j < r->ntab; j++)
+				if (r->tfmt == FXT_R8)
+					b[j] = (unsigned char)r->tab[j];
+				else {
+					uint32_t w;
+					memcpy(&w, &r->tab[j], 4);
+					b[4 * j] = (unsigned char)w;
+					b[4 * j + 1] = (unsigned char)(w >> 8);
+					b[4 * j + 2] = (unsigned char)(w >> 16);
+					b[4 * j + 3] = (unsigned char)(w >> 24);
+				}
+			snprintf(name, sizeof name, "table%d.bin", ++nf);
+			deliver_file(name, "application/octet-stream", (const char *)b,
+			    n, fopt_nofile);
+			free(b);
+		}
+	}
 }
 
 /*
@@ -8968,11 +9157,13 @@ float_pass(const char *text, int *changed)
 	}
 	/* the report */
 	{
-		int nd = 0, nap = 0, nrej = 0, napx = 0, q;
+		int nd = 0, nap = 0, nrej = 0, napx = 0, ntb = 0, q;
 		int ord[256], no = 0;
 		for (i = 0; i < npl; i++) {
 			if (pl[i].kind == FXR_DIVNOTE)
 				nd++;
+			else if (pl[i].kind == FXR_TABLE)
+				ntb++;
 			else if (pl[i].applied)
 				ord[no++] = i;
 			else if (approx_kind(pl[i].kind) && !inner[pl[i].k])
@@ -9101,11 +9292,18 @@ float_pass(const char *text, int *changed)
 			rep_end();
 		}
 		rep_end();
+		if (ntb) {
+			rep_list("table_reads");
+			for (i = 0; i < npl; i++)
+				if (pl[i].kind == FXR_TABLE)
+					tab_json(&pl[i], RW, grp, lane_of, ngr);
+			rep_end();
+		}
 		rep_list("not_applied");
 		for (i = 0; i < npl; i++) {
 			int c;
 			if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
-			    approx_kind(pl[i].kind))
+			    pl[i].kind == FXR_TABLE || approx_kind(pl[i].kind))
 				continue;
 			rep_obj(NULL);
 			rep_str("instruction", V.in[pl[i].k].text);
@@ -9292,13 +9490,15 @@ float_pass(const char *text, int *changed)
 				}
 			}
 		}
+		if (ntb)
+			tab_text(&rep, pl, npl, G, RW, grp, lane_of, ngr);
 		if (nrej) {
 			sb_printf(&rep, "  not applied:\n");
 			for (i = 0; i < npl; i++) {
 				struct fxrw *r = NULL;
 				int c;
 				if (pl[i].applied || pl[i].kind == FXR_DIVNOTE ||
-				    approx_kind(pl[i].kind))
+				    pl[i].kind == FXR_TABLE || approx_kind(pl[i].kind))
 					continue;
 				for (c = 0; c < pl[i].ng; c++)
 					if (!fx_accept(pl[i].rw[c], &fopt))
@@ -9361,6 +9561,8 @@ float_pass(const char *text, int *changed)
 				sb_printf(&rep, "  derived in %.1f s\n", el);
 		}
 		fputs(rep.p, stdout);
+		if (ntb)
+			tab_files(pl, npl, RW);
 	}
 	*changed = napplied > 0;
 	for (i = 0; i < ngr; i++)
@@ -11144,6 +11346,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		int fch = 0, dch = 0, mch = 0;
 		char *ft, *dt, *mt;
 		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
+		fopt_nofile = nofile;
 		ft = float_pass(out.p ? out.p : "", &fch);
 		/* f64 over f32 and folded round trips, on what that left */
 		dt = dword_pass(fch ? ft : out.p ? out.p : "", &dch);
