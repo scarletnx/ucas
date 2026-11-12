@@ -695,11 +695,39 @@ from about lambda^2 = 16 operations of similar weight on; below that the
 line says it is no better than the worst case.  Operations are taken as
 correctly rounded (a libm's or a GPU's functions are not always).
 Not analysed, and said: floor, ceil, bit operations, conversions to
-integers, a variable exponent.  Code built on error-free transformations
-breaks the model on purpose: its errors are exact and cancel by
-construction, so for a double-word form these lines overestimate
-(`dsq_dw` above: 2.8 u worst case by this analysis, 6.2 u^2 by its own
-derivation).
+integers, a variable exponent.
+
+Error-free transformations break the independence on purpose: 2Sum
+(Knuth's six operations), Fast2Sum (Dekker's three) and 2Prod
+(`fma(a, b, -(a*b))`) compute the rounding error of a sum or a product
+exactly.  Each one found is taken as exact as a whole (s + t = a + b,
+p + e = a b), so its operations add no error, and since the sweep
+differentiates through them, the error of the sum or product it
+corrects cancels to first order wherever the result adds the error
+term back.  They are matched as written, up to negations, and only when
+nothing outside them reads their inner values; Fast2Sum's precondition
+(the operand taken first has the larger exponent) and 2Prod's (the
+product at least 2^-102 for f32, where its error is representable) are
+checked at each input of the sample, and where one fails its operations
+count as rounded there, with the first such input named.  What the pairs
+leave is of order u^2, outside a first-order analysis: `dword` derives
+it.  `dsq_dw` above gives 1 u, the last rounding to f32 (its pair is
+within 6.2 u^2 of the exact value); counted as independent roundings,
+its 13 operations gave 2.8 u.
+
+```
+> error dot2 ~ dot      # Dot2 of a*b + c*d: two 2Prod and a 2Sum, the error terms added back
+  rounding, first order in u = 2^-24: 6 rounded operations, each taken as correctly rounded, and 7 in error-free transformations; ...
+    error-free transformations: 1 2Sum (s + t = a + b, Knuth), 2 2Prod (p + e = a b by an fma while |a b| >= 2^-102); taken as exact, ...
+    the preconditions hold at every input of the sample (checked, not proved)
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+> error naive ~ dot     # a*b + c*d as written: it cancels
+    worst case  0.000862 (1.45e+04 u): every error at its bound and aligned, u sum |c_i|
+```
+
+tests/roundeft.ucas has these, a Fast2Sum whose precondition fails at
+some inputs, one whose inner value is read outside it (not taken) and a
+wrong sign (no transformation).
 
 ```
 > s20(x: f32 in 1..2) = x+x*x+x+x*x+ ... +x      # twenty additions of x and x*x
