@@ -23,7 +23,11 @@
  * bit-reversed coordinate, a different seed per replicate and dimension.
  *
  * A coordinate is taken at the centre of its 2^-32 cell, so the ends of
- * the box are never evaluated.  Points where the integrand is undefined
+ * the box are never evaluated.  An infinite side is a change of variable
+ * onto [0, 1): x = a + t/(1 - t) for [a, inf), x = b - t/(1 - t) for
+ * (-inf, b], x = s/(1 - s^2) with s = 2t - 1 for the whole line, the
+ * integrand times the derivative; a parameter with no range runs over
+ * the whole line.  Points where the integrand is undefined
  * are left out and counted.
  */
 #include "numsearch.h"
@@ -155,6 +159,26 @@ qmc_options(struct P *p, struct qmcopt *o)
 	return 0;
 }
 
+/* the changes of variable an infinite side took */
+static void
+inf_line(const int *side, int dim, const char *ind)
+{
+	static const char *const how[] = {"", "x = a + t/(1 - t) for [a, inf)",
+		"x = b - t/(1 - t) for (-inf, b]", "x = s/(1 - s^2), s = 2t - 1, "
+		"for the whole line"};
+	int k, j, n = 0;
+
+	printf("%s  infinite sides onto t in [0, 1), the integrand times the "
+	    "derivative:", ind);
+	for (k = 1; k <= 3; k++)
+		for (j = 0; j < dim; j++)
+			if (side[j] == k) {
+				printf("%s %s", n++ ? ";" : "", how[k]);
+				break;
+			}
+	printf("\n");
+}
+
 /* Student's t, two-sided 95%, for 1..30 degrees of freedom */
 static double
 t95(int df)
@@ -178,6 +202,8 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 	double *in_r, lo[MAXP], hi[MAXP], vol = 1, mean = 0, se = 0;
 	double rep[64];
 	int dim = 0, map[MAXP], j, r, nrep = o->reps > 0 ? o->reps : 1;
+	int side[MAXP], anyinf = 0;	/* 0 finite, 1 to inf, 2 from -inf, 3 both */
+	double jac[CH];
 	uint32_t loc, x[QMC_MAXDIM], shift[QMC_MAXDIM];
 	long k, undef = 0, total = 0;
 	double amax = 0, asum = 0;
@@ -188,8 +214,8 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 			fail("qmc: an integral over one variable needs the other "
 			    "parameters fixed (without from..to it runs over the box "
 			    "of every parameter's range)");
-		if (!isfinite(a) || !isfinite(b))
-			fail("qmc: the bounds must be finite, not %g..%g", a, b);
+		if (isnan(a) || isnan(b))
+			fail("qmc: the bounds %g..%g are not numbers", a, b);
 		map[dim] = slot;
 		lo[dim] = a < b ? a : b;
 		hi[dim] = a < b ? b : a;
@@ -202,12 +228,12 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 				fail("qmc: parameter %s is %s; the box is over real "
 				    "(or float) parameters", sym_str(pp->name),
 				    ty_str(pp->ty));
-			if (!pp->ranged || !isfinite(pp->rlo) || !isfinite(pp->rhi))
-				fail("qmc: parameter %s has no finite range (x: real in "
-				    "a..b)", sym_str(pp->name));
 			map[dim] = j;
-			lo[dim] = pp->rlo;
-			hi[dim] = pp->rhi;
+			lo[dim] = pp->ranged ? pp->rlo : -INFINITY;
+			hi[dim] = pp->ranged ? pp->rhi : INFINITY;
+			if (isnan(lo[dim]) || isnan(hi[dim]))
+				fail("qmc: parameter %s's range %g..%g is not numbers",
+				    sym_str(pp->name), lo[dim], hi[dim]);
 			dim++;
 		}
 	}
@@ -216,8 +242,12 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 		    "unscrambled sequence: not both");
 	if (dim < 1 || dim > QMC_MAXDIM)
 		fail("qmc: 1 to %d dimensions, not %d", QMC_MAXDIM, dim);
-	for (j = 0; j < dim; j++)
-		vol *= hi[j] - lo[j];
+	for (j = 0; j < dim; j++) {
+		side[j] = (isfinite(hi[j]) ? 0 : 1) | (isfinite(lo[j]) ? 0 : 2);
+		anyinf |= side[j] != 0;
+		if (!side[j])
+			vol *= hi[j] - lo[j];
+	}
 	roots[0] = mk_cast(TY_REAL, e);
 	plan_build(&p, roots, 1, 0);
 	loc = plan_loc(&p, roots[0]);
@@ -233,16 +263,33 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 			uint32_t np = 0, q;
 			for (; np < CH && k < o->points; np++, k++) {
 				sobol_point((uint32_t)k, dim, x);
+				jac[np] = 1;
 				for (j = 0; j < dim; j++) {
 					uint32_t y = o->reps <= 0 ? x[j] : o->owen ?
 					    owen32(x[j], shift[j]) : x[j] ^ shift[j];
-					in_r[(size_t)map[j] * CH + np] = lo[j] + (hi[j] -
-					    lo[j]) * (((double)y + 0.5) / 4294967296.0);
+					double t = ((double)y + 0.5) / 4294967296.0, v, s;
+					switch (side[j]) {
+					case 0: v = lo[j] + (hi[j] - lo[j]) * t; break;
+					case 1:
+						v = lo[j] + t / (1 - t);
+						jac[np] /= (1 - t) * (1 - t);
+						break;
+					case 2:
+						v = hi[j] - t / (1 - t);
+						jac[np] /= (1 - t) * (1 - t);
+						break;
+					default:
+						s = 2 * t - 1;
+						v = s / (1 - s * s);
+						jac[np] *= 2 * (1 + s * s) / ((1 - s * s) * (1 - s *
+						    s));
+					}
+					in_r[(size_t)map[j] * CH + np] = v;
 				}
 			}
 			plan_run(&p, np, in_i, in_r);
 			for (q = 0; q < np; q++) {
-				double v = COLR(&p, loc)[q];
+				double v = COLR(&p, loc)[q] * jac[q];
 				total++;
 				if ((COLF(&p, loc)[q] & F_UNDEF) || !isfinite(v)) {
 					undef++;
@@ -274,6 +321,7 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 	rep_int("seed", (long long)o->seed);
 	rep_str("scrambling", o->reps <= 0 ? "none" : o->owen ? "owen" :
 	    "digital shift");
+	rep_bool("infinite_box", anyinf);
 	rep_num("estimate", mean);
 	if (undef == total) {
 		printf("%squasi-Monte Carlo: the integrand is undefined at all %ld "
@@ -302,6 +350,8 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 		    o->owen ? "a nested uniform (Owen) scrambling" :
 		    "a random digital shift", o->owen ? ", from a hash" : "",
 		    (unsigned long long)o->seed);
+		if (anyinf)
+			inf_line(side, dim, ind);
 		printf("%s  the error is estimated from the %d replicates' spread: "
 		    "+-%.2g at 95%% if their means are normal (t = %.3f), which "
 		    "nothing proves\n", ind, o->reps, t95(o->reps - 1) * se,
@@ -314,7 +364,8 @@ qmc_integrate(const struct func *f, nid e, int slot, double a, double b,
 		printf("%s  %ld Sobol points in %d dimension%s (Joe-Kuo direction "
 		    "numbers), not randomised: no error estimate (drop noscramble "
 		    "for one)\n", ind, o->points, dim, dim == 1 ? "" : "s");
-
+		if (anyinf)
+			inf_line(side, dim, ind);
 	}
 	if (total > undef && asum > 0 && amax > 50 * asum / (double)(total -
 	    undef))
