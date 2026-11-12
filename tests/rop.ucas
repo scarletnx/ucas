@@ -125,3 +125,13 @@ rop am model depthy
 # u64 cells: a logic op on two 32-bit channels
 bits64(s: u64, d: u64) = d | s
 rop bits64
+
+# a count over a whole draw: a precise occlusion query, every fragment
+# or those where s is not 0 (cnt above has it too); one cell for the
+# draw, priced against an atomic add of the 0 or 1
+hits(s: u32, d: u32) = d + (s != 0 ? 1 : 0)
+rop hits
+h64(s: u64, d: u64) = d + (s != 0 ? 1 : 0)
+rop h64
+model qm : gt1030 { rop_query: 3 }
+rop hits model qm

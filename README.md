@@ -2584,6 +2584,7 @@ from the parameters (`s: u32 in 0..255`).
 | blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
 | advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
 | depth test | VK_COMPARE_OP_LESS (a min) or GREATER_OR_EQUAL (a max): the value's high bits are the key, its low bits a payload the test keeps with it in a colour target (an argmin, an argmax) | D32_SFLOAT and an R8 to R32G32_UINT target | `rop_depth` |
+| occlusion query | a precise VK_QUERY_TYPE_OCCLUSION around the draw: d + (s != 0), or d + 1, counted over every contribution | one cell for a whole draw | `rop_query` |
 
 A logic op on a u64 cell works on an R32G32_UINT target, a word a
 channel (a logic op is bitwise).
@@ -2620,6 +2621,21 @@ formats are not offered: their conversion rounds (to measure).
 A u64 update is priced against `atomic_global_64` (a 64-bit atomic, or
 a 64-bit compare-and-swap loop around the update).
 
+**An occlusion query** counts the samples that pass the fragment tests,
+exactly when it is precise (VK_QUERY_CONTROL_PRECISE_BIT, the
+occlusionQueryPrecise feature): with no depth or stencil test, one
+sample a pixel, one point per contribution and a fragment shader that
+discards where s is 0, the count is how many contributions have
+s != 0.  So d + (s != 0), or d + 1 with no source (also any update
+equal to them on the domain, `d + s` with s in 0..1), is a query
+around the draw, copied out with VK_QUERY_RESULT_64_BIT, where the
+count is exact, and added to the cell once after the draw, which wraps
+in the cell's width as the update does.  It holds when every
+contribution updates the same cell: a query counts a whole draw, so
+more cells take a draw and a query each.  Pipeline statistics
+(fragment shader invocations and the like) are not offered: Vulkan lets
+each implementation count invocations its own way.
+
 **Nothing is recognised by name.**  Every state is compared with F on
 F's domain: integer states on every point or by SAT; a blend equation
 by expanding it and F to the same polynomial (so `s + d - s*d` is
@@ -2655,11 +2671,15 @@ through that state.  No built-in model lists them (the corpus measures
 none: tests/gt1030 needs blend, logic-op, stencil and depth state first), and
 an unpriced form is unavailable; `rop` says so and still shows the
 proof.  With a model that prices one, it is compared with the update
-as a global atomic, by the model's memory kinds: `atomic_global` for
-an integer add, min, max, and, or, xor, `atomic_global_f` for a float
-add, and for anything else `atomic_global_cas` plus the update's own
-operations (a compare-and-swap loop); the draw's setup and the
-read-back are in no price and are said so.
+as a global atomic, by the model's memory kinds.  An update d op X,
+where X does not read the cell and op is an add, a subtract, a min, a
+max or (on integers) and, or, xor, is one atomic plus what computes X:
+`atomic_global` on a u32, `atomic_global_64` on a u64,
+`atomic_global_f` for a float add (`d + s*k` is a float atomic add of
+`s*k`).  Anything else, and any cell narrower than a word (no atomic
+works on less), is a compare-and-swap loop: `atomic_global_cas` (on a
+u64, `atomic_global_64`) plus the update's own operations.  The draw's
+setup and the read-back are in no price and are said so.
 
 ```
 > model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
@@ -2677,8 +2697,8 @@ do.  English: "the blend state for acc", "the logic op for a | b with
 u32 a and b", "the fixed-function forms of cnt on fixed", "show me
 the blending for acc".  `simplify` asks the same catalogue about a
 module's atomics (see [Memory kinds](#memory-kinds): a scatter's
-atomics as fixed function).  Not yet: occlusion
-queries as counts, MSAA resolve, blits and the other fixed-function
+atomics as fixed function).  Not yet: MSAA resolve, blits and the
+other fixed-function
 ideas are not in the catalogue; separate alpha, sRGB and the
 piecewise advanced operations (overlay, the lights, dodge, burn) are
 not either.
