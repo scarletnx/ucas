@@ -1,0 +1,41 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> f(x: u32) = x + 1
+> show f(2)
+_() = 3
+  -> u32
+> g(i: i32 in -8..7) = i * 3
+> show g(-8)
+_() = -24
+  -> i32
+> spvsimplify nofile
+simplify: 56 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 3 -> 3 (+0.0%)
+  counting the strength reductions any driver also does: 4 -> 3 (-25.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1957 bytes, checksum 3d3e43ba)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> show f(3)
+_() = 4
+  -> u32
+> spvsimplify nofile assume x 1 2
+simplify: 56 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming x in [1, 2] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 3 -> 3 (+0.0%)
+  counting the strength reductions any driver also does: 4 -> 3 (-25.0%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1957 bytes, checksum 3d3e43ba)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> simplify x + x
+  ucas: it(x) = x + x
+  ucas: show it
+it(x: real) = x + x
+  -> real
+> h(y: u32) = y * 2
+  note: the ```spv code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)

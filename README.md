@@ -944,7 +944,10 @@ behind it.  English only; the translator is a hand-written parser
   simplify a SPIR-V or GLSL block (and show spirv-cross's GLSL of the
   result, see "GLSL view") or run the C frontend on a C block (`for
   zen4`, `and test it` too; see "C frontend"); which language the block
-  is comes from its tag, or from its content when it has none.
+  is comes from its tag, or from its content when it has none.  The
+  request is the statement just before the block, that line and the
+  indented lines it continues; the lines above it run as they are,
+  before it, and add nothing to it (tests/blockreq.ucas).
 - **Expressions**: `x squared plus one`, `the sum of a, b and c`, `half
   of x`, `20 percent of y`, `the number of set bits in x`, `x shifted
   left by 3`, `e to the power of 2`, mixed freely with ucas notation.
