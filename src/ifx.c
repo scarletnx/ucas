@@ -36,7 +36,15 @@
  *     f32 (an FFMA where the model contracts), conversions at the ends;
  *   - x / k for a constant k and 0 <= x < 2^24 is iN(f32(x) * c), c = 1/k
  *     rounded up to an f32, where the product never reaches the next
- *     integer (a margin, or every x tried); x % k is x - k q, or an fma.
+ *     integer (a margin, or every x tried); x % k is x - k q, or an fma;
+ *   - two products with a common factor, one of them moved up by a
+ *     constant, x*c + ((y*c) << k) or x*c + K*(y*c), are one product
+ *     (x + (y << k))*c: two small integers packed in one word, or in
+ *     one mantissa, take one multiply.  In a sized integer type that is
+ *     distributivity modulo 2^w and holds always (and for | or xor
+ *     where the ranges keep the two fields apart); in f32 it holds
+ *     when the operands are integers and every value on both sides
+ *     stays below 2^24, so that nothing rounds.
  */
 #include "calc.h"
 #include "irw.h"
@@ -1259,6 +1267,156 @@ rw_fpipe(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
  * operation, parents first); inner marks the nodes below lim that are
  * part of a larger integer cone.
  */
+/* ---- two products with a common factor ---- */
+
+struct fterm {
+	nid x, y;	/* the product x*y */
+	double scale;	/* times this constant (1: none) */
+	int shift;	/* the constant written as a shift by this (-1: not) */
+};
+
+/* e as scale * (x * y), the scale a constant factor or a left shift */
+static int
+fterm_of(nid e, struct fterm *t)
+{
+	nid m = e;
+	double k;
+	int64_t sh;
+
+	t->scale = 1;
+	t->shift = -1;
+	if (N.op[e] == O_SHL && TY_ISINT(N.ty[e]) && int_of(N.b[e], &sh) &&
+	    sh > 0 && sh < 31) {
+		m = N.a[e];
+		t->scale = (double)((int64_t)1 << sh);
+		t->shift = (int)sh;
+	} else if (N.op[e] == O_MUL && num_of(N.a[e], &k) &&
+	    N.op[N.b[e]] == O_MUL) {
+		m = N.b[e];
+		t->scale = k;
+	} else if (N.op[e] == O_MUL && num_of(N.b[e], &k) &&
+	    N.op[N.a[e]] == O_MUL) {
+		m = N.a[e];
+		t->scale = k;
+	}
+	if (N.op[m] != O_MUL || N.ty[m] != N.ty[e])
+		return 0;
+	t->x = N.a[m];
+	t->y = N.b[m];
+	return t->scale == floor(t->scale) && t->scale != 0 &&
+	    fabs(t->scale) < P24;
+}
+
+/* scale * u, as it was written */
+static nid
+fterm_rest(const struct fterm *t, nid u)
+{
+	ty_t ty = N.ty[u];
+
+	if (t->scale == 1)
+		return u;
+	if (t->shift >= 0)
+		return mk_bin(O_SHL, u, mk_const_i(ty, t->shift));
+	return mk_bin(O_MUL, ty == TY_F32 ? kf(t->scale) : mk_const_i(ty,
+	    (int64_t)t->scale), u);
+}
+
+static double
+fmag(const struct fval *v)
+{
+	return fmax(fabs(v->lo), fabs(v->hi));
+}
+
+static void
+rw_factor(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	struct fterm A, B;
+	ty_t t = N.ty[n];
+	int op = N.op[n], i, j, sized = TYK(t) == K_UINT || TYK(t) == K_SINT;
+	nid f = 0, ua = 0, ub = 0, to;
+	char what[200], cond[400], why[160];
+	struct sbuf pf = {0};
+	struct nm FS;
+	const char *fs;
+	struct irw *r;
+
+	if ((!sized && t != TY_F32) || !fterm_of(N.a[n], &A) ||
+	    !fterm_of(N.b[n], &B))
+		return;
+	if (op != O_ADD && op != O_SUB && !(sized && (op == O_OR ||
+	    op == O_XOR)))
+		return;
+	for (i = 0; i < 2 && !f; i++)
+		for (j = 0; j < 2 && !f; j++)
+			if ((i ? A.y : A.x) == (j ? B.y : B.x)) {
+				f = i ? A.y : A.x;
+				ua = i ? A.x : A.y;
+				ub = j ? B.x : B.y;
+			}
+	if (!f || is_const(f))
+		return;
+	cond[0] = 0;
+	if (op == O_OR || op == O_XOR) {
+		/* the fields apart: one below 2^k, the other a multiple of it */
+		const struct fterm *lo_t = A.shift >= 0 ? &B : &A;
+		const struct fterm *hi_t = A.shift >= 0 ? &A : &B;
+		nid lo_e = A.shift >= 0 ? N.b[n] : N.a[n];
+		int64_t lo, hi;
+
+		if (hi_t->shift < 0 || lo_t->shift >= 0 || TYK(t) != K_UINT ||
+		    !irw_range(c, lo_e, 0, &lo, &hi, why, sizeof why) || lo < 0 ||
+		    hi >= ((int64_t)1 << hi_t->shift))
+			return;
+		snprintf(cond, sizeof cond, "%s in [%lld, %lld] (%s), below 2^%d, "
+		    "and the other side a multiple of 2^%d: no bit in both, so "
+		    "the %s is their sum", sstr(lo_e), (long long)lo,
+		    (long long)hi, why, hi_t->shift, hi_t->shift, op == O_OR ?
+		    "or" : "xor");
+		op = O_ADD;
+	}
+	if (t == TY_F32) {
+		struct fval X, Y, F;
+		double ma, mb, mf;
+
+		fval_of(c, ua, &X, 0);
+		fval_of(c, ub, &Y, 0);
+		fval_of(c, f, &F, 0);
+		if (!X.ok || !Y.ok || !F.ok || !X.integral || !Y.integral ||
+		    !F.integral)
+			return;
+		ma = fabs(A.scale) * fmag(&X);
+		mb = fabs(B.scale) * fmag(&Y);
+		mf = fmag(&F);
+		if ((ma + mb) * mf >= P24 || ma + mb >= P24)
+			return;
+		snprintf(cond, sizeof cond, "%s, %s and %s are integers, and "
+		    "every value on both sides is at most %.9g in magnitude, "
+		    "below 2^24", sstr(ua), sstr(ub), sstr(f), (ma + mb) * mf);
+		sb_printf(&pf, "f32 holds every integer below 2^24 in magnitude, "
+		    "so no product or sum on either side rounds, and in the "
+		    "integers ");
+	} else {
+		if (!cond[0])
+			snprintf(cond, sizeof cond, "any operands: %s arithmetic "
+			    "is modulo 2^%d, a ring", ty_str(t), TYW(t));
+		sb_printf(&pf, "modulo 2^%d ", TYW(t));
+	}
+	to = mk_bin(O_MUL, mk_bin(op, fterm_rest(&A, ua), fterm_rest(&B, ub)),
+	    f);
+	fs = nm(&FS, f);
+	sb_printf(&pf, "multiplication distributes over %s, and a shift left "
+	    "by k or a constant factor moves inside the product: p*%s %s "
+	    "K*(q*%s) = (p %s K*q)*%s", op == O_SUB ? "subtraction" : "addition",
+	    fs, op == O_SUB ? "-" : "+", fs, op == O_SUB ? "-" : "+", fs);
+	snprintf(what, sizeof what, "%s as one product by the common factor %s",
+	    sstr(n), fs);
+	r = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	if (r && sized)
+		r->nosat = 1;	/* multipliers on both sides */
+	free(pf.p);
+}
+
 void
 ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
     struct irw **out, int *cnt, int *cap)
@@ -1283,9 +1441,14 @@ ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
 	case O_SUB:
 		rw_ilog2(c, root, n, out, cnt, cap);
 		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
+		rw_factor(c, root, n, out, cnt, cap);
 		break;
 	case O_ADD:
 		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
+		rw_factor(c, root, n, out, cnt, cap);
+		break;
+	case O_OR: case O_XOR:
+		rw_factor(c, root, n, out, cnt, cap);
 		break;
 	}
 }

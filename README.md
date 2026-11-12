@@ -2000,6 +2000,7 @@ forms up to the sign of a zero); f32 only.
 | `x * f32(1 << k)` | `asfloat(asint(x) + (k << 23))` | x normal and never 0, x * 2^k < 2^128 | the product keeps the mantissa and is exact; the add reaches only the exponent field |
 | `31 - clz(x)` (W-1 for a W-bit x) | `(asint(f32(x)) >> 23) - 127` | x >= 1, and x misses every [2^(e+1) - 2^(e-24), 2^(e+1)) for e >= 24 (from 1: up to 2^25 - 2) | f32(x) is exact up to 2^24; past it, it rounds to nearest even and stays in x's binade unless x is within half a step of the next power of two, so its exponent field is floor(log2 x) + 127; a range that reaches such an x gets the rewrite as not applied, with that x |
 | integer `+`, `-`, `*` | the same on f32, conversions at the ends | every value in it inside (-2^24, 2^24) | f32 holds those integers: no operation rounds, contracted into an fma or not |
+| `x*c + ((y*c) << k)`, `x*c + K*(y*c)`, with `-`, or with `\|` or `xor` | `(x + (y << k))*c`: two fields packed in one word, or in one mantissa, take one multiply | a sized integer: always (`\|`, `xor`: x*c below 2^k); f32: x, y, c integers and every value on both sides below 2^24 | multiplication distributes over addition modulo 2^w, and in the integers f32 holds exactly |
 
 A float is known to be an integer when it is a floor, a ceil, a
 converted integer, or a sum, difference, product, min, max or select
@@ -2066,10 +2067,16 @@ floor 7.4 against 8); under a model whose conversions cost an add
 (`model convcheap : gt1030 { conv: 1 }`) none of the conversions
 does; integer multiply-adds of integers stay IMADs under gt1030 (3
 against 10 with the conversions) and move to FFMA under a model
-whose multiply is dear enough (`imul: 12`).  A function with float
+whose multiply is dear enough (`imul: 12`).  Two products with a
+common factor are one: `a*c | (b*c) << 12` with a, b below 1024 and c
+below 4 is `(a + (b << 12))*c`, 9 to 5 (8 to 4 under sm86), `a*c +
+b*c` 6 to 4, and on floats that hold integers `floor(x)*floor(c) +
+4096*(floor(y)*floor(c))` loses a multiply the same way while every
+value stays below 2^24.  A function with float
 parameters and an integer result gets these rewrites from `find`
 although its search needs integer parameters.  Not yet: the same in
-SPIR-V and GLSL (find only), f16 and f64, a round-to-nearest
+SPIR-V and GLSL (find only), f16 and f64, a common factor across
+more than two products or under a nested sum, a round-to-nearest
 operation for the magic add to stand for (ucas has floor, ceil and
 the truncating conversion), 48-bit products by 2Prod.
 
