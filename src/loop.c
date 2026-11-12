@@ -349,11 +349,12 @@ mk_loop(uint32_t e, int res, nid lo, nid hi, nid q)
 	/* subgroup operations in the body, and a lane it reads (sg.c) */
 	for (k = 0; k < loops.nst[e]; k++)
 		N.fl[n] |= (N.fl[loops.init[s + k]] | N.fl[loops.next[s + k]]) &
-		    (NF_SG | NF_LANE);
+		    (NF_SG | NF_LANE | NF_LANEREAD);
 	if (loops.cond[e])
-		N.fl[n] |= N.fl[loops.cond[e]] & (NF_SG | NF_LANE);
+		N.fl[n] |= N.fl[loops.cond[e]] &
+		    (NF_SG | NF_LANE | NF_LANEREAD);
 	/* nothing free in it (not even a subgroup's lane): its value */
-	if (node_slots(n) == 0 && !(N.fl[n] & NF_LANE)) {
+	if (node_slots(n) == 0 && !(N.fl[n] & (NF_LANE | NF_LANEREAD))) {
 		uint64_t sk = loop_skipped;
 		if (fold_loop(n, &vi, &vr)) {
 			loop_skipped = sk;

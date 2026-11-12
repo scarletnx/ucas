@@ -119,12 +119,45 @@ sg_type(int op, nid a, int W)
 	return N.ty[a];
 }
 
+/* a parameter's copy in e (sg_lane_copy), or 0 */
+static nid
+lane_copy_in(nid e, int depth)
+{
+	nid r;
+	uint32_t j;
+
+	if (e == 0 || !(N.fl[e] & NF_LANEREAD) || depth > 200)
+		return 0;
+	if (N.op[e] == O_VAR)
+		return e;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((r = lane_copy_in(N.lst[N.a[e] + j],
+			    depth + 1)) != 0)
+				return r;
+		return 0;
+	}
+	if ((r = lane_copy_in(N.a[e], depth + 1)) != 0 ||
+	    (r = lane_copy_in(N.b[e], depth + 1)) != 0)
+		return r;
+	return lane_copy_in(N.c[e], depth + 1);
+}
+
 nid
 sg_expand(int op, nid a, nid b, nid c)
 {
 	int W = (int)N.ki[opinfo[op].arity == 3 ? c : b], l;
 	ty_t t = sg_type(op, a, W);
-	nid r = 0, e[SG_MAXW];
+	nid r = 0, e[SG_MAXW], v;
+
+	/* the other lanes' values of a parameter are not known here */
+	if ((v = lane_copy_in(a, 0)) != 0)
+		fail("%s reads %s in every lane, and %s has a value in each "
+		    "lane that ucas does not know for the others: the value "
+		    "depends on the other lanes, so it has none here (cost "
+		    "prices it at the worst; declare %s uniform for an exact "
+		    "value)", opinfo[op].name, sym_str(N.a[v]), sym_str(N.a[v]),
+		    sym_str(N.a[v]));
 
 	switch (op) {
 	case O_SGBALLOT:
@@ -196,8 +229,8 @@ mk_sg(int op, nid a, nid b, nid c)
 	if (N.op[a] == O_UNDEF || (ar == 3 && N.op[b] == O_UNDEF))
 		return mk_undef(t);
 	/* nothing but the lane in it: the same value whatever the inputs */
-	if (!node_slots(a) && (ar == 2 || (!node_slots(b) &&
-	    !(N.fl[b] & NF_LANE))))
+	if (!node_slots(a) && !(N.fl[a] & NF_LANEREAD) && (ar == 2 ||
+	    (!node_slots(b) && !(N.fl[b] & (NF_LANE | NF_LANEREAD)))))
 		return sg_expand(op, (N.fl[a] & NF_SG) ? sg_lower_once(a) : a,
 		    ar == 3 && (N.fl[b] & NF_SG) ? sg_lower_once(b) : b, w);
 	fl |= (N.fl[a] | (ar == 3 ? N.fl[b] : 0)) & NF_PARTIAL;

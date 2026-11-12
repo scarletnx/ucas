@@ -547,6 +547,28 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		here = param_var(p, j);
 	} else if (p->sg_depth)
 		here = sg_lane();
+	/*
+	 * A declared parameter that is not uniform has a value in each lane;
+	 * read across the lanes it is that lane's value, which has no exact
+	 * value here (sg_lane_copy): cost prices it at the worst, and
+	 * evaluating it is refused.  A name the expression brought in itself
+	 * is taken as shared (sg_shared_only).
+	 */
+	if (p->fn && !p->autop) {
+		nid map[MAXP] = {0};
+		int k, any = 0;
+		for (k = 0; k < p->fn->np; k++)
+			if (k != j && !p->fn->p[k].uniform) {
+				map[k] = sg_lane_copy(k, p->fn->p[k].name,
+				    p->fn->p[k].ty, W);
+				any = 1;
+			}
+		if (any) {
+			v = subst(v, map, p->fn->np);
+			if (g->kind == SGF_SEG)
+				args[1] = subst(args[1], map, p->fn->np);
+		}
+	}
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
 	    g->kind == SGF_ROT || g->kind == SGF_SORT))
 		fail("%s is a value per lane: give the function a parameter "
@@ -859,10 +881,56 @@ ident(struct P *p)
 	return 0;
 }
 
+/* the W of slot's lane copies in e (sg_lane_copy), or 0 */
+static int
+copy_width(nid e, int slot, uint8_t *seen)
+{
+	uint32_t j;
+	int w;
+
+	if (e == 0 || seen[e] || !(N.fl[e] & NF_LANEREAD))
+		return 0;
+	seen[e] = 1;
+	if (N.op[e] == O_VAR)
+		return N.ki[e] == SG_COPY_SLOT + slot ? (int)N.b[e] : 0;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((w = copy_width(N.lst[N.a[e] + j], slot, seen)) != 0)
+				return w;
+		return 0;
+	}
+	if ((w = copy_width(N.a[e], slot, seen)) != 0 ||
+	    (w = copy_width(N.b[e], slot, seen)) != 0)
+		return w;
+	return copy_width(N.c[e], slot, seen);
+}
+
+/*
+ * An argument as the other lanes pass it: the caller's parameters that
+ * are not uniform become their own lane copies; what the lanes share
+ * (constants, uniform parameters) is the same in every lane.
+ */
+static nid
+arg_in_lanes(struct P *p, nid a, int W)
+{
+	nid map[MAXP] = {0};
+	int k, any = 0;
+
+	if (!p->fn || p->autop)
+		return a;
+	for (k = 0; k < p->fn->np; k++)
+		if (!p->fn->p[k].uniform && !sg_is_lane(param_var(p, k))) {
+			map[k] = sg_lane_copy(k, p->fn->p[k].name,
+			    p->fn->p[k].ty, W);
+			any = 1;
+		}
+	return any ? subst(a, map, p->fn->np) : a;
+}
+
 static nid
 call_user(struct P *p, struct func *g, nid *args, int na)
 {
-	nid map[MAXP];
+	nid map[SG_COPY_SLOT + MAXP] = {0};
 	int j;
 
 	if (na != g->np)
@@ -875,8 +943,19 @@ call_user(struct P *p, struct func *g, nid *args, int na)
 			    sym_str(g->name), ty_str(have), ty_str(want));
 		map[j] = mk_cast(want, args[j]);
 	}
+	/* g's parameters read in the other lanes: the arguments there */
+	if (N.fl[g->body] & NF_LANEREAD)
+		for (j = 0; j < na; j++) {
+			uint8_t *seen = xcalloc(N.n, 1);
+			int w = copy_width(g->body, j, seen);
+			free(seen);
+			if (w)
+				map[SG_COPY_SLOT + j] = arg_in_lanes(p, map[j],
+				    w);
+		}
 	{
-		nid r = subst(g->body, map, na);
+		nid r = subst(g->body, map, (N.fl[g->body] & NF_LANEREAD) ?
+		    SG_COPY_SLOT + MAXP : na);
 		sg_shared_only(p, r, sym_str(g->name));
 		return r;
 	}
