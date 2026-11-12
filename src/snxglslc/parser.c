@@ -965,8 +965,75 @@ static const char* op_text(uint8_t op) {
     return op < sizeof text / sizeof text[0] ? text[op] : "?";
 }
 
+/* ucas: GLSL 4.x's implicit conversions, which GLSL ES lacks (g->implicit turns them on): an int becomes a uint, an
+   int or a uint a float, a scalar or a vector of them the same shape of the other base. The conversion is a
+   constructor node around the value (a scalar constant is folded), so what reads the tree sees it written out */
+static uint32_t base_rank(const Glslc* g, uint32_t t) {
+    if (!is_sv(g, t)) return 0;
+    switch (ty(g, t)->base) {
+        case SNX_GLSLC_BASE_INT: return 1;
+        case SNX_GLSLC_BASE_UINT: return 2;
+        case SNX_GLSLC_BASE_FLOAT: return 3;
+        default: return 0;
+    }
+}
+
+static uint32_t with_rank(const Glslc* g, uint32_t t, uint32_t rank) {
+    uint32_t rows = is_scalar(g, t) ? 1 : ty(g, t)->rows;
+    return glslc_vector_type(rank == 1 ? SNX_GLSLC_BASE_INT : rank == 2 ? SNX_GLSLC_BASE_UINT : SNX_GLSLC_BASE_FLOAT,
+                             rows);
+}
+
+static int converts(const Glslc* g, uint32_t from, uint32_t to) {
+    uint32_t a = base_rank(g, from), b = base_rank(g, to);
+    return g->implicit && a && b && a < b && with_rank(g, from, b) == to;
+}
+
+/* n as type to; n's place in an argument list (its next) goes to the result */
+static uint32_t convert_to(Glslc* g, uint32_t n, uint32_t to) {
+    uint32_t tok = nd(g, n)->tok, next = nd(g, n)->next, c;
+    if (nd(g, n)->kind == GLSLC_N_CONST && is_scalar(g, to)) {
+        c = make_const(g, tok, to, glslc_fold_convert(g, bits_of(g, n), nd(g, n)->type, to));
+    } else {
+        int k = is_const(g, n);
+        nd(g, n)->next = 0;
+        c = node(g, GLSLC_N_CONSTRUCT, tok, to);
+        nd(g, c)->a = (uint16_t)n;
+        if (k) nd(g, c)->flags = GLSLC_NF_CONST;
+    }
+    nd(g, c)->next = (uint16_t)next;
+    return c;
+}
+
+/* argument a of the list at *first (prev before it, or 0) as type to */
+static uint32_t convert_arg(Glslc* g, uint32_t* first, uint32_t prev, uint32_t a, uint32_t to) {
+    uint32_t c = convert_to(g, a, to);
+    if (prev) {
+        nd(g, prev)->next = (uint16_t)c;
+    } else {
+        *first = c;
+    }
+    return c;
+}
+
+/* the two operands of an operator brought to the wider base of the two */
+static void convert_pair(Glslc* g, uint32_t* l, uint32_t* r) {
+    uint32_t lt = nd(g, *l)->type, rt = nd(g, *r)->type, a = base_rank(g, lt), b = base_rank(g, rt);
+    if (!g->implicit || !a || !b || a == b) return;
+    if (a < b) {
+        *l = convert_to(g, *l, with_rank(g, lt, b));
+    } else {
+        *r = convert_to(g, *r, with_rank(g, rt, a));
+    }
+}
+
 static uint32_t make_binary(Glslc* g, uint8_t op, uint32_t tok, uint32_t l, uint32_t r) {
     uint32_t lt = nd(g, l)->type, rt = nd(g, r)->type;
+    if (g->implicit && op != GLSLC_OP_SHL && op != GLSLC_OP_SHR && !binary_type(g, op, lt, rt)) {
+        convert_pair(g, &l, &r);
+        lt = nd(g, l)->type;
+        rt = nd(g, r)->type;
+    }
     if (g->vi == GLSLC_V100 && (op == GLSLC_OP_MOD || op == GLSLC_OP_SHL || op == GLSLC_OP_SHR || op == GLSLC_OP_AND ||
                                 op == GLSLC_OP_OR || op == GLSLC_OP_XOR))
         glslc_fail(g, site(g, tok), "operator %s needs GLSL ES 3.00 (1.00 reserves it)", op_text(op));
@@ -1205,7 +1272,8 @@ static uint32_t make_constructor(Glslc* g, uint32_t type, uint32_t tok, uint32_t
             glslc_fail(g, site(g, tok), "%s takes %u elements, and %u are given", name, (unsigned)t->len, count);
         }
         uint32_t i = 0;
-        for (uint32_t a = first; a; a = g->nodes[a].next, i++) {
+        for (uint32_t a = first, prev = 0; a; prev = a, a = g->nodes[a].next, i++) {
+            if (converts(g, g->nodes[a].type, t->elem)) a = convert_arg(g, &first, prev, a, t->elem);
             if (g->nodes[a].type != t->elem) {
                 char en[64], an[64];
                 glslc_type_name(g, t->elem, en, sizeof en);
@@ -1218,8 +1286,9 @@ static uint32_t make_constructor(Glslc* g, uint32_t type, uint32_t tok, uint32_t
         if (count != t->len)
             glslc_fail(g, site(g, tok), "%s has %u members, and %u values are given", name, (unsigned)t->len, count);
         uint32_t i = 0;
-        for (uint32_t a = first; a; a = g->nodes[a].next, i++) {
+        for (uint32_t a = first, prev = 0; a; prev = a, a = g->nodes[a].next, i++) {
             uint32_t mt = g->members[t->first + i].type;
+            if (converts(g, g->nodes[a].type, mt)) a = convert_arg(g, &first, prev, a, mt);
             if (g->nodes[a].type != mt) {
                 char en[64], an[64];
                 glslc_type_name(g, mt, en, sizeof en);
@@ -1517,6 +1586,38 @@ static uint32_t builtin_call(Glslc* g, uint32_t name_tok, uint32_t first) {
         }
         glslc_fail(g, site(g, name_tok), "the built-in function %.*s is only in %s", VIEWV(g, name), where);
     }
+    if (!type && g->implicit && !too_many) {
+        /* ucas: the implicit conversions: every number to the widest base given, then to float, then one argument
+           at a time to uint or float; the first overload any of these fits */
+        uint16_t to[16];
+        uint32_t hi = 0;
+        for (uint32_t i = 0; i < n; i++) hi = base_rank(g, at[i]) > hi ? base_rank(g, at[i]) : hi;
+        for (uint32_t way = 0; way < 2 + 2 * n && !type; way++) {
+            uint32_t one = way < 2 ? n : (way - 2) / 2, rank = way == 0 ? hi : way == 1 ? 3 : 2 + (way - 2) % 2;
+            int changed = 0;
+            for (uint32_t i = 0; i < n; i++) {
+                uint32_t k = base_rank(g, at[i]);
+                to[i] = at[i];
+                if (k && k < rank && (one == n || one == i)) {
+                    to[i] = (uint16_t)with_rank(g, at[i], rank);
+                    changed = 1;
+                }
+            }
+            if (!changed) continue;
+            for (uint32_t r = 0; r < glslc_builtin_fn_count && !type; r++) {
+                const GlslcBuiltinFn* f = &glslc_builtin_fns[r];
+                if (!glslc_view_is(g, name, f->name) || !builtin_available(g, f) || !(f->stages & g->smask)) continue;
+                extra = 0;
+                type = f->bk == GLSLC_BK_TEXTURE ? match_texture(g, f, to, n, &extra) : match_signature(g, f->sig, to, n);
+                if (type) row = r;
+            }
+        }
+        if (type) {
+            uint32_t i = 0;
+            for (uint32_t a = first, prev = 0; a; prev = a, a = g->nodes[a].next, i++)
+                if (to[i] != at[i]) a = convert_arg(g, &first, prev, a, to[i]);
+        }
+    }
     if (!type) {
         char args[160];
         arg_list_text(g, first, args, sizeof args);
@@ -1611,6 +1712,28 @@ static uint32_t function_call(Glslc* g, uint32_t name_tok, uint32_t first) {
             same_params(g, g->syms[u].aux, g->syms[u].aux2, first)) {
             found = u;
             break;
+        }
+    }
+    if (!found && g->implicit) {
+        /* ucas: the first overload whose in parameters the arguments convert to */
+        for (uint32_t u = s; u && !found; u = g->syms[u].next) {
+            if (g->syms[u].kind != GLSLC_SK_FUNC || !glslc_views_equal(g, g->syms[u].name, name)) continue;
+            uint32_t i = 0, a = first;
+            for (; i < g->syms[u].aux2 && a; i++, a = g->nodes[a].next) {
+                const GlslcParam* p = &g->params[g->syms[u].aux + i];
+                if (g->nodes[a].type == p->type) continue;
+                if (p->storage == GLSLC_ST_PARAM_OUT || p->storage == GLSLC_ST_PARAM_INOUT ||
+                    !converts(g, g->nodes[a].type, p->type))
+                    break;
+            }
+            if (i == g->syms[u].aux2 && !a) found = u;
+        }
+        if (found) {
+            uint32_t i = 0;
+            for (uint32_t a = first, prev = 0; a; prev = a, a = g->nodes[a].next, i++) {
+                uint32_t pt = g->params[g->syms[found].aux + i].type;
+                if (g->nodes[a].type != pt) a = convert_arg(g, &first, prev, a, pt);
+            }
         }
     }
     if (!found) {
@@ -1918,6 +2041,11 @@ static uint32_t parse_conditional(Glslc* g) {
         glslc_fail(g, site(g, t), "the condition of ?: is a bool, not %s", name);
     }
     uint32_t at = nd(g, a)->type, bt = nd(g, b)->type;
+    if (at != bt && g->implicit) {
+        convert_pair(g, &a, &b);
+        at = nd(g, a)->type;
+        bt = nd(g, b)->type;
+    }
     if (at != bt) {
         char an[64], bn[64];
         glslc_type_name(g, at, an, sizeof an);
@@ -1969,6 +2097,12 @@ static uint32_t parse_assignment(Glslc* g) {
     uint32_t r = parse_assignment(g);
     leave(g);
     uint32_t lt = nd(g, l)->type, rt = nd(g, r)->type;
+    if (op == GLSLC_OP_ASSIGN ? converts(g, rt, lt)
+                              : g->implicit && op != GLSLC_OP_SHL && op != GLSLC_OP_SHR &&
+                                    base_rank(g, rt) && base_rank(g, rt) < base_rank(g, lt)) {
+        r = convert_to(g, r, with_rank(g, rt, base_rank(g, lt)));
+        rt = nd(g, r)->type;
+    }
     char ln[64], rn[64];
     glslc_type_name(g, lt, ln, sizeof ln);
     glslc_type_name(g, rt, rn, sizeof rn);
@@ -2057,6 +2191,10 @@ static uint32_t declare_variable(Glslc* g, const Qual* q, uint32_t type, uint32_
     uint8_t storage = q->storage ? q->storage : (global ? GLSLC_ST_GLOBAL : GLSLC_ST_LOCAL);
     if (init) {
         uint32_t it = nd(g, init)->type;
+        if (converts(g, it, type)) {
+            init = convert_to(g, init, type);
+            it = type;
+        }
         if (storage != GLSLC_ST_GLOBAL && storage != GLSLC_ST_LOCAL && storage != GLSLC_ST_CONST)
             glslc_fail(g, site(g, name_tok), "%.*s cannot be initialized: it is %s", TOKV(g, name_tok),
                        storage == GLSLC_ST_UNIFORM  ? "a uniform"
@@ -2069,7 +2207,11 @@ static uint32_t declare_variable(Glslc* g, const Qual* q, uint32_t type, uint32_
             glslc_fail(g, site(g, name_tok), "cannot initialize %s %.*s with %s (GLSL ES converts no value)", name,
                        TOKV(g, name_tok), iname);
         }
-        if ((global || storage == GLSLC_ST_CONST) && !is_const(g, init))
+        /* ucas: GLSL 4.20 on initializes a global with any expression; a const one of them is then a variable */
+        if (g->implicit && global && !is_const(g, init) &&
+            (storage == GLSLC_ST_CONST || storage == GLSLC_ST_GLOBAL))
+            storage = GLSLC_ST_GLOBAL;
+        else if ((global || storage == GLSLC_ST_CONST) && !is_const(g, init))
             glslc_fail(g, site(g, nd(g, init)->tok), "the initializer of %.*s must be a constant expression",
                        TOKV(g, name_tok));
     } else if (storage == GLSLC_ST_CONST) {
@@ -2108,7 +2250,8 @@ static uint32_t declare_variable(Glslc* g, const Qual* q, uint32_t type, uint32_
                            glslc_format_names[q->format - 1]);
             int one_channel =
                 q->format == GLSLC_FMT_R32F || q->format == GLSLC_FMT_R32I || q->format == GLSLC_FMT_R32UI;
-            if (!one_channel && !(q->qual & (GLSLC_Q_READONLY | GLSLC_Q_WRITEONLY)))
+            /* ucas: Vulkan's GLSL reads and writes an image of any format */
+            if (!g->implicit && !one_channel && !(q->qual & (GLSLC_Q_READONLY | GLSLC_Q_WRITEONLY)))
                 glslc_fail(g, site(g, name_tok),
                            "the image %.*s (format %s) must be readonly or writeonly: only r32f, r32i and r32ui are "
                            "both",
@@ -2341,6 +2484,7 @@ static uint32_t parse_switch(Glslc* g) {
             uint32_t v = 0;
             if (!is_default) {
                 v = parse_conditional(g);
+                if (nd(g, v)->kind == GLSLC_N_CONST && converts(g, nd(g, v)->type, st)) v = convert_to(g, v, st);
                 if (nd(g, v)->kind != GLSLC_N_CONST || nd(g, v)->type != st)
                     glslc_fail(g, site(g, lt), "a case label is a constant of the switch's type");
                 for (uint32_t x = first; x; x = g->nodes[x].next) {
@@ -2518,6 +2662,7 @@ static uint32_t parse_statement(Glslc* g, uint32_t* last) {
             if (kind_at(g, 0) != TK_SEMICOLON) {
                 v = parse_expression(g);
                 if (ret == GT_VOID) glslc_fail(g, site(g, t), "this function returns void, and return gives a value");
+                if (converts(g, nd(g, v)->type, ret)) v = convert_to(g, v, ret);
                 if (nd(g, v)->type != ret) {
                     char vn[64];
                     glslc_type_name(g, nd(g, v)->type, vn, sizeof vn);

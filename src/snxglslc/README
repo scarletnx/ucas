@@ -3,7 +3,16 @@ emitter), copied from ScarletNX's src/glslc at commit 8f79d815.
 GPL-3.0-or-later, Copyright 2026 the ScarletNX contributors.
 
 The files are as they are there but for the include paths
-("glslc/internal.h" is "internal.h" here, "glslc/glslc.h" "glslc.h").
+("glslc/internal.h" is "internal.h" here, "glslc/glslc.h" "glslc.h")
+and for what reading Vulkan's GLSL whole needs, each marked "ucas" in
+its comment:
+- a source position is 32 bits (GlslcView.pos, GlslcToken.site,
+  GlslcLineMark.pos) and SNX_GLSLC_MAX_SOURCE is 1 MiB: a Vulkan shader
+  with its includes is past the 64 KiB a GLSL ES one stays under;
+- Glslc.implicit, which ../glslfn.c sets for a shader that is not GLSL
+  ES: GLSL 4.x's implicit conversions are made (a constructor node
+  around the value, so the tree shows them), a global takes any
+  initializer, and an image of any format may be read and written.
 ucas uses its parser for simplify's function-level pass (../glslfn.c):
 the syntax tree, typed, with each node's source position.  The
 Makefiles build these files into libsnxglslc.a, as glslc.c would clash

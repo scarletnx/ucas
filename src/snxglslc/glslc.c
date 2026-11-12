@@ -124,7 +124,7 @@ Glslc* glslc_open(void* memory, size_t memory_size, GlslcStage stage, const char
     }
     if (size > SNX_GLSLC_MAX_SOURCE) {
         snprintf(result->error, sizeof result->error,
-                 "the source is %zu bytes, more than the %u glslc takes (a token's place is 16 bits)", size,
+                 "the source is %zu bytes, more than the %u glslc takes (SNX_GLSLC_MAX_SOURCE)", size,
                  SNX_GLSLC_MAX_SOURCE);
         return NULL;
     }

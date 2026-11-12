@@ -249,8 +249,8 @@ static void scan(Glslc* g, GlslcToken* t, int line_only) {
         }
         break;
     }
-    t->text.pos = (uint16_t)i;
-    t->site = (uint16_t)i;
+    t->text.pos = (uint32_t)i;
+    t->site = (uint32_t)i;
     t->flags = bol ? GLSLC_TF_BOL : 0;
     if (i >= g->src_len || (line_only && bol)) {
         t->kind = TK_EOF;
@@ -318,9 +318,9 @@ static GlslcToken synth_number(Glslc* g, uint32_t value, uint32_t site) {
     char text[16];
     int n = snprintf(text, sizeof text, "%u", value);
     GlslcToken t = {{0, 0}, 0, TK_INTCONST, GLSLC_TF_SYNTH};
-    t.text.pos = (uint16_t)synth_add(g, text, (uint32_t)n, site);
+    t.text.pos = synth_add(g, text, (uint32_t)n, site);
     t.text.len = (uint16_t)n;
-    t.site = (uint16_t)site;
+    t.site = site;
     return t;
 }
 
@@ -363,12 +363,12 @@ static void mtok_push(Glslc* g, const GlslcToken* t) {
 static void define_synth(Glslc* g, const char* name, const char* value, uint8_t flags) {
     GlslcView v;
     v.len = (uint16_t)strlen(name);
-    v.pos = (uint16_t)synth_add(g, name, v.len, 0);
+    v.pos = synth_add(g, name, v.len, 0);
     uint32_t m = new_macro(g, v, (uint8_t)(flags | GLSLC_MF_SYNTH), 0);
     if (value) {
         GlslcToken t = {{0, 0}, 0, TK_INTCONST, GLSLC_TF_SYNTH};
         t.text.len = (uint16_t)strlen(value);
-        t.text.pos = (uint16_t)synth_add(g, value, t.text.len, 0);
+        t.text.pos = synth_add(g, value, t.text.len, 0);
         mtok_push(g, &t);
         g->macros[m].count = 1;
     }
@@ -947,7 +947,7 @@ static void directive_line(Glslc* g, const GlslcToken* hash, const GlslcToken* d
     while (pos < g->src_len && g->src[pos] != '\n' && g->src[pos] != '\r') pos++;
     if (pos < g->src_len && g->src[pos] == '\r') pos++;
     if (pos < g->src_len && g->src[pos] == '\n') pos++;
-    g->marks[g->nmarks].pos = (uint16_t)pos;
+    g->marks[g->nmarks].pos = pos;
     g->marks[g->nmarks].line = line;
     g->nmarks++;
 }
@@ -1081,8 +1081,8 @@ void glslc_lex(Glslc* g) {
     }
     settle_version(g, g->src_len);
     GlslcToken end = {{0, 0}, 0, TK_EOF, 0};
-    end.text.pos = (uint16_t)g->src_len;
-    end.site = (uint16_t)g->src_len;
+    end.text.pos = g->src_len;
+    end.site = g->src_len;
     put(g, end);
     if (g->ntoks > SNX_GLSLC_MAX_TOKENS)
         glslc_fail(g, g->overflow_site, "the shader has %u tokens after preprocessing, more than the %u glslc takes",
