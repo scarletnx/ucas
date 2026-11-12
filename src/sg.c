@@ -447,6 +447,71 @@ sort_proved(int W, int *cases)
 	return ok;
 }
 
+/* ---- the active lanes (sg_active) ---- */
+
+static nid *actbits;	/* the tests, then each one's mask and lane */
+static int nactbits;
+
+nid
+sg_active_bit(nid mask, nid l)
+{
+	ty_t t = N.ty[mask];
+	nid r = mk_bin(O_NE, mk_bin(O_AND, mk_bin(O_SHR, mask, mk_cast(t, l)),
+	    mk_const_i(t, 1)), mk_const_i(t, 0));
+	int k;
+
+	for (k = 0; k < nactbits && actbits[k] != r; k += 3)
+		;
+	if (k == nactbits) {
+		actbits = xrealloc(actbits, (size_t)(nactbits + 3) *
+		    sizeof *actbits);
+		actbits[nactbits++] = r;
+		actbits[nactbits++] = mask;
+		actbits[nactbits++] = l;
+	}
+	return r;
+}
+
+nid
+sg_active_of(nid bit, nid *lane)
+{
+	int k;
+
+	for (k = 0; k < nactbits; k += 3)
+		if (actbits[k] == bit) {
+			if (lane)
+				*lane = actbits[k + 2];
+			return actbits[k + 1];
+		}
+	return 0;
+}
+
+/* e under sg_active: the mask its operations take, or 0 */
+static nid
+active_mask_in(nid e, uint8_t *seen)
+{
+	uint32_t j;
+	int k;
+	nid r;
+
+	if (e == 0 || seen[e] || N.op[e] == O_CONST || N.op[e] == O_VAR)
+		return 0;
+	seen[e] = 1;
+	for (k = 0; k < nactbits; k += 3)
+		if (actbits[k] == e)
+			return actbits[k + 1];
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((r = active_mask_in(N.lst[N.a[e] + j], seen)) != 0)
+				return r;
+		return 0;
+	}
+	if ((r = active_mask_in(N.a[e], seen)) != 0 ||
+	    (r = active_mask_in(N.b[e], seen)) != 0)
+		return r;
+	return active_mask_in(N.c[e], seen);
+}
+
 /* ---- find: forms the model's subgroup operations make cheaper ---- */
 
 /*
@@ -1912,7 +1977,7 @@ sg_find(const struct func *f)
 	struct eqproof pr;
 	struct sbuf w = {0}, nd = {0};
 	const char *mn, *s, *e, *chk;
-	nid cur = f->body;
+	nid cur = f->body, am;
 	float before, cost;
 	int W, bad;
 
@@ -1964,12 +2029,24 @@ sg_find(const struct func *f)
 			e = s + strlen(s);
 		printf("           %.*s\n", (int)(e - s), s);
 	}
-	printf("           holds in a full subgroup (all %d lanes active); "
-	    "needs %s\n", W, sb_str(&nd));
+	{
+		uint8_t *seen = xcalloc(N.n, 1);
+		am = active_mask_in(f->body, seen);
+		free(seen);
+	}
+	if (am)
+		printf("           holds with the lanes active in %s (sg_active), "
+		    "checked for every value of it; needs %s\n", node_str(am),
+		    sb_str(&nd));
+	else
+		printf("           holds in a full subgroup (all %d lanes "
+		    "active); needs %s\n", W, sb_str(&nd));
 	printf("           %s\n", chk);
 	rep_obj("subgroup_forms");
 	rep_str("model", mn);
 	rep_int("lanes", W);
+	if (am)
+		rep_str("active", node_str(am));
 	rep_num("cost_before", before);
 	rep_num("cost", cost);
 	rep_expr("expr", cur);

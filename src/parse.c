@@ -97,6 +97,8 @@ struct P {
 	uint32_t bname[MAXBIND];
 	nid bval[MAXBIND];
 	int sg_depth;     /* inside a subgroup operation's arguments */
+	nid sgmask;       /* sg_active(m): the lanes that run, or 0 (all) */
+	int sgops;        /* subgroup operations built so far */
 };
 
 enum {
@@ -440,7 +442,7 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG, SGF_SORT };
+	SGF_SEG, SGF_SORT, SGF_ACTIVE };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
@@ -458,6 +460,7 @@ static const struct sgfn {
 	{"sg_rotate", "subgroupRotate", SGF_ROT, O_SGSHUF, 2},
 	{"sg_segscan", "sg_segscan", SGF_SEG, O_SGSCAN, 2},
 	{"sg_sort", "sg_sort", SGF_SORT, O_SGSHUF, 1},
+	{"sg_active", "sg_active", SGF_ACTIVE, O_SGBALLOT, 1},
 	{NULL, NULL, 0, 0, 0}
 };
 
@@ -512,6 +515,63 @@ sg_shared_only(struct P *p, nid e, const char *what)
 		    sym_str(p->fn->p[s - 1].name), sym_str(p->fn->p[s - 1].name),
 		    sym_str(p->fn->p[s - 1].name), p->fn->p[s - 1].ty ?
 		    ty_str(p->fn->p[s - 1].ty) : "u32");
+}
+
+/*
+ * sg_active(m): m, a uniform parameter, is the lanes that run (bit l for
+ * lane l) for the function's subgroup operations, all of them after it;
+ * its value is m's low W bits, the ballot of true.
+ */
+static nid
+sg_active_decl(struct P *p, nid m, int W)
+{
+	ty_t bt = TY(K_UINT, W > 32 ? 64 : 32);
+	nid x = m;
+
+	while (N.op[x] == O_CAST)
+		x = N.a[x];
+	if (!p->fn || N.op[x] != O_VAR || N.ki[x] < 0 || N.ki[x] >= p->fn->np ||
+	    !p->fn->p[N.ki[x]].uniform || !TY_ISINT(N.ty[x]))
+		fail("sg_active takes a uniform parameter of the function, the "
+		    "mask of the lanes that run: %s is not one", node_str(m));
+	if (p->sgops)
+		fail("sg_active(%s) comes before the subgroup operations it "
+		    "masks", node_str(m));
+	x = mk_cast(bt, x);
+	if (p->sgmask && p->sgmask != x)
+		fail("sg_active: one mask a function (%s, then %s)",
+		    node_str(p->sgmask), node_str(x));
+	p->sgmask = x;
+	return W == 64 ? x : mk_bin(O_AND, x, mk_const_i(bt,
+	    (int64_t)((1ULL << W) - 1)));
+}
+
+/* a shuffle under sg_active: undefined when the lane it reads is not
+ * active */
+static nid
+sg_masked_shuffle(struct P *p, const struct sgfn *g, nid v, nid *args,
+    nid here, int W)
+{
+	nid w = mk_const_i(TY_LIT, W), i;
+	ty_t u = TY(K_UINT, 32);
+
+	switch (g->kind) {
+	case SGF_SHUFXOR:
+		i = mk_bin(O_XOR, here, args[1]);
+		break;
+	case SGF_BCAST1:
+		i = mk_const_i(u, 0);
+		break;
+	case SGF_ROT:
+		i = mk_bin(O_MOD, mk_bin(O_ADD, mk_cast(u, here), mk_cast(u,
+		    args[1])), mk_const_i(u, W));
+		break;
+	default:
+		i = args[1];
+	}
+	v = mk_sg(O_SGSHUF, v, i, w);
+	return mk_sel(sg_active_bit(p->sgmask, mk_cast(u, i)), v,
+	    mk_undef(N.ty[v]));
 }
 
 static nid
@@ -569,10 +629,29 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 				args[1] = subst(args[1], map, p->fn->np);
 		}
 	}
+	if (g->kind == SGF_ACTIVE)
+		return sg_active_decl(p, args[0], W);
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
 	    g->kind == SGF_ROT || g->kind == SGF_SORT))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
+	p->sgops++;
+	if (p->sgmask) {
+		/* the inactive lanes: no bit in a ballot, nothing to a vote, a
+		 * sum or a scan, and undefined to a shuffle that reads one */
+		nid act = sg_active_bit(p->sgmask, sg_lane());
+		if (g->kind == SGF_SEG || g->kind == SGF_SORT)
+			fail("%s under sg_active(%s): not defined for inactive "
+			    "lanes yet", g->name, node_str(p->sgmask));
+		if (g->op == O_SGBALLOT || g->op == O_SGANY)
+			v = mk_bin(O_LAND, v, act);
+		else if (g->op == O_SGALL)
+			v = mk_bin(O_LOR, v, mk_un(O_LNOT, act));
+		else if (g->op == O_SGADD || g->op == O_SGSCAN)
+			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else
+			return sg_masked_shuffle(p, g, v, args, here, W);
+	}
 	switch (g->kind) {
 	case SGF_EXCL:
 		v = mk_sg(O_SGSCAN, v, here, w);
@@ -1616,6 +1695,8 @@ parse_def(struct P *p)
 				    sym_str(tmp.p[j].name), ty_str(dt));
 		}
 	p->fn = &tmp;
+	p->sgmask = 0;
+	p->sgops = 0;
 	p->autoty = dt;
 	p->nb = 0;
 	w = find_where(p, p->i);
@@ -1708,6 +1789,8 @@ cmd_func(struct P *p)
 	tmp.name = anon;
 	tmp.anon = 1;
 	p->fn = &tmp;
+	p->sgmask = 0;
+	p->sgops = 0;
 	p->autop = 1;
 	p->cmdargs = 1;
 	p->autoty = infer_param_type(p, p->i, &why);
@@ -1942,6 +2025,8 @@ parse_basis(struct P *p)
 			g->body = mk_const_i(TY(K_UINT, 1), 0);
 		} else {
 			p->fn = &tmp;
+			p->sgmask = 0;
+			p->sgops = 0;
 			g->body = mk_cast(TY(K_UINT, 1), parse_expr(p, 0));
 			p->fn = NULL;
 		}
@@ -2043,6 +2128,8 @@ parse_fuse(struct P *p, struct model *m)
 			fail("expected `lut K` or named inputs: fuse %s(a: int, ...)",
 			    sym_str(f.name));
 		p->fn = &tmp;
+		p->sgmask = 0;
+		p->sgops = 0;
 		f.pat = parse_expr(p, 0);
 		p->fn = NULL;
 		if (N.op[f.pat] == O_VAR || N.op[f.pat] == O_CONST)
@@ -2861,6 +2948,8 @@ statement(struct P *p)
 			memset(&tmp, 0, sizeof tmp);
 			tmp.name = sym_cstr("_");
 			p->fn = &tmp;
+			p->sgmask = 0;
+			p->sgops = 0;
 			p->autop = 1;
 			p->autoty = infer_param_type(p, p->i, &k);
 			e = parse_expr(p, 0);
@@ -3056,6 +3145,8 @@ statement(struct P *p)
 		tmp.name = sym_cstr("_");
 		tmp.anon = 1;
 		p->fn = &tmp;
+		p->sgmask = 0;
+		p->sgops = 0;
 		p->autop = 1;
 		p->autoty = infer_param_type(p, p->i, &k);
 		e = parse_expr(p, 0);

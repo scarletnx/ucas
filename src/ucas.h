@@ -489,6 +489,10 @@ int sg_class(int op);		/* its cost class */
 int sg_width(nid n);		/* W of a subgroup node */
 /* the operation spelled out over its W lanes, operands already lowered */
 nid sg_expand(int op, nid a, nid b, nid c);
+/* lane l (u32) is active in mask: ((mask >> l) & 1) != 0, kept so that
+ * find can tell a function under sg_active */
+nid sg_active_bit(nid mask, nid l);
+nid sg_active_of(nid bit, nid *lane);	/* such a test's mask (lane), or 0 */
 /* a parameter of mask that a subgroup operation of e reads per lane */
 int sg_reads(nid e, uint64_t mask);
 /* v sorted along W = 2^m lanes by the bitonic network, in the lane `here`
