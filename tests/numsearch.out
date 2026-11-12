@@ -44,7 +44,7 @@ approx sin(x) on [0, 0.785398126] as f32, fma
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1985 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
   3 more: 'approx more [n]'
-> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 1000
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 300
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
   checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
@@ -60,15 +60,15 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   minimax   5     horner+fma  24.2 ulp (25.6)          2.28e-06      1.43e-06      4    at x=0.252667248
-      x*P(x^2): fma(x*s, fma(0.00816329475, s, -0.166634634), x) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 998 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+  1   minimax   5     horner+fma  25 ulp (25.6)            1.96e-06      1.3e-06       4    at x=0.252571374
+      x*P(x^2): fma(x*s, fma(0.00816328637, s, -0.166633993), x) where s = x*x
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 24.94 -> 24.31 ulp there; on the table's measure 25.07 -> 24.95 ulp: kept (measured on that sample, not certified)
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 1000 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
   3 more: 'approx more [n]'
-> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes budget 1000
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
   checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
@@ -86,13 +86,13 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816331618, s, -0.166634634), x) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 1991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 1993 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 997 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
   3 more: 'approx more [n]'
-> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 3000
+> approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 800
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
   checked: sin(x) is odd (f(-x) = -f(x) at 64 points): fitting x*P(x^2) on [0, 0.785398126]
@@ -110,18 +110,18 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816330872, s, -0.166634634), x) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 2977 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept (measured on that sample, not certified)
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
   2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 2977 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
+      search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
   3 more: 'approx more [n]'
 > approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
-numsearch.ucas:15:63: error: sigma: a first step from above 0 to 64 ulps, not 100
+numsearch.ucas:17:63: error: sigma: a first step from above 0 to 64 ulps, not 100
     approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
                                                                   ^
 > approx sin(x) in 0..0.5 degree 3 as f32 search greedy
-numsearch.ucas:16:48: error: search is walk (the ulp walk alone, the default), anneal or cmaes
+numsearch.ucas:18:48: error: search is walk (the ulp walk alone, the default), anneal or cmaes
     approx sin(x) in 0..0.5 degree 3 as f32 search greedy
                                                    ^
 > h(x: f32 in 0.5..2) = fma(fma(fma(0.25f, x, -0.5f), x, 1.5f), x, 2.0f)
@@ -210,17 +210,17 @@ error of fl against fl:
   numeric: the integrand is undefined or infinite inside the interval (singular or divergent)
   quasi-Monte Carlo does not settle either: 8 replicates of 4096 Sobol points give 27 with a standard error of 4.9: no value (a pole, or an integral that does not exist)
 > integrate g numerically
-numsearch.ucas:55:24: error: integrate ... numerically qmc [points N] [replicates R] [seed K] [noscramble] (without it a definite integral is checked by adaptive Gauss-Kronrod)
+numsearch.ucas:57:24: error: integrate ... numerically qmc [points N] [replicates R] [seed K] [noscramble] (without it a definite integral is checked by adaptive Gauss-Kronrod)
     integrate g numerically
                            ^
 > integrate x^2 from 0 to 1 numerically qmc points 1000
-numsearch.ucas:56:54: error: qmc: points N, a power of two from 2 to 4194304
+numsearch.ucas:58:54: error: qmc: points N, a power of two from 2 to 4194304
     integrate x^2 from 0 to 1 numerically qmc points 1000
                                                          ^
 > u2(n: u8, x: real in 0..1) = n * x
 > integrate u2 numerically qmc
 ∫ real(n)*x numerically, over the box of its parameters' ranges
-numsearch.ucas:58:29: error: qmc: parameter n is u8; the box is over real (or float) parameters
+numsearch.ucas:60:29: error: qmc: parameter n is u8; the box is over real (or float) parameters
     integrate u2 numerically qmc
                                 ^
 > integrate x squared from 0 to 2 with quasi-monte carlo

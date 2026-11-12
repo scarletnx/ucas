@@ -6,11 +6,13 @@
 # `search walk`); `search anneal` and `search cmaes` then move several at
 # once from where the walk stopped.  What they find on their sample is
 # kept only when the table's own measure agrees, and is labelled measured
+# (one search with its defaults; the others on small budgets, which is all
+# their lines need)
 approx sin(x) in 0..0.7853981 degree 5 as f32 list 2
 approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
-approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 1000
-approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes
-approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 3000
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 300
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes budget 1000
+approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 800
 # an option out of range is refused with its value
 approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
 approx sin(x) in 0..0.5 degree 3 as f32 search greedy
