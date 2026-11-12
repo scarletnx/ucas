@@ -5,8 +5,11 @@
  * stoke.  Markov-chain Monte Carlo over straight-line programs, after
  * STOKE (Schkufza, Sharma, Aiken, "Stochastic superoptimization", 2013):
  * a program is up to `len` instructions over the integer operations the
- * model prices (add sub mul and or xor shl shr not neg) on inputs,
- * earlier results and constants; a proposal changes an opcode, an
+ * model prices (add sub mul and or xor shl shr not neg, and what the
+ * function has: compares, a select, an arithmetic shift, zext and sext
+ * between its widths, loads from its tables, the dot forms where a value
+ * is 32 bits wide) on inputs, earlier results and constants, each
+ * instruction of one width; a proposal changes an opcode, a width, an
  * operand, a constant, a whole instruction, or swaps two, and is accepted
  * by Metropolis-Hastings on cost = Hamming distance to the target on a
  * set of test inputs + the program's price under the model, as the
@@ -1083,12 +1086,16 @@ cmd_phash(struct func *f, uint64_t seed, const struct model *m)
 /* ---- stoke ---- */
 
 enum { SO_UNUSED, SO_ADD, SO_SUB, SO_MUL, SO_AND, SO_OR, SO_XOR, SO_SHL,
-	SO_SHR, SO_NOT, SO_NEG, SO_N };
+	SO_SHR, SO_NOT, SO_NEG, SO_SAR, SO_LTU, SO_LTS, SO_EQ, SO_SEL, SO_ZX,
+	SO_SX, SO_LOAD, SO_DOT, SO_N };
 static const char *const so_name[SO_N] = {"-", "add", "sub", "mul", "and",
-	"or", "xor", "shl", "shr", "not", "neg"};
+	"or", "xor", "shl", "shr", "not", "neg", "sar", "ltu", "lts", "eq",
+	"sel", "zext", "sext", "load", "dot"};
 
 #define ST_MAXLEN 12
 #define ST_MAXT 256
+#define ST_MAXTAB 4
+#define ST_MAXW 6
 
 struct sopnd {
 	uint8_t kind;		/* 0 input, 1 an earlier result, 2 constant */
@@ -1096,9 +1103,15 @@ struct sopnd {
 	uint64_t k;
 };
 
+/*
+ * An instruction w bits wide: its operands are read at w (zero-extended
+ * or cut), its value is kept at w.  zext and sext read their operand at
+ * its own width, a load its index; c is a select's else value and a
+ * saturating dot's accumulator; aux the table or the dot form.
+ */
 struct sins1 {
-	uint8_t op;
-	struct sopnd a, b;
+	uint8_t op, w, aux;
+	struct sopnd a, b, c;
 };
 
 struct sprog {
@@ -1111,14 +1124,40 @@ static struct {
 	int W, len, np, nt;
 	uint64_t mask;
 	uint64_t tin[ST_MAXT][MAXP], tout[ST_MAXT];
+	int pw[MAXP];		/* each parameter's width */
+	int nw, wid[ST_MAXW];	/* the widths an instruction takes */
+	int nops, ops[SO_N];	/* the operations proposed */
+	int ntab;		/* f's tables, for loads */
+	nid tab[ST_MAXTAB];
+	int64_t *tv[ST_MAXTAB];
+	uint32_t tn[ST_MAXTAB];
+	int ndot, dot[O_DOT_LAST - O_DOT_FIRST + 1];	/* priced dot forms */
+	int kw, npool;		/* constants: the widest width, the pool's size */
+	uint64_t kmask;
 	/* statistics */
 	uint64_t proposals, accepted, zeros, verified, cex;
 } ST;
 
+/* operands read: 1, 2, or 3 (a select, a saturating dot) */
 static int
-so_unary(int op)
+so_arity(const struct sins1 *I)
 {
-	return op == SO_NOT || op == SO_NEG;
+	switch (I->op) {
+	case SO_NOT: case SO_NEG: case SO_ZX: case SO_SX: case SO_LOAD:
+		return 1;
+	case SO_SEL:
+		return 3;
+	case SO_DOT:
+		return dot_form(ST.dot[I->aux])->sat ? 3 : 2;
+	}
+	return 2;
+}
+
+/* the operand is read at its own width (not cut or extended to w) */
+static int
+so_own(int op)
+{
+	return op == SO_ZX || op == SO_SX || op == SO_LOAD;
 }
 
 static uint64_t
@@ -1127,12 +1166,27 @@ sopnd_val(const struct sopnd *o, const uint64_t *in, const uint64_t *tmp)
 	return o->kind == 0 ? in[o->ix] : o->kind == 1 ? tmp[o->ix] : o->k;
 }
 
-/* the program's value on one input; *bad: a shift by the width or more */
+/* the width an operand of an instruction w bits wide has */
+static int
+sopnd_w(const struct sprog *p, const struct sopnd *o, int w)
+{
+	return o->kind == 0 ? ST.pw[o->ix] : o->kind == 1 && p->in[o->ix].op !=
+	    SO_UNUSED ? p->in[o->ix].w : w;
+}
+
+static int64_t
+sx64(uint64_t v, int w)
+{
+	return w >= 64 ? (int64_t)v : (int64_t)(v << (64 - w)) >> (64 - w);
+}
+
+/* the program's value on one input; *bad: a shift by the width or more,
+ * a load past its table, a signed dot that overflows */
 static uint64_t
 sp_run(const struct sprog *p, const uint64_t *in, int *bad)
 {
-	uint64_t tmp[ST_MAXLEN], out = 0, a, b;
-	int i;
+	uint64_t tmp[ST_MAXLEN], out = 0, a, b, c, m;
+	int i, w;
 
 	for (i = 0; i < ST.len; i++) {
 		const struct sins1 *I = &p->in[i];
@@ -1140,8 +1194,13 @@ sp_run(const struct sprog *p, const uint64_t *in, int *bad)
 			tmp[i] = 0;
 			continue;
 		}
+		w = I->w;
+		m = wmask64(w);
 		a = sopnd_val(&I->a, in, tmp);
-		b = sopnd_val(&I->b, in, tmp);
+		b = sopnd_val(&I->b, in, tmp) & m;
+		c = sopnd_val(&I->c, in, tmp) & m;
+		if (!so_own(I->op) || I->a.kind == 2)
+			a &= m;
 		switch (I->op) {
 		case SO_ADD: a += b; break;
 		case SO_SUB: a -= b; break;
@@ -1149,24 +1208,41 @@ sp_run(const struct sprog *p, const uint64_t *in, int *bad)
 		case SO_AND: a &= b; break;
 		case SO_OR: a |= b; break;
 		case SO_XOR: a ^= b; break;
-		case SO_SHL:
-			if (b >= (uint64_t)ST.W)
+		case SO_SHL: case SO_SHR: case SO_SAR:
+			if (b >= (uint64_t)w)
 				*bad = 1, a = 0;
 			else
-				a <<= b;
-			break;
-		case SO_SHR:
-			if (b >= (uint64_t)ST.W)
-				*bad = 1, a = 0;
-			else
-				a >>= b;
+				a = I->op == SO_SHL ? a << b : I->op == SO_SHR ? a >> b :
+				    (uint64_t)(sx64(a, w) >> b);
 			break;
 		case SO_NOT: a = ~a; break;
 		case SO_NEG: a = (uint64_t)0 - a; break;
+		case SO_LTU: a = a < b; break;
+		case SO_LTS: a = sx64(a, w) < sx64(b, w); break;
+		case SO_EQ: a = a == b; break;
+		case SO_SEL: a = a ? b : c; break;
+		case SO_ZX: break;
+		case SO_SX: a = (uint64_t)sx64(a, sopnd_w(p, &I->a, w)); break;
+		case SO_LOAD:
+			if (a >= ST.tn[I->aux])
+				*bad = 1, a = 0;
+			else
+				a = (uint64_t)ST.tv[I->aux][a];
+			break;
+		case SO_DOT: {
+			const struct dotform *df = dot_form(ST.dot[I->aux]);
+			uint8_t fl = 0;
+			a = (uint64_t)dot_scalar(ST.dot[I->aux], 0, (int64_t)a,
+			    (int64_t)b, df->sa || df->sb ? sx64(c, 32) : (int64_t)c,
+			    &fl);
+			if (fl & F_SW)
+				*bad = 1;
+			break;
 		}
-		tmp[i] = out = a & ST.mask;
+		}
+		tmp[i] = out = a & m;
 	}
-	return out;
+	return out & ST.mask;
 }
 
 static int
@@ -1188,7 +1264,7 @@ popc(uint64_t v)
  * only for a program not met lately.
  */
 #define ST_CACHE 4096
-#define ST_KEY (3 * ST_MAXLEN)
+#define ST_KEY (5 * ST_MAXLEN)
 
 static struct {
 	uint64_t (*key)[ST_KEY];
@@ -1225,11 +1301,11 @@ sp_live(const struct sprog *p, struct sins1 *out)
 		const struct sins1 *I = &p->in[i];
 		if (!live[i])
 			continue;
-		if (I->a.kind == 1 && p->in[I->a.ix].op != SO_UNUSED)
-			live[I->a.ix] = 1;
-		if (!so_unary(I->op) && I->b.kind == 1 &&
-		    p->in[I->b.ix].op != SO_UNUSED)
-			live[I->b.ix] = 1;
+		for (q = 0; q < so_arity(I); q++) {
+			const struct sopnd *o = q == 0 ? &I->a : q == 1 ? &I->b : &I->c;
+			if (o->kind == 1 && p->in[o->ix].op != SO_UNUSED)
+				live[o->ix] = 1;
+		}
 	}
 	for (i = 0; i <= last; i++) {
 		struct sins1 I;
@@ -1237,17 +1313,21 @@ sp_live(const struct sprog *p, struct sins1 *out)
 			continue;
 		memset(&I, 0, sizeof I);
 		I.op = p->in[i].op;
-		for (q = 0; q < (so_unary(I.op) ? 1 : 2); q++) {
-			const struct sopnd *s = q ? &p->in[i].b : &p->in[i].a;
-			struct sopnd *o = q ? &I.b : &I.a;
+		I.w = p->in[i].w;
+		I.aux = p->in[i].aux;
+		for (q = 0; q < so_arity(&I); q++) {
+			const struct sopnd *s = q == 0 ? &p->in[i].a : q == 1 ?
+			    &p->in[i].b : &p->in[i].c;
+			struct sopnd *o = q == 0 ? &I.a : q == 1 ? &I.b : &I.c;
 			o->kind = s->kind;
 			if (s->kind == 0)
 				o->ix = s->ix;
 			else if (s->kind == 1 && p->in[s->ix].op != SO_UNUSED)
 				o->ix = (uint8_t)map[s->ix];
 			else {
+				/* an unused slot reads as 0 at its reader's width */
 				o->kind = 2;
-				o->k = s->kind == 2 ? s->k : 0;
+				o->k = s->kind == 2 ? s->k & wmask64(I.w) : 0;
 			}
 		}
 		map[i] = n;
@@ -1256,18 +1336,21 @@ sp_live(const struct sprog *p, struct sins1 *out)
 	return n;
 }
 
-/* the live instructions as words: three an instruction */
+/* the live instructions as words: five an instruction */
 static int
 sp_key(const struct sins1 *in, int n, uint64_t *key)
 {
 	int i, at = 0;
 
 	for (i = 0; i < n; i++) {
-		key[at++] = (uint64_t)in[i].op | (uint64_t)in[i].a.kind << 8 |
-		    (uint64_t)in[i].a.ix << 16 | (uint64_t)in[i].b.kind << 24 |
-		    (uint64_t)in[i].b.ix << 32;
+		key[at++] = (uint64_t)in[i].op | (uint64_t)in[i].w << 8 |
+		    (uint64_t)in[i].aux << 16 | (uint64_t)in[i].a.kind << 24 |
+		    (uint64_t)in[i].a.ix << 32 | (uint64_t)in[i].b.kind << 40 |
+		    (uint64_t)in[i].b.ix << 48;
+		key[at++] = (uint64_t)in[i].c.kind | (uint64_t)in[i].c.ix << 8;
 		key[at++] = in[i].a.k;
 		key[at++] = in[i].b.k;
+		key[at++] = in[i].c.k;
 	}
 	return at;
 }
@@ -1320,9 +1403,11 @@ sp_cost(const struct sprog *p, int *dist)
 	return (double)d + sp_perf(p);
 }
 
+/* the constants a proposal draws; the last, a byte of ones in each lane,
+ * only when dot forms are in the set */
 static const uint64_t so_pool[] = {0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32,
 	63, 64, 127, 255, 0x5555555555555555ULL, 0x3333333333333333ULL,
-	0x0f0f0f0f0f0f0f0fULL, 0xffff, ~(uint64_t)0};
+	0x0f0f0f0f0f0f0f0fULL, 0xffff, ~(uint64_t)0, 0x0101010101010101ULL};
 
 static void
 rand_opnd(struct sopnd *o, int at)
@@ -1337,15 +1422,33 @@ rand_opnd(struct sopnd *o, int at)
 		o->ix = (uint8_t)(rnd() % (uint64_t)at);
 	} else {
 		o->kind = 2;
-		o->k = so_pool[rnd() % (sizeof so_pool / sizeof so_pool[0])] &
-		    ST.mask;
+		o->k = so_pool[rnd() % (uint64_t)ST.npool] & ST.kmask;
 	}
+}
+
+/* an operation, and what it takes: its width (a dot is 32 bits wide), its
+ * table or dot form, its third operand.  With one width and none of the
+ * others nothing more is drawn: the add ... neg searches run as before */
+static void
+rand_op(struct sins1 *I, int at)
+{
+	I->op = (uint8_t)ST.ops[rnd() % (uint64_t)ST.nops];
+	if (I->op == SO_DOT)
+		I->w = 32;
+	else
+		I->w = (uint8_t)ST.wid[ST.nw > 1 ? rnd() % (uint64_t)ST.nw : 0];
+	if (I->op == SO_LOAD)
+		I->aux = (uint8_t)(rnd() % (uint64_t)ST.ntab);
+	if (I->op == SO_DOT)
+		I->aux = (uint8_t)(rnd() % (uint64_t)ST.ndot);
+	if (so_arity(I) == 3)
+		rand_opnd(&I->c, at);
 }
 
 static void
 rand_ins(struct sins1 *I, int at)
 {
-	I->op = (uint8_t)(1 + rnd() % (SO_N - 1));
+	rand_op(I, at);
 	rand_opnd(&I->a, at);
 	rand_opnd(&I->b, at);
 }
@@ -1353,15 +1456,20 @@ rand_ins(struct sins1 *I, int at)
 static void
 sp_propose(struct sprog *p)
 {
-	int i = (int)(rnd() % (uint64_t)ST.len), j;
+	int i = (int)(rnd() % (uint64_t)ST.len), j, ar;
 	struct sins1 *I = &p->in[i], t;
 	double r = runif();
 
-	if (r < 0.2) {			/* the opcode */
-		if (I->op != SO_UNUSED)
-			I->op = (uint8_t)(1 + rnd() % (SO_N - 1));
+	if (r < 0.2) {			/* the opcode, or the width alone */
+		if (I->op != SO_UNUSED && I->op != SO_DOT && ST.nw > 1 &&
+		    runif() < 0.5)
+			I->w = (uint8_t)ST.wid[rnd() % (uint64_t)ST.nw];
+		else if (I->op != SO_UNUSED)
+			rand_op(I, i);
 	} else if (r < 0.5) {		/* an operand */
-		rand_opnd(rnd() & 1 ? &I->a : &I->b, i);
+		ar = I->op == SO_UNUSED ? 2 : so_arity(I);
+		rand_opnd(ar == 3 ? (j = (int)(rnd() % 3)) == 0 ? &I->a : j == 1 ?
+		    &I->b : &I->c : rnd() & 1 ? &I->a : &I->b, i);
 	} else if (r < 0.6) {		/* two instructions swapped */
 		j = (int)(rnd() % (uint64_t)ST.len);
 		t = p->in[i];
@@ -1373,6 +1481,8 @@ sp_propose(struct sprog *p)
 				rand_opnd(&p->in[j].a, j);
 			if (p->in[j].b.kind == 1 && p->in[j].b.ix >= j)
 				rand_opnd(&p->in[j].b, j);
+			if (p->in[j].c.kind == 1 && p->in[j].c.ix >= j)
+				rand_opnd(&p->in[j].c, j);
 		}
 	} else if (r < 0.8) {		/* a whole instruction, or none */
 		if (rnd() & 1)
@@ -1387,38 +1497,49 @@ sp_propose(struct sprog *p)
 		switch (rnd() % 5) {
 		case 0: o->k += 1; break;
 		case 1: o->k -= 1; break;
-		case 2: o->k ^= (uint64_t)1 << (rnd() % (uint64_t)ST.W); break;
+		case 2: o->k ^= (uint64_t)1 << (rnd() % (uint64_t)ST.kw); break;
 		case 3: o->k <<= 1; break;
 		default: o->k >>= 1;
 		}
-		o->k &= ST.mask;
+		o->k &= ST.kmask;
 	}
+}
+
+/* an operand as an expression: at the instruction's width, or at its own
+ * (own) for zext, sext and a load's index */
+static nid
+sp_opnd(const struct sins1 *I, const struct sopnd *o, const nid *tmp,
+    int own)
+{
+	ty_t u = TY(K_UINT, I->w);
+	nid v;
+
+	if (o->kind == 2)
+		return mk_const_i(u, (int64_t)(o->k & wmask64(I->w)));
+	if (o->kind == 0)
+		v = mk_cast(TY(K_UINT, ST.pw[o->ix]), mk_var(o->ix,
+		    ST.f->p[o->ix].name, ST.f->p[o->ix].ty));
+	else
+		v = tmp[o->ix] ? tmp[o->ix] : mk_const_i(u, 0);
+	return own ? v : mk_cast(u, v);
 }
 
 /* the program as an expression over f's parameters */
 static nid
 sp_node(const struct sprog *p)
 {
-	ty_t u = TY(K_UINT, ST.W);
-	nid tmp[ST_MAXLEN], out = mk_const_i(u, 0), a, b;
+	nid tmp[ST_MAXLEN], out = mk_const_i(TY(K_UINT, ST.W), 0), a, b, c;
 	int i;
 
 	for (i = 0; i < ST.len; i++) {
 		const struct sins1 *I = &p->in[i];
-		const struct sopnd *o;
-		int q;
-		nid v[2];
-		tmp[i] = mk_const_i(u, 0);
+		ty_t u = TY(K_UINT, I->w), s = TY(K_SINT, I->w);
+		tmp[i] = 0;
 		if (I->op == SO_UNUSED)
 			continue;
-		for (q = 0; q < 2; q++) {
-			o = q ? &I->b : &I->a;
-			v[q] = o->kind == 0 ? mk_cast(u, mk_var(o->ix,
-			    ST.f->p[o->ix].name, ST.f->p[o->ix].ty)) : o->kind == 1 ?
-			    tmp[o->ix] : mk_const_i(u, (int64_t)o->k);
-		}
-		a = v[0];
-		b = v[1];
+		a = sp_opnd(I, &I->a, tmp, so_own(I->op));
+		b = so_arity(I) > 1 ? sp_opnd(I, &I->b, tmp, 0) : 0;
+		c = so_arity(I) > 2 ? sp_opnd(I, &I->c, tmp, 0) : 0;
 		switch (I->op) {
 		case SO_ADD: a = mk_bin(O_ADD, a, b); break;
 		case SO_SUB: a = mk_bin(O_SUB, a, b); break;
@@ -1429,7 +1550,24 @@ sp_node(const struct sprog *p)
 		case SO_SHL: a = mk_bin(O_SHL, a, b); break;
 		case SO_SHR: a = mk_bin(O_SHR, a, b); break;
 		case SO_NOT: a = mk_un(O_NOT, a); break;
-		default: a = mk_un(O_NEG, a);
+		case SO_NEG: a = mk_un(O_NEG, a); break;
+		case SO_SAR: a = mk_cast(u, mk_bin(O_SHR, mk_cast(s, a), b)); break;
+		case SO_LTU: a = mk_cast(u, mk_bin(O_LT, a, b)); break;
+		case SO_LTS:
+			a = mk_cast(u, mk_bin(O_LT, mk_cast(s, a), mk_cast(s, b)));
+			break;
+		case SO_EQ: a = mk_cast(u, mk_bin(O_EQ, a, b)); break;
+		case SO_SEL:
+			a = mk_sel(mk_bin(O_NE, a, mk_const_i(u, 0)), b, c);
+			break;
+		case SO_ZX: a = mk_cast(u, a); break;
+		case SO_SX:
+			a = mk_cast(u, mk_cast(s, mk_cast(TY(K_SINT, sopnd_w(p, &I->a,
+			    I->w)), a)));
+			break;
+		case SO_LOAD: a = mk_cast(u, mk_index(ST.tab[I->aux], a)); break;
+		default:	/* SO_DOT */
+			a = mk_cast(u, mk_dot(ST.dot[I->aux], a, b, c));
 		}
 		tmp[i] = out = a;
 	}
@@ -1442,6 +1580,64 @@ static int lower_at;
 static struct sprog *lower_p;
 static nid lower_n[ST_MAXLEN];
 
+static int sp_lower(nid e, struct sopnd *o);
+static int sp_has_op(int op);
+
+/* a new instruction for e (I filled but for its operands' lowering) */
+static int
+sp_lower_add(nid e, struct sins1 *I, struct sopnd *o)
+{
+	if (lower_at >= ST.len)
+		return 0;
+	lower_n[lower_at] = e;
+	lower_p->in[lower_at] = *I;
+	o->kind = 1;
+	o->ix = (uint8_t)lower_at++;
+	return 1;
+}
+
+/* the width e is lowered at: its own, or for a compare its operands' */
+static int
+sp_lower_w(nid e)
+{
+	ty_t t = N.ty[e];
+
+	if (t == TY_BOOL && N.a[e] && TY_SIZED(N.ty[N.a[e]]))
+		return TYW(N.ty[N.a[e]]);
+	return TY_SIZED(t) ? TYW(t) : 0;
+}
+
+static int
+sp_has_w(int w)
+{
+	int i;
+
+	for (i = 0; i < ST.nw; i++)
+		if (ST.wid[i] == w)
+			return 1;
+	return 0;
+}
+
+/* x = tab[i] read at width w, as the instruction for e */
+static int
+sp_lower_load(nid x, int w, nid e, struct sopnd *o)
+{
+	struct sins1 I;
+	int i;
+
+	for (i = 0; i < ST.ntab && ST.tab[i] != N.a[x]; i++)
+		;
+	if (i == ST.ntab || !sp_has_op(SO_LOAD) || !sp_has_w(w))
+		return 0;
+	memset(&I, 0, sizeof I);
+	I.op = SO_LOAD;
+	I.w = (uint8_t)w;
+	I.aux = (uint8_t)i;
+	if (!sp_lower(N.b[x], &I.a))
+		return 0;
+	return sp_lower_add(e, &I, o);
+}
+
 static int
 sp_lower(nid e, struct sopnd *o)
 {
@@ -1451,19 +1647,16 @@ sp_lower(nid e, struct sopnd *o)
 		{O_NEG, SO_NEG}, {0, 0}};
 	ty_t t = N.ty[e];
 	struct sins1 I;
-	int i, so = 0;
+	int i, so = 0, w = sp_lower_w(e), op = N.op[e];
 
-	while (N.op[e] == O_CAST && TY_SIZED(N.ty[N.a[e]]) && TY_SIZED(t) &&
-	    TYW(N.ty[N.a[e]]) >= TYW(t) && N.op[N.a[e]] == O_VAR)
-		e = N.a[e];
-	if (N.op[e] == O_CONST && TY_ISINT(t)) {
+	if (op == O_CONST && TY_ISINT(t)) {
 		o->kind = 2;
-		o->k = (uint64_t)N.ki[e] & ST.mask;
+		o->k = (uint64_t)N.ki[e] & ST.kmask;
 		return 1;
 	}
-	if (N.op[e] == O_VAR) {
-		if (!TY_SIZED(N.ty[e]) || TYW(N.ty[e]) < ST.W)
-			return 0;	/* an extension is not in the set */
+	if (op == O_VAR) {
+		if (!TY_SIZED(t) || N.ki[e] < 0 || N.ki[e] >= ST.np)
+			return 0;
 		o->kind = 0;
 		o->ix = (uint8_t)N.ki[e];
 		return 1;
@@ -1474,29 +1667,241 @@ sp_lower(nid e, struct sopnd *o)
 			o->ix = (uint8_t)i;
 			return 1;
 		}
-	if (!TY_SIZED(t) || TYW(t) != ST.W || (TYK(t) == K_SINT &&
-	    N.op[e] == O_SHR))
-		return 0;
-	for (i = 0; map[i].so; i++)
-		if (map[i].op == N.op[e])
-			so = map[i].so;
-	if (!so)
+	if (w == 0 || !sp_has_w(w))
 		return 0;
 	memset(&I, 0, sizeof I);
+	I.w = (uint8_t)w;
+	switch (op) {
+	case O_CAST: {
+		ty_t ta = N.ty[N.a[e]];
+		int wa = sp_lower_w(N.a[e]);
+		/* a table of literals read as a machine integer: the load at
+		 * that width */
+		if (TY_ISINT(t) && !TY_SIZED(ta) && N.op[N.a[e]] == O_INDEX)
+			return sp_lower_load(N.a[e], w, e, o);
+		if (!TY_ISINT(t) || !(TY_SIZED(ta) || ta == TY_BOOL) || wa == 0)
+			return 0;
+		if (wa == w)	/* a sign read again, or 0/1 at its width */
+			return sp_lower(N.a[e], o);
+		I.op = wa < w && TYK(ta) == K_SINT ? SO_SX : SO_ZX;
+		if (!sp_has_op(I.op) || !sp_lower(N.a[e], &I.a))
+			return 0;
+		return sp_lower_add(e, &I, o);
+	}
+	case O_LT: case O_GT: case O_LE: case O_GE: case O_EQ: case O_NE: {
+		/* a < b; b < a; !(b < a); !(a < b); a == b; !(a == b) */
+		int sw = op == O_GT || op == O_LE, neg = op == O_LE || op == O_GE ||
+		    op == O_NE;
+		ty_t ta = N.ty[N.a[e]];
+		struct sopnd r;
+		if (!TY_SIZED(ta) || !TY_ISINT(ta))
+			return 0;
+		I.op = op == O_EQ || op == O_NE ? SO_EQ : TYK(ta) == K_SINT ? SO_LTS :
+		    SO_LTU;
+		if (!sp_has_op(I.op) || !sp_lower(N.a[e], sw ? &I.b : &I.a) ||
+		    !sp_lower(N.b[e], sw ? &I.a : &I.b))
+			return 0;
+		if (!neg)
+			return sp_lower_add(e, &I, o);
+		/* the instruction for the compare, then xor 1 for e */
+		if (lower_at >= ST.len)
+			return 0;
+		lower_n[lower_at] = 0;
+		lower_p->in[lower_at] = I;
+		r.kind = 1;
+		r.ix = (uint8_t)lower_at++;
+		r.k = 0;
+		memset(&I, 0, sizeof I);
+		I.op = SO_XOR;
+		I.w = (uint8_t)w;
+		I.a = r;
+		I.b.kind = 2;
+		I.b.k = 1;
+		return sp_lower_add(e, &I, o);
+	}
+	case O_SEL:
+		if (!TY_SIZED(t) || !sp_has_op(SO_SEL))
+			return 0;
+		I.op = SO_SEL;
+		if (!sp_lower(N.a[e], &I.a) || !sp_lower(N.b[e], &I.b) ||
+		    !sp_lower(N.c[e], &I.c))
+			return 0;
+		return sp_lower_add(e, &I, o);
+	case O_INDEX:
+		return sp_lower_load(e, w, e, o);
+	}
+	if (IS_DOT(op)) {
+		for (i = 0; i < ST.ndot && ST.dot[i] != op; i++)
+			;
+		if (i == ST.ndot || w != 32)
+			return 0;
+		I.op = SO_DOT;
+		I.aux = (uint8_t)i;
+		if (!sp_lower(N.a[e], &I.a) || !sp_lower(N.b[e], &I.b) ||
+		    (dot_form(op)->sat && !sp_lower(N.c[e], &I.c)))
+			return 0;
+		return sp_lower_add(e, &I, o);
+	}
+	if (!TY_SIZED(t) || !TY_ISINT(t))
+		return 0;
+	for (i = 0; map[i].so; i++)
+		if (map[i].op == op)
+			so = map[i].so;
+	if (so == SO_SHR && TYK(t) == K_SINT)
+		so = SO_SAR;
+	if (!so || !sp_has_op(so))
+		return 0;
 	I.op = (uint8_t)so;
 	if (!sp_lower(N.a[e], &I.a))
 		return 0;
-	if (so_unary(so))
+	if (so == SO_NOT || so == SO_NEG)
 		I.b = I.a;
 	else if (!sp_lower(N.b[e], &I.b))
 		return 0;
-	if (lower_at >= ST.len)
-		return 0;
-	lower_n[lower_at] = e;
-	lower_p->in[lower_at] = I;
-	o->kind = 1;
-	o->ix = (uint8_t)lower_at++;
-	return 1;
+	return sp_lower_add(e, &I, o);
+}
+
+static int
+sp_has_op(int op)
+{
+	int i;
+
+	for (i = 0; i < ST.nops; i++)
+		if (ST.ops[i] == op)
+			return 1;
+	return 0;
+}
+
+static void
+sp_add_w(int w)
+{
+	if (w > 0 && w <= 64 && !sp_has_w(w) && ST.nw < ST_MAXW)
+		ST.wid[ST.nw++] = w;
+}
+
+/*
+ * What a search draws from: add ... neg always; the compares, the
+ * select and the arithmetic shift where f has a compare, a select or a
+ * signed shift; zext and sext where f's values have more than one width
+ * (each of them a width an instruction takes, f's own first); a load
+ * for each of f's tables of integer constants; the dot forms the model
+ * prices where one of f's widths is 32.  With none of them it is the
+ * search it always was, draw for draw.
+ */
+static void
+sp_setup(const struct func *f, const struct model *m)
+{
+	nid seen[1024], st[1024], e;
+	int nseen = 0, sp = 0, i, j, cmpsel = 0;
+
+	ST.nw = 0;
+	sp_add_w(ST.W);
+	for (j = 0; j < ST.np; j++) {
+		ST.pw[j] = TYW(f->p[j].ty);
+		sp_add_w(ST.pw[j]);
+	}
+	st[sp++] = f->body;
+	while (sp > 0) {
+		e = st[--sp];
+		for (i = 0; i < nseen && seen[i] != e; i++)
+			;
+		if (i < nseen || nseen == 1024)
+			continue;
+		seen[nseen++] = e;
+		if (TY_SIZED(N.ty[e]) && TY_ISINT(N.ty[e]))
+			sp_add_w(TYW(N.ty[e]));
+		if ((opinfo[N.op[e]].fl & OF_CMP) || N.op[e] == O_SEL ||
+		    (N.op[e] == O_SHR && TYK(N.ty[e]) == K_SINT))
+			cmpsel = 1;
+		if (N.op[e] == O_INDEX && N.op[N.a[e]] == O_TABLE &&
+		    ST.ntab < ST_MAXTAB) {
+			nid tb = N.a[e];
+			uint32_t k;
+			for (i = 0; i < ST.ntab && ST.tab[i] != tb; i++)
+				;
+			for (k = 0; i == ST.ntab && k < N.b[tb]; k++) {
+				nid x = N.lst[N.a[tb] + k];
+				if (N.op[x] != O_CONST || (!TY_ISINT(N.ty[x]) &&
+				    TYK(N.ty[x]) != K_LIT))
+					break;
+			}
+			if (i == ST.ntab && k == N.b[tb]) {
+				ST.tab[ST.ntab] = tb;
+				ST.tn[ST.ntab] = N.b[tb];
+				ST.tv[ST.ntab] = xmalloc(((size_t)N.b[tb] + 1) *
+				    sizeof *ST.tv[ST.ntab]);
+				for (k = 0; k < N.b[tb]; k++)
+					ST.tv[ST.ntab][k] = N.ki[N.lst[N.a[tb] + k]];
+				ST.ntab++;
+			}
+		}
+		if (N.op[e] == O_CONST || N.op[e] == O_VAR || N.op[e] == O_TABLE ||
+		    N.op[e] == O_UNDEF)
+			continue;
+		if (N.a[e] && sp < 1024)
+			st[sp++] = N.a[e];
+		if (N.b[e] && sp < 1024)
+			st[sp++] = N.b[e];
+		if (N.c[e] && sp < 1024)
+			st[sp++] = N.c[e];
+	}
+	for (i = O_DOT_FIRST; i <= O_DOT_LAST && sp_has_w(32); i++)
+		if (cclass_available(m, DOT_CLASS(i)))
+			ST.dot[ST.ndot++] = i;
+	ST.nops = 0;
+	for (i = SO_ADD; i <= SO_NEG; i++)
+		ST.ops[ST.nops++] = i;
+	if (cmpsel)
+		for (i = SO_SAR; i <= SO_SEL; i++)
+			ST.ops[ST.nops++] = i;
+	if (ST.nw > 1) {
+		ST.ops[ST.nops++] = SO_ZX;
+		ST.ops[ST.nops++] = SO_SX;
+	}
+	if (ST.ntab)
+		ST.ops[ST.nops++] = SO_LOAD;
+	if (ST.ndot)
+		ST.ops[ST.nops++] = SO_DOT;
+	ST.kw = ST.W;
+	for (i = 0; i < ST.nw; i++)
+		if (ST.wid[i] > ST.kw)
+			ST.kw = ST.wid[i];
+	ST.kmask = wmask64(ST.kw);
+	ST.npool = (int)(sizeof so_pool / sizeof so_pool[0]) - (ST.ndot ? 0 : 1);
+}
+
+static void
+sp_release(void)
+{
+	int i;
+
+	for (i = 0; i < ST.ntab; i++)
+		free(ST.tv[i]);
+	ST.ntab = 0;
+}
+
+/* "add sub ... neg", then what f adds: the compares, the widths, the
+ * tables, the dot forms by name */
+static void
+sp_set_text(struct sbuf *b)
+{
+	int i;
+
+	for (i = 0; i < ST.nops; i++) {
+		if (ST.ops[i] == SO_DOT) {
+			int d;
+			for (d = 0; d < ST.ndot; d++)
+				sb_printf(b, " %s", dot_form(ST.dot[d])->name);
+		} else
+			sb_printf(b, "%s%s", i ? " " : "", so_name[ST.ops[i]]);
+	}
+	if (ST.nw > 1) {
+		sb_printf(b, "; widths");
+		for (i = 0; i < ST.nw; i++)
+			sb_printf(b, " %d", ST.wid[i]);
+	}
+	if (ST.ntab)
+		sb_printf(b, "; %d table%s", ST.ntab, ST.ntab == 1 ? "" : "s");
 }
 
 /* a test input: f's value there, when it is defined */
@@ -1534,7 +1939,7 @@ st_add_test(const int64_t *in)
 		return 0;
 	for (t = 0; t < ST.nt; t++) {
 		for (j = 0; j < ST.np; j++)
-			if (ST.tin[t][j] != ((uint64_t)in[j] & ST.mask))
+			if (ST.tin[t][j] != ((uint64_t)in[j] & wmask64(ST.pw[j])))
 				break;
 		if (j == ST.np)
 			return 0;	/* already a test */
@@ -1548,7 +1953,7 @@ st_add_test(const int64_t *in)
 	if (!ok[0] || (COLF(&p, loc)[0] & F_UNDEF))
 		return 0;
 	for (j = 0; j < ST.np; j++)
-		ST.tin[ST.nt][j] = (uint64_t)in[j] & ST.mask;
+		ST.tin[ST.nt][j] = (uint64_t)in[j] & wmask64(ST.pw[j]);
 	ST.tout[ST.nt++] = (uint64_t)COLI(&p, loc)[0] & ST.mask;
 	return 1;
 }
@@ -1643,6 +2048,7 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 	ST.np = f->np;
 	ST.mask = wmask64(ST.W);
 	sc_free();
+	sp_setup(f, m);
 	rseed(seed);
 	/* the tests: the ends of the ranges, then random points */
 	for (j = 0; j < f->np; j++)
@@ -1661,8 +2067,10 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 		}
 		st_add_test(in);
 	}
-	if (ST.nt == 0)
+	if (ST.nt == 0) {
+		sp_release();
 		fail("stoke: %s is defined nowhere on the points tried", fnm(f));
+	}
 	cf = dag_cost(m, f->body);
 	/* the function itself as a program: where the optimisation starts */
 	memset(&start, 0, sizeof start);
@@ -1670,11 +2078,16 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 	lower_p = &start;
 	if (sp_lower(f->body, &o) && o.kind == 1 && lower_at > 0)
 		have_start = 1;
-	printf("stoke %s under %s: Metropolis-Hastings over programs of up to "
-	    "%d instructions (add sub mul and or xor shl shr not neg),\n  %d "
-	    "chain%s of %ld proposals, seed %llu; %s as written costs %g\n",
-	    fnm(f), sym_str(m->name), len, restarts, restarts == 1 ? "" : "s",
-	    steps, (unsigned long long)seed, fnm(f), cf);
+	{
+		struct sbuf set = {0};
+		sp_set_text(&set);
+		printf("stoke %s under %s: Metropolis-Hastings over programs of up "
+		    "to %d instructions (%s),\n  %d chain%s of %ld proposals, seed "
+		    "%llu; %s as written costs %g\n", fnm(f), sym_str(m->name), len,
+		    set.p, restarts, restarts == 1 ? "" : "s", steps,
+		    (unsigned long long)seed, fnm(f), cf);
+		free(set.p);
+	}
 	rep_begin("stoke");
 	rep_str("model", sym_str(m->name));
 	rep_int("seed", (long long)seed);
@@ -1748,6 +2161,7 @@ cmd_stoke(struct func *f, long steps, int restarts, int len, uint64_t seed,
 	}
 	st_add_test(NULL);
 	sc_free();
+	sp_release();
 	printf("  %llu proposals, %llu accepted, %llu at distance 0 on the "
 	    "%d tests (%llu counterexamples joined them), %llu verified\n",
 	    (unsigned long long)ST.proposals, (unsigned long long)ST.accepted,
