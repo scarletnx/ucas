@@ -2441,11 +2441,24 @@ exec_glslvec(const struct sins *I, uint32_t mask, int rt, int st, int nc)
 
 /* ---- matrices ---- */
 
+/* nops multiplies or multiply-adds of scalar type st, as the cover prices
+ * the same arithmetic written out with its multiply-adds fused: fmul
+ * each, times the model's f64 factor for f64 */
+static double
+fma_price(int st, int nops)
+{
+	double c = model_active()->c[C_FMUL] * nops;
+
+	if (st >= 0 && T(st)->k == S_FLOAT && T(st)->w == 64)
+		c *= model_active()->c[C_F64];
+	return c;
+}
+
 static int
 exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
 {
 	const char *op = I->op;
-	int l, i, j, q, k, n = 0;
+	int l, i, j, q, k, n = 0, nops = 0;
 
 	if (strcmp(op, "OpTranspose") && strcmp(op, "OpMatrixTimesScalar") &&
 	    strcmp(op, "OpVectorTimesMatrix") && strcmp(op,
@@ -2470,8 +2483,9 @@ exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
 				for (j = 0; j < R; j++)
 					v[j * C + i] = AF(x, i * R + j);
 			n = C * R;
+			nops = 0;	/* moves */
 		} else if (!strcmp(op, "OpMatrixTimesScalar")) {
-			n = ncomp(at);
+			n = nops = ncomp(at);
 			for (i = 0; i < n; i++)
 				v[i] = AF(x, i) * AF(y, 0);
 		} else if (!strcmp(op, "OpVectorTimesMatrix")) {
@@ -2481,12 +2495,14 @@ exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
 				for (j = 0; j < R; j++)
 					v[i] += AF(x, j) * AF(y, i * R + j);
 			n = C;
+			nops = C * R;
 		} else if (!strcmp(op, "OpMatrixTimesVector")) {
 			int C = T(at)->n, R = ncomp(T(at)->e);
 			for (j = 0; j < R; j++)
 				for (i = 0; i < C; i++)
 					v[j] += AF(x, i * R + j) * AF(y, i);
 			n = R;
+			nops = C * R;
 		} else if (!strcmp(op, "OpMatrixTimesMatrix")) {
 			/* A (K columns of R) * B (C columns of K) */
 			int K = T(at)->n, R = ncomp(T(at)->e), C = T(bt)->n;
@@ -2495,12 +2511,13 @@ exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
 					for (q = 0; q < K; q++)
 						v[i * R + j] += AF(x, q * R + j) * AF(y, i * K + q);
 			n = C * R;
+			nops = C * R * K;
 		} else {	/* OuterProduct: column i is a * b[i] */
 			int R = vcomp(a), C = vcomp(b);
 			for (i = 0; i < C; i++)
 				for (j = 0; j < R; j++)
 					v[i * R + j] = AF(x, j) * AF(y, i);
-			n = C * R;
+			n = nops = C * R;
 		}
 #undef AF
 		r = LV(I->res, l);
@@ -2508,8 +2525,10 @@ exec_matrix(const struct sins *I, uint32_t mask, int rt, int st)
 		for (i = 0; i < n && i < MAXCOMP; i++)
 			r->b[i] = putf(st, v[i]);
 	}
-	k = emit(I, I_OP, C_FMUL, model_active()->c[C_FMUL] * (n > 0 ? n : 1),
-	    mask);
+	/* a product of R x K by K x C is C R dot products of K terms: one
+	 * multiply and K - 1 multiply-adds each, every one priced as fmul */
+	k = nops ? emit(I, I_OP, C_FMUL, fma_price(st, nops), mask) :
+	    emit(I, I_OP, -1, 0, mask);
 	emit_vals(k, I, mask);
 	return 1;
 }
@@ -2767,7 +2786,7 @@ exec_one(const struct sins *I, uint32_t mask)
 						    getf(sa, y.b[0]));
 			}
 		cls = C_FMUL;
-		cost = model_active()->c[C_FMUL] * n;
+		cost = fma_price(sa, n);
 		k = emit(I, I_OP, cls, cost, mask);
 		emit_vals(k, I, mask);
 		return;

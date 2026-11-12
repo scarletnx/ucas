@@ -1,0 +1,19 @@
+# animate exec prices a dot product and a matrix product as their
+# multiply-adds (one multiply and K - 1 multiply-adds for each K-term
+# dot), each fmul, times the f64 factor in f64; a transpose only moves
+#
+# a dot of dvec3: three f64 multiply-adds (97.125 under gt1030)
+animate exec seed 1 nofile
+```glsl
+float h(vec3 a, vec3 b) { dvec3 A = dvec3(a), B = dvec3(b); return float(dot(A, B)); }
+```
+# dmat2 * dvec2: four
+animate exec seed 1 nofile
+```glsl
+float h2(vec2 a, mat2 m) { dvec2 A = dvec2(a); dmat2 M = dmat2(m); return float((M * A).x); }
+```
+# mat3 * vec3 in f32: nine fmul, and a transpose costs nothing
+animate exec seed 1 nofile
+```glsl
+vec3 h3(vec3 a, mat3 m) { return transpose(m) * a; }
+```
