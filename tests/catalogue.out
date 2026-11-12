@@ -1,0 +1,323 @@
+> show bfe(0xdeadbeef, 8, 12)
+_() = 3518
+  -> u32
+> show sbfe(0xdeadbeef, 8, 12)
+_() = -578
+  -> i32
+> show bfe(0xdeadbeef, 0, 32)
+_() = 3735928559
+  -> u32
+> show bfe(0xdeadbeef, 5, 0)
+_() = 0
+  -> u32
+> show brev(1)
+_() = 2147483648
+  -> u32
+> show brev(0x80000001)
+_() = 2147483649
+  -> u32
+> show mulhi(0xffffffff, 0xffffffff)
+_() = 4294967294
+  -> u32
+> show smulhi(-1, 0x7fffffff)
+_() = -1
+  -> i32
+> show smulhi(-2147483648, -2147483648)
+_() = 1073741824
+  -> i32
+> show funl(0x12345678, 0x9abcdef0, 8)
+_() = 878082202
+  -> u32
+> show funr(0x12345678, 0x9abcdef0, 8)
+_() = 2023406814
+  -> u32
+> show funl(0x12345678, 0x12345678, 0)
+_() = 305419896
+  -> u32
+> show med3(5, 1, 9)
+_() = 5
+  -> int
+> show med3(-5, 1, 9)
+_() = 1
+  -> int
+> show med3(15, 9, 1)
+_() = 9
+  -> int
+> show usad4x8(0x01020304, 0x04030201, 10)
+_() = 18
+  -> u32
+> show byteperm(0x44332211, 0x88776655, 0x0123)
+_() = 287454020
+  -> u32
+> show byteperm(0x44332211, 0x88776655, 0x7654)
+_() = 2289526357
+  -> u32
+> show byteperm(0x443322f1, 0x88776655, 0x8088)
+_() = 4294049791
+  -> u32
+> range bfe(x: u32, 4, 8)
+range of bfe(x, 4, 8) -> u32:
+  0..255
+  fits in u8
+  sampled 65536 points (domain has 4294967296 points); not exhaustive
+  sound bound (intervals): 0..255
+> range med3(x: i32, -3, 7)
+range of med3(x, -3, 7) -> i32:
+  -3..7
+  fits in i4
+  sampled 65536 points (domain has 4294967296 points); not exhaustive
+  sound bound (intervals): -3..7
+> d1(x: u32) = bfe(x, 8, 8)
+> d2(x: u32) = (x >> 8) & 255
+> equiv d1 d2
+d1 and d2 are equal on the domain of d1 (proved by SAT: 33 AIG nodes, 0 conflicts)
+> ro1(x: u32 in 0..1023, k: u32 in 0..31) = funl(x, x, k)
+> ro2(x: u32 in 0..1023, k: u32 in 0..31) = k == 0 ? x : (x << k) | (x >> (32 - k))
+> equiv ro1 ro2
+ro1 and ro2 are equal on the domain of ro1 (exhaustive)
+> mh1(a: u32 in 4294967000..4294967295, b: u32 in 0..4095) = mulhi(a, b)
+> mh2(a: u32 in 4294967000..4294967295, b: u32 in 0..4095) = u32((u64(a) * u64(b)) >> 32)
+> equiv mh1 mh2
+mh1 and mh2 are equal on the domain of mh1 (exhaustive)
+> sa1(a: u32 in 0..1023, b: u32 in 0..1023) = usad4x8(a, b, 7)
+> sa2(a: u32 in 0..1023, b: u32 in 0..1023) = abs(int(a & 255) - int(b & 255)) + abs(int(a >> 8) - int(b >> 8)) + 7
+> equiv sa1 sa2
+sa1 and sa2 are equal on the domain of sa1 (exhaustive)
+> bp1(x: u32) = byteperm(x, 0, 0x0123)
+> bp2(x: u32) = (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24)
+> equiv bp1 bp2
+bp1 and bp2 are equal on the domain of bp1 (proved by SAT: 33 AIG nodes, 0 conflicts)
+> bad1(x: u32) = bfe(x, 30, 5)
+catalogue.ucas:53:29: error: bfe: bits 30..34 are not a field of a 32-bit word
+    bad1(x: u32) = bfe(x, 30, 5)
+                                ^
+> bad2(x: u32, y: u32) = funl(x, y, 32)
+catalogue.ucas:54:38: error: funl: a shift of 32 is not in 0..31
+    bad2(x: u32, y: u32) = funl(x, y, 32)
+                                         ^
+> vf(x: u32 in 0..3, p: u32 in 0..40, n: u32 in 0..40) = bfe(x, p, n)
+> domain vf
+domain of vf:
+  x: u32, 0..3
+  p: u32, 0..40
+  n: u32, 0..40
+  requires p + n <= 32  (a field of the word)
+  defined at 2244 of 6724 points
+  undefined e.g. at x=0, p=33, n=0; x=1, p=33, n=0; x=2, p=33, n=0; x=3, p=33, n=0
+  over all 6724 points of the domain
+> vs(x: u32 in 0..3, y: u32 in 0..3, k: u32 in 0..40) = funr(x, y, k)
+> domain vs
+domain of vs:
+  x: u32, 0..3
+  y: u32, 0..3
+  k: u32, 0..40
+  requires 0 <= k < 32  (funnel shift amount)
+  defined at 512 of 656 points
+  undefined e.g. at x=0, y=0, k=32; x=1, y=0, k=32; x=2, y=0, k=32; x=3, y=0, k=32
+  over all 656 points of the domain
+> cost d1
+cost of d1 under gt1030: inf (1 operations, shared subterms counted once)
+  bfe              1 x inf   = inf
+  bfe is not available under gt1030 (the model lists no such instruction)
+> find d2 1
+find d2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  cost 3   x >> 8 & 0xff0000ff                      mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rev32(x: u32) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); b = ((a >> 2) & 0x33333333) | ((a & 0x33333333) << 2); c = ((b >> 4) & 0x0f0f0f0f) | ((b & 0x0f0f0f0f) << 4); d = ((c >> 8) & 0x00ff00ff) | ((c & 0x00ff00ff) << 8); (d >> 16) | (d << 16) }
+> find rev32 1
+find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
+> use cat
+cost model: cat
+> cost d1
+cost of d1 under cat: 1 (1 operations, shared subterms counted once)
+  bfe              1 x 1     = 1
+> find d2 1
+find d2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 3 as written):
+  cost 1   bfe(x, 8, 8)
+           x >> 8 & 0xff: bits 8..15 of x
+           checked by SAT
+  cost 3   x >> 8 & 0xff0000ff                      mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> top(x: u32) = (x << 4) >> 20
+> find top 1
+find top: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 4 as written):
+  cost 1   bfe(x, 16, 12)
+           x << 4 >> 0x14: bits 16..27 of x
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sx(x: i32) = (x << 20) >> 24
+> find sx 1
+find sx: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from cat
+  instructions under cat (each for the pattern it is; cost 4 as written):
+  cost 1   sbfe(u32(x), 4, 8)
+           x << 20 >> 0x18: bits 4..11 of x with their sign
+           checked by SAT
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> r7(x: u32) = (x << 7) | (x >> 25)
+> find r7 1
+find r7: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 5 as written):
+  cost 1   funl(x, x, 7)
+           x << 7 | x >> 0x19: the high word of (x:x) << 7 (the two fields share no bit)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> h1(a: u32, b: u32) = u32((u64(a) * u64(b)) >> 32)
+> find h1 1
+find h1: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 5 as written):
+  cost 1   mulhi(a, b)
+           u32(u64(a)*u64(b) >> 0x20): the high half of the 64-bit product
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> h2(a: i32, b: i32) = i32((i64(a) * i64(b)) >> 32)
+> find h2 1
+find h2: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from cat
+  instructions under cat (each for the pattern it is; cost 5 as written):
+  cost 1   smulhi(a, b)
+           i32(i64(a)*i64(b) >> 0x20): the high half of the 64-bit product
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> d5(a: u32) = u32((u64(a) * 0xcccccccd) >> 34)
+> find d5 1
+find d5: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 5 as written):
+  cost 3   mulhi(3435973837, a) >> 2
+           u32(3435973837u64(a) >> 0x22): the high half of the 64-bit product, shifted by what is left
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cl(x: i32, lo: i32 in -10..5, hi: i32 in 5..90) = max(lo, min(x, hi))
+> find cl 1
+find cl: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from cat
+  instructions under cat (each for the pattern it is; cost 2 as written):
+  cost 1   med3(x, lo, hi)
+           max(lo, min(x, hi)): x clamped to lo..hi, which is their median since lo <= hi (5 <= 5, by intervals)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> cx(x: i32, lo: i32 in -10..5, hi: i32 in 4..90) = max(lo, min(x, hi))
+> find cx 1
+find cx: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from cat
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find rev32 1
+find rev32: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 29 as written):
+  cost 1   brev(x)
+           d >> 0x10 | d << 16 where a = x >> 1 & 0x55555555 | (x & 0x55555555) << 1, b = a… (134 more characters): bit i is bit 31 - i of x (linear over GF(2) by its structure, every row one bit)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find bp2 1
+find bp2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 11 as written):
+  cost 1   byteperm(x, x, 0x123)
+           x >> 0x18 | x >> 8 & 0xff00 | x << 8 & 0xff0000 | x << 24: the bytes 3, 2, 1, 0 of x (linear over GF(2) by its structure, every row one bit, whole bytes moved)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mix(x: u32, y: u32) = ((x << 4) >> 20) + rev32(y)
+> find mix 1
+find mix: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from cat
+  instructions under cat (each for the pattern it is; cost 33 as written):
+  cost 3   bfe(x, 16, 12) + brev(y)
+           t4 >> 0x10 | t4 << 16 where t1 = y >> 1 & 0x55555555 | (y & 0x55555555) << 1, t2… (146 more characters): bit i is bit 31 - i of y (linear over GF(2) by its structure, every row one bit)
+           x << 4 >> 0x14: bits 16..27 of x
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model onlybfe : gt1030 { bfe: 1 }
+> use onlybfe
+cost model: onlybfe
+> find mix 1
+find mix: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from onlybfe
+  instructions under onlybfe (each for the pattern it is; cost 33 as written):
+  cost 31  bfe(x, 16, 12) + (t4 >> 0x10 | t4 << 16) where t1 = y >> 1 & 0x55555555 | (y & 0x55555555) << 1, t2 = t1 >> 2 & 0x33333333 | (t1 & 0x33333333) << 2, t3 = t2 >> 4 & 0xf0f0f0f | (t2 & 0xf0f0f0f) << 4, t4 = t3 >> 8 & 0xff00ff | (t3 & 0xff00ff) << 8
+           x << 4 >> 0x14: bits 16..27 of x
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> models
+model gt1030 (active) { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+model sm75 { iadd: 1, logic: 1, shift: 1, imul: 1, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 4, conv: 4, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model sm86 { iadd: 2, logic: 2, shift: 2, imul: 2, idiv: 28.5, idivk: 8.75, cmp: 2.75, select: 1.625, minmax: 2, bitcnt: 8, conv: 8, bitcast: 0, fadd: 1, fmul: 1, fdiv: 6, fsqrt: 8, ftrans: 8, fpow: 8, f64: 64, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 2, dot4x8sat: 13, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model rdna2 { iadd: 1, logic: 1, shift: 1, imul: 4, idiv: 28.5, idivk: 8.75, cmp: 1.375, select: 1.625, minmax: 1, bitcnt: 1, conv: 1, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 16, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, udot4x8: 1, sdot4x8: 1, udot8x4: 1, sdot8x4: 1, udot4x8sat: 1, sdot4x8sat: 1, udot8x4sat: 1, sdot8x4sat: 1, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+model skl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model skx { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 2, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8, barrier: 33, atomic_shared: 18, atomic_global: 18, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model glc { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model rpl { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 15, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 2, fmul: 4, fdiv: 11, fsqrt: 12, ftrans: 18, fpow: 54, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 15, sdivk: 5, irem: 15, iremk: 5, srem: 15, sremk: 5, sudot4x8: 11, sdot2x16: 11, sudot4x8sat: 11, sdot2x16sat: 11 }
+model zen4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 14, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 1, conv: 4, bitcast: 3, fadd: 3, fmul: 3, fdiv: 10, fsqrt: 15, ftrans: 18, fpow: 54, f64: 1, load: 4, branch: 1, diverge: 6.5, barrier: 33, atomic_shared: 8, atomic_global: 8, store: 1, sdiv: 14, sdivk: 5, irem: 14, iremk: 5, srem: 14, sremk: 5, sudot4x8: 10, sdot2x16: 10, sudot4x8sat: 10, sdot2x16sat: 10 }
+model x86v2 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v3 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model x86v4 { iadd: 1, logic: 1, shift: 1, imul: 3, idiv: 36, idivk: 5, cmp: 1, select: 1, minmax: 2, bitcnt: 3, conv: 5, bitcast: 3, fadd: 4, fmul: 4, fdiv: 11, fsqrt: 15, ftrans: 20, fpow: 60, f64: 1, load: 5, branch: 1, diverge: 8.5, barrier: 33, atomic_shared: 20, atomic_global: 20, store: 1, sdiv: 36, sdivk: 5, irem: 36, iremk: 5, srem: 36, sremk: 5 }
+model cat { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32
+model onlybfe { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75, cmp: 2.375, select: 1.625, minmax: 1, bitcnt: 3, conv: 3, bitcast: 0, fadd: 1, fmul: 1, fdiv: 3, fsqrt: 4, ftrans: 4, fpow: 8, f64: 32.375, load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125, atomic_shared: 6.625, atomic_global: 50, store: 15, sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5, srem: 39.75, sremk: 25.75, dot4x8: 1, dot4x8sat: 6.5, load_shared: 3, store_shared: 3, load_ubo: 4.125, load_ubo_div: 148.125, load_stream: 80.625, store_stream: 111, bank_conflict: 4, atomic_shared_same: 63.75, atomic_shared_f: 24.25, atomic_global_f: 138.75, atomic_global_64: 264.625, atomic_global_cas: 143.5, atomic_global_stream: 137.5, tex_fetch: 43.125, tex_sample: 21.625, tex_sample_f32: 54.75, image_load: 31.875, banks: 32, bank_bytes: 4, warp: 32, sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25, bfe: 1 }
+  fuse lop3 = lut 3 : logic
+  fuse imad(a: int, b: int, c: int) = a*b + c : imul
+  fuse shl_add(a: int, k: const, b: int) = (a << k) + b : shift
+  fuse shr_add(a: int, k: const, b: int) = (a >> k) + b : shift
+  fuse ffma(a: float, b: float, c: float) = a*b + c : fmul contract
+  fuse ffms(a: float, b: float, c: float) = a*b - c : fmul contract
+  fuse ffmr(a: float, b: float, c: float) = c - a*b : fmul contract
+  fuse fneg(a: float) = -a : 0 in fadd fmul
+  fuse fabs(a: float) = abs(a) : 0 in fadd fmul
+  folds f32 -> f16 -> f32

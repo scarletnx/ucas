@@ -1,0 +1,5 @@
+{"id": 1, "cmd": "cost", "args": {"f": "bfe(x: u32, 8, 8) + brev(x)"}}
+{"id": 2, "cmd": "find", "args": {"f": {"body": "(x >> 8) & 255", "params": [{"name": "x", "type": "u32"}]}, "n": 1}}
+{"id": 3, "cmd": "ucas", "args": {"source": "model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }\nuse cat"}}
+{"id": 4, "cmd": "find", "args": {"f": {"body": "((x << 4) >> 20) + max(lo, min(y, 90))", "params": [{"name": "x", "type": "u32"}, {"name": "lo", "type": "u32", "range": [0, 50]}, {"name": "y", "type": "u32"}]}, "n": 1}}
+{"id": 5, "cmd": "range", "args": {"f": "sbfe(x: u32, 4, 8)"}}

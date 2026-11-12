@@ -2468,8 +2468,8 @@ under; the whole is then checked against the function on its domain
 > t3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = T(i) + T(j) * T(k)       (T an 8-entry table)
 > find t3 1
   cost 21.875 sg_shuffle(t1, i) + sg_shuffle(t1, j)*sg_shuffle(t1, k) where t1 = [3, 1, 4, 1, 5, 9, 2, 6, 0, ...][lane]
-> brev(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); ... (d >> 16) | (d << 16) }
-> find brev 1                                (29 as written: five swaps)
+> rev32(x: u32 uniform) = { a = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1); ... (d >> 16) | (d << 16) }
+> find rev32 1                               (29 as written: five swaps)
   cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
 ```
 
@@ -2490,6 +2490,96 @@ Not there yet: `animate exec` and `simplify` do not run or write the
 OpGroupNonUniform instructions; a subgroup with inactive lanes; inputs
 that are a free value in each lane (they need more than a function's 8
 parameters).
+
+### A catalogue of instructions
+
+Targets have single instructions for things the base operations take
+several steps to say.  src/inst.c lists them as operations of the
+language, each defined by an expression over the base operations: that
+expression is its exact semantics, and it is how the operation is
+evaluated, bounded and bit-blasted (it is spelled out first, as the
+subgroup operations are), so `range`, `equiv`, `domain` and `find`
+handle it like its definition.  The node keeps the operation for
+printing and for the price.
+
+| op | value (32-bit words) | instructions |
+|---|---|---|
+| `bfe(x, p, n)` | bits p..p+n-1 of x, zero-extended; n = 0 is 0; undefined when p + n > 32 | OpBitFieldUExtract; BFE; v_bfe_u32 |
+| `sbfe(x, p, n)` | the same field sign-extended (i32) | OpBitFieldSExtract; BFE; v_bfe_i32 |
+| `brev(x)` | bit i is bit 31 - i of x | OpBitReverse; BREV; v_bfrev_b32 |
+| `mulhi(a, b)`, `smulhi(a, b)` | the high 32 bits of the 64-bit product of two u32, of two i32 | OpUMulExtended, OpSMulExtended; IMAD.HI; v_mul_hi_u32/i32 |
+| `funl(hi, lo, k)` | the high word of (hi:lo) << k, k in 0..31; `funl(x, x, k)` is a rotate | SHF.L |
+| `funr(hi, lo, k)` | the low word of (hi:lo) >> k, k in 0..31 | SHF.R; v_alignbit_b32 (v_alignbyte with k = 8n) |
+| `med3(a, b, c)` | the median of three integers; with lo <= hi, `med3(x, lo, hi)` is x clamped | v_med3_i32/u32; SClamp, UClamp where lo <= hi |
+| `usad4x8(a, b, c)` | c plus the sum of the absolute differences of the four bytes of a and b | v_sad_u8 |
+| `byteperm(a, b, s)` | each byte one of the eight of b:a: nibble i of s picks result byte i by its low three bits, and its top bit asks for eight copies of that byte's sign bit | PRMT (the form without a mode) |
+
+**Cost classes.**  `bfe` (both fields), `brev`, `mulhi` (both),
+`funnel` (both), `med3`, `sad4x8`, `byteperm`.  A model that does not
+list one cannot use it, and no built-in model lists any: none is
+measured yet (the GT 1030 corpus has no test for them), so under
+gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
+rewritten into them.  `model mine : gt1030 { bfe: 1, funnel: 1 }` is
+how a measured price gets in.
+
+**What find offers.**  The patterns the instructions are, each replaced
+where the active model has the instruction and the whole function gets
+cheaper, then checked on the domain (src/inst.c, `pattern`):
+
+- `(w >> k) & (2^n - 1)` and `(w << j) >> k`: `bfe`; in i32, where the
+  right shift keeps the sign: `sbfe`;
+- `(a << k) | (b >> (32 - k))`, or with xor or + (the two fields share
+  no bit): `funl(a, b, k)`;
+- `u32((u64(a) * u64(b)) >> k)` with k >= 32, and the signed one:
+  `mulhi(a, b) >> (k - 32)`: a division by a constant as compilers
+  write it;
+- `max(lo, min(v, hi))` and `min(hi, max(v, lo))` where the ranges
+  prove lo <= hi: `med3(v, lo, hi)`;
+- a subterm that permutes the bits of one word, read off its GF(2)
+  matrix (derived from its structure, as for the subgroups): the
+  reversal is `brev`, a rotation `funl(w, w, k)`, whole bytes moved
+  `byteperm(w, w, s)`.
+
+```
+> model cat : gt1030 { bfe: 1, brev: 1, mulhi: 1, funnel: 1, med3: 1, sad4x8: 1, byteperm: 1 }
+> use cat
+> mix(x: u32, y: u32) = ((x << 4) >> 20) + rev32(y)      (rev32: the reversal as five swaps)
+> find mix 1
+  instructions under cat (each for the pattern it is; cost 33 as written):
+  cost 3   bfe(x, 16, 12) + brev(y)
+           ...: bit i is bit 31 - i of y (linear over GF(2) by its structure, every row one bit)
+           x << 4 >> 0x14: bits 16..27 of x
+           checked by SAT
+> d5(a: u32) = u32((u64(a) * 0xcccccccd) >> 34)
+> find d5 1
+  cost 3   mulhi(3435973837, a) >> 2
+> cl(x: i32, lo: i32 in -10..5, hi: i32 in 5..90) = max(lo, min(x, hi))
+> find cl 1
+  cost 1   med3(x, lo, hi)
+           max(lo, min(x, hi)): x clamped to lo..hi, which is their median since lo <= hi (5 <= 5, by intervals)
+```
+
+With hi in 4..90 the bounds may cross and the clamp stays; under gt1030
+nothing is offered.
+
+The rest of the instructions a model may want, and where each stands:
+
+| instruction | here |
+|---|---|
+| ISCADD, LEA, IADD3, XMAD, LOP3, the `.SAT`/`\|x\|`/`-x` operand modifiers | fusions, declared by the model (`fuse iadd3(a: int, b: int, c: int) = a + b + c : iadd`); gt1030 has the ones its corpus measured |
+| POPC, FLO, v_ffbh/v_ffbl | `popcount`, `clz`, `ctz` (class `bitcnt`) |
+| DP4A, v_dot4, v_dot8 | the dot forms |
+| REDUX, DPP row shifts and broadcasts, ds_swizzle, ds_bpermute, v_permlane16 | the subgroup operations' classes; reductions other than add, and a DPP shuffle folded into an operand, are not there yet |
+| BFI, OpBitFieldInsert | not an operation yet (it has four operands; nodes have three) |
+| IMAD.WIDE, v_mad_u64_u32 | a u64 multiply is `imul` on u64; no class of its own |
+| v_perm_b32 | its selector is a byte per result byte with its own encoding, not `byteperm`'s nibbles: no operation yet |
+| VADD4, VMNMX, VABSDIFF4 without the sum, v_msad, v_qsad, v_lerp_u8, v_pk_* | not yet |
+| v_cubeid/sc/tc/ma, v_trig_preop, v_ldexp, v_frexp, med3 of floats (its NaN rule) | float instructions: not yet |
+| FSWZADD, the quad swaps | subgroup (quad) operations: not yet |
+| the SALU as a parallel pipe, Intel's region addressing | need pipes and operand modes in the model, which prices issue cost per class only |
+
+`simplify` on SPIR-V has its own bitfield-extract rewrite (priced by
+its instruction classes); it does not write these operations yet.
 
 ### Long expressions
 
@@ -4217,6 +4307,8 @@ Data-oriented throughout (see `src/ucas.h`):
   values are functions of the lane and of shared values; clustered,
   partitioned and quad operations, min/max/bitwise reductions and float
   sums are not operations yet.
+- The catalogue's instructions (bfe, brev, mulhi, funnel shifts, med3,
+  usad4x8, byteperm) are priced by no built-in model: none is measured.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding
