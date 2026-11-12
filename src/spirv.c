@@ -984,7 +984,8 @@ shared_sc(int sc)
 }
 
 enum { B_FRAGCOORD = 1, B_LOCALID, B_GLOBALID, B_LOCALINDEX, B_SUBLANE,
-	B_WGID, B_NUMWG, B_FRONT, B_HELPER, B_VERTEX };
+	B_WGID, B_NUMWG, B_FRONT, B_HELPER, B_VERTEX, B_SGSIZE, B_SGEQ, B_SGGE,
+	B_SGGT, B_SGLE, B_SGLT };
 
 static int
 builtin_code(const char *s)
@@ -998,6 +999,9 @@ builtin_code(const char *s)
 		{"FrontFacing", B_FRONT}, {"HelperInvocation", B_HELPER},
 		{"VertexIndex", B_VERTEX}, {"InstanceIndex", B_VERTEX},
 		{"VertexId", B_VERTEX}, {"InstanceId", B_VERTEX},
+		{"SubgroupSize", B_SGSIZE}, {"SubgroupEqMask", B_SGEQ},
+		{"SubgroupGeMask", B_SGGE}, {"SubgroupGtMask", B_SGGT},
+		{"SubgroupLeMask", B_SGLE}, {"SubgroupLtMask", B_SGLT},
 	};
 	size_t i;
 
@@ -1042,6 +1046,20 @@ init_var(int v, int lane, uint64_t *mem)
 			break;
 		case B_NUMWG:
 			b = puti(st, 1);
+			break;
+		case B_SGSIZE:	/* the lanes run are one subgroup */
+			b = puti(st, V.lanes);
+			break;
+		case B_SGEQ: case B_SGGE: case B_SGGT: case B_SGLE: case B_SGLT:
+			/* word s of the mask; lanes past the subgroup have no bit */
+			if (s == 0) {
+				uint64_t all = wmask(V.lanes), at = 1ULL << lane;
+				b = d->builtin == B_SGEQ ? at : d->builtin == B_SGLE ?
+				    (at << 1) - 1 : d->builtin == B_SGLT ? at - 1 :
+				    d->builtin == B_SGGE ? all & ~(at - 1) :
+				    all & ~((at << 1) - 1);
+				b = puti(st, (int64_t)b);
+			}
 			break;
 		case B_FRONT:
 			b = 1;
@@ -2520,6 +2538,9 @@ enter_block(int lbl, uint32_t mask)
 
 /* execute one non-terminator instruction for the lanes in mask */
 static int exec_idot(const struct sins *I, uint32_t mask, int rt);
+static int exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc);
+static void sgx_reset(void);
+static void sgx_notes(void);
 
 static void
 exec_one(const struct sins *I, uint32_t mask)
@@ -2837,7 +2858,8 @@ exec_one(const struct sins *I, uint32_t mask)
 		return;
 	}
 	if (exec_image(I, mask, rt, st, nc) || exec_matrix(I, mask, rt, st) ||
-	    exec_glslvec(I, mask, rt, st, nc) || exec_idot(I, mask, rt))
+	    exec_glslvec(I, mask, rt, st, nc) || exec_idot(I, mask, rt) ||
+	    exec_subgroup(I, mask, rt, nc))
 		return;
 	if (!strcmp(I->op, "OpFunctionCall")) {
 		int fn = opid(I, 1), at = V.id[fn].func_at, p = 0, j, lb = -1;
@@ -3931,6 +3953,7 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 
 	memset(&V, 0, sizeof V);
 	symmap_reset();
+	sgx_reset();
 	code_block_used = 1;
 	V.glsl = -1;
 	V.lanes = lanes;
@@ -4113,6 +4136,7 @@ spirv_exec(const char *src, int lanes, int fps, double seconds, int random,
 		    "as 0 and writes dropped, as with robustBufferAccess; random "
 		    "inputs may not be valid data for this shader\n", V.oob,
 		    V.oob == 1 ? "" : "es", V.oobvar);
+	sgx_notes();
 	for (k = 0; k < ninps; k++) {
 		struct sid *d;
 		char v[48];
@@ -8520,6 +8544,7 @@ float_pass(const char *text, int *changed)
 
 #include "spv_dword.inc"	/* fp64 as f32 pairs, the driver's folds */
 #include "spv_mem.inc"	/* memory kinds: what their prices make worth doing */
+#include "spv_sg.inc"	/* subgroups: run, priced, and written by simplify */
 
 /* ---- advice: values that change less often than the shader runs ---- */
 
@@ -9037,17 +9062,19 @@ spirv_simplify(const char *src, double budget, int nofile)
 		double gain;
 		int line, algebra, trivial, dot;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
-	struct dotlog dotl[32], idl[32];
-	int ndotlog = 0, nidlog = 0;
+	struct dotlog dotl[32], idl[32], sgl[32];
+	int ndotlog = 0, nidlog = 0, nsglog = 0;
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
+	struct sbuf sgrep = {0};
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
 	dotcaps = 0;
+	sg_simplify_reset();
 	SP.force_id = -1;
 	code_block_used = 1;
 	V.glsl = -1;
@@ -9172,6 +9199,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 			int cls;
 			before += idot_cost(&V.in[k], &cls);
 		}
+	before += sg_total(0);
 	/* divisions by a constant of a bounded dividend, under the model:
 	 * first, so that a signed one is not left as an unsigned division */
 	{
@@ -9289,6 +9317,22 @@ spirv_simplify(const char *src, double budget, int nofile)
 		ndotrw = nd;
 		SP.proved += nd;
 	}
+	/* sums and scans of bits over the lanes as a ballot's bit count */
+	{
+		int nd = sg_pass(&sgrep, sgl, 32), q;
+		for (q = 0; q < nd && nlog < MAXLOG; q++) {
+			struct rwlog *L = &rl[nlog++];
+			snprintf(L->from, sizeof L->from, "%s", sgl[q].from);
+			snprintf(L->to, sizeof L->to, "%s", sgl[q].to);
+			L->why = "a sum of bits over the lanes as a ballot's bit count";
+			L->gain = sgl[q].gain;
+			L->line = sgl[q].line;
+			L->dot = 3;
+		}
+		nsglog = nd;
+		nrw += nd;
+		SP.proved += nd;
+	}
 	/* dead pure instructions: no uses left */
 	{
 		int *uses = xcalloc((size_t)(V.nid + 1024), sizeof *uses), changed = 1;
@@ -9327,6 +9371,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 			int cls;
 			after += idot_cost(&V.in[k], &cls);
 		}
+	after += sg_total(1);
 	/* range search on stored and returned values with a bounded input */
 	if (SP.nas > 0) {
 		struct sbuf rs = {0};
@@ -9367,6 +9412,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			const struct sins *I = &V.in[k];
 			int subst = 0;
 			if (k == first_fn)
+				sg_types_out(&out);
+			if (k == first_fn)
 				for (i = 0; i < SP.nnewk; i++) {
 					struct sid *d = &V.id[SP.newk[i]];
 					if (!const_used(SP.newk[i]))
@@ -9382,6 +9429,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 				break;
 			if (dotcaps && k == last_cap + 1)
 				dot_caps_out(&out);
+			if (sgcaps && k == last_cap + 1)
+				sg_caps_out(&out);
 			{
 				int q;
 				for (q = SP.orig_nin; q < V.nin; q++)
@@ -9428,7 +9477,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			nal += rl[i].algebra;
 		printf("simplify: %d SPIR-V instructions, %d rewrite%s proved by SAT "
 		    "(bit-precise: equal for every input)", SP.orig_nin, nrw - nal -
-		    ndotrw - nidlog, nrw - nal - ndotrw - nidlog == 1 ? "" : "s");
+		    ndotrw - nidlog - nsglog, nrw - nal - ndotrw - nidlog - nsglog ==
+		    1 ? "" : "s");
 		if (nal)
 			printf(" and %d by algebra mod 2^w", nal);
 		if (ndotrw)
@@ -9437,6 +9487,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (nidlog)
 			printf(", %d division%s by a constant made a multiply and a "
 			    "shift (derived, below)", nidlog, nidlog == 1 ? "" : "s");
+		if (nsglog)
+			printf(", %d sum%s of bits over the lanes made a ballot's bit "
+			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
 		printf(", %d dead instruction%s removed\n", ndead,
 		    ndead == 1 ? "" : "s");
 	}
@@ -9486,7 +9539,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		rep_str("why", rl[i].why);
 		rep_num("gain", rl[i].gain);
 		rep_int("line", rl[i].line);
-		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : rl[i].dot == 2 ?
+		rep_str("proof", rl[i].algebra ? "algebra mod 2^w" : rl[i].dot >= 2 ?
 		    "derivation" : rl[i].dot ? "dot" : "sat");
 		if (ntriv)
 			rep_bool("driver_trivial", rl[i].trivial);
@@ -9507,6 +9560,23 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_end();
 			free(dotl[i].desc);
 			free(dotl[i].proof);
+		}
+		rep_end();
+	}
+	if (nsglog) {
+		rep_list("subgroup_counts");
+		for (i = 0; i < nsglog; i++) {
+			rep_obj(NULL);
+			rep_str("from", sgl[i].from);
+			rep_str("to", sgl[i].to);
+			rep_int("line", sgl[i].line);
+			rep_num("cost_before", sgl[i].before);
+			rep_num("cost_after", sgl[i].after);
+			rep_str("holds_where", sgl[i].desc);
+			rep_str("derivation", sgl[i].proof);
+			rep_end();
+			free(sgl[i].desc);
+			free(sgl[i].proof);
 		}
 		rep_end();
 	}
@@ -9650,6 +9720,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep.p, stdout);
 	}
 	free(idrep.p);
+	if (sgrep.n) {
+		printf("  subgroup sums of bits (a value that is 0 or 1 in every "
+		    "lane, summed over the lanes, is a ballot's bit count), under "
+		    "%s:\n", sym_str(model_active()->name));
+		fputs(sgrep.p, stdout);
+	}
+	free(sgrep.p);
 	if (range_report) {
 		fputs(range_report, stdout);
 		free(range_report);
