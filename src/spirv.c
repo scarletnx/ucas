@@ -6237,6 +6237,8 @@ struct spvdot {
 	int nem;
 	int ty32[2];		/* the module's u32 and i32 type ids */
 	int ndot;		/* dot instructions written */
+	int rdsel;		/* also read compares, selects, bools */
+	int tybool;		/* the module's bool type id, -1 */
 };
 
 static int dotcaps;		/* the module needs the dot capabilities */
@@ -6249,10 +6251,19 @@ spv_ty(int t)
 	return TY(T(t)->sign ? K_SINT : K_UINT, T(t)->w);
 }
 
+/* t as a ucas type: an integer, or a bool when the reader takes them */
+static ty_t
+spv_ty_c(const struct spvdot *c, int t)
+{
+	if (c->rdsel && t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_BOOL)
+		return TY_BOOL;
+	return spv_ty(t);
+}
+
 static nid
 spv_leaf(struct spvdot *c, int id)
 {
-	ty_t t = spv_ty(V.id[id].type);
+	ty_t t = spv_ty_c(c, V.id[id].type);
 	int j;
 	int64_t lo, hi;
 
@@ -6289,7 +6300,9 @@ spv_node(struct spvdot *c, int id, int depth)
 	id = res_of(id);
 	if (c->memo[id])
 		return c->memo[id];
-	t = spv_ty(V.id[id].type);
+	t = spv_ty_c(c, V.id[id].type);
+	if (V.id[id].kind == K_CONST && !V.id[id].spec && t == TY_BOOL)
+		return c->memo[id] = mk_const_i(TY_BOOL, V.id[id].c[0] != 0);
 	if (V.id[id].kind == K_CONST && !V.id[id].spec && t)
 		return c->memo[id] = mk_const_i(t, int_norm(t,
 		    (int64_t)V.id[id].c[0]));
@@ -6357,6 +6370,42 @@ spv_node(struct spvdot *c, int id, int depth)
 		else if (IS("OpSConvert"))
 			x[0] = mk_cast(TY(K_SINT, TYW(at)), x[0]);
 		r = x[0];
+	} else if (c->rdsel && t == TY_BOOL && (IS("OpIEqual") ||
+	    IS("OpINotEqual") || IS("OpULessThan") || IS("OpULessThanEqual") ||
+	    IS("OpUGreaterThan") || IS("OpUGreaterThanEqual") ||
+	    IS("OpSLessThan") || IS("OpSLessThanEqual") ||
+	    IS("OpSGreaterThan") || IS("OpSGreaterThanEqual"))) {
+		/* a compare reads its operands signed or unsigned, as it says */
+		int a0 = res_of(idx(OPN(0)));
+		ty_t at = spv_ty(V.id[a0].type), ct;
+		const char *o = I->op + 2;
+		int op = IS("OpIEqual") ? O_EQ : IS("OpINotEqual") ? O_NE :
+		    strstr(o, "LessThanEqual") ? O_LE : strstr(o, "LessThan") ?
+		    O_LT : strstr(o, "GreaterThanEqual") ? O_GE : O_GT;
+		if (!at)
+			return c->memo[id] = spv_leaf(c, id);
+		ct = op == O_EQ || op == O_NE ? at : TY(o[0] == 'S' ? K_SINT :
+		    K_UINT, TYW(at));
+		x[0] = mk_cast(ct, spv_node(c, a0, depth + 1));
+		x[1] = mk_cast(ct, spv_node(c, idx(OPN(1)), depth + 1));
+		r = mk_bin(op, x[0], x[1]);
+	} else if (c->rdsel && IS("OpSelect") && spv_ty_c(c,
+	    V.id[res_of(idx(OPN(0)))].type) == TY_BOOL) {
+		x[0] = spv_node(c, idx(OPN(0)), depth + 1);
+		x[1] = mk_cast(t, spv_node(c, idx(OPN(1)), depth + 1));
+		x[2] = mk_cast(t, spv_node(c, idx(OPN(2)), depth + 1));
+		r = mk_sel(x[0], x[1], x[2]);
+	} else if (c->rdsel && t == TY_BOOL && (IS("OpLogicalAnd") ||
+	    IS("OpLogicalOr") || IS("OpLogicalNot") || IS("OpLogicalEqual") ||
+	    IS("OpLogicalNotEqual"))) {
+		x[0] = spv_node(c, idx(OPN(0)), depth + 1);
+		if (IS("OpLogicalNot"))
+			r = mk_un(O_LNOT, x[0]);
+		else {
+			x[1] = spv_node(c, idx(OPN(1)), depth + 1);
+			r = mk_bin(IS("OpLogicalAnd") ? O_LAND : IS("OpLogicalOr") ?
+			    O_LOR : IS("OpLogicalEqual") ? O_EQ : O_NE, x[0], x[1]);
+		}
 	} else
 		return c->memo[id] = spv_leaf(c, id);
 #undef OPN
@@ -6406,6 +6455,8 @@ dot_ins(struct spvdot *c, const char *op, int rt, const char *const *opnd,
 static int
 ty_id(struct spvdot *c, ty_t t)
 {
+	if (t == TY_BOOL && c->rdsel)
+		return c->tybool;
 	if (TYW(t) != 32 || (TYK(t) != K_UINT && TYK(t) != K_SINT))
 		return -1;
 	return c->ty32[TYK(t) == K_SINT];
@@ -6426,7 +6477,7 @@ dot_emit(struct spvdot *c, nid n)
 	if (op == O_VAR) {
 		int leaf = c->leaf[N.ki[n]];
 		rt = ty_id(c, N.ty[n]);
-		if (rt < 0 || spv_ty(V.id[leaf].type) != N.ty[n]) {
+		if (rt < 0 || spv_ty_c(c, V.id[leaf].type) != N.ty[n]) {
 			c->fail = 1;
 			return -1;
 		}
@@ -6439,9 +6490,42 @@ dot_emit(struct spvdot *c, nid n)
 		return -1;
 	}
 	if (op == O_CONST) {
-		r = const_id(rt, (uint64_t)N.ki[n] & 0xffffffffULL);
+		r = const_id(rt, (uint64_t)N.ki[n] & (N.ty[n] == TY_BOOL ? 1 :
+		    0xffffffffULL));
 		if (r < 0)
 			c->fail = 1;
+		goto done;
+	}
+	if (op == O_CAST && (N.ty[n] == TY_BOOL) != (N.ty[N.a[n]] == TY_BOOL)) {
+		/* int to bool: its low bit; bool to int: 1 or 0 */
+		int one, zero, ut = ty_id(c, N.ty[n] == TY_BOOL ? N.ty[N.a[n]] :
+		    N.ty[n]);
+		a = dot_emit(c, N.a[n]);
+		if (a < 0 || ut < 0) {
+			c->fail = 1;
+			return -1;
+		}
+		one = const_id(ut, 1);
+		zero = const_id(ut, 0);
+		if (one < 0 || zero < 0) {
+			c->fail = 1;
+			return -1;
+		}
+		if (N.ty[n] == TY_BOOL) {
+			o[0] = V.id[a].tok;
+			o[1] = V.id[one].tok;
+			b = dot_ins(c, "OpBitwiseAnd", ut, o, 2);
+			if (b < 0)
+				return -1;
+			o[0] = V.id[b].tok;
+			o[1] = V.id[zero].tok;
+			r = dot_ins(c, "OpINotEqual", rt, o, 2);
+		} else {
+			o[0] = V.id[a].tok;
+			o[1] = V.id[one].tok;
+			o[2] = V.id[zero].tok;
+			r = dot_ins(c, "OpSelect", rt, o, 3);
+		}
 		goto done;
 	}
 	if (op == O_CAST) {
@@ -6500,6 +6584,26 @@ dot_emit(struct spvdot *c, nid n)
 		    "OpShiftRightArithmetic" : "OpShiftRightLogical"; break;
 		case O_NEG: sop = "OpSNegate"; break;
 		case O_NOT: sop = "OpNot"; break;
+		case O_LAND: sop = "OpLogicalAnd"; break;
+		case O_LOR: sop = "OpLogicalOr"; break;
+		case O_LNOT: sop = "OpLogicalNot"; break;
+		case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT: case O_GE: {
+			/* by the operands' signedness; bools compare logically */
+			static const char *const u[] = {"OpIEqual", "OpINotEqual",
+			    "OpULessThan", "OpULessThanEqual", "OpUGreaterThan",
+			    "OpUGreaterThanEqual"};
+			static const char *const sg[] = {"OpIEqual", "OpINotEqual",
+			    "OpSLessThan", "OpSLessThanEqual", "OpSGreaterThan",
+			    "OpSGreaterThanEqual"};
+			ty_t at = N.ty[N.a[n]];
+			if (at == TY_BOOL)
+				sop = op == O_EQ ? "OpLogicalEqual" : op == O_NE ?
+				    "OpLogicalNotEqual" : NULL;
+			else
+				sop = (TYK(at) == K_SINT ? sg : u)[op - O_EQ];
+			break;
+		}
+		case O_SEL: sop = "OpSelect"; break;
 		}
 		if (!sop) {
 			c->fail = 1;
@@ -6509,11 +6613,17 @@ dot_emit(struct spvdot *c, nid n)
 		if (a < 0)
 			return -1;
 		o[0] = V.id[a].tok;
-		if (opinfo[op].arity == 2) {
+		if (opinfo[op].arity >= 2) {
 			b = dot_emit(c, N.b[n]);
 			if (b < 0)
 				return -1;
 			o[1] = V.id[b].tok;
+		}
+		if (opinfo[op].arity == 3) {
+			int cc = dot_emit(c, N.c[n]);
+			if (cc < 0)
+				return -1;
+			o[2] = V.id[cc].tok;
 		}
 		r = dot_ins(c, sop, rt, o, opinfo[op].arity);
 	}
@@ -6580,6 +6690,8 @@ struct dotlog {
 	double gain, before, after;
 	int line;
 	char *desc, *proof;	/* malloc'd */
+	int kind;		/* idrw: 0 a division, 1 a divisibility test,
+				 * 2 a map of one value */
 };
 
 static int
@@ -6731,20 +6843,155 @@ spirv_assume(const char *name, int64_t lo, int64_t hi)
  * lower.  The derivation is the proof; the translation is checked
  * against the interpreter on 64 samples.
  */
+/* id was read into c as an instruction, not as a leaf or a constant */
 static int
-idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
+read_as_ins(const struct spvdot *c, int id)
+{
+	int j;
+
+	if (!c->memo[id] || SP.def[id] < 0 || V.id[id].kind == K_CONST)
+		return 0;
+	for (j = 0; j < c->nleaf; j++)
+		if (c->leaf[j] == id)
+			return 0;
+	return 1;
+}
+
+static void
+mark_dag(nid e, uint8_t *in)
+{
+	uint32_t j;
+
+	if (e == 0 || in[e])
+		return;
+	in[e] = 1;
+	if (N.op[e] == O_CONST || N.op[e] == O_VAR || N.op[e] == O_UNDEF)
+		return;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			mark_dag(N.lst[N.a[e] + j], in);
+		return;
+	}
+	mark_dag(N.a[e], in);
+	mark_dag(N.b[e], in);
+	mark_dag(N.c[e], in);
+}
+
+/*
+ * What the rewrite to e drops (the instructions read into c, but the
+ * root, whose value e does not use) goes with the root when nothing else
+ * reads it; one that something else reads stays, and its price is
+ * returned, to be added to e's.  What e keeps (a map's key) is priced on
+ * both sides already.
+ */
+static double
+drops_kept(const struct spvdot *c, int root, nid e)
+{
+	int *in = xcalloc((size_t)(V.nid + 1024), sizeof *in), id, i;
+	uint8_t *keep = xcalloc(N.n + 1, 1);
+	double stays = 0;
+
+	mark_dag(e, keep);
+	for (id = 0; id < V.nid; id++)
+		if (read_as_ins(c, id)) {
+			const struct sins *I = &V.in[SP.def[id]];
+			for (i = first_arg(I); i < I->nop; i++)
+				if (I->opnd[i][0] == '%')
+					in[res_of(idx(I->opnd[i]))]++;
+		}
+	for (id = 0; id < V.nid; id++)
+		if (id != root && read_as_ins(c, id) && !keep[c->memo[id]] &&
+		    SP.uses[id] != in[id])
+			stays += ins_cost_k(SP.def[id]);
+	free(in);
+	free(keep);
+	return stays;
+}
+
+/* the module's bool type id, -1 */
+static int
+bool_type_id(void)
+{
+	int i;
+
+	for (i = 0; i < V.nid; i++)
+		if (V.id[i].kind == K_TYPE && V.id[i].t.k == S_BOOL)
+			return i;
+	return -1;
+}
+
+/* id is an OpUMod, OpSRem or OpSMod */
+static int
+is_rem(int id)
+{
+	int d = SP.def[id];
+
+	return d >= 0 && (!strcmp(V.in[d].op, "OpUMod") ||
+	    !strcmp(V.in[d].op, "OpSRem") || !strcmp(V.in[d].op, "OpSMod"));
+}
+
+/*
+ * Instruction k as a root for the identities beyond the divisions: a
+ * divisibility test (1), an OpIEqual or OpINotEqual of a remainder by a
+ * constant (used nowhere else) and a constant; or the top of a map of
+ * one value (2), an OpSelect with an integer result, an OpLogicalOr or
+ * OpLogicalAnd, that no other such instruction reads.  0 neither.
+ */
+static int
+idrw_root_kind(int k, const char *partof)
+{
+	const struct sins *I = &V.in[k];
+	int i;
+
+	if ((!strcmp(I->op, "OpIEqual") || !strcmp(I->op, "OpINotEqual")) &&
+	    I->nop == 3)
+		for (i = 1; i < 3; i++) {
+			int a = res_of(idx(I->opnd[i])), d = SP.def[a];
+			int o = res_of(idx(I->opnd[3 - i]));
+			uint64_t dv, kv;
+			if (!is_rem(a) || SP.dead[d] || SP.uses[a] != 1 ||
+			    V.in[d].nop != 3 || !const_of(idx(V.in[d].opnd[2]),
+			    &dv) || dv < 3 || !const_of(o, &kv))
+				continue;
+			return 1;
+		}
+	if ((!strcmp(I->op, "OpSelect") && int_width(idx(I->opnd[0])) == 32) ||
+	    !strcmp(I->op, "OpLogicalOr") || !strcmp(I->op, "OpLogicalAnd"))
+		return partof[I->res] ? 0 : 2;
+	return 0;
+}
+
+static int
+idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
+    int maxlog)
 {
 	const struct model *m = model_active();
-	int k, n = 0, i, ty32[2];
+	int k, n = 0, i, ty32[2], tybool = bool_type_id();
+	char *partof;		/* a value another select or logic op reads */
 
 	if (!dot_type_ids(ty32))
 		return 0;
+	partof = xcalloc((size_t)(V.nid + 1024), 1);
+	for (k = 0; k < SP.orig_nin; k++) {
+		const struct sins *I = &V.in[k];
+		int same = !strcmp(I->op, "OpSelect") ? 2 :
+		    !strcmp(I->op, "OpLogicalOr") || !strcmp(I->op, "OpLogicalAnd") ?
+		    1 : 0;
+		if (SP.dead[k] || !same)
+			continue;
+		/* a select's arms; a logic op's operands */
+		for (i = same == 2 ? 2 : 1; i < I->nop; i++)
+			if (I->opnd[i][0] == '%')
+				partof[res_of(idx(I->opnd[i]))] = 1;
+	}
 	for (k = 0; k < SP.orig_nin && n < maxlog && (double)clock() /
 	    CLOCKS_PER_SEC < SP.deadline; k++) {
 		struct spvdot c;
 		const struct sins *I = &V.in[k];
 		struct irw *r;
-		int root, fin, nr, best = -1, base, uns, div, nin0, nk0;
+		int root, fin, nr, best = -1, base, uns, div, nin0, nk0, kind;
+		int smod = 0, remid = -1;
+		double kept = 0;
 		uint64_t dv;
 		ty_t t, vt;
 		nid body;
@@ -6754,39 +7001,80 @@ idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 
 		if (SP.dead[k] || !pure_ins(k))
 			continue;
+		root = I->res;
 		uns = !strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpUMod");
 		div = !strcmp(I->op, "OpUDiv") || !strcmp(I->op, "OpSDiv");
-		if (!uns && strcmp(I->op, "OpSDiv") && strcmp(I->op, "OpSRem") &&
-		    strcmp(I->op, "OpSMod"))
-			continue;
-		root = I->res;
-		base = first_arg(I);
-		if (I->nop < base + 2 || int_width(V.id[root].type) != 32 ||
-		    !const_of(idx(I->opnd[base + 1]), &dv) || dv < 3 ||
-		    dv >= (1ULL << 31))
-			continue;
-		t = spv_ty(V.id[root].type);
-		vt = TY(uns ? K_UINT : K_SINT, 32);
 		memset(&c, 0, sizeof c);
 		c.memo = xcalloc((size_t)(V.nid + 1024), sizeof *c.memo);
 		c.k = k;
 		c.ty32[0] = ty32[0];
 		c.ty32[1] = ty32[1];
+		c.tybool = tybool;
 		c.f.anon = 1;
-		body = mk_cast(t, mk_bin(div ? O_DIV : O_MOD, mk_cast(vt,
-		    spv_node(&c, idx(I->opnd[base]), 0)), mk_const_i(vt,
-		    (int64_t)dv)));
-		c.f.body = body;
-		free(c.memo);
-		if (!t || c.fail || c.nleaf == 0)
+		if (uns || !strcmp(I->op, "OpSDiv") || !strcmp(I->op, "OpSRem") ||
+		    !strcmp(I->op, "OpSMod")) {
+			kind = 0;
+			base = first_arg(I);
+			if (I->nop < base + 2 || int_width(V.id[root].type) != 32 ||
+			    !const_of(idx(I->opnd[base + 1]), &dv) || dv < 3 ||
+			    dv >= (1ULL << 31)) {
+				free(c.memo);
+				continue;
+			}
+			t = spv_ty(V.id[root].type);
+			vt = TY(uns ? K_UINT : K_SINT, 32);
+			body = mk_cast(t, mk_bin(div ? O_DIV : O_MOD, mk_cast(vt,
+			    spv_node(&c, idx(I->opnd[base]), 0)), mk_const_i(vt,
+			    (int64_t)dv)));
+		} else if ((kind = idrw_root_kind(k, partof)) == 1 && tybool >= 0) {
+			/* n % d == r: the remainder (used only here) read as
+			 * the division roots read theirs; an OpSMod is the
+			 * remainder where it is 0 (both say d divides n) */
+			int a1 = res_of(idx(I->opnd[1])), a2 = res_of(idx(I->opnd[2]));
+			int ra = is_rem(a1) ? a1 : a2, q = ra == a1 ? a2 : a1, sg;
+			int64_t rv;
+			uint64_t kv;
+			const struct sins *M = &V.in[SP.def[ra]];
+			sg = strcmp(M->op, "OpUMod") != 0;
+			smod = !strcmp(M->op, "OpSMod");
+			remid = ra;
+			const_of(idx(M->opnd[2]), &dv);
+			const_of(q, &kv);
+			rv = int_norm(TY(sg ? K_SINT : K_UINT, 32), (int64_t)kv);
+			c.rdsel = 1;
+			t = TY_BOOL;
+			vt = TY(sg ? K_SINT : K_UINT, 32);
+			if (int_width(V.id[ra].type) != 32 || dv >= (1ULL << 31) ||
+			    (!strcmp(M->op, "OpSMod") && rv != 0)) {
+				free(c.memo);
+				continue;
+			}
+			body = mk_bin(!strcmp(I->op, "OpIEqual") ? O_EQ : O_NE,
+			    mk_bin(O_MOD, mk_cast(vt, spv_node(&c, idx(M->opnd[1]),
+			    0)), mk_const_i(vt, (int64_t)dv)), mk_const_i(vt, rv));
+		} else if (kind == 2 && tybool >= 0) {
+			/* the compares, selects and logic under it are read as
+			 * well */
+			c.rdsel = 1;
+			t = spv_ty_c(&c, V.id[root].type);
+			body = t ? mk_cast(t, spv_node(&c, root, 0)) : 0;
+		} else {
+			free(c.memo);
 			continue;
+		}
+		c.f.body = body;
+		if (!t || c.fail || c.nleaf == 0) {
+			free(c.memo);
+			continue;
+		}
 		before = fuse_expr_cost(m, body);
 		nr = irw_cands(&c.f, body, &r);
-		/* nosat: the solved identities, whose derivation is the proof
-		 * (the signed-as-unsigned ones are the SAT pass's) */
+		/* the solved identities, whose derivation is the proof (the
+		 * signed-as-unsigned ones are the SAT pass's): for a division
+		 * those SAT does not finish on, otherwise every derived one */
 		for (i = 0; i < nr; i++) {
 			float cost;
-			if (r[i].nearmiss || !r[i].nosat)
+			if (r[i].nearmiss || !(kind ? r[i].derived : r[i].nosat))
 				continue;
 			cost = fuse_expr_cost(m, r[i].e);
 			if (cost < before && (best < 0 || cost < after)) {
@@ -6794,8 +7082,12 @@ idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 				after = cost;
 			}
 		}
-		if (best < 0 || !dot_translation_ok(&c, root, r[best].e)) {
+		if (best >= 0 && kind)
+			after += (float)(kept = drops_kept(&c, root, r[best].e));
+		if (best < 0 || !(after < before) ||
+		    !dot_translation_ok(&c, root, r[best].e)) {
 			irw_free(r, nr);
+			free(c.memo);
 			continue;
 		}
 		nin0 = V.nin;
@@ -6812,6 +7104,7 @@ idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 			V.nin = nin0;
 			SP.nnewk = nk0;
 			irw_free(r, nr);
+			free(c.memo);
 			continue;
 		}
 		SP.alias[root] = fin;
@@ -6824,22 +7117,43 @@ idrw_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 		log[n].after = after;
 		log[n].line = ins_line(k);
 		log[n].desc = strdup(r[best].cond);
-		log[n].proof = strdup(r[best].proof);
-		sb_printf(rep, "    %s\n      ->  %s   (cost %g -> %g)\n", I->text,
-		    log[n].to, (double)before, (double)after);
-		src_line(ins_line(k), sl, sizeof sl);
-		if (sl[0])
-			sb_printf(rep, "%s", sl);
-		sb_printf(rep, "      holds where %s\n", r[best].cond);
-		for (s = r[best].proof; *s; s = *e ? e + 1 : e) {
-			e = strchr(s, '\n');
-			if (!e)
-				e = s + strlen(s);
-			sb_printf(rep, "      %.*s\n", (int)(e - s), s);
+		{
+			struct sbuf pf = {0};
+			if (smod)
+				sb_printf(&pf, "%s is OpSMod, whose remainder takes the "
+				    "divisor's sign where %% (OpSRem) takes the "
+				    "dividend's; either is 0 exactly where %llu divides "
+				    "the dividend\n", V.id[remid].tok,
+				    (unsigned long long)dv);
+			sb_puts(&pf, r[best].proof);
+			log[n].proof = pf.p;
+		}
+		log[n].kind = kind;
+		{
+			struct sbuf *o = kind ? rep2 : rep;
+			sb_printf(o, "    %s\n      ->  %s   (cost %g -> %g)\n",
+			    I->text, log[n].to, (double)before, (double)after);
+			src_line(ins_line(k), sl, sizeof sl);
+			if (sl[0])
+				sb_printf(o, "%s", sl);
+			if (kind)
+				sb_printf(o, "      %s\n", r[best].what);
+			if (kept > 0)
+				sb_printf(o, "      the price counts %g for what it drops "
+				    "that something else reads too: that stays\n", kept);
+			sb_printf(o, "      holds where %s\n", r[best].cond);
+			for (s = log[n].proof; *s; s = *e ? e + 1 : e) {
+				e = strchr(s, '\n');
+				if (!e)
+					e = s + strlen(s);
+				sb_printf(o, "      %.*s\n", (int)(e - s), s);
+			}
 		}
 		n++;
 		irw_free(r, nr);
+		free(c.memo);
 	}
+	free(partof);
 	return n;
 }
 
@@ -9082,6 +9396,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
 	struct sbuf sgrep = {0};
+	struct sbuf idrep2 = {0};
+	int nidk[3] = {0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
@@ -9217,13 +9533,17 @@ spirv_simplify(const char *src, double budget, int nofile)
 	/* divisions by a constant of a bounded dividend, under the model:
 	 * first, so that a signed one is not left as an unsigned division */
 	{
-		int nd = idrw_pass(&idrep, idl, 32), q;
+		int nd = idrw_pass(&idrep, &idrep2, idl, 32), q;
 		for (q = 0; q < nd && nlog < MAXLOG; q++) {
 			struct rwlog *L = &rl[nlog++];
 			snprintf(L->from, sizeof L->from, "%s", idl[q].from);
 			snprintf(L->to, sizeof L->to, "%s", idl[q].to);
-			L->why = "a division by a constant of a bounded dividend as "
-			    "a multiply and a shift";
+			nidk[idl[q].kind]++;
+			L->why = idl[q].kind == 1 ? "a divisibility test as a "
+			    "multiply and a compare" : idl[q].kind == 2 ? "a map of "
+			    "one small-range value as a table or a multiply and a "
+			    "shift" : "a division by a constant of a bounded dividend "
+			    "as a multiply and a shift";
 			L->gain = idl[q].gain;
 			L->line = idl[q].line;
 			L->dot = 2;
@@ -9498,9 +9818,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (ndotrw)
 			printf(", %d sum%s of products made dot products (proved by "
 			    "dot.c, below)", ndotrw, ndotrw == 1 ? "" : "s");
-		if (nidlog)
+		if (nidk[0])
 			printf(", %d division%s by a constant made a multiply and a "
-			    "shift (derived, below)", nidlog, nidlog == 1 ? "" : "s");
+			    "shift (derived, below)", nidk[0], nidk[0] == 1 ? "" : "s");
+		if (nidk[1])
+			printf(", %d divisibility test%s made a multiply and a compare "
+			    "(derived, below)", nidk[1], nidk[1] == 1 ? "" : "s");
+		if (nidk[2])
+			printf(", %d map%s of one value made a table or a multiply "
+			    "(derived, below)", nidk[2], nidk[2] == 1 ? "" : "s");
 		if (nsglog)
 			printf(", %d sum%s of bits over the lanes made a ballot's bit "
 			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
@@ -9605,6 +9931,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_num("cost_after", idl[i].after);
 			rep_str("holds_where", idl[i].desc);
 			rep_str("derivation", idl[i].proof);
+			if (idl[i].kind)
+				rep_str("kind", idl[i].kind == 1 ? "divisibility" :
+				    "map");
 			rep_end();
 			free(idl[i].desc);
 			free(idl[i].proof);
@@ -9734,6 +10063,14 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep.p, stdout);
 	}
 	free(idrep.p);
+	if (idrep2.n) {
+		printf("  divisibility tests and maps of one value (derived by "
+		    "idrw.c: a multiply and a compare, a table in one constant, a "
+		    "multiply and a shift; kept under %s):\n",
+		    sym_str(model_active()->name));
+		fputs(idrep2.p, stdout);
+	}
+	free(idrep2.p);
 	if (sgrep.n) {
 		printf("  subgroup sums of bits (a value that is 0 or 1 in every "
 		    "lane, summed over the lanes, is a ballot's bit count), under "

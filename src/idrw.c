@@ -163,7 +163,7 @@ rw_divis(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 	    (unsigned long long)B, sstr(eq ? n : mk_bin(O_EQ, m, rc)));
 	rw = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
 	if (rw)
-		rw->nosat = 1;
+		rw->nosat = rw->derived = 1;
 	free(pf.p);
 }
 
@@ -274,7 +274,7 @@ rw_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 		    (long long)d, (long long)d, (long long)d);
 	rw = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
 	if (rw)
-		rw->nosat = 1;
+		rw->nosat = rw->derived = 1;
 	free(pf.p);
 }
 
@@ -369,6 +369,7 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 	uint64_t span = (uint64_t)(m->vmax - m->vmin), C = 0, bmask;
 	int b = bits_for(span), bw = 0, i, direct, off;
 	nid idx, sh, r, to;
+	struct irw *rw;
 	char what[200], cond[200];
 	struct sbuf pf = {0};
 
@@ -417,7 +418,9 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 	    t == TY_BOOL ? " and taking the low bit" : " and masking");
 	if (m->key != m->x)
 		to = xreplace(to, m->x, m->key);
-	irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf), 1);
+	rw = irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf), 1);
+	if (rw)
+		rw->derived = 1;
 	free(pf.p);
 	return 1;
 }
@@ -546,7 +549,7 @@ map_mulshift(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 	rw = irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf),
 	    1);
 	if (rw)
-		rw->nosat = 1;
+		rw->nosat = rw->derived = 1;
 	free(pf.p);
 	return 1;
 }
