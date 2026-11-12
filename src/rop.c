@@ -388,6 +388,15 @@ uint_format(int w)
 	    "R32G32_UINT";
 }
 
+/* the integer target of the cell's type: SINT for a signed one */
+static const char *
+int_format(const struct rctx *c)
+{
+	if (TYK(c->ty) != K_SINT)
+		return uint_format(c->w);
+	return c->w == 8 ? "R8_SINT" : c->w == 16 ? "R16_SINT" : "R32_SINT";
+}
+
 /* the largest value of the parameter in slot, from its type and range */
 static uint64_t
 umax_of(const struct rctx *c, int slot)
@@ -437,8 +446,9 @@ logic_ops(struct rctx *c)
 		}
 		if (same(c->f, c->f->body, e, &how) != 1)
 			continue;
-		snprintf(st, sizeof st, "VK_LOGIC_OP_%s on an unsigned integer "
-		    "target (%s%s): %s", name[k], uint_format(c->w), c->w == 64 ?
+		snprintf(st, sizeof st, "VK_LOGIC_OP_%s on %s integer target "
+		    "(%s%s): %s", name[k], TYK(c->ty) == K_SINT ? "a signed" :
+		    "an unsigned", int_format(c), c->w == 64 ?
 		    ", the low word in R and the high one in G: a logic op works "
 		    "bit by bit, so the two channels compute it" : "",
 		    shared_str(e, 80));
@@ -446,7 +456,7 @@ logic_ops(struct rctx *c)
 		    "logicOpEnable, logicOp = VK_LOGIC_OP_%s (the logicOp "
 		    "feature); an %s colour attachment; one point per "
 		    "contribution, its position the cell, its colour %s", name[k],
-		    uint_format(c->w), pname(c, c->is));
+		    int_format(c), pname(c, c->is));
 		form(c, "logic op", st, "", how, C_ROP_LOGIC, pl);
 		return;		/* the 16 functions are distinct */
 	}
@@ -464,7 +474,7 @@ stencil_ops(struct rctx *c)
 	const char *how;
 	char st[240], pl[400];
 
-	if (c->flt || c->w != 8 || c->nsrc != 0)
+	if (c->flt || c->w != 8 || c->nsrc != 0 || TYK(c->ty) != K_UINT)
 		return;
 	masks[nm++] = 0xff;
 	for (m = 1; m < 8; m++) {
@@ -522,7 +532,8 @@ unorm_blend(struct rctx *c)
 	static const char *const op[5] = {"ADD", "SUBTRACT", "REVERSE_SUBTRACT",
 	    "MIN", "MAX"};
 
-	if (c->flt || c->w > 16 || c->nsrc != 1 || c->ic >= 0)
+	if (c->flt || c->w > 16 || c->nsrc != 1 || c->ic >= 0 ||
+	    TYK(c->ty) != K_UINT)
 		return;
 	ws = mk_cast(W, s);
 	wd = mk_cast(W, d);
@@ -710,6 +721,8 @@ blend_eq(struct rctx *c)
 	int op, sf, df, best = -1, bop = 0, bsf = 0, bdf = 0, more = 0, j;
 	double lo[AV] = {0}, hi[AV] = {0};
 	struct sbuf eq = {0}, st = {0}, holds = {0}, pr = {0}, pl = {0};
+	const char *tgt = "R32_SFLOAT";
+	int sg = TYK(c->ty) == K_SINT;
 	char x[32];
 
 	if (c->nsrc < 1)
@@ -775,12 +788,6 @@ blend_eq(struct rctx *c)
 		free(ta.p);
 		free(tb.p);
 	}
-	sb_printf(&st, "VK_BLEND_OP_%s, source factor %s, destination factor "
-	    "%s on a float target (R32_SFLOAT): %s", opn[bop], bf_name[bsf],
-	    bf_name[bdf], sb_str(&eq));
-	if (more)
-		sb_printf(&st, " (%d more pair%s of factors give the same)", more,
-		    more == 1 ? "" : "s");
 	sb_printf(&pr, "%s and %s expand to the same polynomial", c->f->anon ?
 	    "the update" : sym_str(c->f->name), sb_str(&eq));
 	if (!c->flt) {
@@ -794,8 +801,8 @@ blend_eq(struct rctx *c)
 				continue;
 			param_bounds(&c->f->p[slots[j]], &l, &h);
 			lo[atoms[j]] = (double)l;
-			hi[atoms[j]] = (double)umax_of(c, slots[j]);
-			mx = fmax(mx, fmax(fabs((double)l), hi[atoms[j]]));
+			hi[atoms[j]] = sg ? (double)h : (double)umax_of(c, slots[j]);
+			mx = fmax(mx, fmax(fabs((double)l), fabs(hi[atoms[j]])));
 		}
 		bf_range(&q, bsf, lo, hi, &flo, &fhi);
 		mx = fmax(mx, fmax(fabs(flo), fabs(fhi)));
@@ -816,7 +823,8 @@ blend_eq(struct rctx *c)
 		mx = fmax(mx, fmax(fmax(fabs(alo), fabs(ahi)), fmax(fabs(blo),
 		    fabs(bhi))));
 		mx = fmax(mx, fmax(fabs(rlo), fabs(rhi)));
-		ok = mx < P24 && rlo >= 0 && rhi < ldexp(1.0, c->w);
+		ok = mx < P24 && (sg ? rlo >= -ldexp(1.0, c->w - 1) && rhi <
+		    ldexp(1.0, c->w - 1) : rlo >= 0 && rhi < ldexp(1.0, c->w));
 		if (!ok) {
 			char nx[40], nl[40], nh[40];
 			num53(mx, nx, sizeof nx);
@@ -826,8 +834,8 @@ blend_eq(struct rctx *c)
 			    "compute it (%s), but is not exact on this domain: its "
 			    "values reach %s in magnitude and its result [%s, %s]; "
 			    "f32 holds integers below 2^24 = 16777216, and the result "
-			    "must stay inside u%d\n", opn[bop], bf_name[bsf],
-			    bf_name[bdf], sb_str(&eq), nx, nl, nh, c->w);
+			    "must stay inside %s\n", opn[bop], bf_name[bsf],
+			    bf_name[bdf], sb_str(&eq), nx, nl, nh, ty_str(c->ty));
 			if (!c->quiet)
 				rep_strf("not_exact", "blending %s: values up to %s, "
 				    "result in [%s, %s]", sb_str(&eq), nx, nl, nh);
@@ -836,20 +844,24 @@ blend_eq(struct rctx *c)
 				snprintf(c->best->near, sizeof c->best->near,
 				    "VK_BLEND_OP_%s with %s and %s computes it (%s), "
 				    "exactly while its values stay below 2^24 = 16777216 "
-				    "and its result inside u%d: here they reach %s, the "
+				    "and its result inside %s: here they reach %s, the "
 				    "result [%s, %s]", opn[bop], bf_name[bsf],
-				    bf_name[bdf], sb_str(&eq), c->w, nx, nl, nh);
+				    bf_name[bdf], sb_str(&eq), ty_str(c->ty), nx, nl, nh);
 			}
 			goto out;
 		}
+		/* below 2^11 a half float holds them all: half the bytes */
+		if (mx < 2048)
+			tgt = "R16_SFLOAT";
 		sb_printf(&holds, "the operands, the factors, both products and "
-		    "the result stay below 2^24 in magnitude (at most %.0f, the "
-		    "result in [%.0f, %.0f], from the parameters' ranges)", mx,
-		    rlo, rhi);
-		sb_printf(&pr, "; every value is an integer below 2^24, which "
-		    "f32 holds, so no step of the blender rounds whatever its "
-		    "arithmetic, and the integer result (inside u%d: no wrap) is "
-		    "the polynomial's", c->w);
+		    "the result stay below %s in magnitude (at most %.0f, the "
+		    "result in [%.0f, %.0f], from the parameters' ranges)",
+		    mx < 2048 ? "2^11" : "2^24", mx, rlo, rhi);
+		sb_printf(&pr, "; every value is an integer below %s, which %s "
+		    "holds, so no step of the blender rounds whatever its "
+		    "arithmetic, and the integer result (inside %s: no wrap) is "
+		    "the polynomial's", mx < 2048 ? "2^11" : "2^24", mx < 2048 ?
+		    "f16" : "f32", ty_str(c->ty));
 	} else if (best <= 1)
 		sb_printf(&pr, "; one f32 operation: exact if the blender rounds "
 		    "it to nearest (Vulkan asks for the target's precision, not "
@@ -859,6 +871,13 @@ blend_eq(struct rctx *c)
 		    "Vulkan does not fix (it may fuse the multiply and the add): "
 		    "equal as real functions, bit for bit only where every step "
 		    "is exact", best);
+	sb_printf(&st, "VK_BLEND_OP_%s, source factor %s, destination factor "
+	    "%s on a float target (%s%s): %s", opn[bop], bf_name[bsf],
+	    bf_name[bdf], tgt, !strcmp(tgt, "R16_SFLOAT") ? ", half the bytes "
+	    "of R32_SFLOAT" : "", sb_str(&eq));
+	if (more)
+		sb_printf(&st, " (%d more pair%s of factors give the same)", more,
+		    more == 1 ? "" : "s");
 	sb_printf(&pl, "VkPipelineColorBlendAttachmentState: blendEnable, "
 	    "colorBlendOp = VK_BLEND_OP_%s, srcColorBlendFactor = "
 	    "VK_BLEND_FACTOR_%s, dstColorBlendFactor = VK_BLEND_FACTOR_%s",
@@ -870,8 +889,8 @@ blend_eq(struct rctx *c)
 		sb_printf(&pl, " (the dualSrcBlend feature: %s is the fragment's "
 		    "second output, index 1)", pname(c, c->it));
 	snprintf(x, sizeof x, "%s", pname(c, c->is));
-	sb_printf(&pl, "; an R32_SFLOAT colour attachment; one point per "
-	    "contribution, its position the cell, its colour %s", x);
+	sb_printf(&pl, "; an %s colour attachment; one point per "
+	    "contribution, its position the cell, its colour %s", tgt, x);
 	form(c, "blending", sb_str(&st), sb_str(&holds), sb_str(&pr),
 	    C_ROP_BLEND, sb_str(&pl));
 out:
@@ -893,6 +912,55 @@ unit_range(const struct rctx *c, int slot)
 	return p->ranged && p->rlo >= 0 && p->rhi <= 1;
 }
 
+/*
+ * Integers on a float target: MIN and MAX pick one of the two values, so
+ * the blend is exact while every value is an integer f32 holds (below
+ * 2^24 in magnitude; below 2^11, f16 and R16_SFLOAT), signed or not.
+ */
+static void
+minmax_int(struct rctx *c)
+{
+	int k, j;
+	double mx = 0;
+	const char *how, *tgt;
+	char st[240], hold[200], pr[300], pl[400];
+
+	if (c->nsrc != 1 || c->ic >= 0 || c->w > 32)
+		return;
+	for (j = 0; j < c->f->np; j++) {
+		int64_t l, h;
+		param_bounds(&c->f->p[j], &l, &h);
+		mx = fmax(mx, fmax(fabs((double)l), fabs((double)h)));
+	}
+	for (k = 0; k < 2; k++)
+		if (same(c->f, c->f->body, mk_bin(k ? O_MAX : O_MIN, c->vs, c->vd),
+		    &how) == 1)
+			break;
+	if (k == 2)
+		return;
+	if (!(mx < P24)) {
+		say(c, "  blending: VK_BLEND_OP_%s would compute it on a float "
+		    "target, but the values reach %.0f: f32 holds integers below "
+		    "2^24 = 16777216\n", k ? "MAX" : "MIN", mx);
+		return;
+	}
+	tgt = mx < 2048 ? "R16_SFLOAT" : "R32_SFLOAT";
+	snprintf(st, sizeof st, "VK_BLEND_OP_%s on a float target (%s): %s(%s, "
+	    "%s), the integers as floats", k ? "MAX" : "MIN", tgt, k ? "max" :
+	    "min", pname(c, c->is), pname(c, c->id));
+	snprintf(hold, sizeof hold, "the values stay below %s in magnitude (at "
+	    "most %.0f, from the parameters' ranges)", mx < 2048 ? "2^11" :
+	    "2^24", mx);
+	snprintf(pr, sizeof pr, "the update is the %s (%s); every value is an "
+	    "integer %s holds, and the blend picks one of the two: nothing "
+	    "rounds", k ? "max" : "min", how, mx < 2048 ? "f16" : "f32");
+	snprintf(pl, sizeof pl, "VkPipelineColorBlendAttachmentState: "
+	    "blendEnable, colorBlendOp = VK_BLEND_OP_%s; an %s colour "
+	    "attachment; one point per contribution, its position the cell, its "
+	    "colour float(%s)", k ? "MAX" : "MIN", tgt, pname(c, c->is));
+	form(c, "blending", st, hold, pr, C_ROP_BLEND, pl);
+}
+
 static void
 minmax_blend(struct rctx *c)
 {
@@ -900,7 +968,11 @@ minmax_blend(struct rctx *c)
 	int mn = N.op[b] == O_MIN;
 	char st[200], pl[400];
 
-	if (!c->flt || c->nsrc != 1 || c->ic >= 0 || (N.op[b] != O_MIN &&
+	if (!c->flt) {
+		minmax_int(c);
+		return;
+	}
+	if (c->nsrc != 1 || c->ic >= 0 || (N.op[b] != O_MIN &&
 	    N.op[b] != O_MAX))
 		return;
 	if (!((N.a[b] == c->vs && N.b[b] == c->vd) || (N.a[b] == c->vd &&
@@ -1017,7 +1089,7 @@ depth_test(struct rctx *c)
 	const char *how, *cmp, *fmt;
 	char st[400], hold[400], pr[700], pl[700], key[80], pay[80], gt[120];
 
-	if (c->flt || c->nsrc != 1 || c->ic >= 0)
+	if (c->flt || c->nsrc != 1 || c->ic >= 0 || TYK(c->ty) != K_UINT)
 		return;
 	/* F is the min or the max of s and d on F's domain */
 	for (mx = 0; mx < 2; mx++)
@@ -1205,7 +1277,7 @@ query_count(struct rctx *c)
 	const char *how;
 	char st[300], hold[300], pr[600], pl[700], cnt[90], cw[80];
 
-	if (c->flt || c->ic >= 0 || c->nsrc > 1)
+	if (c->flt || c->ic >= 0 || c->nsrc > 1 || TYK(c->ty) != K_UINT)
 		return;
 	one = mk_const_i(c->ty, 1);
 	zero = mk_const_i(c->ty, 0);
@@ -1881,10 +1953,11 @@ rop_setup(struct rctx *c, struct func *f, struct model *m)
 	c->flt = c->ty == TY_F32;
 	c->w = TYW(c->ty);
 	if (!c->flt && !(TYK(c->ty) == K_UINT && (c->w == 8 || c->w == 16 ||
-	    c->w == 32 || c->w == 64))) {
-		snprintf(why, sizeof why, "rop works on u8, u16, u32, u64 (integer "
-		    "targets, stencil, depth) and f32 (float targets), not %s",
-		    ty_str(c->ty));
+	    c->w == 32 || c->w == 64)) && !(TYK(c->ty) == K_SINT && (c->w == 8 ||
+	    c->w == 16 || c->w == 32))) {
+		snprintf(why, sizeof why, "rop works on u8, u16, u32, u64, i8, i16, "
+		    "i32 (integer targets, stencil, depth) and f32 (float "
+		    "targets), not %s", ty_str(c->ty));
 		return why;
 	}
 	if (N.ty[f->body] != c->ty) {

@@ -182,3 +182,24 @@ memory under fixed:
     %45 = OpAtomicIAdd %uint %43 %uint_1 %uint_0 %uint_1
       (line 9: uint i = atomicAdd(cb.count, 1u);)
       not proposed: its old value is used other than as the slot of a store
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use fixed
+cost model: fixed
+> spvsimplify nofile assume best -100000 100000
+simplify: 77 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming best in [-100000, 100000] (every load of it)
+  integer arithmetic cost under fixed (each instruction once): 4 -> 4 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under fixed:
+  a scatter's atomics as fixed function (rop: each a proposal, not applied; the dispatch becomes a draw):
+    %42 = OpAtomicSMax %int %34 %uint_1 %uint_0 %40
+      (line 7: atomicMax(bb.best[v >> 24], int(v & 65535u) - 30000);)
+      the update: d = max(d, v) (d a cell of best, v what the atomic brings, i32)
+        d in [-100000, 100000] (assumed), v in [-30000, 35535] (from its computation)
+      blending: VK_BLEND_OP_MAX on a float target (R32_SFLOAT): max(v, d), the integers as floats
+        holds where the values stay below 2^24 in magnitude (at most 100000, from the parameters' ranges)
+        the update is the max (proved by SAT); every value is an integer f32 holds, and the blend picks one of the two: nothing rounds
+        price: rop_blend 2 a fragment under fixed, against 50 (one global atomic, atomic_global): -48 a contribution
+        pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_MAX; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour float(v); the invocation that ran the atomic draws a point at the cell instead (its index into best the point's position), and best's values come from the target after the draw (copied or converted back)

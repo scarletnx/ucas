@@ -2403,6 +2403,7 @@ mem_rop_op(const char *a, int *op, int *flt)
 	static const struct { const char *a; int op, flt; } t[] = {
 		{"IAdd", O_ADD, 0}, {"ISub", O_SUB, 0}, {"IIncrement", O_ADD, 0},
 		{"IDecrement", O_SUB, 0}, {"UMin", O_MIN, 0}, {"UMax", O_MAX, 0},
+		{"SMin", O_MIN, 0}, {"SMax", O_MAX, 0},
 		{"And", O_AND, 0}, {"Or", O_OR, 0}, {"Xor", O_XOR, 0},
 		{"FAddEXT", O_ADD, 1}, {"FMinEXT", O_MIN, 1}, {"FMaxEXT", O_MAX, 1},
 		{NULL, 0, 0}};
@@ -2510,16 +2511,15 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 		}
 		if (flt && w != 32)
 			why = "rop's float targets are f32";
-		else if (!flt && sign)
-			why = "a signed atomic: rop takes unsigned integers (issue "
-			    "#206)";
 		else if (!flt && w != 32 && w != 64)
 			why = "rop's integer cells here are 32 or 64 bits";
+		else if (!flt && sign && w != 32)
+			why = "rop's signed cells are at most 32 bits";
 		if (why) {
 			printf("      not proposed: %s\n", why);
 			continue;
 		}
-		ty = flt ? TY_F32 : TY(K_UINT, w);
+		ty = flt ? TY_F32 : TY(sign ? K_SINT : K_UINT, w);
 		/* s: the value, or the 1 an increment adds */
 		if (!strcmp(a, "IIncrement") || !strcmp(a, "IDecrement")) {
 			slo = shi = 1;
@@ -2545,9 +2545,9 @@ mem_rop(const struct model *m, const int *lsize, struct mem_out *o)
 					iv = xcalloc(pl.n ? pl.n : 1, sizeof *iv);
 					plan_ival(&pl, &G->f, iv);
 					if (pl.root[0] < pl.n && !iv[pl.root[0]].top &&
-					    !iv[pl.root[0]].wrap && iv[pl.root[0]].lo >= 0 &&
-					    (w == 64 || iv[pl.root[0]].hi <=
-					    (int64_t)UINT32_MAX)) {
+					    !iv[pl.root[0]].wrap && (sign ||
+					    iv[pl.root[0]].lo >= 0) && (w == 64 || sign ||
+					    iv[pl.root[0]].hi <= (int64_t)UINT32_MAX)) {
 						slo = iv[pl.root[0]].lo;
 						shi = iv[pl.root[0]].hi;
 						sr = 1;
