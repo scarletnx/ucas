@@ -2607,7 +2607,32 @@ and a `?:` on what it gives as a divergent branch, the report naming
 the parameter), and it has no exact value: `show`, `range`, `equiv`,
 `domain`, `wrap` and `find` refuse it saying so.  A call passes it on:
 `q(5)` with q's x read across the lanes is 5 in every lane, and a
-uniform argument is the same in each.  W is the range of the function's
+uniform argument is the same in each.
+
+`sg_active(m)`, m a uniform parameter of the function, says which lanes
+run (bit l for lane l) for the function's subgroup operations after it;
+its value is m's low W bits, the ballot of true.  A ballot has no bit
+of an inactive lane, `sg_any`, `sg_all`, a sum and a scan skip it, and
+a shuffle that reads one is undefined (`domain` says which lane it
+needs active); a segmented scan is refused under it for now.  The
+operations are written with the mask (a test in the operand, a select
+around a shuffle), so `find`'s forms are checked for every mask and say
+so ("holds with the lanes active in m"), and cost prices those tests as
+written, where the hardware masks the lanes for nothing.  A mask that
+is not a uniform parameter, or one after the operations it would mask,
+is refused.
+
+```
+> ac3(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_shuffle(lane * 10, 2) }
+> show ac3(0x04, 5)
+_() = 20
+> show ac3(0x01, 5)
+_() = undefined
+> domain ac3
+  requires lane 2 is active in u32(m)  (sg_active: a shuffle reads it)
+```
+
+W is the range of the function's
 `lane` parameter (`lane: u32 in 0..7` is 8 lanes; such a function is
 itself a value per lane), else the active model's `warp: N` (the count
 the memory kinds use, above); without either the operations are
@@ -2779,9 +2804,9 @@ prices, or with the class the model lacks, and left
 Not there yet: the forms that need the subgroup's size fixed and all
 its lanes active (a scan as a ladder of shuffles, a table in a
 register) are not written into a module, since a Vulkan pipeline fixes
-the size (`requiredSubgroupSize`) outside it; a subgroup with inactive
-lanes in find; inputs that are a free value in each lane (they need
-more than a function's 8 parameters).
+the size (`requiredSubgroupSize`) outside it; a segmented scan under
+`sg_active`; an exact value for inputs read in the other lanes (they
+need more than a function's 8 parameters).
 
 ### A catalogue of instructions
 

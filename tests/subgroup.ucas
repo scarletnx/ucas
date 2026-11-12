@@ -239,3 +239,24 @@ find dn 1
 # the loop's four trips
 mx(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { m = max(m, sg_shuffle(v, i)) }; m }
 find mx 1
+# sg_active(m), m a uniform parameter: the lanes that run, for the
+# function's subgroup operations after it; a ballot has no bit of an
+# inactive lane, a vote, a sum and a scan skip it, and a shuffle that
+# reads one is undefined
+ac1(m: u8 uniform, x: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_ballot(((x >> lane) & 1) != 0) }
+show ac1(0xf0, 0x33, 0)
+ac2(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_add(lane) }
+show ac2(0x81, 0)
+ac3(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_shuffle(lane * 10, 2) }
+show ac3(0x04, 5)
+show ac3(0x01, 5)
+domain ac3
+# find's forms are checked for every mask, and say so
+ac4(m: u8 uniform, x: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_scan((x >> lane) & 1) }
+find ac4 1
+# its value is the mask's lanes; a mask that is not uniform, or one
+# after the operations it would mask, is refused
+ac5(m: u8 uniform, lane: u32 in 0..7) = { k = sg_active(m); k }
+show ac5(0xa5, 0)
+ac6(m: u8, lane: u32 in 0..7) = sg_active(m)
+ac7(m: u8 uniform, lane: u32 in 0..7) = { y = sg_add(lane); sg_active(m); y }
