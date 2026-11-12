@@ -2549,6 +2549,13 @@ under; the whole is then checked against the function on its domain
   with the table).  For a register the same form at each lookup's own
   index needs no shuffle at all; where that is cheaper the report says
   so with its price, and the register stays the load.
+- One function of a small-range value read at several keys, `h(a) +
+  h(b) + ...` with h written out at each (the subterms that read one
+  parameter each and become the same node with one variable put for
+  it), is tabulated at every point of the keys' range and then held one
+  entry per lane as above: five reads of `(x*x + 3) % 11`, x in 0..15,
+  86.5 -> 30.875 under gt1030.  The dearest such function is tried, and
+  kept only when the register makes the whole cheaper.
 
 ```
 > f1(x: u8 uniform, lane: u32 in 0..7) = sg_scan((x >> lane) & 1)

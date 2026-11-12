@@ -156,3 +156,11 @@ use gt1030
 A(i: u32 in 0..7) = [3, 5, 7, 9, 11, 13, 15, 17][i]
 a3(i: u32 in 0..7, j: u32 in 0..7, k: u32 in 0..7) = A(i) + A(j) * A(k)
 find a3 1
+
+# one function of a small-range value read at several keys: tabulated
+# (every point evaluated) and held one entry per lane, each read a
+# shuffle; the offset of keys that start at 2 is subtracted
+h5(a: u32 in 0..15, b: u32 in 0..15, c: u32 in 0..15, d: u32 in 0..15, e: u32 in 0..15) = (a*a + 3) % 11 + (b*b + 3) % 11 + (c*c + 3) % 11 + (d*d + 3) % 11 + (e*e + 3) % 11
+find h5 1
+p4(i: u32 in 2..9, j: u32 in 2..9, k: u32 in 2..9, y: u32) = popcount(i * 37 % 17) + popcount(j * 37 % 17) + popcount(k * 37 % 17) + y
+find p4 1
