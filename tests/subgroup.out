@@ -723,7 +723,7 @@ _() = 4
 > equiv s4 s4ref
 s4 and s4ref are equal on the domain of s4 (exhaustive)
 > s3(x: u16 uniform, lane: u32 in 0..2) = sg_sort((x >> (4*lane)) % 16)
-subgroup.ucas:215:70: error: sg_sort: the bitonic network needs a power-of-two subgroup, and this one has 3 lanes
+subgroup.ucas:230:70: error: sg_sort: the bitonic network needs a power-of-two subgroup, and this one has 3 lanes
     s3(x: u16 uniform, lane: u32 in 0..2) = sg_sort((x >> (4*lane)) % 16)
                                                                          ^
 > md(x: u16 uniform, lane: u32 in 0..3) = { v = (x >> (4*lane)) % 16; m = 0; for i in 0..3 { vi = sg_shuffle(v, i); lt = popcount(sg_ballot(v < vi)); le = popcount(sg_ballot(v <= vi)); m = lt <= 1 && 1 < le ? vi : m }; m }
