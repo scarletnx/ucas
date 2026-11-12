@@ -768,3 +768,48 @@ find mx: 1024 points (sampled; matches verified on the whole domain), computing 
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
   note: loop loop(i in 0..3; m = 0 then max(m, int(sg_shuffle((x >> 4lane) % 16, i)))).m priced as 4 iterations x 16.25 (listed under branch)
+> ac1(m: u8 uniform, x: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_ballot(((x >> lane) & 1) != 0) }
+> show ac1(0xf0, 0x33, 0)
+_() = 48
+  -> u32
+> ac2(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_add(lane) }
+> show ac2(0x81, 0)
+_() = 7
+  -> u32
+> ac3(m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_shuffle(lane * 10, 2) }
+> show ac3(0x04, 5)
+_() = 20
+  -> u32
+> show ac3(0x01, 5)
+_() = undefined
+  -> u32
+> domain ac3
+domain of ac3:
+  m: u8, 0..255
+  lane: u32, 0..7
+  requires lane 2 is active in u32(m)  (sg_active: a shuffle reads it)
+  defined at 1024 of 2048 points
+  undefined e.g. at m=0, lane=0; m=1, lane=0; m=2, lane=0; m=3, lane=0
+  over all 2048 points of the domain
+> ac4(m: u8 uniform, x: u8 uniform, lane: u32 in 0..7) = { sg_active(m); sg_scan((x >> lane) & 1) }
+> find ac4 1
+find ac4: 1024 points (sampled; matches verified on the whole domain), computing in u8, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 70.25 as written):
+  cost 20.375 u8(popcount(sg_ballot((u32(m) >> lane & 1 != 0 ? x >> lane & 1 : 0) != 0) & (2 << lane) - 1))
+           sg_scan(u32(m) >> lane & 1 != 0 ? x >> lane & 1 : 0): u32(m) >> lane & 1 != 0 ? x >> lane & 1 : 0 is 0 or 1 in every lane (its range, by intervals), so its sum over lanes 0..lane is the number of those lanes where it is not 0: the set bits of the ballot at positions 0..lane, which (2 << lane) - 1 keeps
+           holds with the lanes active in u32(m) (sg_active), checked for every value of it; needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ac5(m: u8 uniform, lane: u32 in 0..7) = { k = sg_active(m); k }
+> show ac5(0xa5, 0)
+_() = 165
+  -> u32
+> ac6(m: u8, lane: u32 in 0..7) = sg_active(m)
+subgroup.ucas:261:45: error: sg_active takes a uniform parameter of the function, the mask of the lanes that run: m is not one
+    ac6(m: u8, lane: u32 in 0..7) = sg_active(m)
+                                                ^
+> ac7(m: u8 uniform, lane: u32 in 0..7) = { y = sg_add(lane); sg_active(m); y }
+subgroup.ucas:262:73: error: sg_active(m) comes before the subgroup operations it masks
+    ac7(m: u8 uniform, lane: u32 in 0..7) = { y = sg_add(lane); sg_active(m); y }
+                                                                            ^
