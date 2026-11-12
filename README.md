@@ -3993,6 +3993,24 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 13: float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);)
 ```
 
+**Vertex inputs.**  In a vertex shader, what the input assembler
+could compute before the shader runs: a field of an input word (a byte
+or a half, signed or not, as `(w >> 8) & 255u` or
+`int(w << 8) >> 24`) is a component of the same bytes read with another
+vertex format (R8G8B8A8_UINT or _SINT, R16G16_UINT or _SINT, or R8 and
+R16 at an offset), proved for every word; its conversion to float is
+the SSCALED or USCALED format of it, exactly (a field of at most 16 bits
+is an f32 as it is), and the conversion divided by the field's largest
+value (or times the f32 nearest its inverse) is the NORM format, equal
+as real numbers, the two maybe a bit apart.  gl_InstanceIndex divided
+by a constant k is the element an instance-rate attribute with divisor
+k fetches from a buffer of 0, 1, 2, ... (VK_EXT_vertex_attribute_divisor,
+core in Vulkan 1.4): it fetches firstInstance + (InstanceIndex -
+firstInstance) / k, which is that when firstInstance is 0.  Each is a
+proposal (the vertex input state changes) and not priced: no model
+prices an attribute, and the GT 1030 run measured that the format
+barely matters while the count does (tests/advicevertex.ucas).
+
 JSON: the result gains `advice_draw`, `advice_primitive`,
 `advice_vertex` and `advice_screen` where there are such values
 (`advice: true` also says when there are none).

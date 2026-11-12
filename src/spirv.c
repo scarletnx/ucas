@@ -9571,6 +9571,386 @@ adv_cone(int k, int f, const uint8_t *fq, char *seen, struct advroot *r,
 	}
 }
 
+/* ---- advice: what the input assembler computes for a vertex shader ---- */
+
+/*
+ * The vertex shader's integer values as ucas expressions of its inputs:
+ * a word an Input variable holds (or one component of it), and
+ * gl_InstanceIndex, each a parameter; constants, shifts, masks,
+ * arithmetic, bitcasts and bitfield extracts between them.
+ */
+struct vib {
+	struct func f;
+	int sid[MAXP], comp[MAXP], inst[MAXP];
+	int fail;
+};
+
+static int
+adv_builtin_is(int var, const char *name)
+{
+	int k;
+
+	for (k = 0; k < V.nin && strcmp(V.in[k].op, "OpFunction"); k++)
+		if (!strcmp(V.in[k].op, "OpDecorate") && V.in[k].nop >= 3 &&
+		    idx(V.in[k].opnd[0]) == var && !strcmp(V.in[k].opnd[1],
+		    "BuiltIn") && !strcmp(V.in[k].opnd[2], name))
+			return 1;
+	return 0;
+}
+
+static ty_t
+vib_ty(int t)
+{
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_INT ||
+	    T(t)->w != 32)
+		return 0;
+	return TY(T(t)->sign ? K_SINT : K_UINT, 32);
+}
+
+static nid
+vib_param(struct vib *B, int sid, int comp, ty_t ty, int inst)
+{
+	char nm[64];
+	const char *n = V.id[sid].name;
+	int j;
+
+	for (j = 0; j < B->f.np; j++)
+		if (B->sid[j] == sid && B->comp[j] == comp)
+			return mk_cast(ty, mk_var((uint32_t)j, B->f.p[j].name,
+			    B->f.p[j].ty));
+	if (B->f.np == MAXP) {
+		B->fail = 1;
+		return mk_const_i(ty, 0);
+	}
+	j = B->f.np++;
+	if (*n == '%')
+		n++;
+	if (inst)
+		snprintf(nm, sizeof nm, "instance");
+	else if (comp >= 0)
+		snprintf(nm, sizeof nm, "%s_%c", isalpha((unsigned char)*n) ? n :
+		    "w", "xyzw"[comp & 3]);
+	else
+		snprintf(nm, sizeof nm, "%s", isalpha((unsigned char)*n) ? n :
+		    "w");
+	memset(&B->f.p[j], 0, sizeof B->f.p[j]);
+	B->f.p[j].name = sym_cstr(nm);
+	B->f.p[j].ty = inst ? TY(K_SINT, 32) : TY(K_UINT, 32);
+	if (inst) {	/* an instance's index is not negative */
+		B->f.p[j].ranged = 1;
+		B->f.p[j].lo = 0;
+		B->f.p[j].hi = INT32_MAX;
+	}
+	B->sid[j] = sid;
+	B->comp[j] = comp;
+	B->inst[j] = inst;
+	return mk_cast(ty, mk_var((uint32_t)j, B->f.p[j].name, B->f.p[j].ty));
+}
+
+/* a equals b on f's domain, proved (by enumeration or SAT) */
+static int
+adv_same(const struct func *f, nid a, nid b, const char **how)
+{
+	struct eqproof pr;
+	jmp_buf saved;
+	volatile int r = 0;
+
+	memset(&pr, 0, sizeof pr);
+	memcpy(saved, fail_jmp, sizeof saved);
+	note_mute++;
+	if (setjmp(fail_jmp) == 0)
+		r = equiv_decide(f, a, b, NULL, &pr) == 0 && pr.how != EQ_SAMPLED;
+	note_mute--;
+	memcpy(fail_jmp, saved, sizeof saved);
+	notes_drop();
+	if (r)
+		*how = pr.how == EQ_EXHAUSTIVE ? "checked on every value" :
+		    "proved by SAT";
+	return r;
+}
+
+/* the Input variable a load reads, or -1 */
+static int
+vib_input(int ptr)
+{
+	int k;
+
+	if (V.id[ptr].kind != K_VAR)
+		return -1;
+	for (k = 0; k < V.nin; k++)
+		if (V.in[k].res == ptr && !strcmp(V.in[k].op, "OpVariable") &&
+		    V.in[k].nop >= 2 && !strcmp(V.in[k].opnd[1], "Input"))
+			return ptr;
+	return -1;
+}
+
+static nid
+vib_build(struct vib *B, int id, int depth)
+{
+	int k = SP.def[id], t = V.id[id].type, i;
+	const struct sins *I;
+	ty_t ty = vib_ty(t);
+
+	if (ty == 0 || depth > 32) {
+		B->fail = 1;
+		return mk_const_i(TY(K_UINT, 32), 0);
+	}
+	if (V.id[id].kind == K_CONST && !V.id[id].spec)
+		return mk_const_i(ty, geti(t, V.id[id].c[0]));
+	if (k < 0) {
+		B->fail = 1;
+		return mk_const_i(ty, 0);
+	}
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpLoad") && I->nop >= 2) {
+		int var = vib_input(idx(I->opnd[1]));
+		if (var >= 0 && T(V.id[var].type)->e == t)
+			return vib_param(B, var, -1, ty, adv_builtin_is(var,
+			    "InstanceIndex"));
+	}
+	if (!strcmp(I->op, "OpCompositeExtract") && I->nop == 3) {
+		int src = idx(I->opnd[1]), ks = SP.def[src];
+		if (ks >= 0 && !strcmp(V.in[ks].op, "OpLoad")) {
+			int var = vib_input(idx(V.in[ks].opnd[1]));
+			if (var >= 0)
+				return vib_param(B, var, atoi(I->opnd[2]), ty, 0);
+		}
+	}
+	if (I->nop >= 3) {
+		static const struct { const char *op; int o; } bin[] = {
+			{"OpIAdd", O_ADD}, {"OpISub", O_SUB}, {"OpIMul", O_MUL},
+			{"OpUDiv", O_DIV}, {"OpSDiv", O_DIV}, {"OpUMod", O_MOD},
+			{"OpShiftLeftLogical", O_SHL}, {"OpShiftRightLogical", O_SHR},
+			{"OpShiftRightArithmetic", O_SHR}, {"OpBitwiseAnd", O_AND},
+			{"OpBitwiseOr", O_OR}, {"OpBitwiseXor", O_XOR}, {NULL, 0}};
+		for (i = 0; bin[i].op; i++)
+			if (!strcmp(I->op, bin[i].op)) {
+				/* signed or unsigned by the instruction, as SPIR-V says */
+				int sg = !strcmp(I->op, "OpSDiv") ||
+				    !strcmp(I->op, "OpShiftRightArithmetic");
+				ty_t ot = TY(sg ? K_SINT : K_UINT, 32);
+				nid a = mk_cast(ot, vib_build(B, idx(I->opnd[1]), depth +
+				    1));
+				nid b = vib_build(B, idx(I->opnd[2]), depth + 1);
+				if (bin[i].o != O_SHL && bin[i].o != O_SHR)
+					b = mk_cast(ot, b);
+				return mk_cast(ty, mk_bin(bin[i].o, a, b));
+			}
+	}
+	if ((!strcmp(I->op, "OpBitcast") || !strcmp(I->op, "OpCopyObject")) &&
+	    I->nop >= 2)
+		return mk_cast(ty, vib_build(B, idx(I->opnd[1]), depth + 1));
+	if ((!strcmp(I->op, "OpBitFieldUExtract") ||
+	    !strcmp(I->op, "OpBitFieldSExtract")) && I->nop >= 4) {
+		int o = idx(I->opnd[2]), c = idx(I->opnd[3]);
+		if (V.id[o].kind == K_CONST && V.id[c].kind == K_CONST) {
+			int64_t off = geti(V.id[o].type, V.id[o].c[0]);
+			int64_t cnt = geti(V.id[c].type, V.id[c].c[0]);
+			int sg = !strcmp(I->op, "OpBitFieldSExtract");
+			ty_t ot = TY(sg ? K_SINT : K_UINT, 32);
+			nid a = mk_cast(ot, vib_build(B, idx(I->opnd[1]), depth + 1));
+			if (off >= 0 && cnt > 0 && off + cnt <= 32)
+				/* (a << (32 - off - cnt)) >> (32 - cnt), arithmetic
+				 * when signed */
+				return mk_cast(ty, mk_bin(O_SHR, mk_bin(O_SHL, a,
+				    mk_const_i(TY(K_UINT, 32), 32 - off - cnt)),
+				    mk_const_i(TY(K_UINT, 32), 32 - cnt)));
+		}
+	}
+	B->fail = 1;
+	return mk_const_i(ty, 0);
+}
+
+/* what instruction k and the instructions under it cost, each once */
+static double
+adv_cone_price(int k, char *seen, int depth)
+{
+	const struct sins *I = &V.in[k];
+	double c;
+	int i;
+
+	if (seen[k] || depth > 64 || !strcmp(I->op, "OpLoad"))
+		return 0;
+	seen[k] = 1;
+	c = adv_price(I);
+	for (i = first_arg(I); i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && SP.def[idx(I->opnd[i])] >= 0)
+			c += adv_cone_price(SP.def[idx(I->opnd[i])], seen, depth + 1);
+	return c;
+}
+
+/*
+ * A vertex shader's values the input assembler could give it: a field of
+ * an input word that a vertex format extracts (a byte, a half, signed or
+ * not, and its conversion to float), and gl_InstanceIndex divided by a
+ * constant, which an instance-rate attribute with that divisor fetches
+ * from a buffer of 0, 1, 2, ...  Each is proved on its own (equal for
+ * every word, by enumeration or SAT) and offered as a proposal: the
+ * vertex input state changes.  Not priced: no model prices a vertex
+ * attribute (the GT 1030 run measured that the format barely matters
+ * and the attribute count does).
+ */
+static void
+adv_vertex_inputs(struct sbuf *rep, const struct model *m)
+{
+	int k, n = 0, i;
+	char *seen = xcalloc((size_t)V.nin + 1, 1);
+	char sl[160];
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		struct vib *B;
+		nid e, x;
+		int w, matched = 0;
+		char what[400] = "";
+		const char *how = "";
+		int B_inst;
+		double fieldmax, cone;
+
+		if (I->res < 0 || SP.def[I->res] != k || !vib_ty(V.id[I->res].type)
+		    || !adv_pure(I) || !strncmp(I->op, "OpComposite", 11) ||
+		    !strcmp(I->op, "OpCopyObject") || !strcmp(I->op, "OpBitcast"))
+			continue;
+		B = xcalloc(1, sizeof *B);
+		B->f.name = sym_cstr("_vin");
+		B->f.anon = 1;
+		e = vib_build(B, I->res, 0);
+		B->f.body = e;
+		B_inst = B->inst[0];
+		fieldmax = 0;
+		if (B->fail || B->f.np != 1 || N.op[e] == O_VAR) {
+			free(B);
+			continue;
+		}
+		x = mk_var(0, B->f.p[0].name, B->f.p[0].ty);
+		if (B->inst[0]) {
+			/* instance / k: k read off the expression, then proved */
+			nid q = e;
+			while (N.op[q] == O_CAST)
+				q = N.a[q];
+			if (N.op[q] == O_DIV && N.op[N.b[q]] == O_CONST &&
+			    N.ki[N.b[q]] >= 2 && N.ki[N.b[q]] <= INT32_MAX) {
+				int64_t d = N.ki[N.b[q]];
+				q = mk_cast(N.ty[e], mk_bin(O_DIV, x, mk_const_i(TY(K_SINT,
+				    32), d)));
+				if (adv_same(&B->f, e, q, &how)) {
+					snprintf(what, sizeof what, "gl_InstanceIndex / %lld "
+					    "(%s) is the element an instance-rate attribute "
+					    "with divisor %lld fetches from a buffer holding 0, "
+					    "1, 2, ... (VK_EXT_vertex_attribute_divisor, core "
+					    "in Vulkan 1.4): it fetches element firstInstance + "
+					    "(InstanceIndex - firstInstance) / divisor, which "
+					    "is this when firstInstance is 0", (long long)d,
+					    how, (long long)d);
+					matched = 1;
+				}
+			}
+		} else
+			for (w = 8; w <= 16 && !matched; w += 8) {
+				int c, sg;
+				for (sg = 0; sg < 2 && !matched; sg++)
+					for (c = 0; c < 32 / w && !matched; c++) {
+						/* component c of the word read as w-bit fields */
+						ty_t st = TY(sg ? K_SINT : K_UINT, 32);
+						nid q = mk_bin(O_SHR, mk_bin(O_SHL, mk_cast(st, x),
+						    mk_const_i(TY(K_UINT, 32), 32 - w * (c + 1))),
+						    mk_const_i(TY(K_UINT, 32), 32 - w));
+						q = mk_cast(N.ty[e], q);
+						if (!adv_same(&B->f, e, q, &how))
+							continue;
+						fieldmax = sg ? (double)((1 << (w - 1)) - 1) :
+						    (double)((1 << w) - 1);
+						snprintf(what, sizeof what, "component %d of the "
+						    "same bytes read as %s (%s): an attribute on %s's "
+						    "binding and offset with that format, or %s at "
+						    "offset + %d", c, w == 8 ? (sg ? "R8G8B8A8_SINT" :
+						    "R8G8B8A8_UINT") : (sg ? "R16G16_SINT" :
+						    "R16G16_UINT"), how, sym_str(B->f.p[0].name),
+						    w == 8 ? (sg ? "R8_SINT" : "R8_UINT") : (sg ?
+						    "R16_SINT" : "R16_UINT"), c * w / 8);
+						matched = 1;
+					}
+			}
+		free(B);
+		if (!matched)
+			continue;
+		if (!rep->n)
+			sb_printf(rep, "advice (changes outside the module; nothing "
+			    "here is rewritten), priced under %s:\n",
+			    sym_str(m->name));
+		if (!n++) {
+			sb_printf(rep, "  vertex inputs: what the input assembler "
+			    "computes before the shader runs (each a proposal: the "
+			    "vertex input state changes; not priced: %s has no price "
+			    "for an attribute, and the GT 1030 run measured that the "
+			    "format barely matters while the count does):\n",
+			    sym_str(m->name));
+			rep_list("advice_vertex_inputs");
+		}
+		memset(seen, 0, (size_t)V.nin + 1);
+		cone = adv_cone_price(k, seen, 0);
+		sb_printf(rep, "    %s   (%g every vertex)\n", I->text, cone);
+		rep_obj(NULL);
+		rep_str("instruction", I->text);
+		rep_num("cost", cone);
+		rep_int("line", ins_line(k));
+		rep_str("input", what);
+		rep_end();
+		src_line(ins_line(k), sl, sizeof sl);
+		if (sl[0])
+			sb_printf(rep, "  %s", sl);
+		sb_printf(rep, "      %s\n", what);
+		if (B_inst)
+			continue;
+		/* the field converted to float: a SCALED or a NORM format */
+		for (i = 0; i < V.nin; i++) {
+			const struct sins *J = &V.in[i];
+			int sg, q;
+			if ((strcmp(J->op, "OpConvertUToF") && strcmp(J->op,
+			    "OpConvertSToF")) || J->nop < 2 || J->res < 0 ||
+			    idx(J->opnd[1]) != I->res)
+				continue;
+			sg = !strcmp(J->op, "OpConvertSToF");
+			sb_printf(rep, "      and %s: the %s format of that component "
+			    "gives it as a float, exactly (a field of at most 16 bits "
+			    "is an f32 as it is)\n", J->text, sg ? "SSCALED" :
+			    "USCALED");
+			for (q = 0; q < V.nin; q++) {
+				const struct sins *D = &V.in[q];
+				double kd;
+				int c, other;
+				if (D->res < 0 || D->nop < 3 || (strcmp(D->op, "OpFDiv") &&
+				    strcmp(D->op, "OpFMul")))
+					continue;
+				if (idx(D->opnd[1]) == J->res)
+					other = idx(D->opnd[2]);
+				else if (idx(D->opnd[2]) == J->res && !strcmp(D->op,
+				    "OpFMul"))
+					other = idx(D->opnd[1]);
+				else
+					continue;
+				c = other;
+				if (V.id[c].kind != K_CONST || V.id[c].spec)
+					continue;
+				kd = getf(V.id[c].type, V.id[c].c[0]);
+				/* over the field's largest value, or times the f32
+				 * nearest its inverse (what a compiler makes of it) */
+				if (!strcmp(D->op, "OpFDiv") ? kd != fieldmax : kd !=
+				    (double)(float)(1.0 / fieldmax))
+					continue;
+				sb_printf(rep, "      and %s: the %s format gives the field "
+				    "over %g as a real number; the shader's %s and the "
+				    "format's conversion may differ in the last bit\n",
+				    D->text, sg ? "SNORM" : "UNORM", fieldmax,
+				    !strcmp(D->op, "OpFDiv") ? "division" : "product");
+			}
+		}
+	}
+	if (n)
+		rep_end();
+	free(seen);
+}
+
 static void
 advice_pass(const char *text, int asked)
 {
@@ -9842,10 +10222,13 @@ advice_pass(const char *text, int asked)
 		rep_end();
 		rep_end();
 	}
+	if (!strcmp(stage, "Vertex"))
+		adv_vertex_inputs(&rep, m);
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
-		    "its uniforms or its flat inputs, or is affine in its "
-		    "varyings or in gl_FragCoord\n");
+		    "its uniforms or its flat inputs, is affine in its varyings "
+		    "or in gl_FragCoord, or is what a vertex format or an "
+		    "instance divisor computes\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);
