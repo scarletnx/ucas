@@ -1,0 +1,33 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Bucket (line 5), called from main (line 8)
+    line 5: `v / 10` can be `int(uint(v) / 10u)` (the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)); line 5: `v % 7` can be `int(uint(v) % 7u)` (the signed remainder of operands never negative here, unsigned (a - b trunc(a/b) = a mod b for a >= 0, b > 0))
+      int Bucket(int v) {
+          return int(uint(v) / 10u) + int(uint(v) % 7u);
+      }
+    proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (1024 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 47.75 -> 23.25 per call
+    relies on: v in 0..1023 at every call: main (line 8)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  nothing found at the function level
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Bucket (line 4), called from main (line 5)
+    line 4: `v / 10` can be `int(uint(v) / 10u)` (the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)); line 4: `v % 7` can be `int(uint(v) % 7u)` (the signed remainder of operands never negative here, unsigned (a - b trunc(a/b) = a mod b for a >= 0, b > 0))
+      int Bucket(int v) {
+          return int(uint(v) / 10u) + int(uint(v) % 7u);
+      }
+    proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (1024 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 47.75 -> 23.25 per call
+    relies on: v in 0..1023 at every call: main (line 5)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile functions
+function level: not run (the GLSL parser left main out: half_of (line 5: 'double' is a word GLSL ES 3.10 reserves); main (line 8: no function 'half_of' is declared))

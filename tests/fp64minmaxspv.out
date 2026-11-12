@@ -8,7 +8,7 @@ simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10011: the shader has no main function)
+function level: not run (the GLSL parser left main out: f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10009: no function 'f' is declared))
 fp64 and conversions under gt1030:
   %88 = OpFConvert %float %87
       (line 1: float f(float x, float y, float z) { double a = x, b = y, c = z; return float(clamp(a * b,)
@@ -92,7 +92,7 @@ simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+function level: not run (the GLSL parser left main out: g (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'g' is declared))
 fp64 and conversions under gt1030:
   %73 = OpFConvert %v2float %72
       (line 1: vec2 g(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(min(V * V, V * W) +)
@@ -209,7 +209,7 @@ simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+function level: not run (the GLSL parser left main out: h (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'h' is declared))
 fp64 and conversions under gt1030:
   %73 = OpFConvert %v2float %72
       (line 1: vec2 h(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(max(V * W, W * W) *)
@@ -321,7 +321,7 @@ simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under zen4 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 10010: the shader has no main function)
+function level: not run (the GLSL parser left main out: g (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'g' is declared))
 fp64 and conversions under zen4:
   %73 = OpFConvert %v2float %72
       (line 1: vec2 g(vec2 v, vec2 w) { dvec2 V = dvec2(v), W = dvec2(w); return vec2(min(V * V, V * W) +)

@@ -1,0 +1,53 @@
+# The function level reads what the GLSL parser it uses (ScarletNX's, for
+# GLSL ES) does not have: a subgroup built-in is a function whose value
+# it does not know, and a fragment or vertex shader is read as one.
+# Bucket's calls keep v in 0..1023 with a subgroup sum beside them:
+simplify functions nofile
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int o[]; };
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    o[i] = Bucket(i) + subgroupAdd(i) + int(gl_SubgroupInvocationID);
+}
+```
+# a subgroup built-in's value is not known: its sum given to Bucket says
+# nothing of v
+simplify functions nofile
+```glsl
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int o[]; };
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    o[i] = Bucket(subgroupAdd(i));
+}
+```
+# a fragment shader: its inputs and outputs
+simplify functions nofile
+```glsl
+#version 450
+layout(location = 0) flat in int k;
+layout(location = 0) out vec4 col;
+int Bucket(int v) { return v / 10 + v % 7; }
+void main() { col = vec4(float(Bucket(k & 1023)), 0.0, 0.0, 1.0); }
+```
+# what it cannot read in main is said, with what main needed that it
+# could not read before
+simplify functions nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int o[]; };
+int Bucket(int v) { return v / 10 + v % 7; }
+float half_of(float x) { double d = x; return float(d * 0.5); }
+void main() {
+    int i = int(gl_GlobalInvocationID.x & 1023u);
+    o[i] = Bucket(i) + int(half_of(float(i)));
+}
+```

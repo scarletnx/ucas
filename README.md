@@ -3637,10 +3637,20 @@ Vulkan GLSL 4.50 is brought to GLSL ES 3.10 first where the two only
 spell things differently, keeping every line in place: the `#version`
 line, `layout(push_constant)`, `T a[N] = { ... }` (as `T[N](...)`),
 `#extension` lines, and `const` on a local (GLSL ES wants a constant
-expression there; the word is remembered for the suggestions).  A
-declaration or function the parser still refuses is left out, and the
-report names it and why.  Integer scalars, arrays and constant tables
-are understood; floats, vectors and structs are opaque.
+expression there; the word is remembered for the suggestions).  The
+shader is read as the stage of the module's entry point (a fragment
+shader's `in` and `out`), with the default precisions GLSL ES lacks and
+Vulkan's GLSL has as highp (a fragment shader's float, an image's or a
+3-D sampler's), all declared ahead of the code on the first line of it.
+So are the GL_KHR_shader_subgroup built-ins the source calls, which
+snxglslc does not have: each one is a function whose value the level
+does not know, as it knows no built-in but min, max, clamp and abs, and
+gl_SubgroupSize and the other subgroup variables are values it does not
+know either.  A declaration or function the parser still refuses is
+left out, and the report names it and why; when that leaves main out,
+the level does not run and says what it refused, main last
+(tests/fnlread.ucas).  Integer scalars, arrays and constant tables are
+understood; floats, vectors and structs are opaque.
 
 **Domains.** An abstract interpretation runs from `main` (or from every
 function nobody calls).  Its state is a set of environments, one per

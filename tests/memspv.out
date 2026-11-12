@@ -70,7 +70,7 @@ simplify: 77 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 12: the shader has no main function)
+function level: not run (the GLSL parser left main out: main (line 8: no overload of atomicAdd takes (float, float)))
 memory under gt1030:
   %34 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %32
       (line 8: atomicAdd(acc[i & 7u], float(i & 255u) * 0.25);)

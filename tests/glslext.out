@@ -5,4 +5,4 @@ simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 9 -> 9 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser refused it: line 7: the shader has no main function)
+function level: not run (the GLSL parser left main out: lowhalf (line 5: no function 'uint16_t' is declared); main (line 6: no function 'lowhalf' is declared))

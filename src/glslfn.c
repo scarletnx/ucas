@@ -117,7 +117,7 @@ static struct {
 	int nf, capf;
 	int cur;		/* the function being converted */
 	int bad;		/* the parse gave up */
-	char why[200];
+	char why[1200];
 } G;
 
 
@@ -302,12 +302,169 @@ skip_comment(const char *s, size_t i)
 	return i;
 }
 
+/*
+ * The subgroup built-ins (GL_KHR_shader_subgroup_*), which snxglslc does
+ * not have: each one the text calls is declared, ahead of the code, as a
+ * function of its overloads with a stub body (sg_stub_from on), and a
+ * call to one is a value the function level does not know, as any
+ * built-in's but min, max, clamp and abs.  T is every type of the family:
+ * a arithmetic (float, int, uint), b bitwise (int, uint, bool), g all.
+ */
+static const struct sgbi {
+	const char *name, *sig;	/* sig: result, then the parameters */
+	char fam;
+} sg_builtins[] = {
+	{"subgroupBarrier", "void", 0}, {"subgroupMemoryBarrier", "void", 0},
+	{"subgroupMemoryBarrierBuffer", "void", 0},
+	{"subgroupMemoryBarrierShared", "void", 0},
+	{"subgroupMemoryBarrierImage", "void", 0},
+	{"subgroupElect", "bool", 0},
+	{"subgroupAll", "bool bool", 0}, {"subgroupAny", "bool bool", 0},
+	{"subgroupAllEqual", "bool T", 'g'},
+	{"subgroupBallot", "uvec4 bool", 0},
+	{"subgroupInverseBallot", "bool uvec4", 0},
+	{"subgroupBallotBitExtract", "bool uvec4 uint", 0},
+	{"subgroupBallotBitCount", "uint uvec4", 0},
+	{"subgroupBallotInclusiveBitCount", "uint uvec4", 0},
+	{"subgroupBallotExclusiveBitCount", "uint uvec4", 0},
+	{"subgroupBallotFindLSB", "uint uvec4", 0},
+	{"subgroupBallotFindMSB", "uint uvec4", 0},
+	{"subgroupAdd", "T T", 'a'}, {"subgroupMul", "T T", 'a'},
+	{"subgroupMin", "T T", 'a'}, {"subgroupMax", "T T", 'a'},
+	{"subgroupAnd", "T T", 'b'}, {"subgroupOr", "T T", 'b'},
+	{"subgroupXor", "T T", 'b'},
+	{"subgroupInclusiveAdd", "T T", 'a'}, {"subgroupInclusiveMul", "T T", 'a'},
+	{"subgroupInclusiveMin", "T T", 'a'}, {"subgroupInclusiveMax", "T T", 'a'},
+	{"subgroupInclusiveAnd", "T T", 'b'}, {"subgroupInclusiveOr", "T T", 'b'},
+	{"subgroupInclusiveXor", "T T", 'b'},
+	{"subgroupExclusiveAdd", "T T", 'a'}, {"subgroupExclusiveMul", "T T", 'a'},
+	{"subgroupExclusiveMin", "T T", 'a'}, {"subgroupExclusiveMax", "T T", 'a'},
+	{"subgroupExclusiveAnd", "T T", 'b'}, {"subgroupExclusiveOr", "T T", 'b'},
+	{"subgroupExclusiveXor", "T T", 'b'},
+	{"subgroupClusteredAdd", "T T uint", 'a'},
+	{"subgroupClusteredMul", "T T uint", 'a'},
+	{"subgroupClusteredMin", "T T uint", 'a'},
+	{"subgroupClusteredMax", "T T uint", 'a'},
+	{"subgroupClusteredAnd", "T T uint", 'b'},
+	{"subgroupClusteredOr", "T T uint", 'b'},
+	{"subgroupClusteredXor", "T T uint", 'b'},
+	{"subgroupBroadcast", "T T uint", 'g'},
+	{"subgroupBroadcastFirst", "T T", 'g'},
+	{"subgroupShuffle", "T T uint", 'g'}, {"subgroupShuffleXor", "T T uint", 'g'},
+	{"subgroupShuffleUp", "T T uint", 'g'},
+	{"subgroupShuffleDown", "T T uint", 'g'},
+	{"subgroupRotate", "T T uint", 'g'},
+	{"subgroupClusteredRotate", "T T uint uint", 'g'},
+	{"subgroupQuadBroadcast", "T T uint", 'g'},
+	{"subgroupQuadSwapHorizontal", "T T", 'g'},
+	{"subgroupQuadSwapVertical", "T T", 'g'},
+	{"subgroupQuadSwapDiagonal", "T T", 'g'},
+};
+
+/* its built-in variables, read as values the function level does not
+ * know: renamed snx... (the same length) and declared uniform */
+static const char *const sg_vars[] = {"gl_SubgroupSize",
+    "gl_SubgroupInvocationID", "gl_NumSubgroups", "gl_SubgroupID",
+    "gl_SubgroupEqMask", "gl_SubgroupGeMask", "gl_SubgroupGtMask",
+    "gl_SubgroupLeMask", "gl_SubgroupLtMask"};
+
+static size_t sg_stub_from, sg_stub_to;	/* the declarations' bytes */
+
+/* one overload of b's function, T being t */
+static void
+sg_overload(struct sbuf *o, const struct sgbi *b, const char *t)
+{
+	char w[8][16];
+	int n = 0, k;
+	const char *s = b->sig;
+
+	while (*s && n < 8) {
+		size_t l = strcspn(s, " ");
+		snprintf(w[n], sizeof w[n], "%.*s", (int)l, s);
+		if (!strcmp(w[n], "T"))
+			snprintf(w[n], sizeof w[n], "%s", t);
+		n++;
+		s += l + (s[l] == ' ');
+	}
+	sb_printf(o, "%s %s(", w[0], b->name);
+	for (k = 1; k < n; k++)
+		sb_printf(o, "%shighp %s p%d", k > 1 ? ", " : "", w[k], k);
+	if (!strcmp(w[0], "void"))
+		sb_puts(o, ") { } ");
+	else if (!strcmp(w[0], "bool") || w[0][0] == 'b')
+		sb_printf(o, ") { return %s(false); } ", w[0]);
+	else
+		sb_printf(o, ") { return %s(0); } ", w[0]);
+}
+
+/* the declarations the text needs ahead of its code: the default
+ * precisions GLSL ES lacks (a fragment shader's float, an image's or a
+ * 3-D sampler's anywhere; Vulkan's GLSL has highp), the subgroup
+ * built-ins it calls and the variables it reads */
+static void
+es_prelude(struct sbuf *o, const char *src, int stage)
+{
+	static const char *const fam_a[] = {"float", "vec2", "vec3", "vec4",
+	    "int", "ivec2", "ivec3", "ivec4", "uint", "uvec2", "uvec3", "uvec4",
+	    NULL};
+	static const char *const fam_b[] = {"int", "ivec2", "ivec3", "ivec4",
+	    "uint", "uvec2", "uvec3", "uvec4", "bool", "bvec2", "bvec3", "bvec4",
+	    NULL};
+	static const char *const fam_g[] = {"float", "vec2", "vec3", "vec4",
+	    "int", "ivec2", "ivec3", "ivec4", "uint", "uvec2", "uvec3", "uvec4",
+	    "bool", "bvec2", "bvec3", "bvec4", NULL};
+	static const char *const opaque[] = {"sampler2D", "sampler3D",
+	    "samplerCube", "sampler2DShadow", "samplerCubeShadow",
+	    "sampler2DArray", "sampler2DArrayShadow", "isampler2D", "isampler3D",
+	    "isamplerCube", "isampler2DArray", "usampler2D", "usampler3D",
+	    "usamplerCube", "usampler2DArray", "sampler2DMS", "isampler2DMS",
+	    "usampler2DMS", "image2D", "iimage2D", "uimage2D", "image3D",
+	    "iimage3D", "uimage3D", "imageCube", "iimageCube", "uimageCube",
+	    "image2DArray", "iimage2DArray", "uimage2DArray", NULL};
+	size_t i, k;
+
+	if (stage != SNX_GLSLC_COMPUTE)
+		sb_puts(o, "precision highp float; precision highp int; ");
+	for (k = 0; opaque[k]; k++)
+		for (i = 0; src[i]; i++)
+			if (word_at(src, i, opaque[k])) {
+				sb_printf(o, "precision highp %s; ", opaque[k]);
+				break;
+			}
+	for (k = 0; k < sizeof sg_vars / sizeof sg_vars[0]; k++)
+		for (i = 0; src[i]; i++)
+			if (word_at(src, i, sg_vars[k])) {
+				sb_printf(o, "uniform highp %s snx%s; ", strstr(sg_vars[k],
+				    "Mask") ? "uvec4" : "uint", sg_vars[k] + 3);
+				break;
+			}
+	for (k = 0; k < sizeof sg_builtins / sizeof sg_builtins[0]; k++) {
+		const struct sgbi *b = &sg_builtins[k];
+		const char *const *f;
+		for (i = 0; src[i] && !word_at(src, i, b->name); i++)
+			;
+		if (!src[i])
+			continue;
+		if (!b->fam) {
+			sg_overload(o, b, "");
+			continue;
+		}
+		f = b->fam == 'a' ? fam_a : b->fam == 'b' ? fam_b : fam_g;
+		for (; *f; f++)
+			sg_overload(o, b, *f);
+	}
+}
+
 static char *
-es_text(const char *src)
+es_text(const char *src, int stage)
 {
 	struct sbuf b = {0};
 	size_t i, n = strlen(src);
+	int pre = 1;	/* the prelude: on the first line of code */
+	int ifs = 0;	/* #if depth: the prelude goes outside any */
 
+	sg_stub_from = sg_stub_to = 0;
+	sb_puts(&b, "");
 	for (i = 0; i < n;) {
 		size_t j = skip_comment(src, i);
 		if (j != i) {
@@ -332,6 +489,32 @@ es_text(const char *src)
 				i++;
 			}
 			continue;
+		}
+		if (pre && (i == 0 || src[i - 1] == '\n') && src[i] == '#') {
+			size_t k = i + 1;
+			while (src[k] == ' ' || src[k] == '\t')
+				k++;
+			if (!strncmp(src + k, "if", 2))	/* #if, #ifdef, #ifndef */
+				ifs++;
+			else if (!strncmp(src + k, "endif", 5) && ifs > 0)
+				ifs--;
+		} else if (pre && (i == 0 || src[i - 1] == '\n') && !ifs &&
+		    !(i >= 2 && src[i - 2] == '\\')) {
+			sg_stub_from = b.n;
+			es_prelude(&b, src, stage);
+			sg_stub_to = b.n;
+			pre = 0;
+		}
+		if (src[i] == 'g' && !strncmp(src + i, "gl_", 3)) {
+			size_t k;
+			for (k = 0; k < sizeof sg_vars / sizeof sg_vars[0]; k++)
+				if (word_at(src, i, sg_vars[k])) {
+					sb_printf(&b, "snx%s", sg_vars[k] + 3);
+					i += strlen(sg_vars[k]);
+					break;
+				}
+			if (k < sizeof sg_vars / sizeof sg_vars[0])
+				continue;
 		}
 		if (word_at(src, i, "layout")) {
 			/* layout(...push_constant...): blanked */
@@ -436,7 +619,7 @@ static void
 top_range(const char *s, size_t at, size_t *a, size_t *b)
 {
 	size_t i = 0, start = 0, n = strlen(s);
-	int depth = 0;
+	int depth = 0, body = 0;	/* body: the brace opened a function's */
 	while (i < n) {
 		size_t j = skip_comment(s, i);
 		if (j != i) {
@@ -454,6 +637,13 @@ top_range(const char *s, size_t at, size_t *a, size_t *b)
 			start = i;
 			continue;
 		}
+		if (s[i] == '{' && depth == 0) {
+			/* after a parameter list: a function's body */
+			size_t k = i;
+			while (k > start && isspace((unsigned char)s[k - 1]))
+				k--;
+			body = k > start && s[k - 1] == ')';
+		}
 		if (s[i] == '{' || s[i] == '(')
 			depth++;
 		else if (s[i] == ')')
@@ -461,12 +651,12 @@ top_range(const char *s, size_t at, size_t *a, size_t *b)
 		else if (s[i] == '}') {
 			depth--;
 			if (depth == 0) {
-				/* a function's body ends here, unless a ';' follows (a
-				 * block or a struct) */
+				/* a function's body ends here; a block's or a struct's
+				 * goes on to its ';' (and an instance's name) */
 				size_t k = i + 1;
 				while (k < n && isspace((unsigned char)s[k]))
 					k++;
-				if (s[k] != ';' && !isalpha((unsigned char)s[k])) {
+				if (body || (s[k] != ';' && !isalpha((unsigned char)s[k]))) {
 					if (at >= start && at <= i) {
 						*a = start;
 						*b = i + 1;
@@ -820,11 +1010,11 @@ cv_s(uint32_t n)
 
 /* parse src (GLSL 4.50 or ES) with snxglslc and convert the tree: 0 ok */
 static int
-parse_source(const char *src)
+parse_source(const char *src, int stage)
 {
 	size_t ws = snx_glslc_workspace_size();
 	GlslcResult *res = xcalloc(1, sizeof *res);
-	char *t1 = es_text(src), *t2;
+	char *t1 = es_text(src, stage), *t2;
 	int tries, ok = 0;
 	uint32_t s, n;
 
@@ -863,7 +1053,7 @@ parse_source(const char *src)
 	for (tries = 0; tries < 48; tries++) {
 		void *m = (void *)(((uintptr_t)sg_mem + 15) & ~(uintptr_t)15);
 		memset(res, 0, sizeof *res);
-		SG = glslc_open(m, ws, SNX_GLSLC_COMPUTE, t2, strlen(t2), res);
+		SG = glslc_open(m, ws, (GlslcStage)stage, t2, strlen(t2), res);
 		if (SG == NULL)
 			break;
 		if (glslc_run(SG, GLSLC_PASS_PARSE, NULL, 0) == 0) {
@@ -872,6 +1062,8 @@ parse_source(const char *src)
 		}
 		if (SG->ntoks == 0)
 			break;	/* nothing was read: no piece to drop */
+		if (strstr(res->error, "no main function"))
+			break;	/* main was dropped: nothing else to drop brings it back */
 		{
 			/* drop what it refused: the top-level piece around it */
 			size_t at = SG->toks[SG->pos < SG->ntoks ? SG->pos :
@@ -908,8 +1100,13 @@ parse_source(const char *src)
 		}
 	}
 	if (!ok) {
-		snprintf(G.why, sizeof G.why, "the GLSL parser refused it: line %u: "
-		    "%s", res->line, res->error);
+		if (dropped[0] && strstr(res->error, "no main function"))
+			/* what it refused, main last: why main is not there */
+			snprintf(G.why, sizeof G.why, "the GLSL parser left main out: "
+			    "%s", dropped);
+		else
+			snprintf(G.why, sizeof G.why, "the GLSL parser refused it: line "
+			    "%u: %s", res->line, res->error);
 		free(t2);
 		free(res);
 		return -1;
@@ -927,6 +1124,12 @@ parse_source(const char *src)
 		const GlslcSymbol *y = &SG->syms[s];
 		if (y->kind != GLSLC_SK_FUNC || !y->node)
 			continue;
+		{
+			/* a subgroup built-in's stub: its calls are unknown values */
+			size_t at = SG->toks[SG->nodes[y->node].tok].site;
+			if (at >= sg_stub_from && at < sg_stub_to)
+				continue;
+		}
 		if (G.nf == G.capf) {
 			G.capf = G.capf ? G.capf * 2 : 64;
 			G.f = xrealloc(G.f, (size_t)G.capf * sizeof *G.f);
@@ -7358,9 +7561,9 @@ reset_all(void)
 
 /* simplify's function-level pass over src (OpSource's GLSL); only: the
  * report alone (the caller ran nothing else) */
-void glslfn_pass(const char *src, double budget, int only);
+void glslfn_pass(const char *src, double budget, int only, const char *model);
 void
-glslfn_pass(const char *src, double budget, int only)
+glslfn_pass(const char *src, double budget, int only, const char *model)
 {
 	clock_t t0 = clock();
 	int rounds, f, i;
@@ -7370,7 +7573,9 @@ glslfn_pass(const char *src, double budget, int only)
 	memset(&A, 0, sizeof A);
 	G.cur = -1;
 	dot_hinted = 0;
-	if (parse_source(src) != 0) {
+	if (parse_source(src, model && !strcmp(model, "Fragment") ?
+	    SNX_GLSLC_FRAGMENT : model && !strcmp(model, "Vertex") ?
+	    SNX_GLSLC_VERTEX : SNX_GLSLC_COMPUTE) != 0) {
 		printf("function level: not run (%s)\n", G.why);
 		return;
 	}
