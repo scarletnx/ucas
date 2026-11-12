@@ -1,0 +1,75 @@
+# simplify ... advice: what a shader computes that changes less often
+# than it runs (src/spirv.c, advice_pass).  Nothing is rewritten: the
+# interface would change.
+# a fragment shader: two values depend only on the push constants (once
+# a draw), and the fog factor's line is affine in a varying (once a
+# vertex, not priced: the model has no price for a vertex or a varying)
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec3 wpos;
+layout(location = 1) in vec3 nrm;
+layout(location = 0) out vec4 col;
+layout(push_constant) uniform PC { vec4 light; float gamma; float exposure; } pc;
+layout(binding = 0) uniform U { mat4 view; vec4 tint; vec4 fog; } u;
+void main() {
+    vec3 l = normalize(pc.light.xyz) * pc.light.w;
+    float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);
+    vec3 vp = (u.view * vec4(wpos, 1.0)).xyz;
+    float d = max(dot(normalize(nrm), l), 0.0);
+    float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);
+    col = vec4(mix(u.tint.rgb * d * k, u.fog.rgb, fogk), 1.0);
+}
+```
+# a compute shader: a product of two uniforms is one load instead of two
+# loads and a multiply
+simplify and advise nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+layout(binding = 1) uniform U { float a; float b; } u;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = o[i] * (u.a * u.b);
+}
+```
+# three values of one uniform: passing them in is three loads, more
+# than the one load and the three operations they replace (derived, but
+# not cheaper); with a load nearly free it is worth it
+simplify advice nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+layout(binding = 1) uniform U { float a; } u;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = (o[i] * (u.a + 1.0) + (u.a * 3.0)) * (u.a - 2.0);
+}
+```
+model loadfree : gt1030 { load: 0.125 }
+use loadfree
+simplify advice nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+layout(binding = 1) uniform U { float a; } u;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = (o[i] * (u.a + 1.0) + (u.a * 3.0)) * (u.a - 2.0);
+}
+```
+use gt1030
+# nothing of a lower frequency
+simplify advice nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float o[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o[i] = o[i] * 2.0 + 1.0;
+}
+```

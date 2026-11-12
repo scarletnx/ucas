@@ -8458,6 +8458,7 @@ simplify_piece(struct sbuf *piece, int c)
 	int f_foldproof = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
+	int f_advice = 0;	/* "advice", "advise", "what could be hoisted" */
 	int f_fn = 0, fnw = 0;	/* "function level", "per function": 1; "no
 				 * function level": 2 */
 	int c_check = 0, c_bench = 0, c_wrapv = 0, c_trace = 0;
@@ -8549,6 +8550,10 @@ simplify_piece(struct sbuf *piece, int c)
 				f_exact = 1;
 			if (!strncmp(lw, "approx", 6))
 				f_approx = 1;
+			if (!strcmp(lw, "advice") || !strcmp(lw, "advise") ||
+			    !strcmp(lw, "hoist") || !strcmp(lw, "hoisted") ||
+			    !strcmp(lw, "hoisting"))
+				f_advice = 1;
 
 			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
 			    !ulp[0])
@@ -8619,6 +8624,8 @@ simplify_piece(struct sbuf *piece, int c)
 	    " foldproof" : "");
 	if (sink[0])
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink %s", sink);
+	if (f_advice && !c)
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " advice");
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		struct sbuf as = {0};

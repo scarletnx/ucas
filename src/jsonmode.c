@@ -620,6 +620,9 @@ static const struct jcmd cmds[] = {
 	    NUO("ulp", "", "float rewrites: within N ulp of the reference"),
 	    BO("approx", "", "float rewrites: approximations too (with ulp)"),
 	    BO("percomp", "", "float rewrites: per vector component"),
+	    BO("advice", "", "also report what could leave the shader: values "
+	    "of a draw's frequency, and in a fragment shader what is affine in "
+	    "the varyings"),
 	    {"sink", P_TEXT, 0, "", "float rewrites: the format the stored "
 	    "and returned floats end in (unorm8, rgba8, r8g8b8a8_unorm, "
 	    "rgb10a2, f16): one step of it is the error budget", NULL},
@@ -2460,6 +2463,8 @@ cmd_spirv(struct req *r, const char **code)
 		sb_puts(&r->stmt, " approx");
 	if ((v = jv_get(r->args, "percomp")) != NULL && v->t == J_TRUE)
 		sb_puts(&r->stmt, " percomp");
+	if ((v = jv_get(r->args, "advice")) != NULL && v->t == J_TRUE)
+		sb_puts(&r->stmt, " advice");
 	if ((v = jv_get(r->args, "sink")) != NULL) {
 		const char *q;
 		if (v->t != J_STR || !v->s[0])

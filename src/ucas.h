@@ -550,6 +550,7 @@ void spirv_float_opts(int mode, double ulp, int approx, int percomp,
     int only);
 int spirv_sink_opt(const char *fmt);	/* NULL: none; 0: not a known sink */
 int spirv_sink_known(const char *fmt);
+void spirv_advice_opt(int on);	/* report what could leave the shader */
 void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);

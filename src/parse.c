@@ -2348,6 +2348,8 @@ statement(struct P *p)
 					fpercomp = 1;
 				else if (accept_kw(p, "foldproof"))
 					spirv_dword_opts(1);	/* folded round trips kept */
+				else if (accept_kw(p, "advice"))
+					spirv_advice_opt(1);
 				else if (accept_kw(p, "sink")) {
 					char fm[48];
 					if (!cmdp_word(p, fm, sizeof fm) ||
