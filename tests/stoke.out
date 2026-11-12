@@ -233,6 +233,7 @@ phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
   the lookup costs 22.75
   -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
      cost 22.75 against 32 (-28.9%); equal to the switch for every input: proved by SAT
+     the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 64 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined sw8_ph
 > cost sw8_ph
 cost of sw8_ph under gt1030: 22.75 (6 operations, shared subterms counted once)
@@ -257,6 +258,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
   the lookup costs 7.875
   -> [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0, 0, 0][m & 15]
      cost 7.875 against 42.375 (-81.4%); equal to the switch for every input: every input enumerated
+     the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > few(x: u32) = match x { 5 => 1, 900 => 2, 70000 => 3, _ => 0 }
 > phash few
@@ -274,6 +276,7 @@ phash sw8 under zen4: 8 keys, the compare chain costs 16; seed 1
   the lookup costs 14
   -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
      cost 14 against 16 (-12.5%); equal to the switch for every input: proved by SAT
+     the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 64 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined sw8_ph
 > superoptimize xr with seed 3
   ucas: stoke xr seed 3
@@ -303,4 +306,5 @@ phash sw8 under gt1030: 8 keys, the compare chain costs 32; seed 1
   the lookup costs 22.75
   -> [1000, 3, 123456, 99999, 17, 65537, 7777777, 100][t1] == x ? [40, 10, 70, 60, 20, 50, 80, 30][t1] : 0 where t1 = 1671120851x >> 0x1d
      cost 22.75 against 32 (-28.9%); equal to the switch for every input: proved by SAT
+     the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 64 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined sw8_ph

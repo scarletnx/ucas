@@ -144,3 +144,35 @@ texenc R, S: 16 entries a channel as BC5 (red R, green S), rows of 4 (4 x 4 texe
   green: decodes to [0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1]
   green: exact: every texel is its entry's f32
   a read of the texture is that read of the decoded tables, red and green; no model prices a BC5 read apart from its uncompressed one: not measured
+> sd(a: i32 in 0..1000) = a / 7
+> find sd 1
+find sd: 1001 points, computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 9   i32(u32(a)/7)                            the signed division a/7 as u32 (its operands are never negative) (derived; checked on every point)
+      holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
+      a / 7 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
+  cost 5   i32(1171u32(a) >> 13)                    the division a/7 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  a table under gt1030 (the function at every point of its domain; cost 21 as written):
+  cost 6.875 [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, … (4083 more characters)
+           1001 entries of i32 (4004 bytes of constant data), one for each point of a in 0..1000; entry k is the function at the point with index k = u32(a), all 1001 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+           the entries are exact as BC4_UNORM blocks, rows of 4: 504 bytes against 4004 as i32 (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16760 distinct columns, bank full; 'more' continues]
+> days(m: u8 in 1..12) = match m { 2 => 28, 4 | 6 | 9 | 11 => 30, 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31, _ => 0 }
+> phash days
+phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
+  13 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  injective on the 12 keys (each slot checked): h(x) = x & 15, a table of 16 slots
+  every value of m in 1..12 is a key: no key check is needed
+  the lookup costs 7.875
+  -> [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0, 0, 0][m & 15]
+     cost 7.875 against 42.375 (-81.4%); equal to the switch for every input: every input enumerated
+     the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
+  defined days_ph

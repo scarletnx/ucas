@@ -3555,7 +3555,12 @@ An 8-level ramp, or one of 6 levels with 0 and 1, is exact in half the
 bytes of R8; the decoded table is what a nearest or filtered read of
 the texture returns, so the `fetch_` and `tex_` operations take it as
 their table, and `texalu` says when the 8-bit texture it proposes is
-exact as BC4 blocks.  The bytes for R and for a 6-level table were
+exact as BC4 blocks.  The tables other commands emit are searched the
+same way, beside them: `find`'s, and `phash`'s values, keys and
+displacements, in rows of 4, 8, ... up to the table's size (and a
+two-parameter table's own rows), the exact layout with the fewest bytes
+when it is smaller than the table as stored (`a / 7` on 0..1000: 504
+bytes against 4004).  The bytes for R and for a 6-level table were
 decoded by ffmpeg's RGTC1 decoder to the same values.  In English:
 "compress R as BC4", "encode Q as bc4 within 0.02, rows of 8",
 "compress R and S as BC5".  JSON and MCP: `texenc` (table, green, rows,
