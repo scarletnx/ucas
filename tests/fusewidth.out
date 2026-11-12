@@ -1,0 +1,92 @@
+> m1(a: u32 in 0..60000, b: u32 in 0..60000, c: u32) = a * b + c
+> m2(a: u32, b: u32, c: u32) = (a & 0xffff) * (b >> 16) + c
+> m3(a: u32, b: u32) = a * b
+> m4(a: i32 in -30000..30000, b: i32 in -100..100) = a * b
+> m5(a: u32, b: u32) = a * b where a < 50000 && b < 1000
+> cost m1
+cost of m1 under gt1030: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> model xmad : gt1030 { mul16: 1
+    fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16
+    fuse mul16(a: u16, b: u16) = a * b : mul16
+    fuse smul16(a: s16, b: s16) = a * b : mul16 }
+> use xmad
+cost model: xmad
+> cost m1
+cost of m1 under xmad: 1 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    xmad             1 x 1     = 1  (a*b + c; saves 3)
+> cost m2
+cost of m2 under xmad: 4 (4 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  shift            1 x 2     = 2
+  fused by the model (one instruction for several operations):
+    xmad             1 x 1     = 1  (a*b + c; saves 3)
+> cost m3
+cost of m3 under xmad: 3 (1 operations, shared subterms counted once)
+  imul             1 x 3     = 3
+> cost m4
+cost of m4 under xmad: 1 (1 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    smul16           1 x 1     = 1  (a*b; saves 2)
+> cost m5
+cost of m5 under xmad: 1 (1 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    mul16            1 x 1     = 1  (a*b; saves 2)
+> model xmad2 : xmad { mul16: none }
+> use xmad2
+cost model: xmad2
+> cost m1
+cost of m1 under xmad2: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> model noprice : gt1030 { fuse xmad(a: u16, b: u16, c: int) = a * b + c : mul16 }
+> use noprice
+cost model: noprice
+> cost m1
+cost of m1 under noprice: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
+fusewidth.ucas:32:32: error: a fusion's input is int, float, const, any, or an integer of a proved width (u1 to u32, s1 to s32)
+    model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
+                                   ^
+> model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }
+> use sat
+cost model: sat
+> s1(x: f32, y: f32, z: f32) = min(max(x * y + z, 0.0), 1.0)
+> s2(x: f32, y: f32) = min(max(x + y, 0.0), 1.0) * 2.0
+> cost s1
+cost of s1 under sat: 1 (4 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
+    fsat             1 x 0     = 0  (min(max(a, 0), 1), a result modifier; saves 2)
+> cost s2
+cost of s2 under sat: 2 (4 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fmul             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    fsat             1 x 0     = 0  (min(max(a, 0), 1), a result modifier; saves 2)
+> s3(x: f32) = min(max(sqrt(x), 0.0), 1.0)
+> s4(x: f32, y: f32) = { t = x * y; min(max(t, 0.0), 1.0) + t }
+> cost s3
+cost of s3 under sat: 6 (3 operations, shared subterms counted once)
+  minmax           2 x 1     = 2
+  fsqrt            1 x 4     = 4
+> cost s4
+cost of s4 under sat: 4 (4 operations, shared subterms counted once)
+  minmax           2 x 1     = 2
+  fadd             1 x 1     = 1
+  fmul             1 x 1     = 1
+> use gt1030
+cost model: gt1030
+> cost s1
+cost of s1 under gt1030: 3 (4 operations, shared subterms counted once)
+  minmax           2 x 1     = 2
+  fused by the model (one instruction for several operations):
+    ffma             1 x 1     = 1  (a*b + c, contracted: one rounding; saves 1)
+> model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
+fusewidth.ucas:50:65: error: a fusion is a source modifier (in) or a result modifier (on), not both
+    model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
+                                                                    ^

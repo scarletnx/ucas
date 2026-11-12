@@ -1987,17 +1987,22 @@ void
 cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 {
 	(void)opsel;
+	fuse_domain(f);		/* prices that depend on proved ranges */
 	if (TY_FP(N.ty[f->body])) {
 		/* its rewrites by identities, and its f64 arithmetic over f32
 		 * (dword.c); the bit-level families are for one float parameter */
 		int said = float_rewrites(f);
 		said += dword_find(f);
-		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT))
+		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)) {
+			fuse_domain(NULL);
 			return;
+		}
 		find_float(f, want);
+		fuse_domain(NULL);
 		return;
 	}
 	find_setup(f);
+	fuse_domain(&F.f);
 	F.active = 1;
 	printf("find %s: %u point%s%s, computing in %s, costs from %s\n",
 	    f->anon ? node_str(f->body) : sym_str(f->name), F.P,
@@ -2016,6 +2021,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();
+	fuse_domain(NULL);
 }
 
 void
@@ -2027,8 +2033,10 @@ cmd_more(int want)
 	    sym_str(F.f.name));
 	rep_begin("find");
 	rep_list("implementations");
+	fuse_domain(&F.f);
 	run_levels(want, F.done + 8);
 	rep_end();
+	fuse_domain(NULL);
 }
 
 /*

@@ -1799,7 +1799,8 @@ parse_basis(struct P *p)
 
 /*
  * In a model: `fuse NAME(a: int, ...) = PATTERN : COST [contract] [in
- * CLASS ...]`, `fuse NAME = lut K : COST`, `nofuse NAME` (src/fuse.h).
+ * CLASS ...] [on CLASS ...]`, `fuse NAME = lut K : COST`, `nofuse NAME`
+ * (src/fuse.h).
  * COST is a sum of numbers, classes and number*class.
  */
 static void
@@ -1833,8 +1834,25 @@ parse_fuse(struct P *p, struct model *m)
 			expect(p, T_COLON);
 			for (k = 0; k < 4 && !is_kw(p, kinds[k]); k++)
 				;
+			if (k == 4 && pk(p) == T_ID) {
+				/* uN, sN: an integer of a proved width */
+				int bits = 0;
+				size_t q;
+				s = ttext(p, p->i, &n);
+				for (q = 1; q < n && s[q] >= '0' && s[q] <= '9' &&
+				    bits <= FUSE_MAXBITS; q++)
+					bits = bits * 10 + (s[q] - '0');
+				if ((s[0] == 'u' || s[0] == 's') && n > 1 && q == n &&
+				    bits >= 1 && bits <= FUSE_MAXBITS) {
+					f.pbits[tmp.np] = (uint8_t)bits;
+					f.psgn[tmp.np] = s[0] == 's';
+					k = FP_INT;
+				}
+			}
 			if (k == 4)
-				fail("a fusion's input is int, float, const or any");
+				fail("a fusion's input is int, float, const, any, or an "
+				    "integer of a proved width (u1 to u%d, s1 to s%d)",
+				    FUSE_MAXBITS, FUSE_MAXBITS);
 			adv(p);
 			f.pkind[tmp.np] = (uint8_t)k;
 			tmp.p[tmp.np].ty = k == FP_FLOAT ? TY_F32 : TY_INT;
@@ -1896,9 +1914,26 @@ parse_fuse(struct P *p, struct model *m)
 				fail("`in` lists the cost classes that absorb it");
 			if (opinfo[N.op[f.pat]].arity < 1 || f.lut)
 				fail("a modifier is one operation");
+		} else if (accept_kw(p, "on")) {
+			while (pk(p) == T_ID && (s = ttext(p, p->i, &n)) != NULL &&
+			    (k = cclass_find(s, n)) >= 0) {
+				if (k >= C_NBASE)
+					fail("`on` takes the classes of ordinary operations "
+					    "(fadd, fmul, iadd ...), not %s", cclass_name[k]);
+				f.makers |= 1ULL << k;
+				adv(p);
+			}
+			if (!f.makers)
+				fail("`on` lists the cost classes of the operations it "
+				    "folds into");
+			if (f.lut)
+				fail("a result modifier is a pattern over its input");
 		} else
 			break;
 	}
+	if (f.users && f.makers)
+		fail("a fusion is a source modifier (in) or a result modifier "
+		    "(on), not both");
 	fuse_add(m, &f);
 }
 
