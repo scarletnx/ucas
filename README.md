@@ -2256,16 +2256,44 @@ and its value is split.  A sampled check against the exact value in long
 double is printed as that: a check, not the proof.
 
 `find F` mentions the form in a line when one is cheaper.  In a shader,
-`simplify` rewrites every scalar f64 computation that ends in a
-conversion to f32 (its inputs f32 values and integers converted to f64,
-f64 constants; ranges from the request, `x in [1, 2]`): the f32
+`simplify` rewrites the f64 computations that end in a conversion to
+f32, of a scalar or of a whole vector (their inputs f32 values and
+integers converted to f64, f64 constants; ranges from the request,
+`x in [1, 2]`, a vector's range for each of its components): the f32
 instructions replace the f64 ones, the operations of the error-free
 transformations are decorated NoContraction, the Float64 capability and
 type go when nothing uses them, and spirv-as and spirv-val are run on the
 result ("spirv-val accepts the written module").  `ulp N` in the request
 is the requirement; `exact` rewrites nothing (a pair is not bit-exact).
-Not rewritten: f64 vectors and matrices, a value read by more than one
-result, results that stay f64.
+
+f64 vectors and matrices are read component by component: the
+componentwise operations, a vector times a scalar, `dot`, `length`,
+`distance`, `normalize`, a matrix times a vector, a vector or a scalar
+times a matrix, matrix products and `transpose`, constructors, swizzles
+and extractions.  A result is still one function of at most 8 inputs.
+
+The f64 instructions under a result go only when nothing else reads
+them, and the price is of what goes:
+
+- Results that share f64 values are one group with one set of inputs.
+  The pair of a shared value is written once where the first result's
+  block is the second's too, again where it is not, and the group is
+  rewritten when its forms together cost less than the f64 instructions
+  they replace, what is shared counted once on both sides ("with %75,
+  which shares its f64 values: cost 14 against 109.125").  A group can be
+  cheaper where each of its results alone is not.
+- An f64 value that something else keeps reading (a store, a result
+  that is not rewritten) stays.  The results above it either split it
+  (hi = f32(v), lo = f32(v - hi): one f64 subtraction) or compute it
+  again in f32 from its own inputs; both plans are priced for the whole
+  module and the one that saves more is written ("3 of the 5 f64
+  instructions under it stay for what else reads them").
+- A group with more than 8 inputs is cut at the values its results
+  share: they stay f64 and are split.
+
+Not rewritten: results that stay f64, and an f64 `min`, `max` or
+comparison (the arithmetic under one is an input split in place).
+
 ### Fixed function as compute
 
 A scatter (a histogram, a bitset, a splat) updates a cell once per

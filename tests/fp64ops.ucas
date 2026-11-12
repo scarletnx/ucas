@@ -1,0 +1,37 @@
+# fp64 in a shader: each operation on f64 vectors and matrices that is read
+# component by component (tests/fp64vec.ucas has the grouping and the
+# prices): length, distance, normalize, a swizzle, the transpose of a
+# matrix times a vector, a vector times a matrix, a column of a matrix
+# product, a column of a matrix times a scalar.
+simplify nofile under gt1030, v in [1, 2]
+```glsl
+float l(vec2 v) { return float(length(dvec2(v))); }
+```
+simplify nofile, a in [1, 2], b in [3, 4]
+```glsl
+float d(vec2 a, vec2 b) { return float(distance(dvec2(a), dvec2(b))); }
+```
+simplify nofile, v in [1, 2]
+```glsl
+vec2 n(vec2 v) { return vec2(normalize(dvec2(v))); }
+```
+simplify nofile, v in [1, 2], u in [1, 2]
+```glsl
+vec2 w(vec2 v, vec2 u) { dvec2 V = dvec2(v), U = dvec2(u); return vec2(V.yx * U); }
+```
+simplify nofile, a in [1, 2], b in [1, 2], v in [1, 2]
+```glsl
+vec2 tm(vec2 a, vec2 b, vec2 v) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2(transpose(M) * dvec2(v)); }
+```
+simplify nofile, a in [1, 2], b in [1, 2], v in [1, 2]
+```glsl
+vec2 vm(vec2 a, vec2 b, vec2 v) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2(dvec2(v) * M); }
+```
+simplify nofile, a in [1, 2], b in [1, 2]
+```glsl
+vec2 m2(vec2 a, vec2 b) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2((M * M)[0]); }
+```
+simplify nofile, a in [1, 2], b in [1, 2], k in [1, 2]
+```glsl
+vec2 ms(vec2 a, vec2 b, float k) { dmat2 M = dmat2(dvec2(a), dvec2(b)) * double(k); return vec2(M[1]); }
+```

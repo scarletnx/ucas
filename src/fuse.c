@@ -1168,6 +1168,13 @@ cmp_nid(const void *x, const void *y)
 float
 fuse_expr_cost(const struct model *m, nid root)
 {
+	return fuse_roots_cost(m, &root, 1);
+}
+
+/* the same for several expressions: what they share is covered once */
+float
+fuse_roots_cost(const struct model *m, const nid *roots, int nroots)
+{
 	static uint8_t *mark;
 	static uint32_t cap;
 	uint32_t sp = 0, j;
@@ -1183,10 +1190,14 @@ fuse_expr_cost(const struct model *m, nid root)
 		memset(mark + cap, 0, nc - cap);
 		cap = nc;
 	}
-	st = xmalloc(stcap * sizeof *st);
+	st = xmalloc((stcap + (size_t)nroots) * sizeof *st);
+	stcap += (size_t)nroots;
 	v = xmalloc(vcap * sizeof *v);
-	st[sp++] = root;
-	mark[root] = 1;
+	for (i = 0; i < nroots; i++)
+		if (!mark[roots[i]]) {
+			st[sp++] = roots[i];
+			mark[roots[i]] = 1;
+		}
 	while (sp) {
 		n = st[--sp];
 		if ((size_t)cnt == vcap)
@@ -1208,7 +1219,7 @@ fuse_expr_cost(const struct model *m, nid root)
 	for (i = 0; i < cnt; i++)
 		mark[v[i]] = 0;
 	qsort(v, (size_t)cnt, sizeof *v, cmp_nid);
-	c = cover_list(m, v, cnt, &root, 1, 1, &G);
+	c = cover_list(m, v, cnt, roots, nroots, 1, &G);
 	fg_free(&G);
 	free(st);
 	free(v);
