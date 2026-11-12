@@ -8868,19 +8868,22 @@ float_pass(const char *text, int *changed)
  * part is the same for a whole draw, and could be computed once and
  * passed in.  In a fragment shader, what is affine in the varyings
  * could be computed at the vertices and interpolated.  Neither can be
- * done inside the module (the interface changes), so `simplify ...
- * advice` only reports them, priced under the active model: each
- * instruction gets the lowest frequency its operands allow,
+ * done inside the module (the interface changes), so `simplify` only
+ * reports them, whenever it finds some (`advice` also says when it finds
+ * none), priced under the active model: each instruction gets the
+ * lowest frequency its operands allow,
  *
- *   constant < draw (uniform blocks, push constants) < vertex (affine
- *   in non-flat float inputs of a fragment shader) < every run
+ *   constant < draw (uniform blocks, push constants) < primitive (flat
+ *   inputs of a fragment shader: the provoking vertex's) < vertex
+ *   (affine in non-flat float inputs of a fragment shader) < every run
  *
  * and the values of a lower frequency that something of a higher one
  * uses are what would be passed in.  Affine: sums, differences, and
  * products, quotients, dots, matrix products and mixes with every other
- * operand of draw frequency; anything else of a varying is per run.
+ * operand of draw or primitive frequency (the same at every pixel of a
+ * primitive); anything else of a varying is per run.
  */
-enum { FQ_CONST, FQ_DRAW, FQ_VERTEX, FQ_RUN };
+enum { FQ_CONST, FQ_DRAW, FQ_PRIM, FQ_VERTEX, FQ_RUN };
 static int advice_on;
 
 void
@@ -8986,10 +8989,10 @@ adv_affine(const struct sins *I, const uint8_t *fq)
 	if (!strcmp(I->op, "OpFDiv"))
 		return nv == 1 && at == 0;
 	if (!strcmp(e, "FMix"))		/* x (1 - a) + y a, a of the draw */
-		return I->nop >= 6 && fq[idx(I->opnd[5])] <= FQ_DRAW;
+		return I->nop >= 6 && fq[idx(I->opnd[5])] <= FQ_PRIM;
 	if (!strcmp(e, "Fma"))		/* a b + c: one of a, b of the draw */
-		return I->nop >= 6 && (fq[idx(I->opnd[3])] <= FQ_DRAW ||
-		    fq[idx(I->opnd[4])] <= FQ_DRAW);
+		return I->nop >= 6 && (fq[idx(I->opnd[3])] <= FQ_PRIM ||
+		    fq[idx(I->opnd[4])] <= FQ_PRIM);
 	return 0;
 }
 
@@ -9029,14 +9032,14 @@ adv_cone(int k, int f, const uint8_t *fq, char *seen, struct advroot *r,
 }
 
 static void
-advice_pass(const char *text)
+advice_pass(const char *text, int asked)
 {
 	const struct model *m = model_active();
 	uint8_t *fq, *used;
 	double *price;
 	char *seen, stage[24] = "";
-	struct advroot root[2][64];
-	int nroot[2] = {0, 0}, k, i, f, body = -1;
+	struct advroot root[3][64];
+	int nroot[3] = {0, 0, 0}, k, i, f, body = -1;
 	struct sbuf rep = {0};
 
 	memset(&V, 0, sizeof V);
@@ -9082,6 +9085,9 @@ advice_pass(const char *text)
 		    !adv_decorated(e, "BufferBlock")))
 			fq[I->res] = FQ_DRAW;
 		else if (!strcmp(I->opnd[1], "Input") && !strcmp(stage, "Fragment")
+		    && adv_decorated(I->res, "Flat"))
+			fq[I->res] = FQ_PRIM;
+		else if (!strcmp(I->opnd[1], "Input") && !strcmp(stage, "Fragment")
 		    && e >= 0 && is_float_t(e) && !adv_decorated(I->res, "Flat") &&
 		    !adv_decorated(I->res, "BuiltIn") &&
 		    !adv_decorated(I->res, "Centroid") &&
@@ -9118,7 +9124,7 @@ advice_pass(const char *text)
 		if (c == FQ_VERTEX && !adv_affine(I, fq))
 			c = FQ_RUN;
 		fq[I->res] = (uint8_t)c;
-		if (c == FQ_DRAW || c == FQ_VERTEX)
+		if (c == FQ_DRAW || c == FQ_PRIM || c == FQ_VERTEX)
 			price[k] = adv_price(I);
 	}
 	/* the highest frequency that uses each value */
@@ -9138,7 +9144,8 @@ advice_pass(const char *text)
 		if (I->res < 0 || SP.def[I->res] != k)
 			continue;
 		f = fq[I->res];
-		if ((f != FQ_DRAW && f != FQ_VERTEX) || used[I->res] <= f)
+		if ((f != FQ_DRAW && f != FQ_PRIM && f != FQ_VERTEX) ||
+		    used[I->res] <= f)
 			continue;
 		memset(&r, 0, sizeof r);
 		memset(seen, 0, (size_t)V.nin + 1);
@@ -9169,7 +9176,8 @@ advice_pass(const char *text)
 		if (!rep.n)
 			sb_printf(&rep, "advice (changes outside the module; nothing "
 			    "here is rewritten), priced under %s:\n", sym_str(m->name));
-		rep_obj(f == FQ_DRAW ? "advice_draw" : "advice_vertex");
+		rep_obj(f == FQ_DRAW ? "advice_draw" : f == FQ_PRIM ?
+		    "advice_primitive" : "advice_vertex");
 		rep_int("instructions", nins);
 		rep_num("cost", tot);
 		rep_int("values", n);
@@ -9201,10 +9209,27 @@ advice_pass(const char *text)
 				    "last places", ninx);
 			sb_puts(&rep, "\n");
 			rep_int("within_vulkan_precision", ninx);
+		} else if (f == FQ_PRIM) {
+			sb_printf(&rep, "  once a primitive: %d instruction%s costing "
+			    "%g every pixel read%s only flat inputs and values of the "
+			    "draw\n", nins, nins == 1 ? "" : "s", tot, nins == 1 ? "s" :
+			    "");
+			sb_printf(&rep, "    a flat input is the provoking vertex's "
+			    "output, the same at every pixel of the primitive: "
+			    "computed in the vertex shader and passed as %d flat "
+			    "output%s, each pixel reads the value it computes now "
+			    "(no interpolation)\n", n, n == 1 ? "" : "s");
+			sb_printf(&rep, "    not priced: %s has no price for a vertex "
+			    "or for a varying, so nothing says when %g a pixel is "
+			    "worth %g a vertex and %d more flat varying%s\n",
+			    sym_str(m->name), tot, tot, n, n == 1 ? "" : "s");
+			rep_bool("priced", 0);
+			rep_int("within_vulkan_precision", ninx);
 		} else {
 			sb_printf(&rep, "  once a vertex: %d instruction%s costing %g "
 			    "every pixel are affine in the varyings (sums, and "
-			    "products with values of the draw)\n", nins, nins == 1 ?
+			    "products with values of the draw or the primitive)\n",
+			    nins, nins == 1 ?
 			    "" : "s", tot);
 			sb_printf(&rep, "    a varying is v = sum b_i v_i over the "
 			    "vertices with sum b_i = 1 (perspective-correct "
@@ -9241,10 +9266,12 @@ advice_pass(const char *text)
 		rep_end();
 		rep_end();
 	}
-	if (!rep.n)
+	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
-		    "its uniforms, or is affine in its varyings\n");
-	fputs(rep.p, stdout);
+		    "its uniforms or its flat inputs, or is affine in its "
+		    "varyings\n");
+	if (rep.n)
+		fputs(rep.p, stdout);
 	free(rep.p);
 	free(fq);
 	free(used);
@@ -10172,8 +10199,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		/* spirv-cross's GLSL of it, beside spirv-opt -O's */
 		if (fch || nrw + ndead > 0)
 			spvcross_after_simplify(orig_mod, fch ? ft : out.p, nofile);
-		if (advice_on)
-			advice_pass(fch ? ft : out.p ? out.p : "");
+		advice_pass(fch ? ft : out.p ? out.p : "", advice_on);
 		free(ft);
 		free(orig_mod);
 		orig_mod = NULL;
