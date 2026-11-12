@@ -90,6 +90,11 @@ find r: 1024 points (sampled; matches verified on the whole domain), computing i
       x*M/2^19 = x/100 + x*12/(100*2^19): the excess is below 1/100 while x*12 < 2^19, and x/100 is at least 1/100 below the next integer, so floor(x*M/2^19) = floor(x/100)
       x <= 9999: x*12 <= 119988 < 2^19, and x*M <= 52424757 < 2^32, so the product does not wrap in u32
       and x % 100 = x - 100*floor(x/100)
+  a table under gt1030 (the function at every point of its domain; cost 25.75 as written):
+  cost 6.875 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 4… (38848 more characters)
+           10000 entries of i32 (40000 bytes of constant data), one for each point of x in 0..9999; entry k is the function at the point with index k = u32(x), all 10000 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > big(x: u32 in 0..10000000) = x / 7
