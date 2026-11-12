@@ -147,6 +147,9 @@ struct fxopt {
 	int mode;		/* 0 within Vulkan precision, 1 exact, 2 ulp N */
 	double ulp;
 	int approx;		/* list approximations; apply with ulp */
+	int search;		/* the polynomials' coefficient search, NS_*
+				 * (numsearch.h): 0 none */
+	uint64_t seed;		/* its seed (`seed K`, else UCAS_SEED, else 1) */
 };
 
 /* the reference value (IEEE binary32; pow, exp2, log2 correctly

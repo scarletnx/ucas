@@ -143,6 +143,29 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Glow: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float search cmaes seed 3
+simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec3 %43: its lanes x, y, z compute one scalar function (splat constants): analysed once, applied to every lane; any width is lanes of a vec4, so the same search covers it
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 18 -> 18 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 0.00896 (151629 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 0.000259 (4343 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-0, 0.5] (remez.c), t = x - 0.25, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 0.000258 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 0.000259 absolute in all, the worst near x = 0.1276
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+          search: CMA-ES over the f32 coefficients' ulp offsets from the rounded fit's, seed 3, 1992 evaluations of the bound above at 2000 points of the range: 0.000258837 -> 0.000258792 absolute there; certified as above: 0.000258794 against the rounded fit's 0.000258839: kept
+        P(t) = fma(fma(0.286574513, t, 0.827393353), t, 1.18919587), t = x - 0.25
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Glow: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
 > use cheaptrans
 cost model: cheaptrans
 > spvsimplify nofile assume c 0 1 float sink unorm8

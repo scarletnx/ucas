@@ -732,8 +732,10 @@ void spirv_simplify(const char *src, double budget, int nofile);
 void spirv_assume(const char *name, int64_t lo, int64_t hi);
 void spirv_assume_float(const char *name, double lo, double hi, int lo_open,
     int hi_open);
+/* search: the polynomials' coefficient search (NS_*, numsearch.h), 0
+ * none; seed: its seed */
 void spirv_float_opts(int mode, double ulp, int approx, int percomp,
-    int only);
+    int only, int search, uint64_t seed);
 int spirv_sink_opt(const char *fmt);	/* NULL: none; 0: not a known sink */
 int spirv_sink_known(const char *fmt);
 void spirv_advice_opt(int on);	/* report what could leave the shader */
