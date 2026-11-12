@@ -20,6 +20,7 @@
 #include "calc.h"
 #include "fuse.h"
 #include "stoch.h"
+#include "texenc.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -173,7 +174,7 @@ tab_find(const struct func *f)
 	double in_r[MAXP * CH];
 	uint64_t size[MAXP], total = 1, slots, k;
 	int rd[MAXP], nrd = 0, j, pow2 = 1, bytes;
-	nid body = f->body, roots[2], *e, idx = 0, cand, where = f->where;
+	nid body = f->body, roots[2], *e, idx = 0, cand, where = f->where, tabn;
 	ty_t t = N.ty[body];
 	struct plan p;
 	struct eqproof pr;
@@ -279,7 +280,8 @@ tab_find(const struct func *f)
 		}
 	}
 	plan_free(&p);
-	cand = mk_cast(t, mk_index(mk_table(e, (uint32_t)total), idx));
+	tabn = mk_table(e, (uint32_t)total);
+	cand = mk_cast(t, mk_index(tabn, idx));
 	free(e);
 	cost = fuse_expr_cost(m, cand);
 	if (!(cost < before) || undef == total)
@@ -316,6 +318,10 @@ tab_find(const struct func *f)
 	rep_str("domain", sb_str(&dom));
 	rep_str("check", pr.how == EQ_EXHAUSTIVE ? "exhaustive" : pr.how ==
 	    EQ_SAT ? "sat" : "sampled");
+	/* the same entries as BC4, where that holds them exactly; a table
+	 * of two parameters has rows of the first one's values */
+	texenc_note(tabn, nrd > 1 ? (int)size[rd[0]] : 0, "entries",
+	    "           ");
 	rep_end();
 out:
 	free(w.p);
