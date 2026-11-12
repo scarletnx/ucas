@@ -170,6 +170,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `fit G ~ F [metric maxrel\|maxabs\|rms]` | G's extra parameters are constants: choose them to minimise the error against F |
 | `error G ~ F` | max/mean relative error, max absolute error, ulp; for a float G also how much of it rounding can be, to first order: the worst case, the high-probability bound and the expected size (see "Probabilistic rounding error") |
 | `cost F [model m] [consecutive i]`, `use m`, `models` | price F under a cost model; `consecutive i` names an integer parameter whose values run along the lanes of a warp (see "Cost models") |
+| `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops) that compute the per-cell update F(s, d) of a scatter, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
@@ -2245,6 +2246,106 @@ result ("spirv-val accepts the written module").  `ulp N` in the request
 is the requirement; `exact` rewrites nothing (a pair is not bit-exact).
 Not rewritten: f64 vectors and matrices, a value read by more than one
 result, results that stay f64.
+### Fixed function as compute
+
+A scatter (a histogram, a bitset, a splat) updates a cell once per
+contribution: d becomes F(s, d).  As compute that is an atomic, or a
+compare-and-swap loop when F is no atomic the target has.  The
+graphics pipeline applies such updates in fixed function, a fragment
+each: the blender, the logic op, the stencil op.  `rop F` (src/rop.c)
+finds the fixed-function states that compute F:
+
+```
+> acc(s: u32 in 0..255, d: u32 in 0..1000000) = d + s
+> rop acc
+rop acc: acc = d + s, applied once per fragment (s what a fragment brings, d the cell's value)
+  order: the result does not depend on the order of the fragments: acc(s2, acc(s1, d)) = acc(s1, acc(s2, d)) (proved by SAT)
+  fixed-function states that compute it (each a proposal: the pipeline changes):
+  blending: VK_BLEND_OP_ADD, source factor ONE, destination factor ONE on a float target (R32_SFLOAT): s + d
+      holds where the operands, the factors, both products and the result stay below 2^24 in magnitude (at most 1000255, the result in [0, 1000255], from the parameters' ranges)
+      acc and s + d expand to the same polynomial; every value is an integer below 2^24, which f32 holds, so no step of the blender rounds whatever its arithmetic, and the integer result (inside u32: no wrap) is the polynomial's
+      price: rop_blend is not priced by gt1030 (not measured): unavailable
+      pipeline: VkPipelineColorBlendAttachmentState: blendEnable, colorBlendOp = VK_BLEND_OP_ADD, srcColorBlendFactor = VK_BLEND_FACTOR_ONE, dstColorBlendFactor = VK_BLEND_FACTOR_ONE; an R32_SFLOAT colour attachment; one point per contribution, its position the cell, its colour s
+  not in any price: the draw's setup (a render pass, the pipeline, one vertex per contribution) and reading the target back
+```
+
+F's parameters are the cell's value (the one named `d` or `dst`, else
+the last), what a fragment brings (the first other one), optionally a
+second value of the fragment (dual-source blending) and one `uniform`
+parameter, a pipeline constant (the blend constant, the stencil
+reference); all of one type, u8, u16, u32 or f32.  Ranges come from
+the parameters (`s: u32 in 0..255`).
+
+**The catalogue**, each state with its exact result:
+
+| family | states | on | class |
+|---|---|---|---|
+| logic op | the 16 VkLogicOp: bitwise functions of (s, d) | unsigned integer targets | `rop_logic` |
+| stencil op | the 8 VkStencilOp on d (and the reference), under a write mask of the low or the high bits: counters mod 256 or saturating, an invert, a replace | the 8-bit stencil value | `rop_stencil` |
+| blending | VK_BLEND_OP_ADD, SUBTRACT, REVERSE_SUBTRACT with every pair of factors among 0, 1, s, d, the constant, the second source and their 1 - x; MIN, MAX | float targets (R32_SFLOAT); with factors ONE on R8/R16_UNORM, the integer n standing for n/(2^w - 1), where the clamp to [0, 1] is a saturation | `rop_blend` |
+| advanced blending | MULTIPLY, SCREEN, DARKEN, LIGHTEN, DIFFERENCE, EXCLUSION of VK_EXT_blend_operation_advanced, on opaque colours in [0, 1] | UNORM or float targets | `rop_adv` |
+
+**Nothing is recognised by name.**  Every state is compared with F on
+F's domain: integer states on every point or by SAT; a blend equation
+by expanding it and F to the same polynomial (so `s + d - s*d` is
+found as ADD with ONE and ONE_MINUS_SRC_COLOR, `s + d - 2*s*d` as
+ONE_MINUS_DST_COLOR and ONE_MINUS_SRC_COLOR, `d + s*k` with a
+uniform k as CONSTANT_COLOR, `s*t + d*(1 - t)` as dual-source
+blending), the fewest operations first.  What the equality is worth is
+said with it:
+
+- integer data on a float target is exact when the ranges keep the
+  operands, the factors, both products and the result below 2^24,
+  where no f32 operation can round (and the result inside its uN):
+  then the blender's arithmetic does not matter.  Without that bound
+  the state is shown as not exact, with the numbers; integer targets
+  do not blend;
+- one f32 operation (ADD with ONE and ONE, MIN, MAX) is exact if the
+  blender rounds to nearest; several are equal as real functions only,
+  since Vulkan fixes neither their rounding nor whether the multiply
+  and the add are fused;
+- on UNORM targets, exact if the conversion rounds to nearest, which
+  Vulkan prefers and does not require.
+
+**The order.**  Atomics arrive in any order, fragments in primitive
+order.  `rop` decides whether it matters: F(s2, F(s1, d)) against
+F(s1, F(s2, d)), on every point or by SAT for integers; for floats
+min and max exactly, the rest as real functions (in f32 a sum depends
+on the order unless every step is exact, which the integer bound
+gives).  A state for an update that depends on the order stands for a
+sequential loop over the fragments, not for atomics.
+
+**Prices.**  Each family has a cost class, the price of one fragment
+through that state.  No built-in model lists them (the corpus measures
+none: tests/gt1030 needs blend, logic-op and stencil state first), and
+an unpriced form is unavailable; `rop` says so and still shows the
+proof.  With a model that prices one, it is compared with the update
+as a global atomic, by the model's memory kinds: `atomic_global` for
+an integer add, min, max, and, or, xor, `atomic_global_f` for a float
+add, and for anything else `atomic_global_cas` plus the update's own
+operations (a compare-and-swap loop); the draw's setup and the
+read-back are in no price and are said so.
+
+```
+> model fixed : gt1030 { rop_blend: 2, rop_logic: 60 }
+> rop acc model fixed
+      price: rop_blend 2 a fragment under fixed, against 50 (one global atomic, atomic_global): cheaper
+> rop bits model fixed                      (bits(s: u32, d: u32) = d | s)
+  logic op: VK_LOGIC_OP_OR on an unsigned integer target (R32_UINT): s | d
+      price: rop_logic 60 a fragment under fixed, against 50 (one global atomic, atomic_global): not cheaper
+```
+
+A state is always a proposal: it replaces a compute dispatch by a
+draw (a render target, the blend or stencil state printed, one point
+per contribution whose position is the cell), which the host has to
+do.  English: "the blend state for acc", "the logic op for a | b with
+u32 a and b", "the fixed-function forms of cnt on fixed", "show me
+the blending for acc".  Not yet: simplify does not propose a state
+for a module's atomics; the depth test as an argmin, occlusion
+queries as counts, MSAA resolve, blits and the other fixed-function
+ideas are not in the catalogue; separate alpha, sRGB and the
+piecewise advanced operations (overlay, the lights, dodge, burn) are
+not either.
 
 ### Subgroups
 
