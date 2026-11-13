@@ -108,3 +108,19 @@ range of mn -> i64:
   -9223372036854775807..-9223372036854775804
   fits in i64
   over all 4 points of the domain
+> ru(x: u64 in 0..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+parse.ucas:54:38: error: x's range bound 18446744073709551615 is too large: an integer range takes at most 2^63 - 1 = 9223372036854775807 (without a range a u64 takes every value)
+    ru(x: u64 in 0..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+                                         ^
+> ru2(x: u64 in 0x8000_0000_0000_0000..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+parse.ucas:55:59: error: x's range bound 9223372036854775808 is too large: an integer range takes at most 2^63 - 1 = 9223372036854775807 (without a range a u64 takes every value)
+    ru2(x: u64 in 0x8000_0000_0000_0000..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+                                                              ^
+> rf(x: f64 in 0..18446744073709551615) = x
+> show rf
+rf(x: f64 in 0..1.84467e+19) = x
+  -> f64
+> re(x in 5..3) = x
+parse.ucas:58:13: error: empty range 5..3: the low end is above the high end
+    re(x in 5..3) = x
+                ^

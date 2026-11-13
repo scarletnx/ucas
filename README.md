@@ -93,8 +93,9 @@ Types:
 compares a function against itself evaluated with every `uN`/`iN` as
 `int` and every `f16`/`f32`/`f64` as `real`.
 
-A parameter can carry a range (`x: u8 in 1..12`, or just `x in 0..9`),
-and `uniform` (its value is the same across a GPU warp; see `cost`).
+A parameter can carry a range (`x: u8 in 1..12`, or just `x in 0..9`;
+an integer range's ends are at most 2^63 - 1, and a `u64` without a
+range takes every value), and `uniform` (its value is the same across a GPU warp; see `cost`).
 Untyped parameters are `real`, or `int` when the body uses integer-only
 operators (`& | xor << >> % ~ [] match`), with a note.
 

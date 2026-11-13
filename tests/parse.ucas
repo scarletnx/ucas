@@ -50,3 +50,9 @@ f64(-9223372036854775808)
 match -9223372036854775808 { -9223372036854775808 => 1, _ => 2 }
 mn(x: i64 in -9223372036854775808..-9223372036854775805) = x + 1
 range mn
+# a range bound past 2^63 - 1 is refused on an integer parameter (it read as a negative end) and taken on a float one
+ru(x: u64 in 0..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+ru2(x: u64 in 0x8000_0000_0000_0000..0xFFFF_FFFF_FFFF_FFFF) = x >> 63
+rf(x: f64 in 0..18446744073709551615) = x
+show rf
+re(x in 5..3) = x
