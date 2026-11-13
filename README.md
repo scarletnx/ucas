@@ -252,15 +252,16 @@ f and g are equal on the domain of f (proved by algebra: both sides expand to on
 
 `f16`, `f32` and `f64` formulas go to the solver too (src/fpsat.c):
 `+`, `-`, `*`, `fma`, `-x`, `abs`, `copysign`, `sign`, `min`, `max`, the
-comparisons, `?:`, conversions between the three widths and `asuint`,
-`asint`, `asfloat`, as IEEE 754 has them (rounded to nearest even,
+comparisons, `?:`, `floor`, `ceil`, `roundeven`, conversions between the
+three widths and to and from integers (toward zero, undefined outside
+[-2^63, 2^63), as the evaluator has it), `asuint`, `asint`, `asfloat`, as
+IEEE 754 has them (rounded to nearest even,
 subnormals, signed zeros, infinities, NaN).  Each operation's circuit
 is checked by `--sat-selftest`: every pair of a 6-bit format in all four
 rounding directions against exact arithmetic, the evaluator's own
 results in each width, and deliberate defects that those checks must
-catch.  Not yet: division, square root, conversions to and from
-integers, `floor` and `ceil`; a formula with one stays sampled, and the
-answer says which.
+catch.  Not yet: division, square root and the other functions; a
+formula with one stays sampled, and the answer says which.
 
 `equiv F G ftz` flushes subnormals: every float operation (a bit cast
 aside) reads a subnormal operand as the zero of its sign and gives one
