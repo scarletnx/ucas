@@ -36,11 +36,17 @@
  *   texenc T, U astc BWxBH [rows W] [tol E]
  *       T and U in one block's two planes, T the luminance (R, G, B) and
  *       U the alpha
+ *   texenc T [, U] eac [rows W] [tol E]
+ *       T as R11_EAC blocks (T and U as RG11_EAC), signed when an entry
+ *       is negative: each block's base, multiplier, modifier table and
+ *       selectors, every one of the 65536 headers tried; whole numbers
+ *       are the format's 11-bit values, k/2047 (signed, k/1023)
  */
 #include "calc.h"
 #include "report.h"
 #include "texenc.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -356,12 +362,16 @@ cmd_texenc5(const struct func *f, const struct func *g, int W, double tol,
 	texenc_free(&e[1]);
 }
 
+static int eac_lossless(nid tab, int natw, int stored, int *W, int *bytes,
+    int *sgn);
+
 int
-texenc_lossless(nid tab, int natw, int *W, int *bytes)
+texenc_lossless(nid tab, int natw, int *W, int *bytes, int *fmt)
 {
 	struct texenc e;
-	int w, n, k, best = 0, stored;
+	int w, n, k, best = 0, stored, sgn;
 
+	*fmt = TEXENC_BC4;
 	if (N.op[tab] != O_TABLE || N.b[tab] < 2)
 		return 0;
 	n = (int)N.b[tab];
@@ -371,7 +381,7 @@ texenc_lossless(nid tab, int natw, int *W, int *bytes)
 		    (k >= 0 && w == natw))
 			continue;
 		if (!texenc_bc4(tab, w, &e))
-			return 0;	/* not numbers BC4 holds */
+			break;	/* not numbers BC4 holds */
 		if (e.err == 0 && e.bw * e.bh * 8 < stored && (!best ||
 		    e.bw * e.bh * 8 < *bytes)) {
 			best = 1;
@@ -380,24 +390,34 @@ texenc_lossless(nid tab, int natw, int *W, int *bytes)
 		}
 		texenc_free(&e);
 	}
+	/* EAC's 11-bit values where BC4 has no exact layout */
+	if (!best && eac_lossless(tab, natw, stored, W, bytes, &sgn)) {
+		*fmt = sgn ? TEXENC_EAC_SIGNED : TEXENC_EAC;
+		best = 1;
+	}
 	return best;
 }
 
 void
 texenc_note(nid tab, int natw, const char *what, const char *ind)
 {
-	int W, bytes, n;
+	int W, bytes, n, fmt;
 	ty_t t;
 
-	if (!texenc_lossless(tab, natw, &W, &bytes))
+	if (!texenc_lossless(tab, natw, &W, &bytes, &fmt))
 		return;
 	n = (int)N.b[tab];
 	t = N.ty[N.lst[N.a[tab]]];
-	printf("%sthe %s are exact as BC4_UNORM blocks, rows of %d: %d bytes "
-	    "against %d as %s (texenc; a read returns k/255; a compressed "
-	    "read has no price of its own, so what is priced stays as it is)\n",
-	    ind, what, W, bytes, n * ((TYW(t) + 7) / 8), ty_str(t));
-	rep_obj("bc4");
+	printf("%sthe %s are exact as %s blocks, rows of %d: %d bytes against "
+	    "%d as %s (texenc%s; a read returns k/%s; a compressed read has no "
+	    "price of its own, so what is priced stays as it is)\n", ind, what,
+	    fmt == TEXENC_BC4 ? "BC4_UNORM" : fmt == TEXENC_EAC ? "R11_EAC" :
+	    "SIGNED_R11_EAC", W, bytes, n * ((TYW(t) + 7) / 8), ty_str(t),
+	    fmt == TEXENC_BC4 ? "" : " ... eac", fmt == TEXENC_BC4 ? "255" :
+	    fmt == TEXENC_EAC ? "2047" : "1023");
+	rep_obj(fmt == TEXENC_BC4 ? "bc4" : "eac");
+	if (fmt != TEXENC_BC4)
+		rep_bool("signed", fmt == TEXENC_EAC_SIGNED);
 	rep_str("entries", what);
 	rep_int("width", W);
 	rep_int("bytes", bytes);
@@ -493,6 +513,488 @@ cmd_texenc(const struct func *f, int W, double tol, int has_tol)
 	    "read apart from its uncompressed one: not measured\n");
 	free(b.p);
 	texenc_free(&e);
+}
+
+/*
+ * EAC: ETC2's single-channel blocks, R11_EAC (RG11_EAC is two of them),
+ * signed or not.  A 4 x 4 block is 8 bytes read as one big-endian word:
+ * a base codeword (bits 63..56), a multiplier m (55..52), a table index
+ * (51..48) that chooses eight modifiers, and sixteen 3-bit selectors
+ * column by column, texel (x, y) at bits 47 - 3(4x + y) and the two
+ * below.  A texel is the 11-bit value clamp(8 base + 4 + 8 m mod, 0,
+ * 2047) over 2047, 8 base + 4 + mod when m is 0; signed, clamp(8 base +
+ * 8 m mod, -1023, 1023) over 1023, the base a two's-complement byte with
+ * -128 read as -127 (Khronos Data Format Specification 1.3, 22.5 and
+ * 22.7).  That quotient is the format's value; a decoder may extend the
+ * 11 bits to 16 by bit replication instead, (v << 5) + (v >> 6) over
+ * 65535 (signed: the magnitude's (v << 5) + (v >> 5) over 32767), which
+ * is a different number, so both are reported.
+ */
+static const signed char eac_mods[16][8] = {
+	{-3, -6, -9, -15, 2, 5, 8, 14}, {-3, -7, -10, -13, 2, 6, 9, 12},
+	{-2, -5, -8, -13, 1, 4, 7, 12}, {-2, -4, -6, -13, 1, 3, 5, 12},
+	{-3, -6, -8, -12, 2, 5, 7, 11}, {-3, -7, -9, -11, 2, 6, 8, 10},
+	{-4, -7, -8, -11, 3, 6, 7, 10}, {-3, -5, -8, -11, 2, 4, 7, 10},
+	{-2, -6, -8, -10, 1, 5, 7, 9}, {-2, -5, -8, -10, 1, 4, 7, 9},
+	{-2, -4, -8, -10, 1, 3, 7, 9}, {-2, -5, -7, -10, 1, 4, 6, 9},
+	{-3, -4, -7, -10, 2, 3, 6, 9}, {-1, -2, -3, -10, 0, 1, 2, 9},
+	{-4, -6, -8, -9, 3, 5, 7, 8}, {-3, -5, -7, -9, 2, 4, 6, 8}};
+
+int
+eac_value(int base, int mul, int tab, int sel, int sgn)
+{
+	int mod = eac_mods[tab & 15][sel & 7], v;
+
+	if (sgn) {
+		int b = base >= 128 ? base - 256 : base;
+		if (b == -128)
+			b = -127;
+		v = 8 * b + (mul ? 8 * mod * mul : mod);
+		return v < -1023 ? -1023 : v > 1023 ? 1023 : v;
+	}
+	v = 8 * base + 4 + (mul ? 8 * mod * mul : mod);
+	return v < 0 ? 0 : v > 2047 ? 2047 : v;
+}
+
+double
+eac_read(int v, int sgn, int x16)
+{
+	int a = v < 0 ? -v : v;
+
+	if (!x16)
+		return (double)(float)(v / (sgn ? 1023.0 : 2047.0));
+	a = sgn ? (a << 5) + (a >> 5) : (a << 5) + (a >> 6);
+	return (double)(float)((v < 0 ? -a : a) / (sgn ? 32767.0 : 65535.0));
+}
+
+void
+eac_decode(const unsigned char b[8], int sgn, int v[16])
+{
+	uint64_t w = 0;
+	int i;
+
+	for (i = 0; i < 8; i++)
+		w = w << 8 | b[i];
+	for (i = 0; i < 16; i++)
+		v[i] = eac_value(b[0], (int)(w >> 52 & 15), (int)(w >> 48 & 15),
+		    (int)(w >> (45 - 3 * (4 * (i & 3) + (i >> 2))) & 7), sgn);
+}
+
+double
+eac_encode(const double t[16], const unsigned char care[16], int sgn,
+    unsigned char out[8])
+{
+	double best = INFINITY, bestsq = INFINITY, pal[8];
+	int b, mul, tab, i, k, sel[16], bsel[16], bb = 0, bm = 0, bt = 0;
+	uint64_t w;
+
+	memset(bsel, 0, sizeof bsel);
+	/* signed, -127..127 (-128 is a second spelling of -127) */
+	for (b = sgn ? -127 : 0; b <= (sgn ? 127 : 255); b++)
+		for (mul = 0; mul < 16; mul++)
+			for (tab = 0; tab < 16; tab++) {
+				double mx = 0, sq = 0;
+				for (k = 0; k < 8; k++)
+					pal[k] = eac_read(eac_value(b & 255, mul, tab, k,
+					    sgn), sgn, 0);
+				for (i = 0; i < 16 && mx <= best; i++) {
+					double be = INFINITY;
+					sel[i] = 0;
+					if (!care[i])
+						continue;
+					for (k = 0; k < 8; k++) {
+						double e = fabs(pal[k] - t[i]);
+						if (e < be) {
+							be = e;
+							sel[i] = k;
+						}
+					}
+					if (be > mx)
+						mx = be;
+					sq += be * be;
+				}
+				if (i < 16)
+					continue;
+				if (mx < best || (mx == best && sq < bestsq)) {
+					best = mx;
+					bestsq = sq;
+					bb = b & 255;
+					bm = mul;
+					bt = tab;
+					memcpy(bsel, sel, sizeof sel);
+				}
+			}
+	w = (uint64_t)bb << 56 | (uint64_t)bm << 52 | (uint64_t)bt << 48;
+	for (i = 0; i < 16; i++)
+		w |= (uint64_t)bsel[i] << (45 - 3 * (4 * (i & 3) + (i >> 2)));
+	for (i = 0; i < 8; i++)
+		out[i] = (unsigned char)(w >> (56 - 8 * i));
+	return best;
+}
+
+/* does a table hold what EAC (signed or not) stores: whole numbers
+ * 0..2047 (-1023..1023), read as k/2047 (k/1023), or numbers in [0, 1]
+ * ([-1, 1]); 1 when it has a negative entry, in *neg */
+static int
+eac_holds(nid tab, int sgn, int *neg)
+{
+	uint32_t j, n = N.b[tab];
+	int isint = 1;
+
+	*neg = 0;
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		double v;
+		if (!is_const(x))
+			return 0;
+		v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		if (!(v == v))
+			return 0;
+		if (v < 0)
+			*neg = 1;
+		if (!TY_ISINT(N.ty[x]))
+			isint = 0;
+	}
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		double v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		if (isint ? (sgn ? v < -1023 || v > 1023 : v < 0 || v > 2047) :
+		    (sgn ? v < -1 || v > 1 : v < 0 || v > 1))
+			return 0;
+	}
+	return 1;
+}
+
+int
+texenc_eac(nid tab, int W, int sgn, struct texenc *e)
+{
+	uint32_t j, n;
+	int bx, by, i, neg;
+
+	memset(e, 0, sizeof *e);
+	if (N.op[tab] != O_TABLE || N.b[tab] == 0 || !eac_holds(tab, sgn,
+	    &neg))
+		return 0;
+	n = N.b[tab];
+	e->n = (int)n;
+	e->W = W;
+	e->H = (int)((n + (uint32_t)W - 1) / (uint32_t)W);
+	e->bw = (W + 3) / 4;
+	e->bh = (e->H + 3) / 4;
+	e->sgn = sgn;
+	e->isint = 1;
+	for (j = 0; j < n; j++)
+		if (!TY_ISINT(N.ty[N.lst[N.a[tab] + j]]))
+			e->isint = 0;
+	e->target = xcalloc(n, sizeof *e->target);
+	e->dec = xcalloc(n, sizeof *e->dec);
+	e->bytes = xcalloc((size_t)e->bw * (size_t)e->bh, 8);
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		double v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		e->target[j] = (double)(float)(e->isint ? v / (sgn ? 1023.0 :
+		    2047.0) : v);
+	}
+	for (by = 0; by < e->bh; by++)
+		for (bx = 0; bx < e->bw; bx++) {
+			double t[16];
+			unsigned char care[16], *b = e->bytes + 8 * (by * e->bw + bx);
+			int v[16];
+			for (i = 0; i < 16; i++) {
+				int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+				long at = (long)y * W + x;
+				care[i] = x < W && at < (long)n;
+				t[i] = care[i] ? e->target[at] : 0;
+			}
+			eac_encode(t, care, sgn, b);
+			eac_decode(b, sgn, v);
+			for (i = 0; i < 16; i++) {
+				int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+				long at = (long)y * W + x;
+				double d16;
+				if (!care[i])
+					continue;
+				e->dec[at] = eac_read(v[i], sgn, 0);
+				d16 = eac_read(v[i], sgn, 1);
+				if (fabs(e->dec[at] - t[i]) > e->err) {
+					e->err = fabs(e->dec[at] - t[i]);
+					e->at = (int)at;
+				}
+				if (fabs(d16 - t[i]) > e->err16)
+					e->err16 = fabs(d16 - t[i]);
+			}
+		}
+	return 1;
+}
+
+/* an EAC block whose 11-bit values are the 16 targets exactly (care[i]
+ * = 0: any), the first in the encoder's order; 0 when there is none */
+static int
+eac_exact(const int t[16], const unsigned char care[16], int sgn,
+    unsigned char out[8])
+{
+	int b, mul, tab, i, k, v[8], sel[16];
+	uint64_t w;
+
+	for (b = sgn ? -127 : 0; b <= (sgn ? 127 : 255); b++)
+		for (mul = 0; mul < 16; mul++)
+			for (tab = 0; tab < 16; tab++) {
+				for (k = 0; k < 8; k++)
+					v[k] = eac_value(b & 255, mul, tab, k,
+					    sgn);
+				for (i = 0; i < 16; i++) {
+					sel[i] = 0;
+					if (!care[i])
+						continue;
+					for (k = 0; k < 8 && v[k] != t[i]; k++)
+						;
+					if (k == 8)
+						break;
+					sel[i] = k;
+				}
+				if (i < 16)
+					continue;
+				w = (uint64_t)(b & 255) << 56 |
+				    (uint64_t)mul << 52 | (uint64_t)tab << 48;
+				for (i = 0; i < 16; i++)
+					w |= (uint64_t)sel[i] << (45 - 3 *
+					    (4 * (i & 3) + (i >> 2)));
+				for (i = 0; i < 8; i++)
+					out[i] = (unsigned char)(w >> (56 -
+					    8 * i));
+				return 1;
+			}
+	return 0;
+}
+
+/*
+ * A table of whole numbers 0..2047 (signed: -1023..1023, one of them
+ * negative) as EAC blocks whose values are its entries exactly, in the
+ * row widths texenc_lossless tries: the one with the fewest bytes, fewer
+ * than stored; 0 when there is none.
+ */
+static int
+eac_lossless(nid tab, int natw, int stored, int *W, int *bytes, int *sgn)
+{
+	uint32_t j, n = N.b[tab];
+	int w, k, best = 0, *t, lo = 0, hi = 0;
+
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		if (!is_const(x) || !TY_ISINT(N.ty[x]))
+			return 0;
+		if (j == 0 || N.ki[x] < lo)
+			lo = N.ki[x] < -2048 ? -2048 : (int)N.ki[x];
+		if (j == 0 || N.ki[x] > hi)
+			hi = N.ki[x] > 4096 ? 4096 : (int)N.ki[x];
+	}
+	*sgn = lo < 0;
+	if (*sgn ? lo < -1023 || hi > 1023 : hi > 2047)
+		return 0;
+	t = xcalloc(n, sizeof *t);
+	for (j = 0; j < n; j++)
+		t[j] = (int)N.ki[N.lst[N.a[tab] + j]];
+	for (k = -1, w = natw; k <= 12; w = 4 << ++k) {
+		int bw, bh, bx, by, ok = 1;
+		if (w < 1 || w > 4096 || (k >= 0 && w > 4 && (uint32_t)w / 2 >=
+		    n) || (k >= 0 && w == natw))
+			continue;
+		bw = (w + 3) / 4;
+		bh = (int)((n + (uint32_t)w - 1) / (uint32_t)w + 3) / 4;
+		if (bw * bh * 8 >= stored || (best && bw * bh * 8 >= *bytes))
+			continue;
+		for (by = 0; by < bh && ok; by++)
+			for (bx = 0; bx < bw && ok; bx++) {
+				int bt[16], i;
+				unsigned char care[16], q[8];
+				for (i = 0; i < 16; i++) {
+					int x = bx * 4 + (i & 3);
+					int y = by * 4 + (i >> 2);
+					long at = (long)y * w + x;
+					care[i] = x < w && at < (long)n;
+					bt[i] = care[i] ? t[at] : 0;
+				}
+				ok = eac_exact(bt, care, *sgn, q);
+			}
+		if (ok) {
+			best = 1;
+			*W = w;
+			*bytes = bw * bh * 8;
+		}
+	}
+	free(t);
+	return best;
+}
+
+/*
+ * One table as R11_EAC, or two of one shape as RG11_EAC (16 bytes a
+ * block, red's 8 then green's), signed when an entry is negative: each
+ * block's base, multiplier, modifiers and selectors, every header tried.
+ */
+static void
+cmd_texenc_eac(const struct func *f, const struct func *g, int W,
+    double tol, int has_tol)
+{
+	const struct func *fs[2] = {f, g};
+	const char *nm[2], *ch[2] = {"red", "green"};
+	int nt = g ? 2 : 1, c, k, i, nb, sgn = 0, neg;
+	struct texenc e[2];
+	struct sbuf b = {0};
+	char fmt[24];
+
+	for (c = 0; c < nt; c++) {
+		nm[c] = fs[c]->anon ? (c ? "the second table" : nt == 2 ?
+		    "the first table" : "the table") : sym_str(fs[c]->name);
+		if (fs[c]->np != 0 || N.op[fs[c]->body] != O_TABLE)
+			fail("texenc takes tables [t0, t1, ...] (or their names), not "
+			    "%s", fs[c]->anon ? node_str(fs[c]->body) :
+			    sym_str(fs[c]->name));
+		/* a negative entry anywhere makes both channels signed */
+		(void)eac_holds(fs[c]->body, 1, &neg);
+		if (neg)
+			sgn = 1;
+	}
+	if (nt == 2 && N.b[f->body] != N.b[g->body])
+		fail("texenc: RG11_EAC's two channels are tables of one shape; %s "
+		    "has %u entries and %s %u", nm[0], N.b[f->body], nm[1],
+		    N.b[g->body]);
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	for (c = 0; c < nt; c++)
+		if (!texenc_eac(fs[c]->body, W, sgn, &e[c])) {
+			if (c)
+				texenc_free(&e[0]);
+			fail("texenc: %s holds whole numbers from %s (read as k/%s) "
+			    "or numbers from %s; %s has an entry that is neither",
+			    sgn ? "signed EAC" : "EAC", sgn ? "-1023 to 1023" :
+			    "0 to 2047", sgn ? "1023" : "2047", sgn ? "-1 to 1" :
+			    "0 to 1", nm[c]);
+		}
+	snprintf(fmt, sizeof fmt, "%s%s_EAC", sgn ? "SIGNED_" : "", nt == 2 ?
+	    "RG11" : "R11");
+	nb = e[0].bw * e[0].bh;
+	rep_begin("texenc");
+	rep_str("format", fmt);
+	rep_int("entries", e[0].n);
+	rep_int("width", e[0].W);
+	rep_int("height", e[0].H);
+	rep_int("bytes", nb * 8 * nt);
+	sb_clear(&b);
+	if (nt == 2)
+		sb_printf(&b, " (red %s, green %s)", nm[0], nm[1]);
+	printf("texenc %s%s%s eac: %d entr%s%s as %s%s, rows of %d (%d x %d "
+	    "texels): %d block%s, %d bytes (%d as %s, %d as %s)%s\n", nm[0],
+	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", e[0].n, e[0].n == 1 ?
+	    "y" : "ies", nt == 2 ? " a channel" : "", fmt, sb_str(&b), e[0].W,
+	    e[0].W, e[0].H, nb, nb == 1 ? "" : "s", nb * 8 * nt, 2 * nt *
+	    e[0].W * e[0].H, nt == 2 ? (sgn ? "R16G16_SNORM" : "R16G16_UNORM") :
+	    (sgn ? "R16_SNORM" : "R16_UNORM"), 4 * nt * e[0].W * e[0].H,
+	    nt == 2 ? "R32G32_SFLOAT" : "R32_SFLOAT", e[0].isint || (nt == 2 &&
+	    e[1].isint) ? (sgn ? "; whole numbers k are stored as k/1023" :
+	    "; whole numbers k are stored as k/2047") : "");
+	rep_list("blocks");
+	for (k = 0; k < nb; k++) {
+		rep_obj(NULL);
+		rep_int("x", k % e[0].bw);
+		rep_int("y", k / e[0].bw);
+		for (c = 0; c < nt; c++) {
+			const unsigned char *q = e[c].bytes + 8 * k;
+			uint64_t w = 0;
+			int mul, tab, base = sgn && q[0] >= 128 ? q[0] - 256 : q[0];
+			for (i = 0; i < 8; i++)
+				w = w << 8 | q[i];
+			mul = (int)(w >> 52 & 15);
+			tab = (int)(w >> 48 & 15);
+			printf("  block (%d, %d)%s%s: base %d, multiplier %d, modifiers",
+			    k % e[0].bw, k / e[0].bw, nt == 2 ? " " : "", nt == 2 ?
+			    ch[c] : "", base, mul);
+			for (i = 0; i < 8; i++)
+				printf(" %d", eac_mods[tab][i]);
+			printf(" (table %d), selectors", tab);
+			sb_clear(&b);
+			for (i = 0; i < 16; i++) {
+				int s = (int)(w >> (45 - 3 * (4 * (i & 3) + (i >> 2))) & 7);
+				printf(" %d", s);
+				sb_printf(&b, "%s%d", i ? " " : "", s);
+			}
+			if (nt == 2)
+				rep_obj(ch[c]);
+			rep_int("base", base);
+			rep_int("multiplier", mul);
+			rep_int("table", tab);
+			rep_str("selectors", sb_str(&b));
+			if (nt == 2) {
+				rep_end();
+				printf("\n");
+			}
+		}
+		sb_clear(&b);
+		if (nt == 2)
+			printf("  block (%d, %d) bytes", k % e[0].bw, k / e[0].bw);
+		else
+			printf(", bytes");
+		for (c = 0; c < nt; c++)
+			for (i = 0; i < 8; i++) {
+				printf(" %02x", e[c].bytes[8 * k + i]);
+				sb_printf(&b, "%s%02x", c || i ? " " : "",
+				    e[c].bytes[8 * k + i]);
+			}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	for (c = 0; c < nt; c++) {
+		char pre[16];
+		snprintf(pre, sizeof pre, "%s", nt == 2 ? (c ? "green: " :
+		    "red: ") : "");
+		if (nt == 2)
+			rep_obj(ch[c]);
+		sb_clear(&b);
+		sb_putc(&b, '[');
+		for (i = 0; i < e[c].n; i++)
+			sb_printf(&b, "%s%.9g", i ? ", " : "", e[c].dec[i]);
+		sb_putc(&b, ']');
+		printf("  %sdecodes to %s\n", pre, sb_str(&b));
+		rep_str("decoded", sb_str(&b));
+		rep_bool("exact", e[c].err == 0);
+		rep_num("max_error", e[c].err);
+		rep_num("x16_max_error", e[c].err16);
+		if (e[c].err == 0)
+			printf("  %sexact: every texel is its entry's f32%s (16 texels "
+			    "a block against 8 values, every base, multiplier and "
+			    "table tried)\n", pre, !e[c].isint ? "" : sgn ?
+			    " over 1023" : " over 2047");
+		else {
+			printf("  %snot exact: the closest blocks are within %.3g of "
+			    "the table (entry %d: %.9g as %.9g), every base, multiplier "
+			    "and table tried\n", pre, e[c].err, e[c].at,
+			    e[c].target[e[c].at], e[c].dec[e[c].at]);
+			if (has_tol) {
+				printf("  %s%s the %g allowed (tol)\n", pre, e[c].err <= tol ?
+				    "within" : "more than", tol);
+				rep_bool("within_tol", e[c].err <= tol);
+			}
+		}
+		printf("  %sa decoder that extends the 11 bits to 16 (the "
+		    "specification allows it) reads (v << 5) + (v >> %d) over %s: "
+		    "within %.3g of the table\n", pre, sgn ? 5 : 6, sgn ? "32767" :
+		    "65535", e[c].err16);
+		if (nt == 2)
+			rep_end();
+	}
+	if (nt == 2) {
+		rep_bool("exact", e[0].err == 0 && e[1].err == 0);
+		if (has_tol)
+			rep_bool("within_tol", e[0].err <= tol && e[1].err <= tol);
+	}
+	printf("  a nearest or filtered read of the texture is that read of the "
+	    "decoded table%s; no model prices an EAC read apart from its "
+	    "uncompressed one: not measured\n", nt == 2 ? "s, red and green" :
+	    "");
+	free(b.p);
+	for (c = 0; c < nt; c++)
+		texenc_free(&e[c]);
 }
 
 /* the 2D footprints ASTC has */
@@ -768,12 +1270,12 @@ texenc_table(struct P *p, const char *const *stop)
 int
 texenc_command(struct P *p)
 {
-	static const char *const stop[] = {"rows", "tol", "astc", NULL};
+	static const char *const stop[] = {"rows", "tol", "astc", "eac", NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0, astc = 0;
+	int has_tol = 0, astc = 0, eac = 0;
 	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
@@ -792,7 +1294,8 @@ texenc_command(struct P *p)
 			fail("texenc: astc takes a block's footprint, BWxBH (6x6, 8x5, "
 			    "...)");
 		W = bw;
-	}
+	} else if (cmdp_kw(p, "eac"))
+		eac = 1;
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -805,11 +1308,13 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [astc BWxBH] [rows W] [tol E]");
+			fail("texenc T [, U] [astc BWxBH | eac] [rows W] [tol E]");
 		}
 	}
 	notes_flush();
-	if (astc)
+	if (eac)
+		cmd_texenc_eac(f, g, (int)W, tol, has_tol);
+	else if (astc)
 		cmd_texenc_astc(f, g, (int)bw, (int)bh, (int)W, tol, has_tol);
 	else if (g)
 		cmd_texenc5(f, g, (int)W, tol, has_tol);
@@ -820,9 +1325,10 @@ texenc_command(struct P *p)
 
 /*
  * "compress K as BC4", "K as a BC4 texture", "encode K as bc4 within
- * 0.01, rows of 8", "compress K as ASTC 6x6": texenc T [astc BWxBH]
- * [rows W] [tol E].  The sentence must name BC4 (or RGTC), or ASTC with
- * a footprint, and a defined table; NULL otherwise.
+ * 0.01, rows of 8", "compress K as ASTC 6x6", "store K as EAC", "K and L
+ * as RG11": texenc T [astc BWxBH | eac] [rows W] [tol E].  The sentence
+ * must name BC4 (or RGTC), ASTC with a footprint, or EAC (R11, RG11),
+ * and a defined table; NULL otherwise.
  */
 const char *
 texenc_nlp_raw(const char *sent)
@@ -832,7 +1338,7 @@ texenc_nlp_raw(const char *sent)
 	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0, astc = 0, a, b;
+	int hit = 0, bc5 = 0, astc = 0, eac = 0, a, b;
 
 	if (n > 400)
 		return NULL;
@@ -858,6 +1364,11 @@ texenc_nlp_raw(const char *sent)
 			hit = bc5 = 1;
 		else if (!strcmp(w, "astc") || !strcmp(w, "ASTC"))
 			hit = astc = 1;
+		else if (!strcmp(w, "eac") || !strcmp(w, "EAC") || !strcmp(w,
+		    "r11") || !strcmp(w, "R11"))
+			hit = eac = 1;
+		else if (!strcmp(w, "rg11") || !strcmp(w, "RG11"))
+			hit = eac = bc5 = 1;
 		else if (sscanf(w, "%dx%d", &a, &b) == 2 && a > 0 && b > 0 &&
 		    a < 100 && b < 100)
 			snprintf(fp, sizeof fp, "%dx%d", a, b);
@@ -876,11 +1387,29 @@ texenc_nlp_raw(const char *sent)
 	}
 	if (!hit || !fn[0] || (bc5 && !fn2[0]) || (astc && !fp[0]))
 		return NULL;
-	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s", fn, bc5 || (astc &&
-	    fn2[0]) ? ", " : "", bc5 || (astc && fn2[0]) ? fn2 : "", astc ?
-	    " astc " : "", astc ? fp : "", rows[0] ? " rows " : "", rows,
-	    tol[0] ? " tol " : "", tol);
+	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s%s", fn, bc5 ||
+	    ((astc || eac) && fn2[0]) ? ", " : "", bc5 || ((astc || eac) &&
+	    fn2[0]) ? fn2 : "", astc ? " astc " : "", astc ? fp : "", eac ?
+	    " eac" : "", rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "",
+	    tol);
 	return out;
+}
+
+/* w (lower case) as a word of line, in either case: "eac" is inside
+ * "each" and "reach" */
+static int
+has_word(const char *line, const char *w)
+{
+	size_t n = strlen(w), i, k;
+
+	for (i = 0; line[i]; i++) {
+		for (k = 0; k < n && line[i + k] && (line[i + k] | 32) == w[k]; k++)
+			;
+		if (k == n && (i == 0 || !isalnum((unsigned char)line[i - 1])) &&
+		    !isalnum((unsigned char)line[i + n]))
+			return 1;
+	}
+	return 0;
 }
 
 /*
@@ -906,5 +1435,7 @@ texenc_nlp_english(const char *line)
 			verb = 1;
 	return verb && (strstr(line, "BC4") || strstr(line, "bc4") ||
 	    strstr(line, "BC5") || strstr(line, "bc5") || strstr(line, "RGTC") ||
-	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc"));
+	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc") ||
+	    has_word(line, "eac") || strstr(line, "R11") || strstr(line, "r11") ||
+	    strstr(line, "RG11") || strstr(line, "rg11"));
 }
