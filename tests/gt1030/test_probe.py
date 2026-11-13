@@ -49,6 +49,49 @@ def uniform_steps_fold():
     assert not bad, 'steps whose result is uniform alone: %s' % ', '.join(bad)
 
 
+
+def split_args(text):
+    """the arguments of a call's text, split at the commas outside parentheses"""
+    out, depth, cur = [], 0, ''
+    for ch in text:
+        if ch == ',' and depth == 0:
+            out.append(cur)
+            cur = ''
+            continue
+        depth += ch == '('
+        depth -= ch == ')'
+        cur += ch
+    return out + [cur]
+
+
+def glsl_value(expr, env):
+    """a bound's GLSL text (chain values, masks, abs, negation) evaluated in Python"""
+    py = re.sub(r'\{(\w)\}', r'\1', expr)
+    py = re.sub(r'\b(0x[0-9a-fA-F]+|\d+)u\b', r'\1', py)
+    return eval(py, {'abs': abs}, dict(env))
+
+
+@check
+def clamp_bounds_ordered():
+    """clamp(x, lo, hi) is undefined for lo > hi: every clamp of chain values keeps lo <= hi"""
+    import random
+    rnd = random.Random(7)
+    bad = []
+    for p in steps():
+        m = re.search(r'clamp\((.*)\)', p['step'] or '')
+        if not m or not re.search(r'\{[a-d]\}', m.group(1)):
+            continue
+        x, lo, hi = split_args(m.group(1))[:3]
+        for _ in range(1000):
+            if p['ty'] == 'float':
+                env = {k: rnd.uniform(-4.0, 4.0) for k in 'abcd'}
+            else:
+                env = {k: rnd.getrandbits(32) for k in 'abcd'}
+            if glsl_value(lo, env) > glsl_value(hi, env):
+                bad.append('%s (lo %s, hi %s)' % (p['name'], lo.strip(), hi.strip()))
+                break
+    assert not bad, 'clamps with a low bound above the high one: %s' % ', '.join(bad)
+
 def main():
     failed = 0
     for fn in CHECKS:
