@@ -14,7 +14,8 @@
  * prices that operation under the model: the ballot, the votes, the sum,
  * the inclusive scan and the shuffle are their classes; the exclusive
  * scan is the inclusive one less the lane's own value, a shuffle by xor,
- * up or down the shuffle and its index, a bit count of a ballot the
+ * up or down, a quad swap or a quad broadcast the shuffle and its index
+ * (the quad's lanes in fours, bit 0 its column), a bit count of a ballot the
  * popcount and the mask of the lanes it keeps.  An instruction no
  * operation stands for (a product, a min, a clustered sum ...), or one
  * whose class the model does not list, runs at cost 0, and a note names
@@ -105,6 +106,19 @@ sg_expr_of(const struct sins *I, int W, int *cls)
 		nid at = O("BroadcastFirst") ? mk_const_i(u, 0) : O("ShuffleXor") ?
 		    mk_bin(O_XOR, l, i) : O("ShuffleUp") ? mk_bin(O_SUB, l, i) :
 		    O("ShuffleDown") ? mk_bin(O_ADD, l, i) : i;
+		*cls = C_SG_SHUF;
+		return mk_sg(O_SGSHUF, v, at, w);
+	}
+	if (O("QuadSwap") || O("QuadBroadcast")) {
+		nid at;
+		if (O("QuadSwap")) {
+			/* Direction 0, 1, 2: the lane bits 1, 2, 3 flipped */
+			int d = I->nop > 3 ? opid(I, 3) : -1;
+			if (d < 0 || V.id[d].kind != K_CONST || V.id[d].c[0] > 2)
+				return 0;
+			at = mk_bin(O_XOR, l, mk_const_i(u, (int64_t)V.id[d].c[0] + 1));
+		} else
+			at = mk_bin(O_OR, mk_bin(O_AND, l, mk_const_i(u, ~3u)), i);
 		*cls = C_SG_SHUF;
 		return mk_sg(O_SGSHUF, v, at, w);
 	}
@@ -325,6 +339,23 @@ exec_subgroup(const struct sins *I, uint32_t mask, int rt, int nc)
 			s = O("ShuffleXor") ? (int)(l ^ x) : O("ShuffleUp") ?
 			    (int)(l - x) : O("ShuffleDown") ? (int)(l + x) :
 			    x < 0 || x >= NL ? -1 : (int)x;
+			if (sg_lane_ok(s, mask, I))
+				r[l] = val(vid, s);
+		}
+	} else if (O("QuadSwap") || O("QuadBroadcast")) {
+		/* a quad: lanes in fours, bit 0 the column, bit 1 the row; a
+		 * swap's Direction 0, 1, 2 flips bit 0, bit 1, both; a
+		 * broadcast's Index past 3 is undefined */
+		vid = opid(I, 2);
+		for (l = 0; l < V.lanes; l++) {
+			int64_t x = geti(type_of(opid(I, 3)), val(opid(I, 3), l).b[0]);
+			if (!(mask >> l & 1))
+				continue;
+			if (O("QuadSwap") && (x < 0 || x > 2))
+				die("unsupported instruction \"%s\": a quad swap's "
+				    "direction is 0, 1 or 2", I->text);
+			s = O("QuadSwap") ? (int)(l ^ (x + 1)) : x < 0 || x > 3 ? -1 :
+			    (int)((l & ~3) | x);
 			if (sg_lane_ok(s, mask, I))
 				r[l] = val(vid, s);
 		}
