@@ -12393,9 +12393,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 				rl[j] = rl[j - 1];
 			rl[j] = x;
 		}
-		shown = nlog - ntriv < 25 ? nlog - ntriv : 25;
-		printf("  %s:\n", shown < nlog - ntriv ? "the largest savings" :
-		    "rewrites");
+		/* every one: a list cut short sent readers to the JSON */
+		shown = nlog - ntriv;
+		printf("  rewrites:\n");
 		for (i = 0; i < shown; i++) {
 			char sl[160];
 			src_line(rl[i].line, sl, sizeof sl);
@@ -12403,9 +12403,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    rl[i].from, rl[i].to, rl[i].why, rl[i].gain, rl[i].algebra ?
 			    "; by algebra mod 2^w, not SAT" : "", sl);
 		}
-		if (shown < nlog - ntriv)
-			sb_printf(&list, "    ... %d more (all in the attached "
-			    "module)\n", nlog - ntriv - shown);
 		fputs(list.p, stdout);
 	} else if (ntriv)
 		printf("  beyond those, no cheaper form of an integer instruction "
