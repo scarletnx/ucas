@@ -41,6 +41,30 @@ struct dwres {
 int dword_lower(const struct func *f, const struct model *m,
     const struct dwreq *rq, struct dwres *out, struct sbuf *report);
 void dword_res_free(struct dwres *r);
+/*
+ * spirv.c: a loop's f64 sum, s = s0, then n passes of s = s + T (or
+ * s - T): f's body is that pass, s its f64 parameter ps, and the pair the
+ * passes carry instead is its f32 parameters ph and pl.  s0 is the pair
+ * (s0h, s0l: f32 constants or parameters), whose value is within e0 of
+ * s0's exact value in [s0lo, s0hi].  once[] are the f64 values of the pass
+ * computed before the loop (paid once as written).  A store takes the
+ * pair recombined, f64(hi) + f64(lo), its rounding in the bound.  out->hi
+ * and lo are the pass's new pair, out->rel and abs_ the bound after the n
+ * passes.
+ */
+struct dwacc {
+	int ps, ph, pl;
+	int64_t n;
+	nid s0h, s0l;
+	double s0lo, s0hi;
+	long double e0;
+	nid once[16];
+	int nonce;
+	int nconv, nstore;	/* its readers: conversions to f32, f64 stores */
+};
+int dword_accum(const struct func *f, const struct dwacc *a,
+    const struct model *m, const struct dwreq *rq, struct dwres *out,
+    struct sbuf *report);
 /* find.c: what a cheaper f32 form of f's f64 arithmetic costs, when there
  * is one (1), in a line */
 int dword_find(struct func *f);

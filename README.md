@@ -2975,9 +2975,33 @@ high word first, then low where the high words tie (a normalized pair's
 high word is its value rounded, and rounding keeps order); or the
 sides' ranges, widened by the f64 program's errors, do not meet, and the
 comparison is a constant.  A sampled check counts the points where the
-form and the f64 comparison differ, inside the conditions.  Not
-rewritten: an f64 value a loop's phi carries (its pair would be two
-phis, and its bound would need the trip count).
+form and the f64 comparison differ, inside the conditions.
+
+A loop's f64 sum is carried as a pair of f32 phis: a phi of the loop's
+header that starts at an f64 constant or an f32 converted, gains s + T
+or s - T on the back edge (T not reading s), and is read after the loop
+only by conversions to f32 and f64 stores, in a loop whose trip count is
+a constant (a counter from a constant, i < K or i <= K, a constant
+step).  A pass is T's form added to the pair the pass is handed, its
+bound r against the exact s + T derived as for any result, on the range
+of every partial sum (s0's and T's ranges over the passes).  The passes
+compose: with the computed sum within E(k) of the exact S(k), E(k+1) <=
+(1 + r) E(k) + r |S(k+1)|, so after n passes E(n) <= (1 + r)^n E(0) +
+((1 + r)^n - 1) max |S(k)|; when s0 and every term have one sign the
+partial sums only grow and that is relative to the sum (64 passes of
+s + x*x, r = 3 u^2: 192 u^2).  Each pass is derived on the partial sums'
+range widened by w, and the bound holds only when E(n) <= w: the
+computed sums stay where each pass's bound was derived.  The loop's
+counter read in the term (converted) takes its range from the loop's
+bounds, the value that leaves included.  A conversion after the loop
+reads the pair's high word, RN(hi + lo); a store takes the pair
+recombined, so it needs `tol R` or `atol T`.  Priced as the passes of
+the form against the passes of the f64 instructions (what is computed
+before the loop once) and the conversions after it: under gt1030, 64
+passes of s + x*x cost 832 against 2267.  A sampled check runs the loop
+on 256 points, each pass reading another point's terms.  Not taken, with
+the reason said: a trip count that is not a constant, a sum read inside
+the loop, s0 an f64 computed before the loop, a term with no range.
 
 ### Fixed function as compute
 

@@ -13491,10 +13491,11 @@ small_const(int id)
  * the first conditional branch on the way from h (through unconditional
  * branches) that leaves to m, on a compare of a phi of h with a constant,
  * the phi from a constant before the loop and phi + a constant from c.
- * -1 when the bounds are not constants of that shape.
+ * -1 when the bounds are not constants of that shape.  iv, when given,
+ * gets that phi, its first value and its step.
  */
 static int64_t
-loop_trips(int h, int m, int c)
+loop_trips_iv(int h, int m, int c, int *iv, int64_t *first, int64_t *inc)
 {
 	int pc, hops, lbl = h, cond = -1, stay = 0, k, phi = -1, i;
 	int64_t init = -1, step = -1, bound = -1;
@@ -13569,6 +13570,11 @@ loop_trips(int h, int m, int c)
 		}
 		if (init < 0 || step <= 0)
 			return -1;
+		if (iv) {
+			*iv = phi;
+			*first = init;
+			*inc = step;
+		}
 		if (lt || ge) {
 			/* passes while i < bound (or until i >= bound) */
 			return bound > init ? (bound - init + step - 1) / step : 0;
@@ -13576,6 +13582,12 @@ loop_trips(int h, int m, int c)
 		return bound >= init ? (bound - init) / step + 1 : 0;
 	}
 	(void)i;
+}
+
+static int64_t
+loop_trips(int h, int m, int c)
+{
+	return loop_trips_iv(h, m, c, NULL, NULL, NULL);
 }
 
 /*

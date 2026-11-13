@@ -97,6 +97,9 @@ static struct {
 	int nleaf;
 	struct sbuf table;	/* the composition, a row per value */
 	char unsup[120];
+	int accv;		/* a loop's sum: 1 + its f64 parameter, else 0 */
+	nid acch, accl;		/* the pair its passes carry (f32 parameters) */
+	struct iv acciv;	/* where the carried value stays */
 } L;
 
 static long double
@@ -1248,6 +1251,14 @@ lower1(nid n)
 		return z;
 	}
 	case O_VAR:
+		if (L.accv && (int)N.ki[n] == L.accv - 1) {
+			/* a loop's sum: the pair the passes carry is its value */
+			z.hi = L.acch;
+			z.lo = L.mode ? L.accl : 0;
+			z.iv = L.acciv;
+			track(&z);
+			return z;
+		}
 		L.splitvar++;
 		return split64(n, leaf_iv(L.f, n, 0));
 	case O_CAST:
@@ -1386,6 +1397,7 @@ struct cand {
 	int mode;
 	struct dv r;
 	nid body;
+	nid body2;		/* a pair's low word, when both are the result */
 	double cost;
 	int nops;
 	long double extra;	/* f32 sink: ulp beyond its own rounding */
@@ -1710,6 +1722,10 @@ listing(struct sbuf *o, const struct cand *c)
 	/* the form's own operations: down to the source's values */
 	st[sp++] = c->body;
 	mark[c->body] = 1;
+	if (c->body2 && !mark[c->body2]) {
+		st[sp++] = c->body2;
+		mark[c->body2] = 1;
+	}
 	while (sp) {
 		n = st[--sp];
 		if (N.op[n] == O_CONST || N.op[n] == O_VAR || cand_leaf(c, n)) {
@@ -1798,11 +1814,19 @@ listing(struct sbuf *o, const struct cand *c)
 		sb_putc(o, '\n');
 	}
 #undef OPND
-	sb_puts(o, "    result: ");
+	sb_puts(o, c->body2 ? "    result: the pair (" : "    result: ");
 	if (name[c->body])
 		sb_printf(o, "t%u", name[c->body]);
 	else
 		sb_puts(o, node_str(c->body));
+	if (c->body2) {
+		sb_puts(o, ", ");
+		if (name[c->body2])
+			sb_printf(o, "t%u", name[c->body2]);
+		else
+			sb_puts(o, node_str(c->body2));
+		sb_putc(o, ')');
+	}
 	sb_putc(o, '\n');
 	if (neft)
 		sb_printf(o, "    ! %d operations of the error-free "
@@ -2880,5 +2904,533 @@ dword_interval(const struct func *f, nid n, double *lo, double *hi)
 		return 0;
 	*lo = v.lo;
 	*hi = v.hi;
+	return 1;
+}
+
+/* ---- a loop's f64 sum: its pair carried across the passes ---- */
+
+/*
+ * The passes: S(0) = s0, S(k+1) = S(k) + T(k), the computed s(k) within
+ * E(k) of S(k).  A pass's form is derived like any result, s being the
+ * pair the pass is handed: r bounds its error against the exact
+ * s(k) + T(k), so E(k+1) <= E(k) + r |s(k) + T(k)| <= (1 + r) E(k) +
+ * r |S(k+1)|, and E(n) <= (1 + r)^n E(0) + ((1 + r)^n - 1) max |S(k)|.
+ * When s0 and every term have one sign the partial sums only grow,
+ * |S(k)| <= |S(n)|, and that is a relative bound.  With only an absolute
+ * bound A for a pass, E(n) <= E(0) + n A.  A pass is derived on the
+ * range of the partial sums widened by w (outward only when they have
+ * one sign), and the bound holds only when E(n) <= w: the computed sums
+ * then stay inside it, so each pass's bound applies (by induction on k,
+ * E(k) growing with k).
+ */
+struct acand {
+	struct cand c;
+	struct err tot;		/* after the passes, against the exact sum */
+	struct iv fin, hull;	/* the sum after the passes; every partial */
+	long double grow, wid;	/* (1 + r)^n - 1; the widening */
+	int same, inside, sub;
+	double pass, all;	/* cost: one pass, the whole loop and after */
+};
+
+/* the range of every partial sum, and of the last */
+static int
+acc_ranges(struct acand *A, const struct dwacc *a, struct iv t)
+{
+	long double n = (long double)a->n;
+
+	if (t.top || isinf(t.lo) || isinf(t.hi) || isnan(a->s0lo) ||
+	    isnan(a->s0hi))
+		return 0;
+	if (A->sub)
+		t = iv_neg(t);
+	A->fin = iv_make((double)(a->s0lo + n * t.lo), (double)(a->s0hi +
+	    n * t.hi));
+	A->hull = iv_make((double)(a->s0lo + (t.lo < 0 ? n * t.lo : 0)),
+	    (double)(a->s0hi + (t.hi > 0 ? n * t.hi : 0)));
+	A->same = (a->s0lo >= 0 && t.lo >= 0) || (a->s0hi <= 0 && t.hi <= 0);
+	return !isinf(A->hull.lo) && !isinf(A->hull.hi);
+}
+
+static void
+acc_passes(struct acand *A, const struct dwacc *a)
+{
+	const struct err *r = &A->c.r.e;
+	long double n = (long double)a->n, M = iv_mag(&A->hull), e0 = a->e0;
+	long double m0 = iv_mig(&(struct iv){a->s0lo, a->s0hi, 0}), rel0;
+
+	A->tot.rel = A->tot.abs_ = A->grow = LINF;
+	rel0 = e0 == 0 ? 0 : m0 > 0 ? e0 / m0 : LINF;
+	if (!isinf(r->rel) && r->rel < 0.5L) {
+		long double g = expm1l(n * log1pl(r->rel)) * SLACK;
+		A->grow = g;
+		A->tot.abs_ = (1 + g) * e0 + lmul(g, M);
+		if (A->same && !isinf(rel0))
+			A->tot.rel = ((1 + g) * rel0 + g) * SLACK;
+	} else if (!isinf(r->abs_))
+		A->tot.abs_ = (e0 + n * r->abs_) * SLACK;
+	A->inside = !isinf(A->tot.abs_) && A->tot.abs_ <= A->wid;
+}
+
+static void
+run_acc(const struct func *f, const struct dwacc *a, const struct model *m,
+    const struct dwreq *rq, int mode, uint32_t lim, struct acand *A)
+{
+	uint8_t *acc = xcalloc(lim, 1);
+	nid root = f->body, t = N.b[root];
+	nid hv = mk_var((uint32_t)a->ph, f->p[a->ph].name, TY_F32);
+	nid lv = mk_var((uint32_t)a->pl, f->p[a->pl].name, TY_F32);
+	struct dv tv;
+	int guard, ok = 0, it;
+	long double M;
+
+	memset(A, 0, sizeof *A);
+	A->c.mode = mode;
+	A->sub = N.op[root] == O_SUB;
+	A->wid = 0;
+	for (it = 0; it < 4; it++) {
+		for (guard = 0; guard < 64; guard++) {
+			lower_reset(f, mode, lim, acc);
+			tv = lower(t);
+			if (!(ok = acc_ranges(A, a, tv.iv)))
+				break;
+			M = iv_mag(&A->hull);
+			if (it == 0)
+				A->wid = M * 0x1p-20L;
+			L.accv = a->ps + 1;
+			L.acch = hv;
+			L.accl = lv;
+			L.acciv = A->same && A->hull.lo >= 0 ?
+			    iv_make((double)ldmax(0, A->hull.lo - A->wid),
+			    (double)(A->hull.hi + A->wid)) : A->same ?
+			    iv_make((double)(A->hull.lo - A->wid),
+			    (double)ldmin(0, A->hull.hi + A->wid)) :
+			    iv_make((double)(A->hull.lo - A->wid),
+			    (double)(A->hull.hi + A->wid));
+			A->c.r = lower(root);
+			acc_passes(A, a);
+			{
+				/* an f32 reads the pair's high word; a store
+				 * the pair recombined */
+				struct dv fin;
+				long double x64;
+				memset(&fin, 0, sizeof fin);
+				fin.iv = A->fin;
+				fin.e = A->tot;
+				fin.hi = hv;
+				fin.lo = mode ? lv : 0;
+				A->c.extra = LINF;
+				A->c.meets = A->inside && (a->nconv == 0 ||
+				    meets(rq, 1, &fin, &A->c.extra));
+				if (a->nstore && mode)
+					fin.e = recombined(&fin);
+				if (a->nstore)
+					A->c.meets &= meets(rq->kind == DW_ULP ?
+					    &(struct dwreq){DW_DEFAULT, 0, 0} : rq, 0,
+					    &fin, &x64);
+			}
+			/* a sloppy add with cancellation: the accurate one */
+			if (A->c.meets || !L.nsloppy || !L.worst ||
+			    L.worstk <= 1.001L)
+				break;
+			acc[L.worst] = 1;
+		}
+		if (!ok || A->inside || isinf(A->tot.abs_))
+			break;
+		/* the computed sums may leave the range: wider, again */
+		A->wid = 2 * A->tot.abs_;
+	}
+	if (!ok) {
+		snprintf(A->c.unsup, sizeof A->c.unsup, "the term %s has no "
+		    "range: no bound across the passes", node_str(t));
+		A->c.body = A->c.r.hi = hv;
+		A->c.cost = LINF;
+		A->c.table = strdup("");
+		free(acc);
+		L.acc = NULL;
+		L.accv = 0;
+		return;
+	}
+	A->c.body = A->c.r.hi;
+	A->c.body2 = A->c.r.lo;
+	if (A->c.r.lo) {
+		nid two[2];
+		two[0] = A->c.r.hi;
+		two[1] = A->c.r.lo;
+		A->pass = (double)fuse_roots_cost(m, two, 2);
+	} else
+		A->pass = dag_cost(m, A->c.r.hi, NULL);
+	(void)dag_cost(m, A->c.r.hi, &A->c.nops);
+	/* the sum's f32 is the pair's high word, RN(hi + lo); a store pays
+	 * the recombination */
+	A->all = (double)a->n * A->pass;
+	if (a->nstore)
+		A->all += (double)a->nstore * dag_cost(m, mode ? mk_bin(O_ADD,
+		    mk_cast(TY_F64, hv), mk_cast(TY_F64, lv)) : mk_cast(TY_F64,
+		    hv), NULL);
+	A->c.cost = A->all;
+	if (!L.mag_unknown && L.maxmag >= 0x1p126L) {
+		A->c.meets = 0;
+		snprintf(L.unsup, sizeof L.unsup, "a value reaches %.3Lg: an "
+		    "f32 overflows there", L.maxmag);
+	}
+	A->c.used = L.used;
+	A->c.maxmag = L.maxmag;
+	A->c.mag_unknown = L.mag_unknown;
+	A->c.uflow = L.uflow;
+	A->c.nprod = L.nprod;
+	A->c.div0 = L.div0;
+	A->c.sqrt0 = L.sqrt0;
+	A->c.pre_cases = L.pre_cases;
+	A->c.opaque = L.opaque;
+	A->c.splitvar = L.splitvar;
+	A->c.nsloppy = L.nsloppy;
+	snprintf(A->c.unsup, sizeof A->c.unsup, "%s", L.unsup);
+	A->c.table = L.table.p ? strdup(L.table.p) : strdup("");
+	A->c.neft = N.n;
+	A->c.eft = xcalloc(A->c.neft, 1);
+	if (L.eft)
+		memcpy(A->c.eft, L.eft, L.eftcap < A->c.neft ? L.eftcap :
+		    A->c.neft);
+	memcpy(A->c.leaf, L.leaf, sizeof A->c.leaf);
+	A->c.nleaf = L.nleaf;
+	free(acc);
+	L.acc = NULL;
+	L.accv = 0;
+}
+
+#define DW_ACC_PASSES 4096	/* the sampled check's passes at most */
+
+/* the loop run on sampled inputs, each pass with another point's terms */
+static void
+acc_check(struct sbuf *o, const struct func *f, const struct acand *A,
+    const struct dwacc *a, uint32_t lim)
+{
+	struct plan p;
+	struct diter d;
+	nid roots[MAXLEAF + 8], root = f->body, t = N.b[f->body];
+	int nr = 0, i, j;
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i), pass;
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	int64_t *k_i = xcalloc((size_t)MAXP * CH, sizeof *k_i);
+	double *k_r = xcalloc((size_t)MAXP * CH, sizeof *k_r);
+	double h[CH], l[CH], v[CH];
+	long double ex[CH], worst = 0, worst64 = 0, wabs = 0, unit = A->c.mode ?
+	    U * U : U;
+	uint32_t np, k, lhi, llo = NOTOK, l64, l0h, l0l = NOTOK;
+	long cnt = 0;
+
+	if (a->n > DW_ACC_PASSES) {
+		sb_printf(o, "  check: not sampled (%lld passes, past the %d "
+		    "the check runs)\n", (long long)a->n, DW_ACC_PASSES);
+		free(in_i);
+		free(in_r);
+		free(k_i);
+		free(k_r);
+		return;
+	}
+	roots[nr++] = A->c.r.hi;
+	if (A->c.r.lo)
+		roots[nr++] = A->c.r.lo;
+	roots[nr++] = root;
+	roots[nr++] = a->s0h;
+	if (a->s0l)
+		roots[nr++] = a->s0l;
+	for (i = 0; i < A->c.nleaf; i++)
+		roots[nr++] = A->c.leaf[i];
+	plan_build(&p, roots, (uint32_t)nr, 0);
+	lhi = plan_loc(&p, A->c.r.hi);
+	if (A->c.r.lo)
+		llo = plan_loc(&p, A->c.r.lo);
+	l64 = plan_loc(&p, root);
+	l0h = plan_loc(&p, a->s0h);
+	if (a->s0l)
+		l0l = plan_loc(&p, a->s0l);
+	diter_init(&d, f, DW_SAMPLE, 65, DW_SAMPLE);
+	X.p = &p;
+	X.lim = lim;
+	X.v = xcalloc(lim, sizeof *X.v);
+	X.stamp = xcalloc(lim, sizeof *X.stamp);
+	X.cur = 0;
+	X.f = f;
+	xc = &A->c;
+	np = diter_next(&d, k_i, k_r);
+	if (np > 0) {
+		memcpy(in_i, k_i, (size_t)MAXP * CH * sizeof *in_i);
+		memcpy(in_r, k_r, (size_t)MAXP * CH * sizeof *in_r);
+		plan_run(&p, np, in_i, in_r);
+		for (k = 0; k < np; k++) {
+			h[k] = COLR(&p, l0h)[k];
+			l[k] = l0l != NOTOK ? COLR(&p, l0l)[k] : 0;
+			ex[k] = (long double)h[k] + l[k];
+			v[k] = (double)ex[k];
+		}
+	}
+	for (pass = 0; np > 0 && pass < a->n; pass++) {
+		for (j = 0; j < f->np; j++)
+			for (k = 0; k < np; k++) {
+				uint32_t q = (uint32_t)((k + (uint64_t)pass) % np);
+				in_i[(size_t)j * CH + k] = k_i[(size_t)j * CH + q];
+				in_r[(size_t)j * CH + k] = k_r[(size_t)j * CH + q];
+			}
+		for (k = 0; k < np; k++) {
+			in_r[(size_t)a->ph * CH + k] = h[k];
+			in_r[(size_t)a->pl * CH + k] = l[k];
+			in_r[(size_t)a->ps * CH + k] = v[k];
+		}
+		plan_run(&p, np, in_i, in_r);
+		for (k = 0; k < np; k++) {
+			long double te;
+			X.i = k;
+			X.cur++;
+			te = exact(t);
+			ex[k] += N.op[root] == O_SUB ? -te : te;
+			h[k] = COLR(&p, lhi)[k];
+			l[k] = llo != NOTOK ? COLR(&p, llo)[k] : 0;
+			v[k] = COLR(&p, l64)[k];
+		}
+	}
+	for (k = 0; k < np; k++) {
+		long double got = (long double)h[k] + l[k], e;
+		if (isnan(ex[k]) || isinf(ex[k]) || ex[k] == 0 || isnan(got) ||
+		    isinf(got) || fabsl(ex[k]) > 0x1p120L)
+			continue;
+		cnt++;
+		if (fabsl(got - ex[k]) > wabs)
+			wabs = fabsl(got - ex[k]);
+		e = fabsl(got - ex[k]) / fabsl(ex[k]);
+		if (e > worst)
+			worst = e;
+		e = fabsl((long double)v[k] - ex[k]) / fabsl(ex[k]);
+		if (e > worst64)
+			worst64 = e;
+	}
+	sb_printf(o, "  check (sampled, not a proof): the loop run on %ld "
+	    "points, each pass reading another point's\n    terms; the "
+	    "largest error against the exact sum (long double) %.2Lg %s",
+	    cnt, worst / unit, A->c.mode ? "u^2" : "u");
+	if (!isinf(A->tot.rel))
+		sb_printf(o, " (the bound: %.4Lg)", A->tot.rel / unit);
+	else
+		sb_printf(o, ", %.3Lg absolute (the bound: %.4Lg)", wabs,
+		    A->tot.abs_);
+	sb_printf(o, "; the f64 program's %.2Lg u64\n", worst64 / U64);
+	rep_int("check_points", cnt);
+	rep_num("check_max_rel", (double)worst);
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	free(k_i);
+	free(k_r);
+	free(X.v);
+	free(X.stamp);
+	memset(&X, 0, sizeof X);
+}
+
+static void
+acc_derivation(struct sbuf *o, const struct acand *A, const struct dwacc *a)
+{
+	long double unit = A->c.mode ? U * U : U;
+	const char *un = A->c.mode ? "u^2" : "u";
+
+	sb_printf(o, "    the passes: S(0) = s0, S(k+1) = S(k) %c T(k); the "
+	    "computed s(k) within E(k) of S(k), and a pass\n      within r "
+	    "of the exact s(k) %c T(k), so E(k+1) <= (1 + r) E(k) + r "
+	    "|S(k+1)|,\n      E(n) <= (1 + r)^n E(0) + ((1 + r)^n - 1) "
+	    "max |S(k)|\n", A->sub ? '-' : '+', A->sub ? '-' : '+');
+	if (!isinf(A->c.r.e.rel))
+		sb_printf(o, "      r = %.4Lg %s (the pass, above), n = %lld: "
+		    "(1 + r)^n - 1 <= %.4Lg %s\n", A->c.r.e.rel / unit, un,
+		    (long long)a->n, A->grow / unit, un);
+	else
+		sb_printf(o, "      the pass has no relative bound: E(n) <= E(0) "
+		    "+ n A, A = %.4Lg its absolute bound\n", A->c.r.e.abs_);
+	if (a->e0 > 0)
+		sb_printf(o, "      E(0) <= %.4Lg: s0 as the pair it starts "
+		    "from\n", a->e0);
+	else
+		sb_puts(o, "      E(0) = 0: s0 is its pair exactly\n");
+	if (A->same)
+		sb_printf(o, "      s0 and every term of one sign: |S(k)| <= "
+		    "|S(n)|, so the bound is relative: E(n) <= %.4Lg %s |S(n)|\n",
+		    A->tot.rel / unit, un);
+	else
+		sb_printf(o, "      terms of either sign: max |S(k)| <= %.4g, "
+		    "E(n) <= %.4Lg (absolute)\n", (double)iv_mag(&A->hull),
+		    A->tot.abs_);
+	sb_printf(o, "      each pass derived on the partial sums' range [%.6g, "
+	    "%.6g] widened by w = %.3Lg; E(n) <= w%s,\n      so every "
+	    "computed sum stays inside it (E(k) grows with k)\n",
+	    A->hull.lo, A->hull.hi, A->wid, A->inside ? "" : ": NOT met");
+}
+
+int
+dword_accum(const struct func *f, const struct dwacc *a,
+    const struct model *m, const struct dwreq *rq, struct dwres *out,
+    struct sbuf *o)
+{
+	struct acand c[2];
+	uint32_t lim = N.n;
+	nid root = f->body, sv;
+	double pass64, once64 = 0, end64, all64;
+	int best = -1, i, n64;
+	char eb[120];
+
+	memset(out, 0, sizeof *out);
+	if (N.ty[root] != TY_F64 || (N.op[root] != O_ADD && N.op[root] !=
+	    O_SUB) || N.op[N.a[root]] != O_VAR || (int)N.ki[N.a[root]] !=
+	    a->ps) {
+		snprintf(out->why, sizeof out->why, "not a sum's pass (s + T or "
+		    "s - T)");
+		return 0;
+	}
+	sv = N.a[root];
+	pass64 = dag_cost(m, root, &n64);
+	if (a->nonce > 0) {
+		once64 = (double)fuse_roots_cost(m, a->once, a->nonce);
+		pass64 -= once64;
+	}
+	end64 = a->nconv * dag_cost(m, mk_cast(TY_F32, sv), NULL);
+	all64 = (double)a->n * pass64 + once64 + end64;
+	for (i = 0; i < 2; i++)
+		run_acc(f, a, m, rq, i, lim, &c[i]);
+	for (i = 0; i < 2; i++)
+		if (c[i].c.meets && (rq->anyprice || c[i].all < all64) &&
+		    (best < 0 || c[i].all < c[best].all))
+			best = i;
+	if (o) {
+		sb_printf(o, "dword: a loop's f64 sum under %s, s = s0, then %lld "
+		    "passes of s = s %c %s (u = 2^-24, u64 = 2^-53)\n",
+		    sym_str(m->name), (long long)a->n, N.op[root] == O_SUB ? '-' :
+		    '+', node_str(N.b[root]));
+		sb_printf(o, "  as written  cost %g a pass, %g in all", pass64,
+		    all64);
+		if (once64 > 0 && end64 > 0)
+			sb_printf(o, " (%g computed before the loop, %g the f32 after "
+			    "it)", once64, end64);
+		else if (once64 > 0)
+			sb_printf(o, " (%g computed before the loop)", once64);
+		else if (end64 > 0)
+			sb_printf(o, " (%g the f32 after it)", end64);
+		sb_putc(o, '\n');
+		if (a->nstore)
+			sb_printf(o, "  the sum is stored as f64 (%d store%s): the "
+			    "pair recombined, f64(hi) + f64(lo), its rounding (u64 at "
+			    "most) in the bound\n", a->nstore, a->nstore == 1 ? "" :
+			    "s");
+		for (i = 0; i < 2; i++) {
+			sb_printf(o, "  %-11s cost %g a pass, %g in all", i ? "f32 "
+			    "pairs" : "f32 alone", c[i].pass, c[i].all);
+			if (c[i].c.cost == LINF) {
+				sb_printf(o, ": %s\n", c[i].c.unsup);
+				continue;
+			}
+			sb_printf(o, "; a pass within %s,\n              after the "
+			    "%lld passes %s", err_text(&c[i].c.r.e, i ? U * U : U,
+			    i ? "u^2" : "u", eb, sizeof eb), (long long)a->n, "");
+			sb_printf(o, "%s", err_text(&c[i].tot, i ? U * U : U, i ?
+			    "u^2" : "u", eb, sizeof eb));
+			if (!c[i].inside)
+				sb_puts(o, " (leaves the range it was derived on)");
+			else if (!isinf(c[i].c.extra))
+				sb_printf(o, ": as f32 within 0.5 + %.3Lg ulp",
+				    c[i].c.extra);
+			sb_putc(o, '\n');
+		}
+		sb_puts(o, "  required: ");
+		switch (rq->kind) {
+		case DW_TOL:
+			sb_printf(o, "relative error <= %g (tol)\n", rq->v);
+			break;
+		case DW_ATOL:
+			sb_printf(o, "absolute error <= %g (atol)\n", rq->v);
+			break;
+		case DW_ULP:
+			sb_printf(o, "the f32 result within 0.5 + %g ulp of the "
+			    "exact value (ulp)\n", rq->v);
+			break;
+		default:
+			if (a->nconv)
+				sb_puts(o, "the sum feeds an f32: within 0.5 + 2^-10 ulp "
+				    "of the exact value (ten guard bits; `ulp X`, `tol R` "
+				    "or `atol T` to change)\n");
+			if (a->nstore)
+				sb_printf(o, "%sthe sum is stored as f64 and no "
+				    "tolerance was given: the exact value (`tol R` or "
+				    "`atol T` says how much error is allowed)\n",
+				    a->nconv ? "  and " : "");
+		}
+	}
+	out->cost64 = all64;
+	if (best < 0) {
+		int cheaper = c[0].all < all64 || c[1].all < all64;
+		int met = c[0].c.meets || c[1].c.meets;
+		if (!cheaper)
+			snprintf(out->why, sizeof out->why, "not rewritten: under "
+			    "%s the f64 loop costs %g, f32 alone %g, the pairs %g",
+			    sym_str(m->name), all64, c[0].all, c[1].all);
+		else if (!met)
+			snprintf(out->why, sizeof out->why, "not rewritten: no "
+			    "f32 form's derived bound meets the requirement after "
+			    "the %lld passes", (long long)a->n);
+		else
+			snprintf(out->why, sizeof out->why, "not rewritten: the "
+			    "form that meets the requirement costs %g, the f64 loop "
+			    "%g under %s", c[c[1].c.meets ? 1 : 0].all, all64,
+			    sym_str(m->name));
+		if (o) {
+			sb_printf(o, "  -> %s\n", out->why);
+			if (c[1].c.unsup[0] && c[1].c.cost != LINF)
+				sb_printf(o, "     %s\n", c[1].c.unsup);
+			/* where the requirement is relative and the sum can be 0 */
+			if (!met && cheaper && c[1].inside && isinf(c[1].tot.rel) &&
+			    !isinf(c[1].tot.abs_) && rq->kind != DW_ATOL &&
+			    c[1].fin.lo <= 0 && c[1].fin.hi >= 0)
+				sb_printf(o, "     the sum's range [%.6g, %.6g] holds 0: no "
+				    "relative bound; the pairs would be taken for "
+				    "atol >= %.3Lg\n", c[1].fin.lo, c[1].fin.hi,
+				    c[1].tot.abs_);
+		}
+		out->cost = c[1].all;
+		out->rel = c[1].tot.rel;
+		out->abs_ = c[1].tot.abs_;
+		for (i = 0; i < 2; i++)
+			cand_free(&c[i].c);
+		return 0;
+	}
+	out->fired = 1;
+	out->mode = best;
+	out->hi = c[best].c.r.hi;
+	out->lo = c[best].c.r.lo;
+	out->body = c[best].c.r.hi;
+	out->cost = c[best].all;
+	out->rel = c[best].tot.rel;
+	out->abs_ = c[best].tot.abs_;
+	if (o) {
+		const struct acand *b = &c[best];
+		sb_printf(o, "  -> %s: cost %g against %g (%+.1f%%), the sum "
+		    "carried in %s across the passes\n", best ? "f32 pairs" :
+		    "f32 alone", b->all, all64, 100 * (b->all - all64) / all64,
+		    best ? "two f32 (hi, lo)" : "one f32");
+		sb_printf(o, "  a pass (%s%s: the sum the pass is handed):\n",
+		    f->p[a->ph].name ? sym_str(f->p[a->ph].name) : "hi", best ?
+		    ", and its low word" : "");
+		listing(o, &b->c);
+		sb_puts(o, "  each value: its range, the derived error bound, "
+		    "the algorithm:\n");
+		sb_puts(o, b->c.table);
+		if (best)
+			derivations(o, b->c.used);
+		else
+			sb_puts(o, "  derivation (u = 2^-24; RN rounds to "
+			    "nearest):\n");
+		acc_derivation(o, b, a);
+		conditions(o, &b->c);
+		acc_check(o, f, b, a, lim);
+	}
+	out->eft = c[best].c.eft;
+	out->neft = c[best].c.neft;
+	c[best].c.eft = NULL;
+	for (i = 0; i < 2; i++)
+		cand_free(&c[i].c);
 	return 1;
 }

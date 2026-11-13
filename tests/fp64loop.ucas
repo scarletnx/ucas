@@ -1,0 +1,64 @@
+# a loop's f64 sum: the phi of its header, s0 before the loop and s + T on
+# the back edge, carried as two f32 phis when the trip count is a constant
+# and the bound after the passes meets what the sum's readers need
+#
+# 64 passes of s + x*x: each pass is T's exact pair added to the sum's
+# (one sign: a relative bound, 64 times the pass's)
+simplify nofile under gt1030, x in [1, 2]
+```glsl
+float acc(float x) { double s = 0.0lf; for (int i = 0; i < 64; i++) s += double(x) * double(x); return float(s); }
+```
+# where f64 is as cheap as f32 nothing is rewritten
+simplify nofile under zen4, x in [1, 2]
+```glsl
+float acc(float x) { double s = 0.0lf; for (int i = 0; i < 64; i++) s += double(x) * double(x); return float(s); }
+```
+# a tolerance one f32 meets: one f32 phi
+simplify nofile under gt1030, tol 1e-3, x in [1, 2]
+```glsl
+float acc(float x) { double s = 0.0lf; for (int i = 0; i < 64; i++) s += double(x) * double(x); return float(s); }
+```
+# the loop's counter in the term: its range is the loop's
+simplify nofile under gt1030, x in [1, 2]
+```glsl
+float ai(float x) { double s = 0.0lf; for (int i = 0; i < 16; i++) s += double(x) * double(float(i)); return float(s); }
+```
+# terms of either sign: no relative bound, so no f32 the sum can be
+# rounded to within ten guard bits; an absolute tolerance is met
+simplify nofile under gt1030, x in [1, 2], y in [-1, 1]
+```glsl
+float mix2(float x, float y) { double s = 1.0lf; for (int i = 0; i < 100; i++) { s += double(x) * double(y); } return float(s); }
+```
+simplify nofile under gt1030, atol 1e-9, x in [1, 2], y in [-1, 1]
+```glsl
+float mix2(float x, float y) { double s = 1.0lf; for (int i = 0; i < 100; i++) { s += double(x) * double(y); } return float(s); }
+```
+# a subtraction from an f32: terms against s0's sign, the sum away from 0
+simplify nofile under gt1030, x in [1, 2], y in [300, 400]
+```glsl
+float down(float x, float y) { double s = double(y); for (int i = 0; i < 32; i++) s -= double(x); return float(s); }
+```
+# the sum stored as f64: the exact value only, or with a tolerance the
+# pair recombined (the f64 add and the capability stay)
+simplify nofile under gt1030, x in [1, 2]
+```glsl
+double st(float x) { double s = 0.0lf; for (int i = 0; i < 8; i++) s += double(x) * double(x); return s; }
+```
+simplify nofile under gt1030, tol 1e-12, x in [1, 2]
+```glsl
+double st(float x) { double s = 0.0lf; for (int i = 0; i < 8; i++) s += double(x) * double(x); return s; }
+```
+# not taken, each with its reason: the trip count is not a constant, the
+# sum is read inside the loop, s0 is an f64 computed before the loop
+simplify nofile under gt1030, x in [1, 2], n in [1, 100]
+```glsl
+float nc(float x, int n) { double s = 0.0lf; for (int i = 0; i < n; i++) s += double(x); return float(s); }
+```
+simplify nofile under gt1030, x in [1, 2]
+```glsl
+float rd(float x) { double s = 0.0lf; float m = 0.0; for (int i = 0; i < 8; i++) { s += double(x); m = max(m, float(s)); } return m + float(s); }
+```
+simplify nofile under gt1030, x in [1, 2], y in [3, 4]
+```glsl
+float s0d(float x, float y) { double s = double(y) * 100.0lf; for (int i = 0; i < 32; i++) s -= double(x); return float(s); }
+```
