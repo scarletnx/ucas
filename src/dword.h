@@ -65,6 +65,20 @@ struct dwacc {
 int dword_accum(const struct func *f, const struct dwacc *a,
     const struct model *m, const struct dwreq *rq, struct dwres *out,
     struct sbuf *report);
+/* dwcase.c: the bound of DWPlusFP (kind 0) or AccurateDWPlusDW (1)
+ * whatever cancels, relative to the exact sum, by a case analysis run
+ * here (infinity when a case is not closed); ncase and why say how it
+ * went.  _p: at a precision of p bits instead of binary32's 24 */
+long double dwcase_add(int kind, long *ncase, char *why, size_t n);
+long double dwcase_add_p(int kind, int p, long *ncase, char *why, size_t n);
+/* every operand pair of a p-bit format (p 3..5) in a window, run: the
+ * largest relative errors in u^2, how many, and the binades of y */
+struct dwcase_ev {
+	double fp, acc;
+	long nfp, nacc, bad;	/* bad: a Fast2Sum inexact, an error at 0 */
+	int ry;
+};
+int dwcase_every(int p, struct dwcase_ev *r);
 /* find.c: what a cheaper f32 form of f's f64 arithmetic costs, when there
  * is one (1), in a line */
 int dword_find(struct func *f);

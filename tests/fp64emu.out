@@ -35,7 +35,7 @@ dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
       f64(y)*f64(y)                            [9, 16]                  0 u^2          2Prod (exact)
       f64(x)*f64(x) - f64(y)*f64(y)            [-15, -5]                6.2 u^2        SloppyDWPlusDW
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -111,7 +111,7 @@ dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
 dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 73.75   error against the exact value <= 1.221e-15 absolute (no relative bound: a sum may cancel)
   f32 alone   cost 2       error <= 6.557e-07 absolute (no relative bound: a sum may cancel)
-  f32 pairs   cost 22      error <= 1.776e-14 (5 u^2) relative: as f32 within 0.5 + 2.98e-07 ulp
+  f32 pairs   cost 22      error <= 1.066e-14 (3 u^2) relative: as f32 within 0.5 + 1.79e-07 ulp
   required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
   -> f32 pairs: cost 22 against 73.75 (-70.2%), 24 f32 operations for 6
   the form:
@@ -145,8 +145,8 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
       f64(y)*f64(y)                            [1, 4]                   0 u^2          2Prod (exact)
-      f64(x)*f64(x) - f64(y)*f64(y)            [-3, 3]                  5 u^2          AccurateDWPlusDW
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+      f64(x)*f64(x) - f64(y)*f64(y)            [-3, 3]                  3 u^2          AccurateDWPlusDW
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -155,11 +155,17 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     AccurateDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); (th, tl) = 2Sum(xl, yl); c = RN(sl + th);
       (vh, vl) = Fast2Sum(sh, c); w = RN(tl + vl); (zh, zl) = Fast2Sum(vh, w):
       zh + zl = x~ + y~ + d1 (sl + th) + d2 (tl + vl): 3.000 u^2 |x~ + y~| at kappa = 1,
-      (2 + kappa) u^2 in general; whatever cancels, with |xh| >= |yh|: of opposite signs with
-      |yh| >= |xh|/2, xh + yh is a float (Sterbenz), a multiple of ulp(xh)/2 as is th's ulp, so
-      sl = 0 and xh + yh + th is a float, the result exact, or 2^p ulp(th) or more, the error
-      then below 1.5 u^2; otherwise |xh| + |yh| <= 3 |xh + yh| and the error is below 5.000 u^2
-      (the paper: 3 u^2 / (1 - 4u)); both Fast2Sums are exact in each case
+      (2 + kappa) u^2 in general;
+      whatever cancels, by 4115 cases run here (src/dwcase.c): xh in [1, 2), yh in each binade
+      2^d of either sign, d from 0 to -40 and one case below (|xh| >= |yh|: the algorithm is
+      symmetric); xh + yh cut by binade in 8 slices, xl + yl by binade and sign where the case
+      needs it.  Every value of the algorithm an interval, with the 2^g it is a multiple of and
+      whether it is a float: a rounding is exact when its operand's values are floats or
+      multiples of 2^g below 2^(g + 24), else within half an ulp of the largest binade they
+      reach; each Fast2Sum checked exact (a's exponent at least b's, a = 0, or b the error of
+      a's rounding); a case where the sum may be 0 has its errors 0.  The largest,
+      3.000000 u^2 |x~ + y~|, in the case yh in -2^-2, s in [0.5, 0.5625], t in [-5.96e-08,
+      -2.98e-08] (the paper: 3 u^2)
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
       a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
   conditions:
@@ -169,13 +175,13 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above, and in an addition
       whose cancellation the ranges do not bound, from the cases of its derivation
   check (sampled, not a proof): 4094 points of the domain, the largest error against the exact value
-    (long double) 1.9 u^2 (the bound: 5); the f64 program's 0 u64
+    (long double) 1.9 u^2 (the bound: 3); the f64 program's 0 u64
   defined can_dw: the form as a function (cost can_dw, error can_dw ~ can)
 > dword can atol 1e-12
 dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 73.75   error against the exact value <= 1.221e-15 absolute (no relative bound: a sum may cancel)
   f32 alone   cost 2       error <= 6.557e-07 absolute (no relative bound: a sum may cancel)
-  f32 pairs   cost 22      error <= 1.776e-14 (5 u^2) relative: as f32 within 0.5 + 2.98e-07 ulp
+  f32 pairs   cost 22      error <= 1.066e-14 (3 u^2) relative: as f32 within 0.5 + 1.79e-07 ulp
   required: absolute error <= 1e-12 (atol)
   -> f32 pairs: cost 22 against 73.75 (-70.2%), 24 f32 operations for 6
   the form:
@@ -209,8 +215,8 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(x)                            [1, 4]                   0 u^2          2Prod (exact)
       f64(y)*f64(y)                            [1, 4]                   0 u^2          2Prod (exact)
-      f64(x)*f64(x) - f64(y)*f64(y)            [-3, 3]                  5 u^2          AccurateDWPlusDW
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+      f64(x)*f64(x) - f64(y)*f64(y)            [-3, 3]                  3 u^2          AccurateDWPlusDW
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -219,11 +225,17 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     AccurateDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); (th, tl) = 2Sum(xl, yl); c = RN(sl + th);
       (vh, vl) = Fast2Sum(sh, c); w = RN(tl + vl); (zh, zl) = Fast2Sum(vh, w):
       zh + zl = x~ + y~ + d1 (sl + th) + d2 (tl + vl): 3.000 u^2 |x~ + y~| at kappa = 1,
-      (2 + kappa) u^2 in general; whatever cancels, with |xh| >= |yh|: of opposite signs with
-      |yh| >= |xh|/2, xh + yh is a float (Sterbenz), a multiple of ulp(xh)/2 as is th's ulp, so
-      sl = 0 and xh + yh + th is a float, the result exact, or 2^p ulp(th) or more, the error
-      then below 1.5 u^2; otherwise |xh| + |yh| <= 3 |xh + yh| and the error is below 5.000 u^2
-      (the paper: 3 u^2 / (1 - 4u)); both Fast2Sums are exact in each case
+      (2 + kappa) u^2 in general;
+      whatever cancels, by 4115 cases run here (src/dwcase.c): xh in [1, 2), yh in each binade
+      2^d of either sign, d from 0 to -40 and one case below (|xh| >= |yh|: the algorithm is
+      symmetric); xh + yh cut by binade in 8 slices, xl + yl by binade and sign where the case
+      needs it.  Every value of the algorithm an interval, with the 2^g it is a multiple of and
+      whether it is a float: a rounding is exact when its operand's values are floats or
+      multiples of 2^g below 2^(g + 24), else within half an ulp of the largest binade they
+      reach; each Fast2Sum checked exact (a's exponent at least b's, a = 0, or b the error of
+      a's rounding); a case where the sum may be 0 has its errors 0.  The largest,
+      3.000000 u^2 |x~ + y~|, in the case yh in -2^-2, s in [0.5, 0.5625], t in [-5.96e-08,
+      -2.98e-08] (the paper: 3 u^2)
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
       a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
   conditions:
@@ -233,14 +245,14 @@ dword can under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above, and in an addition
       whose cancellation the ranges do not bound, from the cases of its derivation
   check (sampled, not a proof): 4094 points of the domain, the largest error against the exact value
-    (long double) 1.9 u^2 (the bound: 5); the f64 program's 0 u64
+    (long double) 1.9 u^2 (the bound: 3); the f64 program's 0 u64
   defined can_dw: the form as a function (cost can_dw, error can_dw ~ can)
 > cxf(a: f32 in 1..2, b: f32 in 1..2, c: f32 in 1..4) = f32(f64(a) * f64(b) - f64(c))
 > dword cxf
 dword cxf under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 44.375  error against the exact value <= 7.772e-16 absolute (no relative bound: a sum may cancel)
   f32 alone   cost 1       error <= 4.172e-07 absolute (no relative bound: a sum may cancel)
-  f32 pairs   cost 10      error <= 1.066e-14 (3 u^2) relative: as f32 within 0.5 + 1.79e-07 ulp
+  f32 pairs   cost 10      error <= 7.105e-15 (2 u^2) relative: as f32 within 0.5 + 1.19e-07 ulp
   required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
   -> f32 pairs: cost 10 against 44.375 (-77.5%), 11 f32 operations for 6
   the form:
@@ -260,8 +272,8 @@ dword cxf under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
   each value: its range, the derived error bound, the algorithm:
       f64(a)*f64(b)                            [1, 4]                   0 u^2          2Prod (exact)
-      f64(a)*f64(b) - f64(c)                   [-3, 3]                  3 u^2          DWPlusFP
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+      f64(a)*f64(b) - f64(c)                   [-3, 3]                  2 u^2          DWPlusFP
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -270,10 +282,15 @@ dword cxf under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     DWPlusFP(x~, y): (sh, sl) = 2Sum(xh, y); v = RN(xl + sl); (zh, zl) = Fast2Sum(sh, v):
       zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is at most u (u |xh| + u |sh|),
       2.000 u^2 |x~ + y| when no cancellation (kappa = 1), (1 + kappa) u^2 in general;
-      whatever cancels, by cases on xh and y: of opposite signs with |y| in [|xh|/2, 2|xh|],
-      xh + y is a float (Sterbenz), so sl = 0, v = xl and the sum is exact; otherwise
-      |xh + y| > |xh|/2 and the error is below 3 u^2 / (1 - 2u) = 3.000 u^2 |x~ + y| (the paper:
-      2 u^2); Fast2Sum's precondition holds in both
+      whatever cancels, by 2273 cases run here (src/dwcase.c): xh in [1, 2), y in each binade
+      2^d of either sign, d from 0 to -40 and one case below, and y in [1, 2) with xh in each;
+      xh + y cut by binade in 8 slices.  Every value of the algorithm an interval, with the 2^g
+      it is a multiple of and whether it is a float: a rounding is exact when its operand's
+      values are floats or multiples of 2^g below 2^(g + 24), else within half an ulp of the
+      largest binade they reach; each Fast2Sum checked exact (a's exponent at least b's, a = 0,
+      or b the error of a's rounding); a case where the sum may be 0 has its errors 0.  The
+      largest, 2.000000 u^2 |x~ + y|, in the case y in -2^-2, s in [0.5, 0.5625] (the paper:
+      2 u^2)
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
       a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
   conditions:
@@ -283,7 +300,7 @@ dword cxf under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above, and in an addition
       whose cancellation the ranges do not bound, from the cases of its derivation
   check (sampled, not a proof): 4094 points of the domain, the largest error against the exact value
-    (long double) 0 u^2 (the bound: 3); the f64 program's 0 u64
+    (long double) 0 u^2 (the bound: 2); the f64 program's 0 u64
   defined cxf_dw: the form as a function (cost cxf_dw, error cxf_dw ~ cxf)
 > hyp(a: f32 in 1..100, b: f32 in 1..100) = f32(f64(a) / sqrt(f64(a) * f64(a) + f64(b) * f64(b)))
 > dword hyp
@@ -341,7 +358,7 @@ dword hyp under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       f64(a)*f64(a) + f64(b)*f64(b)            [2, 2e+04]               3 u^2          SloppyDWPlusDW
       sqrt(f64(a)*f64(a) + f64(b)*f64(b))      [1.414, 141.4]           6.625 u^2      Newton sqrt
       f64(a)/sqrt(f64(a)*f64(a) + f64(b)*f6... [0.007071, 70.71]        19.62 u^2      DWDivDW2
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -423,7 +440,7 @@ dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       f64(x)*f64(y)                            [0.25, 4]                0 u^2          2Prod (exact)
       f64(x) + f64(y)                          [1, 4]                   0 u^2          2Sum (exact)
       f64(x)*f64(y)/(f64(x) + f64(y))          [0.0625, 4]              13 u^2         DWDivDW2
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
       s + t = a + b exactly (Knuth), |t| <= u |s|
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
@@ -517,7 +534,7 @@ dword sc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       t*f64(x) + 0.10000000000000001           [0.2, 20.1]              6 u^2          SloppyDWPlusDW
       t + f64(x)                               [1.1, 12]                3 u^2          DWPlusFP
       (t*f64(x) + 0.10000000000000001)/(t +... [0.01667, 18.27]         22 u^2         DWDivDW2
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     an f64 value v as a pair: hi = RN32(v), lo = RN32(v - hi); |v - hi| <= u |v| and its rounding
       loses at most u of that: |v - hi - lo| <= u^2 |v|
     2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
@@ -528,10 +545,15 @@ dword sc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     DWPlusFP(x~, y): (sh, sl) = 2Sum(xh, y); v = RN(xl + sl); (zh, zl) = Fast2Sum(sh, v):
       zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is at most u (u |xh| + u |sh|),
       2.000 u^2 |x~ + y| when no cancellation (kappa = 1), (1 + kappa) u^2 in general;
-      whatever cancels, by cases on xh and y: of opposite signs with |y| in [|xh|/2, 2|xh|],
-      xh + y is a float (Sterbenz), so sl = 0, v = xl and the sum is exact; otherwise
-      |xh + y| > |xh|/2 and the error is below 3 u^2 / (1 - 2u) = 3.000 u^2 |x~ + y| (the paper:
-      2 u^2); Fast2Sum's precondition holds in both
+      whatever cancels, by 2273 cases run here (src/dwcase.c): xh in [1, 2), y in each binade
+      2^d of either sign, d from 0 to -40 and one case below, and y in [1, 2) with xh in each;
+      xh + y cut by binade in 8 slices.  Every value of the algorithm an interval, with the 2^g
+      it is a multiple of and whether it is a float: a rounding is exact when its operand's
+      values are floats or multiples of 2^g below 2^(g + 24), else within half an ulp of the
+      largest binade they reach; each Fast2Sum checked exact (a's exponent at least b's, a = 0,
+      or b the error of a's rounding); a case where the sum may be 0 has its errors 0.  The
+      largest, 2.000000 u^2 |x~ + y|, in the case y in -2^-2, s in [0.5, 0.5625] (the paper:
+      2 u^2)
     SloppyDWPlusDW(x~, y~): (sh, sl) = 2Sum(xh, yh); v = RN(xl + yl); w = RN(sl + v);
       (zh, zl) = Fast2Sum(sh, w): zh + zl = x~ + y~ + d1 (xl + yl) + d2 (sl + v): at most
       u (u A) + u (u |sh| + (1 + u) u A), A = |xh| + |yh|: 3.000 u^2 |x~ + y~| at kappa = 1,
@@ -578,7 +600,7 @@ dword iu under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
   each value: its range, the derived error bound, the algorithm:
       f64(i)*f64(x)                            [0, 8.59e+09]            2 u^2          DWTimesFP3
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
     2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
@@ -626,7 +648,7 @@ dword nr under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(y)                            (no range)               0 u^2          2Prod (exact)
       f64(x)*f64(y)*f64(x)                     (no range)               2 u^2          DWTimesFP3
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
     2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|

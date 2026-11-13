@@ -175,6 +175,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
+| `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
@@ -2864,9 +2865,9 @@ arithmetic" (ACM TOMS 44(2), 2017):
 | operation | algorithm | f32 operations | derived here | the paper |
 |---|---|---:|---:|---:|
 | FP + FP, FP x FP | 2Sum, 2Prod | 6, 3 | exact | exact |
-| pair + FP | DWPlusFP | 10 | (1 + kappa) u^2, and 3 u^2 / (1 - 2u) whatever cancels | 2 u^2 |
+| pair + FP | DWPlusFP | 10 | (1 + kappa) u^2, and 2 u^2 / (1 - 2u) whatever cancels | 2 u^2 |
 | pair + pair | SloppyDWPlusDW | 11 | (1 + 2 kappa) u^2 | 3 u^2, same signs |
-| pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2, and 5 u^2 whatever cancels | 3 u^2 |
+| pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2, and 3.0000004 u^2 whatever cancels | 3 u^2 |
 | pair x FP | DWTimesFP3 | 7 | 2 u^2 | 2 u^2 |
 | pair x pair | DWTimesDW3 | 10 | 6 u^2 | 5 u^2 |
 | pair / FP | DWDivFP3 | 11 | 4 u^2 (1 u^2 for FP / FP) | 3 u^2 |
@@ -2881,17 +2882,42 @@ exact are taken as exact: in the divisions, xh less a product within a
 factor 1 +- 3u of it, and in DWDivFP3 the remainder xh - th y as well (a
 multiple of ulp(th) ulp(y) below ulp(th) |y| / 2, so a float).  An
 addition's bound depends on kappa = (|x| + |y|) / |x + y|, the largest
-over the parameters' ranges: 1 for operands of one sign.  DWPlusFP's and
-AccurateDWPlusDW's also hold whatever cancels, by cases on the high
-words: of opposite signs and within a factor of two, their sum is exact
-(Sterbenz), and DWPlusFP's result with it; AccurateDWPlusDW's sum is
-then a multiple of ulp(xh)/2, itself a multiple of the ulp of th, the
-low words' rounded sum, so adding th is exact or errs by under 1.5 u^2.
-Otherwise the high words' sum is above half the larger one, and the
-roundings err by less than 3 u^2 / (1 - 2u) and about 5 u^2.  Every
-Fast2Sum is exact in each case.  Where the paper's constant is lower
-(DWPlusFP's 2 u^2, AccurateDWPlusDW's 3 u^2, DWTimesDW3's 5 u^2,
-DWDivFP3's 3 u^2), its finer case analyses are not mechanised here.
+over the parameters' ranges: 1 for operands of one sign.
+
+DWPlusFP's and AccurateDWPlusDW's also hold whatever cancels, by a case
+analysis ucas runs (src/dwcase.c) instead of the paper's by hand.  The
+error relative to the exact sum does not change when both operands are
+scaled by a power of two or negated, so one high word is in [1, 2), the
+other in a binade 2^d of either sign, d from 0 to -40 and one case for
+the binades below (for DWPlusFP also the other way round: y in [1, 2)
+and xh in each binade).  A pair is normalized, so |xl| <= ulp(xh) / 2.
+Each case is cut by the binade of the high words' sum s, in 8 slices,
+and for AccurateDWPlusDW, where the case needs it, by the binade and the
+sign of the low words' sum.  In a case every value of the algorithm is
+an interval with two facts: the 2^g every value in it is a multiple of
+(a float in a binade is one of its ulp, a sum of multiples one of the
+smaller) and whether it is a float.  A rounding is exact when its
+operand's values are floats or multiples of 2^g below 2^(g + 24);
+otherwise it errs by at most half an ulp of the largest binade its
+interval reaches, and its result lies between its ends rounded.  Each
+Fast2Sum must be exact in each case: its first operand's exponent at
+least the second's (a nonzero multiple of 2^g has one of g or more), the
+first 0, or the second the error of the rounding that gave the first.
+The case's bound is the sum of its roundings' errors over the least |x
++ y| in it, and a case where x + y may be 0 needs those errors to be 0.
+DWPlusFP's 2273 cases give 2 u^2 / (1 - 2u), largest where y is in
+-[1/4, 1/2) and s in [1/2, 9/16); AccurateDWPlusDW's 4115 give 3.0000004
+u^2, largest where yh is in -[1/4, 1/2): the paper's constants, in 0.01
+s, once a run.  A case the analysis leaves open would fall back to the
+hand derivation (exact sums of opposite signs within a factor of two by
+Sterbenz, otherwise the high words' sum above half the larger one: 3
+u^2 / (1 - 2u) and about 5 u^2), and the derivation says which ran.
+`dword cases [P]` prints it, at P bits; at 3 to 5 bits it also runs
+every operand pair of that format with xh in [1, 2), y in the binades
+-(2P + 4)..2, the low words 0 and every normalized one in the 4 binades
+below their word's ulp, against the bounds (4 bits: 125320 and 6794368
+pairs, the largest errors 1.77 and 2.50 u^2 against 2.29 and 3.43 u^2).  DWTimesDW3's 5 u^2 and DWDivFP3's 3 u^2 are not mechanised:
+their bounds here stay 6 u^2 and 4 u^2.
 Where kappa is not bounded (the ranges let a sum cancel) and the
 operands carry errors, or the sum is the sloppy one, no relative bound
 exists, for the f64 program either; the absolute bound, which every

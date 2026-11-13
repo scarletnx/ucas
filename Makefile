@@ -21,7 +21,7 @@ SRCS+=	forms.c
 # properties: monotonic, period, identify, zeros, ...
 SRCS+=	props.c
 # fp64 as pairs of f32 (double-word arithmetic); the driver's folds
-SRCS+=	dword.c fpfold.c
+SRCS+=	dword.c fpfold.c dwcase.c
 spirv.o spirv.pieo: spv_dword.inc
 # the memory side of a cost model: bank conflicts, integer atomics
 SRCS+=	memk.c
