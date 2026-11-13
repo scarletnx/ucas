@@ -1,0 +1,80 @@
+# The catalogue's byte averages, sliding sums of byte differences,
+# three-operand minima and maxima, absolute difference plus a third and
+# saturating adds (src/inst.c): each operation is its expansion
+#
+# v_lerp_u8: each byte (a + b + bit 0 of c's byte) >> 1, so c = 0x01010101
+# rounds a half up and 0 truncates (bytes 02 01 ff 00 and 03 02 ff 01)
+show lerp4x8(0x00ff0102, 0x01ff0203, 0x01010101)
+show lerp4x8(0x00ff0102, 0x01ff0203, 0)
+# v_qsad_pk_u16_u8: sum k over the bytes k..k+3 of s against r's four,
+# plus acc's 16-bit lane k, each cut to 16 bits: 0, 4, 8, 12
+show qsad4x8(0x0807060504030201, 0x04030201, 0)
+# v_mqsad_pk_u16_u8 leaves out the bytes where r's is 0 (byte 2 here),
+# each lane 1 to start: 1, 4, 7, 10 (a mask on s's bytes would give
+# 1, 6, 10, 14)
+show mqsad4x8(0x0807060504030201, 0x04000201, 0x0001000100010001)
+# the windows of 00 00 00 00 ff ff ff ff against 0: 0, 255, 510 and
+# 765, the last plus 0xffff cut to 16 bits, 764
+show qsad4x8(0xffffffff00000000, 0, 0xffff000000000000)
+# VMNMX's 32-bit forms with a third operand, v_min3, v_max3, v_minmax,
+# v_maxmin, in the operands' common type; min_add and max_add wrap
+show min3(5, 2, 9)
+show max3(5, 2, 9)
+show min_max(5, 2, 9)
+show max_min(5, 2, 1)
+w(a: u32, b: u32, c: u32) = max_add(a, b, c)
+show w(4294967295, 2, 3)
+s(a: i32, b: i32, c: i32) = min3(a, b, c)
+show s(-5, 2, 9)
+# v_sad_u32, vabsdiff.add: |a - b| + c in u32
+show sad32(3, 10, 100)
+show sad32(10, 3, 4294967295)
+# vadd.sat, vsub.sat: clamped to u32, or to i32 for signed operands;
+# narrower ones widened
+show addsat(4000000000, 400000000)
+show addsat(-2000000000, -2000000000)
+show subsat(3, 5)
+show subsat(-2147483647, 5)
+x(a: u8, b: u8) = addsat(a, b)
+show x
+range x
+# each is its definition for every input: equiv and range read it
+mm1(a: u32, b: u32, c: u32) = min_max(a, b, c)
+mm2(a: u32, b: u32, c: u32) = max(min(a, b), c)
+equiv mm1 mm2
+sa1(a: i32, b: i32) = addsat(a, b)
+sa2(a: i32, b: i32) = i32(max(min(i64(a) + i64(b), 2147483647), -2147483648))
+equiv sa1 sa2
+# and a wrong one is told apart (a control: the truncating average)
+le1(a: u32, b: u32) = lerp4x8(a, b, 0x01010101)
+le2(a: u32, b: u32) = lerp4x8(a, b, 0)
+equiv le1 le2
+# what they do not take
+y(a: u64, b: u64) = addsat(a, b)
+z(a: f32, b: f32, c: f32) = min3(a, b, c)
+# no built-in model lists their classes: under gt1030 find leaves the
+# patterns
+m3(a: u32, b: u32, c: u32) = max(max(a, b), c)
+find m3 1
+# under a model with them: three-operand minima and maxima, a minimum
+# plus a third, an absolute difference plus a third as a select, the
+# rounded and the truncating byte averages as SWAR, a saturating add as
+# a compare and select, and one as max(a, b) - b
+model vid : gt1030 { lerp8: 1, qsad: 1, vmnmx: 1, sad32: 1, addsat: 1 }
+use vid
+find m3 1
+mx(a: i32, b: i32, c: i32) = min(max(a, b), c)
+find mx 1
+ma(a: u32, b: u32, c: u32) = min(a, b) + c
+find ma 1
+sd(a: u32, b: u32, c: u32) = (a > b ? a - b : b - a) + c
+find sd 1
+rh(a: u32, b: u32) = (a | b) - ((a xor b) >> 1 & 0x7f7f7f7f)
+find rh 1
+tr(a: u32, b: u32) = (a & b) + ((a xor b) >> 1 & 0x7f7f7f7f)
+find tr 1
+as(a: u32, b: u32) = a + b < a ? 0xffffffff : a + b
+find as 1
+ss(a: u32, b: u32) = max(a, b) - b
+find ss 1
+use gt1030

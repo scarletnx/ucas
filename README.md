@@ -3453,16 +3453,37 @@ printing and for the price.
 | `add4x8`, `sub4x8`, `absdiff4x8`, `min4x8`, `max4x8` `(a, b)` | the four bytes lane by lane, unsigned: the sum and the difference mod 256, \|a - b\|, the smaller, the larger | the video SIMD forms with no merge and no saturation (PTX vadd4, vsub4, vabsdiff4, vmin4, vmax4; on sm_50 and up the driver may emulate some) |
 | `msad4x8(a, b, c)` | c plus \|a.byte[i] - b.byte[i]\| over the bytes where a's byte is not 0 (u32, wrapping) | v_msad_u8; DXIL's MSAD |
 | `add2x16`, `sub2x16`, `mul2x16`, `min2x16`, `max2x16`, `smin2x16`, `smax2x16` `(a, b)` | the two 16-bit halves lane by lane: the sum, the difference and the low half of the product mod 2^16, the smaller and the larger unsigned or signed | v_pk_add_u16, v_pk_sub_u16, v_pk_mul_lo_u16, v_pk_min/max_u16/i16 (no clamp) |
+| `lerp4x8(a, b, c)` | byte i is (a.byte[i] + b.byte[i] + bit 0 of c.byte[i]) >> 1: the average, a half rounded up where that bit is set | v_lerp_u8 |
+| `qsad4x8(s, r, acc)`, `mqsad4x8(s, r, acc)` | s is eight bytes (u64), r four (u32), acc four 16-bit lanes (u64): lane k is the sum of \|s.byte[k + i] - r.byte[i]\| over i, plus acc's lane k, cut to 16 bits (u64); `mqsad4x8` leaves out the bytes where r's is 0 | v_qsad_pk_u16_u8, v_mqsad_pk_u16_u8 |
+| `min3`, `max3`, `min_max`, `max_min`, `min_add`, `max_add` `(a, b, c)` | the least and the greatest of three integers; max(min(a, b), c); min(max(a, b), c); min(a, b) + c and max(a, b) + c, wrapping; in the operands' common type | v_min3, v_max3, v_minmax, v_maxmin (the first four); VMNMX, PTX vmin and vmax with a .min, .max or .add secondary operation |
+| `sad32(a, b, c)` | \|a - b\| + c (u32, wrapping) | v_sad_u32; PTX vabsdiff.add |
+| `addsat(a, b)`, `subsat(a, b)` | a + b and a - b clamped to the range of u32, or of i32 when the operands are signed (narrower ones widened first) | PTX vadd.sat and vsub.sat; v_add_u32 and v_add_nc_i32 with clamp |
 
 **Cost classes.**  `bfe` (both fields), `brev`, `mulhi` (both),
 `funnel` (both), `med3`, `sad4x8`, `byteperm`, `bfi`, `mulwide` (both),
 `bytesel`, `simd4x8` (the five byte ops), `msad`, `pk16` (the seven
-16-bit ops).  A model that does not
-list one cannot use it, and no built-in model lists any: none is
-measured yet (the GT 1030 corpus has no test for them), so under
+16-bit ops), `lerp8`, `qsad` (both), `vmnmx` (min3, max3, min_max,
+max_min, min_add, max_add), `sad32`, `addsat` (both).  A model that
+does not list one cannot use it, and no built-in model lists any: none
+is measured yet (the GT 1030 corpus has no test for them), so under
 gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
 rewritten into them.  `model mine : gt1030 { bfe: 1, funnel: 1 }` is
 how a measured price gets in.
+
+Where the definitions come from: `msad4x8`'s and the windows of the
+qsad forms (window k from byte k, the reference's zero bytes left out)
+are Mesa's NIR folding of `msad_4x8` and `mqsad_4x8` with ACO's operand
+order for v_mqsad_u32_u8; the 16-bit lanes of the qsad forms and
+v_lerp_u8's rounding bit are AMD's ISA description (its machine-readable
+RDNA3 XML); the three-operand forms and the saturation are PTX's scalar
+video instructions (optSaturate, optSecOp).  300 random operands of
+each, through `show`, give what a C program written from those texts
+gives (and with the mask on the window's bytes instead, 72 of 300
+differ).  Not operations: v_mqsad_u32_u8, whose four 32-bit sums are
+four `msad4x8(r, funr(hi, lo, 8k), acc_k)`; the video instructions'
+byte and half-word selects, mixed signednesses and merges (a merge is a
+`bfi` of the result into c); find has no pattern for the qsad forms nor
+for a signed saturating add.
 
 **What find offers.**  The patterns the instructions are, each replaced
 where the active model has the instruction and the whole function gets
@@ -3497,7 +3518,18 @@ cheaper, then checked on the domain (src/inst.c, `pattern`):
   added one by one, the carry-free SWAR add `((a & 0x7f7f7f7f) + (b &
   0x7f7f7f7f)) xor ((a xor b) & 0x80808080)`, two halves' minimum and a
   masked sum of byte differences are each one instruction
-  (tests/lanewise.ucas);
+  (tests/lanewise.ucas); the four bytes' average, rounded up or down,
+  as `lerp4x8(a, b, 0x01010101)` or `lerp4x8(a, b, 0)` (the SWAR forms
+  `(a | b) - ((a xor b) >> 1 & 0x7f7f7f7f)` and `(a & b) + ((a xor b)
+  >> 1 & 0x7f7f7f7f)`), and a sum or difference of two words clamped to
+  u32 (`a + b < a ? 0xffffffff : a + b`, `max(a, b) - b`) as `addsat`
+  or `subsat`, the same way;
+- a min or max with a min or max of its type for an operand: `min3`,
+  `max3`, `min_max` (a max of a min), `max_min` (a min of a max); a sum
+  with a min or max of its type for a term: `min_add`, `max_add`; a
+  word's `max(a, b) - min(a, b)`, or `a > b ? a - b : b - a` (and its
+  other compares), alone or in a sum: `sad32(a, b, c)`, c the rest or 0
+  (tests/vidops.ucas);
 - `(base & ~m) | field`, or with xor or +, m the bits p..p+n-1 and the
   field `(ins << p) & m`, `(ins & (2^n - 1)) << p`, or `ins << p` where
   ins's range keeps it in n bits: `bfi(base, ins, p, n)`;
@@ -6202,8 +6234,9 @@ Data-oriented throughout (see `src/ucas.h`):
   sums are not operations yet.
 - The catalogue's instructions (bfe, brev, mulhi, funnel shifts, med3,
   usad4x8, byteperm, bfi, mulwide, bytesel, the lane-wise byte and
-  16-bit ops, msad4x8) are priced by no built-in model: none is
-  measured.
+  16-bit ops, msad4x8, lerp4x8, the qsad forms, the three-operand
+  minima and maxima, sad32, the saturating adds) are priced by no
+  built-in model: none is measured.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
   show a slightly larger maximum); the coefficient search after rounding
