@@ -2216,7 +2216,7 @@ out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
 integers simplify writes it into a module (see "the same pass takes"
 above).
 
-`simplify` writes five of them into a SPIR-V module.  An
+`simplify` writes six of them into a SPIR-V module.  An
 OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
 operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
 bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
@@ -2252,15 +2252,19 @@ and the log2 go (10 to 3 under gt1030; `int(log2(x))` of x >= 1 too,
 GPU's log2 is within 3 ulp, so the call may give one more just below a
 power of two (correctly rounded log2f does at 7404 of the positive
 normal floats): the field is the exact value, one Vulkan lets the call
-give, and not with `exact` (tests/log2exp.ucas).  They are written
+give, and not with `exact` (tests/log2exp.ucas).  ldexp(x, k) of an
+f32 x whose |x| is normal (2^-126 at least, finite) is
+`asfloat(asint(x) + (k << 23))` where k keeps x * 2^k normal, which
+SAT proves from k's definitions (13 to 3 under gt1030, where ldexp is
+lowered; tests/ldexpbits.ucas).  They are written
 last, after the float, memory and advice passes, which read the
 conversion (its integer's range, an integer atomic's addend, a vertex
 format) and not the bits; the report gives them their own section, as
 a conversion is not in the integer cost, and says what spirv-val makes
 of the module.  Not yet: an integer's floor(log2 x) by its
-conversion's exponent field (dearer than FindUMsb under gt1030), ldexp
-on the bits (x must be proved a nonzero normal, which a range from
-clamps seldom gives), the GLSL function level (find only), f16 and
+conversion's exponent field (dearer than FindUMsb under gt1030), the
+ldexp of an x that may be 0 (a shared-exponent decoder's mantissa), the
+GLSL function level (find only), f16 and
 f64, a round-to-nearest operation for the magic add to stand for (ucas
 has floor, ceil and the truncating conversion), 48-bit products by
 2Prod.

@@ -1,0 +1,28 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 120 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 8 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 60 -> 60 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23, and floor(log2 x) and ldexp by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %64 = OpExtInst %float %2 Ldexp %33 %56
+      ->  asfloat(asint(x) + (k << 23))   (cost 13 -> 3)
+      x = %33 is in [0.5, 2] (a range from its definitions and the assumptions): |x| is normal, its exponent field E in a range k = %56 keeps in 1..254, proved by SAT (-125 <= k <= 126), so x * 2^k is normal and its bits are x's with k added to E, exactly
+      (line 10: o.f[i] = ldexp(x, k);)
+    %73 = OpExtInst %float %2 Ldexp %44 %72
+      ->  asfloat(asint(x) + (k << 23))   (cost 13 -> 3)
+      x = %44 is in [-3, -1] (a range from its definitions and the assumptions): |x| is normal, its exponent field E in a range k = %72 keeps in 1..254, proved by SAT (-126 <= k <= 126), so x * 2^k is normal and its bits are x's with k added to E, exactly
+      (line 11: o.f[i + 64u] = ldexp(n, k + 100);)
+    %95 = OpConvertUToF %float %94
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %94 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 13: o.f[i + 192u] = ldexp(float(b.d[i + 192u] & 255u), k);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4582 bytes, checksum f2e12306)
