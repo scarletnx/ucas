@@ -1,0 +1,46 @@
+# A division or remainder whose divisor takes a few constants, as a
+# division by each (spirv.c div_cases, through simplify's identities): a
+# select's arms by its own condition, a phi's constants or a request's
+# assumption by compares of the divisor; an unsigned remainder by the
+# powers of two among them is one mask.
+
+# BC4's (x * 257 + d / 2) / d with d 1, 257 or 258 on three paths
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i] & 255u, k = b.d[i + 1u] & 3u, d;
+  if (k == 0u) d = 1u; else if (k == 1u) d = 257u; else d = 258u;
+  b.d[i] = (x * 257u + d / 2u) / d;
+}
+```
+# a select of two constants: the select's condition picks the case
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i];
+  b.d[i] = x / ((x & 1u) != 0u ? 3u : 5u);
+}
+```
+# a fill's byte place, i % wd, wd a push constant the host sets to 2, 3
+# or 4: the remainder by 3, and a mask for 2 and 4
+use gt1030
+simplify nofile, wd in [2, 4]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint wd, size; };
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= size) return;
+  b.d[i] = b.d[i] >> ((i % wd) * 8u);
+}
+```
