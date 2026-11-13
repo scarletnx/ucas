@@ -85,3 +85,30 @@ conversions between integers and f32 by the bits, under gt1030 (written last: th
       (line 9: float w = float(b.d[i + 128u] & 1023u) * 0.25 + 0.125;)
   spirv-val accepts the written module
   (nofile: simplified.spvasm, 4911 bytes, checksum 8fc76d58)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 116 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 8 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %59 (converted to an integer), %78 (converted to an integer)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 33 -> 33 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23, and floor(log2 x) and ldexp by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %60 = OpConvertFToS %int %59
+      ->  FindUMsb(i)   (cost 13 -> 3, the log2, the floor and i's conversion included)
+      x = %57 is an integer i = %31 converted, i in [1, 2^24) (proved by SAT from its definitions and the assumptions): the conversion is exact, so floor(log2(x)) is i's most significant bit, FindUMsb(i), exactly; a GPU's log2 is within 3 ulp, and this is the exact value, one Vulkan lets the call give (not with `exact`)
+      (line 10: q.i[i] = int(floor(log2(float(n))));)
+    %71 = OpExtInst %float %2 Floor %70
+      ->  f32(FindUMsb(i))   (cost 10 -> 6, the log2 and i's conversion included)
+      x = %69 is an integer i = %40 converted, i in [1, 2^24) (proved by SAT from its definitions and the assumptions): the conversion is exact, so floor(log2(x)) is i's most significant bit, FindUMsb(i), exactly; a GPU's log2 is within 3 ulp, and this is the exact value, one Vulkan lets the call give (not with `exact`)
+      (line 11: o.f[i] = floor(log2(float(m)));)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3887 bytes, checksum f466e812)

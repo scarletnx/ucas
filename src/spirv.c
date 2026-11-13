@@ -12697,11 +12697,13 @@ static struct cvx {
 	char from[160], src[160];
 	char lx[40], it[40];	/* forms 7, 8: log2's operand; 7: an int type;
 				 * 9: k and its type */
-	char drop[2][40];	/* forms 7, 8: the calls they leave unused */
+	char drop[3][40];	/* forms 7, 8, 10, 11: the calls they leave
+				 * unused (10, 11: and the conversion) */
 	int zero;		/* form 9: x may be 0 (an integer converted,
 				 * else 1 or more in magnitude): a select keeps
 				 * it; kt2 the bool type */
 	char kt2[40];
+	char fx[40];		/* forms 10, 11: the f32 x log2 reads */
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
 				 * 2: f32(1 << k) by the exponent field;
 				 * 3: iN(x) of a whole x by the add of
@@ -12711,7 +12713,11 @@ static struct cvx {
 				 * kt: the bool type); 7, 8: floor(log2
 				 * x) by x's exponent field, as a float
 				 * (k: the call) or converted; 9: ldexp(x,
-				 * k) as an add of k to x's exponent field */
+				 * k) as an add of k to x's exponent field;
+				 * 10, 11: floor(log2(x)) of an integer i
+				 * converted as FindUMsb(i) (lx: i), converted
+				 * or as a float (it: an int type, kt2: the
+				 * GLSL import) */
 	int line;
 	double before, after;
 	double flo, fhi;	/* form 3: x's range */
@@ -12719,7 +12725,7 @@ static struct cvx {
 static int ncvx;
 
 /* a form that rewrites a call (its line has 7 words), not a conversion */
-#define CALLFORM(f) ((f) >= 4 && (f) <= 7)	/* (9: a call of 8 words) */
+#define CALLFORM(f) (((f) >= 4 && (f) <= 7) || (f) == 11)	/* (9: 8 words) */
 
 /* the instruction that uses id, when one alone does; else -1 */
 static int
@@ -12767,6 +12773,58 @@ log2_of(int id, int user, int *ge1)
 		return -1;
 	*ge1 = fr.lo >= 1;
 	return x;
+}
+
+/*
+ * id is log2(x) of an f32 x that is a 32-bit integer i converted, used by
+ * instruction user alone, with 1 <= i < 2^24 proved by SAT: the
+ * conversion is exact, so floor(log2(x)) is i's most significant bit,
+ * FindUMsb(i).  i, else -1; *xf x, *alone: the conversion has no other
+ * reader than the log2.  Not with `exact` (a GPU's log2 is within 3 ulp)
+ */
+static int
+log2_int(int id, int user, int *xf, int *alone)
+{
+	int d = id >= 0 ? SP.def[id] : -1, x, cd, i, t, sg;
+	const struct sins *I;
+	struct word *wi, one, top, s;
+	lit goal;
+
+	if (d < 0 || fopt.mode == 1 || V.glsl < 0)
+		return -1;
+	I = &V.in[d];
+	t = idx(I->opnd[0]);
+	if (strcmp(I->op, "OpExtInst") || I->nop != 4 || idx(I->opnd[1]) !=
+	    V.glsl || strcmp(I->opnd[2], "Log2") || I->opnd[3][0] != '%' ||
+	    t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_FLOAT ||
+	    T(t)->w != 32 || only_user(id) != user)
+		return -1;
+	x = res_of(idx(I->opnd[3]));
+	cd = SP.def[x];
+	if (cd < 0 || (strcmp(V.in[cd].op, "OpConvertUToF") &&
+	    strcmp(V.in[cd].op, "OpConvertSToF")) || V.in[cd].nop != 2 ||
+	    V.in[cd].opnd[1][0] != '%')
+		return -1;
+	i = res_of(idx(V.in[cd].opnd[1]));
+	t = V.id[i].type;
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_INT || T(t)->w != 32 ||
+	    (double)clock() / CLOCKS_PER_SEC > SP.deadline)
+		return -1;
+	/* i - 1 < 2^24 - 1 unsigned: 1 <= i < 2^24 */
+	sg = T(t)->sign;
+	(void)sg;
+	blast_reset();
+	wi = blast(i, 16);
+	w_const(&one, 32, (uint64_t)0xFFFFFFFFu);
+	w_add(SP.g, &s, wi, &one);
+	w_const(&top, 32, 0xFFFFFFu);
+	goal = aig_and(SP.g, aig_and(SP.g, SP.dl[i], assumptions()),
+	    L_NOT(w_ult(SP.g, &s, &top)));
+	if (aig_sat(SP.g, goal, 20000) != 0)
+		return -1;
+	*xf = x;
+	*alone = only_user(x) == d;
+	return i;
 }
 
 static void
@@ -12896,6 +12954,35 @@ i2f_pass(void)
 			    T(rt)->k != S_FLOAT || T(rt)->w != 32)
 				continue;
 			x = res_of(idx(I->opnd[3]));
+			if (!strcmp(f, "Floor") && it >= 0) {
+				/* floor(log2(f32(i))) of an integer i in [1, 2^24): its
+				 * FindUMsb, converted (form 11), unless a conversion alone
+				 * reads it (form 10, at the conversion) */
+				int u = only_user(I->res), fx, alone = 0, iv;
+				iv = log2_int(x, k, &fx, &alone);
+				before = m->c[C_FTRANS] + m->c[C_CONV] + (alone ?
+				    m->c[C_CONV] : 0);
+				after = m->c[C_BITCNT] + m->c[C_CONV];
+				if (iv >= 0 && !(u >= 0 && (!strcmp(V.in[u].op,
+				    "OpConvertFToS") || !strcmp(V.in[u].op,
+				    "OpConvertFToU"))) && after < before - 1e-9) {
+					xt = rt;
+					e = &cvx[ncvx++];
+					memset(e, 0, sizeof *e);
+					snprintf(e->k, sizeof e->k, "%s", f);
+					snprintf(e->lx, sizeof e->lx, "%s", V.id[iv].tok);
+					snprintf(e->it, sizeof e->it, "%s", V.id[it].tok);
+					snprintf(e->kt2, sizeof e->kt2, "%s", V.id[V.glsl].tok);
+					snprintf(e->fx, sizeof e->fx, "%s", V.id[fx].tok);
+					snprintf(e->drop[0], sizeof e->drop[0], "%s",
+					    V.id[x].tok);
+					if (alone)
+						snprintf(e->drop[2], sizeof e->drop[2], "%s",
+						    V.id[fx].tok);
+					form = 11;
+					goto keep;
+				}
+			}
 			if (!strcmp(f, "Floor") && log2_of(x, k, &ge1) >= 0 && it >= 0) {
 				/* floor(log2(x)): the exponent field, as a float
 				 * (form 7), unless a conversion alone reads it
@@ -12954,22 +13041,51 @@ i2f_pass(void)
 			 * and the log2 unused after it */
 			int y = res_of(idx(I->opnd[1])), yd = SP.def[y], ge1 = 0, lx = -1,
 			    fl = -1, ct = idx(I->opnd[0]);
+			int iv = -1, fx = -1, alone = 0;
 			if (yd >= 0 && !strcmp(V.in[yd].op, "OpExtInst") &&
 			    V.in[yd].nop == 4 && !strcmp(V.in[yd].opnd[2], "Floor") &&
 			    V.in[yd].opnd[3][0] == '%' && only_user(y) == k) {
 				fl = y;
-				lx = log2_of(res_of(idx(V.in[yd].opnd[3])), yd, &ge1);
+				iv = log2_int(res_of(idx(V.in[yd].opnd[3])), yd, &fx,
+				    &alone);
+				lx = iv >= 0 ? fx : log2_of(res_of(idx(V.in[yd].opnd[3])),
+				    yd, &ge1);
 			} else {
-				lx = log2_of(y, k, &ge1);
-				if (!ge1)
+				iv = log2_int(y, k, &fx, &alone);
+				lx = iv >= 0 ? fx : log2_of(y, k, &ge1);
+				if (iv < 0 && !ge1)
 					lx = -1;
 			}
 			if (lx >= 0 && ct >= 0 && T(ct)->k == S_INT && T(ct)->w == 32) {
+				int lg = fl >= 0 ? res_of(idx(V.in[yd].opnd[3])) : y;
+				/* of an integer converted: its FindUMsb */
+				before = m->c[C_FTRANS] + (fl >= 0 ? m->c[C_CONV] : 0) +
+				    m->c[C_CONV] + (iv >= 0 && alone ? m->c[C_CONV] : 0);
+				after = m->c[C_BITCNT];
+				if (iv >= 0 && V.glsl >= 0 && after < before - 1e-9) {
+					rt = ct;
+					x = y;
+					xt = V.id[y].type;
+					e = &cvx[ncvx++];
+					memset(e, 0, sizeof *e);
+					snprintf(e->lx, sizeof e->lx, "%s", V.id[iv].tok);
+					snprintf(e->kt2, sizeof e->kt2, "%s", V.id[V.glsl].tok);
+					snprintf(e->fx, sizeof e->fx, "%s", V.id[lx].tok);
+					snprintf(e->drop[0], sizeof e->drop[0], "%s",
+					    V.id[lg].tok);
+					if (fl >= 0)
+						snprintf(e->drop[1], sizeof e->drop[1], "%s",
+						    V.id[fl].tok);
+					if (alone)
+						snprintf(e->drop[2], sizeof e->drop[2], "%s",
+						    V.id[lx].tok);
+					form = 10;
+					goto keep;
+				}
 				before = m->c[C_FTRANS] + (fl >= 0 ? m->c[C_CONV] : 0) +
 				    m->c[C_CONV];
 				after = m->c[C_SHIFT] + m->c[C_IADD] + m->c[C_BITCAST];
 				if (after < before - 1e-9) {
-					int lg = fl >= 0 ? res_of(idx(V.in[yd].opnd[3])) : y;
 					rt = ct;
 					x = y;
 					xt = V.id[y].type;
@@ -13187,6 +13303,10 @@ i2f_patch(const char *text, char **out)
 			nlog++;
 			continue;
 		}
+		if (e->form >= 10) {	/* FindUMsb: no constant */
+			nlog++;
+			continue;
+		}
 		if (e->form >= 7) {	/* 23 and 127 in the integer type */
 			const char *it = e->form == 7 ? e->it : e->rt;
 			unsigned kv[2] = {23, 127};
@@ -13286,7 +13406,7 @@ i2f_patch(const char *text, char **out)
 		{
 			int drop = 0, j;
 			for (i = 0; i < ncvx && !drop && nt >= 2; i++)
-				for (j = 0; used[i] && j < 2 && !drop; j++)
+				for (j = 0; used[i] && j < 3 && !drop; j++)
 					drop = cvx[i].drop[j][0] && ((!strcmp(t[1], "=") &&
 					    !strcmp(t[0], cvx[i].drop[j])) || ((!strcmp(t[0],
 					    "OpName") || !strncmp(t[0], "OpDecorate", 10)) &&
@@ -13325,6 +13445,28 @@ i2f_patch(const char *text, char **out)
 			    "magnitude" : "", e->zero ? "where it is not 0, " : "", e->k,
 			    e->lx, e->it, e->zero ? "; at 0 ldexp is 0, which the select "
 			    "keeps" : "", e->src);
+		} else if (hit >= 0 && cvx[hit].form >= 10) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit;
+			if (e->form == 11) {
+				sb_printf(&o, "%%ucas_cv%dm = OpExtInst %s %s FindUMsb %s\n", b,
+				    e->it, e->kt2, e->lx);
+				sb_printf(&o, "%s = OpConvertSToF %s %%ucas_cv%dm\n", e->res,
+				    e->rt, b);
+			} else
+				sb_printf(&o, "%s = OpExtInst %s %s FindUMsb %s\n", e->res,
+				    e->rt, e->kt2, e->lx);
+			sb_printf(&rep, "    %s\n      ->  %sFindUMsb(i)%s   (cost %g -> "
+			    "%g, the log2%s%s included)\n      x = %s is an integer i = %s "
+			    "converted, i in [1, 2^24) (proved by SAT from its definitions "
+			    "and the assumptions): the conversion is exact, so "
+			    "floor(log2(x)) is i's most significant bit, FindUMsb(i), "
+			    "exactly; a GPU's log2 is within 3 ulp, and this is the exact "
+			    "value, one Vulkan lets the call give (not with `exact`)\n%s",
+			    e->from, e->form == 11 ? "f32(" : "", e->form == 11 ? ")" : "",
+			    e->before, e->after, e->drop[1][0] ? ", the floor" : "",
+			    e->drop[2][0] ? " and i's conversion" : "", e->fx, e->lx,
+			    e->src);
 		} else if (hit >= 0 && cvx[hit].form >= 7) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
@@ -13492,7 +13634,9 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form == 9 && cvx[i].zero ? "x == 0 ? x : "
+		rep_str("form", cvx[i].form == 10 ? "FindUMsb(i)" : cvx[i].form ==
+		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].zero ?
+		    "x == 0 ? x : "
 		    "asfloat(asint(x) + (k << 23))" : cvx[i].form == 9 ?
 		    "asfloat(asint(x) + (k << 23))" :
 		    cvx[i].form == 7 ? "f32((asuint(x) >> 23) - 127)" :
