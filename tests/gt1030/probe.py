@@ -296,7 +296,8 @@ probe('value', 'blend_rounding', [211], how='blend',
 probe('value', 'unorm_rounding', [211], how='unorm', queue='FILA 107 (#10)',
       note='k/255 + e for small e of both signs, written into rgba8_unorm and read back')
 probe('value', 'filter_weights', [116, 117], how='filter',
-      note='a 4x1 R8 ramp (0, 255, 37, 200) read bilinear at 4096 points between two texels, twice')
+      note='a 4x1 R8 ramp (0, 255, 37, 200) read bilinear at 4096 points across two texel pairs, and every '
+           '2^-20 of a texel over the first 1/16 of one')
 probe('info', 'subtexel_bits', [117], note='vulkaninfo: VkPhysicalDeviceLimits.subTexelPrecisionBits')
 probe('value', 'repeat_large', [119], how='repeat',
       note='NEAREST REPEAT on a 256x1 R32UI table at (i + 0.5) / 256 for i near 0 and near +-2^22')
@@ -786,52 +787,79 @@ def value_unorm(p):
     return dict(values=len(vals), round_nearest=near, other_neighbour=other, examples=off)
 
 
+RAMP = (0, 255, 37, 200)      # the 4x1 R8 texture the filter probe reads
+FILTER_N = 4096               # samples across each of two texel pairs
+FILTER_FINE_BITS = 20         # the fine sweep's spacing, 2^-20 of a texel
+FILTER_FINE = 1 << 16         # its samples: the first 1/16 of the pair (0, 255)
+
+
+def filter_coords():
+    """(first texel, x, u) of every read of the filter probe: x the position between the pair's two texels
+    in texel units, u the coordinate on the 4-wide texture (4 u - 1/2 = texel + x, every u exact in f32).
+    The pairs (0, 255) and (37, 200) at FILTER_N points, then (0, 255) every 2^-20 over its first 1/16,
+    finer than any weight grid the result can show, so a change lands on a grid point or between two"""
+    pts = [(0, j / FILTER_N) for j in range(FILTER_N)] + [(2, j / FILTER_N) for j in range(FILTER_N)] + \
+        [(0, j / 2.0 ** FILTER_FINE_BITS) for j in range(FILTER_FINE)]
+    return [(t, x, (t + 0.5 + x) / 4.0) for t, x in pts]
+
+
+def grid_weight(x, bits, mode):
+    """x on a grid of 2^bits steps, truncated or to the nearest (ties up, as a fixed-point add of a half)"""
+    g = 1 << bits
+    k = math.floor(x * g) if mode == 'truncate' else math.floor(x * g + 0.5)
+    return Fraction(k, g)
+
+
+def filter_analysis(got):
+    """what the reads of filter_coords() say: the weight grid, its rounding, the blend's error"""
+    n, F = FILTER_N, FILTER_FINE
+    coarse, fine = got[:2 * n], got[2 * n:2 * n + F]
+    r = dict(distinct=len(set(coarse[:n])), samples=n)
+    changes = [j for j in range(1, F) if fine[j] != fine[j - 1]]
+    gaps = sorted({b - a for a, b in zip(changes, changes[1:])})
+    r['fine_changes'] = len(changes)
+    r['grid_bits'] = r['weights_round'] = None
+    if len(changes) < 2:
+        r['grid_note'] = '%s in the first 1/16 of a texel: a grid of 5 bits or coarser' % (
+            'one change' if changes else 'no change')
+    elif len(gaps) > 1 or gaps[0] & (gaps[0] - 1):
+        r['grid_note'] = 'irregular: the changes are %s to %s samples of 2^-%d apart' % (
+            gaps[0], gaps[-1], FILTER_FINE_BITS)
+    else:
+        step = gaps[0]
+        if step == 1:
+            r['grid_note'] = 'a change at every sample: a grid of %d bits or finer' % FILTER_FINE_BITS
+        else:
+            r['grid_bits'] = FILTER_FINE_BITS - step.bit_length() + 1
+            offs = sorted({c % step for c in changes})
+            r['change_offsets'] = [o / step for o in offs]
+            r['weights_round'] = 'truncate' if offs == [0] else 'nearest' if offs == [step // 2] else 'other'
+    # the blend against the weighted sum at the weight the grid gives (the exact weight when unseen)
+    worst, exact = 0.0, True
+    for k, (t, x, u) in enumerate(filter_coords()[:2 * n]):
+        a, b = Fraction(RAMP[t], 255), Fraction(RAMP[t + 1], 255)
+        w = grid_weight(x, r['grid_bits'], r['weights_round']) if r['weights_round'] in ('truncate', 'nearest') \
+            else Fraction(x)
+        want = a + w * (b - a)
+        worst = max(worst, abs(Fraction(coarse[k]) - want))
+        exact = exact and f32bits(coarse[k]) == f32bits(round_f32(want, 'even'))
+    r['error_against'] = 'its grid weight' if r['weights_round'] in ('truncate', 'nearest') else 'the exact weight'
+    r['max_error_abs'] = float(worst)
+    r['max_error_255'] = float(worst * 255)
+    r['blend_exact'] = exact
+    return r
+
+
 def value_filter(p):
-    pgm = write('ramp.pgm', b'P5\n4 1\n255\n' + bytes([0, 255, 37, 200]))
-    n = 4096
-    us = [f32((0.5 + j / n) / 4.0) for j in range(n)] + [f32((2.5 + j / n) / 4.0) for j in range(n)]
-    ub = write('filter_u.bin', b''.join(struct.pack('<f', u) for u in us))
+    pgm = write('ramp.pgm', b'P5\n4 1\n255\n' + bytes(RAMP))
+    co = filter_coords()
+    ub = write('filter_u.bin', b''.join(struct.pack('<f', u) for t, x, u in co))
     cs = compile_glsl('cs_sample', CS_SAMPLE, 'comp')
     out = dump('filter_r.bin')
-    sp([cs, '--size', str(2 * n), '--bind', '0.0=file=' + ub, '--bind',
+    sp([cs, '--size', str(len(co)), '--bind', '0.0=file=' + ub, '--bind',
         '0.5=format=r8_unorm,file=%s,filter=linear,wrap=clamp' % pgm, '--check', '--dump', '0.1=' + out,
         '--runs', '2', '--warmup', '1', '--warmup-ms', '1', '--compile-runs', '1', '--json', '--quiet'], log_path('filter.log'))
-    got = struct.unpack('<%df' % (2 * n), read_dump(out, 8 * n))
-    r = {}
-    for side, (t0, t1), seg in (('0_255', (0, 255), got[:n]), ('37_200', (37, 200), got[n:])):
-        a, b = t0 / 255.0, t1 / 255.0
-        distinct = sorted(set(seg))
-        # the weight each result stands for, and where along w it changes
-        steps = [j for j in range(1, n) if seg[j] != seg[j - 1]]
-        r[side] = dict(distinct=len(distinct), changes=len(steps), first_changes=[j / n for j in steps[:4]])
-    # the grid: as many weights as distinct results on the 0..1 side (2^b, or 2^b + 1 when the
-    # weight rounds to nearest and reaches 1)
-    lv = r['0_255']['distinct']
-    bits = round(math.log2(lv)) if lv > 2 else None
-    r['grid_bits'] = bits
-    if not bits:
-        return r
-    g = 2 ** bits
-    sides = (((0, 255), got[:n]), ((37, 200), got[n:]))
-    # where along a grid step the 0..1 results change: just past a grid point when the weight is
-    # truncated, near the middle when it rounds to nearest (the samples are 1/16 of a step apart
-    # for an 8-bit grid, so a change shows up to 1/16 late)
-    seg = got[:n]
-    offs = [((jj / n) * g) % 1.0 for jj in range(1, n) if seg[jj] != seg[jj - 1]]
-    r['change_offsets'] = [min(offs), max(offs)] if offs else []
-    mid = sum(1 for o in offs if 0.25 <= o < 0.75)
-    r['weights_round'] = 'nearest' if offs and mid == len(offs) else 'truncate' if offs and mid == 0 else 'unclear'
-    # the blend's own error: each result against the weighted sum at the grid weight it stands for
-    wu = wa = 0.0
-    for (t0, t1), seg in sides:
-        a, b = t0 / 255.0, t1 / 255.0
-        for gv in seg:
-            q = round((gv - a) / (b - a) * g) / g
-            e = a + q * (b - a)
-            wa, wu = max(wa, abs(gv - e)), max(wu, ulps(gv, e))
-    r['max_error_ulps'], r['max_error_abs'] = wu, wa
-    r['max_error_255'] = wa * 255
-    return r
+    return filter_analysis(struct.unpack('<%df' % len(co), read_dump(out, 4 * len(co))))
 
 
 def value_repeat(p):
@@ -970,15 +998,18 @@ def model_lines(res):
     if 'subtexel' in st:
         L.append(('subtexel: %d' % st['subtexel'], '#117 vulkaninfo on %s%s' % (
             st['device'], '; the filter probe sees a weight grid of %s bits' % fw['grid_bits']
-            if fw.get('grid_bits') else '')))
-    if fw.get('max_error_ulps') is not None:
-        u = fw['max_error_ulps']
-        L.append(('tex_within: %g' % max(0.125, math.ceil(u * 8) / 8),
-                  '#116 the bilinear R8 result against the weighted sum at its grid weight: at most %.3g ulps, '
-                  '%.3g absolute (%.3g of an 8-bit step)%s' % (u, fw['max_error_abs'], fw['max_error_255'],
-                                                                '; none measured, written as 1/8' if u == 0 else '')))
-        L.append(('', '#116 the weights: on a grid of %d bits, %s (the results change at %s of a step)' % (
-            fw['grid_bits'], fw['weights_round'], ' to '.join('%.3g' % o for o in fw['change_offsets']))))
+            if fw.get('grid_bits') else '; the filter probe: %s' % fw['grid_note'] if fw.get('grid_note') else '')))
+    if 'blend_exact' in fw:
+        grid = ('weights on a grid of %d bits, %s' % (fw['grid_bits'], 'truncated' if fw['weights_round'] ==
+                'truncate' else 'to the nearest' if fw['weights_round'] == 'nearest' else 'neither truncated nor '
+                'to the nearest')) if fw['grid_bits'] else fw['grid_note']
+        if fw['blend_exact'] and fw['weights_round'] in ('truncate', 'nearest'):
+            L.append(('tex_within: 0.5', '#116 every bilinear R8 result is the f32 nearest the weighted sum at its '
+                      'grid weight; %s' % grid))
+        else:
+            L.append(('', '#116 tex_within (ulps of the result) not written: the bilinear R8 result is at most %.3g '
+                      '(%.3g of an 8-bit step) from the weighted sum at %s, an absolute error; %s' % (
+                          fw['max_error_abs'], fw['max_error_255'], fw['error_against'], grid)))
     rb = res.get('rop_blend', {})
     br = res.get('blend_rounding', {})
     if br.get('add_moved') and br.get('add_unblended') == br['add_moved']:
@@ -1049,15 +1080,16 @@ def summary(p, r):
             r['round_nearest'], r['values'], r['other_neighbour'], (' (e.g. %s)' % r['examples'][0])
             if r['examples'] else '')
     if n == 'filter_weights':
-        if not r.get('grid_bits'):
-            return 'no weight grid seen: %s distinct results' % r['0_255']['distinct']
-        return ('a weight grid of %d bits (%d distinct results from 0 to 1), the weight %s (the results change '
-                'at %s of a grid step); the blend at most %.3g ulps, %.3g absolute (%.3g of an 8-bit step), from '
-                'the weighted sum at its grid weight' % (
-                    r['grid_bits'], r['0_255']['distinct'], 'truncated' if r['weights_round'] == 'truncate' else
-                    'rounded to nearest' if r['weights_round'] == 'nearest' else 'neither truncated nor rounded',
-                    ' to '.join('%.3g' % o for o in r['change_offsets']), r['max_error_ulps'], r['max_error_abs'],
-                    r['max_error_255']))
+        grid = ('a weight grid of %d bits, the weight %s (the results change %s)' % (
+            r['grid_bits'], {'truncate': 'truncated', 'nearest': 'rounded to nearest'}.get(
+                r['weights_round'], 'neither truncated nor rounded to nearest'),
+            'at a grid point' if r['weights_round'] == 'truncate' else 'half a grid step past one'
+            if r['weights_round'] == 'nearest' else 'at %s of a grid step' % ', '.join(
+                '%.3g' % o for o in r['change_offsets']))) if r['grid_bits'] else r['grid_note']
+        return '%s; %d distinct results of %d from 0 to 1; the blend %s the weighted sum at %s' % (
+            grid, r['distinct'], r['samples'], 'is the f32 nearest' if r['blend_exact'] else
+            'is at most %.3g (%.3g of an 8-bit step) from' % (r['max_error_abs'], r['max_error_255']),
+            r['error_against'])
     if n == 'subtexel_bits':
         return 'subTexelPrecisionBits %d on %s' % (r['subtexel'], r['device'])
     if n == 'repeat_large':

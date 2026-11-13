@@ -183,15 +183,61 @@ def constant_tables_bracket_the_refusal():
     for k in kib:
         assert any(p['name'] == 'ssbo%dk_random' % k for p in steps()), 'no storage buffer beside ctab%dk' % k
 
+
+def card(bits, mode, quant=None):
+    """the results a filter with a weight grid of bits (None: exact weights) would give the probe's reads;
+    quant: the result rounded to that many fractional bits, as a fixed-point blend"""
+    from fractions import Fraction
+    out = []
+    for t, x, u in PR.filter_coords():
+        a, b = Fraction(PR.RAMP[t], 255), Fraction(PR.RAMP[t + 1], 255)
+        w = PR.grid_weight(x, bits, mode) if bits else Fraction(x)
+        v = a + w * (b - a)
+        if quant:
+            v = Fraction(round(v * 2 ** quant), 2 ** quant)
+        out.append(PR.round_f32(v, 'even'))
+    return out
+
+
+@check
+def filter_grid_from_its_reads():
+    """the filter analysis finds the weight grid and its rounding from what the card returns, for grids
+    coarser and finer than the coarse sweep's 4096 points, and tells an exact blend from a fixed-point one"""
+    for bits, mode in ((8, 'truncate'), (8, 'nearest'), (12, 'truncate'), (14, 'nearest'), (16, 'truncate')):
+        r = PR.filter_analysis(card(bits, mode))
+        assert (r['grid_bits'], r['weights_round']) == (bits, mode), \
+            'a %d-bit grid, %s: read as %s bits, %s (%s)' % (bits, mode, r['grid_bits'], r['weights_round'],
+                                                              r.get('grid_note', ''))
+        assert r['blend_exact'], 'a %d-bit grid, %s: an exact blend read as off by %g' % (bits, mode,
+                                                                                         r['max_error_abs'])
+    r = PR.filter_analysis(card(12, 'truncate', quant=16))
+    assert r['grid_bits'] == 12 and not r['blend_exact'] and 0 < r['max_error_abs'] <= 2.0 ** -17, \
+        'a blend in 16 fractional bits: %s' % r
+    r = PR.filter_analysis(card(None, None))
+    assert r['grid_bits'] is None and 'every sample' in r['grid_note'], 'exact weights: %s' % r
+
+
+@check
+def tex_within_only_from_an_exact_blend():
+    """tex_within is ulps of the result: written when every result is the f32 nearest the weighted sum at its
+    grid weight, not from an absolute error, which no count of ulps bounds near 0"""
+    st = dict(subtexel=8, device='a card')
+    for res_fw, want in ((PR.filter_analysis(card(12, 'truncate')), 'tex_within: 0.5'),
+                         (PR.filter_analysis(card(12, 'truncate', quant=16)), None)):
+        lines = [ln for ln, cm in PR.model_lines(dict(filter_weights=res_fw, subtexel_bits=st))[0] if ln]
+        tw = [ln for ln in lines if ln.startswith('tex_within')]
+        assert tw == ([want] if want else []), 'tex_within lines %s, expected %s' % (tw, want)
+
 def main():
     failed = 0
     for fn in CHECKS:
         try:
             fn()
             print('ok    %s' % fn.__name__)
-        except AssertionError as e:
+        except Exception as e:    # an assert, or probe.py without what the check reads
             failed += 1
-            print('FAIL  %s: %s' % (fn.__name__, e))
+            print('FAIL  %s: %s%s' % (fn.__name__, '' if isinstance(e, AssertionError) else
+                                      type(e).__name__ + ': ', e))
     print('%d of %d checks failed' % (failed, len(CHECKS)) if failed else 'all %d checks pass' % len(CHECKS))
     return 1 if failed else 0
 
