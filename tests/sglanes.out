@@ -118,8 +118,5 @@ find big: a value in each lane (lanes), so there are no points to search; forms 
 cost model: w4
 > s1(x: u8 lanes, lane: u32 in 0..3) = sg_shuffle({ w: u32 = 0; for i in 0..1 { w = w + u32(sg_shuffle(x, i)) }; w }, 1)
 > s2(x: u8 lanes, lane: u32 in 0..3) = u32(sg_shuffle(x, 0)) + u32(sg_shuffle(x, 1))
-> s3(x: u8 lanes, lane: u32 in 0..3) = u32(sg_shuffle(x, 1)) + u32(sg_shuffle(x, 1))
 > equiv s1 s2
 s1 and s2 are equal on the domain of s1 (proved by SAT: 198 AIG nodes, 0 conflicts)
-> equiv s1 s3
-s1 and s3 differ, with the lanes' x = [0, 128, 0, 0], at x=0, lane=0: 128 vs 256 (found by SAT, checked by evaluation)
