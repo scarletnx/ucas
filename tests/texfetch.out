@@ -143,3 +143,4 @@ texalu bd: reads through the texture unit under stream (cost 57.75 as written):
 > texalu bd
 texalu bd: the texture unit under gt1030 (cost 57.75 as written): nothing taken
   gt1030 lists no tex_nearest: a nearest read with an address mode is not available
+  gt1030 does not say how far its filter is from the exact weighted sum (tex_within): no filtered read is proved

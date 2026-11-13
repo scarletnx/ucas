@@ -1,9 +1,9 @@
 # A function as a texture (src/texalu.c, seed_func; issue #158): a body
 # that reads no table, of integer parameters with at most 2^16 points, is
 # tab.c's table read through the unit: by a nearest fetch at the packed
-# index, or, for one parameter, by the linear filter over knots (the
-# function at every 2^j-th value).  Offered below the function as written
-# and below the same table by a load.
+# index, or by the linear filter over knots (the function at every 2^j-th
+# value of one parameter, or on a grid of two).  Offered below the function
+# as written and below the same table by a load.
 model texel : gt1030 { tex_nearest: 5, tex_within: 2 }
 # gt1030 measured a load that streams from DRAM at 90: a table that does
 # not stay in cache
@@ -43,6 +43,17 @@ texalu tone tol 0.004 under filt
 texalu tone tol 0.0005 under filt
 # the nearest read of a float function is exact
 texalu tone under stream
+
+# two parameters: a grid of knots under the bilinear filter.  A blend of
+# six corner values in fixed point, two cells of 16 x 16 written out with
+# their weights' products and a rounding shift, is a 3 x 2 texture read
+# once; its ties make c just above 1/2
+bl(x: u8 in 0..32, y: u8 in 0..16) = x < 16 ? (u32(16 - x)*(16 - y)*10 + u32(x)*(16 - y)*200 + u32(16 - x)*y*90 + u32(x)*y*30 + 128)/256 : (u32(32 - x)*(16 - y)*200 + u32(x - 16)*(16 - y)*120 + u32(32 - x)*y*30 + u32(x - 16)*y*250 + 128)/256
+texalu bl under filt
+# a float surface within a tolerance: a stride for each parameter
+vg(x: u8 in 0..63, y: u8 in 0..63) = sqrt(f32(x)*f32(x) + f32(y)*f32(y) + 100)/(f32(x) + f32(y) + 20)/(1 + f32(x)/64)/(2 - f32(y)/64)
+texalu vg under filt
+texalu vg tol 0.01 under filt
 
 # a where clause: 0 where the function has no value
 dv(x: u8 in 0..63, y: u8 in 0..3) = (200/x + y) % 11 where x != 0

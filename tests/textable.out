@@ -47,6 +47,7 @@ cost model: gt1030
 > texalu bc
 texalu bc: the texture unit under gt1030 (cost 32.5 as written): nothing taken
   gt1030 lists no tex_nearest: a nearest read with an address mode is not available
+  gt1030 does not say how far its filter is from the exact weighted sum (tex_within): no filtered read is proved
 > pd(x: u16 in 0..1023) = x < 256 ? x*25/100 : x < 512 ? 64 + (x - 256)*50/100 : x < 768 ? 192 + (x - 512)*125/1000 : 224 + (x - 768)*125/1000
 > texalu pd under filt
 texalu pd: reads through the texture unit under filt (cost 65 as written):
@@ -137,6 +138,44 @@ texalu tone: reads through the texture unit under stream (cost 31 as written):
         a texture R32_SFLOAT (each entry as its f32), 1024 x 1, one level, its texels the function's values
         a sampler: NEAREST filters, CLAMP_TO_EDGE, normalised coordinates, lod 0
         one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 1024.0), 0.0).r with i = u32(x)
+> bl(x: u8 in 0..32, y: u8 in 0..16) = x < 16 ? (u32(16 - x)*(16 - y)*10 + u32(x)*(16 - y)*200 + u32(16 - x)*y*90 + u32(x)*y*30 + 128)/256 : (u32(32 - x)*(16 - y)*200 + u32(x - 16)*(16 - y)*120 + u32(32 - x)*y*30 + u32(x - 16)*y*250 + 128)/256
+> texalu bl under filt
+texalu bl: reads through the texture unit under filt (cost 62 as written):
+  cost 33.625 u32(255tex_bilinear8([0.0392156877, 0.784313738, 0.470588237, 0.352941185, 0.117647059, 0.980392158], 3, 0.0625f32(x) + 0.5, 0.0625f32(y) + 0.5) + 0.50390625)
+      x < 16 ? (10(t1*t2) + 200(u32(x)*t2) + 90(t1*u32(y)) + 30(u32(x)*u32(y)) + 128)/256 : (200(t3*t2) + 120(t4*t2) + 30(t3*u… (111 more characters) as a 3 x 2 grid of knots read with the linear filter: the function at every 16th value of x from 0 and every 16th value of y from 0
+      holds where x is in [0, 32] and y in [0, 16] (their ranges)
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d; at texel coordinates (x/16 + 1/2, y/16 + 1/2) they are the knots (k, l), (k + 1, l), (k, l + 1), (k + 1, l + 1) with k = x >> 4, l = y >> 4, u = (x & 15)/16 and v = (y & 15)/16
+        the fractions are multiples of 2^-4 and 2^-4, on the unit's 2^-8 grid, and the coordinates are exact in f32: the weights do not move
+        that patch against the function at every one of the 561 points: the function less the patch is in [-0.492, 0.5]
+        the filter is within 2 ulp of that sum (the model's tex_within), the texels as k/q, the map back to the values and the add: 0.000108
+      the function's value F is a whole number, and floor(read + c) is F where F <= patch + c - e and patch + c + e < F + 1: every c in (0.5, 0.508), 0.50390625 taken (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 561 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 3 x 2, one level: the knots as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(cx, cy), 0.0).r at the texel coordinates cx = 0.0625f32(x) + 0.5, cy = 0.0625f32(y) + 0.5
+        setup (the descriptor, the upload) is not in the model: not measured
+> vg(x: u8 in 0..63, y: u8 in 0..63) = sqrt(f32(x)*f32(x) + f32(y)*f32(y) + 100)/(f32(x) + f32(y) + 20)/(1 + f32(x)/64)/(2 - f32(y)/64)
+> texalu vg under filt
+texalu vg: the texture unit under filt (cost 32 as written): nothing taken
+  derived, but within 0.00111 of the formula, more than the 0 allowed (no tolerance given): tol 0.00111 takes it
+  sqrt(f32(x)*f32(x) + f32(y)*f32(y) + 100)/(f32(x) + f32(y) + 20)/(f32(x)/64 + 1)/(2 - f32(y)/64) as a 64 x 64 grid of knots read with the linear filter: the function at every value of x and every value of y, moved onto 256 evenly spaced levels
+> texalu vg tol 0.01 under filt
+texalu vg: reads through the texture unit under filt (cost 32 as written):
+  cost 30.625 0.581666529tex_bilinear8([0.105882354, 0.0392156877, 0.0235294122, 0.0274509806, 0.0352941193, 0.0392156877, 0.0431372561, 0.0470588244, 0.0431372561, 0.0431372561, 0.0392156877, 0.0352941193, 0.0274509806, 0.0235294122, 0.0196078438, 0.0117647061, 0.00784313772, 0.0784313753, 0.0196078438, 0.0117647061, 0.0156862754, 0.0235294122, 0.0313725509, 0.0352941193, 0.0352941193, 0.0352941193, 0.0352941193, 0.0313725509, 0.0274509806, 0.0235294122, 0.0196078438, 0.0156862754, 0.00784313772, 0.00392156886, 0.0745098069, 0.0156862754, 0.00392156886, 0.00784313772, 0.0156862754, 0.0235294122, 0.02745098… (6990 more characters)
+      sqrt(f32(x)*f32(x) + f32(y)*f32(y) + 100)/(f32(x) + f32(y) + 20)/(f32(x)/64 + 1)/(2 - f32(y)/64) as a 17 x 33 grid of knots read with the linear filter: the function at every 4th value of x from 0 and every 2nd value of y from 0, moved onto 256 evenly spaced levels
+      holds where x is in [0, 63] and y in [0, 63] (their ranges)
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d; at texel coordinates (x/4 + 1/2, y/2 + 1/2) they are the knots (k, l), (k + 1, l), (k, l + 1), (k + 1, l + 1) with k = x >> 2, l = y >> 1, u = (x & 3)/4 and v = (y & 1)/2 (a knot past a range is on the line through the knot before it and the range's last point, along its row and then along its column)
+        the fractions are multiples of 2^-2 and 2^-1, on the unit's 2^-8 grid, and the coordinates are exact in f32: the weights do not move
+        that patch against the function at every one of the 4096 points: the function less the patch is in [-0.00675, 0.00113]
+        the filter is within 2 ulp of that sum (the model's tex_within), the texels as k/q, the map back to the values: 3.64e-07
+      against the function's f32 value the read is within 0.00675
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 4096 points: largest difference 0.00675
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 17 x 33, one level: the knots' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(cx, cy), 0.0).r at the texel coordinates cx = 0.25f32(x) + 0.5, cy = 0.5f32(y) + 0.5
+        setup (the descriptor, the upload) is not in the model: not measured
 > dv(x: u8 in 0..63, y: u8 in 0..3) = (200/x + y) % 11 where x != 0
 > texalu dv under stream
 texalu dv: reads through the texture unit under stream (cost 43 as written):
