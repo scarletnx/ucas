@@ -1,0 +1,24 @@
+> use gt1030
+cost model: gt1030
+> h(x: u8, y: u8) = { s: u32 = 0; for k in 0..7 { s = s ^ ((u32(x) * u32(y) * 2654435761) >> k) }; s }
+  note: "^" between integers, next to bitwise operators: read as xor (bitwise exclusive or), not power (write xor or ** to say which)
+> find h 1
+find h: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(k in 0..7; s = 0 then s xor 2654435761(u32(x)*u32(y)) >> k).s priced as 6 once and 8 iterations x 9.25 (listed under branch)
+  a table under gt1030 (the function at every point of its domain; cost 80 as written):
+  cost 9.875 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, … (765062 more characters)
+           65536 entries of u32 (262144 bytes of constant data), one for each point of x in 0..255, y in 0..255; entry k is the function at the point with index k = u32(x) | u32(y) << 8, all 65536 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(k in 0..7; s = 0 then s xor 2654435761(u32(x)*u32(y)) >> k).s priced as 6 once and 8 iterations x 9.25 (listed under branch)
+> g(x: u8) = { s: u32 = 0; for k in 0..7 { s = s + k * { t: u32 = 0; for i in 0..3 { t = t ^ (u32(x) << i) }; t } }; s }
+> find g 1
+find g: 256 points, computing in u32, costs from gt1030
+  note: loop loop(i in 0..3; t = 0 then t xor u32(x) << i).t priced as 4 iterations x 9.25 (listed under branch)
+  note: loop loop(k in 0..7; s = 0 then u32(int(s) + k*int(loop(i in 0..3; t = 0 then t xor u32(x) << i).t))).s priced as 37 once and 8 iterations x 10.25 (listed under branch)
+  cost 7   [0, 420, 840, 476, 1680, 1428, 952, 1260, 3360, 3332, 2856, 2940, 1904, 2100, 2520, 2380, 6720, 7140, 6664, 6300, 5712, 5460, 5880, 6188, 3808, 3780, 4200, 4284, 5040, 5236, 4760, 4620, 13440, 13860, 14280, 13916, 13328, 13076, 12600, 12908, 11424, 11396, 10920, 11004, 11760, 11956, 12376, 12236, 76… (1449 more characters) lookup table (baseline)
+  [searched every term up to cost 4: 65536 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..3; t = 0 then t xor u32(x) << i).t priced as 4 iterations x 9.25 (listed under branch)
+  note: loop loop(k in 0..7; s = 0 then u32(int(s) + k*int(loop(i in 0..3; t = 0 then t xor u32(x) << i).t))).s priced as 37 once and 8 iterations x 10.25 (listed under branch)

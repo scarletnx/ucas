@@ -952,24 +952,81 @@ loop_iter_cost(const struct model *m, nid n)
 	return c + m->c[C_BRANCH];
 }
 
+/* body_cost, with what reads none of the loop's own variables (bound)
+ * added to *once instead: it is the same in every iteration */
+static float
+body_cost_split(const struct model *m, nid n, uint8_t *mark, uint32_t lim,
+    uint64_t bound, float *once)
+{
+	float c;
+	int cls;
+	uint32_t j;
+
+	if (n == 0 || n >= lim || mark[n])
+		return 0;
+	if (!(node_slots(n) & bound)) {
+		*once += body_cost(m, n, mark, lim);
+		return 0;
+	}
+	mark[n] = 1;
+	if (N.op[n] == O_TABLE) {
+		c = 0;
+		for (j = 0; j < N.b[n]; j++)
+			c += body_cost_split(m, N.lst[N.a[n] + j], mark, lim, bound,
+			    once);
+		return c;
+	}
+	c = node_cost(m, n, &cls);
+	if (N.op[n] == O_CONST || N.op[n] == O_VAR || N.op[n] == O_UNDEF)
+		return 0;
+	return c + body_cost_split(m, N.a[n], mark, lim, bound, once) +
+	    body_cost_split(m, N.b[n], mark, lim, bound, once) +
+	    body_cost_split(m, N.c[n], mark, lim, bound, once);
+}
+
+/*
+ * A loop as a program runs it, as cost's price_loop does: what its body
+ * reads that does not change from one iteration to the next is computed
+ * once, before it; the rest every iteration, with the branch.
+ */
 float
 loop_cost(const struct model *m, nid n, int *cls)
 {
-	float per = loop_iter_cost(m, n);
+	uint32_t e = loop_ent(n), s = loops.st[e], lim = N.n;
+	uint8_t *mark = xcalloc(lim, 1);
+	float once = 0, per = 0;
 	int64_t lo, hi;
+	int k;
 
+	for (k = 0; k < loops.nst[e]; k++)
+		per += body_cost_split(m, loops.next[s + k], mark, lim,
+		    loops.bound[e], &once);
+	per += body_cost_split(m, loops.cond[e], mark, lim, loops.bound[e],
+	    &once);
+	free(mark);
+	per += m->c[C_BRANCH];
 	*cls = C_BRANCH;
-	if (loops.kind[loop_ent(n)] == LK_FOR && int_of(N.a[n], &lo) &&
+	if (loops.kind[e] == LK_FOR && int_of(N.a[n], &lo) &&
 	    int_of(N.b[n], &hi)) {
-		note("loop %s priced as %lld iterations x %g (listed under "
-		    "branch)", shared_str(n, 120), (long long)(hi - lo + 1),
-		    (double)per);
-		return per * (float)(hi >= lo ? hi - lo + 1 : 0);
+		if (once > 0)
+			note("loop %s priced as %g once and %lld iterations x %g "
+			    "(listed under branch)", shared_str(n, 120),
+			    (double)once, (long long)(hi - lo + 1), (double)per);
+		else
+			note("loop %s priced as %lld iterations x %g (listed under "
+			    "branch)", shared_str(n, 120), (long long)(hi - lo + 1),
+			    (double)per);
+		return once + per * (float)(hi >= lo ? hi - lo + 1 : 0);
 	}
-	note("loop %s priced per iteration (%g, listed under branch); "
-	    "multiply by the trip count; see 'scheme'", shared_str(n, 120),
-	    (double)per);
-	return per;
+	if (once > 0)
+		note("loop %s priced per iteration (%g, listed under branch, "
+		    "and %g once); multiply by the trip count; see 'scheme'",
+		    shared_str(n, 120), (double)per, (double)once);
+	else
+		note("loop %s priced per iteration (%g, listed under branch); "
+		    "multiply by the trip count; see 'scheme'",
+		    shared_str(n, 120), (double)per);
+	return once + per;
 }
 
 /*
