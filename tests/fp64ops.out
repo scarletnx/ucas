@@ -8,7 +8,7 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: l (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10007: no function 'l' is declared))
+function level: not run (the GLSL parser left main out: l (line 1: 'dvec2' is a word GLSL ES 3.20 reserves); main (line 10007: no function 'l' is declared))
 fp64 and conversions under gt1030:
   %45 = OpFConvert %float %44
       (line 1: float l(vec2 v) { return float(length(dvec2(v))); })
@@ -85,7 +85,7 @@ simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: d (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'd' is declared))
+function level: not run (the GLSL parser left main out: d (line 1: 'dvec2' is a word GLSL ES 3.20 reserves); main (line 10008: no function 'd' is declared))
 fp64 and conversions under gt1030:
   %54 = OpFConvert %float %53
       (line 1: float d(vec2 a, vec2 b) { return float(distance(dvec2(a), dvec2(b))); })
@@ -193,7 +193,7 @@ simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: n (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10007: no function 'n' is declared))
+function level: not run (the GLSL parser left main out: n (line 1: 'dvec2' is a word GLSL ES 3.20 reserves); main (line 10007: no function 'n' is declared))
 fp64 and conversions under gt1030:
   %43 = OpFConvert %v2float %42
       (line 1: vec2 n(vec2 v) { return vec2(normalize(dvec2(v))); })
@@ -353,7 +353,7 @@ simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: w (line 1: 'dvec2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'w' is declared))
+function level: not run (the GLSL parser left main out: w (line 1: 'dvec2' is a word GLSL ES 3.20 reserves); main (line 10008: no function 'w' is declared))
 fp64 and conversions under gt1030:
   %63 = OpFConvert %v2float %62
       (line 1: vec2 w(vec2 v, vec2 u) { dvec2 V = dvec2(v), U = dvec2(u); return vec2(V.yx * U); })
@@ -416,7 +416,7 @@ simplify: 72 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: tm (line 1: 'dmat2' is a word GLSL ES 3.10 reserves); main (line 10009: no function 'tm' is declared))
+function level: not run (the GLSL parser left main out: tm (line 1: 'dmat2' is a word GLSL ES 3.20 reserves); main (line 10009: no function 'tm' is declared))
 fp64 and conversions under gt1030:
   %85 = OpFConvert %v2float %84
       (line 1: vec2 tm(vec2 a, vec2 b, vec2 v) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2(transpo)
@@ -518,7 +518,7 @@ simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: vm (line 1: 'dmat2' is a word GLSL ES 3.10 reserves); main (line 10009: no function 'vm' is declared))
+function level: not run (the GLSL parser left main out: vm (line 1: 'dmat2' is a word GLSL ES 3.20 reserves); main (line 10009: no function 'vm' is declared))
 fp64 and conversions under gt1030:
   %83 = OpFConvert %v2float %82
       (line 1: vec2 vm(vec2 a, vec2 b, vec2 v) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2(dvec2(v)
@@ -620,7 +620,7 @@ simplify: 66 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: m2 (line 1: 'dmat2' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'm2' is declared))
+function level: not run (the GLSL parser left main out: m2 (line 1: 'dmat2' is a word GLSL ES 3.20 reserves); main (line 10008: no function 'm2' is declared))
 fp64 and conversions under gt1030:
   %78 = OpFConvert %v2float %77
       (line 1: vec2 m2(vec2 a, vec2 b) { dmat2 M = dmat2(dvec2(a), dvec2(b)); return vec2((M * M)[0]); })
@@ -722,7 +722,7 @@ simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: ms (line 1: 'dmat2' is a word GLSL ES 3.10 reserves); main (line 10009: no function 'ms' is declared))
+function level: not run (the GLSL parser left main out: ms (line 1: 'dmat2' is a word GLSL ES 3.20 reserves); main (line 10009: no function 'ms' is declared))
 fp64 and conversions under gt1030:
   %88 = OpFConvert %v2float %87
       (line 1: vec2 ms(vec2 a, vec2 b, float k) { dmat2 M = dmat2(dvec2(a), dvec2(b)) * double(k); return)

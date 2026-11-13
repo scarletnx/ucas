@@ -5,7 +5,6 @@ simplify: 110 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   integer arithmetic cost under gt1030 (each instruction once): 18.75 -> 18.75 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: main (line 14: 'gl_InstanceIndex' is not declared (names starting with gl_ are GLSL's own)))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
   the vec3 %44: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
@@ -48,5 +47,4 @@ simplify: 93 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 17.5 -> 17.5 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: main (line 10: 'gl_InstanceIndex' is not declared (names starting with gl_ are GLSL's own)))
 advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, or is a discard the clipper could do

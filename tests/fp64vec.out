@@ -8,7 +8,7 @@ simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: f (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'f' is declared))
+function level: not run (the GLSL parser left main out: f (line 1: 'double' is a word GLSL ES 3.20 reserves); main (line 10008: no function 'f' is declared))
 fp64 and conversions under gt1030:
   %75 = OpFConvert %float %74
       (line 1: vec2 f(float x, float y) { double a = x, b = y; double d = a * b; return vec2(float(d + a))
@@ -229,7 +229,7 @@ simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: h (line 1: 'dvec3' is a word GLSL ES 3.10 reserves); main (line 10008: no function 'h' is declared))
+function level: not run (the GLSL parser left main out: h (line 1: 'dvec3' is a word GLSL ES 3.20 reserves); main (line 10008: no function 'h' is declared))
 fp64 and conversions under gt1030:
   %63 = OpFConvert %float %62
       (line 1: float h(vec3 a, vec3 b) { dvec3 A = dvec3(a), B = dvec3(b); return float(dot(A, B)); })
@@ -309,7 +309,7 @@ simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: m (line 1: 'dmat2' is a word GLSL ES 3.10 reserves); main (line 10009: no function 'm' is declared))
+function level: not run (the GLSL parser left main out: m (line 1: 'dmat2' is a word GLSL ES 3.20 reserves); main (line 10009: no function 'm' is declared))
 fp64 and conversions under gt1030:
   %83 = OpFConvert %v2float %82
       (line 1: vec2 m(vec2 c0, vec2 c1, vec2 v) { dmat2 M = dmat2(dvec2(c0), dvec2(c1)); return vec2(M * )
@@ -411,7 +411,7 @@ simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: k (line 1: 'double' is a word GLSL ES 3.10 reserves); layout (line 10006: 'double' is a word GLSL ES 3.10 reserves); main (line 10009: 'ucas_args' is not declared))
+function level: not run (the GLSL parser left main out: k (line 1: 'double' is a word GLSL ES 3.20 reserves); layout (line 10006: 'double' is a word GLSL ES 3.20 reserves); main (line 10009: 'ucas_args' is not declared))
 fp64 and conversions under gt1030:
   %79 = OpFConvert %float %78
       (line 1: float k(float x, float y, out double keep) { double a = x, b = y; double d = a * b; keep =)
@@ -481,7 +481,7 @@ simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: q (line 1: 'double' is a word GLSL ES 3.10 reserves); layout (line 10006: 'double' is a word GLSL ES 3.10 reserves); main (line 10009: 'ucas_args' is not declared))
+function level: not run (the GLSL parser left main out: q (line 1: 'double' is a word GLSL ES 3.20 reserves); layout (line 10006: 'double' is a word GLSL ES 3.20 reserves); main (line 10009: 'ucas_args' is not declared))
 fp64 and conversions under gt1030:
   %71 = OpFConvert %float %68
       (line 1: float q(float x, float y, out double keep) { double a = x, b = y; double d = a / b; keep =)
@@ -499,7 +499,7 @@ simplify: 91 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: t (line 1: 'double' is a word GLSL ES 3.10 reserves); main (line 10009: no function 't' is declared))
+function level: not run (the GLSL parser left main out: t (line 1: 'double' is a word GLSL ES 3.20 reserves); main (line 10009: no function 't' is declared))
 fp64 and conversions under gt1030:
   %100 = OpFConvert %float %99
       (line 1: float t(float x, float y, out float o) { double a = x, b = y; double d = a * b; o = float()
@@ -636,7 +636,7 @@ simplify: 78 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: s (line 1: 'dvec3' is a word GLSL ES 3.10 reserves); main (line 10009: no function 's' is declared))
+function level: not run (the GLSL parser left main out: s (line 1: 'dvec3' is a word GLSL ES 3.20 reserves); main (line 10009: no function 's' is declared))
 fp64 and conversions under gt1030:
   %96 = OpFConvert %float %95
       (line 1: vec3 s(vec3 a, vec3 b, vec3 c) { dvec3 A = dvec3(a), B = dvec3(b), C = dvec3(c); double s )
