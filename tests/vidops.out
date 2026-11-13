@@ -167,5 +167,23 @@ find ss: 1024 points (sampled; matches verified on the whole domain), computing 
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> si(a: i32, b: i32) = i32(max(min(i64(a) + i64(b), 2147483647), -2147483648))
+> find si 1
+find si: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from vid
+  instructions under vid (each for the pattern it is; cost 3 as written):
+  cost 1   addsat(a, b)
+           i32(max(min(i64(a) + i64(b), 2147483647), -2147483648)): addsat(a, b), the sum clamped to the range of i32, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sb(a: i32, b: i32) = b > 0 && a < -2147483648 + b ? -2147483648 : b < 0 && a > 2147483647 + b ? 2147483647 : a - b
+> find sb 1
+find sb: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from vid
+  instructions under vid (each for the pattern it is; cost 17.75 as written):
+  cost 1   subsat(a, b)
+           b > 0 && a < b - 2147483648 ? -2147483648 : b < 0 && a > b + 2147483647 ? 214748… (12 more characters): subsat(a, b), the difference clamped to the range of i32, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > use gt1030
 cost model: gt1030
