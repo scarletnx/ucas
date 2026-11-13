@@ -949,6 +949,24 @@ geti(int st, uint64_t b)
 	return (int64_t)b;
 }
 
+/* a w-bit value read signed */
+static int64_t
+sx64(uint64_t v, int w)
+{
+	return w >= 64 ? (int64_t)v : (int64_t)(v << (64 - w)) >> (64 - w);
+}
+
+/* the high w bits (w <= 32) of the 2w-bit product of x and y, both read
+ * unsigned or both signed (sg): Op[US]MulExtended's second member */
+static uint64_t
+mulx_hi(uint64_t x, uint64_t y, int w, int sg)
+{
+	uint64_t p = sg ? (uint64_t)(sx64(x & wmask(w), w) * sx64(y & wmask(w),
+	    w)) : (x & wmask(w)) * (y & wmask(w));
+
+	return p >> w & wmask(w);
+}
+
 static uint64_t
 puti(int st, int64_t v)
 {
@@ -2808,6 +2826,29 @@ exec_one(const struct sins *I, uint32_t mask)
 		emit_vals(k, I, mask);
 		return;
 	}
+	if ((!strcmp(I->op, "OpUMulExtended") || !strcmp(I->op,
+	    "OpSMulExtended")) && T(rt)->k == S_STRUCT && T(rt)->nm == 2) {
+		/* { the low words, the high words } of each component */
+		int mt = T(rt)->m[0], ms = scalar_of(mt), mn = ncomp(mt), sg =
+		    I->op[2] == 'S', wd = T(ms)->w, j;
+		if (wd > 32 || 2 * mn > MAXCOMP)
+			die("unsupported instruction \"%s\"", I->text);
+		for (l = 0; l < V.lanes; l++)
+			if (mask >> l & 1) {
+				struct lval x = val(opid(I, 1), l), y = val(opid(I, 2), l),
+				    *r = LV(I->res, l);
+				memset(r, 0, sizeof *r);
+				for (j = 0; j < mn; j++) {
+					r->b[j] = puti(ms, (int64_t)(x.b[j] * y.b[j]));
+					r->b[mn + j] = mulx_hi(x.b[j], y.b[j], wd, sg);
+				}
+			}
+		cls = cost_class(I->op, NULL, ms, &mul);
+		k = emit(I, I_OP, cls, cls >= 0 ? model_active()->c[cls] * mul * mn :
+		    0, mask);
+		emit_vals(k, I, mask);
+		return;
+	}
 	if (!strcmp(I->op, "OpCompositeConstruct")) {
 		for (l = 0; l < V.lanes; l++)
 			if (mask >> l & 1) {
@@ -4411,6 +4452,10 @@ struct cand {
 	int via_u, ut;		/* RW_INS on the bits as unsigned type ut:
 				 * bitcasts in and out (OpUDiv and OpUMod
 				 * want an unsigned result type) */
+	int mulx;		/* op is Op[US]MulExtended of a[0], a[1]: its
+				 * high word, shifted right by msh (by an
+				 * arithmetic shift when mash) */
+	int msh, mash;
 };
 
 static struct {
@@ -4426,6 +4471,8 @@ static struct {
 	int sample;
 	uint64_t rng;
 	int newk[256], nnewk;	/* constants made here */
+	int mxty[4], nmxty;	/* struct { T, T } types made here */
+	int nmulx;		/* Op[US]MulExtended written */
 	double deadline;
 	long undecided, timeout, proved;
 	lit *dl;		/* per id: "its value is defined" */
@@ -4824,6 +4871,12 @@ evalcand(const struct cand *c, int rt)
 		return c->v;
 	for (i = 0; i < c->na; i++)
 		x[i] = evalid(c->a[i]);
+	if (c->mulx) {
+		int w = int_width(rt);
+		uint64_t h = mulx_hi(x[0], x[1], w, c->op[2] == 'S');
+		h = c->mash ? (uint64_t)(sx64(h, w) >> c->msh) : h >> c->msh;
+		return h & wmask(w);
+	}
 	if (c->pre_op[0]) {
 		int pt = V.id[res_of(c->pre_a[0])].type;
 		x[1] = alu(c->pre_op, pt, pt, evalid(c->pre_a[0]),
@@ -5256,7 +5309,30 @@ prove(int x, const struct cand *c, int rt)
 			dc = SP.dl[res_of(c->id)];
 		} else if (c->kind == RW_CONST)
 			w_const(&wc, wx->w, c->v);
-		else {
+		else if (c->mulx) {
+			/* the high half of the product of the operands made
+			 * 2w bits wide, then the shift */
+			struct word ea, eb, pr, sh;
+			int w = int_width(rt), sg = c->op[2] == 'S';
+			for (i = 0; i < 2; i++) {
+				a[i] = blast(c->a[i], depths[di] - 1);
+				dc = aig_and(SP.g, dc, SP.dl[res_of(c->a[i])]);
+			}
+			w_resize(&ea, a[0], 2 * w, sg);
+			w_resize(&eb, a[1], 2 * w, sg);
+			w_mul(SP.g, &pr, &ea, &eb);
+			wc.w = w;
+			for (i = 0; i < w; i++)
+				wc.b[i] = pr.b[w + i];
+			if (c->msh) {
+				pr = wc;
+				w_const(&sh, w, (uint64_t)c->msh);
+				if (c->mash)
+					w_ashr(SP.g, &wc, &pr, &sh);
+				else
+					w_lshr(SP.g, &wc, &pr, &sh);
+			}
+		} else {
 			for (i = 0; i < c->na; i++) {
 				a[i] = blast(c->a[i], depths[di] - 1);
 				dc = aig_and(SP.g, dc, SP.dl[res_of(c->a[i])]);
@@ -5778,11 +5854,75 @@ bfi_parts(int l, int r, int w, int *base, int *ins, int *p, int *nb,
 	return 0;
 }
 
-/* a w-bit value read signed */
-static int64_t
-sx64(uint64_t v, int w)
+/*
+ * id = (e(x) * e(y)) >> s narrowed to t (w bits): s a constant, w <= s <
+ * 2w, the product 2w bits wide and e both zero extensions (*sg 0) or both
+ * sign extensions (*sg 1) of values of type t; a constant operand that is
+ * such an extension of a w-bit value is that value.  *sh = s - w, *ar an
+ * arithmetic shift, *extra what goes dead with them.
+ */
+static int
+mulx_parts(int id, int t, int w, int *x, int *y, int *sg, int *sh, int *ar,
+    double *extra)
 {
-	return w >= 64 ? (int64_t)v : (int64_t)(v << (64 - w)) >> (64 - w);
+	int d = SP.def[id], pid, pk, i, o[2], e[2] = {-1, -1}, sgs[2];
+	uint64_t s, v[2];
+
+	if (d < 0 || SP.dead[d] || int_width(V.id[id].type) != 2 * w ||
+	    (strcmp(V.in[d].op, "OpShiftRightLogical") &&
+	    strcmp(V.in[d].op, "OpShiftRightArithmetic")) ||
+	    !const_of(res_of(idx(V.in[d].opnd[2])), &s) ||
+	    s < (uint64_t)w || s >= (uint64_t)(2 * w))
+		return 0;
+	pid = res_of(idx(V.in[d].opnd[1]));
+	pk = SP.def[pid];
+	if (pk < 0 || SP.dead[pk] || strcmp(V.in[pk].op, "OpIMul"))
+		return 0;
+	for (i = 0; i < 2; i++) {
+		int ek;
+		o[i] = res_of(idx(V.in[pk].opnd[1 + i]));
+		sgs[i] = -1;	/* a constant: either, if it fits */
+		if (const_of(o[i], &v[i]))
+			continue;
+		ek = SP.def[o[i]];
+		if (ek < 0 || SP.dead[ek] || (strcmp(V.in[ek].op, "OpUConvert") &&
+		    strcmp(V.in[ek].op, "OpSConvert")))
+			return 0;
+		e[i] = o[i];
+		o[i] = res_of(idx(V.in[ek].opnd[1]));
+		if (V.id[o[i]].type != t)
+			return 0;
+		sgs[i] = V.in[ek].op[2] == 'S';
+	}
+	if (sgs[0] < 0 && sgs[1] < 0)
+		return 0;	/* constants: folded before */
+	*sg = sgs[0] >= 0 ? sgs[0] : sgs[1];
+	if (sgs[0] >= 0 && sgs[1] >= 0 && sgs[0] != sgs[1])
+		return 0;	/* one signed, one unsigned: no such instruction */
+	if (!*sg && T(t)->sign)
+		return 0;	/* OpUMulExtended's members are unsigned */
+	for (i = 0; i < 2; i++)
+		if (sgs[i] < 0) {
+			uint64_t lo = v[i] & wmask(w);
+			if (*sg ? ((uint64_t)sx64(lo, w) & wmask(2 * w)) != v[i] :
+			    v[i] != lo)
+				return 0;	/* not a w-bit value made wide */
+			if ((o[i] = const_id(t, lo)) < 0)
+				return 0;
+		}
+	*x = o[0];
+	*y = o[1];
+	*sh = (int)s - w;
+	*ar = !strcmp(V.in[d].op, "OpShiftRightArithmetic");
+	*extra = only_use_cost(id);
+	if (SP.uses[id] == 1) {
+		*extra += only_use_cost(pid);
+		if (SP.uses[pid] == 1)
+			for (i = 0; i < 2; i++)
+				if (e[i] >= 0 && (i == 0 || e[1] != e[0]))
+					*extra += only_use_cost(e[i]);
+	}
+	return 1;
 }
 
 static int
@@ -6123,8 +6263,52 @@ candidates(int k, struct cand *cs, int max)
 			}
 		}
 	}
+	/* the high word of a product made wide: Op[US]MulExtended's second
+	 * member, shifted by what the shift takes past the low word */
+	if ((!strcmp(I->op, "OpUConvert") || !strcmp(I->op, "OpSConvert")) &&
+	    T(rt)->k == S_INT && w >= 8 && w <= 32 && n < max) {
+		int x, y, sg, sh, ar;
+		double extra;
+		if (mulx_parts(arg[0], rt, w, &x, &y, &sg, &sh, &ar, &extra) &&
+		    (sh == 0 || const_id(rt, (uint64_t)sh) >= 0)) {
+			const char *mo = sg ? "OpSMulExtended" : "OpUMulExtended";
+			n += ins_cand(&cs[n], mo, NULL, rt, x, y, -1,
+			    "a wide product's high word is one multiply extended");
+			cs[n - 1].mulx = 1;
+			cs[n - 1].msh = sh;
+			cs[n - 1].mash = ar;
+			cs[n - 1].cost = ins_cost(mo, NULL, rt) + (sh ? ins_cost(ar ?
+			    "OpShiftRightArithmetic" : "OpShiftRightLogical", NULL,
+			    rt) : 0);
+			cs[n - 1].extra = extra;
+		}
+	}
 	(void)w;
 	return n;
+}
+
+/* the type struct { t, t } Op[US]MulExtended returns, declared before
+ * the first function */
+static int
+mulx_type(int t)
+{
+	char nm[48];
+	int i;
+
+	for (i = 0; i < SP.nmxty; i++)
+		if (T(SP.mxty[i])->m[0] == t)
+			return SP.mxty[i];
+	if (SP.nmxty == 4)
+		return -1;
+	snprintf(nm, sizeof nm, "%%ucas_mulx_%s", V.id[t].tok + 1);
+	i = idx(nm);
+	V.id[i].kind = K_TYPE;
+	memset(&V.id[i].t, 0, sizeof V.id[i].t);
+	V.id[i].t.k = S_STRUCT;
+	V.id[i].t.m[0] = V.id[i].t.m[1] = t;
+	V.id[i].t.nm = 2;
+	SP.mxty[SP.nmxty++] = i;
+	return i;
 }
 
 /* a constant made here is referenced by what is left */
@@ -6158,6 +6342,18 @@ cand_text(char *b, size_t n, const struct cand *c, const struct sins *I)
 			snprintf(b, n, "%s", c->v ? "true" : "false");
 		else
 			snprintf(b, n, "%llu", (unsigned long long)c->v);
+		return;
+	}
+	if (c->mulx) {
+		char hw[200];
+		snprintf(hw, sizeof hw, "OpCompositeExtract %s (%s %s %s) 1",
+		    I->opnd[0], c->op, V.id[c->a[0]].tok, V.id[c->a[1]].tok);
+		if (c->msh)
+			snprintf(b, n, "%s %s (%s) %d", c->mash ?
+			    "OpShiftRightArithmetic" : "OpShiftRightLogical",
+			    I->opnd[0], hw, c->msh);
+		else
+			snprintf(b, n, "%s", hw);
 		return;
 	}
 	if (c->via_u) {
@@ -6309,6 +6505,40 @@ apply(int k, const struct cand *c)
 			return;
 		SP.alias[I->res] = ci;
 		SP.dead[k] = 1;
+		return;
+	}
+	if (c->mulx) {
+		/* the multiply extended and its high word before k; k is the
+		 * extract, or the shift of it */
+		int st = mulx_type(rt), m, e = -1;
+		if (st < 0)
+			return;
+		m = new_ins(k, c->op, st, c->a[0], c->a[1]);
+		SP.nmulx++;
+		if (c->msh) {
+			struct sins *N;
+			e = new_ins(k, "OpCompositeExtract", rt, m, -1);
+			N = &V.in[SP.def[e]];
+			N->opnd[N->nop++] = strdup("1");
+			snprintf(N->text, 200, "%s = OpCompositeExtract %s %s 1",
+			    V.id[e].tok, N->opnd[0], N->opnd[1]);
+		}
+		I = &V.in[k];
+		for (i = 1; i < I->nop; i++)
+			free(I->opnd[i]);
+		I->nop = 1;
+		if (c->msh) {
+			snprintf(I->op, sizeof I->op, "%s", c->mash ?
+			    "OpShiftRightArithmetic" : "OpShiftRightLogical");
+			I->opnd[I->nop++] = strdup(V.id[e].tok);
+			I->opnd[I->nop++] = strdup(V.id[const_id(rt,
+			    (uint64_t)c->msh)].tok);
+		} else {
+			snprintf(I->op, sizeof I->op, "OpCompositeExtract");
+			I->opnd[I->nop++] = strdup(V.id[m].tok);
+			I->opnd[I->nop++] = strdup("1");
+		}
+		SP.rw[k] = 1;
 		return;
 	}
 	if (c->pre_op[0]) {
@@ -11581,6 +11811,19 @@ round_pass(const char *text)
 
 static char *orig_mod;	/* the module before the rewrites */
 
+/* an instruction the cost cover counts: a pure one, or a multiply
+ * extended (its struct result read through extracts) */
+static int
+cover_ins(int k)
+{
+	const struct sins *I = &V.in[k];
+
+	if (!SP.dead[k] && I->res >= 0 && (!strcmp(I->op, "OpUMulExtended") ||
+	    !strcmp(I->op, "OpSMulExtended")))
+		return 1;
+	return pure_ins(k);
+}
+
 /*
  * The live integer instructions as a DAG for the model's fusions
  * (fuse.c): in order, with their operands that are not such
@@ -11803,10 +12046,10 @@ spv_cover(struct fuse_tally *t)
 		if (SP.before[q] < 0 || SP.before[q] >= SP.orig_nin)
 			ord[no++] = q;
 	for (o = 0; o < no; o++)
-		if (pure_ins(ord[o]))
+		if (cover_ins(ord[o]))
 			gi[V.in[ord[o]].res] = nins++;
 	for (o = 0; o < no; o++)
-		if (pure_ins(k = ord[o]))
+		if (cover_ins(k = ord[o]))
 			for (i = first_arg(&V.in[k]); i < V.in[k].nop; i++) {
 				int a = res_of(idx(V.in[k].opnd[i]));
 				if (gi[a] < 0)
@@ -11827,7 +12070,7 @@ spv_cover(struct fuse_tally *t)
 		const struct sins *I = &V.in[k = ord[o]];
 		double mul;
 		int base;
-		if (!pure_ins(k))
+		if (!cover_ins(k))
 			continue;
 		j = gi[I->res];
 		G.id[j] = (uint32_t)k;
@@ -11853,7 +12096,7 @@ spv_cover(struct fuse_tally *t)
 	/* used by anything else: a result */
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
-		if (SP.dead[k] || pure_ins(k) || !strncmp(I->op, "OpName", 6) ||
+		if (SP.dead[k] || cover_ins(k) || !strncmp(I->op, "OpName", 6) ||
 		    !strncmp(I->op, "OpMemberName", 12) ||
 		    !strncmp(I->op, "OpDecorate", 10) ||
 		    !strncmp(I->op, "OpMemberDecorate", 16))
@@ -12310,6 +12553,12 @@ spirv_simplify(const char *src, double budget, int nofile)
 			if (k == first_fn)
 				sg_types_out(&out);
 			if (k == first_fn)
+				for (i = 0; i < SP.nmxty; i++)
+					sb_printf(&out, "%s = OpTypeStruct %s %s\n",
+					    V.id[SP.mxty[i]].tok,
+					    V.id[T(SP.mxty[i])->m[0]].tok,
+					    V.id[T(SP.mxty[i])->m[0]].tok);
+			if (k == first_fn)
 				for (i = 0; i < SP.nnewk; i++) {
 					struct sid *d = &V.id[SP.newk[i]];
 					if (!const_used(SP.newk[i]))
@@ -12317,6 +12566,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 					if (int_width(d->type) == 1)
 						sb_printf(&out, "%s = OpConstant%s %s\n", d->tok,
 						    d->c[0] ? "True" : "False", V.id[d->type].tok);
+					else if (T(d->type)->sign)	/* spirv-as reads it signed */
+						sb_printf(&out, "%s = OpConstant %s %lld\n", d->tok,
+						    V.id[d->type].tok, (long long)sx64(d->c[0],
+						    int_width(d->type)));
 					else
 						sb_printf(&out, "%s = OpConstant %s %llu\n", d->tok,
 						    V.id[d->type].tok, (unsigned long long)d->c[0]);
@@ -12633,6 +12886,20 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    "; by algebra mod 2^w, not SAT" : "", sl);
 		}
 		fputs(list.p, stdout);
+		if (SP.nmulx) {
+			/* a struct type the module did not have, and its
+			 * extracts: what spirv-val says of them */
+			char why[200];
+			int v = dw_validate(out.p ? out.p : "", why, sizeof why);
+			if (v == 1)
+				printf("  spirv-val accepts the written module\n");
+			else if (v == 0)
+				printf("  spirv-val REJECTS the written module: %s\n",
+				    why);
+			else
+				printf("  spirv-as and spirv-val cannot run here: the "
+				    "written module is not validated\n");
+		}
 	} else if (ntriv)
 		printf("  beyond those, no cheaper form of an integer instruction "
 		    "could be proved\n");

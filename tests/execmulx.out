@@ -1,0 +1,19 @@
+> animate exec %px = lane lanes 4 seed 1 nofile
+  input %px: uint, given
+exec of SPIR-V (28 instructions), entry %main, 4 lanes in lockstep, cost model gt1030
+  buffers start with random values (seed 1)
+  serial form:
+    %l = OpLoad %uint %px                                       0  t = 0..0  -> 0 1 2 3
+    %a = OpISub %uint %uint_0 %l                 iadd           1  t = 0..1  -> 0 4294967295 4294967294 4294967293
+    %b = OpIAdd %uint %a %uint_1000000           iadd           1  t = 1..2  -> 1000000 999999 999998 999997
+    %u = OpUMulExtended %us %a %b                imul           3  t = 2..5  -> {...} {...} {...} {...}
+    %ulo = OpCompositeExtract %uint %u 0                        0  t = 5..5  -> 0 4293967297 4292967300 4291967305
+    %uhi = OpCompositeExtract %uint %u 1                        0  t = 5..5  -> 0 999998 999997 999996
+    %sa = OpBitcast %int %a                                     0  t = 5..5  -> 0 -1 -2 -3
+    %sb = OpBitcast %int %b                                     0  t = 5..5  -> 1000000 999999 999998 999997
+    %s = OpSMulExtended %ss %sa %sb              imul           3  t = 5..8  -> {...} {...} {...} {...}
+    %slo = OpCompositeExtract %int %s 0                         0  t = 8..8  -> 0 -999999 -1999996 -2999991
+    %shi = OpCompositeExtract %int %s 1                         0  t = 8..8  -> 0 -1 -1 -1
+  time 8 for every lane; lanes busy 100% (0 lane-units idle: masked, or waiting for an atomic)
+  animation: 608x250, 225 frames at 30 fps (6.0 s, then the result for 1.5 s), 1 s = 1.3 cost units; 75457 bytes
+  (nofile: GIF checksum d575e298)
