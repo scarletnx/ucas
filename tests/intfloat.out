@@ -117,7 +117,7 @@ find ldz: rewrites by identities the model prices lower (cost 6 as written, unde
       f32(1 << k) is exact below 2^24: both are (1 << k)
 > lde(x: f32 in 1..2, k: u32 in 0..20) = asfloat(asint(x) + (i32(k) << 23))
 > equiv ld lde
-ld and lde are equal on the domain of ld (sampled, not proved; no SAT proof: a float or real value)
+ld and lde are equal on the domain of ld (sampled, not proved; no SAT proof: an integer to float conversion)
 > lg(x: u32 in 1..8000000) = 31 - clz(x)
 > find lg 1
 find lg: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030

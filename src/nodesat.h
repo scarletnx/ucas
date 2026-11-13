@@ -19,6 +19,9 @@ int nsat_equiv(const struct func *f, nid a, nid b, long budget,
     struct nsat_res *out);
 
 extern int nsat_narrow;	/* parameters' bits beyond their ranges are fixed */
+extern int nsat_ftz;	/* float operations flush subnormals (equiv ftz) */
+extern int nsat_floats;	/* floats are blasted (equiv's own question) */
+int nsat_has_float(const struct func *f, nid e);	/* or f's parameters */
 /* a counterexample's words of the `lanes` parameters, by slot and lane,
  * and which of them the circuit read */
 extern int64_t nsat_lanes[MAXP][SG_MAXW];

@@ -238,7 +238,11 @@ static const struct jcmd cmds[] = {
 	    {FN, NMO("var", " wrt %s", "the variable")}},
 	/* compare, search */
 	{"equiv", "equiv", 1, 0, "equal on F's domain? (with a counterexample)",
-	    {FN, F("g", " %s", "the other function")}},
+	    {FN, F("g", " %s", "the other function"),
+	    {"ftz", P_BOOL, 0, " ftz", "needed when f or g has a float: true, "
+	    "every float operation (a bit cast aside) reads a subnormal as the "
+	    "zero of its sign and gives one; false, subnormals kept (IEEE)",
+	    " noftz"}}},
 	{"find", "find", 1, 0, "cheaper implementations under the cost model",
 	    {FN, IO("n", " %s", "how many (5)"), IO("max", " max %s",
 	    "maximum cost")}},
@@ -1886,8 +1890,11 @@ build(struct req *r)
 		if ((v = jv_get(r->args, p->name)) == NULL)
 			continue;
 		if (p->type == P_BOOL) {
+			/* values: the fragment of false, where it says something */
 			if (v->t == J_TRUE)
 				sb_puts(&r->stmt, p->frag);
+			else if (p->values)
+				sb_puts(&r->stmt, p->values);
 			continue;
 		}
 		if (p->type == P_RINGMOD)
@@ -2752,6 +2759,8 @@ handle(const struct jv *rq)
 		return error_response(id, cmd, "bad_request", "\"args\" is an "
 		    "object");
 	r.args = a;
+	/* equiv of floats says whether subnormals flush (analyze.c) */
+	equiv_need_ftz = !strcmp(r.c->name, "equiv") && jv_get(a, "ftz") == NULL;
 	if ((v = jv_get(a, "files")) != NULL && v->t == J_STR)
 		fmode = !strcmp(v->s, "base64") ? REP_FILES_BASE64 :
 		    !strcmp(v->s, "both") ? REP_FILES_WRITE | REP_FILES_BASE64 :

@@ -22,6 +22,7 @@
  *                            give a real
  */
 #include "ucas.h"
+#include "nodesat.h"
 #include "cfront.h"
 #include "prove.h"
 #include "texalu.h"
@@ -230,7 +231,8 @@ static const char *const keywords[] = {
 };
 static const char *const stopwords[] = {
 	"basis", "max", "ops", "model", "as", "using", "to", "metric",
-	"nodes", "from", "wrt", "steps", "nocrit", "numerically", NULL
+	"nodes", "from", "wrt", "steps", "nocrit", "numerically", "ftz",
+	"noftz", NULL
 };
 
 static int
@@ -2508,7 +2510,7 @@ help(void)
 "commands (F is a function name or an expression like isqrt(x: u4))\n"
 "  show F | parse EXPR | table F [max n] | funcs | models | help\n"
 "  range F [nocrit] | domain F | wrap F | crit F | diff F [x]\n"
-"  equiv F G | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]\n"
+"  equiv F G [ftz|noftz] | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]\n"
 "  gates F [basis b] [max k] [nodes n] [as c]\n"
 "  find F [n] [max cost] | more [n]\n"
 "  cost F [model m] [consecutive i] | use m\n"
@@ -2853,6 +2855,8 @@ statement(struct P *p)
 	skip_nl(p);
 	if (pk(p) == T_EOF)
 		return;
+	/* a statement that failed inside equiv leaves no mode behind */
+	float_ftz = nsat_ftz = nsat_floats = 0;
 	diag_tok = p->i;
 	/* a line naming a ring (GF(2^8, aes) 0x57 * 0x83) is ring.c's, even
 	 * when hyper.c would read it as a value */
@@ -3213,10 +3217,14 @@ statement(struct P *p)
 				cmd_diff(f, k);
 			} else if (!strcmp(cmd, "equiv") || !strcmp(cmd, "fit") ||
 			    !strcmp(cmd, "error")) {
-				int metric = 0;
+				int metric = 0, ftz = -1;
 				accept(p, T_TILDE);
 				accept_kw(p, "to");
 				g = cmd_func(p);
+				if (!strcmp(cmd, "equiv") && accept_kw(p, "ftz"))
+					ftz = 1;
+				else if (!strcmp(cmd, "equiv") && accept_kw(p, "noftz"))
+					ftz = 0;
 				if (accept_kw(p, "metric")) {
 					if (accept_kw(p, "maxrel"))
 						metric = 0;
@@ -3230,7 +3238,7 @@ statement(struct P *p)
 				expect_eos(p);
 				notes_flush();
 				if (!strcmp(cmd, "equiv"))
-					cmd_equiv(f, g);
+					cmd_equiv(f, g, ftz);
 				else if (!strcmp(cmd, "fit"))
 					cmd_fit(f, g, metric);
 				else

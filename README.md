@@ -155,7 +155,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter; higher, partial and mixed derivatives, gradient, limits, series: see "Derivatives, limits and series" |
-| `equiv F G` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, two polynomials of degree 2 or more expanded mod 2^w ("proved by algebra: ..."; JSON method `algebra`, proof kind `derivation`), else bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" |
+| `equiv F G [ftz\|noftz]` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, two polynomials of degree 2 or more expanded mod 2^w ("proved by algebra: ..."; JSON method `algebra`, proof kind `derivation`), else bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" and "Proofs on floats" |
 | `monotonic F [x] [in a..b]` | increasing/decreasing (strictly or not), constant, or the maximal intervals of monotonicity with a witness pair x1 < x2; polynomials proved by the real roots of f', integer types exhaustively (and whether wrapping is what breaks it) |
 | `period F [x]`, `periodic F [x]` | the fundamental period: trigonometric subterms with linear arguments (2π/\|k\|, π/\|k\| for tan), `x % m`, `x & m`, combined by their lcm (proved), then the smaller fractions p/k (k <= 64) checked numerically; incommensurate periods (sin x + sin(√2 x)) are almost periodic, not periodic; integer domains searched exhaustively; otherwise a numeric search (not proved) |
 | `identify EXPR`, `identify LHS = RHS`, `identify F` | classify and list properties, each tagged proved/exhaustive/numeric: polynomials (degree, factors, roots), rational functions (poles, asymptotes), algebraic/transcendental/piecewise; equations in one variable (solutions), conics by B²-4AC and the 3x3 determinant (circle, ellipse, parabola, hyperbola, degenerate), lines, implicit curves; ODEs (`y'' + y = 0`, or `identify y` after `y' = ...`): order, linear, homogeneous, constant coefficients with the characteristic roots and solution basis, autonomous, separable, exact, Riccati |
@@ -220,8 +220,9 @@ undefined or different.  The circuit follows the evaluator exactly:
 a division or remainder by zero, a table index out of range and `int`
 overflow are undefined; `INT_MIN / -1` in `iN` wraps; `?:`, `&&` and
 `||` look only at the taken side; loops with constant bounds are
-unrolled (up to 256 iterations).  Not bit-blasted: floats and reals,
-`int` multiplication, `isqrt`, while loops; those stay sampled.
+unrolled (up to 256 iterations).  Not bit-blasted: reals, `int`
+multiplication, `isqrt`, while loops; those stay sampled.  Floats are
+(see "Proofs on floats").
 Multipliers are hard for SAT (x*y against y*x gives up), so the budget
 is 100000 conflicts or 2 s of CPU.
 
@@ -245,6 +246,55 @@ in one of them; past those, SAT as before (tests/equivalg.ucas):
 > g(y: u8, t: u8, w: u8, x: u8) = (y*w + x)*t
 > equiv f g
 f and g are equal on the domain of f (proved by algebra: both sides expand to one polynomial in y, t, w, x mod 2^8)
+```
+
+### Proofs on floats
+
+`f16`, `f32` and `f64` formulas go to the solver too (src/fpsat.c):
+`+`, `-`, `*`, `-x`, `abs`, `copysign`, `sign`, `min`, `max`, the
+comparisons, `?:`, conversions between the three widths and `asuint`,
+`asint`, `asfloat`, as IEEE 754 has them (rounded to nearest even,
+subnormals, signed zeros, infinities, NaN).  Each operation's circuit
+is checked by `--sat-selftest`: every pair of a 6-bit format in all four
+rounding directions against exact arithmetic, the evaluator's own
+results in each width, and deliberate defects that those checks must
+catch.  Not yet: division, square root, `fma`, conversions to and from
+integers, `floor` and `ceil`; a formula with one stays sampled, and the
+answer says which.
+
+`equiv F G ftz` flushes subnormals: every float operation (a bit cast
+aside) reads a subnormal operand as the zero of its sign and gives one
+for a subnormal result, in the evaluator and in the circuit alike;
+`noftz`, or nothing, keeps them (IEEE).  Over JSON and MCP an equiv of
+float formulas needs `"ftz": true` or `false` and is refused without it;
+in English, "with subnormals flushed to zero" (or "keeping subnormals").
+
+Two values are equal as `equiv` compares them: both NaN, or `==` (so -0
+and +0 are one value; compare `asuint` for the sign).  A parameter's
+domain is the evaluator's: the finite values in its range, -0 read as
++0; a `u32` read by `asfloat` covers every bit pattern.  What the host's
+libm leaves open is open in the circuit too: the payload of a NaN that
+arithmetic makes, which zero `min(+0, -0)` is, what `min` of a
+signaling NaN gives.
+
+A value stays unpacked between operations (the significand an integer
+of any width, the exponent that of its bit 0), and a rounding that the
+exponent's bounds and the significand's width show to be exact folds
+away.  So `x * y` and `f32(f64(x) * f64(y))` build one circuit and are
+proved with no search, and so are `x + y` and `y + x`; two different
+multipliers under a select are beyond the solver, so a proof about one
+is split into lemmas (tests/fmulscale.ucas: FMUL's scale without
+doubles, ScarletNX #2082):
+
+```
+> l2a(x: f32, y: f32) = x * y
+> l2b(x: f32, y: f32) = f32(f64(x) * f64(y))
+> equiv l2a l2b
+l2a and l2b are equal on the domain of l2a (proved by SAT: 16609 AIG nodes, 0 conflicts)
+> u1(x: f16, y: f16) = x + y
+> u2(x: f16, y: f16) = x == f16(1) && y == f16(2^(-10)) ? x : x + y
+> equiv u1 u2
+u1 and u2 differ, e.g. x=1, y=0.00097656: 1.001 vs 1 (found by SAT, checked by evaluation)
 ```
 
 ## Symbolic algebra

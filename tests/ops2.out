@@ -36,4 +36,4 @@ cost of fma(x, x, 1) under gt1030: 1 (1 operations, shared subterms counted once
 > h(x: f32 in -1..1) = copysign(abs(x), x)
 > g(x: f32 in -1..1) = x
 > equiv h g
-h and g are equal on the domain of h (sampled, not proved; no SAT proof: a float or real value)
+h and g are equal on the domain of h (proved by SAT: 1488 AIG nodes, 0 conflicts)

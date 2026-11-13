@@ -13,6 +13,15 @@
  * evaluator: only the taken arm matters.  Machine integers wrap; INT_MIN /
  * -1 in iN wraps to INT_MIN (remainder 0), as the evaluator computes it.
  *
+ * Floats (K_FLOAT) are fpsat.c's circuits: a float node keeps its
+ * unpacked value (an fpv in B.f) beside the word, which holds its bits
+ * with a NaN's payload read as the quiet NaN, so that comparisons and the
+ * miter see equal values as equal literals; the payload is packed only
+ * where a bit cast reads it.  A NaN that arithmetic makes has a free
+ * payload, as the host's does; a binary32 parameter reads quiet, as the
+ * evaluator holds it in a double; its domain is the evaluator's: the
+ * finite values within its range, -0 read as +0.
+ *
  * Loops (O_LOOP) with constant bounds are unrolled: each iteration's body
  * is blasted in a context binding the index and the states; subterms that
  * do not read the loop's variables come from the enclosing context.
@@ -36,6 +45,7 @@
 struct bv {
 	struct word v;
 	lit d;
+	int32_t f;                /* a float's unpacked value in B.f, or -1 */
 };
 
 struct nctx {
@@ -52,6 +62,8 @@ static struct {
 	struct bv *v;
 	uint32_t n, cap;
 	const char *why;          /* unsupported: what */
+	struct fpv *fl;           /* floats' unpacked values */
+	uint32_t nfl, flcap;
 	struct word par[MAXP];    /* parameters, 64-bit */
 	int npar;
 	const struct func *f;
@@ -125,6 +137,7 @@ newval(void)
 		B.v = xrealloc(B.v, B.cap * sizeof *B.v);
 	}
 	memset(&B.v[B.n], 0, sizeof B.v[B.n]);
+	B.v[B.n].f = -1;
 	return B.n++;
 }
 
@@ -136,14 +149,16 @@ unsup(const char *why)
 	return 0;
 }
 
-/* the width of a type in bits, 0 if it is not a machine integer */
+/* the width of a type in bits, 0 if it is neither a machine integer nor
+ * an IEEE float */
 static int
 bw(ty_t t)
 {
 	switch (TYK(t)) {
 	case K_BOOL: return 1;
 	case K_UINT:
-	case K_SINT: return TYW(t);
+	case K_SINT:
+	case K_FLOAT: return TYW(t);
 	case K_INT:
 	case K_LIT: return 64;
 	}
@@ -204,6 +219,8 @@ below(const struct word *a, ty_t t, uint64_t lim)
 static uint32_t blast(struct nctx *c, nid n);
 
 static uint32_t blast_loop(struct nctx *c, nid n);
+
+static uint32_t blast_flt(struct nctx *c, nid n);
 
 /*
  * A packed dot product (dot.c): lane k of a 32-bit word is bits
@@ -283,6 +300,12 @@ blast1(struct nctx *c, nid n)
 	uint32_t a = 0, b = 0, k, res;
 	struct aig *g = B.g;
 
+	/* a float, or an integer read from one (N.a is a node only for
+	 * some operations) */
+	if (TYK(t) == K_FLOAT || (TYK(ta) == K_FLOAT && ((opinfo[op].fl &
+	    OF_CMP) || op == O_CAST || op == O_ASUINT || op == O_ASINT ||
+	    op == O_LNOT || op == O_LAND || op == O_LOR)))
+		return blast_flt(c, n);
 	if (op != O_TABLE && w == 0) {
 		unsup("a float or real value");
 		w = 1;
@@ -332,6 +355,10 @@ blast1(struct nctx *c, nid n)
 		unsup("a table outside an index");
 		break;
 	case O_SEL:
+		if (TYK(ta) == K_FLOAT) {
+			unsup("a float condition");
+			break;
+		}
 		a = blast(c, N.a[n]);
 		b = blast(c, N.b[n]);
 		k = blast(c, N.c[n]);
@@ -607,6 +634,329 @@ blast1(struct nctx *c, nid n)
 	return res;
 }
 
+
+#define FV(i) (&B.fl[B.v[i].f])
+
+/* a new value for a float: its unpacked form, and its bits with any NaN
+ * read as the quiet one */
+static uint32_t
+fval(const struct fpv *x, ty_t t, lit d)
+{
+	uint32_t r;
+
+	if (B.nfl == B.flcap) {
+		B.flcap = newcap(B.flcap, B.nfl + 1);
+		B.fl = xrealloc(B.fl, B.flcap * sizeof *B.fl);
+	}
+	B.fl[B.nfl] = *x;
+	r = newval();
+	B.v[r].f = (int32_t)B.nfl++;
+	fp_pack(B.g, &B.v[r].v, x, fp_fmt(TYW(t)), 0);
+	B.v[r].d = d;
+	return r;
+}
+
+/* the sign bit, a NaN's own included (copysign reads it) */
+static lit
+fsign(const struct fpv *x)
+{
+	return aig_mux(B.g, x->nan, x->nb.b[x->nb.w - 1], x->s);
+}
+
+/*
+ * nsat_ftz: a subnormal x (bits its packed word) as the zero of its sign,
+ * in both forms
+ */
+int nsat_ftz;
+
+/*
+ * nsat_floats: floats are blasted (equiv's own question); elsewhere (find,
+ * simplify, the C frontend) a candidate on floats stays sampled, as each
+ * proof may take the solver's whole budget
+ */
+int nsat_floats;
+
+static void
+flush(struct fpv *x, struct word *bits, const struct fpfmt *F)
+{
+	int fb = F->p - 1, i;
+	lit ez = L_TRUE, fz = L_TRUE, sub;
+	struct fpv z;
+
+	/* m >= 1, so 2^elo or more: nothing below 2^emin, nothing to flush
+	 * (an f32 widened to f64 stays one circuit) */
+	if (x->elo >= 2 - (1 << (F->eb - 1)))
+		return;
+	for (i = 0; i < fb; i++)
+		fz = aig_and(B.g, fz, L_NOT(bits->b[i]));
+	for (i = 0; i < F->eb; i++)
+		ez = aig_and(B.g, ez, L_NOT(bits->b[fb + i]));
+	sub = aig_and(B.g, ez, L_NOT(fz));
+	if (sub == L_FALSE)
+		return;
+	fp_const(B.g, &z, 0, F);
+	z.s = x->s;
+	fp_mux(B.g, x, sub, &z, x);
+	for (i = 0; i < bits->w - 1; i++)
+		bits->b[i] = aig_and(B.g, bits->b[i], L_NOT(sub));
+}
+
+/* an operation's float result, flushed under ftz */
+static uint32_t
+fres(struct fpv *r, ty_t t, lit d)
+{
+	if (nsat_ftz) {
+		struct word w;
+		fp_pack(B.g, &w, r, fp_fmt(TYW(t)), 0);
+		flush(r, &w, fp_fmt(TYW(t)));
+	}
+	return fval(r, t, d);
+}
+
+/* what a float operation that has no circuit is called */
+static const char *
+flt_unsup(int op)
+{
+	switch (op) {
+	case O_DIV: return "a float division";
+	case O_MOD: return "a float remainder";
+	case O_POW: return "a float power";
+	case O_SQRT: return "a float square root";
+	case O_FMA: return "a float fused multiply-add";
+	case O_FLOOR: case O_CEIL: return "a float rounding to an integer";
+	case O_LAND: case O_LOR: case O_LNOT: return "a float truth value";
+	case O_ATOMIC: return "a float atomic";
+	}
+	return "a float function";
+}
+
+/*
+ * A node of float type, or one that reads a float (a comparison, a bit
+ * cast): fpsat.c's circuits, rounded to nearest even as the evaluator
+ * rounds.
+ */
+static uint32_t
+blast_flt(struct nctx *c, nid n)
+{
+	int op = N.op[n];
+	ty_t t = N.ty[n], ta = N.a[n] ? N.ty[N.a[n]] : 0;
+	const struct fpfmt *F = TYK(t) == K_FLOAT ? fp_fmt(TYW(t)) : NULL;
+	const struct fpfmt *FA = TYK(ta) == K_FLOAT ? fp_fmt(TYW(ta)) : NULL;
+	struct aig *g = B.g;
+	struct fpv r, xa, xb;
+	struct word w, x, wa, wb;
+	uint32_t a = 0, b = 0, k, res;
+	lit d = L_TRUE;
+	int has_a, has_b;
+
+	if (!nsat_floats) {
+		unsup("a float or real value");
+		op = O_NONE;
+	}
+	switch (op) {
+	case O_CONST:
+		fp_const(g, &r, fbits(TYW(t), N.kr[n]), F);
+		return fval(&r, t, L_TRUE);
+	case O_VAR: {
+		int s = (int)N.ki[n];
+		struct nctx *q = c;
+		while (q && (s >= 64 || !((q->bound >> s) & 1)))
+			q = q->up;
+		if (q)
+			x = q->env[s];
+		else if (s < B.npar)
+			x = B.par[s];
+		else {
+			unsup(s >= SG_FREE_SLOT ? "a float `lanes` parameter" :
+			    "a free variable");
+			w_const(&x, 64, 0);
+		}
+		w_resize(&w, &x, TYW(t), 0);
+		fp_unpack(g, &r, &w, F);
+		return fval(&r, t, L_TRUE);
+	}
+	case O_LOOP:
+		k = blast_loop(c, n);
+		fp_unpack(g, &r, V(k), F);
+		return fval(&r, t, D(k));
+	case O_SEL:
+		if (TYK(ta) == K_FLOAT) {
+			unsup("a float condition");
+			break;
+		}
+		a = blast(c, N.a[n]);
+		b = blast(c, N.b[n]);
+		k = blast(c, N.c[n]);
+		{
+			lit s = nz(V(a));
+			fp_mux(g, &r, s, FV(b), FV(k));
+			d = aig_and(g, D(a), aig_mux(g, s, D(b), D(k)));
+		}
+		return fval(&r, t, d);
+	case O_INDEX: {
+		nid tab = N.a[n];
+		uint32_t cnt = N.b[tab], j;
+		struct fpv e;
+		lit de = L_FALSE;
+		b = blast(c, N.b[n]);
+		ext64(&x, V(b), N.ty[N.b[n]]);
+		d = aig_and(g, D(b), below(V(b), N.ty[N.b[n]], cnt));
+		fp_const(g, &r, 0, F);
+		for (j = cnt; j-- > 0;) {
+			uint32_t v = blast(c, N.lst[N.a[tab] + j]);
+			struct word y;
+			lit hit;
+			w_const(&y, 64, j);
+			hit = w_eq(g, &x, &y);
+			e = *FV(v);
+			fp_mux(g, &r, hit, &e, &r);
+			de = aig_mux(g, hit, D(v), de);
+		}
+		return fval(&r, t, aig_and(g, d, de));
+	}
+	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
+	case O_FETCH_MCLAMP: case O_FETCH_BORDER:
+		return blast(c, tex_expand(n));
+	}
+	/* a value's index can be 0: has_a and has_b say whether there is one */
+	has_a = N.a[n] != 0;
+	has_b = opinfo[op].arity >= 2 && N.b[n] != 0;
+	if (has_a)
+		a = blast(c, N.a[n]);
+	if (has_b)
+		b = blast(c, N.b[n]);
+	if (has_a)
+		d = D(a);
+	if (has_b)
+		d = aig_and(g, d, D(b));
+	if ((op == O_ADD || op == O_SUB || op == O_MUL || op == O_MIN ||
+	    op == O_MAX || op == O_COPYSIGN) && (TYW(N.ty[N.b[n]]) != TYW(t) ||
+	    TYW(ta) != TYW(t))) {
+		unsup("floats of two widths in one operation");
+		op = O_NONE;
+	}
+	/* the float operands, flushed under ftz but for a bit cast */
+	if (FA) {
+		xa = *FV(a);
+		wa = *V(a);
+		if (nsat_ftz && op != O_ASUINT && op != O_ASINT && op != O_BARRIER)
+			flush(&xa, &wa, FA);
+	}
+	if (has_b && TYK(N.ty[N.b[n]]) == K_FLOAT) {
+		xb = *FV(b);
+		wb = *V(b);
+		if (nsat_ftz)
+			flush(&xb, &wb, fp_fmt(TYW(N.ty[N.b[n]])));
+	}
+	switch (op) {
+	case O_NEG:
+	case O_ABS:
+		r = xa;
+		r.s = op == O_NEG ? L_NOT(r.s) : L_FALSE;
+		r.nb.b[r.nb.w - 1] = op == O_NEG ? L_NOT(r.nb.b[r.nb.w - 1]) :
+		    L_FALSE;
+		return fres(&r, t, d);
+	case O_COPYSIGN: {
+		lit s = fsign(&xb);
+		r = xa;
+		r.s = s;
+		r.nb.b[r.nb.w - 1] = s;
+		return fres(&r, t, d);
+	}
+	case O_ADD:
+	case O_SUB:
+		if (op == O_SUB)
+			xb.s = L_NOT(xb.s);
+		fp_add(g, &r, &xa, &xb, F, FR_RNE);
+		return fres(&r, t, d);
+	case O_MUL:
+		fp_mul(g, &r, &xa, &xb, F, FR_RNE);
+		return fres(&r, t, d);
+	case O_MIN:
+	case O_MAX:
+		fp_minmax(g, &r, &xa, &wa, &xb, &wb, op == O_MAX, F);
+		return fres(&r, t, d);
+	case O_SIGN: {
+		/* NaN stays, else 1, -1 or +0 */
+		struct fpv one, mone, zero;
+		struct word z;
+		lit gt, lt;
+		fp_const(g, &one, fbits(TYW(t), 1.0), F);
+		fp_const(g, &mone, fbits(TYW(t), -1.0), F);
+		fp_const(g, &zero, 0, F);
+		w_const(&z, TYW(t), 0);
+		gt = fp_lt(g, &z, &wa, F);
+		lt = fp_lt(g, &wa, &z, F);
+		fp_mux(g, &r, lt, &mone, &zero);
+		fp_mux(g, &r, gt, &one, &r);
+		fp_mux(g, &r, xa.nan, &xa, &r);
+		return fres(&r, t, d);
+	}
+	case O_CAST:
+		if (FA && F) {
+			if (TYW(ta) == TYW(t))
+				r = xa;
+			else
+				fp_round(g, &r, &xa, F, FR_RNE);
+			return fres(&r, t, d);
+		}
+		unsup(FA ? "a float to integer conversion" :
+		    "an integer to float conversion");
+		break;
+	case O_ASFLOAT:
+		w_resize(&w, V(a), TYW(t), 0);
+		if (TYW(t) == 32)
+			fp_quiet(g, &w, F);
+		fp_unpack(g, &r, &w, F);
+		return fval(&r, t, d);
+	case O_BARRIER:
+		r = xa;
+		return fval(&r, t, d);
+	case O_ASUINT:
+	case O_ASINT:
+		fp_pack(g, &w, &xa, FA, 1);
+		res = newval();
+		w_resize(&B.v[res].v, &w, bw(t), 0);
+		B.v[res].d = d;
+		return res;
+	case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT: case O_GE: {
+		lit v;
+		switch (op) {
+		case O_EQ: v = fp_eq(g, &wa, &wb, FA); break;
+		case O_NE: v = L_NOT(fp_eq(g, &wa, &wb, FA)); break;
+		case O_LT: v = fp_lt(g, &wa, &wb, FA); break;
+		case O_GT: v = fp_lt(g, &wb, &wa, FA); break;
+		case O_LE:
+			v = fp_lt(g, &wa, &wb, FA);
+			v = aig_or(g, v, fp_eq(g, &wa, &wb, FA));
+			break;
+		default:
+			v = fp_lt(g, &wb, &wa, FA);
+			v = aig_or(g, v, fp_eq(g, &wa, &wb, FA));
+			break;
+		}
+		res = newval();
+		w_const(&B.v[res].v, bw(t) ? bw(t) : 1, 0);
+		B.v[res].v.b[0] = v;
+		B.v[res].d = d;
+		return res;
+	}
+	case O_NONE:
+		break;
+	default:
+		unsup(flt_unsup(op));
+	}
+	/* unsupported: a placeholder of the node's kind */
+	if (F) {
+		fp_const(g, &r, 0, F);
+		return fval(&r, t, L_TRUE);
+	}
+	res = newval();
+	w_const(&B.v[res].v, bw(t) ? bw(t) : 1, 0);
+	B.v[res].d = L_TRUE;
+	return res;
+}
+
 static uint32_t
 blast(struct nctx *c, nid n)
 {
@@ -619,13 +969,32 @@ blast(struct nctx *c, nid n)
 		return *slot;
 	if (B.why || aig_nodes(B.g) > MAXAIG) {
 		unsup("too large a circuit");
-		r = newval();
-		w_const(&B.v[r].v, 1, 0);
-		B.v[r].d = L_TRUE;
+		if (TYK(N.ty[n]) == K_FLOAT) {
+			struct fpv z;
+			fp_const(B.g, &z, 0, fp_fmt(TYW(N.ty[n])));
+			r = fval(&z, N.ty[n], L_TRUE);
+		} else {
+			r = newval();
+			w_const(&B.v[r].v, 1, 0);
+			B.v[r].d = L_TRUE;
+		}
 	} else
 		r = blast1(c, n);
 	*ctx_slot(c, n) = r;
 	return r;
+}
+
+/* a value's bits as a loop keeps them: a float's NaN with its payload */
+static void
+state_bits(struct word *r, uint32_t v, ty_t t)
+{
+	struct word w;
+
+	if (TYK(t) == K_FLOAT) {
+		fp_pack(B.g, &w, FV(v), fp_fmt(TYW(t)), 1);
+		ext64(r, &w, t);
+	} else
+		ext64(r, V(v), t);
 }
 
 static uint32_t
@@ -669,7 +1038,7 @@ blast_loop(struct nctx *c, nid n)
 	for (k = 0; k < m; k++) {
 		uint32_t v = blast(&cc, sg_lower(loops.init[s + k]));
 		d = aig_and(B.g, d, D(v));
-		ext64(&st[k], V(v), N.ty[loops.init[s + k]]);
+		state_bits(&st[k], v, N.ty[loops.init[s + k]]);
 	}
 	ctx_free(&cc);
 	for (it = 0; it < trip && !B.why; it++) {
@@ -681,7 +1050,7 @@ blast_loop(struct nctx *c, nid n)
 		for (k = 0; k < m; k++) {
 			uint32_t v = blast(&cc, sg_lower(loops.next[s + k]));
 			d = aig_and(B.g, d, D(v));
-			ext64(&nx[k], V(v), N.ty[loops.next[s + k]]);
+			state_bits(&nx[k], v, N.ty[loops.next[s + k]]);
 		}
 		for (k = 0; k < m; k++)
 			st[k] = nx[k];
@@ -730,6 +1099,8 @@ narrow_input(struct word *x, const struct param *p)
 	int64_t lo, hi;
 	int k, i;
 
+	if (TYK(p->ty) == K_FLOAT)
+		return;
 	if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64 && (!p->ranged ||
 	    p->lo < 0 || p->hi < 0))
 		return;
@@ -745,6 +1116,90 @@ narrow_input(struct word *x, const struct param *p)
 			break;
 	for (i = k; i < x->w; i++)
 		x->b[i] = x->b[k - 1];
+}
+
+/*
+ * A float parameter's domain, as the evaluator enumerates it (eval.c,
+ * diter_init): the finite values whose ordered keys lie within the
+ * range's (the whole finite line without one), -0 being +0's key.
+ */
+static lit
+flt_domain(const struct param *p, const struct word *x)
+{
+	int w = TYW(p->ty), i;
+	double mx = w == 32 ? 3.4028234663852886e38 : w == 16 ? 65504.0 :
+	    1.7976931348623157e308;
+	double rlo = p->ranged ? p->rlo : -mx, rhi = p->ranged ? p->rhi : mx;
+	int64_t lo = fkey(w, rlo), hi = fkey(w, rhi);
+	struct word mag, key, neg, k;
+	lit mz = L_TRUE, r;
+
+	if (fromkey(w, lo) < rlo)
+		lo++;
+	if (fromkey(w, hi) > rhi)
+		hi--;
+	if (hi < lo)
+		return L_FALSE;
+	w_const(&mag, 64, 0);
+	for (i = 0; i < w - 1; i++) {
+		mag.b[i] = x->b[i];
+		mz = aig_and(B.g, mz, L_NOT(x->b[i]));
+	}
+	w_neg(B.g, &neg, &mag);
+	w_mux(B.g, &key, x->b[w - 1], &neg, &mag);
+	w_const(&k, 64, (uint64_t)lo);
+	r = L_NOT(w_slt(B.g, &key, &k));
+	w_const(&k, 64, (uint64_t)hi);
+	r = aig_and(B.g, r, L_NOT(w_slt(B.g, &k, &key)));
+	return aig_and(B.g, r, L_NOT(aig_and(B.g, x->b[w - 1], mz)));
+}
+
+static int
+has_flt(nid e, uint8_t *seen)
+{
+	int op;
+
+	if (!e || seen[e])
+		return 0;
+	seen[e] = 1;
+	op = N.op[e];
+	if (TYK(N.ty[e]) == K_FLOAT)
+		return 1;
+	if (op == O_CONST || op == O_VAR)
+		return 0;
+	if (op == O_INDEX) {
+		nid tab = N.a[e];
+		uint32_t j;
+		for (j = 0; j < N.b[tab]; j++)
+			if (has_flt(N.lst[N.a[tab] + j], seen))
+				return 1;
+		return has_flt(N.b[e], seen);
+	}
+	if (op == O_LOOP) {
+		uint32_t le = loop_ent(e), s = loops.st[le], k;
+		for (k = 0; k < loops.nst[le]; k++)
+			if (has_flt(loops.init[s + k], seen) ||
+			    has_flt(loops.next[s + k], seen))
+				return 1;
+	}
+	if (op == O_TABLE)
+		return 0;
+	return has_flt(N.a[e], seen) || has_flt(N.b[e], seen) ||
+	    (opinfo[op].arity >= 3 && has_flt(N.c[e], seen));
+}
+
+/* a float in f's parameters, its where clause or e */
+int
+nsat_has_float(const struct func *f, nid e)
+{
+	uint8_t *seen = xcalloc(N.n, 1);
+	int j, r = 0;
+
+	for (j = 0; j < f->np; j++)
+		r |= TYK(f->p[j].ty) == K_FLOAT;
+	r = r || has_flt(e, seen) || has_flt(f->where, seen);
+	free(seen);
+	return r;
 }
 
 int
@@ -764,7 +1219,7 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 {
 	struct nctx root;
 	uint32_t va, vb, vw = 0;
-	lit assume = L_TRUE, goal;
+	lit assume = L_TRUE, goal, ne;
 	int j, r;
 	nid where = sg_lower(f->where);
 
@@ -773,9 +1228,11 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	b = sg_lower(b);
 	memset(out, 0, sizeof *out);
 	memset(&B, 0, sizeof B);
-	if (!nsat_supported(f) || !bw(N.ty[a])) {
+	if (!nsat_supported(f) || !bw(N.ty[a]) || (!nsat_floats &&
+	    (!TY_ISINT(N.ty[a]) || nsat_has_float(f, 0)))) {
 		out->status = -2;
-		out->why = "a float or real parameter or result";
+		out->why = nsat_floats ? "a real parameter or result" :
+		    "a float or real parameter or result";
 		return -2;
 	}
 	B.g = aig_new();
@@ -785,12 +1242,21 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	for (j = 0; j < f->np; j++)
 		if (f->p[j].lanes && !B.lw)
 			B.lw = xcalloc((size_t)MAXP * SG_MAXW, sizeof *B.lw);
+	fp_err = NULL;
 	for (j = 0; j < f->np; j++) {
 		struct word x;
-		w_input(B.g, &x, bw(f->p[j].ty));
+		ty_t pt = f->p[j].ty;
+		w_input(B.g, &x, bw(pt));
+		if (TYK(pt) == K_FLOAT) {
+			if (TYW(pt) == 32)
+				fp_quiet(B.g, &x, fp_fmt(32));
+			assume = aig_and(B.g, assume, flt_domain(&f->p[j], &x));
+			ext64(&B.par[j], &x, pt);
+			continue;
+		}
 		if (nsat_narrow)
 			narrow_input(&x, &f->p[j]);
-		ext64(&B.par[j], &x, f->p[j].ty);
+		ext64(&B.par[j], &x, pt);
 		assume = aig_and(B.g, assume, in_bounds(&f->p[j], &B.par[j]));
 	}
 	b = mk_cast(N.ty[a], b);
@@ -801,6 +1267,8 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	vb = blast(&root, b);
 	if (where)
 		assume = aig_and(B.g, assume, aig_and(B.g, D(vw), nz(V(vw))));
+	if (fp_err)
+		unsup(fp_err);
 	if (B.why) {
 		out->status = -2;
 		out->why = B.why;
@@ -808,8 +1276,12 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 		goto done;
 	}
 	assume = aig_and(B.g, assume, B.lassume);
+	/* floats differ as the evaluator's equiv sees them: not both NaN,
+	 * and not == (so -0 and +0 are one value) */
+	ne = TYK(N.ty[a]) == K_FLOAT ? L_NOT(fp_same(B.g, V(va), V(vb),
+	    fp_fmt(TYW(N.ty[a])))) : w_ne(B.g, V(va), V(vb));
 	goal = aig_and(B.g, assume, aig_and(B.g, D(va), aig_or(B.g,
-	    L_NOT(D(vb)), w_ne(B.g, V(va), V(vb)))));
+	    L_NOT(D(vb)), ne)));
 	out->nodes = aig_nodes(B.g);
 	aig_seconds = NSAT_SECONDS;
 	r = aig_sat(B.g, goal, budget);
@@ -831,6 +1303,8 @@ done:
 	aig_free(B.g);
 	free(B.v);
 	free(B.lw);
+	free(B.fl);
 	memset(&B, 0, sizeof B);
+	fp_err = NULL;
 	return out->status;
 }

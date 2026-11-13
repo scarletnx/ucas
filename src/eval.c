@@ -1013,11 +1013,31 @@ fma16(double a, double b, double c)
  * rounded double is rounding the exact value).  NaN and inf are
  * ordinary values; the flags only record where they first appear.
  */
+/*
+ * float_ftz (equiv's `ftz`): every float operation but a bit cast reads a
+ * subnormal operand as the zero of its sign and gives one for a
+ * subnormal result.
+ */
+int float_ftz;
+
+double
+fflush0(int w, double v)
+{
+	double mn = w == 16 ? 6.103515625e-05 : w == 32 ? 1.1754943508222875e-38 :
+	    2.2250738585072014e-308;
+
+	return v != 0 && fabs(v) < mn ? copysign(0.0, v) : v;
+}
+
 double
 scalar_float(int op, int w, double a, double b, uint8_t *fl)
 {
 	double r;
 
+	if (float_ftz) {
+		a = fflush0(w, a);
+		b = fflush0(w, b);
+	}
 	switch (op) {
 	case O_ADD: r = a + b; break;
 	case O_SUB: r = a - b; break;
@@ -1069,6 +1089,8 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 		return 0;
 	}
 	r = fround(w, r);
+	if (float_ftz)
+		r = fflush0(w, r);
 	if (isnan(r) && !isnan(a) && !isnan(b))
 		*fl |= F_NAN;
 	if (isinf(r) && !isinf(a) && !isinf(b))
@@ -1421,9 +1443,15 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					orr[i] = 0;
 					continue;
 				}
-				orr[i] = fw == 32 ? fma32(av[i], bv[i], cv[i]) :
-				    fw == 16 ? fma16(av[i], bv[i], cv[i]) :
-				    fma64(av[i], bv[i], cv[i]);
+				if (fw && float_ftz) {
+					double x = fflush0(fw, av[i]), y = fflush0(fw, bv[i]);
+					double z = fflush0(fw, cv[i]);
+					orr[i] = fflush0(fw, fw == 32 ? fma32(x, y, z) :
+					    fw == 16 ? fma16(x, y, z) : fma64(x, y, z));
+				} else
+					orr[i] = fw == 32 ? fma32(av[i], bv[i], cv[i]) :
+					    fw == 16 ? fma16(av[i], bv[i], cv[i]) :
+					    fma64(av[i], bv[i], cv[i]);
 				if (fw && isnan(orr[i]) && !isnan(av[i]) &&
 				    !isnan(bv[i]) && !isnan(cv[i]))
 					f |= F_NAN;
@@ -1595,6 +1623,10 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 				const double *av = COLR(p, a);
 				for (i = 0; i < np; i++) {
 					orr[i] = fw ? fround(fw, av[i]) : av[i];
+					if (fw && float_ftz)
+						orr[i] = fflush0(fw, fround(fw,
+						    TYK(p->ty[a]) == K_FLOAT ?
+						    fflush0(TYW(p->ty[a]), av[i]) : av[i]));
 					of[i] = af[i] & F_UNDEF;
 				}
 			} else if (real && fw) {
@@ -1634,6 +1666,9 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 						o[i] = inorm(t, fbits(TYW(p->ty[a]), av[i]));
 					else if (op == O_CAST)
 						o[i] = real_to_int(t, av[i], &f);
+					else if (float_ftz && TYK(p->ty[a]) == K_FLOAT)
+						o[i] = scalar_real(op, fflush0(TYW(p->ty[a]),
+						    av[i]), fflush0(TYW(p->ty[a]), bv[i]), &f) != 0;
 					else
 						o[i] = scalar_real(op, av[i], bv[i], &f) != 0;
 					of[i] = f;

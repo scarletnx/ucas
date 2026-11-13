@@ -2061,25 +2061,32 @@ point_differs(const struct func *f, nid a, nid b, const int64_t *in,
 	roots[1] = mk_cast(t, b);
 	roots[2] = f->where;
 	plan_build(&p, roots, 3, 0);
+	/* a float parameter comes as its bits */
 	for (j = 0; j < f->np; j++)
-		in_i[(size_t)j * CH] = int_norm(f->p[j].ty, in[j]);
+		if (TYK(f->p[j].ty) == K_FLOAT)
+			in_r[(size_t)j * CH] = frombits(TYW(f->p[j].ty),
+			    (uint64_t)in[j]);
+		else
+			in_i[(size_t)j * CH] = int_norm(f->p[j].ty, in[j]);
 	plan_run(&p, 1, in_i, in_r);
 	valid_mask(&p, f->where ? p.root[2] : NOTOK, 1, ok);
 	la = p.root[0];
 	lb = p.root[1];
 	if (ok[0] && !(COLF(&p, la)[0] & F_UNDEF)) {
 		int ub = COLF(&p, lb)[0] & F_UNDEF;
-		if (ub || COLI(&p, la)[0] != COLI(&p, lb)[0]) {
+		if (ub || !same_val(t, COLI(&p, la)[0], COLR(&p, la)[0],
+		    COLI(&p, lb)[0], COLR(&p, lb)[0])) {
 			bad = 1;
 			if (wit) {
 				fmt_point(wit, f, in_i, in_r, 0);
 				sb_puts(wit, ": ");
-				fmt_val(wit, t, COLI(&p, la)[0], 0);
+				fmt_val(wit, t, COLI(&p, la)[0], COLR(&p, la)[0]);
 				sb_puts(wit, " vs ");
 				if (ub)
 					sb_puts(wit, "undefined");
 				else
-					fmt_val(wit, t, COLI(&p, lb)[0], 0);
+					fmt_val(wit, t, COLI(&p, lb)[0],
+					    COLR(&p, lb)[0]);
 			}
 		}
 	}
@@ -2198,9 +2205,10 @@ equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
 		}
 		free(h.p);
 	}
-	if (!nsat_supported(f) || !TY_ISINT(N.ty[a])) {
+	if (!nsat_supported(f) || TYK(N.ty[a]) == K_REAL || (!nsat_floats &&
+	    (!TY_ISINT(N.ty[a]) || nsat_has_float(f, 0)))) {
 		pr->sat_status = -2;
-		pr->sat_why = "a float or real value";
+		pr->sat_why = nsat_floats ? "a real value" : "a float or real value";
 		return 0;
 	}
 	nsat_equiv(f, a, b, NSAT_BUDGET, &pr->sat);
@@ -2257,12 +2265,15 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 	}
 }
 
+/* the request came over JSON or MCP without "ftz" (jsonmode.c) */
+int equiv_need_ftz;
+
 void
-cmd_equiv(struct func *f, struct func *g)
+cmd_equiv(struct func *f, struct func *g, int ftz)
 {
 	struct sbuf w = {0}, how = {0};
 	struct eqproof pr;
-	int m, j;
+	int m, j, flt;
 	nid gb = rebind(f, g);
 
 	if (g->np != f->np)
@@ -2273,13 +2284,23 @@ cmd_equiv(struct func *f, struct func *g)
 			fail("parameter %d has a value in each lane (lanes) in one "
 			    "of %s and %s and not in the other", j + 1, fname(f),
 			    fname(g));
+	flt = nsat_has_float(f, f->body) || nsat_has_float(f, gb);
+	if (flt && ftz < 0 && equiv_need_ftz)
+		fail("\"ftz\" is missing: equiv of float formulas over JSON or "
+		    "MCP needs it, true (every float operation flushes "
+		    "subnormals to zero) or false (subnormals kept, IEEE)");
+	float_ftz = nsat_ftz = ftz > 0;
+	nsat_floats = 1;
 	equiv_algebra = 1;
 	m = equiv_decide(f, f->body, gb, &w, &pr);
 	equiv_algebra = 0;
+	float_ftz = nsat_ftz = nsat_floats = 0;
 	eqproof_text(&how, &pr);
 	rep_begin("equiv");
 	rep_bool("equal", m == 0 && pr.how != EQ_UNDECIDED);
 	rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
+	if (flt)
+		rep_bool("ftz", ftz > 0);
 	rep_int("mismatch_points", m);
 	rep_str("method", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
 	    pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ? "algebra" :
@@ -2320,6 +2341,8 @@ cmd_equiv(struct func *f, struct func *g)
 		printf("%s and %s differ at %d point%s%s, e.g. %s\n", fname(f),
 		    fname(g), m, m == 1 ? "" : "s", pr.how == EQ_SAMPLED ?
 		    " of the sample" : "", sb_str(&w));
+	if (flt && ftz > 0)
+		printf("  every float operation flushed subnormals to zero (ftz)\n");
 	if (m == 0 && pr.how == EQ_SAMPLED) {
 		/* not decided: polynomials can still be tested as such */
 		struct sbuf pt = {0};

@@ -1,5 +1,5 @@
 {"id": 1, "cmd": "range", "args": {"f": {"name": "id", "body": "x", "params": [{"name": "x", "type": "f16"}]}}}
-{"id": 2, "cmd": "equiv", "args": {"f": {"name": "mul3", "body": "u8(floor(f16(x) * f16(1 / 3)))", "params": [{"name": "x", "type": "u8"}]}, "g": "x / 3"}}
-{"id": 3, "cmd": "equiv", "args": {"f": {"name": "bits", "body": "asuint(asfloat(b))", "params": [{"name": "b", "type": "u16"}]}, "g": "b"}}
+{"id": 2, "cmd": "equiv", "args": {"f": {"name": "mul3", "body": "u8(floor(f16(x) * f16(1 / 3)))", "params": [{"name": "x", "type": "u8"}]}, "g": "x / 3", "ftz": false}}
+{"id": 3, "cmd": "equiv", "args": {"f": {"name": "bits", "body": "asuint(asfloat(b))", "params": [{"name": "b", "type": "u16"}]}, "g": "b", "ftz": false}}
 {"id": 4, "cmd": "wrap", "args": {"f": {"name": "twice", "body": "x * 2", "params": [{"name": "x", "type": "f16", "range": [32000, 65504]}]}}}
 {"id": 5, "cmd": "define", "args": {"name": "bad", "params": [{"name": "x", "type": "f8"}], "body": "x"}}
