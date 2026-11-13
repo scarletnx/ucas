@@ -5174,6 +5174,21 @@ does not (how far its filter is from the exact weighted sum is not
 measured), so under it the report says so and offers nothing
 (tests/sinktable.ucas).
 
+Where the R8 table misses the budget (its 255 levels span f's whole
+range), the R8 table of f less a trend R spans fewer: R a line or a
+parabola fitted to f at the knots by least squares, with f32
+coefficients, its constant taking the bytes' offset, read back as
+fma(r, S, R(x)) with R by Horner in f32 (an fma more for the line, two
+for the parabola).  Each piece is certified with f's interval less R's
+on it (its ends, and its vertex inside), and R's rounding (one per fma)
+and the last fma's join the bound.  The forms are tried by the model's
+prices, under gt1030's R8, R8 less a line, R8 less a parabola, R32F,
+each only where it costs less than the operations it replaces.  The
+filmic curve plus 0.1 sqrt(c) (31) into a 10-bit target is 1025 texels
+of f less a line (24.625) within 0.000977 of the 0.000978 a step
+allows, into an 11-bit target 2049 of f less a parabola (25.625), where
+an f32 read costs 55.75 (tests/sinktrend.ucas).
+
 Left to the other parts of ucas: an integer function of few inputs
 whose value must be the same integer (`u32(floor(x*255 + 0.5))` of an
 8-bit x) is `find`'s, which checks every point and offers tables and

@@ -1,0 +1,298 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Film: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model texsink : gt1030 { tex_within: 1 }
+> use texsink
+cost model: texsink
+> spvsimplify nofile assume c 0 1 float sink unorm10
+simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under texsink (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under texsink (each component counted; step = compare + select, mix = subtract + fma): 31 -> 29 (-6.5%)
+  sink unorm10: one step is 0.000977517.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    the rewrites within the original's precision already move the stored value by up to inf of the 0.000978 a step allows: nothing more is taken
+  rewrites, the largest savings first:
+    %82 = OpFAdd %float %81 %float_0_589999974
+      -> %82 = OpExtInst %float %2 Fma %73 %float_2_43000007 %float_0_589999974
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+    %77 = OpFAdd %float %76 %float_0_0299999993
+      -> %77 = OpExtInst %float %2 Fma %73 %float_2_50999999 %float_0_0299999993
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.954 (3.12856e+07 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.957 (3.14295e+07 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 1.01 (3.38204e+07 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 1.17 (4.28058e+07 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 1.67 (7.51072e+07 ulp), beyond the original's precision
+        relative minimax of q^0.4545 on [1.8490464e-05, 3450.3928] (remez.c), t = q - 1728, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.911 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 1.67 relative in all, the worst near q = 1.853e-05
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-2.55212532e-17, t, -1.6916737e-14), t, 1.13572499e-10), t, 6.36355111e-08), t, -0.000128577973), t, -0.0391215086), t, 50.8889999), t = q - 1728
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-3): relative error < 414 (2.88291e+12 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (4 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 77.2 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_4 times the magnitudes its operations reach, 0.000151): 77.2 absolute in all, the worst near x = 16
+        P(t) = fma(39.6218758, t, -79.4436874), t = x - 0
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-2): relative error < 6.83e+03 (7.83765e+14 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (3 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 79.7 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_3 times the magnitudes its operations reach, 0.000115): 79.7 absolute in all, the worst near x = 16
+        P(t) = fma(40.3468742, t, -82.2037277), t = x - 0
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 65.5 (7.31478e+10 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 24.9 (1.08092e+10 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-4, 4] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 1.56 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 1.56 absolute in all, the worst near x = 3.999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
+  table reads (a proposal, never applied: a module cannot add the texture's binding):
+    %92 = OpFAdd %float %88 %91
+      a function of c on [0, 1] as a table read, cost 24.625 (-6.375)
+        as fma(textureLod(T, fma(c, 1024.0, 0.5), 0.0).r, 0.267099977, fma(0.730679929, c, 0.255568355))
+        T: a texture R8_UNORM, 1025 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
+        f less the trend R(x) = 0.255568355 + 0.730679929 x (f32 coefficients, fitted by least squares to f at the knots, its constant taking f - R's least value there): a table of 1025 texels at x_j = 0 + j h, h = 0.0009765625, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns back, R by Horner in f32, read with linear filtering at texel coordinate fma(x, 1024, 0.5) (texel j's centre at j + 1/2):
+          the line between texels against the original's f32 value less R, on every float of the range: within 0.000965 (7393 pieces, each bounded by the interval of the original's own operations on it, less R's interval there (its ends, and its vertex inside) against the line's values at its ends and knots; sampled at 9 points a segment, 0.000841)
+          the coordinate: f32 moves it by at most 6.11e-05 texel and the unit snaps a weight by less than 2^-8, times the largest step between neighbouring texels (0.00314): 1.25e-05
+          the filter within 1 ulp of the exact weighted sum (the model's tex_within): 3.18e-08; R by Horner in f32, each fma rounding once (|R| <= 0.986 on the range): 5.88e-08; fma(r, 0.267099977, R(x)) rounds once: 7.47e-08
+          in all 0.000977, against the 0.000978 its value may move
+          the sink: the most it may move this value is the largest bound that, carried to the stored value with the other rewrites taken (as for them), stays within the step; with this table's, at most 0.000977 of the 0.000978 one step allows
+  not applied:
+    %90 = OpExtInst %float %2 Sqrt %59   (sqrt as x * inversesqrt(x))
+        not cheaper under texsink
+    %87 = OpExtInst %float %2 Pow %85 %float_0_45449999   (pow as exp2(y * log2 x))
+        not cheaper under texsink
+  (nofile: table1.bin, 1025 bytes, checksum a93d69c7)
+  (nofile: simplified.spvasm, 2646 bytes, checksum 0f4bbcdc)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Film: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink unorm11
+simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under texsink (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under texsink (each component counted; step = compare + select, mix = subtract + fma): 31 -> 29 (-6.5%)
+  sink unorm11: one step is 0.00048852.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    the rewrites within the original's precision already move the stored value by up to inf of the 0.000489 a step allows: nothing more is taken
+  rewrites, the largest savings first:
+    %82 = OpFAdd %float %81 %float_0_589999974
+      -> %82 = OpExtInst %float %2 Fma %73 %float_2_43000007 %float_0_589999974
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+    %77 = OpFAdd %float %76 %float_0_0299999993
+      -> %77 = OpExtInst %float %2 Fma %73 %float_2_50999999 %float_0_0299999993
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.954 (3.12856e+07 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.957 (3.14295e+07 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 1.01 (3.38204e+07 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 1.17 (4.28058e+07 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 1.67 (7.51072e+07 ulp), beyond the original's precision
+        relative minimax of q^0.4545 on [1.8490464e-05, 3450.3928] (remez.c), t = q - 1728, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.911 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 1.67 relative in all, the worst near q = 1.853e-05
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-2.55212532e-17, t, -1.6916737e-14), t, 1.13572499e-10), t, 6.36355111e-08), t, -0.000128577973), t, -0.0391215086), t, 50.8889999), t = q - 1728
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-3): relative error < 414 (2.88291e+12 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (4 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 77.2 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_4 times the magnitudes its operations reach, 0.000151): 77.2 absolute in all, the worst near x = 16
+        P(t) = fma(39.6218758, t, -79.4436874), t = x - 0
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-2): relative error < 6.83e+03 (7.83765e+14 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (3 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 79.7 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_3 times the magnitudes its operations reach, 0.000115): 79.7 absolute in all, the worst near x = 16
+        P(t) = fma(40.3468742, t, -82.2037277), t = x - 0
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 65.5 (7.31478e+10 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 24.9 (1.08092e+10 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-4, 4] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 1.56 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 1.56 absolute in all, the worst near x = 3.999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
+  table reads (a proposal, never applied: a module cannot add the texture's binding):
+    %92 = OpFAdd %float %88 %91
+      a function of c on [0, 1] as a table read, cost 25.625 (-5.375)
+        as fma(textureLod(T, fma(c, 2048.0, 0.5), 0.0).r, 0.0481084287, fma(fma(-1.06172204, c, 1.79236877), c, 0.228578329))
+        T: a texture R8_UNORM, 2049 x 1, one level, the texels in table1.bin as bytes; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
+        f less the trend R(x) = 0.228578329 + 1.79236877 x + -1.06172204 x^2 (f32 coefficients, fitted by least squares to f at the knots, its constant taking f - R's least value there): a table of 2049 texels at x_j = 0 + j h, h = 0.00048828125, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns back, R by Horner in f32, read with linear filtering at texel coordinate fma(x, 2048, 0.5) (texel j's centre at j + 1/2):
+          the line between texels against the original's f32 value less R, on every float of the range: within 0.000481 (13396 pieces, each bounded by the interval of the original's own operations on it, less R's interval there (its ends, and its vertex inside) against the line's values at its ends and knots; sampled at 9 points a segment, 0.000406)
+          the coordinate: f32 moves it by at most 0.000122 texel and the unit snaps a weight by less than 2^-8, times the largest step between neighbouring texels (0.0017): 6.84e-06
+          the filter within 1 ulp of the exact weighted sum (the model's tex_within): 5.73e-09; R by Horner in f32, each fma rounding once (|R| <= 0.985 on the range): 1.66e-07; fma(r, 0.0481084287, R(x)) rounds once: 6.16e-08
+          in all 0.000488, against the 0.000489 its value may move
+          the sink: the most it may move this value is the largest bound that, carried to the stored value with the other rewrites taken (as for them), stays within the step; with this table's, at most 0.000488 of the 0.000489 one step allows
+  not applied:
+    %90 = OpExtInst %float %2 Sqrt %59   (sqrt as x * inversesqrt(x))
+        not cheaper under texsink
+    %87 = OpExtInst %float %2 Pow %85 %float_0_45449999   (pow as exp2(y * log2 x))
+        not cheaper under texsink
+  (nofile: table1.bin, 2049 bytes, checksum 31b16fa4)
+  (nofile: simplified.spvasm, 2646 bytes, checksum 0f4bbcdc)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Film: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume c 0 1 float sink unorm12
+simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under texsink (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under texsink (each component counted; step = compare + select, mix = subtract + fma): 31 -> 29 (-6.5%)
+  sink unorm12: one step is 0.0002442.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    the rewrites within the original's precision already move the stored value by up to inf of the 0.000244 a step allows: nothing more is taken
+  rewrites, the largest savings first:
+    %82 = OpFAdd %float %81 %float_0_589999974
+      -> %82 = OpExtInst %float %2 Fma %73 %float_2_43000007 %float_0_589999974
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+    %77 = OpFAdd %float %76 %float_0_0299999993
+      -> %77 = OpExtInst %float %2 Fma %73 %float_2_50999999 %float_0_0299999993
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.954 (3.12856e+07 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.957 (3.14295e+07 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 1.01 (3.38204e+07 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 1.17 (4.28058e+07 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 1.67 (7.51072e+07 ulp), beyond the original's precision
+        relative minimax of q^0.4545 on [1.8490464e-05, 3450.3928] (remez.c), t = q - 1728, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.911 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 1.67 relative in all, the worst near q = 1.853e-05
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-2.55212532e-17, t, -1.6916737e-14), t, 1.13572499e-10), t, 6.36355111e-08), t, -0.000128577973), t, -0.0391215086), t, 50.8889999), t = q - 1728
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-3): relative error < 414 (2.88291e+12 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (4 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 77.2 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_4 times the magnitudes its operations reach, 0.000151): 77.2 absolute in all, the worst near x = 16
+        P(t) = fma(39.6218758, t, -79.4436874), t = x - 0
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-2): relative error < 6.83e+03 (7.83765e+14 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (3 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 79.7 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_3 times the magnitudes its operations reach, 0.000115): 79.7 absolute in all, the worst near x = 16
+        P(t) = fma(40.3468742, t, -82.2037277), t = x - 0
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 65.5 (7.31478e+10 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 24.9 (1.08092e+10 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-4, 4] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 1.56 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 1.56 absolute in all, the worst near x = 3.999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
+  table reads (a proposal, never applied: a module cannot add the texture's binding):
+    %92 = OpFAdd %float %88 %91
+      a function of c on [0, 1] as a table read, cost 23.625 (-7.375)
+        no table of up to 2049 texels is within the 0.000244 its value may move: 2049 texels R8 less a parabola come to about 0.000413 (sampled)
+  not applied:
+    %90 = OpExtInst %float %2 Sqrt %59   (sqrt as x * inversesqrt(x))
+        not cheaper under texsink
+    %87 = OpExtInst %float %2 Pow %85 %float_0_45449999   (pow as exp2(y * log2 x))
+        not cheaper under texsink
+  (nofile: simplified.spvasm, 2646 bytes, checksum 0f4bbcdc)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Film: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> model texsink32 : texsink { tex_sample_f32: 12 }
+> use texsink32
+cost model: texsink32
+> spvsimplify nofile assume c 0 1 float sink unorm10
+simplify: 76 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under texsink32 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming c in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under texsink32 (each component counted; step = compare + select, mix = subtract + fma): 31 -> 29 (-6.5%)
+  sink unorm10: one step is 0.000977517.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    the rewrites within the original's precision already move the stored value by up to inf of the 0.000978 a step allows: nothing more is taken
+  rewrites, the largest savings first:
+    %82 = OpFAdd %float %81 %float_0_589999974
+      -> %82 = OpExtInst %float %2 Fma %73 %float_2_43000007 %float_0_589999974
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+    %77 = OpFAdd %float %76 %float_0_0299999993
+      -> %77 = OpExtInst %float %2 Fma %73 %float_2_50999999 %float_0_0299999993
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 1: float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x )
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    pow ~ degree-2 minimax polynomial, cost 3 (-5): relative error < 0.954 (3.12856e+07 ulp), beyond the original's precision
+    pow ~ degree-3 minimax polynomial, cost 4 (-4): relative error < 0.957 (3.14295e+07 ulp), beyond the original's precision
+    pow ~ degree-4 minimax polynomial, cost 5 (-3): relative error < 1.01 (3.38204e+07 ulp), beyond the original's precision
+    pow ~ degree-5 minimax polynomial, cost 6 (-2): relative error < 1.17 (4.28058e+07 ulp), beyond the original's precision
+    pow ~ degree-6 minimax polynomial, cost 7 (-1): relative error < 1.67 (7.51072e+07 ulp), beyond the original's precision
+        relative minimax of q^0.4545 on [1.8490464e-05, 3450.3928] (remez.c), t = q - 1728, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + |y(y-1)| q^(y-2)): 0.911 relative
+          plus rounding (gamma_12 = 12 u/(1 - 12 u) times sum |a_i||t|^i; fl(q - c) exact by Sterbenz for q in [c/2, 2c]): 1.67 relative in all, the worst near q = 1.853e-05
+          against pow's allowance on each piece (log2's error times y through exp2, plus exp2's 3 + 2|t| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(fma(fma(fma(fma(-2.55212532e-17, t, -1.6916737e-14), t, 1.13572499e-10), t, 6.36355111e-08), t, -0.000128577973), t, -0.0391215086), t, 50.8889999), t = q - 1728
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-3): relative error < 414 (2.88291e+12 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (4 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 77.2 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_4 times the magnitudes its operations reach, 0.000151): 77.2 absolute in all, the worst near x = 16
+        P(t) = fma(39.6218758, t, -79.4436874), t = x - 0
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-2): relative error < 6.83e+03 (7.83765e+14 ulp), beyond the original's precision
+        the degree-2 polynomial in exp2(((c * 8) - 4)) (3 operations) refitted: absolute minimax on [0.0625, 16] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 79.7 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_3 times the magnitudes its operations reach, 0.000115): 79.7 absolute in all, the worst near x = 16
+        P(t) = fma(40.3468742, t, -82.2037277), t = x - 0
+    exp2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 65.5 (7.31478e+10 ulp), beyond the original's precision
+    exp2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 24.9 (1.08092e+10 ulp), beyond the original's precision
+        absolute minimax of exp2(x) on [-4, 4] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 even pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|exp2''| on the piece): 1.56 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 1.56 absolute in all, the worst near x = 3.999
+          against exp2's precision on each piece (3 + 2|x| ulp, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(0.495850086, t, 1.60331953), t, 0.0976487771), t = x - 0
+  table reads (a proposal, never applied: a module cannot add the texture's binding):
+    %92 = OpFAdd %float %88 %91
+      a function of c on [0, 1] as a table read, cost 13 (-18)
+        as textureLod(T, fma(c, 512.0, 0.5), 0.0).r
+        T: a texture R32_SFLOAT, 513 x 1, one level, the texels in table1.bin as f32; a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0; one combined image sampler more in the layout
+        a table of 513 texels at x_j = 0 + j h, h = 0.001953125, each the value there moved by a quarter of the two neighbouring segments' errors at their midpoints, stored as f32, read with linear filtering at texel coordinate fma(x, 512, 0.5) (texel j's centre at j + 1/2):
+          the line between texels against the original's f32 value, on every float of the range: within 0.000874 (6622 pieces, each bounded by the interval of the original's own operations on it against the line's values at its ends and knots; sampled at 9 points a segment, 0.000699)
+          the coordinate: f32 moves it by at most 3.05e-05 texel and the unit snaps a weight by less than 2^-8, times the largest step between neighbouring texels (0.00615): 2.42e-05
+          the filter within 1 ulp of the exact weighted sum (the model's tex_within): 1.2e-07
+          in all 0.000898, against the 0.000978 its value may move
+          the sink: the most it may move this value is the largest bound that, carried to the stored value with the other rewrites taken (as for them), stays within the step; with this table's, at most 0.000898 of the 0.000978 one step allows
+  not applied:
+    %90 = OpExtInst %float %2 Sqrt %59   (sqrt as x * inversesqrt(x))
+        not cheaper under texsink32
+    %87 = OpExtInst %float %2 Pow %85 %float_0_45449999   (pow as exp2(y * log2 x))
+        not cheaper under texsink32
+  (nofile: table1.bin, 2052 bytes, checksum 92c08acc)
+  (nofile: simplified.spvasm, 2646 bytes, checksum 0f4bbcdc)

@@ -9242,7 +9242,18 @@ tab_glsl(struct sbuf *b, const struct fxg *g, const struct fxrw *r)
 	char x[64];
 
 	snprintf(x, sizeof x, in->cvt ? "float(%s)" : "%s", in->name);
-	if (r->tfmt == FXT_R8)
+	if (r->tfmt == FXT_R8 && r->tdeg == 1) {
+		/* tab_lit keeps four literals at a time */
+		sb_printf(b, "fma(textureLod(T, fma(%s, %s, %s), 0.0).r, %s, ", x,
+		    tab_lit(r->k[0]), tab_lit(r->k[1]), tab_lit(r->k[2]));
+		sb_printf(b, "fma(%s, %s, %s))", tab_lit(r->k[7]), x,
+		    tab_lit(r->k[6]));
+	} else if (r->tfmt == FXT_R8 && r->tdeg == 2) {
+		sb_printf(b, "fma(textureLod(T, fma(%s, %s, %s), 0.0).r, %s, ", x,
+		    tab_lit(r->k[0]), tab_lit(r->k[1]), tab_lit(r->k[2]));
+		sb_printf(b, "fma(fma(%s, %s, %s), %s, %s))", tab_lit(r->k[8]), x,
+		    tab_lit(r->k[7]), x, tab_lit(r->k[6]));
+	} else if (r->tfmt == FXT_R8)
 		sb_printf(b, "fma(textureLod(T, fma(%s, %s, %s), 0.0).r, %s, %s)",
 		    x, tab_lit(r->k[0]), tab_lit(r->k[1]), tab_lit(r->k[2]),
 		    tab_lit(r->k[3]));
@@ -9345,7 +9356,15 @@ tab_json(const struct fplan *P, struct fxrw *RW, const int *grp,
 		rep_num("coord_offset", r->k[1]);
 		if (r->tfmt == FXT_R8) {
 			rep_num("value_scale", r->k[2]);
-			rep_num("value_offset", r->k[3]);
+			if (r->tdeg) {
+				/* R's coefficients, from the constant up */
+				int j;
+				rep_list("trend");
+				for (j = 0; j <= r->tdeg; j++)
+					rep_num(NULL, r->k[6 + j]);
+				rep_end();
+			} else
+				rep_num("value_offset", r->k[3]);
 		}
 		rep_num("abs_error", r->abserr);
 		rep_num("sink_used", r->sinkdev);

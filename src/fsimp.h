@@ -133,9 +133,10 @@ struct fxrw {
 	 * ntab texels tab[] (R8: the bytes k, read as k/255) in format
 	 * tfmt (FXT_R8, FXT_R32F); the read at texel coordinate
 	 * fma(x, k[0], k[1]), an R8 read's r turned back by fma(r, k[2],
-	 * k[3]); tmax the most its own error may be, the sink's budget
-	 * carried down to it */
-	int tin, ntab, tfmt;
+	 * k[3]), or with a trend of degree tdeg (1, 2) by fma(r, k[2], R(x)),
+	 * R(x) = k[6] + k[7] x + k[8] x^2 by Horner; tmax the most its own
+	 * error may be, the sink's budget carried down to it */
+	int tin, ntab, tfmt, tdeg;
 	float *tab;
 	double tmax;
 	struct sbuf proof;	/* the derivation, lines */
