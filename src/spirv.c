@@ -7903,8 +7903,9 @@ idrw_root_kind(int k, const char *partof)
 	return 0;
 }
 
-/* does e compute anything in an integer wider than 32 bits (a table in
- * a u64 constant): dot_emit writes 32-bit words only */
+/* does e compute anything dot_emit cannot write, which writes 32-bit
+ * integer words only: an integer wider than 32 bits (a table in a u64
+ * constant), a float (ifx.c's forms on the f32 pipe) */
 static int
 wide_in(nid e, int depth)
 {
@@ -7912,7 +7913,7 @@ wide_in(nid e, int depth)
 	int k, ar = opinfo[N.op[e]].arity;
 	nid a[3] = {N.a[e], N.b[e], N.c[e]};
 
-	if (TY_SIZED(t) && TYW(t) > 32)
+	if ((TY_SIZED(t) && TYW(t) > 32) || TY_FP(t))
 		return 1;
 	if (depth > 64 || N.op[e] == O_VAR || N.op[e] == O_CONST)
 		return 0;

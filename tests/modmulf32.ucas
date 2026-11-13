@@ -1,0 +1,27 @@
+# (a * b) % m on the f32 pipe (src/ifx.c, rw_modmul): the product as two
+# floats by 2Prod, the quotient by 1/m floored within one, the remainder
+# exact and put back in [0, m).  Against a u64 multiply and a remainder
+# by a constant where the model prices the 64-bit multiply.
+model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+mm1(a: u32 in 0..1000002, b: u32 in 0..1000002) = u32((u64(a) * u64(b)) % 1000003)
+mm2(a: u64 in 0..4194300, b: u64 in 0..4194300) = (a * b) % 4194301
+mm4(a: u64 in 0..1000002) = (a * 999331) % 1000003
+use w64
+find mm1 1
+find mm2 1
+find mm4 1
+# a product that fits a u32: the integer multiply is 3, not cheaper
+mm3(a: u32 in 0..65520, b: u32 in 0..65520) = (a * b) % 65521
+find mm3 1
+# under gt1030 a u64 multiply is still priced as imul: not cheaper
+use gt1030
+find mm1 1
+use w64
+# not derived: the modulus at 2^22, a quotient past 2^22.4 (the floor
+# could miss by two), a product below 2^24 (rw_divk's)
+no1(a: u64 in 0..4194304, b: u64 in 0..4194304) = (a * b) % 4194305
+no2(a: u64 in 0..16000000, b: u64 in 0..16000000) = (a * b) % 1000003
+no3(a: u64 in 0..4000, b: u64 in 0..4000) = (a * b) % 1009
+find no1 1
+find no2 1
+find no3 1

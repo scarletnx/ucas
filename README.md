@@ -2385,9 +2385,22 @@ quotient costs 7 (6 with f32(x) by the bits) against `idivk` 8.75 and
 the remainder 10 against `iremk` 13.5, where the multiply and shift in
 u32 no longer serves (past x = 212991 for 13).  The correction step
 that would take every x below 2^24 (a compare and a select on the
-fma's remainder) costs more than `iremk` under gt1030, and a product
-past 2^24 (a modular multiply by a modulus above 2^12) needs 2Prod,
-which waits for a price of the 64-bit multiply.
+fma's remainder) costs more than `iremk` under gt1030.
+
+A modular product `(a * b) % m` of integers a, b in [0, 2^24) whose
+product passes 2^24 (and fits its type), m a constant below 2^22, goes
+to the f32 pipe by 2Prod: p = f32(a) f32(b) rounded and e = fma(f32(a),
+f32(b), -p) are a b = p + e exactly; q = floor(p * fl(1/m)) is within
+one of floor(a b / m) where (P/m)((1 + 2^-24)^2 (1 + g) - 1) < 1 (P the
+product's bound, g the constant's relative error: up to P/m about 2^22);
+fma(q, -m, p) + e is a b - q m exactly (an integer below 2m + |e| <
+2^24), and one add and one subtract of m put it in [0, m), read back by
+the bits.  A u64 product `u64(a) * u64(b) % 1000003` costs 24 against
+29 (`imul64` 15.5 and `iremk` 13.5); the remainder of a u64 by a
+constant has no price of its own, so the integer side is if anything
+cheaper here than on the card.  Vulkan lets an fma round twice unless
+it is NoContraction (`precise` in GLSL), so written into a shader the
+two fmas go under it, as dword's error-free transformations do.
 
 ```
 > cv(i: u32 in 0..1000) = f32(i)
@@ -2500,7 +2513,8 @@ spirv-val makes of the module.  Not yet: the ldexp whose k may go below
 the GLSL function level
 (find only), f16 and f64, a round-to-nearest operation for the magic add
 to stand for (ucas has floor, ceil and the truncating conversion),
-48-bit products by 2Prod.
+a 48-bit product by 2Prod as an integer (its split back into words
+costs more than an `imul64`; it serves the modular product above).
 
 A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),
