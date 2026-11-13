@@ -3512,6 +3512,463 @@ mem_packf32(const struct model *m, struct mem_out *o)
 	free(pk);
 }
 
+/* ---- buffers past the cache: streams (memk's load_stream ...) ---- */
+
+/* an array type's length as declared (the parsed type keeps at most
+ * 4096 for the interpreter's slots); -1 a runtime array */
+static int64_t
+mem_arrlen(int t)
+{
+	int k, c;
+
+	for (k = 0; k < V.nin; k++)
+		if (V.in[k].res == t) {
+			if (!strcmp(V.in[k].op, "OpTypeRuntimeArray") ||
+			    V.in[k].nop < 2)
+				return -1;
+			c = idx(V.in[k].opnd[1]);
+			return V.id[c].kind == K_CONST && !V.id[c].spec ?
+			    geti(V.id[c].type, V.id[c].c[0]) : -1;
+		}
+	return -1;
+}
+
+/* t's ArrayStride decoration, 0 none */
+static int
+mem_stride(int t)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpDecorate") && V.in[k].nop >= 3 &&
+		    idx(V.in[k].opnd[0]) == t && !strcmp(V.in[k].opnd[1],
+		    "ArrayStride"))
+			return atoi(V.in[k].opnd[2]);
+	return 0;
+}
+
+/* an assumption on name: its range */
+static int
+mem_as_name(const char *name, int64_t *lo, int64_t *hi)
+{
+	int j;
+
+	for (j = 0; j < SP.nas; j++)
+		if (name_is(name, SP.as[j].name) || !strcmp(name, SP.as[j].name)) {
+			*lo = SP.as[j].lo;
+			*hi = SP.as[j].hi;
+			return 1;
+		}
+	return 0;
+}
+
+/*
+ * An integer index's interval from its parameters' ranges, for the forms
+ * an index takes (sums, products, masks, shifts, remainders and
+ * quotients by constants, min, max, conversions); 0 when another op is
+ * met or a value may leave its type (it would wrap).
+ */
+static int
+mem_irange(const struct memg *G, nid n, int64_t *lo, int64_t *hi, int depth)
+{
+	int64_t a0, a1, b0, b1, tmin, tmax;
+	ty_t t = N.ty[n];
+	int op = N.op[n], w = TY_SIZED(t) ? TYW(t) : 64;
+
+	if (depth > 32 || !TY_ISINT(t) || w > 63)
+		return 0;
+	tmin = TYK(t) == K_SINT ? -(1LL << (w - 1)) : 0;
+	tmax = TYK(t) == K_SINT ? (1LL << (w - 1)) - 1 : (int64_t)((1ULL << w) -
+	    1);
+	if (op == O_CONST) {
+		*lo = *hi = N.ki[n];
+		return 1;
+	}
+	if (op == O_VAR) {
+		const struct param *p = &G->f.p[N.ki[n]];
+		if (!p->ranged)
+			return 0;
+		*lo = p->lo;
+		*hi = p->hi;
+		return 1;
+	}
+	if (op == O_CAST)
+		return TY_ISINT(N.ty[N.a[n]]) && mem_irange(G, N.a[n], lo, hi,
+		    depth + 1) && *lo >= tmin && *hi <= tmax;
+	if (!N.a[n] || !N.b[n])
+		return 0;
+	/* a nonnegative constant's mask, or an unsigned value's remainder,
+	 * shift or quotient by a constant: within that whatever the operand */
+	if (N.op[N.b[n]] == O_CONST && N.ki[N.b[n]] >= 0) {
+		int64_t k = N.ki[N.b[n]];
+		int un = TYK(t) == K_UINT;
+		if (!mem_irange(G, N.a[n], &a0, &a1, depth + 1)) {
+			a0 = tmin;
+			a1 = tmax;
+		}
+		if (op == O_AND) {
+			*lo = 0;
+			*hi = a0 >= 0 && a1 < k ? a1 : k;
+			return 1;
+		}
+		if (op == O_MOD && k > 0 && (un || a0 >= 0)) {
+			*lo = 0;
+			*hi = a0 >= 0 && a1 < k - 1 ? a1 : k - 1;
+			return 1;
+		}
+		if ((op == O_SHR || op == O_DIV) && (un || a0 >= 0) && (op ==
+		    O_DIV ? k > 0 : k < 63)) {
+			if (a0 < 0)
+				a0 = 0;
+			*lo = op == O_DIV ? a0 / k : a0 >> k;
+			*hi = op == O_DIV ? a1 / k : a1 >> k;
+			return 1;
+		}
+	}
+	if (!mem_irange(G, N.a[n], &a0, &a1, depth + 1) || !mem_irange(G, N.b[n],
+	    &b0, &b1, depth + 1))
+		return 0;
+	switch (op) {
+	case O_ADD:
+		*lo = a0 + b0;
+		*hi = a1 + b1;
+		break;
+	case O_SUB:
+		*lo = a0 - b1;
+		*hi = a1 - b0;
+		break;
+	case O_MUL:
+		if (a0 < 0 || b0 < 0 || a1 > (1LL << 31) || b1 > (1LL << 31))
+			return 0;
+		*lo = a0 * b0;
+		*hi = a1 * b1;
+		break;
+	case O_MIN:
+		*lo = a0 < b0 ? a0 : b0;
+		*hi = a1 < b1 ? a1 : b1;
+		break;
+	case O_MAX:
+		*lo = a0 > b0 ? a0 : b0;
+		*hi = a1 > b1 ? a1 : b1;
+		break;
+	default:
+		return 0;
+	}
+	return *lo >= tmin && *hi <= tmax;
+}
+
+struct mem_stream {
+	int var, member;	/* the buffer, its member (-1: the variable) */
+	int at;			/* the array's type */
+	char name[96];
+	int64_t lo, hi;		/* the elements reached */
+	int64_t len;		/* the array's length, -1 a runtime array */
+	int known, stride, elt;	/* elt: the element type */
+	int nld, nst, nat;	/* its loads, stores, atomics */
+};
+
+#define MEM_MAXSTREAM 16
+
+/* which decided arrays stream: the smaller first, as long as they fit
+ * the cache together; str[s] 1 for the rest; their count */
+static int
+mem_stream_split(const struct mem_stream *S, int ns, const double *fp,
+    double cache, char *str)
+{
+	double used = 0;
+	int s, q, n = 0, done[MEM_MAXSTREAM] = {0};
+
+	for (s = 0; s < ns; s++)
+		str[s] = 0;
+	for (;;) {
+		int best = -1;
+		for (q = 0; q < ns; q++)
+			if (S[q].known && !done[q] && (best < 0 || fp[q] < fp[best]))
+				best = q;
+		if (best < 0)
+			break;
+		done[best] = 1;
+		if (used + fp[best] <= cache)
+			used += fp[best];
+		else {
+			str[best] = 1;
+			n++;
+		}
+	}
+	return n;
+}
+
+/* what streaming costs against resident prices: the accesses of the
+ * arrays str marks (less those str2 marks, when given); the counts */
+static double
+mem_stream_gain(const struct mem_stream *S, int ns, const char *str,
+    const char *str2, const struct model *m, int *nl, int *nst, int *na)
+{
+	double g = 0;
+	int s, l = 0, t = 0, a = 0;
+
+	for (s = 0; s < ns; s++) {
+		if (!str[s] || (str2 && str2[s]))
+			continue;
+		l += S[s].nld;
+		t += S[s].nst;
+		a += S[s].nat;
+	}
+	g = l * (double)(model_cost(m, C_LOAD_STREAM) - model_cost(m, C_LOAD)) +
+	    t * (double)(model_cost(m, C_STORE_STREAM) - model_cost(m, C_STORE)) +
+	    a * (double)(model_cost(m, C_ATOM_GL_STREAM) - model_cost(m,
+	    C_ATOM_GL));
+	if (nl) {
+		*nl = l;
+		*nst = t;
+		*na = a;
+	}
+	return g;
+}
+
+/*
+ * A storage buffer's array reached past the cache streams: each access
+ * is priced load_stream, store_stream or atomic_global_stream instead of
+ * the resident kind, which the model's cache (bytes) decides.  What an
+ * access reaches: its index's interval (the assumptions, a loop's
+ * counter, the lane) times the array's stride, at most the array (its
+ * length) when it has one; a runtime array read at an index with no
+ * range (the dispatch's, the host's) is not decided.  The arrays one
+ * module goes through share the cache: the smaller stay resident as long
+ * as they fit together, the rest stream.  A streaming array of 32-bit
+ * integers (no atomics: none on 8 or 16 bits) whose values an assumption
+ * bounds within 16 or 8 bits is offered smaller, when that lets it stay.
+ */
+static void
+mem_streams(const struct model *m, const int *lsize, struct mem_out *o)
+{
+	struct mem_stream S[MEM_MAXSTREAM];
+	double cache = m->par[MP_CACHE], fp[MEM_MAXSTREAM], gain;
+	int ns = 0, k, s, undecided = 0, nstream, nl = 0, nst = 0, na = 0;
+	char str[MEM_MAXSTREAM];
+
+	if (!(cache > 0))
+		return;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int pi = !strcmp(I->op, "OpLoad") ? 1 : !strcmp(I->op, "OpStore") ?
+		    0 : !strncmp(I->op, "OpAtomic", 8) ? 1 : -1;
+		int var, chain, st, member = -1, t, ix = -1, i;
+		struct mem_stream *A;
+		if (pi < 0 || I->nop <= pi || I->opnd[pi][0] != '%')
+			continue;
+		var = mem_base_var(idx(I->opnd[pi]), &chain);
+		if (var < 0 || chain < 0 || !(!strcmp(mem_sc(var), "StorageBuffer")
+		    || mem_bufferblock(var)))
+			continue;
+		/* the array the chain indexes: a member's, or the variable's */
+		t = T(V.id[var].type)->e;
+		i = 2;
+		if (T(t)->k == S_STRUCT && V.in[chain].nop > 2) {
+			int mi = idx(V.in[chain].opnd[2]);
+			if (V.id[mi].kind != K_CONST)
+				continue;
+			member = (int)V.id[mi].c[0];
+			if (member >= T(t)->nm)
+				continue;
+			st = t;
+			t = T(t)->m[member];
+			i = 3;
+		} else
+			st = -1;
+		if (T(t)->k != S_ARRAY || V.in[chain].nop <= i)
+			continue;
+		ix = idx(V.in[chain].opnd[i]);
+		for (s = 0; s < ns; s++)
+			if (S[s].var == var && S[s].member == member)
+				break;
+		if (s == ns) {
+			const char *bn = V.id[var].name;
+			if (ns == MEM_MAXSTREAM)
+				continue;
+			A = &S[ns++];
+			memset(A, 0, sizeof *A);
+			A->var = var;
+			A->member = member;
+			A->at = t;
+			A->len = mem_arrlen(t);
+			A->stride = mem_stride(t);
+			A->elt = T(t)->e;
+			A->lo = INT64_MAX;
+			A->hi = INT64_MIN;
+			A->known = 1;
+			if (*bn == '%')
+				bn++;
+			/* glslang names an anonymous block's instance _, __0 ...:
+			 * the block's own name says more */
+			if (st >= 0 && bn[0] == '_' && V.id[st].name[0] &&
+			    V.id[st].name[0] != '%')
+				bn = V.id[st].name;
+			if (st >= 0)
+				snprintf(A->name, sizeof A->name, "%s.%s", bn,
+				    mem_member(st, member));
+			else
+				snprintf(A->name, sizeof A->name, "%s", bn);
+			if (A->stride <= 0) {
+				int al, sz;
+				mem_layout(A->elt, 1, &al, &sz);
+				A->stride = sz;
+			}
+		} else
+			A = &S[s];
+		if (I->op[2] == 'L')
+			A->nld++;
+		else if (I->op[2] == 'S')
+			A->nst++;
+		else
+			A->nat++;
+		/* the index's interval: a constant, or from its definition */
+		{
+			int64_t lo, hi;
+			int got = 0;
+			if (V.id[ix].kind == K_CONST && !V.id[ix].spec) {
+				lo = hi = geti(V.id[ix].type, V.id[ix].c[0]);
+				got = 1;
+			} else {
+				struct memg *G = xcalloc(1, sizeof *G);
+				nid e;
+				double dlo, dhi;
+				memg_lanes(G, lsize);
+				G->at = k;
+				G->f.name = sym_cstr("_index");
+				G->f.anon = 1;
+				e = memg_build(G, ix, 0);
+				if (!G->fail && mem_irange(G, e, &lo, &hi, 0))
+					got = 1;
+				/* an interval as wide as the index's type is no range:
+				 * what it is made of is not bounded */
+				else if (!G->fail && TY_ISINT(N.ty[e]) &&
+				    dword_interval(&G->f,
+				    e, &dlo, &dhi) && dhi - dlo + 1 < ldexp(1,
+				    TYW(N.ty[e])) && dlo > -0x1p62 && dhi < 0x1p62) {
+					lo = (int64_t)floor(dlo);
+					hi = (int64_t)ceil(dhi);
+					got = 1;
+				}
+				free(G);
+			}
+			if (A->len > 0) {
+				/* at most the array: an index outside it is undefined */
+				if (!got) {
+					lo = 0;
+					hi = A->len - 1;
+					got = 1;
+				}
+				lo = lo < 0 ? 0 : lo;
+				hi = hi > A->len - 1 ? A->len - 1 : hi;
+			}
+			if (!got)
+				A->known = 0;
+			else {
+				A->lo = lo < A->lo ? lo : A->lo;
+				A->hi = hi > A->hi ? hi : A->hi;
+			}
+		}
+	}
+	for (s = 0; s < ns; s++)
+		if (!S[s].known)
+			undecided++;
+		else
+			fp[s] = S[s].hi >= S[s].lo ? (double)(S[s].hi - S[s].lo + 1) *
+			    S[s].stride : 0;
+	nstream = mem_stream_split(S, ns, fp, cache, str);
+	if (ns == 0 || (!nstream && !undecided))
+		return;
+	mem_hdr(o, m);
+	printf("  storage buffers against the cache (%g bytes, the model's "
+	    "cache): the arrays that fit together stay\n  resident, the "
+	    "smaller first; an array past what is left streams\n", cache);
+	for (s = 0; s < ns; s++) {
+		const struct mem_stream *A = &S[s];
+		if (!A->known) {
+			printf("    %s: a runtime array at an index with no range "
+			    "(the dispatch's, the host's): not decided; an assumption "
+			    "on what the index is made of gives one\n", A->name);
+			continue;
+		}
+		printf("    %s: elements %lld..%lld%s, %d bytes each: %.6g bytes, "
+		    "%s\n", A->name, (long long)A->lo, (long long)A->hi, A->len >
+		    0 && A->lo == 0 && A->hi == A->len - 1 ? " (the whole array)" :
+		    "", A->stride, fp[s], str[s] ? "streams" : "resident");
+	}
+	if (!nstream) {
+		printf("    %s: their accesses keep the resident prices\n",
+		    undecided == ns ? "nothing decided" : undecided ? "the decided "
+		    "ones fit, whatever the others reach" : "they fit");
+		return;
+	}
+	gain = mem_stream_gain(S, ns, str, NULL, m, &nl, &nst, &na);
+	if (undecided)
+		printf("    (what the undecided ones reach can only push more "
+		    "past the cache)\n");
+	if (nl)
+		printf("      %d load%s at load_stream %g (resident: load %g)\n", nl,
+		    nl == 1 ? "" : "s", model_cost(m, C_LOAD_STREAM),
+		    model_cost(m, C_LOAD));
+	if (nst)
+		printf("      %d store%s at store_stream %g (resident: store %g)\n",
+		    nst, nst == 1 ? "" : "s", model_cost(m, C_STORE_STREAM),
+		    model_cost(m, C_STORE));
+	if (na)
+		printf("      %d atomic%s at atomic_global_stream %g (resident: "
+		    "atomic_global %g)\n", na, na == 1 ? "" : "s", model_cost(m,
+		    C_ATOM_GL_STREAM), model_cost(m, C_ATOM_GL));
+	printf("      each access once: %+g against the resident prices\n",
+	    gain);
+	/* a smaller element where its values allow it */
+	for (s = 0; s < ns; s++) {
+		const struct mem_stream *A = &S[s];
+		const char *mn;
+		int64_t vlo, vhi;
+		int bits = 0, sign, b2, q;
+		double fp2[MEM_MAXSTREAM], g2;
+		char str2[MEM_MAXSTREAM];
+		/* no 8- or 16-bit atomics: an array with them keeps 32 bits */
+		if (!A->known || !str[s] || A->nat || V.id[A->elt].kind != K_TYPE ||
+		    T(A->elt)->k != S_INT || T(A->elt)->w != 32)
+			continue;
+		mn = strrchr(A->name, '.') ? strrchr(A->name, '.') + 1 : A->name;
+		if (!mem_as_name(mn, &vlo, &vhi))
+			continue;
+		sign = T(A->elt)->sign;
+		for (b2 = 8; b2 <= 16 && !bits; b2 += 8)
+			if (sign ? vlo >= -(1LL << (b2 - 1)) && vhi < 1LL << (b2 - 1) :
+			    vlo >= 0 && vhi < 1LL << b2)
+				bits = b2;
+		if (!bits)
+			continue;
+		for (q = 0; q < ns; q++)
+			fp2[q] = fp[q];
+		fp2[s] = fp[s] * bits / 32.0;
+		(void)mem_stream_split(S, ns, fp2, cache, str2);
+		g2 = mem_stream_gain(S, ns, str, str2, m, NULL, NULL, NULL);
+		if (!(g2 > 0)) {
+			printf("    %s as %s%d (its values in [%lld, %lld]): %.6g bytes, "
+			    "still past the cache\n", A->name, sign ? "i" : "u", bits,
+			    (long long)vlo, (long long)vhi, fp2[s]);
+			continue;
+		}
+		printf("    proposal (an interface change, not applied): %s as %s%d, "
+		    "its values in [%lld, %lld] by the assumption:\n      %.6g "
+		    "bytes, and the arrays that then fit become resident: %+g, "
+		    "each access once\n", A->name, sign ? "i" : "u", bits, (long long)vlo,
+		    (long long)vhi, fp2[s], -g2);
+		printf("      the array's element becomes %sint%d_t "
+		    "(GL_EXT_shader_explicit_arithmetic_types_int%d; "
+		    "storageBuffer%dBitAccess, VK_KHR_%dbit_storage), widened where "
+		    "it is read;\n      the host and every other shader that uses "
+		    "the buffer write and read it so\n", sign ? "" : "u", bits,
+		    bits, bits, bits);
+	}
+	printf("    not offered: a blocked order (the accesses reordered so what "
+	    "they reach at a time fits): it changes the dispatch\n");
+}
+
 static char *
 mem_pass(const char *text, int *changed)
 {
@@ -3673,6 +4130,8 @@ mem_pass(const char *text, int *changed)
 			free(ld.p);
 		}
 	}
+	/* storage buffers past the cache */
+	mem_streams(m, lsize, &mo);
 	/* texel fetches */
 	{
 		double cf = (double)model_cost(m, C_TEX_FETCH);
