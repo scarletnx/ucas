@@ -76,3 +76,67 @@ t1 and t2 are equal on the domain of t1 (proved by SAT: 10150 AIG nodes, 5280 co
 > r2(x: f32, y: f32) = -ceil(-x) + -ceil(-y)
 > equiv r1 r2
 r1 and r2 are equal on the domain of r1 (proved by SAT: 14646 AIG nodes, 0 conflicts)
+> q1(x: u32) = asfloat(x | 0x7fc00000)
+> q2(x: u32) = asfloat(u32(0x7fc00000))
+> q3(x: u32) = asfloat((x & 0x80000000) | 0x7fc00000)
+> equiv q1 q2
+q1 and q2 are equal on the domain of q1 (proved by SAT: 54 AIG nodes, 0 conflicts)
+> equiv q1 q2 nanbits
+q1 and q2 differ at 65533 points of the sample, e.g. x=4294967295: NaN 0xffffffff vs NaN 0x7fc00000
+  NaN results compared by their bits, sign and payload (nanbits)
+> equiv q3 q2
+q3 and q2 are equal on the domain of q3 (proved by SAT: 33 AIG nodes, 0 conflicts)
+> equiv q3 q2 nanbits
+q3 and q2 differ at 32557 points of the sample, e.g. x=4294967295: NaN 0xffc00000 vs NaN 0x7fc00000
+  NaN results compared by their bits, sign and payload (nanbits)
+> hn1(x: u16) = asfloat(x | 0x7e00)
+> hn2(x: u16) = asfloat(u16(0x7e00))
+> equiv hn1 hn2
+hn1 and hn2 are equal on the domain of hn1 (exhaustive)
+> equiv hn1 hn2 nanbits
+hn1 and hn2 differ at 65472 points, e.g. x=1: NaN 0x7e01 vs NaN 0x7e00
+  NaN results compared by their bits, sign and payload (nanbits)
+> d64a(x: u64) = asfloat(x | 0x7ff8000000000000)
+> d64b(x: u64) = asfloat(u64(0x7ff8000000000000))
+> equiv d64a d64b nanbits
+d64a and d64b differ at 65533 points of the sample, e.g. x=9223372036854775807: NaN 0x7fffffffffffffff vs NaN 0x7ff8000000000000
+  NaN results compared by their bits, sign and payload (nanbits)
+> m1(x: u32) = -(-asfloat(x))
+> m2(x: u32) = asfloat(x)
+> equiv m1 m2 nanbits
+m1 and m2 are equal on the domain of m1 (proved by SAT: 1168 AIG nodes, 17 conflicts)
+  NaN results compared by their bits, sign and payload (nanbits)
+> a1(x: u32) = abs(asfloat(x))
+> a2(x: u32) = asfloat(x & 0x7fffffff)
+> equiv a1 a2 nanbits
+a1 and a2 are equal on the domain of a1 (proved by SAT: 1168 AIG nodes, 17 conflicts)
+  NaN results compared by their bits, sign and payload (nanbits)
+> sel1(x: u32, y: u32) = x < y ? asfloat(x | 0x7f800001) : asfloat(y | 0x7f800001)
+> sel2(x: u32, y: u32) = asfloat((x < y ? x : y) | 0x7f800001)
+> equiv sel1 sel2 nanbits
+sel1 and sel2 are equal on the domain of sel1 (proved by SAT: 319 AIG nodes, 0 conflicts)
+  NaN results compared by their bits, sign and payload (nanbits)
+> p1(x: u32) = asfloat(x | 0x7fc00000)
+> p2(x: u32) = (x & 0x3fffff) == 0x25a5a5 ? asfloat(u32(0x7fc00000)) : asfloat(x | 0x7fc00000)
+> equiv p1 p2
+p1 and p2 are equal on the domain of p1 (proved by SAT: 119 AIG nodes, 0 conflicts)
+> equiv p1 p2 nanbits
+p1 and p2 differ, e.g. x=2467237: NaN 0x7fe5a5a5 vs NaN 0x7fc00000 (found by SAT, checked by evaluation)
+  NaN results compared by their bits, sign and payload (nanbits)
+> ar1(x: u32) = asfloat(x) + f32(0)
+> equiv ar1 m2 nanbits
+ar1 and m2 are equal on the domain of ar1 (sampled, not proved; no SAT proof: its counterexample did not reproduce)
+  NaN results compared by their bits, sign and payload (nanbits)
+> equiv q1 q2 nanbits ftz
+q1 and q2 differ at 65533 points of the sample, e.g. x=4294967295: NaN 0xffffffff vs NaN 0x7fc00000
+  every float operation flushed subnormals to zero (ftz)
+  NaN results compared by their bits, sign and payload (nanbits)
+> ib1(x: u32) = asuint(asfloat(x | 0x7fc00000))
+> ib2(x: u32) = x | 0x7fc00000
+> equiv ib1 ib2 nanbits
+ib1 and ib2 are equal on the domain of ib1 (proved by SAT: 54 AIG nodes, 0 conflicts)
+  nanbits: the result is u32, not a float: no NaN to compare
+> is q1 equal to q2 comparing NaN payloads?
+  ucas: equiv q1 q2 nanbits
+q1 and q2 differ at 65533 points of the sample, e.g. x=4294967295: NaN 0xffffffff vs NaN 0x7fc00000
+  NaN results compared by their bits, sign and payload (nanbits)

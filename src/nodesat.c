@@ -678,6 +678,12 @@ int nsat_ftz;
  */
 int nsat_floats;
 
+/*
+ * nsat_nanbits (equiv's `nanbits`): two NaN results are equal only with
+ * the same sign and payload; the others compare as before
+ */
+int nsat_nanbits;
+
 static void
 flush(struct fpv *x, struct word *bits, const struct fpfmt *F)
 {
@@ -1313,9 +1319,22 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	}
 	assume = aig_and(B.g, assume, B.lassume);
 	/* floats differ as the evaluator's equiv sees them: not both NaN,
-	 * and not == (so -0 and +0 are one value) */
-	ne = TYK(N.ty[a]) == K_FLOAT ? L_NOT(fp_same(B.g, V(va), V(vb),
-	    fp_fmt(TYW(N.ty[a])))) : w_ne(B.g, V(va), V(vb));
+	 * and not == (so -0 and +0 are one value); under nanbits two NaNs
+	 * are the same only bit for bit (their words with the payload) */
+	if (TYK(N.ty[a]) == K_FLOAT) {
+		const struct fpfmt *F = fp_fmt(TYW(N.ty[a]));
+		lit same = fp_same(B.g, V(va), V(vb), F);
+		if (nsat_nanbits) {
+			struct word pa, pb;
+			fp_pack(B.g, &pa, FV(va), F, 1);
+			fp_pack(B.g, &pb, FV(vb), F, 1);
+			same = aig_or(B.g, fp_eq(B.g, V(va), V(vb), F),
+			    aig_and(B.g, aig_and(B.g, FV(va)->nan, FV(vb)->nan),
+			    w_eq(B.g, &pa, &pb)));
+		}
+		ne = L_NOT(same);
+	} else
+		ne = w_ne(B.g, V(va), V(vb));
 	goal = aig_and(B.g, assume, aig_and(B.g, D(va), aig_or(B.g,
 	    L_NOT(D(vb)), ne)));
 	out->nodes = aig_nodes(B.g);

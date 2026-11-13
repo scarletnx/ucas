@@ -1025,7 +1025,8 @@ types: real (math), f16 f32 f64 (IEEE), int (math), uN iN (wrapping), bool
 commands (F is a function name or an expression like isqrt(x: u4))
   show F | parse EXPR | table F [max n] | funcs | models | help
   range F [nocrit] | domain F | wrap F | crit F | diff F [x]
-  equiv F G [ftz|noftz] | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]
+  equiv F G [ftz|noftz] [nanbits] | error G ~ F
+  fit G ~ F [metric maxrel|maxabs|rms]
   gates F [basis b] [max k] [nodes n] [as c]
   find F [n] [max cost] | more [n]
   cost F [model m] [consecutive i] | use m
