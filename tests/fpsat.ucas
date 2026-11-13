@@ -57,6 +57,22 @@ equiv fa fb
 d1(x: f32, y: f32) = x / y
 d2(x: f32, y: f32) = (x / y) * f32(1)
 equiv d1 d2
+# but one by a constant power of two is the product by its reciprocal, the
+# same value rounded once (#461), with subnormals flushed as well; a wrong
+# scale differs
+q1(x: f32, y: f32) = (x + y) / 4
+q2(x: f32, y: f32) = (x + y) * 0.25
+equiv q1 q2
+equiv q1 q2 ftz
+q3(x: f32, y: f32) = (x + y) * 0.5
+equiv q1 q3
+q4(x: f64, y: f64) = x / -0.125
+q5(x: f64, y: f64) = -(x * 8)
+equiv q4 q5
+# 2^127's reciprocal is subnormal in f32: not taken
+q6(x: f32, y: f32) = x / 1.7014118346046923e38
+q7(x: f32, y: f32) = x * 5.877471754111438e-39
+equiv q6 q7
 # a 64-bit integer into f32 is rounded once (#466): 2^60 + 2^36 + 1 is
 # above the midpoint of 2^60 and 2^60 + 2^37
 k(x: i64) = asuint(f32(x))
