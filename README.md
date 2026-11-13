@@ -3711,10 +3711,49 @@ tol).
 Not priced: no model has a class for a read of a compressed texture
 apart from its uncompressed one (none is measured), so nothing is
 rewritten on BC4's account; `texenc` gives the asset and its proof.
-Not done: ASTC (weight grids,
-dual planes, partitions, HDR endpoints), BC6H and BC7, ETC2/EAC, the
+Not done: ASTC as a table's
+encoding (its weight grids, dual planes and HDR endpoints; its
+partition hash is an operation, below), BC6H and BC7, ETC2/EAC, the
 sRGB variants, and a polynomial split between a table's knots and a
 residual in the ALU.
+
+### The ASTC decoder's steps
+
+An ASTC block (Khronos Data Format Specification; 2D blocks of the LDR
+profile here) decodes in fixed function.  Its steps are operations of
+the language (src/astc.c), each defined by an expression over the
+integer operations, as the catalogue's instructions are: that
+expression is its exact semantics, so `range`, `table`, `equiv`
+(enumerated, or by SAT) and `find` take it, and `equiv` proves the step
+a decoder writes against it.
+
+| op | value |
+|---|---|
+| `astc_partition(seed, x, y, n)` | the partition, 0..n-1, of texel (x, y) in a block of n partitions (n 1..4, n = 1 is 0; a count that is not a constant selects among the four, undefined for any other) whose partition index is seed (its low 10 bits): the specification's hash of seed + 1024 (n - 1), its twelve squared nibbles shifted by the seed's bits 0, 1 and 4, four scores `(s1 x + s2 y + (p >> 14)) & 63`, ..., and the highest of the first n, the lower partition on a tie.  z is 0.  A block of fewer than 31 texels takes it at (2x, 2y) |
+
+```
+> show astc_partition(70, 11, 1, 3)
+_() = 1
+> p2(seed: u10, x: u4, y: u4) = astc_partition(seed, x, y, 2)
+> equiv hp p2               (hp: the hash as a shader writes it, one multiply for three shift-adds)
+hp and p2 are equal on the domain of hp (exhaustive)
+```
+
+Checked against astcenc 5.7.1 as the decoder: 43008 blocks (the 14 2D
+footprints, 2, 3 and 4 partitions, every seed), each partition one
+colour, so every texel's colour names its partition: all 2558976
+texels agree.  tests/astc.ucas keeps four of those blocks, a small
+block's doubled coordinates, and a shader's form of the hash against
+it (the tie given to the other partition differs at 4223 of the
+262144 seeds and texels).
+
+**Price.**  No target has one as an instruction (the texture unit
+decodes a whole block), so `cost` prices one as its definition: the
+operations it spells out over its operands, constants folded, on a
+line of its own (24.375 under gt1030 with a constant seed, the hash
+folded; 197.875 with a variable one).
+
+Not done: 3D blocks (z), HDR, sRGB.
 
 ### Long expressions
 

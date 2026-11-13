@@ -393,6 +393,11 @@ node_cost(const struct model *m, nid n, int *cls)
 	default:
 		if (IS_TEX(op))
 			return tex_cost(m, n, cls);
+		if (IS_ASTC(op)) {
+			/* no class: its definition's operations */
+			*cls = -1;
+			return astc_cost(m, n);
+		}
 		k = IS_DOT(op) ? DOT_CLASS(op) : IS_SG(op) ? sg_class(op) :
 		    IS_INST(op) ? inst_class(op) : C_IADD;
 	}
@@ -433,6 +438,9 @@ static const float *cur_eff;
 static const uint8_t *cur_in, *cur_fused;
 static struct fgraph cur_fg;
 static struct fuse_tally cur_tally;
+/* the ASTC steps a pricing met, priced as their definitions (no class) */
+static float astc_by[O_ASTC_LAST - O_ASTC_FIRST + 1];
+static int astc_n[O_ASTC_LAST - O_ASTC_FIRST + 1];
 
 static float
 ncost(const struct model *m, nid g, int *cls)
@@ -752,7 +760,7 @@ price_loop(const struct model *m, const struct func *f, nid n,
 		if (outer[g] || !(ini[g] || bod[g]))
 			continue;
 		c = ncost(m, g, &cls);
-		if (cls < 0)
+		if (cls < 0 && !IS_ASTC(N.op[g]))
 			continue;
 		if (bod[g] && (node_slots(g) & bound)) {
 			lp->var[g] = 1;
@@ -805,6 +813,13 @@ price_loop(const struct model *m, const struct func *f, nid n,
 			if (outer[g] || !(ini[g] || bod[g]))
 				continue;
 			c = ncost(m, g, &cls);
+			if (cls < 0 && IS_ASTC(N.op[g])) {
+				int a = N.op[g] - O_ASTC_FIRST;
+				once[g] = !lp->var[g];
+				astc_by[a] += lp->var[g] ? (float)(c * t) : c;
+				astc_n[a] += lp->var[g] ? (int)t : 1;
+				continue;
+			}
 			if (cls < 0)
 				continue;
 			once[g] = !lp->var[g];
@@ -1023,6 +1038,8 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 	struct sbuf cb = {0};
 	struct func flat;
 
+	memset(astc_by, 0, sizeof astc_by);
+	memset(astc_n, 0, sizeof astc_n);
 	/* subgroup operations: priced as one lane runs them, a value per
 	 * lane once whether an operation or the lane itself reads it; new
 	 * nodes, so before anything is sized by N.n */
@@ -1073,6 +1090,13 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		if (!all[g] || N.op[g] == O_LOOP)
 			continue;
 		c = ncost(m, g, &cls);
+		if (cls < 0 && IS_ASTC(N.op[g])) {
+			astc_by[N.op[g] - O_ASTC_FIRST] += c;
+			astc_n[N.op[g] - O_ASTC_FIRST]++;
+			total += c;
+			nops++;
+			continue;
+		}
 		if (cls < 0)
 			continue;
 		if (!fused(g)) {
@@ -1136,6 +1160,22 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			rep_int("count", cnt[k]);
 			rep_num("each", bycls[k] / (float)cnt[k]);
 			rep_num("cost", bycls[k]);
+			rep_end();
+		}
+	for (k = 0; k <= O_ASTC_LAST - O_ASTC_FIRST; k++)
+		if (astc_n[k]) {
+			printf("  %-14s %3d x %-5g = %g (its definition's "
+			    "operations: no target has it as one "
+			    "instruction)\n",
+			    opinfo[O_ASTC_FIRST + k].name, astc_n[k],
+			    (double)(astc_by[k] / (float)astc_n[k]),
+			    (double)astc_by[k]);
+			rep_obj(NULL);
+			rep_str("class", opinfo[O_ASTC_FIRST + k].name);
+			rep_int("count", astc_n[k]);
+			rep_num("each", astc_by[k] / (float)astc_n[k]);
+			rep_num("cost", astc_by[k]);
+			rep_str("priced", "definition");
 			rep_end();
 		}
 	rep_end();

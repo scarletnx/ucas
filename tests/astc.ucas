@@ -1,0 +1,54 @@
+# astc_partition(seed, x, y, n): the partition, 0..n-1, of texel (x, y)
+# in an ASTC block of n partitions (n a constant 1..4) whose partition
+# index is seed: the specification's hash, z = 0
+show astc_partition(70, 0, 0, 3)
+show astc_partition(70, 11, 1, 3)
+show astc_partition(1023, 5, 9, 1)
+p4(s: u10, x: u4, y: u4) = astc_partition(s, x, y, 4)
+range p4
+# what astcenc 5.7.1 decoded from blocks whose partitions each have one
+# colour, a texel's colour its partition (x fastest): 12x12, seed 70, 3
+# partitions
+A = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
+ra(x: u8 in 0..11, y: u8 in 0..11) = A[x + 12*y]
+oa(x: u8 in 0..11, y: u8 in 0..11) = astc_partition(70, x, y, 3)
+equiv ra oa
+# 6x6, seed 163, 4 partitions
+B = [1, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 1]
+rb(x: u8 in 0..5, y: u8 in 0..5) = B[x + 6*y]
+ob(x: u8 in 0..5, y: u8 in 0..5) = astc_partition(163, x, y, 4)
+equiv rb ob
+# 10x5, seed 59, 2 partitions
+C = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0]
+rc(x: u8 in 0..9, y: u8 in 0..4) = C[x + 10*y]
+oc(x: u8 in 0..9, y: u8 in 0..4) = astc_partition(59, x, y, 2)
+equiv rc oc
+# a block of fewer than 31 texels takes the hash at (2x, 2y): 4x4, seed
+# 61, 2 partitions, and the same read at (x, y)
+D = [1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+rd(x: u8 in 0..3, y: u8 in 0..3) = D[x + 4*y]
+od(x: u8 in 0..3, y: u8 in 0..3) = astc_partition(61, 2*x, 2*y, 2)
+equiv rd od
+wd(x: u8 in 0..3, y: u8 in 0..3) = astc_partition(61, x, y, 2)
+equiv rd wd
+# a decoder's hash as a shader writes it (the three shift-adds one
+# multiply), 2 partitions, against the operation for every seed and every
+# texel a block has (x, y < 16)
+hp(seed: u10, x: u4, y: u4) = (a >= b ? 0 : 1) where s = (u32(seed) & 1023) + 1024, p0 = s xor (s >> 15), p1 = p0 * 4007528593, p2 = p1 xor (p1 >> 5), p3 = p2 + (p2 << 16), p4 = p3 xor (p3 >> 7), p5 = p4 xor (p4 >> 3), p6 = p5 xor (p5 << 6), p = p6 xor (p6 >> 17), sh1 = (seed & 1) != 0 ? ((seed & 2) != 0 ? 4 : 5) : 5, sh2 = (seed & 1) != 0 ? 5 : ((seed & 2) != 0 ? 4 : 5), a = ((((p & 15) * (p & 15)) >> sh1) * x + ((((p >> 4) & 15) * ((p >> 4) & 15)) >> sh2) * y + (p >> 14)) % 64, b = (((((p >> 8) & 15) * ((p >> 8) & 15)) >> sh1) * x + ((((p >> 12) & 15) * ((p >> 12) & 15)) >> sh2) * y + (p >> 10)) % 64
+p2(seed: u10, x: u4, y: u4) = astc_partition(seed, x, y, 2)
+equiv hp p2
+# the tie given to the second partition: a counterexample
+hq(seed: u10, x: u4, y: u4) = (a > b ? 0 : 1) where s = (u32(seed) & 1023) + 1024, p0 = s xor (s >> 15), p1 = p0 * 4007528593, p2 = p1 xor (p1 >> 5), p3 = p2 + (p2 << 16), p4 = p3 xor (p3 >> 7), p5 = p4 xor (p4 >> 3), p6 = p5 xor (p5 << 6), p = p6 xor (p6 >> 17), sh1 = (seed & 1) != 0 ? ((seed & 2) != 0 ? 4 : 5) : 5, sh2 = (seed & 1) != 0 ? 5 : ((seed & 2) != 0 ? 4 : 5), a = ((((p & 15) * (p & 15)) >> sh1) * x + ((((p >> 4) & 15) * ((p >> 4) & 15)) >> sh2) * y + (p >> 14)) % 64, b = (((((p >> 8) & 15) * ((p >> 8) & 15)) >> sh1) * x + ((((p >> 12) & 15) * ((p >> 12) & 15)) >> sh2) * y + (p >> 10)) % 64
+equiv hq p2
+# no target has it as an instruction: priced as its definition, a
+# constant seed folding the hash
+cost oa
+cost p4
+# a count the block gives selects among the four, undefined past them
+v(s: u10, x: u2, y: u2, n: u3) = astc_partition(s, x, y, n)
+domain v
+w(s: u10, x: u2, y: u2, n: u3 in 1..4) = astc_partition(s, x, y, n)
+r(s: u10, x: u2, y: u2, n: u3 in 1..4) = n == 1 ? 0 : n == 2 ? astc_partition(s, x, y, 2) : n == 3 ? astc_partition(s, x, y, 3) : astc_partition(s, x, y, 4)
+equiv w r
+show astc_partition(5, 1, 2, 5)
+show astc_partition(5, 1, 2, 2.5)

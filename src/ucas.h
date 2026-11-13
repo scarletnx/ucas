@@ -161,6 +161,13 @@ enum {
 	O_ADD2X16, O_SUB2X16, O_MUL2X16, O_MIN2X16, O_MAX2X16, O_SMIN2X16,
 	O_SMAX2X16,
 	/*
+	 * astc.c: steps of the ASTC decoder, each defined by an expression
+	 * over the operations above, as the catalogue's are (inside IS_INST,
+	 * so spelled out, rebuilt and printed the same way), with a constant
+	 * of the operation in ki: astc_partition(seed, x, y, n), n in ki
+	 */
+	O_ASTC_PART,
+	/*
 	 * texalu.c: the texture unit's fixed function as operations.  A
 	 * nearest read with an address mode on an integer texel index
 	 * (fetch_repeat(T, i) ...), and a linear filter on texel coordinates
@@ -185,7 +192,10 @@ enum {
 #define O_SG_FIRST O_SGBALLOT
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
-#define IS_INST(op) ((op) >= O_BFE && (op) <= O_SMAX2X16)
+#define O_ASTC_FIRST O_ASTC_PART
+#define O_ASTC_LAST O_ASTC_PART
+#define IS_ASTC(op) ((op) >= O_ASTC_FIRST && (op) <= O_ASTC_LAST)
+#define IS_INST(op) ((op) >= O_BFE && (op) <= O_ASTC_LAST)
 /* built from all three operands by mk_op (the generic rebuilders) */
 #define IS_OP3(op) (IS_DOT(op) || IS_SG(op) || IS_INST(op))
 #define OF_COMM 1
@@ -546,6 +556,14 @@ int inst_class(int op);
 nid inst_expand(int op, nid a, nid b, nid c);
 /* find: the instructions the active model has, for the patterns they are */
 void inst_find(const struct func *f);
+/* ---- astc.c: the ASTC decoder's steps ---- */
+nid mk_astc(int op, int64_t ki, nid a, nid b, nid c);
+/* the step as the expression that defines it */
+nid astc_expand(int op, int64_t ki, nid a, nid b, nid c);
+/* a call of the language (its constant operands checked) */
+nid astc_call(int op, const nid *args);
+/* its price under m: its definition's */
+float astc_cost(const struct model *m, nid n);
 /* swar.c: lane operations on packed words, word-wide */
 void swar_find(const struct func *f);
 

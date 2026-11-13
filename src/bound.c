@@ -431,7 +431,7 @@ fdiv_simp(struct bctx *c, nid n, struct sbuf *steps)
 		else if (opinfo[N.op[n]].arity == 1)
 			n = mk_un(N.op[n], a);
 		else if (IS_OP3(N.op[n]))
-			n = mk_op(N.op[n], a, b, N.c[n]);
+			n = mk_like(n, a, b, N.c[n]);
 		else
 			n = mk_bin(N.op[n], a, b);
 		bctx_reset(c);
