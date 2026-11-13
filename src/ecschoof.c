@@ -219,7 +219,7 @@ sdbl(struct sctx *C, struct spt *R, const struct spt *P)
 
 /* is the polynomial zero mod h */
 static int
-iszero(const struct px *a)
+px_is0(const struct px *a)
 {
 	return a->d < 0;
 }
@@ -232,11 +232,11 @@ sadd(struct sctx *C, struct spt *R, const struct spt *P, const struct spt *Q,
 	const struct mf *F = C->F;
 	struct px Z1Z1, Z2Z2, U1, U2, S1, S2, H, r, HH, HHH, V, t;
 
-	if (iszero(&P->Z)) {
+	if (px_is0(&P->Z)) {
 		spt_copy(F, R, Q);
 		return;
 	}
-	if (iszero(&Q->Z)) {
+	if (px_is0(&Q->Z)) {
 		spt_copy(F, R, P);
 		return;
 	}
@@ -262,12 +262,12 @@ sadd(struct sctx *C, struct spt *R, const struct spt *P, const struct spt *Q,
 	MM(&S2, &S2, &Z1Z1);
 	px_sub(F, &H, &U2, &U1);
 	px_sub(F, &r, &S2, &S1);
-	if (iszero(&H)) {
-		if (iszero(&r))
+	if (px_is0(&H)) {
+		if (px_is0(&r))
 			sdbl(C, R, P);
 		else {
 			px_add(F, &t, &S1, &S2);
-			if (!iszero(&t) && check) {
+			if (!px_is0(&t) && check) {
 				/* equal on some roots, opposite on others */
 				px_gcd(F, &C->g, &r, &C->M.m);
 				C->split = 1;
@@ -361,7 +361,7 @@ scmp(struct sctx *C, const struct spt *P, const struct spt *Q)
 			res = 1;
 		else {
 			px_add(F, &a, &a, &b);
-			if (iszero(&a))
+			if (px_is0(&a))
 				res = -1;
 		}
 	}
@@ -440,7 +440,7 @@ schoof_l(const struct ecp_curve *E, int l, const struct px *psi, int *deg)
 		if (C.split) {
 			goto split;
 		}
-		if (iszero(&S.Z)) {
+		if (px_is0(&S.Z)) {
 			tau = 0;
 			break;
 		}
