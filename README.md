@@ -5704,7 +5704,7 @@ derivative) and `cost` work on loops as on any expression.
 | command | |
 |---------|--|
 | `closed F` | closed forms of the loops in F, innermost first, each checked against direct iteration on F's domain; a form that disagrees is rejected and shown as such |
-| `scheme F [more] [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), with `more` also, from degree 4, the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, and strength reduction of polynomial loop bodies |
+| `scheme F [more] [model m]` | evaluation schemes priced with the cost model: naive/products/Horner/Estrin for polynomials (cost and critical path), with `more` also, from degree 4, the forms with fewer multiplications and for f32 compensated Horner (see "Polynomials in fewer multiplications"), forward differences for tabulating, powers by squaring, and for loops: iteration vs the closed form vs the matrix power (O(log n), exact in int64) with the crossover trip count, with `more` Kahan's compensated sum for an f32 accumulator, and strength reduction of polynomial loop bodies |
 | `continuous F` | sums as integrals plus Euler-Maclaurin corrections (products through the logarithm: Stirling), and loops that step `x += h*g(x)` as the ODE `x' = g(x)`; the measured difference is printed |
 | `integrate F [wrt x] [from a to b]` (also `∫`) | a symbolic antiderivative, checked by differentiating it back; definite integrals also numerically (adaptive Gauss-Kronrod 7-15 with an error estimate; `inf` bounds allowed) |
 | `integrate F [from a to b] numerically qmc [points N] [replicates R] [seed K] [noscramble] [owen]` | a quasi-Monte Carlo estimate on Sobol points (src/qmc.c): over from..to, or without them over the box of every parameter's range, in up to 8 dimensions.  The direction numbers are Joe and Kuo's; by default 8 replicates of 4096 points (N a power of two) run, each under a random digital shift, and the answer is their mean with its standard error: an estimate from the replicates' spread, labelled as one, with "not converged" when they differ by more than 5% of the value (a pole between the points looks like that), and "a spike" when the largest value met is over 50 times the mean size: around an integrable singularity the replicates agree on a value that is off and their spread understates the error (1/sqrt(|x|) on [-1, 1]: 3.9796 with a standard error of 0.0018, for 4).  `owen` scrambles each replicate by a nested uniform (Owen) scrambling instead of a shift (Burley's hash-based form: every bit of a coordinate flipped by a function of the bits above it): for a smooth integrand its error falls faster, about n^-1.5 against the shift's n^-1 (exp(x y) on the unit square, 16 replicates: standard error 7.9e-06 at 1024 points and 1.4e-07 at 16384, against 7.5e-05 and 4.5e-06), and the same replicates estimate it.  `noscramble` runs the one unshifted sequence and gives no error estimate (with `owen`: refused).  A side at infinity (`from 0 to inf`, a parameter with no range: the whole line) is a change of variable onto [0, 1): x = a + t/(1 - t) for [a, inf), x = b - t/(1 - t) for (-inf, b], x = s/(1 - s^2) with s = 2t - 1 for the whole line, the integrand times the derivative, and the line says which; the spike and "not converged" lines judge the transformed integrand (exp(-x^2) over the line: 1.772453851; 1/x from 1 to inf: both, and no value to trust).  A coordinate is the centre of its 2^-32 cell, so the box's ends are never evaluated; points where the integrand is undefined are left out and counted.  It is also the fallback of a definite integral with no antiderivative here that Gauss-Kronrod refuses (an undefined or infinite point inside): the estimate when the replicates agree, one line saying it settles nothing when they do not |
@@ -5854,6 +5854,24 @@ Horner keeps 2.6e-08 of p~, the compensated form 1.9e-14, at a price of
 gains only where the polynomial cancels: elsewhere its error is the last
 rounding, as Horner's nearly is.  Its products and sums must reach the
 driver as written (NoContraction): contracted, they are not error-free.
+
+For a counted loop with an f32 accumulator, `s = s + t` (or `s - t`)
+with t free of s, `scheme F more` lists **Kahan's compensated sum**
+(`comp.`): `y = t - c`, `w = s + y`, `c = (w - s) - y`, `s = w`, the
+rounding error of each add carried into the next one.  The loop is run
+that way on the domain beside the loop as written, and both are
+compared with the same f32 terms summed in f64, as a part of the sum of
+the terms' sizes: the plain sum's error there is at most gamma_n for n
+adds (each point is checked against it), Kahan's 2u + O(n u^2) (Knuth;
+Higham, Accuracy and Stability of Numerical Algorithms, 4.3).  The
+price is an iteration's, beside the accumulator in f64.  The sum of
+1/i^2 to n, n up to 2000: the plain sum keeps 2.3e-06 of the terms'
+sizes, Kahan's 3.8e-08 (the last rounding), at 19.25 an iteration under
+gt1030 against 16.25, and 50.625 with the accumulator in f64
+(tests/kahan.ucas).  It gains where the errors add up, many terms or
+terms that cancel, and the line says when it gains nothing.  Its adds
+must stay as written: reassociated, c is 0.  Not a line for a while
+loop, an accumulator another state reads, or a loop inside the body.
 
 ### What is checked, and what is approximate
 
