@@ -8347,6 +8347,35 @@ float_under(int v, int depth)
 	return 0;
 }
 
+/*
+ * A float used only through a discrete decision: the operand of a
+ * conversion to an integer (*disc 1), or the side of a compare whose
+ * other side is a constant (*disc 2).  A root with no budget beyond the
+ * original's precision: moving it by less than a unit moves the integer
+ * by at most one, and a compare has no continuous budget at all.
+ */
+static int
+disc_root(const struct sins *I, int *disc)
+{
+	int a, b;
+
+	*disc = 0;
+	if ((!strcmp(I->op, "OpConvertFToU") || !strcmp(I->op,
+	    "OpConvertFToS")) && I->nop >= 2 && I->opnd[1][0] == '%') {
+		*disc = 1;
+		return idx(I->opnd[1]);
+	}
+	if ((strncmp(I->op, "OpFOrd", 6) && strncmp(I->op, "OpFUnord", 8)) ||
+	    I->nop < 3 || I->opnd[1][0] != '%' || I->opnd[2][0] != '%')
+		return -1;
+	a = idx(I->opnd[1]);
+	b = idx(I->opnd[2]);
+	if ((V.id[a].kind == K_CONST) == (V.id[b].kind == K_CONST))
+		return -1;	/* two values, or two constants */
+	*disc = 2;
+	return V.id[a].kind == K_CONST ? b : a;
+}
+
 /* a root's sink: the image's or the pack function's format (named by
  * what set it), else the request's */
 static void
@@ -9244,9 +9273,11 @@ float_pass(const char *text, int *changed)
 	    j;
 	struct fplan *pl = xcalloc(256, sizeof *pl);
 	int npl = 0, preserve = 0, nroots = 0, napplied = 0;
+	int discv[64], ndiscv = 0;
 	int tmp = 0;	/* names of new ids: %ucas_fN */
 	char **repl, *dead, *inner;
 	struct sbuf decl = {0}, out = {0}, rep = {0}, lanes_txt = {0};
+	struct sbuf disc_txt = {0};
 	double before = 0, after = 0;
 	int nlanes_total = 0;
 	clock_t t0 = clock();
@@ -9299,7 +9330,7 @@ float_pass(const char *text, int *changed)
 	/* the roots: stored and returned float values */
 	for (k = 0; k < V.nin && ngr < 60; k++) {
 		const struct sins *I = &V.in[k];
-		int v = -1, n, l, r0;
+		int v = -1, n, l, r0, disc = 0;
 		const char *imgfmt = NULL, *sinkby = NULL;
 		if (!strcmp(I->op, "OpStore") && I->nop >= 2)
 			v = idx(I->opnd[1]);
@@ -9312,13 +9343,29 @@ float_pass(const char *text, int *changed)
 		else if ((imgfmt = pack_format(I)) != NULL) {
 			v = idx(I->opnd[3]);	/* rounded by the function itself */
 			sinkby = I->opnd[2];
-		} else
+		} else {
 			imgfmt = NULL;
+			v = disc_root(I, &disc);
+		}
 		/* a stored value is usually put together from its lanes: the
 		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
 		    !float_under(v, 0))
 			continue;
+		/* a value compared or converted twice is one such root; one
+		 * also stored is a root both ways, and a rewrite of what they
+		 * share must hold for the decision's root, which has no sink */
+		for (j = 0; disc && j < ndiscv; j++)
+			if (discv[j] == v)
+				break;
+		if (disc && j < ndiscv)
+			continue;
+		if (disc && ndiscv < 64)
+			discv[ndiscv++] = v;
+		if (disc)
+			sb_printf(&disc_txt, "%s %s (%s)", disc_txt.n ? "," : "",
+			    V.id[v].name, disc == 1 ? "converted to an integer" :
+			    "compared with a constant");
 		n = ncomp(V.id[v].type);
 		nroots++;
 		r0 = ngr;
@@ -9331,7 +9378,10 @@ float_pass(const char *text, int *changed)
 			root = fx_build(g, v, l, 0);
 			if (root < 0)
 				continue;
-			root_sink(g, imgfmt, sinkby);
+			if (disc)
+				g->sink = g->sinkrel = g->sinkmin = 0;
+			else
+				root_sink(g, imgfmt, sinkby);
 			{
 				static char sl[200];
 				src_line(ins_line(SP.def[v]), sl, sizeof sl);
@@ -9386,6 +9436,8 @@ float_pass(const char *text, int *changed)
 		free(G);
 		free(RW);
 		free(pl);
+		free(lanes_txt.p);
+		free(disc_txt.p);
 		free(SP.def);
 		free(SP.uses);
 		SP.def = NULL;
@@ -9399,8 +9451,9 @@ float_pass(const char *text, int *changed)
 		memset(&V, 0, sizeof V);
 		npend_fas = 0;
 		if (fopt_only)
-			printf("float simplify: no float arithmetic reaches a store "
-			    "or a return\n");
+			printf("float simplify: no float arithmetic reaches a store, "
+			    "a return, a conversion to an integer or a compare with a "
+			    "constant\n");
 		return NULL;
 	}
 	/* the analyses, per lane group */
@@ -9844,6 +9897,11 @@ float_pass(const char *text, int *changed)
 		sb_puts(&rep, "\n");
 		if (lanes_txt.p)
 			sb_puts(&rep, lanes_txt.p);
+		if (disc_txt.p)
+			sb_printf(&rep, "  values that decide (a compare with a "
+			    "constant, a conversion to an integer) take no budget "
+			    "beyond the original's precision, nor does what is under "
+			    "them:%s\n", disc_txt.p);
 		for (j = 0; j < ngr; j++) {
 			int z;
 			if (grp[j] != j)
@@ -10239,6 +10297,7 @@ float_pass(const char *text, int *changed)
 	free(decl.p);
 	free(rep.p);
 	free(lanes_txt.p);
+	free(disc_txt.p);
 	free(G);
 	free(RW);
 	free(pl);

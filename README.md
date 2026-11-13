@@ -4542,6 +4542,16 @@ Integer formats and 32-bit floats are not sinks (`sink rgba32f` is an
 error).  In English: "for an RGBA8_UNORM target", "the format is
 rgb10a2", `sink unorm8`.
 
+A float used through a decision is a root too: the operand of a
+conversion to an integer (`int(d * 255.0)`, with a `floor` under it)
+and the side of a compare whose other side is a constant (`d > 0.5`).
+It takes no budget beyond the original's precision, the one a stored
+f32 gets: a budget of one unit would move the integer by one, which no
+request word allows, and any move can flip a compare.  Nothing under
+such a value takes a budget either, even where the value is also
+stored under a sink: a polynomial the sink would take for an `exp2`
+whose result is also compared is not applied (tests/sinkdisc.ucas).
+
 One step is the budget at the root: the UNORM conversion clamps to
 [0, 1], scales by 2^N - 1 and rounds; rounding to nearest (what Vulkan
 asks of an implementation; it allows either neighbour) two values

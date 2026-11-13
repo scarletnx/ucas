@@ -1,0 +1,36 @@
+# float simplify's roots include a float used through a decision: the
+# operand of a conversion to an integer and a side of a compare with a
+# constant (#38).  They take no budget beyond the original's precision:
+# moving such a value by less than a unit moves the integer by at most
+# one, and any move can flip a compare; and nothing under them does, even
+# when the value is also stored under a sink.
+#
+# a conversion, a compare and a floor: the mix by a step is a select, as
+# it would be for a stored f32 (nothing here is stored)
+simplify float nofile nofunctions
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float f[]; } b;
+layout(std430, binding = 1) buffer O { int o[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float c = b.f[i];
+    float d = mix(c / 12.92, (c + 0.055) / 1.055, step(0.04045, c));
+    o.o[i] = int(d * 255.0);
+    o.o[i + 64u] = d > 0.5 ? 1 : 0;
+    o.o[i + 128u] = int(floor((c + 0.055) / 1.055 * 16.0));
+}
+```
+# g both returned under an 8-bit sink and compared: the sink would take a
+# polynomial for exp2 (within 0.00224 of the step's 0.00392), which could
+# flip the compare, so it is not applied
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Glow(float c, out int k) { float g = exp2(c * 0.5) * 0.25; k = g > 0.3 ? 1 : 0; return g; }
+```
+# what only the store reads still takes the sink: the multiply-add after g
+simplify float c in [0, 1] sink unorm8 nofile
+```glsl
+float Glow(float c, out int k) { float g = exp2(c * 0.5) * 0.25; k = g > 0.3 ? 1 : 0; return g * 0.5 + 0.25; }
+```
