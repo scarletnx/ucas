@@ -11078,6 +11078,29 @@ rd_invariant(int id, int lo, int hi, int stores, int depth)
 	return 1;
 }
 
+/* id's value reads target's (within the loop [lo, hi)) */
+static int
+rd_reads(int id, int target, int lo, int hi, int depth)
+{
+	const struct sins *I;
+	int k, i;
+
+	id = res_of(id);
+	if (id == target)
+		return 1;
+	k = SP.def[id];
+	if (k < lo || k >= hi || depth > 32)
+		return 0;
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpPhi"))
+		return 0;
+	for (i = 1; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && rd_reads(idx(I->opnd[i]), target, lo,
+		    hi, depth + 1))
+			return 1;
+	return 0;
+}
+
 /* the f32 constant 0.5 */
 static int
 rd_half(int id)
@@ -11355,6 +11378,8 @@ round_pass(const char *text)
 			nid g, body, sum, zs, want;
 			const char *how = NULL;
 			char so[200], off[200], offp[204], what[80], zt[16], gcs[40];
+			int vary;
+			double pb = 0.5 + 2 * sqrt((double)T);
 			if (strcmp(P->op, "OpPhi") || P->nop != 5 || P->res == phi)
 				continue;
 			for (j = 1; j + 1 < 5; j += 2) {
@@ -11370,8 +11395,13 @@ round_pass(const char *text)
 			for (j = 1; j <= 2; j++)
 				if (res_of(idx(V.in[kn].opnd[j])) == P->res)
 					r = idx(V.in[kn].opnd[3 - j]);
-			if (r < 0 || (kind = rd_rounding(r, &z, &S)) == RD_NONE ||
-			    !rd_invariant(z, lo, hi, stores, 0))
+			if (r < 0 || (kind = rd_rounding(r, &z, &S)) == RD_NONE)
+				continue;
+			/* a value that changes with the pass (not with the sum
+			 * itself): the offsets make the rounding unbiased, and the
+			 * bound is a probable one; it gains from 32 passes on */
+			vary = !rd_invariant(z, lo, hi, stores, 0);
+			if (vary && (rd_reads(z, P->res, lo, hi, 0) || T < 32))
 				continue;
 			/* in whole numbers the offsets need T <= 2^(S-1) */
 			if (kind == RD_INT && lg > S - 1)
@@ -11390,6 +11420,9 @@ round_pass(const char *text)
 			want = mk_bin(O_MUL, mk_const_r((double)T), zs);
 			if (gc)
 				want = mk_bin(O_ADD, want, mk_const_r((double)gc));
+			/* the offsets cover the period: closed's sum is that floor
+			 * (for a value that changes, what it proves is that each
+			 * offset is met once, which makes the rounding unbiased) */
 			if (sum == 0 || sum != mk_un(O_FLOOR, want))
 				continue;
 			if (!n++) {
@@ -11418,15 +11451,50 @@ round_pass(const char *text)
 			snprintf(offp, sizeof offp, strchr(off, ' ') ? "(%s)" : "%s",
 			    off);
 			snprintf(gcs, sizeof gcs, "(0.5 - %lld)", (long long)gc);
-			sb_printf(&rep, "    line %d: the loop at line %d adds %s on "
-			    "each of its %lld passes, the same rounding of the same "
-			    "value: the sum is off by %lld times its error, up to %lld "
-			    "steps from %lld %s\n", rl, ins_line(k), what, (long long)T,
-			    (long long)T, (long long)(T / 2), (long long)T, zt);
+			if (vary)
+				sb_printf(&rep, "    line %d: the loop at line %d adds %s on "
+				    "each of its %lld passes, %s changing with the pass: to "
+				    "nearest, the sum is off by up to %lld steps where the "
+				    "fractional parts lean one way (each pass's error then "
+				    "has the same sign)\n", rl, ins_line(k), what,
+				    (long long)T, kind == RD_INT ? "v" : "z",
+				    (long long)(T / 2));
+			else
+				sb_printf(&rep, "    line %d: the loop at line %d adds %s on "
+				    "each of its %lld passes, the same rounding of the same "
+				    "value: the sum is off by %lld times its error, up to "
+				    "%lld steps from %lld %s\n", rl, ins_line(k), what,
+				    (long long)T, (long long)T, (long long)(T / 2),
+				    (long long)T, zt);
 			src_line(rl, so, sizeof so);
 			if (so[0])
 				sb_printf(&rep, "  %s", so);
-			if (kind == RD_INT)
+			if (vary) {
+				/* each pass meets an offset (j + 1/2)/T, j once each */
+				if (kind == RD_INT)
+					sb_printf(&rep, "      against offsets over the period, "
+					    "(v + (%s << %d) + %d) >> %d (while v + %lld stays in "
+					    "32 bits)", offp, S - lg, 1 << (S - lg - 1), S,
+					    (long long)(((T - 1) << (S - lg)) + (1 << (S - lg -
+					    1))));
+				else
+					sb_printf(&rep, "      against offsets over the period, "
+					    "%s(z + (float(%s) + 0.5) / %lld.0)%s", kind !=
+					    RD_CVT ? "floor" : S ? "uint" : "int", off,
+					    (long long)T, kind == RD_CVT ? " (where z + 0.5 >= "
+					    "0)" : "");
+				sb_printf(&rep, ": a pass's rounding is unbiased over the "
+				    "offsets (its mean error within 1/%lld of a step, "
+				    "whatever the fractional part), so the sum is within "
+				    "1/2 of the exact one on average, and probably within "
+				    "1/2 + 2 sqrt(%lld) = %.3g steps: with probability at "
+				    "least 0.99933 if the passes' fractional parts are "
+				    "independent of one another and of the offsets "
+				    "(Hoeffding's inequality, lambda = 4, each pass's error "
+				    "in an interval of length 1: a model, not a theorem; "
+				    "probabilistic)\n", (long long)(2 * T),
+				    (long long)T, pb);
+			} else if (kind == RD_INT)
 				sb_printf(&rep, "      against offsets over the period, (v "
 				    "+ (%s << %d) + %d) >> %d: the %lld passes add up to "
 				    "(%lld v + %u) >> %d, %lld v / 2^%d to nearest, within "
@@ -11449,13 +11517,20 @@ round_pass(const char *text)
 			else
 				sb_printf(&rep, "      i, the loop's index, runs %lld..%lld\n",
 				    (long long)c0, (long long)(c0 + T - 1));
-			sb_printf(&rep, "      proved by closed (Hermite's identity): "
-			    "sum(i, %lld, %lld, floor(z' + real(%s)/%lld)) = %s, with z' "
-			    "= %s + %s/%lld%s\n", (long long)c0, (long long)(c0 + T - 1),
-			    node_str(g), (long long)T, node_str(sum), zt, gc ? gcs : "0.5",
-			    (long long)T, kind == RD_INT ? "" : "; in "
-			    "f32 the add can move a pass across a whole number only "
-			    "within half an ulp of it");
+			if (vary)
+				sb_printf(&rep, "      each offset met once over the period: "
+				    "closed's sum(i, %lld, %lld, floor(z' + real(%s)/%lld)) "
+				    "= %s for a z' that does not change\n", (long long)c0,
+				    (long long)(c0 + T - 1), node_str(g), (long long)T,
+				    node_str(sum));
+			else
+				sb_printf(&rep, "      proved by closed (Hermite's identity): "
+				    "sum(i, %lld, %lld, floor(z' + real(%s)/%lld)) = %s, with "
+				    "z' = %s + %s/%lld%s\n", (long long)c0, (long long)(c0 +
+				    T - 1), node_str(g), (long long)T, node_str(sum), zt, gc ?
+				    gcs : "0.5", (long long)T, kind == RD_INT ? "" : "; in "
+				    "f32 the add can move a pass across a whole number only "
+				    "within half an ulp of it");
 			rep_obj(NULL);
 			rep_int("line", rl);
 			rep_int("loop_line", ins_line(k));
@@ -11463,7 +11538,11 @@ round_pass(const char *text)
 			rep_str("rounding", what);
 			rep_str("offset", node_str(g));
 			rep_num("error_nearest", (double)(T / 2));
-			rep_num("error_period", 0.5);
+			rep_num("error_period", vary ? pb : 0.5);
+			if (vary) {
+				rep_bool("probabilistic", 1);
+				rep_num("probability", 1 - 2 * exp(-8.0));
+			}
 			rep_end();
 		}
 	}
