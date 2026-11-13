@@ -2256,15 +2256,18 @@ give, and not with `exact` (tests/log2exp.ucas).  ldexp(x, k) of an
 f32 x whose |x| is normal (2^-126 at least, finite) is
 `asfloat(asint(x) + (k << 23))` where k keeps x * 2^k normal, which
 SAT proves from k's definitions (13 to 3 under gt1030, where ldexp is
-lowered; tests/ldexpbits.ucas).  They are written
+lowered); an x that may be 0 takes it when it is an integer converted
+(0, or 1 at least in magnitude: a shared-exponent decoder's mantissa),
+`x == 0 ? x : asfloat(asint(x) + (k << 23))`, the select keeping ldexp's
+0 (13 to 7; tests/ldexpbits.ucas).  They are written
 last, after the float, memory and advice passes, which read the
 conversion (its integer's range, an integer atomic's addend, a vertex
 format) and not the bits; the report gives them their own section, as
 a conversion is not in the integer cost, and says what spirv-val makes
 of the module.  Not yet: an integer's floor(log2 x) by its
 conversion's exponent field (dearer than FindUMsb under gt1030), the
-ldexp of an x that may be 0 (a shared-exponent decoder's mantissa), the
-GLSL function level (find only), f16 and
+ldexp of an x that may be 0 or subnormal and is not an integer
+converted, the GLSL function level (find only), f16 and
 f64, a round-to-nearest operation for the magic add to stand for (ucas
 has floor, ceil and the truncating conversion), 48-bit products by
 2Prod.
