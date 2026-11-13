@@ -4611,7 +4611,10 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   place of the loop when it costs less, proved equal to the table at
   every point (a write log's byte mask from 4 bits, a loop of 4 passes
   at 105 under gt1030: `keep = ((bits * 0x204081u) & 0x1010101u) *
-  0xFFu;` at 8, the table of its 14 values named after it at 8.875).
+  0xFFu;` at 8, the table of its 14 values named after it at 8.875); a
+  loop that leaves one value at every point is that constant
+  (tests/fnshift.ucas: a sum of a 2-bit field over 64 values is 96
+  whichever field).
   These two loop searches also run on a shader none of whose functions
   calls another (its only function main, say), where nothing gives a
   domain to the others: the report then has the loops alone, and when
