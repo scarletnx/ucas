@@ -3658,7 +3658,16 @@ is offered: `texalu` says which number is missing.
   coordinate is (i + 1/2)/n made in f32, within (|i| + 1/2) 2^-23 of a
   texel's centre, and the unit snaps by less than 2^-subtexel: the
   rewrite needs their sum below 1/2 on i's proved range (|i| up to
-  about 4 million at 8 bits), and says so when the range is not known;
+  about 4 million at 8 bits), and says so when the range is not known.
+  A 32-bit i past that range, in an index written as REPEAT's `i % n`
+  or MIRROR's `min(i % 2n, 2n - 1 - i % 2n)`, is read through h r + l
+  with h = i >> 16, l = i & 0xffff and r = 2^16 mod the period:
+  congruent to i, so the same texel, and within reach while r is small
+  (`K[i % 7]` on an i32: 2(i >> 16) + (i & 0xffff), in [-65536,
+  131069]).  That identity is derived (the shape, the truncated
+  remainder equal to the floored one where the read is defined, the
+  congruence) and compared on points, not proved by SAT: two dividers
+  are beyond it;
 - a weighted sum of table entries.  The sum is normalised to
   sum w_k T[e_k] + rest (through +, -, products with weights, a
   division by a constant, fma; an integer sum where intervals show it
@@ -3736,8 +3745,9 @@ A mix `(1 - t) T[i] + t T[i + 1]` is one read at fraction t, within
 2^-8 times the largest step, so it needs `tol`; a fixed pair at
 fraction 3/4 is within the filter's own rounding.  A 3 x 3 kernel is
 three taps and one entry.  Weights of both signs, a footprint that can
-leave the table, an index beyond f32's reach are refused, each with
-its reason.  In English: "what can the texture unit compute of f",
+leave the table, an index beyond f32's reach that is not reduced (a
+64-bit one, or a period whose 2^16 residue leaves it too far) are
+refused, each with its reason.  In English: "what can the texture unit compute of f",
 "use the sampler for mx within 0.01 under texel".  JSON and MCP:
 `texalu` (f, tol, model).
 

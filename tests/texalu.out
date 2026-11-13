@@ -237,7 +237,47 @@ texalu b: reads through the texture unit under cal (cost 14.25 as written):
 texalu p: no table read or weighted sum of neighbouring entries the texture unit could compute
 > w(i: i32) = K[i % 7]
 > texalu w under cal
-texalu w: the texture unit under cal (cost 32.625 as written): nothing taken
+texalu w: reads through the texture unit under cal (cost 32.625 as written):
+  cost 14  fetch_repeat([10, 20, 30, 40, 50, 60, 70], 2(i >> 0x10) + (i & 0xffff))
+      [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], 2(i >> 0x10) + (i & 0xffff))
+      holds where the read is defined: there i % 7 = (2(i >> 0x10) + (i & 0xffff)) mod 7
+      i itself is not known to stay within +-4161534, where its coordinate is exact enough in f32; 2^16 = 2 mod 7, so 2(i >> 0x10) + (i & 0xffff) is congruent to it and in [-65536, 131069] (from i's type): the read takes that
+      that identity is derived, not by SAT (a divider against a divider is beyond it): i % 7 is the mode written out on i, and where the read is defined (the index at least 0) the truncated remainder is the floored one; i = 2^16 h + l exactly (h = i >> 16, floored; l = i & 65535), and 2^16 = 2 mod 7, so h 2 + l is congruent to it, and the mode reads a residue alone; compared on the points tried, the same
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.0156 of a texel's centre for i in [-65536, 131069] (its range), and the unit snaps by less than 2^-8: 0.0156 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(j) + 0.5) * (1.0 / 7.0), 0.0).r, j = 2(i >> 0x10) + (i & 0xffff)
+> wm(i: u32) = K[min(i % 14, 13 - i % 14)]
+> texalu wm under cal
+texalu wm: reads through the texture unit under cal (cost 22.375 as written):
+  cost 14  fetch_mirror([10, 20, 30, 40, 50, 60, 70], 2(i >> 0x10) + (i & 0xffff))
+      [10, 20, 30, 40, 50, 60, 70][min(i % 14, 13 - i % 14)] is fetch_mirror([10, 20, 30, 40, 50, 60, 70], 2(i >> 0x10) + (i & 0xffff))
+      holds where the read is defined: there min(i % 14, 13 - i % 14) = min(r, 13 - r) with r = (2(i >> 0x10) + (i & 0xffff)) mod 14
+      i itself is not known to stay within +-4161534, where its coordinate is exact enough in f32; 2^16 = 2 mod 14, so 2(i >> 0x10) + (i & 0xffff) is congruent to it and in [0, 196605] (from i's type): the read takes that
+      that identity is derived, not by SAT (a divider against a divider is beyond it): min(i % 14, 13 - i % 14) is the mode written out on i, and where the read is defined (the index at least 0) the truncated remainder is the floored one; i = 2^16 h + l exactly (h = i >> 16, floored; l = i & 65535), and 2^16 = 2 mod 14, so h 2 + l is congruent to it, and the mode reads a residue alone; compared on the points tried, the same
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.0234 of a texel's centre for i in [0, 196605] (its range), and the unit snaps by less than 2^-8: 0.0234 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, MIRRORED_REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(j) + 0.5) * (1.0 / 7.0), 0.0).r, j = 2(i >> 0x10) + (i & 0xffff)
+> L = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
+> wl(i: u32) = L[i % 100]
+> texalu wl under cal
+texalu wl: reads through the texture unit under cal (cost 20.375 as written):
+  cost 15  fetch_repeat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100], 36(i >> 0x10) + (i & 0xffff))
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100][i % 100] is fetch_repeat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100], 36(i >> 0x10) + (i & 0xffff))
+      holds where the read is defined: there i % 100 = (36(i >> 0x10) + (i & 0xffff)) mod 100
+      i itself is not known to stay within +-4161534, where its coordinate is exact enough in f32; 2^16 = 36 mod 100, so 36(i >> 0x10) + (i & 0xffff) is congruent to it and in [0, 2424795] (from i's type): the read takes that
+      that identity is derived, not by SAT (a divider against a divider is beyond it): i % 100 is the mode written out on i, and where the read is defined (the index at least 0) the truncated remainder is the floored one; i = 2^16 h + l exactly (h = i >> 16, floored; l = i & 65535), and 2^16 = 36 mod 100, so h 36 + l is congruent to it, and the mode reads a residue alone; compared on the points tried, the same
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.289 of a texel's centre for i in [0, 2424795] (its range), and the unit snaps by less than 2^-8: 0.289 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 100 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(j) + 0.5) * (1.0 / 100.0), 0.0).r, j = 36(i >> 0x10) + (i & 0xffff)
+> w64(i: i64) = K[i % 7]
+> texalu w64 under cal
+texalu w64: the texture unit under cal (cost 32.625 as written): nothing taken
   [10, 20, 30, 40, 50, 60, 70][i % 7] agrees with fetch_repeat([10, 20, 30, 40, 50, 60, 70], i) on the points tried, but i is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
 > texalu s4 under cal
 texalu s4: reads through the texture unit under cal (cost 35.5 as written):
@@ -501,6 +541,6 @@ cost model: texeln
 > use gt1030
 cost model: gt1030
 > texalu gp lanes 4
-texalu.ucas:137:11: error: texalu F [tol E] [model M]
+texalu.ucas:148:11: error: texalu F [tol E] [model M]
     texalu gp lanes 4
               ^
