@@ -1999,6 +1999,19 @@ this does not read.  These go in the report's "divisibility tests and
 maps of one value" section (tests/idmaps_spv.ucas,
 tests/idmaps2_spv.ucas).
 
+A fourth root is a sum, OpIAdd or OpISub of 32 bits that no other add
+reads, or that several read (it is then a sum of its own, so a value
+read by several is rewritten once, not copied into each), when two of
+its terms have a factor in common: the factor most terms share is taken
+out (src/ifx.c `rw_factor_sum`, any number of terms, each a product of
+any number of factors; a constant factor or a shift left by one is a
+term's constant).  A texture's tile offset `offset + (y / 8u) * tile *
+(width / 8u) + (x / 8u) * tile` becomes `offset + ((y / 8u) * (width /
+8u) + x / 8u) * tile`, 9 -> 6 under gt1030; `x * c + c` stays, one
+multiply-add as written.  Distributivity mod 2^32 is the derivation, so
+it holds for any operands.  These go in the report's "common factors"
+section, JSON identity kind `common_factor` (tests/factorspv.ucas).
+
 ### Integers as floats, floats as integers
 
 The identities between the two number systems of a 32-bit word are
@@ -2096,9 +2109,12 @@ b*c` 6 to 4, and on floats that hold integers `floor(x)*floor(c) +
 4096*(floor(y)*floor(c))` loses a multiply the same way while every
 value stays below 2^24.  A function with float
 parameters and an integer result gets these rewrites from `find`
-although its search needs integer parameters.  Not yet: the same in
-SPIR-V and GLSL (find only), f16 and f64, a common factor across
-more than two products or under a nested sum, a round-to-nearest
+although its search needs integer parameters.  A common factor of
+more than two terms, or of products of more than two factors, is taken
+out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
+integers simplify writes it into a module (see "the same pass takes"
+above).  Not yet: the float forms in SPIR-V and GLSL (find only), f16
+and f64, a round-to-nearest
 operation for the magic add to stand for (ucas has floor, ceil and
 the truncating conversion), 48-bit products by 2Prod.
 
