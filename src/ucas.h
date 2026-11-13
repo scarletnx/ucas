@@ -698,7 +698,7 @@ nid diff_node(nid e, uint32_t slot);
 int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
     int *sampled);
 /* equiv_decide: b refines a on f's domain, by enumeration or SAT */
-enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED };
+enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED, EQ_ALGEBRA };
 struct nsat_res {          /* nodesat.c */
 	int status;         /* 0 proved, 1 counterexample, -1 gave up, -2 unsupported */
 	const char *why;    /* -2: what could not be bit-blasted */
@@ -712,9 +712,13 @@ struct eqproof {
 	int sat_status;       /* nsat_equiv's status when it ran; -3 not reproduced */
 	const char *sat_why;
 	struct nsat_res sat;
+	char alg[1024];       /* EQ_ALGEBRA: the derivation's line */
 };
 int equiv_decide(const struct func *f, nid a, nid b, struct sbuf *witness,
     struct eqproof *pr);
+/* equiv_decide expands polynomials of degree 2 or more (stoch.c
+ * poly_identity) before SAT on a sampled domain: EQ_ALGEBRA */
+extern int equiv_algebra;
 void eqproof_text(struct sbuf *b, const struct eqproof *pr);
 
 /* ---- parse.c ---- */

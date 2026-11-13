@@ -2072,9 +2072,13 @@ point_differs(const struct func *f, nid a, nid b, const int64_t *in,
 /*
  * Equivalence (b refines a on f's domain), settled as well as it can be:
  * exhaustively when the domain is small enough; otherwise sampled, then
- * bit-blasted and proved by SAT when the circuit is supported and the
- * solver finishes within its budget.
+ * (with equiv_algebra) expanded when both are polynomials of degree 2 or
+ * more, where SAT faces a multiplier against a differently built one,
+ * then bit-blasted and proved by SAT when the circuit is supported and
+ * the solver finishes within its budget.
  */
+int equiv_algebra;
+
 int
 equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
     struct eqproof *pr)
@@ -2086,6 +2090,17 @@ equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
 	pr->how = sampled ? EQ_SAMPLED : EQ_EXHAUSTIVE;
 	if (m || !sampled)
 		return m;
+	if (equiv_algebra) {
+		struct sbuf h = {0};
+		int deg;
+		if (poly_identity(a, b, &deg, &h) && deg >= 2) {
+			pr->how = EQ_ALGEBRA;
+			snprintf(pr->alg, sizeof pr->alg, "%s", sb_str(&h));
+			free(h.p);
+			return 0;
+		}
+		free(h.p);
+	}
 	if (!nsat_supported(f) || !TY_ISINT(N.ty[a])) {
 		pr->sat_status = -2;
 		pr->sat_why = "a float or real value";
@@ -2126,6 +2141,9 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 		sb_printf(b, "proved by SAT: %d AIG nodes, %ld conflicts",
 		    pr->sat.nodes, pr->sat.conflicts);
 		break;
+	case EQ_ALGEBRA:
+		sb_puts(b, pr->alg);
+		break;
 	default:
 		sb_puts(b, "sampled, not proved");
 		if (pr->sat_status == -1)
@@ -2151,15 +2169,17 @@ cmd_equiv(struct func *f, struct func *g)
 	if (g->np != f->np)
 		fail("%s and %s take different numbers of parameters", fname(f),
 		    fname(g));
+	equiv_algebra = 1;
 	m = equiv_decide(f, f->body, gb, &w, &pr);
+	equiv_algebra = 0;
 	eqproof_text(&how, &pr);
 	rep_begin("equiv");
 	rep_bool("equal", m == 0);
 	rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
 	rep_int("mismatch_points", m);
 	rep_str("method", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
-	    pr.how == EQ_SAT ? "sat" : pr.sat_status == 1 ? "sat_counterexample" :
-	    "sampled");
+	    pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ? "algebra" :
+	    pr.sat_status == 1 ? "sat_counterexample" : "sampled");
 	if (pr.sat_status != 0 || pr.how == EQ_SAT) {
 		rep_obj("sat");
 		rep_str("result", pr.how == EQ_SAT ? "proved" :
@@ -2177,7 +2197,8 @@ cmd_equiv(struct func *f, struct func *g)
 		rep_str("counterexample", sb_str(&w));
 	if (m == 0)
 		rep_proof(pr.how == EQ_SAMPLED ? "numeric" : pr.how == EQ_SAT ?
-		    "sat" : "exhaustive", pr.how == EQ_EXHAUSTIVE ?
+		    "sat" : pr.how == EQ_ALGEBRA ? "derivation" : "exhaustive",
+		    pr.how == EQ_EXHAUSTIVE ?
 		    "every point of the domain" : sb_str(&how));
 	if (m == 0)
 		printf("%s and %s are equal on the domain of %s (%s)\n",

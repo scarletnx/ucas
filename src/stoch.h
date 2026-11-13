@@ -36,6 +36,14 @@ int pit_check(const struct func *f, nid a, nid b, int trials, uint64_t seed,
     double *bound, struct sbuf *text);
 
 /*
+ * a and b (a sized integer type) as polynomials mod 2^w in the
+ * parameters and in subterms taken whole: 1 when their difference is 0
+ * at every point, so b equals a on every input (how: the proof's line);
+ * 0 when that is not shown.  *deg: the higher total degree of the two.
+ */
+int poly_identity(nid a, nid b, int *deg, struct sbuf *how);
+
+/*
  * How a ?: on cond behaves across a warp of `warp` lanes: *p the
  * probability that it holds for one lane (uniform over f's domain),
  * *all_t, *all_f that the whole warp agrees, *split = 1 - *all_t -
