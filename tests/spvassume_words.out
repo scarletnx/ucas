@@ -1,0 +1,19 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile assume width 2 4 assume height 1 512 nofunctions
+simplify: 93 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming width in [2, 4] (every load of it)
+  assuming height in [1, 512] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 9.375 -> 8.375 (-10.7%)
+  counting the strength reductions any driver also does: 10.375 -> 8.375 (-19.3%)
+  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  by kind:
+       1  equals its operand                            -1
+  rewrites:
+    %50 = OpBitwiseAnd %uint %48 %uint_7
+      ->  %48   (equals its operand; -1)
+      (line 8: b.d[i] = (b.d[i] >> ((i & 3u) * 8u)) + (width & 7u);)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2854 bytes, checksum 87f05cc1)
