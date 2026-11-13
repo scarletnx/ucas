@@ -607,7 +607,7 @@ tex_print_name(struct sbuf *b, nid n)
 
 /* ---- the search ---- */
 
-#define MAXTERM 20	/* table entries in one sum */
+#define MAXTERM 32	/* table entries in one sum (a 3 x 3 x 3 kernel) */
 #define MAXREST 12	/* its other terms */
 #define MAXREPL 16	/* reads replaced in one function */
 #define MAXATOM 6	/* variables of an index */
@@ -3896,18 +3896,15 @@ block_derive(const struct sum *s, struct block *b, int *why)
  * one atom and in [0, 1], within 1e-9 S.
  */
 static int
-block_derive3(const struct sum *s, struct block *b, int *why)
+block_derive3_w(const struct mform *w, struct block *b, int *why)
 {
-	struct mform w[8], tot = mf_const(0), f[3], one = mf_const(1), p, d;
+	struct mform tot = mf_const(0), f[3], one = mf_const(1), p, d;
 	double lo, hi, mag;
 	int q, k;
 
-	b->split = 0;
-	for (q = 0; q < 8; q++) {
-		w[q] = b->m[q] >= 0 ? s->t[b->m[q]].k : mf_const(0);
+	for (q = 0; q < 8; q++)
 		if (!mf_add(&tot, tot, w[q], 1))
 			return 0;
-	}
 	*why = BW_SUM;
 	if (!mf_isconst(&tot) || tot.c[0] == 0)
 		return 0;
@@ -3950,6 +3947,18 @@ block_derive3(const struct sum *s, struct block *b, int *why)
 	}
 	*why = BW_OK;
 	return 1;
+}
+
+static int
+block_derive3(const struct sum *s, struct block *b, int *why)
+{
+	struct mform w[8];
+	int q;
+
+	b->split = 0;
+	for (q = 0; q < 8; q++)
+		w[q] = b->m[q] >= 0 ? s->t[b->m[q]].k : mf_const(0);
+	return block_derive3_w(w, b, why);
 }
 
 /* the terms of a group laid on the table's grid */
@@ -4453,13 +4462,14 @@ cover_pick(struct cover *c, struct block *out)
 
 /*
  * A cover that shares weights: a separable kernel (constant weights over
- * a filled rectangle, a column of them times a row, all of one sign) is
- * cut along each axis into pairs, the last pair of an odd length sharing
- * its first entry with the pair before it, and a read is a pair along y
- * times a pair along x: the reads' weights add up to the kernel's, and a
- * 3 x 3 kernel is four reads where the cover above takes three and an
- * entry.  The shared entry is split so that the first pair's fraction is
- * on the 2^-bits grid and the second's as near it as any split puts it
+ * a filled rectangle or box, a column of them times a row (times a run
+ * along z), all of one sign) is cut along each axis into pairs, the last
+ * pair of an odd length sharing its first entry with the pair before it,
+ * and a read is a pair along y times a pair along x (times a pair along
+ * z): the reads' weights add up to the kernel's, and a 3 x 3 kernel is
+ * four reads where the cover above takes three and an entry, a 3 x 3 x 3
+ * one eight.  The shared entry is split so that the first pair's fraction
+ * is on the 2^-bits grid and the second's as near it as any split puts it
  * (both on it for [1 2 1]).
  */
 struct apair {
@@ -4506,13 +4516,13 @@ axis_pairs(const double *v, int n, struct apair *p)
 static int
 cover_split(const struct sum *s, const struct grid *g, struct block *out)
 {
-	double W[MAXTERM], cv[MAXTERM], rv[MAXTERM], sg, got[MAXTERM] = {0};
-	struct apair pc[MAXTERM], pr[MAXTERM];
-	int dmin = 0, dmax = 0, emin = 0, emax = 0, C, R, i, x, y, nc, nr, P, Q,
-	    nb = 0, why;
+	double W[MAXTERM] = {0}, cv[MAXTERM], rv[MAXTERM], lv[MAXTERM], sg,
+	    got[MAXTERM] = {0};
+	struct apair pc[MAXTERM], pr[MAXTERM], pl[MAXTERM];
+	int dmin = 0, dmax = 0, emin = 0, emax = 0, fmin = 0, fmax = 0, C, R,
+	    L, i, x, y, z, nc, nr, nl, P, Q, Z, nb = 0, why, q;
+	int tri = g->D > 1;
 
-	if (g->D > 1)	/* a 2-D kernel's: not cut along z */
-		return 0;
 	for (i = 0; i < g->n; i++) {
 		const struct term *t = &s->t[g->ix[i]];
 		if (!mf_isconst(&t->k))
@@ -4525,62 +4535,78 @@ cover_split(const struct sum *s, const struct grid *g, struct block *out)
 			emin = t->dy;
 		if (!i || t->dy > emax)
 			emax = t->dy;
+		if (!i || t->dz < fmin)
+			fmin = t->dz;
+		if (!i || t->dz > fmax)
+			fmax = t->dz;
 	}
 	C = dmax - dmin + 1;
 	R = emax - emin + 1;
-	/* a filled rectangle with an odd side: even sides need no share */
-	if (C * R != g->n || (C % 2 == 0 && R % 2 == 0) || g->n > MAXTERM)
+	L = fmax - fmin + 1;
+	/* a filled rectangle or box with an odd side (a box one slice
+	 * deep is a rectangle): even sides need no share */
+	if (g->n > MAXTERM || C * R * L != g->n || !(C % 2 || R % 2 || (L >
+	    1 && L % 2)))
 		return 0;
 	for (i = 0; i < g->n; i++) {
 		const struct term *t = &s->t[g->ix[i]];
-		W[(t->dy - emin) * C + t->dx - dmin] = t->k.c[0];
+		W[((t->dz - fmin) * R + t->dy - emin) * C + t->dx - dmin] =
+		    t->k.c[0];
 	}
 	sg = W[0] < 0 ? -1 : 1;
-	for (i = 0; i < C * R; i++)
+	for (i = 0; i < C * R * L; i++)
 		if (!(W[i] * sg > 0))
 			return 0;
 	for (x = 0; x < C; x++)
 		rv[x] = W[x] * sg;
 	for (y = 0; y < R; y++)
 		cv[y] = W[y * C] / W[0];
-	for (y = 0; y < R; y++)
-		for (x = 0; x < C; x++)
-			if (!(fabs(cv[y] * rv[x] - W[y * C + x] * sg) <= 1e-12 *
-			    fabs(W[y * C + x])))
-				return 0;
+	for (z = 0; z < L; z++)
+		lv[z] = W[z * R * C] / W[0];
+	for (z = 0; z < L; z++)
+		for (y = 0; y < R; y++)
+			for (x = 0; x < C; x++) {
+				double w = W[(z * R + y) * C + x];
+				if (!(fabs(lv[z] * cv[y] * rv[x] - w * sg) <=
+				    1e-12 * fabs(w)))
+					return 0;
+			}
 	nc = axis_pairs(rv, C, pc);
 	nr = axis_pairs(cv, R, pr);
-	for (P = 0; P < nr; P++)
-		for (Q = 0; Q < nc; Q++) {
-			struct block *b = &out[nb++];
-			struct mform w[4];
-			int ax = pc[Q].a, bxi = pc[Q].b, ay = pr[P].a,
-			    by = pr[P].b;
-			int at[4][2] = {{ax, ay}, {bxi, ay}, {ax, by},
-			    {bxi, by}};
-			double ww[4] = {pr[P].wa * pc[Q].wa,
-			    pr[P].wa * pc[Q].wb, pr[P].wb * pc[Q].wa,
-			    pr[P].wb * pc[Q].wb};
-			memset(b, 0, sizeof *b);
-			for (i = 4; i < 8; i++)
-				b->m[i] = -1;
-			for (i = 0; i < 4; i++) {
-				int mi = at[i][0] < 0 || at[i][1] < 0 ? -1 :
-				    grid_at(s, g, dmin + at[i][0],
-				    emin + at[i][1], 0);
-				b->m[i] = mi >= 0 ? g->ix[mi] : -1;
-				w[i] = mf_const(b->m[i] >= 0 ? ww[i] * sg : 0);
-				if (mi >= 0)
-					got[mi] += ww[i] * sg;
-				if (b->m[i] >= 0 && fabs(ww[i] * sg -
-				    s->t[b->m[i]].k.c[0]) > 1e-12 * fabs(ww[i]))
-					b->split = 1;
+	nl = axis_pairs(lv, L, pl);
+	for (Z = 0; Z < nl; Z++)
+		for (P = 0; P < nr; P++)
+			for (Q = 0; Q < nc; Q++) {
+				struct block *b = &out[nb++];
+				struct mform w[8];
+				memset(b, 0, sizeof *b);
+				/* texel (dx, dy, dz) at bit 0, 1, 2 of q */
+				for (q = 0; q < 8; q++) {
+					const struct apair *px = &pc[Q], *py = &pr[P],
+					    *pz = &pl[Z];
+					int ax = q & 1 ? px->b : px->a, ay = q & 2 ?
+					    py->b : py->a, az = q & 4 ? pz->b : pz->a;
+					double ww = (q & 1 ? px->wb : px->wa) * (q & 2 ?
+					    py->wb : py->wa) * (q & 4 ? pz->wb : pz->wa);
+					int mi = ax < 0 || ay < 0 || az < 0 ? -1 :
+					    grid_at(s, g, dmin + ax, emin + ay, fmin +
+					    az);
+					b->m[q] = mi >= 0 ? g->ix[mi] : -1;
+					w[q] = mf_const(b->m[q] >= 0 ? ww * sg : 0);
+					if (mi >= 0)
+						got[mi] += ww * sg;
+					if (b->m[q] >= 0 && fabs(ww * sg -
+					    s->t[b->m[q]].k.c[0]) > 1e-12 * fabs(ww))
+						b->split = 1;
+				}
+				b->ox = dmin + pc[Q].a;
+				b->oy = emin + pr[P].a;
+				b->oz = fmin + pl[Z].a;
+				if (!(tri ? block_derive3_w(w, b, &why) :
+				    block_derive_w(w, b, &why)) ||
+				    !block_inside(g, b))
+					return 0;
 			}
-			b->ox = dmin + ax;
-			b->oy = emin + ay;
-			if (!block_derive_w(w, b, &why) || !block_inside(g, b))
-				return 0;
-		}
 	/* the shares of each entry add up to its weight */
 	for (i = 0; i < g->n; i++)
 		if (!(fabs(got[i] - s->t[g->ix[i]].k.c[0]) <= 1e-12 *
@@ -4831,7 +4857,7 @@ seed_sum1(nid body, nid root)
 			int nin = 0, q, exact;
 			float cd, cs = ns * cv.ptap;
 			for (k = 0; k < nb; k++)
-				for (q = 0; q < 4; q++)
+				for (q = 0; q < 8; q++)
 					nin += blk[k].m[q] >= 0;
 			cd = nb * cv.ptap + (g.n - nin) * cv.pone;
 			exact = nb > 0 && !on_grid(blk, nb) &&
@@ -4971,10 +4997,11 @@ seed_sum1(nid body, nid root)
 			if (tri)
 				sb_printf(&what, "%s%d entr%s of the %lld x %lld x "
 				    "%lld table from offset (%d, %d, %d), weights' sum "
-				    "%.6g: one read at fraction ", what.n ? "\n" : "",
+				    "%.6g%s: one read at fraction ", what.n ? "\n" : "",
 				    cnt, cnt == 1 ? "y" : "ies", (long long)g.W,
 				    (long long)g.H, (long long)g.D, b->ox, b->oy,
-				    b->oz, S);
+				    b->oz, S, b->split ? " (a share of a weight read "
+				    "twice)" : "");
 			else if (cmpg)
 				sb_printf(&what, "%s%d compare%s of %s with entries of "
 				    "the %lld x %lld table from offset (%d, %d), "
@@ -5050,10 +5077,13 @@ seed_sum1(nid body, nid root)
 				mf_text(&holds, fr);
 				sb_puts(&holds, " is in [0, 1]");
 			}
-			sb_printf(&proof, " those are the entries' weights%s",
+			sb_printf(&proof, " those are the entries' weights%s%s",
 			    b->split ? ", an entry read by two reads with its "
-			    "weight split between them (column times row: the "
-			    "pairs' shares sum to the kernel's weights)" : "");
+			    "weight split between them (" : "", !b->split ? "" :
+			    tri ? "a run along z times a column times a row: the "
+			    "pairs' shares sum to the kernel's weights)" : "column "
+			    "times row: the pairs' shares sum to the kernel's "
+			    "weights)");
 			if (!g.ti.levels && g.ti.scale != 1)
 				sb_printf(&proof, " (the texels are the "
 				    "entries / %g)", g.ti.scale);

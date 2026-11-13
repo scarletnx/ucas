@@ -4306,20 +4306,23 @@ is offered: `texalu` says which number is missing.
   of s and t; a reference that may be NaN is named in what the read
   holds under.  The cover with
   the lowest price under the model is taken, by dynamic programming
-  over the entries (greedily past 16).  A separable kernel (constant
-  weights of one sign over a filled rectangle, a column times a row)
-  is also covered with shared weights: each axis is cut into pairs,
-  the last pair of an odd length sharing its first entry with the pair
-  before it, and a read is a pair along y times a pair along x, so
-  the reads' weights add up to the kernel's; the shared entry is split
-  to put the first pair's fraction on the subtexel grid and the
-  second's as near it as any split does.  A 3 x 3 [1 2 1] kernel is
-  four reads at fractions 1/2 (the cover without shares takes three
-  and an entry, at fractions 1/3), and [1 2 1] along one axis two.  The
-  cheaper cover is taken, on a tie the one that snaps no fraction to
-  the grid; with no tolerance given, the shared one also when the other
-  snaps a fraction and it snaps none, as long as it costs less than the
-  entries read alone (tests/texalu.ucas);
+  over the entries (greedily past 16; a sum takes up to 32 entries).  A
+  separable kernel (constant weights of one sign over a filled
+  rectangle, a column times a row, or over a filled box of a 3-D table,
+  a run along z times a column times a row) is also covered with shared
+  weights: each axis is cut into pairs, the last pair of an odd length
+  sharing its first entry with the pair before it, and a read is a pair
+  along y times a pair along x (times a pair along z), so the reads'
+  weights add up to the kernel's; the shared entry is split to put the
+  first pair's fraction on the subtexel grid and the second's as near it
+  as any split does.  A 3 x 3 [1 2 1] kernel is four reads at fractions
+  1/2 (the cover without shares takes three and an entry, at fractions
+  1/3), [1 2 1] along one axis two, and [1 2 1] along three axes eight
+  3-D reads (tests/textrilinear.ucas).  The cheaper cover is taken, on a
+  tie the one that snaps no fraction to the grid; with no tolerance
+  given, the shared one also when the other snaps a fraction and it
+  snaps none, as long as it costs less than the entries read alone
+  (tests/texalu.ucas);
 - the function itself, when it reads no table and its integer
   parameters have at most 2^16 points between them: its table (the one
   of "Functions as tables", the function at every point, at an index
@@ -4599,8 +4602,8 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 (tests/texpacked.ucas).
 
 Not done: shared weights in a kernel that is not a column times a row
-(a small linear program over the blocks) or that spans three axes,
-anisotropic filters, mip levels as means, gather, a bilinear or
+(times a run) (a small linear program over the blocks), anisotropic
+filters, mip levels as means, gather, a bilinear or
 trilinear filter that wraps, and a compare read of a UNORM depth
 texture (which clamps the reference) or of an array or cube one.  None of those has a measured
 price yet either.
