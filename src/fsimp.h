@@ -68,6 +68,9 @@ struct fxg {
 	char sinkname[48];
 	double sinkbudget, sinkdev;
 	char sinknote[240];
+	/* compensated forms offered where the original's own error, carried
+	 * to the stored value, passes a step and theirs does not: lines */
+	char sinkoffer[1200];
 };
 
 /* an interval of f32 values in the total order, plus NaN / undefined */

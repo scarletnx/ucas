@@ -1,0 +1,94 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  P: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink unorm16
+simplify: 62 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming x in [0.9, 1.1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 9 (+0.0%)
+  sink unorm16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    offered (not applied: it moves the stored value toward the exact one, away from the original's): (((((... * ...) - 10) * x) + 5) * x) + -0.5, a polynomial of degree 5 in x on |x| <= 1.1, errs as written by up to 2.16e-05 against its exact value (gamma_9 of its operations in absolute values), 2.16e-05 at the stored value, more than the 1.53e-05 a step allows; compensated Horner of its coefficients, u |p| + gamma_10^2 p~ = 2.4e-06, 2.4e-06 at the stored value: within it, cost 51 against 9; sampled (not a proof) on 4097 points: 9.28e-07 as written, 2.98e-08 compensated
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    polynomial of degree 5 ~ degree-1 minimax polynomial, cost 2 (-7): relative error < 5e-05 (840 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 2.51e-05, more than the 1.53e-05 a step of the sink allows
+    polynomial of degree 5 ~ degree-2 minimax polynomial, cost 3 (-6): relative error < 5.02e-05 (842 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 2.52e-05, more than the 1.53e-05 a step of the sink allows
+    polynomial of degree 5 ~ degree-3 minimax polynomial, cost 4 (-5): relative error < 4.5e-05 (756 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 2.26e-05, more than the 1.53e-05 a step of the sink allows
+    polynomial of degree 5 ~ degree-4 minimax polynomial, cost 5 (-4): relative error < 4.51e-05 (758 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 2.27e-05, more than the 1.53e-05 a step of the sink allows
+        the degree-5 polynomial in x (9 operations) refitted: absolute minimax on [0.9, 1.1] (remez.c), t = x - 1, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 6.8e-07 absolute
+          plus the rounding of the new evaluation (gamma_8 times sum |a_i||t|^i) and of the original (gamma_9 times the magnitudes its operations reach, 2.16e-05): 2.26e-05 absolute in all, the worst near x = 1.1
+        P(t) = fma(fma(fma(fma(2.00574031e-14, t, 0.0125000058), t, -2.37707144e-16), t, -3.12500306e-05), t, 0.5), t = x - 1
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  P: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile float sink unorm8
+simplify: 62 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  assuming x in [0.9, 1.1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 2 (-77.8%)
+  sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 0.00392, the rewrites accepted use at most 2.51e-05 of it
+  rewrites, the largest savings first:
+    %66 = OpFAdd %float %64 %float_n0_5
+      -> %ucas_f1t = OpFSub %float %43 %ucas_float_3f800000
+         %66 = OpExtInst %float %2 Fma %ucas_float_388d4126 %ucas_f1t %ucas_float_3f000000
+      (a polynomial with fewer terms; -7)
+      proof: an approximation (derived bound)
+        the degree-5 polynomial in x (9 operations) refitted: absolute minimax on [0.9, 1.1] (remez.c), t = x - 1, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 3.32e-06 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_9 times the magnitudes its operations reach, 2.16e-05): 2.5e-05 absolute in all, the worst near x = 1.1
+          the sink: its own bound moves this value by at most 2.51e-05; carried to the stored value through every operation above it (max |derivative| on the ranges, widened by twice the deviation and checked to stay inside; 4 ulp where an operation rounds again), together with the other rewrites taken: at most 2.51e-05 of the 0.00392 one step allows
+        bound against the reference: 840 ulp
+        (line 1: float P(float x) { return ((((x - 5.0) * x + 10.0) * x - 10.0) * x + 5.0) * x - 1.0 + 0.5;)
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    polynomial of degree 5 ~ degree-2 minimax polynomial, cost 3 (-6): relative error < 5.02e-05 (842 ulp), beyond the original's precision
+    polynomial of degree 5 ~ degree-3 minimax polynomial, cost 4 (-5): relative error < 4.5e-05 (756 ulp), beyond the original's precision
+    polynomial of degree 5 ~ degree-4 minimax polynomial, cost 5 (-4): relative error < 4.51e-05 (758 ulp), beyond the original's precision
+        the degree-5 polynomial in x (9 operations) refitted: absolute minimax on [0.9, 1.1] (remez.c), t = x - 1, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 6.8e-07 absolute
+          plus the rounding of the new evaluation (gamma_8 times sum |a_i||t|^i) and of the original (gamma_9 times the magnitudes its operations reach, 2.16e-05): 2.26e-05 absolute in all, the worst near x = 1.1
+        P(t) = fma(fma(fma(fma(2.00574031e-14, t, 0.0125000058), t, -2.37707144e-16), t, -3.12500306e-05), t, 0.5), t = x - 1
+  (nofile: simplified.spvasm, 1980 bytes, checksum d01f5457)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  Q: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume x 0 1 float sink unorm16
+simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  assuming x in [-0, 1] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 4 -> 3 (-25.0%)
+  sink unorm16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    budget 1.53e-05, the rewrites accepted use at most 8.64e-07 of it
+  rewrites, the largest savings first:
+    %44 = OpFAdd %float %43 %float_0_5
+      -> %44 = OpExtInst %float %2 Fma %33 %float_0_25 %float_0_5
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          K = 2^-2: x*K is exact unless it underflows, so fl(x*K + B) is the same rounding of the same number (bit-exact where x*K is normal or zero)
+        bound against the reference: 1 ulp
+        (line 1: float Q(float x) { return (0.25 * x + 0.5) * x + 0.125; })
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    polynomial of degree 2 ~ degree-1 minimax polynomial, cost 1 (-3): relative error < 0.25 (5.24294e+06 ulp), beyond the original's precision
+      the sink refuses it: it would move the stored value by up to 0.0313, more than the 1.53e-05 a step of the sink allows
+        the degree-2 polynomial in x (4 operations) refitted: absolute minimax on [-0, 1] (remez.c), t = x - +0, coefficients rounded to f32, Horner with fma:
+          real error against its exact value, certified on 4096 even pieces: 0.0313 absolute
+          plus the rounding of the new evaluation (gamma_2 times sum |a_i||t|^i) and of the original (gamma_4 times the magnitudes its operations reach, 2.09e-07): 0.0313 absolute in all, the worst near x = 0.9999
+        P(t) = fma(0.75, t, 0.09375), t = x - 0
+  (nofile: simplified.spvasm, 1835 bytes, checksum 4545b053)

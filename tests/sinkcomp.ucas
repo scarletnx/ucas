@@ -1,0 +1,22 @@
+# the compensated forms the sink asks for (#47, Liz: "Offer them"): a
+# polynomial whose evaluation as written may err, against its exact
+# value, by more than a step of the sink, and whose compensated Horner
+# does not, gets the compensated form offered, with both prices and a
+# sampled check (an offer: it moves the stored value toward the exact
+# one, away from the original's)
+#
+# (x - 1)^5 + 0.5 by Horner near its zero into a 16-bit target
+simplify float x in [0.9, 1.1] sink unorm16 nofile
+```glsl
+float P(float x) { return ((((x - 5.0) * x + 10.0) * x - 10.0) * x + 5.0) * x - 1.0 + 0.5; }
+```
+# into an 8-bit target the original is within a step: nothing offered
+simplify float x in [0.9, 1.1] sink unorm8 nofile
+```glsl
+float P(float x) { return ((((x - 5.0) * x + 10.0) * x - 10.0) * x + 5.0) * x - 1.0 + 0.5; }
+```
+# a polynomial that does not cancel: within a 16-bit step, nothing
+simplify float x in [0, 1] sink unorm16 nofile
+```glsl
+float Q(float x) { return (0.25 * x + 0.5) * x + 0.125; }
+```
