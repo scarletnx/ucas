@@ -1,0 +1,41 @@
+> k(q: u32) = { v: u32 = q; while v > 5 { v = v - 1 }; v }
+> s(n: u32) = { o: u32 = n; for i in 0..3 { o = o + k(i) }; o }
+  note: argument 1 of k converted from int to u32
+> show s(0)
+_() = 6
+  -> u32
+> show s(10)
+_() = 16
+  -> u32
+> t(n: u32) = n + sum(i, 0, 3, k(i))
+  note: argument 1 of k converted from int to u32
+> show t(0)
+_() = 6
+  -> u32
+> s3(n: u32) = { o: u32 = 0; for i in 1..3 { o = o + k(u32(i) + n) }; o }
+> show s3(2)
+_() = 12
+  -> u32
+> w(n: u8) = { o: u32 = n; i: u32 = 0; while i <= 3 { o = o + k(i); i = i + 1 }; o }
+> f(n: u8) = { o: u32 = n; for i in 0..3 { o = o + k(i) }; o }
+  note: argument 1 of k converted from int to u32
+> g(n: u8) = n + sum(i, 0, 3, k(i))
+  note: argument 1 of k converted from int to u32
+> equiv f w
+f and w are equal on the domain of f (exhaustive)
+> equiv g w
+g and w are equal on the domain of g (exhaustive)
+> h(n: u8) = { o: u32 = 0; for i in 0..3 { o = o + k(u32(i) + n) }; o }
+> range h
+range of h -> u32:
+  6..20
+  fits in u5
+  over all 256 points of the domain
+> find f 1
+find f: 256 points, computing in u32, costs from gt1030
+  note: loop loop(while v > 5; v = u32(i) then v - 1).v priced per iteration (9.625, listed under branch); multiply by the trip count; see 'scheme'
+  note: loop loop(i in 0..3; o = u32(n) then o + loop(while v > 5; v = u32(i) then v - 1).v).o priced as 4 iterations x 16.875 (listed under branch)
+  cost 1   u32(n) + 6                               affine fit
+  [searched every term up to cost 1: 54 distinct columns; 'more' continues]
+  note: loop loop(while v > 5; v = u32(i) then v - 1).v priced per iteration (9.625, listed under branch); multiply by the trip count; see 'scheme'
+  note: loop loop(i in 0..3; o = u32(n) then o + loop(while v > 5; v = u32(i) then v - 1).v).o priced as 4 iterations x 16.875 (listed under branch)

@@ -1,0 +1,21 @@
+# a function whose body has a while, called inside a for or a sum, sees
+# the loop's index at each pass: a while has no index of its own, and the
+# slot its entry names is the for's index once k is called inside it
+k(q: u32) = { v: u32 = q; while v > 5 { v = v - 1 }; v }
+s(n: u32) = { o: u32 = n; for i in 0..3 { o = o + k(i) }; o }
+show s(0)
+show s(10)
+t(n: u32) = n + sum(i, 0, 3, k(i))
+show t(0)
+# the index with a parameter: k(1 + 2) .. k(3 + 2)
+s3(n: u32) = { o: u32 = 0; for i in 1..3 { o = o + k(u32(i) + n) }; o }
+show s3(2)
+# the same loop as a while, the proofs and the ranges that evaluate it
+w(n: u8) = { o: u32 = n; i: u32 = 0; while i <= 3 { o = o + k(i); i = i + 1 }; o }
+f(n: u8) = { o: u32 = n; for i in 0..3 { o = o + k(i) }; o }
+g(n: u8) = n + sum(i, 0, 3, k(i))
+equiv f w
+equiv g w
+h(n: u8) = { o: u32 = 0; for i in 0..3 { o = o + k(u32(i) + n) }; o }
+range h
+find f 1
