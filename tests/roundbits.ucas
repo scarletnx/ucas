@@ -1,0 +1,31 @@
+# The rounding analysis through bit casts (src/rounderr.c): integers are
+# exact, and so are the bits of a float that carries no rounding error.
+
+# the fast inverse square root: the first guess is integer arithmetic on
+# the bits of x, a value like an input's, so only the Newton step's five
+# operations round (every f32 x in 1..4 run in f32 against the same
+# step in long double differs by 2.41 u at most)
+quake(x: f32 in 1..4) = { y = asfloat(0x5f3759df - (asuint(x) >> 1)); y * (1.5 - 0.5 * x * y * y) }
+error quake ~ 1 / sqrt(x)
+# the guess alone: no operation rounds
+guess(x: f32 in 1..4) = asfloat(0x5f3759df - (asuint(x) >> 1))
+error guess ~ 1 / sqrt(x)
+# the sign bit of an input cleared, an f64's too: abs, exact
+ab(x: f32 in -2..2) = asfloat(asuint(x) & 0x7fffffff) * 3
+abx(x: f32 in -2..2) = f32(abs(f64(x)) * 3)
+error ab ~ abx
+ab64(x: f64 in -2..2) = asfloat(asuint(x) & 0x7fffffffffffffff) * 3
+error ab64 ~ abs(x) * 3
+# the exponent of an input read from its bits: an integer
+ex(x: f32 in 1..1000) = f32(i32((asuint(x) >> 23) & 255) - 127) * 0.75
+error ex ~ floor(log(x) / log(2)) * 0.75
+# a power of two made from an integer: the conversion is a choice, and
+# where it can go the other way (x * 0.1 within its error of an integer)
+# the worst case adds what one step of the integer moves the result by,
+# here the result itself
+p2(x: f32 in 0..100) = asfloat(u32(i32(x * 0.1) + 127) << 23) * 1.5
+p2x(x: f32 in 0..100) = f32(2 ^ floor(f64(x) * 0.1) * 1.5)
+error p2 ~ p2x
+# the bits of a value that carries rounding error are not analysed
+bad(x: f32 in 1..2) = asfloat(asuint(x * 0.1) & 0x7fffffff)
+error bad ~ abs(x * 0.1)

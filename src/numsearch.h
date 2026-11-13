@@ -68,6 +68,7 @@ struct rounderr {
 	char eftwhy[240];	/* the first: which, on what, where */
 	int choices[6];		/* rounderr.c's CH_*: floor or ceil, conversion
 				 * to an integer, copysign, min or max, ?: */
+	int nbits;		/* bit casts between floats and integers */
 	uint64_t flips;		/* inputs where one can go the other way */
 	char flipwhy[300];	/* the first: how, and where */
 };

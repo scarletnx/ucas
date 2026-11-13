@@ -21,7 +21,12 @@ error of quake against rsqrt:
   max rel error 0.00175224 (0.175%) at x=14.9190588
   mean rel error 0.000943339 over 65536 points
   max 28402 ulp
-  rounding: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
+  rounding, first order in u = 2^-24: 5 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4088 inputs
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  2.98e-07 (5 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 8.94 u here (it gains from about 16 operations of similar weight on)
+    expected    7.69e-08 (1.29 u): the root mean square if they are independent and uniform in [-u, u]
+    for 5 operations of equal weight: gamma_5 = 5 u / (1 - 5 u) = 2.98e-07, gamma~_5(4) = 4 sqrt(5) u = 5.33e-07
 > sum(x: f32 in 1..2) = x + 1e-8 - x
 > range sum
 range of sum -> f32:
