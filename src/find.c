@@ -244,15 +244,26 @@ mcost(int cls)
 	return r < 1 ? 1 : r > 60 ? 60 : r;
 }
 
+/* an operation's price in type t (a 64-bit one where the model lists it) */
+static int
+op_cost_ty(int op, ty_t t)
+{
+	const struct model *m = model_active();
+
+	switch (op) {
+	case O_ADD: case O_SUB: case O_NEG:
+		return mcost(int64_class(m, t, C_IADD));
+	case O_MUL: return mcost(int64_class(m, t, C_IMUL));
+	case O_SHL: case O_SHR: return mcost(int64_class(m, t, C_SHIFT));
+	default: return mcost(C_LOGIC);
+	}
+}
+
+/* in the type the search computes in */
 static int
 op_cost(int op)
 {
-	switch (op) {
-	case O_ADD: case O_SUB: case O_NEG: return mcost(C_IADD);
-	case O_MUL: return mcost(C_IMUL);
-	case O_SHL: case O_SHR: return mcost(C_SHIFT);
-	default: return mcost(C_LOGIC);
-	}
+	return op_cost_ty(op, F.W);
 }
 
 /*
@@ -926,7 +937,7 @@ forms(const int64_t *xs)
 			    TY(K_UINT, 64);
 			uint64_t K = 0;
 			nid xi, sh, e;
-			int cost = op_cost(O_SHR) + op_cost(O_AND) +
+			int cost = op_cost_ty(O_SHR, T) + op_cost(O_AND) +
 			    (off ? op_cost(O_ADD) : 0);
 			for (i = 0; i < D; i++)
 				K |= (uint64_t)(F.y[i] - off) << ((i + (rebase ? 0 :
@@ -934,16 +945,16 @@ forms(const int64_t *xs)
 			xi = mk_cast(T, mk_var(0, pp->name, pp->ty));
 			if (rebase) {
 				xi = mk_bin(O_SUB, xi, mk_const_i(T, lo));
-				cost += op_cost(O_SUB);
+				cost += op_cost_ty(O_SUB, T);
 			}
 			if (bits == 1)
 				sh = xi;
 			else if (ispow2(bits)) {
 				sh = mk_bin(O_SHL, xi, mk_const_i(T, ilog2u((uint64_t)bits)));
-				cost += op_cost(O_SHL);
+				cost += op_cost_ty(O_SHL, T);
 			} else {
 				sh = mk_bin(O_MUL, mk_const_i(T, bits), xi);
-				cost += op_cost(O_MUL);
+				cost += op_cost_ty(O_MUL, T);
 			}
 			e = mk_bin(O_SHR, mk_const_i(T, (int64_t)K), sh);
 			e = mk_bin(O_AND, e, mk_const_i(T,

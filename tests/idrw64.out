@@ -1,0 +1,65 @@
+> d1(x: u64) = x % 3 == 0
+> d3(x: u64) = x % 12 == 5
+> d4(x: i64) = x % 10 == 0
+> use zen4
+cost model: zen4
+> find d1 1
+  note: the result is bool: searching in u64
+find d1: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from zen4
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 4   12297829382473034411x <= 6148914691236517205 the divisibility test x % 3 == 0 as a multiply and a compare (derived; checked on a sample)
+      holds where x is any u64 (the multiply wraps mod 2^64)
+      3 is odd, and 3 * 0xaaaaaaaaaaaaaaab = 1 mod 2^64
+      t(n) = n*0xaaaaaaaaaaaaaaab takes each 64-bit word to a different one (a bijection): a multiply by an odd number does
+      the multiples of 3 are q*3 for q = 0..6148914691236517205 (floor((2^64 - 1)/3)); there n * 0xaaaaaaaaaaaaaaab = q mod 2^64: t takes them onto 0..6148914691236517205
+      a bijection takes every other n outside 0..6148914691236517205: t(n) <= 6148914691236517205 exactly where x % 3 == 0
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find d3 1
+  note: the result is bool: searching in u64
+find d3: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from zen4
+  derived, but not cheaper under zen4 (cost 8, as written 6): the divisibility test x % 12 == 5 as a multiply, a rotation and a compare
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find d4 1
+  note: the result is bool: searching in i64
+find d4: 1024 points (sampled; matches verified on the whole domain), computing in i64, costs from zen4
+  derived, but not cheaper under zen4 (cost 8, as written 6): the divisibility test x % 10 == 0 as a multiply, a rotation and a compare
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+> use w64
+cost model: w64
+> find d1 1
+  note: the result is bool: searching in u64
+find d1: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  derived, but not cheaper under w64 (cost 18, as written 16): the divisibility test x % 3 == 0 as a multiply and a compare
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> m3(x: u32 in 0..11, y: u32) = (x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x == 9 ? 11 : x == 10 ? 6 : 0) + y
+> m4(x: u32 in 0..40, y: u32) = (x == 3 || x == 17 || x == 33 || x == 40 || x == 5) ? y : 0
+> find m3 1
+find m3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 6   u32(0x6b0200d4090 >> (u64(x) << 2) & 15) + y the map u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) of x as a table in one u64 constant (12 entries of 4 bits) (derived; checked by SAT)
+      holds where x in [0, 11] (its range)
+      u32(x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x =… (27 more characters) at x = 0..11 is [0, 9, 0, 4, 13, 0, 0, 2, 0, 11, 6, 0] (evaluated at each of the 12)
+      bits [4*i, 4*i + 4) of 0x6b0200d4090 hold the value at x = i: shifting right by that many bits times x and masking reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find m4 1
+find m4: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   bool(0x10200020028 >> u64(x)) ? y : 0    the map x == 3 || x == 17 || x == 33 || x == 40 || x == 5 of x as a table in one u64 constant (41 entries of 1 bit) (derived; checked by SAT)
+      holds where x in [0, 40] (its range)
+      x == 3 || x == 17 || x == 33 || x == 40 || x == 5 at x = 0..40 is [0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ... (25 more)] (evaluated at each of the 41)
+      bits [1*i, 1*i + 1) of 0x10200020028 hold the value at x = i: shifting right by x and taking the low bit reads it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> m5(x: u32 in 0..16, y: u32) = (x == 1 ? 9 : x == 3 ? 4 : x == 16 ? 13 : 0) + y
+> find m5 1
+find m5: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

@@ -2197,8 +2197,9 @@ lower, and otherwise listed as "derived, but not cheaper".
   the n with that remainder onto 0..B, B = floor((2^w - 1 - r)/d); so
   the test is `rotr(n*einv + c, k) <= B`.  Signed n (r = 0) the same,
   with the multiples on both sides of 0 moved onto 0..B by the added
-  constant.  u8 to u32 and i8 to i32; the derivation prints e^-1, c and
-  B.  SAT does not finish on a multiplier against a divider, so the
+  constant.  u8 to u64 and i8 to i64 (a u64 test is one `imul64`: it
+  pays where the model prices that below the remainder); the
+  derivation prints e^-1, c and B.  SAT does not finish on a multiplier against a divider, so the
   second opinion here is the domain's points (all of them when there
   are few, a sample otherwise) and the derivation is the proof.
 - **A division or remainder by a constant whose dividend has a proved
@@ -2212,9 +2213,9 @@ lower, and otherwise listed as "derived, but not cheaper".
   table, quotients; at most 4096 values), read at every value of the
   variable:
   - as a table in one constant, `(C >> b*(x - lo)) & (2^b - 1)`, when
-    its entries fit 32 bits (b a power of two when that fits, so that
-    the index is a shift; a bool is the low bit; the least value is
-    added back when it is not 0);
+    its entries fit 32 bits, or 64 in a u64 constant (b a power of two
+    when that fits, so that the index is a shift; a bool is the low
+    bit; the least value is added back when it is not 0);
   - as a multiply and a shift, `(x*M + A) >> s`: for each s, the offsets
     A that serve a multiplier M are an interval whose width is concave
     in M, so the least s with a pair is found exactly, and the
@@ -2291,7 +2292,9 @@ small-range value, the top of a chain of OpSelect or an OpLogicalOr or
 OpLogicalAnd of compares, becomes a table in one constant or a multiply
 and a shift, the key's range from the module (`x & 7`) or the request's
 assumptions: four compares and selects on `x & 7` 17 -> 7, the
-membership test `k == 1u || k == 4u || k == 6u` one bit of 0x52.  What
+membership test `k == 1u || k == 4u || k == 6u` one bit of 0x52 (a
+table in a u64 constant is find's only: the writer writes 32-bit
+words).  What
 the rewrite drops but something else reads (a compare the optimizer
 shares between two chains) stays, and its price is added to the new
 form's.  A chain written as nested `?:` becomes branches and phis, which

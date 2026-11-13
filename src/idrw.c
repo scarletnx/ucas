@@ -9,14 +9,15 @@
  *   - a divisibility test by a constant, n % d == r, as a multiply and
  *     a compare (Granlund and Montgomery; Lemire): with d = 2^k e, e
  *     odd, n -> rotr((n - r) e^-1, k) is a bijection of the machine
- *     word that takes the n with that remainder onto 0..B;
+ *     word (8 to 64 bits) that takes the n with that remainder onto
+ *     0..B;
  *   - a division or remainder by a constant whose dividend has a proved
  *     bound N, as one multiply and one shift in u32: M = ceil(2^s / d)
  *     with N (M d - 2^s) < 2^s and N M < 2^32;
  *   - a map of one variable with a small range (compares and selects, a
  *     table, quotients), from its values on that range:
  *       a table in one constant, (C >> b (x - lo)) & (2^b - 1), when
- *       its entries fit 32 bits;
+ *       its entries fit 32 bits, or 64 in a u64;
  *       a multiply and a shift, (x M + A) >> s, with M, A and s solved
  *       so that v 2^s <= x M + A < (v + 1) 2^s at every x;
  *       a field for each bit of x, ((x M) & L) (2^w - 1), when the map is
@@ -81,7 +82,7 @@ rw_divis(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 	t = N.ty[m];
 	W = TYW(t);
 	sg = TYK(t) == K_SINT;
-	if ((TYK(t) != K_UINT && !sg) || W < 8 || W > 32)
+	if ((TYK(t) != K_UINT && !sg) || W < 8 || W > 64)
 		return;
 	x = N.a[m];
 	d = N.ki[N.b[m]];
@@ -89,7 +90,7 @@ rw_divis(struct ivc *c, nid root, nid n, struct irw **out, int *cnt, int *cap)
 	if (d < 3 || pow2(d) || r < 0 || r >= d || (sg && r != 0))
 		return;
 	U = TY(K_UINT, W);
-	mask = (1ULL << W) - 1;
+	mask = W == 64 ? ~0ULL : (1ULL << W) - 1;
 	for (k = 0; !((d >> k) & 1); k++)
 		;
 	e = (uint64_t)d >> k;
@@ -362,30 +363,35 @@ values_text(struct sbuf *b, const struct mapv *m)
 	sb_printf(b, "] (evaluated at each of the %d)", m->K);
 }
 
-/* a table in one u32 constant */
+/* a table in one u32 constant, or a u64 one where it does not fit */
 static int
 map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
     int *cnt, int *cap)
 {
-	static const int widths[] = {1, 2, 4, 8, 16};
-	ty_t t = m->t;
+	static const int widths[] = {1, 2, 4, 8, 16, 32};
+	ty_t t = m->t, T;
 	uint64_t span = (uint64_t)(m->vmax - m->vmin), C = 0, bmask;
-	int b = bits_for(span), bw = 0, i, direct, off;
+	int b = bits_for(span), bw = 0, i, direct, off, W;
+
 	nid idx, sh, r, to;
 	struct irw *rw;
 	char what[200], cond[200];
 	struct sbuf pf = {0};
 
-	for (i = 0; i < 5 && !bw; i++)
-		if (widths[i] >= b && (int64_t)m->K * widths[i] <= 32)
-			bw = widths[i];
-	if (!bw && (int64_t)m->K * b <= 32)
-		bw = b;
+	for (W = 32; W <= 64 && !bw; W += 32) {
+		for (i = 0; i < 6 && !bw; i++)
+			if (widths[i] >= b && (int64_t)m->K * widths[i] <= W)
+				bw = widths[i];
+		if (!bw && (int64_t)m->K * b <= W)
+			bw = b;
+	}
 	if (!bw)
 		return 0;
-	direct = m->lo >= 0 && (m->hi + 1) * bw <= 32;
+	W -= 32;
+	T = TY(K_UINT, W);
+	direct = m->lo >= 0 && (m->hi + 1) * bw <= W;
 	off = direct ? (int)m->lo : 0;
-	bmask = (1ULL << bw) - 1;
+	bmask = bw == 64 ? ~0ULL : (1ULL << bw) - 1;
 	for (i = 0; i < m->K; i++)
 		C |= (uint64_t)(m->v[i] - m->vmin) << (bw * (i + off));
 	/* what is built is what is claimed: read every entry back */
@@ -393,23 +399,23 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 		if ((int64_t)((C >> (bw * (i + off))) & bmask) + m->vmin !=
 		    m->v[i])
 			return 0;
-	idx = mk_cast(U32, direct ? m->x : m->lo < 0 ? mk_bin(O_ADD, m->x,
+	idx = mk_cast(T, direct ? m->x : m->lo < 0 ? mk_bin(O_ADD, m->x,
 	    mk_const_i(N.ty[m->x], -m->lo)) : mk_bin(O_SUB, m->x,
 	    mk_const_i(N.ty[m->x], m->lo)));
-	sh = bw == 1 ? idx : pow2(bw) ? mk_bin(O_SHL, idx, mk_const_i(U32,
-	    ilog2u((uint64_t)bw))) : mk_bin(O_MUL, idx, mk_const_i(U32, bw));
-	r = mk_bin(O_SHR, mk_const_i(U32, (int64_t)C), sh);
+	sh = bw == 1 ? idx : pow2(bw) ? mk_bin(O_SHL, idx, mk_const_i(T,
+	    ilog2u((uint64_t)bw))) : mk_bin(O_MUL, idx, mk_const_i(T, bw));
+	r = mk_bin(O_SHR, mk_const_i(T, (int64_t)C), sh);
 	if (t == TY_BOOL)
 		to = mk_cast(t, r);	/* a bool is the low bit */
 	else {
-		to = mk_cast(t, mk_bin(O_AND, r, mk_const_i(U32,
+		to = mk_cast(t, mk_bin(O_AND, r, mk_const_i(T,
 		    (int64_t)bmask)));
 		if (m->vmin)
 			to = mk_bin(O_ADD, to, mk_const_i(t, m->vmin));
 	}
 	snprintf(what, sizeof what, "the map %s of %s as a table in one "
-	    "constant (%d entries of %d bit%s)", sstr(m->from), sstr(m->key), m->K,
-	    bw, bw > 1 ? "s" : "");
+	    "%sconstant (%d entries of %d bit%s)", sstr(m->from), sstr(m->key),
+	    W == 64 ? "u64 " : "", m->K, bw, bw > 1 ? "s" : "");
 	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (%s)", sstr(m->key),
 	    (long long)m->lo, (long long)m->hi, m->why);
 	values_text(&pf, m);
