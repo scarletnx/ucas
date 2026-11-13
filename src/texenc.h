@@ -38,6 +38,26 @@ int texenc_lossless(nid tab, int natw, int *W, int *bytes);
 /* its line in a report: under ind, the entries named by what */
 void texenc_note(nid tab, int natw, const char *what, const char *ind);
 
+/*
+ * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
+ * as UNORM16 (1 for a block the profile refuses: the error colour), and
+ * a block searched for one table (t1 NULL) or two (two planes); 0 when
+ * none fits.  A texel reads (C >> 8)/255 in the UNORM8 decode mode,
+ * astcb_float16(C) in the float16 one.
+ */
+struct astcb_info {
+	int parts, seed, miss;	/* partitions; the seed, and how many texels
+				 * its partitions put off the entries' pattern */
+	int W, H, wlevels, clevels, planes;
+	int nends, ends[18];	/* the endpoint values, unquantised */
+	double err;		/* the largest error the search computed */
+};
+int astcb_decode(const uint8_t blk[16], int bw, int bh, uint16_t *out);
+int astcb_encode(const double *t0, const double *t1, const uint8_t *care,
+    int bw, int bh, uint8_t out[16], struct astcb_info *info);
+int astcb_partition(int seed, int x, int y, int count, int small);
+double astcb_float16(int c);
+
 struct P;
 int texenc_command(struct P *p);		/* parse.c */
 const char *texenc_nlp_raw(const char *sent);	/* nlp.c */

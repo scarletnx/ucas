@@ -179,7 +179,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
 | `texalu F [tol E] [under m]` | table reads and weighted sums of neighbouring entries as reads through the texture unit, where the model prices them lower, each proved, with what the pipeline needs for it (see "The texture unit as an ALU") |
-| `texenc T [rows W] [tol E]` | a constant table as BC4 blocks: endpoints, selectors and bytes, exact or within E, every pair of endpoints tried; `texenc T, U` two tables of one shape as BC5 (see "Tables as compressed textures") |
+| `texenc T [rows W] [tol E]` | a constant table as BC4 blocks: endpoints, selectors and bytes, exact or within E, every pair of endpoints tried; `texenc T, U` two tables of one shape as BC5; `texenc T [, U] astc BWxBH` as ASTC blocks, two tables in a block's two planes (see "Tables as compressed textures") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines (as the stage a `#pragma shader_stage(...)` line names, else the block's tag: ```` ```vert ````, ```` ```frag ````, ```` ```comp ````, a file's extension; else by what only one stage has, a workgroup, gl_Position or gl_VertexIndex; for Vulkan 1.1, or 1.3 when the shader needs it; `#line` directives are blanked, so the lines reported are the text's own) and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that; the tools get 60 s and 2 GiB, and a disassembly is read whole up to 32 MiB: a BC7 encoder with its ASTC decoder is half a megabyte of it), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count; the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -3711,11 +3711,45 @@ tol).
 Not priced: no model has a class for a read of a compressed texture
 apart from its uncompressed one (none is measured), so nothing is
 rewritten on BC4's account; `texenc` gives the asset and its proof.
-Not done: ASTC as a table's
-encoding (its weight grids, dual planes and HDR endpoints; its
-partition hash is an operation, below), BC6H and BC7, ETC2/EAC, the
-sRGB variants, and a polynomial split between a table's knots and a
-residual in the ALU.
+**ASTC.**  `texenc T astc BWxBH` (src/astcblk.c) stores T as ASTC blocks
+of one of the 14 2D footprints, 16 bytes each, read in the UNORM8
+decode mode (a texel's byte over 255; whole numbers k are k/255, as for
+BC4).  A block is the decoder's steps (below, "The ASTC decoder's
+steps"): a weight grid up to the block's size, infilled bilinearly, so a
+smooth table needs few weights; the endpoints of each of 1 to 4
+partitions, chosen per texel by the partition hash.  The encoder tries
+every block mode the footprint has (each grid, each weight range), for
+1 to 4 partitions the seeds whose partitions are closest to the
+pattern the entries make (the values cut at their largest gaps: every
+seed is tried, up to relabelling), endpoints among the colour range's
+values near each partition's least and greatest entry, and the weights
+by least squares through the infill, rounded to their range and then
+moved a level at a time.  It is not every encoding: where the result is
+not exact, a closer block may exist, and the report says so.  Every
+block written is decoded again and must give what the search computed.
+`texenc T, U astc BWxBH` puts two tables of one shape in a block's two
+planes, T the luminance (R, G, B) and U the alpha, each with its own
+weight grid.  Beside each table: what the default float16 decode mode
+reads (C/65536 rounded toward zero, 1 for 65535).
+
+```
+> Q = [...]                                 (8 x 8: 10, 100 or 200 by seed 302's three partitions, plus 30 on odd columns)
+> texenc Q astc 8x8
+  block (0, 0): 8x3 weights of 2 levels in one plane, 3 partitions (seed 302: its partitions are the entries' pattern), endpoints 10, 40, 100, 130, 200, 230 (luminance, 256 levels), bytes 25 d0 ...
+  exact: every texel is its entry's f32 over 255
+```
+
+The bytes of every table in tests/texastc.ucas, and of 70 more (random,
+smooth, three-level and ramp tables in every footprint, 19992 entries,
+14 of them two tables in two planes), decode in astcenc 5.7.1 to what
+ucas reports, every entry.  JSON and MCP: `texenc` takes `astc`
+("6x6"); in English, "compress R as ASTC 6x6".
+
+Not done: ASTC's HDR endpoints and 3D blocks, partitions with two
+planes, endpoint modes other than luminance and luminance-alpha (the
+colour ones hold three tables, which texenc does not take), BC6H and
+BC7, ETC2/EAC, the sRGB variants, and a polynomial split between a
+table's knots and a residual in the ALU.
 
 ### The ASTC decoder's steps
 
@@ -3780,9 +3814,10 @@ operations it spells out over its operands, constants folded, on a
 line of its own (24.375 under gt1030 with a constant seed, the hash
 folded; 197.875 with a variable one).
 
-Not done: 3D blocks (z), HDR (its endpoint modes and the float16
-decode mode's conversion), sRGB; reading a block's bits (the block mode,
-the integer sequence encoding) is not a step here.
+Not done: 3D blocks (z), HDR's endpoint modes, sRGB.  A whole block,
+its bits read as the specification lays them out, is decoded and
+encoded by `texenc ... astc` (above, "Tables as compressed
+textures"); the float16 decode mode's reads are reported there.
 
 ### Long expressions
 

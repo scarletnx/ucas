@@ -28,6 +28,14 @@
  *       T and U, two tables of one shape, as BC5 (RGTC2): a block is 16
  *       bytes, T's BC4 block (red) then U's (green), each channel
  *       encoded on its own
+ *   texenc T astc BWxBH [rows W] [tol E]
+ *       T as ASTC blocks of BW x BH texels (2D, LDR; astcblk.c searches
+ *       each): a block's grid, ranges, partitions and seed, endpoints and
+ *       bytes, read in the UNORM8 decode mode (a texel's byte over 255);
+ *       the default float16 mode's reads beside
+ *   texenc T, U astc BWxBH [rows W] [tol E]
+ *       T and U in one block's two planes, T the luminance (R, G, B) and
+ *       U the alpha
  */
 #include "calc.h"
 #include "report.h"
@@ -487,6 +495,260 @@ cmd_texenc(const struct func *f, int W, double tol, int has_tol)
 	texenc_free(&e);
 }
 
+/* the 2D footprints ASTC has */
+static int
+astc_footprint(int bw, int bh)
+{
+	static const int fp[14][2] = {{4, 4}, {5, 4}, {5, 5}, {6, 5}, {6, 6},
+		{8, 5}, {8, 6}, {8, 8}, {10, 5}, {10, 6}, {10, 8}, {10, 10},
+		{12, 10}, {12, 12}};
+	int i;
+
+	for (i = 0; i < 14; i++)
+		if (fp[i][0] == bw && fp[i][1] == bh)
+			return 1;
+	return 0;
+}
+
+/* a table's entries as what a read should return (k/255 for whole
+ * numbers 0..255); 0 when they are not numbers ASTC holds */
+static int
+astc_targets(nid tab, double *t, int *isint)
+{
+	uint32_t j, n = N.b[tab];
+
+	*isint = 1;
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		double v;
+		if (!is_const(x))
+			return 0;
+		v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		if (!TY_ISINT(N.ty[x]) || v > 255)
+			*isint = 0;
+		if (!(v >= 0))
+			return 0;
+	}
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		double v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		if (!*isint && v > 1)
+			return 0;
+		t[j] = (double)(float)(*isint ? v / 255 : v);
+	}
+	return 1;
+}
+
+/*
+ * One table, or two in a block's two planes, as ASTC blocks of bw x bh:
+ * each block searched (astcblk.c), then decoded again, and what it
+ * decodes to is what is reported and judged.
+ */
+static void
+cmd_texenc_astc(const struct func *f, const struct func *g, int bw, int bh,
+    int W, double tol, int has_tol)
+{
+	const struct func *fs[2] = {f, g};
+	const char *nm[2];
+	int nt = g ? 2 : 1, n, H, nbx, nby, c, k, i, isint[2], at[2] = {0, 0};
+	double *t[2] = {NULL, NULL}, *dec[2], *d16[2], err[2] = {0, 0},
+	    err16[2] = {0, 0};
+	struct sbuf b = {0};
+	uint16_t px[144 * 4];
+
+	for (c = 0; c < nt; c++) {
+		nm[c] = fs[c]->anon ? (c ? "the second table" : nt == 2 ?
+		    "the first table" : "the table") : sym_str(fs[c]->name);
+		if (fs[c]->np != 0 || N.op[fs[c]->body] != O_TABLE)
+			fail("texenc takes tables [t0, t1, ...] (or their names), not "
+			    "%s", fs[c]->anon ? node_str(fs[c]->body) :
+			    sym_str(fs[c]->name));
+	}
+	if (!astc_footprint(bw, bh))
+		fail("texenc: ASTC's 2D blocks are 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, "
+		    "8x6, 8x8, 10x5, 10x6, 10x8, 10x10, 12x10 and 12x12, not %dx%d",
+		    bw, bh);
+	if (nt == 2 && N.b[f->body] != N.b[g->body])
+		fail("texenc: a block's two planes are tables of one shape; %s has "
+		    "%u entries and %s %u", nm[0], N.b[f->body], nm[1],
+		    N.b[g->body]);
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	n = (int)N.b[f->body];
+	H = (n + W - 1) / W;
+	nbx = (W + bw - 1) / bw;
+	nby = (H + bh - 1) / bh;
+	for (c = 0; c < nt; c++) {
+		t[c] = xcalloc((size_t)n, sizeof *t[c]);
+		dec[c] = xcalloc((size_t)n, sizeof *dec[c]);
+		d16[c] = xcalloc((size_t)n, sizeof *d16[c]);
+		if (!astc_targets(fs[c]->body, t[c], &isint[c]))
+			fail("texenc: ASTC holds numbers from 0 to 1 (or whole numbers "
+			    "0 to 255, read as k/255); %s has an entry that is "
+			    "neither", nm[c]);
+	}
+	rep_begin("texenc");
+	sb_printf(&b, "ASTC_%dx%d_UNORM", bw, bh);
+	rep_str("format", sb_str(&b));
+	rep_int("entries", n);
+	rep_int("width", W);
+	rep_int("height", H);
+	rep_int("bytes", nbx * nby * 16);
+	if (nt == 2)
+		printf("texenc %s, %s astc %dx%d: %d entr%s a table in ASTC %dx%d "
+		    "blocks' two planes (%s the luminance, %s the alpha), rows "
+		    "of %d (%d x %d texels): %d block%s, %d bytes (%d as "
+		    "R8G8_UNORM, %d as R32G32_SFLOAT)\n", nm[0], nm[1], bw, bh, n,
+		    n == 1 ? "y" : "ies", bw, bh, nm[0], nm[1], W, W, H, nbx * nby,
+		    nbx * nby == 1 ? "" : "s", nbx * nby * 16, 2 * W * H, 8 * W * H);
+	else
+		printf("texenc %s astc %dx%d: %d entr%s as ASTC %dx%d, rows of %d "
+		    "(%d x %d texels): %d block%s, %d bytes (%d as R8_UNORM, %d as "
+		    "R32_SFLOAT)%s\n", nm[0], bw, bh, n, n == 1 ? "y" : "ies", bw, bh,
+		    W, W, H, nbx * nby, nbx * nby == 1 ? "" : "s", nbx * nby * 16,
+		    W * H, 4 * W * H, isint[0] ? "; whole numbers k are stored as "
+		    "k/255" : "");
+	rep_list("blocks");
+	for (k = 0; k < nbx * nby; k++) {
+		double bt[2][144];
+		uint8_t care[144], q[16];
+		struct astcb_info in;
+		double got = 0;
+		int bx = k % nbx, by = k / nbx;
+		for (i = 0; i < bw * bh; i++) {
+			int x = bx * bw + i % bw, y = by * bh + i / bw;
+			long a = (long)y * W + x;
+			care[i] = x < W && a < n;
+			for (c = 0; c < nt; c++)
+				bt[c][i] = care[i] ? t[c][a] : 0;
+		}
+		if (!astcb_encode(bt[0], nt == 2 ? bt[1] : NULL, care, bw, bh, q,
+		    &in))
+			fail("texenc: no ASTC %dx%d block layout holds block (%d, %d) "
+			    "of %s", bw, bh, bx, by, nm[0]);
+		if (astcb_decode(q, bw, bh, px))
+			fail("texenc: block (%d, %d) as written decodes to the error "
+			    "colour (a block the LDR profile refuses): an encoder "
+			    "error", bx, by);
+		for (i = 0; i < bw * bh; i++) {
+			int x = bx * bw + i % bw, y = by * bh + i / bw;
+			long a = (long)y * W + x;
+			if (!care[i])
+				continue;
+			for (c = 0; c < nt; c++) {
+				/* the first table in R, the second in A */
+				int C = px[4 * i + (c ? 3 : 0)];
+				double e;
+				dec[c][a] = (double)(float)((C >> 8) / 255.0);
+				d16[c][a] = astcb_float16(C);
+				e = fabs(dec[c][a] - t[c][a]);
+				if (e > got)
+					got = e;
+				if (e > err[c]) {
+					err[c] = e;
+					at[c] = (int)a;
+				}
+				if (fabs(d16[c][a] - t[c][a]) > err16[c])
+					err16[c] = fabs(d16[c][a] - t[c][a]);
+			}
+		}
+		if (got != in.err)
+			fail("texenc: block (%d, %d) decodes within %.9g of its entries "
+			    "where the search computed %.9g: an encoder error", bx, by,
+			    got, in.err);
+		printf("  block (%d, %d): %dx%d weights of %d levels in %s, ", bx, by,
+		    in.W, in.H, in.wlevels, in.planes == 2 ? "two planes" :
+		    "one plane");
+		if (in.parts == 1)
+			printf("1 partition");
+		else if (in.miss == 0)
+			printf("%d partitions (seed %d: its partitions are the "
+			    "entries' pattern)", in.parts, in.seed);
+		else
+			printf("%d partitions (seed %d: the closest to the entries' "
+			    "pattern, %d texel%s off it)", in.parts, in.seed, in.miss,
+			    in.miss == 1 ? "" : "s");
+		printf(", endpoints");
+		sb_clear(&b);
+		for (i = 0; i < in.nends; i++) {
+			printf("%s %d", i ? "," : "", in.ends[i]);
+			sb_printf(&b, "%s%d", i ? " " : "", in.ends[i]);
+		}
+		printf(" (%s, %d levels), bytes", nt == 2 ? "luminance, luminance, "
+		    "alpha, alpha" : "luminance", in.clevels);
+		rep_obj(NULL);
+		rep_int("x", bx);
+		rep_int("y", by);
+		rep_int("grid_width", in.W);
+		rep_int("grid_height", in.H);
+		rep_int("weight_levels", in.wlevels);
+		rep_int("colour_levels", in.clevels);
+		rep_int("planes", in.planes);
+		rep_int("partitions", in.parts);
+		if (in.parts > 1) {
+			rep_int("seed", in.seed);
+			rep_int("pattern_misses", in.miss);
+		}
+		rep_str("endpoints", sb_str(&b));
+		sb_clear(&b);
+		for (i = 0; i < 16; i++) {
+			printf(" %02x", q[i]);
+			sb_printf(&b, "%s%02x", i ? " " : "", q[i]);
+		}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	for (c = 0; c < nt; c++) {
+		const char *pre = nt == 2 ? (c ? "alpha: " : "luminance: ") : "";
+		rep_obj(nt == 2 ? (c ? "alpha" : "luminance") : "table");
+		sb_clear(&b);
+		sb_putc(&b, '[');
+		for (i = 0; i < n; i++)
+			sb_printf(&b, "%s%.9g", i ? ", " : "", dec[c][i]);
+		sb_putc(&b, ']');
+		printf("  %sdecodes to %s\n", pre, sb_str(&b));
+		rep_str("decoded", sb_str(&b));
+		rep_bool("exact", err[c] == 0);
+		rep_num("max_error", err[c]);
+		rep_num("float16_max_error", err16[c]);
+		if (err[c] == 0)
+			printf("  %sexact: every texel is its entry's f32%s\n", pre,
+			    isint[c] ? " over 255" : "");
+		else {
+			printf("  %snot exact: the closest block found is within %.3g of "
+			    "the table (entry %d: %.9g as %.9g)\n", pre, err[c], at[c],
+			    t[c][at[c]], dec[c][at[c]]);
+			if (has_tol) {
+				printf("  %s%s the %g allowed (tol)\n", pre, err[c] <= tol ?
+				    "within" : "more than", tol);
+				rep_bool("within_tol", err[c] <= tol);
+			}
+		}
+		printf("  %sin the default float16 decode mode a read is C/65536 "
+		    "toward zero (1 for 65535): within %.3g of the table\n", pre,
+		    err16[c]);
+		rep_end();
+	}
+	printf("  searched: every block mode the footprint has (a weight grid up "
+	    "to the block, each weight range, %s), %sthe endpoints near each "
+	    "partition's least and greatest entry, the weights by least "
+	    "squares through the infill and then a level at a time; not every "
+	    "encoding, so a closer block may exist where it is not exact.  "
+	    "Every block written is decoded again\n", nt == 2 ? "two planes" :
+	    "one plane", nt == 2 ? "" : "1 to 4 partitions with the seeds "
+	    "whose partitions are closest to the entries' pattern, ");
+	printf("  a nearest or filtered read of the texture is that read of the "
+	    "decoded table; no model prices an ASTC read: not measured\n");
+	free(b.p);
+	for (c = 0; c < nt; c++) {
+		free(t[c]);
+		free(dec[c]);
+		free(d16[c]);
+	}
+}
+
 /* a table: a defined one by its name (before a comma too), or an
  * expression */
 static struct func *
@@ -506,13 +768,13 @@ texenc_table(struct P *p, const char *const *stop)
 int
 texenc_command(struct P *p)
 {
-	static const char *const stop[] = {"rows", "tol", NULL};
+	static const char *const stop[] = {"rows", "tol", "astc", NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0;
-	int64_t W = 4;
+	int has_tol = 0, astc = 0;
+	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
 	    func_find(sym_cstr(w))) {
@@ -522,6 +784,15 @@ texenc_command(struct P *p)
 	f = texenc_table(p, stop);
 	if (cmdp_tok(p, T_COMMA))
 		g = cmdp_func(p, stop);
+	if (cmdp_kw(p, "astc")) {
+		/* the footprint: 6x6 reads as 6 and x6, or 6 x 6 */
+		astc = 1;
+		if (!cmdp_int(p, &bw) || !cmdp_word(p, w, sizeof w) || w[0] != 'x' ||
+		    (w[1] ? (bh = atoi(w + 1)) <= 0 : !cmdp_int(p, &bh)))
+			fail("texenc: astc takes a block's footprint, BWxBH (6x6, 8x5, "
+			    "...)");
+		W = bw;
+	}
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -536,7 +807,9 @@ texenc_command(struct P *p)
 			cmdp_fail_here(p);
 	}
 	notes_flush();
-	if (g)
+	if (astc)
+		cmd_texenc_astc(f, g, (int)bw, (int)bh, (int)W, tol, has_tol);
+	else if (g)
 		cmd_texenc5(f, g, (int)W, tol, has_tol);
 	else
 		cmd_texenc(f, (int)W, tol, has_tol);
@@ -545,18 +818,19 @@ texenc_command(struct P *p)
 
 /*
  * "compress K as BC4", "K as a BC4 texture", "encode K as bc4 within
- * 0.01, rows of 8": texenc T [rows W] [tol E].  The sentence must name
- * BC4 (or RGTC) and a defined table; NULL otherwise.
+ * 0.01, rows of 8", "compress K as ASTC 6x6": texenc T [astc BWxBH]
+ * [rows W] [tol E].  The sentence must name BC4 (or RGTC), or ASTC with
+ * a footprint, and a defined table; NULL otherwise.
  */
 const char *
 texenc_nlp_raw(const char *sent)
 {
 	static char out[200];
 	char w[48], prev[48] = "", prev2[48] = "", fn[48] = "", fn2[48] = "",
-	    tol[32] = "", rows[16] = "";
+	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0;
+	int hit = 0, bc5 = 0, astc = 0, a, b;
 
 	if (n > 400)
 		return NULL;
@@ -580,6 +854,11 @@ texenc_nlp_raw(const char *sent)
 		else if (!strcmp(w, "bc5") || !strcmp(w, "BC5") || !strcmp(w,
 		    "rgtc2") || !strcmp(w, "RGTC2"))
 			hit = bc5 = 1;
+		else if (!strcmp(w, "astc") || !strcmp(w, "ASTC"))
+			hit = astc = 1;
+		else if (sscanf(w, "%dx%d", &a, &b) == 2 && a > 0 && b > 0 &&
+		    a < 100 && b < 100)
+			snprintf(fp, sizeof fp, "%dx%d", a, b);
 		else if ((!strcmp(prev, "within") || !strcmp(prev, "tol")) &&
 		    (w[0] == '.' || (w[0] >= '0' && w[0] <= '9')))
 			snprintf(tol, sizeof tol, "%s", w);
@@ -593,11 +872,12 @@ texenc_nlp_raw(const char *sent)
 		snprintf(prev2, sizeof prev2, "%s", prev);
 		snprintf(prev, sizeof prev, "%s", w);
 	}
-	if (!hit || !fn[0] || (bc5 && !fn2[0]))
+	if (!hit || !fn[0] || (bc5 && !fn2[0]) || (astc && !fp[0]))
 		return NULL;
-	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s", fn, bc5 ? ", " : "",
-	    bc5 ? fn2 : "", rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "",
-	    tol);
+	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s", fn, bc5 || (astc &&
+	    fn2[0]) ? ", " : "", bc5 || (astc && fn2[0]) ? fn2 : "", astc ?
+	    " astc " : "", astc ? fp : "", rows[0] ? " rows " : "", rows,
+	    tol[0] ? " tol " : "", tol);
 	return out;
 }
 
@@ -624,5 +904,5 @@ texenc_nlp_english(const char *line)
 			verb = 1;
 	return verb && (strstr(line, "BC4") || strstr(line, "bc4") ||
 	    strstr(line, "BC5") || strstr(line, "bc5") || strstr(line, "RGTC") ||
-	    strstr(line, "rgtc"));
+	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc"));
 }
