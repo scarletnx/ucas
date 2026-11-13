@@ -1,0 +1,58 @@
+> model sgf : gt1030 {
+    fuse ballot_eq(a: int, b: int) = sg_ballot(a == b) : 2
+    fuse sumsq(a: int) = sg_add(a * a) : 30
+    fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
+    fuse rot(v: any, lane: lane, d: const, w: const) = sg_shuffle(v, (lane + d) % w) : sg_shuffle
+    fuse bitsum(v: any, lane: lane) = sg_add(v >> lane) : 5
+  }
+> use sgf
+cost model: sgf
+> b32(x: u32 uniform, y: u32 uniform, lane: u32 in 0..31) = sg_ballot(x + lane == y)
+> cost b32
+cost of b32 under sgf: 3 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    ballot_eq        1 x 2     = 2  (sg_ballot(a == b); saves 0.375)
+> b8(x: u32 uniform, y: u32 uniform, lane: u32 in 0..7) = sg_ballot(x + lane == y)
+> cost b8
+cost of b8 under sgf: 3 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    ballot_eq        1 x 2     = 2  (sg_ballot(a == b); saves 0.375)
+> blt(x: u32 uniform, y: u32 uniform, lane: u32 in 0..31) = sg_ballot(x + lane < y)
+> cost blt
+cost of blt under sgf: 3.375 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  cmp              1 x 2.375 = 2.375
+  sg_ballot        1 x 0     = 0
+> sq(x: u32 uniform, lane: u32 in 0..31) = sg_add((x + lane) * (x + lane))
+> cost sq
+cost of sq under sgf: 31 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    sumsq            1 x 30    = 30  (sg_add(a*a); saves 5.625)
+> xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
+> cost xr
+cost of xr under sgf: 5 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    bfly             1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
+> rt(x: u32 uniform, lane: u32 in 0..31) = sg_rotate(x + lane, 3)
+> cost rt
+cost of rt under sgf: 5 (4 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    rot              1 x 4     = 4  (sg_shuffle(v, (lane + d) % w); saves 2)
+> bs(x: u32 uniform, lane: u32 in 0..31) = sg_add(x >> lane)
+> cost bs
+cost of bs under sgf: 5 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    bitsum           1 x 5     = 5  (sg_add(v >> lane); saves 29.625)
+> model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
+sgfuse.ucas:40:41: error: a fusion's lane input is named lane (lane: lane), as a function's lane parameter is: l: lane
+    model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
+                                            ^
+> model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
+sgfuse.ucas:41:57: error: lane in the pattern of fusion q is none of its inputs (sg_add(v + int(lane))): a pattern is an expression over its inputs alone; the lane's index is an input lane: lane
+    model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
+                                                            ^

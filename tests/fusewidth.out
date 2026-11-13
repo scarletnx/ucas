@@ -63,7 +63,7 @@ cost of m1 under noprice: 3 (2 operations, shared subterms counted once)
   fused by the model (one instruction for several operations):
     imad             1 x 3     = 3  (a*b + c; saves 1)
 > model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
-fusewidth.ucas:43:32: error: a fusion's input is int, float, const, any, or an integer of a proved width (u1 to u32, s1 to s32)
+fusewidth.ucas:43:32: error: a fusion's input is int, float, const, any, lane, or an integer of a proved width (u1 to u32, s1 to s32)
     model bad : gt1030 { fuse q(a: u40) = a + 1 : 1 }
                                    ^
 > model sat : gt1030 { fuse fsat(a: float) = min(max(a, 0.0), 1.0) : 0 on fadd fmul }

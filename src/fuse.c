@@ -97,7 +97,7 @@ fuse_count(const struct model *m)
 	return n;
 }
 
-static const char *const pkname[] = {"int", "float", "const", "any"};
+static const char *const pkname[] = {"int", "float", "const", "any", "lane"};
 
 /* does model m have a fusion whose input has a proved width */
 static int
@@ -220,6 +220,7 @@ fg_init(struct fgraph *g, int n)
 	g->isbool = xcalloc((size_t)n, 1);
 	g->nocontract = xcalloc((size_t)n, 1);
 	g->pinned = xcalloc((size_t)n, 1);
+	g->islane = xcalloc((size_t)n, 1);
 	g->kv = xcalloc((size_t)n, sizeof *g->kv);
 	g->kr = xcalloc((size_t)n, sizeof *g->kr);
 	g->arg = xmalloc((size_t)n * sizeof *g->arg);
@@ -248,6 +249,7 @@ fg_free(struct fgraph *g)
 	free(g->isbool);
 	free(g->nocontract);
 	free(g->pinned);
+	free(g->islane);
 	free(g->kv);
 	free(g->kr);
 	free(g->arg);
@@ -298,6 +300,10 @@ fmatch_args(const struct fgraph *g, const struct fusion *f, nid P, int i,
 	int ga[3] = {g->arg[i][0], g->arg[i][1], g->arg[i][2]}, k, ar;
 
 	ar = opinfo[N.op[P]].arity;
+	/* a subgroup operation's last operand is its size, which the pattern
+	 * does not fix: the lanes' count is the function's */
+	if (IS_SG(N.op[P]))
+		ar--;
 	if (swap) {
 		int t = ga[0];
 		ga[0] = ga[1];
@@ -349,6 +355,8 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 
 	if (op == O_VAR) {
 		int sl = (int)N.ki[P];
+		if (sl < 0 || sl >= f->np)
+			return 0;
 		switch (f->pkind[sl]) {
 		case FP_INT:
 			if (g->fp[i] || g->isbool[i])
@@ -368,6 +376,10 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 			if (!g->isk[i])
 				return 0;
 			break;
+		case FP_LANE:
+			if (!g->islane[i])
+				return 0;
+			break;
 		}
 		if (s->bind[sl] >= 0)
 			return s->bind[sl] == i;
@@ -382,7 +394,10 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 	}
 	if (g->isk[i] || (i != root && !inner_ok(g, i)))
 		return 0;
-	if ((g->fp[i] != 0) != (TY_FP(N.ty[P]) != 0) || g->isbool[i])
+	/* a compare is inside a pattern only where the pattern has one (a
+	 * ballot of it) */
+	if ((g->fp[i] != 0) != (TY_FP(N.ty[P]) != 0) || g->isbool[i] !=
+	    (N.ty[P] == TY_BOOL))
 		return 0;
 	/* a model's fusions are 32-bit instructions: an operation it prices
 	 * by a 64-bit class is several of them */
@@ -1079,6 +1094,7 @@ cover_list(const struct model *m, const nid *v, int cnt, const nid *pins,
 		G->f64[i] = TYK(t) == K_FLOAT && TYW(t) == 64;
 		G->isbool[i] = t == TY_BOOL;
 		G->uns[i] = TYK(t) == K_UINT || t == TY_BOOL;
+		G->islane[i] = op == O_VAR && sg_is_lane(g);
 		if (op == O_CONST) {
 			G->isk[i] = 1;
 			G->kv[i] = N.ki[g];

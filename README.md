@@ -1770,7 +1770,8 @@ fuse NAME = lut 3 : logic
 nofuse NAME
 ```
 
-A fusion's inputs are `int`, `float`, `const` (a constant) or `any`;
+A fusion's inputs are `int`, `float`, `const` (a constant), `any` or
+`lane` (below);
 its pattern is an expression over them, matched with commutative
 operands either way round (and `x << k` also matches `x * 2^k`, `x >>
 k` an unsigned `x / 2^k`); its price is a sum of numbers and classes
@@ -1834,6 +1835,27 @@ node by itself, each pattern rooted there (its inner nodes used only
 inside it) and each k-feasible cut of its logic cone for a lut.  That is
 the cheapest cover that never computes a value twice.  `cost` lists the
 fusions it used, `find` and `simplify` (SPIR-V) price with them.
+
+A pattern may hold subgroup operations (see Subgroups): an input inside
+an operand is what the lane computes there, and an input `lane: lane`
+is the lane's index, so a shuffle whose index the instruction forms
+itself (SHFL.BFLY by `lane xor k`) or a ballot taken with its compare
+can be priced as one instruction.  The pattern matches a subgroup of
+any size.  Like every fusion it only ever makes a cover cheaper: a step
+measured dearer than the sum of its classes is a class's price to
+change, not a fusion.  A pattern reads its inputs alone; anything else
+in it (the lane without a `lane` input) is refused.
+
+```
+> model sgf : gt1030 {
+    fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle }
+> xr(x: u32 uniform, lane: u32 in 0..31) = sg_shuffle_xor(x + lane, 1)
+> cost xr model sgf                          (6 under gt1030: the xor apart)
+cost of xr under sgf: 5 (3 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+  fused by the model (one instruction for several operations):
+    bfly             1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
+```
 
 gt1030 has the fusions its corpus measured, each from a test that
 fails the per-class sum: `lop3` (lop3_select, 4 logic ops and an add,
