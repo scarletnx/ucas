@@ -1,0 +1,31 @@
+# a table read of f less a trend R (src/fsimp.c tab_pick): where the R8
+# table of f misses the sink's budget, the R8 table of f - R spans fewer
+# levels, R a line or a parabola fitted to f at the knots, its constant
+# taking the bytes' offset; read as fma(r, S, R(x)), R by Horner in f32,
+# each piece certified with f's interval less R's, R's rounding in the
+# bound.  The forms are tried by the model's prices: R8, R8 less a line,
+# R8 less a parabola (an fma more each), R32F
+model texsink : gt1030 { tex_within: 1 }
+use texsink
+# 10 bits: R8 misses; f less a line in 1025 texels, cost 24.625
+simplify float c in [0, 1] sink unorm10 nofile
+```glsl
+float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545) * 0.9 + sqrt(c) * 0.1; }
+```
+# 11 bits: the line misses too; f less a parabola in 2049 texels, 25.625
+simplify float c in [0, 1] sink unorm11 nofile
+```glsl
+float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545) * 0.9 + sqrt(c) * 0.1; }
+```
+# 12 bits: no form within the budget; the nearest is said
+simplify float c in [0, 1] sink unorm12 nofile
+```glsl
+float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545) * 0.9 + sqrt(c) * 0.1; }
+```
+# where an f32 read costs less than the trend's, the f32 table
+model texsink32 : texsink { tex_sample_f32: 12 }
+use texsink32
+simplify float c in [0, 1] sink unorm10 nofile
+```glsl
+float Film(float c) { float x = exp2(c * 8.0 - 4.0); float t = x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14); return pow(t, 0.4545) * 0.9 + sqrt(c) * 0.1; }
+```

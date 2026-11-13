@@ -2955,7 +2955,39 @@ struct tabw {
 	int node, in, n;
 	ld lo, hi, h;		/* the knots */
 	const ld *v;		/* the texels' values */
+	int deg;		/* a trend R taken out first: its degree, 0 none */
+	ld c[3];		/* R's coefficients (f32 values), c0 + c1 x + c2 x^2 */
 };
+
+/* R(x), exactly but for long double's rounding */
+static ld
+tab_R(const struct tabw *t, ld x)
+{
+	return t->deg == 0 ? 0 : t->c[0] + x * (t->c[1] + x * t->c[2]);
+}
+
+/* R's interval on [p, q], widened by long double's rounding: its ends
+ * and, of degree 2, its vertex inside */
+static void
+tab_Rrange(const struct tabw *t, ld p, ld q, ld *lo, ld *hi)
+{
+	ld a = tab_R(t, p), b = tab_R(t, q), w;
+
+	*lo = a < b ? a : b;
+	*hi = a < b ? b : a;
+	if (t->deg == 2 && t->c[2] != 0) {
+		ld v = -t->c[1] / (2 * t->c[2]);
+		if (v > p && v < q) {
+			ld m = tab_R(t, v);
+			*lo = m < *lo ? m : *lo;
+			*hi = m > *hi ? m : *hi;
+		}
+	}
+	w = 0x1p-60L * (fabsl(t->c[0]) + fabsl(t->c[1]) * fmaxl(fabsl(p),
+	    fabsl(q)) + fabsl(t->c[2]) * fmaxl(p * p, q * q));
+	*lo -= w;
+	*hi += w;
+}
 
 /* the original's f32 value at x; *bad when it is not a finite number */
 static ld
@@ -2969,7 +3001,7 @@ tab_f(const struct tabw *t, float x, int *bad)
 	v = fx_eval(t->g, t->node, in, &u);
 	if (u || !isfinite(v))
 		*bad = 1;
-	return v;
+	return (ld)v - tab_R(t, x);
 }
 
 /* the line through the texels, at x in [lo, hi] */
@@ -3051,7 +3083,7 @@ tab_cert(const struct tabw *t, double goal, long work_max, int *npieces,
 		while (sp > 0) {
 			float p = st[sp - 1][0], q = st[sp - 1][1], m;
 			struct fiv F;
-			ld a, b, lmin, lmax;
+			ld a, b, lmin, lmax, Flo, Fhi;
 			double e;
 			int bad = 0;
 			sp--;
@@ -3075,6 +3107,15 @@ tab_cert(const struct tabw *t, double goal, long work_max, int *npieces,
 			if (F.empty || F.nan || F.undef || !isfinite(F.lo) ||
 			    !isfinite(F.hi))
 				return -1;
+			/* the trend taken out: F less R's interval on [p, q] */
+			Flo = F.lo;
+			Fhi = F.hi;
+			if (t->deg) {
+				ld rlo, rhi;
+				tab_Rrange(t, p, q, &rlo, &rhi);
+				Flo -= rhi;
+				Fhi -= rlo;
+			}
 			a = tab_line(t, p);
 			b = tab_line(t, q);
 			lmin = a < b ? a : b;
@@ -3085,7 +3126,7 @@ tab_cert(const struct tabw *t, double goal, long work_max, int *npieces,
 					lmin = t->v[k] < lmin ? t->v[k] : lmin;
 					lmax = t->v[k] > lmax ? t->v[k] : lmax;
 				}
-			e = fmax((double)(F.hi - lmin), (double)(lmax - F.lo));
+			e = fmax((double)(Fhi - lmin), (double)(lmax - Flo));
 			if (e <= goal) {
 				if (e > worst)
 					worst = e, *wx = p;
@@ -3106,17 +3147,81 @@ tab_cert(const struct tabw *t, double goal, long work_max, int *npieces,
 
 struct tabres {
 	int n, fmt, shift, pieces, uncert;
-	double E, Ei, Ec, Ef, Ed, est, dmax, cx, wx;
+	double E, Ei, Ec, Ef, Ed, ER, est, dmax, cx, wx;
 	float A, B, S, O;
 	float tab[TAB_MAXN];
+	int deg;		/* the trend's degree, 0 none */
+	float c[3];		/* its coefficients, the R8 offset in c[0] */
+	double Rmax;		/* its largest magnitude on the range */
 };
+
+/*
+ * A trend of degree deg (1 or 2) through the knots' values v by least
+ * squares, in t = (x - mid) / half for its conditioning, then in x with
+ * f32 coefficients: whatever they round to, R is the polynomial they
+ * make, and what is certified is f - R.  0: the fit is singular.
+ */
+static int
+tab_fit(const struct tabw *t, const ld *v, int deg, ld *c)
+{
+	ld M[3][4] = {{0}}, mid = (t->lo + t->hi) / 2, hw = (t->hi - t->lo) / 2;
+	ld b[3], f;
+	int i, j, k, n = deg + 1;
+
+	for (k = 0; k < t->n; k++) {
+		ld x = (t->lo + k * t->h - mid) / hw, pw[5];
+		pw[0] = 1;
+		for (i = 1; i < 5; i++)
+			pw[i] = pw[i - 1] * x;
+		for (i = 0; i < n; i++) {
+			for (j = 0; j < n; j++)
+				M[i][j] += pw[i + j];
+			M[i][3] += pw[i] * v[k];
+		}
+	}
+	for (i = 0; i < n; i++) {
+		int piv = i;
+		for (j = i + 1; j < n; j++)
+			if (fabsl(M[j][i]) > fabsl(M[piv][i]))
+				piv = j;
+		if (M[piv][i] == 0)
+			return 0;
+		for (k = 0; k < 4; k++) {
+			ld z = M[i][k];
+			M[i][k] = M[piv][k];
+			M[piv][k] = z;
+		}
+		for (j = 0; j < n; j++) {
+			if (j == i)
+				continue;
+			f = M[j][i] / M[i][i];
+			for (k = i; k < 4; k++)
+				if (k < n || k == 3)
+					M[j][k] -= f * M[i][k];
+		}
+	}
+	for (i = 0; i < n; i++)
+		b[i] = M[i][3] / M[i][i];
+	for (i = n; i < 3; i++)
+		b[i] = 0;
+	/* sum b_i ((x - mid) / hw)^i in powers of x */
+	c[2] = b[2] / (hw * hw);
+	c[1] = b[1] / hw - 2 * mid * c[2];
+	c[0] = b[0] - b[1] * mid / hw + b[2] * mid * mid / (hw * hw);
+	for (i = 0; i < 3; i++)
+		c[i] = (float)c[i];
+	return 1;
+}
 
 /* r's function as a table of n texels in format fmt, its own error
  * within goal: 1 with *o filled (o->est and o->E also when 0: the
- * sampled distance and the rest's part, for the report) */
+ * sampled distance and the rest's part, for the report).  deg > 0 (R8
+ * only): a trend R of that degree fitted to the knots is taken out, the
+ * bytes hold f - R from 0 (R's constant takes the offset) and the read
+ * is fma(r, S, R(x)), R by Horner in f32 */
 static int
 tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
-    double goal, struct tabres *o)
+    int deg, double goal, struct tabres *o)
 {
 	static ld tv[TAB_MAXN], act[TAB_MAXN], best[TAB_MAXN];
 	static long kq[TAB_MAXN];
@@ -3134,11 +3239,42 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 	t.lo = r->k[4];
 	t.hi = r->k[5];
 	t.h = (t.hi - t.lo) / (n - 1);
+	t.deg = 0;
+	t.c[0] = t.c[1] = t.c[2] = 0;
 	Aex = (n - 1) / (t.hi - t.lo);
 	Bex = 0.5L - t.lo * Aex;
 	memset(o, 0, sizeof *o);
 	o->n = n;
 	o->fmt = fmt;
+	o->est = INFINITY;
+	if (deg) {
+		ld lo = 0;
+		if (fmt != FXT_R8 || !tab_targets(&t, tv, 0) ||
+		    !tab_fit(&t, tv, deg, t.c))
+			return 0;
+		t.deg = deg;
+		/* the bytes from 0: R's constant takes f - R's least value */
+		if (!tab_targets(&t, tv, 0))
+			return 0;
+		for (j = 0; j < n; j++)
+			lo = j == 0 || tv[j] < lo ? tv[j] : lo;
+		t.c[0] = (float)(t.c[0] + lo);
+		o->deg = deg;
+		for (j = 0; j < 3; j++)
+			o->c[j] = (float)t.c[j];
+		/* Horner in f32: fma(c1, x, c0), or fma(fma(c2, x, c1), x, c0),
+		 * each fma rounding once */
+		{
+			ld rlo, rhi, m1;
+			tab_Rrange(&t, t.lo, t.hi, &rlo, &rhi);
+			o->Rmax = (double)fmaxl(fabsl(rlo), fabsl(rhi));
+			m1 = fmaxl(fabsl(t.c[2] * t.lo + t.c[1]), fabsl(t.c[2] *
+			    t.hi + t.c[1]));
+			o->ER = deg == 1 ? U24 * o->Rmax * (1 + U24) : U24 *
+			    (double)(m1 * fmaxl(fabsl(t.lo), fabsl(t.hi)) + o->Rmax) *
+			    (1 + 2 * U24);
+		}
+	}
 	o->A = (float)Aex;
 	o->B = (float)Bex;
 	xmax = fmaxl(fabsl(t.lo), fabsl(t.hi));
@@ -3146,7 +3282,6 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 	 * the fma's own half ulp */
 	o->cx = (double)(xmax * fabsl(o->A - Aex) + fabsl(o->B - Bex) + U24 *
 	    (xmax * fabsl((ld)o->A) + fabsl((ld)o->B))) + 0x1p-149;
-	o->est = INFINITY;
 	for (sh = 0; sh < 2; sh++) {
 		ld lo = 0, hi = 0, dmax = 0, vmax = 0;
 		double Ec, Ef, Ed, est;
@@ -3159,8 +3294,10 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 			hi = j == 0 || tv[j] > hi ? tv[j] : hi;
 		}
 		if (fmt == FXT_R8) {
-			O = (float)lo;
-			S = (float)(hi - lo);
+			/* with a trend, from 0 (a value below it clamps, and the
+			 * certification sees the clamped line) */
+			O = deg ? 0 : (float)lo;
+			S = (float)(hi - (deg ? 0 : lo));
 			if (!(S > 0))
 				return 0;
 			for (j = 0; j < n; j++) {
@@ -3178,7 +3315,8 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 		}
 		Ec = (double)dmax * (snap + o->cx);
 		Ef = W * 0x1p-23 * (fmt == FXT_R8 ? fabs(S) : (double)vmax);
-		Ed = fmt == FXT_R8 ? U24 * (fabs(O) + fabs(S)) + 0x1p-149 : 0;
+		Ed = fmt == FXT_R8 ? U24 * (fabs(O) + fabs(S) + (double)o->Rmax) +
+		    0x1p-149 : 0;
 		t.v = act;
 		est = tab_est(&t);
 		if (est + Ec + Ef + Ed < bestv) {
@@ -3196,7 +3334,7 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 				o->tab[j] = fmt == FXT_R8 ? (float)kq[j] : (float)act[j];
 		}
 	}
-	o->E = o->Ec + o->Ef + o->Ed + 0x1p-149;
+	o->E = o->Ec + o->Ef + o->Ed + o->ER + 0x1p-149;
 	if (!(o->est + o->E <= goal))
 		return 0;
 	t.v = best;
@@ -3214,34 +3352,59 @@ tab_try(const struct fxg *g, const struct fxrw *r, int n, int fmt,
 	return 1;
 }
 
-/* the smallest table within r->tmax, the cheaper format first: r's
- * table, cost and derivation; else why not, in r->sinkfail */
+/* a table form: its format, the degree of the trend taken out, its
+ * read's price */
+struct tabform {
+	int fmt, deg;
+	double c;
+};
+
+static const char *
+tab_formname(int fmt, int deg)
+{
+	return fmt == FXT_R32F ? "R32F" : deg == 1 ? "R8 less a line" : deg ==
+	    2 ? "R8 less a parabola" : "R8";
+}
+
+/* the smallest table within r->tmax in the cheapest form that has one:
+ * R8, R8 of f less a trend of degree 1 or 2 (Horner's fmas more), R32F,
+ * by the model's prices; r's table, cost and derivation; else why not,
+ * in r->sinkfail */
 static int
 tab_pick(const struct fxg *g, struct fxrw *r)
 {
 	static struct tabres o, near;
 	const struct model *m = model_active();
-	double c[2], cf = r->gain + r->cost;
-	int f, k, fmt[2] = {FXT_R8, FXT_R32F}, have = 0;
+	double c8, cf = r->gain + r->cost;
+	struct tabform fm[4], z;
+	int f, k, i, nf = 0, have = 0;
 
-	c[0] = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] +
-	    2 * fx_price(FX_FMA) : INFINITY;
-	c[1] = model_lists(m, C_TEX_SAMPLE_F32) ? m->c[C_TEX_SAMPLE_F32] +
+	c8 = model_lists(m, C_TEX_SAMPLE) ? m->c[C_TEX_SAMPLE] + 2 *
 	    fx_price(FX_FMA) : INFINITY;
-	if (c[1] < c[0]) {
-		double z = c[0];
-		c[0] = c[1];
-		c[1] = z;
-		fmt[0] = FXT_R32F;
-		fmt[1] = FXT_R8;
+	for (k = 0; k < 3; k++) {
+		fm[nf].fmt = FXT_R8;
+		fm[nf].deg = k;
+		fm[nf++].c = c8 + k * fx_price(FX_FMA);
 	}
+	fm[nf].fmt = FXT_R32F;
+	fm[nf].deg = 0;
+	fm[nf++].c = model_lists(m, C_TEX_SAMPLE_F32) ?
+	    m->c[C_TEX_SAMPLE_F32] + fx_price(FX_FMA) : INFINITY;
+	/* by price, the order above where they tie */
+	for (f = 1; f < nf; f++)
+		for (i = f; i > 0 && fm[i].c < fm[i - 1].c; i--) {
+			z = fm[i];
+			fm[i] = fm[i - 1];
+			fm[i - 1] = z;
+		}
 	near.est = INFINITY;
 	tab_left = TAB_ALL;
-	for (f = 0; f < 2; f++) {
-		if (!(c[f] < cf))
+	for (f = 0; f < nf; f++) {
+		if (!(fm[f].c < cf))
 			continue;
 		for (k = 1; k <= TAB_MAXK; k++) {
-			if (tab_try(g, r, (1 << k) + 1, fmt[f], r->tmax, &o))
+			if (tab_try(g, r, (1 << k) + 1, fm[f].fmt, fm[f].deg, r->tmax,
+			    &o))
 				goto found;
 			if (o.est + o.E < near.est + near.E)
 				near = o;
@@ -3252,7 +3415,7 @@ tab_pick(const struct fxg *g, struct fxrw *r)
 		snprintf(r->sinkfail, sizeof r->sinkfail, "no table of up to %d "
 		    "texels is within the %.3g its value may move: %d texels %s "
 		    "come to about %.3g (sampled)%s", TAB_MAXN, r->tmax, near.n,
-		    near.fmt == FXT_R8 ? "R8" : "R32F", near.est + near.E,
+		    tab_formname(near.fmt, near.deg), near.est + near.E,
 		    near.uncert ? ", not proved within it on every float before "
 		    "the pieces ran out" : "");
 	else
@@ -3270,23 +3433,40 @@ found:
 	r->k[1] = o.B;
 	r->k[2] = o.S;
 	r->k[3] = o.O;
-	r->cost = c[f];
-	r->gain = cf - c[f];
+	r->tdeg = o.deg;
+	r->k[6] = o.c[0];
+	r->k[7] = o.c[1];
+	r->k[8] = o.c[2];
+	r->nk = 9;
+	r->cost = fm[f].c;
+	r->gain = cf - fm[f].c;
 	r->abserr = o.E;
+	if (o.deg) {
+		sb_printf(&r->proof, "f less the trend R(x) = %.9g + %.9g x",
+		    (double)o.c[0], (double)o.c[1]);
+		if (o.deg == 2)
+			sb_printf(&r->proof, " + %.9g x^2", (double)o.c[2]);
+		sb_puts(&r->proof, " (f32 coefficients, fitted by least squares to "
+		    "f at the knots, its constant taking f - R's least value "
+		    "there): ");
+	}
 	sb_printf(&r->proof, "a table of %d texels at x_j = %.9g + j h, h = %.9g, "
 	    "each the value there%s, %s, read with linear filtering at texel "
 	    "coordinate fma(x, %.9g, %.9g) (texel j's centre at j + 1/2):\n",
 	    o.n, (double)(r->k[4] + 0.0f), (double)(((ld)r->k[5] - r->k[4]) /
 	    (o.n - 1)), o.shift ?
 	    " moved by a quarter of the two neighbouring segments' errors at "
-	    "their midpoints" : "", o.fmt == FXT_R8 ? "stored as bytes k for "
-	    "the R8 read k/255 that fma(r, S, O) turns back" : "stored as f32",
-	    (double)o.A, (double)o.B);
+	    "their midpoints" : "", o.fmt != FXT_R8 ? "stored as f32" : o.deg ?
+	    "stored as bytes k for the R8 read k/255 that fma(r, S, R(x)) turns "
+	    "back, R by Horner in f32" : "stored as bytes k for the R8 read "
+	    "k/255 that fma(r, S, O) turns back", (double)o.A, (double)o.B);
 	sb_printf(&r->proof, "  the line between texels against the original's "
-	    "f32 value, on every float of the range: within %.3g (%d pieces, "
+	    "f32 value%s, on every float of the range: within %.3g (%d pieces, "
 	    "each bounded by the interval of the original's own operations on "
-	    "it against the line's values at its ends and knots; sampled at 9 "
-	    "points a segment, %.3g)\n", o.Ei, o.pieces, o.est);
+	    "it%s against the line's values at its ends and knots; sampled at 9 "
+	    "points a segment, %.3g)\n", o.deg ? " less R" : "", o.Ei, o.pieces,
+	    o.deg ? ", less R's interval there (its ends, and its vertex inside)"
+	    : "", o.est);
 	sb_printf(&r->proof, "  the coordinate: f32 moves it by at most %.3g "
 	    "texel and the unit snaps a weight by less than 2^-%d, times the "
 	    "largest step between neighbouring texels (%.3g): %.3g\n", o.cx,
@@ -3294,7 +3474,11 @@ found:
 	sb_printf(&r->proof, "  the filter within %g ulp of the exact weighted "
 	    "sum (the model's tex_within): %.3g%s", m->par[MP_TEX_WITHIN], o.Ef,
 	    o.fmt == FXT_R8 ? "" : "\n");
-	if (o.fmt == FXT_R8)
+	if (o.fmt == FXT_R8 && o.deg)
+		sb_printf(&r->proof, "; R by Horner in f32, each fma rounding once "
+		    "(|R| <= %.3g on the range): %.3g; fma(r, %.9g, R(x)) rounds "
+		    "once: %.3g\n", o.Rmax, o.ER, (double)o.S, o.Ed);
+	else if (o.fmt == FXT_R8)
 		sb_printf(&r->proof, "; fma(r, %.9g, %.9g) rounds once: %.3g\n",
 		    (double)o.S, (double)o.O, o.Ed);
 	sb_printf(&r->proof, "  in all %.3g, against the %.3g its value may "
