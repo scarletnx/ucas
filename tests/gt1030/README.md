@@ -125,7 +125,15 @@ named in the report with what it needs.
 cd ~/ucas/tests/gt1030
 ./probe.py                     # every probe; --issue 184,186 or --only mul16_mad for some, --list for all
 ./probe.py --quick             # a smoke run on a small grid: it goes through, the numbers mean nothing
+./test_probe.py                # the checks that need no GPU (about 30 s)
 ucas ~/ucas/work/gt1030/probe-.../model.ucas    # then `use gt1030_probed`
 ```
 
-It needs glslangValidator, spirv-val, snx-shaderperf (`--sp`, as run.py) and vulkaninfo for #117.
+It needs glslangValidator, spirv-val, snx-shaderperf (`--sp`, as run.py) and vulkaninfo for #117. A draw or
+a dispatch timed whole is put in fadd steps by a fadd timed in a run of its own just before it, and every run's
+SM clock is in the report.
+
+`test_probe.py` checks what needs no GPU: no step is a subgroup operation with a uniform result alone (it
+folds), clamps keep their bounds ordered, every subgroup operation reads a chain value, the walked tables keep
+a warp's lanes on entries of their own, the filter analysis reads a weight grid and its rounding from synthetic
+answers, units convert by their own fadd, and every step compiles and passes spirv-val.
