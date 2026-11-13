@@ -1,0 +1,115 @@
+> model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+> mm1(a: u32 in 0..1000002, b: u32 in 0..1000002) = u32((u64(a) * u64(b)) % 1000003)
+> mm2(a: u64 in 0..4194300, b: u64 in 0..4194300) = (a * b) % 4194301
+> mm4(a: u64 in 0..1000002) = (a * 999331) % 1000003
+> use w64
+cost model: w64
+> find mm1 1
+find mm1: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from w64
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 24  u32(u64(asint((t4 >= 1000003 ? t4 - 1000003 : t4) + 12582912) - 1262485504)) where t1 = asfloat(a | 0x4b000000) - 8388608, t2 = asfloat(b | 0x4b000000) - 8388608, t3 = fma(floor(9.99997042e-07(t1*t2)), -1000003, t1*t2) + fma(t1, t2, -t1*t2), t4 = t3 < 0 ? t3 + 1000003 : t3 u64(a)*u64(b) % 1000003 on the f32 pipe: u64(a)*u64(b) as two floats (2Prod), the quotient by 9.99997042e-07 (1/1000003) floored, the remainder put in [0, 1000003) (derived; checked on a sample)
+      holds where u64(a) in [0, 1000002] and u64(b) in [0, 1000002], below 2^24; their product at most 1000004000004, and 1000004000004/1000003 times the three roundings is 0.161 < 1
+      u64(a) and u64(b) are integers below 2^24: their f32 are exact
+      p = f32(u64(a))*f32(u64(b)) rounded and e = fma(f32(u64(a)), f32(u64(b)), -p) make u64(a)*u64(b) = p + e exactly (2Prod: the error of a rounded product is an f32, and the fma rounds it once, to itself); |e| <= 32768, half an ulp at 1000004000004
+      9.99997042e-07 = 0x1.0c6f46p-20 is 1/1000003 within 4.16e-08 relative; t = p * 9.99997042e-07 rounded: p, the constant and t each round by at most 2^-24, so |t - u64(a)*u64(b)/1000003| <= 1000004000004/1000003 ((1 + 2^-24)^2 (1 + 4.16e-08) - 1) = 0.161 < 1
+      q = floor(t) is then floor(u64(a)*u64(b)/1000003) - 1, + 0 or + 1: u64(a)*u64(b) - q*1000003 is in (-1000003, 2000006)
+      fma(q, -1000003, p) = p - q*1000003 rounded once: an integer of magnitude below 2*1000003 + 32768 < 2^24, an f32, so it does not round; adding e gives u64(a)*u64(b) - q*1000003, an integer in (-1000003, 2000006), exactly
+      adding 1000003 where it is negative and subtracting it where it is 1000003 or more (exact: integers below 2^24) leaves the one value in [0, 1000003): u64(a)*u64(b) % 1000003
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+      Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> find mm2 1
+find mm2: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 24  u64(asint((t4 >= 4194301 ? t4 - 4194301 : t4) + 12582912) - 1262485504) where t1 = asfloat(u32(a) | 0x4b000000) - 8388608, t2 = asfloat(u32(b) | 0x4b000000) - 8388608, t3 = fma(floor(2.3841875e-07(t1*t2)), -4194301, t1*t2) + fma(t1, t2, -t1*t2), t4 = t3 < 0 ? t3 + 4194301 : t3 a*b % 4194301 on the f32 pipe: a*b as two floats (2Prod), the quotient by 2.3841875e-07 (1/4194301) floored, the remainder put in [0, 4194301) (derived; checked on a sample)
+      holds where a in [0, 4194300] and b in [0, 4194300], below 2^24; their product at most 17592152490000, and 17592152490000/4194301 times the three roundings is 0.5 < 1
+      a and b are integers below 2^24: their f32 are exact
+      p = f32(a)*f32(b) rounded and e = fma(f32(a), f32(b), -p) make a*b = p + e exactly (2Prod: the error of a rounded product is an f32, and the fma rounds it once, to itself); |e| <= 524288, half an ulp at 17592152490000
+      2.3841875e-07 = 0x1.00000cp-22 is 1/4194301 within 5.12e-13 relative; t = p * 2.3841875e-07 rounded: p, the constant and t each round by at most 2^-24, so |t - a*b/4194301| <= 17592152490000/4194301 ((1 + 2^-24)^2 (1 + 5.12e-13) - 1) = 0.5 < 1
+      q = floor(t) is then floor(a*b/4194301) - 1, + 0 or + 1: a*b - q*4194301 is in (-4194301, 8388602)
+      fma(q, -4194301, p) = p - q*4194301 rounded once: an integer of magnitude below 2*4194301 + 524288 < 2^24, an f32, so it does not round; adding e gives a*b - q*4194301, an integer in (-4194301, 8388602), exactly
+      adding 4194301 where it is negative and subtracting it where it is 4194301 or more (exact: integers below 2^24) leaves the one value in [0, 4194301): a*b % 4194301
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+      Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> find mm4 1
+find mm4: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 22  u64(asint((t3 >= 1000003 ? t3 - 1000003 : t3) + 12582912) - 1262485504) where t1 = asfloat(u32(a) | 0x4b000000) - 8388608, t2 = fma(floor(9.99997042e-07*(999331*t1)), -1000003, 999331*t1) + fma(999331, t1, -999331*t1), t3 = t2 < 0 ? t2 + 1000003 : t2 999331a % 1000003 on the f32 pipe: 999331*a as two floats (2Prod), the quotient by 9.99997042e-07 (1/1000003) floored, the remainder put in [0, 1000003) (derived; checked on a sample)
+      holds where 999331 in [999331, 999331] and a in [0, 1000002], below 2^24; their product at most 999332998662, and 999332998662/1000003 times the three roundings is 0.161 < 1
+      999331 and a are integers below 2^24: their f32 are exact
+      p = f32(999331)*f32(a) rounded and e = fma(f32(999331), f32(a), -p) make 999331*a = p + e exactly (2Prod: the error of a rounded product is an f32, and the fma rounds it once, to itself); |e| <= 32768, half an ulp at 999332998662
+      9.99997042e-07 = 0x1.0c6f46p-20 is 1/1000003 within 4.16e-08 relative; t = p * 9.99997042e-07 rounded: p, the constant and t each round by at most 2^-24, so |t - 999331*a/1000003| <= 999332998662/1000003 ((1 + 2^-24)^2 (1 + 4.16e-08) - 1) = 0.161 < 1
+      q = floor(t) is then floor(999331*a/1000003) - 1, + 0 or + 1: 999331*a - q*1000003 is in (-1000003, 2000006)
+      fma(q, -1000003, p) = p - q*1000003 rounded once: an integer of magnitude below 2*1000003 + 32768 < 2^24, an f32, so it does not round; adding e gives 999331*a - q*1000003, an integer in (-1000003, 2000006), exactly
+      adding 1000003 where it is negative and subtracting it where it is 1000003 or more (exact: integers below 2^24) leaves the one value in [0, 1000003): 999331*a % 1000003
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+      Vulkan rounds an fma once only where it is NoContraction (`precise` in GLSL): written into a shader, the two fmas go under it
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> mm3(a: u32 in 0..65520, b: u32 in 0..65520) = (a * b) % 65521
+> find mm3 1
+find mm3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from w64
+  not applied (it would cost 12): the remainder a*b % 65521 as a multiply and a shift in u32
+      needs a*b <= 65776 (it is in [0, 4292870400]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^28/65521) = 4097, so M*65521 = 2^28 + 4081
+      x*M/2^28 = x/65521 + x*4081/(65521*2^28): the excess is below 1/65521 while x*4081 < 2^28, and x/65521 is at least 1/65521 below the next integer, so floor(x*M/2^28) = floor(x/65521)
+      that and a product below 2^32 need x <= 65776 (the most any shift allows, with 2^28); here x reaches 4292870400
+  derived, but not cheaper under w64 (cost 24, as written 17): a*b % 65521 on the f32 pipe: a*b as two floats (2Prod), the quotient by 1.52622815e-05 (1/65521) floored, the remainder put in [0, 65521)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
+> find mm1 1
+find mm1: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  derived, but not cheaper under gt1030 (cost 24, as written 17): u64(a)*u64(b) % 1000003 on the f32 pipe: u64(a)*u64(b) as two floats (2Prod), the quotient by 9.99997042e-07 (1/1000003) floored, the remainder put in [0, 1000003)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use w64
+cost model: w64
+> no1(a: u64 in 0..4194304, b: u64 in 0..4194304) = (a * b) % 4194305
+> no2(a: u64 in 0..16000000, b: u64 in 0..16000000) = (a * b) % 1000003
+> no3(a: u64 in 0..4000, b: u64 in 0..4000) = (a * b) % 1009
+> find no1 1
+find no1: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> find no2 1
+find no2: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]
+> find no3 1
+find no3: 1024 points (sampled; matches verified on the whole domain), computing in u64, costs from w64
+  not applied (it would cost 25): the remainder a*b % 1009 as a multiply and a shift in u32
+      needs a*b <= 64575 (it is in [0, 16000000]: interval arithmetic over the parameters' ranges)
+      M = ceil(2^26/1009) = 66511, so M*1009 = 2^26 + 735
+      x*M/2^26 = x/1009 + x*735/(1009*2^26): the excess is below 1/1009 while x*735 < 2^26, and x/1009 is at least 1/1009 below the next integer, so floor(x*M/2^26) = floor(x/1009)
+      that and a product below 2^32 need x <= 64575 (the most any shift allows, with 2^26); here x reaches 16000000
+  derived, but not cheaper under w64 (cost 40, as written 29): a*b % 1009 as (a*b) - 1009 q on the f32 pipe, q the conversion of f32((a*b)) * 0.000991080306 (1/1009 rounded up to an f32)
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 26  u64(asint(fma(floor(0.000991080306*t1), -1009, t1) + 12582912) - 1262485504) where t1 = f32(a*b) a*b % 1009 as fma(-floor(f32((a*b)) * 0.000991080306), 1009, f32((a*b))) on the f32 pipe, read back by the bits of 1.5*2^23 (derived; checked on a sample)
+      holds where (a*b) in [0, 16000000], inside [0, 2^24), and 16000000 (0.000991080306 - 1/1009) + ulp/2 < 1/1009: 0.000449 + 0.000488 < 0.000991
+      (a*b) < 2^24 converts to f32 exactly
+      0.000991080306 = 0x1.03ce46p-10 is 1/1009 rounded up to an f32, above it by 2.8e-11
+      q0 = floor((a*b)/1009) is an integer below 2^24, an f32, and f32((a*b)) * 0.000991080306 >= (a*b)/1009 >= q0: the product rounded to nearest is not below q0
+      (a*b)/1009 <= q0 + 1008/1009, so the exact product is at most q0 + 1008/1009 + 0.000449 (16000000 times the excess); it is below 16384, where rounding adds at most 0.000488: it stays below q0 + 1, as 0.000449 + 0.000488 < 1/1009
+      the conversion to u64 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = (a*b) / 1009, and so is its floor
+      the fma rounds f32((a*b)) - 1009 q0 = (a*b) % 1009 once: an integer in [0, 1009), an f32, so it does not round
+      that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
+      its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  cost 24  u64(f32(a)*f32(b)) % 1009                the integer arithmetic a*b on f32 (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 16000000], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      the result converts back exactly: it is an integer inside u64
+  cost 22  u64((asfloat(u32(a) | 0x4b000000) - 8388608)*(asfloat(u32(b) | 0x4b000000) - 8388608)) % 1009 the integer arithmetic a*b on f32, converted by the bits (derived; checked on a sample)
+      holds where every value in it is an integer in [0, 16000000], inside (-2^24, 2^24) (interval arithmetic over the parameters' ranges)
+      f32 holds every integer below 2^24 in magnitude: each operand converts exactly, and each +, -, * has an exact result that is such an integer, so no operation rounds (a*b + c contracted into one fma rounds a*b + c once: the same integer)
+      2 operands converted by the bits: i | 0x4B000000 (0 <= i < 2^23) and i + 0x4B400000 (-2^22 <= i < 2^22) are the bits of 2^23 + i and 1.5*2^23 + i, and subtracting that constant is exact
+      the result converts back exactly: it is an integer inside u64
+  nothing new up to cost 4 (term bank full)
+  [searched every term up to cost 4: 16384 distinct columns, bank full; 'more' continues]

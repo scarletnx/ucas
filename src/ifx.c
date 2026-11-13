@@ -44,7 +44,11 @@
  *     distributivity modulo 2^w and holds always (and for | or xor
  *     where the ranges keep the two fields apart); in f32 it holds
  *     when the operands are integers and every value on both sides
- *     stays below 2^24, so that nothing rounds.
+ *     stays below 2^24, so that nothing rounds;
+ *   - (a * b) % m for a, b in [0, 2^24), the product past 2^24, m a
+ *     constant below 2^22: the product as p + e by 2Prod, q =
+ *     floor(p * fl(1/m)) within one of the quotient, fma(q, -m, p) + e
+ *     exact, then one add and one subtract of m (rw_modmul).
  */
 #include "calc.h"
 #include "irw.h"
@@ -864,6 +868,132 @@ rw_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 	free(pf.p);
 }
 
+/* a widening integer cast's operand, where a's range [0, 2^24) says the
+ * value goes through unchanged */
+static nid
+unwiden(nid a)
+{
+	while (N.op[a] == O_CAST && TY_ISINT(N.ty[a]) && TY_SIZED(N.ty[a]) &&
+	    TY_ISINT(N.ty[N.a[a]]) && TY_SIZED(N.ty[N.a[a]]) &&
+	    N.ty[N.a[a]] != TY_BOOL && TYW(N.ty[N.a[a]]) <= TYW(N.ty[a]))
+		a = N.a[a];
+	return a;
+}
+
+/* f32(a) of an integer a in [lo, hi] inside [0, 2^24): exact */
+static nid
+f32_of(nid a, int64_t lo, int64_t hi)
+{
+	nid f;
+
+	if (is_const(a))
+		return kf((double)N.ki[a]);
+	a = unwiden(a);
+	f = magic_i2f(a, lo, hi);
+	return f ? f : mk_cast(TY_F32, a);
+}
+
+/*
+ * (a * b) % m for integers a, b in [0, 2^24) and a constant m below 2^22
+ * (Barrett on the f32 pipe, #180): the product as two floats p + e
+ * (2Prod), q = floor(p * fl(1/m)) within one of floor(a b / m), and
+ * a b - q m = fma(-q, m, p) + e, exact, put back in [0, m) by one add
+ * and one subtract of m.  Where a b passes 2^24 nothing else on the f32
+ * pipe holds it; the integer path is a wide multiply and a remainder.
+ */
+static void
+rw_modmul(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	nid x = N.a[n], d = N.b[n], a, b, fa, fb, p, e, t, q, r, to;
+	ty_t ty = N.ty[n];
+	int64_t m, alo, ahi, blo, bhi;
+	double P, emax, g, E, ulp = ldexp(1.0, -24);
+	float cf;
+	int ex;
+	char what[200], cond[400], cs[40];
+	struct sbuf pf = {0};
+	struct nm AS, BS;
+	const char *as, *bs;
+	struct irw *rw;
+
+	if (N.op[n] != O_MOD || !TY_ISINT(ty) || ty == TY_BOOL ||
+	    TYK(ty) == K_LIT || !is_const(d) || N.op[x] != O_MUL ||
+	    N.ty[x] != ty)
+		return;
+	m = N.ki[d];
+	if (m < 3 || (m & (m - 1)) == 0 || m >= (int64_t)P22)
+		return;
+	a = N.a[x];
+	b = N.b[x];
+	if (!irange(c, a, &alo, &ahi) || !irange(c, b, &blo, &bhi) || alo < 0 ||
+	    blo < 0 || ahi >= (int64_t)P24 || bhi >= (int64_t)P24)
+		return;
+	P = (double)ahi * (double)bhi;	/* exact: below 2^48 */
+	/* below 2^24 the product is one f32 (rw_divk); the type must hold
+	 * it, or the multiply wraps first */
+	if (P < P24 || !fits_ty(ty, 0, (int64_t)P))
+		return;
+	cf = (float)(1.0 / (double)m);
+	g = fabs((double)cf * (double)m - 1.0);	/* exact in double */
+	E = P / (double)m * ((1.0 + ulp) * (1.0 + ulp) * (1.0 + g) - 1.0);
+	(void)frexp(P, &ex);
+	emax = ldexp(1.0, ex - 1 - 24);	/* half an ulp at P */
+	if (E >= 1.0 || 2.0 * (double)m + emax >= P24)
+		return;
+	fa = f32_of(a, alo, ahi);
+	fb = f32_of(b, blo, bhi);
+	p = mk_bin(O_MUL, fa, fb);
+	e = mk_fma(fa, fb, mk_un(O_NEG, p));
+	t = mk_bin(O_MUL, p, mk_cast(TY_F32, mk_const_r(cf)));
+	q = mk_un(O_FLOOR, t);
+	r = mk_bin(O_ADD, mk_fma(q, kf((double)-m), p), e);
+	r = mk_sel(mk_bin(O_LT, r, kf(0)), mk_bin(O_ADD, r, kf((double)m)), r);
+	r = mk_sel(mk_bin(O_GE, r, kf((double)m)), mk_bin(O_SUB, r,
+	    kf((double)m)), r);
+	to = magic_f2i(ty, r);
+	as = nm(&AS, a);
+	bs = nm(&BS, b);
+	snprintf(cs, sizeof cs, "%.9g", (double)cf);
+	snprintf(what, sizeof what, "%s on the f32 pipe: %s*%s as two floats "
+	    "(2Prod), the quotient by %s (1/%lld) floored, the remainder put "
+	    "in [0, %lld)", sstr(n), as, bs, cs, (long long)m, (long long)m);
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld] and %s in [%lld, %lld], "
+	    "below 2^24; their product at most %.17g, and %.17g/%lld times the "
+	    "three roundings is %.3g < 1", as, (long long)alo, (long long)ahi,
+	    bs, (long long)blo, (long long)bhi, P, P, (long long)m, E);
+	sb_printf(&pf, "%s and %s are integers below 2^24: their f32 are exact"
+	    "\np = f32(%s)*f32(%s) rounded and e = fma(f32(%s), f32(%s), -p) "
+	    "make %s*%s = p + e exactly (2Prod: the error of a rounded product "
+	    "is an f32, and the fma rounds it once, to itself); |e| <= %.17g, "
+	    "half an ulp at %.17g", as, bs, as, bs, as, bs, as, bs, emax, P);
+	sb_printf(&pf, "\n%s = %a is 1/%lld within %.3g relative; t = p * %s "
+	    "rounded: p, the constant and t each round by at most 2^-24, so |t "
+	    "- %s*%s/%lld| <= %.17g/%lld ((1 + 2^-24)^2 (1 + %.3g) - 1) = %.3g "
+	    "< 1", cs, (double)cf, (long long)m, g, cs, as, bs, (long long)m, P,
+	    (long long)m, g, E);
+	sb_printf(&pf, "\nq = floor(t) is then floor(%s*%s/%lld) - 1, + 0 or + "
+	    "1: %s*%s - q*%lld is in (-%lld, %lld)", as, bs, (long long)m, as,
+	    bs, (long long)m, (long long)m, 2 * (long long)m);
+	sb_printf(&pf, "\nfma(q, -%lld, p) = p - q*%lld rounded once: an integer "
+	    "of magnitude below 2*%lld + %.17g < 2^24, an f32, so it does not "
+	    "round; adding e gives %s*%s - q*%lld, an integer in (-%lld, %lld), "
+	    "exactly", (long long)m, (long long)m, (long long)m, emax, as, bs,
+	    (long long)m, (long long)m, 2 * (long long)m);
+	sb_printf(&pf, "\nadding %lld where it is negative and subtracting it "
+	    "where it is %lld or more (exact: integers below 2^24) leaves the "
+	    "one value in [0, %lld): %s*%s %% %lld\n", (long long)m,
+	    (long long)m, (long long)m, as, bs, (long long)m);
+	f2i_proof(&pf, r, "that remainder");
+	sb_puts(&pf, "\nVulkan rounds an fma once only where it is "
+	    "NoContraction (`precise` in GLSL): written into a shader, the two "
+	    "fmas go under it");
+	rw = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	if (rw)
+		rw->nosat = rw->derived = 1;
+	free(pf.p);
+}
+
 /* x / k and x % k by a constant on the f32 pipe (irw.c calls it after its
  * own candidates for the node, so theirs keep their places) */
 void
@@ -871,6 +1001,7 @@ ifx_divk(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
     int *cap)
 {
 	rw_divk(c, root, n, out, cnt, cap);
+	rw_modmul(c, root, n, out, cnt, cap);
 }
 
 /* n is f32(1 << k): k, and its range inside the exponents that hold */
