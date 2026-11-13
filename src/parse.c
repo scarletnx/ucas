@@ -940,7 +940,9 @@ ident(struct P *p)
 			fail("%s takes %s", opinfo[kind].name, kind ==
 			    O_TEX_BILINEAR ? "(table, width, x, y)" : kind ==
 			    O_FETCH_BORDER ? "(table, index, border value)" :
-			    IS_FETCH(kind) ? "(table, index)" : "(table, x)");
+			    kind == O_FETCH_LAYER ? "(table, layer "
+			    "coordinate)" : IS_FETCH(kind) ? "(table, index)" :
+			    "(table, x)");
 		if (kind == O_TEX_BILINEAR) {
 			if (!is_const(args[1]) || !TY_ISINT(N.ty[args[1]]) ||
 			    N.ki[args[1]] < 1 || N.ki[args[1]] > 0xffffff)

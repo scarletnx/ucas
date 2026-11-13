@@ -1,0 +1,39 @@
+# An array texture's layer as a read through the unit (src/texalu.c,
+# seed_layer): a clamp to 0..L-1 of roundeven(z) or floor(z + 0.5), or a
+# table read with that index, is fetch_layer of L layers wherever z takes
+# no value at which the specification's two readings of RNE part
+model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+model layert : texel { tex_layer: 7 }
+# the operation: roundTiesToEven, then the clamp; a NaN selects no layer
+show fetch_layer([10, 20, 30, 40], 0.5)
+show fetch_layer([10, 20, 30, 40], 1.5)
+show fetch_layer([10, 20, 30, 40], 2.5000002)
+show fetch_layer([10, 20, 30, 40], -7.0)
+show fetch_layer([10, 20, 30, 40], 1e30)
+# a whole-valued coordinate takes no tie: a table read and the identity
+l1(i: u16, j: u16) = [10, 20, 30, 40, 50, 60, 70, 80][min(max(i32(roundeven(f32(i) - f32(j))), 0), 7)]
+texalu l1 under layert
+l2(i: i16) = min(max(floor(f32(i) * 2.0 + 0.5), 0.0), 15.0)
+texalu l2 under layert
+# a range with a tie: the unit may take either layer there
+l3(z: f32 in 0.0..7.0) = min(max(roundeven(z), 0.0), 7.0)
+texalu l3 under layert
+# a range without one (the ties are at 0.5 and 2.5)
+l4(z: f32 in 2.6..3.4) = [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 0), 3)]
+texalu l4 under layert
+# floor(z + 0.5) made in f32 is 1 at z = 0.49999997, where both readings
+# are 0
+l5(z: f32 in 0.25..0.49999998) = min(max(floor(z + 0.5), 0.0), 3.0)
+texalu l5 under layert
+l5b(z: f32 in 0.25..0.4999999) = [3.0, 5.0, 7.0, 9.0][min(max(i32(floor(z + 0.5)), 0), 3)]
+texalu l5b under layert
+# a clamp that does not start at layer 0 is not one
+l7(z: f32 in 2.6..3.4) = [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 1), 3)]
+texalu l7 under layert
+# a conversion that can wrap before the clamp
+l6(i: u32) = [10, 20, 30, 40][min(max(i32(roundeven(f32(i))), 0), 3)]
+texalu l6 under layert
+# a model with no price for the read cannot do it
+texalu l1 under texel
+# the operation's arguments
+f(i: u8) = fetch_layer([1, 2], i)

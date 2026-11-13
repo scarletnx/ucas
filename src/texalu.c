@@ -58,6 +58,23 @@ tex_wrap(int op, int64_t i, int64_t n)
 	}
 }
 
+int64_t
+tex_layer(double z, int64_t n)
+{
+	double f, d, r;
+
+	if (isnan(z))
+		return -1;
+	if (!(z >= 0))
+		return 0;
+	if (!(z < (double)n))
+		return n - 1;
+	f = floor(z);
+	d = z - f;		/* exact */
+	r = d > 0.5 ? f + 1 : d < 0.5 ? f : fmod(f, 2) == 0 ? f : f + 1;
+	return r > (double)(n - 1) ? n - 1 : (int64_t)r;
+}
+
 double
 tex_weight(double x, int bits, int64_t *i0)
 {
@@ -235,6 +252,8 @@ tex_class(nid n)
 
 	if (IS_FETCH(N.op[n]))
 		return N.ki[n] == TEX_SRGB ? C_TEX_SRGB : C_TEX_NEAREST;
+	if (N.op[n] == O_FETCH_LAYER)
+		return C_TEX_LAYER;
 	for (j = 0; j < N.b[tab]; j++) {
 		nid e = N.lst[N.a[tab] + j];
 		if (!is_const(e) || !unorm8(N.kr[e], NULL))
@@ -257,7 +276,7 @@ tex_cost(const struct model *m, nid n, int *cls)
 	 * times 1/n, a conversion and a multiply-add */
 	if (k == C_TEX_NEAREST)
 		return m->c[k] + m->c[C_CONV] + m->c[C_FMUL];
-	/* texelFetch: the byte is the coordinate */
+	/* texelFetch: the byte is the coordinate; a layer: the float is */
 	return m->c[k];
 }
 
@@ -281,7 +300,7 @@ int
 tex_lookup(const char *s, size_t n, int *bits)
 {
 	static const int fetch[] = {O_FETCH_REPEAT, O_FETCH_MIRROR,
-	    O_FETCH_CLAMP, O_FETCH_MCLAMP, O_FETCH_BORDER};
+	    O_FETCH_CLAMP, O_FETCH_MCLAMP, O_FETCH_BORDER, O_FETCH_LAYER};
 	size_t i, l;
 	int op = 0;
 
@@ -314,7 +333,7 @@ tex_lookup(const char *s, size_t n, int *bits)
 void
 tex_print_name(struct sbuf *b, nid n)
 {
-	if (IS_FETCH(N.op[n]))
+	if (IS_FETCH(N.op[n]) || N.op[n] == O_FETCH_LAYER)
 		sb_puts(b, N.ki[n] == TEX_SRGB ? "fetch_srgb" :
 		    opinfo[N.op[n]].name);
 	else
@@ -384,6 +403,7 @@ static struct {
 	int nolevels;		/* float tables as f32 only (seed_sum's retry) */
 	struct sbuf far;	/* an index identity out of f32's reach */
 	struct sbuf nosum;	/* neighbours that are not one read, and why */
+	struct sbuf nolayer;	/* a layer selection not taken, and why */
 } X;
 
 static double
@@ -1464,6 +1484,404 @@ seed_fetch(nid body, nid n)
 	    " (samplerMirrorClampToEdge)" : "", bestfar ? "j" : "i",
 	    (long long)cnt, bestfar ? ", j = " : "", bestfar ? node_str(besti) :
 	    "");
+}
+
+/* ---- array layers ---- */
+
+/*
+ * The layer a read of an array texture selects (#90): clamp(RNE(z), 0,
+ * L - 1), the specification's RNE either roundTiesToEven (preferred) or
+ * floor(z + 1/2) (allowed).  A clamp to 0..L-1 of roundeven(z) or of
+ * floor(z + 0.5), as a float or through a conversion to an integer, is
+ * fetch_layer of L layers that hold 0..L-1 (the identity), and a table
+ * read with that index is fetch_layer of the table's first L entries.
+ * The two readings differ at z = k + 1/2 for an even k in 0..L-2 (one
+ * takes k, the other k + 1; past the ends both clamp), and floor(z + 0.5)
+ * made in f32 differs from both at z = 0.5 - 2^-25, where the add rounds
+ * up to 1: a rewrite holds whichever reading the unit has only where z
+ * takes none of those values.
+ */
+
+/* r rounds z as a layer is selected: 1 roundeven(z), 2 floor(z + 0.5) in
+ * f32; 0 not */
+static int
+layer_round(nid r, nid *z)
+{
+	nid s;
+
+	if (N.ty[r] != TY_F32)
+		return 0;
+	if (N.op[r] == O_ROUNDEVEN) {
+		*z = N.a[r];
+		return 1;
+	}
+	if (N.op[r] != O_FLOOR || N.op[s = N.a[r]] != O_ADD)
+		return 0;
+	if (is_const(N.b[s]) && cval(N.b[s]) == 0.5) {
+		*z = N.a[s];
+		return 2;
+	}
+	if (is_const(N.a[s]) && cval(N.a[s]) == 0.5) {
+		*z = N.b[s];
+		return 2;
+	}
+	return 0;
+}
+
+/* e is min(max(x, lo), hi) or max(min(x, hi), lo), constant ends */
+static int
+clamp_of(nid e, nid *x, double *lo, double *hi)
+{
+	int op = N.op[e], inner = op == O_MIN ? O_MAX : O_MIN;
+	nid in, k1, k2;
+
+	if (op != O_MIN && op != O_MAX)
+		return 0;
+	if (is_const(N.b[e])) {
+		in = N.a[e];
+		k1 = N.b[e];
+	} else if (is_const(N.a[e])) {
+		in = N.b[e];
+		k1 = N.a[e];
+	} else
+		return 0;
+	if (N.op[in] != inner)
+		return 0;
+	if (is_const(N.b[in])) {
+		*x = N.a[in];
+		k2 = N.b[in];
+	} else if (is_const(N.a[in])) {
+		*x = N.b[in];
+		k2 = N.a[in];
+	} else
+		return 0;
+	*lo = cval(op == O_MIN ? k2 : k1);
+	*hi = cval(op == O_MIN ? k1 : k2);
+	return *lo <= *hi;
+}
+
+/*
+ * e selects a layer of z among *L: a clamp to 0..L-1 of roundeven(z) or
+ * floor(z + 0.5), in float, converted to an integer after it, or of the
+ * rounding converted first (*conv: that conversion, which can wrap).  The
+ * rounding (1, 2); 0 if e is not one.
+ */
+static int
+layer_form(nid e, nid *z, int64_t *L, nid *conv)
+{
+	nid x;
+	double lo, hi;
+
+	*conv = 0;
+	if (N.op[e] == O_CAST && TY_ISINT(N.ty[e]) && N.ty[N.a[e]] == TY_F32)
+		e = N.a[e];
+	if (!clamp_of(e, &x, &lo, &hi) || lo != 0 || !(hi >= 1) ||
+	    hi > 65535 || hi != floor(hi))
+		return 0;
+	if (N.op[x] == O_CAST && TY_ISINT(N.ty[x]) && N.ty[N.a[x]] == TY_F32) {
+		*conv = x;
+		x = N.a[x];
+	}
+	*L = (int64_t)hi + 1;
+	return layer_round(x, z);
+}
+
+/*
+ * Is z a whole number wherever it is defined: an integer converted, a
+ * rounding, a whole constant, or a sum, difference, product, negation,
+ * min, max or select of those (an f32 result rounded from a whole number
+ * is whole: past 2^24 every f32 is).  *src: the integer converted when z
+ * is just that, else 0.
+ */
+static int
+whole1(nid z, int depth)
+{
+	if (depth > 12 || N.ty[z] != TY_F32)
+		return 0;
+	switch (N.op[z]) {
+	case O_CONST:
+		return N.kr[z] == floor(N.kr[z]);
+	case O_CAST:
+		return TY_ISINT(N.ty[N.a[z]]);
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
+		return 1;
+	case O_NEG: case O_ABS:
+		return whole1(N.a[z], depth + 1);
+	case O_ADD: case O_SUB: case O_MUL: case O_MIN: case O_MAX:
+		return whole1(N.a[z], depth + 1) && whole1(N.b[z], depth + 1);
+	case O_SEL:
+		return whole1(N.b[z], depth + 1) && whole1(N.c[z], depth + 1);
+	}
+	return 0;
+}
+
+/* an f32 subterm's range by intervals: constants, ranged parameters,
+ * integers converted (their proved range), +, -, *, neg, abs, min, max,
+ * selects and roundings (a whole number at most 1 away); 0: not known */
+static int
+zrange(nid z, double *lo, double *hi, int depth)
+{
+	double al, ah, bl, bh, c[4];
+	int64_t il, ih;
+	int k;
+
+	if (depth > 12)
+		return 0;
+	switch (N.op[z]) {
+	case O_CONST:
+		*lo = *hi = cval(z);
+		return isfinite(*lo);
+	case O_VAR:
+		return frange(z, lo, hi);
+	case O_CAST:
+		if (TY_ISINT(N.ty[N.a[z]])) {
+			if (!irange(N.a[z], &il, &ih))
+				return 0;
+			*lo = (double)il;
+			*hi = (double)ih;
+			return 1;
+		}
+		return TY_FP(N.ty[N.a[z]]) && zrange(N.a[z], lo, hi, depth + 1);
+	case O_FLOOR: case O_CEIL: case O_ROUNDEVEN:
+		if (!zrange(N.a[z], &al, &ah, depth + 1))
+			return 0;
+		*lo = floor(al);
+		*hi = ceil(ah);
+		return 1;
+	case O_NEG:
+		if (!zrange(N.a[z], &al, &ah, depth + 1))
+			return 0;
+		*lo = -ah;
+		*hi = -al;
+		return 1;
+	case O_ABS:
+		if (!zrange(N.a[z], &al, &ah, depth + 1))
+			return 0;
+		*lo = al > 0 ? al : ah < 0 ? -ah : 0;
+		*hi = fabs(al) > fabs(ah) ? fabs(al) : fabs(ah);
+		return 1;
+	case O_SEL:
+		if (!zrange(N.b[z], &al, &ah, depth + 1) || !zrange(N.c[z], &bl,
+		    &bh, depth + 1))
+			return 0;
+		*lo = al < bl ? al : bl;
+		*hi = ah > bh ? ah : bh;
+		return 1;
+	case O_ADD: case O_SUB: case O_MUL: case O_MIN: case O_MAX:
+		if (!zrange(N.a[z], &al, &ah, depth + 1) || !zrange(N.b[z], &bl,
+		    &bh, depth + 1))
+			return 0;
+		break;
+	default:
+		return 0;
+	}
+	switch (N.op[z]) {
+	case O_ADD:
+		*lo = al + bl;
+		*hi = ah + bh;
+		break;
+	case O_SUB:
+		*lo = al - bh;
+		*hi = ah - bl;
+		break;
+	case O_MIN:
+		*lo = al < bl ? al : bl;
+		*hi = ah < bh ? ah : bh;
+		break;
+	case O_MAX:
+		*lo = al > bl ? al : bl;
+		*hi = ah > bh ? ah : bh;
+		break;
+	default:
+		c[0] = al * bl;
+		c[1] = al * bh;
+		c[2] = ah * bl;
+		c[3] = ah * bh;
+		*lo = *hi = c[0];
+		for (k = 1; k < 4; k++) {
+			if (c[k] < *lo)
+				*lo = c[k];
+			if (c[k] > *hi)
+				*hi = c[k];
+		}
+	}
+	/* the f32 result is rounded: widen by an ulp of the larger end */
+	if (*lo != floor(*lo) || *hi != floor(*hi) || fabs(*lo) > 16777216 ||
+	    fabs(*hi) > 16777216) {
+		double u = ldexp(fabs(*lo) > fabs(*hi) ? fabs(*lo) : fabs(*hi),
+		    -23);
+		*lo -= u;
+		*hi += u;
+	}
+	return isfinite(*lo) && isfinite(*hi);
+}
+
+static int
+whole_valued(nid z, nid *src)
+{
+	*src = N.op[z] == O_CAST && TY_ISINT(N.ty[N.a[z]]) ? N.a[z] : 0;
+	return whole1(z, 0);
+}
+
+/*
+ * Where the readings and the form part on z's values: 0 when z takes
+ * none of them (*how says why), else 1 with *at the first value z may
+ * take there.
+ */
+static int
+layer_ties(nid z, int form, int64_t L, double *at, struct sbuf *how)
+{
+	nid src;
+	double lo, hi, t;
+	int64_t k;
+
+	if (whole_valued(z, &src)) {
+		sb_printf(how, "%s is a whole number (%s), none of them",
+		    node_str(z), src ? "an integer converted" : "made of "
+		    "integers converted, roundings and whole constants");
+		return 0;
+	}
+	if (zrange(z, &lo, &hi, 0)) {
+		if (form == 2 && lo <= 0.5 - ldexp(1.0, -25) &&
+		    0.5 - ldexp(1.0, -25) <= hi) {
+			*at = 0.5 - ldexp(1.0, -25);
+			return 1;
+		}
+		for (k = 0; k + 1 < L; k += 2) {
+			t = (double)k + 0.5;
+			if (lo <= t && t <= hi) {
+				*at = t;
+				return 1;
+			}
+		}
+		sb_printf(how, "%s is in [%.9g, %.9g] (its range), which holds "
+		    "none of them", node_str(z), lo, hi);
+		return 0;
+	}
+	*at = form == 2 ? 0.5 - ldexp(1.0, -25) : 0.5;
+	return 1;
+}
+
+/* the conversion conv of a rounding of z does not wrap on z's values:
+ * 0 if it may (or it is not known not to) */
+static int
+layer_conv_ok(nid conv, nid z, struct sbuf *how)
+{
+	ty_t t = N.ty[conv];
+	double tlo, thi, lo, hi;
+
+	if (!conv)
+		return 1;
+	if (TYK(t) == K_INT)
+		return 1;
+	tlo = TYK(t) == K_SINT ? -ldexp(1.0, TYW(t) - 1) : 0;
+	thi = TYK(t) == K_SINT ? ldexp(1.0, TYW(t) - 1) - 1 : ldexp(1.0,
+	    TYW(t)) - 1;
+	if (!zrange(z, &lo, &hi, 0))
+		return 0;
+	/* the rounding moves a value by at most 1/2 */
+	if (!(lo - 0.5 >= tlo && hi + 0.5 <= thi))
+		return 0;
+	sb_printf(how, "; %s does not wrap: %s is in [%.9g, %.9g]",
+	    node_str(conv), node_str(z), lo, hi);
+	return 1;
+}
+
+static int
+seed_layer(nid body, nid n)
+{
+	nid tab = 0, idx = n, z, conv, *e, cand, nb;
+	int64_t L, k, cnt = 0;
+	int form, smp;
+	double at;
+	struct repl *r;
+	struct sbuf how = {0}, wit = {0};
+
+	if (N.op[n] == O_INDEX) {
+		tab = N.a[n];
+		idx = N.b[n];
+		cnt = N.b[tab];
+		if (!TY_ISINT(N.ty[idx]))
+			return 0;
+	}
+	if (!(form = layer_form(idx, &z, &L, &conv)) || (tab && L > cnt) ||
+	    is_const(z))
+		return 0;
+	e = xmalloc((size_t)L * sizeof *e);
+	for (k = 0; k < L; k++)
+		e[k] = tab ? N.lst[N.a[tab] + (uint32_t)k] : TY_FP(N.ty[n]) ?
+		    kf((double)k) : mk_const_i(N.ty[n], k);
+	cand = mk_tex(O_FETCH_LAYER, 0, mk_table(e, (uint32_t)L), z, 0);
+	free(e);
+	if (!model_lists(X.m, C_TEX_LAYER)) {
+		X.unavail[C_TEX_LAYER] = 1;
+		return 0;
+	}
+	/* not taken: said when nothing else is (a fetch_ read of the
+	 * rounded index may still be) */
+	if (layer_ties(z, form, L, &at, &how)) {
+		sb_printf(&X.nolayer, "%s%s would be %s, but %s may be %.9g, "
+		    "where %s", X.nolayer.n ? "\n" : "", node_str(n),
+		    node_str(cand), node_str(z), at, at == 0.5 - ldexp(1.0,
+		    -25) ? "floor(z + 0.5) in f32 is 1 (the add rounds up) and "
+		    "the unit takes layer 0 either way" : "the unit takes layer "
+		    "0 with roundTiesToEven (the specification's preferred "
+		    "RNE) or 1 with floor(z + 1/2) (allowed): it needs a range "
+		    "without those values");
+		free(how.p);
+		return 0;
+	}
+	if (!layer_conv_ok(conv, z, &how)) {
+		sb_printf(&X.nolayer, "%s%s would be %s, but %s can wrap on "
+		    "the values %s takes, where the clamp no longer gives the "
+		    "unit's layer: it needs a range", X.nolayer.n ? "\n" : "",
+		    node_str(n), node_str(cand), node_str(conv), node_str(z));
+		free(how.p);
+		return 0;
+	}
+	if (equiv_check(X.f, n, cand, &wit, &smp)) {
+		sb_printf(&X.nolayer, "%s%s would be %s by the derivation, "
+		    "but they differ on a point tried (%s): not taken",
+		    X.nolayer.n ? "\n" : "", node_str(n), node_str(cand),
+		    sb_str(&wit));
+		free(how.p);
+		free(wit.p);
+		return 0;
+	}
+	free(wit.p);
+	if ((r = new_repl(n)) == NULL) {
+		free(how.p);
+		return 0;
+	}
+	nb = swap_nodes(body, &n, &cand, 1);
+	r->to = cand;
+	r->exact = 1;
+	r->ok = 1;
+	r->cost = price(nb);
+	sb_printf(&r->what, "%s is %s", node_str(n), node_str(cand));
+	sb_printf(&r->holds, "holds wherever %s is defined: the layer the unit "
+	    "selects is clamp(RNE(%s), 0, %lld)", node_str(n), node_str(z),
+	    (long long)(L - 1));
+	sb_printf(&r->proof, "the specification's RNE is roundTiesToEven "
+	    "(preferred) or floor(z + 1/2) (allowed); %s is the %s, and the "
+	    "two differ only at z = k + 1/2 for an even k in 0..%lld%s; %s; "
+	    "the same layer either way%s", form == 1 ? "roundeven(z)" :
+	    "floor(z + 0.5)", form == 1 ? "first" : "second", (long long)(L - 2),
+	    form == 2 ? " (and floor(z + 0.5) made in f32 at z = 0.5 - 2^-25, "
+	    "where the add rounds up to 1)" : "", sb_str(&how), tab ? "" :
+	    "; layer l holds l");
+	sb_puts(&r->proof, "\ncompared on the points tried as a second opinion: "
+	    "the same");
+	sb_puts(&r->pipe, "a texture ");
+	fetch_format(&r->pipe, N.a[cand]);
+	sb_printf(&r->pipe, ", 1 x 1, %lld layers (an array view, "
+	    "VK_IMAGE_VIEW_TYPE_1D_ARRAY), layer l holding %s\na sampler: "
+	    "NEAREST filters, CLAMP_TO_EDGE, lod 0\none combined image sampler "
+	    "more in the layout; the shader reads textureLod(s, vec2(0.5, %s), "
+	    "0.0).r (the unit rounds and clamps the layer)", (long long)L, tab ?
+	    "the table's entry l" : "l", node_str(z));
+	free(how.p);
+	return 1;
 }
 
 /* ---- weighted sums of neighbouring texels ---- */
@@ -2739,6 +3157,10 @@ visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 	/* a float of one byte: the sRGB decode, replaced whole */
 	if (X.bits && X.ulp != 0 && seed_srgb(body, n))
 		return;
+	/* a layer of an array texture, replaced whole */
+	if ((op == O_INDEX || op == O_MIN || op == O_MAX || op == O_CAST) &&
+	    seed_layer(body, n))
+		return;
 	switch (op) {
 	case O_ADD: case O_SUB: case O_MUL: case O_FMA: case O_NEG: case O_DIV:
 	case O_SHL:
@@ -2789,6 +3211,7 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	memset(res, 0, sizeof *res);
 	free(X.far.p);
 	free(X.nosum.p);
+	free(X.nolayer.p);
 	memset(&X, 0, sizeof X);
 	X.f = f;
 	X.m = model_active();
@@ -2882,9 +3305,10 @@ tex_search(const struct func *f, double tol, struct texres *res)
 				    sym_str(X.m->name), cclass_name[k], k ==
 				    C_TEX_NEAREST ? "a nearest read with an address "
 				    "mode" : k == C_TEX_SRGB ? "an sRGB texture's "
-				    "decoded fetch" : k == C_TEX_SAMPLE ? "a filtered read of "
-				    "an 8-bit normalised texture" : "a filtered read "
-				    "of a 32-bit float texture");
+				    "decoded fetch" : k == C_TEX_LAYER ? "a read of "
+				    "an array texture's layer" : k == C_TEX_SAMPLE ?
+				    "a filtered read of an 8-bit normalised texture" :
+				    "a filtered read of a 32-bit float texture");
 				res->status = TEXR_UNAVAILABLE;
 			}
 		if (X.nobits) {
@@ -2904,6 +3328,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	if (!na && X.nosum.n) {
 		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
 		    sb_str(&X.nosum));
+		if (res->status == TEXR_NONE)
+			res->status = TEXR_OVERTOL;
+	}
+	if (!na && X.nolayer.n) {
+		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
+		    sb_str(&X.nolayer));
 		if (res->status == TEXR_NONE)
 			res->status = TEXR_OVERTOL;
 	}

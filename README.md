@@ -3933,6 +3933,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_clamp(T, i)` | `T[min(max(i, 0), n - 1)]` (CLAMP_TO_EDGE) |
 | `fetch_mirror_clamp(T, i)` | `T[min(max(i, -1 - i), n - 1)]` (MIRROR_CLAMP_TO_EDGE) |
 | `fetch_border(T, i, k)` | `0 <= i < n ? T[i] : k` (CLAMP_TO_BORDER) |
+| `fetch_layer(T, z)` | `T[clamp(RNE(z), 0, n - 1)]`, z a float: the layer of an array texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
 
@@ -4108,12 +4109,34 @@ the 256 values, plus the table's rounding and the unit's decode
 allows, and `tol` says by how much (tests/texsrgb.ucas).  The store's
 inverse is not proposed.
 
+**Array layers.**  A read of an array texture selects layer
+clamp(RNE(z), 0, L - 1) of its float layer coordinate z, and the
+specification's RNE is roundTiesToEven (preferred) or floor(z + 1/2)
+(allowed).  `fetch_layer(T, z)` is that read of L = n layers, layer l
+holding T's entry l, with the preferred reading: `fetch_layer([10, 20,
+30, 40], 0.5)` is 10 and at 1.5 it is 30; a NaN selects no layer
+(undefined), and the read is priced by `tex_layer` (no built-in model
+lists it).  A clamp to 0..L-1 of `roundeven(z)` or of `floor(z + 0.5)`,
+as a float, converted to an integer after it or with the rounding
+converted first, is the read of L layers that hold 0..L-1, and a table
+read with that index is the read of the table's first L entries.  The
+two readings differ at z = k + 1/2 for an even k in 0..L-2 (one takes
+k, the other k + 1), and floor(z + 0.5) made in f32 differs from both
+at z = 0.5 - 2^-25 (the add rounds up to 1), the only such value: both
+were checked on all 2^32 f32 values for L of 2, 3, 4, 5, 8, 64 and
+2048.  So the
+rewrite is taken only where z takes none of them, whichever reading
+the unit has: z a whole number (integers converted, roundings and whole
+constants through +, -, *, min, max), or z's range by intervals
+holding none; a conversion before the clamp must not wrap on that
+range.  Otherwise `texalu` names the value where they part
+(tests/texlayer.ucas).
+
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks), trilinear and anisotropic
 filters, mip levels as means, min/max and compare samplers, gather,
-array layers, the other formats (R16, half floats) and normalised
-coordinates for the filters.  None of those has a measured price yet
-either.
+the other formats (R16, half floats) and normalised coordinates for
+the filters.  None of those has a measured price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
