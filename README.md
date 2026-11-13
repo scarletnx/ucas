@@ -3958,6 +3958,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_border(T, i, k)` | `0 <= i < n ? T[i] : k` (CLAMP_TO_BORDER) |
 | `fetch_repeat_offset(T, i, c)`, ... `fetch_border_offset(T, i, k, c)` | the same reads of i + c, c a constant in -8..7: a ConstOffset (below) |
 | `fetch_layer(T, z)` | `T[clamp(RNE(z), 0, n - 1)]`, z a float: the layer of an array texture (below) |
+| `fetch_texel(T, i)`, `fetch_buffer(T, i)` | `T[i]`, undefined outside the table: a texel fetch of a texture, of a buffer texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
@@ -4062,7 +4063,8 @@ is offered: `texalu` says which number is missing.
   parameters have at most 2^16 points between them: its table (the one
   of "Functions as tables", the function at every point, at an index
   packed from the parameters) as a texture.  A nearest read at the
-  packed index is the function exactly, an integer or a float one.  For
+  packed index, or a texel fetch there (below), is the function
+  exactly, an integer or a float one.  For
   one parameter x in lo..hi (within +-2^22) the linear filter also reads
   it from knots, the function at every 2^j-th x, at texel coordinate
   (x - lo)/2^j + 1/2: the fraction is a multiple of 2^-j, on the unit's
@@ -4179,6 +4181,28 @@ the 256 values, plus the table's rounding and the unit's decode
 (tex_within ulps); with no tolerance given that is more than the formula
 allows, and `tol` says by how much (tests/texsrgb.ucas).  The store's
 inverse is not proposed.
+
+**Texel fetches.**  `texelFetch` takes an integer index, with no
+sampler, no address mode and no coordinate to make, and outside the
+texture its value is undefined: `fetch_texel(T, i)` (a texture) and
+`fetch_buffer(T, i)` (a buffer texture, a `samplerBuffer` over a buffer
+view) are the table read `T[i]`, each priced by its class alone,
+`tex_fetch` and `tex_buffer`.  gt1030 measured the first (43.125) and
+no built-in model lists the second (not measured), so under gt1030's
+cache-resident `load` (6.875) neither is offered.  `texalu` rewrites a
+plain read into the cheaper of the two where the model prices it below
+the read as written, and reads a function's table (above) through it:
+under `model stream : gt1030 { load: 90 }` (what gt1030 measured for a
+load that streams from DRAM) `K[i] + 1` is 44.125 by `fetch_texel`
+against 91, and with `tex_buffer: 5` it is 6 by `fetch_buffer` against
+7.875.  An index written as an address mode keeps its arithmetic
+(`fetch_buffer(K, i % 7)`: 18.5) unless a nearest read that drops it is
+listed and cheaper (`fetch_repeat(K, i)`: 9).  There is nothing to
+prove: the fetch is the read.  The proposal names the texture (a row
+of the entries, wider than 4096 said) or the buffer view (more than
+65536 texels said: every device's maxTexelBufferElements), in a format
+that holds the entries exactly (R8_UINT ... R32_SFLOAT, each mandatory
+for both) (tests/texfetch.ucas).
 
 **Offsets.**  A read with a ConstOffset (textureLodOffset) adds the
 constant to the unnormalised coordinate before the floor and the

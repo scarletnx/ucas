@@ -1485,6 +1485,29 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			}
 			continue;
 		}
+		case O_FETCH_TEXEL: case O_FETCH_BUFFER: {
+			/* texelFetch: the texel, undefined outside the table */
+			const int64_t *iv = COLI(p, b);
+			uint32_t st = p->a[a], cnt = p->b[a];
+			for (i = 0; i < np; i++) {
+				int64_t j = iv[i];
+				uint32_t e;
+				if (TYK(p->ty[b]) == K_UINT)
+					j = (int64_t)asu(&p->it[b], j);
+				if ((COLF(p, b)[i] & F_UNDEF) || j < 0 || j >=
+				    (int64_t)cnt) {
+					o[i] = 0;
+					orr[i] = 0;
+					of[i] = F_UNDEF;
+					continue;
+				}
+				e = p->lst[st + (uint32_t)j];
+				o[i] = COLI(p, e)[i];
+				orr[i] = COLR(p, e)[i];
+				of[i] = COLF(p, e)[i] & F_UNDEF;
+			}
+			continue;
+		}
 		case O_FETCH_LAYER: {
 			/* a layer of an array texture: the coordinate rounded
 			 * to nearest even and clamped; NaN selects none */
@@ -1687,7 +1710,8 @@ plan_live(const struct plan *p, uint32_t np, uint8_t *lv)
 			break;
 		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 		case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
-		case O_TEX_BILINEAR: case O_FETCH_LAYER: {
+		case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
+		case O_FETCH_BUFFER: {
 			/* the coordinates, and any texel */
 			uint32_t st = p->a[a], cnt = p->b[a], j;
 			for (i = 0; i < np; i++) {
@@ -2339,7 +2363,8 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 				ok = 0;
 			/* FALLTHROUGH */
 		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
-		case O_FETCH_MCLAMP: case O_FETCH_LAYER:
+		case O_FETCH_MCLAMP: case O_FETCH_LAYER: case O_FETCH_TEXEL:
+		case O_FETCH_BUFFER:
 		case O_INDEX: {
 			uint32_t st = p->a[p->a[k]], cnt = p->b[p->a[k]];
 			if (op == O_FETCH_BORDER) {

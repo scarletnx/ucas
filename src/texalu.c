@@ -250,6 +250,8 @@ tex_expand(nid n)
 	int64_t cnt = N.b[tab];
 	ty_t t = TY(K_SINT, 64);
 
+	if (IS_TEXEL(op))
+		return mk_index(tab, i);
 	if (!IS_FETCH(op))
 		return n;
 	if (TEX_OFF(N.ki[n]))
@@ -347,6 +349,8 @@ tex_class(nid n)
 		return N.ki[n] == TEX_SRGB ? C_TEX_SRGB : C_TEX_NEAREST;
 	if (N.op[n] == O_FETCH_LAYER)
 		return C_TEX_LAYER;
+	if (IS_TEXEL(N.op[n]))
+		return N.op[n] == O_FETCH_TEXEL ? C_TEX_FETCH : C_TEX_BUFFER;
 	if (TEX_RED(N.ki[n]))
 		return C_TEX_MINMAX;
 	return tex_fmt(model_active(), N.a[n], &p);
@@ -358,7 +362,8 @@ tex_cost(const struct model *m, nid n, int *cls)
 	int k;
 	float p;
 
-	if (!IS_FETCH(N.op[n]) && N.op[n] != O_FETCH_LAYER) {
+	if (!IS_FETCH(N.op[n]) && N.op[n] != O_FETCH_LAYER &&
+	    !IS_TEXEL(N.op[n])) {
 		if (TEX_RED(N.ki[n])) {
 			*cls = C_TEX_MINMAX;
 			return model_lists(m, C_TEX_MINMAX) ? m->c[C_TEX_MINMAX] :
@@ -377,7 +382,8 @@ tex_cost(const struct model *m, nid n, int *cls)
 	 * times 1/n, a conversion and a multiply-add */
 	if (k == C_TEX_NEAREST)
 		return m->c[k] + m->c[C_CONV] + m->c[C_FMUL];
-	/* texelFetch: the byte is the coordinate; a layer: the float is */
+	/* texelFetch: the byte or the index is the coordinate; a layer:
+	 * the float is */
 	return m->c[k];
 }
 
@@ -401,7 +407,8 @@ int
 tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 {
 	static const int fetch[] = {O_FETCH_REPEAT, O_FETCH_MIRROR,
-	    O_FETCH_CLAMP, O_FETCH_MCLAMP, O_FETCH_BORDER, O_FETCH_LAYER};
+	    O_FETCH_CLAMP, O_FETCH_MCLAMP, O_FETCH_BORDER, O_FETCH_LAYER,
+	    O_FETCH_TEXEL, O_FETCH_BUFFER};
 	size_t i, l;
 	int op = 0, red = 0, wrap = 0;
 
@@ -416,7 +423,7 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 		if (l == n && !memcmp(s, opinfo[fetch[i]].name, n))
 			return fetch[i];
 		/* name_offset: the read with a ConstOffset */
-		if (fetch[i] != O_FETCH_LAYER && l + 7 == n && !memcmp(s,
+		if (IS_FETCH(fetch[i]) && l + 7 == n && !memcmp(s,
 		    opinfo[fetch[i]].name, l) && !memcmp(s + l, "_offset", 7)) {
 			*bits = TEX_OFFNAME;
 			return fetch[i];
@@ -461,7 +468,9 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 void
 tex_print_name(struct sbuf *b, nid n)
 {
-	if (IS_FETCH(N.op[n]) || N.op[n] == O_FETCH_LAYER)
+	if (IS_TEXEL(N.op[n]))
+		sb_puts(b, opinfo[N.op[n]].name);
+	else if (IS_FETCH(N.op[n]) || N.op[n] == O_FETCH_LAYER)
 		sb_printf(b, "%s%s", N.ki[n] == TEX_SRGB ? "fetch_srgb" :
 		    opinfo[N.op[n]].name, IS_FETCH(N.op[n]) && TEX_OFF(N.ki[n]) ?
 		    "_offset" : "");
@@ -1433,6 +1442,8 @@ class_says(int k)
 	    "texture";
 	case C_TEX_SAMPLE_F16: return "a filtered read of a half-float texture";
 	case C_TEX_MINMAX: return "a read with a min or max reduction sampler";
+	case C_TEX_FETCH: return "a texel fetch of a texture";
+	case C_TEX_BUFFER: return "a texel fetch of a buffer texture";
 	}
 	return "a filtered read of a 32-bit float texture";
 }
@@ -1636,6 +1647,66 @@ reduce_index(nid i, int64_t per, int64_t lim, int64_t *r, int64_t *lo,
 }
 
 /*
+ * A texel fetch of the table at an integer index: texelFetch of a texture
+ * (fetch_texel, priced tex_fetch) or of a buffer texture (fetch_buffer,
+ * priced tex_buffer).  No sampler, no address mode, no coordinate to
+ * make: it is T[i], undefined outside the table as the read is.  The
+ * cheaper of the two the model lists as `from`'s replacement in body, 0
+ * when it lists neither.
+ */
+static nid
+texel_best(nid body, nid from, nid tab, nid idx, ty_t t, float *cost)
+{
+	static const int ops[2] = {O_FETCH_TEXEL, O_FETCH_BUFFER};
+	nid best = 0;
+	int k;
+
+	*cost = INFINITY;
+	for (k = 0; k < 2; k++) {
+		nid c;
+		float p;
+		if (!model_lists(X.m, ops[k] == O_FETCH_TEXEL ? C_TEX_FETCH :
+		    C_TEX_BUFFER))
+			continue;
+		c = mk_tex(ops[k], 0, tab, idx, 0);
+		if (N.ty[c] != t)
+			c = mk_cast(t, c);
+		p = price(swap_nodes(body, &from, &c, 1));
+		if (p < *cost) {
+			*cost = p;
+			best = c;
+		}
+	}
+	return best;
+}
+
+/* what the pipeline needs for texel_best's read of tab at index ix */
+static void
+texel_pipe(struct sbuf *b, nid to, nid tab, const char *what, const char *ix)
+{
+	long long n = (long long)N.b[tab];
+
+	while (N.op[to] == O_CAST)
+		to = N.a[to];
+	if (N.op[to] == O_FETCH_BUFFER) {
+		sb_puts(b, "a buffer view ");
+		fetch_format(b, tab);
+		sb_printf(b, " over a buffer of %lld texels, %s%s\none uniform "
+		    "texel buffer (samplerBuffer) more in the layout, no sampler; "
+		    "the shader reads texelFetch(b, int(%s)).r", n, what, n >
+		    65536 ? " (more than the 65536 texels every Vulkan device "
+		    "takes: it needs that maxTexelBufferElements)" : "", ix);
+		return;
+	}
+	sb_puts(b, "a texture ");
+	fetch_format(b, tab);
+	sb_printf(b, ", %lld x 1, one level, its texels %s%s\nno sampler; the "
+	    "shader reads texelFetch(t, ivec2(int(%s), 0), 0).r", n, what, n >
+	    4096 ? " (wider than the 4096 texels every Vulkan device takes in a "
+	    "row: it needs that maxImageDimension2D)" : "", ix);
+}
+
+/*
  * A table read T[idx], or a select between one and a constant, as a
  * nearest read with an address mode: for a subterm i of the index and a
  * mode, idx = mode(i) wherever the read is defined.  That identity is
@@ -1655,8 +1726,9 @@ seed_fetch(nid body, nid n)
 	float bc = INFINITY;
 	struct eqproof bpr, pr;
 	ty_t t64 = TY(K_SINT, 64);
-	nid ox, bat;
+	nid ox, bat, tb = 0;
 	int off, boff = 0;
+	float ctb = INFINITY;
 
 	if (N.op[n] == O_SEL) {
 		/* c ? T[i] : k, or c ? k : T[i] */
@@ -1679,6 +1751,13 @@ seed_fetch(nid body, nid n)
 	 * identity to tell about: the search runs without prices then */
 	avail = model_lists(X.m, C_TEX_NEAREST) && X.bits;
 	lim = X.bits ? index_limit(X.bits) : 0x3fffff;
+	/* the read as it is, by a texel fetch, where that pays: one that
+	 * does not is not a replacement, and what is inside the read is
+	 * still looked at */
+	if (!sel)
+		tb = texel_best(body, n, tab, idx, N.ty[n], &ctb);
+	if (tb && !(ctb < price(body)))
+		tb = 0;
 	ns = subterms(idx, sub, 0, 16, 0);
 	memset(&bpr, 0, sizeof bpr);
 	for (i = 0; i < ns; i++) {
@@ -1746,7 +1825,10 @@ seed_fetch(nid body, nid n)
 					X.unavail[C_TEX_NEAREST] = 1;
 				else
 					X.nobits = 1;
-				return;
+				if (!tb)
+					return;
+				i = ns;		/* no address mode: the fetch alone */
+				break;
 			}
 			if (far) {
 				/* only to say why not: compared on points, no proof */
@@ -1807,6 +1889,26 @@ seed_fetch(nid body, nid n)
 			bc = p2;
 			boff = off;
 		}
+	}
+	if (tb && (!best || ctb < bc)) {
+		/* the texel fetch is the read itself: nothing to prove */
+		if ((r = new_repl(n)) == NULL)
+			return;
+		r->to = tb;
+		r->cost = ctb;
+		r->exact = 1;
+		r->ok = 1;
+		r->plain = 1;
+		sb_printf(&r->what, "%s is %s", node_str(n), node_str(tb));
+		sb_printf(&r->holds, "holds wherever the read is defined: a "
+		    "texel fetch takes the integer index as it is, with no "
+		    "sampler and no address mode, and outside 0..%lld both are "
+		    "undefined", (long long)(cnt - 1));
+		sb_puts(&r->proof, "the texel fetch is the table read by "
+		    "definition: no coordinate is made, nothing rounds");
+		texel_pipe(&r->pipe, tb, tab, "the table's entries",
+		    node_str(idx));
+		return;
 	}
 	if (!best || (r = new_repl(sel ? sel : n)) == NULL)
 		return;
@@ -4697,7 +4799,7 @@ seed_func(nid body)
 	ty_t t = N.ty[body];
 	int isint = TYK(t) == K_UINT || TYK(t) == K_SINT, q, sampled, s;
 	struct tabfn tf;
-	struct fcand near, lin, *b = NULL;
+	struct fcand near, lin, fx, *b = NULL;
 	struct repl *r;
 	struct sbuf ix = {0};
 	float before = price(body), floorp = INFINITY, lc = INFINITY;
@@ -4712,6 +4814,10 @@ seed_func(nid body)
 	/* the least a read could cost, before the work */
 	if (model_lists(X.m, C_TEX_NEAREST))
 		floorp = X.m->c[C_TEX_NEAREST];
+	if (model_lists(X.m, C_TEX_FETCH) && X.m->c[C_TEX_FETCH] < floorp)
+		floorp = X.m->c[C_TEX_FETCH];
+	if (model_lists(X.m, C_TEX_BUFFER) && X.m->c[C_TEX_BUFFER] < floorp)
+		floorp = X.m->c[C_TEX_BUFFER];
 	for (q = 0; q < 4; q++) {
 		static const int fc[4] = {C_TEX_SAMPLE, C_TEX_SAMPLE_16,
 		    C_TEX_SAMPLE_F16, C_TEX_SAMPLE_F32};
@@ -4745,17 +4851,23 @@ seed_func(nid body)
 	if (tf.nrd == 1 && !tf.undef && tf.blo[s] > -4194304 && tf.bhi[s] <
 	    4194304)
 		func_knots(&tf, before, &lin);
-	if (near.ok)
+	/* a texel fetch of it: no sampler, no coordinate */
+	memset(&fx, 0, sizeof fx);
+	fx.to = texel_best(body, body, tf.tab, tf.idx, t, &fx.cost);
+	fx.ok = fx.to != 0;
+	/* the cheapest that holds and pays: a formula that costs no more
+	 * stays a formula, with nothing to say */
+	if (near.ok && near.cost < before)
 		b = &near;
-	if (lin.ok && (!b || lin.cost < b->cost))
+	if (fx.ok && fx.cost < before && (!b || fx.cost < b->cost))
+		b = &fx;
+	if (lin.ok && lin.cost < before && (!b || lin.cost < b->cost))
 		b = &lin;
-	if (!b && lin.to)
+	if (!b && lin.to && !lin.ok)
 		b = &lin;	/* a float result past the tolerance */
 	if (!b)
 		goto out;
-	/* nothing to say: a formula stays a formula, and a load a load */
-	if (!(b->cost < before))
-		goto out;
+	/* and a load stays a load */
 	if (cclass_available(X.m, C_LOAD))
 		lc = price(mk_cast(t, mk_index(tf.tab, tf.idx)));
 	if (!(b->cost < lc) || (r = new_repl(body)) == NULL)
@@ -4764,7 +4876,23 @@ seed_func(nid body)
 	r->cost = b->cost;
 	r->plain = 1;
 	sb_puts(&ix, node_str(tf.idx));
-	if (b == &near) {
+	if (b == &fx) {
+		r->exact = 1;
+		sb_printf(&r->what, "%s as its table through a texel fetch: "
+		    "%lld entries, one for each point of %s; entry k is the "
+		    "function at the point with index k = %s%s", shared_str(body,
+		    120), (long long)n, sb_str(&tf.dom), sb_str(&ix), tf.undef ?
+		    " (0 where the function is undefined or the where clause "
+		    "fails)" : "");
+		sb_printf(&r->holds, "holds on the function's domain: there "
+		    "the index is in 0..%lld, inside the table", (long long)(n -
+		    1));
+		sb_printf(&r->proof, "the table is the function at every point, "
+		    "all %lld evaluated\na texel fetch takes the integer index as "
+		    "it is: no coordinate is made, nothing rounds", (long long)n);
+		texel_pipe(&r->pipe, b->to, tf.tab, "the function's values",
+		    sb_str(&ix));
+	} else if (b == &near) {
 		r->exact = 1;
 		sb_printf(&r->what, "%s as its table through a nearest read: "
 		    "%lld entries, one for each point of %s; entry k is the "
@@ -4889,7 +5017,7 @@ seed_func(nid body)
 		    (unsigned long long)pts, fmt_g(md), fmt_g(lim));
 	} else
 		sb_printf(&r->proof, "\nchecked again by evaluation%s on %s%llu "
-		    "points: %s%s", b == &near ? "" : " with ucas's own filter "
+		    "points: %s%s", b != &lin ? "" : " with ucas's own filter "
 		    "(exact weights' sums, one rounding)", sampled ? "a sample "
 		    "of " : "all ", (unsigned long long)pts, r->exact ? "equal" :
 		    "largest difference ", r->exact ? "" : fmt_g(md));
