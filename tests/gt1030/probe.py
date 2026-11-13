@@ -148,9 +148,10 @@ step('sg_ballot_slt', [144], 'int(subgroupBallot({a} < {b}).x) + {c}', {'sg_ball
      ty='int', exts=SG)
 step('sg_ballot_flt', [144], 'uintBitsToFloat(subgroupBallot({a} < {b}).x | 0x3f800000u) + {c}',
      {'sg_ballot': 1, 'cmp': 1, 'logic': 1, 'fadd': 1}, ty='float', exts=SG)
-step('sg_ballot_bool', [144], None, {'sg_ballot': 1, 'logic': 1, 'iadd': 1}, exts=SG, ring=False,
-     pre='bool pb = (s & 1u) != 0u;', body='{a} = subgroupBallot(pb).x + {a}; pb = !pb;',
-     note='a bool that is not a compare (a not of the last one)')
+probe('none', 'sg_ballot_bool', [144],
+      why='a bool that changes at every step without a compare does not exist in SPIR-V: a logical not of the '
+          'last one alternates, the driver makes both ballots once and the step is its add alone; the ballot of '
+          'a compare is measured above')
 step('sg_any_eq', [144], 'subgroupAny({a} == {b}) ? {c} : {d}', {'sg_vote': 1, 'cmp': 1, 'select': 1}, exts=SG)
 step('sg_all_ult', [144], 'subgroupAll({a} < {b}) ? {c} : {d}', {'sg_vote': 1, 'cmp': 1, 'select': 1}, exts=SG)
 step('sg_allequal', [144], 'subgroupAllEqual({a}) ? {b} : {c}', {'sg_vote': 1, 'select': 1}, exts=SG)
@@ -1070,7 +1071,8 @@ def report(res, dev, model, ucas_check):
                 L.append('%s: not run: needs %s%s\n' % (head, p['needs'], ('; this snx-shaderperf has something '
                          'named %s now, so the probe can be written' % p['key']) if r.get('tool_has_it') else ''))
             elif p['kind'] == 'none':
-                L.append('%s (%s): no probe: %s\n' % (head, p.get('queue', ''), p['why']))
+                L.append('%s%s: no probe: %s\n' % (head, (' (%s)' % p['queue']) if p.get('queue') and not i else '',
+                                                    p['why']))
             else:
                 if 'error' in r:
                     L.append('%s: FAILED: %s\n' % (head, r['error']))

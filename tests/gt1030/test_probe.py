@@ -92,6 +92,28 @@ def clamp_bounds_ordered():
                 break
     assert not bad, 'clamps with a low bound above the high one: %s' % ', '.join(bad)
 
+
+def calls(text, prefix):
+    """(name, argument text) of every call whose name starts with prefix"""
+    out = []
+    for m in re.finditer(r'\b(%s\w*)\(' % prefix, text):
+        depth, j = 1, m.end()
+        while depth and j < len(text):
+            depth += text[j] == '('
+            depth -= text[j] == ')'
+            j += 1
+        out.append((m.group(1), text[m.end():j - 1]))
+    return out
+
+
+@check
+def subgroup_operands_vary():
+    """a subgroup operation none of whose operands is a chain value takes the same input at every step, and
+    the driver computes it once"""
+    bad = [p['name'] for p in steps() for name, args in calls((p['step'] or '') + (p['body'] or ''), 'subgroup')
+           if '{' not in args]
+    assert not bad, 'subgroup operations with no chain value among their operands: %s' % ', '.join(bad)
+
 def main():
     failed = 0
     for fn in CHECKS:
