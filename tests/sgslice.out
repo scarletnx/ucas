@@ -1,0 +1,122 @@
+> use gt1030
+cost model: gt1030
+> crc(c: u32 uniform) = { r = c; for i in 0..7 { r = (r >> 1) xor (0xedb88320 & (0 - (r & 1))) }; r }
+> find crc 1
+find crc: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..7; r = c then r >> 1 xor -(r & 1) & 0xedb88320).r priced as 8 iterations x 12.25 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 98 as written):
+  cost 14.25 sg_ballot(popcount(c & [260, 521, 1043, 2086, 4173, 8346, 16432, 32865, 65730, 131200, 262148, 524296, 1048593, 2097187, 4194374, 8388748, 16777245, 33554491, 67108983, 134217966, 268435672, 536871092, 1073741932, 2147483864, 181, 111, 223, 186, 113, 227, 195, 130][lane]) & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of c (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit, a bit negated or times a constant, a loop of a constant count run through), so bit i of the result is the parity of c & row[i]; lane i works that bit out (that parity, the rows in a table read at the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..7; r = c then r >> 1 xor -(r & 1) & 0xedb88320).r priced as 8 iterations x 12.25 (listed under branch)
+> crcsel(c: u32 uniform) = { r = c; for i in 0..7 { r = (r & 1) != 0 ? (r >> 1) xor 0xedb88320 : r >> 1 }; r }
+> find crcsel 1
+find crcsel: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..7; r = c then r & 1 != 0 ? r >> 1 xor 0xedb88320 : r >> 1).r priced as 8 iterations x 14.25 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 114 as written):
+  cost 14.25 sg_ballot(popcount(c & [260, 521, 1043, 2086, 4173, 8346, 16432, 32865, 65730, 131200, 262148, 524296, 1048593, 2097187, 4194374, 8388748, 16777245, 33554491, 67108983, 134217966, 268435672, 536871092, 1073741932, 2147483864, 181, 111, 223, 186, 113, 227, 195, 130][lane]) & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of c (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit, a ?: on one bit whose sides differ by a constant, a loop of a constant count run through), so bit i of the result is the parity of c & row[i]; lane i works that bit out (that parity, the rows in a table read at the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..7; r = c then r & 1 != 0 ? r >> 1 xor 0xedb88320 : r >> 1).r priced as 8 iterations x 14.25 (listed under branch)
+> crcb(c: u32 uniform, b: u8 uniform) = { r = c xor b; for i in 0..7 { r = (r >> 1) xor ((r & 1) * 0xedb88320) }; r }
+> find crcb 1
+find crcb: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..7; r = c xor u32(b) then r >> 1 xor 3988292384(r & 1)).r priced as 8 iterations x 13.25 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 106 as written):
+  cost 22.125 sg_ballot(popcount(c & [260, 521, 1043, 2086, 4173, 8346, 16432, 32865, 65730, 131200, 262148, 524296, 1048593, 2097187, 4194374, 8388748, 16777245, 33554491, 67108983, 134217966, 268435672, 536871092, 1073741932, 2147483864, 181, 111, 223, 186, 113, 227, 195, 130][lane] xor u32(b & [4, 9, 19, 38, 77, 154, 48, 97, 194, 128, 4, 8, 17, 35, 70, 140, 29, 59, 119, 238, 216, 180, 108, 216, 181, 111, 223… (44 more characters)
+           every operation of the function is linear over GF(2) in the bits of c and b (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit, a bit negated or times a constant, a loop of a constant count run through), so bit i of the result is the parity of the bits of c and b that row[i] names; lane i works that bit out (that parity, the rows in a table read at the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..7; r = c xor u32(b) then r >> 1 xor 3988292384(r & 1)).r priced as 8 iterations x 13.25 (listed under branch)
+> T4(i: u32 in 0..15) = [0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c][i]
+> crct(c: u32 uniform, b: u8 uniform) = { r = c xor b; r = (r >> 4) xor T4(r & 15); (r >> 4) xor T4(r & 15) }
+> find crct 1
+find crct: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 22.75 as written):
+  cost 22.125 sg_ballot(popcount(c & [260, 521, 1043, 2086, 4173, 8346, 16432, 32865, 65730, 131200, 262148, 524296, 1048593, 2097187, 4194374, 8388748, 16777245, 33554491, 67108983, 134217966, 268435672, 536871092, 1073741932, 2147483864, 181, 111, 223, 186, 113, 227, 195, 130][lane] xor u32(b & [4, 9, 19, 38, 77, 154, 48, 97, 194, 128, 4, 8, 17, 35, 70, 140, 29, 59, 119, 238, 216, 180, 108, 216, 181, 111, 223… (44 more characters)
+           every operation of the function is linear over GF(2) in the bits of c and b (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit, a table that is linear in its index, every entry checked), so bit i of the result is the parity of the bits of c and b that row[i] names; lane i works that bit out (that parity, the rows in a table read at the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> equiv crc crcsel
+crc and crcsel are equal on the domain of crc (proved by SAT: 345 AIG nodes, 0 conflicts)
+> mort(x: u16 uniform, y: u16 uniform) = { a: u32 = x; a = (a | (a << 8)) & 0x00ff00ff; a = (a | (a << 4)) & 0x0f0f0f0f; a = (a | (a << 2)) & 0x33333333; a = (a | (a << 1)) & 0x55555555; b: u32 = y; b = (b | (b << 8)) & 0x00ff00ff; b = (b | (b << 4)) & 0x0f0f0f0f; b = (b | (b << 2)) & 0x33333333; b = (b | (b << 1)) & 0x55555555; a | (b << 1) }
+> find mort 1
+find mort: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 27 as written):
+  cost 12.375 sg_ballot((lane & 1 != 0 ? y : x) >> (lane >> 1) & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of x and y (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of the bits of x and y that row[i] names; lane i works that bit out (every row has one bit: that bit of one of the two words, which word and its position by the lane's index; the table read without a load, from the lane's index: the map [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9,… (54 more characters) of lane as a multiply and a shift in u32, holds where lane in [0, 31] (its range)) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> dex(x: u32 uniform) = { a = x & 0x55555555; a = (a | (a >> 1)) & 0x33333333; a = (a | (a >> 2)) & 0x0f0f0f0f; a = (a | (a >> 4)) & 0x00ff00ff; (a | (a >> 8)) & 0x0000ffff }
+> find dex 1
+find dex: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 13 as written):
+  cost 9.375 sg_ballot(x >> (2lane & 0x1f) & 1 != 0) & 0xffff
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit, or none: that bit of the word, its position a multiple of the lane's index plus a constant) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> dey(x: u32 uniform) = { a = (x >> 1) & 0x55555555; a = (a | (a >> 1)) & 0x33333333; a = (a | (a >> 2)) & 0x0f0f0f0f; a = (a | (a >> 4)) & 0x00ff00ff; (a | (a >> 8)) & 0x0000ffff }
+> find dey 1
+find dey: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 15 as written):
+  cost 9.375 sg_ballot(x >> (2lane + 1 & 0x1f) & 1 != 0) & 0xffff
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit, or none: that bit of the word, its position a multiple of the lane's index plus a constant) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> revl(x: u32 uniform) = { r: u32 = 0; for i in 0..31 { r = r | (((x >> i) & 1) << (31 - i)) }; r }
+> find revl 1
+find revl: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..31; r = 0 then r | (x >> i & 1) << 31 - i).r priced as 32 iterations x 13.25 (listed under branch)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 424 as written):
+  cost 6.375 sg_ballot(x >> 31 - lane & 1 != 0)
+           every operation of the function is linear over GF(2) in the bits of x (xor, not, shifts and masks by constants, conversions, an or or a sum of fields that share no bit, a loop of a constant count run through), so bit i of the result is the parity of x & row[i]; lane i works that bit out (every row has one bit: that bit of the word, its position a constant less the lane's index) and the ballot puts it at bit i
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..31; r = 0 then r | (x >> i & 1) << 31 - i).r priced as 32 iterations x 13.25 (listed under branch)
+> x3(x: u32 uniform) = x + (x << 1)
+> find x3 1
+find x3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  derived, but not cheaper under gt1030 (cost 3, as written 2): x + (x << 1): the factor x of 2 terms taken out once
+  cost 2   x + (x + x)                              exact (proved by SAT)
+  [searched every term up to cost 2: 1077 distinct columns; 'more' continues]
+> sides(x: u32 uniform) = (x & 1) != 0 ? x >> 1 : x << 1
+> find sides 1
+find sides: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> S4(i: u32 in 0..15) = [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][i]
+> sbox(x: u32 uniform) = (x >> 4) xor S4(x & 15)
+> find sbox 1
+find sbox: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> neg2(x: u32 uniform) = (0 - (x & 3)) & 0xff
+> find neg2 1
+find neg2: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  cost 3   -(x & 3) & 0xff                          mask (proved by SAT)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> crcv(c: u32) = { r = c; for i in 0..7 { r = (r >> 1) xor (0xedb88320 & (0 - (r & 1))) }; r }
+> find crcv 1
+find crcv: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  note: loop loop(i in 0..7; r = c then r >> 1 xor -(r & 1) & 0xedb88320).r priced as 8 iterations x 12.25 (listed under branch)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+  note: loop loop(i in 0..7; r = c then r >> 1 xor -(r & 1) & 0xedb88320).r priced as 8 iterations x 12.25 (listed under branch)

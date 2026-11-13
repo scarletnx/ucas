@@ -15,11 +15,12 @@ int sg_range_of(const struct func *f, nid e, int W, int64_t *lo, int64_t *hi);
 
 /*
  * A GF(2)-affine map of one word: bit i of the value is the parity of
- * x & row[i], xor bit i of k; w its width.
+ * x & row[i], xor bit i of k; w its width.  A bit of bad is one that is
+ * not affine (two bits and-ed, a carry): a mask or a shift may drop it.
  */
 struct aff {
 	uint64_t row[64];
-	uint64_t k;
+	uint64_t k, bad;
 	int w;
 };
 /* e as an affine map of parameter slot's bits, by its structure; 0 when

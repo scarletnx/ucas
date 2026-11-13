@@ -3192,13 +3192,31 @@ under; the whole is then checked against the function on its domain
   table read once in each lane, at the lane's index) and be read by a
   shuffle: no memory, no bank conflicts.  Every lookup of the table or
   none.
-- A GF(2)-linear function of one shared word, bit by bit: lane i works
-  out bit i of the result, the parity of x & row[i], and the ballot
-  puts the 32 bits together.  Linearity is derived from the structure
-  (xor, not, shifts and masks by constants, conversions, an or or a sum
-  of fields that share no bit).  When every row has one bit the lane
-  takes that bit of the word, its position `lane + b`, `b - lane` or
-  `lane xor b` when the rows follow one of those and a table otherwise.
+- A GF(2)-linear function of the words the lanes share, bit by bit:
+  lane i works out bit i of the result, the parity of the words' bits
+  that row[i] names (x & row[i] for one word), and the ballot puts the
+  32 bits together.  Linearity is derived from the structure: xor, not,
+  shifts and masks by constants, conversions, an or or a sum of fields
+  that share no bit; a bit negated (a mask of all ones or none) or
+  times a constant; a `?:` on one bit whose sides differ by a
+  constant; a constant table that is linear in its index (every entry
+  is the xor of the entries of its index's bits, each checked); a `for`
+  loop of a constant count, run through with its variables as maps of
+  the words' bits (the index is a constant in each trip, and so is
+  `31 - i`).  A bit that is not linear (two bits and-ed or or-ed, what
+  a carry reaches) is kept as such and a later mask or shift may drop
+  it: the function is linear when none reaches the result, as in a
+  Morton code's `(a | a << 8) & 0x00ff00ff`.  When every row has one
+  bit the lane takes that bit of the word, its position `lane + b`,
+  `b - lane`, `lane xor b` or `c + k lane` when the rows follow one of
+  those and a table otherwise; when the bits are in two words, the
+  word is the one a bit of the lane's index names (a table otherwise).
+  A lane whose row is empty has no bit to work out (a result narrower
+  than the subgroup, the upper half of a Morton code's inverse): the
+  table and `c + k lane` forms leave it any bit and mask the ballot.
+  Under gt1030 a CRC-32 step over a byte written as a loop goes from
+  98 to 14.25, a Morton code of two u16 words from 27 to 12.375 and
+  its inverse from 13 to 9.375 (tests/sgslice.ucas).
 - A table read at the lane's index (the register above, a bit slice's
   rows or shifts) whose entries are a closed form of the lane, `c + k
   lane` (every entry checked) or one of find's maps of one small-range

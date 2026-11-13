@@ -1,0 +1,56 @@
+# Bit slices through the ballot (src/sg.c) of what is linear over GF(2)
+# however it is written, and of several words the lanes share: lane i
+# works out bit i of the result, the ballot puts the bits together.
+use gt1030
+
+# a CRC-32 step over a byte, written as a loop: the low bit negated is a
+# mask of the polynomial; the loop is run through with its state as a
+# map of the word's bits
+crc(c: u32 uniform) = { r = c; for i in 0..7 { r = (r >> 1) xor (0xedb88320 & (0 - (r & 1))) }; r }
+find crc 1
+# the same step as a ?: on the low bit: its sides differ by a constant
+crcsel(c: u32 uniform) = { r = c; for i in 0..7 { r = (r & 1) != 0 ? (r >> 1) xor 0xedb88320 : r >> 1 }; r }
+find crcsel 1
+# two words, the state and the byte that enters it, the bit times the
+# polynomial: each row names bits of both
+crcb(c: u32 uniform, b: u8 uniform) = { r = c xor b; for i in 0..7 { r = (r >> 1) xor ((r & 1) * 0xedb88320) }; r }
+find crcb 1
+# a nibble at a time through a table: the table is linear in its index
+# (every entry is the xor of the entries of its index's bits)
+T4(i: u32 in 0..15) = [0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c][i]
+crct(c: u32 uniform, b: u8 uniform) = { r = c xor b; r = (r >> 4) xor T4(r & 15); (r >> 4) xor T4(r & 15) }
+find crct 1
+# the loop and the ?: are one function
+equiv crc crcsel
+
+# a Morton code of two words: the or of bits that overlap is not linear,
+# and the mask after it drops those bits; every row has one bit, of x in
+# the even lanes and of y in the odd ones
+mort(x: u16 uniform, y: u16 uniform) = { a: u32 = x; a = (a | (a << 8)) & 0x00ff00ff; a = (a | (a << 4)) & 0x0f0f0f0f; a = (a | (a << 2)) & 0x33333333; a = (a | (a << 1)) & 0x55555555; b: u32 = y; b = (b | (b << 8)) & 0x00ff00ff; b = (b | (b << 4)) & 0x0f0f0f0f; b = (b | (b << 2)) & 0x33333333; b = (b | (b << 1)) & 0x55555555; a | (b << 1) }
+find mort 1
+# its inverse, the even bits and the odd bits of a word: 16 lanes have a
+# bit to work out, the others are masked out of the ballot
+dex(x: u32 uniform) = { a = x & 0x55555555; a = (a | (a >> 1)) & 0x33333333; a = (a | (a >> 2)) & 0x0f0f0f0f; a = (a | (a >> 4)) & 0x00ff00ff; (a | (a >> 8)) & 0x0000ffff }
+find dex 1
+dey(x: u32 uniform) = { a = (x >> 1) & 0x55555555; a = (a | (a >> 1)) & 0x33333333; a = (a | (a >> 2)) & 0x0f0f0f0f; a = (a | (a >> 4)) & 0x00ff00ff; (a | (a >> 8)) & 0x0000ffff }
+find dey 1
+# a bit reversal written as a loop over the bits: the index is a
+# constant in each trip, so are 31 - i and the shifts by them
+revl(x: u32 uniform) = { r: u32 = 0; for i in 0..31 { r = r | (((x >> i) & 1) << (31 - i)) }; r }
+find revl 1
+
+# not linear, nothing derived: a carry that reaches the result, a ?:
+# whose sides differ by more than a constant, a table that is not linear
+# in its index, more than one bit negated
+x3(x: u32 uniform) = x + (x << 1)
+find x3 1
+sides(x: u32 uniform) = (x & 1) != 0 ? x >> 1 : x << 1
+find sides 1
+S4(i: u32 in 0..15) = [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][i]
+sbox(x: u32 uniform) = (x >> 4) xor S4(x & 15)
+find sbox 1
+neg2(x: u32 uniform) = (0 - (x & 3)) & 0xff
+find neg2 1
+# a word that is not shared by the lanes: nothing
+crcv(c: u32) = { r = c; for i in 0..7 { r = (r >> 1) xor (0xedb88320 & (0 - (r & 1))) }; r }
+find crcv 1

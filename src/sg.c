@@ -540,8 +540,9 @@ active_mask_in(nid e, uint8_t *seen)
  *   a scan of anything: a ladder of ceil(log2 W) shuffles and adds;
  *   a constant table of at most W entries, held one entry per lane and
  *     read by a shuffle;
- *   a GF(2)-linear function of a word the lanes share: each lane works
- *     out one bit of the result and the ballot puts the bits together;
+ *   a GF(2)-linear function of the words the lanes share: each lane
+ *     works out one bit of the result and the ballot puts the bits
+ *     together;
  *   an order statistic of a value per lane, however written: the
  *     bitonic network, read where it is needed.
  */
@@ -1601,10 +1602,15 @@ none:
 }
 
 /*
- * A GF(2)-affine map of one word: bit i of the result is the parity of
- * x & row[i], xor bit i of k.  Derived from the structure of the
- * expression: xor, not, shifts and masks by constants, conversions, and
- * an or or a sum of fields that cannot both be 1 at any bit.
+ * A GF(2)-affine map of the words the lanes share: bit i of the result
+ * is the parity of the words' bits that row[i] names, xor bit i of k
+ * (the words side by side in a row, each at its offset).  Derived from
+ * the structure of the expression: xor, not, shifts and masks by
+ * constants, conversions, an or or a sum of fields that cannot both be 1
+ * at any bit; a bit negated or multiplied by a constant; a ?: on one bit
+ * whose sides differ by a constant; a constant table that is affine in
+ * its index; and a for loop of a constant count, run through with its
+ * variables as maps.
  */
 
 static uint64_t
@@ -1619,12 +1625,225 @@ int_width(ty_t t)
 	return TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 0;
 }
 
-/* bit i of a is always 0 / the constant 1 */
-#define BIT0(a, i) ((a)->row[i] == 0 && !(((a)->k >> (i)) & 1))
-#define BIT1(a, i) ((a)->row[i] == 0 && (((a)->k >> (i)) & 1))
+/* bit i of a is always 0 / the constant 1 / not affine */
+#define BAD(a, i) ((int)(((a)->bad >> (i)) & 1))
+#define BIT0(a, i) ((a)->row[i] == 0 && !(((a)->k >> (i)) & 1) && !BAD(a, i))
+#define BIT1(a, i) ((a)->row[i] == 0 && (((a)->k >> (i)) & 1) && !BAD(a, i))
 
-int
-gf2_affine(nid e, int slot, struct aff *r, int depth)
+enum { AF_BIT = 1, AF_SEL = 2, AF_TAB = 4, AF_LOOP = 8 };
+
+struct affcx {
+	int off[MAXP], pw[MAXP];	/* a word's bits in a row; pw 0: not one */
+	const struct aff *env[NSLOT];	/* a loop's variables as they stand */
+	int budget;			/* nodes left to visit */
+	int used;			/* AF_*: what the map went through */
+};
+
+static int aff_of(nid e, struct affcx *cx, struct aff *r, int depth);
+
+/* a is a constant */
+static int
+aff_const(const struct aff *a)
+{
+	int i;
+
+	for (i = 0; i < 64; i++)
+		if (a->row[i])
+			return 0;
+	return !a->bad;
+}
+
+/* a is 0 above its bit 0 */
+static int
+aff_one_bit(const struct aff *a)
+{
+	int i;
+
+	for (i = 1; i < 64; i++)
+		if (!BIT0(a, i))
+			return 0;
+	return 1;
+}
+
+/* a as a value of type t: cut to its width (an untyped one keeps a's) */
+static void
+aff_fit(struct aff *a, ty_t t)
+{
+	int w = int_width(t), i;
+
+	if (!w)
+		return;
+	for (i = w; i < 64; i++)
+		a->row[i] = 0;
+	a->k &= wmask(w);
+	a->bad &= wmask(w);
+	a->w = w;
+}
+
+/* bit i of r is bit j of a */
+static void
+aff_take(struct aff *r, int i, const struct aff *a, int j)
+{
+	r->row[i] = a->row[j];
+	r->k |= ((a->k >> j) & 1) << i;
+	r->bad |= (uint64_t)BAD(a, j) << i;
+}
+
+/*
+ * A condition that is one affine bit: a comparison with == or != whose
+ * sides differ at one bit position only.  *row and *k are that bit.
+ */
+static int
+aff_bit(nid c, struct affcx *cx, uint64_t *row, int *k, int depth)
+{
+	struct aff a, b;
+	int op = N.op[c], i, at = -1;
+
+	if (depth > 200)
+		return 0;
+	if (op == O_LNOT) {
+		if (!aff_bit(N.a[c], cx, row, k, depth + 1))
+			return 0;
+		*k ^= 1;
+		return 1;
+	}
+	/* unsigned sides only: the bits compared are then the values */
+	if ((op != O_NE && op != O_EQ) || TYK(N.ty[N.a[c]]) == K_SINT ||
+	    TYK(N.ty[N.b[c]]) == K_SINT || !aff_of(N.a[c], cx, &a, depth + 1) ||
+	    !aff_of(N.b[c], cx, &b, depth + 1))
+		return 0;
+	if (a.bad || b.bad)
+		return 0;
+	*row = 0;
+	*k = 0;
+	for (i = 0; i < 64; i++) {
+		uint64_t rw = a.row[i] ^ b.row[i];
+		int kd = (int)(((a.k ^ b.k) >> i) & 1);
+		if (!rw && !kd)
+			continue;
+		if (at >= 0)
+			return 0;
+		at = i;
+		*row = rw;
+		*k = kd;
+	}
+	if (op == O_EQ)
+		*k ^= 1;
+	return 1;
+}
+
+/* the value of a constant map of type t */
+static int64_t
+aff_value(const struct aff *a, ty_t t)
+{
+	if (TYK(t) == K_SINT && a->w < 64 && ((a->k >> (a->w - 1)) & 1))
+		return (int64_t)(a->k | ~wmask(a->w));
+	return (int64_t)a->k;
+}
+
+/* a for loop of a constant count: its states' maps after every trip */
+static int
+aff_loop(nid e, struct affcx *cx, struct aff *r, int depth)
+{
+	struct loopdef d;
+	struct aff *cur, *nxt, ix, a, b;
+	const struct aff *saved[MAXST + 1];
+	int64_t lo, hi, it;
+	int k, ok = 1;
+
+	loop_get(loop_ent(e), &d);
+	if (d.kind != LK_FOR || !aff_of(N.a[e], cx, &a, depth + 1) ||
+	    !aff_const(&a) || !aff_of(N.b[e], cx, &b, depth + 1) ||
+	    !aff_const(&b))
+		return 0;
+	lo = aff_value(&a, N.ty[N.a[e]]);
+	hi = aff_value(&b, N.ty[N.b[e]]);
+	if ((hi >= lo && hi - lo >= 4096) || hi < lo - 1)
+		return 0;
+	cur = xmalloc(2 * MAXST * sizeof *cur);
+	nxt = cur + MAXST;
+	for (k = 0; k < d.nst && ok; k++) {
+		ok = aff_of(d.init[k], cx, &cur[k], depth + 1);
+		aff_fit(&cur[k], d.sty[k]);
+	}
+	saved[MAXST] = cx->env[d.islot];
+	for (k = 0; k < d.nst; k++)
+		saved[k] = cx->env[d.sslot[k]];
+	for (it = lo; it <= hi && ok; it++) {
+		memset(&ix, 0, sizeof ix);
+		ix.w = int_width(d.ity) ? int_width(d.ity) : 64;
+		ix.k = (uint64_t)it & wmask(ix.w);
+		cx->env[d.islot] = &ix;
+		for (k = 0; k < d.nst; k++)
+			cx->env[d.sslot[k]] = &cur[k];
+		for (k = 0; k < d.nst && ok; k++) {
+			ok = aff_of(d.next[k], cx, &nxt[k], depth + 1);
+			aff_fit(&nxt[k], d.sty[k]);
+		}
+		memcpy(cur, nxt, (size_t)d.nst * sizeof *cur);
+	}
+	cx->env[d.islot] = saved[MAXST];
+	for (k = 0; k < d.nst; k++)
+		cx->env[d.sslot[k]] = saved[k];
+	if (ok) {
+		*r = cur[loop_res(e)];
+		aff_fit(r, N.ty[e]);
+		cx->used |= AF_LOOP;
+	}
+	free(cur);
+	return ok;
+}
+
+/* a constant table read at an affine index: affine when its entries are */
+static int
+aff_table(nid e, struct affcx *cx, struct aff *r, int depth)
+{
+	struct aff ix;
+	nid tab = N.a[e];
+	int w = int_width(N.ty[e]) ? int_width(N.ty[e]) : 64, nb = 0, i, j;
+	uint64_t t0, D[8], v;
+
+	if (N.op[tab] != O_TABLE || !aff_of(N.b[e], cx, &ix, depth + 1) ||
+	    ix.bad)
+		return 0;
+	for (i = 0; i < 64; i++)
+		if (!BIT0(&ix, i))
+			nb = i + 1;
+	if (nb > 8 || (1u << nb) > N.b[tab])
+		return 0;
+	for (v = 0; v < 1u << nb; v++) {
+		nid c = N.lst[N.a[tab] + v];
+		if (!is_const(c) || !TY_ISINT(N.ty[c]) || (w == 64 && N.ki[c] < 0))
+			return 0;
+	}
+#define ENT(v) ((uint64_t)N.ki[N.lst[N.a[tab] + (v)]] & wmask(w))
+	t0 = ENT(0);
+	for (j = 0; j < nb; j++)
+		D[j] = ENT(1u << j) ^ t0;
+	for (v = 0; v < 1u << nb; v++) {
+		uint64_t x = t0;
+		for (j = 0; j < nb; j++)
+			if ((v >> j) & 1)
+				x ^= D[j];
+		if (x != ENT(v))
+			return 0;
+	}
+#undef ENT
+	memset(r, 0, sizeof *r);
+	r->w = w;
+	r->k = t0;
+	for (i = 0; i < w; i++)
+		for (j = 0; j < nb; j++)
+			if ((D[j] >> i) & 1) {
+				r->row[i] ^= ix.row[j];
+				r->k ^= ((ix.k >> j) & 1) << i;
+			}
+	cx->used |= AF_TAB;
+	return 1;
+}
+
+static int
+aff_of(nid e, struct affcx *cx, struct aff *r, int depth)
 {
 	struct aff a, b;
 	int w = int_width(N.ty[e]), i, op = N.op[e];
@@ -1636,25 +1855,112 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 		r->k = (uint64_t)N.ki[e] & wmask(r->w);
 		return 1;
 	}
-	if (!w || depth > 200)
+	if (depth > 200 || --cx->budget < 0)
+		return 0;
+	if (op == O_VAR && N.ki[e] >= MAXP && N.ki[e] < NSLOT &&
+	    cx->env[N.ki[e]]) {
+		*r = *cx->env[N.ki[e]];
+		return 1;
+	}
+	if (op == O_INDEX)
+		return aff_table(e, cx, r, depth);
+	if (op == O_ADD || op == O_SUB || op == O_MUL || op == O_DIV ||
+	    op == O_MOD || (!w && (op == O_AND || op == O_OR || op == O_XOR ||
+	    op == O_SHL || op == O_SHR))) {
+		/* constants (a loop's index among them) are worked out; an
+		 * untyped integer is one, or nothing */
+		int64_t x, y;
+		if (!aff_of(N.a[e], cx, &a, depth + 1) ||
+		    !aff_of(N.b[e], cx, &b, depth + 1))
+			return 0;
+		x = aff_value(&a, N.ty[N.a[e]]);
+		y = aff_value(&b, N.ty[N.b[e]]);
+		if (aff_const(&a) && aff_const(&b) && ((op != O_DIV &&
+		    op != O_MOD && op != O_SHL && op != O_SHR) || (x >= 0 &&
+		    y > 0 && (op == O_DIV || op == O_MOD || y < 63)))) {
+			r->w = w ? w : 64;
+			r->k = (uint64_t)(op == O_ADD ? a.k + b.k : op == O_SUB ?
+			    a.k - b.k : op == O_MUL ? a.k * b.k : op == O_DIV ?
+			    (uint64_t)(x / y) : op == O_MOD ? (uint64_t)(x % y) :
+			    op == O_AND ? a.k & b.k : op == O_OR ? a.k | b.k :
+			    op == O_XOR ? a.k ^ b.k : op == O_SHL ?
+			    (uint64_t)x << y : (uint64_t)(x >> y)) & wmask(r->w);
+			return 1;
+		}
+		if (op == O_DIV || op == O_MOD)
+			return 0;
+	}
+	if (!w)
 		return 0;
 	switch (op) {
 	case O_VAR:
-		if (N.ki[e] != slot)
+		if (N.ki[e] < 0 || N.ki[e] >= MAXP || !cx->pw[N.ki[e]])
 			return 0;
-		for (i = 0; i < w; i++)
-			r->row[i] = 1ULL << i;
+		for (i = 0; i < w && i < cx->pw[N.ki[e]]; i++)
+			r->row[i] = 1ULL << (cx->off[N.ki[e]] + i);
 		return 1;
+	case O_LOOP:
+		return aff_loop(e, cx, r, depth);
 	case O_NOT:
-		if (!gf2_affine(N.a[e], slot, r, depth + 1))
+		if (!aff_of(N.a[e], cx, r, depth + 1))
 			return 0;
 		r->k ^= wmask(w);
 		r->w = w;
 		return 1;
+	case O_NEG:
+	case O_SUB:
+		/* a bit negated: that bit at every position */
+		if (op == O_NEG ? !aff_of(N.a[e], cx, &b, depth + 1) :
+		    (!aff_const(&a) || a.k))
+			return 0;
+		if (!aff_one_bit(&b))
+			return 0;
+		for (i = 0; i < w; i++)
+			aff_take(r, i, &b, 0);
+		cx->used |= AF_BIT;
+		return 1;
+	case O_MUL: {
+		const struct aff *v = &a;
+		uint64_t K;
+		if (aff_const(&a))
+			v = &b;
+		else if (!aff_const(&b))
+			return 0;
+		K = (v == &a ? b.k : a.k) & wmask(w);
+		/* a bit times a constant: the bit wherever the constant has one */
+		if (!aff_one_bit(v))
+			return 0;
+		for (i = 0; i < w; i++)
+			if ((K >> i) & 1)
+				aff_take(r, i, v, 0);
+		cx->used |= AF_BIT;
+		return 1;
+	}
+	case O_SEL: {
+		uint64_t crow;
+		int ck;
+		if (!aff_bit(N.a[e], cx, &crow, &ck, depth + 1) ||
+		    !aff_of(N.b[e], cx, &a, depth + 1) ||
+		    !aff_of(N.c[e], cx, &b, depth + 1))
+			return 0;
+		/* c ? a : b is b xor (c and (a xor b)): affine where a xor b
+		 * is a constant */
+		for (i = 0; i < w; i++) {
+			uint64_t dk = ((a.k ^ b.k) >> i) & 1;
+			if (a.row[i] != b.row[i] || BAD(&a, i) || BAD(&b, i)) {
+				r->bad |= 1ULL << i;
+				continue;
+			}
+			r->row[i] = b.row[i] ^ (dk ? crow : 0);
+			r->k |= (((b.k >> i) & 1) ^ (dk & (uint64_t)ck)) << i;
+		}
+		cx->used |= AF_SEL;
+		return 1;
+	}
 	case O_CAST: {
 		ty_t ta = N.ty[N.a[e]];
 		int wa = int_width(ta), sgn = TYK(ta) == K_SINT;
-		if (!gf2_affine(N.a[e], slot, &a, depth + 1))
+		if (!aff_of(N.a[e], cx, &a, depth + 1))
 			return 0;
 		if (!wa)
 			wa = a.w;
@@ -1662,17 +1968,17 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 			int j = i < wa ? i : sgn ? wa - 1 : -1;
 			if (j < 0)
 				continue;
-			r->row[i] = a.row[j];
-			r->k |= ((a.k >> j) & 1) << i;
+			aff_take(r, i, &a, j);
 		}
 		return 1;
 	}
 	case O_SHL: case O_SHR: {
 		int64_t s;
 		int sgn = TYK(N.ty[e]) == K_SINT;
-		if (!is_const(N.b[e]) || !gf2_affine(N.a[e], slot, &a, depth + 1))
+		if (!aff_of(N.b[e], cx, &b, depth + 1) || !aff_const(&b) ||
+		    !aff_of(N.a[e], cx, &a, depth + 1))
 			return 0;
-		s = N.ki[N.b[e]];
+		s = aff_value(&b, N.ty[N.b[e]]);
 		if (s < 0 || s >= w)
 			return 0;
 		for (i = 0; i < w; i++) {
@@ -1681,14 +1987,13 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 				j = w - 1;
 			if (j < 0 || j >= w)
 				continue;
-			r->row[i] = a.row[j];
-			r->k |= ((a.k >> j) & 1) << i;
+			aff_take(r, i, &a, j);
 		}
 		return 1;
 	}
 	case O_XOR: case O_AND: case O_OR: case O_ADD:
-		if (!gf2_affine(N.a[e], slot, &a, depth + 1) ||
-		    !gf2_affine(N.b[e], slot, &b, depth + 1))
+		if (op != O_ADD && (!aff_of(N.a[e], cx, &a, depth + 1) ||
+		    !aff_of(N.b[e], cx, &b, depth + 1)))
 			return 0;
 		for (i = 0; i < w; i++) {
 			const struct aff *keep = NULL;
@@ -1696,6 +2001,7 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 			if (op == O_XOR) {
 				r->row[i] = a.row[i] ^ b.row[i];
 				r->k |= (((a.k ^ b.k) >> i) & 1) << i;
+				r->bad |= (uint64_t)(BAD(&a, i) | BAD(&b, i)) << i;
 				continue;
 			}
 			if (op == O_AND) {
@@ -1705,8 +2011,6 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 					keep = &b;
 				else if (BIT1(&b, i))
 					keep = &a;
-				else
-					return 0;
 			} else {
 				/* or, +: no bit where both can be 1 (so no carry) */
 				if (BIT0(&a, i))
@@ -1715,19 +2019,34 @@ gf2_affine(nid e, int slot, struct aff *r, int depth)
 					keep = &a;
 				else if (op == O_OR && (BIT1(&a, i) || BIT1(&b, i)))
 					one = 1;
-				else
-					return 0;
 			}
 			if (one)
 				r->k |= 1ULL << i;
-			else {
-				r->row[i] = keep->row[i];
-				r->k |= ((keep->k >> i) & 1) << i;
-			}
+			else if (keep)
+				aff_take(r, i, keep, i);
+			else if (op == O_ADD) {
+				/* a carry leaves here: nothing above is affine */
+				r->bad |= ~0ULL << i;
+				break;
+			} else
+				r->bad |= 1ULL << i;
 		}
+		r->bad &= wmask(w);
 		return 1;
 	}
 	return 0;
+}
+
+int
+gf2_affine(nid e, int slot, struct aff *r, int depth)
+{
+	struct affcx cx;
+
+	(void)depth;
+	memset(&cx, 0, sizeof cx);
+	cx.pw[slot] = 64;
+	cx.budget = 1 << 20;
+	return aff_of(e, &cx, r, 0) && !r->bad;
 }
 
 static int
@@ -1752,40 +2071,116 @@ ctz64(uint64_t v)
 	return n;
 }
 
+/* a word the lanes share, and where its bits sit in a row */
+struct sgword {
+	nid x;
+	int off, w;
+};
+
+/* the word a one-bit row reads, or -1 */
+static int
+row_word(uint64_t row, const struct sgword *wd, int nw)
+{
+	int p;
+
+	if (popc64(row) != 1)
+		return -1;
+	for (p = 0; p < nw; p++)
+		if ((row >> wd[p].off) & wmask(wd[p].w))
+			return p;
+	return -1;
+}
+
 /*
- * The bit a lane works out: x's bit s[lane] when every row is one bit
- * (the shift amount lane + b, b - lane or lane xor b when the rows follow
- * one of those, else a table), the parity of x & row[lane] otherwise.
- * kind: 0 parity, 1 a table of shifts, 2.. a closed shift.
+ * The bit a lane works out: one word's bit s[lane] when every row is one
+ * bit (the shift amount lane + b, b - lane or lane xor b when the rows
+ * follow one of those, else a table; with the rows in two words, the
+ * word a table names), the parity of the words under row[lane]
+ * otherwise.  kind: 0 parity, 1 a table of shifts, 2.. a closed shift, 5
+ * two words, 6 the shift c + k lane.  A lane whose row is empty has no
+ * bit to work out: the tables and the shift c + k lane leave it any, and
+ * *live, the lanes that have one, masks the ballot.  The tables read at
+ * the lane's index go to rd.
  */
 static nid
-lane_bit(const struct aff *m, nid x, int W, int kind, nid *read)
+lane_bit(const struct aff *m, const struct sgword *wd, int nw, int W, int kind,
+    nid *rd, int *nrd, uint64_t *live)
 {
-	int n = int_width(N.ty[x]), i;
-	nid L = sg_lane(), e[SG_MAXW], s = 0, one = mk_const_i(N.ty[x], 1);
-	int64_t sh[SG_MAXW];
+	int n, i, p = -1, q = -1, l0 = -1, l1 = -1;
+	nid L = sg_lane(), e[SG_MAXW], s = 0, x, one;
+	int64_t sh[SG_MAXW], c = 0, k = 0;
 
-	*read = 0;
+	*nrd = 0;
+	*live = 0;
+	for (i = 0; i < W && i < m->w; i++)
+		if (m->row[i])
+			*live |= 1ULL << i;
 	if (kind == 0) {
-		for (i = 0; i < W; i++)
-			e[i] = mk_const_i(N.ty[x], (int64_t)(i < m->w ? m->row[i] :
-			    0));
-		*read = mk_index(mk_table(e, (uint32_t)W), L);
-		return mk_bin(O_NE, mk_bin(O_AND, mk_un(O_POPCNT, mk_bin(O_AND, x,
-		    *read)), mk_const_i(TY_LIT, 1)), mk_const_i(TY_LIT, 0));
+		nid acc = 0;
+		int used = 0, maxw = 0;
+		for (p = 0; p < nw; p++) {
+			uint64_t any = 0;
+			for (i = 0; i < W && i < m->w; i++)
+				any |= (m->row[i] >> wd[p].off) & wmask(wd[p].w);
+			if (any) {
+				used++;
+				if (wd[p].w > maxw)
+					maxw = wd[p].w;
+			}
+		}
+		for (p = 0; p < nw; p++) {
+			uint64_t any = 0;
+			nid t;
+			for (i = 0; i < W; i++) {
+				uint64_t rw = i < m->w ? (m->row[i] >> wd[p].off) &
+				    wmask(wd[p].w) : 0;
+				any |= rw;
+				e[i] = mk_const_i(N.ty[wd[p].x], (int64_t)rw);
+			}
+			if (!any)
+				continue;
+			rd[*nrd] = mk_index(mk_table(e, (uint32_t)W), L);
+			t = mk_bin(O_AND, wd[p].x, rd[(*nrd)++]);
+			if (used > 1)
+				t = mk_cast(TY(K_UINT, maxw), t);
+			acc = acc ? mk_bin(O_XOR, acc, t) : t;
+		}
+		return mk_bin(O_NE, mk_bin(O_AND, mk_un(O_POPCNT, acc),
+		    mk_const_i(TY_LIT, 1)), mk_const_i(TY_LIT, 0));
 	}
-	if (m->w != W)
+	if (*live != wmask(W) && kind != 1 && kind != 5 && kind != 6)
 		return 0;
 	for (i = 0; i < W; i++) {
-		if (popc64(m->row[i]) != 1)
+		int pi;
+		sh[i] = 0;
+		if (!((*live >> i) & 1))
+			continue;
+		pi = row_word(m->row[i], wd, nw);
+		if (pi < 0)
 			return 0;
-		sh[i] = ctz64(m->row[i]);
+		if (p < 0)
+			p = pi;
+		if (pi != p) {
+			if (q >= 0 && pi != q)
+				return 0;
+			q = pi;
+		}
+		sh[i] = ctz64(m->row[i]) - wd[pi].off;
+		if (l0 < 0)
+			l0 = i;
+		else if (l1 < 0)
+			l1 = i;
 	}
+	if (p < 0 || (kind == 5) != (q >= 0))
+		return 0;
+	x = wd[p].x;
+	n = wd[p].w;
+	one = mk_const_i(N.ty[x], 1);
 	switch (kind) {
 	case 1:
 		for (i = 0; i < W; i++)
 			e[i] = mk_const_i(TY(K_UINT, 32), sh[i]);
-		s = *read = mk_index(mk_table(e, (uint32_t)W), L);
+		s = rd[(*nrd)++] = mk_index(mk_table(e, (uint32_t)W), L);
 		break;
 	case 2:		/* (lane + b) mod n, n a power of two */
 	case 3:		/* (b - lane) mod n */
@@ -1807,6 +2202,59 @@ lane_bit(const struct aff *m, nid x, int W, int kind, nid *read)
 				return 0;
 		s = mk_bin(O_XOR, L, mk_const_i(TY(K_UINT, 32), sh[0]));
 		break;
+	case 5: {	/* two words: which one, and the shift, by tables */
+		ty_t t = TY(K_UINT, wd[p].w > wd[q].w ? wd[p].w : wd[q].w);
+		nid which = 0;
+		int b;
+		for (i = 0; i < W; i++)
+			e[i] = mk_const_i(TY(K_UINT, 32), sh[i]);
+		s = rd[(*nrd)++] = mk_index(mk_table(e, (uint32_t)W), L);
+		/* the word a bit of the lane's index names, else a table */
+		for (b = 0; b < 6 && !which; b++) {
+			for (i = 0; i < W; i++)
+				if (((*live >> i) & 1) && (row_word(m->row[i], wd,
+				    nw) == q) != ((i >> b) & 1))
+					break;
+			if (i == W)
+				which = mk_bin(O_AND, b ? mk_bin(O_SHR, L,
+				    mk_const_i(TY(K_UINT, 32), b)) : L,
+				    mk_const_i(TY(K_UINT, 32), 1));
+		}
+		if (!which) {
+			for (i = 0; i < W; i++)
+				e[i] = mk_const_i(TY(K_UINT, 32), ((*live >> i) &
+				    1) && row_word(m->row[i], wd, nw) == q);
+			which = rd[(*nrd)++] = mk_index(mk_table(e, (uint32_t)W),
+			    L);
+		}
+		x = mk_sel(mk_bin(O_NE, which, mk_const_i(TY_LIT, 0)),
+		    mk_cast(t, wd[q].x), mk_cast(t, wd[p].x));
+		one = mk_const_i(t, 1);
+		break;
+	}
+	case 6:		/* c + k lane, in the lanes that have a bit */
+		if (l1 < 0 || (sh[l1] - sh[l0]) % (l1 - l0))
+			return 0;
+		k = (sh[l1] - sh[l0]) / (l1 - l0);
+		c = sh[l0] - k * l0;
+		if (k == 0 || ((k == 1 || k == -1) && *live == wmask(W)))
+			return 0;
+		for (i = 0; i < W; i++)
+			if (((*live >> i) & 1) && sh[i] != c + k * i)
+				return 0;
+		s = k > 0 ? mk_bin(O_MUL, L, mk_const_i(TY(K_UINT, 32), k)) :
+		    mk_bin(O_MUL, L, mk_const_i(TY(K_UINT, 32), -k));
+		if (k == 1 || k == -1)
+			s = L;
+		s = k > 0 ? (c ? mk_bin(O_ADD, s, mk_const_i(TY(K_UINT, 32), c)) :
+		    s) : mk_bin(O_SUB, mk_const_i(TY(K_UINT, 32), c), s);
+		/* the lanes without a bit shift inside the word too */
+		if (c < 0 || c >= n || c + k * (W - 1) < 0 || c + k * (W - 1) >= n) {
+			if (n & (n - 1))
+				return 0;
+			s = mk_bin(O_AND, s, mk_const_i(TY(K_UINT, 32), n - 1));
+		}
+		break;
 	default:
 		return 0;
 	}
@@ -1824,14 +2272,21 @@ bitslice(struct sgf *g, nid cur, float *cost)
 	    "lane's index plus a constant", "every row has one bit: that bit "
 	    "of the word, its position a constant less the lane's index",
 	    "every row has one bit: that bit of the word, its position the "
-	    "lane's index xor a constant"};
+	    "lane's index xor a constant", "every row has one bit: that bit "
+	    "of one of the two words, which word and its position by the "
+	    "lane's index", "every row has one bit, or none: that bit of the "
+	    "word, its position a multiple of the lane's index plus a "
+	    "constant"};
 	uint64_t kk;
 	const struct func *f = g->f;
-	int W = (int)g->m->par[MP_WARP], slot = -1, j, kind, bk = -1, closed = 0;
-	struct sbuf how2 = {0};
+	int W = (int)g->m->par[MP_WARP], nw = 0, tot = 0, j, kind, bk = -1;
+	int closed = 0, used, rows = 0;
+	struct sbuf how2 = {0}, names = {0};
 	uint64_t slots = node_slots(cur);
+	struct affcx cx;
+	struct sgword wd[MAXP];
 	struct aff *m;
-	nid x, best = 0;
+	nid best = 0;
 	float bc = *cost;
 	ty_t t = N.ty[cur], bt = TY(K_UINT, W > 32 ? 64 : 32);
 
@@ -1839,40 +2294,64 @@ bitslice(struct sgf *g, nid cur, float *cost)
 	    (N.fl[cur] & NF_SG) ||
 	    !int_width(t) || int_width(t) > W)
 		return cur;
+	/* the words the function reads: each shared by the lanes, side by
+	 * side in a row */
+	memset(&cx, 0, sizeof cx);
+	cx.budget = 1 << 20;
 	for (j = 0; j < f->np; j++)
 		if ((slots >> j) & 1) {
-			if (slot >= 0)
+			int pw = int_width(f->p[j].ty);
+			if (!f->p[j].uniform || !pw || tot + pw > 64)
 				return cur;
-			slot = j;
+			cx.off[j] = tot;
+			cx.pw[j] = pw;
+			wd[nw].x = mk_var((uint32_t)j, f->p[j].name, f->p[j].ty);
+			wd[nw].off = tot;
+			wd[nw++].w = pw;
+			tot += pw;
 		}
-	if (slot < 0 || (slots >> MAXP) || !f->p[slot].uniform ||
-	    !int_width(f->p[slot].ty))
+	if (!nw || (slots >> MAXP))
 		return cur;
+	/* several words go side by side as unsigned ones */
+	for (j = 0; j < nw && nw > 1; j++)
+		if (TYK(N.ty[wd[j].x]) != K_UINT)
+			return cur;
 	m = xmalloc(sizeof *m);
-	if (!gf2_affine(cur, slot, m, 0)) {
+	if (!aff_of(cur, &cx, m, 0) || m->bad) {
 		free(m);
 		return cur;
 	}
-	x = mk_var((uint32_t)slot, f->p[slot].name, f->p[slot].ty);
-	for (kind = 0; kind < 5; kind++) {
-		nid rd, b = lane_bit(m, x, W, kind, &rd), cand;
+	used = cx.used;
+	for (j = 0; j < m->w && j < W; j++)
+		rows += m->row[j] != 0;
+	for (kind = 0; kind < 7 && rows; kind++) {
+		nid rd[MAXP + 1], b, cand;
 		struct sbuf h = {0};
-		int took = 0;
+		uint64_t live;
+		int took = 0, nrd, q;
 		float c;
+		b = lane_bit(m, wd, nw, W, kind, rd, &nrd, &live);
 		if (!b)
 			continue;
 		cand = mk_sg(O_SGBALLOT, b, mk_const_i(TY_LIT, W), 0);
+		if (kind && live != wmask(W))
+			cand = mk_bin(O_AND, cand, mk_const_i(bt, (int64_t)live));
 		if (m->k)
 			cand = mk_bin(O_XOR, cand, mk_const_i(bt, (int64_t)m->k));
 		cand = mk_cast(t, cand);
 		c = price(g, cand);
-		if (rd) {
+		for (q = 0; q < nrd; q++) {
 			/* the rows (or shifts) a lane reads, as a closed form of
 			 * the lane; a row past the result's width is cut away */
-			nid fm, c2 = lane_forms(g, cand, rd, kind == 0 ? m->w : W, W,
-			    &c, &h, &fm);
-			took = c2 != cand;
+			struct sbuf h1 = {0};
+			nid fm, c2 = lane_forms(g, cand, rd[q], kind == 0 ? m->w : W,
+			    W, &c, &h1, &fm);
+			if (c2 != cand) {
+				sb_printf(&h, "%s%s", took ? "; " : "", sb_str(&h1));
+				took = 1;
+			}
 			cand = c2;
+			free(h1.p);
 		}
 		if (c < bc) {
 			bc = c;
@@ -1891,16 +2370,30 @@ bitslice(struct sgf *g, nid cur, float *cost)
 		free(how2.p);
 		return cur;
 	}
+	for (j = 0; j < nw; j++)
+		sb_printf(&names, "%s%s", j == 0 ? "" : j == nw - 1 ? " and " :
+		    ", ", node_str(wd[j].x));
 	sb_printf(&g->why, "every operation of the function is linear over "
 	    "GF(2) in the bits of %s (xor, not, shifts and masks by constants, "
-	    "conversions, an or or a sum of fields that share no bit), so bit i "
-	    "of the result is the parity of %s & row[i]%s; lane i works that "
-	    "bit out (%s%s%s) and the ballot puts it at bit i\n",
-	    sym_str(f->p[slot].name), sym_str(f->p[slot].name), kk ?
+	    "conversions, an or or a sum of fields that share no bit%s%s%s%s), "
+	    "so bit i of the result is the parity of ", sb_str(&names),
+	    (used & AF_BIT) ? ", a bit negated or times a constant" : "",
+	    (used & AF_SEL) ? ", a ?: on one bit whose sides differ by a "
+	    "constant" : "", (used & AF_TAB) ? ", a table that is linear in "
+	    "its index, every entry checked" : "", (used & AF_LOOP) ? ", a "
+	    "loop of a constant count run through" : "");
+	if (nw == 1)
+		sb_printf(&g->why, "%s & row[i]", sb_str(&names));
+	else
+		sb_printf(&g->why, "the bits of %s that row[i] names",
+		    sb_str(&names));
+	sb_printf(&g->why, "%s; lane i works that "
+	    "bit out (%s%s%s) and the ballot puts it at bit i\n", kk ?
 	    ", xor bit i of a constant" : "", how[bk], closed ? "; the table "
 	    "read without a load, from the lane's index: " : "", closed ?
 	    sb_str(&how2) : "");
 	free(how2.p);
+	free(names.p);
 	*cost = bc;
 	return best;
 }
