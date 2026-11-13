@@ -2180,6 +2180,11 @@ and the dot with its add (2) still wins, `a*8 + b` is one shift-add
 a 16 x 16 multiply-add at 1 (`mul16`) the product of two bytes stays
 an XMAD.  The search itself steers class by class, where a group's
 gain shows before the cover hides it inside a multiply-add it breaks.
+A single term that is a value times a power of two (`x * 8u`, of
+either sign) is never laid into a dot, whatever the model says: the
+dot would do the work of one shift, which any driver makes of that
+product; a byte of a word times one (`((w >> 8) & 255) * 4`) still is,
+since the dot reads the word and saves the extract.
 
 **SPIR-V and GLSL.**  `animate exec` runs OpUDot, OpSDot, OpSUDot and
 their AccSat forms, packed or on vectors, priced by the model's class
