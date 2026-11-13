@@ -361,28 +361,155 @@ texalu bl: reads through the texture unit under texel (cost 200.5 as written):
 > ga(x: u8 in 1..3, y: u8 in 1..3) = (P[y*5+x-6] + 2*P[y*5+x-5] + P[y*5+x-4] + 2*P[y*5+x-1] + 4*P[y*5+x] + 2*P[y*5+x+1] + P[y*5+x+4] + 2*P[y*5+x+5] + P[y*5+x+6])/16
 > texalu ga under texel
 texalu ga: the texture unit under texel (cost 410.125 as written): nothing taken
-  derived, but within 0.00586 of the exact sum, more than the 5.36e-07 allowed (the sum's own rounding as written): tol 0.00586 takes it
-  4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.5625: one read at fraction 0.333333 along x, 0.666667 along y
-  2 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.1875: one read at fraction 0 along x, 0.333333 along y
-  2 entries of the 5 x 5 table from offset (0, 1), weights' sum 0.1875: one read at fraction 0.333333 along x, 0 along y
+  derived, but within 5.6e-07 of the exact sum, more than the 5.36e-07 allowed (the sum's own rounding as written): tol 5.6e-07 takes it
+  4 entries of the 5 x 5 table from offset (-1, -1), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+  4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+  4 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+  4 entries of the 5 x 5 table from offset (0, 0), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
 > texalu ga tol 0.01 under texel
 texalu ga: reads through the texture unit under texel (cost 410.125 as written):
-  cost 133 real(0.5625tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, t1, f32(y) + 0.166666672) + 0.1875tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + -0.5, f32(y) + 0.833333313) + 0.1875te… (435 more characters)
-      4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.5625: one read at fraction 0.333333 along x, 0.666667 along y
-      2 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.1875: one read at fraction 0 along x, 0.333333 along y
-      2 entries of the 5 x 5 table from offset (0, 1), weights' sum 0.1875: one read at fraction 0.333333 along x, 0 along y
+  cost 103.5 real(0.25tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, t3, t4) + 0.25tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, t1, t4) + 0.25tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024… (548 more characters)
+      4 entries of the 5 x 5 table from offset (-1, -1), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+      4 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+      4 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+      4 entries of the 5 x 5 table from offset (0, 0), weights' sum 0.25 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
       holds where x in [1, 3], y in [1, 3] (proved ranges): every texel read is inside the table
-      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.5625 with u = 0.333333, v = 0.666667 those are the entries' weights to within 5.55e-17
-        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0.00391 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
-        the filter is within 2 ulp of that sum (the model's tex_within): 1.34e-07; the texels as f32: 1.34e-08; in all 0.0044
-      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.1875 with u = 0, v = 0.333333 those are the entries' weights
-        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
-        the filter is within 2 ulp of that sum (the model's tex_within): 4.47e-08; the texels as f32: 4.47e-09; in all 0.000733
-      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.1875 with u = 0.333333, v = 0 those are the entries' weights
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.25 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 5.96e-08; the texels as f32: 5.96e-09; in all 9.54e-08
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.25 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 5.96e-08; the texels as f32: 5.96e-09; in all 9.54e-08
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.25 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 5.96e-08; the texels as f32: 5.96e-09; in all 9.54e-08
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.25 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 5.96e-08; the texels as f32: 5.96e-09; in all 9.54e-08
+      against the exact weighted sum of the entries the reads are within 5.6e-07; as written, the sum's own f32 rounding is within 5.36e-07 (gamma_9 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 2.38e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 5 x 5, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> G1 = [0.0, 0.25, 0.5, 0.75, 1.0, 0.5, 0.25, 0.125]
+> b3(i: u8 in 1..6) = 0.25*G1[i-1] + 0.5*G1[i] + 0.25*G1[i+1]
+> texalu b3 under texel
+texalu b3: the texture unit under texel (cost 134.375 as written): nothing taken
+  derived, but within 4.17e-07 of the exact sum, more than the 1.79e-07 allowed (the sum's own rounding as written): tol 4.17e-07 takes it
+  2 entries of the 8 x 1 table from offset (-1, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5
+  2 entries of the 8 x 1 table from offset (0, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5
+> texalu b3 tol 1e-6 under texel
+texalu b3: reads through the texture unit under texel (cost 134.375 as written):
+  cost 53.25 real(15.9375tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + 0) + 15.9375tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + 1))
+      2 entries of the 8 x 1 table from offset (-1, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5
+      holds where i in [1, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 15.9375 with u = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.19e-07; the texels as f32: 2.96e-08; in all 2.08e-07
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 15.9375 with u = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.19e-07; the texels as f32: 2.96e-08; in all 2.08e-07
+      against the exact weighted sum of the entries the reads are within 4.76e-07; as written, the sum's own f32 rounding is within 1.79e-07 (gamma_3 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 6 points: largest difference 5.96e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 8 x 1, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> b5(i: u8 in 2..5) = (G1[i-2] + 4*G1[i-1] + 6*G1[i] + 4*G1[i+1] + G1[i+2])/16
+> texalu b5 tol 0.01 under texel
+texalu b5: reads through the texture unit under texel (cost 226.625 as written):
+  cost 76.875 real(9.9609375tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + -0.699999988) + 12.9661016tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + 0.578125) + 8.94796085tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + 1.72264147))
+      2 entries of the 8 x 1 table from offset (-2, 0), weights' sum 0.3125: one read at fraction 0.8
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 0.40678 (a share of a weight read twice): one read at fraction 0.078125
+      2 entries of the 8 x 1 table from offset (1, 0), weights' sum 0.28072 (a share of a weight read twice): one read at fraction 0.222642
+      holds where i in [2, 5] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 9.96094 with u = 0.8 those are the entries' weights (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back) to within 1.39e-17
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-20: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 0.5 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 7.45e-08; the texels as f32: 1.85e-08; in all 0.000611
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 12.9661 with u = 0.078125 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back)
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-1000: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 0.5 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 9.7e-08; the texels as f32: 2.41e-08; in all 0.000795
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 8.94796 with u = 0.222642 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back) to within 2.78e-17
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-20: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 0.5 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 6.69e-08; the texels as f32: 1.66e-08; in all 0.000549
+      against the exact weighted sum of the entries the reads are within 0.00195; as written, the sum's own f32 rounding is within 2.98e-07 (gamma_5 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 4 points: largest difference 6.21e-05
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 8 x 1, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> bx(i: u8 in 1..6) = (G1[i-1] + G1[i] + G1[i+1])/3
+> texalu bx tol 0.01 under texel
+texalu bx: reads through the texture unit under texel (cost 136.375 as written):
+  cost 53.25 real(12.3076925tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + -0.36328125) + 19.5673084tex_linear8([0, 0.00784313772, 0.0156862754, 0.0235294122, 0.0313725509, 0.0156862754, 0.00784313772, 0.00392156886], f32(i) + 1.0429976))
+      2 entries of the 8 x 1 table from offset (-1, 0), weights' sum 0.386124 (a share of a weight read twice): one read at fraction 0.136719
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 0.613876 (a share of a weight read twice): one read at fraction 0.542998
+      holds where i in [1, 6] (proved ranges): every texel read is inside the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 12.3077 with u = 0.136719 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back) to within 6.94e-18
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-1000: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 0.5 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 9.21e-08; the texels as f32: 2.28e-08; in all 0.000754
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 19.5673 with u = 0.542998 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights) (an entry is 0 + 31.875 times its texel k/255: the weights' sum times 0 is added back) to within 1.67e-16
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-20: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 0.5 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.46e-07; the texels as f32: 3.63e-08; in all 0.0012
+      against the exact weighted sum of the entries the reads are within 0.00195; as written, the sum's own f32 rounding is within 1.79e-07 (gamma_3 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 6 points: largest difference 8.94e-06
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 8 x 1, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, x, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> g23(x: u8 in 1..3, y: u8 in 0..3) = (P[y*5+x-1] + 2*P[y*5+x] + P[y*5+x+1] + P[y*5+x+4] + 2*P[y*5+x+5] + P[y*5+x+6])/8
+> texalu g23 tol 1e-6 under texel
+texalu g23: reads through the texture unit under texel (cost 274.75 as written):
+  cost 57.25 real(0.5tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + 0, t1) + 0.5tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + 1, t1)) where t1 = f32(y) + 1
+      4 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+      4 entries of the 5 x 5 table from offset (0, 0), weights' sum 0.5 (a share of a weight read twice): one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [1, 3], y in [0, 3] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.5 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.19e-07; the texels as f32: 1.19e-08; in all 1.91e-07
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.5 with u = 0.5, v = 0.5 those are the entries' weights, an entry read by two reads with its weight split between them (column times row: the pairs' shares sum to the kernel's weights)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 1.19e-07; the texels as f32: 1.19e-08; in all 1.91e-07
+      against the exact weighted sum of the entries the reads are within 4.41e-07; as written, the sum's own f32 rounding is within 3.58e-07 (gamma_6 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 12 points: largest difference 2.38e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 5 x 5, one level: the table's entries times 255 as bytes
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> sh(i: u8 in 1..6) = -0.25*G1[i-1] + 1.5*G1[i] - 0.25*G1[i+1]
+> texalu sh tol 0.01 under texel
+texalu sh: the texture unit under texel (cost 134.375 as written): nothing taken
+  entries of the 8 x 1 table are neighbours in -0.25*[0, 0.25, 0.5, 0.75, 1, 0.5, 0.25, 0.125][i - 1] + 1.5[0, 0.25, 0.5, 0.75, 1, 0.5, 0.25, 0.125][i] - 0.25[0, 0.25,… (39 more characters), but their weights are not all of one sign for every input (a fraction leaves [0, 1], or its variable has no range)
+> nr(x: u8 in 1..3, y: u8 in 1..3) = (P[y*5+x-6] + P[y*5+x-5] + P[y*5+x-4] + P[y*5+x-1] + 4*P[y*5+x] + P[y*5+x+1] + P[y*5+x+4] + P[y*5+x+5] + P[y*5+x+6])/12
+> texalu nr tol 0.01 under texel
+texalu nr: reads through the texture unit under texel (cost 410.125 as written):
+  cost 158.625 real(0.166666672tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + 1, f32(y) + -0.5) + 0.416666657tex_bilinear8([0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0.800000012, 0.600000024, 0.400000006, 0.200000003, 0, 0.200000003, 0.400000006, 0.600000024, 0.800000012, 1, 0, 0, 1, 1, 0.200000003, 0.200000003, 0.400000006, 0.400000006, 1], 5, f32(x) + 0.300000012, f32(y) + 0.5) … (725 more characters)
+      2 entries of the 5 x 5 table from offset (0, -1), weights' sum 0.166667: one read at fraction 0.5 along x, 0 along y
+      2 entries of the 5 x 5 table from offset (-1, 0), weights' sum 0.416667: one read at fraction 0.8 along x, 0 along y
+      2 entries of the 5 x 5 table from offset (1, 0), weights' sum 0.166667: one read at fraction 0 along x, 0.5 along y
+      2 entries of the 5 x 5 table from offset (-1, 1), weights' sum 0.166667: one read at fraction 0.5 along x, 0 along y
+      holds where x in [1, 3], y in [1, 3] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.166667 with u = 0.5, v = 0 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 3.97e-08; the texels as f32: 3.97e-09; in all 6.36e-08
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.416667 with u = 0.8, v = 0 those are the entries' weights to within 2.78e-17
         a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-21: the read moves by at most 0.00391 (x) and 0 (y) times the largest step between neighbours, 1 and 1
-        the filter is within 2 ulp of that sum (the model's tex_within): 4.47e-08; the texels as f32: 4.47e-09; in all 0.000733
-      against the exact weighted sum of the entries the reads are within 0.00586; as written, the sum's own f32 rounding is within 5.36e-07 (gamma_9 times the sum of |w t|, 1)
-      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 0.000684
+        the filter is within 2 ulp of that sum (the model's tex_within): 9.93e-08; the texels as f32: 9.93e-09; in all 0.00163
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.166667 with u = 0, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 3.97e-08; the texels as f32: 3.97e-09; in all 6.36e-08
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 0.166667 with u = 0.5, v = 0 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 3.97e-08; the texels as f32: 3.97e-09; in all 6.36e-08
+      against the exact weighted sum of the entries the reads are within 0.00163; as written, the sum's own f32 rounding is within 5.36e-07 (gamma_9 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: largest difference 0.000326
       the pipeline needs (a proposal: nothing is applied):
         a texture R8_UNORM, 5 x 5, one level: the table's entries times 255 as bytes
         a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
@@ -541,6 +668,6 @@ cost model: texeln
 > use gt1030
 cost model: gt1030
 > texalu gp lanes 4
-texalu.ucas:148:11: error: texalu F [tol E] [model M]
+texalu.ucas:173:11: error: texalu F [tol E] [model M]
     texalu gp lanes 4
               ^

@@ -1591,24 +1591,24 @@ struct block {
 	double S;		/* the weights' sum */
 	struct mform fu, fv;	/* the fractions along x and y */
 	double resid;		/* weights not reproduced, times nothing yet */
+	int split;		/* a weight shared with another read */
 };
 
 /* why a block of neighbours is not one read (block_derive, block_inside) */
 enum { BW_OK, BW_SUM, BW_SIGN, BW_RANK, BW_OUT };
 
+/* a block whose texels have the weights w, at (0,0) (1,0) (0,1) (1,1) */
 static int
-block_derive(const struct sum *s, struct block *b, int *why)
+block_derive_w(const struct mform *w, struct block *b, int *why)
 {
-	struct mform w[4], tot = mf_const(0), su = mf_const(0), sv =
-	    mf_const(0), p, wr[4], d, one = mf_const(1), t1, t2;
+	struct mform tot = mf_const(0), su = mf_const(0), sv = mf_const(0), p,
+	    wr[4], d, one = mf_const(1), t1, t2;
 	double lo, hi, mag;
 	int i;
 
-	for (i = 0; i < 4; i++) {
-		w[i] = b->m[i] >= 0 ? s->t[b->m[i]].k : mf_const(0);
+	for (i = 0; i < 4; i++)
 		if (!mf_add(&tot, tot, w[i], 1))
 			return 0;
-	}
 	*why = BW_SUM;
 	if (!mf_isconst(&tot) || tot.c[0] == 0)
 		return 0;
@@ -1647,6 +1647,18 @@ block_derive(const struct sum *s, struct block *b, int *why)
 	}
 	*why = BW_OK;
 	return 1;
+}
+
+static int
+block_derive(const struct sum *s, struct block *b, int *why)
+{
+	struct mform w[4];
+	int i;
+
+	for (i = 0; i < 4; i++)
+		w[i] = b->m[i] >= 0 ? s->t[b->m[i]].k : mf_const(0);
+	b->split = 0;
+	return block_derive_w(w, b, why);
 }
 
 /* the terms of a group laid on the table's grid */
@@ -1923,6 +1935,155 @@ cover_pick(struct cover *c, struct block *out)
 	return nb;
 }
 
+/*
+ * A cover that shares weights: a separable kernel (constant weights over
+ * a filled rectangle, a column of them times a row, all of one sign) is
+ * cut along each axis into pairs, the last pair of an odd length sharing
+ * its first entry with the pair before it, and a read is a pair along y
+ * times a pair along x: the reads' weights add up to the kernel's, and a
+ * 3 x 3 kernel is four reads where the cover above takes three and an
+ * entry.  The shared entry is split so that the first pair's fraction is
+ * on the 2^-bits grid and the second's as near it as any split puts it
+ * (both on it for [1 2 1]).
+ */
+struct apair {
+	int a, b;		/* the entries on the axis, b -1: a lone one */
+	double wa, wb;		/* the weights this pair reads of them */
+};
+
+static int
+axis_pairs(const double *v, int n, struct apair *p)
+{
+	double g = ldexp(1.0, X.bits), a, m, c, x, f, fb, e, best = -1, bx;
+	int np = 0, i, k;
+
+	for (i = 0; i + 1 < n; i += 2)
+		p[np++] = (struct apair){i, i + 1, v[i], v[i + 1]};
+	if (n % 2 == 0)
+		return np;
+	if (n == 1) {
+		p[np++] = (struct apair){0, -1, v[0], 0};
+		return np;
+	}
+	a = v[n - 3];
+	m = v[n - 2];
+	c = v[n - 1];
+	bx = m / 2;
+	for (k = 1; k < 1 << X.bits; k++) {
+		f = k / g;
+		x = a * f / (1 - f);
+		if (!(x > 0 && x < m))
+			continue;
+		fb = c / (m - x + c);
+		e = fabs(fb * g - nearbyint(fb * g));
+		if (best < 0 || e < best - 1e-12 || (e <= best + 1e-12 &&
+		    fabs(x - m / 2) < fabs(bx - m / 2))) {
+			best = e;
+			bx = x;
+		}
+	}
+	p[np - 1].wb = bx;
+	p[np++] = (struct apair){n - 2, n - 1, m - bx, c};
+	return np;
+}
+
+static int
+cover_split(const struct sum *s, const struct grid *g, struct block *out)
+{
+	double W[MAXTERM], cv[MAXTERM], rv[MAXTERM], sg, got[MAXTERM] = {0};
+	struct apair pc[MAXTERM], pr[MAXTERM];
+	int dmin = 0, dmax = 0, emin = 0, emax = 0, C, R, i, x, y, nc, nr, P, Q,
+	    nb = 0, why;
+
+	for (i = 0; i < g->n; i++) {
+		const struct term *t = &s->t[g->ix[i]];
+		if (!mf_isconst(&t->k))
+			return 0;
+		if (!i || t->dx < dmin)
+			dmin = t->dx;
+		if (!i || t->dx > dmax)
+			dmax = t->dx;
+		if (!i || t->dy < emin)
+			emin = t->dy;
+		if (!i || t->dy > emax)
+			emax = t->dy;
+	}
+	C = dmax - dmin + 1;
+	R = emax - emin + 1;
+	/* a filled rectangle with an odd side: even sides need no share */
+	if (C * R != g->n || (C % 2 == 0 && R % 2 == 0) || g->n > MAXTERM)
+		return 0;
+	for (i = 0; i < g->n; i++) {
+		const struct term *t = &s->t[g->ix[i]];
+		W[(t->dy - emin) * C + t->dx - dmin] = t->k.c[0];
+	}
+	sg = W[0] < 0 ? -1 : 1;
+	for (i = 0; i < C * R; i++)
+		if (!(W[i] * sg > 0))
+			return 0;
+	for (x = 0; x < C; x++)
+		rv[x] = W[x] * sg;
+	for (y = 0; y < R; y++)
+		cv[y] = W[y * C] / W[0];
+	for (y = 0; y < R; y++)
+		for (x = 0; x < C; x++)
+			if (!(fabs(cv[y] * rv[x] - W[y * C + x] * sg) <= 1e-12 *
+			    fabs(W[y * C + x])))
+				return 0;
+	nc = axis_pairs(rv, C, pc);
+	nr = axis_pairs(cv, R, pr);
+	for (P = 0; P < nr; P++)
+		for (Q = 0; Q < nc; Q++) {
+			struct block *b = &out[nb++];
+			struct mform w[4];
+			int ax = pc[Q].a, bxi = pc[Q].b, ay = pr[P].a,
+			    by = pr[P].b;
+			int at[4][2] = {{ax, ay}, {bxi, ay}, {ax, by},
+			    {bxi, by}};
+			double ww[4] = {pr[P].wa * pc[Q].wa,
+			    pr[P].wa * pc[Q].wb, pr[P].wb * pc[Q].wa,
+			    pr[P].wb * pc[Q].wb};
+			memset(b, 0, sizeof *b);
+			for (i = 0; i < 4; i++) {
+				int mi = at[i][0] < 0 || at[i][1] < 0 ? -1 :
+				    grid_at(s, g, dmin + at[i][0],
+				    emin + at[i][1]);
+				b->m[i] = mi >= 0 ? g->ix[mi] : -1;
+				w[i] = mf_const(b->m[i] >= 0 ? ww[i] * sg : 0);
+				if (mi >= 0)
+					got[mi] += ww[i] * sg;
+				if (b->m[i] >= 0 && fabs(ww[i] * sg -
+				    s->t[b->m[i]].k.c[0]) > 1e-12 * fabs(ww[i]))
+					b->split = 1;
+			}
+			b->ox = dmin + ax;
+			b->oy = emin + ay;
+			if (!block_derive_w(w, b, &why) || !block_inside(g, b))
+				return 0;
+		}
+	/* the shares of each entry add up to its weight */
+	for (i = 0; i < g->n; i++)
+		if (!(fabs(got[i] - s->t[g->ix[i]].k.c[0]) <= 1e-12 *
+		    fabs(s->t[g->ix[i]].k.c[0])))
+			return 0;
+	return nb;
+}
+
+/* every block's fractions constants on the 2^-bits grid: no snapping */
+static int
+on_grid(const struct block *b, int nb)
+{
+	double g = ldexp(1.0, X.bits);
+	int k;
+
+	for (k = 0; k < nb; k++)
+		if (b[k].fu.c[1] != 0 || b[k].fv.c[1] != 0 ||
+		    b[k].fu.c[0] * g != nearbyint(b[k].fu.c[0] * g) ||
+		    b[k].fv.c[0] * g != nearbyint(b[k].fv.c[0] * g))
+			return 0;
+	return 1;
+}
+
 static void
 mf_text(struct sbuf *b, const struct mform *f)
 {
@@ -1988,7 +2149,7 @@ static void
 seed_sum1(nid body, nid root)
 {
 	struct sum *s = xcalloc(1, sizeof *s);
-	struct block blk[MAXTERM];
+	struct block blk[MAXTERM], sblk[MAXTERM];
 	struct repl *r = NULL;
 	nid taps = 0, to, ity_root = 0;
 	double enew = 0, mabs = 0, mtap = 0, u = ldexp(1.0, -24);
@@ -2033,7 +2194,7 @@ seed_sum1(nid body, nid root)
 	for (j = 0; j < ng; j++) {
 		struct grid g;
 		struct cover cv;
-		int nb, k, dmin = 0, dmax = 0, emin = 0, emax = 0, ex, ey;
+		int nb, ns, k, dmin = 0, dmax = 0, emin = 0, emax = 0, ex, ey;
 		double sx, sy;
 
 		memset(&g, 0, sizeof g);
@@ -2086,6 +2247,28 @@ seed_sum1(nid body, nid root)
 		    X.m->c[C_FMUL]);
 		cover_blocks(&cv);
 		nb = cover_pick(&cv, blk);
+		/*
+		 * a cover that shares weights, when it is cheaper than this
+		 * one, or as cheap and this one snaps a fraction to the grid
+		 * and that one none; with no tolerance given (a snap is an
+		 * error the sum as written does not have), also when it costs
+		 * less than the entries read alone
+		 */
+		if ((ns = cover_split(s, &g, sblk)) > 0) {
+			int nin = 0, q, exact;
+			float cd, cs = ns * cv.ptap;
+			for (k = 0; k < nb; k++)
+				for (q = 0; q < 4; q++)
+					nin += blk[k].m[q] >= 0;
+			cd = nb * cv.ptap + (g.n - nin) * cv.pone;
+			exact = nb > 0 && !on_grid(blk, nb) &&
+			    on_grid(sblk, ns);
+			if (cs < cd || (exact && cs <= cd) || (exact &&
+			    X.tol == 0 && cs < g.n * cv.pone)) {
+				memcpy(blk, sblk, (size_t)ns * sizeof *blk);
+				nb = ns;
+			}
+		}
 		if (nb == 0) {
 			/* no tap is cheaper than the reads it replaces: the
 			 * cover with the most taps, to say so with its price */
@@ -2170,10 +2353,11 @@ seed_sum1(nid body, nid root)
 			mtap += fabs(S) * g.ti.tmax;
 			ntap++;
 			sb_printf(&what, "%s%d entr%s of the %lld x %lld table from "
-			    "offset (%d, %d), weights' sum %.6g: one read at "
+			    "offset (%d, %d), weights' sum %.6g%s: one read at "
 			    "fraction ", what.n ? "\n" : "", cnt, cnt == 1 ? "y" :
 			    "ies", (long long)g.W, (long long)g.H, b->ox, b->oy,
-			    S);
+			    S, b->split ? " (a share of a weight read twice)" :
+			    "");
 			mf_text(&what, &b->fu);
 			if (g.H > 1) {
 				sb_puts(&what, " along x, ");
@@ -2204,7 +2388,10 @@ seed_sum1(nid body, nid root)
 				mf_text(&holds, fr);
 				sb_puts(&holds, " is in [0, 1]");
 			}
-			sb_printf(&proof, " those are the entries' weights%s",
+			sb_printf(&proof, " those are the entries' weights%s%s",
+			    b->split ? ", an entry read by two reads with its "
+			    "weight split between them (column times row: the "
+			    "pairs' shares sum to the kernel's weights)" : "",
 			    g.ti.levels ? "" : g.ti.scale != 1 ?
 			    " (the texels are the entries / 255)" : "");
 			if (g.ti.levels)
