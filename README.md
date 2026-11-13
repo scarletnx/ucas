@@ -3642,8 +3642,7 @@ gives (and with the mask on the window's bytes instead, 72 of 300
 differ).  Not operations: v_mqsad_u32_u8, whose four 32-bit sums are
 four `msad4x8(r, funr(hi, lo, 8k), acc_k)`; the video instructions'
 byte and half-word selects, mixed signednesses and merges (a merge is a
-`bfi` of the result into c); find has no pattern for the qsad forms nor
-for a signed saturating add.
+`bfi` of the result into c); find has no pattern for the qsad forms.
 
 **What find offers.**  The patterns the instructions are, each replaced
 where the active model has the instruction and the whole function gets
@@ -3683,7 +3682,9 @@ cheaper, then checked on the domain (src/inst.c, `pattern`):
   `(a | b) - ((a xor b) >> 1 & 0x7f7f7f7f)` and `(a & b) + ((a xor b)
   >> 1 & 0x7f7f7f7f)`), and a sum or difference of two words clamped to
   u32 (`a + b < a ? 0xffffffff : a + b`, `max(a, b) - b`) as `addsat`
-  or `subsat`, the same way;
+  or `subsat`, the same way, and of two i32 clamped to i32 (the sum in
+  i64 clamped, or C's overflow tests around `a - b`) as the signed
+  ones;
 - a min or max with a min or max of its type for an operand: `min3`,
   `max3`, `min_max` (a max of a min), `max_min` (a min of a max); a sum
   with a min or max of its type for a term: `min_add`, `max_add`; a

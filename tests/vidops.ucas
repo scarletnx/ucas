@@ -77,4 +77,10 @@ as(a: u32, b: u32) = a + b < a ? 0xffffffff : a + b
 find as 1
 ss(a: u32, b: u32) = max(a, b) - b
 find ss 1
+# of two i32: the sum in i64 clamped, and a difference written as C does
+# it with the overflow tests (vadd.sat, vsub.sat on s32)
+si(a: i32, b: i32) = i32(max(min(i64(a) + i64(b), 2147483647), -2147483648))
+find si 1
+sb(a: i32, b: i32) = b > 0 && a < -2147483648 + b ? -2147483648 : b < 0 && a > 2147483647 + b ? 2147483647 : a - b
+find sb 1
 use gt1030

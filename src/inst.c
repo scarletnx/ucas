@@ -1284,8 +1284,8 @@ usad_of(nid x, struct sbuf *why)
 #define BP_SAMPLES 48
 
 static int
-word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
-    uint32_t *w1, uint32_t *r)
+word_samples_t(const struct func *f, nid x, ty_t t, int *slot, int *ns,
+    uint32_t *w0, uint32_t *w1, uint32_t *r)
 {
 	uint64_t sl = node_slots(x), rs = 0x9e3779b97f4a7c15ULL;
 	int j, smp, ok = 1;
@@ -1296,12 +1296,12 @@ word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
 	uint32_t loc;
 
 	*ns = 0;
-	if (N.ty[x] != U32 || N.op[x] == O_VAR || IS_INST(N.op[x]) ||
+	if (N.ty[x] != t || N.op[x] == O_VAR || IS_INST(N.op[x]) ||
 	    (sl >> MAXP) || (N.fl[x] & NF_SG))
 		return 0;
 	for (j = 0; j < f->np; j++)
 		if ((sl >> j) & 1) {
-			if (*ns == 2 || f->p[j].ty != U32)
+			if (*ns == 2 || f->p[j].ty != t)
 				return 0;
 			slot[(*ns)++] = j;
 		}
@@ -1314,7 +1314,9 @@ word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
 			rs ^= rs << 13;
 			rs ^= rs >> 7;
 			rs ^= rs << 17;
-			in_i[(size_t)slot[j] * CH + smp] = (int64_t)(uint32_t)rs;
+			in_i[(size_t)slot[j] * CH + smp] = t == I32 ?
+			    (int64_t)(int32_t)(uint32_t)rs :
+			    (int64_t)(uint32_t)rs;
 		}
 	plan_build(&pl, roots, 1, 0);
 	loc = plan_loc(&pl, x);
@@ -1330,6 +1332,13 @@ word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
 	free(in_i);
 	free(in_r);
 	return ok;
+}
+
+static int
+word_samples(const struct func *f, nid x, int *slot, int *ns, uint32_t *w0,
+    uint32_t *w1, uint32_t *r)
+{
+	return word_samples_t(f, x, U32, slot, ns, w0, w1, r);
 }
 
 /*
@@ -1428,6 +1437,52 @@ sat_c(int op, uint32_t a, uint32_t b)
 	if (op == O_ADDSAT)
 		return a + b < a ? 0xffffffffu : a + b;
 	return a < b ? 0 : a - b;
+}
+
+/* of two i32 (their bits), clamped to the range of i32 */
+static uint32_t
+ssat_c(int op, uint32_t a, uint32_t b)
+{
+	int64_t v = op == O_ADDSAT ? (int64_t)(int32_t)a + (int32_t)b :
+	    (int64_t)(int32_t)a - (int32_t)b;
+
+	return (uint32_t)(int32_t)(v > INT32_MAX ? INT32_MAX : v < INT32_MIN ?
+	    INT32_MIN : v);
+}
+
+/*
+ * x, an i32 of two i32, as a saturating add or subtract (either order of
+ * the subtract): told at random points, then checked with the function
+ */
+static nid
+ssat_of(const struct func *f, nid x, struct sbuf *why)
+{
+	uint32_t w0[BP_SAMPLES], w1[BP_SAMPLES], r[BP_SAMPLES];
+	int slot[2] = {-1, -1}, ns, k, o, smp;
+
+	if (!cclass_available(model_active(), C_ADDSAT) ||
+	    !word_samples_t(f, x, I32, slot, &ns, w0, w1, r) || ns != 2)
+		return 0;
+	for (k = 0; k < 3; k++) {
+		int op = k ? O_SUBSAT : O_ADDSAT;
+		o = k == 2;
+		for (smp = 0; smp < BP_SAMPLES; smp++)
+			if (r[smp] != ssat_c(op, o ? w1[smp] : w0[smp],
+			    o ? w0[smp] : w1[smp]))
+				break;
+		if (smp == BP_SAMPLES) {
+			nid a = mk_var((uint32_t)slot[o], f->p[slot[o]].name,
+			    I32);
+			nid b = mk_var((uint32_t)slot[1 - o], f->p[slot[1 - o]].name,
+			    I32);
+			sb_printf(why, "%s: %s(%s, %s), %s clamped to the range of "
+			    "i32, told at %d random points", shared_str(x, 80),
+			    opinfo[op].name, node_str(a), node_str(b), op == O_ADDSAT ?
+			    "the sum" : "the difference", BP_SAMPLES);
+			return mk_inst(op, a, b, 0);
+		}
+	}
+	return 0;
 }
 
 /*
@@ -1921,8 +1976,9 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		return funnel64_of(x, why);
 	case 12:	/* bytes, signs of bytes 1, 3, 5, 7, 0 and 255 */
 		return bytesel_of(f, x, why);
-	case 13:	/* two words' bytes or halves lane by lane */
-		return lanewise_of(f, x, why);
+	case 13:	/* two words' bytes or halves lane by lane; i32 saturation */
+		return N.ty[x] == I32 ? ssat_of(f, x, why) : lanewise_of(f, x,
+		    why);
 	case 14:	/* a min or max of a min or max */
 		return minmax3_of(x, why);
 	case 15:	/* a min, max or |a - b| plus a third */
