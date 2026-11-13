@@ -354,6 +354,11 @@ static const struct bfn bfns[] = {
 	{"min_add", O_MINADD, 3}, {"max_add", O_MAXADD, 3},
 	{"sad32", O_SAD, 3},
 	{"addsat", O_ADDSAT, 2}, {"subsat", O_SUBSAT, 2},
+	{"ldexp", O_LDEXP, 2}, {"frexp_mant", O_FREXP_MANT, 1},
+	{"frexp_exp", O_FREXP_EXP, 1}, {"cubeid", O_CUBEID, 3},
+	{"cubesc", O_CUBESC, 3}, {"cubetc", O_CUBETC, 3},
+	{"cubema", O_CUBEMA, 3},
+	{"trig_preop", O_TRIG_PREOP, 2},
 	/* astc.c: the ASTC decoder's steps */
 	{"astc_partition", O_ASTC_PART, 4}, {"astc_unquant", O_ASTC_UNQ, 2},
 	{"astc_unquantw", O_ASTC_UNQW, 2}, {"astc_endpoint", O_ASTC_ENDPOINT, 3},

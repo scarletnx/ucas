@@ -1,0 +1,260 @@
+> f(x: u32) = asfloat(x)
+> d(x: u64) = asfloat(x)
+> h(x: u16) = asfloat(x)
+> show med3(f(0x3f800000), f(0x40000000), f(0x3f000000))
+_() = 1
+  -> f32
+> show asuint(med3(f(0x80000000), f(0), f(0xbf800000)))
+_() = 2147483648
+  -> u32
+> show asuint(med3(f(0), f(0x80000000), f(0xbf800000)))
+_() = 2147483648
+  -> u32
+> show med3(f(0x7fc00000), f(0x40000000), f(0x3f800000))
+_() = 1
+  -> f32
+> show med3(f(0x40000000), f(0x7fc00000), f(0x3f800000))
+_() = 1
+  -> f32
+> show med3(f(0x40000000), f(0x3f800000), f(0x7fc00000))
+_() = 1
+  -> f32
+> show med3(f(0x7fc00001), f(0x7fc00002), f(0x40400000))
+_() = 3
+  -> f32
+> show asuint(med3(f(0x7fc00001), f(0x7fc00002), f(0x7fc00003)))
+_() = 2143289347
+  -> u32
+> show med3(f(0xbf800000), 0.0, 1.0)
+_() = 0
+  -> f32
+> show med3(f(0x3e800000), 0.0, 1.0)
+_() = 0.25
+  -> f32
+> show med3(f(0x40000000), 0.0, 1.0)
+_() = 1
+  -> f32
+> show asuint(med3(h(0x3c00), h(0x4000), h(0x3800)))
+_() = 15360
+  -> u16
+> show asuint(med3(h(0), h(0x8000), h(0xbc00)))
+_() = 32768
+  -> u16
+> show med3(5, 2, 9)
+_() = 5
+  -> int
+> show asuint(ldexp(f(0x3f800000), 3))
+_() = 1090519040
+  -> u32
+> show asuint(ldexp(f(0x3fc00000), -150))
+_() = 1
+  -> u32
+> show asuint(ldexp(f(0x3f800000), -150))
+_() = 0
+  -> u32
+> show asuint(ldexp(f(0x40400000), -150))
+_() = 2
+  -> u32
+> show asuint(ldexp(f(1), 149))
+_() = 1065353216
+  -> u32
+> show asuint(ldexp(f(0x7f7fffff), 1))
+_() = 2139095040
+  -> u32
+> show asuint(ldexp(f(0x3f800000), 2147483647))
+_() = 2139095040
+  -> u32
+> show asuint(ldexp(f(0x7f7fffff), -2147483648))
+_() = 0
+  -> u32
+> show asuint(ldexp(d(0x3ff8000000000000), -1075))
+_() = 1
+  -> u64
+> show asuint(ldexp(d(0x7fefffffffffffff), -2098))
+_() = 1
+  -> u64
+> show asuint(ldexp(d(1), 2097))
+_() = 9214364837600034816
+  -> u64
+> show asuint(ldexp(h(0x3c00), -24))
+_() = 1
+  -> u16
+> show asuint(ldexp(h(0x3e00), -25))
+_() = 1
+  -> u16
+> show asuint(ldexp(h(0x3c00), 16))
+_() = 31744
+  -> u16
+> l8(x: f32, n: u8) = asuint(ldexp(x, n))
+> show l8(f(0x3f800000), 3)
+_() = 1090519040
+  -> u32
+> l64(x: f64, n: i64) = asuint(ldexp(x, n))
+> show l64(d(0x3ff0000000000000), -1)
+_() = 4602678819172646912
+  -> u64
+> lu(i: u32 in 0..1) = asuint(ldexp(f(0x3f800000), [u64(5), u64(0x8000000000000001)][i]))
+> table lu
+  i=0  ->  1107296256
+  i=1  ->  2139095040
+> ld(i: u32 in 0..1) = asuint(ldexp(d([u64(0x7fefffffffffffff), u64(0x7ff0000000000001)][i]), 2098))
+> table ld
+  i=0  ->  9218868437227405312
+  i=1  ->  9221120237041090561
+> show asuint(frexp_mant(f(0x40400000)))
+_() = 1061158912
+  -> u32
+> show frexp_exp(f(0x40400000))
+_() = 2
+  -> i32
+> show asuint(frexp_mant(f(3)))
+_() = 1061158912
+  -> u32
+> show frexp_exp(f(3))
+_() = -147
+  -> i32
+> show asuint(frexp_mant(f(0xc0400000)))
+_() = 3208642560
+  -> u32
+> show asuint(frexp_mant(f(0x80000000)))
+_() = 2147483648
+  -> u32
+> show frexp_exp(f(0x80000000))
+_() = 0
+  -> i32
+> show asuint(frexp_mant(f(0xff800000)))
+_() = 4286578688
+  -> u32
+> show frexp_exp(f(0xff800000))
+_() = 0
+  -> i32
+> show frexp_exp(f(0x7fc00000))
+_() = 0
+  -> i32
+> show asuint(frexp_mant(d(1)))
+_() = 4602678819172646912
+  -> u64
+> show frexp_exp(d(1))
+_() = -1073
+  -> i32
+> show asuint(frexp_mant(h(3)))
+_() = 14848
+  -> u16
+> show frexp_exp(h(3))
+_() = -22
+  -> i16
+> show cubeid(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+_() = 3
+  -> f32
+> show cubesc(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+_() = 1
+  -> f32
+> show cubetc(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+_() = -0.5
+  -> f32
+> show cubema(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+_() = -4
+  -> f32
+> show cubeid(f(0x3f800000), f(0x3f800000), f(0xbf800000))
+_() = 5
+  -> f32
+> show cubeid(f(0x3f800000), f(0xbf800000), 0.0)
+_() = 3
+  -> f32
+> show cubeid(0.0, 0.0, f(0x80000000))
+_() = 4
+  -> f32
+> show cubeid(f(0x3f800000), f(0x40000000), f(0x7fc00000))
+_() = 2
+  -> f32
+> show cubeid(f(0x7fc00000), f(0x3f800000), f(0x40000000))
+_() = 0
+  -> f32
+> show cubeid(f(0x40000000), f(0x7fc00000), f(0x7fc00000))
+_() = 0
+  -> f32
+> cs(i: u32 in 0..5) = cubesc(f([u32(0x40000000), u32(0xc0000000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000)][i]), f([u32(0x3f000000), u32(0x3f000000), u32(0x40000000), u32(0xc0000000), u32(0x3f000000), u32(0x3f000000)][i]), f([u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x40000000), u32(0xc0000000)][i]))
+> table cs
+  i=0  ->  -0.25
+  i=1  ->  0.25
+  i=2  ->  1
+  i=3  ->  1
+  i=4  ->  1
+  i=5  ->  -1
+> ct(i: u32 in 0..5) = cubetc(f([u32(0x40000000), u32(0xc0000000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000)][i]), f([u32(0x3f000000), u32(0x3f000000), u32(0x40000000), u32(0xc0000000), u32(0x3f000000), u32(0x3f000000)][i]), f([u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x40000000), u32(0xc0000000)][i]))
+> table ct
+  i=0  ->  -0.5
+  i=1  ->  -0.5
+  i=2  ->  0.25
+  i=3  ->  -0.25
+  i=4  ->  -0.5
+  i=5  ->  -0.5
+> show asuint(trig_preop(d(0x3ff0000000000000), 0))
+_() = 4603909380684499074
+  -> u64
+> show asuint(trig_preop(d(0x3ff0000000000000), 1))
+_() = 4365298590703110100
+  -> u64
+> show asuint(trig_preop(d(0xbff0000000000000), 33))
+_() = 4365298590703110100
+  -> u64
+> show asuint(trig_preop(d(0x4380000000000000), 0))
+_() = 4577851964501663912
+  -> u64
+> show asuint(trig_preop(d(0x7b00000000000000), 0))
+_() = 1168489791455927903
+  -> u64
+> show asuint(trig_preop(d(0x7fe0000000000000), 3))
+_() = 0
+  -> u64
+> model fi : gt1030 { med3: 1, ldexp: 2, frexp: 1, cube: 1, trigpreop: 4 }
+> use fi
+cost model: fi
+> c1(x: f32, y: f32, z: f32) = cubesc(x, y, z) / cubema(x, y, z) + med3(x, 0.0, 1.0)
+> cost c1
+cost of c1 under fi: 7 (5 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fdiv             1 x 3     = 3
+  med3             1 x 1     = 1
+  cube             2 x 1     = 2
+> c2(x: f64, n: i32) = ldexp(frexp_mant(x), n) + trig_preop(x, 2)
+> cost c2
+cost of c2 under fi: 39.375 (4 operations, shared subterms counted once)
+  fadd             1 x 32.375 = 32.375
+  ldexp            1 x 2     = 2
+  frexp            1 x 1     = 1
+  trigpreop        1 x 4     = 4
+> use gt1030
+cost model: gt1030
+> cost c1
+cost of c1 under gt1030: inf (5 operations, shared subterms counted once)
+  fadd             1 x 1     = 1
+  fdiv             1 x 3     = 3
+  med3             1 x inf   = inf
+  cube             2 x inf   = inf
+  med3 is not available under gt1030 (the model lists no such instruction)
+  cube is not available under gt1030 (the model lists no such instruction)
+> k1(x: f32, y: u32) = med3(x, y, 1.0)
+floatinst.ucas:134:37: error: med3 takes f32 operands, not u32
+    k1(x: f32, y: u32) = med3(x, y, 1.0)
+                                        ^
+> k2(x: u32) = ldexp(x, 2)
+floatinst.ucas:135:25: error: ldexp takes a float (f16, f32 or f64), not u32
+    k2(x: u32) = ldexp(x, 2)
+                            ^
+> k3(x: f32, y: f32) = ldexp(x, y)
+floatinst.ucas:136:33: error: ldexp: the power of two is an integer, not f32
+    k3(x: f32, y: f32) = ldexp(x, y)
+                                    ^
+> k4(x: f64) = cubeid(x, x, x)
+floatinst.ucas:137:29: error: cubeid takes f32 operands, not f64, f64, f64
+    k4(x: f64) = cubeid(x, x, x)
+                                ^
+> k5(x: f32) = trig_preop(x, 0)
+floatinst.ucas:138:30: error: trig_preop takes an f64, not f32
+    k5(x: f32) = trig_preop(x, 0)
+                                 ^
+> k6(x: real, y: real) = med3(x, y, 1)
+floatinst.ucas:139:37: error: med3 takes integers or floats (f16, f32, f64), not real
+    k6(x: real, y: real) = med3(x, y, 1)
+                                        ^

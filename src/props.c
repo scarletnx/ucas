@@ -2133,7 +2133,7 @@ discont_op(nid e)
 	    op == O_SEL ||
 	    op == O_MOD || op == O_INDEX || op == O_LOOP || op == O_CAST ||
 	    (opinfo[op].fl & OF_CMP) || op == O_LAND || op == O_LOR ||
-	    op == O_LNOT || (opinfo[op].fl & OF_INT))
+	    op == O_LNOT || (opinfo[op].fl & OF_INT) || IS_INST(op))
 		return op != O_CAST || !TY_FP(N.ty[e]) || !TY_FP(N.ty[N.a[e]]);
 	return 0;
 }
@@ -4546,8 +4546,9 @@ kinds_of(nid e, int s, struct kinds *k)
 			k->piecewhy = opinfo[op].name;
 		break;
 	default:
-		if ((opinfo[op].fl & OF_INT) || op == O_INDEX || op == O_CLZ ||
-		    op == O_CTZ || op == O_POPCNT || op == O_ISQRT)
+		if ((opinfo[op].fl & OF_INT) || IS_INST(op) || op == O_INDEX ||
+		    op == O_CLZ || op == O_CTZ || op == O_POPCNT ||
+		    op == O_ISQRT)
 			k->bits = 1;
 	}
 	kinds_of(N.a[e], s, k);
