@@ -945,6 +945,33 @@ list_conditions(const struct func *f, int *nc)
 				COND("0 <= %s < 32  (funnel shift amount)",
 				    node_str(N.c[n]));
 			break;
+		case O_ASTC_UNQ: case O_ASTC_UNQW:
+			if (is_const(N.a[n]))
+				COND("%s < %lld  (a value of the range)",
+				    node_str(N.b[n]), (long long)N.ki[N.a[n]]);
+			else
+				COND("%s is a %s range's count (%s) and %s < %s",
+				    node_str(N.a[n]), N.op[n] == O_ASTC_UNQ ?
+				    "colour" : "weight", N.op[n] == O_ASTC_UNQ ?
+				    "6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, "
+				    "128, 160, 192, 256" : "2, 3, 4, 5, 6, 8, 10, 12, "
+				    "16, 20, 24, 32", node_str(N.b[n]),
+				    node_str(N.a[n]));
+			break;
+		case O_ASTC_ENDPOINT:
+			if (!is_const(N.a[n]))
+				COND("%s <= 15  (an endpoint mode)", node_str(N.a[n]));
+			if (!is_const(N.c[n]))
+				COND("%s <= 7  (a byte of the two endpoints)",
+				    node_str(N.c[n]));
+			break;
+		case O_ASTC_LERP:
+			if (!is_const(N.a[n]) || !is_const(N.b[n]))
+				COND("%s <= 255 and %s <= 255  (endpoint bytes)",
+				    node_str(N.a[n]), node_str(N.b[n]));
+			if (!is_const(N.c[n]))
+				COND("%s <= 64  (a weight)", node_str(N.c[n]));
+			break;
 		case O_UNDEF:
 			COND("an arm of match/piecewise covers the input");
 			break;

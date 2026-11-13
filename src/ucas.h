@@ -164,9 +164,13 @@ enum {
 	 * astc.c: steps of the ASTC decoder, each defined by an expression
 	 * over the operations above, as the catalogue's are (inside IS_INST,
 	 * so spelled out, rebuilt and printed the same way), with a constant
-	 * of the operation in ki: astc_partition(seed, x, y, n), n in ki
+	 * of the operation in ki: astc_partition(seed, x, y, n), n in ki;
+	 * astc_unquant(levels, v) and astc_unquantw (colours, weights);
+	 * astc_endpoint(cem, v, k); astc_bilerp(G, gw, s, t), gw in ki;
+	 * astc_lerp(e0, e1, w)
 	 */
-	O_ASTC_PART,
+	O_ASTC_PART, O_ASTC_UNQ, O_ASTC_UNQW, O_ASTC_ENDPOINT, O_ASTC_BILERP,
+	O_ASTC_LERP,
 	/*
 	 * texalu.c: the texture unit's fixed function as operations.  A
 	 * nearest read with an address mode on an integer texel index
@@ -193,7 +197,7 @@ enum {
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
-#define O_ASTC_LAST O_ASTC_PART
+#define O_ASTC_LAST O_ASTC_LERP
 #define IS_ASTC(op) ((op) >= O_ASTC_FIRST && (op) <= O_ASTC_LAST)
 #define IS_INST(op) ((op) >= O_BFE && (op) <= O_ASTC_LAST)
 /* built from all three operands by mk_op (the generic rebuilders) */

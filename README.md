@@ -3730,6 +3730,15 @@ a decoder writes against it.
 | op | value |
 |---|---|
 | `astc_partition(seed, x, y, n)` | the partition, 0..n-1, of texel (x, y) in a block of n partitions (n 1..4, n = 1 is 0; a count that is not a constant selects among the four, undefined for any other) whose partition index is seed (its low 10 bits): the specification's hash of seed + 1024 (n - 1), its twelve squared nibbles shifted by the seed's bits 0, 1 and 4, four scores `(s1 x + s2 y + (p >> 14)) & 63`, ..., and the highest of the first n, the lower partition on a tie.  z is 0.  A block of fewer than 31 texels takes it at (2x, 2y) |
+| `astc_unquant(levels, v)` | a colour endpoint value v (0..levels-1, as the integer sequence encoding stores it: a trit or quint times 2^m plus m bits) unquantised to 0..255: the bits repeated, or the trit's or quint's formula with its bit-scrambled constant and the low bit as a mirror.  levels is a colour range's count: 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192 or 256 |
+| `astc_unquantw(levels, v)` | a weight the same way to 0..64 (0..63, those above 32 moved up one), levels a weight range's count: 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24 or 32 |
+| `astc_endpoint(cem, v, k)` | byte k (0..3 the first endpoint's R, G, B, A, 4..7 the second's) of LDR endpoint mode cem from its unquantised values, v0..v7 the bytes of the u64 v (v0 the low byte): luminance, luminance and alpha, RGB and RGBA, each direct or as a base and an offset (the offset's top bit moved into the base, six bits signed), RGB as a base and a scale, and the blue contraction where the second endpoint's sum is the smaller.  The HDR modes (2, 3, 7, 11, 14, 15) are the error colour, (255, 0, 255, 255), as the LDR profile decodes them |
+| `astc_bilerp(G, gw, s, t)` | the weight grid's infill at (s, t), in sixteenths of the grid (the specification's gs and gt, `(((1024 + bw/2)/(bw - 1)) x (gw - 1) + 32) >> 6` for texel x of a block bw wide): G a table of weights read as rows of gw (a constant), the four around (s/16, t/16) weighed by `w11 = (fs ft + 8) >> 4`, `w10 = ft - w11`, `w01 = fs - w11`, `w00 = 16 - fs - ft + w11` (fs = s & 15, ft = t & 15), plus 8, over 16.  An entry past the grid reads 0 (its weight is 0 where a texel lands).  A second plane is a second grid through it |
+| `astc_lerp(e0, e1, w)` | the endpoints' channel at weight w as UNORM16: the bytes widened to e * 257, `(c0 (64 - w) + c1 w + 32) >> 6`.  The UNORM8 decode mode is its top byte, `>> 8` |
+
+A level count, mode, byte or weight outside those is refused when it
+is a constant and undefined when it is a value (`domain` says where);
+a count that is a value selects among the ranges.
 
 ```
 > show astc_partition(70, 11, 1, 3)
@@ -3737,7 +3746,19 @@ _() = 1
 > p2(seed: u10, x: u4, y: u4) = astc_partition(seed, x, y, 2)
 > equiv hp p2               (hp: the hash as a shader writes it, one multiply for three shift-adds)
 hp and p2 are equal on the domain of hp (exhaustive)
+> table cu                  (cu(v: u8 in 0..11) = astc_unquant(12, v): a trit and two bits)
+  v=0  ->  0
+  v=1  ->  255
+  v=2  ->  69
+  ...
+> equiv top rnd             (astc_lerp(e0, e1, w) >> 8 against rounding the UNORM16 to 8 bits)
+top and rnd differ at 13242 points of the sample, e.g. e0=2, e1=1, w=1: 1 vs 2
 ```
+
+A texel is the steps in a row: the partition, its mode's endpoints from
+its values unquantised, the infill at the texel's gs and gt (the second
+plane's grid for its channel), and the interpolation; tests/astcdec.ucas
+writes nine blocks so.
 
 Checked against astcenc 5.7.1 as the decoder: 43008 blocks (the 14 2D
 footprints, 2, 3 and 4 partitions, every seed), each partition one
@@ -3745,7 +3766,13 @@ colour, so every texel's colour names its partition: all 2558976
 texels agree.  tests/astc.ucas keeps four of those blocks, a small
 block's doubled coordinates, and a shader's form of the hash against
 it (the tie given to the other partition differs at 4223 of the
-262144 seeds and texels).
+262144 seeds and texels).  The other steps, composed as above for every
+block astcenc decodes among 229376 random ones (16384 in each 2D
+footprint; 30718 decodable: every endpoint mode, 1 to 4 partitions,
+10203 with two planes, every colour and weight range), give astcenc's
+texels in all four channels, every one of them; tests/astcdec.ucas
+keeps nine of those blocks.  The unquantisations are equal to the
+decoder they were checked with on every value of every range (1334).
 
 **Price.**  No target has one as an instruction (the texture unit
 decodes a whole block), so `cost` prices one as its definition: the
@@ -3753,7 +3780,9 @@ operations it spells out over its operands, constants folded, on a
 line of its own (24.375 under gt1030 with a constant seed, the hash
 folded; 197.875 with a variable one).
 
-Not done: 3D blocks (z), HDR, sRGB.
+Not done: 3D blocks (z), HDR (its endpoint modes and the float16
+decode mode's conversion), sRGB; reading a block's bits (the block mode,
+the integer sequence encoding) is not a step here.
 
 ### Long expressions
 
