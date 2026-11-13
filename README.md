@@ -4370,7 +4370,11 @@ is offered: `texalu` says which number is missing.
   texel corner is one read there, exactly; the passes weighted by
   fractions s, t (a percentage-closer filter) one read within the snap
   of s and t; a reference that may be NaN is named in what the read
-  holds under.  The cover with
+  holds under.  No depth format is 3-D, so compares of a table read as
+  slices (index coefficients 1, W and W H) are read from one 2-D depth
+  texture with the slices stacked as rows, row y + H z, where
+  neighbouring entries are neighbouring texels as in the table.  The
+  cover with
   the lowest price under the model is taken, by dynamic programming
   over the entries (greedily past 16; a sum takes up to 32 entries).  A
   separable kernel (constant weights of one sign over a filled
@@ -4684,14 +4688,14 @@ Not done: shared weights in a kernel that is not a column times a row
 filters (the specification leaves their taps and weights to the
 implementation), mip levels as means, gather, a filter that wraps along
 some axes and clamps along others, and a compare read of a UNORM depth
-texture, of an array one or of a cube one.  The first of those three
-rests on what the specification does not state, how precisely a unit
-compares the reference with a UNORM texel (it clamps the reference to
-[0, 1], and may compare in the format's fixed point); a cube one on the
-precision of its projection (above); an array one needs the layer as a
-fifth value in the read (the pair holds the fourth), or the layers
-stacked as rows of one 2-D depth texture with every block kept inside
-its layer.  None of those has a measured price yet either.
+texture or of a cube one.  The first rests on what the specification
+does not state, how precisely a unit compares the reference with a UNORM
+texel (it clamps the reference to [0, 1], and may compare in the
+format's fixed point); the second on the precision of the cube's
+projection (above).  An array texture's compare read would take the
+layer as a fifth value (the pair holds the fourth); the stacked 2-D
+texture above reads the same sums.  None of those has a measured price
+yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
