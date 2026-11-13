@@ -124,3 +124,11 @@ rf(x: f64 in 0..1.84467e+19) = x
 parse.ucas:58:13: error: empty range 5..3: the low end is above the high end
     re(x in 5..3) = x
                 ^
+> 1 + )
+parse.ucas:60:5: error: unexpected ')'
+    1 + )
+        ^
+> 3 * * 2
+parse.ucas:61:5: error: unexpected '*'
+    3 * * 2
+        ^

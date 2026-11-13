@@ -1928,10 +1928,13 @@ hy_bare(const struct toks *t, uint32_t b)
 		jmp_buf saved;
 		memset(&rf, 0, sizeof rf);
 		memcpy(saved, fail_jmp, sizeof saved);
+		/* a trial: the statement's own parse says what fails */
+		fail_mute++;
 		if (setjmp(fail_jmp) == 0) {
 			e = calc_parse_text(text, &rf, TY_REAL);
 			ok = 1;
 		}
+		fail_mute--;
 		memcpy(fail_jmp, saved, sizeof saved);
 		notes_drop();
 		if (!ok || rf.np || is_const(e) || !(N.fl[e] & NF_PARTIAL)) {
