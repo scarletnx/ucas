@@ -225,8 +225,11 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
 	/* REPEAT and MIRRORED_REPEAT take normalised coordinates: the unit's
 	 * x is u n (exact in a double: 24 and at most 24 bits); so does a 3-D
 	 * read (Vulkan has no unnormalizedCoordinates for one) */
-	if (ki & TEX_WRAPMASK)
+	if ((ki & TEX_WRAPMASK) && op != O_TEX_TRILINEAR) {
 		x *= (double)W;
+		if (op == O_TEX_BILINEAR)
+			y *= (double)H;
+	}
 	if (op == O_TEX_TRILINEAR) {
 		x *= (double)W;
 		y *= (double)H;
@@ -258,12 +261,13 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
 		return TEX_RED(ki) ? tex_reduce(t, w, 2, TEX_RED(ki)) :
 		    tex_blend(t, w, 2);
 	}
-	r0 = tex_wrap(O_FETCH_CLAMP, j0, H);
-	r1 = tex_wrap(O_FETCH_CLAMP, j0 >= INT64_MAX - 1 ? j0 : j0 + 1, H);
+	/* every axis takes the one address mode */
+	r0 = tex_wrap(TEX_WRAP(ki), j0, H);
+	r1 = tex_wrap(TEX_WRAP(ki), j0 >= INT64_MAX - 1 ? j0 : j0 + 1, H);
 	if (op == O_TEX_TRILINEAR) {
 		/* texel (dx, dy, dz) at bit 0, 1, 2 of q */
-		s0 = tex_wrap(O_FETCH_CLAMP, k0, D);
-		s1 = tex_wrap(O_FETCH_CLAMP, k0 >= INT64_MAX - 1 ? k0 : k0 + 1,
+		s0 = tex_wrap(TEX_WRAP(ki), k0, D);
+		s1 = tex_wrap(TEX_WRAP(ki), k0 >= INT64_MAX - 1 ? k0 : k0 + 1,
 		    D);
 		for (q = 0; q < 8; q++) {
 			t[q] = tv(ctx, ((q & 4 ? s1 : s0) * H + (q & 2 ? r1 :
@@ -546,6 +550,16 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 		op = O_TEX_BILINEAR;
 		red = s[7] == 'i' ? TEX_REDMIN : TEX_REDMAX;
 		i = 9;
+	} else if (n > 12 && (!memcmp(s, "tex_birepeat", 12) || !memcmp(s,
+	    "tex_bimirror", 12))) {
+		op = O_TEX_BILINEAR;
+		wrap = s[6] == 'r' ? O_FETCH_REPEAT : O_FETCH_MIRROR;
+		i = 12;
+	} else if (n > 13 && (!memcmp(s, "tex_trirepeat", 13) || !memcmp(s,
+	    "tex_trimirror", 13))) {
+		op = O_TEX_TRILINEAR;
+		wrap = s[7] == 'r' ? O_FETCH_REPEAT : O_FETCH_MIRROR;
+		i = 13;
 	} else if (n > 10 && (!memcmp(s, "tex_trimin", 10) || !memcmp(s,
 	    "tex_trimax", 10))) {
 		op = O_TEX_TRILINEAR;
@@ -589,8 +603,9 @@ tex_print_name(struct sbuf *b, nid n)
 		    opinfo[N.op[n]].name, IS_FETCH(N.op[n]) && TEX_OFF(N.ki[n]) ?
 		    "_offset" : "");
 	else if (N.ki[n] & TEX_WRAPMASK)
-		sb_printf(b, "tex_%s%d", TEX_WRAP(N.ki[n]) == O_FETCH_REPEAT ?
-		    "repeat" : "mirror", TEX_BITS(N.ki[n]));
+		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" :
+		    N.op[n] == O_TEX_TRILINEAR ? "tri" : "", TEX_WRAP(N.ki[n]) ==
+		    O_FETCH_REPEAT ? "repeat" : "mirror", TEX_BITS(N.ki[n]));
 	else if (N.op[n] == O_TEX_COMPARE) {
 		static const char cmp[7][3] = {"", "lt", "eq", "le", "gt", "ne",
 		    "ge"};
@@ -643,6 +658,11 @@ struct term {
 	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps */
 	struct aff ix0;		/* a wrapping index as it is */
 	int ok0;		/* ix0 is affine */
+	int wdim;		/* 2, 3: it wraps along every axis of rows of
+				 * wW (slices of wV), ix over the axes' own
+				 * variables, wc[] each axis' offset */
+	int64_t wW, wV;
+	int wc[3];
 };
 
 struct rest {
@@ -3676,6 +3696,87 @@ cmp_of(nid e, nid *rd, nid *ref, int *rnd)
 	return 0;
 }
 
+/*
+ * An index that wraps along every axis of a table read as rows of W (or
+ * slices of V / W rows of W): (y' mod H) W + x' mod W (+ (z' mod D) V),
+ * each mode written out on its axis (wrap_of), the same mode on all, each
+ * x' a variable plus a constant.  t->ix becomes the affine form over the
+ * axes' variables, t->wc each axis' constant.  A truncated remainder is
+ * the floored one where it is not negative, so every axis but the
+ * outermost (whose negative remainder leaves the table, where the read is
+ * undefined) must be proved non-negative.  0: not one.
+ */
+static int
+wrap_axes(nid ix, int64_t n, struct term *t)
+{
+	struct aff a, in;
+	int o[3] = {0, 1, 2}, k, i, mode = 0, m;
+	int64_t size[3], lo, hi;
+	nid x;
+
+	if (!aff_of(ix, &a, 0) || (a.n != 2 && a.n != 3) || a.c != 0)
+		return 0;
+	for (k = 0; k < a.n; k++)
+		for (i = k + 1; i < a.n; i++)
+			if (a.coef[o[i]] < a.coef[o[k]]) {
+				int tt = o[k];
+				o[k] = o[i];
+				o[i] = tt;
+			}
+	t->wW = a.coef[o[1]];
+	t->wV = a.n == 3 ? a.coef[o[2]] : 0;
+	if (a.coef[o[0]] != 1 || t->wW < 2 || n % t->wW || (a.n == 3 &&
+	    (t->wV % t->wW || t->wV / t->wW < 2 || n % t->wV)))
+		return 0;
+	size[0] = t->wW;
+	size[1] = a.n == 3 ? t->wV / t->wW : n / t->wW;
+	size[2] = a.n == 3 ? n / t->wV : 1;
+	memset(&t->ix, 0, sizeof t->ix);
+	for (k = 0; k < a.n; k++) {
+		if ((m = wrap_of(a.atom[o[k]], size[k], &x)) == 0 || (mode &&
+		    m != mode))
+			return 0;
+		mode = m;
+		if (!aff_of(x, &in, 0) || in.n != 1 || in.coef[0] != 1 ||
+		    in.c < -64 || in.c > 64)
+			return 0;
+		if (k + 1 < a.n && (!irange(x, &lo, &hi) || lo < 0)) {
+			if (!X.nosum.n) {
+				sb_printf(&X.nosum, "%s wraps along every axis, but %s ",
+				    node_str(ix), node_str(x));
+				if (irange(x, &lo, &hi))
+					sb_printf(&X.nosum, "is in [%lld, %lld]", (long
+					    long)lo, (long long)hi);
+				else
+					sb_puts(&X.nosum, "has no proved range");
+				sb_printf(&X.nosum, ": where it is negative its "
+				    "truncated remainder takes the %s before, where "
+				    "the address mode takes this one", k ? "slice" :
+				    "row");
+			}
+			return 0;
+		}
+		t->wc[k] = (int)in.c;
+		if (!aff_add(&t->ix, &in, a.coef[o[k]]))
+			return 0;
+	}
+	/* the atoms in order, as aff_of leaves them */
+	for (k = 1; k < t->ix.n; k++)
+		for (i = k; i > 0 && t->ix.atom[i - 1] > t->ix.atom[i]; i--) {
+			nid ta = t->ix.atom[i];
+			int64_t tc = t->ix.coef[i];
+			t->ix.atom[i] = t->ix.atom[i - 1];
+			t->ix.coef[i] = t->ix.coef[i - 1];
+			t->ix.atom[i - 1] = ta;
+			t->ix.coef[i - 1] = tc;
+		}
+	/* one variable an axis */
+	if (t->ix.n != a.n)
+		return 0;
+	t->wdim = a.n;
+	return mode;
+}
+
 static void
 collect(struct sum *s, nid e, struct mform k, int depth)
 {
@@ -3791,7 +3892,16 @@ collect(struct sum *s, nid e, struct mform k, int depth)
 		if ((wrap = wrap_of(ix, N.b[N.a[e]], &wx)) != 0) {
 			t->ok0 = aff_of(ix, &t->ix0, 0);
 			ix = wx;
-		}
+		} else if ((wrap = wrap_axes(ix, N.b[N.a[e]], t)) != 0) {
+			/* along every axis of rows (and slices) */
+			t->ok0 = aff_of(ix, &t->ix0, 0);
+			t->wrap = wrap;
+			t->k = k;
+			t->tab = N.a[e];
+			s->tidx[s->nt++] = N.b[e];
+			return;
+		} else
+			t->wdim = 0;
 		if (!aff_of(ix, &t->ix, 0)) {
 			if (!t->ok0)
 				break;
@@ -4146,6 +4256,77 @@ grid_make3(struct sum *s, struct grid *g, int64_t W, int64_t V)
 }
 
 /*
+ * The largest step between neighbours along each axis of slices of H rows
+ * of W, the pairs a wrap makes included: REPEAT's last texel of a row,
+ * column or run and its first (MIRRORED_REPEAT puts a texel beside itself
+ * there).
+ */
+static void
+wrap_steps(const struct tinfo *ti, int64_t W, int64_t H, int64_t D, int mode,
+    double *st)
+{
+	int64_t i, j, k, sz[3] = {W, H, D}, str[3] = {1, W, W * H};
+	int ax;
+
+	st[0] = st[1] = st[2] = 0;
+	for (ax = 0; ax < 3; ax++)
+		for (k = 0; k < D; k++)
+			for (j = 0; j < H; j++)
+				for (i = 0; i < W; i++) {
+					int64_t c[3] = {i, j, k}, at = (k * H + j) * W + i,
+					    nx;
+					double d;
+					if (c[ax] + 1 < sz[ax])
+						nx = at + str[ax];
+					else if (mode == O_FETCH_REPEAT && sz[ax] > 1)
+						nx = at - (sz[ax] - 1) * str[ax];
+					else
+						continue;
+					d = fabs(cval(N.lst[N.a[ti->tab] + nx]) -
+					    cval(N.lst[N.a[ti->tab] + at]));
+					if (d > st[ax])
+						st[ax] = d;
+				}
+}
+
+/*
+ * A group that wraps along every axis (wrap_axes): rows of W, slices of
+ * H rows when it has three axes, each axis' variable with its proved
+ * range (the coordinate's error needs it), each member's offsets its
+ * axes' own constants.
+ */
+static int
+grid_wrap(struct sum *s, struct grid *g)
+{
+	const struct term *t0 = &s->t[g->ix[0]];
+	const struct aff *a = &t0->ix;
+	double st[3];
+	int i;
+
+	g->W = t0->wW;
+	g->H = t0->wdim == 3 ? t0->wV / t0->wW : g->ti.n / t0->wW;
+	g->D = t0->wdim == 3 ? g->ti.n / t0->wV : 1;
+	g->xe = aff_part(a, 1, &g->xlo, &g->xhi);
+	g->ye = aff_part(a, g->W, &g->ylo, &g->yhi);
+	g->ze = t0->wdim == 3 ? aff_part(a, t0->wV, &g->zlo, &g->zhi) : 0;
+	if (!g->xe || !g->ye || (t0->wdim == 3 && !g->ze))
+		return 0;
+	for (i = 0; i < g->n; i++) {
+		struct term *t = &s->t[g->ix[i]];
+		if (t->wdim != t0->wdim || t->wW != t0->wW || t->wV != t0->wV)
+			return 0;
+		t->dx = t->wc[0];
+		t->dy = t->wc[1];
+		t->dz = t0->wdim == 3 ? t->wc[2] : 0;
+	}
+	wrap_steps(&g->ti, g->W, g->H, g->D, g->wrap, st);
+	g->dxmax = st[0];
+	g->dymax = st[1];
+	g->dzmax = st[2];
+	return 1;
+}
+
+/*
  * Lay the group on the grid: the width from the index's coefficients
  * (rows of W when every variable's coefficient is 1 or W and W divides
  * the table; slices of rows with a second coefficient, grid_make3), the
@@ -4164,6 +4345,8 @@ grid_make(struct sum *s, struct grid *g)
 		return 0;
 	g->wrap = s->t[g->ix[0]].wrap;
 	g->D = 1;
+	if (g->wrap && s->t[g->ix[0]].wdim)
+		return grid_wrap(s, g);
 	for (i = 0; i < a->n; i++) {
 		int64_t c = a->coef[i];
 		if (c == 1)
@@ -4725,6 +4908,7 @@ seed_sum1(nid body, nid root)
 		if (j == s->nt) {
 			s->t[i].ix = s->t[i].ix0;
 			s->t[i].wrap = 0;
+			s->t[i].wdim = 0;
 		}
 	}
 	for (i = 0; i < s->nt; i++) {
@@ -4833,8 +5017,8 @@ seed_sum1(nid body, nid root)
 		cv.s = s;
 		cv.g = &g;
 		cv.ptap = X.m->c[g.ti.cls] + (tri ? 3 : g.H > 1 ? 2 : 1) *
-		    X.m->c[C_FADD] + X.m->c[C_FMUL] + (g.wrap ? X.m->c[C_FMUL] :
-		    0);
+		    X.m->c[C_FADD] + X.m->c[C_FMUL] + (g.wrap && !tri ? (g.H >
+		    1 ? 2 : 1) * X.m->c[C_FMUL] : 0);
 		/* a 3-D read: the third axis, and the coordinates normalised */
 		if (tri)
 			cv.ptap += X.m->c[C_TEX_3D] + 3 * X.m->c[C_FMUL];
@@ -4940,7 +5124,8 @@ seed_sum1(nid body, nid root)
 				y = norm_coord(y, g.H, ey, &dwy, &gy, &cy);
 				z = norm_coord(z, g.D, ez, &dwz, &gz, &cz);
 				tap = mk_tex(O_TEX_TRILINEAR, TEX_KI(X.bits, g.W) |
-				    TEX_KH(g.H), g.ti.tex, x, tex_args(y, z));
+				    TEX_KH(g.H) | TEX_KWRAP(g.wrap), g.ti.tex, x,
+				    tex_args(y, z));
 			} else if (cmpg) {
 				/* normalised: no unnormalizedCoordinates with a
 				 * compare; one row is a 2-D texture of height 1 */
@@ -4953,8 +5138,13 @@ seed_sum1(nid body, nid root)
 			} else if (g.H > 1) {
 				y = coord_node(g.ye, b->oy, &b->fv, ey, &dwy, &ops,
 				    &gy, &cy);
-				tap = mk_tex(O_TEX_BILINEAR, TEX_KI(X.bits, g.W),
-				    g.ti.tex, x, y);
+				/* wrapped: normalised, as the 1-D read below */
+				if (g.wrap) {
+					x = norm_coord(x, g.W, ex, &dwx, &gx, &cx);
+					y = norm_coord(y, g.H, ey, &dwy, &gy, &cy);
+				}
+				tap = mk_tex(O_TEX_BILINEAR, TEX_KI(X.bits, g.W) |
+				    TEX_KWRAP(g.wrap), g.ti.tex, x, y);
 			} else if (g.wrap) {
 				/*
 				 * normalised: u = x f32(1/n), and the unit reads
@@ -5158,7 +5348,16 @@ seed_sum1(nid body, nid root)
 				    "specification does not say how a unit compares "
 				    "one)", node_str(cref));
 		}
-		if (g.wrap)
+		if (g.wrap && g.H > 1 && !tri)
+			sb_printf(&proof, "\n  the coordinates are normalised, u = "
+			    "x f32(1/%lld), v = y f32(1/%lld), and the unit reads "
+			    "(u %lld, v %lld): %s", (long long)g.W, (long long)g.H,
+			    (long long)g.W, (long long)g.H, (g.W & (g.W - 1)) ||
+			    (g.H & (g.H - 1)) ? "along a size that is not a power "
+			    "of two within |x| 2^-23 of x (two roundings of "
+			    "2^-24), in the bound above" : "exact: the sizes are "
+			    "powers of two");
+		else if (g.wrap && !tri)
 			sb_printf(&proof, "\n  the coordinate is normalised, u = "
 			    "x f32(1/%lld), and the unit reads u %lld: %s",
 			    (long long)g.W, (long long)g.W, g.W & (g.W - 1) ?
@@ -5211,11 +5410,18 @@ seed_sum1(nid body, nid root)
 			fmt_says(&pipe, &g.ti);
 		if (tri)
 			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
-			    "NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, "
+			    "NEAREST mipmap mode, %s on u, v and w, "
 			    "normalised coordinates (a 3-D texture has no "
 			    "unnormalizedCoordinates), lod 0\none combined image "
 			    "sampler more in the layout; the shader reads "
-			    "textureLod(s, vec3(u, v, w), 0.0).r");
+			    "textureLod(s, vec3(u, v, w), 0.0).r", g.wrap ?
+			    mode_vk(g.wrap) : "CLAMP_TO_EDGE");
+		else if (!cmpg && g.wrap && g.H > 1)
+			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
+			    "NEAREST mipmap mode, %s on u and v, normalised "
+			    "coordinates, lod 0\none combined image sampler more "
+			    "in the layout; the shader reads textureLod(s, vec2(u, "
+			    "v), 0.0).r", mode_vk(g.wrap));
 		else if (!cmpg)
 			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
 			    "NEAREST mipmap mode, %s, lod 0\none combined image "

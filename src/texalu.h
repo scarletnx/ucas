@@ -37,7 +37,13 @@
  *                             the test value; IEEE comparisons, so a NaN
  *                             passes only ne)
  *   tex_repeatB(T, x),        tex_linearB with its two texels wrapped
- *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped
+ *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped,
+ *                             at a normalised x (the unit reads x n)
+ *   tex_birepeatB(T, W, x,    tex_bilinearB and tex_trilinearB with
+ *     y), tex_bimirrorB,      every axis wrapped so, at normalised
+ *   tex_trirepeatB(T, W, H,   coordinates
+ *     x, y, z),
+ *   tex_trimirrorB
  *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
  *   tex_biminB(T, W, x, y),   reduction sampler: the least or the
  *   tex_bimaxB,               greatest of its texels whose weight is

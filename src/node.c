@@ -1148,7 +1148,7 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 		return mk_undef(TY_F32);
 	for (j = 0; j < n; j++)
 		allk &= is_const(N.lst[N.a[a] + j]);
-	if ((ki & TEX_WRAPMASK) && (op != O_TEX_LINEAR || TEX_RED(ki)))
+	if ((ki & TEX_WRAPMASK) && (op == O_TEX_COMPARE || TEX_RED(ki)))
 		fail("%s: REPEAT and MIRRORED_REPEAT are for a linear filter's "
 		    "weighted sum", opinfo[op].name);
 	ki = TEX_KI(bits, w) | TEX_KH(h) | TEX_RED(ki) | (ki & TEX_WRAPMASK) |

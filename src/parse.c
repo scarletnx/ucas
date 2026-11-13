@@ -960,12 +960,16 @@ ident(struct P *p)
 			    "(table, x)", IS_FETCH(kind) && na == TEX_OFFNAME ?
 			    " and a constant offset last" : "");
 		if (kind == O_TEX_BILINEAR) {
+			int nm = (int)n;
+			/* the name as written, without its grid's bits */
+			while (nm > 0 && s[nm - 1] >= '0' && s[nm - 1] <= '9')
+				nm--;
 			if (!is_const(args[1]) || !TY_ISINT(N.ty[args[1]]) ||
 			    N.ki[args[1]] < 1 || N.ki[args[1]] > 0xffffff)
-				fail("tex_bilinear's width is a constant from 1 to "
-				    "16777215, not %s", node_str(args[1]));
-			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]), args[0],
-			    args[2], args[3]);
+				fail("%.*s's width is a constant from 1 to "
+				    "16777215, not %s", nm, s, node_str(args[1]));
+			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) | wk,
+			    args[0], args[2], args[3]);
 		}
 		if (kind == O_TEX_TRILINEAR) {
 			int k, nm = (int)n;
@@ -980,7 +984,7 @@ ident(struct P *p)
 					    "16777215, not %s", nm, s, k == 1 ?
 					    "width" : "height", node_str(args[k]));
 			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) |
-			    TEX_KH(N.ki[args[2]]), args[0], args[3],
+			    TEX_KH(N.ki[args[2]]) | wk, args[0], args[3],
 			    tex_args(args[4], args[5]));
 		}
 		if (kind == O_TEX_COMPARE) {
