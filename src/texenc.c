@@ -41,6 +41,10 @@
  *       is negative: each block's base, multiplier, modifier table and
  *       selectors, every one of the 65536 headers tried; whole numbers
  *       are the format's 11-bit values, k/2047 (signed, k/1023)
+ *   texenc T [, U] etc2 [rows W] [tol E]
+ *       T in the red channel of RGB8_ETC2 blocks (etc2blk.c), every
+ *       encoding of that channel tried (individual, differential, T, H,
+ *       planar); T and U as RGBA8_ETC2_EAC, U in the 8-bit alpha block
  */
 #include "calc.h"
 #include "report.h"
@@ -554,6 +558,12 @@ eac_value(int base, int mul, int tab, int sel, int sgn)
 	}
 	v = 8 * base + 4 + (mul ? 8 * mod * mul : mod);
 	return v < 0 ? 0 : v > 2047 ? 2047 : v;
+}
+
+int
+eac_mod(int tab, int sel)
+{
+	return eac_mods[tab & 15][sel & 7];
 }
 
 double
@@ -1252,6 +1262,263 @@ cmd_texenc_astc(const struct func *f, const struct func *g, int bw, int bh,
 	}
 }
 
+/* an RGB8_ETC2 block's red channel as words, printed and reported */
+static void
+pr_etc2(const uint8_t *q, const struct etc2_info *in, struct sbuf *b)
+{
+	static const char *const mname[] = {"individual", "differential", "T",
+	    "H", "planar"};
+	uint64_t w = 0;
+	int i;
+
+	for (i = 0; i < 8; i++)
+		w = w << 8 | q[i];
+	rep_str("mode", mname[in->mode]);
+	switch (in->mode) {
+	case ETC2_INDIVIDUAL: case ETC2_DIFFERENTIAL:
+		printf("%s, sub-blocks %s: red %d with modifiers %d %d %d %d, red "
+		    "%d with %d %d %d %d", mname[in->mode], in->flip ? "one over "
+		    "the other" : "side by side", in->v[0], etc1_mod(in->v[2], 0),
+		    etc1_mod(in->v[2], 1), etc1_mod(in->v[2], 2),
+		    etc1_mod(in->v[2], 3), in->v[1], etc1_mod(in->v[3], 0),
+		    etc1_mod(in->v[3], 1), etc1_mod(in->v[3], 2),
+		    etc1_mod(in->v[3], 3));
+		rep_bool("flip", in->flip);
+		rep_int("red0", in->v[0]);
+		rep_int("red1", in->v[1]);
+		rep_int("table0", in->v[2]);
+		rep_int("table1", in->v[3]);
+		break;
+	case ETC2_T:
+		printf("T mode: red %d, then %d + %d, %d, %d - %d", in->v[0],
+		    in->v[1], in->v[2], in->v[1], in->v[1], in->v[2]);
+		rep_int("red0", in->v[0]);
+		rep_int("red1", in->v[1]);
+		rep_int("distance", in->v[2]);
+		break;
+	case ETC2_H:
+		printf("H mode: red %d and %d, each + and - %d", in->v[0], in->v[1],
+		    in->v[2]);
+		rep_int("red0", in->v[0]);
+		rep_int("red1", in->v[1]);
+		rep_int("distance", in->v[2]);
+		break;
+	default:
+		printf("planar: red %d at (0, 0), %d at (4, 0), %d at (0, 4)",
+		    in->v[0], in->v[1], in->v[2]);
+		rep_int("red_o", in->v[0]);
+		rep_int("red_h", in->v[1]);
+		rep_int("red_v", in->v[2]);
+		return;
+	}
+	printf(", selectors");
+	sb_clear(b);
+	for (i = 0; i < 16; i++) {
+		int k = (i >> 2) + 4 * (i & 3);
+		int s = (int)((w >> (16 + k) & 1) << 1 | (w >> k & 1));
+		printf(" %d", s);
+		sb_printf(b, "%s%d", i ? " " : "", s);
+	}
+	rep_str("selectors", sb_str(b));
+}
+
+/*
+ * One table in the red channel of RGB8_ETC2 blocks, or two of one shape
+ * as RGBA8_ETC2_EAC (16 bytes a block: the second table's 8-bit alpha
+ * block, then the first's colour block): every encoding of the red
+ * channel tried, every alpha header.
+ */
+static void
+cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
+    double tol, int has_tol)
+{
+	const struct func *fs[2] = {f, g};
+	const char *nm[2], *ch[2] = {"red", "alpha"};
+	int nt = g ? 2 : 1, n, H, nbx, nby, c, k, i, isint[2], at[2] = {0, 0};
+	double *t[2] = {NULL, NULL}, *dec[2] = {NULL, NULL}, err[2] = {0, 0};
+	struct sbuf b = {0};
+
+	for (c = 0; c < nt; c++) {
+		nm[c] = fs[c]->anon ? (c ? "the second table" : nt == 2 ?
+		    "the first table" : "the table") : sym_str(fs[c]->name);
+		if (fs[c]->np != 0 || N.op[fs[c]->body] != O_TABLE)
+			fail("texenc takes tables [t0, t1, ...] (or their names), not "
+			    "%s", fs[c]->anon ? node_str(fs[c]->body) :
+			    sym_str(fs[c]->name));
+	}
+	if (nt == 2 && N.b[f->body] != N.b[g->body])
+		fail("texenc: RGBA8_ETC2_EAC's red and alpha are tables of one "
+		    "shape; %s has %u entries and %s %u", nm[0], N.b[f->body], nm[1],
+		    N.b[g->body]);
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	n = (int)N.b[f->body];
+	H = (n + W - 1) / W;
+	nbx = (W + 3) / 4;
+	nby = (H + 3) / 4;
+	for (c = 0; c < nt; c++) {
+		t[c] = xcalloc((size_t)n, sizeof *t[c]);
+		dec[c] = xcalloc((size_t)n, sizeof *dec[c]);
+		if (!astc_targets(fs[c]->body, t[c], &isint[c]))
+			fail("texenc: ETC2 holds numbers from 0 to 1 (or whole numbers "
+			    "0 to 255, read as k/255); %s has an entry that is "
+			    "neither", nm[c]);
+	}
+	rep_begin("texenc");
+	rep_str("format", nt == 2 ? "RGBA8_ETC2_EAC" : "RGB8_ETC2");
+	rep_int("entries", n);
+	rep_int("width", W);
+	rep_int("height", H);
+	rep_int("bytes", nbx * nby * 8 * nt);
+	sb_clear(&b);
+	if (nt == 2)
+		sb_printf(&b, " (%s the red, %s the alpha)", nm[0], nm[1]);
+	printf("texenc %s%s%s etc2: %d entr%s%s as %s%s, rows of %d (%d x %d "
+	    "texels): %d block%s, %d bytes (%d as %s, %d as %s)%s\n", nm[0],
+	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", n, n == 1 ? "y" : "ies",
+	    nt == 2 ? " a channel" : "", nt == 2 ? "RGBA8_ETC2_EAC" :
+	    "RGB8_ETC2", sb_str(&b), W, W, H, nbx * nby, nbx * nby == 1 ? "" :
+	    "s", nbx * nby * 8 * nt, nt * W * H, nt == 2 ? "R8G8_UNORM" :
+	    "R8_UNORM", 4 * nt * W * H, nt == 2 ? "R32G32_SFLOAT" : "R32_SFLOAT",
+	    isint[0] || (nt == 2 && isint[1]) ? "; whole numbers k are stored "
+	    "as k/255" : "");
+	rep_list("blocks");
+	for (k = 0; k < nbx * nby; k++) {
+		double bt[2][16], got[2] = {0, 0}, want[2];
+		uint8_t care[16], q[16], px[16][3];
+		struct etc2_info in;
+		int bx = k % nbx, by = k / nbx, av[16];
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			care[i] = x < W && a < n;
+			for (c = 0; c < nt; c++)
+				bt[c][i] = care[i] ? t[c][a] : 0;
+		}
+		/* RGBA8_ETC2_EAC: the alpha block first, then the colour one */
+		want[0] = etc2_encode_r(bt[0], care, q + (nt == 2 ? 8 : 0), &in);
+		etc2_decode(q + (nt == 2 ? 8 : 0), px);
+		if (nt == 2) {
+			want[1] = etc2_alpha_encode(bt[1], care, q);
+			etc2_alpha_decode(q, av);
+		}
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			if (!care[i])
+				continue;
+			for (c = 0; c < nt; c++) {
+				double e;
+				dec[c][a] = (double)(float)((c ? av[i] : px[i][0]) / 255.0);
+				e = fabs(dec[c][a] - t[c][a]);
+				if (e > got[c])
+					got[c] = e;
+				if (e > err[c]) {
+					err[c] = e;
+					at[c] = (int)a;
+				}
+			}
+		}
+		for (c = 0; c < nt; c++)
+			if (got[c] != want[c])
+				fail("texenc: block (%d, %d) %s decodes within %.9g of its "
+				    "entries where the search computed %.9g: an encoder "
+				    "error", bx, by, ch[c], got[c], want[c]);
+		rep_obj(NULL);
+		rep_int("x", bx);
+		rep_int("y", by);
+		printf("  block (%d, %d)%s: ", bx, by, nt == 2 ? " red" : "");
+		if (nt == 2)
+			rep_obj("red");
+		pr_etc2(q + (nt == 2 ? 8 : 0), &in, &b);
+		if (nt == 2) {
+			uint64_t w = 0;
+			int mul, tab;
+			rep_end();
+			for (i = 0; i < 8; i++)
+				w = w << 8 | q[i];
+			mul = (int)(w >> 52 & 15);
+			tab = (int)(w >> 48 & 15);
+			printf("\n  block (%d, %d) alpha: base %d, multiplier %d, "
+			    "modifiers", bx, by, q[0], mul);
+			for (i = 0; i < 8; i++)
+				printf(" %d", eac_mod(tab, i));
+			printf(" (table %d), selectors", tab);
+			sb_clear(&b);
+			for (i = 0; i < 16; i++) {
+				int s = (int)(w >> (45 - 3 * (4 * (i & 3) + (i >> 2))) &
+				    7);
+				printf(" %d", s);
+				sb_printf(&b, "%s%d", i ? " " : "", s);
+			}
+			rep_obj("alpha");
+			rep_int("base", q[0]);
+			rep_int("multiplier", mul);
+			rep_int("table", tab);
+			rep_str("selectors", sb_str(&b));
+			rep_end();
+			printf("\n  block (%d, %d) bytes", bx, by);
+		} else
+			printf(", bytes");
+		sb_clear(&b);
+		for (i = 0; i < 8 * nt; i++) {
+			printf(" %02x", q[i]);
+			sb_printf(&b, "%s%02x", i ? " " : "", q[i]);
+		}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	for (c = 0; c < nt; c++) {
+		const char *pre = nt == 2 ? (c ? "alpha: " : "red: ") : "";
+		if (nt == 2)
+			rep_obj(ch[c]);
+		sb_clear(&b);
+		sb_putc(&b, '[');
+		for (i = 0; i < n; i++)
+			sb_printf(&b, "%s%.9g", i ? ", " : "", dec[c][i]);
+		sb_putc(&b, ']');
+		printf("  %sdecodes to %s\n", pre, sb_str(&b));
+		rep_str("decoded", sb_str(&b));
+		rep_bool("exact", err[c] == 0);
+		rep_num("max_error", err[c]);
+		if (err[c] == 0)
+			printf("  %sexact: every texel is its entry's f32%s (%s)\n",
+			    pre, isint[c] ? " over 255" : "", c ? "every base, "
+			    "multiplier and table tried" : "every encoding of the red "
+			    "channel tried");
+		else {
+			printf("  %snot exact: the closest blocks are within %.3g of "
+			    "the table (entry %d: %.9g as %.9g), %s\n", pre, err[c],
+			    at[c], t[c][at[c]], dec[c][at[c]], c ? "every base, "
+			    "multiplier and table tried" : "every encoding of the red "
+			    "channel tried");
+			if (has_tol) {
+				printf("  %s%s the %g allowed (tol)\n", pre, err[c] <= tol ?
+				    "within" : "more than", tol);
+				rep_bool("within_tol", err[c] <= tol);
+			}
+		}
+		if (nt == 2)
+			rep_end();
+	}
+	if (nt == 2) {
+		rep_bool("exact", err[0] == 0 && err[1] == 0);
+		if (has_tol)
+			rep_bool("within_tol", err[0] <= tol && err[1] <= tol);
+	}
+	printf("  a nearest or filtered read of the texture is that read of the "
+	    "decoded table%s (green and blue are whatever the block's mode "
+	    "needs); no model prices an ETC2 read apart from its uncompressed "
+	    "one: not measured\n", nt == 2 ? "s, red and alpha" : " in red");
+	free(b.p);
+	for (c = 0; c < nt; c++) {
+		free(t[c]);
+		free(dec[c]);
+	}
+}
+
 /* a table: a defined one by its name (before a comma too), or an
  * expression */
 static struct func *
@@ -1271,12 +1538,13 @@ texenc_table(struct P *p, const char *const *stop)
 int
 texenc_command(struct P *p)
 {
-	static const char *const stop[] = {"rows", "tol", "astc", "eac", NULL};
+	static const char *const stop[] = {"rows", "tol", "astc", "eac", "etc2",
+	    NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0, astc = 0, eac = 0;
+	int has_tol = 0, astc = 0, eac = 0, etc2 = 0;
 	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
@@ -1297,6 +1565,8 @@ texenc_command(struct P *p)
 		W = bw;
 	} else if (cmdp_kw(p, "eac"))
 		eac = 1;
+	else if (cmdp_kw(p, "etc2"))
+		etc2 = 1;
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -1309,11 +1579,14 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [astc BWxBH | eac] [rows W] [tol E]");
+			fail("texenc T [, U] [astc BWxBH | eac | etc2] [rows W] "
+			    "[tol E]");
 		}
 	}
 	notes_flush();
-	if (eac)
+	if (etc2)
+		cmd_texenc_etc2(f, g, (int)W, tol, has_tol);
+	else if (eac)
 		cmd_texenc_eac(f, g, (int)W, tol, has_tol);
 	else if (astc)
 		cmd_texenc_astc(f, g, (int)bw, (int)bh, (int)W, tol, has_tol);
@@ -1327,9 +1600,10 @@ texenc_command(struct P *p)
 /*
  * "compress K as BC4", "K as a BC4 texture", "encode K as bc4 within
  * 0.01, rows of 8", "compress K as ASTC 6x6", "store K as EAC", "K and L
- * as RG11": texenc T [astc BWxBH | eac] [rows W] [tol E].  The sentence
- * must name BC4 (or RGTC), ASTC with a footprint, or EAC (R11, RG11),
- * and a defined table; NULL otherwise.
+ * as RG11", "compress K as ETC2": texenc T [astc BWxBH | eac | etc2]
+ * [rows W] [tol E].  The sentence must name BC4 (or RGTC), ASTC with a
+ * footprint, EAC (R11, RG11) or ETC2, and a defined table; NULL
+ * otherwise.
  */
 const char *
 texenc_nlp_raw(const char *sent)
@@ -1339,7 +1613,7 @@ texenc_nlp_raw(const char *sent)
 	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0, astc = 0, eac = 0, a, b;
+	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, a, b;
 
 	if (n > 400)
 		return NULL;
@@ -1370,6 +1644,8 @@ texenc_nlp_raw(const char *sent)
 			hit = eac = 1;
 		else if (!strcmp(w, "rg11") || !strcmp(w, "RG11"))
 			hit = eac = bc5 = 1;
+		else if (!strcmp(w, "etc2") || !strcmp(w, "ETC2"))
+			hit = etc2 = 1;
 		else if (sscanf(w, "%dx%d", &a, &b) == 2 && a > 0 && b > 0 &&
 		    a < 100 && b < 100)
 			snprintf(fp, sizeof fp, "%dx%d", a, b);
@@ -1389,10 +1665,10 @@ texenc_nlp_raw(const char *sent)
 	if (!hit || !fn[0] || (bc5 && !fn2[0]) || (astc && !fp[0]))
 		return NULL;
 	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s%s", fn, bc5 ||
-	    ((astc || eac) && fn2[0]) ? ", " : "", bc5 || ((astc || eac) &&
-	    fn2[0]) ? fn2 : "", astc ? " astc " : "", astc ? fp : "", eac ?
-	    " eac" : "", rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "",
-	    tol);
+	    ((astc || eac || etc2) && fn2[0]) ? ", " : "", bc5 || ((astc ||
+	    eac || etc2) && fn2[0]) ? fn2 : "", astc ? " astc " : "", astc ?
+	    fp : "", eac ? " eac" : etc2 ? " etc2" : "", rows[0] ? " rows " :
+	    "", rows, tol[0] ? " tol " : "", tol);
 	return out;
 }
 
@@ -1438,5 +1714,6 @@ texenc_nlp_english(const char *line)
 	    strstr(line, "BC5") || strstr(line, "bc5") || strstr(line, "RGTC") ||
 	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc") ||
 	    has_word(line, "eac") || strstr(line, "R11") || strstr(line, "r11") ||
-	    strstr(line, "RG11") || strstr(line, "rg11"));
+	    strstr(line, "RG11") || strstr(line, "rg11") || strstr(line, "ETC2") ||
+	    strstr(line, "etc2"));
 }

@@ -249,8 +249,8 @@ static const struct jcmd cmds[] = {
 	    "(the sum's own rounding)"), NMO("model", " under %s",
 	    "the model (the active one)")}},
 	{"texenc", "texenc", 1, 0, "a constant table as BC4 blocks (two of "
-	    "one shape as BC5), or as ASTC or EAC blocks: endpoints, selectors "
-	    "and bytes, exact or within a tolerance",
+	    "one shape as BC5), or as ASTC, EAC or ETC2 blocks: endpoints, "
+	    "selectors and bytes, exact or within a tolerance",
 	    {E("table", " %s", "the table: [t0, t1, ...] or its name"),
 	    EO("green", ", %s", "a second table of the same shape: the two as "
 	    "BC5, the first red and this one green (with astc: a block's "
@@ -259,6 +259,8 @@ static const struct jcmd cmds[] = {
 	    "the table as ASTC blocks of it instead"),
 	    BO("eac", " eac", "the table as R11_EAC blocks instead (two as "
 	    "RG11_EAC; signed when an entry is negative)"),
+	    BO("etc2", " etc2", "the table in the red channel of RGB8_ETC2 "
+	    "blocks instead (two as RGBA8_ETC2_EAC, the second the alpha)"),
 	    IO("rows", " rows %s", "texels in a row (4)"), NUO("tol", " tol %s",
 	    "the error allowed on an entry")}},
 	{"more", "more", 0, 0, "the next results of the last find",
