@@ -1926,7 +1926,15 @@ lower, and otherwise listed as "derived, but not cheaper".
   - as a multiply and a shift, `(x*M + A) >> s`: for each s, the offsets
     A that serve a multiplier M are an interval whose width is concave
     in M, so the least s with a pair is found exactly, and the
-    derivation prints the two values of x where the fit is tightest.
+    derivation prints the two values of x where the fit is tightest;
+  - as a field for each bit of x, `((x*M) & L) * (2^w - 1)`, when the
+    map is the OR of a run of w ones for each set bit, every run at or
+    above its bit and apart from the others (a write mask of bytes from
+    a mask of 4 bits: `((b*0x204081) & 0x1010101)*0xFF`): M moves bit q
+    to its run's low end, L keeps those bits, the multiply fills each
+    run (with w = 1 it goes, and `(r << w) - r` replaces it where the
+    model prices that lower); the form is read back at every value of x
+    (tests/mapspread.ucas).
 
   The largest such subterms are tried first, their operands where
   neither form fits.  The key need not be a parameter: a subterm with a

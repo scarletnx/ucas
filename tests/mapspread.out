@@ -1,0 +1,59 @@
+> use gt1030
+cost model: gt1030
+> keep(b: u32 in 0..15) = ((b & 1) != 0 ? 0xFF : 0) | ((b & 2) != 0 ? 0xFF00 : 0) | ((b & 4) != 0 ? 0xFF0000 : 0) | ((b & 8) != 0 ? 0xFF000000 : 0)
+> find keep 1
+  note: the result is int: searching in u32
+find keep: 16 points, computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   int(255(2113665b & 0x1010101))           the map (b & 1 != 0 ? 255 : 0) | (b & 2 != 0 ? 65280 : 0) | (b & 4 !… (51 more characters) of b as a field for each of its bits: a multiply, a mask and a multiply (derived; checked on every point)
+      holds where b in [0, 15] (its range)
+      (b & 1 != 0 ? 255 : 0) | (b & 2 != 0 ? 65280 : 0) | (b & 4 !… (51 more characters) at b = 0..15 is [0, 255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, 4278190080, 4278190335, 4278255360, 4278255615, 4294901760, 4294902015, 4294967040, 4294967295] (evaluated at each of the 16)
+      the value is the OR of a field for each set bit of b: bit 0 -> 0xff bit 1 -> 0xff00 bit 2 -> 0xff0000 bit 3 -> 0xff000000
+      * 0x204081 puts bit q at the low end of its field, & 0x1010101 keeps those bits, * 0xff (2^8 - 1) fills each field's 8 bits
+      read back at each of the 16 values of b
+  cost 7   [0, 255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, 4278190080, 4278190335, 4278255360, 4278255615, 4294901760, 4294902015, 4294967040, 4294967295][b] lookup table (baseline)
+  [searched every term up to cost 5: 1048576 distinct columns, bank full; 'more' continues]
+> nib(b: u32 in 1..14) = [0xFF, 0xFF00, 0xFFFF, 0xFF0000, 0xFF00FF, 0xFFFF00, 0xFFFFFF, 0xFF000000, 0xFF0000FF, 0xFF00FF00, 0xFF00FFFF, 0xFFFF0000, 0xFFFF00FF, 0xFFFFFF00][b - 1]
+> find nib 1
+  note: the result is int: searching in u32
+find nib: 14 points, computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   int(255(2113665b & 0x1010101))           the map [255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, … (90 more characters) of b as a field for each of its bits: a multiply, a mask and a multiply (derived; checked on every point)
+      holds where b in [1, 14] (its range)
+      [255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, … (90 more characters) at b = 1..14 is [255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, 4278190080, 4278190335, 4278255360, 4278255615, 4294901760, 4294902015, 4294967040] (evaluated at each of the 14)
+      the value is the OR of a field for each set bit of b: bit 0 -> 0xff bit 1 -> 0xff00 bit 2 -> 0xff0000 bit 3 -> 0xff000000
+      * 0x204081 puts bit q at the low end of its field, & 0x1010101 keeps those bits, * 0xff (2^8 - 1) fills each field's 8 bits
+      read back at each of the 14 values of b
+  cost 8   [255, 65280, 65535, 16711680, 16711935, 16776960, 16777215, 4278190080, 4278190335, 4278255360, 4278255615, 4294901760, 4294902015, 4294967040][b - 1] lookup table (baseline)
+  [searched every term up to cost 5: 1198372 distinct columns, bank full; 'more' continues]
+> bits(b: u32 in 0..7) = ((b & 1) != 0 ? 1 : 0) | ((b & 2) != 0 ? 0x100 : 0) | ((b & 4) != 0 ? 0x10000 : 0)
+> find bits 1
+  note: the result is int: searching in u32
+find bits: 8 points, computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 4   int(16513b & 0x10101)                    the map (b & 1 != 0 ? 1 : 0) | (b & 2 != 0 ? 256 : 0) | (b & 4 != 0 … (12 more characters) of b as a field for each of its bits: a multiply, a mask (derived; checked on every point)
+      holds where b in [0, 7] (its range)
+      (b & 1 != 0 ? 1 : 0) | (b & 2 != 0 ? 256 : 0) | (b & 4 != 0 … (12 more characters) at b = 0..7 is [0, 1, 256, 257, 65536, 65537, 65792, 65793] (evaluated at each of the 8)
+      the value is the OR of a field for each set bit of b: bit 0 -> 0x1 bit 1 -> 0x100 bit 2 -> 0x10000
+      * 0x4081 puts bit q at the low end of its field, & 0x10101 keeps those bits
+      read back at each of the 8 values of b
+  cost 7   [0, 1, 256, 257, 65536, 65537, 65792, 65793][b] lookup table (baseline)
+  [searched every term up to cost 5: 2097152 distinct columns, bank full; 'more' continues]
+> over(b: u32 in 0..3) = ((b & 1) != 0 ? 0xFF : 0) | ((b & 2) != 0 ? 0x1FE : 0)
+> find over 1
+  note: the result is int: searching in u32
+find over: 4 points, computing in u32, costs from gt1030
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a table in one constant (4 entries of 1 bit)
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a multiply and a shift in u32
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 1 != 0 of b as a table in one constant (4 entries of 1 bit)
+  cost 6   u32(0xffff9fe00 >> 9u64(b) & 0x1ff)      packed table in one constant
+  [searched every term up to cost 6: 4194304 distinct columns, bank full; 'more' continues]
+> wide(b: u32 in 0..3) = ((b & 1) != 0 ? 0xF : 0) | ((b & 2) != 0 ? 0xFF00 : 0)
+> find wide 1
+  note: the result is int: searching in u32
+find wide: 4 points, computing in u32, costs from gt1030
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a table in one constant (4 entries of 1 bit)
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a multiply and a shift in u32
+  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 1 != 0 of b as a table in one constant (4 entries of 1 bit)
+  cost 5   u32(0xff0fff00000f0000 >> (u64(b) << 4) & 0xffff) packed table in one constant
+  [searched every term up to cost 5: 689537 distinct columns; 'more' continues]

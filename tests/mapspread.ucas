@@ -1,0 +1,16 @@
+# find's maps of one small value (idrw.c): a field for each bit of the key,
+# ((x M) & L) (2^w - 1), when the map is the OR of a run of w ones for each
+# set bit (a write log's byte mask from a 4-bit mask); with w = 1 the fill
+# goes; fields that overlap, differ in width, or sit below their bit are
+# not offered
+use gt1030
+keep(b: u32 in 0..15) = ((b & 1) != 0 ? 0xFF : 0) | ((b & 2) != 0 ? 0xFF00 : 0) | ((b & 4) != 0 ? 0xFF0000 : 0) | ((b & 8) != 0 ? 0xFF000000 : 0)
+find keep 1
+nib(b: u32 in 1..14) = [0xFF, 0xFF00, 0xFFFF, 0xFF0000, 0xFF00FF, 0xFFFF00, 0xFFFFFF, 0xFF000000, 0xFF0000FF, 0xFF00FF00, 0xFF00FFFF, 0xFFFF0000, 0xFFFF00FF, 0xFFFFFF00][b - 1]
+find nib 1
+bits(b: u32 in 0..7) = ((b & 1) != 0 ? 1 : 0) | ((b & 2) != 0 ? 0x100 : 0) | ((b & 4) != 0 ? 0x10000 : 0)
+find bits 1
+over(b: u32 in 0..3) = ((b & 1) != 0 ? 0xFF : 0) | ((b & 2) != 0 ? 0x1FE : 0)
+find over 1
+wide(b: u32 in 0..3) = ((b & 1) != 0 ? 0xF : 0) | ((b & 2) != 0 ? 0xFF00 : 0)
+find wide 1

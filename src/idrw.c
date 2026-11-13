@@ -18,9 +18,12 @@
  *       a table in one constant, (C >> b (x - lo)) & (2^b - 1), when
  *       its entries fit 32 bits;
  *       a multiply and a shift, (x M + A) >> s, with M, A and s solved
- *       so that v 2^s <= x M + A < (v + 1) 2^s at every x.
+ *       so that v 2^s <= x M + A < (v + 1) 2^s at every x;
+ *       a field for each bit of x, ((x M) & L) (2^w - 1), when the map is
+ *       the OR of a run of w ones for each set bit.
  */
 #include "calc.h"
+#include "fuse.h"
 #include "irw.h"
 
 #include <stdlib.h>
@@ -426,6 +429,114 @@ map_lut(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
 }
 
 /*
+ * Each bit q of x setting a field of its own, the same width w for all,
+ * ones at bits p_q .. p_q + w - 1 (q <= p_q, the fields apart): the map
+ * is the OR of the fields of x's set bits, so ((x M) & L) (2^w - 1) with
+ * L = sum 2^p_q and M = sum 2^(p_q - q) moves each bit to its field's
+ * low end and fills it.  The fields are read off the values at x = 2^q;
+ * the form is then read back at every value of x, which is the proof
+ * (the multiply's other products may land in a field: that shows here).
+ */
+static int
+map_spread(struct ivc *c, nid root, const struct mapv *m, struct irw **out,
+    int *cnt, int *cap)
+{
+	ty_t t = m->t;
+	uint64_t F[32] = {0}, L = 0, M = 0, fill;
+	int k = 0, q, w = 0, i, p[32] = {0}, nf = 0;
+	nid r, to;
+	struct irw *rw;
+	char what[200], cond[200];
+	struct sbuf pf = {0};
+
+	(void)c;
+	if (m->lo < 0 || m->vmin < 0 || m->vmax >= (1LL << 32) || t == TY_BOOL)
+		return 0;
+	while (k < 32 && (m->hi >> k) != 0)
+		k++;
+	/* the field of bit q: the value at 2^q, or none when no x in range
+	 * has the bit */
+	for (q = 0; q < k; q++) {
+		int64_t at = 1LL << q, x;
+		int has = 0;
+		for (x = m->lo; x <= m->hi && !has; x++)
+			has = (int)((x >> q) & 1);
+		if (!has)
+			continue;
+		if (at < m->lo || at > m->hi)
+			return 0;
+		F[q] = (uint64_t)m->v[at - m->lo];
+		if (F[q] == 0)
+			continue;
+		for (i = 0; !((F[q] >> i) & 1); i++)
+			;
+		p[q] = i;
+		if (((F[q] >> i) & ((F[q] >> i) + 1)) != 0)
+			return 0;	/* not one run of ones */
+		if (!w)
+			w = bits_for(F[q] >> i);
+		if (bits_for(F[q] >> i) != w || i < q || (L & F[q]))
+			return 0;
+		L |= F[q];
+		nf++;
+	}
+	if (nf < 2)
+		return 0;	/* one field is a mask and a shift */
+	L = 0;
+	for (q = 0; q < k; q++)
+		if (F[q]) {
+			L |= 1ULL << p[q];
+			M += 1ULL << (p[q] - q);
+		}
+	fill = (1ULL << w) - 1;
+	/* what is built is what is claimed: every value of x */
+	for (i = 0; i < m->K; i++) {
+		uint32_t x = (uint32_t)(m->lo + i);
+		uint32_t v = ((x * (uint32_t)M) & (uint32_t)L) * (uint32_t)fill;
+		if ((int64_t)v != m->v[i])
+			return 0;
+	}
+	r = mk_bin(O_AND, mk_bin(O_MUL, mk_cast(U32, m->x), mk_const_i(U32,
+	    (int64_t)M)), mk_const_i(U32, (int64_t)L));
+	if (w > 1) {
+		/* the fill as a multiply, or as (r << w) - r where the model
+		 * prices that lower (the fields are apart: no borrow crosses) */
+		nid a = mk_bin(O_MUL, r, mk_const_i(U32, (int64_t)fill));
+		nid b = w < 32 ? mk_bin(O_SUB, mk_bin(O_SHL, r, mk_const_i(U32, w)),
+		    r) : a;
+		r = fuse_expr_cost(model_active(), b) < fuse_expr_cost(model_active(),
+		    a) ? b : a;
+	}
+	to = mk_cast(t, r);
+	snprintf(what, sizeof what, "the map %s of %s as a field for each of "
+	    "its bits: a multiply, a mask%s", sstr(m->from), sstr(m->key),
+	    w > 1 ? " and a multiply" : "");
+	snprintf(cond, sizeof cond, "%s in [%lld, %lld] (%s)", sstr(m->key),
+	    (long long)m->lo, (long long)m->hi, m->why);
+	values_text(&pf, m);
+	sb_printf(&pf, "\nthe value is the OR of a field for each set bit of "
+	    "%s:", sstr(m->key));
+	for (q = 0; q < k; q++)
+		if (F[q])
+			sb_printf(&pf, " bit %d -> 0x%llx", q, (unsigned long long)F[q]);
+	sb_printf(&pf, "\n* 0x%llx puts bit q at the low end of its field, & "
+	    "0x%llx keeps those bits", (unsigned long long)M,
+	    (unsigned long long)L);
+	if (w > 1)
+		sb_printf(&pf, ", * 0x%llx (2^%d - 1) fills each field's %d bits",
+		    (unsigned long long)fill, w, w);
+	sb_printf(&pf, "\nread back at each of the %d values of %s", m->K,
+	    sstr(m->key));
+	if (m->key != m->x)
+		to = xreplace(to, m->x, m->key);
+	rw = irw_add(out, cnt, cap, root, m->from, to, what, cond, sb_str(&pf), 1);
+	if (rw)
+		rw->derived = 1;
+	free(pf.p);
+	return 1;
+}
+
+/*
  * For a shift s and a multiplier M, the offsets A with v 2^s <= i M + A <
  * (v + 1) 2^s at every i are Alo..Ahi; the width Ahi - Alo is concave in
  * M (a minimum of lines less a maximum of lines).
@@ -641,6 +752,7 @@ map_try(struct ivc *c, nid root, struct mapv *m, int slot, struct irw **out,
 		return 0;
 	if (map_values(c, m, slot) && m->vmin != m->vmax) {
 		added |= map_lut(c, root, m, out, cnt, cap);
+		added |= map_spread(c, root, m, out, cnt, cap);
 		/* a quotient of the variable itself is rw_divk's, and one
 		 * by a power of two is already a shift */
 		if (!((N.op[s] == O_DIV || N.op[s] == O_MOD) && is_const(N.b[s])
