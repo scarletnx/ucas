@@ -2167,10 +2167,21 @@ although its search needs integer parameters.  A common factor of
 more than two terms, or of products of more than two factors, is taken
 out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
 integers simplify writes it into a module (see "the same pass takes"
-above).  Not yet: the float forms in SPIR-V and GLSL (find only), f16
-and f64, a round-to-nearest
-operation for the magic add to stand for (ucas has floor, ceil and
-the truncating conversion), 48-bit products by 2Prod.
+above).
+
+`simplify` writes the first of them into a SPIR-V module: an
+OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
+operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
+bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
+add of 0x4B400000 and 1.5*2^23), where the model prices those below
+the conversion (3 to 2 under gt1030).  The range comes from the
+operand's definitions (a mask, a shift, an add of bounded values) or
+an assumption on what it loads; the report lists each in its own
+section, as a conversion is not in the integer cost, and says what
+spirv-val makes of the module (tests/i2fbits.ucas).  Not yet: the
+other forms in SPIR-V and GLSL (find only), f16 and f64, a
+round-to-nearest operation for the magic add to stand for (ucas has
+floor, ceil and the truncating conversion), 48-bit products by 2Prod.
 
 A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),
