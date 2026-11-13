@@ -2192,26 +2192,36 @@ out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
 integers simplify writes it into a module (see "the same pass takes"
 above).
 
-`simplify` writes the first of them into a SPIR-V module: an
+`simplify` writes three of them into a SPIR-V module.  An
 OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
 operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
 bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
 add of 0x4B400000 and 1.5*2^23), where the model prices those below
-the conversion (3 to 2 under gt1030).  A conversion of `1 << k` whose
-shift has no other use is asfloat((k + 127) << 23), 2^k's exponent
-field, for every k the shift defines (a signed one needs k < 31,
-proved by SAT): an add and a shift in place of the shift and the
-conversion, 5 to 3 under gt1030 (tests/i2fexp.ucas).  The range comes from the
+the conversion (3 to 2 under gt1030); the range comes from the
 operand's definitions (a mask, a shift, an add of bounded values) or
-an assumption on what it loads.  They are written last, after the
-float, memory and advice passes, which read the conversion (its
-integer's range, an integer atomic's addend, a vertex format) and not
-the bits; the report gives them their own section, as a conversion is
-not in the integer cost, and says what spirv-val makes of the module
-(tests/i2fbits.ucas).  Not yet: the
-other forms in SPIR-V and GLSL (find only), f16 and f64, a
-round-to-nearest operation for the magic add to stand for (ucas has
-floor, ceil and the truncating conversion), 48-bit products by 2Prod.
+an assumption on what it loads (tests/i2fbits.ucas).  A conversion of
+`1 << k` whose shift has no other use is asfloat((k + 127) << 23),
+2^k's exponent field, for every k the shift defines (a signed one
+needs k < 31, proved by SAT): an add and a shift in place of the shift
+and the conversion, 5 to 3 under gt1030 (tests/i2fexp.ucas).  And the
+other way, an OpConvertFToS or OpConvertFToU of a whole x made by
+floor, ceil, round or trunc, |x| below 2^22, is the add of 1.5*2^23
+read as bits, less 0x4B400000 (3 to 2): x's range comes from clamps,
+min and max, constants, adds and multiplies (each widened by one
+rounding), an integer's conversion SAT bounds, and the float
+assumptions, with one unit of margin for what the float pass may move
+under the floor (tests/f2ibits.ucas: `int(floor(clamp(c, 0.0, 1.0) *
+255.0 + 0.5))`).  They are written last, after the float, memory and
+advice passes, which read the conversion (its integer's range, an
+integer atomic's addend, a vertex format) and not the bits; the report
+gives them their own section, as a conversion is not in the integer
+cost, and says what spirv-val makes of the module.  Not yet: the floor
+and ceil by the magic add and floor(log2 x) by the exponent field
+(dearer than floor and clz under gt1030), ldexp on the bits (x must be
+proved a nonzero normal, which a range from clamps seldom gives), the
+GLSL function level (find only), f16 and f64, a round-to-nearest
+operation for the magic add to stand for (ucas has floor, ceil and the
+truncating conversion), 48-bit products by 2Prod.
 
 A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),

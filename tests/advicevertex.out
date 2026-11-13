@@ -18,7 +18,7 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
           Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 1.49 <= 2.5, so it is within the precision the division already had
         not bit-exact: float(%20) = 255.00195: / 255 gives 1.0000076, * 0.003921569 gives 1.0000077 (the quotient within |delta| of a rounding midpoint)
         (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
-conversions of integers to f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+conversions between integers and f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %37 = OpConvertUToF %float %14
       ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %14 0x4B000000)) 2^23   (cost 3 -> 2)
       0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
