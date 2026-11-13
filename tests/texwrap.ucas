@@ -1,0 +1,25 @@
+# A linear filter that wraps (src/texalu.c, the weighted sums): a mix of
+# T[i % n] and T[(i + 1) % n] is one read with REPEAT, of the mirrored
+# indices one with MIRRORED_REPEAT, in normalised coordinates
+model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+model wr : texel { tex_sample_f32: 9 }
+# the operations: u is normalised, the unit reads u n
+show tex_repeat8([0.0, 1.0, 4.0, 9.0], 1.0)
+show tex_repeat8([0.0, 1.0, 4.0, 9.0], 0.0)
+show tex_mirror8([0.0, 1.0, 4.0, 9.0], 0.0)
+show tex_mirror8([0.0, 1.0, 4.0, 9.0], 1.0)
+# a periodic table, 8 entries (a power of two: the normalised coordinate
+# is exact) and 7 (it is not)
+G = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5]
+w1(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G[i % 8] + t*G[(i + 1) % 8]
+texalu w1 tol 0.01 under wr
+G7 = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5]
+w2(i: u16 in 0..1000) = 0.5*G7[i % 7] + 0.5*G7[(i + 1) % 7]
+texalu w2 tol 1e-4 under wr
+texalu w2 tol 1e-3 under wr
+# mirrored
+w3(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G7[min(i % 14, 13 - i % 14)] + t*G7[min((i + 1) % 14, 13 - (i + 1) % 14)]
+texalu w3 tol 0.01 under wr
+# without the wrap the pair can leave the table
+w4(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G[i % 8] + t*G[i % 8 + 1]
+texalu w4 tol 0.01 under wr

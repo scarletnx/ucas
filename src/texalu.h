@@ -23,6 +23,8 @@
  *   tex_bilinearB(T, W, x, y) the same on both axes of the table read as
  *                             rows of W texels: four texels, their
  *                             weights the products of the two axes'
+ *   tex_repeatB(T, x),        tex_linearB with its two texels wrapped
+ *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped
  *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
  *   tex_biminB(T, W, x, y),   reduction sampler: the least or the
  *   tex_bimaxB                greatest of its texels whose weight is
@@ -70,6 +72,14 @@
 #define TEX_REDMIN (1 << 5)
 #define TEX_REDMAX (2 << 5)
 #define TEX_RED(ki) ((int)((ki) & (3 << 5)))
+/* a linear filter's address mode in ki: CLAMP_TO_EDGE (0), REPEAT or
+ * MIRRORED_REPEAT (tex_repeatB, tex_mirrorB), read with normalised
+ * coordinates */
+#define TEX_KWRAP(op) ((int64_t)((op) == O_FETCH_REPEAT ? 1 : (op) == \
+    O_FETCH_MIRROR ? 2 : 0) << 32)
+#define TEX_WRAP(ki) ((int)((ki) >> 32 & 3) == 1 ? O_FETCH_REPEAT : \
+    (int)((ki) >> 32 & 3) == 2 ? O_FETCH_MIRROR : O_FETCH_CLAMP)
+#define TEX_WRAPMASK ((int64_t)3 << 32)
 /* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
  * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
 #define TEX_SRGB 1
@@ -103,7 +113,7 @@ nid tex_expand(nid n);
 int tex_class(nid n);
 float tex_cost(const struct model *m, nid n, int *cls);
 /* name -> op and, for the filters, the bits; 0 if not one */
-int tex_lookup(const char *s, size_t n, int *bits);
+int tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki);
 void tex_print_name(struct sbuf *b, nid n);
 
 struct P;

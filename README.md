@@ -3937,6 +3937,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_layer(T, z)` | `T[clamp(RNE(z), 0, n - 1)]`, z a float: the layer of an array texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
+| `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
 | `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
 The `fetch_` reads take an integer texel index of any type and are
@@ -4160,6 +4161,21 @@ holding none; a conversion before the clamp must not wrap on that
 range.  Otherwise `texalu` names the value where they part
 (tests/texlayer.ucas).
 
+**Wrapping filters.**  Vulkan allows unnormalised coordinates only
+with CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
+normalised coordinate: `tex_repeatB(T, u)` and `tex_mirrorB(T, u)` are
+the linear filter at texel coordinate u n (exact), its texels
+REPEAT's and MIRRORED_REPEAT's.  A mix of `T[i % n]` and `T[(i + 1) %
+n]` (any affine i, the n of the table), or of the mirrored indices
+`min(i % 2n, 2n - 1 - i % 2n)`, is one such read: the pair is read as
+it is everywhere, with no edge to stay inside.  The coordinate is made
+as the clamped filter's, x, then u = x f32(1/n): the unit's u n is
+within |x| 2^-23 of x (two roundings of 2^-24; exact when n is a power
+of two), which joins the weight's move in the bound, and the multiply
+is priced.  A wrapping entry with no neighbour that wraps with it is
+read as it is, an affine index of `i % n`.  One axis only
+(tests/texwrap.ucas).
+
 **Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN
 or _MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least
 or the greatest of the texels of a linear read's footprint whose weight
@@ -4205,8 +4221,8 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks), trilinear and anisotropic
 filters, mip levels as means, compare samplers, gather, a min or max
-of more than a 2 x 2 footprint (trilinear's 8) and normalised
-coordinates for the filters.  None of those has a
+of more than a 2 x 2 footprint (trilinear's 8) and a bilinear filter
+that wraps.  None of those has a
 measured price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the

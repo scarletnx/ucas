@@ -898,6 +898,7 @@ ident(struct P *p)
 	nid args[MAXP], r;
 	ty_t ct;
 	int na, kind;
+	int64_t wk;
 
 	if ((r = value_name(p, s, n)) != 0) {
 		/* a where name is one operand, however its value is written */
@@ -935,7 +936,7 @@ ident(struct P *p)
 		return mk_atomic(kind, args[0], args[1]);
 	}
 	/* the texture unit's reads (texalu.h) */
-	if (pk2(p) == T_LP && (kind = tex_lookup(s, n, &na)) != 0) {
+	if (pk2(p) == T_LP && (kind = tex_lookup(s, n, &na, &wk)) != 0) {
 		int bits = na, want = (kind == O_FETCH_BORDER ? 3 :
 		    kind == O_TEX_BILINEAR ? 4 : 2) + (IS_FETCH(kind) && na ==
 		    TEX_OFFNAME);
@@ -966,7 +967,7 @@ ident(struct P *p)
 			return mk_tex(kind, TEX_KOFF(N.ki[o]), args[0], args[1],
 			    kind == O_FETCH_BORDER ? args[2] : 0);
 		}
-		return mk_tex(kind, TEX_KI(bits, 0), args[0], args[1],
+		return mk_tex(kind, TEX_KI(bits, 0) | wk, args[0], args[1],
 		    kind == O_FETCH_BORDER ? args[2] : 0);
 	}
 	if ((b = builtin(p, at)) != NULL) {
