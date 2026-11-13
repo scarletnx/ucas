@@ -1,0 +1,9 @@
+# measured on the Mali-G715 of a Pixel 9 by tests/mali-g715/run.py
+model mali_g715 {
+  iadd: 1.82, logic: 1.87, shift: 1.86, imul: 7.59, idiv: 35.99,
+  idivk: 18.40, cmp: 0.81, select: 1.64, minmax: 1.96, bitcnt: 5.46,
+  conv: 1.28, bitcast: 0.03, fadd: 1.00, fmul: 1.00, fdiv: 6.01,
+  fsqrt: 14.16, ftrans: 7.36, fpow: 15.17, load: 15.95, branch: 22.75,
+  diverge: 15.59, barrier: 24.97, atomic_shared: 124.00,
+  atomic_global: 136.96, store: 25.53
+}
