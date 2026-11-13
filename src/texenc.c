@@ -45,6 +45,9 @@
  *       T in the red channel of RGB8_ETC2 blocks (etc2blk.c), every
  *       encoding of that channel tried (individual, differential, T, H,
  *       planar); T and U as RGBA8_ETC2_EAC, U in the 8-bit alpha block
+ *   texenc T [, U] etc2 srgb [rows W] [tol E]
+ *       the same as SRGB8_ETC2 (SRGB8_ALPHA8_ETC2_EAC): red reads the sRGB
+ *       EOTF of its code over 255, alpha stays linear
  */
 #include "calc.h"
 #include "report.h"
@@ -1330,10 +1333,10 @@ pr_etc2(const uint8_t *q, const struct etc2_info *in, struct sbuf *b)
  */
 static void
 cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
-    double tol, int has_tol)
+    double tol, int has_tol, int srgb)
 {
 	const struct func *fs[2] = {f, g};
-	const char *nm[2], *ch[2] = {"red", "alpha"};
+	const char *nm[2], *ch[2] = {"red", "alpha"}, *fmt;
 	int nt = g ? 2 : 1, n, H, nbx, nby, c, k, i, isint[2], at[2] = {0, 0};
 	double *t[2] = {NULL, NULL}, *dec[2] = {NULL, NULL}, err[2] = {0, 0};
 	struct sbuf b = {0};
@@ -1363,9 +1366,15 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 			fail("texenc: ETC2 holds numbers from 0 to 1 (or whole numbers "
 			    "0 to 255, read as k/255); %s has an entry that is "
 			    "neither", nm[c]);
+		/* sRGB red: a whole number is the code, read through the EOTF */
+		if (srgb && c == 0 && isint[0])
+			for (i = 0; i < n; i++)
+				t[0][i] = texenc_srgb8((int)lround(t[0][i] * 255));
 	}
+	fmt = nt == 2 ? (srgb ? "SRGB8_ALPHA8_ETC2_EAC" : "RGBA8_ETC2_EAC") :
+	    srgb ? "SRGB8_ETC2" : "RGB8_ETC2";
 	rep_begin("texenc");
-	rep_str("format", nt == 2 ? "RGBA8_ETC2_EAC" : "RGB8_ETC2");
+	rep_str("format", fmt);
 	rep_int("entries", n);
 	rep_int("width", W);
 	rep_int("height", H);
@@ -1373,15 +1382,17 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 	sb_clear(&b);
 	if (nt == 2)
 		sb_printf(&b, " (%s the red, %s the alpha)", nm[0], nm[1]);
-	printf("texenc %s%s%s etc2: %d entr%s%s as %s%s, rows of %d (%d x %d "
-	    "texels): %d block%s, %d bytes (%d as %s, %d as %s)%s\n", nm[0],
-	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", n, n == 1 ? "y" : "ies",
-	    nt == 2 ? " a channel" : "", nt == 2 ? "RGBA8_ETC2_EAC" :
-	    "RGB8_ETC2", sb_str(&b), W, W, H, nbx * nby, nbx * nby == 1 ? "" :
-	    "s", nbx * nby * 8 * nt, nt * W * H, nt == 2 ? "R8G8_UNORM" :
-	    "R8_UNORM", 4 * nt * W * H, nt == 2 ? "R32G32_SFLOAT" : "R32_SFLOAT",
-	    isint[0] || (nt == 2 && isint[1]) ? "; whole numbers k are stored "
-	    "as k/255" : "");
+	printf("texenc %s%s%s etc2%s: %d entr%s%s as %s%s, rows of %d (%d x %d "
+	    "texels): %d block%s, %d bytes (%d as %s, %d as %s)%s%s\n", nm[0],
+	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", srgb ? " srgb" : "", n,
+	    n == 1 ? "y" : "ies", nt == 2 ? " a channel" : "", fmt, sb_str(&b),
+	    W, W, H, nbx * nby, nbx * nby == 1 ? "" : "s", nbx * nby * 8 * nt,
+	    nt * W * H, nt == 2 ? "R8G8_UNORM" : "R8_UNORM", 4 * nt * W * H,
+	    nt == 2 ? "R32G32_SFLOAT" : "R32_SFLOAT", srgb ? "; red reads the "
+	    "sRGB EOTF of its code over 255, so a whole number k in it is the "
+	    "code k" : isint[0] || (nt == 2 && isint[1]) ? "; whole numbers k "
+	    "are stored as k/255" : "", srgb && nt == 2 && isint[1] ? "; alpha "
+	    "stays linear, k/255" : "");
 	rep_list("blocks");
 	for (k = 0; k < nbx * nby; k++) {
 		double bt[2][16], got[2] = {0, 0}, want[2];
@@ -1396,7 +1407,8 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 				bt[c][i] = care[i] ? t[c][a] : 0;
 		}
 		/* RGBA8_ETC2_EAC: the alpha block first, then the colour one */
-		want[0] = etc2_encode_r(bt[0], care, q + (nt == 2 ? 8 : 0), &in);
+		want[0] = etc2_encode_r(bt[0], care, srgb, q + (nt == 2 ? 8 : 0),
+		    &in);
 		etc2_decode(q + (nt == 2 ? 8 : 0), px);
 		if (nt == 2) {
 			want[1] = etc2_alpha_encode(bt[1], care, q);
@@ -1409,7 +1421,9 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 				continue;
 			for (c = 0; c < nt; c++) {
 				double e;
-				dec[c][a] = (double)(float)((c ? av[i] : px[i][0]) / 255.0);
+				dec[c][a] = c ? (double)(float)(av[i] / 255.0) : srgb ?
+				    texenc_srgb8(px[i][0]) : (double)(float)(px[i][0] /
+				    255.0);
 				e = fabs(dec[c][a] - t[c][a]);
 				if (e > got[c])
 					got[c] = e;
@@ -1485,9 +1499,9 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 		rep_num("max_error", err[c]);
 		if (err[c] == 0)
 			printf("  %sexact: every texel is its entry's f32%s (%s)\n",
-			    pre, isint[c] ? " over 255" : "", c ? "every base, "
-			    "multiplier and table tried" : "every encoding of the red "
-			    "channel tried");
+			    pre, !isint[c] ? "" : srgb && !c ? ", the EOTF of its "
+			    "code" : " over 255", c ? "every base, multiplier and table "
+			    "tried" : "every encoding of the red channel tried");
 		else {
 			printf("  %snot exact: the closest blocks are within %.3g of "
 			    "the table (entry %d: %.9g as %.9g), %s\n", pre, err[c],
@@ -1508,6 +1522,11 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 		if (has_tol)
 			rep_bool("within_tol", err[0] <= tol && err[1] <= tol);
 	}
+	if (srgb)
+		printf("  the EOTF here is the specification's formula rounded to "
+		    "an f32 once; an implementation's conversion may differ in "
+		    "its last bits%s\n", nt == 2 ? " (alpha is not converted)" :
+		    "");
 	printf("  a nearest or filtered read of the texture is that read of the "
 	    "decoded table%s (green and blue are whatever the block's mode "
 	    "needs); no model prices an ETC2 read apart from its uncompressed "
@@ -1539,12 +1558,12 @@ int
 texenc_command(struct P *p)
 {
 	static const char *const stop[] = {"rows", "tol", "astc", "eac", "etc2",
-	    NULL};
+	    "srgb", NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0, astc = 0, eac = 0, etc2 = 0;
+	int has_tol = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0;
 	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
@@ -1565,8 +1584,10 @@ texenc_command(struct P *p)
 		W = bw;
 	} else if (cmdp_kw(p, "eac"))
 		eac = 1;
-	else if (cmdp_kw(p, "etc2"))
+	else if (cmdp_kw(p, "etc2")) {
 		etc2 = 1;
+		srgb = cmdp_kw(p, "srgb");
+	}
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -1579,13 +1600,13 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [astc BWxBH | eac | etc2] [rows W] "
+			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] "
 			    "[tol E]");
 		}
 	}
 	notes_flush();
 	if (etc2)
-		cmd_texenc_etc2(f, g, (int)W, tol, has_tol);
+		cmd_texenc_etc2(f, g, (int)W, tol, has_tol, srgb);
 	else if (eac)
 		cmd_texenc_eac(f, g, (int)W, tol, has_tol);
 	else if (astc)
@@ -1613,7 +1634,7 @@ texenc_nlp_raw(const char *sent)
 	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, a, b;
+	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, a, b;
 
 	if (n > 400)
 		return NULL;
@@ -1646,6 +1667,9 @@ texenc_nlp_raw(const char *sent)
 			hit = eac = bc5 = 1;
 		else if (!strcmp(w, "etc2") || !strcmp(w, "ETC2"))
 			hit = etc2 = 1;
+		else if (!strcmp(w, "srgb") || !strcmp(w, "sRGB") || !strcmp(w,
+		    "SRGB"))
+			srgb = 1;
 		else if (sscanf(w, "%dx%d", &a, &b) == 2 && a > 0 && b > 0 &&
 		    a < 100 && b < 100)
 			snprintf(fp, sizeof fp, "%dx%d", a, b);
@@ -1667,8 +1691,8 @@ texenc_nlp_raw(const char *sent)
 	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s%s", fn, bc5 ||
 	    ((astc || eac || etc2) && fn2[0]) ? ", " : "", bc5 || ((astc ||
 	    eac || etc2) && fn2[0]) ? fn2 : "", astc ? " astc " : "", astc ?
-	    fp : "", eac ? " eac" : etc2 ? " etc2" : "", rows[0] ? " rows " :
-	    "", rows, tol[0] ? " tol " : "", tol);
+	    fp : "", eac ? " eac" : etc2 ? (srgb ? " etc2 srgb" : " etc2") : "",
+	    rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "", tol);
 	return out;
 }
 
