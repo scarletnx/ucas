@@ -4081,6 +4081,8 @@ struct grid {
 	int64_t xlo, xhi, ylo, yhi, zlo, zhi;
 	struct tinfo ti;
 	double dxmax, dymax, dzmax;
+	int64_t lrows;		/* > 0: a compare table's slices, each of lrows
+				 * rows, stacked as one 2-D texture's rows */
 };
 
 /* the group's member (its place in g->ix) at an offset, -1: none */
@@ -4363,16 +4365,35 @@ grid_make(struct sum *s, struct grid *g)
 			return 0;
 	}
 	if (V) {
-		int64_t t = V < W ? V : W;
-		if (s->t[g->ix[0]].cmp)	/* no depth format is 3-D */
-			return 0;
+		int64_t t = V < W ? V : W, zlo, zhi;
+		ty_t ty = TY(K_SINT, 64);
+		nid ze;
 		V = V < W ? W : V;
-		return V % t == 0 && grid_make3(s, g, t, V);
-	}
+		if (V % t)
+			return 0;
+		if (!s->t[g->ix[0]].cmp)
+			return grid_make3(s, g, t, V);
+		/*
+		 * No depth format is 3-D: slices of rows of t are one 2-D
+		 * depth texture with the slices stacked, row y + (V / t) z,
+		 * where neighbouring entries are neighbouring texels as they
+		 * are in the table
+		 */
+		W = t;
+		g->ye = aff_part(a, W, &g->ylo, &g->yhi);
+		ze = aff_part(a, V, &zlo, &zhi);
+		if (!g->ye || !ze)
+			return 0;
+		g->ye = mk_bin(O_ADD, mk_cast(ty, g->ye), mk_bin(O_MUL,
+		    mk_const_i(ty, V / W), mk_cast(ty, ze)));
+		g->ylo += V / W * zlo;
+		g->yhi += V / W * zhi;
+		g->lrows = V / W;
+	} else
+		g->ye = W ? aff_part(a, W, &g->ylo, &g->yhi) : 0;
 	g->W = W ? W : g->ti.n;
 	g->H = g->ti.n / g->W;
 	g->xe = aff_part(a, 1, &g->xlo, &g->xhi);
-	g->ye = W ? aff_part(a, W, &g->ylo, &g->yhi) : 0;
 	for (i = 0; i < a->n; i++)	/* a variable without a range */
 		if (!(a->coef[i] == 1 ? g->xe : g->ye))
 			return 0;
@@ -5387,8 +5408,13 @@ seed_sum1(nid body, nid root)
 			static const char *const vk[7] = {"", "LESS", "EQUAL",
 			    "LESS_OR_EQUAL", "GREATER", "NOT_EQUAL",
 			    "GREATER_OR_EQUAL"};
+			char stk[96] = "";
+			if (g.lrows)
+				snprintf(stk, sizeof stk, ", its slices of %lld "
+				    "rows stacked (no depth format is 3-D)",
+				    (long long)g.lrows);
 			sb_printf(&pipe, "%sa depth texture D32_SFLOAT, %lld x "
-			    "%lld, one level: the table's entries\na sampler: "
+			    "%lld, one level: the table's entries%s\na sampler: "
 			    "LINEAR mag and min filters, NEAREST mipmap mode, "
 			    "CLAMP_TO_EDGE, normalised coordinates (no "
 			    "unnormalizedCoordinates with a compare), compareEnable "
@@ -5396,7 +5422,7 @@ seed_sum1(nid body, nid root)
 			    "sampler more in the layout, a sampler2DShadow; the "
 			    "shader reads textureLod(s, vec3(u, v, %s), 0.0)",
 			    pipe.n ? "\n" : "", (long long)g.W, (long long)g.H,
-			    vk[cmpg], node_str(cref));
+			    stk, vk[cmpg], node_str(cref));
 		} else if (tri)
 			sb_printf(&pipe, "%sa 3-D texture %s, %lld x %lld x %lld, "
 			    "one level: the table's entries", pipe.n ? "\n" : "",
