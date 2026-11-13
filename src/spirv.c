@@ -12698,6 +12698,10 @@ static struct cvx {
 	char lx[40], it[40];	/* forms 7, 8: log2's operand; 7: an int type;
 				 * 9: k and its type */
 	char drop[2][40];	/* forms 7, 8: the calls they leave unused */
+	int zero;		/* form 9: x may be 0 (an integer converted,
+				 * else 1 or more in magnitude): a select keeps
+				 * it; kt2 the bool type */
+	char kt2[40];
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
 				 * 2: f32(1 << k) by the exponent field;
 				 * 3: iN(x) of a whole x by the add of
@@ -12802,7 +12806,7 @@ i2f_pass(void)
 		if (!strcmp(I->op, "OpExtInst") && I->nop == 5 && I->res >= 0 &&
 		    V.glsl >= 0 && idx(I->opnd[1]) == V.glsl && !strcmp(I->opnd[2],
 		    "Ldexp") && I->opnd[3][0] == '%' && I->opnd[4][0] == '%') {
-			int kid = res_of(idx(I->opnd[4])), kt, elo, ehi, ok;
+			int kid = res_of(idx(I->opnd[4])), kt, elo, ehi, ok, zero;
 			struct frng fr;
 			double alo, ahi;
 			struct word *wk, cl, ch;
@@ -12813,15 +12817,29 @@ i2f_pass(void)
 			    T(rt)->w != 32 || kt < 0 || T(kt)->k != S_INT || T(kt)->w != 32)
 				continue;
 			fr = f_range(x, 0);
-			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi) ||
-			    (fr.lo < 0x1p-126 && fr.hi > -0x1p-126))
-				continue;	/* (|x| below 2^-126 somewhere: 0 or subnormal) */
-			alo = fr.lo > 0 ? fr.lo : -fr.hi;	/* |x|'s least and most */
-			ahi = fr.lo > 0 ? fr.hi : -fr.lo;
+			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi))
+				continue;
+			/* |x| below 2^-126 somewhere: 0 or subnormal; an integer
+			 * converted is 0 or 1 at least in magnitude, and its 0 is
+			 * kept by a select */
+			zero = 0;
+			if (fr.lo < 0x1p-126 && fr.hi > -0x1p-126) {
+				int xd = SP.def[x];
+				if (xd < 0 || (strcmp(V.in[xd].op, "OpConvertUToF") &&
+				    strcmp(V.in[xd].op, "OpConvertSToF")))
+					continue;
+				zero = 1;
+			}
+			/* |x|'s least (nonzero) and most */
+			alo = zero ? 1 : fr.lo > 0 ? fr.lo : -fr.hi;
+			ahi = zero ? fmax(-fr.lo, fr.hi) : fr.lo > 0 ? fr.hi : -fr.lo;
+			if (!(ahi >= alo))
+				continue;
 			elo = ilogb(alo);
 			ehi = ilogb(ahi);
 			before = fprice_std("Ldexp", 1);
-			after = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST];
+			after = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST] +
+			    (zero ? m->c[C_CMP] + m->c[C_SELECT] : 0);
 			if (!(after < before - 1e-9))
 				continue;
 			if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
@@ -12848,6 +12866,9 @@ i2f_pass(void)
 			snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
 			snprintf(e->lx, sizeof e->lx, "%d", -126 - elo);
 			snprintf(e->it, sizeof e->it, "%d", 127 - ehi);
+			e->zero = zero;
+			snprintf(e->kt2, sizeof e->kt2, "%s", bt >= 0 ? V.id[bt].tok :
+			    "%ucas_bool");
 			form = 9;
 			goto keep;
 		}
@@ -13151,10 +13172,18 @@ i2f_patch(const char *text, char **out)
 		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 		if (!used[i])
 			continue;
-		if (e->form == 9) {	/* 23 in k's type */
+		if (e->form == 9) {	/* 23 in k's type; 0 in x's */
 			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1, 23u);
 			if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
 				sb_printf(&decl, "%sOpConstant %s 23\n", kn, e->kt);
+			snprintf(fn, sizeof fn, "%%ucas_cvf_%s_00000000 = ", e->rt + 1);
+			if (e->zero && !strstr(decl.p ? decl.p : "", fn) &&
+			    !strstr(text, fn))
+				sb_printf(&decl, "%sOpConstant %s 0\n", fn, e->rt);
+			if (e->zero && !strcmp(e->kt2, "%ucas_bool") &&
+			    !strstr(decl.p ? decl.p : "", "%ucas_bool = ") &&
+			    !strstr(text, "%ucas_bool = "))
+				sb_puts(&decl, "%ucas_bool = OpTypeBool\n");
 			nlog++;
 			continue;
 		}
@@ -13275,14 +13304,27 @@ i2f_patch(const char *text, char **out)
 			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %s\n", b, e->kt, e->x);
 			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%db %%ucas_cv%ds\n",
 			    b, e->kt, b, b);
-			sb_printf(&o, "%s = OpBitcast %s %%ucas_cv%do\n", e->res, e->rt, b);
-			sb_printf(&rep, "    %s\n      ->  asfloat(asint(x) + (k << 23))   "
+			if (e->zero) {
+				sb_printf(&o, "%%ucas_cv%df = OpBitcast %s %%ucas_cv%do\n", b,
+				    e->rt, b);
+				sb_printf(&o, "%%ucas_cv%dz = OpFOrdEqual %s %s "
+				    "%%ucas_cvf_%s_00000000\n", b, e->kt2, e->x, e->rt + 1);
+				sb_printf(&o, "%s = OpSelect %s %%ucas_cv%dz %s %%ucas_cv%df\n",
+				    e->res, e->rt, b, e->x, b);
+			} else
+				sb_printf(&o, "%s = OpBitcast %s %%ucas_cv%do\n", e->res,
+				    e->rt, b);
+			sb_printf(&rep, "    %s\n      ->  %sasfloat(asint(x) + (k << 23))   "
 			    "(cost %g -> %g)\n      x = %s is in [%.9g, %.9g] (a range "
-			    "from its definitions and the assumptions): |x| is normal, its "
-			    "exponent field E in a range k = %s keeps in 1..254, proved "
+			    "from its definitions and the assumptions)%s: %s|x| is normal, "
+			    "its exponent field E in a range k = %s keeps in 1..254, proved "
 			    "by SAT (%s <= k <= %s), so x * 2^k is normal and its bits are "
-			    "x's with k added to E, exactly\n%s", e->from, e->before,
-			    e->after, e->x, e->flo, e->fhi, e->k, e->lx, e->it, e->src);
+			    "x's with k added to E, exactly%s\n%s", e->from, e->zero ?
+			    "x == 0 ? x : " : "", e->before, e->after, e->x, e->flo, e->fhi,
+			    e->zero ? ", an integer converted, so 0 or 1 at least in "
+			    "magnitude" : "", e->zero ? "where it is not 0, " : "", e->k,
+			    e->lx, e->it, e->zero ? "; at 0 ldexp is 0, which the select "
+			    "keeps" : "", e->src);
 		} else if (hit >= 0 && cvx[hit].form >= 7) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
@@ -13450,7 +13492,9 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form == 9 ? "asfloat(asint(x) + (k << 23))" :
+		rep_str("form", cvx[i].form == 9 && cvx[i].zero ? "x == 0 ? x : "
+		    "asfloat(asint(x) + (k << 23))" : cvx[i].form == 9 ?
+		    "asfloat(asint(x) + (k << 23))" :
 		    cvx[i].form == 7 ? "f32((asuint(x) >> 23) - 127)" :
 		    cvx[i].form == 8 ? "(asuint(x) >> 23) - 127" :
 		    cvx[i].form == 4 ? "(x + 1.5*2^23) - 1.5*2^23" :

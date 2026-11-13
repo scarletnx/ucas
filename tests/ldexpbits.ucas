@@ -2,7 +2,9 @@
 # asfloat(asint(x) + (k << 23)) where |x| is normal (its range from its
 # definitions: 2^-126 at least, finite) and k, proved by SAT, keeps x * 2^k
 # normal, so the sign and the mantissa are x's (13 -> 3 under gt1030, where
-# ldexp is lowered).  A k with no bound, or an x that may be 0, keeps its call.
+# ldexp is lowered).  An x that may be 0 takes it when it is an integer
+# converted (0, or 1 at least): a select keeps ldexp's 0 (13 -> 7).  A k
+# with no bound keeps its call.
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
