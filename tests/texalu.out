@@ -606,6 +606,7 @@ find f: 1001 points, computing in u16, costs from cal
       the fma rounds f32(i) - 7 q0 = i % 7 once: an integer in [0, 7), an f32, so it does not round
       that remainder + 1.5*2^23 is an integer in [2^23, 2^24), where every integer is an f32: the add does not round
       its bits are 0x4B000000 + (that remainder + 2^22) = 0x4B400000 + that remainder (exponent field 150, the mantissa the integer less 2^23): subtracting 0x4B400000 leaves that remainder
+  derived, but not cheaper under cal (cost 20, as written 20): the map [10, 20, 30, 40, 50, 60, 70][i % 7] of i % 7 as a table in one u64 constant (7 entries of 8 bits)
   cost 16  [10, 20, 30, 40, 50, 60, 70][u32(i) - 7(1171u32(i) >> 13)] all of them: the remainder i % 7 as a multiply and a shift in u32, then drops the conversion u16(...) (derived; the drops exhaustive)
   subgroup forms: the table [10, 20, 30, 40, 50, 60, 70] is a closed form of the index (entry i is 10 + 10 i at i = 0..6, each checked): computed at each lookup's own index, without a register or a shuffle, the function costs 16.5 (as written 20.375)
   reads through the texture unit under cal (cost 20.375 as written):
