@@ -3708,6 +3708,16 @@ width_of(nid e, uint8_t *seen)
 				return w;
 		return 0;
 	}
+	if (N.op[e] == O_LOOP) {
+		/* the operations of a loop's body (a column form's) */
+		uint32_t le = loop_ent(e), st = loops.st[le], k;
+		for (k = 0; k < loops.nst[le]; k++)
+			if ((w = width_of(loops.init[st + k], seen)) != 0 ||
+			    (w = width_of(loops.next[st + k], seen)) != 0)
+				return w;
+		if ((w = width_of(loops.cond[le], seen)) != 0)
+			return w;
+	}
 	if ((w = width_of(N.a[e], seen)) != 0 ||
 	    (w = width_of(N.b[e], seen)) != 0)
 		return w;
@@ -3747,6 +3757,23 @@ needs(struct sbuf *b, nid e)
 	while (sp) {
 		x = st[--sp];
 		has[N.op[x]] = 1;
+		if (N.op[x] == O_LOOP) {
+			/* the operations of a loop's body (a column form's) */
+			uint32_t le = loop_ent(x), s0 = loops.st[le], k;
+			nid in[2 * MAXST + 1];
+			int ni = 0;
+			for (k = 0; k < loops.nst[le]; k++) {
+				in[ni++] = loops.init[s0 + k];
+				in[ni++] = loops.next[s0 + k];
+			}
+			in[ni++] = loops.cond[le];
+			while (ni--)
+				if (in[ni] && !seen[in[ni]] && (N.fl[in[ni]] &
+				    NF_SG)) {
+					seen[in[ni]] = 1;
+					st[sp++] = in[ni];
+				}
+		}
 		for (j = 0; j < (N.op[x] == O_TABLE ? N.b[x] : 3); j++) {
 			nid a = N.op[x] == O_TABLE ? N.lst[N.a[x] + j] : j == 0 ?
 			    N.a[x] : j == 1 ? N.b[x] : N.c[x];
