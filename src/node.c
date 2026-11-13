@@ -1093,10 +1093,12 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 	for (j = 0; j < n; j++)
 		allk &= is_const(N.lst[N.a[a] + j]);
 	if (allk && is_const(b) && (!c || is_const(c)))
-		return mk_const_fp(TY_F32, tex_filter(op, TEX_KI(bits, w), n,
-		    N.kr[b], c ? N.kr[c] : 0, tex_const_texel, &a));
+		return mk_const_fp(TY_F32, tex_filter(op, TEX_KI(bits, w) |
+		    TEX_RED(ki), n, N.kr[b], c ? N.kr[c] : 0, tex_const_texel,
+		    &a));
 	fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
-	return intern(op, TY_F32, a, b, c, TEX_KI(bits, w), 0.0, fl);
+	return intern(op, TY_F32, a, b, c, TEX_KI(bits, w) | TEX_RED(ki), 0.0,
+	    fl);
 }
 
 nid

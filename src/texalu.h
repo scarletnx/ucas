@@ -23,6 +23,10 @@
  *   tex_bilinearB(T, W, x, y) the same on both axes of the table read as
  *                             rows of W texels: four texels, their
  *                             weights the products of the two axes'
+ *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
+ *   tex_biminB(T, W, x, y),   reduction sampler: the least or the
+ *   tex_bimaxB                greatest of its texels whose weight is
+ *                             not 0, exactly
  *
  * An array texture's layer: fetch_layer(T, z) is layer clamp(RNE(z), 0,
  * n - 1) of n layers, each holding one entry of T.  The specification's
@@ -61,6 +65,11 @@
 #define TEX_KI(bits, width) ((int64_t)(bits) | (int64_t)(width) << 8)
 #define TEX_BITS(ki) ((int)((ki) & 31))
 #define TEX_WIDTH(ki) ((int64_t)((ki) >> 8 & 0xffffff))
+/* a filter's reduction in ki: the weighted sum (0), or the least or the
+ * greatest of the texels with a non-zero weight (tex_min, tex_max) */
+#define TEX_REDMIN (1 << 5)
+#define TEX_REDMAX (2 << 5)
+#define TEX_RED(ki) ((int)((ki) & (3 << 5)))
 /* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
  * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
 #define TEX_SRGB 1
