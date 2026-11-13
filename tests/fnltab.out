@@ -36,4 +36,4 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions
   note: the ```comp block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify budget 30 nofile functions
-function level: no function of the source calls another, so no call gives a domain; none of its loops leaves early or computes a map of one small value
+function level: no function of the source calls another, so no call gives a domain; none of its loops leaves early, computes a map of one small value or divides what it could step

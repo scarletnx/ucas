@@ -1,0 +1,50 @@
+# The function level finds what a loop of a constant count recomputes by
+# division and could step: a quotient and remainder of k + n (n what the
+# loop does not write) by a divisor it does not write are a counter with a
+# carry, and a quotient divided again (or given to a helper that divides it)
+# steps with that carry; priced by the trip count (a 24-bit surface packed a
+# word at a time, three bytes a pixel, rows of stride pixels; the same read
+# through a helper); a lone quotient by a constant, cheaper divided, is not
+# named
+simplify functions nofile budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) buffer Dst { uint dst[]; };
+layout(push_constant) uniform Params { uint dst_at; uint stride; uint width; uint height; };
+uint Element(uint e) {
+    uint y = e / width, x = e - y * width;
+    return y * stride + x;
+}
+uint Pack(uint w) {
+    uint v = 0u;
+    for (uint b = 0u; b < 4u; b++) {
+        uint at = (w << 2u) + b;
+        if (at < dst_at) continue;
+        uint s = at - dst_at, p = s / 3u, y = p / stride, x = p - y * stride;
+        if (y >= height) break;
+        uint c = s - p * 3u;
+        v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);
+    }
+    return v;
+}
+uint Swizzle(uint w) {
+    uint v = 0u;
+    for (uint b = 0u; b < 4u; b++) {
+        uint at = (w << 2u) + b, e = at / 3u;
+        v |= (src[Element(e)] & 255u) << (b << 3u);
+    }
+    return v;
+}
+uint Lone(uint w) {
+    uint v = 0u;
+    for (uint b = 0u; b < 4u; b++)
+        v += src[(w + b) / 3u];
+    return v;
+}
+void main() {
+    uint w = gl_GlobalInvocationID.x;
+    dst[w] = Pack(w) + Swizzle(w) + Lone(w);
+}
+```

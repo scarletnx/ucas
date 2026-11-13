@@ -4620,11 +4620,24 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   loop that leaves one value at every point is that constant
   (tests/fnshift.ucas: a sum of a 2-bit field over 64 values is 96
   whichever field).
-  These two loop searches also run on a shader none of whose functions
+  These loop searches also run on a shader none of whose functions
   calls another (its only function main, say), where nothing gives a
   domain to the others: the report then has the loops alone, and when
   they hold nothing says so only to `functions` asked alone
   (tests/fnltab.ucas);
+- what a loop recomputes by division and could step: in a `for` loop
+  of a constant count over k, a quotient and remainder of k + n (n what
+  the loop does not write, through locals assigned once) by a divisor it
+  does not write are a counter with a carry, (n + 1) / d = n / d + (n %
+  d == d - 1), the remainder back to 0 at the carry, while n + 1 does
+  not wrap; a quotient divided again, in the loop or by a loop-free
+  helper it is given to, goes up by 0 or 1 a pass and steps with that
+  carry.  Proposed, with the steps written out, when one division of
+  each before the first pass that reaches them and the counters after
+  cost less than the divisions on every pass, priced by the trip count
+  (a 24-bit surface packed a word at a time: 181 -> 106.25 under gt1030
+  for the 4 passes; counted each instruction once, the module's cost
+  goes up instead) (tests/fnlind.ucas);
 - what each call of a helper needs: a loop-free helper's operations are
   checked at each of its calls on the values their leaves take there
   (each recorded row of values keeps the calls it was met at): a clamp,
@@ -4661,7 +4674,7 @@ changed by this section.  JSON: `result.function_level`, a list of
 `{kind, function, line, what, replacement, proof, points, cost_before,
 cost_after, domain, relies_on}` (`kind`: `function`, `expression`,
 `case_fit`; `loop` with `passes`, the most it runs, 1 or 2,
-`second_pass_acts` and `exit_lines`; `loop_map`; `call_variant` with
+`second_pass_acts` and `exit_lines`; `loop_map`; `loop_counter`; `call_variant` with
 `call_lines`, the first 16; `invariant_call` with
 `cost_per_call` and `passes`).
 
