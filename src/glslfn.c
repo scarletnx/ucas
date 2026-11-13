@@ -67,7 +67,7 @@ enum { OP_NONE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_SHL, OP_SHR,
     OP_AND, OP_OR, OP_XOR, OP_LT, OP_LE, OP_GT, OP_GE, OP_EQ, OP_NE,
     OP_LAND, OP_LOR, OP_LXOR, OP_NEG, OP_NOT, OP_LNOT, OP_PLUS };
 /* builtins: X_CALL with fn < 0 */
-enum { B_MIN = 1, B_MAX, B_CLAMP, B_ABS, B_INT, B_UINT, B_BOOL, B_UNK };
+enum { B_MIN = 1, B_MAX, B_CLAMP, B_ABS, B_INT, B_UINT, B_BOOL, B_BFE, B_UNK };
 
 struct gx {
 	uint8_t k, op, ty, post;
@@ -1114,9 +1114,11 @@ cv_x(uint32_t n)
 		const char *nm = glslc_builtin_fns[e->b].name;
 		int f = !strcmp(nm, "min") ? -B_MIN : !strcmp(nm, "max") ? -B_MAX :
 		    !strcmp(nm, "clamp") ? -B_CLAMP : !strcmp(nm, "abs") ? -B_ABS :
-		    -B_UNK;
+		    !strcmp(nm, "bitfieldExtract") ? -B_BFE : -B_UNK;
 		na = cv_args(e->a, args, 64);
 		if (ty != TI && ty != TU)
+			f = -B_UNK;
+		if (f == -B_BFE && (na != 3 || G.x[args[0]].ty != ty))
 			f = -B_UNK;
 		return call_node(f, ty, args, na, line);
 	}
@@ -1140,6 +1142,9 @@ cv_x(uint32_t n)
 }
 
 static int cv_s(uint32_t n);
+static int cv_switch(uint32_t n, int line);
+static int cv_tail(int s);
+static int exits(int s, int inloop);
 
 /* a statement list (a block's, linked by next) */
 static int
@@ -1214,12 +1219,171 @@ cv_s(uint32_t n)
 		G.s[s].sym = G.cur >= 0 ? G.f[G.cur].ret : -1;
 		return s;
 	case GLSLC_N_SWITCH:
+		if ((s = cv_switch(n, line)) >= 0)
+			return s;
+		/* FALLTHROUGH */
 	case GLSLC_N_DISCARD:
 	default:
 		if (G.cur >= 0)
 			G.f[G.cur].unsup = 1;
 		return ns_new(S_UNK, line);
 	}
+}
+
+/* x reads and calls nothing that could write */
+static int
+cv_plain(int x)
+{
+	const struct gx *g = &G.x[x];
+	int i;
+	switch (g->k) {
+	case X_NUM:
+	case X_VAR:
+		return 1;
+	case X_ASG:
+	case X_INC:
+		return 0;
+	case X_CALL:
+		if (g->sym >= 0)
+			return 0;
+		for (i = 0; i < g->b; i++)
+			if (!cv_plain(G.xarg[g->a + i]))
+				return 0;
+		return 1;
+	case X_UN:
+	case X_MEM:
+		return cv_plain(g->a);
+	case X_SEL:
+		return cv_plain(g->a) && cv_plain(g->b) && cv_plain(g->c);
+	default:
+		return cv_plain(g->a) && cv_plain(g->b);
+	}
+}
+
+/*
+ * How a case's last statement leaves: 1 every path returns, 2 it ends in
+ * a break (one at the end of a block is taken out: falling off the end
+ * of the case is leaving the switch), 0 it may fall into the next case.
+ */
+static int
+cv_tail(int s)
+{
+	struct gs *t = &G.s[s];
+	int a, b;
+	switch (t->k) {
+	case S_RET:
+		return 1;
+	case S_BRK:
+		return 2;
+	case S_BLOCK:
+		if (t->n == 0)
+			return 0;
+		a = cv_tail(G.slist[t->first + t->n - 1]);
+		if (a == 2 && G.s[G.slist[t->first + t->n - 1]].k == S_BRK)
+			t->n--;
+		return a;
+	case S_IF:
+		if (t->c < 0)
+			return 0;
+		a = cv_tail(t->b);
+		b = cv_tail(t->c);
+		if (G.s[t->b].k == S_BRK)
+			G.s[t->b].k = S_EMPTY;
+		if (G.s[t->c].k == S_BRK)
+			G.s[t->c].k = S_EMPTY;
+		return a && b ? (a == 1 && b == 1 ? 1 : 2) : 0;
+	}
+	return 0;
+}
+
+/*
+ * A switch as a chain of ifs on its selector, when no case falls into the
+ * next: each group of labels' statements ends in a break, which goes, or
+ * a return, and no other break leaves the switch (one inside a loop of
+ * the case is that loop's).  default is the last else wherever it sits.
+ * The selector is read in every compare, so it has to be plain.  -1 when
+ * the switch is not one of those (it stays a statement the level does
+ * not read).
+ */
+static int
+cv_switch(uint32_t n, int line)
+{
+	const GlslcNode *e = &SG->nodes[n];
+	int sel = cv_x(e->a), ng = 0, g, i, dflt = -1, s = -1;
+	struct cgrp {
+		int nl, lab[64], nk, kid[512], line;
+	} *grp;
+	uint32_t t;
+	if (!cv_plain(sel))
+		return -1;
+	/* a case may hold a switch of its own: not static */
+	grp = xcalloc(128, sizeof *grp);
+	for (t = e->b; t; t = SG->nodes[t].next) {
+		const GlslcNode *c = &SG->nodes[t];
+		if (c->kind == GLSLC_N_CASE) {
+			if (ng == 0 || grp[ng - 1].nk) {
+				if (ng == 128)
+					goto no;
+				memset(&grp[ng], 0, sizeof grp[ng]);
+				grp[ng].line = snx_line(c->tok);
+				ng++;
+			}
+			if (grp[ng - 1].nl == 64)
+				goto no;
+			grp[ng - 1].lab[grp[ng - 1].nl++] = c->a ? cv_x(c->a) : -1;
+			continue;
+		}
+		if (ng == 0 || grp[ng - 1].nk == 512)
+			goto no;
+		grp[ng - 1].kid[grp[ng - 1].nk++] = cv_s(t);
+	}
+	for (g = 0; g < ng; g++) {
+		int nk = grp[g].nk, last = nk ? grp[g].kid[nk - 1] : -1;
+		int tail = last >= 0 ? cv_tail(last) : 0;
+		if (last >= 0 && G.s[last].k == S_BRK)
+			grp[g].nk = --nk;	/* the break that ends the case */
+		else if (tail == 0 && g + 1 < ng)
+			goto no;		/* it falls into the next case */
+		for (i = 0; i < grp[g].nk; i++)
+			if (exits(grp[g].kid[i], 0) & 2)
+				goto no;	/* a break out of the middle */
+		for (i = 0; i < grp[g].nl; i++)
+			if (grp[g].lab[i] < 0)
+				dflt = g;
+	}
+	if (dflt >= 0)
+		s = block_of(grp[dflt].kid, grp[dflt].nk, grp[dflt].line, 1);
+	for (g = ng - 1; g >= 0; g--) {
+		int cond = -1, b, k;
+		if (g == dflt)
+			continue;
+		for (i = 0; i < grp[g].nl; i++) {
+			int eq = nx_new(X_BIN, TB, grp[g].line);
+			G.x[eq].op = OP_EQ;
+			G.x[eq].a = sel;
+			G.x[eq].b = grp[g].lab[i];
+			if (cond < 0)
+				cond = eq;
+			else {
+				int o = nx_new(X_BIN, TB, grp[g].line);
+				G.x[o].op = OP_LOR;
+				G.x[o].a = cond;
+				G.x[o].b = eq;
+				cond = o;
+			}
+		}
+		b = block_of(grp[g].kid, grp[g].nk, grp[g].line, 1);
+		k = ns_new(S_IF, grp[g].line);
+		G.s[k].a = cond;
+		G.s[k].b = b;
+		G.s[k].c = s;
+		s = k;
+	}
+	free(grp);
+	return s >= 0 ? s : ns_new(S_EMPTY, line);
+no:
+	free(grp);
+	return -1;
 }
 
 /* parse src (GLSL 4.50 or ES) with snxglslc and convert the tree: 0 ok */
@@ -1539,6 +1703,7 @@ px_text(struct sbuf *b, int x, int prec)
 		    e->sym == -B_MIN ? "min" : e->sym == -B_MAX ? "max" :
 		    e->sym == -B_CLAMP ? "clamp" : e->sym == -B_ABS ? "abs" :
 		    e->sym == -B_INT ? "int" : e->sym == -B_UINT ? "uint" :
+		    e->sym == -B_BFE ? "bitfieldExtract" :
 		    e->sym == -B_BOOL ? "bool" : "f";
 		sb_printf(b, "%s(", nm);
 		for (i = 0; i < e->b; i++) {
@@ -1895,6 +2060,23 @@ ce_call(const struct gx *e)
 		case B_UINT:
 		case B_BOOL:
 			return conv(a[0], G.x[G.xarg[e->a]].ty, ty);
+		case B_BFE: {
+			/* GLSL's: bits [off, off + n) of v, sign-extended for an
+			 * int; undefined past the word */
+			int64_t off = a[1], n = a[2];
+			uint32_t v = (uint32_t)a[0], m;
+			if (off < 0 || n < 0 || off + n > 32) {
+				C.ub = 1;
+				return 0;
+			}
+			if (n == 0)
+				return 0;
+			m = n == 32 ? 0xFFFFFFFFu : (1u << n) - 1u;
+			v = (v >> off) & m;
+			if (ty == TI && n < 32 && ((v >> (n - 1)) & 1u))
+				v |= ~m;
+			return norm(ty, (int64_t)v);
+		}
 		}
 		C.ub = 1;
 		return 0;
@@ -2861,6 +3043,24 @@ ae(env_t e, int x)
 			if (na < 1)
 				return av_top(g->ty);
 			return av_conv(ae(e, G.xarg[g->a]), G.x[G.xarg[g->a]].ty, g->ty);
+		case B_BFE: {
+			/* n bits: 0..2^n - 1, or -2^(n-1)..2^(n-1) - 1 for an int;
+			 * an unsigned one of a value below 2^(off + n) is that value
+			 * shifted */
+			int64_t n = args[2].hi;
+			if (na != 3 || args[2].bot || args[2].lo < 0 || n > 32)
+				return av_top(g->ty);
+			if (n == 0)
+				return av_k(g->ty, 0);
+			if (n == 32)
+				return args[0];
+			if (g->ty == TI)
+				return av_iv(g->ty, -(1LL << (n - 1)), (1LL << (n - 1)) - 1);
+			if (!args[1].bot && args[1].lo == args[1].hi && !args[0].bot &&
+			    args[0].lo >= 0 && args[0].hi < (1LL << (args[1].lo + n)))
+				return av_bin(OP_SHR, TU, TU, args[0], args[1]);
+			return av_iv(g->ty, 0, (1LL << n) - 1);
+		}
 		}
 		return av_top(g->ty);
 	}
@@ -5294,6 +5494,8 @@ xcost(int x)
 		switch (-g->sym) {
 		case B_MIN: case B_MAX: case B_ABS: return c + m->c[C_MINMAX];
 		case B_CLAMP: return c + 2 * m->c[C_MINMAX];
+		case B_BFE: return c + (cclass_available(m, C_BFE) ? m->c[C_BFE] :
+		    m->c[C_SHIFT] + m->c[C_LOGIC]);
 		case B_BOOL: return c + m->c[C_CMP];
 		}
 		return c;

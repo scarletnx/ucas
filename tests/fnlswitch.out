@@ -1,0 +1,12 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Byte (line 5), called from Lane (lines 12, 16, 21)
+    line 6: `clamp(v, 0, 255)` can be `v` (the result is the same)
+      uint Byte(int v) {
+          return uint(v);
+      }
+    proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (256 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 2 -> 0 per call
+    relies on: v in 0..255 at every call: Lane (lines 12, 16, 21)

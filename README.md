@@ -4442,14 +4442,19 @@ So are the GL_KHR_shader_subgroup built-ins the source calls, which
 snxglslc does not have, and GL_EXT_integer_dot_product's (`dotEXT`,
 `dotPacked4x8EXT` and their saturating forms): each one is a function
 whose value the level does not know, as it knows no built-in but min,
-max, clamp and abs, and gl_SubgroupSize and the other subgroup
+max, clamp, abs and bitfieldExtract, and gl_SubgroupSize and the other subgroup
 variables are values it does not know either, like Vulkan's
 gl_VertexIndex, gl_InstanceIndex, gl_BaseVertex, gl_BaseInstance,
 gl_DrawID, gl_SampleID, gl_ViewIndex, gl_Layer and gl_ViewportIndex.  A declaration or function the parser still refuses is
 left out, and the report names it and why; when that leaves main out,
 the level does not run and says what it refused, main last
-(tests/fnlread.ucas).  Integer scalars, arrays and constant tables are
-understood; floats, vectors and structs are opaque.
+(tests/fnlread.ucas).  A switch is read as a chain of ifs on its
+selector when no case falls into the next: a case's closing break goes,
+labels that share a body share an if, and default is the last else
+wherever it sits; one whose case falls through, or whose selector could
+write, stays a statement the level does not read (tests/fnlswitch.ucas).
+Integer scalars, arrays and constant tables are understood; floats,
+vectors and structs are opaque.
 
 **Domains.** An abstract interpretation runs from `main` (or from every
 function nobody calls).  Its state is a set of environments, one per
