@@ -57,3 +57,7 @@ equiv fa fb
 d1(x: f32, y: f32) = x / y
 d2(x: f32, y: f32) = (x / y) * f32(1)
 equiv d1 d2
+# a 64-bit integer into f32 is rounded once (#466): 2^60 + 2^36 + 1 is
+# above the midpoint of 2^60 and 2^60 + 2^37
+k(x: i64) = asuint(f32(x))
+k(1152921573326323713)

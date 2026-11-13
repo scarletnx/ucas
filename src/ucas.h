@@ -674,6 +674,7 @@ double scalar_real(int op, double a, double b, uint8_t *fl);
 double scalar_float(int op, int w, double a, double b, uint8_t *fl);
 extern int float_ftz;               /* float ops flush subnormals (equiv ftz) */
 double fflush0(int w, double v);    /* a subnormal of w bits as its zero */
+double ifloat(ty_t ti, int64_t v, int w);   /* an integer of type ti as a float of w bits */
 double lambert_w(double x, int branch);   /* NaN outside the domain */
 double fround(int w, double v);
 int fdigits(int w);                 /* digits that print a float exactly */
