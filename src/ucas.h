@@ -490,6 +490,13 @@ enum {
 	/* a depth compare read of a D32_SFLOAT texture with the linear
 	 * filter (tex_compare), absent unless listed */
 	C_TEX_COMPARE,
+	/*
+	 * An add (subtract, negate), a multiply (its low 64 bits) and a
+	 * shift in an integer type wider than 32 bits, which a 32-bit
+	 * machine makes of several instructions.  A model that does not
+	 * list one prices the operation as its 32-bit class (int64_class).
+	 */
+	C_IADD64, C_IMUL64, C_SHIFT64,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
@@ -532,6 +539,8 @@ struct model {
 extern const char *const cclass_name[C_NCLASS];
 struct model *model_find(uint32_t name);
 int cclass_available(const struct model *m, int k);
+/* an integer add, multiply or shift's class at type t's width */
+int int64_class(const struct model *m, ty_t t, int k);
 void model_classes_text(struct sbuf *b, const struct model *m);
 void model_names(char *out, size_t n);
 struct model *model_new(uint32_t name);

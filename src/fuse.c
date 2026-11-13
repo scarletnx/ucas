@@ -384,6 +384,10 @@ fmatch(const struct fgraph *g, const struct fusion *f, nid P, int i,
 		return 0;
 	if ((g->fp[i] != 0) != (TY_FP(N.ty[P]) != 0) || g->isbool[i])
 		return 0;
+	/* a model's fusions are 32-bit instructions: an operation it prices
+	 * by a 64-bit class is several of them */
+	if (g->cls[i] >= C_IADD64 && g->cls[i] <= C_SHIFT64)
+		return 0;
 	if (f->contract && g->nocontract[i])
 		return 0;
 	if (i != root) {

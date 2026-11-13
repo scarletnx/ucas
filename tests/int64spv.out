@@ -1,0 +1,34 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model hi : gt1030 { mulhi: 8.5 }
+> model hi64 : hi { iadd64: 2, imul64: 15.5, shift64: 2 }
+> use hi
+cost model: hi
+> spvsimplify nofile nofunctions
+simplify: 82 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 dead instructions removed
+  integer arithmetic cost under hi (each instruction once): 15 -> 9.5 (-36.7%)
+  by kind:
+       1  a wide product's high word is one multiply extended  -5.5
+  rewrites:
+    %47 = OpUConvert %uint %46
+      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -5.5)
+      (line 9: b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);)
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2695 bytes, checksum 29119209)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use hi64
+cost model: hi64
+> spvsimplify nofile nofunctions
+simplify: 82 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 dead instructions removed
+  integer arithmetic cost under hi64 (each instruction once): 27.5 -> 9.5 (-65.5%)
+  by kind:
+       1  a wide product's high word is one multiply extended  -18
+  rewrites:
+    %47 = OpUConvert %uint %46
+      ->  OpCompositeExtract %uint (OpUMulExtended %27 %33) 1   (a wide product's high word is one multiply extended; -18)
+      (line 9: b.d[i] = uint((uint64_t(x) * uint64_t(y)) >> 32);)
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2695 bytes, checksum 29119209)

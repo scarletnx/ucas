@@ -48,6 +48,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"mulwide", "bytesel", "simd4x8", "msad", "pk16", "lerp8", "qsad",
 	"vmnmx", "sad32", "addsat", "ldexp", "frexp", "cube", "trigpreop",
 	"tex_packed", "tex_cube", "tex_3d", "tex_compare",
+	"iadd64", "imul64", "shift64",
 };
 
 /*
@@ -236,6 +237,24 @@ div_class(nid n)
 	return C_DIVK(k);
 }
 
+/*
+ * The class of an integer add, multiply or shift (k: C_IADD, C_IMUL,
+ * C_SHIFT) of type t: its 64-bit class where t is wider than 32 bits and
+ * the model lists that class, else k (the price models had before they
+ * told the widths apart).
+ */
+int
+int64_class(const struct model *m, ty_t t, int k)
+{
+	int w = k == C_IADD ? C_IADD64 : k == C_IMUL ? C_IMUL64 :
+	    k == C_SHIFT ? C_SHIFT64 : -1;
+
+	if (w < 0 || TY_FP(t) || !TY_SIZED(t) || TYW(t) <= 32 ||
+	    !cclass_available(m, w))
+		return k;
+	return w;
+}
+
 static float deriv_cost(const struct model *m, nid n, int *cls);
 
 float
@@ -261,14 +280,14 @@ node_cost(const struct model *m, nid n, int *cls)
 		*cls = -1;
 		return 0;
 	case O_ADD: case O_SUB: case O_NEG:
-		k = fp ? C_FADD : C_IADD;
+		k = fp ? C_FADD : int64_class(m, t, C_IADD);
 		break;
 	case O_MUL:
 		if (!fp && is_const(N.a[n]) && N.ki[N.a[n]] > 0 &&
 		    !(N.ki[N.a[n]] & (N.ki[N.a[n]] - 1)))
-			k = C_SHIFT;
+			k = int64_class(m, t, C_SHIFT);
 		else
-			k = fp ? C_FMUL : C_IMUL;
+			k = fp ? C_FMUL : int64_class(m, t, C_IMUL);
 		break;
 	case O_DIV: case O_MOD:
 		k = fp ? C_FDIV : div_class(n);
@@ -280,10 +299,14 @@ node_cost(const struct model *m, nid n, int *cls)
 			 * shifts and an add; the remainder x - ((x + that bias) &
 			 * -2^k), two shifts, two adds and a mask
 			 */
-			*cls = C_SHIFT;
-			return op == O_DIV ? 3 * m->c[C_SHIFT] + m->c[C_IADD] :
-			    2 * m->c[C_SHIFT] + 2 * m->c[C_IADD] + m->c[C_LOGIC];
+			int ks = int64_class(m, t, C_SHIFT);
+			int ka = int64_class(m, t, C_IADD);
+			*cls = ks;
+			return op == O_DIV ? 3 * m->c[ks] + m->c[ka] :
+			    2 * m->c[ks] + 2 * m->c[ka] + m->c[C_LOGIC];
 		}
+		if (k == C_SHIFT)
+			k = int64_class(m, t, k);
 		break;
 	case O_POW:
 		if (fp) {
@@ -293,7 +316,7 @@ node_cost(const struct model *m, nid n, int *cls)
 			if (is_const(N.b[n]) && N.kr[N.b[n]] == 0.5)
 				k = C_FSQRT;
 		} else {
-			k = C_IMUL;
+			k = int64_class(m, t, C_IMUL);
 			if (is_const(N.b[n]) && N.ki[N.b[n]] > 1)
 				mul = (float)(N.ki[N.b[n]] - 1);
 			else if (!is_const(N.b[n])) {
@@ -301,8 +324,8 @@ node_cost(const struct model *m, nid n, int *cls)
 				int w = TY_SIZED(t) ? TYW(t) : 64, bits = 0;
 				while ((1 << bits) < w)
 					bits++;
-				*cls = C_IMUL;
-				return (float)bits * (2 * m->c[C_IMUL] +
+				*cls = k;
+				return (float)bits * (2 * m->c[k] +
 				    m->c[C_BRANCH]);
 			}
 		}
@@ -312,7 +335,7 @@ node_cost(const struct model *m, nid n, int *cls)
 		k = C_LOGIC;
 		break;
 	case O_SHL: case O_SHR:
-		k = C_SHIFT;
+		k = int64_class(m, t, C_SHIFT);
 		break;
 	case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT: case O_GE:
 		k = C_CMP;
