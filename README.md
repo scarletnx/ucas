@@ -3958,8 +3958,10 @@ _() = 3.5
 **Cost classes and parameters.**  `tex_nearest` prices a `fetch_` read
 (its coordinate, (i + 1/2)/n made from the index, costs a `conv` and an
 `fmul` more), `tex_sample` a filtered read of an 8-bit normalised
-texture (every texel k/255), `tex_sample_f32` one of a 32-bit float
-texture.  They are memory kinds (above) in a model's list, but a read
+texture (every texel k/255), `tex_sample_16` one of a 16-bit
+normalised texture (k/65535), `tex_sample_f16` one of a half-float
+texture and `tex_sample_f32` one of a 32-bit float texture (no built-in
+model lists the two 16-bit classes: not measured).  They are memory kinds (above) in a model's list, but a read
 through the unit has no fallback: a model that does not list the
 class cannot use the operation (`none` takes it away).  Two parameters, which are not prices,
 say what the hardware's unit does beyond the definition above:
@@ -4031,14 +4033,25 @@ is offered: `texalu` says which number is missing.
   snaps a fraction and it snaps none, as long as it costs less than the
   entries read alone (tests/texalu.ucas).
 
-The texture's format comes from the table: bytes (R8_UNORM, priced
-`tex_sample`) when every entry is k/255, or a whole number 0..255
-(stored as k/255, the read scaled by 255), or one of evenly spaced
-levels lo + step m with at most 256 of them (the bytes are m, spread
-over 0..255 when the largest m divides 255; the read is mapped back by
-one multiply-add, whose rounding is in the bound); 32-bit floats
-(`tex_sample_f32`) otherwise.  A table of levels is read as f32 when
-the map back would put the bound over what is allowed.
+The texture's format is the cheapest the model lists among those that
+hold the table: bytes (R8_UNORM, priced `tex_sample`) when every entry
+is k/255, or a whole number 0..255 (stored as k/255, the read scaled by
+255), or one of evenly spaced levels lo + step m with at most 256 of
+them (the bytes are m, spread over 0..255 when the largest m divides
+255; the read is mapped back by one multiply-add, whose rounding is in
+the bound); 16-bit units (R16_UNORM, `tex_sample_16`) the same way with
+65535 for 255 (k/65535, whole numbers 0..65535, 65536 levels); half
+floats (R16_SFLOAT, `tex_sample_f16`) when an f16 holds every entry, or
+with the entries rounded to f16 (the rounding is in the bound); 32-bit
+floats (`tex_sample_f32`) otherwise.  On a tie the exact forms come
+first, so levels and the f16 rounding are taken only where they cost
+less; where their bound is over what is allowed the table is read
+again without them, down to f32 (tests/texr16.ucas).  As for bytes,
+the unit's decode of k/65535 is taken to be within the filter's
+`tex_within`.  A model that lists none of these classes is told about
+the bytes or f32, as before.  A nearest read of a float table takes
+R16_SFLOAT when an f16 holds every entry (an f16 widens to f32
+exactly), R32_SFLOAT otherwise.
 
 A filtered read's error against the exact weighted sum is derived:
 |S| times (the weight's move times the largest step between
@@ -4134,9 +4147,9 @@ range.  Otherwise `texalu` names the value where they part
 
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks), trilinear and anisotropic
-filters, mip levels as means, min/max and compare samplers, gather,
-the other formats (R16, half floats) and normalised coordinates for
-the filters.  None of those has a measured price yet either.
+filters, mip levels as means, min/max and compare samplers, gather
+and normalised coordinates for the filters.  None of those has a
+measured price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
