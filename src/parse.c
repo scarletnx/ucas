@@ -477,7 +477,7 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG, SGF_SORT, SGF_ACTIVE };
+	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
@@ -496,6 +496,9 @@ static const struct sgfn {
 	{"sg_segscan", "sg_segscan", SGF_SEG, O_SGSCAN, 2},
 	{"sg_sort", "sg_sort", SGF_SORT, O_SGSHUF, 1},
 	{"sg_active", "sg_active", SGF_ACTIVE, O_SGBALLOT, 1},
+	{"sg_dfdx", "dFdxFine", SGF_DERIV, O_SGDDX, 1},
+	{"sg_dfdy", "dFdyFine", SGF_DERIV, O_SGDDY, 1},
+	{"sg_fwidth", "fwidthFine", SGF_DERIV, O_SGFWIDTH, 1},
 	{NULL, NULL, 0, 0, 0}
 };
 
@@ -687,7 +690,7 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	if (g->kind == SGF_ACTIVE)
 		return sg_active_decl(p, args[0], W);
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
-	    g->kind == SGF_ROT || g->kind == SGF_SORT))
+	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
 	p->sgops++;
@@ -695,7 +698,8 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		/* the inactive lanes: no bit in a ballot, nothing to a vote, a
 		 * sum or a scan, and undefined to a shuffle that reads one */
 		nid act = sg_active_bit(p->sgmask, sg_lane());
-		if (g->kind == SGF_SEG || g->kind == SGF_SORT)
+		if (g->kind == SGF_SEG || g->kind == SGF_SORT ||
+		    g->kind == SGF_DERIV)
 			fail("%s under sg_active(%s): not defined for inactive "
 			    "lanes yet", g->name, node_str(p->sgmask));
 		if (g->op == O_SGBALLOT || g->op == O_SGANY)
@@ -708,6 +712,8 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 			return sg_masked_shuffle(p, g, v, args, here, W);
 	}
 	switch (g->kind) {
+	case SGF_DERIV:
+		return mk_sg(g->op, v, here, w);
 	case SGF_EXCL:
 		v = mk_sg(O_SGSCAN, v, here, w);
 		return mk_bin(O_SUB, v, mk_cast(N.ty[v], args[0]));
@@ -1933,7 +1939,12 @@ static const char prelude[] =
      * never made), so they are priced 0 and their compare as a compare.
      */
     "  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4,\n"
-    "  sg_scan: 60.25\n"
+    "  sg_scan: 60.25,\n"
+    /*
+     * A fine derivative's exchange within the quad (the graphics run:
+     * frag_dfdx 4.22, x_deriv 3.22 and the subtract's fadd).
+     */
+    "  sg_deriv: 3.25\n"
     /*
      * Signed division and the remainders (udiv, umod, sdiv and by 7, the
      * mean of the two runs, less the add each step has); a signed

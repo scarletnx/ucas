@@ -39,7 +39,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
 	"tex_nearest",
-	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan",
+	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan", "sg_deriv",
 	"mul16",
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil", "rop_depth",
 	"rop_query", "rop_raster", "rop_resolve", "rop_fill", "rop_xfb",
@@ -231,6 +231,8 @@ div_class(nid n)
 	return C_DIVK(k);
 }
 
+static float deriv_cost(const struct model *m, nid n, int *cls);
+
 float
 node_cost(const struct model *m, nid n, int *cls)
 {
@@ -391,6 +393,8 @@ node_cost(const struct model *m, nid n, int *cls)
 		break;
 	case O_LOOP:
 		return loop_cost(m, n, cls);
+	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH:
+		return deriv_cost(m, n, cls);
 	default:
 		if (IS_TEX(op))
 			return tex_cost(m, n, cls);
@@ -407,6 +411,30 @@ node_cost(const struct model *m, nid n, int *cls)
 	if (fpclass(k) && TYK(t) == K_FLOAT && TYW(t) == 64)
 		c *= m->c[C_F64];
 	return c;
+}
+
+/*
+ * A fine derivative, priced as Liz put it (#204): the exchange within
+ * the quad (sg_deriv, the baseline: gt1030's frag_dfdx is 3.22 of it and
+ * an fadd), the subtract (the operation), and the operand once more (the
+ * quad's helper lanes compute it too: the operation in a derivative's
+ * context).  fwidth is two derivatives sharing that operand, two
+ * absolute values and an add.  The operand's own nodes are priced as
+ * any operation's are.
+ */
+static float
+deriv_cost(const struct model *m, nid n, int *cls)
+{
+	ty_t t = N.ty[n];
+	nid x = mk_var(0, sym_cstr("_x"), t), y = mk_var(1, sym_cstr("_y"), t);
+	float nd = N.op[n] == O_SGFWIDTH ? 2 : 1, c;
+
+	*cls = C_SG_DERIV;
+	c = nd * (m->c[C_SG_DERIV] + fuse_expr_cost(m, mk_bin(O_SUB, x, y)));
+	if (N.op[n] == O_SGFWIDTH)
+		c += fuse_expr_cost(m, mk_bin(O_ADD, mk_un(O_ABS, x),
+		    mk_un(O_ABS, y)));
+	return c + fuse_expr_cost(m, N.a[n]);
 }
 
 void
@@ -518,7 +546,8 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen,
 		 * value whose other lanes are not known, taken as varying (at
 		 * the worst) */
 		return (N.fl[N.a[n]] & NF_LANEREAD) != 0;
-	case O_SGSHUF: case O_SGSCAN:
+	case O_SGSHUF: case O_SGSCAN: case O_SGDDX: case O_SGDDY:
+	case O_SGFWIDTH:
 		return 1;
 	}
 	return depends_nonuniform(f, N.a[n], seen, vslots) ||

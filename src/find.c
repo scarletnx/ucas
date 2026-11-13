@@ -2453,6 +2453,16 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 		said += dword_find(f);
 		said += sfu_find(f);
 		said += pack_find(f);
+		if (N.fl[f->body] & NF_SG) {
+			/* a float value per lane: its subgroup forms (#204) */
+			printf("find %s: a float value per lane: the subgroup forms "
+			    "of floats (derivatives), costs from %s\n", f->anon ?
+			    node_str(f->body) : sym_str(f->name),
+			    sym_str(model_active()->name));
+			sg_find(f);
+			fuse_domain(NULL);
+			return;
+		}
 		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)) {
 			fuse_domain(NULL);
 			return;

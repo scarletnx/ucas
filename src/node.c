@@ -112,6 +112,9 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_SGADD] = {"sg_add", 2, OF_INT},
 	[O_SGSHUF] = {"sg_shuffle", 3, 0},
 	[O_SGSCAN] = {"sg_scan", 3, OF_INT},
+	[O_SGDDX] = {"sg_dfdx", 3, 0},
+	[O_SGDDY] = {"sg_dfdy", 3, 0},
+	[O_SGFWIDTH] = {"sg_fwidth", 3, 0},
 	[O_BFE] = {"bfe", 3, OF_INT},
 	[O_SBFE] = {"sbfe", 3, OF_INT},
 	[O_BREV] = {"brev", 1, OF_INT},
@@ -1776,7 +1779,8 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		sb_putc(b, ')');
 		break;
 	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
-	case O_SGSHUF: case O_SGSCAN:
+	case O_SGSHUF: case O_SGSCAN: case O_SGDDX: case O_SGDDY:
+	case O_SGFWIDTH:
 		/* without the subgroup's size, which reading them back takes
 		 * from the lane parameter or the model again; a scan's lane
 		 * only when it is not the lane itself */
