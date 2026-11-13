@@ -6839,7 +6839,7 @@ ty_id(struct spvdot *c, ty_t t)
 static int
 dot_emit(struct spvdot *c, nid n)
 {
-	int i, op = N.op[n], rt, a, b, r = -1;
+	int i, op = N.op[n], rt, a, b, cc, r = -1;
 	const char *o[4];
 
 	for (i = 0; i < c->nem; i++)
@@ -6985,19 +6985,16 @@ dot_emit(struct spvdot *c, nid n)
 		a = dot_emit(c, N.a[n]);
 		if (a < 0)
 			return -1;
+		b = cc = a;
+		if (opinfo[op].arity >= 2 && (b = dot_emit(c, N.b[n])) < 0)
+			return -1;
+		if (opinfo[op].arity == 3 && (cc = dot_emit(c, N.c[n])) < 0)
+			return -1;
+		/* the names are read once every operand is emitted: an
+		 * operand's dot_ins grows V.id, which moves them */
 		o[0] = V.id[a].tok;
-		if (opinfo[op].arity >= 2) {
-			b = dot_emit(c, N.b[n]);
-			if (b < 0)
-				return -1;
-			o[1] = V.id[b].tok;
-		}
-		if (opinfo[op].arity == 3) {
-			int cc = dot_emit(c, N.c[n]);
-			if (cc < 0)
-				return -1;
-			o[2] = V.id[cc].tok;
-		}
+		o[1] = V.id[b].tok;
+		o[2] = V.id[cc].tok;
 		r = dot_ins(c, sop, rt, o, opinfo[op].arity);
 	}
 done:
