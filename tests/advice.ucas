@@ -190,3 +190,33 @@ void main() {
     col = vec4(h);
 }
 ```
+# what the inputs are is recognised and reported, never proposed: flat
+# inputs, per-vertex inputs and the barycentrics, and a sum over the
+# three vertices of a per-vertex value times its vertex's barycentric,
+# which is the interpolation a smooth varying is
+simplify advice nofile
+```glsl
+#version 450
+#extension GL_EXT_fragment_shader_barycentric : require
+layout(location = 0) pervertexEXT in vec4 vc[];
+layout(location = 3) flat in uint mat;
+layout(location = 0) out vec4 col;
+void main() {
+    vec4 c = vc[0] * gl_BaryCoordEXT.x + vc[1] * gl_BaryCoordEXT.y + vc[2] * gl_BaryCoordEXT.z;
+    col = c * float(mat);
+}
+```
+# the noperspective barycentrics, and a sum over two vertices only, which
+# is not an interpolation
+simplify nofile
+```glsl
+#version 450
+#extension GL_EXT_fragment_shader_barycentric : require
+layout(location = 0) pervertexEXT in float w[];
+layout(location = 0) out vec4 col;
+void main() {
+    float a = w[0] * gl_BaryCoordNoPerspEXT.x + w[1] * gl_BaryCoordNoPerspEXT.y + w[2] * gl_BaryCoordNoPerspEXT.z;
+    float b = w[0] * gl_BaryCoordNoPerspEXT.x + w[1] * gl_BaryCoordNoPerspEXT.y;
+    col = vec4(a, b, 0.0, 1.0);
+}
+```

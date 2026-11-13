@@ -4838,6 +4838,19 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 13: float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);)
 ```
 
+**What the inputs are.**  A fragment shader's flat inputs (the
+provoking vertex's value, one a primitive), its per-vertex inputs
+(`pervertexEXT`, PerVertexKHR: the three vertices' values) and the
+barycentric built-ins (gl_BaryCoordEXT, perspective-correct;
+gl_BaryCoordNoPerspEXT) are recognised, and so is a sum over the three
+vertices of a per-vertex value times that vertex's barycentric
+(`v[0] * b.x + v[1] * b.y + v[2] * b.z`, in any order of the terms),
+which is what the rasteriser computes for a smooth varying (or a
+noperspective one): the report says what it recognised in one line,
+`recognised in the inputs (nothing is proposed for them): ...`, and
+proposes nothing for it.  JSON: `recognised` (flat, per_vertex,
+barycentrics, interpolations).
+
 **Vertex inputs.**  In a vertex shader, what the input assembler
 could compute before the shader runs: a field of an input word (a byte
 or a half, signed or not, as `(w >> 8) & 255u` or
