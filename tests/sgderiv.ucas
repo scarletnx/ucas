@@ -1,0 +1,35 @@
+# Fine derivatives as quad operations (src/sg.c): the lanes in fours are
+# quads, lane bit 0 the column and bit 1 the row; sg_dfdx is v in the
+# pair's lane with bit 0 set less v in the one with it clear, sg_dfdy the
+# same with bit 1, sg_fwidth |dfdx| + |dfdy|
+V = [1.0, 2.5, 4.0, 8.0, 0.5, 0.25, 3.0, 3.0]
+dx(lane: u32 in 0..31) = sg_dfdx(f32(V[lane % 8]))
+table dx max 8
+dy(lane: u32 in 0..31) = sg_dfdy(f32(V[lane % 8]))
+table dy max 8
+fw(lane: u32 in 0..31) = sg_fwidth(f32(V[lane % 8]))
+table fw max 8
+# the price: gt1030's sg_deriv (3.25, the quad's exchange) plus the
+# subtract plus the operand once more (the helper lanes compute it too);
+# fwidth is two of the first two, the operand's once, two abs and an add
+g(lane: u32 in 0..31, s: f32 uniform) = sg_dfdx(f32(lane) * s)
+show g
+cost g
+h(lane: u32 in 0..31, s: f32 uniform) = sg_fwidth(sin(f32(lane) * s))
+cost h
+model noderiv : gt1030 { sg_deriv: none }
+cost g model noderiv
+# find: a difference of neighbours that is a derivative, where cheaper;
+# not when the operand's second run costs more than the shuffles save,
+# nor when the two lanes are not one pair
+n1(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(f32(lane) * s, lane | 1) - sg_shuffle(f32(lane) * s, lane & 0xfffffffe)
+find n1 1
+n2(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(sin(f32(lane) * s), lane | 2) - sg_shuffle(sin(f32(lane) * s), lane & 0xfffffffd)
+find n2 1
+n3(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(f32(lane) * s, lane | 1) - sg_shuffle(f32(lane) * s, lane & 0xfffffffd)
+find n3 1
+# a float per lane, a subgroup of quads, all lanes active
+k1(lane: u32 in 0..31) = sg_dfdx(lane)
+k2(lane: u32 in 0..5) = sg_dfdx(f32(lane))
+k3(s: f32) = sg_dfdy(s)
+k4(lane: u32 in 0..31, m: u32 uniform) = sg_active(m) + u32(sg_dfdx(f32(lane)))

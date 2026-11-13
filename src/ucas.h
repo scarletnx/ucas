@@ -142,9 +142,12 @@ enum {
 	 * bound variable `lane`) and of values the lanes share; the last
 	 * operand is W.  ballot(p): bit l is p in lane l; any, all; add: the
 	 * sum over the lanes; shuffle(v, i): v in lane i; scan(v, l): the
-	 * sum of v over lanes 0..l (see sg.c for the exact semantics)
+	 * sum of v over lanes 0..l; dfdx, dfdy, fwidth (v, l): the
+	 * difference of v across lane l's quad pair along x or y, and
+	 * |dfdx| + |dfdy| (see sg.c for the exact semantics)
 	 */
-	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN,
+	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN, O_SGDDX,
+	O_SGDDY, O_SGFWIDTH,
 	/*
 	 * inst.c: single instructions that targets have, each defined by an
 	 * expression over the operations above (bit fields, bit reversal,
@@ -203,7 +206,7 @@ enum {
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
 #define O_SG_FIRST O_SGBALLOT
-#define O_SG_LAST O_SGSCAN
+#define O_SG_LAST O_SGFWIDTH
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
 #define O_ASTC_LAST O_ASTC_LERP
@@ -403,9 +406,10 @@ enum {
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,
 	 * the shuffle (and broadcast, shuffle by xor, rotate) and the
-	 * inclusive scan.
+	 * inclusive scan; a fine derivative's exchange within a quad (the
+	 * subtract apart).
 	 */
-	C_SG_BALLOT, C_SG_VOTE, C_SG_ADD, C_SG_SHUF, C_SG_SCAN,
+	C_SG_BALLOT, C_SG_VOTE, C_SG_ADD, C_SG_SHUF, C_SG_SCAN, C_SG_DERIV,
 	/*
 	 * A multiply of two 16-bit operands into 32 bits (XMAD on the
 	 * NVIDIA parts whose 32-bit multiply is a chain of them): the price
@@ -439,7 +443,7 @@ enum {
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
-#define C_SG_LAST C_SG_SCAN
+#define C_SG_LAST C_SG_DERIV
 /* an instruction the target may not have: absent unless the model lists it */
 #define C_ABSENT(k) (((k) >= C_DOT_FIRST && (k) <= C_DOT_LAST) || \
     (k) >= C_SG_FIRST)	/* the subgroups, and what comes after them */

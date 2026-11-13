@@ -18,6 +18,13 @@
  *                      OpGroupNonUniformShuffle
  *   sg_scan(v)         in lane l, the sum of v over lanes 0..l (wrapping):
  *                      OpGroupNonUniformIAdd, InclusiveScan
+ *   sg_dfdx(v), sg_dfdy(v), sg_fwidth(v)
+ *                      of a float: the lanes in fours are quads, lane
+ *                      bit 0 the column and bit 1 the row (Vulkan's
+ *                      layout); in lane l, v in lane l | 1 less v in
+ *                      lane l & ~1, the same with bit 1, and |dfdx| +
+ *                      |dfdy|: dFdxFine, dFdyFine, fwidthFine
+ *                      (NV_compute_shader_derivatives in compute)
  *
  * and, written with them: sg_exclusive(v) = sg_scan(v) - v,
  * sg_shuffle_xor(v, k) = sg_shuffle(v, lane xor k), sg_broadcast(v, i) =
@@ -82,6 +89,8 @@ sg_class(int op)
 		return C_SG_ADD;
 	case O_SGSHUF:
 		return C_SG_SHUF;
+	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH:
+		return C_SG_DERIV;
 	}
 	return C_SG_SCAN;
 }
@@ -268,6 +277,22 @@ sg_expand(int op, nid a, nid b, nid c)
 			    mk_const_i(TY_LIT, l), b), in_lane(a, l),
 			    mk_const_i(t, 0)));
 		break;
+	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH: {
+		ty_t u = TY(K_UINT, 32);
+		nid tab, i = mk_cast(u, b), d[2];
+		int k;
+		for (l = 0; l < W; l++)
+			e[l] = in_lane(a, l);
+		tab = mk_table(e, (uint32_t)W);
+		/* the pair's other lane less its first: bit 0, then bit 1 */
+		for (k = 0; k < 2; k++)
+			d[k] = mk_bin(O_SUB, mk_index(tab, mk_bin(O_OR, i,
+			    mk_const_i(u, 1 << k))), mk_index(tab, mk_bin(O_AND, i,
+			    mk_const_i(u, ~(1u << k)))));
+		r = op == O_SGDDX ? d[0] : op == O_SGDDY ? d[1] :
+		    mk_bin(O_ADD, mk_un(O_ABS, d[0]), mk_un(O_ABS, d[1]));
+		break;
+	}
 	}
 	return mk_cast(t, r);
 }
@@ -296,6 +321,14 @@ mk_sg(int op, nid a, nid b, nid c)
 			    "integers only", nm);
 		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
 			a = mk_cast(TY(K_UINT, 32), a);
+		break;
+	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH:
+		if (TYK(N.ty[a]) != K_FLOAT)
+			fail("%s takes a float (f16, f32, f64) per lane, not %s",
+			    nm, ty_str(N.ty[a]));
+		if (W % 4)
+			fail("%s reads quads of 4 lanes: a subgroup of %d lanes "
+			    "has none", nm, W);
 		break;
 	}
 	t = sg_type(op, a, W);
@@ -3736,6 +3769,8 @@ needs(struct sbuf *b, nid e)
 		{O_SGANY, "vote (GL_KHR_shader_subgroup_vote)"},
 		{O_SGADD, "arithmetic (GL_KHR_shader_subgroup_arithmetic)"},
 		{O_SGSHUF, "shuffle (GL_KHR_shader_subgroup_shuffle)"},
+		{O_SGDDX, "derivatives (a fragment shader's quads; "
+		    "GL_NV_compute_shader_derivatives in compute)"},
 	};
 	uint8_t *seen = xcalloc(N.n, 1);
 	nid *st = xmalloc(N.n * sizeof *st), x;
@@ -3761,11 +3796,92 @@ needs(struct sbuf *b, nid e)
 	}
 	has[O_SGANY] |= has[O_SGALL];
 	has[O_SGADD] |= has[O_SGSCAN];
-	for (i = 0; i < 4; i++)
+	has[O_SGDDX] |= has[O_SGDDY] | has[O_SGFWIDTH];
+	for (i = 0; i < (int)(sizeof ext / sizeof ext[0]); i++)
 		if (has[ext[i].op])
 			sb_printf(b, "%s%s", n++ ? ", " : "", ext[i].what);
 	free(seen);
 	free(st);
+}
+
+/* k (1 or 2) when i is the lane with bit k set (or) or cleared (and,
+ * clear 1), else 0; *ln the lane */
+static int
+quad_bit(nid i, int clear, nid *ln)
+{
+	int64_t m;
+	int k;
+
+	while (N.op[i] == O_CAST)
+		i = N.a[i];
+	if (N.op[i] != (clear ? O_AND : O_OR))
+		return 0;
+	for (k = 0; k < 2; k++) {
+		nid l = k ? N.b[i] : N.a[i], c = k ? N.a[i] : N.b[i];
+		if (!sg_is_lane(l) || !is_const(c))
+			continue;
+		m = clear ? (int64_t)(~(uint32_t)N.ki[c] & 0xffffffffu) :
+		    N.ki[c];
+		if (m == 1 || m == 2) {
+			*ln = l;
+			return (int)m;
+		}
+	}
+	return 0;
+}
+
+/*
+ * A float difference of neighbouring lanes' values, v in lane | k less v
+ * in lane & ~k, is a fine derivative (k 1: along x, 2: along y), where
+ * the model prices sg_deriv lower (#204)
+ */
+static nid
+derivs(struct sgf *g, nid cur, float *cost)
+{
+	nid *nd = xmalloc(N.n * sizeof *nd), x, a, b, ln = 0, ln2 = 0, cand;
+	uint8_t *seen = xcalloc(N.n, 1);
+	uint32_t sp = 0, j;
+	float c;
+	int k;
+
+	nd[sp++] = cur;
+	seen[cur] = 1;
+	while (sp) {
+		x = nd[--sp];
+		for (j = 0; j < 3; j++) {
+			nid o = j == 0 ? N.a[x] : j == 1 ? N.b[x] : N.c[x];
+			if (N.op[x] == O_CONST || N.op[x] == O_VAR ||
+			    N.op[x] == O_TABLE)
+				break;
+			if (o && o < N.n && !seen[o]) {
+				seen[o] = 1;
+				nd[sp++] = o;
+			}
+		}
+		if (N.op[x] != O_SUB || TYK(N.ty[x]) != K_FLOAT)
+			continue;
+		a = N.a[x];
+		b = N.b[x];
+		if (N.op[a] != O_SGSHUF || N.op[b] != O_SGSHUF ||
+		    N.a[a] != N.a[b] || N.c[a] != N.c[b] || N.ki[N.c[a]] % 4)
+			continue;
+		k = quad_bit(N.b[a], 0, &ln);
+		if (!k || quad_bit(N.b[b], 1, &ln2) != k || ln != ln2)
+			continue;
+		cand = sg_replaced(cur, x, mk_sg(k == 1 ? O_SGDDX : O_SGDDY,
+		    N.a[a], ln, N.c[a]));
+		if (!cand || (c = price(g, cand)) >= *cost)
+			continue;
+		sb_printf(&g->why, "%s: %s in the lane with bit %d set less in the "
+		    "lane with it clear, the quad's fine derivative along %s: "
+		    "sg_%s (sg_deriv)\n", shared_str(x, 80), node_str(N.a[a]),
+		    k - 1, k == 1 ? "x" : "y", k == 1 ? "dfdx" : "dfdy");
+		cur = cand;
+		*cost = c;
+	}
+	free(nd);
+	free(seen);
+	return cur;
 }
 
 void
@@ -3783,6 +3899,15 @@ sg_find(const struct func *f)
 	g.f = f;
 	g.m = model_active();
 	mn = sym_str(g.m->name);
+	if (TYK(N.ty[cur]) == K_FLOAT && (N.fl[cur] & NF_SG)) {
+		/* of floats only the derivatives: the rest reads integers */
+		before = cost = price(&g, cur);
+		cur = derivs(&g, cur, &cost);
+		if (cur == f->body)
+			printf("  no fine derivative here is cheaper under %s (cost "
+			    "%g as written)\n", mn, (double)before);
+		goto derived;
+	}
 	if (!TY_ISINT(N.ty[cur]))
 		return;
 	before = cost = price(&g, cur);

@@ -1610,7 +1610,8 @@ model gt1030 { iadd: 1, logic: 1, shift: 2, imul: 3, idiv: 28.5, idivk: 8.75,
   load: 6.875, branch: 6.25, diverge: 14.375, barrier: 9.125,
   atomic_shared: 6.625, atomic_global: 50, store: 15,
   dot4x8: 1, dot4x8sat: 6.5
-  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25
+  sg_ballot: 0, sg_vote: 0, sg_add: 32.625, sg_shuffle: 4, sg_scan: 60.25,
+  sg_deriv: 3.25
   sdiv: 36, sdivk: 21, irem: 32.25, iremk: 13.5
   fuse lop3 = lut 3 : logic
   fuse imad(a: int, b: int, c: int) = a * b + c : imul
@@ -3209,6 +3210,7 @@ subgroup, all W lanes active:
 | `sg_add(v)` | the sum of v over the lanes, in v's type (wrapping) | OpGroupNonUniformIAdd Reduce, `subgroupAdd` |
 | `sg_shuffle(v, i)` | v in lane i; undefined when i is not in 0..W-1 | OpGroupNonUniformShuffle |
 | `sg_scan(v)` | in lane l, the sum of v over lanes 0..l | OpGroupNonUniformIAdd InclusiveScan, `subgroupInclusiveAdd` |
+| `sg_dfdx(v)`, `sg_dfdy(v)`, `sg_fwidth(v)` | of a float, the lanes in fours as quads (lane bit 0 the column, bit 1 the row: Vulkan's layout): in lane l, v in lane l \| 1 less v in lane l & ~1, the same with bit 1, and \|dfdx\| + \|dfdy\|; W a multiple of 4 | `dFdxFine`, `dFdyFine`, `fwidthFine` (a fragment shader's quads; GL_NV_compute_shader_derivatives in compute) |
 
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
 `sg_shuffle_xor(v, k)` = `sg_shuffle(v, lane xor k)`, `sg_broadcast(v,
@@ -3311,7 +3313,7 @@ _() = 6
 ```
 
 **Cost classes.**  `sg_ballot`, `sg_vote` (any, all), `sg_add`,
-`sg_shuffle`, `sg_scan`; like the dot forms, a model that does not list
+`sg_shuffle`, `sg_scan`, `sg_deriv`; like the dot forms, a model that does not list
 one cannot use it (`sg_scan: none` takes one away).  An operation costs its class once and its operand
 once in each lane: a value computed in every lane is priced once,
 whether an operation reads it across the lanes or the lane uses it
@@ -3327,7 +3329,12 @@ those are priced one logic or add above their measurement), the sum
 zero (`ballot((a & 1) != 0) + b` is 3.65 where the and, the compare and
 the add alone are 4.375: the compare's bool is never made), so they are
 priced 0 and their compare as a compare, 0.7 above the measurement.
-The estimated models (sm75, sm86, rdna2) inherit these unchanged.
+A fine derivative is priced as Liz set it (#204): `sg_deriv`, the
+quad's exchange (gt1030: 3.25; frag_dfdx measured 4.22, the exchange
+3.22 and the subtract's fadd), plus the subtract, plus the operand once
+more, since the quad's helper lanes compute it too; `sg_fwidth` is two
+of the first two, the operand's extra once, two absolute values and an
+add.  The estimated models (sm75, sm86, rdna2) inherit these unchanged.
 
 **What find derives.**  Each form is built by a recogniser, priced as
 one lane runs it, kept only when the whole function gets cheaper under
@@ -3335,6 +3342,11 @@ the active model, and printed with its derivation and what it holds
 under; the whole is then checked against the function on its domain
 (every point, SAT, or a sample).
 
+- Of a float value per lane, only this: v in lane `lane | 1` less v in
+  lane `lane & ~1` (bit 1 for y) is `sg_dfdx(v)` (`sg_dfdy(v)`), where
+  the derivative's price, with its operand's second run, is below the
+  two shuffles and the subtract (tests/sgderiv.ucas); checked on a
+  sample.
 - A sum or a scan of a value that is 0 or 1 in every lane (its range,
   by intervals) counts lanes: `popcount(sg_ballot(v != 0))`, and for
   the scan the ballot's bits 0..lane, `& ((2 << lane) - 1)`.

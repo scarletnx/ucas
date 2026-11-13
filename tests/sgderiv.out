@@ -1,0 +1,86 @@
+> V = [1.0, 2.5, 4.0, 8.0, 0.5, 0.25, 3.0, 3.0]
+> dx(lane: u32 in 0..31) = sg_dfdx(f32(V[lane % 8]))
+> table dx max 8
+  lane=0  ->  1.5
+  lane=1  ->  1.5
+  lane=2  ->  4
+  lane=3  ->  4
+  lane=4  ->  -0.25
+  lane=5  ->  -0.25
+  lane=6  ->  0
+  lane=7  ->  0
+> dy(lane: u32 in 0..31) = sg_dfdy(f32(V[lane % 8]))
+> table dy max 8
+  lane=0  ->  3
+  lane=1  ->  5.5
+  lane=2  ->  3
+  lane=3  ->  5.5
+  lane=4  ->  2.5
+  lane=5  ->  2.75
+  lane=6  ->  2.5
+  lane=7  ->  2.75
+> fw(lane: u32 in 0..31) = sg_fwidth(f32(V[lane % 8]))
+> table fw max 8
+  lane=0  ->  4.5
+  lane=1  ->  7
+  lane=2  ->  7
+  lane=3  ->  9.5
+  lane=4  ->  2.75
+  lane=5  ->  3
+  lane=6  ->  2.5
+  lane=7  ->  2.75
+> g(lane: u32 in 0..31, s: f32 uniform) = sg_dfdx(f32(lane) * s)
+> show g
+g(lane: u32 in 0..31, s: f32 uniform) = sg_dfdx(f32(lane)*s)
+  -> f32
+> cost g
+cost of g under gt1030: 12.25 (3 operations, shared subterms counted once)
+  conv             1 x 3     = 3
+  fmul             1 x 1     = 1
+  sg_deriv         1 x 8.25  = 8.25
+> h(lane: u32 in 0..31, s: f32 uniform) = sg_fwidth(sin(f32(lane) * s))
+> cost h
+cost of h under gt1030: 25.5 (4 operations, shared subterms counted once)
+  conv             1 x 3     = 3
+  fmul             1 x 1     = 1
+  ftrans           1 x 4     = 4
+  sg_deriv         1 x 17.5  = 17.5
+> model noderiv : gt1030 { sg_deriv: none }
+> cost g model noderiv
+cost of g under noderiv: inf (3 operations, shared subterms counted once)
+  conv             1 x 3     = 3
+  fmul             1 x 1     = 1
+  sg_deriv         1 x inf   = inf
+  sg_deriv is not available under noderiv (the model lists no such instruction)
+> n1(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(f32(lane) * s, lane | 1) - sg_shuffle(f32(lane) * s, lane & 0xfffffffe)
+> find n1 1
+find n1: a float value per lane: the subgroup forms of floats (derivatives), costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 15 as written):
+  cost 12.25 sg_dfdx(f32(lane)*s)
+           sg_shuffle(t1, lane | 1) - sg_shuffle(t1, lane & 0xfffffffe) where t1 = f32(lane… (3 more characters): f32(lane)*s in the lane with bit 0 set less in the lane with it clear, the quad's fine derivative along x: sg_dfdx (sg_deriv)
+           holds in a full subgroup (all 32 lanes active); needs derivatives (a fragment shader's quads; GL_NV_compute_shader_derivatives in compute)
+           checked on a sample of the domain
+> n2(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(sin(f32(lane) * s), lane | 2) - sg_shuffle(sin(f32(lane) * s), lane & 0xfffffffd)
+> find n2 1
+find n2: a float value per lane: the subgroup forms of floats (derivatives), costs from gt1030
+  no fine derivative here is cheaper under gt1030 (cost 19 as written)
+> n3(lane: u32 in 0..31, s: f32 uniform) = sg_shuffle(f32(lane) * s, lane | 1) - sg_shuffle(f32(lane) * s, lane & 0xfffffffd)
+> find n3 1
+find n3: a float value per lane: the subgroup forms of floats (derivatives), costs from gt1030
+  no fine derivative here is cheaper under gt1030 (cost 15 as written)
+> k1(lane: u32 in 0..31) = sg_dfdx(lane)
+sgderiv.ucas:32:39: error: sg_dfdx takes a float (f16, f32, f64) per lane, not u32
+    k1(lane: u32 in 0..31) = sg_dfdx(lane)
+                                          ^
+> k2(lane: u32 in 0..5) = sg_dfdx(f32(lane))
+sgderiv.ucas:33:43: error: sg_dfdx reads quads of 4 lanes: a subgroup of 6 lanes has none
+    k2(lane: u32 in 0..5) = sg_dfdx(f32(lane))
+                                              ^
+> k3(s: f32) = sg_dfdy(s)
+sgderiv.ucas:34:24: error: sg_dfdy is a value per lane: give the function a parameter lane: u32 in 0..31
+    k3(s: f32) = sg_dfdy(s)
+                           ^
+> k4(lane: u32 in 0..31, m: u32 uniform) = sg_active(m) + u32(sg_dfdx(f32(lane)))
+sgderiv.ucas:35:79: error: sg_dfdx under sg_active(m): not defined for inactive lanes yet
+    k4(lane: u32 in 0..31, m: u32 uniform) = sg_active(m) + u32(sg_dfdx(f32(lane)))
+                                                                                  ^
