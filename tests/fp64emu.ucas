@@ -21,6 +21,10 @@ dword dsq ulp 4
 can(x: f32 in 1..2, y: f32 in 1..2) = f32(f64(x) * f64(x) - f64(y) * f64(y))
 dword can
 dword can atol 1e-12
+# a product less a float, which may cancel too: DWPlusFP's bound holds
+# whatever cancels (by cases on the high words), so it is relative
+cxf(a: f32 in 1..2, b: f32 in 1..2, c: f32 in 1..4) = f32(f64(a) * f64(b) - f64(c))
+dword cxf
 # division and square root
 hyp(a: f32 in 1..100, b: f32 in 1..100) = f32(f64(a) / sqrt(f64(a) * f64(a) + f64(b) * f64(b)))
 dword hyp
