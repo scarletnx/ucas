@@ -1,0 +1,25 @@
+# A constant add on a fetch's index as the read's ConstOffset (src/texalu.c,
+# seed_fetch): the unit adds it to the texel coordinate before the address
+# mode, so the add goes
+model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+K = [10, 20, 30, 40, 50, 60, 70]
+# the operation: the index plus the offset, then the address mode
+show fetch_repeat_offset(K, 5, 3)
+show fetch_mirror_offset(K, -2, -8)
+show fetch_clamp_offset(K, 6, 7)
+show fetch_border_offset(K, 6, 99, 1)
+# REPEAT and CLAMP_TO_EDGE of i + 3, MIRRORED_REPEAT of i - 2
+o1(i: u16 in 0..1000) = K[(i + 3) % 7]
+texalu o1 under texel
+o2(i: i16 in -50..50) = K[min(max(i + 3, 0), 6)]
+texalu o2 under texel
+o3(i: u16 in 2..1000) = K[min((i - 2) % 14, 13 - (i - 2) % 14)]
+texalu o3 under texel
+# past -8..7 the add stays
+o4(i: u16 in 0..1000) = K[(i + 9) % 7]
+texalu o4 under texel
+# a plain read of i + 2 inside the table
+o5(i: u8 in 0..4) = K[i + 2]
+texalu o5 under texel
+# the offset is a constant in -8..7
+f(i: u8) = fetch_repeat_offset(K, i, 8)

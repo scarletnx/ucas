@@ -936,16 +936,18 @@ ident(struct P *p)
 	}
 	/* the texture unit's reads (texalu.h) */
 	if (pk2(p) == T_LP && (kind = tex_lookup(s, n, &na)) != 0) {
-		int bits = na, want = kind == O_FETCH_BORDER ? 3 :
-		    kind == O_TEX_BILINEAR ? 4 : 2;
+		int bits = na, want = (kind == O_FETCH_BORDER ? 3 :
+		    kind == O_TEX_BILINEAR ? 4 : 2) + (IS_FETCH(kind) && na ==
+		    TEX_OFFNAME);
 		adv(p);
 		if (parse_args(p, args, 4) != want)
-			fail("%s takes %s", opinfo[kind].name, kind ==
+			fail("%s takes %s%s", opinfo[kind].name, kind ==
 			    O_TEX_BILINEAR ? "(table, width, x, y)" : kind ==
 			    O_FETCH_BORDER ? "(table, index, border value)" :
 			    kind == O_FETCH_LAYER ? "(table, layer "
 			    "coordinate)" : IS_FETCH(kind) ? "(table, index)" :
-			    "(table, x)");
+			    "(table, x)", IS_FETCH(kind) && na == TEX_OFFNAME ?
+			    " and a constant offset last" : "");
 		if (kind == O_TEX_BILINEAR) {
 			if (!is_const(args[1]) || !TY_ISINT(N.ty[args[1]]) ||
 			    N.ki[args[1]] < 1 || N.ki[args[1]] > 0xffffff)
@@ -953,6 +955,16 @@ ident(struct P *p)
 				    "16777215, not %s", node_str(args[1]));
 			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]), args[0],
 			    args[2], args[3]);
+		}
+		if (IS_FETCH(kind) && na == TEX_OFFNAME) {
+			nid o = args[want - 1];
+			if (!is_const(o) || !TY_ISINT(N.ty[o]) || N.ki[o] < -8 ||
+			    N.ki[o] > 7)
+				fail("%s_offset's offset is a constant from -8 "
+				    "to 7 (every device's ConstOffset range), not "
+				    "%s", opinfo[kind].name, node_str(o));
+			return mk_tex(kind, TEX_KOFF(N.ki[o]), args[0], args[1],
+			    kind == O_FETCH_BORDER ? args[2] : 0);
 		}
 		return mk_tex(kind, TEX_KI(bits, 0), args[0], args[1],
 		    kind == O_FETCH_BORDER ? args[2] : 0);

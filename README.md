@@ -3933,6 +3933,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_clamp(T, i)` | `T[min(max(i, 0), n - 1)]` (CLAMP_TO_EDGE) |
 | `fetch_mirror_clamp(T, i)` | `T[min(max(i, -1 - i), n - 1)]` (MIRROR_CLAMP_TO_EDGE) |
 | `fetch_border(T, i, k)` | `0 <= i < n ? T[i] : k` (CLAMP_TO_BORDER) |
+| `fetch_repeat_offset(T, i, c)`, ... `fetch_border_offset(T, i, k, c)` | the same reads of i + c, c a constant in -8..7: a ConstOffset (below) |
 | `fetch_layer(T, z)` | `T[clamp(RNE(z), 0, n - 1)]`, z a float: the layer of an array texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
@@ -4122,6 +4123,19 @@ the 256 values, plus the table's rounding and the unit's decode
 (tex_within ulps); with no tolerance given that is more than the formula
 allows, and `tol` says by how much (tests/texsrgb.ucas).  The store's
 inverse is not proposed.
+
+**Offsets.**  A read with a ConstOffset (textureLodOffset) adds the
+constant to the unnormalised coordinate before the floor and the
+address mode, and every device takes -8..7 (minTexelOffset is at most
+-8, maxTexelOffset at least 7).  When the subterm a `fetch_` read takes
+is x + c (or x - c) with c in that range, the read of x with offset c,
+`fetch_repeat_offset(T, x, c)` and so on, is offered where it is cheaper:
+the add goes.  The index identity is the one proved for x + c; the
+coordinate's reach is checked on x's range, kept below 2^21 so that the
+unit's add of c is exact enough (an ulp of at most 2^-3).  A plain read
+of x + c inside the table stays a plain read when the offset does not
+pay (tests/texoffset.ucas).  The filters take unnormalised coordinates,
+with which Vulkan allows no offset.
 
 **Array layers.**  A read of an array texture selects layer
 clamp(RNE(z), 0, L - 1) of its float layer coordinate z, and the

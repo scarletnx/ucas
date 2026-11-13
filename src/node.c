@@ -1057,13 +1057,16 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 			fail("fetch_srgb reads an R8_SRGB texture of the bytes: "
 			    "its table is the 256 values the sRGB EOTF decodes "
 			    "them to");
+		if (TEX_OFF(ki) && ki != TEX_KOFF(TEX_OFF(ki)))
+			fail("%s: an offset is for the address modes' reads, "
+			    "not an sRGB fetch", opinfo[op].name);
 		if (is_const(b)) {
-			int64_t t = tex_wrap(op, N.ki[b], n);
+			int64_t t = tex_wrap(op, N.ki[b] + TEX_OFF(ki), n);
 			return t < 0 ? c : N.lst[N.a[a] + (uint32_t)t];
 		}
 		fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
 		return intern(op, N.ty[a], a, b, c, ki == TEX_SRGB ? TEX_SRGB :
-		    0, 0.0, fl);
+		    TEX_OFF(ki) ? TEX_KOFF(TEX_OFF(ki)) : 0, 0.0, fl);
 	}
 	if (bits < 1 || bits > TEX_MAXBITS)
 		fail("%s: the sub-texel grid has 1 to %d bits, not %d",
@@ -1785,6 +1788,8 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			sb_puts(b, ", ");
 			pr(b, N.c[n], 0, pc, 0);
 		}
+		if (IS_FETCH(op) && TEX_OFF(N.ki[n]))
+			sb_printf(b, ", %d", TEX_OFF(N.ki[n]));
 		sb_putc(b, ')');
 		break;
 	case O_UDOT4X8: case O_SDOT4X8: case O_SUDOT4X8:
@@ -1973,6 +1978,8 @@ print_paren(struct sbuf *b, nid n)
 			sb_puts(b, ", ");
 			print_paren(b, N.c[n]);
 		}
+		if (IS_FETCH(op) && TEX_OFF(N.ki[n]))
+			sb_printf(b, ", %d", TEX_OFF(N.ki[n]));
 		sb_putc(b, ')');
 		return;
 	}
