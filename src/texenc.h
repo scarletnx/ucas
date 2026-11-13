@@ -102,6 +102,21 @@ double bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
     int srgb, uint8_t out[16], struct bc7_info *info, double *aerr);
 
 /*
+ * bc7blk.c, BC6H: a block's texels (x + 4y, R, G, B as half bits;
+ * reserved: 0), what half bits read as, and the block for 16 targets in
+ * red (sgn: SFLOAT), each mode and partition searched near each subset's
+ * least and greatest target: the largest error; in info the mode number,
+ * the partition, the subsets, red's quantized endpoints and the indices
+ */
+struct bc6_info {
+	int mode, part, ns, x[4], idx[16];
+};
+void bc6h_decode(const uint8_t q[16], int sgn, uint16_t px[16][3]);
+double bc6h_half(int h);
+double bc6h_encode_r(const double t[16], const uint8_t care[16], int sgn,
+    uint8_t out[16], struct bc6_info *info);
+
+/*
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
  * as UNORM16 (1 for a block the profile refuses: the error colour), and
  * a block searched for one table (t1 NULL) or two (two planes); 0 when

@@ -145,3 +145,20 @@ compress B as BC7
 texenc B bc7 srgb
 texenc D bc7 srgb
 texenc X, Y bc7 srgb
+# BC6H: numbers of a half float's range in red, UFLOAT, or SFLOAT with a
+# negative entry; a texel reads a half float.  The endpoint fields are
+# wide, so the search takes each subset's quantized values near its
+# least and greatest entry: not every encoding.  BC6H interpolates the
+# bits of two halves, so its 16 levels (mode 3, from 0 to 528 of 1023)
+# run nearly as a power of two: a block's own levels are exact
+H = [0, 6.097555160522461e-05, 0.000152587890625, 0.00030517578125, 0.0006103515625, 0.001220703125, 0.0029277801513671875, 0.005855560302734375, 0.01171112060546875, 0.0234222412109375, 0.054656982421875, 0.10931396484375, 0.2186279296875, 0.437255859375, 0.99951171875, 1.9990234375]
+texenc H bc6h
+# an exponential, close on that scale
+X = [1, 1.28402542, 1.64872127, 2.11700002, 2.71828183, 3.49034296, 4.48168907, 5.75460268, 7.3890561, 9.48773584, 12.1824940, 15.6426319, 20.0855369, 25.7903399, 33.1154520, 42.5210820]
+texenc X bc6h tol 0.1
+# signed
+texenc [-1, -0.5, 0, 0.5, 1, 0.25, -0.25, 0.75] bc6h
+# what BC6H does not hold, and two tables
+texenc [70000] bc6h
+texenc H, X bc6h
+compress X as BC6H

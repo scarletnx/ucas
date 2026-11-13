@@ -2,7 +2,8 @@
 /*
  * bc7blk.c: a BC7 block (BPTC_UNORM) decoded, and the block for one
  * table in its red channel, or two in red and alpha, searched.  Khronos
- * Data Format Specification 1.3, 20.1.
+ * Data Format Specification 1.3, 20.1.  BC6H, the other BPTC format,
+ * below.
  *
  * A block is 16 bytes read least significant bit first.  Its mode m is
  * the number of zero bits below the first set one (no bit set in the
@@ -36,6 +37,7 @@
 #include "texenc.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct bc7mode {
@@ -506,5 +508,508 @@ bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
 				}
 			}
 	}
+	return bmx;
+}
+
+/* ---- BC6H ---- */
+
+/*
+ * A BC6H block (BC6H_UFLOAT, BC6H_SFLOAT; Khronos Data Format
+ * Specification 1.3, 20.2): a mode (2 bits when they are below 2, else
+ * 5), endpoints of the mode's bits scattered over the block as the
+ * specification's tables 123 and 124 place them (bc6runs, read from
+ * them), the first endpoint stored whole and in the transformed modes the
+ * others as signed differences from it, a partition of BC7's first 32
+ * two-subset ones, and 3 or 4 index bits a texel from bit 82 (two
+ * subsets) or 65.  An endpoint is unquantized to 16 bits, two are
+ * interpolated with BC7's weights, and the result is finished to half
+ * float bits: times 31/64 unsigned, 31/32 of the magnitude signed.
+ * Reserved modes read 0.
+ */
+/* the spec's tables 123 and 124 as runs: block bit, field (0 R, 1 G, 2 B,
+ * 3 partition), endpoint (a partition bit: its number), first bit,
+ * count, step (+1 or -1) */
+struct bc6run {
+	uint8_t at, f, e, b, n;
+	int8_t d;
+};
+
+static const struct bc6run bc6runs[14][32] = {
+	/* mode 0 */
+	{{2, 1, 2, 4, 1, 1}, {3, 2, 2, 4, 1, 1}, {4, 2, 3, 4, 1, 1},
+	    {5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 5, 1}, {40, 1, 3, 4, 1, 1}, {41, 1, 2, 0, 4, 1},
+	    {45, 1, 1, 0, 5, 1}, {50, 2, 3, 0, 1, 1}, {51, 1, 3, 0, 4, 1},
+	    {55, 2, 1, 0, 5, 1}, {60, 2, 3, 1, 1, 1}, {61, 2, 2, 0, 4, 1},
+	    {65, 0, 2, 0, 5, 1}, {70, 2, 3, 2, 1, 1}, {71, 0, 3, 0, 5, 1},
+	    {76, 2, 3, 3, 1, 1}, {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1},
+	    {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 1 */
+	{{2, 1, 2, 5, 1, 1}, {3, 1, 3, 4, 2, 1}, {5, 0, 0, 0, 7, 1},
+	    {12, 2, 3, 0, 2, 1}, {14, 2, 2, 4, 1, 1}, {15, 1, 0, 0, 7, 1},
+	    {22, 2, 2, 5, 1, 1}, {23, 2, 3, 2, 1, 1}, {24, 1, 2, 4, 1, 1},
+	    {25, 2, 0, 0, 7, 1}, {32, 2, 3, 3, 1, 1}, {33, 2, 3, 5, 2, -1},
+	    {35, 0, 1, 0, 6, 1}, {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 6, 1},
+	    {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 6, 1}, {61, 2, 2, 0, 4, 1},
+	    {65, 0, 2, 0, 6, 1}, {71, 0, 3, 0, 6, 1}, {77, 3, 0, 0, 1, 1},
+	    {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1},
+	    {81, 3, 4, 0, 1, 1}},
+	/* mode 2 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 5, 1}, {40, 0, 0, 10, 1, 1}, {41, 1, 2, 0, 4, 1},
+	    {45, 1, 1, 0, 4, 1}, {49, 1, 0, 10, 1, 1}, {50, 2, 3, 0, 1, 1},
+	    {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 4, 1}, {59, 2, 0, 10, 1, 1},
+	    {60, 2, 3, 1, 1, 1}, {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 5, 1},
+	    {70, 2, 3, 2, 1, 1}, {71, 0, 3, 0, 5, 1}, {76, 2, 3, 3, 1, 1},
+	    {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1},
+	    {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 6 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 4, 1}, {39, 0, 0, 10, 1, 1}, {40, 1, 3, 4, 1, 1},
+	    {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 5, 1}, {50, 1, 0, 10, 1, 1},
+	    {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 4, 1}, {59, 2, 0, 10, 1, 1},
+	    {60, 2, 3, 1, 1, 1}, {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 4, 1},
+	    {69, 2, 3, 0, 1, 1}, {70, 2, 3, 2, 1, 1}, {71, 0, 3, 0, 4, 1},
+	    {75, 1, 2, 4, 1, 1}, {76, 2, 3, 3, 1, 1}, {77, 3, 0, 0, 1, 1},
+	    {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1},
+	    {81, 3, 4, 0, 1, 1}},
+	/* mode 10 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 4, 1}, {39, 0, 0, 10, 1, 1}, {40, 2, 2, 4, 1, 1},
+	    {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 4, 1}, {49, 1, 0, 10, 1, 1},
+	    {50, 2, 3, 0, 1, 1}, {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 5, 1},
+	    {60, 2, 0, 10, 1, 1}, {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 4, 1},
+	    {69, 2, 3, 1, 2, 1}, {71, 0, 3, 0, 4, 1}, {75, 2, 3, 4, 2, -1},
+	    {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1},
+	    {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 14 */
+	{{5, 0, 0, 0, 9, 1}, {14, 2, 2, 4, 1, 1}, {15, 1, 0, 0, 9, 1},
+	    {24, 1, 2, 4, 1, 1}, {25, 2, 0, 0, 9, 1}, {34, 2, 3, 4, 1, 1},
+	    {35, 0, 1, 0, 5, 1}, {40, 1, 3, 4, 1, 1}, {41, 1, 2, 0, 4, 1},
+	    {45, 1, 1, 0, 5, 1}, {50, 2, 3, 0, 1, 1}, {51, 1, 3, 0, 4, 1},
+	    {55, 2, 1, 0, 5, 1}, {60, 2, 3, 1, 1, 1}, {61, 2, 2, 0, 4, 1},
+	    {65, 0, 2, 0, 5, 1}, {70, 2, 3, 2, 1, 1}, {71, 0, 3, 0, 5, 1},
+	    {76, 2, 3, 3, 1, 1}, {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1},
+	    {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 18 */
+	{{5, 0, 0, 0, 8, 1}, {13, 1, 3, 4, 1, 1}, {14, 2, 2, 4, 1, 1},
+	    {15, 1, 0, 0, 8, 1}, {23, 2, 3, 2, 1, 1}, {24, 1, 2, 4, 1, 1},
+	    {25, 2, 0, 0, 8, 1}, {33, 2, 3, 3, 2, 1}, {35, 0, 1, 0, 6, 1},
+	    {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 5, 1}, {50, 2, 3, 0, 1, 1},
+	    {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 5, 1}, {60, 2, 3, 1, 1, 1},
+	    {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 6, 1}, {71, 0, 3, 0, 6, 1},
+	    {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1},
+	    {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 22 */
+	{{5, 0, 0, 0, 8, 1}, {13, 2, 3, 0, 1, 1}, {14, 2, 2, 4, 1, 1},
+	    {15, 1, 0, 0, 8, 1}, {23, 1, 2, 5, 2, -1}, {25, 2, 0, 0, 8, 1},
+	    {33, 1, 3, 5, 1, 1}, {34, 2, 3, 4, 1, 1}, {35, 0, 1, 0, 5, 1},
+	    {40, 1, 3, 4, 1, 1}, {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 6, 1},
+	    {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 5, 1}, {60, 2, 3, 1, 1, 1},
+	    {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 5, 1}, {70, 2, 3, 2, 1, 1},
+	    {71, 0, 3, 0, 5, 1}, {76, 2, 3, 3, 1, 1}, {77, 3, 0, 0, 1, 1},
+	    {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1},
+	    {81, 3, 4, 0, 1, 1}},
+	/* mode 26 */
+	{{5, 0, 0, 0, 8, 1}, {13, 2, 3, 1, 1, 1}, {14, 2, 2, 4, 1, 1},
+	    {15, 1, 0, 0, 8, 1}, {23, 2, 2, 5, 1, 1}, {24, 1, 2, 4, 1, 1},
+	    {25, 2, 0, 0, 8, 1}, {33, 2, 3, 5, 2, -1}, {35, 0, 1, 0, 5, 1},
+	    {40, 1, 3, 4, 1, 1}, {41, 1, 2, 0, 4, 1}, {45, 1, 1, 0, 5, 1},
+	    {50, 2, 3, 0, 1, 1}, {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 6, 1},
+	    {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 5, 1}, {70, 2, 3, 2, 1, 1},
+	    {71, 0, 3, 0, 5, 1}, {76, 2, 3, 3, 1, 1}, {77, 3, 0, 0, 1, 1},
+	    {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1}, {80, 3, 3, 0, 1, 1},
+	    {81, 3, 4, 0, 1, 1}},
+	/* mode 30 */
+	{{5, 0, 0, 0, 6, 1}, {11, 1, 3, 4, 1, 1}, {12, 2, 3, 0, 2, 1},
+	    {14, 2, 2, 4, 1, 1}, {15, 1, 0, 0, 6, 1}, {21, 1, 2, 5, 1, 1},
+	    {22, 2, 2, 5, 1, 1}, {23, 2, 3, 2, 1, 1}, {24, 1, 2, 4, 1, 1},
+	    {25, 2, 0, 0, 6, 1}, {31, 1, 3, 5, 1, 1}, {32, 2, 3, 3, 1, 1},
+	    {33, 2, 3, 5, 2, -1}, {35, 0, 1, 0, 6, 1}, {41, 1, 2, 0, 4, 1},
+	    {45, 1, 1, 0, 6, 1}, {51, 1, 3, 0, 4, 1}, {55, 2, 1, 0, 6, 1},
+	    {61, 2, 2, 0, 4, 1}, {65, 0, 2, 0, 6, 1}, {71, 0, 3, 0, 6, 1},
+	    {77, 3, 0, 0, 1, 1}, {78, 3, 1, 0, 1, 1}, {79, 3, 2, 0, 1, 1},
+	    {80, 3, 3, 0, 1, 1}, {81, 3, 4, 0, 1, 1}},
+	/* mode 3 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 10, 1}, {45, 1, 1, 0, 10, 1}, {55, 2, 1, 0, 10, 1}},
+	/* mode 7 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 9, 1}, {44, 0, 0, 10, 1, 1}, {45, 1, 1, 0, 9, 1},
+	    {54, 1, 0, 10, 1, 1}, {55, 2, 1, 0, 9, 1}, {64, 2, 0, 10, 1, 1}},
+	/* mode 11 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 8, 1}, {43, 0, 0, 11, 2, -1}, {45, 1, 1, 0, 8, 1},
+	    {53, 1, 0, 11, 2, -1}, {55, 2, 1, 0, 8, 1}, {63, 2, 0, 11, 2, -1}},
+	/* mode 15 */
+	{{5, 0, 0, 0, 10, 1}, {15, 1, 0, 0, 10, 1}, {25, 2, 0, 0, 10, 1},
+	    {35, 0, 1, 0, 4, 1}, {39, 0, 0, 15, 6, -1}, {45, 1, 1, 0, 4, 1},
+	    {49, 1, 0, 15, 6, -1}, {55, 2, 1, 0, 4, 1}, {59, 2, 0, 15, 6, -1}},
+};
+
+struct bc6mode {
+	int code, trans, pb, epb, d[3], ib;
+};
+
+/* table 121 */
+static const struct bc6mode bc6m[14] = {
+	{0, 1, 5, 10, {5, 5, 5}, 3}, {1, 1, 5, 7, {6, 6, 6}, 3},
+	{2, 1, 5, 11, {5, 4, 4}, 3}, {6, 1, 5, 11, {4, 5, 4}, 3},
+	{10, 1, 5, 11, {4, 4, 5}, 3}, {14, 1, 5, 9, {5, 5, 5}, 3},
+	{18, 1, 5, 8, {6, 5, 5}, 3}, {22, 1, 5, 8, {5, 6, 5}, 3},
+	{26, 1, 5, 8, {5, 5, 6}, 3}, {30, 0, 5, 6, {6, 6, 6}, 3},
+	{3, 0, 0, 10, {10, 10, 10}, 4}, {7, 1, 0, 11, {9, 9, 9}, 4},
+	{11, 1, 0, 12, {8, 8, 8}, 4}, {15, 1, 0, 16, {4, 4, 4}, 4}};
+
+static int
+bc6_sext(int v, int bits)
+{
+	return bits >= 32 ? v : (v ^ (1 << (bits - 1))) - (1 << (bits - 1));
+}
+
+static int
+bc6_unq(int x, int epb, int sgn)
+{
+	int s = 0;
+
+	if (!sgn) {
+		if (epb >= 15)
+			return x;
+		if (x == 0)
+			return 0;
+		if (x == (1 << epb) - 1)
+			return 0xffff;
+		return ((x << 15) + 0x4000) >> (epb - 1);
+	}
+	if (epb >= 16)
+		return x;
+	if (x < 0) {
+		s = 1;
+		x = -x;
+	}
+	if (x == 0)
+		x = 0;
+	else if (x >= (1 << (epb - 1)) - 1)
+		x = 0x7fff;
+	else
+		x = ((x << 15) + 0x4000) >> (epb - 1);
+	return s ? -x : x;
+}
+
+static int
+bc6_finish(int i, int sgn)
+{
+	if (!sgn)
+		return (i * 31) >> 6;
+	return i < 0 ? (((-i) * 31) >> 5) | 0x8000 : (i * 31) >> 5;
+}
+
+/* the mode's index into bc6m, -1 reserved */
+static int
+bc6_mode(const uint8_t q[16])
+{
+	int c = (q[0] & 3) < 2 ? q[0] & 3 : q[0] & 31, i;
+
+	for (i = 0; i < 14; i++)
+		if (bc6m[i].code == c)
+			return i;
+	return -1;
+}
+
+/* each texel's R, G, B as half-float bits (a reserved block: 0) */
+void
+bc6h_decode(const uint8_t q[16], int sgn, uint16_t px[16][3])
+{
+	int mi = bc6_mode(q), e[4][3], part = 0, i, c, r, pos, ns;
+	const struct bc6mode *M;
+
+	memset(px, 0, 16 * 3 * sizeof px[0][0]);
+	if (mi < 0)
+		return;
+	M = &bc6m[mi];
+	memset(e, 0, sizeof e);
+	for (r = 0; r < 32 && bc6runs[mi][r].n; r++) {
+		const struct bc6run *R = &bc6runs[mi][r];
+		for (i = 0; i < R->n; i++) {
+			int bit = q[(R->at + i) >> 3] >> ((R->at + i) & 7) & 1;
+			if (R->f == 3)	/* a partition bit: its number in e */
+				part |= bit << (R->e + i);
+			else
+				e[R->e][R->f] |= bit << (R->b + R->d * i);
+		}
+	}
+	ns = M->pb ? 2 : 1;
+	for (c = 0; c < 3; c++) {
+		if (sgn)
+			e[0][c] = bc6_sext(e[0][c], M->epb);
+		for (i = 1; i < 2 * ns; i++) {
+			if (M->trans) {
+				e[i][c] = (e[0][c] + bc6_sext(e[i][c], M->d[c])) &
+				    ((1 << M->epb) - 1);
+				if (sgn)
+					e[i][c] = bc6_sext(e[i][c], M->epb);
+			} else if (sgn)
+				e[i][c] = bc6_sext(e[i][c], M->epb);
+		}
+		for (i = 0; i < 2 * ns; i++)
+			e[i][c] = bc6_unq(e[i][c], M->epb, sgn);
+	}
+	pos = ns == 2 ? 82 : 65;
+	for (i = 0; i < 16; i++) {
+		int anchor = i == 0 || (ns == 2 && i == bc7_anchor2[part]);
+		int nb = M->ib - anchor, idx = 0, k, s;
+		const int *w = M->ib == 3 ? bc7_w3 : bc7_w4;
+		for (k = 0; k < nb; k++, pos++)
+			idx |= (q[pos >> 3] >> (pos & 7) & 1) << k;
+		s = ns == 2 ? (int)(bc7_part2[part] >> (2 * i) & 3) : 0;
+		for (c = 0; c < 3; c++)
+			px[i][c] = (uint16_t)bc6_finish(((64 - w[idx]) *
+			    e[2 * s][c] + w[idx] * e[2 * s + 1][c] + 32) >> 6, sgn);
+	}
+}
+
+#define BC6W 6
+
+/* the f32 a half's bits read as */
+double
+bc6h_half(int h)
+{
+	int s = h >> 15 & 1, e = h >> 10 & 31, m = h & 1023;
+	double v;
+
+	if (e == 31)
+		v = m ? NAN : INFINITY;
+	else if (e == 0)
+		v = ldexp(m, -24);
+	else
+		v = ldexp(m | 1024, e - 25);
+	return s ? -v : v;
+}
+
+/* the read of quantized endpoint x alone (weight 0) */
+static double
+bc6_endval(int x, int epb, int sgn)
+{
+	return bc6h_half(bc6_finish(bc6_unq(x, epb, sgn), sgn));
+}
+
+/* the quantized value whose read is closest to v (the reads rise with x) */
+static int
+bc6_nearest(double v, int epb, int sgn)
+{
+	int lo = sgn ? -((1 << (epb - 1)) - 1) : 0, hi = sgn ? (1 << (epb -
+	    1)) - 1 : (1 << epb) - 1, mid;
+
+	while (lo < hi) {
+		mid = lo + (hi - lo) / 2;
+		if (bc6_endval(mid, epb, sgn) < v)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	if (lo > (sgn ? -((1 << (epb - 1)) - 1) : 0) &&
+	    fabs(bc6_endval(lo - 1, epb, sgn) - v) <= fabs(bc6_endval(lo, epb,
+	    sgn) - v))
+		lo--;
+	return lo;
+}
+
+struct bc6pair {
+	int a, b;
+	double mx, sq;
+	int idx[16];
+};
+
+/* every ordered pair of the subset (mask) near its least and greatest
+ * target, the anchor's top bit clear, into P (at most np); how many */
+static int
+bc6_pairs(const double *t, int mask, int anchor, const struct bc6mode *M,
+    int sgn, struct bc6pair *P, int np)
+{
+	int lo = sgn ? -((1 << (M->epb - 1)) - 1) : 0, hi = sgn ? (1 << (M->epb -
+	    1)) - 1 : (1 << M->epb) - 1, cand[4 * BC6W + 2], nc = 0, i, j, k, n = 0;
+	const int *w = M->ib == 3 ? bc7_w3 : bc7_w4;
+	double tmin = INFINITY, tmax = -INFINITY;
+
+	for (i = 0; i < 16; i++)
+		if (mask >> i & 1) {
+			tmin = fmin(tmin, t[i]);
+			tmax = fmax(tmax, t[i]);
+		}
+	if (!mask)
+		return 0;
+	for (k = 0; k < 2; k++) {
+		int c = bc6_nearest(k ? tmax : tmin, M->epb, sgn);
+		for (i = c - BC6W; i <= c + BC6W; i++) {
+			if (i < lo || i > hi)
+				continue;
+			for (j = 0; j < nc && cand[j] != i; j++)
+				;
+			if (j == nc)
+				cand[nc++] = i;
+		}
+	}
+	for (i = 0; i < nc; i++)
+		for (j = 0; j < nc && n < np; j++) {
+			int ua = bc6_unq(cand[i], M->epb, sgn), ub = bc6_unq(cand[j],
+			    M->epb, sgn), nl = 1 << M->ib, x;
+			double pal[16], mx = 0, sq = 0;
+			struct bc6pair *p = &P[n];
+			for (k = 0; k < nl; k++)
+				pal[k] = bc6h_half(bc6_finish(((64 - w[k]) * ua + w[k] * ub +
+				    32) >> 6, sgn));
+			for (x = 0; x < 16; x++) {
+				double be = INFINITY;
+				p->idx[x] = 0;
+				if (!(mask >> x & 1))
+					continue;
+				for (k = 0; k < nl; k++)
+					if (fabs(pal[k] - t[x]) < be) {
+						be = fabs(pal[k] - t[x]);
+						p->idx[x] = k;
+					}
+				mx = fmax(mx, be);
+				sq += be * be;
+			}
+			if (p->idx[anchor] >> (M->ib - 1) & 1)
+				continue;	/* the other order has it */
+			p->a = cand[i];
+			p->b = cand[j];
+			p->mx = mx;
+			p->sq = sq;
+			n++;
+		}
+	return n;
+}
+
+/* does v - base fit the delta's bits, read back as the endpoint */
+static int
+bc6_delta_ok(int base, int v, int epb, int d, int sgn)
+{
+	int m = (1 << epb) - 1, delta, back;
+
+	delta = ((v - base) & m);
+	delta = bc6_sext(delta, epb);	/* the shortest difference */
+	if (delta < -(1 << (d - 1)) || delta > (1 << (d - 1)) - 1)
+		return 0;
+	back = (base + delta) & m;
+	if (sgn)
+		back = bc6_sext(back, epb);
+	return back == v;
+}
+
+/* the block of mode mi: red's endpoints (raw: e0, then e1..e3 as the
+ * mode stores them), G and B 0, the partition, the indices */
+static void
+bc6_write(int mi, int part, const int er[4], const int *idx, uint8_t q[16])
+{
+	const struct bc6mode *M = &bc6m[mi];
+	int r, i, pos, ns = M->pb ? 2 : 1, code = M->code;
+
+	memset(q, 0, 16);
+	for (i = 0; i < (code < 2 ? 2 : 5); i++)
+		q[0] |= (uint8_t)((code >> i & 1) << i);
+	for (r = 0; r < 32 && bc6runs[mi][r].n; r++) {
+		const struct bc6run *R = &bc6runs[mi][r];
+		for (i = 0; i < R->n; i++) {
+			int src = R->f == 3 ? R->e + i : R->b + R->d * i;
+			int v = R->f == 3 ? part : R->f == 0 ? er[R->e] : 0;
+			int at = R->at + i;
+			if (v >> src & 1)
+				q[at >> 3] |= (uint8_t)(1 << (at & 7));
+		}
+	}
+	pos = ns == 2 ? 82 : 65;
+	for (i = 0; i < 16; i++) {
+		int nb = M->ib - (i == 0 || (ns == 2 && i == bc7_anchor2[part])), k;
+		for (k = 0; k < nb; k++, pos++)
+			if (idx[i] >> k & 1)
+				q[pos >> 3] |= (uint8_t)(1 << (pos & 7));
+	}
+}
+
+/* red's stored fields from the quantized endpoints: e0 raw in EPB bits,
+ * the others as deltas (transformed) or raw */
+static void
+bc6_fields(const struct bc6mode *M, const int x[4], int ns, int er[4])
+{
+	int m = (1 << M->epb) - 1, i;
+
+	er[0] = x[0] & m;
+	for (i = 1; i < 2 * ns; i++)
+		er[i] = M->trans ? (bc6_sext((x[i] - x[0]) & m, M->epb) &
+		    ((1 << M->d[0]) - 1)) : x[i] & m;
+}
+
+double
+bc6h_encode_r(const double t[16], const uint8_t care[16], int sgn,
+    uint8_t out[16], struct bc6_info *info)
+{
+	enum { NP = (4 * BC6W + 2) * (4 * BC6W + 2) };
+	struct bc6pair *P[2];
+	double bmx = INFINITY, bsq = INFINITY;
+	int mi, part, found = 0;
+
+	P[0] = xcalloc(2 * NP, sizeof *P[0]);
+	P[1] = P[0] + NP;
+
+	memset(out, 0, 16);
+	memset(info, 0, sizeof *info);
+	for (mi = 0; mi < 14; mi++) {
+		const struct bc6mode *M = &bc6m[mi];
+		int ns = M->pb ? 2 : 1, nparts = M->pb ? 32 : 1;
+		for (part = 0; part < nparts; part++) {
+			int n[2] = {0, 0}, s, i, j, mask[2] = {0, 0};
+			for (i = 0; i < 16; i++)
+				if (care[i])
+					mask[ns == 2 ? (int)(bc7_part2[part] >> (2 * i) & 3) :
+					    0] |= 1 << i;
+			for (s = 0; s < ns; s++)
+				n[s] = bc6_pairs(t, mask[s], s ? bc7_anchor2[part] : 0, M,
+				    sgn, P[s], NP);
+			if (n[0] == 0 && mask[0])
+				continue;
+			for (i = 0; i < (mask[0] ? n[0] : 1); i++)
+				for (j = 0; j < (ns == 2 && mask[1] ? n[1] : 1); j++) {
+					const struct bc6pair *p0 = mask[0] ? &P[0][i] : NULL;
+					const struct bc6pair *p1 = ns == 2 && mask[1] ?
+					    &P[1][j] : NULL;
+					double mx = fmax(p0 ? p0->mx : 0, p1 ? p1->mx : 0);
+					double sq = (p0 ? p0->sq : 0) + (p1 ? p1->sq : 0);
+					int x[4], k, idx[16], er[4];
+					if (found && (mx > bmx || (mx == bmx && sq >= bsq)))
+						continue;
+					x[0] = p0 ? p0->a : 0;
+					x[1] = p0 ? p0->b : 0;
+					x[2] = p1 ? p1->a : 0;
+					x[3] = p1 ? p1->b : 0;
+					/* every endpoint within the deltas of e0 */
+					if (M->trans) {
+						for (k = 1; k < 2 * ns; k++)
+							if (!bc6_delta_ok(x[0], x[k], M->epb, M->d[0],
+							    sgn))
+								break;
+						if (k < 2 * ns)
+							continue;
+					}
+					for (k = 0; k < 16; k++)
+						idx[k] = ns == 2 && (bc7_part2[part] >> (2 * k) & 3) ?
+						    (p1 ? p1->idx[k] : 0) : (p0 ? p0->idx[k] : 0);
+					found = 1;
+					bmx = mx;
+					bsq = sq;
+					bc6_fields(M, x, ns, er);
+					bc6_write(mi, part, er, idx, out);
+					info->mode = M->code;
+					info->part = part;
+					info->ns = ns;
+					for (k = 0; k < 4; k++)
+						info->x[k] = x[k];
+					for (k = 0; k < 16; k++)
+						info->idx[k] = idx[k];
+				}
+		}
+	}
+	free(P[0]);
 	return bmx;
 }
