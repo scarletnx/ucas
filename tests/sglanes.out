@@ -13,7 +13,7 @@ bl and bw differ, with the lanes' x = [0, 0, 0, 1, 0, 0, 0, 0], at x=0, lane=0: 
 > equiv own shf
 own and shf are equal on the domain of own (proved by SAT: 624 AIG nodes, 0 conflicts)
 > range bl
-sglanes.ucas:23:9: error: x has its own value in each lane (a lanes parameter) and is read across the lanes: there is no one point to evaluate; equiv decides by SAT
+sglanes.ucas:23:9: error: x has its own value in each lane (a lanes parameter) and is read across the lanes: there is no one point to evaluate; equiv and find decide by SAT
     range bl
             ^
 > show bl(3, 2)
@@ -74,3 +74,47 @@ cost of tb under w8: 152 (0 operations outside loops and 1 loop, shared subterms
       select: +1.625   uniform branch: +6.25   divergent branch: +20.625
       -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
   estimate with the best form per ?: : 152
+> wadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { aj = sg_shuffle(a, j); sj = u8(aj + sg_shuffle(b, j) + c); c = j < lane ? (sj < aj || (c != 0 && sj == aj) ? 1 : 0) : c }; u8(a + b + c) }
+> find wadd 1
+find wadd: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
+  subgroup forms under w8 (each derived, with what it holds under; cost 226 as written):
+  cost 14.75 a + b + u8(((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 255)
+           the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 16 words of the lanes
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  note: loop loop(j in 0..6; c = 0 then j < int(lane) ? u8(sj < aj || c != 0 && sj == aj ? 1 : 0) : c).c where aj = sg_shuffle(a, j),… (31 more characters) priced as 7 iterations x 32 (listed under branch)
+> wks(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { s = u8(a + b); g = sg_ballot(s < a); p = sg_ballot(s == 255); u8(s + u8((((g << 1) + p) xor p) >> lane & 1)) }
+> equiv wadd wks
+wadd and wks are equal on the domain of wadd (proved by SAT: 3064 AIG nodes, 1117 conflicts)
+> wadd4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { sj = u8(sg_shuffle(a, j) + sg_shuffle(b, j) + c); c = j < lane ? sj >> 4 : c }; (a + b + c) & 15 }
+> find wadd4 1
+find wadd4: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
+  subgroup forms under w8 (each derived, with what it holds under; cost 158.75 as written):
+  cost 15.75 a + b + u8(((sg_ballot(a + b > 15) << 1) + t1 xor t1) >> lane & 1) & 15 where t1 = sg_ballot(a + b == 15)
+           the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 16 words of the lanes
+           holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  note: loop loop(j in 0..6; c = 0 then j < int(lane) ? sg_shuffle(a, j) + sg_shuffle(b, j) + c >> 4 : c).c priced as 7 iterations x 22.25 (listed under branch)
+> notadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = u8(a + b + u8(popcount(sg_ballot((a & 1) != 0) & ((1 << lane) - 1))))
+> find notadd 1
+find notadd: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
+> model dearb : w8 { sg_ballot: 400 }
+> use dearb
+cost model: dearb
+> find wadd 1
+find wadd: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from dearb
+  subgroup forms: derived, but not cheaper under dearb (cost 814.75, as written 226): a wide sum's carries as one add of two ballots
+  note: loop loop(j in 0..6; c = 0 then j < int(lane) ? u8(sj < aj || c != 0 && sj == aj ? 1 : 0) : c).c where aj = sg_shuffle(a, j),… (31 more characters) priced as 7 iterations x 32 (listed under branch)
+> use w8
+cost model: w8
+> use gt1030
+cost model: gt1030
+> big(a: u32 lanes, b: u32 lanes, lane: u32 in 0..31) = { c: u32 = 0; for j in 0..30 { aj = sg_shuffle(a, j); sj = aj + sg_shuffle(b, j) + c; c = j < lane ? (sj < aj || (c != 0 && sj == aj) ? 1 : 0) : c }; a + b + c }
+> find big 1
+find big: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from gt1030
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 963 as written):
+  cost 13.75 a + b + (((sg_ballot(a + b < a) << 1) + t1 xor t1) >> lane & 1) where t1 = sg_ballot(a + b == 4294967295)
+           the function is a + b plus what the lanes below send in, however it works that out; taken as the carry of a sum with a limb in each lane: with g the lanes where the limbs' sum carries out and p those where it is all ones, which pass a carry on, the carries into the lanes are ((g << 1) + p) xor p, one add of two ballots, and each lane adds its bit; a guess from the shape until the check below, which proves the form equal to the function over the 64 words of the lanes
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  note: loop loop(j in 0..30; c = 0 then j < int(lane) ? u32(sj < aj || c != 0 && sj == aj ? 1 : 0) : c).c where aj = sg_shuffle(a, j… (33 more characters) priced as 31 iterations x 31 (listed under branch)

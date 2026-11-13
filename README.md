@@ -3185,7 +3185,7 @@ itself x is the lane's word, and a subgroup operation reads every
 lane's (`sg_ballot((x & 1) != 0)`, `sg_shuffle(x, j)`), at the price of
 any value computed in the lane.  There is then no one point to evaluate
 (32 words of 32 bits), so `show`, `range`, `domain` and `wrap` refuse
-it, saying so, and `equiv` decides by SAT over the words: a
+it, saying so, and `equiv` and `find` decide by SAT over the words: a
 proof, a counterexample (the lanes' words, run again by the evaluator
 with them as tables read at the lane), or "not decided" when the solver
 gives up; nothing is sampled.  A function that reads such a parameter
@@ -3339,6 +3339,17 @@ under; the whole is then checked against the function on its domain
   entry per lane as above: five reads of `(x*x + 3) % 11`, x in 0..15,
   86.5 -> 30.875 under gt1030.  The dearest such function is tried, and
   kept only when the register makes the whole cheaper.
+- A sum of two numbers with a limb in each lane (two `lanes`
+  parameters, or values worked out from them in the lane): a function
+  of the shape `a + b + c`, under a mask when the limbs are narrower
+  than their type, where c reads the other lanes however it likes (a
+  loop over the lanes below, reading them by shuffles).  c is guessed
+  to be the carry from the lanes below, and the form is `a + b` plus
+  bit `lane` of `((g << 1) + p) xor p`, g the ballot of the lanes
+  whose `a + b` carries out and p that of the lanes where it is all
+  ones (the carry word below): the carries of the whole number by one
+  add.  With no values to tell it by, the form is offered only when
+  SAT proves it equal to the function over the lanes' words.
 - An order statistic of a value per lane v, however it is written (a
   loop over the lanes counting with ballots, a chain of selections):
   the least, a median, the greatest or any k-th smallest, or v sorted

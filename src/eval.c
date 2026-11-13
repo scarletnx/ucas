@@ -1170,7 +1170,7 @@ plan_build(struct plan *p, const nid *roots0, uint32_t nr, int ideal)
 			free(roots);
 			fail("%s has its own value in each lane (a lanes "
 			    "parameter) and is read across the lanes: there is no "
-			    "one point to evaluate; equiv decides by SAT",
+			    "one point to evaluate; equiv and find decide by SAT",
 			    nm ? nm : "a parameter");
 		}
 		roots[i] = sg_lower(roots0[i]);
