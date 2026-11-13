@@ -751,6 +751,11 @@ blast_flt(struct nctx *c, nid n)
 	if (!nsat_floats) {
 		unsup("a float or real value");
 		op = O_NONE;
+	} else if (IS_TEX(op) && !IS_FETCH(op) && !IS_TEXEL(op) &&
+	    op != O_FETCH_LAYER) {
+		/* the unit's filter: weights on its grid, one rounding */
+		unsup("a filtered texture read");
+		op = O_NONE;
 	}
 	switch (op) {
 	case O_CONST:
