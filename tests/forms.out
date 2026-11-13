@@ -1028,7 +1028,14 @@ commands (F is a function name or an expression like isqrt(x: u4))
   equiv F G | error G ~ F | fit G ~ F [metric maxrel|maxabs|rms]
   gates F [basis b] [max k] [nodes n] [as c]
   find F [n] [max cost] | more [n]
-  cost F [model m] | use m
+  cost F [model m] [consecutive i] | use m
+  stoke F [steps n] [restarts r] [len l] [seed k] [model m]
+  pit F G [trials n] [seed k] | phash F [seed k] [model m]
+  dword F [tol r | atol t | ulp x] [model m] | foldproof F [model m]
+  banks F [, G ...] [size n] [elem b] [model m]
+  intatomic F [count n] [tol t] [global] [model m]
+  rop F [model m] | texalu F [tol e] [model m]
+  texenc T [, U] [rows w] [tol e]
   approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]
     [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]
     [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]
