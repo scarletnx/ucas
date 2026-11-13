@@ -1,0 +1,72 @@
+> Q = [100, 40, 10, 40, 10, 40, 10, 40, 10, 40, 10, 40, 10, 40, 10, 40, 10, 40, 10, 40, 100, 130, 100, 130, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 200, 230, 100, 130, 100, 130, 100, 130, 100, 40, 100, 130, 100, 130, 10, 130, 100, 130]
+> texenc Q astc 8x8
+texenc Q astc 8x8: 64 entries as ASTC 8x8, rows of 8 (8 x 8 texels): 1 block, 16 bytes (64 as R8_UNORM, 256 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): 8x3 weights of 2 levels in one plane, 3 partitions (seed 302: its partitions are the entries' pattern), endpoints 10, 40, 100, 130, 200, 230 (luminance, 256 levels), bytes 25 d0 25 40 01 85 4c 10 d9 1c 00 00 00 55 55 55
+  decodes to [0.392156869, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.0392156877, 0.156862751, 0.392156869, 0.509803951, 0.392156869, 0.509803951, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.784313738, 0.90196079, 0.392156869, 0.509803951, 0.392156869, 0.509803951, 0.392156869, 0.509803951, 0.392156869, 0.156862751, 0.392156869, 0.509803951, 0.392156869, 0.509803951, 0.0392156877, 0.509803951, 0.392156869, 0.509803951]
+  exact: every texel is its entry's f32 over 255
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.000134 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> P = [160, 160, 160, 160, 160, 30, 220, 220, 220, 220, 220, 90, 160, 160, 160, 160, 160, 30, 90, 220, 220, 220, 220, 90, 30, 160, 160, 160, 160, 30, 90, 220, 220, 220, 90, 90]
+> texenc P astc 6x6
+texenc P astc 6x6: 36 entries as ASTC 6x6, rows of 6 (6 x 6 texels): 1 block, 16 bytes (36 as R8_UNORM, 144 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): 4x6 weights of 2 levels in one plane, 2 partitions (seed 37: its partitions are the entries' pattern), endpoints 30, 90, 160, 220 (luminance, 256 levels), bytes 4d a8 04 c0 43 0b 94 1b 00 00 00 00 00 0f 0f 0f
+  decodes to [0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.352941185, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.117647059, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.352941185, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.352941185]
+  exact: every texel is its entry's f32 over 255
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00044 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> U = [0, 51, 102, 153, 204, 255, 0, 51, 102, 153, 204, 255, 0, 51, 102, 153, 204, 255, 0, 51, 102, 153, 204, 255, 0, 51, 102, 153, 204, 255, 0, 51, 102, 153, 204, 255]
+> V = [0, 0, 0, 0, 0, 0, 51, 51, 51, 51, 51, 51, 102, 102, 102, 102, 102, 102, 153, 153, 153, 153, 153, 153, 204, 204, 204, 204, 204, 204, 255, 255, 255, 255, 255, 255]
+> texenc U, V astc 6x6
+texenc U, V astc 6x6: 36 entries a table in ASTC 6x6 blocks' two planes (U the luminance, V the alpha), rows of 6 (6 x 6 texels): 1 block, 16 bytes (72 as R8G8_UNORM, 288 as R32G32_SFLOAT)
+  block (0, 0): 4x4 weights of 4 levels in two planes, 1 partition, endpoints 0, 255, 0, 255 (luminance, luminance, alpha, alpha, 256 levels), bytes 42 84 00 fe 01 fe 01 c0 7f 3b 5d 19 6e 2a 4c 08
+  luminance: decodes to [0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1, 0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1, 0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1, 0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1, 0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1, 0, 0.203921571, 0.392156869, 0.607843161, 0.796078444, 1]
+  luminance: not exact: the closest block found is within 0.00784 of the table (entry 2: 0.400000006 as 0.392156869)
+  luminance: in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00938 of the table
+  alpha: decodes to [0, 0, 0, 0, 0, 0, 0.203921571, 0.203921571, 0.203921571, 0.203921571, 0.203921571, 0.203921571, 0.392156869, 0.392156869, 0.392156869, 0.392156869, 0.392156869, 0.392156869, 0.607843161, 0.607843161, 0.607843161, 0.607843161, 0.607843161, 0.607843161, 0.796078444, 0.796078444, 0.796078444, 0.796078444, 0.796078444, 0.796078444, 1, 1, 1, 1, 1, 1]
+  alpha: not exact: the closest block found is within 0.00784 of the table (entry 12: 0.400000006 as 0.392156869)
+  alpha: in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00938 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, two planes), the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> S = [191, 222, 245, 255, 249, 229, 200, 169, 143, 129, 130, 146, 186, 217, 240, 250, 244, 224, 195, 164, 138, 124, 125, 141, 172, 202, 226, 236, 230, 210, 181, 150, 124, 110, 111, 127, 151, 181, 204, 214, 209, 189, 160, 128, 102, 88, 89, 106, 126, 156, 179, 189, 184, 164, 135, 103, 77, 63, 65, 81, 101, 132, 155, 165, 159, 139, 110, 79, 53, 39, 40, 56, 80, 111, 134, 144, 138, 119, 89, 58, 32, 18, 19, 36, 67, 98, 121, 131, 125, 106, 76, 45, 19, 5, 6, 22, 64, 94, 118, 127, 122, 102, 73, 41, 16, 2, 3, 19, 70, 101, 124, 134, 128, 108, 79, 48, 22, 8, 9, 25, 86, 116, 139, 149, 144, 124, 95, 63, 38, 24, 25, 41, 108, 138, 162, 171, 166, 146, 117, 86, 60, 46, 47, 63]
+> texenc S astc 12x12 tol 0.01
+texenc S astc 12x12: 144 entries as ASTC 12x12, rows of 12 (12 x 12 texels): 1 block, 16 bytes (144 as R8_UNORM, 576 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): 5x4 weights of 24 levels in one plane, 1 partition, endpoints 3, 254 (luminance, 256 levels), bytes c3 02 06 fc 51 cb af 03 20 2f cd 71 dd bf 63 dc
+  decodes to [0.796078444, 0.874509811, 0.952941179, 0.996078432, 0.968627453, 0.937254906, 0.843137264, 0.70588237, 0.564705908, 0.549019635, 0.564705908, 0.580392182, 0.737254918, 0.811764717, 0.905882359, 0.952941179, 0.905882359, 0.874509811, 0.78039217, 0.643137276, 0.505882382, 0.490196079, 0.505882382, 0.517647088, 0.643137276, 0.737254918, 0.843137264, 0.890196085, 0.843137264, 0.78039217, 0.690196097, 0.564705908, 0.427450985, 0.411764711, 0.427450985, 0.458823532, 0.580392182, 0.690196097, 0.796078444, 0.843137264, 0.78039217, 0.721568644, 0.611764729, 0.490196079, 0.36470589, 0.36470589, 0.380392164, 0.396078438, 0.517647088, 0.627451003, 0.737254918, 0.796078444, 0.721568644, 0.643137276, 0.549019635, 0.427450985, 0.301960796, 0.301960796, 0.31764707, 0.333333343, 0.411764711, 0.517647088, 0.627451003, 0.690196097, 0.627451003, 0.549019635, 0.458823532, 0.333333343, 0.211764708, 0.196078435, 0.211764708, 0.227450982, 0.333333343, 0.443137258, 0.533333361, 0.596078455, 0.533333361, 0.490196079, 0.396078438, 0.270588249, 0.149019614, 0.117647059, 0.13333334, 0.13333334, 0.227450982, 0.333333343, 0.427450985, 0.490196079, 0.443137258, 0.396078438, 0.301960796, 0.180392161, 0.0549019612, 0.0235294122, 0.0235294122, 0.0235294122, 0.258823544, 0.349019617, 0.443137258, 0.505882382, 0.458823532, 0.411764711, 0.31764707, 0.196078435, 0.0549019612, 0.0392156877, 0.0392156877, 0.0392156877, 0.301960796, 0.396078438, 0.490196079, 0.549019635, 0.505882382, 0.458823532, 0.36470589, 0.243137255, 0.101960786, 0.0862745121, 0.0862745121, 0.101960786, 0.380392164, 0.458823532, 0.549019635, 0.611764729, 0.564705908, 0.517647088, 0.427450985, 0.286274523, 0.164705887, 0.149019614, 0.149019614, 0.164705887, 0.427450985, 0.517647088, 0.596078455, 0.65882355, 0.611764729, 0.564705908, 0.474509805, 0.333333343, 0.196078435, 0.196078435, 0.196078435, 0.211764708]
+  not exact: the closest block found is within 0.0627 of the table (entry 95: 0.0862745121 as 0.0235294122)
+  more than the 0.01 allowed (tol)
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.0644 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> M = [0, 17, 34, 51, 68, 85, 102, 119, 40, 57, 74, 91, 108, 125, 142, 159, 80, 97, 114, 131, 148, 165, 182, 199, 120, 137, 154, 171, 188, 205, 222, 239]
+> texenc M astc 4x4 rows 8
+texenc M astc 4x4: 32 entries as ASTC 4x4, rows of 8 (8 x 4 texels): 2 blocks, 32 bytes (32 as R8_UNORM, 128 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): 4x4 weights of 32 levels in one plane, 3 partitions (seed 72: the closest to the entries' pattern, 1 texel off it), endpoints 73, 182, 0, 0, 0, 109 (luminance, 8 levels), bytes 53 12 09 40 05 30 a7 27 17 0c 47 14 04 e3 15 05
+  block (1, 0): 4x4 weights of 24 levels in one plane, 2 partitions (seed 324: its partitions are the entries' pattern), endpoints 142, 239, 65, 130 (luminance, 64 levels), bytes 43 8a 28 60 dc 21 10 ec 7a fe 49 28 10 77 bf 11
+  decodes to [0, 0.0666666701, 0.13333334, 0.200000003, 0.262745112, 0.329411775, 0.400000006, 0.466666669, 0.160784319, 0.227450982, 0.286274523, 0.352941185, 0.423529416, 0.490196079, 0.556862772, 0.623529434, 0.313725501, 0.380392164, 0.447058827, 0.513725519, 0.588235319, 0.650980413, 0.717647076, 0.776470602, 0.474509805, 0.541176498, 0.607843161, 0.674509823, 0.737254918, 0.807843149, 0.874509811, 0.937254906]
+  not exact: the closest block found is within 0.00784 of the table (entry 20: 0.580392182 as 0.588235319)
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00603 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> compress P as ASTC 6x6
+  ucas: texenc P astc 6x6
+texenc P astc 6x6: 36 entries as ASTC 6x6, rows of 6 (6 x 6 texels): 1 block, 16 bytes (36 as R8_UNORM, 144 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): 4x6 weights of 2 levels in one plane, 2 partitions (seed 37: its partitions are the entries' pattern), endpoints 30, 90, 160, 220 (luminance, 256 levels), bytes 4d a8 04 c0 43 0b 94 1b 00 00 00 00 00 0f 0f 0f
+  decodes to [0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.352941185, 0.862745106, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.117647059, 0.627451003, 0.627451003, 0.627451003, 0.627451003, 0.117647059, 0.352941185, 0.862745106, 0.862745106, 0.862745106, 0.352941185, 0.352941185]
+  exact: every texel is its entry's f32 over 255
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00044 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> texenc P astc 7x7
+texastc.ucas:24:18: error: texenc: ASTC's 2D blocks are 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 8x8, 10x5, 10x6, 10x8, 10x10, 12x10 and 12x12, not 7x7
+    texenc P astc 7x7
+                     ^
+> texenc P astc
+texastc.ucas:25:14: error: texenc: astc takes a block's footprint, BWxBH (6x6, 8x5, ...)
+    texenc P astc
+                 ^
+> texenc P, M astc 4x4
+texastc.ucas:26:21: error: texenc: a block's two planes are tables of one shape; P has 36 entries and M 32
+    texenc P, M astc 4x4
+                        ^
