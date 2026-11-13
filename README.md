@@ -4178,8 +4178,13 @@ map's read where it prices `tex_cube` and the ranges keep one axis's
 magnitude the largest alone, since the specification lets the unit
 break a tie its own way.  A selection that is the face only away from
 ties is offered as the read alone, under the same condition.  The
-projection s/|m| is not offered: the specification states no precision
-for the unit's divide, and no model states one (tests/texcube.ucas).
+selections of the projection, among the coordinates negated or times 2
+or 1/2, are compared the same way at magnitudes 1, 5 and 25 (no factor
+maps one on another) with cubesc, cubetc, cubema and half of it, the
+major axis: the argmax of sc/|ma| becomes two instructions and the
+divide stays.  The projection read through the unit is not offered: the
+specification states no precision for its divide, and no model states
+one (tests/texcube.ucas).
 
 **Wrapping filters.**  Vulkan allows unnormalised coordinates only
 with CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a

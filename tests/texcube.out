@@ -16,7 +16,7 @@ texalu face: reads through the texture unit under amd (cost 26.375 as written):
   cost 4   int(cubeid(x, y, z))
       abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 is int(cubeid(x, y, z)): the cube map face of (x, y, z)
       holds for every input
-      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all 729  it is cubeid: exhaustive
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants and the coordinates, negated or times 2 or 1/2, by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -25, -5, -1, -0, 0, 1, 5, 25} takes every such combination (no factor maps one of those magnitudes on another), and on all 729  it is the same: exhaustive
       the pipeline needs (a proposal: nothing is applied):
         nothing: one instruction of the model's cube class (v_cubeid_f32)
 > texalu face under cub
@@ -32,7 +32,7 @@ texalu facez: reads through the texture unit under cub (cost 26.375 as written):
   cost 9   int(tex_cube(x, y, z))
       abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 is int(tex_cube(x, y, z)): the cube map face of (x, y, z)
       holds where z is in its range, the largest magnitude alone: the unit's face, whatever its rule on ties
-      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all 729 with one largest magnitude, no NaN and not all zero it is cubeid: exhaustive
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants and the coordinates, negated or times 2 or 1/2, by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -25, -5, -1, -0, 0, 1, 5, 25} takes every such combination (no factor maps one of those magnitudes on another), and on all 729 with one largest magnitude, no NaN and not all zero it is the same: exhaustive
       the pipeline needs (a proposal: nothing is applied):
         a cube texture, 1 x 1 a face, face k holding k (R8_UINT, or R16_SFLOAT for a float)
         a sampler: NEAREST filters, lod 0
@@ -43,3 +43,16 @@ texalu notf: no table read or weighted sum of neighbouring entries the texture u
 > texalu face under texel
 texalu face: the texture unit under texel (cost 26.375 as written): nothing taken
   texel lists neither cube nor tex_cube: the cube map face's instruction and read are not available
+> proj(x: f32, y: f32, z: f32) = (abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? -x : x) : abs(y) >= abs(x) ? x : (x < 0 ? z : -z)) / abs(abs(z) >= abs(x) && abs(z) >= abs(y) ? z : abs(y) >= abs(x) ? y : x) * 0.5 + 0.5
+> texalu proj under amd
+texalu proj: reads through the texture unit under amd (cost 32.625 as written):
+  cost 8   0.5(cubesc(x, y, z)/abs(0.5cubema(x, y, z))) + 0.5
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? -x : x : abs(y) >= abs(x) ? x : x < 0 ? z : -z is cubesc(x, y, z): the face's s before the division (sc) of (x, y, z)
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z : abs(y) >= abs(x) ? y : x is 0.5cubema(x, y, z): the major axis (ma) of (x, y, z)
+      holds for every input
+      holds for every input
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? -x : x : abs(y) >= abs(x) ? x : x < 0 ? z : -z depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants and the coordinates, negated or times 2 or 1/2, by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -25, -5, -1, -0, 0, 1, 5, 25} takes every such combination (no factor maps one of those magnitudes on another), and on all 729  it is the same: exhaustive
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z : abs(y) >= abs(x) ? y : x depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants and the coordinates, negated or times 2 or 1/2, by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -25, -5, -1, -0, 0, 1, 5, 25} takes every such combination (no factor maps one of those magnitudes on another), and on all 729  it is the same: exhaustive
+      the pipeline needs (a proposal: nothing is applied):
+        nothing: one instruction of the model's cube class (v_cubesc_f32)
+        nothing: one instruction of the model's cube class (v_cubema_f32)
