@@ -722,7 +722,6 @@ flt_unsup(int op)
 	case O_MOD: return "a float remainder";
 	case O_POW: return "a float power";
 	case O_SQRT: return "a float square root";
-	case O_FLOOR: case O_CEIL: return "a float rounding to an integer";
 	case O_LAND: case O_LOR: case O_LNOT: return "a float truth value";
 	case O_ATOMIC: return "a float atomic";
 	}
@@ -916,9 +915,23 @@ blast_flt(struct nctx *c, nid n)
 				fp_round(g, &r, &xa, F, FR_RNE);
 			return fres(&r, t, d);
 		}
-		unsup(FA ? "a float to integer conversion" :
-		    "an integer to float conversion");
-		break;
+		if (FA) {
+			/* toward zero, defined within [-2^63, 2^63) (eval.c,
+			 * real_to_int), then wrapped to the type */
+			lit ok = fp_to_int(g, &w, &xa);
+			res = newval();
+			w_resize(&B.v[res].v, &w, bw(t) ? bw(t) : 1, 0);
+			B.v[res].d = aig_and(g, d, ok);
+			return res;
+		}
+		fp_from_int(g, &r, V(a), sgn(ta), F, FR_RNE);
+		return fres(&r, t, d);
+	case O_FLOOR:
+	case O_CEIL:
+	case O_ROUNDEVEN:
+		fp_rint(g, &r, &xa, F, op == O_FLOOR ? FR_RDN : op == O_CEIL ?
+		    FR_RUP : FR_RNE);
+		return fres(&r, t, d);
 	case O_ASFLOAT:
 		w_resize(&w, V(a), TYW(t), 0);
 		if (TYW(t) == 32)

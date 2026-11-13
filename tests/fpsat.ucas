@@ -61,3 +61,18 @@ equiv d1 d2
 # above the midpoint of 2^60 and 2^60 + 2^37
 k(x: i64) = asuint(f32(x))
 k(1152921573326323713)
+# integers in: i32 is exact in f64, so through it is one rounding; i64
+# is not, and the two differ
+i1(x: i32, y: i32) = f32(x) * f32(y)
+i2(x: i32, y: i32) = f32(f64(x)) * f32(f64(y))
+equiv i1 i2
+j1(x: i64) = f32(x)
+j2(x: i64) = f32(f64(x))
+equiv j1 j2
+# out: toward zero; floor and ceil
+t1(x: f32) = i32(x)
+t2(x: f32) = i32(x < f32(0) ? ceil(x) : floor(x))
+equiv t1 t2
+r1(x: f32, y: f32) = floor(x) + floor(y)
+r2(x: f32, y: f32) = -ceil(-x) + -ceil(-y)
+equiv r1 r2

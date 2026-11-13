@@ -60,3 +60,19 @@ d1 and d2 are equal on the domain of d1 (sampled, not proved; no SAT proof: a fl
 > k(x: i64) = asuint(f32(x))
 > k(1152921573326323713)
 1568669697
+> i1(x: i32, y: i32) = f32(x) * f32(y)
+> i2(x: i32, y: i32) = f32(f64(x)) * f32(f64(y))
+> equiv i1 i2
+i1 and i2 are equal on the domain of i1 (proved by SAT: 13050 AIG nodes, 0 conflicts)
+> j1(x: i64) = f32(x)
+> j2(x: i64) = f32(f64(x))
+> equiv j1 j2
+j1 and j2 differ, e.g. x=11258999605297153: 1.12590001e+16 vs 1.12589991e+16 (found by SAT, checked by evaluation)
+> t1(x: f32) = i32(x)
+> t2(x: f32) = i32(x < f32(0) ? ceil(x) : floor(x))
+> equiv t1 t2
+t1 and t2 are equal on the domain of t1 (proved by SAT: 10150 AIG nodes, 5280 conflicts)
+> r1(x: f32, y: f32) = floor(x) + floor(y)
+> r2(x: f32, y: f32) = -ceil(-x) + -ceil(-y)
+> equiv r1 r2
+r1 and r2 are equal on the domain of r1 (proved by SAT: 14646 AIG nodes, 0 conflicts)

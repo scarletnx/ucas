@@ -141,6 +141,15 @@ lit fp_same(struct aig *g, const struct word *a, const struct word *b,
 void fp_minmax(struct aig *g, struct fpv *r, const struct fpv *a,
     const struct word *pa, const struct fpv *b, const struct word *pb,
     int max, const struct fpfmt *F);
+/* to an integral value by mode (floor FR_RDN, ceil FR_RUP, roundeven
+ * FR_RNE) */
+void fp_rint(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpfmt *F, int mode);
+/* truncated toward zero, two's complement in 64 bits; the literal says
+ * it is in [-2^63, 2^63) (else the evaluator's undefined) */
+lit fp_to_int(struct aig *g, struct word *r, const struct fpv *a);
+void fp_from_int(struct aig *g, struct fpv *r, const struct word *v, int sgn,
+    const struct fpfmt *F, int mode);
 int fp_selftest(void);	/* 0 when the float circuits check out */
 
 #endif

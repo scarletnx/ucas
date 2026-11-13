@@ -388,6 +388,10 @@ round_core(struct aig *g, struct fpv *r, const struct fpv *a, lit sticky,
 		}
 	}
 	K = p > 0 && p < n ? p : n;
+	if (K >= FPV_MW) {
+		toolarge("too wide a float significand");
+		K = FPV_MW - 1;
+	}
 	for (j = 0; j < K; j++) {
 		lit v = L_FALSE;
 		for (i = 0; i + j < n; i++)
@@ -776,6 +780,98 @@ fp_fma(struct aig *g, struct fpv *r, const struct fpv *a, const struct fpv *b,
 	addc(g, r, &p, c, F, mode);
 }
 
+/*
+ * a rounded to an integral value by mode (floor: down, ceil: up, a
+ * conversion to an integer: toward zero): the precision has no limit and
+ * the floor is 2^0.  A value of 2^(p-1) or more is already integral, and
+ * what rounds up stays below 2^p, so the result is one of F's.
+ */
+void
+fp_rint(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpfmt *F, int mode)
+{
+	if (mut == 12 && mode == FR_RDN)
+		mode = FR_RTZ;
+	round_core(g, r, a, L_FALSE, 0, 0, 0, mode);
+	fp_anynan(g, &r->nb, F);
+}
+
+/*
+ * a truncated toward zero, as a 64-bit two's complement word; the
+ * literal returned is the evaluator's "defined": a number in [-2^63,
+ * 2^63) (eval.c, real_to_int).  The integral value m 2^e (e >= 0 unless
+ * it is 0) is m moved up by e; past bit 63, or e >= 64, it is out.
+ */
+lit
+fp_to_int(struct aig *g, struct word *r, const struct fpv *a)
+{
+	struct fpv t;
+	struct word mag, neg;
+	lit x[FPV_MW + 64], big, over = L_FALSE, low = L_TRUE, nz = L_FALSE, ok;
+	int n, i, k, W;
+
+	round_core(g, &t, a, L_FALSE, 0, 0, 0, FR_RTZ);
+	n = t.n;
+	W = n + 64;
+	for (i = 0; i < W; i++)
+		x[i] = i < n ? t.m[i] : L_FALSE;
+	for (i = 0; i < n; i++)
+		nz = aig_or(g, nz, t.m[i]);
+	for (k = 0; k < 6; k++) {
+		int d = 1 << k;
+		for (i = W - 1; i >= 0; i--)
+			x[i] = aig_mux(g, t.e.b[k], i >= d ? x[i - d] : L_FALSE,
+			    x[i]);
+	}
+	big = L_NOT(e_lt(g, &t.e, t.elo, t.ehi, 64));
+	for (i = 64; i < W; i++)
+		over = aig_or(g, over, x[i]);
+	over = aig_or(g, over, aig_and(g, big, nz));
+	mag.w = 64;
+	for (i = 0; i < 64; i++) {
+		mag.b[i] = x[i];
+		if (i < 63)
+			low = aig_and(g, low, L_NOT(x[i]));
+	}
+	/* |v| < 2^63, or v = -2^63 */
+	ok = aig_or(g, L_NOT(x[63]), aig_and(g, t.s, mut == 10 ? L_TRUE : low));
+	ok = aig_and(g, L_NOT(over), ok);
+	w_neg(g, &neg, &mag);
+	w_mux(g, r, t.s, &neg, &mag);
+	ok = aig_and(g, ok, L_NOT(a->inf));
+	return aig_and(g, ok, L_NOT(a->nan));
+}
+
+/* an integer word v (two's complement when sgn) rounded to F by mode */
+void
+fp_from_int(struct aig *g, struct fpv *r, const struct word *v, int sgn,
+    const struct fpfmt *F, int mode)
+{
+	struct fpv x;
+	struct word mag, neg;
+	lit nz = L_FALSE;
+	int i;
+
+	x.s = sgn ? v->b[v->w - 1] : L_FALSE;
+	w_neg(g, &neg, v);
+	w_mux(g, &mag, x.s, &neg, v);
+	x.nan = L_FALSE;
+	x.inf = L_FALSE;
+	x.n = v->w;
+	for (i = 0; i < v->w; i++) {
+		x.m[i] = mag.b[i];
+		nz = aig_or(g, nz, mag.b[i]);
+	}
+	x.z = L_NOT(nz);
+	w_const(&x.e, FPV_EW, 0);
+	x.elo = x.ehi = 0;
+	w_const(&x.nb, fwidth(F), 0);
+	trim(&x);
+	round_core(g, r, &x, L_FALSE, F->p, qmin(F), bias(F), mut == 11 ?
+	    FR_RTZ : mode);
+	fp_anynan(g, &r->nb, F);
+}
+
 static void
 classify(struct aig *g, const struct word *x, const struct fpfmt *F,
     lit *nan, lit *zero, struct word *mag)
@@ -1070,6 +1166,64 @@ cop_can(int op, uint64_t xa, uint64_t xb, const struct fpfmt *F,
 	return ok;
 }
 
+/* to an integral value: can a constant's rounding give want? */
+static int
+rint_can(uint64_t x, const struct fpfmt *F, int mode, uint64_t want)
+{
+	struct aig *g = aig_new();
+	struct word wx, wr, k;
+	struct fpv a, r;
+	int ok;
+
+	w_const(&wx, fwidth(F), x);
+	fp_unpack(g, &a, &wx, F);
+	fp_rint(g, &r, &a, F, mode);
+	fp_pack(g, &wr, &r, F, 0);
+	w_const(&k, fwidth(F), canon(want, F));
+	ok = aig_sat(g, w_eq(g, &wr, &k), 0) == 1;
+	aig_free(g);
+	return ok;
+}
+
+/* to an integer: a constant's conversion is undefined (def 0) or v */
+static int
+toint_can(uint64_t x, const struct fpfmt *F, int def, int64_t v)
+{
+	struct aig *g = aig_new();
+	struct word wx, wr, k;
+	struct fpv a;
+	lit ok, goal;
+	int r;
+
+	w_const(&wx, fwidth(F), x);
+	fp_unpack(g, &a, &wx, F);
+	ok = fp_to_int(g, &wr, &a);
+	w_const(&k, 64, (uint64_t)v);
+	goal = def ? aig_and(g, ok, w_eq(g, &wr, &k)) : L_NOT(ok);
+	r = aig_sat(g, goal, 0) == 1;
+	aig_free(g);
+	return r;
+}
+
+/* from an integer of w bits (two's complement when sgn) */
+static int
+fromint_can(uint64_t v, int w, int sgn, const struct fpfmt *F, int mode,
+    uint64_t want)
+{
+	struct aig *g = aig_new();
+	struct word wv, wr, k;
+	struct fpv r;
+	int ok;
+
+	w_const(&wv, w, v);
+	fp_from_int(g, &r, &wv, sgn, F, mode);
+	fp_pack(g, &wr, &r, F, 0);
+	w_const(&k, fwidth(F), canon(want, F));
+	ok = aig_sat(g, w_eq(g, &wr, &k), 0) == 1;
+	aig_free(g);
+	return ok;
+}
+
 /*
  * Every operation of a 6-bit format (3 exponent bits, 3 significand
  * bits: all 4096 pairs, every mode) against exact arithmetic in double
@@ -1149,6 +1303,38 @@ tiny_exhaustive(int verbose)
 			}
 		}
 	}
+	/* to integral values, to and from integers */
+	for (x = 0; x < 64; x++) {
+		double a = ref_val(x, &T), v;
+		for (mode = 0; mode < 4; mode++) {
+			v = mode == FR_RNE ? nearbyint(a) : mode == FR_RTZ ? trunc(a) :
+			    mode == FR_RUP ? ceil(a) : floor(a);
+			if (!rint_can(x, &T, mode, ref_bits(v, &T, FR_RNE))) {
+				if (verbose && bad < 8)
+					fprintf(stderr, "fp selftest: 6-bit rint %02llx "
+					    "mode %d\n", (unsigned long long)x, mode);
+				bad++;
+			}
+		}
+		if (!toint_can(x, &T, isfinite(a), isfinite(a) ? (int64_t)a : 0)) {
+			if (verbose && bad < 8)
+				fprintf(stderr, "fp selftest: 6-bit to int %02llx\n",
+				    (unsigned long long)x);
+			bad++;
+		}
+	}
+	for (y = 0; y < 601; y++)
+		for (mode = 0; mode < 4; mode++) {
+			int64_t v = (int64_t)y - 300;
+			if (!fromint_can((uint64_t)v & 0xffff, 16, 1, &T, mode,
+			    ref_bits((double)v, &T, mode)) || !fromint_can(y, 16, 0,
+			    &T, mode, ref_bits((double)y, &T, mode))) {
+				if (verbose && bad < 8)
+					fprintf(stderr, "fp selftest: 6-bit from int %lld "
+					    "mode %d\n", (long long)v, mode);
+				bad++;
+			}
+		}
 	/* and to a narrower one */
 	for (x = 0; x < 512; x++)
 		for (mode = 0; mode < 4; mode++) {
@@ -1251,6 +1437,30 @@ against_eval(int verbose)
 					bad++;
 				}
 			}
+			{
+				/* floor, ceil, roundeven; to an integer */
+				static const int rop[3] = {O_FLOOR, O_CEIL, O_ROUNDEVEN};
+				static const int rmd[3] = {FR_RDN, FR_RUP, FR_RNE};
+				int q, def = !isnan(a) && a < 9.2233720368547758e18 &&
+				    a >= -9.2233720368547758e18;
+				for (q = 0; q < 3; q++) {
+					double rv = scalar_float(rop[q], w, a, 0, &fl);
+					if (!rint_can(x, F, rmd[q], isnan(rv) ? canon(((1ULL <<
+					    F->eb) - 1) << (F->p - 1) | 1, F) :
+					    fbits(w, rv))) {
+						if (verbose && bad < 8)
+							fprintf(stderr, "fp selftest: f%d rint %d on "
+							    "%llx\n", w, q, (unsigned long long)x);
+						bad++;
+					}
+				}
+				if (!toint_can(x, F, def, def ? (int64_t)a : 0)) {
+					if (verbose && bad < 8)
+						fprintf(stderr, "fp selftest: f%d to int on "
+						    "%llx\n", w, (unsigned long long)x);
+					bad++;
+				}
+			}
 			for (op = FT_ADD; op <= FT_AM; op++) {
 				static const int eop[] = {O_ADD, O_SUB, O_MUL, O_MIN,
 				    O_MAX, O_LT, O_EQ};
@@ -1279,6 +1489,46 @@ against_eval(int verbose)
 					    "%llx, %llx: not %llx\n", w, op, w2,
 					    (unsigned long long)x, (unsigned long long)y,
 					    (unsigned long long)want);
+				bad++;
+			}
+		}
+	}
+	/* the ends of int64 for to_int; integers into each width */
+	{
+		static const uint64_t b32[] = {0x5f000000, 0x5effffff, 0xdf000000,
+		    0xdf000001}, b64[] = {0x43e0000000000000ULL,
+		    0x43dfffffffffffffULL, 0xc3e0000000000000ULL,
+		    0xc3e0000000000001ULL};
+		static const int ts[] = {8, 16, 32, 64};
+		int i;
+		for (i = 0; i < 4; i++) {
+			double a = frombits(32, b32[i]), c = frombits(64, b64[i]);
+			int da = a < 9.2233720368547758e18 && a >= -9.2233720368547758e18;
+			int dc = c < 9.2233720368547758e18 && c >= -9.2233720368547758e18;
+			if (!toint_can(b32[i], &fmt32, da, da ? (int64_t)a : 0) ||
+			    !toint_can(b64[i], &fmt64, dc, dc ? (int64_t)c : 0)) {
+				if (verbose && bad < 8)
+					fprintf(stderr, "fp selftest: to int at 2^63 (%d)\n",
+					    i);
+				bad++;
+			}
+		}
+		for (i = 0; i < 400; i++) {
+			int bits = ts[i % 4], sg = (i >> 2) & 1, wi = (i >> 3) % 3;
+			int w = wi == 0 ? 16 : wi == 1 ? 32 : 64;
+			uint64_t m = bits == 64 ? ~0ULL : (1ULL << bits) - 1;
+			uint64_t v = i < 12 ? (1ULL << 60) + (1ULL << 36) + 1 :
+			    rng(&seed) >> (rng(&seed) % 64);
+			ty_t ti = TY(sg ? K_SINT : K_UINT, bits);
+			int64_t sv;
+			v &= m;
+			sv = sg && bits < 64 && (v >> (bits - 1) & 1) ?
+			    (int64_t)(v | ~m) : (int64_t)v;
+			if (!fromint_can(v, bits, sg, fp_fmt(w), FR_RNE,
+			    fbits(w, ifloat(ti, sv, w)))) {
+				if (verbose && bad < 8)
+					fprintf(stderr, "fp selftest: %s%d %llx to f%d\n",
+					    sg ? "i" : "u", bits, (unsigned long long)v, w);
 				bad++;
 			}
 		}
@@ -1441,7 +1691,8 @@ sat_floats(int verbose)
  * arithmetic, against the evaluator in binary16, 32 and 64, and through
  * the solver.  Then each deliberate defect (a rounding, a sticky bit, the
  * subnormal floor, the adder's sticky, an exact zero's sign, inf * 0, the
- * packed subnormal, -0 < +0, fma rounding its product) must be caught by
+ * packed subnormal, -0 < +0, fma rounding its product, 2^63 taken as an
+ * integer, an integer truncated, floor as a truncation) must be caught by
  * those same checks.
  */
 int
@@ -1454,7 +1705,7 @@ fp_selftest(void)
 	bad += tiny_exhaustive(1);
 	bad += against_eval(1);
 	bad += sat_floats(1);
-	for (m = 1; m <= 9; m++) {
+	for (m = 1; m <= 12; m++) {
 		int caught;
 		mut = m;
 		caught = tiny_exhaustive(0);
