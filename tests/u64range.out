@@ -1,0 +1,29 @@
+> odd(r: u64 in 1..65535) = r & 1
+> range odd
+range of odd -> u64:
+  0..1
+  fits in u1
+  over all 65535 points of the domain
+> odd32(r: u32 in 1..65535) = r & 1
+> range odd32
+range of odd32 -> u32:
+  0..1
+  fits in u1
+  over all 65535 points of the domain
+> q(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = (a * b * e) / (c + d + 1)
+> q2(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = (e * b * a) / (d + c + 1)
+> equiv q q2
+q and q2 are equal on the domain of q (exhaustive)
+> pr(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = a * b * (c + 1) * (d + 1) * e
+> range pr
+range of pr -> u64:
+  1..589824
+  fits in u20
+  over all 589824 points of the domain
+> big(x: u64) = x & 1
+> range big
+range of big -> u64:
+  0..1
+  fits in u1
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 0..1

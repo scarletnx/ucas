@@ -1,0 +1,16 @@
+# A u64 parameter with a range is enumerated, as the same range in i64 or
+# u32 is (#460); without one it has 2^64 values and is sampled.
+odd(r: u64 in 1..65535) = r & 1
+range odd
+odd32(r: u32 in 1..65535) = r & 1
+range odd32
+# five ranged u64 parameters, 589824 points: equiv runs over every one
+# (sampled before, its SAT giving up on the divider)
+q(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = (a * b * e) / (c + d + 1)
+q2(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = (e * b * a) / (d + c + 1)
+equiv q q2
+# the least value is the domain's (1, at one corner), not a sample's
+pr(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1..16) = a * b * (c + 1) * (d + 1) * e
+range pr
+big(x: u64) = x & 1
+range big

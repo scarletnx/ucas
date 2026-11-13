@@ -6044,10 +6044,10 @@ GL_EXT_shader_explicit_arithmetic_types_int64 (`uint64_t`, `int64_t`,
 their vectors, the literals `1ul` and `1l`, and their min, max, clamp,
 abs and atomics) are read as the parser's own types, and the level's
 intervals hold them up to +-2^61, past which a value is any value (a
-mask, a remainder or a right shift still bounds what it makes).  ucas
-enumerates no 64-bit value, so a candidate on one is proved by SAT
-(`equiv`'s, on the same translation), and the report says so
-(tests/fnl64.ucas).  The parser itself
+mask, a remainder or a right shift still bounds what it makes).  A
+candidate on a 64-bit value goes to `equiv` on the same translation,
+which enumerates a small domain and proves a wider one by SAT, and the
+report says which (tests/fnl64.ucas).  The parser itself
 (a copy, see src/snxglslc/README) takes a source of any size here, and
 for a shader that is not GLSL ES makes Vulkan GLSL's implicit
 conversions (int to uint, int and uint to float, in operators,
@@ -6098,7 +6098,8 @@ over-approximations: what is proved on them holds for every run.
 
 **Searches**, each candidate checked by the interpreter first and then
 proved by `equiv_check` (ucas's own `equiv`) on a ucas translation (by
-its SAT where a 64-bit value is in it):
+`equiv` where a 64-bit value is in it: enumerated on a small domain,
+else by SAT):
 
 - a *pure helper* (scalar parameters and result, writes nothing, reads
   scalar globals) whose domain has at most 2^20 points is checked whole:
