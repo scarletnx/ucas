@@ -23,3 +23,8 @@ texalu w3 tol 0.01 under wr
 # without the wrap the pair can leave the table
 w4(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G[i % 8] + t*G[i % 8 + 1]
 texalu w4 tol 0.01 under wr
+# REPEAT makes the last entry and the first neighbours: their step (6)
+# is the largest a weight's move can meet, not the largest inside (4)
+G6 = [3.0, 2.5, 2.0, 1.5, 1.0, -3.0]
+w5(i: u8 in 0..5, t: f32 in 0..1) = (1 - t)*G6[i % 6] + t*G6[(i + 1) % 6]
+texalu w5 tol 0.1 under wr

@@ -4045,6 +4045,14 @@ grid_make(struct sum *s, struct grid *g)
 		}
 	}
 	table_steps(&g->ti, g->W, &g->dxmax, &g->dymax);
+	/* REPEAT makes the last texel and the first neighbours (MIRRORED_REPEAT
+	 * puts a texel beside itself there) */
+	if (g->wrap == O_FETCH_REPEAT) {
+		double d = fabs(cval(N.lst[N.a[g->ti.tab] + g->ti.n - 1]) -
+		    cval(N.lst[N.a[g->ti.tab]]));
+		if (d > g->dxmax)
+			g->dxmax = d;
+	}
 	if (s->t[g->ix[0]].cmp) {	/* the indicators' steps */
 		g->dxmax = 1;
 		g->dymax = g->H > 1 ? 1 : 0;
