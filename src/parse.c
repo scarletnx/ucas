@@ -941,13 +941,16 @@ ident(struct P *p)
 	/* the texture unit's reads (texalu.h) */
 	if (pk2(p) == T_LP && (kind = tex_lookup(s, n, &na, &wk)) != 0) {
 		int bits = na, want = (kind == O_FETCH_BORDER ? 3 :
-		    kind == O_TEX_BILINEAR ? 4 : 2) + (IS_FETCH(kind) && na ==
-		    TEX_OFFNAME);
+		    kind == O_TEX_BILINEAR ? 4 : kind == O_TEX_TRILINEAR ? 6 :
+		    2) + (IS_FETCH(kind) && na == TEX_OFFNAME);
 		adv(p);
-		if (parse_args(p, args, 4) != want)
+		if (parse_args(p, args, kind == O_TEX_TRILINEAR ? MAXP : 4) !=
+		    want)
 			fail("%s takes %s%s", opinfo[kind].name, kind ==
 			    O_TEX_BILINEAR ? "(table, width, x, y)" : kind ==
-			    O_FETCH_BORDER ? "(table, index, border value)" :
+			    O_TEX_TRILINEAR ? "(table, width, height, x, y, z)" :
+			    kind == O_FETCH_BORDER ?
+			    "(table, index, border value)" :
 			    kind == O_FETCH_LAYER ? "(table, layer "
 			    "coordinate)" : IS_FETCH(kind) || IS_TEXEL(kind) ?
 			    "(table, index)" :
@@ -960,6 +963,19 @@ ident(struct P *p)
 				    "16777215, not %s", node_str(args[1]));
 			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]), args[0],
 			    args[2], args[3]);
+		}
+		if (kind == O_TEX_TRILINEAR) {
+			int k;
+			for (k = 1; k <= 2; k++)
+				if (!is_const(args[k]) ||
+				    !TY_ISINT(N.ty[args[k]]) || N.ki[args[k]] < 1 ||
+				    N.ki[args[k]] > 0xffffff)
+					fail("tex_trilinear's %s is a constant "
+					    "from 1 to 16777215, not %s", k == 1 ?
+					    "width" : "height", node_str(args[k]));
+			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) |
+			    TEX_KH(N.ki[args[2]]), args[0], args[3],
+			    tex_args(args[4], args[5]));
 		}
 		if (IS_FETCH(kind) && na == TEX_OFFNAME) {
 			nid o = args[want - 1];

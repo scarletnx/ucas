@@ -325,6 +325,13 @@ mem('tex_bilinear_rgba32f', '{a} + textureLodOffset(tex, uv, 0.0, ivec2({u} & 7,
     ty='float', decls=TEX, pre_iter='vec2 uv = vec2(float(gid & 1023u) + 0.5, float((gid >> 10) + i * 16u) + 0.5) / 1024.0;',
     fit=True, args=['--bind', '0.5=format=rgba32_sfloat,size=1024x1024,pattern=noise,filter=linear'],
     note='rgba32f, bilinear: four times the texel bytes')
+TEX3 = 'layout(set = 0, binding = 5) uniform sampler3D tex;\n'
+mem('tex_trilinear', '{a} + textureLodOffset(tex, uvw, 0.0, ivec3({u} & 7, {u} >> 3, 0)).x', {'x_tex_trilinear': 1, 'fadd': 1},
+    ty='float', decls=TEX3,
+    pre_iter='vec3 uvw = vec3(float(gid & 127u) + 0.5, float((gid >> 7) & 127u) + 0.5, float((gid >> 14) + i * 4u) + 0.5) / vec3(128.0, 128.0, 64.0);',
+    fit=True, args=['--bind', '0.5=format=rgba8_unorm,size=128x128x64,view=3d,pattern=noise,filter=linear'],
+    note='rgba8 3-D (the same 4 MiB as tex_bilinear), trilinear: eight texels, explicit LOD; less tex_bilinear, '
+         'the ucas class tex_3d')
 mem('image_load', '{a} + imageLoad(img, ivec2(px, py + {u})).x', {'x_image_load': 1, 'iadd': 1},
     decls='layout(set = 0, binding = 6, r32ui) uniform readonly uimage2D img;\n',
     pre_iter='int px = int(gid & 1023u), py = int((gid >> 10) + i * 16u) & 1007;', fit=True,

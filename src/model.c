@@ -47,7 +47,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm", "bfi",
 	"mulwide", "bytesel", "simd4x8", "msad", "pk16", "lerp8", "qsad",
 	"vmnmx", "sad32", "addsat", "ldexp", "frexp", "cube", "trigpreop",
-	"tex_packed", "tex_cube",
+	"tex_packed", "tex_cube", "tex_3d",
 };
 
 /*
@@ -257,7 +257,7 @@ node_cost(const struct model *m, nid n, int *cls)
 		}
 		*cls = -1;
 		return 0;
-	case O_CONST: case O_UNDEF: case O_TABLE:
+	case O_CONST: case O_UNDEF: case O_TABLE: case O_TEXARGS:
 		*cls = -1;
 		return 0;
 	case O_ADD: case O_SUB: case O_NEG:
