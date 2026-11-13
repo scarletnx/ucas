@@ -89,4 +89,3 @@ find mul512: a value in each lane (lanes), so there are no points to search; for
   note: loop loop(k in 0..31; r = 0 then k == int(lane) ? t1 : r; c = 0 then t1 >> 0x10).r where t1 = loop(i in 0..31; s = c then i <… (76 more characters) priced as 32 iterations x 788.25 (listed under branch)
   note: loop loop(i in 0..31; s = 0 then i <= int(lane) ? s + u64(u32(sg_shuffle(a, i))*u32(sg_shuffle(b, int(lane) - i & 0x1f))) : s… (3 more characters) priced as 32 iterations x 24.25 (listed under branch)
   note: loop loop(k in 0..31; r = 0 then k == int(lane) ? t1 : r; c = 0 then t1 >> 0x10).r where t1 = c + sg_shuffle(loop(i in 0..31;… (116 more characters) priced as 32 iterations x 793.25 (listed under branch)
-0.24 s
