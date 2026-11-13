@@ -63,6 +63,44 @@ find trap: 1024 points (sampled; matches verified on the whole domain), computin
            checked by SAT
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> R(i: u32 in 0..15) = [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][i]
+> Q(i: u32 in 0..15) = [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][i]
+> P(i: u32 in 0..15) = [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][i]
+> alt(x: u32 uniform) = u32(S(x & 15) | (R((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (R((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (R((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (R((x >> 28) & 15) << 28))
+> find alt 1
+find alt: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  dropping operations of alt (cost 95 as written; each checked on the whole domain):
+  cost 94  u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x & 15] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 4 & 15] << 4 | [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x >> 8 & 15] << 8 | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][x >> 12 & 15] << 12 | [12,… (305 more characters) drops & 15 (proved by SAT)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 95 as written):
+  cost 20.25 sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][(x >> (lane & 0x1c) & 15) + ((lane & 4) << 2)] >> (lane & 3) & 1 != 0)
+           every bit of the result reads one field of x and nothing else, 8 fields of 4 bits (told by flipping each bit of x at 48 values of it), and the fields go through 2 functions, each tabulated at its 16 values with the other fields 0, one after the other in a table; lane i works out bit i, its field's function of the field at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> four(x: u16 uniform) = u16(S(x & 15) | (R((x >> 4) & 15) << 4) | (Q((x >> 8) & 15) << 8) | (P((x >> 12) & 15) << 12))
+  note: argument 1 of S converted from u16 to u32
+  note: argument 1 of R converted from u16 to u32
+  note: argument 1 of Q converted from u16 to u32
+  note: argument 1 of P converted from u16 to u32
+> find four 1
+find four: 1024 points (sampled; matches verified on the whole domain), computing in u16, costs from gt1030
+  dropping operations of four (cost 47 as written; each checked on the whole domain):
+  cost 46  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] << 4 | [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] << 8 | [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12 & 1… (9 more characters) drops the conversion u16(...) (exhaustive)
+  cost 46  u16([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] << 4 | [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] << 8 | [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12… (9 more characters) drops & 15 (exhaustive)
+  cost 45  [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][u32(x & 15)] | [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][u32(x >> 4 & 15)] << 4 | [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][u32(x >> 8 & 15)] << 8 | [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> 12)] <… (4 more characters) all of them: drops the conversion u16(...), then & 15 (exhaustive)
+  subgroup forms under gt1030 (each derived, with what it holds under; cost 46.5 as written):
+  cost 21.25 u16(sg_ballot([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2, 14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7, 7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15, 2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][u32(x >> (lane & 12) & 15) + ((lane & 12) << 2)] >> (lane & 3) & 1 != 0) & 0xffff)
+           every bit of the result reads one field of x and nothing else, 4 fields of 4 bits (told by flipping each bit of x at 48 values of it), and the fields go through 4 functions, each tabulated at its 16 values with the other fields 0, one after the other in a table; lane i works out bit i, its field's function of the field at the bit's place in it, and the ballot puts it at bit i; a guess until the check below, which proves the form equal to the function
+           holds in a full subgroup (all 32 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
+           checked on every point of the domain
+  a table under gt1030 (the function at every point of its domain; cost 46.5 as written):
+  cost 6.875 [10220, 10213, 10214, 10219, 10217, 10208, 10218, 10221, 10211, 10222, 10223, 10216, 10212, 10215, 10209, 10210, 10060, 10053, 10054, 10059, 10057, 10048, 10058… (447490 more characters)
+           65536 entries of u16 (131072 bytes of constant data), one for each point of x in 0..65535; entry k is the function at the point with index k = u32(x), all 65536 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > two(x: u32 uniform) = u32(S(x & 15)) | (((x >> 4) & 15) * 5 % 16 << 4)
 > find two 1
 find two: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030

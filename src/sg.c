@@ -2407,6 +2407,7 @@ bitslice(struct sgf *g, nid cur, float *cost)
 
 #define FM_BITS 8		/* a field's bits, at most */
 #define FM_POINTS 48		/* the values each bit is flipped at */
+#define FM_TABLE 1024		/* the entries of the fields' functions */
 
 static int
 msb64(uint64_t v)
@@ -2437,8 +2438,9 @@ fm_eval(struct plan *p, const struct func *f, int slot, const uint64_t *x,
 	return 1;
 }
 
-/* v[i] in the lanes of live as a form of the lane's index: lane & c, or
- * c0 + m (lane >> a), inside 0..lim-1 in every lane; 0 when it is neither */
+/* v[i] in the lanes of live as a form of the lane's index: lane & c, a
+ * field of it times m, or c0 + m (lane >> a), inside 0..lim-1 in every
+ * lane; 0 when it is none */
 static nid
 fm_closed(const int *v, uint64_t live, int W, int lim)
 {
@@ -2454,6 +2456,32 @@ fm_closed(const int *v, uint64_t live, int W, int lim)
 			break;
 	if (i == W && ((W - 1) & c) < lim)
 		return c ? mk_bin(O_AND, L, mk_const_i(t, c)) : mk_const_i(t, 0);
+	for (a = 0; a < 6; a++) {
+		int b, m = 0;
+		for (b = 1; a + b <= 6; b++) {
+			int fm = (1 << b) - 1;
+			for (i = 0, m = 0; i < W && !m; i++)
+				if (((live >> i) & 1) && ((i >> a) & fm) == 1)
+					m = v[i];
+			if (m <= 0 || m * fm >= lim)
+				continue;
+			for (i = 0; i < W; i++)
+				if (((live >> i) & 1) && v[i] != ((i >> a) & fm) * m)
+					break;
+			if (i == W && !(m & (m - 1))) {
+				/* m a power of two: the field moved to its place */
+				int sh = ctz64((uint64_t)m) - a;
+				nid s = mk_bin(O_AND, L, mk_const_i(t, fm << a));
+				return sh > 0 ? mk_bin(O_SHL, s, mk_const_i(t, sh)) :
+				    sh < 0 ? mk_bin(O_SHR, s, mk_const_i(t, -sh)) : s;
+			}
+			if (i == W) {
+				nid s = mk_bin(O_AND, a ? mk_bin(O_SHR, L,
+				    mk_const_i(t, a)) : L, mk_const_i(t, fm));
+				return mk_bin(O_MUL, s, mk_const_i(t, m));
+			}
+		}
+	}
 	for (a = 1; a < 6; a++) {
 		int i0 = -1, i1 = -1, m, c0;
 		for (i = 0; i < W; i++) {
@@ -2485,10 +2513,11 @@ fm_closed(const int *v, uint64_t live, int W, int lim)
 
 /*
  * A map applied field by field to a word the lanes share: every bit of
- * the result reads one field of the word, at most FM_BITS wide, and
- * every field goes through the same function (an S-box on each nibble).
- * Lane i works out its bit, the function of its field at bit i's place,
- * and the ballot puts the bits together.  Which bits of the word a bit
+ * the result reads one field of the word, at most FM_BITS wide (an S-box
+ * on each nibble).  Lane i works out its bit, its field's function of
+ * the field at bit i's place, and the ballot puts the bits together; the
+ * functions the fields go through, FM_TABLE entries of them at most, sit
+ * one after the other in one table.  Which bits of the word a bit
  * of the result reads is a guess, from the function with each bit
  * flipped at FM_POINTS values; the form built on it is kept only when it
  * is proved equal to the function (every point, or SAT), in g->pr.
@@ -2504,14 +2533,14 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 	struct plan p;
 	struct sbuf wit = {0};
 	uint64_t slots = node_slots(cur), dep[64], x[CH], y[CH], y0[FM_POINTS];
-	uint64_t H[1 << FM_BITS], live = 0, kc, seed = 0x9e3779b97f4a7c15ULL;
-	uint64_t all = 0;
+	uint64_t *H, hq[1 << FM_BITS], live = 0, kc;
+	uint64_t all = 0, seed = 0x9e3779b97f4a7c15ULL;
 	int W = (int)g->m->par[MP_WARP], wr = int_width(N.ty[cur]), slot = -1;
 	int n, i, j, q, nf = 0, k, nout, sv[SG_MAXW], bv[SG_MAXW], ok = 1, bad;
-	int untyped = 0;
+	int untyped = 0, nfun = 0, fv[SG_MAXW];
 	int64_t *in_i;
 	double *in_r;
-	nid roots[1], xv, sexp, bexp, v, h, cand, *e, rd[2];
+	nid roots[1], xv, sexp, bexp, v, h, cand, *e, rd[3];
 	ty_t bt = TY(K_UINT, W > 32 ? 64 : 32), ht;
 	float c;
 	int nrd = 0;
@@ -2584,26 +2613,42 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 				q++;
 		fl[nf++] = tf;
 	}
+	/* in the order of their bits of the result */
+	for (q = 1; q < nf; q++)
+		for (j = q; j > 0 && ctz64(fl[j].out) < ctz64(fl[j - 1].out); j--) {
+			tf = fl[j];
+			fl[j] = fl[j - 1];
+			fl[j - 1] = tf;
+		}
 	k = nf ? fl[0].hi - fl[0].lo + 1 : 0;
-	nout = nf ? msb64(fl[0].out >> ctz64(fl[0].out)) + 1 : 0;
+	nout = 0;
 	ok = ok && nf >= 2 && k <= FM_BITS;
-	/* one function in every field: tabulated with the other fields 0 */
+	/* each field's function, tabulated with the other fields 0; the
+	 * different ones one after the other */
+	H = xmalloc(FM_TABLE * sizeof *H);
 	for (q = 0; q < nf && ok; q++) {
-		int d = ctz64(fl[q].out);
-		if (fl[q].hi - fl[q].lo + 1 != k || fl[q].out >> d !=
-		    fl[0].out >> ctz64(fl[0].out)) {
+		int d = ctz64(fl[q].out), fn;
+		if (fl[q].hi - fl[q].lo + 1 != k) {
 			ok = 0;
 			break;
 		}
+		if (msb64(fl[q].out >> d) + 1 > nout)
+			nout = msb64(fl[q].out >> d) + 1;
 		for (i = 0; i < 1 << k; i++)
 			x[i] = (uint64_t)i << fl[q].lo;
 		ok = fm_eval(&p, f, slot, x, y, 1 << k, in_i, in_r);
-		for (i = 0; i < 1 << k && ok; i++) {
-			uint64_t hv = (y[i] & fl[q].out) >> d;
-			if (q == 0)
-				H[i] = hv;
-			else if (H[i] != hv)
+		for (i = 0; i < 1 << k && ok; i++)
+			hq[i] = (y[i] & fl[q].out) >> d;
+		for (fn = 0; fn < nfun; fn++)
+			if (!memcmp(H + ((size_t)fn << k), hq, ((size_t)1 << k) *
+			    sizeof *hq))
+				break;
+		if (fn == nfun && ok) {
+			if ((nfun + 1) << k > FM_TABLE)
 				ok = 0;
+			else
+				memcpy(H + ((size_t)nfun++ << k), hq, ((size_t)1 << k) *
+				    sizeof *hq);
 		}
 		all |= fl[q].out;
 		for (i = 0; i < wr; i++)
@@ -2611,20 +2656,23 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 				live |= 1ULL << i;
 				sv[i] = fl[q].lo;
 				bv[i] = i - d;
+				fv[i] = fn << k;
 			}
 	}
 	kc = y0[0] & ~all & wmask(wr);
 	plan_free(&p);
 	free(in_i);
 	free(in_r);
-	if (!ok)
+	if (!ok) {
+		free(H);
 		return cur;
+	}
 	for (i = 0; i < W; i++)
 		if (!((live >> i) & 1))
-			sv[i] = bv[i] = 0;
+			sv[i] = bv[i] = fv[i] = 0;
 	/* where a lane's field starts and which bit of the function is its
 	 * own: forms of the lane's index, else tables read at it */
-	e = xmalloc(((size_t)1 << FM_BITS) * sizeof *e);
+	e = xmalloc(FM_TABLE * sizeof *e);
 	sexp = fm_closed(sv, live, W, n);
 	if (!sexp) {
 		for (i = 0; i < W; i++)
@@ -2640,11 +2688,23 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 	xv = mk_var((uint32_t)slot, f->p[slot].name, f->p[slot].ty);
 	v = mk_bin(O_AND, mk_bin(O_SHR, xv, sexp), mk_const_i(f->p[slot].ty,
 	    (1 << k) - 1));
+	if (nfun > 1) {
+		/* the lane's function starts at its number times 2^k */
+		nid fexp = fm_closed(fv, live, W, nfun << k);
+		if (!fexp) {
+			for (i = 0; i < W; i++)
+				e[i] = mk_const_i(TY(K_UINT, 32), fv[i]);
+			fexp = rd[nrd++] = mk_index(mk_table(e, (uint32_t)W),
+			    sg_lane());
+		}
+		v = mk_bin(O_ADD, mk_cast(TY(K_UINT, 32), v), fexp);
+	}
 	ht = TY(K_UINT, nout > 32 ? 64 : 32);
-	for (i = 0; i < 1 << k; i++)
+	for (i = 0; i < nfun << k; i++)
 		e[i] = mk_const_i(ht, (int64_t)H[i]);
-	h = mk_index(mk_table(e, 1u << k), v);
+	h = mk_index(mk_table(e, (uint32_t)nfun << k), v);
 	free(e);
+	free(H);
 	cand = mk_sg(O_SGBALLOT, mk_bin(O_NE, mk_bin(O_AND, mk_bin(O_SHR, h,
 	    bexp), mk_const_i(ht, 1)), mk_const_i(TY_LIT, 0)), mk_const_i(TY_LIT,
 	    W), 0);
@@ -2671,13 +2731,21 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 	g->proved = cand;
 	sb_printf(why, "every bit of the result reads one field of %s and "
 	    "nothing else, %d fields of %d bits (told by flipping each bit of "
-	    "%s at %d values of it), and each field goes through the same "
-	    "function, tabulated at its %d values with the other fields 0; "
-	    "lane i works out bit i, the function of the field it belongs to "
-	    "at the bit's place in it, and the ballot puts it at bit i; a "
-	    "guess until the check below, which proves the form equal to the "
-	    "function\n", sym_str(f->p[slot].name), nf, k,
-	    sym_str(f->p[slot].name), FM_POINTS, 1 << k);
+	    "%s at %d values of it), and ", sym_str(f->p[slot].name), nf, k,
+	    sym_str(f->p[slot].name), FM_POINTS);
+	if (nfun == 1)
+		sb_printf(why, "each field goes through the same function, "
+		    "tabulated at its %d values with the other fields 0; lane i "
+		    "works out bit i, the function of the field it belongs to at "
+		    "the bit's place in it", 1 << k);
+	else
+		sb_printf(why, "the fields go through %d functions, each "
+		    "tabulated at its %d values with the other fields 0, one "
+		    "after the other in a table; lane i works out bit i, its "
+		    "field's function of the field at the bit's place in it",
+		    nfun, 1 << k);
+	sb_printf(why, ", and the ballot puts it at bit i; a guess until the "
+	    "check below, which proves the form equal to the function\n");
 	*cost = c;
 	return cand;
 }

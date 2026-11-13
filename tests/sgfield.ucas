@@ -24,9 +24,20 @@ find sq 1
 trap(x: u32 uniform) = (S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (S((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (S((x >> 28) & 15) << 28)) xor (x == 0x12345678 ? 1 : 0)
 find trap 1
 
-# not taken: fields through different functions, a form that is dearer
-# than the function (a count of each nibble's bits, 9 as written), a
-# word that is not shared by the lanes, a model without the ballot
+# fields through different functions: the functions one after the other
+# in one table, the lane's own at its number times 16; two S-boxes that
+# alternate over eight nibbles, four over a u16
+R(i: u32 in 0..15) = [14, 4, 13, 1, 2, 15, 11, 8, 3, 10, 6, 12, 5, 9, 0, 7][i]
+Q(i: u32 in 0..15) = [7, 13, 14, 3, 0, 6, 9, 10, 1, 2, 8, 5, 11, 12, 4, 15][i]
+P(i: u32 in 0..15) = [2, 12, 4, 1, 7, 10, 11, 6, 8, 5, 3, 15, 13, 0, 14, 9][i]
+alt(x: u32 uniform) = u32(S(x & 15) | (R((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (R((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (R((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (R((x >> 28) & 15) << 28))
+find alt 1
+four(x: u16 uniform) = u16(S(x & 15) | (R((x >> 4) & 15) << 4) | (Q((x >> 8) & 15) << 8) | (P((x >> 12) & 15) << 12))
+find four 1
+
+# not taken: a form that is dearer than the function (two fields, one
+# of them arithmetic, 18 as written; a count of each nibble's bits, 9),
+# a word that is not shared by the lanes, a model without the ballot
 two(x: u32 uniform) = u32(S(x & 15)) | (((x >> 4) & 15) * 5 % 16 << 4)
 find two 1
 pc(x: u32 uniform) = { a = x - ((x >> 1) & 0x55555555); (a & 0x33333333) + ((a >> 2) & 0x33333333) }

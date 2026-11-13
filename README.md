@@ -3291,20 +3291,24 @@ under; the whole is then checked against the function on its domain
   its inverse from 13 to 9.375 (tests/sgslice.ucas).
 - A map applied field by field to a shared word (an S-box on each
   nibble, a function of each byte): every bit of the result reads one
-  field of the word, at most 8 bits wide, and every field goes through
-  the same function.  Lane i works out bit i, `(H[(x >> s) & m] >> b) &
-  1` with H the function tabulated at a field's values, s where the
-  lane's field starts and b the bit's place in it (forms of the lane's
-  index such as `lane & 28` and `lane & 3`, tables otherwise), and the
-  ballot puts the bits together: one table read for the whole word.
+  field of the word, at most 8 bits wide.  Lane i works out bit i,
+  `(H[(x >> s) & m] >> b) & 1` with H the field's function tabulated
+  at a field's values, s where the lane's field starts and b the bit's
+  place in it (forms of the lane's index such as `lane & 28` and `lane
+  & 3`, tables otherwise), and the ballot puts the bits together: one
+  table read for the whole word.  Fields that go through different
+  functions have them one after the other in H (1024 entries at most),
+  the lane's own at its number times the field's size, `H[((x >> s) &
+  m) + ((lane & 4) << 2)]`.
   Which bits of the word a bit of the result reads is a guess, made by
   flipping each bit of the word at 48 values of it; the form built on
   it is offered only when it is proved equal to the function (every
   point, or SAT), so a wrong guess is dropped.  Eight nibbles through a
   4-bit S-box go from 95 to 17.25 under gt1030 (78.875 with the table
   as a register), the squares of four bytes from 32 to 18.25
-  (tests/sgfield.ucas).  Fields that go through different functions,
-  fields of two words and a word with a range are not taken.
+  and two S-boxes that alternate over the nibbles from 95 to 20.25
+  (tests/sgfield.ucas).  Fields of different sizes, fields of two
+  words and a word with a range are not taken.
 - A table read at the lane's index (the register above, a bit slice's
   rows or shifts) whose entries are a closed form of the lane, `c + k
   lane` (every entry checked) or one of find's maps of one small-range
