@@ -4168,6 +4168,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `tex_trilinearB(T, W, H, u, v, w)` | the same on three axes of the table read as D slices of H rows of W texels (a 3-D texture), at texel coordinates (u W, v H, w D): eight texels, their weights the products of the three axes'; u, v, w normalised (below) |
 | `tex_compare_leB(T, W, u, v, ref)`, `_lt`, `_eq`, `_ne`, `_ge`, `_gt` | a depth compare read: `tex_bilinearB` at (u W, v H) of the texels replaced by 1 where `ref <= texel` (`<`, `==` ...) and 0 elsewhere; u, v normalised (below) |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
+| `tex_birepeatB(T, W, u, v)`, `tex_bimirrorB`, `tex_trirepeatB(T, W, H, u, v, w)`, `tex_trimirrorB` | `tex_bilinearB` and `tex_trilinearB` with every axis wrapped so, at normalised coordinates (below) |
 | `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB`, `tex_triminB(T, W, H, u, v, w)`, `tex_trimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
 The `fetch_` reads take an integer texel index of any type and are
@@ -4536,21 +4537,33 @@ divide stays.  The projection read through the unit is not offered: the
 specification states no precision for its divide, and no model states
 one (tests/texcube.ucas).
 
-**Wrapping filters.**  Vulkan allows unnormalised coordinates only
-with CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
+**Wrapping filters.**  Vulkan allows unnormalised coordinates only with
+CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
 normalised coordinate: `tex_repeatB(T, u)` and `tex_mirrorB(T, u)` are
-the linear filter at texel coordinate u n (exact), its texels
-REPEAT's and MIRRORED_REPEAT's.  A mix of `T[i % n]` and `T[(i + 1) %
-n]` (any affine i, the n of the table), or of the mirrored indices
-`min(i % 2n, 2n - 1 - i % 2n)`, is one such read: the pair is read as
-it is everywhere, with no edge to stay inside.  The coordinate is made
-as the clamped filter's, x, then u = x f32(1/n): the unit's u n is
-within |x| 2^-23 of x (two roundings of 2^-24; exact when n is a power
-of two), which joins the weight's move in the bound, and the multiply
-is priced.  A weight's move meets the largest step between neighbours,
-and under REPEAT the last texel and the first are neighbours too.  A wrapping entry with no neighbour that wraps with it is
-read as it is, an affine index of `i % n`.  One axis only
-(tests/texwrap.ucas).
+the linear filter at texel coordinate u n (exact), its texels REPEAT's
+and MIRRORED_REPEAT's; `tex_birepeatB(T, W, u, v)`, `tex_bimirrorB`,
+`tex_trirepeatB(T, W, H, u, v, w)` and `tex_trimirrorB` are the 2-D and
+3-D filters with every axis wrapped so, at (u W, v H) and (u W, v H, w
+D).  A mix of `T[i % n]` and `T[(i + 1) % n]` (any affine i, the n of
+the table), or of the mirrored indices `min(i % 2n, 2n - 1 - i % 2n)`,
+is one such read: the pair is read as it is everywhere, with no edge to
+stay inside.  The same holds along every axis of a table read as rows of
+W (or slices of H rows): an index `(y' % H) W + x' % W` (`+ (z' % D) W
+H`), the mode written out on each axis, the same mode on all, each x' a
+variable plus a constant, is that texel of the wrapped read, and
+neighbours along the axes are one read as the clamped filters' are.  A
+truncated remainder is the floored one only where it is not negative, so
+every axis but the outermost must be proved non-negative (a negative
+outermost one leaves the table, where the read is undefined).  The
+coordinate is made as the clamped filter's, x, then u = x f32(1/n): the
+unit's u n is within |x| 2^-23 of x (two roundings of 2^-24; exact when
+n is a power of two), which joins the weight's move in the bound, and
+the multiply is priced.  A weight's move meets the largest step between
+neighbours, and under REPEAT the last texel and the first (of a row, a
+column, a run along z) are neighbours too.  A wrapping entry with no
+neighbour that wraps with it is read as it is, an affine index of `i %
+n`.  An axis that wraps beside one that clamps is not read (Vulkan has a
+mode for each axis; the operations take one) (tests/texwrap.ucas).
 
 **Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN or
 _MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least or
@@ -4603,10 +4616,17 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 
 Not done: shared weights in a kernel that is not a column times a row
 (times a run) (a small linear program over the blocks), anisotropic
-filters, mip levels as means, gather, a bilinear or
-trilinear filter that wraps, and a compare read of a UNORM depth
-texture (which clamps the reference) or of an array or cube one.  None of those has a measured
-price yet either.
+filters (the specification leaves their taps and weights to the
+implementation), mip levels as means, gather, a filter that wraps along
+some axes and clamps along others, and a compare read of a UNORM depth
+texture, of an array one or of a cube one.  The first of those three
+rests on what the specification does not state, how precisely a unit
+compares the reference with a UNORM texel (it clamps the reference to
+[0, 1], and may compare in the format's fixed point); a cube one on the
+precision of its projection (above); an array one needs the layer as a
+fifth value in the read (the pair holds the fourth), or the layers
+stacked as rows of one 2-D depth texture with every block kept inside
+its layer.  None of those has a measured price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
