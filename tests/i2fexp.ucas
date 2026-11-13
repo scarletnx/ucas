@@ -1,0 +1,22 @@
+# f32(1 << k) by the exponent field (#165): asfloat((k + 127) << 23), 2^k's
+# exponent field with a zero mantissa, for every k a shift by it defines
+# (0..31), where the shift goes with the conversion: an add and a shift in
+# place of a shift and a conversion.  A signed 1 << k needs k < 31 (proved
+# by SAT: 1 << 31 is negative), and a shift used elsewhere stays.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    o.f[i] = float(1u << (v & 31u));
+    o.f[i + 64u] = float(1 << int(v & 15u));
+    o.f[i + 128u] = float(1 << int(v & 31u));
+    uint s = 1u << (v >> 27);
+    o.f[i + 192u] = float(s);
+    b.d[i] = s;
+}
+```

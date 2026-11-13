@@ -2197,7 +2197,11 @@ OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
 operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
 bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
 add of 0x4B400000 and 1.5*2^23), where the model prices those below
-the conversion (3 to 2 under gt1030).  The range comes from the
+the conversion (3 to 2 under gt1030).  A conversion of `1 << k` whose
+shift has no other use is asfloat((k + 127) << 23), 2^k's exponent
+field, for every k the shift defines (a signed one needs k < 31,
+proved by SAT): an add and a shift in place of the shift and the
+conversion, 5 to 3 under gt1030 (tests/i2fexp.ucas).  The range comes from the
 operand's definitions (a mask, a shift, an add of bounded values) or
 an assumption on what it loads.  They are written last, after the
 float, memory and advice passes, which read the conversion (its
