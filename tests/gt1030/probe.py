@@ -129,9 +129,14 @@ step('mulhi', [156], 'umulhi({a}, {b}) + k', {'mulhi': 1, 'iadd': 1}, decls=G.UM
 step('mulhi_u64', [156], 'uint((uint64_t({a}) * uint64_t({b})) >> 32) + k', {'x_i64mul': 1, 'shift': 1, 'iadd': 1},
      exts=['i64'], note='the same through a u64 multiply and a shift')
 step('brev', [156], 'bitfieldReverse({a}) + {b}', {'brev': 1, 'iadd': 1}, note='BREV (the corpus: bitreverse 2.26)')
-step('med3_clamp', [156], 'clamp({a}, {b}, {c})', {'med3': 1}, lat=False, note='clamp of three chains')
-step('med3_minmax', [156], 'min(max({a}, {b}), {c})', {'minmax': 2}, note='the same as a max and a min')
-step('med3_fclamp', [156], 'clamp({a}, {b}, {c})', {'med3': 1}, ty='float', note='a float clamp of three chains')
+# clamp is undefined when its low bound is above its high one, so the bounds are kept apart: by their bits
+# (below 2^16 and from 2^16), in float by their signs (free source modifiers on sm_61)
+step('med3_clamp', [156], 'clamp({a}, {b} & 0xffffu, {c} | 0x10000u)', {'med3': 1, 'logic': 2}, lat=False,
+     note='clamp of three chains, the bounds ordered by two masks')
+step('med3_minmax', [156], 'min(max({a}, {b} & 0xffffu), {c} | 0x10000u)', {'minmax': 2, 'logic': 2},
+     note='the same as a max and a min')
+step('med3_fclamp', [156], 'clamp({a}, -abs({b}), abs({c}))', {'med3': 1}, ty='float',
+     note='a float clamp of three chains, the bounds ordered by their signs')
 step('sad4x8', [156], 'uint(abs(int({a} & 0xffu) - int({b} & 0xffu)) + abs(int(({a} >> 8u) & 0xffu) - '
      'int(({b} >> 8u) & 0xffu)) + abs(int(({a} >> 16u) & 0xffu) - int(({b} >> 16u) & 0xffu)) + '
      'abs(int({a} >> 24u) - int({b} >> 24u))) + {c}', {'sad4x8': 1, 'iadd': 1},
@@ -921,12 +926,13 @@ def model_lines(res):
     if c is not None and f is not None:
         L.append(('fuse fsat(a: float) = min(max(a, 0.0), 1.0) : %g on fadd fmul' % q8(c - f),
                   '#186 %s against %s: %.2f' % (note('fsat_fma'), note('fma_contract'), c - f)))
-    for cls, n, minus in (('bfe', 'bfe_builtin', 1), ('brev', 'brev', 1), ('mulhi', 'mulhi', 1),
-                          ('funnel', 'funnel', 1), ('byteperm', 'byteswap', 1), ('med3', 'med3_clamp', 0),
-                          ('sad4x8', 'sad4x8', 1)):
+    for cls, n, minus, what in (('bfe', 'bfe_builtin', 1, 'its add'), ('brev', 'brev', 1, 'its add'),
+                                ('mulhi', 'mulhi', 1, 'its add'), ('funnel', 'funnel', 1, 'its add'),
+                                ('byteperm', 'byteswap', 1, 'its add'), ('med3', 'med3_clamp', 2, 'its two masks'),
+                                ('sad4x8', 'sad4x8', 1, 'its add')):
         c = cost(n)
         if c is not None:
-            L.append(('%s: %g' % (cls, q8(c - minus)), '#156 %s%s' % (note(n), ' less its add' if minus else '')))
+            L.append(('%s: %g' % (cls, q8(c - minus)), '#156 %s less %s' % (note(n), what)))
     c = cost('tex_nearest')
     if c is not None:
         L.append(('tex_nearest: %g' % q8(c - 1), '#115 %s less its add' % note('tex_nearest')))
