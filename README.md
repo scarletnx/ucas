@@ -4116,6 +4116,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
 | `tex_trilinearB(T, W, H, u, v, w)` | the same on three axes of the table read as D slices of H rows of W texels (a 3-D texture), at texel coordinates (u W, v H, w D): eight texels, their weights the products of the three axes'; u, v, w normalised (below) |
+| `tex_compare_leB(T, W, u, v, ref)`, `_lt`, `_eq`, `_ne`, `_ge`, `_gt` | a depth compare read: `tex_bilinearB` at (u W, v H) of the texels replaced by 1 where `ref <= texel` (`<`, `==` ...) and 0 elsewhere; u, v normalised (below) |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
 | `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
@@ -4153,6 +4154,28 @@ the 2-D read's of its texels' format plus `tex_3d`, what the third axis
 adds (no built-in model lists it: not measured; tests/gt1030 has the
 probe, `tex_trilinear`, an rgba8 3-D read against `tex_bilinear`)
 (tests/textrilinear.ucas).
+
+**Compare reads.**  `tex_compare_leB(T, W, u, v, ref)` is a depth
+compare read with the linear filter (OpImageSampleDrefExplicitLod, a
+`sampler2DShadow`): each of the four texels becomes 1 where `ref <=
+texel` holds and 0 elsewhere, and those are filtered as
+`tex_bilinearB` and rounded once.  The suffix is the sampler's
+compareOp, the reference first and the texel the test value: `_lt`,
+`_eq`, `_le`, `_gt`, `_ne`, `_ge` (NEVER and ALWAYS are the constants
+0 and 1, not reads); the comparisons are IEEE's, so a NaN reference
+passes only `_ne`.  Vulkan allows no unnormalizedCoordinates with a
+compare, so the coordinates are normalised (the unit's (u W, v H)).  It
+also lets a unit filter the passes "in an implementation-dependent
+manner", in [0, 1]: the operation is the weighted average, and a model
+that lists `tex_compare` says its unit computes that, within
+`tex_within`.  The texture is D32_SFLOAT, the table's entries as they
+are, which must be in [0, 1] (VK_EXT_depth_range_unrestricted aside; a
+UNORM depth format would also clamp the reference).  At the corner of
+four texels every weight is 1/4 on any grid, so the read is the count
+that pass over 4, exactly: `tex_compare_le8([0.1, 0.2, 0.3, 0.4, 0.5,
+0.6, 0.7, 0.8, 0.9], 3, f32(1) / 3, f32(1) / 3, 0.2)` is 0.75.  No
+built-in model lists `tex_compare` (tests/gt1030's probe `tex_compare`,
+a D32_SFLOAT LESS_OR_EQUAL read) (tests/texcompare.ucas).
 
 **Cost classes and parameters.**  `tex_nearest` prices a `fetch_` read
 (its coordinate, (i + 1/2)/n made from the index, costs a `conv` and an
@@ -4222,7 +4245,16 @@ is offered: `texalu` says which number is missing.
   does not).  A 3-D read takes normalised coordinates, x f32(1/W):
   exact for a size that is a power of two, else within |x| 2^-23 of x,
   in the bound; the sum of 2 x 2 x 2 neighbouring bytes is one such
-  read at their corner, exactly.  The cover with
+  read at their corner, exactly.  A term may also be a compare of an
+  entry with one reference, as an indicator (`u32(r <= S[i])`,
+  `f32(r < S[i])`, `S[i] >= r ? 1.0 : 0.0`): the compares of one table
+  against one reference are covered the same way, each block a compare
+  read of the table as a depth texture (its entries in [0, 1]), at
+  normalised coordinates.  The count of the four compares around a
+  texel corner is one read there, exactly; the passes weighted by
+  fractions s, t (a percentage-closer filter) one read within the snap
+  of s and t; a reference that may be NaN is named in what the read
+  holds under.  The cover with
   the lowest price under the model is taken, by dynamic programming
   over the entries (greedily past 16).  A separable kernel (constant
   weights of one sign over a filled rectangle, a column times a row)
@@ -4510,9 +4542,10 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks) or that spans three axes,
-anisotropic filters, mip levels as means, compare samplers, gather, a
-min or max of more than a 2 x 2 footprint (trilinear's 8) and a
-bilinear or trilinear filter that wraps.  None of those has a measured
+anisotropic filters, mip levels as means, gather, a min or max of
+more than a 2 x 2 footprint (trilinear's 8), a bilinear or trilinear
+filter that wraps, and a compare read of a UNORM depth texture (which
+clamps the reference) or of an array or cube one.  None of those has a measured
 price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the

@@ -1,0 +1,179 @@
+> D = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+> show tex_compare_le8(D, 3, f32(1) / 6, f32(1) / 6, 0.1)
+_() = 1
+  -> f32
+> show tex_compare_lt8(D, 3, f32(1) / 6, f32(1) / 6, 0.1)
+_() = 0
+  -> f32
+> show tex_compare_lt8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.5
+  -> f32
+> show tex_compare_le8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.75
+  -> f32
+> show tex_compare_eq8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.25
+  -> f32
+> show tex_compare_ne8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.75
+  -> f32
+> show tex_compare_ge8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.5
+  -> f32
+> show tex_compare_gt8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+_() = 0.25
+  -> f32
+> show tex_compare_ge8(D, 3, f32(5) / 12, f32(1) / 6, 0.15)
+_() = 0.25
+  -> f32
+> show tex_compare_le8(D, 3, -2, 5, 0.85)
+_() = 0
+  -> f32
+> show tex_compare_le8(D, 3, 0.5, 0.5, asfloat(u32(2143289344)))
+_() = 0
+  -> f32
+> show tex_compare_ne8(D, 3, 0.5, 0.5, asfloat(u32(2143289344)))
+_() = 1
+  -> f32
+> show tex_compare_xx8(D, 3, 0.5, 0.5, 0.2)
+texcompare.ucas:28:6: error: tex_compare_xx8: a compare read is tex_compare_ with lt, le, eq, ne, ge or gt and the grid's bits, as tex_compare_le8
+    show tex_compare_xx8(D, 3, 0.5, 0.5, 0.2)
+         ^
+> show tex_compare_le8(D, 2, 0.5, 0.5, 0.2)
+texcompare.ucas:29:42: error: tex_compare: a table of 9 texels is not rows of 2
+    show tex_compare_le8(D, 2, 0.5, 0.5, 0.2)
+                                             ^
+> show tex_compare_le8(D, 3, 0.5, 0.5)
+texcompare.ucas:30:37: error: tex_compare takes (table, width, x, y, reference)
+    show tex_compare_le8(D, 3, 0.5, 0.5)
+                                        ^
+> show tex_compare_le(D, 3, 0.5, 0.5, 0.2)
+texcompare.ucas:31:6: error: tex_compare_le: a compare read is tex_compare_ with lt, le, eq, ne, ge or gt and the grid's bits, as tex_compare_le8
+    show tex_compare_le(D, 3, 0.5, 0.5, 0.2)
+         ^
+> c(u: f32 in 0..1, v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, u, v, r)
+> show c
+c(u: f32 in 0..1, v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8([0.100000001, 0.200000003, 0.300000012, 0.400000006, 0.5, 0.600000024, 0.699999988, 0.800000012, 0.899999976], 3, u, v, r)
+  -> f32
+> g(r: f32 in 0..1) = c(f32(1) / 3, f32(1) / 3, r * 0.5)
+> show g
+g(r: f32 in 0..1) = tex_compare_le8([0.100000001, 0.200000003, 0.300000012, 0.400000006, 0.5, 0.600000024, 0.699999988, 0.800000012, 0.899999976], 3, 0.333333343, 0.333333343, 0.5r)
+  -> f32
+> h(i: u8 in 0..10) = tex_compare_le8(D, 3, f32(1) / 3, f32(1) / 3, f32(i) / 10)
+> table h max 11
+  i=0  ->  1
+  i=1  ->  1
+  i=2  ->  0.75
+  i=3  ->  0.5
+  i=4  ->  0.5
+  i=5  ->  0.25
+  i=6  ->  0
+  i=7  ->  0
+  i=8  ->  0
+  i=9  ->  0
+  i=10  ->  0
+> k1(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, v, r)
+> k2(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, r, v)
+> k3(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, v, r * 1)
+> equiv k1 k2
+k1 and k2 differ at 2429 points of the sample, e.g. v=9.05810644e-19, r=0.240924284: 0 vs 1
+> equiv k1 k3
+k1 and k3 are equal on the domain of k1 (sampled, not proved; no SAT proof: a filtered texture read)
+> cost k1
+cost of k1 under gt1030: inf (1 operations, shared subterms counted once)
+  tex_compare      1 x inf   = inf
+  tex_compare is not available under gt1030 (the model lists no such instruction)
+> model dc : gt1030 { tex_compare: 24 }
+> use dc
+cost model: dc
+> cost k1
+cost of k1 under dc: 24 (1 operations, shared subterms counted once)
+  tex_compare      1 x 24    = 24
+> use gt1030
+cost model: gt1030
+> S = [0.25, 0.5, 0.75, 1.0, 0.125, 0.375, 0.625, 0.875, 0.0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125]
+> model cal : gt1030 { tex_within: 2, tex_compare: 24 }
+> n4(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= S[y*4 + x]) + u32(r <= S[y*4 + x + 1]) + u32(r <= S[y*4 + x + 4]) + u32(r <= S[y*4 + x + 5])
+> texalu n4 under cal
+texalu n4: reads through the texture unit under cal (cost 57 as written):
+  cost 38  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125], 4, 0.25(f32(x) + 1), 0.25(f32(y) + 1), r) + 0.5)
+      4 compares of r with entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one compare read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a compare read at fractions (u, v) of texels a b / c d is (1-u)(1-v) [ref <= a] + u(1-v) [ref <= b] + (1-u)v [ref <= c] + uv [ref <= d], [ ] 1 where it holds and 0 elsewhere, ref = r: times 4 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the specification lets a unit filter the passes otherwise (in [0, 1]); the model's tex_compare is for a unit that takes this weighted average, within 2 ulp (its tex_within): 9.54e-07; the texels are what the sum compares, exactly; in all 1.43e-06
+        the coordinates are normalised, u = x f32(1/4), v = y f32(1/4), and the unit reads (u 4, v 4): exact: the sizes are powers of two
+      the entries' sum is a whole number and the reads are within 1.73e-06 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a depth texture D32_SFLOAT, 4 x 4, one level: the table's entries
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, normalised coordinates (no unnormalizedCoordinates with a compare), compareEnable with VK_COMPARE_OP_LESS_OR_EQUAL, lod 0
+        one combined image sampler more in the layout, a sampler2DShadow; the shader reads textureLod(s, vec3(u, v, r), 0.0)
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu n4
+texalu n4: the texture unit under gt1030 (cost 57 as written): nothing taken
+  gt1030 lists no tex_compare: a compare read of a depth texture is not available
+> p4(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = 0.25 * ((S[y*4 + x] >= r ? 1.0 : 0.0) + (S[y*4 + x + 1] >= r ? 1.0 : 0.0) + (S[y*4 + x + 4] >= r ? 1.0 : 0.0) + (S[y*4 + x + 5] >= r ? 1.0 : 0.0))
+> texalu p4 under cal
+texalu p4: reads through the texture unit under cal (cost 64.5 as written):
+  cost 37  real(tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125], 4, 0.25(f32(x) + 1), 0.25(f32(y) + 1), r))
+      4 compares of r with entries of the 4 x 4 table from offset (0, 0), weights' sum 1: one compare read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a compare read at fractions (u, v) of texels a b / c d is (1-u)(1-v) [ref <= a] + u(1-v) [ref <= b] + (1-u)v [ref <= c] + uv [ref <= d], [ ] 1 where it holds and 0 elsewhere, ref = r: times 1 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the specification lets a unit filter the passes otherwise (in [0, 1]); the model's tex_compare is for a unit that takes this weighted average, within 2 ulp (its tex_within): 2.38e-07; the texels are what the sum compares, exactly; in all 2.38e-07
+        the coordinates are normalised, u = x f32(1/4), v = y f32(1/4), and the unit reads (u 4, v 4): exact: the sizes are powers of two
+      against the exact weighted sum of the entries the reads are within 2.38e-07; as written, the sum's own f32 rounding is within 2.38e-07 (gamma_4 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0
+      the pipeline needs (a proposal: nothing is applied):
+        a depth texture D32_SFLOAT, 4 x 4, one level: the table's entries
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, normalised coordinates (no unnormalizedCoordinates with a compare), compareEnable with VK_COMPARE_OP_LESS_OR_EQUAL, lod 0
+        one combined image sampler more in the layout, a sampler2DShadow; the shader reads textureLod(s, vec3(u, v, r), 0.0)
+        setup (the descriptor, the upload) is not in the model: not measured
+> pb(x: u8 in 0..2, y: u8 in 0..2, s: f32 in 0..1, t: f32 in 0..1, r: f32 in 0..1) = (1-s)*(1-t)*f32(r < S[y*4 + x]) + s*(1-t)*f32(r < S[y*4 + x + 1]) + (1-s)*t*f32(r < S[y*4 + x + 4]) + s*t*f32(r < S[y*4 + x + 5])
+> texalu pb tol 0.01 under cal
+texalu pb: reads through the texture unit under cal (cost 76 as written):
+  cost 36  tex_compare_lt8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125], 4, 0.25(f32(x) + 0.5 + s), 0.25(f32(y) + 0.5 + t), r)
+      4 compares of r with entries of the 4 x 4 table from offset (0, 0), weights' sum 1: one compare read at fraction s along x, t along y
+      holds where s in [0, 1] (its range): the fraction s is in [0, 1]; t in [0, 1] (its range): the fraction t is in [0, 1]; x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a compare read at fractions (u, v) of texels a b / c d is (1-u)(1-v) [ref < a] + u(1-v) [ref < b] + (1-u)v [ref < c] + uv [ref < d], [ ] 1 where it holds and 0 elsewhere, ref = r: times 1 with u = s, v = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-19: the read moves by at most 0.00391 (x) and 0.00391 (y) times the largest step between neighbours, 1 and 1
+        the specification lets a unit filter the passes otherwise (in [0, 1]); the model's tex_compare is for a unit that takes this weighted average, within 2 ulp (its tex_within): 2.38e-07; the texels are what the sum compares, exactly; in all 0.00782
+        the coordinates are normalised, u = x f32(1/4), v = y f32(1/4), and the unit reads (u 4, v 4): exact: the sizes are powers of two
+      against the exact weighted sum of the entries the reads are within 0.00782; as written, the sum's own f32 rounding is within 9.54e-07 (gamma_4 times the sum of |w t|, 4)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00195
+      the pipeline needs (a proposal: nothing is applied):
+        a depth texture D32_SFLOAT, 4 x 4, one level: the table's entries
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, normalised coordinates (no unnormalizedCoordinates with a compare), compareEnable with VK_COMPARE_OP_LESS, lod 0
+        one combined image sampler more in the layout, a sampler2DShadow; the shader reads textureLod(s, vec3(u, v, r), 0.0)
+        setup (the descriptor, the upload) is not in the model: not measured
+> q2(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= S[y*4 + x]) + u32(r <= S[y*4 + x + 1]) + u32(r <= S[y*4 + x + 4]) + u32(r * 0.5 <= S[y*4 + x + 5])
+> texalu q2 under cal
+texalu q2: the texture unit under cal (cost 58 as written): nothing taken
+  derived, but not cheaper under cal (cost 69.5, as written 58):
+  2 compares of r with entries of the 4 x 4 table from offset (0, 0), weights' sum 2: one compare read at fraction 0.5 along x, 0 along y
+> O = [0.25, 0.5, 0.75, 1.0, 0.125, 0.375, 0.625, 1.5, 0.0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125]
+> q3(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= O[y*4 + x]) + u32(r <= O[y*4 + x + 1]) + u32(r <= O[y*4 + x + 4]) + u32(r <= O[y*4 + x + 5])
+> texalu q3 under cal
+texalu q3: the texture unit under cal (cost 57 as written): nothing taken
+  compares with entries of a table, but its entry 7, 1.5, is outside [0, 1]: a depth texture holds f32 values in [0, 1] (VK_EXT_depth_range_unrestricted aside), so they are not a compare read
+> q4(x: u8 in 0..2, y: u8 in 0..2) = u32(S[y*4 + x] <= S[y*4 + x + 1]) + u32(S[y*4 + x + 4] <= S[y*4 + x + 5])
+> texalu q4 under cal
+texalu q4: no table read or weighted sum of neighbouring entries the texture unit could compute
+> q5(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r * r <= S[y*4 + x]) + u32(r * r <= S[y*4 + x + 1]) + u32(r * r <= S[y*4 + x + 4]) + u32(r * r <= S[y*4 + x + 5])
+> texalu q5 under cal
+texalu q5: reads through the texture unit under cal (cost 58 as written):
+  cost 39  u32(4tex_compare_le8([0.25, 0.5, 0.75, 1, 0.125, 0.375, 0.625, 0.875, 0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125], 4, 0.25(f32(x) + 1), 0.25(f32(y) + 1), r*r) + 0.5)
+      4 compares of r*r with entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one compare read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table; r*r is not NaN (the specification does not say how a unit compares one)
+      a compare read at fractions (u, v) of texels a b / c d is (1-u)(1-v) [ref <= a] + u(1-v) [ref <= b] + (1-u)v [ref <= c] + uv [ref <= d], [ ] 1 where it holds and 0 elsewhere, ref = r*r: times 4 with u = 0.5, v = 0.5 those are the entries' weights
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the specification lets a unit filter the passes otherwise (in [0, 1]); the model's tex_compare is for a unit that takes this weighted average, within 2 ulp (its tex_within): 9.54e-07; the texels are what the sum compares, exactly; in all 1.43e-06
+        the coordinates are normalised, u = x f32(1/4), v = y f32(1/4), and the unit reads (u 4, v 4): exact: the sizes are powers of two
+      the entries' sum is a whole number and the reads are within 1.73e-06 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a depth texture D32_SFLOAT, 4 x 4, one level: the table's entries
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, normalised coordinates (no unnormalizedCoordinates with a compare), compareEnable with VK_COMPARE_OP_LESS_OR_EQUAL, lod 0
+        one combined image sampler more in the layout, a sampler2DShadow; the shader reads textureLod(s, vec3(u, v, r*r), 0.0)
+        setup (the descriptor, the upload) is not in the model: not measured

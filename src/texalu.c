@@ -200,6 +200,20 @@ tex_blend3(const double *t, const double *w, int bits)
 	return tex_blend(t2, w2, 16);
 }
 
+int
+tex_cmp_pass(int c, double ref, double t)
+{
+	switch (c) {
+	case 1: return ref < t;
+	case 2: return ref == t;
+	case 3: return ref <= t;
+	case 4: return ref > t;
+	case 5: return ref != t;
+	case 6: return ref >= t;
+	}
+	return 0;
+}
+
 double
 tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
     double (*tv)(void *ctx, int64_t j), void *ctx)
@@ -217,6 +231,12 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
 		x *= (double)W;
 		y *= (double)H;
 		z *= (double)D;
+	}
+	/* and a compare read (none with a compare sampler); z is its
+	 * reference */
+	if (op == O_TEX_COMPARE) {
+		x *= (double)W;
+		y *= (double)H;
 	}
 	int64_t i0, j0 = 0, k0 = 0, c0, c1, r0, r1, s0, s1;
 	double a = tex_weight(x, bits, &i0), b = 0, c = 0, t[8], w[8];
@@ -257,6 +277,10 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
 	t[1] = tv(ctx, r0 * W + c1);
 	t[2] = tv(ctx, r1 * W + c0);
 	t[3] = tv(ctx, r1 * W + c1);
+	/* a compare read filters the passes: 1 where z passes, else 0 */
+	if (op == O_TEX_COMPARE)
+		for (q = 0; q < 4; q++)
+			t[q] = tex_cmp_pass(TEX_CMP(ki), z, t[q]);
 	w[0] = (1 - a) * (1 - b);
 	w[1] = a * (1 - b);
 	w[2] = (1 - a) * b;
@@ -410,6 +434,12 @@ tex_cost(const struct model *m, nid n, int *cls)
 	int k;
 	float p;
 
+	if (N.op[n] == O_TEX_COMPARE) {
+		/* a D32_SFLOAT depth texture, whatever the texels */
+		*cls = C_TEX_COMPARE;
+		return cclass_available(m, C_TEX_COMPARE) ?
+		    m->c[C_TEX_COMPARE] : INFINITY;
+	}
 	if (!IS_FETCH(N.op[n]) && N.op[n] != O_FETCH_LAYER &&
 	    !IS_TEXEL(N.op[n])) {
 		if (TEX_RED(N.ki[n])) {
@@ -508,6 +538,18 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 		op = O_TEX_BILINEAR;
 		red = s[7] == 'i' ? TEX_REDMIN : TEX_REDMAX;
 		i = 9;
+	} else if (n >= 12 && !memcmp(s, "tex_compare_", 12)) {
+		static const char cmp[6][3] = {"lt", "eq", "le", "gt", "ne",
+		    "ge"};
+		for (i = 0; n > 14 && i < 6 && memcmp(s + 12, cmp[i], 2); i++)
+			;
+		if (n <= 14 || i == 6 || s[14] < '0' || s[14] > '9')
+			fail("%.*s: a compare read is tex_compare_ with lt, le, "
+			    "eq, ne, ge or gt and the grid's bits, as "
+			    "tex_compare_le8", (int)n, s);
+		op = O_TEX_COMPARE;
+		*wrapki = TEX_KCMP(i + 1);
+		i = 14;
 	} else
 		return 0;
 	for (; i < n; i++) {
@@ -519,7 +561,8 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 	if (*bits > 31)
 		return 0;
 	*bits |= red;
-	*wrapki = TEX_KWRAP(wrap);
+	if (op != O_TEX_COMPARE)
+		*wrapki = TEX_KWRAP(wrap);
 	return op;
 }
 
@@ -535,7 +578,12 @@ tex_print_name(struct sbuf *b, nid n)
 	else if (N.ki[n] & TEX_WRAPMASK)
 		sb_printf(b, "tex_%s%d", TEX_WRAP(N.ki[n]) == O_FETCH_REPEAT ?
 		    "repeat" : "mirror", TEX_BITS(N.ki[n]));
-	else if (TEX_RED(N.ki[n]))
+	else if (N.op[n] == O_TEX_COMPARE) {
+		static const char cmp[7][3] = {"", "lt", "eq", "le", "gt", "ne",
+		    "ge"};
+		sb_printf(b, "tex_compare_%s%d", cmp[TEX_CMP(N.ki[n])],
+		    TEX_BITS(N.ki[n]));
+	} else if (TEX_RED(N.ki[n]))
 		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" : "",
 		    TEX_RED(N.ki[n]) == TEX_REDMIN ? "min" : "max",
 		    TEX_BITS(N.ki[n]));
@@ -574,6 +622,10 @@ struct term {
 	nid tab;
 	struct aff ix;
 	int dx, dy, dz, grp, used;
+	int cmp;		/* an indicator, 1 where ref passes VkCompareOp
+				 * cmp against the entry, else 0: compare reads */
+	nid ref, ind;		/* its reference, and the indicator as written */
+	int cmprnd;		/* the entry is compared as its f32 rounding */
 	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps */
 	struct aff ix0;		/* a wrapping index as it is */
 	int ok0;		/* ix0 is affine */
@@ -620,6 +672,8 @@ static struct {
 	struct sbuf nocube;	/* a cube map's face not taken, and why */
 	int unavail_cube;	/* cube or tex_cube was needed */
 	int unavail_3d;		/* tex_3d was needed */
+	int unavail_cmp;	/* tex_compare was needed */
+	struct sbuf nocmp;	/* a sum of compares not taken, and why */
 } X;
 
 static double
@@ -3373,12 +3427,87 @@ weight_of(const struct sum *s, nid e, struct mform *w)
 	return mf_of(e, w, 0);
 }
 
+/*
+ * An indicator of a compare with a table entry: f32(ref <= T[e]), its
+ * cast to an integer, ref <= T[e] ? 1 : 0, T[e] >= ref ...  The entry's
+ * read and the reference (f32, no table read in it) into *rd and *ref,
+ * and into *rnd whether the entry is compared as its f32 rounding
+ * (f32(T[e]) of a table of reals) or as it is; the compare as VkCompareOp
+ * numbers it, ref the reference and the entry the test value (LESS 1 ...
+ * GREATER_OR_EQUAL 6); 0 if it is not one.
+ */
+/* x through casts that widen a float (f32 to f64 or real: exact) */
+static nid
+fp_unwiden(nid x)
+{
+	while (N.op[x] == O_CAST && TY_FP(N.ty[x]) && TY_FP(N.ty[N.a[x]]) &&
+	    (TYK(N.ty[x]) == K_REAL || (TYK(N.ty[N.a[x]]) == K_FLOAT &&
+	    TYW(N.ty[N.a[x]]) <= TYW(N.ty[x]))))
+		x = N.a[x];
+	return x;
+}
+
+static int
+cmp_entry(nid x, int *rnd)
+{
+	*rnd = 0;
+	if (N.op[x] == O_CAST && N.ty[x] == TY_F32 &&
+	    N.op[N.a[x]] == O_INDEX && TY_FP(N.ty[N.a[x]])) {
+		*rnd = 1;
+		return 1;
+	}
+	return N.op[x] == O_INDEX && TY_FP(N.ty[x]);
+}
+
+static int
+cmp_of(nid e, nid *rd, nid *ref, int *rnd)
+{
+	/* by op: the compare with ref on the left, and with it on the right */
+	static const struct {
+		int op, left, right;
+	} cm[6] = {{O_LT, 1, 4}, {O_EQ, 2, 2}, {O_LE, 3, 6}, {O_GT, 4, 1},
+	    {O_NE, 5, 5}, {O_GE, 6, 3}};
+	nid c, a, b;
+	int i;
+
+	if (N.op[e] == O_CAST && N.ty[N.a[e]] == TY_BOOL)
+		c = N.a[e];
+	else if (N.op[e] == O_SEL && is_const(N.b[e]) && is_const(N.c[e]) &&
+	    cval(N.b[e]) == 1 && cval(N.c[e]) == 0)
+		c = N.a[e];
+	else
+		return 0;
+	for (i = 0; i < 6 && cm[i].op != N.op[c]; i++)
+		;
+	if (i == 6)
+		return 0;
+	/*
+	 * the unit compares the f32 reference with the texel: a reference
+	 * that is an f32 widened, an entry of a float table (cmp_info asks
+	 * every entry to be an f32 value)
+	 */
+	a = fp_unwiden(N.a[c]);
+	b = fp_unwiden(N.b[c]);
+	if (cmp_entry(b, rnd) && N.ty[a] == TY_F32 && !has_read(a, 0)) {
+		*rd = *rnd ? N.a[b] : b;
+		*ref = a;
+		return cm[i].left;
+	}
+	if (cmp_entry(a, rnd) && N.ty[b] == TY_F32 && !has_read(b, 0)) {
+		*rd = *rnd ? N.a[a] : a;
+		*ref = b;
+		return cm[i].right;
+	}
+	return 0;
+}
+
 static void
 collect(struct sum *s, nid e, struct mform k, int depth)
 {
 	struct mform w, k2;
 	int64_t lo, hi;
-	int op = N.op[e];
+	int op = N.op[e], cop, rnd;
+	nid rd, ref;
 
 	if (s->bad)
 		return;
@@ -3390,6 +3519,22 @@ collect(struct sum *s, nid e, struct mform k, int depth)
 	if (s->isint && (op == O_ADD || op == O_SUB || op == O_NEG ||
 	    op == O_MUL || op == O_SHL) && !irange(e, &lo, &hi))
 		goto opaque;
+	if ((cop = cmp_of(e, &rd, &ref, &rnd)) != 0) {
+		struct term *t = &s->t[s->nt];
+		if (s->nt == MAXTERM)
+			goto opaque;
+		memset(t, 0, sizeof *t);
+		if (!aff_of(N.b[rd], &t->ix, 0))
+			goto opaque;
+		t->k = k;
+		t->tab = N.a[rd];
+		t->cmp = cop;
+		t->ref = ref;
+		t->ind = e;
+		t->cmprnd = rnd;
+		s->tidx[s->nt++] = N.b[rd];
+		return;
+	}
 	switch (op) {
 	case O_ADD: case O_SUB:
 		collect(s, N.a[e], k, depth + 1);
@@ -3676,6 +3821,52 @@ block_inside(const struct grid *g, const struct block *b)
 	    g->zlo + b->oz >= 0 && g->zhi + b->oz + wz <= g->D - 1;
 }
 
+/*
+ * The depth texture of a table its compares read: D32_SFLOAT, the
+ * entries as they are, each an f32 in [0, 1] (a depth image holds no
+ * other without VK_EXT_depth_range_unrestricted).  What is filtered is
+ * the indicators, 0 or 1.
+ */
+static int
+cmp_info(nid tab, int rnd, struct tinfo *ti)
+{
+	uint32_t j, n = N.b[tab];
+	nid *e;
+	double v;
+
+	memset(ti, 0, sizeof *ti);
+	for (j = 0; j < n; j++) {
+		nid x = N.lst[N.a[tab] + j];
+		if (!is_const(x) || !TY_FP(N.ty[x]))
+			return 0;
+		/* compared as its f32 rounding, the texel is that; as it is,
+		 * it has to be an f32 value */
+		v = rnd ? (double)(float)N.kr[x] : N.kr[x];
+		if (!(v >= 0 && v <= 1) || (double)(float)v != v) {
+			if (!X.nocmp.n)
+				sb_printf(&X.nocmp, "compares with entries of a "
+				    "table, but its entry %u, %.9g, is %s: a depth "
+				    "texture holds f32 values in [0, 1] "
+				    "(VK_EXT_depth_range_unrestricted aside), so "
+				    "they are not a compare read", j, v, v >= 0 &&
+				    v <= 1 ? "not an f32 value" : "outside [0, 1]");
+			return 0;
+		}
+	}
+	e = xmalloc((n ? n : 1) * sizeof *e);
+	for (j = 0; j < n; j++)
+		e[j] = kf((double)(float)N.kr[N.lst[N.a[tab] + j]]);
+	ti->tex = mk_table(e, n);
+	free(e);
+	ti->tab = tab;
+	ti->n = n;
+	ti->cls = C_TEX_COMPARE;
+	ti->tmax = 1;
+	ti->rmax = 1;
+	ti->scale = 1;
+	return 1;
+}
+
 /* the largest step between neighbours along x, y and z of slices of H
  * rows of W */
 static void
@@ -3783,7 +3974,9 @@ grid_make(struct sum *s, struct grid *g)
 	int64_t W = 0, V = 0, cmin, best = 0, bw = -1;
 	int i, sh;
 
-	if (!table_info(s->t[g->ix[0]].tab, &g->ti))
+	if (s->t[g->ix[0]].cmp ? !cmp_info(s->t[g->ix[0]].tab,
+	    s->t[g->ix[0]].cmprnd, &g->ti) :
+	    !table_info(s->t[g->ix[0]].tab, &g->ti))
 		return 0;
 	g->wrap = s->t[g->ix[0]].wrap;
 	g->D = 1;
@@ -3804,6 +3997,8 @@ grid_make(struct sum *s, struct grid *g)
 	}
 	if (V) {
 		int64_t t = V < W ? V : W;
+		if (s->t[g->ix[0]].cmp)	/* no depth format is 3-D */
+			return 0;
 		V = V < W ? W : V;
 		return V % t == 0 && grid_make3(s, g, t, V);
 	}
@@ -3850,6 +4045,10 @@ grid_make(struct sum *s, struct grid *g)
 		}
 	}
 	table_steps(&g->ti, g->W, &g->dxmax, &g->dymax);
+	if (s->t[g->ix[0]].cmp) {	/* the indicators' steps */
+		g->dxmax = 1;
+		g->dymax = g->H > 1 ? 1 : 0;
+	}
 	return 1;
 }
 
@@ -4326,6 +4525,8 @@ seed_sum1(nid body, nid root)
 		for (j = i + 1; j < s->nt; j++)
 			if (s->t[j].grp < 0 && same_table(s->t[j].tab, s->t[i].tab) &&
 			    s->t[j].wrap == s->t[i].wrap &&
+			    s->t[j].cmp == s->t[i].cmp && s->t[j].ref ==
+			    s->t[i].ref && s->t[j].cmprnd == s->t[i].cmprnd &&
 			    aff_same_base(&s->t[i].ix, &s->t[j].ix)) {
 				s->t[j].grp = ng;
 				/* the same entry twice: one weight */
@@ -4341,7 +4542,11 @@ seed_sum1(nid body, nid root)
 		struct tinfo ti;
 		if (s->t[i].used == 2)
 			continue;
-		table_info(s->t[i].tab, &ti);
+		/* an indicator is 0 or 1 */
+		if (s->t[i].cmp)
+			ti.tmax = 1;
+		else
+			table_info(s->t[i].tab, &ti);
 		mabs += mf_mag(&s->t[i].k) * ti.tmax;
 		nterm++;
 	}
@@ -4351,7 +4556,8 @@ seed_sum1(nid body, nid root)
 		struct grid g;
 		struct cover cv;
 		int nb, ns, k, dmin = 0, dmax = 0, emin = 0, emax = 0, ex, ey;
-		int fmin = 0, fmax = 0, ez = 0, tri = 0;
+		int fmin = 0, fmax = 0, ez = 0, tri = 0, cmpg = 0;
+		nid cref = 0;
 		double sx, sy;
 
 		memset(&g, 0, sizeof g);
@@ -4367,6 +4573,14 @@ seed_sum1(nid body, nid root)
 		tri = g.D > 1;
 		if (tri && !cclass_available(X.m, C_TEX_3D)) {
 			X.unavail_3d = 1;
+			continue;
+		}
+		/* indicators of compares against one reference: a compare
+		 * read of a depth texture */
+		cmpg = s->t[g.ix[0]].cmp;
+		cref = s->t[g.ix[0]].ref;
+		if (cmpg && !cclass_available(X.m, C_TEX_COMPARE)) {
+			X.unavail_cmp = 1;
 			continue;
 		}
 		if (!X.bits) {
@@ -4415,6 +4629,10 @@ seed_sum1(nid body, nid root)
 		/* a 3-D read: the third axis, and the coordinates normalised */
 		if (tri)
 			cv.ptap += X.m->c[C_TEX_3D] + 3 * X.m->c[C_FMUL];
+		/* a compare read: its class, both coordinates normalised */
+		if (cmpg)
+			cv.ptap = X.m->c[C_TEX_COMPARE] + 2 * X.m->c[C_FADD] + 3 *
+			    X.m->c[C_FMUL];
 		cv.pone = X.m->c[C_LOAD] + (isint ? X.m->c[C_IADD] :
 		    X.m->c[C_FMUL]);
 		cover_blocks(&cv);
@@ -4514,6 +4732,15 @@ seed_sum1(nid body, nid root)
 				z = norm_coord(z, g.D, ez, &dwz, &gz, &cz);
 				tap = mk_tex(O_TEX_TRILINEAR, TEX_KI(X.bits, g.W) |
 				    TEX_KH(g.H), g.ti.tex, x, tex_args(y, z));
+			} else if (cmpg) {
+				/* normalised: no unnormalizedCoordinates with a
+				 * compare; one row is a 2-D texture of height 1 */
+				y = coord_node(g.ye, b->oy, &b->fv, ey, &dwy, &ops,
+				    &gy, &cy);
+				x = norm_coord(x, g.W, ex, &dwx, &gx, &cx);
+				y = norm_coord(y, g.H, ey, &dwy, &gy, &cy);
+				tap = mk_tex(O_TEX_COMPARE, TEX_KI(X.bits, g.W) |
+				    TEX_KCMP(cmpg), g.ti.tex, x, tex_args(y, cref));
 			} else if (g.H > 1) {
 				y = coord_node(g.ye, b->oy, &b->fv, ey, &dwy, &ops,
 				    &gy, &cy);
@@ -4565,6 +4792,14 @@ seed_sum1(nid body, nid root)
 				    cnt, cnt == 1 ? "y" : "ies", (long long)g.W,
 				    (long long)g.H, (long long)g.D, b->ox, b->oy,
 				    b->oz, S);
+			else if (cmpg)
+				sb_printf(&what, "%s%d compare%s of %s with entries of "
+				    "the %lld x %lld table from offset (%d, %d), "
+				    "weights' sum %.6g%s: one compare read at fraction ",
+				    what.n ? "\n" : "", cnt, cnt == 1 ? "" : "s",
+				    node_str(cref), (long long)g.W, (long long)g.H,
+				    b->ox, b->oy, S, b->split ? " (a share of a weight "
+				    "read twice)" : "");
 			else
 				sb_printf(&what, "%s%d entr%s of the %lld x %lld "
 				    "table from offset (%d, %d), weights' sum %.6g%s: "
@@ -4573,7 +4808,7 @@ seed_sum1(nid body, nid root)
 				    (long long)g.H, b->ox, b->oy, S, b->split ?
 				    " (a share of a weight read twice)" : "");
 			mf_text(&what, &b->fu);
-			if (g.H > 1) {
+			if (g.H > 1 || cmpg) {
 				sb_puts(&what, " along x, ");
 				mf_text(&what, &b->fv);
 				sb_puts(&what, " along y");
@@ -4594,6 +4829,19 @@ seed_sum1(nid body, nid root)
 				mf_text(&proof, &b->fv);
 				sb_puts(&proof, ", w = ");
 				mf_text(&proof, &b->fw);
+			} else if (cmpg) {
+				static const char *const sym[7] = {"", "<", "==",
+				    "<=", ">", "!=", ">="};
+				const char *o = sym[cmpg];
+				sb_printf(&proof, "%sa compare read at fractions (u, "
+				    "v) of texels a b / c d is (1-u)(1-v) [ref %s a] + "
+				    "u(1-v) [ref %s b] + (1-u)v [ref %s c] + uv [ref %s "
+				    "d], [ ] 1 where it holds and 0 elsewhere, ref = %s: "
+				    "times %.6g with u = ", proof.n ? "\n" : "", o, o,
+				    o, o, node_str(cref), S);
+				mf_text(&proof, &b->fu);
+				sb_puts(&proof, ", v = ");
+				mf_text(&proof, &b->fv);
 			} else if (g.H > 1) {
 				sb_printf(&proof, "%sa linear read at fractions (u, v) "
 				    "of texels a b / c d is (1-u)(1-v) a + u(1-v) b + "
@@ -4655,11 +4903,22 @@ seed_sum1(nid body, nid root)
 				    "times the largest step between neighbours, %s "
 				    "and %s", X.bits, cx > cy ? cx : cy, fmt_g(dwx),
 				    fmt_g(dwy), fmt_g(g.dxmax), fmt_g(g.dymax));
-			sb_printf(&proof, "\n  the filter is within %g ulp of that "
-			    "sum (the model's tex_within): %s; the texels as "
-			    "%s: %s; in all %s", X.ulp, fmt_g(fabs(S) * X.ulp * 2 *
-			    u * g.ti.rmax), g.ti.cls == C_TEX_SAMPLE_F16 ? "f16" :
-			    "f32", fmt_g(fabs(S) * g.ti.trep), fmt_g(e));
+			if (cmpg)
+				sb_printf(&proof, "\n  the specification lets a unit "
+				    "filter the passes otherwise (in [0, 1]); the "
+				    "model's tex_compare is for a unit that takes this "
+				    "weighted average, within %g ulp (its tex_within): "
+				    "%s; the texels are what the sum compares, exactly; "
+				    "in all %s",
+				    X.ulp, fmt_g(fabs(S) * X.ulp * 2 * u * g.ti.rmax),
+				    fmt_g(e));
+			else
+				sb_printf(&proof, "\n  the filter is within %g ulp of "
+				    "that sum (the model's tex_within): %s; the texels "
+				    "as %s: %s; in all %s", X.ulp, fmt_g(fabs(S) *
+				    X.ulp * 2 * u * g.ti.rmax), g.ti.cls ==
+				    C_TEX_SAMPLE_F16 ? "f16" : "f32", fmt_g(fabs(S) *
+				    g.ti.trep), fmt_g(e));
 		}
 		sb_printf(&holds, "%s", holds.n ? "; " : "holds where ");
 		if (g.xe)
@@ -4679,6 +4938,13 @@ seed_sum1(nid body, nid root)
 			sb_printf(&holds, "%severy texel read is inside the "
 			    "table", g.xe || g.ye || g.ze ? " (proved ranges): " :
 			    "");
+		if (cmpg) {
+			double rlo, rhi;
+			if (!frange(cref, &rlo, &rhi))
+				sb_printf(&holds, "; %s is not NaN (the "
+				    "specification does not say how a unit compares "
+				    "one)", node_str(cref));
+		}
 		if (g.wrap)
 			sb_printf(&proof, "\n  the coordinate is normalised, u = "
 			    "x f32(1/%lld), and the unit reads u %lld: %s",
@@ -4686,6 +4952,15 @@ seed_sum1(nid body, nid root)
 			    "within |x| 2^-23 of x (two roundings of 2^-24), in "
 			    "the bound above" : "exact: the size is a power of "
 			    "two");
+		if (cmpg)
+			sb_printf(&proof, "\n  the coordinates are normalised, u = "
+			    "x f32(1/%lld), v = y f32(1/%lld), and the unit reads "
+			    "(u %lld, v %lld): %s", (long long)g.W, (long long)g.H,
+			    (long long)g.W, (long long)g.H, (g.W & (g.W - 1)) ||
+			    (g.H & (g.H - 1)) ? "along a size that is not a power "
+			    "of two within |x| 2^-23 of x (two roundings of "
+			    "2^-24), in the bound above" : "exact: the sizes are "
+			    "powers of two");
 		if (tri)
 			sb_printf(&proof, "\n  the coordinates are normalised, u = "
 			    "x f32(1/%lld), v = y f32(1/%lld), w = z f32(1/%lld), "
@@ -4696,7 +4971,21 @@ seed_sum1(nid body, nid root)
 			    1)) ? "along a size that is not a power of two within "
 			    "|x| 2^-23 of x (two roundings of 2^-24), in the bound "
 			    "above" : "exact: the sizes are powers of two");
-		if (tri)
+		if (cmpg) {
+			static const char *const vk[7] = {"", "LESS", "EQUAL",
+			    "LESS_OR_EQUAL", "GREATER", "NOT_EQUAL",
+			    "GREATER_OR_EQUAL"};
+			sb_printf(&pipe, "%sa depth texture D32_SFLOAT, %lld x "
+			    "%lld, one level: the table's entries\na sampler: "
+			    "LINEAR mag and min filters, NEAREST mipmap mode, "
+			    "CLAMP_TO_EDGE, normalised coordinates (no "
+			    "unnormalizedCoordinates with a compare), compareEnable "
+			    "with VK_COMPARE_OP_%s, lod 0\none combined image "
+			    "sampler more in the layout, a sampler2DShadow; the "
+			    "shader reads textureLod(s, vec3(u, v, %s), 0.0)",
+			    pipe.n ? "\n" : "", (long long)g.W, (long long)g.H,
+			    vk[cmpg], node_str(cref));
+		} else if (tri)
 			sb_printf(&pipe, "%sa 3-D texture %s, %lld x %lld x %lld, "
 			    "one level: the table's entries", pipe.n ? "\n" : "",
 			    fmt_vk(g.ti.cls), (long long)g.W, (long long)g.H,
@@ -4705,7 +4994,8 @@ seed_sum1(nid body, nid root)
 			sb_printf(&pipe, "%sa texture %s, %lld x %lld, one level: "
 			    "the table's entries", pipe.n ? "\n" : "",
 			    fmt_vk(g.ti.cls), (long long)g.W, (long long)g.H);
-		fmt_says(&pipe, &g.ti);
+		if (!cmpg)
+			fmt_says(&pipe, &g.ti);
 		if (tri)
 			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
 			    "NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, "
@@ -4713,7 +5003,7 @@ seed_sum1(nid body, nid root)
 			    "unnormalizedCoordinates), lod 0\none combined image "
 			    "sampler more in the layout; the shader reads "
 			    "textureLod(s, vec3(u, v, w), 0.0).r");
-		else
+		else if (!cmpg)
 			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
 			    "NEAREST mipmap mode, %s, lod 0\none combined image "
 			    "sampler more in the layout; the shader reads "
@@ -4749,7 +5039,8 @@ seed_sum1(nid body, nid root)
 		to = mk_cast(N.ty[root], allpos ? to : mk_un(O_FLOOR, to));
 		for (i = 0; i < s->nt; i++)
 			if (!s->t[i].used) {
-				nid e = mk_index(s->t[i].tab, s->tidx[i]);
+				nid e = s->t[i].cmp ? s->t[i].ind :
+				    mk_index(s->t[i].tab, s->tidx[i]);
 				double k = s->t[i].k.c[0];
 				if (k != 1 && k != -1)
 					e = mk_bin(O_MUL, mk_const_i(N.ty[root],
@@ -4771,8 +5062,8 @@ seed_sum1(nid body, nid root)
 		for (i = 0; i < s->nt; i++)
 			if (!s->t[i].used) {
 				nid e = mk_bin(O_MUL, mf_node(&s->t[i].k, &ops),
-				    mk_cast(TY_F32, mk_index(s->t[i].tab,
-				    s->tidx[i])));
+				    mk_cast(TY_F32, s->t[i].cmp ? s->t[i].ind :
+				    mk_index(s->t[i].tab, s->tidx[i])));
 				to = mk_bin(O_ADD, to, e);
 				nleft++;
 			}
@@ -5767,6 +6058,7 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	free(X.nolayer.p);
 	free(X.nopacked.p);
 	free(X.nocube.p);
+	free(X.nocmp.p);
 	memset(&X, 0, sizeof X);
 	X.f = f;
 	X.m = model_active();
@@ -5876,6 +6168,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 			    res->why.n ? "\n" : "", sym_str(X.m->name));
 			res->status = TEXR_UNAVAILABLE;
 		}
+		if (X.unavail_cmp) {
+			sb_printf(&res->why, "%s%s lists no tex_compare: a "
+			    "compare read of a depth texture is not available",
+			    res->why.n ? "\n" : "", sym_str(X.m->name));
+			res->status = TEXR_UNAVAILABLE;
+		}
 		if (X.unavail_3d) {
 			sb_printf(&res->why, "%s%s lists no tex_3d: a filtered "
 			    "read of a 3-D texture is not available",
@@ -5899,6 +6197,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	if (!na && X.nosum.n) {
 		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
 		    sb_str(&X.nosum));
+		if (res->status == TEXR_NONE)
+			res->status = TEXR_OVERTOL;
+	}
+	if (!na && X.nocmp.n) {
+		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
+		    sb_str(&X.nocmp));
 		if (res->status == TEXR_NONE)
 			res->status = TEXR_OVERTOL;
 	}

@@ -1565,7 +1565,8 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			}
 			continue;
 		}
-		case O_TEX_LINEAR: case O_TEX_BILINEAR: case O_TEX_TRILINEAR: {
+		case O_TEX_LINEAR: case O_TEX_BILINEAR: case O_TEX_TRILINEAR:
+		case O_TEX_COMPARE: {
 			struct texcol tc;
 			uint32_t cnt = p->b[a], y = c, z = c;
 			int hz = TEX_HAS_ARGS(op);
@@ -1765,7 +1766,7 @@ plan_live(const struct plan *p, uint32_t np, uint8_t *lv)
 		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 		case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
 		case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
-		case O_FETCH_BUFFER: case O_TEX_TRILINEAR: {
+		case O_FETCH_BUFFER: case O_TEX_TRILINEAR: case O_TEX_COMPARE: {
 			/* the coordinates (a pair's: its own case), and any
 			 * texel */
 			uint32_t st = p->a[a], cnt = p->b[a], j;

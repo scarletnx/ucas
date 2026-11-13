@@ -332,6 +332,13 @@ mem('tex_trilinear', '{a} + textureLodOffset(tex, uvw, 0.0, ivec3({u} & 7, {u} >
     fit=True, args=['--bind', '0.5=format=rgba8_unorm,size=128x128x64,view=3d,pattern=noise,filter=linear'],
     note='rgba8 3-D (the same 4 MiB as tex_bilinear), trilinear: eight texels, explicit LOD; less tex_bilinear, '
          'the ucas class tex_3d')
+TEXD = 'layout(set = 0, binding = 5) uniform sampler2DShadow tex;\n'
+mem('tex_compare', '{a} + textureLodOffset(tex, vec3(uv, ref), 0.0, ivec2({u} & 7, {u} >> 3))', {'x_tex_compare': 1, 'fadd': 1},
+    ty='float', decls=TEXD,
+    pre_iter='vec2 uv = vec2(float(gid & 1023u) + 0.5, float((gid >> 10) + i * 16u) + 0.5) / 1024.0; float ref = float(i & 255u) * (1.0 / 255.0);',
+    fit=True, args=['--bind', '0.5=format=d32_sfloat,size=1024x1024,pattern=noise,filter=linear,compare=lequal'],
+    note='d32_sfloat (the same 4 MiB as tex_bilinear), a compare read with the linear filter (LESS_OR_EQUAL), explicit LOD: '
+         'the ucas class tex_compare')
 mem('image_load', '{a} + imageLoad(img, ivec2(px, py + {u})).x', {'x_image_load': 1, 'iadd': 1},
     decls='layout(set = 0, binding = 6, r32ui) uniform readonly uimage2D img;\n',
     pre_iter='int px = int(gid & 1023u), py = int((gid >> 10) + i * 16u) & 1007;', fit=True,
