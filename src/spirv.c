@@ -12159,13 +12159,221 @@ static char *orig_mod;	/* the module before the rewrites */
  * the float, memory and advice passes read a conversion (its integer
  * range, an integer atomic's addend, a vertex format), not the bits.
  */
+/*
+ * A float id's range for every input the assumptions allow (a NaN aside:
+ * it leaves the conversions it reaches undefined): a constant, a load
+ * with a float assumption, a clamp, min or max by constants, an add,
+ * subtract, negate or multiply (each widened by one f32 rounding),
+ * floor, ceil, round and trunc, and an integer's conversion whose range
+ * SAT bounds by a power of two.  integral: every value is a whole number.
+ * A bound may be infinite (a load with no assumption: -inf..inf), so that
+ * max(c, 0) then min(..., 1) is [0, 1]; ok 0: nothing known.
+ */
+struct frng {
+	double lo, hi;
+	int integral, ok;
+};
+
+static double
+f_down(double v)
+{
+	return (double)nextafterf((float)v, -INFINITY);
+}
+
+static double
+f_up(double v)
+{
+	return (double)nextafterf((float)v, INFINITY);
+}
+
+/* the smallest 2^p (p in 8, 16, 22, 24) that bounds integer id: |id| <
+ * 2^p (signed) or id < 2^p, proved by SAT; 0: none */
+static int
+i_bound(int id)
+{
+	static const int ps[] = {8, 16, 22, 24};
+	int t = V.id[id].type, i, sg;
+	struct word *wx, c, s;
+	lit goal;
+
+	if (t < 0 || T(t)->k != S_INT || T(t)->w != 32)
+		return 0;
+	sg = T(t)->sign;
+	for (i = 0; i < 4; i++) {
+		blast_reset();
+		wx = blast(id, 16);
+		if (sg) {
+			struct word h;
+			w_const(&h, 32, 1ULL << ps[i]);
+			w_add(SP.g, &s, wx, &h);
+			w_const(&c, 32, 2ULL << ps[i]);
+		} else {
+			s = *wx;
+			w_const(&c, 32, 1ULL << ps[i]);
+		}
+		goal = aig_and(SP.g, aig_and(SP.g, SP.dl[id], assumptions()),
+		    L_NOT(w_ult(SP.g, &s, &c)));
+		if (aig_sat(SP.g, goal, 20000) == 0)
+			return ps[i];
+	}
+	return 0;
+}
+
+static struct frng
+f_range(int id, int depth)
+{
+	struct frng r = {0, 0, 0, 0}, a, b;
+	const struct sins *I;
+	const char *ext;
+	int t, k, base;
+
+	id = res_of(id);
+	t = V.id[id].type;
+	if (depth > 12 || t < 0 || T(t)->k != S_FLOAT || T(t)->w != 32)
+		return r;
+	if (V.id[id].kind == K_CONST && !V.id[id].spec && V.id[id].nc <= 1) {
+		double v = getf(t, V.id[id].c[0]);
+		if (isfinite(v)) {
+			r.lo = r.hi = v;
+			r.integral = v == floor(v);
+			r.ok = 1;
+		}
+		return r;
+	}
+	k = SP.def[id];
+	if (k < 0)
+		return r;
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpLoad")) {
+		char nb[48];
+		const char *nm = load_name(id, nb, sizeof nb);
+		int j;
+		r.lo = -INFINITY;
+		r.hi = INFINITY;
+		r.ok = 1;
+		for (j = 0; nm && j < npend_fas; j++)
+			if (name_is(nm, pend_fas[j].name) || !strcmp(nm,
+			    pend_fas[j].name)) {
+				r.lo = pend_fas[j].lo;
+				r.hi = pend_fas[j].hi;
+				r.ok = 1;
+			}
+		return r;
+	}
+	if (!strcmp(I->op, "OpConvertUToF") || !strcmp(I->op,
+	    "OpConvertSToF")) {
+		int x = res_of(idx(I->opnd[1])), p = i_bound(x);
+		if (p) {
+			r.lo = T(V.id[x].type)->sign ? -ldexp(1, p) : 0;
+			r.hi = ldexp(1, p);
+			r.integral = r.ok = 1;
+		}
+		return r;
+	}
+	if (!strcmp(I->op, "OpFNegate")) {
+		a = f_range(idx(I->opnd[1]), depth + 1);
+		r = a;
+		r.lo = -a.hi;
+		r.hi = -a.lo;
+		return r;
+	}
+	if (!strcmp(I->op, "OpFAdd") || !strcmp(I->op, "OpFSub") ||
+	    !strcmp(I->op, "OpFMul")) {
+		a = f_range(idx(I->opnd[1]), depth + 1);
+		b = f_range(idx(I->opnd[2]), depth + 1);
+		if (!a.ok || !b.ok)
+			return r;
+		if (I->op[3] == 'A') {
+			r.lo = a.lo + b.lo;
+			r.hi = a.hi + b.hi;
+		} else if (I->op[3] == 'S') {
+			r.lo = a.lo - b.hi;
+			r.hi = a.hi - b.lo;
+		} else {
+			double p[4] = {a.lo * b.lo, a.lo * b.hi, a.hi * b.lo,
+			    a.hi * b.hi};
+			int j;
+			r.lo = r.hi = p[0];
+			for (j = 1; j < 4; j++) {
+				r.lo = fmin(r.lo, p[j]);
+				r.hi = fmax(r.hi, p[j]);
+			}
+		}
+		/* whole numbers below 2^24 add and multiply exactly */
+		r.integral = a.integral && b.integral && fmax(fabs(r.lo),
+		    fabs(r.hi)) <= 16777216.0;
+		if (!r.integral) {
+			r.lo = f_down(r.lo);
+			r.hi = f_up(r.hi);
+		}
+		r.ok = !isnan(r.lo) && !isnan(r.hi);	/* inf * 0: unknown */
+		return r;
+	}
+	if (!strcmp(I->op, "OpSelect") && I->nop >= 4) {
+		a = f_range(idx(I->opnd[2]), depth + 1);
+		b = f_range(idx(I->opnd[3]), depth + 1);
+		if (!a.ok || !b.ok)
+			return r;
+		r.lo = fmin(a.lo, b.lo);
+		r.hi = fmax(a.hi, b.hi);
+		r.integral = a.integral && b.integral;
+		r.ok = 1;
+		return r;
+	}
+	if (strcmp(I->op, "OpExtInst") || I->nop < 4)
+		return r;
+	ext = I->opnd[2];
+	base = 3;
+	a = f_range(idx(I->opnd[base]), depth + 1);
+	if (!strcmp(ext, "Floor") || !strcmp(ext, "Ceil") || !strcmp(ext,
+	    "Round") || !strcmp(ext, "RoundEven") || !strcmp(ext, "Trunc")) {
+		if (!a.ok)
+			return r;
+		r.lo = floor(a.lo);
+		r.hi = ceil(a.hi);
+		r.integral = isfinite(r.lo) && isfinite(r.hi);
+		r.ok = 1;
+		return r;
+	}
+	if ((!strcmp(ext, "FClamp") || !strcmp(ext, "NClamp")) && I->nop >= 6) {
+		b = f_range(idx(I->opnd[4]), depth + 1);
+		{
+			struct frng c = f_range(idx(I->opnd[5]), depth + 1);
+			if (!b.ok || !c.ok || b.lo != b.hi || c.lo != c.hi)
+				return r;
+			r.lo = a.ok ? fmax(a.lo, b.lo) : b.lo;
+			r.hi = a.ok ? fmin(a.hi, c.hi) : c.hi;
+			/* (a NaN x aside, which the conversion leaves undefined) */
+			r.integral = a.ok && a.integral && b.integral && c.integral;
+			r.ok = r.lo <= r.hi;
+		}
+		return r;
+	}
+	if ((!strcmp(ext, "FMin") || !strcmp(ext, "FMax") || !strcmp(ext,
+	    "NMin") || !strcmp(ext, "NMax")) && I->nop >= 5) {
+		int mx = ext[2] == 'a';	/* FMax, NMax */
+		b = f_range(idx(I->opnd[4]), depth + 1);
+		if (!a.ok || !b.ok)
+			return r;
+		r.lo = mx ? fmax(a.lo, b.lo) : fmin(a.lo, b.lo);
+		r.hi = mx ? fmax(a.hi, b.hi) : fmin(a.hi, b.hi);
+		r.integral = a.integral && b.integral;
+		r.ok = 1;
+		return r;
+	}
+	return r;
+}
+
 static struct cvx {
 	char res[40], rt[40], x[40], xt[40], op[40], k[40], kt[40];
 	char from[160], src[160];
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
-				 * 2: f32(1 << k) by the exponent field */
+				 * 2: f32(1 << k) by the exponent field;
+				 * 3: iN(x) of a whole x by the add of
+				 * 1.5*2^23, read as bits */
 	int line;
 	double before, after;
+	double flo, fhi;	/* form 3: x's range */
 } cvx[32];
 static int ncvx;
 
@@ -12184,9 +12392,48 @@ i2f_pass(void)
 		lit goal;
 		struct word *wx, c, sh;
 		struct cvx *e;
-		if (SP.dead[k] || SP.rw[k] || (strcmp(I->op, "OpConvertUToF") &&
-		    strcmp(I->op, "OpConvertSToF")) || I->nop != 2 ||
-		    I->opnd[1][0] != '%')
+		if (SP.dead[k] || SP.rw[k] || I->nop != 2 || I->opnd[1][0] != '%')
+			continue;
+		if (!strcmp(I->op, "OpConvertFToS") || !strcmp(I->op,
+		    "OpConvertFToU")) {
+			/*
+			 * a whole x made by floor, ceil, round or trunc (leaves
+			 * of the float pass, which may move what is under them
+			 * within its precision: one unit of margin each side),
+			 * |x| below 2^22: x + 1.5*2^23 is exact, and its bits
+			 * less 0x4B400000 are x
+			 */
+			int xd, it = idx(I->opnd[0]);
+			struct frng fr;
+			x = res_of(idx(I->opnd[1]));
+			xd = SP.def[x];
+			static const char *const whole[] = {"Floor", "Ceil", "Round",
+			    "RoundEven", "Trunc", NULL};
+			if (it < 0 || T(it)->k != S_INT || T(it)->w != 32 || xd < 0 ||
+			    strcmp(V.in[xd].op, "OpExtInst") || V.in[xd].nop < 4 ||
+			    !in_list(V.in[xd].opnd[2], whole))
+				continue;
+			before = m->c[C_CONV];
+			after = m->c[C_FADD] + m->c[C_BITCAST] + m->c[C_IADD];
+			if (!(after < before - 1e-9))
+				continue;
+			fr = f_range(x, 0);
+			if (!fr.ok || !fr.integral || !isfinite(fr.lo) ||
+			    !isfinite(fr.hi) || fr.hi + 1 > 4194303.0 ||
+			    fr.lo - 1 < -4194303.0)
+				continue;	/* (a negative x leaves FToU undefined:
+						 * any word will do there) */
+			rt = it;
+			xt = V.id[x].type;
+			e = &cvx[ncvx++];
+			memset(e, 0, sizeof *e);
+			e->flo = fr.lo;
+			e->fhi = fr.hi;
+			form = 3;
+			goto keep;
+		}
+		if ((strcmp(I->op, "OpConvertUToF") && strcmp(I->op,
+		    "OpConvertSToF")))
 			continue;
 		rt = idx(I->opnd[0]);
 		x = res_of(idx(I->opnd[1]));
@@ -12320,6 +12567,15 @@ i2f_patch(const char *text, char **out)
 		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 		if (!used[i])
 			continue;
+		if (e->form == 3) {	/* 0x4B400000 in the result's type, 1.5*2^23 */
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_4b400000 = ", e->rt + 1);
+			snprintf(fn, sizeof fn, "%%ucas_cvf_%s_4b400000 = ", e->xt + 1);
+			if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s 1262485504\n", kn, e->rt);
+			if (!strstr(decl.p ? decl.p : "", fn) && !strstr(text, fn))
+				sb_printf(&decl, "%sOpConstant %s 12582912\n", fn, e->xt);
+			continue;
+		}
 		if (e->form == 2) {	/* 127 and 23, in k's type */
 			unsigned kv[2] = {127, 23};
 			int j;
@@ -12361,7 +12617,23 @@ i2f_patch(const char *text, char **out)
 		for (i = 0; nt == 5 && i < ncvx && hit < 0; i++)
 			if (used[i] && !strcmp(t[0], cvx[i].res))
 				hit = i;
-		if (hit >= 0 && cvx[hit].form == 2) {
+		if (hit >= 0 && cvx[hit].form == 3) {
+			const struct cvx *e = &cvx[hit];
+			sb_printf(&o, "%%ucas_cv%do = OpFAdd %s %s %%ucas_cvf_%s_4b400000\n",
+			    base + hit, e->xt, e->x, e->xt + 1);
+			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %%ucas_cv%do\n",
+			    base + hit, e->rt, base + hit);
+			sb_printf(&o, "%s = OpISub %s %%ucas_cv%db %%ucas_cvk_%s_4b400000\n",
+			    e->res, e->rt, base + hit, e->rt + 1);
+			sb_printf(&rep, "    %s\n      ->  OpISub %s (OpBitcast %s (OpFAdd "
+			    "%s %s 1.5*2^23)) 0x4B400000   (cost %g -> %g)\n      %s is a "
+			    "whole number in [%.9g, %.9g] (floor, ceil, round or trunc of a "
+			    "range from its definitions and the assumptions; one unit of "
+			    "margin for what the float pass may move under it), within "
+			    "2^22: x + 1.5*2^23 is an integer in [2^23, 2^24), exact, and "
+			    "its bits are 0x4B400000 + x\n%s", e->from, e->rt, e->rt,
+			    e->xt, e->x, e->before, e->after, e->x, e->flo, e->fhi, e->src);
+		} else if (hit >= 0 && cvx[hit].form == 2) {
 			const struct cvx *e = &cvx[hit];
 			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %s %%ucas_cvk_%s_%08x\n",
 			    base + hit, e->kt, e->k, e->kt + 1, 127u);
@@ -12404,9 +12676,9 @@ i2f_patch(const char *text, char **out)
 		}
 		p += ln + (le != NULL);
 	}
-	printf("conversions of integers to f32 by the bits, under %s (written "
-	    "last: the passes above read the conversions; a conversion is not "
-	    "in the integer cost):\n", sym_str(model_active()->name));
+	printf("conversions between integers and f32 by the bits, under %s "
+	    "(written last: the passes above read the conversions; a conversion "
+	    "is not in the integer cost):\n", sym_str(model_active()->name));
 	fputs(rep.p, stdout);
 	{
 		char why[200];
@@ -12425,7 +12697,8 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form == 2 ? "asfloat((k + 127) << 23)" :
+		rep_str("form", cvx[i].form == 3 ? "asint(x + 1.5*2^23) - "
+		    "0x4B400000" : cvx[i].form == 2 ? "asfloat((k + 127) << 23)" :
 		    cvx[i].form ? "asfloat(x + 0x4B400000) - 1.5*2^23" :
 		    "asfloat(x | 0x4B000000) - 2^23");
 		rep_int("line", cvx[i].line);
