@@ -1,0 +1,9 @@
+# find prices a loop as a program runs it, as cost does: what its body
+# reads that no iteration changes (u32(x) * u32(y) * 2654435761 below)
+# once, before it, the rest in every iteration (src/loop.c loop_cost)
+use gt1030
+h(x: u8, y: u8) = { s: u32 = 0; for k in 0..7 { s = s ^ ((u32(x) * u32(y) * 2654435761) >> k) }; s }
+find h 1
+# a loop in the body that reads neither the index nor the state: once
+g(x: u8) = { s: u32 = 0; for k in 0..7 { s = s + k * { t: u32 = 0; for i in 0..3 { t = t ^ (u32(x) << i) }; t } }; s }
+find g 1
