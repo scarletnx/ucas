@@ -87,4 +87,8 @@ error of qs against 1/sqrt(x):
   max rel error 0.0342885 (3.43%) at x=3.74
   mean rel error 0.0236166 over 500 points
   max 566817 ulp
-  rounding: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
+  rounding, first order in u = 2^-24: 0 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  0 (0 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 0 u here (it gains from about 16 operations of similar weight on)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]

@@ -48,6 +48,16 @@
  * worst case adds what the other side would bring, and the report counts
  * those inputs and names the first.  Exact operations stay exact: floor,
  * ceil, copysign, a float's bits read back as the float.
+ *
+ * Integers are exact too, and so are a float's bits as an integer when
+ * the float carries no rounding error (an input, a constant, their
+ * negation): and, or, xor, not and the shifts are worked out on the bits,
+ * asfloat gives the float those bits are (the fast inverse square root's
+ * first guess is a value like an input's).  What flows back through them
+ * is the change a step of 1 in the integer makes, the larger of the two
+ * sides, which is what a conversion that can go the other way moves it
+ * by.  The bits of a float that carries rounding error are not analysed:
+ * its error moves them by more than first order says.
  */
 #include "numsearch.h"
 
@@ -61,6 +71,7 @@ struct rnode {
 	nid id;
 	int a, b, c;		/* operand indices, -1 */
 	int rounds;		/* a rounded float operation */
+	int inexact;		/* it or something it reads rounds */
 	int eft;		/* inside error-free transformation eft - 1 */
 	int choice;		/* a choice (CH_*), or 0 */
 	ld u;
@@ -119,10 +130,25 @@ collect(nid e)
 				R.ix[e] = i + 1;
 			return i;
 		}
-		if (!R.why[0])
-			snprintf(R.why, sizeof R.why, "asfloat of an integer that "
-			    "is not a float's bits read back");
-		return -1;
+		if (TYW(t) == 16 && !R.why[0])
+			snprintf(R.why, sizeof R.why, "asfloat to an f16");
+		a = collect(N.a[e]);
+		break;
+	case O_ASUINT: case O_ASINT:
+		a = collect(N.a[e]);
+		if (a >= 0 && !R.why[0] && (R.n[a].inexact ||
+		    TYW(N.ty[N.a[e]]) == 16))
+			snprintf(R.why, sizeof R.why, "%s of %s", opinfo[N.op[e]].name,
+			    R.n[a].inexact ? "a value that carries rounding error, "
+			    "its bits used as an integer" : "an f16");
+		break;
+	case O_NOT:
+		a = collect(N.a[e]);
+		break;
+	case O_AND: case O_OR: case O_XOR: case O_SHL: case O_SHR:
+		a = collect(N.a[e]);
+		b = collect(N.b[e]);
+		break;
 	case O_CAST: case O_NEG: case O_ABS: case O_SQRT: case O_EXP:
 	case O_LOG: case O_SIN: case O_COS: case O_TAN: case O_FLOOR:
 	case O_CEIL: case O_ROUNDEVEN:
@@ -140,10 +166,7 @@ collect(nid e)
 		c = collect(N.c[e]);
 		break;
 	default:
-		if (!R.why[0] && (N.op[e] == O_ASUINT || N.op[e] == O_ASINT))
-			snprintf(R.why, sizeof R.why, "%s, its bits used as an "
-			    "integer", opinfo[N.op[e]].name);
-		else if (!R.why[0])
+		if (!R.why[0])
 			snprintf(R.why, sizeof R.why, "%s", opinfo[N.op[e]].name);
 		return -1;
 	}
@@ -190,6 +213,8 @@ collect(nid e)
 		}
 		}
 	}
+	x->inexact = x->rounds || (a >= 0 && R.n[a].inexact) || (b >= 0 &&
+	    R.n[b].inexact) || (c >= 0 && R.n[c].inexact);
 	if (e < R.nix)
 		R.ix[e] = i + 1;
 	return i;
@@ -505,6 +530,123 @@ int_wrap(ty_t t, ld v)
 	return h;
 }
 
+/* the 64 bits the machine holds for the integer v */
+static uint64_t
+int_bits(ld v)
+{
+	return v < 0 ? (uint64_t)(int64_t)v : (uint64_t)v;
+}
+
+/* the integer of type t those bits are */
+static ld
+bits_int(ty_t t, uint64_t v)
+{
+	int w = TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 64;
+
+	if (w < 64)
+		v &= (1ULL << w) - 1;
+	if (TYK(t) == K_UINT)
+		return (ld)v;
+	if (w < 64 && (v >> (w - 1)))
+		v |= ~0ULL << w;
+	return (ld)(int64_t)v;
+}
+
+/* not, and, or, xor or a shift of integers, in type t; 0 when a shift's
+ * count is outside the type */
+static int
+bit_op(int op, ty_t t, ld a, ld b, ld *r)
+{
+	uint64_t x = int_bits(a), y = int_bits(b), v;
+	int w = TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 64;
+
+	switch (op) {
+	case O_NOT: v = ~x; break;
+	case O_AND: v = x & y; break;
+	case O_OR: v = x | y; break;
+	case O_XOR: v = x ^ y; break;
+	default:
+		if (b < 0 || b >= w)
+			return 0;
+		if (op == O_SHL)
+			v = x << y;
+		else if (TYK(t) == K_UINT)
+			v = (w < 64 ? x & ((1ULL << w) - 1) : x) >> y;
+		else
+			v = (uint64_t)((int64_t)x >> y);
+	}
+	*r = bits_int(t, v);
+	return 1;
+}
+
+/* the bits of the float a of type tf, as an integer of type ti; 0 when a
+ * is not a float of that type */
+static int
+float_bits(ty_t tf, ty_t ti, ld a, ld *r)
+{
+	if (TYW(tf) == 32) {
+		float f = (float)a;
+		uint32_t u;
+		if ((ld)f != a)
+			return 0;
+		memcpy(&u, &f, sizeof u);
+		*r = bits_int(ti, u);
+	} else {
+		double d = (double)a;
+		uint64_t u;
+		if ((ld)d != a)
+			return 0;
+		memcpy(&u, &d, sizeof u);
+		*r = bits_int(ti, u);
+	}
+	return 1;
+}
+
+/* the float of type tf whose bits the integer a holds */
+static ld
+bits_float(ty_t tf, ld a)
+{
+	uint64_t v = int_bits(a);
+
+	if (TYW(tf) == 32) {
+		uint32_t u = (uint32_t)v;
+		float f;
+		memcpy(&f, &u, sizeof f);
+		return f;
+	} else {
+		double d;
+		memcpy(&d, &v, sizeof d);
+		return d;
+	}
+}
+
+/* of two changes, the larger in magnitude that is finite */
+static ld
+larger(ld p, ld q)
+{
+	if (!isfinite((double)p))
+		p = 0;
+	if (!isfinite((double)q))
+		q = 0;
+	return fabsl(p) >= fabsl(q) ? p : q;
+}
+
+/* what a step of 1 in operand a (or in b, when inb) of the bit operation
+ * moves its value by: the larger of the step up and the step down */
+static ld
+bit_step(int op, ty_t t, ld a, ld b, int inb)
+{
+	ld v, up, dn;
+
+	if (!bit_op(op, t, a, b, &v))
+		return 0;
+	if (!bit_op(op, t, inb ? a : a + 1, inb ? b + 1 : b, &up))
+		up = v;
+	if (!bit_op(op, t, inb ? a : a - 1, inb ? b - 1 : b, &dn))
+		dn = v;
+	return larger(up - v, v - dn);
+}
+
 /* d root / d node for every node up to root, into adj; 0 when one is not
  * finite */
 static int
@@ -524,8 +666,8 @@ backprop(int root, ld *adj)
 			continue;
 		switch (N.op[x->id]) {
 		case O_CAST:
-			/* to an integer: a step, nothing flows back */
-			if (TY_FP(N.ty[x->id]))
+			/* a float to an integer: a step, nothing flows back */
+			if (TY_FP(N.ty[x->id]) || !TY_FP(N.ty[N.a[x->id]]))
 				TO(x->a, 1);
 			break;
 		case O_NEG: TO(x->a, -1); break;
@@ -547,6 +689,16 @@ backprop(int root, ld *adj)
 		case O_SEL: TO(a != 0 ? x->b : x->c, 1); break;
 		case O_COPYSIGN:
 			TO(x->a, (signbit(a) ? -1 : 1) * (signbit(b) ? -1 : 1));
+			break;
+		case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
+		case O_SHR:
+			/* integers: what a step of 1 moves the value by */
+			TO(x->a, bit_step(N.op[x->id], N.ty[x->id], a, b, 0));
+			TO(x->b, bit_step(N.op[x->id], N.ty[x->id], a, b, 1));
+			break;
+		case O_ASFLOAT:
+			TO(x->a, larger(bits_float(N.ty[x->id], a + 1) - x->v,
+			    x->v - bits_float(N.ty[x->id], a - 1)));
 			break;
 		}
 #undef TO
@@ -578,6 +730,16 @@ sweep(const struct func *g, const int64_t *in_i, const double *in_r,
 			    truncl(a) : a);
 			break;
 		case O_NEG: x->v = -a; break;
+		case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
+		case O_SHR:
+			if (!bit_op(N.op[x->id], t, a, b, &x->v))
+				return 0;
+			break;
+		case O_ASUINT: case O_ASINT:
+			if (!float_bits(N.ty[N.a[x->id]], t, a, &x->v))
+				return 0;
+			break;
+		case O_ASFLOAT: x->v = bits_float(t, a); break;
 		case O_ABS: x->v = fabsl(a); break;
 		case O_SQRT: x->v = sqrtl(a); break;
 		case O_EXP: x->v = expl(a); break;
@@ -762,9 +924,11 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 	for (i = 0; i < R.ne; i++)
 		r->eft[R.e[i].kind]++;
 	for (i = 0; i < R.nn; i++) {
+		int op = N.op[R.n[i].id];
 		r->nops += R.n[i].rounds && !R.n[i].eft;
 		r->nexact += R.n[i].rounds && R.n[i].eft;
 		r->choices[R.n[i].choice]++;
+		r->nbits += op == O_ASUINT || op == O_ASINT || op == O_ASFLOAT;
 	}
 	R.adj = xcalloc((size_t)R.nn, sizeof *R.adj);
 	R.adj2 = xcalloc((size_t)R.nn, sizeof *R.adj2);
@@ -924,6 +1088,10 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 		printf("%s  choices:", ind);
 		choice_print(r, ind);
 	}
+	if (r->nbits)
+		printf("%s  bit casts: %d, exact: integers are, and a float "
+		    "whose bits are read carries no rounding error\n", ind,
+		    r->nbits);
 	printf("%s  worst case  %.3g (%.3g u): every error at its bound and "
 	    "aligned, u sum |c_i|\n", ind, r->worst, r->worst / u);
 	if (r->prob < r->worst)
@@ -967,6 +1135,8 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 		    r->choices[4] + r->choices[5]);
 		rep_int("choice_flips", (long long)r->flips);
 	}
+	if (r->nbits)
+		rep_int("bit_casts", r->nbits);
 	rep_str("assumptions", r->eft[0] + r->eft[1] + r->eft[2] ? "first "
 	    "order; operations correctly rounded; error-free transformations "
 	    "(2Sum, Fast2Sum, 2Prod) exact as a whole where their "

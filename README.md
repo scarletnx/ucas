@@ -809,10 +809,22 @@ not over inputs: the report says so.  The probable bound only gains
 from about lambda^2 = 16 operations of similar weight on; below that the
 line says it is no better than the worst case.  Operations are taken as
 correctly rounded (a libm's or a GPU's functions are not always).
-Not analysed, and said: bit operations, a bit cast whose bits are used
-as an integer or changed before they are read back as a float, a
-variable exponent.  A float's bits read back (`asfloat(asuint(x))`),
-floor, ceil and copysign are exact.
+A float's bits read back (`asfloat(asuint(x))`), floor, ceil and
+copysign are exact.  So are integers, and the bits of a float that
+carries no rounding error (an input, a constant, their negation): and,
+or, xor, not and the shifts are worked out on the bits, and `asfloat`
+is the float those bits are.  The fast inverse square root's first
+guess, `asfloat(0x5f3759df - (asuint(x) >> 1))`, is then a value like
+an input's, and only its Newton step rounds: 5 operations, worst case
+3.66 u for x in 1..4 (every f32 there, run in f32 against the same
+step in long double, differs by 2.41 u at most).  What flows back
+through an integer operation or `asfloat` is what a step of 1 in the
+integer moves the value by, the larger of the step up and the step
+down: that is what a conversion that can go the other way adds (a
+power of two made as `asfloat((k + 127) << 23)` moves by itself when k
+does).  Not analysed, and said: the bits of a float that carries
+rounding error (its error moves them by more than first order says),
+an f16's bits, a variable exponent.
 
 Choices are where a small error can make a large one: floor, ceil and a
 conversion to an integer jump by 1 at the integers, copysign by twice

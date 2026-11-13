@@ -142,7 +142,7 @@ approx sin(x) on [-10, 10] as f32, fma
       quadrant r=x-k*pi/2 (3-part), sin+cos: asfloat(asuint((q & 1) == 0 ? fma(r*s, fma(0.00816291384, s, -0.166634098), r) : fma(fma(0.0403595492, s, -0.499684632), s, 0.999988675)) xor ((q & 2) << 30)) where j = x*0.636619747 + 12582912.0, q = asuint(j), k = j - 12582912.0, r = fma(k, 8.70551575e-10, fma(k, 4.45358455e-06, fma(k, -1.57080078, x))), s = r*r
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 400 evaluations on 6000 sample points: 199.5 -> 190.7 abs there; on the table's measure 1.189e-05 -> 1.138e-05 abs: kept, certified below
       certified: at most 1.146e-05 abs for every f32 x in [-10, 10], 592 pieces: the coefficients' error at most 1.14e-05 (1.135e-05 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
-      rounding of ap1: not analysed (asfloat of an integer that is not a float's bits read back is not analysed)
+      rounding of ap1: not analysed (asuint of a value that carries rounding error, its bits used as an integer is not analysed)
   1 more: 'approx more [n]' (dominated or worse)
 > approx atan(x) in -4..4 degree 7 as f32 norational nosplit list 1 search anneal budget 200
 approx atan(x) on [-4, 4] as f32, fma

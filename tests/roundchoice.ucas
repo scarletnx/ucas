@@ -31,6 +31,7 @@ error sel ~ selx
 rb(x: f32 in 1..2) = asfloat(asuint(x)) * 3
 rbx(x: f32 in 1..2) = f32(f64(x) * 3)
 error rb ~ rbx
-# bits changed in between are not analysed
+# bits changed in between: integer arithmetic on an input's bits, exact
+# (tests/roundbits.ucas)
 qs(x: f32 in 1..2) = asfloat(0x5f3759df - (asuint(x) >> 1))
 error qs ~ 1 / sqrt(x)
