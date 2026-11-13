@@ -3458,6 +3458,7 @@ subgroup, all W lanes active:
 | `sg_add(v)` | the sum of v over the lanes, in v's type (wrapping) | OpGroupNonUniformIAdd Reduce, `subgroupAdd` |
 | `sg_shuffle(v, i)` | v in lane i; undefined when i is not in 0..W-1 | OpGroupNonUniformShuffle |
 | `sg_scan(v)` | in lane l, the sum of v over lanes 0..l | OpGroupNonUniformIAdd InclusiveScan, `subgroupInclusiveAdd` |
+| `sg_min(v)`, `sg_max(v)`, `sg_and(v)`, `sg_or(v)`, `sg_xor(v)` | the minimum, maximum, and, or, xor of v over the lanes, integers (min and max by v's signedness) | OpGroupNonUniform[SU]Min, [SU]Max, Bitwise* Reduce, `subgroupMin` ... `subgroupXor` |
 | `sg_dfdx(v)`, `sg_dfdy(v)`, `sg_fwidth(v)` | of a float, the lanes in fours as quads (lane bit 0 the column, bit 1 the row: Vulkan's layout): in lane l, v in lane l \| 1 less v in lane l & ~1, the same with bit 1, and \|dfdx\| + \|dfdy\|; W a multiple of 4 | `dFdxFine`, `dFdyFine`, `fwidthFine` (a fragment shader's quads; GL_NV_compute_shader_derivatives in compute) |
 
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
@@ -3570,7 +3571,8 @@ _() = 6
 ```
 
 **Cost classes.**  `sg_ballot`, `sg_vote` (any, all), `sg_add`,
-`sg_shuffle`, `sg_scan`, `sg_deriv`; like the dot forms, a model that does not list
+`sg_shuffle`, `sg_scan`, `sg_deriv`, `sg_min`, `sg_max`, `sg_and`, `sg_or`,
+`sg_xor`; like the dot forms, a model that does not list
 one cannot use it (`sg_scan: none` takes one away).  An operation costs its class once and its operand
 once in each lane: a value computed in every lane is priced once,
 whether an operation reads it across the lanes or the lane uses it
@@ -3617,6 +3619,16 @@ under; the whole is then checked against the function on its domain
   2d lanes ending at it.  Proved for any value per lane: with a free
   word in each lane, every lane's result is the words of lanes 0..lane,
   each once.
+- A min, max, and, or or xor over the lanes of a value that is 0 or 1
+  in every lane is a vote (min and and: `sg_all(v != 0)`; max and or:
+  `sg_any`) or the parity of the ballot (`popcount(sg_ballot(v != 0)) &
+  1`); of anything, with W a power of two, a butterfly of log2 W
+  shuffles by `lane xor d` (d = 1, 2, 4 ...) and the operation: after the
+  step for d a lane holds the result over the 2d lanes that agree with
+  it from bit d up.  Proved for any value per lane: with a free word in
+  each lane, every lane's result is the operation over all W words,
+  each once.  gt1030 lists none of the five classes, so find writes
+  them so (tests/sgreduce.ucas).
 - A constant table of at most W entries can sit one entry per lane (the
   table read once in each lane, at the lane's index) and be read by a
   shuffle: no memory, no bank conflicts.  Every lookup of the table or

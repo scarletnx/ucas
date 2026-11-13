@@ -494,6 +494,11 @@ static const struct sgfn {
 	{"sg_any", "subgroupAny", SGF_OP, O_SGANY, 1},
 	{"sg_all", "subgroupAll", SGF_OP, O_SGALL, 1},
 	{"sg_add", "subgroupAdd", SGF_OP, O_SGADD, 1},
+	{"sg_min", "subgroupMin", SGF_OP, O_SGMIN, 1},
+	{"sg_max", "subgroupMax", SGF_OP, O_SGMAX, 1},
+	{"sg_and", "subgroupAnd", SGF_OP, O_SGAND, 1},
+	{"sg_or", "subgroupOr", SGF_OP, O_SGOR, 1},
+	{"sg_xor", "subgroupXor", SGF_OP, O_SGXOR, 1},
 	{"sg_shuffle", "subgroupShuffle", SGF_OP, O_SGSHUF, 2},
 	{"sg_scan", "subgroupInclusiveAdd", SGF_OP, O_SGSCAN, 1},
 	{"sg_exclusive", "subgroupExclusiveAdd", SGF_EXCL, O_SGSCAN, 1},
@@ -596,6 +601,37 @@ sg_active_decl(struct P *p, nid m, int W)
 	p->sgmask = x;
 	return W == 64 ? x : mk_bin(O_AND, x, mk_const_i(bt,
 	    (int64_t)((1ULL << W) - 1)));
+}
+
+/* what an inactive lane gives a reduction: the value that changes no
+ * other (the type's largest for a min, smallest for a max, every bit for
+ * an and, none for an or and an xor) */
+static nid
+sg_identity_of(const struct sgfn *g, nid v)
+{
+	ty_t t = N.ty[v];
+	int w, sg;
+
+	if (t == TY_BOOL || TYK(t) == K_LIT)
+		t = TY(K_UINT, 32);
+	if ((g->op == O_SGMIN || g->op == O_SGMAX) && TYK(t) != K_UINT &&
+	    TYK(t) != K_SINT)
+		fail("%s under sg_active takes a machine integer (uN, iN), whose "
+		    "inactive lanes give the type's %s: %s has none", g->name,
+		    g->op == O_SGMIN ? "largest" : "smallest", ty_str(t));
+	w = TYW(t);
+	sg = TYK(t) == K_SINT;
+	switch (g->op) {
+	case O_SGMIN:
+		return sg ? mk_const_i(t, (int64_t)((1ULL << (w - 1)) - 1)) :
+		    mk_un(O_NOT, mk_const_i(t, 0));
+	case O_SGMAX:
+		return sg ? mk_const_i(t, w == 64 ? INT64_MIN :
+		    -(int64_t)(1ULL << (w - 1))) : mk_const_i(t, 0);
+	case O_SGAND:
+		return mk_un(O_NOT, mk_const_i(t, 0));
+	}
+	return mk_const_i(t, 0);
 }
 
 /* the lane of here's quad that subgroupQuadBroadcast reads: (here & ~3)
@@ -755,6 +791,11 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 			v = mk_bin(O_LOR, v, mk_un(O_LNOT, act));
 		else if (g->op == O_SGADD || g->op == O_SGSCAN)
 			v = mk_sel(act, v, mk_const_i(N.ty[v], 0));
+		else if (g->op >= O_SGMIN && g->op <= O_SGXOR) {
+			if (N.ty[v] == TY_BOOL || TYK(N.ty[v]) == K_LIT)
+				v = mk_cast(TY(K_UINT, 32), v);
+			v = mk_sel(act, v, sg_identity_of(g, v));
+		}
 		else
 			return sg_masked_shuffle(p, g, v, args, here, W);
 	}

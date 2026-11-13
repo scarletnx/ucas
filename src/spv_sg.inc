@@ -16,8 +16,10 @@
  * scan is the inclusive one less the lane's own value, a shuffle by xor,
  * up or down, a quad swap or a quad broadcast the shuffle and its index
  * (the quad's lanes in fours, bit 0 its column), a bit count of a ballot the
- * popcount and the mask of the lanes it keeps.  An instruction no
- * operation stands for (a product, a min, a clustered sum ...), or one
+ * popcount and the mask of the lanes it keeps, an integer min, max, and,
+ * or, xor over the lanes (Reduce) sg_min ... sg_xor, a logical and or or
+ * the vote it is.  An instruction no operation stands for (a product, a
+ * float min, a scan of a min, a clustered sum ...), or one
  * whose class the model does not list, runs at cost 0, and a note names
  * it.
  *
@@ -150,6 +152,26 @@ sg_expr_of(const struct sins *I, int W, int *cls)
 		*cls = C_BITCNT;
 		return O("BallotFindLSB") ? mk_un(O_CTZ, b) : mk_bin(O_SUB,
 		    mk_const_i(bt, W > 32 ? 63 : 31), mk_un(O_CLZ, b));
+	}
+	if ((O("UMin") || O("SMin") || O("UMax") || O("SMax") ||
+	    O("BitwiseAnd") || O("BitwiseOr") || O("BitwiseXor")) && gop &&
+	    !strcmp(gop, "Reduce")) {
+		int op = O("UMin") || O("SMin") ? O_SGMIN : O("UMax") ||
+		    O("SMax") ? O_SGMAX : O("BitwiseAnd") ? O_SGAND :
+		    O("BitwiseOr") ? O_SGOR : O_SGXOR;
+		*cls = sg_class(op);
+		return mk_sg(op, O("SMin") || O("SMax") ? mk_var(0, sym_cstr("v"),
+		    TY(K_SINT, 32)) : v, w, 0);
+	}
+	if ((O("LogicalAnd") || O("LogicalOr") || O("LogicalXor")) && gop &&
+	    !strcmp(gop, "Reduce")) {
+		/* the and and the or of a bool over the lanes are the votes */
+		if (O("LogicalXor")) {
+			*cls = C_SG_XOR;
+			return mk_sg(O_SGXOR, mk_cast(u, p), w, 0);
+		}
+		*cls = C_SG_VOTE;
+		return mk_sg(O("LogicalAnd") ? O_SGALL : O_SGANY, p, w, 0);
 	}
 	if (O("IAdd") && gop) {
 		if (!strcmp(gop, "Reduce")) {
