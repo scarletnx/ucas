@@ -20,8 +20,10 @@
  * AccurateDWPlusDW, DWTimesFP3, DWTimesDW3, DWDivFP3, DWDivDW2 with
  * DWTimesFP3, and the Newton square root.  Their paper proves tighter
  * constants by case analyses; the bounds used here are the ones the
- * standard model gives line by line (printed with the derivation), which
- * are a little larger and need the cancellation of an addition bounded.
+ * standard model gives line by line (printed with the derivation), with
+ * the subtractions Sterbenz makes exact taken as exact and DWPlusFP's
+ * two cases on its high words; the other additions' need their
+ * cancellation bounded.
  *
  * A bound is relative where the signs allow it and absolute always:
  * every value carries the interval of its exact value (from the
@@ -101,6 +103,12 @@ static long double
 ldmax(long double a, long double b)
 {
 	return a > b ? a : b;
+}
+
+static long double
+ldmin(long double a, long double b)
+{
+	return a < b ? a : b;
 }
 
 /* a * b with 0 * inf = 0: a zero error stays zero */
@@ -429,16 +437,21 @@ eta_mul_fp(void)
 	return U * (U + U) / (1 - U) * SLACK;
 }
 
-/* DWDivFP3: (xh + xl) / y; single: xl = 0 and its addition is skipped */
+/*
+ * DWDivFP3: (xh + xl) / y; single: xl = 0 and its addition is skipped.
+ * th = RN(xh / y) and (ph, pl) = 2Prod(th, y): th y is within a factor
+ * 1 +- u of xh and ph within (1 +- u)^2, so xh - ph is a float (Sterbenz);
+ * and xh - th y, a multiple of ulp(th) ulp(y) at most ulp(th) |y| / 2 in
+ * magnitude (fewer than 2^23 of them, 2Prod's own condition keeping
+ * them above underflow), is one too, so RN(RN(xh - ph) - pl) is exact.
+ * The residual x~ - th y is at most 2u |xh| (u |xh| when xl = 0): its sum
+ * with xl rounds once, the division once.
+ */
 static long double
 eta_div_fp(int single)
 {
-	long double pl = U * (1 + U) * (1 + U);	/* |pl| <= u |ph| */
-	long double d1 = U + pl, err1 = U * d1;
-	long double d2 = U + err1, err2 = U * d2;
 	long double rho = single ? U : 2 * U;
-	long double d3 = rho + err1 + err2, err3 = single ? 0 : U * d3;
-	long double eps = err1 + err2 + err3;
+	long double eps = single ? 0 : U * rho;
 
 	return (eps + U * (rho + eps)) / (1 - U) * SLACK;
 }
@@ -451,7 +464,9 @@ eta_div_dd(void)
 	long double rho = 3 * U + U * U;
 	long double er = emf * (1 + U) * (1 + U);
 	long double rh = (1 + U) * (1 + U) * (1 + emf) / (1 - U), rl = U * rh;
-	long double d1 = rho + er + U + rl, err1 = U * d1;
+	/* rh is within a factor 1 +- 3u of xh: xh - rh is a float
+	 * (Sterbenz), its RN exact */
+	long double err1 = 0;
 	long double d2 = U + rl, err2 = U * d2;
 	long double d3 = rho + er + err1 + err2, err3 = U * d3;
 	long double eps = er + err1 + err2 + err3;
@@ -523,6 +538,24 @@ comp_sqrt(struct err *z, const struct err *x, const struct iv *ix,
 		z->abs_ = x->abs_ == 0 && eta == 0 ? 0 : LINF;
 }
 
+/*
+ * DWPlusFP's local error whatever cancels, by two cases on its high
+ * words xh and y (s = xh + y, (sh, sl) = 2Sum(xh, y), v = RN(xl + sl)):
+ *   opposite signs and |y| in [|xh|/2, 2|xh|]: s is a float (Sterbenz),
+ *   so sl = 0 and v = xl, and the result is x~ + y exactly; Fast2Sum(sh,
+ *   v) is exact as sh's exponent is at least v's (a nonzero s is a
+ *   multiple of ulp(xh)/2, and |xl| <= ulp(xh)/2);
+ *   otherwise |s| > |xh|/2: the one rounding errs by u |xl + sl| <= u^2
+ *   (|xh| + |s|) < 3 u^2 |s|, |x~ + y| >= |s| - u |xh| > (1 - 2u) |s|,
+ *   and |v| < |sh|, so Fast2Sum is exact.
+ * So 3 u^2 / (1 - 2u) |x~ + y| for every kappa (the paper: 2 u^2).
+ */
+static long double
+eta_add_fp_split(void)
+{
+	return 3 * U * U / (1 - 2 * U) * SLACK;
+}
+
 /* y's interval already negated for a subtraction */
 static void
 comp_add(struct err *z, const struct err *x, const struct err *y,
@@ -537,17 +570,31 @@ comp_add(struct err *z, const struct err *x, const struct err *y,
 	    kind == AK_F64)) {
 		/* exact operands, one rounding: whatever cancels */
 		z->rel = kind == AK_EXACT ? 0 : kind == AK_SINGLE ? U : U64;
+	} else if (rmax == 0 && kind == AK_FP) {
+		/* exact operands: the split bound, whatever cancels */
+		z->rel = eta_add_fp_split();
+		if (!isinf(kappa))
+			z->rel = ldmin(z->rel, add_local(kind, 1, kappa / (1 - U),
+			    &p2));
 	} else if (!isinf(kappa) && !isinf(rmax) && kappa * rmax < 0.25L) {
 		long double kt = kappa * (1 + rmax) / (1 - kappa * rmax);
 		long double eta = add_local(kind, 1, kt / (1 - U), pre);
+		if (kind == AK_FP)
+			eta = ldmin(eta, eta_add_fp_split());
 		z->rel = kappa * rmax + eta * (1 + kappa * rmax);
 	} else {
 		z->rel = LINF;
 		*pre = kind == AK_EXACT || kind == AK_SINGLE || kind == AK_F64;
 	}
+	/* DWPlusFP's Fast2Sum is exact in both of the split's cases */
+	if (kind == AK_FP)
+		*pre = 1;
 	S = iv_mag(iz) + x->abs_ + y->abs_;
 	A = (iv_mag(ix) + x->abs_ + iv_mag(iy) + y->abs_) / (1 - U);
 	z->abs_ = x->abs_ + y->abs_ + add_local(kind, S, A, &p2);
+	if (kind == AK_FP)
+		z->abs_ = ldmin(z->abs_, x->abs_ + y->abs_ +
+		    lmul(eta_add_fp_split(), S));
 	if (isnan(z->abs_))
 		z->abs_ = LINF;
 }
@@ -1519,8 +1566,16 @@ derivations(struct sbuf *o, unsigned used)
 		    "      zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is "
 		    "at most u (u |xh| + u |sh|),\n"
 		    "      %.3Lf u^2 |x~ + y| when no cancellation (kappa = 1), "
-		    "(1 + kappa) u^2 in general\n",
-		    add_local(AK_FP, 1, 1 / (1 - U), &pre) / (U * U));
+		    "(1 + kappa) u^2 in general;\n"
+		    "      whatever cancels, by cases on xh and y: of opposite "
+		    "signs with |y| in [|xh|/2, 2|xh|],\n"
+		    "      xh + y is a float (Sterbenz), so sl = 0, v = xl and the "
+		    "sum is exact; otherwise\n"
+		    "      |xh + y| > |xh|/2 and the error is below 3 u^2 / (1 - "
+		    "2u) = %.3Lf u^2 |x~ + y| (the paper:\n"
+		    "      2 u^2); Fast2Sum's precondition holds in both\n",
+		    add_local(AK_FP, 1, 1 / (1 - U), &pre) / (U * U),
+		    eta_add_fp_split() / (U * U));
 	}
 	if (used & DB_ADD_SLOPPY) {
 		int pre;
@@ -1562,19 +1617,24 @@ derivations(struct sbuf *o, unsigned used)
 	if (used & DB_DIV_FP)
 		sb_printf(o, "    DWDivFP3(x~, y): th = RN(xh / y); (ph, pl) = "
 		    "2Prod(th, y); d = RN(RN(RN(xh - ph) - pl) + xl);\n"
-		    "      tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): the "
-		    "residual x~ - y th is at most 2u |xh|,\n"
-		    "      computed with three roundings and divided with one: "
-		    "%.3Lf u^2 |x~ / y| (%.3Lf u^2 when xl = 0;\n"
-		    "      the paper: 3 u^2, the subtraction xh - ph being "
-		    "exact)\n", eta_div_fp(0) / (U * U), eta_div_fp(1) / (U * U));
+		    "      tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): ph is "
+		    "within (1 +- u)^2 of xh, so xh - ph\n"
+		    "      is exact (Sterbenz), and xh - th y, a multiple of "
+		    "ulp(th) ulp(y) at most ulp(th) |y| / 2,\n"
+		    "      is a float, so less pl it is exact too; the residual "
+		    "x~ - y th, at most 2u |xh|, rounds\n"
+		    "      once with xl and once divided: %.3Lf u^2 |x~ / y| "
+		    "(%.3Lf u^2 when xl = 0; the paper: 3 u^2)\n",
+		    eta_div_fp(0) / (U * U), eta_div_fp(1) / (U * U));
 	if (used & DB_DIV_DD)
 		sb_printf(o, "    DWDivDW2(x~, y~): th = RN(xh / yh); r~ = "
 		    "DWTimesFP3(y~, th); d = RN(RN(xh - rh) + RN(xl - rl));\n"
 		    "      tl = RN(d / yh); (zh, zl) = Fast2Sum(th, tl): the "
 		    "residual x~ - y~ th is at most 3u |xh|;\n"
-		    "      r~, the three roundings, the division and yh for y~ "
-		    "give %.3Lf u^2 |x~ / y~| (the paper: 15 u^2)\n",
+		    "      rh is within 1 +- 3u of xh, so xh - rh is exact "
+		    "(Sterbenz); r~, the two other roundings,\n"
+		    "      the division and yh for y~ give %.3Lf u^2 |x~ / y~| "
+		    "(the paper: 15 u^2)\n",
 		    eta_div_dd() / (U * U));
 	if (used & DB_SQRT)
 		sb_printf(o, "    sqrt(x~): sh = RN(sqrt(xh)); r = fma(-sh, sh, "

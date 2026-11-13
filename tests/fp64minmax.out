@@ -47,7 +47,11 @@ dword a under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
     DWPlusFP(x~, y): (sh, sl) = 2Sum(xh, y); v = RN(xl + sl); (zh, zl) = Fast2Sum(sh, v):
       zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is at most u (u |xh| + u |sh|),
-      2.000 u^2 |x~ + y| when no cancellation (kappa = 1), (1 + kappa) u^2 in general
+      2.000 u^2 |x~ + y| when no cancellation (kappa = 1), (1 + kappa) u^2 in general;
+      whatever cancels, by cases on xh and y: of opposite signs with |y| in [|xh|/2, 2|xh|],
+      xh + y is a float (Sterbenz), so sl = 0, v = xl and the sum is exact; otherwise
+      |xh + y| > |xh|/2 and the error is below 3 u^2 / (1 - 2u) = 3.000 u^2 |x~ + y| (the paper:
+      2 u^2); Fast2Sum's precondition holds in both
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
       a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
   conditions:
