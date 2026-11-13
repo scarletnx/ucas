@@ -2216,7 +2216,7 @@ out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
 integers simplify writes it into a module (see "the same pass takes"
 above).
 
-`simplify` writes three of them into a SPIR-V module.  An
+`simplify` writes four of them into a SPIR-V module.  An
 OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
 operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
 bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
@@ -2235,17 +2235,26 @@ min and max, constants, adds and multiplies (each widened by one
 rounding), an integer's conversion SAT bounds, and the float
 assumptions, with one unit of margin for what the float pass may move
 under the floor (tests/f2ibits.ucas: `int(floor(clamp(c, 0.0, 1.0) *
-255.0 + 0.5))`).  They are written last, after the float, memory and
-advice passes, which read the conversion (its integer's range, an
-integer atomic's addend, a vertex format) and not the bits; the report
-gives them their own section, as a conversion is not in the integer
-cost, and says what spirv-val makes of the module.  Not yet: the floor
-and ceil by the magic add and floor(log2 x) by the exponent field
-(dearer than floor and clz under gt1030), ldexp on the bits (x must be
-proved a nonzero normal, which a range from clamps seldom gives), the
-GLSL function level (find only), f16 and f64, a round-to-nearest
-operation for the magic add to stand for (ucas has floor, ceil and the
-truncating conversion), 48-bit products by 2Prod.
+255.0 + 0.5))`).  A call of floor, ceil, trunc, round or roundEven on
+an f32 x whose range (the same) lies within 2^22 is `(x + 1.5*2^23) -
+1.5*2^23`, rounded to even (round's halves too: GLSL lets it choose),
+with floor's `r > x ? r - 1 : r` (ceil's `r < x ? r + 1 : r`) after
+it, and trunc as floor where x >= 0 and as ceil where x <= 0; the add
+and the subtraction are written NoContraction, so a driver keeps them,
+and a zero result may be +0 for -0, which Vulkan's default float
+controls allow (a module with SignedZeroInfNanPreserve keeps its
+calls).  Round and roundEven pay under gt1030 (3 to 2), floor and ceil
+under sm86 (8 to 7.375) (tests/roundspv.ucas).  They are written
+last, after the float, memory and advice passes, which read the
+conversion (its integer's range, an integer atomic's addend, a vertex
+format) and not the bits; the report gives them their own section, as
+a conversion is not in the integer cost, and says what spirv-val makes
+of the module.  Not yet: floor(log2 x) by the exponent field (dearer
+than clz under gt1030), ldexp on the bits (x must be proved a nonzero
+normal, which a range from clamps seldom gives), the GLSL function
+level (find only), f16 and f64, a round-to-nearest operation for the
+magic add to stand for (ucas has floor, ceil and the truncating
+conversion), 48-bit products by 2Prod.
 
 A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),

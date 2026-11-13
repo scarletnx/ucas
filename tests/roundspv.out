@@ -1,0 +1,84 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 98 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 4 -> 4 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 17 -> 17 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+conversions between integers and f32 by the bits, and roundings by the add of 1.5*2^23, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %32 = OpConvertUToF %float %31
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 7: float x = float(b.d[i] & 4095u) * 0.37, y = uintBitsToFloat(b.d[i + 64u]);)
+    %48 = OpExtInst %float %2 RoundEven %34
+      ->  (x + 1.5*2^23) - 1.5*2^23   (cost 3 -> 2)
+      %34 is in [0, 24248.3223] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact; the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 8: o.f[i] = roundEven(x);)
+    %56 = OpExtInst %float %2 Round %55
+      ->  (x + 1.5*2^23) - 1.5*2^23   (cost 3 -> 2)
+      %55 is in [-700.000061, 23548.3242] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact (round's halves to even, one of the two directions GLSL lets it take); the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 9: o.f[i + 64u] = round(x - 700.0);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3885 bytes, checksum decb1dd7)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use sm86
+cost model: sm86
+> spvsimplify nofile nofunctions
+simplify: 103 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under sm86 (each instruction once): 10 -> 10 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under sm86 (each component counted; step = compare + select, mix = subtract + fma): 51 -> 51 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+conversions between integers and f32 by the bits, and roundings by the add of 1.5*2^23, under sm86 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %32 = OpConvertUToF %float %31
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 8 -> 3)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 7: float x = float(b.d[i] & 4095u) * 0.37;)
+    %41 = OpExtInst %float %2 Floor %34
+      ->  r = (x + 1.5*2^23) - 1.5*2^23; r > x ? r - 1 : r   (cost 8 -> 7.375)
+      %34 is in [0, 24248.3223] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact; one less where that is above x: the floor; the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 8: o.f[i] = floor(x);)
+    %50 = OpExtInst %float %2 Ceil %49
+      ->  r = (x + 1.5*2^23) - 1.5*2^23; r < x ? r + 1 : r   (cost 8 -> 7.375)
+      %49 is in [-700.000061, 23548.3242] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact; one more where that is below x: the ceiling; the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 9: o.f[i + 64u] = ceil(x - 700.0);)
+    %56 = OpExtInst %float %2 Trunc %34
+      ->  r = (x + 1.5*2^23) - 1.5*2^23; r > x ? r - 1 : r   (cost 8 -> 7.375)
+      %34 is in [0, 24248.3223] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact; one less where that is above x: the floor, which is trunc for x >= 0; the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 10: o.f[i + 128u] = trunc(x);)
+    %63 = OpExtInst %float %2 Trunc %62
+      ->  r = (x + 1.5*2^23) - 1.5*2^23; r < x ? r + 1 : r   (cost 8 -> 7.375)
+      %62 is in [-24248.3223, 0] (a range from its definitions and the assumptions; one unit of margin for what the float pass may move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the last place is 1, so the add rounds x to an integer, to even, and subtracting 1.5*2^23 is exact; one more where that is below x: the ceiling, which is trunc for x <= 0; the add and the subtraction are decorated NoContraction, so a driver keeps them; a zero result may be +0 for -0 (Vulkan's default float controls, without SignedZeroInfNanPreserve)
+      (line 11: o.f[i + 192u] = trunc(-x);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 5165 bytes, checksum 4c02849e)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use sm86
+cost model: sm86
+> spvsimplify nofile nofunctions
+simplify: 82 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under sm86 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under sm86 (each component counted; step = compare + select, mix = subtract + fma): 17 -> 17 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+conversions between integers and f32 by the bits, under sm86 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %35 = OpConvertUToF %float %34
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %34 0x4B000000)) 2^23   (cost 8 -> 3)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 9: o.f[i] = roundEven(float(b.d[i] & 4095u) * 0.37);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3092 bytes, checksum 9419f80f)

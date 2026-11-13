@@ -12477,16 +12477,22 @@ struct frng {
 	int integral, ok;
 };
 
+/* one f32 rounding below v (above, f_up); never across 0, as a rounding
+ * keeps the sign of what it rounds */
 static double
 f_down(double v)
 {
-	return (double)nextafterf((float)v, -INFINITY);
+	double d = (double)nextafterf((float)v, -INFINITY);
+
+	return v >= 0 && d < 0 ? 0 : d;
 }
 
 static double
 f_up(double v)
 {
-	return (double)nextafterf((float)v, INFINITY);
+	double u = (double)nextafterf((float)v, INFINITY);
+
+	return v <= 0 && u > 0 ? 0 : u;
 }
 
 /* the smallest 2^p (p in 8, 16, 22, 24) that bounds integer id: |id| <
@@ -12673,7 +12679,10 @@ static struct cvx {
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
 				 * 2: f32(1 << k) by the exponent field;
 				 * 3: iN(x) of a whole x by the add of
-				 * 1.5*2^23, read as bits */
+				 * 1.5*2^23, read as bits; 4, 5, 6: x
+				 * rounded to even, floor, ceil by that
+				 * add and its subtraction (k: the call,
+				 * kt: the bool type) */
 	int line;
 	double before, after;
 	double flo, fhi;	/* form 3: x's range */
@@ -12684,9 +12693,16 @@ static void
 i2f_pass(void)
 {
 	const struct model *m = model_active();
-	int k;
+	int k, preserve = 0, bt = -1;
 
 	ncvx = 0;
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 2 &&
+		    !strcmp(V.in[k].opnd[1], "SignedZeroInfNanPreserve"))
+			preserve = 1;
+	for (k = 0; k < V.nid && bt < 0; k++)
+		if (V.id[k].kind == K_TYPE && T(k)->k == S_BOOL)
+			bt = k;
 	for (k = 0; k < SP.orig_nin && ncvx < 32; k++) {
 		const struct sins *I = &V.in[k];
 		int rt, x, xt, sg, form = -1;
@@ -12695,7 +12711,58 @@ i2f_pass(void)
 		lit goal;
 		struct word *wx, c, sh;
 		struct cvx *e;
-		if (SP.dead[k] || SP.rw[k] || I->nop != 2 || I->opnd[1][0] != '%')
+		if (SP.dead[k] || SP.rw[k])
+			continue;
+		/*
+		 * floor, ceil, trunc, round and roundeven of an f32 x in
+		 * [-2^22, 2^22] (one unit of margin for what the float pass may
+		 * move): x + 1.5*2^23 lies in [2^23, 2^24], where a unit in the
+		 * last place is 1, so the add rounds x to an integer, to even,
+		 * and the subtraction is exact; floor and ceil step back by one
+		 * where that went past x.  A zero result may be +0 for -0,
+		 * which Vulkan's default float controls allow (not with
+		 * SignedZeroInfNanPreserve), and round's halves go to even,
+		 * one of the two GLSL lets it take
+		 */
+		if (!strcmp(I->op, "OpExtInst") && I->nop == 4 && I->res >= 0 &&
+		    !preserve && V.glsl >= 0 && idx(I->opnd[1]) == V.glsl &&
+		    I->opnd[3][0] == '%') {
+			static const char *const rnd[] = {"Floor", "Ceil", "Trunc",
+			    "Round", "RoundEven", NULL};
+			const char *f = I->opnd[2];
+			struct frng fr;
+			rt = idx(I->opnd[0]);
+			if (!in_list(f, rnd) || rt < 0 || V.id[rt].kind != K_TYPE ||
+			    T(rt)->k != S_FLOAT || T(rt)->w != 32)
+				continue;
+			x = res_of(idx(I->opnd[3]));
+			fr = f_range(x, 0);
+			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi) ||
+			    fr.lo - 1 < -4194304.0 || fr.hi + 1 > 4194304.0)
+				continue;
+			/* trunc is floor where x >= 0, ceil where x <= 0 */
+			form = !strncmp(f, "Round", 5) ? 4 : !strcmp(f, "Floor") ||
+			    (f[0] == 'T' && fr.lo >= 0) ? 5 : !strcmp(f, "Ceil") ||
+			    (f[0] == 'T' && fr.hi <= 0) ? 6 : -1;
+			if (form < 0)
+				continue;
+			before = m->c[C_CONV];
+			after = 2 * m->c[C_FADD] + (form > 4 ? m->c[C_CMP] +
+			    m->c[C_FADD] + m->c[C_SELECT] : 0);
+			if (!(after < before - 1e-9))
+				continue;
+			xt = rt;
+			e = &cvx[ncvx++];
+			memset(e, 0, sizeof *e);
+			e->flo = fr.lo;
+			e->fhi = fr.hi;
+			snprintf(e->k, sizeof e->k, "%s", f);
+			/* a module with no compare has no bool type: one declared */
+			snprintf(e->kt, sizeof e->kt, "%s", bt >= 0 ? V.id[bt].tok :
+			    "%ucas_bool");
+			goto keep;
+		}
+		if (I->nop != 2 || I->opnd[1][0] != '%')
 			continue;
 		if (!strcmp(I->op, "OpConvertFToS") || !strcmp(I->op,
 		    "OpConvertFToU")) {
@@ -12828,9 +12895,10 @@ keep:
 static int
 i2f_patch(const char *text, char **out)
 {
-	struct sbuf o = {0}, decl = {0}, rep = {0};
+	struct sbuf o = {0}, decl = {0}, rep = {0}, dec = {0};
 	const char *p = text, *q;
-	int n = 0, i, declared = 0, used[32] = {0}, base = 0;
+	int n = 0, i, declared = 0, decorated = 0, used[32] = {0}, base = 0;
+	int nrnd = 0;
 
 	*out = NULL;
 	if (ncvx == 0)
@@ -12839,19 +12907,25 @@ i2f_patch(const char *text, char **out)
 	while (*p) {
 		const char *le = strchr(p, '\n');
 		size_t ln = le ? (size_t)(le - p) : strlen(p);
-		char buf[256], t[6][48];
+		char buf[256], t[8][48];
 		int nt = 0;
 		if (ln < sizeof buf) {
 			const char *q;
 			memcpy(buf, p, ln);
 			buf[ln] = 0;
-			for (q = strtok(buf, " \t"); q && nt < 6; q = strtok(NULL, " \t"))
+			for (q = strtok(buf, " \t"); q && nt < 8; q = strtok(NULL, " \t"))
 				snprintf(t[nt++], sizeof t[0], "%s", q);
 		}
 		for (i = 0; nt == 5 && i < ncvx; i++)
 			if (!used[i] && !strcmp(t[0], cvx[i].res) && !strcmp(t[1],
 			    "=") && !strcmp(t[2], cvx[i].op) && !strcmp(t[3],
 			    cvx[i].rt) && !strcmp(t[4], cvx[i].x))
+				used[i] = 1;
+		for (i = 0; nt == 7 && i < ncvx; i++)	/* a rounding call */
+			if (!used[i] && cvx[i].form >= 4 && !strcmp(t[0],
+			    cvx[i].res) && !strcmp(t[1], "=") && !strcmp(t[2],
+			    "OpExtInst") && !strcmp(t[3], cvx[i].rt) &&
+			    !strcmp(t[5], cvx[i].k) && !strcmp(t[6], cvx[i].x))
 				used[i] = 1;
 		p += ln + (le != NULL);
 	}
@@ -12870,6 +12944,29 @@ i2f_patch(const char *text, char **out)
 		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 		if (!used[i])
 			continue;
+		if (e->form >= 4) {	/* 1.5*2^23, and 1 for floor and ceil */
+			snprintf(fn, sizeof fn, "%%ucas_cvf_%s_4b400000 = ", e->rt + 1);
+			if (!strstr(decl.p ? decl.p : "", fn) && !strstr(text, fn))
+				sb_printf(&decl, "%sOpConstant %s 12582912\n", fn, e->rt);
+			snprintf(fn, sizeof fn, "%%ucas_cvf_%s_3f800000 = ", e->rt + 1);
+			if (e->form > 4 && !strstr(decl.p ? decl.p : "", fn) &&
+			    !strstr(text, fn))
+				sb_printf(&decl, "%sOpConstant %s 1\n", fn, e->rt);
+			if (e->form > 4 && !strcmp(e->kt, "%ucas_bool") &&
+			    !strstr(decl.p ? decl.p : "", "%ucas_bool = ") &&
+			    !strstr(text, "%ucas_bool = "))
+				sb_puts(&decl, "%ucas_bool = OpTypeBool\n");
+			/* the add and the subtraction stay as written */
+			sb_printf(&dec, "OpDecorate %%ucas_cv%do NoContraction\n",
+			    base + i);
+			if (e->form == 4)
+				sb_printf(&dec, "OpDecorate %s NoContraction\n", e->res);
+			else
+				sb_printf(&dec, "OpDecorate %%ucas_cv%dr NoContraction\n",
+				    base + i);
+			nrnd++;
+			continue;
+		}
 		if (e->form == 3) {	/* 0x4B400000 in the result's type, 1.5*2^23 */
 			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_4b400000 = ", e->rt + 1);
 			snprintf(fn, sizeof fn, "%%ucas_cvf_%s_4b400000 = ", e->xt + 1);
@@ -12902,14 +12999,21 @@ i2f_patch(const char *text, char **out)
 	for (p = text; *p; ) {
 		const char *le = strchr(p, '\n');
 		size_t ln = le ? (size_t)(le - p) : strlen(p);
-		char buf[256], t[6][48];
+		char buf[256], t[8][48];
 		int nt = 0, hit = -1;
 		if (ln < sizeof buf) {
 			const char *q;
 			memcpy(buf, p, ln);
 			buf[ln] = 0;
-			for (q = strtok(buf, " \t"); q && nt < 6; q = strtok(NULL, " \t"))
+			for (q = strtok(buf, " \t"); q && nt < 8; q = strtok(NULL, " \t"))
 				snprintf(t[nt++], sizeof t[0], "%s", q);
+		}
+		/* the decorations close the annotations, ahead of the types */
+		if (!decorated && nt >= 3 && !strcmp(t[1], "=") && !strncmp(t[2],
+		    "OpType", 6)) {
+			if (dec.p)
+				sb_puts(&o, dec.p);
+			decorated = 1;
 		}
 		if (!declared && nt >= 3 && !strcmp(t[1], "=") && !strcmp(t[2],
 		    "OpFunction")) {
@@ -12917,10 +13021,55 @@ i2f_patch(const char *text, char **out)
 				sb_puts(&o, decl.p);
 			declared = 1;
 		}
-		for (i = 0; nt == 5 && i < ncvx && hit < 0; i++)
-			if (used[i] && !strcmp(t[0], cvx[i].res))
+		for (i = 0; (nt == 5 || nt == 7) && i < ncvx && hit < 0; i++)
+			if (used[i] && !strcmp(t[0], cvx[i].res) && (nt == 7) ==
+			    (cvx[i].form >= 4))
 				hit = i;
-		if (hit >= 0 && cvx[hit].form == 3) {
+		if (hit >= 0 && cvx[hit].form >= 4) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit;
+			const char *ty = e->rt, *tn = e->rt + 1;
+			sb_printf(&o, "%%ucas_cv%do = OpFAdd %s %s "
+			    "%%ucas_cvf_%s_4b400000\n", b, ty, e->x, tn);
+			if (e->form == 4)
+				sb_printf(&o, "%s = OpFSub %s %%ucas_cv%do "
+				    "%%ucas_cvf_%s_4b400000\n", e->res, ty, b, tn);
+			else {
+				sb_printf(&o, "%%ucas_cv%dr = OpFSub %s %%ucas_cv%do "
+				    "%%ucas_cvf_%s_4b400000\n", b, ty, b, tn);
+				sb_printf(&o, "%%ucas_cv%dc = %s %s %%ucas_cv%dr %s\n", b,
+				    e->form == 5 ? "OpFOrdGreaterThan" : "OpFOrdLessThan",
+				    e->kt, b, e->x);
+				sb_printf(&o, "%%ucas_cv%ds = %s %s %%ucas_cv%dr "
+				    "%%ucas_cvf_%s_3f800000\n", b, e->form == 5 ?
+				    "OpFSub" : "OpFAdd", ty, b, tn);
+				sb_printf(&o, "%s = OpSelect %s %%ucas_cv%dc %%ucas_cv%ds "
+				    "%%ucas_cv%dr\n", e->res, ty, b, b, b);
+			}
+			sb_printf(&rep, "    %s\n      ->  %s   (cost %g -> %g)\n      "
+			    "%s is in [%.9g, %.9g] (a range from its definitions and the "
+			    "assumptions; one unit of margin for what the float pass may "
+			    "move), within 2^22: x + 1.5*2^23 lies in [2^23, 2^24], where "
+			    "a unit in the last place is 1, so the add rounds x to an "
+			    "integer, to even, and subtracting 1.5*2^23 is exact%s; the "
+			    "add and the subtraction are decorated NoContraction, so a "
+			    "driver keeps them; a zero result may be +0 for -0 (Vulkan's "
+			    "default float controls, without "
+			    "SignedZeroInfNanPreserve)\n%s",
+			    e->from, e->form == 4 ? "(x + 1.5*2^23) - 1.5*2^23" :
+			    e->form == 5 ? "r = (x + 1.5*2^23) - 1.5*2^23; "
+			    "r > x ? r - 1 : r" : "r = (x + 1.5*2^23) - 1.5*2^23; "
+			    "r < x ? r + 1 : r",
+			    e->before, e->after, e->x, e->flo, e->fhi, e->form == 4 ?
+			    (!strcmp(e->k, "Round") ? " (round's halves to even, one of "
+			    "the two directions GLSL lets it take)" : "") : e->form == 5 ?
+			    (e->k[0] == 'T' ? "; one less where that is above x: the "
+			    "floor, which is trunc for x >= 0" : "; one less where that "
+			    "is above x: the floor") : (e->k[0] == 'T' ? "; one more "
+			    "where that is below x: the ceiling, which is trunc for x <= "
+			    "0" : "; one more where that is below x: the ceiling"),
+			    e->src);
+		} else if (hit >= 0 && cvx[hit].form == 3) {
 			const struct cvx *e = &cvx[hit];
 			sb_printf(&o, "%%ucas_cv%do = OpFAdd %s %s %%ucas_cvf_%s_4b400000\n",
 			    base + hit, e->xt, e->x, e->xt + 1);
@@ -12979,9 +13128,16 @@ i2f_patch(const char *text, char **out)
 		}
 		p += ln + (le != NULL);
 	}
-	printf("conversions between integers and f32 by the bits, under %s "
-	    "(written last: the passes above read the conversions; a conversion "
-	    "is not in the integer cost):\n", sym_str(model_active()->name));
+	if (nrnd < n)
+		printf("conversions between integers and f32 by the bits%s, under "
+		    "%s (written last: the passes above read the conversions; a "
+		    "conversion is not in the integer cost):\n", nrnd ? ", and "
+		    "roundings by the add of 1.5*2^23" : "",
+		    sym_str(model_active()->name));
+	else
+		printf("roundings of f32 by the add of 1.5*2^23, under %s (written "
+		    "last, with the conversions by the bits):\n",
+		    sym_str(model_active()->name));
 	fputs(rep.p, stdout);
 	{
 		char why[200];
@@ -13000,7 +13156,11 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form == 3 ? "asint(x + 1.5*2^23) - "
+		rep_str("form", cvx[i].form == 4 ? "(x + 1.5*2^23) - 1.5*2^23" :
+		    cvx[i].form == 5 ? "r = (x + 1.5*2^23) - 1.5*2^23; r > x ? "
+		    "r - 1 : r" : cvx[i].form == 6 ? "r = (x + 1.5*2^23) - "
+		    "1.5*2^23; r < x ? r + 1 : r" : cvx[i].form == 3 ?
+		    "asint(x + 1.5*2^23) - "
 		    "0x4B400000" : cvx[i].form == 2 ? "asfloat((k + 127) << 23)" :
 		    cvx[i].form ? "asfloat(x + 0x4B400000) - 1.5*2^23" :
 		    "asfloat(x | 0x4B000000) - 2^23");
@@ -13011,6 +13171,7 @@ i2f_patch(const char *text, char **out)
 	}
 	rep_end();
 	free(decl.p);
+	free(dec.p);
 	free(rep.p);
 	*out = o.p;
 	return n;
