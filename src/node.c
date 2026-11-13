@@ -187,6 +187,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_FETCH_TEXEL] = {"fetch_texel", 2, OF_PARTIAL},
 	[O_FETCH_BUFFER] = {"fetch_buffer", 2, OF_PARTIAL},
 	[O_TEX_TRILINEAR] = {"tex_trilinear", 3, 0},
+	[O_TEX_COMPARE] = {"tex_compare", 3, 0},
 	[O_TEXARGS] = {"tex_args", 2, 0},
 };
 
@@ -1109,10 +1110,15 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 	if (bits < 1 || bits > TEX_MAXBITS)
 		fail("%s: the sub-texel grid has 1 to %d bits, not %d",
 		    opinfo[op].name, TEX_MAXBITS, bits);
-	if (op == O_TEX_BILINEAR) {
+	if (op == O_TEX_BILINEAR || op == O_TEX_COMPARE) {
 		if (w < 1 || n % w)
-			fail("tex_bilinear: a table of %u texels is not rows of "
-			    "%lld", n, (long long)w);
+			fail("%s: a table of %u texels is not rows of %lld",
+			    opinfo[op].name, n, (long long)w);
+		if (op == O_TEX_COMPARE && (TEX_CMP(ki) < 1 ||
+		    TEX_CMP(ki) > 6 || TEX_RED(ki)))
+			fail("tex_compare: its compare is lt, le, eq, ne, ge or "
+			    "gt (VkCompareOp 1 to 6), not %d%s", TEX_CMP(ki),
+			    TEX_RED(ki) ? ", and no MIN or MAX reduction" : "");
 		h = 0;
 	} else if (op == O_TEX_TRILINEAR) {
 		if (w < 1 || h < 1 || n % w || n / w % h)
@@ -1149,7 +1155,8 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 	if ((ki & TEX_WRAPMASK) && (op != O_TEX_LINEAR || TEX_RED(ki)))
 		fail("%s: REPEAT and MIRRORED_REPEAT are for a linear filter's "
 		    "weighted sum", opinfo[op].name);
-	ki = TEX_KI(bits, w) | TEX_KH(h) | TEX_RED(ki) | (ki & TEX_WRAPMASK);
+	ki = TEX_KI(bits, w) | TEX_KH(h) | TEX_RED(ki) | (ki & TEX_WRAPMASK) |
+	    (op == O_TEX_COMPARE ? ki & TEX_CMPMASK : 0);
 	if (allk && is_const(b) && (!c || is_const(c)) && (!d || is_const(d)))
 		return mk_const_fp(TY_F32, tex_filter(op, ki, n, N.kr[b], c ?
 		    N.kr[c] : 0, d ? N.kr[d] : 0, tex_const_texel, &a));
@@ -1838,11 +1845,12 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
 	case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
-	case O_FETCH_BUFFER: case O_TEX_TRILINEAR:
+	case O_FETCH_BUFFER: case O_TEX_TRILINEAR: case O_TEX_COMPARE:
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		pr(b, N.a[n], 0, pc, 0);
-		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR)
+		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR ||
+		    op == O_TEX_COMPARE)
 			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
 		if (op == O_TEX_TRILINEAR)
 			sb_printf(b, ", %lld", (long long)TEX_HEIGHT(N.ki[n]));
@@ -2040,7 +2048,8 @@ print_paren(struct sbuf *b, nid n)
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		print_paren(b, N.a[n]);
-		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR)
+		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR ||
+		    op == O_TEX_COMPARE)
 			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
 		if (op == O_TEX_TRILINEAR)
 			sb_printf(b, ", %lld", (long long)TEX_HEIGHT(N.ki[n]));

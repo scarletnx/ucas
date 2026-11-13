@@ -1,0 +1,83 @@
+# A depth compare read (src/texalu.c): tex_compare_OPB(T, W, u, v, ref),
+# its operands, its price, and sums of compares of neighbouring entries
+# against one reference read as one.
+
+# each texel is replaced by 1 where ref OP texel holds (Vulkan's
+# compareOp: ref the reference, the texel the test value) and 0
+# elsewhere, then filtered as tex_bilinearB at the normalised (u W, v H)
+# (no unnormalizedCoordinates with a compare), the sum rounded once
+D = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+# texel (0, 0)'s centre: its own compare
+show tex_compare_le8(D, 3, f32(1) / 6, f32(1) / 6, 0.1)
+show tex_compare_lt8(D, 3, f32(1) / 6, f32(1) / 6, 0.1)
+# the corner of 0.1 0.2 / 0.4 0.5: the fraction of the four that pass
+show tex_compare_lt8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+show tex_compare_le8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+show tex_compare_eq8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+show tex_compare_ne8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+show tex_compare_ge8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+show tex_compare_gt8(D, 3, f32(1) / 3, f32(1) / 3, 0.2)
+# 3/4 of the way along x: 1/4 of texel 0.1 and 3/4 of 0.2 on row 0
+show tex_compare_ge8(D, 3, f32(5) / 12, f32(1) / 6, 0.15)
+# outside: clamped to the edge
+show tex_compare_le8(D, 3, -2, 5, 0.85)
+# a NaN reference passes only ne
+show tex_compare_le8(D, 3, 0.5, 0.5, asfloat(u32(2143289344)))
+show tex_compare_ne8(D, 3, 0.5, 0.5, asfloat(u32(2143289344)))
+# what does not fit says so
+show tex_compare_xx8(D, 3, 0.5, 0.5, 0.2)
+show tex_compare_le8(D, 2, 0.5, 0.5, 0.2)
+show tex_compare_le8(D, 3, 0.5, 0.5)
+show tex_compare_le(D, 3, 0.5, 0.5, 0.2)
+
+# the reference is the fourth operand: printed, substituted into,
+# evaluated, compared
+c(u: f32 in 0..1, v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, u, v, r)
+show c
+g(r: f32 in 0..1) = c(f32(1) / 3, f32(1) / 3, r * 0.5)
+show g
+h(i: u8 in 0..10) = tex_compare_le8(D, 3, f32(1) / 3, f32(1) / 3, f32(i) / 10)
+table h max 11
+k1(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, v, r)
+k2(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, r, v)
+k3(v: f32 in 0..1, r: f32 in 0..1) = tex_compare_le8(D, 3, 0.5, v, r * 1)
+# v and the reference swapped differ; the same read written two ways
+# does not
+equiv k1 k2
+equiv k1 k3
+
+# the price: tex_compare, a D32_SFLOAT depth texture; gt1030 lists none
+# (not measured: tests/gt1030's tex_compare)
+cost k1
+model dc : gt1030 { tex_compare: 24 }
+use dc
+cost k1
+use gt1030
+
+# sums of compares (texalu): a percentage-closer filter, the four depths
+# around a texel corner against the fragment's depth r
+S = [0.25, 0.5, 0.75, 1.0, 0.125, 0.375, 0.625, 0.875, 0.0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125]
+model cal : gt1030 { tex_within: 2, tex_compare: 24 }
+# the count of those that pass is one read at the corner, exactly
+n4(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= S[y*4 + x]) + u32(r <= S[y*4 + x + 1]) + u32(r <= S[y*4 + x + 4]) + u32(r <= S[y*4 + x + 5])
+texalu n4 under cal
+texalu n4
+# the fraction that pass, written with ?: and the entry on the left
+p4(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = 0.25 * ((S[y*4 + x] >= r ? 1.0 : 0.0) + (S[y*4 + x + 1] >= r ? 1.0 : 0.0) + (S[y*4 + x + 4] >= r ? 1.0 : 0.0) + (S[y*4 + x + 5] >= r ? 1.0 : 0.0))
+texalu p4 under cal
+# the passes weighted bilinearly by the fractions s, t: one read where
+# the snap of s and t to the grid is within what is allowed
+pb(x: u8 in 0..2, y: u8 in 0..2, s: f32 in 0..1, t: f32 in 0..1, r: f32 in 0..1) = (1-s)*(1-t)*f32(r < S[y*4 + x]) + s*(1-t)*f32(r < S[y*4 + x + 1]) + (1-s)*t*f32(r < S[y*4 + x + 4]) + s*t*f32(r < S[y*4 + x + 5])
+texalu pb tol 0.01 under cal
+# controls: a reference that is not one value, depths outside [0, 1], a
+# compare of two entries
+q2(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= S[y*4 + x]) + u32(r <= S[y*4 + x + 1]) + u32(r <= S[y*4 + x + 4]) + u32(r * 0.5 <= S[y*4 + x + 5])
+texalu q2 under cal
+O = [0.25, 0.5, 0.75, 1.0, 0.125, 0.375, 0.625, 1.5, 0.0, 0.25, 0.5, 0.75, 0.875, 0.625, 0.375, 0.125]
+q3(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r <= O[y*4 + x]) + u32(r <= O[y*4 + x + 1]) + u32(r <= O[y*4 + x + 4]) + u32(r <= O[y*4 + x + 5])
+texalu q3 under cal
+q4(x: u8 in 0..2, y: u8 in 0..2) = u32(S[y*4 + x] <= S[y*4 + x + 1]) + u32(S[y*4 + x + 4] <= S[y*4 + x + 5])
+texalu q4 under cal
+# a reference computed: it holds where it is not NaN
+q5(x: u8 in 0..2, y: u8 in 0..2, r: f32 in 0..1) = u32(r * r <= S[y*4 + x]) + u32(r * r <= S[y*4 + x + 1]) + u32(r * r <= S[y*4 + x + 4]) + u32(r * r <= S[y*4 + x + 5])
+texalu q5 under cal

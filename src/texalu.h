@@ -29,6 +29,13 @@
  *                             coordinates (u W, v H, w D): eight texels,
  *                             their weights the products of the three
  *                             axes'
+ *   tex_compare_leB(T, W,     a depth compare read: tex_bilinearB at the
+ *     u, v, ref)              normalised (u W, v H) of the texels
+ *                             replaced by 1 where ref <= texel and 0
+ *                             elsewhere (lt, le, eq, ne, ge, gt: Vulkan's
+ *                             compareOp, ref the reference, the texel
+ *                             the test value; IEEE comparisons, so a NaN
+ *                             passes only ne)
  *   tex_repeatB(T, x),        tex_linearB with its two texels wrapped
  *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped
  *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
@@ -97,6 +104,14 @@
 /* a 3-D filter's rows a slice, H, in ki (tex_trilinear) */
 #define TEX_KH(h) ((int64_t)(h) << 34)
 #define TEX_HEIGHT(ki) ((int64_t)((ki) >> 34 & 0xffffff))
+/* a compare read's VkCompareOp in ki: LESS 1, EQUAL 2, LESS_OR_EQUAL 3,
+ * GREATER 4, NOT_EQUAL 5, GREATER_OR_EQUAL 6 (NEVER and ALWAYS are the
+ * constants 0 and 1, not reads) */
+#define TEX_KCMP(c) ((int64_t)(c) << 58)
+#define TEX_CMP(ki) ((int)((ki) >> 58 & 7))
+#define TEX_CMPMASK ((int64_t)7 << 58)
+/* does ref pass compare c against texel t */
+int tex_cmp_pass(int c, double ref, double t);
 /* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
  * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
 #define TEX_SRGB 1

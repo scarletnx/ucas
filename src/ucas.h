@@ -208,6 +208,10 @@ enum {
 	 * tex_trilinear8(T, W, H, x, y, z), W and H in ki, (y, z) the pair
 	 * O_TEXARGS in c */
 	O_TEX_TRILINEAR,
+	/* a depth compare read with the linear filter of a 2-D texture:
+	 * tex_compare_le8(T, W, u, v, ref), W and the compare in ki, (v, ref)
+	 * the pair O_TEXARGS in c */
+	O_TEX_COMPARE,
 	/* to the nearest integer, a tie to the even one (C23 roundeven,
 	 * GLSL roundEven, SPIR-V RoundEven) */
 	O_ROUNDEVEN,
@@ -221,9 +225,9 @@ enum {
 	O_NOPS
 };
 #define O_TEX_FIRST O_FETCH_REPEAT
-#define O_TEX_LAST O_TEX_TRILINEAR
+#define O_TEX_LAST O_TEX_COMPARE
 /* a read whose operand c is the pair O_TEXARGS */
-#define TEX_HAS_ARGS(op) ((op) == O_TEX_TRILINEAR)
+#define TEX_HAS_ARGS(op) ((op) == O_TEX_TRILINEAR || (op) == O_TEX_COMPARE)
 #define IS_TEXEL(op) ((op) == O_FETCH_TEXEL || (op) == O_FETCH_BUFFER)
 #define IS_TEX(op) ((op) >= O_TEX_FIRST && (op) <= O_TEX_LAST)
 #define IS_FETCH(op) ((op) >= O_FETCH_REPEAT && (op) <= O_FETCH_BORDER)
@@ -483,6 +487,9 @@ enum {
 	/* what a filtered read of a 3-D texture (tex_trilinear) costs over
 	 * the same format's 2-D read (texalu.c), absent unless listed */
 	C_TEX_3D,
+	/* a depth compare read of a D32_SFLOAT texture with the linear
+	 * filter (tex_compare), absent unless listed */
+	C_TEX_COMPARE,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
