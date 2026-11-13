@@ -1,0 +1,68 @@
+# simplify's cost counts each instruction once; a line of its own counts
+# an instruction of a loop of constant bounds once a pass (nested loops
+# multiply, a loop of other bounds once): a 24-bit surface packed a word
+# at a time divides on each of its 4 passes, and stepped as counters from
+# one division before the loop it costs more counted once and less a pass
+simplify nofile nofunctions budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) buffer Dst { uint dst[]; };
+layout(push_constant) uniform Params { uint dst_at; uint stride; uint width; };
+void main() {
+    uint w = gl_GlobalInvocationID.x, v = 0u;
+    for (uint b = 0u; b < 4u; b++) {
+        uint at = (w << 2u) + b;
+        if (at < dst_at) continue;
+        uint s = at - dst_at, p = s / 3u, y = p / stride, x = p - y * stride;
+        uint c = s - p * 3u;
+        v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);
+    }
+    dst[w] = v;
+}
+```
+simplify nofile nofunctions budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) buffer Dst { uint dst[]; };
+layout(push_constant) uniform Params { uint dst_at; uint stride; uint width; };
+void main() {
+    uint w = gl_GlobalInvocationID.x, v = 0u, w4 = w << 2u;
+    uint s0 = dst_at > w4 ? 0u : w4 - dst_at;
+    uint p = s0 / 3u, c = s0 - p * 3u, y = p / stride, x = p - y * stride;
+    for (uint b = 0u; b < 4u; b++) {
+        if (w4 + b < dst_at) continue;
+        v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);
+        c += 1u;
+        if (c == 3u) {
+            c = 0u;
+            p += 1u;
+            x += 1u;
+            if (x == stride) {
+                x = 0u;
+                y += 1u;
+            }
+        }
+    }
+    dst[w] = v;
+}
+```
+simplify nofile nofunctions budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint dst[]; };
+void main() {
+    uint w = gl_GlobalInvocationID.x, n = src[0] & 7u, acc = 0u;
+    for (uint i = 0u; i < 3u; i++)
+        for (uint j = 0u; j < 2u; j++)
+            acc += (src[w + i] >> j) * src[w + j];
+    for (uint k = 0u; k < n; k++)
+        acc ^= src[k] / (k + 1u);
+    dst[w] = acc;
+}
+```

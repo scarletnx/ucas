@@ -11573,6 +11573,189 @@ static char *orig_mod;	/* the module before the rewrites */
  * instructions (loads, constants, phis) as leaves; a result something
  * else uses (a store, a phi, a branch) is computed as it is.
  */
+/* ---- loops of constant bounds: each instruction's passes ---- */
+
+/* id as a small non-negative constant, -1 else */
+static int64_t
+small_const(int id)
+{
+	if (id < 0 || V.id[id].kind != K_CONST || V.id[id].spec ||
+	    V.id[id].c[0] >= (1ULL << 31))
+		return -1;
+	return (int64_t)V.id[id].c[0];
+}
+
+/*
+ * A structured loop's passes from its header h (merge m, continue c):
+ * the first conditional branch on the way from h (through unconditional
+ * branches) that leaves to m, on a compare of a phi of h with a constant,
+ * the phi from a constant before the loop and phi + a constant from c.
+ * -1 when the bounds are not constants of that shape.
+ */
+static int64_t
+loop_trips(int h, int m, int c)
+{
+	int pc, hops, lbl = h, cond = -1, stay = 0, k, phi = -1, i;
+	int64_t init = -1, step = -1, bound = -1;
+	const struct sins *I = NULL;
+	for (hops = 0; hops < 3; hops++) {
+		for (pc = block_start(lbl); pc < V.nin; pc++) {
+			I = &V.in[pc];
+			if (!strcmp(I->op, "OpBranch") ||
+			    !strcmp(I->op, "OpBranchConditional") ||
+			    !strncmp(I->op, "OpReturn", 8) || !strcmp(I->op, "OpSwitch") ||
+			    !strcmp(I->op, "OpKill") || !strcmp(I->op, "OpUnreachable"))
+				break;
+		}
+		if (pc >= V.nin)
+			return -1;
+		if (!strcmp(I->op, "OpBranch") && I->nop >= 1 && I->opnd[0][0] == '%') {
+			lbl = idx(I->opnd[0]);
+			if (lbl == m || V.id[lbl].kind != K_LABEL)
+				return -1;
+			continue;
+		}
+		if (strcmp(I->op, "OpBranchConditional") || I->nop < 3)
+			return -1;
+		cond = idx(I->opnd[0]);
+		if (idx(I->opnd[2]) == m)
+			stay = 1;	/* true: stay in the loop */
+		else if (idx(I->opnd[1]) == m)
+			stay = 0;
+		else
+			return -1;
+		break;
+	}
+	if (cond < 0 || SP.def == NULL || SP.def[cond] < 0)
+		return -1;
+	I = &V.in[SP.def[cond]];
+	if (I->nop < 3)
+		return -1;
+	{
+		int a = idx(I->opnd[1]), b = idx(I->opnd[2]), d;
+		const char *op = I->op;
+		int lt = !strcmp(op, "OpULessThan") || !strcmp(op, "OpSLessThan");
+		int le = !strcmp(op, "OpULessThanEqual") ||
+		    !strcmp(op, "OpSLessThanEqual");
+		int ge = !strcmp(op, "OpUGreaterThanEqual") ||
+		    !strcmp(op, "OpSGreaterThanEqual");
+		int gt = !strcmp(op, "OpUGreaterThan") || !strcmp(op, "OpSGreaterThan");
+		/* the phi on the left: i < K (stay) or i >= K (leave) */
+		if (!(stay ? lt || le : ge || gt))
+			return -1;
+		phi = a;
+		bound = small_const(b);
+		if (bound < 0 || phi < 0 || SP.def[phi] < 0)
+			return -1;
+		I = &V.in[SP.def[phi]];
+		if (strcmp(I->op, "OpPhi") || I->nop != 5)
+			return -1;
+		/* the header is the phi's block: (value, parent) pairs */
+		for (k = 1; k + 1 < I->nop; k += 2) {
+			int v = idx(I->opnd[k]), from = idx(I->opnd[k + 1]);
+			if (from == c) {
+				const struct sins *N;
+				if (v < 0 || SP.def[v] < 0)
+					return -1;
+				N = &V.in[SP.def[v]];
+				if (strcmp(N->op, "OpIAdd") || N->nop < 3)
+					return -1;
+				d = idx(N->opnd[1]) == phi ? idx(N->opnd[2]) :
+				    idx(N->opnd[2]) == phi ? idx(N->opnd[1]) : -1;
+				step = small_const(d);
+			} else
+				init = small_const(v);
+		}
+		if (init < 0 || step <= 0)
+			return -1;
+		if (lt || ge) {
+			/* passes while i < bound (or until i >= bound) */
+			return bound > init ? (bound - init + step - 1) / step : 0;
+		}
+		return bound >= init ? (bound - init) / step + 1 : 0;
+	}
+	(void)i;
+}
+
+/*
+ * Each instruction's passes (wt, by index): the product of the trip
+ * counts of the structured loops of constant bounds around its block, 1
+ * outside them and in loops of other bounds.  The loops counted, or 0.
+ */
+static int
+loop_weights(double *wt)
+{
+	int k, n = 0, *blk, nb = 0, *bstart, i;
+	uint8_t *in;
+	for (k = 0; k < V.nin; k++)
+		wt[k] = 1;
+	blk = xmalloc(((size_t)V.nin + 1) * sizeof *blk);
+	bstart = xmalloc(((size_t)V.nin + 1) * sizeof *bstart);
+	for (k = 0; k < V.nin; k++) {
+		if (!strcmp(V.in[k].op, "OpLabel"))
+			bstart[nb++] = k;
+		blk[k] = nb - 1;
+	}
+	in = xmalloc((size_t)nb + 1);
+	for (i = 0; i < nb; i++) {
+		int h = V.in[bstart[i]].res, m = -1, c = -1, pc, sp = 0, *st;
+		int64_t trips;
+		for (pc = bstart[i] + 1; pc < V.nin && strcmp(V.in[pc].op,
+		    "OpLabel"); pc++)
+			if (!strcmp(V.in[pc].op, "OpLoopMerge") && V.in[pc].nop >= 2) {
+				m = idx(V.in[pc].opnd[0]);
+				c = idx(V.in[pc].opnd[1]);
+			}
+		if (m < 0 || h < 0 || (trips = loop_trips(h, m, c)) < 0)
+			continue;
+		/* the loop's blocks: reached from its header, not through its
+		 * merge */
+		memset(in, 0, (size_t)nb + 1);
+		st = xmalloc(((size_t)nb + 1) * sizeof *st);
+		st[sp++] = blk[V.id[h].label_at];
+		in[st[0]] = 1;
+		while (sp) {
+			int b = st[--sp];
+			const struct sins *T2;
+			int e = b + 1 < nb ? bstart[b + 1] : V.nin, q;
+			for (pc = bstart[b] + 1; pc < e; pc++) {
+				T2 = &V.in[pc];
+				if (strcmp(T2->op, "OpBranch") &&
+				    strcmp(T2->op, "OpBranchConditional") &&
+				    strcmp(T2->op, "OpSwitch"))
+					continue;
+				for (q = !strcmp(T2->op, "OpBranch") ? 0 : 1; q < T2->nop;
+				    q++) {
+					int l, nbk;
+					if (T2->opnd[q][0] != '%')
+						continue;
+					l = idx(T2->opnd[q]);
+					if (l < 0 || l == m || V.id[l].kind != K_LABEL)
+						continue;
+					nbk = blk[V.id[l].label_at];
+					if (!in[nbk]) {
+						in[nbk] = 1;
+						st[sp++] = nbk;
+					}
+				}
+			}
+		}
+		free(st);
+		for (k = 0; k < V.nin; k++)
+			if (blk[k] >= 0 && in[blk[k]])
+				wt[k] *= (double)trips;
+		n++;
+	}
+	free(in);
+	free(blk);
+	free(bstart);
+	return n;
+}
+
+/* spv_cover's weights, when set: each instruction's passes (by index),
+ * and the total they give */
+static double *cover_wt, cover_wsum;
+
 static double
 spv_cover(struct fuse_tally *t)
 {
@@ -11697,6 +11880,16 @@ spv_cover(struct fuse_tally *t)
 		free(st);
 	}
 	total = fg_cover(model_active(), &G);
+	if (cover_wt) {
+		/* a fusion is priced at its root: the root's passes */
+		cover_wsum = 0;
+		for (j = 0; j < nins; j++) {
+			int at = (int)G.id[j];
+			double w = at < SP.orig_nin ? cover_wt[at] : SP.before[at] >= 0 &&
+			    SP.before[at] < SP.orig_nin ? cover_wt[SP.before[at]] : 1;
+			cover_wsum += G.eff[j] * w;
+		}
+	}
 	if (t)
 		fg_tally(&G, NULL, 1, t);
 	fg_free(&G);
@@ -11710,8 +11903,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 {
 	int k, i, nrw = 0, ndead = 0, inbody = 0, nlog = 0, nfwd = 0, ndst = 0;
 	int ndotrw = 0;
-	int ntriv = 0;
-	double tgain = 0;
+	int ntriv = 0, nloops = 0;
+	double tgain = 0, *lwt = NULL, wbefore = 0, wafter = 0;
 	char *range_report = NULL;
 #define MAXLOG 4096
 	struct rwlog {
@@ -11855,7 +12048,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 	SP.rng = 0x51c3a5e1ULL;
 	SP.deadline = (double)t0 / CLOCKS_PER_SEC + budget;
 	SP.g = aig_new();
+	/* loops of constant bounds: their instructions counted a pass each,
+	 * in a line of their own beside the headline (Liz, #369: "b") */
+	lwt = xmalloc(((size_t)V.nin + 1) * sizeof *lwt);
+	nloops = loop_weights(lwt);
+	cover_wt = nloops ? lwt : NULL;
 	before = spv_cover(NULL);
+	wbefore = cover_wsum;
 	for (k = 0; k < V.nin; k++)
 		if (is_idot(k)) {
 			int cls;
@@ -12047,6 +12246,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	memset(&ftally, 0, sizeof ftally);
 	after = spv_cover(&ftally);
+	wafter = cover_wsum;
+	cover_wt = NULL;
 	for (k = 0; k < V.nin; k++)
 		if (!SP.dead[k] && is_idot(k)) {
 			int cls;
@@ -12211,6 +12412,11 @@ spirv_simplify(const char *src, double budget, int nofile)
 	rep_str("model", sym_str(model_active()->name));
 	rep_num("cost_before", before);
 	rep_num("cost_after", after);
+	if (nloops) {
+		rep_int("loops_weighted", nloops);
+		rep_num("cost_weighted_before", wbefore);
+		rep_num("cost_weighted_after", wafter);
+	}
 	if (ntriv) {
 		/* what a driver's back end would make of the input anyway */
 		rep_num("cost_driver_baseline", before - tgain);
@@ -12327,6 +12533,15 @@ spirv_simplify(const char *src, double budget, int nofile)
 			printf(" (%+.1f%%)", 100 * (after - before) / before);
 		printf("\n");
 	}
+	if (nloops) {
+		printf("  weighted by the trip counts of %d loop%s of constant bounds "
+		    "(each instruction once a pass, an early exit making it less): "
+		    "%g -> %g", nloops, nloops > 1 ? "s" : "", wbefore, wafter);
+		if (wbefore > 0)
+			printf(" (%+.1f%%)", 100 * (wafter - wbefore) / wbefore);
+		printf("\n");
+	}
+	free(lwt);
 	if (ntriv) {
 		/* one line: the kinds and how many, kept in the module */
 		const char *kinds[16];

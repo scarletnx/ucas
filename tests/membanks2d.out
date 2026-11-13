@@ -123,6 +123,7 @@ banks under gt1030: 32 banks of 4 bytes, a warp of 32 lanes, 4-byte elements; a 
 simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 21.875 -> 21.875 (+0.0%)
   counting the strength reductions any driver also does: 22.875 -> 21.875 (-4.4%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 322.5 -> 321.5 (-0.3%)
   also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     imad             1 x 3     = 3  (a*b + c; saves 1)
