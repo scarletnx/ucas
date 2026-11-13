@@ -31,3 +31,9 @@ g2(a: u8) = a ^ 2
 show g2
 h2(a: u8) = (a ** 2) & 7
 show h2
+# a where name is one operand: the bitwise operator in its value is not beside the comparison
+wp(x: u8, y: u8) = (a >= b ? 0 : 1) where a = (x & 7), b = (y & 7)
+wq(x: u8, y: u8) = (a >= b ? 0 : 1) where a = x & 7, b = y & 7
+show wq
+# written beside the comparison, the note stays
+wr(x: u8, y: u8) = (a & 7 >= b ? 0 : 1) where a = x, b = y & 7

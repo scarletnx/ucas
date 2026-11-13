@@ -38,8 +38,6 @@ _() = 1
   -> u16
 > r11(k: u32 in 0..65519) = k < 2048 ? k : (q + (rem > half || (rem == half && (q & 1) == 1) ? 1 : 0)) << e
     where e = 21 - clz(k), q = k >> e, rem = k & ((1 << e) - 1), half = 1 << (e - 1)
-  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((k & ((1 << (21 - clz(k))) - 1)) > (1 << ((21 - clz(k)) - 1)))
-  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((k & ((1 << (21 - clz(k))) - 1)) == (1 << ((21 - clz(k)) - 1)))
 > cast(k: u32 in 0..65519) = u32(f16(k))
 > equiv cast r11
 cast and r11 are equal on the domain of cast (exhaustive)
