@@ -4519,7 +4519,8 @@ it is everywhere, with no edge to stay inside.  The coordinate is made
 as the clamped filter's, x, then u = x f32(1/n): the unit's u n is
 within |x| 2^-23 of x (two roundings of 2^-24; exact when n is a power
 of two), which joins the weight's move in the bound, and the multiply
-is priced.  A wrapping entry with no neighbour that wraps with it is
+is priced.  A weight's move meets the largest step between neighbours,
+and under REPEAT the last texel and the first are neighbours too.  A wrapping entry with no neighbour that wraps with it is
 read as it is, an affine index of `i % n`.  One axis only
 (tests/texwrap.ucas).
 
