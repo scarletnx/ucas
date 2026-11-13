@@ -134,7 +134,6 @@ simplify: 89 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 23.5 -> 23.5 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: layout (line 6: 'uint64_t' is not a type); main (line 11: 'vbb' is not declared))
 memory under fixed:
   atomics by kind, priced a warp instruction:
     %54 = OpAtomicUMin %ulong %46 %uint_1 %uint_0 %53

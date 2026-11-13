@@ -23,6 +23,36 @@ static int hex_digit(unsigned c) { return digit(c) || (c >= 'a' && c <= 'f') || 
 static unsigned at(const Glslc* g, uint32_t i) { return i < g->src_len ? (unsigned char)g->src[i] : 0u; }
 static int skipping(const Glslc* g) { return g->nifs && !(g->ifs[g->nifs - 1] & IF_LIVE); }
 
+/* ucas: the same in 64 bits */
+int glslc_parse_int64(const char* text, uint32_t len, uint64_t* value) {
+    uint64_t v = 0;
+    uint32_t i = 0, base = 10;
+    if (len >= 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+        base = 16;
+        i = 2;
+    } else if (len >= 2 && text[0] == '0' && digit((unsigned char)text[1])) {
+        base = 8;
+        i = 1;
+    }
+    for (; i < len; i++) {
+        unsigned c = (unsigned char)text[i];
+        uint32_t d;
+        if (c >= '0' && c <= '9') {
+            d = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            d = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            d = c - 'A' + 10;
+        } else {
+            break; /* the u and l suffixes */
+        }
+        if (v > (UINT64_MAX - d) / base) return 0;
+        v = v * base + d;
+    }
+    *value = v;
+    return 1;
+}
+
 int glslc_parse_int(const char* text, uint32_t len, uint32_t* value) {
     uint64_t v = 0;
     uint32_t i = 0, base = 10;
@@ -105,6 +135,11 @@ static uint8_t number(Glslc* g, uint32_t* pi) {
             glslc_fail(g, start, "'%.*s': the suffix u needs GLSL ES 3.00 or later", (int)(i + 1 - start),
                        g->src + start);
         kind = TK_UINTCONST;
+        i++;
+    }
+    /* ucas: Vulkan GLSL's 64-bit literals, l (int64_t) and ul (uint64_t) */
+    if (g->implicit && (kind == TK_INTCONST || kind == TK_UINTCONST) && (at(g, i) == 'l' || at(g, i) == 'L')) {
+        kind = kind == TK_INTCONST ? TK_INT64CONST : TK_UINT64CONST;
         i++;
     }
     if (ident_char(at(g, i))) {
@@ -512,7 +547,9 @@ static uint32_t rescan(Glslc* g, uint32_t lo, uint32_t hi, uint32_t site) {
 static void put(Glslc* g, GlslcToken t) {
     if (t.kind == TK_IDENT) {
         const GlslcKeyword* k = glslc_find_keyword(text_of(g, &t), t.text.len);
-        if (k) {
+        if (k && k->ext == GLSLC_KW_IMPLICIT) {
+            if (g->implicit) t.kind = k->kind; /* ucas: a word of Vulkan GLSL only */
+        } else if (k) {
             uint32_t vm = 1u << g->vi;
             if ((k->kw & vm) || (k->ext && g->ext[k->ext] != GLSLC_BEHAVIOR_DISABLE))
                 t.kind = k->kind;

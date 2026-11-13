@@ -14,7 +14,13 @@ its comment:
   around the value, so the tree shows them), a global takes any
   initializer, and an image of any format may be read and written;
 - the float atomics (atomicAdd, atomicMin, atomicMax, atomicExchange of
-  a float) of GL_EXT_shader_atomic_float and float2, in builtins.c.
+  a float) of GL_EXT_shader_atomic_float and float2, in builtins.c;
+- the 64-bit integers of GL_EXT_shader_explicit_arithmetic_types_int64,
+  for Glslc.implicit only: the types int64_t, uint64_t, i64vecN and
+  u64vecN (keywords whose ext is GLSLC_KW_IMPLICIT), the literals with l
+  and ul, their constants (Glslc.const64, folded in 64 bits), the
+  conversions between them and the 32-bit types, and their abs, sign,
+  min, max, clamp and atomics.
 ucas uses its parser for simplify's function-level pass (../glslfn.c):
 the syntax tree, typed, with each node's source position.  The
 Makefiles build these files into libsnxglslc.a, as glslc.c would clash

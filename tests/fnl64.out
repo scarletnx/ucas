@@ -1,0 +1,28 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  scale (line 6), called from main (line 12)
+    line 6: `min(v, 1000000000000ul)` can be `v` (the result is the same)
+      uint64_t scale(uint64_t v) {
+          return v * 3ul;
+      }
+    proof: proved by SAT (ucas equiv, which enumerates no 64-bit value: 2214 AIG nodes, 533 conflicts) on the inferred domain
+    cost under gt1030 (a loop priced per iteration times its trips): 4 -> 3 per call
+    relies on: v in 0..65535 at every call: main (line 12)
+  lowbyte (line 7), called from main (line 12)
+    line 7: the remainder never bites
+      (k & 255ul) % 256ul
+        ->  k & 255ul
+      proof: proved by SAT (ucas equiv, which enumerates no 64-bit value: 65 AIG nodes, 0 conflicts) on the inferred domain
+      cost under gt1030: 8 -> 1 each time it runs
+      relies on: any value where line 7 runs
+  pack_key (line 8), called from main (line 12)
+    line 8: the min never bites
+      min(uint64_t(depth), 1056964607ul)
+        ->  uint64_t(depth)
+      proof: proved by SAT (ucas equiv, which enumerates no 64-bit value: 237 AIG nodes, 56 conflicts) on the inferred domain
+      cost under gt1030: 1 -> 0 each time it runs
+      relies on: depth in 0..268435455 where line 8 runs

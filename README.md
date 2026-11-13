@@ -5284,8 +5284,15 @@ is dropped: floats are opaque to the level either way, and
 `packDouble2x32` and `unpackDouble2x32` are functions whose value it
 does not know.  The float atomics of GL_EXT_shader_atomic_float (and
 float2's min and max) are the parser's own, beside the integer ones
-(tests/fnlf64.ucas).  The 64-bit integer types are not read: a
-declaration or function with one is left out, as below.  The parser itself
+(tests/fnlf64.ucas).  The 64-bit integers of
+GL_EXT_shader_explicit_arithmetic_types_int64 (`uint64_t`, `int64_t`,
+their vectors, the literals `1ul` and `1l`, and their min, max, clamp,
+abs and atomics) are read as the parser's own types, and the level's
+intervals hold them up to +-2^61, past which a value is any value (a
+mask, a remainder or a right shift still bounds what it makes).  ucas
+enumerates no 64-bit value, so a candidate on one is proved by SAT
+(`equiv`'s, on the same translation), and the report says so
+(tests/fnl64.ucas).  The parser itself
 (a copy, see src/snxglslc/README) takes a source of any size here, and
 for a shader that is not GLSL ES makes Vulkan GLSL's implicit
 conversions (int to uint, int and uint to float, in operators,
@@ -5335,7 +5342,8 @@ value of the rest, which gives `t64 <= 64` exactly.  The domains are
 over-approximations: what is proved on them holds for every run.
 
 **Searches**, each candidate checked by the interpreter first and then
-proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
+proved by `equiv_check` (ucas's own `equiv`) on a ucas translation (by
+its SAT where a 64-bit value is in it):
 
 - a *pure helper* (scalar parameters and result, writes nothing, reads
   scalar globals) whose domain has at most 2^20 points is checked whole:
