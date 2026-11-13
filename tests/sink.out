@@ -448,7 +448,7 @@ float simplify: 2 rewrites of float instructions applied, each with a derivation
   Gamma: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile assume c 0 1 float sink rgba32f
-sink.ucas:62:51: error: simplify: sink FORMAT is unormN or snormN (2 to 23 bits), f16, or a format's name with fewer bits than f32 (rgba8, rgba8_snorm, rgb10a2, rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb): 'rgba32f' is none of them
+sink.ucas:62:51: error: simplify: sink FORMAT is unormN or snormN (2 to 23 bits), f16, or a format's name with fewer bits than f32 (rgba8, rgba8_snorm, rgb10a2, rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb), or int (a floor or an int() may move its integer by one): 'rgba32f' is none of them
     spvsimplify nofile assume c 0 1 float sink rgba32f
                                                       ^
   note: the ```spv code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)

@@ -4539,18 +4539,25 @@ request.  A stored or returned vector put together from its lanes
 is under the construct.
 
 Integer formats and 32-bit floats are not sinks (`sink rgba32f` is an
-error).  In English: "for an RGBA8_UNORM target", "the format is
+error; `sink int` is the integer budget below).  In English: "for an RGBA8_UNORM target", "the format is
 rgb10a2", `sink unorm8`.
 
 A float used through a decision is a root too: the operand of a
 conversion to an integer (`int(d * 255.0)`, with a `floor` under it)
 and the side of a compare whose other side is a constant (`d > 0.5`).
 It takes no budget beyond the original's precision, the one a stored
-f32 gets: a budget of one unit would move the integer by one, which no
-request word allows, and any move can flip a compare.  Nothing under
-such a value takes a budget either, even where the value is also
-stored under a sink: a polynomial the sink would take for an `exp2`
-whose result is also compared is not applied (tests/sinkdisc.ucas).
+f32 gets, unless the request says `sink int` (in English, "the integer
+may be off by one"): then what a conversion to an integer reads, and
+what a floor reads (converted or stored), may move by one unit, since
+|v' - v| <= 1 moves floor and truncation by at most one; an unsigned
+conversion takes a little less, as a value below -1 would leave it
+undefined (tests/sinkint.ucas: `int(floor(exp2(c * 0.5) * 16.0))` takes
+exp2's degree-1 polynomial, 0.143 of the unit).  `sink int` and a
+format can be given together.  A compare takes no budget, whatever the
+request: any move can flip it.  Nothing under a value without a budget
+takes one either, even where the value is also stored under a sink: a
+polynomial the sink would take for an `exp2` whose result is also
+compared is not applied (tests/sinkdisc.ucas).
 
 One step is the budget at the root: the UNORM conversion clamps to
 [0, 1], scales by 2^N - 1 and rounds; rounding to nearest (what Vulkan

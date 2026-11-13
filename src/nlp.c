@@ -8640,7 +8640,10 @@ find_sink(const char *text, char *out, size_t nout)
 					t++;
 				for (j = 0; j <= n; j++)
 					lw[j] = (char)tolower((unsigned char)w[j]);
-				if (after_sink || (spirv_sink_known(w) && (said ||
+				/* `sink int` is the integer budget, not a
+				 * format: a format may follow */
+				if ((after_sink && strcmp(lw, "int") && strcmp(lw,
+				    "integer")) || (spirv_sink_known(w) && (said ||
 				    strstr(lw, "unorm") || strstr(lw, "snorm"))))
 					snprintf(out, nout, "%s", w);
 				after_sink = !strcmp(lw, "sink");
@@ -8662,7 +8665,7 @@ simplify_piece(struct sbuf *piece, int c)
 	char *p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
 	char ulp[32] = "", num[32] = "", fl[320] = "", sink[48] = "";
 	char tol[40] = "";	/* "tol 1e-12", "atol 0.001": f64 results */
-	int f_foldproof = 0, tolabs = 0, want_tol = 0;
+	int f_foldproof = 0, tolabs = 0, want_tol = 0, f_sinkint = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	int f_search = 0;	/* "with simulated annealing", "using cma-es" */
@@ -8881,6 +8884,20 @@ simplify_piece(struct sbuf *piece, int c)
 			if (strstr(h, "foldproof") || strstr(h, "fold-proof") ||
 			    strstr(h, "fold proof"))
 				f_foldproof = 1;
+			/* `sink int`, "the integer may be off by one" */
+			if (strstr(h, "off by one") || strstr(h, "off-by-one"))
+				f_sinkint = 1;
+			{
+				const char *si = h;
+				while ((si = strstr(si, "sink int")) != NULL) {
+					const char *e = si + 8;
+					if (!strncmp(e, "eger", 4))
+						e += 4;
+					if (!isalnum((unsigned char)*e) && *e != '_')
+						f_sinkint = 1;
+					si += 8;
+				}
+			}
 		}
 	}
 	snprintf(fl + strlen(fl), sizeof fl - strlen(fl), "%s", f_foldproof ?
@@ -8890,6 +8907,8 @@ simplify_piece(struct sbuf *piece, int c)
 		    "atol" : "tol", tol);
 	if (sink[0])
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink %s", sink);
+	if (f_sinkint)
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink int");
 	if (f_advice && !c)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " advice");
 	/* rebuild: directives kept, the text on one line, blank lines after */
