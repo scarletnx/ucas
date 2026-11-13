@@ -1,0 +1,92 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> rare(i: u32 in 0..4095) = { s: f32 = 0; for j in 0..15 { s = (i * 7 + j * 13) % 32 == 0 ? s + sqrt(exp(sin(f32(i + j)) * 3.0) + log(f32(j + 2)) * exp(f32(j) * 0.1)) * sin(f32(i)) : s + 1.0 }; s }
+> cost rare
+cost of rare under gt1030: 964 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd            48 x 1     = 48
+  shift           16 x 7     = 112
+  imul             1 x 3     = 3
+  cmp             32 x 2.375 = 76
+  select          16 x 1.625 = 26
+  conv            49 x 3     = 147
+  fadd            16 x 1     = 16
+  fmul            32 x 1     = 32
+  fsqrt           16 x 4     = 64
+  ftrans          65 x 4     = 260
+  branch          16 x 6.25  = 100
+  fused by the model (one instruction for several operations):
+    imad            16 x 3     = 48  (a*b + c; saves 16)
+    ffma            32 x 1     = 32  (a*b + c, contracted: one rounding; saves 32)
+  loop j in 0..15:
+    per iteration: body 50 + overhead 9.625 (index add, compare, branch) = 59.625
+    trip count: 16 (constant bounds)
+    once: 10 (initial values and loop-invariant subterms, hoisted)
+    loop total: 964
+  ?: on (int(7i) + 13j) % 32 == 0  (arms cost 35 and 1)  [in a loop body: per iteration]
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: +2.74852   (per iteration: P(true) = 0.03125 over all 65536 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 0.6379)
+      compacted: -21.9062   (the lanes that take the true arm, 0.03125 of them, packed into the first lanes across the loop's iterations: each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back; the 35 of that arm once for 32 items)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not); compacted is cheaper, a restructuring: the loop made persistent, the items it packs carried across iterations
+  estimate with the best form per ?: : 964
+> half(i: u32 in 0..4095) = { s: f32 = 0; for j in 0..15 { s = (i + j) % 2 == 0 ? s + sqrt(exp(sin(f32(i + j)) * 3.0)) : s + 1.0 }; s }
+> cost half
+cost of half under gt1030: 634 (0 operations outside loops and 1 loop, shared subterms counted once)
+  shared subterms (named once, used below):
+    t1 = int(i) + j
+  iadd            32 x 1     = 32
+  shift           16 x 7     = 112
+  cmp             32 x 2.375 = 76
+  select          16 x 1.625 = 26
+  conv            16 x 3     = 48
+  fadd            32 x 1     = 32
+  fmul            16 x 1     = 16
+  fsqrt           16 x 4     = 64
+  ftrans          32 x 4     = 128
+  branch          16 x 6.25  = 100
+  loop j in 0..15:
+    per iteration: body 30 + overhead 9.625 (index add, compare, branch) = 39.625
+    trip count: 16 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 634
+  ?: on t1 % 2 == 0  (arms cost 17 and 1)  [in a loop body: per iteration]
+      select: +1.625   uniform branch: +5.25   divergent branch: +20.625
+      expected branch: +20.625   (per iteration: P(true) = 0.5 over all 65536 lane-iterations; 32 independent lanes split with probability 1 - p^32 - (1 - p)^32 = 1)
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 634
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 111 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5.375 -> 5.375 (+0.0%)
+  counting the strength reductions any driver also does: 5.375 -> 5.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 344 -> 344 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  in-warp compaction, advice (a restructuring of the loop: the module is not changed), under gt1030:
+    OpBranchConditional %50 %51 %76
+      (line 9: if (x > 0.99) {)
+      in a loop's body, on a condition that differs from lane to lane; the true arm costs 39, the other 1
+      compacted across the loop's iterations (a persistent loop): each lane a ballot, an and with the lanes below and its bit count, a shuffle there and back (12), the dear arm once for 32 packed items;
+      cheaper than the branch (or both arms and a select, the cheaper) while 0.003906 to 0.7334 of the lanes take that arm (independent lanes): at 0.03223, 14.2568 against 41.625 a lane
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3391 bytes, checksum 7a559f1a)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 85 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 47.375 -> 47.375 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  not applied:
+    %53 = OpExtInst %float %2 Pow %29 %float_2_20000005   (pow as exp2(y * log2 x))
+        not cheaper under gt1030
+    %47 = OpExtInst %float %2 Sqrt %46   (sqrt as x * inversesqrt(x))
+        not cheaper under gt1030

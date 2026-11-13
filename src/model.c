@@ -1060,6 +1060,7 @@ struct selp {
 	int k;			/* the loop whose body it is in, -1 */
 	int nonuni, dmode, dexact, nenc, encarm;
 	float ex[2], sel, uni, div, expd, pick;
+	float comp;		/* compacted across the loop's iterations, or NaN */
 	double dp, dat, daf, reached, times;
 	uint64_t dpts;
 	const char *name;
@@ -1368,6 +1369,26 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				x->pick = x->sel;
 				x->name = "select";
 			}
+			/*
+			 * In a loop's body, the lanes that take the dear arm can be
+			 * packed into the first lanes across iterations (a
+			 * persistent loop): each lane pays a ballot, the and with
+			 * the lanes below and its bit count (its place), and a
+			 * shuffle there and back; the dear arm runs once for 32
+			 * packed items, so a lane pays p of it, p the chance it is
+			 * taken.  Against both arms computed, that is the overhead
+			 * less (1 - p) of the dear arm.
+			 */
+			x->comp = NAN;
+			if (k >= 0 && x->dmode && x->reached > 0 &&
+			    cclass_available(m, C_SG_BALLOT) &&
+			    cclass_available(m, C_SG_SHUF)) {
+				int dear = x->ex[0] >= x->ex[1] ? 0 : 1;
+				double pd = dear == 0 ? x->dp : 1 - x->dp;
+				x->comp = (float)(m->c[C_SG_BALLOT] + m->c[C_LOGIC] +
+				    m->c[C_BITCNT] + 2 * m->c[C_SG_SHUF] - (1 - pd) *
+				    x->ex[dear]);
+			}
 			best_total += (float)((x->pick - x->sel) * x->times *
 			    x->reached);
 			/* a branch: what only its arms reach is reached by their
@@ -1457,13 +1478,28 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 				if (x->nenc)
 					rep_num("reached", x->reached);
 			}
+			if (!isnan(x->comp) && x->comp < x->pick)
+				rep_num("compacted", x->comp);
 			rep_str("best", x->name);
 			if (x->k >= 0)
 				rep_bool("in_loop", 1);
 			rep_end();
-			printf("      -> %s%s\n", x->name, x->nonuni ?
+			/* the compaction, said only where it is the cheapest */
+			if (!isnan(x->comp) && x->comp < x->pick)
+				printf("      compacted: %+g   (the lanes that take the "
+				    "%s arm, %.4g of them, packed into the first lanes "
+				    "across the loop's iterations: each lane a ballot, an and "
+				    "with the lanes below and its bit count, a shuffle there "
+				    "and back; the %g of that arm once for 32 items)\n",
+				    (double)x->comp, x->ex[0] >= x->ex[1] ? "true" : "false",
+				    x->ex[0] >= x->ex[1] ? x->dp : 1 - x->dp, (double)(x->ex[0] >=
+				    x->ex[1] ? x->ex[0] : x->ex[1]));
+			printf("      -> %s%s%s\n", x->name, x->nonuni ?
 			    " (condition varies per invocation; mark "
-			    "parameters 'uniform' if it does not)" : "");
+			    "parameters 'uniform' if it does not)" : "", !isnan(x->comp) &&
+			    x->comp < x->pick ? "; compacted is cheaper, a "
+			    "restructuring: the loop made persistent, the items it "
+			    "packs carried across iterations" : "");
 		}
 		free(sp);
 		free(nenc);
