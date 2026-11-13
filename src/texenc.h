@@ -99,7 +99,7 @@ struct bc7_info {
 int bc7_mode(const uint8_t q[16]);
 void bc7_decode(const uint8_t q[16], uint8_t px[16][4]);
 double bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
-    uint8_t out[16], struct bc7_info *info, double *aerr);
+    int srgb, uint8_t out[16], struct bc7_info *info, double *aerr);
 
 /*
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels

@@ -53,6 +53,9 @@
  *       partition and way of holding red tried, each subset's endpoints
  *       over every value of their field; T and U in red and alpha, in
  *       the modes where alpha has indices of its own (4 and 5)
+ *   texenc T [, U] bc7 srgb [rows W] [tol E]
+ *       the same as BC7_SRGB: red reads the sRGB EOTF of its code over
+ *       255, alpha stays linear
  */
 #include "calc.h"
 #include "report.h"
@@ -1551,7 +1554,7 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
  */
 static void
 cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
-    double tol, int has_tol)
+    double tol, int has_tol, int srgb)
 {
 	const struct func *fs[2] = {f, g};
 	const char *nm[2], *ch[2] = {"red", "alpha"};
@@ -1584,9 +1587,13 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 			fail("texenc: BC7 holds numbers from 0 to 1 (or whole numbers 0 "
 			    "to 255, read as k/255); %s has an entry that is neither",
 			    nm[c]);
+		/* sRGB red: a whole number is the code, read through the EOTF */
+		if (srgb && c == 0 && isint[0])
+			for (i = 0; i < n; i++)
+				t[0][i] = texenc_srgb8((int)lround(t[0][i] * 255));
 	}
 	rep_begin("texenc");
-	rep_str("format", "BC7_UNORM");
+	rep_str("format", srgb ? "BC7_SRGB" : "BC7_UNORM");
 	rep_int("entries", n);
 	rep_int("width", W);
 	rep_int("height", H);
@@ -1594,14 +1601,18 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 	sb_clear(&b);
 	if (nt == 2)
 		sb_printf(&b, " (%s the red, %s the alpha)", nm[0], nm[1]);
-	printf("texenc %s%s%s bc7: %d entr%s%s as BC7_UNORM%s, rows of %d (%d x "
-	    "%d texels): %d block%s, %d bytes (%d as %s, %d as %s)%s\n", nm[0],
-	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", n, n == 1 ? "y" : "ies",
-	    nt == 2 ? " a channel" : "", sb_str(&b), W, W, H, nbx * nby,
+	printf("texenc %s%s%s bc7%s: %d entr%s%s as %s%s, rows of %d (%d x %d "
+	    "texels): %d block%s, %d bytes (%d as %s, %d as %s)%s%s\n", nm[0],
+	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", srgb ? " srgb" : "", n,
+	    n == 1 ? "y" : "ies", nt == 2 ? " a channel" : "", srgb ?
+	    "BC7_SRGB" : "BC7_UNORM", sb_str(&b), W, W, H, nbx * nby,
 	    nbx * nby == 1 ? "" : "s", nbx * nby * 16, nt * W * H, nt == 2 ?
 	    "R8G8_UNORM" : "R8_UNORM", 4 * nt * W * H, nt == 2 ?
-	    "R32G32_SFLOAT" : "R32_SFLOAT", isint[0] || (nt == 2 && isint[1]) ?
-	    "; whole numbers k are stored as k/255" : "");
+	    "R32G32_SFLOAT" : "R32_SFLOAT", srgb ? "; red reads the sRGB EOTF "
+	    "of its code over 255, so a whole number k in it is the code k" :
+	    isint[0] || (nt == 2 && isint[1]) ? "; whole numbers k are stored "
+	    "as k/255" : "", srgb && nt == 2 && isint[1] ? "; alpha stays "
+	    "linear, k/255" : "");
 	rep_list("blocks");
 	for (k = 0; k < nbx * nby; k++) {
 		double bt[2][16], got[2] = {0, 0}, want[2];
@@ -1615,8 +1626,8 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 			for (c = 0; c < nt; c++)
 				bt[c][i] = care[i] ? t[c][a] : 0;
 		}
-		want[0] = bc7_encode(bt[0], nt == 2 ? bt[1] : NULL, care, q, &in,
-		    &want[1]);
+		want[0] = bc7_encode(bt[0], nt == 2 ? bt[1] : NULL, care, srgb, q,
+		    &in, &want[1]);
 		bc7_decode(q, px);
 		for (i = 0; i < 16; i++) {
 			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
@@ -1625,7 +1636,8 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 				continue;
 			for (c = 0; c < nt; c++) {
 				double e;
-				dec[c][a] = (double)(float)(px[i][c ? 3 : 0] / 255.0);
+				dec[c][a] = !c && srgb ? texenc_srgb8(px[i][0]) :
+				    (double)(float)(px[i][c ? 3 : 0] / 255.0);
 				e = fabs(dec[c][a] - t[c][a]);
 				if (e > got[c])
 					got[c] = e;
@@ -1716,7 +1728,8 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 		rep_num("max_error", err[c]);
 		if (err[c] == 0)
 			printf("  %sexact: every texel is its entry's f32%s\n", pre,
-			    isint[c] ? " over 255" : "");
+			    !isint[c] ? "" : srgb && !c ? ", the EOTF of its code" :
+			    " over 255");
 		else {
 			printf("  %snot exact: the closest blocks are within %.3g of "
 			    "the table (entry %d: %.9g as %.9g)\n", pre, err[c], at[c],
@@ -1741,6 +1754,11 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 	    "selections" : "every mode, partition, and way of holding red (in "
 	    "modes 4 and 5 the colour's or the rotated alpha, either index "
 	    "set)", nt == 2 ? ", red and alpha each on its own" : "");
+	if (srgb)
+		printf("  the EOTF here is the specification's formula rounded to "
+		    "an f32 once; an implementation's conversion may differ in "
+		    "its last bits%s\n", nt == 2 ? " (alpha is not converted)" :
+		    "");
 	printf("  a BC7 block is 16 bytes for 16 texels: %s; a nearest or "
 	    "filtered read is that read of the decoded table%s; no model prices "
 	    "a BC7 read apart from its uncompressed one: not measured\n",
@@ -1803,8 +1821,10 @@ texenc_command(struct P *p)
 	else if (cmdp_kw(p, "etc2")) {
 		etc2 = 1;
 		srgb = cmdp_kw(p, "srgb");
-	} else if (cmdp_kw(p, "bc7"))
+	} else if (cmdp_kw(p, "bc7")) {
 		bc7 = 1;
+		srgb = cmdp_kw(p, "srgb");
+	}
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -1817,13 +1837,13 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] "
-			    "[rows W] [tol E]");
+			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 "
+			    "[srgb]] [rows W] [tol E]");
 		}
 	}
 	notes_flush();
 	if (bc7)
-		cmd_texenc_bc7(f, g, (int)W, tol, has_tol);
+		cmd_texenc_bc7(f, g, (int)W, tol, has_tol, srgb);
 	else if (etc2)
 		cmd_texenc_etc2(f, g, (int)W, tol, has_tol, srgb);
 	else if (eac)
@@ -1914,8 +1934,8 @@ texenc_nlp_raw(const char *sent)
 	    ((astc || eac || etc2 || bc7) && fn2[0]) ? ", " : "", bc5 ||
 	    ((astc || eac || etc2 || bc7) && fn2[0]) ? fn2 : "", astc ?
 	    " astc " : "", astc ? fp : "", eac ? " eac" : etc2 ? (srgb ?
-	    " etc2 srgb" : " etc2") : bc7 ? " bc7" : "", rows[0] ? " rows " : "",
-	    rows, tol[0] ? " tol " : "", tol);
+	    " etc2 srgb" : " etc2") : bc7 ? (srgb ? " bc7 srgb" : " bc7") : "",
+	    rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "", tol);
 	return out;
 }
 

@@ -19,7 +19,8 @@
  * subset s reads ((64 - w) e0 + w e1 + 32) >> 6 with w its index's
  * weight; in modes 4 and 5 colour takes the secondary index when ISB is
  * set and alpha the other one, and the rotation then swaps alpha with
- * red, green or blue.  A channel reads c/255.
+ * red, green or blue.  A channel reads c/255; in BC7_SRGB red, green and
+ * blue read the sRGB EOTF of c/255 (after the rotation), alpha not.
  *
  *   mode  NS PB RB ISB CB AB EPB SPB IB IB2
  *   0      3  4  0  0   4  0  1   0   3  0
@@ -231,10 +232,11 @@ bc7_decode(const uint8_t q[16], uint8_t px[16][4])
 
 /* ---- the search ---- */
 
+/* what a read of channel value c returns, through the sRGB EOTF or not */
 static double
-rd8(int c)
+rd8(int srgb, int c)
 {
-	return (double)(float)(c / 255.0);
+	return srgb ? texenc_srgb8(c) : (double)(float)(c / 255.0);
 }
 
 /*
@@ -253,7 +255,7 @@ struct bc7pair {
 
 static void
 pair_search(const double *t, int mask, int bits, int pb, int ibits,
-    double lim, struct bc7pair *r)
+    double lim, int srgb, struct bc7pair *r)
 {
 	const int *wt = bc7_weights(ibits);
 	int nl = 1 << ibits, nv = 1 << (bits + (pb ? 1 : 0)), a, b, i, k;
@@ -275,14 +277,14 @@ pair_search(const double *t, int mask, int bits, int pb, int ibits,
 	 * anchor's top bit is set by swapping afterwards */
 	for (a = 0; a < nv; a++) {
 		int va = widen(a, bits + (pb ? 1 : 0));
-		if (rd8(va) - tmin > best)
+		if (rd8(srgb, va) - tmin > best)
 			continue;
 		for (b = 0; b < nv; b++) {
 			int vb = widen(b, bits + (pb ? 1 : 0)), pal[16];
 			double mx = 0, sq = 0;
 			if (pb == 2 && (a & 1) != (b & 1))
 				continue;	/* one p-bit for the pair */
-			if (vb < va || tmax - rd8(vb) > best)
+			if (vb < va || tmax - rd8(srgb, vb) > best)
 				continue;
 			for (k = 0; k < nl; k++)
 				pal[k] = lerp7(va, vb, wt[k]);
@@ -291,7 +293,7 @@ pair_search(const double *t, int mask, int bits, int pb, int ibits,
 				if (!(mask >> i & 1))
 					continue;
 				for (k = 0; k < nl; k++) {
-					double e = fabs(rd8(pal[k]) - t[i]);
+					double e = fabs(rd8(srgb, pal[k]) - t[i]);
 					if (e < be) {
 						be = e;
 						idx[i] = k;
@@ -351,7 +353,8 @@ anchor_of(int ns, int p, int s)
  */
 static void
 subsets_search(const double *t, const uint8_t *care, int ns, int p,
-    int bits, int pb, int ibits, struct bc7pair *pr, double *mx, double *sq)
+    int bits, int pb, int ibits, int srgb, struct bc7pair *pr, double *mx,
+    double *sq)
 {
 	int s, i;
 	double big = 0;
@@ -362,7 +365,7 @@ subsets_search(const double *t, const uint8_t *care, int ns, int p,
 		for (i = 0; i < 16; i++)
 			if (care[i] && subset_of(ns, p, i) == s)
 				mask |= 1 << i;
-		pair_search(t, mask, bits, pb, ibits, -1, &pr[s]);
+		pair_search(t, mask, bits, pb, ibits, -1, srgb, &pr[s]);
 		if (pr[s].mx > big)
 			big = pr[s].mx;
 	}
@@ -373,7 +376,7 @@ subsets_search(const double *t, const uint8_t *care, int ns, int p,
 				mask |= 1 << i;
 		/* below the block's largest error, the fewest squares */
 		if (pr[s].mx < big)
-			pair_search(t, mask, bits, pb, ibits, big, &pr[s]);
+			pair_search(t, mask, bits, pb, ibits, big, srgb, &pr[s]);
 		pair_anchor(&pr[s], mask, anchor_of(ns, p, s), ibits);
 		*sq += pr[s].sq;
 	}
@@ -433,7 +436,7 @@ bc7_write(int m, int part, int rot, int isb, const struct bc7pair *col,
  */
 double
 bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
-    uint8_t out[16], struct bc7_info *info, double *aerr)
+    int srgb, uint8_t out[16], struct bc7_info *info, double *aerr)
 {
 	struct bc7pair pr[3], pa[1];
 	double bmx = INFINITY, bsq = INFINITY;
@@ -465,10 +468,12 @@ bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
 				int aibits = !M->ib2 ? M->ib : rot ? (isb ? M->ib2 :
 				    M->ib) : (isb ? M->ib : M->ib2);
 				double mx, sq, amx = 0, asq = 0;
+				/* sRGB converts the red a read returns, rotated or not;
+				 * alpha stays linear */
 				subsets_search(tr, care, M->ns, part, rbits, rpb, ribits,
-				    pr, &mx, &sq);
+				    srgb, pr, &mx, &sq);
 				if (ta) {
-					subsets_search(ta, care, 1, 0, abits, 0, aibits, pa,
+					subsets_search(ta, care, 1, 0, abits, 0, aibits, 0, pa,
 					    &amx, &asq);
 					if (amx > mx)
 						mx = amx;

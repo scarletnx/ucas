@@ -261,10 +261,10 @@ static const struct jcmd cmds[] = {
 	    "RG11_EAC; signed when an entry is negative)"),
 	    BO("etc2", " etc2", "the table in the red channel of RGB8_ETC2 "
 	    "blocks instead (two as RGBA8_ETC2_EAC, the second the alpha)"),
-	    BO("srgb", " srgb", "with etc2: the sRGB format, red read through "
-	    "the sRGB EOTF (alpha linear)"),
 	    BO("bc7", " bc7", "the table in the red channel of BC7 blocks "
 	    "instead (two in red and alpha)"),
+	    BO("srgb", " srgb", "with etc2 or bc7: the sRGB format, red read "
+	    "through the sRGB EOTF (alpha linear)"),
 	    IO("rows", " rows %s", "texels in a row (4)"), NUO("tol", " tol %s",
 	    "the error allowed on an entry")}},
 	{"more", "more", 0, 0, "the next results of the last find",
