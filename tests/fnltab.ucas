@@ -1,0 +1,72 @@
+# The function level tabulates a loop of a constant count whose one result
+# is a function of one value of at most 256 (the rest constants where it
+# starts), runs it at each value and hands the table to find's maps: a
+# write log's byte mask from a 4-bit mask (vk/wlog_merge.comp's loop, in a
+# shader whose only function is main, so its loops alone are read), the
+# same in a helper, a sum with no closed form (the table itself), and a
+# loop that reads two values of many (not named)
+use gt1030
+simplify functions nofile budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) buffer Dst { uint dst[]; };
+void main() {
+    uint m = src[gl_GlobalInvocationID.x];
+    for (uint i = 0u; i < 8u; i++) {
+        uint bits = (m >> (i << 2u)) & 0xFu;
+        if (bits == 0u) continue;
+        if (bits == 0xFu) {
+            dst[i] = src[i];
+            continue;
+        }
+        uint keep = 0u;
+        for (uint q = 0u; q < 4u; q++)
+            if ((bits & (1u << q)) != 0u) keep |= 0xFFu << (q << 3u);
+        dst[i] = (dst[i] & ~keep) | (src[i] & keep);
+    }
+}
+```
+simplify functions nofile budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint dst[]; };
+uint Mask(uint bits) {
+    uint keep = 0u;
+    for (uint q = 0u; q < 4u; q++)
+        if ((bits & (1u << q)) != 0u) keep |= 0xFFu << (q << 3u);
+    return keep;
+}
+uint Weights(uint bits) {
+    uint acc = 0u;
+    for (uint q = 0u; q < 4u; q++)
+        if ((bits & (1u << q)) != 0u) acc += q + 1u;
+    return acc;
+}
+uint Two(uint a, uint b) {
+    uint acc = 0u;
+    for (uint q = 0u; q < 4u; q++)
+        acc += (a >> q) ^ b;
+    return acc;
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x, v = src[i];
+    dst[i] = Mask(v & 0xFu) + Weights(v >> 28u) + Two(v, src[i + 1u]);
+}
+```
+simplify functions nofile budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint dst[]; };
+void main() {
+    uint acc = 0u, v = src[gl_GlobalInvocationID.x];
+    for (uint q = 0u; q < 4u; q++)
+        acc += v >> q;
+    dst[gl_GlobalInvocationID.x] = acc;
+}
+```

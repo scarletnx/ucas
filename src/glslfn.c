@@ -54,6 +54,8 @@
 
 #include "ucas.h"
 #include "calc.h"
+#include "fuse.h"
+#include "irw.h"
 #include "snxglslc/internal.h"
 
 /* ---- the syntax tree ---- */
@@ -2505,6 +2507,7 @@ static struct lprobe {
 	uint8_t fail1, fail2;	/* the test failed as a pass started */
 	struct av v1, v2;	/* the loop's variable as each pass starts */
 	uint8_t *r1, *r2;	/* per statement: run in the first, second pass */
+	struct av *entry;	/* per symbol: as the loop starts, joined */
 } *LP;			/* per statement; NULL when no probe round ran */
 static int lp_note;	/* the probe round: 0 ran, 1 out of time, 2 the
 			 * analysis did not settle, 3 a summary grew in it */
@@ -2518,6 +2521,7 @@ lp_free(void)
 		for (s = 0; s <= G.ns; s++) {
 			free(LP[s].r1);
 			free(LP[s].r2);
+			free(LP[s].entry);
 		}
 	free(LP);
 	LP = NULL;
@@ -3578,8 +3582,14 @@ probe_loop(int s, struct eset *P)
 		L->r1 = xcalloc((size_t)G.ns + 1, 1);
 		L->r2 = xcalloc((size_t)G.ns + 1, 1);
 		L->v1 = L->v2 = av_bot();
+		L->entry = xmalloc(((size_t)A.ns + 1) * sizeof *L->entry);
+		for (i = 0; i < A.ns; i++)
+			L->entry[i] = av_bot();
 	}
 	L->seen = 1;
+	for (pass = 0; pass < P->n; pass++)
+		for (i = 0; i < A.ns; i++)
+			L->entry[i] = av_join(L->entry[i], P->e[pass][i]);
 	for (pass = 0; pass < 2 && P->n && !A.out_of_time; pass++) {
 		struct eset T = {0}, F = {0};
 		struct ctx lc;
@@ -5384,7 +5394,7 @@ scost(int s)
 
 /* ---- proposals ---- */
 
-enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP };
+enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP, P_TAB };
 struct prop {
 	int f, kind, line;
 	char what[1200];
@@ -6255,6 +6265,381 @@ search_loops(int f)
 		free(loc);
 		free(ls);
 		free(lx);
+	}
+	free(xs);
+	free(ss);
+}
+
+/* ---- loops of a constant count that compute a map of one small value ---- */
+
+static void reads_x(int x, uint8_t *rd, int *pure);
+
+static int glsl_u32(struct sbuf *b, nid e, const char *xn, int xty);
+
+/* a uint constant as GLSL writes it */
+static void
+glsl_u(struct sbuf *b, int64_t v)
+{
+	if (v >= 4096 || (v >= 15 && ((v + 1) & v) == 0))
+		sb_printf(b, "0x%llXu", (unsigned long long)(uint32_t)v);
+	else
+		sb_printf(b, "%lluu", (unsigned long long)(uint32_t)v);
+}
+
+/* e (one of find's maps of the variable xn, in u32; at the top a
+ * conversion to the map's own integer type, which keeps the value) as
+ * GLSL; 0 when it has an operation this does not write */
+static int
+glsl_nid(struct sbuf *b, nid e, const char *xn, int xty)
+{
+	while (N.op[e] == O_CAST && TY_SIZED(N.ty[N.a[e]]) && (TYK(N.ty[e]) ==
+	    K_INT || TYK(N.ty[e]) == K_LIT || TYK(N.ty[e]) == K_SINT))
+		e = N.a[e];
+	return glsl_u32(b, e, xn, xty);
+}
+
+static int
+glsl_u32(struct sbuf *b, nid e, const char *xn, int xty)
+{
+	static const struct {
+		int op;
+		const char *s;
+	} ops[] = {{O_ADD, "+"}, {O_SUB, "-"}, {O_MUL, "*"}, {O_AND, "&"},
+	    {O_OR, "|"}, {O_XOR, "^"}, {O_SHL, "<<"}, {O_SHR, ">>"}};
+	int op = N.op[e], i;
+	if (op == O_CONST) {
+		if (N.ki[e] < 0 || N.ki[e] > 0xFFFFFFFFLL)
+			return 0;
+		glsl_u(b, N.ki[e]);
+		return 1;
+	}
+	if (op == O_VAR) {
+		sb_printf(b, xty == TU ? "%s" : "uint(%s)", xn);
+		return 1;
+	}
+	if (op == O_CAST)
+		return N.ty[e] == TY(K_UINT, 32) && glsl_u32(b, N.a[e], xn, xty);
+	if (N.ty[e] != TY(K_UINT, 32))
+		return 0;
+	for (i = 0; i < (int)(sizeof ops / sizeof ops[0]); i++)
+		if (ops[i].op == op) {
+			/* a constant operand of + * & | ^ written second */
+			int sw = N.op[N.a[e]] == O_CONST && N.op[N.b[e]] != O_CONST &&
+			    op != O_SUB && op != O_SHL && op != O_SHR;
+			sb_putc(b, '(');
+			if (!glsl_u32(b, sw ? N.b[e] : N.a[e], xn, xty))
+				return 0;
+			sb_printf(b, " %s ", ops[i].s);
+			if (!glsl_u32(b, sw ? N.a[e] : N.b[e], xn, xty))
+				return 0;
+			sb_putc(b, ')');
+			return 1;
+		}
+	return 0;
+}
+
+/* "(a) * b" -> "a * b" at the top */
+static void
+glsl_strip(struct sbuf *b)
+{
+	size_t n = b->p ? strlen(b->p) : 0, i;
+	int d = 0;
+	if (n < 2 || b->p[0] != '(' || b->p[n - 1] != ')')
+		return;
+	for (i = 0; i < n; i++) {
+		d += b->p[i] == '(' ? 1 : b->p[i] == ')' ? -1 : 0;
+		if (d == 0 && i + 1 < n)
+			return;	/* the first ( closes before the end */
+	}
+	memmove(b->p, b->p + 1, n - 2);
+	b->p[n - 2] = 0;
+}
+
+/* what loop s does is only to write variables: no buffer, array or out
+ * argument, no call that writes or the level does not know, no return */
+static int
+loop_quiet(int s, int *xs, int *ss, int cap)
+{
+	int nx = 0, nss = 0, i;
+	reach_s(s, xs, &nx, ss, &nss, cap);
+	if (nx >= cap || nss >= cap)
+		return 0;
+	for (i = 0; i < nss; i++)
+		if (G.s[ss[i]].k == S_RET || G.s[ss[i]].k == S_UNK)
+			return 0;
+	for (i = 0; i < nx; i++) {
+		const struct gx *g = &G.x[xs[i]];
+		if ((g->k == X_ASG || g->k == X_INC) && (G.x[g->a].k != X_VAR ||
+		    G.y[G.x[g->a].sym].arr))
+			return 0;
+		if (g->k == X_CALL && (g->sym == -B_UNK || (g->sym >= 0 &&
+		    (A.impure[g->sym] || A.nwrl[g->sym]))))
+			return 0;
+		if (g->k == X_CALL && g->sym >= 0) {
+			int k;
+			for (k = 0; k < g->b && k < G.f[g->sym].np; k++)
+				if (G.y[G.f[g->sym].p[k]].out)
+					return 0;
+		}
+	}
+	return 1;
+}
+
+/*
+ * A loop of a constant count whose one result is a function of one value
+ * of at most 256 (every other value it reads one constant where it
+ * starts): run at each value with the concrete interpreter, the table
+ * handed to find's maps of one value (idrw.c: a table in one constant, a
+ * multiply and a shift, a field for each bit) and to the table itself,
+ * the cheapest under the model proposed in place of the loop when it
+ * costs less, proved equal to the table at every point.
+ */
+static void
+search_tab(int f)
+{
+	int *xs, *ss, nx = 0, nss = 0, i, cap = G.nx + G.ns + 64;
+	if (LP == NULL || G.f[f].body < 0)
+		return;
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	ss = xmalloc((size_t)cap * sizeof *ss);
+	reach_s(G.f[f].body, xs, &nx, ss, &nss, cap);
+	for (i = 0; i < nss; i++) {
+		int s = ss[i], var, k, *lx, *ls, nlx = 0, nls = 0, y = -1, x = -1,
+		    n, K, ok = 1, pure = 1, best = -1, nr = 0, q;
+		const struct gs *t = &G.s[s];
+		const struct av *E = LP[s].entry;
+		int64_t k0, klast, *tab = NULL, y0 = 0;
+		uint8_t *rd, *decl;
+		struct sbuf body = {0}, txt = {0}, form = {0};
+		struct func fn;
+		nid bn;
+		struct irw *r = NULL;
+		char names[1][40];
+		int tys[1];
+		int64_t blo[1], bhi[1];
+		double c0, c1, cbest = 0, ctab = 0;
+		long pts = 0;
+		int usef;
+		struct prop *p;
+		if (t->k != S_FOR || !LP[s].seen || E == NULL ||
+		    !canon_loop(s, &var, &k0, &klast) || klast < k0 ||
+		    klast - k0 + 1 > 64)
+			continue;
+		lx = xmalloc((size_t)cap * sizeof *lx);
+		ls = xmalloc((size_t)cap * sizeof *ls);
+		rd = xcalloc((size_t)A.ns + 1, 1);
+		decl = xcalloc((size_t)A.ns + 1, 1);
+		if (!loop_quiet(s, lx, ls, cap))
+			ok = 0;
+		reach_s(s, lx, &nlx, ls, &nls, cap);
+		for (k = 0; k < nls; k++)
+			if (G.s[ls[k]].k == S_DECL)
+				decl[G.s[ls[k]].sym] = 1;
+		/* its one result: the variable it assigns that outlives it */
+		for (k = 0; k < nlx && ok; k++) {
+			const struct gx *g = &G.x[lx[k]];
+			int z;
+			if (g->k != X_ASG && g->k != X_INC)
+				continue;
+			z = G.x[g->a].sym;
+			if (decl[z] || z == var)
+				continue;
+			if (y >= 0 && y != z)
+				ok = 0;
+			y = z;
+		}
+		for (k = 0; k < nlx && ok; k++)
+			reads_x(lx[k], rd, &pure);
+		/* what it reads: one value of a few, the rest constants */
+		for (k = 0; k < A.ns && ok && y >= 0; k++) {
+			const struct av *v = &E[k];
+			if (!rd[k] || decl[k] || k == var || G.y[k].tab ||
+			    (G.y[k].kind == Y_CONST && G.y[k].init >= 0 && !G.y[k].arr))
+				continue;
+			if (G.y[k].arr || G.y[k].kind == Y_BUF || (G.y[k].ty != TU &&
+			    G.y[k].ty != TI && G.y[k].ty != TB) || v->bot) {
+				ok = 0;
+				break;
+			}
+			if (v->lo == v->hi)
+				continue;
+			if (x >= 0 || k == y || v->hi - v->lo + 1 > 256)
+				ok = 0;
+			x = k;
+		}
+		if (!ok || y < 0 || x < 0 || G.y[y].ty == TB || G.y[y].arr ||
+		    (rd[y] && E[y].lo != E[y].hi)) {
+			free(lx);
+			free(ls);
+			free(rd);
+			free(decl);
+			continue;
+		}
+		y0 = rd[y] ? E[y].lo : 0;
+		K = (int)(E[x].hi - E[x].lo + 1);
+		tab = xmalloc((size_t)K * sizeof *tab);
+		for (n = 0; n < K && ok; n++) {
+			for (k = 0; k < A.ns; k++)
+				if (rd[k] && !E[k].bot && E[k].lo == E[k].hi)
+					C.v[k] = norm(G.y[k].ty, E[k].lo);
+			C.v[x] = norm(G.y[x].ty, E[x].lo + n);
+			C.v[y] = norm(G.y[y].ty, y0);
+			C.ub = 0;
+			C.steps = 0;
+			(void)cx_stmt(s);
+			if (C.ub)
+				ok = 0;
+			tab[n] = norm(G.y[y].ty, C.v[y]);
+		}
+		C.ub = 0;
+		/* the table, read by find's maps */
+		snprintf(names[0], sizeof names[0], "%s", G.y[x].name);
+		tys[0] = G.y[x].ty == TB ? TU : G.y[x].ty;
+		blo[0] = E[x].lo;
+		bhi[0] = E[x].hi;
+		sb_puts(&body, "[");
+		for (n = 0; n < K; n++)
+			sb_printf(&body, "%s%lld", n ? ", " : "", (long long)tab[n]);
+		if (E[x].lo)
+			sb_printf(&body, "][%s - %lld]", names[0], (long long)E[x].lo);
+		else
+			sb_printf(&body, "][%s]", names[0]);
+		if (ok && u_parse(&fn, 1, names, tys, blo, bhi, body.p, NULL, &bn) ==
+		    0) {
+			nr = irw_cands(&fn, bn, &r);
+			ctab = fuse_expr_cost(model_active(), bn);
+			for (q = 0; q < nr; q++) {
+				double c;
+				struct sbuf g = {0};
+				long pp = 0;
+				if (r[q].nearmiss)
+					continue;
+				c = fuse_expr_cost(model_active(), r[q].e);
+				if ((best >= 0 && c >= cbest) || !glsl_nid(&g, r[q].e, G.y[x].name,
+				    G.y[x].ty) || u_equiv(&fn, bn, r[q].e, NULL, 0, &pp) !=
+				    1) {
+					free(g.p);
+					continue;
+				}
+				best = q;
+				cbest = c;
+				pts = pp;
+				free(form.p);
+				form = g;
+			}
+		} else
+			ok = 0;
+		/* the form when it is cheaper than the table, else the table; the
+		 * other one is named after it */
+		usef = best >= 0 && cbest < ctab;
+		c0 = scost(s);
+		c1 = (usef ? cbest : ctab) + model_active()->c[C_IADD];	/* + store */
+		if (ok && c1 < c0) {
+			char q0[80], ys[48];
+			struct sbuf v0 = {0};
+			p = prop_new(f, P_TAB, t->line);
+			num_text(&v0, y0, G.y[y].ty);
+			snprintf(ys, sizeof ys, "%s", G.y[y].ty == TI ? "int(" : "");
+			if (usef) {
+				/* find's words for the form, without the map's text */
+				char key[60];
+				const char *as;
+				snprintf(key, sizeof key, " of %s as ", G.y[x].name);
+				as = strstr(r[best].what, key);
+				glsl_strip(&form);
+				snprintf(p->what, sizeof p->what, "the loop leaves %s as a "
+				    "function of %s alone (%s = %s as it starts): %s%s",
+				    G.y[y].name, G.y[x].name, G.y[y].name, v0.p, as ? "find "
+				    "writes it " : "", as ? as + strlen(key) - 3 : r[best].what);
+				sb_printf(&txt, "%s = %s%s%s;", G.y[y].name, ys, form.p,
+				    *ys ? ")" : "");
+			} else {
+				/* the table read itself is the cheapest */
+				snprintf(p->what, sizeof p->what, "the loop leaves %s as a "
+				    "function of %s alone (%s = %s as it starts): a table of "
+				    "its %d values", G.y[y].name, G.y[x].name, G.y[y].name,
+				    v0.p, K);
+				sb_printf(&txt, "const %s %s_of_%s[%d] = %s[](", ty_name(G.y[y].ty),
+				    G.y[y].name, G.y[x].name, K, ty_name(G.y[y].ty));
+				for (n = 0; n < K; n++) {
+					if (n)
+						sb_puts(&txt, ", ");
+					if (G.y[y].ty == TU)
+						glsl_u(&txt, tab[n]);
+					else
+						sb_printf(&txt, "%lld", (long long)tab[n]);
+				}
+				sb_printf(&txt, ");\n    %s = %s_of_%s[%s", G.y[y].name,
+				    G.y[y].name, G.y[x].name, G.y[x].name);
+				if (E[x].lo) {
+					sb_puts(&txt, " - ");
+					if (G.y[x].ty == TU)
+						glsl_u(&txt, E[x].lo);
+					else
+						sb_printf(&txt, "%lld", (long long)E[x].lo);
+				}
+				sb_puts(&txt, "];");
+				pts = K;
+			}
+			src_quote(q0, sizeof q0, t->line);
+			sb_printf(&p->text, "%s\n  ->  %s", q0, txt.p);
+			if (usef) {
+				sb_printf(&p->text, "\n  or  a table of its %d values read at "
+				    "%s", K, G.y[x].name);
+				if (E[x].lo) {
+					sb_puts(&p->text, " - ");
+					if (G.y[x].ty == TU)
+						glsl_u(&p->text, E[x].lo);
+					else
+						sb_printf(&p->text, "%lld", (long long)E[x].lo);
+				}
+				sb_printf(&p->text, " (cost %g)", ctab +
+				    model_active()->c[C_IADD]);
+			}
+			else if (best >= 0) {
+				glsl_strip(&form);
+				sb_printf(&p->text, "\n  or  %s = %s%s%s; (cost %g)",
+				    G.y[y].name, ys, form.p, *ys ? ")" : "", cbest +
+				    model_active()->c[C_IADD]);
+			}
+			snprintf(p->proof, sizeof p->proof, "the loop run at each of the "
+			    "%d values of %s, %s", K, G.y[x].name, usef ? "and the "
+			    "form equal to that table at every one (ucas equiv, "
+			    "exhaustive)" : "the table its values");
+			p->points = pts;
+			p->c0 = c0;
+			p->c1 = c1;
+			{
+				struct sbuf d = {0};
+				sb_printf(&d, "%s in ", G.y[x].name);
+				av_text(&d, E[x], G.y[x].ty);
+				if (rd[y])
+					sb_printf(&d, "; %s = %s", G.y[y].name, v0.p);
+				for (k = 0; k < A.ns; k++)
+					if (rd[k] && k != x && k != y && !decl[k] && k != var &&
+					    !G.y[k].tab && G.y[k].kind != Y_CONST && !E[k].bot &&
+					    E[k].lo == E[k].hi) {
+						sb_printf(&d, "; %s = ", G.y[k].name);
+						num_text(&d, E[k].lo, G.y[k].ty);
+					}
+				snprintf(p->domain, sizeof p->domain, "%s", d.p);
+				snprintf(p->relies, sizeof p->relies, "%s where the loop starts "
+				    "(the analysis's domain from %s)", d.p, is_root(f) ?
+				    "the start of main" : "the calls");
+				free(d.p);
+			}
+			free(v0.p);
+		}
+		if (r)
+			irw_free(r, nr);
+		free(body.p);
+		free(txt.p);
+		free(form.p);
+		free(tab);
+		free(lx);
+		free(ls);
+		free(rd);
+		free(decl);
 	}
 	free(xs);
 	free(ss);
@@ -8513,8 +8898,11 @@ static const char *
 kind_name(int k)
 {
 	return k == P_FUNC ? "function" : k == P_EXPR ? "expression" :
-	    k == P_FIT ? "case_fit" : k == P_LOOP ? "loop" : "invariant_call";
+	    k == P_FIT ? "case_fit" : k == P_LOOP ? "loop" : k == P_TAB ?
+	    "loop_map" : "invariant_call";
 }
+
+static int loops_only;	/* no function calls another: the loops alone */
 
 static int
 has_loops(void)
@@ -8536,9 +8924,16 @@ report(int rounds, double secs)
 	for (i = 0; i < npr; i++)
 		if (PR[i].kind != P_INV)
 			nprop++;
-	printf("function level (the GLSL source read by ScarletNX's GLSL ES "
-	    "parser): %d functions; each one's domain inferred from every call "
-	    "(abstract interpretation from main, %d rounds", G.nf, rounds + 1);
+	if (loops_only)
+		printf("function level (the GLSL source read by ScarletNX's GLSL ES "
+		    "parser): its loops only, as no function of the source calls "
+		    "another (abstract interpretation from main, %d rounds", rounds +
+		    1);
+	else
+		printf("function level (the GLSL source read by ScarletNX's GLSL ES "
+		    "parser): %d functions; each one's domain inferred from every "
+		    "call (abstract interpretation from main, %d rounds", G.nf,
+		    rounds + 1);
 	if (secs >= 0.5)	/* shorter times are noise, not news */
 		printf(", %.1f s", secs);
 	printf(")\n");
@@ -8569,13 +8964,13 @@ report(int rounds, double secs)
 				free(cl.p);
 				head = 1;
 			}
-			if (p->kind == P_EXPR || p->kind == P_LOOP) {
+			if (p->kind == P_EXPR || p->kind == P_LOOP || p->kind == P_TAB) {
 				printf("    line %d: %s\n", p->line, p->what);
 				pr_lines(p->text.p, "      ");
 				printf("      proof: %s\n", p->proof);
 				printf("      cost under %s: %g -> %g each time %s runs\n",
-				    model, p->c0, p->c1, p->kind == P_LOOP ? "the loop" :
-				    "it");
+				    model, p->c0, p->c1, p->kind == P_LOOP || p->kind == P_TAB ?
+				    "the loop" : "it");
 				printf("      relies on: %s\n", p->relies);
 			} else {
 				printf("    %s\n", p->what);
@@ -8713,6 +9108,7 @@ reset_all(void)
 	xfn = NULL;
 	lp_free();
 	lp_note = 0;
+	loops_only = 0;
 }
 
 /* simplify's function-level pass over src (OpSource's GLSL); only: the
@@ -8750,12 +9146,15 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 			if (G.f[callee_edge[2 * k]].line < 10000 &&
 			    G.f[callee_edge[2 * k + 1]].line < 10000)
 				user = 1;
-		if (!user) {
+		/* no domain from a call, but a loop's passes and what it
+		 * computes are read all the same */
+		if (!user && !has_loops()) {
 			if (only)
 				printf("function level: no function of the source calls "
 				    "another, so no call gives a domain: nothing to do\n");
 			return;
 		}
+		loops_only = !user;
 	}
 	patch_room();
 	mark_all();
@@ -8777,10 +9176,30 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 		lp_note = 1;
 	else
 		probe_round(rounds < 8);
+	for (f = 0; f < G.nf && loops_only; f++) {
+		search_loops(f);
+		search_tab(f);
+	}
+	if (loops_only) {
+		if (npr)
+			report(rounds, secs);
+		else if (lp_note)
+			printf("function level: no function of the source calls "
+			    "another, and its loops were not looked at (%s)\n", lp_note ==
+			    1 ? "the time budget ran out first: `budget N` for more" :
+			    lp_note == 2 ? "the analysis did not settle in 8 rounds" :
+			    "running their passes grew a summary of the analysis");
+		else if (only)
+			printf("function level: no function of the source calls "
+			    "another, so no call gives a domain; none of its loops leaves "
+			    "early or computes a map of one small value\n");
+		return;
+	}
 	for (f = 0; f < G.nf; f++) {
 		struct dom D;
 		int whole = 0;
 		search_loops(f);
+		search_tab(f);
 		if (whole_ok(f) && fn_dom(f, &D)) {
 			whole = D.points <= (double)(1 << 20);
 			free(D.rows);
