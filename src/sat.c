@@ -1162,5 +1162,5 @@ sat_selftest(void)
 			bad++;
 		aig_free(g);
 	}
-	return bad;
+	return bad + fp_selftest();
 }
