@@ -2160,6 +2160,26 @@ and f64, a round-to-nearest
 operation for the magic add to stand for (ucas has floor, ceil and
 the truncating conversion), 48-bit products by 2Prod.
 
+A word can also carry more than one value.  `find F` proposes, for the
+code that stores F's parameters (an interface change it does not make),
+the ones one f32 can carry together.  A flag (a bool, or an integer of
+range 0..1) in the sign bit of an f32 whose range keeps it at +0 or
+above: the writer stores `b ? -abs(x) : abs(x)`, F reads `abs(s)` back
+(a free source modifier where the model fuses it) and the flag as a bit,
+a bool as `asint(s) < 0`, so -0 carries it when x is 0.  And a value and
+an integer payload below 2^22 that F never needs at once, a bool telling
+which (every use of the value in an arm of a select on it that is taken
+when it holds, every use of the payload in one taken when it does not,
+so the NaN never reaches arithmetic; the value's range finite): the
+writer stores the value or a quiet NaN carrying the payload, `asfloat(p
+| 0x7fc00000)`, F tells them apart by the exponent's bits and reads the
+payload from the low 22.  That one is offered only under a model whose
+`nan_payload: 1` says its target keeps a quiet NaN's payload through
+loads, stores and moves; under one that does not say, it is named with
+that reason.  Each is priced, F read back against F as written, with the
+words it saves and the model's store and load prices, and F of the
+stored word is checked against F on its domain (tests/packf32.ucas).
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the
@@ -2342,12 +2362,15 @@ model gt1030 { ...,
 | `atomic_global_f`, `_64`, `_cas`, `_stream` | float add, 64-bit add, compare-and-swap, DRAM | `atomic_global` |
 | `tex_fetch`, `tex_sample`, `tex_sample_f32`, `image_load` | texelFetch, an explicit-LOD sample (rgba8, rgba32f), imageLoad | `load` (`tex_sample_f32`: `tex_sample`) |
 
-`banks`, `bank_bytes` and `warp` are counts, not prices.  gt1030's values
-are the measurements of tests/gt1030 (a step minus the add it contains).
-A model that lists none of this (the x86 models) keeps its `load`,
-`store` and atomic prices for everything, has no banks, and none of what
-follows fires under it; `models` prints only what a model lists.  `cost`
-prices a float `atomic_add[_shared]` as `atomic_*_f` where listed.
+`banks`, `bank_bytes` and `warp` are counts, not prices, as is
+`nan_payload: 1`, a target that keeps a quiet NaN's payload through
+loads, stores and moves (see "Integers as floats, floats as integers").
+gt1030's values are the measurements of tests/gt1030 (a step minus the
+add it contains).  A model that lists none of this (the x86 models)
+keeps its `load`, `store` and atomic prices for everything, has no
+banks, and none of what follows fires under it; `models` prints only
+what a model lists.  `cost` prices a float `atomic_add[_shared]` as
+`atomic_*_f` where listed.
 
 **Atomics by kind.**  `simplify` lists the atomics on workgroup arrays
 and buffers that have a class of their own, priced a warp instruction:
