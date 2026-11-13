@@ -292,12 +292,6 @@ find wref: 28 points, computing in u32, costs from gt1030
            K = 511/((1 << ib) - 1) (a constant over 2^case - 1) depends only on ib: compute it once where ib is set; 5 per use once K is known (exhaustive)
   cost 13  i*(ib == 2 ? 170 : ib == 3 ? 73 : 34) + 4 >> 3
            K = ib == 2 ? 170 : ib == 3 ? 73 : 34 (one constant per case) depends only on ib: compute it once where ib is set; 5 per use once K is known (exhaustive)
-  dot products under gt1030 (sums of products laid into lanes; cost 35.5 as written):
-  cost 34.5 (udot4x8(i, 0x40) + t1/2)/t1 where t1 = (1 << ib) - 1
-           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: i * 64
-           i in 0..15 (proved range)
-           udot4x8's sum is in 0..960: it does not wrap
-           exhaustive
   a table under gt1030 (the function at every point of its domain; cost 35.5 as written):
   cost 9.875 [0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 6… (22 more characters)
            48 entries of u32 (192 bytes of constant data), one for each point of i in 0..15, ib in 2..4; entry k is the function at the point with index k = i + 16(ib - 2), all 48 evaluated (0 where the function is undefined or the where clause fails)
