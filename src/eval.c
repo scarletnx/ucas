@@ -2063,6 +2063,62 @@ fmt_point(struct sbuf *b, const struct func *f, const int64_t *in_i,
 
 /* ---- interval bounds (ideal integers; reals where cheap) ---- */
 
+/*
+ * The least and the greatest x | y (x ^ y when xor) for x in A and y in
+ * B, both non-negative, exact (Hacker's Delight, 4-3): from the top bit
+ * down, a bound moves to where its bit gives way to the other's, with
+ * all ones (a maximum) or zeros (a minimum) below it.
+ */
+static int64_t
+min_or(const struct ival *A, const struct ival *B, int isxor)
+{
+	uint64_t a = (uint64_t)A->lo, b = (uint64_t)A->hi, c = (uint64_t)B->lo,
+	    d = (uint64_t)B->hi, m, t;
+
+	for (m = (uint64_t)1 << 62; m; m >>= 1)
+		if (~a & c & m) {
+			t = (a | m) & -m;
+			if (t <= b) {
+				a = t;
+				if (!isxor)
+					break;
+			}
+		} else if (a & ~c & m) {
+			t = (c | m) & -m;
+			if (t <= d) {
+				c = t;
+				if (!isxor)
+					break;
+			}
+		}
+	return (int64_t)(isxor ? a ^ c : a | c);
+}
+
+static int64_t
+max_or(const struct ival *A, const struct ival *B, int isxor)
+{
+	uint64_t a = (uint64_t)A->lo, b = (uint64_t)A->hi, c = (uint64_t)B->lo,
+	    d = (uint64_t)B->hi, m, t;
+
+	for (m = (uint64_t)1 << 62; m; m >>= 1)
+		if (b & d & m) {
+			t = (b - m) | (m - 1);
+			if (t >= a) {
+				b = t;
+				if (!isxor)
+					break;
+				continue;
+			}
+			t = (d - m) | (m - 1);
+			if (t >= c) {
+				d = t;
+				if (!isxor)
+					break;
+			}
+		}
+	return (int64_t)(isxor ? b ^ d : b | d);
+}
+
 static int
 ival_fits(const struct ity *t, int64_t lo, int64_t hi)
 {
@@ -2203,10 +2259,8 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 		case O_XOR:
 			ok = !A->top && !B->top && A->lo >= 0 && B->lo >= 0;
 			if (ok) {
-				uint64_t m = (uint64_t)(A->hi > B->hi ? A->hi : B->hi);
-				int bb = bits_for(m);
-				v->lo = op == O_OR ? (A->lo > B->lo ? A->lo : B->lo) : 0;
-				v->hi = bb >= 63 ? INT64_MAX : (int64_t)((1ULL << bb) - 1);
+				v->lo = min_or(A, B, op == O_XOR);
+				v->hi = max_or(A, B, op == O_XOR);
 			}
 			break;
 		case O_SHL:

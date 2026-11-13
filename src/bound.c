@@ -167,7 +167,9 @@ iv1(struct bctx *c, nid n)
 			double m = fmax(a.hi, b.hi), p = 1;
 			while (p <= m)
 				p *= 2;
-			r = mk(N.op[n] == O_OR ? fmax(a.lo, b.lo) : 0, p - 1);
+			/* a ^ b <= a | b <= a + b: the sum where it is lower */
+			r = mk(N.op[n] == O_OR ? fmax(a.lo, b.lo) : 0, fmin(p - 1,
+			    a.hi + b.hi));
 		}
 		break;
 	case O_MIN:

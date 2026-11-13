@@ -1,0 +1,42 @@
+> range (u64(x: u32 % 0x3F000000) << 32) | u64(y: u32)
+range of u64(x % 1056964608) << 32 | u64(y) -> u64:
+  2..4539601201343133619
+  fits in u62
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 0..4539628424389459967
+> range (x: u32 % 100) | 256
+range of x % 100 | 0x100 -> u32:
+  256..355
+  fits in u9
+  sampled 65536 points (domain has 4294967296 points); not exhaustive
+  sound bound (intervals): 256..355
+> range (x: u32 % 100) xor 256
+range of x % 100 xor 0x100 -> u32:
+  256..355
+  fits in u9
+  sampled 65536 points (domain has 4294967296 points); not exhaustive
+  sound bound (intervals): 256..355
+> range (x: u32 % 8 + 16) | (y: u32 % 4 + 32)
+range of x % 8 + 16 | y % 4 + 32 -> u32:
+  48..55
+  fits in u6
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 48..55
+> range (x: u32 % 8 + 16) xor (y: u32 % 4 + 32)
+range of x % 8 + 16 xor y % 4 + 32 -> u32:
+  48..55
+  fits in u6
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 48..55
+> range (x: u32 % 2 + 5) | (y: u32 % 2 + 3)
+range of x % 2 + 5 | y % 2 + 3 -> u32:
+  5..7
+  fits in u3
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 5..7
+> range (x: u32 % 2 + 5) xor (y: u32 % 2 + 3)
+range of x % 2 + 5 xor y % 2 + 3 -> u32:
+  1..6
+  fits in u3
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 1..6
