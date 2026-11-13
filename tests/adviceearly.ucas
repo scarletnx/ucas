@@ -1,0 +1,71 @@
+# early fragment tests (#54): a fragment shader with effects others see
+# (an atomic, a buffer or image store) keeps its depth and stencil tests
+# after it, since its hidden fragments must still run for them;
+# EarlyFragmentTests runs the tests first and a hidden fragment skips the
+# whole shader.  Offered where the shader writes no depth, stencil or
+# sample mask and never discards; said, not offered, where it does
+#
+# a count of the fragments drawn, and an image store
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 color;
+layout(std430, binding = 0) buffer C { uint drawn; } c;
+layout(r32f, binding = 1) uniform writeonly image2D seen;
+void main() {
+    atomicAdd(c.drawn, 1u);
+    imageStore(seen, ivec2(gl_FragCoord.xy), vec4(uv.x));
+    color = vec4(uv, 0.0, 1.0);
+}
+```
+# the same with a discard: the depth would be written before the discard
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 color;
+layout(std430, binding = 0) buffer C { uint drawn; } c;
+void main() {
+    if (uv.x < 0.25)
+        discard;
+    atomicAdd(c.drawn, 1u);
+    color = vec4(uv, 0.0, 1.0);
+}
+```
+# a depth written by the shader: early tests cannot see it
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 color;
+layout(std430, binding = 0) buffer C { uint drawn; } c;
+void main() {
+    atomicAdd(c.drawn, 1u);
+    gl_FragDepth = gl_FragCoord.z + uv.y * 0.001;
+    color = vec4(uv, 0.0, 1.0);
+}
+```
+# already early, and a shader with no effects (a driver may test early
+# by itself): nothing
+simplify advice nofile
+```glsl
+#version 450
+layout(early_fragment_tests) in;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 color;
+layout(std430, binding = 0) buffer C { uint drawn; } c;
+void main() {
+    atomicAdd(c.drawn, 1u);
+    color = vec4(uv, 0.0, 1.0);
+}
+```
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 color;
+void main() {
+    color = vec4(uv * uv, 0.0, 1.0);
+}
+```
