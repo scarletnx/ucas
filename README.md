@@ -3289,6 +3289,22 @@ under; the whole is then checked against the function on its domain
   Under gt1030 a CRC-32 step over a byte written as a loop goes from
   98 to 14.25, a Morton code of two u16 words from 27 to 12.375 and
   its inverse from 13 to 9.375 (tests/sgslice.ucas).
+- A map applied field by field to a shared word (an S-box on each
+  nibble, a function of each byte): every bit of the result reads one
+  field of the word, at most 8 bits wide, and every field goes through
+  the same function.  Lane i works out bit i, `(H[(x >> s) & m] >> b) &
+  1` with H the function tabulated at a field's values, s where the
+  lane's field starts and b the bit's place in it (forms of the lane's
+  index such as `lane & 28` and `lane & 3`, tables otherwise), and the
+  ballot puts the bits together: one table read for the whole word.
+  Which bits of the word a bit of the result reads is a guess, made by
+  flipping each bit of the word at 48 values of it; the form built on
+  it is offered only when it is proved equal to the function (every
+  point, or SAT), so a wrong guess is dropped.  Eight nibbles through a
+  4-bit S-box go from 95 to 17.25 under gt1030 (78.875 with the table
+  as a register), the squares of four bytes from 32 to 18.25
+  (tests/sgfield.ucas).  Fields that go through different functions,
+  fields of two words and a word with a range are not taken.
 - A table read at the lane's index (the register above, a bit slice's
   rows or shifts) whose entries are a closed form of the lane, `c + k
   lane` (every entry checked) or one of find's maps of one small-range
