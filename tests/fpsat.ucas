@@ -1,0 +1,55 @@
+# IEEE floats in the SAT path (src/fpsat.c): equiv of float formulas too
+# big to enumerate is proved or refuted by SAT, not left sampled.
+#
+# An f32 product is the f64 product rounded once: an exact rounding folds
+# away, so both sides are one circuit and no search is needed
+l2a(x: f32, y: f32) = x * y
+l2b(x: f32, y: f32) = f32(f64(x) * f64(y))
+equiv l2a l2b
+# binary16 through binary64 and back, in two parameters (2^32 points)
+h1(x: f16, y: f16) = x * y
+h2(x: f16, y: f16) = f16(f64(x) * f64(y))
+equiv h1 h2
+# ldexp by a constant: a scale by 2^k is exact in f64
+ld1(x: f32) = x * f32(0.125)
+ld2(x: f32) = f32(f64(x) * f64(0.125))
+equiv ld1 ld2
+# operands that commute make one circuit whichever comes first
+c1(x: f32, y: f32) = x + y
+c2(x: f32, y: f32) = y + x
+equiv c1 c2
+c3(x: f64, y: f64) = x * y
+c4(x: f64, y: f64) = y * x
+equiv c3 c4
+# one pair of the 2^32 differs: the sample misses it, SAT finds it and the
+# evaluator confirms it
+u1(x: f16, y: f16) = x + y
+u2(x: f16, y: f16) = x == f16(1) && y == f16(2^(-10)) ? x : x + y
+equiv u1 u2
+# a parameter's domain is the evaluator's: the finite values, -0 read as
+# +0.  Every bit pattern, -0 and the NaNs too, is a u32 read by asfloat
+s1(x: f32, y: f32) = copysign(f32(1), x) * y
+s2(x: f32, y: f32) = (x < f32(0) ? f32(-1) : f32(1)) * y
+equiv s1 s2
+s3(a: u32) = copysign(f32(1), x) where x = asfloat(a), x == x
+s4(a: u32) = x < f32(0) ? f32(-1) : f32(1) where x = asfloat(a), x == x
+equiv s3 s4
+# flush to zero is written with the operations: a product of flushed
+# operands, flushed, against the same through f64
+flush0(v: f32) = abs(v) < f32(2^(-126)) ? copysign(f32(0), v) : v
+z1(x: f32, y: f32) = flush0(flush0(x) * flush0(y))
+z2(x: f32, y: f32) = flush0(f32(f64(flush0(x)) * f64(flush0(y))))
+equiv z1 z2
+# ftz: every float operation (a bit cast aside) reads a subnormal as the
+# zero of its sign and gives one; noftz, or nothing, keeps subnormals
+# (IEEE).  x * 1 flushes a subnormal x, the select returns it as it is
+n1(x: f32, y: f32) = x * y
+n2(x: f32, y: f32) = y == f32(1) ? x : x * y
+equiv n1 n2 noftz
+equiv n1 n2 ftz
+equiv l2a l2b ftz
+is n1 equal to n2 with subnormals flushed to zero?
+# no circuit for a division yet: sampled, and it says why
+d1(x: f32, y: f32) = x / y
+d2(x: f32, y: f32) = (x / y) * f32(1)
+equiv d1 d2

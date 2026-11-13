@@ -1,0 +1,55 @@
+> l2a(x: f32, y: f32) = x * y
+> l2b(x: f32, y: f32) = f32(f64(x) * f64(y))
+> equiv l2a l2b
+l2a and l2b are equal on the domain of l2a (proved by SAT: 16609 AIG nodes, 0 conflicts)
+> h1(x: f16, y: f16) = x * y
+> h2(x: f16, y: f16) = f16(f64(x) * f64(y))
+> equiv h1 h2
+h1 and h2 are equal on the domain of h1 (proved by SAT: 6924 AIG nodes, 0 conflicts)
+> ld1(x: f32) = x * f32(0.125)
+> ld2(x: f32) = f32(f64(x) * f64(0.125))
+> equiv ld1 ld2
+ld1 and ld2 are equal on the domain of ld1 (proved by SAT: 4155 AIG nodes, 0 conflicts)
+> c1(x: f32, y: f32) = x + y
+> c2(x: f32, y: f32) = y + x
+> equiv c1 c2
+c1 and c2 are equal on the domain of c1 (proved by SAT: 8886 AIG nodes, 0 conflicts)
+> c3(x: f64, y: f64) = x * y
+> c4(x: f64, y: f64) = y * x
+> equiv c3 c4
+c3 and c4 are equal on the domain of c3 (proved by SAT: 48224 AIG nodes, 0 conflicts)
+> u1(x: f16, y: f16) = x + y
+> u2(x: f16, y: f16) = x == f16(1) && y == f16(2^(-10)) ? x : x + y
+> equiv u1 u2
+u1 and u2 differ, e.g. x=1, y=0.00097656: 1.001 vs 1 (found by SAT, checked by evaluation)
+> s1(x: f32, y: f32) = copysign(f32(1), x) * y
+> s2(x: f32, y: f32) = (x < f32(0) ? f32(-1) : f32(1)) * y
+> equiv s1 s2
+s1 and s2 are equal on the domain of s1 (proved by SAT: 3117 AIG nodes, 113 conflicts)
+> s3(a: u32) = copysign(f32(1), x) where x = asfloat(a), x == x
+> s4(a: u32) = x < f32(0) ? f32(-1) : f32(1) where x = asfloat(a), x == x
+> equiv s3 s4
+s3 and s4 differ, e.g. a=2147483648: -1 vs 1 (found by SAT, checked by evaluation)
+> flush0(v: f32) = abs(v) < f32(2^(-126)) ? copysign(f32(0), v) : v
+> z1(x: f32, y: f32) = flush0(flush0(x) * flush0(y))
+> z2(x: f32, y: f32) = flush0(f32(f64(flush0(x)) * f64(flush0(y))))
+> equiv z1 z2
+z1 and z2 are equal on the domain of z1 (proved by SAT: 20135 AIG nodes, 4 conflicts)
+> n1(x: f32, y: f32) = x * y
+> n2(x: f32, y: f32) = y == f32(1) ? x : x * y
+> equiv n1 n2 noftz
+n1 and n2 are equal on the domain of n1 (proved by SAT: 14913 AIG nodes, 5078 conflicts)
+> equiv n1 n2 ftz
+n1 and n2 differ, e.g. x=-2.24207754e-43, y=1: -0 vs -2.24207754e-43 (found by SAT, checked by evaluation)
+  every float operation flushed subnormals to zero (ftz)
+> equiv l2a l2b ftz
+l2a and l2b are equal on the domain of l2a (proved by SAT: 18530 AIG nodes, 0 conflicts)
+  every float operation flushed subnormals to zero (ftz)
+> is n1 equal to n2 with subnormals flushed to zero?
+  ucas: equiv n1 n2 ftz
+n1 and n2 differ, e.g. x=-2.24207754e-43, y=1: -0 vs -2.24207754e-43 (found by SAT, checked by evaluation)
+  every float operation flushed subnormals to zero (ftz)
+> d1(x: f32, y: f32) = x / y
+> d2(x: f32, y: f32) = (x / y) * f32(1)
+> equiv d1 d2
+d1 and d2 are equal on the domain of d1 (sampled, not proved; no SAT proof: a float division)

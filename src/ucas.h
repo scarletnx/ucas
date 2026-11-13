@@ -672,6 +672,8 @@ int64_t scalar_int(int op, const struct ity *t, const struct ity *ta,
     int64_t a, int64_t b, int64_t c, uint8_t *fl);
 double scalar_real(int op, double a, double b, uint8_t *fl);
 double scalar_float(int op, int w, double a, double b, uint8_t *fl);
+extern int float_ftz;               /* float ops flush subnormals (equiv ftz) */
+double fflush0(int w, double v);    /* a subnormal of w bits as its zero */
 double lambert_w(double x, int branch);   /* NaN outside the domain */
 double fround(int w, double v);
 int fdigits(int w);                 /* digits that print a float exactly */
@@ -748,7 +750,10 @@ void cmd_domain(struct func *f);
 void cmd_wrap(struct func *f);
 void cmd_crit(struct func *f);
 void cmd_diff(struct func *f, int slot);
-void cmd_equiv(struct func *f, struct func *g);
+/* ftz: 1 flush subnormals, 0 keep them, -1 not said (kept; refused over
+ * JSON for float formulas when equiv_need_ftz) */
+void cmd_equiv(struct func *f, struct func *g, int ftz);
+extern int equiv_need_ftz;
 void cmd_gates(struct func *f, struct basis *b, int maxcost, int emit_c);
 /* gates.c for programs: a minimal network for one output (cfront) */
 struct gprog {
