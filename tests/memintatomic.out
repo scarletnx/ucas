@@ -262,6 +262,13 @@ intatomic 0.5f32(lane & 3) under gt1030: a shared float atomic add of 0.5f32(lan
      stores i32(v * 2^1), a read is f32(cell) * 2^-1 (a conversion and a multiply: 4 a read)
   defined _ia: the atomic's old value read back as a float
     acc is left as it is: not cheaper with its loads and stores converted: 31.625 against 29.25
+conversions of integers to f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %30 = OpConvertUToF %float %29
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %29 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: atomicAdd(acc[i & 7u], float(i & 3u) * 0.5);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 3685 bytes, checksum f228d802)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
@@ -285,3 +292,10 @@ intatomic 0.25f32(v15 & 0xff) under gt1030: a global float atomic add of 0.25f32
       here the add is OpAtomicIAdd of i32(v15 & 0xff), 1 load f32(cell) * 0.25
       every other shader that reads or writes it, and the host's upload and readback, convert the same way;
       the dispatch must send at most 8421504 adds into one cell
+conversions of integers to f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %34 = OpConvertUToF %float %33
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %33 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 7: atomicAdd(outb.total[i & 7u], float(i & 255u) * 0.25);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 2807 bytes, checksum 195170a4)

@@ -355,7 +355,13 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         not bit-exact at x in [-1.4013e-45, -0] (original +0, select -0); x = +inf (original NaN, select 1); x = NaN (original NaN, select 1)
         (line 3: return mix(x * 0.5, float(m & 255u), step(0.5, x));)
   the select still computes both sides (no divergence); a branch on the compare would skip the unused side: under gt1030 it costs a branch (6.25) when the lanes agree, and both sides plus 14.375 when they diverge (keep-up)
-  (nofile: simplified.spvasm, 2307 bytes, checksum a289c034)
+conversions of integers to f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %64 = OpConvertUToF %float %63
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %63 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 3: return mix(x * 0.5, float(m & 255u), step(0.5, x));)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 2539 bytes, checksum fed67834)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   tone: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)

@@ -2176,9 +2176,12 @@ bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
 add of 0x4B400000 and 1.5*2^23), where the model prices those below
 the conversion (3 to 2 under gt1030).  The range comes from the
 operand's definitions (a mask, a shift, an add of bounded values) or
-an assumption on what it loads; the report lists each in its own
-section, as a conversion is not in the integer cost, and says what
-spirv-val makes of the module (tests/i2fbits.ucas).  Not yet: the
+an assumption on what it loads.  They are written last, after the
+float, memory and advice passes, which read the conversion (its
+integer's range, an integer atomic's addend, a vertex format) and not
+the bits; the report gives them their own section, as a conversion is
+not in the integer cost, and says what spirv-val makes of the module
+(tests/i2fbits.ucas).  Not yet: the
 other forms in SPIR-V and GLSL (find only), f16 and f64, a
 round-to-nearest operation for the magic add to stand for (ucas has
 floor, ceil and the truncating conversion), 48-bit products by 2Prod.

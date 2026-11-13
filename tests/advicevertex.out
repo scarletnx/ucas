@@ -18,6 +18,25 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
           Vulkan OpFDiv: 2.5 ulp (for |y| in [2^-126, 2^126]); the multiply is correctly rounded: 1.49 <= 2.5, so it is within the precision the division already had
         not bit-exact: float(%20) = 255.00195: / 255 gives 1.0000076, * 0.003921569 gives 1.0000077 (the quotient within |delta| of a rounding midpoint)
         (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
+conversions of integers to f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %37 = OpConvertUToF %float %14
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %14 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
+    %39 = OpConvertUToF %float %20
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %20 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
+    %43 = OpConvertSToF %float %27
+      ->  OpFSub %float (OpBitcast %float (OpIAdd %int %27 0x4B400000)) 1.5*2^23   (cost 3 -> 2)
+      -2^22 <= x < 2^22, proved by SAT: 0x4B400000 are the bits of 1.5*2^23, and x moves the mantissa inside [0, 2^23) without reaching the exponent: the bits of 1.5*2^23 + x exactly; subtracting 1.5*2^23 leaves x, below 2^24: exact
+      (line 12: col = vec3(float(r), float(g) / 255.0, float(sb));)
+    %48 = OpConvertUToF %float %31
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 13: lum = float(hi);)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4425 bytes, checksum 15713972)
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
   vertex inputs: what the input assembler computes before the shader runs (each a proposal: the vertex input state changes; not priced: gt1030 has no price for an attribute, and the GT 1030 run measured that the format barely matters while the count does):
     %14 = OpBitwiseAnd %uint %12 %uint_255   (1 every vertex)
