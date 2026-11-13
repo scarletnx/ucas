@@ -87,6 +87,18 @@ fuse_inherit(const struct model *m, const struct model *parent)
 		}
 }
 
+/* the inputs of m's widest lut fusion, 0 when it has none */
+int
+fuse_lut_k(const struct model *m)
+{
+	int i, k = 0;
+
+	for (i = 0; i < nfz; i++)
+		if (fz[i].model == m->name && fz[i].lut > k)
+			k = fz[i].lut;
+	return k;
+}
+
 int
 fuse_count(const struct model *m)
 {

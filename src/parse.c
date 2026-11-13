@@ -3462,6 +3462,14 @@ statement(struct P *p)
 			const char *cs = ttext(p, p->i, &cn);
 			snprintf(cmd, sizeof cmd, "%.*s", (int)cn, cs);
 			adv(p);
+			if (!strcmp(cmd, "gates") && is_kw(p, "npn") &&
+			    !func_find(tsym(p, p->i))) {
+				adv(p);
+				expect_eos(p);
+				notes_flush();
+				cmd_npn();
+				return;
+			}
 			f = cmd_func(p);
 			if (!strcmp(cmd, "show")) {
 				expect_eos(p);

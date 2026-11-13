@@ -1719,6 +1719,18 @@ cheapest combination the basis allows.  That gives a checked program and
 an upper bound, but not a good one (17 gates for a 3-bit adder that
 needs about 9).
 
+Functions of 4 inputs fall in 222 NPN classes (one function is another
+with its inputs permuted, some negated, and maybe its output negated).
+A network of 3-input tables absorbs all three, so a class has one
+minimum, and src/npn.c keeps the minimum network of each class it meets:
+gates' exact search on the class's least truth table the first time,
+then the network with the inputs renamed and the negations folded into
+the tables, read back on all 16 rows.  `gates npn` classifies all 65536
+functions: 2 classes need no table (constants and literals), 12 one, 117
+two and 91 three, each proved minimal (about a second for all).  `find`
+uses it for bitwise cones of 4 values (see "Rewrites the prices make
+worthwhile").
+
 ## Cost models
 
 ```
@@ -1941,6 +1953,14 @@ under, proved from the parameters' ranges and the where clause
 again on the domain as a second opinion (every point, SAT, or a sample
 when floats are in it).  src/irw.c:
 
+- a bitwise cone (and, or, xor and not of one integer type) over 4
+  values as the minimum network of 3-input tables of its NPN class
+  (src/npn.c, see [Bases and exact synthesis](#bases-and-exact-synthesis)),
+  where the model has a `lut 3` fusion: each table is written as an
+  expression of its 3 arguments, so the cover prices it as one LOP3.
+  Under gt1030 `((a ^ b) & (c ^ d)) | (a & ~c & d)` goes from 4 to 2
+  and "at least two of a, b, c, d" from 5 to 3; a cone of 3 values or
+  fewer is one table already;
 - a signed division or remainder whose dividend is never negative and
   divisor at least 1 is the unsigned one (trunc = floor there, and the
   bits read as unsigned are the same numbers);

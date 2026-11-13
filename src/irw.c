@@ -486,6 +486,7 @@ irw_cands(const struct func *f, nid root, struct irw **out)
 				ifx_divk(&c, root, n, out, &cnt, &cap);
 		}
 		idrw_maps(&c, root, out, &cnt, &cap);
+		npn_cands(&c, root, out, &cnt, &cap);
 	}
 	memcpy(fail_jmp, saved, sizeof saved);
 	note_mute--;
