@@ -1,0 +1,1 @@
+{"id": 1, "cmd": "spirv_simplify", "args": {"code": "float P(float x) { return ((((x - 5.0) * x + 10.0) * x - 10.0) * x + 5.0) * x - 1.0 + 0.5; }", "lang": "glsl", "nofile": true, "float_only": true, "float_ranges": {"x": [0.9, 1.1]}, "sink": "unorm16"}}
