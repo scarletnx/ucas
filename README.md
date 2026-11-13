@@ -179,7 +179,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
 | `texalu F [tol E] [under m]` | table reads and weighted sums of neighbouring entries as reads through the texture unit, where the model prices them lower, each proved, with what the pipeline needs for it (see "The texture unit as an ALU") |
-| `texenc T [rows W] [tol E]` | a constant table as BC4 blocks: endpoints, selectors and bytes, exact or within E, every pair of endpoints tried; `texenc T, U` two tables of one shape as BC5; `texenc T [, U] astc BWxBH` as ASTC blocks, two tables in a block's two planes; `texenc T [, U] eac` as R11_EAC (two as RG11_EAC), every header tried; `texenc T [, U] etc2 [srgb]` in the red channel of RGB8_ETC2 (two as RGBA8_ETC2_EAC; `srgb` the sRGB formats), every encoding of the channel tried (see "Tables as compressed textures") |
+| `texenc T [rows W] [tol E]` | a constant table as BC4 blocks: endpoints, selectors and bytes, exact or within E, every pair of endpoints tried; `texenc T, U` two tables of one shape as BC5; `texenc T [, U] astc BWxBH` as ASTC blocks, two tables in a block's two planes; `texenc T [, U] eac` as R11_EAC (two as RG11_EAC), every header tried; `texenc T [, U] etc2 [srgb]` in the red channel of RGB8_ETC2 (two as RGBA8_ETC2_EAC; `srgb` the sRGB formats), every encoding of the channel tried; `texenc T [, U] bc7` in BC7's red (two in red and alpha) (see "Tables as compressed textures") |
 | `animate exec of [N-bit\|signed N-bit\|uN\|f32] EXPR [lanes 4\|8\|16\|32] [fps F] [seconds S] [random [seed K]] [MODEL] [to NAME]` | EXPR lowered to its serial form (one instruction per operation, with its class and cost under the model) and run in lockstep on a 2x2 quad of lanes (up to a warp of 32), each lane with its own inputs and registers.  A `?:` whose lanes disagree is a branch: the "then" side runs with the other lanes masked, then the "else" side, then reconvergence, so every lane pays for both (keep-up); a uniform condition runs one side.  `barrier()` stalls every lane; an atomic serializes the lanes.  The type phrase applies to every free variable (`32-bit` is u32 unless `signed`); without one it asks, defaulting to f32 when EXPR is real (sin, decimals, pi) and u32 otherwise.  A ranged real input (an approximation's domain) is spread over its range across the lanes |
 | `simplify` + a ```` ```spv ```` block or an attached shader (also `SAT simplify`, `optimize this`, `peephole with smt` ...) [`budget S`] | cheaper forms of the module's integer instructions, each proved by SAT: one of its operands (a clamp, min or mask that never bites), a constant (a compare that always holds), or one cheaper instruction (a shift for a multiply or divide by a power of two, a mask for a remainder or an extract at bit 0, a min or max for a clamp with one side never reached, a min or max for a select of a value and a constant whatever its compare reads (`scale != 0u ? scale : 1u` is `max(scale, 1u)`; the four are offered and SAT keeps one that holds, tests/selconst_spv.ucas), a clamp for a select of a constant and a min or max of x (priced as the min and the max it is; a nested `?:` that glslang writes as a branch and a phi is not read), a bitfield extract for a shift and a mask).  A candidate is run first on random inputs with the interpreter's arithmetic, then both sides are bit-blasted (src/sat.c: an and-inverter graph and a CDCL solver) and no input may make them differ.  The operands' definitions are expanded up to 16 levels, phis at selection merges as "one of the incoming values"; loads, loop phis and specialization constants are free inputs, so a proof holds for every value they could take.  Proofs are refinements: where the original is defined, the replacement must be defined and equal, so nothing leans on what SPIR-V leaves undefined (a shift by the width or more, a bitfield past it, a division by zero).  Assumptions in the request narrow the inputs: `n in [0, 32)`, `n in (a, b]`, `n in 0..31`, `1 <= n < 32`, `n < 32` (0 <= n) apply to the value named n or every load of it.  Two-instruction rewrites merge shift chains ((y << 1) << (31 - n) is y << (32 - n) when n >= 1).  A rewrite that fails is shown with the solver's counterexample when it is a near miss ("fails at %n = 0").  GLSL works too (a ```` ```glsl ```` block or a .comp/.frag/.glsl file): a snippet is completed (a #version, undeclared globals declared from their use as buffer members so the optimizer keeps their writes, a compute main() calling each function with its arguments from a buffer), compiled by glslangValidator with debug lines (as the stage a `#pragma shader_stage(...)` line names, else the block's tag: ```` ```vert ````, ```` ```frag ````, ```` ```comp ````, a file's extension; else by what only one stage has, a workgroup, gl_Position or gl_VertexIndex; for Vulkan 1.1, or 1.3 when the shader needs it; `#line` directives are blanked, so the lines reported are the text's own) and optimized with `spirv-opt -O` as a real pipeline would (so what simplify finds is beyond that; the tools get 60 s and 2 GiB, and a disassembly is read whole up to 32 MiB: a BC7 encoder with its ASTC decoder is half a megabyte of it), and each rewrite names the GLSL line it came from; an assumption on a parameter follows it through inlining.  Chains of shifts by constants, adds, subtracts and constant multiplies fold into one multiply (an integer hash's `p -= p << 17; p += p << 7; p += p << 4` is `p *= 4007528593`); those are proved by algebra mod 2^w (a multiplier against a shift-and-add network is slow for SAT) and checked on 1024 random inputs, and the report says which proof each rewrite has.  With an assumption that bounds the only input of a stored or returned value to at most 2^20 values, a range search checks every input: what the value is (floor, round or ceil of a ratio: `(c * 255 + 32895) >> 16` for c in [0, 65535] is round(c * 255 / 65535)) and forms from the families (x + K) >> S, (x +- (x >> S1) + K) >> S (K solved exactly) and t = x + K; (t +- (t >> S1)) >> S that are cheaper, or as cheap without a multiply (`t = c + 128; (t - (t >> 8)) >> 8`); when none is, it says how many forms it tried.  Unoptimized input gets store-to-load forwarding and dead-store removal in each block for per-invocation variables first.  Proved rewrites apply in order, dead instructions go, and the module is written back (`simplified.spvasm`, attached in Discord), with the cost under the model before and after (each instruction once; with a loop of constant bounds, a line of its own also counts its instructions once a pass, nested loops multiplying, so that what moves work out of a loop shows as the gain it is: JSON `cost_weighted_before`, `cost_weighted_after`, `loops_weighted`; tests/tripweight.ucas); the report lists every rewrite, the largest savings first.  Rewrites any driver's back end makes on its own (a multiply, unsigned divide or remainder by a power of two, an extract at bit 0, a shift then a mask, two constant shifts, an identity operand such as x + 0 or x & ~0, constant folding, x - x) are kept in the module but listed apart in one line with their count and what they save in the cover (one the model already prices as what it makes saves 0: `x * 8 + y` is a shift-add as written); the headline cost is what is left beyond spirv-opt -O and those, with the total shown next to it (JSON: `cost_driver_baseline`, `driver_trivial_count`, `driver_trivial_gain`, and `driver_trivial` on each rewrite).  The time budget defaults to 6 s.  Float instructions follow (see [Float simplify](#float-simplify)): each float rewrite comes with a derivation, not a sample; `float`, `exact` (`bit-exact only`), `ulp N` (`within 2 ulp`), `approx` (`allow approximations`), `per component`.  GLSL with functions that call each other, or with loops, also gets a function-level section (see [Function level](#function-level)): `functions` (`function level`, `per function`, `functions only`) runs it alone, `nofunctions` (`without the function level`) skips it.  With spirv-cross installed, the rewritten module and the one spirv-opt -O made are cross-compiled back to GLSL and diffed (see [GLSL view](#glsl-view)).  C goes to the C frontend instead (see [C frontend](#c-frontend)) |
 | `animate exec of best found cos [-pi/2, pi/2] with crit + cheby poly` | an approximation request (best, found, approx, cheby, minimax, taylor ...): it is read as `approximate ...` in English, `approx` runs (asking precision and endpoints as usual), and the best candidate `ap1` is animated.  Options can be joined with `+`, `&`, `and` |
@@ -4093,12 +4093,52 @@ written with 8 digits, differs in 26 codes by one ulp), and each sRGB
 report says so.  The red channels of 300 random blocks of every mode
 come back exactly as codes.  JSON and MCP: `srgb` (true) with `etc2`.
 
+**BC7.**  `texenc T bc7` stores T in the red channel of BC7_UNORM
+blocks (Khronos Data Format Specification 1.3, 20.1; src/bc7blk.c), 16
+bytes each.  A block is one of eight modes: 1 to 3 subsets (a partition
+from the specification's 64-entry tables), endpoints of 4 to 8 bits
+with or without p-bits, widened to 8, and 2, 3 or 4 index bits a texel
+(the anchor of each subset one less); modes 4 and 5 have a second index
+set, a rotation that swaps alpha into red, green or blue, and (mode 4)
+an index selection.  A texel reads ((64 - w) e0 + w e1 + 32) >> 6 over
+255.  The search tries every mode, partition and way of holding red
+(the colour's red, or in modes 4 and 5 the alpha rotated into it, on
+either index set), and for each subset every pair of values its field
+has (with the p-bits), each texel on its nearest weight: the smallest
+largest error over the block, then, at that error, the fewest squares
+in each subset, then the first found; a subset's endpoints are swapped
+when its anchor's index needs the bit it lacks.  `texenc T, U bc7` puts
+U in alpha, in modes 4 and 5, where alpha has an index set of its own,
+each channel searched on its own; the forms where red and alpha share
+indices (rotations 2 and 3, modes 6 and 7) are not searched.  A BC7
+block is as many bytes as R8_UNORM for one table, so one table is no
+smaller there (BC4, EAC and ETC2 are half); two are half of
+R8G8_UNORM, as BC5 is.
+
+```
+> B = [0, 16, 36, 52, 68, 84, 104, 120, 135, 151, 171, 187, 203, 219, 239, 255]
+> texenc B bc7
+texenc B bc7: 16 entries as BC7_UNORM, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 6, red 0 to 255 (16 weights), selectors 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, bytes 40 c0 1f 00 00 00 00 00 11 32 54 76 98 ba dc fe
+  exact: every texel is its entry's f32 over 255
+```
+
+The partition and anchor tables are read from the specification's text
+and equal Mesa's.  ucas's BC7 decoder gives Mesa's (src/util/format/
+texcompress_bptc_tmp.h) on 2 million random blocks of all eight modes
+and the reserved one, every channel of every texel.  The red channels
+of 640 random blocks of every mode, and red and alpha of 160 of modes 4
+and 5 (rotation 0 or 1), decoded by Mesa, come back exactly; their
+bytes decode in Mesa to what ucas reports.  JSON and MCP: `bc7` (true);
+in English, "compress R as BC7".
+
 Not done: ASTC's HDR endpoints, sRGB and 3D blocks, partitions with two
 planes, endpoint modes other than luminance and luminance-alpha (the
-colour ones hold three tables, which texenc does not take), BC6H and
-BC7, three tables in ETC2's red, green and blue (their modes, bases and
-indices are shared), RGB8A1's punch-through alpha, and a polynomial
-split between a table's knots and a residual in the ALU.
+colour ones hold three tables, which texenc does not take), BC6H, BC7's
+sRGB format and the forms where its red and alpha share indices, three
+tables in ETC2's red, green and blue (their modes, bases and indices
+are shared), RGB8A1's punch-through alpha, and a polynomial split
+between a table's knots and a residual in the ALU.
 
 ### The ASTC decoder's steps
 

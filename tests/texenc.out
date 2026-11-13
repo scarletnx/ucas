@@ -184,7 +184,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
 > E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
@@ -275,7 +275,7 @@ texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1
     texenc [-2000, 5] eac
                          ^
 > texenc Q astc 4x4 eac
-texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
     texenc Q astc 4x4 eac
                       ^
 > compress E as EAC
@@ -416,7 +416,7 @@ texenc.ucas:110:66: error: texenc: ETC2 holds numbers from 0 to 1 (or whole numb
     texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
                                                                      ^
 > texenc Q etc2 eac
-texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
+texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
     texenc Q etc2 eac
                   ^
 > compress P as ETC2
@@ -459,7 +459,7 @@ texenc T, S etc2 srgb: 16 entries a channel as SRGB8_ALPHA8_ETC2_EAC (T the red,
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
   a nearest or filtered read of the texture is that read of the decoded tables, red and alpha (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
 > texenc D srgb
-texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
+texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
     texenc D srgb
              ^
 > compress D as sRGB ETC2
@@ -470,3 +470,60 @@ texenc D etc2 srgb: 16 entries as SRGB8_ETC2, rows of 4 (4 x 4 texels): 1 block,
   not exact: the closest blocks are within 0.00121 of the table (entry 0: 0 as 0.00121410796), every encoding of the red channel tried
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
   a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> B = [0, 16, 36, 52, 68, 84, 104, 120, 135, 151, 171, 187, 203, 219, 239, 255]
+> texenc B bc7
+texenc B bc7: 16 entries as BC7_UNORM, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 6, red 0 to 255 (16 weights), selectors 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, bytes 40 c0 1f 00 00 00 00 00 11 32 54 76 98 ba dc fe
+  decodes to [0, 0.0627451017, 0.141176477, 0.203921571, 0.266666681, 0.329411775, 0.407843143, 0.470588237, 0.529411793, 0.592156887, 0.670588255, 0.733333349, 0.796078444, 0.858823538, 0.937254906, 1]
+  exact: every texel is its entry's f32 over 255
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc R bc7
+texenc R bc7: 16 entries as BC7_UNORM, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 3, partition 32, red 254 to 39, 218 to 3 (4 weights), selectors 0 0 1 1 2 2 3 3 0 3 3 2 2 1 1 0, bytes 08 fe 27 ed 00 00 00 00 00 00 00 80 a2 f4 79 2d
+  decodes to [0.996078432, 0.854901969, 0.717647076, 0.576470613, 0.431372553, 0.290196091, 0.152941182, 0.0117647061, 0.996078432, 0.0117647061, 0.152941182, 0.290196091, 0.431372553, 0.576470613, 0.717647076, 0.854901969]
+  not exact: the closest blocks are within 0.00392 of the table (entry 0: 1 as 0.996078432)
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc L bc7 rows 8
+texenc L bc7: 24 entries as BC7_UNORM, rows of 8 (8 x 3 texels): 2 blocks, 32 bytes (24 as R8_UNORM, 96 as R32_SFLOAT)
+  block (0, 0): mode 1, partition 2, red 0 to 92, 26 to 114 (8 weights), selectors 0 0 2 4 1 1 3 5 2 2 4 6 0 0 0 0, bytes 0a c0 65 70 00 00 00 00 00 00 02 31 59 25 1a 00
+  block (1, 0): mode 1, partition 1, red 102 to 191, 124 to 217 (8 weights), selectors 0 2 4 4 1 3 5 5 2 4 6 6 0 0 0 0, bytes 06 d9 fb d9 00 00 00 00 00 00 21 32 6b 45 1b 00
+  decodes to [0, 0.101960786, 0.200000003, 0.301960796, 0.400000006, 0.498039216, 0.600000024, 0.698039234, 0.0509803928, 0.149019614, 0.247058824, 0.349019617, 0.450980395, 0.549019635, 0.650980413, 0.749019623, 0.101960786, 0.200000003, 0.301960796, 0.400000006, 0.498039216, 0.600000024, 0.698039234, 0.800000012]
+  not exact: the closest blocks are within 0.00294 of the table (entry 10: 0.25 as 0.247058824)
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> X = [0, 84, 171, 255, 255, 171, 84, 0, 0, 0, 255, 255, 84, 84, 171, 171]
+> Y = [10, 10, 10, 10, 89, 89, 89, 89, 171, 171, 171, 171, 250, 89, 10, 250]
+> texenc X, Y bc7
+texenc X, Y bc7: 16 entries a channel as BC7_UNORM (X the red, Y the alpha), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 5, red the colour's, red 0 to 255 (4 weights), alpha 10 to 250, selectors 0 1 2 3 3 2 1 0 0 0 3 3 1 1 2 2, alpha's 0 0 0 0 1 1 1 1 2 2 2 2 3 1 0 3, bytes 20 80 3f 00 00 00 28 e8 cb 37 e0 4b 01 55 aa c7
+  red: decodes to [0, 0.329411775, 0.670588255, 1, 1, 0.670588255, 0.329411775, 0, 0, 0, 1, 1, 0.329411775, 0.329411775, 0.670588255, 0.670588255]
+  red: exact: every texel is its entry's f32 over 255
+  alpha: decodes to [0.0392156877, 0.0392156877, 0.0392156877, 0.0392156877, 0.349019617, 0.349019617, 0.349019617, 0.349019617, 0.670588255, 0.670588255, 0.670588255, 0.670588255, 0.980392158, 0.349019617, 0.0392156877, 0.980392158]
+  alpha: exact: every texel is its entry's f32 over 255
+  searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc R, S bc7 tol 0.1
+texenc R, S bc7: 16 entries a channel as BC7_UNORM (R the red, S the alpha), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 4, red the rotated alpha (index selection 1), red 235 to 20 (4 weights), alpha 8 to 247, selectors 0 0 1 1 2 2 3 3 0 3 3 2 2 1 1 0, alpha's 0 1 3 4 6 7 6 4 3 1 0 1 3 4 6 7, bytes b0 c1 03 00 80 5e a0 f4 79 2d c8 e8 9b 0b 32 fa
+  red: decodes to [0.921568632, 0.921568632, 0.643137276, 0.643137276, 0.356862754, 0.356862754, 0.0784313753, 0.0784313753, 0.921568632, 0.0784313753, 0.0784313753, 0.356862754, 0.356862754, 0.643137276, 0.643137276, 0.921568632]
+  red: not exact: the closest blocks are within 0.0784 of the table (entry 0: 1 as 0.921568632)
+  red: within the 0.1 allowed (tol)
+  alpha: decodes to [0.0313725509, 0.164705887, 0.427450985, 0.572549045, 0.835294127, 0.968627453, 0.835294127, 0.572549045, 0.427450985, 0.164705887, 0.0313725509, 0.164705887, 0.427450985, 0.572549045, 0.835294127, 0.968627453]
+  alpha: not exact: the closest blocks are within 0.0353 of the table (entry 1: 0.200000003 as 0.164705887)
+  alpha: within the 0.1 allowed (tol)
+  searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc Q bc7 eac
+texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+    texenc Q bc7 eac
+                 ^
+> compress B as BC7
+  ucas: texenc B bc7
+texenc B bc7: 16 entries as BC7_UNORM, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/255
+  block (0, 0): mode 6, red 0 to 255 (16 weights), selectors 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, bytes 40 c0 1f 00 00 00 00 00 11 32 54 76 98 ba dc fe
+  decodes to [0, 0.0627451017, 0.141176477, 0.203921571, 0.266666681, 0.329411775, 0.407843143, 0.470588237, 0.529411793, 0.592156887, 0.670588255, 0.733333349, 0.796078444, 0.858823538, 0.937254906, 1]
+  exact: every texel is its entry's f32 over 255
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured

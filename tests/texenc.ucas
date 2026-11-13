@@ -122,3 +122,20 @@ texenc D etc2 srgb
 texenc T, S etc2 srgb
 texenc D srgb
 compress D as sRGB ETC2
+# BC7 (BPTC_UNORM): the table in red, every mode, partition and way of
+# holding red (the colour's, or in modes 4 and 5 the alpha rotated into
+# it), each subset's endpoints over every value of their field.  Mode
+# 6's sixteen weights between 0 and 255 are exact
+B = [0, 16, 36, 52, 68, 84, 104, 120, 135, 151, 171, 187, 203, 219, 239, 255]
+texenc B bc7
+# BC4's ramp is not: a step of 1/255 off
+texenc R bc7
+texenc L bc7 rows 8
+# two tables in red and alpha: modes 4 and 5, each on its own indices
+# (mode 5: red 0 to 255 and alpha 10 to 250, four weights each)
+X = [0, 84, 171, 255, 255, 171, 84, 0, 0, 0, 255, 255, 84, 84, 171, 171]
+Y = [10, 10, 10, 10, 89, 89, 89, 89, 171, 171, 171, 171, 250, 89, 10, 250]
+texenc X, Y bc7
+texenc R, S bc7 tol 0.1
+texenc Q bc7 eac
+compress B as BC7

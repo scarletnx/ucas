@@ -84,6 +84,24 @@ double etc2_alpha_encode(const double t[16], const uint8_t care[16],
     uint8_t out[8]);
 
 /*
+ * bc7blk.c: a BC7 block's mode (8: reserved) and its sixteen texels (x +
+ * 4y, RGBA), and the block for 16 targets in red (tr), or red and alpha
+ * (ta, modes 4 and 5): every mode, partition and way of holding red,
+ * each subset's pair of endpoints searched over every value its field
+ * has.  The largest error, alpha's in *aerr; in info the mode,
+ * partition, rotation, index selection, red's endpoints per subset (and
+ * alpha's), and each texel's index into red's (and alpha's) weights.
+ */
+struct bc7_info {
+	int mode, part, rot, isb, ns, ribits;
+	int red[3][2], alpha[2], ridx[16], aidx[16];
+};
+int bc7_mode(const uint8_t q[16]);
+void bc7_decode(const uint8_t q[16], uint8_t px[16][4]);
+double bc7_encode(const double *tr, const double *ta, const uint8_t care[16],
+    uint8_t out[16], struct bc7_info *info, double *aerr);
+
+/*
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
  * as UNORM16 (1 for a block the profile refuses: the error colour), and
  * a block searched for one table (t1 NULL) or two (two planes); 0 when
