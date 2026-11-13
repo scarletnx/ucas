@@ -173,7 +173,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
-| `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
+| `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, or its values from the key by a multiply-add and a shift with no value table, when the model prices that below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
 | `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
@@ -5075,6 +5075,23 @@ compared with x (an empty slot holds a key that hashes elsewhere).  The
 lookup replaces the chain when the model prices it lower, after it is
 proved equal to F for every input (enumerated or SAT); `F_ph` is
 defined.
+
+The values themselves can come from the key with no value table:
+`((x M + A) >> s) & mask`, plus the least value, the field b bits wide.
+Only M mod 2^(s + b) reaches the field, so for shifts up to 22 - b every
+multiplier is tried, and larger shifts take 2^20 multipliers drawn from
+the seed; for each M the offsets A that give key k its value are an arc
+of 2^s on the circle of 2^(s + b) (k M + A has to land in [v 2^s, (v +
+1) 2^s)), and A is solved where the arcs of all the keys meet.  When
+every input is a key the form needs nothing else; otherwise the check
+that x is a key still reads the keys' table through the hash, and under
+gt1030 that costs about what the value table's load does, so it is
+listed as derived, not taken (tests/sparsemap.ucas).  A search that
+finds none says which shifts it covered whole.  `find` tries the same
+form when the function's domain is a set of scattered points (a where
+clause that leaves only the keys), where no key check is needed: ten
+keys of 2-bit values in `77x + 11 >> 7 & 3`, cost 6 against the
+compare chain's 40.
 
 ```
 > sw8(x: u32) = match x { 3 => 10, 17 => 20, 100 => 30, 1000 => 40, 65537 => 50, 99999 => 60, 123456 => 70, 7777777 => 80, _ => 0 }

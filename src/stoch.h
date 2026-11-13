@@ -26,6 +26,18 @@ const char *stoch_nlp_raw(const char *sent);	/* nlp.c */
 void stoke_find(struct func *f);
 
 /*
+ * M, A and s with ((k[j] M + A) >> s) & (2^b - 1) = t[j] for every j, in
+ * u32 (s + b <= 32): every multiplier for the small shifts, then maxtries
+ * drawn from seed for the others, A solved for each.  1 when found; *exh
+ * the largest shift every multiplier was tried at (-1: none), *tries the
+ * multipliers drawn.  ms_none says what a failed search covered.
+ */
+int ms_solve(const uint32_t *k, const uint32_t *t, int n, int b,
+    uint64_t seed, long maxtries, uint32_t *M, uint32_t *A, int *s,
+    long *tries, int *exh);
+void ms_none(char *txt, size_t n, int b, int exh, long tries);
+
+/*
  * equiv's last resort: a and b as polynomials over the integers in f's
  * parameters, compared at random points mod 2^61 - 1.  -1: not both
  * polynomials; 0: they differ over Z (not a verdict on wrapping types);
