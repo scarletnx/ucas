@@ -1,0 +1,63 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 7 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Search (line 13), called from main (line 69)
+    line 16: the loop leaves on its second pass (j = 1u) by a break at line 17 or 19, doing nothing on the way: peel its first pass (j = 0u) out and the loop goes
+      for (uint j = 0u; j < jobs; j++) {
+        ->  its first pass alone (j = 0u); in the first pass these never run: the if at line 17 (`if (best <= 16u) break;`); the if at line 18 (`if (j == 1u) {`)
+      proof: dataflow: its first two passes run apart in the abstract interpretation, from every state it starts from; no state of the second comes back to the test
+      cost under gt1030: 53.75 -> 20.625 each time the loop runs
+      relies on: the states the loop (lines 16 to 24) starts from, inferred from Search's calls: main (line 69)
+    line 16: the compare is always true
+      j < jobs
+        ->  true
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (8 points)
+      cost under gt1030: 2.375 -> 0 each time it runs
+      relies on: j in {0, 1}; jobs in 3..6 where line 16 runs
+    line 21: the select always takes its first value
+      j == 0u ? 6u : 7u
+        ->  6u
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (1 points)
+      cost under gt1030: 4 -> 0 each time it runs
+      relies on: j in 0 where line 21 runs
+    line 22: the select always takes its first value
+      mode == 6u ? 4u : 2u
+        ->  4u
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (1 points)
+      cost under gt1030: 4 -> 0 each time it runs
+      relies on: mode in 6 where line 22 runs
+  Split (line 29), called from main (line 69)
+    line 31: the loop leaves on its second pass (j = 1u) by a break at line 32, or a return at line 35: peel its first pass (j = 0u) out of the loop; what is left is the second pass once, not a loop
+      for (uint j = 0u; j < 4u; j++) {
+        ->  its first pass alone (j = 0u), then its second once; in the first pass these never run: the if at line 32 (`if (best <= 16u) break;`); the if at line 33 (`if (j == 1u) {`)
+      proof: dataflow: its first two passes run apart in the abstract interpretation, from every state it starts from; no state of the second comes back to the test
+      cost under gt1030: 139.5 -> 26.25 each time the loop runs
+      relies on: the states the loop (lines 31 to 38) starts from, inferred from Split's calls: main (line 69)
+    line 31: the compare is always true
+      j < 4u
+        ->  true
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (3 points)
+      cost under gt1030: 2.375 -> 0 each time it runs
+      relies on: j in 0..1 where line 31 runs
+    line 37: the select always takes its first value
+      j == 0u ? 4u : 2u
+        ->  4u
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (1 points)
+      cost under gt1030: 4 -> 0 each time it runs
+      relies on: j in 0 where line 37 runs
+  Steps (line 43), called from main (line 69)
+    line 46: the loop's test fails on its second pass: its body runs at most once (s = 0u), an if and not a loop
+      for (uint s = 0u; s < steps; s++)
+        ->  its first pass alone (s = 0u)
+      proof: dataflow: its first two passes run apart in the abstract interpretation, from every state it starts from; the test fails on every state of the second
+      cost under gt1030: 15.625 -> 6 each time the loop runs
+      relies on: the states the loop (lines 46 to 47) starts from, inferred from Steps's calls: main (line 69)
+  Once (line 51), called from main (line 69)
+    line 53: the loop never comes back to its test: its body runs at most once (k = 0u), leaving by a break at line 55: an if, not a loop
+      for (uint k = 0u; k < v; k++) {
+        ->  its first pass alone (k = 0u)
+      proof: dataflow: its first two passes run apart in the abstract interpretation, from every state it starts from; no state of the first comes back to the test
+      cost under gt1030: 13.625 -> 12.625 each time the loop runs
+      relies on: the states the loop (lines 53 to 55) starts from, inferred from Once's calls: main (line 69)
+  also invariant in their loops, but cheap (cost < 8 a call): Cost(v) (line 54)

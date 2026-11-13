@@ -1,0 +1,80 @@
+# The function level runs each loop's first two passes apart (glslfn.c,
+# probe_loop): a loop that never comes back to its test after the second
+# pass is its first pass peeled out (Search, as a BC7 encoder's loop of jobs
+# under a build's define; Split, whose second pass returns), one whose test
+# fails on the second pass or that never comes back after the first is an if
+# (Steps, Once); Sum runs its passes and is not named
+simplify functions nofile budget 30
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint data[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint res[]; };
+uint sh_bits;
+uint best;
+bool more;
+uint Cost(uint v) {
+    return (v >> sh_bits) + (v & 15u);
+}
+/* a loop of jobs whose second pass always leaves (a constant condition, as
+   a build's define makes it), doing nothing on the way */
+uint Search(uint v, bool wide) {
+    best = 0xFFFFFFFFu;
+    const uint jobs = 1u + (wide ? 5u : 2u);
+    for (uint j = 0u; j < jobs; j++) {
+        if (best <= 16u) break;
+        if (j == 1u) {
+            if (2 == 2) break;
+        }
+        const uint mode = j == 0u ? 6u : 7u;
+        sh_bits = mode == 6u ? 4u : 2u;
+        const uint e = Cost(v);
+        if (e < best) best = e;
+    }
+    return best;
+}
+/* the same, but the second pass writes and returns before it leaves */
+uint Split(uint v) {
+    best = 0xFFFFFFFFu;
+    for (uint j = 0u; j < 4u; j++) {
+        if (best <= 16u) break;
+        if (j == 1u) {
+            more = true;
+            return 0u;
+        }
+        sh_bits = j == 0u ? 4u : 2u;
+        best = Cost(v);
+    }
+    return best;
+}
+/* a count of passes from a select, one at every call */
+uint Steps(uint v, bool dual) {
+    const uint steps = dual ? 2u : 1u;
+    uint acc = 0u;
+    for (uint s = 0u; s < steps; s++)
+        acc += Cost(v + s);
+    return acc;
+}
+/* every pass leaves */
+uint Once(uint v) {
+    uint r = 0u;
+    for (uint k = 0u; k < v; k++) {
+        r = Cost(v);
+        break;
+    }
+    return r;
+}
+/* passes that run: nothing to say */
+uint Sum(uint v) {
+    uint acc = 0u;
+    for (uint k = 0u; k < 4u; k++)
+        acc += Cost(v >> k);
+    return acc;
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    more = false;
+    res[i] = Search(data[i], (data[i] & 1u) != 0u) + Split(data[i]) + Steps(data[i], false) + Once(data[i]) +
+        Sum(data[i]);
+}
+```

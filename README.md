@@ -4315,7 +4315,25 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   a call one level down (in a function the loop calls, outside that
   function's own loops) whose arguments come from parameters bound to
   such values.  That is a dataflow fact; no proof beyond the read and
-  write sets.  Calls costing under 8 are listed in one line.
+  write sets.  Calls costing under 8 are listed in one line;
+- loops that leave early: once the analysis has settled, one more round
+  runs each `for` and `while` loop's first two passes apart, from every
+  state the loop starts from (nothing is recorded in it, and a summary
+  of the analysis is never grown: a pass whose call it does not cover
+  gets one of its own, dropped after).  A loop whose second pass never
+  comes back to the test leaves on its second pass: peel its first pass
+  out, and the loop goes when the second does nothing but leave (no
+  write past the loop's own variables, no return, no call that writes);
+  otherwise what is left is the second pass once.  A loop whose test
+  fails on the second pass, or whose first never comes back, runs its
+  body at most once: an if.  The report names the variable's value in
+  each pass, where the passes leave, and the branches the first pass
+  never takes (what peeling lets a compiler fold: a BC7 encoder's loop
+  of jobs, left at `j == 1` by a build's define, is the cause of the
+  constant compares and selects listed in its body).  A loop whose
+  bounds say as much (a count of one or two) is not named; when the time
+  budget runs out first, or the analysis did not settle in 8 rounds, a
+  note says no loop was looked at (tests/fnlpeel.ucas).
 
 **The translation.** A function becomes a ucas code block: its
 parameters and the globals it reads are the ucas function's parameters
@@ -4336,7 +4354,9 @@ so that what must stay true is in view.  The module itself is not
 changed by this section.  JSON: `result.function_level`, a list of
 `{kind, function, line, what, replacement, proof, points, cost_before,
 cost_after, domain, relies_on}` (`kind`: `function`, `expression`,
-`case_fit`; `invariant_call` with `cost_per_call` and `passes`).
+`case_fit`; `loop` with `passes`, the most it runs, 1 or 2,
+`second_pass_acts` and `exit_lines`; `invariant_call` with
+`cost_per_call` and `passes`).
 
 On a BC7 encoder (ScarletNX's bc7.comp), with every helper already hand
 tuned, it finds on its own: `Widen(v, n)`'s `if (n == 8u) return v;` and
