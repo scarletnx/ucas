@@ -1019,6 +1019,33 @@ model_formats(int (*fmt)[2])
 }
 
 /*
+ * One term, a constant power of two (either sign) times a value that
+ * goes into its lane as it is: the dot would do the work of one shift,
+ * which every driver makes of such a product.  A field of a word read as
+ * its lane (the dot takes the word) saves the extract too, so it stays.
+ */
+static int
+shift_only(const struct sum *s, uint32_t set, int L, int b)
+{
+	const struct term *t;
+	int q;
+
+	if (__builtin_popcount(set) != 1)
+		return 0;
+	t = &s->tm[__builtin_ctz(set)];
+	for (q = 0; q < 2; q++) {
+		const struct fac *k = &t->f[q], *x = &t->f[1 - q];
+		uint64_t m;
+		if (!k->isk || x->isk || k->k == 0 || fac_lane(x, L, b) >= 0)
+			continue;
+		m = k->k < 0 ? -(uint64_t)k->k : (uint64_t)k->k;
+		if (!(m & (m - 1)))
+			return 1;
+	}
+	return 0;
+}
+
+/*
  * Greedy over groups: the cheapest single group of any format, then
  * another among the terms left, while the whole gets cheaper.
  */
@@ -1040,7 +1067,8 @@ search_sum(struct cand *best, const struct func *f, struct sum *s,
 			for (set = 1; set < (1u << s->nt); set++) {
 				int pc = __builtin_popcount(set), j;
 				uint32_t o, no;
-				if ((set & taken) || pc > fmt[fi][0])
+				if ((set & taken) || pc > fmt[fi][0] ||
+				    shift_only(s, set, fmt[fi][0], fmt[fi][1]))
 					continue;
 				for (j = 0; j < s->nt; j++)
 					if (((set >> j) & 1) && (!s->tm[j].f[0].ok ||
