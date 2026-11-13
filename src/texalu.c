@@ -271,7 +271,8 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
 			w[q] = (q & 1 ? a : 1 - a) * (q & 2 ? b : 1 - b) *
 			    (q & 4 ? c : 1 - c);
 		}
-		return tex_blend3(t, w, bits);
+		return TEX_RED(ki) ? tex_reduce(t, w, 8, TEX_RED(ki)) :
+		    tex_blend3(t, w, bits);
 	}
 	t[0] = tv(ctx, r0 * W + c0);
 	t[1] = tv(ctx, r0 * W + c1);
@@ -444,8 +445,15 @@ tex_cost(const struct model *m, nid n, int *cls)
 	    !IS_TEXEL(N.op[n])) {
 		if (TEX_RED(N.ki[n])) {
 			*cls = C_TEX_MINMAX;
-			return model_lists(m, C_TEX_MINMAX) ? m->c[C_TEX_MINMAX] :
+			p = model_lists(m, C_TEX_MINMAX) ? m->c[C_TEX_MINMAX] :
 			    INFINITY;
+			/* of a 3-D texture: and what the third axis adds */
+			if (N.op[n] == O_TEX_TRILINEAR && p < INFINITY) {
+				*cls = C_TEX_3D;
+				return cclass_available(m, C_TEX_3D) ? p +
+				    m->c[C_TEX_3D] : INFINITY;
+			}
+			return p;
 		}
 		*cls = tex_fmt(m, N.a[n], &p);
 		/* a 3-D read: its format's 2-D read and what the third axis
@@ -538,6 +546,11 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 		op = O_TEX_BILINEAR;
 		red = s[7] == 'i' ? TEX_REDMIN : TEX_REDMAX;
 		i = 9;
+	} else if (n > 10 && (!memcmp(s, "tex_trimin", 10) || !memcmp(s,
+	    "tex_trimax", 10))) {
+		op = O_TEX_TRILINEAR;
+		red = s[8] == 'i' ? TEX_REDMIN : TEX_REDMAX;
+		i = 10;
 	} else if (n >= 12 && !memcmp(s, "tex_compare_", 12)) {
 		static const char cmp[6][3] = {"lt", "eq", "le", "gt", "ne",
 		    "ge"};
@@ -584,7 +597,8 @@ tex_print_name(struct sbuf *b, nid n)
 		sb_printf(b, "tex_compare_%s%d", cmp[TEX_CMP(N.ki[n])],
 		    TEX_BITS(N.ki[n]));
 	} else if (TEX_RED(N.ki[n]))
-		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" : "",
+		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" :
+		    N.op[n] == O_TEX_TRILINEAR ? "tri" : "",
 		    TEX_RED(N.ki[n]) == TEX_REDMIN ? "min" : "max",
 		    TEX_BITS(N.ki[n]));
 	else
@@ -2850,9 +2864,10 @@ seed_packed(nid body, nid n)
 /* ---- min/max reduction ---- */
 
 /*
- * A min or max of neighbouring table entries (#87): two along a row, or
- * a 2 x 2 block of a table read as rows of W, is one linear read at the
- * centre of the footprint with a MIN or MAX reduction sampler
+ * A min or max of neighbouring table entries (#87): two along a row, a
+ * 2 x 2 block of a table read as rows of W, or a 2 x 2 x 2 block of one
+ * read as slices of H rows of W (a 3-D texture), is one linear read at
+ * the centre of the footprint with a MIN or MAX reduction sampler
  * (VK_SAMPLER_REDUCTION_MODE_MIN, _MAX), which takes the least or the
  * greatest of the texels with a non-zero weight.  At the centre every
  * weight is 1/2 (or 1/4), on any sub-texel grid (Vulkan asks at least 4
@@ -2863,7 +2878,7 @@ seed_packed(nid body, nid n)
  * unit's tex_within).
  */
 
-/* the min or max tree under n: its leaves (at most 4), 0 if more */
+/* the min or max tree under n: its leaves (at most 8), 0 if more */
 static int
 mm_leaves(nid e, int op, nid *leaf, int nl)
 {
@@ -2871,7 +2886,7 @@ mm_leaves(nid e, int op, nid *leaf, int nl)
 		nl = mm_leaves(N.a[e], op, leaf, nl);
 		return nl ? mm_leaves(N.b[e], op, leaf, nl) : 0;
 	}
-	if (nl < 0 || nl == 4)
+	if (nl < 0 || nl == 8)
 		return 0;
 	leaf[nl] = e;
 	return nl + 1;
@@ -2901,15 +2916,66 @@ mm_out(nid n, nid xa, nid ya, int64_t lo, int64_t hi, int64_t ylo,
 	    "does not)");
 }
 
+/* a 2 x 2 x 2 block: its axes' atoms by coefficient (1, W, W H), the
+ * table's sizes, and the block's corner (cx, cy, cz); 0 if not one */
+static int
+mm_box(const struct aff *ax, int64_t cnt, int64_t c0, nid *at, int64_t *W,
+    int64_t *H, int64_t *D, int64_t *cc)
+{
+	int k, i, o[3] = {0, 1, 2};
+	int64_t wh, r;
+
+	if (ax[0].n != 3)
+		return 0;
+	for (k = 0; k < 3; k++)
+		for (i = k + 1; i < 3; i++)
+			if (ax[0].coef[o[i]] < ax[0].coef[o[k]]) {
+				int t = o[k];
+				o[k] = o[i];
+				o[i] = t;
+			}
+	*W = ax[0].coef[o[1]];
+	wh = ax[0].coef[o[2]];
+	if (ax[0].coef[o[0]] != 1 || *W < 2 || wh % *W || wh / *W < 2 ||
+	    cnt % wh || cnt / wh < 2)
+		return 0;
+	*H = wh / *W;
+	*D = cnt / wh;
+	for (k = 0; k < 8; k++) {
+		int64_t d = ax[k].c - c0;
+		if (d != (k & 1) + (k & 2 ? *W : 0) + (k & 4 ? wh : 0)) {
+			/* any order of the eight: d must be one of the box's */
+			for (i = 0; i < 8 && d != (i & 1) + (i & 2 ? *W : 0) +
+			    (i & 4 ? wh : 0); i++)
+				;
+			if (i == 8)
+				return 0;
+		}
+		for (i = 0; i < k; i++)
+			if (ax[i].c == ax[k].c)
+				return 0;
+	}
+	for (k = 0; k < 3; k++)
+		at[k] = ax[0].atom[o[k]];
+	cc[0] = ((c0 % *W) + *W) % *W;
+	r = (c0 - cc[0]) / *W;
+	cc[1] = ((r % *H) + *H) % *H;
+	cc[2] = (r - cc[1]) / *H;
+	return 1;
+}
+
 static int
 seed_minmax(nid body, nid n)
 {
 	int op = N.op[n], nl, k, i, two, bits = X.bits ? X.bits : 4, isint;
-	int f16 = 1;
-	nid leaf[4], tab, tex, x, y = 0, cand, nb, xa = 0, ya = 0, *e;
-	struct aff ax[4];
-	int64_t c0, W, cnt, lo, hi, ylo = 0, yhi = 0, cx = 0, cy = 0, q = 0;
-	int64_t vmin = 0, vmax = 0;
+	int f16 = 1, tri = 0;
+	nid leaf[8], tab, tex, x, y = 0, cand, nb, xa = 0, ya = 0, *e;
+	nid at[3] = {0, 0, 0};
+	struct aff ax[8];
+	int64_t c0, W, H = 0, D = 0, cnt, lo, hi, ylo = 0, yhi = 0, cx = 0,
+	    cy = 0, q = 0;
+	int64_t vmin = 0, vmax = 0, cc[3] = {0, 0, 0}, blo[3], bhi[3];
+	int64_t size[3];
 	double err = 0;
 	struct repl *r;
 	struct sbuf wit = {0};
@@ -2918,7 +2984,7 @@ seed_minmax(nid body, nid n)
 	if (op != O_MIN && op != O_MAX)
 		return 0;
 	nl = mm_leaves(n, op, leaf, 0);
-	if (nl != 2 && nl != 4)
+	if (nl != 2 && nl != 4 && nl != 8)
 		return 0;
 	for (k = 0; k < nl; k++)
 		if (N.op[leaf[k]] != O_INDEX || !same_table(N.a[leaf[k]],
@@ -2947,7 +3013,8 @@ seed_minmax(nid body, nid n)
 	}
 	if (isint && (vmin < -16777216 || vmax > 16777216))
 		return 0;
-	/* the offsets: c0, c0 + 1 (and c0 + W, c0 + W + 1) */
+	/* the offsets: c0, c0 + 1 (and c0 + W, c0 + W + 1; and those plus
+	 * W H) */
 	c0 = ax[0].c;
 	for (k = 1; k < nl; k++)
 		if (ax[k].c < c0)
@@ -2966,6 +3033,51 @@ seed_minmax(nid body, nid n)
 			mm_out(n, xa, 0, lo, hi, 0, 0, irange(xa, &lo, &hi));
 			return 0;
 		}
+	} else if (nl == 8) {
+		/* slices of H rows of W: atoms of coefficient 1, W and W H */
+		if (!mm_box(ax, cnt, c0, at, &W, &H, &D, cc))
+			return 0;
+		tri = 1;
+		size[0] = W;
+		size[1] = H;
+		size[2] = D;
+		for (k = 0; k < 3; k++)
+			if (!irange(at[k], &blo[k], &bhi[k])) {
+				if (!X.nosum.n)
+					sb_printf(&X.nosum, "%s takes a 2 x 2 x 2 "
+					    "block of entries, but %s has no proved "
+					    "range: a read of them could leave the "
+					    "table", node_str(n), node_str(at[k]));
+				return 0;
+			}
+		for (k = 0; k < 3; k++) {
+			if (blo[k] + cc[k] < 0 || bhi[k] + cc[k] + 1 > size[k] -
+			    1) {
+				if (!X.nosum.n)
+					sb_printf(&X.nosum, "%s takes a 2 x 2 x 2 "
+					    "block of entries, but a read of them "
+					    "could leave the %lld x %lld x %lld "
+					    "table: %s in [%lld, %lld], %s in "
+					    "[%lld, %lld], %s in [%lld, %lld] (a "
+					    "filter clamps at the edge, the table's "
+					    "index does not)", node_str(n), (long
+					    long)W, (long long)H, (long long)D,
+					    node_str(at[0]), (long long)blo[0],
+					    (long long)bhi[0], node_str(at[1]),
+					    (long long)blo[1], (long long)bhi[1],
+					    node_str(at[2]), (long long)blo[2],
+					    (long long)bhi[2]);
+				return 0;
+			}
+			/* the normalised coordinate is within |x| 2^-23 of x:
+			 * below 2^21, a quarter at most */
+			if (bhi[k] + cc[k] + 2 > (int64_t)1 << 21)
+				return 0;
+		}
+		xa = at[0];
+		ya = at[1];
+		lo = blo[0];
+		hi = bhi[0];
 	} else {
 		/* rows of W: one atom of coefficient 1, one of W */
 		if (ax[0].n != 2)
@@ -3000,6 +3112,10 @@ seed_minmax(nid body, nid n)
 		X.unavail[C_TEX_MINMAX] = 1;
 		return 0;
 	}
+	if (tri && !cclass_available(X.m, C_TEX_3D)) {
+		X.unavail_3d = 1;
+		return 0;
+	}
 	/* the texture: normalised units for whole numbers 0..65535 (scaled
 	 * back, rounded), else the entries as f16 or f32 */
 	if (isint && vmin >= 0 && vmax <= 65535) {
@@ -3023,12 +3139,23 @@ seed_minmax(nid body, nid n)
 	free(e);
 	if (nl == 2)
 		x = mk_bin(O_ADD, mk_cast(TY_F32, xa), kf(1));
-	else {
+	else if (tri) {
+		/* normalised: a 3-D texture has no unnormalizedCoordinates;
+		 * the texel corner (x + cx + 1) times f32(1/W) */
+		nid u[3];
+		for (k = 0; k < 3; k++)
+			u[k] = mk_bin(O_MUL, mk_bin(O_ADD, mk_cast(TY_F32, at[k]),
+			    kf((double)cc[k] + 1)), kf((double)(float)(1.0 /
+			    (double)size[k])));
+		x = u[0];
+		y = tex_args(u[1], u[2]);
+	} else {
 		x = mk_bin(O_ADD, mk_cast(TY_F32, xa), kf((double)cx + 1));
 		y = mk_bin(O_ADD, mk_cast(TY_F32, ya), kf((double)cy + 1));
 	}
-	cand = mk_tex(nl == 2 ? O_TEX_LINEAR : O_TEX_BILINEAR, TEX_KI(bits, nl ==
-	    2 ? 0 : W) | (op == O_MIN ? TEX_REDMIN : TEX_REDMAX), tex, x, y);
+	cand = mk_tex(nl == 2 ? O_TEX_LINEAR : tri ? O_TEX_TRILINEAR :
+	    O_TEX_BILINEAR, TEX_KI(bits, nl == 2 ? 0 : W) | TEX_KH(H) | (op ==
+	    O_MIN ? TEX_REDMIN : TEX_REDMAX), tex, x, y);
 	if (q)
 		cand = mk_cast(N.ty[n], mk_bin(O_ADD, mk_bin(O_MUL, cand,
 		    kf((double)q)), kf(0.5)));
@@ -3056,17 +3183,46 @@ seed_minmax(nid body, nid n)
 		sb_printf(&r->holds, "holds where %s is in [%lld, %lld] (its "
 		    "range): both texels are inside the table", node_str(xa),
 		    (long long)lo, (long long)hi);
+	else if (tri)
+		sb_printf(&r->holds, "holds where %s is in [%lld, %lld], %s in "
+		    "[%lld, %lld] and %s in [%lld, %lld] (their ranges): the "
+		    "block is inside the %lld x %lld x %lld table, no row or "
+		    "slice wraps", node_str(at[0]), (long long)blo[0], (long
+		    long)bhi[0], node_str(at[1]), (long long)blo[1], (long
+		    long)bhi[1], node_str(at[2]), (long long)blo[2], (long
+		    long)bhi[2], (long long)W, (long long)H, (long long)D);
 	else
 		sb_printf(&r->holds, "holds where %s is in [%lld, %lld] and %s "
 		    "in [%lld, %lld] (their ranges): the block is inside the "
 		    "%lld x %lld table, no row wraps", node_str(xa), (long long)lo,
 		    (long long)hi, node_str(ya), (long long)ylo, (long long)yhi,
 		    (long long)W, (long long)(cnt / W));
-	sb_printf(&r->proof, "the read is at the centre of the footprint, "
-	    "fraction 1/2%s: on any sub-texel grid (Vulkan asks at least 4 "
-	    "bits) every weight is %s, none 0, so the %s reduction takes every "
-	    "texel of it, and gives one of them, no sum", nl == 4 ? " on both "
-	    "axes" : "", nl == 4 ? "1/4" : "1/2", op == O_MIN ? "MIN" : "MAX");
+	if (tri) {
+		/* the farthest corner along an axis whose size is no power of
+		 * two: the normalised coordinate is within |x| 2^-23 of it */
+		int64_t far = 0;
+		for (k = 0; k < 3; k++)
+			if ((size[k] & (size[k] - 1)) && bhi[k] + cc[k] + 1 > far)
+				far = bhi[k] + cc[k] + 1;
+		sb_printf(&r->proof, "the read is at the centre of the "
+		    "footprint, fraction 1/2 on the three axes: the normalised "
+		    "coordinate (the texel corner times f32(1/n)) is %s, and the "
+		    "unit snaps by less than 1/16 (Vulkan asks at least 4 bits), "
+		    "so every fraction stays within 1/4 + 1/16 of 1/2, no weight "
+		    "is 0 and the %s reduction takes all eight texels, "
+		    "and gives one of them, no sum", far ? "within |x| 2^-23 of "
+		    "the corner x" : "the corner exactly (each size a power of "
+		    "two)", op == O_MIN ? "MIN" : "MAX");
+		if (far)
+			sb_printf(&r->proof, " (at most %s here: %lld times 2^-23)",
+			    fmt_g(ldexp((double)far, -23)), (long long)far);
+	} else
+		sb_printf(&r->proof, "the read is at the centre of the "
+		    "footprint, fraction 1/2%s: on any sub-texel grid (Vulkan "
+		    "asks at least 4 bits) every weight is %s, none 0, so the %s "
+		    "reduction takes every texel of it, and gives one of them, no "
+		    "sum", nl == 4 ? " on both axes" : "", nl == 4 ? "1/4" : "1/2",
+		    op == O_MIN ? "MIN" : "MAX");
 	if (q)
 		sb_printf(&r->proof, "\nthe entries are whole numbers 0..%lld, "
 		    "stored as k/%lld: the decode within %g ulp (the model's "
@@ -3081,18 +3237,37 @@ seed_minmax(nid body, nid n)
 		    "f32", op == O_MIN ? "least" : "greatest");
 	sb_puts(&r->proof, "\ncompared on the points tried as a second opinion: "
 	    "the same");
-	sb_printf(&r->pipe, "a texture %s, %lld x %lld, one level: the table's "
-	    "entries%s\na sampler: LINEAR mag and min filters, NEAREST mipmap "
-	    "mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0, and a "
-	    "VkSamplerReductionModeCreateInfo of %s (Vulkan 1.2 or "
-	    "VK_EXT_sampler_filter_minmax; filterMinmaxSingleComponentFormats "
-	    "covers R8_UNORM, R16_UNORM, R16_SFLOAT and R32_SFLOAT)\none "
-	    "combined image sampler more in the layout; the shader reads "
-	    "textureLod(s, %s, 0.0).r", q == 255 ? "R8_UNORM" : q ? "R16_UNORM" :
-	    f16 ? "R16_SFLOAT" : "R32_SFLOAT", (long long)W, (long long)(cnt /
-	    W), q ? " as normalised units (the shader sees k/q, times q back)" :
-	    "", op == O_MIN ? "VK_SAMPLER_REDUCTION_MODE_MIN" :
-	    "VK_SAMPLER_REDUCTION_MODE_MAX", nl == 2 ? "x" : "vec2(x, y)");
+	if (tri)
+		sb_printf(&r->pipe, "a 3-D texture %s, %lld x %lld x %lld, one "
+		    "level: the table's entries%s\na sampler: LINEAR mag and min "
+		    "filters, NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, "
+		    "normalised coordinates (a 3-D texture has no "
+		    "unnormalizedCoordinates), lod 0, and a "
+		    "VkSamplerReductionModeCreateInfo of %s (Vulkan 1.2 or "
+		    "VK_EXT_sampler_filter_minmax; filterMinmaxSingleComponentFormats "
+		    "covers R8_UNORM, R16_UNORM, R16_SFLOAT and R32_SFLOAT)\none "
+		    "combined image sampler more in the layout; the shader reads "
+		    "textureLod(s, vec3(u, v, w), 0.0).r", q == 255 ? "R8_UNORM" :
+		    q ? "R16_UNORM" : f16 ? "R16_SFLOAT" : "R32_SFLOAT", (long
+		    long)W, (long long)H, (long long)D, q ? " as normalised units "
+		    "(the shader sees k/q, times q back)" : "", op == O_MIN ?
+		    "VK_SAMPLER_REDUCTION_MODE_MIN" :
+		    "VK_SAMPLER_REDUCTION_MODE_MAX");
+	else
+		sb_printf(&r->pipe, "a texture %s, %lld x %lld, one level: the "
+		    "table's entries%s\na sampler: LINEAR mag and min filters, "
+		    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
+		    "lod 0, and a VkSamplerReductionModeCreateInfo of %s (Vulkan "
+		    "1.2 or VK_EXT_sampler_filter_minmax; "
+		    "filterMinmaxSingleComponentFormats covers R8_UNORM, "
+		    "R16_UNORM, R16_SFLOAT and R32_SFLOAT)\none combined image "
+		    "sampler more in the layout; the shader reads textureLod(s, "
+		    "%s, 0.0).r", q == 255 ? "R8_UNORM" : q ? "R16_UNORM" : f16 ?
+		    "R16_SFLOAT" : "R32_SFLOAT", (long long)W, (long long)(cnt /
+		    W), q ? " as normalised units (the shader sees k/q, times q "
+		    "back)" : "", op == O_MIN ? "VK_SAMPLER_REDUCTION_MODE_MIN" :
+		    "VK_SAMPLER_REDUCTION_MODE_MAX", nl == 2 ? "x" :
+		    "vec2(x, y)");
 	return 1;
 }
 
