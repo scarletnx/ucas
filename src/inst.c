@@ -63,6 +63,31 @@
  *                      2^16, the smaller and the larger unsigned or
  *                      signed: v_pk_add_u16, v_pk_sub_u16,
  *                      v_pk_mul_lo_u16, v_pk_min/max_u16/i16 (no clamp)
+ *   lerp4x8(a, b, c)   byte i is (a.byte[i] + b.byte[i] + bit 0 of
+ *                      c.byte[i]) >> 1, the average rounded up where
+ *                      that bit is set: v_lerp_u8
+ *   qsad4x8(s, r, acc) four sums of byte differences against the bytes
+ *                      of r (u32), sum k over the four bytes of s (u64)
+ *                      from byte k, plus the 16-bit lane k of acc
+ *                      (u64), each cut to 16 bits and packed (u64):
+ *                      v_qsad_pk_u16_u8; mqsad4x8 the same leaving out
+ *                      the bytes where r's is 0: v_mqsad_pk_u16_u8
+ *   min3, max3 (a, b, c)
+ *                      the least and the greatest of three integers;
+ *                      min_max(a, b, c) is max(min(a, b), c),
+ *                      max_min(a, b, c) min(max(a, b), c), min_add(a,
+ *                      b, c) min(a, b) + c and max_add max(a, b) + c
+ *                      (wrapping), in the operands' common type:
+ *                      v_min3, v_max3, v_minmax, v_maxmin; VMNMX and
+ *                      PTX vmin, vmax with a .min, .max or .add
+ *                      secondary operation
+ *   sad32(a, b, c)     |a - b| + c, u32 (wrapping): v_sad_u32; PTX
+ *                      vabsdiff.add
+ *   addsat, subsat (a, b)
+ *                      a + b and a - b clamped to the range of u32, or
+ *                      of i32 when the operands are signed (narrower
+ *                      ones widened first): PTX vadd.sat, vsub.sat;
+ *                      v_add_u32 and v_add_nc_i32 with clamp
  *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
@@ -112,6 +137,17 @@ inst_class(int op)
 	case O_ADD2X16: case O_SUB2X16: case O_MUL2X16: case O_MIN2X16:
 	case O_MAX2X16: case O_SMIN2X16: case O_SMAX2X16:
 		return C_PK16;
+	case O_LERP4X8:
+		return C_LERP8;
+	case O_QSAD4X8: case O_MQSAD4X8:
+		return C_QSAD;
+	case O_MIN3: case O_MAX3: case O_MINMAX: case O_MAXMIN: case O_MINADD:
+	case O_MAXADD:
+		return C_VMNMX;
+	case O_SAD:
+		return C_SAD32;
+	case O_ADDSAT: case O_SUBSAT:
+		return C_ADDSAT;
 	}
 	return C_BYTEPERM;
 }
@@ -149,11 +185,15 @@ inst_type(int op, nid a, nid b, nid c)
 	switch (op) {
 	case O_SBFE: case O_SMULHI:
 		return I32;
-	case O_MED3:
+	case O_MED3: case O_MIN3: case O_MAX3: case O_MINMAX: case O_MAXMIN:
+	case O_MINADD: case O_MAXADD:
 		/* the operands' common type, as their sum would have */
 		return N.ty[sum_type(a, b, c)];
-	case O_MULWIDE: case O_MADWIDE:
+	case O_MULWIDE: case O_MADWIDE: case O_QSAD4X8: case O_MQSAD4X8:
 		return U64;
+	case O_ADDSAT: case O_SUBSAT:
+		/* u32 or i32: mk_inst has widened the operands */
+		return N.ty[a] == I32 ? I32 : U32;
 	}
 	return U32;
 }
@@ -332,6 +372,70 @@ inst_expand(int op, nid a, nid b, nid c)
 			    ku(U32, 0)));
 		}
 		break;
+	case O_LERP4X8:
+		r = ku(U32, 0);
+		for (i = 0; i < 4; i++) {
+			nid p = byte_of(a, ku(U32, 8 * i));
+			nid q = byte_of(b, ku(U32, 8 * i));
+			nid h = mk_bin(O_AND, mk_bin(O_SHR, c, ku(U32, 8 * i)),
+			    ku(U32, 1));
+			r = mk_bin(O_OR, r, mk_bin(O_SHL, mk_bin(O_SHR, mk_bin(O_ADD,
+			    mk_bin(O_ADD, p, q), h), ku(U32, 1)), ku(U32, 8 * i)));
+		}
+		break;
+	case O_QSAD4X8: case O_MQSAD4X8: {
+		int k;
+		r = ku(U64, 0);
+		for (k = 0; k < 4; k++) {
+			nid win = mk_cast(U32, mk_bin(O_SHR, a, ku(U64, 8 * k)));
+			nid sum = mk_cast(U32, mk_bin(O_AND, mk_bin(O_SHR, c, ku(U64,
+			    16 * k)), ku(U64, 0xffff)));
+			for (i = 0; i < 4; i++) {
+				nid p = byte_of(win, ku(U32, 8 * i));
+				nid q = byte_of(b, ku(U32, 8 * i));
+				nid d = mk_bin(O_SUB, mk_bin(O_MAX, p, q), mk_bin(O_MIN,
+				    p, q));
+				if (op == O_MQSAD4X8)
+					d = mk_sel(mk_bin(O_NE, q, ku(U32, 0)), d, ku(U32,
+					    0));
+				sum = mk_bin(O_ADD, sum, d);
+			}
+			r = mk_bin(O_OR, r, mk_bin(O_SHL, mk_cast(U64, mk_bin(O_AND,
+			    sum, ku(U32, 0xffff))), ku(U64, 16 * k)));
+		}
+		break;
+	}
+	case O_MIN3:
+		r = mk_bin(O_MIN, mk_bin(O_MIN, a, b), c);
+		break;
+	case O_MAX3:
+		r = mk_bin(O_MAX, mk_bin(O_MAX, a, b), c);
+		break;
+	case O_MINMAX:
+		r = mk_bin(O_MAX, mk_bin(O_MIN, a, b), c);
+		break;
+	case O_MAXMIN:
+		r = mk_bin(O_MIN, mk_bin(O_MAX, a, b), c);
+		break;
+	case O_MINADD:
+		r = mk_bin(O_ADD, mk_bin(O_MIN, a, b), c);
+		break;
+	case O_MAXADD:
+		r = mk_bin(O_ADD, mk_bin(O_MAX, a, b), c);
+		break;
+	case O_SAD:
+		r = mk_bin(O_ADD, mk_bin(O_SUB, mk_bin(O_MAX, a, b), mk_bin(O_MIN,
+		    a, b)), c);
+		break;
+	case O_ADDSAT: case O_SUBSAT:
+		/* in 64 bits, where neither overflows, then clamped */
+		x = mk_bin(op == O_ADDSAT ? O_ADD : O_SUB, mk_cast(I64, a),
+		    mk_cast(I64, b));
+		r = t == U32 ? mk_bin(O_MAX, mk_bin(O_MIN, x, mk_const_i(I64,
+		    0xffffffffLL)), mk_const_i(I64, 0)) : mk_bin(O_MAX,
+		    mk_bin(O_MIN, x, mk_const_i(I64, INT32_MAX)), mk_const_i(I64,
+		    INT32_MIN));
+		break;
 	case O_BYTESEL:
 		w = mk_bin(O_OR, mk_bin(O_SHL, mk_cast(U64, a), ku(U64, 32)),
 		    mk_cast(U64, b));
@@ -380,11 +484,30 @@ mk_inst(int op, nid a, nid b, nid c)
 	case O_ADD4X8: case O_SUB4X8: case O_ABSDIFF4X8: case O_MIN4X8:
 	case O_MAX4X8: case O_MSAD4X8: case O_ADD2X16: case O_SUB2X16:
 	case O_MUL2X16: case O_MIN2X16: case O_MAX2X16: case O_SMIN2X16:
-	case O_SMAX2X16:
+	case O_SMAX2X16: case O_LERP4X8: case O_SAD:
 		a = mk_cast(U32, a);
 		b = mk_cast(U32, b);
 		if (ar == 3)
 			c = mk_cast(U32, c);
+		break;
+	case O_QSAD4X8: case O_MQSAD4X8:
+		a = mk_cast(U64, a);
+		b = mk_cast(U32, b);
+		c = mk_cast(U64, c);
+		break;
+	case O_ADDSAT: case O_SUBSAT:
+		/* two literals: u32 unless one is negative */
+		t = N.ty[mk_bin(O_ADD, a, b)];
+		if (TYK(t) == K_LIT)
+			t = (is_const(a) && N.ki[a] < 0) || (is_const(b) &&
+			    N.ki[b] < 0) ? I32 : U32;
+		else if (t != TY_BOOL && TYW(t) < 32)
+			t = TYK(t) == K_SINT ? I32 : U32;
+		if (t != U32 && t != I32)
+			fail("%s works on 32-bit words, u32 or i32, not %s", nm,
+			    ty_str(t));
+		a = mk_cast(t, a);
+		b = mk_cast(t, b);
 		break;
 	case O_MULWIDE: case O_MADWIDE:
 		a = mk_cast(U32, a);
@@ -408,10 +531,11 @@ mk_inst(int op, nid a, nid b, nid c)
 		a = mk_cast(U32, a);
 		b = mk_cast(U32, b);
 		break;
-	case O_MED3:
+	case O_MED3: case O_MIN3: case O_MAX3: case O_MINMAX: case O_MAXMIN:
+	case O_MINADD: case O_MAXADD:
 		t = inst_type(op, a, b, c);
 		if (t == TY_BOOL)
-			fail("med3 takes numbers");
+			fail("%s takes numbers", nm);
 		a = mk_cast(t, a);
 		b = mk_cast(t, b);
 		c = mk_cast(t, c);
@@ -882,10 +1006,33 @@ lanewise_c(int op, uint32_t a, uint32_t b)
 	return r;
 }
 
+/* lerp4x8 in C, for find's samples */
+static uint32_t
+lerp_c(uint32_t a, uint32_t b, uint32_t c)
+{
+	uint32_t r = 0;
+	int i;
+
+	for (i = 0; i < 32; i += 8)
+		r |= ((((a >> i) & 255) + ((b >> i) & 255) + ((c >> i) & 1)) >> 1)
+		    << i;
+	return r;
+}
+
+/* addsat and subsat of two u32 in C, for find's samples */
+static uint32_t
+sat_c(int op, uint32_t a, uint32_t b)
+{
+	if (op == O_ADDSAT)
+		return a + b < a ? 0xffffffffu : a + b;
+	return a < b ? 0 : a - b;
+}
+
 /*
  * x, a u32 of two words, as a lane-wise op of them (either order) that
- * the model has: its value at random points told against each, then
- * checked with the function
+ * the model has, the four bytes' rounded or truncated average, or a
+ * saturating add or subtract: its value at random points told against
+ * each, then checked with the function
  */
 static nid
 lanewise_of(const struct func *f, nid x, struct sbuf *why)
@@ -918,6 +1065,146 @@ lanewise_of(const struct func *f, nid x, struct sbuf *why)
 			    BP_SAMPLES);
 			return mk_inst(ops[k], a, b, ops[k] == O_MSAD4X8 ?
 			    ku(U32, 0) : 0);
+		}
+	}
+	/* lerp4x8(a, b, 0x01010101) rounds the average up, 0 truncates */
+	for (k = 0; k < 2 && cclass_available(m, C_LERP8); k++) {
+		uint32_t c = k ? 0 : 0x01010101u;
+		for (smp = 0; smp < BP_SAMPLES; smp++)
+			if (r[smp] != lerp_c(w0[smp], w1[smp], c))
+				break;
+		if (smp == BP_SAMPLES) {
+			nid a = mk_var((uint32_t)slot[0], f->p[slot[0]].name, U32);
+			nid b = mk_var((uint32_t)slot[1], f->p[slot[1]].name, U32);
+			sb_printf(why, "%s: the four bytes' averages, %s, told at %d "
+			    "random points", shared_str(x, 80), k ? "rounded down" :
+			    "a half rounded up", BP_SAMPLES);
+			return mk_inst(O_LERP4X8, a, b, ku(U32, c));
+		}
+	}
+	for (k = 0; k < 3 && cclass_available(m, C_ADDSAT); k++) {
+		int op = k ? O_SUBSAT : O_ADDSAT;
+		o = k == 2;
+		for (smp = 0; smp < BP_SAMPLES; smp++)
+			if (r[smp] != sat_c(op, o ? w1[smp] : w0[smp], o ? w0[smp] :
+			    w1[smp]))
+				break;
+		if (smp == BP_SAMPLES) {
+			nid a = mk_var((uint32_t)slot[o], f->p[slot[o]].name, U32);
+			nid b = mk_var((uint32_t)slot[1 - o], f->p[slot[1 - o]].name,
+			    U32);
+			sb_printf(why, "%s: %s(%s, %s), %s clamped to the range of "
+			    "u32, told at %d random points", shared_str(x, 80),
+			    opinfo[op].name, node_str(a), node_str(b), op == O_ADDSAT ?
+			    "the sum" : "the difference", BP_SAMPLES);
+			return mk_inst(op, a, b, 0);
+		}
+	}
+	return 0;
+}
+
+/*
+ * x, a min or max with a min or max of the same type for an operand:
+ * min3, max3, min_max (a max of a min), max_min (a min of a max), where
+ * the model has vmnmx
+ */
+static nid
+minmax3_of(nid x, struct sbuf *why)
+{
+	int op = N.op[x], j;
+
+	if ((op != O_MIN && op != O_MAX) || !TY_ISINT(N.ty[x]) ||
+	    N.ty[x] == TY_BOOL || !cclass_available(model_active(), C_VMNMX))
+		return 0;
+	for (j = 0; j < 2; j++) {
+		nid in = j ? N.b[x] : N.a[x], out = j ? N.a[x] : N.b[x];
+		int r;
+		if ((N.op[in] != O_MIN && N.op[in] != O_MAX) || N.ty[in] !=
+		    N.ty[x])
+			continue;
+		r = N.op[in] == op ? (op == O_MIN ? O_MIN3 : O_MAX3) :
+		    op == O_MAX ? O_MINMAX : O_MAXMIN;
+		sb_printf(why, "%s: %s of %s and %s", shared_str(x, 80),
+		    op == O_MIN ? "the min" : "the max", node_str(in),
+		    node_str(out));
+		return mk_inst(r, N.a[in], N.b[in], out);
+	}
+	return 0;
+}
+
+/* x as |a - b| for words: max(a, b) - min(a, b), or a select of a - b
+ * and b - a on a compare of a and b; *a, *b */
+static int
+absdiff32(nid x, nid *a, nid *b)
+{
+	nid p, q, c;
+
+	if (N.ty[x] != U32)
+		return 0;
+	if (N.op[x] == O_SUB && N.op[N.a[x]] == O_MAX && N.op[N.b[x]] ==
+	    O_MIN) {
+		p = N.a[x];
+		q = N.b[x];
+		if ((N.a[p] == N.a[q] && N.b[p] == N.b[q]) || (N.a[p] == N.b[q] &&
+		    N.b[p] == N.a[q])) {
+			*a = N.a[p];
+			*b = N.b[p];
+			return 1;
+		}
+		return 0;
+	}
+	if (N.op[x] != O_SEL || N.op[N.b[x]] != O_SUB || N.op[N.c[x]] !=
+	    O_SUB)
+		return 0;
+	c = N.a[x];
+	p = N.b[x];	/* the value where the compare holds */
+	q = N.c[x];
+	if (N.a[p] != N.b[q] || N.b[p] != N.a[q])
+		return 0;
+	/* p = u - v is the right one when u >= v: u > v, u >= v, v < u,
+	 * v <= u (at u == v both are 0) */
+	if (((N.op[c] == O_GT || N.op[c] == O_GE) && N.a[c] == N.a[p] &&
+	    N.b[c] == N.b[p]) || ((N.op[c] == O_LT || N.op[c] == O_LE) &&
+	    N.a[c] == N.b[p] && N.b[c] == N.a[p])) {
+		*a = N.a[p];
+		*b = N.b[p];
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * x, a sum with a min or max of the same type, or a word's absolute
+ * difference, for a term: min_add, max_add (vmnmx), sad32 (sad32); an
+ * absolute difference alone is sad32(a, b, 0)
+ */
+static nid
+vidadd_of(nid x, struct sbuf *why)
+{
+	const struct model *m = model_active();
+	nid a, b;
+	int j;
+
+	if (cclass_available(m, C_SAD32) && absdiff32(x, &a, &b)) {
+		sb_printf(why, "%s: |%s - %s|", shared_str(x, 80), node_str(a),
+		    node_str(b));
+		return mk_inst(O_SAD, a, b, ku(U32, 0));
+	}
+	if (N.op[x] != O_ADD || !TY_ISINT(N.ty[x]) || N.ty[x] == TY_BOOL)
+		return 0;
+	for (j = 0; j < 2; j++) {
+		nid in = j ? N.b[x] : N.a[x], out = j ? N.a[x] : N.b[x];
+		if (cclass_available(m, C_SAD32) && absdiff32(in, &a, &b)) {
+			sb_printf(why, "%s: |%s - %s| + %s", shared_str(x, 80),
+			    node_str(a), node_str(b), node_str(out));
+			return mk_inst(O_SAD, a, b, out);
+		}
+		if ((N.op[in] == O_MIN || N.op[in] == O_MAX) && N.ty[in] ==
+		    N.ty[x] && cclass_available(m, C_VMNMX)) {
+			sb_printf(why, "%s: %s plus %s", shared_str(x, 80),
+			    node_str(in), node_str(out));
+			return mk_inst(N.op[in] == O_MIN ? O_MINADD : O_MAXADD,
+			    N.a[in], N.b[in], out);
 		}
 	}
 	return 0;
@@ -1234,11 +1521,15 @@ pattern(const struct func *f, int p, nid x, struct sbuf *why)
 		return bytesel_of(f, x, why);
 	case 13:	/* two words' bytes or halves lane by lane */
 		return lanewise_of(f, x, why);
+	case 14:	/* a min or max of a min or max */
+		return minmax3_of(x, why);
+	case 15:	/* a min, max or |a - b| plus a third */
+		return vidadd_of(x, why);
 	}
 	return 0;
 }
 
-#define NPAT 14
+#define NPAT 16
 
 /*
  * The low word of a product, a * b in u32, where the function also reads
@@ -1317,9 +1608,9 @@ inst_find(const struct func *f)
 	float before, cost;
 	int k, iter, bad;
 
-	for (k = C_BFE; k <= C_PK16 && !cclass_available(m, k); k++)
+	for (k = C_BFE; k <= C_ADDSAT && !cclass_available(m, k); k++)
 		;
-	if (k > C_PK16 || !TY_ISINT(N.ty[cur]))
+	if (k > C_ADDSAT || !TY_ISINT(N.ty[cur]))
 		return;
 	nd = xmalloc(MAXNODE * sizeof *nd);
 	before = cost = fuse_expr_cost(m, sg_priced(f, cur));

@@ -348,6 +348,12 @@ static const struct bfn bfns[] = {
 	{"mul2x16", O_MUL2X16, 2}, {"min2x16", O_MIN2X16, 2},
 	{"max2x16", O_MAX2X16, 2}, {"smin2x16", O_SMIN2X16, 2},
 	{"smax2x16", O_SMAX2X16, 2},
+	{"lerp4x8", O_LERP4X8, 3}, {"qsad4x8", O_QSAD4X8, 3},
+	{"mqsad4x8", O_MQSAD4X8, 3}, {"min3", O_MIN3, 3}, {"max3", O_MAX3, 3},
+	{"min_max", O_MINMAX, 3}, {"max_min", O_MAXMIN, 3},
+	{"min_add", O_MINADD, 3}, {"max_add", O_MAXADD, 3},
+	{"sad32", O_SAD, 3},
+	{"addsat", O_ADDSAT, 2}, {"subsat", O_SUBSAT, 2},
 	/* astc.c: the ASTC decoder's steps */
 	{"astc_partition", O_ASTC_PART, 4}, {"astc_unquant", O_ASTC_UNQ, 2},
 	{"astc_unquantw", O_ASTC_UNQW, 2}, {"astc_endpoint", O_ASTC_ENDPOINT, 3},

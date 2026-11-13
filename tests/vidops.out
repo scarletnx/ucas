@@ -1,0 +1,171 @@
+> show lerp4x8(0x00ff0102, 0x01ff0203, 0x01010101)
+_() = 33489411
+  -> u32
+> show lerp4x8(0x00ff0102, 0x01ff0203, 0)
+_() = 16711938
+  -> u32
+> show qsad4x8(0x0807060504030201, 0x04030201, 0)
+_() = 3377734080528384
+  -> u64
+> show mqsad4x8(0x0807060504030201, 0x04000201, 0x0001000100010001)
+_() = 2814779832139777
+  -> u64
+> show qsad4x8(0xffffffff00000000, 0, 0xffff000000000000)
+_() = 215049072656973824
+  -> u64
+> show min3(5, 2, 9)
+_() = 2
+  -> int
+> show max3(5, 2, 9)
+_() = 9
+  -> int
+> show min_max(5, 2, 9)
+_() = 9
+  -> int
+> show max_min(5, 2, 1)
+_() = 1
+  -> int
+> w(a: u32, b: u32, c: u32) = max_add(a, b, c)
+> show w(4294967295, 2, 3)
+_() = 2
+  -> u32
+> s(a: i32, b: i32, c: i32) = min3(a, b, c)
+> show s(-5, 2, 9)
+_() = -5
+  -> i32
+> show sad32(3, 10, 100)
+_() = 107
+  -> u32
+> show sad32(10, 3, 4294967295)
+_() = 6
+  -> u32
+> show addsat(4000000000, 400000000)
+_() = 4294967295
+  -> u32
+> show addsat(-2000000000, -2000000000)
+_() = -2147483648
+  -> i32
+> show subsat(3, 5)
+_() = 0
+  -> u32
+> show subsat(-2147483647, 5)
+_() = -2147483648
+  -> i32
+> x(a: u8, b: u8) = addsat(a, b)
+> show x
+x(a: u8, b: u8) = addsat(u32(a), u32(b))
+  -> u32
+> range x
+range of x -> u32:
+  0..510
+  fits in u9
+  over all 65536 points of the domain
+> mm1(a: u32, b: u32, c: u32) = min_max(a, b, c)
+> mm2(a: u32, b: u32, c: u32) = max(min(a, b), c)
+> equiv mm1 mm2
+mm1 and mm2 are equal on the domain of mm1 (proved by SAT: 605 AIG nodes, 0 conflicts)
+> sa1(a: i32, b: i32) = addsat(a, b)
+> sa2(a: i32, b: i32) = i32(max(min(i64(a) + i64(b), 2147483647), -2147483648))
+> equiv sa1 sa2
+sa1 and sa2 are equal on the domain of sa1 (proved by SAT: 826 AIG nodes, 0 conflicts)
+> le1(a: u32, b: u32) = lerp4x8(a, b, 0x01010101)
+> le2(a: u32, b: u32) = lerp4x8(a, b, 0)
+> equiv le1 le2
+le1 and le2 differ at 61388 points of the sample, e.g. a=0, b=4294967294: 2155905151 vs 2139062143
+> y(a: u64, b: u64) = addsat(a, b)
+vidops.ucas:53:33: error: addsat works on 32-bit words, u32 or i32, not u64
+    y(a: u64, b: u64) = addsat(a, b)
+                                    ^
+> z(a: f32, b: f32, c: f32) = min3(a, b, c)
+vidops.ucas:54:42: error: min3 takes integer operands
+    z(a: f32, b: f32, c: f32) = min3(a, b, c)
+                                             ^
+> m3(a: u32, b: u32, c: u32) = max(max(a, b), c)
+> find m3 1
+find m3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> model vid : gt1030 { lerp8: 1, qsad: 1, vmnmx: 1, sad32: 1, addsat: 1 }
+> use vid
+cost model: vid
+> find m3 1
+find m3: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 2 as written):
+  cost 1   max3(a, b, c)
+           max(max(a, b), c): the max of max(a, b) and c
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> mx(a: i32, b: i32, c: i32) = min(max(a, b), c)
+> find mx 1
+find mx: 1024 points (sampled; matches verified on the whole domain), computing in i32, costs from vid
+  instructions under vid (each for the pattern it is; cost 2 as written):
+  cost 1   max_min(a, b, c)
+           min(max(a, b), c): the min of max(a, b) and c
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ma(a: u32, b: u32, c: u32) = min(a, b) + c
+> find ma 1
+find ma: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 2 as written):
+  cost 1   min_add(a, b, c)
+           min(a, b) + c: min(a, b) plus c
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> sd(a: u32, b: u32, c: u32) = (a > b ? a - b : b - a) + c
+> find sd 1
+find sd: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 7 as written):
+  cost 1   sad32(a, b, c)
+           (a > b ? a - b : b - a) + c: |a - b| + c
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> rh(a: u32, b: u32) = (a | b) - ((a xor b) >> 1 & 0x7f7f7f7f)
+> find rh 1
+find rh: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 6 as written):
+  cost 1   lerp4x8(a, b, 16843009)
+           (a | b) - ((a xor b) >> 1 & 0x7f7f7f7f): the four bytes' averages, a half rounded up, told at 48 random points
+           checked by SAT
+  packed lanes under vid (every lane in one word-wide operation; cost 6 as written):
+  cost 5   (a | b) - (((a xor b) & 0xfefefefe) >> 1)
+           4 x 8-bit lanes, (a + b + 1) >> 1 in each: what either has less half of what one has
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> tr(a: u32, b: u32) = (a & b) + ((a xor b) >> 1 & 0x7f7f7f7f)
+> find tr 1
+find tr: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 6 as written):
+  cost 1   lerp4x8(a, b, 0)
+           (a & b) + ((a xor b) >> 1 & 0x7f7f7f7f): the four bytes' averages, rounded down, told at 48 random points
+           checked by SAT
+  packed lanes under vid (every lane in one word-wide operation; cost 6 as written):
+  cost 4   (a & b) + (((a xor b) & 0xfefefefe) >> 1)
+           4 x 8-bit lanes, (a + b) >> 1 in each: what both have plus half of what one has
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> as(a: u32, b: u32) = a + b < a ? 0xffffffff : a + b
+> find as 1
+find as: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 5 as written):
+  cost 1   addsat(a, b)
+           a + b < a ? 4294967295 : a + b: addsat(a, b), the sum clamped to the range of u32, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> ss(a: u32, b: u32) = max(a, b) - b
+> find ss 1
+find ss: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from vid
+  instructions under vid (each for the pattern it is; cost 2 as written):
+  cost 1   subsat(a, b)
+           max(a, b) - b: subsat(a, b), the difference clamped to the range of u32, told at 48 random points
+           checked by SAT
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
+> use gt1030
+cost model: gt1030
