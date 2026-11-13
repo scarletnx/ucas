@@ -105,8 +105,12 @@ texalu.ucas:42:31: error: tex_linear: the sub-texel grid has 1 to 14 bits, not 2
 texalu.ucas:43:39: error: tex_bilinear: a table of 3 texels is not rows of 2
     show tex_bilinear8([0, 1, 4], 2, 1, 1)
                                           ^
+> lb1(x: f32 in 0..2, y: f32 in 0..2) = tex_bilinear8([0, 1, 4, 9], 2, x, y)
+> lb2(x: f32 in 0..2, y: f32 in 0..2) = tex_bilinear8([0, 1, 4, 9], 2, x, y * 1)
+> equiv lb1 lb2
+lb1 and lb2 are equal on the domain of lb1 (sampled, not proved; no SAT proof: a filtered texture read)
 > show fetch_repeat(K, 1.5)
-texalu.ucas:44:26: error: fetch_repeat takes an integer texel index, not real
+texalu.ucas:48:26: error: fetch_repeat takes an integer texel index, not real
     show fetch_repeat(K, 1.5)
                              ^
 > l(x: f32 in 0..4) = tex_linear8([0, 1, 4, 9], x)
@@ -668,6 +672,6 @@ cost model: texeln
 > use gt1030
 cost model: gt1030
 > texalu gp lanes 4
-texalu.ucas:173:11: error: texalu F [tol E] [model M]
+texalu.ucas:177:11: error: texalu F [tol E] [model M]
     texalu gp lanes 4
               ^
