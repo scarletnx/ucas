@@ -66,10 +66,13 @@ struct rounderr {
 	int nexact;		/* their rounded operations, not in nops */
 	uint64_t eftfail;	/* inputs where a precondition failed */
 	char eftwhy[240];	/* the first: which, on what, where */
-	int choices[7];		/* rounderr.c's CH_*: floor or ceil, conversion
+	int choices[8];		/* rounderr.c's CH_*: floor or ceil, conversion
 				 * to an integer, copysign, min or max, ?:, a
-				 * rounding written as an add */
+				 * rounding written as an add, a shift or mask
+				 * of a float's bits */
 	int nbits;		/* bit casts between floats and integers */
+	int nfrac;		/* of them, the bits of a float with error */
+	int nstep;		/* those bits shifted right or masked */
 	uint64_t flips;		/* inputs where one can go the other way */
 	char flipwhy[300];	/* the first: how, and where */
 };

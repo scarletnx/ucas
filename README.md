@@ -845,9 +845,20 @@ reduced candidates get their line that way: the exp of tests/approx
 (2^k P(r), k and 2^k from the rounding add) 10 operations and 3.19 u,
 where every f32 x in [-10, 10] on a stride, run in f32 against the
 same expression in long double with the same k, differs by 1.22 u at
-most.  Not analysed, and said: those bits under a shift or a mask of
-more than the sign bit, two such values combined, an f16's bits, a
-variable exponent.
+most.  Shifted right or masked, those bits step: at each multiple of
+2^k for a shift by k, of 2^t for a mask with t trailing ones (whose low
+bits the result follows between the steps), of the mask's lowest bit
+when it has none; a choice (`shift or mask of a float's bits`) that,
+within the bits' error of a step, adds what the far end of that error
+gives, everything after it run again.  An or or xor after such a mask
+with a constant in none of the bits it keeps is an add (a mantissa
+given an exponent field).  The exponent of a computed value, `(asuint(x
+* 1.1) >> 23) & 255`, is exact but at a power of two; the fast inverse
+square root's guess on x * 1.1 (tests/roundmagic) 1.45 u, every f32 x
+in [1, 2] run against the exact product's bits 1.447 u.  f16 bits are
+read the same way.  Not analysed, and said: those bits shifted left,
+or-ed or xor-ed with a constant in bits they have, two such values
+combined, a variable exponent.
 
 Choices are where a small error can make a large one: floor, ceil and a
 conversion to an integer jump by 1 at the integers, copysign by twice

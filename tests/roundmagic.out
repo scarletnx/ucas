@@ -44,7 +44,7 @@ error of sc against 8.8x:
   mean rel error 3.42286e-08 over 1001 points
   max 25165824 ulp
   rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
-    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade
     worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
     probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
     expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
@@ -56,7 +56,7 @@ error of ng against -1.1x:
   mean rel error 3.42286e-08 over 1001 points
   max 1 ulp
   rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
-    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade
     worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
     probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
     expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
@@ -68,7 +68,7 @@ error of cs against copysign(1.1x, y):
   mean rel error 0.5 over 1002001 points
   max 2187329536 ulp
   rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
-    bit casts: 3, exact: integers are, and a float whose bits are read carries no rounding error
+    bit casts: 3; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade
     worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
     probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
     expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
@@ -79,7 +79,12 @@ error of sh against 1/sqrt(1.1x):
   max rel error 0.0342885 (3.43%) at x=3.4
   mean rel error 0.0245308 over 500 points
   max 562629 ulp
-  rounding: not analysed (the bits of a value that carries rounding error, used as an integer by >> is not analysed)
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 shift or mask of a float's bits; at 2937 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the bits of a value with rounding error are 0.312 from 1066724304, within that error (0.582 units of the last place), where the shift right steps, at x=1.05767858
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade; shifted right or masked, they step (the choices above)
+    worst case  8.62e-08 (1.45 u): every error at its bound and aligned, u sum |c_i|
+    probable    0 (0 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]
 > mk(x: f32 in 1..2) = asfloat(asuint(x * 1.1) & 0xfffff000)
 > error mk ~ x * 1.1
 error of mk against 1.1x:
@@ -87,7 +92,72 @@ error of mk against 1.1x:
   max rel error 0.000456713 (0.0457%) at x=-7.34
   mean rel error 0.000178744 over 1001 points
   max 4063 ulp
-  rounding: not analysed (the bits of a value that carries rounding error, under a mask of more than the sign bit is not analysed)
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 shift or mask of a float's bits; at 2 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the bits of a value with rounding error are 0.137 from 1073709056, within that error (0.998 units of the last place), where the mask steps, at x=1.81463063
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade; shifted right or masked, they step (the choices above)
+    worst case  0.000486 (8.16e+03 u): every error at its bound and aligned, u sum |c_i|
+    probable    0 (0 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]
+> ex(x: f32 in 1..1000) = f32(i32((asuint(x * 1.1) >> 23) & 255) - 127)
+> error ex ~ floor(log(x * 1.1) / log(2))
+error of ex against floor(log(1.1x)/0.6931471806):
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 500 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded; relative to the value, the largest over 3728 inputs
+    choices: 1 shift or mask of a float's bits; at no input of the sample is one within its operands' error of going the other way
+    bit casts: 1; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade; shifted right or masked, they step (the choices above)
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+    for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
+> mt(x: f32 in 1..4) = asfloat((asuint(x * 1.1) & 0x7fffff) | 0x3f800000)
+> error mt ~ x * 1.1 / 2 ^ floor(log(x * 1.1) / log(2))
+error of mt against 1.1x/2^floor(log(1.1x)/0.6931471806):
+  max abs error 1.5831e-07 at x=6.26
+  max rel error 1.27357e-07 (1.27e-05%) at x=8.06
+  mean rel error 3.42628e-08 over 500 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 shift or mask of a float's bits; at no input of the sample is one within its operands' error of going the other way
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade; shifted right or masked, they step (the choices above)
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> a16(x: f16 in -2..-1) = asfloat(asuint(x * 1.1) & 0x7fff)
+> error a16 ~ abs(x * 1.1)
+error of a16 against abs(1.1x):
+  max abs error 0.0108125 at x=-8.98
+  max rel error 0.00113356 (0.113%) at x=-8.12
+  mean rel error 0.000405724 over 1001 points
+  max 2 ulp
+  rounding, first order in u = 2^-11: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 1025 inputs
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade
+    worst case  0.000488 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    0.000282 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> m16(x: f16 in 1..4) = asfloat((asuint(x * 1.1) & 0x3ff) | 0x3c00)
+> error m16 ~ x * 1.1 / 2 ^ floor(log(x * 1.1) / log(2))
+error of m16 against 1.1x/2^floor(log(1.1x)/0.6931471806):
+  max abs error 0.0016875 at x=3.54
+  max rel error 0.00113356 (0.113%) at x=4.06
+  mean rel error 0.00040613 over 500 points
+  max 2 ulp
+  rounding, first order in u = 2^-11: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 2049 inputs
+    choices: 1 shift or mask of a float's bits; at 4 of the 2049 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the bits of a value with rounding error are 0.527 from 16384, within that error (1 units of the last place), where the mask steps, at x=1.8184
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade; shifted right or masked, they step (the choices above)
+    worst case  1 (2.05e+03 u): every error at its bound and aligned, u sum |c_i|
+    probable    0.00195 (4 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0.000282 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> orb(x: f32 in 1..2) = asfloat(asuint(x * 1.1) | 0x1000)
+> error orb ~ x * 1.1
+error of orb against 1.1x:
+  max abs error 0.00390733 at x=-9.52
+  max rel error 0.00048784 (0.0488%) at x=-7.28
+  mean rel error 0.000181874 over 1001 points
+  max 4097 ulp
+  rounding: not analysed (the bits of a value with rounding error or-ed with a constant in bits they have is not analysed)
 > two(x: f32 in 1..2) = asfloat(asuint(x * 1.1) + asuint(x * 1.3))
 > error two ~ x
 error of two against x:

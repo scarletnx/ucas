@@ -72,9 +72,16 @@
  * inside a binade, one unit for each ulp.  They are followed to first
  * order where they only meet an add or a subtract of an exact integer (a
  * step of the exponent: the float times a power of two) or the sign bit
- * alone (and, or, xor with it or with nothing), and go back to a float;
- * anywhere else (a shift, a mask of other bits) the error moves them by
- * more than first order says, and the function is not analysed.
+ * alone (and, or, xor with it or with nothing), and go back to a float.
+ * Shifted right or masked they step: at each multiple of 2^k for a shift
+ * by k, of 2^t for a mask with t trailing ones (between the steps the
+ * result follows those low bits), of the mask's lowest bit when it has
+ * none.  That is a choice (CH_BITS): within the bits' error of a step,
+ * the far end of that error, everything after it run again.  An or or
+ * xor after such a mask with a constant in none of the bits it keeps is
+ * an add.  Anywhere else (a shift left, an or of bits they have, two of
+ * them combined) the function is not analysed.  An f16's bits are read
+ * as an f32's.
  */
 #include "numsearch.h"
 
@@ -96,6 +103,10 @@ struct rnode {
 				 * integer itself: the sum's index + 1 */
 	int frac;		/* the bits of a float with error, as a real:
 				 * between two integers */
+	int bits;		/* such bits shifted right or masked: a step
+				 * at each multiple of 2^period (CH_BITS) */
+	int period;
+	uint64_t keep;		/* a masked one: the bits it can have set */
 	ld slope;		/* asuint: bits for a unit of the float */
 	int eft;		/* inside error-free transformation eft - 1 */
 	int choice;		/* a choice (CH_*), or 0 */
@@ -104,7 +115,8 @@ struct rnode {
 };
 
 /* what can go the other way (rounderr.h's struct rounderr counts these) */
-enum { CH_NONE, CH_STEP, CH_CONV, CH_SIGN, CH_MINMAX, CH_SEL, CH_MAGIC };
+enum { CH_NONE, CH_STEP, CH_CONV, CH_SIGN, CH_MINMAX, CH_SEL, CH_MAGIC,
+	CH_BITS };
 
 enum { EF_2SUM, EF_FAST2SUM, EF_2PROD };
 
@@ -139,6 +151,7 @@ unit(ty_t t)
 }
 
 static int frac_op(int op, ty_t t, ld a, ld b, ld *r);
+static uint64_t int_bits(ld v);
 
 static int
 collect(nid e)
@@ -161,15 +174,10 @@ collect(nid e)
 				R.ix[e] = i + 1;
 			return i;
 		}
-		if (TYW(t) == 16 && !R.why[0])
-			snprintf(R.why, sizeof R.why, "asfloat to an f16");
 		a = collect(N.a[e]);
 		break;
 	case O_ASUINT: case O_ASINT:
 		a = collect(N.a[e]);
-		if (a >= 0 && !R.why[0] && TYW(N.ty[N.a[e]]) == 16)
-			snprintf(R.why, sizeof R.why, "%s of an f16",
-			    opinfo[N.op[e]].name);
 		break;
 	case O_NOT:
 		a = collect(N.a[e]);
@@ -283,17 +291,66 @@ collect(nid e)
 	else if ((a >= 0 && R.n[a].frac) || (b >= 0 && R.n[b].frac) ||
 	    (c >= 0 && R.n[c].frac)) {
 		int both = a >= 0 && b >= 0 && R.n[a].frac && R.n[b].frac;
+		nid cst = a >= 0 && R.n[a].frac ? N.b[e] : N.a[e];
 		switch (N.op[e]) {
+		case O_SHR:
+			/* shifted right by a constant: a step at each multiple
+			 * of 2^k, an exact integer between */
+			if (!both && a >= 0 && R.n[a].frac && N.op[N.b[e]] ==
+			    O_CONST && N.ki[N.b[e]] > 0 && N.ki[N.b[e]] < 64) {
+				x->bits = 1;
+				x->period = (int)N.ki[N.b[e]];
+				x->choice = CH_BITS;
+				x->inexact = 0;
+				break;
+			}
+			goto refuse;
 		case O_AND: case O_OR: case O_XOR: {
-			/* a constant has to leave all but the sign bit alone */
-			nid cst = a >= 0 && R.n[a].frac ? N.b[e] : N.a[e];
 			ld dummy;
+			int w = TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 64;
+			uint64_t m = N.op[cst] == O_CONST ? int_bits((ld)N.ki[cst]) &
+			    (w < 64 ? (1ULL << w) - 1 : ~0ULL) : 0;
+			int tr = 0;
+			/* a mask of more than the sign bit: its trailing ones
+			 * follow the bits (frac), and the result steps at each
+			 * multiple of 2^(those ones), or of the mask's lowest
+			 * bit when it has none */
+			if (!both && N.op[e] == O_AND && N.op[cst] == O_CONST &&
+			    m != 0 && !frac_op(O_AND, t, 0, (ld)N.ki[cst], &dummy)) {
+				while (tr < w && (m >> tr & 1))
+					tr++;
+				x->bits = 1;
+				x->period = tr;
+				if (!tr)
+					while (!(m >> x->period & 1))
+						x->period++;
+				x->choice = CH_BITS;
+				x->frac = tr > 0;
+				x->inexact = tr > 0;
+				x->keep = m;
+				break;
+			}
+			/* or-ed or xor-ed, after such a mask, with a constant
+			 * in none of the bits it keeps: an add of that constant
+			 * (a mantissa given an exponent) */
+			if (!both && N.op[e] != O_AND && N.op[cst] == O_CONST) {
+				int f = a >= 0 && R.n[a].frac ? a : b;
+				if (R.n[f].bits && R.n[f].keep && !(m & R.n[f].keep)) {
+					x->bits = 1;
+					x->frac = 1;
+					x->keep = R.n[f].keep | m;
+					break;
+				}
+			}
+			/* or else a constant has to leave all but the sign bit
+			 * alone */
 			if (!both && N.op[cst] == O_CONST && !frac_op(N.op[e], t, 0,
 			    (ld)N.ki[cst], &dummy)) {
 				if (!R.why[0])
 					snprintf(R.why, sizeof R.why, "the bits of a value "
-					    "that carries rounding error, under a mask of "
-					    "more than the sign bit");
+					    "with rounding error %s a constant in bits "
+					    "they have", N.op[e] == O_OR ? "or-ed with" :
+					    "xor-ed with");
 				return -1;
 			}
 		}
@@ -305,6 +362,7 @@ collect(nid e)
 			}
 			/* FALLTHROUGH */
 		default:
+		refuse:
 			if (!R.why[0])
 				snprintf(R.why, sizeof R.why, "the bits of a value that "
 				    "carries rounding error, used as an integer by %s",
@@ -683,7 +741,11 @@ bit_op(int op, ty_t t, ld a, ld b, ld *r)
 static int
 float_bits(ty_t tf, ty_t ti, ld a, ld *r)
 {
-	if (TYW(tf) == 32) {
+	if (TYW(tf) == 16) {
+		if ((ld)fround(16, (double)a) != a)
+			return 0;
+		*r = bits_int(ti, fbits(16, (double)a));
+	} else if (TYW(tf) == 32) {
 		float f = (float)a;
 		uint32_t u;
 		if ((ld)f != a)
@@ -707,6 +769,8 @@ bits_float(ty_t tf, ld a)
 {
 	uint64_t v = int_bits(a);
 
+	if (TYW(tf) == 16)
+		return frombits(16, v & 0xffff);
 	if (TYW(tf) == 32) {
 		uint32_t u = (uint32_t)v;
 		float f;
@@ -800,6 +864,13 @@ backprop(int root, ld *adj)
 			/* the bits of a float with error pass as they are (only
 			 * the sign bit is touched); an integer: what a step of 1
 			 * moves the value by */
+			if (x->bits) {
+				/* a step: nothing flows back but the low bits a
+				 * mask keeps (CH_BITS has the steps) */
+				if (x->frac)
+					TO(R.n[x->a].frac ? x->a : x->b, 1);
+				break;
+			}
 			if (x->frac) {
 				int fa = x->a >= 0 && R.n[x->a].frac;
 				TO(fa ? x->a : x->b, 1);
@@ -840,7 +911,19 @@ frac_bits(ty_t tf, ty_t ti, ld a, ld *v, ld *slope)
 {
 	ld f, ulp, base;
 
-	if (TYW(tf) == 32) {
+	if (TYW(tf) == 16) {
+		/* sign and magnitude: one up in the bits is one ulp away
+		 * from 0 */
+		double x = fround(16, (double)a), nb;
+		uint64_t u;
+		if (!isfinite(x) || x == 0)
+			return 0;
+		u = fbits(16, x);
+		nb = frombits(16, fabsl(a) > fabs(x) ? u + 1 : u - 1);
+		base = bits_int(ti, u);
+		f = x;
+		ulp = fabsl((ld)nb - f);
+	} else if (TYW(tf) == 32) {
 		float x = (float)a, nb;
 		uint32_t u;
 		if (!isfinite(x) || x == 0)
@@ -908,7 +991,16 @@ eval_node(int i)
 	case O_NEG: x->v = -a; break;
 	case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
 	case O_SHR:
-		if (x->frac) {
+		if (x->bits) {
+			/* on the integer the float's bits are, the fraction
+			 * kept where the mask keeps the low bits */
+			int fa = R.n[x->a].frac;
+			ld v = fa ? a : b;
+			if (!bit_op(N.op[x->id], t, floorl(v), fa ? b : a, &x->v))
+				return 0;
+			if (x->frac)
+				x->v += v - floorl(v);
+		} else if (x->frac) {
 			int fa = x->a >= 0 && R.n[x->a].frac;
 			if (N.op[x->id] == O_NOT || N.op[x->id] == O_SHL ||
 			    N.op[x->id] == O_SHR || !frac_op(N.op[x->id], t, fa ? a :
@@ -1036,6 +1128,7 @@ node_err(int r)
 static const char *const choice_name[] = {
 	"", "floor, ceil or roundeven", "conversion to an integer", "copysign",
 	"min or max", "select (?:)", "rounding written as an add",
+	"shift or mask of a float's bits",
 };
 
 /*
@@ -1085,6 +1178,33 @@ choice_extra(int d, char *why, size_t wn)
 		if (other_side(d, other + off, &res))
 			return fabsl(res - R.n[R.nn - 1].v);
 		return w;
+	}
+	case CH_BITS: {
+		/*
+		 * a float's bits shifted right or masked: a step at each
+		 * multiple of 2^period; within the bits' error of one, what
+		 * the far end of that error gives (past one step or several),
+		 * everything after it run again
+		 */
+		int o = R.n[x->a].frac ? x->a : x->b;
+		ld P = ldexpl(1, x->period), v = R.n[o].v, Bn, end, other, res;
+		e = node_err(o);
+		Bn = nearbyintl(v / P) * P;
+		if (e <= 0 || fabsl(v - Bn) > e)
+			return 0;
+		end = v >= Bn ? v - e : v + e;
+		if (!bit_op(N.op[x->id], N.ty[x->id], floorl(end), o == x->a ? vb :
+		    va, &other))
+			return 0;
+		if (x->frac)
+			other += end - floorl(end);
+		snprintf(why, wn, "the bits of a value with rounding error are "
+		    "%.3Lg from %.0Lf, within that error (%.3Lg units of the "
+		    "last place), where %s steps", fabsl(v - Bn), Bn, e,
+		    N.op[x->id] == O_SHR ? "the shift right" : "the mask");
+		if (other_side(d, other, &res))
+			return fabsl(res - R.n[R.nn - 1].v);
+		return w * fabsl(other - x->v);
 	}
 	case CH_SIGN:
 		e = node_err(x->b);
@@ -1195,6 +1315,8 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 		r->nexact += R.n[i].rounds && R.n[i].eft;
 		r->choices[R.n[i].choice]++;
 		r->nbits += op == O_ASUINT || op == O_ASINT || op == O_ASFLOAT;
+		r->nfrac += (op == O_ASUINT || op == O_ASINT) && R.n[i].frac;
+		r->nstep += R.n[i].choice == CH_BITS;
 	}
 	R.adj = xcalloc((size_t)R.nn, sizeof *R.adj);
 	R.adj2 = xcalloc((size_t)R.nn, sizeof *R.adj2);
@@ -1313,7 +1435,7 @@ choice_print(const struct rounderr *r, const char *ind)
 {
 	int k, n = 0;
 
-	for (k = 1; k < 7; k++)
+	for (k = 1; k < 8; k++)
 		if (r->choices[k])
 			printf("%s %d %s", n++ ? "," : "", r->choices[k],
 			    choice_name[k]);
@@ -1349,14 +1471,20 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 	    (unsigned long long)r->points);
 	eft_print(r, ind, e);
 	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
-	    r->choices[5] + r->choices[6]) {
+	    r->choices[5] + r->choices[6] + r->choices[7]) {
 		printf("%s  choices:", ind);
 		choice_print(r, ind);
 	}
-	if (r->nbits)
+	if (r->nbits && !r->nfrac)
 		printf("%s  bit casts: %d, exact: integers are, and a float "
 		    "whose bits are read carries no rounding error\n", ind,
 		    r->nbits);
+	else if (r->nbits)
+		printf("%s  bit casts: %d; integers are exact, and the bits of %d "
+		    "float%s with rounding error follow %s to first order inside "
+		    "a binade%s\n", ind, r->nbits, r->nfrac, r->nfrac == 1 ? "" :
+		    "s", r->nfrac == 1 ? "it" : "them", r->nstep ? "; shifted "
+		    "right or masked, they step (the choices above)" : "");
 	printf("%s  worst case  %.3g (%.3g u): every error at its bound and "
 	    "aligned, u sum |c_i|\n", ind, r->worst, r->worst / u);
 	if (r->prob < r->worst)
@@ -1395,13 +1523,16 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 		rep_int("precondition_failures", (long long)r->eftfail);
 	}
 	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
-	    r->choices[5] + r->choices[6]) {
+	    r->choices[5] + r->choices[6] + r->choices[7]) {
 		rep_int("choices", r->choices[1] + r->choices[2] + r->choices[3] +
-		    r->choices[4] + r->choices[5] + r->choices[6]);
+		    r->choices[4] + r->choices[5] + r->choices[6] +
+		    r->choices[7]);
 		rep_int("choice_flips", (long long)r->flips);
 	}
 	if (r->nbits)
 		rep_int("bit_casts", r->nbits);
+	if (r->nfrac)
+		rep_int("bits_with_error", r->nfrac);
 	rep_str("assumptions", r->eft[0] + r->eft[1] + r->eft[2] ? "first "
 	    "order; operations correctly rounded; error-free transformations "
 	    "(2Sum, Fast2Sum, 2Prod) exact as a whole where their "
