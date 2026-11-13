@@ -3463,7 +3463,15 @@ subgroup, all W lanes active:
 and, written with them, `sg_exclusive(v)` = `sg_scan(v) - v`,
 `sg_shuffle_xor(v, k)` = `sg_shuffle(v, lane xor k)`, `sg_broadcast(v,
 i)`, `sg_broadcast_first(v)` (lane 0), `sg_rotate(v, d)` =
-`sg_shuffle(v, (lane + d) % W)`, and the segmented scan `sg_segscan(v,
+`sg_shuffle(v, (lane + d) % W)`, the quad's swaps `sg_quad_swap_h(v)`,
+`sg_quad_swap_v(v)`, `sg_quad_swap_d(v)` = `sg_shuffle(v, lane xor 1)`,
+`xor 2`, `xor 3` and `sg_quad_broadcast(v, i)` = `sg_shuffle(v, (lane &
+~3) | i)`, undefined for i past 3 (the quads as the derivatives read
+them, W a multiple of 4; OpGroupNonUniformQuadSwap and QuadBroadcast,
+which `animate exec` runs and prices the same way; a butterfly, a swap
+and an add or a subtract in one instruction such as NVIDIA's FSWZADD,
+is a fusion a model may declare, and none here is measured), and the
+segmented scan `sg_segscan(v,
 h)`, which restarts at the lanes where h holds (the heads): in lane l
 the sum of v over the lanes from the last head at or below l (lane 0
 when none is) to l, written `sg_scan(v) - sg_shuffle(sg_exclusive(v),
@@ -3474,7 +3482,8 @@ bitonic network: for k = 2, 4 ... W and then j = k/2 ... 1, a lane and
 lane xor j compare and exchange, the lane keeping the smaller when
 `(lane & j) == 0` and `(lane & k) == 0` agree; m(m + 1)/2 steps of a
 shuffle, a min and a max for W = 2^m (3 for 4 lanes, 15 for 32).
-GLSL's names are read as well (`subgroupBallot` ... `subgroupRotate`).
+GLSL's names are read as well (`subgroupBallot` ... `subgroupRotate`,
+`subgroupQuadSwapHorizontal` ...).
 Sums are of integers: the order of a float sum is the implementation's,
 so it has no exact value and is refused.
 

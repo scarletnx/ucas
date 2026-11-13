@@ -29,9 +29,11 @@
  * and, written with them: sg_exclusive(v) = sg_scan(v) - v,
  * sg_shuffle_xor(v, k) = sg_shuffle(v, lane xor k), sg_broadcast(v, i) =
  * sg_shuffle(v, i), sg_broadcast_first(v) = sg_shuffle(v, 0),
- * sg_rotate(v, d) = sg_shuffle(v, (lane + d) mod W), and sg_sort(v), in
- * lane l the l-th smallest of v over the lanes: the bitonic network
- * (sg_sorted).
+ * sg_rotate(v, d) = sg_shuffle(v, (lane + d) mod W), the quad's swaps
+ * sg_quad_swap_h(v), _v(v), _d(v) = sg_shuffle(v, lane xor 1, 2, 3) and
+ * sg_quad_broadcast(v, i) = sg_shuffle(v, (lane & ~3) | i) (i in 0..3),
+ * and sg_sort(v), in lane l the l-th smallest of v over the lanes: the
+ * bitonic network (sg_sorted).
  *
  * In an operand that is a value per lane, the lane's index is the bound
  * variable `lane` (slot SG_LANE_SLOT); everything else in it is shared by

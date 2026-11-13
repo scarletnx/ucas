@@ -484,10 +484,11 @@ static nid call_user(struct P *p, struct func *g, nid *args, int nargs);
  * lane) reads the lane it runs in.
  */
 enum { SGF_OP, SGF_EXCL, SGF_SHUFXOR, SGF_BCAST, SGF_BCAST1, SGF_ROT,
-	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV };
+	SGF_SEG, SGF_SORT, SGF_ACTIVE, SGF_DERIV, SGF_QUAD, SGF_QBCAST };
 static const struct sgfn {
 	const char *name, *glsl;
 	int kind, op, arity;
+	int k;		/* a quad swap: the lane bits it flips */
 } sgfns[] = {
 	{"sg_ballot", "subgroupBallot", SGF_OP, O_SGBALLOT, 1},
 	{"sg_any", "subgroupAny", SGF_OP, O_SGANY, 1},
@@ -506,7 +507,13 @@ static const struct sgfn {
 	{"sg_dfdx", "dFdxFine", SGF_DERIV, O_SGDDX, 1},
 	{"sg_dfdy", "dFdyFine", SGF_DERIV, O_SGDDY, 1},
 	{"sg_fwidth", "fwidthFine", SGF_DERIV, O_SGFWIDTH, 1},
-	{NULL, NULL, 0, 0, 0}
+	/* a quad is 4 lanes, bit 0 its column and bit 1 its row */
+	{"sg_quad_swap_h", "subgroupQuadSwapHorizontal", SGF_QUAD, O_SGSHUF, 1,
+	    1},
+	{"sg_quad_swap_v", "subgroupQuadSwapVertical", SGF_QUAD, O_SGSHUF, 1, 2},
+	{"sg_quad_swap_d", "subgroupQuadSwapDiagonal", SGF_QUAD, O_SGSHUF, 1, 3},
+	{"sg_quad_broadcast", "subgroupQuadBroadcast", SGF_QBCAST, O_SGSHUF, 2},
+	{NULL, NULL, 0, 0, 0, 0}
 };
 
 static const struct sgfn *
@@ -591,6 +598,17 @@ sg_active_decl(struct P *p, nid m, int W)
 	    (int64_t)((1ULL << W) - 1)));
 }
 
+/* the lane of here's quad that subgroupQuadBroadcast reads: (here & ~3)
+ * | i, i in 0..3 */
+static nid
+sg_quad_lane(nid here, nid i)
+{
+	ty_t u = TY(K_UINT, 32);
+
+	return mk_bin(O_OR, mk_bin(O_AND, mk_cast(u, here), mk_const_i(u,
+	    ~3u)), mk_cast(u, i));
+}
+
 /* a shuffle under sg_active: undefined when the lane it reads is not
  * active */
 static nid
@@ -607,6 +625,12 @@ sg_masked_shuffle(struct P *p, const struct sgfn *g, nid v, nid *args,
 	case SGF_BCAST1:
 		i = mk_const_i(u, 0);
 		break;
+	case SGF_QUAD:
+		i = mk_bin(O_XOR, mk_cast(u, here), mk_const_i(u, g->k));
+		break;
+	case SGF_QBCAST:
+		i = sg_quad_lane(here, args[1]);
+		break;
 	case SGF_ROT:
 		i = mk_bin(O_MOD, mk_bin(O_ADD, mk_cast(u, here), mk_cast(u,
 		    args[1])), mk_const_i(u, W));
@@ -615,8 +639,11 @@ sg_masked_shuffle(struct P *p, const struct sgfn *g, nid v, nid *args,
 		i = args[1];
 	}
 	v = mk_sg(O_SGSHUF, v, i, w);
-	return mk_sel(sg_active_bit(p->sgmask, mk_cast(u, i)), v,
+	v = mk_sel(sg_active_bit(p->sgmask, mk_cast(u, i)), v,
 	    mk_undef(N.ty[v]));
+	/* past the quad: undefined */
+	return g->kind == SGF_QBCAST && !is_const(args[1]) ? mk_sel(mk_bin(O_LT,
+	    mk_cast(u, args[1]), mk_const_i(u, 4)), v, mk_undef(N.ty[v])) : v;
 }
 
 static nid
@@ -702,9 +729,17 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	if (g->kind == SGF_ACTIVE)
 		return sg_active_decl(p, args[0], W);
 	if (!here && (g->op == O_SGSCAN || g->kind == SGF_SHUFXOR ||
-	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV))
+	    g->kind == SGF_ROT || g->kind == SGF_SORT || g->kind == SGF_DERIV ||
+	    g->kind == SGF_QUAD || g->kind == SGF_QBCAST))
 		fail("%s is a value per lane: give the function a parameter "
 		    "lane: u32 in 0..%d", g->name, W - 1);
+	if ((g->kind == SGF_QUAD || g->kind == SGF_QBCAST) && W % 4)
+		fail("%s reads quads of 4 lanes: a subgroup of %d lanes has none",
+		    g->name, W);
+	if (g->kind == SGF_QBCAST && is_const(args[1]) && (N.ki[args[1]] < 0 ||
+	    N.ki[args[1]] > 3))
+		fail("%s: the lane it reads is one of its quad, 0 to 3, not %lld",
+		    g->name, (long long)N.ki[args[1]]);
 	p->sgops++;
 	if (p->sgmask) {
 		/* the inactive lanes: no bit in a ballot, nothing to a vote, a
@@ -765,6 +800,15 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		return mk_sg(O_SGSHUF, v, args[1], w);
 	case SGF_BCAST1:
 		return mk_sg(O_SGSHUF, v, mk_const_i(TY_LIT, 0), w);
+	case SGF_QUAD:
+		return mk_sg(O_SGSHUF, v, mk_bin(O_XOR, mk_cast(TY(K_UINT, 32),
+		    here), mk_const_i(TY(K_UINT, 32), g->k)), w);
+	case SGF_QBCAST:
+		/* undefined when the lane it reads is past the quad */
+		v = mk_sg(O_SGSHUF, v, sg_quad_lane(here, args[1]), w);
+		return is_const(args[1]) ? v : mk_sel(mk_bin(O_LT,
+		    mk_cast(TY(K_UINT, 32), args[1]), mk_const_i(TY(K_UINT, 32), 4)),
+		    v, mk_undef(N.ty[v]));
 	case SGF_ROT:
 		return mk_sg(O_SGSHUF, v, mk_bin(O_MOD, mk_bin(O_ADD,
 		    mk_cast(TY(K_UINT, 32), here), mk_cast(TY(K_UINT, 32),
