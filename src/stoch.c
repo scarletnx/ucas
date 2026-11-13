@@ -365,6 +365,366 @@ pit_check(const struct func *f, nid a, nid b, int trials, uint64_t seed,
 	return 1;
 }
 
+/* ---- polynomial identities mod 2^w, by expansion ---- */
+
+/*
+ * Two expressions of a sized integer type of w bits are expanded as
+ * polynomials mod 2^w in the parameters and in what is not a ring
+ * operation of a type at least w bits wide (y / 8, x & 255, a narrower
+ * value widened), each such subterm taken whole as one more unknown, so
+ * that what holds for every value of the unknowns holds for the values
+ * they take.  The difference is read in falling factorials, x^(j) =
+ * x (x - 1) ... (x - j + 1) = j! C(x, j): a term c x1^(j1) ... xn^(jn)
+ * is c j1! ... jn! times integers, so it is 0 at every point when 2^w
+ * divides c j1! ... jn! (x^2 + x is even: 2^1 divides 2!).  A
+ * difference that is 0 as a polynomial is the case where every c is.
+ * The unknowns must be defined at every input (a division by a nonzero
+ * constant, a shift by a constant below the width), so that the second
+ * is defined wherever the first is.
+ */
+#define PI_MAXV 16		/* unknowns */
+#define PI_MAXT 4096		/* terms */
+#define PI_MAXE 63		/* one unknown's degree */
+
+struct pmono {
+	uint64_t c;
+	uint8_t e[PI_MAXV];
+};
+
+struct ppoly {
+	struct pmono *m;
+	int n;
+};
+
+static struct {
+	nid atom[PI_MAXV];
+	int na, w, fail;
+	uint64_t mask;
+} PI;
+
+static int
+pmono_cmp(const void *a, const void *b)
+{
+	return memcmp(((const struct pmono *)a)->e, ((const struct pmono *)b)->e,
+	    PI_MAXV);
+}
+
+/* sorted, equal monomials merged, zero coefficients dropped */
+static void
+ppoly_norm(struct ppoly *p)
+{
+	int i, n = 0;
+
+	if (p->n > 1)
+		qsort(p->m, (size_t)p->n, sizeof *p->m, pmono_cmp);
+	for (i = 0; i < p->n; i++)
+		if (n && !memcmp(p->m[n - 1].e, p->m[i].e, PI_MAXV))
+			p->m[n - 1].c = (p->m[n - 1].c + p->m[i].c) & PI.mask;
+		else
+			p->m[n++] = p->m[i];
+	p->n = 0;
+	for (i = 0; i < n; i++)
+		if (p->m[i].c & PI.mask)
+			p->m[p->n++] = p->m[i];
+	if (p->n > PI_MAXT)
+		PI.fail = 1;
+}
+
+static void
+ppoly_const(struct ppoly *p, uint64_t c)
+{
+	p->m = xcalloc(1, sizeof *p->m);
+	p->n = (c & PI.mask) != 0;
+	p->m[0].c = c & PI.mask;
+}
+
+/* p += s q */
+static void
+ppoly_addto(struct ppoly *p, const struct ppoly *q, uint64_t s)
+{
+	int i;
+
+	p->m = xrealloc(p->m, (size_t)(p->n + q->n + 1) * sizeof *p->m);
+	for (i = 0; i < q->n; i++) {
+		p->m[p->n] = q->m[i];
+		p->m[p->n++].c = q->m[i].c * s & PI.mask;
+	}
+	ppoly_norm(p);
+}
+
+static void
+ppoly_mul(struct ppoly *r, const struct ppoly *a, const struct ppoly *b)
+{
+	int i, j, k;
+
+	r->n = 0;
+	if ((int64_t)a->n * b->n > (1 << 20)) {
+		PI.fail = 1;
+		ppoly_const(r, 0);
+		return;
+	}
+	r->m = xcalloc((size_t)a->n * (size_t)b->n + 1, sizeof *r->m);
+	for (i = 0; i < a->n; i++)
+		for (j = 0; j < b->n; j++) {
+			struct pmono *t = &r->m[r->n++];
+			t->c = a->m[i].c * b->m[j].c & PI.mask;
+			for (k = 0; k < PI_MAXV; k++) {
+				int e = a->m[i].e[k] + b->m[j].e[k];
+				if (e > PI_MAXE)
+					PI.fail = 1;
+				t->e[k] = (uint8_t)(e > PI_MAXE ? PI_MAXE : e);
+			}
+		}
+	ppoly_norm(r);
+}
+
+/* e is defined at every input of a sized integer type */
+static int
+pi_total(nid e, int depth)
+{
+	ty_t t = N.ty[e];
+	int64_t k;
+
+	if (depth > 200 || !TY_SIZED(t))
+		return 0;
+	switch (N.op[e]) {
+	case O_CONST: case O_VAR:
+		return 1;
+	case O_NEG: case O_NOT: case O_LNOT: case O_CAST:
+		return pi_total(N.a[e], depth + 1);
+	case O_ADD: case O_SUB: case O_MUL: case O_AND: case O_OR: case O_XOR:
+	case O_MIN: case O_MAX: case O_EQ: case O_NE: case O_LT: case O_LE:
+	case O_GT: case O_GE: case O_LAND: case O_LOR:
+		return pi_total(N.a[e], depth + 1) && pi_total(N.b[e], depth + 1);
+	case O_DIV: case O_MOD:
+		if (!is_const(N.b[e]))
+			return 0;
+		k = N.ki[N.b[e]];
+		return (TYW(t) >= 64 ? k : k & (int64_t)((1ULL << TYW(t)) - 1)) !=
+		    0 && pi_total(N.a[e], depth + 1);
+	case O_SHL: case O_SHR:
+		return is_const(N.b[e]) && N.ki[N.b[e]] >= 0 &&
+		    N.ki[N.b[e]] < TYW(t) && pi_total(N.a[e], depth + 1);
+	case O_SEL:
+		return pi_total(N.a[e], depth + 1) &&
+		    pi_total(N.b[e], depth + 1) && pi_total(N.c[e], depth + 1);
+	}
+	return 0;
+}
+
+static void
+pi_expand(nid e, struct ppoly *p, int depth)
+{
+	ty_t t = N.ty[e], ta;
+	struct ppoly a, b;
+	int i;
+
+	if (PI.fail || depth > 400) {
+		PI.fail = 1;
+		ppoly_const(p, 0);
+		return;
+	}
+	if (TY_SIZED(t) && t != TY_BOOL && TYW(t) >= PI.w)
+		switch (N.op[e]) {
+		case O_CONST:
+			ppoly_const(p, (uint64_t)N.ki[e]);
+			return;
+		case O_NEG:
+			pi_expand(N.a[e], &a, depth + 1);
+			ppoly_const(p, 0);
+			ppoly_addto(p, &a, PI.mask);
+			free(a.m);
+			return;
+		case O_ADD: case O_SUB:
+			pi_expand(N.a[e], p, depth + 1);
+			pi_expand(N.b[e], &b, depth + 1);
+			ppoly_addto(p, &b, N.op[e] == O_ADD ? 1 : PI.mask);
+			free(b.m);
+			return;
+		case O_MUL:
+			pi_expand(N.a[e], &a, depth + 1);
+			pi_expand(N.b[e], &b, depth + 1);
+			ppoly_mul(p, &a, &b);
+			free(a.m);
+			free(b.m);
+			return;
+		case O_SHL:
+			if (!is_const(N.b[e]) || N.ki[N.b[e]] < 0 ||
+			    N.ki[N.b[e]] >= TYW(t))
+				break;
+			pi_expand(N.a[e], &a, depth + 1);
+			ppoly_const(&b, N.ki[N.b[e]] >= 64 ? 0 :
+			    (uint64_t)1 << N.ki[N.b[e]]);
+			ppoly_mul(p, &a, &b);
+			free(a.m);
+			free(b.m);
+			return;
+		case O_CAST:
+			ta = N.ty[N.a[e]];
+			if (!TY_SIZED(ta) || ta == TY_BOOL || TYW(ta) < PI.w)
+				break;
+			pi_expand(N.a[e], p, depth + 1);
+			return;
+		}
+	/* an unknown */
+	if (!pi_total(e, 0)) {
+		PI.fail = 1;
+		ppoly_const(p, 0);
+		return;
+	}
+	for (i = 0; i < PI.na && PI.atom[i] != e; i++)
+		;
+	if (i == PI.na) {
+		if (PI.na == PI_MAXV) {
+			PI.fail = 1;
+			ppoly_const(p, 0);
+			return;
+		}
+		PI.atom[PI.na++] = e;
+	}
+	ppoly_const(p, 1);
+	p->m[0].e[i] = 1;
+}
+
+static int
+ppoly_deg(const struct ppoly *p)
+{
+	int i, k, d = 0;
+
+	for (i = 0; i < p->n; i++) {
+		int s = 0;
+		for (k = 0; k < PI_MAXV; k++)
+			s += p->m[i].e[k];
+		if (s > d)
+			d = s;
+	}
+	return d;
+}
+
+/* the difference d, in falling factorials, is 0 at every point mod 2^w */
+static int
+ff_zero(const struct ppoly *d)
+{
+	static uint64_t S[PI_MAXE + 1][PI_MAXE + 1], fact[PI_MAXE + 1];
+	struct ppoly ff = {0};
+	int i, k, j, ok = 1;
+
+	if (!fact[0]) {
+		/* Stirling numbers of the second kind, x^k = sum S(k, j)
+		 * x^(j); everything mod 2^64, which 2^w divides */
+		S[0][0] = 1;
+		for (k = 1; k <= PI_MAXE; k++)
+			for (j = 1; j <= k; j++)
+				S[k][j] = (uint64_t)j * S[k - 1][j] + S[k - 1][j - 1];
+		fact[0] = 1;
+		for (j = 1; j <= PI_MAXE; j++)
+			fact[j] = fact[j - 1] * (uint64_t)j;
+	}
+	for (i = 0; i < d->n && !PI.fail; i++) {
+		const struct pmono *m = &d->m[i];
+		int jv[PI_MAXV];
+		for (k = 0; k < PI_MAXV; k++)
+			jv[k] = m->e[k] ? 1 : 0;
+		for (;;) {
+			struct pmono t;
+			t.c = m->c;
+			for (k = 0; k < PI_MAXV; k++) {
+				t.e[k] = (uint8_t)jv[k];
+				t.c *= S[m->e[k]][jv[k]];
+			}
+			t.c &= PI.mask;
+			if (t.c) {
+				if (ff.n % 256 == 0)
+					ff.m = xrealloc(ff.m, (size_t)(ff.n + 256) *
+					    sizeof *ff.m);
+				ff.m[ff.n++] = t;
+				if (ff.n > 64 * PI_MAXT)
+					PI.fail = 1;
+			}
+			/* the next j vector, 1 <= j_k <= e_k */
+			for (k = 0; k < PI_MAXV; k++) {
+				if (!m->e[k])
+					continue;
+				if (jv[k] < m->e[k]) {
+					jv[k]++;
+					break;
+				}
+				jv[k] = 1;
+			}
+			if (k == PI_MAXV || PI.fail)
+				break;
+		}
+	}
+	if (!PI.fail)
+		ppoly_norm(&ff);
+	for (i = 0; i < ff.n && ok && !PI.fail; i++) {
+		uint64_t c = ff.m[i].c;
+		for (k = 0; k < PI_MAXV; k++)
+			c *= fact[ff.m[i].e[k]];
+		ok = (c & PI.mask) == 0;
+	}
+	free(ff.m);
+	return ok && !PI.fail;
+}
+
+int
+poly_identity(nid a, nid b, int *deg, struct sbuf *how)
+{
+	ty_t t = N.ty[a];
+	struct ppoly pa, pb;
+	int i, k, d, r = 0, nat = 0;
+
+	*deg = 0;
+	if (!TY_SIZED(t) || t == TY_BOOL)
+		return 0;
+	memset(&PI, 0, sizeof PI);
+	PI.w = TYW(t);
+	PI.mask = PI.w >= 64 ? ~0ULL : (1ULL << PI.w) - 1;
+	pi_expand(a, &pa, 0);
+	pi_expand(N.ty[b] == t ? b : mk_cast(t, b), &pb, 0);
+	if (PI.fail) {
+		free(pa.m);
+		free(pb.m);
+		return 0;
+	}
+	*deg = ppoly_deg(&pa);
+	if ((d = ppoly_deg(&pb)) > *deg)
+		*deg = d;
+	ppoly_addto(&pa, &pb, PI.mask);
+	if (!PI.fail && (pa.n == 0 || ff_zero(&pa))) {
+		struct sbuf v = {0};
+		for (i = 0; i < PI.na; i++)
+			if (N.op[PI.atom[i]] != O_VAR)
+				nat++;
+		for (i = k = 0; i < PI.na; i++)
+			if (N.op[PI.atom[i]] == O_VAR)
+				sb_printf(&v, "%s%s", k++ ? ", " : "",
+				    node_str(PI.atom[i]));
+		for (i = 0; i < PI.na; i++)
+			if (N.op[PI.atom[i]] != O_VAR)
+				sb_printf(&v, "%s%s", k++ ? ", " : "",
+				    shared_str(PI.atom[i], 60));
+		if (pa.n == 0)
+			sb_printf(how, "proved by algebra: both sides expand to one "
+			    "polynomial in %s mod 2^%d", k ? sb_str(&v) : "no "
+			    "unknown", PI.w);
+		else
+			sb_printf(how, "proved by algebra: the two sides differ by a "
+			    "polynomial in %s that is 0 at every point mod 2^%d, "
+			    "each coefficient in falling factorials times its "
+			    "factorials being a multiple of 2^%d", sb_str(&v), PI.w,
+			    PI.w);
+		if (nat)
+			sb_printf(how, "; %s taken whole as unknown%s", nat == 1 ?
+			    "one subterm" : "the subterms", nat == 1 ? "" : "s");
+		free(v.p);
+		r = 1;
+	}
+	free(pa.m);
+	free(pb.m);
+	return r;
+}
+
 static void
 cmd_pit(struct func *f, struct func *g, int trials, uint64_t seed)
 {
@@ -2273,7 +2633,9 @@ st_verify(nid e, char *how, size_t n, uint64_t seed)
 	double bound;
 	int bad, r;
 
+	equiv_algebra = 1;
 	bad = equiv_decide(ST.f, ST.f->body, e, &w, &pr);
+	equiv_algebra = 0;
 	if (bad) {
 		/* the witness names the point: "x=3, y=5" */
 		int64_t in[MAXP] = {0};
@@ -2300,6 +2662,10 @@ st_verify(nid e, char *how, size_t n, uint64_t seed)
 	}
 	if (pr.how == EQ_SAT) {
 		snprintf(how, n, "proved by SAT");
+		return 2;
+	}
+	if (pr.how == EQ_ALGEBRA) {
+		snprintf(how, n, "proved by algebra");
 		return 2;
 	}
 	r = pit_check(ST.f, ST.f->body, e, 4, seed, &bound, &t);

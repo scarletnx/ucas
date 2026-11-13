@@ -155,7 +155,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `crit F` | real: derivative, roots (bisection), min/max/inflection, kinks; integer: the piecewise-affine segments and local extrema; several reals: the gradient |
 | `integrate F [wrt x] [from a to b]` | quotients are cancelled first (x/x, (x^2-1)/(x-1), x^2/x^3), and the answer says where that holds (x != 0); removable points do not affect a definite integral.  A constant integrand names no variable: asked (terminal, bot) or x with a note; `wrt t` picks one.  A unary function's name alone means f(x): `integrate W0` |
 | `diff F [x]` | symbolic derivative, or the forward difference for an integer parameter; higher, partial and mixed derivatives, gradient, limits, series: see "Derivatives, limits and series" |
-| `equiv F G` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" |
+| `equiv F G` | equal on F's domain? (with a counterexample).  G must be defined and equal wherever F is defined (points where F is undefined are outside its domain).  Enumerated when the domain is small enough; otherwise sampled, then, on machine integers, two polynomials of degree 2 or more expanded mod 2^w ("proved by algebra: ..."; JSON method `algebra`, proof kind `derivation`), else bit-blasted and proved by SAT ("proved by SAT: N AIG nodes, M conflicts"; JSON proof kind `sat`), or a counterexample found by SAT and re-checked by the evaluator; when the solver runs out of its budget (100000 conflicts or 2 s) the answer stays "sampled, not proved" and says why.  See "Proofs on machine integers" |
 | `monotonic F [x] [in a..b]` | increasing/decreasing (strictly or not), constant, or the maximal intervals of monotonicity with a witness pair x1 < x2; polynomials proved by the real roots of f', integer types exhaustively (and whether wrapping is what breaks it) |
 | `period F [x]`, `periodic F [x]` | the fundamental period: trigonometric subterms with linear arguments (2π/\|k\|, π/\|k\| for tan), `x % m`, `x & m`, combined by their lcm (proved), then the smaller fractions p/k (k <= 64) checked numerically; incommensurate periods (sin x + sin(√2 x)) are almost periodic, not periodic; integer domains searched exhaustively; otherwise a numeric search (not proved) |
 | `identify EXPR`, `identify LHS = RHS`, `identify F` | classify and list properties, each tagged proved/exhaustive/numeric: polynomials (degree, factors, roots), rational functions (poles, asymptotes), algebraic/transcendental/piecewise; equations in one variable (solutions), conics by B²-4AC and the 3x3 determinant (circle, ellipse, parabola, hyperbola, degenerate), lines, implicit curves; ODEs (`y'' + y = 0`, or `identify y` after `y' = ...`): order, linear, homogeneous, constant coefficients with the characteristic roots and solution basis, autonomous, separable, exact, Riccati |
@@ -223,6 +223,28 @@ unrolled (up to 256 iterations).  Not bit-blasted: floats and reals,
 `int` multiplication, `isqrt`, while loops; those stay sampled.
 Multipliers are hard for SAT (x*y against y*x gives up), so the budget
 is 100000 conflicts or 2 s of CPU.
+
+So before SAT, `equiv` expands both sides when they are polynomials of
+degree 2 or more (src/stoch.c `poly_identity`): sums, differences,
+negations, products and shifts by a constant below the width, in types
+at least as wide as the result's w bits; anything else (`x / 8`, `x &
+255`, a narrower value widened) is taken whole as one more unknown,
+when it is defined at every input (no division by a variable, no shift
+by one), so that the second is defined wherever the first is.  What
+holds for every value of the unknowns holds for the values they take.
+The difference of the two, mod 2^w, is 0 as a polynomial, or 0 at every
+point: written in falling factorials x^(j) = x (x - 1) ... (x - j + 1) =
+j! C(x, j), a term c x1^(j1) ... xn^(jn) vanishes everywhere when 2^w
+divides c j1! ... jn! (2^31 (x^2 + x) is 0 for every u32, x^2 + x
+being x^(2) + 2 x^(1)).  Up to 16 unknowns, 4096 terms and degree 63
+in one of them; past those, SAT as before (tests/equivalg.ucas):
+
+```
+> f(y: u8, t: u8, w: u8, x: u8) = y*t*w + x*t
+> g(y: u8, t: u8, w: u8, x: u8) = (y*w + x)*t
+> equiv f g
+f and g are equal on the domain of f (proved by algebra: both sides expand to one polynomial in y, t, w, x mod 2^8)
+```
 
 ## Symbolic algebra
 
@@ -1325,7 +1347,7 @@ What the results hold beyond the common fields:
   `dot_products` (`from`, `to`, `line`, `cost_before`, `cost_after`,
   `relies_on`, `proof`), and their `rewrites` entries have proof `dot`.
 - **Analysis** (stress test 1): `equiv` has `method` (`exhaustive`,
-  `sat`, `sat_counterexample`, `sampled`), `sat` (`result`, `aig_nodes`,
+  `sat`, `algebra`, `sat_counterexample`, `sampled`), `sat` (`result`, `aig_nodes`,
   `conflicts`, `why`) and `narrowed` (the where clause's bounds); `find`
   has `dot_products` (`model`, `available`; when there is one,
   `cost_before`, `cost`, `expr`, `relies_on`, `proof`: `exhaustive`,
@@ -3760,9 +3782,10 @@ fusions steer the chain.  Prices are cached by the live instructions.  `restarts
 (4) chains of `steps` (200000) proposals run: the first starts from F
 itself when F is straight-line in those operations (optimisation), the
 others from random programs (synthesis).  A program at distance 0 is a
-candidate: it is checked on the whole domain (enumerated, or by SAT;
-for polynomials SAT gives up on, by identity testing, printed as
-"probably"), and a counterexample joins the tests.  The chain's own
+candidate: it is checked on the whole domain (enumerated, by expanding
+two polynomials of degree 2 or more as `equiv` does, or by SAT; for
+those left, by identity testing, printed as "probably"), and a
+counterexample joins the tests.  The chain's own
 price is the sum of its instructions' classes; what it finds is priced
 by the model's cover with its fusions, as `cost` does, and listed
 cheapest first, the fewer operations first at one price.
@@ -3798,12 +3821,16 @@ in a wrapping type, reduction mod 2^w being a ring homomorphism.  The
 converse fails: 128 x (x + 1) is not the zero polynomial and is 0 for
 every u8, so "they differ over the integers" (which is certain) is not a
 verdict on machine functions; pit then compares those on the domain and
-says what it saw.  `equiv` adds the test's line when enumeration and SAT
-leave it at "sampled, not proved" (a multiplier against a multiplier):
+says what it saw.  `equiv` adds the test's line when enumeration,
+expansion and SAT leave it at "sampled, not proved" (`int` products,
+which overflow instead of wrapping, so neither the expansion mod 2^w nor
+SAT takes them):
 
 ```
+> pa(x: int, y: int) = (x + y)*(x - y)
+> pb(x: int, y: int) = x*x - y*y
 > equiv pa pb
-pa and pb are equal on the domain of pa (sampled, not proved; SAT gave up on 19200 AIG nodes ...)
+pa and pb are equal on the domain of pa (sampled, not proved; no SAT proof: int multiplication (overflow))
   polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
 ```
 
