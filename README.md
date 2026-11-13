@@ -5164,10 +5164,10 @@ unpriced form is not offered.
 ```
 simplify advice
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
-  once a draw: 5 instructions that read only constants, uniform blocks and push constants cost 45.5 every run (18 of arithmetic, 4 loads at 6.875)
-    computed once a draw and passed in as 2 values (push constants or a uniform block: 2 loads, 13.75), that saves 31.75 every run
+  once a draw: 5 instructions that read only constants, uniform blocks and push constants cost 52.5 every run (25 of arithmetic, 4 loads at 6.875)
+    computed once a draw and passed in as 2 values (push constants or a uniform block: 2 loads, 13.75), that saves 38.75 every run
     ...; 3 of them (divisions, square roots, transcendentals) are only within Vulkan's precision in the shader ...
-    %27 = OpVectorTimesScalar %v3float %21 %26   (19.75)
+    %27 = OpVectorTimesScalar %v3float %21 %26   (26.75)
         (line 9: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 10: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)

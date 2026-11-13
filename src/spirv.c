@@ -8345,8 +8345,10 @@ float_under(int v, int depth)
 	if (v < 0 || SP.def[v] < 0 || depth > 8)
 		return 0;
 	I = &V.in[SP.def[v]];
-	if (fprice_ins(I->op, !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
-	    I->opnd[2] : NULL, V.id[v].type) > 0)
+	/* (a conversion is priced, but it is not arithmetic to simplify) */
+	if (strncmp(I->op, "OpConvert", 9) && fprice_ins(I->op,
+	    !strcmp(I->op, "OpExtInst") && I->nop >= 3 ? I->opnd[2] : NULL,
+	    V.id[v].type) > 0)
 		return 1;
 	if (strcmp(I->op, "OpCompositeConstruct") && strcmp(I->op,
 	    "OpVectorShuffle") && strcmp(I->op, "OpCompositeExtract") &&
@@ -8732,6 +8734,75 @@ fx_same(const struct fxg *a, const struct fxg *b)
 	return 1;
 }
 
+/*
+ * GLSL.std.450's other float instructions, per component of an n-wide
+ * result, as model.c prices the operations each computes (floor, ceil
+ * and roundeven by node_cost, the rest as the sum of their operations'
+ * classes); -1: not one of them
+ */
+static double
+fprice_std(const char *ext, int n)
+{
+	static const struct { const char *ext; int op; } one[] = {
+		{"Floor", O_FLOOR}, {"Ceil", O_CEIL}, {"Trunc", O_FLOOR},
+		{"Round", O_ROUNDEVEN}, {"RoundEven", O_ROUNDEVEN}, {NULL, 0}};
+	const struct model *m = model_active();
+	const float *c = m->c;
+	nid x = mk_var(0, sym_cstr("x"), TY_F32);
+	int i, cls;
+
+	for (i = 0; one[i].ext; i++)
+		if (!strcmp(ext, one[i].ext))
+			return node_cost(m, mk_un(one[i].op, x), &cls);
+	/*
+	 * A model without ldexp's or frexp's instruction gets them lowered
+	 * as GLSL lets a driver (Mesa's nir_opt_algebraic and
+	 * nir_lower_frexp): ldexp clamps k to +-254 and multiplies by 2^(k
+	 * >> 1) and 2^(k - (k >> 1)), each built as an exponent field;
+	 * frexp's mantissa is the bits' sign and mantissa under the exponent
+	 * of [0.5, 1) where x is finite and not 0, its exponent |x|'s field
+	 * less 126 where x is not 0
+	 */
+	if (!strcmp(ext, "Ldexp"))
+		return cclass_available(m, C_LDEXP) ? c[C_LDEXP] :
+		    2 * c[C_MINMAX] + 3 * c[C_SHIFT] + 3 * c[C_IADD] +
+		    2 * c[C_FMUL];
+	if (!strcmp(ext, "Frexp"))
+		return cclass_available(m, C_FREXP) ? 2 * c[C_FREXP] :
+		    c[C_MINMAX] + 3 * c[C_CMP] + 3 * c[C_LOGIC] +
+		    2 * c[C_SELECT] + c[C_SHIFT] + c[C_IADD];
+	/* x - floor(x); Modf's x - trunc(x) */
+	if (!strcmp(ext, "Fract") || !strcmp(ext, "Modf"))
+		return node_cost(m, mk_un(O_FLOOR, x), &cls) + c[C_FADD];
+	if (!strcmp(ext, "FClamp") || !strcmp(ext, "NClamp"))
+		return 2 * c[C_MINMAX];
+	if (!strcmp(ext, "Radians") || !strcmp(ext, "Degrees"))
+		return c[C_FMUL];
+	if (!strcmp(ext, "SmoothStep"))	/* two subtracts, a divide, the
+					 * clamp, t*t*(3 - 2t) */
+		return 2 * c[C_FADD] + c[C_FDIV] + 2 * c[C_MINMAX] +
+		    3 * c[C_FMUL];
+	if (n < 1)
+		n = 1;
+	/* the vector ones: their whole work, spread over the components */
+	if (!strcmp(ext, "Normalize"))	/* the dot, its inverse root, a
+					 * multiply each */
+		return (2 * n * c[C_FMUL] + fx_price(FX_ISQRT)) / n;
+	if (!strcmp(ext, "Cross"))	/* a multiply and an fma each */
+		return 2 * c[C_FMUL];
+	if (!strcmp(ext, "Reflect"))	/* the dot, 2 dot, an fma each */
+		return ((2 * n + 1) * c[C_FMUL]) / n;
+	if (!strcmp(ext, "Refract"))	/* the dot, k, its root and the
+					 * select, two products each */
+		return ((3 * n + 4) * c[C_FMUL] + 2 * c[C_FADD] + c[C_CMP] +
+		    c[C_FSQRT] + n * c[C_SELECT]) / n;
+	if (!strcmp(ext, "FaceForward"))	/* the dot, its sign, a negate
+						 * and a select each */
+		return (n * (c[C_FMUL] + c[C_FADD] + c[C_SELECT]) + c[C_CMP]) /
+		    n;
+	return -1;
+}
+
 /* per component cost of a SPIR-V instruction, as lowered (0: not float) */
 static double
 fprice_ins(const char *op, const char *ext, int rt)
@@ -8780,9 +8851,45 @@ fprice_ins(const char *op, const char *ext, int rt)
 				    mk_bin(O_ATAN2, x, x) : mk_un(lib[i].op, x), &cls);
 			}
 		if (p < 0 && is_float_t(rt))
+			p = fprice_std(ext, n);
+		if (p < 0 && is_float_t(rt))
 			p = c[C_MINMAX];
-	}
+	} else if (!strcmp(op, "OpConvertUToF") ||
+	    !strcmp(op, "OpConvertSToF") || !strcmp(op, "OpConvertFToU") ||
+	    !strcmp(op, "OpConvertFToS"))
+		p = c[C_CONV];	/* as model.c prices a cast to or from a float */
 	return p < 0 ? 0 : p * n;
+}
+
+/*
+ * The price of one instruction, where more than its result type says:
+ * a length or a distance of a vector is a scalar of n components' work,
+ * and frexp and modf return a struct
+ */
+static double
+fprice_i(const struct sins *I)
+{
+	const char *ext = !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
+	    I->opnd[2] : NULL;
+	int rt = idx(I->opnd[0]);
+	const float *c = model_active()->c;
+
+	if (ext && (!strcmp(ext, "Length") || !strcmp(ext, "Distance")) &&
+	    I->nop >= 4 && I->opnd[3][0] == '%' && is_float_t(rt)) {
+		int t = V.id[idx(I->opnd[3])].type, n = t >= 0 ? ncomp(t) : 1;
+		/* the squares and their sum (fmas), the root; a distance's
+		 * differences first */
+		return (ext[0] == 'D' ? n * c[C_FADD] : 0) + n * c[C_FMUL] +
+		    c[C_FSQRT];
+	}
+	/* frexp and modf as glslang writes them: a struct whose first
+	 * member is the float result */
+	if (ext && (!strcmp(ext, "FrexpStruct") || !strcmp(ext,
+	    "ModfStruct")) && rt >= 0 && V.id[rt].kind == K_TYPE &&
+	    T(rt)->k == S_STRUCT && T(rt)->nm >= 1)
+		return fprice_ins(I->op, ext[0] == 'F' ? "Frexp" : "Modf",
+		    T(rt)->m[0]);
+	return fprice_ins(I->op, ext, rt);
 }
 
 /* the float pure instructions dead code removal may take */
@@ -9348,11 +9455,9 @@ float_pass(const char *text, int *changed)
 	}
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
-		const char *ext = !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
-		    I->opnd[2] : NULL;
 		if (I->res >= 0 && SP.def[I->res] == k && I->nop >= 1 &&
 		    I->opnd[0][0] == '%')
-			before += fprice_ins(I->op, ext, idx(I->opnd[0]));
+			before += fprice_i(I);
 	}
 	/* the roots: stored and returned float values */
 	for (k = 0; k < V.nin && ngr < 60; k++) {
@@ -9913,8 +10018,7 @@ float_pass(const char *text, int *changed)
 			sb_printf(&out, "%s\n", I->text);
 			if (I->res >= 0 && SP.def[I->res] == k && I->nop >= 1 &&
 			    I->opnd[0][0] == '%')
-				after += fprice_ins(I->op, !strcmp(I->op, "OpExtInst") &&
-				    I->nop >= 3 ? I->opnd[2] : NULL, idx(I->opnd[0]));
+				after += fprice_i(I);
 		}
 	}
 	/* the report */
@@ -10447,7 +10551,7 @@ adv_price(const struct sins *I)
 	const char *ext = !strcmp(I->op, "OpExtInst") && I->nop >= 3 ?
 	    I->opnd[2] : NULL;
 	int rt = idx(I->opnd[0]), cls;
-	double mul = 1, c = fprice_ins(I->op, ext, rt);
+	double mul = 1, c = fprice_i(I);
 
 	if (c > 0)
 		return c;

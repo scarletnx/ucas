@@ -35,7 +35,7 @@ simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 4 -> 4 (+0.0%)
   nothing applied: no cheaper float form could be proved
 conversions between integers and f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %35 = OpConvertUToF %float %34
@@ -56,5 +56,5 @@ simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under conv1 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  float cost under conv1 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
   nothing applied: no cheaper float form could be proved
