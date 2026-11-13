@@ -1372,8 +1372,32 @@ meets(const struct dwreq *rq, int sink32, const struct dv *r,
 	case DW_ULP:
 		return sink32 && *extra <= (long double)rq->v;
 	}
+	/* an f64 result with no tolerance: the exact value only */
+	if (!sink32)
+		return r->e.rel == 0 || r->e.abs_ == 0;
 	/* a final f32: ten guard bits past its own rounding */
-	return sink32 && *extra <= 0x1p-10L;
+	return *extra <= 0x1p-10L;
+}
+
+static int f64_bits(const struct func *f, nid n, int depth);
+
+/*
+ * A pair recombined into an f64 result: hi + lo needs more than 53 bits
+ * when lo is far below hi (hi = 1, lo = 2^-40 (1 + 2^-23)), so the f64 add
+ * rounds, by u64 of the sum at most; not when the pair is the exact value
+ * and that fits in 53 bits
+ */
+static struct err
+recombined(const struct dv *r)
+{
+	struct err e = r->e;
+	long double mx = iv_mag(&r->iv);
+
+	if (!isinf(e.rel))
+		e.rel += U64 * (1 + e.rel);
+	if (!isinf(e.abs_))
+		e.abs_ += U64 * (mx + e.abs_);
+	return e;
 }
 
 static void
@@ -1389,6 +1413,9 @@ run_cand(const struct func *f, const struct model *m, const struct dwreq *rq,
 	for (guard = 0; guard < 64; guard++) {
 		lower_reset(f, mode, lim, acc);
 		c->r = lower(root);
+		if (!sink32 && c->r.lo && !((c->r.e.rel == 0 || c->r.e.abs_ == 0) &&
+		    f64_bits(f, root, 0) >= 0 && f64_bits(f, root, 0) <= 53))
+			c->r.e = recombined(&c->r);
 		c->meets = meets(rq, sink32, &c->r, &c->extra);
 		/* a sloppy add with cancellation: the accurate one */
 		if (c->meets || !L.nsloppy || !L.worst || L.worstk <= 1.001L)
@@ -2382,8 +2409,8 @@ dword_lower(const struct func *f, const struct model *m,
 				    "`ulp X`, `tol R` or `atol T` to change)\n");
 			else
 				sb_puts(o, "the result stays f64 and no tolerance "
-				    "was given: `tol R` or `atol T` says how much "
-				    "of it is needed\n");
+				    "was given: the exact value (`tol R` or `atol T` "
+				    "says how much error is allowed)\n");
 		}
 	}
 	if (best < 0) {
@@ -2448,9 +2475,9 @@ dword_lower(const struct func *f, const struct model *m,
 			    b->splitvar, b->splitvar == 1 ? " is" : "s are");
 		if (!sink32)
 			sb_puts(o, "     the result is recombined as f64(hi) + "
-			    "f64(lo) (exact); a consumer that takes the pair "
-			    "saves\n     that f64 addition: an interface "
-			    "change, not made here\n");
+			    "f64(lo), its rounding (u64 at most) in the bound; a "
+			    "consumer\n     that takes the pair saves that f64 "
+			    "addition: an interface change, not made here\n");
 		sb_puts(o, "  the form:\n");
 		listing(o, b);
 		sb_puts(o, "  each value: its range, the derived error bound, "

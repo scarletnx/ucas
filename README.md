@@ -2603,10 +2603,13 @@ dword dsq under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
 The requirement is what the result feeds: for `f32(...)` the default is
 ten guard bits (within 0.5 + 2^-10 ulp of the exact value), `ulp X`
 changes it, and a loose one is met by f32 alone (`dword dsq ulp 4`: cost
-2); `tol R` is a relative bound and `atol T` an absolute one, and an f64
-result needs one of them (the pair is then recombined as f64(hi) +
-f64(lo), or handed over as two f32: an interface change that is
-proposed, not made).
+2); `tol R` is a relative bound and `atol T` an absolute one.  An f64
+result without one of them takes only a form whose bound is 0 (the exact
+value: f32 products, whose pair 2Prod gives); with one, the pair is
+recombined as f64(hi) + f64(lo), an f64 add that rounds once when lo is
+far below hi (u64 of the sum, in the bound; none when the pair is the
+exact value and that fits in 53 bits), or handed over as two f32: an
+interface change that is proposed, not made.
 
 The algorithms are those of Joldes, Muller and Popescu, "Tight and
 rigorous error bounds for basic building blocks of double-word

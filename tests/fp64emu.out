@@ -263,19 +263,19 @@ dword hyp under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
 dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 167.875 error against the exact value <= 3.331e-16 (3 u64) relative
   f32 alone   cost 8       error <= 1.788e-07 (3 u) relative
-  f32 pairs   cost 64.375  error <= 6.395e-14 (18 u^2) relative
-  required: the result stays f64 and no tolerance was given: `tol R` or `atol T` says how much of it is needed
+  f32 pairs   cost 64.375  error <= 6.406e-14 (18.03 u^2) relative
+  required: the result stays f64 and no tolerance was given: the exact value (`tol R` or `atol T` says how much error is allowed)
   -> not rewritten: no f32 form's derived bound meets the requirement
-     the pairs would be taken for tol >= 6.39e-14
+     the pairs would be taken for tol >= 6.41e-14
 > dword acc tol 1e-12
 dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 167.875 error against the exact value <= 3.331e-16 (3 u64) relative
   f32 alone   cost 8       error <= 1.788e-07 (3 u) relative
-  f32 pairs   cost 64.375  error <= 6.395e-14 (18 u^2) relative
+  f32 pairs   cost 64.375  error <= 6.406e-14 (18.03 u^2) relative
   required: relative error <= 1e-12 (tol)
   -> f32 pairs: cost 64.375 against 167.875 (-61.7%), 27 f32 operations for 5
-     the result is recombined as f64(hi) + f64(lo) (exact); a consumer that takes the pair saves
-     that f64 addition: an interface change, not made here
+     the result is recombined as f64(hi) + f64(lo), its rounding (u64 at most) in the bound; a consumer
+     that takes the pair saves that f64 addition: an interface change, not made here
   the form:
     t1 = x * y                               !
     t2 = x + y                               !
@@ -330,14 +330,14 @@ dword acc under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
     no underflow: the 2 error-free products stay above 2^-102 (derived from the ranges)
     Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
   check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
-    (long double) 4.4 u^2 (the bound: 18); the f64 program's 0.98 u64
+    (long double) 4.4 u^2 (the bound: 18.03); the f64 program's 0.98 u64
   defined acc_dw: the form as a function (cost acc_dw, error acc_dw ~ acc)
 > one(x: f32 in 0.5..2, y: f32 in 0.5..2) = f64(x) * f64(y) + f64(x)
 > dword one tol 1e-12
 dword one under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
   as written  cost 38.375  error against the exact value <= 2.22e-16 (2 u64) relative
   f32 alone   cost 4       error <= 1.192e-07 (2 u) relative
-  f32 pairs   cost 50.375  error <= 7.105e-15 (2 u^2) relative
+  f32 pairs   cost 50.375  error <= 7.216e-15 (2.031 u^2) relative
   required: relative error <= 1e-12 (tol)
   -> not rewritten: the form that meets the requirement costs 50.375, the f64 operations 38.375 under gt1030
 > sc(t: f64 in 0.1..10, x: f32 in 1..2) = f32((t * f64(x) + 0.1) / (t + f64(x)))
