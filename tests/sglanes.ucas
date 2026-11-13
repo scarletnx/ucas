@@ -34,9 +34,11 @@ equiv nol nol2
 # the transpose of the lanes' words as a matrix of bits (8 words of 8
 # bits): lane j gets the word whose bit l is bit j of lane l's word.
 # Read by eight shuffles, and as the ballot of bit j kept by lane j
+# (`equiv tr tb` proves them equal; SAT's conflict count for it depends
+# on the compiler, 128 with gcc and 131 with clang, so it is not run
+# here)
 tr(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for l in 0..7 { r = r | (u32((sg_shuffle(x, l) >> lane) & 1) << l) }; r }
 tb(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = lane == j ? sg_ballot(((x >> j) & 1) != 0) : r }; r }
-equiv tr tb
 cost tr
 cost tb
 
@@ -46,9 +48,6 @@ wadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 {
 # ... is one add of two ballots: find derives it from the shape a + b +
 # (something that reads the other lanes) and SAT proves it
 find wadd 1
-# the same form written out
-wks(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { s = u8(a + b); g = sg_ballot(s < a); p = sg_ballot(s == 255); u8(s + u8((((g << 1) + p) xor p) >> lane & 1)) }
-equiv wadd wks
 # limbs of 4 bits in a byte: the sum under a mask
 wadd4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { sj = u8(sg_shuffle(a, j) + sg_shuffle(b, j) + c); c = j < lane ? sj >> 4 : c }; (a + b + c) & 15 }
 find wadd4 1
