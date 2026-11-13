@@ -2469,6 +2469,19 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 		fuse_domain(NULL);
 		return;
 	}
+	if (N.fl[f->body] & NF_LANES) {
+		/* a word in each lane: no points to search, and what is
+		 * derived is proved by SAT over the lanes' words */
+		printf("find %s: a value in each lane (lanes), so there are no "
+		    "points to search; forms derived and proved by SAT, costs "
+		    "from %s\n", f->anon ? node_str(f->body) : sym_str(f->name),
+		    sym_str(model_active()->name));
+		rep_begin("find");
+		rep_str("model", sym_str(model_active()->name));
+		sg_find(f);
+		fuse_domain(NULL);
+		return;
+	}
 	find_setup(f);
 	fuse_domain(&F.f);
 	F.active = 1;

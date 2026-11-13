@@ -1,7 +1,7 @@
 # A parameter with its own value in each lane, `x: u32 lanes` (src/sg.c):
 # W free words, one per lane.  In the lane itself x is the lane's word; a
 # subgroup operation reads every lane's.  There is no one point to
-# evaluate, so equiv decides by SAT over the lanes' words.
+# evaluate, so equiv and find decide by SAT over the lanes' words.
 model w8 : gt1030 { warp: 8 }
 use w8
 
@@ -39,3 +39,30 @@ tb(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = lane == j
 equiv tr tb
 cost tr
 cost tb
+
+# a sum of two 64-bit numbers, a byte in each of 8 lanes, the carry
+# worked out lane by lane from the lanes below ...
+wadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { aj = sg_shuffle(a, j); sj = u8(aj + sg_shuffle(b, j) + c); c = j < lane ? (sj < aj || (c != 0 && sj == aj) ? 1 : 0) : c }; u8(a + b + c) }
+# ... is one add of two ballots: find derives it from the shape a + b +
+# (something that reads the other lanes) and SAT proves it
+find wadd 1
+# the same form written out
+wks(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { s = u8(a + b); g = sg_ballot(s < a); p = sg_ballot(s == 255); u8(s + u8((((g << 1) + p) xor p) >> lane & 1)) }
+equiv wadd wks
+# limbs of 4 bits in a byte: the sum under a mask
+wadd4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { sj = u8(sg_shuffle(a, j) + sg_shuffle(b, j) + c); c = j < lane ? sj >> 4 : c }; (a + b + c) & 15 }
+find wadd4 1
+# the same shape, not a carry (the lanes below that are odd, counted):
+# the guess is dropped by SAT and nothing is offered
+notadd(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = u8(a + b + u8(popcount(sg_ballot((a & 1) != 0) & ((1 << lane) - 1))))
+find notadd 1
+# a carry that a dear ballot makes dearer than the loop: said
+model dearb : w8 { sg_ballot: 400 }
+use dearb
+find wadd 1
+use w8
+
+# 1024 bits: a u32 in each of 32 lanes
+use gt1030
+big(a: u32 lanes, b: u32 lanes, lane: u32 in 0..31) = { c: u32 = 0; for j in 0..30 { aj = sg_shuffle(a, j); sj = aj + sg_shuffle(b, j) + c; c = j < lane ? (sj < aj || (c != 0 && sj == aj) ? 1 : 0) : c }; a + b + c }
+find big 1

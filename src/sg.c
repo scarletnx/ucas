@@ -2856,6 +2856,126 @@ fieldmap(struct sgf *g, nid cur, float *cost, struct sbuf *why)
 	return cand;
 }
 
+/* ---- a wide sum, a limb in each lane ---- */
+
+/* the terms of a sum, without the conversions between them */
+static int
+sum_terms(nid e, nid *out, int n, int max, int depth)
+{
+	if (N.op[e] == O_ADD && depth < 16) {
+		n = sum_terms(N.a[e], out, n, max, depth + 1);
+		return n < 0 ? n : sum_terms(N.b[e], out, n, max, depth + 1);
+	}
+	if (n >= max)
+		return -1;
+	out[n] = e;
+	return n + 1;
+}
+
+/*
+ * The sum of two numbers that have a limb in each lane (`lanes`
+ * parameters, or values worked out from them in the lane): a + b plus
+ * the carry the lanes below send in, however the function works that
+ * out (a loop over the lanes below, reading them by shuffles).  With g
+ * the lanes whose a + b carries out and p those where it is all ones,
+ * which pass a carry on, the carries into the lanes are ((g << 1) + p)
+ * xor p: one add of two ballots, a Kogge-Stone prefix done by the
+ * adder.  Only the shape a + b + (something that reads the other lanes)
+ * is read from the function; that the something is the carry is proved
+ * by SAT over the lanes' words (equiv_decide), in g->pr.
+ */
+static nid
+wideadd(struct sgf *g, nid cur, float *cost)
+{
+	const struct func *f = g->f;
+	nid t[8], lim[2], body = cur, s, gen, prop, G, P, ks, cin, cand, L;
+	nid map[MAXP] = {0};
+	ty_t ty = N.ty[cur], bt;
+	int W = sg_lanes_width(f), w = int_width(ty), n, i, j, nl = 0, nc = 0;
+	uint64_t mask = 0;
+	struct sbuf wit = {0};
+	float c;
+
+	L = lane_param(f);
+	if (!L || W < 2 || TYK(ty) != K_UINT || !cclass_available(g->m,
+	    C_SG_BALLOT))
+		return cur;
+	/* limbs narrower than their type: the sum under a mask */
+	if (N.op[body] == O_AND && is_const(N.b[body]) && N.ki[N.b[body]] > 0 &&
+	    !((uint64_t)(N.ki[N.b[body]] + 1) & (uint64_t)N.ki[N.b[body]]) &&
+	    (uint64_t)N.ki[N.b[body]] < wmask(w) >> 1) {
+		mask = (uint64_t)N.ki[N.b[body]];
+		body = N.a[body];
+	}
+	n = sum_terms(body, t, 0, 8, 0);
+	if (n < 3)
+		return cur;
+	for (i = 0; i < n; i++) {
+		if (N.fl[t[i]] & NF_SG)
+			nc++;
+		else if (nl < 2)
+			lim[nl++] = t[i];
+		else
+			return cur;
+	}
+	if (nl != 2 || !nc || N.ty[lim[0]] != ty || N.ty[lim[1]] != ty)
+		return cur;
+	/* the limbs as an operation reads them in every lane */
+	for (j = 0; j < f->np; j++) {
+		uint32_t lane = sym_cstr("lane");
+		if (!((node_slots(lim[0]) | node_slots(lim[1])) >> j & 1))
+			continue;
+		if (f->p[j].name == lane)
+			map[j] = mk_cast(f->p[j].ty, sg_lane());
+		else if (f->p[j].lanes)
+			map[j] = sg_lanes_copy(j, f->p[j].name, f->p[j].ty, W);
+		else if (!f->p[j].uniform)
+			return cur;
+	}
+	bt = TY(K_UINT, W > 32 ? 64 : 32);
+	s = mk_bin(O_ADD, lim[0], lim[1]);
+	if (mask) {
+		gen = mk_bin(O_GT, s, mk_const_i(ty, (int64_t)mask));
+		prop = mk_bin(O_EQ, s, mk_const_i(ty, (int64_t)mask));
+	} else {
+		gen = mk_bin(O_LT, s, lim[0]);
+		prop = mk_bin(O_EQ, s, mk_const_i(ty, (int64_t)wmask(w)));
+	}
+	G = mk_sg(O_SGBALLOT, subst(gen, map, f->np), mk_const_i(TY_LIT, W), 0);
+	P = mk_sg(O_SGBALLOT, subst(prop, map, f->np), mk_const_i(TY_LIT, W), 0);
+	ks = mk_bin(O_XOR, mk_bin(O_ADD, mk_bin(O_SHL, G, mk_const_i(bt, 1)), P),
+	    P);
+	cin = mk_cast(ty, mk_bin(O_AND, mk_bin(O_SHR, ks, mk_cast(bt, L)),
+	    mk_const_i(bt, 1)));
+	cand = mk_bin(O_ADD, s, cin);
+	if (mask)
+		cand = mk_bin(O_AND, cand, mk_const_i(ty, (int64_t)mask));
+	/* a guess from the shape: it stands when SAT proves it */
+	if (equiv_decide(f, f->body, cand, &wit, &g->pr) || g->pr.how != EQ_SAT) {
+		free(wit.p);
+		return cur;
+	}
+	free(wit.p);
+	c = price(g, cand);
+	if (c >= *cost) {
+		note_dear(g, "a wide sum's carries as one add of two ballots", c,
+		    *cost);
+		return cur;
+	}
+	g->proved = cand;
+	sb_printf(&g->why, "the function is %s + %s plus what the lanes below "
+	    "send in, however it works that out; taken as the carry of a sum "
+	    "with a limb in each lane: with g the lanes where the limbs' sum "
+	    "carries out and p those where it is all ones, which pass a carry "
+	    "on, the carries into the lanes are ((g << 1) + p) xor p, one add "
+	    "of two ballots, and each lane adds its bit; a guess from the "
+	    "shape until the check below, which proves the form equal to the "
+	    "function over the %d words of the lanes\n", node_str(lim[0]),
+	    node_str(lim[1]), 2 * W);
+	*cost = c;
+	return cand;
+}
+
 /* the size of the subgroup e's operations run in */
 static int
 width_of(nid e, uint8_t *seen)
@@ -2952,6 +3072,11 @@ sg_find(const struct func *f)
 	if (!TY_ISINT(N.ty[cur]))
 		return;
 	before = cost = price(&g, cur);
+	if (N.fl[cur] & NF_LANES) {
+		/* lanes' words: no values to tell a form by, a shape and SAT */
+		cur = wideadd(&g, cur, &cost);
+		goto derived;
+	}
 	if (N.fl[cur] & NF_SG)
 		cur = sorts(&g, cur, &cost);
 	if (cur == f->body && (N.fl[cur] & NF_SG))
@@ -2974,6 +3099,7 @@ sg_find(const struct func *f)
 		}
 		free(fw.p);
 	}
+derived:
 	if (g.notes.n)
 		fputs(sb_str(&g.notes), stdout);
 	if (cur == f->body)
