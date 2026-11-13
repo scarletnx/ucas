@@ -1,0 +1,20 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 5 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  Pack (line 10), called from main (line 38)
+    line 12: the loop recomputes by division what it could step: 2 divisions a pass (1 by a variable), one each at the first pass that reaches them and a counter with a carry after (stepped in the loop's step, so a pass that continues steps them too)
+      for (uint b = 0u; b < 4u; b++) {
+      line 15: s goes up by 1 a pass with b, so p = s / 3u and c = s % 3u are a counter with a carry: c += 1u; if (c == 3u) { c = 0u; p += 1u; }
+      line 15: p goes up by 0 or 1 a pass, so y = p / stride and x = p % stride step with its carry: when p steps, x += 1u; if (x == stride) { x = 0u; y += 1u; }
+      proof: the identity (n + 1) / d = n / d + (n % d == d - 1) in uint, n up by exactly 1 a pass (or 0 or 1, a quotient's); it holds while n + 1 does not wrap
+      cost under gt1030: 181 -> 106.25 each time the loop runs
+      relies on: the loop's 4 passes (b = 0..3) and divisors it does not write
+  Swizzle (line 22), called from main (line 38)
+    line 24: the loop recomputes by division what it could step: 2 divisions a pass (1 by a variable), one each at the first pass that reaches them and a counter with a carry after (stepped in the loop's step, so a pass that continues steps them too)
+      for (uint b = 0u; b < 4u; b++) {
+      line 25: at goes up by 1 a pass with b, so e = at / 3u and e_r = at % 3u are a counter with a carry: e_r += 1u; if (e_r == 3u) { e_r = 0u; e += 1u; }
+      line 26: Element(e) divides e (line 7: e / width), and e goes up by 0 or 1 a pass: that quotient and its remainder step with e's carry the same way (given to Element, or with it inlined)
+      proof: the identity (n + 1) / d = n / d + (n % d == d - 1) in uint, n up by exactly 1 a pass (or 0 or 1, a quotient's); it holds while n + 1 does not wrap
+      cost under gt1030: 165 -> 102.25 each time the loop runs
+      relies on: the loop's 4 passes (b = 0..3) and divisors it does not write

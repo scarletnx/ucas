@@ -5662,7 +5662,7 @@ scost(int s)
 
 /* ---- proposals ---- */
 
-enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP, P_TAB, P_CALLS };
+enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP, P_TAB, P_CALLS, P_IND };
 struct prop {
 	int f, kind, line;
 	char what[1200];
@@ -7988,6 +7988,340 @@ search_expr(int f)
 	free(covered);
 }
 
+/* ---- what a loop recomputes by division and could step ---- */
+
+static void writes_s(int s, uint8_t *w);
+
+/*
+ * x as c k + (what the loop does not write), c the coefficient of the
+ * loop's variable k: 0 or 1, -1 for anything else; a local of the body
+ * assigned once is read through its initializer
+ */
+static int
+lin_k(int x, int k, const uint8_t *w, const int *init, int depth)
+{
+	const struct gx *g;
+	int a, b, i;
+	x = XR(x);
+	if (x < 0 || depth > 32)
+		return -1;
+	g = &G.x[x];
+	switch (g->k) {
+	case X_NUM:
+		return 0;
+	case X_VAR:
+		if (g->sym == k)
+			return 1;
+		if (init[g->sym] >= 0)
+			return lin_k(init[g->sym], k, w, init, depth + 1);
+		return w[g->sym] || G.y[g->sym].arr ? -1 : 0;
+	case X_BIN:
+		a = lin_k(g->a, k, w, init, depth + 1);
+		b = lin_k(g->b, k, w, init, depth + 1);
+		if (a < 0 || b < 0)
+			return -1;
+		if (g->op == OP_ADD || g->op == OP_SUB) {
+			int c = g->op == OP_ADD ? a + b : a - b;
+			return c == 0 || c == 1 ? c : -1;
+		}
+		return a == 0 && b == 0 ? 0 : -1;
+	case X_UN:
+		return lin_k(g->a, k, w, init, depth + 1) == 0 ? 0 : -1;
+	case X_CALL:
+		if (g->sym == -B_UNK || (g->sym >= 0 && (A.impure[g->sym] ||
+		    A.nwrl[g->sym])))
+			return -1;
+		for (i = 0; i < g->b; i++)
+			if (lin_k(G.xarg[g->a + i], k, w, init, depth + 1) != 0)
+				return -1;
+		if (g->sym >= 0)
+			for (i = 0; i < A.ns; i++)
+				if (A.rd[g->sym][i] && w[i])
+					return -1;
+		return 0;
+	}
+	return -1;
+}
+
+/* is x (followed through locals assigned once) the expression y? */
+static int
+same_val(int x, int y, const int *init)
+{
+	x = XR(x);
+	y = XR(y);
+	while (G.x[x].k == X_VAR && init[G.x[x].sym] >= 0)
+		x = XR(init[G.x[x].sym]);
+	while (G.x[y].k == X_VAR && init[G.x[y].sym] >= 0)
+		y = XR(init[G.x[y].sym]);
+	return x == y || same_text(x, y);
+}
+
+/* the local assigned x once, or -1 */
+static int
+local_of(int x, const int *init)
+{
+	int y;
+	for (y = 0; y < A.ns; y++)
+		if (init[y] >= 0 && XR(init[y]) == XR(x))
+			return y;
+	return -1;
+}
+
+/* n - q d or n - d q, q the quotient q0 (or its local): the remainder */
+static int
+is_rem(int x, int n, int q0, int d, const int *init)
+{
+	const struct gx *g = &G.x[XR(x)], *m;
+	if (g->k == X_BIN && g->op == OP_MOD)
+		return same_val(g->a, n, init) && same_val(g->b, d, init);
+	if (g->k != X_BIN || g->op != OP_SUB || !same_val(g->a, n, init))
+		return 0;
+	m = &G.x[XR(g->b)];
+	if (m->k != X_BIN || m->op != OP_MUL)
+		return 0;
+	return (same_val(m->a, q0, init) && same_val(m->b, d, init)) ||
+	    (same_val(m->b, q0, init) && same_val(m->a, d, init));
+}
+
+/* a name for x: its local's, else its text */
+static void
+val_name(char *buf, size_t n, int x, const int *init)
+{
+	int y = local_of(x, init);
+	if (y >= 0)
+		snprintf(buf, n, "%s", G.y[y].name);
+	else
+		xtext(buf, n, x);
+}
+
+/*
+ * In a loop of a constant count over k, a quotient and remainder of
+ * n = k + (what the loop does not write) by a divisor it does not write
+ * go up as a counter with a carry: (n + 1) / d = n / d + (n % d == d -
+ * 1), the remainder back to 0 at that carry, while n + 1 does not wrap.
+ * A quotient that is itself the dividend of another such division goes
+ * up by 0 or 1 a pass, so the next one is the same counter, stepped by
+ * the first's carry.  Proposed with each pass's divisions against one
+ * of each before the first pass that reaches them, both priced by the
+ * trip count.
+ */
+static void
+search_ind(int f)
+{
+	int *xs, *ss, nx = 0, nss = 0, i, cap = G.nx + G.ns + 64;
+	if (G.f[f].body < 0)
+		return;
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	ss = xmalloc((size_t)cap * sizeof *ss);
+	reach_s(G.f[f].body, xs, &nx, ss, &nss, cap);
+	for (i = 0; i < nss; i++) {
+		const struct gs *t = &G.s[ss[i]];
+		const struct model *m = model_active();
+		int s = ss[i], k, *bx, *bs, nbx = 0, nbs = 0, j, q, *init, nlev = 0,
+		    lev[8], lrem[8], lfrom[8], ndiv = 0, nvar = 0, line = 0, ncall,
+		    cl[8], cq_[8], cfrom[8];
+		int64_t k0, klast;
+		uint8_t *w;
+		double T, per = 0, once = 0, step = 0;
+		struct sbuf txt = {0};
+		struct prop *p;
+		if (t->k != S_FOR || !canon_loop(s, &k, &k0, &klast) || klast <= k0)
+			continue;
+		T = (double)(klast - k0 + 1);
+		w = xcalloc((size_t)A.ns + 1, 1);
+		writes_s(s, w);
+		init = xmalloc(((size_t)A.ns + 1) * sizeof *init);
+		for (j = 0; j <= A.ns; j++)
+			init[j] = -1;
+		bx = xmalloc((size_t)cap * sizeof *bx);
+		bs = xmalloc((size_t)cap * sizeof *bs);
+		reach_s(t->d, bx, &nbx, bs, &nbs, cap);
+		for (j = 0; j < nbs; j++) {
+			const struct gs *d = &G.s[bs[j]];
+			if (d->k == S_DECL && d->a >= 0 && A.nasg[d->sym] == 0 &&
+			    !G.y[d->sym].arr)
+				init[d->sym] = d->a;
+		}
+		/* the first level: n / d with n = k + an invariant */
+		for (j = 0; j < nbx && nlev < 8; j++) {
+			const struct gx *g = &G.x[bx[j]];
+			int r;
+			if (g->k != X_BIN || g->op != OP_DIV || g->ty != TU ||
+			    opnd_ty(g) != TU || lin_k(g->b, k, w, init, 0) != 0 ||
+			    lin_k(g->a, k, w, init, 0) != 1)
+				continue;
+			if (G.x[XR(g->b)].k == X_NUM && G.x[XR(g->b)].v <= 1)
+				continue;
+			for (q = 0; q < nlev && !same_val(lev[q], bx[j], init); q++)
+				;
+			if (q < nlev)
+				continue;
+			for (r = 0; r < nbx; r++)
+				if (is_rem(bx[r], g->a, bx[j], g->b, init))
+					break;
+			lev[nlev] = bx[j];
+			lrem[nlev] = r < nbx ? bx[r] : -1;
+			lfrom[nlev++] = -1;
+		}
+		/* further levels: the dividend is a level's quotient */
+		for (q = 0; q < nlev && nlev < 8; q++)
+			for (j = 0; j < nbx && nlev < 8; j++) {
+				const struct gx *g = &G.x[bx[j]];
+				int r, z;
+				if (g->k != X_BIN || g->op != OP_DIV || g->ty != TU ||
+				    opnd_ty(g) != TU || !same_val(g->a, lev[q], init) ||
+				    lin_k(g->b, k, w, init, 0) != 0)
+					continue;
+				for (z = 0; z < nlev && !same_val(lev[z], bx[j], init); z++)
+					;
+				if (z < nlev)
+					continue;
+				for (r = 0; r < nbx; r++)
+					if (is_rem(bx[r], g->a, bx[j], g->b, init))
+						break;
+				lev[nlev] = bx[j];
+				lrem[nlev] = r < nbx ? bx[r] : -1;
+				lfrom[nlev++] = q;
+			}
+		/* a level's quotient passed to a loop-free helper that divides
+		 * that parameter by what the loop does not write: the helper's
+		 * quotient steps too (inlined, or given the counters) */
+		ncall = 0;
+		for (q = 0; q < nlev && ncall < 8; q++)
+			for (j = 0; j < nbx && ncall < 8; j++) {
+				const struct gx *g = &G.x[bx[j]];
+				int a, f1, y, z, *cx, ncx = 0;
+				if (g->k != X_CALL || g->sym < 0 || !A.inl[g->sym] ||
+				    A.impure[g->sym] || A.nwrl[g->sym])
+					continue;
+				f1 = g->sym;
+				for (a = 0; a < g->b && a < G.f[f1].np; a++)
+					if (same_val(G.xarg[g->a + a], lev[q], init))
+						break;
+				if (a == g->b || a == G.f[f1].np || A.nasg[G.f[f1].p[a]])
+					continue;
+				y = G.f[f1].p[a];
+				cx = xmalloc((size_t)cap * sizeof *cx);
+				reach_s(G.f[f1].body, cx, &ncx, NULL, NULL, cap);
+				for (z = 0; z < ncx && ncall < 8; z++) {
+					const struct gx *h = &G.x[cx[z]];
+					int ok = 1, lv[MAXP], u;
+					struct rec T2;
+					if (h->k != X_BIN || h->op != OP_DIV || h->ty != TU ||
+					    G.x[XR(h->a)].k != X_VAR || G.x[XR(h->a)].sym != y)
+						continue;
+					/* the divisor: constants and globals the loop does not
+					 * write */
+					memset(&T2, 0, sizeof T2);
+					if (!leaves_of(&T2, h->b))
+						continue;
+					for (u = 0; u < T2.nl && ok; u++) {
+						const struct gx *l = &G.x[T2.lf[u]];
+						ok = l->k == X_VAR && G.y[l->sym].kind != Y_LOCAL &&
+						    G.y[l->sym].kind != Y_PARAM && !w[l->sym] &&
+						    !G.y[l->sym].arr;
+					}
+					(void)lv;
+					if (!ok)
+						continue;
+					cl[ncall] = bx[j];
+					cq_[ncall] = cx[z];
+					cfrom[ncall++] = q;
+				}
+				free(cx);
+			}
+		for (q = 0; q < nlev; q++) {
+			const struct gx *g = &G.x[XR(lev[q])];
+			char qn[80], rn[80], dn[80], nn[80], cn[80];
+			int isk = G.x[XR(g->b)].k == X_NUM;
+			double cq = xcost(lev[q]) - xcost(g->a) - xcost(g->b);
+			double cr = lrem[q] >= 0 ? m->c[C_IMUL] + m->c[C_IADD] : 0;
+			if (G.x[XR(lrem[q] >= 0 ? lrem[q] : lev[q])].k == X_BIN &&
+			    lrem[q] >= 0 && G.x[XR(lrem[q])].op == OP_MOD)
+				cr = xcost(lrem[q]) - xcost(G.x[XR(lrem[q])].a) -
+				    xcost(G.x[XR(lrem[q])].b);
+			ndiv++;
+			nvar += !isk;
+			per += cq + cr;
+			once += cq + cr;
+			/* a pass: the remainder up by one, a compare, two selects */
+			step += 2 * m->c[C_IADD] + m->c[C_CMP] + 2 * m->c[C_SELECT];
+			if (!line || g->line < line)
+				line = g->line;
+			val_name(qn, sizeof qn, lev[q], init);
+			val_name(dn, sizeof dn, g->b, init);
+			val_name(nn, sizeof nn, g->a, init);
+			if (lrem[q] >= 0)
+				val_name(rn, sizeof rn, lrem[q], init);
+			else
+				snprintf(rn, sizeof rn, "%s_r", qn);
+			xtext(cn, sizeof cn, lev[q]);
+			if (lfrom[q] < 0)
+				sb_printf(&txt, "%sline %d: %s goes up by 1 a pass with %s, so "
+				    "%s = %s and %s = %s %% %s are a counter with a carry: %s "
+				    "+= 1u; if (%s == %s) { %s = 0u; %s += 1u; }", txt.p ?
+				    "\n" : "", g->line, nn, G.y[k].name, qn, cn, rn, nn, dn,
+				    rn, rn, dn, rn, qn);
+			else {
+				char pn[80];
+				val_name(pn, sizeof pn, lev[lfrom[q]], init);
+				sb_printf(&txt, "%sline %d: %s goes up by 0 or 1 a pass, so "
+				    "%s = %s and %s = %s %% %s step with its carry: when %s "
+				    "steps, %s += 1u; if (%s == %s) { %s = 0u; %s += 1u; }",
+				    txt.p ? "\n" : "", g->line, pn, qn, cn, rn, nn, dn, pn, rn,
+				    rn, dn, rn, qn);
+			}
+		}
+		for (q = 0; q < ncall; q++) {
+			const struct gx *h = &G.x[cq_[q]];
+			char pn[80], ct[160], hn[160], dn[80];
+			double cq = xcost(cq_[q]) - xcost(h->a) - xcost(h->b);
+			ndiv++;
+			nvar += G.x[XR(h->b)].k != X_NUM;
+			per += cq + m->c[C_IMUL] + m->c[C_IADD];
+			once += cq + m->c[C_IMUL] + m->c[C_IADD];
+			step += 2 * m->c[C_IADD] + m->c[C_CMP] + 2 * m->c[C_SELECT];
+			val_name(pn, sizeof pn, lev[cfrom[q]], init);
+			xtext(ct, sizeof ct, cl[q]);
+			xtext(hn, sizeof hn, cq_[q]);
+			xtext(dn, sizeof dn, h->b);
+			sb_printf(&txt, "%sline %d: %s divides %s (line %d: %s), and %s "
+			    "goes up by 0 or 1 a pass: that quotient and its remainder "
+			    "step with %s's carry the same way (given to %s, or with it "
+			    "inlined)", txt.p ? "\n" : "", G.x[cl[q]].line, ct, pn,
+			    h->line, hn, pn, pn, G.f[G.x[cl[q]].sym].name);
+			(void)dn;
+		}
+		if (nlev && once + T * step < T * per) {
+			char q0[80];
+			p = prop_new(f, P_IND, t->line);
+			snprintf(p->what, sizeof p->what, "the loop recomputes by "
+			    "division what it could step: %d division%s a pass (%d by a "
+			    "variable), one each at the first pass that reaches them and a "
+			    "counter with a carry after (stepped in the loop's step, so a "
+			    "pass that continues steps them too)", ndiv, ndiv > 1 ? "s" :
+			    "", nvar);
+			src_quote(q0, sizeof q0, t->line);
+			sb_printf(&p->text, "%s\n%s", q0, txt.p);
+			snprintf(p->proof, sizeof p->proof, "the identity (n + 1) / d = "
+			    "n / d + (n %% d == d - 1) in uint, n up by exactly 1 a pass "
+			    "(or 0 or 1, a quotient's); it holds while n + 1 does not wrap");
+			p->c0 = T * per;
+			p->c1 = once + T * step;
+			snprintf(p->relies, sizeof p->relies, "the loop's %g passes "
+			    "(%s = %lld..%lld) and divisors it does not write", T,
+			    G.y[k].name, (long long)k0, (long long)klast);
+		}
+		free(txt.p);
+		free(w);
+		free(init);
+		free(bx);
+		free(bs);
+	}
+	free(xs);
+	free(ss);
+}
+
 /* ---- calls that need less of a helper than its whole domain ---- */
 
 /* a statement on one line, an if or loop by its head (patches followed) */
@@ -9655,7 +9989,8 @@ kind_name(int k)
 {
 	return k == P_FUNC ? "function" : k == P_EXPR ? "expression" :
 	    k == P_FIT ? "case_fit" : k == P_LOOP ? "loop" : k == P_TAB ?
-	    "loop_map" : k == P_CALLS ? "call_variant" : "invariant_call";
+	    "loop_map" : k == P_CALLS ? "call_variant" : k == P_IND ?
+	    "loop_counter" : "invariant_call";
 }
 
 static int loops_only;	/* no function calls another: the loops alone */
@@ -9764,13 +10099,14 @@ report(int rounds, double secs)
 				    p->what, p->c0, p->c1, model, p->points);
 				pr_lines(p->text.p, "        ");
 				printf("        where: %s\n", p->domain);
-			} else if (p->kind == P_EXPR || p->kind == P_LOOP || p->kind == P_TAB) {
+			} else if (p->kind == P_EXPR || p->kind == P_LOOP || p->kind == P_TAB ||
+			    p->kind == P_IND) {
 				printf("    line %d: %s\n", p->line, p->what);
 				pr_lines(p->text.p, "      ");
 				printf("      proof: %s\n", p->proof);
 				printf("      cost under %s: %g -> %g each time %s runs\n",
-				    model, p->c0, p->c1, p->kind == P_LOOP || p->kind == P_TAB ?
-				    "the loop" : "it");
+				    model, p->c0, p->c1, p->kind == P_LOOP || p->kind == P_TAB ||
+				    p->kind == P_IND ? "the loop" : "it");
 				printf("      relies on: %s\n", p->relies);
 			} else {
 				printf("    %s\n", p->what);
@@ -10020,6 +10356,7 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 	for (f = 0; f < G.nf && loops_only; f++) {
 		search_loops(f);
 		search_tab(f);
+		search_ind(f);
 	}
 	if (loops_only) {
 		if (npr)
@@ -10033,7 +10370,8 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 		else if (only)
 			printf("function level: no function of the source calls "
 			    "another, so no call gives a domain; none of its loops leaves "
-			    "early or computes a map of one small value\n");
+			    "early, computes a map of one small value or divides what it "
+			    "could step\n");
 		return;
 	}
 	for (f = 0; f < G.nf; f++) {
@@ -10041,6 +10379,7 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 		int whole = 0;
 		search_loops(f);
 		search_tab(f);
+		search_ind(f);
 		if (whole_ok(f) && fn_dom(f, &D)) {
 			whole = D.points <= (double)(1 << 20);
 			free(D.rows);
