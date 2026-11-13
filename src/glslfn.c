@@ -8123,7 +8123,7 @@ search_ind(int f)
 		int64_t k0, klast;
 		uint8_t *w;
 		double T, per = 0, once = 0, step = 0;
-		struct sbuf txt = {0};
+		struct sbuf txt = {0}, wn = {0};
 		struct prop *p;
 		if (t->k != S_FOR || !canon_loop(s, &k, &k0, &klast) || klast <= k0)
 			continue;
@@ -8257,6 +8257,8 @@ search_ind(int f)
 				snprintf(rn, sizeof rn, "%s_r", qn);
 			xtext(cn, sizeof cn, lev[q]);
 			if (lfrom[q] < 0)
+				sb_printf(&wn, "%s%s", wn.p ? ", " : "", nn);
+			if (lfrom[q] < 0)
 				sb_printf(&txt, "%sline %d: %s goes up by 1 a pass with %s, so "
 				    "%s = %s and %s = %s %% %s are a counter with a carry: %s "
 				    "+= 1u; if (%s == %s) { %s = 0u; %s += 1u; }", txt.p ?
@@ -8308,11 +8310,16 @@ search_ind(int f)
 			    "(or 0 or 1, a quotient's); it holds while n + 1 does not wrap");
 			p->c0 = T * per;
 			p->c1 = once + T * step;
+			/* the identity needs n + 1 not to wrap, and no range of n
+			 * is derived here: a condition, not a proof */
 			snprintf(p->relies, sizeof p->relies, "the loop's %g passes "
-			    "(%s = %lld..%lld) and divisors it does not write", T,
-			    G.y[k].name, (long long)k0, (long long)klast);
+			    "(%s = %lld..%lld), divisors it does not write, and %s + 1 "
+			    "not wrapping in the loop (not derived: no range of %s is "
+			    "tracked here)", T, G.y[k].name, (long long)k0,
+			    (long long)klast, wn.p, wn.p);
 		}
 		free(txt.p);
+		free(wn.p);
 		free(w);
 		free(init);
 		free(bx);
