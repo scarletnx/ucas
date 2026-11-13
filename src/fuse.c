@@ -163,7 +163,7 @@ fuse_text(struct sbuf *b, const struct fusion *f)
 	}
 	if (f->makers) {
 		sb_puts(b, " on");
-		for (k = 0; k < C_NCLASS; k++)
+		for (k = 0; k < C_NCLASS && k < 64; k++)
 			if (f->makers >> k & 1)
 				sb_printf(b, " %s", cclass_name[k]);
 	}
@@ -596,7 +596,8 @@ fg_cover(const struct model *m, struct fgraph *g)
 				if (f->pkind[l] == FP_CONST)
 					continue;
 				if (b < 0 || g->isk[b] || !inner_ok(g, b) ||
-				    g->cls[b] < 0 || !(f->makers >> g->cls[b] & 1))
+				    g->cls[b] < 0 || g->cls[b] >= 64 ||
+				    !(f->makers >> g->cls[b] & 1))
 					break;
 			}
 			if (f->makers && l < f->np)
