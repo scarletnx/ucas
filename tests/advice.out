@@ -18,7 +18,7 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 8: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 9: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)
-  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
+  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw)
     a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
     not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 3 a pixel is worth 3 a vertex and 1 more varying
     %79 = OpFAdd %float %75 %78   (3)
@@ -127,11 +127,6 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
     not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 11 a pixel is worth 11 a vertex and 1 more flat varying
     %40 = OpVectorTimesScalar %v3float %38 %25   (11)
         (line 9: vec3 t = tint.rgb * tint.a * m;)
-  once a vertex: 2 instructions costing 4 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
-    a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
-    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 1 more varying
-    %59 = OpCompositeConstruct %v4float %56 %57 %58 %float_1   (4)
-        (line 11: col = vec4(t * h, 1.0);)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
@@ -221,7 +216,7 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 3.375 -> 3.375 (+0.0%)
   nothing applied: no cheaper float form could be proved
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
-  once a vertex: 2 instructions costing 2 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
+  once a vertex: 2 instructions costing 2 every pixel are affine in the varyings (sums, and products with values of the draw)
     a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
     not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 2 a pixel is worth 2 a vertex and 1 more varying
     %28 = OpFAdd %float %22 %27   (2)

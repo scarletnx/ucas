@@ -10628,10 +10628,10 @@ adv_affine(const struct sins *I, const uint8_t *fq, int f)
 	if (!strcmp(I->op, "OpFDiv"))
 		return nv == 1 && at == 0;
 	if (!strcmp(e, "FMix"))		/* x (1 - a) + y a, a of the draw */
-		return I->nop >= 6 && fq[idx(I->opnd[5])] <= FQ_PRIM;
+		return I->nop >= 6 && fq[idx(I->opnd[5])] <= FQ_DRAW;
 	if (!strcmp(e, "Fma"))		/* a b + c: one of a, b of the draw */
-		return I->nop >= 6 && (fq[idx(I->opnd[3])] <= FQ_PRIM ||
-		    fq[idx(I->opnd[4])] <= FQ_PRIM);
+		return I->nop >= 6 && (fq[idx(I->opnd[3])] <= FQ_DRAW ||
+		    fq[idx(I->opnd[4])] <= FQ_DRAW);
 	return 0;
 }
 
@@ -11700,7 +11700,10 @@ advice_pass(const char *text, int asked)
 				if (q > c)
 					c = q;
 			}
-		if (c == FQ_VERTEX && !adv_affine(I, fq, FQ_VERTEX))
+		/* a flat value beside a varying is the provoking vertex's at
+		 * every pixel, where each vertex would use its own */
+		if (c == FQ_VERTEX && ((mix & 1 << FQ_PRIM) ||
+		    !adv_affine(I, fq, FQ_VERTEX)))
 			c = FQ_RUN;
 		/* in window coordinates the coefficients are the draw's: a flat
 		 * value or a varying beside it is not affine in it */
@@ -11835,7 +11838,7 @@ advice_pass(const char *text, int asked)
 		} else {
 			sb_printf(&rep, "  once a vertex: %d instruction%s costing %g "
 			    "every pixel are affine in the varyings (sums, and "
-			    "products with values of the draw or the primitive)\n",
+			    "products with values of the draw)\n",
 			    nins, nins == 1 ?
 			    "" : "s", tot);
 			sb_printf(&rep, "    a varying is v = sum b_i v_i over the "

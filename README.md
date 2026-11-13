@@ -5122,10 +5122,12 @@ advice_pass):
 - **vertex** (fragment shaders): affine in the float inputs that are
   not flat, centroid, sample or built-in: sums, differences, and
   products, quotients, dots, matrix products and mixes whose other
-  operands are of the draw or the primitive.  A varying is v = sum b_i v_i over the
+  operands are of the draw.  A varying is v = sum b_i v_i over the
   vertices with sum b_i = 1 (perspective-correct barycentrics), and an
   affine f has f(v) = sum b_i f(v_i), so f computed at the vertices and
-  interpolated is the same real number at every pixel;
+  interpolated is the same real number at every pixel.  A flat value
+  beside a varying makes the value per run: the pixel reads the
+  provoking vertex's, where each vertex would compute with its own;
 - **window coordinates** (fragment shaders): affine in gl_FragCoord,
   with values of the draw as the coefficients.  gl_FragCoord is the
   window position, the depth and 1/w, each affine across a primitive in
@@ -5171,7 +5173,7 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
         (line 9: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 10: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)
-  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
+  once a vertex: 3 instructions costing 3 every pixel are affine in the varyings (sums, and products with values of the draw)
     not priced: gt1030 has no price for a vertex or for a varying, ...
     %79 = OpFAdd %float %75 %78   (3)
         (line 13: float fogk = clamp(-vp.z * u.fog.x + u.fog.y, 0.0, 1.0);)
