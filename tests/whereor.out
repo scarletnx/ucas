@@ -1,0 +1,59 @@
+> a(x: u32) = x + 1 where x == 3 || x == 17
+> table a
+  x=3  ->  4
+  x=17  ->  18
+> range a
+range of a -> u32:
+  4..18
+  fits in u5
+  over all 2 points of the domain
+> domain a
+domain of a:
+  x: u32, 0..4294967295
+  where x == 3 || x == 17
+  no conditions: total on its parameter types
+  defined at 2 of 2 points
+  over all 2 points of the domain
+> b(x: u32) = x + 2 where x == 3 || x == 17
+> equiv a b
+a and b differ at 2 points, e.g. x=3: 4 vs 5
+  domain: x in {3, 17} by the where clause (2 points enumerated)
+> c(x: u32) = (x * 3) & 7 where x == 3 || x == 17
+> d(x: u32) = (x + x + x) & 7 where x == 3 || x == 17
+> equiv c d
+c and d are equal on the domain of c (exhaustive)
+  domain: x in {3, 17} by the where clause (2 points enumerated)
+> r(x: u32) = x + 1 where (x >= 3 && x <= 5) || (x >= 100 && x <= 101)
+> table r
+  x=3  ->  4
+  x=4  ->  5
+  x=5  ->  6
+  x=100  ->  101
+  x=101  ->  102
+> e(x: u32) = x + 1 where x == 3 || x == 4000000000
+> table e
+  x=3  ->  4
+  x=4000000000  ->  4000000001
+> find e 1
+find e: 2 points, computing in u32, costs from gt1030
+  cost 1   x + 1                                    affine fit
+  [searched every term up to cost 1: 46 distinct columns; 'more' continues]
+> h(x: u8, y: u8) = x + y where (x == 1 || x == 200) && y < 3
+> table h
+  x=1, y=0  ->  1
+  x=200, y=0  ->  200
+  x=1, y=1  ->  2
+  x=200, y=1  ->  201
+  x=1, y=2  ->  3
+  x=200, y=2  ->  202
+> equiv h h
+h and h are equal on the domain of h (exhaustive)
+  domain: x in {1, 200}, y in 0..2 by the where clause (6 points enumerated)
+> g(x: u32) = x + 1 where x * x == 49
+> range g
+range of g -> u32:
+  no value: none of the 65536 points sampled is in the domain
+  sampled 65536 points, none in the domain (the parameters span 4294967296 points); not exhaustive
+  sound bound (intervals): 0..4294967295
+> table g
+  no point: the where clause holds at none of the 64 sampled
