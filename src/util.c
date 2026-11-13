@@ -261,6 +261,8 @@ caret(struct sbuf *b)
 	sb_puts(b, "^\n");
 }
 
+int fail_mute;   /* > 0: fail() says nothing (a trial parse) */
+
 void
 fail(const char *fmt, ...)
 {
@@ -268,6 +270,10 @@ fail(const char *fmt, ...)
 	va_list ap;
 	char tmp[512];
 
+	if (fail_mute) {
+		notes_drop();
+		longjmp(fail_jmp, 1);
+	}
 	location(&b);
 	va_start(ap, fmt);
 	vsnprintf(tmp, sizeof tmp, fmt, ap);

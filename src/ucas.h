@@ -50,6 +50,7 @@ extern struct toks *diag_toks;
 extern const char *diag_file;
 void fail(const char *fmt, ...);
 void fail_quiet(void);    /* end the statement: a question was asked */
+extern int fail_mute;     /* > 0: fail() ends a trial without a message */
 void note(const char *fmt, ...);
 extern int note_mute;      /* > 0: note() does nothing */
 void notes_flush(void);
