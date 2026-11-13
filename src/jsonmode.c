@@ -263,8 +263,8 @@ static const struct jcmd cmds[] = {
 	    "blocks instead (two as RGBA8_ETC2_EAC, the second the alpha)"),
 	    BO("bc7", " bc7", "the table in the red channel of BC7 blocks "
 	    "instead (two in red and alpha)"),
-	    BO("srgb", " srgb", "with etc2 or bc7: the sRGB format, red read "
-	    "through the sRGB EOTF (alpha linear)"),
+	    BO("srgb", " srgb", "with astc, etc2 or bc7: the sRGB format, the "
+	    "first table read through the sRGB EOTF (alpha linear)"),
 	    BO("bc6h", " bc6h", "the table, numbers of a half float's range, in "
 	    "the red channel of BC6H blocks instead (SFLOAT when an entry is "
 	    "negative)"),

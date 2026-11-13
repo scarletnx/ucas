@@ -120,7 +120,10 @@ double bc6h_encode_r(const double t[16], const uint8_t care[16], int sgn,
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
  * as UNORM16 (1 for a block the profile refuses: the error colour), and
  * a block searched for one table (t1 NULL) or two (two planes); 0 when
- * none fits.  A texel reads (C >> 8)/255 in the UNORM8 decode mode,
+ * none fits.  srgb 1 decodes as ASTC's sRGB formats (the first table's
+ * endpoints widened with 0x80 below their byte, read as that byte
+ * through the EOTF), srgb 2 widens alpha that way too, as astcenc and
+ * Mesa do against the specification.  A texel reads (C >> 8)/255 in the UNORM8 decode mode,
  * astcb_float16(C) in the float16 one.
  */
 struct astcb_info {
@@ -130,9 +133,10 @@ struct astcb_info {
 	int nends, ends[18];	/* the endpoint values, unquantised */
 	double err;		/* the largest error the search computed */
 };
-int astcb_decode(const uint8_t blk[16], int bw, int bh, uint16_t *out);
+int astcb_decode(const uint8_t blk[16], int bw, int bh, int srgb,
+    uint16_t *out);
 int astcb_encode(const double *t0, const double *t1, const uint8_t *care,
-    int bw, int bh, uint8_t out[16], struct astcb_info *info);
+    int bw, int bh, int srgb, uint8_t out[16], struct astcb_info *info);
 int astcb_partition(int seed, int x, int y, int count, int small);
 double astcb_float16(int c);
 

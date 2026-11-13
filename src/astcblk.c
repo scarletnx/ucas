@@ -539,7 +539,7 @@ infill_at(int bw, int bh, int W, int H, int i, int j, int pt[4], int f[4])
 }
 
 int
-astcb_decode(const uint8_t blk[16], int bw, int bh, uint16_t *out)
+astcb_decode(const uint8_t blk[16], int bw, int bh, int srgb, uint16_t *out)
 {
 	uint32_t mode = bits_at(blk, 0, 11);
 	int W, H, D, Hp, r, nw, wbits, parts, cem[4], i, j, k, ncv = 0, cbits;
@@ -648,7 +648,13 @@ astcb_decode(const uint8_t blk[16], int bw, int bh, uint16_t *out)
 			}
 			for (c = 0; c < 4; c++) {
 				int ww = D && c == ccs ? wt[1] : wt[0];
-				int c0 = e0[p][c] * 257, c1 = e1[p][c] * 257;
+				/* sRGB: red, green and blue widened with 0x80, alpha
+				 * by repeating its byte as the specification says
+				 * (srgb 2: alpha with 0x80 too, as astcenc and Mesa
+				 * decode it) */
+				int x80 = srgb && (c < 3 || srgb == 2);
+				int c0 = x80 ? e0[p][c] << 8 | 0x80 : e0[p][c] * 257;
+				int c1 = x80 ? e1[p][c] << 8 | 0x80 : e1[p][c] * 257;
 				o[c] = (uint16_t)((c0 * (64 - ww) + c1 * ww + 32) >> 6);
 			}
 		}
@@ -864,7 +870,9 @@ write_block(const struct alay *L, uint8_t out[16])
 struct aprob {
 	int bw, bh, n, nt;	/* texels, tables (planes) */
 	double t[2][MAXT];	/* what a read should give, per table */
+	double c[2][MAXT];	/* the same as a code, 0..255 (estimates) */
 	uint8_t care[MAXT];
+	int srgb;		/* the first table read through the sRGB EOTF */
 };
 
 struct ascore {
@@ -877,17 +885,23 @@ better(struct ascore a, struct ascore b)
 	return a.mx < b.mx || (a.mx == b.mx && a.sq < b.sq);
 }
 
-/* a decoded byte as a read returns it (UNORM8 mode): its f32 over 255 */
+/* a decoded value as a read returns it: its top byte over 255 as an f32
+ * (UNORM8 mode), or that byte through the sRGB EOTF */
 static double
-rd8(int c)
+rd8(int srgb, int c)
 {
-	return (double)(float)((c >> 8) / 255.0);
+	return srgb ? texenc_srgb8(c >> 8) : (double)(float)((c >> 8) / 255.0);
 }
 
+/* two endpoint bytes widened to 16 bits and interpolated: by repeating
+ * the byte, or (sRGB's red, green and blue) with 0x80 below it */
 static int
-lerp16(int a, int b, int w)
+lerp16(int srgb, int a, int b, int w)
 {
-	return (a * 257 * (64 - w) + b * 257 * w + 32) >> 6;
+	int a16 = srgb ? a << 8 | 0x80 : a * 257, b16 = srgb ? b << 8 | 0x80 :
+	    b * 257;
+
+	return (a16 * (64 - w) + b16 * w + 32) >> 6;
 }
 
 /* the sorted distinct values of a range and an encoded value for each */
@@ -1030,7 +1044,8 @@ plane_score(const struct grid *g, const struct lvl *lw, const int *gi,
 			if (g->pt[k][q] >= 0)
 				sum += lw->u[gi[g->pt[k][q]]] * g->f[k][q];
 		w = sum >> 4;
-		e = fabs(rd8(lerp16(ea[k], eb[k], w)) - P->t[t][k]);
+		e = fabs(rd8(P->srgb && !t, lerp16(P->srgb && !t, ea[k], eb[k],
+		    w)) - P->t[t][k]);
 		if (e > s.mx)
 			s.mx = e;
 		s.sq += e * e;
@@ -1053,8 +1068,8 @@ plane_fit(const struct grid *g, const struct lvl *lw, const struct aprob *P,
 			double be = INFINITY;
 			gi[k] = 0;
 			for (i = 0; i < lw->n && P->care[k]; i++) {
-				double e = fabs(rd8(lerp16(ea[k], eb[k], lw->u[i])) -
-				    P->t[t][k]);
+				double e = fabs(rd8(P->srgb && !t, lerp16(P->srgb && !t,
+				    ea[k], eb[k], lw->u[i])) - P->t[t][k]);
 				if (e < be) {
 					be = e;
 					gi[k] = i;
@@ -1065,7 +1080,7 @@ plane_fit(const struct grid *g, const struct lvl *lw, const struct aprob *P,
 	}
 	for (k = 0; k < P->n; k++) {
 		double d = eb[k] - ea[k];
-		wt[k] = d == 0 ? 0 : 64 * (P->t[t][k] * 255 - ea[k]) / d;
+		wt[k] = d == 0 ? 0 : 64 * (P->c[t][k] - ea[k]) / d;
 		wt[k] = wt[k] < 0 ? 0 : wt[k] > 64 ? 64 : wt[k];
 	}
 	grid_solve(g, P->n, wt, P->care, x);
@@ -1104,10 +1119,10 @@ part_span(const struct aprob *P, const int *part, int p, int t, double *lo,
 	*hi = -INFINITY;
 	for (k = 0; k < P->n; k++)
 		if (P->care[k] && part[k] == p) {
-			if (P->t[t][k] * 255 < *lo)
-				*lo = P->t[t][k] * 255;
-			if (P->t[t][k] * 255 > *hi)
-				*hi = P->t[t][k] * 255;
+			if (P->c[t][k] < *lo)
+				*lo = P->c[t][k];
+			if (P->c[t][k] > *hi)
+				*hi = P->c[t][k];
 		}
 	if (*lo > *hi)
 		*lo = *hi = 0;
@@ -1386,9 +1401,30 @@ search(const struct aprob *P, struct alay *best, uint8_t out[16])
 	return bs;
 }
 
+/* a linear value as an sRGB code, 0..255 (the EOTF's inverse; a code's
+ * own read gives the code back), for the search's estimates only: what
+ * is judged is the read */
+static double
+lin_to_srgb(double x)
+{
+	int lo = 0, hi = 255, mid;
+
+	while (lo < hi) {
+		mid = (lo + hi) / 2;
+		if (texenc_srgb8(mid) < x)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	if (texenc_srgb8(lo) == x)
+		return lo;
+	return 255 * (x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) -
+	    0.055);
+}
+
 int
 astcb_encode(const double *t0, const double *t1, const uint8_t *care, int bw,
-    int bh, uint8_t out[16], struct astcb_info *info)
+    int bh, int srgb, uint8_t out[16], struct astcb_info *info)
 {
 	struct aprob P;
 	struct alay L;
@@ -1401,9 +1437,12 @@ astcb_encode(const double *t0, const double *t1, const uint8_t *care, int bw,
 	P.bh = bh;
 	P.n = bw * bh;
 	P.nt = t1 ? 2 : 1;
+	P.srgb = srgb;
 	for (k = 0; k < P.n; k++) {
 		P.t[0][k] = t0[k];
 		P.t[1][k] = t1 ? t1[k] : 0;
+		P.c[0][k] = srgb ? lin_to_srgb(t0[k]) : t0[k] * 255;
+		P.c[1][k] = P.t[1][k] * 255;
 		P.care[k] = care[k];
 	}
 	s = search(&P, &L, out);
