@@ -1,0 +1,57 @@
+# a module simplify wrote before keeps its struct type: a wide product
+# rewritten again takes the %ucas_mulx_uint the module declares, not a
+# second declaration of it (spirv-val refuses an id defined twice)
+simplify nofile nofunctions under gt1030
+```spv
+OpCapability Shader
+OpCapability Int64
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %4 "main" %gl_GlobalInvocationID
+OpExecutionMode %4 LocalSize 64 1 1
+OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+OpDecorate %_runtimearr_uint ArrayStride 4
+OpDecorate %_struct_18 Block
+OpMemberDecorate %_struct_18 0 Offset 0
+OpDecorate %20 Binding 0
+OpDecorate %20 DescriptorSet 0
+OpDecorate %gl_WorkGroupSize BuiltIn WorkgroupSize
+%void = OpTypeVoid
+%3 = OpTypeFunction %void
+%uint = OpTypeInt 32 0
+%v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+%uint_0 = OpConstant %uint 0
+%_ptr_Input_uint = OpTypePointer Input %uint
+%_runtimearr_uint = OpTypeRuntimeArray %uint
+%_struct_18 = OpTypeStruct %_runtimearr_uint
+%_ptr_StorageBuffer__struct_18 = OpTypePointer StorageBuffer %_struct_18
+%20 = OpVariable %_ptr_StorageBuffer__struct_18 StorageBuffer
+%int = OpTypeInt 32 1
+%int_0 = OpConstant %int 0
+%_ptr_StorageBuffer_uint = OpTypePointer StorageBuffer %uint
+%uint_64 = OpConstant %uint 64
+%ulong = OpTypeInt 64 0
+%ucas_mulx_uint = OpTypeStruct %uint %uint
+%int_32 = OpConstant %int 32
+%uint_1 = OpConstant %uint 1
+%gl_WorkGroupSize = OpConstantComposite %v3uint %uint_64 %uint_1 %uint_1
+%4 = OpFunction %void None %3
+%5 = OpLabel
+%14 = OpAccessChain %_ptr_Input_uint %gl_GlobalInvocationID %uint_0
+%15 = OpLoad %uint %14
+%25 = OpAccessChain %_ptr_StorageBuffer_uint %20 %int_0 %15
+%26 = OpLoad %uint %25
+%30 = OpIAdd %uint %15 %uint_64
+%31 = OpAccessChain %_ptr_StorageBuffer_uint %20 %int_0 %30
+%32 = OpLoad %uint %31
+%36 = OpUConvert %ulong %26
+%38 = OpUConvert %ulong %32
+%39 = OpIMul %ulong %36 %38
+%41 = OpShiftRightLogical %ulong %39 %int_32
+%42 = OpUConvert %uint %41
+OpStore %25 %42
+OpReturn
+OpFunctionEnd
+```
