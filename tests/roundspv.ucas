@@ -1,0 +1,51 @@
+# floor, ceil, trunc, round and roundEven of an f32 x within 2^22 by the
+# add of 1.5*2^23 (#165): (x + 1.5*2^23) - 1.5*2^23 rounds x to even, and
+# floor and ceil step back by one where that passed x; the add and the
+# subtraction are written NoContraction.  Under gt1030 (conv 3, fadd 1)
+# the roundings pay and floor does not; under sm86 (conv 8) all of them
+# do.  An x with no bound keeps its call, a trunc of an x of both signs
+# too, and every call of a module that keeps signed zeros.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float x = float(b.d[i] & 4095u) * 0.37, y = uintBitsToFloat(b.d[i + 64u]);
+    o.f[i] = roundEven(x);
+    o.f[i + 64u] = round(x - 700.0);
+    o.f[i + 128u] = floor(x);
+    o.f[i + 192u] = roundEven(y);
+}
+```
+simplify nofile nofunctions under sm86
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float x = float(b.d[i] & 4095u) * 0.37;
+    o.f[i] = floor(x);
+    o.f[i + 64u] = ceil(x - 700.0);
+    o.f[i + 128u] = trunc(x);
+    o.f[i + 192u] = trunc(-x);
+    o.f[i + 256u] = trunc(x - 700.0);
+}
+```
+simplify nofile nofunctions under sm86
+```glsl
+#version 450
+#extension GL_EXT_spirv_intrinsics : require
+spirv_execution_mode(extensions = ["SPV_KHR_float_controls"], capabilities = [4466], 4461, 32);
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o.f[i] = roundEven(float(b.d[i] & 4095u) * 0.37);
+}
+```
