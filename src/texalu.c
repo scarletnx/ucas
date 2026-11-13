@@ -2588,8 +2588,10 @@ texalu_command(struct P *p)
 			if (!cmdp_word(p, w, sizeof w) ||
 			    (m = model_find(sym_cstr(w))) == NULL)
 				fail("texalu: unknown model '%s' (see 'models')", w);
-		} else
+		} else {
 			cmdp_fail_here(p);
+			fail("texalu F [tol E] [model M]");
+		}
 	}
 	notes_flush();
 	model_set_active(m);
