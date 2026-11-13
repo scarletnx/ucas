@@ -171,7 +171,7 @@ enum {
 	O_SMAX2X16, O_LERP4X8, O_QSAD4X8, O_MQSAD4X8, O_MIN3, O_MAX3,
 	O_MINMAX, O_MAXMIN, O_MINADD, O_MAXADD, O_SAD, O_ADDSAT, O_SUBSAT,
 	O_LDEXP, O_FREXP_MANT, O_FREXP_EXP, O_CUBEID, O_CUBESC, O_CUBETC,
-	O_CUBEMA, O_TRIG_PREOP,
+	O_CUBEMA, O_TEX_CUBE, O_TRIG_PREOP,
 	/* a packed texel format's channel decoded from its 32-bit word, as
 	 * the texture unit reads it: unpack_b10g11r11(w, c) ... */
 	O_UNPACK_B10G11R11, O_UNPACK_E5B9G9R9, O_UNPACK_A2B10G10R10,
@@ -458,6 +458,8 @@ enum {
 	C_VMNMX, C_SAD32, C_ADDSAT, C_LDEXP, C_FREXP, C_CUBE, C_TRIGPREOP,
 	/* a texel fetch of a packed format (texalu.c), absent unless listed */
 	C_TEX_PACKED,
+	/* a cube map's read: the face the unit selects (texalu.c) */
+	C_TEX_CUBE,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT

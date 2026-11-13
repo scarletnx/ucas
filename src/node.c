@@ -161,6 +161,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_CUBESC] = {"cubesc", 3, 0},
 	[O_CUBETC] = {"cubetc", 3, 0},
 	[O_CUBEMA] = {"cubema", 3, 0},
+	[O_TEX_CUBE] = {"tex_cube", 3, 0},
 	[O_TRIG_PREOP] = {"trig_preop", 2, 0},
 	[O_UNPACK_B10G11R11] = {"unpack_b10g11r11", 2, 0},
 	[O_UNPACK_E5B9G9R9] = {"unpack_e5b9g9r9", 2, 0},

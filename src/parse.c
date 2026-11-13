@@ -358,6 +358,7 @@ static const struct bfn bfns[] = {
 	{"frexp_exp", O_FREXP_EXP, 1}, {"cubeid", O_CUBEID, 3},
 	{"cubesc", O_CUBESC, 3}, {"cubetc", O_CUBETC, 3},
 	{"cubema", O_CUBEMA, 3},
+	{"tex_cube", O_TEX_CUBE, 3},
 	{"trig_preop", O_TRIG_PREOP, 2},
 	{"unpack_b10g11r11", O_UNPACK_B10G11R11, 2},
 	{"unpack_e5b9g9r9", O_UNPACK_E5B9G9R9, 2},

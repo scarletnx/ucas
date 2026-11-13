@@ -1,0 +1,25 @@
+# A cube map's face selected by hand (src/texalu.c, seed_cube): a
+# selection among constants by comparisons of the coordinates, their
+# magnitudes and zero, equal to cubeid on the 729 points that take every
+# order of the magnitudes and every sign
+model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+model amd : texel { cube: 1 }
+model cub : texel { tex_cube: 6 }
+# the operation: no face for the zero vector
+show tex_cube(1.0, -2.0, 0.5)
+show tex_cube(2.0, -2.0, 0.5)
+show tex_cube(2.0, -2.0, -2.0)
+# the specification's preferred rule on ties: z, then y, then x
+face(x: f32, y: f32, z: f32) = abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? 5 : 4) : abs(y) >= abs(x) ? (y < 0 ? 3 : 2) : (x < 0 ? 1 : 0)
+texalu face under amd
+texalu face under cub
+# another rule on ties: the same face where one magnitude is the largest
+facex(x: f32, y: f32, z: f32) = abs(x) >= abs(y) && abs(x) >= abs(z) ? (x < 0 ? 1 : 0) : abs(y) >= abs(z) ? (y < 0 ? 3 : 2) : (z < 0 ? 5 : 4)
+texalu facex under amd
+# ranges where z's magnitude is the largest alone: the read
+facez(x: f32 in -1..1, y: f32 in -1..1, z: f32 in 1.5..4) = abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? 5 : 4) : abs(y) >= abs(x) ? (y < 0 ? 3 : 2) : (x < 0 ? 1 : 0)
+texalu facez under cub
+# a comparison with a constant other than 0 is not a face's
+notf(x: f32, y: f32, z: f32) = abs(z) >= 0.5 ? 4 : abs(y) >= abs(x) ? 2 : 0
+texalu notf under amd
+texalu face under texel
