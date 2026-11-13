@@ -674,6 +674,9 @@ static const struct jcmd cmds[] = {
 	    "and returned floats end in (unorm8, rgba8, r8g8b8a8_unorm, "
 	    "rgb10a2, f16): one step of it is the error budget; or int: a "
 	    "floor or an int() conversion may move its integer by one", NULL},
+	    {"texture", P_TEXT, 0, "", "\"S B\": the descriptor set and binding "
+	    "the host gives a constant table's texture; a read of it is then "
+	    "written through the texture unit (without it, proposed)", NULL},
 	    BO("functions", "", "GLSL: the function-level pass alone (true) or "
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
@@ -2533,6 +2536,15 @@ cmd_spirv(struct req *r, const char **code)
 				return bad(r, "bad_request", "sink: a format's name "
 				    "(letters, digits, _)");
 		sb_printf(&r->stmt, " sink %s", v->s);
+	}
+	if ((v = jv_get(r->args, "texture")) != NULL) {
+		unsigned a, b;
+		char extra;
+		if (v->t != J_STR || sscanf(v->s, "%u %u %c", &a, &b, &extra) != 2 ||
+		    a > 65535 || b > 65535)
+			return bad(r, "bad_request", "texture: \"SET BINDING\", two "
+			    "whole numbers from 0 to 65535");
+		sb_printf(&r->stmt, " texture set %u binding %u", a, b);
 	}
 	if ((v = jv_get(r->args, "functions")) != NULL)
 		sb_puts(&r->stmt, v->t == J_TRUE ? " functions" : " nofunctions");

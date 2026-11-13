@@ -10386,6 +10386,7 @@ float_pass(const char *text, int *changed)
 #include "spv_dword.inc"	/* fp64 as f32 pairs, the driver's folds */
 #include "spv_mem.inc"	/* memory kinds: what their prices make worth doing */
 #include "spv_sg.inc"	/* subgroups: run, priced, and written by simplify */
+#include "spv_tex.inc"	/* constant table reads through the texture unit */
 
 /* ---- advice: values that change less often than the shader runs ---- */
 
@@ -12525,7 +12526,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		int line, algebra, trivial, dot;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	struct dotlog dotl[32], idl[32], sgl[32];
-	int ndotlog = 0, nidlog = 0, nsglog = 0;
+	int ndotlog = 0, nidlog = 0, nsglog = 0, ntex = 0, ntexw = 0;
+	struct texrd trd[16];
+	struct sbuf texrep = {0};
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
@@ -12569,6 +12572,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		memset(&V, 0, sizeof V);
 		spirv_float_opts(0, 0, 0, 0, 0, 0, 1);
 		spirv_sink_opt(NULL);
+		spirv_tex_binding(-1, -1);
 		advice_on = 0;
 		fnl_mode = 0;
 		return;
@@ -12673,6 +12677,14 @@ spirv_simplify(const char *src, double budget, int nofile)
 			before += idot_cost(&V.in[k], &cls);
 		}
 	before += sg_total(0);
+	/* constant table reads through the texture unit, first: the index's
+	 * remainder as written is what they replace (the division pass below
+	 * would make it a multiply that SAT then has to see through); written
+	 * with the request's binding, proposed without it */
+	ntex = tex_pass(&texrep, trd, 16);
+	for (i = 0; i < ntex; i++)
+		ntexw += trd[i].written;
+	ndead += tex_nkilled;
 	/* divisions by a constant of a bounded dividend, under the model:
 	 * first, so that a signed one is not left as an unsigned division */
 	{
@@ -12896,10 +12908,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	/* the module, rewritten */
 	{
-		int first_fn = -1, last_cap = -1;
-		for (k = 0; k < SP.orig_nin; k++)
+		int first_fn = -1, last_cap = -1, first_type = -1;
+		for (k = 0; k < SP.orig_nin; k++) {
 			if (!strcmp(V.in[k].op, "OpCapability"))
 				last_cap = k;
+			if (first_type < 0 && !strncmp(V.in[k].op, "OpType", 6))
+				first_type = k;
+		}
 		for (k = 0; k < V.nin; k++)
 			if (!strcmp(V.in[k].op, "OpFunction")) {
 				first_fn = k;
@@ -12910,6 +12925,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 			int subst = 0;
 			if (k == first_fn)
 				sg_types_out(&out);
+			if (k == first_fn && tex_decl.n)
+				sb_puts(&out, tex_decl.p);
+			if (k == first_type && tex_annot.n)
+				sb_puts(&out, tex_annot.p);
 			if (k == first_fn)
 				for (i = 0; i < SP.nmxty; i++)
 					sb_printf(&out, "%s = OpTypeStruct %s %s\n",
@@ -12938,6 +12957,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 				dot_caps_out(&out);
 			if (sgcaps && k == last_cap + 1)
 				sg_caps_out(&out);
+			if (tex_cap && k == last_cap + 1)
+				sb_puts(&out, "OpCapability Sampled1D\n");
 			{
 				int q;
 				for (q = SP.orig_nin; q < V.nin; q++)
@@ -13011,6 +13032,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (nsglog)
 			printf(", %d sum%s of bits over the lanes made a ballot's bit "
 			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
+		if (ntexw)
+			printf(", %d table read%s made a read through the texture "
+			    "unit (below)", ntexw, ntexw == 1 ? "" : "s");
 		printf(", %d dead instruction%s removed\n", ndead,
 		    ndead == 1 ? "" : "s");
 	}
@@ -13320,9 +13344,27 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 	}
 	free(sgrep.p);
+	if (texrep.n)
+		fputs(texrep.p, stdout);
+	free(texrep.p);
+	if (ntex) {
+		rep_list("texture_reads");
+		for (i = 0; i < ntex; i++) {
+			rep_obj(NULL);
+			rep_str("from", trd[i].from);
+			rep_str("mode", tm_name[trd[i].mode]);
+			rep_str("format", tex_format(trd[i].elt, trd[i].lo, trd[i].hi));
+			rep_int("texels", trd[i].n);
+			rep_num("cost_before", trd[i].before);
+			rep_num("cost_after", trd[i].after);
+			rep_bool("written", trd[i].written);
+			rep_end();
+		}
+		rep_end();
+	}
 	if (SP.nval) {
-		/* a struct type and its extracts the module may not have had:
-		 * what spirv-val says of them */
+		/* a struct type and its extracts, or a texture, the module may
+		 * not have had: what spirv-val says of them */
 		char why[200];
 		int v = dw_validate(out.p ? out.p : "", why, sizeof why);
 		if (v == 1)
@@ -13417,11 +13459,11 @@ spirv_simplify(const char *src, double budget, int nofile)
 		else if (fch)
 			deliver_file("simplified.spvasm", "text/plain", ft, strlen(ft),
 			    nofile);
-		else if (nrw + ndead > 0)
+		else if (nrw + ndead + ntexw > 0)
 			deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
 			    nofile);
 		/* spirv-cross's GLSL of it, beside spirv-opt -O's */
-		if (fch || ncv || nrw + ndead > 0)
+		if (fch || ncv || nrw + ndead + ntexw > 0)
 			spvcross_after_simplify(orig_mod, ncv ? cvt : fch ? ft : out.p,
 			    nofile);
 		free(cvt);
@@ -13437,6 +13479,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	free(out.p);
 	spirv_float_opts(0, 0, 0, 0, 0, 0, 1);
 	spirv_sink_opt(NULL);
+	spirv_tex_binding(-1, -1);
 	advice_on = 0;
 	fnl_mode = 0;
 }

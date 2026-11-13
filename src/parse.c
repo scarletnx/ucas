@@ -2970,6 +2970,29 @@ statement(struct P *p)
 				}
 				else if (accept_kw(p, "advice"))
 					spirv_advice_opt(1);
+				else if (accept_kw(p, "texture")) {
+					/* the descriptor the host binds a table's texture
+					 * at: the read is written into the module */
+					long sv[2];
+					int j;
+					for (j = 0; j < 2; j++) {
+						nid nn;
+						double v;
+						if (!accept_kw(p, j ? "binding" : "set") ||
+						    pk(p) != T_NUM)
+							fail("simplify: texture set S binding B, the "
+							    "descriptor set and binding the host gives "
+							    "the table's texture");
+						nn = number(p);
+						v = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+						if (!(v >= 0) || v > 65535 || v != floor(v))
+							fail("simplify: texture %s is a whole number "
+							    "from 0 to 65535, not %g", j ? "binding" :
+							    "set", v);
+						sv[j] = (long)v;
+					}
+					spirv_tex_binding((int)sv[0], (int)sv[1]);
+				}
 				else if (accept_kw(p, "sink")) {
 					char fm[48];
 					int got = cmdp_word(p, fm, sizeof fm);

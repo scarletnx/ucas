@@ -3946,9 +3946,34 @@ its reason.  In English: "what can the texture unit compute of f",
 Not done: texels split between taps (a 3 x 3 kernel in four reads),
 trilinear and anisotropic filters, mip levels as means, min/max and
 compare samplers, gather, array layers, sRGB and the other formats
-(R16, half floats), normalised coordinates for the filters, and SPIR-V
-written for a read (a module cannot add its own binding).  None of
-those has a measured price yet either.
+(R16, half floats) and normalised coordinates for the filters.  None
+of those has a measured price yet either.
+
+**In a SPIR-V module.**  `simplify` finds a constant table read in the
+module: an OpLoad through an OpAccessChain into a Function or Private
+array whose one store (or a Private one's initializer) is a constant
+composite.  Its index is tried as
+REPEAT, MIRRORED_REPEAT, CLAMP_TO_EDGE and MIRROR_CLAMP_TO_EDGE of each
+of its subterms i (through the integer instructions under it), each
+identity proved by SAT wherever the read is defined (0 <= index < n),
+and |i| proved by SAT within the reach of the coordinate (f32(i) +
+0.5) * f32(1/n), as above.  The read is kept where tex_nearest, a
+conversion, an add and a multiply cost less than the load and what
+goes dead of the index under it (a remainder by a constant, mostly).
+A module cannot add a binding the host does not give, so the read is
+proposed, with the texture (its format from the entries' range: R8,
+R16 or R32, UINT or SINT, or R32_SFLOAT), the sampler and the
+contents; `simplify ... texture set S binding B` (in English, "the
+table's texture at set 0 binding 3"; JSON and MCP `"texture": "S
+B"`) writes it: a combined image sampler at that descriptor (a 1D image
+of the table's element type, OpCapability Sampled1D, the variable in
+the entry point's interface where SPIR-V 1.4 lists every global), and
+OpImageSampleExplicitLod at lod 0 in place of the load, and simplify
+says what spirv-val makes of the module.  One binding is one texture:
+the table with the largest saving takes it, and the others are
+proposed.  Under a model that does not list tex_nearest or state
+subtexel the word is answered with why nothing is written
+(tests/texspv.ucas).
 
 ### Tables as compressed textures
 

@@ -8666,6 +8666,7 @@ simplify_piece(struct sbuf *piece, int c)
 	char ulp[32] = "", num[32] = "", fl[320] = "", sink[48] = "";
 	char tol[40] = "";	/* "tol 1e-12", "atol 0.001": f64 results */
 	int f_foldproof = 0, tolabs = 0, want_tol = 0, f_sinkint = 0;
+	char texbind[32] = "";
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	int f_search = 0;	/* "with simulated annealing", "using cma-es" */
@@ -8884,6 +8885,18 @@ simplify_piece(struct sbuf *piece, int c)
 			if (strstr(h, "foldproof") || strstr(h, "fold-proof") ||
 			    strstr(h, "fold proof"))
 				f_foldproof = 1;
+			/* `texture set S binding B`: the descriptor a table's
+			 * texture is bound at */
+			{
+				const char *ts = h;
+				while (!texbind[0] && (ts = strstr(ts, "set ")) != NULL) {
+					unsigned a, b;
+					if ((ts == h || !isalnum((unsigned char)ts[-1])) &&
+					    sscanf(ts, "set %u binding %u", &a, &b) == 2)
+						snprintf(texbind, sizeof texbind, "%u %u", a, b);
+					ts += 4;
+				}
+			}
 			/* `sink int`, "the integer may be off by one" */
 			if (strstr(h, "off by one") || strstr(h, "off-by-one"))
 				f_sinkint = 1;
@@ -8909,6 +8922,12 @@ simplify_piece(struct sbuf *piece, int c)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink %s", sink);
 	if (f_sinkint)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink int");
+	if (texbind[0]) {
+		unsigned a = 0, b = 0;
+		sscanf(texbind, "%u %u", &a, &b);
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " texture set %u "
+		    "binding %u", a, b);
+	}
 	if (f_advice && !c)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " advice");
 	/* rebuild: directives kept, the text on one line, blank lines after */

@@ -796,6 +796,9 @@ int spirv_sink_opt(const char *fmt);	/* NULL: none; 0: not a known sink */
 /* `sink int`: a floor or a conversion to an integer may move the integer
  * by one (cleared with the format, by spirv_sink_opt(NULL)) */
 void spirv_sink_int(void);
+/* `texture set S binding B`: a constant table read simplify finds goes
+ * through the texture unit at that descriptor (-1, -1: proposed only) */
+void spirv_tex_binding(int set, int binding);
 int spirv_sink_known(const char *fmt);
 void spirv_advice_opt(int on);	/* report what could leave the shader */
 void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */

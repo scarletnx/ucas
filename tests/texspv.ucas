@@ -1,0 +1,91 @@
+# A constant table read in a SPIR-V module through the texture unit
+# (#103): the table's index is an address mode of a subterm i (proved by
+# SAT where the read is defined: 0 <= index < n), |i| within the reach of
+# an f32 coordinate (proved by SAT), and the read cheaper as a conversion,
+# an add, a multiply and a nearest read.  `texture set S binding B` (the
+# descriptor the host binds the table's texture at) writes it; without
+# it the read is proposed.
+model cal : gt1030 { tex_nearest: 5, tex_within: 2, sremk: 21 }
+# proposed: REPEAT, i = v & 0xffff
+simplify nofile nofunctions under cal
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+const uint K[7] = uint[](10u, 20u, 30u, 40u, 50u, 60u, 70u);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    b.d[i] = K[(v & 0xFFFFu) % 7u];
+}
+```
+# written at set 0 binding 3, and spirv-val asked
+simplify nofile nofunctions under cal texture set 0 binding 3
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+const uint K[7] = uint[](10u, 20u, 30u, 40u, 50u, 60u, 70u);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    b.d[i] = K[(v & 0xFFFFu) % 7u];
+}
+```
+# a signed table and MIRROR (min(i % 14, 13 - i % 14) on an int; cal
+# prices the signed remainder by a constant, which gt1030 leaves out), and
+# a second table: one binding is one texture, the other read is proposed
+simplify nofile nofunctions under cal texture set 1 binding 0
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int d[]; } b;
+const int S[7] = int[](-3, -2, -1, 0, 1, 2, 3);
+const int T[5] = int[](100, 200, 300, 400, 500);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    int v = b.d[i] >> 12;
+    int r = v % 14;
+    uint w = uint(b.d[i + 64u]);
+    b.d[i] = S[min(r, 13 - r)] + T[(w & 0xFFFFu) % 5u];
+}
+```
+# an index of full range: its coordinate would not be exact, so nothing
+simplify nofile nofunctions under cal texture set 0 binding 3
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+const uint K[7] = uint[](10u, 20u, 30u, 40u, 50u, 60u, 70u);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    b.d[i] = K[b.d[i] % 7u];
+}
+```
+# under gt1030 (no tex_nearest) the word is answered with why nothing is
+# written
+simplify nofile nofunctions under gt1030 texture set 0 binding 3
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+const uint K[7] = uint[](10u, 20u, 30u, 40u, 50u, 60u, 70u);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    b.d[i] = K[(v & 0xFFFFu) % 7u];
+}
+```
+# in English
+simplify this shader under cal with the table's texture at set 2 binding 1, nofile nofunctions
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+const uint K[7] = uint[](10u, 20u, 30u, 40u, 50u, 60u, 70u);
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    b.d[i] = K[(v & 0xFFFFu) % 7u];
+}
+```
