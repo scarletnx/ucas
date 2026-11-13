@@ -21,3 +21,7 @@ libsnxglslc.a
 snx_*.o
 ai_usage.inc
 ai_usage_short.inc
+
+# CMake build directories
+build/
+build-*/
