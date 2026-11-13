@@ -234,3 +234,41 @@ void main() {
     col = vec4(a, b, 0.0, 1.0);
 }
 ```
+# a point sprite's coordinate (gl_FragCoord - c) / s + 0.5, c and s of one
+# primitive, is gl_PointCoord when the draw is points: as a vector divided
+# by a flat size, per component times a push constant's reciprocal (either
+# order of the add); with a smooth centre it is not one
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) flat in vec2 center;
+layout(location = 1) flat in float size;
+layout(location = 0) out vec4 col;
+void main() {
+    vec2 pc = (gl_FragCoord.xy - center) / size + 0.5;
+    col = vec4(pc, 0.0, 1.0);
+}
+```
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) flat in vec2 center;
+layout(push_constant) uniform PC { float inv; } pc;
+layout(location = 0) out vec4 col;
+void main() {
+    float u = (gl_FragCoord.x - center.x) * pc.inv + 0.5;
+    float v = 0.5 + (gl_FragCoord.y - center.y) * pc.inv;
+    col = vec4(u, v, 0.0, 1.0);
+}
+```
+simplify advice nofile
+```glsl
+#version 450
+layout(location = 0) in vec2 center;
+layout(location = 1) flat in float size;
+layout(location = 0) out vec4 col;
+void main() {
+    vec2 pc = (gl_FragCoord.xy - center) / size + 0.5;
+    col = vec4(pc, 0.0, 1.0);
+}
+```

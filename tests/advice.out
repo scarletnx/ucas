@@ -107,7 +107,7 @@ float simplify: 1 rewrite of float instructions applied, each with a derivation 
         bound against the reference: 1 ulp
         (line 6: o[i] = o[i] * 2.0 + 1.0;)
   (nofile: simplified.spvasm, 1947 bytes, checksum cf641804)
-advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, or is a discard the clipper could do
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, or is a point sprite's coordinate
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile advice
@@ -303,3 +303,56 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 5 -> 5 (+0.0%)
   nothing applied: no cheaper float form could be proved
 recognised in the inputs (nothing is proposed for them): per-vertex %w (the three vertices' values); the barycentrics %gl_BaryCoordNoPerspEXT (noperspective); the interpolation of %w by them at line 6 (what a noperspective varying is)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 59 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %35: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 10 -> 10 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+recognised in the inputs (nothing is proposed for them): flat %center, %size (the provoking vertex's value, one a primitive)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  point sprite coordinates the rasteriser makes (each a proposal: the draw as points, gl_PointSize the size in the vertex shader and the point at the centre, within the device's pointSizeRange; the shader reads gl_PointCoord):
+    %27 = OpFAdd %v2float %24 %36
+        (line 6: vec2 pc = (gl_FragCoord.xy - center) / size + 0.5;)
+      (gl_FragCoord.xy - %center) / %size + 0.5 is gl_PointCoord.xy for points of size %size centred at %center: 10 a pixel less (the subtract, the divide and the add)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %52: 4 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+recognised in the inputs (nothing is proposed for them): flat %center (the provoking vertex's value, one a primitive)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  point sprite coordinates the rasteriser makes (each a proposal: the draw as points, gl_PointSize the size in the vertex shader and the point at the centre, within the device's pointSizeRange; the shader reads gl_PointCoord):
+    %34 = OpFAdd %float %32 %float_0_5
+        (line 6: float u = (gl_FragCoord.x - center.x) * pc.inv + 0.5;)
+      (gl_FragCoord.x - %center[0]) * %pc[0] + 0.5 is gl_PointCoord.x for points of size 1 / %pc[0] centred at %center[0]: 3 a pixel less (the subtract, the multiply and the add)
+    %45 = OpFAdd %float %float_0_5 %44
+        (line 7: float v = 0.5 + (gl_FragCoord.y - center.y) * pc.inv;)
+      (gl_FragCoord.y - %center[1]) * %pc[0] + 0.5 is gl_PointCoord.y for points of size 1 / %pc[0] centred at %center[1]: 3 a pixel less (the subtract, the multiply and the add)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %35: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 10 -> 10 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+recognised in the inputs (nothing is proposed for them): flat %size (the provoking vertex's value, one a primitive)
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, or is a point sprite's coordinate
