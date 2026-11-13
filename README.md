@@ -5282,8 +5282,46 @@ original's.  Under gt1030 (x - 1)^5 + 0.5 by Horner on [0.9, 1.1] into
 a 16-bit target: as written up to 2.16e-05 against a step of 1.53e-05,
 compensated 2.4e-06, at 51 against 9; sampled, 9.3e-07 and 3e-08
 (tests/sinkcomp.ucas).  `scheme F more` gives the same forms for a
-function, and Kahan's sum for a loop's accumulator (fsimp does not see
-loops: that offer is not made here).
+function, and Kahan's sum for a loop's accumulator.
+
+A loop's f32 sum read under the sink is asked the same question.  An
+f32 phi of a loop's header that starts at s0 before the loop and takes
+s + t (t + s, s - t) from the continue target, t not reading s and the
+add read by the phi alone, in a loop of constant passes n (a break only
+leaves sooner), with s0's and t's ranges finite, is an input whose
+exact partial sums S(k) lie in [s0lo + k tlo, s0hi + k thi].  Each add
+rounds, fl(a + b) = (a + b)(1 + d), |d| <= u, plus 2^-126 for a result
+or an operand a GPU may flush.  As written the sum is off the exact sum
+of its f32 terms by e(k) <= e(k-1) (1 + u) + u |S(k)|.  Kahan's
+compensated sum (y = t - c, w = s + y, c = (w - s) - y, s = w) carries
+s - c, off by E(k) <= E(k-1) + u (2 + 2u + u^2) A + u^2 (2 + u) B, where
+A = |t - c| <= |t| + C(k-1), B = |s + y| <= |S(k)| + E(k-1) + u A, and
+|c| <= C(k) = u (1 + u)^2 (A + B); s itself is off by E + C.  One pass,
+with y = (t - c)(1 + d1), w = (s + y)(1 + d2), z = (w - s)(1 + d3) and
+c' = (z - y)(1 + d4): w - c' = (s - c) + t + (t - c) d1 - (w - s) d3 -
+(z - y) d4, w - s = y + (s + y) d2, z - y = (s + y) d2 + (w - s) d3, and
+s + y = S(k) + (s - c - S(k-1)) + (t - c) d1.  Both bounds are the most
+over the passes, so a partial sum read in the loop is covered too, and
+the partial sums widened by e are the range the rest of the float pass
+reads.  Where e, carried to the stored value, passes the budget and E +
+C fits, Kahan's sum is offered with its price, four adds a pass against
+one, each to be written precise (NoContraction, so that a driver may
+not fold c to 0); otherwise the line says which side of the step the
+sum is on, and a sum of that shape with no bound says why (a term with
+no range, one that reads the sum, passes that are not a constant).  An
+average of 1024 values in [0, 1] into a 16-bit target, under gt1030: as
+written up to 0.0313 on the sum, 3.1e-05 at the stored value against a
+step of 1.53e-05; Kahan's 0.000183 and 6.56e-07, 4 a pass against 1.
+In C, a row whose every add rounds up reaches 2.03e-05 at the stored
+value as written and 1.98e-08 compensated; 20000 random rows, 9.28e-07
+and 2.98e-08.  64 values stay within a step (tests/sinkkahan.ucas).  The
+bounds were checked in 6- to 13-bit floats against the exact sums of
+random sequences of up to 4000 terms (uniform, of mixed magnitudes,
+sorted either way, one large term then small ones) and of every
+sequence of up to 4 terms of 4- to 6-bit floats: no error above its
+bound, the worst 0.90 of the bound as written and 0.79 of Kahan's.  Not
+yet: vector sums (the float ranges are per scalar), a term whose range
+comes from the loop's counter.
 
 ```
 simplify float c in [0, 1] sink unorm8

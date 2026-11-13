@@ -8335,6 +8335,22 @@ pack_format(const struct sins *I)
 
 static double fprice_ins(const char *op, const char *ext, int rt);
 
+/*
+ * The loops' f32 sums (lsum_of), found by the integer pass, where the
+ * ranges and SAT can run, and read by the float pass by the phi's name
+ */
+struct lsum {
+	char s[40], t[40];	/* the phi's and the term's names */
+	char src[160];		/* the add's source line, or "" */
+	int64_t n;		/* the loop's passes */
+	double tlo, thi;	/* the term's range (s - t: -t's) */
+	double lo, hi;		/* every partial sum as written */
+	double plain, kahan;	/* the adds' rounding against the exact sum */
+	char why[160];		/* a sum with no bound: why, else "" */
+};
+static struct lsum lsums[32];
+static int nlsums;
+
 /* float arithmetic under a value put together from lanes (a construct,
  * a shuffle, an extract or a copy of one) */
 static int
@@ -8357,6 +8373,33 @@ float_under(int v, int depth)
 		return 0;
 	for (i = 1; i < I->nop; i++)
 		if (I->opnd[i][0] == '%' && float_under(idx(I->opnd[i]), depth + 1))
+			return 1;
+	return 0;
+}
+
+/* a loop's f32 sum (lsums) under a value put together from lanes: a root
+ * when a sink asks how far its adds' rounding takes the stored value */
+static int
+lsum_under(int v, int depth)
+{
+	const struct sins *I;
+	int i;
+
+	if (v < 0 || SP.def[v] < 0 || depth > 8)
+		return 0;
+	I = &V.in[SP.def[v]];
+	if (!strcmp(I->op, "OpPhi")) {
+		for (i = 0; i < nlsums; i++)
+			if (!strcmp(lsums[i].s, V.id[v].tok))
+				return 1;
+		return 0;
+	}
+	if (strcmp(I->op, "OpCompositeConstruct") && strcmp(I->op,
+	    "OpVectorShuffle") && strcmp(I->op, "OpCompositeExtract") &&
+	    strcmp(I->op, "OpCopyObject"))
+		return 0;
+	for (i = 1; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && lsum_under(idx(I->opnd[i]), depth + 1))
 			return 1;
 	return 0;
 }
@@ -8547,6 +8590,7 @@ fx_new(struct fxg *g, int op, int a, int b, int c, int ins, int sid)
 	return g->nn++;
 }
 
+
 static int fx_build(struct fxg *g, int id, int lane, int depth);
 
 static int
@@ -8577,6 +8621,36 @@ fx_leaf(struct fxg *g, int id, int lane)
 		    INFINITY, 1);
 		if (in < 0)
 			return -1;
+		/* a loop's sum: the range its partial sums take as written,
+		 * and its rounding as written and compensated, for the sink */
+		if (!g->in[in].assumed && !g->in[in].lsum_n) {
+			const struct model *m = model_active();
+			int q;
+			for (q = 0; q < nlsums; q++) {
+				const struct lsum *L = &lsums[q];
+				struct fxin *f = &g->in[in];
+				if (strcmp(L->s, V.id[id].tok))
+					continue;
+				snprintf(f->lsum_s, sizeof f->lsum_s, "%s", L->s);
+				snprintf(f->lsum_src, sizeof f->lsum_src, "%s", L->src);
+				if (L->why[0]) {
+					snprintf(f->lsum_why, sizeof f->lsum_why, "%s",
+					    L->why);
+					continue;
+				}
+				f->lo = (float)L->lo;
+				f->hi = (float)L->hi;
+				f->nan = 0;
+				f->lsum_n = (long)L->n;
+				f->lsum_plain = L->plain;
+				f->lsum_kahan = L->kahan;
+				f->lsum_cost = m->c[C_FADD];
+				f->lsum_kcost = 4 * m->c[C_FADD];
+				f->lsum_tlo = L->tlo;
+				f->lsum_thi = L->thi;
+				snprintf(f->lsum_t, sizeof f->lsum_t, "%s", L->t);
+			}
+		}
 		n = fx_new(g, FX_IN, -1, -1, -1, -1, id);
 	}
 	if (n >= 0)
@@ -9520,7 +9594,8 @@ float_pass(const char *text, int *changed)
 		/* a stored value is usually put together from its lanes: the
 		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
-		    !float_under(v, 0))
+		    !(float_under(v, 0) || (!disc && (imgfmt || fsink.abs > 0 ||
+		    fsink.rel > 0) && lsum_under(v, 0))))
 			continue;
 		/* a value compared or converted twice is one such root; one
 		 * also stored is a root both ways, and a rewrite of what they
@@ -12697,6 +12772,183 @@ f_range(int id, int depth)
 	return r;
 }
 
+/* does id's definition read s (through operands, within depth) */
+static int
+lsum_reads(int id, int s, int depth, uint8_t *seen)
+{
+	const struct sins *I;
+	int o;
+
+	id = res_of(id);
+	if (id == s)
+		return 1;
+	if (seen[id] || SP.def[id] < 0)
+		return 0;
+	if (depth > 64)
+		return 1;
+	seen[id] = 1;
+	I = &V.in[SP.def[id]];
+	for (o = 0; o < I->nop; o++)
+		if (I->opnd[o][0] == '%' && idx(I->opnd[o]) >= 0 &&
+		    lsum_reads(idx(I->opnd[o]), s, depth + 1, seen))
+			return 1;
+	return 0;
+}
+
+/*
+ * A loop's f32 sum (#47): id is an f32 phi of a structured loop's
+ * header, s0 from before the loop and s + t (t + s, s - t) from the
+ * continue target, that add read by the phi alone and t not reading s;
+ * the loop's passes a constant n (a break leaves sooner: fewer adds, and
+ * every bound below grows with the passes).  With s0's and t's ranges
+ * finite, the exact partial sums of the f32 terms are S(k) in [s0lo + k
+ * tlo, s0hi + k thi].  Each add rounds, fl(a + b) = (a + b)(1 + d), |d|
+ * <= u, and 2^-126 more for a result or an operand a GPU may flush to 0.
+ * As written, e(k) <= e(k-1) (1 + u) + u |S(k)|.  Kahan's compensated
+ * sum, y = t - c, w = s + y, c = (w - s) - y, s = w: s - c is off by
+ * E(k) <= E(k-1) + u (2 + 2u + u^2) A + u^2 (2 + u) B, with A = |t - c|
+ * <= |t| + C(k-1), B = |s + y| <= |S(k)| + E(k-1) + u A, and |c| <= C(k)
+ * = u (1 + u)^2 (A + B); s itself by E(k) + C(k).  The bounds are the
+ * most over k (a partial sum read in the loop).  1; -1 for a sum of
+ * that shape with no bound (L->why); 0 when it is not one
+ */
+static int
+lsum_of(int id, struct lsum *L)
+{
+	const double u = 0x1p-24, fl = 0x1p-126, up = 1 + 0x1p-40;
+	int kp, lb, k, h = -1, mg = -1, ct = -1, i, s0 = -1, nx = -1, t, sub = 0;
+	int iv = -1;
+	int64_t n, iv0, ivd;
+	const struct sins *P, *A;
+	struct frng f0, ft;
+	double e = 0, E = 0, C = 0, mp = 0, mk = 0, xm, lo, hi;
+	uint8_t *seen;
+
+	id = res_of(id);
+	kp = SP.def[id];
+	if (kp < 0 || strcmp(V.in[kp].op, "OpPhi") || V.in[kp].nop != 5 ||
+	    scalar_float_w(idx(V.in[kp].opnd[0])) != 32)
+		return 0;
+	P = &V.in[kp];
+	/* its block, and the block's loop merge */
+	for (lb = kp; lb >= 0 && strcmp(V.in[lb].op, "OpLabel"); lb--)
+		;
+	if (lb < 0)
+		return 0;
+	h = V.in[lb].res;
+	for (k = lb + 1; k < V.nin; k++) {
+		const char *op = V.in[k].op;
+		if (!strcmp(op, "OpLoopMerge") && V.in[k].nop >= 2) {
+			mg = idx(V.in[k].opnd[0]);
+			ct = idx(V.in[k].opnd[1]);
+			break;
+		}
+		if (!strcmp(op, "OpLabel") || !strcmp(op, "OpBranch") ||
+		    !strcmp(op, "OpBranchConditional") || !strcmp(op, "OpSwitch") ||
+		    !strncmp(op, "OpReturn", 8))
+			break;
+	}
+	if (h < 0 || mg < 0 || ct < 0)
+		return 0;
+	for (i = 1; i + 1 < P->nop; i += 2)
+		if (idx(P->opnd[i + 1]) == ct)
+			nx = res_of(idx(P->opnd[i]));
+		else
+			s0 = res_of(idx(P->opnd[i]));
+	if (nx < 0 || s0 < 0 || SP.def[nx] < 0 || SP.uses[nx] != 1)
+		return 0;
+	A = &V.in[SP.def[nx]];
+	if (A->nop != 3 || (strcmp(A->op, "OpFAdd") && strcmp(A->op, "OpFSub")))
+		return 0;
+	if (res_of(idx(A->opnd[1])) == id)
+		t = res_of(idx(A->opnd[2]));
+	else if (!strcmp(A->op, "OpFAdd") && res_of(idx(A->opnd[2])) == id)
+		t = res_of(idx(A->opnd[1]));
+	else
+		return 0;
+	sub = A->op[3] == 'S';
+	if (t == id)
+		return 0;
+	memset(L, 0, sizeof *L);
+	snprintf(L->s, sizeof L->s, "%s", V.id[id].tok);
+	snprintf(L->t, sizeof L->t, "%s", V.id[t].tok);
+	src_line(ins_line(SP.def[nx]), L->src, sizeof L->src);
+	seen = xcalloc((size_t)V.nid + 1, 1);
+	i = lsum_reads(t, id, 0, seen);
+	free(seen);
+	if (i) {
+		snprintf(L->why, sizeof L->why, "the term %s reads the sum, so "
+		    "the terms are not the loop's own", L->t);
+		return -1;
+	}
+	n = loop_trips_iv(h, mg, ct, &iv, &iv0, &ivd);
+	if (n < 1 || n > (1 << 24)) {
+		snprintf(L->why, sizeof L->why, "the loop's passes are not a "
+		    "constant (i from a constant, i < K or i <= K, i + a constant)%s",
+		    n > (1 << 24) ? " up to 2^24" : "");
+		return -1;
+	}
+	f0 = f_range(s0, 0);
+	ft = f_range(t, 0);
+	if (!f0.ok || !isfinite(f0.lo) || !isfinite(f0.hi) || !ft.ok ||
+	    !isfinite(ft.lo) || !isfinite(ft.hi)) {
+		snprintf(L->why, sizeof L->why, "%s %s has no finite range from "
+		    "its definitions and the assumptions", ft.ok &&
+		    isfinite(ft.lo) && isfinite(ft.hi) ? "its start" : "the term",
+		    ft.ok && isfinite(ft.lo) && isfinite(ft.hi) ? V.id[s0].tok :
+		    L->t);
+		return -1;
+	}
+	if (sub) {
+		double q = ft.lo;
+		ft.lo = -ft.hi;
+		ft.hi = -q;
+	}
+	xm = fmax(fabs(ft.lo), fabs(ft.hi));
+	if (!(fmax(fabs(f0.lo), fabs(f0.hi)) + (double)n * xm < 0x1p100)) {
+		snprintf(L->why, sizeof L->why, "its partial sums may reach 2^100");
+		return -1;
+	}
+	for (k = 1; k <= n; k++) {
+		double Sk = fmax(fabs(f0.lo + k * ft.lo), fabs(f0.hi + k * ft.hi)),
+		    a, b;
+		/* as written: one add */
+		e = (e * (1 + u) + u * Sk + 2 * fl) * up;
+		mp = fmax(mp, e);
+		/* compensated: four adds */
+		a = xm + C;
+		b = Sk + E + u * a;
+		E = (E + u * (2 + 2 * u + u * u) * a + u * u * (2 + u) * b + 8 *
+		    fl) * up;
+		C = (u * (1 + u) * (1 + u) * (a + b) + 2 * fl) * up;
+		mk = fmax(mk, E + C);
+	}
+	lo = f0.lo + fmin(0, n * ft.lo) - mp;
+	hi = f0.hi + fmax(0, n * ft.hi) + mp;
+	L->n = n;
+	L->tlo = ft.lo;
+	L->thi = ft.hi;
+	L->lo = f_down(lo);
+	L->hi = f_up(hi);
+	L->plain = mp;
+	L->kahan = mk;
+	(void)iv;
+	return 1;
+}
+
+/* every f32 phi that is a loop's sum, for the float pass */
+static void
+lsum_pass(void)
+{
+	int k;
+
+	nlsums = 0;
+	for (k = 0; k < SP.orig_nin && nlsums < 32; k++)
+		if (!SP.dead[k] && !strcmp(V.in[k].op, "OpPhi") && V.in[k].res >= 0 &&
+		    lsum_of(V.in[k].res, &lsums[nlsums]) != 0)
+			nlsums++;
+}
+
 static struct cvx {
 	char res[40], rt[40], x[40], xt[40], op[40], k[40], kt[40];
 	char from[160], src[160];
@@ -14058,6 +14310,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
 	ncvx = 0;
+	nlsums = 0;
 	dotcaps = 0;
 	memset(&dotund, 0, sizeof dotund);
 	sg_simplify_reset();
@@ -14355,6 +14608,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	/* conversions of integers to f32 by the bits: decided here, written
 	 * after the passes that read conversions */
 	i2f_pass();
+	/* the loops' f32 sums, for the float pass's sink */
+	lsum_pass();
 	/* subgroup forms that need the pipeline's subgroup size: said */
 	sg_proposals(&sgprop);
 	/* a branch in a loop the lanes could be packed for: advice */
@@ -14962,6 +15217,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
 		fopt_nofile = nofile;
 		ft = float_pass(out.p ? out.p : "", &fch);
+		nlsums = 0;	/* this module's */
 		/* f64 over f32 and folded round trips, on what that left */
 		dt = dword_pass(fch ? ft : out.p ? out.p : "", &dch);
 		if (dch) {
