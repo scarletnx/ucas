@@ -1,0 +1,15 @@
+# nodesat: an operand's definedness when its value is the circuit's first
+# (index 0).  A loop takes its value before its body, so a loop read first
+# is that value; here it is undefined at n >= 32 (a shift by the width).
+# f is defined only where n < 32, and g is equal there: proved by SAT.
+f(x: u32, n: u32) = { s: u32 = 0; for i in 1..2 { s = s + (x >> n) }; s } - x
+g(x: u32, n: u32) = (x >> n) + (x >> n) - x
+equiv f g
+# the negative control: a wrong g differs where f is defined
+bad(x: u32, n: u32) = (x >> n) * 3 - x
+equiv f bad
+# the same loop read first by the where clause: the points where the clause
+# is undefined (n >= 32) are outside the domain, where w and v differ
+w(x: u32, n: u32) = x & 1 where { s: u32 = 0; for i in 1..2 { s = s + (x >> n) }; s } != 7
+v(x: u32, n: u32) = n < 32 ? x & 1 : 0
+equiv w v

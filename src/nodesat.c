@@ -427,8 +427,10 @@ blast1(struct nctx *c, nid n)
 			blast_dot(op, &r, V(a), V(b), NULL);
 			break;
 		}
-		d = a ? D(a) : L_TRUE;
-		if (opinfo[op].arity >= 2 && b)
+		/* a value's index can be 0: the node's operands say whether
+		 * there is one */
+		d = N.a[n] ? D(a) : L_TRUE;
+		if (opinfo[op].arity >= 2 && N.b[n])
 			d = aig_and(g, d, D(b));
 		switch (op) {
 		case O_ADD:
