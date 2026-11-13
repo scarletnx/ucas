@@ -4027,6 +4027,17 @@ bits, L the other bits and ONE the lanes' low bits:
 | `max(a - b, 0)` | `D & M`, D the lanes' difference, M the mask of a >= b | 34, 12 |
 | `a == b ? all ones : 0` | `M(~(((x & L) + L) | x) & H)`, `x = a xor b`; `!=` without the not | 42, 8 |
 
+Signed lanes order as unsigned ones with their top bits flipped.  Where
+the top bits differ the signed `a >= b` is decided the other way, so
+G's term `a & ~b` becomes `~a & b` and the rest is the same: `max`,
+`min` and the compares of signed lanes cost what the unsigned ones do
+(gt1030, 4 x 8 bits: max 43 to 12, `a > b` 55 to 9).  `abs(a - b)`
+subtracts the max and the min with their top bits flipped (no lane
+borrows: 51 to 14), and the averages run on the flipped lanes and flip
+the result back, `((a xor H) & (b xor H)) + (((a xor b) & ~ONE) >> 1)
+xor H` (47 to 5).  Add, subtract and `==` are the same on both.  The
+saturating forms are unsigned only.
+
 Which of these a value is, if any, is not read from how it is written
 but from what it computes: every subterm that fits a u32 and reads one
 or two u32 parameters is run on 256 pairs of words (random ones, and

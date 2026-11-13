@@ -22,13 +22,22 @@
  *   a -sat b D & M(a >= b), D the lanes' difference
  *   a == b   M(~(((x & L) + L) | x) & H), x = a ^ b; != without the ~
  *
+ * Signed lanes order as unsigned ones with their top bits flipped: in
+ * a >= b the top bits decide where they differ, a's 0 against b's 1, so
+ * the term a & ~b becomes ~a & b and the rest is the same; max, min
+ * select by that mask; |a - b| subtracts the flipped max and min, which
+ * borrow from no lane; the averages run on the flipped lanes and flip
+ * the result back ((a + 2^(w-1)) + (b + 2^(w-1)) halves to the mean plus
+ * 2^(w-1)).
+ *
  * The operation may be in some of the lanes only, the others kept from
  * one of the words or constant (the colour of an RGBA8 word worked on,
  * its alpha kept): the form is then chosen under the lanes' mask, or, where
  * the kept lanes are the first operand's and the operation leaves it alone
  * against 0, the second operand's lanes are cleared there (swar_mixed).
  *
- * The lanes are unsigned.  Which form a value is, if any, is read from
+ * The lanes are unsigned, or signed for max, min, |a - b|, the averages
+ * and the order compares.  Which form a value is, if any, is read from
  * its values: it is run on words whose lanes are random, equal, zero and
  * all ones, and each lane of the result is compared with the lane
  * operation's (swar_of).  With one word, the other is a constant looked
@@ -49,11 +58,17 @@
 
 enum {
 	L_ADD, L_SUB, L_AVGF, L_AVGC, L_MAX, L_MIN, L_ABSD, L_SATADD, L_SATSUB,
-	L_EQ, L_NE, L_GE, L_GT, L_N
+	L_EQ, L_NE, L_GE, L_GT,
+	/* the same on signed lanes */
+	L_SAVGF, L_SAVGC, L_SMAX, L_SMIN, L_SABSD, L_SGE, L_SGT, L_N
 };
+#define SIGNED(op) ((op) >= L_SAVGF)
 
 #define TOPS "the lanes' top bits go apart, so no carry crosses a lane"
 #define MASK "whole lanes from the top bit a word-wide compare leaves"
+#define SMASK MASK ", the top bits read as signs"
+#define FLIP "on the lanes with their top bits flipped (signed order is " \
+    "then unsigned order), flipped back"
 
 static const struct {
 	const char *name;	/* the lane operation, over its two operands */
@@ -73,15 +88,47 @@ static const struct {
 	{"%s != %s ? all ones : 0", 1, MASK},
 	{"%s >= %s ? all ones : 0", 0, MASK},
 	{"%s > %s ? all ones : 0", 0, MASK},
+	{"(%s + %s) >> 1 of signed lanes", 1, FLIP},
+	{"(%s + %s + 1) >> 1 of signed lanes", 1, FLIP},
+	{"max(%s, %s) of signed lanes", 1, "chosen by " SMASK},
+	{"min(%s, %s) of signed lanes", 1, "chosen by " SMASK},
+	{"|%s - %s| of signed lanes", 1, "max - min with the top bits "
+	    "flipped, which borrows from no lane"},
+	{"%s >= %s ? all ones : 0, signed lanes", 0, SMASK},
+	{"%s > %s ? all ones : 0, signed lanes", 0, SMASK},
 };
+
+/* a lane of w bits as a signed number */
+static int32_t
+lane_s(uint32_t v, int w)
+{
+	uint32_t h = 1u << (w - 1);
+
+	return (int32_t)(v ^ h) - (int32_t)h;
+}
+
+/* floor(s / 2) */
+static int32_t
+half_floor(int32_t s)
+{
+	return s >= 0 ? s / 2 : -((1 - s) / 2);
+}
 
 /* the operation on one lane of w bits */
 static uint32_t
 lane_op(int op, uint32_t a, uint32_t b, int w)
 {
 	uint32_t m = (1u << w) - 1;
+	int32_t sa = lane_s(a, w), sb = lane_s(b, w);
 
 	switch (op) {
+	case L_SAVGF: return (uint32_t)half_floor(sa + sb) & m;
+	case L_SAVGC: return (uint32_t)-half_floor(-(sa + sb)) & m;
+	case L_SMAX: return (uint32_t)(sa > sb ? sa : sb) & m;
+	case L_SMIN: return (uint32_t)(sa < sb ? sa : sb) & m;
+	case L_SABSD: return (uint32_t)(sa > sb ? sa - sb : sb - sa) & m;
+	case L_SGE: return sa >= sb ? m : 0;
+	case L_SGT: return sa > sb ? m : 0;
 	case L_ADD: return (a + b) & m;
 	case L_SUB: return (a - b) & m;
 	case L_AVGF: return (a + b) >> 1;
@@ -147,26 +194,42 @@ swar_form(int op, nid a, nid b, int w)
 		s = swar_form(L_ADD, a, b, w);
 		return OR(s, lane_mask(AND(OR(AND(a, b), AND(OR(a, b), NOT(s))),
 		    H), w));
+	case L_SAVGF:
+	case L_SAVGC:
+		/* the flipped words' xor is a ^ b: only the and or the or
+		 * needs them */
+		t = mk_bin(O_SHR, AND(x, k32(~one)), k32(1));
+		return XOR(op == L_SAVGF ? ADD(AND(XOR(a, H), XOR(b, H)), t) :
+		    SUB(OR(XOR(a, H), XOR(b, H)), t), H);
 	}
-	/* the rest goes through a >= b */
+	/* the rest goes through a >= b; signed, the top bits that differ
+	 * say the other way */
 	t = SUB(OR(a, H), AND(b, L));
-	g = AND(OR(AND(a, NOT(b)), AND(NOT(x), t)), H);
-	if (op == L_GT) {
+	g = AND(OR(SIGNED(op) ? AND(NOT(a), b) : AND(a, NOT(b)), AND(NOT(x),
+	    t)), H);
+	if (op == L_GT || op == L_SGT) {
 		/* a > b is not (b >= a) */
 		t = SUB(OR(b, H), AND(a, L));
-		g = AND(NOT(OR(AND(b, NOT(a)), AND(NOT(x), t))), H);
+		g = AND(NOT(OR(op == L_SGT ? AND(NOT(b), a) : AND(b, NOT(a)),
+		    AND(NOT(x), t))), H);
 	}
 	m = lane_mask(g, w);
 	switch (op) {
 	case L_GE:
 	case L_GT:
+	case L_SGE:
+	case L_SGT:
 		return m;
 	case L_MAX:
+	case L_SMAX:
 		return XOR(b, AND(x, m));
 	case L_MIN:
+	case L_SMIN:
 		return XOR(a, AND(x, m));
 	case L_ABSD:
 		return SUB(XOR(b, AND(x, m)), XOR(a, AND(x, m)));
+	case L_SABSD:
+		return SUB(XOR(XOR(b, AND(x, m)), H), XOR(XOR(a, AND(x, m)), H));
 	default:	/* L_SATSUB */
 		return AND(swar_form(L_SUB, a, b, w), m);
 	}
