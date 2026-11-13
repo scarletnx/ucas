@@ -3936,6 +3936,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_layer(T, z)` | `T[clamp(RNE(z), 0, n - 1)]`, z a float: the layer of an array texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
+| `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
 The `fetch_` reads take an integer texel index of any type and are
 total (Vulkan's wrapping of a nearest read's integer coordinate).  The
@@ -4145,6 +4146,23 @@ holding none; a conversion before the clamp must not wrap on that
 range.  Otherwise `texalu` names the value where they part
 (tests/texlayer.ucas).
 
+**Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN
+or _MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least
+or the greatest of the texels of a linear read's footprint whose weight
+is not 0: `tex_min8([4, 1, 9], 1.0)` is 1, `tex_max8` there 4, and at
+1.5, texel 1's centre, only texel 1 counts.  A min or max of two
+neighbouring table entries, or of a 2 x 2 block of a table read as rows
+of W (nested in any order), is one such read at the footprint's
+centre: there every weight is 1/2 (1/4), on any sub-texel grid (Vulkan
+asks at least 4 bits), so every texel counts whichever way the unit
+snaps, and the read is the min or max exactly.  The texture holds the
+entries exactly: half floats or f32 for floats an f32 holds, whole
+numbers 0..255 or 0..65535 as normalised units scaled back and
+rounded (that needs the unit's `tex_within`); the footprint must stay
+inside the table (and its rows) on the indices' proved ranges, and
+`texalu` says so when it may not.  The read is priced by `tex_minmax`
+(no built-in model lists it) (tests/texminmax.ucas).
+
 **Packed formats.**  `unpack_b10g11r11(w, c)`, `unpack_e5b9g9r9(w, c)`
 and `unpack_a2b10g10r10(w, c)` are channel c (r g b a as 0 1 2 3) of a
 32-bit word in B10G11R11_UFLOAT_PACK32, E5B9G9R9_UFLOAT_PACK32 and
@@ -4172,8 +4190,9 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks), trilinear and anisotropic
-filters, mip levels as means, min/max and compare samplers, gather
-and normalised coordinates for the filters.  None of those has a
+filters, mip levels as means, compare samplers, gather, a min or max
+of more than a 2 x 2 footprint (trilinear's 8) and normalised
+coordinates for the filters.  None of those has a
 measured price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the

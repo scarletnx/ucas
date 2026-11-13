@@ -39,7 +39,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"atomic_global_64", "atomic_global_cas", "atomic_global_stream",
 	"tex_fetch", "tex_sample", "tex_sample_f32", "image_load",
 	"tex_nearest", "tex_srgb", "tex_layer", "tex_sample_16",
-	"tex_sample_f16",
+	"tex_sample_f16", "tex_minmax",
 	"sg_ballot", "sg_vote", "sg_add", "sg_shuffle", "sg_scan", "sg_deriv",
 	"mul16",
 	"rop_blend", "rop_adv", "rop_logic", "rop_stencil", "rop_depth",
@@ -203,8 +203,8 @@ class_missing(const struct model *m, int k)
 		return !cclass_available(m, k);
 	return (k == C_TEX_NEAREST || k == C_TEX_SAMPLE ||
 	    k == C_TEX_SAMPLE_F32 || k == C_TEX_SRGB || k == C_TEX_LAYER ||
-	    k == C_TEX_SAMPLE_16 || k == C_TEX_SAMPLE_F16) &&
-	    !model_lists(m, k);
+	    k == C_TEX_SAMPLE_16 || k == C_TEX_SAMPLE_F16 ||
+	    k == C_TEX_MINMAX) && !model_lists(m, k);
 }
 
 static int
