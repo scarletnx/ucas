@@ -17,10 +17,27 @@ simplify nofile under gt1030, a in [1, 100], n in [1, 1000]
 ```glsl
 float g(float a, uint n) { double d = a; return float(sqrt(d * d + 1.0lf) / double(n)); }
 ```
-# a result that stays double is left alone, and so is its capability
+# a result that stays double (a store): with no tolerance only the exact
+# value would do, and with no ranges there is no bound at all; it is left
+# alone, and so is its capability
 simplify nofile
 ```glsl
 double h(float x) { double a = x; return a * a + 1.0lf; }
+```
+# with a tolerance its pair is stored, recombined as f64(hi) + f64(lo)
+# (the store keeps its type, so the f64 add and the capability stay)
+simplify nofile, tol 1e-12, x in [1, 2], y in [3, 4]
+```glsl
+double h2(float x, float y) { double a = x, b = y; return a * a - b * b; }
+```
+# in English; an absolute bound the pairs do not meet
+simplify nofile with a tolerance of 1e-12 on x in [1, 2], y in [3, 4]
+```glsl
+double h2(float x, float y) { double a = x, b = y; return a * a - b * b; }
+```
+simplify nofile, absolute tolerance 1e-20, x in [1, 2], y in [3, 4]
+```glsl
+double h2(float x, float y) { double a = x, b = y; return a * a - b * b; }
 ```
 # a conversion round trip the model says the driver folds: reported with
 # an input where the folded program differs; `foldproof` writes the

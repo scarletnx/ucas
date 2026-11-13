@@ -21,12 +21,20 @@
 #include <unistd.h>
 
 static int dw_foldproof;	/* apply the fold-proof forms */
+static struct dwreq dw_req;	/* the request's tol or atol (DW_DEFAULT: none) */
 static int dw_nfas;		/* float assumptions float_pass left in pend_fas */
 
 void
 spirv_dword_opts(int foldproof)
 {
 	dw_foldproof = foldproof;
+}
+
+void
+spirv_dword_req(int kind, double v)
+{
+	dw_req.kind = kind;
+	dw_req.v = v;
 }
 
 static int
@@ -877,6 +885,8 @@ dw_validate(const char *text, char *why, size_t n)
 struct dwsink {
 	int k, src, n;		/* the conversion, its operand, its components */
 	int cmp, src2;		/* a comparison (O_LT ...) and its second operand */
+	int st;			/* a store of the f64 value: it stays f64 */
+	int quiet;		/* a store of an f64 value no arithmetic made */
 	int stay;		/* not rewritten */
 	int grp;		/* the first result of its group */
 	int cone[256], ncone;	/* the f64 instructions under it */
@@ -999,6 +1009,8 @@ dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
 			memcpy(sk[s].cone, G1->ins, (size_t)G1->nins * sizeof(int));
 			if (G1->toomany || G1->nins == 0) {
 				sk[s].stay = 1;
+				/* a stored copy of an f64 value: nothing to say */
+				sk[s].quiet = sk[s].st && !G1->toomany;
 				snprintf(sk[s].why, sizeof sk[s].why, "not rewritten: %s",
 				    G1->toomany ? "more than 8 inputs" :
 				    dw_leaf[sk[s].src] ? "its operand is an f64 value "
@@ -1115,6 +1127,10 @@ dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
 			struct dwreq r1 = *rq;
 			if (sk[s].stay)
 				continue;
+			/* ulp is an f32 result's: one that stays f64 needs tol or
+			 * atol */
+			if (sk[s].st && r1.kind == DW_ULP)
+				r1.kind = DW_DEFAULT;
 			for (t = 0; t < nsk; t++)
 				if (t != s && !sk[t].stay && sk[t].grp == sk[s].grp)
 					r1.anyprice = 1;
@@ -1122,7 +1138,7 @@ dw_plan(struct dwsink *sk, int nsk, const int *uses, const int *blk,
 				if (dw_keep[G->ins[q]] || sk[s].n > 1)
 					r1.anyprice = 1;
 			for (i = 0; i < sk[s].n; i++) {
-				sk[s].body[i] = sk[s].cmp ? sk[s].root[i] :
+				sk[s].body[i] = sk[s].cmp || sk[s].st ? sk[s].root[i] :
 				    mk_cast(TY_F32, sk[s].root[i]);
 				G->f.body = sk[s].body[i];
 				sk[s].nlow = i + 1;
@@ -1270,7 +1286,7 @@ dw_write(struct dwsink *sk, int nsk, int *uses, const int *blk,
 				E->eft = S->res[i].eft;
 				E->neft = S->res[i].neft;
 				E->root = S->res[i].body;
-				E->final = S->n == 1 ? V.id[I->res].tok : NULL;
+				E->final = S->n == 1 && !S->st ? V.id[I->res].tok : NULL;
 				snprintf(nm[i], sizeof nm[i], "%s", dwe(E, S->res[i].body));
 			}
 			if (E->fail) {
@@ -1281,7 +1297,25 @@ dw_write(struct dwsink *sk, int nsk, int *uses, const int *blk,
 				cur = -1;
 				continue;
 			}
-			if (S->n > 1) {
+			if (S->st) {
+				/* the store, of the value the form recombined */
+				char vn[40];
+				snprintf(vn, sizeof vn, "%s", nm[0]);
+				if (S->n > 1) {
+					snprintf(vn, sizeof vn, "%%ucas_dw%d_%d", E->isl,
+					    ++E->serial);
+					sb_printf(&S->code, "%s = OpCompositeConstruct %s",
+					    vn, V.id[V.id[S->src].type].tok);
+					for (i = 0; i < S->n; i++)
+						sb_printf(&S->code, " %s", nm[i]);
+					sb_putc(&S->code, '\n');
+					E->nins++;
+				}
+				sb_printf(&S->code, "OpStore %s %s", I->opnd[0], vn);
+				for (i = 2; i < I->nop; i++)
+					sb_printf(&S->code, " %s", I->opnd[i]);
+				sb_putc(&S->code, '\n');
+			} else if (S->n > 1) {
 				sb_printf(&S->code, "%s = OpCompositeConstruct %s",
 				    V.id[I->res].tok, V.id[idx(I->opnd[0])].tok);
 				for (i = 0; i < S->n; i++)
@@ -1360,13 +1394,16 @@ dword_pass(const char *text, int *changed)
 			f64t = i;
 	repl = xcalloc((size_t)V.nin + 1, sizeof *repl);
 	dead = xcalloc((size_t)V.nin + 1, 1);
-	if (fopt.mode == 2) {
+	if (dw_req.kind != DW_DEFAULT)
+		rq = dw_req;
+	else if (fopt.mode == 2) {
 		rq.kind = DW_ULP;
 		rq.v = fopt.ulp > 0 ? fopt.ulp : 0x1p-10;
 	}
 	/* the f64 results: which are rewritten, and their code */
 	for (k = 0, i = 1; k < V.nin; k++)
-		i += !strcmp(V.in[k].op, "OpFConvert") || dw_cmp_op(V.in[k].op);
+		i += !strcmp(V.in[k].op, "OpFConvert") || dw_cmp_op(V.in[k].op) ||
+		    !strcmp(V.in[k].op, "OpStore");
 	sk = xcalloc((size_t)i, sizeof *sk);
 	blk = xcalloc((size_t)V.nin + 1, sizeof *blk);
 	dw_leaf = xcalloc((size_t)V.nid + 64, 1);
@@ -1385,6 +1422,22 @@ dword_pass(const char *text, int *changed)
 			sk[nsk].src = idx(I->opnd[1]);
 			sk[nsk].src2 = idx(I->opnd[2]);
 			sk[nsk].n = 1;
+			sk[nsk].grp = nsk;
+			nsk++;
+			continue;
+		}
+		/* an f64 value a function computes and stores: it stays f64 */
+		if (!strcmp(I->op, "OpStore") && I->nop >= 2 && I->opnd[1][0] ==
+		    '%') {
+			src = idx(I->opnd[1]);
+			t = V.id[src].type;
+			if (SP.def[src] < 0 || (scalar_float_w(t) != 64 &&
+			    vec_float_w(t, &n) != 64))
+				continue;
+			sk[nsk].k = k;
+			sk[nsk].src = src;
+			sk[nsk].n = n;
+			sk[nsk].st = 1;
 			sk[nsk].grp = nsk;
 			nsk++;
 			continue;
@@ -1447,14 +1500,15 @@ dword_pass(const char *text, int *changed)
 		const struct sins *I = &V.in[k];
 		struct dwsink *S;
 		char sl[200];
-		int src;
+		int src, issk = cursk < nsk && sk[cursk].k == k;
 
-		if ((strcmp(I->op, "OpFConvert") != 0 && !(cursk < nsk &&
-		    sk[cursk].k == k && sk[cursk].cmp)) || I->nop < 2 ||
-		    I->res < 0 || SP.def[I->res] != k)
+		if (!issk && (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 ||
+		    I->res < 0 || SP.def[I->res] != k))
 			continue;
-		if (cursk < nsk && sk[cursk].k == k) {
+		if (issk) {
 			S = &sk[cursk++];
+			if (S->quiet)
+				continue;
 			has64 = 1;
 			nsink++;
 			if (!hdr++)
@@ -1502,16 +1556,19 @@ dword_pass(const char *text, int *changed)
 				    S->gold,
 				    S->members == 1 && S->n == 1 ? "" : "s", S->gnew,
 				    100 * (S->gnew - S->gold) / S->gold, sym_str(m->name));
+			if (S->st)
+				printf("    stored as the pair recombined, f64(hi) + "
+				    "f64(lo): an f64 add stays\n");
 			if (S->members == 1 && S->n == 1) {
-				printf("    written as %d f32 instruction%s, %d of them "
+				printf("    written as %d %sinstruction%s, %d of them "
 				    "NoContraction, in place of %d f64 one%s\n",
-				    S->nins, S->nins == 1 ? "" : "s", S->ndeco,
-				    S->gnins, S->gnins == 1 ? "" : "s");
+				    S->nins, S->st ? "" : "f32 ", S->nins == 1 ? "" :
+				    "s", S->ndeco, S->gnins, S->gnins == 1 ? "" : "s");
 				continue;
 			}
-			printf("    written as %d f32 instruction%s, %d of them "
-			    "NoContraction", S->nins, S->nins == 1 ? "" : "s",
-			    S->ndeco);
+			printf("    written as %d %sinstruction%s, %d of them "
+			    "NoContraction", S->nins, S->st ? "" : "f32 ",
+			    S->nins == 1 ? "" : "s", S->ndeco);
 			if (S->nex)
 				printf(", and %d component%s taken out of a vector",
 				    S->nex, S->nex == 1 ? "" : "s");
@@ -1780,6 +1837,7 @@ dword_pass(const char *text, int *changed)
 	free(V.in);
 	memset(&V, 0, sizeof V);
 	dw_foldproof = 0;
+	memset(&dw_req, 0, sizeof dw_req);
 	if (!*changed) {
 		free(out.p);
 		return NULL;

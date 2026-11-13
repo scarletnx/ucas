@@ -8656,8 +8656,9 @@ simplify_piece(struct sbuf *piece, int c)
 	    "sat", "smt", "minimize", "minimise", "shorten", "cheaper", "souper",
 	    "faster", "speed", "speedup", "quicker", NULL};
 	char *p, budget[32] = "", lw[64] = "", *assume_opts = NULL;
-	char ulp[32] = "", num[32] = "", fl[280] = "", sink[48] = "";
-	int f_foldproof = 0;
+	char ulp[32] = "", num[32] = "", fl[320] = "", sink[48] = "";
+	char tol[40] = "";	/* "tol 1e-12", "atol 0.001": f64 results */
+	int f_foldproof = 0, tolabs = 0, want_tol = 0;
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
 	int f_search = 0;	/* "with simulated annealing", "using cma-es" */
@@ -8700,6 +8701,25 @@ simplify_piece(struct sbuf *piece, int c)
 					while (isdigit((unsigned char)*q) && b + 1 < sizeof seed)
 						seed[b++] = *q++;
 					seed[b] = 0;
+					continue;
+				}
+				if (isdigit((unsigned char)*q) && !cmt && !tol[0] &&
+				    want_tol) {
+					size_t b = 0;
+					while ((isdigit((unsigned char)*q) || *q == '.') &&
+					    b + 1 < sizeof tol)
+						tol[b++] = *q++;
+					if (b + 4 < sizeof tol && (*q == 'e' || *q == 'E') &&
+					    (isdigit((unsigned char)q[1]) || ((q[1] == '-' ||
+					    q[1] == '+') && isdigit((unsigned char)q[2])))) {
+						tol[b++] = *q++;
+						if (*q == '-' || *q == '+')
+							tol[b++] = *q++;
+						while (isdigit((unsigned char)*q) && b + 1 <
+						    sizeof tol)
+							tol[b++] = *q++;
+					}
+					tol[b] = 0;
 					continue;
 				}
 				if (isdigit((unsigned char)*q) && !strcmp(lw, "budget")) {
@@ -8778,6 +8798,15 @@ simplify_piece(struct sbuf *piece, int c)
 			    !strcmp(lw, "hoist") || !strcmp(lw, "hoisted") ||
 			    !strcmp(lw, "hoisting"))
 				f_advice = 1;
+			/* the f64 results' requirement: "tol 1e-12", "atol 1e-9",
+			 * "a tolerance of 1e-12", "absolute tolerance 0.001" */
+			if (!strcmp(lw, "tol") || !strcmp(lw, "atol") ||
+			    !strcmp(lw, "tolerance")) {
+				want_tol = 1;
+				tolabs = !strcmp(lw, "atol") || !strcmp(lastw,
+				    "absolute");
+			} else if (strcmp(lw, "of") && strcmp(lw, "is"))
+				want_tol = 0;
 
 			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
 			    !ulp[0])
@@ -8852,6 +8881,9 @@ simplify_piece(struct sbuf *piece, int c)
 	}
 	snprintf(fl + strlen(fl), sizeof fl - strlen(fl), "%s", f_foldproof ?
 	    " foldproof" : "");
+	if (tol[0])
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " %s %s", tolabs ?
+		    "atol" : "tol", tol);
 	if (sink[0])
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " sink %s", sink);
 	if (f_advice && !c)

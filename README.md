@@ -2669,6 +2669,17 @@ type go when nothing uses them, and spirv-as and spirv-val are run on the
 result ("spirv-val accepts the written module").  `ulp N` in the request
 is the requirement; `exact` rewrites nothing (a pair is not bit-exact).
 
+An f64 value a function computes and stores (a `double` output, a buffer
+member) is a result that stays f64.  `tol R` or `atol T` in the request
+(`with a tolerance of 1e-12`, `absolute tolerance 1e-9`) is its
+requirement, and that of the results converted to f32 too, as for `dword
+F`; with none, only the exact value will do.  A form that meets it and
+costs less is stored recombined, f64(hi) + f64(lo), in place of the f64
+value: the store keeps its type, so the f64 add and the capability stay.
+It joins the results that share its f64 values (a quotient stored and
+converted: with a tolerance the division goes for both).  A store of an
+f64 value no arithmetic of the function made (a copy) is not a result.
+
 f64 vectors and matrices are read component by component: the
 componentwise operations, a vector times a scalar, `dot`, `length`,
 `distance`, `normalize`, a matrix times a vector, a vector or a scalar
@@ -2707,7 +2718,8 @@ high word is its value rounded, and rounding keeps order); or the
 sides' ranges, widened by the f64 program's errors, do not meet, and the
 comparison is a constant.  A sampled check counts the points where the
 form and the f64 comparison differ, inside the conditions.  Not
-rewritten: results that stay f64.
+rewritten: an f64 value a loop's phi carries (its pair would be two
+phis, and its bound would need the trip count).
 
 ### Fixed function as compute
 

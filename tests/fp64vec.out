@@ -467,12 +467,46 @@ fp64 and conversions under gt1030:
         Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
       check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
         (long double) 1.4 u^2 (the bound: 4); the f64 program's 1.5 u64
-    3 of the 5 f64 instructions under it stay for what else reads them: their values are computed again here, in f32;
-    the 2 that go cost 35.375, the form 16 (-54.8%) under gt1030
-    written as 18 f32 instructions, 12 of them NoContraction, in place of 2 f64 ones
+    written as 18 f32 instructions, 12 of them NoContraction
+  OpStore %55 %72
+    dword f64(x)*f64(y) under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+      as written  cost 38.375  error against the exact value <= 1.11e-16 (1 u64) relative
+      f32 alone   cost 4       error <= 5.96e-08 (1 u) relative
+      f32 pairs   cost 40.375  error <= 0 (0 u^2) relative
+      required: the result stays f64 and no tolerance was given: the exact value (`tol R` or `atol T` says how much error is allowed)
+      -> f32 pairs: cost 40.375 against 38.375 (+5.2%), 6 f32 operations for 3
+         the result is recombined as f64(hi) + f64(lo), its rounding (u64 at most) in the bound; a consumer
+         that takes the pair saves that f64 addition: an interface change, not made here
+      the form:
+        t1 = x * y                               !
+        t2 = -t1
+        t3 = fma(x, y, t2)                       !
+        t4 = f64(t1)
+        t5 = f64(t3)
+        t6 = t4 + t5
+        result: t6
+        ! 2 operations of the error-free transformations: exact only as written, so they are
+          NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+      each value: its range, the derived error bound, the algorithm:
+          f64(x)*f64(y)                            [3, 8]                   0 u^2          2Prod (exact)
+      derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+        2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+          (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+        composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+          a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+      conditions:
+        finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+        no overflow: the largest value is 8, below 2^127 (derived from the ranges)
+        no underflow: the 1 error-free product stays above 2^-102 (derived from the ranges)
+        Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+      check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+        (long double) 0 u^2 (the bound: 0); the f64 program's 0 u64
+    stored as the pair recombined, f64(hi) + f64(lo): an f64 add stays
+    written as 3 instructions, 0 of them NoContraction
+    with %79, which shares its f64 values: cost 54.375 against 73.75 (-26.3%) under gt1030, what they share counted once; in place of 5 f64 instructions
   other f64 values remain: the module still needs the Float64 capability
   spirv-val accepts the written module
-  (nofile: simplified.spvasm, 3536 bytes, checksum cf5f678b)
+  (nofile: simplified.spvasm, 3606 bytes, checksum 9a2ad43b)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   q: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -491,6 +525,115 @@ fp64 and conversions under gt1030:
       f32 pairs   cost 11      error <= 1.421e-14 (4 u^2) relative: as f32 within 0.5 + 2.38e-07 ulp
       required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
     not rewritten: the f32 form costs 11, the f64 instructions that would go 3 under gt1030
+  OpStore %51 %68
+    dword f64(x)/f64(y) under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+      as written  cost 103.125 error against the exact value <= 1.11e-16 (1 u64) relative
+      f32 alone   cost 6       error <= 5.96e-08 (1 u) relative
+      f32 pairs   cost 51.375  error <= 1.432e-14 (4.031 u^2) relative
+      required: the result stays f64 and no tolerance was given: the exact value (`tol R` or `atol T` says how much error is allowed)
+      -> not rewritten: no f32 form's derived bound meets the requirement
+         the pairs would be taken for tol >= 1.43e-14
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  q: called from a compute shader's main(), its arguments read from a buffer
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume x 1 2 assume y 3 4 tol 1e-12
+simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: q (line 1: 'double' is a word GLSL ES 3.20 reserves); layout (line 10006: 'double' is a word GLSL ES 3.20 reserves); main (line 10009: 'ucas_args' is not declared))
+fp64 and conversions under gt1030:
+  %71 = OpFConvert %float %68
+      (line 1: float q(float x, float y, out double keep) { double a = x, b = y; double d = a / b; keep =)
+    dword f32(f64(x)/f64(y)) under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+      as written  cost 106.125 error against the exact value <= 1.11e-16 (1 u64) relative
+      f32 alone   cost 3       error <= 5.96e-08 (1 u) relative: as f32 within 0.5 + 1 ulp
+      f32 pairs   cost 11      error <= 1.421e-14 (4 u^2) relative: as f32 within 0.5 + 2.38e-07 ulp
+      required: relative error <= 1e-12 (tol)
+      -> f32 pairs: cost 11 against 106.125 (-89.6%), 8 f32 operations for 4
+      the form:
+        t1 = x / y
+        t2 = t1 * y                              !
+        t3 = -t2
+        t4 = fma(t1, y, t3)                      !
+        t5 = x - t2
+        t6 = t5 - t4
+        t7 = t6 / y
+        t8 = t1 + t7                             !
+        result: t8
+        ! 3 operations of the error-free transformations: exact only as written, so they are
+          NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+      each value: its range, the derived error bound, the algorithm:
+          f64(x)/f64(y)                            [0.25, 0.6667]           4 u^2          FP / FP as a pair
+      derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+        Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+        2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+          (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+        DWDivFP3(x~, y): th = RN(xh / y); (ph, pl) = 2Prod(th, y); d = RN(RN(RN(xh - ph) - pl) + xl);
+          tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): the residual x~ - y th is at most 2u |xh|,
+          computed with three roundings and divided with one: 7.000 u^2 |x~ / y| (4.000 u^2 when xl = 0;
+          the paper: 3 u^2, the subtraction xh - ph being exact)
+        composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+          a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+      conditions:
+        finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+        no overflow: the largest value is 0.6667, below 2^127 (derived from the ranges)
+        no underflow: the 1 error-free product stays above 2^-102 (derived from the ranges)
+        Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+      check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+        (long double) 0.49 u^2 (the bound: 4); the f64 program's 0.97 u64
+    written as 8 f32 instructions, 2 of them NoContraction
+  OpStore %51 %68
+    dword f64(x)/f64(y) under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
+      as written  cost 103.125 error against the exact value <= 1.11e-16 (1 u64) relative
+      f32 alone   cost 6       error <= 5.96e-08 (1 u) relative
+      f32 pairs   cost 51.375  error <= 1.432e-14 (4.031 u^2) relative
+      required: relative error <= 1e-12 (tol)
+      -> f32 pairs: cost 51.375 against 103.125 (-50.2%), 13 f32 operations for 3
+         the result is recombined as f64(hi) + f64(lo), its rounding (u64 at most) in the bound; a consumer
+         that takes the pair saves that f64 addition: an interface change, not made here
+      the form:
+        t1 = x / y
+        t2 = t1 * y                              !
+        t3 = -t2
+        t4 = fma(t1, y, t3)                      !
+        t5 = x - t2
+        t6 = t5 - t4
+        t7 = t6 / y
+        t8 = t1 + t7                             !
+        t9 = t8 - t1                             !
+        t10 = t7 - t9                            !
+        t11 = f64(t10)
+        t12 = f64(t8)
+        t13 = t12 + t11
+        result: t13
+        ! 5 operations of the error-free transformations: exact only as written, so they are
+          NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
+      each value: its range, the derived error bound, the algorithm:
+          f64(x)/f64(y)                            [0.25, 0.6667]           4 u^2          FP / FP as a pair
+      derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+        Fast2Sum(a, b): s = RN(a + b), t = RN(b - RN(s - a)): s + t = a + b exactly when |a| >= |b| (Dekker)
+        2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
+          (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
+        DWDivFP3(x~, y): th = RN(xh / y); (ph, pl) = 2Prod(th, y); d = RN(RN(RN(xh - ph) - pl) + xl);
+          tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): the residual x~ - y th is at most 2u |xh|,
+          computed with three roundings and divided with one: 7.000 u^2 |x~ / y| (4.000 u^2 when xl = 0;
+          the paper: 3 u^2, the subtraction xh - ph being exact)
+        composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
+          a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
+      conditions:
+        finite inputs (an infinity or a NaN gives NaN where f64 would carry it)
+        no overflow: the largest value is 0.6667, below 2^127 (derived from the ranges)
+        no underflow: the 1 error-free product stays above 2^-102 (derived from the ranges)
+        Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
+      check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
+        (long double) 0.49 u^2 (the bound: 4.031); the f64 program's 0.97 u64
+    stored as the pair recombined, f64(hi) + f64(lo): an f64 add stays
+    written as 5 instructions, 2 of them NoContraction
+    with %71, which shares its f64 values: cost 51.375 against 106.125 (-51.6%) under gt1030, what they share counted once; in place of 3 f64 instructions
+  other f64 values remain: the module still needs the Float64 capability
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 2852 bytes, checksum 24631eac)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   t: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
