@@ -48,6 +48,11 @@
  *   texenc T [, U] etc2 srgb [rows W] [tol E]
  *       the same as SRGB8_ETC2 (SRGB8_ALPHA8_ETC2_EAC): red reads the sRGB
  *       EOTF of its code over 255, alpha stays linear
+ *   texenc T [, U] bc7 [rows W] [tol E]
+ *       T in the red channel of BC7 blocks (bc7blk.c), every mode,
+ *       partition and way of holding red tried, each subset's endpoints
+ *       over every value of their field; T and U in red and alpha, in
+ *       the modes where alpha has indices of its own (4 and 5)
  */
 #include "calc.h"
 #include "report.h"
@@ -1538,6 +1543,217 @@ cmd_texenc_etc2(const struct func *f, const struct func *g, int W,
 	}
 }
 
+/*
+ * One table in the red channel of BC7 blocks, or two of one shape in red
+ * and alpha (modes 4 and 5, where alpha has indices of its own): every
+ * mode, partition and way of holding red, each subset's endpoints
+ * searched over every value its field has.
+ */
+static void
+cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
+    double tol, int has_tol)
+{
+	const struct func *fs[2] = {f, g};
+	const char *nm[2], *ch[2] = {"red", "alpha"};
+	int nt = g ? 2 : 1, n, H, nbx, nby, c, k, i, s, isint[2], at[2] = {0, 0};
+	double *t[2] = {NULL, NULL}, *dec[2] = {NULL, NULL}, err[2] = {0, 0};
+	struct sbuf b = {0};
+
+	for (c = 0; c < nt; c++) {
+		nm[c] = fs[c]->anon ? (c ? "the second table" : nt == 2 ?
+		    "the first table" : "the table") : sym_str(fs[c]->name);
+		if (fs[c]->np != 0 || N.op[fs[c]->body] != O_TABLE)
+			fail("texenc takes tables [t0, t1, ...] (or their names), not "
+			    "%s", fs[c]->anon ? node_str(fs[c]->body) :
+			    sym_str(fs[c]->name));
+	}
+	if (nt == 2 && N.b[f->body] != N.b[g->body])
+		fail("texenc: BC7's red and alpha are tables of one shape; %s has "
+		    "%u entries and %s %u", nm[0], N.b[f->body], nm[1],
+		    N.b[g->body]);
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	n = (int)N.b[f->body];
+	H = (n + W - 1) / W;
+	nbx = (W + 3) / 4;
+	nby = (H + 3) / 4;
+	for (c = 0; c < nt; c++) {
+		t[c] = xcalloc((size_t)n, sizeof *t[c]);
+		dec[c] = xcalloc((size_t)n, sizeof *dec[c]);
+		if (!astc_targets(fs[c]->body, t[c], &isint[c]))
+			fail("texenc: BC7 holds numbers from 0 to 1 (or whole numbers 0 "
+			    "to 255, read as k/255); %s has an entry that is neither",
+			    nm[c]);
+	}
+	rep_begin("texenc");
+	rep_str("format", "BC7_UNORM");
+	rep_int("entries", n);
+	rep_int("width", W);
+	rep_int("height", H);
+	rep_int("bytes", nbx * nby * 16);
+	sb_clear(&b);
+	if (nt == 2)
+		sb_printf(&b, " (%s the red, %s the alpha)", nm[0], nm[1]);
+	printf("texenc %s%s%s bc7: %d entr%s%s as BC7_UNORM%s, rows of %d (%d x "
+	    "%d texels): %d block%s, %d bytes (%d as %s, %d as %s)%s\n", nm[0],
+	    nt == 2 ? ", " : "", nt == 2 ? nm[1] : "", n, n == 1 ? "y" : "ies",
+	    nt == 2 ? " a channel" : "", sb_str(&b), W, W, H, nbx * nby,
+	    nbx * nby == 1 ? "" : "s", nbx * nby * 16, nt * W * H, nt == 2 ?
+	    "R8G8_UNORM" : "R8_UNORM", 4 * nt * W * H, nt == 2 ?
+	    "R32G32_SFLOAT" : "R32_SFLOAT", isint[0] || (nt == 2 && isint[1]) ?
+	    "; whole numbers k are stored as k/255" : "");
+	rep_list("blocks");
+	for (k = 0; k < nbx * nby; k++) {
+		double bt[2][16], got[2] = {0, 0}, want[2];
+		uint8_t care[16], q[16], px[16][4];
+		struct bc7_info in;
+		int bx = k % nbx, by = k / nbx;
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			care[i] = x < W && a < n;
+			for (c = 0; c < nt; c++)
+				bt[c][i] = care[i] ? t[c][a] : 0;
+		}
+		want[0] = bc7_encode(bt[0], nt == 2 ? bt[1] : NULL, care, q, &in,
+		    &want[1]);
+		bc7_decode(q, px);
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			if (!care[i])
+				continue;
+			for (c = 0; c < nt; c++) {
+				double e;
+				dec[c][a] = (double)(float)(px[i][c ? 3 : 0] / 255.0);
+				e = fabs(dec[c][a] - t[c][a]);
+				if (e > got[c])
+					got[c] = e;
+				if (e > err[c]) {
+					err[c] = e;
+					at[c] = (int)a;
+				}
+			}
+		}
+		/* the search's largest error is of both channels together */
+		if (nt == 2 ? (got[0] > want[0] || got[1] != want[1] ||
+		    fmax(got[0], got[1]) != want[0]) : got[0] != want[0])
+			fail("texenc: block (%d, %d) decodes within %.9g of its entries "
+			    "where the search computed %.9g: an encoder error", bx, by,
+			    fmax(got[0], got[1]), want[0]);
+		rep_obj(NULL);
+		rep_int("x", bx);
+		rep_int("y", by);
+		rep_int("mode", in.mode);
+		printf("  block (%d, %d): mode %d", bx, by, in.mode);
+		if (in.ns > 1) {
+			printf(", partition %d", in.part);
+			rep_int("partition", in.part);
+		}
+		if (in.mode == 4 || in.mode == 5) {
+			printf(", %s", in.rot ? "red the rotated alpha" : "red the "
+			    "colour's");
+			rep_int("rotation", in.rot);
+			if (in.mode == 4) {
+				printf(" (index selection %d)", in.isb);
+				rep_int("index_selection", in.isb);
+			}
+		}
+		sb_clear(&b);
+		printf(", red");
+		for (s = 0; s < in.ns; s++) {
+			printf("%s %d to %d", s ? "," : "", in.red[s][0], in.red[s][1]);
+			sb_printf(&b, "%s%d %d", s ? " " : "", in.red[s][0],
+			    in.red[s][1]);
+		}
+		rep_str("red_endpoints", sb_str(&b));
+		printf(" (%d weights)", 1 << in.ribits);
+		if (nt == 2) {
+			printf(", alpha %d to %d", in.alpha[0], in.alpha[1]);
+			sb_clear(&b);
+			sb_printf(&b, "%d %d", in.alpha[0], in.alpha[1]);
+			rep_str("alpha_endpoints", sb_str(&b));
+		}
+		printf(", selectors");
+		sb_clear(&b);
+		for (i = 0; i < 16; i++) {
+			printf(" %d", in.ridx[i]);
+			sb_printf(&b, "%s%d", i ? " " : "", in.ridx[i]);
+		}
+		rep_str("selectors", sb_str(&b));
+		if (nt == 2) {
+			printf(", alpha's");
+			sb_clear(&b);
+			for (i = 0; i < 16; i++) {
+				printf(" %d", in.aidx[i]);
+				sb_printf(&b, "%s%d", i ? " " : "", in.aidx[i]);
+			}
+			rep_str("alpha_selectors", sb_str(&b));
+		}
+		printf(", bytes");
+		sb_clear(&b);
+		for (i = 0; i < 16; i++) {
+			printf(" %02x", q[i]);
+			sb_printf(&b, "%s%02x", i ? " " : "", q[i]);
+		}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	for (c = 0; c < nt; c++) {
+		const char *pre = nt == 2 ? (c ? "alpha: " : "red: ") : "";
+		if (nt == 2)
+			rep_obj(ch[c]);
+		sb_clear(&b);
+		sb_putc(&b, '[');
+		for (i = 0; i < n; i++)
+			sb_printf(&b, "%s%.9g", i ? ", " : "", dec[c][i]);
+		sb_putc(&b, ']');
+		printf("  %sdecodes to %s\n", pre, sb_str(&b));
+		rep_str("decoded", sb_str(&b));
+		rep_bool("exact", err[c] == 0);
+		rep_num("max_error", err[c]);
+		if (err[c] == 0)
+			printf("  %sexact: every texel is its entry's f32%s\n", pre,
+			    isint[c] ? " over 255" : "");
+		else {
+			printf("  %snot exact: the closest blocks are within %.3g of "
+			    "the table (entry %d: %.9g as %.9g)\n", pre, err[c], at[c],
+			    t[c][at[c]], dec[c][at[c]]);
+			if (has_tol) {
+				printf("  %s%s the %g allowed (tol)\n", pre, err[c] <= tol ?
+				    "within" : "more than", tol);
+				rep_bool("within_tol", err[c] <= tol);
+			}
+		}
+		if (nt == 2)
+			rep_end();
+	}
+	if (nt == 2) {
+		rep_bool("exact", err[0] == 0 && err[1] == 0);
+		if (has_tol)
+			rep_bool("within_tol", err[0] <= tol && err[1] <= tol);
+	}
+	printf("  searched: %s, each subset's two endpoints over every value "
+	    "its field has%s; green and blue are 0\n", nt == 2 ? "modes 4 and 5 "
+	    "(the two with alpha's own indices), both rotations and index "
+	    "selections" : "every mode, partition, and way of holding red (in "
+	    "modes 4 and 5 the colour's or the rotated alpha, either index "
+	    "set)", nt == 2 ? ", red and alpha each on its own" : "");
+	printf("  a BC7 block is 16 bytes for 16 texels: %s; a nearest or "
+	    "filtered read is that read of the decoded table%s; no model prices "
+	    "a BC7 read apart from its uncompressed one: not measured\n",
+	    nt == 2 ? "half of R8G8_UNORM, as BC5 is" : "as many as R8_UNORM, "
+	    "so one table is no smaller than R8 (BC4, EAC and ETC2 are half)",
+	    nt == 2 ? "s, red and alpha" : " in red");
+	free(b.p);
+	for (c = 0; c < nt; c++) {
+		free(t[c]);
+		free(dec[c]);
+	}
+}
+
 /* a table: a defined one by its name (before a comma too), or an
  * expression */
 static struct func *
@@ -1558,12 +1774,12 @@ int
 texenc_command(struct P *p)
 {
 	static const char *const stop[] = {"rows", "tol", "astc", "eac", "etc2",
-	    "srgb", NULL};
+	    "srgb", "bc7", NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0;
+	int has_tol = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0;
 	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
@@ -1587,7 +1803,8 @@ texenc_command(struct P *p)
 	else if (cmdp_kw(p, "etc2")) {
 		etc2 = 1;
 		srgb = cmdp_kw(p, "srgb");
-	}
+	} else if (cmdp_kw(p, "bc7"))
+		bc7 = 1;
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -1600,12 +1817,14 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] "
-			    "[tol E]");
+			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] "
+			    "[rows W] [tol E]");
 		}
 	}
 	notes_flush();
-	if (etc2)
+	if (bc7)
+		cmd_texenc_bc7(f, g, (int)W, tol, has_tol);
+	else if (etc2)
 		cmd_texenc_etc2(f, g, (int)W, tol, has_tol, srgb);
 	else if (eac)
 		cmd_texenc_eac(f, g, (int)W, tol, has_tol);
@@ -1634,7 +1853,8 @@ texenc_nlp_raw(const char *sent)
 	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, a, b;
+	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0, a,
+	    b;
 
 	if (n > 400)
 		return NULL;
@@ -1667,6 +1887,8 @@ texenc_nlp_raw(const char *sent)
 			hit = eac = bc5 = 1;
 		else if (!strcmp(w, "etc2") || !strcmp(w, "ETC2"))
 			hit = etc2 = 1;
+		else if (!strcmp(w, "bc7") || !strcmp(w, "BC7"))
+			hit = bc7 = 1;
 		else if (!strcmp(w, "srgb") || !strcmp(w, "sRGB") || !strcmp(w,
 		    "SRGB"))
 			srgb = 1;
@@ -1689,10 +1911,11 @@ texenc_nlp_raw(const char *sent)
 	if (!hit || !fn[0] || (bc5 && !fn2[0]) || (astc && !fp[0]))
 		return NULL;
 	snprintf(out, sizeof out, "texenc %s%s%s%s%s%s%s%s%s%s", fn, bc5 ||
-	    ((astc || eac || etc2) && fn2[0]) ? ", " : "", bc5 || ((astc ||
-	    eac || etc2) && fn2[0]) ? fn2 : "", astc ? " astc " : "", astc ?
-	    fp : "", eac ? " eac" : etc2 ? (srgb ? " etc2 srgb" : " etc2") : "",
-	    rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "", tol);
+	    ((astc || eac || etc2 || bc7) && fn2[0]) ? ", " : "", bc5 ||
+	    ((astc || eac || etc2 || bc7) && fn2[0]) ? fn2 : "", astc ?
+	    " astc " : "", astc ? fp : "", eac ? " eac" : etc2 ? (srgb ?
+	    " etc2 srgb" : " etc2") : bc7 ? " bc7" : "", rows[0] ? " rows " : "",
+	    rows, tol[0] ? " tol " : "", tol);
 	return out;
 }
 
@@ -1739,5 +1962,5 @@ texenc_nlp_english(const char *line)
 	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc") ||
 	    has_word(line, "eac") || strstr(line, "R11") || strstr(line, "r11") ||
 	    strstr(line, "RG11") || strstr(line, "rg11") || strstr(line, "ETC2") ||
-	    strstr(line, "etc2"));
+	    strstr(line, "etc2") || strstr(line, "BC7") || strstr(line, "bc7"));
 }
