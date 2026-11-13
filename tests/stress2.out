@@ -89,5 +89,5 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
         where: SolveEnd(3u, 0u, det, v3, w3) at line 312 (in FitSubset): 3u in 3; 0u in 0; det in 1..2147483647; SolveEnd(3u, 1u, det, v3, w3) at line 316 (in FitSubset): 3u in 3; 1u in 1; det in 1..2147483647
   invariant calls (a dataflow fact: neither the arguments nor anything the callee reads is written in the loop, and the callee writes nothing):
     PAllowed(s) at line 163 (in Try) is the same on every pass of FitSubset's loop at line 280, which calls Try at line 318: hoist it out of the loop at line 280 (compute it before the loop and pass it to Try); it costs 809.25 a call under gt1030, 4 passes: 2427.75 saved a run of the loop
-  also invariant in their loops, but cheap (cost < 8 a call): Ch(q0, 0u) (line 113), Ch(q0, 1u) (line 113), Ch(q0, 2u) (line 114), Ch(q0, 3u) (line 114), StoredBits() (line 52)
+  also the same on every pass of their loops, but they run no loop and read no memory, so a driver's own loop-invariant code motion moves them out: Ch (4 calls), StoredBits (1 call)
   dot products: 8 sums of products would be dot products under gt1030 (cost -15, each once), not proposed: the module does not declare SPV_KHR_integer_dot_product (in GLSL, #extension GL_EXT_integer_dot_product)

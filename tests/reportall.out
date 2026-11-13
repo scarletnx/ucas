@@ -98,3 +98,17 @@ simplify: 317 SPIR-V instructions, 30 rewrites proved by SAT (bit-precise: equal
       (line 36: dst[29] = min((v >> 5u) & 255u, 329u);)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
   (nofile: simplified.spvasm, 9782 bytes, checksum e345623c)
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  invariant calls (a dataflow fact: neither the arguments nor anything the callee reads is written in the loop, and the callee writes nothing):
+    Load(at) at line 14 (in Sum) is the same on every pass of the loop at line 13: hoist it out of the loop at line 13; it costs 29.625 a call under gt1030
+  also the same on every pass of their loops, but it runs no loop and reads no memory, so a driver's own loop-invariant code motion moves it out: Field (1 call)
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  invariant calls (a dataflow fact: neither the arguments nor anything the callee reads is written in the loop, and the callee writes nothing):
+    Load(at) at line 14 (in Sum) is the same on every pass of the loop at line 13: hoist it out of the loop at line 13; it costs 29.625 a call under gt1030
+  also the same on every pass of their loops, but it runs no loop and reads no memory, so a driver's own loop-invariant code motion moves it out: Field (1 call)
