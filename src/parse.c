@@ -100,6 +100,7 @@ struct P {
 	int sg_depth;     /* inside a subgroup operation's arguments */
 	nid sgmask;       /* sg_active(m): the lanes that run, or 0 (all) */
 	int sgops;        /* subgroup operations built so far */
+	int fusepat;      /* parsing a fusion's pattern (parse_fuse) */
 	/*
 	 * Loop states (bit = slot) that follow a value per lane (cs_loop):
 	 * a subgroup operation reads each one's copy in the other lanes, as a
@@ -635,6 +636,9 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 	}
 	if (!W)
 		W = (int)model_active()->par[MP_WARP];
+	/* a fusion's pattern matches any size (fuse.c); 32 to build it */
+	if (p->fusepat && (W < 2 || W > SG_MAXW))
+		W = 32;
 	if (W < 2 || W > SG_MAXW)
 		fail("%s needs the subgroup's size: give the function a "
 		    "parameter lane: u32 in 0..N-1, or use a model that states "
@@ -2194,6 +2198,31 @@ parse_basis(struct P *p)
 	expect_eos(p);
 }
 
+/* a variable of pattern e that is not one of its np inputs, or 0 */
+static nid
+pat_stray(nid e, int np, int depth)
+{
+	nid r;
+	uint32_t j;
+
+	if (e == 0 || depth > 64)
+		return 0;
+	if (N.op[e] == O_VAR)
+		return N.ki[e] < 0 || N.ki[e] >= np ? e : 0;
+	if (N.op[e] == O_CONST)
+		return 0;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((r = pat_stray(N.lst[N.a[e] + j], np, depth + 1)) != 0)
+				return r;
+		return 0;
+	}
+	if ((r = pat_stray(N.a[e], np, depth + 1)) != 0 ||
+	    (r = pat_stray(N.b[e], np, depth + 1)) != 0)
+		return r;
+	return pat_stray(N.c[e], np, depth + 1);
+}
+
 /*
  * In a model: `fuse NAME(a: int, ...) = PATTERN : COST [contract] [in
  * CLASS ...] [on CLASS ...]`, `fuse NAME = lut K : COST`, `nofuse NAME`
@@ -2203,7 +2232,8 @@ parse_basis(struct P *p)
 static void
 parse_fuse(struct P *p, struct model *m)
 {
-	static const char *const kinds[] = {"int", "float", "const", "any"};
+	static const char *const kinds[] = {"int", "float", "const", "any",
+	    "lane"};
 	struct fusion f;
 	struct func tmp;
 	int off = is_kw(p, "nofuse"), k;
@@ -2229,9 +2259,9 @@ parse_fuse(struct P *p, struct model *m)
 			tmp.p[tmp.np].name = f.pname[tmp.np] = tsym(p, p->i);
 			adv(p);
 			expect(p, T_COLON);
-			for (k = 0; k < 4 && !is_kw(p, kinds[k]); k++)
+			for (k = 0; k < 5 && !is_kw(p, kinds[k]); k++)
 				;
-			if (k == 4 && pk(p) == T_ID) {
+			if (k == 5 && pk(p) == T_ID) {
 				/* uN, sN: an integer of a proved width */
 				int bits = 0;
 				size_t q;
@@ -2246,13 +2276,28 @@ parse_fuse(struct P *p, struct model *m)
 					k = FP_INT;
 				}
 			}
-			if (k == 4)
-				fail("a fusion's input is int, float, const, any, or an "
-				    "integer of a proved width (u1 to u%d, s1 to s%d)",
-				    FUSE_MAXBITS, FUSE_MAXBITS);
+			if (k == 5)
+				fail("a fusion's input is int, float, const, any, lane, "
+				    "or an integer of a proved width (u1 to u%d, s1 to "
+				    "s%d)", FUSE_MAXBITS, FUSE_MAXBITS);
+			if (k == FP_LANE && tmp.p[tmp.np].name != sym_cstr("lane"))
+				fail("a fusion's lane input is named lane (lane: lane), "
+				    "as a function's lane parameter is: %s: lane",
+				    sym_str(tmp.p[tmp.np].name));
 			adv(p);
 			f.pkind[tmp.np] = (uint8_t)k;
 			tmp.p[tmp.np].ty = k == FP_FLOAT ? TY_F32 : TY_INT;
+			/*
+			 * in a subgroup operation's operand an input is what the
+			 * lane computes there, not a value per lane read across
+			 * the lanes (sg_apply): it stays the pattern's input
+			 */
+			tmp.p[tmp.np].uniform = k != FP_LANE;
+			if (k == FP_LANE) {
+				tmp.p[tmp.np].ranged = 1;
+				tmp.p[tmp.np].lo = 0;
+				tmp.p[tmp.np].hi = 31;
+			}
 			tmp.np++;
 		} while (accept(p, T_COMMA));
 		expect(p, T_RP);
@@ -2272,10 +2317,24 @@ parse_fuse(struct P *p, struct model *m)
 		p->fn = &tmp;
 		p->sgmask = 0;
 		p->sgops = 0;
+		p->fusepat = 1;
 		f.pat = parse_expr(p, 0);
+		p->fusepat = 0;
 		p->fn = NULL;
+		/* the lane in an operand is the lane input, as sg_priced
+		 * makes it in what the pattern is matched against */
+		for (k = 0; k < f.np; k++)
+			if (f.pkind[k] == FP_LANE)
+				f.pat = sg_flat(f.pat, mk_var((uint32_t)k, f.pname[k],
+				    tmp.p[k].ty));
 		if (N.op[f.pat] == O_VAR || N.op[f.pat] == O_CONST)
 			fail("a fusion's pattern is an operation");
+		if ((v = pat_stray(f.pat, f.np, 0)) != 0)
+			fail("%s in the pattern of fusion %s is none of its inputs "
+			    "(%s): a pattern is an expression over its inputs alone%s",
+			    node_str(v), sym_str(f.name), node_str(f.pat),
+			    sg_is_lane(v) ? "; the lane's index is an input lane: "
+			    "lane" : "");
 	}
 	expect(p, T_COLON);
 	do {

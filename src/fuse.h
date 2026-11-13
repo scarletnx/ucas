@@ -16,7 +16,7 @@
 #define FUSE_MAXT 4
 #define MAXFUSE 96
 
-enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
+enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY, FP_LANE };
 #define FUSE_MAXBITS 32		/* an input's proved width: u1 .. u32, s1 .. s32 */
 
 /*
@@ -41,6 +41,12 @@ enum { FP_INT, FP_FLOAT, FP_CONST, FP_ANY };
  *                                    into the instruction that makes its
  *                                    input, when that is an operation of
  *                                    those classes used only here
+ * fuse NAME(a: int, b: int) = sg_ballot(a == b) : 3.875
+ * fuse NAME(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k)
+ *     : sg_shuffle                   subgroup operations (sg.c): an input
+ *                                    in an operand is what the lane
+ *                                    computes there, `lane: lane` the
+ *                                    lane's index; any subgroup size
  */
 struct fusion {
 	uint32_t model, name;
@@ -77,6 +83,7 @@ float fuse_price(const struct model *m, const struct fusion *f, int f64);
 struct fgraph {
 	int n;
 	uint8_t *op, *fp, *f64, *isk, *uns, *isbool, *nocontract, *pinned;
+	uint8_t *islane;	/* the lane's index (a variable named lane) */
 	int64_t *kv;
 	double *kr;
 	int (*arg)[3];
