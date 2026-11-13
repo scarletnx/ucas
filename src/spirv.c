@@ -12149,6 +12149,10 @@ static char *orig_mod;	/* the module before the rewrites */
  * where one unit in the last place is 1, and the subtraction leaves an
  * integer below 2^24, which an f32 holds.  Taken where the model prices
  * the or (or add), the bitcast and the subtract below the conversion.
+ * And f32(1 << k) is asfloat((k + 127) << 23), the exponent field of 2^k,
+ * for every k a shift by it defines (0..31; k < 31 for a signed 1 << k,
+ * proved by SAT, as 1 << 31 is negative there), where the shift goes
+ * with the conversion and an add and a shift cost less than both.
  *
  * i2f_pass decides on the integer pass's module and keeps each one here;
  * i2f_patch writes them into the module the later passes leave, last:
@@ -12156,9 +12160,10 @@ static char *orig_mod;	/* the module before the rewrites */
  * range, an integer atomic's addend, a vertex format), not the bits.
  */
 static struct cvx {
-	char res[40], rt[40], x[40], xt[40], op[40];
+	char res[40], rt[40], x[40], xt[40], op[40], k[40], kt[40];
 	char from[160], src[160];
-	int form;		/* 0: the or with 0x4B000000; 1: the add */
+	int form;		/* 0: the or with 0x4B000000; 1: the add;
+				 * 2: f32(1 << k) by the exponent field */
 	int line;
 	double before, after;
 } cvx[32];
@@ -12174,6 +12179,7 @@ i2f_pass(void)
 	for (k = 0; k < SP.orig_nin && ncvx < 32; k++) {
 		const struct sins *I = &V.in[k];
 		int rt, x, xt, sg, form = -1;
+		uint64_t one;
 		double before, after;
 		lit goal;
 		struct word *wx, c, sh;
@@ -12189,6 +12195,35 @@ i2f_pass(void)
 		    T(rt)->w != 32 || xt < 0 || T(xt)->k != S_INT || T(xt)->w != 32)
 			continue;
 		sg = I->op[9] == 'S';
+		/* f32(1 << k), the shift used by the conversion alone */
+		if (SP.def[x] >= 0 && !strcmp(V.in[SP.def[x]].op,
+		    "OpShiftLeftLogical") && SP.uses[x] == 1 &&
+		    const_of(res_of(idx(V.in[SP.def[x]].opnd[1])), &one) && one == 1) {
+			int kid = res_of(idx(V.in[SP.def[x]].opnd[2])),
+			    kt = V.id[kid].type;
+			before = m->c[C_CONV] + ins_cost_k(SP.def[x]);
+			after = m->c[C_IADD] + m->c[C_SHIFT] + m->c[C_BITCAST];
+			if (kt >= 0 && T(kt)->k == S_INT && T(kt)->w == 32 &&
+			    after < before - 1e-9) {
+				int ok = 1;
+				if (sg) {	/* 1 << 31 is negative: k < 31 */
+					blast_reset();
+					wx = blast(kid, 16);
+					w_const(&c, 32, 31);
+					goal = aig_and(SP.g, aig_and(SP.g, SP.dl[kid],
+					    assumptions()), L_NOT(w_ult(SP.g, wx, &c)));
+					ok = aig_sat(SP.g, goal, 20000) == 0;
+				}
+				if (ok) {
+					e = &cvx[ncvx++];
+					memset(e, 0, sizeof *e);
+					snprintf(e->k, sizeof e->k, "%s", V.id[kid].tok);
+					snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
+					form = 2;
+					goto keep;
+				}
+			}
+		}
 		before = m->c[C_CONV];
 		if (!(m->c[C_LOGIC] + m->c[C_BITCAST] + m->c[C_FADD] < before -
 		    1e-9) && !(sg && m->c[C_IADD] + m->c[C_BITCAST] + m->c[C_FADD] <
@@ -12221,6 +12256,8 @@ i2f_pass(void)
 		if (!(after < before - 1e-9))
 			continue;
 		e = &cvx[ncvx++];
+		memset(e, 0, sizeof *e);
+keep:
 		snprintf(e->res, sizeof e->res, "%s", V.id[I->res].tok);
 		snprintf(e->rt, sizeof e->rt, "%s", V.id[rt].tok);
 		snprintf(e->x, sizeof e->x, "%s", V.id[x].tok);
@@ -12283,6 +12320,18 @@ i2f_patch(const char *text, char **out)
 		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 		if (!used[i])
 			continue;
+		if (e->form == 2) {	/* 127 and 23, in k's type */
+			unsigned kv[2] = {127, 23};
+			int j;
+			for (j = 0; j < 2; j++) {
+				snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1,
+				    kv[j]);
+				if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
+					sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->kt,
+					    kv[j]);
+			}
+			continue;
+		}
 		snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->xt + 1, bits);
 		snprintf(fn, sizeof fn, "%%ucas_cvf_%s_%08x = ", e->rt + 1, bits);
 		if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
@@ -12312,7 +12361,23 @@ i2f_patch(const char *text, char **out)
 		for (i = 0; nt == 5 && i < ncvx && hit < 0; i++)
 			if (used[i] && !strcmp(t[0], cvx[i].res))
 				hit = i;
-		if (hit >= 0) {
+		if (hit >= 0 && cvx[hit].form == 2) {
+			const struct cvx *e = &cvx[hit];
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %s %%ucas_cvk_%s_%08x\n",
+			    base + hit, e->kt, e->k, e->kt + 1, 127u);
+			sb_printf(&o, "%%ucas_cv%db = OpShiftLeftLogical %s %%ucas_cv%do "
+			    "%%ucas_cvk_%s_%08x\n", base + hit, e->kt, base + hit,
+			    e->kt + 1, 23u);
+			sb_printf(&o, "%s = OpBitcast %s %%ucas_cv%db\n", e->res, e->rt,
+			    base + hit);
+			sb_printf(&rep, "    %s\n      ->  OpBitcast %s (OpShiftLeftLogical "
+			    "%s (OpIAdd %s %s 127) 23)   (cost %g -> %g, the shift 1 << %s "
+			    "included)\n      f32(1 << k) is asfloat((k + 127) << 23): the "
+			    "exponent field of 2^k, mantissa 0, for every k a shift by it "
+			    "defines (0..31)%s\n%s", e->from, e->rt, e->kt, e->kt, e->k,
+			    e->before, e->after, e->k, e->op[9] == 'S' ? "; signed, k < 31 "
+			    "proved by SAT (1 << 31 is negative)" : "", e->src);
+		} else if (hit >= 0) {
 			const struct cvx *e = &cvx[hit];
 			unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 			sb_printf(&o, "%%ucas_cv%do = %s %s %s %%ucas_cvk_%s_%08x\n",
@@ -12360,7 +12425,8 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form ? "asfloat(x + 0x4B400000) - 1.5*2^23" :
+		rep_str("form", cvx[i].form == 2 ? "asfloat((k + 127) << 23)" :
+		    cvx[i].form ? "asfloat(x + 0x4B400000) - 1.5*2^23" :
 		    "asfloat(x | 0x4B000000) - 2^23");
 		rep_int("line", cvx[i].line);
 		rep_num("cost_before", cvx[i].before);
