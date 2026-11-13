@@ -114,6 +114,65 @@ def subgroup_operands_vary():
            if '{' not in args]
     assert not bad, 'subgroup operations with no chain value among their operands: %s' % ', '.join(bad)
 
+
+def noise_words(rng, n):
+    """snx-shaderperf's fill=noise: floats k / 2^24, k uniform below 2^24, as their bits"""
+    import numpy as np
+    k = rng.integers(0, 1 << 24, size=n, dtype=np.uint64)
+    return (k.astype(np.float64) / float(1 << 24)).astype(np.float32).view(np.uint32).astype(np.uint64)
+
+
+def walk_table(p, rng):
+    """the table a walking step reads, as an array, and its size"""
+    import numpy as np
+    text = p['step']
+    if 'tab[' in text:
+        vals = [int(v, 16) for v in re.findall(r'0x([0-9a-f]{8})u', p['decls'])]
+        return np.array(vals, dtype=np.uint64)
+    for fn, data in p.get('files', {}).items():
+        if fn in ' '.join(p['args']):
+            return np.frombuffer(data, dtype='<u4').astype(np.uint64)
+    # inb.data, or a texture made by pattern=noise: the buffer's noise
+    return noise_words(rng, 1 << 16)
+
+
+@check
+def table_walks_keep_lanes_apart():
+    """a step whose table index is moved by the value it loads keeps the warp's lanes on as many entries
+    as they start on, through the loop of both builds: a table that merges them measures fewer and fewer
+    addresses a warp, and its A and 2A builds read differently"""
+    import numpy as np
+    rng = np.random.default_rng(3)
+    M = (1 << 32) - 1
+    bad, seen = [], 0
+    for p in steps():
+        text = p['step'] or ''
+        m = re.search(r'\{a\}( \+ \{u\}u)?\)*\s*&\s*(\d+)u\]?\)*', text.split(' + ', 1)[1]) \
+            if text.startswith('{a} + ') else None
+        if not m or 'ib' in text:
+            continue
+        seen += 1
+        tab = walk_table(p, rng)
+        mask = len(tab) - 1 if 'tab[' in text else int(m.group(2))
+        warps = 64
+        s = noise_words(rng, 32 * warps) ^ 1
+        for U in (p['A'], 2 * p['A']):
+            a = (s * 0x9e3779b1 + 1) & M
+            start = None
+            for i in range(111):
+                for u in range(U):
+                    idx = (a + (u if m.group(1) else 0)) & mask
+                    if start is None:
+                        start = [len(set(idx[w * 32:(w + 1) * 32].tolist())) for w in range(warps)]
+                    a = (a + tab[idx]) & M
+            end = [len(set(idx[w * 32:(w + 1) * 32].tolist())) for w in range(warps)]
+            if end != start:
+                bad.append('%s (A=%d: %.1f entries a warp at the start, %.1f at the end)' % (
+                    p['name'], U, sum(start) / warps, sum(end) / warps))
+                break
+    assert seen >= 5, 'found %d walking steps, expected the tables of #166 and #168' % seen
+    assert not bad, 'walks that merge lanes: %s' % '; '.join(bad)
+
 def main():
     failed = 0
     for fn in CHECKS:

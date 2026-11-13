@@ -31,7 +31,7 @@ it shows the run goes through (lavapipe: VK_ICD_FILENAMES=.../lvp_icd.x86_64.jso
 Usage: probe.py [--sp PATH] [--out DIR] [--only NAME,...] [--issue N,...] [--runs N]
                 [--tries N] [--quick] [--list] [--ucas PATH] [--timeout S]
 """
-import argparse, json, math, os, re, shutil, struct, subprocess, sys, time
+import argparse, json, math, os, random, re, shutil, struct, subprocess, sys, time
 from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -64,7 +64,7 @@ def step(name, issues, stp, ops, **kw):
     """a step of the corpus's shape (gen.py's t()), timed against fadd"""
     x = dict(step=stp, ops=ops, ty='uint', exts=[], decls='', pre='', post='', C=8, ring=None, iters=None,
              note='', sub='alu', A=8, wg=128, vkext=[], args=[], qual='', pre_iter='', body=None, prestep='',
-             poststep='')
+             poststep='', files={})
     x.update(kw)
     if x['ring'] is None:
         x['ring'] = any(p in (x['step'] or x['body'] or '') for p in ('{b}', '{c}', '{d}'))
@@ -178,16 +178,40 @@ step('ubo_tab_read', [147], 'ubo.d[{a} & 31u].x + {b}', {'x_load_ubo_div': 1, 'l
      decls='layout(std140, set = 0, binding = 3) uniform U { uvec4 d[1024]; } ubo;\n',
      note='the same table in constant memory, a different entry in each lane')
 # --- #166: a constant table's load by its size
+def perm_table(n, seed=0x5eed):
+    """n u32 whose low bits move an index along a permutation: entry j holds pi(j) - j in its low log2(n)
+    bits (random above), so a walk i -> (i + t[i] + d) mod n keeps every lane on an entry of its own.  A
+    table that does not do this merges lanes: one affine in j (j k + c, k odd) sends every lane to one
+    entry in log2(n) steps, a random one leaves a few entries of 32 after a few hundred"""
+    rnd = random.Random(seed + n)
+    pi = list(range(n))
+    rnd.shuffle(pi)
+    sh = n.bit_length() - 1
+    return [((pi[j] - j) % n) | ((rnd.getrandbits(32 - sh) << sh) & 0xffffffff) for j in range(n)]
+
+
+def table_bytes(n):
+    return struct.pack('<%dI' % n, *perm_table(n))
+
+
 def _ctab(n):
     """a constant table of n u32 and how to read entry I: one OpConstantComposite holds at most
     65532 operands (the word count is 16 bits), so 256 KiB is 4 rows of 16384"""
-    v = ['0x%08xu' % ((j * 0x9e3779b1 + 0x7f4a7c15) & 0xffffffff) for j in range(n)]
+    v = ['0x%08xu' % x for x in perm_table(n)]
     if n <= 16384:
         return 'const uint tab[%d] = uint[](%s);\n' % (n, ', '.join(v)), 'tab[(I) & %du]' % (n - 1)
     rows = n // 16384
     return ('const uint tab[%d][16384] = uint[%d][16384](%s);\n' % (rows, rows, ', '.join(
         'uint[16384](%s)' % ', '.join(v[r * 16384:(r + 1) * 16384]) for r in range(rows))),
         'tab[((I) >> 14) & %du][(I) & 16383u]' % (rows - 1))
+
+
+TB = 'layout(std430, set = 0, binding = 2) readonly buffer T { uint t[]; } tb;\n'
+
+
+def tbarg(n):
+    """the storage-buffer table: n entries of perm_table at binding 2"""
+    return dict(files={'table%d.bin' % n: table_bytes(n)}, args=['--bind', '0.2=file={data}/table%d.bin' % n])
 
 
 for _n, _kib in ((256, 1), (16384, 64), (65536, 256)):
@@ -204,19 +228,19 @@ for _n, _kib in ((256, 1), (16384, 64), (65536, 256)):
     step('ctab%dk_seq' % _kib, [166], '{a} + ' + _rd.replace('I', 'ib + {u}u'), dict(_x), sub='mem', C=1,
          decls=_tab, slow=_n > 256, pre_iter='uint ib = gid + i * 64u;',
          note='the same, consecutive lanes on consecutive entries' + _slow)
-    step('ssbo%dk_random' % _kib, [166], '{a} + inb.data[({a} + {u}u) & %du]' % (_n - 1),
-         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+    step('ssbo%dk_random' % _kib, [166], '{a} + tb.t[({a} + {u}u) & %du]' % (_n - 1),
+         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=TB, **tbarg(_n),
          note='the same table in a storage buffer (random)')
-    step('ssbo%dk_seq' % _kib, [166], '{a} + inb.data[(ib + {u}u) & %du]' % (_n - 1),
-         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, pre_iter='uint ib = gid + i * 64u;',
-         note='the same table in a storage buffer (consecutive)')
+    step('ssbo%dk_seq' % _kib, [166], '{a} + tb.t[(ib + {u}u) & %du]' % (_n - 1),
+         {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, pre_iter='uint ib = gid + i * 64u;', decls=TB,
+         **tbarg(_n), note='the same table in a storage buffer (consecutive)')
 # --- #168: a small texture as a table
 step('tex_table_r32ui', [168], '{a} + texelFetch(utex, ivec2(int({a} & 255u), 0), 0).x',
-     {'x_tex_fetch_r32ui': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=UTEX,
-     args=['--bind', '0.5=format=r32_uint,size=256x1,pattern=noise,filter=nearest'],
+     {'x_tex_fetch_r32ui': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1, decls=UTEX, files={'table256.bin': table_bytes(256)},
+     args=['--bind', '0.5=format=r32_uint,size=256x1,raw={data}/table256.bin,filter=nearest'],
      note='texelFetch of a 256-entry R32UI texture')
-step('ssbo_table_256', [168], '{a} + inb.data[{a} & 255u]', {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
-     note='the same 256 entries in a storage buffer')
+step('ssbo_table_256', [168], '{a} + tb.t[{a} & 255u]', {'load': 1, 'logic': 1, 'iadd': 1}, sub='mem', C=1,
+     decls=TB, **tbarg(256), note='the same 256 entries in a storage buffer')
 step('tex_lerp_r8', [168], '{a} + textureLod(tex, vec2(fract({a}), 0.5), 0.0).x',
      {'x_tex_bilinear_r8': 1, 'conv': 1, 'fadd': 1}, ty='float', sub='mem', C=1, decls=TEX,
      args=texarg('r8_unorm', '256x1', 'linear'), note='a bilinear R8 read as a 256-entry interpolating table')
@@ -373,7 +397,10 @@ def run_step(p):
     ref = fadd_entry()
     shaders = [os.path.join(HERE, ref['files']['a']), os.path.join(HERE, ref['files']['b'])] + files
     test = dict(chains=x['C'], unroll=[Aun, 2 * Aun], iters=iters)
-    extra = timing_args() + ['--size', str(lanes)] + list(x['args'])
+    for fn, data in x['files'].items():
+        write(fn, data)
+    extra = timing_args() + ['--size', str(lanes)] + [a.replace('{data}', os.path.join(OUT, 'data'))
+                                                      for a in x['args']]
     for v in x['vkext']:
         extra += ['--ext', v]
     best = None
