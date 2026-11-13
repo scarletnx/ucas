@@ -42,3 +42,24 @@ void main() {
     o.f[i + 64u] = floor(log2(y));
 }
 ```
+# of an integer i converted, i in [1, 2^24) (the conversion exact): i's
+# most significant bit, FindUMsb(i), converted to an integer (13 -> 3,
+# the conversion i's only reader going too) or left a float (10 -> 6);
+# past 2^24 the conversion may round up to the next power of two, and
+# with no lower bound on x the exponent field is not taken: it stays
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+layout(std430, binding = 2) buffer I { int i[]; } q;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint n = (b.d[i] & 65535u) + 1u, m = (b.d[i + 64u] & 1023u) + 1u;
+    uint big = (b.d[i + 128u] >> 1) + 1u;
+    q.i[i] = int(floor(log2(float(n))));
+    o.f[i] = floor(log2(float(m)));
+    q.i[i + 64u] = int(log2(float(big)));
+}
+```

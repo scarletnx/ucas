@@ -2216,61 +2216,60 @@ out too (`y*t*w + x*t + z*t` is `(y*w + x + z)*t`, 12 to 7), and on
 integers simplify writes it into a module (see "the same pass takes"
 above).
 
-`simplify` writes six of them into a SPIR-V module.  An
-OpConvertUToF or OpConvertSToF of a 32-bit integer to f32 whose
-operand SAT proves in [0, 2^23) becomes the or with 0x4B000000, a
-bitcast and the subtraction of 2^23 (in [-2^22, 2^22), signed: the
-add of 0x4B400000 and 1.5*2^23), where the model prices those below
-the conversion (3 to 2 under gt1030); the range comes from the
-operand's definitions (a mask, a shift, an add of bounded values) or
-an assumption on what it loads (tests/i2fbits.ucas).  A conversion of
-`1 << k` whose shift has no other use is asfloat((k + 127) << 23),
-2^k's exponent field, for every k the shift defines (a signed one
-needs k < 31, proved by SAT): an add and a shift in place of the shift
-and the conversion, 5 to 3 under gt1030 (tests/i2fexp.ucas).  And the
-other way, an OpConvertFToS or OpConvertFToU of a whole x made by
-floor, ceil, round or trunc, |x| below 2^22, is the add of 1.5*2^23
-read as bits, less 0x4B400000 (3 to 2): x's range comes from clamps,
-min and max, constants, adds and multiplies (each widened by one
-rounding), an integer's conversion SAT bounds, and the float
-assumptions, with one unit of margin for what the float pass may move
-under the floor (tests/f2ibits.ucas: `int(floor(clamp(c, 0.0, 1.0) *
-255.0 + 0.5))`).  A call of floor, ceil, trunc, round or roundEven on
-an f32 x whose range (the same) lies within 2^22 is `(x + 1.5*2^23) -
-1.5*2^23`, rounded to even (round's halves too: GLSL lets it choose),
-with floor's `r > x ? r - 1 : r` (ceil's `r < x ? r + 1 : r`) after
-it, and trunc as floor where x >= 0 and as ceil where x <= 0; the add
-and the subtraction are written NoContraction, so a driver keeps them,
-and a zero result may be +0 for -0, which Vulkan's default float
-controls allow (a module with SignedZeroInfNanPreserve keeps its
-calls).  Round and roundEven pay under gt1030 (3 to 2), floor and ceil
-under sm86 (8 to 7.375) (tests/roundspv.ucas).  floor(log2(x)) of an
-f32 x whose range is positive and normal is its exponent field,
+`simplify` writes six of them into a SPIR-V module.  An OpConvertUToF or
+OpConvertSToF of a 32-bit integer to f32 whose operand SAT proves in [0,
+2^23) becomes the or with 0x4B000000, a bitcast and the subtraction of
+2^23 (in [-2^22, 2^22), signed: the add of 0x4B400000 and 1.5*2^23),
+where the model prices those below the conversion (3 to 2 under gt1030);
+the range comes from the operand's definitions (a mask, a shift, an add
+of bounded values) or an assumption on what it loads
+(tests/i2fbits.ucas).  A conversion of `1 << k` whose shift has no other
+use is asfloat((k + 127) << 23), 2^k's exponent field, for every k the
+shift defines (a signed one needs k < 31, proved by SAT): an add and a
+shift in place of the shift and the conversion, 5 to 3 under gt1030
+(tests/i2fexp.ucas).  And the other way, an OpConvertFToS or
+OpConvertFToU of a whole x made by floor, ceil, round or trunc, |x|
+below 2^22, is the add of 1.5*2^23 read as bits, less 0x4B400000 (3 to
+2): x's range comes from clamps, min and max, constants, adds and
+multiplies (each widened by one rounding), an integer's conversion SAT
+bounds, and the float assumptions, with one unit of margin for what the
+float pass may move under the floor (tests/f2ibits.ucas:
+`int(floor(clamp(c, 0.0, 1.0) * 255.0 + 0.5))`).  A call of floor, ceil,
+trunc, round or roundEven on an f32 x whose range (the same) lies within
+2^22 is `(x + 1.5*2^23) - 1.5*2^23`, rounded to even (round's halves
+too: GLSL lets it choose), with floor's `r > x ? r - 1 : r` (ceil's `r <
+x ? r + 1 : r`) after it, and trunc as floor where x >= 0 and as ceil
+where x <= 0; the add and the subtraction are written NoContraction, so
+a driver keeps them, and a zero result may be +0 for -0, which Vulkan's
+default float controls allow (a module with SignedZeroInfNanPreserve
+keeps its calls).  Round and roundEven pay under gt1030 (3 to 2), floor
+and ceil under sm86 (8 to 7.375) (tests/roundspv.ucas).  floor(log2(x))
+of an f32 x whose range is positive and normal is its exponent field,
 `(asuint(x) >> 23) - 127`, exactly: converted to an integer, the floor
-and the log2 go (10 to 3 under gt1030; `int(log2(x))` of x >= 1 too,
-7 to 3), and left a float it is the field's conversion (7 to 6).  A
-GPU's log2 is within 3 ulp, so the call may give one more just below a
-power of two (correctly rounded log2f does at 7404 of the positive
-normal floats): the field is the exact value, one Vulkan lets the call
-give, and not with `exact` (tests/log2exp.ucas).  ldexp(x, k) of an
-f32 x whose |x| is normal (2^-126 at least, finite) is
-`asfloat(asint(x) + (k << 23))` where k keeps x * 2^k normal, which
-SAT proves from k's definitions (13 to 3 under gt1030, where ldexp is
-lowered); an x that may be 0 takes it when it is an integer converted
-(0, or 1 at least in magnitude: a shared-exponent decoder's mantissa),
-`x == 0 ? x : asfloat(asint(x) + (k << 23))`, the select keeping ldexp's
-0 (13 to 7; tests/ldexpbits.ucas).  They are written
-last, after the float, memory and advice passes, which read the
-conversion (its integer's range, an integer atomic's addend, a vertex
-format) and not the bits; the report gives them their own section, as
-a conversion is not in the integer cost, and says what spirv-val makes
-of the module.  Not yet: an integer's floor(log2 x) by its
-conversion's exponent field (dearer than FindUMsb under gt1030), the
-ldexp of an x that may be 0 or subnormal and is not an integer
-converted, the GLSL function level (find only), f16 and
-f64, a round-to-nearest operation for the magic add to stand for (ucas
-has floor, ceil and the truncating conversion), 48-bit products by
-2Prod.
+and the log2 go (10 to 3 under gt1030; `int(log2(x))` of x >= 1 too, 7
+to 3), and left a float it is the field's conversion (7 to 6).  A GPU's
+log2 is within 3 ulp, so the call may give one more just below a power
+of two (correctly rounded log2f does at 7404 of the positive normal
+floats): the field is the exact value, one Vulkan lets the call give,
+and not with `exact`.  Of an integer i converted, i in [1, 2^24) by SAT
+(the conversion exact), it is i's most significant bit, FindUMsb(i),
+priced a bit count: converted 13 to 3 with the conversion gone too, left
+a float 10 to 6 (tests/log2exp.ucas).  ldexp(x, k) of an f32 x whose |x|
+is normal (2^-126 at least, finite) is `asfloat(asint(x) + (k << 23))`
+where k keeps x * 2^k normal, which SAT proves from k's definitions (13
+to 3 under gt1030, where ldexp is lowered); an x that may be 0 takes it
+when it is an integer converted (0, or 1 at least in magnitude: a
+shared-exponent decoder's mantissa), `x == 0 ? x : asfloat(asint(x) + (k
+<< 23))`, the select keeping ldexp's 0 (13 to 7; tests/ldexpbits.ucas).
+They are written last, after the float, memory and advice passes, which
+read the conversion (its integer's range, an integer atomic's addend, a
+vertex format) and not the bits; the report gives them their own
+section, as a conversion is not in the integer cost, and says what
+spirv-val makes of the module.  Not yet: the ldexp of an x that may be 0
+or subnormal and is not an integer converted, the GLSL function level
+(find only), f16 and f64, a round-to-nearest operation for the magic add
+to stand for (ucas has floor, ceil and the truncating conversion),
+48-bit products by 2Prod.
 
 A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),
