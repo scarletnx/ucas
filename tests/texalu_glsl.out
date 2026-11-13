@@ -4,28 +4,18 @@
 > use cal
 cost model: cal
 > spvsimplify nofile
-simplify: 126 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 1 division by a constant made a multiply and a shift (derived, below), 5 dead instructions removed
-  integer arithmetic cost under cal (each instruction once), beyond what spirv-opt -O and a driver's back end do: 26.5 -> 23 (-13.2%)
+simplify: 126 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 1 division by a constant made a multiply and a shift (derived, below), 1 dead instruction removed
+  integer arithmetic cost under cal (each instruction once), beyond what spirv-opt -O and a driver's back end do: 27.5 -> 23 (-16.4%)
   counting the strength reductions any driver also does: 27.5 -> 23 (-16.4%)
-  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
   by kind:
        1  a division by a constant of a bounded dividend as a multiply and a shift  -4.5
-       1  a sum of products as one dot product          -1
   rewrites:
     %129 = OpUMod %uint %109 %uint_7
       ->  (%99 & 0x3ff) - 7(1171(%99 & 0x3ff) >> 13)   (a division by a constant of a bounded dividend as a multiply and a shift; -4.5)
       (line 6: uint wrapped(uint i) { return K[i % 7u]; })
-    %141 = OpIAdd %uint %139 %113
-      ->  udot4x8(%99 >> 1 & 1, 4) + (%99 & 1)   (a sum of products as one dot product; -1)
-      (line 7: uint box(uint x, uint y) { return Q[y*4u + x] + Q[y*4u + x + 1u] + Q[y*4u + x + 4u] + Q[y*)
-  dot products (a sum of products as one instruction, laid out and proved by dot.c under cal):
-    %141 = OpIAdd %uint %139 %113
-      ->  udot4x8(%99 >> 1 & 1, 4) + (%99 & 1)   (cost 7 -> 6)
-      (line 7: uint box(uint x, uint y) { return Q[y*4u + x] + Q[y*4u + x + 1u] + Q[y*4u + x + 4u] + Q[y*)
-      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (%99 >> 1 & 1) * 4
-      %99 >> 1 & 1 in 0..1 (proved range)
-      udot4x8's sum is in 0..4: it does not wrap
-      proved by SAT: 33 AIG nodes, 0 conflicts
   divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under cal):
     %129 = OpUMod %uint %109 %uint_7
       ->  (%99 & 0x3ff) - 7(1171(%99 & 0x3ff) >> 13)   (cost 14.5 -> 10)
@@ -53,31 +43,6 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions
       cost under cal: 20.375 -> 9 each time it runs
       relies on: i in 0..1023 where line 6 runs; holds where the read is defined: there i % 7 = i mod 7; that identity between integers is proved: exhaustive; the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000122 of a texel's centre for i in [0, 1023] (its range), and the unit snaps by less than 2^-8: 0.000122 + 0.00391 < 1/2, the texel is i's
   box (line 7), called from main (line 10)
-    line 7: a sum of products as one dot product
-      y * 4u + x
-        ->  udot4x8(y, 4) + x
-        (GLSL has no built-in for it: declare it, e.g. #extension GL_EXT_spirv_intrinsics : require; spirv_instruction(extensions = ["SPV_KHR_integer_dot_product"], capabilities = [6019, 6018], id = 4451) uint udot4x8(uint a, uint b, spirv_literal int fmt); and call it with fmt 0; id 4450 is sdot4x8 (int), 4452 sudot4x8)
-      proof: exhaustive, over the values its leaves take where it runs
-      cost under cal: 3 -> 2 each time it runs
-      relies on: y in 0..1; x in 0..1 where line 7 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: y * 4; y in 0..1 (proved range); udot4x8's sum is in 0..4: it does not wrap
-    line 7: a sum of products as one dot product
-      y * 4u + x + 1u
-        ->  udot4x8(y, 4) + (x + 1)
-      proof: exhaustive, over the values its leaves take where it runs
-      cost under cal: 4 -> 3 each time it runs
-      relies on: y in 0..1; x in 0..1 where line 7 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: y * 4; y in 0..1 (proved range); udot4x8's sum is in 0..4: it does not wrap
-    line 7: a sum of products as one dot product
-      y * 4u + x + 4u
-        ->  udot4x8(y, 4) + (x + 4)
-      proof: exhaustive, over the values its leaves take where it runs
-      cost under cal: 4 -> 3 each time it runs
-      relies on: y in 0..1; x in 0..1 where line 7 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: y * 4; y in 0..1 (proved range); udot4x8's sum is in 0..4: it does not wrap
-    line 7: a sum of products as one dot product
-      y * 4u + x + 5u
-        ->  udot4x8(y, 4) + (x + 5)
-      proof: exhaustive, over the values its leaves take where it runs
-      cost under cal: 4 -> 3 each time it runs
-      relies on: y in 0..1; x in 0..1 where line 7 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: y * 4; y in 0..1 (proved range); udot4x8's sum is in 0..4: it does not wrap
     line 7: table reads through the texture unit (a proposal: the pipeline changes)
       Q[y * 4u + x] + Q[y * 4u + x + 1u] + Q[y * 4u + x + 4u] + Q[y * 4u + x + 5u]
         ->  u32(1020tex_bilinear8([0.0117647061, 0.0352941193, 0.105882354, 0.31764707, 0.952941179, 0.00392156886, 0.784313738, 0.392156869, 0.196078435, 0.0980392173, 0.0470588244, 0.0235294122, 0, 1, 0.501960814, 0.250980407], 4, f32(x) + 1, f32(y) + 1) + 0.5)
@@ -89,7 +54,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions
       proof: equal, by the derivation it relies on (texalu), over the values its leaves take where it runs
       cost under cal: 35.5 -> 33.625 each time it runs
       relies on: y in 0..1; x in 0..1 where line 7 runs; holds where x in [0, 1], y in [0, 1] (proved ranges): every texel read is inside the table; a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255);   the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move;   the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395; the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor); checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 4 points: equal
-  (nofile: simplified.spvasm, 4963 bytes, checksum 2b9e4609)
+  (nofile: simplified.spvasm, 4804 bytes, checksum a8ba1bb8)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > use gt1030
