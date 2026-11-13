@@ -55,10 +55,14 @@ texalu o4: reads through the texture unit under texel (cost 21.375 as written):
         a texture R8_UINT, 7 x 1, one level, its texels the table's entries
         a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
         one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> o6(i: u8 in 240..255) = K[(i + u8(7)) % 7]
+> texalu o6 under texel
+texalu o6: the texture unit under texel (cost 21.375 as written): nothing taken
+  [10, 20, 30, 40, 50, 60, 70][(i + 7) % 7] agrees with fetch_repeat([10, 20, 30, 40, 50, 60, 70], i + 7) on the points tried, but i + 7 is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
 > o5(i: u8 in 0..4) = K[i + 2]
 > texalu o5 under texel
 texalu o5: no table read or weighted sum of neighbouring entries the texture unit could compute
 > f(i: u8) = fetch_repeat_offset(K, i, 8)
-texoffset.ucas:25:40: error: fetch_repeat_offset's offset is a constant from -8 to 7 (every device's ConstOffset range), not 8
+texoffset.ucas:28:40: error: fetch_repeat_offset's offset is a constant from -8 to 7 (every device's ConstOffset range), not 8
     f(i: u8) = fetch_repeat_offset(K, i, 8)
                                            ^
