@@ -112,6 +112,11 @@ step('exp_add_bits', [188], 'uintBitsToFloat(floatBitsToUint({a}) + ((floatBitsT
 step('exp_mul_conv', [188], '{a} * float(1u << (floatBitsToUint({b}) & 7u))',
      {'bitcast': 1, 'logic': 1, 'shift': 1, 'conv': 1, 'fmul': 1}, ty='float',
      note='the same as a shift, a conversion and a multiply')
+# --- #18, #19: a 64-bit division and remainder by a constant (multiply-high and shifts in 64 bits)
+step('u64_udiv_const', [18, 19], '({a} / 7ul) + {b}', {'x_u64_udivk': 1, 'x_i64add': 1}, ty='u64', exts=['i64'],
+     note='x / 7 on u64, x from the noise buffer (the corpus: u64_add 2.02, u64_mul 15.52)')
+step('u64_umod_const', [18, 19], '({a} % 7ul) + {b}', {'x_u64_umodk': 1, 'x_i64add': 1}, ty='u64', exts=['i64'],
+     note='x % 7 on u64')
 # --- #156: the catalogue's classes, each beside what it replaces
 step('bfe_builtin', [156], 'bitfieldExtract({a}, 7, 9) + {b}', {'bfe': 1, 'iadd': 1}, note='BFE, constant offset')
 step('bfe_shift_mask', [156], '(({a} >> 7u) & 0x1ffu) + {b}', {'shift': 1, 'logic': 1, 'iadd': 1},
