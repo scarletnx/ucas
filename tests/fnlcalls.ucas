@@ -1,0 +1,43 @@
+# The function level checks a loop-free helper's operations at each of its
+# calls, on the values their leaves take there: an ASTC decoder's packer
+# clamps what its endpoint modes give it, and in the modes whose values are
+# bytes (bitfieldExtract's ranges, read through a switch) no clamp bites,
+# so an unclamped variant serves those calls; a z-order index within a
+# tile of 8 is its interleave alone at the call whose x stays below 8; a
+# helper called with a constant gets nothing said (the compiler's fold)
+simplify functions nofile budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint dst[]; };
+uint Pack(uint r, uint g, uint b, uint a) {
+    return r | (g << 8) | (b << 16) | (a << 24);
+}
+uint PackClamped(int r, int g, int b, int a) {
+    return Pack(uint(clamp(r, 0, 255)), uint(clamp(g, 0, 255)), uint(clamp(b, 0, 255)), uint(clamp(a, 0, 255)));
+}
+uint Morton(uint x, uint y) {
+    uint i = (x & 1u) | ((y & 1u) << 1) | ((x & 2u) << 1) | ((y & 2u) << 2) | ((x & 4u) << 2) | ((y & 4u) << 3);
+    return i + ((x & ~7u) << 6u);
+}
+uint Field(uint w, uint k) {
+    return (w >> (k << 3u)) & 255u;
+}
+uint Endpoint(uint mode, uint q) {
+    const int s0 = int(bitfieldExtract(q, 0, 8)), s1 = bitfieldExtract(int(q), 8, 6);
+    switch (mode) {
+    case 0u:
+        return PackClamped(s0, s0, s0, 255);
+    case 1u:
+    case 2u:
+        return PackClamped(s0 + s1, s0, s0, 255);
+    default:
+        return PackClamped(s0, s0 + s1, s0, s0);
+    }
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x, q = src[i];
+    dst[i] = Endpoint(q >> 28u, q) + Morton(i % 8u, (i >> 3u) % 8u) + Morton(i, q) + Field(q, 1u) + Field(q, 2u);
+}
+```

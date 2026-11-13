@@ -2671,6 +2671,8 @@ static struct {
 	long work;
 	double deadline;
 	int out_of_time;
+	int site;		/* the call whose own values a loop-free callee
+				 * runs on (its expression), -1 none */
 	int probe_round;	/* the round that runs loops' passes apart */
 	int probe_grew;		/* a summary of the analysis grew in it */
 	uint8_t *reach;		/* a probed pass: the statements it runs */
@@ -2820,17 +2822,64 @@ static struct fsum {
 
 /* ---- records: what an expression's leaves were, for the proofs ---- */
 
+/* the calls a row was met at (the call expressions), up to 256, more is
+ * any; a row met outside a call run on its own values is any call */
+#define RSITES 256
+struct rsite {
+	int n, cap;		/* n -1: any call */
+	int *s;
+};
 struct rec {
 	int x;			/* the expression */
 	int nl, lf[MAXP];	/* its leaves (expressions) */
 	int nex, ex[MAXP];	/* symbols recorded too */
 	int nbox, cap;
 	struct av *box;		/* nbox rows of nl + nex */
+	struct rsite *site;	/* per row */
 };
 static struct rec *RC;
 static int nrc, caprc, *recn;	/* expression -> record, -1 */
 
 static struct av ae(env_t e, int x);
+
+/* row b of R was met at the call A.site */
+static void
+rsite_add(struct rsite *t, int site)
+{
+	int i;
+	if (t->n < 0)
+		return;
+	if (site < 0) {
+		t->n = -1;
+		return;
+	}
+	for (i = 0; i < t->n; i++)
+		if (t->s[i] == site)
+			return;
+	if (t->n == RSITES) {
+		t->n = -1;
+		return;
+	}
+	if (t->n == t->cap) {
+		t->cap = t->cap ? t->cap * 2 : 2;
+		t->s = xrealloc(t->s, (size_t)t->cap * sizeof *t->s);
+	}
+	t->s[t->n++] = site;
+}
+
+/* row b of R may have been met at call site c */
+static int
+rsite_has(const struct rec *R, int b, int c)
+{
+	const struct rsite *t = &R->site[b];
+	int i;
+	if (t->n < 0)
+		return 1;
+	for (i = 0; i < t->n; i++)
+		if (t->s[i] == c)
+			return 1;
+	return 0;
+}
 
 static void
 rec_take(env_t e, int r)
@@ -2848,20 +2897,28 @@ rec_take(env_t e, int r)
 		int same = 1;
 		for (i = 0; i < w && same; i++)
 			same = av_same(&R->box[b * w + i], &row[i]);
-		if (same)
+		if (same) {
+			rsite_add(&R->site[b], A.site);
 			return;
+		}
 	}
 	if (R->nbox >= 256) {
 		for (i = 0; i < w; i++)
 			R->box[(R->nbox - 1) * w + i] = av_join(R->box[(R->nbox - 1) *
 			    w + i], row[i]);
+		rsite_add(&R->site[R->nbox - 1], A.site);
 		return;
 	}
 	if (R->nbox == R->cap) {
+		int c0 = R->cap;
 		R->cap = R->cap ? R->cap * 2 : 8;
 		R->box = xrealloc(R->box, (size_t)R->cap * w * sizeof *R->box);
+		R->site = xrealloc(R->site, (size_t)R->cap * sizeof *R->site);
+		memset(R->site + c0, 0, (size_t)(R->cap - c0) * sizeof *R->site);
 	}
 	memcpy(&R->box[R->nbox * w], row, (size_t)w * sizeof *row);
+	R->site[R->nbox].n = 0;
+	rsite_add(&R->site[R->nbox], A.site);
 	R->nbox++;
 }
 
@@ -2989,10 +3046,13 @@ ae(env_t e, int x)
 			args[i] = ae(e, G.xarg[g->a + i]);
 		if (g->sym >= 0) {
 			int f = g->sym;
+			int sv = A.site;
 			for (i = 0; i < na && i < G.f[f].np; i++)
 				args[i] = av_conv(args[i], G.x[G.xarg[g->a + i]].ty,
 				    G.y[G.f[f].p[i]].ty);
+			A.site = x;
 			call_fn(e, f, args, na, &r);
+			A.site = sv;
 			return r;
 		}
 		for (i = 0; i < na; i++)
@@ -3982,7 +4042,13 @@ analyse_fn(int f, struct summ *S)
 	es_add(&E, e, 0);
 	A.cur = f;
 	G.f[f].onstack = 1;
-	ex(G.f[f].body, &E, &c);
+	{
+		/* a summary serves every call with its keys: no call's own */
+		int sv = A.site;
+		A.site = -1;
+		ex(G.f[f].body, &E, &c);
+		A.site = sv;
+	}
 	G.f[f].onstack = 0;
 	A.cur = save;
 	es_move(&c.ret, &E);
@@ -5596,7 +5662,7 @@ scost(int s)
 
 /* ---- proposals ---- */
 
-enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP, P_TAB };
+enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP, P_TAB, P_CALLS };
 struct prop {
 	int f, kind, line;
 	char what[1200];
@@ -7652,6 +7718,10 @@ search_whole(int f)
 /* ---- a dead operation inside any function, on its recorded leaves ---- */
 
 
+/* check_rec's rows: those met at this call only (the call expression),
+ * or all of them (-1) */
+static int rec_site = -1;
+
 static int
 bind_leaves(const struct rec *R, int x, int r, int *map)
 {
@@ -7673,7 +7743,7 @@ static int
 check_rec(int x, int r, long *pts, char *wit, size_t nw)
 {
 	const struct rec *R = &RC[recn[x]];
-	int w = R->nl + R->nex, i, b, *map, rc, nl = R->nl;
+	int w = R->nl + R->nex, i, b, *map, rc, nl = R->nl, nb = 0;
 	struct av *rows;
 	double total = 0;
 	char names[MAXP + 8][40];
@@ -7686,15 +7756,22 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 	rows = xmalloc((size_t)R->nbox * (size_t)nl * sizeof *rows);
 	for (b = 0; b < R->nbox; b++) {
 		double p = 1;
+		if (rec_site >= 0 && !rsite_has(R, b, rec_site))
+			continue;
 		for (i = 0; i < nl; i++) {
-			rows[b * nl + i] = R->box[b * w + i];
-			if (rows[b * nl + i].bot) {
+			rows[nb * nl + i] = R->box[b * w + i];
+			if (rows[nb * nl + i].bot) {
 				free(rows);
 				return -1;
 			}
-			p *= (double)(rows[b * nl + i].hi - rows[b * nl + i].lo + 1);
+			p *= (double)(rows[nb * nl + i].hi - rows[nb * nl + i].lo + 1);
 		}
 		total += p;
+		nb++;
+	}
+	if (nb == 0) {
+		free(rows);
+		return -1;
 	}
 	if (total > (double)(1 << 24)) {
 		free(rows);
@@ -7706,7 +7783,7 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 	bind_leaves(R, x, r, map);
 	/* the interpreter, every point */
 	C.bind = map;
-	for (b = 0; b < R->nbox; b++) {
+	for (b = 0; b < nb; b++) {
 		int64_t cur[MAXP];
 		const struct av *row = &rows[b * nl];
 		for (i = 0; i < nl; i++)
@@ -7750,7 +7827,7 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 		snprintf(names[i], 40, "l%d", i);
 		tys[i] = G.x[R->lf[i]].ty;
 	}
-	rc = U.ok ? prove_rows(names, tys, nl, rows, R->nbox, ta.p, tb.p, pts, wit,
+	rc = U.ok ? prove_rows(names, tys, nl, rows, nb, ta.p, tb.p, pts, wit,
 	    nw) : -1;
 	free(ta.p);
 	free(tb.p);
@@ -7868,6 +7945,440 @@ search_expr(int f)
 	}
 	free(xs);
 	free(covered);
+}
+
+/* ---- calls that need less of a helper than its whole domain ---- */
+
+/* a statement on one line, an if or loop by its head (patches followed) */
+static void
+stmt_head(struct sbuf *b, int s)
+{
+	const struct gs *t;
+	s = SR(s);
+	if (s < 0)
+		return;
+	t = &G.s[s];
+	switch (t->k) {
+	case S_DECL:
+		decl_text(b, s);
+		sb_putc(b, ';');
+		return;
+	case S_EXPR:
+		px_text(b, t->a, -1);
+		sb_putc(b, ';');
+		return;
+	case S_RET:
+		sb_puts(b, "return");
+		if (t->a >= 0) {
+			sb_putc(b, ' ');
+			px_text(b, t->a, 0);
+		}
+		sb_putc(b, ';');
+		return;
+	case S_IF:
+		sb_puts(b, "if (");
+		px_text(b, t->a, 0);
+		sb_putc(b, ')');
+		return;
+	case S_WHILE:
+	case S_DO:
+		sb_puts(b, "while (");
+		px_text(b, t->b, 0);
+		sb_putc(b, ')');
+		return;
+	}
+}
+
+/* the value x takes at the first point of its rows met at rec_site */
+static int
+rec_first(int x, int64_t *v)
+{
+	const struct rec *R = &RC[recn[x]];
+	int w = R->nl + R->nex, b, i, *map;
+	for (b = 0; b < R->nbox; b++)
+		if (rec_site < 0 || rsite_has(R, b, rec_site))
+			break;
+	if (b == R->nbox)
+		return 0;
+	map = xmalloc(((size_t)G.nx + 1) * sizeof *map);
+	for (i = 0; i <= G.nx; i++)
+		map[i] = -1;
+	bind_leaves(R, x, x, map);
+	for (i = 0; i < R->nl; i++) {
+		if (R->box[b * w + i].bot) {
+			free(map);
+			return 0;
+		}
+		C.bv[i] = R->box[b * w + i].lo;
+	}
+	C.bind = map;
+	C.ub = 0;
+	*v = conv(ce(x), G.x[XR(x)].ty, G.x[x].ty);
+	C.bind = NULL;
+	free(map);
+	i = !C.ub;
+	C.ub = 0;
+	return i;
+}
+
+/*
+ * Is the change of x to opt at the call c one any compiler makes once the
+ * helper is inlined there: what decides it (the condition of a select,
+ * the operand dropped, else the whole of x) reads only parameters whose
+ * argument at c is written as a constant?
+ */
+static int
+trivial_at(int x, int opt, int c)
+{
+	const struct gx *g = &G.x[x];
+	struct rec T;
+	int d, i, k, f = G.x[c].sym;
+	int idop = g->k == X_BIN && g->op != OP_AND && g->op != OP_DIV &&
+	    g->op != OP_MOD && g->op >= OP_ADD && g->op <= OP_XOR;
+	if (G.x[XR(opt)].k == X_NUM && g->k != X_SEL)
+		d = x;
+	else if (g->k == X_SEL)
+		d = g->a;
+	else if (idop && opt == g->a)
+		d = g->b;	/* the other operand is 0, or 1 to a multiply */
+	else if (idop && opt == g->b)
+		d = g->a;
+	else
+		d = x;		/* a mask, clamp, min, max: by x's own range */
+	memset(&T, 0, sizeof T);
+	if (!leaves_of(&T, d))
+		return 0;
+	for (i = 0; i < T.nl; i++) {
+		const struct gx *l = &G.x[T.lf[i]];
+		if (l->k != X_VAR || G.y[l->sym].kind != Y_PARAM)
+			return 0;
+		for (k = 0; k < G.f[f].np && G.f[f].p[k] != l->sym; k++)
+			;
+		if (k == G.f[f].np || k >= G.x[c].b ||
+		    G.x[XR(G.xarg[G.x[c].a + k])].k != X_NUM)
+			return 0;
+	}
+	return 1;
+}
+
+static int
+is_clampish(int x)
+{
+	const struct gx *g = &G.x[x];
+	return g->k == X_CALL && (g->sym == -B_CLAMP || g->sym == -B_MIN ||
+	    g->sym == -B_MAX);
+}
+
+struct cvar {
+	char *text;		/* the helper with the call's changes */
+	struct sbuf what;	/* the changes */
+	struct sbuf diff;	/* the statements it changes, before -> after */
+	double c1;
+	long pts;
+	int n, at[64];		/* the calls it serves */
+	int nclamp;		/* clamps, mins and maxes it drops */
+	int beyond;		/* a change search_expr does not try */
+};
+
+/*
+ * A loop-free helper's operations checked at each of its calls on the
+ * values their leaves take there (the rows met at that call): a clamp,
+ * min, max or mask that never bites, a select or compare that is one
+ * value, an operand that adds or multiplies nothing, an operation that
+ * is one constant.  The helper with what holds at a call is that call's
+ * variant; calls with the same variant are named together, and a
+ * variant that drops every clamp is said to be one.  Each change is
+ * proved on its own leaves at those calls (check_rec), so the variant
+ * computes the same values there.
+ */
+static void
+search_calls(int f)
+{
+	int sites[64], ns = 0, M = 0, i, j, nx = 0, cap = G.nx + 64, nv = 0,
+	    nclamp = 0, *xs, *st = NULL, nst = 0;
+	char **head0 = NULL;
+	struct cvar V[64];
+	struct sbuf orig = {0};
+	double c0;
+	if (G.f[f].body < 0 || !A.inl[f] || A.impure[f] || A.nwrl[f] ||
+	    G.f[f].unsup || is_root(f) || (G.f[f].ty != TU && G.f[f].ty != TI &&
+	    G.f[f].ty != TB))
+		return;
+	for (i = 0; i < nrc; i++) {
+		int x = RC[i].x;
+		if (G.x[x].k != X_CALL || G.x[x].sym != f || RC[i].nbox == 0 ||
+		    x >= xfn_n || xfn[x] < 0)
+			continue;
+		M++;
+		if (ns < 64)
+			sites[ns++] = x;
+	}
+	if (M == 0 || ns != M)
+		return;
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	reach_s(G.f[f].body, xs, &nx, NULL, NULL, cap);
+	for (i = 0; i < nx; i++)
+		if (xs[i] < xfn_n && is_clampish(xs[i]))
+			nclamp++;
+	fn_text(&orig, f);
+	c0 = scost(G.f[f].body);
+	{
+		int *ss2 = xmalloc((size_t)(G.ns + 64) * sizeof *ss2), nss2 = 0, nx2 = 0;
+		int *xs2 = xmalloc((size_t)cap * sizeof *xs2);
+		reach_s(G.f[f].body, xs2, &nx2, ss2, &nss2, G.ns + 64);
+		nst = nss2;
+		st = ss2;
+		head0 = xcalloc((size_t)nst + 1, sizeof *head0);
+		for (i = 0; i < nst; i++) {
+			struct sbuf h = {0};
+			stmt_head(&h, st[i]);
+			head0[i] = h.p;
+		}
+		free(xs2);
+	}
+	for (j = 0; j < ns; j++) {
+		int c = sites[j], k, nclamp_c = 0, beyond = 0, real = 0;
+		int ncov = G.nx + 64;
+		uint8_t *covered = xcalloc((size_t)ncov, 1);
+		struct sbuf what = {0}, text = {0};
+		long pts = 0;
+		rec_site = c;
+		for (i = 0; i < nx; i++) {
+			int x = xs[i], opt[8], n = 0, q, n0;
+			const char *why[8];
+			int64_t v;
+			if (x >= xfn_n || covered[x] || recn[x] < 0 ||
+			    RC[recn[x]].nbox == 0 || G.x[x].k == X_NUM ||
+			    G.x[x].k == X_VAR || (G.x[x].ty != TU && G.x[x].ty != TI &&
+			    G.x[x].ty != TB) || (G.x[x].k == X_CALL && G.x[x].sym >= 0))
+				continue;
+			/* what search_expr would say, an operand that is all of it,
+			 * then one value: a variant then keeps what it can of the
+			 * helper (a clamp that never bites is its operand, even
+			 * where that operand is one value) */
+			n = x_options(x, opt, why, 8);
+			n0 = n;
+			if (G.x[x].k == X_BIN && G.x[x].op >= OP_ADD &&
+			    G.x[x].op <= OP_XOR && G.x[x].op != OP_DIV &&
+			    G.x[x].op != OP_MOD && G.x[x].op != OP_AND) {
+				int op = G.x[x].op;
+				if (G.x[G.x[x].a].ty == G.x[x].ty) {
+					why[n] = op == OP_MUL ? "the other factor is 1 at this "
+					    "call" : "the other operand changes nothing at this "
+					    "call";
+					opt[n++] = G.x[x].a;
+				}
+				if (op != OP_SUB && op != OP_SHL && op != OP_SHR &&
+				    G.x[G.x[x].b].ty == G.x[x].ty) {
+					why[n] = op == OP_MUL ? "the other factor is 1 at this "
+					    "call" : "the other operand changes nothing at this "
+					    "call";
+					opt[n++] = G.x[x].b;
+				}
+			}
+			if (n < 8 && G.x[x].ty != TB && rec_first(x, &v)) {
+				why[n] = "one value at this call";
+				opt[n++] = new_num(G.x[x].ty, v, G.x[x].line);
+			}
+			for (q = 0; q < n; q++) {
+				char wit[200], t0[160], t1[160];
+				long pp = 0;
+				int sub[512], nsub = 0, keep[512], nkeep = 0, a, b2;
+				if (xcost(opt[q]) >= xcost(x))
+					continue;
+				if (check_rec(x, opt[q], &pp, wit, sizeof wit) != 1)
+					continue;
+				/* what a constant argument decides is the compiler's
+				 * own fold after inlining: not this search's to say,
+				 * but for a clamp, which the variant still drops (the
+				 * call needs none of its clamps either way) */
+				if (trivial_at(x, opt[q], c)) {
+					if (!is_clampish(x))
+						break;
+				} else
+					real = 1;
+				xtext(t0, sizeof t0, x);
+				xtext(t1, sizeof t1, opt[q]);
+				sb_printf(&what, "%sline %d: `%s` is `%s` (%s)", what.p ?
+				    "; " : "", G.x[x].line, t0, t1, why[q]);
+				if (q >= n0)
+					beyond = 1;
+				if (is_clampish(x))
+					nclamp_c++;
+				pts += pp;
+				/* what it drops is not looked at again; what it keeps is */
+				reach_x(x, sub, &nsub, 512);
+				reach_x(opt[q], keep, &nkeep, 512);
+				xrep[x] = opt[q];
+				for (a = 0; a < nsub; a++) {
+					for (b2 = 0; b2 < nkeep && keep[b2] != sub[a]; b2++)
+						;
+					if (b2 == nkeep && sub[a] < ncov)
+						covered[sub[a]] = 1;
+				}
+				break;
+			}
+		}
+		rec_site = -1;
+		/* what the changes leave to fold, innermost first: constants,
+		 * x + 0, x * 1, x * 0 and the like (exact in the word) */
+		for (i = nx - 1; i >= 0; i--) {
+			const struct gx *g = &G.x[xs[i]];
+			int a, b, z, ub = 0;
+			int64_t va, vb;
+			if (g->k != X_BIN || xs[i] >= capxrep || xrep[xs[i]] >= 0 ||
+			    (g->ty != TU && g->ty != TI) || g->op > OP_XOR)
+				continue;
+			a = XR(g->a);
+			b = XR(g->b);
+			if (G.x[a].k == X_NUM && G.x[b].k == X_NUM) {
+				int64_t r = cop(g->op, opnd_ty(g), conv(G.x[a].v, G.x[a].ty,
+				    opnd_ty(g)), g->op == OP_SHL || g->op == OP_SHR ?
+				    G.x[b].v : conv(G.x[b].v, G.x[b].ty, opnd_ty(g)), &ub);
+				if (!ub)
+					xrep[xs[i]] = new_num(g->ty, norm(g->ty, r), g->line);
+				continue;
+			}
+			va = G.x[a].k == X_NUM ? G.x[a].v : -1;
+			vb = G.x[b].k == X_NUM ? G.x[b].v : -1;
+			z = -1;
+			switch (g->op) {
+			case OP_ADD: case OP_OR: case OP_XOR:
+				z = vb == 0 ? a : va == 0 ? b : -1;
+				break;
+			case OP_SUB: case OP_SHL: case OP_SHR:
+				z = vb == 0 ? a : -1;
+				break;
+			case OP_MUL:
+				z = vb == 1 ? a : va == 1 ? b : -1;
+				if (va == 0 || vb == 0)
+					z = new_num(g->ty, 0, g->line);
+				break;
+			case OP_AND:
+				if (va == 0 || vb == 0)
+					z = new_num(g->ty, 0, g->line);
+				break;
+			}
+			if (z >= 0 && G.x[z].ty == g->ty)
+				xrep[xs[i]] = z;
+		}
+		/* a select whose condition became one value is its arm */
+		for (i = 0; i < nx; i++) {
+			const struct gx *g = &G.x[xs[i]];
+			int cd;
+			if (g->k != X_SEL || xs[i] >= capxrep || xrep[xs[i]] >= 0)
+				continue;
+			cd = XR(g->a);
+			if (G.x[cd].k == X_NUM && G.x[g->b].ty == g->ty &&
+			    G.x[g->c].ty == g->ty)
+				xrep[xs[i]] = G.x[cd].v ? g->b : g->c;
+		}
+		fn_text(&text, f);
+		if (what.p && real && strcmp(text.p, orig.p)) {
+			for (k = 0; k < nv && strcmp(V[k].text, text.p); k++)
+				;
+			if (k == nv) {
+				memset(&V[nv], 0, sizeof V[nv]);
+				V[nv].text = text.p;
+				text.p = NULL;
+				V[nv].what = what;
+				what.p = NULL;
+				V[nv].c1 = scost(G.f[f].body);
+				V[nv].nclamp = nclamp_c;
+				for (i = 0; i < nst; i++) {
+					struct sbuf h = {0};
+					stmt_head(&h, st[i]);
+					if (h.p && head0[i] && strcmp(h.p, head0[i]))
+						sb_printf(&V[nv].diff, "%s%s\n  ->  %s", V[nv].diff.p ?
+						    "\n" : "", head0[i], h.p);
+					free(h.p);
+				}
+				nv++;
+			}
+			V[k].at[V[k].n++] = c;
+			V[k].pts += pts;
+			V[k].beyond |= beyond;
+		}
+		for (i = 0; i < capxrep; i++)
+			xrep[i] = -1;
+		free(text.p);
+		free(what.p);
+		free(covered);
+	}
+	for (j = 0; j < nv; j++) {
+		struct cvar *cv = &V[j];
+		struct prop *p;
+		struct sbuf at = {0}, rel = {0};
+		int k;
+		/* every call, with nothing search_expr would not say: said */
+		if (cv->n == M && !cv->beyond)
+			continue;
+		{
+			/* the lines, each once, with how many calls when more */
+			int nl2 = 0, ln[64], cn[64], m;
+			for (k = 0; k < cv->n; k++) {
+				for (m = 0; m < nl2 && ln[m] != G.x[cv->at[k]].line; m++)
+					;
+				if (m == nl2) {
+					ln[nl2] = G.x[cv->at[k]].line;
+					cn[nl2++] = 0;
+				}
+				cn[m]++;
+			}
+			for (m = 0; m < nl2; m++) {
+				sb_printf(&at, "%s%d", m == 0 ? "" : m + 1 == nl2 ? " and " :
+				    ", ", ln[m]);
+				if (cn[m] > 1)
+					sb_printf(&at, " (%d calls)", cn[m]);
+			}
+		}
+		p = prop_new(f, P_CALLS, G.x[cv->at[0]].line);
+		for (k = 0; k < cv->n && p->nexit < 16; k++)
+			p->exitl[p->nexit++] = G.x[cv->at[k]].line;
+		if (M == 1)
+			snprintf(p->what, sizeof p->what, "its only call (line %s)%s",
+			    at.p, nclamp && cv->nclamp == nclamp ? ": none of its clamps "
+			    "bites, an unclamped variant serves it" : "");
+		else
+			snprintf(p->what, sizeof p->what, "%d of its %d calls (line%s %s)%s",
+			    cv->n, M, strchr(at.p, ',') || strstr(at.p, " and ") ? "s" : "",
+			    at.p, nclamp && cv->nclamp == nclamp ? cv->n > 1 ? ": none of "
+			    "its clamps bites, an unclamped variant serves them" : ": none "
+			    "of its clamps bites, an unclamped variant serves it" : "");
+		sb_puts(&p->text, cv->diff.p ? cv->diff.p : cv->text);
+		snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv of each "
+		    "change on the values its leaves take at %s (%ld points)",
+		    cv->n > 1 ? "those calls" : "that call", cv->pts);
+		p->points = cv->pts;
+		p->c0 = c0;
+		p->c1 = cv->c1;
+		for (k = 0; k < cv->n && k < 3; k++) {
+			char ct[160];
+			xtext(ct, sizeof ct, cv->at[k]);
+			sb_printf(&rel, "%s%s at line %d (in %s): ", k ? "; " : "", ct,
+			    G.x[cv->at[k]].line, G.f[xfn[cv->at[k]]].name);
+			rec_domain(&rel, cv->at[k]);
+		}
+		if (cv->n > 3)
+			sb_printf(&rel, "; and %d more", cv->n - 3);
+		snprintf(p->domain, sizeof p->domain, "%s", rel.p ? rel.p : "");
+		snprintf(p->relies, sizeof p->relies, "what the arguments are at "
+		    "%s: %s", cv->n > 1 ? "those calls" : "that call", rel.p ? rel.p :
+		    "");
+		free(at.p);
+		free(rel.p);
+	}
+	for (j = 0; j < nv; j++) {
+		free(V[j].text);
+		free(V[j].what.p);
+		free(V[j].diff.p);
+	}
+	for (i = 0; i < nst; i++)
+		free(head0[i]);
+	free(head0);
+	free(st);
+	free(orig.p);
+	free(xs);
 }
 
 /*
@@ -9101,7 +9612,7 @@ kind_name(int k)
 {
 	return k == P_FUNC ? "function" : k == P_EXPR ? "expression" :
 	    k == P_FIT ? "case_fit" : k == P_LOOP ? "loop" : k == P_TAB ?
-	    "loop_map" : "invariant_call";
+	    "loop_map" : k == P_CALLS ? "call_variant" : "invariant_call";
 }
 
 static int loops_only;	/* no function calls another: the loops alone */
@@ -9153,7 +9664,7 @@ report(int rounds, double secs)
 		    "summary of the analysis");
 	rep_list("function_level");
 	for (f = 0; f < G.nf; f++) {
-		int head = 0;
+		int head = 0, said_calls = 0;
 		for (i = 0; i < npr; i++) {
 			struct prop *p = &PR[i];
 			if (p->f != f || p->kind == P_INV)
@@ -9166,7 +9677,16 @@ report(int rounds, double secs)
 				free(cl.p);
 				head = 1;
 			}
-			if (p->kind == P_EXPR || p->kind == P_LOOP || p->kind == P_TAB) {
+			if (p->kind == P_CALLS) {
+				if (!said_calls)
+					printf("    what its calls need (each change proved on the "
+					    "values its leaves take at those calls):\n");
+				said_calls = 1;
+				printf("      %s: %g -> %g a call under %s (%ld points)\n",
+				    p->what, p->c0, p->c1, model, p->points);
+				pr_lines(p->text.p, "        ");
+				printf("        where: %s\n", p->domain);
+			} else if (p->kind == P_EXPR || p->kind == P_LOOP || p->kind == P_TAB) {
 				printf("    line %d: %s\n", p->line, p->what);
 				pr_lines(p->text.p, "      ");
 				printf("      proof: %s\n", p->proof);
@@ -9199,6 +9719,13 @@ report(int rounds, double secs)
 				rep_int("passes", p->passes);
 				rep_bool("second_pass_acts", p->acts);
 				rep_list("exit_lines");
+				for (q = 0; q < p->nexit; q++)
+					rep_int(NULL, p->exitl[q]);
+				rep_end();
+			}
+			if (p->kind == P_CALLS) {
+				int q;
+				rep_list("call_lines");	/* the first 16 */
 				for (q = 0; q < p->nexit; q++)
 					rep_int(NULL, p->exitl[q]);
 				rep_end();
@@ -9282,8 +9809,13 @@ reset_all(void)
 	free(PR);
 	PR = NULL;
 	npr = cappr = 0;
-	for (i = 0; i < nrc; i++)
+	for (i = 0; i < nrc; i++) {
+		int b;
+		for (b = 0; b < RC[i].cap && RC[i].site; b++)
+			free(RC[i].site[b].s);
 		free(RC[i].box);
+		free(RC[i].site);
+	}
 	free(RC);
 	RC = NULL;
 	nrc = caprc = 0;
@@ -9328,6 +9860,7 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 	reset_all();
 	memset(&G, 0, sizeof G);
 	memset(&A, 0, sizeof A);
+	A.site = -1;
 	G.cur = -1;
 	dot_hinted = 0;
 	fsrc = src;
@@ -9410,6 +9943,7 @@ glslfn_pass(const char *src, double budget, int only, const char *model,
 			search_whole(f);
 		else
 			search_expr(f);
+		search_calls(f);
 		search_dot(f);
 		search_tex(f);
 	}

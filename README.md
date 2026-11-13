@@ -4551,7 +4551,22 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   calls another (its only function main, say), where nothing gives a
   domain to the others: the report then has the loops alone, and when
   they hold nothing says so only to `functions` asked alone
-  (tests/fnltab.ucas).
+  (tests/fnltab.ucas);
+- what each call of a helper needs: a loop-free helper's operations are
+  checked at each of its calls on the values their leaves take there
+  (each recorded row of values keeps the calls it was met at): a clamp,
+  min, max or mask that never bites, a select or compare that is one
+  value, an operand that adds or multiplies nothing, an operation that
+  is one constant.  The helper with what holds at a call is that call's
+  variant, constants folded; calls with the same variant are named
+  together, by their lines, with the statements it changes, its cost
+  against the helper's and the arguments' values there, and a variant
+  that drops every clamp says so ("none of its clamps bites, an
+  unclamped variant serves them": an ASTC decoder's packer at 5 of its
+  10 calls, 17 -> 9 under gt1030).  What a constant argument decides is
+  not said (inlined, the compiler folds it), but for a clamp, which the
+  variant still drops; a variant whose changes all hold at every call is
+  the searches above (tests/fnlcalls.ucas).
 
 **The translation.** A function becomes a ucas code block: its
 parameters and the globals it reads are the ucas function's parameters
@@ -4573,7 +4588,8 @@ changed by this section.  JSON: `result.function_level`, a list of
 `{kind, function, line, what, replacement, proof, points, cost_before,
 cost_after, domain, relies_on}` (`kind`: `function`, `expression`,
 `case_fit`; `loop` with `passes`, the most it runs, 1 or 2,
-`second_pass_acts` and `exit_lines`; `loop_map`; `invariant_call` with
+`second_pass_acts` and `exit_lines`; `loop_map`; `call_variant` with
+`call_lines`, the first 16; `invariant_call` with
 `cost_per_call` and `passes`).
 
 On a BC7 encoder (ScarletNX's bc7.comp), with every helper already hand
