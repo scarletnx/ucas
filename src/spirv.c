@@ -11131,8 +11131,8 @@ rk_name(struct sbuf *b, int *n, int id)
 static void
 adv_recognise(int body)
 {
-	int nid = V.nid + 64, *kind, *var, *vk, *np, *mask, k, nfl = 0, npv = 0,
-	    nba = 0, nit = 0;
+	int nid = V.nid + 64, *kind, *var, *vk, *np, *mask, *part, k, nfl = 0,
+	    npv = 0, nba = 0, nit = 0;
 	struct sbuf fl = {0}, pv = {0}, ba = {0}, it = {0};
 
 	kind = xcalloc((size_t)nid, sizeof *kind);
@@ -11140,6 +11140,9 @@ adv_recognise(int body)
 	vk = xcalloc((size_t)nid, sizeof *vk);
 	np = xcalloc((size_t)nid, sizeof *np);
 	mask = xcalloc((size_t)nid, sizeof *mask);
+	/* the indices below the vertex's (a component, a member), coded:
+	 * the terms of one interpolation read the same part of each vertex */
+	part = xcalloc((size_t)nid, sizeof *part);
 	for (k = 0; k < V.nin && k != body; k++) {
 		const struct sins *I = &V.in[k];
 		if (strcmp(I->op, "OpVariable") || I->res < 0 || I->nop < 2 ||
@@ -11180,29 +11183,42 @@ adv_recognise(int body)
 			vk[r] = vk[a];
 			np[r] = np[a];
 			mask[r] = mask[a];
+			part[r] = part[a];
 		} else if (!strcmp(I->op, "OpAccessChain") ||
 		    !strcmp(I->op, "OpInBoundsAccessChain") ||
 		    !strcmp(I->op, "OpCompositeExtract")) {
-			int lit = !strcmp(I->op, "OpCompositeExtract");
+			int lit = !strcmp(I->op, "OpCompositeExtract"), j, ok = 1, pt;
 			if (I->nop < 3 || !(lit ? sscanf(I->opnd[2], "%d", &c) == 1 :
 			    rk_const(I->opnd[2], &c)))
 				continue;
 			/* a barycentric's component c; vertex c of a per-vertex
-			 * input (and then any part of it) */
+			 * input, then the part of it the indices after name */
 			if (kind[a] == RK_BARYV) {
-				kind[r] = RK_BARYC;
-				vk[r] = c;
-				np[r] = np[a];
-			} else if (kind[a] == RK_PVARR && vk[a] < 0) {
-				kind[r] = RK_PVARR;
-				var[r] = var[a];
-				vk[r] = c;
-			} else if ((kind[a] == RK_PVARR || kind[a] == RK_PV) &&
-			    vk[a] >= 0) {
-				kind[r] = kind[a];
-				var[r] = var[a];
-				vk[r] = vk[a];
+				if (I->nop == 3) {
+					kind[r] = RK_BARYC;
+					vk[r] = c;
+					np[r] = np[a];
+				}
+				continue;
 			}
+			if (kind[a] != RK_PVARR && kind[a] != RK_PV)
+				continue;
+			j = vk[a] < 0 ? 3 : 2;
+			pt = part[a];
+			for (; j < I->nop && ok; j++) {
+				int d;
+				ok = (lit ? sscanf(I->opnd[j], "%d", &d) == 1 :
+				    rk_const(I->opnd[j], &d)) && d >= 0 && d < 63 &&
+				    pt < (1 << 24);
+				if (ok)
+					pt = pt * 64 + d + 1;
+			}
+			if (!ok)
+				continue;
+			kind[r] = kind[a];
+			var[r] = var[a];
+			vk[r] = vk[a] < 0 ? c : vk[a];
+			part[r] = pt;
 			/* a load of vertex c's pointer is its value */
 		} else if ((!strcmp(I->op, "OpFMul") ||
 		    !strcmp(I->op, "OpVectorTimesScalar")) && I->nop >= 3 &&
@@ -11217,19 +11233,23 @@ adv_recognise(int body)
 				var[r] = var[q];
 				mask[r] = 1 << vk[p];
 				np[r] = np[p];
+				part[r] = part[q];
 			}
 		} else if (!strcmp(I->op, "OpFAdd") && I->nop >= 3 &&
 		    I->opnd[2][0] == '%') {
 			b = idx(I->opnd[2]);
 			if (kind[a] == RK_TERM && kind[b] == RK_TERM && var[a] ==
-			    var[b] && np[a] == np[b] && !(mask[a] & mask[b])) {
+			    var[b] && part[a] == part[b] && np[a] == np[b] &&
+			    !(mask[a] & mask[b])) {
 				kind[r] = RK_TERM;
 				var[r] = var[a];
 				np[r] = np[a];
 				mask[r] = mask[a] | mask[b];
+				part[r] = part[a];
 				if (mask[r] == 7) {
-					sb_printf(&it, "%sthe interpolation of %s by them",
-					    nit++ ? ", " : "", V.id[var[r]].tok);
+					sb_printf(&it, "%sthe interpolation of %s%s by them",
+					    nit++ ? ", " : "", part[r] ? "a part of " : "",
+					    V.id[var[r]].tok);
 					if (ins_line(k) > 0)
 						sb_printf(&it, " at line %d", ins_line(k));
 					else
@@ -11277,6 +11297,7 @@ adv_recognise(int body)
 	free(vk);
 	free(np);
 	free(mask);
+	free(part);
 }
 
 static void

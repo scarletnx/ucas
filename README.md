@@ -4843,8 +4843,10 @@ provoking vertex's value, one a primitive), its per-vertex inputs
 (`pervertexEXT`, PerVertexKHR: the three vertices' values) and the
 barycentric built-ins (gl_BaryCoordEXT, perspective-correct;
 gl_BaryCoordNoPerspEXT) are recognised, and so is a sum over the three
-vertices of a per-vertex value times that vertex's barycentric
-(`v[0] * b.x + v[1] * b.y + v[2] * b.z`, in any order of the terms),
+vertices of a per-vertex value times that vertex's barycentric, the
+same part of each vertex's value (`v[0] * b.x + v[1] * b.y + v[2] *
+b.z`, in any order of the terms; `v[0].x * b.x + v[1].y * b.y + ...`
+is not one),
 which is what the rasteriser computes for a smooth varying (or a
 noperspective one): the report says what it recognised in one line,
 `recognised in the inputs (nothing is proposed for them): ...`, and
