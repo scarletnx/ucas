@@ -1,0 +1,26 @@
+# find: parameters one f32 can carry together, proposed for the code that
+# stores them.  A flag in the sign bit of a value whose range keeps it at
+# +0 or above: abs(s) is the value, the sign bit the flag (read as a bit,
+# so -0 carries it when the value is 0)
+use gt1030
+sh(d: f32 in 0..100, lit: bool) = lit ? d * 0.5 + 1 : d * 0.25
+find sh
+sm(d: f32 in 0..100, side: u32 in 0..1) = d * f32(side) + 1
+find sm
+# a value that can be negative has no free sign bit
+neg(d: f32 in -1..100, lit: bool) = lit ? d * 0.5 + 1 : d * 0.25
+find neg
+# a value and a payload never needed at once, a flag telling which: the
+# value or a quiet NaN carrying the payload.  Not under a model that does
+# not say its target keeps the payload; offered under one that does
+nb(x: f32 in -4..4, valid: bool, idx: u32 in 0..1000) = valid ? x * 2 : f32(idx) * 0.5
+find nb
+model keeps : gt1030 { nan_payload: 1 }
+use keeps
+find nb
+# a payload of 22 bits or more, or one read where the value is too
+wide(x: f32 in -4..4, valid: bool, idx: u32 in 0..5000000) = valid ? x * 2 : f32(idx) * 0.5
+find wide
+both(x: f32 in -4..4, valid: bool, idx: u32 in 0..1000) = valid ? x * 2 + f32(idx) : f32(idx) * 0.5
+find both
+use gt1030

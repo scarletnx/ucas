@@ -2090,6 +2090,265 @@ sfu_find(struct func *f)
 	return said;
 }
 
+/* ---- values packed into one f32: a flag in the sign bit, a value in a
+ * quiet NaN's payload ---- */
+
+#define PK_U32 TY(K_UINT, 32)
+
+static nid
+pk_u(uint64_t v)
+{
+	return mk_const_i(PK_U32, (int64_t)v);
+}
+
+/* a flag: a bool, or an integer whose range is 0..1 */
+static int
+pk_flag(const struct param *p)
+{
+	return p->ty == TY_BOOL || (TY_SIZED(p->ty) && p->ranged && p->lo == 0 &&
+	    p->hi == 1);
+}
+
+/* the flag of type t in s's sign bit: a bool as the bits' signed
+ * compare with 0 (one instruction, true at -0 too), 0/1 as the bit */
+static nid
+pk_sign_flag(nid s, ty_t t)
+{
+	if (t == TY_BOOL)
+		return mk_bin(O_LT, mk_un(O_ASINT, s), mk_const_i(TY(K_SINT, 32),
+		    0));
+	return mk_cast(t, mk_bin(O_SHR, mk_un(O_ASUINT, s), pk_u(31)));
+}
+
+/* the flag p's value as a bool */
+static nid
+pk_true(const struct func *f, int k)
+{
+	nid v = mk_var((uint32_t)k, f->p[k].name, f->p[k].ty);
+
+	return f->p[k].ty == TY_BOOL ? v : mk_bin(O_NE, v, mk_const_i(f->p[k].ty,
+	    0));
+}
+
+/* what pk_guarded walks: anything else is not proved */
+static int
+pk_walks(int op)
+{
+	return sf_plain(op) || op == O_CAST || op == O_ASUINT || op == O_ASINT ||
+	    op == O_ASFLOAT;
+}
+
+/*
+ * Every use of parameter v in e sits in the arm of a select on the bool
+ * parameter node c that is taken when c is want: the other arms and the
+ * conditions are walked, those arms are not.  Shared nodes are walked
+ * once (seen); only unguarded visits mark them.
+ */
+static int
+pk_guarded(nid e, int v, nid c, int want, uint8_t *seen)
+{
+	int op = N.op[e], ar;
+
+	if (seen[e])
+		return 1;
+	seen[e] = 1;
+	if (op == O_VAR)
+		return (int)N.ki[e] != v;
+	if (op == O_CONST)
+		return 1;
+	if (!pk_walks(op))
+		return 0;
+	if (op == O_SEL) {
+		nid cond = N.a[e];
+		int pol = cond == c ? 1 : N.op[cond] == O_LNOT && N.a[cond] == c ?
+		    0 : -1;
+		if (pol >= 0)
+			return pk_guarded(cond, v, c, want, seen) && pk_guarded(pol ==
+			    want ? N.c[e] : N.b[e], v, c, want, seen);
+	}
+	ar = op == O_CAST ? 1 : opinfo[op].arity;
+	return (ar < 1 || !N.a[e] || pk_guarded(N.a[e], v, c, want, seen)) &&
+	    (ar < 2 || !N.b[e] || pk_guarded(N.b[e], v, c, want, seen)) &&
+	    (ar < 3 || !N.c[e] || pk_guarded(N.c[e], v, c, want, seen));
+}
+
+static int
+pk_only_under(const struct func *f, int v, int c, int want)
+{
+	uint8_t *seen = xcalloc(N.n, 1);
+	int r = pk_guarded(f->body, v, mk_var((uint32_t)c, f->p[c].name,
+	    f->p[c].ty), want, seen);
+
+	free(seen);
+	return r;
+}
+
+/* f's body with the parameters in map[] replaced */
+static nid
+pk_subst(const struct func *f, const int *slot, const nid *to, int n)
+{
+	nid map[MAXP];
+	int k, j;
+
+	for (k = 0; k < f->np; k++) {
+		map[k] = mk_var((uint32_t)k, f->p[k].name, f->p[k].ty);
+		for (j = 0; j < n; j++)
+			if (slot[j] == k)
+				map[k] = to[j];
+	}
+	return subst(f->body, map, f->np);
+}
+
+/*
+ * One packing, priced and checked: g is f over the packed word s (in
+ * parameter x's slot), enc the word written from f's own parameters.
+ */
+static void
+pk_report(const struct func *f, nid g, nid enc, int x, int words,
+    const char *how)
+{
+	const struct model *m = model_active();
+	double c0 = (double)expr_cost(f->body), c1 = (double)expr_cost(g);
+	double abs_, rel, ulp;
+	uint64_t n, bad;
+	int sl[1] = {x};
+	nid to[1], back;
+	struct sbuf b = {0}, w = {0};
+	struct func sf = *f;
+
+	/* g at the word the writer stores: f again, which the check measures */
+	sf.body = g;
+	to[0] = enc;
+	back = pk_subst(&sf, sl, to, 1);
+	error_measured(f, back, &abs_, &rel, &ulp, &n, &bad);
+	print_node(&b, g, NULL);
+	print_node(&w, enc, NULL);
+	printf("    %s\n    the writer stores s = %s; read back: %s\n", how,
+	    sb_str(&w), sb_str(&b));
+	printf("    cost %g against %g under %s (%+g to read them back), and %d "
+	    "word%s less to store and to load (store %g, load %g each)\n", c1, c0,
+	    sym_str(m->name), c1 - c0, words, words == 1 ? "" : "s",
+	    (double)m->c[C_STORE], (double)m->c[C_LOAD]);
+	if (abs_ == 0 && bad == 0)
+		printf("    check (sampled, not the proof): equal to %s on %llu "
+		    "points of its domain\n", f->anon ? "it" : sym_str(f->name),
+		    (unsigned long long)n);
+	else
+		printf("    check: differs from %s, by up to %.3g (%llu points NaN "
+		    "or infinite where it is not) on %llu points\n", f->anon ? "it" :
+		    sym_str(f->name), abs_, (unsigned long long)bad,
+		    (unsigned long long)n);
+	free(b.p);
+	free(w.p);
+}
+
+/*
+ * find: f's parameters that one f32 can carry together, proposed for the
+ * code that stores them (an interface change: f only reads them back).
+ * A flag in the sign bit of a value its range keeps at +0 or above; a
+ * value and a payload that are never needed at once, told apart by a
+ * flag, as the value or a quiet NaN carrying the payload, where the model
+ * says the target keeps that payload.  The count of packings said.
+ */
+static int
+pack_find(struct func *f)
+{
+	const struct model *m = model_active();
+	int x, b, p, said = 0;
+
+	for (x = 0; x < f->np; x++) {
+		const struct param *px = &f->p[x];
+		if (px->ty != TY_F32 || !px->ranged)
+			continue;
+		/* a flag in x's sign bit */
+		for (b = 0; px->rlo >= 0 && b < f->np; b++) {
+			nid s, g, enc, ax;
+			int sl[2];
+			nid to[2];
+			char how[400];
+			if (b == x || !pk_flag(&f->p[b]))
+				continue;
+			if (!said++)
+				printf("find %s: parameters one f32 can carry together "
+				    "(an interface change, proposed for the code that "
+				    "stores them)\n", f->anon ? node_str(f->body) :
+				    sym_str(f->name));
+			s = mk_var((uint32_t)x, sym_cstr("s"), TY_F32);
+			sl[0] = x;
+			sl[1] = b;
+			to[0] = mk_un(O_ABS, s);
+			to[1] = pk_sign_flag(s, f->p[b].ty);
+			g = pk_subst(f, sl, to, 2);
+			ax = mk_un(O_ABS, mk_var((uint32_t)x, px->name, px->ty));
+			enc = mk_sel(pk_true(f, b), mk_un(O_NEG, ax), ax);
+			snprintf(how, sizeof how, "%s and %s as one f32, %s in the sign "
+			    "bit: %s is in [%g, %g], so abs(s) is %s and the sign bit "
+			    "%s, read as a bit (-0 when %s is 0)", sym_str(px->name),
+			    sym_str(f->p[b].name), sym_str(f->p[b].name),
+			    sym_str(px->name), px->rlo, px->rhi, sym_str(px->name),
+			    sym_str(f->p[b].name), sym_str(px->name));
+			pk_report(f, g, enc, x, 1, how);
+		}
+		/* x or a payload p in a quiet NaN, flag b telling which */
+		for (b = 0; b < f->np; b++) {
+			if (b == x || f->p[b].ty != TY_BOOL ||
+			    !pk_only_under(f, x, b, 1))
+				continue;
+			for (p = 0; p < f->np; p++) {
+				const struct param *pp = &f->p[p];
+				nid s, bits, g, enc, xv;
+				int sl[3];
+				nid to[3];
+				char how[400];
+				if (p == x || p == b || !TY_SIZED(pp->ty) || pp->ty ==
+				    TY_BOOL || !pp->ranged || pp->lo < 0 || pp->hi >=
+				    (1 << 22) || !pk_only_under(f, p, b, 0) ||
+				    isinf(px->rlo) || isinf(px->rhi))
+					continue;
+				if (!said++)
+					printf("find %s: parameters one f32 can carry "
+					    "together (an interface change, proposed for the "
+					    "code that stores them)\n", f->anon ?
+					    node_str(f->body) : sym_str(f->name));
+				snprintf(how, sizeof how, "%s, %s and %s as one f32: %s "
+				    "is used only where %s holds and %s only where it "
+				    "does not, %s is finite and %s in [0, 2^22), so s is "
+				    "%s or a quiet NaN carrying %s, and the NaN never "
+				    "reaches arithmetic", sym_str(px->name),
+				    sym_str(pp->name), sym_str(f->p[b].name),
+				    sym_str(px->name), sym_str(f->p[b].name),
+				    sym_str(pp->name), sym_str(px->name),
+				    sym_str(pp->name), sym_str(px->name),
+				    sym_str(pp->name));
+				if (m->par[MP_NAN_PAYLOAD] == 0) {
+					printf("    %s;\n    not offered: %s does not say that "
+					    "its target keeps a quiet NaN's payload through "
+					    "loads, stores and moves (`nan_payload: 1` in a "
+					    "model says so)\n", how, sym_str(m->name));
+					continue;
+				}
+				s = mk_var((uint32_t)x, sym_cstr("s"), TY_F32);
+				bits = mk_un(O_ASUINT, s);
+				sl[0] = x;
+				sl[1] = p;
+				sl[2] = b;
+				to[0] = s;
+				to[1] = mk_cast(pp->ty, mk_bin(O_AND, bits,
+				    pk_u(0x3fffff)));
+				to[2] = mk_bin(O_NE, mk_bin(O_AND, bits, pk_u(0x7f800000)),
+				    pk_u(0x7f800000));
+				g = pk_subst(f, sl, to, 3);
+				xv = mk_var((uint32_t)x, px->name, px->ty);
+				enc = mk_sel(pk_true(f, b), xv, mk_un(O_ASFLOAT,
+				    mk_bin(O_OR, pk_u(0x7fc00000), mk_cast(PK_U32,
+				    mk_var((uint32_t)p, pp->name, pp->ty)))));
+				pk_report(f, g, enc, x, 2, how);
+			}
+		}
+	}
+	return said;
+}
+
 /*
  * A float function's rewrites by identities (irw.c: compare and select
  * as min/max, clamps), those the model prices lower, each with what it
@@ -2184,6 +2443,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 		said += tex_find(f);
 		said += dword_find(f);
 		said += sfu_find(f);
+		said += pack_find(f);
 		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)) {
 			fuse_domain(NULL);
 			return;

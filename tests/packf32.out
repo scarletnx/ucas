@@ -1,0 +1,68 @@
+> use gt1030
+cost model: gt1030
+> sh(d: f32 in 0..100, lit: bool) = lit ? d * 0.5 + 1 : d * 0.25
+> find sh
+find sh: parameters one f32 can carry together (an interface change, proposed for the code that stores them)
+    d and lit as one f32, lit in the sign bit: d is in [0, 100], so abs(s) is d and the sign bit lit, read as a bit (-0 when d is 0)
+    the writer stores s = lit ? -abs(d) : abs(d); read back: asint(s) < 0 ? 0.5abs(s) + 1 : 0.25abs(s)
+    cost 6 against 3.625 under gt1030 (+2.375 to read them back), and 1 word less to store and to load (store 15, load 6.875 each)
+    check (sampled, not the proof): equal to sh on 65536 points of its domain
+> sm(d: f32 in 0..100, side: u32 in 0..1) = d * f32(side) + 1
+> find sm
+find sm: rewrites by identities the model prices lower (cost 4 as written, under gt1030)
+  cost 3   d*(asfloat(side | 0x4b000000) - 8388608) + 1 the conversion f32(side) by the bits of 2^23 (derived)
+      holds where side in [0, 1], inside [0, 2^23)
+      0 <= side < 2^23: side | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa side, the f32 2^23 + side exactly (one unit in the last place there is 1)
+      2^23 + side - 2^23 = side is an integer below 2^24, an f32: the subtraction does not round
+      f32(side) is exact below 2^24: both are side
+find sm: parameters one f32 can carry together (an interface change, proposed for the code that stores them)
+    d and side as one f32, side in the sign bit: d is in [0, 100], so abs(s) is d and the sign bit side, read as a bit (-0 when d is 0)
+    the writer stores s = side != 0 ? -abs(d) : abs(d); read back: abs(s)*f32(asuint(s) >> 0x1f) + 1
+    cost 6 against 4 under gt1030 (+2 to read them back), and 1 word less to store and to load (store 15, load 6.875 each)
+    check (sampled, not the proof): equal to sm on 65536 points of its domain
+> neg(d: f32 in -1..100, lit: bool) = lit ? d * 0.5 + 1 : d * 0.25
+> find neg
+packf32.ucas:12:9: error: find on a float result needs one f16, f32 or f64 parameter
+    find neg
+            ^
+> nb(x: f32 in -4..4, valid: bool, idx: u32 in 0..1000) = valid ? x * 2 : f32(idx) * 0.5
+> find nb
+find nb: rewrites by identities the model prices lower (cost 7 as written, under gt1030)
+  cost 6   valid ? 2x : 0.5(asfloat(idx | 0x4b000000) - 8388608) the conversion f32(idx) by the bits of 2^23 (derived)
+      holds where idx in [0, 1000], inside [0, 2^23)
+      0 <= idx < 2^23: idx | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa idx, the f32 2^23 + idx exactly (one unit in the last place there is 1)
+      2^23 + idx - 2^23 = idx is an integer below 2^24, an f32: the subtraction does not round
+      f32(idx) is exact below 2^24: both are idx
+find nb: parameters one f32 can carry together (an interface change, proposed for the code that stores them)
+    x, idx and valid as one f32: x is used only where valid holds and idx only where it does not, x is finite and idx in [0, 2^22), so s is x or a quiet NaN carrying idx, and the NaN never reaches arithmetic;
+    not offered: gt1030 does not say that its target keeps a quiet NaN's payload through loads, stores and moves (`nan_payload: 1` in a model says so)
+> model keeps : gt1030 { nan_payload: 1 }
+> use keeps
+cost model: keeps
+> find nb
+find nb: rewrites by identities the model prices lower (cost 7 as written, under keeps)
+  cost 6   valid ? 2x : 0.5(asfloat(idx | 0x4b000000) - 8388608) the conversion f32(idx) by the bits of 2^23 (derived)
+      holds where idx in [0, 1000], inside [0, 2^23)
+      0 <= idx < 2^23: idx | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa idx, the f32 2^23 + idx exactly (one unit in the last place there is 1)
+      2^23 + idx - 2^23 = idx is an integer below 2^24, an f32: the subtraction does not round
+      f32(idx) is exact below 2^24: both are idx
+find nb: parameters one f32 can carry together (an interface change, proposed for the code that stores them)
+    x, idx and valid as one f32: x is used only where valid holds and idx only where it does not, x is finite and idx in [0, 2^22), so s is x or a quiet NaN carrying idx, and the NaN never reaches arithmetic
+    the writer stores s = valid ? x : asfloat(idx | 0x7fc00000); read back: asuint(s) & 0x7f800000 != 2139095040 ? 2s : 0.5f32(asuint(s) & 0x3fffff)
+    cost 11 against 6.625 under keeps (+4.375 to read them back), and 2 words less to store and to load (store 15, load 6.875 each)
+    check (sampled, not the proof): equal to nb on 65536 points of its domain
+> wide(x: f32 in -4..4, valid: bool, idx: u32 in 0..5000000) = valid ? x * 2 : f32(idx) * 0.5
+> find wide
+find wide: rewrites by identities the model prices lower (cost 7 as written, under keeps)
+  cost 6   valid ? 2x : 0.5(asfloat(idx | 0x4b000000) - 8388608) the conversion f32(idx) by the bits of 2^23 (derived)
+      holds where idx in [0, 5000000], inside [0, 2^23)
+      0 <= idx < 2^23: idx | 0x4B000000 is the bit pattern with sign 0, exponent field 150 and mantissa idx, the f32 2^23 + idx exactly (one unit in the last place there is 1)
+      2^23 + idx - 2^23 = idx is an integer below 2^24, an f32: the subtraction does not round
+      f32(idx) is exact below 2^24: both are idx
+> both(x: f32 in -4..4, valid: bool, idx: u32 in 0..1000) = valid ? x * 2 + f32(idx) : f32(idx) * 0.5
+> find both
+  ucas: show both
+both(x: f32 in -4..4, valid: bool, idx: u32 in 0..1000) = valid ? 2x + f32(idx) : 0.5f32(idx)
+  -> f32
+> use gt1030
+cost model: gt1030

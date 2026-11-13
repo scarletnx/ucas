@@ -444,9 +444,12 @@ int div_class(nid n);		/* model.c: an integer / or %'s class */
  *               snap to a grid of 2^-subtexel
  *   tex_within  how far, in ulps of the result, a filtered read may be
  *               from the exact weighted sum of its texels
+ * find.c:
+ *   nan_payload 1: a quiet NaN's payload survives loads, stores and
+ *               moves on the target, so it can carry a value
  */
 enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
-	MP_NPAR };
+	MP_NAN_PAYLOAD, MP_NPAR };
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];

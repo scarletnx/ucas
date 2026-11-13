@@ -56,7 +56,7 @@ static const char *const dot_group[6] = {
 };
 
 const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp",
-	"subtexel", "tex_within"};
+	"subtexel", "tex_within", "nan_payload"};
 
 #define MAXMODEL 32
 static struct model models[MAXMODEL];
