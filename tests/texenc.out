@@ -232,7 +232,7 @@ texenc N eac: 8 entries as SIGNED_R11_EAC, rows of 4 (4 x 2 texels): 1 block, 8 
   block (0, 0): base 20, multiplier 11, modifiers -2 -5 -8 -13 1 4 7 12 (table 2), selectors 3 2 0 5 7 4 1 6 0 0 0 0 0 0 0 0, bytes 14 b2 7c 05 00 04 0b 80
   decodes to [-0.96187681, -0.531769335, -0.0156402737, 0.500488758, 1, 0.24242425, -0.273704797, 0.758553267]
   not exact: the closest blocks are within 0.0381 of the table (entry 0: -1 as -0.96187681), every base, multiplier and table tried
-  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0381 of the table
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads |v|'s (|v| << 5) + (|v| >> 5), with v's sign, over 32767: within 0.0381 of the table
   a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
 > texenc E, F eac
 texenc E, F eac: 16 entries a channel as RG11_EAC (red E, green F), rows of 4 (4 x 4 texels): 1 block, 16 bytes (64 as R16G16_UNORM, 128 as R32G32_SFLOAT); whole numbers k are stored as k/2047
@@ -253,10 +253,10 @@ texenc N, the second table eac: 8 entries a channel as SIGNED_RG11_EAC (red N, g
   block (0, 0) bytes 14 b2 7c 05 00 04 0b 80 3b 6b 70 05 40 38 01 c0
   red: decodes to [-0.96187681, -0.531769335, -0.0156402737, 0.500488758, 1, 0.24242425, -0.273704797, 0.758553267]
   red: not exact: the closest blocks are within 0.0381 of the table (entry 0: -1 as -0.96187681), every base, multiplier and table tried
-  red: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0381 of the table
+  red: a decoder that extends the 11 bits to 16 (the specification allows it) reads |v|'s (|v| << 5) + (|v| >> 5), with v's sign, over 32767: within 0.0381 of the table
   green: decodes to [-0.00782013685, 0.132942334, 0.226783976, 0.367546439, 0.508308887, 0.649071336, 0.742913008, 0.883675456]
   green: not exact: the closest blocks are within 0.0241 of the table (entry 5: 0.625 as 0.649071336), every base, multiplier and table tried
-  green: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0241 of the table
+  green: a decoder that extends the 11 bits to 16 (the specification allows it) reads |v|'s (|v| << 5) + (|v| >> 5), with v's sign, over 32767: within 0.0241 of the table
   a nearest or filtered read of the texture is that read of the decoded tables, red and green; no model prices an EAC read apart from its uncompressed one: not measured
 > texenc L eac rows 8
 texenc L eac: 24 entries as R11_EAC, rows of 8 (8 x 3 texels): 2 blocks, 16 bytes (48 as R16_UNORM, 96 as R32_SFLOAT)
