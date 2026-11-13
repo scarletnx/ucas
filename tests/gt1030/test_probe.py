@@ -270,6 +270,38 @@ def units_convert_by_their_own_fadd():
     assert abs(r['fadd_steps'] - want) < 1e-6 * want, 'an empty draw of 2870 ns: %.6g fadd steps, %.6g by the ' \
         'fadd timed beside it' % (r['fadd_steps'], want)
 
+
+def compiles(src, stage):
+    """GLSL into SPIR-V that spirv-val takes, through pipes; the errors when not"""
+    import subprocess
+    g = subprocess.run(['glslangValidator', '-V', '--target-env', 'vulkan1.3', '--stdin', '-S', stage, '-o',
+                        '/dev/stdout', '--quiet'], input=src.encode(), capture_output=True, timeout=300)
+    if g.returncode:
+        return (g.stdout + g.stderr).decode(errors='replace').strip().splitlines()[-3:]
+    v = subprocess.run(['spirv-val', '--target-env', 'vulkan1.3', '-'], input=g.stdout, capture_output=True,
+                       timeout=300)
+    return v.stderr.decode(errors='replace').strip().splitlines()[-3:] if v.returncode else None
+
+
+@check
+def every_step_compiles():
+    """every step's A build is GLSL that glslangValidator compiles and spirv-val takes"""
+    bad = []
+    for p in steps():
+        err = compiles(PR.G.gen_compute(dict(p), p['A'], False), 'comp')
+        if err:
+            bad.append('%s: %s' % (p['name'], ' / '.join(err)))
+    assert not bad, '; '.join(bad)
+
+
+@check
+def u64_division_by_a_constant():
+    """#18 and #19 compare a u64 division and remainder by a constant with their rewrites: both are probed"""
+    have = {p['name']: p for p in steps()}
+    for n in ('u64_udiv_const', 'u64_umod_const'):
+        assert n in have and have[n]['ty'] == 'u64' and {18, 19} <= set(have[n]['issues']), \
+            '%s: not a u64 step of #18 and #19' % n
+
 def main():
     failed = 0
     for fn in CHECKS:
