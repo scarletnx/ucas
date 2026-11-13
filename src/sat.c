@@ -144,6 +144,8 @@ aig_or(struct aig *g, lit a, lit b)
 lit
 aig_xor(struct aig *g, lit a, lit b)
 {
+	lit x, y;
+
 	if (a == L_FALSE)
 		return b;
 	if (b == L_FALSE)
@@ -156,17 +158,25 @@ aig_xor(struct aig *g, lit a, lit b)
 		return L_FALSE;
 	if (a == L_NOT(b))
 		return L_TRUE;
-	return aig_or(g, aig_and(g, a, L_NOT(b)), aig_and(g, L_NOT(a), b));
+	/* one node, then the other: C leaves the order of a call's
+	 * arguments open, and the nodes' numbering steers the solver */
+	x = aig_and(g, a, L_NOT(b));
+	y = aig_and(g, L_NOT(a), b);
+	return aig_or(g, x, y);
 }
 
 lit
 aig_mux(struct aig *g, lit s, lit t, lit e)
 {
+	lit x, y;
+
 	if (s == L_TRUE || t == e)
 		return t;
 	if (s == L_FALSE)
 		return e;
-	return aig_or(g, aig_and(g, s, t), aig_and(g, L_NOT(s), e));
+	x = aig_and(g, s, t);
+	y = aig_and(g, L_NOT(s), e);
+	return aig_or(g, x, y);
 }
 
 /* ---- the solver ---- */
@@ -724,8 +734,11 @@ addc(struct aig *g, struct word *r, const struct word *a,
 	t.w = a->w;
 	for (i = 0; i < a->w; i++) {
 		lit x = aig_xor(g, a->b[i], b->b[i]);
+		lit p, q;
 		t.b[i] = aig_xor(g, x, c);
-		c = aig_or(g, aig_and(g, a->b[i], b->b[i]), aig_and(g, x, c));
+		p = aig_and(g, a->b[i], b->b[i]);
+		q = aig_and(g, x, c);
+		c = aig_or(g, p, q);
 	}
 	*r = t;
 }
@@ -784,8 +797,9 @@ w_ult(struct aig *g, const struct word *a, const struct word *b)
 	/* from the low bit up: a < b at bit i decides, else the lower bits */
 	for (i = 0; i < a->w; i++) {
 		lit ai = a->b[i], bi = b->b[i];
-		lit eq = L_NOT(aig_xor(g, ai, bi));
-		lt = aig_or(g, aig_and(g, L_NOT(ai), bi), aig_and(g, eq, lt));
+		lit eq = L_NOT(aig_xor(g, ai, bi)), here;
+		here = aig_and(g, L_NOT(ai), bi);
+		lt = aig_or(g, here, aig_and(g, eq, lt));
 	}
 	return lt;
 }
@@ -1008,7 +1022,8 @@ sat_selftest(void)
 			want[10] = (uint64_t)n;
 		}
 		w_xor(g, &r[11], &a, &b), want[11] = x ^ y;
-		pin = aig_and(g, w_eq(g, &a, &ca), w_eq(g, &b, &cb));
+		pin = w_eq(g, &a, &ca);
+		pin = aig_and(g, pin, w_eq(g, &b, &cb));
 		if (aig_sat(g, pin, 0) != 1)
 			bad++;
 		else

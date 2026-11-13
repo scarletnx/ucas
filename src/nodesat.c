@@ -505,8 +505,9 @@ blast1(struct nctx *c, nid n)
 					/* INT64_MIN / -1 leaves int64 */
 					w_const(&x, 64, 1ULL << 63);
 					w_const(&y, 64, ~0ULL);
-					d = aig_and(g, d, L_NOT(aig_and(g,
-					    w_eq(g, V(a), &x), w_eq(g, V(b), &y))));
+					lit amin = w_eq(g, V(a), &x);
+					d = aig_and(g, d, L_NOT(aig_and(g, amin,
+					    w_eq(g, V(b), &y))));
 				}
 			}
 			break;

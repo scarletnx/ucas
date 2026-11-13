@@ -4604,16 +4604,17 @@ assumptions(void)
 		int64_t lo, hi;
 		const struct word *x = &SP.leaf[i].w;
 		struct word l, h;
+		lit lo_ok;
 		if (!assumed(SP.leaf[i].id, &lo, &hi))
 			continue;
 		w_const(&l, x->w, (uint64_t)lo & wmask(x->w));
 		w_const(&h, x->w, (uint64_t)hi & wmask(x->w));
 		if (lo < 0)	/* signed bounds */
-			a = aig_and(SP.g, a, aig_and(SP.g, L_NOT(w_slt(SP.g, x, &l)),
-			    L_NOT(w_slt(SP.g, &h, x))));
+			lo_ok = L_NOT(w_slt(SP.g, x, &l));
 		else
-			a = aig_and(SP.g, a, aig_and(SP.g, L_NOT(w_ult(SP.g, x, &l)),
-			    L_NOT(w_ult(SP.g, &h, x))));
+			lo_ok = L_NOT(w_ult(SP.g, x, &l));
+		a = aig_and(SP.g, a, aig_and(SP.g, lo_ok, lo < 0 ?
+		    L_NOT(w_slt(SP.g, &h, x)) : L_NOT(w_ult(SP.g, &h, x))));
 	}
 	return a;
 }
@@ -4980,8 +4981,8 @@ op_undefined(const char *op, struct word **a, int aw)
 		w_const(&z, aw, 0);
 		w_const(&m1, aw, wmask(aw));
 		w_const(&mn, aw, 1ULL << (aw - 1));
-		return aig_or(g, w_eq(g, a[1], &z),
-		    aig_and(g, w_eq(g, a[0], &mn), w_eq(g, a[1], &m1)));
+		lit dz = w_eq(g, a[1], &z), mn0 = w_eq(g, a[0], &mn);
+		return aig_or(g, dz, aig_and(g, mn0, w_eq(g, a[1], &m1)));
 	}
 	return L_FALSE;
 }
@@ -12543,8 +12544,8 @@ i_bound(int id)
 			s = *wx;
 			w_const(&c, 32, 1ULL << ps[i]);
 		}
-		goal = aig_and(SP.g, aig_and(SP.g, SP.dl[id], assumptions()),
-		    L_NOT(w_ult(SP.g, &s, &c)));
+		goal = aig_and(SP.g, SP.dl[id], assumptions());
+		goal = aig_and(SP.g, goal, L_NOT(w_ult(SP.g, &s, &c)));
 		if (aig_sat(SP.g, goal, 20000) == 0)
 			return ps[i];
 	}
@@ -12911,10 +12912,12 @@ i2f_pass(void)
 			wk = blast(kid, 16);
 			w_const(&cl, 32, (uint64_t)(uint32_t)(-126 - elo));
 			w_const(&ch, 32, (uint64_t)(uint32_t)(127 - ehi));
-			goal = aig_and(SP.g, aig_and(SP.g, SP.dl[kid], assumptions()),
-			    aig_or(SP.g, T(kt)->sign ? w_slt(SP.g, wk, &cl) :
-			    w_ult(SP.g, wk, &cl), T(kt)->sign ? w_slt(SP.g, &ch, wk) :
-			    w_ult(SP.g, &ch, wk)));
+			lit below;
+			goal = aig_and(SP.g, SP.dl[kid], assumptions());
+			below = T(kt)->sign ? w_slt(SP.g, wk, &cl) :
+			    w_ult(SP.g, wk, &cl);
+			goal = aig_and(SP.g, goal, aig_or(SP.g, below, T(kt)->sign ?
+			    w_slt(SP.g, &ch, wk) : w_ult(SP.g, &ch, wk)));
 			ok = -126 - elo <= 127 - ehi && (T(kt)->sign || -126 - elo <= 0) &&
 			    aig_sat(SP.g, goal, 20000) == 0;
 			if (!ok)
@@ -13169,8 +13172,10 @@ i2f_pass(void)
 					blast_reset();
 					wx = blast(kid, 16);
 					w_const(&c, 32, 31);
-					goal = aig_and(SP.g, aig_and(SP.g, SP.dl[kid],
-					    assumptions()), L_NOT(w_ult(SP.g, wx, &c)));
+					goal = aig_and(SP.g, SP.dl[kid],
+					    assumptions());
+					goal = aig_and(SP.g, goal, L_NOT(w_ult(SP.g, wx,
+					    &c)));
 					ok = aig_sat(SP.g, goal, 20000) == 0;
 				}
 				if (ok) {
@@ -13194,8 +13199,8 @@ i2f_pass(void)
 		blast_reset();
 		wx = blast(x, 16);
 		w_const(&c, 32, 0x800000);
-		goal = aig_and(SP.g, aig_and(SP.g, SP.dl[x], assumptions()),
-		    L_NOT(w_ult(SP.g, wx, &c)));
+		goal = aig_and(SP.g, SP.dl[x], assumptions());
+		goal = aig_and(SP.g, goal, L_NOT(w_ult(SP.g, wx, &c)));
 		if (aig_sat(SP.g, goal, 20000) == 0)
 			form = 0;
 		else if (sg) {
@@ -13203,8 +13208,8 @@ i2f_pass(void)
 			struct word s2;
 			w_const(&sh, 32, 0x400000);
 			w_add(SP.g, &s2, wx, &sh);
-			goal = aig_and(SP.g, aig_and(SP.g, SP.dl[x], assumptions()),
-			    L_NOT(w_ult(SP.g, &s2, &c)));
+			goal = aig_and(SP.g, SP.dl[x], assumptions());
+			goal = aig_and(SP.g, goal, L_NOT(w_ult(SP.g, &s2, &c)));
 			if (aig_sat(SP.g, goal, 20000) == 0)
 				form = 1;
 		}

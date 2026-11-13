@@ -44,7 +44,7 @@ simplify: 86 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal f
       %46 & 0xff is bits 0..7 of %46: lane 0 as it is
       the word's other lanes meet zero lanes
       udot4x8's sum is in 0..1275: it does not wrap
-      proved by SAT: 321 AIG nodes, 169 conflicts
+      proved by SAT: 321 AIG nodes, 128 conflicts
     %77 = OpIAdd %uint %75 %48
       ->  udot4x8(%54, 0x400) + (%46 & 0xff)   (cost 6 -> 3)
       (line 11: b.d[i + 3u] = ((w >> 8u) & 255u) * 4u + x;)

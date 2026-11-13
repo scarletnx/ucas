@@ -9,7 +9,7 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 4 functions
       uint64_t scale(uint64_t v) {
           return v * 3ul;
       }
-    proof: proved by SAT (ucas equiv, which enumerates no 64-bit value: 2214 AIG nodes, 533 conflicts) on the inferred domain
+    proof: proved by SAT (ucas equiv, which enumerates no 64-bit value: 2214 AIG nodes, 293 conflicts) on the inferred domain
     cost under gt1030 (a loop priced per iteration times its trips): 4 -> 3 per call
     relies on: v in 0..65535 at every call: main (line 12)
   lowbyte (line 7), called from main (line 12)
