@@ -4309,6 +4309,13 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   (BC7's weight tables repeat past 2^ib), what must hold is stated (`i <=
   2^sh_ib - 1`) with the call sites where the analysis shows it and
   those where it does not;
+- the same helper as a bit field of x whose place is the case's, `(x >>
+  S) & M` with S per case and M the values' bits, when every value of
+  every case fits: one shift by a selected count, `(i >> (flip == 0u ?
+  1u : 3u)) & 1u` for ETC2's subblock `flip != 0u ? uint(i >= 8u) :
+  uint((i & 3u) >= 2u)` (9.75 -> 7 a call under gt1030, the select of
+  the count priced in); the multiply above is then said only where it
+  holds on the whole domain too (tests/fnshift.ucas);
 - invariant calls: a call in a loop whose arguments and everything the
   callee reads (globals, arrays, transitively) are not written in the
   loop, and whose callee writes nothing, is the same on every pass; also

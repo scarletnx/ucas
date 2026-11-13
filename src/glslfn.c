@@ -6971,10 +6971,155 @@ find_form(struct fitc *cs, int nc, int cv, int64_t *A)
 	return -1;
 }
 
+/*
+ * (x >> S) & M per case: a bit field of x whose place is the case's
+ * (et_sub's subblock is bit 3 or bit 1 of i by flip), one shift by a
+ * selected count and a mask where the function compares or selects per
+ * case.  Every case's every value must fit, M the same in all; proved
+ * case by case on the domain, as the multiply form is.  1: proposed.
+ */
+static int
+fit_shiftmask(int f, struct dom *D, struct fitc *cs, int nc, int wide,
+    double c0)
+{
+	int Sj[64], j, i, b, S, rc;
+	int64_t M = 0, x;
+	char names[MAXP + 8][40], wit[200];
+	int tys[MAXP + 8];
+	double c1 = model_active()->c[C_SHIFT] + model_active()->c[C_LOGIC] +
+	    model_active()->c[C_SELECT] * (nc - 1) + model_active()->c[C_CMP] *
+	    (nc - 1);
+	struct sbuf form_t = {0}, sel = {0}, kt = {0}, b2 = {0};
+	struct av *rows;
+	char *orig;
+	long pts = 0;
+	const char *wn = G.y[D->vars[wide]].name;
+
+	if (nc > 4 || c1 >= c0)
+		return 0;
+	/* the mask: every value's bits */
+	for (j = 0; j < nc; j++)
+		for (x = 0; x <= cs[j].xhi; x++)
+			if (cs[j].ok[x]) {
+				if (cs[j].y[x] < 0)
+					return 0;
+				M |= cs[j].y[x];
+			}
+	for (b = 0; b < 32 && (M >> b); b++)
+		;
+	if (b == 0)
+		return 0;
+	M = ((int64_t)1 << b) - 1;
+	for (j = 0; j < nc; j++) {
+		for (S = 0; S < 32; S++) {
+			for (x = 0; x <= cs[j].xhi; x++)
+				if (cs[j].ok[x] && ((x >> S) & M) != cs[j].y[x])
+					break;
+			if (x > cs[j].xhi)
+				break;
+		}
+		if (S == 32)
+			return 0;
+		Sj[j] = S;
+	}
+	for (j = 1; j < nc && Sj[j] == Sj[0]; j++)
+		;
+	if (j == nc)
+		return 0;	/* one shift for all: not per case */
+	orig = fn_ucas(f, D, names, tys);
+	if (orig == NULL)
+		return 0;
+	rows = xmalloc((size_t)nc * (size_t)D->nv * sizeof *rows);
+	for (j = 0; j < nc; j++) {
+		for (i = 0; i < D->nv; i++)
+			rows[j * D->nv + i] = av_k(tys[i], cs[j].key[i]);
+		rows[j * D->nv + wide] = av_iv(tys[wide], 0, cs[j].xhi);
+	}
+	/* the shift: by a select on the case */
+	for (j = 0; j < nc - 1; j++) {
+		int first = 1;
+		sb_puts(&sel, "(");
+		for (i = 0; i < D->nv; i++)
+			if (i != wide) {
+				sb_printf(&sel, "%s%s == %s(%lld)", first ? "" : " && ",
+				    names[i], u_ty(tys[i]), (long long)cs[j].key[i]);
+				first = 0;
+			}
+		sb_printf(&sel, " ? %s(%d) : ", u_ty(tys[wide]), Sj[j]);
+	}
+	sb_printf(&sel, "%s(%d)", u_ty(tys[wide]), Sj[nc - 1]);
+	for (j = 0; j < nc - 1; j++)
+		sb_puts(&sel, ")");
+	sb_printf(&form_t, "(%s >> %s) & %s(%lld)", names[wide], sel.p,
+	    u_ty(tys[wide]), (long long)M);
+	rc = prove_rows(names, tys, D->nv, rows, nc, orig, form_t.p, &pts, wit,
+	    sizeof wit);
+	if (rc == 1) {
+		struct prop *p = prop_new(f, P_FIT, G.f[f].line);
+		struct sbuf gs = {0};
+		for (j = 0; j < nc; j++) {
+			int first = 1;
+			sb_printf(&kt, "%s%d for ", j ? "; " : "", Sj[j]);
+			for (i = 0; i < D->nv; i++)
+				if (i != wide) {
+					sb_printf(&kt, "%s%s = %lld", first ? "" : ", ",
+					    G.y[D->vars[i]].name, (long long)cs[j].key[i]);
+					first = 0;
+				}
+		}
+		/* the GLSL: the select of the counts, its compares on the case
+		 * inputs as the source names them */
+		for (j = 0; j < nc - 1; j++) {
+			int first = 1;
+			sb_puts(&gs, "(");
+			for (i = 0; i < D->nv; i++)
+				if (i != wide) {
+					sb_printf(&gs, "%s%s == %lld%s", first ? "" : " && ",
+					    G.y[D->vars[i]].name, (long long)cs[j].key[i],
+					    tys[i] == TU ? "u" : "");
+					first = 0;
+				}
+			sb_printf(&gs, " ? %du : ", Sj[j]);
+		}
+		sb_printf(&gs, "%du", Sj[nc - 1]);
+		for (j = 0; j < nc - 1; j++)
+			sb_puts(&gs, ")");
+		snprintf(p->what, sizeof p->what, "per case a shift and a mask: "
+		    "%s(%s) = (%s >> S) & %lldu with S = %s, one shift by a "
+		    "selected count", G.f[f].name, wn, wn, (long long)M, kt.p);
+		sb_printf(&p->text, "%s %s(", ty_name(G.f[f].ty), G.f[f].name);
+		for (i = 0; i < G.f[f].np; i++)
+			sb_printf(&p->text, "%s%s %s", i ? ", " : "",
+			    ty_name(G.y[G.f[f].p[i]].ty), G.y[G.f[f].p[i]].name);
+		sb_printf(&p->text, ") {\n    return (%s >> %s) & %lldu;\n}\n", wn,
+		    gs.p, (long long)M);
+		snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv of the "
+		    "function and the form, case by case (%ld points)", pts);
+		p->points = pts;
+		p->c0 = c0;
+		p->c1 = c1;
+		vars_text(&b2, D->vars, D->nv, rows, nc);
+		snprintf(p->domain, sizeof p->domain, "%s", b2.p ? b2.p : "");
+		snprintf(p->relies, sizeof p->relies, "the inferred domain (%s): the "
+		    "form holds on all of it", b2.p ? b2.p : "");
+		free(gs.p);
+	} else if (rc == 0)
+		printf("  note: %s: the interpreter and ucas equiv disagree (%s); "
+		    "nothing proposed\n", G.f[f].name, wit);
+	free(rows);
+	free(form_t.p);
+	free(sel.p);
+	free(kt.p);
+	free(b2.p);
+	free(orig);
+	return rc == 1;
+}
+
 static void
 search_fit(int f, struct dom *D)
 {
 	int wide = -1, i, r, j, nc = 0, S, best_S = -1, ncase_var = 0, cv = -1;
+	int have_sm = 0;
 	struct fitc *cs;
 	int64_t best_C = 0, best_cov = -1, total = 0;
 	(void)total;
@@ -7083,6 +7228,9 @@ search_fit(int f, struct dom *D)
 		}
 		cs[q] = tmp;
 	}
+	/* a bit field of x at a place per case: holds on the whole domain,
+	 * so the multiply below is said only where it does too */
+	have_sm = fit_shiftmask(f, D, cs, nc, wide, c0);
 	/* the most the form can cover; then the least S that covers it with
 	 * K one formula of the case (else the least S), C = 2^(S-1) first */
 	{
@@ -7208,6 +7356,8 @@ search_fit(int f, struct dom *D)
 			    (long long)best_C, u_ty(tys[wide]), best_S);
 			rc = prove_rows(names, tys, D->nv, rows, nc, orig, form_t.p, &pts,
 			    wit, sizeof wit);
+			if (rc == 1 && have_sm && !full)
+				rc = -1;	/* the shift form holds everywhere */
 			if (rc == 1) {
 				struct prop *p = prop_new(f, P_FIT, G.f[f].line);
 				snprintf(kname, sizeof kname, "%s_K", G.f[f].name);

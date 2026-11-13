@@ -1,0 +1,31 @@
+# The function level's per case forms (glslfn.c): a bit field of x whose
+# place is the case's, one shift by a selected count and a mask.  ETC2's
+# subblock of texel i (below 16): bit 3 of i side by side, bit 1 one above
+# the other.
+simplify functions nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint et_sub(uint flip, uint i) { return flip != 0u ? uint(i >= 8u) : uint((i & 3u) >= 2u); }
+void main() {
+  uint flip = b.d[gl_GlobalInvocationID.x] & 1u, s = 0u;
+  for (uint i = 0u; i < 16u; i++)
+    s += et_sub(flip, i) << i;
+  b.d[gl_GlobalInvocationID.x] = s;
+}
+```
+# two bits a case, at 0, 2 or 4 by k: the mask is the values' bits
+simplify functions nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint field(uint k, uint x) { return k == 0u ? x % 4u : k == 1u ? (x / 4u) % 4u : (x / 16u) % 4u; }
+void main() {
+  uint k = b.d[gl_GlobalInvocationID.x] % 3u, s = 0u;
+  for (uint x = 0u; x < 64u; x++)
+    s += field(k, x);
+  b.d[gl_GlobalInvocationID.x] = s;
+}
+```
