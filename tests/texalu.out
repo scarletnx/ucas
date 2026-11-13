@@ -500,3 +500,7 @@ cost model: texeln
   2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.75
 > use gt1030
 cost model: gt1030
+> texalu gp lanes 4
+texalu.ucas:137:11: error: texalu F [tol E] [model M]
+    texalu gp lanes 4
+              ^

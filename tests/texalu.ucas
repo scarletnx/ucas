@@ -133,3 +133,5 @@ gp(i: i32 in 0..7) = G[i]
 find gp 1
 find g 1
 use gt1030
+# an option texalu does not take is refused, with its usage
+texalu gp lanes 4

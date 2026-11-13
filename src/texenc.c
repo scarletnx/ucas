@@ -803,8 +803,10 @@ texenc_command(struct P *p)
 			if (!(tol >= 0) || !isfinite(tol))
 				fail("texenc: tol E, the error allowed on an entry, is "
 				    "0 or more, not %g", tol);
-		} else
+		} else {
 			cmdp_fail_here(p);
+			fail("texenc T [, U] [rows W] [tol E]");
+		}
 	}
 	notes_flush();
 	if (astc)
