@@ -1,0 +1,75 @@
+> model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+> model wr : texel { tex_sample_f32: 9 }
+> show tex_repeat8([0.0, 1.0, 4.0, 9.0], 1.0)
+_() = 4.5
+  -> f32
+> show tex_repeat8([0.0, 1.0, 4.0, 9.0], 0.0)
+_() = 4.5
+  -> f32
+> show tex_mirror8([0.0, 1.0, 4.0, 9.0], 0.0)
+_() = 0
+  -> f32
+> show tex_mirror8([0.0, 1.0, 4.0, 9.0], 1.0)
+_() = 9
+  -> f32
+> G = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5]
+> w1(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G[i % 8] + t*G[(i + 1) % 8]
+> texalu w1 tol 0.01 under wr
+texalu w1: reads through the texture unit under wr (cost 25.75 as written):
+  cost 15  tex_repeat8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5], 0.125(f32(i) + 0.5 + t))
+      2 entries of the 8 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+      holds where t in [0, 1] (its range): the fraction t is in [0, 1]; i in [0, 1000] (proved ranges): the address mode (REPEAT) wraps every texel into the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-12: the read moves by at most 0.00415 (x) and 0 (y) times the largest step between neighbours, 1 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 0.00415
+        the coordinate is normalised, u = x f32(1/8), and the unit reads u 8: exact: the size is a power of two
+      against the exact weighted sum of the entries the reads are within 0.00415; as written, the sum's own f32 rounding is within 2.38e-07 (gamma_2 times the sum of |w t|, 2)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00196
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 8 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, u, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> G7 = [0.1, 0.5, 0.25, 0.75, 1, 0, 0.5]
+> w2(i: u16 in 0..1000) = 0.5*G7[i % 7] + 0.5*G7[(i + 1) % 7]
+> texalu w2 tol 1e-4 under wr
+texalu w2: the texture unit under wr (cost 43.75 as written): nothing taken
+  derived, but within 0.000122 of the exact sum, more than the 0.0001 allowed (tol): tol 0.000122 takes it
+  2 entries of the 7 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.5
+> texalu w2 tol 1e-3 under wr
+texalu w2: reads through the texture unit under wr (cost 43.75 as written):
+  cost 17  real(tex_repeat8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5], 0.142857149(f32(i) + 1)))
+      2 entries of the 7 x 1 table from offset (0, 0), weights' sum 1: one read at fraction 0.5
+      holds where i in [0, 1000] (proved ranges): the address mode (REPEAT) wraps every texel into the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = 0.5 those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-13: the read moves by at most 0.000122 (x) and 0 (y) times the largest step between neighbours, 1 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 0.000122
+        the coordinate is normalised, u = x f32(1/7), and the unit reads u 7: within |x| 2^-23 of x (two roundings of 2^-24), in the bound above
+      against the exact weighted sum of the entries the reads are within 0.000122; as written, the sum's own f32 rounding is within 1.19e-07 (gamma_2 times the sum of |w t|, 1)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 1001 points: largest difference 1.19e-08
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 7 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, u, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> w3(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G7[min(i % 14, 13 - i % 14)] + t*G7[min((i + 1) % 14, 13 - (i + 1) % 14)]
+> texalu w3 tol 0.01 under wr
+texalu w3: reads through the texture unit under wr (cost 54.75 as written):
+  cost 15  tex_mirror8([0.100000001, 0.5, 0.25, 0.75, 1, 0, 0.5], 0.142857149(f32(i) + 0.5 + t))
+      2 entries of the 7 x 1 table from offset (0, 0), weights' sum 1: one read at fraction t
+      holds where t in [0, 1] (its range): the fraction t is in [0, 1]; i in [0, 1000] (proved ranges): the address mode (MIRRORED_REPEAT) wraps every texel into the table
+      a linear read at fraction u of texels a, b is (1-u) a + u b: times 1 with u = t those are the entries' weights
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-12: the read moves by at most 0.00427 (x) and 0 (y) times the largest step between neighbours, 1 and 0
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 1.49e-09; in all 0.00427
+        the coordinate is normalised, u = x f32(1/7), and the unit reads u 7: within |x| 2^-23 of x (two roundings of 2^-24), in the bound above
+      against the exact weighted sum of the entries the reads are within 0.00427; as written, the sum's own f32 rounding is within 2.38e-07 (gamma_2 times the sum of |w t|, 2)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00186
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT, 7 x 1, one level: the table's entries as f32
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, MIRRORED_REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, u, 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> w4(i: u16 in 0..1000, t: f32 in 0..1) = (1 - t)*G[i % 8] + t*G[i % 8 + 1]
+> texalu w4 tol 0.01 under wr
+texalu w4: the texture unit under wr (cost 24.75 as written): nothing taken
+  entries of the 8 x 1 table are neighbours in (1 - t)*f32([0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5][i % 8]) + t*f32([0.1, 0.5, 0.25, 0.75, 1, 0, 0.5, 0.5][i % 8 + 1]), but a read of them could leave the table: i % 8 in [0, 7] (a filter clamps at the edge, the table's index does not)

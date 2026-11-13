@@ -180,6 +180,11 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y,
 {
 	int bits = TEX_BITS(ki);
 	int64_t W = op == O_TEX_BILINEAR ? TEX_WIDTH(ki) : n, H = n / W;
+
+	/* REPEAT and MIRRORED_REPEAT take normalised coordinates: the unit's
+	 * x is u n (exact in a double: 24 and at most 24 bits) */
+	if (ki & TEX_WRAPMASK)
+		x *= (double)W;
 	int64_t i0, j0 = 0, c0, c1, r0, r1;
 	double a = tex_weight(x, bits, &i0), b = 0, t[4], w[4];
 
@@ -187,8 +192,8 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y,
 		b = tex_weight(y, bits, &j0);
 	if (isnan(a) || isnan(b))
 		return NAN;
-	c0 = tex_wrap(O_FETCH_CLAMP, i0, W);
-	c1 = tex_wrap(O_FETCH_CLAMP, i0 >= INT64_MAX - 1 ? i0 : i0 + 1, W);
+	c0 = tex_wrap(TEX_WRAP(ki), i0, W);
+	c1 = tex_wrap(TEX_WRAP(ki), i0 >= INT64_MAX - 1 ? i0 : i0 + 1, W);
 	if (op == O_TEX_LINEAR) {
 		t[0] = tv(ctx, c0);
 		t[1] = tv(ctx, c1);
@@ -392,14 +397,15 @@ tex_srgb_table(nid tab)
 }
 
 int
-tex_lookup(const char *s, size_t n, int *bits)
+tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 {
 	static const int fetch[] = {O_FETCH_REPEAT, O_FETCH_MIRROR,
 	    O_FETCH_CLAMP, O_FETCH_MCLAMP, O_FETCH_BORDER, O_FETCH_LAYER};
 	size_t i, l;
-	int op = 0, red = 0;
+	int op = 0, red = 0, wrap = 0;
 
 	*bits = 0;
+	*wrapki = 0;
 	if (n == 10 && !memcmp(s, "fetch_srgb", 10)) {
 		*bits = TEX_SRGB;
 		return O_FETCH_CLAMP;
@@ -421,6 +427,11 @@ tex_lookup(const char *s, size_t n, int *bits)
 	} else if (n > 12 && !memcmp(s, "tex_bilinear", 12)) {
 		op = O_TEX_BILINEAR;
 		i = 12;
+	} else if (n > 10 && (!memcmp(s, "tex_repeat", 10) || !memcmp(s,
+	    "tex_mirror", 10))) {
+		op = O_TEX_LINEAR;
+		wrap = s[4] == 'r' ? O_FETCH_REPEAT : O_FETCH_MIRROR;
+		i = 10;
 	} else if (n > 7 && (!memcmp(s, "tex_min", 7) || !memcmp(s,
 	    "tex_max", 7))) {
 		op = O_TEX_LINEAR;
@@ -442,6 +453,7 @@ tex_lookup(const char *s, size_t n, int *bits)
 	if (*bits > 31)
 		return 0;
 	*bits |= red;
+	*wrapki = TEX_KWRAP(wrap);
 	return op;
 }
 
@@ -452,6 +464,9 @@ tex_print_name(struct sbuf *b, nid n)
 		sb_printf(b, "%s%s", N.ki[n] == TEX_SRGB ? "fetch_srgb" :
 		    opinfo[N.op[n]].name, IS_FETCH(N.op[n]) && TEX_OFF(N.ki[n]) ?
 		    "_offset" : "");
+	else if (N.ki[n] & TEX_WRAPMASK)
+		sb_printf(b, "tex_%s%d", TEX_WRAP(N.ki[n]) == O_FETCH_REPEAT ?
+		    "repeat" : "mirror", TEX_BITS(N.ki[n]));
 	else if (TEX_RED(N.ki[n]))
 		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" : "",
 		    TEX_RED(N.ki[n]) == TEX_REDMIN ? "min" : "max",
@@ -489,6 +504,9 @@ struct term {
 	nid tab;
 	struct aff ix;
 	int dx, dy, grp, used;
+	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps */
+	struct aff ix0;		/* a wrapping index as it is */
+	int ok0;		/* ix0 is affine */
 };
 
 struct rest {
@@ -1504,6 +1522,31 @@ offtext(int c)
 
 	snprintf(b, sizeof b, ", %d", c);
 	return b;
+}
+
+/* idx is the REPEAT or MIRRORED_REPEAT of an index x over n texels,
+ * written out (x % n; min(x % 2n, 2n - 1 - x % 2n)): the mode, x in *x;
+ * 0 if not.  Where the read is defined the truncated remainder is the
+ * floored one (mode_shape) */
+static int mode_shape(nid idx, nid x, int mode, int64_t n);
+
+static int
+wrap_of(nid idx, int64_t n, nid *x)
+{
+	nid a;
+
+	if (N.op[idx] == O_MOD && is_const(N.b[idx]) && N.ki[N.b[idx]] == n &&
+	    TY_ISINT(N.ty[idx])) {
+		*x = N.a[idx];
+		return O_FETCH_REPEAT;
+	}
+	if (N.op[idx] != O_MIN)
+		return 0;
+	a = N.op[N.a[idx]] == O_MOD ? N.a[idx] : N.b[idx];
+	if (N.op[a] != O_MOD || !mode_shape(idx, N.a[a], O_FETCH_MIRROR, n))
+		return 0;
+	*x = N.a[a];
+	return O_FETCH_MIRROR;
 }
 
 /* subterms of an index expression, the expression first (bounded) */
@@ -2915,13 +2958,26 @@ collect(struct sum *s, nid e, struct mform k, int depth)
 	case O_INDEX: {
 		struct tinfo ti;
 		struct term *t;
+		nid ix = N.b[e], wx;
+		int wrap;
 		if (s->nt == MAXTERM || !table_info(N.a[e], &ti) ||
 		    ti.tmax > 16777216.0 || (s->isint && !ti.isint))
 			break;
 		t = &s->t[s->nt];
 		memset(t, 0, sizeof *t);
-		if (!aff_of(N.b[e], &t->ix, 0))
-			break;
+		/* T[x % n], T[mirror of x]: a read that wraps (#101); as it
+		 * is too, for when no other entry wraps with it */
+		if ((wrap = wrap_of(ix, N.b[N.a[e]], &wx)) != 0) {
+			t->ok0 = aff_of(ix, &t->ix0, 0);
+			ix = wx;
+		}
+		if (!aff_of(ix, &t->ix, 0)) {
+			if (!t->ok0)
+				break;
+			t->ix = t->ix0;
+			wrap = 0;
+		}
+		t->wrap = wrap;
 		t->k = k;
 		t->tab = N.a[e];
 		s->tidx[s->nt++] = N.b[e];
@@ -3012,6 +3068,7 @@ block_derive(const struct sum *s, struct block *b, int *why)
 /* the terms of a group laid on the table's grid */
 struct grid {
 	int ix[MAXTERM], n;	/* the group's terms (indices into the sum) */
+	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps (1D) */
 	int64_t W, H;
 	nid xe, ye;		/* the column and row expressions, 0: none */
 	int64_t xlo, xhi, ylo, yhi;
@@ -3037,6 +3094,8 @@ block_inside(const struct grid *g, const struct block *b)
 {
 	int wx = b->m[1] >= 0 || b->m[3] >= 0, wy = b->m[2] >= 0 || b->m[3] >= 0;
 
+	if (g->wrap)	/* the address mode wraps every texel in */
+		return 1;
 	return g->xlo + b->ox >= 0 && g->xhi + b->ox + wx <= g->W - 1 &&
 	    g->ylo + b->oy >= 0 && g->yhi + b->oy + wy <= g->H - 1;
 }
@@ -3056,10 +3115,13 @@ grid_make(struct sum *s, struct grid *g)
 
 	if (!table_info(s->t[g->ix[0]].tab, &g->ti))
 		return 0;
+	g->wrap = s->t[g->ix[0]].wrap;
 	for (i = 0; i < a->n; i++) {
 		int64_t c = a->coef[i];
 		if (c == 1)
 			continue;
+		if (g->wrap)	/* a wrapping read is along one axis */
+			return 0;
 		if (c < 1 || g->ti.n % c || (W && W != c))
 			return 0;
 		W = c;
@@ -3512,12 +3574,28 @@ seed_sum1(nid body, nid root)
 		goto out;
 	for (i = 0; i < s->nt; i++)
 		s->t[i].grp = -1;
+	/* a wrapping read with no neighbour that wraps with it is read as
+	 * it is: its index an affine form like any other */
+	for (i = 0; i < s->nt; i++) {
+		if (!s->t[i].wrap || !s->t[i].ok0)
+			continue;
+		for (j = 0; j < s->nt; j++)
+			if (j != i && s->t[j].wrap == s->t[i].wrap &&
+			    same_table(s->t[j].tab, s->t[i].tab) &&
+			    aff_same_base(&s->t[i].ix, &s->t[j].ix))
+				break;
+		if (j == s->nt) {
+			s->t[i].ix = s->t[i].ix0;
+			s->t[i].wrap = 0;
+		}
+	}
 	for (i = 0; i < s->nt; i++) {
 		if (s->t[i].grp >= 0)
 			continue;
 		s->t[i].grp = ng;
 		for (j = i + 1; j < s->nt; j++)
 			if (s->t[j].grp < 0 && same_table(s->t[j].tab, s->t[i].tab) &&
+			    s->t[j].wrap == s->t[i].wrap &&
 			    aff_same_base(&s->t[i].ix, &s->t[j].ix)) {
 				s->t[j].grp = ng;
 				/* the same entry twice: one weight */
@@ -3590,7 +3668,7 @@ seed_sum1(nid body, nid root)
 		cv.s = s;
 		cv.g = &g;
 		cv.ptap = X.m->c[g.ti.cls] + (g.H > 1 ? 2 : 1) * X.m->c[C_FADD] +
-		    X.m->c[C_FMUL];
+		    X.m->c[C_FMUL] + (g.wrap ? X.m->c[C_FMUL] : 0);
 		cv.pone = X.m->c[C_LOAD] + (isint ? X.m->c[C_IADD] :
 		    X.m->c[C_FMUL]);
 		cover_blocks(&cv);
@@ -3671,6 +3749,22 @@ seed_sum1(nid body, nid root)
 				    &gy, &cy);
 				tap = mk_tex(O_TEX_BILINEAR, TEX_KI(X.bits, g.W),
 				    g.ti.tex, x, y);
+			} else if (g.wrap) {
+				/*
+				 * normalised: u = x f32(1/n), and the unit reads
+				 * u n: within |x| 2^-23 of x (two roundings of
+				 * 2^-24), none when n is a power of two
+				 */
+				double rn = (double)(float)(1.0 / (double)g.W);
+				x = mk_bin(O_MUL, x, kf(rn));
+				if (g.W & (g.W - 1)) {
+					dwx += ldexp(1.0, ex - 23);
+					gx = 0;
+					if (cx < ex - 23)
+						cx = ex - 23;
+				}
+				tap = mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0) |
+				    TEX_KWRAP(g.wrap), g.ti.tex, x, 0);
 			} else
 				tap = mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0),
 				    g.ti.tex, x, 0);
@@ -3775,17 +3869,31 @@ seed_sum1(nid body, nid root)
 		if (g.ye)
 			sb_printf(&holds, "%s%s in [%lld, %lld]", g.xe ? ", " : "",
 			    node_str(g.ye), (long long)g.ylo, (long long)g.yhi);
-		sb_printf(&holds, "%severy texel read is inside the table",
-		    g.xe || g.ye ? " (proved ranges): " : "");
+		if (g.wrap)
+			sb_printf(&holds, "%sthe address mode (%s) wraps every "
+			    "texel into the table", g.xe || g.ye ? " (proved "
+			    "ranges): " : "", mode_vk(g.wrap));
+		else
+			sb_printf(&holds, "%severy texel read is inside the "
+			    "table", g.xe || g.ye ? " (proved ranges): " : "");
+		if (g.wrap)
+			sb_printf(&proof, "\n  the coordinate is normalised, u = "
+			    "x f32(1/%lld), and the unit reads u %lld: %s",
+			    (long long)g.W, (long long)g.W, g.W & (g.W - 1) ?
+			    "within |x| 2^-23 of x (two roundings of 2^-24), in "
+			    "the bound above" : "exact: the size is a power of "
+			    "two");
 		sb_printf(&pipe, "%sa texture %s, %lld x %lld, one level: the "
 		    "table's entries", pipe.n ? "\n" : "", fmt_vk(g.ti.cls),
 		    (long long)g.W, (long long)g.H);
 		fmt_says(&pipe, &g.ti);
 		sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
-		    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
-		    "lod 0\none combined image sampler more in the layout; the "
-		    "shader reads textureLod(s, %s, 0.0).r", g.H > 1 ?
-		    "vec2(x, y)" : "x");
+		    "NEAREST mipmap mode, %s, lod 0\none combined image sampler "
+		    "more in the layout; the shader reads textureLod(s, %s, "
+		    "0.0).r", g.wrap ? (g.wrap == O_FETCH_REPEAT ? "REPEAT, "
+		    "normalised coordinates" : "MIRRORED_REPEAT, normalised "
+		    "coordinates") : "CLAMP_TO_EDGE, unnormalizedCoordinates",
+		    g.H > 1 ? "vec2(x, y)" : g.wrap ? "u" : "x");
 		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1 && !g.ti.levels) {
 			/* the same texels in half the bytes, when BC4's palettes
 			 * hold them exactly (texenc.c) */
