@@ -70,3 +70,46 @@ texastc.ucas:25:14: error: texenc: astc takes a block's footprint, BWxBH (6x6, 8
 texastc.ucas:26:21: error: texenc: a block's two planes are tables of one shape; P has 36 entries and M 32
     texenc P, M astc 4x4
                         ^
+> D = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015]
+> texenc D astc 4x4
+texenc D astc 4x4: 16 entries as ASTC 4x4, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): 4x4 weights of 5 levels in one plane, 1 partition, endpoints 0, 4 (luminance, 256 levels), bytes 52 00 00 08 00 00 00 00 00 00 00 a4 ff 2a 29 05
+  decodes to [0, 0, 0.00392156886, 0.00392156886, 0.00392156886, 0.00392156886, 0.00784313772, 0.00784313772, 0.00784313772, 0.00784313772, 0.0117647061, 0.0117647061, 0.0117647061, 0.0117647061, 0.0156862754, 0.0156862754]
+  not exact: the closest block found is within 0.00192 of the table (entry 2: 0.00200000009 as 0.00392156886)
+  in the default float16 decode mode a read is C/65536 toward zero (1 for 65535): within 0.00192 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> texenc D astc 4x4 srgb
+texenc D astc 4x4 srgb: 16 entries as ASTC 4x4 sRGB, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); the luminance reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): 3x4 weights of 32 levels in one plane, 4 partitions (seed 6: the closest to the entries' pattern, 2 texels off it), endpoints 11, 22, 0, 0, 22, 33, 0, 11 (luminance, 24 levels), bytes df db 00 00 41 c0 20 00 f2 46 f2 02 cc c0 ae 03
+  decodes to [0, 0.000910580973, 0.00212468882, 0.00303526991, 0.00402471703, 0.00518151652, 0.00604883302, 0.00699541019, 0.00802319311, 0.00913405884, 0.00972121768, 0.0109600937, 0.012286488, 0.0129830325, 0.0137020834, 0.0152085144]
+  not exact: the closest block found is within 0.000298 of the table (entry 14: 0.0140000004 as 0.0137020834)
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> texenc M astc 4x4 srgb rows 8
+texenc M astc 4x4 srgb: 32 entries as ASTC 4x4 sRGB, rows of 8 (8 x 4 texels): 2 blocks, 32 bytes (32 as R8_UNORM, 128 as R32_SFLOAT); the luminance reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): 4x4 weights of 24 levels in one plane, 3 partitions (seed 683: its partitions are the entries' pattern), endpoints 153, 187, 0, 136, 136, 170 (luminance, 16 levels), bytes 43 72 55 20 17 10 55 f7 c9 52 af d7 ef 86 09 02
+  block (1, 0): 4x4 weights of 24 levels in one plane, 3 partitions (seed 683: its partitions are the entries' pattern), endpoints 221, 255, 68, 204, 204, 238 (luminance, 16 levels), bytes 43 72 55 a0 9f 98 5d f7 c9 52 af d7 ef 86 09 02
+  decodes to [0, 0.00560539169, 0.0159962941, 0.0331047662, 0.0578054301, 0.0908417106, 0.13286832, 0.18447499, 0.0212190095, 0.0409151986, 0.064803265, 0.0998987257, 0.149959788, 0.205078736, 0.262250662, 0.337163627, 0.078187421, 0.116970666, 0.165132195, 0.230740055, 0.291770637, 0.371237695, 0.462076992, 0.577580452, 0.18447499, 0.246201321, 0.323143214, 0.407240212, 0.496932983, 0.603827357, 0.730460763, 0.863157213]
+  not exact: the closest block found is within 0.00954 of the table (entry 15: 0.346704066 as 0.337163627)
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> A = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1]
+> texenc D, A astc 4x4 srgb
+texenc D, A astc 4x4 srgb: 16 entries a table in ASTC 4x4 sRGB blocks' two planes (D the luminance, A the alpha), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT); the luminance reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): 4x4 weights of 6 levels in two planes, 1 partition, endpoints 4, 32, 0, 255 (luminance, luminance, alpha, alpha, 64 levels), bytes 43 84 02 04 f8 4d 4e bb 35 5c 79 3f dd 39 4b 00
+  luminance: decodes to [0.00121410796, 0.00121410796, 0.0027317428, 0.0027317428, 0.00477695325, 0.00477695325, 0.00477695325, 0.00749903219, 0.00749903219, 0.00749903219, 0.0109600937, 0.0109600937, 0.0109600937, 0.0144438436, 0.0144438436, 0.0144438436]
+  luminance: not exact: the closest block found is within 0.0015 of the table (entry 9: 0.00899999961 as 0.00749903219)
+  alpha: decodes to [0, 0.188235298, 0.392156869, 0.607843161, 0.811764717, 1, 0.811764717, 0.607843161, 0.392156869, 0.188235298, 0, 0.188235298, 0.392156869, 0.607843161, 0.811764717, 1]
+  alpha: not exact: the closest block found is within 0.0118 of the table (entry 1: 0.200000003 as 0.188235298)
+  alpha as astcenc 5.7.1 and Mesa decode it (its bytes widened with 0x80 too, where the specification repeats them): [0, 0.188235298, 0.392156869, 0.607843161, 0.811764717, 1, 0.811764717, 0.607843161, 0.392156869, 0.188235298, 0, 0.188235298, 0.392156869, 0.607843161, 0.811764717, 1], within 0.0118 of the table
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, two planes), the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured
+> compress D as sRGB ASTC 4x4
+  ucas: texenc D astc 4x4 srgb
+texenc D astc 4x4 srgb: 16 entries as ASTC 4x4 sRGB, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); the luminance reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): 3x4 weights of 32 levels in one plane, 4 partitions (seed 6: the closest to the entries' pattern, 2 texels off it), endpoints 11, 22, 0, 0, 22, 33, 0, 11 (luminance, 24 levels), bytes df db 00 00 41 c0 20 00 f2 46 f2 02 cc c0 ae 03
+  decodes to [0, 0.000910580973, 0.00212468882, 0.00303526991, 0.00402471703, 0.00518151652, 0.00604883302, 0.00699541019, 0.00802319311, 0.00913405884, 0.00972121768, 0.0109600937, 0.012286488, 0.0129830325, 0.0137020834, 0.0152085144]
+  not exact: the closest block found is within 0.000298 of the table (entry 14: 0.0140000004 as 0.0137020834)
+  searched: every block mode the footprint has (a weight grid up to the block, each weight range, one plane), 1 to 4 partitions with the seeds whose partitions are closest to the entries' pattern, the endpoints near each partition's least and greatest entry, the weights by least squares through the infill and then a level at a time; not every encoding, so a closer block may exist where it is not exact.  Every block written is decoded again
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an ASTC read: not measured

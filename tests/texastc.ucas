@@ -24,3 +24,17 @@ compress P as ASTC 6x6
 texenc P astc 7x7
 texenc P astc
 texenc P, M astc 4x4
+# the sRGB formats (ASTC_BWxBH_SRGB): the luminance's endpoints widened
+# with 0x80 below their byte and read as that byte through the sRGB
+# EOTF; small linear values get the curve's closer codes near 0, and
+# whole numbers are codes
+D = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015]
+texenc D astc 4x4
+texenc D astc 4x4 srgb
+texenc M astc 4x4 srgb rows 8
+# two planes: alpha is widened by repeating its byte, as the
+# specification says; astcenc 5.7.1 and Mesa widen it with 0x80 too, and
+# that reading is shown beside
+A = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 1]
+texenc D, A astc 4x4 srgb
+compress D as sRGB ASTC 4x4

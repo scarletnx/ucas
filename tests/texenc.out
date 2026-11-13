@@ -184,7 +184,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH [srgb] | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
 > E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
@@ -275,7 +275,7 @@ texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1
     texenc [-2000, 5] eac
                          ^
 > texenc Q astc 4x4 eac
-texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH [srgb] | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q astc 4x4 eac
                       ^
 > compress E as EAC
@@ -416,7 +416,7 @@ texenc.ucas:110:66: error: texenc: ETC2 holds numbers from 0 to 1 (or whole numb
     texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
                                                                      ^
 > texenc Q etc2 eac
-texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
+texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH [srgb] | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q etc2 eac
                   ^
 > compress P as ETC2
@@ -459,7 +459,7 @@ texenc T, S etc2 srgb: 16 entries a channel as SRGB8_ALPHA8_ETC2_EAC (T the red,
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
   a nearest or filtered read of the texture is that read of the decoded tables, red and alpha (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
 > texenc D srgb
-texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
+texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH [srgb] | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc D srgb
              ^
 > compress D as sRGB ETC2
@@ -516,7 +516,7 @@ texenc R, S bc7: 16 entries a channel as BC7_UNORM (R the red, S the alpha), row
   searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
   a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
 > texenc Q bc7 eac
-texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
+texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH [srgb] | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q bc7 eac
                  ^
 > compress B as BC7
