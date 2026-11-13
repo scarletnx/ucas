@@ -2262,7 +2262,7 @@ pack_find(struct func *f)
 			continue;
 		/* a flag in x's sign bit */
 		for (b = 0; px->rlo >= 0 && b < f->np; b++) {
-			nid s, g, enc, ax;
+			nid s, g, enc;
 			int sl[2];
 			nid to[2];
 			char how[400];
@@ -2279,11 +2279,18 @@ pack_find(struct func *f)
 			to[0] = mk_un(O_ABS, s);
 			to[1] = pk_sign_flag(s, f->p[b].ty);
 			g = pk_subst(f, sl, to, 2);
-			ax = mk_un(O_ABS, mk_var((uint32_t)x, px->name, px->ty));
-			enc = mk_sel(pk_true(f, b), mk_un(O_NEG, ax), ax);
+			/* by the bits: the default float controls may ignore a
+			 * zero's sign, so a float negate need not give the -0 */
+			enc = mk_un(O_ASFLOAT, mk_bin(O_OR, mk_bin(O_AND,
+			    mk_un(O_ASUINT, mk_var((uint32_t)x, px->name, px->ty)),
+			    pk_u(0x7fffffff)), mk_bin(O_SHL, mk_cast(PK_U32,
+			    mk_var((uint32_t)b, f->p[b].name, f->p[b].ty)),
+			    pk_u(31))));
 			snprintf(how, sizeof how, "%s and %s as one f32, %s in the sign "
 			    "bit: %s is in [%g, %g], so abs(s) is %s and the sign bit "
-			    "%s, read as a bit (-0 when %s is 0)", sym_str(px->name),
+			    "%s, read as a bit (-0 when %s is 0, written by the bits: "
+			    "a float negate need not keep a zero's sign)",
+			    sym_str(px->name),
 			    sym_str(f->p[b].name), sym_str(f->p[b].name),
 			    sym_str(px->name), px->rlo, px->rhi, sym_str(px->name),
 			    sym_str(f->p[b].name), sym_str(px->name));
@@ -2339,8 +2346,10 @@ pack_find(struct func *f)
 				    pk_u(0x7f800000));
 				g = pk_subst(f, sl, to, 3);
 				xv = mk_var((uint32_t)x, px->name, px->ty);
-				enc = mk_sel(pk_true(f, b), xv, mk_un(O_ASFLOAT,
-				    mk_bin(O_OR, pk_u(0x7fc00000), mk_cast(PK_U32,
+				/* selected as bits: by default a float instruction may
+				 * assume that no operand is a NaN */
+				enc = mk_un(O_ASFLOAT, mk_sel(pk_true(f, b), mk_un(O_ASUINT,
+				    xv), mk_bin(O_OR, pk_u(0x7fc00000), mk_cast(PK_U32,
 				    mk_var((uint32_t)p, pp->name, pp->ty)))));
 				pk_report(f, g, enc, x, 2, how);
 			}
