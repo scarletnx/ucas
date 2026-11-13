@@ -262,14 +262,21 @@ step('tex_nearest_repeat', [115], '{a} + textureLod(tex, vec2((float(ix + {u}) +
      note='NEAREST with REPEAT, the coordinate (i + 0.5) / n made in the step, past 1')
 step('tex_bilinear_r8', [118], TEXSTEP, {'x_tex_bilinear_r8': 1, 'fadd': 1}, ty='float', sub='mem', C=1,
      decls=TEX, pre_iter=UV, args=texarg('r8_unorm', '1024x1024', 'linear'), note='an R8 texture of the same size')
+# in and out of the cache with the same instructions: each read at a place of its own over the whole texture
+# (a hash of the lane and the iteration, then the step's offset of a golden-ratio fraction of the texture),
+# so a 4096x4096 texture (16 MiB of R8, 8 of BC4, over a 512 KiB L2) comes from DRAM and a 64x64 one (4 KiB)
+# from the cache; textureLodOffset's offsets of at most 8 texels would keep a step's reads in one line
+SCATTER = ('uint hs = (gid ^ (i * 0x9e3779b9u)) * 0x85ebca6bu; hs ^= hs >> 13; '
+           'vec2 uv = vec2(float(hs & 0xffffu), float(hs >> 16)) * (1.0 / 65536.0);')
+SCATSTEP = '{a} + textureLod(tex, uv + vec2(float({u}) * 0.618034, float({u}) * 0.381966), 0.0).x'
 for _f in ('bc4_unorm', 'r8_unorm'):
     for _filt in ('linear', 'nearest'):
         for _where, _size in (('cached', '64x64'), ('uncached', '4096x4096')):
-            step('%s_%s_%s' % (_f.split('_')[0], _filt, _where), [121], TEXSTEP,
-                 {'x_%s_%s' % (_f.split('_')[0], _filt): 1, 'fadd': 1}, ty='float', sub='mem', C=1, decls=TEX,
-                 pre_iter=UV, args=texarg(_f, _size, _filt),
-                 note='%s, %s, %s (%s)' % (_f, _filt, _size, 'repeats in the cache' if _where == 'cached'
-                                           else '16 MiB of R8 or 8 of BC4, read across'))
+            step('%s_%s_%s' % (_f.split('_')[0], _filt, _where), [121], SCATSTEP,
+                 {'x_%s_%s' % (_f.split('_')[0], _filt): 1, 'fadd': 3}, ty='float', sub='mem', C=1, decls=TEX,
+                 pre_iter=SCATTER, args=texarg(_f, _size, _filt),
+                 note='%s, %s, %s, a different place each read (%s); the step has 3 fadd' % (
+                     _f, _filt, _size, 'in the cache' if _where == 'cached' else 'out of the cache'))
 # --- #188 and #187 come with their alternatives above; #120, #207, #212 are units; the rest values
 
 probe('unit', 'setup_binding', [120], how='dispatch',

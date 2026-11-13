@@ -228,6 +228,15 @@ def tex_within_only_from_an_exact_blend():
         tw = [ln for ln in lines if ln.startswith('tex_within')]
         assert tw == ([want] if want else []), 'tex_within lines %s, expected %s' % (tw, want)
 
+
+@check
+def uncached_reads_scatter():
+    """a read meant out of the cache moves each step's coordinate by the step ({u}) and not through
+    textureLodOffset, whose offsets of at most 8 texels keep the step's reads in the line the first brought"""
+    bad = [p['name'] for p in steps() if p['name'].endswith('_uncached') and
+           ('textureLodOffset' in p['step'] or '{u}' not in p['step'])]
+    assert not bad, 'reads meant out of the cache that stay in a line: %s' % ', '.join(bad)
+
 def main():
     failed = 0
     for fn in CHECKS:
