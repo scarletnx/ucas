@@ -152,8 +152,13 @@ step('sg_allequal', [144], 'subgroupAllEqual({a}) ? {b} : {c}', {'sg_vote': 1, '
 # --- #145: the shuffle's forms without an add
 step('sg_shuffle_only', [145], 'subgroupShuffle({b}, {c} & 31u)', {'sg_shuffle': 1, 'logic': 1}, exts=SG)
 step('sg_shuffle_xor_only', [145], 'subgroupShuffleXor({b}, 1u)', {'x_shfl_xor': 1}, exts=SG)
-step('sg_broadcast_only', [145], 'subgroupBroadcast({b}, 5u)', {'x_shfl_bcast': 1}, exts=SG)
-step('sg_broadcast_first_only', [145], 'subgroupBroadcastFirst({b})', {'x_shfl_bcast_first': 1}, exts=SG)
+# a broadcast's result is the same in every lane, so a broadcast of it is its input: a ring of broadcasts
+# alone folds after one round; they keep the add of the corpus's sg_broadcast (beside a shuffle the add
+# costs nothing: sg_shuffle_xor_only against the corpus's sg_shuffle_xor)
+step('sg_broadcast_add', [145], 'subgroupBroadcast({a}, 5u) + {b}', {'x_shfl_bcast': 1, 'iadd': 1}, exts=SG,
+     note='with its add, the corpus sg_broadcast: a step of broadcasts alone folds')
+step('sg_broadcast_first_add', [145], 'subgroupBroadcastFirst({a}) + {b}', {'x_shfl_bcast_first': 1, 'iadd': 1},
+     exts=SG, note='with its add, the corpus sg_broadcast_first: a step of broadcasts alone folds')
 step('sg_rotate_only', [145], 'subgroupRotate({b}, 3u)', {'x_shfl_rotate': 1}, exts=SG + ['sgrot'])
 step('sg_quad_swap_only', [145], 'subgroupQuadSwapHorizontal({b})', {'x_shfl_quad': 1}, exts=SG)
 # --- #147: reductions, the exclusive scan, a table in a register
