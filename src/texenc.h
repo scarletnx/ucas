@@ -56,6 +56,31 @@ void eac_decode(const unsigned char b[8], int sgn, int v[16]);
 double eac_encode(const double t[16], const unsigned char care[16], int sgn,
     unsigned char out[8]);
 int texenc_eac(nid tab, int W, int sgn, struct texenc *e);
+int eac_mod(int tab, int sel);		/* modifier sel of table tab */
+
+/*
+ * etc2blk.c: an RGB8_ETC2 block's mode and its sixteen texels (x + 4y,
+ * R, G, B), and the block for 16 targets in its red channel, every
+ * encoding of that channel tried (G and B whatever the mode needs): the
+ * largest error, and in info the mode, the flip of a two-colour block
+ * and its values (individual and differential: the two reds and the two
+ * modifier tables; T and H: the two reds and the distance; planar: O,
+ * H, V).  ETC2's 8-bit alpha block likewise (RGBA8_ETC2_EAC's first 8
+ * bytes): clamp(base + m mod, 0, 255).
+ */
+enum { ETC2_INDIVIDUAL, ETC2_DIFFERENTIAL, ETC2_T, ETC2_H, ETC2_PLANAR };
+struct etc2_info {
+	int mode, flip, v[4];
+};
+int etc2_mode(const uint8_t q[8]);
+int etc1_mod(int tab, int k);		/* +a, +b, -a, -b of table tab */
+void etc2_decode(const uint8_t q[8], uint8_t px[16][3]);
+double etc2_encode_r(const double t[16], const uint8_t care[16],
+    uint8_t out[8], struct etc2_info *info);
+int etc2_alpha_value(int base, int mul, int tab, int sel);
+void etc2_alpha_decode(const uint8_t q[8], int v[16]);
+double etc2_alpha_encode(const double t[16], const uint8_t care[16],
+    uint8_t out[8]);
 
 /*
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
