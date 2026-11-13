@@ -11914,8 +11914,8 @@ static int
 i2f_patch(const char *text, char **out)
 {
 	struct sbuf o = {0}, decl = {0}, rep = {0};
-	const char *p = text;
-	int n = 0, i, declared = 0, used[32] = {0};
+	const char *p = text, *q;
+	int n = 0, i, declared = 0, used[32] = {0}, base = 0;
 
 	*out = NULL;
 	if (ncvx == 0)
@@ -11944,6 +11944,10 @@ i2f_patch(const char *text, char **out)
 		n += used[i];
 	if (n == 0)
 		return 0;
+	/* names past those of a module simplified before */
+	for (q = text; (q = strstr(q, "%ucas_cv")) != NULL; q += 8)
+		if (isdigit((unsigned char)q[8]) && atoi(q + 8) >= base)
+			base = atoi(q + 8) + 1;
 	/* the constants, once each */
 	for (i = 0; i < ncvx; i++) {
 		const struct cvx *e = &cvx[i];
@@ -11953,9 +11957,9 @@ i2f_patch(const char *text, char **out)
 			continue;
 		snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->xt + 1, bits);
 		snprintf(fn, sizeof fn, "%%ucas_cvf_%s_%08x = ", e->rt + 1, bits);
-		if (!strstr(decl.p ? decl.p : "", kn))
+		if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
 			sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->xt, bits);
-		if (!strstr(decl.p ? decl.p : "", fn))
+		if (!strstr(decl.p ? decl.p : "", fn) && !strstr(text, fn))
 			sb_printf(&decl, "%sOpConstant %s %s\n", fn, e->rt, e->form ?
 			    "12582912" : "8388608");
 	}
@@ -11973,7 +11977,8 @@ i2f_patch(const char *text, char **out)
 		}
 		if (!declared && nt >= 3 && !strcmp(t[1], "=") && !strcmp(t[2],
 		    "OpFunction")) {
-			sb_puts(&o, decl.p);
+			if (decl.p)	/* none when the module has them all */
+				sb_puts(&o, decl.p);
 			declared = 1;
 		}
 		for (i = 0; nt == 5 && i < ncvx && hit < 0; i++)
@@ -11983,12 +11988,12 @@ i2f_patch(const char *text, char **out)
 			const struct cvx *e = &cvx[hit];
 			unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 			sb_printf(&o, "%%ucas_cv%do = %s %s %s %%ucas_cvk_%s_%08x\n",
-			    hit, e->form ? "OpIAdd" : "OpBitwiseOr", e->xt, e->x,
+			    base + hit, e->form ? "OpIAdd" : "OpBitwiseOr", e->xt, e->x,
 			    e->xt + 1, bits);
-			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %%ucas_cv%do\n", hit,
-			    e->rt, hit);
+			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %%ucas_cv%do\n",
+			    base + hit, e->rt, base + hit);
 			sb_printf(&o, "%s = OpFSub %s %%ucas_cv%db %%ucas_cvf_%s_%08x\n",
-			    e->res, e->rt, hit, e->rt + 1, bits);
+			    e->res, e->rt, base + hit, e->rt + 1, bits);
 			sb_printf(&rep, "    %s\n      ->  OpFSub %s (OpBitcast %s (%s "
 			    "%s %s %s)) %s   (cost %g -> %g)\n      %s\n%s", e->from,
 			    e->rt, e->rt, e->form ? "OpIAdd" : "OpBitwiseOr", e->xt,

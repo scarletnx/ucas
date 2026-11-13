@@ -1,0 +1,70 @@
+# a module simplify wrote a conversion into before: the next one takes
+# names past %ucas_cv0 and the constants the module declares (an id
+# defined twice is refused by spirv-val)
+simplify nofile nofunctions under gt1030
+```spv
+OpCapability Shader
+%1 = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %4 "main" %gl_GlobalInvocationID
+OpExecutionMode %4 LocalSize 64 1 1
+OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+OpDecorate %_runtimearr_uint ArrayStride 4
+OpDecorate %_struct_18 Block
+OpMemberDecorate %_struct_18 0 Offset 0
+OpDecorate %20 Binding 0
+OpDecorate %20 DescriptorSet 0
+OpDecorate %_runtimearr_float ArrayStride 4
+OpDecorate %_struct_29 Block
+OpMemberDecorate %_struct_29 0 Offset 0
+OpDecorate %31 Binding 1
+OpDecorate %31 DescriptorSet 0
+OpDecorate %gl_WorkGroupSize BuiltIn WorkgroupSize
+%void = OpTypeVoid
+%3 = OpTypeFunction %void
+%uint = OpTypeInt 32 0
+%v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+%uint_0 = OpConstant %uint 0
+%_ptr_Input_uint = OpTypePointer Input %uint
+%_runtimearr_uint = OpTypeRuntimeArray %uint
+%_struct_18 = OpTypeStruct %_runtimearr_uint
+%_ptr_StorageBuffer__struct_18 = OpTypePointer StorageBuffer %_struct_18
+%20 = OpVariable %_ptr_StorageBuffer__struct_18 StorageBuffer
+%int = OpTypeInt 32 1
+%int_0 = OpConstant %int 0
+%_ptr_StorageBuffer_uint = OpTypePointer StorageBuffer %uint
+%float = OpTypeFloat 32
+%_runtimearr_float = OpTypeRuntimeArray %float
+%_struct_29 = OpTypeStruct %_runtimearr_float
+%_ptr_StorageBuffer__struct_29 = OpTypePointer StorageBuffer %_struct_29
+%31 = OpVariable %_ptr_StorageBuffer__struct_29 StorageBuffer
+%uint_65535 = OpConstant %uint 65535
+%_ptr_StorageBuffer_float = OpTypePointer StorageBuffer %float
+%uint_64 = OpConstant %uint 64
+%int_9 = OpConstant %int 9
+%uint_1 = OpConstant %uint 1
+%gl_WorkGroupSize = OpConstantComposite %v3uint %uint_64 %uint_1 %uint_1
+%ucas_cvk_uint_4b000000 = OpConstant %uint 1258291200
+%ucas_cvf_float_4b000000 = OpConstant %float 8388608
+%4 = OpFunction %void None %3
+%5 = OpLabel
+%14 = OpAccessChain %_ptr_Input_uint %gl_GlobalInvocationID %uint_0
+%15 = OpLoad %uint %14
+%25 = OpAccessChain %_ptr_StorageBuffer_uint %20 %int_0 %15
+%26 = OpLoad %uint %25
+%35 = OpBitwiseAnd %uint %26 %uint_65535
+%ucas_cv0o = OpBitwiseOr %uint %35 %ucas_cvk_uint_4b000000
+%ucas_cv0b = OpBitcast %float %ucas_cv0o
+%36 = OpFSub %float %ucas_cv0b %ucas_cvf_float_4b000000
+%38 = OpAccessChain %_ptr_StorageBuffer_float %31 %int_0 %15
+OpStore %38 %36
+%41 = OpIAdd %uint %15 %uint_64
+%44 = OpShiftRightLogical %uint %26 %int_9
+%45 = OpConvertUToF %float %44
+%46 = OpAccessChain %_ptr_StorageBuffer_float %31 %int_0 %41
+OpStore %46 %45
+OpReturn
+OpFunctionEnd
+```
