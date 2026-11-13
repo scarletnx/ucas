@@ -1,0 +1,61 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume v -100 100
+simplify: 121 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming v in [-100, 100] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 5.375 -> 5.375 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  Light.d and Light.lit (buffer L): one f32 can carry both, lit in the sign bit
+    every store writes both, at one place in one block (1 place): d in [0, 4.29497e+09] at each, 0 or above; lit 0 or 1 at each
+    proposal (an interface change, not applied): the writer stores lit != 0 ? -abs(d) : abs(d) in d, lit goes;
+      a reader takes abs(s) for d and asint(s) < 0 for lit (true at -0 too)
+    1 store and 0 loads fewer (store 15, load 6.875); 3.625 to pack each write (abs, negate, select), 1 a read of d (abs, 2), 2.375 of lit (compare, 1):
+      -7 under gt1030, and each Light 4 bytes smaller
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume v 0 100
+simplify: 107 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 5.375 -> 5.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming v in [-0, 100] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  workgroup array c: not analysed: its elements are structs: an access reaches a member (offsets from a layout the module does not fix)
+  Cell.w and Cell.on (workgroup variable c): one f32 can carry both, on in the sign bit
+    every store writes both, at one place in one block (1 place): w in [-0, 4.29497e+11] at each, 0 or above; on a bool
+    a -0 stored in w reads back as +0: the module's float controls need not keep a zero's sign
+    proposal (the workgroup layout, not applied): the writer stores on ? -abs(w) : abs(w) in w, on goes;
+      a reader takes abs(s) for w and asint(s) < 0 for on (true at -0 too)
+    1 store and 1 load fewer (store 3, load 3); 3.625 to pack each write (abs, negate, select), 1 a read of w (abs, 1), 2.375 of on (compare, 1):
+      +1 under gt1030 (not cheaper there: the packing costs what the accesses it saves do or more), and each Cell 4 bytes smaller
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume v 0 100
+simplify: 108 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 5.375 -> 5.375 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  assuming v in [-0, 100] (each component; no NaN)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under gt1030:
+  workgroup array c: not analysed: its elements are structs: an access reaches a member (offsets from a layout the module does not fix)
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume v -100 100
+simplify: 86 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 1.625 -> 1.625 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

@@ -3184,6 +3184,326 @@ mem_drop_fminmax_caps(char **repl)
 
 /* ---- the pass ---- */
 
+/* ---- two members one f32 can carry: a flag in its sign bit ---- */
+
+#define MEM_MAXPK 256
+
+/* a load or store of a struct member reached by one access chain with a
+ * constant last index */
+struct mem_pk {
+	int k, var, st, member, blk, store;
+	char key[160];		/* the variable and the indices before the member's */
+};
+
+static int
+mem_pk_place(int k, struct mem_pk *p)
+{
+	const struct sins *I = &V.in[k];
+	int ptr = idx(I->opnd[!strcmp(I->op, "OpStore") ? 0 : 1]);
+	int ch = SP.def[ptr], var, t, i, ix;
+	const struct sins *C;
+
+	if (ch < 0 || (strcmp(V.in[ch].op, "OpAccessChain") != 0 &&
+	    strcmp(V.in[ch].op, "OpInBoundsAccessChain") != 0))
+		return 0;
+	C = &V.in[ch];
+	var = idx(C->opnd[1]);
+	if (V.id[var].kind != K_VAR || C->nop < 3)
+		return 0;
+	t = V.id[var].type;
+	if (t < 0 || V.id[t].kind != K_TYPE || T(t)->k != S_PTR)
+		return 0;
+	t = T(t)->e;
+	snprintf(p->key, sizeof p->key, "%s", V.id[var].tok);
+	for (i = 2; i < C->nop; i++) {
+		ix = idx(C->opnd[i]);
+		if (V.id[t].kind != K_TYPE)
+			return 0;
+		if (i == C->nop - 1) {
+			if (T(t)->k != S_STRUCT || V.id[ix].kind != K_CONST)
+				return 0;
+			p->st = t;
+			p->member = (int)V.id[ix].c[0];
+			if (p->member < 0 || p->member >= T(t)->nm)
+				return 0;
+			break;
+		}
+		if (T(t)->k == S_STRUCT) {
+			if (V.id[ix].kind != K_CONST || (int)V.id[ix].c[0] >= T(t)->nm)
+				return 0;
+			t = T(t)->m[(int)V.id[ix].c[0]];
+		} else if (T(t)->k == S_ARRAY)
+			t = T(t)->e;
+		else
+			return 0;
+		snprintf(p->key + strlen(p->key), sizeof p->key - strlen(p->key),
+		    " %s", C->opnd[i]);
+	}
+	p->k = k;
+	p->var = var;
+	p->store = !strcmp(I->op, "OpStore");
+	return 1;
+}
+
+/* an integer value every store writes as 0 or 1 */
+static int
+mem_pk_01(int v)
+{
+	int d = SP.def[v], i;
+
+	if (V.id[v].kind == K_CONST)
+		return V.id[v].c[0] <= 1;
+	if (d < 0 || strcmp(V.in[d].op, "OpSelect") != 0 || V.in[d].nop < 4)
+		return 0;
+	for (i = 2; i < 4; i++) {
+		int a = idx(V.in[d].opnd[i]);
+		if (V.id[a].kind != K_CONST || V.id[a].c[0] > 1)
+			return 0;
+	}
+	return 1;
+}
+
+/* f32 value v is 0 or above (-0 too), never NaN, on the request's ranges
+ * (float simplify's interval arithmetic); its interval in *r */
+static int
+mem_pk_nonneg(int v, struct fiv *r)
+{
+	struct fxg *g = xcalloc(1, sizeof *g);
+	struct fiv dom[FX_MAXIN];
+	int n, i, keep = npend_fas;
+
+	/* the request's float ranges, which float_pass leaves in pend_fas */
+	nfxmemo = 0;
+	npend_fas = dw_nfas;
+	n = fx_build(g, v, 0, 0);
+	npend_fas = keep;
+	if (n < 0) {
+		free(g);
+		return 0;
+	}
+	for (i = 0; i < g->nin; i++) {
+		memset(&dom[i], 0, sizeof dom[i]);
+		dom[i].lo = g->in[i].lo;
+		dom[i].hi = g->in[i].hi;
+		dom[i].nan = g->in[i].nan;
+	}
+	*r = fx_range(g, n, dom);
+	free(g);
+	return !r->empty && !r->nan && !r->undef && r->lo >= 0;
+}
+
+/* the module keeps a zero's sign (SignedZeroInfNanPreserve) */
+static int
+mem_preserve(void)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if ((!strcmp(V.in[k].op, "OpExecutionMode") || !strcmp(V.in[k].op,
+		    "OpExecutionModeId")) && V.in[k].nop >= 2 &&
+		    !strcmp(V.in[k].opnd[1], "SignedZeroInfNanPreserve"))
+			return 1;
+	return 0;
+}
+
+static int
+mem_scalar_f32(int t)
+{
+	return t >= 0 && V.id[t].kind == K_TYPE && T(t)->k == S_FLOAT &&
+	    T(t)->w == 32;
+}
+
+static int
+mem_flag_ty(int t)
+{
+	return t >= 0 && V.id[t].kind == K_TYPE && (T(t)->k == S_BOOL ||
+	    (T(t)->k == S_INT && T(t)->w == 32));
+}
+
+/*
+ * Two members of a struct in a buffer or in workgroup memory that every
+ * store writes together, at one place in one block: an f32 each store
+ * writes +0 or above, and a flag each store writes 0 or 1 (or a bool).
+ * One f32 can carry both, the flag in the sign bit: proposed with the
+ * stores and loads it saves (an interface change for a buffer; never
+ * applied).  Nothing else may reach either member.
+ */
+static void
+mem_packf32(const struct model *m, struct mem_out *o)
+{
+	struct mem_pk *pk = xcalloc(MEM_MAXPK, sizeof *pk);
+	int npk = 0, k, blk = 0, i, j, x, b, *other = xcalloc((size_t)V.nin + 1,
+	    sizeof *other);
+	char *whole = xcalloc((size_t)V.nid + 1, 1);
+
+	/* each member reached any other way is out */
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpLabel"))
+			blk++;
+		if ((!strcmp(I->op, "OpLoad") || !strcmp(I->op, "OpStore")) &&
+		    I->nop >= 2 && npk < MEM_MAXPK && mem_pk_place(k, &pk[npk])) {
+			const char *sc = mem_sc(pk[npk].var);
+			if (!strcmp(sc, "StorageBuffer") || !strcmp(sc, "Workgroup") ||
+			    (!strcmp(sc, "Uniform") && mem_bufferblock(pk[npk].var))) {
+				pk[npk].blk = blk;
+				npk++;
+			}
+			continue;
+		}
+		for (i = 0; i < I->nop; i++)
+			if (I->opnd[i][0] == '%')
+				other[k] = 1;
+		/* any other access through a variable: a whole element, a
+		 * copy, an atomic, more than one chain */
+		if ((!strcmp(I->op, "OpLoad") || !strcmp(I->op, "OpStore") ||
+		    !strcmp(I->op, "OpCopyMemory") || !strncmp(I->op, "OpAtomic",
+		    8)) && I->nop >= 2) {
+			int ch, w = mem_base_var(idx(I->opnd[!strcmp(I->op, "OpLoad") ||
+			    !strncmp(I->op, "OpAtomic", 8) ? 1 : 0]), &ch);
+			if (w >= 0)
+				whole[w] = 1;
+			if (!strcmp(I->op, "OpCopyMemory") && (w = mem_base_var(
+			    idx(I->opnd[1]), &ch)) >= 0)
+				whole[w] = 1;
+		}
+	}
+	for (i = 0; i < npk; i++)
+		for (x = 0; x < T(pk[i].st)->nm; x++)
+			for (b = 0; b < T(pk[i].st)->nm; b++) {
+				int st = pk[i].st, var = pk[i].var, nsx = 0, nsb = 0, nlx = 0;
+				int nlb = 0, pairs = 0, lpairs = 0, ok = 1, seen = 0, q, ws;
+				int negz = 0;
+				double lo = INFINITY, hi = -INFINITY, cst, cld, enc, dec, net;
+				char vb[48];
+				if (x == b || whole[var] || !mem_scalar_f32(T(st)->m[x]) ||
+				    !mem_flag_ty(T(st)->m[b]))
+					continue;
+				/* each struct and pair once: at its first access */
+				for (j = 0; j < i && !seen; j++)
+					seen = pk[j].st == st && pk[j].var == var;
+				if (seen)
+					continue;
+				for (j = 0; j < npk && ok; j++) {
+					const struct mem_pk *a = &pk[j];
+					int mate = 0;
+					if (a->st != st || a->var != var || (a->member != x &&
+					    a->member != b))
+						continue;
+					for (q = 0; q < npk; q++)
+						if (q != j && pk[q].st == st && pk[q].var == var &&
+						    pk[q].member == (a->member == x ? b : x) &&
+						    pk[q].store == a->store && pk[q].blk == a->blk &&
+						    !strcmp(pk[q].key, a->key))
+							mate = 1;
+					if (a->store) {
+						const struct sins *I = &V.in[a->k];
+						int v = idx(I->opnd[1]);
+						struct fiv r;
+						if (!mate)
+							ok = 0;
+						if (a->member == x) {
+							nsx++;
+							if (!mem_pk_nonneg(v, &r))
+								ok = 0;
+							else {
+								lo = fmin(lo, r.lo);
+								hi = fmax(hi, r.hi);
+								negz |= signbit(r.lo) != 0;
+							}
+						} else {
+							nsb++;
+							if (T(T(st)->m[b])->k != S_BOOL && !mem_pk_01(v))
+								ok = 0;
+						}
+					} else {
+						if (a->member == x)
+							nlx++;
+						else
+							nlb++;
+						if (mate && a->member == x)
+							lpairs++;
+					}
+				}
+				/* a -0 reads back as +0: only where the float controls
+				 * need not keep a zero's sign */
+				if (!ok || nsx == 0 || nsx != nsb || (negz && mem_preserve()))
+					continue;
+				/* a pointer to either member used by anything else */
+				for (k = 0; k < V.nin && ok; k++) {
+					const struct sins *I = &V.in[k];
+					if (!other[k] || (strcmp(I->op, "OpAccessChain") == 0 ||
+					    strcmp(I->op, "OpInBoundsAccessChain") == 0))
+						continue;
+					for (j = 0; j < npk && ok; j++)
+						if (pk[j].st == st && pk[j].var == var &&
+						    (pk[j].member == x || pk[j].member == b))
+							for (q = 0; q < I->nop; q++)
+								if (I->opnd[q][0] == '%' && idx(I->opnd[q]) ==
+								    idx(V.in[pk[j].k].opnd[!pk[j].store]))
+									ok = 0;
+				}
+				if (!ok)
+					continue;
+				pairs = nsx;
+				ws = !strcmp(mem_sc(var), "Workgroup");
+				cst = ws ? (double)model_cost(m, C_STORE_SHARED) :
+				    (double)m->c[C_STORE];
+				cld = ws ? (double)model_cost(m, C_LOAD_SHARED) :
+				    (double)m->c[C_LOAD];
+				enc = (double)(m->c[C_MINMAX] + m->c[C_FADD] +
+				    m->c[C_SELECT]);
+				dec = (double)m->c[C_MINMAX];
+				net = -pairs * cst - lpairs * cld + pairs * enc + nlx * dec +
+				    nlb * (double)m->c[C_CMP];
+				if (!*o->hdr)
+					printf("memory under %s:\n", sym_str(m->name));
+				(*o->hdr)++;
+				{
+					char xn[64], bn[64], sn[48];
+					int blk_t = T(V.id[var].type)->e;
+					const char *tn = V.id[st].name, *bt = V.id[blk_t].name;
+					snprintf(xn, sizeof xn, "%s", mem_member(st, x));
+					snprintf(bn, sizeof bn, "%s", mem_member(st, b));
+					snprintf(sn, sizeof sn, "%s", tn[0] == '%' ? tn + 1 : tn);
+					snprintf(vb, sizeof vb, "%s", ws ? (V.id[var].name[0] ==
+					    '%' ? V.id[var].name + 1 : V.id[var].name) :
+					    bt[0] == '%' ? bt + 1 : bt);
+					printf("  %s.%s and %s.%s (%s %s): one f32 can carry "
+					    "both, %s in the sign bit\n", sn, xn, sn, bn, ws ?
+					    "workgroup variable" : "buffer", vb, bn);
+					printf("    every store writes both, at one place in one "
+					    "block (%d place%s): %s in [%g, %g] at each, 0 or "
+					    "above; %s %s\n", pairs, pairs == 1 ? "" : "s", xn,
+					    lo, hi, bn, T(T(st)->m[b])->k == S_BOOL ? "a bool" :
+					    "0 or 1 at each");
+					if (negz)
+						printf("    a -0 stored in %s reads back as +0: the "
+						    "module's float controls need not keep a "
+						    "zero's sign\n", xn);
+					printf("    proposal (%s, not applied): the writer stores "
+					    "%s%s ? -abs(%s) : abs(%s) in %s, %s goes;\n      a "
+					    "reader takes abs(s) for %s and asint(s) < 0 for %s "
+					    "(true at -0 too)\n", ws ? "the workgroup layout" :
+					    "an interface change", bn, T(T(st)->m[b])->k == S_BOOL ?
+					    "" : " != 0", xn, xn, xn, bn, xn, bn);
+					printf("    %d store%s and %d load%s fewer (store %g, "
+					    "load %g); %g to pack each write (abs, negate, "
+					    "select), %g a read of %s (abs, %d), %g of %s "
+					    "(compare, %d):\n      %+g under %s%s, and each %s 4 "
+					    "bytes smaller\n", pairs, pairs == 1 ? "" : "s",
+					    lpairs, lpairs == 1 ? "" : "s", cst, cld, enc, dec, xn,
+					    nlx, (double)m->c[C_CMP], bn, nlb, net,
+					    sym_str(m->name), net < 0 ? "" : " (not cheaper there: "
+					    "the packing costs what the accesses it saves do or "
+					    "more)", sn);
+				}
+			}
+	free(whole);
+	free(other);
+	free(pk);
+}
+
 static char *
 mem_pass(const char *text, int *changed)
 {
@@ -3609,6 +3929,7 @@ mem_pass(const char *text, int *changed)
 	mem_atomics(m, &mo, changed);
 	mem_rop(m, lsize, &mo);
 	mem_append(m, &mo);
+	mem_packf32(m, &mo);
 	/* the variables that became i32: their types, after the bank pass
 	 * (a padded row grows the outermost array) */
 	for (i = 0; i < nrt; i++)

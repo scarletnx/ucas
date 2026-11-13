@@ -2180,6 +2180,22 @@ that reason.  Each is priced, F read back against F as written, with the
 words it saves and the model's store and load prices, and F of the
 stored word is checked against F on its domain (tests/packf32.ucas).
 
+In a shader, `simplify` proposes the same sign bit for two members of a
+struct in a buffer or in workgroup memory that every store writes
+together, at one place and in one block: an f32 each store writes 0 or
+above (float simplify's intervals, on the request's ranges; a -0 reads
+back as +0, so not in a module that keeps a zero's sign) and a flag each
+writes 0 or 1 (a constant or a select of them) or a bool.  Neither
+member may be reached another way: the struct read or written whole,
+copied, or under an atomic.  The proposal says what the writer and a
+reader do, the stores and loads it saves (a load where both members are
+read at one place in one block) against what the packing and the reads
+cost, and the bytes the struct loses; for a buffer it is an interface
+change, for workgroup memory its layout, never applied
+(tests/packf32_spv.ucas).  A payload in a NaN is not proposed there:
+each read of the value and of the payload would have to be proved to sit
+under the flag's test, across blocks.
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the

@@ -1,0 +1,70 @@
+# simplify: two members of a struct that every store writes together, an
+# f32 each store writes +0 or above and a flag each writes 0 or 1 (or a
+# bool): one f32 can carry both, the flag in its sign bit.  A proposal:
+# for a buffer the host's layout changes with it
+simplify nofile, v in [-100, 100]
+```comp
+#version 450
+layout(local_size_x = 64) in;
+struct Light { float d; uint lit; };
+layout(std430, binding = 0) buffer L { Light l[]; };
+layout(std430, binding = 1) buffer In { float v; float o[]; };
+void main() {
+	uint i = gl_GlobalInvocationID.x;
+	l[i].d = max(v, 0.0) + float(i);
+	l[i].lit = v > 1.0 ? 1u : 0u;
+	barrier();
+	uint j = (i + 1u) & 63u;
+	o[i] = l[j].lit != 0u ? l[j].d * 2.0 : l[j].d;
+}
+```
+# in workgroup memory, a bool flag, both read at one place: a load fewer
+simplify nofile, v in [0, 100]
+```comp
+#version 450
+layout(local_size_x = 64) in;
+struct Cell { float w; bool on; };
+shared Cell c[64];
+layout(std430, binding = 1) buffer In { float v; float o[]; };
+void main() {
+	uint i = gl_LocalInvocationID.x;
+	c[i].w = v * float(i);
+	c[i].on = (i & 1u) != 0u;
+	barrier();
+	uint j = (i + 3u) & 63u;
+	float w = c[j].w;
+	bool on = c[j].on;
+	o[i] = on ? w : -w;
+}
+```
+# a struct read whole is reached other than by its members: nothing
+simplify nofile, v in [0, 100]
+```comp
+#version 450
+layout(local_size_x = 64) in;
+struct Cell { float w; bool on; };
+shared Cell c[64];
+layout(std430, binding = 1) buffer In { float v; float o[]; };
+void main() {
+	uint i = gl_LocalInvocationID.x;
+	c[i].w = v * float(i);
+	c[i].on = (i & 1u) != 0u;
+	barrier();
+	Cell q = c[(i + 3u) & 63u];
+	o[i] = q.on ? q.w : -q.w;
+}
+```
+# a value that can be negative has no free sign bit: nothing proposed
+simplify nofile, v in [-100, 100]
+```comp
+#version 450
+layout(local_size_x = 64) in;
+struct Light { float d; uint lit; };
+layout(std430, binding = 0) buffer L { Light l[]; };
+layout(std430, binding = 1) buffer In { float v; float o[]; };
+void main() {
+	uint i = gl_GlobalInvocationID.x;
+	l[i].d = v;
+	l[i].lit = v > 1.0 ? 1u : 0u;
+}
+```
