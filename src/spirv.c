@@ -12707,6 +12707,8 @@ static struct cvx {
 	int zero;		/* form 9: x may be 0 (an integer converted,
 				 * else 1 or more in magnitude): a select keeps
 				 * it; kt2 the bool type */
+	int mul;		/* form 9: x times 2^k made by its exponent
+				 * field, k in [-126, 127] (x anything) */
 	char kt2[40];
 	char fx[40];		/* forms 10, 11: the f32 x log2 reads */
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
@@ -12832,6 +12834,44 @@ log2_int(int id, int user, int *xf, int *alone)
 	return i;
 }
 
+/*
+ * Every value the 32-bit integer k takes (its definitions and the
+ * assumptions) is in [lo, hi], proved by SAT
+ */
+static int
+k_within(int k, int64_t lo, int64_t hi)
+{
+	int t = V.id[k].type, sg;
+	int64_t tlo, thi;
+	struct word *wk, cl, ch;
+	lit goal, out = 0;
+
+	if (lo > hi || t < 0 || T(t)->k != S_INT || T(t)->w != 32)
+		return 0;
+	sg = T(t)->sign;
+	tlo = sg ? INT32_MIN : 0;
+	thi = sg ? INT32_MAX : (int64_t)UINT32_MAX;
+	if (hi < tlo || lo > thi)
+		return 0;
+	if (lo <= tlo && hi >= thi)
+		return 1;
+	blast_reset();
+	wk = blast(k, 16);
+	/* below lo, or above hi, where the type reaches past them */
+	if (lo > tlo) {
+		w_const(&cl, 32, (uint64_t)(uint32_t)lo);
+		out = sg ? w_slt(SP.g, wk, &cl) : w_ult(SP.g, wk, &cl);
+	}
+	if (hi < thi) {
+		lit up;
+		w_const(&ch, 32, (uint64_t)(uint32_t)hi);
+		up = sg ? w_slt(SP.g, &ch, wk) : w_ult(SP.g, &ch, wk);
+		out = lo > tlo ? aig_or(SP.g, out, up) : up;
+	}
+	goal = aig_and(SP.g, aig_and(SP.g, SP.dl[k], assumptions()), out);
+	return aig_sat(SP.g, goal, 20000) == 0;
+}
+
 static void
 i2f_pass(void)
 {
@@ -12861,18 +12901,21 @@ i2f_pass(void)
 		if (SP.dead[k] || SP.rw[k])
 			continue;
 		/*
-		 * ldexp(x, k) of an f32 x whose |x| is normal (2^-126 at least,
-		 * finite), k proved by SAT to keep x * 2^k normal: x's exponent
-		 * field plus k, asfloat(asint(x) + (k << 23)), exactly (the sign
-		 * and the mantissa are x's)
+		 * ldexp(x, k), two forms, the cheaper the model prices first:
+		 * of an f32 x whose |x| is normal (2^-126 at least, finite), k
+		 * proved by SAT to keep x * 2^k normal: x's exponent field plus
+		 * k, asfloat(asint(x) + (k << 23)), exactly (the sign and the
+		 * mantissa are x's); and of any x, k proved in [-126, 127]: x
+		 * times 2^k made by its exponent field, asfloat((k << 23) +
+		 * 0x3F800000), which rounds once as ldexp does
 		 */
 		if (!strcmp(I->op, "OpExtInst") && I->nop == 5 && I->res >= 0 &&
 		    V.glsl >= 0 && idx(I->opnd[1]) == V.glsl && !strcmp(I->opnd[2],
 		    "Ldexp") && I->opnd[3][0] == '%' && I->opnd[4][0] == '%') {
-			int kid = res_of(idx(I->opnd[4])), kt, elo, ehi, ok, zero;
+			int kid = res_of(idx(I->opnd[4])), kt, elo = 0, ehi = 0, zero = 0;
+			int fld, c, mul = -1;
 			struct frng fr;
-			double alo, ahi;
-			struct word *wk, cl, ch;
+			double alo = 0, ahi = 0, afld, amul;
 			rt = idx(I->opnd[0]);
 			x = res_of(idx(I->opnd[3]));
 			kt = V.id[kid].type;
@@ -12880,58 +12923,59 @@ i2f_pass(void)
 			    T(rt)->w != 32 || kt < 0 || T(kt)->k != S_INT || T(kt)->w != 32)
 				continue;
 			fr = f_range(x, 0);
-			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi))
-				continue;
+			fld = fr.ok && isfinite(fr.lo) && isfinite(fr.hi);
 			/* |x| below 2^-126 somewhere: 0 or subnormal; an integer
 			 * converted is 0 or 1 at least in magnitude, and its 0 is
 			 * kept by a select */
-			zero = 0;
-			if (fr.lo < 0x1p-126 && fr.hi > -0x1p-126) {
+			if (fld && fr.lo < 0x1p-126 && fr.hi > -0x1p-126) {
 				int xd = SP.def[x];
 				if (xd < 0 || (strcmp(V.in[xd].op, "OpConvertUToF") &&
 				    strcmp(V.in[xd].op, "OpConvertSToF")))
-					continue;
+					fld = 0;
 				zero = 1;
 			}
-			/* |x|'s least (nonzero) and most */
-			alo = zero ? 1 : fr.lo > 0 ? fr.lo : -fr.hi;
-			ahi = zero ? fmax(-fr.lo, fr.hi) : fr.lo > 0 ? fr.hi : -fr.lo;
-			if (!(ahi >= alo))
-				continue;
-			elo = ilogb(alo);
-			ehi = ilogb(ahi);
+			if (fld) {
+				/* |x|'s least (nonzero) and most */
+				alo = zero ? 1 : fr.lo > 0 ? fr.lo : -fr.hi;
+				ahi = zero ? fmax(-fr.lo, fr.hi) : fr.lo > 0 ? fr.hi :
+				    -fr.lo;
+				fld = ahi >= alo;
+				if (fld) {
+					elo = ilogb(alo);
+					ehi = ilogb(ahi);
+				}
+			}
 			before = fprice_std("Ldexp", 1);
-			after = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST] +
+			afld = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST] +
 			    (zero ? m->c[C_CMP] + m->c[C_SELECT] : 0);
-			if (!(after < before - 1e-9))
+			amul = m->c[C_SHIFT] + m->c[C_IADD] + m->c[C_BITCAST] +
+			    m->c[C_FMUL];
+			fld = fld && afld < before - 1e-9;
+			for (c = 0; c < 2 && mul < 0; c++) {
+				/* c 0: the cheaper of the two, c 1: the other */
+				int try_mul = (c == 0) == (!fld || amul < afld);
+				if (try_mul ? !(amul < before - 1e-9) : !fld)
+					continue;
+				if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
+					break;
+				if (try_mul ? k_within(kid, -126, 127) : k_within(kid,
+				    -126 - elo, 127 - ehi))
+					mul = try_mul;
+			}
+			if (mul < 0)
 				continue;
-			if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
-				break;
-			/* -126 - elo <= k <= 127 - ehi for every input */
-			blast_reset();
-			wk = blast(kid, 16);
-			w_const(&cl, 32, (uint64_t)(uint32_t)(-126 - elo));
-			w_const(&ch, 32, (uint64_t)(uint32_t)(127 - ehi));
-			lit below;
-			goal = aig_and(SP.g, SP.dl[kid], assumptions());
-			below = T(kt)->sign ? w_slt(SP.g, wk, &cl) :
-			    w_ult(SP.g, wk, &cl);
-			goal = aig_and(SP.g, goal, aig_or(SP.g, below, T(kt)->sign ?
-			    w_slt(SP.g, &ch, wk) : w_ult(SP.g, &ch, wk)));
-			ok = -126 - elo <= 127 - ehi && (T(kt)->sign || -126 - elo <= 0) &&
-			    aig_sat(SP.g, goal, 20000) == 0;
-			if (!ok)
-				continue;
+			after = mul ? amul : afld;
 			xt = rt;
 			e = &cvx[ncvx++];
 			memset(e, 0, sizeof *e);
-			e->flo = fr.lo;
-			e->fhi = fr.hi;
+			e->flo = fr.ok ? fr.lo : -INFINITY;
+			e->fhi = fr.ok ? fr.hi : INFINITY;
 			snprintf(e->k, sizeof e->k, "%s", V.id[kid].tok);
 			snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
-			snprintf(e->lx, sizeof e->lx, "%d", -126 - elo);
-			snprintf(e->it, sizeof e->it, "%d", 127 - ehi);
-			e->zero = zero;
+			snprintf(e->lx, sizeof e->lx, "%d", mul ? -126 : -126 - elo);
+			snprintf(e->it, sizeof e->it, "%d", mul ? 127 : 127 - ehi);
+			e->zero = !mul && zero;
+			e->mul = mul;
 			snprintf(e->kt2, sizeof e->kt2, "%s", bt >= 0 ? V.id[bt].tok :
 			    "%ucas_bool");
 			form = 9;
@@ -13309,6 +13353,16 @@ i2f_patch(const char *text, char **out)
 			    !strstr(decl.p ? decl.p : "", "%ucas_bool = ") &&
 			    !strstr(text, "%ucas_bool = "))
 				sb_puts(&decl, "%ucas_bool = OpTypeBool\n");
+			/* the multiply: 127 << 23 in k's type, and it stays one
+			 * rounding */
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1,
+			    0x3F800000u);
+			if (e->mul && !strstr(decl.p ? decl.p : "", kn) &&
+			    !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->kt,
+				    0x3F800000u);
+			if (e->mul)
+				sb_printf(&dec, "OpDecorate %s NoContraction\n", e->res);
 			nlog++;
 			continue;
 		}
@@ -13425,7 +13479,32 @@ i2f_patch(const char *text, char **out)
 				continue;
 			}
 		}
-		if (hit >= 0 && cvx[hit].form == 9) {
+		if (hit >= 0 && cvx[hit].form == 9 && cvx[hit].mul) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit;
+			char rng[96];
+			if (isfinite(e->flo) && isfinite(e->fhi))
+				snprintf(rng, sizeof rng, "in [%.9g, %.9g]", e->flo, e->fhi);
+			else
+				snprintf(rng, sizeof rng, "with no finite range from its "
+				    "definitions");
+			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %s "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, e->k, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%ds "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, b, e->kt + 1, 0x3F800000u);
+			sb_printf(&o, "%%ucas_cv%df = OpBitcast %s %%ucas_cv%do\n", b,
+			    e->rt, b);
+			sb_printf(&o, "%s = OpFMul %s %s %%ucas_cv%df\n", e->res, e->rt,
+			    e->x, b);
+			sb_printf(&rep, "    %s\n      ->  x * asfloat((k << 23) + "
+			    "0x3F800000)   (cost %g -> %g)\n      k = %s is in [-126, 127], "
+			    "proved by SAT from its definitions, so (k << 23) + 0x3F800000 "
+			    "are the bits of 2^k, a normal f32; x * 2^k is the correctly "
+			    "rounded x 2^k, as ldexp's result is, so the two agree for "
+			    "every x, 0, subnormal and infinite included (x = %s, %s); "
+			    "the multiply is decorated NoContraction\n%s", e->from,
+			    e->before, e->after, e->k, e->x, rng, e->src);
+		} else if (hit >= 0 && cvx[hit].form == 9) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
 			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %s "
@@ -13644,7 +13723,9 @@ i2f_patch(const char *text, char **out)
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
 		rep_str("form", cvx[i].form == 10 ? "FindUMsb(i)" : cvx[i].form ==
-		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].zero ?
+		    11 ? "f32(FindUMsb(i))" : cvx[i].form == 9 && cvx[i].mul ?
+		    "x * asfloat((k << 23) + 0x3F800000)" :
+		    cvx[i].form == 9 && cvx[i].zero ?
 		    "x == 0 ? x : "
 		    "asfloat(asint(x) + (k << 23))" : cvx[i].form == 9 ?
 		    "asfloat(asint(x) + (k << 23))" :
