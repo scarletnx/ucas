@@ -2917,6 +2917,22 @@ statement(struct P *p)
 					fpercomp = 1;
 				else if (accept_kw(p, "foldproof"))
 					spirv_dword_opts(1);	/* folded round trips kept */
+				else if (is_kw(p, "tol") || is_kw(p, "atol")) {
+					/* the f64 results' requirement, as for dword */
+					int abs_ = is_kw(p, "atol");
+					nid nn;
+					double v;
+					adv(p);
+					if (pk(p) != T_NUM)
+						fail("simplify: %s needs a number after it",
+						    abs_ ? "atol T" : "tol R");
+					nn = number(p);
+					v = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+					if (!(v > 0) || !isfinite(v))
+						fail("simplify: %s is an error bound above 0, "
+						    "not %g", abs_ ? "atol T" : "tol R", v);
+					spirv_dword_req(abs_ ? DW_ATOL : DW_TOL, v);
+				}
 				else if (accept_kw(p, "advice"))
 					spirv_advice_opt(1);
 				else if (accept_kw(p, "sink")) {

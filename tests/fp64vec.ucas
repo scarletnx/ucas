@@ -23,9 +23,9 @@ simplify nofile, c0 in [1, 2], c1 in [1, 2], v in [1, 2]
 ```glsl
 vec2 m(vec2 c0, vec2 c1, vec2 v) { dmat2 M = dmat2(dvec2(c0), dvec2(c1)); return vec2(M * dvec2(v)); }
 ```
-# the product is also stored as a double: it stays f64 for the store and
-# is computed again as a pair for the result, which is cheaper than
-# splitting the f64 value
+# the product is also stored as a double: its pair is the exact product,
+# which the store takes recombined (exact too), so the f64 product goes
+# with the result's pair, which shares it
 simplify nofile, x in [1, 2], y in [3, 4]
 ```glsl
 float k(float x, float y, out double keep) { double a = x, b = y; double d = a * b; keep = d; return float(d * a + b); }
@@ -34,6 +34,12 @@ float k(float x, float y, out double keep) { double a = x, b = y; double d = a *
 # conversion would go, and no f32 form that meets the requirement is
 # cheaper than it
 simplify nofile, x in [1, 2], y in [3, 4]
+```glsl
+float q(float x, float y, out double keep) { double a = x, b = y; double d = a / b; keep = d; return float(d); }
+```
+# with a tolerance the store takes the quotient's pair too, and the
+# division goes for both
+simplify nofile, tol 1e-12, x in [1, 2], y in [3, 4]
 ```glsl
 float q(float x, float y, out double keep) { double a = x, b = y; double d = a / b; keep = d; return float(d); }
 ```

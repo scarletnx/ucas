@@ -68,5 +68,7 @@ nid fold_one(const struct func *f, nid trip, const struct model *m,
     int *identity);
 /* spirv.c: simplify ... foldproof writes those forms into the module */
 void spirv_dword_opts(int foldproof);
+/* spirv.c: simplify ... tol R or atol T, the f64 results' requirement */
+void spirv_dword_req(int kind, double v);
 
 #endif
