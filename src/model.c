@@ -234,7 +234,7 @@ float
 node_cost(const struct model *m, nid n, int *cls)
 {
 	int op = N.op[n], k = -1;
-	ty_t t = N.ty[n], ta = N.a[n] ? N.ty[N.a[n]] : 0;
+	ty_t t = N.ty[n], ta = opinfo[op].arity && N.a[n] ? N.ty[N.a[n]] : 0;
 	int fp = TY_FP(t) || (ta && TY_FP(ta) && (opinfo[op].fl & OF_CMP));
 	float mul = 1, c;
 

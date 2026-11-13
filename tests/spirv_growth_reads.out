@@ -20,3 +20,25 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
     a flat input is the provoking vertex's output, the same at every pixel of the primitive: computed in the vertex shader and passed as 1 flat output, each pixel reads the value it computes now (no interpolation)
     not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 1 more flat varying
     %ucas_d524 = OpBitwiseAnd %uint %ucas_d523 %uint_1   (4)
+> spvsimplify nofile
+simplify: 1126 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 map of one value made a table or a multiply (derived, below), 2 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 5 -> 4 (-20.0%)
+  by kind:
+       1  a map of one small-range value as a table or a multiply and a shift  -1
+  rewrites:
+    %r = OpSelect %uint %c %uint_1 %uint_0
+      ->  1 >> (%x & 1) & 1   (a map of one small-range value as a table or a multiply and a shift; -1)
+  divisibility tests and maps of one value (derived by idrw.c: a multiply and a compare, a table in one constant, a multiply and a shift; kept under gt1030):
+    %r = OpSelect %uint %c %uint_1 %uint_0
+      ->  1 >> (%x & 1) & 1   (cost 5 -> 4)
+      the map %x & 1 == 0 ? 1 : 0 of %x & 1 as a table in one constant (2 entries of 1 bit)
+      holds where %x & 1 in [0, 1] (interval arithmetic over the parameters' ranges)
+      %x & 1 == 0 ? 1 : 0 at %x & 1 = 0..1 is [1, 0] (evaluated at each of the 2)
+      bits [1*i, 1*i + 1) of 0x1 hold the value at %x & 1 = i: shifting right by %x & 1 and masking reads it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 33750 bytes, checksum 77d7b541)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a primitive: 3 instructions costing 4 every pixel read only flat inputs and values of the draw
+    a flat input is the provoking vertex's output, the same at every pixel of the primitive: computed in the vertex shader and passed as 1 flat output, each pixel reads the value it computes now (no interpolation)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 4 a pixel is worth 4 a vertex and 1 more flat varying
+    %ucas_d1128 = OpBitwiseAnd %uint %ucas_d1127 %uint_1   (4)
