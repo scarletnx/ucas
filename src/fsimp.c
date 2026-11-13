@@ -4016,6 +4016,8 @@ sink_tables(struct sinkctx *s, struct fxrw *rw, int nrw, int root,
  * them), then each node's cheapest remaining rewrite, the largest
  * savings first, while the root stays within the budget.
  */
+static void sink_offers(struct sinkctx *s, double budget);
+
 static void
 sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
     int nrw, struct fiv (*reach)[FX_MAXIN])
@@ -4058,6 +4060,8 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 		budget = g->sinkrel * least;
 	}
 	g->sinkbudget = budget;
+	/* the original against the exact value: compensated forms */
+	sink_offers(&s, budget);
 	/* what the other rules accept: one per node, the most gain */
 	for (i = 0; i < nrw; i++) {
 		const struct fxrw *x = &rw[i];
@@ -4119,6 +4123,163 @@ sink_pass(struct fxg *g, int root, const struct fxopt *o, struct fxrw *rw,
 	(void)taken;
 	/* the table reads, on what was taken */
 	sink_tables(&s, rw, nrw, root, budget);
+}
+
+/*
+ * Node i's program in absolute values with |x| at mx: subtractions as
+ * sums, negations dropped, constants by their magnitudes; its rounding
+ * operations (a multiply, an add, an fma: one each) counted once in *k.
+ * Each rounds as fl(a op b) = (a op b)(1 + d), so the program's value is
+ * within gamma_k of this of its exact value (first order is |d| <= u on
+ * each path, and no path has more than k roundings).
+ */
+static double
+sink_absval(const struct fxg *g, const struct plinfo *P, int i, int x,
+    double mx, int *k, char *seen, int depth)
+{
+	const struct fxn *n = &g->n[i];
+	double a, b, c;
+
+	/* x, or another load of it */
+	if (i == x || (P[i].leaf && P[i].x == x))
+		return mx;
+	if (n->op == FX_K)
+		return fabs((double)n->k);
+	if (depth > 64)
+		return INFINITY;
+	a = n->a >= 0 ? sink_absval(g, P, n->a, x, mx, k, seen, depth + 1) : 0;
+	b = n->b >= 0 ? sink_absval(g, P, n->b, x, mx, k, seen, depth + 1) : 0;
+	c = n->c >= 0 ? sink_absval(g, P, n->c, x, mx, k, seen, depth + 1) : 0;
+	if (!seen[i] && n->op != FX_NEG) {
+		seen[i] = 1;
+		++*k;
+	}
+	switch (n->op) {
+	case FX_ADD:
+	case FX_SUB:
+		return (a + b) * (1 + 0x1p-40);
+	case FX_MUL:
+		return a * b * (1 + 0x1p-40);
+	case FX_FMA:
+		return (a * b + c) * (1 + 0x1p-40);
+	case FX_NEG:
+		return a;
+	}
+	return INFINITY;
+}
+
+/*
+ * The compensated forms the sink asks for (#47): a polynomial of one
+ * value (degree 2 at least, the largest of its chain) whose original
+ * evaluation errs, against its exact value, by up to gamma_k of its
+ * program in absolute values, which carried to the stored value passes
+ * the budget; compensated Horner of its exact coefficients errs by at
+ * most u |p| + gamma_2n^2 p~ (Graillat, Langlois and Louvet), plus the
+ * coefficients' own rounding to f32, and is offered where that carried
+ * fits.  An offer, not a rewrite: it moves the stored value toward the
+ * exact one, away from the original's.
+ */
+static void
+sink_offers(struct sinkctx *s, double budget)
+{
+	static struct plinfo P[FX_MAXN];
+	static char seen[FX_MAXN];
+	const struct fxg *g = s->g;
+	int i, j, k, n;
+
+	for (i = 0; i <= s->root; i++)
+		pl_of(g, i, P);
+	for (i = 0; i <= s->root; i++) {
+		const struct fxn *nd = &g->n[i];
+		double mx, abs_, ep, ec, dp, dc, pt = 0, ce = 0, gk, g2, c_as = 0,
+		    c_comp, u = 0x1p-24, mp, mc;
+		int top = 1, x = P[i].x, kk = 0;
+		if (!P[i].ok || P[i].leaf || P[i].deg < 2 || x < 0)
+			continue;
+		/* the largest: nothing above it is a polynomial in the same x */
+		for (j = i + 1; j <= s->root && top; j++) {
+			const struct fxn *m = &g->n[j];
+			if ((m->a == i || m->b == i || m->c == i || m->d == i) &&
+			    P[j].ok && !P[j].leaf && P[j].x == x)
+				top = 0;
+		}
+		if (!top)
+			continue;
+		mx = fi_mag(s->R[x], 0);
+		if (!isfinite(mx))
+			continue;
+		memset(seen, 0, sizeof seen);
+		abs_ = sink_absval(g, P, i, x, mx, &kk, seen, 0);
+		if (!isfinite(abs_) || kk < 1 || kk * u >= 0.5)
+			continue;
+		for (k = 0; k <= s->root; k++)
+			if (seen[k])
+				c_as += fx_price(g->n[k].op);
+		gk = kk * u / (1 - kk * u);
+		ep = gk * abs_;
+		n = P[i].deg;
+		for (k = n; k >= 0; k--) {
+			double c = (double)P[i].c[k];
+			pt = pt * mx + fabs((double)(float)c);
+			ce = ce * mx + fabs(c - (double)(float)c);
+		}
+		g2 = 2 * n * u / (1 - 2 * n * u);
+		ec = (u + g2 * g2) * pt * (1 + 0x1p-40) + ce;
+		memset(s->E, 0, sizeof s->E);
+		s->E[i] = ep;
+		dp = sink_dev(s);
+		s->E[i] = ec;
+		dc = sink_dev(s);
+		s->E[i] = 0;
+		if (!(dp > budget) || !(dc <= budget))
+			continue;
+		c_comp = n * (fx_price(FX_MUL) + 2 * fx_price(FX_FMA) + 7 *
+		    fx_price(FX_ADD)) + fx_price(FX_ADD);
+		/* a check, sampled: 4097 points of x's range, the original's
+		 * f32 value and the compensated Horner's against the exact
+		 * polynomial (long double) */
+		{
+			float in[FX_MAXIN] = {0}, lo = s->R[x].lo, hi = s->R[x].hi;
+			int q, un = 0, xin = g->n[x].op == FX_IN || g->n[x].op ==
+			    FX_CVT ? g->n[x].in : -1;
+			mp = mc = 0;
+			for (q = 0; q <= 4096 && xin >= 0 && isfinite(lo) &&
+			    isfinite(hi); q++) {
+				float xv = (float)(lo + (hi - lo) * (q / 4096.0)), sh, cc = 0,
+				    v;
+				ld ex = 0;
+				in[xin] = xv;
+				v = fx_eval(g, i, in, &un);
+				for (k = n; k >= 0; k--)
+					ex = ex * xv + P[i].c[k];
+				sh = (float)P[i].c[n];
+				for (k = n - 1; k >= 0; k--) {
+					volatile float pr = sh * xv, pi = fmaf(sh, xv, -pr),
+					    ck = (float)P[i].c[k], t = pr + ck, bb = t - pr;
+					volatile float sg = (pr - (t - bb)) + (ck - bb);
+					sh = t;
+					cc = fmaf(cc, xv, pi + sg);
+				}
+				if (!un && isfinite(v))
+					mp = fmax(mp, (double)fabsl((ld)v - ex));
+				mc = fmax(mc, (double)fabsl((ld)(sh + cc) - ex));
+			}
+		}
+		snprintf(g->sinkoffer + strlen(g->sinkoffer), sizeof g->sinkoffer -
+		    strlen(g->sinkoffer), "    offered (not applied: it moves the "
+		    "stored value toward the exact one, away from the original's): "
+		    "%s, a polynomial of degree %d in %s on |%s| <= %.4g, errs as "
+		    "written by up to %.3g against its exact value (gamma_%d of its "
+		    "operations in absolute values), %.3g at the stored value, more "
+		    "than the %.3g a step allows; compensated Horner of its "
+		    "coefficients, u |p| + gamma_%d^2 p~%s = %.3g, %.3g at the stored "
+		    "value: within it, cost %g against %g; sampled (not a proof) on "
+		    "4097 points: %.3g as written, %.3g compensated\n", xstr(g, i),
+		    n, xstr(g, x), xstr(g, x), mx, ep, kk, dp, budget, 2 * n, ce > 0 ?
+		    " and the coefficients' f32 rounding" : "", ec, dc, c_comp, c_as,
+		    mp, mc);
+		(void)nd;
+	}
 }
 
 int

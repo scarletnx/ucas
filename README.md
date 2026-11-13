@@ -5132,6 +5132,26 @@ the root stays within the budget.  What the active model does not
 price lower is never a candidate, so under a model where pow is cheap
 the sink changes nothing.
 
+The same carry also asks the other question: is the original itself
+within a step of the exact value?  A polynomial of one value (degree 2
+at least, the largest of its chain, as the program's own adds,
+multiplies, fmas and negations make it) errs, as written, by at most
+gamma_k times its program in absolute values (subtractions as sums,
+constants and the value by their magnitudes; k its rounding
+operations, each fl(a op b) = (a op b)(1 + d)).  Where that, carried to
+the stored value, passes the budget and compensated Horner of its exact
+coefficients (Graillat, Langlois and Louvet: u |p| + gamma_2n^2 p~, plus
+the coefficients' own rounding to f32) carried fits, the compensated
+form is offered (the lines under the sink's), with both prices and a
+sampled check of both errors on 4097 points: an offer, not a rewrite,
+as it moves the stored value toward the exact one and away from the
+original's.  Under gt1030 (x - 1)^5 + 0.5 by Horner on [0.9, 1.1] into
+a 16-bit target: as written up to 2.16e-05 against a step of 1.53e-05,
+compensated 2.4e-06, at 51 against 9; sampled, 9.3e-07 and 3e-08
+(tests/sinkcomp.ucas).  `scheme F more` gives the same forms for a
+function, and Kahan's sum for a loop's accumulator (fsimp does not see
+loops: that offer is not made here).
+
 ```
 simplify float c in [0, 1] sink unorm8
   float cost under gt1030: 51 -> 33 (-35.3%)

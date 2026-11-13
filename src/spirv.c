@@ -10136,6 +10136,8 @@ float_pass(const char *text, int *changed)
 					}
 					if (g->sinknote[0])
 						rep_str("note", g->sinknote);
+					if (g->sinkoffer[0])
+						rep_str("offer", g->sinkoffer);
 					rep_end();
 				}
 				rep_end();
@@ -10264,6 +10266,8 @@ float_pass(const char *text, int *changed)
 			else if (g->sinkdev > 0)
 				sb_printf(&rep, "    budget %.3g, the rewrites accepted "
 				    "use at most %.3g of it\n", g->sinkbudget, g->sinkdev);
+			if (g->sinkoffer[0])
+				sb_puts(&rep, g->sinkoffer);
 		}
 		for (q = 0; q < no; q++) {
 			struct fplan *P = &pl[ord[q]];
