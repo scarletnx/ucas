@@ -421,9 +421,10 @@ add_local(int kind, long double S, long double A, int *pre)
 	return LINF;
 }
 
-/* DWTimesDW3: (xh + xl)(yh + yl), relative to the exact product */
+/* DWTimesDW3: (xh + xl)(yh + yl), relative to the exact product, line by
+ * line */
 static long double
-eta_mul_dd(void)
+eta_mul_dd_hand(void)
 {
 	long double cl1 = U, tl0 = (1 + U) * U * U, e0 = U * U * U;
 	long double t1 = U + tl0, e1 = U * t1, tl1 = (1 + U) * t1;
@@ -431,6 +432,15 @@ eta_mul_dd(void)
 	long double e3 = U * (cl1 + cl2);
 
 	return (e0 + e1 + e2 + e3) / ((1 - U) * (1 - U)) * SLACK;
+}
+
+/* the same by dwcase.c's boxes, where they all closed */
+static long double
+eta_mul_dd(void)
+{
+	long double c = dwcase_muldiv_p(2, 24, NULL, NULL, 0) * SLACK;
+
+	return isinf(c) ? eta_mul_dd_hand() : ldmin(c, eta_mul_dd_hand());
 }
 
 /* DWTimesFP3: (xh + xl) y */
@@ -451,12 +461,23 @@ eta_mul_fp(void)
  * with xl rounds once, the division once.
  */
 static long double
-eta_div_fp(int single)
+eta_div_fp_hand(int single)
 {
 	long double rho = single ? U : 2 * U;
 	long double eps = single ? 0 : U * rho;
 
 	return (eps + U * (rho + eps)) / (1 - U) * SLACK;
+}
+
+/* with xl, the boxes of dwcase.c where they all closed */
+static long double
+eta_div_fp(int single)
+{
+	long double c = single ? (long double)INFINITY :
+	    dwcase_muldiv_p(3, 24, NULL, NULL, 0) * SLACK;
+
+	return isinf(c) ? eta_div_fp_hand(single) : ldmin(c,
+	    eta_div_fp_hand(single));
 }
 
 /* DWDivDW2 with DWTimesFP3 for the product */
@@ -1676,6 +1697,42 @@ cases_text(struct sbuf *o, int kind, long double hand)
 	para(o, "      ", t);
 }
 
+/*
+ * DWTimesDW3's or DWDivFP3's bound whatever the words: dwcase.c's boxes,
+ * run here, or where one stayed open the line-by-line one (hand).
+ */
+static void
+muldiv_text(struct sbuf *o, int kind, long double hand)
+{
+	char why[400], t[1400];
+	long n;
+	long double c = dwcase_muldiv_p(kind, 24, &n, why, sizeof why);
+	const char *y = kind == 2 ? "yh" : "y";
+
+	if (isinf(c)) {
+		snprintf(t, sizeof t, "by the boxes run here, not closed (%s): "
+		    "the line-by-line %.3Lf\001u^2 stays (the paper: %d\001u^2)",
+		    why, hand / (U * U), kind == 2 ? 5 : 3);
+		para(o, "      ", t);
+		return;
+	}
+	snprintf(t, sizeof t, "whatever the words, by %ld boxes run here "
+	    "(src/dwcase.c): xh and %s "
+	    "in [1, 2) (the error is the same at any scale and sign), first 16 "
+	    "slices each, a box above the paper's constant cut in two along the "
+	    "word whose halves' larger bound is the smaller, down to single "
+	    "floats; the low words within u.  Every value an interval with the "
+	    "2^g it is a multiple of and whether it is a float, as for the "
+	    "additions%s.  The largest, %.6Lf\001u^2\001|%s|, in the box %s "
+	    "(the paper: %d\001u^2)", n, y, kind == 2 ? "" : "; q = xh / y cut "
+	    "at 1, the residual xh - th y at most y |q - th| and a float when "
+	    "its grid says so, xh - ph exact when ph is within xh / 2 of xh "
+	    "(Sterbenz), and y a power of two dividing exactly",
+	    c * SLACK / (U * U), kind == 2 ? "x~\001y~" : "x~\001/\001y", why,
+	    kind == 2 ? 5 : 3);
+	para(o, "      ", t);
+}
+
 static void
 derivations(struct sbuf *o, unsigned used)
 {
@@ -1752,8 +1809,10 @@ derivations(struct sbuf *o, unsigned used)
 		    "      cl2 = fma(xl, yh, tl1); cl3 = RN(cl1 + cl2); (zh, zl) "
 		    "= Fast2Sum(ch, cl3): the four\n"
 		    "      roundings err by u^3, u^2, 2 u^2 and 3 u^2 times |xh "
-		    "yh|: %.3Lf u^2 |x~ y~| (the paper: 5 u^2)\n",
-		    eta_mul_dd() / (U * U));
+		    "yh|: %.3Lf u^2 |x~ y~| line by line;\n", eta_mul_dd_hand() /
+		    (U * U));
+	if (used & DB_MUL_DD)
+		muldiv_text(o, 2, eta_mul_dd_hand());
 	if (used & DB_DIV_FP)
 		sb_printf(o, "    DWDivFP3(x~, y): th = RN(xh / y); (ph, pl) = "
 		    "2Prod(th, y); d = RN(RN(RN(xh - ph) - pl) + xl);\n"
@@ -1763,9 +1822,11 @@ derivations(struct sbuf *o, unsigned used)
 		    "ulp(th) ulp(y) at most ulp(th) |y| / 2,\n"
 		    "      is a float, so less pl it is exact too; the residual "
 		    "x~ - y th, at most 2u |xh|, rounds\n"
-		    "      once with xl and once divided: %.3Lf u^2 |x~ / y| "
-		    "(%.3Lf u^2 when xl = 0; the paper: 3 u^2)\n",
-		    eta_div_fp(0) / (U * U), eta_div_fp(1) / (U * U));
+		    "      once with xl and once divided: %.3Lf u^2 |x~ / y| line "
+		    "by line (%.3Lf u^2 when xl = 0);\n",
+		    eta_div_fp_hand(0) / (U * U), eta_div_fp(1) / (U * U));
+	if (used & DB_DIV_FP)
+		muldiv_text(o, 3, eta_div_fp_hand(0));
 	if (used & DB_DIV_DD)
 		sb_printf(o, "    DWDivDW2(x~, y~): th = RN(xh / yh); r~ = "
 		    "DWTimesFP3(y~, th); d = RN(RN(xh - rh) + RN(xl - rl));\n"
@@ -2772,18 +2833,21 @@ static void
 cmd_cases(int bits)
 {
 	static const char *const nm[2] = {"DWPlusFP", "AccurateDWPlusDW"};
-	static const int paper[2] = {2, 3};
+	static const char *const nm2[2] = {"DWTimesDW3", "DWDivFP3"};
+	static const int paper[4] = {2, 3, 5, 3};
 	long double c, u2 = ldexpl(1, -2 * bits);
 	struct dwcase_ev ev;
+	struct dwcase_evm em;
 	char why[400];
 	long n;
 	int k;
 
 	rep_begin("dword_cases");
 	rep_int("bits", bits);
-	printf("dword cases at %d bits (u = 2^-%d): the additions' bounds "
-	    "whatever cancels, by the case analysis\n  run here "
-	    "(src/dwcase.c), relative to the exact sum\n", bits, bits);
+	printf("dword cases at %d bits (u = 2^-%d): the bounds of the additions "
+	    "whatever cancels, DWTimesDW3\n  and DWDivFP3, by the case "
+	    "analysis run here (src/dwcase.c), relative to the exact\n  result\n",
+	    bits, bits);
 	for (k = 0; k < 2; k++) {
 		c = dwcase_add_p(k, bits, &n, why, sizeof why);
 		if (isinf(c))
@@ -2795,6 +2859,20 @@ cmd_cases(int bits)
 		rep_int(k ? "acc_cases" : "fp_cases", n);
 		if (!isinf(c))
 			rep_num(k ? "acc_bound_u2" : "fp_bound_u2", (double)(c / u2));
+	}
+	for (k = 2; k < 4; k++) {
+		c = dwcase_muldiv_p(k, bits, &n, why, sizeof why);
+		if (isinf(c))
+			printf("  %-17s %ld boxes, not closed: %s\n", nm2[k - 2], n,
+			    why);
+		else
+			printf("  %-17s %ld boxes: %.9Lf u^2, the largest in the box "
+			    "%s (the paper: %d u^2)\n", nm2[k - 2], n, c / u2, why,
+			    paper[k]);
+		rep_int(k == 2 ? "mul_cases" : "div_cases", n);
+		if (!isinf(c))
+			rep_num(k == 2 ? "mul_bound_u2" : "div_bound_u2", (double)(c /
+			    u2));
 	}
 	if (dwcase_every(bits, &ev)) {
 		printf("  every operand pair of the %d-bit format with xh in [1, 2), "
@@ -2811,6 +2889,22 @@ cmd_cases(int bits)
 		rep_int("pairs_acc", ev.nacc);
 		rep_num("pairs_fp_max_u2", ev.fp);
 		rep_num("pairs_acc_max_u2", ev.acc);
+	}
+	if (dwcase_every_md(bits, &em)) {
+		long double cm = dwcase_muldiv_p(2, bits, NULL, NULL, 0) / u2,
+		    cd = dwcase_muldiv_p(3, bits, NULL, NULL, 0) / u2;
+		printf("  every high word of the %d-bit format in [1, 2), the low "
+		    "words 0 and every normalized one in\n  the 5 binades below "
+		    "their word's ulp: DWTimesDW3 %ld pairs, the largest error "
+		    "%.6Lf u^2;\n  DWDivFP3 %ld, %.6Lf u^2; %s\n", bits, em.nmul,
+		    em.mul, em.ndiv, em.div, em.bad ? "a Fast2Sum or a step taken "
+		    "as exact found inexact: NOT within the bounds" : em.mul <= cm &&
+		    em.div <= cd ? "both within the bounds" : "NOT within the "
+		    "bounds");
+		rep_int("pairs_mul", em.nmul);
+		rep_int("pairs_div", em.ndiv);
+		rep_num("pairs_mul_max_u2", (double)em.mul);
+		rep_num("pairs_div_max_u2", (double)em.div);
 	}
 	rep_end();
 }

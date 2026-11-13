@@ -71,6 +71,10 @@ int dword_accum(const struct func *f, const struct dwacc *a,
  * went.  _p: at a precision of p bits instead of binary32's 24 */
 long double dwcase_add(int kind, long *ncase, char *why, size_t n);
 long double dwcase_add_p(int kind, int p, long *ncase, char *why, size_t n);
+/* the same for DWTimesDW3 (kind 2) and DWDivFP3 (3), relative to the exact
+ * product or quotient */
+long double dwcase_muldiv_p(int kind, int p, long *ncase, char *why,
+    size_t n);
 /* every operand pair of a p-bit format (p 3..5) in a window, run: the
  * largest relative errors in u^2, how many, and the binades of y */
 struct dwcase_ev {
@@ -79,6 +83,13 @@ struct dwcase_ev {
 	int ry;
 };
 int dwcase_every(int p, struct dwcase_ev *r);
+/* the same for DWTimesDW3 and DWDivFP3 (bad: a Fast2Sum or a step the
+ * analysis takes as exact found inexact) */
+struct dwcase_evm {
+	long double mul, div;
+	long nmul, ndiv, bad;
+};
+int dwcase_every_md(int p, struct dwcase_evm *r);
 /* find.c: what a cheaper f32 form of f's f64 arithmetic costs, when there
  * is one (1), in a line */
 int dword_find(struct func *f);

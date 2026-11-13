@@ -90,7 +90,7 @@ fp64 and conversions under gt1030:
     dword f32(sqrt(t1*t1 + t2*t2)) where t1 = f64(a_x) - f64(b_x), t2 = f64(a_y) - f64(b_y) under gt1030: the f64 arithmetic over f32 (u = 2^-24, u64 = 2^-53)
       as written  cost 274     error against the exact value <= 3.331e-16 (3 u64) relative
       f32 alone   cost 8       error <= 1.788e-07 (3 u) relative: as f32 within 0.5 + 3 ulp
-      f32 pairs   cost 52      error <= 3.419e-14 (9.625 u^2) relative: as f32 within 0.5 + 5.74e-07 ulp
+      f32 pairs   cost 52      error <= 3.242e-14 (9.125 u^2) relative: as f32 within 0.5 + 5.44e-07 ulp
       required: the result feeds an f32: within 0.5 + 2^-10 ulp of the exact value (ten guard bits; `ulp X`, `tol R` or `atol T` to change)
       -> f32 pairs: cost 52 against 274 (-81.0%), 50 f32 operations for 11
       the form:
@@ -149,11 +149,11 @@ fp64 and conversions under gt1030:
           NoContraction in SPIR-V, `precise` in GLSL (no fused multiply-add, no reassociation)
       each value: its range, the derived error bound, the algorithm:
           f64(a_x) - f64(b_x)                      [-3, -1]                 0 u^2          2Sum (exact)
-          (f64(a_x) - f64(b_x))*(f64(a_x) - f64... [1, 9]                   6 u^2          DWTimesDW3
+          (f64(a_x) - f64(b_x))*(f64(a_x) - f64... [1, 9]                   5 u^2          DWTimesDW3
           f64(a_y) - f64(b_y)                      [-3, -1]                 0 u^2          2Sum (exact)
-          (f64(a_y) - f64(b_y))*(f64(a_y) - f64... [1, 9]                   6 u^2          DWTimesDW3
-          (f64(a_x) - f64(b_x))*(f64(a_x) - f64... [2, 18]                  9 u^2          SloppyDWPlusDW
-          sqrt((f64(a_x) - f64(b_x))*(f64(a_x) ... [1.414, 4.243]           9.625 u^2      Newton sqrt
+          (f64(a_y) - f64(b_y))*(f64(a_y) - f64... [1, 9]                   5 u^2          DWTimesDW3
+          (f64(a_x) - f64(b_x))*(f64(a_x) - f64... [2, 18]                  8 u^2          SloppyDWPlusDW
+          sqrt((f64(a_x) - f64(b_x))*(f64(a_x) ... [1.414, 4.243]           9.125 u^2      Newton sqrt
       derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
         2Sum(a, b): s = RN(a + b), a' = RN(s - b), b' = RN(s - a'), t = RN((a - a') + (b - b')):
           s + t = a + b exactly (Knuth), |t| <= u |s|
@@ -166,7 +166,13 @@ fp64 and conversions under gt1030:
           (1 + 2 kappa) u^2 in general, kappa = (|x| + |y|) / |x + y| the largest on the ranges
         DWTimesDW3(x~, y~): (ch, cl1) = 2Prod(xh, yh); tl0 = RN(xl yl); tl1 = fma(xh, yl, tl0);
           cl2 = fma(xl, yh, tl1); cl3 = RN(cl1 + cl2); (zh, zl) = Fast2Sum(ch, cl3): the four
-          roundings err by u^3, u^2, 2 u^2 and 3 u^2 times |xh yh|: 6.000 u^2 |x~ y~| (the paper: 5 u^2)
+          roundings err by u^3, u^2, 2 u^2 and 3 u^2 times |xh yh|: 6.000 u^2 |x~ y~| line by line;
+          whatever the words, by 294 boxes run here (src/dwcase.c): xh and yh in [1, 2) (the error
+          is the same at any scale and sign), first 16 slices each, a box above the paper's constant
+          cut in two along the word whose halves' larger bound is the smaller, down to single
+          floats; the low words within u.  Every value an interval with the 2^g it is a multiple of
+          and whether it is a float, as for the additions.  The largest, 4.999999 u^2 |x~ y~|, in
+          the box xh in [1.00000024, 1.00000036], yh in [1, 1.06249988] (the paper: 5 u^2)
         sqrt(x~): sh = RN(sqrt(xh)); r = fma(-sh, sh, xh) (exact); sl = RN(RN(xl + r) / (2 sh));
           (zh, zl) = Fast2Sum(sh, sl): one Newton step, sqrt(x~) = sh + (x~ - sh^2) / (sh + sqrt(x~));
           2 sh for the denominator and the roundings give 5.125 u^2 sqrt(x~)
@@ -178,7 +184,7 @@ fp64 and conversions under gt1030:
         no underflow: the 3 error-free products stay above 2^-102 (derived from the ranges)
         Fast2Sum's precondition |a| >= |b|: derived in each use from the magnitudes above
       check (sampled, not a proof): 4096 points of the domain, the largest error against the exact value
-        (long double) 2.2 u^2 (the bound: 9.625); the f64 program's 0.97 u64
+        (long double) 2.2 u^2 (the bound: 9.125); the f64 program's 0.97 u64
     written as 50 f32 instructions, 30 of them NoContraction, in place of 3 f64 ones
   no f64 value is left: the Float64 capability and the type are removed
   spirv-val accepts the written module

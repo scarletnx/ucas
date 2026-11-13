@@ -175,7 +175,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, when the model prices the lookup below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
-| `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
+| `dword cases [P]` | the bounds of DWPlusFP and AccurateDWPlusDW whatever cancels, and of DWTimesDW3 and DWDivFP3, by the case analysis ucas runs at P bits (24): the cases, the largest bound and its case; at 3 to 5 bits also every operand pair of that format in a window run against them (see "fp64 without fp64").  English: "the case analysis of the double-word additions at 4 bits" |
 | `foldproof F [model m]` | the float round trips the model says its driver folds, and their rounding as integer arithmetic no fold reaches, proved equal (see "Driver folds") |
 | `banks F [, G ...] [size N] [elem B] [model m]` | the bank-conflict degree of shared-memory index expressions over a warp, and an index swizzle that lowers it, proved to keep the indices apart (see "Memory kinds") |
 | `intatomic F [count N] [tol T] [global] [model m]` | a float atomic add as an integer atomic add on fixed point, when its addend is proved exact there (or within tol) and the model prices that lower (see "Memory kinds") |
@@ -2985,8 +2985,8 @@ arithmetic" (ACM TOMS 44(2), 2017):
 | pair + pair | SloppyDWPlusDW | 11 | (1 + 2 kappa) u^2 | 3 u^2, same signs |
 | pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2, and 3.0000004 u^2 whatever cancels | 3 u^2 |
 | pair x FP | DWTimesFP3 | 7 | 2 u^2 | 2 u^2 |
-| pair x pair | DWTimesDW3 | 10 | 6 u^2 | 5 u^2 |
-| pair / FP | DWDivFP3 | 11 | 4 u^2 (1 u^2 for FP / FP) | 3 u^2 |
+| pair x pair | DWTimesDW3 | 10 | 6 u^2, and 4.9999994 u^2 by boxes | 5 u^2 |
+| pair / FP | DWDivFP3 | 11 | 4 u^2 (1 u^2 for FP / FP), and 3.0000001 u^2 by boxes | 3 u^2 |
 | pair / pair | DWDivDW2 | 15 | 13 u^2 | 15 u^2 |
 | sqrt(pair) | one Newton step | 9 | 5.125 u^2 | |
 | min, max of pairs | the pair by the sign of (xh - yh) + (xl - yl) | 6 | the larger operand's + 3 u^2 | |
@@ -3032,8 +3032,30 @@ u^2 / (1 - 2u) and about 5 u^2), and the derivation says which ran.
 every operand pair of that format with xh in [1, 2), y in the binades
 -(2P + 4)..2, the low words 0 and every normalized one in the 4 binades
 below their word's ulp, against the bounds (4 bits: 125320 and 6794368
-pairs, the largest errors 1.77 and 2.50 u^2 against 2.29 and 3.43 u^2).  DWTimesDW3's 5 u^2 and DWDivFP3's 3 u^2 are not mechanised:
-their bounds here stay 6 u^2 and 4 u^2.
+pairs, the largest errors 1.77 and 2.50 u^2 against 2.29 and 3.43 u^2).
+
+DWTimesDW3's and DWDivFP3's bounds come from the same analysis over
+boxes of high words.  A product's or a quotient's relative error is the
+same at any scale and sign, so the high words are both in [1, 2) and the
+low words within u.  Each high word starts in 16 slices; a box whose
+bound is above the paper's constant is cut in two along the word whose
+halves' larger bound is the smaller, so the cuts go only across where
+the bound changes (a binade's edge, y = 1), down to single floats.
+Products and quotients are intervals rounded outward, a product of
+multiples of 2^a and 2^b one of 2^(a + b), and a quotient by a power of
+two exact.  In DWDivFP3, q = xh / y is cut at 1; the residual xh - th y
+is y (q - th), at most y |q - th|, and is taken as a float only when its
+grid says so; xh - ph only when ph is within xh / 2 of xh (Sterbenz);
+the error, (|e5| + y |e6|) / x for the roundings of the residual plus xl
+and of its quotient, is over x >= q y.  DWTimesDW3's 294 boxes give
+4.9999994 u^2, largest where xh is in [1 + 2^-22, 1 + 3 2^-23] and yh
+in [1, 1.0625); DWDivFP3's 403 give 3.0000001 u^2, at xh = 1, y = 2 -
+2^-23: the paper's constants, in 0.03 s.  A box left open would keep
+the line by line 6 and 4 u^2.  At 3 to 5 bits `dword cases` also runs
+both on every high word of [1, 2) and every normalized low word in the
+5 binades below its word's ulp (4 bits: 270400 and 4160, the largest
+errors 2.78 and 1.71 u^2 against 4.46 and 3.07 u^2).
+
 Where kappa is not bounded (the ranges let a sum cancel) and the
 operands carry errors, or the sum is the sloppy one, no relative bound
 exists, for the f64 program either; the absolute bound, which every

@@ -1,5 +1,6 @@
-# the bounds of the double-word additions whatever cancels, by the case
-# analysis ucas runs (src/dwcase.c): binary32's, the paper's constants
+# the bounds of the double-word additions whatever cancels, and of
+# DWTimesDW3 and DWDivFP3 by boxes of high words, by the case analysis ucas
+# runs (src/dwcase.c): binary32's, the paper's constants
 dword cases
 # at 3 and 4 bits, also every operand pair of those formats in a window,
 # each largest error within its bound

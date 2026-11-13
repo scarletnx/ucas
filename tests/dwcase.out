@@ -1,32 +1,47 @@
 > dword cases
-dword cases at 24 bits (u = 2^-24): the additions' bounds whatever cancels, by the case analysis
-  run here (src/dwcase.c), relative to the exact sum
+dword cases at 24 bits (u = 2^-24): the bounds of the additions whatever cancels, DWTimesDW3
+  and DWDivFP3, by the case analysis run here (src/dwcase.c), relative to the exact
+  result
   DWPlusFP          2273 cases: 2.000000238 u^2, the largest in the case y in -2^-2, s in [0.5, 0.5625] (the paper: 2 u^2)
   AccurateDWPlusDW  4115 cases: 3.000000358 u^2, the largest in the case yh in -2^-2, s in [0.5, 0.5625], t in [-5.96e-08, -2.98e-08] (the paper: 3 u^2)
+  DWTimesDW3        294 boxes: 4.999999434 u^2, the largest in the box xh in [1.00000024, 1.00000036], yh in [1, 1.06249988] (the paper: 5 u^2)
+  DWDivFP3          403 boxes: 3.000000060 u^2, the largest in the box xh in [1, 1], y in [1.99999988, 1.99999988] (the paper: 3 u^2)
 > dword cases 3
-dword cases at 3 bits (u = 2^-3): the additions' bounds whatever cancels, by the case analysis
-  run here (src/dwcase.c), relative to the exact sum
+dword cases at 3 bits (u = 2^-3): the bounds of the additions whatever cancels, DWTimesDW3
+  and DWDivFP3, by the case analysis run here (src/dwcase.c), relative to the exact
+  result
   DWPlusFP          1601 cases: 2.666666667 u^2, the largest in the case y in -2^-2, s in [0.5, 0.5625] (the paper: 2 u^2)
   AccurateDWPlusDW  3775 cases: 3.428571429 u^2, the largest in the case yh in -2^-2, s in [0.5625, 0.625], t in [-0.125, -0.0625] (the paper: 3 u^2)
+  DWTimesDW3        16 boxes: 4.000000000 u^2, the largest in the box xh in [1.25, 1.25], yh in [1.25, 1.25] (the paper: 5 u^2)
+  DWDivFP3          16 boxes: 3.142857143 u^2, the largest in the box xh in [1, 1], y in [1.75, 1.75] (the paper: 3 u^2)
   every operand pair of the 3-bit format with xh in [1, 2), y in the binades -10..2
   (yh: -10..0, |yh| <= xh) of either sign and 0, the low words 0 and every normalized one in
   the 4 binades below their word's ulp: DWPlusFP 13860 pairs, the largest error 1.560976 u^2;
   AccurateDWPlusDW 370400, 2.161527 u^2; both within the bounds
+  every high word of the 3-bit format in [1, 2), the low words 0 and every normalized one in
+  the 5 binades below their word's ulp: DWTimesDW3 17424 pairs, the largest error 2.220211 u^2;
+  DWDivFP3 528, 1.391304 u^2; both within the bounds
 > the case analysis of the double-word additions at 4 bits
   ucas: dword cases 4
-dword cases at 4 bits (u = 2^-4): the additions' bounds whatever cancels, by the case analysis
-  run here (src/dwcase.c), relative to the exact sum
+dword cases at 4 bits (u = 2^-4): the bounds of the additions whatever cancels, DWTimesDW3
+  and DWDivFP3, by the case analysis run here (src/dwcase.c), relative to the exact
+  result
   DWPlusFP          1633 cases: 2.285714286 u^2, the largest in the case y in -2^-2, s in [0.5, 0.5625] (the paper: 2 u^2)
   AccurateDWPlusDW  3635 cases: 3.428571429 u^2, the largest in the case yh in -2^-2, s in [0.5, 0.5625], t in [-0.0625, -0.03125] (the paper: 3 u^2)
+  DWTimesDW3        64 boxes: 4.456747405 u^2, the largest in the box xh in [1.125, 1.125], yh in [1.125, 1.125] (the paper: 5 u^2)
+  DWDivFP3          64 boxes: 3.066666667 u^2, the largest in the box xh in [1, 1], y in [1.875, 1.875] (the paper: 3 u^2)
   every operand pair of the 4-bit format with xh in [1, 2), y in the binades -12..2
   (yh: -12..0, |yh| <= xh) of either sign and 0, the low words 0 and every normalized one in
   the 4 binades below their word's ulp: DWPlusFP 125320 pairs, the largest error 1.765517 u^2;
   AccurateDWPlusDW 6794368, 2.497820 u^2; both within the bounds
+  every high word of the 4-bit format in [1, 2), the low words 0 and every normalized one in
+  the 5 binades below their word's ulp: DWTimesDW3 270400 pairs, the largest error 2.781937 u^2;
+  DWDivFP3 4160, 1.709199 u^2; both within the bounds
 > dword cases 2
-dwcase.ucas:9:14: error: dword cases: the precision must be a whole number of bits from 3 to 48, not 2
+dwcase.ucas:10:14: error: dword cases: the precision must be a whole number of bits from 3 to 48, not 2
     dword cases 2
                  ^
 > dword cases 4.5
-dwcase.ucas:10:16: error: dword cases: the precision must be a whole number of bits from 3 to 48, not 4.5
+dwcase.ucas:11:16: error: dword cases: the precision must be a whole number of bits from 3 to 48, not 4.5
     dword cases 4.5
                    ^
