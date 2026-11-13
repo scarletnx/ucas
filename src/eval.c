@@ -1106,6 +1106,33 @@ int_to_real(const struct ity *t, int64_t v)
 	return (double)ass(t, v);
 }
 
+/*
+ * v as a float of w bits, rounded once.  Through a double, a 64-bit
+ * integer would be rounded twice (2^60 + 2^36 + 1 to the midpoint 2^60 +
+ * 2^36, then to the even 2^60); C's own conversion to float rounds once.
+ * Into f16 every integer past 2^53 is past 65520 too, so its double
+ * rounding is harmless.
+ */
+static double
+int_to_float(const struct ity *t, int64_t v, int w)
+{
+	if (w == 32) {
+		if (t->k == K_UINT || t->k == K_BOOL)
+			return (float)(uint64_t)asu(t, v);
+		return (float)ass(t, v);
+	}
+	return fround(w, int_to_real(t, v));
+}
+
+double
+ifloat(ty_t ti, int64_t v, int w)
+{
+	struct ity it;
+
+	ity_of(&it, ti, 0);
+	return int_to_float(&it, v, w);
+}
+
 static int64_t
 real_to_int(const struct ity *t, double x, uint8_t *fl)
 {
@@ -1154,7 +1181,9 @@ fold_const(int op, ty_t t, nid a, nid b, nid c, int64_t *ri, double *rr)
 		if (op == O_ASFLOAT)
 			*rr = frombits(TYW(t), (uint64_t)N.ki[a]);
 		else if (op == O_CAST)
-			*rr = TY_FP(ta) ? N.kr[a] : int_to_real(&ita, N.ki[a]);
+			*rr = TY_FP(ta) ? N.kr[a] : TYK(t) == K_FLOAT ?
+			    int_to_float(&ita, N.ki[a], TYW(t)) :
+			    int_to_real(&ita, N.ki[a]);
 		else if (TYK(t) == K_FLOAT)
 			*rr = scalar_float(op, TYW(t), N.kr[a], b ? N.kr[b] : 0, &fl);
 		else
@@ -1634,8 +1663,7 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 						orr[i] = frombits(TYW(p->ty[k]),
 						    asu(ta, av[i]));
 					else
-						orr[i] = fw ? fround(fw,
-						    int_to_real(ta, av[i])) :
+						orr[i] = fw ? int_to_float(ta, av[i], fw) :
 						    int_to_real(ta, av[i]);
 					of[i] = af[i] & F_UNDEF;
 				}

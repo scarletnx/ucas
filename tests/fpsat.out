@@ -57,3 +57,6 @@ fa and fb are equal on the domain of fa (proved by SAT: 8901 AIG nodes, 0 confli
 > d2(x: f32, y: f32) = (x / y) * f32(1)
 > equiv d1 d2
 d1 and d2 are equal on the domain of d1 (sampled, not proved; no SAT proof: a float division)
+> k(x: i64) = asuint(f32(x))
+> k(1152921573326323713)
+1568669697
