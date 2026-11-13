@@ -552,11 +552,21 @@ comp_sqrt(struct err *z, const struct err *x, const struct iv *ix,
  *   (|xh| + |s|) < 3 u^2 |s|, |x~ + y| >= |s| - u |xh| > (1 - 2u) |s|,
  *   and |v| < |sh|, so Fast2Sum is exact.
  * So 3 u^2 / (1 - 2u) |x~ + y| for every kappa (the paper: 2 u^2).
+ * dwcase.c runs the finer case analysis that gives the paper's constant;
+ * this one stays for a case it could not close.
  */
+static long double
+eta_add_fp_hand(void)
+{
+	return 3 * U * U / (1 - 2 * U) * SLACK;
+}
+
 static long double
 eta_add_fp_split(void)
 {
-	return 3 * U * U / (1 - 2 * U) * SLACK;
+	long double c = dwcase_add(0, NULL, NULL, 0) * SLACK;
+
+	return isinf(c) ? eta_add_fp_hand() : ldmin(c, eta_add_fp_hand());
 }
 
 /*
@@ -574,16 +584,26 @@ eta_add_fp_split(void)
  *   otherwise A <= 3 |s|: |sl + th| <= 4u (1 + u) |s|, |vh| <= (1 + u)^2
  *   (1 + 4u (1 + u)) |s|, |x~ + y~| >= (1 - 3u) |s|, and |c| < |sh|, |w| <
  *   |vh|, so both Fast2Sums are exact.
- * The larger, about 5 u^2 (the paper: 3 u^2 / (1 - 4u)).
+ * The larger, about 5 u^2 (the paper: 3 u^2 / (1 - 4u)); dwcase.c's case
+ * analysis gives the paper's, and this one stays for a case it could not
+ * close.
  */
 static long double
-eta_add_acc_split(void)
+eta_add_acc_hand(void)
 {
 	long double e1 = U * U * (4 * (1 + U) + 3 * U * (1 + U) * (1 + U) +
 	    (1 + U) * (1 + U) * (1 + 4 * U * (1 + U))) / (1 - 3 * U);
 	long double e2 = U * U * (1.5L + U) / (1 - U / 2);
 
 	return ldmax(e1, e2) * SLACK;
+}
+
+static long double
+eta_add_acc_split(void)
+{
+	long double c = dwcase_add(1, NULL, NULL, 0) * SLACK;
+
+	return isinf(c) ? eta_add_acc_hand() : ldmin(c, eta_add_acc_hand());
 }
 
 /* the bound whatever cancels, for the additions that have one: 0 none */
@@ -1578,11 +1598,89 @@ err_text(const struct err *e, long double unit, const char *uname, char *b,
 	return b;
 }
 
+/* text filled into lines of at most 96 columns, each after ind; \001
+ * is a space no line breaks at, and a sentence's end keeps its two */
+static void
+para(struct sbuf *o, const char *ind, const char *text)
+{
+	const char *p = text, *sp;
+	size_t col = 0, w;
+	int two = 0;
+
+	while (*p) {
+		while (*p == ' ')
+			p++;
+		sp = p;
+		while (*sp && *sp != ' ')
+			sp++;
+		w = (size_t)(sp - p);
+		if (w == 0)
+			break;
+		if (col == 0) {
+			sb_puts(o, ind);
+			col = strlen(ind);
+		} else if (col + 1 + w > 96) {
+			sb_printf(o, "\n%s", ind);
+			col = strlen(ind);
+		} else {
+			sb_puts(o, two ? "  " : " ");
+			col += 1 + (size_t)two;
+		}
+		for (; p < sp; p++)
+			sb_putc(o, *p == '\001' ? ' ' : *p);
+		col += w;
+		two = sp[0] == ' ' && sp[1] == ' ' && sp[-1] == '.';
+	}
+	sb_putc(o, '\n');
+}
+
+/*
+ * An addition's bound whatever cancels: dwcase.c's case analysis, run
+ * here, or where it left a case open the hand derivation (DWPlusFP: of
+ * opposite signs with |y| in [|xh|/2, 2|xh|], xh + y is a float, so sl =
+ * 0 and the sum exact, otherwise |xh + y| > |xh|/2; AccurateDWPlusDW, with
+ * |xh| >= |yh|: of opposite signs with |yh| >= |xh|/2 the sum is exact or
+ * within 1.5 u^2, otherwise |xh| + |yh| <= 3 |xh + yh|).
+ */
+static void
+cases_text(struct sbuf *o, int kind, long double hand)
+{
+	char why[400], t[1400];
+	long n;
+	long double c = dwcase_add(kind, &n, why, sizeof why);
+
+	if (isinf(c)) {
+		snprintf(t, sizeof t, "whatever cancels, by the cases of the "
+		    "paper's proof written by hand (the analysis run here left %s): "
+		    "%.3Lf\001u^2\001|x~\001+\001y%s| (the paper: %d\001u^2)", why,
+		    hand / (U * U),
+		    kind ? "~" : "", kind ? 3 : 2);
+		para(o, "      ", t);
+		return;
+	}
+	snprintf(t, sizeof t, "whatever cancels, by %ld cases run here "
+	    "(src/dwcase.c): xh in [1, 2), %s in each binade 2^d of either sign, "
+	    "d from 0 to -40 and one case below%s; xh + %s cut by binade in 8 "
+	    "slices%s.  Every value of the algorithm an interval, with the 2^g "
+	    "it is a multiple of and whether it is a float: a rounding is exact "
+	    "when its operand's values are floats or multiples of 2^g below "
+	    "2^(g + 24), else within half an ulp of the largest binade they "
+	    "reach; each Fast2Sum checked exact (a's exponent at least b's, "
+	    "a = 0, or b the error of a's rounding); a case where the sum may "
+	    "be 0 has its errors 0.  The largest, %.6Lf\001u^2\001|x~\001+\001y%s|, "
+	    "in the case %s (the paper: %d\001u^2)", n, kind ? "yh" : "y", kind ?
+	    " (|xh| >= |yh|: the algorithm is symmetric)" : ", and y in [1, 2) "
+	    "with xh in each", kind ? "yh" : "y", kind ? ", xl + yl by binade "
+	    "and sign where the case needs it" : "", c * SLACK / (U * U), kind ?
+	    "~" : "", why, kind ? 3 : 2);
+	para(o, "      ", t);
+}
+
 static void
 derivations(struct sbuf *o, unsigned used)
 {
 	sb_puts(o, "  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = "
-	    "xh + xl has |xl| <= u |xh|):\n");
+	    "xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):\n");
 	if (used & DB_MINMAX)
 		sb_puts(o, "    min, max(x~, y~): d = RN(RN(xh - yh) + RN(xl - yl)), "
 		    "the pair with d < 0 (max: 0 < d), else the other.  With\n"
@@ -1615,16 +1713,9 @@ derivations(struct sbuf *o, unsigned used)
 		    "      zh + zl = x~ + y + d (xl + sl), |d| <= u: the error is "
 		    "at most u (u |xh| + u |sh|),\n"
 		    "      %.3Lf u^2 |x~ + y| when no cancellation (kappa = 1), "
-		    "(1 + kappa) u^2 in general;\n"
-		    "      whatever cancels, by cases on xh and y: of opposite "
-		    "signs with |y| in [|xh|/2, 2|xh|],\n"
-		    "      xh + y is a float (Sterbenz), so sl = 0, v = xl and the "
-		    "sum is exact; otherwise\n"
-		    "      |xh + y| > |xh|/2 and the error is below 3 u^2 / (1 - "
-		    "2u) = %.3Lf u^2 |x~ + y| (the paper:\n"
-		    "      2 u^2); Fast2Sum's precondition holds in both\n",
-		    add_local(AK_FP, 1, 1 / (1 - U), &pre) / (U * U),
-		    eta_add_fp_split() / (U * U));
+		    "(1 + kappa) u^2 in general;\n",
+		    add_local(AK_FP, 1, 1 / (1 - U), &pre) / (U * U));
+		cases_text(o, 0, eta_add_fp_hand());
 	}
 	if (used & DB_ADD_SLOPPY) {
 		int pre;
@@ -1646,18 +1737,9 @@ derivations(struct sbuf *o, unsigned used)
 		    "= Fast2Sum(vh, w):\n"
 		    "      zh + zl = x~ + y~ + d1 (sl + th) + d2 (tl + vl): %.3Lf "
 		    "u^2 |x~ + y~| at kappa = 1,\n"
-		    "      (2 + kappa) u^2 in general; whatever cancels, with |xh| "
-		    ">= |yh|: of opposite signs with\n"
-		    "      |yh| >= |xh|/2, xh + yh is a float (Sterbenz), a "
-		    "multiple of ulp(xh)/2 as is th's ulp, so\n"
-		    "      sl = 0 and xh + yh + th is a float, the result exact, "
-		    "or 2^p ulp(th) or more, the error\n"
-		    "      then below 1.5 u^2; otherwise |xh| + |yh| <= 3 |xh + "
-		    "yh| and the error is below %.3Lf u^2\n"
-		    "      (the paper: 3 u^2 / (1 - 4u)); both Fast2Sums are exact "
-		    "in each case\n",
-		    add_local(AK_ACC, 1, 1 / (1 - U), &pre) / (U * U),
-		    eta_add_acc_split() / (U * U));
+		    "      (2 + kappa) u^2 in general;\n",
+		    add_local(AK_ACC, 1, 1 / (1 - U), &pre) / (U * U));
+		cases_text(o, 1, eta_add_acc_hand());
 	}
 	if (used & DB_MUL_FP)
 		sb_printf(o, "    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 "
@@ -2683,6 +2765,56 @@ cmd_dword(struct func *f, const struct model *m, const struct dwreq *rq)
 	free(o.p);
 }
 
+/* dword cases [P]: the additions' bounds whatever cancels, by the case
+ * analysis, at P bits (24); at 3 to 5 bits also every operand pair of
+ * that format in a window, against them */
+static void
+cmd_cases(int bits)
+{
+	static const char *const nm[2] = {"DWPlusFP", "AccurateDWPlusDW"};
+	static const int paper[2] = {2, 3};
+	long double c, u2 = ldexpl(1, -2 * bits);
+	struct dwcase_ev ev;
+	char why[400];
+	long n;
+	int k;
+
+	rep_begin("dword_cases");
+	rep_int("bits", bits);
+	printf("dword cases at %d bits (u = 2^-%d): the additions' bounds "
+	    "whatever cancels, by the case analysis\n  run here "
+	    "(src/dwcase.c), relative to the exact sum\n", bits, bits);
+	for (k = 0; k < 2; k++) {
+		c = dwcase_add_p(k, bits, &n, why, sizeof why);
+		if (isinf(c))
+			printf("  %-17s %ld cases, not closed: %s\n", nm[k], n, why);
+		else
+			printf("  %-17s %ld cases: %.9Lf u^2, the largest in the case "
+			    "%s (the paper: %d u^2)\n", nm[k], n, c / u2, why,
+			    paper[k]);
+		rep_int(k ? "acc_cases" : "fp_cases", n);
+		if (!isinf(c))
+			rep_num(k ? "acc_bound_u2" : "fp_bound_u2", (double)(c / u2));
+	}
+	if (dwcase_every(bits, &ev)) {
+		printf("  every operand pair of the %d-bit format with xh in [1, 2), "
+		    "y in the binades -%d..2\n  (yh: -%d..0, |yh| <= xh) of either "
+		    "sign and 0, the low words 0 and every normalized one in\n  the "
+		    "4 binades below their word's ulp: DWPlusFP %ld pairs, the "
+		    "largest error %.6f u^2;\n  AccurateDWPlusDW %ld, %.6f u^2; %s\n",
+		    bits, ev.ry, ev.ry, ev.nfp, ev.fp, ev.nacc, ev.acc, ev.bad ?
+		    "a Fast2Sum inexact or an error where the sum is 0: NOT within "
+		    "the bounds" : ev.fp <= (double)(dwcase_add_p(0, bits, NULL, NULL,
+		    0) / u2) && ev.acc <= (double)(dwcase_add_p(1, bits, NULL, NULL,
+		    0) / u2) ? "both within the bounds" : "NOT within the bounds");
+		rep_int("pairs_fp", ev.nfp);
+		rep_int("pairs_acc", ev.nacc);
+		rep_num("pairs_fp_max_u2", ev.fp);
+		rep_num("pairs_acc_max_u2", ev.acc);
+	}
+	rep_end();
+}
+
 int
 dword_command(struct P *p)
 {
@@ -2698,6 +2830,19 @@ dword_command(struct P *p)
 	if (strcmp(w, "dword") != 0 || func_find(sym_cstr(w))) {
 		cmdp_seek(p, at);
 		return 0;
+	}
+	if (!func_find(sym_cstr("cases")) && cmdp_kw(p, "cases")) {
+		double b = cmdp_eos(p) ? 24 : cmdp_number(p, stop);
+		if (!cmdp_eos(p)) {
+			cmdp_fail_here(p);
+			fail("dword cases [P]: P the precision in bits, 3 to 48");
+		}
+		if (b != floor(b) || b < 3 || b > 48)
+			fail("dword cases: the precision must be a whole number of "
+			    "bits from 3 to 48, not %g", b);
+		notes_flush();
+		cmd_cases((int)b);
+		return 1;
 	}
 	f = cmdp_func(p, stop);
 	while (!cmdp_eos(p)) {
@@ -2802,6 +2947,26 @@ dword_nlp_raw(const char *sent)
 		s += 7;
 	if (!strncasecmp(s, "can you ", 8))
 		s += 8;
+	/* the additions' case analysis, at N bits */
+	{
+		char low[1000];
+		size_t k;
+		for (k = 0; s[k] && k + 1 < sizeof low; k++)
+			low[k] = (char)tolower((unsigned char)s[k]);
+		low[k] = 0;
+		if (strstr(low, "case analys") && (strstr(low, "double-word") ||
+		    strstr(low, "double word") || strstr(low, "dword") ||
+		    strstr(low, "float-float"))) {
+			const char *b = strstr(low, " bits"), *d = b;
+			while (d && d > low && isdigit((unsigned char)d[-1]))
+				d--;
+			if (b && d < b)
+				snprintf(out, sizeof out, "dword cases %d", atoi(d));
+			else
+				snprintf(out, sizeof out, "dword cases");
+			return out;
+		}
+	}
 	/* the tails, from the right */
 	for (;;) {
 		int again = 0;

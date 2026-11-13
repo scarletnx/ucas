@@ -27,7 +27,7 @@ dword pc under gt1030: a comparison of f64 values over f32 (u = 2^-24, u64 = 2^-
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(y)                            [1, 1e+06]               0 u^2          2Prod (exact)
       f64(z)*f64(w)                            [1, 1e+06]               0 u^2          2Prod (exact)
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
@@ -66,7 +66,7 @@ dword pe under gt1030: a comparison of f64 values over f32 (u = 2^-24, u64 = 2^-
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(y)                            [1, 1e+06]               0 u^2          2Prod (exact)
       f64(z)*f64(w)                            [1, 1e+06]               0 u^2          2Prod (exact)
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
@@ -107,7 +107,7 @@ dword pu under gt1030: a comparison of f64 values over f32 (u = 2^-24, u64 = 2^-
   each value: its range, the derived error bound, the algorithm:
       f64(x)*f64(y)                            (no range)               0 u^2          2Prod (exact)
       f64(z)*f64(w)                            (no range)               0 u^2          2Prod (exact)
-  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= u |xh|):
+  derivation (u = 2^-24; RN rounds to nearest; a pair x~ = xh + xl has |xl| <= ulp(xh)/2 <= u |xh|):
     2Prod(a, b): p = RN(a b), e = fma(a, b, -p): p + e = a b exactly while |a b| >= 2^-102
       (a b - p is a multiple of ulp(a) ulp(b) below ulp(p): representable), |e| <= u |a b|
     composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,

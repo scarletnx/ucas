@@ -1,0 +1,10 @@
+# the bounds of the double-word additions whatever cancels, by the case
+# analysis ucas runs (src/dwcase.c): binary32's, the paper's constants
+dword cases
+# at 3 and 4 bits, also every operand pair of those formats in a window,
+# each largest error within its bound
+dword cases 3
+the case analysis of the double-word additions at 4 bits
+# a precision outside 3..48 is refused, with the value given
+dword cases 2
+dword cases 4.5
