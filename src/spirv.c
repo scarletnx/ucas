@@ -24,6 +24,7 @@
  * the animation (anim.c) with its cost under the active model.
  */
 #include "ucas.h"
+#include "calc.h"
 #include "fuse.h"
 
 #include <ctype.h>
@@ -11029,6 +11030,462 @@ advice_pass(const char *text, int asked)
 	memset(&V, 0, sizeof V);
 }
 
+/* ---- a rounding over a loop's period (#46, a proposal) ---- */
+
+/*
+ * A loop of T = 2^k passes (an index from c by 1 while below c + T, and
+ * no store, atomic or call in it) that adds to an accumulator the same
+ * value rounded to nearest on every pass: floor(z + 0.5), round,
+ * roundEven, a conversion of z + 0.5, or the integer (v + 2^(S-1)) >>
+ * S.  Each pass makes the same rounding error, so the sum is off by T
+ * times it, up to T/2 steps.  Rounded instead against offsets that run
+ * over one period, (g - c' + 1/2)/T with g the index or a value of it
+ * the loop already computes that takes each of T consecutive integers
+ * c', ..., c' + T - 1 once, the T roundings add up to T z rounded to
+ * nearest, within half a step: Hermite's identity, which closed proves
+ * for the offsets the loop has.  Proposed, never applied: the sum
+ * changes.  An offset the loop does not compute (a frame counter, a
+ * pixel's place) is not invented.
+ */
+enum { RD_NONE, RD_FLOOR, RD_ROUND, RD_ROUNDEVEN, RD_CVT, RD_INT };
+
+/* id is the same on every pass of the loop, instructions [lo, hi):
+ * defined outside it, or from such values; a load only when the loop
+ * stores nothing */
+static int
+rd_invariant(int id, int lo, int hi, int stores, int depth)
+{
+	const struct sins *I;
+	int k, i;
+
+	id = res_of(id);
+	if (V.id[id].kind != K_VALUE && V.id[id].kind != K_VAR &&
+	    V.id[id].kind != K_NONE)
+		return 1;
+	k = SP.def[id];
+	if (k < lo || k >= hi)
+		return 1;
+	I = &V.in[k];
+	if (depth > 32 || !strcmp(I->op, "OpPhi") || !strcmp(I->op,
+	    "OpFunctionCall") || !strncmp(I->op, "OpAtomic", 8) ||
+	    !strncmp(I->op, "OpImage", 7) || (!strcmp(I->op, "OpLoad") &&
+	    stores))
+		return 0;
+	for (i = 1; i < I->nop; i++)
+		if (I->opnd[i][0] == '%' && !rd_invariant(idx(I->opnd[i]), lo, hi,
+		    stores, depth + 1))
+			return 0;
+	return 1;
+}
+
+/* the f32 constant 0.5 */
+static int
+rd_half(int id)
+{
+	id = res_of(id);
+	return V.id[id].kind == K_CONST && !V.id[id].spec &&
+	    is_float_t(V.id[id].type) && T(V.id[id].type)->k == S_FLOAT &&
+	    (uint32_t)V.id[id].c[0] == 0x3f000000u;
+}
+
+/* q = z + 0.5: z, else -1 */
+static int
+rd_plus_half(int q)
+{
+	int k = SP.def[res_of(q)];
+	const struct sins *I;
+
+	if (k < 0)
+		return -1;
+	I = &V.in[k];
+	if (strcmp(I->op, "OpFAdd") || I->nop < 3)
+		return -1;
+	if (rd_half(idx(I->opnd[2])))
+		return idx(I->opnd[1]);
+	if (rd_half(idx(I->opnd[1])))
+		return idx(I->opnd[2]);
+	return -1;
+}
+
+/* r rounds a value to nearest: its kind, the value (*z) and for the
+ * integer form the shift (*S) */
+static int
+rd_rounding(int r, int *z, int *S)
+{
+	int k = SP.def[res_of(r)], q;
+	const struct sins *I;
+	uint64_t s, h;
+
+	if (k < 0)
+		return RD_NONE;
+	I = &V.in[k];
+	if (!strcmp(I->op, "OpExtInst") && I->nop == 4 && V.glsl >= 0 &&
+	    idx(I->opnd[1]) == V.glsl && is_float_t(idx(I->opnd[0])) &&
+	    T(idx(I->opnd[0]))->k == S_FLOAT) {
+		if (!strcmp(I->opnd[2], "Floor") &&
+		    (*z = rd_plus_half(idx(I->opnd[3]))) >= 0)
+			return RD_FLOOR;
+		*z = idx(I->opnd[3]);
+		if (!strcmp(I->opnd[2], "Round"))
+			return RD_ROUND;
+		if (!strcmp(I->opnd[2], "RoundEven"))
+			return RD_ROUNDEVEN;
+		return RD_NONE;
+	}
+	if ((!strcmp(I->op, "OpConvertFToS") || !strcmp(I->op,
+	    "OpConvertFToU")) && I->nop == 2 &&
+	    (*z = rd_plus_half(idx(I->opnd[1]))) >= 0) {
+		*S = !strcmp(I->op, "OpConvertFToU");	/* uint, else int */
+		return RD_CVT;
+	}
+	if ((!strcmp(I->op, "OpShiftRightLogical") || !strcmp(I->op,
+	    "OpShiftRightArithmetic")) && I->nop == 3 &&
+	    int_width(idx(I->opnd[0])) == 32 && const_of(idx(I->opnd[2]), &s) &&
+	    s >= 1 && s < 32 && (q = SP.def[res_of(idx(I->opnd[1]))]) >= 0 &&
+	    !strcmp(V.in[q].op, "OpIAdd") && V.in[q].nop == 3) {
+		const struct sins *A = &V.in[q];
+		int j;
+		for (j = 1; j <= 2; j++)
+			if (const_of(idx(A->opnd[j]), &h) && h == (uint64_t)1 << (s - 1)) {
+				*z = idx(A->opnd[3 - j]);
+				*S = (int)s;
+				return RD_INT;
+			}
+	}
+	return RD_NONE;
+}
+
+/* the loop's index: a header phi from the constant c by 1, and the
+ * passes T its condition gives; 0 when there is none */
+static int
+rd_index(int hdr, int kmerge, int lo, int hi, int merge, int *phi,
+    int64_t *c, int64_t *T)
+{
+	int k, cond, t, f, i, p, kp, ok = 0, uns;
+	uint64_t e, v0 = 0, one;
+	const struct sins *I;
+
+	/* the condition: the header's own branch, or the block it goes to */
+	for (k = kmerge + 1; k < hi; k++)
+		if (!strcmp(V.in[k].op, "OpBranchConditional") ||
+		    !strcmp(V.in[k].op, "OpBranch"))
+			break;
+	if (k < hi && !strcmp(V.in[k].op, "OpBranch")) {
+		int l = idx(V.in[k].opnd[0]);
+		if (V.id[l].kind != K_LABEL)
+			return 0;
+		for (k = V.id[l].label_at + 1; k < hi && strcmp(V.in[k].op,
+		    "OpBranchConditional") && strcmp(V.in[k].op, "OpBranch"); k++)
+			;
+	}
+	if (k >= hi || strcmp(V.in[k].op, "OpBranchConditional") ||
+	    V.in[k].nop < 3)
+		return 0;
+	cond = SP.def[res_of(idx(V.in[k].opnd[0]))];
+	t = idx(V.in[k].opnd[1]);
+	f = idx(V.in[k].opnd[2]);
+	if (cond < 0 || f != merge || t == merge || V.in[cond].nop != 3)
+		return 0;
+	I = &V.in[cond];
+	/* the phi is the condition's first operand, its bound a constant */
+	p = res_of(idx(I->opnd[1]));
+	kp = SP.def[p];
+	if (kp < hdr || kp >= kmerge || strcmp(V.in[kp].op, "OpPhi") ||
+	    V.in[kp].nop != 5 || !const_of(idx(I->opnd[2]), &e) ||
+	    int_width(V.id[p].type) != 32)
+		return 0;
+	for (i = 1; i + 1 < 5; i += 2) {
+		int v = idx(V.in[kp].opnd[i]), pl = idx(V.in[kp].opnd[i + 1]), kv;
+		if (!(V.id[pl].kind == K_LABEL && V.id[pl].label_at >= lo &&
+		    V.id[pl].label_at < hi)) {
+			if (!const_of(v, &v0))
+				return 0;
+			ok |= 1;
+			continue;
+		}
+		/* from inside: the phi plus 1 */
+		kv = SP.def[res_of(v)];
+		if (kv < 0 || strcmp(V.in[kv].op, "OpIAdd") || V.in[kv].nop != 3)
+			return 0;
+		if (!(res_of(idx(V.in[kv].opnd[1])) == p && const_of(idx(
+		    V.in[kv].opnd[2]), &one) && one == 1) &&
+		    !(res_of(idx(V.in[kv].opnd[2])) == p && const_of(idx(
+		    V.in[kv].opnd[1]), &one) && one == 1))
+			return 0;
+		ok |= 2;
+	}
+	if (ok != 3)
+		return 0;
+	uns = !strcmp(I->op, "OpULessThan") || !strcmp(I->op,
+	    "OpULessThanEqual");
+	*c = uns ? (int64_t)(uint32_t)v0 : (int64_t)(int32_t)v0;
+	e = uns ? (uint64_t)(uint32_t)e : (uint64_t)(int64_t)(int32_t)e;
+	if (!strcmp(I->op, "OpSLessThan") || !strcmp(I->op, "OpULessThan") ||
+	    !strcmp(I->op, "OpINotEqual"))
+		*T = (int64_t)e - *c;
+	else if (!strcmp(I->op, "OpSLessThanEqual") ||
+	    !strcmp(I->op, "OpULessThanEqual"))
+		*T = (int64_t)e - *c + 1;
+	else
+		return 0;
+	*phi = p;
+	return 1;
+}
+
+/*
+ * A value of the index the loop computes (a pure integer instruction of
+ * the index alone, not the index plus a constant) that takes each of T
+ * consecutive integers once as the index runs c..c + T - 1: the node,
+ * with its least value in *least; 0 when there is none
+ */
+static nid
+rd_hash(int lo, int hi, int phi, int skip, int64_t c, int64_t T,
+    int64_t *least, int *line)
+{
+	int kk;
+
+	for (kk = lo; kk < hi; kk++) {
+		struct spvdot cx;
+		nid e;
+		int64_t m, mn = 0, *vals;
+		uint8_t *seen;
+		int good = 1;
+		if (V.in[kk].res < 0 || V.in[kk].res == phi || kk == skip ||
+		    int_width(V.id[V.in[kk].res].type) != 32 || !pure_ins(kk))
+			continue;
+		memset(&cx, 0, sizeof cx);
+		cx.memo = xcalloc((size_t)(V.nid + 1024), sizeof *cx.memo);
+		cx.leaf[0] = phi;
+		cx.nleaf = 1;
+		cx.f.p[0].name = sym_cstr("i");
+		cx.f.p[0].ty = spv_ty(V.id[phi].type);
+		cx.f.np = 1;
+		e = spv_node(&cx, V.in[kk].res, 0);
+		free(cx.memo);
+		if (cx.fail || cx.nleaf != 1 || !(node_slots(e) & 1) ||
+		    N.op[e] == O_VAR || ((N.op[e] == O_ADD || N.op[e] == O_SUB) &&
+		    (N.op[N.a[e]] == O_VAR || N.op[N.b[e]] == O_VAR)))
+			continue;
+		vals = xmalloc((size_t)T * sizeof *vals);
+		seen = xcalloc((size_t)T, 1);
+		for (m = 0; m < T && good; m++) {
+			nid map[1];
+			map[0] = mk_const_i(cx.f.p[0].ty, c + m);
+			vals[m] = 0;
+			good = int_of(subst(e, map, 1), &vals[m]);
+			if (good && (m == 0 || vals[m] < mn))
+				mn = vals[m];
+		}
+		for (m = 0; m < T && good; m++) {
+			int64_t v = vals[m] - mn;
+			if (v < 0 || v >= T || seen[v])
+				good = 0;
+			else
+				seen[v] = 1;
+		}
+		free(vals);
+		free(seen);
+		if (good) {
+			*least = mn;
+			*line = ins_line(kk);
+			return e;
+		}
+	}
+	return 0;
+}
+
+static void
+round_pass(const char *text)
+{
+	struct sbuf rep = {0};
+	int k, i, n = 0;
+
+	memset(&V, 0, sizeof V);
+	symmap_reset();
+	V.glsl = -1;
+	V.lanes = 1;
+	V.rng = 1;
+	cols = 1;
+	parse(text);
+	declare();
+	SP.def = xmalloc((size_t)(V.nid + 1024) * sizeof *SP.def);
+	SP.alias = xmalloc((size_t)(V.nid + 1024) * sizeof *SP.alias);
+	for (i = 0; i < V.nid + 1024; i++)
+		SP.def[i] = SP.alias[i] = -1;
+	SP.dead = xcalloc((size_t)V.nin + 1024, 1);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (I->res < 0)
+			continue;
+		SP.def[I->res] = k;
+		if (I->nop >= 1 && I->opnd[0][0] == '%' &&
+		    V.id[idx(I->opnd[0])].kind == K_TYPE)
+			V.id[I->res].type = idx(I->opnd[0]);
+	}
+	for (k = 0; k < V.nin; k++) {
+		int hdr, merge, lo, hi, phi = -1, stores = 0, q, lg;
+		int64_t c0 = 0, T = 0;
+		ty_t ity;
+		if (strcmp(V.in[k].op, "OpLoopMerge") || V.in[k].nop < 2)
+			continue;
+		for (hdr = k; hdr >= 0 && strcmp(V.in[hdr].op, "OpLabel"); hdr--)
+			;
+		merge = idx(V.in[k].opnd[0]);
+		if (hdr < 0 || V.id[merge].kind != K_LABEL ||
+		    V.id[merge].label_at <= k)
+			continue;
+		lo = hdr;
+		hi = V.id[merge].label_at;
+		for (q = lo; q < hi; q++)
+			if (!strcmp(V.in[q].op, "OpStore") || !strncmp(V.in[q].op,
+			    "OpAtomic", 8) || !strcmp(V.in[q].op, "OpFunctionCall") ||
+			    !strcmp(V.in[q].op, "OpImageWrite"))
+				stores = 1;
+		if (!rd_index(hdr, k, lo, hi, merge, &phi, &c0, &T) || T < 2 ||
+		    T > 4096 || (T & (T - 1)))
+			continue;
+		for (lg = 0; ((int64_t)1 << lg) < T; lg++)
+			;
+		ity = spv_ty(V.id[phi].type);
+		/* the accumulators: header phis whose next value adds a rounding */
+		for (q = hdr + 1; q < k; q++) {
+			const struct sins *P = &V.in[q];
+			int nx = -1, kn, r = -1, z = -1, S = 0, kind, j, hl = 0, rl;
+			int64_t gc = c0;
+			nid g, body, sum, zs, want;
+			const char *how = NULL;
+			char so[200], off[200], offp[204], what[80], zt[16], gcs[40];
+			if (strcmp(P->op, "OpPhi") || P->nop != 5 || P->res == phi)
+				continue;
+			for (j = 1; j + 1 < 5; j += 2) {
+				int pl = idx(P->opnd[j + 1]);
+				if (V.id[pl].kind == K_LABEL && V.id[pl].label_at >= lo &&
+				    V.id[pl].label_at < hi)
+					nx = idx(P->opnd[j]);
+			}
+			if (nx < 0 || (kn = SP.def[res_of(nx)]) < 0 || V.in[kn].nop != 3 ||
+			    (strcmp(V.in[kn].op, "OpFAdd") && strcmp(V.in[kn].op,
+			    "OpIAdd")))
+				continue;
+			for (j = 1; j <= 2; j++)
+				if (res_of(idx(V.in[kn].opnd[j])) == P->res)
+					r = idx(V.in[kn].opnd[3 - j]);
+			if (r < 0 || (kind = rd_rounding(r, &z, &S)) == RD_NONE ||
+			    !rd_invariant(z, lo, hi, stores, 0))
+				continue;
+			/* in whole numbers the offsets need T <= 2^(S-1) */
+			if (kind == RD_INT && lg > S - 1)
+				continue;
+			if ((g = rd_hash(lo, hi, phi, kn, c0, T, &gc, &hl)) == 0) {
+				g = mk_var(0, sym_cstr("i"), ity);
+				gc = c0;
+			}
+			/* the proof: closed's sum over the period, with z' = z +
+			 * (1/2 - c')/T a value free of the index */
+			zs = mk_var(1, sym_cstr("z'"), TY_REAL);
+			body = mk_un(O_FLOOR, mk_bin(O_ADD, zs, mk_bin(O_DIV,
+			    mk_cast(TY_REAL, g), mk_const_r((double)T))));
+			sum = sum_closed(body, 0, mk_const_i(ity, c0), mk_const_i(ity,
+			    c0 + T - 1), &how);
+			want = mk_bin(O_MUL, mk_const_r((double)T), zs);
+			if (gc)
+				want = mk_bin(O_ADD, want, mk_const_r((double)gc));
+			if (sum == 0 || sum != mk_un(O_FLOOR, want))
+				continue;
+			if (!n++) {
+				sb_printf(&rep, "  rounding over a loop's period (a "
+				    "proposal, never applied: the sum changes):\n");
+				rep_list("period_roundings");
+			}
+			rl = ins_line(SP.def[res_of(r)]);
+			if (kind == RD_INT)
+				snprintf(what, sizeof what, "(v + %u) >> %d",
+				    1u << (S - 1), S);
+			else
+				snprintf(what, sizeof what, "%s", kind == RD_FLOOR ?
+				    "floor(z + 0.5)" : kind == RD_ROUND ? "round(z)" :
+				    kind == RD_ROUNDEVEN ? "roundEven(z)" : S ?
+				    "uint(z + 0.5)" : "int(z + 0.5)");
+			/* the offset as the proposal writes it: the index (less its
+			 * first value), or the loop's own value of it, h */
+			if (N.op[g] != O_VAR)
+				snprintf(off, sizeof off, gc ? "h - %lld" : "h",
+				    (long long)gc);
+			else
+				snprintf(off, sizeof off, c0 ? "i - %lld" : "i",
+				    (long long)c0);
+			snprintf(zt, sizeof zt, kind == RD_INT ? "v / 2^%d" : "z", S);
+			snprintf(offp, sizeof offp, strchr(off, ' ') ? "(%s)" : "%s",
+			    off);
+			snprintf(gcs, sizeof gcs, "(0.5 - %lld)", (long long)gc);
+			sb_printf(&rep, "    line %d: the loop at line %d adds %s on "
+			    "each of its %lld passes, the same rounding of the same "
+			    "value: the sum is off by %lld times its error, up to %lld "
+			    "steps from %lld %s\n", rl, ins_line(k), what, (long long)T,
+			    (long long)T, (long long)(T / 2), (long long)T, zt);
+			src_line(rl, so, sizeof so);
+			if (so[0])
+				sb_printf(&rep, "  %s", so);
+			if (kind == RD_INT)
+				sb_printf(&rep, "      against offsets over the period, (v "
+				    "+ (%s << %d) + %d) >> %d: the %lld passes add up to "
+				    "(%lld v + %u) >> %d, %lld v / 2^%d to nearest, within "
+				    "half a step (while v + %lld stays in 32 bits)\n", offp,
+				    S - lg, 1 << (S - lg - 1), S, (long long)T, (long long)T,
+				    1u << (S - 1), S, (long long)T, S, (long long)(((T - 1)
+				    << (S - lg)) + (1 << (S - lg - 1))));
+			else
+				sb_printf(&rep, "      against offsets over the period, "
+				    "%s(z + (float(%s) + 0.5) / %lld.0): the %lld passes "
+				    "add up to floor(%lld z + 0.5), %lld z to nearest, within "
+				    "half a step%s\n", kind != RD_CVT ? "floor" : S ? "uint" :
+				    "int", off, (long long)T, (long long)T,
+				    (long long)T, (long long)T, kind == RD_CVT ? " (the "
+				    "conversion truncates: a floor where z + 0.5 >= 0)" : "");
+			if (N.op[g] != O_VAR)
+				sb_printf(&rep, "      h = %s, which the loop computes (line "
+				    "%d), takes each of %lld..%lld once over the period\n",
+				    node_str(g), hl, (long long)gc, (long long)(gc + T - 1));
+			else
+				sb_printf(&rep, "      i, the loop's index, runs %lld..%lld\n",
+				    (long long)c0, (long long)(c0 + T - 1));
+			sb_printf(&rep, "      proved by closed (Hermite's identity): "
+			    "sum(i, %lld, %lld, floor(z' + real(%s)/%lld)) = %s, with z' "
+			    "= %s + %s/%lld%s\n", (long long)c0, (long long)(c0 + T - 1),
+			    node_str(g), (long long)T, node_str(sum), zt, gc ? gcs : "0.5",
+			    (long long)T, kind == RD_INT ? "" : "; in "
+			    "f32 the add can move a pass across a whole number only "
+			    "within half an ulp of it");
+			rep_obj(NULL);
+			rep_int("line", rl);
+			rep_int("loop_line", ins_line(k));
+			rep_int("passes", T);
+			rep_str("rounding", what);
+			rep_str("offset", node_str(g));
+			rep_num("error_nearest", (double)(T / 2));
+			rep_num("error_period", 0.5);
+			rep_end();
+		}
+	}
+	if (n)
+		rep_end();
+	if (rep.n)
+		fputs(rep.p, stdout);
+	free(rep.p);
+	free(SP.def);
+	free(SP.alias);
+	free(SP.dead);
+	SP.def = SP.alias = NULL;
+	SP.dead = NULL;
+	for (k = 0; k < V.nin; k++) {
+		for (i = 0; i < V.in[k].nop; i++)
+			free(V.in[k].opnd[i]);
+		free(V.in[k].text);
+	}
+	free(V.in);
+	memset(&V, 0, sizeof V);
+}
+
 static char *orig_mod;	/* the module before the rewrites */
 
 /*
@@ -12032,6 +12489,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (fch || nrw + ndead > 0)
 			spvcross_after_simplify(orig_mod, fch ? ft : out.p, nofile);
 		advice_pass(fch ? ft : out.p ? out.p : "", advice_on);
+		round_pass(fch ? ft : out.p ? out.p : "");
 		free(ft);
 		free(orig_mod);
 		orig_mod = NULL;

@@ -4287,6 +4287,40 @@ vec4 (the gt1030 model prices components, so it would save nothing
 there); several functions of one value in the channels of one texture
 (one read for a colour ramp's three).
 
+### Rounding over a loop's period
+
+A loop of T = 2^k passes (an index from c by 1 while below c + T, with
+no store, atomic or call in it) that adds the same value rounded to
+nearest on every pass, `floor(z + 0.5)`, `round(z)`, `roundEven(z)`,
+`int(z + 0.5)` or the integer `(v + 2^(S-1)) >> S`, makes the same
+rounding error T times: its sum is off by up to T/2 steps.  `simplify`
+proposes the rounding against offsets that run over the period
+instead, `floor(z + (float(g) + 0.5) / T)` or `(v + (g << (S - k)) +
+2^(S-k-1)) >> S`, with g the loop's index (less its first value) or a
+value of the index the loop already computes that takes each of T
+consecutive integers once (a hash over the period: it is run at every
+index).  The T roundings then add up to T z rounded once, within half a
+step: Hermite's identity, which `closed` proves for the loop's own
+offsets before anything is said (src/spirv.c, round_pass).  It is a
+proposal, never applied (the sum changes), and the offset is only ever
+one the loop computes: a frame counter or a pixel's place would be the
+pipeline's to pass in, and nothing is said about them.
+
+```
+    line 6: the loop at line 6 adds floor(z + 0.5) on each of its 256 passes, the same rounding of the same value: the sum is off by 256 times its error, up to 128 steps from 256 z
+      against offsets over the period, floor(z + (float(i) + 0.5) / 256.0): the 256 passes add up to floor(256 z + 0.5), 256 z to nearest, within half a step
+      i, the loop's index, runs 0..255
+      proved by closed (Hermite's identity): sum(i, 0, 255, floor(z' + real(i)/256)) = floor(256z'), with z' = z + 0.5/256; in f32 the add can move a pass across a whole number only within half an ulp of it
+```
+
+The integer form needs T <= 2^(S-1) (the offsets are whole numbers) and
+says how far v may go before v plus the largest offset leaves 32 bits;
+a conversion truncates, which is the floor where z + 0.5 >= 0.  Not
+proposed: a pass count that is not a power of two up to 4096, a value
+that changes with the index (its errors no longer repeat), a loop that
+stores (a load in it may change).  JSON: `period_roundings` (line,
+loop_line, passes, rounding, offset, error_nearest, error_period).
+
 ### Advice: what could leave the shader
 
 `simplify` adds a report of what the module computes that changes less
@@ -4716,10 +4750,11 @@ What is found:
   hash lose nothing over a whole period: `floor(255x + real((37i + 11)
   & 255)/256)` summed over 256 indices is `floor(65280x)`, 8029 at x =
   0.123 for an exact 8029.44, where rounding to nearest every time
-  gives 7936.  Not found: a period cut short or an offset met twice
-  (the sum is then not that floor), a period that is not a power of two
-  (its offsets are not exact where the check runs them), and the same
-  sum written as a loop;
+  gives 7936; `simplify` proposes it for a shader's loop that rounds
+  the same value every pass (see "Rounding over a loop's period").  Not
+  found: a period cut short or an offset met twice (the sum is then not
+  that floor), a period that is not a power of two (its offsets are not
+  exact where the check runs them), and the same sum written as a loop;
 - products: constants, `r^e(i)`, `exp(e(i))`, telescoping ratios, ratios
   of shifted linear factors;
 - recurrences and loops: affine steps with constant coefficients in any
