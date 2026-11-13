@@ -1,0 +1,29 @@
+# equiv proves an identity of polynomials mod 2^w by expanding both sides
+# (stoch.c poly_identity), where the domain is too large to enumerate and
+# SAT meets a multiplier against a differently built one.
+
+# a common factor, four bytes (2^32 points): SAT gave up here
+f(y: u8, t: u8, w: u8, x: u8) = y*t*w + x*t
+g(y: u8, t: u8, w: u8, x: u8) = (y*w + x)*t
+equiv f g
+# the difference of squares
+p(x: u32, y: u32) = (x + y)*(x - y)
+q(x: u32, y: u32) = x*x - y*y
+equiv p q
+# signed, with a shift for a product
+sp(x: i32, y: i32) = (x << 3)*y - x*y
+sq(x: i32, y: i32) = 7*x*y
+equiv sp sq
+# a subterm that is not a ring operation is one more unknown
+r(x: u32, y: u32) = (x/8)*y + (x/8)*3
+s(x: u32, y: u32) = (x/8)*(y + 3)
+equiv r s
+# different polynomials that agree everywhere: x^2 + x is even, so 2^31
+# times it is 0 mod 2^32 (in falling factorials, x^2 + x = x^(2) + 2x)
+h(x: u32) = x*x + x
+k(x: u32) = (x*x + x) + 2147483648*(x*x + x)
+equiv h k
+# not an identity: the sample still finds the difference
+a(x: u32, y: u32) = x*y + 1
+b(x: u32, y: u32) = y*x + 2
+equiv a b

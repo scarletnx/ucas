@@ -122,8 +122,7 @@ pit za zb: polynomial identity testing (Schwartz-Zippel), seed 1
 pit xr sm: polynomial identity testing (Schwartz-Zippel), seed 1
   not polynomials over the integers in integer parameters (only + - *, constant powers and shifts, integer constants, conversions that do not widen): nothing to test; `equiv` compares them as functions
 > equiv pa pb
-pa and pb are equal on the domain of pa (sampled, not proved; SAT gave up on 19200 AIG nodes within its budget of 100000 conflicts or 2 s)
-  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
+pa and pb are equal on the domain of pa (proved by algebra: both sides expand to one polynomial in x, y mod 2^32)
 > k(x: f32, y: f32) = x > 0 ? sqrt(x) * y + exp(y) : y
 > cost k
 cost of k under gt1030: 13 (6 operations, shared subterms counted once)
