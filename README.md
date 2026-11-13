@@ -2697,7 +2697,7 @@ arithmetic" (ACM TOMS 44(2), 2017):
 | FP + FP, FP x FP | 2Sum, 2Prod | 6, 3 | exact | exact |
 | pair + FP | DWPlusFP | 10 | (1 + kappa) u^2, and 3 u^2 / (1 - 2u) whatever cancels | 2 u^2 |
 | pair + pair | SloppyDWPlusDW | 11 | (1 + 2 kappa) u^2 | 3 u^2, same signs |
-| pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2 | 3 u^2 |
+| pair + pair | AccurateDWPlusDW | 20 | (2 + kappa) u^2, and 5 u^2 whatever cancels | 3 u^2 |
 | pair x FP | DWTimesFP3 | 7 | 2 u^2 | 2 u^2 |
 | pair x pair | DWTimesDW3 | 10 | 6 u^2 | 5 u^2 |
 | pair / FP | DWDivFP3 | 11 | 4 u^2 (1 u^2 for FP / FP) | 3 u^2 |
@@ -2705,27 +2705,30 @@ arithmetic" (ACM TOMS 44(2), 2017):
 | sqrt(pair) | one Newton step | 9 | 5.125 u^2 | |
 | min, max of pairs | the pair by the sign of (xh - yh) + (xl - yl) | 6 | the larger operand's + 3 u^2 | |
 
-The bounds used are the ones the standard model fl(a op b) = (a op b)(1 +
-d), |d| <= u, gives line by line with the transformations exact; the
+The bounds used are the ones the standard model fl(a op b) = (a op b)(1
++ d), |d| <= u, gives line by line with the transformations exact; the
 report prints each derivation.  The subtractions a Sterbenz case makes
 exact are taken as exact: in the divisions, xh less a product within a
 factor 1 +- 3u of it, and in DWDivFP3 the remainder xh - th y as well (a
 multiple of ulp(th) ulp(y) below ulp(th) |y| / 2, so a float).  An
 addition's bound depends on kappa = (|x| + |y|) / |x + y|, the largest
-over the parameters' ranges: 1 for operands of one sign.  DWPlusFP's
-also holds whatever cancels, by two cases on its high words: of
-opposite signs and within a factor of two, their sum is exact
-(Sterbenz) and so is the result; otherwise the sum is above half the
-pair's high word and the one rounding errs by less than 3 u^2 / (1 -
-2u).  Where the paper's constant is lower (DWPlusFP's 2 u^2,
-AccurateDWPlusDW's 3 u^2 whatever cancels, DWTimesDW3's 5 u^2, DWDivFP3's
-3 u^2), its finer case analyses are not mechanised here.  Where kappa is not bounded (the ranges let a
-sum cancel) and the operands carry errors, or the sum is of two pairs,
-no relative bound exists, for the f64 program either; the absolute
-bound, which every value also carries, then answers `atol`.  The cheaper sloppy
-addition is taken while its bound meets the requirement and its
-Fast2Sum precondition follows from the ranges; the accurate one
-otherwise.
+over the parameters' ranges: 1 for operands of one sign.  DWPlusFP's and
+AccurateDWPlusDW's also hold whatever cancels, by cases on the high
+words: of opposite signs and within a factor of two, their sum is exact
+(Sterbenz), and DWPlusFP's result with it; AccurateDWPlusDW's sum is
+then a multiple of ulp(xh)/2, itself a multiple of the ulp of th, the
+low words' rounded sum, so adding th is exact or errs by under 1.5 u^2.
+Otherwise the high words' sum is above half the larger one, and the
+roundings err by less than 3 u^2 / (1 - 2u) and about 5 u^2.  Every
+Fast2Sum is exact in each case.  Where the paper's constant is lower
+(DWPlusFP's 2 u^2, AccurateDWPlusDW's 3 u^2, DWTimesDW3's 5 u^2,
+DWDivFP3's 3 u^2), its finer case analyses are not mechanised here.
+Where kappa is not bounded (the ranges let a sum cancel) and the
+operands carry errors, or the sum is the sloppy one, no relative bound
+exists, for the f64 program either; the absolute bound, which every
+value also carries, then answers `atol`.  The cheaper sloppy addition is
+taken while its bound meets the requirement and its Fast2Sum
+precondition follows from the ranges; the accurate one otherwise.
 
 What is stated with a result: the ranges every value takes; no overflow
 (derived from the ranges, or left to the caller when a parameter has
