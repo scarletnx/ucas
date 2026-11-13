@@ -52,16 +52,16 @@ static struct {
 	struct {
 		long double worst;	/* the largest bound so far */
 		char where[160];	/* its case */
-		long ncase, nfail;
+		long ncase, nfail, nbox;	/* nbox: boxes run */
 		char fail[160];		/* the first case that fails */
 		int nid;		/* ids given */
 	} run;
 	int p;			/* the format's precision: binary32's 24 */
 	int s;			/* the small formats' scale: a value is v 2^-s */
 	struct av sp[DW_PIECES], tp[DW_PIECES];	/* the pieces of s and t */
-	long double done[2][64];	/* each bound once, by kind and p */
-	long cnt[2][64];
-	char said[2][64][400];
+	long double done[4][64];	/* each bound once, by kind and p */
+	long cnt[4][64];
+	char said[4][64][400];
 } g_dwcase;
 
 #define P (g_dwcase.p)
@@ -454,6 +454,337 @@ dwcase_add_p(int kind, int p, long *ncase, char *why, size_t n)
 	return g_dwcase.done[kind][p];
 }
 
+/* ---- DWTimesDW3 and DWDivFP3 ---- */
+
+/*
+ * A product's or a quotient's relative error is the same for the operands
+ * scaled by powers of two and for either negated, so every high word is
+ * taken in [1, 2), a float i 2^(1 - p) with 2^(p - 1) <= i < 2^p, and its
+ * low word |l| <= u.  A case is a box of high words (an interval of i for
+ * each), run as for the additions; a box whose bound is above the paper's
+ * constant is cut in four (two for the division's single word y) and run
+ * again, until the boxes are single floats, so the bound is the analysis's
+ * best wherever it is not the paper's.
+ */
+#define DW_MSLICE 16		/* each high word's first slices */
+#define DW_MCAP 4000000L	/* boxes run, at most */
+
+/* a b and a / b rounded down or up: the long double result and the sign
+ * of its exact error (fma) */
+static long double
+mul_dir(long double a, long double b, int up)
+{
+	long double r = a * b, e = fmal(a, b, -r);
+
+	if (up && e > 0)
+		return nextafterl(r, (long double)INFINITY);
+	if (!up && e < 0)
+		return nextafterl(r, -(long double)INFINITY);
+	return r;
+}
+
+static long double
+div_dir(long double a, long double b, int up)
+{
+	long double q = a / b, e = fmal(-q, b, a);
+	int sg = (e > 0) - (e < 0);
+
+	if (b < 0)
+		sg = -sg;
+	if (up && sg > 0)
+		return nextafterl(q, (long double)INFINITY);
+	if (!up && sg < 0)
+		return nextafterl(q, -(long double)INFINITY);
+	return q;
+}
+
+/* the exact product's interval, a multiple of 2^(ga + gb) */
+static struct av
+av_mul(const struct av *a, const struct av *b)
+{
+	long double c[4], lo, hi;
+	int i;
+
+	if (is_zero(a) || is_zero(b))
+		return av_make(0, 0, GNONE, 1);
+	c[0] = mul_dir(a->lo, b->lo, 0);
+	c[1] = mul_dir(a->lo, b->hi, 0);
+	c[2] = mul_dir(a->hi, b->lo, 0);
+	c[3] = mul_dir(a->hi, b->hi, 0);
+	lo = c[0];
+	for (i = 1; i < 4; i++)
+		lo = c[i] < lo ? c[i] : lo;
+	c[0] = mul_dir(a->lo, b->lo, 1);
+	c[1] = mul_dir(a->lo, b->hi, 1);
+	c[2] = mul_dir(a->hi, b->lo, 1);
+	c[3] = mul_dir(a->hi, b->hi, 1);
+	hi = c[0];
+	for (i = 1; i < 4; i++)
+		hi = c[i] > hi ? c[i] : hi;
+	return av_make(lo, hi, a->g == GNONE || b->g == GNONE ? GNONE :
+	    a->g + b->g, 0);
+}
+
+/* a / b, b of one sign; by a power of two b = 2^k, a scaled: its grid
+ * 2^(g - k) and a float when a is */
+static struct av
+av_div(const struct av *a, const struct av *b)
+{
+	long double c[4], lo, hi;
+	int i, k;
+
+	if (b->lo == b->hi && b->lo > 0 && frexpl(b->lo, &k) == 0.5L)
+		return av_make(ldexpl(a->lo, 1 - k), ldexpl(a->hi, 1 - k),
+		    a->g == GNONE ? GNONE : a->g - (k - 1), a->fl);
+	c[0] = div_dir(a->lo, b->lo, 0);
+	c[1] = div_dir(a->lo, b->hi, 0);
+	c[2] = div_dir(a->hi, b->lo, 0);
+	c[3] = div_dir(a->hi, b->hi, 0);
+	lo = c[0];
+	for (i = 1; i < 4; i++)
+		lo = c[i] < lo ? c[i] : lo;
+	c[0] = div_dir(a->lo, b->lo, 1);
+	c[1] = div_dir(a->lo, b->hi, 1);
+	c[2] = div_dir(a->hi, b->lo, 1);
+	c[3] = div_dir(a->hi, b->hi, 1);
+	hi = c[0];
+	for (i = 1; i < 4; i++)
+		hi = c[i] > hi ? c[i] : hi;
+	return av_make(lo, hi, GNONE, 0);
+}
+
+/* the high words i0..i1 (of 2^(p - 1)..2^p - 1) as a value */
+static struct av
+hword(long i0, long i1)
+{
+	return av_make(ldexpl((long double)i0, 1 - P), ldexpl((long double)i1,
+	    1 - P), 1 - P, 1);
+}
+
+static struct av
+lword(void)
+{
+	return av_make(-ldexpl(1, -P), ldexpl(1, -P), GNONE, 1);
+}
+
+static long double
+sum_up(long double a, long double b)
+{
+	return add_dir(a, b, 1);
+}
+
+/* DWTimesDW3: (ch, cl1) = 2Prod(xh, yh), tl0 = RN(xl yl), tl1 = RN(xh yl +
+ * tl0), cl2 = RN(xl yh + tl1), cl3 = RN(cl1 + cl2), Fast2Sum(ch, cl3); the
+ * result less x y is the four roundings' errors.  -1: Fast2Sum not shown
+ * exact */
+static long double
+mul_box(const struct av *xh, const struct av *yh)
+{
+	struct av xl = lword(), yl = lword(), t, ch, cl1, tl0, e0, tl1, e1,
+	    cl2, e2, cl3, e3;
+	long double err, den;
+
+	t = av_mul(xh, yh);
+	(void)av_rn(&t, &ch, &cl1);
+	t = av_mul(&xl, &yl);
+	(void)av_rn(&t, &tl0, &e0);
+	t = av_mul(xh, &yl);
+	t = av_add(&t, &tl0);
+	(void)av_rn(&t, &tl1, &e1);
+	t = av_mul(&xl, yh);
+	t = av_add(&t, &tl1);
+	(void)av_rn(&t, &cl2, &e2);
+	t = av_add(&cl1, &cl2);
+	(void)av_rn(&t, &cl3, &e3);
+	if (!f2s_ok(&ch, &cl3))
+		return -1;
+	err = sum_up(sum_up(av_mag(&e0), av_mag(&e1)), sum_up(av_mag(&e2),
+	    av_mag(&e3)));
+	/* |x y| >= (xh - u)(yh - u) */
+	den = mul_dir(add_dir(xh->lo, -ldexpl(1, -P), 0), add_dir(yh->lo,
+	    -ldexpl(1, -P), 0), 0);
+	return ratio(err, &(struct av){den, den, GNONE, 0, 0, 0});
+}
+
+/*
+ * DWDivFP3: th = RN(xh / y), (ph, pl) = 2Prod(th, y), d = RN(RN(RN(xh -
+ * ph) - pl) + xl), tl = RN(d / y), Fast2Sum(th, tl).  With q = xh / y in a
+ * piece of one binade, |q - th| <= E, the residual r = xh - th y = y (q -
+ * th) is at most y E, a multiple of 2^min(gx, gth + gy); xh - ph is exact
+ * when ph is within xh / 2 of xh (Sterbenz) and RN(xh - ph) - pl is r,
+ * exact when r is a float.  Then d = r + xl + e5, tl = d / y + e6 and
+ * th + tl - x / y = e5 / y + e6: relative to x / y, (|e5| + y |e6|) / x,
+ * with xh >= q y.  -1: a step not shown exact
+ */
+static long double
+div_piece(const struct av *xh, const struct av *y, const struct av *q)
+{
+	struct av xl = lword(), th, eth, r, t, d, e5, tl, e6;
+	long double E, err, xm, ph;
+	int g;
+
+	(void)av_rn(q, &th, &eth);
+	E = av_mag(&eth);
+	/* |xh - ph| <= y E + |th y - ph|, the latter half an ulp of th y */
+	ph = mul_dir(av_mag(&th), y->hi, 1);
+	if (sum_up(mul_dir(y->hi, E, 1), ldexpl(1, binade(ph) - P)) >
+	    xh->lo / 2)
+		return -1;
+	g = xh->g;
+	if (th.g == GNONE)
+		return -1;
+	if (th.g + y->g < g)
+		g = th.g + y->g;
+	r = av_make(-mul_dir(y->hi, E, 1), mul_dir(y->hi, E, 1), g, 0);
+	if (!is_zero(&r) && av_mag(&r) >= ldexpl(1, g + P))
+		return -1;	/* the residual not shown a float */
+	r.fl = 1;
+	t = av_add(&r, &xl);
+	(void)av_rn(&t, &d, &e5);
+	t = av_div(&d, y);
+	(void)av_rn(&t, &tl, &e6);
+	if (!f2s_ok(&th, &tl))
+		return -1;
+	err = sum_up(av_mag(&e5), mul_dir(av_mag(&e6), y->hi, 1));
+	xm = mul_dir(q->lo, y->lo, 0);
+	if (xm < xh->lo)
+		xm = xh->lo;
+	xm = add_dir(xm, -ldexpl(1, -P), 0);
+	return ratio(err, &(struct av){xm, xm, GNONE, 0, 0, 0});
+}
+
+static long double
+div_box(const struct av *xh, const struct av *y)
+{
+	struct av q = av_div(xh, y), pc[2];
+	long double r, w = 0;
+	int n = 0, i;
+
+	/* q's pieces by binade: below 1 and from 1 */
+	if (q.lo < 1 && q.hi >= 1) {
+		pc[n++] = av_make(q.lo, nextafterl(1, 0), GNONE, 0);
+		pc[n++] = av_make(1, q.hi, GNONE, 0);
+	} else
+		pc[n++] = q;
+	for (i = 0; i < n; i++) {
+		if ((r = div_piece(xh, y, &pc[i])) < 0)
+			return -1;
+		w = r > w ? r : w;
+	}
+	return w;
+}
+
+/* the bound of the box xh in x0..x1, yh (or y) in y0..y1 */
+static long double
+box_eval(int kind, long x0, long x1, long y0, long y1)
+{
+	struct av xh = hword(x0, x1), yh = hword(y0, y1);
+
+	g_dwcase.run.nbox++;
+	return kind == 2 ? mul_box(&xh, &yh) : div_box(&xh, &yh);
+}
+
+/* -1 (not closed) above every bound */
+static long double
+worse(long double a, long double b)
+{
+	return a < 0 || b < 0 ? -1 : a > b ? a : b;
+}
+
+static int
+above(long double r, long double target)
+{
+	return r < 0 || r > target;
+}
+
+/*
+ * The boxes of kind 2 (DWTimesDW3: xh and yh) or 3 (DWDivFP3: xh and y),
+ * r the bound of this one: one above target is cut in two along the word
+ * whose halves' larger bound is the smaller, so a box is cut finer only
+ * across where its bound changes (a binade's edge, y = 1); the largest
+ * bound left
+ */
+static void
+box_run(int kind, long x0, long x1, long y0, long y1, long double r,
+    long double target)
+{
+	long xm = (x0 + x1 + 1) / 2, ym = (y0 + y1 + 1) / 2;
+	long double a0 = 0, a1 = 0, b0 = 0, b1 = 0;
+	char what[160];
+
+	if (above(r, target) && (x0 < x1 || y0 < y1) &&
+	    g_dwcase.run.nbox < DW_MCAP) {
+		if (x0 < x1) {
+			a0 = box_eval(kind, x0, xm - 1, y0, y1);
+			a1 = box_eval(kind, xm, x1, y0, y1);
+		}
+		if (y0 < y1) {
+			b0 = box_eval(kind, x0, x1, y0, ym - 1);
+			b1 = box_eval(kind, x0, x1, ym, y1);
+		}
+		if (x0 < x1 && (y0 == y1 || !above(worse(a0, a1), worse(b0, b1)) ||
+		    (worse(a0, a1) >= 0 && worse(b0, b1) >= 0 && worse(a0, a1) <=
+		    worse(b0, b1)))) {
+			box_run(kind, x0, xm - 1, y0, y1, a0, target);
+			box_run(kind, xm, x1, y0, y1, a1, target);
+		} else {
+			box_run(kind, x0, x1, y0, ym - 1, b0, target);
+			box_run(kind, x0, x1, ym, y1, b1, target);
+		}
+		return;
+	}
+	snprintf(what, sizeof what, "%s in [%.9Lg, %.9Lg], %s in [%.9Lg, "
+	    "%.9Lg]", "xh", ldexpl((long double)x0, 1 - P), ldexpl((long
+	    double)x1, 1 - P), kind == 2 ? "yh" : "y", ldexpl((long double)y0,
+	    1 - P), ldexpl((long double)y1, 1 - P));
+	case_note(r, what);
+}
+
+/*
+ * The constant of DWTimesDW3 (kind 2) or DWDivFP3 (3) at p bits, relative
+ * to the exact product or quotient; infinity when a box is not closed.
+ */
+long double
+dwcase_muldiv_p(int kind, int p, long *ncase, char *why, size_t n)
+{
+	static const long double paper[2] = {5, 3};
+	long double target;
+	long i, j, w, top;
+
+	if (kind < 2 || kind > 3 || p < 3 || p > 48)
+		return (long double)INFINITY;
+	if (g_dwcase.done[kind][p] == 0) {
+		memset(&g_dwcase.run, 0, sizeof g_dwcase.run);
+		g_dwcase.p = p;
+		target = paper[kind - 2] * ldexpl(1, -2 * p);
+		top = 1L << (p - 1);
+		w = top / DW_MSLICE > 0 ? top / DW_MSLICE : 1;
+		for (i = top; i < 2 * top; i += w)
+			for (j = top; j < 2 * top; j += w) {
+				long i1 = i + w - 1 < 2 * top - 1 ? i + w - 1 : 2 * top - 1,
+				    j1 = j + w - 1 < 2 * top - 1 ? j + w - 1 : 2 * top - 1;
+				box_run(kind, i, i1, j, j1, box_eval(kind, i, i1, j, j1),
+				    target);
+			}
+		g_dwcase.cnt[kind][p] = g_dwcase.run.ncase;
+		if (g_dwcase.run.nfail) {
+			g_dwcase.done[kind][p] = (long double)INFINITY;
+			snprintf(g_dwcase.said[kind][p], sizeof g_dwcase.said[kind][p],
+			    "%ld of %ld cases not closed (the first: %s)",
+			    g_dwcase.run.nfail, g_dwcase.run.ncase, g_dwcase.run.fail);
+		} else {
+			g_dwcase.done[kind][p] = g_dwcase.run.worst;
+			snprintf(g_dwcase.said[kind][p], sizeof g_dwcase.said[kind][p],
+			    "%s", g_dwcase.run.where);
+		}
+	}
+	if (ncase)
+		*ncase = g_dwcase.cnt[kind][p];
+	if (why)
+		snprintf(why, n, "%s", g_dwcase.said[kind][p]);
+	return g_dwcase.done[kind][p];
+}
+
 /* ---- every operand of a small format, against the bounds ---- */
 
 /*
@@ -617,5 +948,91 @@ dwcase_every(int p, struct dwcase_ev *r)
 	r->fp /= u2;
 	r->acc /= u2;
 	r->ry = ry;
+	return 1;
+}
+
+/*
+ * DWTimesDW3 and DWDivFP3 on every operand of a p-bit format (p 3..5):
+ * the high words every float of [1, 2) (the bounds are the same for any
+ * scale and sign), the low words 0 and every normalized one in the
+ * EV_LO + 1 binades below their word's ulp; each rounding to nearest
+ * even at p bits.  Every value is a dyadic of fewer than 64 bits, so long
+ * double holds it exactly, and a quotient's long double rounding is too
+ * fine to move its rounding at p bits.  The largest relative errors in
+ * u^2, and the count of a Fast2Sum found inexact.
+ */
+static int
+md_lows(long double h, long double *out)
+{
+	int e = binade(h), k, m, sg, n = 0;
+
+	out[n++] = 0;
+	for (k = e - P - EV_LO; k <= e - P; k++)
+		for (m = 1 << (P - 1); m < 1 << P; m++)
+			for (sg = -1; sg <= 1; sg += 2) {
+				long double l = sg * ldexpl((long double)m, k - (P - 1));
+				if (rnp(h + l) == h)
+					out[n++] = l;
+			}
+	return n;
+}
+
+static int
+md_f2s(long double a, long double b, long double *s, long double *t)
+{
+	*s = rnp(a + b);
+	*t = rnp(b - rnp(*s - a));
+	return *s + *t == a + b;
+}
+
+int
+dwcase_every_md(int p, struct dwcase_evm *r)
+{
+	enum { NL = 2 * 16 * (EV_LO + 1) + 1 };
+	long double xl[NL], yl[NL], u2 = ldexpl(1, -2 * p);
+	int i, j, a, b, nx, ny;
+
+	memset(r, 0, sizeof *r);
+	if (p < 3 || p > 5)
+		return 0;
+	g_dwcase.p = p;
+	for (i = 1 << (p - 1); i < 1 << p; i++) {
+		long double xh = ldexpl((long double)i, 1 - p);
+		nx = md_lows(xh, xl);
+		for (j = 1 << (p - 1); j < 1 << p; j++) {
+			long double yh = ldexpl((long double)j, 1 - p);
+			ny = md_lows(yh, yl);
+			for (a = 0; a < nx; a++) {
+				long double x = xh + xl[a], th, ph, pl, d, tl, zh, zl, e;
+				for (b = 0; b < ny; b++) {
+					long double y = yh + yl[b], ch, cl1, tl0, tl1, cl2, cl3;
+					ch = rnp(xh * yh);
+					cl1 = xh * yh - ch;
+					tl0 = rnp(xl[a] * yl[b]);
+					tl1 = rnp(xh * yl[b] + tl0);
+					cl2 = rnp(xl[a] * yh + tl1);
+					cl3 = rnp(cl1 + cl2);
+					r->bad += !md_f2s(ch, cl3, &zh, &zl);
+					e = fabsl(zh + zl - x * y) / (x * y) / u2;
+					if (e > r->mul)
+						r->mul = e;
+					r->nmul++;
+				}
+				/* DWDivFP3(x~, y), y = yh a float */
+				th = rnp(xh / yh);
+				ph = rnp(th * yh);
+				pl = th * yh - ph;
+				d = rnp(rnp(rnp(xh - ph) - pl) + xl[a]);
+				tl = rnp(d / yh);
+				r->bad += !md_f2s(th, tl, &zh, &zl);
+				r->bad += rnp(xh - ph) != xh - ph ||
+				    rnp(rnp(xh - ph) - pl) != xh - th * yh;
+				e = fabsl((zh + zl) * yh - x) / x / u2;
+				if (e > r->div)
+					r->div = e;
+				r->ndiv++;
+			}
+		}
+	}
 	return 1;
 }

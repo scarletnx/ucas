@@ -602,7 +602,16 @@ fp64 and conversions under gt1030:
           tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): ph is within (1 +- u)^2 of xh, so xh - ph
           is exact (Sterbenz), and xh - th y, a multiple of ulp(th) ulp(y) at most ulp(th) |y| / 2,
           is a float, so less pl it is exact too; the residual x~ - y th, at most 2u |xh|, rounds
-          once with xl and once divided: 4.000 u^2 |x~ / y| (1.000 u^2 when xl = 0; the paper: 3 u^2)
+          once with xl and once divided: 4.000 u^2 |x~ / y| line by line (1.000 u^2 when xl = 0);
+          whatever the words, by 403 boxes run here (src/dwcase.c): xh and y in [1, 2) (the error is
+          the same at any scale and sign), first 16 slices each, a box above the paper's constant
+          cut in two along the word whose halves' larger bound is the smaller, down to single
+          floats; the low words within u.  Every value an interval with the 2^g it is a multiple of
+          and whether it is a float, as for the additions; q = xh / y cut at 1, the residual xh - th
+          y at most y |q - th| and a float when its grid says so, xh - ph exact when ph is within xh
+          / 2 of xh (Sterbenz), and y a power of two dividing exactly.  The largest,
+          3.000000 u^2 |x~ / y|, in the box xh in [1, 1], y in [1.99999988, 1.99999988] (the paper:
+          3 u^2)
         composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
           a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
       conditions:
@@ -649,7 +658,16 @@ fp64 and conversions under gt1030:
           tl = RN(d / y); (zh, zl) = Fast2Sum(th, tl): ph is within (1 +- u)^2 of xh, so xh - ph
           is exact (Sterbenz), and xh - th y, a multiple of ulp(th) ulp(y) at most ulp(th) |y| / 2,
           is a float, so less pl it is exact too; the residual x~ - y th, at most 2u |xh|, rounds
-          once with xl and once divided: 4.000 u^2 |x~ / y| (1.000 u^2 when xl = 0; the paper: 3 u^2)
+          once with xl and once divided: 4.000 u^2 |x~ / y| line by line (1.000 u^2 when xl = 0);
+          whatever the words, by 403 boxes run here (src/dwcase.c): xh and y in [1, 2) (the error is
+          the same at any scale and sign), first 16 slices each, a box above the paper's constant
+          cut in two along the word whose halves' larger bound is the smaller, down to single
+          floats; the low words within u.  Every value an interval with the 2^g it is a multiple of
+          and whether it is a float, as for the additions; q = xh / y cut at 1, the residual xh - th
+          y at most y |q - th| and a float when its grid says so, xh - ph exact when ph is within xh
+          / 2 of xh (Sterbenz), and y a power of two dividing exactly.  The largest,
+          3.000000 u^2 |x~ / y|, in the box xh in [1, 1], y in [1.99999988, 1.99999988] (the paper:
+          3 u^2)
         composition: a product's errors multiply (1 + ex)(1 + ey)(1 + e) - 1, a quotient's (1 + ex)(1 + e) / (1 - ey) - 1,
           a sum's are kappa max(ex, ey) + e (1 + kappa max(ex, ey)), a square root halves its operand's
       conditions:
