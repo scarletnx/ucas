@@ -1,0 +1,63 @@
+> approx exp(x) in -700..700 as f64 ulp 2 nosplit norational free list 2
+approx exp(x) on [-700, 700] as f64, fma
+  metric: relative error
+  checked: the target equals exp(x) at 33 points: range reductions and identities for exp apply
+  fits in real arithmetic (max relative error of P(x)):
+    deg  cheb interp  cheb econ    minimax
+    0    1.01e+304    -            1.01e+04     
+    1    inf          -            1            
+    2    inf          -            1.01e+04     
+    3    inf          -            1            
+    4    inf          -            1.01e+04     
+    (stopped: the error shrinks too slowly; a range reduction or a split fits better)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 130541 f64 in [-700, 700]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   reduced   4     horner+fma  1.01 ulp                 2.04e-16      8.92e+287     335.625 at x=158.585489  *
+      2^(k/256)*(1 + q(r)), 256-entry table: fma(sc, r*fma(fma(fma(0.041666666671923501, r, 0.16666668197038259), r, 0.50000000000000289), r, 0.99999999999999645), sc) where j = x*369.32993046757463 + 6755399441055744.0, k = j - 6755399441055744.0, r = fma(k, -9.0587766165871077e-20, fma(k, -0.0027076061740622863, x)), sc = asfloat(asuint([f64(1.0), f64(1.0027112750502025), ... 253 more ..., f64(1.9945921121709402)][asuint(j) & 255]) + ((asuint(j) << 44) & 0xfff0000000000000))
+      rounding of ap1: not analysed (index is not analysed)
+  2   reduced   11    horner+fma  0.862 ulp                1.44e-16      9.24e+287     553.375 at x=-299.151598  *
+      2^k * P(r), r = x - k*ln2: (fma(fma(fma(fma(fma(fma(fma(fma(fma(fma(fma(2.4996245041443568e-08, r, 2.7632480177622488e-07), r, 2.7557617000757497e-06), r, 2.4801486004746025e-05), r, 0.00019841269438287438), r, 0.0013888888951719826), r, 0.0083333333335568107), r, 0.041666666666490847), r, 0.16666666666666174), r, 0.50000000000000167), r, 1.0), r, 1.0))*asfloat((asuint(j) << 52) + 0x3ff0000000000000) where j = x*1.4426950408889634 + 6755399441055744.0, k = j - 6755399441055744.0, r = fma(k, -5.4979230187083712e-14, fma(k, -0.69314718055989033, x))
+  18 more: 'approx more [n]'
+> approx exp(x) in -87..88 ulp 2 nosplit norational free list 2
+approx exp(x) on [-87, 88] as f32, fma
+  metric: relative error
+  checked: the target equals exp(x) at 33 points: range reductions and identities for exp apply
+  fits in real arithmetic (max relative error of P(x)):
+    deg  cheb interp  cheb econ    minimax
+    0    1e+38        -            1            
+    1    1.54e+64     -            1            
+    2    7.27e+69     -            3.77e+53     
+    3    6.39e+71     -            4e+53        
+    4    4.39e+72     -            5.64e+53     
+    (stopped: the error shrinks too slowly; a range reduction or a split fits better)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131071 f32 in [-87, 88]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   reduced   6     horner+fma  0.836 ulp                7.23e-08      6.94e+30      15   at x=-70.9967194  *
+      2^k * P(r), r = x - k*ln2: (fma(fma(fma(fma(fma(fma(0.00138297863, r, 0.00836861599), r, 0.0416681878), r, 0.166665226), r, 0.49999994), r, 1.0), r, 1.0))*asfloat((asuint(j) << 23) + 0x3f800000) where j = x*1.44269502 + 12582912.0, k = j - 12582912.0, r = fma(k, -3.19461833e-05, fma(k, -0.693115234, x))
+      rounding of ap1, first order, 10 operations, relative, in u = 2^-24: worst case 3.19, probable no better (under 16 operations), expected 0.897; `error ap1 ~ F` says what each means
+  2   reduced   2     horner+fma  1.02 ulp                 1.12e-07      9.9e+30       19.875 at x=69.0086212  *
+      2^(k/128)*(1 + q(r)), 128-entry table: fma(sc, r*fma(0.5, r, 1.00000048), sc) where j = x*184.664963 + 12582912.0, k = j - 12582912.0, r = fma(k, 1.4880111e-11, fma(k, -0.00541521236, x)), sc = asfloat(asuint([f32(1.0), f32(1.00542986), ... 125 more ..., f32(1.9891988)][asuint(j) & 127]) + ((asuint(j) << 16) & 0xff800000))
+  11 more: 'approx more [n]'
+> approx exp(x) in -87..88 nofma ulp 2 nosplit norational free list 2
+approx exp(x) on [-87, 88] as f32
+  metric: relative error
+  checked: the target equals exp(x) at 33 points: range reductions and identities for exp apply
+  fits in real arithmetic (max relative error of P(x)):
+    deg  cheb interp  cheb econ    minimax
+    0    1e+38        -            1            
+    1    1.54e+64     -            1            
+    2    7.27e+69     -            3.77e+53     
+    3    6.39e+71     -            4e+53        
+    4    4.39e+72     -            5.64e+53     
+    (stopped: the error shrinks too slowly; a range reduction or a split fits better)
+  candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
+  measured on 131071 f32 in [-87, 88]; ulp against the exact value (naive rounding in parentheses)
+  #   kind      deg   form        error (naive)            max rel       max abs       cost
+  1   reduced   6     horner      1.07 ulp                 8.81e-08      8.29e+30      23   at x=68.3009872  *
+      2^k * P(r), r = x - k*ln2: (1.0 + r*(1.0 + r*(0.49999994 + r*(0.166665226 + r*(0.0416681878 + r*(0.00836861599 + 0.00138297863*r))))))*asfloat((asuint(j) << 23) + 0x3f800000) where j = x*1.44269502 + 12582912.0, k = j - 12582912.0, r = x - k*0.693115234 - k*3.19461833e-05
+      rounding of ap1, first order, 18 operations, relative, in u = 2^-24: worst case 90.7, probable no better (under 16 operations), expected 50.8; `error ap1 ~ F` says what each means
+  2   reduced   2     horner      1.21 ulp                 1.34e-07      9.9e+30       25.875 at x=-86.0920868  *
+      2^(k/128)*(1 + q(r)), 128-entry table: sc + sc*(r*(1.00000048 + 0.5*r)) where j = x*184.664963 + 12582912.0, k = j - 12582912.0, r = x - k*0.00541687012 + k*1.65775418e-06 + k*1.4880111e-11, sc = asfloat(asuint([f32(1.0), f32(1.00542986), ... 125 more ..., f32(1.9891988)][asuint(j) & 127]) + ((asuint(j) << 16) & 0xff800000))
+  11 more: 'approx more [n]'

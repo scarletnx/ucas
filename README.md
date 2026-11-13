@@ -1048,7 +1048,8 @@ What it does, in order:
   pi/2 in two parts; `cos x = 1 - 2 sin(x/2)^2`; `tan = sin/cos`,
   `sec = 1/cos`, `csc = 1/sin`, `cot = cos/sin`; `tan x = 2t/(1-t^2)`
   with `t = tan(x/2)`; exp as `2^k * P(r)` with 2^k built in the
-  exponent field (`asfloat((asuint(j) << 23) + 0x3f800000)`); log by
+  exponent field (`asfloat((asuint(j) << 23) + 0x3f800000)`), and
+  through a table (below); log by
   splitting exponent and mantissa (`m` in [sqrt(1/2), sqrt(2))) as
   `e*ln2 + m*P(m)`; sqrt and 1/sqrt by halving the exponent, with a
   polynomial or a short polynomial seed and one Newton step, and the
@@ -1059,6 +1060,30 @@ What it does, in order:
   acosh atanh (and sinh cosh tanh) are fitted like any builtin: the long
   double reference, Taylor jets (so `cheb econ` and Padé) and the
   symmetry check know them.
+
+**exp through a table** (Tang's reduction): x = k ln2/N + r with |r| <=
+ln2/2N, and exp x = 2^(k/N) (1 + q(r)).  The table holds 2^(i/N) for
+i < N as the format rounds it and is read at k's low bits; the high bits
+are added to the read value's exponent field, and q is a fit of e^r - 1,
+whose error reaches the result times |r|.  At each degree the table is
+the smallest of 2 to 256 entries at which q's error, so carried, is
+under an eighth of a unit roundoff (the largest when none is): a larger
+one would only cost memory.  That error is Taylor's bound, above what
+the fit reaches, so the choice is the same on every platform.  r is x - k ln2/N with ln2/N in two parts
+of the format's precision under an fma, else in Cody-Waite parts short
+enough that each k c is exact (three when two leave r short).  The read
+is priced as one `load`, as find's tables are, whatever the length.
+Under gt1030 it pays in f64, where each term of the polynomial costs
+32.375: exp on [-700, 700] within 2 ulp is a degree 4 polynomial and a
+256-entry table at 335.625, against degree 11 at 553.375; in f32 the
+load costs more than the terms it saves (19.875 against 15 at about 1
+ulp).  The error stops near 1 ulp: the table's rounding and the last
+one.  A texture would hold the table at `tex_fetch` (43.125 under
+gt1030) against `load`'s 6.875, so it is not offered.  The listing shows
+a table of more than 8 entries by its ends (`[f64(1.0),
+f64(1.0027112750502025), ... 253 more ..., f64(1.9945921121709402)]`);
+`show apN`, `as c` (a static array) and the JSON give it whole
+(tests/exptable.ucas).
 
 Errors are measured on a sample of the format's values in the interval
 (half evenly spaced in value, half evenly spaced in bit pattern, plus
