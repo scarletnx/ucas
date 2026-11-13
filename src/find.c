@@ -1835,7 +1835,10 @@ find_setup(struct func *f)
 			plan_free(&p);
 			free(pcols);
 			free(xs);
-			fail("the function is undefined on its whole domain");
+			fail(d.exhaustive ? "the function is undefined on its whole "
+			    "domain" : "none of the %llu points sampled is in the "
+			    "domain (the where clause, or where the function is "
+			    "defined)", (unsigned long long)d.pos);
 		}
 		F.maxn = (uint32_t)((128u << 20) / (F.P * sizeof(int64_t)));
 		if (F.maxn > (4u << 20))

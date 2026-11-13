@@ -206,7 +206,13 @@ sampled (65536 points, edge values first), and the output says so.
 The where clause narrows an integer parameter first when a conjunct
 compares it with an expression whose interval is known: in
 `f(v: u32, n: u32 in 5..8) = ... where v < 1 << n`, v runs over 0..255
-(1024 points, enumerated).  `wrap` and `range` add interval bounds when
+(1024 points, enumerated).  Under `||` the bounds are the hull of what
+each side leaves (`(x >= 3 && x <= 5) || (x >= 100 && x <= 101)`: 3..101),
+and a conjunct that lists a parameter's values, `x == 3 || x == 17 ||
+x == 4000000000`, makes those values its domain however far apart they
+are (up to 128 of them).  A sample in which no point is in the domain
+says that, with the number of points sampled, instead of calling the
+function undefined.  `wrap` and `range` add interval bounds when
 sampling, which can prove that an operation never wraps.
 
 ### Proofs on machine integers

@@ -1870,11 +1870,13 @@ param_bounds(const struct param *p, int64_t *lo, int64_t *hi)
 }
 
 /*
- * The where clause's conjuncts that compare a parameter (through casts
- * that keep its value) with an expression bound the parameter by the
- * expression's interval: `v < 1 << n` with n in 5..8 gives v <= 255.
- * The intervals are sound for machine values (plan_ival), so every point
- * cut off fails the where clause; a few rounds reach a fixpoint.
+ * The where clause's comparisons of a parameter (through casts that keep
+ * its value) with an expression bound the parameter by the expression's
+ * interval: `v < 1 << n` with n in 5..8 gives v <= 255.  Under && each
+ * side narrows what the other left; under || the bounds are the hull of
+ * what each side leaves (a side that cannot hold adds nothing).  The
+ * intervals are sound for machine values (plan_ival), so every point cut
+ * off fails the where clause; a few rounds reach a fixpoint.
  */
 static int
 cast_keeps(ty_t s, ty_t t)
@@ -1902,12 +1904,13 @@ var_under_casts(nid e)
 	return N.op[e] == O_VAR && N.ki[e] < MAXP ? (int)N.ki[e] : -1;
 }
 
+/* the comparisons under the where clause's && and || */
 static int
-conjuncts(nid w, nid *out, int n, int max)
+cmp_atoms(nid w, nid *out, int n, int max)
 {
-	if (N.op[w] == O_LAND) {
-		n = conjuncts(N.a[w], out, n, max);
-		return conjuncts(N.b[w], out, n, max);
+	if (N.op[w] == O_LAND || N.op[w] == O_LOR) {
+		n = cmp_atoms(N.a[w], out, n, max);
+		return cmp_atoms(N.b[w], out, n, max);
 	}
 	if (n < max && (opinfo[N.op[w]].fl & OF_CMP) &&
 	    TY_ISINT(N.ty[N.a[w]]) && N.ty[N.a[w]] != TY_BOOL)
@@ -1915,98 +1918,224 @@ conjuncts(nid w, nid *out, int n, int max)
 	return n;
 }
 
+struct wbc {
+	const struct func *f;
+	const nid *at;		/* the comparisons; at[i]'s operands are */
+	int na;			/* roots 2i and 2i + 1 of p */
+	const struct plan *p;
+	const struct ival *iv;
+};
+
+static int
+wb_skip(const struct func *f, int s)
+{
+	return s < 0 || s >= f->np || !TY_ISINT(f->p[s].ty) ||
+	    (TYK(f->p[s].ty) == K_UINT && TYW(f->p[s].ty) == 64);
+}
+
+/* lo, hi narrowed to where w can hold; 0 when it cannot hold in them */
+static int
+wb_narrow(const struct wbc *c, nid w, int64_t *lo, int64_t *hi)
+{
+	int i, j, k;
+
+	if (N.op[w] == O_LAND)
+		return wb_narrow(c, N.a[w], lo, hi) &&
+		    wb_narrow(c, N.b[w], lo, hi);
+	if (N.op[w] == O_LOR) {
+		int64_t al[MAXP], ah[MAXP], bl[MAXP], bh[MAXP];
+		int ra, rb, np = c->f->np;
+		memcpy(al, lo, (size_t)np * sizeof *lo);
+		memcpy(ah, hi, (size_t)np * sizeof *hi);
+		memcpy(bl, lo, (size_t)np * sizeof *lo);
+		memcpy(bh, hi, (size_t)np * sizeof *hi);
+		ra = wb_narrow(c, N.a[w], al, ah);
+		rb = wb_narrow(c, N.b[w], bl, bh);
+		if (!ra && !rb)
+			return 0;
+		for (j = 0; j < np; j++) {
+			lo[j] = !ra ? bl[j] : !rb ? al[j] : al[j] < bl[j] ? al[j] :
+			    bl[j];
+			hi[j] = !ra ? bh[j] : !rb ? ah[j] : ah[j] > bh[j] ? ah[j] :
+			    bh[j];
+		}
+		return 1;
+	}
+	for (i = 0; i < c->na && c->at[i] != w; i++)
+		;
+	if (i == c->na)
+		return 1;	/* not a comparison of integers: no bound */
+	for (k = 0; k < 2; k++) {
+		nid x = k ? N.b[w] : N.a[w];
+		int s = var_under_casts(x), o = N.op[w];
+		const struct ival *b;
+		if (wb_skip(c->f, s))
+			continue;
+		b = &c->iv[c->p->root[2 * i + (k ? 0 : 1)]];
+		if (b->top)
+			continue;
+		if (k)   /* e op x: x op' e */
+			o = o == O_LT ? O_GT : o == O_GT ? O_LT :
+			    o == O_LE ? O_GE : o == O_GE ? O_LE : o;
+		switch (o) {
+		case O_LT:
+			if (b->hi > INT64_MIN && b->hi - 1 < hi[s])
+				hi[s] = b->hi - 1;
+			break;
+		case O_LE:
+			if (b->hi < hi[s])
+				hi[s] = b->hi;
+			break;
+		case O_GT:
+			if (b->lo < INT64_MAX && b->lo + 1 > lo[s])
+				lo[s] = b->lo + 1;
+			break;
+		case O_GE:
+			if (b->lo > lo[s])
+				lo[s] = b->lo;
+			break;
+		case O_EQ:
+			if (b->hi < hi[s])
+				hi[s] = b->hi;
+			if (b->lo > lo[s])
+				lo[s] = b->lo;
+			break;
+		}
+		if (lo[s] > hi[s])
+			return 0;
+	}
+	return 1;
+}
+
 int
 where_bounds(const struct func *f, int64_t *lo, int64_t *hi,
     uint8_t *narrowed)
 {
-	nid cj[64], roots[128];
-	int nc, i, j, round, any = 0;
+	nid at[64], roots[128];
+	int na, i, j, round, any = 0;
 	struct func g;
 	struct plan p;
 	struct ival *iv;
+	struct wbc c;
 
 	if (!f->where)
 		return 0;
-	nc = conjuncts(f->where, cj, 0, 64);
-	if (nc == 0)
+	na = cmp_atoms(f->where, at, 0, 64);
+	if (na == 0)
 		return 0;
-	for (i = 0; i < nc; i++) {
-		roots[2 * i] = N.a[cj[i]];
-		roots[2 * i + 1] = N.b[cj[i]];
+	for (i = 0; i < na; i++) {
+		roots[2 * i] = N.a[at[i]];
+		roots[2 * i + 1] = N.b[at[i]];
 	}
-	plan_build(&p, roots, (uint32_t)(2 * nc), 0);
+	plan_build(&p, roots, (uint32_t)(2 * na), 0);
 	iv = xcalloc(p.n ? p.n : 1, sizeof *iv);
 	g = *f;
+	c.f = f;
+	c.at = at;
+	c.na = na;
+	c.p = &p;
+	c.iv = iv;
 	for (round = 0; round < 4; round++) {
+		int64_t nlo[MAXP], nhi[MAXP];
 		int changed = 0;
 		for (j = 0; j < f->np; j++)
-			if (TY_ISINT(g.p[j].ty) && !(TYK(g.p[j].ty) == K_UINT &&
-			    TYW(g.p[j].ty) == 64)) {
+			if (!wb_skip(f, j)) {
 				g.p[j].ranged = 1;
 				g.p[j].lo = lo[j];
 				g.p[j].hi = hi[j];
 			}
 		plan_ival(&p, &g, iv);
-		for (i = 0; i < nc; i++) {
-			int op = N.op[cj[i]], k;
-			for (k = 0; k < 2; k++) {
-				nid x = k ? N.b[cj[i]] : N.a[cj[i]];
-				nid e = k ? N.a[cj[i]] : N.b[cj[i]];
-				int s = var_under_casts(x), o = op;
-				const struct ival *b;
-				int64_t nlo, nhi;
-				if (s < 0 || s >= f->np || !TY_ISINT(f->p[s].ty) ||
-				    (TYK(f->p[s].ty) == K_UINT &&
-				    TYW(f->p[s].ty) == 64))
-					continue;
-				b = &iv[p.root[2 * i + (k ? 0 : 1)]];
-				if (b->top)
-					continue;
-				if (k)   /* e op x: x op' e */
-					o = o == O_LT ? O_GT : o == O_GT ? O_LT :
-					    o == O_LE ? O_GE : o == O_GE ? O_LE : o;
-				nlo = lo[s];
-				nhi = hi[s];
-				switch (o) {
-				case O_LT:
-					if (b->hi > INT64_MIN && b->hi - 1 < nhi)
-						nhi = b->hi - 1;
-					break;
-				case O_LE:
-					if (b->hi < nhi)
-						nhi = b->hi;
-					break;
-				case O_GT:
-					if (b->lo < INT64_MAX && b->lo + 1 > nlo)
-						nlo = b->lo + 1;
-					break;
-				case O_GE:
-					if (b->lo > nlo)
-						nlo = b->lo;
-					break;
-				case O_EQ:
-					if (b->hi < nhi)
-						nhi = b->hi;
-					if (b->lo > nlo)
-						nlo = b->lo;
-					break;
-				}
-				(void)e;
-				if (nlo != lo[s] || nhi != hi[s]) {
-					lo[s] = nlo;
-					hi[s] = nhi;
-					if (narrowed)
-						narrowed[s] = 1;
-					changed = any = 1;
-				}
-			}
+		memcpy(nlo, lo, (size_t)f->np * sizeof *lo);
+		memcpy(nhi, hi, (size_t)f->np * sizeof *hi);
+		if (!wb_narrow(&c, f->where, nlo, nhi)) {
+			/* nothing holds: one parameter's range empty says so */
+			for (j = 0; j < f->np && (wb_skip(f, j) || nlo[j] <= nhi[j]);
+			    j++)
+				;
+			if (j == f->np)
+				for (j = 0; j < f->np; j++)
+					if (!wb_skip(f, j)) {
+						nlo[j] = nhi[j];
+						nhi[j] = nhi[j] - 1;
+						break;
+					}
 		}
-		if (!changed)
+		for (j = 0; j < f->np; j++)
+			if (nlo[j] != lo[j] || nhi[j] != hi[j]) {
+				lo[j] = nlo[j];
+				hi[j] = nhi[j];
+				if (narrowed)
+					narrowed[j] = 1;
+				changed = any = 1;
+			}
+		for (j = 0; j < f->np && (wb_skip(f, j) || lo[j] <= hi[j]); j++)
+			;
+		if (!changed || j < f->np)
 			break;
 	}
 	free(iv);
 	plan_free(&p);
 	return any;
+}
+
+/*
+ * The constants a disjunction of x == K confines parameter j to (sorted,
+ * once each, those inside lo..hi): a conjunct of the where clause whose
+ * every disjunct is such an equality.  0 when there is none.
+ */
+static int
+or_keys(nid w, int j, int64_t *v, int n, int max)
+{
+	nid k;
+
+	if (N.op[w] == O_LOR) {
+		n = or_keys(N.a[w], j, v, n, max);
+		return n < 0 ? n : or_keys(N.b[w], j, v, n, max);
+	}
+	if (N.op[w] != O_EQ || n >= max)
+		return -1;
+	if (var_under_casts(N.a[w]) == j && N.op[N.b[w]] == O_CONST)
+		k = N.b[w];
+	else if (var_under_casts(N.b[w]) == j && N.op[N.a[w]] == O_CONST)
+		k = N.a[w];
+	else
+		return -1;
+	v[n++] = N.ki[k];
+	return n;
+}
+
+static int
+cmp_i64(const void *a, const void *b)
+{
+	int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+
+	return x < y ? -1 : x > y;
+}
+
+static int
+where_set(nid w, int j, int64_t lo, int64_t hi, int64_t *v)
+{
+	int n, i, m;
+
+	if (N.op[w] == O_LAND) {
+		n = where_set(N.a[w], j, lo, hi, v);
+		return n ? n : where_set(N.b[w], j, lo, hi, v);
+	}
+	if (N.op[w] != O_LOR && N.op[w] != O_EQ)
+		return 0;
+	n = or_keys(w, j, v, 0, DI_MAXSET);
+	if (n <= 0)
+		return 0;
+	qsort(v, (size_t)n, sizeof *v, cmp_i64);
+	for (i = m = 0; i < n; i++)
+		if (v[i] >= lo && v[i] <= hi && (m == 0 || v[m - 1] != v[i]))
+			v[m++] = v[i];
+	if (m == 0) {
+		/* no key in range: empty, which the bounds say */
+		v[0] = lo;
+		return -1;
+	}
+	return m;
 }
 
 void
@@ -2053,9 +2182,19 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 			sz = d->hi[j] < d->lo[j] ? 0 :
 			    (uint64_t)d->hi[j] - (uint64_t)d->lo[j] + 1;
 		} else {
+			int ns = f->where && !wb_skip(f, j) && ilo[j] <= ihi[j] ?
+			    where_set(f->where, j, ilo[j], ihi[j], d->setv[j]) : 0;
 			d->lo[j] = ilo[j];
 			d->hi[j] = ihi[j];
-			if (d->hi[j] < d->lo[j])
+			if (ns > 0) {
+				d->nset[j] = (uint16_t)ns;
+				d->narrowed[j] = 1;
+			}
+			if (ns < 0)
+				sz = 0;		/* none of its keys in range */
+			else if (d->nset[j])
+				sz = d->nset[j];
+			else if (d->hi[j] < d->lo[j])
 				sz = 0;
 			else {
 				sz = (uint64_t)d->hi[j] - (uint64_t)d->lo[j];
@@ -2106,18 +2245,24 @@ diter_next(struct diter *d, int64_t *in_i, double *in_r)
 				in_r[at] = fromkey(w, (int64_t)((uint64_t)d->lo[j] + r));
 				in_i[at] = 0;
 			} else if (d->exhaustive) {
-				uint64_t sz = d->real[j] ? d->rsteps :
-				    (uint64_t)d->hi[j] - (uint64_t)d->lo[j] + 1;
+				uint64_t sz = d->real[j] ? d->rsteps : d->nset[j] ?
+				    d->nset[j] : (uint64_t)d->hi[j] - (uint64_t)d->lo[j] + 1;
 				uint64_t r = sz ? idx % sz : 0;
 				idx = sz ? idx / sz : 0;
 				if (d->real[j])
 					in_r[at] = d->rlo[j] + (d->rhi[j] - d->rlo[j]) *
 					    (double)r / (double)(d->rsteps - 1);
+				else if (d->nset[j])
+					in_i[at] = d->setv[j][r];
 				else
 					in_i[at] = (int64_t)((uint64_t)d->lo[j] + r);
 			} else if (d->real[j]) {
 				double u = (double)(rnd(d) >> 11) / 9007199254740992.0;
 				in_r[at] = d->rlo[j] + (d->rhi[j] - d->rlo[j]) * u;
+			} else if (d->nset[j]) {
+				/* the where clause's keys, in turn */
+				in_i[at] = d->setv[j][d->pos < d->nset[j] ? d->pos :
+				    rnd(d) % d->nset[j]];
 			} else {
 				/* edge cases first, then uniform */
 				int64_t lo = d->lo[j], hi = d->hi[j], v;

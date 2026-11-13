@@ -82,6 +82,14 @@ domain_note(const struct run *r, uint64_t seen)
 	if (r->d.exhaustive)
 		printf("  over all %llu points of the domain\n",
 		    (unsigned long long)seen);
+	else if (!seen && r->d.total == UINT64_MAX)
+		printf("  sampled %llu points, none in the domain (the parameters "
+		    "span 2^64 or more); not exhaustive\n",
+		    (unsigned long long)r->d.pos);
+	else if (!seen)
+		printf("  sampled %llu points, none in the domain (the parameters "
+		    "span %llu points); not exhaustive\n", (unsigned long long)r->d.pos,
+		    (unsigned long long)r->d.total);
 	else if (r->d.total == UINT64_MAX)
 		printf("  sampled %llu points (domain has 2^64 or more points); "
 		    "not exhaustive\n", (unsigned long long)seen);
@@ -182,6 +190,10 @@ cmd_table(struct func *f, int max)
 		}
 	}
 	rep_end();
+	if (!shown && max > 0)
+		printf(r.d.exhaustive ? "  no point: the where clause holds at "
+		    "none of the %llu\n" : "  no point: the where clause holds at "
+		    "none of the %llu sampled\n", (unsigned long long)r.d.pos);
 	rep_bool("truncated", shown == max && (np || r.d.pos < r.d.limit));
 	if (shown == max && (np || r.d.pos < r.d.limit))
 		printf("  ... (table max %d)\n", max);
@@ -728,7 +740,9 @@ cmd_range(struct func *f)
 		rep_num("max", rmx);
 	}
 	if (!any)
-		printf("  empty (undefined everywhere)\n");
+		printf(r.d.exhaustive ? "  empty (undefined everywhere)\n" :
+		    "  no value: none of the %llu points sampled is in the "
+		    "domain\n", (unsigned long long)r.d.pos);
 	else if (TY_FP(t))
 		printf("  [%.9g, %.9g]\n", rmn, rmx);
 	else {
@@ -2408,7 +2422,15 @@ cmd_equiv(struct func *f, struct func *g, int ftz, int nanbits)
 		struct diter d;
 		diter_init(&d, f, EXH, 2, 0);
 		for (j = 0; j < f->np; j++)
-			if (d.narrowed[j])
+			if (d.nset[j] > 1) {
+				int k;
+				sb_printf(&nb, "%s%s in {", nb.n ? ", " : "",
+				    sym_str(f->p[j].name));
+				for (k = 0; k < d.nset[j] && k < 8; k++)
+					sb_printf(&nb, "%s%lld", k ? ", " : "",
+					    (long long)d.setv[j][k]);
+				sb_printf(&nb, "%s}", k < d.nset[j] ? ", ..." : "");
+			} else if (d.narrowed[j])
 				sb_printf(&nb, "%s%s in %lld..%lld", nb.n ? ", " :
 				    "", sym_str(f->p[j].name), (long long)d.lo[j],
 				    (long long)d.hi[j]);

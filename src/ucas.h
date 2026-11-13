@@ -731,6 +731,7 @@ uint32_t plan_loc(const struct plan *p, nid g);
 #define COLF(p, k) (&(p)->vf[(size_t)(k)*CH])
 
 /* domain iteration */
+#define DI_MAXSET 128
 struct diter {
 	const struct func *f;
 	int np;
@@ -738,6 +739,9 @@ struct diter {
 	double rlo[MAXP], rhi[MAXP];
 	uint8_t real[MAXP];          /* 1 real grid; keys: 2 f32, 3 f64, 4 f16 */
 	uint8_t narrowed[MAXP];      /* bounds tightened by the where clause */
+	uint16_t nset[MAXP];         /* > 0: the where clause confines the
+	                              * parameter to setv[j][0..nset[j]) */
+	int64_t setv[MAXP][DI_MAXSET];
 	int exhaustive;
 	uint64_t total, pos, limit;
 	uint32_t rsteps;
