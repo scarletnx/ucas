@@ -10976,6 +10976,189 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 		rep_end();
 }
 
+/*
+ * A fragment shader's inputs, recognised and reported, never proposed
+ * (#202, Liz: report what is recognised, nothing more): flat inputs, the
+ * provoking vertex's value, one a primitive; per-vertex inputs
+ * (PerVertexKHR), the three vertices' values; the barycentric builtins;
+ * and a sum over the three vertices of a per-vertex input's value times
+ * the barycentric of that vertex, which is the interpolation the
+ * rasteriser does for a smooth varying (gl_BaryCoordEXT) or a
+ * noperspective one (gl_BaryCoordNoPerspEXT).
+ */
+enum { RK_NONE, RK_BARYV, RK_BARYC, RK_PVARR, RK_PV, RK_TERM };
+
+static int
+rk_const(const char *opnd, int *v)
+{
+	int id;
+
+	if (opnd[0] != '%')
+		return 0;
+	id = idx(opnd);
+	if (V.id[id].kind != K_CONST || V.id[id].spec)
+		return 0;
+	*v = (int)V.id[id].c[0];
+	return 1;
+}
+
+static void
+rk_name(struct sbuf *b, int *n, int id)
+{
+	sb_printf(b, "%s%s", (*n)++ ? ", " : "", V.id[id].tok);
+}
+
+static void
+adv_recognise(int body)
+{
+	int nid = V.nid + 64, *kind, *var, *vk, *np, *mask, k, nfl = 0, npv = 0,
+	    nba = 0, nit = 0;
+	struct sbuf fl = {0}, pv = {0}, ba = {0}, it = {0};
+
+	kind = xcalloc((size_t)nid, sizeof *kind);
+	var = xcalloc((size_t)nid, sizeof *var);
+	vk = xcalloc((size_t)nid, sizeof *vk);
+	np = xcalloc((size_t)nid, sizeof *np);
+	mask = xcalloc((size_t)nid, sizeof *mask);
+	for (k = 0; k < V.nin && k != body; k++) {
+		const struct sins *I = &V.in[k];
+		if (strcmp(I->op, "OpVariable") || I->res < 0 || I->nop < 2 ||
+		    strcmp(I->opnd[1], "Input"))
+			continue;
+		if (adv_decorated(I->res, "Flat"))
+			rk_name(&fl, &nfl, I->res);
+		if (adv_decorated(I->res, "PerVertexKHR") ||
+		    adv_decorated(I->res, "PerVertexNV")) {
+			rk_name(&pv, &npv, I->res);
+			kind[I->res] = RK_PVARR;
+			var[I->res] = I->res;
+			vk[I->res] = -1;
+		}
+		if (adv_builtin_is(I->res, "BaryCoordKHR") ||
+		    adv_builtin_is(I->res, "BaryCoordNV") ||
+		    adv_builtin_is(I->res, "BaryCoordNoPerspKHR") ||
+		    adv_builtin_is(I->res, "BaryCoordNoPerspNV")) {
+			rk_name(&ba, &nba, I->res);
+			sb_printf(&ba, " (%s)", adv_builtin_is(I->res,
+			    "BaryCoordNoPerspKHR") || adv_builtin_is(I->res,
+			    "BaryCoordNoPerspNV") ? "noperspective" :
+			    "perspective-correct");
+			kind[I->res] = RK_BARYV;
+			np[I->res] = adv_builtin_is(I->res, "BaryCoordNoPerspKHR") ||
+			    adv_builtin_is(I->res, "BaryCoordNoPerspNV");
+		}
+	}
+	for (k = body < 0 ? V.nin : body; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int r = I->res, a, b, c;
+		if (r < 0 || r >= nid || I->nop < 2 || I->opnd[1][0] != '%')
+			continue;
+		a = idx(I->opnd[1]);
+		if (!strcmp(I->op, "OpLoad") || !strcmp(I->op, "OpCopyObject")) {
+			kind[r] = kind[a];
+			var[r] = var[a];
+			vk[r] = vk[a];
+			np[r] = np[a];
+			mask[r] = mask[a];
+		} else if (!strcmp(I->op, "OpAccessChain") ||
+		    !strcmp(I->op, "OpInBoundsAccessChain") ||
+		    !strcmp(I->op, "OpCompositeExtract")) {
+			int lit = !strcmp(I->op, "OpCompositeExtract");
+			if (I->nop < 3 || !(lit ? sscanf(I->opnd[2], "%d", &c) == 1 :
+			    rk_const(I->opnd[2], &c)))
+				continue;
+			/* a barycentric's component c; vertex c of a per-vertex
+			 * input (and then any part of it) */
+			if (kind[a] == RK_BARYV) {
+				kind[r] = RK_BARYC;
+				vk[r] = c;
+				np[r] = np[a];
+			} else if (kind[a] == RK_PVARR && vk[a] < 0) {
+				kind[r] = RK_PVARR;
+				var[r] = var[a];
+				vk[r] = c;
+			} else if ((kind[a] == RK_PVARR || kind[a] == RK_PV) &&
+			    vk[a] >= 0) {
+				kind[r] = kind[a];
+				var[r] = var[a];
+				vk[r] = vk[a];
+			}
+			/* a load of vertex c's pointer is its value */
+		} else if ((!strcmp(I->op, "OpFMul") ||
+		    !strcmp(I->op, "OpVectorTimesScalar")) && I->nop >= 3 &&
+		    I->opnd[2][0] == '%') {
+			int p, q;
+			b = idx(I->opnd[2]);
+			p = kind[a] == RK_BARYC ? a : b;
+			q = p == a ? b : a;
+			if (kind[p] == RK_BARYC && (kind[q] == RK_PV ||
+			    kind[q] == RK_PVARR) && vk[q] == vk[p]) {
+				kind[r] = RK_TERM;
+				var[r] = var[q];
+				mask[r] = 1 << vk[p];
+				np[r] = np[p];
+			}
+		} else if (!strcmp(I->op, "OpFAdd") && I->nop >= 3 &&
+		    I->opnd[2][0] == '%') {
+			b = idx(I->opnd[2]);
+			if (kind[a] == RK_TERM && kind[b] == RK_TERM && var[a] ==
+			    var[b] && np[a] == np[b] && !(mask[a] & mask[b])) {
+				kind[r] = RK_TERM;
+				var[r] = var[a];
+				np[r] = np[a];
+				mask[r] = mask[a] | mask[b];
+				if (mask[r] == 7) {
+					sb_printf(&it, "%sthe interpolation of %s by them",
+					    nit++ ? ", " : "", V.id[var[r]].tok);
+					if (ins_line(k) > 0)
+						sb_printf(&it, " at line %d", ins_line(k));
+					else
+						sb_printf(&it, " in %s", V.id[r].tok);
+					sb_printf(&it, " (what a %s varying is)", np[r] ?
+					    "noperspective" : "smooth");
+				}
+			}
+		}
+		/* a load through a per-vertex element's pointer is that
+		 * vertex's value */
+		if (!strcmp(I->op, "OpLoad") && kind[r] == RK_PVARR && vk[r] >= 0)
+			kind[r] = RK_PV;
+	}
+	if (nfl || npv || nba || nit) {
+		printf("recognised in the inputs (nothing is proposed for them):");
+		rep_obj("recognised");
+		if (nfl) {
+			printf(" flat %s (the provoking vertex's value, one a "
+			    "primitive)%s", sb_str(&fl), npv || nba || nit ? ";" : "");
+			rep_str("flat", sb_str(&fl));
+		}
+		if (npv) {
+			printf(" per-vertex %s (the three vertices' values)%s",
+			    sb_str(&pv), nba || nit ? ";" : "");
+			rep_str("per_vertex", sb_str(&pv));
+		}
+		if (nba) {
+			printf(" the barycentrics %s%s", sb_str(&ba), nit ? ";" : "");
+			rep_str("barycentrics", sb_str(&ba));
+		}
+		if (nit) {
+			printf(" %s", sb_str(&it));
+			rep_str("interpolations", sb_str(&it));
+		}
+		printf("\n");
+		rep_end();
+	}
+	free(fl.p);
+	free(pv.p);
+	free(ba.p);
+	free(it.p);
+	free(kind);
+	free(var);
+	free(vk);
+	free(np);
+	free(mask);
+}
+
 static void
 advice_pass(const char *text, int asked)
 {
@@ -11011,6 +11194,8 @@ advice_pass(const char *text, int asked)
 		if (!strcmp(I->op, "OpFunction") && body < 0)
 			body = k;
 	}
+	if (!strcmp(stage, "Fragment"))
+		adv_recognise(body);
 	/* constants, and the variables by where their value comes from */
 	for (i = 0; i < V.nid; i++)
 		if (V.id[i].kind == K_CONST && !V.id[i].spec)
