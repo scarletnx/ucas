@@ -212,7 +212,8 @@ T(int t)
 
 /* ---- parsing ---- */
 
-void glslfn_pass(const char *src, double budget, int only, const char *model);
+void glslfn_pass(const char *src, double budget, int only, const char *model,
+    int dotok);
 
 /* the execution model of the module's first entry point ("GLCompute",
  * "Fragment" ...), or NULL */
@@ -6555,6 +6556,34 @@ is_idot(int k)
 	return V.in[k].res >= 0 && idot_parts(V.in[k].op, &su, &sa, &sb, &sat);
 }
 
+/*
+ * The module declares SPV_KHR_integer_dot_product: its capability, the
+ * extension, or GLSL's GL_EXT_integer_dot_product (OpSourceExtension,
+ * which a source that enables it and calls none of it still has).  A
+ * dot form needs it, so a module without it is not given one.
+ */
+static int
+dot_declared(void)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (I->nop < 1)
+			continue;
+		if (!strcmp(I->op, "OpCapability") && (!strcmp(I->opnd[0],
+		    "DotProduct") || !strcmp(I->opnd[0], "DotProductKHR")))
+			return 1;
+		if (!strcmp(I->op, "OpExtension") && strstr(I->opnd[0],
+		    "SPV_KHR_integer_dot_product"))
+			return 1;
+		if (!strcmp(I->op, "OpSourceExtension") && strstr(I->opnd[0],
+		    "GL_EXT_integer_dot_product"))
+			return 1;
+	}
+	return 0;
+}
+
 /* the capabilities and the extension, those the module lacks */
 static void
 dot_caps_out(struct sbuf *out)
@@ -6613,6 +6642,10 @@ struct spvdot {
 };
 
 static int dotcaps;		/* the module needs the dot capabilities */
+static struct {
+	int n;			/* proved where the module lacks the extension */
+	double gain;
+} dotund;
 
 static ty_t
 spv_ty(int t)
@@ -7069,7 +7102,7 @@ dot_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 {
 	int k, n = 0, i, ty32[2];
 	int *sumuse = xcalloc((size_t)(V.nid + 1024), sizeof *sumuse);
-	int nmodel = 0;
+	int nmodel = 0, decl = dot_declared();
 
 	if (!dot_type_ids(ty32)) {
 		free(sumuse);
@@ -7121,6 +7154,12 @@ dot_pass(struct sbuf *rep, struct dotlog *log, int maxlog)
 		fuse_domain(NULL);
 		if (r.status != DOT_PROVED || !dot_translation_ok(&c, root,
 		    r.body)) {
+			dotres_free(&r);
+			continue;
+		}
+		if (!decl) {
+			dotund.n++;
+			dotund.gain += r.before - r.after;
 			dotres_free(&r);
 			continue;
 		}
@@ -10830,6 +10869,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
 	dotcaps = 0;
+	memset(&dotund, 0, sizeof dotund);
 	sg_simplify_reset();
 	SP.force_id = -1;
 	code_block_used = 1;
@@ -10845,7 +10885,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 		/* the function level alone (glslfn.c) */
 		rep_begin("spirv_simplify");
 		if (src_text != NULL)
-			glslfn_pass(src_text, budget, 1, entry_model());
+			glslfn_pass(src_text, budget, 1, entry_model(),
+			    dot_declared());
 		else
 			printf("function level: the module carries no GLSL source "
 			    "(OpSource): give the GLSL, or compile it with -g\n");
@@ -11342,6 +11383,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 		rep_end();
 	}
+	if (dotund.n) {
+		rep_obj("dot_products_not_declared");
+		rep_int("sums", dotund.n);
+		rep_num("gain", dotund.gain);
+		rep_str("needs", "SPV_KHR_integer_dot_product");
+		rep_end();
+	}
 	if (nsglog) {
 		rep_list("subgroup_counts");
 		for (i = 0; i < nsglog; i++) {
@@ -11494,6 +11542,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		    sym_str(model_active()->name));
 		fputs(dotrep.p, stdout);
 	}
+	if (dotund.n)
+		printf("  dot products: %d sum%s of products would be %s under %s "
+		    "(cost -%g), not written: the module does not declare "
+		    "SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, "
+		    "#extension GL_EXT_integer_dot_product)\n", dotund.n, dotund.n ==
+		    1 ? "" : "s", dotund.n == 1 ? "a dot product" : "dot products",
+		    sym_str(model_active()->name), dotund.gain);
 	free(dotrep.p);
 	if (idrep.n) {
 		printf("  divisions by a constant (the dividend's bound makes one "
@@ -11566,7 +11621,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	}
 	/* the function level: the GLSL source's functions (glslfn.c) */
 	if (src_text != NULL && fnl_mode != 2)
-		glslfn_pass(src_text, budget, 0, entry_model());
+		glslfn_pass(src_text, budget, 0, entry_model(),
+		    dot_declared());
 	free(list.p);
 	free(rl);
 	free(SP.dl);

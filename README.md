@@ -2198,14 +2198,23 @@ and the shifts and ors that pack, adding `OpCapability DotProduct`,
 `DotProductInput4x8BitPacked` and `OpExtension
 "SPV_KHR_integer_dot_product"` when the module lacks them; spirv-val
 accepts it, and spirv-cross writes the instruction through
-GL_EXT_spirv_intrinsics (tests/dot_view.ucas).  "simplify under sm86"
+GL_EXT_spirv_intrinsics (tests/dot_view.ucas).  It does so only in a
+module that declares the extension: its capability `DotProduct`, the
+`OpExtension`, or GLSL's `#extension GL_EXT_integer_dot_product`
+(glslang keeps it as `OpSourceExtension` even when nothing calls it).
+A module that does not gets no dot form, which would need a device
+feature it never asked for; one line says how many sums would be dot
+products and what they would save (JSON `dot_products_not_declared`,
+tests/dotdecl.ucas).  "simplify under sm86"
 (for, on, model NAME; "under the sm86 model") makes that model the
 active one first; "under NAME" or "model NAME" with no model of that
 name is `use NAME`'s error, which lists the models, and the request
 does not run (tests/firstmodel.ucas); the JSON `spirv_simplify` takes
 `model`.  The function level proposes the same
 for a GLSL expression over the values its leaves take at its calls,
-with the declaration GLSL needs (GLSL has no built-in for these).
+under the same condition, as GL_EXT_integer_dot_product's call:
+`dotPacked4x8EXT(a, b)` with uint operands is udot4x8, with int ones
+sdot4x8, with an int a and a uint b sudot4x8.
 Neither cfront nor the 2 x 16 and 8 x 4 forms write code yet.
 
 A sum with one lane of a word in it is searched too: `((x >> 8) & 255)
