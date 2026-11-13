@@ -273,6 +273,20 @@ advice (changes outside the module; nothing here is rewritten), priced under gt1
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
+simplify: 82 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: 'pervertexEXT' is not a type); main (line 6: 'v' is not declared))
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %68: 4 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 9 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+recognised in the inputs (nothing is proposed for them): per-vertex %v (the three vertices' values); the barycentrics %gl_BaryCoordEXT (perspective-correct); the interpolation of a part of %v by them at line 7 (what a smooth varying is)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
 simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
