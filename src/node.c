@@ -140,6 +140,11 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_SMIN2X16] = {"smin2x16", 2, OF_INT},
 	[O_SMAX2X16] = {"smax2x16", 2, OF_INT},
 	[O_ASTC_PART] = {"astc_partition", 3, OF_INT},
+	[O_ASTC_UNQ] = {"astc_unquant", 2, OF_INT | OF_PARTIAL},
+	[O_ASTC_UNQW] = {"astc_unquantw", 2, OF_INT | OF_PARTIAL},
+	[O_ASTC_ENDPOINT] = {"astc_endpoint", 3, OF_INT | OF_PARTIAL},
+	[O_ASTC_BILERP] = {"astc_bilerp", 3, OF_INT},
+	[O_ASTC_LERP] = {"astc_lerp", 3, OF_INT | OF_PARTIAL},
 	[O_FETCH_REPEAT] = {"fetch_repeat", 2, 0},
 	[O_FETCH_MIRROR] = {"fetch_mirror", 2, 0},
 	[O_FETCH_CLAMP] = {"fetch_clamp", 2, 0},
@@ -1750,6 +1755,9 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			s = "__builtin_popcountll";
 		sb_printf(b, "%s(", s);
 		pr(b, N.a[n], 0, pc, 0);
+		if (op == O_ASTC_BILERP)
+			/* the grid's row width, which rides in ki */
+			sb_printf(b, ", %lld", (long long)N.ki[n]);
 		if (opinfo[op].arity >= 2) {
 			sb_puts(b, ", ");
 			pr(b, N.b[n], 0, pc, 0);
@@ -1901,6 +1909,8 @@ print_paren(struct sbuf *b, nid n)
 	    opinfo[op].arity >= 2)) {
 		sb_printf(b, "%s(", opinfo[op].name);
 		print_paren(b, N.a[n]);
+		if (op == O_ASTC_BILERP)
+			sb_printf(b, ", %lld", (long long)N.ki[n]);
 		sb_puts(b, ", ");
 		print_paren(b, N.b[n]);
 		if (op == O_BFI)
