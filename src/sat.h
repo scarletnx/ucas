@@ -85,4 +85,59 @@ lit w_ne(struct aig *g, const struct word *a, const struct word *b);
 
 int sat_selftest(void);	/* 0 when the solver and circuits check out */
 
+/*
+ * IEEE 754 binary floats (fpsat.c).  A value is kept unpacked: unless
+ * nan or inf, it is (-1)^s m 2^e with m an integer of n bits, not
+ * normalized, and e a two's complement word; z is m == 0.  nan wins over
+ * inf, inf over the rest.  e is within [elo, ehi] whenever the value is
+ * finite and not zero.  nb is a NaN's bits in its format.
+ */
+#define FPV_EW 16
+#define FPV_MW 192
+struct fpv {
+	lit s, nan, inf, z;
+	struct word e;
+	int elo, ehi;
+	int n;
+	lit m[FPV_MW];
+	struct word nb;
+};
+struct fpfmt {
+	int eb, p;	/* exponent bits; significand bits, the hidden one too */
+};
+enum { FR_RNE, FR_RTZ, FR_RUP, FR_RDN };	/* to nearest even, 0, +inf, -inf */
+extern const char *fp_err;	/* set when a value outgrows the circuits */
+
+const struct fpfmt *fp_fmt(int w);	/* binary16, 32, 64 */
+void fp_unpack(struct aig *g, struct fpv *r, const struct word *x,
+    const struct fpfmt *F);
+void fp_quiet(struct aig *g, struct word *x, const struct fpfmt *F);
+void fp_const(struct aig *g, struct fpv *r, uint64_t bits,
+    const struct fpfmt *F);
+void fp_pack(struct aig *g, struct word *r, const struct fpv *a,
+    const struct fpfmt *F, int payload);
+void fp_anynan(struct aig *g, struct word *r, const struct fpfmt *F);
+void fp_mux(struct aig *g, struct fpv *r, lit s, const struct fpv *t,
+    const struct fpv *e);
+void fp_round(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpfmt *F, int mode);
+void fp_add(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpv *b, const struct fpfmt *F, int mode);
+void fp_mul(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpv *b, const struct fpfmt *F, int mode);
+/* on packed words: IEEE's < and == (NaN unordered, -0 == +0); fp_same is
+ * equiv's equality, == or both NaN */
+lit fp_lt(struct aig *g, const struct word *a, const struct word *b,
+    const struct fpfmt *F);
+lit fp_eq(struct aig *g, const struct word *a, const struct word *b,
+    const struct fpfmt *F);
+lit fp_same(struct aig *g, const struct word *a, const struct word *b,
+    const struct fpfmt *F);
+/* C99's fmin and fmax: a NaN operand gives the other one; which zero
+ * min(+0, -0) is is the libm's choice, so a free input picks it */
+void fp_minmax(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct word *pa, const struct fpv *b, const struct word *pb,
+    int max, const struct fpfmt *F);
+int fp_selftest(void);	/* 0 when the float circuits check out */
+
 #endif

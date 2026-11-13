@@ -4,6 +4,8 @@ PROG=	ucas
 SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 	find.c model.c remez.c approx.c nlp.c gif.c anim.c spirv.c sat.c glslc.c \
 	plot.c fsimp.c nodesat.c bound.c codelang.c spvcross.c dot.c sg.c inst.c tab.c
+# IEEE 754 floats as SAT circuits (nodesat.c's float formulas)
+SRCS+=	fpsat.c
 # fusions in cost models (cover pricing) and the integer rewrites
 SRCS+=	fuse.c irw.c idrw.c
 # integers as floats and floats as integers: more rewrites for irw.c
