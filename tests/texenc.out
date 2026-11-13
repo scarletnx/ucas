@@ -184,6 +184,186 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
+> E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
+> texenc E eac
+texenc E eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0): base 128, multiplier 1, modifiers -1 -2 -3 -10 0 1 2 9 (table 13), selectors 0 1 2 3 4 5 6 7 0 7 3 2 1 4 5 6, bytes 80 1d 10 13 7c 59 d7 d6
+  decodes to [0.498290181, 0.494382024, 0.490473866, 0.463116765, 0.502198339, 0.506106496, 0.510014653, 0.537371755, 0.498290181, 0.537371755, 0.463116765, 0.490473866, 0.494382024, 0.502198339, 0.506106496, 0.510014653]
+  exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 6.82e-06 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> F = [801, 798, 795, 789, 806, 809, 812, 818, 801, 801, 818, 789, 795, 798, 806, 809]
+> texenc F eac
+texenc F eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0): base 100, multiplier 0, modifiers -3 -6 -9 -15 2 5 8 14 (table 0), selectors 0 1 2 3 4 5 6 7 0 0 7 3 2 1 4 5, bytes 64 00 10 23 41 5b c7 dd
+  decodes to [0.391304344, 0.389838785, 0.388373226, 0.385442108, 0.393746942, 0.395212501, 0.39667806, 0.399609178, 0.391304344, 0.391304344, 0.399609178, 0.385442108, 0.388373226, 0.389838785, 0.393746942, 0.395212501]
+  exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 5.9e-06 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc R eac
+texenc R eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0): base 18, multiplier 2, modifiers -2 -5 -7 -10 1 4 6 9 (table 11), selectors 6 5 4 4 0 1 2 3 6 3 2 1 0 4 4 5, bytes 12 2b c3 0a 5c 89 48 cd
+  decodes to [0.119198829, 0.103566192, 0.080117248, 0.080117248, 0.0566682965, 0.0332193449, 0.0175867118, 0, 0.119198829, 0, 0.0175867118, 0.0332193449, 0.0566682965, 0.080117248, 0.080117248, 0.103566192]
+  not exact: the closest blocks are within 0.00928 of the table (entry 2: 0.0893991217 as 0.080117248), every base, multiplier and table tried
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 0.00929 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc Q eac tol 0.01
+texenc Q eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): base 127, multiplier 13, modifiers -2 -5 -8 -10 1 4 7 9 (table 9), selectors 3 2 1 1 0 4 4 5 6 6 7 7 6 5 5 4, bytes 7f d9 63 65 35 33 d3 7c
+  decodes to [0, 0.09184172, 0.244259894, 0.244259894, 0.39667806, 0.549096227, 0.549096227, 0.701514423, 0.853932559, 0.853932559, 0.95554471, 0.95554471, 0.853932559, 0.701514423, 0.701514423, 0.549096227]
+  not exact: the closest blocks are within 0.0557 of the table (entry 3: 0.300000012 as 0.244259894), every base, multiplier and table tried
+  more than the 0.01 allowed (tol)
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 0.0557 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc Q eac tol 0.06
+texenc Q eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): base 127, multiplier 13, modifiers -2 -5 -8 -10 1 4 7 9 (table 9), selectors 3 2 1 1 0 4 4 5 6 6 7 7 6 5 5 4, bytes 7f d9 63 65 35 33 d3 7c
+  decodes to [0, 0.09184172, 0.244259894, 0.244259894, 0.39667806, 0.549096227, 0.549096227, 0.701514423, 0.853932559, 0.853932559, 0.95554471, 0.95554471, 0.853932559, 0.701514423, 0.701514423, 0.549096227]
+  not exact: the closest blocks are within 0.0557 of the table (entry 3: 0.300000012 as 0.244259894), every base, multiplier and table tried
+  within the 0.06 allowed (tol)
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 0.0557 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> N = [-1, -0.5, 0, 0.5, 1, 0.25, -0.25, 0.75]
+> texenc N eac
+texenc N eac: 8 entries as SIGNED_R11_EAC, rows of 4 (4 x 2 texels): 1 block, 8 bytes (16 as R16_SNORM, 32 as R32_SFLOAT)
+  block (0, 0): base 20, multiplier 11, modifiers -2 -5 -8 -13 1 4 7 12 (table 2), selectors 3 2 0 5 7 4 1 6 0 0 0 0 0 0 0 0, bytes 14 b2 7c 05 00 04 0b 80
+  decodes to [-0.96187681, -0.531769335, -0.0156402737, 0.500488758, 1, 0.24242425, -0.273704797, 0.758553267]
+  not exact: the closest blocks are within 0.0381 of the table (entry 0: -1 as -0.96187681), every base, multiplier and table tried
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0381 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc E, F eac
+texenc E, F eac: 16 entries a channel as RG11_EAC (red E, green F), rows of 4 (4 x 4 texels): 1 block, 16 bytes (64 as R16G16_UNORM, 128 as R32G32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0) red: base 128, multiplier 1, modifiers -1 -2 -3 -10 0 1 2 9 (table 13), selectors 0 1 2 3 4 5 6 7 0 7 3 2 1 4 5 6
+  block (0, 0) green: base 100, multiplier 0, modifiers -3 -6 -9 -15 2 5 8 14 (table 0), selectors 0 1 2 3 4 5 6 7 0 0 7 3 2 1 4 5
+  block (0, 0) bytes 80 1d 10 13 7c 59 d7 d6 64 00 10 23 41 5b c7 dd
+  red: decodes to [0.498290181, 0.494382024, 0.490473866, 0.463116765, 0.502198339, 0.506106496, 0.510014653, 0.537371755, 0.498290181, 0.537371755, 0.463116765, 0.490473866, 0.494382024, 0.502198339, 0.506106496, 0.510014653]
+  red: exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  red: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 6.82e-06 of the table
+  green: decodes to [0.391304344, 0.389838785, 0.388373226, 0.385442108, 0.393746942, 0.395212501, 0.39667806, 0.399609178, 0.391304344, 0.391304344, 0.399609178, 0.385442108, 0.388373226, 0.389838785, 0.393746942, 0.395212501]
+  green: exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  green: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 5.9e-06 of the table
+  a nearest or filtered read of the texture is that read of the decoded tables, red and green; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc N, [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875] eac
+texenc N, the second table eac: 8 entries a channel as SIGNED_RG11_EAC (red N, green the second table), rows of 4 (4 x 2 texels): 1 block, 16 bytes (32 as R16G16_SNORM, 64 as R32G32_SFLOAT)
+  block (0, 0) red: base 20, multiplier 11, modifiers -2 -5 -8 -13 1 4 7 12 (table 2), selectors 3 2 0 5 7 4 1 6 0 0 0 0 0 0 0 0
+  block (0, 0) green: base 59, multiplier 6, modifiers -2 -5 -7 -10 1 4 6 9 (table 11), selectors 3 2 1 0 4 5 6 7 0 0 0 0 0 0 0 0
+  block (0, 0) bytes 14 b2 7c 05 00 04 0b 80 3b 6b 70 05 40 38 01 c0
+  red: decodes to [-0.96187681, -0.531769335, -0.0156402737, 0.500488758, 1, 0.24242425, -0.273704797, 0.758553267]
+  red: not exact: the closest blocks are within 0.0381 of the table (entry 0: -1 as -0.96187681), every base, multiplier and table tried
+  red: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0381 of the table
+  green: decodes to [-0.00782013685, 0.132942334, 0.226783976, 0.367546439, 0.508308887, 0.649071336, 0.742913008, 0.883675456]
+  green: not exact: the closest blocks are within 0.0241 of the table (entry 5: 0.625 as 0.649071336), every base, multiplier and table tried
+  green: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 5) over 32767: within 0.0241 of the table
+  a nearest or filtered read of the texture is that read of the decoded tables, red and green; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc L eac rows 8
+texenc L eac: 24 entries as R11_EAC, rows of 8 (8 x 3 texels): 2 blocks, 16 bytes (48 as R16_UNORM, 96 as R32_SFLOAT)
+  block (0, 0): base 51, multiplier 6, modifiers -2 -5 -7 -10 1 4 6 9 (table 11), selectors 3 1 4 5 2 0 4 6 1 4 5 7 0 0 0 0, bytes 33 6b 68 82 20 92 8b b8
+  block (1, 0): base 150, multiplier 4, modifiers -2 -5 -8 -13 1 4 7 12 (table 2), selectors 3 1 4 6 2 0 5 7 1 4 6 7 0 0 0 0, bytes 96 42 68 82 20 97 0d f8
+  decodes to [0, 0.0840254053, 0.224719107, 0.295065939, 0.384953588, 0.510014653, 0.60381043, 0.697606266, 0.0371275023, 0.154372245, 0.224719107, 0.341963857, 0.463116765, 0.556912541, 0.650708377, 0.775769413, 0.0840254053, 0.224719107, 0.295065939, 0.41231069, 0.510014653, 0.60381043, 0.697606266, 0.775769413]
+  not exact: the closest blocks are within 0.0258 of the table (entry 15: 0.75 as 0.775769413), every base, multiplier and table tried
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 0.0258 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> texenc [3000] eac
+texenc.ucas:79:18: error: texenc: EAC holds whole numbers from 0 to 2047 (read as k/2047) or numbers from 0 to 1; the table has an entry that is neither
+    texenc [3000] eac
+                     ^
+> texenc [-2000, 5] eac
+texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1023 (read as k/1023) or numbers from -1 to 1; the table has an entry that is neither
+    texenc [-2000, 5] eac
+                         ^
+> texenc Q astc 4x4 eac
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac] [rows W] [tol E]
+    texenc Q astc 4x4 eac
+                      ^
+> compress E as EAC
+  ucas: texenc E eac
+texenc E eac: 16 entries as R11_EAC, rows of 4 (4 x 4 texels): 1 block, 8 bytes (32 as R16_UNORM, 64 as R32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0): base 128, multiplier 1, modifiers -1 -2 -3 -10 0 1 2 9 (table 13), selectors 0 1 2 3 4 5 6 7 0 7 3 2 1 4 5 6, bytes 80 1d 10 13 7c 59 d7 d6
+  decodes to [0.498290181, 0.494382024, 0.490473866, 0.463116765, 0.502198339, 0.506106496, 0.510014653, 0.537371755, 0.498290181, 0.537371755, 0.463116765, 0.490473866, 0.494382024, 0.502198339, 0.506106496, 0.510014653]
+  exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 6.82e-06 of the table
+  a nearest or filtered read of the texture is that read of the decoded table; no model prices an EAC read apart from its uncompressed one: not measured
+> store E and F as RG11
+  ucas: texenc E, F eac
+texenc E, F eac: 16 entries a channel as RG11_EAC (red E, green F), rows of 4 (4 x 4 texels): 1 block, 16 bytes (64 as R16G16_UNORM, 128 as R32G32_SFLOAT); whole numbers k are stored as k/2047
+  block (0, 0) red: base 128, multiplier 1, modifiers -1 -2 -3 -10 0 1 2 9 (table 13), selectors 0 1 2 3 4 5 6 7 0 7 3 2 1 4 5 6
+  block (0, 0) green: base 100, multiplier 0, modifiers -3 -6 -9 -15 2 5 8 14 (table 0), selectors 0 1 2 3 4 5 6 7 0 0 7 3 2 1 4 5
+  block (0, 0) bytes 80 1d 10 13 7c 59 d7 d6 64 00 10 23 41 5b c7 dd
+  red: decodes to [0.498290181, 0.494382024, 0.490473866, 0.463116765, 0.502198339, 0.506106496, 0.510014653, 0.537371755, 0.498290181, 0.537371755, 0.463116765, 0.490473866, 0.494382024, 0.502198339, 0.506106496, 0.510014653]
+  red: exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  red: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 6.82e-06 of the table
+  green: decodes to [0.391304344, 0.389838785, 0.388373226, 0.385442108, 0.393746942, 0.395212501, 0.39667806, 0.399609178, 0.391304344, 0.391304344, 0.399609178, 0.385442108, 0.388373226, 0.389838785, 0.393746942, 0.395212501]
+  green: exact: every texel is its entry's f32 over 2047 (16 texels a block against 8 values, every base, multiplier and table tried)
+  green: a decoder that extends the 11 bits to 16 (the specification allows it) reads (v << 5) + (v >> 6) over 65535: within 5.9e-06 of the table
+  a nearest or filtered read of the texture is that read of the decoded tables, red and green; no model prices an EAC read apart from its uncompressed one: not measured
+> what does each value of R mean
+  sorry: I don't understand "does each value" here
+> sd3(a: i32 in 0..1000) = a / 7 + 300
+> find sd3 1
+find sd3: 1001 points, computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  i32(u32(a)/7) + 300                      the signed division a/7 as u32 (its operands are never negative) (derived; checked on every point)
+      holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
+      a / 7 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
+  cost 6   i32(1171u32(a) >> 13) + 300              the division a/7 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  cost 8   i32(0.142857149f32(a)) + 300             a/7 on the f32 pipe: the conversion of f32(a) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where a in [0, 1000], inside [0, 2^24), and 1000 (0.142857149 - 1/7) + ulp/2 < 1/7: 6.39e-06 + 7.63e-06 < 0.143
+      a < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(a/7) is an integer below 2^24, an f32, and f32(a) * 0.142857149 >= a/7 >= q0: the product rounded to nearest is not below q0
+      a/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 6.39e-06 (1000 times the excess); it is below 256, where rounding adds at most 7.63e-06: it stays below q0 + 1, as 6.39e-06 + 7.63e-06 < 1/7
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = a / 7
+  cost 5   i32(585u32(a) + 1228942 >> 12)           the map a/7 + 300 of a as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a in [0, 1000] (its range)
+      a/7 + 300 at a = 0..1000 is [300, 300, 300, 300, 300, 300, 300, 301, 301, 301, 301, 301, 301, 301, 302, 302, ... (985 more)] (evaluated at each of the 1001)
+      with i = a, M = 585 and A = 1228942: each value w has w*2^12 <= i*M + A < (w + 1)*2^12 (the closest: 0 above at a = 994, 443 below at a = 6), so (i*M + A) >> 12 is w
+      i*M + A stays in 0..1814527, inside u32: computed mod 2^32 from a itself, as a*0x249 + 0x12c08e, it is the same number
+  a table under gt1030 (the function at every point of its domain; cost 22 as written):
+  cost 6.875 [300, 300, 300, 300, 300, 300, 300, 301, 301, 301, 301, 301, 301, 301, 302, 302, 302, 302, 302, 302, 302, 303, 303, 303, 303, 303, 303, 303, 304, 304, 304, 304,… (4853 more characters)
+           1001 entries of i32 (4004 bytes of constant data), one for each point of a in 0..1000; entry k is the function at the point with index k = u32(a), all 1001 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+           the entries are exact as R11_EAC blocks, rows of 1024: 2048 bytes against 4004 as i32 (texenc ... eac; a read returns k/2047; a compressed read has no price of its own, so what is priced stays as it is)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16760 distinct columns, bank full; 'more' continues]
+> sd4(a: i32 in 0..1000) = a / 7 - 600
+> find sd4 1
+find sd4: 1001 points, computing in i32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 10  i32(u32(a)/7) - 600                      the signed division a/7 as u32 (its operands are never negative) (derived; checked on every point)
+      holds where a >= 0 (a in [0, 1000]: its range) and 7 >= 1 (7 in [7, 7]: a constant)
+      a / 7 on i32 truncates toward zero; with the dividend >= 0 and the divisor >= 1 the quotient is >= 0, so trunc(a/b) = floor(a/b)
+      0 <= a, b < 2^31: as u32 they are the same numbers, and the unsigned quotient floor(a/b) (at most a < 2^31) converts back to i32 unchanged
+  cost 6   i32(1171u32(a) >> 13) - 600              the division a/7 as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a in [0, 1000] (its range)
+      M = ceil(2^13/7) = 1171, so M*7 = 2^13 + 5
+      x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
+      x <= 1000: x*5 <= 5000 < 2^13, and x*M <= 1171000 < 2^32, so the product does not wrap in u32
+  cost 8   i32(0.142857149f32(a)) - 600             a/7 on the f32 pipe: the conversion of f32(a) * 0.142857149 (1/7 rounded up to an f32) (derived; checked on every point)
+      holds where a in [0, 1000], inside [0, 2^24), and 1000 (0.142857149 - 1/7) + ulp/2 < 1/7: 6.39e-06 + 7.63e-06 < 0.143
+      a < 2^24 converts to f32 exactly
+      0.142857149 = 0x1.24924ap-3 is 1/7 rounded up to an f32, above it by 6.39e-09
+      q0 = floor(a/7) is an integer below 2^24, an f32, and f32(a) * 0.142857149 >= a/7 >= q0: the product rounded to nearest is not below q0
+      a/7 <= q0 + 6/7, so the exact product is at most q0 + 6/7 + 6.39e-06 (1000 times the excess); it is below 256, where rounding adds at most 7.63e-06: it stays below q0 + 1, as 6.39e-06 + 7.63e-06 < 1/7
+      the conversion to i32 truncates toward zero: of a value in [q0, q0 + 1) it is q0 = a / 7
+  cost 6   i32(585u32(a) + 142 >> 12) - 600         the map a/7 - 600 of a as a multiply and a shift in u32 (derived; checked on every point)
+      holds where a in [0, 1000] (its range)
+      a/7 - 600 at a = 0..1000 is [-600, -600, -600, -600, -600, -600, -600, -599, -599, -599, -599, -599, -599, -599, -598, -598, ... (985 more)] (evaluated at each of the 1001)
+      with i = a, M = 585 and A = 142: each value, less the least one, w has w*2^12 <= i*M + A < (w + 1)*2^12 (the closest: 0 above at a = 994, 443 below at a = 6), so (i*M + A) >> 12 is w
+      i*M + A stays in 0..585727, inside u32: computed mod 2^32 from a itself, as a*0x249 + 0x8e, it is the same number
+  a table under gt1030 (the function at every point of its domain; cost 22 as written):
+  cost 6.875 [-600, -600, -600, -600, -600, -600, -600, -599, -599, -599, -599, -599, -599, -599, -598, -598, -598, -598, -598, -598, -598, -597, -597, -597, -597, -597, -59… (5854 more characters)
+           1001 entries of i32 (4004 bytes of constant data), one for each point of a in 0..1000; entry k is the function at the point with index k = u32(a), all 1001 evaluated
+           priced as gt1030's load, a cache-resident access: the table has to stay in cache for that
+           checked on every point of the domain
+           the entries are exact as SIGNED_R11_EAC blocks, rows of 1024: 2048 bytes against 4004 as i32 (texenc ... eac; a read returns k/1023; a compressed read has no price of its own, so what is priced stays as it is)
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16760 distinct columns, bank full; 'more' continues]

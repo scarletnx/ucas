@@ -25,6 +25,8 @@ struct texenc {
 	double *target, *dec;	/* what a read should return, and does */
 	double err;
 	int at;			/* the entry with the largest error */
+	int sgn;		/* EAC: signed */
+	double err16;		/* EAC: the largest error read at 16 bits */
 };
 int texenc_bc4(nid tab, int W, struct texenc *e);
 void texenc_free(struct texenc *e);
@@ -32,11 +34,28 @@ void texenc_free(struct texenc *e);
  * A table ucas emits (find's, phash's) searched for a lossless BC4
  * layout: rows of natw (a width the table has, 0: none) and of 4, 8, ...
  * up to its size, the exact one with the fewest bytes (fewer than the
- * table's own) into *W and *bytes; 0 when there is none.
+ * table's own) into *W and *bytes; where BC4 has none, whole numbers
+ * up to 2047 (signed: -1023..1023) as EAC's 11-bit values.  The format
+ * into *fmt; 0 when there is none.
  */
-int texenc_lossless(nid tab, int natw, int *W, int *bytes);
+enum { TEXENC_BC4, TEXENC_EAC, TEXENC_EAC_SIGNED };
+int texenc_lossless(nid tab, int natw, int *W, int *bytes, int *fmt);
 /* its line in a report: under ind, the entries named by what */
 void texenc_note(nid tab, int natw, const char *what, const char *ind);
+
+/*
+ * EAC (R11_EAC, signed or not): the 11-bit value of a block's selector
+ * (base as stored, a byte), what a read returns (x16: the decoder that
+ * extends it to 16 bits), a block's sixteen values (texel x + 4y), the
+ * best block for 16 targets (the largest error), and a table as blocks
+ * as texenc_bc4 does (0 when it is not what EAC holds)
+ */
+int eac_value(int base, int mul, int tab, int sel, int sgn);
+double eac_read(int v, int sgn, int x16);
+void eac_decode(const unsigned char b[8], int sgn, int v[16]);
+double eac_encode(const double t[16], const unsigned char care[16], int sgn,
+    unsigned char out[8]);
+int texenc_eac(nid tab, int W, int sgn, struct texenc *e);
 
 /*
  * astcblk.c: an ASTC block (2D, LDR) decoded, each texel's four channels
