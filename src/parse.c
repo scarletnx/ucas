@@ -226,7 +226,7 @@ tsym(struct P *p, uint32_t i)
 static const char *const keywords[] = {
 	"and", "or", "not", "xor", "mod", "in", "if", "else", "otherwise",
 	"where", "then", "match", "switch", "true", "false", "undefined",
-	"uniform", NULL
+	"uniform", "lanes", NULL
 };
 static const char *const stopwords[] = {
 	"basis", "max", "ops", "model", "as", "using", "to", "metric",
@@ -647,7 +647,10 @@ sg_apply(struct P *p, const struct sgfn *g, nid *args, int n)
 		int k, any = 0;
 		for (k = 0; k < p->fn->np; k++)
 			if (k != j && !p->fn->p[k].uniform) {
-				map[k] = sg_lane_copy(k, p->fn->p[k].name,
+				/* lanes: one of W free words, which SAT reads */
+				map[k] = p->fn->p[k].lanes ? sg_lanes_copy(k,
+				    p->fn->p[k].name, p->fn->p[k].ty, W) :
+				    sg_lane_copy(k, p->fn->p[k].name,
 				    p->fn->p[k].ty, W);
 				any = 1;
 			}
@@ -1071,6 +1074,10 @@ call_user(struct P *p, struct func *g, nid *args, int na)
 			    sym_str(g->name), ty_str(have), ty_str(want));
 		map[j] = mk_cast(want, args[j]);
 	}
+	if (N.fl[g->body] & NF_LANES)
+		fail("%s reads a lanes parameter across the lanes: its values "
+		    "are the function's own, a call cannot pass them yet",
+		    sym_str(g->name));
 	/* g's parameters read in the other lanes: the arguments there */
 	if (N.fl[g->body] & NF_LANEREAD)
 		for (j = 0; j < na; j++) {
@@ -1647,10 +1654,22 @@ parse_params(struct P *p, struct func *f, int *typed)
 		}
 		if (accept_kw(p, "uniform"))
 			pp->uniform = 1;
+		else if (accept_kw(p, "lanes"))
+			pp->lanes = 1;
 		if (accept_kw(p, "in"))
 			parse_range(p, pp, &rr);
 		if (accept_kw(p, "uniform"))
 			pp->uniform = 1;
+		else if (accept_kw(p, "lanes"))
+			pp->lanes = 1;
+		if (pp->uniform && pp->lanes)
+			fail("%s is uniform (one value for the lanes) or lanes (a "
+			    "value in each), not both", sym_str(pp->name));
+		if (pp->lanes && (!pp->ty || !TY_ISINT(pp->ty) ||
+		    !TY_SIZED(pp->ty) || pp->ty == TY_BOOL))
+			fail("%s: a lanes parameter is a machine integer (uN, iN): "
+			    "its values in the lanes are decided by SAT",
+			    sym_str(pp->name));
 		if (pp->ty == 0 && pp->ranged)
 			pp->ty = rr ? TY_REAL : TY_INT;
 		if (pp->ty && TY_ISINT(pp->ty) && rr)

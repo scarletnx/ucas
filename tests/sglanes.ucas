@@ -1,0 +1,41 @@
+# A parameter with its own value in each lane, `x: u32 lanes` (src/sg.c):
+# W free words, one per lane.  In the lane itself x is the lane's word; a
+# subgroup operation reads every lane's.  There is no one point to
+# evaluate, so equiv decides by SAT over the lanes' words.
+model w8 : gt1030 { warp: 8 }
+use w8
+
+# a ballot of the lanes' low bits, and the same word put together from
+# shuffles
+bl(x: u8 lanes, lane: u32 in 0..7) = sg_ballot((x & 1) != 0)
+bs(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = r | (u32(sg_shuffle(x, j) & 1) << j) }; r }
+equiv bl bs
+# a wrong one, the bits in the other order: SAT's counterexample is the
+# lanes' words, run again by the evaluator
+bw(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = r | (u32(sg_shuffle(x, j) & 1) << (7 - j)) }; r }
+equiv bl bw
+# the lane's own word is the one a shuffle reads at the lane
+own(x: u8 lanes, lane: u32 in 0..7) = x
+shf(x: u8 lanes, lane: u32 in 0..7) = sg_shuffle(x, lane)
+equiv own shf
+# no range to walk and no call to pass the lanes' values, each said; the
+# price is that of a value computed in the lane
+range bl
+show bl(3, 2)
+cost bl
+# refused: a lanes parameter that is uniform too, one that is not a
+# machine integer, one read in the lane itself by a function with no lane
+u2(x: u8 uniform lanes) = x
+fl(x: f32 lanes) = x
+nol(x: u8 lanes) = x + sg_shuffle(x, 0)
+nol2(x: u8 lanes) = sg_shuffle(x, 0)
+equiv nol nol2
+
+# the transpose of the lanes' words as a matrix of bits (8 words of 8
+# bits): lane j gets the word whose bit l is bit j of lane l's word.
+# Read by eight shuffles, and as the ballot of bit j kept by lane j
+tr(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for l in 0..7 { r = r | (u32((sg_shuffle(x, l) >> lane) & 1) << l) }; r }
+tb(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = lane == j ? sg_ballot(((x >> j) & 1) != 0) : r }; r }
+equiv tr tb
+cost tr
+cost tb

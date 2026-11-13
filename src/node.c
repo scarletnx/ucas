@@ -435,6 +435,21 @@ sg_lane_copy(int slot, uint32_t name, ty_t t, int W)
 }
 
 nid
+sg_lanes_copy(int slot, uint32_t name, ty_t t, int W)
+{
+	/* b: the W lanes it is read in */
+	return intern(O_VAR, t, name, (nid)W, 0, SG_LCOPY_SLOT + slot, 0.0,
+	    NF_VAR | NF_LANES);
+}
+
+nid
+sg_lanes_word(int slot, int lane, uint32_t name, ty_t t)
+{
+	return intern(O_VAR, t, name, 0, 0, SG_FREE_SLOT + slot * SG_MAXW +
+	    lane, 0.0, NF_VAR | NF_LANES);
+}
+
+nid
 sg_state_copy(int slot, uint32_t name, ty_t t, int W, uint32_t from)
 {
 	/* b: the W lanes it is read in; kr: what it follows (a name) */

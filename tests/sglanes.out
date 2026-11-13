@@ -1,0 +1,76 @@
+> model w8 : gt1030 { warp: 8 }
+> use w8
+cost model: w8
+> bl(x: u8 lanes, lane: u32 in 0..7) = sg_ballot((x & 1) != 0)
+> bs(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = r | (u32(sg_shuffle(x, j) & 1) << j) }; r }
+> equiv bl bs
+bl and bs are equal on the domain of bl (proved by SAT: 161 AIG nodes, 0 conflicts)
+> bw(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = r | (u32(sg_shuffle(x, j) & 1) << (7 - j)) }; r }
+> equiv bl bw
+bl and bw differ, with the lanes' x = [0, 0, 0, 1, 0, 0, 0, 0], at x=0, lane=0: 8 vs 16 (found by SAT, checked by evaluation)
+> own(x: u8 lanes, lane: u32 in 0..7) = x
+> shf(x: u8 lanes, lane: u32 in 0..7) = sg_shuffle(x, lane)
+> equiv own shf
+own and shf are equal on the domain of own (proved by SAT: 624 AIG nodes, 0 conflicts)
+> range bl
+sglanes.ucas:23:9: error: x has its own value in each lane (a lanes parameter) and is read across the lanes: there is no one point to evaluate; equiv decides by SAT
+    range bl
+            ^
+> show bl(3, 2)
+sglanes.ucas:24:14: error: bl reads a lanes parameter across the lanes: its values are the function's own, a call cannot pass them yet
+    show bl(3, 2)
+                 ^
+> cost bl
+cost of bl under w8: 3.375 (3 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  cmp              1 x 2.375 = 2.375
+  sg_ballot        1 x 0     = 0
+> u2(x: u8 uniform lanes) = x
+sglanes.ucas:28:23: error: x is uniform (one value for the lanes) or lanes (a value in each), not both
+    u2(x: u8 uniform lanes) = x
+                          ^
+> fl(x: f32 lanes) = x
+sglanes.ucas:29:16: error: x: a lanes parameter is a machine integer (uN, iN): its values in the lanes are decided by SAT
+    fl(x: f32 lanes) = x
+                   ^
+> nol(x: u8 lanes) = x + sg_shuffle(x, 0)
+> nol2(x: u8 lanes) = sg_shuffle(x, 0)
+> equiv nol nol2
+sglanes.ucas:32:15: error: x has its own value in each lane (lanes) and is read in the lane itself: the function needs its lane, a parameter lane: u32 in 0..N-1
+    equiv nol nol2
+                  ^
+> tr(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for l in 0..7 { r = r | (u32((sg_shuffle(x, l) >> lane) & 1) << l) }; r }
+> tb(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = lane == j ? sg_ballot(((x >> j) & 1) != 0) : r }; r }
+> equiv tr tb
+tr and tb are equal on the domain of tr (proved by SAT: 1298 AIG nodes, 128 conflicts)
+> cost tr
+cost of tr under w8: 157 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd             8 x 1     = 8
+  logic           16 x 1     = 16
+  shift           16 x 2     = 32
+  cmp              8 x 2.375 = 19
+  branch           8 x 6.25  = 50
+  sg_shuffle       8 x 4     = 32
+  loop l in 0..7:
+    per iteration: body 10 + overhead 9.625 (index add, compare, branch) = 19.625
+    trip count: 8 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 157
+> cost tb
+cost of tb under w8: 152 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd             8 x 1     = 8
+  logic            8 x 1     = 8
+  shift            8 x 2     = 16
+  cmp             24 x 2.375 = 57
+  select           8 x 1.625 = 13
+  branch           8 x 6.25  = 50
+  sg_ballot        8 x 0     = 0
+  loop j in 0..7:
+    per iteration: body 9.375 + overhead 9.625 (index add, compare, branch) = 19
+    trip count: 8 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 152
+  ?: on int(lane) == j  (arms cost 5.375 and 0)  [in a loop body: per iteration]
+      select: +1.625   uniform branch: +6.25   divergent branch: +20.625
+      -> select (condition varies per invocation; mark parameters 'uniform' if it does not)
+  estimate with the best form per ?: : 152

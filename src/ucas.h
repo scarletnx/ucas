@@ -230,8 +230,10 @@ extern const struct opinfo opinfo[O_NOPS];
 		      * in it: part of a value per lane */
 #define NF_LANEREAD 16 /* reads a parameter's value in another lane, which
 			* has no exact value here (sg_lane_copy) */
-#define NF_INH (NF_VAR | NF_SG | NF_LANE | NF_LANEREAD)   /* an operand's,
-							  * its user's */
+#define NF_LANES 32  /* reads a `lanes` parameter in another lane: a free
+		      * word there, which only SAT gives a value (sg.c) */
+#define NF_INH (NF_VAR | NF_SG | NF_LANE | NF_LANEREAD | NF_LANES)
+			/* an operand's, its user's */
 struct nodes {
 	uint8_t *op;
 	uint8_t *fl;
@@ -318,6 +320,7 @@ struct param {
 	ty_t ty;
 	int ranged;
 	int uniform;    /* same value across a warp: branches on it do not diverge */
+	int lanes;      /* a free value in each lane of the subgroup (sg.c) */
 	int64_t lo, hi;
 	double rlo, rhi;
 };
@@ -534,6 +537,22 @@ nid sg_lane(void);		/* the lane's index inside an operand */
  * parameter that is not uniform: no exact value, priced at the worst */
 #define SG_COPY_SLOT 300
 nid sg_lane_copy(int slot, uint32_t name, ty_t t, int W);	/* node.c */
+/* a `lanes` parameter (slot) in the lane an operand is read in: one of W
+ * free words, slot SG_FREE_SLOT + slot * SG_MAXW + lane once the
+ * operation is spelled out for SAT (sg_lanes_lower) */
+#define SG_LCOPY_SLOT 400
+#define SG_FREE_SLOT 1000
+nid sg_lanes_copy(int slot, uint32_t name, ty_t t, int W);	/* node.c */
+nid sg_lanes_word(int slot, int lane, uint32_t name, ty_t t);	/* node.c */
+/* the name of a `lanes` parameter e reads across the lanes, or NULL */
+const char *sg_lanes_name(nid e);
+/* e for SAT when f has `lanes` parameters: the subgroup operations
+ * spelled out over the lanes' free words, a parameter read in the lane
+ * itself the word of f's lane; fail()s when f has no lane to say which */
+nid sg_lanes_lower(const struct func *f, nid e);
+/* the lanes of f's subgroup: its lane parameter's range, else the active
+ * model's warp; 0 when neither says */
+int sg_lanes_width(const struct func *f);
 /* a loop state's (slot) value in the lane it is read in, for a state that
  * follows a value per lane (from: its name): priced as a parameter's */
 nid sg_state_copy(int slot, uint32_t name, ty_t t, int W, uint32_t from);
@@ -709,7 +728,7 @@ nid diff_node(nid e, uint32_t slot);
 int equiv_check(const struct func *f, nid a, nid b, struct sbuf *witness,
     int *sampled);
 /* equiv_decide: b refines a on f's domain, by enumeration or SAT */
-enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED, EQ_ALGEBRA };
+enum { EQ_EXHAUSTIVE, EQ_SAT, EQ_SAMPLED, EQ_ALGEBRA, EQ_UNDECIDED };
 struct nsat_res {          /* nodesat.c */
 	int status;         /* 0 proved, 1 counterexample, -1 gave up, -2 unsupported */
 	const char *why;    /* -2: what could not be bit-blasted */
