@@ -77,13 +77,16 @@ DPADD+=	libsnxglslc.a
 ${PROG}.full ${PROG}: libsnxglslc.a
 CLEANFILES+=	libsnxglslc.a ${SNXGLSLC:S/^/snx_/:S/$/.o/}
 
+# gmake gets no MAKEFLAGS: under make -j they carry bmake's -J, which it
+# refuses
 ${CONCORD_LIB}:
 	@if [ ! -d ${CONCORD}/.git ]; then \
 		mkdir -p ${.CURDIR}/third_party && \
 		git clone -q ${CONCORD_REPO} ${CONCORD} && \
 		git -C ${CONCORD} checkout -q ${CONCORD_REV}; \
 	fi
-	cd ${CONCORD} && env CFLAGS="-O2 -fPIC -w -I${LOCALBASE}/include" \
+	cd ${CONCORD} && env MAKEFLAGS= \
+	    CFLAGS="-O2 -fPIC -w -I${LOCALBASE}/include" \
 	    gmake -s CC=${CC} static >/dev/null
 
 # Each tests/NAME.jsonl is a list of gateway events; --stdin must print
