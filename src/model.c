@@ -448,7 +448,10 @@ ncost(const struct model *m, nid g, int *cls)
 {
 	float c = node_cost(m, g, cls);
 
-	return cur_eff && cur_in[g] ? cur_eff[g] : c;
+	/* the cover leaves loops to price_loop, which prices only the
+	 * outermost: a loop in a loop's body is its trip count times its
+	 * iteration (loop_cost), as find prices it */
+	return cur_eff && cur_in[g] && N.op[g] != O_LOOP ? cur_eff[g] : c;
 }
 
 static int

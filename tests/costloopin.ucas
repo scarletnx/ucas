@@ -1,0 +1,16 @@
+# cost: a loop in a loop's body is priced in it, its trip count times its
+# iteration (as find prices it, src/loop.c loop_cost), per iteration of
+# the outer loop when it reads the outer loop's index or states, once
+# when it does not
+use gt1030
+one(x: u32, k: u32) = { t: u32 = k; for i in 0..7 { t = t + x * i }; t }
+cost one
+# the inner loop starts from the outer state: 8 times 8 iterations
+two(x: u32) = { s: u32 = 0; for k in 0..7 { t: u32 = s; for i in 0..7 { t = t + x * i }; s = t }; s }
+cost two
+# it reads the outer index
+three(x: u32) = { s: u32 = 0; for k in 0..7 { t: u32 = s; for i in 0..7 { t = t + x * i + k }; s = t }; s }
+cost three
+# it reads neither: hoisted, once
+inv(x: u32) = { s: u32 = 0; for k in 0..7 { s = s + { t: u32 = 0; for i in 0..7 { t = t + x * i }; t } }; s }
+cost inv

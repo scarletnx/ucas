@@ -1,0 +1,51 @@
+> use gt1030
+cost model: gt1030
+> one(x: u32, k: u32) = { t: u32 = k; for i in 0..7 { t = t + x * i }; t }
+> cost one
+cost of one under gt1030: 101 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd             8 x 1     = 8
+  cmp              8 x 2.375 = 19
+  branch           8 x 6.25  = 50
+  fused by the model (one instruction for several operations):
+    imad             8 x 3     = 24  (a*b + c; saves 8)
+  loop i in 0..7:
+    per iteration: body 3 + overhead 9.625 (index add, compare, branch) = 12.625
+    trip count: 8 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 101
+> two(x: u32) = { s: u32 = 0; for k in 0..7 { t: u32 = s; for i in 0..7 { t = t + x * i }; s = t }; s }
+> cost two
+cost of two under gt1030: 733 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd             8 x 1     = 8
+  cmp              8 x 2.375 = 19
+  branch          16 x 44.125 = 706
+  loop k in 0..7:
+    per iteration: body 82 + overhead 9.625 (index add, compare, branch) = 91.625
+    trip count: 8 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 733
+  note: loop loop(i in 0..7; t = s then u32(int(t) + int(x)*i)).t priced as 8 iterations x 10.25 (listed under branch)
+> three(x: u32) = { s: u32 = 0; for k in 0..7 { t: u32 = s; for i in 0..7 { t = t + x * i + k }; s = t }; s }
+> cost three
+cost of three under gt1030: 797 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd             8 x 1     = 8
+  cmp              8 x 2.375 = 19
+  branch          16 x 48.125 = 770
+  loop k in 0..7:
+    per iteration: body 90 + overhead 9.625 (index add, compare, branch) = 99.625
+    trip count: 8 (constant bounds)
+    once: 0 (initial values and loop-invariant subterms, hoisted)
+    loop total: 797
+  note: loop loop(i in 0..7; t = s then u32(int(t) + int(x)*i + k)).t priced as 8 iterations x 11.25 (listed under branch)
+> inv(x: u32) = { s: u32 = 0; for k in 0..7 { s = s + { t: u32 = 0; for i in 0..7 { t = t + x * i }; t } }; s }
+> cost inv
+cost of inv under gt1030: 167 (0 operations outside loops and 1 loop, shared subterms counted once)
+  iadd            16 x 1     = 16
+  cmp              8 x 2.375 = 19
+  branch           9 x 14.6667 = 132
+  loop k in 0..7:
+    per iteration: body 1 + overhead 9.625 (index add, compare, branch) = 10.625
+    trip count: 8 (constant bounds)
+    once: 82 (initial values and loop-invariant subterms, hoisted)
+    loop total: 167
+  note: loop loop(i in 0..7; t = 0 then u32(int(t) + int(x)*i)).t priced as 8 iterations x 10.25 (listed under branch)
