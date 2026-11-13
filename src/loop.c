@@ -704,7 +704,7 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 	struct loopdef d;
 	nid m2[SG_LCOPY_SLOT + MAXP];
 	uint64_t vals = 0;
-	int j, k, lo = 64, hi = -1, delta = 0, any = 0, bfl;
+	int j, k, lo = 64, hi = -1, delta = 0, any = 0, bfl, copies = 0;
 
 	loop_get(e, &d);
 	memset(m2, 0, sizeof m2);
@@ -718,7 +718,7 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 			if (map[j]) {
 				m2[j] = map[j];
 				vals |= node_slots(map[j]);
-				any = 1;
+				any = copies = 1;
 			}
 	for (j = 0; j < nmap && j < NSLOT; j++)
 		if (map[j] && ((loops.free[e] >> j) & 1)) {
@@ -726,13 +726,19 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 			vals |= node_slots(map[j]);
 			any = 1;
 		}
-	/* the lane of a subgroup operation's operand (sg.c) has no slot
-	 * among the 64: the body's flags say whether it reads it */
+	/*
+	 * the lane of a subgroup operation's operand (sg.c) has no slot
+	 * among the 64: the body's flags say whether it reads it.  Copies
+	 * put in for one lane (sg_expand's) take it along even when the
+	 * body does not read it: with it, an operation in the body keeps
+	 * the copies of its own operand (node.c rebuild), which are read in
+	 * its lanes, not in this one.
+	 */
 	if (nmap > SG_LANE_SLOT && map[SG_LANE_SLOT]) {
 		int fl = (d.cond ? N.fl[d.cond] : 0) | (d.aux ? N.fl[d.aux] : 0);
 		for (k = 0; k < d.nst; k++)
 			fl |= N.fl[d.init[k]] | N.fl[d.next[k]];
-		if (fl & NF_LANE) {
+		if ((fl & NF_LANE) || copies) {
 			m2[SG_LANE_SLOT] = map[SG_LANE_SLOT];
 			vals |= node_slots(map[SG_LANE_SLOT]);
 			any = 1;
