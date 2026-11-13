@@ -1282,8 +1282,210 @@ matpow(const double *M, const double *v, int n, int64_t k, int res,
 	return 1;
 }
 
+/* does e have a loop in it */
+static int
+has_loop(nid e, int depth)
+{
+	uint32_t j;
+
+	if (e == 0 || depth > 64)
+		return 0;
+	switch (N.op[e]) {
+	case O_CONST: case O_VAR: case O_UNDEF:
+		return 0;
+	case O_LOOP:
+		return 1;
+	case O_TABLE:
+		for (j = 0; j < N.b[e]; j++)
+			if (has_loop(N.lst[N.a[e] + j], depth + 1))
+				return 1;
+		return 0;
+	}
+	return has_loop(N.a[e], depth + 1) || has_loop(N.b[e], depth + 1) ||
+	    has_loop(N.c[e], depth + 1);
+}
+
+/* a state for d that no variable of the loop has: its index, -1 if none */
+static int
+add_state(struct loopdef *d, uint64_t *used, const char *name, ty_t t,
+    nid init)
+{
+	int slot;
+
+	if (d->nst == MAXST)
+		return -1;
+	for (slot = MAXP; slot < KSLOT && (*used >> slot & 1); slot++)
+		;
+	if (slot >= KSLOT)
+		return -1;
+	*used |= 1ULL << slot;
+	d->sslot[d->nst] = slot;
+	d->sname[d->nst] = sym_cstr(name);
+	d->sty[d->nst] = t;
+	d->init[d->nst] = init;
+	d->next[d->nst] = 0;
+	return d->nst++;
+}
+
+/*
+ * Kahan's compensated sum for a counted loop's f32 accumulator, s = s + t
+ * with t free of s: y = t - c, w = s + y, c = (w - s) - y, s = w, the
+ * rounding error of each add carried into the next (#47).  It is run on
+ * the domain beside the loop as written, and both are compared with the
+ * same f32 terms summed in f64, as a part of the sum of the terms' sizes:
+ * the plain sum's error there is at most gamma_n (n adds), Kahan's
+ * 2u + O(n u^2) (Knuth; Higham, Accuracy and Stability, 4.3).  The price
+ * is the model's, an iteration, beside the accumulator in f64.
+ */
 static void
-loop_scheme(const struct model *m, struct func *f, nid n)
+kahan_scheme(const struct model *m, const struct func *f, nid n)
+{
+	const double u = 0x1p-24;
+	struct loopdef d, k, r, w;
+	uint64_t used, pts = 0, over = 0;
+	int res = loop_res(n), j, ic, ir, ia, sub = 0;
+	nid sv, t, cv, y, wv, nk, nr, na, n64, roots[6], trips;
+	struct plan p;
+	struct diter it;
+	int64_t *in_i;
+	double *in_r, ep = 0, ek = 0, gmax = 0, tmax = 0;
+	uint8_t ok[CH];
+	uint32_t np, i;
+	float per, perk, per64;
+
+	loop_get(loop_ent(n), &d);
+	if (d.kind != LK_FOR || res < 0 || res >= d.nst || d.sty[res] != TY_F32)
+		return;
+	sv = var_of(d.sslot[res], d.sname[res], d.sty[res]);
+	t = d.next[res];
+	if (N.op[t] == O_ADD && N.a[t] == sv)
+		t = N.b[t];
+	else if (N.op[t] == O_ADD && N.b[t] == sv)
+		t = N.a[t];
+	else if (N.op[t] == O_SUB && N.a[t] == sv) {
+		t = N.b[t];
+		sub = 1;
+	} else
+		return;
+	if (N.ty[t] != TY_F32 || has_slot(t, d.sslot[res]))
+		return;
+	/* nothing else reads the accumulator, and no loop inside holds a
+	 * variable the new states could take */
+	for (j = 0; j < d.nst; j++)
+		if ((j != res && has_slot(d.next[j], d.sslot[res])) ||
+		    has_loop(d.next[j], 0) || has_loop(d.init[j], 0))
+			return;
+	used = loops.bound[loop_ent(n)] | loops.free[loop_ent(n)] |
+	    node_slots(n);
+	if (sub)
+		t = mk_un(O_NEG, t);
+	/* the compensated loop: s and c */
+	k = d;
+	if ((ic = add_state(&k, &used, "c", TY_F32, mk_cast(TY_F32,
+	    mk_const_r(0)))) < 0)
+		return;
+	cv = var_of(k.sslot[ic], k.sname[ic], TY_F32);
+	y = SUB(t, cv);
+	wv = ADD(sv, y);
+	k.next[res] = wv;
+	k.next[ic] = SUB(SUB(wv, sv), y);
+	nk = mk_loop(loop_intern(&k), res, N.a[n], N.b[n], N.c[n]);
+	/* the reference: the same f32 terms summed in f64, and their sizes */
+	r = d;
+	if ((ir = add_state(&r, &used, "ref", TY_F64, mk_cast(TY_F64,
+	    d.init[res]))) < 0 || (ia = add_state(&r, &used, "size", TY_F64,
+	    mk_un(O_ABS, mk_cast(TY_F64, d.init[res])))) < 0)
+		return;
+	r.next[ir] = ADD(var_of(r.sslot[ir], r.sname[ir], TY_F64),
+	    mk_cast(TY_F64, t));
+	r.next[ia] = ADD(var_of(r.sslot[ia], r.sname[ia], TY_F64),
+	    mk_un(O_ABS, mk_cast(TY_F64, t)));
+	nr = mk_loop(loop_intern(&r), ir, N.a[n], N.b[n], N.c[n]);
+	na = mk_loop(loop_intern(&r), ia, N.a[n], N.b[n], N.c[n]);
+	/* the accumulator in f64, for its price */
+	w = d;
+	w.sty[res] = TY_F64;
+	w.init[res] = mk_cast(TY_F64, d.init[res]);
+	w.next[res] = ADD(var_of(d.sslot[res], d.sname[res], TY_F64),
+	    mk_cast(TY_F64, t));
+	n64 = mk_loop(loop_intern(&w), res, N.a[n], N.b[n], N.c[n]);
+
+	trips = ADD(SUB(N.b[n], N.a[n]), KI(1));
+	roots[0] = n;
+	roots[1] = nk;
+	roots[2] = nr;
+	roots[3] = na;
+	roots[4] = trips;
+	roots[5] = f->where;
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	plan_build(&p, roots, 6, 0);
+	diter_init(&it, f, 1u << 16, 101, 4096);
+	while ((np = diter_next(&it, in_i, in_r)) != 0) {
+		plan_run(&p, np, in_i, in_r);
+		valid_mask(&p, f->where ? p.root[5] : NOTOK, np, ok);
+		for (i = 0; i < np; i++) {
+			double ref = COLR(&p, p.root[2])[i], a = COLR(&p,
+			    p.root[3])[i], dp, dk, g, T;
+			if (!ok[i] || ((COLF(&p, p.root[0])[i] | COLF(&p,
+			    p.root[1])[i] | COLF(&p, p.root[2])[i] | COLF(&p,
+			    p.root[4])[i]) & F_UNDEF))
+				continue;
+			T = (double)COLI(&p, p.root[4])[i];
+			dp = fabs(COLR(&p, p.root[0])[i] - ref);
+			dk = fabs(COLR(&p, p.root[1])[i] - ref);
+			if (!isfinite(ref) || !isfinite(dp) || !isfinite(dk) ||
+			    !(a > 0) || !isfinite(a) || T < 1)
+				continue;
+			pts++;
+			g = T * u / (1 - T * u);
+			ep = fmax(ep, dp / a);
+			ek = fmax(ek, dk / a);
+			gmax = fmax(gmax, g);
+			tmax = fmax(tmax, T);
+			if (dp > g * a)
+				over++;
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	per = loop_iter_cost(m, n);
+	perk = loop_iter_cost(m, nk);
+	per64 = loop_iter_cost(m, n64);
+	printf("  %-10s Kahan's sum of the f32 accumulator %s: y = t - c, w = "
+	    "%s + y, c = (w - %s) - y, %s = w, the rounding error c of each "
+	    "add carried into the next: %g per iteration against %g, and %g "
+	    "with %s in f64\n", "comp.", sym_str(d.sname[res]),
+	    sym_str(d.sname[res]), sym_str(d.sname[res]), sym_str(d.sname[res]),
+	    (double)perk, (double)per, (double)per64, sym_str(d.sname[res]));
+	if (pts == 0) {
+		printf("  %-10s no finite point of the domain to measure it "
+		    "on\n", "");
+		return;
+	}
+	printf("  %-10s error against the same f32 terms summed in f64 at %llu "
+	    "points, as a part of the sum of the terms' sizes: %.2g, the "
+	    "plain sum's %.2g; the bounds are 2u + O(n u^2) (2u = %.2g) and "
+	    "gamma_n = n u/(1 - n u), %.2g for the %.0f adds at most here\n",
+	    "", (unsigned long long)pts, ek, ep, 2 * u, gmax, tmax);
+	if (over)
+		printf("  %-10s the plain sum is past its bound at %llu points "
+		    "(it holds where nothing underflows)\n", "",
+		    (unsigned long long)over);
+	else if (ek < ep)
+		printf("  %-10s it gains where the plain sum's errors add up "
+		    "(many terms, or terms that cancel); its own error is the "
+		    "last rounding\n", "");
+	else
+		printf("  %-10s it gains nothing here: its error is not below "
+		    "the plain sum's\n", "");
+	printf("  %-10s its adds must stay as written: reassociated, c is "
+	    "0\n", "");
+}
+
+static void
+loop_scheme(const struct model *m, struct func *f, nid n, int more)
 {
 	float per = loop_iter_cost(m, n), cc;
 	double T = max_trips(f, n), Mx[256], v0[16];
@@ -1396,6 +1598,8 @@ loop_scheme(const struct model *m, struct func *f, nid n)
 			printf("    cheaper than iterating once k > about %.0f\n",
 			    ceil(2 * steps * mc / per));
 	}
+	if (more)
+		kahan_scheme(m, f, n);
 	/* strength reduction of a polynomial sum body */
 	{
 		struct loopdef d;
@@ -1434,7 +1638,7 @@ cmd_scheme(struct func *f, struct model *mm, int more)
 	find_loops2(f->body, loops, &nl, 8, seen);
 	free(seen);
 	for (i = 0; i < nl; i++)
-		loop_scheme(m, f, loops[i]);
+		loop_scheme(m, f, loops[i], more);
 	if (!any && nl == 0) {
 		int nops;
 		float dep, c = dag_cost(m, f->body, &nops, &dep);

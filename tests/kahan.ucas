@@ -1,0 +1,32 @@
+# Kahan's compensated sum for a loop's f32 accumulator (src/scheme.c,
+# kahan_scheme; issue #47): under `more`, the loop with the rounding error
+# of each add carried into the next, run on the domain beside the loop as
+# written and compared with the same f32 terms summed in f64
+p(n: int in 1..2000) = { s: f32 = 0; for i in 1..n { s += f32(1)/f32(i*i) }; s }
+scheme p more
+# not without `more`
+scheme p
+# the two values at the end of the domain, and the reference
+k(n: int in 1..2000) = { s: f32 = 0; c: f32 = 0; for i in 1..n { y = f32(1)/f32(i*i) - c; w = s + y; c = (w - s) - y; s = w }; s }
+d(n: int in 1..2000) = { s: f64 = 0; for i in 1..n { s += f64(f32(1)/f32(i*i)) }; s }
+show p(2000)
+show k(2000)
+show d(2000)
+# a large start and terms that cancel; a subtraction, with another state
+c(n: int in 1..500) = { s: f32 = 1000000; for i in 1..n { s += f32(i)/f32(8) - f32(i*i)/f32(4096) }; s }
+scheme c more
+m(n: int in 1..300) = { s: f32 = 0; x: f32 = 1; for i in 1..n { x = x*f32(0.75); s -= x }; s }
+scheme m more
+# a sum written as one
+z(n: int in 1..50) = sum(i, 1, n, f32(1)/f32(i))
+scheme z more
+# nothing to gain: whole numbers that f32 holds
+e(n: int in 1..4) = { s: f32 = 0; for i in 1..n { s += f32(i) }; s }
+scheme e more
+# not an f32 accumulator, a term that reads the sum, a while loop: no line
+u(n: int in 1..9) = { s: u32 = 0; for i in 1..n { s += i }; s }
+scheme u more
+g(n: int in 1..9) = { s: f32 = 1; for i in 1..n { s += s/f32(i) }; s }
+scheme g more
+h(n: int in 2..1000) = { s: f32 = 0; x = n; while x > 1 { x = x/2; s += f32(1)/f32(x) }; s }
+scheme h more
