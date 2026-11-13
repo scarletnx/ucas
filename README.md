@@ -2366,16 +2366,23 @@ priced a bit count: converted 13 to 3 with the conversion gone too, left
 a float 10 to 6 (tests/log2exp.ucas).  ldexp(x, k) of an f32 x whose |x|
 is normal (2^-126 at least, finite) is `asfloat(asint(x) + (k << 23))`
 where k keeps x * 2^k normal, which SAT proves from k's definitions (13
-to 3 under gt1030, where ldexp is lowered); an x that may be 0 takes it
-when it is an integer converted (0, or 1 at least in magnitude: a
-shared-exponent decoder's mantissa), `x == 0 ? x : asfloat(asint(x) + (k
-<< 23))`, the select keeping ldexp's 0 (13 to 7; tests/ldexpbits.ucas).
+to 3 under gt1030, where ldexp is lowered).  Of any x (0, subnormal,
+infinite, no range at all) with k in [-126, 127] by SAT, it is x times
+2^k made by its exponent field, `x * asfloat((k << 23) + 0x3F800000)`:
+2^k is a normal f32 there, so the product is the correctly rounded x 2^k,
+which ldexp's result is too, and the multiply is written NoContraction
+(13 to 4; also where x is normal but k may take it past the largest or
+smallest normal).  Where a multiply costs more than a compare and a
+select, an x that may be 0 takes the field's add when it is an integer
+converted (0, or 1 at least in magnitude: a shared-exponent decoder's
+mantissa), `x == 0 ? x : asfloat(asint(x) + (k << 23))`, the select
+keeping ldexp's 0 (7; tests/ldexpbits.ucas).
 They are written last, after the float, memory and advice passes, which
 read the conversion (its integer's range, an integer atomic's addend, a
 vertex format) and not the bits; the report gives them their own
 section, as a conversion is not in the integer cost, and says what
-spirv-val makes of the module.  Not yet: the ldexp of an x that may be 0
-or subnormal and is not an integer converted, the GLSL function level
+spirv-val makes of the module.  Not yet: the ldexp whose k may leave
+[-126, 127] of an x that may be 0 or subnormal, the GLSL function level
 (find only), f16 and f64, a round-to-nearest operation for the magic add
 to stand for (ucas has floor, ceil and the truncating conversion),
 48-bit products by 2Prod.
