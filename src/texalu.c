@@ -4564,31 +4564,138 @@ struct fcand {
 	nid to;
 	float cost;
 	int j, quant;		/* the stride 2^j; knots on 256 levels */
-	int64_t K;		/* knots */
+	int j2;			/* a grid: the second parameter's stride */
+	int64_t K, K2;		/* knots (a grid: along each parameter) */
 	double D, e, err;	/* |F - line|, the read's error, both */
 	double dmin, dmax, c;	/* F - line; an integer's added constant */
-	nid coord;
+	nid coord, coord2;
 	struct tinfo ti;
 };
+
+/*
+ * The knots g (K of them) as a texture: with quant moved onto 256 evenly
+ * spaced levels, which a byte holds; then the cheapest format the model
+ * lists that holds them (table_info).  g comes back as what the texels
+ * stand for, *gmax its largest magnitude.  0: no such table, or a class
+ * the model does not list.
+ */
+static int
+func_table(struct fcand *o, double *g, int64_t K, int quant, int isint,
+    double *gmax)
+{
+	ty_t t64 = TY(K_SINT, 64);
+	nid *e, tabk;
+	int64_t k;
+
+	*gmax = 0;
+	if (quant) {
+		double glo = g[0], ghi = g[0], step;
+		for (k = 1; k < K; k++) {
+			if (g[k] < glo)
+				glo = g[k];
+			if (g[k] > ghi)
+				ghi = g[k];
+		}
+		step = (ghi - glo) / 255;
+		if (!(step > 0))
+			return 0;
+		for (k = 0; k < K; k++)
+			g[k] = glo + step * nearbyint((g[k] - glo) / step);
+	}
+	e = xmalloc((size_t)K * sizeof *e);
+	for (k = 0; k < K; k++) {
+		e[k] = isint ? mk_const_i(t64, (int64_t)g[k]) : kf(g[k]);
+		if (!isint)
+			g[k] = cval(e[k]);
+		if (fabs(g[k]) > *gmax)
+			*gmax = fabs(g[k]);
+	}
+	tabk = mk_table(e, (uint32_t)K);
+	free(e);
+	if (!table_info(tabk, &o->ti) || (quant && !o->ti.levels))
+		return 0;
+	if (!model_lists(X.m, o->ti.cls)) {
+		X.unavail[o->ti.cls] = 1;
+		return 0;
+	}
+	return 1;
+}
+
+/* a texel coordinate (x - lo)/2^j + 1/2 of parameter s: exact in f32 */
+static nid
+func_coord(int s, int64_t lo, int j)
+{
+	nid x = mk_cast(TY_F32, mk_var((uint32_t)s, X.f->p[s].name,
+	    X.f->p[s].ty));
+
+	if (j)
+		x = mk_bin(O_MUL, x, kf(ldexp(1.0, -j)));
+	return mk_bin(O_ADD, x, kf(0.5 - ldexp((double)lo, -j)));
+}
+
+/*
+ * The read `tap` of the knots' texture against the function, whose value
+ * less the knots' line or patch is in [o->dmin, o->dmax] over the points:
+ * the read's own error, then for an integer result the constant c that
+ * makes floor(read + c) the function (none: ok stays 0), for a float one
+ * the bound.
+ */
+static void
+func_finish(struct fcand *o, nid tap, double gmax, double vmax, double vmin)
+{
+	ty_t t = N.ty[X.f->body];
+	double u = ldexp(1.0, -24);
+
+	o->D = (o->dmax > -o->dmin ? o->dmax : -o->dmin) + 4 * DBL_EPSILON *
+	    (gmax + vmax);
+	if (o->ti.scale != 1)
+		tap = mk_bin(O_MUL, kf(o->ti.scale), tap);
+	if (o->ti.off != 0)
+		tap = mk_bin(O_ADD, tap, kf(o->ti.off));
+	/* the filter, the texels' rounding, the map back to the entries */
+	o->e = X.ulp * 2 * u * o->ti.rmax + o->ti.trep + ((o->ti.scale != 1 ?
+	    2 : 0) + (o->ti.off != 0 ? 2 : 0)) * u * (fabs(o->ti.off) +
+	    o->ti.rmax);
+	if (TY_ISINT(t)) {
+		double lob, hib, c;
+		/* floor(read + c) is F where F <= line + c -+ e < F + 1 */
+		o->e += u * ((gmax > vmax ? gmax : vmax) + 2);
+		lob = o->dmax + o->e;
+		hib = o->dmin + 1 - o->e;
+		o->err = o->dmax - o->dmin + 2 * o->e;
+		if (!(o->err < 1 - 1e-6))
+			return;
+		c = nearbyint((lob + hib) / 2 * 4096) / 4096;
+		if (!(c > lob && c < hib))
+			c = (double)(float)((lob + hib) / 2);
+		if (!(c > lob && c < hib))
+			return;
+		o->c = c;
+		if (c != 0)
+			tap = mk_bin(O_ADD, tap, kf(c));
+		/* never negative: the conversion's truncation is the floor */
+		o->to = mk_cast(t, vmin >= 0 ? tap : mk_un(O_FLOOR, tap));
+	} else {
+		o->err = o->D + o->e;
+		o->to = N.ty[tap] == t ? tap : mk_cast(t, tap);
+	}
+	o->ok = 1;
+	o->cost = price(o->to);
+}
 
 /*
  * The linear read over the knots at every 2^j-th point of the one
  * parameter (v: the function at its n points, in order).  The knots are
  * the function's values there; a last knot past the range is on the line
- * through the knot before it and the last point.  With quant they are
- * moved onto 256 evenly spaced levels, which a byte holds.
+ * through the knot before it and the last point.
  */
 static int
 func_linear(const struct tabfn *tf, const double *v, int j, int quant,
     struct fcand *o)
 {
-	nid body = X.f->body, *e, tabk, tap, x;
-	ty_t t = N.ty[body], t64 = TY(K_SINT, 64);
-	int isint = TY_ISINT(t), s = tf->rd[0];
-	int64_t n = (int64_t)tf->total, st = (int64_t)1 << j, K, k, i, lo =
-	    tf->blo[s], rem;
-	double *g, u = ldexp(1.0, -24), vmax = 0, vmin = INFINITY, gmax = 0;
-	double cst;
+	int isint = TY_ISINT(N.ty[X.f->body]), s = tf->rd[0];
+	int64_t n = (int64_t)tf->total, st = (int64_t)1 << j, K, k, i, rem;
+	double *g, vmax = 0, vmin = INFINITY, gmax;
 
 	memset(o, 0, sizeof *o);
 	o->j = j;
@@ -4608,38 +4715,7 @@ func_linear(const struct tabfn *tf, const double *v, int j, int quant,
 			    (double)rem;
 			g[k] = isint ? nearbyint(g[k]) : (double)(float)g[k];
 		}
-	if (quant) {
-		double glo = g[0], ghi = g[0], step;
-		for (k = 1; k < K; k++) {
-			if (g[k] < glo)
-				glo = g[k];
-			if (g[k] > ghi)
-				ghi = g[k];
-		}
-		step = (ghi - glo) / 255;
-		if (!(step > 0)) {
-			free(g);
-			return 0;
-		}
-		for (k = 0; k < K; k++)
-			g[k] = glo + step * nearbyint((g[k] - glo) / step);
-	}
-	e = xmalloc((size_t)K * sizeof *e);
-	for (k = 0; k < K; k++) {
-		e[k] = isint ? mk_const_i(t64, (int64_t)g[k]) : kf(g[k]);
-		if (!isint)
-			g[k] = cval(e[k]);
-		if (fabs(g[k]) > gmax)
-			gmax = fabs(g[k]);
-	}
-	tabk = mk_table(e, (uint32_t)K);
-	free(e);
-	if (!table_info(tabk, &o->ti) || (quant && !o->ti.levels)) {
-		free(g);
-		return 0;
-	}
-	if (!model_lists(X.m, o->ti.cls)) {
-		X.unavail[o->ti.cls] = 1;
+	if (!func_table(o, g, K, quant, isint, &gmax)) {
 		free(g);
 		return 0;
 	}
@@ -4665,63 +4741,269 @@ func_linear(const struct tabfn *tf, const double *v, int j, int quant,
 			vmin = v[i];
 	}
 	free(g);
-	o->D = (o->dmax > -o->dmin ? o->dmax : -o->dmin) + 4 * DBL_EPSILON *
-	    (gmax + vmax);
-	/* texel coordinate (x - lo)/2^j + 1/2: exact in f32 */
-	x = mk_cast(TY_F32, mk_var((uint32_t)s, X.f->p[s].name, X.f->p[s].ty));
-	cst = 0.5 - ldexp((double)lo, -j);
-	if (j)
-		x = mk_bin(O_MUL, x, kf(ldexp(1.0, -j)));
-	o->coord = mk_bin(O_ADD, x, kf(cst));
-	tap = mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0), o->ti.tex, o->coord, 0);
-	if (o->ti.scale != 1)
-		tap = mk_bin(O_MUL, kf(o->ti.scale), tap);
-	if (o->ti.off != 0)
-		tap = mk_bin(O_ADD, tap, kf(o->ti.off));
-	/* the filter, the texels' rounding, the map back to the entries */
-	o->e = X.ulp * 2 * u * o->ti.rmax + o->ti.trep + ((o->ti.scale != 1 ?
-	    2 : 0) + (o->ti.off != 0 ? 2 : 0)) * u * (fabs(o->ti.off) +
-	    o->ti.rmax);
-	if (isint) {
-		double lob, hib, c;
-		/* floor(read + c) is F where F <= line + c -+ e < F + 1 */
-		o->e += u * ((gmax > vmax ? gmax : vmax) + 2);
-		lob = o->dmax + o->e;
-		hib = o->dmin + 1 - o->e;
-		o->err = o->dmax - o->dmin + 2 * o->e;
-		if (!(o->err < 1 - 1e-6))
-			return 1;
-		c = nearbyint((lob + hib) / 2 * 4096) / 4096;
-		if (!(c > lob && c < hib))
-			c = (double)(float)((lob + hib) / 2);
-		if (!(c > lob && c < hib))
-			return 1;
-		o->c = c;
-		if (c != 0)
-			tap = mk_bin(O_ADD, tap, kf(c));
-		/* never negative: the conversion's truncation is the floor */
-		o->to = mk_cast(t, vmin >= 0 ? tap :
-		    mk_un(O_FLOOR, tap));
-		o->ok = 1;
-	} else {
-		o->err = o->D + o->e;
-		o->to = N.ty[tap] == t ? tap : mk_cast(t, tap);
-		o->ok = 1;
-	}
-	o->cost = price(o->to);
+	o->coord = func_coord(s, tf->blo[s], j);
+	func_finish(o, mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0), o->ti.tex,
+	    o->coord, 0), gmax, vmax, vmin);
 	return 1;
 }
 
+/* a row's knot a at stride st: its value there, or past the row's n
+ * points the line through the knot before and the row's last point */
+static double
+knot_along(const double *row, int64_t n, int64_t st, int64_t a)
+{
+	double prev;
+
+	if (a * st <= n - 1)
+		return row[a * st];
+	prev = row[(a - 1) * st];
+	return prev + (row[n - 1] - prev) * (double)st / (double)((n - 1) % st);
+}
+
 /*
- * seed_func's linear read: every stride and both kinds of knots, the
- * cheapest that holds with the fewest knots; for a float result that
+ * The bilinear read over a grid of knots, two parameters: the function at
+ * every 2^jx-th value of the first and every 2^jy-th of the second (v:
+ * its n0 x n1 values, the first parameter along a row).  A knot past the
+ * range is extended along its row first, then along its column, as
+ * func_linear's last knot is.  Both fractions are on the unit's grid and
+ * both coordinates exact, so the read is the bilinear patch of four knots,
+ * compared with the function at every point.
+ */
+static int
+func_grid(const struct tabfn *tf, const double *v, int jx, int jy, int quant,
+    struct fcand *o)
+{
+	int isint = TY_ISINT(N.ty[X.f->body]), s0 = tf->rd[0], s1 = tf->rd[1];
+	int64_t n0 = (int64_t)tf->size[s0], n1 = (int64_t)tf->size[s1];
+	int64_t sx = (int64_t)1 << jx, sy = (int64_t)1 << jy, Kx, Ky, a, b, ix,
+	    iy;
+	double *g, *col, vmax = 0, vmin = INFINITY, gmax;
+
+	memset(o, 0, sizeof *o);
+	o->j = jx;
+	o->j2 = jy;
+	o->quant = quant;
+	Kx = (n0 - 1) / sx + 1 + ((n0 - 1) % sx != 0);
+	Ky = (n1 - 1) / sy + 1 + ((n1 - 1) % sy != 0);
+	if (Kx < 2 || Ky < 2 || Kx * Ky > FN_MAXK)
+		return 0;
+	g = xmalloc((size_t)(Kx * Ky) * sizeof *g);
+	col = xmalloc((size_t)n1 * sizeof *col);
+	for (a = 0; a < Kx; a++) {
+		/* column a of the knots: every row's knot there, then along it */
+		for (iy = 0; iy < n1; iy++)
+			col[iy] = knot_along(v + iy * n0, n0, sx, a);
+		for (b = 0; b < Ky; b++) {
+			double k = knot_along(col, n1, sy, b);
+			if (a * sx > n0 - 1 || b * sy > n1 - 1)
+				k = isint ? nearbyint(k) : (double)(float)k;
+			g[b * Kx + a] = k;
+		}
+	}
+	free(col);
+	if (!func_table(o, g, Kx * Ky, quant, isint, &gmax)) {
+		free(g);
+		return 0;
+	}
+	o->K = Kx;
+	o->K2 = Ky;
+	/* the patch of four knots against the function, at every point */
+	o->dmin = INFINITY;
+	o->dmax = -INFINITY;
+	for (iy = 0; iy < n1; iy++)
+		for (ix = 0; ix < n0; ix++) {
+			int64_t rx = ix & (sx - 1), ry = iy & (sy - 1);
+			double fu = (double)rx / (double)sx, fv = (double)ry /
+			    (double)sy, L, L1, d, f = v[iy * n0 + ix];
+			const double *q = g + (iy >> jy) * Kx + (ix >> jx);
+			L = q[0];
+			if (rx)
+				L += (q[1] - q[0]) * fu;
+			if (ry) {
+				L1 = q[Kx];
+				if (rx)
+					L1 += (q[Kx + 1] - q[Kx]) * fu;
+				L += (L1 - L) * fv;
+			}
+			d = f - L;
+			if (d < o->dmin)
+				o->dmin = d;
+			if (d > o->dmax)
+				o->dmax = d;
+			if (fabs(f) > vmax)
+				vmax = fabs(f);
+			if (f < vmin)
+				vmin = f;
+		}
+	free(g);
+	/* the patch in doubles, not exact as the line is: its rounding is
+	 * left out of what the function less the patch may be */
+	o->dmin -= 8 * DBL_EPSILON * (gmax + vmax);
+	o->dmax += 8 * DBL_EPSILON * (gmax + vmax);
+	o->coord = func_coord(s0, tf->blo[s0], jx);
+	o->coord2 = func_coord(s1, tf->blo[s1], jy);
+	func_finish(o, mk_tex(O_TEX_BILINEAR, TEX_KI(X.bits, Kx), o->ti.tex,
+	    o->coord, o->coord2), gmax, vmax, vmin);
+	return 1;
+}
+
+/* "(x - lo)" as the report writes a parameter from its range's start */
+static void
+from_lo(char *buf, size_t n, const char *xn, int64_t lo)
+{
+	if (lo)
+		snprintf(buf, n, "(%s %c %lld)", xn, lo < 0 ? '+' : '-',
+		    (long long)(lo < 0 ? -lo : lo));
+	else
+		snprintf(buf, n, "%s", xn);
+}
+
+/* "every 8th value of x from 0", "every value of x" */
+static void
+every_say(struct sbuf *b, int j, const char *xn, int64_t lo)
+{
+	int64_t st = (int64_t)1 << j;
+
+	if (j)
+		sb_printf(b, "%lld%s value of %s from %lld", (long long)st, st ==
+		    2 ? "nd" : "th", xn, (long long)lo);
+	else
+		sb_printf(b, "value of %s", xn);
+}
+
+/* seed_func's report of a read of knots: what, where, why, the pipeline */
+static void
+knots_say(struct repl *r, const struct tabfn *tf, const struct fcand *b,
+    const char *fn)
+{
+	int isint = TY_ISINT(N.ty[X.f->body]), grid = tf->nrd == 2;
+	int s = tf->rd[0], s1 = grid ? tf->rd[1] : s;
+	const char *xn = sym_str(X.f->p[s].name), *yn = sym_str(X.f->p[s1].name);
+	const char *ln = grid ? "patch" : "line";
+	int64_t st = (int64_t)1 << b->j, st2 = (int64_t)1 << b->j2;
+	int64_t n = (int64_t)tf->total, lo = tf->blo[s], lo2 = tf->blo[s1];
+	int64_t n0 = (int64_t)tf->size[s], n1 = (int64_t)tf->size[s1];
+	char xo[96], yo[96];
+
+	from_lo(xo, sizeof xo, xn, lo);
+	from_lo(yo, sizeof yo, yn, lo2);
+	if (grid) {
+		sb_printf(&r->what, "%s as a %lld x %lld grid of knots read with "
+		    "the linear filter: the function at every ", fn,
+		    (long long)b->K, (long long)b->K2);
+		every_say(&r->what, b->j, xn, lo);
+		sb_puts(&r->what, " and every ");
+		every_say(&r->what, b->j2, yn, lo2);
+	} else {
+		sb_printf(&r->what, "%s as %lld knots read with the linear "
+		    "filter: the function at every ", fn, (long long)b->K);
+		every_say(&r->what, b->j, xn, lo);
+	}
+	if (b->quant)
+		sb_puts(&r->what, ", moved onto 256 evenly spaced levels");
+	sb_printf(&r->holds, "holds where %s is in [%lld, %lld]", xn,
+	    (long long)lo, (long long)tf->bhi[s]);
+	if (grid)
+		sb_printf(&r->holds, " and %s in [%lld, %lld] (their ranges)", yn,
+		    (long long)lo2, (long long)tf->bhi[s1]);
+	else
+		sb_puts(&r->holds, " (its range)");
+	if (grid) {
+		sb_printf(&r->proof, "a linear read at fractions (u, v) of texels "
+		    "a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d; at "
+		    "texel coordinates (%s/%lld + 1/2, %s/%lld + 1/2) they are "
+		    "the knots (k, l), (k + 1, l), (k, l + 1), (k + 1, l + 1) "
+		    "with k = %s >> %d, l = %s >> %d, u = (%s & %lld)/%lld and v "
+		    "= (%s & %lld)/%lld", xo, (long long)st, yo, (long long)st2,
+		    xo, b->j, yo, b->j2, xo, (long long)(st - 1), (long long)st,
+		    yo, (long long)(st2 - 1), (long long)st2);
+		if ((n0 - 1) % st || (n1 - 1) % st2)
+			sb_printf(&r->proof, " (a knot past a range is on the line "
+			    "through the knot before it and the range's last "
+			    "point, along its row and then along its column%s)",
+			    isint ? ", rounded to a whole number" : "");
+		sb_printf(&r->proof, "\n  the fractions are multiples of 2^-%d "
+		    "and 2^-%d, on the unit's 2^-%d grid, and the coordinates are "
+		    "exact in f32: the weights do not move\n  that patch against "
+		    "the function at every one of the %lld points: the function "
+		    "less the patch is in [%s, %s]", b->j, b->j2, X.bits,
+		    (long long)n, fmt_g(b->dmin), fmt_g(b->dmax));
+	} else if (b->j) {
+		sb_printf(&r->proof, "a linear read at fraction u of texels "
+		    "a, b is (1-u) a + u b; at texel coordinate %s/%lld + "
+		    "1/2 the texels are knots k and k + 1 with k = %s >> %d "
+		    "and u = (%s & %lld)/%lld", xo, (long long)st, xo, b->j,
+		    xo, (long long)(st - 1), (long long)st);
+		if ((n - 1) % st)
+			sb_printf(&r->proof, " (the last knot, past the range, "
+			    "is on the line through the knot before it and "
+			    "the last point%s)", isint ? ", rounded to a whole "
+			    "number" : "");
+		sb_printf(&r->proof, "\n  the fraction is a multiple of "
+		    "2^-%d, on the unit's 2^-%d grid, and the coordinate "
+		    "is exact in f32: the weights do not move\n  that line "
+		    "against the function at every one of the %lld points: "
+		    "the function less the line is in [%s, %s]", b->j,
+		    X.bits, (long long)n, fmt_g(b->dmin), fmt_g(b->dmax));
+	} else {
+		sb_printf(&r->proof, "at texel coordinate %s + 1/2, a "
+		    "texel's centre, a linear read is that texel (the next "
+		    "one's weight is 0), and the coordinate is exact in "
+		    "f32: the weight does not move\n  every point has its "
+		    "own texel, the function's value there", xo);
+		if (b->quant)
+			sb_printf(&r->proof, " to within its level (the "
+			    "function less its level is in [%s, %s])",
+			    fmt_g(b->dmin), fmt_g(b->dmax));
+	}
+	sb_printf(&r->proof, "\n  the filter is within %g ulp of that sum "
+	    "(the model's tex_within), the texels as %s, the map back "
+	    "to the values%s: %s", X.ulp, b->ti.cls == C_TEX_SAMPLE_F16 ?
+	    "f16" : b->ti.cls == C_TEX_SAMPLE_F32 ? "f32" : "k/q",
+	    isint ? " and the add" : "", fmt_g(b->e));
+	if (isint) {
+		sb_printf(&r->proof, "\nthe function's value F is a whole "
+		    "number, and floor(read + c) is F where F <= %s + c "
+		    "- e and %s + c + e < F + 1: every c in (%s, %s), "
+		    "%.9g taken", ln, ln, fmt_g(b->dmax + b->e), fmt_g(b->dmin +
+		    1 - b->e), b->c);
+		if (N.op[N.op[b->to] == O_CAST ? N.a[b->to] : b->to] !=
+		    O_FLOOR)
+			sb_puts(&r->proof, " (never negative: the conversion "
+			    "to an integer truncates, which is that floor)");
+	} else
+		sb_printf(&r->proof, "\nagainst the function's f32 value "
+		    "the read is within %s", fmt_g(b->err));
+	sb_printf(&r->pipe, "a texture %s, %lld x %lld, one level: the knots",
+	    fmt_vk(b->ti.cls), (long long)b->K, (long long)(grid ? b->K2 : 1));
+	fmt_says(&r->pipe, &b->ti);
+	sb_puts(&r->pipe, "\na sampler: LINEAR mag and min filters, "
+	    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
+	    "lod 0\none combined image sampler more in the layout; the "
+	    "shader reads ");
+	if (grid) {
+		sb_printf(&r->pipe, "textureLod(s, vec2(cx, cy), 0.0).r at the "
+		    "texel coordinates cx = %s, ", node_str(b->coord));
+		sb_printf(&r->pipe, "cy = %s", node_str(b->coord2));
+	} else
+		sb_printf(&r->pipe, "textureLod(s, c, 0.0).r at the texel "
+		    "coordinate c = %s", node_str(b->coord));
+	sb_puts(&r->pipe, "\nsetup (the descriptor, the upload) is not in "
+	    "the model: not measured");
+}
+
+/*
+ * seed_func's linear read: every stride (of each parameter, when there
+ * are two) and both kinds of knots, the cheapest that holds with the
+ * fewest knots; for a float result that
  * none holds within the tolerance, the nearest miss that would pay, to
  * say what tolerance takes it (ok 0, its to set).
  */
 static void
 func_knots(const struct tabfn *tf, float before, struct fcand *lin)
 {
-	int isint = TY_ISINT(N.ty[X.f->body]), un[C_NCLASS], j, q;
+	int isint = TY_ISINT(N.ty[X.f->body]), un[C_NCLASS], j, j2, jm, q;
+	int grid = tf->nrd == 2;
 	int64_t n = (int64_t)tf->total;
 	struct tinfo ti;
 	struct fcand c;
@@ -4744,24 +5026,36 @@ func_knots(const struct tabfn *tf, float before, struct fcand *lin)
 	v = xmalloc((size_t)n * sizeof *v);
 	for (k = 0; k < tf->total; k++)
 		v[k] = cval(N.lst[N.a[tf->tab] + k]);
+	jm = X.bits < FN_MAXJ ? X.bits : FN_MAXJ;
 	for (q = 0; q < (isint ? 1 : 2); q++)
-		for (j = X.bits < FN_MAXJ ? X.bits : FN_MAXJ; j >= 0; j--) {
-			if (((int64_t)1 << j) > n - 1 && j)
-				continue;
-			if (!func_linear(tf, v, j, q, &c) || !c.to || !(c.cost <
-			    before))
-				continue;
-			if (isint ? !c.ok : c.err > X.tol) {
-				if (!isint && !lin->ok && (!lin->to || c.err <
-				    lin->err)) {
-					*lin = c;
-					lin->ok = 0;
+		for (j = jm; j >= 0; j--)
+			for (j2 = grid ? jm : 0; j2 >= 0; j2--) {
+				if (grid) {
+					if ((j && ((int64_t)1 << j) > (int64_t)tf->size[
+					    tf->rd[0]] - 1) || (j2 && ((int64_t)1 << j2) >
+					    (int64_t)tf->size[tf->rd[1]] - 1))
+						continue;
+					if (!func_grid(tf, v, j, j2, q, &c))
+						continue;
+				} else if ((((int64_t)1 << j) > n - 1 && j) ||
+				    !func_linear(tf, v, j, q, &c))
+					continue;
+				if (!c.to || !(c.cost < before))
+					continue;
+				if (isint ? !c.ok : c.err > X.tol) {
+					if (!isint && !lin->ok && (!lin->to || c.err <
+					    lin->err)) {
+						*lin = c;
+						lin->ok = 0;
+					}
+					continue;
 				}
-				continue;
+				/* the cheapest; at one price the fewest knots */
+				if (!lin->ok || c.cost < lin->cost || (grid &&
+				    c.cost == lin->cost && c.K * c.K2 < lin->K *
+				    lin->K2))
+					*lin = c;
 			}
-			if (!lin->ok || c.cost < lin->cost)
-				*lin = c;
-		}
 	free(v);
 	if (lin->ok)	/* a class another stride or format missed */
 		memcpy(X.unavail, un, sizeof un);
@@ -4775,7 +5069,9 @@ func_knots(const struct tabfn *tf, float before, struct fcand *lin)
  *
  * - read by a nearest fetch at the packed index: the function exactly;
  * - for one parameter x, read by the linear filter over knots, the
- *   function at every 2^j-th x, at texel coordinate (x - lo)/2^j + 1/2.
+ *   function at every 2^j-th x, at texel coordinate (x - lo)/2^j + 1/2
+ *   (for two parameters, by the bilinear filter over a grid of knots, a
+ *   stride for each: the line below is then the patch of four knots).
  *   The fraction is a multiple of 2^-j, on the unit's grid (j at most its
  *   subtexel bits), and the coordinate is exact in f32, so the weights do
  *   not move: the read is the line between two knots, within the filter's
@@ -4847,9 +5143,11 @@ seed_func(nid body)
 		near.cost = price(near.to);
 		near.ok = 1;
 	}
-	/* the linear filter over knots, one parameter */
-	if (tf.nrd == 1 && !tf.undef && tf.blo[s] > -4194304 && tf.bhi[s] <
-	    4194304)
+	/* the linear filter over knots: one parameter, or two on a grid */
+	if (tf.nrd <= 2 && !tf.undef && tf.blo[s] > -4194304 && tf.bhi[s] <
+	    4194304 && (tf.nrd == 1 || (tf.blo[tf.rd[1]] > -4194304 &&
+	    tf.bhi[tf.rd[1]] < 4194304 && tf.size[s] > 1 &&
+	    tf.size[tf.rd[1]] > 1)))
 		func_knots(&tf, before, &lin);
 	/* a texel fetch of it: no sampler, no coordinate */
 	memset(&fx, 0, sizeof fx);
@@ -4923,86 +5221,12 @@ seed_func(nid body)
 		    "texels every Vulkan device takes in a row: it needs that "
 		    "maxImageDimension2D)" : "", (long long)n, sb_str(&ix));
 	} else {
-		const char *xn = sym_str(f->p[s].name);
-		int64_t st = (int64_t)1 << b->j, lo = tf.blo[s];
-		char xo[96];
-		if (lo)
-			snprintf(xo, sizeof xo, "(%s %c %lld)", xn, lo < 0 ? '+' :
-			    '-', (long long)(lo < 0 ? -lo : lo));
-		else
-			snprintf(xo, sizeof xo, "%s", xn);
 		r->filtered = 1;
 		r->exact = isint;
 		r->curve = 1;
 		r->approx = b->ti.approx;
 		r->err = isint ? 0 : b->err;
-		sb_printf(&r->what, "%s as %lld knots read with the linear "
-		    "filter: the function at every ", shared_str(body, 120),
-		    (long long)b->K);
-		if (b->j)
-			sb_printf(&r->what, "%lld%s value of %s from %lld",
-			    (long long)st, st == 2 ? "nd" : "th", xn, (long long)lo);
-		else
-			sb_printf(&r->what, "value of %s", xn);
-		if (b->quant)
-			sb_puts(&r->what, ", moved onto 256 evenly spaced levels");
-		sb_printf(&r->holds, "holds where %s is in [%lld, %lld] (its "
-		    "range)", xn, (long long)lo, (long long)tf.bhi[s]);
-		if (b->j) {
-			sb_printf(&r->proof, "a linear read at fraction u of texels "
-			    "a, b is (1-u) a + u b; at texel coordinate %s/%lld + "
-			    "1/2 the texels are knots k and k + 1 with k = %s >> %d "
-			    "and u = (%s & %lld)/%lld", xo, (long long)st, xo, b->j,
-			    xo, (long long)(st - 1), (long long)st);
-			if ((n - 1) % st)
-				sb_printf(&r->proof, " (the last knot, past the range, "
-				    "is on the line through the knot before it and "
-				    "the last point%s)", isint ? ", rounded to a whole "
-				    "number" : "");
-			sb_printf(&r->proof, "\n  the fraction is a multiple of "
-			    "2^-%d, on the unit's 2^-%d grid, and the coordinate "
-			    "is exact in f32: the weights do not move\n  that line "
-			    "against the function at every one of the %lld points: "
-			    "the function less the line is in [%s, %s]", b->j,
-			    X.bits, (long long)n, fmt_g(b->dmin), fmt_g(b->dmax));
-		} else {
-			sb_printf(&r->proof, "at texel coordinate %s + 1/2, a "
-			    "texel's centre, a linear read is that texel (the next "
-			    "one's weight is 0), and the coordinate is exact in "
-			    "f32: the weight does not move\n  every point has its "
-			    "own texel, the function's value there", xo);
-			if (b->quant)
-				sb_printf(&r->proof, " to within its level (the "
-				    "function less its level is in [%s, %s])",
-				    fmt_g(b->dmin), fmt_g(b->dmax));
-		}
-		sb_printf(&r->proof, "\n  the filter is within %g ulp of that sum "
-		    "(the model's tex_within), the texels as %s, the map back "
-		    "to the values%s: %s", X.ulp, b->ti.cls == C_TEX_SAMPLE_F16 ?
-		    "f16" : b->ti.cls == C_TEX_SAMPLE_F32 ? "f32" : "k/q",
-		    isint ? " and the add" : "", fmt_g(b->e));
-		if (isint) {
-			sb_printf(&r->proof, "\nthe function's value F is a whole "
-			    "number, and floor(read + c) is F where F <= line + c "
-			    "- e and line + c + e < F + 1: every c in (%s, %s), "
-			    "%.9g taken", fmt_g(b->dmax + b->e), fmt_g(b->dmin + 1 -
-			    b->e), b->c);
-			if (N.op[N.op[b->to] == O_CAST ? N.a[b->to] : b->to] !=
-			    O_FLOOR)
-				sb_puts(&r->proof, " (never negative: the conversion "
-				    "to an integer truncates, which is that floor)");
-		} else
-			sb_printf(&r->proof, "\nagainst the function's f32 value "
-			    "the read is within %s", fmt_g(b->err));
-		sb_printf(&r->pipe, "a texture %s, %lld x 1, one level: the knots",
-		    fmt_vk(b->ti.cls), (long long)b->K);
-		fmt_says(&r->pipe, &b->ti);
-		sb_printf(&r->pipe, "\na sampler: LINEAR mag and min filters, "
-		    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
-		    "lod 0\none combined image sampler more in the layout; the "
-		    "shader reads textureLod(s, c, 0.0).r at the texel "
-		    "coordinate c = %s\nsetup (the descriptor, the upload) is "
-		    "not in the model: not measured", node_str(b->coord));
+		knots_say(r, &tf, b, shared_str(body, 120));
 	}
 	r->ok = 1;
 	if (b == &lin && !isint && !lin.ok)

@@ -4066,7 +4066,7 @@ is offered: `texalu` says which number is missing.
   packed index, or a texel fetch there (below), is the function
   exactly, an integer or a float one.  For
   one parameter x in lo..hi (within +-2^22) the linear filter also reads
-  it from knots, the function at every 2^j-th x, at texel coordinate
+  it from knots (for two, from a grid of them: below), the function at every 2^j-th x, at texel coordinate
   (x - lo)/2^j + 1/2: the fraction is a multiple of 2^-j, on the unit's
   grid while j is at most `subtexel`, and the coordinate is exact in
   f32, so the weights do not move and the read is the line between two
@@ -4086,12 +4086,19 @@ is offered: `texalu` says which number is missing.
   model lists no load (tests/textable.ucas).  A curve of four straight
   pieces written with divisions (cost 65) is 129 bytes read once
   (29.625: `u16(255tex_linear8(T, 0.125f32(x) + 0.5) + 0.0625)`); a
-  float tone curve of 1024 points is 65 bytes within 0.00364.  Not
-  done: two parameters through the bilinear filter, knots moved off the
-  function's values to halve a curve's error, more than 4096 knots (the
-  row every device's image takes; a nearest table wider than that is
-  offered and says so), a 2-D nearest read that would drop the packed
-  index.
+  float tone curve of 1024 points is 65 bytes within 0.00364.  Two
+  parameters take a grid of knots under the bilinear filter, a stride
+  for each (2^jx, 2^jy), read at (x - lox)/2^jx + 1/2 and (y - loy)/2^jy
+  + 1/2: the read is the bilinear patch of four knots, compared with
+  the function at every point in the same way (a knot past a range is
+  extended along its row, then along its column).  A blend of six
+  corner values in fixed point, two cells of 16 x 16 written with their
+  weights' products and a rounding shift (cost 62), is a 3 x 2 texture
+  read once (33.625); its ties leave c in (0.5, 0.508).  Not done:
+  three parameters (a 3-D texture), knots moved off the function's
+  values to halve a curve's error, more than 4096 knots (the row every
+  device's image takes; a nearest table wider than that is offered and
+  says so), a 2-D nearest read that would drop the packed index.
 
 The texture's format is the cheapest the model lists among those that
 hold the table: bytes (R8_UNORM, priced `tex_sample`) when every entry
