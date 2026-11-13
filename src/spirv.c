@@ -8474,12 +8474,26 @@ fprice_ins(const char *op, const char *ext, int rt)
 	else if (!strcmp(op, "OpSelect") && is_float_t(rt))
 		p = c[C_SELECT];
 	else if (!strcmp(op, "OpExtInst") && ext) {
+		/* the library calls, as model.c prices the same operation */
+		static const struct { const char *ext; int op; } lib[] = {
+			{"Exp", O_EXP}, {"Log", O_LOG}, {"Sin", O_SIN},
+			{"Cos", O_COS}, {"Tan", O_TAN}, {"Asin", O_ASIN},
+			{"Acos", O_ACOS}, {"Atan", O_ATAN}, {"Atan2", O_ATAN2},
+			{"Sinh", O_SINH}, {"Cosh", O_COSH}, {"Tanh", O_TANH},
+			{"Asinh", O_ASINH}, {"Acosh", O_ACOSH}, {"Atanh", O_ATANH},
+			{NULL, 0}};
 		for (i = 0; fx_ext[i].ext; i++)
 			if (!strcmp(ext, fx_ext[i].ext))
 				p = fx_price(fx_ext[i].op);
+		for (i = 0; p < 0 && is_float_t(rt) && lib[i].ext; i++)
+			if (!strcmp(ext, lib[i].ext)) {
+				nid x = mk_var(0, sym_cstr("x"), TY_F32);
+				int cls;
+				p = node_cost(model_active(), lib[i].op == O_ATAN2 ?
+				    mk_bin(O_ATAN2, x, x) : mk_un(lib[i].op, x), &cls);
+			}
 		if (p < 0 && is_float_t(rt))
-			p = !strcmp(ext, "Exp") || !strcmp(ext, "Log") ?
-			    c[C_FTRANS] : c[C_MINMAX];
+			p = c[C_MINMAX];
 	}
 	return p < 0 ? 0 : p * n;
 }
