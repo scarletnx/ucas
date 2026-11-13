@@ -1,0 +1,95 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 70 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 8 -> 8 (+0.0%)
+  counting the strength reductions any driver also does: 8 -> 8 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  dot products: 1 sum of products would be a dot product under gt1030 (cost -2), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  dot products: 1 sum of products would be a dot product under gt1030 (cost -1, each once), not proposed: the module does not declare SPV_KHR_integer_dot_product (in GLSL, #extension GL_EXT_integer_dot_product)
+  (nofile: simplified.spvasm, 2280 bytes, checksum 48af675c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 86 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 2 sums of products made dot products (proved by dot.c, below), 8 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 15 -> 11 (-26.7%)
+  counting the strength reductions any driver also does: 15 -> 11 (-26.7%)
+  also done by any driver compiler (2 rewrites, -0; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  by kind:
+       2  a sum of products as one dot product          -5
+  rewrites:
+    %77 = OpIAdd %uint %75 %48
+      ->  udot4x8(%54, 0x400) + (%46 & 0xff)   (a sum of products as one dot product; -3)
+      (line 11: b.d[i + 3u] = ((w >> 8u) & 255u) * 4u + x;)
+    %67 = OpIAdd %uint %85 %89
+      ->  udot4x8(%46, 5) + (((%62 & 3) << 3) + 1)   (a sum of products as one dot product; -2)
+      (line 10: b.d[i] = f(x) + g(b.d[i + 1u] & 3u);)
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %67 = OpIAdd %uint %85 %89
+      ->  udot4x8(%46, 5) + (((%62 & 3) << 3) + 1)   (cost 7 -> 5)
+      (line 10: b.d[i] = f(x) + g(b.d[i + 1u] & 3u);)
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (%46 & 0xff) * 5
+      %46 & 0xff is bits 0..7 of %46: lane 0 as it is
+      the word's other lanes meet zero lanes
+      udot4x8's sum is in 0..1275: it does not wrap
+      proved by SAT: 321 AIG nodes, 169 conflicts
+    %77 = OpIAdd %uint %75 %48
+      ->  udot4x8(%54, 0x400) + (%46 & 0xff)   (cost 6 -> 3)
+      (line 11: b.d[i + 3u] = ((w >> 8u) & 255u) * 4u + x;)
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (%54 >> 8 & 0xff) * 4
+      %54 >> 8 & 0xff is bits 8..15 of %54: lane 1 as it is
+      the word's other lanes meet zero lanes
+      udot4x8's sum is in 0..1020: it does not wrap
+      proved by SAT: 122 AIG nodes, 0 conflicts
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  f (line 5), called from main (line 10)
+    line 5: a sum of products as one dot product
+      c * 5u + 1u
+        ->  udot4x8(c, 5) + 1
+        (in GLSL, GL_EXT_integer_dot_product's dotPacked4x8EXT(a, b): udot4x8 with uint operands, sdot4x8 with int ones, sudot4x8 with an int a and a uint b)
+      proof: exhaustive, over the values its leaves take where it runs
+      cost under gt1030: 3 -> 2 each time it runs
+      relies on: c in 0..255 where line 5 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 0: c * 5; c in 0..255 (proved range); udot4x8's sum is in 0..1275: it does not wrap
+  main (line 7), called from no call
+    line 11: a sum of products as one dot product
+      ((w >> 8u) & 255u) * 4u + x
+        ->  udot4x8(w, 0x400) + x
+      proof: proved by SAT: 122 AIG nodes, 0 conflicts, over the values its leaves take where it runs
+      cost under gt1030: 5 -> 2 each time it runs
+      relies on: x in 0..255 where line 11 runs; udot4x8 (4 x 8-bit lanes, unsigned): lane 1: (w >> 8 & 0xff) * 4; w >> 8 & 0xff is bits 8..15 of w: lane 1 as it is; the word's other lanes meet zero lanes; udot4x8's sum is in 0..1020: it does not wrap
+  (nofile: simplified.spvasm, 3009 bytes, checksum e7e9c60a)
+> find u32(x: u8) * 8 1
+find 8u32(x): 256 points, computing in u32, costs from gt1030
+  cost 2   8u32(x)                                  affine fit
+  cost 2   u32(x) << 3                              exact
+  cost 3   4(u32(x) + u32(x))                       affine fit
+  cost 3   u32(x) + u32(x) << 2                     exact
+  cost 3   (u32(x) - 2 << 3) + 16                   affine fit
+  [searched every term up to cost 3: 21299 distinct columns; 'more' continues]
+> find u32(x: u8) * 5 1
+find 5u32(x): 256 points, computing in u32, costs from gt1030
+  dot products under gt1030 (sums of products laid into lanes; cost 3 as written):
+  cost 1   udot4x8(x, 5)
+           udot4x8 (4 x 8-bit lanes, unsigned): lane 0: u32(x) * 5
+           u32(x) in 0..255 (proved range)
+           udot4x8's sum is in 0..1275: it does not wrap
+           exhaustive
+  cost 2   u32(x) + (u32(x) << 2)                   exact
+  cost 3   5u32(x)                                  affine fit
+  cost 4   u32(x) + (u32(x) + 3 << 2) - 12          affine fit
+  cost 6   4294967291(u32(x) + (8 - u32(x) << 1)) + 80 affine fit
+  cost 7   [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 225, 230, 235, 240, 245, 250, 255, 260, 265, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 3… (1022 more characters) lookup table (baseline)
+  [searched every term up to cost 4: 65536 distinct columns, bank full; 'more' continues]

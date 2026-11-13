@@ -1,0 +1,37 @@
+# Dot products only where the module declares SPV_KHR_integer_dot_product
+# (#327), and never for a product by a power of two (a shift).
+
+# no extension: nothing written or proposed, one line each level says what
+# would be
+simplify nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint f(uint c) { return c * 5u + 1u; }
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i] & 255u;
+  b.d[i] = f(x) + (b.d[i + 1u] & 3u) * 8u;
+}
+```
+# declared: c * 5u is a dot; x * 8u stays a shift; a byte of a word times
+# a power of two is still one (the dot reads the field)
+simplify nofile under gt1030
+```glsl
+#version 450
+#extension GL_EXT_integer_dot_product : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint f(uint c) { return c * 5u + 1u; }
+uint g(uint c) { return c * 8u; }
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint x = b.d[i] & 255u, w = b.d[i + 2u];
+  b.d[i] = f(x) + g(b.d[i + 1u] & 3u);
+  b.d[i + 3u] = ((w >> 8u) & 255u) * 4u + x;
+}
+```
+# find: a product by a power of two is not a dot
+find u32(x: u8) * 8 1
+find u32(x: u8) * 5 1

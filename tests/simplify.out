@@ -3,9 +3,9 @@
   input %y: uint
   output %out: uint (stored to; its values are listed after the run)
 simplify: 35 SPIR-V instructions, 8 rewrites proved by SAT (bit-precise: equal for every input), 3 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 15 -> 3 (-80.0%)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 13 -> 3 (-76.9%)
   counting the strength reductions any driver also does: 19 -> 3 (-84.2%)
-  also done by any driver compiler (4 rewrites, -4; kept in the written module, not counted above): 1 an extract at bit 0 is a mask; 1 a multiply by a power of two is a shift; 1 always this value; 1 equals its operand
+  also done by any driver compiler (4 rewrites, -6; kept in the written module, not counted above): 1 an extract at bit 0 is a mask; 1 a multiply by a power of two is a shift; 1 always this value; 1 equals its operand
   by kind:
        3  equals its operand                            -4.625
        1  always this value                             -2.375

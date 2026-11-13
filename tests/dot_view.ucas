@@ -6,6 +6,7 @@
 simplify under gt1030 nofile
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { uint d[]; } b;
 uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); }

@@ -2,12 +2,11 @@
   Div7: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile assume x 0 999
-simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 2 divisions by a constant made a multiply and a shift (derived, below), 10 dead instructions removed
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 2 divisions by a constant made a multiply and a shift (derived, below), 0 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once): 47.75 -> 13 (-72.8%)
+  integer arithmetic cost under gt1030 (each instruction once): 47.75 -> 15 (-68.6%)
   by kind:
        2  a division by a constant of a bounded dividend as a multiply and a shift  -32.75
-       1  a sum of products as one dot product          -2
   rewrites:
     %42 = OpSMod %int %30 %int_10
       ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (a division by a constant of a bounded dividend as a multiply and a shift; -16.75)
@@ -15,17 +14,7 @@ simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
     %40 = OpSDiv %int %30 %int_7
       ->  i32(1171u32(%30) >> 13)   (a division by a constant of a bounded dividend as a multiply and a shift; -16)
       (line 1: int Div7(int x) { return x / 7 + x % 10; })
-    %43 = OpIAdd %int %40 %42
-      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (a sum of products as one dot product; -2)
-      (line 1: int Div7(int x) { return x / 7 + x % 10; })
-  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
-    %43 = OpIAdd %int %40 %42
-      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (cost 15 -> 13)
-      (line 1: int Div7(int x) { return x / 7 + x % 10; })
-      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205u32(%30) >> 11) * 10
-      205u32(%30) >> 11 in 0..99 (proved range)
-      udot4x8's sum is in 0..990: it does not wrap
-      exhaustive
+  dot products: 1 sum of products would be a dot product under gt1030 (cost -2), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
   divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under gt1030):
     %40 = OpSDiv %int %30 %int_7
       ->  i32(1171u32(%30) >> 13)   (cost 21 -> 5)
@@ -42,8 +31,11 @@ simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       x*M/2^11 = x/10 + x*2/(10*2^11): the excess is below 1/10 while x*2 < 2^11, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^11) = floor(x/10)
       x <= 999: x*2 <= 1998 < 2^11, and x*M <= 204795 < 2^32, so the product does not wrap in u32
       and x % 10 = x - 10*floor(x/10)
+  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    nothing cheaper than its cost 15 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 2412 bytes, checksum 0feab7ac)
+  (nofile: simplified.spvasm, 2307 bytes, checksum 17bed7ba)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Div7: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -51,12 +43,11 @@ simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 > use flat
 cost model: flat
 > spvsimplify nofile assume x 0 999
-simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 2 divisions by a constant made a multiply and a shift (derived, below), 10 dead instructions removed
+simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 2 divisions by a constant made a multiply and a shift (derived, below), 0 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under flat (each instruction once): 23.25 -> 13 (-44.1%)
+  integer arithmetic cost under flat (each instruction once): 23.25 -> 15 (-35.5%)
   by kind:
        2  a division by a constant of a bounded dividend as a multiply and a shift  -8.25
-       1  a sum of products as one dot product          -2
   rewrites:
     %42 = OpSMod %int %30 %int_10
       ->  i32(u32(%30) - 10(205u32(%30) >> 11))   (a division by a constant of a bounded dividend as a multiply and a shift; -4.5)
@@ -64,17 +55,7 @@ simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
     %40 = OpSDiv %int %30 %int_7
       ->  i32(1171u32(%30) >> 13)   (a division by a constant of a bounded dividend as a multiply and a shift; -3.75)
       (line 1: int Div7(int x) { return x / 7 + x % 10; })
-    %43 = OpIAdd %int %40 %42
-      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (a sum of products as one dot product; -2)
-      (line 1: int Div7(int x) { return x / 7 + x % 10; })
-  dot products (a sum of products as one instruction, laid out and proved by dot.c under flat):
-    %43 = OpIAdd %int %40 %42
-      ->  i32(1171u32(%30) >> 13) + %30 - i32(udot4x8(205u32(%30) >> 11, 10))   (cost 15 -> 13)
-      (line 1: int Div7(int x) { return x / 7 + x % 10; })
-      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205u32(%30) >> 11) * 10
-      205u32(%30) >> 11 in 0..99 (proved range)
-      udot4x8's sum is in 0..990: it does not wrap
-      exhaustive
+  dot products: 1 sum of products would be a dot product under flat (cost -2), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
   divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under flat):
     %40 = OpSDiv %int %30 %int_7
       ->  i32(1171u32(%30) >> 13)   (cost 8.75 -> 5)
@@ -91,8 +72,11 @@ simplify: 54 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
       x*M/2^11 = x/10 + x*2/(10*2^11): the excess is below 1/10 while x*2 < 2^11, and x/10 is at least 1/10 below the next integer, so floor(x*M/2^11) = floor(x/10)
       x <= 999: x*2 <= 1998 < 2^11, and x*M <= 204795 < 2^32, so the product does not wrap in u32
       and x % 10 = x - 10*floor(x/10)
+  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+      (line 1: int Div7(int x) { return x / 7 + x % 10; })
+    nothing cheaper than its cost 15 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 2412 bytes, checksum 0feab7ac)
+  (nofile: simplified.spvasm, 2307 bytes, checksum 17bed7ba)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Lo: called from a compute shader's main(), its arguments read from a buffer
   Hi: called from a compute shader's main(), its arguments read from a buffer

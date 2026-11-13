@@ -4,17 +4,16 @@
   R: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile assume x 0 999
-simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 4 divisions by a constant made a multiply and a shift (derived, below), 9 dead instructions removed
+simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 4 divisions by a constant made a multiply and a shift (derived, below), 2 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 73 -> 23 (-68.5%)
-  counting the strength reductions any driver also does: 74 -> 23 (-68.9%)
-  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 74 -> 30 (-59.5%)
+  counting the strength reductions any driver also does: 74 -> 30 (-59.5%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
     imad             1 x 3     = 3  (a*b + c; saves 1)
   by kind:
        4  a division by a constant of a bounded dividend as a multiply and a shift  -44
-       1  a sum of products as one dot product          -2
   rewrites:
     %88 = OpSDiv %int %87 %int_255
       ->  i32(7967u32(%62) + 32759 >> 0x10)   (a division by a constant of a bounded dividend as a multiply and a shift; -19)
@@ -28,17 +27,7 @@ simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
     %78 = OpUDiv %uint %54 %uint_10
       ->  205%54 >> 11   (a division by a constant of a bounded dividend as a multiply and a shift; -3.75)
       (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
-    %82 = OpIAdd %uint %78 %81
-      ->  t1 + (%54 - udot4x8(t1, 10) << 4) where t1 = 205%54 >> 11   (a sum of products as one dot product; -2)
-      (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
-  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
-    %82 = OpIAdd %uint %78 %81
-      ->  t1 + (%54 - udot4x8(t1, 10) << 4) where t1 = 205%54 >> 11   (cost 11 -> 9)
-      (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
-      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (205%54 >> 11) * 10
-      205%54 >> 11 in 0..99 (proved range)
-      udot4x8's sum is in 0..990: it does not wrap
-      exhaustive
+  dot products: 1 sum of products would be a dot product under gt1030 (cost -2), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
   divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under gt1030):
     %78 = OpUDiv %uint %54 %uint_10
       ->  205%54 >> 11   (cost 8.75 -> 5)
@@ -71,11 +60,14 @@ simplify: 90 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
       x <= 999: x*5 <= 4995 < 2^13, and x*M <= 1169829 < 2^32, so the product does not wrap in u32
       and x % 7 = x - 7*floor(x/7)
   range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
+      (line 1: uint Dec(uint x) { return x / 10u + x % 10u * 16u; })
+    nothing cheaper than its cost 17 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
+  range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
     nothing cheaper than its cost 6 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
   range search on a result (one input, x in [0, 999]; every one of the 1000 inputs checked):
     nothing cheaper than its cost 9 among 1970144 forms of (x + K) >> S, (x +- (x >> S1) + K) >> S and t = x + K; (t +- (t >> S1)) >> S
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 3925 bytes, checksum 12cd760a)
+  (nofile: simplified.spvasm, 3862 bytes, checksum 01e0496f)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Dec: called from a compute shader's main(), its arguments read from a buffer
   optimized with spirv-opt -O (what follows is beyond that)
@@ -85,9 +77,9 @@ cost model: muldear
 > spvsimplify nofile assume x 0 999
 simplify: 55 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   assuming x in [0, 999] (every load of it)
-  integer arithmetic cost under muldear (each instruction once), beyond what spirv-opt -O and a driver's back end do: 6.25 -> 24.25 (+288.0%)
+  integer arithmetic cost under muldear (each instruction once), beyond what spirv-opt -O and a driver's back end do: 24.25 -> 24.25 (+0.0%)
   counting the strength reductions any driver also does: 24.25 -> 24.25 (+0.0%)
-  also done by any driver compiler (1 rewrite, -18; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
   beyond those, no cheaper form of an integer instruction could be proved
@@ -103,9 +95,9 @@ simplify: 55 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
 cost model: gt1030
 > spvsimplify nofile
 simplify: 55 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 23.25 -> 24.25 (+4.3%)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 24.25 -> 24.25 (+0.0%)
   counting the strength reductions any driver also does: 24.25 -> 24.25 (+0.0%)
-  also done by any driver compiler (1 rewrite, -1; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
   beyond those, no cheaper form of an integer instruction could be proved
