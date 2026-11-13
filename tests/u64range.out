@@ -27,3 +27,25 @@ range of big -> u64:
   fits in u1
   sampled 65536 points (domain has 2^64 or more points); not exhaustive
   sound bound (intervals): 0..1
+> id(x: u64) = x
+> range id
+range of id -> u64:
+  0..18446744073709551615
+  fits in u64
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+> top(x: u64) = x >> 63
+> range top
+range of top -> u64:
+  0..1
+  fits in u1
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+> zero(x: u64) = 0
+> equiv top zero
+top and zero differ at 32755 points of the sample, e.g. x=18446744073709551615: 1 vs 0
+> low(x: u64) = (x >> 32) & 0xFFFF
+> range low
+range of low -> u64:
+  0..65535
+  fits in u16
+  sampled 65536 points (domain has 2^64 or more points); not exhaustive
+  sound bound (intervals): 0..65535

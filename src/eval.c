@@ -2200,9 +2200,12 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 				sz = (uint64_t)d->hi[j] - (uint64_t)d->lo[j];
 				sz = sz == UINT64_MAX ? UINT64_MAX : sz + 1;
 			}
-			/* an unranged u64 has 2^64 values, past what lo..hi holds */
-			if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64 && !p->ranged)
+			/* an unranged u64 has 2^64 values, past what lo..hi holds:
+			 * hi becomes all ones, read unsigned by diter_next */
+			if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64 && !p->ranged) {
 				sz = UINT64_MAX;
+				d->hi[j] = -1;
+			}
 		}
 		if (sz && d->total > UINT64_MAX / sz)
 			d->total = UINT64_MAX;
@@ -2271,10 +2274,12 @@ diter_next(struct diter *d, int64_t *in_i, double *in_r)
 				static const int64_t sp[] = {0, 1, -1, 2};
 				if (d->pos < 8) {
 					uint64_t pick = (d->pos + (uint64_t)j * 3) % 8;
+					int u = TYK(d->f->p[j].ty) == K_UINT;
 					v = pick == 0 ? lo : pick == 1 ? hi :
 					    pick == 2 ? lo + 1 : pick == 3 ? hi - 1 :
 					    sp[pick - 4];
-					if (v < lo || v > hi)
+					if (u ? (uint64_t)v < (uint64_t)lo ||
+					    (uint64_t)v > (uint64_t)hi : v < lo || v > hi)
 						v = lo;
 				} else if (sz == UINT64_MAX)
 					v = (int64_t)rnd(d);
@@ -2494,7 +2499,13 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 			v->lo = v->hi = p->ki[k];
 			break;
 		case O_VAR:
-			param_bounds(&f->p[p->ki[k]], &v->lo, &v->hi);
+			/* 0..INT64_MAX would cut an unranged u64's top half off:
+			 * the whole type, which ival_full makes top */
+			if (TYK(f->p[p->ki[k]].ty) == K_UINT &&
+			    TYW(f->p[p->ki[k]].ty) == 64 && !f->p[p->ki[k]].ranged)
+				ival_full(t, v);
+			else
+				param_bounds(&f->p[p->ki[k]], &v->lo, &v->hi);
 			break;
 		case O_ADD:
 			ok = !A->top && !B->top && !add_ovf(A->lo, B->lo, &v->lo) &&
@@ -2524,6 +2535,15 @@ plan_ival(const struct plan *p, const struct func *f, struct ival *out)
 			}
 			break;
 		case O_AND:
+			/* a mask that is never negative bounds the result, whatever
+			 * the other side is (an unranged u64 is top) */
+			if (A->top != B->top) {
+				const struct ival *m = A->top ? B : A;
+				ok = m->lo >= 0;
+				v->lo = 0;
+				v->hi = m->hi;
+				break;
+			}
 			ok = !A->top && !B->top && (A->lo >= 0 || B->lo >= 0);
 			v->lo = 0;
 			v->hi = A->lo >= 0 && B->lo >= 0 ?

@@ -14,3 +14,13 @@ pr(a: u64 in 1..16, b: u64 in 1..64, c: u64 in 0..5, d: u64 in 0..5, e: u64 in 1
 range pr
 big(x: u64) = x & 1
 range big
+# without a range it is the whole u64 (#502): no sound bound of 0..2^63 - 1,
+# and the sample reaches the top bit; a mask still bounds it
+id(x: u64) = x
+range id
+top(x: u64) = x >> 63
+range top
+zero(x: u64) = 0
+equiv top zero
+low(x: u64) = (x >> 32) & 0xFFFF
+range low
