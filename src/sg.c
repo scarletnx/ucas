@@ -619,6 +619,7 @@ struct sgf {
 	struct sbuf notes;	/* derived, but not cheaper */
 	nid proved;		/* a form already proved equal to f, in pr */
 	struct eqproof pr;
+	int bycons;		/* proved by its derivation, the steps in why */
 };
 
 static nid
@@ -2976,6 +2977,719 @@ wideadd(struct sgf *g, nid cur, float *cost)
 	return cand;
 }
 
+/* ---- a carry chain over columns the lanes can compute ---- */
+
+/*
+ * A product of two numbers with a limb in each lane, written limb by
+ * limb (the schoolbook): lane l takes the columns k = 0..l in turn, each
+ * the sum of the products a_i b_(k-i), adds the carry of the one below
+ * and keeps what is above its limb as the next carry.  Every lane sums
+ * every column below its own.  A column is a function of k alone, the
+ * same in every lane, so lane k computes it once and the others read it
+ * by a shuffle (the column form).  The carry chain over the columns is
+ * then carry-save steps, lane l keeping its value's low w bits and
+ * adding the bits above of lane l - 1's, until each lane's value is
+ * below 2^(w+1), whose carries are a wide sum's: one add of two ballots.
+ *
+ * A column is a loop that adds to one state (src/loop.c's entry):
+ * s = s + t or s = q ? s + t : s, t and q not reading s, so its value
+ * from any start is the start plus its value from 0 (mod 2^N); it reads
+ * an enclosing loop's index k (its column) and values the lanes share,
+ * k in no operand of a subgroup operation (there the lane would be the
+ * operand's own).
+ */
+struct col {
+	nid L;			/* the column's loop */
+	nid inc;		/* what an iteration adds (0 where q fails) */
+	int kslot;		/* the column's index: an enclosing loop's */
+	uint32_t kname;
+	ty_t kty;
+	int64_t ilo, ihi;	/* the column loop's own index */
+	int islot;
+};
+
+#define MAXCOL 4
+#define MAXENC 8
+
+struct cwalk {
+	const struct func *f;
+	int W, n, depth;
+	int masked;		/* an sg_active test met, in a loop or not */
+	uint8_t *seen;
+	struct col c[MAXCOL];
+	/* the enclosing counted loops with constant bounds */
+	int eslot[MAXENC];
+	uint32_t ename[MAXENC];
+	ty_t ety[MAXENC];
+	int64_t elo[MAXENC], ehi[MAXENC];
+};
+
+/* the integers' widths a column's casts may go through: as wide as s */
+static int
+iwidth(ty_t t)
+{
+	if (TYK(t) == K_INT || TYK(t) == K_LIT)
+		return 64;
+	return int_width(t);
+}
+
+/* x is the state (slot s) under casts to integers at least w wide */
+static int
+is_state(nid x, int s, int w)
+{
+	while (N.op[x] == O_CAST && TY_ISINT(N.ty[x]) && iwidth(N.ty[x]) >= w)
+		x = N.a[x];
+	return N.op[x] == O_VAR && (int)N.ki[x] == s;
+}
+
+/* what next adds to the state s each iteration, or 0 */
+static nid
+addend(nid nx, int s, int w)
+{
+	nid x = nx, t;
+
+	while (N.op[x] == O_CAST && TY_ISINT(N.ty[x]) && iwidth(N.ty[x]) >= w)
+		x = N.a[x];
+	if (N.op[x] == O_SEL) {
+		if (has_slot(N.a[x], s))
+			return 0;
+		if (is_state(N.c[x], s, w) && (t = addend(N.b[x], s, w)) != 0)
+			return mk_sel(N.a[x], t, mk_const_i(N.ty[t], 0));
+		if (is_state(N.b[x], s, w) && (t = addend(N.c[x], s, w)) != 0)
+			return mk_sel(N.a[x], mk_const_i(N.ty[t], 0), t);
+		return 0;
+	}
+	if (N.op[x] != O_ADD)
+		return 0;
+	if (is_state(N.a[x], s, w) && !has_slot(N.b[x], s))
+		return N.b[x];
+	if (is_state(N.b[x], s, w) && !has_slot(N.a[x], s))
+		return N.a[x];
+	return 0;
+}
+
+/* slot k is read inside an operand of a subgroup operation in e */
+static int
+k_in_operand(nid e, int k, uint8_t *seen)
+{
+	uint32_t j;
+
+	if (e == 0 || seen[e] || !has_slot(e, k))
+		return 0;
+	seen[e] = 1;
+	if (IS_SG(N.op[e]))
+		return has_slot(N.a[e], k) || k_in_operand(N.b[e], k, seen);
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if (k_in_operand(N.lst[N.a[e] + j], k, seen))
+				return 1;
+		return 0;
+	}
+	if (N.op[e] == O_LOOP) {
+		uint32_t le = loop_ent(e), st = loops.st[le], q;
+		for (q = 0; q < loops.nst[le]; q++)
+			if (k_in_operand(loops.init[st + q], k, seen) ||
+			    k_in_operand(loops.next[st + q], k, seen))
+				return 1;
+		if (k_in_operand(loops.cond[le], k, seen))
+			return 1;
+	}
+	return k_in_operand(N.a[e], k, seen) || k_in_operand(N.b[e], k, seen) ||
+	    k_in_operand(N.c[e], k, seen);
+}
+
+/* n a column of f (above), recorded in w */
+static void
+try_col(struct cwalk *w, nid n)
+{
+	const struct func *f = w->f;
+	struct loopdef d;
+	struct col c;
+	int64_t lo, hi;
+	uint64_t fr;
+	uint8_t *seen;
+	int j, s, bad;
+
+	if (w->n == MAXCOL)
+		return;
+	loop_get(loop_ent(n), &d);
+	if (d.kind != LK_FOR || d.nst != 1 || loop_res(n) != 0 ||
+	    TYK(d.sty[0]) != K_UINT || !int_of(N.a[n], &lo) ||
+	    !int_of(N.b[n], &hi) || lo > hi ||
+	    (N.fl[d.next[0]] & (NF_LANEREAD | NF_LANE)))
+		return;
+	s = d.sslot[0];
+	memset(&c, 0, sizeof c);
+	c.inc = addend(d.next[0], s, int_width(d.sty[0]));
+	if (!c.inc)
+		return;
+	/* what it reads besides its own: one enclosing index, shared values */
+	fr = node_slots(d.next[0]) & ~(1ULL << s) & ~(1ULL << d.islot);
+	c.kslot = -1;
+	for (j = 0; j < NSLOT; j++) {
+		int e;
+		if (!((fr >> j) & 1))
+			continue;
+		if (j < f->np) {
+			if (!f->p[j].uniform)
+				return;
+			continue;
+		}
+		for (e = w->depth - 1; e >= 0 && w->eslot[e] != j; e--)
+			;
+		if (e < 0 || c.kslot >= 0)
+			return;
+		if (w->elo[e] < 0 || w->ehi[e] > w->W - 1)
+			return;
+		c.kslot = j;
+		c.kname = w->ename[e];
+		c.kty = w->ety[e];
+	}
+	if (c.kslot < 0)
+		return;
+	seen = xcalloc(N.n, 1);
+	bad = k_in_operand(d.next[0], c.kslot, seen);
+	free(seen);
+	if (bad)
+		return;
+	c.L = n;
+	c.islot = d.islot;
+	c.ilo = lo;
+	c.ihi = hi;
+	w->c[w->n++] = c;
+}
+
+static void
+walk_cols(struct cwalk *w, nid e)
+{
+	uint32_t j;
+
+	if (e == 0 || w->seen[e])
+		return;
+	w->seen[e] = 1;
+	if (N.op[e] == O_CONST || N.op[e] == O_VAR || N.op[e] == O_UNDEF)
+		return;
+	if (sg_active_of(e, NULL))
+		w->masked = 1;
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			walk_cols(w, N.lst[N.a[e] + j]);
+		return;
+	}
+	if (N.op[e] == O_LOOP) {
+		uint32_t le = loop_ent(e), st = loops.st[le], q;
+		int64_t lo, hi;
+		int pushed = 0;
+		try_col(w, e);
+		if (loops.kind[le] == LK_FOR && int_of(N.a[e], &lo) &&
+		    int_of(N.b[e], &hi) && w->depth < MAXENC) {
+			w->eslot[w->depth] = loops.islot[le];
+			w->ename[w->depth] = loops.name[le];
+			w->ety[w->depth] = loops.ity[le];
+			w->elo[w->depth] = lo;
+			w->ehi[w->depth] = hi;
+			w->depth++;
+			pushed = 1;
+		}
+		for (q = 0; q < loops.nst[le]; q++) {
+			walk_cols(w, loops.init[st + q]);
+			walk_cols(w, loops.next[st + q]);
+		}
+		walk_cols(w, loops.cond[le]);
+		w->depth -= pushed;
+	}
+	walk_cols(w, N.a[e]);
+	walk_cols(w, N.b[e]);
+	walk_cols(w, N.c[e]);
+}
+
+/*
+ * A sound interval of what a column adds, its index and k within their
+ * ranges, a word of a `lanes` parameter or a shared one within its
+ * range: 0 when it meets an operation it does not follow or a value
+ * that may be negative.
+ */
+struct civ {
+	const struct func *f;
+	int islot, kslot, W;
+	int64_t ilo, ihi;
+};
+
+#define CIV_TOP ((int64_t)1 << 62)
+
+/* [lo, hi] as a value of type t: a wrap is the type's whole range */
+static int
+civ_fit(ty_t t, int64_t *lo, int64_t *hi)
+{
+	int w = iwidth(t);
+
+	if (TYK(t) == K_BOOL)
+		return *lo >= 0 && *hi <= 1;
+	if (TYK(t) == K_UINT && w < 63) {
+		if (*hi >= ((int64_t)1 << w)) {
+			*lo = 0;
+			*hi = ((int64_t)1 << w) - 1;
+		}
+		return 1;
+	}
+	/* signed, or 63 and 64 bits: no wrap below CIV_TOP */
+	return *hi < CIV_TOP && (w >= 63 || *hi < ((int64_t)1 << (w - 1)));
+}
+
+static int
+civ_of(const struct civ *c, nid e, int64_t *lo, int64_t *hi, int depth)
+{
+	int64_t a0, a1, b0, b1;
+	int s, op = N.op[e];
+
+	if (depth > 64)
+		return 0;
+	switch (op) {
+	case O_CONST:
+		if (!TY_ISINT(N.ty[e]) || N.ki[e] < 0)
+			return 0;
+		*lo = *hi = N.ki[e];
+		return 1;
+	case O_VAR:
+		s = (int)N.ki[e];
+		if (s == c->islot) {
+			*lo = c->ilo;
+			*hi = c->ihi;
+		} else if (s == c->kslot || s == SG_LANE_SLOT) {
+			*lo = 0;
+			*hi = c->W - 1;
+		} else {
+			if (s >= SG_LCOPY_SLOT && s < SG_LCOPY_SLOT + c->f->np)
+				s -= SG_LCOPY_SLOT;
+			else if (s >= c->f->np || !c->f->p[s].uniform)
+				return 0;
+			if (!TY_ISINT(c->f->p[s].ty))
+				return 0;
+			param_bounds(&c->f->p[s], lo, hi);
+		}
+		return *lo >= 0;
+	case O_CAST:
+		if (!TY_ISINT(N.ty[e]) || !civ_of(c, N.a[e], lo, hi, depth + 1))
+			return 0;
+		return civ_fit(N.ty[e], lo, hi);
+	case O_SEL:
+		if (!civ_of(c, N.b[e], &a0, &a1, depth + 1) ||
+		    !civ_of(c, N.c[e], &b0, &b1, depth + 1))
+			return 0;
+		*lo = a0 < b0 ? a0 : b0;
+		*hi = a1 > b1 ? a1 : b1;
+		return 1;
+	case O_SGSHUF:
+		return civ_of(c, N.a[e], lo, hi, depth + 1);
+	case O_EQ: case O_NE: case O_LT: case O_LE: case O_GT: case O_GE:
+	case O_LAND: case O_LOR: case O_LNOT:
+		*lo = 0;
+		*hi = 1;
+		return 1;
+	case O_ADD: case O_MUL: case O_AND: case O_SHR: case O_SHL:
+		break;
+	default:
+		return 0;
+	}
+	if (!civ_of(c, N.a[e], &a0, &a1, depth + 1) ||
+	    !civ_of(c, N.b[e], &b0, &b1, depth + 1))
+		return 0;
+	switch (op) {
+	case O_ADD:
+		if (a1 >= CIV_TOP - b1)
+			return 0;
+		*lo = a0 + b0;
+		*hi = a1 + b1;
+		break;
+	case O_MUL:
+		if (a1 && b1 >= CIV_TOP / a1)
+			return 0;
+		*lo = a0 * b0;
+		*hi = a1 * b1;
+		break;
+	case O_AND:
+		*lo = 0;
+		*hi = a1 < b1 ? a1 : b1;
+		break;
+	case O_SHR:
+		if (b0 != b1 || b0 > 63)
+			return 0;
+		*lo = a0 >> b0;
+		*hi = a1 >> b0;
+		break;
+	default:	/* O_SHL */
+		if (b0 != b1 || b0 > 61 || a1 >= (CIV_TOP >> b0))
+			return 0;
+		*lo = a0 << b0;
+		*hi = a1 << b0;
+	}
+	return civ_fit(N.ty[e], lo, hi);
+}
+
+/* the column of c with k the lane it is computed in, from 0 */
+static nid
+col_in_lane(const struct col *c)
+{
+	struct loopdef d;
+	nid map[NSLOT], n;
+
+	loop_get(loop_ent(c->L), &d);
+	d.init[0] = mk_const_i(d.sty[0], 0);
+	n = mk_loop(loop_intern(&d), 0, N.a[c->L], N.b[c->L], N.c[c->L]);
+	memset(map, 0, sizeof map);
+	map[c->kslot] = mk_cast(c->kty, sg_lane());
+	return subst(n, map, c->kslot + 1);
+}
+
+/* the operand-form carry chain over v (a value per lane, its lane the
+ * bound one): s = c + v in lane k, c = s >> w, the result lane's s, as
+ * the function's limbs (cast to ty, or masked to w bits) */
+static nid
+ripple(nid v, nid L, int W, int w, ty_t ty, int masked)
+{
+	ty_t T = N.ty[v];
+	nid c = mk_const_i(T, 0), r = mk_const_i(T, 0), s;
+	int k;
+
+	for (k = 0; k < W; k++) {
+		s = mk_bin(O_ADD, c, mk_sg(O_SGSHUF, v, mk_const_i(TY(K_UINT, 32),
+		    k), mk_const_i(TY_LIT, W)));
+		r = mk_sel(mk_bin(O_EQ, mk_const_i(TY(K_UINT, 32), k), L), s, r);
+		c = mk_bin(O_SHR, s, mk_const_i(T, w));
+	}
+	if (masked)
+		r = mk_bin(O_AND, r, mk_const_i(T, (int64_t)wmask(w)));
+	return mk_cast(ty, r);
+}
+
+/* lane l's v (operand form) keeping its low w bits and adding the bits
+ * above of lane l - 1's */
+static nid
+csa_step(nid v, int W, int w)
+{
+	ty_t T = N.ty[v];
+	nid L = sg_lane(), one = mk_const_i(TY(K_UINT, 32), 1);
+
+	return mk_bin(O_ADD, mk_bin(O_AND, v, mk_const_i(T, (int64_t)wmask(w))),
+	    mk_sel(mk_bin(O_GE, L, one), mk_sg(O_SGSHUF, mk_bin(O_SHR, v,
+	    mk_const_i(T, w)), mk_bin(O_SUB, L, one), mk_const_i(TY_LIT, W)),
+	    mk_const_i(T, 0)));
+}
+
+/* the limbs of u (operand form, below 2^(w+1) - 1 in every lane; own
+ * its value in the lane itself) with the carries of the wide sum: one
+ * add of two ballots (wideadd) */
+static nid
+ballot_limbs(nid u, nid own, nid L, int W, int w, ty_t ty, int masked)
+{
+	ty_t T = N.ty[u], bt = TY(K_UINT, W > 32 ? 64 : 32);
+	nid m = mk_const_i(T, (int64_t)wmask(w));
+	nid G, P, ks, cin, r;
+
+	G = mk_sg(O_SGBALLOT, mk_bin(O_GT, u, m), mk_const_i(TY_LIT, W), 0);
+	P = mk_sg(O_SGBALLOT, mk_bin(O_EQ, u, m), mk_const_i(TY_LIT, W), 0);
+	ks = mk_bin(O_XOR, mk_bin(O_ADD, mk_bin(O_SHL, G, mk_const_i(bt, 1)), P),
+	    P);
+	cin = mk_cast(T, mk_bin(O_AND, mk_bin(O_SHR, ks, mk_cast(bt, L)),
+	    mk_const_i(bt, 1)));
+	r = mk_bin(O_ADD, own, cin);
+	if (masked)
+		r = mk_bin(O_AND, r, m);
+	return mk_cast(ty, r);
+}
+
+/* a and b proved equal on f by SAT (or every point), else why not in
+ * why (a counterexample's words are not given: SAT's choice of them
+ * changes with the compiler) */
+static int
+proved_eq(const struct func *f, nid a, nid b, struct sbuf *why)
+{
+	struct eqproof pr;
+	int bad = equiv_decide(f, a, b, NULL, &pr);
+
+	if (!bad && (pr.how == EQ_SAT || pr.how == EQ_EXHAUSTIVE))
+		return 1;
+	if (bad)
+		sb_puts(why, "SAT finds words where they differ, run again by the "
+		    "evaluator");
+	else
+		eqproof_text(why, &pr);
+	return 0;
+}
+
+/*
+ * One carry-save step, x'_k = (x_k & m) + (x_(k-1) >> w) with x below
+ * xb and the carry of the chain over x' at most cb: with c = c' +
+ * (x_(k-1) >> w), the chain over x and the one over x' keep the same
+ * low w bits, (c + x_k) & m == (c' + x'_k) & m, and their next carries
+ * keep that difference, (c + x_k) >> w == ((c' + x'_k) >> w) + (x_k >> w).
+ * By induction over the lanes from c = c' = 0 (lane 0 adds nothing from
+ * below), the two chains give the same limbs.  Checked over the three
+ * free words in their ranges.
+ */
+static int
+csa_lemma(const struct func *f, ty_t T, int w, int64_t xb, int64_t cb,
+    struct sbuf *why)
+{
+	struct func g;
+	nid cp, xp, x, c, xn, m = mk_const_i(T, (int64_t)wmask(w));
+	nid kw = mk_const_i(T, w);
+	static const char *nm[3] = {"c", "p", "x"};
+	int j;
+
+	memset(&g, 0, sizeof g);
+	g.name = f->name;
+	g.np = 3;
+	for (j = 0; j < 3; j++) {
+		g.p[j].name = sym_cstr(nm[j]);
+		g.p[j].ty = T;
+		g.p[j].ranged = 1;
+		g.p[j].hi = j ? xb : cb;
+	}
+	cp = mk_var(0, g.p[0].name, T);
+	xp = mk_var(1, g.p[1].name, T);
+	x = mk_var(2, g.p[2].name, T);
+	c = mk_bin(O_ADD, cp, mk_bin(O_SHR, xp, kw));
+	xn = mk_bin(O_ADD, mk_bin(O_AND, x, m), mk_bin(O_SHR, xp, kw));
+	return proved_eq(&g, mk_bin(O_AND, mk_bin(O_ADD, c, x), m),
+	    mk_bin(O_AND, mk_bin(O_ADD, cp, xn), m), why) &&
+	    proved_eq(&g, mk_bin(O_SHR, mk_bin(O_ADD, c, x), kw),
+	    mk_bin(O_ADD, mk_bin(O_SHR, mk_bin(O_ADD, cp, xn), kw),
+	    mk_bin(O_SHR, x, kw)), why);
+}
+
+#define MAXCSA 6
+
+/* column c's carry-save form, what its proof needs */
+struct csaf {
+	nid cand, vb;
+	ty_t T;
+	int w, masked, ns;
+	int64_t vmax, xb[MAXCSA + 1];
+};
+
+/* the form for column c (its value per lane vb): 0 when the function's
+ * limbs or the column's bound are not known */
+static int
+csa_form(const struct sgf *g, nid cur, const struct col *c, nid vb,
+    struct csaf *k)
+{
+	const struct func *f = g->f;
+	struct civ cv;
+	nid body = cur, x, map[SG_LANE_SLOT + 1];
+	ty_t ty = N.ty[cur];
+	int64_t tlo, thi;
+	int i, W = sg_lanes_width(f), Tw;
+
+	memset(k, 0, sizeof *k);
+	k->vb = vb;
+	k->T = N.ty[vb];
+	Tw = int_width(k->T);
+	if (TYK(ty) != K_UINT || f->np == MAXP || !cclass_available(g->m,
+	    C_SG_BALLOT))
+		return 0;
+	/* the limbs: the result's width, or a mask's under it */
+	if (N.op[body] == O_AND && is_const(N.b[body]) && N.ki[N.b[body]] > 0 &&
+	    !((uint64_t)(N.ki[N.b[body]] + 1) & (uint64_t)N.ki[N.b[body]])) {
+		for (k->w = 1; k->w < 64 && (uint64_t)N.ki[N.b[body]] >> k->w;
+		    k->w++)
+			;
+		k->masked = 1;
+	} else
+		k->w = int_width(ty);
+	memset(&cv, 0, sizeof cv);
+	cv.f = f;
+	cv.W = W;
+	cv.islot = c->islot;
+	cv.kslot = c->kslot;
+	cv.ilo = c->ilo;
+	cv.ihi = c->ihi;
+	if (k->w < 1 || k->w >= Tw || !civ_of(&cv, c->inc, &tlo, &thi, 0) ||
+	    (thi && c->ihi - c->ilo + 1 > CIV_TOP / thi))
+		return 0;
+	k->vmax = (c->ihi - c->ilo + 1) * thi;
+	if (Tw < 63 && k->vmax >= ((int64_t)1 << Tw))
+		return 0;
+	/* carry-save steps until a lane's value is at most 2m */
+	k->xb[0] = k->vmax;
+	while (k->xb[k->ns] > 2 * (int64_t)wmask(k->w) && k->ns < MAXCSA) {
+		k->xb[k->ns + 1] = (int64_t)wmask(k->w) + (k->xb[k->ns] >> k->w);
+		k->ns++;
+	}
+	if (k->xb[k->ns] > 2 * (int64_t)wmask(k->w))
+		return 0;
+	x = vb;
+	for (i = 0; i < k->ns; i++)
+		x = csa_step(x, W, k->w);
+	memset(map, 0, sizeof map);
+	map[SG_LANE_SLOT] = lane_param(f);
+	k->cand = ballot_limbs(x, subst(x, map, SG_LANE_SLOT + 1),
+	    lane_param(f), W, k->w, ty, k->masked);
+	return 1;
+}
+
+/*
+ * The proof, with each lane's column a free word below vmax + 1 (an
+ * extra `lanes` parameter): f1, the column form, is the carry chain over
+ * them; the carry-save steps keep the chain's limbs; and once each lane
+ * is at most 2m the ballots are the chain's carries.
+ */
+static int
+csa_proved(const struct sgf *g, nid f1, const struct csaf *k,
+    struct sbuf *why)
+{
+	const struct func *f = g->f;
+	struct func f2 = *f;
+	struct param *pz = &f2.p[f2.np];
+	nid L = lane_param(f), Zc, f1z;
+	ty_t ty = N.ty[f->body];
+	int W = sg_lanes_width(f), i;
+	int64_t cb, prev;
+
+	memset(pz, 0, sizeof *pz);
+	pz->name = sym_cstr("column");
+	pz->ty = k->T;
+	pz->lanes = 1;
+	pz->ranged = 1;
+	pz->hi = k->vmax;
+	Zc = sg_lanes_copy(f2.np, pz->name, k->T, W);
+	f2.np++;
+	f1z = sg_replaced(f1, k->vb, Zc);
+	if (!f1z || !proved_eq(&f2, f1z, ripple(Zc, L, W, k->w, ty, k->masked),
+	    why)) {
+		sb_puts(why, " (the function against the carry chain over its "
+		    "columns)");
+		return 0;
+	}
+	for (i = 0; i < k->ns; i++) {
+		/* the chain over the next values carries at most cb */
+		cb = 0;
+		do {
+			prev = cb;
+			cb = (cb + k->xb[i + 1]) >> k->w;
+		} while (cb != prev);
+		if (!csa_lemma(f, k->T, k->w, k->xb[i], cb, why)) {
+			sb_printf(why, " (a carry-save step below %lld)",
+			    (long long)k->xb[i] + 1);
+			return 0;
+		}
+	}
+	pz->hi = k->xb[k->ns];
+	if (!proved_eq(&f2, ripple(Zc, L, W, k->w, ty, k->masked),
+	    ballot_limbs(Zc, mk_var((uint32_t)f->np, pz->name, k->T), L, W,
+	    k->w, ty, k->masked), why)) {
+		sb_puts(why, " (the add of two ballots against the carry chain)");
+		return 0;
+	}
+	return 1;
+}
+
+static nid
+lanecols(struct sgf *g, nid cur, float *cost)
+{
+	const struct func *f = g->f;
+	struct cwalk cw;
+	struct csaf kbest = {0};
+	nid L = lane_param(f), best = cur;
+	int W = sg_lanes_width(f), i, kind = 0;
+	const struct col *cbest = NULL;
+	float bc = *cost;
+
+	if (!L || W < 2 || !TY_ISINT(N.ty[cur]) || !cclass_available(g->m,
+	    C_SG_SHUF))
+		return cur;
+	memset(&cw, 0, sizeof cw);
+	cw.f = f;
+	cw.W = W;
+	cw.seen = xcalloc(N.n, 1);
+	walk_cols(&cw, cur);
+	free(cw.seen);
+	/* the derivation is for a full subgroup: a shuffle of an inactive
+	 * lane is undefined */
+	if (cw.masked)
+		return cur;
+	for (i = 0; i < cw.n; i++) {
+		const struct col *c = &cw.c[i];
+		struct loopdef d;
+		struct csaf k;
+		nid vb, f1;
+		float p1, p2 = INFINITY;
+		int chosen = 0;
+		loop_get(loop_ent(c->L), &d);
+		vb = col_in_lane(c);
+		f1 = sg_replaced(cur, c->L, mk_bin(O_ADD, mk_cast(d.sty[0],
+		    d.init[0]), mk_sg(O_SGSHUF, vb, mk_cast(TY(K_UINT, 32),
+		    var_of(c->kslot, c->kname, c->kty)), mk_const_i(TY_LIT, W))));
+		if (!f1)
+			continue;
+		p1 = price(g, f1);
+		if (csa_form(g, cur, c, vb, &k)) {
+			p2 = price(g, k.cand);
+			if (p2 < bc && p2 < p1) {
+				struct sbuf why = {0};
+				if (csa_proved(g, f1, &k, &why)) {
+					bc = p2;
+					best = k.cand;
+					kbest = k;
+					cbest = c;
+					kind = 2;
+					chosen = 1;
+				} else
+					sb_printf(&g->notes, "  subgroup forms: the "
+					    "carry chain over the columns as carry-save "
+					    "steps and one add of two ballots (cost %g) "
+					    "is not proved: %s\n", (double)p2,
+					    sb_str(&why));
+				free(why.p);
+			} else if (p2 >= *cost)
+				note_dear(g, "the carry chain over the columns as "
+				    "carry-save steps and one add of two ballots", p2,
+				    *cost);
+		}
+		if (p1 < bc) {
+			bc = p1;
+			best = f1;
+			cbest = c;
+			kind = 1;
+		} else if (p1 >= *cost && !chosen)
+			note_dear(g, "each column computed once, in its lane, and "
+			    "read by shuffles", p1, *cost);
+	}
+	if (!kind)
+		return cur;
+	{
+		struct loopdef d;
+		loop_get(loop_ent(cbest->L), &d);
+		sb_printf(&g->why, "%s, a loop that adds to %s (so it is its "
+		    "start plus its value from 0), is a function of %s alone, "
+		    "the same in every lane: lane j computes it once, from 0, "
+		    "with %s = j, and the lanes read it by a shuffle at %s\n",
+		    shared_str(cbest->L, 160), sym_str(d.sname[0]),
+		    sym_str(cbest->kname), sym_str(cbest->kname),
+		    sym_str(cbest->kname));
+	}
+	if (kind == 2)
+		sb_printf(&g->why, "the function, with each lane's column a free "
+		    "word below %lld, is the carry chain over the columns (s = c + "
+		    "column k, c = s >> %d, the lane's limb the s of its own "
+		    "column; checked by SAT), whose limbs %d carry-save step%s "
+		    "keep, lane l keeping the low %d bits of its value and adding "
+		    "the bits above of lane l - 1's (each step's limb and carry "
+		    "checked by SAT over three free words, then induction over "
+		    "the lanes); each lane's value is then below %lld, and the "
+		    "carries are a wide sum's: with g the lanes whose value passes "
+		    "2^%d - 1 and p those where it is 2^%d - 1, the carries into "
+		    "the lanes are ((g << 1) + p) xor p, one add of two ballots "
+		    "(checked by SAT against the carry chain over free words)\n",
+		    (long long)kbest.vmax + 1, kbest.w, kbest.ns, kbest.ns == 1 ?
+		    "" : "s", kbest.w, (long long)kbest.xb[kbest.ns] + 1, kbest.w,
+		    kbest.w);
+	g->proved = best;
+	g->bycons = 1;
+	*cost = bc;
+	return best;
+}
+
 /* the size of the subgroup e's operations run in */
 static int
 width_of(nid e, uint8_t *seen)
@@ -3075,6 +3789,8 @@ sg_find(const struct func *f)
 	if (N.fl[cur] & NF_LANES) {
 		/* lanes' words: no values to tell a form by, a shape and SAT */
 		cur = wideadd(&g, cur, &cost);
+		if (cur == f->body)
+			cur = lanecols(&g, cur, &cost);
 		goto derived;
 	}
 	if (N.fl[cur] & NF_SG)
@@ -3110,9 +3826,10 @@ derived:
 		pr = g.pr;
 	} else
 		bad = equiv_decide(f, f->body, cur, &w, &pr);
-	chk = bad ? "contradicted by the check" : pr.how == EQ_EXHAUSTIVE ?
-	    "checked on every point of the domain" : pr.how == EQ_SAT ?
-	    "checked by SAT" : "checked on a sample of the domain";
+	chk = bad ? "contradicted by the check" : g.bycons && cur == g.proved ?
+	    "proved by its derivation, each step above" : pr.how ==
+	    EQ_EXHAUSTIVE ? "checked on every point of the domain" : pr.how ==
+	    EQ_SAT ? "checked by SAT" : "checked on a sample of the domain";
 	needs(&nd, cur);
 	if (bad) {
 		printf("  subgroup forms under %s: %s (cost %g) does not hold: "
@@ -3157,8 +3874,8 @@ derived:
 	rep_expr("expr", cur);
 	rep_str("derivation", sb_str(&g.why));
 	rep_str("needs", sb_str(&nd));
-	rep_str("check", pr.how == EQ_EXHAUSTIVE ? "exhaustive" : pr.how ==
-	    EQ_SAT ? "sat" : "sampled");
+	rep_str("check", g.bycons && cur == g.proved ? "derivation" : pr.how ==
+	    EQ_EXHAUSTIVE ? "exhaustive" : pr.how == EQ_SAT ? "sat" : "sampled");
 	rep_end();
 out:
 	free(g.why.p);

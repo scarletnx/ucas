@@ -1,0 +1,51 @@
+# A product of two numbers with a limb in each lane (`lanes` parameters,
+# src/sg.c lanecols), written limb by limb: lane l takes the columns
+# 0..l in turn, each the sum of the limbs' products, adds the carry of
+# the one below and keeps what is above its limb as the next carry.
+# find computes each column once, in its lane, reads it by shuffles, and
+# turns the carry chain into carry-save steps and one add of two
+# ballots.  SAT never sees a multiplier: the form is proved by its
+# derivation (the columns as free words, then the chain, then the
+# steps and the ballots).
+model w8 : gt1030 { warp: 8 }
+use w8
+
+# 64 bits, a byte in each of 8 lanes
+mul(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= k ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 8 }; u8(r) }
+find mul 1
+
+# limbs of 4 bits in a byte: the limbs under a mask
+mul4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= k ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 4 }; u8(r) & 15 }
+find mul4 1
+
+# the carry keeps 7 bits for limbs of 8: not the chain over the columns,
+# so the carry-save form is not offered, and the column form alone is
+# not cheaper as find prices a loop (each iteration whole)
+mul7(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= k ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 7 }; u8(r) }
+find mul7 1
+
+# a column that reads the lane (i <= lane in it) is not the same in
+# every lane: nothing
+mull(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= lane ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 8 }; u8(r) }
+find mull 1
+
+# under sg_active some lanes may not run, and the derivation is for a
+# full subgroup: nothing
+mula(a: u8 lanes, b: u8 lanes, m: u8 uniform, lane: u32 in 0..7) = { sg_active(m); { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= k ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 8 }; u8(r) } }
+find mula 1
+
+# dear shuffles do not make it dearer (the function as written reads 8
+# lanes for each of its 36 products); dear ballots do: derived, not
+# cheaper, said
+model dears : w8 { sg_shuffle: 400 }
+use dears
+find mul 1
+model dearb : w8 { sg_ballot: 4000 }
+use dearb
+find mul 1
+use w8
+
+# 512 bits, a u16 in each of 32 lanes, the columns in u64
+use gt1030
+mul512(a: u16 lanes, b: u16 lanes, lane: u32 in 0..31) = { c: u64 = 0; r: u64 = 0; for k in 0..31 { s: u64 = c; for i in 0..31 { s = i <= k ? s + u64(u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 31))) : s }; r = k == lane ? s : r; c = s >> 16 }; u16(r) }
+find mul512 1

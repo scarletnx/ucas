@@ -3403,6 +3403,34 @@ under; the whole is then checked against the function on its domain
   ones (the carry word below): the carries of the whole number by one
   add.  With no values to tell it by, the form is offered only when
   SAT proves it equal to the function over the lanes' words.
+- A carry chain over columns every lane can compute, as a product of
+  two numbers with a limb in each lane is written limb by limb (the
+  schoolbook): lane l takes the columns k = 0..l in turn, each a loop
+  adding the products `a_i b_(k-i)` to the carry of the one below, and
+  keeps what is above its limb as the next carry.  A column is a loop
+  that adds to one state (`s = s + t` or `s = q ? s + t : s`) and reads
+  an enclosing loop's index k (in no operand of an operation) and values
+  the lanes share: it is its start plus its value from 0, the same in
+  every lane, so lane j computes it once with k = j and the others read
+  it by a shuffle.  The chain then becomes carry-save steps, lane l
+  keeping the low w bits of its value and adding the bits above of lane
+  l - 1's (w the limbs' width: the result's, or its mask's), until each
+  lane's value is at most 2^(w+1) - 2, and the carries of that are a
+  wide sum's: one add of two ballots, as above.  No multiplier reaches
+  SAT; the form is proved by its derivation (check `derivation` in the
+  report): with each column a free word below its bound (the loop's
+  trips times the most an iteration adds, by intervals), SAT proves the
+  function the carry chain over them; each carry-save step keeps the
+  chain's limbs (its limb and carry checked by SAT over three free
+  words, then induction over the lanes); and SAT proves the ballots the
+  chain's carries over free words.  64 bits as a byte in each of 8 lanes
+  go from 1651 to 229.375 under a warp-8 gt1030, 512 bits as a u16 in
+  each of 32 lanes from 25225 to 811.375 under gt1030
+  (tests/sglanesmul.ucas).  The columns read by shuffles with the chain
+  kept is offered when the carry-save form is not proved and is
+  cheaper; find prices a loop's iterations whole, the shuffled column
+  in each, so it seldom is.  A function under `sg_active`, or a column
+  whose bound is not known, gets nothing.
 - An order statistic of a value per lane v, however it is written (a
   loop over the lanes counting with ballots, a chain of selections):
   the least, a median, the greatest or any k-th smallest, or v sorted
