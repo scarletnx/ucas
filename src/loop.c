@@ -565,7 +565,10 @@ loop_run(struct plan *p, uint32_t k, uint32_t np, const int64_t *in_i,
 		if (!B->dead[l] && B->trip[l] > maxt)
 			maxt = B->trip[l];
 	}
-	for (l = 0; l < np; l++) {
+	/* only a for has an index: a while's islot can be a slot of the
+	 * loops around it (a for's index, once the function with the while
+	 * is called inside that for), which the body reads */
+	for (l = 0; isfor && l < np; l++) {
 		B->vi[is + l] = B->lo[l];
 		B->vr[is + l] = (double)B->lo[l];
 	}
