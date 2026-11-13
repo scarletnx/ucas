@@ -1,0 +1,58 @@
+# A function as a texture (src/texalu.c, seed_func; issue #158): a body
+# that reads no table, of integer parameters with at most 2^16 points, is
+# tab.c's table read through the unit: by a nearest fetch at the packed
+# index, or, for one parameter, by the linear filter over knots (the
+# function at every 2^j-th value).  Offered below the function as written
+# and below the same table by a load.
+model texel : gt1030 { tex_nearest: 5, tex_within: 2 }
+# gt1030 measured a load that streams from DRAM at 90: a table that does
+# not stay in cache
+model stream : texel { load: 90 }
+model filt : gt1030 { tex_within: 2, load: 90 }
+
+# two parameters, mixed radix: the nearest read where the load is dear;
+# where it is not, the table by a load is find's and nothing is said here
+bc(i: u32 in 0..15, m: u32 in 1..15) = (i*64 + m/2)/m
+texalu bc under stream
+texalu bc under texel
+use stream
+find bc 1
+use gt1030
+# gt1030 says what it does not list
+texalu bc
+
+# one parameter, no nearest read: knots under the linear filter.  A curve
+# of four straight pieces written with divisions is 129 knots at every
+# 8th x; its floors make the result floor(read + c) with c below 1/8
+pd(x: u16 in 0..1023) = x < 256 ? x*25/100 : x < 512 ? 64 + (x - 256)*50/100 : x < 768 ? 192 + (x - 512)*125/1000 : 224 + (x - 768)*125/1000
+texalu pd under filt
+# no line between knots is this one: a texel for each point
+q8(x: u16 in 0..4095) = (x*x/4095*3 + x*5)/8/7*255/585
+texalu q8 under filt
+# a range from below 0, values of both signs: levels in the bytes, a floor
+sg(x: i16 in -100..155) = (x*x*x/1000 + x*7)/9/11
+texalu sg under filt
+# gt1030 does not say how far its filter is from the exact sum
+texalu pd
+
+# a float result is within a bound, which tol has to allow: without it,
+# the tolerance that would take it; with it, the fewest knots within
+tone(x: u16 in 0..1023) = sqrt(f32(x)/1023)*(f32(x) + 100)/(f32(x) + 400)/(1 + sqrt(f32(x)/2046))/(2 - f32(x)/1023)
+texalu tone under filt
+texalu tone tol 0.004 under filt
+texalu tone tol 0.0005 under filt
+# the nearest read of a float function is exact
+texalu tone under stream
+
+# a where clause: 0 where the function has no value
+dv(x: u8 in 0..63, y: u8 in 0..3) = (200/x + y) % 11 where x != 0
+texalu dv under stream
+# not offered: cheaper as written; more than 2^16 points; a table read
+# already (the reads' own rewrites)
+ad(a: u8, b: u8) = a + b
+texalu ad under stream
+wide(x: u32) = (x/7 + 3)/5
+texalu wide under stream
+K = [10, 20, 30, 40, 50, 60, 70]
+rd(i: u16 in 0..1000) = K[i % 7]
+texalu rd under stream

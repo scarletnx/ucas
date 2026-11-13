@@ -630,6 +630,18 @@ void swar_find(const struct func *f);
 /* ---- tab.c ---- */
 /* find: a function of at most 16 input bits as one load of a table */
 void tab_find(const struct func *f);
+/* that table: the parameters read (rd[0] the index's low part), their
+ * ranges, the packed index, the values in index order */
+struct tabfn {
+	nid tab, idx;
+	uint64_t total, undef, nonfinite;
+	int nrd, rd[MAXP], pow2;
+	int64_t blo[MAXP], bhi[MAXP];
+	uint64_t size[MAXP];
+	struct sbuf dom;
+};
+int tab_domain(const struct func *f, struct tabfn *tf);
+void tab_fill(const struct func *f, struct tabfn *tf);
 
 /* ---- eval.c ---- */
 #define F_UNDEF 1  /* outside the operation's domain */

@@ -165,96 +165,93 @@ tab_split(const struct func *f)
 	rep_end();
 }
 
-void
-tab_find(const struct func *f)
+/*
+ * The parameters f reads, their ranges (the where clause narrowing them)
+ * and the index packed from them, parameter rd[0] in the low part: fields
+ * side by side when every range is a power of two, mixed radix otherwise.
+ * 0 when f is not a function of at most TAB_MAX points of integer
+ * parameters.
+ */
+int
+tab_domain(const struct func *f, struct tabfn *tf)
 {
-	const struct model *m = model_active();
-	const char *mn = sym_str(m->name);
-	int64_t blo[MAXP], bhi[MAXP], in_i[MAXP * CH];
-	double in_r[MAXP * CH];
-	uint64_t size[MAXP], total = 1, slots, k;
-	int rd[MAXP], nrd = 0, j, pow2 = 1, bytes;
-	nid body = f->body, roots[2], *e, idx = 0, cand, where = f->where, tabn;
-	ty_t t = N.ty[body];
-	struct plan p;
-	struct eqproof pr;
-	struct sbuf w = {0}, dom = {0}, ix = {0};
-	float before, cost;
-	uint64_t undef = 0;
+	uint64_t slots, stride = 1;
+	nid body = f->body, where = f->where, idx = 0;
+	int j, sh = 0;
 
-	tab_split(f);
-	if (!(TYK(t) == K_UINT || TYK(t) == K_SINT) || (N.fl[body] & NF_SG) ||
-	    !cclass_available(m, C_LOAD))
-		return;
-	/* already a table read, or nothing to it */
-	if (N.op[body] == O_INDEX || N.op[body] == O_VAR || is_const(body) ||
-	    (N.op[body] == O_CAST && N.op[N.a[body]] == O_INDEX))
-		return;
+	memset(tf, 0, sizeof *tf);
+	tf->total = 1;
+	tf->pow2 = 1;
 	slots = node_slots(body) | (where ? node_slots(where) : 0);
 	if (slots >> MAXP)
-		return;		/* a free loop variable: not a function of its parameters alone */
+		return 0;	/* a free loop variable: not its parameters alone */
 	for (j = 0; j < f->np; j++) {
 		if (!((slots >> j) & 1))
 			continue;
 		if (!TY_ISINT(f->p[j].ty) || (TYK(f->p[j].ty) == K_UINT &&
 		    TYW(f->p[j].ty) == 64 && !f->p[j].ranged))
-			return;
-		param_bounds(&f->p[j], &blo[j], &bhi[j]);
+			return 0;
+		param_bounds(&f->p[j], &tf->blo[j], &tf->bhi[j]);
 	}
-	where_bounds(f, blo, bhi, NULL);
+	where_bounds(f, tf->blo, tf->bhi, NULL);
 	for (j = 0; j < f->np; j++) {
 		if (!((slots >> j) & 1))
 			continue;
-		if (bhi[j] < blo[j] || (uint64_t)(bhi[j] - blo[j]) >= TAB_MAX)
-			return;
-		size[j] = (uint64_t)(bhi[j] - blo[j]) + 1;
-		total *= size[j];
-		if (total > TAB_MAX)
-			return;
-		if (size[j] & (size[j] - 1))
-			pow2 = 0;
-		rd[nrd++] = j;
+		if (tf->bhi[j] < tf->blo[j] || (uint64_t)(tf->bhi[j] -
+		    tf->blo[j]) >= TAB_MAX)
+			return 0;
+		tf->size[j] = (uint64_t)(tf->bhi[j] - tf->blo[j]) + 1;
+		tf->total *= tf->size[j];
+		if (tf->total > TAB_MAX)
+			return 0;
+		if (tf->size[j] & (tf->size[j] - 1))
+			tf->pow2 = 0;
+		tf->rd[tf->nrd++] = j;
 	}
-	/* one parameter of at most 256 values is find's own baseline */
-	if (total < 2 || nrd == 0 || (nrd == 1 && total <= 256))
-		return;
-	before = fuse_expr_cost(m, body);
+	for (j = 0; j < tf->nrd; j++) {
+		int s = tf->rd[j];
+		nid x = mk_var((uint32_t)s, f->p[s].name, f->p[s].ty), part;
+		if (tf->blo[s] > 0)
+			x = mk_bin(O_SUB, x, mk_const_i(N.ty[x], tf->blo[s]));
+		else if (tf->blo[s] < 0)
+			x = mk_bin(O_ADD, x, mk_const_i(N.ty[x], -tf->blo[s]));
+		x = mk_cast(TY(K_UINT, 32), x);
+		if (tf->pow2)
+			part = sh ? mk_bin(O_SHL, x, mk_const_i(TY(K_UINT, 32),
+			    sh)) : x;
+		else
+			part = stride > 1 ? mk_bin(O_MUL, x, mk_const_i(
+			    TY(K_UINT, 32), (int64_t)stride)) : x;
+		idx = !idx ? part : tf->pow2 ? mk_bin(O_OR, idx, part) :
+		    mk_bin(O_ADD, idx, part);
+		sb_printf(&tf->dom, "%s%s in %lld..%lld", j ? ", " : "",
+		    sym_str(f->p[s].name), (long long)tf->blo[s],
+		    (long long)tf->bhi[s]);
+		stride *= tf->size[s];
+		while (tf->pow2 && (1ULL << sh) < stride)
+			sh++;
+	}
+	tf->idx = idx;
+	return 1;
+}
 
-	/* the index: parameter rd[0] in the low part */
-	{
-		uint64_t stride = 1;
-		int sh = 0;
-		for (j = 0; j < nrd; j++) {
-			int s = rd[j];
-			nid x = mk_var((uint32_t)s, f->p[s].name, f->p[s].ty), part;
-			if (blo[s] > 0)
-				x = mk_bin(O_SUB, x, mk_const_i(N.ty[x], blo[s]));
-			else if (blo[s] < 0)
-				x = mk_bin(O_ADD, x, mk_const_i(N.ty[x], -blo[s]));
-			x = mk_cast(TY(K_UINT, 32), x);
-			if (pow2)
-				part = sh ? mk_bin(O_SHL, x, mk_const_i(TY(K_UINT, 32),
-				    sh)) : x;
-			else
-				part = stride > 1 ? mk_bin(O_MUL, x, mk_const_i(
-				    TY(K_UINT, 32), (int64_t)stride)) : x;
-			idx = !idx ? part : pow2 ? mk_bin(O_OR, idx, part) :
-			    mk_bin(O_ADD, idx, part);
-			sb_printf(&dom, "%s%s in %lld..%lld", j ? ", " : "",
-			    sym_str(f->p[s].name), (long long)blo[s],
-			    (long long)bhi[s]);
-			stride *= size[s];
-			while (pow2 && (1ULL << sh) < stride)
-				sh++;
-		}
-	}
-	/* a quick bound before the work: the load and the index alone */
-	if (!(m->c[C_LOAD] < before)) {
-		free(dom.p);
-		return;
-	}
+/*
+ * The function at every point of tab_domain's domain, in index order: the
+ * table.  An entry is 0 where the function is undefined or the where
+ * clause fails (counted in undef); a float that is not finite is counted
+ * in nonfinite.
+ */
+void
+tab_fill(const struct func *f, struct tabfn *tf)
+{
+	int64_t in_i[MAXP * CH];
+	double in_r[MAXP * CH];
+	nid body = f->body, where = f->where, roots[2], *e;
+	ty_t t = N.ty[body];
+	uint64_t total = tf->total, k;
+	struct plan p;
+	int j;
 
-	/* the function at every point, in index order */
 	roots[0] = body;
 	roots[1] = where;
 	plan_build(&p, roots, 2, 0);
@@ -266,23 +263,85 @@ tab_find(const struct func *f)
 		memset(in_r, 0, sizeof in_r);
 		for (i = 0; i < np; i++) {
 			uint64_t q = k + i;
-			for (j = 0; j < nrd; j++) {
-				in_i[rd[j] * CH + i] = blo[rd[j]] + (int64_t)(q % size[rd[j]]);
-				q /= size[rd[j]];
+			for (j = 0; j < tf->nrd; j++) {
+				in_i[tf->rd[j] * CH + i] = tf->blo[tf->rd[j]] +
+				    (int64_t)(q % tf->size[tf->rd[j]]);
+				q /= tf->size[tf->rd[j]];
 			}
 		}
 		plan_run(&p, np, in_i, in_r);
 		valid_mask(&p, where ? p.root[1] : NOTOK, np, ok);
 		for (i = 0; i < np; i++) {
 			int bad = !ok[i] || (COLF(&p, p.root[0])[i] & F_UNDEF);
-			undef += bad;
-			e[k + i] = mk_const_i(t, bad ? 0 : COLI(&p, p.root[0])[i]);
+			tf->undef += bad;
+			if (TY_FP(t)) {
+				double v = bad ? 0 : COLR(&p, p.root[0])[i];
+				if (!isfinite(v)) {
+					tf->nonfinite++;
+					v = 0;
+				}
+				e[k + i] = mk_cast(t, mk_const_r(v));
+			} else
+				e[k + i] = mk_const_i(t, bad ? 0 : COLI(&p,
+				    p.root[0])[i]);
 		}
 	}
 	plan_free(&p);
-	tabn = mk_table(e, (uint32_t)total);
-	cand = mk_cast(t, mk_index(tabn, idx));
+	tf->tab = mk_table(e, (uint32_t)total);
 	free(e);
+}
+
+void
+tab_find(const struct func *f)
+{
+	const struct model *m = model_active();
+	const char *mn = sym_str(m->name);
+	uint64_t total, undef;
+	int nrd, bytes;
+	nid body = f->body, idx, cand, tabn;
+	ty_t t = N.ty[body];
+	struct tabfn tf;
+	struct eqproof pr;
+	struct sbuf w = {0}, dom = {0}, ix = {0};
+	float before, cost;
+	const int *rd;
+	const uint64_t *size;
+
+	tab_split(f);
+	if (!(TYK(t) == K_UINT || TYK(t) == K_SINT) || (N.fl[body] & NF_SG) ||
+	    !cclass_available(m, C_LOAD))
+		return;
+	/* already a table read, or nothing to it */
+	if (N.op[body] == O_INDEX || N.op[body] == O_VAR || is_const(body) ||
+	    (N.op[body] == O_CAST && N.op[N.a[body]] == O_INDEX))
+		return;
+	if (!tab_domain(f, &tf)) {
+		free(tf.dom.p);
+		return;
+	}
+	dom = tf.dom;
+	total = tf.total;
+	nrd = tf.nrd;
+	rd = tf.rd;
+	size = tf.size;
+	idx = tf.idx;
+	/* one parameter of at most 256 values is find's own baseline */
+	if (total < 2 || nrd == 0 || (nrd == 1 && total <= 256)) {
+		free(dom.p);
+		return;
+	}
+	before = fuse_expr_cost(m, body);
+	/* a quick bound before the work: the load and the index alone */
+	if (!(m->c[C_LOAD] < before)) {
+		free(dom.p);
+		return;
+	}
+
+	/* the function at every point, in index order */
+	tab_fill(f, &tf);
+	undef = tf.undef;
+	tabn = tf.tab;
+	cand = mk_cast(t, mk_index(tabn, idx));
 	cost = fuse_expr_cost(m, cand);
 	if (!(cost < before) || undef == total)
 		goto out;
