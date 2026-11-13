@@ -722,7 +722,6 @@ flt_unsup(int op)
 	case O_MOD: return "a float remainder";
 	case O_POW: return "a float power";
 	case O_SQRT: return "a float square root";
-	case O_FMA: return "a float fused multiply-add";
 	case O_FLOOR: case O_CEIL: return "a float rounding to an integer";
 	case O_LAND: case O_LOR: case O_LNOT: return "a float truth value";
 	case O_ATOMIC: return "a float atomic";
@@ -830,7 +829,8 @@ blast_flt(struct nctx *c, nid n)
 	if (has_b)
 		d = aig_and(g, d, D(b));
 	if ((op == O_ADD || op == O_SUB || op == O_MUL || op == O_MIN ||
-	    op == O_MAX || op == O_COPYSIGN) && (TYW(N.ty[N.b[n]]) != TYW(t) ||
+	    op == O_MAX || op == O_COPYSIGN || op == O_FMA) &&
+	    (TYW(N.ty[N.b[n]]) != TYW(t) ||
 	    TYW(ta) != TYW(t))) {
 		unsup("floats of two widths in one operation");
 		op = O_NONE;
@@ -872,6 +872,22 @@ blast_flt(struct nctx *c, nid n)
 	case O_MUL:
 		fp_mul(g, &r, &xa, &xb, F, FR_RNE);
 		return fres(&r, t, d);
+	case O_FMA: {
+		struct fpv xc;
+		struct word wc;
+		if (TYW(N.ty[N.c[n]]) != TYW(t)) {
+			unsup("floats of two widths in one operation");
+			break;
+		}
+		k = blast(c, N.c[n]);
+		d = aig_and(g, d, D(k));
+		xc = *FV(k);
+		wc = *V(k);
+		if (nsat_ftz)
+			flush(&xc, &wc, F);
+		fp_fma(g, &r, &xa, &xb, &xc, F, FR_RNE);
+		return fres(&r, t, d);
+	}
 	case O_MIN:
 	case O_MAX:
 		fp_minmax(g, &r, &xa, &wa, &xb, &wb, op == O_MAX, F);

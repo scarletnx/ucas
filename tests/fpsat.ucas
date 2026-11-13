@@ -49,6 +49,10 @@ equiv n1 n2 noftz
 equiv n1 n2 ftz
 equiv l2a l2b ftz
 is n1 equal to n2 with subnormals flushed to zero?
+# fma rounds once: with a product of 1 it is the sum, one circuit
+fa(x: f32, z: f32) = fma(x, f32(1), z)
+fb(x: f32, z: f32) = x + z
+equiv fa fb
 # no circuit for a division yet: sampled, and it says why
 d1(x: f32, y: f32) = x / y
 d2(x: f32, y: f32) = (x / y) * f32(1)
