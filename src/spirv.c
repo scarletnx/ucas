@@ -7312,6 +7312,69 @@ is_rem(int id)
  * one value (2), an OpSelect with an integer result, an OpLogicalOr or
  * OpLogicalAnd, that no other such instruction reads.  0 neither.
  */
+/* the factors of a product id (through multiplies and shifts left by a
+ * constant), its constants left out */
+static void
+spv_factors(int id, int *f, int *nf, int depth)
+{
+	int d = SP.def[id];
+	uint64_t v;
+
+	if (*nf >= 8 || depth > 8)
+		return;
+	if (d >= 0 && !SP.dead[d] && pure_ins(d) && V.in[d].nop == 3 &&
+	    (!strcmp(V.in[d].op, "OpIMul") ||
+	    (!strcmp(V.in[d].op, "OpShiftLeftLogical") &&
+	    const_of(res_of(idx(V.in[d].opnd[2])), &v)))) {
+		spv_factors(res_of(idx(V.in[d].opnd[1])), f, nf, depth + 1);
+		if (!strcmp(V.in[d].op, "OpIMul"))
+			spv_factors(res_of(idx(V.in[d].opnd[2])), f, nf, depth + 1);
+		return;
+	}
+	if (!const_of(id, &v))
+		f[(*nf)++] = id;
+}
+
+/* the terms of the sum id (through adds and subtracts) */
+static void
+spv_terms(int id, int *t, int *nt, int depth)
+{
+	int d = SP.def[id];
+
+	if (*nt >= 16)
+		return;
+	if (depth < 8 && d >= 0 && !SP.dead[d] && pure_ins(d) &&
+	    (depth == 0 || SP.uses[id] == 1) &&
+	    V.in[d].nop == 3 && (!strcmp(V.in[d].op, "OpIAdd") ||
+	    !strcmp(V.in[d].op, "OpISub"))) {
+		spv_terms(res_of(idx(V.in[d].opnd[1])), t, nt, depth + 1);
+		spv_terms(res_of(idx(V.in[d].opnd[2])), t, nt, depth + 1);
+		return;
+	}
+	t[(*nt)++] = id;
+}
+
+/* two terms of the sum id share a factor that is not a constant */
+static int
+sum_shares_factor(int id)
+{
+	int t[16], nt = 0, f[16][8], nf[16], i, j, a, b;
+
+	spv_terms(id, t, &nt, 0);
+	for (i = 0; i < nt; i++) {
+		nf[i] = 0;
+		spv_factors(t[i], f[i], &nf[i], 0);
+	}
+	for (i = 0; i < nt; i++)
+		for (j = i + 1; j < nt; j++)
+			for (a = 0; a < nf[i]; a++)
+				for (b = 0; b < nf[j]; b++)
+					if (f[i][a] == f[j][b] && (nf[i] > 1 ||
+					    nf[j] > 1))
+						return 1;
+	return 0;
+}
+
 static int
 idrw_root_kind(int k, const char *partof)
 {
@@ -7332,13 +7395,19 @@ idrw_root_kind(int k, const char *partof)
 		}
 	if ((!strcmp(I->op, "OpSelect") && int_width(idx(I->opnd[0])) == 32) ||
 	    !strcmp(I->op, "OpLogicalOr") || !strcmp(I->op, "OpLogicalAnd"))
-		return partof[I->res] ? 0 : 2;
+		return partof[I->res] == 1 ? 0 : 2;
+	/* a sum no other add or subtract reads, two of whose terms have a
+	 * factor in common: it may be taken out (ifx.c) */
+	if ((!strcmp(I->op, "OpIAdd") || !strcmp(I->op, "OpISub")) &&
+	    int_width(idx(I->opnd[0])) == 32 && partof[I->res] != 3 &&
+	    sum_shares_factor(I->res))
+		return 3;
 	return 0;
 }
 
 static int
-idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
-    int maxlog)
+idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
+    struct dotlog *log, int maxlog)
 {
 	const struct model *m = model_active();
 	int k, n = 0, i, ty32[2], tybool = bool_type_id();
@@ -7352,8 +7421,23 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
 		int same = !strcmp(I->op, "OpSelect") ? 2 :
 		    !strcmp(I->op, "OpLogicalOr") || !strcmp(I->op, "OpLogicalAnd") ?
 		    1 : 0;
-		if (SP.dead[k] || !same)
+		if (SP.dead[k])
 			continue;
+		if (!same) {
+			/* a sum's terms that are sums read nowhere else: read
+			 * with it (one read by several is a sum of its own) */
+			if (pure_ins(k) && (!strcmp(I->op, "OpIAdd") ||
+			    !strcmp(I->op, "OpISub")))
+				for (i = 1; i < I->nop; i++) {
+					int a;
+					if (I->opnd[i][0] != '%')
+						continue;
+					a = res_of(idx(I->opnd[i]));
+					if (!partof[a] && SP.uses[a] == 1)
+						partof[a] = 3;
+				}
+			continue;
+		}
 		/* a select's arms; a logic op's operands */
 		for (i = same == 2 ? 2 : 1; i < I->nop; i++)
 			if (I->opnd[i][0] == '%')
@@ -7433,6 +7517,9 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
 			c.rdsel = 1;
 			t = spv_ty_c(&c, V.id[root].type);
 			body = t ? mk_cast(t, spv_node(&c, root, 0)) : 0;
+		} else if (kind == 3) {
+			t = spv_ty(V.id[root].type);
+			body = t ? mk_cast(t, spv_node(&c, root, 0)) : 0;
 		} else {
 			free(c.memo);
 			continue;
@@ -7449,7 +7536,11 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
 		 * those SAT does not finish on, otherwise every derived one */
 		for (i = 0; i < nr; i++) {
 			float cost;
-			if (r[i].nearmiss || !(kind ? r[i].derived : r[i].nosat))
+			/* a sum: its own top only, not one inside it that
+			 * something else may read too */
+			if (r[i].nearmiss || !(kind == 3 ? r[i].factor &&
+			    (r[i].at == body || r[i].at == N.a[body]) : kind ?
+			    r[i].derived : r[i].nosat))
 				continue;
 			cost = fuse_expr_cost(m, r[i].e);
 			if (cost < before && (best < 0 || cost < after)) {
@@ -7506,7 +7597,7 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct dotlog *log,
 		}
 		log[n].kind = kind;
 		{
-			struct sbuf *o = kind ? rep2 : rep;
+			struct sbuf *o = kind == 3 ? rep3 : kind ? rep2 : rep;
 			sb_printf(o, "    %s\n      ->  %s   (cost %g -> %g)\n",
 			    I->text, log[n].to, (double)before, (double)after);
 			src_line(ins_line(k), sl, sizeof sl);
@@ -10799,8 +10890,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
 	struct sbuf sgrep = {0}, sgprop = {0};
-	struct sbuf idrep2 = {0};
-	int nidk[3] = {0, 0, 0};	/* idrw's rewrites by kind */
+	struct sbuf idrep2 = {0}, idrep3 = {0};
+	int nidk[4] = {0, 0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
@@ -10936,7 +11027,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	/* divisions by a constant of a bounded dividend, under the model:
 	 * first, so that a signed one is not left as an unsigned division */
 	{
-		int nd = idrw_pass(&idrep, &idrep2, idl, 32), q;
+		int nd = idrw_pass(&idrep, &idrep2, &idrep3, idl, 32), q;
 		for (q = 0; q < nd && nlog < MAXLOG; q++) {
 			struct rwlog *L = &rl[nlog++];
 			snprintf(L->from, sizeof L->from, "%s", idl[q].from);
@@ -10945,8 +11036,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			L->why = idl[q].kind == 1 ? "a divisibility test as a "
 			    "multiply and a compare" : idl[q].kind == 2 ? "a map of "
 			    "one small-range value as a table or a multiply and a "
-			    "shift" : "a division by a constant of a bounded dividend "
-			    "as a multiply and a shift";
+			    "shift" : idl[q].kind == 3 ? "a factor several terms "
+			    "share taken out once" : "a division by a constant of a "
+			    "bounded dividend as a multiply and a shift";
 			L->gain = idl[q].gain;
 			L->line = idl[q].line;
 			L->dot = 2;
@@ -11232,6 +11324,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (nidk[2])
 			printf(", %d map%s of one value made a table or a multiply "
 			    "(derived, below)", nidk[2], nidk[2] == 1 ? "" : "s");
+		if (nidk[3])
+			printf(", %d sum%s with a factor in several terms made one "
+			    "product of it (derived, below)", nidk[3], nidk[3] == 1 ?
+			    "" : "s");
 		if (nsglog)
 			printf(", %d sum%s of bits over the lanes made a ballot's bit "
 			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
@@ -11337,7 +11433,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_str("holds_where", idl[i].desc);
 			rep_str("derivation", idl[i].proof);
 			if (idl[i].kind)
-				rep_str("kind", idl[i].kind == 1 ? "divisibility" :
+				rep_str("kind", idl[i].kind == 3 ? "common_factor" :
+				    idl[i].kind == 1 ? "divisibility" :
 				    "map");
 			rep_end();
 			free(idl[i].desc);
@@ -11476,6 +11573,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep2.p, stdout);
 	}
 	free(idrep2.p);
+	if (idrep3.n) {
+		printf("  common factors (a factor several terms of a sum share, "
+		    "taken out: one multiply for them; derived by ifx.c, kept "
+		    "under %s):\n", sym_str(model_active()->name));
+		fputs(idrep3.p, stdout);
+	}
+	free(idrep3.p);
 	if (sgprop.n) {
 		printf("  subgroup forms that need the subgroup's size fixed, "
 		    "proposed (pipeline state: the module is not changed), under "

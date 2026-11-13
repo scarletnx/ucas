@@ -27,6 +27,9 @@ struct irw {
 				 * divisor's algebra, or the map's value read
 				 * back at every point of its key's range
 				 * (simplify writes these into a module) */
+	int factor;		/* a common factor taken out of a sum, in a
+				 * sized integer type (ifx.c): what simplify
+				 * reads a sum for */
 };
 
 /* ranges of root's subterms on f's domain (g: f with the parameters'

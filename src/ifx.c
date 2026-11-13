@@ -1413,7 +1413,169 @@ rw_factor(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
 	    sstr(n), fs);
 	r = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
 	if (r && sized)
-		r->nosat = 1;	/* multipliers on both sides */
+		r->nosat = r->factor = 1;	/* multipliers on both sides */
+	free(pf.p);
+}
+
+/*
+ * A factor shared across a sum of any number of terms, each a product of
+ * any number of factors: f p1 + f p2 + ... + rest = f (p1 + p2 + ...) +
+ * rest, the factor most terms share taken out once.  A constant factor
+ * and a shift left by one are a term's constant; the rest are its
+ * factors.  Distributivity modulo 2^w in a sized integer type, so any
+ * operands; rw_factor has two products of two factors (and the float
+ * case), so this says only what that one does not.
+ */
+#define FS_TERMS 16
+#define FS_FACS 8
+
+struct sterm {
+	int neg;
+	uint64_t k;		/* the constant part */
+	nid f[FS_FACS];
+	int nf;
+};
+
+static int
+prod_facs(nid e, ty_t t, struct sterm *s, int depth)
+{
+	if (depth > 64)
+		return 0;
+	if (N.ty[e] == t && N.op[e] == O_MUL)
+		return prod_facs(N.a[e], t, s, depth + 1) &&
+		    prod_facs(N.b[e], t, s, depth + 1);
+	if (N.ty[e] == t && N.op[e] == O_SHL && is_const(N.b[e]) &&
+	    N.ki[N.b[e]] >= 0 && N.ki[N.b[e]] < TYW(t)) {
+		s->k *= (uint64_t)1 << N.ki[N.b[e]];
+		return prod_facs(N.a[e], t, s, depth + 1);
+	}
+	if (is_const(e)) {
+		s->k *= (uint64_t)N.ki[e];
+		return 1;
+	}
+	if (s->nf == FS_FACS)
+		return 0;
+	s->f[s->nf++] = e;
+	return 1;
+}
+
+static int
+sum_terms(nid e, ty_t t, int neg, struct sterm *s, int *n, int depth)
+{
+	if (depth > 64)
+		return 0;
+	if (N.ty[e] == t && (N.op[e] == O_ADD || N.op[e] == O_SUB))
+		return sum_terms(N.a[e], t, neg, s, n, depth + 1) &&
+		    sum_terms(N.b[e], t, N.op[e] == O_SUB ? !neg : neg, s, n,
+		    depth + 1);
+	if (N.ty[e] == t && N.op[e] == O_NEG)
+		return sum_terms(N.a[e], t, !neg, s, n, depth + 1);
+	if (*n == FS_TERMS)
+		return 0;
+	s[*n].neg = neg;
+	s[*n].k = 1;
+	s[*n].nf = 0;
+	if (!prod_facs(e, t, &s[*n], 0))
+		return 0;
+	(*n)++;
+	return 1;
+}
+
+/* term s without its factor at skip (-1: none), its constant as written:
+ * a shift for a power of two, a multiply otherwise */
+static nid
+sterm_node(const struct sterm *s, int skip, ty_t t)
+{
+	uint64_t m = TYW(t) >= 64 ? ~0ULL : (1ULL << TYW(t)) - 1;
+	uint64_t k = s->k & m;
+	nid r = 0;
+	int i;
+
+	for (i = 0; i < s->nf; i++)
+		if (i != skip)
+			r = r ? mk_bin(O_MUL, r, s->f[i]) : s->f[i];
+	if (!r)
+		return mk_const_i(t, (int64_t)k);
+	if (k == 1)
+		return r;
+	if (k && !(k & (k - 1)))
+		return mk_bin(O_SHL, r, mk_const_i(t, __builtin_ctzll(k)));
+	return mk_bin(O_MUL, mk_const_i(t, (int64_t)k), r);
+}
+
+/* acc + (or -) e, acc 0 for none */
+static nid
+sum_add(nid acc, nid e, int neg, ty_t t)
+{
+	if (!acc)
+		return neg ? mk_un(O_NEG, e) : e;
+	return mk_bin(neg ? O_SUB : O_ADD, acc, e);
+}
+
+static void
+rw_factor_sum(struct ivc *c, nid root, nid n, struct irw **out, int *cnt,
+    int *cap)
+{
+	ty_t t = N.ty[n];
+	struct sterm s[FS_TERMS];
+	int ns = 0, i, j, q, bestc = 0, has[FS_TERMS], in1 = 0, plain2 = 1;
+	nid f = 0, in = 0, rest = 0, to;
+	char what[200], cond[200];
+	struct sbuf pf = {0};
+	struct irw *r;
+
+	(void)c;
+	if ((TYK(t) != K_UINT && TYK(t) != K_SINT) || !sum_terms(n, t, 0, s,
+	    &ns, 0) || ns < 2)
+		return;
+	/* the factor most terms have */
+	for (i = 0; i < ns; i++)
+		for (j = 0; j < s[i].nf; j++) {
+			int k2 = 0;
+			for (q = 0; q < ns; q++) {
+				int z;
+				for (z = 0; z < s[q].nf && s[q].f[z] != s[i].f[j]; z++)
+					;
+				k2 += z < s[q].nf;
+			}
+			if (k2 > bestc) {
+				bestc = k2;
+				f = s[i].f[j];
+			}
+		}
+	if (bestc < 2)
+		return;
+	/* rw_factor's case: two terms, each two factors */
+	for (i = 0; i < ns; i++)
+		if (s[i].nf != 2)
+			plain2 = 0;
+	if (ns == 2 && plain2)
+		return;
+	for (i = 0; i < ns; i++) {
+		for (has[i] = -1, j = 0; j < s[i].nf && has[i] < 0; j++)
+			if (s[i].f[j] == f)
+				has[i] = j;
+		if (has[i] >= 0) {
+			in = sum_add(in, sterm_node(&s[i], has[i], t), s[i].neg, t);
+			in1++;
+		} else
+			rest = sum_add(rest, sterm_node(&s[i], -1, t), s[i].neg, t);
+	}
+	to = mk_bin(O_MUL, in, f);
+	if (rest)
+		to = mk_bin(O_ADD, rest, to);
+	snprintf(what, sizeof what, "%s: the factor %s of %d terms taken out "
+	    "once", sstr(n), sstr(f), in1);
+	snprintf(cond, sizeof cond, "any operands: %s arithmetic is modulo "
+	    "2^%d, a ring", ty_str(t), TYW(t));
+	sb_printf(&pf, "modulo 2^%d multiplication distributes over addition "
+	    "and subtraction, and a product commutes and associates (a shift "
+	    "left by k is a product by 2^k): the %d terms with the factor %s "
+	    "are %s times the sum of what each has besides it", TYW(t), in1,
+	    sstr(f), sstr(f));
+	r = irw_add(out, cnt, cap, root, n, to, what, cond, sb_str(&pf), 1);
+	if (r)
+		r->nosat = r->derived = r->factor = 1;
 	free(pf.p);
 }
 
@@ -1442,10 +1604,12 @@ ifx_cands(struct ivc *c, nid root, nid n, uint8_t *inner, uint32_t lim,
 		rw_ilog2(c, root, n, out, cnt, cap);
 		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
 		rw_factor(c, root, n, out, cnt, cap);
+		rw_factor_sum(c, root, n, out, cnt, cap);
 		break;
 	case O_ADD:
 		rw_fpipe(c, root, n, inner, lim, out, cnt, cap);
 		rw_factor(c, root, n, out, cnt, cap);
+		rw_factor_sum(c, root, n, out, cnt, cap);
 		break;
 	case O_OR: case O_XOR:
 		rw_factor(c, root, n, out, cnt, cap);

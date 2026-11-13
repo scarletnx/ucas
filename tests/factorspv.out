@@ -1,0 +1,83 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 85 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum with a factor in several terms made one product of it (derived, below), 4 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 15 -> 12 (-20.0%)
+  fused by the model in the result (one instruction for several):
+    imad             2 x 3     = 6  (a*b + c; saves 2)
+  by kind:
+       1  a factor several terms share taken out once   -3
+  rewrites:
+    %48 = OpIAdd %uint %42 %47
+      ->  %29 + (%32*%40 + %44)*%35   (a factor several terms share taken out once; -3)
+      (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+  common factors (a factor several terms of a sum share, taken out: one multiply for them; derived by ifx.c, kept under gt1030):
+    %48 = OpIAdd %uint %42 %47
+      ->  %29 + (%32*%40 + %44)*%35   (cost 9 -> 6)
+      (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+      %29 + %32*%35*%40 + %44*%35: the factor %35 of 2 terms taken out once
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition and subtraction, and a product commutes and associates (a shift left by k is a product by 2^k): the 2 terms with the factor %35 are %35 times the sum of what each has besides it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2830 bytes, checksum a980efde)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 35.375 every run (28.5 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 28.5 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %40 = OpUDiv %uint %39 %uint_8   (35.375)
+        (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 97 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum with a factor in several terms made one product of it (derived, below), 4 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 19 -> 16 (-15.8%)
+  fused by the model in the result (one instruction for several):
+    imad             2 x 3     = 6  (a*b + c; saves 2)
+  by kind:
+       1  a factor several terms share taken out once   -3
+  rewrites:
+    %48 = OpIAdd %uint %42 %47
+      ->  %29 + (%32*%40 + %44)*%35   (a factor several terms share taken out once; -3)
+      (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+  common factors (a factor several terms of a sum share, taken out: one multiply for them; derived by ifx.c, kept under gt1030):
+    %48 = OpIAdd %uint %42 %47
+      ->  %29 + (%32*%40 + %44)*%35   (cost 9 -> 6)
+      (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+      %29 + %32*%35*%40 + %44*%35: the factor %35 of 2 terms taken out once
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition and subtraction, and a product commutes and associates (a shift left by k is a product by 2^k): the 2 terms with the factor %35 are %35 times the sum of what each has besides it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3210 bytes, checksum f53f91c3)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 35.375 every run (28.5 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 28.5 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %40 = OpUDiv %uint %39 %uint_8   (35.375)
+        (line 7: uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 67 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 3 -> 3 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+> f(y: u32, t: u32, w: u32, x: u32, z: u32) = y*t*w + x*t + z*t
+> find f 1
+find f: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 7   (y*w + x + z)*t                          y*t*w + x*t + z*t: the factor t of 3 terms taken out once (derived; checked on a sample)
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition and subtraction, and a product commutes and associates (a shift left by k is a product by 2^k): the 3 terms with the factor t are t times the sum of what each has besides it
+  cost 9   (y*w + x)*t + z*t                        y*t*w + x*t: the factor t of 2 terms taken out once (derived; checked on a sample)
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition and subtraction, and a product commutes and associates (a shift left by k is a product by 2^k): the 2 terms with the factor t are t times the sum of what each has besides it
+  nothing new up to cost 3 (term bank full)
+  [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]

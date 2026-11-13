@@ -1,0 +1,46 @@
+# A factor several terms of a sum share, taken out once (ifx.c
+# rw_factor_sum, through simplify's identities): the tile offset of a
+# texture's 8x8 tiles, (y / 8) * tile * (width / 8) + (x / 8) * tile.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint offset, width, tile; };
+void main() {
+  uint x = gl_GlobalInvocationID.x, y = gl_GlobalInvocationID.y;
+  uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;
+  b.d[base] = x;
+}
+```
+# the sum read by several others is the one rewritten, once; the sums that
+# read it keep reading it
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint offset, width, tile; };
+void main() {
+  uint x = gl_GlobalInvocationID.x, y = gl_GlobalInvocationID.y;
+  uint base = offset + (y / 8u) * tile * (width / 8u) + (x / 8u) * tile;
+  b.d[base + 1u] = x;
+  b.d[base + 2u] = y;
+  b.d[base + 3u] = x ^ y;
+}
+```
+# x * c + c is one multiply-add as written: (x + 1) * c is no cheaper
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint c; };
+void main() {
+  uint x = b.d[gl_GlobalInvocationID.x];
+  b.d[gl_GlobalInvocationID.x] = x * c + c;
+}
+```
+# find, three terms
+f(y: u32, t: u32, w: u32, x: u32, z: u32) = y*t*w + x*t + z*t
+find f 1
