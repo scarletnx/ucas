@@ -1,0 +1,35 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  et_sub (line 4), called from main (line 8)
+    per case a shift and a mask: et_sub(i) = (i >> S) & 1u with S = 1 for flip = 0; 3 for flip = 1, one shift by a selected count
+      uint et_sub(uint flip, uint i) {
+          return (i >> (flip == 0u ? 1u : 3u)) & 1u;
+      }
+    proof: exhaustive: ucas equiv of the function and the form, case by case (32 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 9.75 -> 7 per call
+    relies on: the inferred domain (flip in {0, 1}; i in 0..15): the form holds on all of it
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  field (line 4), called from main (line 8)
+    line 4: `x / 16u % 4u` can be `x / 16u` (the result is the same)
+      uint field(uint k, uint x) {
+          return k == 0u ? x % 4u : k == 1u ? x / 4u % 4u : x / 16u;
+      }
+    proof: exhaustive: ucas equiv of the two as ucas functions on every point of the inferred domain (192 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 15 -> 14 per call
+    relies on: k in 0..2; x in 0..63 at every call: main (line 8)
+    per case a shift and a mask: field(x) = (x >> S) & 3u with S = 0 for k = 0; 2 for k = 1; 4 for k = 2, one shift by a selected count
+      uint field(uint k, uint x) {
+          return (x >> (k == 0u ? 0u : (k == 1u ? 2u : 4u))) & 3u;
+      }
+    proof: exhaustive: ucas equiv of the function and the form, case by case (192 points)
+    cost under gt1030 (a loop priced per iteration times its trips): 15 -> 11 per call
+    relies on: the inferred domain (k in {0, 1, 2}; x in 0..63): the form holds on all of it
