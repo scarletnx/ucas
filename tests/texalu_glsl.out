@@ -35,6 +35,10 @@ simplify: 126 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal f
       x*M/2^13 = x/7 + x*5/(7*2^13): the excess is below 1/7 while x*5 < 2^13, and x/7 is at least 1/7 below the next integer, so floor(x*M/2^13) = floor(x/7)
       x <= 1023: x*5 <= 5115 < 2^13, and x*M <= 1197933 < 2^32, so the product does not wrap in u32
       and x % 7 = x - 7*floor(x/7)
+  subgroup forms that need the subgroup's size fixed, proposed (pipeline state: the module is not changed), under cal:
+    %53, a table of 16 entries read 4 times at a dynamic index (line 7)
+      as a register of the subgroup, lane l holding entry l (one read of the table), each read a shuffle from the lane its index names: cost 27.5 -> 22.875
+      it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
   wrapped (line 6), called from main (line 10)
