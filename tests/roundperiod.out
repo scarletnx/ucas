@@ -3,27 +3,14 @@
 > use gt1030
 cost model: gt1030
 > spvsimplify nofile nofunctions
-simplify: 268 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 4 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once): 38 -> 37 (-2.6%)
+simplify: 268 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 38 -> 38 (+0.0%)
   fused by the model in the result (one instruction for several):
     shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
-    imad             1 x 3     = 3  (a*b + c; saves 1)
-  by kind:
-       1  a sum of products as one dot product          -1
-  rewrites:
-    %103 = OpIAdd %uint %230 %101
-      ->  udot4x8(t1, t1) + %230 where t1 = 5%228 + 3 & 15   (a sum of products as one dot product; -1)
-      (line 12: for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0);)
-  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
-    %103 = OpIAdd %uint %230 %101
-      ->  udot4x8(t1, t1) + %230 where t1 = 5%228 + 3 & 15   (cost 7 -> 6)
-      (line 12: for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0);)
-      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (5%228 + 3 & 15) * (5%228 + 3 & 15)
-      5%228 + 3 & 15 in 0..15 (proved range)
-      udot4x8's sum is in 0..225: it does not wrap
-      proved by SAT: 921 AIG nodes, 0 conflicts
+    imad             2 x 3     = 6  (a*b + c; saves 2)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  dot products: 1 sum of products would be a dot product under gt1030 (cost -1), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-  (nofile: simplified.spvasm, 7972 bytes, checksum 77a194fc)
   rounding over a loop's period (a proposal, never applied: the sum changes):
     line 6: the loop at line 6 adds floor(z + 0.5) on each of its 256 passes, the same rounding of the same value: the sum is off by 256 times its error, up to 128 steps from 256 z
         (line 6: for (int i = 0; i < 256; i++) acc += floor(x * 255.0 + 0.5);)
