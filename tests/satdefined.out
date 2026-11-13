@@ -1,0 +1,11 @@
+> f(x: u32, n: u32) = { s: u32 = 0; for i in 1..2 { s = s + (x >> n) }; s } - x
+> g(x: u32, n: u32) = (x >> n) + (x >> n) - x
+> equiv f g
+f and g are equal on the domain of f (proved by SAT: 820 AIG nodes, 0 conflicts)
+> bad(x: u32, n: u32) = (x >> n) * 3 - x
+> equiv f bad
+f and bad differ at 4 points of the sample, e.g. x=4294967295, n=0: 4294967295 vs 4294967294
+> w(x: u32, n: u32) = x & 1 where { s: u32 = 0; for i in 1..2 { s = s + (x >> n) }; s } != 7
+> v(x: u32, n: u32) = n < 32 ? x & 1 : 0
+> equiv w v
+w and v are equal on the domain of w (proved by SAT: 546 AIG nodes, 2 conflicts)
