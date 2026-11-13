@@ -106,6 +106,13 @@ find sides: 1024 points (sampled; matches verified on the whole domain), computi
 > sbox(x: u32 uniform) = (x >> 4) xor S4(x & 15)
 > find sbox 1
 find sbox: 1024 points (sampled; matches verified on the whole domain), computing in u32, costs from gt1030
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 9   x >> 4 xor u32(0x21748fe3da09b65c >> (u64(x & 15) << 2) & 15) the map u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x… (7 more characters) of x & 15 as a table in one u64 constant (16 entries of 4 bits) (derived; checked by SAT)
+      holds where x & 15 in [0, 15] (interval arithmetic over the parameters' ranges)
+      u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x… (7 more characters) at x & 15 = 0..15 is [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2] (evaluated at each of the 16)
+      bits [4*i, 4*i + 4) of 0x21748fe3da09b65c hold the value at x & 15 = i: shifting right by that many bits times x & 15 and masking reads it
+  cost 8   u64(x >> 4) xor 0x21748fe3da09b65c >> (u64(x & 15) << 2) & 15 all of them: the map u32([12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][x… (7 more characters) of x & 15 as a table in one u64 constant (16 entries of 4 bits), then drops the conversion u32(...) (derived; the drops proved by SAT)
+  subgroup forms: the table [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2] is a closed form of the index (the map [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][lane] of lane as a table in one u64 constant (16 entries of 4 bits), holds where lane in [0, 15] (its range); read at lane & mask, the lane itself there and inside the table's range past it): computed at each lookup's own index, without a register or a shuffle, the function costs 9 (as written 10.875)
   nothing new up to cost 3 (term bank full)
   [searched every term up to cost 3: 16384 distinct columns, bank full; 'more' continues]
 > neg2(x: u32 uniform) = (0 - (x & 3)) & 0xff

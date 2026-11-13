@@ -9,6 +9,7 @@ find bc: 240 points, computing in u32, costs from gt1030
       p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  derived, but not cheaper under gt1030 (cost 36, as written 33): the map m/2 of m as a table in one u64 constant (15 entries of 4 bits)
   cost 25  u32(t2 + i32(t3 >= i32(m)) - i32(t3 < 0)) where t1 = 64i + m/2, t2 = i32((asfloat(t1 | 0x4b000000) - 8388608)/(asfloat(m | 0x4b000000) - 8388608)), t3 = i32(t1) - t2*i32(m) all of them: the division (64i + m/2)/m through f32 with one correction step, then the conversion f32(i32(m)) by the bits of 2^23, then the conversion f32(i32(64i + m/2)) by the bits of 2^23 (derived)
   a table under gt1030 (the function at every point of its domain; cost 32.5 as written):
   cost 9.875 [0, 64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 0, 21, … (859 more characters)
@@ -167,6 +168,7 @@ find bc: 240 points, computing in u32, costs from dearload
       p >= 0, so q0 = i32(p) = floor(p), and |p - x| < 1 gives floor(x) - 1 <= q0 <= floor(x) + 1
       r0 = a - q0*b is exact in i32 (q0*b <= a + b < 2^25) and is a mod b - b, a mod b or a mod b + b: floor(x) is q0 - 1 where r0 < 0, q0 + 1 where r0 >= b, else q0 (the two compares)
       (with a reciprocal, f32(a) * (1/f32(b)), the bound is (6*2^-24 + 5*2^-48) x)
+  derived, but not cheaper under dearload (cost 36, as written 33): the map m/2 of m as a table in one u64 constant (15 entries of 4 bits)
   cost 25  u32(t2 + i32(t3 >= i32(m)) - i32(t3 < 0)) where t1 = 64i + m/2, t2 = i32((asfloat(t1 | 0x4b000000) - 8388608)/(asfloat(m | 0x4b000000) - 8388608)), t3 = i32(t1) - t2*i32(m) all of them: the division (64i + m/2)/m through f32 with one correction step, then the conversion f32(i32(m)) by the bits of 2^23, then the conversion f32(i32(64i + m/2)) by the bits of 2^23 (derived)
   nothing new up to cost 4 (term bank full)
   [searched every term up to cost 4: 69905 distinct columns, bank full; 'more' continues]

@@ -43,17 +43,21 @@ find bits: 8 points, computing in u32, costs from gt1030
 > find over 1
   note: the result is int: searching in u32
 find over: 4 points, computing in u32, costs from gt1030
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a table in one constant (4 entries of 1 bit)
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a multiply and a shift in u32
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 1 != 0 of b as a table in one constant (4 entries of 1 bit)
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   int(0x1ff01fe00ff0000 >> (u64(b) << 4) & 0xffff) the map (b & 1 != 0 ? 255 : 0) | (b & 2 != 0 ? 510 : 0) of b as a table in one u64 constant (4 entries of 16 bits) (derived; checked on every point)
+      holds where b in [0, 3] (its range)
+      (b & 1 != 0 ? 255 : 0) | (b & 2 != 0 ? 510 : 0) at b = 0..3 is [0, 255, 510, 511] (evaluated at each of the 4)
+      bits [16*i, 16*i + 16) of 0x1ff01fe00ff0000 hold the value at b = i: shifting right by that many bits times b and masking reads it
   cost 6   u32(0xffff9fe00 >> 9u64(b) & 0x1ff)      packed table in one constant
   [searched every term up to cost 6: 4194304 distinct columns, bank full; 'more' continues]
 > wide(b: u32 in 0..3) = ((b & 1) != 0 ? 0xF : 0) | ((b & 2) != 0 ? 0xFF00 : 0)
 > find wide 1
   note: the result is int: searching in u32
 find wide: 4 points, computing in u32, costs from gt1030
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a table in one constant (4 entries of 1 bit)
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 2 != 0 of b as a multiply and a shift in u32
-  derived, but not cheaper under gt1030 (cost 11, as written 11): the map b & 1 != 0 of b as a table in one constant (4 entries of 1 bit)
+  rewrites the model prices lower (each derived, with what it holds under):
+  cost 5   int(0xff0fff00000f0000 >> (u64(b) << 4) & 0xffff) the map (b & 1 != 0 ? 15 : 0) | (b & 2 != 0 ? 65280 : 0) of b as a table in one u64 constant (4 entries of 16 bits) (derived; checked on every point)
+      holds where b in [0, 3] (its range)
+      (b & 1 != 0 ? 15 : 0) | (b & 2 != 0 ? 65280 : 0) at b = 0..3 is [0, 15, 65280, 65295] (evaluated at each of the 4)
+      bits [16*i, 16*i + 16) of 0xff0fff00000f0000 hold the value at b = i: shifting right by that many bits times b and masking reads it
   cost 5   u32(0xff0fff00000f0000 >> (u64(b) << 4) & 0xffff) packed table in one constant
   [searched every term up to cost 5: 689537 distinct columns; 'more' continues]
