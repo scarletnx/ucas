@@ -4315,11 +4315,27 @@ pipeline's to pass in, and nothing is said about them.
 
 The integer form needs T <= 2^(S-1) (the offsets are whole numbers) and
 says how far v may go before v plus the largest offset leaves 32 bits;
-a conversion truncates, which is the floor where z + 0.5 >= 0.  Not
-proposed: a pass count that is not a power of two up to 4096, a value
-that changes with the index (its errors no longer repeat), a loop that
-stores (a load in it may change).  JSON: `period_roundings` (line,
-loop_line, passes, rounding, offset, error_nearest, error_period).
+a conversion truncates, which is the floor where z + 0.5 >= 0.
+
+A value that changes with the pass (and not with the sum itself) has
+no exact sum to keep; rounded to nearest, its passes' errors add up to
+T/2 steps where the fractional parts lean one way (each pass rounds
+down a small increment and loses it).  Against the same offsets each
+pass's rounding is unbiased (over the T offsets its mean error is
+within 1/(2T) of a step, whatever the fractional part), and the report
+gives a probable bound labelled so: within 1/2 + 2 sqrt(T) steps with
+probability at least 0.99933 if the passes' fractional parts are
+independent of one another and of the offsets (Hoeffding's inequality
+with lambda = 4, as in "Probabilistic rounding error": a model, not a
+theorem).  It gains over T/2 from 32 passes on, so a shorter loop gets
+nothing.  That closed meets each offset once over the period is still
+checked.
+
+Not proposed: a pass count that is not a power of two up to 4096, a
+loop that stores (a load in it may change), a value read from the sum
+itself.  JSON: `period_roundings` (line, loop_line, passes, rounding,
+offset, error_nearest, error_period, and `probabilistic` with its
+`probability` for a value that changes).
 
 ### Advice: what could leave the shader
 

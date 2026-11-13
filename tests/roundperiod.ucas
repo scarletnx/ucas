@@ -6,8 +6,10 @@
 # never applied, each with closed's proof (Hermite's identity).
 # Proposed: a float floor(z + 0.5) over 256 passes, the integer (v +
 # 128) >> 8 over 64, roundEven over 16 with the loop's own hash h, a
-# conversion over 32 passes from 4.  Not proposed: 100 passes (not a
-# power of two), a value that changes with the index (x * float(i)).
+# conversion over 32 passes from 4; a value that changes with the pass
+# (x * float(i), 64 passes) as a probable bound.  Not proposed: 100
+# passes (not a power of two), a changing value over 16 passes (the
+# probable bound gains from 32), a value read from the sum itself.
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
@@ -32,5 +34,11 @@ void main() {
   int a5 = 0;
   for (int i = 4; i < 36; i++) a5 += int(x * 255.0 + 0.5);
   s[2] = uint(a5);
+  float a6 = 0.0;
+  for (int i = 0; i < 16; i++) a6 += floor(y * float(i) + 0.5);
+  r[4] = a6;
+  float a7 = 1.0;
+  for (int i = 0; i < 64; i++) a7 += floor(a7 * 0.25 + 0.5);
+  r[5] = a7;
 }
 ```
