@@ -1,0 +1,147 @@
+# ScarletNX #2082: FMUL's scale (.D8 .D4 .D2 .M2 .M4 .M8, 2^k with k = -3..3 but 0) on a device without doubles
+# puts 2^k on the operand it keeps exact, then rounds once; the lemmas that make that order equal the f64 path
+# f32(f64(x) * f64(y) * 2^k), each over every pair of f32 bit patterns.  q and q64 are a value's bits with any
+# NaN as one, so a zero's sign counts.  The order is A = (x * 2^k) * y where |x| >= |y| for a .D (|x| <= |y| for
+# a .M), else B = x * (y * 2^k).  Where x is outside Exc (x * 2^k neither subnormal nor past the top),
+# A = f32(x' * y) =L2= f32(f64(x') * f64(y)) =S= f32((f64(x) * 2^k) * f64(y)) =R= the f64 path; inside Exc, T;
+# B likewise with T'.  The order as one formula is beyond the solver (two multipliers under the select), as it
+# was for Bitwuzla and Z3.
+q(v: f32) = v != v ? 2143289344 : asuint(v)
+q64(v: f64) = v != v ? 9221120237041090560 : asuint(v)
+# L2: the f32 product is the f64 product rounded once
+l2a(a: u32, b: u32) = q(x * y) where x = asfloat(a), y = asfloat(b)
+l2b(a: u32, b: u32) = q(f32(f64(x) * f64(y))) where x = asfloat(a), y = asfloat(b)
+equiv l2a l2b
+# D8, 2^-3: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+d8_s1(a: u32) = q64(f64(z * f32(2^(-3)))) where z = asfloat(a), !(abs(z) < f32(2^(-123)))
+d8_s2(a: u32) = q64(f64(z) * f64(2^(-3))) where z = asfloat(a), !(abs(z) < f32(2^(-123)))
+equiv d8_s1 d8_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+d8_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-3))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+d8_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b)
+d8_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-3))) where x = asfloat(a), y = asfloat(b)
+equiv d8_r1 d8_r0
+equiv d8_r2 d8_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+d8_ta(a: u32, b: u32) = q((x * f32(2^(-3))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-123))
+d8_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-123))
+equiv d8_ta d8_tra
+d8_tb(a: u32, b: u32) = q(x * (y * f32(2^(-3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-123))
+d8_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-123))
+equiv d8_tb d8_trb
+# the form before: round the product, then scale
+d8_old(a: u32, b: u32) = q((x * y) * f32(2^(-3))) where x = asfloat(a), y = asfloat(b)
+d8_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b)
+equiv d8_old d8_ref
+# D4, 2^-2: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+d4_s1(a: u32) = q64(f64(z * f32(2^(-2)))) where z = asfloat(a), !(abs(z) < f32(2^(-124)))
+d4_s2(a: u32) = q64(f64(z) * f64(2^(-2))) where z = asfloat(a), !(abs(z) < f32(2^(-124)))
+equiv d4_s1 d4_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+d4_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-2))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+d4_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b)
+d4_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-2))) where x = asfloat(a), y = asfloat(b)
+equiv d4_r1 d4_r0
+equiv d4_r2 d4_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+d4_ta(a: u32, b: u32) = q((x * f32(2^(-2))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-124))
+d4_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-124))
+equiv d4_ta d4_tra
+d4_tb(a: u32, b: u32) = q(x * (y * f32(2^(-2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-124))
+d4_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-124))
+equiv d4_tb d4_trb
+# the form before: round the product, then scale
+d4_old(a: u32, b: u32) = q((x * y) * f32(2^(-2))) where x = asfloat(a), y = asfloat(b)
+d4_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b)
+equiv d4_old d4_ref
+# D2, 2^-1: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+d2_s1(a: u32) = q64(f64(z * f32(2^(-1)))) where z = asfloat(a), !(abs(z) < f32(2^(-125)))
+d2_s2(a: u32) = q64(f64(z) * f64(2^(-1))) where z = asfloat(a), !(abs(z) < f32(2^(-125)))
+equiv d2_s1 d2_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+d2_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-1))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+d2_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b)
+d2_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-1))) where x = asfloat(a), y = asfloat(b)
+equiv d2_r1 d2_r0
+equiv d2_r2 d2_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+d2_ta(a: u32, b: u32) = q((x * f32(2^(-1))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-125))
+d2_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-125))
+equiv d2_ta d2_tra
+d2_tb(a: u32, b: u32) = q(x * (y * f32(2^(-1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-125))
+d2_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-125))
+equiv d2_tb d2_trb
+# the form before: round the product, then scale
+d2_old(a: u32, b: u32) = q((x * y) * f32(2^(-1))) where x = asfloat(a), y = asfloat(b)
+d2_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b)
+equiv d2_old d2_ref
+# M2, 2^1: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+m2_s1(a: u32) = q64(f64(z * f32(2^(1)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7f000000)))
+m2_s2(a: u32) = q64(f64(z) * f64(2^(1))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7f000000)))
+equiv m2_s1 m2_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+m2_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(1))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+m2_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b)
+m2_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(1))) where x = asfloat(a), y = asfloat(b)
+equiv m2_r1 m2_r0
+equiv m2_r2 m2_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+m2_ta(a: u32, b: u32) = q((x * f32(2^(1))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7f000000))
+m2_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7f000000))
+equiv m2_ta m2_tra
+m2_tb(a: u32, b: u32) = q(x * (y * f32(2^(1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7f000000))
+m2_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7f000000))
+equiv m2_tb m2_trb
+# the form before: round the product, then scale
+m2_old(a: u32, b: u32) = q((x * y) * f32(2^(1))) where x = asfloat(a), y = asfloat(b)
+m2_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b)
+equiv m2_old m2_ref
+# M4, 2^2: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+m4_s1(a: u32) = q64(f64(z * f32(2^(2)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e800000)))
+m4_s2(a: u32) = q64(f64(z) * f64(2^(2))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e800000)))
+equiv m4_s1 m4_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+m4_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(2))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+m4_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b)
+m4_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(2))) where x = asfloat(a), y = asfloat(b)
+equiv m4_r1 m4_r0
+equiv m4_r2 m4_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+m4_ta(a: u32, b: u32) = q((x * f32(2^(2))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e800000))
+m4_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e800000))
+equiv m4_ta m4_tra
+m4_tb(a: u32, b: u32) = q(x * (y * f32(2^(2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e800000))
+m4_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e800000))
+equiv m4_tb m4_trb
+# the form before: round the product, then scale
+m4_old(a: u32, b: u32) = q((x * y) * f32(2^(2))) where x = asfloat(a), y = asfloat(b)
+m4_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b)
+equiv m4_old m4_ref
+# M8, 2^3: S, the scale on one operand is exact outside Exc (|z * 2^k| subnormal or past the top)
+m8_s1(a: u32) = q64(f64(z * f32(2^(3)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e000000)))
+m8_s2(a: u32) = q64(f64(z) * f64(2^(3))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e000000)))
+equiv m8_s1 m8_s2
+# R: in f64 both orders of the scale are the product's (every f64 product of f32 operands is exact)
+m8_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(3))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+m8_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b)
+m8_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(3))) where x = asfloat(a), y = asfloat(b)
+equiv m8_r1 m8_r0
+equiv m8_r2 m8_r0
+# T, T': the scaled operand out of range gives the f64 path's signed zero or infinity
+m8_ta(a: u32, b: u32) = q((x * f32(2^(3))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e000000))
+m8_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e000000))
+equiv m8_ta m8_tra
+m8_tb(a: u32, b: u32) = q(x * (y * f32(2^(3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e000000))
+m8_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e000000))
+equiv m8_tb m8_trb
+# the form before: round the product, then scale
+m8_old(a: u32, b: u32) = q((x * y) * f32(2^(3))) where x = asfloat(a), y = asfloat(b)
+m8_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b)
+equiv m8_old m8_ref
+# #2082's counterexample to the form before, at .D8: x = 0xc1000001, y = 0xfe7ffffe; the order gives the f64
+# path's 0x7e800000 there
+p_old(a: u32, b: u32) = q((x * y) * f32(2^(-3))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+p_ord(a: u32, b: u32) = q(abs(x) >= abs(y) ? (x * f32(2^(-3))) * y : x * (y * f32(2^(-3)))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+p_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+equiv p_old p_ref
+equiv p_ord p_ref
