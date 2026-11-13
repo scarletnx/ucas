@@ -1,0 +1,27 @@
+# find's solved identities past 32 bits (src/idrw.c): the divisibility
+# test of a u64 or i64 as a multiply by the inverse mod 2^64 and a
+# compare, and a map of a small-range variable as a table in one u64
+# constant when its entries need more than 32 bits.
+d1(x: u64) = x % 3 == 0
+d3(x: u64) = x % 12 == 5
+d4(x: i64) = x % 10 == 0
+# where a 64-bit multiply is one instruction (the x86 models do not list
+# imul64): x * 0xaaaaaaaaaaaaaaab <= 0x5555555555555555 is 4 against 6
+use zen4
+find d1 1
+find d3 1
+find d4 1
+# where it is dearer than the remainder the model knows: derived, not
+# offered
+model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+use w64
+find d1 1
+use gt1030
+# twelve 4-bit entries (48 bits), 41 one-bit ones: a u64 constant
+m3(x: u32 in 0..11, y: u32) = (x == 1 ? 9 : x == 3 ? 4 : x == 4 ? 13 : x == 7 ? 2 : x == 9 ? 11 : x == 10 ? 6 : 0) + y
+m4(x: u32 in 0..40, y: u32) = (x == 3 || x == 17 || x == 33 || x == 40 || x == 5) ? y : 0
+find m3 1
+find m4 1
+# seventeen 4-bit entries do not fit 64 bits: no table
+m5(x: u32 in 0..16, y: u32) = (x == 1 ? 9 : x == 3 ? 4 : x == 16 ? 13 : 0) + y
+find m5 1

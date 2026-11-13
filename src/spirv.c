@@ -7903,6 +7903,25 @@ idrw_root_kind(int k, const char *partof)
 	return 0;
 }
 
+/* does e compute anything in an integer wider than 32 bits (a table in
+ * a u64 constant): dot_emit writes 32-bit words only */
+static int
+wide_in(nid e, int depth)
+{
+	ty_t t = N.ty[e];
+	int k, ar = opinfo[N.op[e]].arity;
+	nid a[3] = {N.a[e], N.b[e], N.c[e]};
+
+	if (TY_SIZED(t) && TYW(t) > 32)
+		return 1;
+	if (depth > 64 || N.op[e] == O_VAR || N.op[e] == O_CONST)
+		return 0;
+	for (k = 0; k < ar && k < 3; k++)
+		if (a[k] && wide_in(a[k], depth + 1))
+			return 1;
+	return 0;
+}
+
 static int
 idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
     struct sbuf *rep4, struct dotlog *log, int maxlog)
@@ -8080,7 +8099,7 @@ cands:
 			 * something else may read too */
 			if (r[i].nearmiss || !(kind == 3 ? r[i].factor &&
 			    (r[i].at == body || r[i].at == N.a[body]) : kind ?
-			    r[i].derived : r[i].nosat))
+			    r[i].derived : r[i].nosat) || wide_in(r[i].e, 0))
 				continue;
 			cost = fuse_expr_cost(m, r[i].e);
 			if (cost < before && (best < 0 || cost < after)) {
