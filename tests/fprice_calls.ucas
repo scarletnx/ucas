@@ -1,0 +1,13 @@
+# simplify prices GLSL.std.450 library calls as the expressions price the
+# same operation (gt1030: tanh and atan2 four ftrans, sin one), not as a
+# min or max
+simplify nofile, x in [0, 4]
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float x; float o[]; };
+void main() {
+	uint i = gl_GlobalInvocationID.x;
+	o[i] = tanh(x * float(i)) + sin(x) + atan(x, 2.0);
+}
+```
