@@ -755,6 +755,27 @@ fp_mul(struct aig *g, struct fpv *r, const struct fpv *a, const struct fpv *b,
 	fp_round(g, r, &p, F, mode);
 }
 
+/*
+ * a * b + c rounded once: the exact product (its width the significands'
+ * sum, which the adder's frame holds, so the adder's argument for its
+ * sticky bit holds with W the product's width) into the adder.  NaN for
+ * inf * 0 and for an infinite product plus the opposite infinity, as
+ * the adder and the product have them.
+ */
+void
+fp_fma(struct aig *g, struct fpv *r, const struct fpv *a, const struct fpv *b,
+    const struct fpv *c, const struct fpfmt *F, int mode)
+{
+	struct fpv p, q;
+
+	mulx(g, &p, a, b);
+	if (mut == 9) {
+		fp_round(g, &q, &p, F, mode);
+		p = q;
+	}
+	addc(g, r, &p, c, F, mode);
+}
+
 static void
 classify(struct aig *g, const struct word *x, const struct fpfmt *F,
     lit *nan, lit *zero, struct word *mag)
@@ -967,7 +988,7 @@ isnanb(uint64_t b, const struct fpfmt *F)
 }
 
 enum { FT_ADD, FT_SUB, FT_MUL, FT_MIN, FT_MAX, FT_LT, FT_EQ, FT_CVT, FT_MA,
-    FT_AM, FT_NOPS };
+    FT_AM, FT_FMA, FT_NOPS };
 
 /* the bits a value of F packs to: a NaN as the quiet one, sign 0 */
 static uint64_t
@@ -986,13 +1007,15 @@ canon(uint64_t v, const struct fpfmt *F)
  * a * b + a and FT_AM (a + b) * b, each operation's result fed to the
  * next unpacked, as nodesat.c chains them.
  */
+static uint64_t fma_c;	/* FT_FMA's addend */
+
 static int
 cop_can(int op, uint64_t xa, uint64_t xb, const struct fpfmt *F,
     const struct fpfmt *G, int mode, uint64_t want)
 {
 	struct aig *g = aig_new();
 	struct word wa, wb, wr, k;
-	struct fpv a, b, r;
+	struct fpv a, b, r, c;
 	int ok;
 
 	w_const(&wa, fwidth(F), xa);
@@ -1000,6 +1023,11 @@ cop_can(int op, uint64_t xa, uint64_t xb, const struct fpfmt *F,
 	fp_unpack(g, &a, &wa, F);
 	fp_unpack(g, &b, &wb, F);
 	switch (op) {
+	case FT_FMA:
+		w_const(&wr, fwidth(F), fma_c);
+		fp_unpack(g, &c, &wr, F);
+		fp_fma(g, &r, &a, &b, &c, F, mode);
+		break;
 	case FT_ADD:
 	case FT_SUB:
 		if (op == FT_SUB)
@@ -1094,6 +1122,33 @@ tiny_exhaustive(int verbose)
 				}
 			}
 		}
+	/* fma on random triples: a * b exact in a double, so is + c */
+	{
+		uint64_t seed = 99;
+		int i;
+		for (i = 0; i < 6000; i++) {
+			uint64_t z = rng(&seed) & 63;
+			double a, b, c, p;
+			x = rng(&seed) & 63;
+			y = rng(&seed) & 63;
+			a = ref_val(x, &T);
+			b = ref_val(y, &T);
+			c = ref_val(z, &T);
+			p = a * b;
+			mode = i & 3;
+			want = ref_add(p, c, &T, mode);
+			fma_c = z;
+			if (!cop_can(FT_FMA, x, y, &T, &T, mode, want)) {
+				if (verbose && bad < 8)
+					fprintf(stderr, "fp selftest: 6-bit fma mode %d "
+					    "on %02llx, %02llx, %02llx: not %llx\n", mode,
+					    (unsigned long long)x, (unsigned long long)y,
+					    (unsigned long long)z,
+					    (unsigned long long)want);
+				bad++;
+			}
+		}
+	}
 	/* and to a narrower one */
 	for (x = 0; x < 512; x++)
 		for (mode = 0; mode < 4; mode++) {
@@ -1175,6 +1230,27 @@ against_eval(int verbose)
 			b = frombits(w, y);
 			x = fbits(w, a);
 			y = fbits(w, b);
+			{
+				/* fma: the evaluator's fma16, fma32, fma64 */
+				uint64_t z = i < ne * ne ? ed[(i * 7) % ne] :
+				    rng(&seed) & mask;
+				double c = frombits(w, z), fr;
+				z = fbits(w, c);
+				fr = w == 16 ? fma16(a, b, c) : w == 32 ? fma32(a, b, c) :
+				    fma64(a, b, c);
+				want = fbits(w, fr);
+				fma_c = z;
+				if (!cop_can(FT_FMA, x, y, F, F, FR_RNE, isnan(fr) ?
+				    ((1ULL << F->eb) - 1) << (F->p - 1) | 1 : want)) {
+					if (verbose && bad < 8)
+						fprintf(stderr, "fp selftest: f%d fma on %llx, "
+						    "%llx, %llx: not %llx\n", w,
+						    (unsigned long long)x, (unsigned long long)y,
+						    (unsigned long long)z,
+						    (unsigned long long)want);
+					bad++;
+				}
+			}
 			for (op = FT_ADD; op <= FT_AM; op++) {
 				static const int eop[] = {O_ADD, O_SUB, O_MUL, O_MIN,
 				    O_MAX, O_LT, O_EQ};
@@ -1365,7 +1441,8 @@ sat_floats(int verbose)
  * arithmetic, against the evaluator in binary16, 32 and 64, and through
  * the solver.  Then each deliberate defect (a rounding, a sticky bit, the
  * subnormal floor, the adder's sticky, an exact zero's sign, inf * 0, the
- * packed subnormal, -0 < +0) must be caught by those same checks.
+ * packed subnormal, -0 < +0, fma rounding its product) must be caught by
+ * those same checks.
  */
 int
 fp_selftest(void)
@@ -1377,7 +1454,7 @@ fp_selftest(void)
 	bad += tiny_exhaustive(1);
 	bad += against_eval(1);
 	bad += sat_floats(1);
-	for (m = 1; m <= 8; m++) {
+	for (m = 1; m <= 9; m++) {
 		int caught;
 		mut = m;
 		caught = tiny_exhaustive(0);

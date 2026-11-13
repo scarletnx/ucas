@@ -125,6 +125,9 @@ void fp_add(struct aig *g, struct fpv *r, const struct fpv *a,
     const struct fpv *b, const struct fpfmt *F, int mode);
 void fp_mul(struct aig *g, struct fpv *r, const struct fpv *a,
     const struct fpv *b, const struct fpfmt *F, int mode);
+void fp_fma(struct aig *g, struct fpv *r, const struct fpv *a,
+    const struct fpv *b, const struct fpv *c, const struct fpfmt *F,
+    int mode);
 /* on packed words: IEEE's < and == (NaN unordered, -0 == +0); fp_same is
  * equiv's equality, == or both NaN */
 lit fp_lt(struct aig *g, const struct word *a, const struct word *b,

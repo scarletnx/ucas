@@ -49,6 +49,10 @@ l2a and l2b are equal on the domain of l2a (proved by SAT: 18530 AIG nodes, 0 co
   ucas: equiv n1 n2 ftz
 n1 and n2 differ, e.g. x=-2.24207754e-43, y=1: -0 vs -2.24207754e-43 (found by SAT, checked by evaluation)
   every float operation flushed subnormals to zero (ftz)
+> fa(x: f32, z: f32) = fma(x, f32(1), z)
+> fb(x: f32, z: f32) = x + z
+> equiv fa fb
+fa and fb are equal on the domain of fa (proved by SAT: 8901 AIG nodes, 0 conflicts)
 > d1(x: f32, y: f32) = x / y
 > d2(x: f32, y: f32) = (x / y) * f32(1)
 > equiv d1 d2

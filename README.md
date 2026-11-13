@@ -251,14 +251,14 @@ f and g are equal on the domain of f (proved by algebra: both sides expand to on
 ### Proofs on floats
 
 `f16`, `f32` and `f64` formulas go to the solver too (src/fpsat.c):
-`+`, `-`, `*`, `-x`, `abs`, `copysign`, `sign`, `min`, `max`, the
+`+`, `-`, `*`, `fma`, `-x`, `abs`, `copysign`, `sign`, `min`, `max`, the
 comparisons, `?:`, conversions between the three widths and `asuint`,
 `asint`, `asfloat`, as IEEE 754 has them (rounded to nearest even,
 subnormals, signed zeros, infinities, NaN).  Each operation's circuit
 is checked by `--sat-selftest`: every pair of a 6-bit format in all four
 rounding directions against exact arithmetic, the evaluator's own
 results in each width, and deliberate defects that those checks must
-catch.  Not yet: division, square root, `fma`, conversions to and from
+catch.  Not yet: division, square root, conversions to and from
 integers, `floor` and `ceil`; a formula with one stays sampled, and the
 answer says which.
 
