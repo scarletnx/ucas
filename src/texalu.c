@@ -470,6 +470,8 @@ static struct {
 	struct sbuf far;	/* an index identity out of f32's reach */
 	struct sbuf nosum;	/* neighbours that are not one read, and why */
 	struct sbuf nolayer;	/* a layer selection not taken, and why */
+	struct sbuf nopacked;	/* a packed decode not taken, and why */
+	int unavail_packed;	/* tex_packed was needed */
 } X;
 
 static double
@@ -2135,6 +2137,291 @@ seed_layer(nid body, nid n)
 	return 1;
 }
 
+/* ---- packed formats ---- */
+
+/*
+ * A packed texel format's channel decoded by hand (#92): a float subterm
+ * whose one input is a 32-bit word parameter w, that reads no bit of w
+ * outside one channel's fields of B10G11R11_UFLOAT, E5B9G9R9_UFLOAT or
+ * A2B10G10R10_UNORM (the bits it reads, by what each operation needs of
+ * its operands), and that is that channel's decode on every value of
+ * those fields (16384 at most, enumerated), is unpack_FORMAT(w, c): what
+ * a texel fetch of that format gives, priced by tex_packed.  The float
+ * formats decode exactly; the UNORM one is within the unit's tex_within
+ * ulps of k/1023.
+ */
+
+/* the bits of w (slot j) that e's value can depend on, for the bits d
+ * of e that are needed (an integer e; all of a float's) */
+static uint64_t
+wbits(nid e, uint64_t d, int j, int depth)
+{
+	ty_t t = N.ty[e];
+	int w = TY_ISINT(t) && TYW(t) > 0 && TYW(t) < 64 ? TYW(t) : 64;
+	uint64_t all = w == 64 ? ~0ull : (1ull << w) - 1, r = 0;
+	int op = N.op[e], k;
+	nid a = N.a[e], b = N.b[e];
+
+	if (depth > 40)
+		return ~0ull;
+	if (TY_FP(t) || t == TY_BOOL)
+		d = all;
+	d &= all;
+	if (!d)
+		return 0;
+	switch (op) {
+	case O_CONST: case O_UNDEF:
+		return 0;
+	case O_VAR:
+		return N.ki[e] == j ? d : 0;
+	case O_CAST:
+		if (TY_ISINT(N.ty[a]) && TY_ISINT(t) && N.ty[a] != TY_BOOL) {
+			int ws = TYW(N.ty[a]) > 0 && TYW(N.ty[a]) < 64 ?
+			    TYW(N.ty[a]) : 64;
+			uint64_t ms = ws == 64 ? ~0ull : (1ull << ws) - 1;
+			/* a wider signed result's high bits copy the sign */
+			if ((d & ~ms) && TYK(N.ty[a]) == K_SINT)
+				d |= 1ull << (ws - 1);
+			return wbits(a, d & ms, j, depth + 1);
+		}
+		break;
+	case O_AND: case O_OR: case O_XOR:
+		if (op == O_AND && is_const(b))
+			return wbits(a, d & (uint64_t)N.ki[b], j, depth + 1);
+		if (op == O_AND && is_const(a))
+			return wbits(b, d & (uint64_t)N.ki[a], j, depth + 1);
+		return wbits(a, d, j, depth + 1) | wbits(b, d, j, depth + 1);
+	case O_SHR:
+		if (is_const(b) && N.ki[b] >= 0 && N.ki[b] < w) {
+			uint64_t da = d << N.ki[b];
+			if (TYK(t) == K_SINT && (d >> (w - N.ki[b])))
+				da |= 1ull << (w - 1);
+			return wbits(a, da & all, j, depth + 1);
+		}
+		break;
+	case O_SHL:
+		if (is_const(b) && N.ki[b] >= 0 && N.ki[b] < w)
+			return wbits(a, d >> N.ki[b], j, depth + 1);
+		break;
+	case O_ADD: case O_SUB: case O_MUL: case O_NEG:
+		if (TY_ISINT(t)) {
+			/* a carry moves up only: the bits up to d's highest */
+			for (k = 63; k > 0 && !(d >> k); k--)
+				;
+			d = k == 63 ? ~0ull : (2ull << k) - 1;
+			r = wbits(a, d, j, depth + 1);
+			return op == O_NEG ? r : r | wbits(b, d, j, depth + 1);
+		}
+		break;
+	case O_BFE:
+		if (is_const(b) && is_const(N.c[e]) && N.ki[N.c[e]] < 64)
+			return wbits(a, (d & ((1ull << N.ki[N.c[e]]) - 1)) <<
+			    N.ki[b], j, depth + 1);
+		break;
+	case O_SEL:
+		return wbits(a, ~0ull, j, depth + 1) | wbits(b, d, j, depth +
+		    1) | wbits(N.c[e], d, j, depth + 1);
+	case O_TABLE: case O_LOOP: case O_INDEX: case O_ATOMIC:
+		return ~0ull;
+	}
+	/* anything else needs every bit of its operands */
+	if (a)
+		r |= wbits(a, ~0ull, j, depth + 1);
+	if (b)
+		r |= wbits(b, ~0ull, j, depth + 1);
+	if (N.c[e])
+		r |= wbits(N.c[e], ~0ull, j, depth + 1);
+	return r;
+}
+
+/* the fields channel c of a packed format occupies in its word */
+static uint32_t
+pk_field(int op, int c)
+{
+	switch (op) {
+	case O_UNPACK_B10G11R11:
+		return c == 2 ? 0x3ffu << 22 : 0x7ffu << (11 * c);
+	case O_UNPACK_E5B9G9R9:
+		return 0x1ffu << (9 * c) | 0xf8000000u;
+	}
+	return c == 3 ? 0xc0000000u : 0x3ffu << (10 * c);
+}
+
+static const char *
+pk_vk(int op)
+{
+	return op == O_UNPACK_B10G11R11 ? "B10G11R11_UFLOAT_PACK32" : op ==
+	    O_UNPACK_E5B9G9R9 ? "E5B9G9R9_UFLOAT_PACK32" :
+	    "A2B10G10R10_UNORM_PACK32";
+}
+
+/*
+ * e against unpack(op, w, c) on every value of the channel's field bits
+ * of slot j (the others 0): the largest difference (NaN against NaN is
+ * none), infinity where one is a NaN or undefined and the other not;
+ * *nbad the values that differ, *onlybig 1 when they all have the
+ * exponent field all ones (B10G11R11's Inf and NaN encodings)
+ */
+static double
+pk_diff(nid e, nid cand, int j, int op, int c, int *nbad, int *onlybig)
+{
+	uint32_t f = pk_field(op, c), w, sub;
+	int nb = 0, k, n = 0, i;
+	uint32_t vals[16384];
+	struct plan p;
+	nid roots[2] = {e, cand};
+	int64_t *in_i;
+	double *in_r, md = 0;
+	uint32_t la, lb;
+
+	for (k = 0; k < 32; k++)
+		nb += f >> k & 1;
+	if (nb > 14)
+		return INFINITY;
+	/* the subsets of f, in order */
+	sub = 0;
+	do {
+		vals[n++] = sub;
+		sub = (sub - f) & f;
+	} while (sub);
+	in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	plan_build(&p, roots, 2, 0);
+	la = plan_loc(&p, e);
+	lb = plan_loc(&p, cand);
+	*nbad = 0;
+	*onlybig = op == O_UNPACK_B10G11R11;
+	for (i = 0; i < n; i += CH) {
+		int m = n - i < CH ? n - i : CH;
+		for (k = 0; k < m; k++)
+			in_i[(size_t)j * CH + k] = (int64_t)vals[i + k];
+		plan_run(&p, (uint32_t)m, in_i, in_r);
+		for (k = 0; k < m; k++) {
+			double x = COLR(&p, la)[k], y = COLR(&p, lb)[k], d;
+			int ux = COLF(&p, la)[k] & F_UNDEF;
+			int uy = COLF(&p, lb)[k] & F_UNDEF;
+			if (ux != uy || (!ux && isnan(x) != isnan(y)))
+				d = INFINITY;
+			else if (ux || isnan(x) || x == y)
+				continue;
+			else
+				d = fabs(x - y);
+			(*nbad)++;
+			w = vals[i + k];
+			if (op == O_UNPACK_B10G11R11 && ((w >> (11 * c + (c ==
+			    2 ? 5 : 6))) & 31) != 31)
+				*onlybig = 0;
+			if (!(d <= md))
+				md = d;
+		}
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	return md;
+}
+
+/* channel c of format op is n's decode of slot j's word: 1, with the
+ * largest difference in *md (0 for the float formats); 0 if not */
+static int
+packed_match(nid n, nid cand, int j, int op, int c, double *md)
+{
+	int nbad, big;
+
+	*md = pk_diff(n, cand, j, op, c, &nbad, &big);
+	if (op == O_UNPACK_A2B10G10R10)
+		/* a normalised channel within half a step of k/q is that
+		 * decode; farther, it is some other function */
+		return *md <= 0.5 / (c == 3 ? 3 : 1023);
+	if (nbad && big && !X.nopacked.n)
+		sb_printf(&X.nopacked, "%s is %s but where %s's exponent field "
+		    "is all ones: the unit decodes those as Inf and NaN",
+		    node_str(n), node_str(cand), node_str(mk_var((uint32_t)j,
+		    X.f->p[j].name, X.f->p[j].ty)));
+	return nbad == 0;
+}
+
+static int
+seed_packed(nid body, nid n)
+{
+	static const int ops[3] = {O_UNPACK_B10G11R11, O_UNPACK_E5B9G9R9,
+	    O_UNPACK_A2B10G10R10};
+	static const char *const chn = "rgba";
+	uint64_t sl = node_slots(n), m;
+	int j = 0, f, c = 0, op = 0, exact;
+	nid v, cand = 0;
+	struct repl *r;
+	double md = 0, err;
+
+	if (N.ty[n] != TY_F32 || !sl || (sl & (sl - 1)) || (sl >> MAXP) ||
+	    is_const(n) || has_read(n, 0))
+		return 0;
+	while (!(sl >> j & 1))
+		j++;
+	if (j >= X.f->np || !TY_ISINT(X.f->p[j].ty) || TYW(X.f->p[j].ty) != 32)
+		return 0;
+	m = wbits(n, ~0ull, j, 0);
+	if (!m || (m >> 32))
+		return 0;
+	v = mk_var((uint32_t)j, X.f->p[j].name, X.f->p[j].ty);
+	for (f = 0; f < 3 && !op; f++)
+		for (c = 0; c < (f == 2 ? 4 : 3); c++) {
+			if (m & ~(uint64_t)pk_field(ops[f], c))
+				continue;
+			cand = mk_inst(ops[f], v, mk_const_i(TY_LIT, c), 0);
+			if (packed_match(n, cand, j, ops[f], c, &md)) {
+				op = ops[f];
+				break;
+			}
+		}
+	if (!op)
+		return 0;
+	exact = op != O_UNPACK_A2B10G10R10;
+	/* the UNORM decode: within the unit's tex_within */
+	err = exact ? 0 : md + X.ulp * ldexp(1.0, -24);
+	if (!cclass_available(X.m, C_TEX_PACKED)) {
+		X.unavail_packed = 1;
+		return 0;
+	}
+	if (!exact && X.ulp == 0) {
+		X.noulp = 1;
+		return 0;
+	}
+	if ((r = new_repl(n)) == NULL)
+		return 0;
+	r->to = cand;
+	r->cost = price(swap_nodes(body, &n, &cand, 1));
+	r->ok = 1;
+	r->exact = exact;
+	r->filtered = !exact;
+	r->curve = !exact;
+	r->err = err;
+	sb_printf(&r->what, "%s is %s: the %c channel of %s", node_str(n),
+	    node_str(cand), chn[c], pk_vk(op));
+	sb_printf(&r->holds, "holds for every %s: %s reads no bit of it "
+	    "outside the channel's fields (0x%08x)", node_str(v), node_str(n),
+	    pk_field(op, c));
+	if (exact)
+		sb_printf(&r->proof, "on all %d values of those bits (the others "
+		    "0), the two are the same (NaN for NaN): exhaustive; the "
+		    "format's values are all f32, so the unit's decode is exact",
+		    1 << (op == O_UNPACK_E5B9G9R9 ? 14 : c == 2 ? 10 : 11));
+	else
+		sb_printf(&r->proof, "on all %d values of those bits (the others "
+		    "0), the two differ by at most %s; the unit's decode of k/%d "
+		    "is within %g ulp of it (the model's tex_within): %s in all",
+		    c == 3 ? 4 : 1024, fmt_g(md), c == 3 ? 3 : 1023, X.ulp,
+		    fmt_g(err));
+	sb_printf(&r->pipe, "%s read as a texel of %s %s %s: texelFetch(s, "
+	    "index).%c is the channel decoded, in place of the load of %s and "
+	    "of this decode (the load is in neither price)", node_str(v), op ==
+	    O_UNPACK_B10G11R11 ? "a" : "an", pk_vk(op), op ==
+	    O_UNPACK_E5B9G9R9 ? "image (a sampled image: Vulkan does not "
+	    "require it of texel buffers)" : "uniform texel buffer view or "
+	    "image", chn[c], node_str(v));
+	return 1;
+}
+
 /* ---- weighted sums of neighbouring texels ---- */
 
 struct sum {
@@ -3411,6 +3698,9 @@ visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 	/* a float of one byte: the sRGB decode, replaced whole */
 	if (X.bits && X.ulp != 0 && seed_srgb(body, n))
 		return;
+	/* a packed format's channel decoded by hand, replaced whole */
+	if (N.ty[n] == TY_F32 && seed_packed(body, n))
+		return;
 	/* a layer of an array texture, replaced whole */
 	if ((op == O_INDEX || op == O_MIN || op == O_MAX || op == O_CAST) &&
 	    seed_layer(body, n))
@@ -3466,6 +3756,7 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	free(X.far.p);
 	free(X.nosum.p);
 	free(X.nolayer.p);
+	free(X.nopacked.p);
 	memset(&X, 0, sizeof X);
 	X.f = f;
 	X.m = model_active();
@@ -3560,6 +3851,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 				    class_says(k));
 				res->status = TEXR_UNAVAILABLE;
 			}
+		if (X.unavail_packed) {
+			sb_printf(&res->why, "%s%s lists no tex_packed: a "
+			    "texel fetch of a packed format is not available",
+			    res->why.n ? "\n" : "", sym_str(X.m->name));
+			res->status = TEXR_UNAVAILABLE;
+		}
 		if (X.nobits) {
 			sb_printf(&res->why, "%s%s does not say what its texture "
 			    "unit resolves (subtexel): no read through it is "
@@ -3577,6 +3874,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	if (!na && X.nosum.n) {
 		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
 		    sb_str(&X.nosum));
+		if (res->status == TEXR_NONE)
+			res->status = TEXR_OVERTOL;
+	}
+	if (!na && X.nopacked.n) {
+		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
+		    sb_str(&X.nopacked));
 		if (res->status == TEXR_NONE)
 			res->status = TEXR_OVERTOL;
 	}

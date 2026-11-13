@@ -1,0 +1,96 @@
+> model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+> model pk : texel { tex_packed: 7, ldexp: 2, bfe: 1 }
+> show unpack_b10g11r11(0x3c0, 0)
+_() = 1
+  -> f32
+> show unpack_b10g11r11(0x1e0 << 22, 2)
+_() = 1
+  -> f32
+> show unpack_b10g11r11(0x7c0 << 11, 1)
+_() = inf
+  -> f32
+> show unpack_b10g11r11(0x7c1, 0)
+_() = nan
+  -> f32
+> show unpack_b10g11r11(1, 0)
+_() = 9.53674316e-07
+  -> f32
+> show unpack_e5b9g9r9((15 << 27) | (256 << 9), 1)
+_() = 0.5
+  -> f32
+> show unpack_a2b10g10r10(1023 << 20, 2)
+_() = 1
+  -> f32
+> show unpack_a2b10g10r10(1 << 30, 3)
+_() = 0.333333343
+  -> f32
+> INF = asfloat(0x7f800000)
+  note: asfloat of an untyped integer: read as u32 -> f32
+> QNAN = asfloat(0x7fc00000)
+  note: asfloat of an untyped integer: read as u32 -> f32
+> r11(w: u32) = (w >> 6 & 31) == 0 ? ldexp(f32(w & 63), -20) : (w >> 6 & 31) == 31 ? ((w & 63) == 0 ? INF : QNAN) : ldexp(f32((w & 63) + 64), i32(w >> 6 & 31) - 21)
+> texalu r11 under pk
+texalu r11: reads through the texture unit under pk (cost 28 as written):
+  cost 7   unpack_b10g11r11(w, 0)
+      w >> 6 & 0x1f == 0 ? ldexp(f32(w & 0x3f), -20) : w >> 6 & 0x1f == 31 ? w & 0x3f == 0 ? inf : nan : ldexp(f32((w & 0x3f) + 64), i32(w >> 6 & 0x1f) - 21) is unpack_b10g11r11(w, 0): the r channel of B10G11R11_UFLOAT_PACK32
+      holds for every w: w >> 6 & 0x1f == 0 ? ldexp(f32(w & 0x3f), -20) : w >> 6 & 0x1f == 31 ? w & 0x3f == 0 ? inf : nan : ldexp(f32((w & 0x3f) + 64), i32(w >> 6 & 0x1f) - 21) reads no bit of it outside the channel's fields (0x000007ff)
+      on all 2048 values of those bits (the others 0), the two are the same (NaN for NaN): exhaustive; the format's values are all f32, so the unit's decode is exact
+      the pipeline needs (a proposal: nothing is applied):
+        w read as a texel of a B10G11R11_UFLOAT_PACK32 uniform texel buffer view or image: texelFetch(s, index).r is the channel decoded, in place of the load of w and of this decode (the load is in neither price)
+> texalu r11 under texel
+texalu r11: the texture unit under texel (cost inf as written): nothing taken
+  texel lists no tex_packed: a texel fetch of a packed format is not available
+> r11n(w: u32) = (w >> 6 & 31) == 0 ? ldexp(f32(w & 63), -20) : ldexp(f32((w & 63) + 64), i32(w >> 6 & 31) - 21)
+> texalu r11n under pk
+texalu r11n: the texture unit under pk (cost 20 as written): nothing taken
+  w >> 6 & 0x1f == 0 ? ldexp(f32(w & 0x3f), -20) : ldexp(f32((w & 0x3f) + 64), i32(w >> 6 & 0x1f) - 21) is unpack_b10g11r11(w, 0) but where w's exponent field is all ones: the unit decodes those as Inf and NaN
+> e9(w: u32) = ldexp(f32(bfe(w, 9, 9)), i32(w >> 27) - 24)
+> texalu e9 under pk
+texalu e9: reads through the texture unit under pk (cost 9 as written):
+  cost 7   unpack_e5b9g9r9(w, 1)
+      ldexp(f32(bfe(w, 9, 9)), i32(w >> 0x1b) - 24) is unpack_e5b9g9r9(w, 1): the g channel of E5B9G9R9_UFLOAT_PACK32
+      holds for every w: ldexp(f32(bfe(w, 9, 9)), i32(w >> 0x1b) - 24) reads no bit of it outside the channel's fields (0xf803fe00)
+      on all 16384 values of those bits (the others 0), the two are the same (NaN for NaN): exhaustive; the format's values are all f32, so the unit's decode is exact
+      the pipeline needs (a proposal: nothing is applied):
+        w read as a texel of an E5B9G9R9_UFLOAT_PACK32 image (a sampled image: Vulkan does not require it of texel buffers): texelFetch(s, index).g is the channel decoded, in place of the load of w and of this decode (the load is in neither price)
+> e9b(w: u32) = f32((w >> 18) & 511) * asfloat(((w >> 27) + 103) << 23)
+> texalu e9b under pk
+texalu e9b: reads through the texture unit under pk (cost 11 as written):
+  cost 7   unpack_e5b9g9r9(w, 2)
+      f32(w >> 0x12 & 0x1ff)*asfloat((w >> 0x1b) + 103 << 23) is unpack_e5b9g9r9(w, 2): the b channel of E5B9G9R9_UFLOAT_PACK32
+      holds for every w: f32(w >> 0x12 & 0x1ff)*asfloat((w >> 0x1b) + 103 << 23) reads no bit of it outside the channel's fields (0xfffc0000)
+      on all 16384 values of those bits (the others 0), the two are the same (NaN for NaN): exhaustive; the format's values are all f32, so the unit's decode is exact
+      the pipeline needs (a proposal: nothing is applied):
+        w read as a texel of an E5B9G9R9_UFLOAT_PACK32 image (a sampled image: Vulkan does not require it of texel buffers): texelFetch(s, index).b is the channel decoded, in place of the load of w and of this decode (the load is in neither price)
+> e9c(w: u32) = ldexp(f32(w & 511), i32(w >> 27) - 23)
+> texalu e9c under pk
+texalu e9c: no table read or weighted sum of neighbouring entries the texture unit could compute
+> a10(w: u32) = f32((w >> 20) & 1023) / 1023.0
+> texalu a10 under pk
+texalu a10: the texture unit under pk (cost 9 as written): nothing taken
+  derived, but within 1.19e-07 of the formula, more than the 0 allowed (no tolerance given): tol 1.19e-07 takes it
+  f32(w >> 0x14 & 0x3ff)/1023 is unpack_a2b10g10r10(w, 2): the b channel of A2B10G10R10_UNORM_PACK32
+> texalu a10 tol 1e-6 under pk
+texalu a10: reads through the texture unit under pk (cost 9 as written):
+  cost 7   unpack_a2b10g10r10(w, 2)
+      f32(w >> 0x14 & 0x3ff)/1023 is unpack_a2b10g10r10(w, 2): the b channel of A2B10G10R10_UNORM_PACK32
+      holds for every w: f32(w >> 0x14 & 0x3ff)/1023 reads no bit of it outside the channel's fields (0x3ff00000)
+      on all 1024 values of those bits (the others 0), the two differ by at most 0; the unit's decode of k/1023 is within 2 ulp of it (the model's tex_within): 1.19e-07 in all
+      the pipeline needs (a proposal: nothing is applied):
+        w read as a texel of an A2B10G10R10_UNORM_PACK32 uniform texel buffer view or image: texelFetch(s, index).b is the channel decoded, in place of the load of w and of this decode (the load is in neither price)
+> a2(w: u32) = f32(w >> 30) / 3.0
+> texalu a2 tol 1e-6 under pk
+texalu a2: reads through the texture unit under pk (cost 8 as written):
+  cost 7   unpack_a2b10g10r10(w, 3)
+      f32(w >> 0x1e)/3 is unpack_a2b10g10r10(w, 3): the a channel of A2B10G10R10_UNORM_PACK32
+      holds for every w: f32(w >> 0x1e)/3 reads no bit of it outside the channel's fields (0xc0000000)
+      on all 4 values of those bits (the others 0), the two differ by at most 0; the unit's decode of k/3 is within 2 ulp of it (the model's tex_within): 1.19e-07 in all
+      the pipeline needs (a proposal: nothing is applied):
+        w read as a texel of an A2B10G10R10_UNORM_PACK32 uniform texel buffer view or image: texelFetch(s, index).a is the channel decoded, in place of the load of w and of this decode (the load is in neither price)
+> x11(w: u32) = f32(w & 2047) / 2047.0
+> texalu x11 tol 1e-3 under pk
+texalu x11: no table read or weighted sum of neighbouring entries the texture unit could compute
+> f(w: u32, c: u32) = unpack_b10g11r11(w, c)
+texpacked.ucas:43:43: error: unpack_b10g11r11 takes a constant channel, 0..2 (r g b), not c
+    f(w: u32, c: u32) = unpack_b10g11r11(w, c)
+                                              ^

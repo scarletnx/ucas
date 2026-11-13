@@ -4145,6 +4145,31 @@ holding none; a conversion before the clamp must not wrap on that
 range.  Otherwise `texalu` names the value where they part
 (tests/texlayer.ucas).
 
+**Packed formats.**  `unpack_b10g11r11(w, c)`, `unpack_e5b9g9r9(w, c)`
+and `unpack_a2b10g10r10(w, c)` are channel c (r g b a as 0 1 2 3) of a
+32-bit word in B10G11R11_UFLOAT_PACK32, E5B9G9R9_UFLOAT_PACK32 and
+A2B10G10R10_UNORM_PACK32, as a texel fetch decodes it: an unsigned
+11-bit float at bits 0 and 11 and a 10-bit one at 22 (5 exponent bits
+e, 2^(e-15)(1 + m/2^k), 2^-14 m/2^k for e = 0, Inf or NaN for e = 31);
+the 9-bit significands at bits 0, 9 and 18 times 2^(e - 24) with e the
+5 bits from 27; the 10-bit values at bits 0, 10 and 20 over 1023 and
+the 2 bits at 30 over 3, rounded once to f32.  They are defined by
+their expansions (src/inst.c), priced by `tex_packed` (no built-in model
+lists it), and each was checked against Mesa's decoders
+(format_r11g11b10f.h, format_rgb9e5.h; the UNORM ones against k/1023
+rounded once) on every value of every field: 56324 values.  A float
+subterm of one 32-bit word parameter w that reads no bit of w outside
+one channel's fields (by what each operation needs of its operands)
+and is that channel's decode on every value of those bits (2^14 at
+most, all evaluated) is offered as that operation: the word read as a
+texel of that format, a uniform texel buffer view or an image (an
+image for E5B9G9R9, which Vulkan does not require of texel buffers),
+in place of the load of w (in neither price) and the decode.  The two
+float formats decode exactly; the UNORM one is within `tex_within`
+ulps of k/1023, so it needs `tol`.  A decode that differs from
+B10G11R11's only at its Inf and NaN encodings is named, not taken
+(tests/texpacked.ucas).
+
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks), trilinear and anisotropic
 filters, mip levels as means, min/max and compare samplers, gather

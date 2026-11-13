@@ -359,6 +359,9 @@ static const struct bfn bfns[] = {
 	{"cubesc", O_CUBESC, 3}, {"cubetc", O_CUBETC, 3},
 	{"cubema", O_CUBEMA, 3},
 	{"trig_preop", O_TRIG_PREOP, 2},
+	{"unpack_b10g11r11", O_UNPACK_B10G11R11, 2},
+	{"unpack_e5b9g9r9", O_UNPACK_E5B9G9R9, 2},
+	{"unpack_a2b10g10r10", O_UNPACK_A2B10G10R10, 2},
 	/* astc.c: the ASTC decoder's steps */
 	{"astc_partition", O_ASTC_PART, 4}, {"astc_unquant", O_ASTC_UNQ, 2},
 	{"astc_unquantw", O_ASTC_UNQW, 2}, {"astc_endpoint", O_ASTC_ENDPOINT, 3},
