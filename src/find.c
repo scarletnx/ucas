@@ -1907,6 +1907,186 @@ find_setup(struct func *f)
 	free(xs);
 }
 
+/* ---- library calls as the special-function unit's instructions ---- */
+
+/*
+ * The hyperbolic functions and their inverses have no instruction before
+ * Turing: the driver runs a library sequence (the models price one as 4
+ * ftrans; tanh measured 17.7 on the GT 1030).  Each is written with exp,
+ * log and sqrt, which are: form 0 is the formula Vulkan inherits its
+ * precision from (so within that precision by definition), form 1 a
+ * cheaper one with one exp, where there is one.
+ */
+static const struct {
+	int op;
+	const char *name, *vulkan, *one;
+} sf_fn[] = {
+	{O_TANH, "tanh", "sinh(x) / cosh(x), the halves cancelling exactly",
+	    "1 - 2/(exp(2x) + 1), one exp, finite at both ends"},
+	{O_SINH, "sinh", "(exp(x) - exp(-x)) * 0.5", "one exp and its reciprocal"},
+	{O_COSH, "cosh", "(exp(x) + exp(-x)) * 0.5", "one exp and its reciprocal"},
+	{O_ASINH, "asinh", "log(x + sqrt(x * x + 1))", NULL},
+	{O_ACOSH, "acosh", "log(x + sqrt(x * x - 1))", NULL},
+	{O_ATANH, "atanh", "log((1 + x) / (1 - x)) * 0.5", NULL},
+};
+
+static nid
+sf_k(ty_t t, double v)
+{
+	return mk_cast(t, mk_const_r(v));
+}
+
+/* form k of the call op(x) of type t (sf_fn's comments), 0 none */
+static nid
+sf_form(int op, int k, nid x, ty_t t)
+{
+	nid e, em, one = sf_k(t, 1), half = sf_k(t, 0.5);
+
+	switch (op) {
+	case O_TANH:
+		if (k)
+			return mk_bin(O_SUB, one, mk_bin(O_DIV, sf_k(t, 2),
+			    mk_bin(O_ADD, mk_un(O_EXP, mk_bin(O_MUL, sf_k(t, 2), x)),
+			    one)));
+		/* FALLTHROUGH */
+	case O_SINH: case O_COSH:
+		e = mk_un(O_EXP, x);
+		em = k ? mk_bin(O_DIV, one, e) : mk_un(O_EXP, mk_un(O_NEG, x));
+		if (op == O_TANH)
+			return mk_bin(O_DIV, mk_bin(O_SUB, e, em), mk_bin(O_ADD, e,
+			    em));
+		return mk_bin(O_MUL, mk_bin(op == O_SINH ? O_SUB : O_ADD, e, em),
+		    half);
+	case O_ASINH: case O_ACOSH:
+		return k ? 0 : mk_un(O_LOG, mk_bin(O_ADD, x, mk_un(O_SQRT,
+		    mk_bin(op == O_ASINH ? O_ADD : O_SUB, mk_bin(O_MUL, x, x),
+		    one))));
+	case O_ATANH:
+		return k ? 0 : mk_bin(O_MUL, mk_un(O_LOG, mk_bin(O_DIV,
+		    mk_bin(O_ADD, one, x), mk_bin(O_SUB, one, x))), half);
+	}
+	return 0;
+}
+
+static int
+sf_has_in(nid e, int op, uint8_t *seen)
+{
+	int ar = opinfo[N.op[e]].arity, r = 0;
+
+	if (seen[e])
+		return 0;
+	seen[e] = 1;
+	if (N.op[e] == op)
+		return 1;
+	if (N.op[e] == O_CONST || N.op[e] == O_VAR)
+		return 0;
+	if (ar >= 1 && N.a[e])
+		r |= sf_has_in(N.a[e], op, seen);
+	if (ar >= 2 && N.b[e])
+		r |= sf_has_in(N.b[e], op, seen);
+	if (ar >= 3 && N.c[e])
+		r |= sf_has_in(N.c[e], op, seen);
+	return r;
+}
+
+/* e has a call of op */
+static int
+find_op(nid e, int op)
+{
+	uint8_t *seen = xcalloc(N.n, 1);
+	int r = sf_has_in(e, op, seen);
+
+	free(seen);
+	return r;
+}
+
+/* the operations sf_subst rebuilds from their operands */
+static int
+sf_plain(int op)
+{
+	return (op >= O_NEG && op < O_TABLE && op != O_CAST) || (op >= O_SEC &&
+	    op <= O_FMA) || (op >= O_ASIN && op <= O_ATANH);
+}
+
+/* e with every op(x) as its form k; *ok 0 when one sits where e cannot be
+ * rebuilt */
+static nid
+sf_subst(nid e, int op, int k, int *ok)
+{
+	nid a, b, c;
+	int o = N.op[e];
+
+	if (o == O_CONST || o == O_VAR)
+		return e;
+	a = N.a[e] ? sf_subst(N.a[e], op, k, ok) : 0;
+	if (o == O_CAST)
+		return a == N.a[e] ? e : mk_cast(N.ty[e], a);
+	if (!sf_plain(o)) {
+		if (find_op(e, op))
+			*ok = 0;
+		return e;
+	}
+	b = N.b[e] ? sf_subst(N.b[e], op, k, ok) : 0;
+	c = N.c[e] ? sf_subst(N.c[e], op, k, ok) : 0;
+	if (o == op) {
+		nid r = sf_form(op, k, a, N.ty[e]);
+		if (r == 0)
+			*ok = 0;
+		return r ? r : e;
+	}
+	if (a == N.a[e] && b == N.b[e] && c == N.c[e])
+		return e;
+	return mk_op(o, a, b, c);
+}
+
+/*
+ * find: f's hyperbolic calls as their forms, each priced and measured
+ * against f on its domain.  The count of forms listed.
+ */
+static int
+sfu_find(struct func *f)
+{
+	int i, k, said = 0;
+	double c0 = (double)expr_cost(f->body);
+
+	for (i = 0; i < (int)(sizeof sf_fn / sizeof sf_fn[0]); i++) {
+		if (!find_op(f->body, sf_fn[i].op))
+			continue;
+		for (k = 0; k < 2; k++) {
+			double abs_, rel, ulp, c;
+			uint64_t n, bad;
+			int ok = 1;
+			struct sbuf b = {0};
+			nid e = sf_subst(f->body, sf_fn[i].op, k, &ok);
+			if (!ok || e == f->body)
+				continue;
+			if (!said++)
+				printf("find %s: library calls as exp, log and sqrt, "
+				    "the special-function unit's instructions (%s "
+				    "costs %g under %s)\n", f->anon ? node_str(f->body) :
+				    sym_str(f->name), f->anon ? "it" : sym_str(f->name),
+				    c0, sym_str(model_active()->name));
+			c = (double)expr_cost(e);
+			error_measured(f, e, &abs_, &rel, &ulp, &n, &bad);
+			print_node(&b, e, NULL);
+			printf("  cost %-6g %s\n    %s as %s%s;\n    against %s on %llu "
+			    "points: max abs %.3g, max rel %.3g (%.0f ulp)", c,
+			    sb_str(&b), sf_fn[i].name, k ? sf_fn[i].one :
+			    sf_fn[i].vulkan, k ? "" : ", the formula Vulkan inherits "
+			    "its precision from: within it by definition", f->anon ?
+			    "it" : sym_str(f->name), (unsigned long long)n,
+			    abs_, rel, ulp);
+			if (bad)
+				printf(", NaN or infinite at %llu where %s is finite "
+				    "(an exp out of range)", (unsigned long long)bad,
+				    f->anon ? "it" : sym_str(f->name));
+			printf("%s\n", c < c0 ? "" : "; not cheaper");
+			free(b.p);
+		}
+	}
+	return said;
+}
+
 /*
  * A float function's rewrites by identities (irw.c: compare and select
  * as min/max, clamps), those the model prices lower, each with what it
@@ -2000,6 +2180,7 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost)
 			rep_begin("find");
 		said += tex_find(f);
 		said += dword_find(f);
+		said += sfu_find(f);
 		if (said && (f->np != 1 || TYK(f->p[0].ty) != K_FLOAT)) {
 			fuse_domain(NULL);
 			return;

@@ -2342,6 +2342,24 @@ print_err(const struct errst *e, ty_t ta)
 		    (unsigned long long)e->bad, e->wbad.p);
 }
 
+/* find: approx's error against f on f's domain, as `error` measures it */
+void
+error_measured(const struct func *f, nid approx, double *maxabs,
+    double *maxrel, double *maxulp, uint64_t *points, uint64_t *bad)
+{
+	struct errst e;
+
+	measure(f, approx, &e, 0);
+	*maxabs = e.maxabs;
+	*maxrel = e.maxrel;
+	*maxulp = e.maxulp;
+	*points = e.n;
+	*bad = e.bad;
+	free(e.wabs.p);
+	free(e.wrel.p);
+	free(e.wbad.p);
+}
+
 void
 cmd_error(struct func *g, struct func *f)
 {
