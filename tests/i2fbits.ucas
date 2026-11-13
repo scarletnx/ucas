@@ -1,0 +1,46 @@
+# an integer converted to f32 by its bits (#165, ifx.c's identity in
+# SPIR-V): f32(x) for 0 <= x < 2^23 is asfloat(x | 0x4B000000) - 2^23, and
+# for -2^22 <= x < 2^22 (a signed conversion) asfloat(x + 0x4B400000) -
+# 1.5*2^23.  The range is proved by SAT on x's definitions; the rest is
+# exact.  Under gt1030 a conversion is 3, the or (add), the bitcast and
+# the subtract 2.  A full-range value stays a conversion.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint v = b.d[i];
+    o.f[i] = float(v & 0xFFFFu);
+    o.f[i + 64u] = float(int(v & 0x3FFu) - 512);
+    o.f[i + 128u] = float(v);
+    o.f[i + 192u] = float(v >> 9);
+}
+```
+# an assumption gives the range too (n + (i & 255) below 100256), and a
+# model whose conversion costs 1 keeps it
+model conv1 : gt1030 { conv: 1 }
+simplify nofile nofunctions under gt1030, n in [0, 100000]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(binding = 0) uniform U { uint n; } u;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o.f[i] = float(u.n + (i & 255u)) * 0.5;
+}
+```
+simplify nofile nofunctions under conv1, n in [0, 100000]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(binding = 0) uniform U { uint n; } u;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    o.f[i] = float(u.n + (i & 255u)) * 0.5;
+}
+```

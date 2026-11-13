@@ -1,0 +1,64 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 97 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 3 conversions to f32 made by the bits (derived, below), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 8 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  conversions of integers to f32 by the bits (a conversion is not in the integer cost above), under gt1030:
+    %37 = OpConvertUToF %float %36
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %36 %ucas_uint_1258291200)) %ucas_float_4b000000   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: o.f[i] = float(v & 0xFFFFu);)
+    %49 = OpConvertSToF %float %48
+      ->  OpFSub %float (OpBitcast %float (OpIAdd %int %48 %ucas_int_1262485504)) %ucas_float_4b400000   (cost 3 -> 2)
+      -2^22 <= x < 2^22, proved by SAT: 0x4B400000 are the bits of 1.5*2^23, and x moves the mantissa inside [0, 2^23) without reaching the exponent: the bits of 1.5*2^23 + x exactly; subtracting 1.5*2^23 leaves x, below 2^24: exact
+      (line 9: o.f[i + 64u] = float(int(v & 0x3FFu) - 512);)
+    %63 = OpConvertUToF %float %62
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %62 %ucas_uint_1258291200)) %ucas_float_4b000000   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 11: o.f[i + 192u] = float(v >> 9);)
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 3 -> 3 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  (nofile: simplified.spvasm, 3773 bytes, checksum 35f9a452)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model conv1 : gt1030 { conv: 1 }
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile assume n 0 100000 nofunctions
+simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 conversion to f32 made by the bits (derived, below), 0 dead instructions removed
+  assuming n in [0, 100000] (every load of it)
+  integer arithmetic cost under gt1030 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  conversions of integers to f32 by the bits (a conversion is not in the integer cost above), under gt1030:
+    %35 = OpConvertUToF %float %34
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %34 %ucas_uint_1258291200)) %ucas_float_4b000000   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 7: o.f[i] = float(u.n + (i & 255u)) * 0.5;)
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  (nofile: simplified.spvasm, 2609 bytes, checksum bbcc6e7a)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use conv1
+cost model: conv1
+> spvsimplify nofile assume n 0 100000 nofunctions
+simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming n in [0, 100000] (every load of it)
+  integer arithmetic cost under conv1 (each instruction once): 2 -> 2 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under conv1 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
