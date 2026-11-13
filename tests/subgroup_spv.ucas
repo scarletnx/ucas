@@ -9,8 +9,8 @@ model noballot : gt1030 { sg_ballot: none }
 # every instruction, on 8 lanes whose x is 0 5 2 7 4 1 6 3; the exclusive
 # scan is the inclusive one less the lane's value (one add more), a
 # shuffle by xor, up or down a shuffle and its index; a read of a lane
-# that is not there is undefined (0 here, counted); a min or max over the
-# lanes has no operation of the model yet: it runs at cost 0, said
+# that is not there is undefined (0 here, counted); a max over the lanes
+# is sg_max, which gt1030 does not list: it runs at cost 0, said
 animate exec %px = lane lanes 8 seed 1 nofile
 ```spv
 %l = OpLoad %uint %px

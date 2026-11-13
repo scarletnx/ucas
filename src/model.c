@@ -49,6 +49,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"vmnmx", "sad32", "addsat", "ldexp", "frexp", "cube", "trigpreop",
 	"tex_packed", "tex_cube", "tex_3d", "tex_compare",
 	"iadd64", "imul64", "shift64",
+	"sg_min", "sg_max", "sg_and", "sg_or", "sg_xor",
 };
 
 /*
@@ -570,6 +571,7 @@ depends_nonuniform(const struct func *f, nid n, uint8_t *seen,
 	case O_ATOMIC:
 		return 1;   /* the old value differs per invocation */
 	case O_SGBALLOT: case O_SGANY: case O_SGALL: case O_SGADD:
+	case O_SGMIN: case O_SGMAX: case O_SGAND: case O_SGOR: case O_SGXOR:
 		/* one value for the subgroup, whatever its lanes hold; of a
 		 * value whose other lanes are not known, taken as varying (at
 		 * the worst) */

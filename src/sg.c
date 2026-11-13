@@ -18,6 +18,11 @@
  *                      OpGroupNonUniformShuffle
  *   sg_scan(v)         in lane l, the sum of v over lanes 0..l (wrapping):
  *                      OpGroupNonUniformIAdd, InclusiveScan
+ *   sg_min(v), sg_max(v), sg_and(v), sg_or(v), sg_xor(v)
+ *                      the minimum, maximum, and, or, xor of v over the
+ *                      lanes, integers (min and max by v's signedness):
+ *                      OpGroupNonUniform[SU]Min, [SU]Max, Bitwise*,
+ *                      Reduce
  *   sg_dfdx(v), sg_dfdy(v), sg_fwidth(v)
  *                      of a float: the lanes in fours are quads, lane
  *                      bit 0 the column and bit 1 the row (Vulkan's
@@ -93,6 +98,16 @@ sg_class(int op)
 		return C_SG_SHUF;
 	case O_SGDDX: case O_SGDDY: case O_SGFWIDTH:
 		return C_SG_DERIV;
+	case O_SGMIN:
+		return C_SG_MIN;
+	case O_SGMAX:
+		return C_SG_MAX;
+	case O_SGAND:
+		return C_SG_AND;
+	case O_SGOR:
+		return C_SG_OR;
+	case O_SGXOR:
+		return C_SG_XOR;
 	}
 	return C_SG_SCAN;
 }
@@ -216,6 +231,25 @@ lane_copy_in(nid e, int depth)
 	return lane_copy_in(N.c[e], depth + 1);
 }
 
+/* the operation a reduction over the lanes combines two lanes' values with */
+int
+sg_combine_op(int op)
+{
+	switch (op) {
+	case O_SGMIN:
+		return O_MIN;
+	case O_SGMAX:
+		return O_MAX;
+	case O_SGAND:
+		return O_AND;
+	case O_SGOR:
+		return O_OR;
+	case O_SGXOR:
+		return O_XOR;
+	}
+	return O_ADD;
+}
+
 nid
 sg_expand(int op, nid a, nid b, nid c)
 {
@@ -262,10 +296,11 @@ sg_expand(int op, nid a, nid b, nid c)
 		for (l = 0; l < W; l++)
 			r = mk_bin(O_LAND, r, in_lane(a, l));
 		break;
-	case O_SGADD:
+	case O_SGADD: case O_SGMIN: case O_SGMAX: case O_SGAND: case O_SGOR:
+	case O_SGXOR:
 		r = in_lane(a, 0);
 		for (l = 1; l < W; l++)
-			r = mk_bin(O_ADD, r, in_lane(a, l));
+			r = mk_bin(sg_combine_op(op), r, in_lane(a, l));
 		break;
 	case O_SGSHUF:
 		for (l = 0; l < W; l++)
@@ -321,6 +356,14 @@ mk_sg(int op, nid a, nid b, nid c)
 			fail("%s of floats: the order of the additions is the "
 			    "implementation's, so the sum has no exact value; "
 			    "integers only", nm);
+		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
+			a = mk_cast(TY(K_UINT, 32), a);
+		break;
+	case O_SGMIN: case O_SGMAX: case O_SGAND: case O_SGOR: case O_SGXOR:
+		if (TY_FP(N.ty[a]))
+			fail("%s takes integers: a float %s over the lanes is not "
+			    "an operation here yet", nm, op == O_SGMIN ? "minimum" :
+			    op == O_SGMAX ? "maximum" : "bitwise reduction");
 		if (N.ty[a] == TY_BOOL || TYK(N.ty[a]) == K_LIT)
 			a = mk_cast(TY(K_UINT, 32), a);
 		break;
@@ -888,8 +931,9 @@ ladder_proved(int W)
 	return ok;
 }
 
-/* the subgroup operations of e (kind 0: sums and scans; 2: shuffles) or
- * its lookups in constant tables (kind 1), in out (at most max) */
+/* the subgroup operations of e (kind 0: sums and scans; 2: shuffles; 3:
+ * the other reductions) or its lookups in constant tables (kind 1), in out
+ * (at most max) */
 static int
 gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 {
@@ -912,6 +956,8 @@ gather(nid e, int kind, nid *out, int n, int max, uint8_t *seen)
 	if (kind == 1 && N.op[e] == O_INDEX && !(N.fl[N.a[e]] & NF_VAR))
 		out[n++] = e;
 	if (kind == 2 && N.op[e] == O_SGSHUF)
+		out[n++] = e;
+	if (kind == 3 && N.op[e] >= O_SGMIN && N.op[e] <= O_SGXOR)
 		out[n++] = e;
 	if (kind == 2 && N.op[e] == O_LOOP) {
 		/* the shuffles of a loop over the lanes are in its body */
@@ -3913,6 +3959,168 @@ derivs(struct sgf *g, nid cur, float *cost)
 	return cur;
 }
 
+/* ---- the reductions other than the sum ---- */
+
+/*
+ * The reduction op of v by a butterfly: s = v; then for d = 1, 2, 4 ...
+ * below W, s = s OP (s in lane xor d).  After the step for d a lane holds
+ * OP over the 2d lanes that agree with it in the bits from d up, so every
+ * lane ends with all W.  v is the value per lane, l the lane the result is
+ * for.
+ */
+static nid
+bfly(int op, nid v, nid l, int W)
+{
+	nid w = mk_const_i(TY_LIT, W), L = sg_lane(), sb = v, sl;
+	nid map[SG_LANE_SLOT + 1];
+	int bop = sg_combine_op(op), d;
+	ty_t u = TY(K_UINT, 32);
+
+	memset(map, 0, sizeof map);
+	map[SG_LANE_SLOT] = l = mk_cast(u, l);
+	sl = subst(v, map, SG_LANE_SLOT + 1);
+	for (d = 1; d < W; d *= 2) {
+		nid k = mk_const_i(u, d);
+		nid nl = mk_bin(bop, sl, mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, l, k), w));
+		sb = mk_bin(bop, sb, mk_sg(O_SGSHUF, sb, mk_bin(O_XOR, L, k), w));
+		sl = nl;
+	}
+	return sl;
+}
+
+static int
+op_leaves(nid e, int bop, int *cnt, int W)
+{
+	if (N.op[e] == bop)
+		return op_leaves(N.a[e], bop, cnt, W) &&
+		    op_leaves(N.b[e], bop, cnt, W);
+	if (N.op[e] == O_VAR && N.ki[e] >= LEAF0 && N.ki[e] < LEAF0 + W) {
+		cnt[N.ki[e] - LEAF0]++;
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * The butterfly is the reduction whatever v is: with a free word v_j in
+ * each lane, lane l's result must be OP over v_0 ... v_(W-1), each once
+ * (OP associates and commutes).  W a power of two, so lane xor d stays in
+ * the subgroup.  Checked once per operation and W.
+ */
+static int
+bfly_proved(int op, int W)
+{
+	static int8_t known[O_SGXOR - O_SGMIN + 1][SG_MAXW + 1];
+	int8_t *kn = &known[op - O_SGMIN][W];
+	nid e[SG_MAXW], v;
+	int l, j, ok = (W & (W - 1)) == 0;
+
+	if (*kn)
+		return *kn > 0;
+	for (l = 0; l < W; l++)
+		e[l] = mk_var((uint32_t)(LEAF0 + l), sym_cstr("v"), TY(K_UINT, 32));
+	v = mk_index(mk_table(e, (uint32_t)W), sg_lane());
+	for (l = 0; l < W && ok; l++) {
+		int cnt[SG_MAXW] = {0};
+		nid r = sg_lower_once(bfly(op, v, mk_const_i(TY(K_UINT, 32), l),
+		    W));
+		ok = op_leaves(r, sg_combine_op(op), cnt, W);
+		for (j = 0; j < W && ok; j++)
+			ok = cnt[j] == 1;
+	}
+	*kn = ok ? 1 : -1;
+	return ok;
+}
+
+/*
+ * sg_min, sg_max, sg_and, sg_or, sg_xor: of a value that is 0 or 1 in
+ * every lane, a vote (min and and: in every lane; max and or: in some) or
+ * the parity of the ballot (xor); of any value, the butterfly of shuffles
+ * by xor, where the model prices those lower.
+ */
+static nid
+reductions(struct sgf *g, nid cur, float *cost)
+{
+	static const char *const nm[] = {"minimum", "maximum", "and", "or",
+	    "xor"};
+	nid lp = lane_param(g->f);
+	int iter;
+
+	for (iter = 0; iter < 16; iter++) {
+		nid nd[MAXSGN], best = 0, bn = 0;
+		int n = gather_all(cur, 3, nd), i, o, bo = 0;
+		float bc = *cost;
+
+		for (i = 0; i < n; i++) {
+			nid x = nd[i], v = N.a[x], to, cand;
+			int W = sg_width(x), op = N.op[x];
+			int64_t lo, hi;
+			int bits = sg_range_of(g->f, v, W, &lo, &hi) && lo >= 0 &&
+			    hi <= 1;
+			for (o = 0; o < 2; o++) {
+				float c;
+				if (o == 0 && !bits)
+					continue;
+				if (o == 1 && !bfly_proved(op, W))
+					continue;
+				if (o == 0 && op == O_SGXOR)
+					to = mk_bin(O_AND, mk_un(O_POPCNT, ballot_of(v, W)),
+					    mk_const_i(TY_LIT, 1));
+				else if (o == 0)
+					to = mk_sg(op == O_SGMAX || op == O_SGOR ? O_SGANY :
+					    O_SGALL, mk_bin(O_NE, v, mk_const_i(TY_LIT, 0)),
+					    mk_const_i(TY_LIT, W), 0);
+				else
+					to = bfly(op, v, lp ? lp : mk_const_i(TY(K_UINT, 32),
+					    0), W);
+				cand = sg_replaced(cur, x, mk_cast(N.ty[x], to));
+				if (!cand)
+					continue;
+				c = price(g, cand);
+				/* another operation the model lacks keeps the whole
+				 * unpriced: this one is still worth writing when its
+				 * form has a price and it has none */
+				if (c < bc || (!isfinite(c) && !isfinite(bc) && !best &&
+				    isfinite(price(g, to)) && !isfinite(price(g, x)))) {
+					bc = c;
+					best = cand;
+					bn = x;
+					bo = o;
+				} else if (c >= *cost && isfinite(c))
+					note_dear(g, o == 0 ? "a vote or a ballot's parity for "
+					    "a reduction of a value that is 0 or 1 in every "
+					    "lane" : "a reduction as a butterfly of shuffles by "
+					    "xor", c, *cost);
+			}
+		}
+		if (!best)
+			break;
+		if (bo == 0)
+			sb_printf(&g->why, "%s: %s is 0 or 1 in every lane (its range, "
+			    "by intervals), so its %s over the lanes is %s\n",
+			    node_str(bn), node_str(N.a[bn]),
+			    nm[N.op[bn] - O_SGMIN], N.op[bn] == O_SGXOR ? "the "
+			    "parity of the lanes where it is not 0, the low bit of "
+			    "the ballot's bit count" : N.op[bn] == O_SGMAX ||
+			    N.op[bn] == O_SGOR ? "whether it is not 0 in some lane: "
+			    "sg_any" : "whether it is not 0 in every lane: sg_all");
+		else
+			sb_printf(&g->why, "%s: a butterfly of %d shuffles by lane xor "
+			    "1, 2, 4 ... and %ss: after the step for d a lane holds "
+			    "the %s of the 2d lanes that agree with it from bit d up; "
+			    "proved for any value per lane (with a free word in each "
+			    "lane, every lane's result is the %s of all W words, each "
+			    "once)\n", node_str(bn), sg_width(bn) <= 2 ? 1 :
+			    sg_width(bn) <= 4 ? 2 : sg_width(bn) <= 8 ? 3 :
+			    sg_width(bn) <= 16 ? 4 : sg_width(bn) <= 32 ? 5 : 6,
+			    opinfo[sg_combine_op(N.op[bn])].name,
+			    nm[N.op[bn] - O_SGMIN], nm[N.op[bn] - O_SGMIN]);
+		cur = best;
+		*cost = bc;
+	}
+	return cur;
+}
+
 void
 sg_find(const struct func *f)
 {
@@ -3953,6 +4161,8 @@ sg_find(const struct func *f)
 		cur = segscans(&g, cur, &cost);
 	if (N.fl[cur] & NF_SG)
 		cur = sums_and_scans(&g, cur, &cost);
+	if (N.fl[cur] & NF_SG)
+		cur = reductions(&g, cur, &cost);
 	cur = tables(&g, cur, &cost);
 	if (cur == f->body)
 		cur = funcs_as_tables(&g, cur, &cost);

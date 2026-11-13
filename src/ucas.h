@@ -144,10 +144,11 @@ enum {
 	 * sum over the lanes; shuffle(v, i): v in lane i; scan(v, l): the
 	 * sum of v over lanes 0..l; dfdx, dfdy, fwidth (v, l): the
 	 * difference of v across lane l's quad pair along x or y, and
-	 * |dfdx| + |dfdy| (see sg.c for the exact semantics)
+	 * |dfdx| + |dfdy|; min, max, and, or, xor: the reduction over the
+	 * lanes (see sg.c for the exact semantics)
 	 */
 	O_SGBALLOT, O_SGANY, O_SGALL, O_SGADD, O_SGSHUF, O_SGSCAN, O_SGDDX,
-	O_SGDDY, O_SGFWIDTH,
+	O_SGDDY, O_SGFWIDTH, O_SGMIN, O_SGMAX, O_SGAND, O_SGOR, O_SGXOR,
 	/*
 	 * inst.c: single instructions that targets have, each defined by an
 	 * expression over the operations above (bit fields, bit reversal,
@@ -235,7 +236,7 @@ enum {
 #define O_DOT_LAST O_SUDOT8X4S
 #define IS_DOT(op) ((op) >= O_DOT_FIRST && (op) <= O_DOT_LAST)
 #define O_SG_FIRST O_SGBALLOT
-#define O_SG_LAST O_SGFWIDTH
+#define O_SG_LAST O_SGXOR
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
 #define O_ASTC_LAST O_ASTC_F16
@@ -497,6 +498,9 @@ enum {
 	 * list one prices the operation as its 32-bit class (int64_class).
 	 */
 	C_IADD64, C_IMUL64, C_SHIFT64,
+	/* the reductions over the lanes other than the sum (sg.c: REDUX on
+	 * sm80, emulated before it), absent unless listed */
+	C_SG_MIN, C_SG_MAX, C_SG_AND, C_SG_OR, C_SG_XOR,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
@@ -634,6 +638,7 @@ nid sg_flat(nid e, nid to);	/* node.c: the bound lane replaced by to */
 /* f's body as one lane runs it: what cost and find price */
 nid sg_priced(const struct func *f, nid e);
 int sg_class(int op);		/* its cost class */
+int sg_combine_op(int op);	/* a reduction's two-value operation */
 int sg_width(nid n);		/* W of a subgroup node */
 /* the operation spelled out over its W lanes, operands already lowered */
 nid sg_expand(int op, nid a, nid b, nid c);
