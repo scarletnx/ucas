@@ -2455,7 +2455,7 @@ help(void)
 "  banks F [, G ...] [size n] [elem b] [model m]\n"
 "  intatomic F [count n] [tol t] [global] [model m]\n"
 "  rop F [model m] | texalu F [tol e] [model m]\n"
-"  texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]]\n"
+"  texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h]\n"
 "    [rows w] [tol e]\n"
 "  approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]\n"
 "    [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]\n"

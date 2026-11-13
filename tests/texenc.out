@@ -184,7 +184,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
 > E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
@@ -275,7 +275,7 @@ texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1
     texenc [-2000, 5] eac
                          ^
 > texenc Q astc 4x4 eac
-texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q astc 4x4 eac
                       ^
 > compress E as EAC
@@ -416,7 +416,7 @@ texenc.ucas:110:66: error: texenc: ETC2 holds numbers from 0 to 1 (or whole numb
     texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
                                                                      ^
 > texenc Q etc2 eac
-texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
+texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q etc2 eac
                   ^
 > compress P as ETC2
@@ -459,7 +459,7 @@ texenc T, S etc2 srgb: 16 entries a channel as SRGB8_ALPHA8_ETC2_EAC (T the red,
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
   a nearest or filtered read of the texture is that read of the decoded tables, red and alpha (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
 > texenc D srgb
-texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
+texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc D srgb
              ^
 > compress D as sRGB ETC2
@@ -516,7 +516,7 @@ texenc R, S bc7: 16 entries a channel as BC7_UNORM (R the red, S the alpha), row
   searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
   a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
 > texenc Q bc7 eac
-texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
+texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb] | bc6h] [rows W] [tol E]
     texenc Q bc7 eac
                  ^
 > compress B as BC7
@@ -553,3 +553,43 @@ texenc X, Y bc7 srgb: 16 entries a channel as BC7_SRGB (X the red, Y the alpha),
   searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
   a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
+> H = [0, 6.097555160522461e-05, 0.000152587890625, 0.00030517578125, 0.0006103515625, 0.001220703125, 0.0029277801513671875, 0.005855560302734375, 0.01171112060546875, 0.0234222412109375, 0.054656982421875, 0.10931396484375, 0.2186279296875, 0.437255859375, 0.99951171875, 1.9990234375]
+> texenc H bc6h
+texenc H bc6h: 16 entries as BC6H_UFLOAT, rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R16_SFLOAT, 64 as R32_SFLOAT)
+  block (0, 0): mode 3, red 0 to 528 (quantized), selectors 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, bytes 03 00 00 00 80 10 00 00 10 32 54 76 98 ba dc fe
+  decodes to [0, 6.09755516e-05, 0.000152587891, 0.000305175781, 0.000610351562, 0.00122070312, 0.00292778015, 0.0058555603, 0.0117111206, 0.0234222412, 0.0546569824, 0.109313965, 0.21862793, 0.437255859, 0.999511719, 1.99902344]
+  exact: every texel is its entry's f32
+  searched: every mode and partition, each subset's endpoints among the 6 quantized values each side of those nearest its least and greatest entry, under the mode's deltas; not every encoding, so a closer block may exist where it is not exact; green and blue are 0
+  a nearest or filtered read of the texture is that read of the decoded table in red; no model prices a BC6H read apart from its uncompressed one: not measured
+> X = [1, 1.28402542, 1.64872127, 2.11700002, 2.71828183, 3.49034296, 4.48168907, 5.75460268, 7.3890561, 9.48773584, 12.1824940, 15.6426319, 20.0855369, 25.7903399, 33.1154520, 42.5210820]
+> texenc X bc6h tol 0.1
+texenc X bc6h: 16 entries as BC6H_UFLOAT, rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R16_SFLOAT, 64 as R32_SFLOAT)
+  block (0, 0): mode 3, red 501 to 671 (quantized), selectors 0 0 1 2 3 5 6 7 8 9 10 11 12 13 14 15, bytes a3 3e 00 00 f8 14 00 00 00 21 53 76 98 ba dc fe
+  decodes to [1.18164062, 1.18164062, 1.50292969, 1.90527344, 2.453125, 3.74023438, 5.08984375, 6.375, 7.6640625, 9.8984375, 13.1171875, 15.6875, 20.53125, 25.671875, 32.21875, 42.5]
+  not exact: the closest block found is within 0.935 of the table (entry 10: 12.1824942 as 13.1171875)
+  more than the 0.1 allowed (tol)
+  searched: every mode and partition, each subset's endpoints among the 6 quantized values each side of those nearest its least and greatest entry, under the mode's deltas; not every encoding, so a closer block may exist where it is not exact; green and blue are 0
+  a nearest or filtered read of the texture is that read of the decoded table in red; no model prices a BC6H read apart from its uncompressed one: not measured
+> texenc [-1, -0.5, 0, 0.5, 1, 0.25, -0.25, 0.75] bc6h
+texenc the table bc6h: 8 entries as BC6H_SFLOAT, rows of 4 (4 x 2 texels): 1 block, 16 bytes (16 as R16_SFLOAT, 32 as R32_SFLOAT)
+  block (0, 0): mode 30, partition 17, red -15 to 15, -14 to 19 (quantized), selectors 0 0 3 6 7 6 1 6 0 0 0 0 0 0 0 0, bytes 3e 06 00 00 78 00 00 00 e4 29 82 7d c7 00 00 00
+  decodes to [-1.015625, -0.5234375, -9.23871994e-06, 0.629394531, 1.015625, 0.0559997559, -0.0559997559, 0.629394531]
+  not exact: the closest block found is within 0.194 of the table (entry 5: 0.25 as 0.0559997559)
+  searched: every mode and partition, each subset's endpoints among the 6 quantized values each side of those nearest its least and greatest entry, under the mode's deltas; not every encoding, so a closer block may exist where it is not exact; green and blue are 0
+  a nearest or filtered read of the texture is that read of the decoded table in red; no model prices a BC6H read apart from its uncompressed one: not measured
+> texenc [70000] bc6h
+texenc.ucas:162:20: error: texenc: BC6H holds half floats, -65504 to 65504; the table has 70000 (entry 0)
+    texenc [70000] bc6h
+                       ^
+> texenc H, X bc6h
+texenc.ucas:163:17: error: texenc: bc6h takes one table (its red channel), not two
+    texenc H, X bc6h
+                    ^
+> compress X as BC6H
+  ucas: texenc X bc6h
+texenc X bc6h: 16 entries as BC6H_UFLOAT, rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R16_SFLOAT, 64 as R32_SFLOAT)
+  block (0, 0): mode 3, red 501 to 671 (quantized), selectors 0 0 1 2 3 5 6 7 8 9 10 11 12 13 14 15, bytes a3 3e 00 00 f8 14 00 00 00 21 53 76 98 ba dc fe
+  decodes to [1.18164062, 1.18164062, 1.50292969, 1.90527344, 2.453125, 3.74023438, 5.08984375, 6.375, 7.6640625, 9.8984375, 13.1171875, 15.6875, 20.53125, 25.671875, 32.21875, 42.5]
+  not exact: the closest block found is within 0.935 of the table (entry 10: 12.1824942 as 13.1171875)
+  searched: every mode and partition, each subset's endpoints among the 6 quantized values each side of those nearest its least and greatest entry, under the mode's deltas; not every encoding, so a closer block may exist where it is not exact; green and blue are 0
+  a nearest or filtered read of the texture is that read of the decoded table in red; no model prices a BC6H read apart from its uncompressed one: not measured

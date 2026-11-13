@@ -56,6 +56,11 @@
  *   texenc T [, U] bc7 srgb [rows W] [tol E]
  *       the same as BC7_SRGB: red reads the sRGB EOTF of its code over
  *       255, alpha stays linear
+ *   texenc T bc6h [rows W] [tol E]
+ *       T, numbers of a half float's range, in the red channel of BC6H
+ *       blocks (UFLOAT, or SFLOAT when an entry is negative): each mode
+ *       and partition searched near each subset's least and greatest
+ *       entry, not every encoding
  */
 #include "calc.h"
 #include "report.h"
@@ -1772,6 +1777,156 @@ cmd_texenc_bc7(const struct func *f, const struct func *g, int W,
 	}
 }
 
+/*
+ * One table of numbers in the red channel of BC6H blocks, UFLOAT (every
+ * entry >= 0) or SFLOAT: a texel reads a half float (bc6hblk.c).  Not
+ * every encoding is tried; a closer block may exist where it is not
+ * exact.
+ */
+static void
+cmd_texenc_bc6h(const struct func *f, int W, double tol, int has_tol)
+{
+	const char *nm = f->anon ? "the table" : sym_str(f->name);
+	int n, H, nbx, nby, k, i, sgn = 0, at = 0;
+	double *t, *dec, err = 0;
+	struct sbuf b = {0};
+
+	if (f->np != 0 || N.op[f->body] != O_TABLE)
+		fail("texenc takes a table [t0, t1, ...] (or its name), not %s",
+		    f->anon ? node_str(f->body) : sym_str(f->name));
+	if (W < 1 || W > 4096)
+		fail("texenc: rows W, the texels in a row, is 1 to 4096, not %d", W);
+	n = (int)N.b[f->body];
+	H = (n + W - 1) / W;
+	nbx = (W + 3) / 4;
+	nby = (H + 3) / 4;
+	t = xcalloc((size_t)n, sizeof *t);
+	dec = xcalloc((size_t)n, sizeof *dec);
+	for (i = 0; i < n; i++) {
+		nid x = N.lst[N.a[f->body] + i];
+		double v;
+		if (!is_const(x))
+			fail("texenc: %s has an entry that is not a number: %s", nm,
+			    node_str(x));
+		v = TY_FP(N.ty[x]) ? N.kr[x] : (double)N.ki[x];
+		if (!(fabs(v) <= 65504))
+			fail("texenc: BC6H holds half floats, -65504 to 65504; %s has "
+			    "%g (entry %d)", nm, v, i);
+		t[i] = (double)(float)v;
+		if (v < 0)
+			sgn = 1;
+	}
+	rep_begin("texenc");
+	rep_str("format", sgn ? "BC6H_SFLOAT" : "BC6H_UFLOAT");
+	rep_int("entries", n);
+	rep_int("width", W);
+	rep_int("height", H);
+	rep_int("bytes", nbx * nby * 16);
+	printf("texenc %s bc6h: %d entr%s as %s, rows of %d (%d x %d texels): "
+	    "%d block%s, %d bytes (%d as R16_SFLOAT, %d as R32_SFLOAT)\n", nm, n,
+	    n == 1 ? "y" : "ies", sgn ? "BC6H_SFLOAT" : "BC6H_UFLOAT", W, W, H,
+	    nbx * nby, nbx * nby == 1 ? "" : "s", nbx * nby * 16, 2 * W * H,
+	    4 * W * H);
+	rep_list("blocks");
+	for (k = 0; k < nbx * nby; k++) {
+		double bt[16], got = 0, want;
+		uint8_t care[16], q[16];
+		uint16_t px[16][3];
+		struct bc6_info in;
+		int bx = k % nbx, by = k / nbx;
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			care[i] = x < W && a < n;
+			bt[i] = care[i] ? t[a] : 0;
+		}
+		want = bc6h_encode_r(bt, care, sgn, q, &in);
+		bc6h_decode(q, sgn, px);
+		for (i = 0; i < 16; i++) {
+			int x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+			long a = (long)y * W + x;
+			double e;
+			if (!care[i])
+				continue;
+			dec[a] = bc6h_half(px[i][0]);
+			e = fabs(dec[a] - t[a]);
+			if (e > got)
+				got = e;
+			if (e > err) {
+				err = e;
+				at = (int)a;
+			}
+		}
+		if (got != want)
+			fail("texenc: block (%d, %d) decodes within %.9g of its entries "
+			    "where the search computed %.9g: an encoder error", bx, by,
+			    got, want);
+		rep_obj(NULL);
+		rep_int("x", bx);
+		rep_int("y", by);
+		rep_int("mode", in.mode);
+		printf("  block (%d, %d): mode %d", bx, by, in.mode);
+		if (in.ns == 2) {
+			printf(", partition %d, red %d to %d, %d to %d", in.part,
+			    in.x[0], in.x[1], in.x[2], in.x[3]);
+			rep_int("partition", in.part);
+		} else
+			printf(", red %d to %d", in.x[0], in.x[1]);
+		sb_clear(&b);
+		for (i = 0; i < 2 * in.ns; i++)
+			sb_printf(&b, "%s%d", i ? " " : "", in.x[i]);
+		rep_str("red_endpoints", sb_str(&b));
+		printf(" (quantized), selectors");
+		sb_clear(&b);
+		for (i = 0; i < 16; i++) {
+			printf(" %d", in.idx[i]);
+			sb_printf(&b, "%s%d", i ? " " : "", in.idx[i]);
+		}
+		rep_str("selectors", sb_str(&b));
+		printf(", bytes");
+		sb_clear(&b);
+		for (i = 0; i < 16; i++) {
+			printf(" %02x", q[i]);
+			sb_printf(&b, "%s%02x", i ? " " : "", q[i]);
+		}
+		printf("\n");
+		rep_str("bytes", sb_str(&b));
+		rep_end();
+	}
+	rep_end();
+	sb_clear(&b);
+	sb_putc(&b, '[');
+	for (i = 0; i < n; i++)
+		sb_printf(&b, "%s%.9g", i ? ", " : "", dec[i]);
+	sb_putc(&b, ']');
+	printf("  decodes to %s\n", sb_str(&b));
+	rep_str("decoded", sb_str(&b));
+	rep_bool("exact", err == 0);
+	rep_num("max_error", err);
+	if (err == 0)
+		printf("  exact: every texel is its entry's f32\n");
+	else {
+		printf("  not exact: the closest block found is within %.3g of the "
+		    "table (entry %d: %.9g as %.9g)\n", err, at, t[at], dec[at]);
+		if (has_tol) {
+			printf("  %s the %g allowed (tol)\n", err <= tol ? "within" :
+			    "more than", tol);
+			rep_bool("within_tol", err <= tol);
+		}
+	}
+	printf("  searched: every mode and partition, each subset's endpoints "
+	    "among the %d quantized values each side of those nearest its least "
+	    "and greatest entry, under the mode's deltas; not every encoding, so "
+	    "a closer block may exist where it is not exact; green and blue are "
+	    "0\n", 6);
+	printf("  a nearest or filtered read of the texture is that read of the "
+	    "decoded table in red; no model prices a BC6H read apart from its "
+	    "uncompressed one: not measured\n");
+	free(b.p);
+	free(t);
+	free(dec);
+}
+
 /* a table: a defined one by its name (before a comma too), or an
  * expression */
 static struct func *
@@ -1792,12 +1947,12 @@ int
 texenc_command(struct P *p)
 {
 	static const char *const stop[] = {"rows", "tol", "astc", "eac", "etc2",
-	    "srgb", "bc7", NULL};
+	    "srgb", "bc7", "bc6h", NULL};
 	struct func *f, *g = NULL;
 	char w[48];
 	uint32_t at = cmdp_pos(p);
 	double tol = 0;
-	int has_tol = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0;
+	int has_tol = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0, bc6h = 0;
 	int64_t W = 4, bw = 0, bh = 0;
 
 	if (!cmdp_word(p, w, sizeof w) || strcmp(w, "texenc") != 0 ||
@@ -1824,7 +1979,8 @@ texenc_command(struct P *p)
 	} else if (cmdp_kw(p, "bc7")) {
 		bc7 = 1;
 		srgb = cmdp_kw(p, "srgb");
-	}
+	} else if (cmdp_kw(p, "bc6h"))
+		bc6h = 1;
 	while (!cmdp_eos(p)) {
 		if (cmdp_kw(p, "rows")) {
 			if (!cmdp_int(p, &W))
@@ -1838,11 +1994,15 @@ texenc_command(struct P *p)
 		} else {
 			cmdp_fail_here(p);
 			fail("texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 "
-			    "[srgb]] [rows W] [tol E]");
+			    "[srgb] | bc6h] [rows W] [tol E]");
 		}
 	}
 	notes_flush();
-	if (bc7)
+	if (bc6h) {
+		if (g)
+			fail("texenc: bc6h takes one table (its red channel), not two");
+		cmd_texenc_bc6h(f, (int)W, tol, has_tol);
+	} else if (bc7)
 		cmd_texenc_bc7(f, g, (int)W, tol, has_tol, srgb);
 	else if (etc2)
 		cmd_texenc_etc2(f, g, (int)W, tol, has_tol, srgb);
@@ -1873,8 +2033,8 @@ texenc_nlp_raw(const char *sent)
 	    tol[32] = "", rows[16] = "", fp[16] = "";
 	const char *s;
 	size_t k, n = strlen(sent);
-	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0, a,
-	    b;
+	int hit = 0, bc5 = 0, astc = 0, eac = 0, etc2 = 0, srgb = 0, bc7 = 0,
+	    bc6h = 0, a, b;
 
 	if (n > 400)
 		return NULL;
@@ -1909,6 +2069,8 @@ texenc_nlp_raw(const char *sent)
 			hit = etc2 = 1;
 		else if (!strcmp(w, "bc7") || !strcmp(w, "BC7"))
 			hit = bc7 = 1;
+		else if (!strcmp(w, "bc6h") || !strcmp(w, "BC6H"))
+			hit = bc6h = 1;
 		else if (!strcmp(w, "srgb") || !strcmp(w, "sRGB") || !strcmp(w,
 		    "SRGB"))
 			srgb = 1;
@@ -1934,8 +2096,9 @@ texenc_nlp_raw(const char *sent)
 	    ((astc || eac || etc2 || bc7) && fn2[0]) ? ", " : "", bc5 ||
 	    ((astc || eac || etc2 || bc7) && fn2[0]) ? fn2 : "", astc ?
 	    " astc " : "", astc ? fp : "", eac ? " eac" : etc2 ? (srgb ?
-	    " etc2 srgb" : " etc2") : bc7 ? (srgb ? " bc7 srgb" : " bc7") : "",
-	    rows[0] ? " rows " : "", rows, tol[0] ? " tol " : "", tol);
+	    " etc2 srgb" : " etc2") : bc7 ? (srgb ? " bc7 srgb" : " bc7") :
+	    bc6h ? " bc6h" : "", rows[0] ? " rows " : "", rows, tol[0] ?
+	    " tol " : "", tol);
 	return out;
 }
 
@@ -1982,5 +2145,6 @@ texenc_nlp_english(const char *line)
 	    strstr(line, "rgtc") || strstr(line, "ASTC") || strstr(line, "astc") ||
 	    has_word(line, "eac") || strstr(line, "R11") || strstr(line, "r11") ||
 	    strstr(line, "RG11") || strstr(line, "rg11") || strstr(line, "ETC2") ||
-	    strstr(line, "etc2") || strstr(line, "BC7") || strstr(line, "bc7"));
+	    strstr(line, "etc2") || strstr(line, "BC7") || strstr(line, "bc7") ||
+	    strstr(line, "BC6H") || strstr(line, "bc6h"));
 }
