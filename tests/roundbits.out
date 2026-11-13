@@ -72,7 +72,7 @@ error of p2 against p2x:
   rounding, first order in u = 2^-24: 2 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
     choices: 1 conversion to an integer; at 1 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a conversion to an integer, 10, is within its error 5.96e-07 of 10, at x=100
     bit casts: 1, exact: integers are, and a float whose bits are read carries no rounding error
-    worst case  1 (1.68e+07 u): every error at its bound and aligned, u sum |c_i|
+    worst case  0.5 (8.39e+06 u): every error at its bound and aligned, u sum |c_i|
     probable    2.38e-07 (4 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
     expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
     for 2 operations of equal weight: gamma_2 = 2 u / (1 - 2 u) = 1.19e-07, gamma~_2(4) = 4 sqrt(2) u = 3.37e-07
@@ -83,4 +83,8 @@ error of bad against abs(0.1x):
   max rel error 1.07469e-07 (1.07e-05%) at x=-2.64
   mean rel error 3.21659e-08 over 1001 points
   max 1 ulp
-  rounding: not analysed (asuint of a value that carries rounding error, its bits used as an integer is not analysed)
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]

@@ -1,0 +1,99 @@
+> rn(x: f32 in 15..25) = (x * 0.1 + 12582912.0) - 12582912.0
+> error rn ~ roundeven(x * 0.1)
+error of rn against roundeven(0.1x):
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 1001 points
+  max 0 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 rounding written as an add; at 2 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a rounding written as an add, 1.5, is within its error 8.94e-08 of 1.5, at x=15
+    worst case  0.5 (8.39e+06 u): every error at its bound and aligned, u sum |c_i|
+    probable    0 (0 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]
+> rn64(x: f64 in 15..25) = (x * 0.1 + 6755399441055744.0) - 6755399441055744.0
+> error rn64 ~ roundeven(x * 0.1)
+error of rn64 against roundeven(0.1x):
+  max abs error 0 at -
+  max rel error 0 (0%) at -
+  mean rel error 0 over 1001 points
+  max 0 ulp
+  rounding, first order in u = 2^-53: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 rounding written as an add; at 2 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a rounding written as an add, 1.5, is within its error 1.67e-16 of 1.5, at x=15
+    worst case  0.5 (4.5e+15 u): every error at its bound and aligned, u sum |c_i|
+    probable    0 (0 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    0 (0 u): the root mean square if they are independent and uniform in [-u, u]
+> ex2(x: f32 in 0.1..0.3465736) = { j = x * 1.44269502 + 12582912.0; k = j - 12582912.0; r = x - k * 0.693147182; (1 + r + 0.5 * r * r) * asfloat((asuint(j) << 23) + 0x3f800000) }
+> error ex2 ~ exp(x)
+error of ex2 against exp(x):
+  max abs error 102.27 at x=9.36
+  max rel error 0.00899363 (0.899%) at x=1.04
+  mean rel error 0.00175938 over 1001 points
+  max 106724 ulp
+  rounding, first order in u = 2^-24: 8 rounded operations, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    choices: 1 rounding written as an add; at 1 of the 4096 inputs one can go the other way, and the worst case adds what the other side brings there (the probable and expected lines do not); the first: the operand of a rounding written as an add, 0.5, is within its error 2.98e-08 of 0.5, at x=0.346573591
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  0.0145 (2.43e+05 u): every error at its bound and aligned, u sum |c_i|
+    probable    4.15e-07 (6.96 u): with probability >= 0.99933 at one input, 4 u sqrt(sum c_i^2), if the errors are independent with mean 0 (a model; Hoeffding, Higham-Mary)
+    expected    5.99e-08 (1.01 u): the root mean square if they are independent and uniform in [-u, u]
+    for 8 operations of equal weight: gamma_8 = 8 u / (1 - 8 u) = 4.77e-07, gamma~_8(4) = 4 sqrt(8) u = 6.74e-07
+> sc(x: f32 in 1..2) = asfloat(asuint(x * 1.1) + (3 << 23))
+> error sc ~ 8 * (x * 1.1)
+error of sc against 8.8x:
+  max abs error 9.0332e-06 at x=8.06
+  max rel error 1.27357e-07 (1.27e-05%) at x=8.06
+  mean rel error 3.42286e-08 over 1001 points
+  max 25165824 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> ng(x: f32 in 1..2) = asfloat(asuint(x * 1.1) xor 0x80000000)
+> error ng ~ -(x * 1.1)
+error of ng against -1.1x:
+  max abs error 1.12915e-06 at x=8.06
+  max rel error 1.27357e-07 (1.27e-05%) at x=8.06
+  mean rel error 3.42286e-08 over 1001 points
+  max 1 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> cs(x: f32 in 1..2, y: f32 in -1..1) = asfloat(asuint(x * 1.1) | (asuint(y) & 0x80000000))
+> error cs ~ copysign(x * 1.1, y)
+error of cs against copysign(1.1x, y):
+  max abs error 22 at x=-10, y=0
+  max rel error 2 (200%) at x=-8.06, y=0
+  mean rel error 0.5 over 1002001 points
+  max 2187329536 ulp
+  rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
+    bit casts: 3, exact: integers are, and a float whose bits are read carries no rounding error
+    worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
+    probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
+    expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
+> sh(x: f32 in 1..2) = asfloat(0x5f3759df - (asuint(x * 1.1) >> 1))
+> error sh ~ 1 / sqrt(x * 1.1)
+error of sh against 1/sqrt(1.1x):
+  max abs error 0.171722 at x=0.02
+  max rel error 0.0342885 (3.43%) at x=3.4
+  mean rel error 0.0245308 over 500 points
+  max 562629 ulp
+  rounding: not analysed (the bits of a value that carries rounding error, used as an integer by >> is not analysed)
+> mk(x: f32 in 1..2) = asfloat(asuint(x * 1.1) & 0xfffff000)
+> error mk ~ x * 1.1
+error of mk against 1.1x:
+  max abs error 0.003875 at x=9.62
+  max rel error 0.000456713 (0.0457%) at x=-7.34
+  mean rel error 0.000178744 over 1001 points
+  max 4063 ulp
+  rounding: not analysed (the bits of a value that carries rounding error, under a mask of more than the sign bit is not analysed)
+> two(x: f32 in 1..2) = asfloat(asuint(x * 1.1) + asuint(x * 1.3))
+> error two ~ x
+error of two against x:
+  max abs error 3.36199e+38 at x=-1.24
+  max rel error 2.71128e+38 (2.71e+40%) at x=-1.24
+  mean rel error 1.90513e+37 over 955 points
+  max 3206260196 ulp
+  approximation is NaN/inf/undefined at 46 points where the target is finite, e.g. x=-1.7
+  rounding: not analysed (the bits of a value that carries rounding error, used as an integer by two of them at once is not analysed)
