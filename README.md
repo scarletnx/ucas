@@ -1104,6 +1104,18 @@ behind it.  English only; the translator is a hand-written parser
   starts a new item: `(y, -x)`, `at (1, -2)`.  Greek letter names (`theta`, `alpha`, or
   `θ`) are variables; one or two letters are variables; `it`/`its`
   refer to the last function.
+- **Subgroup operations** (see "Subgroups"), each lane's value of the
+  operand over one subgroup, with `lane: u32 in 0..31` declared where
+  the result is a value per lane or the words say `lane`: `the subgroup
+  sum of x` (also `warp`, `wave`, `the sum over the subgroup of`),
+  `the inclusive prefix sum over the subgroup of x`, `the exclusive
+  prefix sum of the lanes of x`, `the ballot of the lanes where x is
+  odd` (`the ballot of x is odd`), `the number of lanes where x is
+  zero`, `how many lanes where lane is greater than 28`, `whether in
+  any lane x is 3` (`whether every lane where ...`), `the first active
+  lane's x` and `the broadcast of x` (from the first active lane),
+  `the shuffle of x from lane 3`, `the broadcast of x from lane 7`, `the
+  xor shuffle of x with 1`, `the lane rotation of x by 2`.
 - **Variables**: `for a signed byte x`, `where x is between 1 and 12`,
   `x and y are unsigned bytes`, `when x is 3` (substituted), `on [a, b]`
   or `from a to b` for the only variable, `cos of a to b` (an implicit

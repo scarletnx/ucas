@@ -1,0 +1,97 @@
+> what is the subgroup sum of x where x is a u32?
+  ucas: it(x: u32) = sg_add(x)
+  ucas: show it
+it(x: u32) = sg_add(x)
+  -> u32
+> the warp sum of lane
+  ucas: it(lane: u32 in 0..31) = sg_add(lane)
+  ucas: show it
+it(lane: u32 in 0..31) = 496
+  -> u32
+> the sum over the subgroup of lane times 2
+  note: what does "the sum over the subgroup of" apply to: read as sg_add(lane) * ..., not sg_add(lane * ...) (say "the sum over the subgroup of the quantity ..." for the second)
+  ucas: it(lane: u32 in 0..31) = sg_add(lane)*2
+  ucas: show it
+it(lane: u32 in 0..31) = 992
+  -> u32
+> what is the range of the subgroup sum of lane?
+  ucas: it(lane: u32 in 0..31) = sg_add(lane)
+  ucas: range it
+range of it -> u32:
+  496..496
+  fits in u9
+  over all 32 points of the domain
+> the inclusive prefix sum over the subgroup of lane
+  ucas: it(lane: u32 in 0..31) = sg_scan(lane)
+  ucas: show it
+it(lane: u32 in 0..31) = sg_scan(lane)
+  -> u32
+> the exclusive prefix sum of the lanes of x where x is a u8
+  ucas: it(lane: u32 in 0..31, x: u8) = sg_exclusive(x)
+  ucas: show it
+it(lane: u32 in 0..31, x: u8) = sg_scan(x) - x
+  -> u8
+> the ballot of the lanes where lane is odd
+  ucas: it(lane: u32 in 0..31) = sg_ballot(lane % 2 != 0)
+  ucas: show it
+it(lane: u32 in 0..31) = 2863311530
+  -> u32
+> the ballot of lane is even
+  ucas: it(lane: u32 in 0..31) = sg_ballot(lane % 2 == 0)
+  ucas: show it
+it(lane: u32 in 0..31) = 1431655765
+  -> u32
+> the number of lanes where lane is less than 5
+  ucas: it(lane: u32 in 0..31) = popcount(sg_ballot(lane < 5))
+  ucas: show it
+it(lane: u32 in 0..31) = 5
+  -> u32
+> how many lanes where lane is greater than 28?
+  ucas: it(lane: u32 in 0..31) = popcount(sg_ballot(lane > 28))
+  ucas: show it
+it(lane: u32 in 0..31) = 3
+  -> u32
+> whether in any lane lane is 3
+  ucas: it(lane: u32 in 0..31) = sg_any(lane == 3)
+  ucas: show it
+it(lane: u32 in 0..31) = 1
+  -> bool
+> whether every lane where lane is nonnegative
+  ucas: it(lane: u32 in 0..31) = sg_all(lane >= 0)
+  ucas: show it
+it(lane: u32 in 0..31) = 1
+  -> bool
+> the first active lane's lane times 3
+  note: what does "the first active lane's" apply to: read as sg_broadcast_first(lane) * ..., not sg_broadcast_first(lane * ...) (say "the first active lane's the quantity ..." for the second)
+  ucas: it(lane: u32 in 0..31) = sg_broadcast_first(lane)*3
+  ucas: show it
+it(lane: u32 in 0..31) = 0
+  -> u32
+> the broadcast of lane
+  ucas: it(lane: u32 in 0..31) = sg_broadcast_first(lane)
+  ucas: show it
+it(lane: u32 in 0..31) = 0
+  -> u32
+> the shuffle of lane from lane 3
+  ucas: it(lane: u32 in 0..31) = sg_shuffle(lane, 3)
+  ucas: show it
+it(lane: u32 in 0..31) = 3
+  -> u32
+> the broadcast of lane from lane 7
+  ucas: it(lane: u32 in 0..31) = sg_broadcast(lane, 7)
+  ucas: show it
+it(lane: u32 in 0..31) = 7
+  -> u32
+> the xor shuffle of lane with 1
+  ucas: it(lane: u32 in 0..31) = sg_shuffle_xor(lane, 1)
+  ucas: show it
+it(lane: u32 in 0..31) = sg_shuffle(lane, lane xor 1)
+  -> u32
+> the lane rotation of lane by 2
+  ucas: it(lane: u32 in 0..31) = sg_rotate(lane, 2)
+  ucas: show it
+it(lane: u32 in 0..31) = sg_shuffle(lane, (lane + 2) % 32)
+  -> u32
+> the sum over i from 1 to 4 of i
+  ucas: sum(i, 1, 4, i)
+10
