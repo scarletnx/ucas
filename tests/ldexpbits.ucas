@@ -1,0 +1,22 @@
+# ldexp(x, k) as an add of k to x's exponent field (#165):
+# asfloat(asint(x) + (k << 23)) where |x| is normal (its range from its
+# definitions: 2^-126 at least, finite) and k, proved by SAT, keeps x * 2^k
+# normal, so the sign and the mantissa are x's (13 -> 3 under gt1030, where
+# ldexp is lowered).  A k with no bound, or an x that may be 0, keeps its call.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(std430, binding = 1) buffer F { float f[]; } o;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float x = clamp(uintBitsToFloat(b.d[i]), 0.5, 2.0);
+    float n = -clamp(uintBitsToFloat(b.d[i + 256u]), 1.0, 3.0);
+    int k = int(b.d[i + 64u] & 15u) - 8;
+    o.f[i] = ldexp(x, k);
+    o.f[i + 64u] = ldexp(n, k + 100);
+    o.f[i + 128u] = ldexp(x, int(b.d[i + 128u]));
+    o.f[i + 192u] = ldexp(float(b.d[i + 192u] & 255u), k);
+}
+```

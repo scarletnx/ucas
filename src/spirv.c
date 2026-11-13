@@ -12676,7 +12676,8 @@ f_range(int id, int depth)
 static struct cvx {
 	char res[40], rt[40], x[40], xt[40], op[40], k[40], kt[40];
 	char from[160], src[160];
-	char lx[40], it[40];	/* forms 7, 8: log2's operand; 7: an int type */
+	char lx[40], it[40];	/* forms 7, 8: log2's operand; 7: an int type;
+				 * 9: k and its type */
 	char drop[2][40];	/* forms 7, 8: the calls they leave unused */
 	int form;		/* 0: the or with 0x4B000000; 1: the add;
 				 * 2: f32(1 << k) by the exponent field;
@@ -12686,7 +12687,8 @@ static struct cvx {
 				 * add and its subtraction (k: the call,
 				 * kt: the bool type); 7, 8: floor(log2
 				 * x) by x's exponent field, as a float
-				 * (k: the call) or converted */
+				 * (k: the call) or converted; 9: ldexp(x,
+				 * k) as an add of k to x's exponent field */
 	int line;
 	double before, after;
 	double flo, fhi;	/* form 3: x's range */
@@ -12694,7 +12696,7 @@ static struct cvx {
 static int ncvx;
 
 /* a form that rewrites a call (its line has 7 words), not a conversion */
-#define CALLFORM(f) ((f) >= 4 && (f) <= 7)
+#define CALLFORM(f) ((f) >= 4 && (f) <= 7)	/* (9: a call of 8 words) */
 
 /* the instruction that uses id, when one alone does; else -1 */
 static int
@@ -12772,6 +12774,64 @@ i2f_pass(void)
 		struct cvx *e;
 		if (SP.dead[k] || SP.rw[k])
 			continue;
+		/*
+		 * ldexp(x, k) of an f32 x whose |x| is normal (2^-126 at least,
+		 * finite), k proved by SAT to keep x * 2^k normal: x's exponent
+		 * field plus k, asfloat(asint(x) + (k << 23)), exactly (the sign
+		 * and the mantissa are x's)
+		 */
+		if (!strcmp(I->op, "OpExtInst") && I->nop == 5 && I->res >= 0 &&
+		    V.glsl >= 0 && idx(I->opnd[1]) == V.glsl && !strcmp(I->opnd[2],
+		    "Ldexp") && I->opnd[3][0] == '%' && I->opnd[4][0] == '%') {
+			int kid = res_of(idx(I->opnd[4])), kt, elo, ehi, ok;
+			struct frng fr;
+			double alo, ahi;
+			struct word *wk, cl, ch;
+			rt = idx(I->opnd[0]);
+			x = res_of(idx(I->opnd[3]));
+			kt = V.id[kid].type;
+			if (rt < 0 || V.id[rt].kind != K_TYPE || T(rt)->k != S_FLOAT ||
+			    T(rt)->w != 32 || kt < 0 || T(kt)->k != S_INT || T(kt)->w != 32)
+				continue;
+			fr = f_range(x, 0);
+			if (!fr.ok || !isfinite(fr.lo) || !isfinite(fr.hi) ||
+			    (fr.lo < 0x1p-126 && fr.hi > -0x1p-126))
+				continue;	/* (|x| below 2^-126 somewhere: 0 or subnormal) */
+			alo = fr.lo > 0 ? fr.lo : -fr.hi;	/* |x|'s least and most */
+			ahi = fr.lo > 0 ? fr.hi : -fr.lo;
+			elo = ilogb(alo);
+			ehi = ilogb(ahi);
+			before = fprice_std("Ldexp", 1);
+			after = m->c[C_SHIFT] + m->c[C_IADD] + 2 * m->c[C_BITCAST];
+			if (!(after < before - 1e-9))
+				continue;
+			if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
+				break;
+			/* -126 - elo <= k <= 127 - ehi for every input */
+			blast_reset();
+			wk = blast(kid, 16);
+			w_const(&cl, 32, (uint64_t)(uint32_t)(-126 - elo));
+			w_const(&ch, 32, (uint64_t)(uint32_t)(127 - ehi));
+			goal = aig_and(SP.g, aig_and(SP.g, SP.dl[kid], assumptions()),
+			    aig_or(SP.g, T(kt)->sign ? w_slt(SP.g, wk, &cl) :
+			    w_ult(SP.g, wk, &cl), T(kt)->sign ? w_slt(SP.g, &ch, wk) :
+			    w_ult(SP.g, &ch, wk)));
+			ok = -126 - elo <= 127 - ehi && (T(kt)->sign || -126 - elo <= 0) &&
+			    aig_sat(SP.g, goal, 20000) == 0;
+			if (!ok)
+				continue;
+			xt = rt;
+			e = &cvx[ncvx++];
+			memset(e, 0, sizeof *e);
+			e->flo = fr.lo;
+			e->fhi = fr.hi;
+			snprintf(e->k, sizeof e->k, "%s", V.id[kid].tok);
+			snprintf(e->kt, sizeof e->kt, "%s", V.id[kt].tok);
+			snprintf(e->lx, sizeof e->lx, "%d", -126 - elo);
+			snprintf(e->it, sizeof e->it, "%d", 127 - ehi);
+			form = 9;
+			goto keep;
+		}
 		/*
 		 * floor, ceil, trunc, round and roundeven of an f32 x in
 		 * [-2^22, 2^22] (one unit of margin for what the float pass may
@@ -13043,6 +13103,12 @@ i2f_patch(const char *text, char **out)
 			    "=") && !strcmp(t[2], cvx[i].op) && !strcmp(t[3],
 			    cvx[i].rt) && !strcmp(t[4], cvx[i].x))
 				used[i] = 1;
+		for (i = 0; nt == 8 && i < ncvx; i++)	/* an ldexp */
+			if (!used[i] && cvx[i].form == 9 && !strcmp(t[0], cvx[i].res) &&
+			    !strcmp(t[1], "=") && !strcmp(t[2], "OpExtInst") &&
+			    !strcmp(t[3], cvx[i].rt) && !strcmp(t[5], "Ldexp") &&
+			    !strcmp(t[6], cvx[i].x) && !strcmp(t[7], cvx[i].k))
+				used[i] = 1;
 		for (i = 0; nt == 7 && i < ncvx; i++)	/* a rounding call */
 			if (!used[i] && CALLFORM(cvx[i].form) && !strcmp(t[0],
 			    cvx[i].res) && !strcmp(t[1], "=") && !strcmp(t[2],
@@ -13066,6 +13132,13 @@ i2f_patch(const char *text, char **out)
 		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
 		if (!used[i])
 			continue;
+		if (e->form == 9) {	/* 23 in k's type */
+			snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->kt + 1, 23u);
+			if (!strstr(decl.p ? decl.p : "", kn) && !strstr(text, kn))
+				sb_printf(&decl, "%sOpConstant %s 23\n", kn, e->kt);
+			nlog++;
+			continue;
+		}
 		if (e->form >= 7) {	/* 23 and 127 in the integer type */
 			const char *it = e->form == 7 ? e->it : e->rt;
 			unsigned kv[2] = {23, 127};
@@ -13155,9 +13228,10 @@ i2f_patch(const char *text, char **out)
 				sb_puts(&o, decl.p);
 			declared = 1;
 		}
-		for (i = 0; (nt == 5 || nt == 7) && i < ncvx && hit < 0; i++)
+		for (i = 0; (nt == 5 || nt == 7 || nt == 8) && i < ncvx && hit < 0;
+		    i++)
 			if (used[i] && !strcmp(t[0], cvx[i].res) && (nt == 7) ==
-			    CALLFORM(cvx[i].form))
+			    CALLFORM(cvx[i].form) && (nt == 8) == (cvx[i].form == 9))
 				hit = i;
 		/* the log2 and floor a form 7 or 8 leaves unused, and their
 		 * names */
@@ -13174,7 +13248,23 @@ i2f_patch(const char *text, char **out)
 				continue;
 			}
 		}
-		if (hit >= 0 && cvx[hit].form >= 7) {
+		if (hit >= 0 && cvx[hit].form == 9) {
+			const struct cvx *e = &cvx[hit];
+			int b = base + hit;
+			sb_printf(&o, "%%ucas_cv%ds = OpShiftLeftLogical %s %s "
+			    "%%ucas_cvk_%s_%08x\n", b, e->kt, e->k, e->kt + 1, 23u);
+			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %s\n", b, e->kt, e->x);
+			sb_printf(&o, "%%ucas_cv%do = OpIAdd %s %%ucas_cv%db %%ucas_cv%ds\n",
+			    b, e->kt, b, b);
+			sb_printf(&o, "%s = OpBitcast %s %%ucas_cv%do\n", e->res, e->rt, b);
+			sb_printf(&rep, "    %s\n      ->  asfloat(asint(x) + (k << 23))   "
+			    "(cost %g -> %g)\n      x = %s is in [%.9g, %.9g] (a range "
+			    "from its definitions and the assumptions): |x| is normal, its "
+			    "exponent field E in a range k = %s keeps in 1..254, proved "
+			    "by SAT (%s <= k <= %s), so x * 2^k is normal and its bits are "
+			    "x's with k added to E, exactly\n%s", e->from, e->before,
+			    e->after, e->x, e->flo, e->fhi, e->k, e->lx, e->it, e->src);
+		} else if (hit >= 0 && cvx[hit].form >= 7) {
 			const struct cvx *e = &cvx[hit];
 			int b = base + hit;
 			const char *it = e->form == 7 ? e->it : e->rt;
@@ -13308,7 +13398,8 @@ i2f_patch(const char *text, char **out)
 	}
 	if (nlog)
 		printf("conversions between integers and f32 by the bits, roundings "
-		    "by the add of 1.5*2^23 and floor(log2 x) by the exponent field, "
+		    "by the add of 1.5*2^23, and floor(log2 x) and ldexp by the "
+		    "exponent field, "
 		    "under %s (written last: the passes above read the conversions; "
 		    "a conversion is not in the integer cost):\n",
 		    sym_str(model_active()->name));
@@ -13340,7 +13431,8 @@ i2f_patch(const char *text, char **out)
 			continue;
 		rep_obj(NULL);
 		rep_str("from", cvx[i].from);
-		rep_str("form", cvx[i].form == 7 ? "f32((asuint(x) >> 23) - 127)" :
+		rep_str("form", cvx[i].form == 9 ? "asfloat(asint(x) + (k << 23))" :
+		    cvx[i].form == 7 ? "f32((asuint(x) >> 23) - 127)" :
 		    cvx[i].form == 8 ? "(asuint(x) >> 23) - 127" :
 		    cvx[i].form == 4 ? "(x + 1.5*2^23) - 1.5*2^23" :
 		    cvx[i].form == 5 ? "r = (x + 1.5*2^23) - 1.5*2^23; r > x ? "

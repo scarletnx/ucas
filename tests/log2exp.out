@@ -20,7 +20,7 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
           plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 11.6 absolute in all, the worst near x = 2.259e+09
           against log2's precision on each piece (3 ulp outside [0.5, 2], absolute 2^-21 inside, the lower bounds): exceeds it (an approximation)
         P(t) = fma(fma(-5.65750304e-18, t, 1.79382453e-09), t, 42.5906296), t = x - 2.14748365e+09
-conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23 and floor(log2 x) by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23, and floor(log2 x) and ldexp by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %32 = OpConvertUToF %float %31
       ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 3 -> 2)
       0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
