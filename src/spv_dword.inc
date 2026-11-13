@@ -12,6 +12,10 @@
  * of its error-free transformations decorated NoContraction; the Float64
  * capability goes when nothing uses the type any more.
  *
+ * A loop's f64 sum (a phi of its header that only adds) is carried as a
+ * pair of f32 phis when the trip count is a constant, the bound composed
+ * over the passes (dword_accum).
+ *
  * The same pass reports the float round trips the model says its driver
  * folds (fpfold.c), with an input where the folded program differs, and
  * with `foldproof` writes their rounding as integer instructions.
@@ -73,6 +77,7 @@ struct dwg {
 	int ins[256];		/* the f64 instructions under the roots */
 	int nins;
 	int toomany;
+	const char *pname[MAXP];	/* a value the rewrite makes: its name */
 };
 
 static char *dw_leaf;
@@ -655,6 +660,8 @@ dwe(struct dwemit *E, nid n)
 	if (N.op[n] == O_VAR) {
 		int j = (int)N.ki[n], pc = E->G->pcomp[j];
 		E->puse[j] = 1;
+		if (E->G->pname[j])
+			return E->G->pname[j];
 		if (pc < 0)
 			return V.id[E->G->psid[j]].tok;
 		rt = dwe_type(E, t);
@@ -1343,6 +1350,494 @@ dw_write(struct dwsink *sk, int nsk, int *uses, const int *blk,
 	}
 }
 
+/* ---- a loop's f64 sum, carried as a pair ---- */
+
+static int64_t loop_trips_iv(int h, int m, int c, int *iv, int64_t *first,
+    int64_t *inc);
+
+/*
+ * An f64 phi of a loop's header that only sums: s0 before the loop,
+ * s + T (or s - T) on the back edge, T not reading s, and the sum read
+ * after the loop only by conversions to f32 and f64 stores.  With the
+ * trip count a constant, dword_accum decides whether f32 phis carry it
+ * instead: the pass is written in place of s + T, the phis in place of
+ * s's, each conversion reads the high word and each store the pair
+ * recombined.
+ */
+struct dwloop {
+	int kphi, kvn, t, v0;	/* the phi, its pass, the term, s0 */
+	int ea, eb;		/* the phi's operands: s0's, the back edge's */
+	int ksink[8], nsink;	/* its readers after the loop */
+	char kst[8];		/* the reader is an f64 store */
+	int64_t n;
+	int iv;			/* the loop's counter, -1 none */
+	int64_t iv0, ivd;	/* its first value and step */
+	int fired, tried;
+	struct dwacc a;		/* the sum's pass and start, for dword_accum */
+	char hname[32], lname[32];	/* the phis the rewrite writes */
+	struct dwg *G;
+	struct dwres res;
+	struct sbuf rep;
+	char why[200];
+	int nins, ndeco;
+};
+
+static int
+dw_loop_opnd(const struct sins *I, int id)
+{
+	int o, n = 0;
+
+	for (o = 0; o < I->nop; o++)
+		n += I->opnd[o][0] == '%' && idx(I->opnd[o]) == id;
+	return n;
+}
+
+/* does n's expression read the variable j */
+static int
+dw_reads(nid n, int j, int depth)
+{
+	if (depth > 64)
+		return 1;
+	if (N.op[n] == O_VAR)
+		return (int)N.ki[n] == j;
+	if (N.op[n] == O_CONST)
+		return 0;
+	return (N.a[n] && dw_reads(N.a[n], j, depth + 1)) || (N.b[n] &&
+	    dw_reads(N.b[n], j, depth + 1)) || (N.c[n] && dw_reads(N.c[n], j,
+	    depth + 1));
+}
+
+static void
+dw_loop_try(struct dwloop *Lp, const uint8_t *in, const int *blk,
+    const int *uses, const struct model *m, const struct dwreq *rq)
+{
+	const struct sins *P = &V.in[Lp->kphi], *I;
+	struct dwacc a;
+	int i, kv, s = P->res, ps = -1, j, q, o;
+	nid body, t;
+	char nb[48], nm[64];
+	const char *sn;
+
+	memset(&a, 0, sizeof a);
+	Lp->ea = Lp->eb = -1;
+	if (P->nop != 5) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's f64 "
+		    "phi has %d incoming edges, not one before the loop and one "
+		    "back", (P->nop - 1) / 2);
+		return;
+	}
+	for (i = 1; i + 1 < P->nop; i += 2) {
+		int l = idx(P->opnd[i + 1]);
+		if (l >= 0 && V.id[l].kind == K_LABEL && in[blk[V.id[l].label_at]])
+			Lp->eb = i;
+		else
+			Lp->ea = i;
+	}
+	if (Lp->ea < 0 || Lp->eb < 0) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's f64 "
+		    "phi has no edge from before the loop and one back");
+		return;
+	}
+	Lp->v0 = idx(P->opnd[Lp->ea]);
+	kv = SP.def[idx(P->opnd[Lp->eb])];
+	I = kv >= 0 ? &V.in[kv] : NULL;
+	if (I == NULL || I->nop < 3 || (strcmp(I->op, "OpFAdd") && strcmp(I->op,
+	    "OpFSub"))) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's f64 "
+		    "phi is not a sum (s + T or s - T on its back edge)");
+		return;
+	}
+	Lp->kvn = kv;
+	if (idx(I->opnd[1]) == s)
+		Lp->t = idx(I->opnd[2]);
+	else if (!strcmp(I->op, "OpFAdd") && idx(I->opnd[2]) == s)
+		Lp->t = idx(I->opnd[1]);
+	else {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's f64 "
+		    "phi is not a sum (s + T or s - T on its back edge)");
+		return;
+	}
+	if (Lp->t == s || uses[I->res] != 1) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: %s", Lp->t == s ?
+		    "the pass adds the sum to itself" : "the pass's f64 value is "
+		    "read by more than the phi");
+		return;
+	}
+	/* who reads the sum: the pass, and conversions to f32 after the loop */
+	for (q = 0; q < V.nin; q++) {
+		const struct sins *R = &V.in[q];
+		if (q == kv || q == Lp->kphi || !dw_loop_opnd(R, s) ||
+		    !strncmp(R->op, "OpName", 6) || !strncmp(R->op, "OpDecorate",
+		    10))
+			continue;
+		if (((!strcmp(R->op, "OpFConvert") && R->nop == 2 &&
+		    scalar_float_w(idx(R->opnd[0])) == 32) || (!strcmp(R->op,
+		    "OpStore") && R->nop >= 2 && idx(R->opnd[1]) == s &&
+		    dw_loop_opnd(R, s) == 1)) && !in[blk[q]] && Lp->nsink < 8) {
+			Lp->kst[Lp->nsink] = R->op[2] == 'S';
+			Lp->ksink[Lp->nsink++] = q;
+			continue;
+		}
+		if (Lp->nsink == 8)
+			snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's "
+			    "f64 sum has more than 8 readers");
+		else
+			snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's "
+			    "f64 sum is read %s by %s", in[blk[q]] ? "inside the loop" :
+			    "after it", R->op);
+		return;
+	}
+	if (dw_loop_opnd(I, s) != 1) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the pass reads "
+		    "the sum twice");
+		return;
+	}
+	if (Lp->n < 0) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the loop's trip "
+		    "count is not a constant (i from a constant, i < K or i <= K, "
+		    "i + a constant), so there is no bound across its passes");
+		return;
+	}
+	Lp->G = xcalloc(1, sizeof *Lp->G);
+	Lp->G->f.name = sym_cstr("_sum");
+	Lp->G->f.anon = 1;
+	body = dwg_build(Lp->G, I->res, 0);
+	for (j = 0; j < Lp->G->f.np; j++)
+		if (Lp->G->psid[j] == s && Lp->G->pcomp[j] == -1)
+			ps = j;
+	if (ps < 0 || Lp->G->toomany || (N.op[body] != O_ADD && N.op[body] !=
+	    O_SUB)) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: %s",
+		    Lp->G->toomany ? "more than 8 inputs" : "the pass is not read "
+		    "as s + T");
+		return;
+	}
+	if (N.op[N.a[body]] != O_VAR || (int)N.ki[N.a[body]] != ps)
+		body = mk_bin(O_ADD, N.b[body], N.a[body]);
+	t = N.b[body];
+	if (N.op[N.a[body]] != O_VAR || (int)N.ki[N.a[body]] != ps ||
+	    dw_reads(t, ps, 0)) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the term reads "
+		    "the sum");
+		return;
+	}
+	/* the term's f64 values are its own; those before the loop are paid
+	 * once as written */
+	for (q = 0; q < Lp->G->nins; q++) {
+		int k = Lp->G->ins[q], r = V.in[k].res, inside = 0, z;
+		if (k == kv)
+			continue;
+		for (z = 0; z < Lp->G->nins; z++)
+			inside += dw_loop_opnd(&V.in[Lp->G->ins[z]], r);
+		if (inside != uses[r]) {
+			snprintf(Lp->why, sizeof Lp->why, "not rewritten: an f64 "
+			    "value under the term (%s) is read elsewhere too",
+			    V.id[r].tok);
+			return;
+		}
+		if (!in[blk[k]] && a.nonce < 16)
+			for (z = 0; z < Lp->G->nmemo; z++)
+				if (Lp->G->id[z] == r && Lp->G->comp[z] == -1)
+					a.once[a.nonce++] = Lp->G->node[z];
+	}
+	/* s0: an f64 constant or an f32 converted */
+	if (V.id[Lp->v0].kind == K_CONST && !V.id[Lp->v0].spec &&
+	    scalar_float_w(V.id[Lp->v0].type) == 64) {
+		double c = getf(V.id[Lp->v0].type, V.id[Lp->v0].c[0]);
+		float hi = (float)c, lo = (float)(c - (double)hi);
+		if (isinf(hi) || isnan(c)) {
+			snprintf(Lp->why, sizeof Lp->why, "not rewritten: the sum "
+			    "starts at %g, past f32", c);
+			return;
+		}
+		a.s0h = mk_cast(TY_F32, mk_const_r((double)hi));
+		a.s0l = lo != 0 ? mk_cast(TY_F32, mk_const_r((double)lo)) : 0;
+		a.s0lo = a.s0hi = c;
+		a.e0 = fabsl((long double)c - hi - lo);
+	} else if (SP.def[Lp->v0] >= 0 && !strcmp(V.in[SP.def[Lp->v0]].op,
+	    "OpFConvert") && scalar_float_w(V.id[idx(V.in[SP.def[Lp->v0]].
+	    opnd[1])].type) == 32) {
+		int x = idx(V.in[SP.def[Lp->v0]].opnd[1]);
+		int jx = dwg_param(Lp->G, x, -1, TY_F32);
+		if (!Lp->G->f.p[jx].ranged) {
+			snprintf(Lp->why, sizeof Lp->why, "not rewritten: the sum "
+			    "starts at %s, which has no range", V.id[x].tok);
+			return;
+		}
+		a.s0h = mk_var((uint32_t)jx, Lp->G->f.p[jx].name, TY_F32);
+		a.s0lo = Lp->G->f.p[jx].rlo;
+		a.s0hi = Lp->G->f.p[jx].rhi;
+		if (uses[Lp->v0] == 1 && a.nonce < 16)
+			a.once[a.nonce++] = mk_cast(TY_F64, a.s0h);
+	} else {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: the sum starts "
+		    "at an f64 value computed before the loop (a constant or an "
+		    "f32 converted is taken)");
+		return;
+	}
+	/* the pair the passes carry: the phis the rewrite writes, named after
+	 * the sum (s, or sum when a parameter is s) */
+	sn = load_name(s, nb, sizeof nb);
+	if (sn == NULL) {
+		sn = "s";
+		for (j = 0; j < Lp->G->f.np; j++)
+			if (j != ps && !strcmp(sym_str(Lp->G->f.p[j].name), "s"))
+				sn = "sum";
+		Lp->G->f.p[ps].name = sym_cstr(sn);
+		body = mk_bin(N.op[body], mk_var((uint32_t)ps,
+		    Lp->G->f.p[ps].name, TY_F64), t);
+	}
+	snprintf(Lp->hname, sizeof Lp->hname, "%%ucas_sh%d", Lp->kphi);
+	snprintf(Lp->lname, sizeof Lp->lname, "%%ucas_sl%d", Lp->kphi);
+	for (o = 0; o < 2; o++) {
+		j = dwg_param(Lp->G, s, -3 - o, TY_F32);
+		snprintf(nm, sizeof nm, "%.40s_%s", sn, o ? "lo" : "hi");
+		Lp->G->f.p[j].name = sym_cstr(nm);
+		Lp->G->pname[j] = o ? Lp->lname : Lp->hname;
+		Lp->G->f.p[j].ranged = 0;
+		if (o)
+			a.pl = j;
+		else
+			a.ph = j;
+	}
+	if (Lp->G->toomany) {
+		snprintf(Lp->why, sizeof Lp->why, "not rewritten: more than 8 "
+		    "inputs");
+		return;
+	}
+	/* the loop's counter, read by the term (converted), runs from its
+	 * first value to the one that leaves */
+	for (j = 0; Lp->iv >= 0 && j < Lp->G->f.np; j++) {
+		struct param *pp = &Lp->G->f.p[j];
+		int d = SP.def[Lp->G->psid[j]], ok = Lp->G->psid[j] == Lp->iv &&
+		    TY_ISINT(pp->ty);
+		if (!ok && d >= 0 && pp->ty == TY_F32 && V.in[d].nop >= 2 &&
+		    (!strcmp(V.in[d].op, "OpConvertSToF") || !strcmp(V.in[d].op,
+		    "OpConvertUToF")))
+			ok = idx(V.in[d].opnd[1]) == Lp->iv;
+		if (!ok || pp->ranged || Lp->G->pcomp[j] != -1)
+			continue;
+		pp->ranged = 1;
+		pp->rlo = (double)Lp->iv0;
+		pp->rhi = (double)(Lp->iv0 + Lp->n * Lp->ivd);
+		if (TY_ISINT(pp->ty)) {
+			pp->lo = Lp->iv0;
+			pp->hi = Lp->iv0 + Lp->n * Lp->ivd;
+		}
+	}
+	for (q = 0; q < Lp->nsink; q++) {
+		a.nconv += !Lp->kst[q];
+		a.nstore += Lp->kst[q];
+	}
+	a.ps = ps;
+	a.n = Lp->n;
+	Lp->G->f.body = body;
+	Lp->tried = 1;
+	Lp->fired = dword_accum(&Lp->G->f, &a, m, rq, &Lp->res, &Lp->rep);
+	if (!Lp->fired)
+		snprintf(Lp->why, sizeof Lp->why, "%s", Lp->res.why);
+	Lp->a = a;
+}
+
+/* the loops' f64 phis, each tried as a sum; lsink: the conversions that
+ * read one (1 + its index) */
+static int
+dw_loops(struct dwloop **out, const int *uses, const struct model *m,
+    const struct dwreq *rq, int *lsink)
+{
+	int nb = 0, k, pc, q, n = 0, cap = 0;
+	int *blk = xmalloc(((size_t)V.nin + 1) * sizeof *blk);
+	int *bstart = xmalloc(((size_t)V.nin + 1) * sizeof *bstart), *st;
+	uint8_t *in;
+	struct dwloop *lp;
+
+	for (k = 0; k < V.nin; k++) {
+		if (!strcmp(V.in[k].op, "OpLabel"))
+			bstart[nb++] = k;
+		blk[k] = nb - 1;
+		cap += !strcmp(V.in[k].op, "OpPhi");
+	}
+	lp = xcalloc((size_t)cap + 1, sizeof *lp);
+	in = xmalloc((size_t)nb + 1);
+	st = xmalloc(((size_t)nb + 1) * sizeof *st);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int h, mg, ct, sp = 0, b0, iv;
+		int64_t trips, iv0 = 0, ivd = 0;
+		if (strcmp(I->op, "OpLoopMerge") || I->nop < 2 || blk[k] < 0)
+			continue;
+		b0 = blk[k];
+		h = V.in[bstart[b0]].res;
+		mg = idx(I->opnd[0]);
+		ct = idx(I->opnd[1]);
+		/* the loop's blocks: reached from its header, not through its
+		 * merge */
+		memset(in, 0, (size_t)nb + 1);
+		st[sp++] = b0;
+		in[b0] = 1;
+		while (sp) {
+			int b = st[--sp], e = b + 1 < nb ? bstart[b + 1] : V.nin;
+			for (pc = bstart[b] + 1; pc < e; pc++) {
+				const struct sins *T2 = &V.in[pc];
+				if (strcmp(T2->op, "OpBranch") &&
+				    strcmp(T2->op, "OpBranchConditional") &&
+				    strcmp(T2->op, "OpSwitch"))
+					continue;
+				for (q = !strcmp(T2->op, "OpBranch") ? 0 : 1; q < T2->nop;
+				    q++) {
+					int l = T2->opnd[q][0] == '%' ? idx(T2->opnd[q]) : -1;
+					if (l < 0 || l == mg || V.id[l].kind != K_LABEL ||
+					    in[blk[V.id[l].label_at]])
+						continue;
+					in[blk[V.id[l].label_at]] = 1;
+					st[sp++] = blk[V.id[l].label_at];
+				}
+			}
+		}
+		iv = -1;
+		trips = h >= 0 && mg >= 0 && ct >= 0 ? loop_trips_iv(h, mg, ct, &iv,
+		    &iv0, &ivd) : -1;
+		for (pc = bstart[b0] + 1; pc < k && n < cap; pc++) {
+			const struct sins *P = &V.in[pc];
+			struct dwloop *Lp = &lp[n];
+			if (strcmp(P->op, "OpPhi") || P->res < 0 || P->nop < 1 ||
+			    scalar_float_w(idx(P->opnd[0])) != 64)
+				continue;
+			Lp->kphi = pc;
+			Lp->n = trips;
+			Lp->iv = trips >= 0 ? iv : -1;
+			Lp->iv0 = iv0;
+			Lp->ivd = ivd;
+			dw_loop_try(Lp, in, blk, uses, m, rq);
+			if (!Lp->tried)
+				for (q = 0; q < V.nin && Lp->nsink < 8; q++)
+					if (!strcmp(V.in[q].op, "OpFConvert") &&
+					    V.in[q].nop == 2 && scalar_float_w(idx(
+					    V.in[q].opnd[0])) == 32 && idx(V.in[q].opnd[1]) ==
+					    P->res)
+						Lp->ksink[Lp->nsink++] = q;
+			for (q = 0; q < Lp->nsink; q++)
+				lsink[Lp->ksink[q]] = n + 1;
+			n++;
+		}
+	}
+	free(in);
+	free(st);
+	free(blk);
+	free(bstart);
+	*out = lp;
+	return n;
+}
+
+/* the pass in place of s + T, the phis in place of s's, and each
+ * conversion reading the high word */
+static void
+dw_loop_write(struct dwloop *Lp, int *uses, char **repl, struct sbuf *decl,
+    struct sbuf *deco, int *isl, int *need_glsl)
+{
+	struct dwemit *E = xcalloc(1, sizeof *E);
+	const struct sins *P = &V.in[Lp->kphi];
+	struct sbuf code = {0}, phis = {0};
+	char hn[40], ln[40], h0[64], l0[64];
+	const char *ft;
+	int i, j;
+
+	E->decl = decl;
+	E->deco = deco;
+	E->G = Lp->G;
+	E->isl = ++*isl;
+	E->code = &code;
+	E->eft = Lp->res.eft;
+	E->neft = Lp->res.neft;
+	snprintf(hn, sizeof hn, "%s", dwe(E, Lp->res.hi));
+	snprintf(ln, sizeof ln, "%s", Lp->res.lo ? dwe(E, Lp->res.lo) : "");
+	snprintf(h0, sizeof h0, "%s", dwe(E, Lp->a.s0h));
+	snprintf(l0, sizeof l0, "%s", dwe(E, Lp->a.s0l ? Lp->a.s0l :
+	    mk_cast(TY_F32, mk_const_r(0))));
+	if (E->fail) {
+		Lp->fired = 0;
+		snprintf(Lp->why, sizeof Lp->why, "not written: an operation of "
+		    "the form has no SPIR-V instruction here");
+		free(code.p);
+		free(E);
+		return;
+	}
+	ft = dwe_type(E, TY_F32);
+	sb_printf(&phis, "%s = OpPhi %s %s %s %s %s\n", Lp->hname, ft, h0,
+	    P->opnd[Lp->ea + 1], hn, P->opnd[Lp->eb + 1]);
+	if (Lp->res.lo)
+		sb_printf(&phis, "%s = OpPhi %s %s %s %s %s\n", Lp->lname, ft, l0,
+		    P->opnd[Lp->ea + 1], ln, P->opnd[Lp->eb + 1]);
+	repl[Lp->kphi] = phis.p;
+	repl[Lp->kvn] = code.p;
+	for (i = 0; i < Lp->nsink; i++) {
+		const struct sins *R = &V.in[Lp->ksink[i]];
+		struct sbuf c = {0};
+		if (Lp->kst[i]) {
+			/* the store, of the pair recombined */
+			const char *dt = dwe_type(E, TY_F64);
+			char d[48];
+			snprintf(d, sizeof d, "%%ucas_ss%d_%d", Lp->kphi, i);
+			sb_printf(&c, "%sh = OpFConvert %s %s\n", d, dt, Lp->hname);
+			if (Lp->res.lo) {
+				sb_printf(&c, "%sl = OpFConvert %s %s\n", d, dt,
+				    Lp->lname);
+				sb_printf(&c, "%s = OpFAdd %s %sh %sl\n", d, dt, d, d);
+			} else
+				sb_printf(&c, "%s = OpCopyObject %s %sh\n", d, dt, d);
+			sb_printf(&c, "OpStore %s %s", R->opnd[0], d);
+			for (j = 2; j < R->nop; j++)
+				sb_printf(&c, " %s", R->opnd[j]);
+			sb_putc(&c, '\n');
+		} else
+			sb_printf(&c, "%s = OpCopyObject %s %s\n", V.id[R->res].tok,
+			    ft, Lp->hname);
+		repl[Lp->ksink[i]] = c.p;
+	}
+	/* what the replaced instructions read goes, what the code reads
+	 * stays */
+	uses[P->res] = 0;
+	uses[V.in[Lp->kvn].res] = 0;
+	uses[Lp->t]--;
+	uses[Lp->v0]--;
+	for (j = 0; j < Lp->G->f.np; j++)
+		if (E->puse[j] && !Lp->G->pname[j])
+			uses[Lp->G->psid[j]]++;
+	Lp->nins = E->nins;
+	Lp->ndeco = E->ndeco;
+	*need_glsl |= E->need_glsl;
+	free(E);
+}
+
+static void
+dw_loop_report(const struct dwloop *Lp, int k)
+{
+	if (Lp->ksink[0] != k) {
+		printf("    the same loop's sum as above\n");
+		return;
+	}
+	printf("    a loop's f64 sum (%s, the phi of its header):\n",
+	    V.id[V.in[Lp->kphi].res].tok);
+	if (Lp->rep.p)
+		dw_report(Lp->rep.p, NULL);
+	else
+		printf("    %s\n", Lp->why);
+	if (Lp->rep.p && !Lp->fired && Lp->why[0] && !strstr(Lp->rep.p,
+	    Lp->why))
+		printf("    %s\n", Lp->why);
+	if (!Lp->fired)
+		return;
+	printf("    written: %s carr%s the sum across the passes, each pass %d "
+	    "f32 instruction%s,\n      %d of them NoContraction, in place of s "
+	    "%c T; %s\n", Lp->res.lo ? "two f32 phis (hi, lo)" : "an f32 phi",
+	    Lp->res.lo ? "y" : "ies", Lp->nins, Lp->nins == 1 ? "" : "s",
+	    Lp->ndeco, strcmp(V.in[Lp->kvn].op, "OpFSub") ? '+' : '-',
+	    Lp->a.nstore == 0 ? "each conversion after the loop reads the high "
+	    "word" : Lp->a.nconv == 0 ? "a store takes the pair recombined "
+	    "(an f64 add stays)" : "a conversion after the loop reads the high "
+	    "word, a store the pair\n      recombined (an f64 add stays)");
+}
+
 static char *
 dword_pass(const char *text, int *changed)
 {
@@ -1353,7 +1848,8 @@ dword_pass(const char *text, int *changed)
 	const struct model *m = model_active();
 	struct dwreq rq = {DW_DEFAULT, 0};
 	struct dwsink *sk;
-	int *uses, *blk, nsk = 0, cursk = 0;
+	int *uses, *blk, nsk = 0, cursk = 0, *lsink, nlp, q;
+	struct dwloop *lp;
 
 	*changed = 0;
 	memset(&V, 0, sizeof V);
@@ -1408,12 +1904,17 @@ dword_pass(const char *text, int *changed)
 	blk = xcalloc((size_t)V.nin + 1, sizeof *blk);
 	dw_leaf = xcalloc((size_t)V.nid + 64, 1);
 	dw_keep = xcalloc((size_t)V.nin + 1, 1);
+	/* a loop's f64 sum: the conversions that read it are its own */
+	lsink = xcalloc((size_t)V.nin + 1, sizeof *lsink);
+	nlp = dw_loops(&lp, uses, m, &rq, lsink);
 	for (k = 0, i = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
 		int n = 1, src, t;
 		if (!strcmp(I->op, "OpLabel"))
 			i++;
 		blk[k] = i;
+		if (lsink[k])
+			continue;
 		if (dw_cmp_op(I->op) && I->nop >= 3 && I->res >= 0 &&
 		    SP.def[I->res] == k && scalar_float_w(V.id[idx(I->opnd[1])].type)
 		    == 64 && scalar_float_w(V.id[idx(I->opnd[2])].type) == 64) {
@@ -1496,12 +1997,28 @@ dword_pass(const char *text, int *changed)
 		free(keep2);
 	}
 	dw_write(sk, nsk, uses, blk, &decl, &deco, &isl, &need_glsl);
+	for (q = 0; q < nlp; q++)
+		if (lp[q].fired) {
+			dw_loop_write(&lp[q], uses, repl, &decl, &deco, &isl,
+			    &need_glsl);
+			napplied += lp[q].fired;
+		}
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
 		struct dwsink *S;
 		char sl[200];
 		int src, issk = cursk < nsk && sk[cursk].k == k;
 
+		if (lsink[k]) {
+			if (!hdr++)
+				printf("fp64 and conversions under %s:\n",
+				    sym_str(m->name));
+			printf("  %s\n", I->text);
+			src_line(ins_line(k), sl, sizeof sl);
+			fputs(sl, stdout);
+			dw_loop_report(&lp[lsink[k] - 1], k);
+			continue;
+		}
 		if (!issk && (strcmp(I->op, "OpFConvert") != 0 || I->nop < 2 ||
 		    I->res < 0 || SP.def[I->res] != k))
 			continue;
@@ -1823,6 +2340,13 @@ dword_pass(const char *text, int *changed)
 	}
 	free(sk);
 	free(blk);
+	for (q = 0; q < nlp; q++) {
+		free(lp[q].G);
+		free(lp[q].rep.p);
+		dword_res_free(&lp[q].res);
+	}
+	free(lp);
+	free(lsink);
 	free(dw_leaf);
 	dw_leaf = NULL;
 	free(dw_keep);
