@@ -56,7 +56,9 @@
  *   texalu F [tol E] [model M]   the reads and weighted sums of table
  *       entries in F as sampled reads, where the model prices them
  *       lower: each with what it holds under, its derivation, and what
- *       the pipeline needs for it (a proposal, never applied)
+ *       the pipeline needs for it (a proposal, never applied).  An F
+ *       that reads no table, of at most 2^16 points, is its own table:
+ *       read by a nearest fetch, or from knots by the linear filter
  */
 #ifndef UCAS_TEXALU_H
 #define UCAS_TEXALU_H

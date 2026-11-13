@@ -23,6 +23,7 @@
 #include "texalu.h"
 #include "texenc.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -4449,6 +4450,454 @@ seed_srgb(nid body, nid n)
 	return 1;
 }
 
+/* ---- the function itself as a texture ---- */
+
+/* knots at every 2^j-th point, j up to FN_MAXJ; at most FN_MAXK of them,
+ * the row every Vulkan device's image takes */
+#define FN_MAXJ TEX_MAXBITS
+#define FN_MAXK 4096
+
+struct fcand {
+	int ok;			/* derived; an integer result: exact */
+	nid to;
+	float cost;
+	int j, quant;		/* the stride 2^j; knots on 256 levels */
+	int64_t K;		/* knots */
+	double D, e, err;	/* |F - line|, the read's error, both */
+	double dmin, dmax, c;	/* F - line; an integer's added constant */
+	nid coord;
+	struct tinfo ti;
+};
+
+/*
+ * The linear read over the knots at every 2^j-th point of the one
+ * parameter (v: the function at its n points, in order).  The knots are
+ * the function's values there; a last knot past the range is on the line
+ * through the knot before it and the last point.  With quant they are
+ * moved onto 256 evenly spaced levels, which a byte holds.
+ */
+static int
+func_linear(const struct tabfn *tf, const double *v, int j, int quant,
+    struct fcand *o)
+{
+	nid body = X.f->body, *e, tabk, tap, x;
+	ty_t t = N.ty[body], t64 = TY(K_SINT, 64);
+	int isint = TY_ISINT(t), s = tf->rd[0];
+	int64_t n = (int64_t)tf->total, st = (int64_t)1 << j, K, k, i, lo =
+	    tf->blo[s], rem;
+	double *g, u = ldexp(1.0, -24), vmax = 0, vmin = INFINITY, gmax = 0;
+	double cst;
+
+	memset(o, 0, sizeof *o);
+	o->j = j;
+	o->quant = quant;
+	K = (n - 1) / st + 1;
+	rem = (n - 1) % st;
+	if (rem)
+		K++;
+	if (K < 2 || K > FN_MAXK)
+		return 0;
+	g = xmalloc((size_t)K * sizeof *g);
+	for (k = 0; k < K; k++)
+		if (k * st <= n - 1)
+			g[k] = v[k * st];
+		else {
+			g[k] = g[k - 1] + (v[n - 1] - g[k - 1]) * (double)st /
+			    (double)rem;
+			g[k] = isint ? nearbyint(g[k]) : (double)(float)g[k];
+		}
+	if (quant) {
+		double glo = g[0], ghi = g[0], step;
+		for (k = 1; k < K; k++) {
+			if (g[k] < glo)
+				glo = g[k];
+			if (g[k] > ghi)
+				ghi = g[k];
+		}
+		step = (ghi - glo) / 255;
+		if (!(step > 0)) {
+			free(g);
+			return 0;
+		}
+		for (k = 0; k < K; k++)
+			g[k] = glo + step * nearbyint((g[k] - glo) / step);
+	}
+	e = xmalloc((size_t)K * sizeof *e);
+	for (k = 0; k < K; k++) {
+		e[k] = isint ? mk_const_i(t64, (int64_t)g[k]) : kf(g[k]);
+		if (!isint)
+			g[k] = cval(e[k]);
+		if (fabs(g[k]) > gmax)
+			gmax = fabs(g[k]);
+	}
+	tabk = mk_table(e, (uint32_t)K);
+	free(e);
+	if (!table_info(tabk, &o->ti) || (quant && !o->ti.levels)) {
+		free(g);
+		return 0;
+	}
+	if (!model_lists(X.m, o->ti.cls)) {
+		X.unavail[o->ti.cls] = 1;
+		free(g);
+		return 0;
+	}
+	o->K = K;
+	/* the line between the knots against the function, at every point */
+	o->dmin = INFINITY;
+	o->dmax = -INFINITY;
+	for (i = 0; i < n; i++) {
+		int64_t r = i & (st - 1);
+		double L, d;
+		k = i >> j;
+		L = g[k];
+		if (r)
+			L += (g[k + 1] - g[k]) * (double)r / (double)st;
+		d = v[i] - L;
+		if (d < o->dmin)
+			o->dmin = d;
+		if (d > o->dmax)
+			o->dmax = d;
+		if (fabs(v[i]) > vmax)
+			vmax = fabs(v[i]);
+		if (v[i] < vmin)
+			vmin = v[i];
+	}
+	free(g);
+	o->D = (o->dmax > -o->dmin ? o->dmax : -o->dmin) + 4 * DBL_EPSILON *
+	    (gmax + vmax);
+	/* texel coordinate (x - lo)/2^j + 1/2: exact in f32 */
+	x = mk_cast(TY_F32, mk_var((uint32_t)s, X.f->p[s].name, X.f->p[s].ty));
+	cst = 0.5 - ldexp((double)lo, -j);
+	if (j)
+		x = mk_bin(O_MUL, x, kf(ldexp(1.0, -j)));
+	o->coord = mk_bin(O_ADD, x, kf(cst));
+	tap = mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0), o->ti.tex, o->coord, 0);
+	if (o->ti.scale != 1)
+		tap = mk_bin(O_MUL, kf(o->ti.scale), tap);
+	if (o->ti.off != 0)
+		tap = mk_bin(O_ADD, tap, kf(o->ti.off));
+	/* the filter, the texels' rounding, the map back to the entries */
+	o->e = X.ulp * 2 * u * o->ti.rmax + o->ti.trep + ((o->ti.scale != 1 ?
+	    2 : 0) + (o->ti.off != 0 ? 2 : 0)) * u * (fabs(o->ti.off) +
+	    o->ti.rmax);
+	if (isint) {
+		double lob, hib, c;
+		/* floor(read + c) is F where F <= line + c -+ e < F + 1 */
+		o->e += u * ((gmax > vmax ? gmax : vmax) + 2);
+		lob = o->dmax + o->e;
+		hib = o->dmin + 1 - o->e;
+		o->err = o->dmax - o->dmin + 2 * o->e;
+		if (!(o->err < 1 - 1e-6))
+			return 1;
+		c = nearbyint((lob + hib) / 2 * 4096) / 4096;
+		if (!(c > lob && c < hib))
+			c = (double)(float)((lob + hib) / 2);
+		if (!(c > lob && c < hib))
+			return 1;
+		o->c = c;
+		if (c != 0)
+			tap = mk_bin(O_ADD, tap, kf(c));
+		/* never negative: the conversion's truncation is the floor */
+		o->to = mk_cast(t, vmin >= 0 ? tap :
+		    mk_un(O_FLOOR, tap));
+		o->ok = 1;
+	} else {
+		o->err = o->D + o->e;
+		o->to = N.ty[tap] == t ? tap : mk_cast(t, tap);
+		o->ok = 1;
+	}
+	o->cost = price(o->to);
+	return 1;
+}
+
+/*
+ * seed_func's linear read: every stride and both kinds of knots, the
+ * cheapest that holds with the fewest knots; for a float result that
+ * none holds within the tolerance, the nearest miss that would pay, to
+ * say what tolerance takes it (ok 0, its to set).
+ */
+static void
+func_knots(const struct tabfn *tf, float before, struct fcand *lin)
+{
+	int isint = TY_ISINT(N.ty[X.f->body]), un[C_NCLASS], j, q;
+	int64_t n = (int64_t)tf->total;
+	struct tinfo ti;
+	struct fcand c;
+	double *v;
+	uint64_t k;
+
+	if (!X.bits) {
+		X.nobits = 1;
+		return;
+	}
+	if (X.ulp == 0) {
+		/* which class it would be, to say what is missing */
+		if (table_info(tf->tab, &ti) && !model_lists(X.m, ti.cls))
+			X.unavail[ti.cls] = 1;
+		else
+			X.noulp = 1;
+		return;
+	}
+	memcpy(un, X.unavail, sizeof un);
+	v = xmalloc((size_t)n * sizeof *v);
+	for (k = 0; k < tf->total; k++)
+		v[k] = cval(N.lst[N.a[tf->tab] + k]);
+	for (q = 0; q < (isint ? 1 : 2); q++)
+		for (j = X.bits < FN_MAXJ ? X.bits : FN_MAXJ; j >= 0; j--) {
+			if (((int64_t)1 << j) > n - 1 && j)
+				continue;
+			if (!func_linear(tf, v, j, q, &c) || !c.to || !(c.cost <
+			    before))
+				continue;
+			if (isint ? !c.ok : c.err > X.tol) {
+				if (!isint && !lin->ok && (!lin->to || c.err <
+				    lin->err)) {
+					*lin = c;
+					lin->ok = 0;
+				}
+				continue;
+			}
+			if (!lin->ok || c.cost < lin->cost)
+				*lin = c;
+		}
+	free(v);
+	if (lin->ok)	/* a class another stride or format missed */
+		memcpy(X.unavail, un, sizeof un);
+}
+
+/*
+ * A function that reads no table, of integer parameters with at most 2^16
+ * points between them, is its table (tab.c's: the function at every
+ * point, at an index packed from the parameters), and the table can be a
+ * texture:
+ *
+ * - read by a nearest fetch at the packed index: the function exactly;
+ * - for one parameter x, read by the linear filter over knots, the
+ *   function at every 2^j-th x, at texel coordinate (x - lo)/2^j + 1/2.
+ *   The fraction is a multiple of 2^-j, on the unit's grid (j at most its
+ *   subtexel bits), and the coordinate is exact in f32, so the weights do
+ *   not move: the read is the line between two knots, within the filter's
+ *   own error, and that line is compared with the function at every point.
+ *   An integer result is floor(read + c): the function wherever F - line
+ *   varies by less than 1 less twice the read's error (c in the middle:
+ *   1/2 for a line through the values, less for a line the function is
+ *   the floor of).  A float result is within the largest difference plus
+ *   the read's error, which tol has to allow; under tol the knots are
+ *   also tried on 256 evenly spaced levels, the bytes of an R8 texture.
+ *   The fewest knots that hold at the lowest price are taken, at most
+ *   FN_MAXK of them; j = 0 is a texel for each point.
+ *
+ * It is offered where it costs less than the function as written and
+ * than the same table read by a load.
+ */
+static void
+seed_func(nid body)
+{
+	const struct func *f = X.f;
+	ty_t t = N.ty[body];
+	int isint = TYK(t) == K_UINT || TYK(t) == K_SINT, q, sampled, s;
+	struct tabfn tf;
+	struct fcand near, lin, *b = NULL;
+	struct repl *r;
+	struct sbuf ix = {0};
+	float before = price(body), floorp = INFINITY, lc = INFINITY;
+	double md, lim;
+	uint64_t pts;
+	int64_t n;
+
+	if (!(isint || t == TY_F32) || (isint && TYW(t) > 32) ||
+	    (N.fl[body] & NF_SG) || N.op[body] == O_VAR || is_const(body) ||
+	    has_read(body, 0))
+		return;
+	/* the least a read could cost, before the work */
+	if (model_lists(X.m, C_TEX_NEAREST))
+		floorp = X.m->c[C_TEX_NEAREST];
+	for (q = 0; q < 4; q++) {
+		static const int fc[4] = {C_TEX_SAMPLE, C_TEX_SAMPLE_16,
+		    C_TEX_SAMPLE_F16, C_TEX_SAMPLE_F32};
+		if (model_lists(X.m, fc[q]) && X.m->c[fc[q]] < floorp)
+			floorp = X.m->c[fc[q]];
+	}
+	if (floorp < INFINITY && !(floorp < before))
+		return;
+	if (!tab_domain(f, &tf) || tf.total < 2 || tf.nrd == 0)
+		goto out;
+	tab_fill(f, &tf);
+	if (tf.nonfinite || tf.undef == tf.total)
+		goto out;
+	n = (int64_t)tf.total;
+	s = tf.rd[0];
+	memset(&near, 0, sizeof near);
+	memset(&lin, 0, sizeof lin);
+	/* the nearest read of the whole table */
+	if (!model_lists(X.m, C_TEX_NEAREST))
+		X.unavail[C_TEX_NEAREST] = 1;
+	else if (!X.bits)
+		X.nobits = 1;
+	else {
+		near.to = mk_tex(O_FETCH_CLAMP, 0, tf.tab, tf.idx, 0);
+		if (N.ty[near.to] != t)
+			near.to = mk_cast(t, near.to);
+		near.cost = price(near.to);
+		near.ok = 1;
+	}
+	/* the linear filter over knots, one parameter */
+	if (tf.nrd == 1 && !tf.undef && tf.blo[s] > -4194304 && tf.bhi[s] <
+	    4194304)
+		func_knots(&tf, before, &lin);
+	if (near.ok)
+		b = &near;
+	if (lin.ok && (!b || lin.cost < b->cost))
+		b = &lin;
+	if (!b && lin.to)
+		b = &lin;	/* a float result past the tolerance */
+	if (!b)
+		goto out;
+	/* nothing to say: a formula stays a formula, and a load a load */
+	if (!(b->cost < before))
+		goto out;
+	if (cclass_available(X.m, C_LOAD))
+		lc = price(mk_cast(t, mk_index(tf.tab, tf.idx)));
+	if (!(b->cost < lc) || (r = new_repl(body)) == NULL)
+		goto out;
+	r->to = b->to;
+	r->cost = b->cost;
+	r->plain = 1;
+	sb_puts(&ix, node_str(tf.idx));
+	if (b == &near) {
+		r->exact = 1;
+		sb_printf(&r->what, "%s as its table through a nearest read: "
+		    "%lld entries, one for each point of %s; entry k is the "
+		    "function at the point with index k = %s%s", shared_str(body,
+		    120),
+		    (long long)n, sb_str(&tf.dom), sb_str(&ix), tf.undef ?
+		    " (0 where the function is undefined or the where clause "
+		    "fails)" : "");
+		sb_printf(&r->holds, "holds on the function's domain: there "
+		    "the index is in 0..%lld, where every address mode is the "
+		    "plain read", (long long)(n - 1));
+		sb_printf(&r->proof, "the table is the function at every point, "
+		    "all %lld evaluated\nthe coordinate (i + 1/2)/n is made in "
+		    "f32: within (|i| + 1/2) 2^-23 <= %s of a texel's centre for i "
+		    "in [0, %lld], and the unit snaps by less than 2^-%d: %s + %s "
+		    "< 1/2, the texel is i's", (long long)n, fmt_g(((double)(n -
+		    1) + 0.5) * ldexp(1.0, -23)), (long long)(n - 1), X.bits,
+		    fmt_g(((double)(n - 1) + 0.5) * ldexp(1.0, -23)),
+		    fmt_g(ldexp(1.0, -X.bits)));
+		sb_puts(&r->pipe, "a texture ");
+		fetch_format(&r->pipe, tf.tab);
+		sb_printf(&r->pipe, ", %lld x 1, one level, its texels the "
+		    "function's values%s\na sampler: NEAREST filters, "
+		    "CLAMP_TO_EDGE, normalised coordinates, lod 0\none combined "
+		    "image sampler more in the layout; the shader reads "
+		    "textureLod(s, (float(i) + 0.5) * (1.0 / %lld.0), 0.0).r with "
+		    "i = %s", (long long)n, n > 4096 ? " (wider than the 4096 "
+		    "texels every Vulkan device takes in a row: it needs that "
+		    "maxImageDimension2D)" : "", (long long)n, sb_str(&ix));
+	} else {
+		const char *xn = sym_str(f->p[s].name);
+		int64_t st = (int64_t)1 << b->j, lo = tf.blo[s];
+		char xo[96];
+		if (lo)
+			snprintf(xo, sizeof xo, "(%s %c %lld)", xn, lo < 0 ? '+' :
+			    '-', (long long)(lo < 0 ? -lo : lo));
+		else
+			snprintf(xo, sizeof xo, "%s", xn);
+		r->filtered = 1;
+		r->exact = isint;
+		r->curve = 1;
+		r->approx = b->ti.approx;
+		r->err = isint ? 0 : b->err;
+		sb_printf(&r->what, "%s as %lld knots read with the linear "
+		    "filter: the function at every ", shared_str(body, 120),
+		    (long long)b->K);
+		if (b->j)
+			sb_printf(&r->what, "%lld%s value of %s from %lld",
+			    (long long)st, st == 2 ? "nd" : "th", xn, (long long)lo);
+		else
+			sb_printf(&r->what, "value of %s", xn);
+		if (b->quant)
+			sb_puts(&r->what, ", moved onto 256 evenly spaced levels");
+		sb_printf(&r->holds, "holds where %s is in [%lld, %lld] (its "
+		    "range)", xn, (long long)lo, (long long)tf.bhi[s]);
+		if (b->j) {
+			sb_printf(&r->proof, "a linear read at fraction u of texels "
+			    "a, b is (1-u) a + u b; at texel coordinate %s/%lld + "
+			    "1/2 the texels are knots k and k + 1 with k = %s >> %d "
+			    "and u = (%s & %lld)/%lld", xo, (long long)st, xo, b->j,
+			    xo, (long long)(st - 1), (long long)st);
+			if ((n - 1) % st)
+				sb_printf(&r->proof, " (the last knot, past the range, "
+				    "is on the line through the knot before it and "
+				    "the last point%s)", isint ? ", rounded to a whole "
+				    "number" : "");
+			sb_printf(&r->proof, "\n  the fraction is a multiple of "
+			    "2^-%d, on the unit's 2^-%d grid, and the coordinate "
+			    "is exact in f32: the weights do not move\n  that line "
+			    "against the function at every one of the %lld points: "
+			    "the function less the line is in [%s, %s]", b->j,
+			    X.bits, (long long)n, fmt_g(b->dmin), fmt_g(b->dmax));
+		} else {
+			sb_printf(&r->proof, "at texel coordinate %s + 1/2, a "
+			    "texel's centre, a linear read is that texel (the next "
+			    "one's weight is 0), and the coordinate is exact in "
+			    "f32: the weight does not move\n  every point has its "
+			    "own texel, the function's value there", xo);
+			if (b->quant)
+				sb_printf(&r->proof, " to within its level (the "
+				    "function less its level is in [%s, %s])",
+				    fmt_g(b->dmin), fmt_g(b->dmax));
+		}
+		sb_printf(&r->proof, "\n  the filter is within %g ulp of that sum "
+		    "(the model's tex_within), the texels as %s, the map back "
+		    "to the values%s: %s", X.ulp, b->ti.cls == C_TEX_SAMPLE_F16 ?
+		    "f16" : b->ti.cls == C_TEX_SAMPLE_F32 ? "f32" : "k/q",
+		    isint ? " and the add" : "", fmt_g(b->e));
+		if (isint) {
+			sb_printf(&r->proof, "\nthe function's value F is a whole "
+			    "number, and floor(read + c) is F where F <= line + c "
+			    "- e and line + c + e < F + 1: every c in (%s, %s), "
+			    "%.9g taken", fmt_g(b->dmax + b->e), fmt_g(b->dmin + 1 -
+			    b->e), b->c);
+			if (N.op[N.op[b->to] == O_CAST ? N.a[b->to] : b->to] !=
+			    O_FLOOR)
+				sb_puts(&r->proof, " (never negative: the conversion "
+				    "to an integer truncates, which is that floor)");
+		} else
+			sb_printf(&r->proof, "\nagainst the function's f32 value "
+			    "the read is within %s", fmt_g(b->err));
+		sb_printf(&r->pipe, "a texture %s, %lld x 1, one level: the knots",
+		    fmt_vk(b->ti.cls), (long long)b->K);
+		fmt_says(&r->pipe, &b->ti);
+		sb_printf(&r->pipe, "\na sampler: LINEAR mag and min filters, "
+		    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
+		    "lod 0\none combined image sampler more in the layout; the "
+		    "shader reads textureLod(s, c, 0.0).r at the texel "
+		    "coordinate c = %s\nsetup (the descriptor, the upload) is "
+		    "not in the model: not measured", node_str(b->coord));
+	}
+	r->ok = 1;
+	if (b == &lin && !isint && !lin.ok)
+		goto out;	/* past the tolerance: tex_search says by how much */
+	/* a second opinion: both evaluated on the domain */
+	md = max_diff(body, b->to, &pts, &sampled);
+	lim = r->exact ? 0 : r->err * (1 + 1e-9);
+	if (!(md <= lim)) {
+		r->ok = 0;
+		sb_printf(&r->why, "evaluated on %llu points the two differ by "
+		    "%s, more than the derived %s: not offered",
+		    (unsigned long long)pts, fmt_g(md), fmt_g(lim));
+	} else
+		sb_printf(&r->proof, "\nchecked again by evaluation%s on %s%llu "
+		    "points: %s%s", b == &near ? "" : " with ucas's own filter "
+		    "(exact weights' sums, one rounding)", sampled ? "a sample "
+		    "of " : "all ", (unsigned long long)pts, r->exact ? "equal" :
+		    "largest difference ", r->exact ? "" : fmt_g(md));
+out:
+	free(tf.dom.p);
+	free(ix.p);
+}
+
 static void
 visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 {
@@ -4571,6 +5020,8 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	plan_ival(&X.p, &X.g, X.iv);
 	visit(f->body, f->body, seen, lim);
 	free(seen);
+	if (!X.nr)	/* nothing in it is a read: the function itself */
+		seed_func(f->body);
 	for (j = 0; j < X.nr; j++) {
 		struct repl *r = &X.r[j];
 		double allow = tol > r->eorig ? tol : r->eorig;
