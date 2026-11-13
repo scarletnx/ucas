@@ -1,0 +1,139 @@
+# The catalogue's float instructions (src/inst.c): med3 of floats, ldexp,
+# frexp_mant and frexp_exp, the cube map's four, trig_preop.  Each is its
+# expansion over the operands' bits; asuint shows the result's bits.
+f(x: u32) = asfloat(x)
+d(x: u64) = asfloat(x)
+h(x: u16) = asfloat(x)
+#
+# v_med3_f32: the median, -0 below +0 whichever operand holds it (the
+# median of -0, +0, -1 is -0 both ways: 0x80000000)
+show med3(f(0x3f800000), f(0x40000000), f(0x3f000000))
+show asuint(med3(f(0x80000000), f(0), f(0xbf800000)))
+show asuint(med3(f(0), f(0x80000000), f(0xbf800000)))
+# with a NaN, the least of the others (v_min3): 1, whichever is the NaN
+show med3(f(0x7fc00000), f(0x40000000), f(0x3f800000))
+show med3(f(0x40000000), f(0x7fc00000), f(0x3f800000))
+show med3(f(0x40000000), f(0x3f800000), f(0x7fc00000))
+# two NaNs: the third; three: c (0x7fc00003)
+show med3(f(0x7fc00001), f(0x7fc00002), f(0x40400000))
+show asuint(med3(f(0x7fc00001), f(0x7fc00002), f(0x7fc00003)))
+# the clamp where nothing is NaN: x below, inside and above 0..1
+show med3(f(0xbf800000), 0.0, 1.0)
+show med3(f(0x3e800000), 0.0, 1.0)
+show med3(f(0x40000000), 0.0, 1.0)
+# v_med3_f16 the same: 0x3c00 (1.0), and -0 (0x8000) as above
+show asuint(med3(h(0x3c00), h(0x4000), h(0x3800)))
+show asuint(med3(h(0), h(0x8000), h(0xbc00)))
+# integers still take the integer median
+show med3(5, 2, 9)
+#
+# v_ldexp_f32: x * 2^n rounded once to nearest even, subnormals kept.
+# 1.5 * 2^-150 is 0.75 of the least subnormal: 1 (0x00000001); 2^-150 is
+# half of it, a tie to even: 0; 3 * 2^-150 is 1.5 of it: 2
+show asuint(ldexp(f(0x3f800000), 3))
+show asuint(ldexp(f(0x3fc00000), -150))
+show asuint(ldexp(f(0x3f800000), -150))
+show asuint(ldexp(f(0x40400000), -150))
+# up from the least subnormal to 1, past the largest to infinity, and n
+# far past every exponent both ways
+show asuint(ldexp(f(1), 149))
+show asuint(ldexp(f(0x7f7fffff), 1))
+show asuint(ldexp(f(0x3f800000), 2147483647))
+show asuint(ldexp(f(0x7f7fffff), -2147483648))
+# v_ldexp_f64: 1.5 * 2^-1075 rounds to the least subnormal; the largest
+# f64 times 2^-2098 is 1.99.. * 2^-1075: also 1; the least subnormal
+# times 2^2097 is 2^1023
+show asuint(ldexp(d(0x3ff8000000000000), -1075))
+show asuint(ldexp(d(0x7fefffffffffffff), -2098))
+show asuint(ldexp(d(1), 2097))
+# v_ldexp_f16: 2^-24 is the least subnormal (1); 1.5 * 2^-25 rounds to it
+show asuint(ldexp(h(0x3c00), -24))
+show asuint(ldexp(h(0x3e00), -25))
+show asuint(ldexp(h(0x3c00), 16))
+# n of any integer type, through the evaluator: 1 * 2^n for u8 n = 3, an
+# i64 n = -1, and a u64 n past 2^63 (as large as it is: infinity)
+l8(x: f32, n: u8) = asuint(ldexp(x, n))
+show l8(f(0x3f800000), 3)
+l64(x: f64, n: i64) = asuint(ldexp(x, n))
+show l64(d(0x3ff0000000000000), -1)
+lu(i: u32 in 0..1) = asuint(ldexp(f(0x3f800000), [u64(5), u64(0x8000000000000001)][i]))
+table lu
+# the largest f64 times 2^2098 and an f64 NaN through the evaluator: an
+# infinity, and the NaN quiet (0x7ff8000000000001)
+ld(i: u32 in 0..1) = asuint(ldexp(d([u64(0x7fefffffffffffff), u64(0x7ff0000000000001)][i]), 2098))
+table ld
+#
+# v_frexp_mant and v_frexp_exp: 3.0 is 0.75 * 2^2; the subnormal 3 *
+# 2^-149 is 0.75 * 2^-147; -0, an infinity and a NaN keep themselves and
+# give 0
+show asuint(frexp_mant(f(0x40400000)))
+show frexp_exp(f(0x40400000))
+show asuint(frexp_mant(f(3)))
+show frexp_exp(f(3))
+show asuint(frexp_mant(f(0xc0400000)))
+show asuint(frexp_mant(f(0x80000000)))
+show frexp_exp(f(0x80000000))
+show asuint(frexp_mant(f(0xff800000)))
+show frexp_exp(f(0xff800000))
+show frexp_exp(f(0x7fc00000))
+# f64: the least subnormal is 0.5 * 2^-1073; f16 (an i16 exponent): 3 *
+# 2^-24 is 0.75 * 2^-22 (0x3a00)
+show asuint(frexp_mant(d(1)))
+show frexp_exp(d(1))
+show asuint(frexp_mant(h(3)))
+show frexp_exp(h(3))
+#
+# v_cube*: (1, -2, 0.5) has y as its major axis, negative: face 3, s = x,
+# t = -z, twice the axis -4
+show cubeid(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+show cubesc(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+show cubetc(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+show cubema(f(0x3f800000), f(0xc0000000), f(0x3f000000))
+# ties of magnitude go to z, then y: (1, 1, -1) is face 5 and (1, -1, 0)
+# face 3; a -0 axis is not negative: (0, 0, -0) is face 4.  A NaN
+# compares false: (1, 2, NaN) is face 2, and a NaN x is taken as the axis,
+# (NaN, 1, 2) face 0, as is x in (2, NaN, NaN)
+show cubeid(f(0x3f800000), f(0x3f800000), f(0xbf800000))
+show cubeid(f(0x3f800000), f(0xbf800000), 0.0)
+show cubeid(0.0, 0.0, f(0x80000000))
+show cubeid(f(0x3f800000), f(0x40000000), f(0x7fc00000))
+show cubeid(f(0x7fc00000), f(0x3f800000), f(0x40000000))
+show cubeid(f(0x40000000), f(0x7fc00000), f(0x7fc00000))
+# each face's s and t, through the evaluator: faces 0 to 5
+cs(i: u32 in 0..5) = cubesc(f([u32(0x40000000), u32(0xc0000000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000)][i]), f([u32(0x3f000000), u32(0x3f000000), u32(0x40000000), u32(0xc0000000), u32(0x3f000000), u32(0x3f000000)][i]), f([u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x40000000), u32(0xc0000000)][i]))
+table cs
+ct(i: u32 in 0..5) = cubetc(f([u32(0x40000000), u32(0xc0000000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000), u32(0x3f800000)][i]), f([u32(0x3f000000), u32(0x3f000000), u32(0x40000000), u32(0xc0000000), u32(0x3f000000), u32(0x3f000000)][i]), f([u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x3e800000), u32(0x40000000), u32(0xc0000000)][i]))
+table ct
+#
+# v_trig_preop_f64: segment 0 of 2/pi is 2/pi rounded down to 53 bits
+# (0x3fe45f306dc9c882), segment 1 the next 53 bits times 2^-53
+show asuint(trig_preop(d(0x3ff0000000000000), 0))
+show asuint(trig_preop(d(0x3ff0000000000000), 1))
+# the sign is not read, and the segment is its low 5 bits: 33 is 1
+show asuint(trig_preop(d(0xbff0000000000000), 33))
+# an exponent past 1077 moves the window by the excess (1080: 3 bits)
+show asuint(trig_preop(d(0x4380000000000000), 0))
+# from exponent 1968, 2^128 more; segment 3 at exponent 2046 starts past
+# the 37 words the folder holds: 0
+show asuint(trig_preop(d(0x7b00000000000000), 0))
+show asuint(trig_preop(d(0x7fe0000000000000), 3))
+#
+# priced by classes no built-in model lists: absent from gt1030, so
+# nothing can use them there
+model fi : gt1030 { med3: 1, ldexp: 2, frexp: 1, cube: 1, trigpreop: 4 }
+use fi
+c1(x: f32, y: f32, z: f32) = cubesc(x, y, z) / cubema(x, y, z) + med3(x, 0.0, 1.0)
+cost c1
+c2(x: f64, n: i32) = ldexp(frexp_mant(x), n) + trig_preop(x, 2)
+cost c2
+use gt1030
+cost c1
+#
+# operands: a float med3 takes floats or constants, ldexp a float and an
+# integer, the cube map f32, trig_preop an f64
+k1(x: f32, y: u32) = med3(x, y, 1.0)
+k2(x: u32) = ldexp(x, 2)
+k3(x: f32, y: f32) = ldexp(x, y)
+k4(x: f64) = cubeid(x, x, x)
+k5(x: f32) = trig_preop(x, 0)
+k6(x: real, y: real) = med3(x, y, 1)

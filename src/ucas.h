@@ -156,7 +156,10 @@ enum {
 	 * differences, the four bytes' rounded averages, four sums of byte
 	 * differences over a sliding window, three-operand minima and
 	 * maxima, a minimum or maximum plus a third, a word's absolute
-	 * difference plus a third, saturating adds and subtracts)
+	 * difference plus a third, saturating adds and subtracts; of
+	 * floats: the median of three, a scaling by a power of two, the
+	 * significand and the exponent, a cube map's face and coordinates,
+	 * a segment of 2/pi's bits)
 	 */
 	O_BFE, O_SBFE, O_BREV, O_MULHI, O_SMULHI, O_FUNL, O_FUNR, O_MED3,
 	O_USAD4X8, O_BYTEPERM, O_BFI, O_MULWIDE, O_MADWIDE, O_BYTESEL,
@@ -164,6 +167,8 @@ enum {
 	O_ADD2X16, O_SUB2X16, O_MUL2X16, O_MIN2X16, O_MAX2X16, O_SMIN2X16,
 	O_SMAX2X16, O_LERP4X8, O_QSAD4X8, O_MQSAD4X8, O_MIN3, O_MAX3,
 	O_MINMAX, O_MAXMIN, O_MINADD, O_MAXADD, O_SAD, O_ADDSAT, O_SUBSAT,
+	O_LDEXP, O_FREXP_MANT, O_FREXP_EXP, O_CUBEID, O_CUBESC, O_CUBETC,
+	O_CUBEMA, O_TRIG_PREOP,
 	/*
 	 * astc.c: steps of the ASTC decoder, each defined by an expression
 	 * over the operations above, as the catalogue's are (inside IS_INST,
@@ -430,7 +435,7 @@ enum {
 	/* the catalogue's instructions (inst.c), absent unless listed */
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_MULWIDE, C_BYTESEL, C_SIMD4X8, C_MSAD, C_PK16, C_LERP8, C_QSAD,
-	C_VMNMX, C_SAD32, C_ADDSAT,
+	C_VMNMX, C_SAD32, C_ADDSAT, C_LDEXP, C_FREXP, C_CUBE, C_TRIGPREOP,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT

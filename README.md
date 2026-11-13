@@ -3536,11 +3536,40 @@ printing and for the price.
 | `sad32(a, b, c)` | \|a - b\| + c (u32, wrapping) | v_sad_u32; PTX vabsdiff.add |
 | `addsat(a, b)`, `subsat(a, b)` | a + b and a - b clamped to the range of u32, or of i32 when the operands are signed (narrower ones widened first) | PTX vadd.sat and vsub.sat; v_add_u32 and v_add_nc_i32 with clamp |
 
+Of floats (f16, f32 and f64; the cube map's are f32 and `trig_preop`'s
+x an f64), each defined on its operands' bits, NaNs and signed zeros
+included, as LLVM's AMDGPU constant folder reads the instruction
+(AMDGPUInstCombineIntrinsic.cpp, ConstantFolding.cpp):
+
+| op | value | instructions |
+|---|---|---|
+| `med3(a, b, c)` of floats | the median in the order where -0 is below +0 (so `med3(x, lo, hi)` is x clamped to lo..hi when lo <= hi and nothing is NaN); with a NaN, the least of the other two (v_min3's rule), and with three, c | v_med3_f32, v_med3_f16 |
+| `ldexp(x, n)` | x * 2^n rounded once to nearest even, subnormals kept; n any integer | v_ldexp_f16/f32/f64 |
+| `frexp_mant(x)`, `frexp_exp(x)` | m and e with x = m * 2^e, m in [0.5, 1) with x's sign (x's type) and e an i32 (an i16 for an f16); 0, an infinity and a NaN give x and 0 | v_frexp_mant_*, v_frexp_exp_i32_f32/f64, v_frexp_exp_i16_f16 |
+| `cubeid`, `cubesc`, `cubetc`, `cubema` `(x, y, z)` | the major axis (z on a tie of magnitude, then y; a NaN compares false, so a NaN x is taken), its face 0..5 (the odd one when it is negative; -0 and a NaN are not), s and t before the division by it, and twice the axis | v_cubeid_f32, v_cubesc_f32, v_cubetc_f32, v_cubema_f32 |
+| `trig_preop(x, s)` | the 53 bits of 2/pi from bit 53 * (s mod 32) plus x's exponent past 1077, times 2^(-53 - that bit) (2^128 more from exponent 1968); 0 once the window leaves the 1184 bits (37 words) the folder holds; x's sign and significand are not read | v_trig_preop_f64 |
+
+The f32 and f16 `ldexp` is the product in f64 (exact for |n| <= 300,
+past which every f32 gives what 300 gives) rounded by the cast; the f64
+one scales exactly in up to three steps (up, or down while the value
+stays normal) and rounds at the last factor.  6500 random and boundary
+operands (subnormals, both zeros, infinities, quiet and signalling
+NaNs, exponents at every edge), through the evaluator (`table`) and 960
+of them through the folder (`show`), give what a C transcription of
+those folds gives, but in two ways that are ucas's: an f32 value is
+held as a double, so a signalling NaN reads as its quiet NaN (43 cases:
+a NaN through `cubesc`, `cubetc`, `frexp_mant`), and the folder leaves
+a constant whose value is an infinity unfolded (21 cases, `cubema` and
+`ldexp`; the evaluator gives the infinity).  find has no pattern for
+them: its patterns read integers.
+
 **Cost classes.**  `bfe` (both fields), `brev`, `mulhi` (both),
 `funnel` (both), `med3`, `sad4x8`, `byteperm`, `bfi`, `mulwide` (both),
 `bytesel`, `simd4x8` (the five byte ops), `msad`, `pk16` (the seven
 16-bit ops), `lerp8`, `qsad` (both), `vmnmx` (min3, max3, min_max,
-max_min, min_add, max_add), `sad32`, `addsat` (both).  A model that
+max_min, min_add, max_add), `sad32`, `addsat` (both), and of floats
+`med3` (as for integers), `ldexp`, `frexp` (both), `cube` (the four),
+`trigpreop`.  A model that
 does not list one cannot use it, and no built-in model lists any: none
 is measured yet (the GT 1030 corpus has no test for them), so under
 gt1030, sm75, sm86 and rdna2 they are unavailable and nothing is
@@ -3653,8 +3682,7 @@ The rest of the instructions a model may want, and where each stands:
 | DP4A, v_dot4, v_dot8 | the dot forms |
 | REDUX, DPP row shifts and broadcasts, ds_swizzle, ds_bpermute, v_permlane16 | the subgroup operations' classes; reductions other than add, and a DPP shuffle folded into an operand, are not there yet |
 | IMAD.WIDE.S32, v_mad_i64_i32 | the signed wide product: not an operation yet |
-| v_qsad_pk_u16_u8, v_mqsad, v_lerp_u8, VMNMX's 32-bit form with its third operand, saturating and merging video modes | not yet: v_lerp_u8's rounding and the qsad windows have no second definition on this machine to check against |
-| v_cubeid/sc/tc/ma, v_trig_preop, v_ldexp, v_frexp, med3 of floats (its NaN rule) | float instructions: not yet |
+| v_mqsad_u32_u8, the video instructions' selects, mixed signednesses and merges | not yet (above) |
 | FSWZADD, the quad swaps | subgroup (quad) operations: not yet |
 | the SALU as a parallel pipe, Intel's region addressing | need pipes and operand modes in the model, which prices issue cost per class only |
 
@@ -6522,7 +6550,8 @@ Data-oriented throughout (see `src/ucas.h`):
 - The catalogue's instructions (bfe, brev, mulhi, funnel shifts, med3,
   usad4x8, byteperm, bfi, mulwide, bytesel, the lane-wise byte and
   16-bit ops, msad4x8, lerp4x8, the qsad forms, the three-operand
-  minima and maxima, sad32, the saturating adds) are priced by no
+  minima and maxima, sad32, the saturating adds, and of floats med3,
+  ldexp, frexp, the cube map's and trig_preop) are priced by no
   built-in model: none is measured.
 - `fit` is a scan followed by a pattern search, not a global optimiser.
 - `approx` measures on a sample, not on every float (the C output can
