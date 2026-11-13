@@ -184,7 +184,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
 > E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
@@ -275,7 +275,7 @@ texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1
     texenc [-2000, 5] eac
                          ^
 > texenc Q astc 4x4 eac
-texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
     texenc Q astc 4x4 eac
                       ^
 > compress E as EAC
@@ -416,7 +416,7 @@ texenc.ucas:110:66: error: texenc: ETC2 holds numbers from 0 to 1 (or whole numb
     texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
                                                                      ^
 > texenc Q etc2 eac
-texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
     texenc Q etc2 eac
                   ^
 > compress P as ETC2
@@ -459,7 +459,7 @@ texenc T, S etc2 srgb: 16 entries a channel as SRGB8_ALPHA8_ETC2_EAC (T the red,
   the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
   a nearest or filtered read of the texture is that read of the decoded tables, red and alpha (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
 > texenc D srgb
-texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
     texenc D srgb
              ^
 > compress D as sRGB ETC2
@@ -516,7 +516,7 @@ texenc R, S bc7: 16 entries a channel as BC7_UNORM (R the red, S the alpha), row
   searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
   a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured
 > texenc Q bc7 eac
-texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7] [rows W] [tol E]
+texenc.ucas:140:14: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb] | bc7 [srgb]] [rows W] [tol E]
     texenc Q bc7 eac
                  ^
 > compress B as BC7
@@ -527,3 +527,29 @@ texenc B bc7: 16 entries as BC7_UNORM, rows of 4 (4 x 4 texels): 1 block, 16 byt
   exact: every texel is its entry's f32 over 255
   searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
   a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc B bc7 srgb
+texenc B bc7 srgb: 16 entries as BC7_SRGB, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): mode 6, red 0 to 255 (16 weights), selectors 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, bytes 40 c0 1f 00 00 00 00 00 11 32 54 76 98 ba dc fe
+  decodes to [0, 0.00518151652, 0.0176419541, 0.0343398079, 0.0578054301, 0.0886555836, 0.138431609, 0.187820777, 0.242281124, 0.309468925, 0.407240212, 0.496932983, 0.597201765, 0.708375752, 0.863157213, 1]
+  exact: every texel is its entry's f32, the EOTF of its code
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc D bc7 srgb
+texenc D bc7 srgb: 16 entries as BC7_SRGB, rows of 4 (4 x 4 texels): 1 block, 16 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): mode 1, partition 13, red 0 to 24, 32 to 20 (8 weights), selectors 0 1 2 3 4 5 5 6 6 5 4 3 2 1 0 0, bytes 36 80 81 14 00 00 00 00 00 00 10 8d ad 5d 4e 01
+  decodes to [0, 0.000910580973, 0.00212468882, 0.00303526991, 0.00439144205, 0.00560539169, 0.00560539169, 0.00749903219, 0.00802319311, 0.00856812578, 0.00972121768, 0.0109600937, 0.012286488, 0.0129830325, 0.0144438436, 0.0144438436]
+  not exact: the closest blocks are within 0.000605 of the table (entry 5: 0.00499999989 as 0.00560539169)
+  searched: every mode, partition, and way of holding red (in modes 4 and 5 the colour's or the rotated alpha, either index set), each subset's two endpoints over every value its field has; green and blue are 0
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
+  a BC7 block is 16 bytes for 16 texels: as many as R8_UNORM, so one table is no smaller than R8 (BC4, EAC and ETC2 are half); a nearest or filtered read is that read of the decoded table in red; no model prices a BC7 read apart from its uncompressed one: not measured
+> texenc X, Y bc7 srgb
+texenc X, Y bc7 srgb: 16 entries a channel as BC7_SRGB (X the red, Y the alpha), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k; alpha stays linear, k/255
+  block (0, 0): mode 5, red the colour's, red 0 to 255 (4 weights), alpha 10 to 250, selectors 0 1 2 3 3 2 1 0 0 0 3 3 1 1 2 2, alpha's 0 0 0 0 1 1 1 1 2 2 2 2 3 1 0 3, bytes 20 80 3f 00 00 00 28 e8 cb 37 e0 4b 01 55 aa c7
+  red: decodes to [0, 0.0886555836, 0.407240212, 1, 1, 0.407240212, 0.0886555836, 0, 0, 0, 1, 1, 0.0886555836, 0.0886555836, 0.407240212, 0.407240212]
+  red: exact: every texel is its entry's f32, the EOTF of its code
+  alpha: decodes to [0.0392156877, 0.0392156877, 0.0392156877, 0.0392156877, 0.349019617, 0.349019617, 0.349019617, 0.349019617, 0.670588255, 0.670588255, 0.670588255, 0.670588255, 0.980392158, 0.349019617, 0.0392156877, 0.980392158]
+  alpha: exact: every texel is its entry's f32 over 255
+  searched: modes 4 and 5 (the two with alpha's own indices), both rotations and index selections, each subset's two endpoints over every value its field has, red and alpha each on its own; green and blue are 0
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
+  a BC7 block is 16 bytes for 16 texels: half of R8G8_UNORM, as BC5 is; a nearest or filtered read is that read of the decoded tables, red and alpha; no model prices a BC7 read apart from its uncompressed one: not measured

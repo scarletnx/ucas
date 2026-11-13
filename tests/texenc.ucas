@@ -139,3 +139,9 @@ texenc X, Y bc7
 texenc R, S bc7 tol 0.1
 texenc Q bc7 eac
 compress B as BC7
+# BC7_SRGB: red through the sRGB EOTF (after the rotation), alpha linear;
+# B's codes are exact again, and the small linear values get the curve's
+# closer codes near 0
+texenc B bc7 srgb
+texenc D bc7 srgb
+texenc X, Y bc7 srgb
