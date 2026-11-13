@@ -84,7 +84,7 @@ error of bad against abs(0.1x):
   mean rel error 3.21659e-08 over 1001 points
   max 1 ulp
   rounding, first order in u = 2^-24: 1 rounded operation, each taken as correctly rounded; relative to the value, the largest over 4096 inputs
-    bit casts: 2, exact: integers are, and a float whose bits are read carries no rounding error
+    bit casts: 2; integers are exact, and the bits of 1 float with rounding error follow it to first order inside a binade
     worst case  5.96e-08 (1 u): every error at its bound and aligned, u sum |c_i|
     probable    no better than the worst case: 4 u sqrt(sum c_i^2) is 4 u here (it gains from about 16 operations of similar weight on)
     expected    3.44e-08 (0.577 u): the root mean square if they are independent and uniform in [-u, u]
