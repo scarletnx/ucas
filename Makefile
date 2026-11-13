@@ -160,6 +160,16 @@ test: ${PROG}
 	done; exit $$fail
 	@cd ${.CURDIR} && ${MAKE} json-test
 	@cd ${.CURDIR} && ${MAKE} mcp-test
+	@cd ${.CURDIR} && ${MAKE} libc-test
+
+# A C library declares more names than C99's under its widest feature
+# macros and under C23, a compiler's default (glibc: fdiv, fadd, iszero):
+# every source compiles there too.
+libc-test: ${PROG}
+	@cd ${.CURDIR}/src && for s in ${SRCS}; do \
+		${CC} ${CFLAGS:N-std=*} -std=gnu2x -D_GNU_SOURCE -w \
+		    -fsyntax-only $$s || exit 1; \
+	done; echo "ok   libc-test"
 
 accept: ${PROG}
 	@for t in ${TESTS}; do \

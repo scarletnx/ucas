@@ -1484,7 +1484,7 @@ struct pcase {
 };
 
 static int64_t
-fdiv(int64_t a, int64_t b)      /* floor(a / b), b > 0 */
+div_floor(int64_t a, int64_t b)      /* floor(a / b), b > 0 */
 {
 	int64_t q = a / b;
 
@@ -1494,7 +1494,7 @@ fdiv(int64_t a, int64_t b)      /* floor(a / b), b > 0 */
 static int64_t
 cdiv(int64_t a, int64_t b)      /* ceil(a / b), b > 0 */
 {
-	return -fdiv(-a, b);
+	return -div_floor(-a, b);
 }
 
 /* K with floor((K x + C) / 2^S) = y at every point: [*lo, *hi] or 0 */
@@ -1514,8 +1514,8 @@ k_range(const struct pcase *pc, int S, int64_t C, int64_t *lo, int64_t *hi)
 		}
 		if (cdiv(a, x) > l)
 			l = cdiv(a, x);
-		if (fdiv(b, x) < h)
-			h = fdiv(b, x);
+		if (div_floor(b, x) < h)
+			h = div_floor(b, x);
 		if (l > h)
 			return 0;
 	}

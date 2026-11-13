@@ -1546,7 +1546,7 @@ up_factor(const struct up *a, struct up *f, int *m, int max, int *partial)
 /* ---- multivariate factorisation ---- */
 
 static int
-fadd(struct mp g, int mult, struct mp *f, int *m, int n, int max)
+factor_add(struct mp g, int mult, struct mp *f, int *m, int n, int max)
 {
 	int i;
 
@@ -1596,12 +1596,13 @@ factor_prim(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 	if (nv == 1) {
 		v = topvar(vs);
 		if (!up_of_mp(a, v, &u))
-			return fadd(a, mult, f, m, n, max);
+			return factor_add(a, mult, f, m, n, max);
 		up_n = up_factor(&u, uf, um, UD, &pp);
 		if (pp)
 			*partial = 1;
 		for (i = 0; i < up_n; i++)
-			n = fadd(mp_of_up(&uf[i], v), mult * um[i], f, m, n, max);
+			n = factor_add(mp_of_up(&uf[i], v), mult * um[i], f, m,
+			    n, max);
 		return n;
 	}
 	if (nv == 2 && is_homog(a)) {
@@ -1611,7 +1612,7 @@ factor_prim(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 		w = topvar(vs & ~(1u << v));
 		b = mp_subst(a, w, one);
 		if (!up_of_mp(b, v, &u))
-			return fadd(a, mult, f, m, n, max);
+			return factor_add(a, mult, f, m, n, max);
 		up_n = up_factor(&u, uf, um, UD, &pp);
 		if (pp)
 			*partial = 1;
@@ -1627,18 +1628,19 @@ factor_prim(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 					h = mp_add(h, t);
 				}
 			dsum += kk * um[i];
-			n = fadd(h, mult * um[i], f, m, n, max);
+			n = factor_add(h, mult * um[i], f, m, n, max);
 		}
 		if (td > dsum)
-			n = fadd(mp_atom(w), mult * (td - dsum), f, m, n, max);
+			n = factor_add(mp_atom(w), mult * (td - dsum), f, m, n,
+			    max);
 		return n;
 	}
 	/* linear in some variable: irreducible (it is primitive) */
 	for (k = 0; k < AV; k++)
 		if ((vs & (1u << k)) && mp_deg(a, k) == 1)
-			return fadd(a, mult, f, m, n, max);
+			return factor_add(a, mult, f, m, n, max);
 	*partial = 1;
-	return fadd(a, mult, f, m, n, max);
+	return factor_add(a, mult, f, m, n, max);
 }
 
 static int
@@ -1649,7 +1651,7 @@ factor_rec(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 	int k, i;
 
 	if (alg_ovf || depth > 12)
-		return fadd(a, mult, f, m, n, max);
+		return factor_add(a, mult, f, m, n, max);
 	a = mp_prim(a);
 	vs = mp_vars(a);
 	if (vs == 0)
@@ -1667,7 +1669,7 @@ factor_rec(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 			mo.t[0].e[k] = (uint8_t)mn;
 			if (mp_divexact(a, mo, &q))
 				a = q;
-			n = fadd(mp_atom(k), mult * mn, f, m, n, max);
+			n = factor_add(mp_atom(k), mult * mn, f, m, n, max);
 		}
 	}
 	vs = mp_vars(a);
@@ -1691,7 +1693,8 @@ factor_rec(struct mp a, int mult, struct mp *f, int *m, int n, int max,
 			    y, q;
 			if (!mp_isconst(g, NULL)) {
 				if (!mp_divexact(b, g, &c) || !mp_divexact(db, g, &d))
-					return fadd(a, mult, f, m, n, max);
+					return factor_add(a, mult, f, m, n,
+					    max);
 				d = mp_sub(d, mp_diff(c, v));
 				while (!mp_isconst(c, NULL) && !alg_ovf && j < 64) {
 					y = mp_gcd(c, d);

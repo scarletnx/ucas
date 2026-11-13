@@ -3691,7 +3691,7 @@ fsame(const struct fterm *a, const struct fterm *b)
 }
 
 static void
-fadd(struct fterm *set, int *n, const struct fterm *t)
+fterm_add(struct fterm *set, int *n, const struct fterm *t)
 {
 	int k;
 
@@ -3711,7 +3711,7 @@ fadd(struct fterm *set, int *n, const struct fterm *t)
 
 /* set *= (sum of e terms) */
 static void
-fmul(struct fterm *set, int *n, const struct fterm *e, int ne)
+fterm_mul(struct fterm *set, int *n, const struct fterm *e, int ne)
 {
 	struct fterm *out = xmalloc(MFT * sizeof *out);
 	int no = 0, i, j, k;
@@ -3722,7 +3722,7 @@ fmul(struct fterm *set, int *n, const struct fterm *e, int ne)
 			t.c *= e[j].c;
 			for (k = 0; k < 2 * MA; k++)
 				t.v[k] += e[j].v[k];
-			fadd(out, &no, &t);
+			fterm_add(out, &no, &t);
 		}
 	memcpy(set, out, no * sizeof *out);
 	*n = no;
@@ -3823,7 +3823,7 @@ linearize(nid body, int *pw, int *prod)
 					*pw = 1;
 				ntr++;
 				for (i = 0; i < e_; i++)
-					fmul(set, &n, e, 2);
+					fterm_mul(set, &n, e, 2);
 			} else {
 				mono.f[mono.nf] = f;
 				mono.p[mono.nf++] = e_;
@@ -3835,7 +3835,7 @@ linearize(nid body, int *pw, int *prod)
 			nid mn = mono.nf ? mono_node(&mono) : 0;
 			for (i = 0; i < n; i++) {
 				set[i].mono = mn;
-				fadd(ft, &nft, &set[i]);
+				fterm_add(ft, &nft, &set[i]);
 			}
 		}
 		free(set);

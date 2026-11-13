@@ -229,7 +229,7 @@ has0(struct iv a)
 }
 
 static int
-iszero(struct iv a)
+is0(struct iv a)
 {
 	return a.lo == 0 && a.hi == 0;
 }
@@ -257,7 +257,7 @@ imul(struct iv a, struct iv b)
 {
 	ld lo, hi, t;
 
-	if (iszero(a) || iszero(b))
+	if (is0(a) || is0(b))
 		return ivp(0);
 	if (a.lo >= 0 && b.lo >= 0)
 		return iv2(mul_r(a.lo, b.lo, 0), mul_r(a.hi, b.hi, 1));
@@ -284,7 +284,7 @@ idiv(struct iv a, struct iv b)
 {
 	ld lo, hi, t;
 
-	if (iszero(a))
+	if (is0(a))
 		return ivp(0);
 	lo = div_r(a.lo, b.lo, 0);
 	t = div_r(a.lo, b.hi, 0);
@@ -1110,10 +1110,10 @@ prog_jets(struct prog *P, struct jctx *C, struct iv x, int n, int decide)
 				else if (op == O_COPYSIGN) {
 					int sa = sign_dec(a[0]), sb = sign_dec(b[0]);
 					d = sa && sb ? sa * sb : 0;
-					if (iszero(a[0]) && n == 1)
+					if (is0(a[0]) && n == 1)
 						d = 1;
 				} else if (op == O_SIGN)
-					d = iszero(a[0]) ? 2 : a[0].lo > 0 ? 1 :
+					d = is0(a[0]) ? 2 : a[0].lo > 0 ? 1 :
 					    a[0].hi < 0 ? -1 : 0;
 				else if (op == O_FLOOR || op == O_CEIL) {
 					ld f1 = op == O_FLOOR ? floorl(a[0].lo) :
@@ -1749,7 +1749,7 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 				/* the sign operand is exact in approx's candidates */
 				if (b->rho != 0 || b->eta != 0)
 					sb = 0;
-				if (iszero(a->v) && sb)
+				if (is0(a->v) && sb)
 					d = 1;
 				d = d && sb ? d * sb : 0;
 			}
@@ -1797,7 +1797,7 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 				sum_step(c, &ab, &c->R[P->c[k]], 0, &s);
 				s.rounds = o->rounds;
 				*o = s;
-			} else if (w && (iszero(a->v) || iszero(b->v)))
+			} else if (w && (is0(a->v) || is0(b->v)))
 				o->rounds = 0;
 			else if (w) {
 				/* times a frozen power of two: exact, unless the result
@@ -2262,13 +2262,13 @@ piece_eval(struct acrun *A, struct piece *pc)
 		/* (x - z)^k0 divides E and f: their first k0 coefficients at
 		 * z are exactly 0 */
 		for (i = 0; i < A->k0; i++) {
-			if (!iszero(A->fj[i])) {
+			if (!is0(A->fj[i])) {
 				snprintf(A->why, sizeof A->why, "the target's zero at "
 				    "x = %.9Lg is not exact in interval arithmetic",
 				    A->z);
 				return 0;
 			}
-			if (!iszero(A->ej[i])) {
+			if (!is0(A->ej[i])) {
 				snprintf(A->why, sizeof A->why, "the candidate is not 0 "
 				    "at x = %.9Lg, where the target is: no relative "
 				    "bound there", A->z);

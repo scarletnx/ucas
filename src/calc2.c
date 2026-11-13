@@ -3208,7 +3208,7 @@ isinfl_(struct lv l)
 }
 
 static int
-iszero(struct lv l)
+lv_is0(struct lv l)
 {
 	return l.k == LV_NUM && l.v == 0;
 }
@@ -3588,7 +3588,7 @@ lim_body(nid e, struct lctx *c)
 			return LK(LV_UNDEF);
 		if (la.k == LV_NUM && lb.k == LV_NUM)
 			return LN(la.v * lb.v);
-		if (isinf(c->a) && ((iszero(la) && isinfl_(lb)) || (iszero(lb) &&
+		if (isinf(c->a) && ((lv_is0(la) && isinfl_(lb)) || (lv_is0(lb) &&
 		    isinfl_(la)))) {
 			/* exp(u) with u ~ c|x|^p, p > 0, beats any power of x */
 			int w;
@@ -3605,8 +3605,8 @@ lim_body(nid e, struct lctx *c)
 				}
 			}
 		}
-		if ((iszero(la) && isinfl_(lb)) || (iszero(lb) && isinfl_(la))) {
-			nid z = iszero(la) ? A : B, w = iszero(la) ? B : A, iw, iz;
+		if ((lv_is0(la) && isinfl_(lb)) || (lv_is0(lb) && isinfl_(la))) {
+			nid z = lv_is0(la) ? A : B, w = lv_is0(la) ? B : A, iw, iz;
 			size_t mark = c->log ? c->log->n : 0;
 			int lh = c->lh;
 			/* both quotients; the logarithm-like factor on top first */
@@ -3643,10 +3643,10 @@ lim_body(nid e, struct lctx *c)
 			    node_str(B), node_str(w), node_str(iz));
 			return lhopital(w, iz, c, "inf/inf");
 		}
-		if ((iszero(la) && lb.k == LV_OSC) || (iszero(lb) &&
+		if ((lv_is0(la) && lb.k == LV_OSC) || (lv_is0(lb) &&
 		    la.k == LV_OSC)) {
 			lstep(c, "squeeze: %s -> 0 times a bounded factor", node_str(
-			    iszero(la) ? A : B));
+			    lv_is0(la) ? A : B));
 			return LN(0);
 		}
 		if (isinfl_(la) || isinfl_(lb)) {
@@ -3684,11 +3684,11 @@ lim_body(nid e, struct lctx *c)
 			return LK(LV_UNDEF);
 		if (la.k == LV_NUM && lb.k == LV_NUM && lb.v != 0)
 			return LN(la.v / lb.v);
-		if (iszero(la) && iszero(lb))
+		if (lv_is0(la) && lv_is0(lb))
 			return lhopital(A, B, c, "0/0");
 		if (isinfl_(la) && isinfl_(lb))
 			return lhopital(A, B, c, "inf/inf");
-		if (iszero(lb)) {
+		if (lv_is0(lb)) {
 			s = side_rel(B, c, 0);
 			if (la.k == LV_NUM || isinfl_(la)) {
 				int sa = la.k == LV_NUM ? (la.v > 0 ? 1 : -1) :
