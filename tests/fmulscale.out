@@ -1,0 +1,153 @@
+> q(v: f32) = v != v ? 2143289344 : asuint(v)
+> q64(v: f64) = v != v ? 9221120237041090560 : asuint(v)
+> l2a(a: u32, b: u32) = q(x * y) where x = asfloat(a), y = asfloat(b)
+> l2b(a: u32, b: u32) = q(f32(f64(x) * f64(y))) where x = asfloat(a), y = asfloat(b)
+> equiv l2a l2b
+l2a and l2b are equal on the domain of l2a (proved by SAT: 16145 AIG nodes, 50 conflicts)
+> d8_s1(a: u32) = q64(f64(z * f32(2^(-3)))) where z = asfloat(a), !(abs(z) < f32(2^(-123)))
+> d8_s2(a: u32) = q64(f64(z) * f64(2^(-3))) where z = asfloat(a), !(abs(z) < f32(2^(-123)))
+> equiv d8_s1 d8_s2
+d8_s1 and d8_s2 are equal on the domain of d8_s1 (proved by SAT: 5217 AIG nodes, 445 conflicts)
+> d8_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-3))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> d8_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b)
+> d8_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-3))) where x = asfloat(a), y = asfloat(b)
+> equiv d8_r1 d8_r0
+d8_r1 and d8_r0 are equal on the domain of d8_r1 (proved by SAT: 12950 AIG nodes, 5743 conflicts)
+> equiv d8_r2 d8_r0
+d8_r2 and d8_r0 are equal on the domain of d8_r2 (proved by SAT: 12950 AIG nodes, 3745 conflicts)
+> d8_ta(a: u32, b: u32) = q((x * f32(2^(-3))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-123))
+> d8_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-123))
+> equiv d8_ta d8_tra
+d8_ta and d8_tra are equal on the domain of d8_ta (proved by SAT: 29532 AIG nodes, 173 conflicts)
+> d8_tb(a: u32, b: u32) = q(x * (y * f32(2^(-3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-123))
+> d8_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-123))
+> equiv d8_tb d8_trb
+d8_tb and d8_trb are equal on the domain of d8_tb (proved by SAT: 29532 AIG nodes, 193 conflicts)
+> d8_old(a: u32, b: u32) = q((x * y) * f32(2^(-3))) where x = asfloat(a), y = asfloat(b)
+> d8_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b)
+> equiv d8_old d8_ref
+d8_old and d8_ref differ at 633 points of the sample, e.g. a=3182835926, b=35103015: 2148367816 vs 2148367815
+> d4_s1(a: u32) = q64(f64(z * f32(2^(-2)))) where z = asfloat(a), !(abs(z) < f32(2^(-124)))
+> d4_s2(a: u32) = q64(f64(z) * f64(2^(-2))) where z = asfloat(a), !(abs(z) < f32(2^(-124)))
+> equiv d4_s1 d4_s2
+d4_s1 and d4_s2 are equal on the domain of d4_s1 (proved by SAT: 5131 AIG nodes, 455 conflicts)
+> d4_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-2))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> d4_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b)
+> d4_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-2))) where x = asfloat(a), y = asfloat(b)
+> equiv d4_r1 d4_r0
+d4_r1 and d4_r0 are equal on the domain of d4_r1 (proved by SAT: 12910 AIG nodes, 3793 conflicts)
+> equiv d4_r2 d4_r0
+d4_r2 and d4_r0 are equal on the domain of d4_r2 (proved by SAT: 12910 AIG nodes, 4127 conflicts)
+> d4_ta(a: u32, b: u32) = q((x * f32(2^(-2))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-124))
+> d4_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-124))
+> equiv d4_ta d4_tra
+d4_ta and d4_tra are equal on the domain of d4_ta (proved by SAT: 29442 AIG nodes, 237 conflicts)
+> d4_tb(a: u32, b: u32) = q(x * (y * f32(2^(-2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-124))
+> d4_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-124))
+> equiv d4_tb d4_trb
+d4_tb and d4_trb are equal on the domain of d4_tb (proved by SAT: 29442 AIG nodes, 196 conflicts)
+> d4_old(a: u32, b: u32) = q((x * y) * f32(2^(-2))) where x = asfloat(a), y = asfloat(b)
+> d4_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-2)))) where x = asfloat(a), y = asfloat(b)
+> equiv d4_old d4_ref
+d4_old and d4_ref differ at 669 points of the sample, e.g. a=370014033, b=2689079551: 2147483652 vs 2147483651
+> d2_s1(a: u32) = q64(f64(z * f32(2^(-1)))) where z = asfloat(a), !(abs(z) < f32(2^(-125)))
+> d2_s2(a: u32) = q64(f64(z) * f64(2^(-1))) where z = asfloat(a), !(abs(z) < f32(2^(-125)))
+> equiv d2_s1 d2_s2
+d2_s1 and d2_s2 are equal on the domain of d2_s1 (proved by SAT: 5063 AIG nodes, 371 conflicts)
+> d2_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(-1))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> d2_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b)
+> d2_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(-1))) where x = asfloat(a), y = asfloat(b)
+> equiv d2_r1 d2_r0
+d2_r1 and d2_r0 are equal on the domain of d2_r1 (proved by SAT: 12950 AIG nodes, 6232 conflicts)
+> equiv d2_r2 d2_r0
+d2_r2 and d2_r0 are equal on the domain of d2_r2 (proved by SAT: 12950 AIG nodes, 4486 conflicts)
+> d2_ta(a: u32, b: u32) = q((x * f32(2^(-1))) * y) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-125))
+> d2_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b), abs(x) >= abs(y), abs(x) < f32(2^(-125))
+> equiv d2_ta d2_tra
+d2_ta and d2_tra are equal on the domain of d2_ta (proved by SAT: 29377 AIG nodes, 129 conflicts)
+> d2_tb(a: u32, b: u32) = q(x * (y * f32(2^(-1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-125))
+> d2_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) >= abs(y)), abs(y) < f32(2^(-125))
+> equiv d2_tb d2_trb
+d2_tb and d2_trb are equal on the domain of d2_tb (proved by SAT: 29377 AIG nodes, 172 conflicts)
+> d2_old(a: u32, b: u32) = q((x * y) * f32(2^(-1))) where x = asfloat(a), y = asfloat(b)
+> d2_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-1)))) where x = asfloat(a), y = asfloat(b)
+> equiv d2_old d2_ref
+d2_old and d2_ref differ at 915 points of the sample, e.g. a=144085645, b=2896346344: 2147483650 vs 2147483649
+> m2_s1(a: u32) = q64(f64(z * f32(2^(1)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7f000000)))
+> m2_s2(a: u32) = q64(f64(z) * f64(2^(1))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7f000000)))
+> equiv m2_s1 m2_s2
+m2_s1 and m2_s2 are equal on the domain of m2_s1 (proved by SAT: 4029 AIG nodes, 186 conflicts)
+> m2_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(1))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> m2_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b)
+> m2_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(1))) where x = asfloat(a), y = asfloat(b)
+> equiv m2_r1 m2_r0
+m2_r1 and m2_r0 are equal on the domain of m2_r1 (proved by SAT: 12922 AIG nodes, 5065 conflicts)
+> equiv m2_r2 m2_r0
+m2_r2 and m2_r0 are equal on the domain of m2_r2 (proved by SAT: 12922 AIG nodes, 5006 conflicts)
+> m2_ta(a: u32, b: u32) = q((x * f32(2^(1))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7f000000))
+> m2_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7f000000))
+> equiv m2_ta m2_tra
+m2_ta and m2_tra are equal on the domain of m2_ta (proved by SAT: 23189 AIG nodes, 83 conflicts)
+> m2_tb(a: u32, b: u32) = q(x * (y * f32(2^(1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7f000000))
+> m2_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7f000000))
+> equiv m2_tb m2_trb
+m2_tb and m2_trb are equal on the domain of m2_tb (proved by SAT: 23189 AIG nodes, 69 conflicts)
+> m2_old(a: u32, b: u32) = q((x * y) * f32(2^(1))) where x = asfloat(a), y = asfloat(b)
+> m2_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(1)))) where x = asfloat(a), y = asfloat(b)
+> equiv m2_old m2_ref
+m2_old and m2_ref differ at 1530 points of the sample, e.g. a=650979763, b=213696288: 0 vs 1
+> m4_s1(a: u32) = q64(f64(z * f32(2^(2)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e800000)))
+> m4_s2(a: u32) = q64(f64(z) * f64(2^(2))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e800000)))
+> equiv m4_s1 m4_s2
+m4_s1 and m4_s2 are equal on the domain of m4_s1 (proved by SAT: 4039 AIG nodes, 297 conflicts)
+> m4_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(2))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> m4_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b)
+> m4_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(2))) where x = asfloat(a), y = asfloat(b)
+> equiv m4_r1 m4_r0
+m4_r1 and m4_r0 are equal on the domain of m4_r1 (proved by SAT: 12882 AIG nodes, 3861 conflicts)
+> equiv m4_r2 m4_r0
+m4_r2 and m4_r0 are equal on the domain of m4_r2 (proved by SAT: 12882 AIG nodes, 4894 conflicts)
+> m4_ta(a: u32, b: u32) = q((x * f32(2^(2))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e800000))
+> m4_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e800000))
+> equiv m4_ta m4_tra
+m4_ta and m4_tra are equal on the domain of m4_ta (proved by SAT: 23187 AIG nodes, 102 conflicts)
+> m4_tb(a: u32, b: u32) = q(x * (y * f32(2^(2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e800000))
+> m4_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e800000))
+> equiv m4_tb m4_trb
+m4_tb and m4_trb are equal on the domain of m4_tb (proved by SAT: 23187 AIG nodes, 134 conflicts)
+> m4_old(a: u32, b: u32) = q((x * y) * f32(2^(2))) where x = asfloat(a), y = asfloat(b)
+> m4_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(2)))) where x = asfloat(a), y = asfloat(b)
+> equiv m4_old m4_ref
+m4_old and m4_ref differ at 2297 points of the sample, e.g. a=650979763, b=213696288: 0 vs 1
+> m8_s1(a: u32) = q64(f64(z * f32(2^(3)))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e000000)))
+> m8_s2(a: u32) = q64(f64(z) * f64(2^(3))) where z = asfloat(a), !(abs(z) >= asfloat(u32(0x7e000000)))
+> equiv m8_s1 m8_s2
+m8_s1 and m8_s2 are equal on the domain of m8_s1 (proved by SAT: 4067 AIG nodes, 285 conflicts)
+> m8_r1(a: u32, b: u32) = q64((f64(x) * f64(2^(3))) * f64(y)) where x = asfloat(a), y = asfloat(b)
+> m8_r2(a: u32, b: u32) = q64(f64(x) * (f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b)
+> m8_r0(a: u32, b: u32) = q64((f64(x) * f64(y)) * f64(2^(3))) where x = asfloat(a), y = asfloat(b)
+> equiv m8_r1 m8_r0
+m8_r1 and m8_r0 are equal on the domain of m8_r1 (proved by SAT: 12922 AIG nodes, 5258 conflicts)
+> equiv m8_r2 m8_r0
+m8_r2 and m8_r0 are equal on the domain of m8_r2 (proved by SAT: 12922 AIG nodes, 3441 conflicts)
+> m8_ta(a: u32, b: u32) = q((x * f32(2^(3))) * y) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e000000))
+> m8_tra(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b), abs(x) <= abs(y), abs(x) >= asfloat(u32(0x7e000000))
+> equiv m8_ta m8_tra
+m8_ta and m8_tra are equal on the domain of m8_ta (proved by SAT: 23227 AIG nodes, 113 conflicts)
+> m8_tb(a: u32, b: u32) = q(x * (y * f32(2^(3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e000000))
+> m8_trb(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b), !(abs(x) <= abs(y)), abs(y) >= asfloat(u32(0x7e000000))
+> equiv m8_tb m8_trb
+m8_tb and m8_trb are equal on the domain of m8_tb (proved by SAT: 23227 AIG nodes, 198 conflicts)
+> m8_old(a: u32, b: u32) = q((x * y) * f32(2^(3))) where x = asfloat(a), y = asfloat(b)
+> m8_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(3)))) where x = asfloat(a), y = asfloat(b)
+> equiv m8_old m8_ref
+m8_old and m8_ref differ at 2681 points of the sample, e.g. a=650979763, b=213696288: 0 vs 2
+> p_old(a: u32, b: u32) = q((x * y) * f32(2^(-3))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+> p_ord(a: u32, b: u32) = q(abs(x) >= abs(y) ? (x * f32(2^(-3))) * y : x * (y * f32(2^(-3)))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+> p_ref(a: u32, b: u32) = q(f32(f64(x) * f64(y) * f64(2^(-3)))) where x = asfloat(a), y = asfloat(b), a == 0xc1000001, b == 0xfe7ffffe
+> equiv p_old p_ref
+p_old and p_ref differ at 1 point, e.g. a=3238002689, b=4269801470: 2139095040 vs 2122317824
+  domain: a in 3238002689..3238002689, b in 4269801470..4269801470 by the where clause (1 points enumerated)
+> equiv p_ord p_ref
+p_ord and p_ref are equal on the domain of p_ord (exhaustive)
+  domain: a in 3238002689..3238002689, b in 4269801470..4269801470 by the where clause (1 points enumerated)
