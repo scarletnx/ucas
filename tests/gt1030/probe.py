@@ -43,7 +43,7 @@ import run as R     # noqa: E402  its timing (snx-shaderperf, fadd beside) and t
 PRELUDE = R.PRELUDE
 A = None            # the options
 OUT = None          # the output folder
-FADD_NS = None      # fadd's ns a lane-step, from the last step run
+FADD_NS = None      # fadd's ns a lane-step, from the last fadd timed
 
 
 class ProbeError(Exception):
@@ -427,7 +427,7 @@ def run_step(p):
         err = abs(cost) * ((tp['x']['err'] / tp['x']['ns']) ** 2 + (tp['ref']['err'] / tp['ref']['ns']) ** 2) ** 0.5
         if best is None or err / abs(cost) < best['err'] / abs(best['cost']):
             best = dict(cost=cost, err=err, tries=attempt + 1, fadd_ns=tp['ref']['ns'],
-                        bytes_per_step=tp['x']['bytes_per_step'], iters=iters, lanes=lanes)
+                        bytes_per_step=tp['x']['bytes_per_step'], iters=iters, lanes=lanes, clock_mhz=R.sm_clock(d))
         if err <= A.max_rel_err * abs(cost):
             break
     FADD_NS = best['fadd_ns']
@@ -447,6 +447,25 @@ def in_fadd(ns):
     if FADD_NS is None:
         raise ProbeError('no fadd run before this unit: nothing to convert ns into fadd steps')
     return ns / FADD_NS
+
+
+def fadd_now(tag):
+    """fadd's ns a lane-step from a run of its own, just before a unit's runs: the SM clock moves between
+    runs (1.2 to 1.9 GHz), so a unit converts into fadd steps by the fadd timed beside it"""
+    global FADD_NS
+    ref = fadd_entry()
+    lanes = 4096 if A.quick else 65536
+    iters = 2 if A.quick else ref['iters']
+    shaders = [os.path.join(HERE, ref['files']['a']), os.path.join(HERE, ref['files']['b'])]
+    d = sp(R.sp_cmd('', shaders, iters, timing_args() + ['--size', str(lanes)])[1:], log_path('fadd_%s.log' % tag))
+    (ta, ea), (tb, eb) = per_rep(d['shaders'][0]), per_rep(d['shaders'][1])
+    steps = d['shaders'][0]['invocations_per_rep'] * iters * ref['unroll'][0] * ref['chains']
+    if tb <= ta:
+        if not A.quick:
+            raise ProbeError('fadd.b ran no slower than fadd.a (%.3g ns, %.3g ns): no fadd to convert by' % (tb, ta))
+        tb = ta + steps * 1e-3    # a smoke run's grid is too small to time: a placeholder of 1 ps
+    FADD_NS = (tb - ta) / steps
+    return dict(fadd_ns=FADD_NS, fadd_err_ns=(ea * ea + eb * eb) ** 0.5 / steps, fadd_clock_mhz=R.sm_clock(d))
 
 
 # --- shaders of the unit and value probes ----------------------------------------
@@ -634,37 +653,39 @@ def ulps(got, want):
 # --- units ------------------------------------------------------------------------
 
 def unit_setup_binding(p):
+    f = fadd_now(p['name'])
     a = compile_glsl('setup_bind0', CS_BIND0, 'comp')
     b = compile_glsl('setup_bind1', CS_BIND1, 'comp')
     d = sp([a, b, '--size', '128', '--bind', '0.5=format=rgba8_unorm,size=4x4,pattern=noise'] + timing_args(),
            log_path('setup_binding.log'))
     (ta, ea), (tb, eb) = per_rep(d['shaders'][0]), per_rep(d['shaders'][1])
-    return dict(ns_base=ta, ns_one_more=tb, ns_binding=tb - ta, err_ns=(ea * ea + eb * eb) ** 0.5,
-                fadd_steps=in_fadd(tb - ta))
+    return dict(f, ns_base=ta, ns_one_more=tb, ns_binding=tb - ta, err_ns=(ea * ea + eb * eb) ** 0.5,
+                fadd_steps=in_fadd(tb - ta), clock_mhz=R.sm_clock(d))
 
 
 def unit_draw_empty(p):
+    f = fadd_now(p['name'])
     vs = compile_glsl('vs_points', VS_POINTS, 'vert')
     fs = compile_glsl('fs_one', FS_ONE, 'frag')
     d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', '1', '--size', '256x256', '--push', 'w=u32:256',
             '--push', 'h=u32:256', '--push', 'stride=u32:1', '--push', 'off=f32:4.0'] + timing_args(),
            log_path('draw_empty.log'))
     t, e = per_rep(d['shaders'][0])
-    return dict(ns_draw=t, err_ns=e, fadd_steps=in_fadd(t))
+    return dict(f, ns_draw=t, err_ns=e, fadd_steps=in_fadd(t), clock_mhz=R.sm_clock(d))
 
 
 def unit_points(p):
     vs = compile_glsl('vs_points', VS_POINTS, 'vert')
     fs = compile_glsl('fs_one', FS_ONE, 'frag')
     n = 4096 if A.quick else 262144
-    r = {}
+    r = fadd_now(p['name'])
     for tag, off in (('onscreen', '0.0'), ('offscreen', '4.0')):
         d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', str(n), '--size', '256x256', '--push',
                 'w=u32:256', '--push', 'h=u32:256', '--push', 'stride=u32:1', '--push', 'off=f32:' + off] +
                timing_args(),
                log_path('points_%s.log' % tag))
         t, e = per_rep(d['shaders'][0])
-        r[tag] = dict(ns_vertex=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+        r[tag] = dict(ns_vertex=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n), clock_mhz=R.sm_clock(d))
     r['vertices'] = n
     return r
 
@@ -679,18 +700,21 @@ def unit_rop(p):
     for where, w, stride in (('l2', 256, 1), ('dram', 4096, 61)):
         if A.quick and where == 'dram':
             w = 512
+        r['fadd_' + where] = fadd_now('%s_%s' % (p['name'], where))
         for blend in ('none', 'add', 'alpha'):
             d = sp([vs, '--fs', fs, '--topology', 'points', '--vertices', str(n), '--size', '%dx%d' % (w, w),
                     '--rt', '0=r32_sfloat', '--blend', blend, '--push', 'w=u32:%d' % w, '--push', 'h=u32:%d' % w,
                     '--push', 'stride=u32:%d' % stride, '--push', 'off=f32:0.0'] + timing_args(),
                    log_path('rop_%s_%s.log' % (blend, where)))
             t, e = per_rep(d['shaders'][0])
-            r['%s_%s' % (blend, where)] = dict(ns_point=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+            r['%s_%s' % (blend, where)] = dict(ns_point=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n),
+                                               clock_mhz=R.sm_clock(d))
         d = sp([cs, '--size', str(n), '--buffer-size', '%dM' % max(1, w * w * 4 >> 20), '--ext',
                 'VK_EXT_shader_atomic_float', '--push', 'w=u32:%d' % w, '--push', 'h=u32:%d' % w,
                 '--push', 'stride=u32:%d' % stride] + timing_args(), log_path('rop_atomic_%s.log' % where))
         t, e = per_rep(d['shaders'][0])
-        r['atomic_%s' % where] = dict(ns_atomic=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n))
+        r['atomic_%s' % where] = dict(ns_atomic=t / n, err_ns=e / n, fadd_steps=in_fadd(t / n),
+                                      clock_mhz=R.sm_clock(d))
     return r
 
 
@@ -1073,7 +1097,8 @@ def summary(p, r):
         return '; '.join('%s: %.3g ns a point, %.3g fadd steps' % (k, r[k]['ns_vertex'], r[k]['fadd_steps'])
                          for k in ('onscreen', 'offscreen'))
     if n == 'rop_blend':
-        return '; '.join('%s: %.3g fadd steps' % (k, v['fadd_steps']) for k, v in r.items() if isinstance(v, dict))
+        return '; '.join('%s: %.3g fadd steps' % (k, v['fadd_steps']) for k, v in r.items()
+                         if isinstance(v, dict) and 'fadd_steps' in v)
     if n == 'blend_rounding':
         if r['add_moved'] and r['add_unblended'] == r['add_moved']:
             return 'NOT BLENDED: the target holds the second value alone at every pixel (the device cannot blend ' \
@@ -1109,6 +1134,15 @@ def summary(p, r):
     return json.dumps(r)[:600]
 
 
+def fadd_note(p, r):
+    """a unit's fadd, timed just before it (rop's: before its L2 runs)"""
+    f = r.get('fadd_l2', r) if p['kind'] == 'unit' else {}
+    if not f.get('fadd_ns'):
+        return ''
+    return ' (fadd timed just before: %.3g ps a lane-step%s)' % (
+        f['fadd_ns'] * 1e3, (', SM %d MHz' % f['fadd_clock_mhz']) if f.get('fadd_clock_mhz') else '')
+
+
 def report(res, dev, model, ucas_check):
     L = ['# GT 1030 probes\n\n',
          'Device: %s (%s). %s\n\n' % (dev.get('name'), dev.get('driver_info'),
@@ -1128,10 +1162,11 @@ def report(res, dev, model, ucas_check):
             if p['kind'] == 'step':
                 if 'cost' in r:
                     pr = r.get('ucas_price')
-                    L.append('%s: %.2f +- %.2f fadd%s%s. %s\n' % (
+                    L.append('%s: %.2f +- %.2f fadd%s%s%s. %s\n' % (
                         head, r['cost'], r['err'], (', B/step %.0f' % r['bytes_per_step'])
                         if r.get('bytes_per_step') is not None else '',
-                        (', gt1030 prices it %g' % pr) if pr is not None else '', p['note']))
+                        (', gt1030 prices it %g' % pr) if pr is not None else '',
+                        (', SM %d MHz' % r['clock_mhz']) if r.get('clock_mhz') else '', p['note']))
                 else:
                     L.append('%s: FAILED: %s. %s\n' % (head, r.get('error', 'not run'), p['note']))
             elif p['kind'] == 'absent':
@@ -1144,7 +1179,7 @@ def report(res, dev, model, ucas_check):
                 if 'error' in r:
                     L.append('%s: FAILED: %s\n' % (head, r['error']))
                 else:
-                    L.append('%s: %s. %s\n' % (head, p['note'], summary(p, r)))
+                    L.append('%s: %s. %s%s\n' % (head, p['note'], summary(p, r), fadd_note(p, r)))
         L.append('\n')
     L.append('## Model\n\n```\n%s```\n' % model)
     with open(os.path.join(OUT, 'report.md'), 'w') as fh:
@@ -1217,9 +1252,6 @@ def main():
     helptext = subprocess.run([A.sp, '--help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
     res, dev = {}, {}
     chosen = [p for p in P if (not only or p['name'] in only) and (not issues or set(p['issues']) & issues)]
-    # the steps first: each unit converts by the fadd of the step run before it
-    if any(p['kind'] == 'unit' for p in chosen) and not any(p['kind'] == 'step' for p in chosen):
-        chosen = [next(p for p in P if p['name'] == 'fma_contract')] + chosen
     order = {'step': 0, 'unit': 1, 'value': 2, 'info': 3, 'absent': 4, 'none': 5}
     chosen.sort(key=lambda p: (bool(p.get('slow')), order[p['kind']]))
     t0 = time.time()

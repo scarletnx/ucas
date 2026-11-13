@@ -237,6 +237,39 @@ def uncached_reads_scatter():
            ('textureLodOffset' in p['step'] or '{u}' not in p['step'])]
     assert not bad, 'reads meant out of the cache that stay in a line: %s' % ', '.join(bad)
 
+
+@check
+def units_convert_by_their_own_fadd():
+    """a draw or a dispatch timed whole is in fadd steps by a fadd timed just before it, not by the fadd of
+    whichever step ran last: the SM clock moves between runs"""
+    import argparse
+    saved = PR.A, PR.OUT, PR.FADD_NS, PR.sp, PR.compile_glsl
+    fadd = PR.fadd_entry()
+    per_step = 1e-3                            # ns a lane-step, the fadd of this test's card
+
+    def fake_sp(args, log, timeout=None):
+        shaders = [a for a in args if a.endswith('.spv')]
+        iters = next((int(a.split(':')[1]) for a in args if a.startswith('iters=')), 0)
+        if shaders and shaders[0].endswith(fadd['files']['a']):
+            n = 65536 * iters * fadd['chains']
+            ts = [n * fadd['unroll'][0] * per_step, n * fadd['unroll'][1] * per_step]
+        else:
+            ts = [2870.0]
+        return dict(shaders=[dict(time_ns_per_rep=dict(median=t, median_lo=t, median_hi=t),
+                                  invocations_per_rep=65536) for t in ts])
+    try:
+        PR.A = argparse.Namespace(quick=False, runs=20, timeout=600)
+        PR.OUT = '/nonexistent'
+        PR.FADD_NS = 4.4e-3                    # a step run's fadd at another clock
+        PR.sp = fake_sp
+        PR.compile_glsl = lambda name, src, stage: name + '.spv'
+        r = PR.unit_draw_empty(next(p for p in PR.P if p['name'] == 'draw_empty'))
+    finally:
+        PR.A, PR.OUT, PR.FADD_NS, PR.sp, PR.compile_glsl = saved
+    want = 2870.0 / per_step
+    assert abs(r['fadd_steps'] - want) < 1e-6 * want, 'an empty draw of 2870 ns: %.6g fadd steps, %.6g by the ' \
+        'fadd timed beside it' % (r['fadd_steps'], want)
+
 def main():
     failed = 0
     for fn in CHECKS:
