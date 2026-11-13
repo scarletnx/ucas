@@ -12,7 +12,9 @@ its comment:
 - Glslc.implicit, which ../glslfn.c sets for a shader that is not GLSL
   ES: GLSL 4.x's implicit conversions are made (a constructor node
   around the value, so the tree shows them), a global takes any
-  initializer, and an image of any format may be read and written.
+  initializer, and an image of any format may be read and written;
+- the float atomics (atomicAdd, atomicMin, atomicMax, atomicExchange of
+  a float) of GL_EXT_shader_atomic_float and float2, in builtins.c.
 ucas uses its parser for simplify's function-level pass (../glslfn.c):
 the syntax tree, typed, with each node's source position.  The
 Makefiles build these files into libsnxglslc.a, as glslc.c would clash

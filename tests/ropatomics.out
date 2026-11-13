@@ -90,7 +90,6 @@ simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under fixed (each instruction once): 1 -> 1 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: main (line 8: no overload of atomicAdd takes (float, float)))
 memory under fixed:
   %44 = OpAtomicFAddEXT %float %39 %uint_1 %uint_0 %42
       (line 8: atomicAdd(ab.acc[uint(s.x) & 1023u], s.w);)

@@ -38,14 +38,15 @@ int Bucket(int v) { return v / 10 + v % 7; }
 void main() { col = vec4(float(Bucket(k & 1023)), 0.0, 0.0, 1.0); }
 ```
 # what it cannot read in main is said, with what main needed that it
-# could not read before
+# could not read before (a 64-bit integer)
 simplify functions nofile
 ```glsl
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { int o[]; };
 int Bucket(int v) { return v / 10 + v % 7; }
-float half_of(float x) { double d = x; return float(d * 0.5); }
+float half_of(float x) { uint64_t d = uint64_t(x); return float(d >> 1); }
 void main() {
     int i = int(gl_GlobalInvocationID.x & 1023u);
     o[i] = Bucket(i) + int(half_of(float(i)));

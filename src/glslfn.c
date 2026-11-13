@@ -404,6 +404,27 @@ static const struct nty {
 };
 #define NNARROW (sizeof narrow_types / sizeof narrow_types[0])
 
+/*
+ * Doubles (GLSL 4.x; reserved words in GLSL ES): each type read as its
+ * f32 one, as a type and as a constructor.  Floats are opaque to the
+ * function level, so a double is a value it does not know either way.
+ */
+static const char *const dbl_types[][2] = {
+	{"double", "float"}, {"dvec2", "vec2"}, {"dvec3", "vec3"},
+	{"dvec4", "vec4"}, {"dmat2", "mat2"}, {"dmat3", "mat3"},
+	{"dmat4", "mat4"}, {"dmat2x2", "mat2x2"}, {"dmat2x3", "mat2x3"},
+	{"dmat2x4", "mat2x4"}, {"dmat3x2", "mat3x2"}, {"dmat3x3", "mat3x3"},
+	{"dmat3x4", "mat3x4"}, {"dmat4x2", "mat4x2"}, {"dmat4x3", "mat4x3"},
+	{"dmat4x4", "mat4x4"},
+};
+#define NDBL (sizeof dbl_types / sizeof dbl_types[0])
+
+/* the double built-ins GLSL ES has not, as stubs: result, name, parameter */
+static const char *const dbl_builtins[][3] = {
+	{"float", "packDouble2x32", "uvec2"},
+	{"uvec2", "unpackDouble2x32", "float"},
+};
+
 /* layout qualifiers of Vulkan's GLSL that GLSL ES 3.10 has not, and the
  * function level has no use for: taken out of their layout(...) */
 static const char *const vk_layout[] = {"offset", "constant_id", "align",
@@ -513,6 +534,14 @@ es_prelude(struct sbuf *o, const char *src, int stage)
 			    t->ctor, *f, t->as);
 		}
 	}
+	for (k = 0; k < sizeof dbl_builtins / sizeof dbl_builtins[0]; k++)
+		for (i = 0; src[i]; i++)
+			if (word_at(src, i, dbl_builtins[k][1])) {
+				sb_printf(o, "%s %s(highp %s p1) { return %s(0); } ",
+				    dbl_builtins[k][0], dbl_builtins[k][1],
+				    dbl_builtins[k][2], dbl_builtins[k][0]);
+				break;
+			}
 	/* GL_EXT_integer_dot_product: every pairing of signed and unsigned */
 	{
 		static const char *const dn[] = {"dotPacked4x8EXT",
@@ -558,6 +587,55 @@ es_prelude(struct sbuf *o, const char *src, int stage)
 		for (; *f; f++)
 			sg_overload(o, b, *f);
 	}
+}
+
+/*
+ * A word or a number at i that GLSL ES spells otherwise, written to b: a
+ * narrow type (its 32-bit type, or its constructor's stub), a double
+ * type (its f32 one), a number (a double's lf, or LF, blanked).  The
+ * position past it, else i.
+ */
+static size_t
+es_word(struct sbuf *b, const char *src, size_t i)
+{
+	size_t k, e;
+
+	if (i > 0 && (isalnum((unsigned char)src[i - 1]) || src[i - 1] == '_' ||
+	    src[i - 1] == '.'))
+		return i;
+	if (isalpha((unsigned char)src[i])) {
+		for (k = 0; k < NNARROW; k++)
+			if (word_at(src, i, narrow_types[k].name)) {
+				e = i + strlen(narrow_types[k].name);
+				while (src[e] == ' ' || src[e] == '\t')
+					e++;
+				sb_puts(b, src[e] == '(' ? narrow_types[k].ctor :
+				    narrow_types[k].as);
+				return i + strlen(narrow_types[k].name);
+			}
+		for (k = 0; k < NDBL; k++)
+			if (word_at(src, i, dbl_types[k][0])) {
+				sb_puts(b, dbl_types[k][1]);
+				return i + strlen(dbl_types[k][0]);
+			}
+		return i;
+	}
+	if (!isdigit((unsigned char)src[i]) && !(src[i] == '.' &&
+	    isdigit((unsigned char)src[i + 1])))
+		return i;
+	e = i;
+	if (src[e] == '0' && (src[e + 1] == 'x' || src[e + 1] == 'X'))
+		e += 2;
+	while (isalnum((unsigned char)src[e]) || src[e] == '.' ||
+	    ((src[e] == '+' || src[e] == '-') && (src[e - 1] == 'e' ||
+	    src[e - 1] == 'E') && src[i + 1] != 'x' && src[i + 1] != 'X'))
+		e++;
+	if (e - i >= 3 && (!strncmp(src + e - 2, "lf", 2) ||
+	    !strncmp(src + e - 2, "LF", 2)))
+		sb_printf(b, "%.*s  ", (int)(e - 2 - i), src + i);
+	else
+		sb_printf(b, "%.*s", (int)(e - i), src + i);
+	return e;
 }
 
 static char *
@@ -662,19 +740,10 @@ es_text(const char *src, int stage)
 			}
 			continue;
 		}
-		if (isalpha((unsigned char)src[i]) && (i == 0 || !(isalnum(
-		    (unsigned char)src[i - 1]) || src[i - 1] == '_'))) {
-			size_t k;
-			for (k = 0; k < NNARROW; k++)
-				if (word_at(src, i, narrow_types[k].name))
-					break;
-			if (k < NNARROW) {
-				size_t e = i + strlen(narrow_types[k].name);
-				while (src[e] == ' ' || src[e] == '\t')
-					e++;
-				sb_puts(&b, src[e] == '(' ? narrow_types[k].ctor :
-				    narrow_types[k].as);
-				i += strlen(narrow_types[k].name);
+		{
+			size_t j = es_word(&b, src, i);
+			if (j != i) {
+				i = j;
 				continue;
 			}
 		}
@@ -779,8 +848,10 @@ es_text(const char *src, int stage)
 					ts--;
 				if (ts < te && ns < ne) {
 					size_t e = k + 1, depth = 1, last = 0;
-					sb_printf(&b, "%.*s%.*s%.*s(", (int)(k - i), src + i,
-					    (int)(te - ts), src + ts, (int)(rb - lb), src + lb);
+					sb_printf(&b, "%.*s", (int)(k - i), src + i);
+					if (es_word(&b, src, ts) == ts)
+						sb_printf(&b, "%.*s", (int)(te - ts), src + ts);
+					sb_printf(&b, "%.*s(", (int)(rb - lb), src + lb);
 					while (e < n && depth > 0) {
 						if (src[e] == '{')
 							depth++;
@@ -793,10 +864,16 @@ es_text(const char *src, int stage)
 					    src[last - 1]); last--)
 						;
 					{
-						size_t q;
-						for (q = k + 1; q < e; q++)
-							sb_putc(&b, q == last - 1 && src[q] == ',' ? ' ' :
-							    src[q]);
+						size_t q = k + 1, j;
+						while (q < e) {
+							if (q == last - 1 && src[q] == ',') {
+								sb_putc(&b, ' ');
+								q++;
+							} else if ((j = es_word(&b, src, q)) != q)
+								q = j;
+							else
+								sb_putc(&b, src[q++]);
+						}
 					}
 					sb_putc(&b, ')');
 					i = e + 1;
