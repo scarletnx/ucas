@@ -35,8 +35,7 @@ t1 and t2 are equal on the domain of t1 (proved by SAT: 531 AIG nodes, 126 confl
 > m1(x: u32, y: u32) = x * y
 > m2(x: u32, y: u32) = y * x
 > equiv m1 m2
-m1 and m2 are equal on the domain of m1 (sampled, not proved; SAT gave up on 9326 AIG nodes within its budget of 100000 conflicts or 2 s)
-  polynomials of total degree at most 2, equal at 4 random points mod 2^61 - 1: two that differ agree at one with probability at most 2/(2^61 - 1) = 8.67e-19 (Schwartz-Zippel), at all 4 with at most 5.66e-73: equal over the integers except with that probability, and then for every input here (a probabilistic answer, not a proof)
+m1 and m2 are equal on the domain of m1 (proved by algebra: both sides expand to one polynomial in x, y mod 2^32)
 > wb(v: u8, n: u8 in 5..8) = ((u32(v) << (8 - n)) | (u32(v) >> (2*n - 8))) & 0xFF where v < 1 << n
 > find wb
 find wb: 224 points, computing in u32, costs from gt1030
