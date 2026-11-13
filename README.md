@@ -1766,6 +1766,20 @@ model prices it lower.  A request's `use MODEL` and model definitions
 run before its simplify, and a model defined there is one the request
 can name.
 
+A float function's hyperbolic calls (sinh, cosh, tanh and their
+inverses), library sequences on cards with no instruction for them (4
+ftrans under gt1030; tanh measured 17.7), are also written with exp, log
+and sqrt, the special-function unit's instructions: as the formula
+Vulkan inherits each one's precision from, so within that precision by
+definition, and for sinh, cosh and tanh as a cheaper form with one exp
+(tanh as 1 - 2/(exp(2x) + 1), finite at both ends where the inherited
+formula is NaN once exp overflows).   Each is priced and measured against
+the function on its domain as `error` measures (the largest absolute and
+relative errors, in ulp, and the points where it is NaN or infinite and
+the function is not): a measurement, not a bound.   Near a zero of the
+function the formulas cancel: tanh near 0 is off by about 1e-7,
+absolute, which is all of it, relative (tests/sfu.ucas).
+
 `cost F` counts each shared subterm once (and prints the body's shared
 subterms once, named, so the rest of the report can refer to them) and
 prices every `?:` three ways (at most 12 are listed; the rest are

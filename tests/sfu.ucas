@@ -1,0 +1,23 @@
+# find: library calls (sinh, cosh, tanh and their inverses) as exp, log
+# and sqrt, the special-function unit's instructions: the formula Vulkan
+# inherits each one's precision from, and a form with one exp; each
+# priced under gt1030 and measured against the call
+use gt1030
+f(x: f32 in -4..4) = tanh(x)
+find f 1
+s(x: f32 in 0.5..4) = sinh(x)
+find s 1
+c(x: f32 in -4..4) = cosh(x)
+find c 1
+as(x: f32 in -4..4) = asinh(x)
+find as 1
+ac(x: f32 in 1..8) = acosh(x)
+find ac 1
+at(x: f32 in -0.9..0.9) = atanh(x)
+find at 1
+# a tone curve of two inputs: the calls inside an expression
+tm(x: f32 in 0..20, w: f32 in 1..2) = tanh(x * w) * 0.5 + 0.5
+find tm
+# where exp overflows the inherited formula is NaN, the one-exp form is not
+big(x: f32 in -100..100) = tanh(x)
+find big 1

@@ -691,6 +691,9 @@ extern uint64_t gates_budget;
 void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost);
 void cmd_more(int want);
 void cmd_fit(struct func *g, struct func *f, int metric);
+void error_measured(const struct func *f, nid approx, double *maxabs,
+    double *maxrel, double *maxulp, uint64_t *points, uint64_t *bad);
+					/* analyze.c, as `error` measures */
 extern int fit_quiet;
 extern double fit_last_k[MAXP], fit_last_obj;
 void cmd_error(struct func *g, struct func *f);

@@ -1,0 +1,80 @@
+> use gt1030
+cost model: gt1030
+> f(x: f32 in -4..4) = tanh(x)
+> find f 1
+find f: library calls as exp, log and sqrt, the special-function unit's instructions (f costs 16 under gt1030)
+  cost 14     (exp(x) - exp(-x))/(exp(x) + exp(-x))
+    tanh as sinh(x) / cosh(x), the halves cancelling exactly, the formula Vulkan inherits its precision from: within it by definition;
+    against f on 65536 points: max abs 1.19e-07, max rel 1 (855630515 ulp)
+  cost 10     1 - 2/(exp(2x) + 1)
+    tanh as 1 - 2/(exp(2x) + 1), one exp, finite at both ends;
+    against f on 65536 points: max abs 1.79e-07, max rel 1.67 (868180898 ulp)
+find f: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact tanh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> s(x: f32 in 0.5..4) = sinh(x)
+> find s 1
+find s: library calls as exp, log and sqrt, the special-function unit's instructions (s costs 16 under gt1030)
+  cost 11     0.5(exp(x) - exp(-x))
+    sinh as (exp(x) - exp(-x)) * 0.5, the formula Vulkan inherits its precision from: within it by definition;
+    against s on 65536 points: max abs 1.91e-06, max rel 1.58e-07 (2 ulp)
+  cost 9      0.5(exp(x) - 1/exp(x))
+    sinh as one exp and its reciprocal;
+    against s on 65536 points: max abs 1.91e-06, max rel 1.59e-07 (2 ulp)
+find s: IEEE bit-level families, magic constant K fitted for max relative error
+  max rel 0.3936     cost 3     asfloat((asuint(x) << 1) - 1063139570)        (x^2 family)
+  [exact sinh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> c(x: f32 in -4..4) = cosh(x)
+> find c 1
+find c: library calls as exp, log and sqrt, the special-function unit's instructions (c costs 16 under gt1030)
+  cost 11     0.5(exp(x) + exp(-x))
+    cosh as (exp(x) + exp(-x)) * 0.5, the formula Vulkan inherits its precision from: within it by definition;
+    against c on 65536 points: max abs 1.91e-06, max rel 1.19e-07 (1 ulp)
+  cost 9      0.5(exp(x) + 1/exp(x))
+    cosh as one exp and its reciprocal;
+    against c on 65536 points: max abs 1.91e-06, max rel 1.22e-07 (2 ulp)
+find c: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact cosh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> as(x: f32 in -4..4) = asinh(x)
+> find as 1
+find as: library calls as exp, log and sqrt, the special-function unit's instructions (as costs 16 under gt1030)
+  cost 10     log(x + sqrt(x*x + 1))
+    asinh as log(x + sqrt(x * x + 1)), the formula Vulkan inherits its precision from: within it by definition;
+    against as on 65536 points: max abs 1.91e-06, max rel 1 (864024751 ulp)
+find as: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact asinh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> ac(x: f32 in 1..8) = acosh(x)
+> find ac 1
+find ac: library calls as exp, log and sqrt, the special-function unit's instructions (ac costs 16 under gt1030)
+  cost 10     log(x + sqrt(x*x - 1))
+    acosh as log(x + sqrt(x * x - 1)), the formula Vulkan inherits its precision from: within it by definition;
+    against ac on 65536 points: max abs 1.17e-06, max rel 5.16e-05 (628 ulp)
+find ac: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact acosh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> at(x: f32 in -0.9..0.9) = atanh(x)
+> find at 1
+find at: library calls as exp, log and sqrt, the special-function unit's instructions (at costs 16 under gt1030)
+  cost 10     0.5log((x + 1)/(1 - x))
+    atanh as log((1 + x) / (1 - x)) * 0.5, the formula Vulkan inherits its precision from: within it by definition;
+    against at on 65536 points: max abs 1.19e-07, max rel 1 (855621900 ulp)
+find at: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact atanh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
+> tm(x: f32 in 0..20, w: f32 in 1..2) = tanh(x * w) * 0.5 + 0.5
+> find tm
+find tm: library calls as exp, log and sqrt, the special-function unit's instructions (tm costs 18 under gt1030)
+  cost 16     0.5((exp(x*w) - exp(-x*w))/(exp(x*w) + exp(-x*w))) + 0.5
+    tanh as sinh(x) / cosh(x), the halves cancelling exactly, the formula Vulkan inherits its precision from: within it by definition;
+    against tm on 65536 points: max abs 1.19e-07, max rel 1.35e-07 (2 ulp)
+  cost 12     0.5(1 - 2/(exp(2(x*w)) + 1)) + 0.5
+    tanh as 1 - 2/(exp(2x) + 1), one exp, finite at both ends;
+    against tm on 65536 points: max abs 5.96e-08, max rel 1.19e-07 (1 ulp)
+> big(x: f32 in -100..100) = tanh(x)
+> find big 1
+find big: library calls as exp, log and sqrt, the special-function unit's instructions (big costs 16 under gt1030)
+  cost 14     (exp(x) - exp(-x))/(exp(x) + exp(-x))
+    tanh as sinh(x) / cosh(x), the halves cancelling exactly, the formula Vulkan inherits its precision from: within it by definition;
+    against big on 65450 points: max abs 1.19e-07, max rel 1 (855609233 ulp), NaN or infinite at 86 where big is finite (an exp out of range)
+  cost 10     1 - 2/(exp(2x) + 1)
+    tanh as 1 - 2/(exp(2x) + 1), one exp, finite at both ends;
+    against big on 65536 points: max abs 1.79e-07, max rel 1.66 (868173375 ulp)
+find big: IEEE bit-level families, magic constant K fitted for max relative error
+  [exact tanh(x) costs 16 under gt1030; refine a family with a Newton step and check it with 'error']
