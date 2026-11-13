@@ -179,6 +179,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_FETCH_BORDER] = {"fetch_border", 3, 0},
 	[O_TEX_LINEAR] = {"tex_linear", 2, 0},
 	[O_TEX_BILINEAR] = {"tex_bilinear", 3, 0},
+	[O_FETCH_LAYER] = {"fetch_layer", 2, 0},
 };
 
 static const char *const atomic_names[] = {
@@ -773,7 +774,8 @@ mk_bin(int op, nid a, nid b)
 	if (IS_TEX(op)) {
 		/* a rebuilder that knows neither the node's grid nor its
 		 * third operand: mk_like() keeps both */
-		if (op == O_FETCH_BORDER || !IS_FETCH(op))
+		if (op == O_FETCH_BORDER || (!IS_FETCH(op) &&
+		    op != O_FETCH_LAYER))
 			fail("%s cannot be rebuilt from two operands",
 			    opinfo[op].name);
 		return mk_tex(op, 0, a, b, 0);
@@ -1024,6 +1026,22 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 	if (N.op[a] != O_TABLE || N.b[a] == 0)
 		fail("%s takes a table [t0, t1, ...] first", opinfo[op].name);
 	n = N.b[a];
+	if (op == O_FETCH_LAYER) {
+		/* the layer coordinate is an f32 the unit rounds */
+		if (!TY_FP(N.ty[b]))
+			fail("fetch_layer takes a float layer coordinate, "
+			    "not %s", ty_str(N.ty[b]));
+		b = mk_cast(TY_F32, b);
+		if (N.op[b] == O_UNDEF)
+			return mk_undef(N.ty[a]);
+		if (is_const(b)) {
+			int64_t t = tex_layer(N.kr[b], n);
+			return t < 0 ? mk_undef(N.ty[a]) : N.lst[N.a[a] +
+			    (uint32_t)t];
+		}
+		fl = (N.fl[a] | N.fl[b]) & (NF_PARTIAL | NF_VAR);
+		return intern(op, N.ty[a], a, b, 0, 0, 0.0, fl | NF_PARTIAL);
+	}
 	if (IS_FETCH(op)) {
 		if (!TY_ISINT(N.ty[b]))
 			fail("%s takes an integer texel index, not %s",
@@ -1750,7 +1768,7 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		break;
 	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
-	case O_TEX_BILINEAR:
+	case O_TEX_BILINEAR: case O_FETCH_LAYER:
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		pr(b, N.a[n], 0, pc, 0);

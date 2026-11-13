@@ -1,0 +1,84 @@
+> model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+> model layert : texel { tex_layer: 7 }
+> show fetch_layer([10, 20, 30, 40], 0.5)
+_() = 10
+  -> int
+> show fetch_layer([10, 20, 30, 40], 1.5)
+_() = 30
+  -> int
+> show fetch_layer([10, 20, 30, 40], 2.5000002)
+_() = 40
+  -> int
+> show fetch_layer([10, 20, 30, 40], -7.0)
+_() = 10
+  -> int
+> show fetch_layer([10, 20, 30, 40], 1e30)
+_() = 40
+  -> int
+> l1(i: u16, j: u16) = [10, 20, 30, 40, 50, 60, 70, 80][min(max(i32(roundeven(f32(i) - f32(j))), 0), 7)]
+> texalu l1 under layert
+texalu l1: reads through the texture unit under layert (cost 21.875 as written):
+  cost 14  fetch_layer([10, 20, 30, 40, 50, 60, 70, 80], f32(i) - f32(j))
+      [10, 20, 30, 40, 50, 60, 70, 80][min(max(i32(roundeven(f32(i) - f32(j))), 0), 7)] is fetch_layer([10, 20, 30, 40, 50, 60, 70, 80], f32(i) - f32(j))
+      holds wherever [10, 20, 30, 40, 50, 60, 70, 80][min(max(i32(roundeven(f32(i) - f32(j))), 0), 7)] is defined: the layer the unit selects is clamp(RNE(f32(i) - f32(j)), 0, 7)
+      the specification's RNE is roundTiesToEven (preferred) or floor(z + 1/2) (allowed); roundeven(z) is the first, and the two differ only at z = k + 1/2 for an even k in 0..6; f32(i) - f32(j) is a whole number (made of integers converted, roundings and whole constants), none of them; i32(roundeven(f32(i) - f32(j))) does not wrap: f32(i) - f32(j) is in [-65535, 65535]; the same layer either way
+      compared on the points tried as a second opinion: the same
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 1 x 1, 8 layers (an array view, VK_IMAGE_VIEW_TYPE_1D_ARRAY), layer l holding the table's entry l
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(0.5, f32(i) - f32(j)), 0.0).r (the unit rounds and clamps the layer)
+> l2(i: i16) = min(max(floor(f32(i) * 2.0 + 0.5), 0.0), 15.0)
+> texalu l2 under layert
+texalu l2: the texture unit under layert (cost 9 as written): nothing taken
+  derived, but not cheaper under layert (cost 11, as written 9):
+  min(max(floor(2f32(i) + 0.5), 0), 15) is fetch_layer([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 2f32(i))
+> l3(z: f32 in 0.0..7.0) = min(max(roundeven(z), 0.0), 7.0)
+> texalu l3 under layert
+texalu l3: the texture unit under layert (cost 5 as written): nothing taken
+  min(max(roundeven(z), 0), 7) would be fetch_layer([0, 1, 2, 3, 4, 5, 6, 7], z), but z may be 0.5, where the unit takes layer 0 with roundTiesToEven (the specification's preferred RNE) or 1 with floor(z + 1/2) (allowed): it needs a range without those values
+> l4(z: f32 in 2.6..3.4) = [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 0), 3)]
+> texalu l4 under layert
+texalu l4: reads through the texture unit under layert (cost 14.875 as written):
+  cost 7   fetch_layer([1.5, 2.5, 4.5, 8.5], z)
+      [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 0), 3)] is fetch_layer([1.5, 2.5, 4.5, 8.5], z)
+      holds wherever [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 0), 3)] is defined: the layer the unit selects is clamp(RNE(z), 0, 3)
+      the specification's RNE is roundTiesToEven (preferred) or floor(z + 1/2) (allowed); roundeven(z) is the first, and the two differ only at z = k + 1/2 for an even k in 0..2; z is in [2.6, 3.4] (its range), which holds none of them; i32(roundeven(z)) does not wrap: z is in [2.6, 3.4]; the same layer either way
+      compared on the points tried as a second opinion: the same
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT (each entry as its f32), 1 x 1, 4 layers (an array view, VK_IMAGE_VIEW_TYPE_1D_ARRAY), layer l holding the table's entry l
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(0.5, z), 0.0).r (the unit rounds and clamps the layer)
+> l5(z: f32 in 0.25..0.49999998) = min(max(floor(z + 0.5), 0.0), 3.0)
+> texalu l5 under layert
+texalu l5: the texture unit under layert (cost 6 as written): nothing taken
+  min(max(floor(z + 0.5), 0), 3) would be fetch_layer([0, 1, 2, 3], z), but z may be 0.49999997, where floor(z + 0.5) in f32 is 1 (the add rounds up) and the unit takes layer 0 either way
+> l5b(z: f32 in 0.25..0.4999999) = [3.0, 5.0, 7.0, 9.0][min(max(i32(floor(z + 0.5)), 0), 3)]
+> texalu l5b under layert
+texalu l5b: reads through the texture unit under layert (cost 15.875 as written):
+  cost 7   fetch_layer([3, 5, 7, 9], z)
+      [3, 5, 7, 9][min(max(i32(floor(z + 0.5)), 0), 3)] is fetch_layer([3, 5, 7, 9], z)
+      holds wherever [3, 5, 7, 9][min(max(i32(floor(z + 0.5)), 0), 3)] is defined: the layer the unit selects is clamp(RNE(z), 0, 3)
+      the specification's RNE is roundTiesToEven (preferred) or floor(z + 1/2) (allowed); floor(z + 0.5) is the second, and the two differ only at z = k + 1/2 for an even k in 0..2 (and floor(z + 0.5) made in f32 at z = 0.5 - 2^-25, where the add rounds up to 1); z is in [0.25, 0.4999999] (its range), which holds none of them; i32(floor(z + 0.5)) does not wrap: z is in [0.25, 0.4999999]; the same layer either way
+      compared on the points tried as a second opinion: the same
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R32_SFLOAT (each entry as its f32), 1 x 1, 4 layers (an array view, VK_IMAGE_VIEW_TYPE_1D_ARRAY), layer l holding the table's entry l
+        a sampler: NEAREST filters, CLAMP_TO_EDGE, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(0.5, z), 0.0).r (the unit rounds and clamps the layer)
+> l7(z: f32 in 2.6..3.4) = [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 1), 3)]
+> texalu l7 under layert
+texalu l7: the texture unit under layert (cost 14.875 as written): nothing taken
+  [1.5, 2.5, 4.5, 8.5][min(max(i32(roundeven(z)), 1), 3)] agrees with fetch_repeat([1.5, 2.5, 4.5, 8.5], max(i32(roundeven(z)), 1)) on the points tried, but max(i32(roundeven(z)), 1) is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
+> l6(i: u32) = [10, 20, 30, 40][min(max(i32(roundeven(f32(i))), 0), 3)]
+> texalu l6 under layert
+texalu l6: the texture unit under layert (cost 17.875 as written): nothing taken
+  [10, 20, 30, 40][min(max(i32(roundeven(f32(i))), 0), 3)] would be fetch_layer([10, 20, 30, 40], f32(i)), but i32(roundeven(f32(i))) can wrap on the values f32(i) takes, where the clamp no longer gives the unit's layer: it needs a range
+  min(max(i32(roundeven(f32(i))), 0), 3) would be fetch_layer([0, 1, 2, 3], f32(i)), but i32(roundeven(f32(i))) can wrap on the values f32(i) takes, where the clamp no longer gives the unit's layer: it needs a range
+  [10, 20, 30, 40][min(max(i32(roundeven(f32(i))), 0), 3)] agrees with fetch_clamp([10, 20, 30, 40], max(i32(roundeven(f32(i))), 0)) on the points tried, but max(i32(roundeven(f32(i))), 0) is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
+> texalu l1 under texel
+texalu l1: the texture unit under texel (cost 21.875 as written): nothing taken
+  texel lists no tex_layer: a read of an array texture's layer is not available
+  [10, 20, 30, 40, 50, 60, 70, 80][min(max(i32(roundeven(f32(i) - f32(j))), 0), 7)] agrees with fetch_clamp([10, 20, 30, 40, 50, 60, 70, 80], max(i32(roundeven(f32(i) - f32(j))), 0)) on the points tried, but max(i32(roundeven(f32(i) - f32(j))), 0) is not known to stay within +-4161534, where its coordinate (i + 1/2)/n is still exact enough in f32: give it a range
+> f(i: u8) = fetch_layer([1, 2], i)
+texlayer.ucas:39:34: error: fetch_layer takes a float layer coordinate, not u8
+    f(i: u8) = fetch_layer([1, 2], i)
+                                     ^

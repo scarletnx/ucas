@@ -24,6 +24,13 @@
  *                             rows of W texels: four texels, their
  *                             weights the products of the two axes'
  *
+ * An array texture's layer: fetch_layer(T, z) is layer clamp(RNE(z), 0,
+ * n - 1) of n layers, each holding one entry of T.  The specification's
+ * RNE is roundTiesToEven (preferred) or floor(z + 1/2) (allowed), so the
+ * two differ at z = k + 1/2 for an even k; the operation is the first and
+ * a rewrite into it holds only where the unit's choice does not matter.
+ * A NaN selects no layer: undefined.
+ *
  * with c the clamp to the table (the row, the column).  The texels are
  * f32, the weighted sum is exact and rounded once to f32 (to nearest,
  * ties to even).  B is 1..14 (tex_linear8: weights in 1/256).
@@ -63,6 +70,9 @@ int tex_srgb_table(nid tab);
 
 /* a fetch_ op's texel for index i of n: 0..n-1, or -1 the border */
 int64_t tex_wrap(int op, int64_t i, int64_t n);
+/* fetch_layer's layer for coordinate z of n layers: clamp(RNE(z), 0, n - 1)
+ * with RNE to nearest, a tie to the even one; -1 for a NaN */
+int64_t tex_layer(double z, int64_t n);
 /* a linear filter's first texel floor(x - 1/2) and the weight of the
  * next one, on the grid of bits; NaN for a coordinate that is not finite */
 double tex_weight(double x, int bits, int64_t *i0);

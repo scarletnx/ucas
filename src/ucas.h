@@ -194,13 +194,16 @@ enum {
 	 */
 	O_FETCH_REPEAT, O_FETCH_MIRROR, O_FETCH_CLAMP, O_FETCH_MCLAMP,
 	O_FETCH_BORDER, O_TEX_LINEAR, O_TEX_BILINEAR,
+	/* the layer of an array texture a float coordinate selects:
+	 * fetch_layer(T, z) = T[clamp(RNE(z), 0, n - 1)] */
+	O_FETCH_LAYER,
 	/* to the nearest integer, a tie to the even one (C23 roundeven,
 	 * GLSL roundEven, SPIR-V RoundEven) */
 	O_ROUNDEVEN,
 	O_NOPS
 };
 #define O_TEX_FIRST O_FETCH_REPEAT
-#define O_TEX_LAST O_TEX_BILINEAR
+#define O_TEX_LAST O_FETCH_LAYER
 #define IS_TEX(op) ((op) >= O_TEX_FIRST && (op) <= O_TEX_LAST)
 #define IS_FETCH(op) ((op) >= O_FETCH_REPEAT && (op) <= O_FETCH_BORDER)
 #define O_DOT_FIRST O_UDOT4X8
@@ -404,7 +407,9 @@ enum {
 	C_TEX_NEAREST,
 	/* a texel fetch of an _SRGB texture, a byte through the sRGB EOTF */
 	C_TEX_SRGB,
-	C_MEM_LAST = C_TEX_SRGB,
+	/* a nearest read of an array texture's layer (fetch_layer) */
+	C_TEX_LAYER,
+	C_MEM_LAST = C_TEX_LAYER,
 	/*
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,
