@@ -37,3 +37,16 @@ wq(x: u8, y: u8) = (a >= b ? 0 : 1) where a = x & 7, b = y & 7
 show wq
 # written beside the comparison, the note stays
 wr(x: u8, y: u8) = (a & 7 >= b ? 0 : 1) where a = x, b = y & 7
+# integer literals go up to 2^64 - 1 (a u64 past 2^63 - 1); past it, an error that names the literal
+lmax(x: u64) = x & 18446744073709551615
+lbig(x: u64) = x + 18446744073709551616
+lhex(x: u64) = x & 0x1_0000_0000_0000_0000
+# a minus right before 2^63 is the int -2^63; before a larger u64 literal it wraps, with a note
+-9223372036854775808
+f64(-9223372036854775808)
+-9_223_372_036_854_775_808 == -9223372036854775807 - 1
+-0x8000_0000_0000_0000
+-18446744073709551615
+match -9223372036854775808 { -9223372036854775808 => 1, _ => 2 }
+mn(x: i64 in -9223372036854775808..-9223372036854775805) = x + 1
+range mn

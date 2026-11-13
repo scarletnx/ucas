@@ -42,6 +42,7 @@ int homalg_command(struct P *p);	/* homalg.h */
 int ec_command(struct P *p);	/* ec.h (absalg.h names a parameter I) */
 
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -269,6 +270,7 @@ number(struct P *p)
 		f32 = 1;
 		buf[--j] = 0;
 	}
+	errno = 0;
 	if (buf[0] == '0' && (buf[1] == 'x' || buf[1] == 'X'))
 		v = strtoull(buf + 2, NULL, 16);
 	else if (buf[0] == '0' && (buf[1] == 'b' || buf[1] == 'B'))
@@ -286,10 +288,33 @@ number(struct P *p)
 		}
 		v = strtoull(buf, NULL, 10);
 	}
+	if (errno == ERANGE)
+		fail("the integer literal %.*s is too large: the largest is "
+		    "2^64 - 1 = 18446744073709551615 (a u64)", (int)n, s);
 	adv(p);
 	r = mk_const_i(v > (uint64_t)INT64_MAX ? TY(K_UINT, 64) : TY_LIT,
 	    (int64_t)v);
 	return r;
+}
+
+/*
+ * A minus right before an integer literal past 2^63 - 1 (a u64): 2^63 gives
+ * the int -2^63, which int64 holds; a larger one stays the u64 negation,
+ * which wraps, and says so.  *v is the literal's value as its bits.
+ */
+static int
+neg_literal(struct P *p, uint32_t at, int64_t *v)
+{
+	size_t n;
+	const char *s = ttext(p, at, &n);
+
+	if ((uint64_t)*v == (uint64_t)INT64_MAX + 1)
+		return 1;
+	note("-%.*s: %.*s is past 2^63 - 1, so it is a u64 and its negation "
+	    "wraps to %llu", (int)n, s, (int)n, s,
+	    (unsigned long long)(0 - (uint64_t)*v));
+	*v = (int64_t)(0 - (uint64_t)*v);
+	return 0;
 }
 
 /* ---- names ---- */
@@ -1164,6 +1189,8 @@ static int64_t
 pat_num(struct P *p)
 {
 	int neg = accept(p, T_MINUS);
+	uint32_t at = p->i;
+	int64_t k;
 	nid v;
 
 	if (pk(p) != T_NUM)
@@ -1171,7 +1198,10 @@ pat_num(struct P *p)
 	v = number(p);
 	if (!is_const(v) || !TY_ISINT(N.ty[v]))
 		fail("patterns are integers");
-	return neg ? -N.ki[v] : N.ki[v];
+	k = N.ki[v];
+	if (neg && N.ty[v] == TY(K_UINT, 64) && neg_literal(p, at, &k))
+		return INT64_MIN;
+	return neg && N.ty[v] != TY(K_UINT, 64) ? -k : k;
 }
 
 static nid
@@ -1301,7 +1331,16 @@ prefix(struct P *p)
 		return e;
 	case T_MINUS:
 		adv(p);
-		return mk_un(O_NEG, parse_expr(p, BP_UNARY));
+		n = (int)p->i;
+		e = parse_expr(p, BP_UNARY);
+		if (p->t->kind[n] == T_NUM && p->i == (uint32_t)n + 1 &&
+		    is_const(e) && N.ty[e] == TY(K_UINT, 64)) {
+			int64_t k = N.ki[e];
+			return neg_literal(p, (uint32_t)n, &k) ?
+			    mk_const_i(TY_LIT, INT64_MIN) :
+			    mk_const_i(TY(K_UINT, 64), k);
+		}
+		return mk_un(O_NEG, e);
 	case T_PLUS:
 		adv(p);
 		return parse_expr(p, BP_UNARY);
@@ -2964,11 +3003,11 @@ statement(struct P *p)
 					neg = accept(p, T_MINUS);
 					if (!cmdp_int(p, &lo))
 						fail("simplify: assume NAME LO HI");
-					lo = neg ? -lo : lo;
+					lo = neg ? (int64_t)(0 - (uint64_t)lo) : lo;
 					neg = accept(p, T_MINUS);
 					if (!cmdp_int(p, &hi))
 						fail("simplify: assume NAME LO HI");
-					hi = neg ? -hi : hi;
+					hi = neg ? (int64_t)(0 - (uint64_t)hi) : hi;
 					spirv_assume(nm, lo, hi);
 				} else if (accept_kw(p, "fassume") && pk(p) == T_ID) {
 					/* fassume NAME LO HI LOOPEN HIOPEN (float simplify) */

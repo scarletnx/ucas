@@ -110,6 +110,11 @@ bare `W` without a call stays a variable), conversions `u8(x) f16(x) f32(x) real
 `asuint asint asfloat` (`bits` = `asuint`), effects `barrier(e)`,
 `atomic_{add,sub,min,max,and,or,xor,xchg}[_shared](x, v)`.  C float
 literals (`1.5f`) are `f32`.
+An integer literal is an `int`; one past 2^63 - 1, up to 2^64 - 1
+(`0xFFFF_FFFF_FFFF_FFFF`), is a `u64`, and one past 2^64 - 1 is an
+error.  A minus right before the literal 2^63 gives the `int` -2^63; in
+front of a larger `u64` literal it is the `u64` negation, which wraps
+(with a note).
 
 ```
 match x { 0 => 3, 1 | 2 => 5, 3..9 => 7, _ => 9 }   # also switch, ':' or '->'

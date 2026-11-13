@@ -80,3 +80,31 @@ wq(x: u8, y: u8) = x & 7 >= y & 7 ? 0 : 1
   -> int
 > wr(x: u8, y: u8) = (a & 7 >= b ? 0 : 1) where a = x, b = y & 7
   note: bitwise operators bind tighter than comparisons here (unlike C): read as ((x & 7) >= (y & 7))
+> lmax(x: u64) = x & 18446744073709551615
+> lbig(x: u64) = x + 18446744073709551616
+parse.ucas:42:20: error: the integer literal 18446744073709551616 is too large: the largest is 2^64 - 1 = 18446744073709551615 (a u64)
+    lbig(x: u64) = x + 18446744073709551616
+                       ^
+> lhex(x: u64) = x & 0x1_0000_0000_0000_0000
+parse.ucas:43:20: error: the integer literal 0x1_0000_0000_0000_0000 is too large: the largest is 2^64 - 1 = 18446744073709551615 (a u64)
+    lhex(x: u64) = x & 0x1_0000_0000_0000_0000
+                       ^
+> -9223372036854775808
+-9223372036854775808
+> f64(-9223372036854775808)
+-9.2233720368547758e+18
+> -9_223_372_036_854_775_808 == -9223372036854775807 - 1
+1
+> -0x8000_0000_0000_0000
+-9223372036854775808
+> -18446744073709551615
+  note: -18446744073709551615: 18446744073709551615 is past 2^63 - 1, so it is a u64 and its negation wraps to 1
+1
+> match -9223372036854775808 { -9223372036854775808 => 1, _ => 2 }
+1
+> mn(x: i64 in -9223372036854775808..-9223372036854775805) = x + 1
+> range mn
+range of mn -> i64:
+  -9223372036854775807..-9223372036854775804
+  fits in i64
+  over all 4 points of the domain
