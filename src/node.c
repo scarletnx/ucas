@@ -139,6 +139,7 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_MAX2X16] = {"max2x16", 2, OF_INT},
 	[O_SMIN2X16] = {"smin2x16", 2, OF_INT},
 	[O_SMAX2X16] = {"smax2x16", 2, OF_INT},
+	[O_ASTC_PART] = {"astc_partition", 3, OF_INT},
 	[O_FETCH_REPEAT] = {"fetch_repeat", 2, 0},
 	[O_FETCH_MIRROR] = {"fetch_mirror", 2, 0},
 	[O_FETCH_CLAMP] = {"fetch_clamp", 2, 0},
@@ -1029,6 +1030,8 @@ mk_like(nid n, nid a, nid b, nid c)
 {
 	if (IS_TEX(N.op[n]))
 		return mk_tex(N.op[n], N.ki[n], a, b, c);
+	if (IS_ASTC(N.op[n]))
+		return mk_astc(N.op[n], N.ki[n], a, b, c);
 	return mk_op(N.op[n], a, b, c);
 }
 
@@ -1309,8 +1312,14 @@ rebuild(nid n, const nid *map, int nmap)
 			nid a = rebuild(N.a[n], map, nmap);
 			nid b = rebuild(N.b[n], map, nmap);
 			nid c = rebuild(N.c[n], map, nmap);
-			r = sg_lowering ? inst_expand(N.op[n], a, b, c) :
-			    mk_inst(N.op[n], a, b, c);
+			if (IS_ASTC(N.op[n]))
+				r = sg_lowering ?
+				    astc_expand(N.op[n], N.ki[n], a, b, c) :
+				    mk_astc(N.op[n], N.ki[n], a, b, c);
+			else if (sg_lowering)
+				r = inst_expand(N.op[n], a, b, c);
+			else
+				r = mk_inst(N.op[n], a, b, c);
 		} else if (IS_DOT(N.op[n]))
 			r = mk_dot(N.op[n], rebuild(N.a[n], map, nmap),
 			    rebuild(N.b[n], map, nmap), rebuild(N.c[n], map, nmap));
@@ -1755,6 +1764,8 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 			 * byte select's by its bytes */
 			pr(b, N.c[n], 0, pc, op == O_BYTEPERM || op == O_BYTESEL);
 		}
+		if (op == O_ASTC_PART)
+			sb_printf(b, ", %lld", (long long)N.ki[n]);
 		sb_putc(b, ')');
 	}
 	if (p < minp)
@@ -1899,6 +1910,8 @@ print_paren(struct sbuf *b, nid n)
 			sb_puts(b, ", ");
 			print_paren(b, N.c[n]);
 		}
+		if (op == O_ASTC_PART)
+			sb_printf(b, ", %lld", (long long)N.ki[n]);
 		sb_putc(b, ')');
 		return;
 	}

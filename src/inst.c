@@ -366,6 +366,9 @@ mk_inst(int op, nid a, nid b, nid c)
 	ty_t t;
 	nid r;
 
+	if (IS_ASTC(op))
+		fail("%s cannot be rebuilt from its operands alone (its "
+		    "constant rides in the node: mk_like)", nm);
 	if (!TY_ISINT(N.ty[a]) || (ar >= 2 && !TY_ISINT(N.ty[b])) ||
 	    (ar == 3 && !TY_ISINT(N.ty[c])))
 		fail("%s takes integer operands", nm);

@@ -348,6 +348,8 @@ static const struct bfn bfns[] = {
 	{"mul2x16", O_MUL2X16, 2}, {"min2x16", O_MIN2X16, 2},
 	{"max2x16", O_MAX2X16, 2}, {"smin2x16", O_SMIN2X16, 2},
 	{"smax2x16", O_SMAX2X16, 2},
+	/* astc.c: the ASTC decoder's steps */
+	{"astc_partition", O_ASTC_PART, 4},
 	{NULL, 0, 0}
 };
 
@@ -834,6 +836,8 @@ apply_builtin(struct P *p, const struct bfn *b, nid *args, int n)
 		return mk_inst(O_BFI, args[0], args[1], bfi_field((int)
 		    N.ki[args[2]], (int)N.ki[args[3]]));
 	}
+	if (IS_ASTC(b->op))
+		return astc_call(b->op, args);
 	if (IS_INST(b->op))
 		return mk_inst(b->op, args[0], b->arity >= 2 ? args[1] : 0,
 		    b->arity == 3 ? args[2] : 0);

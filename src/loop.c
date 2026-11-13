@@ -866,7 +866,7 @@ xr1(struct xr *x, nid n)
 			r = mk_tex(N.op[n], N.ki[n], xr1(x, N.a[n]),
 			    xr1(x, N.b[n]), N.c[n] ? xr1(x, N.c[n]) : 0);
 		else if (IS_OP3(N.op[n]))
-			r = mk_op(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]),
+			r = mk_like(n, xr1(x, N.a[n]), xr1(x, N.b[n]),
 			    N.c[n] ? xr1(x, N.c[n]) : 0);
 		else
 			r = mk_bin(N.op[n], xr1(x, N.a[n]), xr1(x, N.b[n]));

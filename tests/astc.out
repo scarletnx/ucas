@@ -1,0 +1,74 @@
+> show astc_partition(70, 0, 0, 3)
+_() = 2
+  -> u32
+> show astc_partition(70, 11, 1, 3)
+_() = 1
+  -> u32
+> show astc_partition(1023, 5, 9, 1)
+_() = 0
+  -> u32
+> p4(s: u10, x: u4, y: u4) = astc_partition(s, x, y, 4)
+> range p4
+range of p4 -> u32:
+  0..3
+  fits in u2
+  over all 262144 points of the domain
+> A = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
+> ra(x: u8 in 0..11, y: u8 in 0..11) = A[x + 12*y]
+> oa(x: u8 in 0..11, y: u8 in 0..11) = astc_partition(70, x, y, 3)
+> equiv ra oa
+ra and oa are equal on the domain of ra (exhaustive)
+> B = [1, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 1]
+> rb(x: u8 in 0..5, y: u8 in 0..5) = B[x + 6*y]
+> ob(x: u8 in 0..5, y: u8 in 0..5) = astc_partition(163, x, y, 4)
+> equiv rb ob
+rb and ob are equal on the domain of rb (exhaustive)
+> C = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0]
+> rc(x: u8 in 0..9, y: u8 in 0..4) = C[x + 10*y]
+> oc(x: u8 in 0..9, y: u8 in 0..4) = astc_partition(59, x, y, 2)
+> equiv rc oc
+rc and oc are equal on the domain of rc (exhaustive)
+> D = [1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+> rd(x: u8 in 0..3, y: u8 in 0..3) = D[x + 4*y]
+> od(x: u8 in 0..3, y: u8 in 0..3) = astc_partition(61, 2*x, 2*y, 2)
+> equiv rd od
+rd and od are equal on the domain of rd (exhaustive)
+> wd(x: u8 in 0..3, y: u8 in 0..3) = astc_partition(61, x, y, 2)
+> equiv rd wd
+rd and wd differ at 7 points, e.g. x=2, y=0: 0 vs 1
+> hp(seed: u10, x: u4, y: u4) = (a >= b ? 0 : 1) where s = (u32(seed) & 1023) + 1024, p0 = s xor (s >> 15), p1 = p0 * 4007528593, p2 = p1 xor (p1 >> 5), p3 = p2 + (p2 << 16), p4 = p3 xor (p3 >> 7), p5 = p4 xor (p4 >> 3), p6 = p5 xor (p5 << 6), p = p6 xor (p6 >> 17), sh1 = (seed & 1) != 0 ? ((seed & 2) != 0 ? 4 : 5) : 5, sh2 = (seed & 1) != 0 ? 5 : ((seed & 2) != 0 ? 4 : 5), a = ((((p & 15) * (p & 15)) >> sh1) * x + ((((p >> 4) & 15) * ((p >> 4) & 15)) >> sh2) * y + (p >> 14)) % 64, b = (((((p >> 8) & 15) * ((p >> 8) & 15)) >> sh1) * x + ((((p >> 12) & 15) * ((p >> 12) & 15)) >> sh2) * y + (p >> 10)) % 64
+> p2(seed: u10, x: u4, y: u4) = astc_partition(seed, x, y, 2)
+> equiv hp p2
+hp and p2 are equal on the domain of hp (exhaustive)
+> hq(seed: u10, x: u4, y: u4) = (a > b ? 0 : 1) where s = (u32(seed) & 1023) + 1024, p0 = s xor (s >> 15), p1 = p0 * 4007528593, p2 = p1 xor (p1 >> 5), p3 = p2 + (p2 << 16), p4 = p3 xor (p3 >> 7), p5 = p4 xor (p4 >> 3), p6 = p5 xor (p5 << 6), p = p6 xor (p6 >> 17), sh1 = (seed & 1) != 0 ? ((seed & 2) != 0 ? 4 : 5) : 5, sh2 = (seed & 1) != 0 ? 5 : ((seed & 2) != 0 ? 4 : 5), a = ((((p & 15) * (p & 15)) >> sh1) * x + ((((p >> 4) & 15) * ((p >> 4) & 15)) >> sh2) * y + (p >> 14)) % 64, b = (((((p >> 8) & 15) * ((p >> 8) & 15)) >> sh1) * x + ((((p >> 12) & 15) * ((p >> 12) & 15)) >> sh2) * y + (p >> 10)) % 64
+> equiv hq p2
+hq and p2 differ at 4223 points, e.g. seed=50, x=0, y=0: 1 vs 0
+> cost oa
+cost of oa under gt1030: 24.375 (1 operations, shared subterms counted once)
+  astc_partition   1 x 24.375 = 24.375 (its definition's operations: no target has it as one instruction)
+> cost p4
+cost of p4 under gt1030: 197.875 (1 operations, shared subterms counted once)
+  astc_partition   1 x 197.875 = 197.875 (its definition's operations: no target has it as one instruction)
+> v(s: u10, x: u2, y: u2, n: u3) = astc_partition(s, x, y, n)
+> domain v
+domain of v:
+  s: u10, 0..1023
+  x: u2, 0..3
+  y: u2, 0..3
+  n: u3, 0..7
+  requires an arm of match/piecewise covers the input
+  defined at 65536 of 131072 points
+  undefined e.g. at s=0, x=0, y=0, n=0; s=1, x=0, y=0, n=0; s=2, x=0, y=0, n=0; s=3, x=0, y=0, n=0
+  over all 131072 points of the domain
+> w(s: u10, x: u2, y: u2, n: u3 in 1..4) = astc_partition(s, x, y, n)
+> r(s: u10, x: u2, y: u2, n: u3 in 1..4) = n == 1 ? 0 : n == 2 ? astc_partition(s, x, y, 2) : n == 3 ? astc_partition(s, x, y, 3) : astc_partition(s, x, y, 4)
+> equiv w r
+w and r are equal on the domain of w (exhaustive)
+> show astc_partition(5, 1, 2, 5)
+astc.ucas:53:32: error: astc_partition: a block has 1 to 4 partitions, not 5
+    show astc_partition(5, 1, 2, 5)
+                                   ^
+> show astc_partition(5, 1, 2, 2.5)
+astc.ucas:54:34: error: astc_partition takes an integer partition count 1..4, not 2.5
+    show astc_partition(5, 1, 2, 2.5)
+                                     ^
