@@ -1776,7 +1776,10 @@ definition, and for sinh, cosh and tanh as a cheaper form with one exp
 formula is NaN once exp overflows).   Each is priced and measured against
 the function on its domain as `error` measures (the largest absolute and
 relative errors, in ulp, and the points where it is NaN or infinite and
-the function is not): a measurement, not a bound.   Near a zero of the
+the function is not), with every operation correctly rounded, which a
+GPU's exp, log, sqrt and division need not be (Vulkan allows exp 3 +
+2|x| ulp, log 3 ulp, division 2.5 ulp): a measurement, not a bound.
+Near a zero of the
 function the formulas cancel: tanh near 0 is off by about 1e-7,
 absolute, which is all of it, relative (tests/sfu.ucas).
 

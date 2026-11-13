@@ -1910,9 +1910,9 @@ find_setup(struct func *f)
 /* ---- library calls as the special-function unit's instructions ---- */
 
 /*
- * The hyperbolic functions and their inverses have no instruction before
- * Turing: the driver runs a library sequence (the models price one as 4
- * ftrans; tanh measured 17.7 on the GT 1030).  Each is written with exp,
+ * The hyperbolic functions and their inverses have no instruction (tanh
+ * an approximate one from Turing on): the driver runs a library sequence
+ * (the models price one as 4 ftrans; tanh measured 17.7 on the GT 1030).  Each is written with exp,
  * log and sqrt, which are: form 0 is the formula Vulkan inherits its
  * precision from (so within that precision by definition), form 1 a
  * cheaper one with one exp, where there is one.
@@ -2063,9 +2063,12 @@ sfu_find(struct func *f)
 			if (!said++)
 				printf("find %s: library calls as exp, log and sqrt, "
 				    "the special-function unit's instructions (%s "
-				    "costs %g under %s)\n", f->anon ? node_str(f->body) :
-				    sym_str(f->name), f->anon ? "it" : sym_str(f->name),
-				    c0, sym_str(model_active()->name));
+				    "costs %g under %s);\n  measured with every "
+				    "operation correctly rounded, which a GPU's exp, log, "
+				    "sqrt and division need not be (Vulkan: exp 3 + 2|x| "
+				    "ulp, log 3 ulp, division 2.5 ulp)\n", f->anon ?
+				    node_str(f->body) : sym_str(f->name), f->anon ? "it" :
+				    sym_str(f->name), c0, sym_str(model_active()->name));
 			c = (double)expr_cost(e);
 			error_measured(f, e, &abs_, &rel, &ulp, &n, &bad);
 			print_node(&b, e, NULL);
