@@ -18,6 +18,9 @@ texalu o3 under texel
 # past -8..7 the add stays
 o4(i: u16 in 0..1000) = K[(i + 9) % 7]
 texalu o4 under texel
+# an add that wraps in its type (a u8) is not the offset's
+o6(i: u8 in 240..255) = K[(i + u8(7)) % 7]
+texalu o6 under texel
 # a plain read of i + 2 inside the table
 o5(i: u8 in 0..4) = K[i + 2]
 texalu o5 under texel

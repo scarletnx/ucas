@@ -1744,11 +1744,13 @@ seed_fetch(nid body, nid n)
 	/*
 	 * An index x + c with c in -8..7 is the read of x with a ConstOffset
 	 * of c (#99): the unit adds c to the unnormalised coordinate before
-	 * the floor and the address mode, so the add goes.  With |x| + 8 below
-	 * 2^21 that add keeps the texel (an ulp of the sum at most 2^-3).
+	 * the floor and the address mode, so the add goes, where x + c does
+	 * not wrap in its type.  With |x| + 8 below 2^21 the unit's add keeps
+	 * the texel (an ulp of the sum at most 2^-3).
 	 */
 	bat = besti;
 	if (best && !bestfar && avail && (off = const_add(besti, &ox)) != 0 &&
+	    irange(besti, &lo, &hi) &&	/* x + c does not wrap */
 	    irange(ox, &lo, &hi) && (hi > -lo ? hi : -lo) + 8 <= lim &&
 	    (hi > -lo ? hi : -lo) + 8 <= 2097152) {
 		nid c2 = mk_tex(bestmode, TEX_KOFF(off), tab, ox, kb);
