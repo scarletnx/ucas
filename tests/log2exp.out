@@ -1,0 +1,87 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 132 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %73 (converted to an integer), %80 (converted to an integer)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 44 -> 44 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    log2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 12.6 (2.86e+09 ulp), beyond the original's precision
+    log2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 11.6 (2.47174e+09 ulp), beyond the original's precision
+        absolute minimax of log2(x) on [2, 4.2949673e+09] (remez.c), t = x - 2.1474836e+09, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|log2''| on the piece): 11.6 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 11.6 absolute in all, the worst near x = 2.259e+09
+          against log2's precision on each piece (3 ulp outside [0.5, 2], absolute 2^-21 inside, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(-5.65750304e-18, t, 1.79382453e-09), t, 42.5906296), t = x - 2.14748365e+09
+conversions between integers and f32 by the bits, roundings by the add of 1.5*2^23 and floor(log2 x) by the exponent field, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %32 = OpConvertUToF %float %31
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: float x = float(b.d[i] & 4095u) + 1.0, z = float(b.d[i + 64u] & 255u) + 2.0;)
+    %43 = OpConvertUToF %float %42
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %42 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: float x = float(b.d[i] & 4095u) + 1.0, z = float(b.d[i + 64u] & 255u) + 2.0;)
+    %54 = OpConvertUToF %float %53
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %53 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 9: float w = float(b.d[i + 128u] & 1023u) * 0.25 + 0.125;)
+    %74 = OpConvertFToS %int %73
+      ->  (asuint(x) >> 23) - 127   (cost 10 -> 3, the log2 and the floor included)
+      x = %34 is positive and normal (its range from its definitions and the assumptions starts at 2^-126 at least, ends finite): its exponent field less 127 is floor(log2(x)) exactly; a GPU's log2 is within 3 ulp, so the call's own floor may be one more just below a power of two, and the field is the exact value, one Vulkan lets the call give (not with `exact`); the floor and the log2 go
+      (line 11: q.i[i] = int(floor(log2(x)));)
+    %81 = OpConvertFToS %int %80
+      ->  (asuint(x) >> 23) - 127   (cost 7 -> 3, the log2 included)
+      x = %45 is positive and normal (its range from its definitions and the assumptions starts at 2^-126 at least, ends finite), 1 at least, so its log2 is not negative and the conversion's truncation is the floor: its exponent field less 127 is floor(log2(x)) exactly; a GPU's log2 is within 3 ulp, so the call's own floor may be one more just below a power of two, and the field is the exact value, one Vulkan lets the call give (not with `exact`); the log2 goes
+      (line 12: q.i[i + 64u] = int(log2(z));)
+    %90 = OpExtInst %float %2 Floor %89
+      ->  f32((asuint(x) >> 23) - 127)   (cost 7 -> 6, the log2 included)
+      x = %58 is positive and normal (its range from its definitions and the assumptions starts at 2^-126 at least, ends finite): its exponent field less 127 is floor(log2(x)) exactly; a GPU's log2 is within 3 ulp, so the call's own floor may be one more just below a power of two, and the field is the exact value, one Vulkan lets the call give (not with `exact`); the log2 goes
+      (line 13: o.f[i] = floor(log2(w));)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 5278 bytes, checksum fbdee998)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile exact nofunctions
+simplify: 132 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 6 -> 6 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %73 (converted to an integer), %80 (converted to an integer)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 44 -> 44 (+0.0%)
+  mode: bit-exact only
+  nothing applied: no cheaper float form could be proved bit-exact
+  approximations (cheaper, not applied: say `approx ulp N` to allow one):
+    log2 ~ degree-1 minimax polynomial, cost 2 (-2): relative error < 12.6 (2.86e+09 ulp), beyond the original's precision
+    log2 ~ degree-2 minimax polynomial, cost 3 (-1): relative error < 11.6 (2.47174e+09 ulp), beyond the original's precision
+        absolute minimax of log2(x) on [2, 4.2949673e+09] (remez.c), t = x - 2.1474836e+09, coefficients rounded to f32, Horner with fma:
+          real error certified on 4096 geometric pieces (|E| <= |E(m)| + |E'(m)| h/2 + max|E''| h^2/8, E'' bounded by sum i(i-1)|a_i| T^(i-2) + max|log2''| on the piece): 11.6 absolute
+          plus rounding (gamma_4 = 4 u/(1 - 4 u) times sum |a_i||t|^i; fl(x - c) exact for c = 0, and by Sterbenz for x in [c/2, 2c]): 11.6 absolute in all, the worst near x = 2.259e+09
+          against log2's precision on each piece (3 ulp outside [0.5, 2], absolute 2^-21 inside, the lower bounds): exceeds it (an approximation)
+        P(t) = fma(fma(-5.65750304e-18, t, 1.79382453e-09), t, 42.5906296), t = x - 2.14748365e+09
+conversions between integers and f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
+    %32 = OpConvertUToF %float %31
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %31 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: float x = float(b.d[i] & 4095u) + 1.0, z = float(b.d[i + 64u] & 255u) + 2.0;)
+    %43 = OpConvertUToF %float %42
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %42 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 8: float x = float(b.d[i] & 4095u) + 1.0, z = float(b.d[i + 64u] & 255u) + 2.0;)
+    %54 = OpConvertUToF %float %53
+      ->  OpFSub %float (OpBitcast %float (OpBitwiseOr %uint %53 0x4B000000)) 2^23   (cost 3 -> 2)
+      0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits of the f32 2^23 + x (one unit in the last place there is 1); subtracting 2^23 leaves x, below 2^24: exact
+      (line 9: float w = float(b.d[i + 128u] & 1023u) * 0.25 + 0.125;)
+  spirv-val accepts the written module
+  (nofile: simplified.spvasm, 4911 bytes, checksum 8fc76d58)
