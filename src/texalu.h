@@ -73,6 +73,12 @@
 /* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
  * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
 #define TEX_SRGB 1
+/* a fetch_ op's ConstOffset c in ki, -8..7 (every device's range): added
+ * to the index before the address mode (fetch_repeat_offset(T, i, c) is
+ * fetch_repeat(T, i + c)); TEX_OFFNAME: tex_lookup's mark for the name */
+#define TEX_KOFF(c) ((int64_t)((c) & 31) << 8)
+#define TEX_OFF(ki) ((int)((((ki) >> 8) & 31) ^ 16) - 16)
+#define TEX_OFFNAME 2
 
 /* is tab the 256 f32 values of the sRGB EOTF of k/255, rounded once */
 int tex_srgb_table(nid tab);

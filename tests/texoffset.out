@@ -1,0 +1,64 @@
+> model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+> K = [10, 20, 30, 40, 50, 60, 70]
+> show fetch_repeat_offset(K, 5, 3)
+_() = 20
+  -> int
+> show fetch_mirror_offset(K, -2, -8)
+_() = 50
+  -> int
+> show fetch_clamp_offset(K, 6, 7)
+_() = 70
+  -> int
+> show fetch_border_offset(K, 6, 99, 1)
+_() = 99
+  -> int
+> o1(i: u16 in 0..1000) = K[(i + 3) % 7]
+> texalu o1 under texel
+texalu o1: reads through the texture unit under texel (cost 21.375 as written):
+  cost 10.875 fetch_repeat_offset([10, 20, 30, 40, 50, 60, 70], i, 3)
+      [10, 20, 30, 40, 50, 60, 70][(i + 3) % 7] is fetch_repeat_offset([10, 20, 30, 40, 50, 60, 70], i, 3)
+      holds where the read is defined: there (i + 3) % 7 = i + 3 mod 7
+      the read takes i with a ConstOffset of 3 (Vulkan's minTexelOffset is at most -8 and its maxTexelOffset at least 7): the unit adds it before the address mode, the add goes
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [0, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLodOffset(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0, 3).r
+> o2(i: i16 in -50..50) = K[min(max(i + 3, 0), 6)]
+> texalu o2 under texel
+texalu o2: the texture unit under texel (cost 9.875 as written): nothing taken
+  derived, but not cheaper under texel (cost 10.875, as written 9.875):
+  [10, 20, 30, 40, 50, 60, 70][min(max(i + 3, 0), 6)] is fetch_clamp_offset([10, 20, 30, 40, 50, 60, 70], i, 3)
+> o3(i: u16 in 2..1000) = K[min((i - 2) % 14, 13 - (i - 2) % 14)]
+> texalu o3 under texel
+texalu o3: reads through the texture unit under texel (cost 23.375 as written):
+  cost 10.875 fetch_mirror_offset([10, 20, 30, 40, 50, 60, 70], i, -2)
+      [10, 20, 30, 40, 50, 60, 70][min((i - 2) % 14, 13 - (i - 2) % 14)] is fetch_mirror_offset([10, 20, 30, 40, 50, 60, 70], i, -2)
+      holds where the read is defined: there min((i - 2) % 14, 13 - (i - 2) % 14) = min(r, 13 - r) with r = i - 2 mod 14
+      the read takes i with a ConstOffset of -2 (Vulkan's minTexelOffset is at most -8 and its maxTexelOffset at least 7): the unit adds it before the address mode, the add goes
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [2, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, MIRRORED_REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLodOffset(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0, -2).r
+> o4(i: u16 in 0..1000) = K[(i + 9) % 7]
+> texalu o4 under texel
+texalu o4: reads through the texture unit under texel (cost 21.375 as written):
+  cost 11.875 fetch_repeat([10, 20, 30, 40, 50, 60, 70], i + 9)
+      [10, 20, 30, 40, 50, 60, 70][(i + 9) % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], i + 9)
+      holds where the read is defined: there (i + 9) % 7 = i + 9 mod 7
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.00012 of a texel's centre for i in [9, 1009] (its range), and the unit snaps by less than 2^-8: 0.00012 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> o5(i: u8 in 0..4) = K[i + 2]
+> texalu o5 under texel
+texalu o5: no table read or weighted sum of neighbouring entries the texture unit could compute
+> f(i: u8) = fetch_repeat_offset(K, i, 8)
+texoffset.ucas:25:40: error: fetch_repeat_offset's offset is a constant from -8 to 7 (every device's ConstOffset range), not 8
+    f(i: u8) = fetch_repeat_offset(K, i, 8)
+                                           ^

@@ -246,6 +246,9 @@ tex_expand(nid n)
 
 	if (!IS_FETCH(op))
 		return n;
+	if (TEX_OFF(N.ki[n]))
+		i = mk_bin(O_ADD, mk_cast(t, i), mk_const_i(t,
+		    TEX_OFF(N.ki[n])));
 	j = wrap_expr(op, i, cnt);
 	if (op != O_FETCH_BORDER)
 		return mk_index(tab, j);
@@ -405,6 +408,12 @@ tex_lookup(const char *s, size_t n, int *bits)
 		l = strlen(opinfo[fetch[i]].name);
 		if (l == n && !memcmp(s, opinfo[fetch[i]].name, n))
 			return fetch[i];
+		/* name_offset: the read with a ConstOffset */
+		if (fetch[i] != O_FETCH_LAYER && l + 7 == n && !memcmp(s,
+		    opinfo[fetch[i]].name, l) && !memcmp(s + l, "_offset", 7)) {
+			*bits = TEX_OFFNAME;
+			return fetch[i];
+		}
 	}
 	if (n > 10 && !memcmp(s, "tex_linear", 10)) {
 		op = O_TEX_LINEAR;
@@ -440,8 +449,9 @@ void
 tex_print_name(struct sbuf *b, nid n)
 {
 	if (IS_FETCH(N.op[n]) || N.op[n] == O_FETCH_LAYER)
-		sb_puts(b, N.ki[n] == TEX_SRGB ? "fetch_srgb" :
-		    opinfo[N.op[n]].name);
+		sb_printf(b, "%s%s", N.ki[n] == TEX_SRGB ? "fetch_srgb" :
+		    opinfo[N.op[n]].name, IS_FETCH(N.op[n]) && TEX_OFF(N.ki[n]) ?
+		    "_offset" : "");
 	else if (TEX_RED(N.ki[n]))
 		sb_printf(b, "tex_%s%s%d", N.op[n] == O_TEX_BILINEAR ? "bi" : "",
 		    TEX_RED(N.ki[n]) == TEX_REDMIN ? "min" : "max",
@@ -1464,6 +1474,38 @@ fetch_format(struct sbuf *b, nid tab)
 	    hi <= 32767 ? "R16_SINT" : lo >= 0 ? "R32_UINT" : "R32_SINT");
 }
 
+/* e is x + c (or x - c) with c a constant in -8..7, a ConstOffset's
+ * range: c (0 if not) */
+static int
+const_add(nid e, nid *x)
+{
+	int64_t c;
+
+	if (N.op[e] == O_ADD && is_const(N.b[e])) {
+		*x = N.a[e];
+		c = N.ki[N.b[e]];
+	} else if (N.op[e] == O_ADD && is_const(N.a[e])) {
+		*x = N.b[e];
+		c = N.ki[N.a[e]];
+	} else if (N.op[e] == O_SUB && is_const(N.b[e])) {
+		*x = N.a[e];
+		c = -N.ki[N.b[e]];
+	} else
+		return 0;
+	if (!TY_ISINT(N.ty[*x]) || !TY_ISINT(N.ty[e]) || c < -8 || c > 7)
+		return 0;
+	return (int)c;
+}
+
+static const char *
+offtext(int c)
+{
+	static char b[16];
+
+	snprintf(b, sizeof b, ", %d", c);
+	return b;
+}
+
 /* subterms of an index expression, the expression first (bounded) */
 static int
 subterms(nid e, nid *out, int n, int max, int depth)
@@ -1567,6 +1609,8 @@ seed_fetch(nid body, nid n)
 	float bc = INFINITY;
 	struct eqproof bpr, pr;
 	ty_t t64 = TY(K_SINT, 64);
+	nid ox, bat;
+	int off, boff = 0;
 
 	if (N.op[n] == O_SEL) {
 		/* c ? T[i] : k, or c ? k : T[i] */
@@ -1697,13 +1741,32 @@ seed_fetch(nid body, nid n)
 			bpr = pr;
 		}
 	}
+	/*
+	 * An index x + c with c in -8..7 is the read of x with a ConstOffset
+	 * of c (#99): the unit adds c to the unnormalised coordinate before
+	 * the floor and the address mode, so the add goes.  With |x| + 8 below
+	 * 2^21 that add keeps the texel (an ulp of the sum at most 2^-3).
+	 */
+	bat = besti;
+	if (best && !bestfar && avail && (off = const_add(besti, &ox)) != 0 &&
+	    irange(ox, &lo, &hi) && (hi > -lo ? hi : -lo) + 8 <= lim &&
+	    (hi > -lo ? hi : -lo) + 8 <= 2097152) {
+		nid c2 = mk_tex(bestmode, TEX_KOFF(off), tab, ox, kb);
+		float p2 = price(swap_nodes(body, sel ? &sel : &n, &c2, 1));
+		if (p2 < bc) {
+			best = c2;
+			besti = ox;
+			bc = p2;
+			boff = off;
+		}
+	}
 	if (!best || (r = new_repl(sel ? sel : n)) == NULL)
 		return;
 	r->to = best;
 	r->cost = bc;
 	r->exact = 1;
 	r->ok = 1;
-	r->plain = besti == idx && !sel;
+	r->plain = bat == idx && !sel;
 	if (bestfar) {
 		lo = bestlo;
 		hi = besthi;
@@ -1714,33 +1777,38 @@ seed_fetch(nid body, nid n)
 	switch (bestmode) {
 	case O_FETCH_REPEAT:
 		sb_printf(&r->holds, "%s = %s%s%s mod %lld", node_str(idx),
-		    bestfar ? "(" : "", node_str(besti), bestfar ? ")" : "",
+		    bestfar ? "(" : "", node_str(bat), bestfar ? ")" : "",
 		    (long long)cnt);
 		break;
 	case O_FETCH_MIRROR:
 		sb_printf(&r->holds, "%s = min(r, %lld - r) with r = %s%s%s mod "
 		    "%lld", node_str(idx), (long long)(2 * cnt - 1), bestfar ?
-		    "(" : "", node_str(besti), bestfar ? ")" : "",
+		    "(" : "", node_str(bat), bestfar ? ")" : "",
 		    (long long)(2 * cnt));
 		break;
 	case O_FETCH_CLAMP:
-		if (besti == idx)
+		if (bat == idx)
 			sb_printf(&r->holds, "%s is in 0..%lld, where every address "
 			    "mode is the plain read", node_str(idx),
 			    (long long)(cnt - 1));
 		else
 			sb_printf(&r->holds, "%s = min(max(%s, 0), %lld)",
-			    node_str(idx), node_str(besti), (long long)(cnt - 1));
+			    node_str(idx), node_str(bat), (long long)(cnt - 1));
 		break;
 	case O_FETCH_MCLAMP:
 		sb_printf(&r->holds, "%s = min(max(%s, -1 - (%s)), %lld)",
-		    node_str(idx), node_str(besti), node_str(besti),
+		    node_str(idx), node_str(bat), node_str(bat),
 		    (long long)(cnt - 1));
 		break;
 	default:
 		sb_printf(&r->holds, "the condition is 0 <= %s < %lld, the other "
-		    "arm the border's value", node_str(besti), (long long)cnt);
+		    "arm the border's value", node_str(bat), (long long)cnt);
 	}
+	if (boff)
+		sb_printf(&r->holds, "\nthe read takes %s with a ConstOffset of "
+		    "%d (Vulkan's minTexelOffset is at most -8 and its "
+		    "maxTexelOffset at least 7): the unit adds it before the "
+		    "address mode, the add goes", node_str(besti), boff);
 	if (bestfar)
 		sb_printf(&r->holds, "\n%s itself is not known to stay within "
 		    "+-%lld, where its coordinate is exact enough in f32; 2^16 = "
@@ -1777,14 +1845,16 @@ seed_fetch(nid body, nid n)
 	sb_printf(&r->pipe, ", %lld x 1, one level, its texels the table's "
 	    "entries\na sampler: NEAREST filters, %s%s, normalised coordinates, "
 	    "lod 0\none combined image sampler more in the layout; the shader "
-	    "reads textureLod(s, (float(%s) + 0.5) * (1.0 / %lld.0), 0.0).r%s%s",
+	    "reads textureLod%s(s, (float(%s) + 0.5) * (1.0 / %lld.0), 0.0%s).r"
+	    "%s%s",
 	    (long long)cnt, mode_vk(bestmode), bestmode == O_FETCH_BORDER ?
 	    (const_is(kb, 0) ? " with a transparent black border" :
 	    " with the border's value as a custom border colour "
 	    "(VK_EXT_custom_border_color)") : bestmode == O_FETCH_MCLAMP ?
-	    " (samplerMirrorClampToEdge)" : "", bestfar ? "j" : "i",
-	    (long long)cnt, bestfar ? ", j = " : "", bestfar ? node_str(besti) :
-	    "");
+	    " (samplerMirrorClampToEdge)" : "", boff ? "Offset" : "", bestfar ?
+	    "j" : boff ? node_str(besti) : "i", (long long)cnt, boff ?
+	    offtext(boff) : "", bestfar ? ", j = " : "", bestfar ?
+	    node_str(besti) : "");
 }
 
 /* ---- array layers ---- */

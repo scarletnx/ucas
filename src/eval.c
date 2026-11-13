@@ -1477,7 +1477,7 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 					of[i] = F_UNDEF;
 					continue;
 				}
-				j = tex_wrap(op, j, cnt);
+				j = tex_wrap(op, j + TEX_OFF(p->ki[k]), cnt);
 				e = j < 0 ? c : p->lst[st + (uint32_t)j];
 				o[i] = COLI(p, e)[i];
 				orr[i] = COLR(p, e)[i];
