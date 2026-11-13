@@ -1,0 +1,54 @@
+# a loop's f32 sum under the sink (#47, Liz: "Offer them"): where the
+# adds' rounding as written, carried to the stored value, may pass a step
+# of the sink and Kahan's compensated sum's does not, Kahan's sum is
+# offered with both bounds and both prices (an offer: it moves the stored
+# value toward the exact sum, away from the original's)
+#
+# the average of 1024 values in [0, 1] into a 16-bit image
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float f[]; } b;
+layout(rgba16, binding = 1) uniform writeonly image2D img;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0;
+    for (int j = 0; j < 1024; j++)
+        s += clamp(b.f[i * 1024u + uint(j)], 0.0, 1.0);
+    imageStore(img, ivec2(i, 0), vec4(s * (1.0 / 1024.0)));
+}
+```
+# 64 values, or a sum taken away, stay within a step: nothing offered
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float f[]; } b;
+layout(rgba16, binding = 1) uniform writeonly image2D img;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 1.0;
+    for (int j = 0; j < 64; j++)
+        s -= clamp(b.f[i * 64u + uint(j)], 0.0, 1.0 / 64.0);
+    imageStore(img, ivec2(i, 0), vec4(s));
+}
+```
+# a term with no range, and a term that reads the sum: no bound, nothing
+# offered
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float f[]; } b;
+layout(rgba16, binding = 1) uniform writeonly image2D img;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0, p = 0.0;
+    for (int j = 0; j < 1024; j++) {
+        s += b.f[i * 1024u + uint(j)];
+        p += p * 0.5 + clamp(b.f[i + uint(j)], 0.0, 1.0);
+    }
+    imageStore(img, ivec2(i, 0), vec4(s, p, 0.0, 1.0));
+}
+```

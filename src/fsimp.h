@@ -48,6 +48,18 @@ struct fxin {
 	int assumed;
 	int cvt;		/* float(an integer) */
 	int sid, lane;		/* where it came from (spirv.c) */
+	/*
+	 * A loop's f32 sum s = s + t (spirv.c, lsum_of): its passes (0: not
+	 * one), the bounds of its adds' rounding against the exact sum of
+	 * its f32 terms as written and as Kahan's compensated sum, an
+	 * iteration's price both ways, the term's range and its name
+	 */
+	long lsum_n;
+	double lsum_plain, lsum_kahan, lsum_cost, lsum_kcost;
+	double lsum_tlo, lsum_thi;
+	char lsum_s[40], lsum_t[40];	/* the phi's and the term's ids */
+	char lsum_src[160];		/* the add's source line, or "" */
+	char lsum_why[160];		/* a sum with no bound: why */
 };
 
 struct fxg {
@@ -70,7 +82,7 @@ struct fxg {
 	char sinknote[240];
 	/* compensated forms offered where the original's own error, carried
 	 * to the stored value, passes a step and theirs does not: lines */
-	char sinkoffer[1200];
+	char sinkoffer[2400];
 };
 
 /* an interval of f32 values in the total order, plus NaN / undefined */

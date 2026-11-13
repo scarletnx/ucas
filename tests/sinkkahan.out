@@ -1,0 +1,76 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 97 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5.375 -> 5.375 (+0.0%)
+  counting the strength reductions any driver also does: 5.375 -> 5.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 5504 -> 5504 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling); 1 done already by spirv-opt -O, checked the same way
+  the vec4 %66: its lanes x, y, z, w compute one scalar function (splat constants): analysed once, applied to every lane
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 4 -> 4 (+0.0%)
+  sink Rgba16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    offered (not applied: it moves the stored value toward the exact sum, away from the original's): %71, a loop's f32 sum s = s + t of 1024 passes, t = %48 in [0, 1], errs as written by up to 0.0313 against the exact sum of its f32 terms (each add rounded, on the partial sums' magnitudes), 3.1e-05 at the stored value, more than the 1.53e-05 a step allows; Kahan's compensated sum, y = t - c, w = s + y, c = (w - s) - y, s = w, each written precise (NoContraction: no driver may fold c to 0), errs by at most 0.000183, 6.56e-07 at the stored value: within it, cost 4 a pass against 1 (3072 more over the loop)
+      (line 9: s += clamp(b.f[i * 1024u + uint(j)], 0.0, 1.0);)
+  nothing applied: no cheaper float form could be proved
+  done already by spirv-opt -O (the GLSL divides, the module multiplies):
+    %64 = OpFMul %float %71 %float_0_0009765625   (spirv-opt -O: x / 1024 as x * 0.0009765625)
+        k = fl(1/1024) = 0.0009765625; k*d = 1 + delta with delta = 0 (k*d is exact in double)
+          delta = 0: x*k and x/d are the same real number, rounded once: bit-exact for every x
+        (line 10: imageStore(img, ivec2(i, 0), vec4(s * (1.0 / 1024.0)));)
+  (nofile: simplified.spvasm, 3175 bytes, checksum b40abeca)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 95 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5.375 -> 5.375 (+0.0%)
+  counting the strength reductions any driver also does: 5.375 -> 5.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 344 -> 344 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %65: its lanes x, y, z, w compute one scalar function (splat constants): analysed once, applied to every lane
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 3 -> 3 (+0.0%)
+  sink Rgba16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    %69, a loop's f32 sum s = s + t of 64 passes, errs as written by up to 3.81e-06 against the exact sum of its f32 terms, 3.81e-06 at the stored value: within the 1.53e-05 a step allows, so Kahan's sum is not offered
+      (line 9: s -= clamp(b.f[i * 64u + uint(j)], 0.0, 1.0 / 64.0);)
+  nothing applied: no cheaper float form could be proved
+  (nofile: simplified.spvasm, 3086 bytes, checksum 36089a39)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 104 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 6.375 -> 6.375 (+0.0%)
+  counting the strength reductions any driver also does: 6.375 -> 6.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 6528 -> 6528 (+0.0%)
+  also done by any driver compiler (1 rewrite, -0; kept in the written module, not counted above): 1 a multiply by a power of two is a shift
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+  beyond those, no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %78: 4 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  sink Rgba16: one step is 1.5259e-05.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
+    %83, a loop's f32 sum s = s + t: no bound on its rounding, so Kahan's sum is not weighed: the term %47 has no finite range from its definitions and the assumptions
+      (line 9: s += b.f[i * 1024u + uint(j)];)
+    %84, a loop's f32 sum s = s + t: no bound on its rounding, so Kahan's sum is not weighed: the term %61 reads the sum, so the terms are not the loop's own
+      (line 10: p += p * 0.5 + clamp(b.f[i + uint(j)], 0.0, 1.0);)
+  nothing applied: no cheaper float form could be proved
+  (nofile: simplified.spvasm, 3379 bytes, checksum 14deba8a)
