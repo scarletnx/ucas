@@ -3449,9 +3449,10 @@ under; the whole is then checked against the function on its domain
   go from 1651 to 229.375 under a warp-8 gt1030, 512 bits as a u16 in
   each of 32 lanes from 25225 to 811.375 under gt1030
   (tests/sglanesmul.ucas).  The columns read by shuffles with the chain
-  kept is offered when the carry-save form is not proved and is
-  cheaper; find prices a loop's iterations whole, the shuffled column
-  in each, so it seldom is.  A function under `sg_active`, or a column
+  kept is offered when the carry-save form is not proved and it is
+  cheaper (a chain whose carry keeps 7 bits for limbs of 8: 1651 ->
+  333, each column computed once before the chain's loop).  A function
+  under `sg_active`, or a column
   whose bound is not known, gets nothing.
 - An order statistic of a value per lane v, however it is written (a
   loop over the lanes counting with ballots, a chain of selections):

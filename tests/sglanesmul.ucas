@@ -19,8 +19,8 @@ mul4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u32 =
 find mul4 1
 
 # the carry keeps 7 bits for limbs of 8: not the chain over the columns,
-# so the carry-save form is not offered, and the column form alone is
-# not cheaper as find prices a loop (each iteration whole)
+# so the carry-save form is not offered (said); the column form keeps
+# the function's own chain and is: each column computed once, 1651 -> 333
 mul7(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { c: u32 = 0; r: u32 = 0; for k in 0..7 { s: u32 = c; for i in 0..7 { s = i <= k ? s + u32(sg_shuffle(a, i)) * u32(sg_shuffle(b, (k - i) & 7)) : s }; r = k == lane ? s : r; c = s >> 7 }; u8(r) }
 find mul7 1
 
@@ -35,8 +35,8 @@ mula(a: u8 lanes, b: u8 lanes, m: u8 uniform, lane: u32 in 0..7) = { sg_active(m
 find mula 1
 
 # dear shuffles do not make it dearer (the function as written reads 8
-# lanes for each of its 36 products); dear ballots do: derived, not
-# cheaper, said
+# lanes for each of its 36 products); dear ballots make the carry-save
+# form dearer (said), and the column form, with no ballot, is taken
 model dears : w8 { sg_shuffle: 400 }
 use dears
 find mul 1
