@@ -570,6 +570,12 @@ const GlslcBuiltinFn glslc_builtin_fns[] = {
     {"atomicExchange", "u=u&u", SP, V31, SA, 0, GLSLC_BS_ATOMIC, 229},
     {"atomicCompSwap", "i=i&ii", SP, V31, SA, 0, GLSLC_BS_ATOMIC_COMP_SWAP, 230},
     {"atomicCompSwap", "u=u&uu", SP, V31, SA, 0, GLSLC_BS_ATOMIC_COMP_SWAP, 230},
+    /* ucas: GL_EXT_shader_atomic_float and float2's, which a Vulkan shader calls (GLSL ES has none; ucas reads
+     * text glslang has compiled, so they are offered wherever the integer ones are) */
+    {"atomicAdd", "f=f&f", SP, V31, SA, 0, GLSLC_BS_ATOMIC, 6035},
+    {"atomicMin", "f=f&f", SP, V31, SA, 0, GLSLC_BS_ATOMIC, 5614},
+    {"atomicMax", "f=f&f", SP, V31, SA, 0, GLSLC_BS_ATOMIC, 5615},
+    {"atomicExchange", "f=f&f", SP, V31, SA, 0, GLSLC_BS_ATOMIC, 229},
     /* the texture and image functions: their arguments depend on the sampler's or image's type (parser.c) */
     {"texture", "", TX, V3, SA, 0, GLSLC_TX_BIAS, 0},
     {"textureProj", "", TX, V3, SA, 0, GLSLC_TX_PROJ | GLSLC_TX_BIAS, 0},

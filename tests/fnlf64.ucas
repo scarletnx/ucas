@@ -1,0 +1,19 @@
+# The function level reads a shader with doubles (each read as its f32
+# type: floats are opaque to it) and float atomics (#319): et_sub's per
+# case form is found beside them, where the parser used to leave main out.
+simplify functions nofile under gt1030
+```glsl
+#version 450
+#extension GL_EXT_shader_atomic_float : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float total; double scale; uint d[]; } b;
+uint et_sub(uint flip, uint i) { return flip != 0u ? uint(i >= 8u) : uint((i & 3u) >= 2u); }
+double twice(dvec2 v) { return v.x * 2.0lf + v.y * 1e-3LF; }
+void main() {
+  uint flip = b.d[gl_GlobalInvocationID.x] & 1u, s = 0u;
+  for (uint i = 0u; i < 16u; i++)
+    s += et_sub(flip, i) << i;
+  b.d[gl_GlobalInvocationID.x] = s;
+  atomicAdd(b.total, float(twice(dvec2(b.scale, 1.0lf))));
+}
+```

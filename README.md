@@ -5269,7 +5269,14 @@ const`) is read as a uniform without its default: its value is the
 pipeline's, so the level does not know it.  The types of 8-bit and
 16-bit storage (`uint8_t`, `int16_t`, `u8vec4`, `float16_t`, ...) are
 the 32-bit ones they widen to, and their constructors, which truncate,
-are functions whose value the level does not know.  The parser itself
+are functions whose value the level does not know.  Doubles (`double`,
+`dvec2`, `dmat3`, ...) are read as their f32 types and a literal's `lf`
+is dropped: floats are opaque to the level either way, and
+`packDouble2x32` and `unpackDouble2x32` are functions whose value it
+does not know.  The float atomics of GL_EXT_shader_atomic_float (and
+float2's min and max) are the parser's own, beside the integer ones
+(tests/fnlf64.ucas).  The 64-bit integer types are not read: a
+declaration or function with one is left out, as below.  The parser itself
 (a copy, see src/snxglslc/README) takes a source of any size here, and
 for a shader that is not GLSL ES makes Vulkan GLSL's implicit
 conversions (int to uint, int and uint to float, in operators,
