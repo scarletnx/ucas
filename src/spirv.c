@@ -1513,6 +1513,29 @@ cat_class(int k, int fb)
 	return cclass_available(model_active(), k) ? k : fb;
 }
 
+/* is type st (a scalar or a vector's component) an integer wider than 32 */
+static int
+wide_int(int st)
+{
+	const struct sty *y;
+
+	if (st < 0 || V.id[st].kind != K_TYPE)
+		return 0;
+	y = T(st);
+	if (y->k == S_VEC && y->e >= 0 && V.id[y->e].kind == K_TYPE)
+		y = T(y->e);
+	return y->k == S_INT && y->w > 32;
+}
+
+/* an add, multiply or shift's class: its 64-bit one where the type is
+ * that wide and the model lists it */
+static int
+int_class(int k, int st)
+{
+	return wide_int(st) ? cat_class(k == C_IADD ? C_IADD64 : k == C_IMUL ?
+	    C_IMUL64 : C_SHIFT64, k) : k;
+}
+
 static int
 cost_class(const char *op, const char *ext, int st, double *mul)
 {
@@ -1541,9 +1564,9 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	}
 	if (!strcmp(op, "OpIAdd") || !strcmp(op, "OpISub") ||
 	    !strcmp(op, "OpSNegate"))
-		return C_IADD;
+		return int_class(C_IADD, st);
 	if (!strcmp(op, "OpIMul"))
-		return C_IMUL;
+		return int_class(C_IMUL, st);
 	if (!strcmp(op, "OpUDiv"))
 		return C_IDIV;
 	if (!strcmp(op, "OpSDiv"))
@@ -1565,7 +1588,7 @@ cost_class(const char *op, const char *ext, int st, double *mul)
 	    !strcmp(op, "OpFMod"))
 		return C_FDIV;
 	if (!strncmp(op, "OpShift", 7))
-		return C_SHIFT;
+		return int_class(C_SHIFT, st);
 	if (!strncmp(op, "OpBitwise", 9) || !strcmp(op, "OpNot") ||
 	    !strncmp(op, "OpLogical", 9))
 		return C_LOGIC;
@@ -5233,12 +5256,12 @@ ins_cost_b(const char *op, const char *ext, int rt, int b)
 	if (cls == C_IDIV || cls == C_SDIV || cls == C_IREM || cls == C_SREM) {
 		if (b >= 0 && const_of(b, &v)) {
 			int w = int_width(rt), sg = cls == C_SDIV || cls == C_SREM;
+			int ks = int_class(C_SHIFT, rt), ka = int_class(C_IADD, rt);
 			if (v > 1 && !(v & (v - 1)) && (!sg || (w > 0 && w <= 64 &&
 			    !(v >> (w - 1)))))
-				return !sg ? m->c[cls == C_IDIV ? C_SHIFT : C_LOGIC] :
-				    cls == C_SDIV ? 3 * m->c[C_SHIFT] + m->c[C_IADD] :
-				    2 * m->c[C_SHIFT] + 2 * m->c[C_IADD] +
-				    m->c[C_LOGIC];
+				return !sg ? m->c[cls == C_IDIV ? ks : C_LOGIC] :
+				    cls == C_SDIV ? 3 * m->c[ks] + m->c[ka] :
+				    2 * m->c[ks] + 2 * m->c[ka] + m->c[C_LOGIC];
 			cls = C_DIVK(cls);
 		}
 	}

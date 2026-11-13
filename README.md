@@ -1736,6 +1736,20 @@ shifts and an add.  On the GT 1030 (both runs, less the add each test
 step has): udiv 28.5, by 7 8.75; umod 32.25, by 7 13.5; sdiv 36, by 7
 21; a signed remainder is not measured (39.75 and 25.75 by the rule).
 
+An integer type wider than 32 bits (`u64`, `i64`, `u40`) has three
+classes of its own: `iadd64` (an add, subtract or negate), `imul64`
+(a multiply, its low 64 bits) and `shift64` (a shift, and so an
+unsigned division by 2^k and a signed one's three shifts), in `cost`,
+`find` and SPIR-V's 64-bit OpIAdd, OpISub, OpSNegate, OpIMul and
+OpShift*.  A model that does not list one prices the operation as the
+32-bit class (`iadd`, `imul`, `shift`), as a 64-bit register does it
+on the x86 models; a 32-bit machine makes several instructions of it
+(the GT 1030 corpus: a u64 add 2.02, a multiply 15.52, a shift with an
+and 4.01).  A fusion is one 32-bit instruction, so an operation
+priced by one of the three is not fused; compares, logic, selects and
+divisions by other constants are priced as at 32 bits whatever the
+width (none is measured at 64).
+
 ### Fusions
 
 Several operations that one instruction does are declared in the

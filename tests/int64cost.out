@@ -1,0 +1,58 @@
+> a1(a: u64, b: u64) = a + b
+> a2(a: u64, b: u64, c: u64) = a * b + c
+> a3(a: u64, k: u64) = (a << 3) + (a >> k)
+> a4(a: u64) = a * 8 - a / 4
+> a5(a: i64) = a / 4
+> a6(a: u32, b: u32, c: u32) = a * b + c
+> a7(a: u40, b: u40) = a * b
+> a8(a: u64, b: u64) = (a xor b) < a
+> a9(a: u64, b: u64) = a ^ b
+  note: '^' is power; use 'xor' or '⊕' for exclusive or
+> cost a1
+cost of a1 under gt1030: 1 (1 operations, shared subterms counted once)
+  iadd             1 x 1     = 1
+> cost a2
+cost of a2 under gt1030: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+> use w64
+cost model: w64
+> cost a1
+cost of a1 under w64: 2 (1 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+> cost a2
+cost of a2 under w64: 17.5 (2 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  imul64           1 x 15.5  = 15.5
+> cost a3
+cost of a3 under w64: 6 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  shift64          2 x 2     = 4
+> cost a4
+cost of a4 under w64: 6 (3 operations, shared subterms counted once)
+  iadd64           1 x 2     = 2
+  shift64          2 x 2     = 4
+> cost a5
+cost of a5 under w64: 8 (1 operations, shared subterms counted once)
+  shift64          1 x 8     = 8
+> cost a6
+cost of a6 under w64: 3 (2 operations, shared subterms counted once)
+  fused by the model (one instruction for several operations):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+> cost a7
+cost of a7 under w64: 15.5 (1 operations, shared subterms counted once)
+  imul64           1 x 15.5  = 15.5
+> cost a8
+cost of a8 under w64: 3.375 (2 operations, shared subterms counted once)
+  logic            1 x 1     = 1
+  cmp              1 x 2.375 = 2.375
+> cost a9
+cost of a9 under w64: 223.5 (1 operations, shared subterms counted once)
+  imul64           1 x 223.5 = 223.5
+> model w64b : w64 { imul64: none }
+> use w64b
+cost model: w64b
+> cost a7
+cost of a7 under w64b: 3 (1 operations, shared subterms counted once)
+  imul             1 x 3     = 3

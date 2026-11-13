@@ -1,0 +1,36 @@
+# Integer operations wider than 32 bits (src/model.c, int64_class): a
+# model that lists iadd64, imul64 or shift64 prices an add, a multiply
+# or a shift of a u64, i64 or other type wider than 32 bits by them;
+# one that does not prices them as the 32-bit classes.
+a1(a: u64, b: u64) = a + b
+a2(a: u64, b: u64, c: u64) = a * b + c
+a3(a: u64, k: u64) = (a << 3) + (a >> k)
+a4(a: u64) = a * 8 - a / 4
+a5(a: i64) = a / 4
+a6(a: u32, b: u32, c: u32) = a * b + c
+a7(a: u40, b: u40) = a * b
+a8(a: u64, b: u64) = (a xor b) < a
+a9(a: u64, b: u64) = a ^ b
+# gt1030 lists none of them: 32-bit prices, and a*b + c fuses as an imad
+cost a1
+cost a2
+model w64 : gt1030 { iadd64: 2, imul64: 15.5, shift64: 2 }
+use w64
+cost a1
+# a fusion is a 32-bit instruction: a u64 multiply-add is two classes
+cost a2
+cost a3
+# by 2^k: a shift (unsigned), three shifts and an add (signed)
+cost a4
+cost a5
+# 32 bits as before
+cost a6
+cost a7
+# a compare and logic are not told apart by width; a power by square
+# and multiply is six rounds of two imul64 and a branch
+cost a8
+cost a9
+# a derived model can take a class away again
+model w64b : w64 { imul64: none }
+use w64b
+cost a7
