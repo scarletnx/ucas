@@ -37,9 +37,9 @@ memory under gt1030:
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile
 simplify: 105 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
-  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 9.75 -> 11.75 (+20.5%)
+  integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 11.75 -> 11.75 (+0.0%)
   counting the strength reductions any driver also does: 11.75 -> 11.75 (+0.0%)
-  also done by any driver compiler (2 rewrites, -2; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
+  also done by any driver compiler (2 rewrites, -0; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          2 x 2     = 4  ((a << k) + b; saves 2)
   beyond those, no cheaper form of an integer instruction could be proved

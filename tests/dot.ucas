@@ -103,11 +103,14 @@ OpStore %z %e
 OpStore %w %f
 ```
 
-# simplify: the sum becomes one OpUDot, with the capabilities and the
-# extension (the GLSL view is in dot_view.ucas)
+# simplify: in a module that declares GL_EXT_integer_dot_product, the sum
+# becomes one OpUDot, with the capabilities and the extension (the GLSL
+# view is in dot_view.ucas; a module that does not declare it is in
+# dotdecl.ucas)
 simplify under gt1030 nofile
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { uint d[]; } b;
 void main() {
@@ -121,6 +124,7 @@ void main() {
 simplify under nodot nofile
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { uint d[]; } b;
 void main() {
@@ -136,6 +140,7 @@ void main() {
 simplify under gt1030 nofile
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { uint d[]; } b;
 uint blend(uint a, uint w) { return (a & 255u) * w + ((a >> 8) & 255u) * (16u - w); }
@@ -145,9 +150,11 @@ void main() {
 }
 ```
 
-# a SPIR-V snippet: a*b + c with a, b assumed to be bytes
+# a SPIR-V snippet that declares the extension: a*b + c with a, b assumed
+# to be bytes
 simplify assume pa in [0, 255], pb in [0, 255] nofile
 ```spv
+OpExtension "SPV_KHR_integer_dot_product"
 %a = OpLoad %uint %pa
 %b = OpLoad %uint %pb
 %c = OpLoad %uint %pc

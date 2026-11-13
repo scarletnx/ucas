@@ -5,6 +5,7 @@
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { int d[]; } b;
 void main() {
@@ -17,6 +18,7 @@ void main() {
 simplify nofile nofunctions under gt1030
 ```glsl
 #version 450
+#extension GL_EXT_integer_dot_product : require
 layout(local_size_x = 64) in;
 layout(std430, binding = 0) buffer B { int d[]; } b;
 void main() {
