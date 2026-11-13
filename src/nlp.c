@@ -7857,6 +7857,10 @@ nlp_is_english(const char *s, size_t n)
 		return 0;
 	if (n - i > 7 && !strncmp(s + i, "texalu ", 7))
 		return 0;	/* texalu F tol E under M (texalu.c) */
+	/* the simplify request's translation: its words and the names it
+	 * assumes ranges for ("assume width 2 4") are its own */
+	if (n - i > 12 && !strncmp(s + i, "spvsimplify ", 12))
+		return 0;
 	if (n - i > 7 && !strncmp(s + i, "texenc ", 7))
 		return 0;	/* texenc T rows W tol E (texenc.c) */
 	{
