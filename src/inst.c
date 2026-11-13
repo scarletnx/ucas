@@ -117,6 +117,29 @@
  *                      holds: v_trig_preop_f64 (x is an f64; its sign
  *                      and significand are not read)
  *
+ * The channels of a packed texel format, from its 32-bit word w as a
+ * texel fetch decodes them (c a constant channel, r g b a as 0 1 2 3):
+ *
+ *   unpack_b10g11r11(w, c)
+ *                      r (bits 0..10) and g (11..21) are unsigned 11-bit
+ *                      floats, b (22..31) an unsigned 10-bit float: 5
+ *                      exponent bits e over 6 or 5 significand bits m,
+ *                      2^(e-15) (1 + m/2^k), 2^-14 m/2^k when e is 0,
+ *                      Inf (m 0) or NaN when e is 31 (the Khronos Data
+ *                      Format 10.2, 10.3): B10G11R11_UFLOAT_PACK32
+ *   unpack_e5b9g9r9(w, c)
+ *                      r, g, b the 9-bit significands at bits 0, 9 and
+ *                      18 times 2^(e - 24), e the 5 bits from 27, no
+ *                      implicit one (EXT_texture_shared_exponent, Mesa's
+ *                      rgb9e5_to_float3): E5B9G9R9_UFLOAT_PACK32
+ *   unpack_a2b10g10r10(w, c)
+ *                      the 10-bit r, g, b at bits 0, 10 and 20 over
+ *                      1023 and the 2-bit a at 30 over 3, each rounded
+ *                      once to f32: A2B10G10R10_UNORM_PACK32
+ *
+ * They are priced by tex_packed: what the unit does when the word is a
+ * texel (texalu.c offers them for code that decodes a word by hand).
+ *
  * find (inst_find) offers them for the patterns they are, each kept only
  * when the active model prices the whole function lower, and checked on
  * the function's domain.
@@ -184,6 +207,9 @@ inst_class(int op)
 		return C_CUBE;
 	case O_TRIG_PREOP:
 		return C_TRIGPREOP;
+	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
+	case O_UNPACK_A2B10G10R10:
+		return C_TEX_PACKED;
 	}
 	return C_BYTEPERM;
 }
@@ -238,6 +264,9 @@ inst_type(int op, nid a, nid b, nid c)
 		return TY_F32;
 	case O_TRIG_PREOP:
 		return TY_F64;
+	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
+	case O_UNPACK_A2B10G10R10:
+		return TY_F32;
 	}
 	return U32;
 }
@@ -249,6 +278,63 @@ float_inst(int op)
 }
 
 /* ---- the float instructions, by their operands' bits ---- */
+
+static nid fof(ty_t t, nid u);
+
+/* the f32 2^k from its bits, k an exponent of a normal f32 (any u32
+ * node) */
+static nid
+pow2_of(nid k)
+{
+	return fof(TY_F32, mk_bin(O_SHL, mk_bin(O_ADD, k, ku(U32, 127)),
+	    ku(U32, 23)));
+}
+
+/* the unsigned float of 5 exponent bits over mb significand bits at
+ * bit p of w (Data Format 10.2, 10.3): every value is an f32 */
+static nid
+ufloat_of(nid w, int p, int mb)
+{
+	nid f = mk_bin(O_AND, mk_bin(O_SHR, w, ku(U32, p)), ku(U32,
+	    ((uint64_t)1 << (mb + 5)) - 1));
+	nid e = mk_bin(O_SHR, f, ku(U32, mb));
+	nid m = mk_bin(O_AND, f, ku(U32, ((uint64_t)1 << mb) - 1));
+	nid den = mk_bin(O_MUL, mk_cast(TY_F32, m), pow2_of(ku(U32,
+	    (uint64_t)(-14 - mb) & 0xffffffff)));
+	/* 2^(e-15) (1 + m/2^mb) = (2^mb + m) 2^(e - 15 - mb), e in 1..30 */
+	nid nrm = mk_bin(O_MUL, mk_cast(TY_F32, mk_bin(O_ADD, m, ku(U32,
+	    (uint64_t)1 << mb))), pow2_of(mk_bin(O_SUB, e, ku(U32,
+	    (uint64_t)(15 + mb)))));
+	nid big = mk_sel(mk_bin(O_EQ, m, ku(U32, 0)), fof(TY_F32, ku(U32,
+	    0x7f800000)), fof(TY_F32, ku(U32, 0x7fc00000)));
+
+	return mk_sel(mk_bin(O_EQ, e, ku(U32, 0)), den, mk_sel(mk_bin(O_EQ, e,
+	    ku(U32, 31)), big, nrm));
+}
+
+/* channel c of the packed word w */
+static nid
+unpack_ch(int op, nid w, int c)
+{
+	nid k;
+
+	w = mk_cast(U32, w);
+	switch (op) {
+	case O_UNPACK_B10G11R11:
+		return ufloat_of(w, 11 * c, c == 2 ? 5 : 6);
+	case O_UNPACK_E5B9G9R9:
+		/* m 2^(e - 24): exact, the significand has 9 bits */
+		k = mk_bin(O_AND, mk_bin(O_SHR, w, ku(U32, 9 * c)), ku(U32,
+		    511));
+		return mk_bin(O_MUL, mk_cast(TY_F32, k), pow2_of(mk_bin(O_SUB,
+		    mk_bin(O_SHR, w, ku(U32, 27)), ku(U32, 24))));
+	}
+	/* k/1023 (or k/3) as one f32 division: correctly rounded */
+	k = c == 3 ? mk_bin(O_SHR, w, ku(U32, 30)) : mk_bin(O_AND,
+	    mk_bin(O_SHR, w, ku(U32, 10 * c)), ku(U32, 1023));
+	return mk_bin(O_DIV, mk_cast(TY_F32, k), mk_cast(TY_F32, ku(U32,
+	    c == 3 ? 3 : 1023)));
+}
 
 static int
 fsig(ty_t t)	/* the significand's stored bits */
@@ -651,6 +737,9 @@ inst_expand(int op, nid a, nid b, nid c)
 		return fcube(op, a, b, c);
 	case O_TRIG_PREOP:
 		return ftrig_preop(a, b);
+	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
+	case O_UNPACK_A2B10G10R10:
+		return unpack_ch(op, a, (int)N.ki[b]);
 	case O_USAD4X8:
 		r = c;
 		for (i = 0; i < 4; i++) {
@@ -928,6 +1017,16 @@ mk_inst(int op, nid a, nid b, nid c)
 	case O_SMULHI:
 		a = mk_cast(I32, a);
 		b = mk_cast(I32, b);
+		break;
+	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
+	case O_UNPACK_A2B10G10R10:
+		if (!is_const(b) || N.ki[b] < 0 || N.ki[b] > (op ==
+		    O_UNPACK_A2B10G10R10 ? 3 : 2))
+			fail("%s takes a constant channel, 0..%d (%s), not %s",
+			    nm, op == O_UNPACK_A2B10G10R10 ? 3 : 2, op ==
+			    O_UNPACK_A2B10G10R10 ? "r g b a" : "r g b",
+			    node_str(b));
+		a = mk_cast(U32, a);
 		break;
 	case O_FUNL: case O_FUNR:
 		a = mk_cast(U32, a);

@@ -47,6 +47,7 @@ const char *const cclass_name[C_NCLASS] = {
 	"bfe", "brev", "mulhi", "funnel", "med3", "sad4x8", "byteperm", "bfi",
 	"mulwide", "bytesel", "simd4x8", "msad", "pk16", "lerp8", "qsad",
 	"vmnmx", "sad32", "addsat", "ldexp", "frexp", "cube", "trigpreop",
+	"tex_packed",
 };
 
 /*

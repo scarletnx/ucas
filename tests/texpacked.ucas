@@ -1,0 +1,43 @@
+# A packed texel format's channel decoded by hand is what a texel fetch
+# of that format gives (src/texalu.c, seed_packed; the operations in
+# src/inst.c): the bits the code reads, then every value of them
+model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+model pk : texel { tex_packed: 7, ldexp: 2, bfe: 1 }
+# the operations: 1.0 as an 11-bit and a 10-bit float, Inf, a NaN, the
+# smallest denormal; a shared exponent of 15 over 256; 10 and 2 bits
+show unpack_b10g11r11(0x3c0, 0)
+show unpack_b10g11r11(0x1e0 << 22, 2)
+show unpack_b10g11r11(0x7c0 << 11, 1)
+show unpack_b10g11r11(0x7c1, 0)
+show unpack_b10g11r11(1, 0)
+show unpack_e5b9g9r9((15 << 27) | (256 << 9), 1)
+show unpack_a2b10g10r10(1023 << 20, 2)
+show unpack_a2b10g10r10(1 << 30, 3)
+# an 11-bit float by hand, its Inf and NaN included
+INF = asfloat(0x7f800000)
+QNAN = asfloat(0x7fc00000)
+r11(w: u32) = (w >> 6 & 31) == 0 ? ldexp(f32(w & 63), -20) : (w >> 6 & 31) == 31 ? ((w & 63) == 0 ? INF : QNAN) : ldexp(f32((w & 63) + 64), i32(w >> 6 & 31) - 21)
+texalu r11 under pk
+texalu r11 under texel
+# the same without them: it differs where the exponent field is all ones
+r11n(w: u32) = (w >> 6 & 31) == 0 ? ldexp(f32(w & 63), -20) : ldexp(f32((w & 63) + 64), i32(w >> 6 & 31) - 21)
+texalu r11n under pk
+# the shared exponent, through bfe and through the exponent's bits
+e9(w: u32) = ldexp(f32(bfe(w, 9, 9)), i32(w >> 27) - 24)
+texalu e9 under pk
+e9b(w: u32) = f32((w >> 18) & 511) * asfloat(((w >> 27) + 103) << 23)
+texalu e9b under pk
+# a bias off by one is not the format
+e9c(w: u32) = ldexp(f32(w & 511), i32(w >> 27) - 23)
+texalu e9c under pk
+# 10-bit and 2-bit normalised channels: within the unit's tex_within
+a10(w: u32) = f32((w >> 20) & 1023) / 1023.0
+texalu a10 under pk
+texalu a10 tol 1e-6 under pk
+a2(w: u32) = f32(w >> 30) / 3.0
+texalu a2 tol 1e-6 under pk
+# 11 bits that are not an 11-bit float
+x11(w: u32) = f32(w & 2047) / 2047.0
+texalu x11 tol 1e-3 under pk
+# the channel is a constant
+f(w: u32, c: u32) = unpack_b10g11r11(w, c)

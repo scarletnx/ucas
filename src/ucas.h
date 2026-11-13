@@ -172,6 +172,9 @@ enum {
 	O_MINMAX, O_MAXMIN, O_MINADD, O_MAXADD, O_SAD, O_ADDSAT, O_SUBSAT,
 	O_LDEXP, O_FREXP_MANT, O_FREXP_EXP, O_CUBEID, O_CUBESC, O_CUBETC,
 	O_CUBEMA, O_TRIG_PREOP,
+	/* a packed texel format's channel decoded from its 32-bit word, as
+	 * the texture unit reads it: unpack_b10g11r11(w, c) ... */
+	O_UNPACK_B10G11R11, O_UNPACK_E5B9G9R9, O_UNPACK_A2B10G10R10,
 	/*
 	 * astc.c: steps of the ASTC decoder, each defined by an expression
 	 * over the operations above, as the catalogue's are (inside IS_INST,
@@ -451,6 +454,8 @@ enum {
 	C_BFE, C_BREV, C_MULHI, C_FUNNEL, C_MED3, C_SAD4X8, C_BYTEPERM, C_BFI,
 	C_MULWIDE, C_BYTESEL, C_SIMD4X8, C_MSAD, C_PK16, C_LERP8, C_QSAD,
 	C_VMNMX, C_SAD32, C_ADDSAT, C_LDEXP, C_FREXP, C_CUBE, C_TRIGPREOP,
+	/* a texel fetch of a packed format (texalu.c), absent unless listed */
+	C_TEX_PACKED,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT
