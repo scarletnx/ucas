@@ -2487,7 +2487,41 @@ static struct {
 	long work;
 	double deadline;
 	int out_of_time;
+	int probe_round;	/* the round that runs loops' passes apart */
+	int probe_grew;		/* a summary of the analysis grew in it */
+	uint8_t *reach;		/* a probed pass: the statements it runs */
 } A;
+
+/*
+ * A loop's first two passes, run apart from its fixed point (probe_loop),
+ * over every state the loop starts from: whether the second pass ever
+ * comes back to the test, where each pass leaves, what each one runs.
+ */
+static struct lprobe {
+	uint8_t seen;		/* probed */
+	uint8_t ran1, at2;	/* a first pass ran; one came back to the test */
+	uint8_t ran2, more;	/* a second pass ran; one came back to the test */
+	uint8_t brk1;		/* a first pass left by a break */
+	uint8_t fail1, fail2;	/* the test failed as a pass started */
+	struct av v1, v2;	/* the loop's variable as each pass starts */
+	uint8_t *r1, *r2;	/* per statement: run in the first, second pass */
+} *LP;			/* per statement; NULL when no probe round ran */
+static int lp_note;	/* the probe round: 0 ran, 1 out of time, 2 the
+			 * analysis did not settle, 3 a summary grew in it */
+static int *lp_n0;	/* per function: its summaries before the round */
+
+static void
+lp_free(void)
+{
+	int s;
+	if (LP)
+		for (s = 0; s <= G.ns; s++) {
+			free(LP[s].r1);
+			free(LP[s].r2);
+		}
+	free(LP);
+	LP = NULL;
+}
 
 static env_t
 env_dup(const struct av *e)
@@ -3497,6 +3531,91 @@ havoc_fn(env_t e, int f)
 			e[i] = av_top(G.y[i].arr ? G.y[i].ty : G.y[i].ty);
 }
 
+/* e (the sets own it) to T where the test x holds, to F where it fails;
+ * x < 0 always holds */
+static void
+split_test(int x, env_t e, struct eset *T, struct eset *F)
+{
+	struct av cv = x >= 0 ? ae(e, x) : av_k(TB, 1);
+	struct undo u[64];
+	int nu = 0;
+	env_t d;
+	if (cv.bot) {
+		free(e);
+		return;
+	}
+	if (cv.lo == cv.hi) {
+		es_add(cv.lo ? T : F, e, 0);
+		return;
+	}
+	d = env_dup(e);
+	if (refine(d, x, 1, u, &nu, 64))
+		es_add(T, d, 0);
+	else
+		free(d);
+	nu = 0;
+	if (refine(e, x, 0, u, &nu, 64))
+		es_add(F, e, 0);
+	else
+		free(e);
+}
+
+/*
+ * The first two passes of loop s apart, from P (the states it starts
+ * from, freed): what each runs, whether the second comes back to the
+ * test.  The loop's fixed point has run on these states already, so
+ * every call here finds its summary; nothing is recorded, and loops
+ * inside are not probed again (they are where they run from the fixed
+ * point).
+ */
+static void
+probe_loop(int s, struct eset *P)
+{
+	const struct gs *t = &G.s[s];
+	struct lprobe *L = &LP[s];
+	int var = t->k == S_FOR && t->c >= 0 ? asg_target(t->c) : -1, pass, i;
+	if (L->r1 == NULL) {
+		L->r1 = xcalloc((size_t)G.ns + 1, 1);
+		L->r2 = xcalloc((size_t)G.ns + 1, 1);
+		L->v1 = L->v2 = av_bot();
+	}
+	L->seen = 1;
+	for (pass = 0; pass < 2 && P->n && !A.out_of_time; pass++) {
+		struct eset T = {0}, F = {0};
+		struct ctx lc;
+		memset(&lc, 0, sizeof lc);
+		for (i = 0; i < P->n; i++) {
+			if (var >= 0) {
+				struct av *v = pass ? &L->v2 : &L->v1;
+				*v = av_join(*v, P->e[i][var]);
+			}
+			split_test(t->b, P->e[i], &T, &F);
+		}
+		free(P->e);
+		memset(P, 0, sizeof *P);
+		if (T.n)
+			*(pass ? &L->ran2 : &L->ran1) = 1;
+		if (F.n)
+			*(pass ? &L->fail2 : &L->fail1) = 1;
+		A.reach = pass ? L->r2 : L->r1;
+		ex(t->d, &T, &lc);
+		A.reach = NULL;
+		if (pass == 0 && lc.brk.n)
+			L->brk1 = 1;
+		es_move(&T, &lc.cont);
+		if (t->k == S_FOR && t->c >= 0)
+			for (i = 0; i < T.n; i++)
+				(void)ae(T.e[i], t->c);
+		if (T.n)
+			*(pass ? &L->more : &L->at2) = 1;
+		es_free(&lc.brk);
+		es_free(&lc.ret);
+		es_free(&F);
+		*P = T;
+	}
+	es_free(P);
+}
+
 static void
 ex(int s, struct eset *E, struct ctx *c)
 {
@@ -3507,6 +3626,8 @@ ex(int s, struct eset *E, struct ctx *c)
 	t = &G.s[s];
 	if (A.out_of_time)
 		return;
+	if (A.reach)
+		A.reach[s] = 1;
 	switch (t->k) {
 	case S_BLOCK:
 		for (i = 0; i < t->n && E->n; i++)
@@ -3552,30 +3673,8 @@ ex(int s, struct eset *E, struct ctx *c)
 	}
 	case S_IF: {
 		struct eset T = {0}, F = {0};
-		for (i = 0; i < E->n; i++) {
-			env_t e = E->e[i], d;
-			struct av cv = ae(e, t->a);
-			struct undo u[64];
-			int nu = 0;
-			if (cv.bot) {
-				free(e);
-				continue;
-			}
-			if (cv.lo == cv.hi) {
-				es_add(cv.lo ? &T : &F, e, 0);
-				continue;
-			}
-			d = env_dup(e);
-			if (refine(d, t->a, 1, u, &nu, 64))
-				es_add(&T, d, 0);
-			else
-				free(d);
-			nu = 0;
-			if (refine(e, t->a, 0, u, &nu, 64))
-				es_add(&F, e, 0);
-			else
-				free(e);
-		}
+		for (i = 0; i < E->n; i++)
+			split_test(t->a, E->e[i], &T, &F);
 		free(E->e);
 		memset(E, 0, sizeof *E);
 		ex(t->b, &T, c);
@@ -3588,7 +3687,7 @@ ex(int s, struct eset *E, struct ctx *c)
 	case S_FOR:
 	case S_WHILE:
 	case S_DO: {
-		struct eset head = {0}, X = {0};
+		struct eset head = {0}, X = {0}, P = {0};
 		int it;
 		if (t->k == S_FOR && t->a >= 0)
 			ex(t->a, E, c);
@@ -3600,37 +3699,17 @@ ex(int s, struct eset *E, struct ctx *c)
 			es_move(E, &lc.cont);
 			es_move(&c->ret, &lc.ret);
 			es_move(&X, &lc.brk);
-		}
+		} else if (A.probe_round && A.reach == NULL)
+			for (i = 0; i < E->n; i++)
+				es_add(&P, env_dup(E->e[i]), 0);
 		es_move(&head, E);
 		for (it = 0;; it++) {
 			struct eset T = {0}, Xi = {0};
 			struct ctx lc;
 			int ch = 0;
 			memset(&lc, 0, sizeof lc);
-			for (i = 0; i < head.n; i++) {
-				env_t e = env_dup(head.e[i]), d;
-				struct av cv = t->b >= 0 ? ae(e, t->b) : av_k(TB, 1);
-				struct undo u[64];
-				int nu = 0;
-				if (cv.bot) {
-					free(e);
-					continue;
-				}
-				if (cv.lo == cv.hi) {
-					es_add(cv.lo ? &T : &Xi, e, 0);
-					continue;
-				}
-				d = env_dup(e);
-				if (refine(d, t->b, 1, u, &nu, 64))
-					es_add(&T, d, 0);
-				else
-					free(d);
-				nu = 0;
-				if (refine(e, t->b, 0, u, &nu, 64))
-					es_add(&Xi, e, 0);
-				else
-					free(e);
-			}
+			for (i = 0; i < head.n; i++)
+				split_test(t->b, env_dup(head.e[i]), &T, &Xi);
 			ex(t->d, &T, &lc);
 			es_move(&T, &lc.cont);
 			if (t->k == S_FOR && t->c >= 0)
@@ -3650,6 +3729,8 @@ ex(int s, struct eset *E, struct ctx *c)
 			es_free(&lc.brk);
 		}
 		es_free(&head);
+		if (P.n)
+			probe_loop(s, &P);
 		es_move(E, &X);
 		return;
 	}
@@ -3702,6 +3783,51 @@ analyse_fn(int f, struct summ *S)
 	G.f[f].analysed = 1;
 }
 
+/* a new summary keyed kv (nk pairs), its entry empty */
+static void
+summ_new(struct fsum *F, const int64_t *kv, int nk)
+{
+	struct summ *S;
+	int i;
+	if (F->n == F->cap) {
+		F->cap = F->cap ? F->cap * 2 : 4;
+		F->s = xrealloc(F->s, (size_t)F->cap * sizeof *F->s);
+	}
+	S = &F->s[F->n++];
+	memset(S, 0, sizeof *S);
+	S->kv = xmalloc((size_t)(2 * nk + 1) * sizeof *S->kv);
+	memcpy(S->kv, kv, (size_t)(2 * nk) * sizeof *kv);
+	S->entry = xmalloc((size_t)A.ns * sizeof *S->entry);
+	for (i = 0; i < A.ns; i++)
+		S->entry[i] = av_bot();
+}
+
+/* does entry hold this call of f (its arguments, the globals it reads)? */
+static int
+entry_covers(const struct av *entry, int f, const struct av *args, int na,
+    const struct av *e)
+{
+	int i, k;
+	for (i = 0; i < na && i < G.f[f].np; i++) {
+		struct av v = args[i], j;
+		v.sh = -1;
+		j = av_join(entry[G.f[f].p[i]], v);
+		if (!av_same(&j, &entry[G.f[f].p[i]]))
+			return 0;
+	}
+	for (k = 0; k < A.nin[f]; k++) {
+		int y = A.in[f][k];
+		struct av v = e[y], j;
+		if (G.y[y].kind == Y_PARAM)
+			continue;
+		v.sh = -1;
+		j = av_join(entry[y], v);
+		if (!av_same(&j, &entry[y]))
+			return 0;
+	}
+	return 1;
+}
+
 static void
 call_fn(env_t e, int f, struct av *args, int na, struct av *ret)
 {
@@ -3732,23 +3858,29 @@ call_fn(env_t e, int f, struct av *args, int na, struct av *ret)
 		kv[2 * nk + 1] = one ? args[i].lo : 0;
 	}
 	(void)nk0;
-	for (i = 0; i < F->n; i++)
+	/* a probed pass (probe_loop) takes the probe round's own summaries
+	 * first (made after the analysis's, below) */
+	for (k = 0; k < F->n; k++) {
+		i = A.reach ? F->n - 1 - k : k;
 		if (!memcmp(F->s[i].kv, kv, (size_t)(2 * nk) * sizeof *kv)) {
 			S = &F->s[i];
 			break;
 		}
+	}
+	if (S != NULL && A.reach && S - F->s < lp_n0[f] && (!S->valid ||
+	    !entry_covers(S->entry, f, args, na, e))) {
+		/* it reads the analysis's summary and never grows or runs it
+		 * (its loops are probed where the analysis runs them): a copy
+		 * of its own, dropped after the round */
+		int at = (int)(S - F->s);
+		S = NULL;
+		summ_new(F, kv, nk);
+		S = &F->s[F->n - 1];
+		memcpy(S->entry, F->s[at].entry, (size_t)A.ns * sizeof *S->entry);
+	}
 	if (S == NULL) {
-		if (F->n == F->cap) {
-			F->cap = F->cap ? F->cap * 2 : 4;
-			F->s = xrealloc(F->s, (size_t)F->cap * sizeof *F->s);
-		}
-		S = &F->s[F->n++];
-		memset(S, 0, sizeof *S);
-		S->kv = xmalloc((size_t)(2 * nk + 1) * sizeof *S->kv);
-		memcpy(S->kv, kv, (size_t)(2 * nk) * sizeof *kv);
-		S->entry = xmalloc((size_t)A.ns * sizeof *S->entry);
-		for (i = 0; i < A.ns; i++)
-			S->entry[i] = av_bot();
+		summ_new(F, kv, nk);
+		S = &F->s[F->n - 1];
 	}
 	/* the entry: parameters and the globals it reads, joined */
 	for (i = 0; i < na && i < G.f[f].np; i++) {
@@ -3775,6 +3907,11 @@ call_fn(env_t e, int f, struct av *args, int na, struct av *ret)
 	}
 	if (ch)
 		A.changed = 1;
+	/* the probe round makes summaries of its own (a probed pass's
+	 * arguments are narrower, so keyed apart), dropped after it; one the
+	 * analysis made must not grow */
+	if (ch && A.probe_round && S - F->s < lp_n0[f])
+		A.probe_grew = 1;
 	if (A.inl[f]) {
 		/* loop-free: run its body on this call's own values (the entry
 		 * above is kept for the domains) */
@@ -4168,6 +4305,64 @@ analyse(double deadline)
 	}
 	free(init);
 	return round;
+}
+
+/*
+ * One more round from the roots once the analysis has settled, with each
+ * loop's first two passes run apart as well (probe_loop).  It records
+ * nothing and grows no summary (the states are the settled ones), so what
+ * the searches read is the analysis's; when it cannot finish, LP goes and
+ * lp_note says why.
+ */
+static void
+probe_round(int settled)
+{
+	env_t init;
+	int i, f;
+	lp_note = !settled ? 2 : 0;
+	if (A.out_of_time || !settled)
+		return;
+	LP = xcalloc((size_t)G.ns + 1, sizeof *LP);
+	init = xmalloc((size_t)A.ns * sizeof *init);
+	for (i = 0; i < A.ns; i++)
+		init[i] = av_top(G.y[i].ty);
+	for (i = 0; i < A.ns; i++)
+		if (G.y[i].kind == Y_GLOBAL && G.y[i].init >= 0 && !G.y[i].arr)
+			init[i] = av_conv(ae(init, G.y[i].init), G.x[G.y[i].init].ty,
+			    G.y[i].ty);
+	A.recording = 0;
+	A.probe_round = 1;
+	A.probe_grew = 0;
+	lp_n0 = xmalloc(((size_t)G.nf + 1) * sizeof *lp_n0);
+	for (f = 0; f < G.nf; f++) {
+		lp_n0[f] = FS[f].n;
+		for (i = 0; i < FS[f].n; i++)
+			FS[f].s[i].valid = 0;
+	}
+	for (f = 0; f < G.nf && !A.out_of_time; f++)
+		if (is_root(f)) {
+			env_t e = env_dup(init);
+			struct av r;
+			call_fn(e, f, NULL, 0, &r);
+			free(e);
+		}
+	A.probe_round = 0;
+	free(init);
+	for (f = 0; f < G.nf; f++) {
+		for (i = lp_n0[f]; i < FS[f].n; i++) {
+			free(FS[f].s[i].kv);
+			free(FS[f].s[i].entry);
+			es_free(&FS[f].s[i].exit);
+		}
+		FS[f].n = lp_n0[f];
+	}
+	free(lp_n0);
+	lp_n0 = NULL;
+	if (A.out_of_time || A.probe_grew) {
+		lp_note = A.out_of_time ? 1 : 3;
+		A.out_of_time = 0;	/* the analysis itself had finished */
+		lp_free();
+	}
 }
 
 /* ---- domains, as text ---- */
@@ -5189,16 +5384,18 @@ scost(int s)
 
 /* ---- proposals ---- */
 
-enum { P_FUNC, P_EXPR, P_FIT, P_INV };
+enum { P_FUNC, P_EXPR, P_FIT, P_INV, P_LOOP };
 struct prop {
 	int f, kind, line;
 	char what[1200];
 	struct sbuf text;	/* GLSL */
 	char proof[200];
 	long points;
-	double c0, c1;		/* per call (P_EXPR: per execution) */
+	double c0, c1;		/* per call (P_EXPR, P_LOOP: per execution) */
 	char domain[1200];
 	char relies[1200];
+	int passes, nexit, exitl[16];	/* P_LOOP: the most passes, exits */
+	uint8_t acts;		/* P_LOOP: the second pass acts before it leaves */
 };
 static struct prop *PR;
 static int npr, cappr;
@@ -5629,6 +5826,438 @@ reach_s(int s, int *xs, int *nx, int *ss, int *nss, int max)
 		reach_s(t->d, xs, nx, ss, nss, max);
 		return;
 	}
+}
+
+/* ---- loops that leave early: their first two passes (probe_loop) ---- */
+
+static const char *fsrc;	/* the source the lines are of */
+
+/* line n of the source, trimmed, cut at 60 characters */
+static void
+src_quote(char *buf, size_t n, int line)
+{
+	const char *p = fsrc, *e, *m;
+	size_t len;
+	int l = 1;
+	*buf = 0;
+	/* glslc.c's "#line N" before the source: the line after it is N (as
+	 * spirv.c's src_line reads it) */
+	if (p && (m = strstr(p, "#line ")) != NULL && atoi(m + 6) > 0 &&
+	    atoi(m + 6) < 10000) {
+		l = atoi(m + 6);
+		p = strchr(m, '\n') ? strchr(m, '\n') + 1 : m + strlen(m);
+	}
+	while (p && *p && l < line) {
+		if (*p++ == '\n')
+			l++;
+	}
+	if (!p || !*p)
+		return;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	e = strchr(p, '\n');
+	len = e ? (size_t)(e - p) : strlen(p);
+	while (len && (p[len - 1] == ' ' || p[len - 1] == '\t' ||
+	    p[len - 1] == '\r'))
+		len--;
+	if (len > 60)
+		snprintf(buf, n, "%.57s...", p);
+	else
+		snprintf(buf, n, "%.*s", (int)len, p);
+}
+
+/* the loop's own exits a pass ran: its breaks (not those of loops inside
+ * it) and every return */
+static void
+loop_exits(int s, int inloop, const uint8_t *r, int *lines, int *kinds,
+    int *n, int max)
+{
+	const struct gs *t;
+	int i;
+	if (s < 0 || !r[s])
+		return;
+	t = &G.s[s];
+	switch (t->k) {
+	case S_RET:
+	case S_BRK:
+		if (t->k == S_BRK && inloop)
+			return;
+		for (i = 0; i < *n && lines[i] != t->line; i++)
+			;
+		if (i == *n && *n < max) {
+			kinds[*n] = t->k;
+			lines[(*n)++] = t->line;
+		}
+		return;
+	case S_BLOCK:
+		for (i = 0; i < t->n; i++)
+			loop_exits(G.slist[t->first + i], inloop, r, lines, kinds, n,
+			    max);
+		return;
+	case S_IF:
+		loop_exits(t->b, inloop, r, lines, kinds, n, max);
+		if (t->c >= 0)
+			loop_exits(t->c, inloop, r, lines, kinds, n, max);
+		return;
+	case S_FOR:
+	case S_WHILE:
+	case S_DO:
+		loop_exits(t->d, 1, r, lines, kinds, n, max);
+		return;
+	}
+}
+
+/* x writes nothing but the variables in loc, and calls nothing that
+ * writes or that the level does not know */
+static int
+quiet_x(int x, const uint8_t *loc)
+{
+	const struct gx *g;
+	int i;
+	if (x < 0)
+		return 1;
+	g = &G.x[x];
+	switch (g->k) {
+	case X_NUM:
+	case X_VAR:
+		return 1;
+	case X_ASG:
+	case X_INC:
+		if (G.x[g->a].k != X_VAR || !loc[G.x[g->a].sym])
+			return 0;
+		return g->k == X_INC || quiet_x(g->b, loc);
+	case X_CALL:
+		if (g->sym == -B_UNK || (g->sym >= 0 && (A.impure[g->sym] ||
+		    A.nwrl[g->sym])))
+			return 0;
+		if (g->sym >= 0)
+			for (i = 0; i < g->b && i < G.f[g->sym].np; i++)
+				if (G.y[G.f[g->sym].p[i]].out)
+					return 0;
+		for (i = 0; i < g->b; i++)
+			if (!quiet_x(G.xarg[g->a + i], loc))
+				return 0;
+		return 1;
+	case X_UN:
+	case X_MEM:
+		return quiet_x(g->a, loc);
+	case X_SEL:
+		return quiet_x(g->a, loc) && quiet_x(g->b, loc) &&
+		    quiet_x(g->c, loc);
+	default:
+		return quiet_x(g->a, loc) && quiet_x(g->b, loc);
+	}
+}
+
+/* what a pass ran (r) does that outlives the pass: a write outside the
+ * loop's own variables (loc), a call that writes, a return, a loop */
+static int
+acts_s(int s, const uint8_t *r, const uint8_t *loc)
+{
+	const struct gs *t;
+	int i;
+	if (s < 0 || !r[s])
+		return 0;
+	t = &G.s[s];
+	switch (t->k) {
+	case S_BLOCK:
+		for (i = 0; i < t->n; i++)
+			if (acts_s(G.slist[t->first + i], r, loc))
+				return 1;
+		return 0;
+	case S_IF:
+		return !quiet_x(t->a, loc) || acts_s(t->b, r, loc) ||
+		    acts_s(t->c, r, loc);
+	case S_DECL:
+	case S_EXPR:
+		return !quiet_x(t->a, loc);
+	case S_BRK:
+	case S_CONT:
+	case S_EMPTY:
+		return 0;
+	}
+	return 1;
+}
+
+/* a pass's cost: what it ran (r), priced as scost prices a statement */
+static double
+pcost(int s, const uint8_t *r)
+{
+	const struct model *m = model_active();
+	const struct gs *t;
+	double c = 0, a, b;
+	int i;
+	if (s < 0 || !r[s])
+		return 0;
+	t = &G.s[s];
+	switch (t->k) {
+	case S_BLOCK:
+		for (i = 0; i < t->n; i++)
+			c += pcost(G.slist[t->first + i], r);
+		return c;
+	case S_IF:
+		a = pcost(t->b, r);
+		b = t->c >= 0 ? pcost(t->c, r) : 0;
+		/* one side never ran: its test is a constant there */
+		if (!r[t->b] || (t->c >= 0 && !r[t->c]))
+			return a + b;
+		return xcost(t->a) + m->c[C_BRANCH] + (a > b ? a : b);
+	}
+	return scost(s);
+}
+
+/* what a pass reached (the statement) but never ran inside it: a branch
+ * never taken, the rest of a block after it always left; loops inside
+ * are not looked into */
+static void
+never_ran(int s, const uint8_t *r, struct sbuf *b, int *n)
+{
+	const struct gs *t;
+	char q[80];
+	int i;
+	if (s < 0 || !r[s])
+		return;
+	t = &G.s[s];
+	switch (t->k) {
+	case S_BLOCK:
+		for (i = 0; i < t->n; i++) {
+			int k = G.slist[t->first + i];
+			if (!r[k]) {
+				if (G.s[k].k == S_EMPTY)
+					continue;
+				if (*n < 6) {
+					src_quote(q, sizeof q, G.s[k].line);
+					sb_printf(b, "%sfrom line %d on (`%s`)", *n ? "; " : "",
+					    G.s[k].line, q);
+				}
+				(*n)++;
+				return;
+			}
+			never_ran(k, r, b, n);
+		}
+		return;
+	case S_IF:
+		if (!r[t->b] && G.s[t->b].k != S_EMPTY) {
+			if (*n < 6) {
+				src_quote(q, sizeof q, t->line);
+				sb_printf(b, "%sthe if at line %d (`%s`)", *n ? "; " : "",
+				    t->line, q);
+			}
+			(*n)++;
+		} else
+			never_ran(t->b, r, b, n);
+		if (t->c >= 0) {
+			if (!r[t->c] && r[t->b]) {
+				if (*n < 6)
+					sb_printf(b, "%sthe else of the if at line %d", *n ?
+					    "; " : "", t->line);
+				(*n)++;
+			} else
+				never_ran(t->c, r, b, n);
+		}
+		return;
+	}
+}
+
+static void callers_text(struct sbuf *b, int f);
+
+/* "by a break at line 12 or 14, or a return at line 15" */
+static void
+exits_text(struct sbuf *b, const int *lines, const int *kinds, int n)
+{
+	int kind, i, said = 0;
+	for (kind = 0; kind < 2; kind++) {
+		int want = kind ? S_RET : S_BRK, cnt = 0, m = 0;
+		for (i = 0; i < n; i++)
+			cnt += kinds[i] == want;
+		if (!cnt)
+			continue;
+		sb_printf(b, "%s a %s at line ", said ? ", or" : "by", kind ?
+		    "return" : "break");
+		for (i = 0; i < n; i++)
+			if (kinds[i] == want) {
+				sb_printf(b, "%s%d", m == 0 ? "" : m + 1 == cnt ? " or " :
+				    ", ", lines[i]);
+				m++;
+			}
+		said = 1;
+	}
+}
+
+/* " (j = 0u)" when v is one value of variable var, else "" */
+static void
+var_is(struct sbuf *b, int var, struct av v)
+{
+	if (var < 0 || v.bot || v.lo != v.hi)
+		return;
+	sb_printf(b, " (%s = ", G.y[var].name);
+	num_text(b, v.lo, G.y[var].ty);
+	sb_puts(b, ")");
+}
+
+/*
+ * Loops whose first two passes (run apart in the probe round) show they
+ * never run a third, or a second: the first pass peeled out, or the loop
+ * an if.  A dataflow fact over the inferred domains; nothing to prove
+ * beyond them.  Loops whose bounds say as much (a constant count of one
+ * or two) are left out.
+ */
+static void
+search_loops(int f)
+{
+	int *xs, *ss, nx = 0, nss = 0, i, cap = G.nx + G.ns + 64;
+	if (LP == NULL || G.f[f].body < 0)
+		return;
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	ss = xmalloc((size_t)cap * sizeof *ss);
+	reach_s(G.f[f].body, xs, &nx, ss, &nss, cap);
+	for (i = 0; i < nss; i++) {
+		int s = ss[i], var, lines[16], kinds[16], ne = 0, l1[16], k1[16],
+		    n1 = 0, k, *ls, nls = 0, *lx, nlx = 0, nnever = 0, once, acts = 0,
+		    lo = INT_MAX, hi = 0;
+		const struct gs *t = &G.s[s];
+		const struct lprobe *L = &LP[s];
+		uint8_t *loc;
+		int64_t k0, klast;
+		struct prop *p;
+		struct sbuf w = {0}, v1 = {0}, cl = {0}, vt = {0}, nb = {0};
+		char q[80];
+		double c1;
+		if ((t->k != S_FOR && t->k != S_WHILE) || !L->seen || !L->ran1 ||
+		    L->more)
+			continue;
+		if (canon_loop(s, &var, &k0, &klast) && klast - k0 + 1 <= 2)
+			continue;
+		once = !L->ran2;	/* at most one pass */
+		loop_exits(t->d, 0, L->r1, l1, k1, &n1, 16);
+		if (!once)
+			loop_exits(t->d, 0, L->r2, lines, kinds, &ne, 16);
+		if (once && !L->at2 && n1 == 0)
+			continue;	/* the first pass never ends: no fact here */
+		/* the loop's own variables: declared in it */
+		loc = xcalloc((size_t)A.ns + 1, 1);
+		ls = xmalloc((size_t)cap * sizeof *ls);
+		lx = xmalloc((size_t)cap * sizeof *lx);
+		reach_s(s, lx, &nlx, ls, &nls, cap);
+		for (k = 0; k < nls; k++) {
+			if (G.s[ls[k]].k == S_DECL)
+				loc[G.s[ls[k]].sym] = 1;
+			if (G.s[ls[k]].line < lo)
+				lo = G.s[ls[k]].line;
+			if (G.s[ls[k]].line > hi)
+				hi = G.s[ls[k]].line;
+		}
+		var = t->k == S_FOR && t->c >= 0 ? asg_target(t->c) : -1;
+		if (!once)
+			acts = acts_s(t->d, L->r2, loc) || !quiet_x(t->b, loc) ||
+			    (t->c >= 0 && !quiet_x(t->c, loc));
+		var_is(&v1, var, L->v1);
+		if (!once) {
+			sb_puts(&w, "the loop leaves on its second pass");
+			var_is(&w, var, L->v2);
+			sb_puts(&w, " ");
+			exits_text(&w, lines, kinds, ne);
+			if (L->fail2)
+				sb_printf(&w, "%s its test", ne ? ", or by" : "by");
+			if (acts)
+				sb_printf(&w, ": peel its first pass%s out of the loop; "
+				    "what is left is the second pass once, not a loop",
+				    v1.p ? v1.p : "");
+			else
+				sb_printf(&w, ", doing nothing on the way: peel its first "
+				    "pass%s out and the loop goes", v1.p ? v1.p : "");
+			if (L->brk1 && n1) {
+				sb_puts(&w, "; the first pass may leave too, ");
+				exits_text(&w, l1, k1, n1);
+			}
+		} else {
+			if (L->at2) {
+				sb_printf(&w, "the loop's test fails on its second pass: its "
+				    "body runs at most once%s, an if and not a loop", v1.p ?
+				    v1.p : "");
+				if (n1) {
+					sb_puts(&w, "; that pass may also leave ");
+					exits_text(&w, l1, k1, n1);
+				}
+			} else {
+				sb_printf(&w, "the loop never comes back to its test: its body "
+				    "runs at most once%s, leaving ", v1.p ? v1.p : "");
+				exits_text(&w, l1, k1, n1);
+				sb_puts(&w, ": an if, not a loop");
+			}
+		}
+		p = prop_new(f, P_LOOP, t->line);
+		snprintf(p->what, sizeof p->what, "%s", w.p);
+		p->passes = once ? 1 : 2;
+		if (once) {
+			p->nexit = n1;
+			memcpy(p->exitl, l1, (size_t)n1 * sizeof *l1);
+		} else {
+			p->nexit = ne;
+			memcpy(p->exitl, lines, (size_t)ne * sizeof *lines);
+		}
+		p->acts = (uint8_t)acts;
+		src_quote(q, sizeof q, t->line);
+		sb_printf(&p->text, "%s\n  ->  its first pass alone%s", q,
+		    v1.p ? v1.p : "");
+		if (!once && acts)
+			sb_puts(&p->text, ", then its second once");
+		never_ran(t->d, L->r1, &nb, &nnever);
+		if (nnever)
+			sb_printf(&p->text, "; in the first pass these never run: %s%s",
+			    nb.p, nnever > 6 ? "; and more" : "");
+		snprintf(p->proof, sizeof p->proof, "dataflow: its first two passes "
+		    "run apart in the abstract interpretation, from every state it "
+		    "starts from; %s", once && L->at2 ? "the test fails on every "
+		    "state of the second" : once ? "no state of the first comes "
+		    "back to the test" : "no state of the second comes back to the "
+		    "test");
+		/* before: the loop as scost prices it; after: the passes kept */
+		p->c0 = scost(s);
+		c1 = t->k == S_FOR && t->a >= 0 ? scost(t->a) : 0;
+		c1 += pcost(t->d, L->r1);
+		if (L->fail1)
+			c1 += xcost(t->b) + model_active()->c[C_BRANCH];
+		if (!once && acts) {
+			c1 += pcost(t->d, L->r2) + (t->c >= 0 ? xcost(t->c) : 0);
+			if (L->fail2)
+				c1 += xcost(t->b) + model_active()->c[C_BRANCH];
+		}
+		p->c1 = c1;
+		if (var >= 0 && !L->v1.bot) {
+			sb_printf(&vt, "%s %s ", G.y[var].name, L->v1.lo == L->v1.hi ?
+			    "=" : "in");
+			av_text(&vt, L->v1, G.y[var].ty);
+			sb_puts(&vt, " as the first pass starts");
+			if (!once && !L->v2.bot) {
+				sb_printf(&vt, ", %s %s ", G.y[var].name, L->v2.lo ==
+				    L->v2.hi ? "=" : "in");
+				av_text(&vt, L->v2, G.y[var].ty);
+				sb_puts(&vt, " as the second does");
+			}
+		}
+		snprintf(p->domain, sizeof p->domain, "%s", vt.p ? vt.p : "");
+		if (is_root(f))
+			snprintf(p->relies, sizeof p->relies, "the states the loop "
+			    "(lines %d to %d) starts from, inferred from %s's start", lo,
+			    hi, G.f[f].name);
+		else {
+			callers_text(&cl, f);
+			snprintf(p->relies, sizeof p->relies, "the states the loop "
+			    "(lines %d to %d) starts from, inferred from %s's calls: %s",
+			    lo, hi, G.f[f].name, cl.p ? cl.p : "");
+		}
+		free(w.p);
+		free(v1.p);
+		free(cl.p);
+		free(vt.p);
+		free(nb.p);
+		free(loc);
+		free(ls);
+		free(lx);
+	}
+	free(xs);
+	free(ss);
 }
 
 /* operand replacements for a dead operation: up to 3 */
@@ -7615,7 +8244,17 @@ static const char *
 kind_name(int k)
 {
 	return k == P_FUNC ? "function" : k == P_EXPR ? "expression" :
-	    k == P_FIT ? "case_fit" : "invariant_call";
+	    k == P_FIT ? "case_fit" : k == P_LOOP ? "loop" : "invariant_call";
+}
+
+static int
+has_loops(void)
+{
+	int s;
+	for (s = 0; s < G.ns; s++)
+		if (G.s[s].k == S_FOR || G.s[s].k == S_WHILE)
+			return 1;
+	return 0;
 }
 
 static void
@@ -7640,6 +8279,12 @@ report(int rounds, double secs)
 	if (A.out_of_time)
 		printf("  note: the analysis stopped at the time budget: domains may be "
 		    "wider than they are, nothing below depends on more\n");
+	if (lp_note && has_loops())
+		printf("  note: each loop's first two passes were not run apart (%s), "
+		    "so no loop is said to leave early\n", lp_note == 1 ? "the time "
+		    "budget ran out first: `budget N` for more" : lp_note == 2 ?
+		    "the analysis did not settle in 8 rounds" : "doing it grew a "
+		    "summary of the analysis");
 	rep_list("function_level");
 	for (f = 0; f < G.nf; f++) {
 		int head = 0;
@@ -7655,12 +8300,13 @@ report(int rounds, double secs)
 				free(cl.p);
 				head = 1;
 			}
-			if (p->kind == P_EXPR) {
+			if (p->kind == P_EXPR || p->kind == P_LOOP) {
 				printf("    line %d: %s\n", p->line, p->what);
 				pr_lines(p->text.p, "      ");
 				printf("      proof: %s\n", p->proof);
-				printf("      cost under %s: %g -> %g each time it runs\n",
-				    model, p->c0, p->c1);
+				printf("      cost under %s: %g -> %g each time %s runs\n",
+				    model, p->c0, p->c1, p->kind == P_LOOP ? "the loop" :
+				    "it");
 				printf("      relies on: %s\n", p->relies);
 			} else {
 				printf("    %s\n", p->what);
@@ -7682,6 +8328,15 @@ report(int rounds, double secs)
 			rep_num("cost_after", p->c1);
 			rep_str("domain", p->domain);
 			rep_str("relies_on", p->relies);
+			if (p->kind == P_LOOP) {
+				int q;
+				rep_int("passes", p->passes);
+				rep_bool("second_pass_acts", p->acts);
+				rep_list("exit_lines");
+				for (q = 0; q < p->nexit; q++)
+					rep_int(NULL, p->exitl[q]);
+				rep_end();
+			}
 			rep_end();
 			nshown++;
 		}
@@ -7776,6 +8431,8 @@ reset_all(void)
 	fmemo = NULL;
 	free(xfn);
 	xfn = NULL;
+	lp_free();
+	lp_note = 0;
 }
 
 /* simplify's function-level pass over src (OpSource's GLSL); only: the
@@ -7792,6 +8449,7 @@ glslfn_pass(const char *src, double budget, int only, const char *model)
 	memset(&A, 0, sizeof A);
 	G.cur = -1;
 	dot_hinted = 0;
+	fsrc = src;
 	if (parse_source(src, model && !strcmp(model, "Fragment") ?
 	    SNX_GLSLC_FRAGMENT : model && !strcmp(model, "Vertex") ?
 	    SNX_GLSLC_VERTEX : SNX_GLSLC_COMPUTE) != 0) {
@@ -7830,9 +8488,14 @@ glslfn_pass(const char *src, double budget, int only, const char *model)
 	}
 	rounds = analyse((double)t0 / CLOCKS_PER_SEC + budget);
 	secs = (double)(clock() - t0) / CLOCKS_PER_SEC;
+	if (A.out_of_time)
+		lp_note = 1;
+	else
+		probe_round(rounds < 8);
 	for (f = 0; f < G.nf; f++) {
 		struct dom D;
 		int whole = 0;
+		search_loops(f);
 		if (whole_ok(f) && fn_dom(f, &D)) {
 			whole = D.points <= (double)(1 << 20);
 			free(D.rows);
