@@ -213,6 +213,11 @@ simplify: 70 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %28 (compared with a constant)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 3.375 -> 3.375 (+0.0%)
+  nothing applied: no cheaper float form could be proved
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
   once a vertex: 2 instructions costing 2 every pixel are affine in the varyings (sums, and products with values of the draw or the primitive)
     a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)

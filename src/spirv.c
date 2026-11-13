@@ -13366,7 +13366,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    nofile);
 		free(cvt);
 		advice_pass(fch ? ft : out.p ? out.p : "", advice_on);
-		round_pass(fch ? ft : out.p ? out.p : "");
+		/* the module before the float pass: its rounding patterns
+		 * (floor(z + 0.5), an int() of it) are the source's, and an
+		 * fma the float pass contracts there would hide them */
+		round_pass(out.p ? out.p : "");
 		free(ft);
 		free(orig_mod);
 		orig_mod = NULL;

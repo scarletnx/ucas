@@ -12,6 +12,19 @@ simplify: 268 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   dot products: 1 sum of products would be a dot product under gt1030 (cost -1), not written: the module does not declare SPV_KHR_integer_dot_product (OpCapability DotProduct; in GLSL, #extension GL_EXT_integer_dot_product)
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
+  values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %167 (converted to an integer)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 25 -> 24 (-4.0%)
+  rewrites, the largest savings first:
+    %167 = OpFAdd %float %166 %float_0_5
+      -> %167 = OpExtInst %float %2 Fma %165 %float_255 %float_0_5
+      (multiply-add as one fma; -1)
+      proof: within the original's Vulkan precision (derived), not bit-exact
+        x*K + B as one fma: the multiply is not decorated NoContraction, so Vulkan lets an implementation fuse it already (SPIR-V NoContraction; fma: inherited from OpFMul followed by OpFAdd (each correctly rounded)): within
+          the unfused form rounds x*K first: |fl(fl(x K) + B) - fl(xK + B)| can reach ulp(x K)/2 + ulp/2; with cancellation (x K near -B) that is a large relative difference
+        (line 21: for (int i = 4; i < 36; i++) a5 += int(x * 255.0 + 0.5);)
+  (nofile: simplified.spvasm, 7751 bytes, checksum 7fdad485)
   rounding over a loop's period (a proposal, never applied: the sum changes):
     line 6: the loop at line 6 adds floor(z + 0.5) on each of its 256 passes, the same rounding of the same value: the sum is off by 256 times its error, up to 128 steps from 256 z
         (line 6: for (int i = 0; i < 256; i++) acc += floor(x * 255.0 + 0.5);)
