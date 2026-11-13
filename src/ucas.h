@@ -402,7 +402,9 @@ enum {
 	C_IMAGE_LOAD,
 	/* a nearest sampled read with an address mode (texalu.c) */
 	C_TEX_NEAREST,
-	C_MEM_LAST = C_TEX_NEAREST,
+	/* a texel fetch of an _SRGB texture, a byte through the sRGB EOTF */
+	C_TEX_SRGB,
+	C_MEM_LAST = C_TEX_SRGB,
 	/*
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,

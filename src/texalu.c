@@ -234,7 +234,7 @@ tex_class(nid n)
 	uint32_t j;
 
 	if (IS_FETCH(N.op[n]))
-		return C_TEX_NEAREST;
+		return N.ki[n] == TEX_SRGB ? C_TEX_SRGB : C_TEX_NEAREST;
 	for (j = 0; j < N.b[tab]; j++) {
 		nid e = N.lst[N.a[tab] + j];
 		if (!is_const(e) || !unorm8(N.kr[e], NULL))
@@ -257,7 +257,24 @@ tex_cost(const struct model *m, nid n, int *cls)
 	 * times 1/n, a conversion and a multiply-add */
 	if (k == C_TEX_NEAREST)
 		return m->c[k] + m->c[C_CONV] + m->c[C_FMUL];
+	/* texelFetch: the byte is the coordinate */
 	return m->c[k];
+}
+
+int
+tex_srgb_table(nid tab)
+{
+	uint32_t k;
+
+	if (N.op[tab] != O_TABLE || N.b[tab] != 256)
+		return 0;
+	for (k = 0; k < 256; k++) {
+		nid e = N.lst[N.a[tab] + k];
+		if (!is_const(e) || N.ty[e] != TY_F32 || N.kr[e] !=
+		    texenc_srgb8((int)k))
+			return 0;
+	}
+	return 1;
 }
 
 int
@@ -269,6 +286,10 @@ tex_lookup(const char *s, size_t n, int *bits)
 	int op = 0;
 
 	*bits = 0;
+	if (n == 10 && !memcmp(s, "fetch_srgb", 10)) {
+		*bits = TEX_SRGB;
+		return O_FETCH_CLAMP;
+	}
 	for (i = 0; i < sizeof fetch / sizeof fetch[0]; i++) {
 		l = strlen(opinfo[fetch[i]].name);
 		if (l == n && !memcmp(s, opinfo[fetch[i]].name, n))
@@ -294,7 +315,8 @@ void
 tex_print_name(struct sbuf *b, nid n)
 {
 	if (IS_FETCH(N.op[n]))
-		sb_puts(b, opinfo[N.op[n]].name);
+		sb_puts(b, N.ki[n] == TEX_SRGB ? "fetch_srgb" :
+		    opinfo[N.op[n]].name);
 	else
 		sb_printf(b, "%s%d", opinfo[N.op[n]].name, TEX_BITS(N.ki[n]));
 }
@@ -342,6 +364,7 @@ struct repl {
 	int exact, filtered, ok;
 	int plain;		/* the read as it is, through the unit */
 	int levels;		/* a float table read as 8-bit levels */
+	int curve;		/* against the formula it replaces (seed_srgb) */
 	struct sbuf what, holds, proof, pipe, why;
 };
 
@@ -2591,6 +2614,110 @@ seed_sum(nid body, nid root)
 
 /* ---- the driver ---- */
 
+/*
+ * The sRGB EOTF of a byte (#91): an f32 subterm of one integer parameter
+ * in 0..255 that is, on every one of its 256 values, the specification's
+ * curve of k/255 (the table texenc's sRGB formats use: the curve rounded
+ * once) within what the request allows is a texel fetch of an R8_SRGB
+ * texture whose texel k holds the byte k: the unit decodes it, within
+ * tex_within ulps of the curve.  The inverse on store is not proposed.
+ */
+/* the largest |a - b| over parameter j's 256 values 0..255 (a and b read
+ * no other parameter); infinity where either is undefined */
+static double
+byte_diff(nid a, nid b, int j)
+{
+	struct plan p;
+	nid roots[2] = {a, b};
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r), md = 0;
+	uint32_t la, lb;
+	int k;
+
+	for (k = 0; k < 256; k++)
+		in_i[(size_t)j * CH + k] = k;
+	plan_build(&p, roots, 2, 0);
+	la = plan_loc(&p, a);
+	lb = plan_loc(&p, b);
+	plan_run(&p, 256, in_i, in_r);
+	for (k = 0; k < 256; k++) {
+		if ((COLF(&p, la)[k] & F_UNDEF) || (COLF(&p, lb)[k] & F_UNDEF)) {
+			md = INFINITY;
+			break;
+		}
+		if (!(fabs(COLR(&p, la)[k] - COLR(&p, lb)[k]) <= md))
+			md = fabs(COLR(&p, la)[k] - COLR(&p, lb)[k]);
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	return md;
+}
+
+static int
+seed_srgb(nid body, nid n)
+{
+	uint64_t sl = node_slots(n);
+	int j = 0, k;
+	int64_t lo, hi;
+	nid e[256], tab, v, cand, nb;
+	struct repl *r;
+	double md;
+	float c;
+
+	if (N.ty[n] != TY_F32 || !sl || (sl & (sl - 1)) || (sl >> MAXP) ||
+	    is_const(n))
+		return 0;
+	while (!(sl >> j & 1))
+		j++;
+	if (j >= X.f->np || !TY_ISINT(X.f->p[j].ty) || X.f->p[j].ty == TY_BOOL)
+		return 0;
+	v = mk_var((uint32_t)j, X.f->p[j].name, X.f->p[j].ty);
+	if (!irange(v, &lo, &hi) || lo < 0 || hi > 255)
+		return 0;
+	for (k = 0; k < 256; k++)
+		e[k] = kf(texenc_srgb8(k));
+	tab = mk_table(e, 256);
+	cand = mk_tex(O_FETCH_CLAMP, TEX_SRGB, tab, v, 0);
+	md = byte_diff(n, cand, j);
+	/* not the curve: nothing to say (a tolerance this wide is the
+	 * request's, and the check below says so) */
+	if (!(md <= (X.tol > 0 ? X.tol : 1.0 / 512)))
+		return 0;
+	if (!model_lists(X.m, C_TEX_SRGB)) {
+		X.unavail[C_TEX_SRGB] = 1;
+		return 0;
+	}
+	if ((r = new_repl(n)) == NULL)
+		return 0;
+	nb = swap_nodes(body, &n, &cand, 1);
+	c = price(nb);
+	r->to = cand;
+	r->cost = c;
+	r->ok = 1;
+	r->filtered = 1;
+	r->curve = 1;
+	/* against the formula: what it differs by, the table's rounding and
+	 * the unit's decode (tex_within ulps of the largest value, 1) */
+	r->err = md + ldexp(1.0, -24) + X.ulp * ldexp(1.0, -23);
+	r->eorig = 0;
+	sb_printf(&r->what, "%s is %s: the sRGB EOTF of %s/255", node_str(n),
+	    node_str(cand), node_str(v));
+	sb_printf(&r->holds, "holds where %s is in [%lld, %lld] (its range)",
+	    node_str(v), (long long)lo, (long long)hi);
+	sb_printf(&r->proof, "on all 256 values of %s (0..255; its range is "
+	    "inside), %s is the sRGB EOTF of %s/255 (the specification's "
+	    "curve, rounded once to f32) within %s; the unit's decode is within "
+	    "%g ulp of the curve (the model's tex_within): %s in all, with the "
+	    "table's own rounding", node_str(v), node_str(n), node_str(v),
+	    fmt_g(md), X.ulp, fmt_g(r->err));
+	sb_printf(&r->pipe, "a texture R8_SRGB, 256 x 1, one level: texel k "
+	    "holds the byte k\nthe shader reads texelFetch(s, int(%s), 0).r, "
+	    "which the unit decodes by the sRGB EOTF (the store's inverse is "
+	    "not proposed)", node_str(v));
+	return 1;
+}
+
 static void
 visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 {
@@ -2608,6 +2735,11 @@ visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 		for (j = 0; j < N.b[n]; j++)
 			visit(body, N.lst[N.a[n] + j], seen, lim);
 		return;
+	}
+	/* a float of one byte: the sRGB decode, replaced whole */
+	if (X.bits && X.ulp != 0 && seed_srgb(body, n))
+		return;
+	switch (op) {
 	case O_ADD: case O_SUB: case O_MUL: case O_FMA: case O_NEG: case O_DIV:
 	case O_SHL:
 		if (has_read(n, 0))
@@ -2705,10 +2837,11 @@ tex_search(const struct func *f, double tol, struct texres *res)
 			continue;
 		}
 		if (r->filtered && !r->exact && r->err > allow) {
-			sb_printf(&res->why, "%sderived, but within %s of the exact "
-			    "sum, more than the %s allowed (%s): tol %s takes "
-			    "it\n%s", res->why.n ? "\n" : "", fmt_g(r->err),
-			    fmt_g(allow), tol > r->eorig ? "tol" :
+			sb_printf(&res->why, "%sderived, but within %s of %s, "
+			    "more than the %s allowed (%s): tol %s takes it\n%s",
+			    res->why.n ? "\n" : "", fmt_g(r->err), r->curve ?
+			    "the formula" : "the exact sum", fmt_g(allow), tol >
+			    r->eorig ? "tol" : r->curve ? "no tolerance given" :
 			    "the sum's own rounding as written", fmt_g(r->err),
 			    r->what.p);
 			res->status = TEXR_OVERTOL;
@@ -2748,7 +2881,8 @@ tex_search(const struct func *f, double tol, struct texres *res)
 				    "available", res->why.n ? "\n" : "",
 				    sym_str(X.m->name), cclass_name[k], k ==
 				    C_TEX_NEAREST ? "a nearest read with an address "
-				    "mode" : k == C_TEX_SAMPLE ? "a filtered read of "
+				    "mode" : k == C_TEX_SRGB ? "an sRGB texture's "
+				    "decoded fetch" : k == C_TEX_SAMPLE ? "a filtered read of "
 				    "an 8-bit normalised texture" : "a filtered read "
 				    "of a 32-bit float texture");
 				res->status = TEXR_UNAVAILABLE;

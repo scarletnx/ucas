@@ -1,0 +1,22 @@
+# The sRGB EOTF of a byte as an R8_SRGB texture's fetch (src/texalu.c,
+# seed_srgb): a float of one integer in 0..255 that is the curve, on all
+# 256 values, within what the request allows
+model texel : gt1030 { tex_nearest: 6.875, tex_sample: 18.25, tex_sample_f32: 54.75, subtexel: 8, tex_within: 2 }
+model srgbt : texel { tex_srgb: 4 }
+s1(i: u8) = f32(i) / 255 <= 0.04045 ? f32(i) / 255 / 12.92 : ((f32(i) / 255 + 0.055) / 1.055)^2.4
+# without a tolerance the formula's own error is the bound: the unit's
+# two ulps are more than that, and tol says how far
+texalu s1 under srgbt
+texalu s1 tol 1e-6 under srgbt
+# a model with no price for the read cannot do it
+texalu s1 tol 1e-6 under texel
+# a gamma of 2.2 is not the curve; a byte inside a product is; an input
+# past 255 is not a byte
+s2(i: u8) = (f32(i) / 255)^2.2
+texalu s2 tol 1e-3 under srgbt
+s3(i: u8, k: f32) = k * (f32(i) / 255 <= 0.04045 ? f32(i) / 255 / 12.92 : ((f32(i) / 255 + 0.055) / 1.055)^2.4)
+texalu s3 tol 1e-6 under srgbt
+s4(i: u32 in 0..300) = f32(i) / 255 <= 0.04045 ? f32(i) / 255 / 12.92 : ((f32(i) / 255 + 0.055) / 1.055)^2.4
+texalu s4 tol 1e-6 under srgbt
+# fetch_srgb reads only the decode's own table
+f(i: u8) = fetch_srgb([0.0, 1.0], i)
