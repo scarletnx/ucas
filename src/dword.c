@@ -22,8 +22,8 @@
  * constants by case analyses; the bounds used here are the ones the
  * standard model gives line by line (printed with the derivation), with
  * the subtractions Sterbenz makes exact taken as exact and DWPlusFP's
- * two cases on its high words; the other additions' need their
- * cancellation bounded.
+ * and AccurateDWPlusDW's cases on their high words; the sloppy
+ * addition's needs its cancellation bounded.
  *
  * A bound is relative where the signs allow it and absolute always:
  * every value carries the interval of its exact value (from the
@@ -87,7 +87,7 @@ static struct {
 	int nprod;		/* error-free products */
 	int div0;		/* a divisor's interval holds 0 */
 	int sqrt0;		/* a square root's operand may be <= 0 */
-	int pre_cited;		/* Fast2Sum's precondition by the paper */
+	int pre_cases;		/* Fast2Sum's precondition by an addition's cases */
 	int nsloppy;
 	nid worst;		/* the sloppy add with the largest kappa */
 	long double worstk;
@@ -556,6 +556,41 @@ eta_add_fp_split(void)
 	return 3 * U * U / (1 - 2 * U) * SLACK;
 }
 
+/*
+ * AccurateDWPlusDW's local error whatever cancels, with |xh| >= |yh|
+ * (it is symmetric), s = xh + yh, t = xl + yl, A = |xh| + |yh|; the
+ * error is u |sl + th| + u |tl + vl| while both Fast2Sums are exact:
+ *   opposite signs and |yh| >= |xh|/2: s is a float (Sterbenz), sl = 0
+ *   and c = th; s is a multiple of q = ulp(xh)/2, |xl|, |yl| <= q and
+ *   |th| <= 2q, so q is a multiple of ulp(th) and s + th of ulp(th): it
+ *   is a float (vl = 0, w = tl, the result exact) unless it is 2^p
+ *   ulp(th) or more, where |tl| <= ulp(th)/2 <= u/2 |s + th| and the
+ *   error is below u^2 (1.5 + u) / (1 - u/2); Fast2Sum(s, th) is exact as
+ *   s's exponent is th's or more, or s = +-q, th = +-2q and the sum is a
+ *   float; Fast2Sum(vh, w) as |w| < |vh|;
+ *   otherwise A <= 3 |s|: |sl + th| <= 4u (1 + u) |s|, |vh| <= (1 + u)^2
+ *   (1 + 4u (1 + u)) |s|, |x~ + y~| >= (1 - 3u) |s|, and |c| < |sh|, |w| <
+ *   |vh|, so both Fast2Sums are exact.
+ * The larger, about 5 u^2 (the paper: 3 u^2 / (1 - 4u)).
+ */
+static long double
+eta_add_acc_split(void)
+{
+	long double e1 = U * U * (4 * (1 + U) + 3 * U * (1 + U) * (1 + U) +
+	    (1 + U) * (1 + U) * (1 + 4 * U * (1 + U))) / (1 - 3 * U);
+	long double e2 = U * U * (1.5L + U) / (1 - U / 2);
+
+	return ldmax(e1, e2) * SLACK;
+}
+
+/* the bound whatever cancels, for the additions that have one: 0 none */
+static long double
+eta_add_split(int kind)
+{
+	return kind == AK_FP ? eta_add_fp_split() : kind == AK_ACC ?
+	    eta_add_acc_split() : 0;
+}
+
 /* y's interval already negated for a subtraction */
 static void
 comp_add(struct err *z, const struct err *x, const struct err *y,
@@ -570,31 +605,33 @@ comp_add(struct err *z, const struct err *x, const struct err *y,
 	    kind == AK_F64)) {
 		/* exact operands, one rounding: whatever cancels */
 		z->rel = kind == AK_EXACT ? 0 : kind == AK_SINGLE ? U : U64;
-	} else if (rmax == 0 && kind == AK_FP) {
+	} else if (rmax == 0 && eta_add_split(kind) > 0) {
 		/* exact operands: the split bound, whatever cancels */
-		z->rel = eta_add_fp_split();
+		z->rel = eta_add_split(kind);
 		if (!isinf(kappa))
 			z->rel = ldmin(z->rel, add_local(kind, 1, kappa / (1 - U),
-			    &p2));
+			    pre));
+		else
+			*pre = 0;
 	} else if (!isinf(kappa) && !isinf(rmax) && kappa * rmax < 0.25L) {
 		long double kt = kappa * (1 + rmax) / (1 - kappa * rmax);
 		long double eta = add_local(kind, 1, kt / (1 - U), pre);
-		if (kind == AK_FP)
-			eta = ldmin(eta, eta_add_fp_split());
+		if (eta_add_split(kind) > 0)
+			eta = ldmin(eta, eta_add_split(kind));
 		z->rel = kappa * rmax + eta * (1 + kappa * rmax);
 	} else {
 		z->rel = LINF;
 		*pre = kind == AK_EXACT || kind == AK_SINGLE || kind == AK_F64;
 	}
-	/* DWPlusFP's Fast2Sum is exact in both of the split's cases */
-	if (kind == AK_FP)
-		*pre = 1;
+	/* where the magnitudes do not give it, the split's cases do: 2 */
+	if (eta_add_split(kind) > 0 && !*pre)
+		*pre = 2;
 	S = iv_mag(iz) + x->abs_ + y->abs_;
 	A = (iv_mag(ix) + x->abs_ + iv_mag(iy) + y->abs_) / (1 - U);
 	z->abs_ = x->abs_ + y->abs_ + add_local(kind, S, A, &p2);
-	if (kind == AK_FP)
+	if (eta_add_split(kind) > 0)
 		z->abs_ = ldmin(z->abs_, x->abs_ + y->abs_ +
-		    lmul(eta_add_fp_split(), S));
+		    lmul(eta_add_split(kind), S));
 	if (isnan(z->abs_))
 		z->abs_ = LINF;
 }
@@ -932,8 +969,8 @@ lower_add(nid n, int sub)
 		}
 	}
 	comp_add(&z.e, &x.e, &y.e, &x.iv, &iy, &z.iv, kind, kappa, &pre);
-	if (!pre)
-		L.pre_cited = 1;
+	if (pre == 2)
+		L.pre_cases = 1;
 	row(n, &z, how);
 	track(&z);
 	return z;
@@ -1129,8 +1166,8 @@ lower_fma(nid n)
 		fast_two_sum(vh, w, &s.hi, &s.lo);
 	}
 	comp_add(&s.e, &p.e, &c.e, &p.iv, &c.iv, &s.iv, kind, kappa, &pre);
-	if (!pre)
-		L.pre_cited = 1;
+	if (pre == 2)
+		L.pre_cases = 1;
 	row(n, &s, "the product's pair, then its sum");
 	track(&s);
 	return s;
@@ -1355,7 +1392,7 @@ struct cand {
 	int meets;
 	unsigned used;
 	long double maxmag;
-	int mag_unknown, uflow, nprod, div0, sqrt0, pre_cited, opaque,
+	int mag_unknown, uflow, nprod, div0, sqrt0, pre_cases, opaque,
 	    splitvar, nsloppy;
 	char unsup[120];
 	char *table;
@@ -1489,7 +1526,7 @@ run_cand(const struct func *f, const struct model *m, const struct dwreq *rq,
 	c->nprod = L.nprod;
 	c->div0 = L.div0;
 	c->sqrt0 = L.sqrt0;
-	c->pre_cited = L.pre_cited;
+	c->pre_cases = L.pre_cases;
 	c->opaque = L.opaque;
 	c->splitvar = L.splitvar;
 	c->nsloppy = L.nsloppy;
@@ -1597,9 +1634,18 @@ derivations(struct sbuf *o, unsigned used)
 		    "= Fast2Sum(vh, w):\n"
 		    "      zh + zl = x~ + y~ + d1 (sl + th) + d2 (tl + vl): %.3Lf "
 		    "u^2 |x~ + y~| at kappa = 1,\n"
-		    "      (2 + kappa) u^2 in general (the paper proves 3 u^2 / "
-		    "(1 - 4u) for every kappa)\n",
-		    add_local(AK_ACC, 1, 1 / (1 - U), &pre) / (U * U));
+		    "      (2 + kappa) u^2 in general; whatever cancels, with |xh| "
+		    ">= |yh|: of opposite signs with\n"
+		    "      |yh| >= |xh|/2, xh + yh is a float (Sterbenz), a "
+		    "multiple of ulp(xh)/2 as is th's ulp, so\n"
+		    "      sl = 0 and xh + yh + th is a float, the result exact, "
+		    "or 2^p ulp(th) or more, the error\n"
+		    "      then below 1.5 u^2; otherwise |xh| + |yh| <= 3 |xh + "
+		    "yh| and the error is below %.3Lf u^2\n"
+		    "      (the paper: 3 u^2 / (1 - 4u)); both Fast2Sums are exact "
+		    "in each case\n",
+		    add_local(AK_ACC, 1, 1 / (1 - U), &pre) / (U * U),
+		    eta_add_acc_split() / (U * U));
 	}
 	if (used & DB_MUL_FP)
 		sb_printf(o, "    DWTimesFP3(x~, y): (ch, cl1) = 2Prod(xh, y); cl3 "
@@ -1801,11 +1847,11 @@ conditions(struct sbuf *o, const struct cand *c)
 	if (c->sqrt0)
 		sb_puts(o, "    a square root's operand must be positive: at 0 "
 		    "the Newton step divides 0 by 0 (f64 gives 0)\n");
-	if (c->pre_cited)
-		sb_puts(o, "    Fast2Sum's precondition in an addition whose "
-		    "cancellation the ranges do not bound: by the paper's\n"
-		    "      proof for AccurateDWPlusDW and DWPlusFP, not derived "
-		    "here\n");
+	if (c->mode && c->pre_cases)
+		sb_puts(o, "    Fast2Sum's precondition |a| >= |b|: derived in "
+		    "each use from the magnitudes above, and in an addition\n"
+		    "      whose cancellation the ranges do not bound, from the "
+		    "cases of its derivation\n");
 	else if (c->mode)
 		sb_puts(o, "    Fast2Sum's precondition |a| >= |b|: derived in "
 		    "each use from the magnitudes above\n");
@@ -2234,7 +2280,7 @@ cmp_cand(const struct func *f, const struct model *m, int mode,
 	r->c.nprod = L.nprod;
 	r->c.div0 = L.div0;
 	r->c.sqrt0 = L.sqrt0;
-	r->c.pre_cited = L.pre_cited;
+	r->c.pre_cases = L.pre_cases;
 	r->c.opaque = L.opaque;
 	r->c.splitvar = L.splitvar;
 	r->c.table = L.table.p ? strdup(L.table.p) : strdup("");
