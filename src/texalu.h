@@ -54,6 +54,12 @@
 #define TEX_KI(bits, width) ((int64_t)(bits) | (int64_t)(width) << 8)
 #define TEX_BITS(ki) ((int)((ki) & 31))
 #define TEX_WIDTH(ki) ((int64_t)((ki) >> 8 & 0xffffff))
+/* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
+ * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
+#define TEX_SRGB 1
+
+/* is tab the 256 f32 values of the sRGB EOTF of k/255, rounded once */
+int tex_srgb_table(nid tab);
 
 /* a fetch_ op's texel for index i of n: 0..n-1, or -1 the border */
 int64_t tex_wrap(int op, int64_t i, int64_t n);

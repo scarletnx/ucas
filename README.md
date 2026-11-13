@@ -4096,11 +4096,24 @@ refused, each with its reason.  In English: "what can the texture unit compute o
 "use the sampler for mx within 0.01 under texel".  JSON and MCP:
 `texalu` (f, tol, model).
 
+**The sRGB decode.**  An f32 subterm of one integer parameter whose
+range is inside 0..255 that is, on all 256 of its values, the sRGB EOTF
+of the byte over 255 (the specification's curve rounded once to f32, the
+table texenc's sRGB formats use) is a texel fetch of an R8_SRGB texture
+whose texel k holds the byte k: `fetch_srgb(table, i)`, priced by
+`tex_srgb` (`texelFetch`, the byte is the coordinate; no built-in model
+lists it).  Its bound against the formula is what the two differ by on
+the 256 values, plus the table's rounding and the unit's decode
+(tex_within ulps); with no tolerance given that is more than the formula
+allows, and `tol` says by how much (tests/texsrgb.ucas).  The store's
+inverse is not proposed.
+
 Not done: shared weights in a kernel that is not a column times a row
-(a small linear program over the blocks), trilinear and anisotropic filters, mip levels as means, min/max and
-compare samplers, gather, array layers, sRGB and the other formats
-(R16, half floats) and normalised coordinates for the filters.  None
-of those has a measured price yet either.
+(a small linear program over the blocks), trilinear and anisotropic
+filters, mip levels as means, min/max and compare samplers, gather,
+array layers, the other formats (R16, half floats) and normalised
+coordinates for the filters.  None of those has a measured price yet
+either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private

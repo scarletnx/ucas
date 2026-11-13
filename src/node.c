@@ -1031,12 +1031,18 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 		c = op == O_FETCH_BORDER ? conv(c, N.ty[a]) : 0;
 		if (N.op[b] == O_UNDEF)
 			return mk_undef(N.ty[a]);
+		if (ki == TEX_SRGB && (op != O_FETCH_CLAMP ||
+		    !tex_srgb_table(a)))
+			fail("fetch_srgb reads an R8_SRGB texture of the bytes: "
+			    "its table is the 256 values the sRGB EOTF decodes "
+			    "them to");
 		if (is_const(b)) {
 			int64_t t = tex_wrap(op, N.ki[b], n);
 			return t < 0 ? c : N.lst[N.a[a] + (uint32_t)t];
 		}
 		fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
-		return intern(op, N.ty[a], a, b, c, 0, 0.0, fl);
+		return intern(op, N.ty[a], a, b, c, ki == TEX_SRGB ? TEX_SRGB :
+		    0, 0.0, fl);
 	}
 	if (bits < 1 || bits > TEX_MAXBITS)
 		fail("%s: the sub-texel grid has 1 to %d bits, not %d",
