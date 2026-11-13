@@ -2731,7 +2731,9 @@ static int
 try_body(uint32_t fn, uint32_t n, struct cf_emit *em)
 {
 	struct cf_unit *u = R.u;
-	struct cf_iter it;
+	/* cf_lower_iter keeps the caller's extra expressions (it.nx, it.x):
+	 * none here */
+	struct cf_iter it = {0};
 	uint32_t body = u->A.kind[n] == CA_FOR ? u->A.d[n] : u->A.b[n], from, to;
 	nid best[CF_MAXMEM];
 	struct step steps[CF_MAXMEM][16];
