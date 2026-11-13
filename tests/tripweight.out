@@ -1,0 +1,50 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile nofunctions
+simplify: 141 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum with a factor in several terms made one product of it (derived, below), 3 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 67 -> 64 (-4.5%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 268 -> 256 (-4.5%)
+  fused by the model in the result (one instruction for several):
+    shl_add          1 x 2     = 2  ((a << k) + b; saves 1)
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  by kind:
+       1  a factor several terms share taken out once   -3
+  rewrites:
+    %84 = OpIAdd %uint %82 %68
+      ->  %55 + (%81 - %60)*%61   (a factor several terms share taken out once; -3)
+      (line 13: v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);)
+  common factors (a factor several terms of a sum share, taken out: one multiply for them; derived by ifx.c, kept under gt1030):
+    %84 = OpIAdd %uint %82 %68
+      ->  %55 + (%81 - %60)*%61   (cost 7 -> 4)
+      (line 13: v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);)
+      %61*%81 + (%55 - %61*%60): the factor %61 of 2 terms taken out once
+      holds where any operands: u32 arithmetic is modulo 2^32, a ring
+      modulo 2^32 multiplication distributes over addition and subtraction, and a product commutes and associates (a shift left by k is a product by 2^k): the 2 terms with the factor %61 are %61 times the sum of what each has besides it
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 4457 bytes, checksum 777ff7ae)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 14.75 every run (1 of arithmetic, 2 loads at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 7.875 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %ucas_d141 = OpISub %uint %81 %60   (14.75)
+        (line 13: v |= ((src[y * width + x] >> (c << 3u)) & 255u) << (b << 3u);)
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile nofunctions
+simplify: 182 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 81.375 -> 81.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 173.625 -> 173.625 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile nofunctions
+simplify: 137 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 48.625 -> 48.625 (+0.0%)
+  weighted by the trip counts of 2 loops of constant bounds (each instruction once a pass, an early exit making it less): 107.25 -> 107.25 (+0.0%)
+  fused by the model in the result (one instruction for several):
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

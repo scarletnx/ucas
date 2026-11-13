@@ -39,6 +39,7 @@ memory under gt1030:
 simplify: 105 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 11.75 -> 11.75 (+0.0%)
   counting the strength reductions any driver also does: 11.75 -> 11.75 (+0.0%)
+  weighted by the trip counts of 2 loops of constant bounds (each instruction once a pass, an early exit making it less): 376 -> 376 (+0.0%)
   also done by any driver compiler (2 rewrites, -0; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          2 x 2     = 4  ((a << k) + b; saves 2)
@@ -102,6 +103,7 @@ cost model: zen4
 simplify: 104 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under zen4 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 5 -> 5 (+0.0%)
   counting the strength reductions any driver also does: 9 -> 5 (-44.4%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 195 -> 129 (-33.8%)
   also done by any driver compiler (2 rewrites, -4; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
   beyond those, no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs

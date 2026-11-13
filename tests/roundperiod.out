@@ -5,6 +5,7 @@ cost model: gt1030
 > spvsimplify nofile nofunctions
 simplify: 268 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once): 38 -> 38 (+0.0%)
+  weighted by the trip counts of 8 loops of constant bounds (each instruction once a pass, an early exit making it less): 2401.5 -> 2401.5 (+0.0%)
   fused by the model in the result (one instruction for several):
     shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
     imad             2 x 3     = 6  (a*b + c; saves 2)

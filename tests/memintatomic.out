@@ -119,6 +119,7 @@ intatomic 0.5f32(v41 & 0x3ff) under gt1030: a shared float atomic add of 0.5f32(
 simplify: 100 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
   integer arithmetic cost under gt1030 (each instruction once), beyond what spirv-opt -O and a driver's back end do: 8.375 -> 8.375 (+0.0%)
   counting the strength reductions any driver also does: 8.375 -> 8.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 175 -> 175 (+0.0%)
   also done by any driver compiler (2 rewrites, -0; kept in the written module, not counted above): 2 a multiply by a power of two is a shift
   fused by the model in the result (one instruction for several):
     shl_add          2 x 2     = 4  ((a << k) + b; saves 2)
