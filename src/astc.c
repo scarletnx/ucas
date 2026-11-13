@@ -57,6 +57,28 @@
  *       widened to e * 257, (c0 (64 - w) + c1 w + 32) >> 6; w past 64 or
  *       a byte past 255 is undefined.  The UNORM8 decode mode is its top
  *       byte, >> 8
+ *
+ * The HDR profile (23.15, 23.19):
+ *
+ *   astc_hdr(cem, v, k)
+ *       component k (0..3 the first endpoint's R, G, B, A, 4..7 the
+ *       second's) of HDR endpoint mode cem (2, 3, 7, 11, 14, 15) from its
+ *       unquantised values, v0..v7 the bytes of the u64 v: the
+ *       specification's 12-bit pseudo-logarithmic values, mode 7's and
+ *       11's bit layouts selected by their mode bits, 0x780 (1.0) for the
+ *       alpha of modes 2, 3, 7 and 11, the bytes v6, v7 for mode 14's
+ *       (an LDR alpha), mode 15's alphas by their own mode bits;
+ *       anything else is undefined
+ *   astc_lerph(e0, e1, w)
+ *       two 12-bit values at weight w as the 16-bit C: ((e0 << 4) (64 -
+ *       w) + (e1 << 4) w + 32) >> 6
+ *   astc_lns(c)
+ *       C to FP16 bits: (c >> 11 << 10) + (Mt >> 3), Mt the low 11 bits
+ *       m times 3 below 512, 5 m - 2048 from 1536, 4 m - 512 between;
+ *       Inf and NaN (0x7C00 and up) are 0x7BFF
+ *   astc_f16(c)
+ *       an LDR channel's UNORM16 to FP16 bits (decode_float16): 65535 is
+ *       1.0 (0x3C00), any other c / 65536 rounded toward zero
  */
 #include "calc.h"
 #include "fuse.h"
@@ -533,6 +555,396 @@ lerp(nid e0, nid e1, nid w)
 	return mk_sel(ok, r, mk_undef(U32));
 }
 
+/* ---- the HDR endpoint modes and interpolation (#109) ---- */
+
+/* bit i of x, 0 or 1 */
+static nid
+xbit(nid x, int i)
+{
+	return mk_bin(O_AND, mk_bin(O_SHR, x, ks(i)), ks(1));
+}
+
+/* acc with bit b (0 or 1) placed at k */
+static nid
+place(nid acc, nid b, int k)
+{
+	return mk_bin(O_OR, acc, mk_bin(O_SHL, b, ks(k)));
+}
+
+static nid
+clamp12(nid x)
+{
+	return mk_bin(O_MIN, mk_bin(O_MAX, x, ks(0)), ks(0xFFF));
+}
+
+/* the low n bits of x read as signed */
+static nid
+sext(nid x, int n)
+{
+	return mk_bin(O_SUB, mk_bin(O_XOR, mk_bin(O_AND, x, ks((1 << n) - 1)),
+	    ks(1 << (n - 1))), ks(1 << (n - 1)));
+}
+
+/* x times 2^k: a left shift that stays defined for a negative x */
+static nid
+times2k(nid x, int k)
+{
+	return mk_bin(O_MUL, x, ks(1 << k));
+}
+
+/* swap of two channels in both endpoints where c holds */
+static void
+swap_where(nid c, nid *e, int i, int j)
+{
+	nid a, b;
+	int k;
+
+	for (k = 0; k < 8; k += 4) {
+		a = mk_sel(c, e[k + j], e[k + i]);
+		b = mk_sel(c, e[k + i], e[k + j]);
+		e[k + i] = a;
+		e[k + j] = b;
+	}
+}
+
+/* mode 11's RGB (23.15.4), e[3] and e[7] 0x780 */
+static void
+hdr11(const nid *v, nid *e)
+{
+	static const int dbits[8] = {7, 6, 7, 6, 5, 6, 5, 6};
+	nid maj = mk_bin(O_OR, xbit(v[4], 7), mk_bin(O_SHL, xbit(v[5], 7),
+	    ks(1)));
+	nid mode = mk_bin(O_OR, mk_bin(O_OR, xbit(v[1], 7), mk_bin(O_SHL,
+	    xbit(v[2], 7), ks(1))), mk_bin(O_SHL, xbit(v[3], 7), ks(2)));
+	nid x[6], r[8], d[8];
+	int m, i;
+
+	x[0] = xbit(v[2], 6);
+	x[1] = xbit(v[3], 6);
+	x[2] = xbit(v[4], 6);
+	x[3] = xbit(v[5], 6);
+	x[4] = xbit(v[4], 5);
+	x[5] = xbit(v[5], 5);
+	for (m = 7; m >= 0; m--) {
+		int ohm = 1 << m, sh = (m >> 1) ^ 3;
+		nid va = mk_bin(O_OR, v[0], mk_bin(O_SHL, mk_bin(O_AND, v[1],
+		    ks(0x40)), ks(2)));
+		nid vb0 = mk_bin(O_AND, v[2], ks(0x3f)), vb1 = mk_bin(O_AND, v[3],
+		    ks(0x3f)), vc = mk_bin(O_AND, v[1], ks(0x3f));
+		nid vd0 = sext(v[4], dbits[m]), vd1 = sext(v[5], dbits[m]), e1[8];
+		if (ohm & 0xA4)
+			va = place(va, x[0], 9);
+		if (ohm & 0x08)
+			va = place(va, x[2], 9);
+		if (ohm & 0x50)
+			va = place(va, x[4], 9);
+		if (ohm & 0x50)
+			va = place(va, x[5], 10);
+		if (ohm & 0xA0)
+			va = place(va, x[1], 10);
+		if (ohm & 0xC0)
+			va = place(va, x[2], 11);
+		if (ohm & 0x04)
+			vc = place(vc, x[1], 6);
+		if (ohm & 0xE8)
+			vc = place(vc, x[3], 6);
+		if (ohm & 0x20)
+			vc = place(vc, x[2], 7);
+		if (ohm & 0x5B)
+			vb0 = place(vb0, x[0], 6);
+		if (ohm & 0x5B)
+			vb1 = place(vb1, x[1], 6);
+		if (ohm & 0x12)
+			vb0 = place(vb0, x[2], 7);
+		if (ohm & 0x12)
+			vb1 = place(vb1, x[3], 7);
+		va = times2k(va, sh);
+		vb0 = times2k(vb0, sh);
+		vb1 = times2k(vb1, sh);
+		vc = times2k(vc, sh);
+		vd0 = times2k(vd0, sh);
+		vd1 = times2k(vd1, sh);
+		e1[4] = clamp12(va);
+		e1[5] = clamp12(mk_bin(O_SUB, va, vb0));
+		e1[6] = clamp12(mk_bin(O_SUB, va, vb1));
+		e1[0] = clamp12(mk_bin(O_SUB, va, vc));
+		e1[1] = clamp12(mk_bin(O_SUB, mk_bin(O_SUB, mk_bin(O_SUB, va,
+		    vb0), vc), vd0));
+		e1[2] = clamp12(mk_bin(O_SUB, mk_bin(O_SUB, mk_bin(O_SUB, va,
+		    vb1), vc), vd1));
+		for (i = 0; i < 8; i++) {
+			if ((i & 3) == 3)
+				continue;
+			r[i] = m == 7 ? e1[i] : mk_sel(mk_bin(O_EQ, mode, ks(m)),
+			    e1[i], r[i]);
+		}
+	}
+	r[3] = r[7] = ks(0x780);
+	swap_where(mk_bin(O_EQ, maj, ks(1)), r, 0, 1);
+	swap_where(mk_bin(O_EQ, maj, ks(2)), r, 0, 2);
+	/* both major bits set: the values directly */
+	d[0] = mk_bin(O_SHL, v[0], ks(4));
+	d[1] = mk_bin(O_SHL, v[2], ks(4));
+	d[2] = mk_bin(O_SHL, mk_bin(O_AND, v[4], ks(0x7f)), ks(5));
+	d[4] = mk_bin(O_SHL, v[1], ks(4));
+	d[5] = mk_bin(O_SHL, v[3], ks(4));
+	d[6] = mk_bin(O_SHL, mk_bin(O_AND, v[5], ks(0x7f)), ks(5));
+	d[3] = d[7] = ks(0x780);
+	for (i = 0; i < 8; i++)
+		e[i] = mk_sel(mk_bin(O_EQ, maj, ks(3)), d[i], r[i]);
+}
+
+/* mode 7 (23.15.3): a base RGB, a scale and the mode bits */
+static void
+hdr7(const nid *v, nid *e)
+{
+	static const int shamts[6] = {1, 1, 2, 3, 4, 5};
+	nid modeval = mk_bin(O_OR, mk_bin(O_OR, mk_bin(O_SHR, mk_bin(O_AND,
+	    v[0], ks(0xC0)), ks(6)), mk_bin(O_SHR, mk_bin(O_AND, v[1], ks(0x80)),
+	    ks(5))), mk_bin(O_SHR, mk_bin(O_AND, v[2], ks(0x80)), ks(4)));
+	nid x[7];
+	int mv, i;
+
+	x[0] = xbit(v[1], 6);
+	x[1] = xbit(v[1], 5);
+	x[2] = xbit(v[2], 6);
+	x[3] = xbit(v[2], 5);
+	x[4] = xbit(v[3], 7);
+	x[5] = xbit(v[3], 6);
+	x[6] = xbit(v[3], 5);
+	for (mv = 15; mv >= 0; mv--) {
+		int maj, mode, ohm, sh;
+		nid red = mk_bin(O_AND, v[0], ks(0x3f));
+		nid green = mk_bin(O_AND, v[1], ks(0x1f));
+		nid blue = mk_bin(O_AND, v[2], ks(0x1f));
+		nid scale = mk_bin(O_AND, v[3], ks(0x1f)), c[8], t;
+		if ((mv & 0xC) != 0xC) {
+			maj = mv >> 2;
+			mode = mv & 3;
+		} else if (mv != 0xF) {
+			maj = mv & 3;
+			mode = 4;
+		} else {
+			maj = 0;
+			mode = 5;
+		}
+		ohm = 1 << mode;
+		if (ohm & 0x30)
+			green = place(green, x[0], 6);
+		if (ohm & 0x3A)
+			green = place(green, x[1], 5);
+		if (ohm & 0x30)
+			blue = place(blue, x[2], 6);
+		if (ohm & 0x3A)
+			blue = place(blue, x[3], 5);
+		if (ohm & 0x3D)
+			scale = place(scale, x[6], 5);
+		if (ohm & 0x2D)
+			scale = place(scale, x[5], 6);
+		if (ohm & 0x04)
+			scale = place(scale, x[4], 7);
+		if (ohm & 0x3B)
+			red = place(red, x[4], 6);
+		if (ohm & 0x04)
+			red = place(red, x[3], 6);
+		if (ohm & 0x10)
+			red = place(red, x[5], 7);
+		if (ohm & 0x0F)
+			red = place(red, x[2], 7);
+		if (ohm & 0x05)
+			red = place(red, x[1], 8);
+		if (ohm & 0x0A)
+			red = place(red, x[0], 8);
+		if (ohm & 0x05)
+			red = place(red, x[0], 9);
+		if (ohm & 0x02)
+			red = place(red, x[6], 9);
+		if (ohm & 0x01)
+			red = place(red, x[3], 10);
+		if (ohm & 0x02)
+			red = place(red, x[5], 10);
+		sh = shamts[mode];
+		red = times2k(red, sh);
+		green = times2k(green, sh);
+		blue = times2k(blue, sh);
+		scale = times2k(scale, sh);
+		if (mode != 5) {
+			green = mk_bin(O_SUB, red, green);
+			blue = mk_bin(O_SUB, red, blue);
+		}
+		if (maj == 1) {
+			t = red;
+			red = green;
+			green = t;
+		} else if (maj == 2) {
+			t = red;
+			red = blue;
+			blue = t;
+		}
+		c[4] = clamp12(red);
+		c[5] = clamp12(green);
+		c[6] = clamp12(blue);
+		c[0] = clamp12(mk_bin(O_SUB, red, scale));
+		c[1] = clamp12(mk_bin(O_SUB, green, scale));
+		c[2] = clamp12(mk_bin(O_SUB, blue, scale));
+		for (i = 0; i < 8; i++)
+			if ((i & 3) != 3)
+				e[i] = mv == 15 ? c[i] : mk_sel(mk_bin(O_EQ,
+				    modeval, ks(mv)), c[i], e[i]);
+	}
+	e[3] = e[7] = ks(0x780);
+}
+
+/* mode 15's alphas (23.15.6) */
+static void
+hdr15a(const nid *v, nid *e)
+{
+	nid mode = mk_bin(O_OR, xbit(v[6], 7), mk_bin(O_SHL, xbit(v[7], 7),
+	    ks(1)));
+	nid a6 = mk_bin(O_AND, v[6], ks(0x7F)), a7 = mk_bin(O_AND, v[7],
+	    ks(0x7F)), r3 = mk_bin(O_SHL, a6, ks(5)), r7 = mk_bin(O_SHL, a7,
+	    ks(5));
+	int m;
+
+	for (m = 2; m >= 0; m--) {
+		nid b6 = mk_bin(O_OR, a6, mk_bin(O_AND, mk_bin(O_SHL, a7, ks(m +
+		    1)), ks(0x780)));
+		nid b7 = mk_bin(O_SUB, mk_bin(O_XOR, mk_bin(O_AND, a7, ks(0x3F >>
+		    m)), ks(0x20 >> m)), ks(0x20 >> m));
+		b6 = mk_bin(O_SHL, b6, ks(4 - m));
+		b7 = clamp12(mk_bin(O_ADD, times2k(b7, 4 - m), b6));
+		r3 = mk_sel(mk_bin(O_EQ, mode, ks(m)), b6, r3);
+		r7 = mk_sel(mk_bin(O_EQ, mode, ks(m)), b7, r7);
+	}
+	e[3] = r3;
+	e[7] = r7;
+}
+
+/* e[0..7]: the 12-bit values of HDR mode cem (2, 3, 7, 11, 14, 15) from
+ * the bytes of v (i32); mode 14's alphas are its bytes */
+static int
+hdr_endpoints(int cem, nid v64, nid *e)
+{
+	nid v[8], y0, y1, d;
+	int i;
+
+	for (i = 0; i < 8; i++)
+		v[i] = mk_cast(I32, mk_bin(O_AND, mk_bin(O_SHR, v64, mk_const_i(
+		    TY(K_UINT, 64), 8 * i)), mk_const_i(TY(K_UINT, 64), 255)));
+	switch (cem) {
+	case 2:
+		d = mk_bin(O_GE, v[1], v[0]);
+		y0 = mk_sel(d, mk_bin(O_SHL, v[0], ks(4)), mk_bin(O_ADD,
+		    mk_bin(O_SHL, v[1], ks(4)), ks(8)));
+		y1 = mk_sel(d, mk_bin(O_SHL, v[1], ks(4)), mk_bin(O_SUB,
+		    mk_bin(O_SHL, v[0], ks(4)), ks(8)));
+		set4(e, y0, y0, y0, ks(0x780));
+		set4(e + 4, y1, y1, y1, ks(0x780));
+		return 1;
+	case 3:
+		d = mk_bin(O_NE, mk_bin(O_AND, v[0], ks(0x80)), ks(0));
+		y0 = mk_sel(d, mk_bin(O_OR, mk_bin(O_SHL, mk_bin(O_AND, v[1],
+		    ks(0xE0)), ks(4)), mk_bin(O_SHL, mk_bin(O_AND, v[0], ks(0x7F)),
+		    ks(2))), mk_bin(O_OR, mk_bin(O_SHL, mk_bin(O_AND, v[1],
+		    ks(0xF0)), ks(4)), mk_bin(O_SHL, mk_bin(O_AND, v[0], ks(0x7F)),
+		    ks(1))));
+		y1 = mk_bin(O_MIN, mk_bin(O_ADD, y0, mk_sel(d, mk_bin(O_SHL,
+		    mk_bin(O_AND, v[1], ks(0x1F)), ks(2)), mk_bin(O_SHL,
+		    mk_bin(O_AND, v[1], ks(0x0F)), ks(1)))), ks(0xFFF));
+		set4(e, y0, y0, y0, ks(0x780));
+		set4(e + 4, y1, y1, y1, ks(0x780));
+		return 1;
+	case 7:
+		hdr7(v, e);
+		return 1;
+	case 11: case 14: case 15:
+		hdr11(v, e);
+		if (cem == 14) {
+			e[3] = v[6];
+			e[7] = v[7];
+		} else if (cem == 15)
+			hdr15a(v, e);
+		return 1;
+	}
+	return 0;
+}
+
+/* component k of HDR mode cem: each a select when it is not a value */
+static nid
+hdr_endpoint(nid cem, nid v, nid k)
+{
+	static const int modes[6] = {2, 3, 7, 11, 14, 15};
+	nid r = mk_undef(I32), e[8];
+	int c, i;
+
+	for (c = 5; c >= 0; c--) {
+		nid b = mk_undef(I32);
+		if (is_const(cem) && N.ki[cem] != modes[c])
+			continue;
+		hdr_endpoints(modes[c], v, e);
+		if (is_const(k))
+			b = N.ki[k] >= 0 && N.ki[k] < 8 ? e[N.ki[k]] : b;
+		else
+			for (i = 7; i >= 0; i--)
+				b = mk_sel(mk_bin(O_EQ, k, ku((uint32_t)i)), e[i],
+				    b);
+		r = is_const(cem) ? b : mk_sel(mk_bin(O_EQ, cem,
+		    ku((uint32_t)modes[c])), b, r);
+	}
+	return mk_cast(U32, r);
+}
+
+/* two 12-bit values at weight w, as the 16-bit C of 23.19 */
+static nid
+lerph(nid e0, nid e1, nid w)
+{
+	nid ok = mk_bin(O_LAND, mk_bin(O_LAND, mk_bin(O_LE, e0, ku(0xFFF)),
+	    mk_bin(O_LE, e1, ku(0xFFF))), mk_bin(O_LE, w, ku(64)));
+	nid r = shr(mk_bin(O_ADD, mk_bin(O_ADD, mk_bin(O_MUL, shl(e0, 4),
+	    mk_bin(O_SUB, ku(64), w)), mk_bin(O_MUL, shl(e1, 4), w)), ku(32)), 6);
+
+	return mk_sel(ok, r, mk_undef(U32));
+}
+
+/* the 16-bit C to FP16 bits: the top five bits the exponent, the low 11
+ * through the piecewise map closer to a logarithm, Inf and NaN as 0x7BFF */
+static nid
+lns(nid c)
+{
+	nid m = band(c, 0x7FF), mt, cf;
+
+	mt = mk_sel(mk_bin(O_LT, m, ku(512)), mk_bin(O_MUL, m, ku(3)),
+	    mk_sel(mk_bin(O_GE, m, ku(1536)), mk_bin(O_SUB, mk_bin(O_MUL, m,
+	    ku(5)), ku(2048)), mk_bin(O_SUB, mk_bin(O_MUL, m, ku(4)), ku(512))));
+	cf = mk_bin(O_ADD, shl(shr(band(c, 0xF800), 11), 10), shr(mt, 3));
+	return mk_sel(mk_bin(O_LE, c, ku(0xFFFF)), mk_bin(O_MIN, cf, ku(0x7BFF)),
+	    mk_undef(U32));
+}
+
+/* a UNORM16 to FP16 bits (decode_float16): 65535 is 1.0, the rest c/65536
+ * rounded toward zero */
+static nid
+f16of(nid c)
+{
+	nid r = ku(0);
+	int e;
+
+	/* c in [2^e, 2^(e+1)): exponent e - 1 (biased e - 16 + 15), the
+	 * significand's 10 bits below the top one */
+	for (e = 0; e < 16; e++) {
+		nid in = mk_bin(O_GE, c, ku(1u << e)), v;
+		if (e < 2)	/* c 2^-16 is subnormal: c 2^8 units of 2^-24 */
+			v = shl(c, 8);
+		else
+			v = mk_bin(O_OR, ku((uint32_t)(e - 1) << 10), e >= 10 ?
+			    band(shr(c, e - 10), 0x3FF) : band(shl(c, 10 - e),
+			    0x3FF));
+		r = mk_sel(in, v, r);
+	}
+	r = mk_sel(mk_bin(O_EQ, c, ku(65535)), ku(0x3C00), r);
+	return mk_sel(mk_bin(O_LE, c, ku(0xFFFF)), r, mk_undef(U32));
+}
+
 nid
 astc_expand(int op, int64_t ki, nid a, nid b, nid c)
 {
@@ -548,6 +960,14 @@ astc_expand(int op, int64_t ki, nid a, nid b, nid c)
 		return bilerp(a, ki, b, c);
 	case O_ASTC_LERP:
 		return lerp(a, b, c);
+	case O_ASTC_HDR:
+		return hdr_endpoint(a, b, c);
+	case O_ASTC_LERPH:
+		return lerph(a, b, c);
+	case O_ASTC_LNS:
+		return lns(a);
+	case O_ASTC_F16:
+		return f16of(a);
 	}
 	fail("%s: not an ASTC step", opinfo[op].name);
 	return 0;
@@ -572,7 +992,8 @@ mk_astc(int op, int64_t ki, nid a, nid b, nid c)
 {
 	const char *nm = opinfo[op].name;
 	int ar = opinfo[op].arity, fl = NF_SG, i;
-	nid o[3] = {a, b, ar == 3 ? c : 0}, r;
+	/* a step of one operand keeps no other (the caller's may be unset) */
+	nid o[3] = {a, ar >= 2 ? b : 0, ar == 3 ? c : 0}, r;
 
 	if (op == O_ASTC_BILERP) {
 		if (N.op[a] != O_TABLE)
@@ -605,8 +1026,25 @@ mk_astc(int op, int64_t ki, nid a, nid b, nid c)
 	    N.ki[c] > 7))
 		fail("astc_endpoint: the two endpoints have bytes 0..7, not %lld",
 		    (long long)N.ki[c]);
-	if (op == O_ASTC_LERP && is_const(c) && (N.ki[c] < 0 || N.ki[c] > 64))
-		fail("astc_lerp: a weight is 0..64, not %lld", (long long)N.ki[c]);
+	if ((op == O_ASTC_LERP || op == O_ASTC_LERPH) && is_const(c) &&
+	    (N.ki[c] < 0 || N.ki[c] > 64))
+		fail("%s: a weight is 0..64, not %lld", nm, (long long)N.ki[c]);
+	if (op == O_ASTC_HDR && is_const(a) && N.ki[a] != 2 && N.ki[a] != 3 &&
+	    N.ki[a] != 7 && N.ki[a] != 11 && N.ki[a] != 14 && N.ki[a] != 15)
+		fail("astc_hdr: the HDR endpoint modes are 2, 3, 7, 11, 14 and "
+		    "15, not %lld", (long long)N.ki[a]);
+	if (op == O_ASTC_HDR && is_const(c) && (N.ki[c] < 0 || N.ki[c] > 7))
+		fail("astc_hdr: the two endpoints have components 0..7, not %lld",
+		    (long long)N.ki[c]);
+	if (op == O_ASTC_LERPH)
+		for (i = 0; i < 2; i++)
+			if (is_const(o[i]) && (N.ki[o[i]] < 0 || N.ki[o[i]] >
+			    0xFFF))
+				fail("astc_lerph: an endpoint is a 12-bit value, "
+				    "not %lld", (long long)N.ki[o[i]]);
+	if ((op == O_ASTC_LNS || op == O_ASTC_F16) && is_const(a) &&
+	    (N.ki[a] < 0 || N.ki[a] > 0xFFFF))
+		fail("%s: C is a 16-bit value, not %lld", nm, (long long)N.ki[a]);
 	if (op == O_ASTC_LERP)
 		for (i = 0; i < 2; i++)
 			if (is_const(o[i]) && (N.ki[o[i]] < 0 || N.ki[o[i]] > 255))
@@ -615,8 +1053,8 @@ mk_astc(int op, int64_t ki, nid a, nid b, nid c)
 	for (i = 0; i < ar; i++) {
 		if (i == 0 && op == O_ASTC_BILERP)
 			continue;
-		o[i] = mk_cast(op == O_ASTC_ENDPOINT && i == 1 ? TY(K_UINT, 64) :
-		    U32, o[i]);
+		o[i] = mk_cast((op == O_ASTC_ENDPOINT || op == O_ASTC_HDR) && i ==
+		    1 ? TY(K_UINT, 64) : U32, o[i]);
 		if (N.op[o[i]] == O_UNDEF)
 			return mk_undef(U32);
 	}
@@ -635,7 +1073,8 @@ mk_astc(int op, int64_t ki, nid a, nid b, nid c)
 		fl |= N.fl[o[i]] & NF_PARTIAL;
 	/* outside its operands' ranges it is undefined */
 	if (op == O_ASTC_UNQ || op == O_ASTC_UNQW || op == O_ASTC_ENDPOINT ||
-	    op == O_ASTC_LERP)
+	    op == O_ASTC_LERP || op == O_ASTC_HDR || op == O_ASTC_LERPH ||
+	    op == O_ASTC_LNS || op == O_ASTC_F16)
 		fl |= NF_PARTIAL;
 	return mk_raw(op, U32, o[0], o[1], o[2], ki, fl);
 }
@@ -660,8 +1099,8 @@ astc_call(int op, const nid *args)
 		return mk_astc(op, N.ki[n], args[0], args[2], args[3]);
 	}
 	if (op != O_ASTC_PART)
-		return mk_astc(op, 0, args[0], args[1], opinfo[op].arity == 3 ?
-		    args[2] : 0);
+		return mk_astc(op, 0, args[0], opinfo[op].arity >= 2 ? args[1] :
+		    0, opinfo[op].arity == 3 ? args[2] : 0);
 	if (!TY_ISINT(N.ty[n]))
 		fail("astc_partition takes an integer partition count 1..4, not "
 		    "%s", node_str(n));

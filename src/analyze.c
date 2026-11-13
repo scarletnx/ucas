@@ -972,6 +972,26 @@ list_conditions(const struct func *f, int *nc)
 			if (!is_const(N.c[n]))
 				COND("%s <= 64  (a weight)", node_str(N.c[n]));
 			break;
+		case O_ASTC_HDR:
+			if (!is_const(N.a[n]))
+				COND("%s is 2, 3, 7, 11, 14 or 15  (an HDR "
+				    "endpoint mode)", node_str(N.a[n]));
+			if (!is_const(N.c[n]))
+				COND("%s <= 7  (a component of the two endpoints)",
+				    node_str(N.c[n]));
+			break;
+		case O_ASTC_LERPH:
+			if (!is_const(N.a[n]) || !is_const(N.b[n]))
+				COND("%s <= 4095 and %s <= 4095  (12-bit "
+				    "endpoints)", node_str(N.a[n]), node_str(N.b[n]));
+			if (!is_const(N.c[n]))
+				COND("%s <= 64  (a weight)", node_str(N.c[n]));
+			break;
+		case O_ASTC_LNS: case O_ASTC_F16:
+			if (!is_const(N.a[n]))
+				COND("%s <= 65535  (a 16-bit C)",
+				    node_str(N.a[n]));
+			break;
 		case O_UNDEF:
 			COND("an arm of match/piecewise covers the input");
 			break;

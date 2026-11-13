@@ -363,6 +363,8 @@ static const struct bfn bfns[] = {
 	{"astc_partition", O_ASTC_PART, 4}, {"astc_unquant", O_ASTC_UNQ, 2},
 	{"astc_unquantw", O_ASTC_UNQW, 2}, {"astc_endpoint", O_ASTC_ENDPOINT, 3},
 	{"astc_bilerp", O_ASTC_BILERP, 4}, {"astc_lerp", O_ASTC_LERP, 3},
+	{"astc_hdr", O_ASTC_HDR, 3}, {"astc_lerph", O_ASTC_LERPH, 3},
+	{"astc_lns", O_ASTC_LNS, 1}, {"astc_f16", O_ASTC_F16, 1},
 	{NULL, 0, 0}
 };
 

@@ -4398,6 +4398,10 @@ a decoder writes against it.
 | `astc_endpoint(cem, v, k)` | byte k (0..3 the first endpoint's R, G, B, A, 4..7 the second's) of LDR endpoint mode cem from its unquantised values, v0..v7 the bytes of the u64 v (v0 the low byte): luminance, luminance and alpha, RGB and RGBA, each direct or as a base and an offset (the offset's top bit moved into the base, six bits signed), RGB as a base and a scale, and the blue contraction where the second endpoint's sum is the smaller.  The HDR modes (2, 3, 7, 11, 14, 15) are the error colour, (255, 0, 255, 255), as the LDR profile decodes them |
 | `astc_bilerp(G, gw, s, t)` | the weight grid's infill at (s, t), in sixteenths of the grid (the specification's gs and gt, `(((1024 + bw/2)/(bw - 1)) x (gw - 1) + 32) >> 6` for texel x of a block bw wide): G a table of weights read as rows of gw (a constant), the four around (s/16, t/16) weighed by `w11 = (fs ft + 8) >> 4`, `w10 = ft - w11`, `w01 = fs - w11`, `w00 = 16 - fs - ft + w11` (fs = s & 15, ft = t & 15), plus 8, over 16.  An entry past the grid reads 0 (its weight is 0 where a texel lands).  A second plane is a second grid through it |
 | `astc_lerp(e0, e1, w)` | the endpoints' channel at weight w as UNORM16: the bytes widened to e * 257, `(c0 (64 - w) + c1 w + 32) >> 6`.  The UNORM8 decode mode is its top byte, `>> 8` |
+| `astc_hdr(cem, v, k)` | component k (0..3 the first endpoint's R, G, B, A, 4..7 the second's) of HDR endpoint mode cem (2, 3, 7, 11, 14, 15) as the HDR profile decodes it, from its unquantised values (the bytes of v): the specification's 12-bit pseudo-logarithmic values (23.15), mode 7's and 11's bit layouts selected by their mode bits, alpha 0x780 (1.0) for modes 2, 3, 7 and 11, mode 14's alpha the bytes v6 and v7 (an LDR alpha), mode 15's by its own mode bits |
+| `astc_lerph(e0, e1, w)` | two 12-bit values at weight w as the 16-bit C of 23.19: `((e0 << 4) (64 - w) + (e1 << 4) w + 32) >> 6` |
+| `astc_lns(c)` | C to FP16 bits: `(c >> 11 << 10) + (Mt >> 3)`, Mt the low 11 bits m times 3 below 512, `5m - 2048` from 1536, `4m - 512` between; Inf and NaN become 0x7BFF |
+| `astc_f16(c)` | an LDR channel's UNORM16 to FP16 bits (decode_float16): 65535 is 1.0, any other c / 65536 rounded toward zero |
 
 A level count, mode, byte or weight outside those is refused when it
 is a constant and undefined when it is a value (`domain` says where);
@@ -4443,7 +4447,26 @@ operations it spells out over its operands, constants folded, on a
 line of its own (24.375 under gt1030 with a constant seed, the hash
 folded; 197.875 with a variable one).
 
-Not done: 3D blocks (z), HDR's endpoint modes, sRGB.  A whole block,
+**The HDR profile.**  A texel of an HDR endpoint mode is
+`astc_lns(astc_lerph(astc_hdr(cem, v, c), astc_hdr(cem, v, c + 4), w))`
+(mode 14's alpha, and every channel of an LDR mode in the HDR profile,
+`astc_f16(astc_lerp(...))`).  The 12-bit modes were transcribed from
+the specification into C and checked against astcenc 5.7.1 -dH (the
+full HDR profile) on random blocks of four footprints: 7922 decodable
+blocks, 3765 with an HDR mode, 2.6 million FP16 values, 1.22 million of
+them from HDR modes, none different.  The steps in ucas are that C on
+every LNS and float16 input (65536 each) and on 96000 endpoint
+components of random values in every mode (247072 values, none
+different), and tests/astchdr.ucas decodes seven blocks with them
+against astcenc's output (modes 2, 3, 7, 11 in two planes, 15, and 14
+beside 11 in two partitions).  The specification writes mode 11's
+shift as `(modeval >> 1) ^ 3`; modeval is that mode's own three bits.
+Against 2^(C/2048 - 15), the logarithm's FP16 value is within -0.21%
+and +1.65% wherever the exponent field is 1..30 (all 61440 such C);
+code that computes that curve is not offered as a read: the unit
+applies it only inside an HDR block.
+
+Not done: 3D blocks (z), sRGB.  A whole block,
 its bits read as the specification lays them out, is decoded and
 encoded by `texenc ... astc` (above, "Tables as compressed
 textures"); the float16 decode mode's reads are reported there.

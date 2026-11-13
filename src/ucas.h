@@ -176,10 +176,11 @@ enum {
 	 * of the operation in ki: astc_partition(seed, x, y, n), n in ki;
 	 * astc_unquant(levels, v) and astc_unquantw (colours, weights);
 	 * astc_endpoint(cem, v, k); astc_bilerp(G, gw, s, t), gw in ki;
-	 * astc_lerp(e0, e1, w)
+	 * astc_lerp(e0, e1, w); the HDR profile's astc_hdr(cem, v, k),
+	 * astc_lerph(e0, e1, w), astc_lns(c) and astc_f16(c)
 	 */
 	O_ASTC_PART, O_ASTC_UNQ, O_ASTC_UNQW, O_ASTC_ENDPOINT, O_ASTC_BILERP,
-	O_ASTC_LERP,
+	O_ASTC_LERP, O_ASTC_HDR, O_ASTC_LERPH, O_ASTC_LNS, O_ASTC_F16,
 	/*
 	 * texalu.c: the texture unit's fixed function as operations.  A
 	 * nearest read with an address mode on an integer texel index
@@ -206,7 +207,7 @@ enum {
 #define O_SG_LAST O_SGSCAN
 #define IS_SG(op) ((op) >= O_SG_FIRST && (op) <= O_SG_LAST)
 #define O_ASTC_FIRST O_ASTC_PART
-#define O_ASTC_LAST O_ASTC_LERP
+#define O_ASTC_LAST O_ASTC_F16
 #define IS_ASTC(op) ((op) >= O_ASTC_FIRST && (op) <= O_ASTC_LAST)
 #define IS_INST(op) ((op) >= O_BFE && (op) <= O_ASTC_LAST)
 /* built from all three operands by mk_op (the generic rebuilders) */
