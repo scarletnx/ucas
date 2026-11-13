@@ -6302,6 +6302,8 @@ mulx_type(int t)
 		return -1;
 	snprintf(nm, sizeof nm, "%%ucas_mulx_%s", V.id[t].tok + 1);
 	i = idx(nm);
+	if (V.id[i].kind == K_TYPE)
+		return i;	/* the module has it: simplified before */
 	V.id[i].kind = K_TYPE;
 	memset(&V.id[i].t, 0, sizeof V.id[i].t);
 	V.id[i].t.k = S_STRUCT;
