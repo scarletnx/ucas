@@ -23,6 +23,12 @@
  *   tex_bilinearB(T, W, x, y) the same on both axes of the table read as
  *                             rows of W texels: four texels, their
  *                             weights the products of the two axes'
+ *   tex_trilinearB(T, W, H,   the same on three axes of the table read
+ *     u, v, w)                as slices of H rows of W texels, D slices
+ *                             (a 3-D texture), at the normalised
+ *                             coordinates (u W, v H, w D): eight texels,
+ *                             their weights the products of the three
+ *                             axes'
  *   tex_repeatB(T, x),        tex_linearB with its two texels wrapped
  *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped
  *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
@@ -88,6 +94,9 @@
 #define TEX_WRAP(ki) ((int)((ki) >> 32 & 3) == 1 ? O_FETCH_REPEAT : \
     (int)((ki) >> 32 & 3) == 2 ? O_FETCH_MIRROR : O_FETCH_CLAMP)
 #define TEX_WRAPMASK ((int64_t)3 << 32)
+/* a 3-D filter's rows a slice, H, in ki (tex_trilinear) */
+#define TEX_KH(h) ((int64_t)(h) << 34)
+#define TEX_HEIGHT(ki) ((int64_t)((ki) >> 34 & 0xffffff))
 /* a fetch_ op's ki: an R8_SRGB texture of the bytes, read by texelFetch
  * (fetch_srgb: its table is the 256 values the sRGB EOTF decodes) */
 #define TEX_SRGB 1
@@ -109,12 +118,16 @@ int64_t tex_layer(double z, int64_t n);
 /* a linear filter's first texel floor(x - 1/2) and the weight of the
  * next one, on the grid of bits; NaN for a coordinate that is not finite */
 double tex_weight(double x, int bits, int64_t *i0);
-/* the correctly rounded f32 of sum w[k] t[k] (n <= 4; t f32 values, w
+/* the correctly rounded f32 of sum w[k] t[k] (n <= 16; t f32 values, w
  * with at most 29 significant bits) */
 double tex_blend(const double *t, const double *w, int n);
-/* tex_linear / tex_bilinear at one point: tv(ctx, j) is texel j */
+/* tex_linear / tex_bilinear / tex_trilinear at one point (z only for the
+ * last): tv(ctx, j) is texel j */
 double tex_filter(int op, int64_t ki, int64_t n, double x, double y,
-    double (*tv)(void *ctx, int64_t j), void *ctx);
+    double z, double (*tv)(void *ctx, int64_t j), void *ctx);
+/* the pair a texture read takes as its operand c (O_TEXARGS): built as
+ * it is, never folded */
+nid tex_args(nid a, nid b);
 /* a fetch_ node as plain operations (its definition): for SAT */
 nid tex_expand(nid n);
 /* the node's cost class, and its price under m (infinity: unavailable) */

@@ -1,0 +1,165 @@
+> T = [0, 1, 2, 3, 4, 5, 6, 7]
+> show tex_trilinear8(T, 2, 2, 0.5, 0.5, 0.5)
+_() = 3.5
+  -> f32
+> show tex_trilinear8(T, 2, 2, 0.75, 0.25, 0.75)
+_() = 5
+  -> f32
+> show tex_trilinear8(T, 2, 2, 0.625, 0.5, 0.5)
+_() = 3.75
+  -> f32
+> show tex_trilinear8(T, 2, 2, -3, 9, 0.5)
+_() = 4
+  -> f32
+> show tex_trilinear2(T, 2, 2, 0.6, 0.5, 0.5)
+_() = 3.75
+  -> f32
+> show asuint(tex_trilinear14([f32(3e-30), f32(1), f32(-1), f32(7e20), 1, 2, 3, 4], 2, 2, 0.45, 0.65, 0.55))
+_() = 1620800164
+  -> u32
+> show asuint(tex_trilinear14([f32(3e-30), f32(1), f32(-1), f32(-7e20), 1, 2, 3, 4], 2, 2, 0.45, 0.65, 0.55))
+_() = 3768283812
+  -> u32
+> show tex_trilinear8(T, 2, 3, 0.5, 0.5, 0.5)
+textrilinear.ucas:26:44: error: tex_trilinear: a table of 8 texels is not slices of 3 rows of 2
+    show tex_trilinear8(T, 2, 3, 0.5, 0.5, 0.5)
+                                               ^
+> show tex_trilinear8(T, 2, 2, 0.5, 0.5)
+textrilinear.ucas:27:39: error: tex_trilinear takes (table, width, height, x, y, z)
+    show tex_trilinear8(T, 2, 2, 0.5, 0.5)
+                                          ^
+> show tex_trilinear8(T, 0, 2, 0.5, 0.5, 0.5)
+textrilinear.ucas:28:44: error: tex_trilinear's width is a constant from 1 to 16777215, not 0
+    show tex_trilinear8(T, 0, 2, 0.5, 0.5, 0.5)
+                                               ^
+> show tex_trilinear20(T, 2, 2, 0.5, 0.5, 0.5)
+textrilinear.ucas:29:45: error: tex_trilinear: the sub-texel grid has 1 to 14 bits, not 20
+    show tex_trilinear20(T, 2, 2, 0.5, 0.5, 0.5)
+                                                ^
+> f(u: f32 in 0..1, v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, u, v, w)
+> show f
+f(u: f32 in 0..1, v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8([0, 1, 2, 3, 4, 5, 6, 7], 2, 2, u, v, w)
+  -> f32
+> g(w: f32 in 0..1) = f(0.5, 0.5, w * 0.5 + 0.25)
+> show g
+g(w: f32 in 0..1) = tex_trilinear8([0, 1, 2, 3, 4, 5, 6, 7], 2, 2, 0.5, 0.5, 0.5w + 0.25)
+  -> f32
+> h(i: u8 in 0..4) = tex_trilinear8(T, 2, 2, 0.5, 0.5, f32(i) / 4)
+> table h max 5
+  i=0  ->  1.5
+  i=1  ->  1.5
+  i=2  ->  3.5
+  i=3  ->  5.5
+  i=4  ->  5.5
+> range h
+range of h -> f32:
+  [1.5, 5.5]
+  over all 5 points of the domain
+> q(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w) + 2 * tex_trilinear8(T, 2, 2, 0.5, v, w)
+> show q
+q(v: f32 in 0..1, w: f32 in 0..1) = t1 + 2*t1 where t1 = tex_trilinear8([0, 1, 2, 3, 4, 5, 6, 7], 2, 2, 0.5, v, w)
+  -> f32
+> k1(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w)
+> k2(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, w, v)
+> k3(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w * 1)
+> equiv k1 k2
+k1 and k2 differ at 2006 points of the sample, e.g. v=0.686065912, w=0.00429373281: 2.2421875 vs 3.984375
+> equiv k1 k3
+k1 and k3 are equal on the domain of k1 (sampled, not proved; no SAT proof: a filtered texture read)
+> cost k1
+cost of k1 under gt1030: inf (1 operations, shared subterms counted once)
+  tex_3d           1 x inf   = inf
+  tex_3d is not available under gt1030 (the model lists no such instruction)
+> model t3 : gt1030 { tex_3d: 8 }
+> use t3
+cost model: t3
+> cost k1
+cost of k1 under t3: 62.75 (1 operations, shared subterms counted once)
+  tex_3d           1 x 62.75 = 62.75
+> U = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.2, 0.4]
+> s(v: f32 in 0..1) = tex_trilinear8(U, 2, 2, 0.5, sqrt(v), sqrt(v))
+> cost s
+cost of s under t3: 33.625 (2 operations, shared subterms counted once)
+  fsqrt            1 x 4     = 4
+  tex_3d           1 x 29.625 = 29.625
+> use gt1030
+cost model: gt1030
+> B = [121, 66, 189, 242, 33, 6, 240, 132, 119, 98, 240, 243, 203, 77, 118, 77, 199, 7, 32, 81, 21, 154, 15, 137, 242, 198, 218, 202, 227, 68, 187, 49, 18, 69, 253, 111, 132, 223, 154, 215, 197, 179, 208, 118, 172, 14, 143, 83, 167, 53, 108, 136, 145, 63, 32, 246, 247, 45, 176, 34, 210, 77, 10, 150]
+> model cal : gt1030 { tex_within: 2, tex_3d: 8 }
+> s8(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+> texalu s8 under cal
+texalu s8: reads through the texture unit under cal (cost 74 as written):
+  cost 48.625 int(2040tex_trilinear8([0.474509805, 0.258823544, 0.741176486, 0.949019611, 0.129411772, 0.0235294122, 0.941176474, 0.517647088, 0.466666669, 0.384313732, 0.941176474, 0.952941179, 0.796078444, 0.301960796, 0.4627451, 0.301960796, 0.78039217, 0.0274509806, 0.125490203, 0.31764707, 0.0823529437, 0.603921592, 0.0588235296, 0.53725493, 0.949019611, 0.776470602, 0.854901969, 0.792156875, 0.890196085, 0.266666681, 0.733333349, 0.192156866, 0.0705882385, 0.270588249, 0.992156863, 0.435294122, 0.517647088, 0.874509811, 0.603921592, 0.843137264, 0.772549033, 0.701960802, 0.815686285, 0.4627451, 0.6745… (320 more characters)
+      8 entries of the 4 x 4 x 4 table from offset (0, 0, 0), weights' sum 8: one read at fraction 0.5 along x, 0.5 along y, 0.5 along z
+      holds where x in [0, 2], y in [0, 2], z in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read of a 3-D texture at fractions (u, v, w) of the 2 x 2 x 2 texels is the sum of each texel times (1-u or u)(1-v or v)(1-w or w), u along x, v along y, w along z: times 2040 with u = 0.5, v = 0.5, w = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000483; the texels as f32: 5.87e-05; in all 0.000782
+        the coordinates are normalised, u = x f32(1/4), v = y f32(1/4), w = z f32(1/4), and the unit reads (u 4, v 4, w 4): exact: the sizes are powers of two
+      the entries' sum is a whole number and the reads are within 0.000903 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 27 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a 3-D texture R8_UNORM, 4 x 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, normalised coordinates (a 3-D texture has no unnormalizedCoordinates), lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec3(u, v, w), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu s8
+texalu s8: the texture unit under gt1030 (cost 74 as written): nothing taken
+  gt1030 lists no tex_3d: a filtered read of a 3-D texture is not available
+> sw(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = 2*B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+> texalu sw under cal
+texalu sw: the texture unit under cal (cost 75 as written): nothing taken
+  2 entries of the 4 x 4 x 4 table from offset (0, 0, 0), weights' sum 3: one read at fraction 0.333333 along x, 0 along y, 0 along z
+  4 entries of the 4 x 4 x 4 table from offset (0, 1, 0), weights' sum 4: one read at fraction 0.5 along x, 0 along y, 0.5 along z
+  2 entries of the 4 x 4 x 4 table from offset (0, 0, 1), weights' sum 2: one read at fraction 0.5 along x, 0 along y, 0 along z: the reads are within 2.74 of the sum, not below 1/2
+> so(x: u8 in 0..3, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+> texalu so under cal
+texalu so: the texture unit under cal (cost 74 as written): nothing taken
+  derived, but not cheaper under cal (cost 89.125, as written 74):
+  4 entries of the 4 x 4 x 4 table from offset (0, 0, 0), weights' sum 4: one read at fraction 0 along x, 0.5 along y, 0.5 along z
+> s7(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20]
+> texalu s7 under cal
+texalu s7: the texture unit under cal (cost 65.125 as written): nothing taken
+  derived, but not cheaper under cal (cost 135.75, as written 65.125):
+  2 entries of the 4 x 4 x 4 table from offset (1, 0, 0), weights' sum 2: one read at fraction 0 along x, 0.5 along y, 0 along z
+  2 entries of the 4 x 4 x 4 table from offset (0, 1, 0), weights' sum 2: one read at fraction 0 along x, 0 along y, 0.5 along z
+  2 entries of the 4 x 4 x 4 table from offset (0, 0, 1), weights' sum 2: one read at fraction 0.5 along x, 0 along y, 0 along z
+> sxz(x: u8 in 0..2, z: u8 in 0..2) = B[z*16 + 4 + x] + B[z*16 + 4 + x + 1] + B[z*16 + 4 + x + 16] + B[z*16 + 4 + x + 17]
+> texalu sxz under cal
+texalu sxz: reads through the texture unit under cal (cost 36.5 as written):
+  cost 33.625 int(1020tex_bilinear8([0.474509805, 0.258823544, 0.741176486, 0.949019611, 0.129411772, 0.0235294122, 0.941176474, 0.517647088, 0.466666669, 0.384313732, 0.941176474, 0.952941179, 0.796078444, 0.301960796, 0.4627451, 0.301960796, 0.78039217, 0.0274509806, 0.125490203, 0.31764707, 0.0823529437, 0.603921592, 0.0588235296, 0.53725493, 0.949019611, 0.776470602, 0.854901969, 0.792156875, 0.890196085, 0.266666681, 0.733333349, 0.192156866, 0.0705882385, 0.270588249, 0.992156863, 0.435294122, 0.517647088, 0.874509811, 0.603921592, 0.843137264, 0.772549033, 0.701960802, 0.815686285, 0.4627451, 0.67450… (287 more characters)
+      4 entries of the 16 x 4 table from offset (4, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], z in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000241; the texels as f32: 2.93e-05; in all 0.000391
+      the entries' sum is a whole number and the reads are within 0.000452 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 16 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> P = [0.4, 0.4, 0.1, 0.6, 0.8, 0.4, 0.6, 0.6, 0.9, 0.3, 0.2, 0.0, 0.0, 0.1, 0.5, 0.9, 1.0, 0.3, 0.3, 0.7, 1.0, 0.3, 0.4, 0.1, 0.9, 0.4, 0.9]
+> model texel : gt1030 { load: 43.125, tex_within: 2, tex_3d: 8 }
+> tl(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..1, s: f32 in 0..1, t: f32 in 0..1, r: f32 in 0..1) = (1-r)*((1-s)*(1-t)*P[z*9+y*3+x] + s*(1-t)*P[z*9+y*3+x+1] + (1-s)*t*P[z*9+y*3+x+3] + s*t*P[z*9+y*3+x+4]) + r*((1-s)*(1-t)*P[z*9+y*3+x+9] + s*(1-t)*P[z*9+y*3+x+10] + (1-s)*t*P[z*9+y*3+x+12] + s*t*P[z*9+y*3+x+13])
+> texalu tl tol 0.02 under texel
+texalu tl: reads through the texture unit under texel (cost 400 as written):
+  cost 48.625 25.5tex_trilinear8([0.0156862754, 0.0156862754, 0.00392156886, 0.0235294122, 0.0313725509, 0.0156862754, 0.0235294122, 0.0235294122, 0.0352941193, 0.0117647061, 0.00784313772, 0, 0, 0.00392156886, 0.0196078438, 0.0352941193, 0.0392156877, 0.0117647061, 0.0117647061, 0.0274509806, 0.0392156877, 0.0117647061, 0.0156862754, 0.00392156886, 0.0352941193, 0.0156862754, 0.0352941193], 3, 3, 0.333333343(f32(x) + 0.5 + s), 0.333333343(f32(y) + 0.5 + t), 0.333333343(f32(z) + 0.5 + r))
+      8 entries of the 3 x 3 x 3 table from offset (0, 0, 0), weights' sum 1: one read at fraction s along x, t along y, r along z
+      holds where s in [0, 1] (its range): the fraction s is in [0, 1]; t in [0, 1] (its range): the fraction t is in [0, 1]; r in [0, 1] (its range): the fraction r is in [0, 1]; x in [0, 1], y in [0, 1], z in [0, 1] (proved ranges): every texel read is inside the table
+      a linear read of a 3-D texture at fractions (u, v, w) of the 2 x 2 x 2 texels is the sum of each texel times (1-u or u)(1-v or v)(1-w or w), u along x, v along y, w along z: times 25.5 with u = s, v = t, w = r those are the entries' weights (an entry is 0 + 25.5 times its texel k/255: the weights' sum times 0 is added back)
+        a fraction not on the grid is snapped by less than 2^-8, and f32 moves a coordinate that is not exact by at most 2^-19: the read moves by at most 0.00391 (x), 0.00391 (y) and 0.00391 (z) times the largest step between neighbours, 0.7, 0.9 and 1
+        the filter is within 2 ulp of that sum (the model's tex_within): 2.38e-07; the texels as f32: 4.73e-08; in all 0.0102
+        the coordinates are normalised, u = x f32(1/3), v = y f32(1/3), w = z f32(1/3), and the unit reads (u 3, v 3, w 3): along a size that is not a power of two within |x| 2^-23 of x (two roundings of 2^-24), in the bound above
+      against the exact weighted sum of the entries the reads are within 0.0102; as written, the sum's own f32 rounding is within 3.81e-06 (gamma_8 times the sum of |w t|, 8)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on a sample of 4096 points: largest difference 0.00198
+      the pipeline needs (a proposal: nothing is applied):
+        a 3-D texture R8_UNORM, 3 x 3 x 3, one level: the table's entries' levels k as bytes (evenly spaced: the shader maps k/255 back)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, normalised coordinates (a 3-D texture has no unnormalizedCoordinates), lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec3(u, v, w), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu tl tol 0.01 under texel
+texalu tl: the texture unit under texel (cost 400 as written): nothing taken
+  derived, but within 0.0102 of the exact sum, more than the 0.01 allowed (tol): tol 0.0102 takes it
+  8 entries of the 3 x 3 x 3 table from offset (0, 0, 0), weights' sum 1: one read at fraction s along x, t along y, r along z

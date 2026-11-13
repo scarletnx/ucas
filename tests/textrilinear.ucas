@@ -1,0 +1,85 @@
+# A 3-D texture's linear filter (src/texalu.c): tex_trilinearB(T, W, H,
+# u, v, w), its four value operands (the last two in a pair node), its
+# price, and sums of 2 x 2 x 2 neighbouring entries read as one.
+
+# T is slices of H rows of W texels; the coordinates are normalised (a
+# 3-D texture has no unnormalizedCoordinates: the unit reads at u W, v H,
+# w D); eight texels, weighted by the products of three fractions on the
+# 2^-B grid, clamped to the edge, the sum rounded once
+T = [0, 1, 2, 3, 4, 5, 6, 7]
+# the centre of the eight: their mean
+show tex_trilinear8(T, 2, 2, 0.5, 0.5, 0.5)
+# texel (1, 0, 1)'s centre: that texel alone
+show tex_trilinear8(T, 2, 2, 0.75, 0.25, 0.75)
+# 3/4 of the way to x's second column
+show tex_trilinear8(T, 2, 2, 0.625, 0.5, 0.5)
+# outside: clamped to the edge on every axis
+show tex_trilinear8(T, 2, 2, -3, 9, 0.5)
+# a fraction of 0.7 snaps to 3/4 on a grid of 2 bits
+show tex_trilinear2(T, 2, 2, 0.6, 0.5, 0.5)
+# 14 bits: a weight has up to 42 bits, split in two before the products;
+# texels 2^160 apart still decide the last bit of the one rounding
+show asuint(tex_trilinear14([f32(3e-30), f32(1), f32(-1), f32(7e20), 1, 2, 3, 4], 2, 2, 0.45, 0.65, 0.55))
+show asuint(tex_trilinear14([f32(3e-30), f32(1), f32(-1), f32(-7e20), 1, 2, 3, 4], 2, 2, 0.45, 0.65, 0.55))
+# a W x H that does not divide the table, a missing coordinate, sizes
+# and grids out of range
+show tex_trilinear8(T, 2, 3, 0.5, 0.5, 0.5)
+show tex_trilinear8(T, 2, 2, 0.5, 0.5)
+show tex_trilinear8(T, 0, 2, 0.5, 0.5, 0.5)
+show tex_trilinear20(T, 2, 2, 0.5, 0.5, 0.5)
+
+# the fourth operand: printed, substituted into, evaluated, compared
+f(u: f32 in 0..1, v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, u, v, w)
+show f
+g(w: f32 in 0..1) = f(0.5, 0.5, w * 0.5 + 0.25)
+show g
+h(i: u8 in 0..4) = tex_trilinear8(T, 2, 2, 0.5, 0.5, f32(i) / 4)
+table h max 5
+range h
+# the read twice is one shared subterm; its pair is never named
+q(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w) + 2 * tex_trilinear8(T, 2, 2, 0.5, v, w)
+show q
+k1(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w)
+k2(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, w, v)
+k3(v: f32 in 0..1, w: f32 in 0..1) = tex_trilinear8(T, 2, 2, 0.5, v, w * 1)
+# v and w swapped differ; the same read written two ways does not
+equiv k1 k2
+equiv k1 k3
+
+# the price: the 2-D read of the texels' format, and tex_3d for the third
+# axis; gt1030 lists no tex_3d (not measured: tests/gt1030's tex_trilinear)
+cost k1
+model t3 : gt1030 { tex_3d: 8 }
+use t3
+cost k1
+# bytes k/255: the R8 class; a coordinate's subterm counted once
+U = [0, 0.2, 0.4, 0.6, 0.8, 1, 0.2, 0.4]
+s(v: f32 in 0..1) = tex_trilinear8(U, 2, 2, 0.5, sqrt(v), sqrt(v))
+cost s
+use gt1030
+
+# sums of neighbouring entries of a 4 x 4 x 4 table of bytes (texalu): the
+# 2 x 2 x 2 at (x, y, z) is one read at their corner, exactly
+B = [121, 66, 189, 242, 33, 6, 240, 132, 119, 98, 240, 243, 203, 77, 118, 77, 199, 7, 32, 81, 21, 154, 15, 137, 242, 198, 218, 202, 227, 68, 187, 49, 18, 69, 253, 111, 132, 223, 154, 215, 197, 179, 208, 118, 172, 14, 143, 83, 167, 53, 108, 136, 145, 63, 32, 246, 247, 45, 176, 34, 210, 77, 10, 150]
+model cal : gt1030 { tex_within: 2, tex_3d: 8 }
+s8(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+texalu s8 under cal
+texalu s8
+# controls: a weight that is no product of fractions (an entry twice), a
+# block that can leave the table's rows (x up to 3), seven of the eight
+sw(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = 2*B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+texalu sw under cal
+so(x: u8 in 0..3, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20] + B[z*16 + y*4 + x + 21]
+texalu so under cal
+s7(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = B[z*16 + y*4 + x] + B[z*16 + y*4 + x + 1] + B[z*16 + y*4 + x + 4] + B[z*16 + y*4 + x + 5] + B[z*16 + y*4 + x + 16] + B[z*16 + y*4 + x + 17] + B[z*16 + y*4 + x + 20]
+texalu s7 under cal
+# x and z vary, y does not: rows of 16, a 2-D read
+sxz(x: u8 in 0..2, z: u8 in 0..2) = B[z*16 + 4 + x] + B[z*16 + 4 + x + 1] + B[z*16 + 4 + x + 16] + B[z*16 + 4 + x + 17]
+texalu sxz under cal
+# a trilinear blend by s, t, r of a 3 x 3 x 3 table: the fractions snap to
+# the subtexel grid, so it takes a tolerance, and a smaller one refuses
+P = [0.4, 0.4, 0.1, 0.6, 0.8, 0.4, 0.6, 0.6, 0.9, 0.3, 0.2, 0.0, 0.0, 0.1, 0.5, 0.9, 1.0, 0.3, 0.3, 0.7, 1.0, 0.3, 0.4, 0.1, 0.9, 0.4, 0.9]
+model texel : gt1030 { load: 43.125, tex_within: 2, tex_3d: 8 }
+tl(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..1, s: f32 in 0..1, t: f32 in 0..1, r: f32 in 0..1) = (1-r)*((1-s)*(1-t)*P[z*9+y*3+x] + s*(1-t)*P[z*9+y*3+x+1] + (1-s)*t*P[z*9+y*3+x+3] + s*t*P[z*9+y*3+x+4]) + r*((1-s)*(1-t)*P[z*9+y*3+x+9] + s*(1-t)*P[z*9+y*3+x+10] + (1-s)*t*P[z*9+y*3+x+12] + s*t*P[z*9+y*3+x+13])
+texalu tl tol 0.02 under texel
+texalu tl tol 0.01 under texel

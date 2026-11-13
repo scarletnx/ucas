@@ -106,7 +106,7 @@ tex_weight(double x, int bits, int64_t *i0)
 double
 tex_blend(const double *t, const double *w, int n)
 {
-	double p[8], x, y, hi, lo = 0, naive = 0;
+	double p[16], x, y, hi, lo = 0, naive = 0;
 	int m = 0, i, j, k, fin = 1;
 	uint64_t u;
 
@@ -175,23 +175,58 @@ tex_reduce(const double *t, const double *w, int n, int red)
 	return r;
 }
 
+/*
+ * The eight texels of a 3-D read: each weight is a product of three
+ * on the 2^-bits grid, up to 42 bits, so it is split in two of at most
+ * 21 (each product with an f32 texel exact in a double) and the sixteen
+ * go through tex_blend's one rounding.  A texel that is not finite takes
+ * tex_blend's own rule (the plain sum) on the eight.
+ */
+static double
+tex_blend3(const double *t, const double *w, int bits)
+{
+	double t2[16], w2[16], g = ldexp(1.0, 3 * bits), h = ldexp(1.0, 21);
+	int k;
+
+	for (k = 0; k < 8; k++)
+		if (!isfinite(t[k]))
+			return tex_blend(t, w, 8);
+	for (k = 0; k < 8; k++) {
+		double wi = w[k] * g, hi = floor(wi / h) * h;
+		t2[2 * k] = t2[2 * k + 1] = t[k];
+		w2[2 * k] = hi / g;
+		w2[2 * k + 1] = (wi - hi) / g;
+	}
+	return tex_blend(t2, w2, 16);
+}
+
 double
-tex_filter(int op, int64_t ki, int64_t n, double x, double y,
+tex_filter(int op, int64_t ki, int64_t n, double x, double y, double z,
     double (*tv)(void *ctx, int64_t j), void *ctx)
 {
 	int bits = TEX_BITS(ki);
-	int64_t W = op == O_TEX_BILINEAR ? TEX_WIDTH(ki) : n, H = n / W;
+	int64_t W = op == O_TEX_LINEAR ? n : TEX_WIDTH(ki), H = op ==
+	    O_TEX_TRILINEAR ? TEX_HEIGHT(ki) : n / W, D = n / (W * H);
 
 	/* REPEAT and MIRRORED_REPEAT take normalised coordinates: the unit's
-	 * x is u n (exact in a double: 24 and at most 24 bits) */
+	 * x is u n (exact in a double: 24 and at most 24 bits); so does a 3-D
+	 * read (Vulkan has no unnormalizedCoordinates for one) */
 	if (ki & TEX_WRAPMASK)
 		x *= (double)W;
-	int64_t i0, j0 = 0, c0, c1, r0, r1;
-	double a = tex_weight(x, bits, &i0), b = 0, t[4], w[4];
+	if (op == O_TEX_TRILINEAR) {
+		x *= (double)W;
+		y *= (double)H;
+		z *= (double)D;
+	}
+	int64_t i0, j0 = 0, k0 = 0, c0, c1, r0, r1, s0, s1;
+	double a = tex_weight(x, bits, &i0), b = 0, c = 0, t[8], w[8];
+	int q;
 
-	if (op == O_TEX_BILINEAR)
+	if (op != O_TEX_LINEAR)
 		b = tex_weight(y, bits, &j0);
-	if (isnan(a) || isnan(b))
+	if (op == O_TEX_TRILINEAR)
+		c = tex_weight(z, bits, &k0);
+	if (isnan(a) || isnan(b) || isnan(c))
 		return NAN;
 	c0 = tex_wrap(TEX_WRAP(ki), i0, W);
 	c1 = tex_wrap(TEX_WRAP(ki), i0 >= INT64_MAX - 1 ? i0 : i0 + 1, W);
@@ -205,6 +240,19 @@ tex_filter(int op, int64_t ki, int64_t n, double x, double y,
 	}
 	r0 = tex_wrap(O_FETCH_CLAMP, j0, H);
 	r1 = tex_wrap(O_FETCH_CLAMP, j0 >= INT64_MAX - 1 ? j0 : j0 + 1, H);
+	if (op == O_TEX_TRILINEAR) {
+		/* texel (dx, dy, dz) at bit 0, 1, 2 of q */
+		s0 = tex_wrap(O_FETCH_CLAMP, k0, D);
+		s1 = tex_wrap(O_FETCH_CLAMP, k0 >= INT64_MAX - 1 ? k0 : k0 + 1,
+		    D);
+		for (q = 0; q < 8; q++) {
+			t[q] = tv(ctx, ((q & 4 ? s1 : s0) * H + (q & 2 ? r1 :
+			    r0)) * W + (q & 1 ? c1 : c0));
+			w[q] = (q & 1 ? a : 1 - a) * (q & 2 ? b : 1 - b) *
+			    (q & 4 ? c : 1 - c);
+		}
+		return tex_blend3(t, w, bits);
+	}
 	t[0] = tv(ctx, r0 * W + c0);
 	t[1] = tv(ctx, r0 * W + c1);
 	t[2] = tv(ctx, r1 * W + c0);
@@ -370,6 +418,13 @@ tex_cost(const struct model *m, nid n, int *cls)
 			    INFINITY;
 		}
 		*cls = tex_fmt(m, N.a[n], &p);
+		/* a 3-D read: its format's 2-D read and what the third axis
+		 * adds, each only where the model lists it */
+		if (N.op[n] == O_TEX_TRILINEAR && p < INFINITY) {
+			*cls = C_TEX_3D;
+			return cclass_available(m, C_TEX_3D) ? p +
+			    m->c[C_TEX_3D] : INFINITY;
+		}
 		return p;
 	}
 	k = tex_class(n);
@@ -435,6 +490,9 @@ tex_lookup(const char *s, size_t n, int *bits, int64_t *wrapki)
 	} else if (n > 12 && !memcmp(s, "tex_bilinear", 12)) {
 		op = O_TEX_BILINEAR;
 		i = 12;
+	} else if (n > 13 && !memcmp(s, "tex_trilinear", 13)) {
+		op = O_TEX_TRILINEAR;
+		i = 13;
 	} else if (n > 10 && (!memcmp(s, "tex_repeat", 10) || !memcmp(s,
 	    "tex_mirror", 10))) {
 		op = O_TEX_LINEAR;
@@ -493,13 +551,15 @@ tex_print_name(struct sbuf *b, nid n)
 #define MAXATOM 6	/* variables of an index */
 
 /*
- * A weight: c[0] + c[1] s + c[2] t + c[3] s t over at most two atoms (any
- * float subterms that are not sums or products): what the weights of a
- * mix, a bilinear blend or a constant stencil are.
+ * A weight: the sum of c[m] times the atoms whose bit is set in m, over
+ * at most three atoms s, t, r (bits 1, 2, 4; any float subterms that are
+ * not sums or products), none squared: c[0] + c[1] s + c[2] t + c[3] s t
+ * + c[4] r + ...  What the weights of a mix, a bilinear or trilinear
+ * blend or a constant stencil are.
  */
 struct mform {
-	double c[4];
-	nid s, t;
+	double c[8];
+	nid s, t, r;
 };
 
 /* an index: c + sum coef[k] atom[k], atoms sorted */
@@ -513,7 +573,7 @@ struct term {
 	struct mform k;
 	nid tab;
 	struct aff ix;
-	int dx, dy, grp, used;
+	int dx, dy, dz, grp, used;
 	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps */
 	struct aff ix0;		/* a wrapping index as it is */
 	int ok0;		/* ix0 is affine */
@@ -559,6 +619,7 @@ static struct {
 	int unavail_packed;	/* tex_packed was needed */
 	struct sbuf nocube;	/* a cube map's face not taken, and why */
 	int unavail_cube;	/* cube or tex_cube was needed */
+	int unavail_3d;		/* tex_3d was needed */
 } X;
 
 static double
@@ -626,71 +687,85 @@ has_read(nid e, int depth)
 static struct mform
 mf_const(double v)
 {
-	struct mform r = {{0, 0, 0, 0}, 0, 0};
+	struct mform r = {{0, 0, 0, 0, 0, 0, 0, 0}, 0, 0, 0};
 
 	r.c[0] = v;
 	return r;
 }
 
-/* x over the atoms (s, t), which include its own; 0 if they do not */
-static int
-mf_over(struct mform *x, nid s, nid t)
+static nid
+mf_atom(const struct mform *x, int i)
 {
-	struct mform r = {{0, 0, 0, 0}, 0, 0};
+	return i == 0 ? x->s : i == 1 ? x->t : x->r;
+}
 
-	r.s = s;
-	r.t = t;
-	r.c[0] = x->c[0];
-	if (x->c[1] != 0 || x->c[3] != 0) {
-		if (x->s == s)
-			r.c[1] = x->c[1];
-		else if (x->s == t)
-			r.c[2] = x->c[1];
-		else
-			return 0;
+/* x over the atoms u[0..2] (0: none), which include its own; 0 if they
+ * do not */
+static int
+mf_over(struct mform *x, const nid *u)
+{
+	struct mform r = mf_const(x->c[0]);
+	int m, i, j, nm;
+
+	r.s = u[0];
+	r.t = u[1];
+	r.r = u[2];
+	for (m = 1; m < 8; m++) {
+		if (x->c[m] == 0)
+			continue;
+		for (nm = 0, i = 0; i < 3; i++) {
+			if (!(m >> i & 1))
+				continue;
+			for (j = 0; j < 3 && u[j] != mf_atom(x, i); j++)
+				;
+			if (j == 3)
+				return 0;
+			nm |= 1 << j;
+		}
+		r.c[nm] = x->c[m];
 	}
-	if (x->c[2] != 0 || x->c[3] != 0) {
-		if (x->t == t)
-			r.c[2] += x->c[2];
-		else if (x->t == s)
-			r.c[1] += x->c[2];
-		else
-			return 0;
-	}
-	r.c[3] = x->c[3];
 	*x = r;
 	return 1;
 }
 
+/* the atoms it uses, first ones first */
 static void
 mf_tidy(struct mform *x)
 {
-	if (x->c[1] == 0 && x->c[3] == 0)
-		x->s = 0;
-	if (x->c[2] == 0 && x->c[3] == 0)
-		x->t = 0;
-	if (!x->s && x->t) {
-		x->s = x->t;
-		x->c[1] = x->c[2];
-		x->t = 0;
-		x->c[2] = 0;
+	nid u[3] = {0, 0, 0};
+	int m, i, n = 0, used[3] = {0, 0, 0};
+
+	for (m = 1; m < 8; m++)
+		for (i = 0; i < 3; i++)
+			if ((m >> i & 1) && x->c[m] != 0)
+				used[i] = 1;
+	for (i = 0; i < 3; i++)
+		if (used[i])
+			u[n++] = mf_atom(x, i);
+	if (!used[0] || !used[1] || !used[2]) {
+		for (i = 0; i < 3; i++)
+			if (!used[i])
+				for (m = 1; m < 8; m++)
+					if (m >> i & 1)
+						x->c[m] = 0;
+		(void)mf_over(x, u);	/* its own atoms: always */
 	}
 }
 
-/* both over the same two atoms; 0 if they have three between them */
+/* both over the same atoms; 0 if they have more than three between them */
 static int
 mf_join(struct mform *a, struct mform *b)
 {
-	nid at[4], u[2] = {0, 0};
+	nid at[6], u[3] = {0, 0, 0};
 	int i, j, n = 0;
 
 	mf_tidy(a);
 	mf_tidy(b);
-	at[0] = a->s;
-	at[1] = a->t;
-	at[2] = b->s;
-	at[3] = b->t;
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < 3; i++) {
+		at[i] = mf_atom(a, i);
+		at[3 + i] = mf_atom(b, i);
+	}
+	for (i = 0; i < 6; i++) {
 		if (!at[i])
 			continue;
 		for (j = 0; j < n; j++)
@@ -698,11 +773,11 @@ mf_join(struct mform *a, struct mform *b)
 				break;
 		if (j < n)
 			continue;
-		if (n == 2)
+		if (n == 3)
 			return 0;
 		u[n++] = at[i];
 	}
-	return mf_over(a, u[0], u[1]) && mf_over(b, u[0], u[1]);
+	return mf_over(a, u) && mf_over(b, u);
 }
 
 static int
@@ -712,7 +787,7 @@ mf_add(struct mform *r, struct mform a, struct mform b, double sb)
 
 	if (!mf_join(&a, &b))
 		return 0;
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 8; i++)
 		a.c[i] += sb * b.c[i];
 	mf_tidy(&a);
 	*r = a;
@@ -720,23 +795,39 @@ mf_add(struct mform *r, struct mform a, struct mform b, double sb)
 }
 
 static int
+mf_has_r(const struct mform *a)
+{
+	return a->c[4] != 0 || a->c[5] != 0 || a->c[6] != 0 || a->c[7] != 0;
+}
+
+static int
 mf_mul(struct mform *r, struct mform a, struct mform b)
 {
 	struct mform o;
+	int i, j;
 
 	if (!mf_join(&a, &b))
 		return 0;
 	/* no square of an atom */
-	if ((a.c[1] != 0 || a.c[3] != 0) && (b.c[1] != 0 || b.c[3] != 0))
-		return 0;
-	if ((a.c[2] != 0 || a.c[3] != 0) && (b.c[2] != 0 || b.c[3] != 0))
-		return 0;
+	for (i = 1; i < 8; i++)
+		for (j = 1; j < 8; j++)
+			if ((i & j) && a.c[i] != 0 && b.c[j] != 0)
+				return 0;
 	o = a;
-	o.c[0] = a.c[0] * b.c[0];
-	o.c[1] = a.c[0] * b.c[1] + a.c[1] * b.c[0];
-	o.c[2] = a.c[0] * b.c[2] + a.c[2] * b.c[0];
-	o.c[3] = a.c[0] * b.c[3] + a.c[3] * b.c[0] + a.c[1] * b.c[2] +
-	    a.c[2] * b.c[1];
+	if (!mf_has_r(&a) && !mf_has_r(&b)) {
+		o.c[0] = a.c[0] * b.c[0];
+		o.c[1] = a.c[0] * b.c[1] + a.c[1] * b.c[0];
+		o.c[2] = a.c[0] * b.c[2] + a.c[2] * b.c[0];
+		o.c[3] = a.c[0] * b.c[3] + a.c[3] * b.c[0] + a.c[1] * b.c[2] +
+		    a.c[2] * b.c[1];
+	} else {
+		for (i = 0; i < 8; i++)
+			o.c[i] = 0;
+		for (i = 0; i < 8; i++)
+			for (j = 0; j < 8; j++)
+				if (!(i & j))
+					o.c[i | j] += a.c[i] * b.c[j];
+	}
 	mf_tidy(&o);
 	*r = o;
 	return 1;
@@ -745,23 +836,29 @@ mf_mul(struct mform *r, struct mform a, struct mform b)
 static int
 mf_isconst(const struct mform *a)
 {
-	return a->c[1] == 0 && a->c[2] == 0 && a->c[3] == 0;
+	return a->c[1] == 0 && a->c[2] == 0 && a->c[3] == 0 && !mf_has_r(a);
 }
 
 /* its range over its atoms' ranges (multilinear: at the corners) */
 static int
 mf_range(const struct mform *a, double *lo, double *hi)
 {
-	double sl = 0, sh = 0, tl = 0, th = 0, v;
+	double sl = 0, sh = 0, tl = 0, th = 0, rl = 0, rh = 0, v;
 	int i;
 
 	if (a->s && !frange(a->s, &sl, &sh))
 		return 0;
 	if (a->t && !frange(a->t, &tl, &th))
 		return 0;
-	for (i = 0; i < 4; i++) {
-		double s = i & 1 ? sh : sl, t = i & 2 ? th : tl;
+	if (a->r && !frange(a->r, &rl, &rh))
+		return 0;
+	for (i = 0; i < 8; i++) {
+		double s = i & 1 ? sh : sl, t = i & 2 ? th : tl, r = i & 4 ? rh :
+		    rl;
 		v = a->c[0] + a->c[1] * s + a->c[2] * t + a->c[3] * s * t;
+		if (mf_has_r(a))
+			v += a->c[4] * r + a->c[5] * s * r + a->c[6] * t * r +
+			    a->c[7] * s * t * r;
 		if (!i || v < *lo)
 			*lo = v;
 		if (!i || v > *hi)
@@ -794,12 +891,18 @@ mf_node(const struct mform *a, int *ops)
 	nid r = 0, x;
 	int i;
 
-	for (i = 3; i >= 1; i--) {
+	for (i = 7; i >= 1; i--) {
+		int k;
 		if (a->c[i] == 0)
 			continue;
-		x = i == 1 ? a->s : i == 2 ? a->t : mk_bin(O_MUL, a->s, a->t);
-		if (i == 3)
-			++*ops;
+		/* the monomial: its atoms' product, left to right */
+		for (x = 0, k = 0; k < 3; k++) {
+			if (!(i >> k & 1))
+				continue;
+			if (x)
+				++*ops;
+			x = x ? mk_bin(O_MUL, x, mf_atom(a, k)) : mf_atom(a, k);
+		}
 		x = mk_cast(TY_F32, x);
 		if (a->c[i] != 1) {
 			x = mk_bin(O_MUL, kf(a->c[i]), x);
@@ -3386,12 +3489,14 @@ opaque:
 	add_rest(s, k, e);
 }
 
-/* a block of up to 2 x 2 neighbouring texels read by one filtered tap */
+/* a block of up to 2 x 2 (x 2) neighbouring texels read by one filtered
+ * tap */
 struct block {
-	int m[4];		/* its terms at (0,0) (1,0) (0,1) (1,1), -1 none */
-	int ox, oy;		/* the offset of its (0,0) */
+	int m[8];		/* its terms at (0,0) (1,0) (0,1) (1,1), then the
+				 * same at z 1 (bits x 1, y 2, z 4), -1 none */
+	int ox, oy, oz;		/* the offset of its (0,0,0) */
 	double S;		/* the weights' sum */
-	struct mform fu, fv;	/* the fractions along x and y */
+	struct mform fu, fv, fw;	/* the fractions along x, y and z */
 	double resid;		/* weights not reproduced, times nothing yet */
 	int split;		/* a weight shared with another read */
 };
@@ -3460,28 +3565,94 @@ block_derive(const struct sum *s, struct block *b, int *why)
 	for (i = 0; i < 4; i++)
 		w[i] = b->m[i] >= 0 ? s->t[b->m[i]].k : mf_const(0);
 	b->split = 0;
+	b->oz = 0;
+	b->fw = mf_const(0);
 	return block_derive_w(w, b, why);
+}
+
+/*
+ * A 2 x 2 x 2 block (or any box of it) of a 3-D table: its eight weights
+ * are S times the products of a fraction along each axis, each linear in
+ * one atom and in [0, 1], within 1e-9 S.
+ */
+static int
+block_derive3(const struct sum *s, struct block *b, int *why)
+{
+	struct mform w[8], tot = mf_const(0), f[3], one = mf_const(1), p, d;
+	double lo, hi, mag;
+	int q, k;
+
+	b->split = 0;
+	for (q = 0; q < 8; q++) {
+		w[q] = b->m[q] >= 0 ? s->t[b->m[q]].k : mf_const(0);
+		if (!mf_add(&tot, tot, w[q], 1))
+			return 0;
+	}
+	*why = BW_SUM;
+	if (!mf_isconst(&tot) || tot.c[0] == 0)
+		return 0;
+	b->S = tot.c[0];
+	for (k = 0; k < 3; k++) {
+		struct mform su = mf_const(0);
+		for (q = 0; q < 8; q++)
+			if ((q >> k & 1) && !mf_add(&su, su, w[q], 1))
+				return 0;
+		if (!mf_mul(&f[k], su, mf_const(1 / b->S)))
+			return 0;
+		mf_tidy(&f[k]);
+		*why = BW_SIGN;
+		if (f[k].t)	/* a fraction is linear in one atom */
+			return 0;
+		if (!mf_range(&f[k], &lo, &hi) || lo < 0 || hi > 1)
+			return 0;
+	}
+	b->fu = f[0];
+	b->fv = f[1];
+	b->fw = f[2];
+	/* the weights the fractions give back, against the source's */
+	*why = BW_RANK;
+	b->resid = 0;
+	for (q = 0; q < 8; q++) {
+		p = mf_const(b->S);
+		for (k = 0; k < 3; k++) {
+			struct mform g = f[k];
+			if (!(q >> k & 1) && !mf_add(&g, one, f[k], -1))
+				return 0;
+			if (!mf_mul(&p, p, g))
+				return 0;
+		}
+		if (!mf_add(&d, w[q], p, -1))
+			return 0;
+		mag = mf_mag(&d);
+		if (!(mag <= 1e-9 * fabs(b->S)))
+			return 0;
+		b->resid += mag;
+	}
+	*why = BW_OK;
+	return 1;
 }
 
 /* the terms of a group laid on the table's grid */
 struct grid {
 	int ix[MAXTERM], n;	/* the group's terms (indices into the sum) */
 	int wrap;		/* O_FETCH_REPEAT, _MIRROR: it wraps (1D) */
-	int64_t W, H;
-	nid xe, ye;		/* the column and row expressions, 0: none */
-	int64_t xlo, xhi, ylo, yhi;
+	int64_t W, H, D;	/* D > 1: slices of H rows of W, a 3-D texture */
+	nid xe, ye, ze;		/* the column, row and slice expressions, 0:
+				 * none */
+	int64_t xlo, xhi, ylo, yhi, zlo, zhi;
 	struct tinfo ti;
-	double dxmax, dymax;
+	double dxmax, dymax, dzmax;
 };
 
 /* the group's member (its place in g->ix) at an offset, -1: none */
 static int
-grid_at(const struct sum *s, const struct grid *g, int dx, int dy)
+grid_at(const struct sum *s, const struct grid *g, int dx, int dy, int dz)
 {
 	int i;
 
 	for (i = 0; i < g->n; i++)
-		if (s->t[g->ix[i]].dx == dx && s->t[g->ix[i]].dy == dy)
+		if (s->t[g->ix[i]].dx == dx && s->t[g->ix[i]].dy == dy &&
+		    s->t[g->ix[i]].dz == dz)
 			return i;
 	return -1;
 }
@@ -3490,39 +3661,151 @@ grid_at(const struct sum *s, const struct grid *g, int dx, int dy)
 static int
 block_inside(const struct grid *g, const struct block *b)
 {
-	int wx = b->m[1] >= 0 || b->m[3] >= 0, wy = b->m[2] >= 0 || b->m[3] >= 0;
+	int wx = 0, wy = 0, wz = 0, q;
 
+	for (q = 0; q < 8; q++)
+		if (b->m[q] >= 0) {
+			wx |= q & 1;
+			wy |= q >> 1 & 1;
+			wz |= q >> 2 & 1;
+		}
 	if (g->wrap)	/* the address mode wraps every texel in */
 		return 1;
 	return g->xlo + b->ox >= 0 && g->xhi + b->ox + wx <= g->W - 1 &&
-	    g->ylo + b->oy >= 0 && g->yhi + b->oy + wy <= g->H - 1;
+	    g->ylo + b->oy >= 0 && g->yhi + b->oy + wy <= g->H - 1 &&
+	    g->zlo + b->oz >= 0 && g->zhi + b->oz + wz <= g->D - 1;
+}
+
+/* the largest step between neighbours along x, y and z of slices of H
+ * rows of W */
+static void
+table_steps3(const struct tinfo *ti, int64_t W, int64_t H, double *dx,
+    double *dy, double *dz)
+{
+	int64_t j, n = ti->n;
+
+	*dx = *dy = *dz = 0;
+	for (j = 0; j < n; j++) {
+		double v = cval(N.lst[N.a[ti->tab] + j]), d;
+		if ((j + 1) % W) {
+			d = fabs(cval(N.lst[N.a[ti->tab] + j + 1]) - v);
+			if (d > *dx)
+				*dx = d;
+		}
+		if ((j / W + 1) % H) {
+			d = fabs(cval(N.lst[N.a[ti->tab] + j + W]) - v);
+			if (d > *dy)
+				*dy = d;
+		}
+		if (j + W * H < n) {
+			d = fabs(cval(N.lst[N.a[ti->tab] + j + W * H]) - v);
+			if (d > *dz)
+				*dz = d;
+		}
+	}
+}
+
+/* the offsets c along an axis of W: c = d + W r with the d in the window
+ * that keeps them together; the d into d[], the r back into c[] */
+static void
+axis_window(int64_t *c, int n, int64_t W, int *d)
+{
+	int64_t best = 0, bw = -1, lo = 0, hi = 0, e;
+	int i, sh;
+
+	for (sh = 0; sh < W && sh < 64; sh++) {
+		for (i = 0; i < n; i++) {
+			e = floored_mod(c[i] + sh, W) - sh;
+			if (!i || e < lo)
+				lo = e;
+			if (!i || e > hi)
+				hi = e;
+		}
+		if (bw < 0 || hi - lo < bw) {
+			bw = hi - lo;
+			best = sh;
+		}
+	}
+	for (i = 0; i < n; i++) {
+		e = floored_mod(c[i] + best, W) - best;
+		d[i] = (int)e;
+		c[i] = (c[i] - e) / W;
+	}
+}
+
+/*
+ * A 3-D table: slices of H rows of W, the index's coefficients 1, W and
+ * V = W H (V divides the table); the offsets (dx, dy, dz) in the windows
+ * that keep dx, then dy, together.
+ */
+static int
+grid_make3(struct sum *s, struct grid *g, int64_t W, int64_t V)
+{
+	const struct aff *a = &s->t[g->ix[0]].ix;
+	int64_t c[MAXTERM];
+	int d[MAXTERM], i;
+
+	g->W = W;
+	g->H = V / W;
+	g->D = g->ti.n / V;
+	g->xe = aff_part(a, 1, &g->xlo, &g->xhi);
+	g->ye = aff_part(a, W, &g->ylo, &g->yhi);
+	g->ze = aff_part(a, V, &g->zlo, &g->zhi);
+	for (i = 0; i < a->n; i++)	/* a variable without a range */
+		if (!(a->coef[i] == 1 ? g->xe : a->coef[i] == W ? g->ye : g->ze))
+			return 0;
+	if (!g->xe)
+		g->xlo = g->xhi = 0;
+	for (i = 0; i < g->n; i++)
+		c[i] = s->t[g->ix[i]].ix.c;
+	axis_window(c, g->n, W, d);
+	for (i = 0; i < g->n; i++)
+		s->t[g->ix[i]].dx = d[i];
+	axis_window(c, g->n, g->H, d);
+	for (i = 0; i < g->n; i++) {
+		s->t[g->ix[i]].dy = d[i];
+		s->t[g->ix[i]].dz = (int)c[i];
+	}
+	table_steps3(&g->ti, W, g->H, &g->dxmax, &g->dymax, &g->dzmax);
+	return 1;
 }
 
 /*
  * Lay the group on the grid: the width from the index's coefficients
  * (rows of W when every variable's coefficient is 1 or W and W divides
- * the table), the offsets as (dx, dy) in the window that keeps dx
- * together.
+ * the table; slices of rows with a second coefficient, grid_make3), the
+ * offsets as (dx, dy) in the window that keeps dx together.
  */
 static int
 grid_make(struct sum *s, struct grid *g)
 {
 	const struct aff *a = &s->t[g->ix[0]].ix;
-	int64_t W = 0, cmin, best = 0, bw = -1;
+	int64_t W = 0, V = 0, cmin, best = 0, bw = -1;
 	int i, sh;
 
 	if (!table_info(s->t[g->ix[0]].tab, &g->ti))
 		return 0;
 	g->wrap = s->t[g->ix[0]].wrap;
+	g->D = 1;
 	for (i = 0; i < a->n; i++) {
 		int64_t c = a->coef[i];
 		if (c == 1)
 			continue;
 		if (g->wrap)	/* a wrapping read is along one axis */
 			return 0;
-		if (c < 1 || g->ti.n % c || (W && W != c))
+		if (c < 1 || g->ti.n % c)
 			return 0;
-		W = c;
+		if (!W || W == c)
+			W = c;
+		else if (!V || V == c)
+			V = c;
+		else
+			return 0;
+	}
+	if (V) {
+		int64_t t = V < W ? V : W;
+		V = V < W ? W : V;
+		return V % t == 0 && grid_make3(s, g, t, V);
 	}
 	g->W = W ? W : g->ti.n;
 	g->H = g->ti.n / g->W;
@@ -3615,17 +3898,44 @@ coord_node(nid ie, int d, const struct mform *fr, int e, double *dw, int *ops,
 }
 
 /*
- * The cover: each member is read by itself or is in one block (2 x 2, a
- * pair along x, a pair along y) that derives; the cheapest under the
- * model's prices, by dynamic programming over the members left (the
- * lowest one decides what is tried), greedily past 16 members.
+ * A coordinate x below 2^e, normalised: u = x f32(1/n), and the unit
+ * reads u n, within |x| 2^-23 of x (two roundings of 2^-24), none when n
+ * is a power of two; that into *dw, *ongrid and *cexp as coord_node's.
  */
+static nid
+norm_coord(nid x, int64_t n, int e, double *dw, int *ongrid, int *cexp)
+{
+	double rn = (double)(float)(1.0 / (double)n);
+
+	x = mk_bin(O_MUL, x, kf(rn));
+	if (n & (n - 1)) {
+		*dw += ldexp(1.0, e - 23);
+		*ongrid = 0;
+		if (*cexp < e - 23)
+			*cexp = e - 23;
+	}
+	return x;
+}
+
+/*
+ * The cover: each member is read by itself or is in one block (2 x 2, a
+ * pair along x, a pair along y; of a 3-D table any box of the 2 x 2 x 2
+ * cube) that derives; the cheapest under the model's prices, by dynamic
+ * programming over the members left (the lowest one decides what is
+ * tried), greedily past 16 members.
+ */
+#define NKIND 7
+/* a kind's extent: the axes it spans (x 1, y 2, z 4), the biggest first */
+static const int kind_ext2[3] = {3, 1, 2}, kind_ext3[NKIND] = {7, 3, 5, 6, 1,
+    2, 4};
+
 struct cover {
 	const struct sum *s;
 	const struct grid *g;
-	struct block b[MAXTERM][3];	/* by member: 2 x 2, x pair, y pair */
-	uint8_t ok[MAXTERM][3];
-	uint32_t mask[MAXTERM][3];
+	struct block b[MAXTERM][NKIND];	/* by member and kind */
+	uint8_t ok[MAXTERM][NKIND];
+	uint32_t mask[MAXTERM][NKIND];
+	int nk;			/* the kinds: 3 (a 2-D table), 7 (3-D) */
 	float ptap, pone;
 	int why;		/* BW_: the first block of neighbours refused */
 	float *memo;
@@ -3637,32 +3947,37 @@ cover_blocks(struct cover *c)
 {
 	const struct sum *s = c->s;
 	const struct grid *g = c->g;
-	int i, k, j, why = BW_OK;
+	const int *ext = g->D > 1 ? kind_ext3 : kind_ext2;
+	int i, k, q, why = BW_OK;
 
+	c->nk = g->D > 1 ? NKIND : 3;
 	for (i = 0; i < g->n; i++) {
-		int dx = s->t[g->ix[i]].dx, dy = s->t[g->ix[i]].dy;
-		int r = grid_at(s, g, dx + 1, dy), d = grid_at(s, g, dx, dy + 1),
-		    rd = grid_at(s, g, dx + 1, dy + 1);
-		for (k = 0; k < 3; k++) {
+		const struct term *t = &s->t[g->ix[i]];
+		for (k = 0; k < c->nk; k++) {
 			struct block *b = &c->b[i][k];
-			int mem[4];
-			mem[0] = i;
-			mem[1] = k != 2 ? r : -1;
-			mem[2] = k != 1 ? d : -1;
-			mem[3] = k == 0 ? rd : -1;
+			int all = 1;
 			c->ok[i][k] = 0;
-			if ((k == 0 && (r < 0 || d < 0 || rd < 0)) || (k == 1 &&
-			    r < 0) || (k == 2 && d < 0))
-				continue;
 			c->mask[i][k] = 0;
-			for (j = 0; j < 4; j++) {
-				b->m[j] = mem[j] >= 0 ? g->ix[mem[j]] : -1;
-				if (mem[j] >= 0)
-					c->mask[i][k] |= 1u << mem[j];
+			for (q = 0; q < 8; q++) {
+				int mi = -1;
+				if (!(q & ~ext[k])) {
+					mi = grid_at(s, g, t->dx + (q & 1),
+					    t->dy + (q >> 1 & 1),
+					    t->dz + (q >> 2 & 1));
+					if (mi < 0)
+						all = 0;
+				}
+				b->m[q] = mi >= 0 ? g->ix[mi] : -1;
+				if (mi >= 0)
+					c->mask[i][k] |= 1u << mi;
 			}
-			b->ox = dx;
-			b->oy = dy;
-			c->ok[i][k] = block_derive(s, b, &why);
+			if (!all)
+				continue;
+			b->ox = t->dx;
+			b->oy = t->dy;
+			b->oz = t->dz;
+			c->ok[i][k] = g->D > 1 ? block_derive3(s, b, &why) :
+			    block_derive(s, b, &why);
 			if (c->ok[i][k] && !block_inside(g, b)) {
 				c->ok[i][k] = 0;
 				why = BW_OUT;
@@ -3676,7 +3991,7 @@ cover_blocks(struct cover *c)
 static float
 cover_dp(struct cover *c, uint32_t done)
 {
-	int n = c->g->n, i, k, best = 3;
+	int n = c->g->n, i, k, best = NKIND;
 	float v, bv;
 
 	if (done == (1u << n) - 1)
@@ -3686,7 +4001,7 @@ cover_dp(struct cover *c, uint32_t done)
 	for (i = 0; done >> i & 1; i++)
 		;
 	bv = c->pone + cover_dp(c, done | 1u << i);
-	for (k = 0; k < 3; k++) {
+	for (k = 0; k < c->nk; k++) {
 		if (!c->ok[i][k] || (c->mask[i][k] & done))
 			continue;
 		v = c->ptap + cover_dp(c, done | c->mask[i][k]);
@@ -3698,6 +4013,17 @@ cover_dp(struct cover *c, uint32_t done)
 	c->memo[done] = bv;
 	c->pick[done] = (uint8_t)best;
 	return bv;
+}
+
+/* the members a mask holds */
+static int
+mask_count(uint32_t m)
+{
+	int n = 0;
+
+	for (; m; m &= m - 1)
+		n++;
+	return n;
 }
 
 /* the blocks chosen, into out; their count */
@@ -3717,7 +4043,7 @@ cover_pick(struct cover *c, struct block *out)
 			for (i = 0; done >> i & 1; i++)
 				;
 			k = c->pick[done];
-			if (k < 3) {
+			if (k < NKIND) {
 				out[nb++] = c->b[i][k];
 				done |= c->mask[i][k];
 			} else
@@ -3730,11 +4056,11 @@ cover_pick(struct cover *c, struct block *out)
 	for (i = 0; i < n; i++) {
 		if (done >> i & 1)
 			continue;
-		for (k = 0; k < 3; k++)
+		for (k = 0; k < c->nk; k++)
 			if (c->ok[i][k] && !(c->mask[i][k] & done) && c->ptap <
-			    c->pone * (k == 0 ? 4 : 2))
+			    c->pone * mask_count(c->mask[i][k]))
 				break;
-		if (k < 3) {
+		if (k < c->nk) {
 			out[nb++] = c->b[i][k];
 			done |= c->mask[i][k];
 		} else
@@ -3803,6 +4129,8 @@ cover_split(const struct sum *s, const struct grid *g, struct block *out)
 	int dmin = 0, dmax = 0, emin = 0, emax = 0, C, R, i, x, y, nc, nr, P, Q,
 	    nb = 0, why;
 
+	if (g->D > 1)	/* a 2-D kernel's: not cut along z */
+		return 0;
 	for (i = 0; i < g->n; i++) {
 		const struct term *t = &s->t[g->ix[i]];
 		if (!mf_isconst(&t->k))
@@ -3852,10 +4180,12 @@ cover_split(const struct sum *s, const struct grid *g, struct block *out)
 			    pr[P].wa * pc[Q].wb, pr[P].wb * pc[Q].wa,
 			    pr[P].wb * pc[Q].wb};
 			memset(b, 0, sizeof *b);
+			for (i = 4; i < 8; i++)
+				b->m[i] = -1;
 			for (i = 0; i < 4; i++) {
 				int mi = at[i][0] < 0 || at[i][1] < 0 ? -1 :
 				    grid_at(s, g, dmin + at[i][0],
-				    emin + at[i][1]);
+				    emin + at[i][1], 0);
 				b->m[i] = mi >= 0 ? g->ix[mi] : -1;
 				w[i] = mf_const(b->m[i] >= 0 ? ww[i] * sg : 0);
 				if (mi >= 0)
@@ -3886,8 +4216,10 @@ on_grid(const struct block *b, int nb)
 
 	for (k = 0; k < nb; k++)
 		if (b[k].fu.c[1] != 0 || b[k].fv.c[1] != 0 ||
+		    b[k].fw.c[1] != 0 ||
 		    b[k].fu.c[0] * g != nearbyint(b[k].fu.c[0] * g) ||
-		    b[k].fv.c[0] * g != nearbyint(b[k].fv.c[0] * g))
+		    b[k].fv.c[0] * g != nearbyint(b[k].fv.c[0] * g) ||
+		    b[k].fw.c[0] * g != nearbyint(b[k].fw.c[0] * g))
 			return 0;
 	return 1;
 }
@@ -4019,6 +4351,7 @@ seed_sum1(nid body, nid root)
 		struct grid g;
 		struct cover cv;
 		int nb, ns, k, dmin = 0, dmax = 0, emin = 0, emax = 0, ex, ey;
+		int fmin = 0, fmax = 0, ez = 0, tri = 0;
 		double sx, sy;
 
 		memset(&g, 0, sizeof g);
@@ -4031,6 +4364,11 @@ seed_sum1(nid body, nid root)
 			X.unavail[g.ti.cls] = 1;
 			continue;
 		}
+		tri = g.D > 1;
+		if (tri && !cclass_available(X.m, C_TEX_3D)) {
+			X.unavail_3d = 1;
+			continue;
+		}
 		if (!X.bits) {
 			X.nobits = 1;
 			continue;
@@ -4039,13 +4377,15 @@ seed_sum1(nid body, nid root)
 			X.noulp = 1;
 			continue;
 		}
-		/* by row, then column: the lowest member is a block's corner */
+		/* by slice, row, then column: the lowest member is a block's
+		 * corner */
 		for (i = 1; i < g.n; i++)
 			for (k = i; k > 0; k--) {
 				const struct term *a = &s->t[g.ix[k - 1]], *b =
 				    &s->t[g.ix[k]];
 				int t;
-				if (a->dy < b->dy || (a->dy == b->dy && a->dx < b->dx))
+				if (a->dz < b->dz || (a->dz == b->dz && (a->dy <
+				    b->dy || (a->dy == b->dy && a->dx < b->dx))))
 					break;
 				t = g.ix[k];
 				g.ix[k] = g.ix[k - 1];
@@ -4061,12 +4401,20 @@ seed_sum1(nid body, nid root)
 				emin = a->dy;
 			if (!i || a->dy > emax)
 				emax = a->dy;
+			if (!i || a->dz < fmin)
+				fmin = a->dz;
+			if (!i || a->dz > fmax)
+				fmax = a->dz;
 		}
 		memset(&cv, 0, sizeof cv);
 		cv.s = s;
 		cv.g = &g;
-		cv.ptap = X.m->c[g.ti.cls] + (g.H > 1 ? 2 : 1) * X.m->c[C_FADD] +
-		    X.m->c[C_FMUL] + (g.wrap ? X.m->c[C_FMUL] : 0);
+		cv.ptap = X.m->c[g.ti.cls] + (tri ? 3 : g.H > 1 ? 2 : 1) *
+		    X.m->c[C_FADD] + X.m->c[C_FMUL] + (g.wrap ? X.m->c[C_FMUL] :
+		    0);
+		/* a 3-D read: the third axis, and the coordinates normalised */
+		if (tri)
+			cv.ptap += X.m->c[C_TEX_3D] + 3 * X.m->c[C_FMUL];
 		cv.pone = X.m->c[C_LOAD] + (isint ? X.m->c[C_IADD] :
 		    X.m->c[C_FMUL]);
 		cover_blocks(&cv);
@@ -4102,9 +4450,12 @@ seed_sum1(nid body, nid root)
 		if (nb == 0) {
 			/* neighbours, and no block of them is a read: say why */
 			if (cv.why && !X.nosum.n) {
-				sb_printf(&X.nosum, "entries of the %lld x %lld table "
-				    "are neighbours in %s, but ", (long long)g.W,
-				    (long long)g.H, shared_str(root, 120));
+				sb_printf(&X.nosum, "entries of the %lld x %lld",
+				    (long long)g.W, (long long)g.H);
+				if (tri)
+					sb_printf(&X.nosum, " x %lld", (long long)g.D);
+				sb_printf(&X.nosum, " table are neighbours in %s, but ",
+				    shared_str(root, 120));
 				if (cv.why == BW_OUT) {
 					sb_puts(&X.nosum, "a read of them could leave the "
 					    "table:");
@@ -4116,6 +4467,10 @@ seed_sum1(nid body, nid root)
 						sb_printf(&X.nosum, "%s %s in [%lld, %lld]",
 						    g.xe ? "," : "", node_str(g.ye),
 						    (long long)g.ylo, (long long)g.yhi);
+					if (g.ze)
+						sb_printf(&X.nosum, ", %s in [%lld, %lld]",
+						    node_str(g.ze), (long long)g.zlo,
+						    (long long)g.zhi);
 					sb_puts(&X.nosum, " (a filter clamps at the edge, "
 					    "the table's index does not)");
 				} else
@@ -4124,7 +4479,9 @@ seed_sum1(nid body, nid root)
 					    "than 0" : cv.why == BW_SIGN ? "their "
 					    "weights are not all of one sign for every "
 					    "input (a fraction leaves [0, 1], or its "
-					    "variable has no range)" : "their weights "
+					    "variable has no range)" : tri ? "their weights "
+					    "are not the product of a fraction along each "
+					    "of x, y and z" : "their weights "
 					    "are not the product of a fraction along x "
 					    "and one along y");
 			}
@@ -4132,17 +4489,32 @@ seed_sum1(nid body, nid root)
 		}
 		ex = coord_exp(g.xlo, g.xhi, dmin, dmax);
 		ey = coord_exp(g.ylo, g.yhi, emin, emax);
+		if (tri)
+			ez = coord_exp(g.zlo, g.zhi, fmin, fmax);
 		sx = sy = 0;
 		for (k = 0; k < nb; k++) {
 			struct block *b = &blk[k];
-			double dwx, dwy = 0, e, S = b->S;
-			int ops = 0, gx, gy = 1, cnt = 0, q, cx, cy = -1000;
-			nid x, y = 0, tap;
+			double dwx, dwy = 0, dwz = 0, e, S = b->S;
+			int ops = 0, gx, gy = 1, gz = 1, cnt = 0, q, cx, cy = -1000,
+			    cz = -1000;
+			nid x, y = 0, z = 0, tap;
 			double lo, hi;
 
 			x = coord_node(g.xe, b->ox, &b->fu, ex, &dwx, &ops, &gx,
 			    &cx);
-			if (g.H > 1) {
+			if (tri) {
+				/* normalised: a 3-D texture has no
+				 * unnormalizedCoordinates */
+				y = coord_node(g.ye, b->oy, &b->fv, ey, &dwy, &ops,
+				    &gy, &cy);
+				z = coord_node(g.ze, b->oz, &b->fw, ez, &dwz, &ops,
+				    &gz, &cz);
+				x = norm_coord(x, g.W, ex, &dwx, &gx, &cx);
+				y = norm_coord(y, g.H, ey, &dwy, &gy, &cy);
+				z = norm_coord(z, g.D, ez, &dwz, &gz, &cz);
+				tap = mk_tex(O_TEX_TRILINEAR, TEX_KI(X.bits, g.W) |
+				    TEX_KH(g.H), g.ti.tex, x, tex_args(y, z));
+			} else if (g.H > 1) {
 				y = coord_node(g.ye, b->oy, &b->fv, ey, &dwy, &ops,
 				    &gy, &cy);
 				tap = mk_tex(O_TEX_BILINEAR, TEX_KI(X.bits, g.W),
@@ -4153,14 +4525,7 @@ seed_sum1(nid body, nid root)
 				 * u n: within |x| 2^-23 of x (two roundings of
 				 * 2^-24), none when n is a power of two
 				 */
-				double rn = (double)(float)(1.0 / (double)g.W);
-				x = mk_bin(O_MUL, x, kf(rn));
-				if (g.W & (g.W - 1)) {
-					dwx += ldexp(1.0, ex - 23);
-					gx = 0;
-					if (cx < ex - 23)
-						cx = ex - 23;
-				}
+				x = norm_coord(x, g.W, ex, &dwx, &gx, &cx);
 				tap = mk_tex(O_TEX_LINEAR, TEX_KI(X.bits, 0) |
 				    TEX_KWRAP(g.wrap), g.ti.tex, x, 0);
 			} else
@@ -4176,7 +4541,7 @@ seed_sum1(nid body, nid root)
 			if (taps)
 				njoin++;
 			taps = taps ? mk_bin(O_ADD, taps, tap) : tap;
-			for (q = 0; q < 4; q++)
+			for (q = 0; q < 8; q++)
 				if (b->m[q] >= 0) {
 					s->t[b->m[q]].used = 1;
 					cnt++;
@@ -4185,26 +4550,51 @@ seed_sum1(nid body, nid root)
 			 * the weights not reproduced, and the map back to the
 			 * entries: the scale's constant and product, the offset's
 			 * constant and add */
-			e = fabs(S) * (dwx * g.dxmax + dwy * g.dymax + X.ulp *
+			e = fabs(S) * (dwx * g.dxmax + dwy * g.dymax + dwz *
+			    g.dzmax + X.ulp *
 			    2 * u * g.ti.rmax + g.ti.trep) + b->resid * g.ti.tmax +
 			    ((S * g.ti.scale != 1 ? 2 : 0) + (g.ti.off != 0 ? 2 : 0)) *
 			    u * fabs(S) * (fabs(g.ti.off) + g.ti.rmax);
 			enew += e;
 			mtap += fabs(S) * g.ti.tmax;
 			ntap++;
-			sb_printf(&what, "%s%d entr%s of the %lld x %lld table from "
-			    "offset (%d, %d), weights' sum %.6g%s: one read at "
-			    "fraction ", what.n ? "\n" : "", cnt, cnt == 1 ? "y" :
-			    "ies", (long long)g.W, (long long)g.H, b->ox, b->oy,
-			    S, b->split ? " (a share of a weight read twice)" :
-			    "");
+			if (tri)
+				sb_printf(&what, "%s%d entr%s of the %lld x %lld x "
+				    "%lld table from offset (%d, %d, %d), weights' sum "
+				    "%.6g: one read at fraction ", what.n ? "\n" : "",
+				    cnt, cnt == 1 ? "y" : "ies", (long long)g.W,
+				    (long long)g.H, (long long)g.D, b->ox, b->oy,
+				    b->oz, S);
+			else
+				sb_printf(&what, "%s%d entr%s of the %lld x %lld "
+				    "table from offset (%d, %d), weights' sum %.6g%s: "
+				    "one read at fraction ", what.n ? "\n" : "", cnt,
+				    cnt == 1 ? "y" : "ies", (long long)g.W,
+				    (long long)g.H, b->ox, b->oy, S, b->split ?
+				    " (a share of a weight read twice)" : "");
 			mf_text(&what, &b->fu);
 			if (g.H > 1) {
 				sb_puts(&what, " along x, ");
 				mf_text(&what, &b->fv);
 				sb_puts(&what, " along y");
 			}
-			if (g.H > 1) {
+			if (tri) {
+				sb_puts(&what, ", ");
+				mf_text(&what, &b->fw);
+				sb_puts(&what, " along z");
+			}
+			if (tri) {
+				sb_printf(&proof, "%sa linear read of a 3-D texture at "
+				    "fractions (u, v, w) of the 2 x 2 x 2 texels is the "
+				    "sum of each texel times (1-u or u)(1-v or v)(1-w "
+				    "or w), u along x, v along y, w along z: times %.6g "
+				    "with u = ", proof.n ? "\n" : "", S * g.ti.scale);
+				mf_text(&proof, &b->fu);
+				sb_puts(&proof, ", v = ");
+				mf_text(&proof, &b->fv);
+				sb_puts(&proof, ", w = ");
+				mf_text(&proof, &b->fw);
+			} else if (g.H > 1) {
 				sb_printf(&proof, "%sa linear read at fractions (u, v) "
 				    "of texels a b / c d is (1-u)(1-v) a + u(1-v) b + "
 				    "(1-u)v c + uv d: times %.6g with u = ", proof.n ?
@@ -4218,8 +4608,9 @@ seed_sum1(nid body, nid root)
 				    "= ", proof.n ? "\n" : "", S * g.ti.scale);
 				mf_text(&proof, &b->fu);
 			}
-			for (q = 0; q < 2; q++) {
-				const struct mform *fr = q ? &b->fv : &b->fu;
+			for (q = 0; q < (tri ? 3 : 2); q++) {
+				const struct mform *fr = q == 2 ? &b->fw : q ? &b->fv :
+				    &b->fu;
 				if (fr->c[1] == 0 || !frange(fr->s, &lo, &hi))
 					continue;
 				sb_printf(&holds, "%s%s in [%g, %g] (its range): the "
@@ -4242,11 +4633,21 @@ seed_sum1(nid body, nid root)
 				    g.ti.q, g.ti.off);
 			if (b->resid > 0)
 				sb_printf(&proof, " to within %s", fmt_g(b->resid));
-			if (gx && gy)
+			if (gx && gy && gz)
 				sb_printf(&proof, "\n  the fractions are on the 2^-%d "
 				    "grid and the coordinates exact in f32: the "
 				    "weights do not move", X.bits);
-			else
+			else if (tri) {
+				int cm = cx > cy ? cx : cy;
+				sb_printf(&proof, "\n  a fraction not on the grid is "
+				    "snapped by less than 2^-%d, and f32 moves a "
+				    "coordinate that is not exact by at most 2^%d: "
+				    "the read moves by at most %s (x), %s (y) and %s "
+				    "(z) times the largest step between neighbours, "
+				    "%s, %s and %s", X.bits, cm > cz ? cm : cz,
+				    fmt_g(dwx), fmt_g(dwy), fmt_g(dwz), fmt_g(g.dxmax),
+				    fmt_g(g.dymax), fmt_g(g.dzmax));
+			} else
 				sb_printf(&proof, "\n  a fraction not on the grid is "
 				    "snapped by less than 2^-%d, and f32 moves a "
 				    "coordinate that is not exact by at most 2^%d: "
@@ -4267,13 +4668,17 @@ seed_sum1(nid body, nid root)
 		if (g.ye)
 			sb_printf(&holds, "%s%s in [%lld, %lld]", g.xe ? ", " : "",
 			    node_str(g.ye), (long long)g.ylo, (long long)g.yhi);
+		if (g.ze)
+			sb_printf(&holds, ", %s in [%lld, %lld]", node_str(g.ze),
+			    (long long)g.zlo, (long long)g.zhi);
 		if (g.wrap)
 			sb_printf(&holds, "%sthe address mode (%s) wraps every "
 			    "texel into the table", g.xe || g.ye ? " (proved "
 			    "ranges): " : "", mode_vk(g.wrap));
 		else
 			sb_printf(&holds, "%severy texel read is inside the "
-			    "table", g.xe || g.ye ? " (proved ranges): " : "");
+			    "table", g.xe || g.ye || g.ze ? " (proved ranges): " :
+			    "");
 		if (g.wrap)
 			sb_printf(&proof, "\n  the coordinate is normalised, u = "
 			    "x f32(1/%lld), and the unit reads u %lld: %s",
@@ -4281,18 +4686,43 @@ seed_sum1(nid body, nid root)
 			    "within |x| 2^-23 of x (two roundings of 2^-24), in "
 			    "the bound above" : "exact: the size is a power of "
 			    "two");
-		sb_printf(&pipe, "%sa texture %s, %lld x %lld, one level: the "
-		    "table's entries", pipe.n ? "\n" : "", fmt_vk(g.ti.cls),
-		    (long long)g.W, (long long)g.H);
+		if (tri)
+			sb_printf(&proof, "\n  the coordinates are normalised, u = "
+			    "x f32(1/%lld), v = y f32(1/%lld), w = z f32(1/%lld), "
+			    "and the unit reads (u %lld, v %lld, w %lld): %s",
+			    (long long)g.W, (long long)g.H, (long long)g.D,
+			    (long long)g.W, (long long)g.H, (long long)g.D,
+			    (g.W & (g.W - 1)) || (g.H & (g.H - 1)) || (g.D & (g.D -
+			    1)) ? "along a size that is not a power of two within "
+			    "|x| 2^-23 of x (two roundings of 2^-24), in the bound "
+			    "above" : "exact: the sizes are powers of two");
+		if (tri)
+			sb_printf(&pipe, "%sa 3-D texture %s, %lld x %lld x %lld, "
+			    "one level: the table's entries", pipe.n ? "\n" : "",
+			    fmt_vk(g.ti.cls), (long long)g.W, (long long)g.H,
+			    (long long)g.D);
+		else
+			sb_printf(&pipe, "%sa texture %s, %lld x %lld, one level: "
+			    "the table's entries", pipe.n ? "\n" : "",
+			    fmt_vk(g.ti.cls), (long long)g.W, (long long)g.H);
 		fmt_says(&pipe, &g.ti);
-		sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
-		    "NEAREST mipmap mode, %s, lod 0\none combined image sampler "
-		    "more in the layout; the shader reads textureLod(s, %s, "
-		    "0.0).r", g.wrap ? (g.wrap == O_FETCH_REPEAT ? "REPEAT, "
-		    "normalised coordinates" : "MIRRORED_REPEAT, normalised "
-		    "coordinates") : "CLAMP_TO_EDGE, unnormalizedCoordinates",
-		    g.H > 1 ? "vec2(x, y)" : g.wrap ? "u" : "x");
-		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1 && !g.ti.levels) {
+		if (tri)
+			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
+			    "NEAREST mipmap mode, CLAMP_TO_EDGE on u, v and w, "
+			    "normalised coordinates (a 3-D texture has no "
+			    "unnormalizedCoordinates), lod 0\none combined image "
+			    "sampler more in the layout; the shader reads "
+			    "textureLod(s, vec3(u, v, w), 0.0).r");
+		else
+			sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
+			    "NEAREST mipmap mode, %s, lod 0\none combined image "
+			    "sampler more in the layout; the shader reads "
+			    "textureLod(s, %s, 0.0).r", g.wrap ? (g.wrap ==
+			    O_FETCH_REPEAT ? "REPEAT, normalised coordinates" :
+			    "MIRRORED_REPEAT, normalised coordinates") :
+			    "CLAMP_TO_EDGE, unnormalizedCoordinates", g.H > 1 ?
+			    "vec2(x, y)" : g.wrap ? "u" : "x");
+		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1 && !tri && !g.ti.levels) {
 			/* the same texels in half the bytes, when BC4's palettes
 			 * hold them exactly (texenc.c) */
 			struct texenc te;
@@ -5443,6 +5873,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 		if (X.unavail_packed) {
 			sb_printf(&res->why, "%s%s lists no tex_packed: a "
 			    "texel fetch of a packed format is not available",
+			    res->why.n ? "\n" : "", sym_str(X.m->name));
+			res->status = TEXR_UNAVAILABLE;
+		}
+		if (X.unavail_3d) {
+			sb_printf(&res->why, "%s%s lists no tex_3d: a filtered "
+			    "read of a 3-D texture is not available",
 			    res->why.n ? "\n" : "", sym_str(X.m->name));
 			res->status = TEXR_UNAVAILABLE;
 		}

@@ -4068,6 +4068,33 @@
    }
   },
   {
+   "name": "tex_trilinear",
+   "kind": "mem",
+   "base": null,
+   "ops": {
+    "x_tex_trilinear": 1,
+    "fadd": 1
+   },
+   "fit": true,
+   "ty": "float",
+   "chains": 1,
+   "unroll": [
+    8,
+    16
+   ],
+   "iters": 123,
+   "note": "rgba8 3-D (the same 4 MiB as tex_bilinear), trilinear: eight texels, explicit LOD; less tex_bilinear, the ucas class tex_3d",
+   "vkext": [],
+   "args": [
+    "--bind",
+    "0.5=format=rgba8_unorm,size=128x128x64,view=3d,pattern=noise,filter=linear"
+   ],
+   "files": {
+    "a": "spv/tex_trilinear.a.spv",
+    "b": "spv/tex_trilinear.b.spv"
+   }
+  },
+  {
    "name": "image_load",
    "kind": "mem",
    "base": null,

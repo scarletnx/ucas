@@ -204,13 +204,26 @@ enum {
 	 * address mode, of a texture (fetch_texel(T, i)) or of a buffer
 	 * texture (fetch_buffer(T, i)): T[i], undefined outside the table */
 	O_FETCH_TEXEL, O_FETCH_BUFFER,
+	/* the linear filter of a 3-D texture, slices of W x H texels:
+	 * tex_trilinear8(T, W, H, x, y, z), W and H in ki, (y, z) the pair
+	 * O_TEXARGS in c */
+	O_TEX_TRILINEAR,
 	/* to the nearest integer, a tie to the even one (C23 roundeven,
 	 * GLSL roundEven, SPIR-V RoundEven) */
 	O_ROUNDEVEN,
+	/*
+	 * A texture read's third and fourth value operands, (a, b), as its
+	 * operand c: a node has three, and a pair is an operand every walker
+	 * already visits, rebuilds and prices (at 0).  It has no value of its
+	 * own; only the read takes it apart (mk_tex).
+	 */
+	O_TEXARGS,
 	O_NOPS
 };
 #define O_TEX_FIRST O_FETCH_REPEAT
-#define O_TEX_LAST O_FETCH_BUFFER
+#define O_TEX_LAST O_TEX_TRILINEAR
+/* a read whose operand c is the pair O_TEXARGS */
+#define TEX_HAS_ARGS(op) ((op) == O_TEX_TRILINEAR)
 #define IS_TEXEL(op) ((op) == O_FETCH_TEXEL || (op) == O_FETCH_BUFFER)
 #define IS_TEX(op) ((op) >= O_TEX_FIRST && (op) <= O_TEX_LAST)
 #define IS_FETCH(op) ((op) >= O_FETCH_REPEAT && (op) <= O_FETCH_BORDER)
@@ -467,6 +480,9 @@ enum {
 	C_TEX_PACKED,
 	/* a cube map's read: the face the unit selects (texalu.c) */
 	C_TEX_CUBE,
+	/* what a filtered read of a 3-D texture (tex_trilinear) costs over
+	 * the same format's 2-D read (texalu.c), absent unless listed */
+	C_TEX_3D,
 	C_NCLASS
 };
 #define C_SG_FIRST C_SG_BALLOT

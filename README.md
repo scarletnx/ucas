@@ -4115,6 +4115,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `fetch_texel(T, i)`, `fetch_buffer(T, i)` | `T[i]`, undefined outside the table: a texel fetch of a texture, of a buffer texture (below) |
 | `tex_linearB(T, x)` | s = x - 1/2, i0 = floor(s), a = floor((s - i0) 2^B + 1/2) / 2^B: `(1 - a) T[c(i0)] + a T[c(i0 + 1)]`, c the clamp to the table |
 | `tex_bilinearB(T, W, x, y)` | the same on both axes of the table read as rows of W texels: four texels, their weights the products of the two axes' |
+| `tex_trilinearB(T, W, H, u, v, w)` | the same on three axes of the table read as D slices of H rows of W texels (a 3-D texture), at texel coordinates (u W, v H, w D): eight texels, their weights the products of the three axes'; u, v, w normalised (below) |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
 | `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
@@ -4135,6 +4136,23 @@ _() = 3.25
 > show tex_bilinear8([0, 1, 4, 9], 2, 1, 1)  (the corner of four texels: their mean)
 _() = 3.5
 ```
+
+**3-D textures.**  `tex_trilinearB(T, W, H, u, v, w)` is Vulkan's
+linear filter of a 3-D image: T is D = n / (W H) slices of H rows of W
+texels (W H must divide n), each axis clamped to the edge, the eight
+weights the products of the three axes' fractions on the 2^-B grid,
+the weighted sum exact (each weight has up to 3B bits, so it is split
+in two before the products) and rounded once to f32.  Vulkan has no
+unnormalizedCoordinates for a 3-D image, so the read takes normalised
+coordinates, as the shader gives them: the unit's texel coordinates are
+(u W, v H, w D), exact in a double.  `tex_trilinear8([0, 1, 2, 3, 4,
+5, 6, 7], 2, 2, 0.5, 0.5, 0.5)` is 3.5, the centre of the 2 x 2 x 2
+texels.  A node has three operands; the read keeps its last two
+coordinates in a pair, `tex_args(v, w)` (Design, below).  Its class is
+the 2-D read's of its texels' format plus `tex_3d`, what the third axis
+adds (no built-in model lists it: not measured; tests/gt1030 has the
+probe, `tex_trilinear`, an rgba8 3-D read against `tex_bilinear`)
+(tests/textrilinear.ucas).
 
 **Cost classes and parameters.**  `tex_nearest` prices a `fetch_` read
 (its coordinate, (i + 1/2)/n made from the index, costs a `conv` and an
@@ -4187,17 +4205,24 @@ is offered: `texalu` says which number is missing.
 - a weighted sum of table entries.  The sum is normalised to
   sum w_k T[e_k] + rest (through +, -, products with weights, a
   division by a constant, fma; an integer sum where intervals show it
-  does not wrap), the weights as forms c0 + c1 s + c2 t + c3 st over at
-  most two float variables (constants, `1 - t` and `t`, `(1-s)(1-t)`
-  ...), the indices as affine forms over the same variables.  The
-  table is read as rows of W when every index variable's coefficient
-  is 1 or W and W divides the table.  Entries that are neighbours are
-  covered by blocks (2 x 2, a pair along x, a pair along y), each one
-  filtered read: the block's weights must sum to a constant S, be
-  S(1-u)(1-v), S u(1-v), S(1-u)v, S uv for fractions u, v in [0, 1]
-  (each linear in one variable, shown on the variables' ranges), and
-  its texels must be inside the table on the indices' proved ranges
-  (a filter clamps at the edge, an index does not).  The cover with
+  does not wrap), the weights as forms c0 + c1 s + c2 t + c3 st + c4 r
+  + ... over at most three float variables, none squared (constants,
+  `1 - t` and `t`, `(1-s)(1-t)`, `(1-s)(1-t)(1-r)` ...), the indices as
+  affine forms over the same variables.  The table is read as rows of
+  W when every index variable's coefficient is 1 or W and W divides
+  the table, and as slices of H rows of W (a 3-D texture) when the
+  coefficients are 1, W and W H and W H divides it.  Entries that are
+  neighbours are covered by blocks (2 x 2, a pair along x, a pair along
+  y; in a 3-D table any box of the 2 x 2 x 2 cube), each one filtered
+  read: the block's weights must sum to a constant S, be S(1-u)(1-v),
+  S u(1-v), S(1-u)v, S uv (with (1-w) and w on a third axis) for
+  fractions u, v, w in [0, 1] (each linear in one variable, shown on
+  the variables' ranges), and its texels must be inside the table on
+  the indices' proved ranges (a filter clamps at the edge, an index
+  does not).  A 3-D read takes normalised coordinates, x f32(1/W):
+  exact for a size that is a power of two, else within |x| 2^-23 of x,
+  in the bound; the sum of 2 x 2 x 2 neighbouring bytes is one such
+  read at their corner, exactly.  The cover with
   the lowest price under the model is taken, by dynamic programming
   over the entries (greedily past 16).  A separable kernel (constant
   weights of one sign over a filled rectangle, a column times a row)
@@ -4484,11 +4509,11 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 (tests/texpacked.ucas).
 
 Not done: shared weights in a kernel that is not a column times a row
-(a small linear program over the blocks), trilinear and anisotropic
-filters, mip levels as means, compare samplers, gather, a min or max
-of more than a 2 x 2 footprint (trilinear's 8) and a bilinear filter
-that wraps.  None of those has a
-measured price yet either.
+(a small linear program over the blocks) or that spans three axes,
+anisotropic filters, mip levels as means, compare samplers, gather, a
+min or max of more than a 2 x 2 footprint (trilinear's 8) and a
+bilinear or trilinear filter that wraps.  None of those has a measured
+price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the
 module: an OpLoad through an OpAccessChain into a Function or Private
@@ -7093,7 +7118,13 @@ Data-oriented throughout (see `src/ucas.h`):
   that are exact: no `x+0 → x` on IEEE floats, nothing that drops a
   partial subterm) and fold constants with the evaluator's own
   semantics.  An id is always larger than its operands', so id order is
-  a topological order.
+  a topological order.  A node has three operands; a texture read with
+  four value operands (`tex_trilinear`'s table and three coordinates)
+  holds its last two in a pair node, `tex_args(v, w)`, as its third.
+  Every walker of the DAG (reachability, substitution, rebuilding,
+  liveness, shared names, prices) already visits a third operand, so
+  they all see the fourth without each learning a fourth field; the
+  pair has no value and costs 0, and only the read takes it apart.
 - **Plans** copy the nodes one query needs into dense local arrays and
   evaluate a chunk of 256 domain points one node at a time: every
   operation is a loop over a column.  Each value carries a flag byte:

@@ -1369,6 +1369,15 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			continue;
 		case O_TABLE:
 			continue;
+		case O_TEXARGS:
+			/* no value: its read takes the two operands apart */
+			for (i = 0; i < np; i++) {
+				o[i] = 0;
+				orr[i] = 0;
+				of[i] = (COLF(p, a)[i] | COLF(p, b)[i]) &
+				    F_UNDEF;
+			}
+			continue;
 		case O_UNDEF:
 			memset(of, F_UNDEF, np);
 			continue;
@@ -1556,21 +1565,31 @@ plan_run(struct plan *p, uint32_t np, const int64_t *in_i, const double *in_r)
 			}
 			continue;
 		}
-		case O_TEX_LINEAR: case O_TEX_BILINEAR: {
+		case O_TEX_LINEAR: case O_TEX_BILINEAR: case O_TEX_TRILINEAR: {
 			struct texcol tc;
-			uint32_t cnt = p->b[a];
+			uint32_t cnt = p->b[a], y = c, z = c;
+			int hz = TEX_HAS_ARGS(op);
 			tc.p = p;
 			tc.st = p->a[a];
+			if (hz) {
+				/* (y, z) from the pair (plan index 0 is a node,
+				 * not "none": hz says whether there is a z) */
+				y = p->a[c];
+				z = p->b[c];
+			}
 			for (i = 0; i < np; i++) {
 				uint8_t f = COLF(p, b)[i] & F_UNDEF;
-				if (op == O_TEX_BILINEAR)
-					f |= COLF(p, c)[i] & F_UNDEF;
+				if (op != O_TEX_LINEAR)
+					f |= COLF(p, y)[i] & F_UNDEF;
+				if (hz)
+					f |= COLF(p, z)[i] & F_UNDEF;
 				tc.i = i;
 				tc.fl = 0;
 				o[i] = 0;
 				orr[i] = f ? 0 : tex_filter(op, p->ki[k], cnt,
-				    COLR(p, b)[i], op == O_TEX_BILINEAR ?
-				    COLR(p, c)[i] : 0, tex_col_texel, &tc);
+				    COLR(p, b)[i], op != O_TEX_LINEAR ?
+				    COLR(p, y)[i] : 0, hz ? COLR(p, z)[i] : 0,
+				    tex_col_texel, &tc);
 				of[i] = (f | tc.fl) & F_UNDEF;
 			}
 			continue;
@@ -1746,15 +1765,17 @@ plan_live(const struct plan *p, uint32_t np, uint8_t *lv)
 		case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 		case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
 		case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
-		case O_FETCH_BUFFER: {
-			/* the coordinates, and any texel */
+		case O_FETCH_BUFFER: case O_TEX_TRILINEAR: {
+			/* the coordinates (a pair's: its own case), and any
+			 * texel */
 			uint32_t st = p->a[a], cnt = p->b[a], j;
 			for (i = 0; i < np; i++) {
 				if (!l[i])
 					continue;
 				lb[i] = 1;
 				if (p->op[k] == O_FETCH_BORDER ||
-				    p->op[k] == O_TEX_BILINEAR)
+				    p->op[k] == O_TEX_BILINEAR ||
+				    TEX_HAS_ARGS(p->op[k]))
 					lc[i] = 1;
 				for (j = 0; j < cnt; j++)
 					lv[(size_t)p->lst[st + j] * CH + i] = 1;

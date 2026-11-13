@@ -186,6 +186,8 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_FETCH_LAYER] = {"fetch_layer", 2, 0},
 	[O_FETCH_TEXEL] = {"fetch_texel", 2, OF_PARTIAL},
 	[O_FETCH_BUFFER] = {"fetch_buffer", 2, OF_PARTIAL},
+	[O_TEX_TRILINEAR] = {"tex_trilinear", 3, 0},
+	[O_TEXARGS] = {"tex_args", 2, 0},
 };
 
 static const char *const atomic_names[] = {
@@ -777,6 +779,8 @@ mk_bin(int op, nid a, nid b)
 		return mk_sg(op, a, b, 0);
 	if (IS_INST(op))
 		return mk_inst(op, a, b, 0);
+	if (op == O_TEXARGS)
+		return tex_args(a, b);
 	if (IS_TEX(op)) {
 		/* a rebuilder that knows neither the node's grid nor its
 		 * third operand: mk_like() keeps both */
@@ -1023,15 +1027,33 @@ tex_const_texel(void *ctx, int64_t j)
 }
 
 nid
+tex_args(nid a, nid b)
+{
+	int fl = (child_fl(a) | child_fl(b)) & (NF_INH | NF_PARTIAL);
+
+	return intern(O_TEXARGS, TY_F32, a, b, 0, 0, 0.0, fl);
+}
+
+nid
 mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 {
 	uint32_t n, j;
 	int fl, bits = TEX_BITS(ki), allk = 1;
-	int64_t w = TEX_WIDTH(ki);
+	int64_t w = TEX_WIDTH(ki), h = TEX_HEIGHT(ki);
+	nid d = 0;
 
 	if (N.op[a] != O_TABLE || N.b[a] == 0)
 		fail("%s takes a table [t0, t1, ...] first", opinfo[op].name);
 	n = N.b[a];
+	if (TEX_HAS_ARGS(op)) {
+		/* its last two value operands, as the pair in c */
+		if (!c || N.op[c] != O_TEXARGS)
+			fail("%s takes its last two coordinates as one operand, "
+			    "tex_args(y, z), and was given %s", opinfo[op].name,
+			    c ? opinfo[N.op[c]].name : "none");
+		d = N.b[c];
+		c = N.a[c];
+	}
 	if (op == O_FETCH_LAYER) {
 		/* the layer coordinate is an f32 the unit rounds */
 		if (!TY_FP(N.ty[b]))
@@ -1091,8 +1113,18 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 		if (w < 1 || n % w)
 			fail("tex_bilinear: a table of %u texels is not rows of "
 			    "%lld", n, (long long)w);
+		h = 0;
+	} else if (op == O_TEX_TRILINEAR) {
+		if (w < 1 || h < 1 || n % w || n / w % h)
+			fail("tex_trilinear: a table of %u texels is not "
+			    "slices of %lld rows of %lld", n, (long long)h,
+			    (long long)w);
+		if (TEX_RED(ki))
+			fail("tex_trilinear: a MIN or MAX reduction is not one "
+			    "of its forms (tex_min, tex_max, tex_bimin, "
+			    "tex_bimax are)");
 	} else {
-		w = 0;
+		w = h = 0;
 		c = 0;
 	}
 	if (N.ty[a] != TY_F32) {
@@ -1107,17 +1139,22 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 	b = mk_cast(TY_F32, b);
 	if (c)
 		c = mk_cast(TY_F32, c);
-	if (N.op[b] == O_UNDEF || (c && N.op[c] == O_UNDEF))
+	if (d)
+		d = mk_cast(TY_F32, d);
+	if (N.op[b] == O_UNDEF || (c && N.op[c] == O_UNDEF) || (d &&
+	    N.op[d] == O_UNDEF))
 		return mk_undef(TY_F32);
 	for (j = 0; j < n; j++)
 		allk &= is_const(N.lst[N.a[a] + j]);
 	if ((ki & TEX_WRAPMASK) && (op != O_TEX_LINEAR || TEX_RED(ki)))
 		fail("%s: REPEAT and MIRRORED_REPEAT are for a linear filter's "
 		    "weighted sum", opinfo[op].name);
-	ki = TEX_KI(bits, w) | TEX_RED(ki) | (ki & TEX_WRAPMASK);
-	if (allk && is_const(b) && (!c || is_const(c)))
+	ki = TEX_KI(bits, w) | TEX_KH(h) | TEX_RED(ki) | (ki & TEX_WRAPMASK);
+	if (allk && is_const(b) && (!c || is_const(c)) && (!d || is_const(d)))
 		return mk_const_fp(TY_F32, tex_filter(op, ki, n, N.kr[b], c ?
-		    N.kr[c] : 0, tex_const_texel, &a));
+		    N.kr[c] : 0, d ? N.kr[d] : 0, tex_const_texel, &a));
+	if (d)
+		c = tex_args(c, d);
 	fl = (N.fl[a] | N.fl[b] | child_fl(c)) & (NF_PARTIAL | NF_VAR);
 	return intern(op, TY_F32, a, b, c, ki, 0.0, fl);
 }
@@ -1792,15 +1829,23 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 	case O_LOOP:
 		loop_print(b, n, pc);
 		break;
+	case O_TEXARGS:
+		/* inside its read: the two operands it holds, as the read's */
+		pr(b, N.a[n], 0, pc, 0);
+		sb_puts(b, ", ");
+		pr(b, N.b[n], 0, pc, 0);
+		break;
 	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
 	case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
-	case O_FETCH_BUFFER:
+	case O_FETCH_BUFFER: case O_TEX_TRILINEAR:
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		pr(b, N.a[n], 0, pc, 0);
-		if (op == O_TEX_BILINEAR)
+		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR)
 			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
+		if (op == O_TEX_TRILINEAR)
+			sb_printf(b, ", %lld", (long long)TEX_HEIGHT(N.ki[n]));
 		sb_puts(b, ", ");
 		pr(b, N.b[n], 0, pc, 0);
 		if (N.c[n]) {
@@ -1985,12 +2030,20 @@ print_paren(struct sbuf *b, nid n)
 		sb_putc(b, ')');
 		return;
 	}
+	if (op == O_TEXARGS) {
+		print_paren(b, N.a[n]);
+		sb_puts(b, ", ");
+		print_paren(b, N.b[n]);
+		return;
+	}
 	if (IS_TEX(op)) {
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		print_paren(b, N.a[n]);
-		if (op == O_TEX_BILINEAR)
+		if (op == O_TEX_BILINEAR || op == O_TEX_TRILINEAR)
 			sb_printf(b, ", %lld", (long long)TEX_WIDTH(N.ki[n]));
+		if (op == O_TEX_TRILINEAR)
+			sb_printf(b, ", %lld", (long long)TEX_HEIGHT(N.ki[n]));
 		sb_puts(b, ", ");
 		print_paren(b, N.b[n]);
 		if (N.c[n]) {
@@ -2156,6 +2209,12 @@ sh_visit(struct shmap *m, nid n)
 	}
 	sh_ref(m, N.a[n]);
 	sh_ref(m, N.b[n]);
+	/* a read's pair is its operands, not a value to name */
+	if (N.c[n] && N.op[N.c[n]] == O_TEXARGS) {
+		sh_ref(m, N.a[N.c[n]]);
+		sh_ref(m, N.b[N.c[n]]);
+		return;
+	}
 	sh_ref(m, N.c[n]);
 }
 
