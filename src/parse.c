@@ -2412,6 +2412,12 @@ parse_model(struct P *p)
 						fail("tex_within: more than 0 and at most 1e6 "
 						    "ulps, not %g (none: not stated)",
 						    (double)m->par[q]);
+				} else if (q == MP_CACHE) {
+					if (!(m->par[q] >= 1024) || m->par[q] > 0x1p40f ||
+					    m->par[q] != floorf(m->par[q]))
+						fail("cache: a whole number of bytes from 1024 to "
+						    "2^40, not %g (none: not stated)",
+						    (double)m->par[q]);
 				} else if (!(m->par[q] >= 1) || m->par[q] > 4096)
 					fail("%s: a count from 1 to 4096, not %g",
 					    mparam_name[q], (double)m->par[q]);

@@ -1,0 +1,126 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model streamy : gt1030 { cache: 524288 }
+> use streamy
+cost model: streamy
+> spvsimplify nofile
+simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under streamy (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: an array of 1048576 elements: an array has 1 to 65535); layout (line 4: an array of 1048576 elements: an array has 1 to 65535); main (line 5: 'o' is not declared))
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under streamy (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under streamy:
+  storage buffers against the cache (524288 bytes, the model's cache): the arrays that fit together stay
+  resident, the smaller first; an array past what is left streams
+    In.v: elements 0..1048575 (the whole array), 4 bytes each: 4.1943e+06 bytes, streams
+    Out.o: elements 0..1048575 (the whole array), 4 bytes each: 4.1943e+06 bytes, streams
+      1 load at load_stream 80.625 (resident: load 6.875)
+      1 store at store_stream 111 (resident: store 15)
+      each access once: +169.75 against the resident prices
+    not offered: a blocked order (the accesses reordered so what they reach at a time fits): it changes the dispatch
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 72 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under streamy (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: an array of 1048576 elements: an array has 1 to 65535); main (line 5: 'v' is not declared))
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under streamy (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under streamy (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under streamy (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+memory under streamy:
+  storage buffers against the cache (524288 bytes, the model's cache): the arrays that fit together stay
+  resident, the smaller first; an array past what is left streams
+    In.v: a runtime array at an index with no range (the dispatch's, the host's): not decided; an assumption on what the index is made of gives one
+    Out.o: a runtime array at an index with no range (the dispatch's, the host's): not decided; an assumption on what the index is made of gives one
+    nothing decided: their accesses keep the resident prices
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile
+simplify: 82 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under streamy (each instruction once): 3.375 -> 3.375 (+0.0%)
+  weighted by the trip counts of 1 loop of constant bounds (each instruction once a pass, an early exit making it less): 675000 -> 675000 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+memory under streamy:
+  storage buffers against the cache (524288 bytes, the model's cache): the arrays that fit together stay
+  resident, the smaller first; an array past what is left streams
+    In.v: elements 0..199999, 4 bytes each: 800000 bytes, streams
+    Out.o: elements 0..63 (the whole array), 4 bytes each: 256 bytes, resident
+      1 load at load_stream 80.625 (resident: load 6.875)
+      each access once: +73.75 against the resident prices
+    not offered: a blocked order (the accesses reordered so what they reach at a time fits): it changes the dispatch
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume data 0 255
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming data in [0, 255] (every load of it)
+  integer arithmetic cost under streamy (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: an array of 262144 elements: an array has 1 to 65535); main (line 5: 'data' is not declared))
+memory under streamy:
+  storage buffers against the cache (524288 bytes, the model's cache): the arrays that fit together stay
+  resident, the smaller first; an array past what is left streams
+    In.data: elements 0..262143 (the whole array), 4 bytes each: 1.04858e+06 bytes, streams
+    Out.sum: elements 0..63 (the whole array), 4 bytes each: 256 bytes, resident
+      1 load at load_stream 80.625 (resident: load 6.875)
+      each access once: +73.75 against the resident prices
+    proposal (an interface change, not applied): In.data as u8, its values in [0, 255] by the assumption:
+      262144 bytes, and the arrays that then fit become resident: -73.75, each access once
+      the array's element becomes uint8_t (GL_EXT_shader_explicit_arithmetic_types_int8; storageBuffer8BitAccess, VK_KHR_8bit_storage), widened where it is read;
+      the host and every other shader that uses the buffer write and read it so
+    not offered: a blocked order (the accesses reordered so what they reach at a time fits): it changes the dispatch
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile assume data 0 65535
+simplify: 68 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  assuming data in [0, 65535] (every load of it)
+  integer arithmetic cost under streamy (each instruction once): 1 -> 1 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: an array of 524288 elements: an array has 1 to 65535); main (line 5: 'data' is not declared))
+memory under streamy:
+  storage buffers against the cache (524288 bytes, the model's cache): the arrays that fit together stay
+  resident, the smaller first; an array past what is left streams
+    In.data: elements 0..524287 (the whole array), 4 bytes each: 2.09715e+06 bytes, streams
+    Out.sum: elements 0..63 (the whole array), 4 bytes each: 256 bytes, resident
+      1 load at load_stream 80.625 (resident: load 6.875)
+      each access once: +73.75 against the resident prices
+    In.data as u16 (its values in [0, 65535]): 1.04858e+06 bytes, still past the cache
+    not offered: a blocked order (the accesses reordered so what they reach at a time fits): it changes the dispatch
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model bad : gt1030 { cache: 100 }
+memstream.ucas:65:33: error: cache: a whole number of bytes from 1024 to 2^40, not 100 (none: not stated)
+    model bad : gt1030 { cache: 100 }
+                                    ^
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile
+simplify: 69 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+function level: not run (the GLSL parser left main out: layout (line 3: an array of 1048576 elements: an array has 1 to 65535); layout (line 4: an array of 1048576 elements: an array has 1 to 65535); main (line 5: 'o' is not declared))
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  nothing applied: no cheaper float form could be proved

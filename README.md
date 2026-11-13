@@ -2494,13 +2494,39 @@ model gt1030 { ...,
 
 `banks`, `bank_bytes` and `warp` are counts, not prices, as is
 `nan_payload: 1`, a target that keeps a quiet NaN's payload through
-loads, stores and moves (see "Integers as floats, floats as integers").
+loads, stores and moves (see "Integers as floats, floats as integers"),
+and `cache`, the bytes a storage buffer's accesses may reach and stay
+resident (below).
 gt1030's values are the measurements of tests/gt1030 (a step minus the
 add it contains).  A model that lists none of this (the x86 models)
 keeps its `load`, `store` and atomic prices for everything, has no
 banks, and none of what follows fires under it; `models` prints only
 what a model lists.  `cost` prices a float `atomic_add[_shared]` as
 `atomic_*_f` where listed.
+
+**Buffers past the cache.**  Under a model that states `cache`, a
+storage buffer's array that its accesses reach past the cache streams:
+`simplify` prices each of its loads, stores and atomics `load_stream`,
+`store_stream`, `atomic_global_stream`.  What an access reaches is its
+index's interval (a constant, a loop's counter, the assumptions on what
+the index is made of, a mask, a remainder or a shift by a constant)
+times the array's stride, never more than the array when it has a
+length; a runtime array at an index with no range (the global invocation
+id: the dispatch is the host's) is said and not decided.  The arrays one
+module goes through share the cache: the smaller ones stay resident as
+long as they fit together, and the arrays past what is left stream.  An
+array of 32-bit integers that streams, whose values an assumption on its
+member's name bounds within 16 or 8 bits, is offered as that smaller
+type when that lets it stay (no atomics: none on 8 or 16 bits; an
+interface change, with the extension and the feature it needs:
+storageBuffer8BitAccess or 16BitAccess); a blocked order (the accesses
+reordered so what they reach at a time fits) is not offered, since it
+changes the dispatch.  Two 4 MiB arrays read and written once each under
+a 512 KiB cache: a load and a store at 80.625 and 111 instead of 6.875
+and 15; a histogram's 1 MiB of bytes kept as u32 streams, as u8 (256
+KiB) it stays (tests/memstream.ucas).  gt1030 does not state its cache:
+its stream prices were measured on 16 MiB, and the card's cache size is
+not measured, so under it nothing is said.
 
 **Atomics by kind.**  `simplify` lists the atomics on workgroup arrays
 and buffers that have a class of their own, priced a warp instruction:

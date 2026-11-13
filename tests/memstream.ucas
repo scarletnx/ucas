@@ -1,0 +1,75 @@
+# storage buffers against the model's cache (spv_mem.inc mem_streams):
+# what an access reaches is its index's interval times the array's
+# stride, at most the array; the arrays that fit together stay resident,
+# the smaller first, and an array past what is left streams, each access
+# at load_stream, store_stream or atomic_global_stream.  gt1030 does not
+# state its cache (the card's is not measured), so a model here does
+model streamy : gt1030 { cache: 524288 }
+use streamy
+# two arrays of 4 MiB read and written once each: both stream
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { float v[1048576]; };
+layout(std430, binding = 1) buffer Out { float o[1048576]; };
+void main() { uint i = gl_GlobalInvocationID.x; o[i] = v[i] * 2.0; }
+```
+# an index masked to 4096 entries: they fit, nothing is said
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { float v[1048576]; };
+layout(std430, binding = 1) buffer Out { float o[4096]; };
+void main() { uint i = gl_GlobalInvocationID.x & 4095u; o[i] = v[i] * 2.0; }
+```
+# runtime arrays at the global id: the dispatch is the host's, not decided
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { float v[]; };
+layout(std430, binding = 1) buffer Out { float o[]; };
+void main() { uint i = gl_GlobalInvocationID.x; o[i] = v[i] * 2.0; }
+```
+# a loop over a runtime array: its counter's range decides, 800000 bytes
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { float v[]; };
+layout(std430, binding = 1) buffer Out { float o[64]; };
+void main() { float s = 0.0; for (int j = 0; j < 200000; j++) s += v[j]; o[gl_LocalInvocationIndex] = s; }
+```
+# a histogram of integers that fit a byte: the counts stay resident, the
+# data streams, and as u8 it would fit
+simplify nofile, data in [0, 255]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { uint data[262144]; };
+layout(std430, binding = 1) buffer Out { uint sum[64]; };
+void main() { uint i = gl_GlobalInvocationID.x; atomicAdd(sum[i & 63u], data[i]); }
+```
+# values within 16 bits: as u16 still past the cache
+simplify nofile, data in [0, 65535]
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { uint data[524288]; };
+layout(std430, binding = 1) buffer Out { uint sum[64]; };
+void main() { uint i = gl_GlobalInvocationID.x; atomicAdd(sum[i & 63u], data[i]); }
+```
+# a cache that is not a whole number of bytes from 1024 is refused
+model bad : gt1030 { cache: 100 }
+use gt1030
+# under gt1030 (no cache stated) nothing is said
+simplify nofile
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer In { float v[1048576]; };
+layout(std430, binding = 1) buffer Out { float o[1048576]; };
+void main() { uint i = gl_GlobalInvocationID.x; o[i] = v[i] * 2.0; }
+```

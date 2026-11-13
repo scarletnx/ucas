@@ -491,9 +491,12 @@ int div_class(nid n);		/* model.c: an integer / or %'s class */
  * find.c:
  *   nan_payload 1: a quiet NaN's payload survives loads, stores and
  *               moves on the target, so it can carry a value
+ * spirv.c (memory):
+ *   cache       bytes a storage buffer's accesses may reach and stay
+ *               resident; past it they stream (load_stream ...)
  */
 enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
-	MP_NAN_PAYLOAD, MP_NPAR };
+	MP_NAN_PAYLOAD, MP_CACHE, MP_NPAR };
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];
