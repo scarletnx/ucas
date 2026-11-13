@@ -36,6 +36,7 @@
 #include "nodesat.h"
 #include "texalu.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -721,12 +722,24 @@ fres(struct fpv *r, ty_t t, lit d)
 	return fval(r, t, d);
 }
 
+/* v, a power of two, is a normal number of F: neither 0 nor subnormal
+ * there, nor past its largest */
+static int
+fp_normal(double v, const struct fpfmt *F)
+{
+	int e, emax = (1 << (F->eb - 1)) - 1;
+
+	(void)frexp(v, &e);
+	return e - 1 >= 1 - emax && e - 1 <= emax;
+}
+
 /* what a float operation that has no circuit is called */
 static const char *
 flt_unsup(int op)
 {
 	switch (op) {
-	case O_DIV: return "a float division";
+	case O_DIV: return "a float division (by other than a constant power "
+	    "of two)";
 	case O_MOD: return "a float remainder";
 	case O_POW: return "a float power";
 	case O_SQRT: return "a float square root";
@@ -841,7 +854,7 @@ blast_flt(struct nctx *c, nid n)
 	if (has_b)
 		d = aig_and(g, d, D(b));
 	if ((op == O_ADD || op == O_SUB || op == O_MUL || op == O_MIN ||
-	    op == O_MAX || op == O_COPYSIGN || op == O_FMA) &&
+	    op == O_MAX || op == O_COPYSIGN || op == O_FMA || op == O_DIV) &&
 	    (TYW(N.ty[N.b[n]]) != TYW(t) ||
 	    TYW(ta) != TYW(t))) {
 		unsup("floats of two widths in one operation");
@@ -884,6 +897,27 @@ blast_flt(struct nctx *c, nid n)
 	case O_MUL:
 		fp_mul(g, &r, &xa, &xb, F, FR_RNE);
 		return fres(&r, t, d);
+	case O_DIV: {
+		/* by a constant +-2^k whose reciprocal is normal as well: x
+		 * 2^-k, the same exact value rounded once (flushing reads
+		 * neither constant) */
+		nid cb = N.b[n];
+		struct fpv rc;
+		int e;
+		if (N.op[cb] != O_CONST || N.kr[cb] == 0 || !isfinite(N.kr[cb]) ||
+		    fabs(frexp(N.kr[cb], &e)) != 0.5) {
+			unsup(flt_unsup(op));
+			break;
+		}
+		if (!fp_normal(N.kr[cb], F) || !fp_normal(1 / N.kr[cb], F)) {
+			unsup("a float division by a power of two that, or whose "
+			    "reciprocal, is not a normal number");
+			break;
+		}
+		fp_const(g, &rc, fbits(TYW(t), 1 / N.kr[cb]), F);
+		fp_mul(g, &r, &xa, &rc, F, FR_RNE);
+		return fres(&r, t, d);
+	}
 	case O_FMA: {
 		struct fpv xc;
 		struct word wc;

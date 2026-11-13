@@ -56,7 +56,25 @@ fa and fb are equal on the domain of fa (proved by SAT: 8901 AIG nodes, 0 confli
 > d1(x: f32, y: f32) = x / y
 > d2(x: f32, y: f32) = (x / y) * f32(1)
 > equiv d1 d2
-d1 and d2 are equal on the domain of d1 (sampled, not proved; no SAT proof: a float division)
+d1 and d2 are equal on the domain of d1 (sampled, not proved; no SAT proof: a float division (by other than a constant power of two))
+> q1(x: f32, y: f32) = (x + y) / 4
+> q2(x: f32, y: f32) = (x + y) * 0.25
+> equiv q1 q2
+q1 and q2 are equal on the domain of q1 (proved by SAT: 12158 AIG nodes, 0 conflicts)
+> equiv q1 q2 ftz
+q1 and q2 are equal on the domain of q1 (proved by SAT: 15103 AIG nodes, 0 conflicts)
+  every float operation flushed subnormals to zero (ftz)
+> q3(x: f32, y: f32) = (x + y) * 0.5
+> equiv q1 q3
+q1 and q3 differ at 65533 points of the sample, e.g. x=-6.01408293e+33, y=-1.93719168e-23: -1.50352073e+33 vs -3.00704146e+33
+> q4(x: f64, y: f64) = x / -0.125
+> q5(x: f64, y: f64) = -(x * 8)
+> equiv q4 q5
+q4 and q5 are equal on the domain of q4 (proved by SAT: 5378 AIG nodes, 0 conflicts)
+> q6(x: f32, y: f32) = x / 1.7014118346046923e38
+> q7(x: f32, y: f32) = x * 5.877471754111438e-39
+> equiv q6 q7
+q6 and q7 are equal on the domain of q6 (sampled, not proved; no SAT proof: a float division by a power of two that, or whose reciprocal, is not a normal number)
 > k(x: i64) = asuint(f32(x))
 > k(1152921573326323713)
 1568669697
