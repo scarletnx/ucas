@@ -1683,7 +1683,7 @@ infer_param_type(struct P *p, uint32_t from, int *why)
 }
 
 static void
-parse_bound(struct P *p, int64_t *iv, double *rv, int *isreal)
+parse_bound(struct P *p, int64_t *iv, double *rv, int *isreal, int *past)
 {
 	/* any constant expression: -pi/2, 1e-3, 2^16 - 1 */
 	struct func *saved = p->fn;
@@ -1701,21 +1701,38 @@ parse_bound(struct P *p, int64_t *iv, double *rv, int *isreal)
 	} else {
 		*iv = N.ki[v];
 		*rv = (double)*iv;
+		if (N.ty[v] == TY(K_UINT, 64) && *iv < 0) {
+			/* a u64 past 2^63 - 1: its value, for a real range */
+			*rv = (double)(uint64_t)*iv;
+			*past = 1;
+		}
 	}
 }
 
 static void
 parse_range(struct P *p, struct param *pp, int *realrange)
 {
-	int r1 = 0, r2 = 0;
+	int r1 = 0, r2 = 0, p1 = 0, p2 = 0;
 
-	parse_bound(p, &pp->lo, &pp->rlo, &r1);
+	parse_bound(p, &pp->lo, &pp->rlo, &r1, &p1);
 	expect(p, T_DOTDOT);
-	parse_bound(p, &pp->hi, &pp->rhi, &r2);
+	parse_bound(p, &pp->hi, &pp->rhi, &r2, &p2);
 	pp->ranged = 1;
 	*realrange = r1 || r2;
+	/* an integer range is int64: a bound past it has no place there */
+	if ((p1 || p2) && !(pp->ty ? TY_FP(pp->ty) || TYK(pp->ty) == K_REAL :
+	    *realrange))
+		fail("%s's range bound %llu is too large: an integer range "
+		    "takes at most 2^63 - 1 = 9223372036854775807 (without a "
+		    "range a u64 takes every value)",
+		    sym_str(pp->name),
+		    (unsigned long long)(uint64_t)(p1 ? pp->lo : pp->hi));
+	if (pp->rlo > pp->rhi && *realrange)
+		fail("empty range %g..%g: the low end is above the high end",
+		    pp->rlo, pp->rhi);
 	if (pp->rlo > pp->rhi)
-		fail("empty range");
+		fail("empty range %lld..%lld: the low end is above the high "
+		    "end", (long long)pp->lo, (long long)pp->hi);
 }
 
 static void
