@@ -2876,7 +2876,31 @@ cube_mag(nid e, uint64_t sl, int depth)
 	return 0;
 }
 
-/* a selection among constants by comparisons of magnitude terms */
+/* a coordinate leaf: a coordinate, negated, or times 2 or 1/2 */
+static int
+cube_leaf(nid e, uint64_t sl, int depth)
+{
+	if (depth > 6)
+		return 0;
+	switch (N.op[e]) {
+	case O_VAR:
+		return N.ki[e] < 64 && (sl >> N.ki[e] & 1);
+	case O_NEG:
+		return cube_leaf(N.a[e], sl, depth + 1);
+	case O_MUL:
+		return (is_const(N.a[e]) && (fabs(cval(N.a[e])) == 2 ||
+		    fabs(cval(N.a[e])) == 0.5) && cube_leaf(N.b[e], sl, depth +
+		    1)) || (is_const(N.b[e]) && (fabs(cval(N.b[e])) == 2 ||
+		    fabs(cval(N.b[e])) == 0.5) && cube_leaf(N.a[e], sl, depth +
+		    1));
+	case O_ADD:
+		return N.a[e] == N.b[e] && cube_leaf(N.a[e], sl, depth + 1);
+	}
+	return 0;
+}
+
+/* a selection among constants or coordinate leaves by comparisons of
+ * magnitude terms */
 static int
 cube_shape(nid e, uint64_t sl, int depth)
 {
@@ -2885,6 +2909,8 @@ cube_shape(nid e, uint64_t sl, int depth)
 	switch (N.op[e]) {
 	case O_CONST:
 		return 1;
+	case O_VAR: case O_NEG: case O_MUL: case O_ADD:
+		return cube_leaf(e, sl, 0);
 	case O_SEL:
 		return cube_shape(N.a[e], sl, depth + 1) && cube_shape(N.b[e], sl,
 		    depth + 1) && cube_shape(N.c[e], sl, depth + 1);
@@ -2907,7 +2933,8 @@ cube_shape(nid e, uint64_t sl, int depth)
 static int
 cube_same(nid e, nid cand, const int *s, int tie, double *at)
 {
-	static const double v[9] = {NAN, -3, -2, -1, -0.0, 0, 1, 2, 3};
+	/* three magnitudes that no leaf's factor (2, 1/2) maps on another */
+	static const double v[9] = {NAN, -25, -5, -1, -0.0, 0, 1, 5, 25};
 	struct plan p;
 	nid roots[2] = {e, cand};
 	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
@@ -2944,7 +2971,7 @@ cube_same(nid e, nid cand, const int *s, int tie, double *at)
 			if (TY_ISINT(N.ty[cand]))
 				b = (double)COLI(&p, lb)[k];
 			if (((COLF(&p, la)[k] | COLF(&p, lb)[k]) & F_UNDEF) ||
-			    !(a == b)) {
+			    !(a == b || (isnan(a) && isnan(b)))) {
 				ok = 0;
 				at[0] = v[idx[k] / 81];
 				at[1] = v[idx[k] / 9 % 9];
@@ -2988,9 +3015,12 @@ seed_cube(nid body, nid n)
 {
 	static const int perm[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2,
 	    0}, {2, 0, 1}, {2, 1, 0}};
+	static const char *const said[5] = {"the cube map face", "the face's "
+	    "s before the division (sc)", "the face's t before the division "
+	    "(tc)", "twice the major axis (2 ma)", "the major axis (ma)"};
 	uint64_t sl = node_slots(n);
-	int sv[3], s[3], k, j = 0, p, ninst, ntex, major = -1;
-	nid v[3], cand = 0, cid, ctx, nb;
+	int sv[3], s[3], k, j = 0, p, q, ninst, ntex, major = -1, kind = -1;
+	nid v[3], cand = 0, c, ctx = 0, nb;
 	double at[3];
 	float cinst = INFINITY, ctex = INFINITY;
 	struct repl *r;
@@ -3009,41 +3039,46 @@ seed_cube(nid body, nid n)
 		return 0;
 	ninst = cclass_available(X.m, C_CUBE);
 	ntex = cclass_available(X.m, C_TEX_CUBE);
-	for (p = 0; p < 6; p++) {
+	for (p = 0; p < 6 && kind < 0; p++) {
 		for (k = 0; k < 3; k++) {
 			s[k] = sv[perm[p][k]];
 			v[k] = mk_var((uint32_t)s[k], X.f->p[s[k]].name, TY_F32);
 		}
-		cid = mk_inst(O_CUBEID, v[0], v[1], v[2]);
-		ctx = mk_inst(O_TEX_CUBE, v[0], v[1], v[2]);
-		if (N.ty[n] != TY_F32) {
-			cid = mk_cast(N.ty[n], cid);
-			ctx = mk_cast(N.ty[n], ctx);
+		for (q = 0; q < 5 && kind < 0; q++) {
+			static const int ops[5] = {O_CUBEID, O_CUBESC, O_CUBETC,
+			    O_CUBEMA, O_CUBEMA};
+			c = mk_inst(ops[q], v[0], v[1], v[2]);
+			if (q == 4)
+				c = mk_bin(O_MUL, c, kf(0.5));
+			if (N.ty[n] != TY_F32)
+				c = mk_cast(N.ty[n], c);
+			if (cube_same(n, c, s, 0, at)) {
+				cand = c;
+				kind = q;
+			} else if (q == 0 && cube_same(n, c, s, 1, at))
+				kind = 0;	/* the face away from ties */
 		}
-		if (cube_same(n, cid, s, 0, at)) {
-			if (ninst)
-				cinst = price(swap_nodes(body, &n, &cid, 1));
-			cand = cid;
-		} else if (!cube_same(n, cid, s, 1, at))
-			continue;
-		if (ntex) {
-			major = cube_major(v);
-			if (major >= 0)
-				ctex = price(swap_nodes(body, &n, &ctx, 1));
-		}
-		break;
 	}
-	if (p == 6)
+	if (kind < 0)
 		return 0;
-	if (!ninst && !ntex) {
+	if (cand && ninst)
+		cinst = price(swap_nodes(body, &n, &cand, 1));
+	if (kind == 0 && ntex) {
+		ctx = mk_inst(O_TEX_CUBE, v[0], v[1], v[2]);
+		if (N.ty[n] != TY_F32)
+			ctx = mk_cast(N.ty[n], ctx);
+		if ((major = cube_major(v)) >= 0)
+			ctex = price(swap_nodes(body, &n, &ctx, 1));
+	}
+	if (!ninst && !(kind == 0 && ntex)) {
 		X.unavail_cube = 1;
 		return 0;
 	}
 	if (!(cinst < INFINITY) && !(ctex < INFINITY)) {
 		if (X.nocube.n)
 			return 0;
-		sb_printf(&X.nocube, "%s is the cube map face of (%s, %s, %s)",
-		    node_str(n), node_str(v[0]), node_str(v[1]), node_str(v[2]));
+		sb_printf(&X.nocube, "%s is %s of (%s, %s, %s)", node_str(n),
+		    said[kind], node_str(v[0]), node_str(v[1]), node_str(v[2]));
 		if (!cand)
 			sb_printf(&X.nocube, " where one magnitude is the "
 			    "largest, but not cubeid at (%g, %g, %g)", at[0],
@@ -3058,14 +3093,13 @@ seed_cube(nid body, nid n)
 	}
 	if ((r = new_repl(n)) == NULL)
 		return 0;
-	nb = cinst <= ctex ? cand : mk_cast(N.ty[n], mk_inst(O_TEX_CUBE, v[0],
-	    v[1], v[2]));
+	nb = cinst <= ctex ? cand : ctx;
 	r->to = nb;
 	r->cost = cinst <= ctex ? cinst : ctex;
 	r->exact = 1;
 	r->ok = 1;
-	sb_printf(&r->what, "%s is %s: the cube map face of (%s, %s, %s)",
-	    node_str(n), node_str(nb), node_str(v[0]), node_str(v[1]),
+	sb_printf(&r->what, "%s is %s: %s of (%s, %s, %s)", node_str(n),
+	    node_str(nb), said[kind], node_str(v[0]), node_str(v[1]),
 	    node_str(v[2]));
 	if (cinst <= ctex)
 		sb_printf(&r->holds, "holds for every input");
@@ -3075,20 +3109,22 @@ seed_cube(nid body, nid n)
 		    "on ties", node_str(v[major]));
 	sb_printf(&r->proof, "%s depends on its inputs only through their "
 	    "signs, which are zero or NaN, and the order of their magnitudes "
-	    "(a selection among constants by comparisons of the coordinates, "
-	    "their magnitudes and zero); a point with coordinates in {NaN, -3, "
-	    "-2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all "
-	    "729 %s it is cubeid: exhaustive", node_str(n), cinst <= ctex ?
-	    "" : "with one largest magnitude, no NaN and not all zero");
+	    "(a selection among constants and the coordinates, negated or "
+	    "times 2 or 1/2, by comparisons of the coordinates, their "
+	    "magnitudes and zero); a point with coordinates in {NaN, -25, -5, "
+	    "-1, -0, 0, 1, 5, 25} takes every such combination (no factor "
+	    "maps one of those magnitudes on another), and on all 729 %s it "
+	    "is the same: exhaustive", node_str(n), cinst <= ctex ? "" :
+	    "with one largest magnitude, no NaN and not all zero");
 	if (cinst <= ctex)
-		sb_puts(&r->pipe, "nothing: one instruction of the model's cube "
-		    "class (v_cubeid_f32)");
+		sb_printf(&r->pipe, "nothing: one instruction of the model's "
+		    "cube class (%s)", kind == 0 ? "v_cubeid_f32" : kind == 1 ?
+		    "v_cubesc_f32" : kind == 2 ? "v_cubetc_f32" : "v_cubema_f32");
 	else
 		sb_printf(&r->pipe, "a cube texture, 1 x 1 a face, face k "
 		    "holding k (R8_UINT, or R16_SFLOAT for a float)\na sampler: "
-		    "NEAREST "
-		    "filters, lod 0\none combined image sampler more in the "
-		    "layout; the shader reads textureLod(s, vec3(%s, %s, %s), "
+		    "NEAREST filters, lod 0\none combined image sampler more in "
+		    "the layout; the shader reads textureLod(s, vec3(%s, %s, %s), "
 		    "0.0).r", node_str(v[0]), node_str(v[1]), node_str(v[2]));
 	return 1;
 }

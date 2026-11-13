@@ -23,3 +23,7 @@ texalu facez under cub
 notf(x: f32, y: f32, z: f32) = abs(z) >= 0.5 ? 4 : abs(y) >= abs(x) ? 2 : 0
 texalu notf under amd
 texalu face under texel
+# the projection's selections, s before the division and the major axis:
+# the divide stays
+proj(x: f32, y: f32, z: f32) = (abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? -x : x) : abs(y) >= abs(x) ? x : (x < 0 ? z : -z)) / abs(abs(z) >= abs(x) && abs(z) >= abs(y) ? z : abs(y) >= abs(x) ? y : x) * 0.5 + 0.5
+texalu proj under amd
