@@ -357,9 +357,10 @@ blast1(struct nctx *c, nid n)
 		}
 		break;
 	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
-	case O_FETCH_MCLAMP: case O_FETCH_BORDER:
-		/* a read with an address mode: its definition on plain
-		 * operations (texalu.c) */
+	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_FETCH_TEXEL:
+	case O_FETCH_BUFFER:
+		/* a read with an address mode, a texel fetch: its definition
+		 * on plain operations (texalu.c) */
 		return blast(c, tex_expand(n));
 	case O_INDEX: {
 		nid tab = N.a[n];

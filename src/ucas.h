@@ -200,13 +200,18 @@ enum {
 	/* the layer of an array texture a float coordinate selects:
 	 * fetch_layer(T, z) = T[clamp(RNE(z), 0, n - 1)] */
 	O_FETCH_LAYER,
+	/* texelFetch: the texel at an integer index, with no sampler and no
+	 * address mode, of a texture (fetch_texel(T, i)) or of a buffer
+	 * texture (fetch_buffer(T, i)): T[i], undefined outside the table */
+	O_FETCH_TEXEL, O_FETCH_BUFFER,
 	/* to the nearest integer, a tie to the even one (C23 roundeven,
 	 * GLSL roundEven, SPIR-V RoundEven) */
 	O_ROUNDEVEN,
 	O_NOPS
 };
 #define O_TEX_FIRST O_FETCH_REPEAT
-#define O_TEX_LAST O_FETCH_LAYER
+#define O_TEX_LAST O_FETCH_BUFFER
+#define IS_TEXEL(op) ((op) == O_FETCH_TEXEL || (op) == O_FETCH_BUFFER)
 #define IS_TEX(op) ((op) >= O_TEX_FIRST && (op) <= O_TEX_LAST)
 #define IS_FETCH(op) ((op) >= O_FETCH_REPEAT && (op) <= O_FETCH_BORDER)
 #define O_DOT_FIRST O_UDOT4X8
@@ -417,7 +422,9 @@ enum {
 	C_TEX_SAMPLE_16, C_TEX_SAMPLE_F16,
 	/* a filtered read with a MIN or MAX reduction (tex_min, tex_max) */
 	C_TEX_MINMAX,
-	C_MEM_LAST = C_TEX_MINMAX,
+	/* a texel fetch of a buffer texture (fetch_buffer) */
+	C_TEX_BUFFER,
+	C_MEM_LAST = C_TEX_BUFFER,
 	/*
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,

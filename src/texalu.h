@@ -37,6 +37,10 @@
  * a rewrite into it holds only where the unit's choice does not matter.
  * A NaN selects no layer: undefined.
  *
+ * A texel fetch takes the integer index with no sampler and no address
+ * mode: fetch_texel(T, i) (texelFetch of a texture) and fetch_buffer(T, i)
+ * (of a buffer texture) are T[i], undefined outside the table.
+ *
  * with c the clamp to the table (the row, the column).  The texels are
  * f32, the weighted sum is exact and rounded once to f32 (to nearest,
  * ties to even).  B is 1..14 (tex_linear8: weights in 1/256).
@@ -45,7 +49,9 @@
  * coordinate from the index costs a conversion and a multiply more),
  * tex_sample (a filtered read of an 8-bit normalised texture: every
  * texel k/255) and tex_sample_f32 (of a 32-bit float texture).  A model
- * that does not list a class cannot use the operation.  Two model
+ * that does not list a class cannot use the operation.  A texel fetch is
+ * its class alone, with no coordinate to make: tex_fetch (fetch_texel)
+ * and tex_buffer (fetch_buffer).  Two model
  * parameters say what the hardware's unit does beyond the definition
  * above: subtexel, the bits of a texel it resolves (coordinates and
  * weights snap to that grid: by less than 2^-subtexel), and tex_within, how

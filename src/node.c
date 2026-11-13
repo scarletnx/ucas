@@ -184,6 +184,8 @@ const struct opinfo opinfo[O_NOPS] = {
 	[O_TEX_LINEAR] = {"tex_linear", 2, 0},
 	[O_TEX_BILINEAR] = {"tex_bilinear", 3, 0},
 	[O_FETCH_LAYER] = {"fetch_layer", 2, 0},
+	[O_FETCH_TEXEL] = {"fetch_texel", 2, OF_PARTIAL},
+	[O_FETCH_BUFFER] = {"fetch_buffer", 2, OF_PARTIAL},
 };
 
 static const char *const atomic_names[] = {
@@ -779,7 +781,7 @@ mk_bin(int op, nid a, nid b)
 		/* a rebuilder that knows neither the node's grid nor its
 		 * third operand: mk_like() keeps both */
 		if (op == O_FETCH_BORDER || (!IS_FETCH(op) &&
-		    op != O_FETCH_LAYER))
+		    op != O_FETCH_LAYER && !IS_TEXEL(op)))
 			fail("%s cannot be rebuilt from two operands",
 			    opinfo[op].name);
 		return mk_tex(op, 0, a, b, 0);
@@ -1043,6 +1045,19 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 			return t < 0 ? mk_undef(N.ty[a]) : N.lst[N.a[a] +
 			    (uint32_t)t];
 		}
+		fl = (N.fl[a] | N.fl[b]) & (NF_PARTIAL | NF_VAR);
+		return intern(op, N.ty[a], a, b, 0, 0, 0.0, fl | NF_PARTIAL);
+	}
+	if (IS_TEXEL(op)) {
+		/* T[i] through the unit: undefined outside the table */
+		if (!TY_ISINT(N.ty[b]))
+			fail("%s takes an integer texel index, not %s",
+			    opinfo[op].name, ty_str(N.ty[b]));
+		if (N.op[b] == O_UNDEF)
+			return mk_undef(N.ty[a]);
+		if (is_const(b))
+			return N.ki[b] < 0 || N.ki[b] >= (int64_t)n ?
+			    mk_undef(N.ty[a]) : N.lst[N.a[a] + (uint32_t)N.ki[b]];
 		fl = (N.fl[a] | N.fl[b]) & (NF_PARTIAL | NF_VAR);
 		return intern(op, N.ty[a], a, b, 0, 0, 0.0, fl | NF_PARTIAL);
 	}
@@ -1779,7 +1794,8 @@ pr(struct sbuf *b, nid n, int minp, const struct pctx *pc, int hex)
 		break;
 	case O_FETCH_REPEAT: case O_FETCH_MIRROR: case O_FETCH_CLAMP:
 	case O_FETCH_MCLAMP: case O_FETCH_BORDER: case O_TEX_LINEAR:
-	case O_TEX_BILINEAR: case O_FETCH_LAYER:
+	case O_TEX_BILINEAR: case O_FETCH_LAYER: case O_FETCH_TEXEL:
+	case O_FETCH_BUFFER:
 		tex_print_name(b, n);
 		sb_putc(b, '(');
 		pr(b, N.a[n], 0, pc, 0);

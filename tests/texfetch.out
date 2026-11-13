@@ -1,0 +1,145 @@
+> show fetch_texel([10, 20, 30], 1)
+_() = 20
+  -> int
+> show fetch_buffer([10, 20, 30], 2)
+_() = 30
+  -> int
+> show fetch_buffer([10, 20, 30], 3)
+_() = undefined
+  -> int
+> show fetch_texel([10, 20, 30], -1)
+_() = undefined
+  -> int
+> K = [10, 20, 30, 40, 50, 60, 70]
+> ft(i: u8 in 0..9) = fetch_buffer(K, i)
+> domain ft
+domain of ft:
+  i: u8, 0..9
+  no conditions: total on its parameter types
+  defined at 7 of 10 points
+  defined for: 0..6
+  undefined e.g. at i=7; i=8; i=9
+  over all 10 points of the domain
+> rk(i: u8 in 0..6) = K[i]
+> fk(i: u8 in 0..6) = fetch_buffer(K, i)
+> equiv rk fk
+rk and fk are equal on the domain of rk (exhaustive)
+> fn(i: u8 in 0..5) = fetch_buffer(K, i + 1)
+> rn(i: u8 in 0..5) = K[i]
+> equiv rn fn
+rn and fn differ at 6 points, e.g. i=0: 10 vs 20
+> show fetch_texel(K, 0.5)
+texfetch.ucas:20:25: error: fetch_texel takes an integer texel index, not real
+    show fetch_texel(K, 0.5)
+                            ^
+> show fetch_buffer(K, 1, 2)
+texfetch.ucas:21:27: error: fetch_buffer takes (table, index)
+    show fetch_buffer(K, 1, 2)
+                              ^
+> cost fk
+cost of fk under gt1030: inf (1 operations, shared subterms counted once)
+  tex_buffer       1 x inf   = inf
+  tex_buffer is not available under gt1030 (the model lists no such instruction)
+> model buf : gt1030 { tex_buffer: 5 }
+> use buf
+cost model: buf
+> cost fk
+cost of fk under buf: 5 (1 operations, shared subterms counted once)
+  tex_buffer       1 x 5     = 5
+> use gt1030
+cost model: gt1030
+> r1(i: u8 in 0..6) = K[i] + 1
+> texalu r1
+texalu r1: no table read or weighted sum of neighbouring entries the texture unit could compute
+> model stream : gt1030 { load: 90 }
+> texalu r1 under stream
+texalu r1: reads through the texture unit under stream (cost 91 as written):
+  cost 44.125 fetch_texel([10, 20, 30, 40, 50, 60, 70], i) + 1
+      [10, 20, 30, 40, 50, 60, 70][i] is fetch_texel([10, 20, 30, 40, 50, 60, 70], i)
+      holds wherever the read is defined: a texel fetch takes the integer index as it is, with no sampler and no address mode, and outside 0..6 both are undefined
+      the texel fetch is the table read by definition: no coordinate is made, nothing rounds
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        no sampler; the shader reads texelFetch(t, ivec2(int(i), 0), 0).r
+> texalu r1 under buf
+texalu r1: reads through the texture unit under buf (cost 7.875 as written):
+  cost 6   fetch_buffer([10, 20, 30, 40, 50, 60, 70], i) + 1
+      [10, 20, 30, 40, 50, 60, 70][i] is fetch_buffer([10, 20, 30, 40, 50, 60, 70], i)
+      holds wherever the read is defined: a texel fetch takes the integer index as it is, with no sampler and no address mode, and outside 0..6 both are undefined
+      the texel fetch is the table read by definition: no coordinate is made, nothing rounds
+      the pipeline needs (a proposal: nothing is applied):
+        a buffer view R8_UINT over a buffer of 7 texels, the table's entries
+        one uniform texel buffer (samplerBuffer) more in the layout, no sampler; the shader reads texelFetch(b, int(i)).r
+> F = [0.5, 1.25, 3.0]
+> r3(i: u8 in 0..2) = F[i] * 2
+> texalu r3 under buf
+texalu r3: reads through the texture unit under buf (cost 7.875 as written):
+  cost 6   2fetch_buffer([0.5, 1.25, 3], i)
+      [0.5, 1.25, 3][i] is fetch_buffer([0.5, 1.25, 3], i)
+      holds wherever the read is defined: a texel fetch takes the integer index as it is, with no sampler and no address mode, and outside 0..2 both are undefined
+      the texel fetch is the table read by definition: no coordinate is made, nothing rounds
+      the pipeline needs (a proposal: nothing is applied):
+        a buffer view R16_SFLOAT (each entry exact as an f16) over a buffer of 3 texels, the table's entries
+        one uniform texel buffer (samplerBuffer) more in the layout, no sampler; the shader reads texelFetch(b, int(i)).r
+> r2(i: u16 in 0..1000) = K[i % 7]
+> texalu r2 under buf
+texalu r2: reads through the texture unit under buf (cost 20.375 as written):
+  cost 18.5 fetch_buffer([10, 20, 30, 40, 50, 60, 70], i % 7)
+      [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_buffer([10, 20, 30, 40, 50, 60, 70], i % 7)
+      holds wherever the read is defined: a texel fetch takes the integer index as it is, with no sampler and no address mode, and outside 0..6 both are undefined
+      the texel fetch is the table read by definition: no coordinate is made, nothing rounds
+      the pipeline needs (a proposal: nothing is applied):
+        a buffer view R8_UINT over a buffer of 7 texels, the table's entries
+        one uniform texel buffer (samplerBuffer) more in the layout, no sampler; the shader reads texelFetch(b, int(i % 7)).r
+> model both : buf { tex_nearest: 5, tex_within: 2 }
+> texalu r2 under both
+texalu r2: reads through the texture unit under both (cost 20.375 as written):
+  cost 9   fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      [10, 20, 30, 40, 50, 60, 70][i % 7] is fetch_repeat([10, 20, 30, 40, 50, 60, 70], i)
+      holds where the read is defined: there i % 7 = i mod 7
+      that identity between integers is proved: exhaustive
+      the coordinate (i + 1/2)/n is made in f32: within (|i| + 1/2) 2^-23 <= 0.000119 of a texel's centre for i in [0, 1000] (its range), and the unit snaps by less than 2^-8: 0.000119 + 0.00391 < 1/2, the texel is i's
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 7 x 1, one level, its texels the table's entries
+        a sampler: NEAREST filters, REPEAT, normalised coordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, (float(i) + 0.5) * (1.0 / 7.0), 0.0).r
+> bc(i: u32 in 0..15, m: u32 in 1..15) = ((i*64 + m/2)/m*7 + 3)/5
+> model sb : stream { tex_buffer: 20 }
+> texalu bc under sb
+texalu bc: reads through the texture unit under sb (cost 44.25 as written):
+  cost 23  fetch_buffer([0, 90, 179, 269, 359, 448, 538, 627, 717, 807, 896, 986, 1075, 1165, 1255, 1344, 0, 45, 90, 135, 179, 224, 269, 314, 359, 403, 448, 493, 538, 583, 627, 672, 0, 30, 60, 90, 119, 150, 179, 209, 240, 269, 298, 329, 359, 388, 419, 448, 0, 23, 45, 67, 90, 112, 135, 157, 179, 202, 224, 247, 269, 291, 314, 336, 0, 18, 37, 53, 72, 90, 108, 126, 143, 161, 179, 198, 216, 233, 251, 269, 0, 16, 30, 45, 60, 74, 90, 105, 119, 135, 150, 164, 179, 195, 209, 224, 0, 13, 25, 38, 52, 65, 77, 90, 102, 115, 128, 142, 154, 167, 179, 192, 0, 11, 23, 34, 45, 56, 67, 79, 90, 101, 112, 123, 135, 146, 157,… (472 more characters)
+      (7((64i + m/2)/m) + 3)/5 as its table through a texel fetch: 240 entries, one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1)
+      holds on the function's domain: there the index is in 0..239, inside the table
+      the table is the function at every point, all 240 evaluated
+      a texel fetch takes the integer index as it is: no coordinate is made, nothing rounds
+      checked again by evaluation on all 240 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a buffer view R16_UINT over a buffer of 240 texels, the function's values
+        one uniform texel buffer (samplerBuffer) more in the layout, no sampler; the shader reads texelFetch(b, int(i + 16(m - 1))).r
+> model three : stream { tex_nearest: 5, tex_buffer: 5 }
+> texalu bc under three
+texalu bc: reads through the texture unit under three (cost 44.25 as written):
+  cost 8   fetch_buffer([0, 90, 179, 269, 359, 448, 538, 627, 717, 807, 896, 986, 1075, 1165, 1255, 1344, 0, 45, 90, 135, 179, 224, 269, 314, 359, 403, 448, 493, 538, 583, 627, 672, 0, 30, 60, 90, 119, 150, 179, 209, 240, 269, 298, 329, 359, 388, 419, 448, 0, 23, 45, 67, 90, 112, 135, 157, 179, 202, 224, 247, 269, 291, 314, 336, 0, 18, 37, 53, 72, 90, 108, 126, 143, 161, 179, 198, 216, 233, 251, 269, 0, 16, 30, 45, 60, 74, 90, 105, 119, 135, 150, 164, 179, 195, 209, 224, 0, 13, 25, 38, 52, 65, 77, 90, 102, 115, 128, 142, 154, 167, 179, 192, 0, 11, 23, 34, 45, 56, 67, 79, 90, 101, 112, 123, 135, 146, 157,… (472 more characters)
+      (7((64i + m/2)/m) + 3)/5 as its table through a texel fetch: 240 entries, one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1)
+      holds on the function's domain: there the index is in 0..239, inside the table
+      the table is the function at every point, all 240 evaluated
+      a texel fetch takes the integer index as it is: no coordinate is made, nothing rounds
+      checked again by evaluation on all 240 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a buffer view R16_UINT over a buffer of 240 texels, the function's values
+        one uniform texel buffer (samplerBuffer) more in the layout, no sampler; the shader reads texelFetch(b, int(i + 16(m - 1))).r
+> bd(i: u32 in 0..15, m: u32 in 1..15) = ((i*64 + m/2)/m*7 + 3)/5 % 11
+> texalu bd under stream
+texalu bd: reads through the texture unit under stream (cost 57.75 as written):
+  cost 46.125 fetch_texel([0, 2, 3, 5, 7, 8, 10, 0, 2, 4, 5, 7, 8, 10, 1, 2, 0, 1, 2, 3, 3, 4, 5, 6, 7, 7, 8, 9, 10, 0, 0, 1, 0, 8, 5, 2, 9, 7, 3, 0, 9, 5, 1, 10, 7, 3, 1, 8, 0, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 0, 7, 4, 9, 6, 2, 9, 5, 0, 7, 3, 0, 7, 2, 9, 5, 0, 5, 8, 1, 5, 8, 2, 6, 9, 3, 7, 10, 3, 8, 0, 4, 0, 2, 3, 5, 8, 10, 0, 2, 3, 5, 7, 10, 0, 2, 3, 5, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 0, 10, 9, 8, 6, 7, 5, 4, 3, 2, 1, 10, 9, 8, 8, 7, 0, 9, 7, 5, 4, 1, 9, 8, 6, 4, 2, 10, 9, 6, 5, 3, 0, 9, 6, 2, 10, 8, 5, 3, 0, 7, 4, 2, 10, 8, 4, 1, 0, 7, 5, 1, 8, 5, 1, 8, 5, 1, 8, 6, 2, 9, 6, 2,… (164 more characters)
+      (7((64i + m/2)/m) + 3)/5 % 11 as its table through a texel fetch: 240 entries, one for each point of i in 0..15, m in 1..15; entry k is the function at the point with index k = i + 16(m - 1)
+      holds on the function's domain: there the index is in 0..239, inside the table
+      the table is the function at every point, all 240 evaluated
+      a texel fetch takes the integer index as it is: no coordinate is made, nothing rounds
+      checked again by evaluation on all 240 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UINT, 240 x 1, one level, its texels the function's values
+        no sampler; the shader reads texelFetch(t, ivec2(int(i + 16(m - 1)), 0), 0).r
+> texalu bd
+texalu bd: the texture unit under gt1030 (cost 57.75 as written): nothing taken
+  gt1030 lists no tex_nearest: a nearest read with an address mode is not available

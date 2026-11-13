@@ -947,7 +947,8 @@ ident(struct P *p)
 			    O_TEX_BILINEAR ? "(table, width, x, y)" : kind ==
 			    O_FETCH_BORDER ? "(table, index, border value)" :
 			    kind == O_FETCH_LAYER ? "(table, layer "
-			    "coordinate)" : IS_FETCH(kind) ? "(table, index)" :
+			    "coordinate)" : IS_FETCH(kind) || IS_TEXEL(kind) ?
+			    "(table, index)" :
 			    "(table, x)", IS_FETCH(kind) && na == TEX_OFFNAME ?
 			    " and a constant offset last" : "");
 		if (kind == O_TEX_BILINEAR) {
