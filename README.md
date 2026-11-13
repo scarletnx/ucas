@@ -3990,7 +3990,20 @@ is offered: `texalu` says which number is missing.
   its texels must be inside the table on the indices' proved ranges
   (a filter clamps at the edge, an index does not).  The cover with
   the lowest price under the model is taken, by dynamic programming
-  over the entries (greedily past 16).
+  over the entries (greedily past 16).  A separable kernel (constant
+  weights of one sign over a filled rectangle, a column times a row)
+  is also covered with shared weights: each axis is cut into pairs,
+  the last pair of an odd length sharing its first entry with the pair
+  before it, and a read is a pair along y times a pair along x, so
+  the reads' weights add up to the kernel's; the shared entry is split
+  to put the first pair's fraction on the subtexel grid and the
+  second's as near it as any split does.  A 3 x 3 [1 2 1] kernel is
+  four reads at fractions 1/2 (the cover without shares takes three
+  and an entry, at fractions 1/3), and [1 2 1] along one axis two.  The
+  cheaper cover is taken, on a tie the one that snaps no fraction to
+  the grid; with no tolerance given, the shared one also when the other
+  snaps a fraction and it snaps none, as long as it costs less than the
+  entries read alone (tests/texalu.ucas).
 
 The texture's format comes from the table: bytes (R8_UNORM, priced
 `tex_sample`) when every entry is k/255, or a whole number 0..255
@@ -4058,8 +4071,8 @@ refused, each with its reason.  In English: "what can the texture unit compute o
 "use the sampler for mx within 0.01 under texel".  JSON and MCP:
 `texalu` (f, tol, model).
 
-Not done: texels split between taps (a 3 x 3 kernel in four reads),
-trilinear and anisotropic filters, mip levels as means, min/max and
+Not done: shared weights in a kernel that is not a column times a row
+(a small linear program over the blocks), trilinear and anisotropic filters, mip levels as means, min/max and
 compare samplers, gather, array layers, sRGB and the other formats
 (R16, half floats) and normalised coordinates for the filters.  None
 of those has a measured price yet either.
