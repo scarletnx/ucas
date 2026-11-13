@@ -805,7 +805,7 @@ texenc_command(struct P *p)
 				    "0 or more, not %g", tol);
 		} else {
 			cmdp_fail_here(p);
-			fail("texenc T [, U] [rows W] [tol E]");
+			fail("texenc T [, U] [astc BWxBH] [rows W] [tol E]");
 		}
 	}
 	notes_flush();

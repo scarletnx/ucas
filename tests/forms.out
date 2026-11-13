@@ -1035,7 +1035,7 @@ commands (F is a function name or an expression like isqrt(x: u4))
   banks F [, G ...] [size n] [elem b] [model m]
   intatomic F [count n] [tol t] [global] [model m]
   rop F [model m] | texalu F [tol e] [model m]
-  texenc T [, U] [rows w] [tol e]
+  texenc T [, U] [astc BWxBH] [rows w] [tol e]
   approx F [in a..b] [degree n|a..b] [error e] [ulp u] [as f32|f64|real]
     [relative|absolute] [odd|even|nosym] [keep endpoints|x1, x2..]
     [weight W] [at c] [fma|nofma] [norefine] [list n] [name p] [c]
