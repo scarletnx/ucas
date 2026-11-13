@@ -941,3 +941,156 @@ sg_proposals(struct sbuf *rep)
 	}
 	return n;
 }
+
+/*
+ * A branch in a loop's body on a condition that differs from lane to
+ * lane, one arm dearer than the other (#135): the lanes that take the
+ * dear arm packed into the first lanes across the loop's iterations (a
+ * persistent loop) pay each a ballot, the and with the lanes below and
+ * its bit count (where it goes), and a shuffle there and back, and the
+ * dear arm runs once for W packed items: p of it a lane, p the share of
+ * the lanes that take it.  As written a warp runs the dear arm whenever
+ * one of its lanes takes it, 1 - (1 - p)^W of the warps for independent
+ * lanes, and pays the divergence where they split (or both arms and a
+ * select, the cheaper).  Said where the compaction is cheaper for some p, with the shares of the lanes where
+ * it is (an interval: a warp rarely split pays little as written, and
+ * nearly every lane on the dear arm leaves nothing to pack): a
+ * restructuring of the loop, the author's, so advice.
+ */
+/* a branch as written, a lane's share: the warp runs the dear arm when
+ * one of its W independent lanes takes it (share p), the cheap one when
+ * one does not, and pays the divergence where they split; or, if that
+ * is cheaper, both arms and a select */
+static double
+sg_written(const struct model *m, int W, double p, double dear, double cheap)
+{
+	double all = pow(p, W), none = pow(1 - p, W);
+	double br = m->c[C_BRANCH] + (1 - none) * dear + (1 - all) * cheap +
+	    (1 - all - none) * m->c[C_DIVERGE];
+
+	/* or both arms and a select, the way a small branch is flattened */
+	return fmin(br, dear + cheap + m->c[C_SELECT]);
+}
+
+static int
+sg_compaction(struct sbuf *rep)
+{
+	const struct model *m = model_active();
+	int W = (int)m->par[MP_WARP], b, n = 0, i;
+	double ballot, shuf, over;
+
+	if (W < 2 || W > SG_MAXW)
+		return 0;
+	ballot = sg_price_op("OpGroupNonUniformBallot", NULL, W);
+	shuf = sg_price_op("OpGroupNonUniformShuffle", NULL, W);
+	if (!isfinite(ballot) || !isfinite(shuf))
+		return 0;
+	over = ballot + m->c[C_LOGIC] + m->c[C_BITCNT] + 2 * shuf;
+	mem_uniformity();
+	for (b = 0; b < MC.nblk; b++) {
+		const struct sins *T2 = &V.in[MC.term[b]], *S;
+		int l, inl = -1, mb, cb, side, arm[2], q;
+		double cost[2], dear, cheap, p, plo, phi, pbest, gbest;
+		char sl[160];
+		if (MC.term[b] < 1 || strcmp(T2->op, "OpBranchConditional") ||
+		    T2->nop < 3 || MC.ins_blk[MC.term[b] - 1] != b)
+			continue;
+		S = &V.in[MC.term[b] - 1];
+		if (strcmp(S->op, "OpSelectionMerge") || S->nop < 1 ||
+		    !mem_is_label(S->opnd[0]) || mem_uni_at(idx(T2->opnd[0]),
+		    MC.term[b]))
+			continue;
+		for (l = 0; l < MC.nloop && inl < 0; l++)
+			if (MC.lin[(size_t)l * (size_t)(MC.nblk + 1) + (size_t)b] &&
+			    MC.lhdr[l] != b)
+				inl = l;
+		if (inl < 0)
+			continue;
+		mb = MC.lab_blk[idx(S->opnd[0])];
+		/* the loop's continue block: a continue is no arm of work */
+		{
+			const struct sins *LM = &V.in[MC.term[MC.lhdr[inl]] - 1];
+			cb = LM->nop >= 2 && mem_is_label(LM->opnd[1]) ?
+			    MC.lab_blk[idx(LM->opnd[1])] : -1;
+		}
+		/* each arm: the blocks its edge reaches before the merge, the
+		 * loop's header and its continue block */
+		for (side = 0; side < 2; side++) {
+			char *seen = xcalloc((size_t)MC.nblk + 1, 1);
+			int *st = xmalloc(((size_t)MC.nblk + 1) * sizeof *st), sp = 0;
+			cost[side] = 0;
+			arm[side] = mem_is_label(T2->opnd[1 + side]) ?
+			    MC.lab_blk[idx(T2->opnd[1 + side])] : -1;
+			if (arm[side] >= 0 && arm[side] != mb && arm[side] != cb &&
+			    arm[side] != MC.lhdr[inl]) {
+				st[sp++] = arm[side];
+				seen[arm[side]] = 1;
+			}
+			while (sp > 0) {
+				int a = st[--sp], k;
+				const struct sins *E = &V.in[MC.term[a]];
+				for (k = MC.term[a]; k >= 0 && MC.ins_blk[k] == a; k--)
+					if (V.in[k].res >= 0 && V.in[k].nop >= 1 &&
+					    V.in[k].opnd[0][0] == '%' &&
+					    V.id[idx(V.in[k].opnd[0])].kind == K_TYPE)
+						cost[side] += ins_cost_k(k);
+				for (q = 0; q < E->nop; q++) {
+					int e;
+					if (!mem_is_label(E->opnd[q]))
+						continue;
+					e = MC.lab_blk[idx(E->opnd[q])];
+					if (e == mb || e == cb || e == MC.lhdr[inl] || seen[e] ||
+					    !MC.lin[(size_t)inl *
+					    (size_t)(MC.nblk + 1) + (size_t)e])
+						continue;
+					seen[e] = 1;
+					st[sp++] = e;
+				}
+			}
+			free(seen);
+			free(st);
+		}
+		i = cost[0] >= cost[1] ? 0 : 1;
+		dear = cost[i];
+		cheap = cost[1 - i];
+		/* where it wins, on a grid of 1/1024: an interval of p (a warp
+		 * rarely split pays little as written; nearly every lane on the
+		 * dear arm leaves nothing to pack) */
+		plo = phi = -1;
+		pbest = 0;
+		gbest = 0;
+		for (q = 1; q < 1024; q++) {
+			double g;
+			p = q / 1024.0;
+			g = sg_written(m, W, p, dear, cheap) - (cheap + over + p * dear);
+			if (g > 0) {
+				if (plo < 0)
+					plo = p;
+				phi = p;
+				if (g > gbest) {
+					gbest = g;
+					pbest = p;
+				}
+			}
+		}
+		if (plo < 0)
+			continue;
+		src_line(ins_line(MC.term[b]), sl, sizeof sl);
+		sb_printf(rep, "    %s\n%s      in a loop's body, on a condition that "
+		    "differs from lane to lane; the %s arm costs %g, the other %g\n"
+		    "      compacted across the loop's iterations (a persistent "
+		    "loop): each lane a ballot, an and with the lanes below and "
+		    "its bit count, a shuffle there and back (%g), the dear arm "
+		    "once for %d packed items;\n      cheaper than the branch (or "
+		    "both arms and a select, the cheaper) while %.4g to %.4g of the "
+		    "lanes take that arm (independent lanes): at %.4g, %g against "
+		    "%g a lane\n", T2->text, sl, i == 0 ? "true" :
+		    "false", dear, cheap, over, W, plo, phi, pbest, cheap + over +
+		    pbest * dear, sg_written(m, W, pbest, dear, cheap));
+		n++;
+	}
+	mem_cfg_free();
+	free(mem_uni);
+	mem_uni = NULL;
+	return n;
+}

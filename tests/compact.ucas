@@ -1,0 +1,48 @@
+# in-warp compaction (#135, Liz: both): in `cost`, a ?: in a loop's body
+# gets a `compacted` line where packing the lanes that take its dear arm
+# across the iterations is the cheapest; in `simplify`, a branch in a
+# loop's body gets it as advice, with the shares of the lanes where it
+# is cheaper than the branch as written
+#
+# a dear arm taken by 1/32 of the lanes: compacted is cheapest
+rare(i: u32 in 0..4095) = { s: f32 = 0; for j in 0..15 { s = (i * 7 + j * 13) % 32 == 0 ? s + sqrt(exp(sin(f32(i + j)) * 3.0) + log(f32(j + 2)) * exp(f32(j) * 0.1)) * sin(f32(i)) : s + 1.0 }; s }
+cost rare
+# taken by half of them: a select stays cheapest, nothing more is said
+half(i: u32 in 0..4095) = { s: f32 = 0; for j in 0..15 { s = (i + j) % 2 == 0 ? s + sqrt(exp(sin(f32(i + j)) * 3.0)) : s + 1.0 }; s }
+cost half
+# a branch in a shader's loop: the advice and its interval
+simplify nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float v[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float s = 0.0;
+    for (int j = 0; j < 64; j++) {
+        float x = v[i * 64u + uint(j)];
+        if (x > 0.99) {
+            s += sqrt(exp(sin(x) * 3.0) + log(x + 2.0)) * cos(x) + pow(x, 2.2) * tan(x);
+        } else {
+            s += x;
+        }
+    }
+    v[i] = s;
+}
+```
+# a branch outside any loop: nothing to pack across, no advice
+simplify nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { float v[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    float x = v[i];
+    if (x > 0.99) {
+        v[i] = sqrt(exp(sin(x) * 3.0) + log(x + 2.0)) * cos(x) + pow(x, 2.2) * tan(x);
+    } else {
+        v[i] = x;
+    }
+}
+```

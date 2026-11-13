@@ -13833,7 +13833,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
-	struct sbuf sgrep = {0}, sgprop = {0};
+	struct sbuf sgrep = {0}, sgprop = {0}, sgadv = {0};
 	struct sbuf idrep2 = {0}, idrep3 = {0}, idrep4 = {0};
 	int nidk[5] = {0, 0, 0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
@@ -14141,6 +14141,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	i2f_pass();
 	/* subgroup forms that need the pipeline's subgroup size: said */
 	sg_proposals(&sgprop);
+	/* a branch in a loop the lanes could be packed for: advice */
+	sg_compaction(&sgadv);
 	/* dead pure instructions: no uses left */
 	{
 		int *uses = xcalloc((size_t)(V.nid + 1024), sizeof *uses), changed = 1;
@@ -14626,6 +14628,13 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(sgprop.p, stdout);
 	}
 	free(sgprop.p);
+	if (sgadv.n) {
+		printf("  in-warp compaction, advice (a restructuring of the loop: "
+		    "the module is not changed), under %s:\n",
+		    sym_str(model_active()->name));
+		fputs(sgadv.p, stdout);
+	}
+	free(sgadv.p);
 	if (sgrep.n) {
 		printf("  subgroup sums of bits (a value that is 0 or 1 in every "
 		    "lane, summed over the lanes, is a ballot's bit count), under "

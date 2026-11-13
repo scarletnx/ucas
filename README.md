@@ -1898,6 +1898,19 @@ and its price is per iteration, times the trip count:
 
 tests/costnest.ucas has these, the same inner ?: where every lane gets
 to it, and the loop with independent lanes (a select there).
+
+In a loop's body, a ?: whose condition varies has one more line where
+it is the cheapest, `compacted`: the lanes that take the dear arm
+packed into the first lanes across the loop's iterations (in-warp
+compaction, a persistent loop), each lane paying a ballot, an and with
+the lanes below and its bit count (its place among them), and a shuffle
+there and back, the dear arm running once for `warp` packed items, so p
+of it a lane for p the share that takes it.  Against both arms computed
+that is the overhead less (1 - p) of the dear arm.  It is a
+restructuring, not one of the in-place forms: the `->` line keeps the
+cheapest of those and says the compaction is cheaper (a sum of 16 terms
+with a dear arm taken by 1/32 of the lanes: -21.9 against a select's
++1.6; tests/compact.ucas).
 Barriers and atomics have value semantics for one invocation
 (`barrier(e)` is `e`, an atomic returns the old value), so they can
 appear in expressions and be priced.  They are never merged by
@@ -3647,6 +3660,19 @@ warp and said, with the host-side change, only when cheaper: under
 gt1030 a scan of 60.25 is a ladder of 50, and an 8-entry table read
 three times 20.625 -> 18.875, its reads priced as loads (simplify's
 totals leave Function memory out) (tests/sgpropose_spv.ucas).
+
+A branch in a loop's body on a condition that differs from lane to
+lane is given the same compaction as advice: it is priced against the
+branch as written for independent lanes (a warp runs the dear arm when
+one of its lanes takes it, 1 - (1 - p)^warp of the warps, and pays the
+divergence where they split) or both arms and a select, the cheaper of
+the two, and said where it is cheaper for some
+share p, with the shares where it is, an interval (a warp rarely split
+pays little as written; with nearly every lane on the dear arm there is
+nothing to pack), and the share where it saves most.  Under gt1030 an
+arm of 39 against one of 1: cheaper from 0.4% to 73% of the lanes (past
+that, both arms and a select, 41.6), at 3.2% 14.3 against 41.6
+(tests/compact.ucas).
 
 Not there yet: a segmented scan under
 `sg_active`; an exact value for inputs read in the other lanes (they
