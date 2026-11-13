@@ -5673,6 +5673,7 @@ struct prop {
 	char domain[1200];
 	char relies[1200];
 	int passes, nexit, exitl[16];	/* P_LOOP: the most passes, exits */
+	int callee;		/* P_INV: the function called */
 	uint8_t acts;		/* P_LOOP: the second pass acts before it leaves */
 };
 static struct prop *PR;
@@ -9555,6 +9556,7 @@ search_invariant(void)
 					seen[cx[j]] = 1;
 					xtext(ct, sizeof ct, cx[j]);
 					p = prop_new(f, P_INV, g->line);
+					p->callee = f1;
 					snprintf(p->what, sizeof p->what, "%s at line %d (in %s) is "
 					    "the same on every pass of the loop at line %d: hoist it "
 					    "out of the loop at line %d", ct, g->line, G.f[f].name,
@@ -9611,6 +9613,7 @@ search_invariant(void)
 							xtext(ct, sizeof ct, xs2[m]);
 							xtext(ca, sizeof ca, cx[j]);
 							p = prop_new(f1, P_INV, h->line);
+							p->callee = h->sym;
 							snprintf(p->what, sizeof p->what, "%s at line %d (in "
 							    "%s) is the same on every pass of %s's loop at "
 							    "line %d, which calls %s at line %d: hoist it out "
@@ -9657,6 +9660,40 @@ kind_name(int k)
 
 static int loops_only;	/* no function calls another: the loops alone */
 
+/*
+ * Would a driver's own loop-invariant code motion move a call of f out of
+ * a loop?  Once inlined, a call that runs no loop, reads no memory (no
+ * buffer, no array but a constant table) and calls only such functions is
+ * plain arithmetic on its arguments: every back end hoists that.
+ */
+static int
+lic_ok(int f, int depth)
+{
+	int *xs, *ss, nx = 0, nss = 0, i, ok = 1, cap = G.nx + G.ns + 64;
+	if (G.f[f].body < 0 || depth > 16 || has_loop(G.f[f].body))
+		return 0;
+	for (i = 0; i < A.ns; i++)
+		if (A.rd[f][i] && (G.y[i].kind == Y_BUF || (G.y[i].arr &&
+		    !G.y[i].tab)))
+			return 0;
+	xs = xmalloc((size_t)cap * sizeof *xs);
+	ss = xmalloc((size_t)cap * sizeof *ss);
+	reach_s(G.f[f].body, xs, &nx, ss, &nss, cap);
+	for (i = 0; i < nx && ok; i++) {
+		const struct gx *g = &G.x[xs[i]];
+		if (g->k == X_CALL && g->sym == -B_UNK)
+			ok = 0;
+		else if (g->k == X_CALL && g->sym >= 0 && g->sym != f)
+			ok = lic_ok(g->sym, depth + 1);
+		else if (g->k == X_VAR && (G.y[g->sym].kind == Y_BUF ||
+		    (G.y[g->sym].arr && !G.y[g->sym].tab)))
+			ok = 0;	/* a load: what the loop writes may alias it */
+	}
+	free(xs);
+	free(ss);
+	return ok;
+}
+
 static int
 has_loops(void)
 {
@@ -9670,7 +9707,8 @@ has_loops(void)
 static void
 report(int rounds, double secs)
 {
-	int i, f, nshown = 0, ncheap = 0, nprop = 0;
+	int i, f, nshown = 0, ncheap = 0, nprop = 0, moved[64], nmv[64], nmoved = 0,
+	    said_inv = 0;
 	const char *model = sym_str(model_active()->name);
 	struct sbuf cheap = {0};
 
@@ -9777,13 +9815,30 @@ report(int rounds, double secs)
 	/* calls a loop never changes */
 	for (i = 0; i < npr; i++) {
 		struct prop *p = &PR[i];
-		int f1;
+		int k;
 		if (p->kind != P_INV)
 			continue;
-		{
-			/* the callee: the call's own cost */
-			f1 = -1;
-			(void)f1;
+		if (p->callee >= 0 && lic_ok(p->callee, 0)) {
+			/* a driver moves it itself: counted, not advised */
+			for (k = 0; k < nmoved && moved[k] != p->callee; k++)
+				;
+			if (k == nmoved && nmoved < 64) {
+				moved[nmoved] = p->callee;
+				nmv[nmoved++] = 0;
+			}
+			if (k < 64)
+				nmv[k]++;
+			rep_obj(NULL);
+			rep_str("kind", "invariant_call");
+			rep_str("function", G.f[p->f].name);
+			rep_int("line", p->line);
+			rep_str("what", p->what);
+			rep_str("proof", "dataflow: the read and write sets");
+			rep_num("cost_per_call", p->c0);
+			rep_num("passes", p->c1);
+			rep_bool("driver_moves_it", 1);
+			rep_end();
+			continue;
 		}
 		if (p->c0 < 8) {
 			char nm[160];
@@ -9794,14 +9849,11 @@ report(int rounds, double secs)
 			ncheap++;
 			continue;
 		}
-		if (!nshown || i == 0 || PR[i - 1].kind != P_INV || PR[i - 1].c0 < 8) {
-			static int said;
-			if (!said)
-				printf("  invariant calls (a dataflow fact: neither the "
-				    "arguments nor anything the callee reads is written in the "
-				    "loop, and the callee writes nothing):\n");
-			said = 1;
-		}
+		if (!said_inv)
+			printf("  invariant calls (a dataflow fact: neither the "
+			    "arguments nor anything the callee reads is written in the "
+			    "loop, and the callee writes nothing):\n");
+		said_inv = 1;
 		printf("    %s; it costs %g a call under %s", p->what, p->c0, model);
 		if (p->c1 > 1)
 			printf(", %g passes: %g saved a run of the loop\n", p->c1,
@@ -9822,6 +9874,20 @@ report(int rounds, double secs)
 	if (ncheap)
 		printf("  also invariant in their loops, but cheap (cost < 8 a call): "
 		    "%s\n", cheap.p);
+	if (nmoved) {
+		int k, tot = 0;
+		for (k = 0; k < nmoved; k++)
+			tot += nmv[k];
+		printf("  also the same on every pass of their loops, but %s no loop "
+		    "and read%s no memory, so a driver's own loop-invariant code "
+		    "motion moves %s out: ", tot > 1 ? "they run" : "it runs",
+		    tot > 1 ? "" : "s", tot > 1 ? "them" : "it");
+		for (k = 0; k < nmoved; k++)
+			printf("%s%s (%d call%s)", k ? ", " : "", G.f[moved[k]].name,
+			    nmv[k], nmv[k] > 1 ? "s" : "");
+		printf("\n");
+		nshown++;
+	}
 	rep_end();
 	if (DOTD.n) {
 		printf("  dot products: %d sum%s of products would be %s under %s "

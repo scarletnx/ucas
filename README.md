@@ -4582,7 +4582,12 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   a call one level down (in a function the loop calls, outside that
   function's own loops) whose arguments come from parameters bound to
   such values.  That is a dataflow fact; no proof beyond the read and
-  write sets.  Calls costing under 8 are listed in one line;
+  write sets.  Calls costing under 8 are listed in one line, and those
+  a driver's own loop-invariant code motion moves once they are inlined
+  (the callee runs no loop and reads no memory, a buffer or an array
+  other than a constant table, and what it calls is the same) are only
+  counted, by callee, in a line of their own: the advice is for what a
+  back end cannot move (tests/reportall.ucas);
 - loops that leave early: once the analysis has settled, one more round
   runs each `for` and `while` loop's first two passes apart, from every
   state the loop starts from (nothing is recorded in it, and a summary

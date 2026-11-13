@@ -60,4 +60,4 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 7 functions
       proof: dataflow: its first two passes run apart in the abstract interpretation, from every state it starts from; no state of the first comes back to the test
       cost under gt1030: 13.625 -> 12.625 each time the loop runs
       relies on: the states the loop (lines 53 to 55) starts from, inferred from Once's calls: main (line 69)
-  also invariant in their loops, but cheap (cost < 8 a call): Cost(v) (line 54)
+  also the same on every pass of their loops, but it runs no loop and reads no memory, so a driver's own loop-invariant code motion moves it out: Cost (1 call)
