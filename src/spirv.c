@@ -11099,28 +11099,35 @@ adv_reads_decorated(int id, const char *d, int depth)
 	return 0;
 }
 
-/* the instruction of the module that does something besides writing
- * its outputs (a store to memory others see, an atomic, an image
- * write): its index, -1 none */
+/* the first instruction of the module that does something besides
+ * writing its outputs (a store to memory others see, an atomic, an image
+ * write): its index, -1 none; *n (when given) how many there are */
 static int
-adv_effect(void)
+adv_effect(int *n)
 {
-	int k;
+	int k, first = -1, c = 0;
 
 	for (k = 0; k < V.nin; k++) {
 		const struct sins *I = &V.in[k];
-		if (!strncmp(I->op, "OpAtomic", 8) || !strcmp(I->op,
-		    "OpImageWrite"))
-			return k;
-		if (!strcmp(I->op, "OpStore") && I->nop >= 1) {
+		int e = !strncmp(I->op, "OpAtomic", 8) || !strcmp(I->op,
+		    "OpImageWrite");
+		if (!e && !strcmp(I->op, "OpStore") && I->nop >= 1) {
 			int chain, var = mem_base_var(idx(I->opnd[0]), &chain);
 			const char *sc = var >= 0 ? mem_sc(var) : "";
-			if (var < 0 || (strcmp(sc, "Output") && strcmp(sc, "Function")
-			    && strcmp(sc, "Private")))
-				return k;
+			e = var < 0 || (strcmp(sc, "Output") && strcmp(sc, "Function")
+			    && strcmp(sc, "Private"));
 		}
+		if (!e)
+			continue;
+		if (first < 0)
+			first = k;
+		c++;
+		if (n == NULL)
+			break;
 	}
-	return -1;
+	if (n)
+		*n = c;
+	return first;
 }
 
 /*
@@ -11175,7 +11182,7 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 		else
 			continue;
 		if (eff == -2)
-			eff = adv_effect();
+			eff = adv_effect(NULL);
 		if (adv_reads_decorated(va, "NoPerspective", 0))
 			why = "the value reads a noperspective varying, and a clip "
 			    "distance is interpolated in clip space";
@@ -11225,6 +11232,140 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 	}
 	if (n)
 		rep_end();
+}
+
+/* a variable decorated BuiltIn b in storage class sc (NULL: any): its id,
+ * -1 none */
+static int
+adv_builtin_var(const char *b, const char *sc)
+{
+	int k, j;
+
+	for (k = 0; k < V.nin && strcmp(V.in[k].op, "OpFunction"); k++) {
+		const struct sins *I = &V.in[k];
+		int v;
+		if (strcmp(I->op, "OpDecorate") || I->nop < 3 || strcmp(I->opnd[1],
+		    "BuiltIn") || strcmp(I->opnd[2], b))
+			continue;
+		v = idx(I->opnd[0]);
+		for (j = 0; j < V.nin; j++)
+			if (!strcmp(V.in[j].op, "OpVariable") && V.in[j].res == v &&
+			    V.in[j].nop >= 2 && (!sc || !strcmp(V.in[j].opnd[1], sc)))
+				return v;
+	}
+	return -1;
+}
+
+/* the entry point's execution mode m: 1, else 0 */
+static int
+adv_mode(const char *m)
+{
+	int k;
+
+	for (k = 0; k < V.nin; k++)
+		if (!strcmp(V.in[k].op, "OpExecutionMode") && V.in[k].nop >= 2 &&
+		    !strcmp(V.in[k].opnd[1], m))
+			return 1;
+	return 0;
+}
+
+/*
+ * Early fragment tests (#54): a fragment shader with effects others see
+ * (a store to a buffer or an image, an atomic) runs for every fragment,
+ * the hidden ones too, since running the depth and stencil tests first
+ * would drop those effects: the tests stay late.  EarlyFragmentTests
+ * (`layout(early_fragment_tests) in;`) runs them first, so a fragment
+ * they reject skips the whole shader.  Offered where nothing the shader
+ * does moves the tests' inputs or results: no depth or stencil output
+ * (the early tests use the rasterised depth), no discard and no sample
+ * mask (with early tests the depth and stencil are written before the
+ * shader, so a fragment it then drops would still write them).  A
+ * proposal: hidden fragments stop storing.  Not priced: no model prices
+ * a fragment's whole run.
+ */
+static void
+adv_early(struct sbuf *rep, const struct model *m)
+{
+	int k, eff = -1, neff = 0, kill = -1, depth, stencil, mask, cons;
+	const char *why = NULL;
+	char sl[160];
+
+	if (adv_mode("EarlyFragmentTests"))
+		return;
+	eff = adv_effect(&neff);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (kill < 0 && (!strcmp(I->op, "OpKill") || !strcmp(I->op,
+		    "OpTerminateInvocation") || !strcmp(I->op,
+		    "OpDemoteToHelperInvocation") || !strcmp(I->op,
+		    "OpDemoteToHelperInvocationEXT")))
+			kill = k;
+	}
+	if (eff < 0)
+		return;		/* nothing keeps the tests late: a driver may
+				 * already run them first */
+	depth = adv_builtin_var("FragDepth", "Output") >= 0 ||
+	    adv_mode("DepthReplacing");
+	stencil = adv_builtin_var("FragStencilRefEXT", "Output") >= 0;
+	mask = adv_builtin_var("SampleMask", "Output") >= 0;
+	cons = adv_mode("DepthGreater") || adv_mode("DepthLess") ||
+	    adv_mode("DepthUnchanged");
+	if (depth || stencil)
+		why = cons ? "the shader writes its depth or stencil, which early "
+		    "tests cannot see (its conservative depth mode keeps a driver's "
+		    "own early rejection where the written depth moves the way the "
+		    "test allows)" : "the shader writes its depth or stencil, which "
+		    "early tests cannot see; DepthGreater or DepthLess "
+		    "(`layout(depth_greater) out float gl_FragDepth;`) lets a driver "
+		    "reject early where the written depth only moves away from what "
+		    "the test keeps, which this module does not show";
+	else if (kill >= 0 || mask)
+		why = kill >= 0 ? "the shader discards: with early tests the depth "
+		    "and stencil are written before it runs, so a discarded fragment "
+		    "would still write them; it holds for a pipeline that writes "
+		    "neither (a depth test with writes off)" : "the shader writes "
+		    "gl_SampleMask: with early tests the depth and stencil are "
+		    "written before it runs, for samples it then drops; it holds for "
+		    "a pipeline that writes neither";
+	if (!rep->n)
+		sb_printf(rep, "advice (changes outside the module; nothing here is "
+		    "rewritten), priced under %s:\n", sym_str(m->name));
+	sb_printf(rep, "  early fragment tests (EarlyFragmentTests, "
+	    "`layout(early_fragment_tests) in;`: the depth and stencil tests "
+	    "run before the shader, so a fragment they reject does not run; "
+	    "not priced: %s has no price for a fragment's whole run):\n",
+	    sym_str(m->name));
+	rep_list("advice_early");
+	rep_obj(NULL);
+	rep_int("effects", neff);
+	rep_str("first_effect", V.in[eff].text);
+	rep_int("line", ins_line(eff));
+	if (why) {
+		sb_printf(rep, "    not offered: %s\n", why);
+		rep_str("early_tests", "not offered");
+		rep_str("why", why);
+	} else {
+		sb_printf(rep, "    offered: the shader has %d effect%s others see "
+		    "and writes no depth, stencil or sample mask and never "
+		    "discards; without the mode its hidden fragments must run for "
+		    "those effects, so the tests wait for it; with it a hidden "
+		    "fragment skips the whole shader, and stores nothing (a "
+		    "proposal: what hidden fragments stored is no longer stored)\n",
+		    neff, neff == 1 ? "" : "s");
+		rep_str("early_tests", "offered");
+	}
+	sb_printf(rep, "    %s\n", V.in[eff].text);
+	src_line(ins_line(eff), sl, sizeof sl);
+	if (sl[0])
+		sb_printf(rep, "  %s", sl);
+	if (why && kill >= 0 && !depth && !stencil) {
+		sb_printf(rep, "    %s\n", V.in[kill].text);
+		src_line(ins_line(kill), sl, sizeof sl);
+		if (sl[0])
+			sb_printf(rep, "  %s", sl);
+	}
+	rep_end();
+	rep_end();
 }
 
 /*
@@ -11905,13 +12046,15 @@ advice_pass(const char *text, int asked)
 	if (!strcmp(stage, "Fragment")) {
 		adv_clip(&rep, m, fq);
 		adv_pointcoord(&rep, m, fq);
+		adv_early(&rep, m);
 	}
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
 		    "its uniforms or its flat inputs, is affine in its varyings "
 		    "or in gl_FragCoord, is what a vertex format or an instance "
-		    "divisor computes, is a discard the clipper could do, or is a "
-		    "point sprite's coordinate\n");
+		    "divisor computes, is a discard the clipper could do, is a "
+		    "point sprite's coordinate, or keeps the depth test after a "
+		    "fragment shader with effects\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);

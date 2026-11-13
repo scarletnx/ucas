@@ -66,4 +66,4 @@ simplify: 93 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 17.5 -> 17.5 (+0.0%)
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, or is a point sprite's coordinate
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, is a point sprite's coordinate, or keeps the depth test after a fragment shader with effects

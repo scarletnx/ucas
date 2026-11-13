@@ -5596,10 +5596,29 @@ gl_FragCoord and gl_PointCoord at the upper left, so y needs no flip;
 the size must be inside the device's pointSizeRange.  A centre that is
 a smooth varying is not one.
 
+**Early fragment tests.**  A fragment shader with effects others see
+(a store to a buffer or an image, an atomic) runs for every fragment,
+the hidden ones too: running the depth and stencil tests first would
+drop those effects, so they stay after it.  EarlyFragmentTests
+(`layout(early_fragment_tests) in;`) runs them first, and a fragment
+they reject skips the whole shader.  Offered where the shader writes no
+depth, stencil or sample mask and never discards, as a proposal (what
+hidden fragments stored is no longer stored); said and not offered
+where it writes its depth or stencil (early tests use the rasterised
+depth; DepthGreater or DepthLess would keep a driver's own early
+rejection where the written depth only moves the way the test allows,
+which the module does not show) or discards or writes gl_SampleMask
+(with early tests the depth and stencil are written before the shader,
+so a fragment it drops would still write them: it holds for a pipeline
+that writes neither).  A shader without such effects is left alone: a
+driver may already test it early.  Not priced: no model prices a
+fragment's whole run, and what it saves is the overdraw, which a module
+does not carry (tests/adviceearly.ucas).
+
 JSON: the result gains `advice_draw`, `advice_primitive`,
 `advice_vertex`, `advice_screen`, `advice_vertex_inputs`,
-`advice_clip` and `advice_pointcoord` where there are such values
-(`advice: true` also says when there are none).
+`advice_clip`, `advice_pointcoord` and `advice_early` where there are
+such values (`advice: true` also says when there are none).
 
 ## Function level
 

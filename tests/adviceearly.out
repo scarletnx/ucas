@@ -1,0 +1,72 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  early fragment tests (EarlyFragmentTests, `layout(early_fragment_tests) in;`: the depth and stencil tests run before the shader, so a fragment they reject does not run; not priced: gt1030 has no price for a fragment's whole run):
+    offered: the shader has 2 effects others see and writes no depth, stencil or sample mask and never discards; without the mode its hidden fragments must run for those effects, so the tests wait for it; with it a hidden fragment skips the whole shader, and stores nothing (a proposal: what hidden fragments stored is no longer stored)
+    %17 = OpAtomicIAdd %uint %14 %uint_1 %uint_0 %uint_1
+        (line 7: atomicAdd(c.drawn, 1u);)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
+    %18 = OpFOrdLessThan %bool %15 %float_0_25
+        (line 6: if (uv.x < 0.25))
+      not offered: the shader does more than write its outputs (a store others see, an atomic or an image write), which a clipped fragment would not do
+  early fragment tests (EarlyFragmentTests, `layout(early_fragment_tests) in;`: the depth and stencil tests run before the shader, so a fragment they reject does not run; not priced: gt1030 has no price for a fragment's whole run):
+    not offered: the shader discards: with early tests the depth and stencil are written before it runs, so a discarded fragment would still write them; it holds for a pipeline that writes neither (a depth test with writes off)
+    %30 = OpAtomicIAdd %uint %28 %uint_1 %uint_0 %uint_1
+        (line 8: atomicAdd(c.drawn, 1u);)
+    OpKill
+        (line 7: discard;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 78 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a vertex: 1 instruction costing 1 every pixel are affine in the varyings (sums, and products with values of the draw)
+    a varying is v = sum b_i v_i over the vertices with sum b_i = 1 (perspective-correct barycentrics), and an affine f has f(v) = sum b_i f(v_i): computed in the vertex shader and passed as 1 varying, the interpolated value is the same real number at every pixel; in floats the two differ by the interpolation's rounding (not bit-exact)
+    not priced: gt1030 has no price for a vertex or for a varying, so nothing says when 1 a pixel is worth 1 a vertex and 1 more varying
+    %34 = OpFMul %float %32 %float_0_00100000005   (1)
+        (line 7: gl_FragDepth = gl_FragCoord.z + uv.y * 0.001;)
+  early fragment tests (EarlyFragmentTests, `layout(early_fragment_tests) in;`: the depth and stencil tests run before the shader, so a fragment they reject does not run; not priced: gt1030 has no price for a fragment's whole run):
+    not offered: the shader writes its depth or stencil, which early tests cannot see; DepthGreater or DepthLess (`layout(depth_greater) out float gl_FragDepth;`) lets a driver reject early where the written depth only moves away from what the test keeps, which this module does not show
+    %17 = OpAtomicIAdd %uint %14 %uint_1 %uint_0 %uint_1
+        (line 6: atomicAdd(c.drawn, 1u);)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 59 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, is a point sprite's coordinate, or keeps the depth test after a fragment shader with effects
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile advice
+simplify: 40 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
+  the vec4 %21: 3 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
+  reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  nothing applied: no cheaper float form could be proved
+advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, is a point sprite's coordinate, or keeps the depth test after a fragment shader with effects
