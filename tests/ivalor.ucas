@@ -1,0 +1,17 @@
+# The interval bounds of | and xor over two ranges (src/eval.c, plan_ival):
+# exact, as Hacker's Delight 4-3 computes them, where the power of two
+# above the larger bound is loose
+#
+# a depth key above a 32-bit index: the high word stays below 0x3F000000,
+# so the key below 0x3F00000000000000 (the power of two gave 2^62 - 1)
+range (u64(x: u32 % 0x3F000000) << 32) | u64(y: u32)
+# fields that share no bit: the bound is their sum
+range (x: u32 % 100) | 256
+range (x: u32 % 100) xor 256
+# 16..23 | 32..35 is 48..55, and so is the xor (0..63 by the power of two)
+range (x: u32 % 8 + 16) | (y: u32 % 4 + 32)
+range (x: u32 % 8 + 16) xor (y: u32 % 4 + 32)
+# ranges whose bits overlap: 5..6 | 3..4 takes 7, 5, 7, 6: 5..7; the xor
+# 6, 1, 5, 2: 1..6
+range (x: u32 % 2 + 5) | (y: u32 % 2 + 3)
+range (x: u32 % 2 + 5) xor (y: u32 % 2 + 3)
