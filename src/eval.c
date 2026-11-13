@@ -1165,6 +1165,14 @@ plan_build(struct plan *p, const nid *roots0, uint32_t nr, int ideal)
 	/* subgroup operations spelled out over their lanes (sg.c): new
 	 * nodes, so before anything is sized by N.n */
 	for (i = 0; i < nr; i++) {
+		if (roots0[i] && (N.fl[roots0[i]] & NF_LANES)) {
+			const char *nm = sg_lanes_name(roots0[i]);
+			free(roots);
+			fail("%s has its own value in each lane (a lanes "
+			    "parameter) and is read across the lanes: there is no "
+			    "one point to evaluate; equiv decides by SAT",
+			    nm ? nm : "a parameter");
+		}
 		roots[i] = sg_lower(roots0[i]);
 		if (roots[i] && sg_has_lane(roots[i]))
 			fail("lane is a value per lane: outside a subgroup "

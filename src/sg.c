@@ -94,17 +94,79 @@ sg_width(nid n)
 	return (int)N.ki[w];
 }
 
-/* e in lane l */
+/* a `lanes` parameter's copy in e (sg_lanes_copy) or one of its words,
+ * the first found; with map, every copy's word in lane l put into it */
+static nid
+lanes_in(nid e, uint8_t *seen, nid *map, int l)
+{
+	nid r = 0, x;
+	uint32_t j;
+
+	if (e == 0 || !(N.fl[e] & NF_LANES) || seen[e])
+		return 0;
+	seen[e] = 1;
+	if (N.op[e] == O_VAR) {
+		if (map && N.ki[e] >= SG_LCOPY_SLOT && N.ki[e] < SG_LCOPY_SLOT +
+		    MAXP)
+			map[N.ki[e]] = sg_lanes_word((int)N.ki[e] - SG_LCOPY_SLOT,
+			    l, N.a[e], N.ty[e]);
+		return e;
+	}
+	if (N.op[e] == O_TABLE) {
+		for (j = 0; j < N.b[e]; j++)
+			if ((x = lanes_in(N.lst[N.a[e] + j], seen, map, l)) != 0)
+				r = x;
+		return r;
+	}
+	if (N.op[e] == O_LOOP) {
+		/* what the loop's body reads */
+		struct loopdef d;
+		int k;
+		loop_get(loop_ent(e), &d);
+		for (k = 0; k < d.nst; k++) {
+			if ((x = lanes_in(d.init[k], seen, map, l)) != 0)
+				r = x;
+			if ((x = lanes_in(d.next[k], seen, map, l)) != 0)
+				r = x;
+		}
+		if (d.cond && (x = lanes_in(d.cond, seen, map, l)) != 0)
+			r = x;
+	}
+	if ((x = lanes_in(N.a[e], seen, map, l)) != 0)
+		r = x;
+	if ((x = lanes_in(N.b[e], seen, map, l)) != 0)
+		r = x;
+	if ((x = lanes_in(N.c[e], seen, map, l)) != 0)
+		r = x;
+	return r;
+}
+
+const char *
+sg_lanes_name(nid e)
+{
+	uint8_t *seen = xcalloc(N.n, 1);
+	nid v = lanes_in(e, seen, NULL, 0);
+
+	free(seen);
+	return v ? sym_str(N.a[v]) : NULL;
+}
+
+/* e in lane l: the lane's index, and a `lanes` parameter's word there */
 static nid
 in_lane(nid e, int l)
 {
-	nid map[SG_LANE_SLOT + 1];
+	nid map[SG_LCOPY_SLOT + MAXP];
 
-	if (!(N.fl[e] & NF_LANE))
+	if (!(N.fl[e] & (NF_LANE | NF_LANES)))
 		return e;
 	memset(map, 0, sizeof map);
 	map[SG_LANE_SLOT] = mk_const_i(TY(K_UINT, 32), l);
-	return subst(e, map, SG_LANE_SLOT + 1);
+	if (N.fl[e] & NF_LANES) {
+		uint8_t *seen = xcalloc(N.n, 1);
+		lanes_in(e, seen, map, l);
+		free(seen);
+	}
+	return subst(e, map, SG_LCOPY_SLOT + MAXP);
 }
 
 static ty_t
@@ -242,8 +304,8 @@ mk_sg(int op, nid a, nid b, nid c)
 	if (N.op[a] == O_UNDEF || (ar == 3 && N.op[b] == O_UNDEF))
 		return mk_undef(t);
 	/* nothing but the lane in it: the same value whatever the inputs */
-	if (!node_slots(a) && !(N.fl[a] & NF_LANEREAD) && (ar == 2 ||
-	    (!node_slots(b) && !(N.fl[b] & (NF_LANE | NF_LANEREAD)))))
+	if (!node_slots(a) && !(N.fl[a] & (NF_LANEREAD | NF_LANES)) && (ar == 2 ||
+	    (!node_slots(b) && !(N.fl[b] & (NF_LANE | NF_LANEREAD | NF_LANES)))))
 		return sg_expand(op, (N.fl[a] & NF_SG) ? sg_lower_once(a) : a,
 		    ar == 3 && (N.fl[b] & NF_SG) ? sg_lower_once(b) : b, w);
 	fl |= (N.fl[a] | (ar == 3 ? N.fl[b] : 0)) & NF_PARTIAL;
@@ -584,6 +646,50 @@ static float
 price(const struct sgf *g, nid e)
 {
 	return fuse_expr_cost(g->m, sg_priced(g->f, e));
+}
+
+int
+sg_lanes_width(const struct func *f)
+{
+	uint32_t nm = sym_cstr("lane");
+	int64_t lo, hi;
+	int j, W;
+
+	for (j = 0; j < f->np; j++)
+		if (f->p[j].name == nm && TY_ISINT(f->p[j].ty)) {
+			param_bounds(&f->p[j], &lo, &hi);
+			if (lo == 0 && hi >= 1 && hi < SG_MAXW)
+				return (int)hi + 1;
+		}
+	W = (int)model_active()->par[MP_WARP];
+	return W >= 2 && W <= SG_MAXW ? W : 0;
+}
+
+/*
+ * e for SAT: a `lanes` parameter read in the lane itself is the word of
+ * f's lane, one of the W free words the subgroup operations read (their
+ * operands' copies become those words where sg_lower spells them out).
+ */
+nid
+sg_lanes_lower(const struct func *f, nid e)
+{
+	nid map[MAXP] = {0}, ent[SG_MAXW], lp = lane_param(f);
+	int W = sg_lanes_width(f), j, l, any = 0;
+	uint64_t slots = node_slots(e);
+
+	for (j = 0; j < f->np; j++) {
+		if (!f->p[j].lanes || !((slots >> j) & 1))
+			continue;
+		if (!lp || !W)
+			fail("%s has its own value in each lane (lanes) and is read "
+			    "in the lane itself: the function needs its lane, a "
+			    "parameter lane: u32 in 0..N-1", sym_str(f->p[j].name));
+		for (l = 0; l < W; l++)
+			ent[l] = sg_lanes_word(j, l, f->p[j].name, f->p[j].ty);
+		map[j] = mk_index(mk_table(ent, (uint32_t)W), lp);
+		any = 1;
+	}
+	return any ? subst(e, map, f->np) : e;
 }
 
 /* root with from replaced by to; 0 when the result cannot be built */

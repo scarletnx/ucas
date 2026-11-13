@@ -243,7 +243,7 @@ node_cost(const struct model *m, nid n, int *cls)
 	case O_VAR:
 		/* a parameter's value in the other lanes, at the worst: each
 		 * of the W lanes read through a shuffle (a load without one) */
-		if (N.ki[n] >= SG_COPY_SLOT) {
+		if (N.ki[n] >= SG_COPY_SLOT && N.ki[n] < SG_LCOPY_SLOT) {
 			k = cclass_available(m, C_SG_SHUF) ? C_SG_SHUF : C_LOAD;
 			*cls = k;
 			return m->c[k] * (float)N.b[n];
@@ -773,8 +773,10 @@ price_loop(const struct model *m, const struct func *f, nid n,
 		lp->over = m->c[C_IADD] + m->c[C_CMP] + m->c[C_BRANCH];
 	else
 		lp->over = m->c[C_BRANCH];
-	if (N.fl[n] & NF_LANEREAD)
-		/* it reads other lanes' values: no count to measure */
+	if ((N.fl[n] & NF_LANEREAD) || ((N.fl[n] & NF_LANES) && !(isfor &&
+	    int_of(N.a[n], &lo) && int_of(N.b[n], &hi))))
+		/* it reads other lanes' values: no count to measure (a lanes
+		 * parameter's are free words: a constant count is still one) */
 		lp->worst = lp->avg = lp->best = -1;
 	else if (!isfor)
 		trip_while(f, n, lp);
@@ -1184,7 +1186,8 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 		/* the parameters read in the other lanes, at the worst */
 		rep_list("lane_reads");
 		for (g = 1; g < lim; g++) {
-			if (!all[g] || N.op[g] != O_VAR || N.ki[g] < SG_COPY_SLOT)
+			if (!all[g] || N.op[g] != O_VAR || N.ki[g] < SG_COPY_SLOT ||
+			    N.ki[g] >= SG_LCOPY_SLOT)
 				continue;
 			printf("  %s read in the other lanes (a value per lane, not "
 			    "known there): at the worst, each of its %d lanes read "
@@ -1291,7 +1294,7 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			if (k < 0)
 				for (j = 0; j < nenc[s]; j++) {
 					nid c = N.a[enc[s][j]], t;
-					if (N.fl[c] & NF_LANEREAD)
+					if (N.fl[c] & (NF_LANEREAD | NF_LANES))
 						continue;	/* not countable: every lane */
 					t = encarm[s][j] == 0 ? mk_bool(c) : mk_un(O_LNOT, c);
 					rch = rch ? mk_bin(O_LAND, rch, t) : t;
@@ -1308,7 +1311,8 @@ cost_report(struct func *f, struct model *m, const struct func *src)
 			/* a condition that reads other lanes' values has no
 			 * frequency to count: its worst, the divergent branch */
 			if (x->nonuni && m->par[MP_WARP] >= 2 &&
-			    !(N.fl[N.a[s]] & NF_LANEREAD))
+			    !(N.fl[N.a[s]] & NF_LANEREAD) &&
+			    !(N.fl[f->body] & NF_LANES))
 				x->dmode = diverge_stats(f, N.a[s], rch, k < 0 ?
 				    LOOP_NONE : lps[k].e, (int)m->par[MP_WARP], &x->dp,
 				    &x->dat, &x->daf, &x->reached, &x->dexact, &x->dpts);

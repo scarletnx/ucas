@@ -19,6 +19,10 @@ int nsat_equiv(const struct func *f, nid a, nid b, long budget,
     struct nsat_res *out);
 
 extern int nsat_narrow;	/* parameters' bits beyond their ranges are fixed */
+/* a counterexample's words of the `lanes` parameters, by slot and lane,
+ * and which of them the circuit read */
+extern int64_t nsat_lanes[MAXP][SG_MAXW];
+extern uint8_t nsat_lanes_set[MAXP][SG_MAXW];
 #define NSAT_BUDGET 100000   /* conflicts */
 #define NSAT_SECONDS 2.0     /* and CPU seconds */
 

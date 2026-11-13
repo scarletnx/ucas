@@ -54,7 +54,17 @@ static struct {
 	const char *why;          /* unsupported: what */
 	struct word par[MAXP];    /* parameters, 64-bit */
 	int npar;
+	const struct func *f;
+	struct word *lw;          /* the lanes' words of `lanes` parameters:
+				   * inputs made when first read */
+	uint8_t lwset[MAXP][SG_MAXW];
+	lit lassume;              /* their ranges */
 } B;
+
+int64_t nsat_lanes[MAXP][SG_MAXW];
+uint8_t nsat_lanes_set[MAXP][SG_MAXW];
+
+static lit in_bounds(const struct param *p, const struct word *x);
 
 static void
 ctx_init(struct nctx *c, struct nctx *up, uint64_t bound)
@@ -294,7 +304,22 @@ blast1(struct nctx *c, nid n)
 			x = q->env[s];
 		else if (s < B.npar)
 			x = B.par[s];
-		else {
+		else if (s >= SG_FREE_SLOT && s < SG_FREE_SLOT + MAXP * SG_MAXW &&
+		    (s - SG_FREE_SLOT) / SG_MAXW < B.npar && B.lw) {
+			/* a `lanes` parameter in one lane: a free word */
+			int j = (s - SG_FREE_SLOT) / SG_MAXW;
+			int l = (s - SG_FREE_SLOT) % SG_MAXW;
+			struct word *lw = &B.lw[j * SG_MAXW + l];
+			if (!B.lwset[j][l]) {
+				struct word in;
+				w_input(g, &in, bw(B.f->p[j].ty));
+				ext64(lw, &in, B.f->p[j].ty);
+				B.lassume = aig_and(g, B.lassume, in_bounds(&B.f->p[j],
+				    lw));
+				B.lwset[j][l] = 1;
+			}
+			x = *lw;
+		} else {
 			unsup("a free variable");
 			w_const(&x, 64, 0);
 		}
@@ -640,7 +665,7 @@ blast_loop(struct nctx *c, nid n)
 	for (k = 0; k < m; k++)
 		cc.env[loops.sslot[s + k]] = st[k];
 	for (k = 0; k < m; k++) {
-		uint32_t v = blast(&cc, loops.init[s + k]);
+		uint32_t v = blast(&cc, sg_lower(loops.init[s + k]));
 		d = aig_and(B.g, d, D(v));
 		ext64(&st[k], V(v), N.ty[loops.init[s + k]]);
 	}
@@ -652,7 +677,7 @@ blast_loop(struct nctx *c, nid n)
 		for (k = 0; k < m; k++)
 			cc.env[loops.sslot[s + k]] = st[k];
 		for (k = 0; k < m; k++) {
-			uint32_t v = blast(&cc, loops.next[s + k]);
+			uint32_t v = blast(&cc, sg_lower(loops.next[s + k]));
 			d = aig_and(B.g, d, D(v));
 			ext64(&nx[k], V(v), N.ty[loops.next[s + k]]);
 		}
@@ -753,6 +778,11 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	}
 	B.g = aig_new();
 	B.npar = f->np;
+	B.f = f;
+	B.lassume = L_TRUE;
+	for (j = 0; j < f->np; j++)
+		if (f->p[j].lanes && !B.lw)
+			B.lw = xcalloc((size_t)MAXP * SG_MAXW, sizeof *B.lw);
 	for (j = 0; j < f->np; j++) {
 		struct word x;
 		w_input(B.g, &x, bw(f->p[j].ty));
@@ -775,6 +805,7 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 		out->nodes = aig_nodes(B.g);
 		goto done;
 	}
+	assume = aig_and(B.g, assume, B.lassume);
 	goal = aig_and(B.g, assume, aig_and(B.g, D(va), aig_or(B.g,
 	    L_NOT(D(vb)), w_ne(B.g, V(va), V(vb)))));
 	out->nodes = aig_nodes(B.g);
@@ -783,13 +814,21 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	aig_seconds = 0;
 	out->conflicts = aig_conflicts;
 	out->status = r == 0 ? 0 : r == 1 ? 1 : -1;
-	if (r == 1)
+	if (r == 1) {
+		int l;
 		for (j = 0; j < f->np; j++)
 			out->in[j] = (int64_t)aig_word_value(B.g, &B.par[j]);
+		memcpy(nsat_lanes_set, B.lwset, sizeof nsat_lanes_set);
+		for (j = 0; j < f->np; j++)
+			for (l = 0; l < SG_MAXW; l++)
+				nsat_lanes[j][l] = B.lwset[j][l] ? (int64_t)
+				    aig_word_value(B.g, &B.lw[j * SG_MAXW + l]) : 0;
+	}
 done:
 	ctx_free(&root);
 	aig_free(B.g);
 	free(B.v);
+	free(B.lw);
 	memset(&B, 0, sizeof B);
 	return out->status;
 }

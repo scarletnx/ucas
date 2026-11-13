@@ -2070,6 +2070,81 @@ point_differs(const struct func *f, nid a, nid b, const int64_t *in,
 }
 
 /*
+ * With `lanes` parameters read across the lanes there are no points to
+ * enumerate or sample (a word in each lane): SAT decides, over the
+ * lanes' free words, or nothing does.  A counterexample is run again by
+ * the evaluator, the lanes' words put in as tables read at the lane.
+ */
+static int
+equiv_lanes(const struct func *f, nid a, nid b, struct sbuf *wit,
+    struct eqproof *pr)
+{
+	nid la, lb;
+
+	pr->how = EQ_UNDECIDED;
+	if (!nsat_supported(f) || !TY_ISINT(N.ty[a])) {
+		pr->sat_status = -2;
+		pr->sat_why = "a float or real value";
+		return 0;
+	}
+	b = mk_cast(N.ty[a], b);
+	la = sg_lanes_lower(f, a);
+	lb = sg_lanes_lower(f, b);
+	nsat_equiv(f, la, lb, NSAT_BUDGET, &pr->sat);
+	pr->sat_status = pr->sat.status;
+	pr->sat_why = pr->sat.why;
+	if (pr->sat.status == 0)
+		pr->how = EQ_SAT;
+	else if (pr->sat.status == 1) {
+		nid map[SG_LCOPY_SLOT + MAXP] = {0}, ent[SG_MAXW], lp = 0;
+		int W = sg_lanes_width(f), j, l, at = 0;
+		int64_t in[MAXP];
+		struct sbuf pt = {0}, ws = {0};
+		uint32_t lane = sym_cstr("lane");
+
+		memcpy(in, pr->sat.in, sizeof in);
+		for (j = 0; j < f->np; j++)
+			if (f->p[j].name == lane && TY_ISINT(f->p[j].ty)) {
+				lp = mk_cast(TY(K_UINT, 32), mk_var((uint32_t)j, lane,
+				    f->p[j].ty));
+				at = (int)in[j];
+			}
+		for (j = 0; j < f->np && W; j++) {
+			if (!f->p[j].lanes)
+				continue;
+			sb_printf(&ws, "%s%s = [", ws.n ? ", " : "",
+			    sym_str(f->p[j].name));
+			for (l = 0; l < W; l++) {
+				int64_t v = int_norm(f->p[j].ty, nsat_lanes[j][l]);
+				ent[l] = mk_const_i(f->p[j].ty, v);
+				sb_printf(&ws, "%s", l ? ", " : "");
+				fmt_val(&ws, f->p[j].ty, v, 0);
+			}
+			sb_puts(&ws, "]");
+			map[SG_LCOPY_SLOT + j] = mk_index(mk_table(ent, (uint32_t)W),
+			    sg_lane());
+			if (lp)
+				map[j] = mk_index(mk_table(ent, (uint32_t)W), lp);
+			in[j] = at >= 0 && at < W ? nsat_lanes[j][at] : 0;
+		}
+		if (W && point_differs(f, subst(a, map, SG_LCOPY_SLOT + MAXP),
+		    subst(b, map, SG_LCOPY_SLOT + MAXP), in, wit ? &pt : NULL)) {
+			if (wit)
+				sb_printf(wit, "with the lanes' %s, at %s", sb_str(&ws),
+				    sb_str(&pt));
+			free(pt.p);
+			free(ws.p);
+			return 1;
+		}
+		free(pt.p);
+		free(ws.p);
+		pr->sat_status = -3;
+		pr->sat_why = "its counterexample did not reproduce";
+	}
+	return 0;
+}
+
+/*
  * Equivalence (b refines a on f's domain), settled as well as it can be:
  * exhaustively when the domain is small enough; otherwise sampled, then
  * (with equiv_algebra) expanded when both are polynomials of degree 2 or
@@ -2086,6 +2161,8 @@ equiv_decide(const struct func *f, nid a, nid b, struct sbuf *wit,
 	int sampled, m;
 
 	memset(pr, 0, sizeof *pr);
+	if ((N.fl[a] | N.fl[b]) & NF_LANES)
+		return equiv_lanes(f, a, b, wit, pr);
 	m = equiv_scan(f, a, b, wit, &sampled, 1, &pr->points);
 	pr->how = sampled ? EQ_SAMPLED : EQ_EXHAUSTIVE;
 	if (m || !sampled)
@@ -2145,7 +2222,9 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 		sb_puts(b, pr->alg);
 		break;
 	default:
-		sb_puts(b, "sampled, not proved");
+		sb_puts(b, pr->how == EQ_UNDECIDED ? "not decided: the lanes' "
+		    "values are free words, with no points to enumerate or "
+		    "sample" : "sampled, not proved");
 		if (pr->sat_status == -1)
 			sb_printf(b, "; SAT gave up on %d AIG nodes within its "
 			    "budget of %d conflicts or %g s", pr->sat.nodes,
@@ -2169,17 +2248,23 @@ cmd_equiv(struct func *f, struct func *g)
 	if (g->np != f->np)
 		fail("%s and %s take different numbers of parameters", fname(f),
 		    fname(g));
+	for (j = 0; j < f->np; j++)
+		if (f->p[j].lanes != g->p[j].lanes)
+			fail("parameter %d has a value in each lane (lanes) in one "
+			    "of %s and %s and not in the other", j + 1, fname(f),
+			    fname(g));
 	equiv_algebra = 1;
 	m = equiv_decide(f, f->body, gb, &w, &pr);
 	equiv_algebra = 0;
 	eqproof_text(&how, &pr);
 	rep_begin("equiv");
-	rep_bool("equal", m == 0);
+	rep_bool("equal", m == 0 && pr.how != EQ_UNDECIDED);
 	rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
 	rep_int("mismatch_points", m);
 	rep_str("method", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
 	    pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ? "algebra" :
-	    pr.sat_status == 1 ? "sat_counterexample" : "sampled");
+	    pr.sat_status == 1 ? "sat_counterexample" : pr.how ==
+	    EQ_UNDECIDED ? "undecided" : "sampled");
 	if (pr.sat_status != 0 || pr.how == EQ_SAT) {
 		rep_obj("sat");
 		rep_str("result", pr.how == EQ_SAT ? "proved" :
@@ -2195,14 +2280,19 @@ cmd_equiv(struct func *f, struct func *g)
 	}
 	if (m)
 		rep_str("counterexample", sb_str(&w));
-	if (m == 0)
+	if (m == 0 && pr.how != EQ_UNDECIDED)
 		rep_proof(pr.how == EQ_SAMPLED ? "numeric" : pr.how == EQ_SAT ?
 		    "sat" : pr.how == EQ_ALGEBRA ? "derivation" : "exhaustive",
 		    pr.how == EQ_EXHAUSTIVE ?
 		    "every point of the domain" : sb_str(&how));
-	if (m == 0)
+	if (m == 0 && pr.how == EQ_UNDECIDED)
+		printf("%s and %s: %s\n", fname(f), fname(g), sb_str(&how));
+	else if (m == 0)
 		printf("%s and %s are equal on the domain of %s (%s)\n",
 		    fname(f), fname(g), fname(f), sb_str(&how));
+	else if (pr.how == EQ_UNDECIDED)
+		printf("%s and %s differ, %s (found by SAT, checked by "
+		    "evaluation)\n", fname(f), fname(g), sb_str(&w));
 	else if (pr.how == EQ_SAMPLED && pr.sat_status == 1)
 		printf("%s and %s differ, e.g. %s (found by SAT, checked by "
 		    "evaluation)\n", fname(f), fname(g), sb_str(&w));

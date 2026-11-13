@@ -3191,6 +3191,19 @@ the state follows (tests/sglanestate.ucas).  A state that reads only
 shared values (`k += 1` under `sg_any(k < lane + x)`, x uniform) stays
 shared and exact.
 
+A parameter declared `lanes` (`x: u32 lanes`, a machine integer) has
+its own value in each lane and says so: W free words.  In the lane
+itself x is the lane's word, and a subgroup operation reads every
+lane's (`sg_ballot((x & 1) != 0)`, `sg_shuffle(x, j)`), at the price of
+any value computed in the lane.  There is then no one point to evaluate
+(32 words of 32 bits), so `show`, `range`, `domain` and `wrap` refuse
+it, saying so, and `equiv` decides by SAT over the words: a
+proof, a counterexample (the lanes' words, run again by the evaluator
+with them as tables read at the lane), or "not decided" when the solver
+gives up; nothing is sampled.  A function that reads such a parameter
+in the lane itself needs its lane (`lane: u32 in 0..W-1`), and a call
+cannot pass one yet (tests/sglanes.ucas).
+
 `sg_active(m)`, m a uniform parameter of the function, says which lanes
 run (bit l for lane l) for the function's subgroup operations after it;
 its value is m's low W bits, the ballot of true.  A ballot has no bit

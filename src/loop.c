@@ -353,12 +353,13 @@ mk_loop(uint32_t e, int res, nid lo, nid hi, nid q)
 	/* subgroup operations in the body, and a lane it reads (sg.c) */
 	for (k = 0; k < loops.nst[e]; k++)
 		N.fl[n] |= (N.fl[loops.init[s + k]] | N.fl[loops.next[s + k]]) &
-		    (NF_SG | NF_LANE | NF_LANEREAD);
+		    (NF_SG | NF_LANE | NF_LANEREAD | NF_LANES);
 	if (loops.cond[e])
 		N.fl[n] |= N.fl[loops.cond[e]] &
-		    (NF_SG | NF_LANE | NF_LANEREAD);
+		    (NF_SG | NF_LANE | NF_LANEREAD | NF_LANES);
 	/* nothing free in it (not even a subgroup's lane): its value */
-	if (node_slots(n) == 0 && !(N.fl[n] & (NF_LANE | NF_LANEREAD))) {
+	if (node_slots(n) == 0 && !(N.fl[n] & (NF_LANE | NF_LANEREAD |
+	    NF_LANES))) {
 		uint64_t sk = loop_skipped;
 		if (fold_loop(n, &vi, &vr)) {
 			loop_skipped = sk;
@@ -701,12 +702,24 @@ static void
 remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 {
 	struct loopdef d;
-	nid m2[SG_LANE_SLOT + 1];
+	nid m2[SG_LCOPY_SLOT + MAXP];
 	uint64_t vals = 0;
-	int j, k, lo = 64, hi = -1, delta = 0, any = 0;
+	int j, k, lo = 64, hi = -1, delta = 0, any = 0, bfl;
 
 	loop_get(e, &d);
 	memset(m2, 0, sizeof m2);
+	bfl = (d.cond ? N.fl[d.cond] : 0) | (d.aux ? N.fl[d.aux] : 0);
+	for (k = 0; k < d.nst; k++)
+		bfl |= N.fl[d.init[k]] | N.fl[d.next[k]];
+	/* a `lanes` parameter's copies in the body (sg.c): no slot among
+	 * the 64 either */
+	if (nmap > SG_LCOPY_SLOT && (bfl & NF_LANES))
+		for (j = SG_LCOPY_SLOT; j < nmap && j < SG_LCOPY_SLOT + MAXP; j++)
+			if (map[j]) {
+				m2[j] = map[j];
+				vals |= node_slots(map[j]);
+				any = 1;
+			}
 	for (j = 0; j < nmap && j < NSLOT; j++)
 		if (map[j] && ((loops.free[e] >> j) & 1)) {
 			m2[j] = map[j];
@@ -761,14 +774,14 @@ remap_ent(uint32_t e, const nid *map, int nmap, uint32_t *ne)
 			d.sslot[k] += delta;
 	}
 	for (k = 0; k < d.nst; k++) {
-		d.init[k] = subst(d.init[k], m2, SG_LANE_SLOT + 1);
+		d.init[k] = subst(d.init[k], m2, SG_LCOPY_SLOT + MAXP);
 		d.next[k] = mk_cast(d.sty[k], subst(d.next[k], m2,
-		    SG_LANE_SLOT + 1));
+		    SG_LCOPY_SLOT + MAXP));
 	}
 	if (d.cond)
-		d.cond = subst(d.cond, m2, SG_LANE_SLOT + 1);
+		d.cond = subst(d.cond, m2, SG_LCOPY_SLOT + MAXP);
 	if (d.aux)
-		d.aux = subst(d.aux, m2, SG_LANE_SLOT + 1);
+		d.aux = subst(d.aux, m2, SG_LCOPY_SLOT + MAXP);
 	*ne = loop_intern(&d);
 }
 
