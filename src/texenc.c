@@ -977,8 +977,9 @@ cmd_texenc_eac(const struct func *f, const struct func *g, int W,
 			}
 		}
 		printf("  %sa decoder that extends the 11 bits to 16 (the "
-		    "specification allows it) reads (v << 5) + (v >> %d) over %s: "
-		    "within %.3g of the table\n", pre, sgn ? 5 : 6, sgn ? "32767" :
+		    "specification allows it) reads %s over %s: within %.3g of "
+		    "the table\n", pre, sgn ? "|v|'s (|v| << 5) + (|v| >> 5), "
+		    "with v's sign," : "(v << 5) + (v >> 6)", sgn ? "32767" :
 		    "65535", e[c].err16);
 		if (nt == 2)
 			rep_end();
