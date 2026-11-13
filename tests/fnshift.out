@@ -12,6 +12,14 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
     proof: exhaustive: ucas equiv of the function and the form, case by case (32 points)
     cost under gt1030 (a loop priced per iteration times its trips): 9.75 -> 7 per call
     relies on: the inferred domain (flip in {0, 1}; i in 0..15): the form holds on all of it
+  main (line 5), called from no call
+    line 7: the loop leaves s as a function of flip alone (s = 0u as it starts): a table of its 2 values
+      for (uint i = 0u; i < 16u; i++)
+        ->  const uint s_of_flip[2] = uint[](0xCCCCu, 0xFF00u);
+          s = s_of_flip[flip];
+      proof: the loop run at each of the 2 values of flip, the table its values
+      cost under gt1030: 358 -> 7.875 each time the loop runs
+      relies on: flip in 0..1; s = 0u where the loop starts (the analysis's domain from the start of main)
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > use gt1030
@@ -33,3 +41,10 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
     proof: exhaustive: ucas equiv of the function and the form, case by case (192 points)
     cost under gt1030 (a loop priced per iteration times its trips): 15 -> 11 per call
     relies on: the inferred domain (k in {0, 1, 2}; x in 0..63): the form holds on all of it
+  main (line 5), called from no call
+    line 7: the loop leaves s = 96u whatever k is (s = 0u as it starts)
+      for (uint x = 0u; x < 64u; x++)
+        ->  s = 96u;
+      proof: the loop run at each of the 3 values of k: every one leaves 96u
+      cost under gt1030: 1640 -> 1 each time the loop runs
+      relies on: k in 0..2 where the loop starts (the analysis's domain from the start of main)

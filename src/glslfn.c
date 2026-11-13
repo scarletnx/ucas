@@ -6760,6 +6760,46 @@ search_tab(int f)
 			tab[n] = norm(G.y[y].ty, C.v[y]);
 		}
 		C.ub = 0;
+		/* one value at every point: the loop is that constant */
+		for (n = 1; ok && n < K && tab[n] == tab[0]; n++)
+			;
+		if (ok && n == K) {
+			struct sbuf v0 = {0}, vk = {0};
+			char q0[80];
+			c0 = scost(s);
+			c1 = model_active()->c[C_IADD];	/* its store */
+			if (c1 < c0) {
+				p = prop_new(f, P_TAB, t->line);
+				num_text(&v0, y0, G.y[y].ty);
+				if (G.y[y].ty == TU)
+					glsl_u(&vk, tab[0]);
+				else
+					sb_printf(&vk, "%lld", (long long)tab[0]);
+				snprintf(p->what, sizeof p->what, "the loop leaves %s = %s "
+				    "whatever %s is (%s = %s as it starts)", G.y[y].name, vk.p,
+				    G.y[x].name, G.y[y].name, v0.p);
+				src_quote(q0, sizeof q0, t->line);
+				sb_printf(&p->text, "%s\n  ->  %s = %s;", q0, G.y[y].name, vk.p);
+				snprintf(p->proof, sizeof p->proof, "the loop run at each of the "
+				    "%d values of %s: every one leaves %s", K, G.y[x].name, vk.p);
+				p->points = K;
+				p->c0 = c0;
+				p->c1 = c1;
+				snprintf(p->domain, sizeof p->domain, "%s in %lld..%lld",
+				    G.y[x].name, (long long)E[x].lo, (long long)E[x].hi);
+				snprintf(p->relies, sizeof p->relies, "%s where the loop starts "
+				    "(the analysis's domain from %s)", p->domain, is_root(f) ?
+				    "the start of main" : "the calls");
+			}
+			free(v0.p);
+			free(vk.p);
+			free(tab);
+			free(lx);
+			free(ls);
+			free(rd);
+			free(decl);
+			continue;
+		}
 		/* the table, read by find's maps */
 		snprintf(names[0], sizeof names[0], "%s", G.y[x].name);
 		tys[0] = G.y[x].ty == TB ? TU : G.y[x].ty;
