@@ -76,3 +76,48 @@ equiv t1 t2
 r1(x: f32, y: f32) = floor(x) + floor(y)
 r2(x: f32, y: f32) = -ceil(-x) + -ceil(-y)
 equiv r1 r2
+# nanbits: two NaN results are equal only with the same sign and payload.
+# q1 and q2 differ only in a NaN's payload, q3 and q2 only in its sign:
+# equal without nanbits, a counterexample with it
+q1(x: u32) = asfloat(x | 0x7fc00000)
+q2(x: u32) = asfloat(u32(0x7fc00000))
+q3(x: u32) = asfloat((x & 0x80000000) | 0x7fc00000)
+equiv q1 q2
+equiv q1 q2 nanbits
+equiv q3 q2
+equiv q3 q2 nanbits
+# f16 and f64 keep a NaN's payload too (f16: every point enumerated)
+hn1(x: u16) = asfloat(x | 0x7e00)
+hn2(x: u16) = asfloat(u16(0x7e00))
+equiv hn1 hn2
+equiv hn1 hn2 nanbits
+d64a(x: u64) = asfloat(x | 0x7ff8000000000000)
+d64b(x: u64) = asfloat(u64(0x7ff8000000000000))
+equiv d64a d64b nanbits
+# a payload that only moves is proved bit for bit: a double negation, abs
+# against the cleared sign bit, a select of two NaNs
+m1(x: u32) = -(-asfloat(x))
+m2(x: u32) = asfloat(x)
+equiv m1 m2 nanbits
+a1(x: u32) = abs(asfloat(x))
+a2(x: u32) = asfloat(x & 0x7fffffff)
+equiv a1 a2 nanbits
+sel1(x: u32, y: u32) = x < y ? asfloat(x | 0x7f800001) : asfloat(y | 0x7f800001)
+sel2(x: u32, y: u32) = asfloat((x < y ? x : y) | 0x7f800001)
+equiv sel1 sel2 nanbits
+# one payload out of 2^22 differs: beyond the sample, found by SAT
+p1(x: u32) = asfloat(x | 0x7fc00000)
+p2(x: u32) = (x & 0x3fffff) == 0x25a5a5 ? asfloat(u32(0x7fc00000)) : asfloat(x | 0x7fc00000)
+equiv p1 p2
+equiv p1 p2 nanbits
+# a NaN that arithmetic makes has a free payload in the circuit: x + 0
+# keeps x's on the host, which the circuit does not prove
+ar1(x: u32) = asfloat(x) + f32(0)
+equiv ar1 m2 nanbits
+# ftz and nanbits in either order; nanbits on an integer result has
+# nothing to compare, and says so
+equiv q1 q2 nanbits ftz
+ib1(x: u32) = asuint(asfloat(x | 0x7fc00000))
+ib2(x: u32) = x | 0x7fc00000
+equiv ib1 ib2 nanbits
+is q1 equal to q2 comparing NaN payloads?

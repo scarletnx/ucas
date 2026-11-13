@@ -1964,12 +1964,32 @@ rebind(const struct func *f, const struct func *g)
 	return subst(g->body, map, g->np);
 }
 
+/*
+ * equiv_nanbits (equiv's `nanbits`): two NaN results are equal only with
+ * the same sign and payload, read from their bits in the result's width
+ */
+int equiv_nanbits;
+
 static int
 same_val(ty_t t, int64_t a, double ar, int64_t b, double br)
 {
+	if (TY_FP(t) && isnan(ar) && isnan(br) && equiv_nanbits &&
+	    TYK(t) == K_FLOAT)
+		return fbits(TYW(t), ar) == fbits(TYW(t), br);
 	if (TY_FP(t))
 		return (isnan(ar) && isnan(br)) || ar == br;
 	return a == b;
+}
+
+/* a result in a counterexample: a NaN with its bits under nanbits */
+static void
+fmt_res(struct sbuf *b, ty_t t, int64_t vi, double vr)
+{
+	if (equiv_nanbits && TYK(t) == K_FLOAT && isnan(vr))
+		sb_printf(b, "NaN 0x%0*llx", TYW(t) / 4,
+		    (unsigned long long)fbits(TYW(t), vr));
+	else
+		fmt_val(b, t, vi, vr);
 }
 
 /*
@@ -2013,13 +2033,13 @@ equiv_scan(const struct func *f, nid a, nid b, struct sbuf *wit, int *sampled,
 					if (ua)
 						sb_puts(wit, "undefined");
 					else
-						fmt_val(wit, t, COLI(&r.p, la)[i],
+						fmt_res(wit, t, COLI(&r.p, la)[i],
 						    COLR(&r.p, la)[i]);
 					sb_puts(wit, " vs ");
 					if (ub)
 						sb_puts(wit, "undefined");
 					else
-						fmt_val(wit, t, COLI(&r.p, lb)[i],
+						fmt_res(wit, t, COLI(&r.p, lb)[i],
 						    COLR(&r.p, lb)[i]);
 				}
 			}
@@ -2080,12 +2100,12 @@ point_differs(const struct func *f, nid a, nid b, const int64_t *in,
 			if (wit) {
 				fmt_point(wit, f, in_i, in_r, 0);
 				sb_puts(wit, ": ");
-				fmt_val(wit, t, COLI(&p, la)[0], COLR(&p, la)[0]);
+				fmt_res(wit, t, COLI(&p, la)[0], COLR(&p, la)[0]);
 				sb_puts(wit, " vs ");
 				if (ub)
 					sb_puts(wit, "undefined");
 				else
-					fmt_val(wit, t, COLI(&p, lb)[0],
+					fmt_res(wit, t, COLI(&p, lb)[0],
 					    COLR(&p, lb)[0]);
 			}
 		}
@@ -2265,15 +2285,16 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 	}
 }
 
-/* the request came over JSON or MCP without "ftz" (jsonmode.c) */
-int equiv_need_ftz;
+/* the request came over JSON or MCP without "ftz", without "nanbits"
+ * (jsonmode.c) */
+int equiv_need_ftz, equiv_need_nanbits;
 
 void
-cmd_equiv(struct func *f, struct func *g, int ftz)
+cmd_equiv(struct func *f, struct func *g, int ftz, int nanbits)
 {
 	struct sbuf w = {0}, how = {0};
 	struct eqproof pr;
-	int m, j, flt;
+	int m, j, flt, rflt;
 	nid gb = rebind(f, g);
 
 	if (g->np != f->np)
@@ -2289,18 +2310,29 @@ cmd_equiv(struct func *f, struct func *g, int ftz)
 		fail("\"ftz\" is missing: equiv of float formulas over JSON or "
 		    "MCP needs it, true (every float operation flushes "
 		    "subnormals to zero) or false (subnormals kept, IEEE)");
+	/* nanbits matters where the compared values are floats */
+	rflt = TYK(N.ty[f->body]) == K_FLOAT;
+	if (rflt && nanbits < 0 && equiv_need_nanbits)
+		fail("\"nanbits\" is missing: equiv of formulas with a float "
+		    "result over JSON or MCP needs it, true (two NaN results are "
+		    "equal only with the same sign and payload) or false (every "
+		    "NaN is equal)");
 	float_ftz = nsat_ftz = ftz > 0;
+	equiv_nanbits = nsat_nanbits = rflt && nanbits > 0;
 	nsat_floats = 1;
 	equiv_algebra = 1;
 	m = equiv_decide(f, f->body, gb, &w, &pr);
 	equiv_algebra = 0;
 	float_ftz = nsat_ftz = nsat_floats = 0;
+	equiv_nanbits = nsat_nanbits = 0;
 	eqproof_text(&how, &pr);
 	rep_begin("equiv");
 	rep_bool("equal", m == 0 && pr.how != EQ_UNDECIDED);
 	rep_bool("exhaustive", pr.how == EQ_EXHAUSTIVE);
 	if (flt)
 		rep_bool("ftz", ftz > 0);
+	if (rflt)
+		rep_bool("nanbits", nanbits > 0);
 	rep_int("mismatch_points", m);
 	rep_str("method", pr.how == EQ_EXHAUSTIVE ? "exhaustive" :
 	    pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ? "algebra" :
@@ -2343,6 +2375,12 @@ cmd_equiv(struct func *f, struct func *g, int ftz)
 		    " of the sample" : "", sb_str(&w));
 	if (flt && ftz > 0)
 		printf("  every float operation flushed subnormals to zero (ftz)\n");
+	if (rflt && nanbits > 0)
+		printf("  NaN results compared by their bits, sign and payload "
+		    "(nanbits)\n");
+	else if (nanbits > 0)
+		printf("  nanbits: the result is %s, not a float: no NaN to "
+		    "compare\n", ty_str(N.ty[f->body]));
 	if (m == 0 && pr.how == EQ_SAMPLED) {
 		/* not decided: polynomials can still be tested as such */
 		struct sbuf pt = {0};

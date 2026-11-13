@@ -1501,6 +1501,7 @@ static struct {
 	const char *why;      /* a note printed before the answer */
 	int nocrit;           /* range without critical points */
 	int ftz;              /* equiv: 1 subnormals flushed, 2 kept */
+	int nanbits;          /* equiv: NaN results compared by their bits */
 	int interval;         /* an implicit variable over an interval */
 	const char *ilo, *ihi; /* "on [a, b]" for the only variable */
 	int prop;             /* C_PROP: which property */
@@ -3330,6 +3331,14 @@ parse_option(void)
 	    "denorms") || mat("?with subnormals|denormals|denorms "
 	    "kept|preserved")) {
 		Q.ftz = 2;
+		return 1;
+	}
+	wi = s;
+	/* equiv's NaN payloads: "nanbits", "comparing NaN payloads", "with
+	 * NaN bits compared" */
+	if (mat("nanbits") || mat("?comparing|compare|with nan|nans "
+	    "payloads|payload|bits ?compared")) {
+		Q.nanbits = 1;
 		return 1;
 	}
 	wi = s;
@@ -7152,8 +7161,8 @@ finish(void)
 		if (Q.cmd == C_EQUIV) {
 			a = target_fn(&Q.a, 1, "it", 0, 3, 3);
 			b = target_fn(&Q.b, 2, "that", 0, 3, 3);
-			emit(S("equiv %s %s%s", a, b, Q.ftz == 1 ? " ftz" :
-			    Q.ftz == 2 ? " noftz" : ""));
+			emit(S("equiv %s %s%s%s", a, b, Q.ftz == 1 ? " ftz" :
+			    Q.ftz == 2 ? " noftz" : "", Q.nanbits ? " nanbits" : ""));
 		} else {
 			/* G (a) takes F's (b) parameters first, then its own */
 			b = target_fn(&Q.b, 2, "that", 0, 2, 2);

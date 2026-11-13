@@ -242,7 +242,10 @@ static const struct jcmd cmds[] = {
 	    {"ftz", P_BOOL, 0, " ftz", "needed when f or g has a float: true, "
 	    "every float operation (a bit cast aside) reads a subnormal as the "
 	    "zero of its sign and gives one; false, subnormals kept (IEEE)",
-	    " noftz"}}},
+	    " noftz"},
+	    {"nanbits", P_BOOL, 0, " nanbits", "needed when the result is a "
+	    "float: true, two NaN results are equal only with the same sign "
+	    "and payload; false, every NaN is equal", NULL}}},
 	{"find", "find", 1, 0, "cheaper implementations under the cost model",
 	    {FN, IO("n", " %s", "how many (5)"), IO("max", " max %s",
 	    "maximum cost")}},
@@ -2759,8 +2762,11 @@ handle(const struct jv *rq)
 		return error_response(id, cmd, "bad_request", "\"args\" is an "
 		    "object");
 	r.args = a;
-	/* equiv of floats says whether subnormals flush (analyze.c) */
+	/* equiv of floats says whether subnormals flush, and of a float
+	 * result how NaNs compare (analyze.c) */
 	equiv_need_ftz = !strcmp(r.c->name, "equiv") && jv_get(a, "ftz") == NULL;
+	equiv_need_nanbits = !strcmp(r.c->name, "equiv") &&
+	    jv_get(a, "nanbits") == NULL;
 	if ((v = jv_get(a, "files")) != NULL && v->t == J_STR)
 		fmode = !strcmp(v->s, "base64") ? REP_FILES_BASE64 :
 		    !strcmp(v->s, "both") ? REP_FILES_WRITE | REP_FILES_BASE64 :
