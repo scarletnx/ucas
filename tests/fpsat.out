@@ -117,7 +117,7 @@ hn1 and hn2 differ at 65472 points, e.g. x=1: NaN 0x7e01 vs NaN 0x7e00
 > d64a(x: u64) = asfloat(x | 0x7ff8000000000000)
 > d64b(x: u64) = asfloat(u64(0x7ff8000000000000))
 > equiv d64a d64b nanbits
-d64a and d64b differ at 65533 points of the sample, e.g. x=9223372036854775807: NaN 0x7fffffffffffffff vs NaN 0x7ff8000000000000
+d64a and d64b differ at 65534 points of the sample, e.g. x=18446744073709551615: NaN 0xffffffffffffffff vs NaN 0x7ff8000000000000
   NaN results compared by their bits, sign and payload (nanbits)
 > m1(x: u32) = -(-asfloat(x))
 > m2(x: u32) = asfloat(x)
