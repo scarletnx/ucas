@@ -1,0 +1,38 @@
+# The function level's divisibility test of a value with few multiples in its
+# recorded range, as equalities (glslfn.c few_multiples): ETC2's planar search
+# ends a pass of 27 at k % 27 == 0 && k != 0, k in 0..107.
+simplify functions nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint runs(uint v) {
+  uint s = 0u, acc = v;
+  for (int k = 0; k < 4 * 27; k++) {
+    if (k % 27 == 0 && k != 0) { s += acc; acc = 0u; }
+    acc += uint(k) ^ v;
+  }
+  return s + acc;
+}
+void main() {
+  b.d[gl_GlobalInvocationID.x] = runs(b.d[gl_GlobalInvocationID.x]);
+}
+```
+# with 5 multiples in range (k in 0..127, 0 left out by k != 0) it stays
+simplify functions nofile under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+uint runs(uint v) {
+  uint s = 0u, acc = v;
+  for (int k = 0; k < 128; k++) {
+    if (k % 25 == 0 && k != 0) { s += acc; acc = 0u; }
+    acc += uint(k) ^ v;
+  }
+  return s + acc;
+}
+void main() {
+  b.d[gl_GlobalInvocationID.x] = runs(b.d[gl_GlobalInvocationID.x]);
+}
+```
