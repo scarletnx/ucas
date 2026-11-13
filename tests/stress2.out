@@ -62,6 +62,12 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       proof: exhaustive: ucas equiv on every recorded value of its leaves (4259840 points)
       cost under gt1030: 11 -> 8 each time it runs
       relies on: w in 0..64; Ch(q0, c) in 0..255; Ch(q1, c) in 0..255 where line 86 runs
+  Step (line 93), called from Eval (lines 98, 99, 100, 101)
+    what its calls need (each change proved on the values its leaves take at those calls):
+      1 of its 4 calls (line 101): 18 -> 17 a call under gt1030 (3 points)
+        return ((sh_mask >> c) & 1u) != 0u ? int(Ch(q1, c)) - int(Ch(q0, c)) : 0;
+          ->  return sh_mask >> c != 0u ? int(Ch(q1, c)) - int(Ch(q0, c)) : 0;
+        where: Step(q0, q1, 3u) at line 101 (in Eval): 3u in 3
   Eval (line 97), called from Try (line 170)
     line 116: the signed division of operands never negative here, unsigned (trunc = floor for a >= 0, b > 0)
       dd / 2
@@ -75,6 +81,12 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 19 function
       proof: exhaustive: ucas equiv on every recorded value of its leaves (195 points)
       cost under gt1030: 7 -> 6 each time it runs
       relies on: t64 in 0..64; top in {3, 7, 15} where line 117 runs
+  SolveEnd (line 205), called from Solve (line 220), FitSubset (lines 309, 310, 311, 312, 313, 314, 315, 316)
+    what its calls need (each change proved on the values its leaves take at those calls):
+      2 of its 8 calls (lines 312 and 316): 133.25 -> 132.25 a call under gt1030 (6 points)
+        if (((sh_mask >> c) & 1u) == 0u)
+          ->  if (sh_mask >> c == 0u)
+        where: SolveEnd(3u, 0u, det, v3, w3) at line 312 (in FitSubset): 3u in 3; 0u in 0; det in 1..2147483647; SolveEnd(3u, 1u, det, v3, w3) at line 316 (in FitSubset): 3u in 3; 1u in 1; det in 1..2147483647
   invariant calls (a dataflow fact: neither the arguments nor anything the callee reads is written in the loop, and the callee writes nothing):
     PAllowed(s) at line 163 (in Try) is the same on every pass of FitSubset's loop at line 280, which calls Try at line 318: hoist it out of the loop at line 280 (compute it before the loop and pass it to Try); it costs 809.25 a call under gt1030, 4 passes: 2427.75 saved a run of the loop
   also invariant in their loops, but cheap (cost < 8 a call): Ch(q0, 0u) (line 113), Ch(q0, 1u) (line 113), Ch(q0, 2u) (line 114), Ch(q0, 3u) (line 114), StoredBits() (line 52)

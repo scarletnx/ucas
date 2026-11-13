@@ -1,0 +1,36 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 6 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  PackClamped (line 8), called from Endpoint (lines 22, 25, 27)
+    line 9: the clamp never bites
+      clamp(b, 0, 255)
+        ->  b
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (256 points)
+      cost under gt1030: 2 -> 0 each time it runs
+      relies on: b in 0..255 where line 9 runs
+    line 9: the clamp never bites
+      clamp(a, 0, 255)
+        ->  a
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (257 points)
+      cost under gt1030: 2 -> 0 each time it runs
+      relies on: a in 0..255 where line 9 runs
+    what its calls need (each change proved on the values its leaves take at those calls):
+      1 of its 3 calls (line 22): none of its clamps bites, an unclamped variant serves it: 17 -> 9 a call under gt1030 (769 points)
+        return Pack(uint(clamp(r, 0, 255)), uint(clamp(g, 0, 255)), uint(clamp(b, 0, 255)), uint(clamp(a, 0, 255)));
+          ->  return Pack(uint(r), uint(g), uint(b), uint(a));
+        where: PackClamped(s0, s0, s0, 255) at line 22 (in Endpoint): s0 in 0..255; s0 in 0..255; s0 in 0..255; 255 in 255
+      1 of its 3 calls (line 25): 17 -> 11 a call under gt1030 (513 points)
+        return Pack(uint(clamp(r, 0, 255)), uint(clamp(g, 0, 255)), uint(clamp(b, 0, 255)), uint(clamp(a, 0, 255)));
+          ->  return Pack(uint(clamp(r, 0, 255)), uint(g), uint(b), uint(a));
+        where: PackClamped(s0 + s1, s0, s0, 255) at line 25 (in Endpoint): s0 + s1 in -32..286; s0 in 0..255; s0 in 0..255; 255 in 255
+      1 of its 3 calls (line 27): 17 -> 11 a call under gt1030 (768 points)
+        return Pack(uint(clamp(r, 0, 255)), uint(clamp(g, 0, 255)), uint(clamp(b, 0, 255)), uint(clamp(a, 0, 255)));
+          ->  return Pack(uint(r), uint(clamp(g, 0, 255)), uint(b), uint(a));
+        where: PackClamped(s0, s0 + s1, s0, s0) at line 27 (in Endpoint): s0 in 0..255; s0 + s1 in -32..286; s0 in 0..255; s0 in 0..255
+  Morton (line 11), called from main (line 32)
+    what its calls need (each change proved on the values its leaves take at those calls):
+      1 of its 2 calls (line 32): 25 -> 21 a call under gt1030 (8 points)
+        return i + ((x & 4294967288u) << 6u);
+          ->  return i;
+        where: Morton(i % 8u, (i >> 3u) % 8u) at line 32 (in main): i % 8u in 0..7; (i >> 3u) % 8u in 0..7
