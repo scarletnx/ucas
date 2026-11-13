@@ -2012,6 +2012,23 @@ multiply-add as written.  Distributivity mod 2^32 is the derivation, so
 it holds for any operands.  These go in the report's "common factors"
 section, JSON identity kind `common_factor` (tests/factorspv.ucas).
 
+A fifth is an OpUDiv, OpSDiv, OpUMod or OpSRem whose divisor takes a
+few constants: a select of them (either arm), a phi at a selection merge
+of them, or a value the request assumes in a range of at most 8
+(`simplify nofile, wd in [2, 4]`), up to 8 values.  It becomes a
+division by each, picked by the select's own condition or by compares of
+the divisor with its values (the last value takes what no compare does,
+0 among them: a division by 0 is undefined anyway); an unsigned
+remainder by the powers of two among them is one case, `x & (d - 1)`.
+BC4's `(x * 257 + d / 2) / d` with d 1, 257 or 258 on three paths 32.5
+-> 29.5 under gt1030, `x / (c ? 3 : 5)` 33.5 -> 22.5, a 3DS fill's `i %
+wd` for wd 2, 3 or 4 32.25 -> 19.5 (`wd == 3 ? i % 3 : i & (wd - 1)`).
+The module needs a bool type for the compares (one with any compare
+has it).  Each division by a constant is the driver's to make a
+multiply and a shift; signed ones stay signed.  These go in the
+report's "divisions by a value of a few constants" section, JSON
+identity kind `divisor_cases` (tests/divcases_spv.ucas).
+
 ### Integers as floats, floats as integers
 
 The identities between the two number systems of a 32-bit word are

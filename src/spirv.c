@@ -7076,6 +7076,10 @@ dot_emit(struct spvdot *c, nid n)
 			break;
 		}
 		case O_SEL: sop = "OpSelect"; break;
+		case O_DIV: sop = TYK(N.ty[n]) == K_SINT ? "OpSDiv" : "OpUDiv";
+			break;
+		case O_MOD: sop = TYK(N.ty[n]) == K_SINT ? "OpSRem" : "OpUMod";
+			break;
 		}
 		if (!sop) {
 			c->fail = 1;
@@ -7414,6 +7418,131 @@ is_rem(int id)
  * one value (2), an OpSelect with an integer result, an OpLogicalOr or
  * OpLogicalAnd, that no other such instruction reads.  0 neither.
  */
+/*
+ * The values a divisor takes when it is a few constants: a constant, a
+ * select of such values (either arm), a phi at a selection merge of them
+ * (any incoming), or a value the request assumes in a range of at most 8
+ * (`width in [2, 4]`).  Up to 8 values; 0 when it is none of those.
+ */
+/* a w-bit value read signed */
+static int64_t
+few_sext(uint64_t v, int w)
+{
+	return w >= 64 ? (int64_t)v : (int64_t)(v << (64 - w)) >> (64 - w);
+}
+
+static int
+few_vals(int id, int w, int64_t *v, int *n, int depth)
+{
+	int d = SP.def[res_of(id)], i, j;
+	int64_t lo, hi;
+	uint64_t c;
+
+	id = res_of(id);
+	if (depth > 4)
+		return 0;
+	if (const_of(id, &c)) {
+		for (j = 0; j < *n && v[j] != few_sext(c, w); j++)
+			;
+		if (j == *n) {
+			if (*n == 8)
+				return 0;
+			v[(*n)++] = few_sext(c, w);
+		}
+		return 1;
+	}
+	if (d >= 0 && !SP.dead[d] && !strcmp(V.in[d].op, "OpSelect") &&
+	    V.in[d].nop == 4)
+		return few_vals(idx(V.in[d].opnd[2]), w, v, n, depth + 1) &&
+		    few_vals(idx(V.in[d].opnd[3]), w, v, n, depth + 1);
+	if (d >= 0 && fwd_phi(d)) {
+		for (i = 1; i + 1 < V.in[d].nop; i += 2)
+			if (!few_vals(idx(V.in[d].opnd[i]), w, v, n, depth + 1))
+				return 0;
+		return 1;
+	}
+	if (assumed(id, &lo, &hi) && hi - lo < 8) {
+		for (; lo <= hi; lo++) {
+			for (j = 0; j < *n && v[j] != lo; j++)
+				;
+			if (j == *n) {
+				if (*n == 8)
+					return 0;
+				v[(*n)++] = lo;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+/* where few_vals found the values, for the report */
+static const char *
+few_why(int id)
+{
+	int d = SP.def[res_of(id)];
+	int64_t lo, hi;
+
+	if (d >= 0 && !strcmp(V.in[d].op, "OpSelect"))
+		return "a select of constants";
+	if (d >= 0 && !strcmp(V.in[d].op, "OpPhi"))
+		return "the constants its phi merges";
+	if (assumed(res_of(id), &lo, &hi))
+		return "the request's assumption";
+	return "constants";
+}
+
+/*
+ * x op d as a division by a constant per value of d: a select's arms by
+ * its own condition, otherwise a chain of compares of d with its values
+ * (the last value takes what the others do not, 0 among them: a division
+ * by 0 is undefined anyway).
+ */
+static nid
+div_cases(struct spvdot *c, int id, nid x, int op, ty_t vt, int w, int depth)
+{
+	int d = SP.def[res_of(id)], n = 0, i, z;
+	int64_t v[8];
+	uint64_t cv;
+	nid r = 0, dl;
+
+	id = res_of(id);
+	if (const_of(id, &cv))
+		return few_sext(cv, w) == 0 ? 0 : mk_bin(op, x, mk_const_i(vt,
+		    few_sext(cv, w)));
+	if (d >= 0 && !SP.dead[d] && !strcmp(V.in[d].op, "OpSelect") &&
+	    V.in[d].nop == 4 && depth < 4 && c->tybool >= 0) {
+		nid a = div_cases(c, idx(V.in[d].opnd[2]), x, op, vt, w, depth + 1);
+		nid b = div_cases(c, idx(V.in[d].opnd[3]), x, op, vt, w, depth + 1);
+		if (!a || !b)
+			return 0;
+		return mk_sel(spv_node(c, idx(V.in[d].opnd[1]), 0), a, b);
+	}
+	if (!few_vals(id, w, v, &n, 0) || n < 2)
+		return 0;
+	dl = mk_cast(vt, spv_node(c, id, 0));
+	/* an unsigned remainder by any power of two among them is one
+	 * case, x & (d - 1): the last, without a compare */
+	if (op == O_MOD && TYK(vt) == K_UINT)
+		for (i = 0; i < n; i++)
+			if (v[i] > 1 && !(v[i] & (v[i] - 1)))
+				r = mk_bin(O_AND, x, mk_bin(O_SUB, dl, mk_const_i(vt,
+				    1)));
+	/* else the last case is one that is not 0 */
+	for (z = n - 1; z > 0 && v[z] == 0; z--)
+		;
+	if (!r)
+		r = mk_bin(op, x, mk_const_i(vt, v[z]));
+	else
+		z = -1;
+	for (i = n - 1; i >= 0; i--)
+		if (i != z && v[i] != 0 && !(r && z < 0 && v[i] > 1 &&
+		    !(v[i] & (v[i] - 1))))
+			r = mk_sel(mk_bin(O_EQ, dl, mk_const_i(vt, v[i])),
+			    mk_bin(op, x, mk_const_i(vt, v[i])), r);
+	return r;
+}
+
 /* the factors of a product id (through multiplies and shifts left by a
  * constant), its constants left out */
 static void
@@ -7509,7 +7638,7 @@ idrw_root_kind(int k, const char *partof)
 
 static int
 idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
-    struct dotlog *log, int maxlog)
+    struct sbuf *rep4, struct dotlog *log, int maxlog)
 {
 	const struct model *m = model_active();
 	int k, n = 0, i, ty32[2], tybool = bool_type_id();
@@ -7576,6 +7705,46 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
 		    !strcmp(I->op, "OpSMod")) {
 			kind = 0;
 			base = first_arg(I);
+			if (I->nop >= base + 2 && int_width(V.id[root].type) == 32 &&
+			    !const_of(idx(I->opnd[base + 1]), &dv) &&
+			    strcmp(I->op, "OpSMod") && tybool >= 0) {
+				/* a divisor of a few constants: one case each */
+				nid x0, cs;
+				t = spv_ty(V.id[root].type);
+				vt = TY(uns ? K_UINT : K_SINT, 32);
+				c.rdsel = 1;
+				x0 = mk_cast(vt, spv_node(&c, idx(I->opnd[base]), 0));
+				body = mk_cast(t, mk_bin(div ? O_DIV : O_MOD, x0,
+				    mk_cast(vt, spv_node(&c, idx(I->opnd[base + 1]),
+				    0))));
+				cs = c.fail ? 0 : div_cases(&c, idx(I->opnd[base + 1]),
+				    x0, div ? O_DIV : O_MOD, vt, 32, 0);
+				if (!cs || c.fail || c.nleaf == 0) {
+					free(c.memo);
+					continue;
+				}
+				kind = 4;
+				r = xcalloc(1, sizeof *r);
+				nr = 1;
+				r->e = mk_cast(t, cs);
+				r->at = body;
+				r->to = r->e;
+				r->derived = 1;
+				snprintf(r->what, sizeof r->what, "%s, its divisor %s "
+				    "a few constants: a %s by each", shared_str(body, 80),
+				    V.id[res_of(idx(I->opnd[base + 1]))].tok, div ?
+				    "division" : "remainder");
+				snprintf(r->cond, sizeof r->cond, "%s takes no other "
+				    "value (%s)", V.id[res_of(idx(I->opnd[base + 1]))].tok,
+				    few_why(idx(I->opnd[base + 1])));
+				r->proof = strdup("in each case the divisor is that "
+				    "constant, so the quotient (the remainder) is the "
+				    "division by it; a select of the divisor's own "
+				    "condition picks its arm's case, a compare of the "
+				    "divisor with each value picks the others' (the last "
+				    "case takes what no compare does)");
+				goto cands;
+			}
 			if (I->nop < base + 2 || int_width(V.id[root].type) != 32 ||
 			    !const_of(idx(I->opnd[base + 1]), &dv) || dv < 3 ||
 			    dv >= (1ULL << 31)) {
@@ -7631,8 +7800,10 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
 			free(c.memo);
 			continue;
 		}
-		before = fuse_expr_cost(m, body);
 		nr = irw_cands(&c.f, body, &r);
+cands:
+		c.f.body = body;
+		before = fuse_expr_cost(m, body);
 		/* the solved identities, whose derivation is the proof (the
 		 * signed-as-unsigned ones are the SAT pass's): for a division
 		 * those SAT does not finish on, otherwise every derived one */
@@ -7650,7 +7821,7 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
 				after = cost;
 			}
 		}
-		if (best >= 0 && kind)
+		if (best >= 0 && kind && kind != 4)
 			after += (float)(kept = drops_kept(&c, root, r[best].e));
 		if (best < 0 || !(after < before) ||
 		    !dot_translation_ok(&c, root, r[best].e)) {
@@ -7699,7 +7870,8 @@ idrw_pass(struct sbuf *rep, struct sbuf *rep2, struct sbuf *rep3,
 		}
 		log[n].kind = kind;
 		{
-			struct sbuf *o = kind == 3 ? rep3 : kind ? rep2 : rep;
+			struct sbuf *o = kind == 4 ? rep4 : kind == 3 ? rep3 : kind ?
+			    rep2 : rep;
 			sb_printf(o, "    %s\n      ->  %s   (cost %g -> %g)\n",
 			    I->text, log[n].to, (double)before, (double)after);
 			src_line(ins_line(k), sl, sizeof sl);
@@ -11018,8 +11190,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
 	struct sbuf sgrep = {0}, sgprop = {0};
-	struct sbuf idrep2 = {0}, idrep3 = {0};
-	int nidk[4] = {0, 0, 0, 0};	/* idrw's rewrites by kind */
+	struct sbuf idrep2 = {0}, idrep3 = {0}, idrep4 = {0};
+	int nidk[5] = {0, 0, 0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
 
 	memset(&V, 0, sizeof V);
@@ -11157,7 +11329,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	/* divisions by a constant of a bounded dividend, under the model:
 	 * first, so that a signed one is not left as an unsigned division */
 	{
-		int nd = idrw_pass(&idrep, &idrep2, &idrep3, idl, 32), q;
+		int nd = idrw_pass(&idrep, &idrep2, &idrep3, &idrep4, idl, 32), q;
 		for (q = 0; q < nd && nlog < MAXLOG; q++) {
 			struct rwlog *L = &rl[nlog++];
 			snprintf(L->from, sizeof L->from, "%s", idl[q].from);
@@ -11167,8 +11339,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 			    "multiply and a compare" : idl[q].kind == 2 ? "a map of "
 			    "one small-range value as a table or a multiply and a "
 			    "shift" : idl[q].kind == 3 ? "a factor several terms "
-			    "share taken out once" : "a division by a constant of a "
-			    "bounded dividend as a multiply and a shift";
+			    "share taken out once" : idl[q].kind == 4 ? "a division "
+			    "by a few constants as one by each" : "a division by a "
+			    "constant of a bounded dividend as a multiply and a shift";
 			L->gain = idl[q].gain;
 			L->line = idl[q].line;
 			L->dot = 2;
@@ -11469,6 +11642,10 @@ spirv_simplify(const char *src, double budget, int nofile)
 			printf(", %d sum%s with a factor in several terms made one "
 			    "product of it (derived, below)", nidk[3], nidk[3] == 1 ?
 			    "" : "s");
+		if (nidk[4])
+			printf(", %d division%s by a value of a few constants made "
+			    "one by each (derived, below)", nidk[4], nidk[4] == 1 ?
+			    "" : "s");
 		if (nsglog)
 			printf(", %d sum%s of bits over the lanes made a ballot's bit "
 			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
@@ -11581,7 +11758,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_str("holds_where", idl[i].desc);
 			rep_str("derivation", idl[i].proof);
 			if (idl[i].kind)
-				rep_str("kind", idl[i].kind == 3 ? "common_factor" :
+				rep_str("kind", idl[i].kind == 4 ? "divisor_cases" :
+				    idl[i].kind == 3 ? "common_factor" :
 				    idl[i].kind == 1 ? "divisibility" :
 				    "map");
 			rep_end();
@@ -11735,6 +11913,14 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep3.p, stdout);
 	}
 	free(idrep3.p);
+	if (idrep4.n) {
+		printf("  divisions by a value of a few constants (a division by "
+		    "each, the case picked by the divisor; the driver makes each "
+		    "a multiply and a shift; kept under %s):\n",
+		    sym_str(model_active()->name));
+		fputs(idrep4.p, stdout);
+	}
+	free(idrep4.p);
 	if (sgprop.n) {
 		printf("  subgroup forms that need the subgroup's size fixed, "
 		    "proposed (pipeline state: the module is not changed), under "
