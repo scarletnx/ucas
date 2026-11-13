@@ -244,7 +244,9 @@ unrolled (up to 256 iterations).  Not bit-blasted: reals, `int`
 multiplication, `isqrt`, while loops; those stay sampled.  Floats are
 (see "Proofs on floats").
 Multipliers are hard for SAT (x*y against y*x gives up), so the budget
-is 100000 conflicts or 2 s of CPU.
+is 100000 conflicts or 2 s of CPU; with UCAS_NO_TIMES set (as `make
+test` runs) the conflicts alone, so that an answer does not depend on
+the machine's speed or load.
 
 So before SAT, `equiv` expands both sides when they are polynomials of
 degree 2 or more (src/stoch.c `poly_identity`): sums, differences,
