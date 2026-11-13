@@ -1,0 +1,100 @@
+  note: the ```comp block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify budget 30 nofile nofunctions
+simplify: 317 SPIR-V instructions, 30 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 100 -> 70 (-30.0%)
+  by kind:
+      30  equals its operand                            -30
+  rewrites:
+    %37 = OpExtInst %uint %2 UMin %35 %uint_300
+      ->  %35   (equals its operand; -1)
+      (line 7: dst[0] = min((v >> 0u) & 255u, 300u);)
+    %45 = OpExtInst %uint %2 UMin %43 %uint_301
+      ->  %43   (equals its operand; -1)
+      (line 8: dst[1] = min((v >> 1u) & 255u, 301u);)
+    %53 = OpExtInst %uint %2 UMin %51 %uint_302
+      ->  %51   (equals its operand; -1)
+      (line 9: dst[2] = min((v >> 2u) & 255u, 302u);)
+    %61 = OpExtInst %uint %2 UMin %59 %uint_303
+      ->  %59   (equals its operand; -1)
+      (line 10: dst[3] = min((v >> 3u) & 255u, 303u);)
+    %69 = OpExtInst %uint %2 UMin %67 %uint_304
+      ->  %67   (equals its operand; -1)
+      (line 11: dst[4] = min((v >> 4u) & 255u, 304u);)
+    %77 = OpExtInst %uint %2 UMin %75 %uint_305
+      ->  %75   (equals its operand; -1)
+      (line 12: dst[5] = min((v >> 5u) & 255u, 305u);)
+    %85 = OpExtInst %uint %2 UMin %83 %uint_306
+      ->  %83   (equals its operand; -1)
+      (line 13: dst[6] = min((v >> 6u) & 255u, 306u);)
+    %93 = OpExtInst %uint %2 UMin %91 %uint_307
+      ->  %91   (equals its operand; -1)
+      (line 14: dst[7] = min((v >> 7u) & 255u, 307u);)
+    %101 = OpExtInst %uint %2 UMin %99 %uint_308
+      ->  %99   (equals its operand; -1)
+      (line 15: dst[8] = min((v >> 8u) & 255u, 308u);)
+    %109 = OpExtInst %uint %2 UMin %107 %uint_309
+      ->  %107   (equals its operand; -1)
+      (line 16: dst[9] = min((v >> 9u) & 255u, 309u);)
+    %117 = OpExtInst %uint %2 UMin %115 %uint_310
+      ->  %115   (equals its operand; -1)
+      (line 17: dst[10] = min((v >> 10u) & 255u, 310u);)
+    %125 = OpExtInst %uint %2 UMin %123 %uint_311
+      ->  %123   (equals its operand; -1)
+      (line 18: dst[11] = min((v >> 11u) & 255u, 311u);)
+    %133 = OpExtInst %uint %2 UMin %131 %uint_312
+      ->  %131   (equals its operand; -1)
+      (line 19: dst[12] = min((v >> 12u) & 255u, 312u);)
+    %141 = OpExtInst %uint %2 UMin %139 %uint_313
+      ->  %139   (equals its operand; -1)
+      (line 20: dst[13] = min((v >> 13u) & 255u, 313u);)
+    %149 = OpExtInst %uint %2 UMin %147 %uint_314
+      ->  %147   (equals its operand; -1)
+      (line 21: dst[14] = min((v >> 14u) & 255u, 314u);)
+    %157 = OpExtInst %uint %2 UMin %155 %uint_315
+      ->  %155   (equals its operand; -1)
+      (line 22: dst[15] = min((v >> 15u) & 255u, 315u);)
+    %165 = OpExtInst %uint %2 UMin %163 %uint_316
+      ->  %163   (equals its operand; -1)
+      (line 23: dst[16] = min((v >> 16u) & 255u, 316u);)
+    %173 = OpExtInst %uint %2 UMin %171 %uint_317
+      ->  %171   (equals its operand; -1)
+      (line 24: dst[17] = min((v >> 17u) & 255u, 317u);)
+    %181 = OpExtInst %uint %2 UMin %179 %uint_318
+      ->  %179   (equals its operand; -1)
+      (line 25: dst[18] = min((v >> 18u) & 255u, 318u);)
+    %189 = OpExtInst %uint %2 UMin %187 %uint_319
+      ->  %187   (equals its operand; -1)
+      (line 26: dst[19] = min((v >> 19u) & 255u, 319u);)
+    %197 = OpExtInst %uint %2 UMin %195 %uint_320
+      ->  %195   (equals its operand; -1)
+      (line 27: dst[20] = min((v >> 20u) & 255u, 320u);)
+    %205 = OpExtInst %uint %2 UMin %203 %uint_321
+      ->  %203   (equals its operand; -1)
+      (line 28: dst[21] = min((v >> 21u) & 255u, 321u);)
+    %213 = OpExtInst %uint %2 UMin %211 %uint_322
+      ->  %211   (equals its operand; -1)
+      (line 29: dst[22] = min((v >> 22u) & 255u, 322u);)
+    %221 = OpExtInst %uint %2 UMin %219 %uint_323
+      ->  %219   (equals its operand; -1)
+      (line 30: dst[23] = min((v >> 23u) & 255u, 323u);)
+    %228 = OpExtInst %uint %2 UMin %35 %uint_324
+      ->  %35   (equals its operand; -1)
+      (line 31: dst[24] = min((v >> 0u) & 255u, 324u);)
+    %235 = OpExtInst %uint %2 UMin %43 %uint_325
+      ->  %43   (equals its operand; -1)
+      (line 32: dst[25] = min((v >> 1u) & 255u, 325u);)
+    %242 = OpExtInst %uint %2 UMin %51 %uint_326
+      ->  %51   (equals its operand; -1)
+      (line 33: dst[26] = min((v >> 2u) & 255u, 326u);)
+    %249 = OpExtInst %uint %2 UMin %59 %uint_327
+      ->  %59   (equals its operand; -1)
+      (line 34: dst[27] = min((v >> 3u) & 255u, 327u);)
+    %256 = OpExtInst %uint %2 UMin %67 %uint_328
+      ->  %67   (equals its operand; -1)
+      (line 35: dst[28] = min((v >> 4u) & 255u, 328u);)
+    %263 = OpExtInst %uint %2 UMin %75 %uint_329
+      ->  %75   (equals its operand; -1)
+      (line 36: dst[29] = min((v >> 5u) & 255u, 329u);)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 9782 bytes, checksum e345623c)

@@ -1,0 +1,42 @@
+# simplify lists every rewrite in its text report, not the 25 largest (30
+# mins that never bite below)
+simplify nofile nofunctions budget 30
+```comp
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, binding = 1) writeonly buffer Dst { uint dst[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x, v = src[i];
+    dst[0] = min((v >> 0u) & 255u, 300u);
+    dst[1] = min((v >> 1u) & 255u, 301u);
+    dst[2] = min((v >> 2u) & 255u, 302u);
+    dst[3] = min((v >> 3u) & 255u, 303u);
+    dst[4] = min((v >> 4u) & 255u, 304u);
+    dst[5] = min((v >> 5u) & 255u, 305u);
+    dst[6] = min((v >> 6u) & 255u, 306u);
+    dst[7] = min((v >> 7u) & 255u, 307u);
+    dst[8] = min((v >> 8u) & 255u, 308u);
+    dst[9] = min((v >> 9u) & 255u, 309u);
+    dst[10] = min((v >> 10u) & 255u, 310u);
+    dst[11] = min((v >> 11u) & 255u, 311u);
+    dst[12] = min((v >> 12u) & 255u, 312u);
+    dst[13] = min((v >> 13u) & 255u, 313u);
+    dst[14] = min((v >> 14u) & 255u, 314u);
+    dst[15] = min((v >> 15u) & 255u, 315u);
+    dst[16] = min((v >> 16u) & 255u, 316u);
+    dst[17] = min((v >> 17u) & 255u, 317u);
+    dst[18] = min((v >> 18u) & 255u, 318u);
+    dst[19] = min((v >> 19u) & 255u, 319u);
+    dst[20] = min((v >> 20u) & 255u, 320u);
+    dst[21] = min((v >> 21u) & 255u, 321u);
+    dst[22] = min((v >> 22u) & 255u, 322u);
+    dst[23] = min((v >> 23u) & 255u, 323u);
+    dst[24] = min((v >> 0u) & 255u, 324u);
+    dst[25] = min((v >> 1u) & 255u, 325u);
+    dst[26] = min((v >> 2u) & 255u, 326u);
+    dst[27] = min((v >> 3u) & 255u, 327u);
+    dst[28] = min((v >> 4u) & 255u, 328u);
+    dst[29] = min((v >> 5u) & 255u, 329u);
+}
+```
