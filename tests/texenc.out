@@ -184,6 +184,6 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
