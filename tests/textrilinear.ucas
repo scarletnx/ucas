@@ -83,3 +83,17 @@ model texel : gt1030 { load: 43.125, tex_within: 2, tex_3d: 8 }
 tl(x: u8 in 0..1, y: u8 in 0..1, z: u8 in 0..1, s: f32 in 0..1, t: f32 in 0..1, r: f32 in 0..1) = (1-r)*((1-s)*(1-t)*P[z*9+y*3+x] + s*(1-t)*P[z*9+y*3+x+1] + (1-s)*t*P[z*9+y*3+x+3] + s*t*P[z*9+y*3+x+4]) + r*((1-s)*(1-t)*P[z*9+y*3+x+9] + s*(1-t)*P[z*9+y*3+x+10] + (1-s)*t*P[z*9+y*3+x+12] + s*t*P[z*9+y*3+x+13])
 texalu tl tol 0.02 under texel
 texalu tl tol 0.01 under texel
+# a separable kernel along three axes (a run along z times a column times a
+# row, one sign) is cut into pairs on each axis, the last pair of an odd
+# length sharing its first entry: [1 2 1] three times over a 5 x 5 x 5 table
+# of bytes is eight reads at fractions 1/2, exactly, where a model makes a
+# 3-D read cheap enough; [1 2 1] x [1 1] x [1 1] is two (cheaper than the
+# entries read alone under cal); one weight off the product is no kernel
+C = [130, 183, 14, 238, 127, 26, 80, 57, 190, 240, 126, 194, 52, 127, 6, 110, 208, 143, 93, 199, 81, 36, 71, 227, 64, 67, 0, 2, 107, 110, 84, 85, 148, 160, 101, 104, 93, 100, 196, 152, 11, 184, 212, 84, 74, 135, 33, 169, 154, 1, 173, 33, 158, 181, 156, 246, 161, 94, 246, 241, 90, 29, 131, 11, 183, 206, 9, 214, 187, 192, 4, 231, 23, 92, 100, 60, 125, 236, 176, 181, 128, 236, 55, 188, 151, 18, 221, 46, 106, 174, 185, 75, 174, 141, 47, 159, 162, 156, 90, 40, 76, 158, 247, 82, 24, 41, 207, 16, 121, 176, 128, 233, 215, 74, 28, 16, 252, 171, 106, 66, 67, 211, 54, 86, 222]
+model cheap3 : gt1030 { tex_within: 2, tex_3d: 1, tex_sample: 4 }
+k27(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = C[z*25 + y*5 + x] + 2*C[z*25 + y*5 + x + 1] + C[z*25 + y*5 + x + 2] + 2*C[z*25 + y*5 + x + 5] + 4*C[z*25 + y*5 + x + 6] + 2*C[z*25 + y*5 + x + 7] + C[z*25 + y*5 + x + 10] + 2*C[z*25 + y*5 + x + 11] + C[z*25 + y*5 + x + 12] + 2*C[z*25 + y*5 + x + 25] + 4*C[z*25 + y*5 + x + 26] + 2*C[z*25 + y*5 + x + 27] + 4*C[z*25 + y*5 + x + 30] + 8*C[z*25 + y*5 + x + 31] + 4*C[z*25 + y*5 + x + 32] + 2*C[z*25 + y*5 + x + 35] + 4*C[z*25 + y*5 + x + 36] + 2*C[z*25 + y*5 + x + 37] + C[z*25 + y*5 + x + 50] + 2*C[z*25 + y*5 + x + 51] + C[z*25 + y*5 + x + 52] + 2*C[z*25 + y*5 + x + 55] + 4*C[z*25 + y*5 + x + 56] + 2*C[z*25 + y*5 + x + 57] + C[z*25 + y*5 + x + 60] + 2*C[z*25 + y*5 + x + 61] + C[z*25 + y*5 + x + 62]
+texalu k27 under cheap3
+k12(x: u8 in 0..2, y: u8 in 0..3, z: u8 in 0..3) = C[z*25 + y*5 + x] + 2*C[z*25 + y*5 + x + 1] + C[z*25 + y*5 + x + 2] + C[z*25 + y*5 + x + 5] + 2*C[z*25 + y*5 + x + 6] + C[z*25 + y*5 + x + 7] + C[z*25 + y*5 + x + 25] + 2*C[z*25 + y*5 + x + 26] + C[z*25 + y*5 + x + 27] + C[z*25 + y*5 + x + 30] + 2*C[z*25 + y*5 + x + 31] + C[z*25 + y*5 + x + 32]
+texalu k12 under cal
+kx(x: u8 in 0..2, y: u8 in 0..2, z: u8 in 0..2) = C[z*25 + y*5 + x] + 2*C[z*25 + y*5 + x + 1] + C[z*25 + y*5 + x + 2] + 2*C[z*25 + y*5 + x + 5] + 4*C[z*25 + y*5 + x + 6] + 2*C[z*25 + y*5 + x + 7] + C[z*25 + y*5 + x + 10] + 2*C[z*25 + y*5 + x + 11] + C[z*25 + y*5 + x + 12] + 2*C[z*25 + y*5 + x + 25] + 4*C[z*25 + y*5 + x + 26] + 2*C[z*25 + y*5 + x + 27] + 4*C[z*25 + y*5 + x + 30] + 7*C[z*25 + y*5 + x + 31] + 4*C[z*25 + y*5 + x + 32] + 2*C[z*25 + y*5 + x + 35] + 4*C[z*25 + y*5 + x + 36] + 2*C[z*25 + y*5 + x + 37] + C[z*25 + y*5 + x + 50] + 2*C[z*25 + y*5 + x + 51] + C[z*25 + y*5 + x + 52] + 2*C[z*25 + y*5 + x + 55] + 4*C[z*25 + y*5 + x + 56] + 2*C[z*25 + y*5 + x + 57] + C[z*25 + y*5 + x + 60] + 2*C[z*25 + y*5 + x + 61] + C[z*25 + y*5 + x + 62]
+texalu kx under cheap3
