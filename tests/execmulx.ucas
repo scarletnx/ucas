@@ -1,0 +1,18 @@
+# animate exec: Op[US]MulExtended give the low and the high words of the
+# product (both operands read unsigned, or both signed)
+animate exec %px = lane lanes 4 seed 1 nofile
+```spv
+%us = OpTypeStruct %uint %uint
+%ss = OpTypeStruct %int %int
+%l = OpLoad %uint %px
+%a = OpISub %uint %uint_0 %l
+%b = OpIAdd %uint %a %uint_1000000
+%u = OpUMulExtended %us %a %b
+%ulo = OpCompositeExtract %uint %u 0
+%uhi = OpCompositeExtract %uint %u 1
+%sa = OpBitcast %int %a
+%sb = OpBitcast %int %b
+%s = OpSMulExtended %ss %sa %sb
+%slo = OpCompositeExtract %int %s 0
+%shi = OpCompositeExtract %int %s 1
+```

@@ -3456,8 +3456,18 @@ the random runs and the proof say it is one (five swaps: -32 under a
 model that lists brev at 1; tests/catalogue_spv.ucas).  `(base & ~m) |
 field`, m one run of bits p..p+n-1 and the field `(ins << p) & m` or
 `(ins & (2^n - 1)) << p`, is OpBitFieldInsert of ins's low n bits (or
-with xor or +).  It does not write Op[US]MulExtended (a struct result
-and its extract) yet.
+with xor or +).  The high word of a product made twice as wide,
+`(e(x) * e(y)) >> s` narrowed back to x's width w (w <= 32, w <= s <
+2w), with both extensions zero or both sign (a constant that fits
+counts as either), is OpUMulExtended or OpSMulExtended of x and y, the
+extract of its second member, and a right shift by s - w (arithmetic if
+the original's was): `uint(uint64_t(x) * uint64_t(y) >> 32)` and the
+division by a constant `uint(uint64_t(x) * 0xAAAAAAABul >> 33)`.  The
+module gains a struct type for it, and simplify says what spirv-val
+makes of the written module.  A shift below w needs the low word too,
+and one operand signed with the other unsigned has no such instruction:
+those stay.  `animate exec` runs Op[US]MulExtended (its low and high
+words).
 
 ### Packed lanes
 
