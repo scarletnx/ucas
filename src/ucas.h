@@ -775,9 +775,12 @@ void cmd_wrap(struct func *f);
 void cmd_crit(struct func *f);
 void cmd_diff(struct func *f, int slot);
 /* ftz: 1 flush subnormals, 0 keep them, -1 not said (kept; refused over
- * JSON for float formulas when equiv_need_ftz) */
-void cmd_equiv(struct func *f, struct func *g, int ftz);
-extern int equiv_need_ftz;
+ * JSON for float formulas when equiv_need_ftz); nanbits: 1 NaN results
+ * equal only bit for bit, 0 every NaN equal, -1 not said (every NaN
+ * equal; refused over JSON for a float result when equiv_need_nanbits) */
+void cmd_equiv(struct func *f, struct func *g, int ftz, int nanbits);
+extern int equiv_need_ftz, equiv_need_nanbits;
+extern int equiv_nanbits;	/* same_val compares NaN bits */
 void cmd_gates(struct func *f, struct basis *b, int maxcost, int emit_c);
 /* gates.c for programs: a minimal network for one output (cfront) */
 struct gprog {
