@@ -214,14 +214,15 @@ def tbarg(n):
     return dict(files={'table%d.bin' % n: table_bytes(n)}, args=['--bind', '0.2=file={data}/table%d.bin' % n])
 
 
-for _n, _kib in ((256, 1), (16384, 64), (65536, 256)):
+# NVIDIA's driver refuses a 64 KiB constant array (VK_ERROR_UNKNOWN): the sizes between show where it stops
+for _n, _kib in ((256, 1), (1024, 4), (4096, 16), (8192, 32), (16384, 64), (65536, 256)):
     _tab, _rd = _ctab(_n)
     _x = {'x_ctab%dk' % _kib: 1, 'logic': 1, 'iadd': 1}
     if _n > 16384:
         _x.update(logic=2, shift=1)
     # Mesa (lavapipe, RADV) compiles a 64 KiB constant array for more than 10 minutes: those run last
-    _slow = '; run last: Mesa takes over 10 minutes to compile it, so a timeout here is an answer too' \
-        if _n > 256 else ''
+    _slow = '; run last: a large constant array takes Mesa minutes to compile, so a timeout here is an answer ' \
+        'too' if _n > 256 else ''
     step('ctab%dk_random' % _kib, [166], '{a} + ' + _rd.replace('I', '{a} + {u}u'), _x, sub='mem', C=1,
          decls=_tab, slow=_n > 256, note='a %d KiB constant array, an index that the loaded value moves (random)%s%s'
          % (_kib, '; 4 rows of 64 KiB, as SPIR-V needs' if _n > 16384 else '', _slow))

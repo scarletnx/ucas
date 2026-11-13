@@ -173,6 +173,16 @@ def table_walks_keep_lanes_apart():
     assert seen >= 5, 'found %d walking steps, expected the tables of #166 and #168' % seen
     assert not bad, 'walks that merge lanes: %s' % '; '.join(bad)
 
+
+@check
+def constant_tables_bracket_the_refusal():
+    """the card refused a 64 KiB constant array and took a 1 KiB one: #166 needs the sizes between"""
+    kib = sorted(int(m.group(1)) for p in steps() for m in [re.fullmatch(r'ctab(\d+)k_random', p['name'])] if m)
+    between = [k for k in kib if 1 < k < 64]
+    assert len(between) >= 2, 'constant tables of %s KiB: none or one between 1 and 64' % kib
+    for k in kib:
+        assert any(p['name'] == 'ssbo%dk_random' % k for p in steps()), 'no storage buffer beside ctab%dk' % k
+
 def main():
     failed = 0
     for fn in CHECKS:
