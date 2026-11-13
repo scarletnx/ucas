@@ -875,6 +875,8 @@ ident(struct P *p)
 	int na, kind;
 
 	if ((r = value_name(p, s, n)) != 0) {
+		/* a where name is one operand, however its value is written */
+		p->top_paren = binding(p, name) >= 0;
 		adv(p);
 		return r;
 	}

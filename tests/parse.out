@@ -73,3 +73,10 @@ g2(a: u8) = a^2
 > show h2
 h2(a: u8) = a**2 & 7
   -> u8
+> wp(x: u8, y: u8) = (a >= b ? 0 : 1) where a = (x & 7), b = (y & 7)
+> wq(x: u8, y: u8) = (a >= b ? 0 : 1) where a = x & 7, b = y & 7
+> show wq
+wq(x: u8, y: u8) = x & 7 >= y & 7 ? 0 : 1
+  -> int
+> wr(x: u8, y: u8) = (a & 7 >= b ? 0 : 1) where a = x, b = y & 7
+  note: bitwise operators bind tighter than comparisons here (unlike C): read as ((x & 7) >= (y & 7))
