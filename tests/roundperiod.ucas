@@ -1,0 +1,36 @@
+# A rounding over a loop's period (spirv.c, round_pass): a loop of T =
+# 2^k passes that adds the same value rounded to nearest every pass is
+# off by T times one rounding's error; against offsets that run over the
+# period (the index, or a value of it the loop computes that takes each
+# of T consecutive integers once) the sum is T z rounded once.  Proposed,
+# never applied, each with closed's proof (Hermite's identity).
+# Proposed: a float floor(z + 0.5) over 256 passes, the integer (v +
+# 128) >> 8 over 64, roundEven over 16 with the loop's own hash h, a
+# conversion over 32 passes from 4.  Not proposed: 100 passes (not a
+# power of two), a value that changes with the index (x * float(i)).
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 1) in;
+layout(std430, binding = 0) buffer B { float x; float y; uint v; float r[8]; uint s[8]; };
+void main() {
+  float acc = 0.0;
+  for (int i = 0; i < 256; i++) acc += floor(x * 255.0 + 0.5);
+  r[0] = acc;
+  uint t = 0u;
+  for (uint i = 0u; i < 64u; i++) t += (v + 128u) >> 8u;
+  s[0] = t;
+  float a2 = 0.0; uint hs = 0u;
+  for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0); hs += h * h; }
+  r[1] = a2; s[1] = hs;
+  float a3 = 0.0;
+  for (int i = 0; i < 100; i++) a3 += floor(x * 255.0 + 0.5);
+  r[2] = a3;
+  float a4 = 0.0;
+  for (int i = 0; i < 64; i++) a4 += floor(x * float(i) + 0.5);
+  r[3] = a4;
+  int a5 = 0;
+  for (int i = 4; i < 36; i++) a5 += int(x * 255.0 + 0.5);
+  s[2] = uint(a5);
+}
+```

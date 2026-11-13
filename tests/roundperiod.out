@@ -1,0 +1,47 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 219 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 sum of products made dot products (proved by dot.c, below), 4 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 31.25 -> 30.25 (-3.2%)
+  fused by the model in the result (one instruction for several):
+    shr_add          1 x 2     = 2  ((a >> k) + b; saves 1)
+    imad             1 x 3     = 3  (a*b + c; saves 1)
+  by kind:
+       1  a sum of products as one dot product          -1
+  rewrites:
+    %103 = OpIAdd %uint %185 %101
+      ->  udot4x8(t1, t1) + %185 where t1 = 5%183 + 3 & 15   (a sum of products as one dot product; -1)
+      (line 12: for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0);)
+  dot products (a sum of products as one instruction, laid out and proved by dot.c under gt1030):
+    %103 = OpIAdd %uint %185 %101
+      ->  udot4x8(t1, t1) + %185 where t1 = 5%183 + 3 & 15   (cost 7 -> 6)
+      (line 12: for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0);)
+      udot4x8 (4 x 8-bit lanes, unsigned): lane 0: (5%183 + 3 & 15) * (5%183 + 3 & 15)
+      5%183 + 3 & 15 in 0..15 (proved range)
+      udot4x8's sum is in 0..225: it does not wrap
+      proved by SAT: 921 AIG nodes, 0 conflicts
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 6591 bytes, checksum 6ac607ec)
+  rounding over a loop's period (a proposal, never applied: the sum changes):
+    line 6: the loop at line 6 adds floor(z + 0.5) on each of its 256 passes, the same rounding of the same value: the sum is off by 256 times its error, up to 128 steps from 256 z
+        (line 6: for (int i = 0; i < 256; i++) acc += floor(x * 255.0 + 0.5);)
+      against offsets over the period, floor(z + (float(i) + 0.5) / 256.0): the 256 passes add up to floor(256 z + 0.5), 256 z to nearest, within half a step
+      i, the loop's index, runs 0..255
+      proved by closed (Hermite's identity): sum(i, 0, 255, floor(z' + real(i)/256)) = floor(256z'), with z' = z + 0.5/256; in f32 the add can move a pass across a whole number only within half an ulp of it
+    line 9: the loop at line 9 adds (v + 128) >> 8 on each of its 64 passes, the same rounding of the same value: the sum is off by 64 times its error, up to 32 steps from 64 v / 2^8
+        (line 9: for (uint i = 0u; i < 64u; i++) t += (v + 128u) >> 8u;)
+      against offsets over the period, (v + (i << 2) + 2) >> 8: the 64 passes add up to (64 v + 128) >> 8, 64 v / 2^8 to nearest, within half a step (while v + 254 stays in 32 bits)
+      i, the loop's index, runs 0..63
+      proved by closed (Hermite's identity): sum(i, 0, 63, floor(z' + real(i)/64)) = floor(64z'), with z' = v / 2^8 + 0.5/64
+    line 12: the loop at line 12 adds roundEven(z) on each of its 16 passes, the same rounding of the same value: the sum is off by 16 times its error, up to 8 steps from 16 z
+        (line 12: for (uint i = 0u; i < 16u; i++) { uint h = (i * 5u + 3u) & 15u; a2 += roundEven(y * 15.0);)
+      against offsets over the period, floor(z + (float(h) + 0.5) / 16.0): the 16 passes add up to floor(16 z + 0.5), 16 z to nearest, within half a step
+      h = 5i + 3 & 15, which the loop computes (line 12), takes each of 0..15 once over the period
+      proved by closed (Hermite's identity): sum(i, 0, 15, floor(z' + real(5i + 3 & 15)/16)) = floor(16z'), with z' = z + 0.5/16; in f32 the add can move a pass across a whole number only within half an ulp of it
+    line 21: the loop at line 21 adds int(z + 0.5) on each of its 32 passes, the same rounding of the same value: the sum is off by 32 times its error, up to 16 steps from 32 z
+        (line 21: for (int i = 4; i < 36; i++) a5 += int(x * 255.0 + 0.5);)
+      against offsets over the period, int(z + (float(i - 4) + 0.5) / 32.0): the 32 passes add up to floor(32 z + 0.5), 32 z to nearest, within half a step (the conversion truncates: a floor where z + 0.5 >= 0)
+      i, the loop's index, runs 4..35
+      proved by closed (Hermite's identity): sum(i, 4, 35, floor(z' + real(i)/32)) = floor(32z' + 4), with z' = z + (0.5 - 4)/32; in f32 the add can move a pass across a whole number only within half an ulp of it
