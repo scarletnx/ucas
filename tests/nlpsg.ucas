@@ -1,0 +1,24 @@
+# The subgroup operations in English (src/nlp.c, sgws): each lane's value
+# of the operand over one subgroup; lane is declared u32 in 0..31.
+what is the subgroup sum of x where x is a u32?
+the warp sum of lane
+the sum over the subgroup of lane times 2
+what is the range of the subgroup sum of lane?
+the inclusive prefix sum over the subgroup of lane
+the exclusive prefix sum of the lanes of x where x is a u8
+# a ballot, a count and the votes take a condition
+the ballot of the lanes where lane is odd
+the ballot of lane is even
+the number of lanes where lane is less than 5
+how many lanes where lane is greater than 28?
+whether in any lane lane is 3
+whether every lane where lane is nonnegative
+# from one lane: the first active one, a given one, an xor or a rotation
+the first active lane's lane times 3
+the broadcast of lane
+the shuffle of lane from lane 3
+the broadcast of lane from lane 7
+the xor shuffle of lane with 1
+the lane rotation of lane by 2
+# "the sum over" with an index is still an indexed sum
+the sum over i from 1 to 4 of i

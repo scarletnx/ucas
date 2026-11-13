@@ -2278,6 +2278,112 @@ parse_nary(const struct nop *o)
 
 static struct ex parse_postfix(struct ex e, int minprec);
 
+/*
+ * The subgroup operations (sg.c) in words: each lane's value of the
+ * operand, over the lanes of one subgroup.  A ballot, a vote and a count
+ * take a condition ("the ballot of the lanes where x is odd"); a shuffle,
+ * a broadcast, an xor shuffle and a rotation a second operand after
+ * their word ("the shuffle of x from lane 3").  Matched before the n-ary
+ * phrases, where "the sum over" starts an indexed sum.
+ */
+enum { SGW_ONE, SGW_COND, SGW_COUNT, SGW_TWO };
+struct sgw {
+	const char *pat, *fn;
+	int kind;
+	const char *mid;	/* SGW_TWO: before the second operand */
+};
+static const struct sgw sgws[] = {
+	{"?the exclusive subgroup|warp|wave prefix|running sum|scan|total of",
+	    "sg_exclusive", SGW_ONE, NULL},
+	{"?the exclusive prefix|running sum|scan|total over|across|of ?the "
+	    "subgroup|warp|wave|lanes of", "sg_exclusive", SGW_ONE, NULL},
+	{"?the ?inclusive subgroup|warp|wave prefix|running sum|scan|total of",
+	    "sg_scan", SGW_ONE, NULL},
+	{"?the ?inclusive prefix|running sum|scan|total over|across|of ?the "
+	    "subgroup|warp|wave|lanes of", "sg_scan", SGW_ONE, NULL},
+	{"?the subgroup|warp|wave sum|total|reduction of", "sg_add", SGW_ONE,
+	    NULL},
+	{"?the sum|total over|across|of ?all ?the subgroup|warp|wave|lanes of",
+	    "sg_add", SGW_ONE, NULL},
+	{"?the ballot of|over ?the lanes where|whose", "sg_ballot", SGW_COND,
+	    NULL},
+	{"?the subgroup|warp|wave ballot of", "sg_ballot", SGW_COND, NULL},
+	{"?the ballot of", "sg_ballot", SGW_COND, NULL},
+	{"?the number|count of ?the lanes where|whose", NULL, SGW_COUNT, NULL},
+	{"how many lanes where|whose", NULL, SGW_COUNT, NULL},
+	{"?whether|if in any|some lane|lanes", "sg_any", SGW_COND, NULL},
+	{"?whether|if any lane|lanes where|whose", "sg_any", SGW_COND, NULL},
+	{"?whether|if in every|each|all ?the lane|lanes", "sg_all", SGW_COND,
+	    NULL},
+	{"?whether|if every|each|all ?the lane|lanes where|whose", "sg_all",
+	    SGW_COND, NULL},
+	/* "the first active lane's x": the possessive is checked */
+	{"?the first ?active lane", "sg_broadcast_first", SGW_ONE, NULL},
+	{"?the shuffle of", "sg_shuffle", SGW_TWO, "from|to ?lane"},
+	{"?the xor shuffle of", "sg_shuffle_xor", SGW_TWO, "with|by"},
+	{"?the broadcast of", "sg_broadcast", SGW_TWO, "from ?lane"},
+	{"?the lane|subgroup rotation of", "sg_rotate", SGW_TWO, "by"},
+	{NULL, NULL, 0, NULL}
+};
+
+/* the lane's index, a parameter the operations read: u32 in 0..31 */
+static void
+sg_lane_param(int use)
+{
+	struct var *v = var_get("lane");
+
+	if (!*v->ty) {
+		snprintf(v->ty, sizeof v->ty, "u32");
+		v->ity = 1;
+		snprintf(v->lo, sizeof v->lo, "0");
+		snprintf(v->hi, sizeof v->hi, "31");
+		v->bc |= 3;
+	}
+	if (use)
+		(void)var_atom("lane");
+}
+
+static struct ex
+parse_sgw(const struct sgw *g, int s1, int minprec)
+{
+	struct ex a, b;
+	int s = wi;
+
+	/* a scan, a shuffle and a rotation are a value per lane */
+	sg_lane_param(!strcmp(g->fn ? g->fn : "", "sg_scan") ||
+	    !strcmp(g->fn ? g->fn : "", "sg_exclusive") || g->kind == SGW_TWO);
+	switch (g->kind) {
+	case SGW_COND:
+	case SGW_COUNT:
+		incond++;
+		a = parse_expr(P_OR);
+		incond--;
+		if (g->kind == SGW_COND)
+			return mkcall(g->fn, a);
+		return mkcall("popcount", mkcall("sg_ballot", a));
+	case SGW_TWO:
+		a = parse_expr(P_ADD);
+		if (!mat(g->mid)) {
+			/* "the broadcast of x": from the first active lane */
+			if (!strcmp(g->fn, "sg_broadcast"))
+				return mkcall("sg_broadcast_first", a);
+			nfail("expected \"%s\" and a second operand after %s",
+			    g->mid, words_text(s1, s));
+		}
+		b = parse_expr(P_ADD);
+		a = mkatom(S("%s(%s, %s)", g->fn, a.s, b.s), a.ity, 0);
+		a.closed = 1;
+		return a;
+	}
+	a = parse_expr(P_POW);
+	if (want_wide(a, minprec, S("%s(", g->fn), ")", words_text(s1, s))) {
+		wi = s;
+		a = parse_expr(minprec > P_BOR ? minprec : P_BOR);
+		a.closed = 1;
+	}
+	return mkcall(g->fn, a);
+}
+
 static struct ex
 parse_prefix(int minprec)
 {
@@ -2462,6 +2568,17 @@ fraction:
 		return call_user(user_fn(name), S("%s", name), minprec);
 	}
 	/* phrases */
+	for (k = 0; sgws[k].pat; k++) {
+		s1 = wi;
+		if (!mat(sgws[k].pat))
+			continue;
+		if (sgws[k].fn && !strcmp(sgws[k].fn, "sg_broadcast_first") &&
+		    !W[wi - 1].poss) {
+			wi = s1;
+			continue;
+		}
+		return parse_sgw(&sgws[k], s1, minprec);
+	}
 	for (k = 0; nops[k].pat; k++)
 		if (mat(nops[k].pat))
 			return parse_nary(&nops[k]);
@@ -4807,6 +4924,13 @@ how_question(void)
 			Q.cmd = C_GATES;
 		mat("?more faster|cheaper|quicker|better|cheaply|efficiently|quickly");
 		mat("?with fewer operations|ops|instructions");
+		return 1;
+	}
+	if (peek("many lanes")) {
+		/* "how many lanes where x is odd": a count, worked out */
+		wi--;
+		target(&Q.a, P_TERN);
+		Q.cmd = C_EVAL;
 		return 1;
 	}
 	nfail("I don't know how to answer that \"how\" question");
