@@ -2273,10 +2273,13 @@ eqproof_text(struct sbuf *b, const struct eqproof *pr)
 		sb_puts(b, pr->how == EQ_UNDECIDED ? "not decided: the lanes' "
 		    "values are free words, with no points to enumerate or "
 		    "sample" : "sampled, not proved");
-		if (pr->sat_status == -1)
+		if (pr->sat_status == -1 && nsat_seconds() > 0)
 			sb_printf(b, "; SAT gave up on %d AIG nodes within its "
 			    "budget of %d conflicts or %g s", pr->sat.nodes,
-			    NSAT_BUDGET, NSAT_SECONDS);
+			    NSAT_BUDGET, nsat_seconds());
+		else if (pr->sat_status == -1)
+			sb_printf(b, "; SAT gave up on %d AIG nodes within its "
+			    "budget of %d conflicts", pr->sat.nodes, NSAT_BUDGET);
 		else if (pr->sat_status == -2)
 			sb_printf(b, "; no SAT proof: %s", pr->sat_why ?
 			    pr->sat_why : "unsupported");

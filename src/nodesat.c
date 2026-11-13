@@ -1103,6 +1103,17 @@ blast_loop(struct nctx *c, nid n)
 	return res;
 }
 
+/*
+ * The solver's CPU time limit.  UCAS_NO_TIMES (set by `make test`) turns it
+ * off, so that the conflict budget alone decides and a test's answer does
+ * not depend on the machine's speed or load.
+ */
+double
+nsat_seconds(void)
+{
+	return getenv("UCAS_NO_TIMES") ? 0 : NSAT_SECONDS;
+}
+
 /* lo <= x <= hi for a parameter's 64-bit value */
 static lit
 in_bounds(const struct param *p, const struct word *x)
@@ -1338,7 +1349,7 @@ nsat_equiv(const struct func *f, nid a, nid b, long budget,
 	goal = aig_and(B.g, assume, aig_and(B.g, D(va), aig_or(B.g,
 	    L_NOT(D(vb)), ne)));
 	out->nodes = aig_nodes(B.g);
-	aig_seconds = NSAT_SECONDS;
+	aig_seconds = nsat_seconds();
 	r = aig_sat(B.g, goal, budget);
 	aig_seconds = 0;
 	out->conflicts = aig_conflicts;
