@@ -244,29 +244,92 @@ unorm8(double v, int *k)
 	return 1;
 }
 
+/* the same for k/65535: a 16-bit normalised texel */
+static int
+unorm16(double v, int *k)
+{
+	double q = floor(v * 65535 + 0.5);
+
+	if (!(q >= 0 && q <= 65535) || (double)(float)(q / 65535) != v)
+		return 0;
+	if (k)
+		*k = (int)q;
+	return 1;
+}
+
+/*
+ * A filtered read's class from what its texture holds: of the formats
+ * whose texels are the f32 values t exactly (bytes k/255, 16-bit units
+ * k/65535, half floats, f32), the one m prices lowest; *price INFINITY
+ * when m lists none (the class then the bytes' or f32's, as before the
+ * 16-bit forms).
+ */
+static int
+tex_fmt_of(const struct model *m, const double *t, uint32_t n, float *price)
+{
+	static const int cls[4] = {C_TEX_SAMPLE, C_TEX_SAMPLE_16,
+	    C_TEX_SAMPLE_F16, C_TEX_SAMPLE_F32};
+	int hold[4] = {1, 1, 1, 1}, i, best = -1;
+	uint32_t j;
+
+	for (j = 0; j < n; j++) {
+		if (!unorm8(t[j], NULL))
+			hold[0] = 0;
+		if (!unorm16(t[j], NULL))
+			hold[1] = 0;
+		if (fround(16, t[j]) != t[j])
+			hold[2] = 0;
+	}
+	for (i = 0; i < 4; i++)
+		if (hold[i] && m && model_lists(m, cls[i]) && (best < 0 ||
+		    m->c[cls[i]] < m->c[cls[best]]))
+			best = i;
+	*price = best < 0 ? INFINITY : m->c[cls[best]];
+	return best >= 0 ? cls[best] : hold[0] ? C_TEX_SAMPLE :
+	    C_TEX_SAMPLE_F32;
+}
+
+/* a filtered read's class under m (its table's texels) */
+static int
+tex_fmt(const struct model *m, nid tab, float *price)
+{
+	uint32_t j, n = N.b[tab];
+	double *t = xmalloc((n ? n : 1) * sizeof *t);
+	int k;
+
+	for (j = 0; j < n; j++) {
+		nid e = N.lst[N.a[tab] + j];
+		t[j] = !is_const(e) ? NAN : TY_FP(N.ty[e]) ? N.kr[e] :
+		    (double)N.ki[e];
+	}
+	k = tex_fmt_of(m, t, n, price);
+	free(t);
+	return k;
+}
+
 int
 tex_class(nid n)
 {
-	nid tab = N.a[n];
-	uint32_t j;
+	float p;
 
 	if (IS_FETCH(N.op[n]))
 		return N.ki[n] == TEX_SRGB ? C_TEX_SRGB : C_TEX_NEAREST;
 	if (N.op[n] == O_FETCH_LAYER)
 		return C_TEX_LAYER;
-	for (j = 0; j < N.b[tab]; j++) {
-		nid e = N.lst[N.a[tab] + j];
-		if (!is_const(e) || !unorm8(N.kr[e], NULL))
-			return C_TEX_SAMPLE_F32;
-	}
-	return C_TEX_SAMPLE;
+	return tex_fmt(model_active(), N.a[n], &p);
 }
 
 float
 tex_cost(const struct model *m, nid n, int *cls)
 {
-	int k = tex_class(n);
+	int k;
+	float p;
 
+	if (!IS_FETCH(N.op[n]) && N.op[n] != O_FETCH_LAYER) {
+		*cls = tex_fmt(m, N.a[n], &p);
+		return p;
+	}
+	k = tex_class(n);
 	*cls = k;
 	/* unlike a memory kind of memk.c, a read through the unit has no
 	 * fallback: a model that does not list its class cannot do it */
@@ -382,10 +445,13 @@ struct repl {
 	double err, eorig;	/* filtered: the bounds, new and as written */
 	int exact, filtered, ok;
 	int plain;		/* the read as it is, through the unit */
-	int levels;		/* a float table read as 8-bit levels */
+	int approx;		/* FB_: texels that approximate a table */
 	int curve;		/* against the formula it replaces (seed_srgb) */
 	struct sbuf what, holds, proof, pipe, why;
 };
+
+/* the texels of a float table that only approximate it (table_info) */
+enum { FB_LEV8 = 1, FB_LEV16 = 2, FB_F16 = 4 };
 
 static struct {
 	const struct func *f;
@@ -400,7 +466,7 @@ static struct {
 	int unavail[C_NCLASS];	/* a class a candidate needed */
 	int noulp, nobits;
 	double tol;		/* the error the request allows */
-	int nolevels;		/* float tables as f32 only (seed_sum's retry) */
+	int fmtban;		/* FB_: what seed_sum's retry drops */
 	struct sbuf far;	/* an index identity out of f32's reach */
 	struct sbuf nosum;	/* neighbours that are not one read, and why */
 	struct sbuf nolayer;	/* a layer selection not taken, and why */
@@ -971,8 +1037,10 @@ drop_repl(struct repl *r)
 struct tinfo {
 	nid tab;		/* the source's table */
 	int64_t n;
-	int isint;		/* integers 0..255: stored as k/255 */
-	int levels;		/* floats lo + (hi - lo) k/255: stored as k/255 */
+	int isint;		/* integers 0..q: stored as k/q */
+	int levels;		/* floats lo + step k: stored as k/q */
+	int q;			/* 255 or 65535: texels k/q, else 0 */
+	int approx;		/* FB_: what the texels only approximate */
 	int cls;
 	double tmax, trep;	/* max |v|, max |v - its texel| */
 	nid tex;		/* the f32 table the read takes */
@@ -980,103 +1048,215 @@ struct tinfo {
 	double rmax;		/* the largest scale times a texel */
 };
 
+/*
+ * Evenly spaced levels: every entry lo + step m for a whole m of at most
+ * q.  The texture holds k/q (m spread over 0..q when the largest m
+ * divides q, so the filter works on the whole range; m itself
+ * otherwise), the read is mapped back by one multiply-add, and what the
+ * entries differ from that by (a few ulps at most, or it is not taken)
+ * is in trep.  0: not levels.
+ */
+static int
+table_levels(const double *v, uint32_t n, int q, double tmax, double *t,
+    double *scale, double *off, double *rmax)
+{
+	double lo = v[0], hi = v[0], step, gap = INFINITY, worst, mmax, spread;
+	uint32_t j, i2;
+
+	for (j = 1; j < n; j++) {
+		if (v[j] < lo)
+			lo = v[j];
+		if (v[j] > hi)
+			hi = v[j];
+	}
+	for (j = 0; j < n; j++)		/* the smallest gap */
+		for (i2 = 0; i2 < n; i2++) {
+			double d = v[j] - v[i2];
+			if (d > 0 && d < gap)
+				gap = d;
+		}
+	/* first the whole range as q steps, then the smallest gap as the
+	 * step */
+	for (i2 = 0; i2 < 2 && hi > lo; i2++) {
+		step = i2 == 0 ? (hi - lo) / q : gap;
+		mmax = floor((hi - lo) / step + 0.5);
+		if (mmax < 1 || mmax > q)
+			continue;
+		worst = 0;
+		spread = fmod(q, mmax) == 0 ? q / mmax : 1;
+		for (j = 0; j < n; j++) {
+			double k = floor((v[j] - lo) / step + 0.5) * spread;
+			double d = fabs(v[j] - (lo + step / spread * q *
+			    (double)(float)(k / q)));
+			if (d > worst)
+				worst = d;
+		}
+		if (worst <= ldexp(tmax, -21)) {
+			*scale = step / spread * q;
+			*off = lo;
+			*rmax = hi - lo;
+			for (j = 0; j < n; j++)
+				t[j] = (double)(float)(floor((v[j] - lo) /
+				    *scale * q + 0.5) / q);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * The texture's format for a filtered read of a float table, chosen as
+ * the cheapest under the model among those that hold it (#94): bytes
+ * (R8_UNORM, tex_sample) for entries k/255, whole numbers 0..255 or 256
+ * evenly spaced levels; 16-bit units (R16_UNORM, tex_sample_16) for
+ * k/65535, 0..65535 or 65536 levels; half floats (R16_SFLOAT,
+ * tex_sample_f16) for entries an f16 holds, or rounded to f16; f32
+ * otherwise.  Levels and the f16 rounding only approximate the entries:
+ * seed_sum drops them (X.fmtban) when the bound is over the budget.  A
+ * model that lists none of them gets the bytes or f32, as it is told.
+ */
+/* candidate c's texels t of the entries v (table_info), 0 if it does
+ * not apply: c 0 bytes of whole numbers 0..255, 1 bytes k/255, 2 256
+ * evenly spaced levels, 3-5 the same in 16 bits, 6 half floats that hold
+ * every entry, 7 the entries rounded to f16, 8 f32 */
+static int
+table_cand(int c, const double *v, uint32_t n, const int *fl, double tmax,
+    double *t, struct tinfo *w)
+{
+	uint32_t j;
+
+	w->scale = 1;
+	w->off = 0;
+	w->rmax = tmax;
+	switch (c) {
+	case 0: case 3:
+		if (!fl[c == 0 ? 0 : 1])
+			return 0;
+		w->isint = 1;
+		w->q = c == 0 ? 255 : 65535;
+		w->scale = w->q;
+		for (j = 0; j < n; j++)
+			t[j] = (double)(float)(v[j] / w->scale);
+		return 1;
+	case 1: case 4:
+		if (fl[1] || !fl[c == 1 ? 2 : 3])
+			return 0;
+		w->q = c == 1 ? 255 : 65535;
+		for (j = 0; j < n; j++)
+			t[j] = (double)(float)v[j];
+		return 1;
+	case 2: case 5:
+		if ((c == 2 ? fl[0] || fl[2] : fl[1] || fl[3]) || (X.fmtban &
+		    (c == 2 ? FB_LEV8 : FB_LEV16)) || !table_levels(v, n, c == 2 ?
+		    255 : 65535, tmax, t, &w->scale, &w->off, &w->rmax))
+			return 0;
+		w->levels = 1;
+		w->q = c == 2 ? 255 : 65535;
+		w->approx = c == 2 ? FB_LEV8 : FB_LEV16;
+		return 1;
+	case 6: case 7:
+		if (c == 6 ? !fl[4] : fl[4] || !fl[5] || (X.fmtban & FB_F16))
+			return 0;
+		for (j = 0; j < n; j++)
+			t[j] = fround(16, v[j]);
+		w->approx = c == 7 ? FB_F16 : 0;
+		return 1;
+	}
+	for (j = 0; j < n; j++)
+		t[j] = (double)(float)v[j];
+	return 1;
+}
+
 static int
 table_info(nid tab, struct tinfo *ti)
 {
 	uint32_t j, n = N.b[tab];
+	double *v, *t, *bt = NULL;
+	/* whole numbers 0..255, 0..65535; k/255, k/65535; f16 exact; f16
+	 * range */
+	static const int order0[9] = {0, 1, 3, 4, 6, 8, 2, 5, 7};
+	static const int order1[4] = {0, 1, 2, 8};
+	int fl[6] = {1, 1, 1, 1, 1, 1}, c, pass, i;
+	float best = INFINITY, pc;
+	double tmax = 0;
 	nid *e;
-	int u8 = 1, un = 1;
+	struct tinfo w;
 
 	memset(ti, 0, sizeof *ti);
-	ti->tab = tab;
-	ti->n = n;
-	ti->scale = 1;
+	v = xmalloc(n * sizeof *v);
 	for (j = 0; j < n; j++) {
 		nid x = N.lst[N.a[tab] + j];
-		double v;
-		if (!is_const(x))
+		if (!is_const(x)) {
+			free(v);
 			return 0;
-		v = cval(x);
-		if (!isfinite(v) || fabs(v) > 3e38)
-			return 0;
-		if (fabs(v) > ti->tmax)
-			ti->tmax = fabs(v);
-		if (!TY_ISINT(N.ty[x]) || v < 0 || v > 255)
-			u8 = 0;
-		if (!unorm8((double)(float)v, NULL))
-			un = 0;
-	}
-	ti->isint = u8;
-	ti->cls = u8 || un ? C_TEX_SAMPLE : C_TEX_SAMPLE_F32;
-	if (u8)
-		ti->scale = 255;
-	ti->rmax = ti->tmax;
-	if (!u8 && !un && !X.nolevels) {
-		/*
-		 * Evenly spaced levels: every entry lo + step m for a whole m
-		 * of at most 255.  The texture holds bytes k (m spread over
-		 * 0..255 when the largest m divides 255, so the filter works
-		 * on the whole range; m itself otherwise), the read is mapped
-		 * back by one multiply-add, and what the entries differ from
-		 * that by (a few ulps at most, or it is not taken) is in trep.
-		 */
-		double lo = cval(N.lst[N.a[tab]]), hi = lo, step = 0, gap = INFINITY;
-		double worst = 0, mmax, spread;
-		uint32_t i2;
-		for (j = 1; j < n; j++) {
-			double v = cval(N.lst[N.a[tab] + j]);
-			if (v < lo)
-				lo = v;
-			if (v > hi)
-				hi = v;
 		}
-		for (j = 0; j < n; j++)		/* the smallest gap */
-			for (i2 = 0; i2 < n; i2++) {
-				double d = cval(N.lst[N.a[tab] + j]) - cval(N.lst[N.a[tab] +
-				    i2]);
-				if (d > 0 && d < gap)
-					gap = d;
-			}
-		/* first the whole range as 255 steps, then the smallest gap
-		 * as the step */
-		for (i2 = 0; i2 < 2 && !ti->levels && hi > lo; i2++) {
-			step = i2 == 0 ? (hi - lo) / 255 : gap;
-			mmax = floor((hi - lo) / step + 0.5);
-			if (mmax < 1 || mmax > 255)
+		v[j] = cval(x);
+		if (!isfinite(v[j]) || fabs(v[j]) > 3e38) {
+			free(v);
+			return 0;
+		}
+		if (fabs(v[j]) > tmax)
+			tmax = fabs(v[j]);
+		if (!TY_ISINT(N.ty[x]) || v[j] < 0 || v[j] > 255)
+			fl[0] = 0;
+		if (!TY_ISINT(N.ty[x]) || v[j] < 0 || v[j] > 65535)
+			fl[1] = 0;
+		if (!unorm8((double)(float)v[j], NULL))
+			fl[2] = 0;
+		if (!unorm16((double)(float)v[j], NULL))
+			fl[3] = 0;
+		if (fround(16, v[j]) != v[j])
+			fl[4] = 0;
+		if (!(fabs(fround(16, v[j])) <= 65504))
+			fl[5] = 0;
+	}
+	t = xmalloc(n * sizeof *t);
+	bt = xmalloc(n * sizeof *bt);
+	/*
+	 * The cheapest the model lists, the exact forms first so that an
+	 * approximation is taken only when it costs less; when the model
+	 * lists none, the bytes or f32, the class the report says is missing
+	 */
+	for (pass = 0; pass < 2 && best == INFINITY; pass++)
+		for (i = 0; i < (pass ? 4 : 9); i++) {
+			c = pass ? order1[i] : order0[i];
+			memset(&w, 0, sizeof w);
+			if (!table_cand(c, v, n, fl, tmax, t, &w))
 				continue;
-			worst = 0;
-			spread = fmod(255, mmax) == 0 ? 255 / mmax : 1;
-			for (j = 0; j < n; j++) {
-				double v = cval(N.lst[N.a[tab] + j]), k = floor((v - lo) /
-				    step + 0.5) * spread, d = fabs(v - (lo + step / spread *
-				    255 * (double)(float)(k / 255)));
-				if (d > worst)
-					worst = d;
+			w.cls = tex_fmt_of(X.m, t, n, &pc);
+			/* a form scaled for 8 or 16 bits or rounded for f16
+			 * that only f32 prices is f32 with more error */
+			if (!pass && c != 8 && w.cls == C_TEX_SAMPLE_F32)
+				continue;
+			if (pass) {
+				w.cls = c == 8 ? C_TEX_SAMPLE_F32 :
+				    C_TEX_SAMPLE;
+				pc = 0;
 			}
-			if (worst <= ldexp(ti->tmax, -21)) {
-				ti->levels = 1;
-				ti->cls = C_TEX_SAMPLE;
-				ti->scale = step / spread * 255;
-				ti->off = lo;
-				ti->rmax = hi - lo;
-			}
+			if (!(pc < best))
+				continue;
+			best = pc;
+			*ti = w;
+			memcpy(bt, t, n * sizeof *bt);
+			if (pass)
+				break;
 		}
-	}
-	e = xmalloc(n * sizeof *e);
+	ti->tab = tab;
+	ti->n = n;
+	ti->tmax = tmax;
 	for (j = 0; j < n; j++) {
-		double v = cval(N.lst[N.a[tab] + j]), t, d;
-		if (ti->levels)
-			t = (double)(float)(floor((v - ti->off) / ti->scale * 255 +
-			    0.5) / 255);
-		else
-			t = (double)(float)(v / ti->scale);
-		d = fabs(v - (ti->off + t * ti->scale));
+		double d = fabs(v[j] - (ti->off + bt[j] * ti->scale));
 		if (d > ti->trep)
 			ti->trep = d;
-		e[j] = kf(t);
 	}
+	e = xmalloc(n * sizeof *e);
+	for (j = 0; j < n; j++)
+		e[j] = kf(bt[j]);
 	ti->tex = mk_table(e, n);
 	free(e);
+	free(v);
+	free(t);
+	free(bt);
 	return 1;
 }
 
@@ -1113,6 +1293,69 @@ fmt_g(double v)
 	return s;
 }
 
+/* a filtered read's format, by its class */
+static const char *
+fmt_vk(int cls)
+{
+	return cls == C_TEX_SAMPLE ? "R8_UNORM" : cls == C_TEX_SAMPLE_16 ?
+	    "R16_UNORM" : cls == C_TEX_SAMPLE_F16 ? "R16_SFLOAT" : "R32_SFLOAT";
+}
+
+/* what the texture holds of the table's entries */
+static void
+fmt_says(struct sbuf *b, const struct tinfo *ti)
+{
+	const char *unit = ti->cls == C_TEX_SAMPLE ? "bytes" : "16-bit units";
+	int q = ti->cls == C_TEX_SAMPLE ? 255 : 65535;
+
+	if (ti->cls == C_TEX_SAMPLE_F16) {
+		sb_puts(b, ti->approx & FB_F16 ? " rounded to f16" : " as f16 "
+		    "(exact)");
+		return;
+	}
+	if (ti->cls != C_TEX_SAMPLE && ti->cls != C_TEX_SAMPLE_16) {
+		sb_puts(b, " as f32");
+		return;
+	}
+	/* texels made for the other width, which this one holds too */
+	if (q != ti->q) {
+		if (ti->isint)
+			sb_printf(b, " as %s (the shader sees the entry / %g)",
+			    unit, ti->scale);
+		else if (ti->levels)
+			sb_printf(b, "' levels as %s (evenly spaced: the "
+			    "shader maps the texel back by %.9g + %.9g times "
+			    "it)", unit, ti->off, ti->scale);
+		else
+			sb_printf(b, " as %s (each texel is the entry)", unit);
+		return;
+	}
+	if (ti->isint)
+		sb_printf(b, " as %s (the shader sees k/%d)", unit, q);
+	else if (ti->levels)
+		sb_printf(b, "' levels k as %s (evenly spaced: the shader maps "
+		    "k/%d back)", unit, q);
+	else
+		sb_printf(b, " times %d as %s", q, unit);
+}
+
+/* what a texture class's read is, for the report */
+static const char *
+class_says(int k)
+{
+	switch (k) {
+	case C_TEX_NEAREST: return "a nearest read with an address mode";
+	case C_TEX_SRGB: return "an sRGB texture's decoded fetch";
+	case C_TEX_LAYER: return "a read of an array texture's layer";
+	case C_TEX_SAMPLE: return "a filtered read of an 8-bit normalised "
+	    "texture";
+	case C_TEX_SAMPLE_16: return "a filtered read of a 16-bit normalised "
+	    "texture";
+	case C_TEX_SAMPLE_F16: return "a filtered read of a half-float texture";
+	}
+	return "a filtered read of a 32-bit float texture";
+}
+
 /* ---- address modes ---- */
 
 static const char *
@@ -1144,7 +1387,15 @@ fetch_format(struct sbuf *b, nid tab)
 	int64_t lo = 0, hi = 0;
 
 	if (TY_FP(N.ty[tab])) {
-		sb_puts(b, "R32_SFLOAT (each entry as its f32)");
+		/* half the bytes when an f16 holds every entry: a half float
+		 * widens to f32 exactly */
+		for (j = 0; j < N.b[tab]; j++) {
+			nid x = N.lst[N.a[tab] + j];
+			if (!is_const(x) || fround(16, cval(x)) != cval(x))
+				break;
+		}
+		sb_puts(b, j == N.b[tab] ? "R16_SFLOAT (each entry exact as an "
+		    "f16)" : "R32_SFLOAT (each entry as its f32)");
 		return;
 	}
 	for (j = 0; j < N.b[tab]; j++) {
@@ -2595,7 +2846,7 @@ seed_sum1(nid body, nid root)
 	nid taps = 0, to, ity_root = 0;
 	double enew = 0, mabs = 0, mtap = 0, u = ldexp(1.0, -24);
 	int i, j, ng = 0, ntap = 0, nleft = 0, isint, nterm = 0, njoin = 0;
-	int allpos = 1, levels = 0;
+	int allpos = 1, approx = 0;
 	struct sbuf what = {0}, holds = {0}, proof = {0}, pipe = {0};
 
 	(void)ity_root;
@@ -2769,7 +3020,7 @@ seed_sum1(nid body, nid root)
 				    g.ti.tex, x, 0);
 			if (S * g.ti.scale != 1)
 				tap = mk_bin(O_MUL, kf(S * g.ti.scale), tap);
-			levels |= g.ti.levels;
+			approx |= g.ti.approx;
 			if (g.ti.off != 0)	/* the levels' map back, with the product */
 				tap = mk_bin(O_ADD, tap, kf(S * g.ti.off));
 			if (S < 0)
@@ -2829,16 +3080,18 @@ seed_sum1(nid body, nid root)
 				mf_text(&holds, fr);
 				sb_puts(&holds, " is in [0, 1]");
 			}
-			sb_printf(&proof, " those are the entries' weights%s%s",
+			sb_printf(&proof, " those are the entries' weights%s",
 			    b->split ? ", an entry read by two reads with its "
 			    "weight split between them (column times row: the "
-			    "pairs' shares sum to the kernel's weights)" : "",
-			    g.ti.levels ? "" : g.ti.scale != 1 ?
-			    " (the texels are the entries / 255)" : "");
+			    "pairs' shares sum to the kernel's weights)" : "");
+			if (!g.ti.levels && g.ti.scale != 1)
+				sb_printf(&proof, " (the texels are the "
+				    "entries / %g)", g.ti.scale);
 			if (g.ti.levels)
-				sb_printf(&proof, " (an entry is %.9g + %.9g times its "
-				    "texel k/255: the weights' sum times %.9g is "
-				    "added back)", g.ti.off, g.ti.scale, g.ti.off);
+				sb_printf(&proof, " (an entry is %.9g + %.9g "
+				    "times its texel k/%d: the weights' sum times "
+				    "%.9g is added back)", g.ti.off, g.ti.scale,
+				    g.ti.q, g.ti.off);
 			if (b->resid > 0)
 				sb_printf(&proof, " to within %s", fmt_g(b->resid));
 			if (gx && gy)
@@ -2854,9 +3107,10 @@ seed_sum1(nid body, nid root)
 				    "and %s", X.bits, cx > cy ? cx : cy, fmt_g(dwx),
 				    fmt_g(dwy), fmt_g(g.dxmax), fmt_g(g.dymax));
 			sb_printf(&proof, "\n  the filter is within %g ulp of that "
-			    "sum (the model's tex_within): %s; the texels as f32: "
-			    "%s; in all %s", X.ulp, fmt_g(fabs(S) * X.ulp * 2 * u *
-			    g.ti.rmax), fmt_g(fabs(S) * g.ti.trep), fmt_g(e));
+			    "sum (the model's tex_within): %s; the texels as "
+			    "%s: %s; in all %s", X.ulp, fmt_g(fabs(S) * X.ulp * 2 *
+			    u * g.ti.rmax), g.ti.cls == C_TEX_SAMPLE_F16 ? "f16" :
+			    "f32", fmt_g(fabs(S) * g.ti.trep), fmt_g(e));
 		}
 		sb_printf(&holds, "%s", holds.n ? "; " : "holds where ");
 		if (g.xe)
@@ -2868,16 +3122,14 @@ seed_sum1(nid body, nid root)
 		sb_printf(&holds, "%severy texel read is inside the table",
 		    g.xe || g.ye ? " (proved ranges): " : "");
 		sb_printf(&pipe, "%sa texture %s, %lld x %lld, one level: the "
-		    "table's entries%s\na sampler: LINEAR mag and min filters, "
+		    "table's entries", pipe.n ? "\n" : "", fmt_vk(g.ti.cls),
+		    (long long)g.W, (long long)g.H);
+		fmt_says(&pipe, &g.ti);
+		sb_printf(&pipe, "\na sampler: LINEAR mag and min filters, "
 		    "NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, "
 		    "lod 0\none combined image sampler more in the layout; the "
-		    "shader reads textureLod(s, %s, 0.0).r", pipe.n ? "\n" : "",
-		    g.ti.cls == C_TEX_SAMPLE ? "R8_UNORM" : "R32_SFLOAT",
-		    (long long)g.W, (long long)g.H, g.ti.isint ? " as bytes "
-		    "(the shader sees k/255)" : g.ti.levels ? "' levels k as "
-		    "bytes (evenly spaced: the shader maps k/255 back)" :
-		    g.ti.cls == C_TEX_SAMPLE ? " times 255 as bytes" : " as f32",
-		    g.H > 1 ? "vec2(x, y)" : "x");
+		    "shader reads textureLod(s, %s, 0.0).r", g.H > 1 ?
+		    "vec2(x, y)" : "x");
 		if (g.ti.cls == C_TEX_SAMPLE && g.H > 1 && !g.ti.levels) {
 			/* the same texels in half the bytes, when BC4's palettes
 			 * hold them exactly (texenc.c) */
@@ -2946,7 +3198,7 @@ seed_sum1(nid body, nid root)
 		goto out;
 	r->to = to;
 	r->filtered = 1;
-	r->levels = levels;
+	r->approx = approx;
 	r->exact = isint;
 	r->err = enew;
 	r->eorig = isint ? 0 : (nterm * u / (1 - nterm * u)) * mabs;
@@ -3007,27 +3259,29 @@ out:
 }
 
 /*
- * A float table of evenly spaced levels is read as bytes (the cheaper
- * class) when its bound is within what is allowed; when the map back
- * costs more precision than that, as f32.
+ * A float table whose texels only approximate it (evenly spaced levels,
+ * entries rounded to f16) is read that way (a cheaper class) when its
+ * bound is within what is allowed; when not, again without that
+ * approximation, down to f32.
  */
 static void
 seed_sum(nid body, nid root)
 {
-	int n0 = X.nr;
+	int n0 = X.nr, tries;
 	struct repl *r;
 
-	seed_sum1(body, root);
-	if (X.nr == n0)
-		return;
-	r = &X.r[X.nr - 1];
-	if (!r->levels || r->exact || r->err <= (X.tol > r->eorig ? X.tol :
-	    r->eorig))
-		return;
-	drop_repl(r);
-	X.nolevels = 1;
-	seed_sum1(body, root);
-	X.nolevels = 0;
+	for (tries = 0; tries < 4; tries++) {
+		seed_sum1(body, root);
+		if (X.nr == n0)
+			break;
+		r = &X.r[X.nr - 1];
+		if (!r->approx || r->exact || r->err <= (X.tol > r->eorig ?
+		    X.tol : r->eorig))
+			break;
+		X.fmtban |= r->approx;
+		drop_repl(r);
+	}
+	X.fmtban = 0;
 }
 
 /* ---- the driver ---- */
@@ -3302,13 +3556,8 @@ tex_search(const struct func *f, double tol, struct texres *res)
 			if (X.unavail[k]) {
 				sb_printf(&res->why, "%s%s lists no %s: %s is not "
 				    "available", res->why.n ? "\n" : "",
-				    sym_str(X.m->name), cclass_name[k], k ==
-				    C_TEX_NEAREST ? "a nearest read with an address "
-				    "mode" : k == C_TEX_SRGB ? "an sRGB texture's "
-				    "decoded fetch" : k == C_TEX_LAYER ? "a read of "
-				    "an array texture's layer" : k == C_TEX_SAMPLE ?
-				    "a filtered read of an 8-bit normalised texture" :
-				    "a filtered read of a 32-bit float texture");
+				    sym_str(X.m->name), cclass_name[k],
+				    class_says(k));
 				res->status = TEXR_UNAVAILABLE;
 			}
 		if (X.nobits) {

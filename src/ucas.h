@@ -409,7 +409,10 @@ enum {
 	C_TEX_SRGB,
 	/* a nearest read of an array texture's layer (fetch_layer) */
 	C_TEX_LAYER,
-	C_MEM_LAST = C_TEX_LAYER,
+	/* a filtered read of a 16-bit normalised texture (R16_UNORM) and of
+	 * a half-float one (R16_SFLOAT) */
+	C_TEX_SAMPLE_16, C_TEX_SAMPLE_F16,
+	C_MEM_LAST = C_TEX_SAMPLE_F16,
 	/*
 	 * Subgroup operations (sg.c), unavailable unless listed, as the dot
 	 * forms: the ballot, the votes (any, all), the sum over the lanes,
