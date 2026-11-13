@@ -1,0 +1,56 @@
+> op(x: u32) = match x { 3 => 1, 17 => 2, 40 => 1, 99 => 3, 120 => 2, _ => 0 }
+> phash op
+phash op under gt1030: 5 keys, the compare chain costs 20; seed 1
+  35 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  the values by a multiply-add and a shift, no table: int(5x >> 4 & 3) + 1 (M the least at the least shift, every one tried; A solved)
+    derived, but not cheaper under gt1030: with the key check it costs 20.875, the table's lookup 20.75
+  injective on the 5 keys (each slot checked): h(x) = (x >> 3) & 7, a table of 8 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 20.75
+  -> not rewritten: the lookup costs 20.75, the compare chain 20 under gt1030
+> cov(x: u8 in 0..7) = match x { 0 => 0, 1 => 3, 2 => 3, 3 => 2, 4 => 1, 5 => 0, 6 => 0, 7 => 3, _ => 0 }
+> phash cov
+phash cov under gt1030: 8 keys, the compare chain costs 32; seed 1
+  19 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  the values by a multiply-add and a shift, no table: int(13u32(x) + 2 >> 2 & 3) (M the least at the least shift, every one tried; A solved)
+  injective on the 8 keys (each slot checked): h(x) = x & 7, a table of 8 slots
+  every value of x in 0..7 is a key: no key check is needed
+  the multiply-add and shift costs 6
+  -> int(13u32(x) + 2 >> 2 & 3)
+     cost 6 against 32 (-81.2%); equal to the switch for every input: every input enumerated
+  defined cov_ph
+> cls(x: u32) = match x { 7 => 1, 19 => 2, 23 => 1, 42 => 3, 57 => 2, 61 => 0, 88 => 3, 93 => 1, 105 => 2, 140 => 0, 177 => 3, 201 => 1, _ => 0 }
+> phash cls
+phash cls under gt1030: 12 keys, the compare chain costs 48; seed 1
+  357 hash functions tried: masks and shifts, (x K) >> s, ((x xor x >> a) K) >> s, and a displacement table, K drawn at random
+  the values by a multiply-add and a shift: none with a shift up to 20 (every multiplier mod 2^(s + 2) tried, each with its offset solved), nor with 21 to 30 among 1048576 multipliers drawn
+  injective on the 12 keys (each slot checked): h(x) = (x >> 1) & 31, a table of 32 slots
+  other inputs: the slot's key is compared with x, and the default taken when they differ
+  the lookup costs 20.75
+  -> [7, 7, 7, 7, 201, 7, 140, 7, 7, 19, 7, 23, 88, 7, 93, 7, 7, 7, 7, 7, 105, 42, 7, 7, 177, 7, 7, 7, 57, 7, 61, 7][t1] == x ? [0, 0, 0, 1, 1, 0, 0, 0, 0, 2, 0, 1, 3, 0, 1, 0, 0, 0, 0, 0, 2, 3, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0][t1] : 0 where t1 = x >> 1 & 0x1f
+     cost 20.75 against 48 (-56.8%); equal to the switch for every input: proved by SAT
+     the values are exact as BC4_UNORM blocks, rows of 4: 16 bytes against 256 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
+  defined cls_ph
+> sel(x: u32 in 0..255) = match x { 3 => 1, 17 => 2, 40 => 0, 99 => 3, 120 => 0, 133 => 0, 170 => 2, 201 => 1, 230 => 2, 251 => 3, _ => 0 } where x == 3 || x == 17 || x == 40 || x == 99 || x == 120 || x == 133 || x == 170 || x == 201 || x == 230 || x == 251
+> find sel 3
+  note: the result is int: searching in u32
+find sel: 10 points, computing in u32, costs from gt1030
+  dropping operations of sel (cost 40 as written; each checked on the whole domain):
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 99 ? 3 : x == 120 ? 0 : x == 133 ? 0 : x == 170 ? 2 : x == 201 ? 1 : x == 230 ? 2 : x == 251 ? 3 : 0 drops the ?: on x == 40 (it always takes the second arm) (exhaustive)
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 0 : x == 99 ? 3 : x == 133 ? 0 : x == 170 ? 2 : x == 201 ? 1 : x == 230 ? 2 : x == 251 ? 3 : 0 drops the ?: on x == 120 (it always takes the second arm) (exhaustive)
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 0 : x == 99 ? 3 : x == 120 ? 0 : x == 170 ? 2 : x == 201 ? 1 : x == 230 ? 2 : x == 251 ? 3 : 0 drops the ?: on x == 133 (it always takes the second arm) (exhaustive)
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 0 : x == 99 ? 3 : x == 120 ? 0 : x == 133 ? 0 : x == 170 ? 2 : x == 201 ? 1 : x == 230 ? 2 : 3 drops the ?: on x == 251 (it always takes the first arm) (exhaustive)
+  cost 28  x == 3 ? 1 : x == 17 ? 2 : x == 99 ? 3 : x == 170 ? 2 : x == 201 ? 1 : x == 230 ? 2 : x == 251 ? 3 : 0 all of them: drops the ?: on x == 40 (it always takes the second arm), then the ?: on x == 120 (it always takes the second arm), then the ?: on x == 133 (it always takes the second arm) (exhaustive)
+  cost 6   77x + 11 >> 7 & 3                        the values on the scattered points by a multiply-add and a shift (M searched, A solved)
+  [searched every term up to cost 5: 1677721 distinct columns, bank full; 'more' continues]
+> cl2(x: u32 in 0..255) = match x { 3 => 1, 17 => 2, 40 => 1, 99 => 3, 120 => 2, 133 => 0, 170 => 3, 201 => 1, 230 => 0, 251 => 2, _ => 0 } where x == 3 || x == 17 || x == 40 || x == 99 || x == 120 || x == 133 || x == 170 || x == 201 || x == 230 || x == 251
+> find cl2 1
+  note: the result is int: searching in u32
+find cl2: 10 points, computing in u32, costs from gt1030
+  dropping operations of cl2 (cost 40 as written; each checked on the whole domain):
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 1 : x == 99 ? 3 : x == 120 ? 2 : x == 170 ? 3 : x == 201 ? 1 : x == 230 ? 0 : x == 251 ? 2 : 0 drops the ?: on x == 133 (it always takes the second arm) (exhaustive)
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 1 : x == 99 ? 3 : x == 120 ? 2 : x == 133 ? 0 : x == 170 ? 3 : x == 201 ? 1 : x == 251 ? 2 : 0 drops the ?: on x == 230 (it always takes the second arm) (exhaustive)
+  cost 36  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 1 : x == 99 ? 3 : x == 120 ? 2 : x == 133 ? 0 : x == 170 ? 3 : x == 201 ? 1 : x == 230 ? 0 : 2 drops the ?: on x == 251 (it always takes the first arm) (exhaustive)
+  cost 32  x == 3 ? 1 : x == 17 ? 2 : x == 40 ? 1 : x == 99 ? 3 : x == 120 ? 2 : x == 170 ? 3 : x == 201 ? 1 : x == 251 ? 2 : 0 all of them: drops the ?: on x == 133 (it always takes the second arm), then the ?: on x == 230 (it always takes the second arm) (exhaustive)
+  nothing new up to cost 5 (term bank full)
+  [searched every term up to cost 5: 1677721 distinct columns, bank full; 'more' continues]

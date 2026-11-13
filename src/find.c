@@ -21,6 +21,7 @@
 #include "irw.h"
 #include "dword.h"
 #include "texalu.h"
+#include "stoch.h"
 
 #include <math.h>
 #include <setjmp.h>
@@ -773,6 +774,76 @@ run_levels(int want, int maxcost)
 	    "'more' continues]\n", F.done, F.n, F.full ? ", bank full" : "");
 }
 
+/*
+ * A map on scattered points (a where clause that leaves only some keys):
+ * the values with no table, ((x M + A) >> s) & mask plus the least value,
+ * M searched and A solved for it (ms_solve, stoch.c).  On a run of
+ * consecutive points the values of that form step by one of two adjacent
+ * amounts, a floor of a line that idrw.c solves exactly, so only
+ * scattered points come here.
+ */
+#define MS_TRIES (1L << 20)
+
+static void
+sparse_mulshift(const int64_t *xs)
+{
+	uint32_t *k, *t, M, A, i;
+	int64_t vmin = F.y[0], vmax = F.y[0];
+	int b, s, cost;
+	long tries;
+	int exh;
+	ty_t u = TY(K_UINT, 32);
+	const struct param *pp = &F.f.p[0];
+	nid e;
+
+	if (F.P < 3 || F.P > 256 || !TY_SIZED(pp->ty) || TYW(pp->ty) > 32)
+		return;
+	for (i = 1; i < F.P; i++) {
+		vmin = F.y[i] < vmin ? F.y[i] : vmin;
+		vmax = F.y[i] > vmax ? F.y[i] : vmax;
+	}
+	if (vmax == vmin || (uint64_t)(vmax - vmin) >= (1u << 16))
+		return;
+	for (b = 1; ((int64_t)1 << b) <= vmax - vmin; b++)
+		;
+	k = xmalloc(F.P * sizeof *k);
+	t = xmalloc(F.P * sizeof *t);
+	for (i = 0; i < F.P; i++) {
+		k[i] = (uint32_t)(uint64_t)xs[i];
+		t[i] = (uint32_t)(F.y[i] - vmin);
+	}
+	if (!ms_solve(k, t, (int)F.P, b, stoch_seed(), MS_TRIES, &M, &A, &s,
+	    &tries, &exh)) {
+		free(k);
+		free(t);
+		return;
+	}
+	free(k);
+	free(t);
+	e = mk_bin(O_MUL, mk_cast(u, mk_var(0, pp->name, pp->ty)),
+	    mk_const_i(u, M));
+	cost = op_cost(O_MUL);
+	if (A) {
+		e = mk_bin(O_ADD, e, mk_const_i(u, A));
+		cost += op_cost(O_ADD);
+	}
+	if (s) {
+		e = mk_bin(O_SHR, e, mk_const_i(u, s));
+		cost += op_cost(O_SHR);
+	}
+	if (s + b < 32) {
+		e = mk_bin(O_AND, e, mk_const_i(u, (int64_t)((1u << b) - 1)));
+		cost += op_cost(O_AND);
+	}
+	e = mk_cast(F.W, e);
+	if (vmin) {
+		e = add_k(e, vmin);
+		cost += op_cost(O_ADD);
+	}
+	add_match(M_FORM, cost, e, "the values on the scattered points by a "
+	    "multiply-add and a shift (M searched, A solved)");
+}
+
 /* closed forms tried before enumeration */
 static void
 forms(const int64_t *xs)
@@ -794,8 +865,10 @@ forms(const int64_t *xs)
 		if (!i || F.y[i] < miny)
 			miny = F.y[i];
 	}
-	if (!contiguous)
+	if (!contiguous) {
+		sparse_mulshift(xs);
 		return;
+	}
 	x = mk_cast(F.W, mk_var(0, pp->name, pp->ty));
 	/* lookup table: the baseline */
 	{
