@@ -1,0 +1,26 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  runs (line 4), called from main (line 13)
+    line 7: a divisibility test of a value with few multiples where it runs, as equalities
+      k % 27 == 0 && k != 0
+        ->  k == 27 || (k == 54 || k == 81)
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (238 points)
+      cost under gt1030: 31.5 -> 9.125 each time it runs
+      relies on: k in 0..107 where line 7 runs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile functions
+function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
+  runs (line 4), called from main (line 13)
+    line 7: the signed remainder of operands never negative here, unsigned (a - b trunc(a/b) = a mod b for a >= 0, b > 0)
+      k % 25
+        ->  int(uint(k) % 25u)
+      proof: exhaustive: ucas equiv on every recorded value of its leaves (258 points)
+      cost under gt1030: 25.75 -> 13.5 each time it runs
+      relies on: k in 0..127 where line 7 runs

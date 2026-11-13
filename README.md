@@ -4493,6 +4493,11 @@ proved by `equiv_check` (ucas's own `equiv`) on a ucas translation:
   uint((i & 3u) >= 2u)` (9.75 -> 7 a call under gt1030, the select of
   the count priced in); the multiply above is then said only where it
   holds on the whole domain too (tests/fnshift.ucas);
+- a divisibility test `k % d == r`, alone or `&& k != c`, whose value's
+  recorded range has at most 4 values where it holds, as those
+  equalities: ETC2's planar search ends a pass at `k % 27 == 0 && k !=
+  0` for k in 0..107, `k == 27 || k == 54 || k == 81`, 31.5 -> 9.125
+  under gt1030 (tests/fndivis.ucas);
 - invariant calls: a call in a loop whose arguments and everything the
   callee reads (globals, arrays, transitively) are not written in the
   loop, and whose callee writes nothing, is the same on every pass; also

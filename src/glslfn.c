@@ -6261,6 +6261,103 @@ search_loops(int f)
 }
 
 /* operand replacements for a dead operation: up to 3 */
+/*
+ * k % d == r (or !=), alone or && with k != c: the values of k where it
+ * holds, when k's recorded range has at most 4 of them, as equalities
+ * (k % 27 == 0 && k != 0 for k in 0..107 is k == 27 || k == 54 || k ==
+ * 81); -1 when it is not that or has more.
+ */
+static int same_text(int a, int b);
+
+static int
+divis_parts(int x, int *k, int64_t *d, int64_t *r, int *eq)
+{
+	const struct gx *g = &G.x[x];
+	int m, c;
+
+	if (g->k != X_BIN || (g->op != OP_EQ && g->op != OP_NE))
+		return 0;
+	m = g->a;
+	c = g->b;
+	if (G.x[XR(m)].k == X_NUM) {
+		m = g->b;
+		c = g->a;
+	}
+	if (G.x[XR(c)].k != X_NUM || G.x[m].k != X_BIN || G.x[m].op != OP_MOD ||
+	    G.x[XR(G.x[m].b)].k != X_NUM || (G.x[m].ty != TU && G.x[m].ty != TI))
+		return 0;
+	*k = G.x[m].a;
+	*d = G.x[XR(G.x[m].b)].v;
+	*r = G.x[XR(c)].v;
+	*eq = g->op == OP_EQ;
+	return *d > 0;
+}
+
+static int
+few_multiples(int x)
+{
+	const struct gx *g = &G.x[x];
+	const struct rec *R;
+	int k = -1, eq, j, b, ty, ln = g->line, kc = -1, n = 0, o = -1;
+	int64_t d, r, lo = INT64_MAX, hi = INT64_MIN, v, ex = 0, hit[4];
+	int has_ex = 0;
+
+	if (g->ty != TB || recn[x] < 0)
+		return -1;
+	if (g->k == X_BIN && g->op == OP_LAND) {
+		/* the test and a k != c beside it */
+		int t = g->a, u = g->b, q;
+		for (q = 0; q < 2; q++) {
+			const struct gx *h = &G.x[u];
+			if (divis_parts(t, &k, &d, &r, &eq) && eq && h->k == X_BIN &&
+			    h->op == OP_NE && (same_text(h->a, k) || same_text(h->b,
+			    k))) {
+				kc = same_text(h->a, k) ? h->b : h->a;
+				if (G.x[XR(kc)].k == X_NUM) {
+					ex = G.x[XR(kc)].v;
+					has_ex = 1;
+					break;
+				}
+			}
+			t = g->b;
+			u = g->a;
+		}
+		if (!has_ex)
+			return -1;
+	} else if (!divis_parts(x, &k, &d, &r, &eq) || !eq)
+		return -1;
+	ty = G.x[k].ty;
+	R = &RC[recn[x]];
+	for (j = 0; j < R->nl && !same_text(R->lf[j], k); j++)
+		;
+	if (j == R->nl || R->nbox == 0)
+		return -1;
+	for (b = 0; b < R->nbox; b++) {
+		const struct av *a = &R->box[b * (R->nl + R->nex) + j];
+		if (a->bot)
+			return -1;
+		if (a->lo < lo)
+			lo = a->lo;
+		if (a->hi > hi)
+			hi = a->hi;
+	}
+	if (hi - lo > 4096)
+		return -1;
+	for (v = lo; v <= hi; v++) {
+		int64_t m = ty == TU ? (int64_t)((uint64_t)v % (uint64_t)d) : v % d;
+		if (m != r || (has_ex && v == ex))
+			continue;
+		if (n == 4)
+			return -1;
+		hit[n++] = v;
+	}
+	for (j = n - 1; j >= 0; j--) {
+		int e = new_bin(OP_EQ, TB, k, new_num(ty, hit[j], ln), ln);
+		o = o < 0 ? e : new_bin(OP_LOR, TB, e, o, ln);
+	}
+	return o < 0 ? new_num(TB, 0, ln) : o;
+}
+
 static int
 x_options(int x, int *opt, const char **why, int max)
 {
@@ -6341,6 +6438,15 @@ x_options(int x, int *opt, const char **why, int max)
 		opt[n++] = new_num(TB, 1, g->line);
 		why[n] = "the compare is always false";
 		opt[n++] = new_num(TB, 0, g->line);
+		g = &G.x[x];
+	}
+	if (n < max) {
+		int e = few_multiples(x);
+		if (e >= 0) {
+			why[n] = "a divisibility test of a value with few multiples "
+			    "where it runs, as equalities";
+			opt[n++] = e;
+		}
 	}
 	return n;
 }
@@ -6365,6 +6471,8 @@ x_candidate(int x)
 		return 1;
 	if (g->k == X_BIN && g->op >= OP_LT && g->op <= OP_NE)
 		return 1;
+	if (g->k == X_BIN && g->op == OP_LAND)
+		return 1;	/* a divisibility test and a k != c */
 	return 0;
 }
 
