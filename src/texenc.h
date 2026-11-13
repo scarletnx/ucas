@@ -75,8 +75,9 @@ struct etc2_info {
 int etc2_mode(const uint8_t q[8]);
 int etc1_mod(int tab, int k);		/* +a, +b, -a, -b of table tab */
 void etc2_decode(const uint8_t q[8], uint8_t px[16][3]);
-double etc2_encode_r(const double t[16], const uint8_t care[16],
+double etc2_encode_r(const double t[16], const uint8_t care[16], int srgb,
     uint8_t out[8], struct etc2_info *info);
+double texenc_srgb8(int c);	/* the sRGB EOTF of code c, an f32 */
 int etc2_alpha_value(int base, int mul, int tab, int sel);
 void etc2_alpha_decode(const uint8_t q[8], int v[16]);
 double etc2_alpha_encode(const double t[16], const uint8_t care[16],

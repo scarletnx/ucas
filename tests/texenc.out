@@ -184,7 +184,7 @@ phash days under gt1030: 12 keys, the compare chain costs 42.375; seed 1
      the values are exact as BC4_UNORM blocks, rows of 4: 8 bytes against 128 as int (texenc; a read returns k/255; a compressed read has no price of its own, so what is priced stays as it is)
   defined days_ph
 > texenc Q rows 8 lanes 4
-texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2] [rows W] [tol E]
+texenc.ucas:53:17: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
     texenc Q rows 8 lanes 4
                     ^
 > E = [1020, 1012, 1004, 948, 1028, 1036, 1044, 1100, 1020, 1100, 948, 1004, 1012, 1028, 1036, 1044]
@@ -275,7 +275,7 @@ texenc.ucas:80:22: error: texenc: signed EAC holds whole numbers from -1023 to 1
     texenc [-2000, 5] eac
                          ^
 > texenc Q astc 4x4 eac
-texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2] [rows W] [tol E]
+texenc.ucas:81:19: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
     texenc Q astc 4x4 eac
                       ^
 > compress E as EAC
@@ -416,7 +416,7 @@ texenc.ucas:110:66: error: texenc: ETC2 holds numbers from 0 to 1 (or whole numb
     texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
                                                                      ^
 > texenc Q etc2 eac
-texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2] [rows W] [tol E]
+texenc.ucas:111:15: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
     texenc Q etc2 eac
                   ^
 > compress P as ETC2
@@ -425,4 +425,48 @@ texenc P etc2: 16 entries as RGB8_ETC2, rows of 4 (4 x 4 texels): 1 block, 8 byt
   block (0, 0): planar: red 65 at (0, 0), 130 at (4, 0), 32 at (0, 4), bytes 20 00 04 42 00 01 00 00
   decodes to [0.254901975, 0.31764707, 0.384313732, 0.447058827, 0.223529413, 0.286274523, 0.349019617, 0.41568628, 0.192156866, 0.254901975, 0.31764707, 0.380392164, 0.156862751, 0.223529413, 0.286274523, 0.349019617]
   exact: every texel is its entry's f32 over 255 (every encoding of the red channel tried)
+  a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> texenc T etc2 srgb
+texenc T etc2 srgb: 16 entries as SRGB8_ETC2, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): T mode: red 51, then 170 + 32, 170, 170 - 32, selectors 0 1 2 3 0 0 2 2 3 1 0 2 3 3 1 0, bytes 07 00 a0 0b 73 8c 18 dc
+  decodes to [0.0331047662, 0.590618849, 0.401977777, 0.254152089, 0.0331047662, 0.0331047662, 0.401977777, 0.401977777, 0.254152089, 0.590618849, 0.0331047662, 0.401977777, 0.254152089, 0.254152089, 0.590618849, 0.0331047662]
+  exact: every texel is its entry's f32, the EOTF of its code (every encoding of the red channel tried)
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
+  a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> D = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015]
+> texenc D etc2
+texenc D etc2: 16 entries as RGB8_ETC2, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT)
+  block (0, 0): planar: red 0 at (0, 0), 0 at (4, 0), 4 at (0, 4), bytes 00 00 04 02 00 00 20 00
+  decodes to [0, 0, 0, 0, 0.00392156886, 0.00392156886, 0.00392156886, 0.00392156886, 0.00784313772, 0.00784313772, 0.00784313772, 0.00784313772, 0.0117647061, 0.0117647061, 0.0117647061, 0.0117647061]
+  not exact: the closest blocks are within 0.00324 of the table (entry 15: 0.0149999997 as 0.0117647061), every encoding of the red channel tried
+  a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> texenc D etc2 srgb
+texenc D etc2 srgb: 16 entries as SRGB8_ETC2, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): planar: red 4 at (0, 0), 12 at (4, 0), 36 at (0, 4), bytes 02 00 04 07 00 01 20 00
+  decodes to [0.00121410796, 0.00182116195, 0.00242821593, 0.00303526991, 0.00367650739, 0.00439144205, 0.00518151652, 0.00604883302, 0.00699541019, 0.00802319311, 0.00913405884, 0.010329823, 0.0116122449, 0.0129830325, 0.0144438436, 0.0159962941]
+  not exact: the closest blocks are within 0.00121 of the table (entry 0: 0 as 0.00121410796), every encoding of the red channel tried
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
+  a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> texenc T, S etc2 srgb
+texenc T, S etc2 srgb: 16 entries a channel as SRGB8_ALPHA8_ETC2_EAC (T the red, S the alpha), rows of 4 (4 x 4 texels): 1 block, 16 bytes (32 as R8G8_UNORM, 128 as R32G32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0) red: T mode: red 51, then 170 + 32, 170, 170 - 32, selectors 0 1 2 3 0 0 2 2 3 1 0 2 3 3 1 0
+  block (0, 0) alpha: base 132, multiplier 9, modifiers -3 -6 -9 -15 2 5 8 14 (table 0), selectors 3 2 0 4 6 7 6 4 0 2 3 2 0 4 6 7
+  block (0, 0) bytes 84 90 78 05 d4 19 e9 17 07 00 a0 0b 73 8c 18 dc
+  red: decodes to [0.0331047662, 0.590618849, 0.401977777, 0.254152089, 0.0331047662, 0.0331047662, 0.401977777, 0.401977777, 0.254152089, 0.590618849, 0.0331047662, 0.401977777, 0.254152089, 0.254152089, 0.590618849, 0.0331047662]
+  red: exact: every texel is its entry's f32, the EOTF of its code (every encoding of the red channel tried)
+  alpha: decodes to [0, 0.200000003, 0.411764711, 0.588235319, 0.800000012, 1, 0.800000012, 0.588235319, 0.411764711, 0.200000003, 0, 0.200000003, 0.411764711, 0.588235319, 0.800000012, 1]
+  alpha: not exact: the closest blocks are within 0.0118 of the table (entry 2: 0.400000006 as 0.411764711), every base, multiplier and table tried
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits (alpha is not converted)
+  a nearest or filtered read of the texture is that read of the decoded tables, red and alpha (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured
+> texenc D srgb
+texenc.ucas:123:10: error: texenc T [, U] [astc BWxBH | eac | etc2 [srgb]] [rows W] [tol E]
+    texenc D srgb
+             ^
+> compress D as sRGB ETC2
+  ucas: texenc D etc2 srgb
+texenc D etc2 srgb: 16 entries as SRGB8_ETC2, rows of 4 (4 x 4 texels): 1 block, 8 bytes (16 as R8_UNORM, 64 as R32_SFLOAT); red reads the sRGB EOTF of its code over 255, so a whole number k in it is the code k
+  block (0, 0): planar: red 4 at (0, 0), 12 at (4, 0), 36 at (0, 4), bytes 02 00 04 07 00 01 20 00
+  decodes to [0.00121410796, 0.00182116195, 0.00242821593, 0.00303526991, 0.00367650739, 0.00439144205, 0.00518151652, 0.00604883302, 0.00699541019, 0.00802319311, 0.00913405884, 0.010329823, 0.0116122449, 0.0129830325, 0.0144438436, 0.0159962941]
+  not exact: the closest blocks are within 0.00121 of the table (entry 0: 0 as 0.00121410796), every encoding of the red channel tried
+  the EOTF here is the specification's formula rounded to an f32 once; an implementation's conversion may differ in its last bits
   a nearest or filtered read of the texture is that read of the decoded table in red (green and blue are whatever the block's mode needs); no model prices an ETC2 read apart from its uncompressed one: not measured

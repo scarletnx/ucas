@@ -110,3 +110,15 @@ texenc T, S etc2
 texenc R, [0.5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] etc2
 texenc Q etc2 eac
 compress P as ETC2
+# the sRGB formats (SRGB8_ETC2, SRGB8_ALPHA8_ETC2_EAC): red reads the
+# sRGB EOTF of its code over 255, from a table of the formula rounded to
+# an f32 once; a whole number is a code, so T's codes are exact again
+texenc T etc2 srgb
+# small linear values: sRGB's codes are closer together near 0
+D = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015]
+texenc D etc2
+texenc D etc2 srgb
+# alpha stays linear
+texenc T, S etc2 srgb
+texenc D srgb
+compress D as sRGB ETC2
