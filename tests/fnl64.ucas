@@ -1,9 +1,10 @@
 # The function level reads 64-bit integers (#319): GL_EXT_shader_explicit_
 # arithmetic_types_int64's uint64_t and int64_t, their vectors and l and ul
-# literals, with intervals in 64 bits.  ucas enumerates no 64-bit value, so
-# what it finds there is proved by SAT: a min that never bites on a value
-# below 2^16, a remainder that never bites on any value (k & 255 % 256),
-# and a packed key's depth that stays below the min.
+# literals, with intervals in 64 bits.  What it finds there is proved by
+# ucas's equiv, enumerated on a small domain and by SAT on a wider one: a
+# min that never bites on a value below 2^16 (every point), a remainder
+# that never bites on any value (k & 255 % 256) and a packed key's depth
+# that stays below the min (SAT).
 simplify functions nofile under gt1030
 ```glsl
 #version 450

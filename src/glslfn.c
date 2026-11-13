@@ -5749,7 +5749,8 @@ u_equiv(struct func *fn, nid a, nid b, char *wit, size_t nw, long *points)
 	struct sbuf w = {0};
 	int sampled = 0, m, i, fd, devnull;
 	double pts = 1;
-	/* ucas enumerates no 64-bit parameter: equiv_decide, by SAT */
+	/* a 64-bit parameter: equiv_decide, which enumerates a small domain
+	 * and takes a wider one to SAT */
 	for (i = 0; i < fn->np; i++)
 		if (TYW(fn->p[i].ty) == 64)
 			return u_equiv_sat(fn, a, b, wit, nw);
@@ -6169,8 +6170,8 @@ static void
 pr_sat_text(char *proof, size_t n, int mark)
 {
 	if (pr_sat > mark)
-		snprintf(proof, n, "proved by SAT (ucas equiv, which enumerates no "
-		    "64-bit value: %d AIG nodes, %ld conflicts) on the inferred "
+		snprintf(proof, n, "proved by SAT (ucas equiv, the domain too wide "
+		    "to enumerate: %d AIG nodes, %ld conflicts) on the inferred "
 		    "domain", pr_sat_nodes, pr_sat_conflicts);
 }
 
@@ -9126,7 +9127,7 @@ search_calls(int f)
 		    cv->n > 1 ? "those calls" : "that call", cv->pts);
 		if (cv->sat)
 			snprintf(p->proof, sizeof p->proof, "proved by SAT (ucas equiv, "
-			    "which enumerates no 64-bit value: %d AIG nodes, %ld "
+			    "the domain too wide to enumerate: %d AIG nodes, %ld "
 			    "conflicts) on the values its leaves take at %s",
 			    cv->sat_nodes, cv->sat_conflicts, cv->n > 1 ? "those calls" :
 			    "that call");

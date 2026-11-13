@@ -2061,7 +2061,8 @@ diter_init(struct diter *d, const struct func *f, uint64_t maxexh,
 				sz = (uint64_t)d->hi[j] - (uint64_t)d->lo[j];
 				sz = sz == UINT64_MAX ? UINT64_MAX : sz + 1;
 			}
-			if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64)
+			/* an unranged u64 has 2^64 values, past what lo..hi holds */
+			if (TYK(p->ty) == K_UINT && TYW(p->ty) == 64 && !p->ranged)
 				sz = UINT64_MAX;
 		}
 		if (sz && d->total > UINT64_MAX / sz)
