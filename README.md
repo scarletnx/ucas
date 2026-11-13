@@ -4885,10 +4885,22 @@ clipped fragment would not do.  Not priced: no model prices a
 fragment's whole run.  The viewport transform is fixed function
 already; depth clamp and viewport arrays and swizzles are not offered.
 
+**A point sprite's coordinate.**  In a fragment shader, `(gl_FragCoord
+- c) / s + 0.5` (x, y or the two; s also as a multiply by its
+reciprocal, the add in either order) with c and s values of one
+primitive (flat inputs, the draw's values, constants) is gl_PointCoord
+when the draw is points of size s centred at c: the vertex shader
+writes gl_PointSize and the point's position, and the rasteriser gives
+each pixel its coordinate, so the subtract, the divide and the add go
+(priced per pixel under the model).  Vulkan puts the origin of both
+gl_FragCoord and gl_PointCoord at the upper left, so y needs no flip;
+the size must be inside the device's pointSizeRange.  A centre that is
+a smooth varying is not one.
+
 JSON: the result gains `advice_draw`, `advice_primitive`,
-`advice_vertex`, `advice_screen`, `advice_vertex_inputs` and
-`advice_clip` where there are such values (`advice: true` also says
-when there are none).
+`advice_vertex`, `advice_screen`, `advice_vertex_inputs`,
+`advice_clip` and `advice_pointcoord` where there are such values
+(`advice: true` also says when there are none).
 
 ## Function level
 

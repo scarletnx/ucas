@@ -11097,6 +11097,199 @@ adv_clip(struct sbuf *rep, const struct model *m, const uint8_t *fq)
 }
 
 /*
+ * A point sprite's coordinate (#203, Liz: as extra advice): (gl_FragCoord
+ * - c) / s + 1/2, of x, y or the two, with c and s values of one
+ * primitive (flat inputs, the draw's, constants; s may be a multiply by
+ * its reciprocal), is gl_PointCoord when the draw is points of size s
+ * centred at c: the rasteriser makes it for each pixel, and the
+ * subtract, the divide and the add go.  Vulkan's gl_FragCoord and
+ * gl_PointCoord both have their origin at the upper left, so y needs no
+ * flip.
+ */
+enum { PC_NONE, PC_PTR, PC_FC, PC_DIFF, PC_SCALED };
+
+/* a value of one primitive, or a vector of copies of one */
+static int
+pc_prim(const uint8_t *fq, int id)
+{
+	const struct sins *I;
+	int j, a;
+
+	if (fq[id] <= FQ_PRIM)
+		return 1;
+	if (SP.def[id] < 0)
+		return 0;
+	I = &V.in[SP.def[id]];
+	if (strcmp(I->op, "OpCompositeConstruct") || I->nop < 2 ||
+	    I->opnd[1][0] != '%')
+		return 0;
+	a = idx(I->opnd[1]);
+	for (j = 2; j < I->nop; j++)
+		if (I->opnd[j][0] != '%' || idx(I->opnd[j]) != a)
+			return 0;
+	return fq[a] <= FQ_PRIM;
+}
+
+/* the f32 constant 1/2, or a vector of them */
+static int
+pc_half(int id)
+{
+	int j;
+
+	if (V.id[id].kind != K_CONST || V.id[id].spec || V.id[id].nc < 1)
+		return 0;
+	for (j = 0; j < V.id[id].nc; j++)
+		if (V.id[id].c[j] != 0x3f000000u)
+			return 0;
+	return 1;
+}
+
+static int rk_const(const char *opnd, int *v);
+
+/* a value as the variable it loads ("%center", "%pc[0]"), else its id */
+static const char *
+pc_name(int id, char *b, size_t n)
+{
+	const struct sins *L, *C;
+	int p, j;
+
+	/* a vector of copies of one value: that value */
+	if (SP.def[id] >= 0 && !strcmp(V.in[SP.def[id]].op,
+	    "OpCompositeConstruct") && V.in[SP.def[id]].nop >= 2 &&
+	    V.in[SP.def[id]].opnd[1][0] == '%')
+		id = idx(V.in[SP.def[id]].opnd[1]);
+	snprintf(b, n, "%s", V.id[id].tok);
+	if (SP.def[id] < 0 || strcmp((L = &V.in[SP.def[id]])->op, "OpLoad") ||
+	    L->nop < 2 || L->opnd[1][0] != '%')
+		return b;
+	p = idx(L->opnd[1]);
+	if (SP.def[p] < 0)
+		snprintf(b, n, "%s", V.id[p].tok);
+	else if (!strcmp((C = &V.in[SP.def[p]])->op, "OpAccessChain") &&
+	    C->nop == 3 && C->opnd[1][0] == '%' && rk_const(C->opnd[2], &j))
+		snprintf(b, n, "%s[%d]", V.id[idx(C->opnd[1])].tok, j);
+	return b;
+}
+
+static void
+adv_pointcoord(struct sbuf *rep, const struct model *m, const uint8_t *fq)
+{
+	static const char *const comp[4] = {"", ".x", ".y", ".xy"};
+	int nid = V.nid + 64, *kind, *mask, *cen, *size, *mul, *ksub, *kscl, k,
+	    n = 0;
+	char sl[160], cn[80], zn[80];
+
+	kind = xcalloc((size_t)nid, sizeof *kind);
+	mask = xcalloc((size_t)nid, sizeof *mask);
+	cen = xcalloc((size_t)nid, sizeof *cen);
+	size = xcalloc((size_t)nid, sizeof *size);
+	mul = xcalloc((size_t)nid, sizeof *mul);
+	ksub = xcalloc((size_t)nid, sizeof *ksub);
+	kscl = xcalloc((size_t)nid, sizeof *kscl);
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		int r = I->res, a, b, j, d, o, sc, h;
+		double save;
+		if (r < 0 || r >= nid || I->nop < 2 || I->opnd[1][0] != '%')
+			continue;
+		a = idx(I->opnd[1]);
+		b = I->nop >= 3 && I->opnd[2][0] == '%' ? idx(I->opnd[2]) : -1;
+		if (!strcmp(I->op, "OpLoad") && (adv_builtin_is(a,
+		    "FragCoord") || kind[a] == PC_PTR)) {
+			kind[r] = PC_FC;
+			mask[r] = kind[a] == PC_PTR ? mask[a] : 15;
+		} else if ((!strcmp(I->op, "OpAccessChain") ||
+		    !strcmp(I->op, "OpInBoundsAccessChain")) && I->nop == 3 &&
+		    adv_builtin_is(a, "FragCoord") && rk_const(I->opnd[2],
+		    &j) && (j == 0 || j == 1)) {
+			/* a pointer to gl_FragCoord.x or .y */
+			kind[r] = PC_PTR;
+			mask[r] = 1 << j;
+		} else if (!strcmp(I->op, "OpCompositeExtract") && kind[a] ==
+		    PC_FC && I->nop == 3 && sscanf(I->opnd[2], "%d", &j) == 1 &&
+		    (j == 0 || j == 1) && (mask[a] >> j & 1)) {
+			kind[r] = PC_FC;
+			mask[r] = 1 << j;
+		} else if (!strcmp(I->op, "OpVectorShuffle") && kind[a] ==
+		    PC_FC && I->nop == 5 && b == a && !strcmp(I->opnd[3], "0") &&
+		    !strcmp(I->opnd[4], "1")) {
+			kind[r] = PC_FC;
+			mask[r] = 3;
+		} else if (!strcmp(I->op, "OpFSub") && b >= 0 && kind[a] ==
+		    PC_FC && mask[a] <= 3 && pc_prim(fq, b)) {
+			kind[r] = PC_DIFF;
+			mask[r] = mask[a];
+			cen[r] = b;
+			ksub[r] = k;
+		} else if ((!strcmp(I->op, "OpFDiv") || !strcmp(I->op,
+		    "OpFMul") || !strcmp(I->op, "OpVectorTimesScalar")) &&
+		    b >= 0) {
+			/* (fc - c) / s, or times 1/s in either order */
+			d = kind[a] == PC_DIFF ? a : b;
+			o = d == a ? b : a;
+			if (kind[d] != PC_DIFF || !pc_prim(fq, o) ||
+			    (!strcmp(I->op, "OpFDiv") && d != a))
+				continue;
+			kind[r] = PC_SCALED;
+			mask[r] = mask[d];
+			cen[r] = cen[d];
+			size[r] = o;
+			mul[r] = strcmp(I->op, "OpFDiv") != 0;
+			ksub[r] = ksub[d];
+			kscl[r] = k;
+		} else if (!strcmp(I->op, "OpFAdd") && b >= 0) {
+			sc = kind[a] == PC_SCALED ? a : b;
+			h = sc == a ? b : a;
+			if (kind[sc] != PC_SCALED || !pc_half(h))
+				continue;
+			save = adv_price(I) + adv_price(&V.in[kscl[sc]]) +
+			    adv_price(&V.in[ksub[sc]]);
+			if (!rep->n)
+				sb_printf(rep, "advice (changes outside the "
+				    "module; nothing here is rewritten), priced under "
+				    "%s:\n", sym_str(m->name));
+			if (!n++) {
+				sb_printf(rep, "  point sprite coordinates the rasteriser "
+				    "makes (each a proposal: the draw as points, "
+				    "gl_PointSize the size in the vertex shader and the "
+				    "point at the centre, within the device's "
+				    "pointSizeRange; the shader reads gl_PointCoord):\n");
+				rep_list("advice_pointcoord");
+			}
+			sb_printf(rep, "    %s\n", I->text);
+			src_line(ins_line(k), sl, sizeof sl);
+			if (sl[0])
+				sb_printf(rep, "  %s", sl);
+			pc_name(cen[sc], cn, sizeof cn);
+			pc_name(size[sc], zn, sizeof zn);
+			sb_printf(rep, "      (gl_FragCoord%s - %s) %s %s + 0.5 is "
+			    "gl_PointCoord%s for points of size %s%s centred at %s: "
+			    "%g a pixel less (the subtract, the %s and the add)\n",
+			    comp[mask[sc]], cn, mul[sc] ? "*" : "/", zn,
+			    comp[mask[sc]], mul[sc] ? "1 / " : "", zn, cn, save,
+			    mul[sc] ? "multiply" : "divide");
+			rep_obj(NULL);
+			rep_str("instruction", I->text);
+			rep_int("line", ins_line(k));
+			rep_str("components", comp[mask[sc]] + 1);
+			rep_str("centre", cn);
+			rep_str(mul[sc] ? "reciprocal_size" : "size", zn);
+			rep_num("saves", save);
+			rep_end();
+		}
+	}
+	if (n)
+		rep_end();
+	free(kind);
+	free(mask);
+	free(cen);
+	free(size);
+	free(mul);
+	free(ksub);
+	free(kscl);
+}
+
+/*
  * A fragment shader's inputs, recognised and reported, never proposed
  * (#202, Liz: report what is recognised, nothing more): flat inputs, the
  * provoking vertex's value, one a primitive; per-vertex inputs
@@ -11575,13 +11768,16 @@ advice_pass(const char *text, int asked)
 	}
 	if (!strcmp(stage, "Vertex"))
 		adv_vertex_inputs(&rep, m);
-	if (!strcmp(stage, "Fragment"))
+	if (!strcmp(stage, "Fragment")) {
 		adv_clip(&rep, m, fq);
+		adv_pointcoord(&rep, m, fq);
+	}
 	if (!rep.n && asked)
 		sb_printf(&rep, "advice: nothing in this module depends only on "
 		    "its uniforms or its flat inputs, is affine in its varyings "
 		    "or in gl_FragCoord, is what a vertex format or an instance "
-		    "divisor computes, or is a discard the clipper could do\n");
+		    "divisor computes, is a discard the clipper could do, or is a "
+		    "point sprite's coordinate\n");
 	if (rep.n)
 		fputs(rep.p, stdout);
 	free(rep.p);
