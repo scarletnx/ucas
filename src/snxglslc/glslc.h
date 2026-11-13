@@ -69,7 +69,9 @@ typedef enum {
     SNX_GLSLC_BASE_UINT = 2,
     SNX_GLSLC_BASE_FLOAT = 3,
     SNX_GLSLC_BASE_STRUCT = 4, /* a struct, or a block */
-    SNX_GLSLC_BASE_OPAQUE = 5  /* a sampler or an image */
+    SNX_GLSLC_BASE_OPAQUE = 5, /* a sampler or an image */
+    SNX_GLSLC_BASE_INT64 = 6,  /* ucas: GL_EXT_shader_explicit_arithmetic_types_int64's, read in Vulkan GLSL */
+    SNX_GLSLC_BASE_UINT64 = 7
 } GlslcBase;
 
 typedef struct {

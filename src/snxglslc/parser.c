@@ -91,8 +91,12 @@ static int is_matrix(const Glslc* g, uint32_t t) { return ty(g, t)->kind == GLSL
 static int is_sv(const Glslc* g, uint32_t t) { return is_scalar(g, t) || is_vector(g, t); }
 static int is_svm(const Glslc* g, uint32_t t) { return is_sv(g, t) || is_matrix(g, t); }
 static int is_numeric(const Glslc* g, uint32_t t) { return is_svm(g, t) && ty(g, t)->base != SNX_GLSLC_BASE_BOOL; }
+static int is_wide(const Glslc* g, uint32_t t) { /* ucas: of 64-bit integers */
+    return ty(g, t)->base == SNX_GLSLC_BASE_INT64 || ty(g, t)->base == SNX_GLSLC_BASE_UINT64;
+}
 static int is_integer(const Glslc* g, uint32_t t) {
-    return is_sv(g, t) && (ty(g, t)->base == SNX_GLSLC_BASE_INT || ty(g, t)->base == SNX_GLSLC_BASE_UINT);
+    return is_sv(g, t) &&
+           (ty(g, t)->base == SNX_GLSLC_BASE_INT || ty(g, t)->base == SNX_GLSLC_BASE_UINT || is_wide(g, t));
 }
 static int is_opaque_kind(uint8_t kind) {
     return kind == GLSLC_T_SAMPLER || kind == GLSLC_T_IMAGE || kind == GLSLC_T_ATOMIC;
@@ -107,6 +111,8 @@ static uint32_t element_of(const Glslc* g, uint32_t t) {
 }
 
 uint32_t glslc_vector_type(uint32_t base, uint32_t rows) {
+    if (base == SNX_GLSLC_BASE_INT64) return rows == 1 ? GT_INT64 : GT_I64VEC2 + rows - 2u;
+    if (base == SNX_GLSLC_BASE_UINT64) return rows == 1 ? GT_UINT64 : GT_U64VEC2 + rows - 2u;
     return rows == 1 ? GT_BOOL + base : GT_BVEC2 + base * 3u + rows - 2u;
 }
 
@@ -319,6 +325,95 @@ static uint32_t make_const(Glslc* g, uint32_t tok, uint32_t type, uint32_t bits)
     return n;
 }
 
+/* ucas: a 64-bit constant: its low half in a and b, as make_const's, and c is 1 + its place in g->const64 */
+static uint32_t make_const64(Glslc* g, uint32_t tok, uint32_t type, uint64_t v) {
+    if (g->nconst64 >= GLSLC_MAX_CONST64)
+        glslc_fail(g, site(g, tok), "the shader has more than the %u 64-bit constants glslc takes", GLSLC_MAX_CONST64);
+    uint32_t n = make_const(g, tok, type, (uint32_t)v);
+    g->const64[g->nconst64] = v;
+    nd(g, n)->c = (uint16_t)(++g->nconst64);
+    return n;
+}
+
+uint64_t glslc_const64(const Glslc* g, uint32_t n) {
+    const GlslcNode* x = &g->nodes[n];
+    if (x->c) return g->const64[x->c - 1];
+    return x->a | ((uint32_t)x->b << 16);
+}
+
+/* ucas: a 64-bit constant of type from as type to, or a constant of either to or from a 64-bit type; *out64 for a
+   64-bit to, *out32 otherwise */
+static void fold_convert64(const Glslc* g, uint64_t v, uint32_t from, uint32_t to, uint64_t* out64,
+                           uint32_t* out32) {
+    uint32_t fb = ty(g, from)->base, tb = ty(g, to)->base;
+    uint64_t r;
+    if (fb == SNX_GLSLC_BASE_FLOAT) {
+        float f = f32((uint32_t)v);
+        if (f != f) {
+            r = 0;
+        } else if (tb == SNX_GLSLC_BASE_INT64) {
+            r = f >= 9223372036854775807.0f    ? (uint64_t)INT64_MAX
+                : f <= -9223372036854775808.0f ? (uint64_t)INT64_MIN
+                                               : (uint64_t)(int64_t)f;
+        } else {
+            r = f <= 0.0f ? 0 : f >= 18446744073709551615.0f ? UINT64_MAX : (uint64_t)f;
+        }
+    } else if (fb == SNX_GLSLC_BASE_BOOL) {
+        r = v != 0;
+    } else if (fb == SNX_GLSLC_BASE_INT) {
+        r = (uint64_t)(int64_t)(int32_t)(uint32_t)v;
+    } else if (fb == SNX_GLSLC_BASE_UINT) {
+        r = (uint32_t)v;
+    } else {
+        r = v;
+    }
+    *out64 = r;
+    if (tb == SNX_GLSLC_BASE_INT64 || tb == SNX_GLSLC_BASE_UINT64) return;
+    if (tb == SNX_GLSLC_BASE_BOOL)
+        *out32 = r != 0;
+    else if (tb == SNX_GLSLC_BASE_FLOAT)
+        *out32 = u32(fb == SNX_GLSLC_BASE_INT64 ? (float)(int64_t)r : (float)r);
+    else
+        *out32 = (uint32_t)r;
+}
+
+/* ucas: op on 64-bit constants a and b of type lt (as fold_binary): 0 to leave it to run time */
+static int fold_binary64(const Glslc* g, uint8_t op, uint32_t lt, uint64_t a, uint64_t b, uint64_t* out) {
+    int si = ty(g, lt)->base == SNX_GLSLC_BASE_INT64;
+    int64_t ia = (int64_t)a, ib = (int64_t)b;
+    switch (op) {
+        case GLSLC_OP_ADD: *out = a + b; return 1;
+        case GLSLC_OP_SUB: *out = a - b; return 1;
+        case GLSLC_OP_MUL: *out = a * b; return 1;
+        case GLSLC_OP_DIV:
+            if (b == 0) return 0;
+            *out = si ? (ia == INT64_MIN && ib == -1 ? a : (uint64_t)(ia / ib)) : a / b;
+            return 1;
+        case GLSLC_OP_MOD:
+            if (b == 0) return 0;
+            *out = si ? (ib == -1 ? 0 : (uint64_t)(ia % ib)) : a % b;
+            return 1;
+        case GLSLC_OP_SHL:
+            if (b > 63) return 0;
+            *out = a << b;
+            return 1;
+        case GLSLC_OP_SHR:
+            if (b > 63) return 0;
+            *out = si && (a >> 63) ? ~(~a >> b) : a >> b;
+            return 1;
+        case GLSLC_OP_AND: *out = a & b; return 1;
+        case GLSLC_OP_OR: *out = a | b; return 1;
+        case GLSLC_OP_XOR: *out = a ^ b; return 1;
+        case GLSLC_OP_LT: *out = si ? ia < ib : a < b; return 1;
+        case GLSLC_OP_GT: *out = si ? ia > ib : a > b; return 1;
+        case GLSLC_OP_LE: *out = si ? ia <= ib : a <= b; return 1;
+        case GLSLC_OP_GE: *out = si ? ia >= ib : a >= b; return 1;
+        case GLSLC_OP_EQ: *out = a == b; return 1;
+        case GLSLC_OP_NE: *out = a != b; return 1;
+        default: return 0;
+    }
+}
+
 /* a decimal literal as the nearest float, the same in every locale (strtod reads the C locale's decimal point) */
 static uint32_t parse_float(const char* s, uint32_t len) {
     static const double tens[] = {1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
@@ -457,6 +552,7 @@ static int fold_binary(const Glslc* g, uint8_t op, uint32_t lt, uint32_t a, uint
 static int const_component(const Glslc* g, uint32_t n, uint32_t i, uint32_t* out) {
     for (uint32_t hops = 0; hops < 64; hops++) {
         const GlslcNode* x = &g->nodes[n];
+        if (is_wide(g, x->type)) return 0; /* ucas: a 64-bit one is not a 32-bit word */
         if (x->kind == GLSLC_N_CONST) {
             if (i != 0) return 0;
             *out = bits_of(g, n);
@@ -968,31 +1064,37 @@ static const char* op_text(uint8_t op) {
 /* ucas: GLSL 4.x's implicit conversions, which GLSL ES lacks (g->implicit turns them on): an int becomes a uint, an
    int or a uint a float, a scalar or a vector of them the same shape of the other base. The conversion is a
    constructor node around the value (a scalar constant is folded), so what reads the tree sees it written out */
+static const uint8_t rank_base[] = {0, SNX_GLSLC_BASE_INT, SNX_GLSLC_BASE_UINT, SNX_GLSLC_BASE_FLOAT,
+                                     SNX_GLSLC_BASE_INT64, SNX_GLSLC_BASE_UINT64};
+
+/* the 64-bit integers past float: int and uint widen to them, int64_t to uint64_t, and a float to neither (glslang
+   mixes no float with a 64-bit integer, so that never comes) */
 static uint32_t base_rank(const Glslc* g, uint32_t t) {
     if (!is_sv(g, t)) return 0;
-    switch (ty(g, t)->base) {
-        case SNX_GLSLC_BASE_INT: return 1;
-        case SNX_GLSLC_BASE_UINT: return 2;
-        case SNX_GLSLC_BASE_FLOAT: return 3;
-        default: return 0;
-    }
+    for (uint32_t r = 1; r < sizeof rank_base; r++)
+        if (ty(g, t)->base == rank_base[r]) return r;
+    return 0;
 }
 
 static uint32_t with_rank(const Glslc* g, uint32_t t, uint32_t rank) {
     uint32_t rows = is_scalar(g, t) ? 1 : ty(g, t)->rows;
-    return glslc_vector_type(rank == 1 ? SNX_GLSLC_BASE_INT : rank == 2 ? SNX_GLSLC_BASE_UINT : SNX_GLSLC_BASE_FLOAT,
-                             rows);
+    return glslc_vector_type(rank_base[rank], rows);
 }
 
 static int converts(const Glslc* g, uint32_t from, uint32_t to) {
     uint32_t a = base_rank(g, from), b = base_rank(g, to);
-    return g->implicit && a && b && a < b && with_rank(g, from, b) == to;
+    return g->implicit && a && b && a < b && !(a == 3 && b > 3) && with_rank(g, from, b) == to;
 }
 
 /* n as type to; n's place in an argument list (its next) goes to the result */
 static uint32_t convert_to(Glslc* g, uint32_t n, uint32_t to) {
     uint32_t tok = nd(g, n)->tok, next = nd(g, n)->next, c;
-    if (nd(g, n)->kind == GLSLC_N_CONST && is_scalar(g, to)) {
+    if (nd(g, n)->kind == GLSLC_N_CONST && is_scalar(g, to) && (is_wide(g, to) || is_wide(g, nd(g, n)->type))) {
+        uint64_t v64;
+        uint32_t v32 = 0;
+        fold_convert64(g, glslc_const64(g, n), nd(g, n)->type, to, &v64, &v32);
+        c = is_wide(g, to) ? make_const64(g, tok, to, v64) : make_const(g, tok, to, v32);
+    } else if (nd(g, n)->kind == GLSLC_N_CONST && is_scalar(g, to)) {
         c = make_const(g, tok, to, glslc_fold_convert(g, bits_of(g, n), nd(g, n)->type, to));
     } else {
         int k = is_const(g, n);
@@ -1019,7 +1121,7 @@ static uint32_t convert_arg(Glslc* g, uint32_t* first, uint32_t prev, uint32_t a
 /* the two operands of an operator brought to the wider base of the two */
 static void convert_pair(Glslc* g, uint32_t* l, uint32_t* r) {
     uint32_t lt = nd(g, *l)->type, rt = nd(g, *r)->type, a = base_rank(g, lt), b = base_rank(g, rt);
-    if (!g->implicit || !a || !b || a == b) return;
+    if (!g->implicit || !a || !b || a == b || (a == 3 && b > 3) || (b == 3 && a > 3)) return;
     if (a < b) {
         *l = convert_to(g, *l, with_rank(g, lt, b));
     } else {
@@ -1045,9 +1147,16 @@ static uint32_t make_binary(Glslc* g, uint8_t op, uint32_t tok, uint32_t l, uint
         glslc_fail(g, site(g, tok), "no operator %s takes %s and %s (GLSL ES converts neither)", op_text(op), a, b);
     }
     uint32_t bits;
-    if (nd(g, l)->kind == GLSLC_N_CONST && nd(g, r)->kind == GLSLC_N_CONST && is_scalar(g, t) &&
-        fold_binary(g, op, lt, bits_of(g, l), bits_of(g, r), &bits))
+    uint64_t v64;
+    if (nd(g, l)->kind == GLSLC_N_CONST && nd(g, r)->kind == GLSLC_N_CONST && is_scalar(g, t) && is_wide(g, lt)) {
+        /* a shift by a 32-bit count: its count as 64 bits */
+        uint64_t rv = is_wide(g, rt) ? glslc_const64(g, r) : (uint64_t)bits_of(g, r);
+        if (fold_binary64(g, op, lt, glslc_const64(g, l), rv, &v64))
+            return is_wide(g, t) ? make_const64(g, tok, t, v64) : make_const(g, tok, t, (uint32_t)v64);
+    } else if (nd(g, l)->kind == GLSLC_N_CONST && nd(g, r)->kind == GLSLC_N_CONST && is_scalar(g, t) &&
+               !is_wide(g, rt) && fold_binary(g, op, lt, bits_of(g, l), bits_of(g, r), &bits)) {
         return make_const(g, tok, t, bits);
+    }
     uint32_t n = node(g, GLSLC_N_BINARY, tok, t);
     nd(g, n)->op = op;
     nd(g, n)->a = (uint16_t)l;
@@ -1079,7 +1188,12 @@ static uint32_t make_unary(Glslc* g, uint8_t op, uint32_t tok, uint32_t a) {
                            op == GLSLC_OP_PRE_INC || op == GLSLC_OP_POST_INC ? "++" : "--", name);
             need_lvalue(g, a, tok, op == GLSLC_OP_PRE_INC || op == GLSLC_OP_POST_INC ? "++" : "--");
     }
-    if (nd(g, a)->kind == GLSLC_N_CONST) {
+    if (nd(g, a)->kind == GLSLC_N_CONST && is_wide(g, t)) {
+        uint64_t v = glslc_const64(g, a);
+        if (op == GLSLC_OP_NEG) return make_const64(g, tok, t, 0u - v);
+        if (op == GLSLC_OP_PLUS) return make_const64(g, tok, t, v);
+        if (op == GLSLC_OP_BITNOT) return make_const64(g, tok, t, ~v);
+    } else if (nd(g, a)->kind == GLSLC_N_CONST) {
         uint32_t v = bits_of(g, a);
         int fl = ty(g, t)->base == SNX_GLSLC_BASE_FLOAT;
         if (op == GLSLC_OP_NEG) return make_const(g, tok, t, fl ? u32(-f32(v)) : 0u - v);
@@ -1323,6 +1437,13 @@ static uint32_t make_constructor(Glslc* g, uint32_t type, uint32_t tok, uint32_t
                            name, need, sum);
         }
         uint32_t bits;
+        if (t->kind == GLSLC_T_SCALAR && nd(g, first)->kind == GLSLC_N_CONST &&
+            (is_wide(g, type) || is_wide(g, nd(g, first)->type))) {
+            uint64_t v64;
+            uint32_t v32 = 0;
+            fold_convert64(g, glslc_const64(g, first), nd(g, first)->type, type, &v64, &v32);
+            return is_wide(g, type) ? make_const64(g, tok, type, v64) : make_const(g, tok, type, v32);
+        }
         if (t->kind == GLSLC_T_SCALAR && const_component(g, first, 0, &bits))
             return make_const(
                 g, tok, type,
@@ -1367,6 +1488,8 @@ static uint32_t match_signature(const Glslc* g, const char* sig, const uint16_t*
                 base = SNX_GLSLC_BASE_BOOL;
                 vec_only = 1;
                 break;
+            case 'X': base = SNX_GLSLC_BASE_INT64; break; /* ucas */
+            case 'Y': base = SNX_GLSLC_BASE_UINT64; break;
             default: gen = 0;
         }
         if (gen) {
@@ -1387,6 +1510,12 @@ static uint32_t match_signature(const Glslc* g, const char* sig, const uint16_t*
                     break;
                 case 'b':
                     if (at[i] != GT_BOOL) return 0;
+                    break;
+                case 'x':
+                    if (at[i] != GT_INT64) return 0;
+                    break;
+                case 'y':
+                    if (at[i] != GT_UINT64) return 0;
                     break;
                 case '2':
                     if (at[i] != GT_VEC2) return 0;
@@ -1425,6 +1554,10 @@ static uint32_t match_signature(const Glslc* g, const char* sig, const uint16_t*
         case 'U': return glslc_vector_type(SNX_GLSLC_BASE_UINT, size);
         case 'B':
         case 'L': return glslc_vector_type(SNX_GLSLC_BASE_BOOL, size);
+        case 'X': return glslc_vector_type(SNX_GLSLC_BASE_INT64, size);
+        case 'Y': return glslc_vector_type(SNX_GLSLC_BASE_UINT64, size);
+        case 'x': return GT_INT64;
+        case 'y': return GT_UINT64;
         case 'f': return GT_FLOAT;
         case 'i': return GT_INT;
         case 'u': return GT_UINT;
@@ -1876,6 +2009,14 @@ static uint32_t parse_primary(Glslc* g) {
             if (!glslc_parse_int(glslc_token_text(g, tk(g, t)), tk(g, t)->text.len, &v))
                 glslc_fail(g, site(g, t), "%.*s does not fit in 32 bits", TOKV(g, t));
             return make_const(g, t, k == TK_INTCONST ? GT_INT : GT_UINT, v);
+        }
+        case TK_INT64CONST:
+        case TK_UINT64CONST: {
+            g->pos++;
+            uint64_t v;
+            if (!glslc_parse_int64(glslc_token_text(g, tk(g, t)), tk(g, t)->text.len, &v))
+                glslc_fail(g, site(g, t), "%.*s does not fit in 64 bits", TOKV(g, t));
+            return make_const64(g, t, k == TK_INT64CONST ? GT_INT64 : GT_UINT64, v);
         }
         case TK_FLOATCONST:
             g->pos++;

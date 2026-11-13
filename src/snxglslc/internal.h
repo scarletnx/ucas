@@ -30,6 +30,8 @@ enum {
     TK_IDENT,
     TK_INTCONST,
     TK_UINTCONST,
+    TK_INT64CONST,  /* ucas: a literal with the suffix l, in Vulkan GLSL */
+    TK_UINT64CONST, /* ucas: and ul */
     TK_FLOATCONST,
     TK_JUNK, /* a character no token starts with, only seen in a section #if leaves out */
     TK_LPAREN,
@@ -218,6 +220,14 @@ enum {
     GT_MAT4,
     GT_SAMPLER_FIRST /* then the samplers, the images and atomic_uint, in builtins.c's table order */
 };
+/* ucas: the 64-bit integer types, after atomic_uint in builtins.c's table, keywords only in Vulkan GLSL
+   (Glslc.implicit: the keyword's ext is GLSLC_KW_IMPLICIT) */
+#define GT_INT64           (GT_SAMPLER_FIRST + 47)
+#define GT_UINT64          (GT_INT64 + 1)
+#define GT_I64VEC2         (GT_INT64 + 2)
+#define GT_U64VEC2         (GT_INT64 + 5)
+#define GLSLC_KW_IMPLICIT  0xffu
+#define GLSLC_MAX_CONST64  1024u
 
 /* member flags */
 #define GLSLC_MEM_ROW_MAJOR 1u
@@ -608,6 +618,8 @@ typedef struct {
     int map_default; /* the map places the default uniform block too */
     int flip_y;      /* gl_FragCoord and gl_PointCoord read through the push constant's flip */
     int implicit;    /* ucas: GLSL 4.x's implicit conversions (int to uint, both to float) are made, for Vulkan GLSL */
+    uint64_t const64[GLSLC_MAX_CONST64]; /* ucas: the 64-bit constants, a GLSLC_N_CONST's c is 1 + its index */
+    uint32_t nconst64;
     jmp_buf fail;
     /* the raw scanner */
     uint32_t cur;
@@ -695,6 +707,8 @@ int glslc_views_equal(const Glslc* g, GlslcView a, GlslcView b);
 /* lexer.c: fills toks, ending with TK_EOF */
 void glslc_lex(Glslc* g);
 int glslc_parse_int(const char* text, uint32_t len, uint32_t* value); /* 0 when it does not fit in 32 bits */
+int glslc_parse_int64(const char* text, uint32_t len, uint64_t* value); /* ucas: 0 when it does not fit in 64 */
+uint64_t glslc_const64(const Glslc* g, uint32_t n); /* ucas: a GLSLC_N_CONST's value in 64 bits */
 /* builtins.c */
 const GlslcKeyword* glslc_find_keyword(const char* text, uint32_t len);
 /* parser.c: fills the nodes, types and symbols */

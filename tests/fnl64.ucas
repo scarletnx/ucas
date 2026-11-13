@@ -1,0 +1,22 @@
+# The function level reads 64-bit integers (#319): GL_EXT_shader_explicit_
+# arithmetic_types_int64's uint64_t and int64_t, their vectors and l and ul
+# literals, with intervals in 64 bits.  ucas enumerates no 64-bit value, so
+# what it finds there is proved by SAT: a min that never bites on a value
+# below 2^16, a remainder that never bites on any value (k & 255 % 256),
+# and a packed key's depth that stays below the min.
+simplify functions nofile under gt1030
+```glsl
+#version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer K { uint64_t key[]; } kb;
+layout(std430, binding = 1) buffer D { uint d[]; } db;
+uint64_t scale(uint64_t v) { return min(v, 1000000000000ul) * 3ul; }
+uint64_t lowbyte(uint64_t k) { return (k & 0xFFul) % 256ul; }
+uint64_t pack_key(uint depth, uint i) { return (min(uint64_t(depth), 0x3EFFFFFFul) << 32) | uint64_t(i); }
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint64_t v = uint64_t(db.d[i] & 0xFFFFu);
+    kb.key[i] = scale(v) + lowbyte(kb.key[i + 64u]) + pack_key(db.d[i + 64u] & 0x0FFFFFFFu, i);
+}
+```

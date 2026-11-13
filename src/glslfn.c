@@ -60,7 +60,11 @@
 
 /* ---- the syntax tree ---- */
 
-enum { TV, TB, TI, TU, TF, TX };	/* void bool int uint float other */
+enum { TV, TB, TI, TU, TF, TX, TL, TQ };	/* void bool int uint float other
+						 * int64_t uint64_t */
+/* an integer type; a 64-bit one (its value's bits in an int64_t) */
+#define INTT(t) ((t) == TI || (t) == TU || (t) == TL || (t) == TQ)
+#define WIDE(t) ((t) == TL || (t) == TQ)
 enum { X_NUM, X_VAR, X_IDX, X_MEM, X_CALL, X_UN, X_BIN, X_SEL, X_ASG,
     X_INC, X_COMMA };
 enum { OP_NONE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_SHL, OP_SHR,
@@ -195,8 +199,12 @@ bin_ty(int op, int ta, int tb)
 		return TX;
 	if (ta == TF || tb == TF)
 		return TF;
+	if (ta == TQ || tb == TQ)
+		return TQ;	/* GLSL's implicit int -> uint, and to 64 bits */
+	if (ta == TL || tb == TL)
+		return TL;
 	if (ta == TU || tb == TU)
-		return TU;	/* GLSL's implicit int -> uint */
+		return TU;
 	return ta;
 }
 
@@ -992,7 +1000,8 @@ snx_ty(uint32_t t, int *arr)
 	if (y->kind != GLSLC_T_SCALAR)
 		return TX;
 	return y->base == SNX_GLSLC_BASE_BOOL ? TB : y->base == SNX_GLSLC_BASE_INT ?
-	    TI : y->base == SNX_GLSLC_BASE_UINT ? TU : TF;
+	    TI : y->base == SNX_GLSLC_BASE_UINT ? TU : y->base ==
+	    SNX_GLSLC_BASE_INT64 ? TL : y->base == SNX_GLSLC_BASE_UINT64 ? TQ : TF;
 }
 
 static int
@@ -1116,7 +1125,7 @@ cv_x(uint32_t n)
 		uint32_t bits = (uint32_t)e->a | ((uint32_t)e->b << 16);
 		x = nx_new(X_NUM, ty, line);
 		G.x[x].v = ty == TU ? (int64_t)bits : ty == TI ? (int64_t)(int32_t)bits :
-		    ty == TB ? bits != 0 : 0;
+		    WIDE(ty) ? (int64_t)glslc_const64(SG, n) : ty == TB ? bits != 0 : 0;
 		return x;
 	}
 	case GLSLC_N_VAR: {
@@ -1137,8 +1146,9 @@ cv_x(uint32_t n)
 			G.x[x].a = a;
 			return x;
 		}
-		if (e->op == GLSLC_OP_NEG && G.x[a].k == X_NUM && ty == TI) {
-			G.x[a].v = -G.x[a].v;
+		if (e->op == GLSLC_OP_NEG && G.x[a].k == X_NUM && (ty == TI ||
+		    ty == TL)) {
+			G.x[a].v = (int64_t)(0u - (uint64_t)G.x[a].v);
 			return a;
 		}
 		x = nx_new(X_UN, ty, line);
@@ -1180,7 +1190,7 @@ cv_x(uint32_t n)
 	case GLSLC_N_SWIZZLE:
 	case GLSLC_N_FIELD:
 	case GLSLC_N_LENGTH:
-		x = nx_new(X_MEM, ty == TI || ty == TU ? ty : TX, line);
+		x = nx_new(X_MEM, INTT(ty) ? ty : TX, line);
 		G.x[x].a = cv_x(e->a);
 		return x;
 	case GLSLC_N_CALL:
@@ -1193,18 +1203,19 @@ cv_x(uint32_t n)
 		    !strcmp(nm, "clamp") ? -B_CLAMP : !strcmp(nm, "abs") ? -B_ABS :
 		    !strcmp(nm, "bitfieldExtract") ? -B_BFE : -B_UNK;
 		na = cv_args(e->a, args, 64);
-		if (ty != TI && ty != TU)
+		if (!INTT(ty))
 			f = -B_UNK;
-		if (f == -B_BFE && (na != 3 || G.x[args[0]].ty != ty))
+		if (f == -B_BFE && (na != 3 || G.x[args[0]].ty != ty || WIDE(ty)))
 			f = -B_UNK;
 		return call_node(f, ty, args, na, line);
 	}
 	case GLSLC_N_CONSTRUCT:
 		na = cv_args(e->a, args, 64);
-		return call_node(na == 1 && (ty == TI || ty == TU || ty == TB) &&
-		    (G.x[args[0]].ty == TI || G.x[args[0]].ty == TU ||
-		    G.x[args[0]].ty == TB) ? (ty == TI ? -B_INT : ty == TU ? -B_UINT :
-		    -B_BOOL) : -B_UNK, ty, args, na, line);
+		/* (B_INT and B_UINT to the node's width: 32 or 64 bits) */
+		return call_node(na == 1 && (INTT(ty) || ty == TB) &&
+		    (INTT(G.x[args[0]].ty) || G.x[args[0]].ty == TB) ? (ty == TI ||
+		    ty == TL ? -B_INT : ty == TU || ty == TQ ? -B_UINT : -B_BOOL) :
+		    -B_UNK, ty, args, na, line);
 	case GLSLC_N_COMMA:
 		x = nx_new(X_COMMA, ty, line);
 		G.x[x].a = cv_x(e->a);
@@ -1671,7 +1682,8 @@ parse_source(const char *src, int stage)
 						bad = 1;
 					if (nv < 1024)
 						vals[nv++] = G.y[ys].ty == TI ? (int64_t)(int32_t)bits :
-						    (int64_t)bits;
+						    WIDE(G.y[ys].ty) && c->kind == GLSLC_N_CONST ?
+						    (int64_t)glslc_const64(SG, a) : (int64_t)bits;
 				}
 				if (!bad && nv > 0) {
 					G.y[ys].tab = xmalloc((size_t)nv * sizeof (int64_t));
@@ -1741,8 +1753,11 @@ num_text(struct sbuf *b, int64_t v, int ty)
 	else if (ty == TU)
 		sb_printf(b, v >= 4096 && ((v + 1) & v) == 0 ? "0x%llXu" :
 		    "%lluu", (unsigned long long)v);
+	else if (ty == TQ)
+		sb_printf(b, (uint64_t)v >= 4096 && (((uint64_t)v + 1) & (uint64_t)v)
+		    == 0 ? "0x%llXul" : "%lluul", (unsigned long long)v);
 	else
-		sb_printf(b, "%lld", (long long)v);
+		sb_printf(b, ty == TL ? "%lldl" : "%lld", (long long)v);
 }
 
 static void
@@ -1757,8 +1772,9 @@ px_text(struct sbuf *b, int x, int prec)
 		sb_putc(b, '(');
 	switch (e->k) {
 	case X_NUM:
-		if (e->ty == TI && e->v < 0 && prec > 11)
-			sb_printf(b, "(%lld)", (long long)e->v);
+		if ((e->ty == TI || e->ty == TL) && e->v < 0 && prec > 11)
+			sb_printf(b, e->ty == TL ? "(%lldl)" : "(%lld)",
+			    (long long)e->v);
 		else
 			num_text(b, e->v, e->ty);
 		break;
@@ -1779,7 +1795,8 @@ px_text(struct sbuf *b, int x, int prec)
 		const char *nm = e->sym >= 0 ? G.f[e->sym].name :
 		    e->sym == -B_MIN ? "min" : e->sym == -B_MAX ? "max" :
 		    e->sym == -B_CLAMP ? "clamp" : e->sym == -B_ABS ? "abs" :
-		    e->sym == -B_INT ? "int" : e->sym == -B_UINT ? "uint" :
+		    e->sym == -B_INT ? (e->ty == TL ? "int64_t" : "int") :
+		    e->sym == -B_UINT ? (e->ty == TQ ? "uint64_t" : "uint") :
 		    e->sym == -B_BFE ? "bitfieldExtract" :
 		    e->sym == -B_BOOL ? "bool" : "f";
 		sb_printf(b, "%s(", nm);
@@ -1846,6 +1863,7 @@ static const char *
 ty_name(int ty)
 {
 	return ty == TB ? "bool" : ty == TI ? "int" : ty == TU ? "uint" :
+	    ty == TL ? "int64_t" : ty == TQ ? "uint64_t" :
 	    ty == TV ? "void" : ty == TF ? "float" : "?";
 }
 
@@ -2015,7 +2033,7 @@ fn_text(struct sbuf *b, int f)
 	sb_puts(b, "\n");
 }
 
-/* ---- concrete semantics: 32-bit GLSL (SPIR-V) arithmetic ---- */
+/* ---- concrete semantics: GLSL's (SPIR-V's) arithmetic, 32 and 64 bits ---- */
 
 static int64_t
 norm(int ty, int64_t v)
@@ -2040,12 +2058,56 @@ opnd_ty(const struct gx *e)
 	return bin_ty(OP_ADD, G.x[e->a].ty, G.x[e->b].ty);
 }
 
+/* cop's on 64-bit operands: their bits in a and b (uint64_t's for TQ) */
+static int64_t
+cop64(int op, int ty, int64_t a, int64_t b, int *ub)
+{
+	uint64_t ua = (uint64_t)a, ub2 = (uint64_t)b;
+	int si = ty == TL;
+	switch (op) {
+	case OP_ADD: return (int64_t)(ua + ub2);
+	case OP_SUB: return (int64_t)(ua - ub2);
+	case OP_MUL: return (int64_t)(ua * ub2);
+	case OP_DIV:
+	case OP_MOD:
+		if (b == 0 || (si && a == INT64_MIN && b == -1)) {
+			*ub = 1;
+			return 0;
+		}
+		if (!si)
+			return (int64_t)(op == OP_DIV ? ua / ub2 : ua % ub2);
+		return op == OP_DIV ? a / b : a % b;
+	case OP_SHL:
+	case OP_SHR:
+		if (ub2 > 63) {
+			*ub = 1;
+			return 0;
+		}
+		if (op == OP_SHL)
+			return (int64_t)(ua << ub2);
+		return si && a < 0 ? (int64_t)~(~ua >> ub2) : (int64_t)(ua >> ub2);
+	case OP_AND: return (int64_t)(ua & ub2);
+	case OP_OR: return (int64_t)(ua | ub2);
+	case OP_XOR: return (int64_t)(ua ^ ub2);
+	case OP_LT: return si ? a < b : ua < ub2;
+	case OP_LE: return si ? a <= b : ua <= ub2;
+	case OP_GT: return si ? a > b : ua > ub2;
+	case OP_GE: return si ? a >= b : ua >= ub2;
+	case OP_EQ: return a == b;
+	case OP_NE: return a != b;
+	}
+	*ub = 1;
+	return 0;
+}
+
 /* one operation on operands of type ty; *ub: undefined (shift >= 32,
  * division by zero, INT_MIN / -1) */
 static int64_t
 cop(int op, int ty, int64_t a, int64_t b, int *ub)
 {
 	uint32_t ua = (uint32_t)a, ub2 = (uint32_t)b;
+	if (WIDE(ty))
+		return cop64(op, ty, a, b, ub);
 	switch (op) {
 	case OP_ADD: return norm(ty, a + b);
 	case OP_SUB: return norm(ty, a - b);
@@ -2111,6 +2173,13 @@ static struct {
 static int64_t ce(int x);
 static uint8_t *expd;
 
+/* a < b as values of type ty (a uint64_t's bits are an int64_t's) */
+static int
+vlt(int ty, int64_t a, int64_t b)
+{
+	return ty == TQ ? (uint64_t)a < (uint64_t)b : a < b;
+}
+
 static int64_t
 ce_call(const struct gx *e)
 {
@@ -2123,16 +2192,17 @@ ce_call(const struct gx *e)
 		int ty = e->ty;
 		switch (-f) {
 		case B_MIN:
-			return e->b >= 2 ? (a[0] < a[1] ? a[0] : a[1]) : 0;
+			return e->b >= 2 ? (vlt(ty, a[0], a[1]) ? a[0] : a[1]) : 0;
 		case B_MAX:
-			return e->b >= 2 ? (a[0] > a[1] ? a[0] : a[1]) : 0;
+			return e->b >= 2 ? (vlt(ty, a[1], a[0]) ? a[0] : a[1]) : 0;
 		case B_CLAMP:
 			if (e->b < 3)
 				return 0;
-			r = a[0] > a[1] ? a[0] : a[1];
-			return r < a[2] ? r : a[2];
+			r = vlt(ty, a[1], a[0]) ? a[0] : a[1];
+			return vlt(ty, r, a[2]) ? r : a[2];
 		case B_ABS:
-			return norm(ty, a[0] < 0 ? -a[0] : a[0]);
+			return norm(ty, a[0] < 0 ? (int64_t)(0u - (uint64_t)a[0]) :
+			    a[0]);
 		case B_INT:
 		case B_UINT:
 		case B_BOOL:
@@ -2225,8 +2295,8 @@ ce(int x)
 		return ce_call(e);
 	case X_UN:
 		a = ce(e->a);
-		if (e->op == OP_NEG)
-			return norm(e->ty, -a);
+		if (e->op == OP_NEG)	/* (in 64 bits, as their wrap) */
+			return norm(e->ty, (int64_t)(0u - (uint64_t)a));
 		if (e->op == OP_NOT)
 			return norm(e->ty, ~a);
 		return !a;
@@ -2265,8 +2335,8 @@ ce(int x)
 		return v;
 	}
 	case X_INC: {
-		int64_t cur = ce(e->a), nv = norm(G.x[e->a].ty,
-		    e->op == OP_ADD ? cur + 1 : cur - 1);
+		int64_t cur = ce(e->a), nv = norm(G.x[e->a].ty, (int64_t)(e->op ==
+		    OP_ADD ? (uint64_t)cur + 1 : (uint64_t)cur - 1));
 		c_store(e->a, nv);
 		return e->post ? cur : nv;
 	}
@@ -2377,6 +2447,8 @@ trange(int ty, int64_t *lo, int64_t *hi)
 	case TU: *lo = 0; *hi = 0xFFFFFFFFLL; return;
 	case TI: *lo = INT32_MIN; *hi = INT32_MAX; return;
 	case TB: *lo = 0; *hi = 1; return;
+	/* a 64-bit value past +-2^61 is any value: these are "any" */
+	case TQ: *lo = 0; *hi = BIGHI; return;
 	default: *lo = BIGLO; *hi = BIGHI; return;
 	}
 }
@@ -2419,11 +2491,15 @@ av_bot(void)
 	return r;
 }
 
+static struct av av_fix(int ty, struct av r);
+
 static struct av
 av_k(int ty, int64_t v)
 {
 	struct av r;
 	if (ty == TX || ty == TF)
+		return av_top(ty);
+	if (WIDE(ty) && (v < BIGLO || v > BIGHI || (ty == TQ && v < 0)))
 		return av_top(ty);
 	memset(&r, 0, sizeof r);
 	r.lo = r.hi = v;
@@ -2449,7 +2525,9 @@ av_fix(int ty, struct av r)
 		t.wr = 1;
 		return t;
 	}
-	if (r.lo >= 0) {
+	if (WIDE(ty))
+		r.may = 0xFFFFFFFFu;	/* the bits are a 32-bit word's */
+	else if (r.lo >= 0) {
 		r.may &= mask_upto(r.hi);
 		if ((int64_t)r.may < r.hi)
 			r.hi = (int64_t)r.may;
@@ -2512,6 +2590,21 @@ av_same(const struct av *a, const struct av *b)
 	    a->sh == b->sh;
 }
 
+/* lo..hi of a 64-bit type reach past +-2^61: any value (a uint64_t's 0
+ * is a bound of its own) */
+static int
+iv_any(int ty, int64_t lo, int64_t hi)
+{
+	return WIDE(ty) && ((ty == TL && lo <= BIGLO) || hi >= BIGHI);
+}
+
+/* a 64-bit value that is any value of its type (av_top's) */
+static int
+av_any(struct av a, int ty)
+{
+	return !a.bot && iv_any(ty, a.lo, a.hi);
+}
+
 static int64_t
 mul_sat(int64_t a, int64_t b)
 {
@@ -2530,6 +2623,18 @@ av_conv(struct av a, int from, int to)
 		return a;
 	if (to == TX || to == TF || from == TX || from == TF)
 		return av_top(to);
+	/* to or from 64 bits: the same value where the type holds it */
+	if ((WIDE(from) || WIDE(to)) && to != TB) {
+		int64_t tl, th;
+		if (av_any(a, from))
+			return av_top(to);
+		trange(to, &tl, &th);
+		if (a.lo < tl || a.hi > th)
+			return av_top(to);
+		a.may = 0xFFFFFFFFu;
+		a.sh = from == to ? a.sh : -1;
+		return av_fix(to, a);
+	}
 	if (to == TB) {
 		if (a.lo == 0 && a.hi == 0)
 			return av_k(TB, 0);
@@ -2561,6 +2666,117 @@ av_conv(struct av a, int from, int to)
 	}
 }
 
+/* the least 2^k - 1 at or above h >= 0 */
+static int64_t
+mask_upto64(int64_t h)
+{
+	uint64_t m = (uint64_t)h;
+	m |= m >> 1;
+	m |= m >> 2;
+	m |= m >> 4;
+	m |= m >> 8;
+	m |= m >> 16;
+	m |= m >> 32;
+	return (int64_t)m;
+}
+
+/*
+ * av_bin on 64-bit operands (ot TL or TQ).  An interval holds a value
+ * within +-2^61 (BIGLO, BIGHI); past that it is any value (av_any), and
+ * an operand that is any value gives any value but where the operation
+ * bounds its result by itself: a mask, a remainder, a right shift.
+ */
+static struct av
+av_bin64(int op, int ot, int rt, struct av a, struct av b)
+{
+	int aa = av_any(a, ot), ba = av_any(b, op == OP_SHL || op == OP_SHR ?
+	    TQ : ot);
+	int64_t c[4], lo, hi, s0, s1;
+	int i;
+	switch (op) {
+	case OP_ADD:
+	case OP_SUB:
+		if (aa || ba)
+			return av_top(rt);
+		return op == OP_ADD ? av_iv(rt, a.lo + b.lo, a.hi + b.hi) :
+		    av_iv(rt, a.lo - b.hi, a.hi - b.lo);
+	case OP_MUL:
+	case OP_DIV:
+		if (aa || ba || (op == OP_DIV && b.lo <= 0 && b.hi >= 0))
+			return av_top(rt);
+		for (i = 0; i < 4; i++) {
+			int64_t x = i & 1 ? a.hi : a.lo, y = i & 2 ? b.hi : b.lo;
+			c[i] = op == OP_MUL ? mul_sat(x, y) : x / y;
+		}
+		lo = hi = c[0];
+		for (i = 1; i < 4; i++) {
+			lo = c[i] < lo ? c[i] : lo;
+			hi = c[i] > hi ? c[i] : hi;
+		}
+		return av_iv(rt, lo, hi);
+	case OP_MOD:
+		if (ba || b.lo <= 0)
+			return av_top(rt);
+		if (!aa && a.lo >= 0 && a.hi < b.lo)
+			return av_iv(rt, a.lo, a.hi);
+		hi = !aa && a.lo >= 0 && a.hi < b.hi - 1 ? a.hi : b.hi - 1;
+		return av_iv(rt, ot == TQ || (!aa && a.lo >= 0) ? 0 : -hi, hi);
+	case OP_SHL:
+	case OP_SHR:
+		s0 = ba || b.lo < 0 ? 0 : b.lo;
+		s1 = ba || b.hi > 63 ? 63 : b.hi;
+		if (s0 > s1)
+			return av_bot();	/* every shift amount undefined */
+		if (op == OP_SHL) {
+			if (aa || a.lo < 0 || s1 > 60 || a.hi > (BIGHI >> s1))
+				return av_top(rt);
+			return av_iv(rt, a.lo << s0, a.hi << s1);
+		}
+		if (aa)
+			return ot == TQ ? av_iv(rt, 0, (int64_t)(UINT64_MAX >> s0)) :
+			    av_iv(rt, INT64_MIN >> s0, INT64_MAX >> s0);
+		if (a.lo >= 0)
+			return av_iv(rt, a.lo >> s1, a.hi >> s0);
+		return av_iv(rt, a.lo >> s0, a.hi >= 0 ? a.hi >> s0 : a.hi >> s1);
+	case OP_AND:
+		if (!aa && a.lo >= 0 && !ba && b.lo >= 0)
+			return av_iv(rt, 0, a.hi < b.hi ? a.hi : b.hi);
+		if (!ba && b.lo >= 0)
+			return av_iv(rt, 0, b.hi);
+		if (!aa && a.lo >= 0)
+			return av_iv(rt, 0, a.hi);
+		return av_top(rt);
+	case OP_OR:
+	case OP_XOR:
+		if (aa || ba || a.lo < 0 || b.lo < 0)
+			return av_top(rt);
+		return av_iv(rt, op == OP_OR ? (a.lo > b.lo ? a.lo : b.lo) : 0,
+		    mask_upto64(a.hi > b.hi ? a.hi : b.hi));
+	case OP_LT: case OP_LE: case OP_GT: case OP_GE:
+	case OP_EQ: case OP_NE: {
+		int t = 2;	/* 2: either */
+		if (aa || ba)
+			return av_top(TB);
+		switch (op) {
+		case OP_LT: t = a.hi < b.lo ? 1 : a.lo >= b.hi ? 0 : 2; break;
+		case OP_LE: t = a.hi <= b.lo ? 1 : a.lo > b.hi ? 0 : 2; break;
+		case OP_GT: t = a.lo > b.hi ? 1 : a.hi <= b.lo ? 0 : 2; break;
+		case OP_GE: t = a.lo >= b.hi ? 1 : a.hi < b.lo ? 0 : 2; break;
+		case OP_EQ:
+			t = a.lo == a.hi && b.lo == b.hi && a.lo == b.lo ? 1 :
+			    a.hi < b.lo || b.hi < a.lo ? 0 : 2;
+			break;
+		case OP_NE:
+			t = a.lo == a.hi && b.lo == b.hi && a.lo == b.lo ? 0 :
+			    a.hi < b.lo || b.hi < a.lo ? 1 : 2;
+			break;
+		}
+		return t == 2 ? av_top(TB) : av_k(TB, t);
+	}
+	}
+	return av_top(rt);
+}
+
 static struct av
 av_bin(int op, int ot, int rt, struct av a, struct av b)
 {
@@ -2571,6 +2787,8 @@ av_bin(int op, int ot, int rt, struct av a, struct av b)
 		return av_bot();
 	if (ot == TX || ot == TF || rt == TX || rt == TF)
 		return av_top(rt);
+	if (WIDE(ot))
+		return av_bin64(op, ot, rt, a, b);
 	switch (op) {
 	case OP_ADD:
 		return av_iv(rt, a.lo + b.lo, a.hi + b.hi);
@@ -4554,7 +4772,7 @@ prepare(void)
 	for (i = 0; i < A.ns; i++) {
 		const struct gsym *y = &G.y[i];
 		int k = 0;
-		if (y->arr || (y->ty != TU && y->ty != TI && y->ty != TB))
+		if (y->arr || (!INTT(y->ty) && y->ty != TB))
 			continue;
 		if (y->kind == Y_GLOBAL)
 			k = A.nasg[i] > 0 && !nonconst[i];
@@ -4877,8 +5095,7 @@ fn_rows(int f, int *vars, struct av **rows)
 	int nv = 0, i, r, nr = 0;
 	for (i = 0; i < A.nin[f]; i++) {
 		int y = A.in[f][i];
-		if (G.y[y].arr || (G.y[y].ty != TU && G.y[y].ty != TI &&
-		    G.y[y].ty != TB))
+		if (G.y[y].arr || (!INTT(G.y[y].ty) && G.y[y].ty != TB))
 			continue;
 		if (nv < MAXP + 8)
 			vars[nv++] = y;
@@ -4954,7 +5171,8 @@ struct uframe {
 static const char *
 u_ty(int ty)
 {
-	return ty == TU ? "u32" : ty == TI ? "i32" : "bool";
+	return ty == TU ? "u32" : ty == TI ? "i32" : ty == TQ ? "u64" : ty == TL ?
+	    "i64" : "bool";
 }
 
 static void
@@ -5049,10 +5267,10 @@ u_x(struct ut *U, struct sbuf *b, int x, const struct uframe *F)
 	case X_NUM:
 		if (g->ty == TB)
 			sb_puts(b, g->v ? "true" : "false");
-		else if (g->ty == TU)
-			sb_printf(b, "u32(%llu)", (unsigned long long)g->v);
-		else if (g->ty == TI)
-			sb_printf(b, "i32(%lld)", (long long)g->v);
+		else if (g->ty == TU || g->ty == TQ)
+			sb_printf(b, "%s(%llu)", u_ty(g->ty), (unsigned long long)g->v);
+		else if (g->ty == TI || g->ty == TL)
+			sb_printf(b, "%s(%lld)", u_ty(g->ty), (long long)g->v);
 		else
 			U->ok = 0;
 		break;
@@ -5345,8 +5563,7 @@ u_s(struct ut *U, struct sbuf *b, int s, struct uframe *F)
 		return;
 	case S_DECL: {
 		int y = t->sym;
-		if (G.y[y].arr || (G.y[y].ty != TU && G.y[y].ty != TI &&
-		    G.y[y].ty != TB)) {
+		if (G.y[y].arr || (!INTT(G.y[y].ty) && G.y[y].ty != TB)) {
 			U->ok = 0;
 			return;
 		}
@@ -5354,9 +5571,10 @@ u_s(struct ut *U, struct sbuf *b, int s, struct uframe *F)
 		sb_printf(b, ": %s = ", u_ty(G.y[y].ty));
 		if (t->a >= 0)
 			u_conv(U, b, t->a, G.y[y].ty, F);
+		else if (G.y[y].ty == TB)
+			sb_puts(b, "false");
 		else
-			sb_puts(b, G.y[y].ty == TB ? "false" : G.y[y].ty == TU ?
-			    "u32(0)" : "i32(0)");
+			sb_printf(b, "%s(0)", u_ty(G.y[y].ty));
 		return;
 	}
 	case S_EXPR:
@@ -5431,7 +5649,7 @@ u_fn_block(struct ut *U, struct sbuf *b, int f, const int *args, int na,
 {
 	struct uframe F;
 	int i, rt = G.f[f].ty;
-	if (G.f[f].body < 0 || (rt != TU && rt != TI && rt != TB) ||
+	if (G.f[f].body < 0 || (!INTT(rt) && rt != TB) ||
 	    A.impure[f] || A.nwrl[f] || U->inst > 64) {
 		U->ok = 0;
 		return;
@@ -5449,8 +5667,8 @@ u_fn_block(struct ut *U, struct sbuf *b, int f, const int *args, int na,
 			u_conv(U, b, args[i], G.y[p].ty, caller);
 			sb_puts(b, "; ");
 		}
-	sb_printf(b, "d_%d: bool = false; r_%d: %s = %s; ", F.inst, F.inst,
-	    u_ty(rt), rt == TB ? "false" : rt == TU ? "u32(0)" : "i32(0)");
+	sb_printf(b, "d_%d: bool = false; r_%d: %s = %s%s; ", F.inst, F.inst,
+	    u_ty(rt), rt == TB ? "false" : u_ty(rt), rt == TB ? "" : "(0)");
 	u_body(U, b, G.f[f].body, &F);
 	sb_printf(b, "; r_%d }", F.inst);
 }
@@ -5460,7 +5678,8 @@ u_fn_block(struct ut *U, struct sbuf *b, int f, const int *args, int na,
 static int
 u_tyof(int ty)
 {
-	return ty == TU ? TY(K_UINT, 32) : ty == TI ? TY(K_SINT, 32) : TY_BOOL;
+	return ty == TU ? TY(K_UINT, 32) : ty == TI ? TY(K_SINT, 32) : ty == TQ ?
+	    TY(K_UINT, 64) : ty == TL ? TY(K_SINT, 64) : TY_BOOL;
 }
 
 /*
@@ -5482,7 +5701,8 @@ u_parse(struct func *fn, int np, char names[][40], const int *tys,
 	for (i = 0; i < np; i++) {
 		fn->p[i].name = sym_cstr(names[i]);
 		fn->p[i].ty = (ty_t)u_tyof(tys[i]);
-		if (tys[i] != TB) {
+		/* a 64-bit value that is any value: the whole type */
+		if (tys[i] != TB && !iv_any(tys[i], lo[i], hi[i])) {
 			fn->p[i].ranged = 1;
 			fn->p[i].lo = lo[i];
 			fn->p[i].hi = hi[i];
@@ -5521,12 +5741,18 @@ u_parse(struct func *fn, int np, char names[][40], const int *tys,
  * equal on the domain?  1 proved (exhaustive), 0 a difference (wit), -1
  * no proof (too many points, or the translation failed)
  */
+static int u_equiv_sat(struct func *fn, nid a, nid b, char *wit, size_t nw);
+
 static int
 u_equiv(struct func *fn, nid a, nid b, char *wit, size_t nw, long *points)
 {
 	struct sbuf w = {0};
 	int sampled = 0, m, i, fd, devnull;
 	double pts = 1;
+	/* ucas enumerates no 64-bit parameter: equiv_decide, by SAT */
+	for (i = 0; i < fn->np; i++)
+		if (TYW(fn->p[i].ty) == 64)
+			return u_equiv_sat(fn, a, b, wit, nw);
 	for (i = 0; i < fn->np; i++)
 		pts *= fn->p[i].ranged ? (double)(fn->p[i].hi - fn->p[i].lo + 1) : 2;
 	if (pts > (double)(1 << 22))
@@ -5933,10 +6159,61 @@ where_text(struct sbuf *b, char names[][40], const int *tys, int nv,
 	}
 }
 
+/* SAT proofs over 64-bit values (prove_rows): their count, and the last
+ * one's size; pr_wide: the value proved is 64-bit, whatever its leaves */
+static int pr_sat, pr_sat_nodes, pr_wide;
+static long pr_sat_conflicts;
+
+/* p's proof text, when a SAT proof came after mark (pr_sat's count then) */
+static void
+pr_sat_text(char *proof, size_t n, int mark)
+{
+	if (pr_sat > mark)
+		snprintf(proof, n, "proved by SAT (ucas equiv, which enumerates no "
+		    "64-bit value: %d AIG nodes, %ld conflicts) on the inferred "
+		    "domain", pr_sat_nodes, pr_sat_conflicts);
+}
+
+/* a and b of fn over the whole domain by ucas's equiv_decide: 1 proved
+ * (by enumeration or SAT), 0 a difference, -1 no proof */
+static int
+u_equiv_sat(struct func *fn, nid a, nid b, char *wit, size_t nw)
+{
+	struct sbuf w = {0};
+	struct eqproof pr;
+	int m, fd, devnull;
+	fflush(stdout);
+	fd = dup(1);
+	devnull = open("/dev/null", O_WRONLY);
+	if (devnull >= 0) {
+		dup2(devnull, 1);
+		close(devnull);
+	}
+	m = equiv_decide(fn, a, b, &w, &pr);
+	fflush(stdout);
+	if (fd >= 0) {
+		dup2(fd, 1);
+		close(fd);
+	}
+	if (wit)
+		snprintf(wit, nw, "%s", w.p ? w.p : "");
+	free(w.p);
+	if (m)
+		return 0;
+	if (pr.how == EQ_SAT) {
+		pr_sat++;
+		pr_sat_nodes = pr.sat.nodes;
+		pr_sat_conflicts = pr.sat.conflicts;
+		return 1;
+	}
+	return pr.how == EQ_EXHAUSTIVE ? 1 : -1;
+}
+
 /*
  * the ucas proof that body texts a and b agree on rows (types tys, names):
  * 1 proved, 0 refuted, -1 no proof.  Rows are proved together under a
- * where clause when their bounding box is small enough, else one by one.
+ * where clause when their bounding box is small enough, else one by one;
+ * with a 64-bit value past that, together by SAT.
  */
 static int
 prove_rows(char names[][40], const int *tys, int nv, const struct av *rows,
@@ -5944,7 +6221,7 @@ prove_rows(char names[][40], const int *tys, int nv, const struct av *rows,
 {
 	int64_t blo[MAXP + 8], bhi[MAXP + 8];
 	double box = 1;
-	int i, r, res = 1;
+	int i, r, res = 1, wide = 0;
 	struct func fn;
 	nid na, nb;
 	if (nv > MAXP)
@@ -5957,6 +6234,22 @@ prove_rows(char names[][40], const int *tys, int nv, const struct av *rows,
 			bhi[i] = rows[r * nv + i].hi > bhi[i] ? rows[r * nv + i].hi : bhi[i];
 		}
 		box *= (double)(bhi[i] - blo[i] + 1);
+		wide |= WIDE(tys[i]);
+	}
+	wide |= pr_wide;
+	if (wide && box > (double)(1 << 22)) {
+		struct sbuf w = {0};
+		struct func fb;
+		if (nr > 1)
+			where_text(&w, names, tys, nv, rows, nr, blo, bhi);
+		if (u_parse(&fn, nv, names, tys, blo, bhi, a, nr > 1 ? w.p : NULL,
+		    &na) != 0 || u_parse(&fb, nv, names, tys, blo, bhi, b, NULL,
+		    &nb) != 0) {
+			free(w.p);
+			return -1;
+		}
+		free(w.p);
+		return u_equiv_sat(&fn, na, nb, wit, nw);
 	}
 	if (box <= (double)(1 << 22)) {
 		struct sbuf w = {0};
@@ -7135,7 +7428,7 @@ x_options(int x, int *opt, const char **why, int max)
 	const struct gx *g = &G.x[x];
 	int n = 0, i;
 	int64_t k;
-	if (g->ty != TU && g->ty != TI && g->ty != TB)
+	if (!INTT(g->ty) && g->ty != TB)
 		return 0;
 	if (g->k == X_CALL && (g->sym == -B_MIN || g->sym == -B_MAX) &&
 	    g->b == 2) {
@@ -7226,7 +7519,7 @@ static int
 x_candidate(int x)
 {
 	const struct gx *g = &G.x[x];
-	if (g->ty != TU && g->ty != TI && g->ty != TB)
+	if (!INTT(g->ty) && g->ty != TB)
 		return 0;
 	if (g->k == X_CALL && (g->sym == -B_MIN || g->sym == -B_MAX ||
 	    g->sym == -B_CLAMP))
@@ -7354,7 +7647,7 @@ add_leaf(struct rec *R, int x)
 			return 1;
 	if (R->nl >= MAXP)
 		return 0;
-	if (G.x[x].ty != TU && G.x[x].ty != TI && G.x[x].ty != TB)
+	if (!INTT(G.x[x].ty) && G.x[x].ty != TB)
 		return 0;
 	R->lf[R->nl++] = x;
 	return 1;
@@ -7606,7 +7899,7 @@ whole_ok(int f)
 	if (G.f[f].body < 0 || G.f[f].unsup || A.impure[f] || A.nwrl[f] ||
 	    is_root(f) || FS[f].n == 0)
 		return 0;
-	if (G.f[f].ty != TU && G.f[f].ty != TI && G.f[f].ty != TB)
+	if (!INTT(G.f[f].ty) && G.f[f].ty != TB)
 		return 0;
 	for (i = 0; i < A.ns; i++)
 		if (A.rd[f][i] && G.y[i].arr)
@@ -7790,8 +8083,8 @@ search_whole(int f)
 		char names2[MAXP + 8][40];
 		pat = fn_ucas(f, &D, names2, tys2);
 		if (pat) {
-			int rc = prove_rows(names, tys, D.nv, D.rows, D.nr, orig, pat,
-			    &pts, wit, sizeof wit);
+			int mark = pr_sat, rc = prove_rows(names, tys, D.nv, D.rows,
+			    D.nr, orig, pat, &pts, wit, sizeof wit);
 			if (rc == 1) {
 				struct prop *p = prop_new(f, P_FUNC, G.f[f].line);
 				struct sbuf b = {0};
@@ -7800,6 +8093,7 @@ search_whole(int f)
 				snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv "
 				    "of the two as ucas functions on every point of the "
 				    "inferred domain (%ld points)", pts);
+				pr_sat_text(p->proof, sizeof p->proof, mark);
 				p->points = pts;
 				p->c0 = c0;
 				p->c1 = scost(G.f[f].body);
@@ -7861,7 +8155,7 @@ static int
 check_rec(int x, int r, long *pts, char *wit, size_t nw)
 {
 	const struct rec *R = &RC[recn[x]];
-	int w = R->nl + R->nex, i, b, *map, rc, nl = R->nl, nb = 0;
+	int w = R->nl + R->nex, i, b, *map, rc, nl = R->nl, nb = 0, wide = 0;
 	struct av *rows;
 	double total = 0;
 	char names[MAXP + 8][40];
@@ -7891,7 +8185,10 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 		free(rows);
 		return -1;
 	}
-	if (total > (double)(1 << 24)) {
+	for (i = 0; i < nl; i++)
+		wide |= WIDE(G.x[R->lf[i]].ty);
+	wide |= WIDE(G.x[x].ty);
+	if (total > (double)(1 << 24) && !wide) {
 		free(rows);
 		return -1;
 	}
@@ -7899,9 +8196,9 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 	for (i = 0; i <= G.nx; i++)
 		map[i] = -1;
 	bind_leaves(R, x, r, map);
-	/* the interpreter, every point */
+	/* the interpreter, every point (a 64-bit value's too many: SAT alone) */
 	C.bind = map;
-	for (b = 0; b < nb; b++) {
+	for (b = 0; b < nb && total <= (double)(1 << 24); b++) {
 		int64_t cur[MAXP];
 		const struct av *row = &rows[b * nl];
 		for (i = 0; i < nl; i++)
@@ -7945,8 +8242,10 @@ check_rec(int x, int r, long *pts, char *wit, size_t nw)
 		snprintf(names[i], 40, "l%d", i);
 		tys[i] = G.x[R->lf[i]].ty;
 	}
+	pr_wide = wide;
 	rc = U.ok ? prove_rows(names, tys, nl, rows, nb, ta.p, tb.p, pts, wit,
 	    nw) : -1;
+	pr_wide = 0;
 	free(ta.p);
 	free(tb.p);
 	free(map);
@@ -8014,6 +8313,7 @@ search_expr(int f)
 			}
 			if (c1 >= c0)
 				continue;
+			int mark = pr_sat;
 			if (check_rec(x, opt[j], &pts, wit, sizeof wit) == 1) {
 				struct prop *p = prop_new(f, P_EXPR, G.x[x].line);
 				char t0[300], t1[300];
@@ -8032,6 +8332,7 @@ search_expr(int f)
 				sb_printf(&p->text, "%s\n  ->  %s", t0, t1);
 				snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv "
 				    "on every recorded value of its leaves (%ld points)", pts);
+				pr_sat_text(p->proof, sizeof p->proof, mark);
 				p->points = pts;
 				p->c0 = c0;
 				p->c1 = c1;
@@ -8537,6 +8838,9 @@ struct cvar {
 	int n, at[64];		/* the calls it serves */
 	int nclamp;		/* clamps, mins and maxes it drops */
 	int beyond;		/* a change search_expr does not try */
+	int sat, sat_nodes;	/* a proof of it by SAT (64-bit values): the
+				 * last one's AIG nodes and conflicts */
+	long sat_conflicts;
 };
 
 /*
@@ -8560,8 +8864,7 @@ search_calls(int f)
 	struct sbuf orig = {0};
 	double c0;
 	if (G.f[f].body < 0 || !A.inl[f] || A.impure[f] || A.nwrl[f] ||
-	    G.f[f].unsup || is_root(f) || (G.f[f].ty != TU && G.f[f].ty != TI &&
-	    G.f[f].ty != TB))
+	    G.f[f].unsup || is_root(f) || (!INTT(G.f[f].ty) && G.f[f].ty != TB))
 		return;
 	for (i = 0; i < nrc; i++) {
 		int x = RC[i].x;
@@ -8596,7 +8899,9 @@ search_calls(int f)
 		free(xs2);
 	}
 	for (j = 0; j < ns; j++) {
-		int c = sites[j], k, nclamp_c = 0, beyond = 0, real = 0;
+		int c = sites[j], k, nclamp_c = 0, beyond = 0, real = 0, sat = 0,
+		    satmark, satn = 0;
+		long satc = 0;
 		int ncov = G.nx + 64;
 		uint8_t *covered = xcalloc((size_t)ncov, 1);
 		struct sbuf what = {0}, text = {0};
@@ -8608,8 +8913,8 @@ search_calls(int f)
 			int64_t v;
 			if (x >= xfn_n || covered[x] || recn[x] < 0 ||
 			    RC[recn[x]].nbox == 0 || G.x[x].k == X_NUM ||
-			    G.x[x].k == X_VAR || (G.x[x].ty != TU && G.x[x].ty != TI &&
-			    G.x[x].ty != TB) || (G.x[x].k == X_CALL && G.x[x].sym >= 0))
+			    G.x[x].k == X_VAR || (!INTT(G.x[x].ty) && G.x[x].ty != TB) ||
+			    (G.x[x].k == X_CALL && G.x[x].sym >= 0))
 				continue;
 			/* what search_expr would say, an operand that is all of it,
 			 * then one value: a variant then keeps what it can of the
@@ -8645,6 +8950,7 @@ search_calls(int f)
 				int sub[512], nsub = 0, keep[512], nkeep = 0, a, b2;
 				if (xcost(opt[q]) >= xcost(x))
 					continue;
+				satmark = pr_sat;
 				if (check_rec(x, opt[q], &pp, wit, sizeof wit) != 1)
 					continue;
 				/* what a constant argument decides is the compiler's
@@ -8665,6 +8971,11 @@ search_calls(int f)
 				if (is_clampish(x))
 					nclamp_c++;
 				pts += pp;
+				if (pr_sat > satmark) {
+					sat = 1;
+					satn = pr_sat_nodes;
+					satc = pr_sat_conflicts;
+				}
 				/* what it drops is not looked at again; what it keeps is */
 				reach_x(x, sub, &nsub, 512);
 				reach_x(opt[q], keep, &nkeep, 512);
@@ -8686,7 +8997,7 @@ search_calls(int f)
 			int a, b, z, ub = 0;
 			int64_t va, vb;
 			if (g->k != X_BIN || xs[i] >= capxrep || xrep[xs[i]] >= 0 ||
-			    (g->ty != TU && g->ty != TI) || g->op > OP_XOR)
+			    !INTT(g->ty) || g->op > OP_XOR)
 				continue;
 			a = XR(g->a);
 			b = XR(g->b);
@@ -8756,6 +9067,11 @@ search_calls(int f)
 			}
 			V[k].at[V[k].n++] = c;
 			V[k].pts += pts;
+			if (sat) {
+				V[k].sat = 1;
+				V[k].sat_nodes = satn;
+				V[k].sat_conflicts = satc;
+			}
 			V[k].beyond |= beyond;
 		}
 		for (i = 0; i < capxrep; i++)
@@ -8808,6 +9124,12 @@ search_calls(int f)
 		snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv of each "
 		    "change on the values its leaves take at %s (%ld points)",
 		    cv->n > 1 ? "those calls" : "that call", cv->pts);
+		if (cv->sat)
+			snprintf(p->proof, sizeof p->proof, "proved by SAT (ucas equiv, "
+			    "which enumerates no 64-bit value: %d AIG nodes, %ld "
+			    "conflicts) on the values its leaves take at %s",
+			    cv->sat_nodes, cv->sat_conflicts, cv->n > 1 ? "those calls" :
+			    "that call");
 		p->points = cv->pts;
 		p->c0 = c0;
 		p->c1 = cv->c1;
@@ -9298,6 +9620,7 @@ fit_shiftmask(int f, struct dom *D, struct fitc *cs, int nc, int wide,
 	struct av *rows;
 	char *orig;
 	long pts = 0;
+	int mark;
 	const char *wn = G.y[D->vars[wide]].name;
 
 	if (nc > 4 || c1 >= c0)
@@ -9357,6 +9680,7 @@ fit_shiftmask(int f, struct dom *D, struct fitc *cs, int nc, int wide,
 		sb_puts(&sel, ")");
 	sb_printf(&form_t, "(%s >> %s) & %s(%lld)", names[wide], sel.p,
 	    u_ty(tys[wide]), (long long)M);
+	mark = pr_sat;
 	rc = prove_rows(names, tys, D->nv, rows, nc, orig, form_t.p, &pts, wit,
 	    sizeof wit);
 	if (rc == 1) {
@@ -9381,7 +9705,8 @@ fit_shiftmask(int f, struct dom *D, struct fitc *cs, int nc, int wide,
 				if (i != wide) {
 					sb_printf(&gs, "%s%s == %lld%s", first ? "" : " && ",
 					    G.y[D->vars[i]].name, (long long)cs[j].key[i],
-					    tys[i] == TU ? "u" : "");
+					    tys[i] == TU ? "u" : tys[i] == TQ ? "ul" : tys[i] == TL ?
+					    "l" : "");
 					first = 0;
 				}
 			sb_printf(&gs, " ? %du : ", Sj[j]);
@@ -9400,6 +9725,7 @@ fit_shiftmask(int f, struct dom *D, struct fitc *cs, int nc, int wide,
 		    gs.p, (long long)M);
 		snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv of the "
 		    "function and the form, case by case (%ld points)", pts);
+		pr_sat_text(p->proof, sizeof p->proof, mark);
 		p->points = pts;
 		p->c0 = c0;
 		p->c1 = c1;
@@ -9628,7 +9954,7 @@ search_fit(int f, struct dom *D)
 			    sizeof *rows);
 			long pts = 0;
 			char wit[200];
-			int rc, full = 1, pw2 = ncase_var == 1;
+			int rc, full = 1, pw2 = ncase_var == 1, mark;
 			const char *wn = G.y[D->vars[wide]].name;
 			char kname[48];
 			for (j = 0; j < nc; j++) {
@@ -9659,6 +9985,7 @@ search_fit(int f, struct dom *D)
 				sb_puts(&form_t, ")");
 			sb_printf(&form_t, ") + %s(%lld)) >> %s(%d)", u_ty(tys[wide]),
 			    (long long)best_C, u_ty(tys[wide]), best_S);
+			mark = pr_sat;
 			rc = prove_rows(names, tys, D->nv, rows, nc, orig, form_t.p, &pts,
 			    wit, sizeof wit);
 			if (rc == 1 && have_sm && !full)
@@ -9716,6 +10043,7 @@ search_fit(int f, struct dom *D)
 				snprintf(p->proof, sizeof p->proof, "exhaustive: ucas equiv "
 				    "of the function and the form, case by case (%ld "
 				    "points)", pts);
+				pr_sat_text(p->proof, sizeof p->proof, mark);
 				p->points = pts;
 				p->c0 = c0;
 				p->c1 = model_active()->c[C_IMUL] + model_active()->c[C_IADD] +

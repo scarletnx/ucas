@@ -30,4 +30,4 @@ function level (the GLSL source read by ScarletNX's GLSL ES parser): 2 functions
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   optimized with spirv-opt -O (what follows is beyond that)
 > spvsimplify nofile functions
-function level: not run (the GLSL parser left main out: half_of (line 6: 'uint64_t' is not declared); main (line 9: no function 'half_of' is declared))
+function level: not run (the GLSL parser left main out: half_of (line 6: no function 'packUint2x32' is declared); main (line 9: no function 'half_of' is declared))
