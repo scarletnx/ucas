@@ -41,8 +41,6 @@ sglanes.ucas:32:15: error: x has its own value in each lane (lanes) and is read 
                   ^
 > tr(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for l in 0..7 { r = r | (u32((sg_shuffle(x, l) >> lane) & 1) << l) }; r }
 > tb(x: u8 lanes, lane: u32 in 0..7) = { r: u32 = 0; for j in 0..7 { r = lane == j ? sg_ballot(((x >> j) & 1) != 0) : r }; r }
-> equiv tr tb
-tr and tb are equal on the domain of tr (proved by SAT: 1298 AIG nodes, 128 conflicts)
 > cost tr
 cost of tr under w8: 157 (0 operations outside loops and 1 loop, shared subterms counted once)
   iadd             8 x 1     = 8
@@ -83,9 +81,6 @@ find wadd: a value in each lane (lanes), so there are no points to search; forms
            holds in a full subgroup (all 8 lanes active); needs ballot (GL_KHR_shader_subgroup_ballot)
            checked by SAT
   note: loop loop(j in 0..6; c = 0 then j < int(lane) ? u8(sj < aj || c != 0 && sj == aj ? 1 : 0) : c).c where aj = sg_shuffle(a, j),… (31 more characters) priced as 7 iterations x 32 (listed under branch)
-> wks(a: u8 lanes, b: u8 lanes, lane: u32 in 0..7) = { s = u8(a + b); g = sg_ballot(s < a); p = sg_ballot(s == 255); u8(s + u8((((g << 1) + p) xor p) >> lane & 1)) }
-> equiv wadd wks
-wadd and wks are equal on the domain of wadd (proved by SAT: 3064 AIG nodes, 1117 conflicts)
 > wadd4(a: u8 in 0..15 lanes, b: u8 in 0..15 lanes, lane: u32 in 0..7) = { c: u8 = 0; for j in 0..6 { sj = u8(sg_shuffle(a, j) + sg_shuffle(b, j) + c); c = j < lane ? sj >> 4 : c }; (a + b + c) & 15 }
 > find wadd4 1
 find wadd4: a value in each lane (lanes), so there are no points to search; forms derived and proved by SAT, costs from w8
