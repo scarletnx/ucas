@@ -1,0 +1,38 @@
+# A map applied field by field to a word the lanes share (src/sg.c): an
+# S-box on each nibble, a function of each byte.  Lane i works out bit i
+# of the result, a bit of the function of the field it belongs to, and
+# the ballot puts the bits together: one table read for the whole word.
+use gt1030
+
+# eight nibbles through one 4-bit S-box (the result untyped: its range
+# fits the 32 lanes); as written eight table reads, as a register eight
+# shuffles
+S(i: u32 in 0..15) = [12, 5, 6, 11, 9, 0, 10, 13, 3, 14, 15, 8, 4, 7, 1, 2][i]
+sub(x: u32 uniform) = S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (S((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (S((x >> 28) & 15) << 28)
+find sub 1
+# a u16 under 32 lanes: sixteen lanes have no bit and are masked out
+s16(x: u16 uniform) = u16(S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12))
+find s16 1
+# arithmetic in each byte: the square mod 256 does not read the byte's
+# top bit, so a field is 7 bits and the table has 128 entries
+sq(x: u32 uniform) = { a = x & 255; b = (x >> 8) & 255; c = (x >> 16) & 255; d = x >> 24; ((a*a) & 255) | (((b*b) & 255) << 8) | (((c*c) & 255) << 16) | (((d*d) & 255) << 24) }
+find sq 1
+
+# the fields are a guess from 48 values of the word: a function that
+# differs from sub at one value of x looks the same there, and the proof
+# drops the form (the register stays)
+trap(x: u32 uniform) = (S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (S((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (S((x >> 28) & 15) << 28)) xor (x == 0x12345678 ? 1 : 0)
+find trap 1
+
+# not taken: fields through different functions, a form that is dearer
+# than the function (a count of each nibble's bits, 9 as written), a
+# word that is not shared by the lanes, a model without the ballot
+two(x: u32 uniform) = u32(S(x & 15)) | (((x >> 4) & 15) * 5 % 16 << 4)
+find two 1
+pc(x: u32 uniform) = { a = x - ((x >> 1) & 0x55555555); (a & 0x33333333) + ((a >> 2) & 0x33333333) }
+find pc 1
+subv(x: u32) = S(x & 15) | (S((x >> 4) & 15) << 4) | (S((x >> 8) & 15) << 8) | (S((x >> 12) & 15) << 12) | (S((x >> 16) & 15) << 16) | (S((x >> 20) & 15) << 20) | (S((x >> 24) & 15) << 24) | (S((x >> 28) & 15) << 28)
+find subv 1
+model noballot : gt1030 { sg_ballot: none, sg_shuffle: none }
+use noballot
+find sub 1
