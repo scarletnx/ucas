@@ -71,11 +71,22 @@ tri(i: u8 in 0..13) = K[i < 7 ? i : 13 - i]
 texalu tri under cal
 b(i: i32 in -5..12) = i >= 0 && i < 7 ? K[i] : 0
 texalu b under cal
-# a plain read stays a read; an index out of f32's reach is refused
+# a plain read stays a read
 p(i: u8 in 0..6) = K[i]
 texalu p under cal
+# a 32-bit index out of f32's reach (#104): 2^16 = 2 mod 7, so 2(i >> 16)
+# + (i & 0xffff) is congruent to i and within reach, and the read takes
+# it (REPEAT's period n, MIRROR's 2n; 2^16 = 36 mod 100 still fits)
 w(i: i32) = K[i % 7]
 texalu w under cal
+wm(i: u32) = K[min(i % 14, 13 - i % 14)]
+texalu wm under cal
+L = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100]
+wl(i: u32) = L[i % 100]
+texalu wl under cal
+# a 64-bit index is not reduced: refused, and said why
+w64(i: i64) = K[i % 7]
+texalu w64 under cal
 # the sum of 2 x 2 neighbours is one filtered read at their corner,
 # exactly: the weights are on the grid and the sum is a whole number
 texalu s4 under cal

@@ -1141,10 +1141,75 @@ subterms(nid e, nid *out, int n, int max, int depth)
 }
 
 /*
+ * A 32-bit index too far for its coordinate, i = h 2^16 + l with h = i >>
+ * 16 (arithmetic for a signed i) and l = i & 0xffff: for a period p (n
+ * for REPEAT, 2n for MIRROR) up to 2^16, h r + l with r = 2^16 mod p is
+ * congruent to i mod p, so a REPEAT or MIRROR read takes the same texel
+ * from it; it is the index when its range, from i's type, stays within
+ * lim (r below about 64 at 8 bits of sub-texel).  0: no such index.
+ */
+/* x % k with k a constant (ucas's %: truncated), or 0 */
+static int
+mod_of(nid e, nid x, int64_t k)
+{
+	return N.op[e] == O_MOD && N.a[e] == x && is_const(N.b[e]) &&
+	    N.ki[N.b[e]] == k;
+}
+
+/*
+ * idx is the mode written out on x: x % n for REPEAT, min(x % 2n, 2n - 1 -
+ * x % 2n) for MIRROR.  Where the read is defined (idx >= 0) the truncated
+ * remainder is the floored one (it is negative only for a negative x not
+ * a multiple), so idx = mode(x) there: the identity by its definition,
+ * which SAT would have to find through two dividers.
+ */
+static int
+mode_shape(nid idx, nid x, int mode, int64_t n)
+{
+	nid a, b;
+
+	if (mode == O_FETCH_REPEAT)
+		return mod_of(idx, x, n);
+	if (mode != O_FETCH_MIRROR || N.op[idx] != O_MIN)
+		return 0;
+	a = N.a[idx];
+	b = N.b[idx];
+	if (!mod_of(a, x, 2 * n)) {
+		nid t = a;
+		a = b;
+		b = t;
+	}
+	return mod_of(a, x, 2 * n) && N.op[b] == O_SUB && is_const(N.a[b]) &&
+	    N.ki[N.a[b]] == 2 * n - 1 && N.b[b] == a;
+}
+
+static nid
+reduce_index(nid i, int64_t per, int64_t lim, int64_t *r, int64_t *lo,
+    int64_t *hi)
+{
+	ty_t t = N.ty[i];
+	int sg = TYK(t) == K_SINT;
+
+	if ((TYK(t) != K_UINT && !sg) || TYW(t) != 32 || per > 65536)
+		return 0;
+	*r = 65536 % per;
+	*lo = sg ? -32768 * *r : 0;
+	*hi = (sg ? 32767 : 65535) * *r + 65535;
+	if (*lo < -lim || *hi > lim)
+		return 0;
+	if (*r == 0)
+		return mk_bin(O_AND, i, mk_const_i(t, 65535));
+	return mk_bin(O_ADD, mk_bin(O_MUL, mk_bin(O_SHR, i, mk_const_i(t, 16)),
+	    mk_const_i(t, *r)), mk_bin(O_AND, i, mk_const_i(t, 65535)));
+}
+
+/*
  * A table read T[idx], or a select between one and a constant, as a
  * nearest read with an address mode: for a subterm i of the index and a
  * mode, idx = mode(i) wherever the read is defined.  That identity is
- * between integers and is proved by enumeration or SAT.
+ * between integers and is proved by enumeration or SAT.  A subterm too far
+ * for the coordinate is read through reduce_index's smaller index, and
+ * the identity proved is idx = mode of that index.
  */
 static void
 seed_fetch(nid body, nid n)
@@ -1153,7 +1218,8 @@ seed_fetch(nid body, nid n)
 	int ns, i, mode, bestmode = 0, avail;
 	int64_t cnt, lo, hi, lim;
 	struct repl *r;
-	nid best = 0, besti = 0;
+	nid best = 0, besti = 0, bestfar = 0;
+	int64_t bestr = 0, bestlo = 0, besthi = 0;
 	float bc = INFINITY;
 	struct eqproof bpr, pr;
 	ty_t t64 = TY(K_SINT, 64);
@@ -1184,10 +1250,21 @@ seed_fetch(nid body, nid n)
 	for (i = 0; i < ns; i++) {
 		/* an index whose range is unknown or beyond what f32 carries
 		 * to a texel: tried without a price, to say so */
-		int far = !irange(sub[i], &lo, &hi) || lo < -lim || hi > lim;
+		int far0 = !irange(sub[i], &lo, &hi) || lo < -lim || hi > lim;
 		for (mode = O_FETCH_REPEAT; mode <= O_FETCH_BORDER; mode++) {
-			nid cand, nb, a, b;
+			nid cand, nb, a, b, at = sub[i];
 			float c;
+			int far = far0;
+			int64_t rr = 0, rlo = 0, rhi = 0;
+			if (far && sub[i] != idx && !sel && avail &&
+			    mode_shape(idx, sub[i], mode, cnt)) {
+				nid rd = reduce_index(sub[i], mode == O_FETCH_MIRROR ?
+				    2 * cnt : cnt, lim, &rr, &rlo, &rhi);
+				if (rd) {
+					at = rd;
+					far = 0;
+				}
+			}
 			if (far && (X.far.n || sub[i] == idx))
 				continue;
 			if ((mode == O_FETCH_BORDER) != (sel != 0))
@@ -1198,7 +1275,7 @@ seed_fetch(nid body, nid n)
 				continue;
 			if (sel && sub[i] != idx)
 				continue;
-			cand = mk_tex(mode, 0, tab, sub[i], kb);
+			cand = mk_tex(mode, 0, tab, at, kb);
 			nb = swap_nodes(body, sel ? &sel : &n, &cand, 1);
 			c = avail && !far ? price(nb) : 0;
 			if (avail && !far && !(c < bc))
@@ -1222,7 +1299,7 @@ seed_fetch(nid body, nid n)
 				    idx), mk_const_i(t64, 0)), mk_bin(O_LT,
 				    mk_cast(t64, idx), mk_const_i(t64, cnt)));
 				a = mk_sel(in, mk_cast(t64, idx), mk_undef(t64));
-				b = wrap_expr(mode, sub[i], cnt);
+				b = wrap_expr(mode, at, cnt);
 			}
 			if (!avail) {
 				/* only to say the model cannot: compared on points */
@@ -1252,11 +1329,25 @@ seed_fetch(nid body, nid n)
 					    (long long)lim);
 				continue;
 			}
-			if (equiv_decide(X.f, a, b, NULL, &pr) ||
+			if (at != sub[i]) {
+				/* derived (mode_shape, then the congruence), and
+				 * compared on points as a second opinion */
+				int smp;
+				if (!sel)
+					b = mk_sel(N.a[a], b, mk_undef(t64));
+				if (equiv_check(X.f, a, b, NULL, &smp))
+					continue;
+				memset(&pr, 0, sizeof pr);
+				pr.how = -1;
+			} else if (equiv_decide(X.f, a, b, NULL, &pr) ||
 			    pr.how == EQ_SAMPLED)
 				continue;
 			best = cand;
-			besti = sub[i];
+			besti = at;
+			bestfar = at != sub[i] ? sub[i] : 0;
+			bestr = rr;
+			bestlo = rlo;
+			besthi = rhi;
 			bestmode = mode;
 			bc = c;
 			bpr = pr;
@@ -1269,17 +1360,23 @@ seed_fetch(nid body, nid n)
 	r->exact = 1;
 	r->ok = 1;
 	r->plain = besti == idx && !sel;
-	irange(besti, &lo, &hi);
+	if (bestfar) {
+		lo = bestlo;
+		hi = besthi;
+	} else
+		irange(besti, &lo, &hi);
 	sb_printf(&r->what, "%s is %s", node_str(sel ? sel : n), node_str(best));
 	sb_puts(&r->holds, "holds where the read is defined: there ");
 	switch (bestmode) {
 	case O_FETCH_REPEAT:
-		sb_printf(&r->holds, "%s = %s mod %lld", node_str(idx),
-		    node_str(besti), (long long)cnt);
+		sb_printf(&r->holds, "%s = %s%s%s mod %lld", node_str(idx),
+		    bestfar ? "(" : "", node_str(besti), bestfar ? ")" : "",
+		    (long long)cnt);
 		break;
 	case O_FETCH_MIRROR:
-		sb_printf(&r->holds, "%s = min(r, %lld - r) with r = %s mod %lld",
-		    node_str(idx), (long long)(2 * cnt - 1), node_str(besti),
+		sb_printf(&r->holds, "%s = min(r, %lld - r) with r = %s%s%s mod "
+		    "%lld", node_str(idx), (long long)(2 * cnt - 1), bestfar ?
+		    "(" : "", node_str(besti), bestfar ? ")" : "",
 		    (long long)(2 * cnt));
 		break;
 	case O_FETCH_CLAMP:
@@ -1300,8 +1397,30 @@ seed_fetch(nid body, nid n)
 		sb_printf(&r->holds, "the condition is 0 <= %s < %lld, the other "
 		    "arm the border's value", node_str(besti), (long long)cnt);
 	}
-	sb_puts(&r->proof, "that identity between integers is proved: ");
-	eqproof_text(&r->proof, &bpr);
+	if (bestfar)
+		sb_printf(&r->holds, "\n%s itself is not known to stay within "
+		    "+-%lld, where its coordinate is exact enough in f32; 2^16 = "
+		    "%lld mod %lld, so %s is congruent to it and in [%lld, %lld] "
+		    "(from %s's type): the read takes that", node_str(bestfar),
+		    (long long)lim, (long long)bestr, (long long)(bestmode ==
+		    O_FETCH_MIRROR ? 2 * cnt : cnt), node_str(besti),
+		    (long long)lo, (long long)hi, node_str(bestfar));
+	if (bpr.how == -1)
+		sb_printf(&r->proof, "that identity is derived, not by SAT (a "
+		    "divider against a divider is beyond it): %s is the mode "
+		    "written out on %s, and where the read is defined (the index "
+		    "at least 0) the truncated remainder is the floored one; %s "
+		    "= 2^16 h + l exactly (h = %s >> 16, floored; l = %s & "
+		    "65535), and 2^16 = %lld mod %lld, so h %lld + l is congruent "
+		    "to it, and the mode reads a residue alone; compared on the "
+		    "points tried, the same", node_str(idx), node_str(bestfar),
+		    node_str(bestfar), node_str(bestfar), node_str(bestfar),
+		    (long long)bestr, (long long)(bestmode == O_FETCH_MIRROR ?
+		    2 * cnt : cnt), (long long)bestr);
+	else {
+		sb_puts(&r->proof, "that identity between integers is proved: ");
+		eqproof_text(&r->proof, &bpr);
+	}
 	sb_printf(&r->proof, "\nthe coordinate (i + 1/2)/n is made in f32: within "
 	    "(|i| + 1/2) 2^-23 <= %s of a texel's centre for i in [%lld, %lld] "
 	    "(its range), and the unit snaps by less than 2^-%d: %s + %s < "
@@ -1314,12 +1433,14 @@ seed_fetch(nid body, nid n)
 	sb_printf(&r->pipe, ", %lld x 1, one level, its texels the table's "
 	    "entries\na sampler: NEAREST filters, %s%s, normalised coordinates, "
 	    "lod 0\none combined image sampler more in the layout; the shader "
-	    "reads textureLod(s, (float(i) + 0.5) * (1.0 / %lld.0), 0.0).r",
+	    "reads textureLod(s, (float(%s) + 0.5) * (1.0 / %lld.0), 0.0).r%s%s",
 	    (long long)cnt, mode_vk(bestmode), bestmode == O_FETCH_BORDER ?
 	    (const_is(kb, 0) ? " with a transparent black border" :
 	    " with the border's value as a custom border colour "
 	    "(VK_EXT_custom_border_color)") : bestmode == O_FETCH_MCLAMP ?
-	    " (samplerMirrorClampToEdge)" : "", (long long)cnt);
+	    " (samplerMirrorClampToEdge)" : "", bestfar ? "j" : "i",
+	    (long long)cnt, bestfar ? ", j = " : "", bestfar ? node_str(besti) :
+	    "");
 }
 
 /* ---- weighted sums of neighbouring texels ---- */
