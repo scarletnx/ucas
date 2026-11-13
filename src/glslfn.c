@@ -7179,11 +7179,17 @@ search_expr(int f)
  * Sums of products as dot products (dot.c): an integer sum with a
  * product in it, read into ucas over its leaves (each ranged by the
  * values recorded where it runs, the rows as the where clause), searched
- * under the active model's 4 x 8-bit forms and proved there.  GLSL has
- * no built-in for them, so the replacement says how to declare one
- * (GL_EXT_spirv_intrinsics, as SPV_KHR_integer_dot_product's ids).
+ * under the active model's 4 x 8-bit forms and proved there.  Proposed
+ * only when the module declares SPV_KHR_integer_dot_product (in GLSL,
+ * GL_EXT_integer_dot_product: its dotPacked4x8EXT is the call); in one
+ * that does not, the dots found are counted and said in one line.
  */
-static int dot_hinted;	/* the declaration was shown once */
+static int dot_hinted;	/* the GLSL call was shown once */
+static struct {
+	int ok;		/* the module declares the extension */
+	int n;		/* found where it does not: not proposed */
+	double gain;
+} DOTD;
 
 static void
 search_dot(int f)
@@ -7287,7 +7293,15 @@ search_dot(int f)
 		if (!ok)
 			continue;
 		dot_search(&fn, 1, &dr);
-		if (dr.status == DOT_PROVED) {
+		if (dr.status == DOT_PROVED && !DOTD.ok) {
+			int sub[512], ns2 = 0, q;
+			reach_x(x, sub, &ns2, 512);
+			for (q = 0; q < ns2; q++)
+				if (sub[q] <= G.nx)
+					covered[sub[q]] = 1;
+			DOTD.n++;
+			DOTD.gain += dr.before - dr.after;
+		} else if (dr.status == DOT_PROVED) {
 			struct prop *p = prop_new(f, P_EXPR, G.x[x].line);
 			char t0[300];
 			struct sbuf d = {0};
@@ -7317,13 +7331,10 @@ search_dot(int f)
 				}
 			}
 			if (!dot_hinted++)
-				sb_puts(&p->text, "\n  (GLSL has no built-in for it: "
-				    "declare it, e.g. #extension GL_EXT_spirv_intrinsics "
-				    ": require; spirv_instruction(extensions = "
-				    "[\"SPV_KHR_integer_dot_product\"], capabilities = "
-				    "[6019, 6018], id = 4451) uint udot4x8(uint a, uint b, "
-				    "spirv_literal int fmt); and call it with fmt 0; id "
-				    "4450 is sdot4x8 (int), 4452 sudot4x8)");
+				sb_puts(&p->text, "\n  (in GLSL, GL_EXT_integer_dot_product's "
+				    "dotPacked4x8EXT(a, b): udot4x8 with uint operands, "
+				    "sdot4x8 with int ones, sudot4x8 with an int a and a "
+				    "uint b)");
 			if (!strcmp(dr.kind, "lanes"))
 				snprintf(p->proof, sizeof p->proof, "by lanes: each lane "
 				    "of each word shown to be its factor (SAT), the dot "
@@ -8390,7 +8401,18 @@ report(int rounds, double secs)
 		printf("  also invariant in their loops, but cheap (cost < 8 a call): "
 		    "%s\n", cheap.p);
 	rep_end();
-	if (!nshown)
+	if (DOTD.n) {
+		printf("  dot products: %d sum%s of products would be %s under %s "
+		    "(cost -%g, each once), not proposed: the module does not "
+		    "declare SPV_KHR_integer_dot_product (in GLSL, #extension "
+		    "GL_EXT_integer_dot_product)\n", DOTD.n, DOTD.n == 1 ? "" : "s",
+		    DOTD.n == 1 ? "a dot product" : "dot products", model, DOTD.gain);
+		rep_obj("dot_products_not_declared");
+		rep_int("sums", DOTD.n);
+		rep_num("gain", DOTD.gain);
+		rep_str("needs", "SPV_KHR_integer_dot_product");
+		rep_end();
+	} else if (!nshown)
 		printf("  nothing found at the function level\n");
 	free(cheap.p);
 	(void)nprop;
@@ -8436,10 +8458,13 @@ reset_all(void)
 }
 
 /* simplify's function-level pass over src (OpSource's GLSL); only: the
- * report alone (the caller ran nothing else) */
-void glslfn_pass(const char *src, double budget, int only, const char *model);
+ * report alone (the caller ran nothing else); dotok: the module declares
+ * SPV_KHR_integer_dot_product */
+void glslfn_pass(const char *src, double budget, int only, const char *model,
+    int dotok);
 void
-glslfn_pass(const char *src, double budget, int only, const char *model)
+glslfn_pass(const char *src, double budget, int only, const char *model,
+    int dotok)
 {
 	clock_t t0 = clock();
 	int rounds, f, i;
@@ -8450,6 +8475,8 @@ glslfn_pass(const char *src, double budget, int only, const char *model)
 	G.cur = -1;
 	dot_hinted = 0;
 	fsrc = src;
+	memset(&DOTD, 0, sizeof DOTD);
+	DOTD.ok = dotok;
 	if (parse_source(src, model && !strcmp(model, "Fragment") ?
 	    SNX_GLSLC_FRAGMENT : model && !strcmp(model, "Vertex") ?
 	    SNX_GLSLC_VERTEX : SNX_GLSLC_COMPUTE) != 0) {
