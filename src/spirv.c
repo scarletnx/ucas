@@ -4472,8 +4472,6 @@ static struct {
 	uint64_t rng;
 	int newk[256], nnewk;	/* constants made here */
 	int mxty[4], nmxty;	/* struct { T, T } types made here */
-	int cvk[32], ncvk;	/* the or (add) of a conversion by the bits:
-				 * priced with the conversion, not the cover */
 	int nval;		/* instructions of kinds the module may not have
 				 * had: spirv-val is asked */
 	double deadline;
@@ -11814,31 +11812,6 @@ round_pass(const char *text)
 
 static char *orig_mod;	/* the module before the rewrites */
 
-/* an f32 constant id with these bits: the module's, or a new one */
-static int
-fconst_id(int ft, uint32_t bits)
-{
-	char nm[48];
-	int i;
-
-	for (i = 0; i < V.nid; i++)
-		if (V.id[i].kind == K_CONST && !V.id[i].spec && V.id[i].type == ft &&
-		    V.id[i].nc <= 1 && (uint32_t)V.id[i].c[0] == bits)
-			return i;
-	if (SP.nnewk >= 256)
-		return -1;
-	snprintf(nm, sizeof nm, "%%ucas_%s_%08x", V.id[ft].tok + 1, bits);
-	i = idx(nm);
-	if (V.id[i].kind != K_CONST) {
-		V.id[i].kind = K_CONST;
-		V.id[i].type = ft;
-		V.id[i].c[0] = bits;
-		V.id[i].nc = 1;
-		SP.newk[SP.nnewk++] = i;
-	}
-	return i;
-}
-
 /*
  * f32(x) of a 32-bit integer x by its bits (ifx.c's identity, #165): for
  * 0 <= x < 2^23 it is asfloat(x | 0x4B000000) - 2^23, and for -2^22 <= x
@@ -11848,20 +11821,36 @@ fconst_id(int ft, uint32_t bits)
  * where one unit in the last place is 1, and the subtraction leaves an
  * integer below 2^24, which an f32 holds.  Taken where the model prices
  * the or (or add), the bitcast and the subtract below the conversion.
+ *
+ * i2f_pass decides on the integer pass's module and keeps each one here;
+ * i2f_patch writes them into the module the later passes leave, last:
+ * the float, memory and advice passes read a conversion (its integer
+ * range, an integer atomic's addend, a vertex format), not the bits.
  */
-static int
-i2f_pass(struct sbuf *rep, struct dotlog *log, int max)
+static struct cvx {
+	char res[40], rt[40], x[40], xt[40], op[40];
+	char from[160], src[160];
+	int form;		/* 0: the or with 0x4B000000; 1: the add */
+	int line;
+	double before, after;
+} cvx[32];
+static int ncvx;
+
+static void
+i2f_pass(void)
 {
 	const struct model *m = model_active();
-	int k, n = 0;
+	int k;
 
-	for (k = 0; k < SP.orig_nin && n < max && SP.ncvk < 32; k++) {
-		struct sins *I = &V.in[k];
-		int rt, x, xt, sg, form = -1, t, f, kc, fc;
+	ncvx = 0;
+	for (k = 0; k < SP.orig_nin && ncvx < 32; k++) {
+		const struct sins *I = &V.in[k];
+		int rt, x, xt, sg, form = -1;
 		double before, after;
 		lit goal;
 		struct word *wx, c, sh;
-		if (SP.dead[k] || (strcmp(I->op, "OpConvertUToF") &&
+		struct cvx *e;
+		if (SP.dead[k] || SP.rw[k] || (strcmp(I->op, "OpConvertUToF") &&
 		    strcmp(I->op, "OpConvertSToF")) || I->nop != 2 ||
 		    I->opnd[1][0] != '%')
 			continue;
@@ -11873,6 +11862,10 @@ i2f_pass(struct sbuf *rep, struct dotlog *log, int max)
 			continue;
 		sg = I->op[9] == 'S';
 		before = m->c[C_CONV];
+		if (!(m->c[C_LOGIC] + m->c[C_BITCAST] + m->c[C_FADD] < before -
+		    1e-9) && !(sg && m->c[C_IADD] + m->c[C_BITCAST] + m->c[C_FADD] <
+		    before - 1e-9))
+			continue;
 		if ((double)clock() / CLOCKS_PER_SEC > SP.deadline)
 			break;
 		/* 0 <= x < 2^23: no input reaches 2^23 (unsigned) */
@@ -11899,64 +11892,165 @@ i2f_pass(struct sbuf *rep, struct dotlog *log, int max)
 		    m->c[C_FADD];
 		if (!(after < before - 1e-9))
 			continue;
-		kc = const_id(xt, form ? 0x4B400000 : 0x4B000000);
-		fc = fconst_id(rt, form ? 0x4B400000 : 0x4B000000);
-		if (kc < 0 || fc < 0)
-			continue;
-		t = new_ins(k, form ? "OpIAdd" : "OpBitwiseOr", xt, x, kc);
-		SP.cvk[SP.ncvk++] = SP.def[t];
-		f = new_ins(k, "OpBitcast", rt, t, -1);
-		I = &V.in[k];
-		snprintf(log[n].from, sizeof log[n].from, "%s", I->text);
-		snprintf(log[n].to, sizeof log[n].to, "OpFSub %s (OpBitcast %s "
-		    "(%s %s %s %s)) %s", V.id[rt].tok, V.id[rt].tok, form ?
-		    "OpIAdd" : "OpBitwiseOr", V.id[xt].tok, V.id[x].tok,
-		    V.id[kc].tok, V.id[fc].tok);
-		log[n].gain = before - after;
-		log[n].before = before;
-		log[n].after = after;
-		log[n].line = ins_line(k);
-		n++;
-		free(I->opnd[1]);
-		I->opnd[1] = strdup(V.id[f].tok);
-		I->opnd[2] = strdup(V.id[fc].tok);
-		I->nop = 3;
-		snprintf(I->op, sizeof I->op, "OpFSub");
-		SP.rw[k] = 1;
-		SP.nval++;
-		{
-			char sl[160];
-			src_line(log[n - 1].line, sl, sizeof sl);
-			sb_printf(rep, "    %s\n      ->  %s   (cost %g -> %g)\n"
-			    "      %s\n%s", log[n - 1].from, log[n - 1].to, before,
-			    after, form ? "-2^22 <= x < 2^22, proved by SAT: "
-			    "0x4B400000 are the bits of 1.5*2^23, and x moves the "
-			    "mantissa inside [0, 2^23) without reaching the exponent: "
-			    "the bits of 1.5*2^23 + x exactly; subtracting 1.5*2^23 "
-			    "leaves x, below 2^24: exact" : "0 <= x < 2^23, proved by "
-			    "SAT: x | 0x4B000000 are the bits of the f32 2^23 + x "
-			    "(one unit in the last place there is 1); subtracting "
-			    "2^23 leaves x, below 2^24: exact", sl);
-		}
+		e = &cvx[ncvx++];
+		snprintf(e->res, sizeof e->res, "%s", V.id[I->res].tok);
+		snprintf(e->rt, sizeof e->rt, "%s", V.id[rt].tok);
+		snprintf(e->x, sizeof e->x, "%s", V.id[x].tok);
+		snprintf(e->xt, sizeof e->xt, "%s", V.id[xt].tok);
+		snprintf(e->op, sizeof e->op, "%s", I->op);
+		snprintf(e->from, sizeof e->from, "%s", I->text);
+		e->line = ins_line(k);
+		src_line(e->line, e->src, sizeof e->src);
+		e->form = form;
+		e->before = before;
+		e->after = after;
 	}
+}
+
+/* the module text with the conversions i2f_pass kept written by their
+ * bits, where each is still in it as it was (*out, malloc'd); the count,
+ * and the report's section */
+static int
+i2f_patch(const char *text, char **out)
+{
+	struct sbuf o = {0}, decl = {0}, rep = {0};
+	const char *p = text;
+	int n = 0, i, declared = 0, used[32] = {0};
+
+	*out = NULL;
+	if (ncvx == 0)
+		return 0;
+	/* which conversions are still there, as they were */
+	while (*p) {
+		const char *le = strchr(p, '\n');
+		size_t ln = le ? (size_t)(le - p) : strlen(p);
+		char buf[256], t[6][48];
+		int nt = 0;
+		if (ln < sizeof buf) {
+			const char *q;
+			memcpy(buf, p, ln);
+			buf[ln] = 0;
+			for (q = strtok(buf, " \t"); q && nt < 6; q = strtok(NULL, " \t"))
+				snprintf(t[nt++], sizeof t[0], "%s", q);
+		}
+		for (i = 0; nt == 5 && i < ncvx; i++)
+			if (!used[i] && !strcmp(t[0], cvx[i].res) && !strcmp(t[1],
+			    "=") && !strcmp(t[2], cvx[i].op) && !strcmp(t[3],
+			    cvx[i].rt) && !strcmp(t[4], cvx[i].x))
+				used[i] = 1;
+		p += ln + (le != NULL);
+	}
+	for (i = 0; i < ncvx; i++)
+		n += used[i];
+	if (n == 0)
+		return 0;
+	/* the constants, once each */
+	for (i = 0; i < ncvx; i++) {
+		const struct cvx *e = &cvx[i];
+		char kn[96], fn[96];
+		unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
+		if (!used[i])
+			continue;
+		snprintf(kn, sizeof kn, "%%ucas_cvk_%s_%08x = ", e->xt + 1, bits);
+		snprintf(fn, sizeof fn, "%%ucas_cvf_%s_%08x = ", e->rt + 1, bits);
+		if (!strstr(decl.p ? decl.p : "", kn))
+			sb_printf(&decl, "%sOpConstant %s %u\n", kn, e->xt, bits);
+		if (!strstr(decl.p ? decl.p : "", fn))
+			sb_printf(&decl, "%sOpConstant %s %s\n", fn, e->rt, e->form ?
+			    "12582912" : "8388608");
+	}
+	for (p = text; *p; ) {
+		const char *le = strchr(p, '\n');
+		size_t ln = le ? (size_t)(le - p) : strlen(p);
+		char buf[256], t[6][48];
+		int nt = 0, hit = -1;
+		if (ln < sizeof buf) {
+			const char *q;
+			memcpy(buf, p, ln);
+			buf[ln] = 0;
+			for (q = strtok(buf, " \t"); q && nt < 6; q = strtok(NULL, " \t"))
+				snprintf(t[nt++], sizeof t[0], "%s", q);
+		}
+		if (!declared && nt >= 3 && !strcmp(t[1], "=") && !strcmp(t[2],
+		    "OpFunction")) {
+			sb_puts(&o, decl.p);
+			declared = 1;
+		}
+		for (i = 0; nt == 5 && i < ncvx && hit < 0; i++)
+			if (used[i] && !strcmp(t[0], cvx[i].res))
+				hit = i;
+		if (hit >= 0) {
+			const struct cvx *e = &cvx[hit];
+			unsigned bits = e->form ? 0x4B400000u : 0x4B000000u;
+			sb_printf(&o, "%%ucas_cv%do = %s %s %s %%ucas_cvk_%s_%08x\n",
+			    hit, e->form ? "OpIAdd" : "OpBitwiseOr", e->xt, e->x,
+			    e->xt + 1, bits);
+			sb_printf(&o, "%%ucas_cv%db = OpBitcast %s %%ucas_cv%do\n", hit,
+			    e->rt, hit);
+			sb_printf(&o, "%s = OpFSub %s %%ucas_cv%db %%ucas_cvf_%s_%08x\n",
+			    e->res, e->rt, hit, e->rt + 1, bits);
+			sb_printf(&rep, "    %s\n      ->  OpFSub %s (OpBitcast %s (%s "
+			    "%s %s %s)) %s   (cost %g -> %g)\n      %s\n%s", e->from,
+			    e->rt, e->rt, e->form ? "OpIAdd" : "OpBitwiseOr", e->xt,
+			    e->x, e->form ? "0x4B400000" : "0x4B000000", e->form ?
+			    "1.5*2^23" : "2^23", e->before, e->after, e->form ?
+			    "-2^22 <= x < 2^22, proved by SAT: 0x4B400000 are the bits "
+			    "of 1.5*2^23, and x moves the mantissa inside [0, 2^23) "
+			    "without reaching the exponent: the bits of 1.5*2^23 + x "
+			    "exactly; subtracting 1.5*2^23 leaves x, below 2^24: exact" :
+			    "0 <= x < 2^23, proved by SAT: x | 0x4B000000 are the bits "
+			    "of the f32 2^23 + x (one unit in the last place there is "
+			    "1); subtracting 2^23 leaves x, below 2^24: exact", e->src);
+		} else {
+			sb_printf(&o, "%.*s\n", (int)ln, p);
+		}
+		p += ln + (le != NULL);
+	}
+	printf("conversions of integers to f32 by the bits, under %s (written "
+	    "last: the passes above read the conversions; a conversion is not "
+	    "in the integer cost):\n", sym_str(model_active()->name));
+	fputs(rep.p, stdout);
+	{
+		char why[200];
+		int v = dw_validate(o.p, why, sizeof why);
+		if (v == 1)
+			printf("  spirv-val accepts the written module\n");
+		else if (v == 0)
+			printf("  spirv-val REJECTS the written module: %s\n", why);
+		else
+			printf("  spirv-as and spirv-val cannot run here: the written "
+			    "module is not validated\n");
+	}
+	rep_list("conversions_by_bits");
+	for (i = 0; i < ncvx; i++) {
+		if (!used[i])
+			continue;
+		rep_obj(NULL);
+		rep_str("from", cvx[i].from);
+		rep_str("form", cvx[i].form ? "asfloat(x + 0x4B400000) - 1.5*2^23" :
+		    "asfloat(x | 0x4B000000) - 2^23");
+		rep_int("line", cvx[i].line);
+		rep_num("cost_before", cvx[i].before);
+		rep_num("cost_after", cvx[i].after);
+		rep_end();
+	}
+	rep_end();
+	free(decl.p);
+	free(rep.p);
+	*out = o.p;
 	return n;
 }
 
 /* an instruction the cost cover counts: a pure one, or a multiply
- * extended (its struct result read through extracts); not the or (add)
- * a conversion by the bits made, which the conversion's line prices */
+ * extended (its struct result read through extracts) */
 static int
 cover_ins(int k)
 {
 	const struct sins *I = &V.in[k];
-	int i;
 
 	if (!SP.dead[k] && I->res >= 0 && (!strcmp(I->op, "OpUMulExtended") ||
 	    !strcmp(I->op, "OpSMulExtended")))
 		return 1;
-	for (i = 0; i < SP.ncvk; i++)
-		if (SP.cvk[i] == k)
-			return 0;
 	return pure_ins(k);
 }
 
@@ -12307,9 +12401,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 		int line, algebra, trivial, dot;
 	} *rl = xcalloc(MAXLOG, sizeof *rl);
 	struct dotlog dotl[32], idl[32], sgl[32];
-	int ndotlog = 0, nidlog = 0, nsglog = 0, ncvlog = 0;
-	struct dotlog cvl[32];
-	struct sbuf cvrep = {0};
+	int ndotlog = 0, nidlog = 0, nsglog = 0;
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
@@ -12321,6 +12413,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	memset(&V, 0, sizeof V);
 	symmap_reset();
 	memset(&SP, 0, sizeof SP);
+	ncvx = 0;
 	dotcaps = 0;
 	memset(&dotund, 0, sizeof dotund);
 	sg_simplify_reset();
@@ -12606,9 +12699,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		nrw += nd;
 		SP.proved += nd;
 	}
-	/* conversions of integers to f32 by the bits (not in the integer
-	 * cover: a conversion has a float result) */
-	ncvlog = i2f_pass(&cvrep, cvl, 32);
+	/* conversions of integers to f32 by the bits: decided here, written
+	 * after the passes that read conversions */
+	i2f_pass();
 	/* subgroup forms that need the pipeline's subgroup size: said */
 	sg_proposals(&sgprop);
 	/* dead pure instructions: no uses left */
@@ -12707,9 +12800,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 					if (int_width(d->type) == 1)
 						sb_printf(&out, "%s = OpConstant%s %s\n", d->tok,
 						    d->c[0] ? "True" : "False", V.id[d->type].tok);
-					else if (T(d->type)->k == S_FLOAT)
-						sb_printf(&out, "%s = OpConstant %s %.9g\n", d->tok,
-						    V.id[d->type].tok, getf(d->type, d->c[0]));
 					else if (T(d->type)->sign)	/* spirv-as reads it signed */
 						sb_printf(&out, "%s = OpConstant %s %lld\n", d->tok,
 						    V.id[d->type].tok, (long long)sx64(d->c[0],
@@ -12797,9 +12887,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 		if (nsglog)
 			printf(", %d sum%s of bits over the lanes made a ballot's bit "
 			    "count (derived, below)", nsglog, nsglog == 1 ? "" : "s");
-		if (ncvlog)
-			printf(", %d conversion%s to f32 made by the bits (derived, "
-			    "below)", ncvlog, ncvlog == 1 ? "" : "s");
 		printf(", %d dead instruction%s removed\n", ndead,
 		    ndead == 1 ? "" : "s");
 	}
@@ -12899,19 +12986,6 @@ spirv_simplify(const char *src, double budget, int nofile)
 			rep_end();
 			free(sgl[i].desc);
 			free(sgl[i].proof);
-		}
-		rep_end();
-	}
-	if (ncvlog) {
-		rep_list("conversions_by_bits");
-		for (i = 0; i < ncvlog; i++) {
-			rep_obj(NULL);
-			rep_str("from", cvl[i].from);
-			rep_str("to", cvl[i].to);
-			rep_int("line", cvl[i].line);
-			rep_num("cost_before", cvl[i].before);
-			rep_num("cost_after", cvl[i].after);
-			rep_end();
 		}
 		rep_end();
 	}
@@ -13122,16 +13196,9 @@ spirv_simplify(const char *src, double budget, int nofile)
 		}
 	}
 	free(sgrep.p);
-	if (cvrep.n) {
-		printf("  conversions of integers to f32 by the bits (a conversion "
-		    "is not in the integer cost above), under %s:\n",
-		    sym_str(model_active()->name));
-		fputs(cvrep.p, stdout);
-	}
-	free(cvrep.p);
 	if (SP.nval) {
-		/* a struct type, an extract or a bitcast the module may not
-		 * have had: what spirv-val says of them */
+		/* a struct type and its extracts the module may not have had:
+		 * what spirv-val says of them */
 		char why[200];
 		int v = dw_validate(out.p ? out.p : "", why, sizeof why);
 		if (v == 1)
@@ -13198,8 +13265,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	memset(&V, 0, sizeof V);
 	/* the float instructions, on the module as the integer part left it */
 	{
-		int fch = 0, dch = 0, mch = 0;
-		char *ft, *dt, *mt;
+		int fch = 0, dch = 0, mch = 0, ncv;
+		char *ft, *dt, *mt, *cvt;
 		dw_nfas = npend_fas;	/* float_pass ends the assumptions */
 		fopt_nofile = nofile;
 		ft = float_pass(out.p ? out.p : "", &fch);
@@ -13217,15 +13284,23 @@ spirv_simplify(const char *src, double budget, int nofile)
 			ft = mt;
 			fch = 1;
 		}
-		if (fch)
+		/* the conversions by the bits, last; the advice and the
+		 * rounding below read the module before them */
+		ncv = i2f_patch(fch ? ft : out.p ? out.p : "", &cvt);
+		if (ncv)
+			deliver_file("simplified.spvasm", "text/plain", cvt,
+			    strlen(cvt), nofile);
+		else if (fch)
 			deliver_file("simplified.spvasm", "text/plain", ft, strlen(ft),
 			    nofile);
-		else if (nrw + ndead + ncvlog > 0)
+		else if (nrw + ndead > 0)
 			deliver_file("simplified.spvasm", "text/plain", out.p, out.n,
 			    nofile);
 		/* spirv-cross's GLSL of it, beside spirv-opt -O's */
-		if (fch || nrw + ndead + ncvlog > 0)
-			spvcross_after_simplify(orig_mod, fch ? ft : out.p, nofile);
+		if (fch || ncv || nrw + ndead > 0)
+			spvcross_after_simplify(orig_mod, ncv ? cvt : fch ? ft : out.p,
+			    nofile);
+		free(cvt);
 		advice_pass(fch ? ft : out.p ? out.p : "", advice_on);
 		round_pass(fch ? ft : out.p ? out.p : "");
 		free(ft);
