@@ -1,0 +1,52 @@
+# A select of a value and a constant as their min or max, whatever the
+# compare reads (simplify offers the four, SAT keeps one that holds), and a
+# select of a constant and a min or max of x as one clamp of x.
+
+# a render scale of 0 read as 1: max(scale, 1)
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+layout(push_constant) uniform P { uint scale; };
+void main() {
+  uint s = scale != 0u ? scale : 1u;
+  b.d[gl_GlobalInvocationID.x] = b.d[gl_GlobalInvocationID.x] * s;
+}
+```
+# on an int too: the bits compared unsigned (-5 stays -5, 0 becomes 1)
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int d[]; } b;
+void main() {
+  int x = b.d[gl_GlobalInvocationID.x];
+  b.d[gl_GlobalInvocationID.x] = x != 0 ? x : 1;
+}
+```
+# not a min or a max: x == 5 ? x : 7 is 7 except at 5, and stays
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+  uint x = b.d[gl_GlobalInvocationID.x];
+  b.d[gl_GlobalInvocationID.x] = x == 5u ? x : 7u;
+}
+```
+# a byte's clamp written as two selects: the inner one a min, the outer
+# one a max of it and 0; the clamp of x is offered too, and gt1030 prices
+# it as the min and the max it is (no gain over the two)
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { int d[]; } b;
+void main() {
+  int x = b.d[gl_GlobalInvocationID.x];
+  int t = x > 255 ? 255 : x;
+  b.d[gl_GlobalInvocationID.x] = x < 0 ? 0 : t;
+}
+```

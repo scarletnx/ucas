@@ -5777,6 +5777,13 @@ bfi_parts(int l, int r, int w, int *base, int *ins, int *p, int *nb,
 	return 0;
 }
 
+/* a w-bit value read signed */
+static int64_t
+sx64(uint64_t v, int w)
+{
+	return w >= 64 ? (int64_t)v : (int64_t)(v << (64 - w)) >> (64 - w);
+}
+
 static int
 candidates(int k, struct cand *cs, int max)
 {
@@ -5894,6 +5901,65 @@ candidates(int k, struct cand *cs, int max)
 				    "max");
 				cs[n - 1].extra = SP.uses[arg[0]] == 1 ?
 				    ins_cost_k(cd) : 0;
+			}
+		}
+	}
+	/*
+	 * a select of a value and a constant is a min or a max of the two
+	 * when the compare decides where they cross (scale != 0 ? scale : 1
+	 * is max(scale, 1) on unsigned values), whatever it compares: the
+	 * four are offered and SAT keeps one that holds; and when the value
+	 * is a min or a max of x and a constant itself, the two are one
+	 * clamp of x (x < 0 ? 0 : min(x, 255) is clamp(x, 0, 255))
+	 */
+	if (!strcmp(I->op, "OpSelect") && nargs == 3 && V.glsl >= 0 && w > 1) {
+		static const char *const mm[] = {"UMax", "UMin", "SMax", "SMin"};
+		int cd = SP.def[arg[0]], q, j, both = 0;
+		double cx = cd >= 0 && !SP.dead[cd] && SP.uses[arg[0]] == 1 ?
+		    ins_cost_k(cd) : 0;
+		uint64_t kv, kw;
+		if (cd >= 0 && !SP.dead[cd] && V.in[cd].nop >= 3) {
+			int x = res_of(idx(V.in[cd].opnd[1]));
+			int y = res_of(idx(V.in[cd].opnd[2]));
+			both = (arg[1] == x && arg[2] == y) ||
+			    (arg[1] == y && arg[2] == x);
+		}
+		for (q = 1; q <= 2 && !both; q++) {
+			int v = arg[3 - q], dv = SP.def[v];
+			if (!const_of(arg[q], &kv) || const_of(v, &kw))
+				continue;
+			for (j = 0; j < 4 && n < max; j++) {
+				n += ins_cand(&cs[n], "OpExtInst", mm[j], rt, v, arg[q],
+				    -1, j & 1 ? "a select of a value and a constant "
+				    "is their min" : "a select of a value and a constant "
+				    "is their max");
+				cs[n - 1].extra = cx;
+			}
+			/* the value: min(x, hi) or max(x, lo), a constant on one
+			 * side; the select's constant the other bound */
+			if (dv >= 0 && !SP.dead[dv] && !strcmp(V.in[dv].op,
+			    "OpExtInst") && V.in[dv].nop == 5 && n < max) {
+				const char *e2 = V.in[dv].opnd[2];
+				int a0 = res_of(idx(V.in[dv].opnd[3]));
+				int a1 = res_of(idx(V.in[dv].opnd[4]));
+				int sg = e2[0] == 'S', mn = !strcmp(e2 + 1, "Min");
+				int kid = const_of(a1, &kw) ? a1 : const_of(a0, &kw) ?
+				    a0 : -1, xv = kid == a1 ? a0 : a1;
+				int lo = mn ? arg[q] : kid, hi = mn ? kid : arg[q];
+				uint64_t lv, hv;
+				if (kid < 0 || const_of(xv, &lv) || (e2[0] != 'S' &&
+				    e2[0] != 'U') || (strcmp(e2 + 1, "Min") &&
+				    strcmp(e2 + 1, "Max")))
+					continue;
+				const_of(lo, &lv);
+				const_of(hi, &hv);
+				if (sg ? sx64(lv, w) > sx64(hv, w) : lv > hv)
+					continue;
+				n += ins_cand(&cs[n], "OpExtInst", sg ? "SClamp" :
+				    "UClamp", rt, xv, lo, hi, "a select of a constant "
+				    "and a min or max of x is one clamp of x");
+				cs[n - 1].extra = cx + (SP.uses[v] == 1 ?
+				    ins_cost_k(dv) : 0);
 			}
 		}
 	}

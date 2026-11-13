@@ -1,0 +1,64 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 70 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 1 dead instruction removed
+  integer arithmetic cost under gt1030 (each instruction once): 7 -> 4 (-42.9%)
+  by kind:
+       1  a select of a value and a constant is their max  -3
+  rewrites:
+    %50 = OpSelect %uint %20 %17 %uint_1
+      ->  OpExtInst %uint %2 UMax %17 %uint_1   (a select of a value and a constant is their max; -3)
+      (line 6: uint s = scale != 0u ? scale : 1u;)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 2266 bytes, checksum 5e1fad2f)
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  once a draw: 1 instruction that reads only constants, uniform blocks and push constants costs 7.875 every run (1 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 1 every run
+    the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
+    %50 = OpExtInst %uint %2 UMax %17 %uint_1   (7.875)
+        (line 6: uint s = scale != 0u ? scale : 1u;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 58 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal for every input), 1 dead instruction removed
+  integer arithmetic cost under gt1030 (each instruction once): 4 -> 1 (-75.0%)
+  by kind:
+       1  a select of a value and a constant is their max  -3
+  rewrites:
+    %33 = OpSelect %int %30 %25 %int_1
+      ->  OpExtInst %int %2 UMax %25 %int_1   (a select of a value and a constant is their max; -3)
+      (line 6: b.d[gl_GlobalInvocationID.x] = x != 0 ? x : 1;)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1880 bytes, checksum 527a177c)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 59 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 4 -> 4 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions
+simplify: 61 SPIR-V instructions, 2 rewrites proved by SAT (bit-precise: equal for every input), 2 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 8 -> 2 (-75.0%)
+  by kind:
+       1  a compare and select of its operands is a min  -3
+       1  a select of a value and a constant is their max  -3
+  rewrites:
+    %32 = OpSelect %int %30 %int_255 %25
+      ->  OpExtInst %int %2 SMin %int_255 %25   (a compare and select of its operands is a min; -3)
+      (line 6: int t = x > 255 ? 255 : x;)
+    %38 = OpSelect %int %36 %int_0 %32
+      ->  OpExtInst %int %2 SMax %32 %int_0   (a select of a value and a constant is their max; -3)
+      (line 7: b.d[gl_GlobalInvocationID.x] = x < 0 ? 0 : t;)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 1940 bytes, checksum 76dee66c)
