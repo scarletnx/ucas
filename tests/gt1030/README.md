@@ -109,3 +109,23 @@ Notes:
 - snx-shaderperf enables extensions given with `--ext` but not their feature structs: the float atomics run
   with VK_EXT_shader_atomic_float enabled and its features left at their defaults.
 - shaderFloat16 is false on this GPU, so there are no f16 arithmetic tests, only conversions.
+
+## The probes ucas waits for
+
+`probe.py` is one run of what is still unmeasured (the gt1030 issues #115-#122, #144, #145, #147, #156, #166,
+#168, #184-#188, #207-#212): each probe takes its issue's method, a step against fadd as above, a draw or a
+dispatch timed whole, or values read back (the filter's weight grid and precision, the blender's and the UNORM
+conversion's rounding, the BC4 palette, REPEAT at large coordinates, vulkaninfo's subTexelPrecisionBits). It
+writes `probe.json`, `report.md` (by issue) and `model.ucas`, a `model gt1030_probed : gt1030 { ... }` with
+the prices and parameters the probes set and the other measures as comments; ucas reads that file back at the
+end. What snx-shaderperf cannot set up yet (logic ops, stencil operations, MIN/MAX and advanced blending) is
+named in the report with what it needs.
+
+```sh
+cd ~/ucas/tests/gt1030
+./probe.py                     # every probe; --issue 184,186 or --only mul16_mad for some, --list for all
+./probe.py --quick             # a smoke run on a small grid: it goes through, the numbers mean nothing
+ucas ~/ucas/work/gt1030/probe-.../model.ucas    # then `use gt1030_probed`
+```
+
+It needs glslangValidator, spirv-val, snx-shaderperf (`--sp`, as run.py) and vulkaninfo for #117.
