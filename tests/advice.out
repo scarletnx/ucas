@@ -230,7 +230,7 @@ simplify: 45 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
   integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
   nothing to rewrite: no cheaper form of an integer instruction could be proved
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
-function level: not run (the GLSL parser left main out: layout (line 2: 'noperspective' is a word GLSL ES 3.10 reserves); main (line 5: 'np' is not declared))
+function level: not run (the GLSL parser left main out: layout (line 2: 'noperspective' is a word GLSL ES 3.20 reserves); main (line 5: 'np' is not declared))
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
   discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
     %13 = OpFOrdGreaterThan %bool %10 %float_0_5
