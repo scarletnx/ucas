@@ -1,0 +1,24 @@
+> f(y: u8, t: u8, w: u8, x: u8) = y*t*w + x*t
+> g(y: u8, t: u8, w: u8, x: u8) = (y*w + x)*t
+> equiv f g
+f and g are equal on the domain of f (proved by algebra: both sides expand to one polynomial in y, t, w, x mod 2^8)
+> p(x: u32, y: u32) = (x + y)*(x - y)
+> q(x: u32, y: u32) = x*x - y*y
+> equiv p q
+p and q are equal on the domain of p (proved by algebra: both sides expand to one polynomial in x, y mod 2^32)
+> sp(x: i32, y: i32) = (x << 3)*y - x*y
+> sq(x: i32, y: i32) = 7*x*y
+> equiv sp sq
+sp and sq are equal on the domain of sp (proved by algebra: both sides expand to one polynomial in x, y mod 2^32)
+> r(x: u32, y: u32) = (x/8)*y + (x/8)*3
+> s(x: u32, y: u32) = (x/8)*(y + 3)
+> equiv r s
+r and s are equal on the domain of r (proved by algebra: both sides expand to one polynomial in y, x/8 mod 2^32; one subterm taken whole as unknown)
+> h(x: u32) = x*x + x
+> k(x: u32) = (x*x + x) + 2147483648*(x*x + x)
+> equiv h k
+h and k are equal on the domain of h (proved by algebra: the two sides differ by a polynomial in x that is 0 at every point mod 2^32, each coefficient in falling factorials times its factorials being a multiple of 2^32)
+> a(x: u32, y: u32) = x*y + 1
+> b(x: u32, y: u32) = y*x + 2
+> equiv a b
+a and b differ at 65536 points of the sample, e.g. x=0, y=4294967294: 1 vs 2
