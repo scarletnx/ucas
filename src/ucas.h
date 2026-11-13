@@ -831,6 +831,7 @@ struct gprog {
 int gates_synth(const struct basis *bs, int nin, uint64_t tt, uint64_t care,
     int maxcost, uint64_t budget, struct gprog *out);
 int gates_lut_imm(int tt, int n);
+void cmd_npn(void);		/* npn.c: `gates npn` */
 /* find.c for programs: candidate forms of f's body (not yet proved),
  * searched up to maxcost or seconds; why[k] says what each is */
 int find_cands(struct func *f, int maxcost, double seconds, nid *out,

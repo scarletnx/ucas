@@ -71,6 +71,7 @@ void fuse_remove(const struct model *m, uint32_t name);
 void fuse_inherit(const struct model *m, const struct model *parent);
 void fuse_reset(const struct model *m);
 int fuse_count(const struct model *m);
+int fuse_lut_k(const struct model *m);
 void fuse_text(struct sbuf *b, const struct fusion *f);
 void fuse_print_models(const struct model *m);	/* `models`: its lines */
 float fuse_price(const struct model *m, const struct fusion *f, int f64);

@@ -7,7 +7,7 @@ SRCS=	main.c util.c lex.c node.c parse.c eval.c analyze.c gates.c \
 # IEEE 754 floats as SAT circuits (nodesat.c's float formulas)
 SRCS+=	fpsat.c
 # fusions in cost models (cover pricing) and the integer rewrites
-SRCS+=	fuse.c irw.c idrw.c
+SRCS+=	fuse.c irw.c idrw.c npn.c
 # integers as floats and floats as integers: more rewrites for irw.c
 SRCS+=	ifx.c
 # lanes packed in a word, worked on all at once: more rewrites for find
