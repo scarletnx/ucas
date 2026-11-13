@@ -1,0 +1,111 @@
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> model cal : gt1030 { tex_nearest: 5, tex_within: 2, sremk: 21 }
+> use cal
+cost model: cal
+> spvsimplify nofile nofunctions
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under cal (each instruction once): 14.5 -> 14.5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  table reads through the texture unit, under cal (nearest reads: a conversion, an add, a multiply and tex_nearest in place of the load and the index's address mode):
+    %46 = OpLoad %uint %45
+      ->  a read of texel %41 through the unit, REPEAT   (cost 20.375 -> 10)   (proposed)
+      holds where the read is defined (0 <= %42 < 7): there %42 = i mod n, proved by SAT
+      with i = %41, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 8: b.d[i] = K[(v & 0xFFFFu) % 7u];)
+      the pipeline: a texture R8_UINT, 7 x 1, one level, its texels the table's entries (10, 20, 30, 40, 50, 60, 70); a sampler: NEAREST, REPEAT, normalised coordinates, lod 0; not written: say `texture set S binding B` with the descriptor the host binds it at
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cal
+cost model: cal
+> spvsimplify nofile nofunctions texture set 0 binding 3
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 table read made a read through the texture unit (below), 2 dead instructions removed
+  integer arithmetic cost under cal (each instruction once): 14.5 -> 1 (-93.1%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  table reads through the texture unit, under cal (nearest reads: a conversion, an add, a multiply and tex_nearest in place of the load and the index's address mode):
+    %46 = OpLoad %uint %45
+      ->  a read of texel %41 through the unit, REPEAT   (cost 20.375 -> 10)
+      holds where the read is defined (0 <= %42 < 7): there %42 = i mod n, proved by SAT
+      with i = %41, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 8: b.d[i] = K[(v & 0xFFFFu) % 7u];)
+      the pipeline: a texture R8_UINT, 7 x 1, one level, its texels the table's entries (10, 20, 30, 40, 50, 60, 70); a sampler: NEAREST, REPEAT, normalised coordinates, lod 0; written: the combined image sampler at set 0 binding 3, OpConvertUToF
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3390 bytes, checksum 4dc1cc3d)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cal
+cost model: cal
+> spvsimplify nofile nofunctions texture set 1 binding 0
+simplify: 102 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 division by a constant made a multiply and a shift (derived, below), 1 table read made a read through the texture unit (below), 6 dead instructions removed
+  integer arithmetic cost under cal (each instruction once): 41.5 -> 14 (-66.3%)
+  by kind:
+       1  a division by a constant of a bounded dividend as a multiply and a shift  -4.5
+  rewrites:
+    %72 = OpUMod %uint %71 %uint_5
+      ->  t1 - 5(52429*t1 >> 0x12) where t1 = u32(%40) & 0xffff   (a division by a constant of a bounded dividend as a multiply and a shift; -4.5)
+      (line 11: b.d[i] = S[min(r, 13 - r)] + T[(w & 0xFFFFu) % 5u];)
+  divisions by a constant (the dividend's bound makes one multiply and one shift exact; derived by idrw.c, kept under cal):
+    %72 = OpUMod %uint %71 %uint_5
+      ->  t1 - 5(52429*t1 >> 0x12) where t1 = u32(%40) & 0xffff   (cost 14.5 -> 10)
+      (line 11: b.d[i] = S[min(r, 13 - r)] + T[(w & 0xFFFFu) % 5u];)
+      holds where u32(%40) & 0xffff in [0, 65535] (interval arithmetic over the parameters' ranges)
+      M = ceil(2^18/5) = 52429, so M*5 = 2^18 + 1
+      x*M/2^18 = x/5 + x*1/(5*2^18): the excess is below 1/5 while x*1 < 2^18, and x/5 is at least 1/5 below the next integer, so floor(x*M/2^18) = floor(x/5)
+      x <= 65535: x*1 <= 65535 < 2^18, and x*M <= 3435934515 < 2^32, so the product does not wrap in u32
+      and x % 5 = x - 5*floor(x/5)
+  table reads through the texture unit, under cal (nearest reads: a conversion, an add, a multiply and tex_nearest in place of the load and the index's address mode):
+    %60 = OpLoad %int %59
+      ->  a read of texel %30 through the unit, MIRRORED_REPEAT   (cost 29.875 -> 10)
+      holds where the read is defined (0 <= %56 < 7): there %56 = min(i mod 2n, 2n - 1 - i mod 2n), proved by SAT
+      with i = %30, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 11: b.d[i] = S[min(r, 13 - r)] + T[(w & 0xFFFFu) % 5u];)
+      the pipeline: a texture R8_SINT, 7 x 1, one level, its texels the table's entries (-3, -2, -1, 0, 1, 2, 3); a sampler: NEAREST, MIRRORED_REPEAT, normalised coordinates, lod 0; written: the combined image sampler at set 1 binding 0, OpConvertSToF
+    %76 = OpLoad %int %75
+      ->  a read of texel %71 through the unit, REPEAT   (cost 20.375 -> 10)   (proposed)
+      holds where the read is defined (0 <= %72 < 5): there %72 = i mod n, proved by SAT
+      with i = %71, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 11: b.d[i] = S[min(r, 13 - r)] + T[(w & 0xFFFFu) % 5u];)
+      the pipeline: a texture R16_SINT, 5 x 1, one level, its texels the table's entries (100, 200, 300, 400, 500); a sampler: NEAREST, REPEAT, normalised coordinates, lod 0; not written: one binding is one texture, and set 1 binding 0 went to another table
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 4546 bytes, checksum 508df1d0)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cal
+cost model: cal
+> spvsimplify nofile nofunctions texture set 0 binding 3
+simplify: 72 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under cal (each instruction once): 13.5 -> 13.5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  texture set 0 binding 3: nothing written: no constant table read whose index is an address mode of a value within f32's reach was cheaper through the texture unit under cal
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use gt1030
+cost model: gt1030
+> spvsimplify nofile nofunctions texture set 0 binding 3
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 14.5 -> 14.5 (+0.0%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  texture set 0 binding 3: nothing written: gt1030 lists no tex_nearest (a nearest read's price)
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> use cal
+cost model: cal
+> spvsimplify nofile nofunctions texture set 2 binding 1
+simplify: 75 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 1 table read made a read through the texture unit (below), 2 dead instructions removed
+  integer arithmetic cost under cal (each instruction once): 14.5 -> 1 (-93.1%)
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  table reads through the texture unit, under cal (nearest reads: a conversion, an add, a multiply and tex_nearest in place of the load and the index's address mode):
+    %46 = OpLoad %uint %45
+      ->  a read of texel %41 through the unit, REPEAT   (cost 20.375 -> 10)
+      holds where the read is defined (0 <= %42 < 7): there %42 = i mod n, proved by SAT
+      with i = %41, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 8: b.d[i] = K[(v & 0xFFFFu) % 7u];)
+      the pipeline: a texture R8_UINT, 7 x 1, one level, its texels the table's entries (10, 20, 30, 40, 50, 60, 70); a sampler: NEAREST, REPEAT, normalised coordinates, lod 0; written: the combined image sampler at set 2 binding 1, OpConvertUToF
+  spirv-val accepts the written module
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+  (nofile: simplified.spvasm, 3390 bytes, checksum 08126f89)

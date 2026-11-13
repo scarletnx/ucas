@@ -29,6 +29,13 @@ simplify: 126 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal f
     %53, a table of 16 entries read 4 times at a dynamic index (line 7)
       as a register of the subgroup, lane l holding entry l (one read of the table), each read a shuffle from the lane its index names: cost 27.5 -> 22.875
       it needs the subgroup's size fixed at 32 and every lane of it active: requiredSubgroupSize 32 (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo), VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT on a compute stage, and no branch the lanes disagree on around it
+  table reads through the texture unit, under cal (nearest reads: a conversion, an add, a multiply and tex_nearest in place of the load and the index's address mode):
+    %131 = OpLoad %uint %130
+      ->  a read of texel %109 through the unit, REPEAT   (cost 20.375 -> 10)   (proposed)
+      holds where the read is defined (0 <= %129 < 7): there %129 = i mod n, proved by SAT
+      with i = %109, |i| <= 4161534 (proved by SAT): the coordinate (f32(i) + 0.5) * f32(1/n) is within (|i| + 1/2) 2^-23 of the texel's centre, and the unit snaps by less than 2^-8, below 1/2 in all: the texel is i's
+      (line 6: uint wrapped(uint i) { return K[i % 7u]; })
+      the pipeline: a texture R8_UINT, 7 x 1, one level, its texels the table's entries (10, 20, 30, 40, 50, 60, 70); a sampler: NEAREST, REPEAT, normalised coordinates, lod 0; not written: say `texture set S binding B` with the descriptor the host binds it at
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 function level (the GLSL source read by ScarletNX's GLSL ES parser): 3 functions; each one's domain inferred from every call (abstract interpretation from main, 2 rounds)
   wrapped (line 6), called from main (line 10)
