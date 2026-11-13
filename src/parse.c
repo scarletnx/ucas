@@ -968,13 +968,16 @@ ident(struct P *p)
 			    args[2], args[3]);
 		}
 		if (kind == O_TEX_TRILINEAR) {
-			int k;
+			int k, nm = (int)n;
+			/* the name as written, without its grid's bits */
+			while (nm > 0 && s[nm - 1] >= '0' && s[nm - 1] <= '9')
+				nm--;
 			for (k = 1; k <= 2; k++)
 				if (!is_const(args[k]) ||
 				    !TY_ISINT(N.ty[args[k]]) || N.ki[args[k]] < 1 ||
 				    N.ki[args[k]] > 0xffffff)
-					fail("tex_trilinear's %s is a constant "
-					    "from 1 to 16777215, not %s", k == 1 ?
+					fail("%.*s's %s is a constant from 1 to "
+					    "16777215, not %s", nm, s, k == 1 ?
 					    "width" : "height", node_str(args[k]));
 			return mk_tex(kind, TEX_KI(bits, N.ki[args[1]]) |
 			    TEX_KH(N.ki[args[2]]), args[0], args[3],

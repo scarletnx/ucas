@@ -40,8 +40,9 @@
  *   tex_mirrorB(T, x)         by REPEAT or MIRRORED_REPEAT, not clamped
  *   tex_minB(T, x), tex_maxB  the same footprint with a MIN or MAX
  *   tex_biminB(T, W, x, y),   reduction sampler: the least or the
- *   tex_bimaxB                greatest of its texels whose weight is
- *                             not 0, exactly
+ *   tex_bimaxB,               greatest of its texels whose weight is
+ *   tex_triminB(T, W, H,      not 0, exactly
+ *     u, v, w), tex_trimaxB
  *
  * An array texture's layer: fetch_layer(T, z) is layer clamp(RNE(z), 0,
  * n - 1) of n layers, each holding one entry of T.  The specification's

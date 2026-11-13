@@ -4168,7 +4168,7 @@ on a table `T = [t0, t1, ...]` of n texels:
 | `tex_trilinearB(T, W, H, u, v, w)` | the same on three axes of the table read as D slices of H rows of W texels (a 3-D texture), at texel coordinates (u W, v H, w D): eight texels, their weights the products of the three axes'; u, v, w normalised (below) |
 | `tex_compare_leB(T, W, u, v, ref)`, `_lt`, `_eq`, `_ne`, `_ge`, `_gt` | a depth compare read: `tex_bilinearB` at (u W, v H) of the texels replaced by 1 where `ref <= texel` (`<`, `==` ...) and 0 elsewhere; u, v normalised (below) |
 | `tex_repeatB(T, u)`, `tex_mirrorB(T, u)` | `tex_linearB(T, u n)` with its two texels wrapped by REPEAT or MIRRORED_REPEAT, not clamped: u a normalised coordinate (below) |
-| `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
+| `tex_minB(T, x)`, `tex_maxB`, `tex_biminB(T, W, x, y)`, `tex_bimaxB`, `tex_triminB(T, W, H, u, v, w)`, `tex_trimaxB` | the same footprints with a MIN or MAX reduction sampler: the least or the greatest of the texels whose weight is not 0, exactly (below) |
 
 The `fetch_` reads take an integer texel index of any type and are
 total (Vulkan's wrapping of a nearest read's integer coordinate).  The
@@ -4549,22 +4549,29 @@ and under REPEAT the last texel and the first are neighbours too.  A wrapping en
 read as it is, an affine index of `i % n`.  One axis only
 (tests/texwrap.ucas).
 
-**Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN
-or _MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least
-or the greatest of the texels of a linear read's footprint whose weight
-is not 0: `tex_min8([4, 1, 9], 1.0)` is 1, `tex_max8` there 4, and at
-1.5, texel 1's centre, only texel 1 counts.  A min or max of two
-neighbouring table entries, or of a 2 x 2 block of a table read as rows
-of W (nested in any order), is one such read at the footprint's
-centre: there every weight is 1/2 (1/4), on any sub-texel grid (Vulkan
-asks at least 4 bits), so every texel counts whichever way the unit
-snaps, and the read is the min or max exactly.  The texture holds the
-entries exactly: half floats or f32 for floats an f32 holds, whole
-numbers 0..255 or 0..65535 as normalised units scaled back and
-rounded (that needs the unit's `tex_within`); the footprint must stay
-inside the table (and its rows) on the indices' proved ranges, and
-`texalu` says so when it may not.  The read is priced by `tex_minmax`
-(no built-in model lists it) (tests/texminmax.ucas).
+**Min and max.**  A reduction sampler (VK_SAMPLER_REDUCTION_MODE_MIN or
+_MAX, Vulkan 1.2 or VK_EXT_sampler_filter_minmax) gives the least or
+the greatest of the texels of a linear read's footprint whose weight is
+not 0: `tex_min8([4, 1, 9], 1.0)` is 1, `tex_max8` there 4, and at 1.5,
+texel 1's centre, only texel 1 counts.  `tex_triminB(T, W, H, u, v, w)`
+and `tex_trimaxB` are the same of a 3-D texture's eight, at normalised
+coordinates as `tex_trilinearB`'s.  A min or max of two neighbouring
+table entries, of a 2 x 2 block of a table read as rows of W, or of a 2
+x 2 x 2 block of one read as slices of H rows of W (nested in any
+order), is one such read at the footprint's centre: there every
+fraction is 1/2, on any sub-texel grid (Vulkan asks at least 4 bits),
+so every texel counts whichever way the unit snaps, and the read is the
+min or max exactly.  The 3-D read's coordinates are the corner times
+f32(1/n), within |x| 2^-23 of it (exact for a size that is a power of
+two); with the corner below 2^21 every fraction stays within 1/4 + 1/16
+of 1/2, so still no weight is 0.  The texture holds the entries
+exactly: half floats or f32 for floats an f32 holds, whole numbers
+0..255 or 0..65535 as normalised units scaled back and rounded (that
+needs the unit's `tex_within`); the footprint must stay inside the
+table (and its rows and slices) on the indices' proved ranges, and
+`texalu` says so when it may not.  The read is priced by `tex_minmax`,
+a 3-D one by `tex_minmax` and `tex_3d` (no built-in model lists either)
+(tests/texminmax.ucas).
 
 **Packed formats.**  `unpack_b10g11r11(w, c)`, `unpack_e5b9g9r9(w, c)`
 and `unpack_a2b10g10r10(w, c)` are channel c (r g b a as 0 1 2 3) of a
@@ -4593,10 +4600,9 @@ B10G11R11's only at its Inf and NaN encodings is named, not taken
 
 Not done: shared weights in a kernel that is not a column times a row
 (a small linear program over the blocks) or that spans three axes,
-anisotropic filters, mip levels as means, gather, a min or max of
-more than a 2 x 2 footprint (trilinear's 8), a bilinear or trilinear
-filter that wraps, and a compare read of a UNORM depth texture (which
-clamps the reference) or of an array or cube one.  None of those has a measured
+anisotropic filters, mip levels as means, gather, a bilinear or
+trilinear filter that wraps, and a compare read of a UNORM depth
+texture (which clamps the reference) or of an array or cube one.  None of those has a measured
 price yet either.
 
 **In a SPIR-V module.**  `simplify` finds a constant table read in the

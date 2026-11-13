@@ -1125,10 +1125,6 @@ mk_tex(int op, int64_t ki, nid a, nid b, nid c)
 			fail("tex_trilinear: a table of %u texels is not "
 			    "slices of %lld rows of %lld", n, (long long)h,
 			    (long long)w);
-		if (TEX_RED(ki))
-			fail("tex_trilinear: a MIN or MAX reduction is not one "
-			    "of its forms (tex_min, tex_max, tex_bimin, "
-			    "tex_bimax are)");
 	} else {
 		w = h = 0;
 		c = 0;
