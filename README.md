@@ -2164,15 +2164,19 @@ A word can also carry more than one value.  `find F` proposes, for the
 code that stores F's parameters (an interface change it does not make),
 the ones one f32 can carry together.  A flag (a bool, or an integer of
 range 0..1) in the sign bit of an f32 whose range keeps it at +0 or
-above: the writer stores `b ? -abs(x) : abs(x)`, F reads `abs(s)` back
-(a free source modifier where the model fuses it) and the flag as a bit,
-a bool as `asint(s) < 0`, so -0 carries it when x is 0.  And a value and
+above: the writer stores `asfloat(asuint(x) & 0x7fffffff | b << 31)`
+(by the bits: by default a float negate need not keep a zero's sign, so
+`-abs(x)` need not give the -0 that carries the flag when x is 0), F
+reads `abs(s)` back (a free source modifier where the model fuses it)
+and the flag as a bit, a bool as `asint(s) < 0`.  And a value and
 an integer payload below 2^22 that F never needs at once, a bool telling
 which (every use of the value in an arm of a select on it that is taken
 when it holds, every use of the payload in one taken when it does not,
 so the NaN never reaches arithmetic; the value's range finite): the
-writer stores the value or a quiet NaN carrying the payload, `asfloat(p
-| 0x7fc00000)`, F tells them apart by the exponent's bits and reads the
+writer stores the value or a quiet NaN carrying the payload, selected as
+bits (`asfloat(b ? asuint(x) : p | 0x7fc00000)`: by default a float
+instruction may assume no operand is a NaN), F tells them apart by the
+exponent's bits and reads the
 payload from the low 22.  That one is offered only under a model whose
 `nan_payload: 1` says its target keeps a quiet NaN's payload through
 loads, stores and moves; under one that does not say, it is named with

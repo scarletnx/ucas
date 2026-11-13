@@ -3373,7 +3373,7 @@ mem_packf32(const struct model *m, struct mem_out *o)
 			for (b = 0; b < T(pk[i].st)->nm; b++) {
 				int st = pk[i].st, var = pk[i].var, nsx = 0, nsb = 0, nlx = 0;
 				int nlb = 0, pairs = 0, lpairs = 0, ok = 1, seen = 0, q, ws;
-				int negz = 0;
+				int negz = 0, isb;
 				double lo = INFINITY, hi = -INFINITY, cst, cld, enc, dec, net;
 				char vb[48];
 				if (x == b || whole[var] || !mem_scalar_f32(T(st)->m[x]) ||
@@ -3451,8 +3451,13 @@ mem_packf32(const struct model *m, struct mem_out *o)
 				    (double)m->c[C_STORE];
 				cld = ws ? (double)model_cost(m, C_LOAD_SHARED) :
 				    (double)m->c[C_LOAD];
-				enc = (double)(m->c[C_MINMAX] + m->c[C_FADD] +
-				    m->c[C_SELECT]);
+				/* written by the bits (and, the flag's bit, or): the
+				 * default float controls may ignore a zero's sign, so
+				 * a float negate need not give the -0 that carries the
+				 * flag where the value is 0 */
+				isb = T(T(st)->m[b])->k == S_BOOL;
+				enc = (double)(2 * m->c[C_LOGIC] + (isb ? m->c[C_SELECT] :
+				    m->c[C_SHIFT]) + 2 * m->c[C_BITCAST]);
 				dec = (double)m->c[C_MINMAX];
 				net = -pairs * cst - lpairs * cld + pairs * enc + nlx * dec +
 				    nlb * (double)m->c[C_CMP];
@@ -3482,18 +3487,21 @@ mem_packf32(const struct model *m, struct mem_out *o)
 						    "module's float controls need not keep a "
 						    "zero's sign\n", xn);
 					printf("    proposal (%s, not applied): the writer stores "
-					    "%s%s ? -abs(%s) : abs(%s) in %s, %s goes;\n      a "
-					    "reader takes abs(s) for %s and asint(s) < 0 for %s "
-					    "(true at -0 too)\n", ws ? "the workgroup layout" :
-					    "an interface change", bn, T(T(st)->m[b])->k == S_BOOL ?
-					    "" : " != 0", xn, xn, xn, bn, xn, bn);
+					    "asfloat(asuint(%s) & 0x7fffffff | %s%s%s) in %s, %s "
+					    "goes (by the bits: a float negate need not keep a "
+					    "zero's sign);\n      a reader takes abs(s) for %s and "
+					    "asint(s) < 0 for %s (true at -0 too)\n", ws ?
+					    "the workgroup layout" : "an interface change", xn,
+					    isb ? "(" : "", bn, isb ? " ? 0x80000000 : 0)" :
+					    " << 31", xn, bn, xn, bn);
 					printf("    %d store%s and %d load%s fewer (store %g, "
-					    "load %g); %g to pack each write (abs, negate, "
-					    "select), %g a read of %s (abs, %d), %g of %s "
+					    "load %g); %g to pack each write (and, %s, or), %g "
+					    "a read of %s (abs, %d), %g of %s "
 					    "(compare, %d):\n      %+g under %s%s, and each %s 4 "
 					    "bytes smaller\n", pairs, pairs == 1 ? "" : "s",
-					    lpairs, lpairs == 1 ? "" : "s", cst, cld, enc, dec, xn,
-					    nlx, (double)m->c[C_CMP], bn, nlb, net,
+					    lpairs, lpairs == 1 ? "" : "s", cst, cld, enc, isb ?
+					    "select" : "shift", dec, xn, nlx, (double)m->c[C_CMP], bn,
+					    nlb, net,
 					    sym_str(m->name), net < 0 ? "" : " (not cheaper there: "
 					    "the packing costs what the accesses it saves do or "
 					    "more)", sn);
