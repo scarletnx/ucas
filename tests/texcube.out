@@ -1,0 +1,45 @@
+> model texel : gt1030 { tex_nearest: 6.875, subtexel: 8, tex_within: 2 }
+> model amd : texel { cube: 1 }
+> model cub : texel { tex_cube: 6 }
+> show tex_cube(1.0, -2.0, 0.5)
+_() = 3
+  -> f32
+> show tex_cube(2.0, -2.0, 0.5)
+_() = 3
+  -> f32
+> show tex_cube(2.0, -2.0, -2.0)
+_() = 5
+  -> f32
+> face(x: f32, y: f32, z: f32) = abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? 5 : 4) : abs(y) >= abs(x) ? (y < 0 ? 3 : 2) : (x < 0 ? 1 : 0)
+> texalu face under amd
+texalu face: reads through the texture unit under amd (cost 26.375 as written):
+  cost 4   int(cubeid(x, y, z))
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 is int(cubeid(x, y, z)): the cube map face of (x, y, z)
+      holds for every input
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all 729  it is cubeid: exhaustive
+      the pipeline needs (a proposal: nothing is applied):
+        nothing: one instruction of the model's cube class (v_cubeid_f32)
+> texalu face under cub
+texalu face: the texture unit under cub (cost 26.375 as written): nothing taken
+  abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 is the cube map face of (x, y, z), but where two magnitudes tie for the largest the specification lets the unit choose its own face: the ranges must keep one axis the largest alone for a cube map's read
+> facex(x: f32, y: f32, z: f32) = abs(x) >= abs(y) && abs(x) >= abs(z) ? (x < 0 ? 1 : 0) : abs(y) >= abs(z) ? (y < 0 ? 3 : 2) : (z < 0 ? 5 : 4)
+> texalu facex under amd
+texalu facex: the texture unit under amd (cost 26.375 as written): nothing taken
+  abs(x) >= abs(y) && abs(x) >= abs(z) ? x < 0 ? 1 : 0 : abs(y) >= abs(z) ? y < 0 ? 3 : 2 : z < 0 ? 5 : 4 is the cube map face of (x, y, z) where one magnitude is the largest, but not cubeid at (nan, nan, nan)
+> facez(x: f32 in -1..1, y: f32 in -1..1, z: f32 in 1.5..4) = abs(z) >= abs(x) && abs(z) >= abs(y) ? (z < 0 ? 5 : 4) : abs(y) >= abs(x) ? (y < 0 ? 3 : 2) : (x < 0 ? 1 : 0)
+> texalu facez under cub
+texalu facez: reads through the texture unit under cub (cost 26.375 as written):
+  cost 9   int(tex_cube(x, y, z))
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 is int(tex_cube(x, y, z)): the cube map face of (x, y, z)
+      holds where z is in its range, the largest magnitude alone: the unit's face, whatever its rule on ties
+      abs(z) >= abs(x) && abs(z) >= abs(y) ? z < 0 ? 5 : 4 : abs(y) >= abs(x) ? y < 0 ? 3 : 2 : x < 0 ? 1 : 0 depends on its inputs only through their signs, which are zero or NaN, and the order of their magnitudes (a selection among constants by comparisons of the coordinates, their magnitudes and zero); a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all 729 with one largest magnitude, no NaN and not all zero it is cubeid: exhaustive
+      the pipeline needs (a proposal: nothing is applied):
+        a cube texture, 1 x 1 a face, face k holding k (R8_UINT, or R16_SFLOAT for a float)
+        a sampler: NEAREST filters, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec3(x, y, z), 0.0).r
+> notf(x: f32, y: f32, z: f32) = abs(z) >= 0.5 ? 4 : abs(y) >= abs(x) ? 2 : 0
+> texalu notf under amd
+texalu notf: no table read or weighted sum of neighbouring entries the texture unit could compute
+> texalu face under texel
+texalu face: the texture unit under texel (cost 26.375 as written): nothing taken
+  texel lists neither cube nor tex_cube: the cube map face's instruction and read are not available

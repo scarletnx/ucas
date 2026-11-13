@@ -110,6 +110,11 @@
  *                      negative) as 0..5, its s and t before the
  *                      division, and twice the major axis: v_cubeid_f32,
  *                      v_cubesc_f32, v_cubetc_f32, v_cubema_f32
+ *   tex_cube(x, y, z)  the face an identity cube map's read selects for
+ *                      the direction (x, y, z), as cubeid: the
+ *                      specification's table with its preferred rule on
+ *                      ties of magnitude (z, then y, then x); none for a
+ *                      NaN or the zero vector (texalu.c offers it)
  *   trig_preop(x, s)   53 bits of 2/pi from bit 53 * (s mod 32), moved
  *                      further by x's exponent past 1077, scaled by
  *                      2^(-53 - shift) (2^128 more when the exponent is
@@ -205,6 +210,8 @@ inst_class(int op)
 		return C_FREXP;
 	case O_CUBEID: case O_CUBESC: case O_CUBETC: case O_CUBEMA:
 		return C_CUBE;
+	case O_TEX_CUBE:
+		return C_TEX_CUBE;
 	case O_TRIG_PREOP:
 		return C_TRIGPREOP;
 	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
@@ -261,6 +268,7 @@ inst_type(int op, nid a, nid b, nid c)
 	case O_FREXP_EXP:
 		return TYW(N.ty[a]) == 16 ? TY(K_SINT, 16) : I32;
 	case O_CUBEID: case O_CUBESC: case O_CUBETC: case O_CUBEMA:
+	case O_TEX_CUBE:
 		return TY_F32;
 	case O_TRIG_PREOP:
 		return TY_F64;
@@ -735,6 +743,13 @@ inst_expand(int op, nid a, nid b, nid c)
 		return ffrexp(op, a);
 	case O_CUBEID: case O_CUBESC: case O_CUBETC: case O_CUBEMA:
 		return fcube(op, a, b, c);
+	case O_TEX_CUBE:
+		/* the face: no face for a NaN or the zero vector */
+		x = mk_bin(O_LOR, mk_bin(O_LOR, fnan(a), fnan(b)), fnan(c));
+		x = mk_bin(O_LOR, x, mk_bin(O_LAND, mk_bin(O_EQ, mk_un(O_ABS, a),
+		    fl_f32(0)), mk_bin(O_LAND, mk_bin(O_EQ, mk_un(O_ABS, b),
+		    fl_f32(0)), mk_bin(O_EQ, mk_un(O_ABS, c), fl_f32(0)))));
+		return mk_sel(x, mk_undef(TY_F32), fcube(O_CUBEID, a, b, c));
 	case O_TRIG_PREOP:
 		return ftrig_preop(a, b);
 	case O_UNPACK_B10G11R11: case O_UNPACK_E5B9G9R9:
@@ -918,6 +933,7 @@ mk_finst(int op, nid a, nid b, nid c)
 			    ty_str(N.ty[b]));
 		break;
 	case O_CUBEID: case O_CUBESC: case O_CUBETC: case O_CUBEMA:
+	case O_TEX_CUBE:
 		/* v_cube* are f32 only: another float is not converted */
 		if ((!is_const(a) && N.ty[a] != TY_F32) || (!is_const(b) &&
 		    N.ty[b] != TY_F32) || (!is_const(c) && N.ty[c] != TY_F32))
@@ -947,8 +963,8 @@ mk_finst(int op, nid a, nid b, nid c)
 			return r;
 	}
 	return mk_raw(op, t, a, ar >= 2 ? b : 0, ar == 3 ? c : 0, 0, NF_SG |
-	    ((N.fl[a] | (ar >= 2 ? N.fl[b] : 0) | (ar == 3 ? N.fl[c] : 0)) &
-	    NF_PARTIAL));
+	    (op == O_TEX_CUBE ? NF_PARTIAL : 0) | ((N.fl[a] | (ar >= 2 ?
+	    N.fl[b] : 0) | (ar == 3 ? N.fl[c] : 0)) & NF_PARTIAL));
 }
 
 nid

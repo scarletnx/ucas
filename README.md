@@ -4161,6 +4161,26 @@ holding none; a conversion before the clamp must not wrap on that
 range.  Otherwise `texalu` names the value where they part
 (tests/texlayer.ucas).
 
+**Cube maps.**  `tex_cube(x, y, z)` is the face (0..5, the
+specification's table) a read of an identity cube map selects for the
+direction (x, y, z), with the specification's preferred rule on ties of
+magnitude (z, then y, then x): cubeid's value, with no face for a NaN
+or the zero vector; it is priced by `tex_cube` (no built-in model lists
+it).  A subterm of three f32 parameters that is a selection among
+constants by comparisons of the coordinates, their magnitudes (abs,
+negation, min, max) and zero depends on them only through their signs,
+which of them are zero or NaN, and the order of their magnitudes, and
+a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3} takes
+every such combination: equality with cubeid on those 729 points (for
+each order of the three parameters) is equality everywhere.  It is then
+cubeid, the instruction, where the model prices `cube`; and the cube
+map's read where it prices `tex_cube` and the ranges keep one axis's
+magnitude the largest alone, since the specification lets the unit
+break a tie its own way.  A selection that is the face only away from
+ties is offered as the read alone, under the same condition.  The
+projection s/|m| is not offered: the specification states no precision
+for the unit's divide, and no model states one (tests/texcube.ucas).
+
 **Wrapping filters.**  Vulkan allows unnormalised coordinates only
 with CLAMP_TO_EDGE and CLAMP_TO_BORDER, so a filter that wraps reads a
 normalised coordinate: `tex_repeatB(T, u)` and `tex_mirrorB(T, u)` are

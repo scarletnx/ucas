@@ -547,6 +547,8 @@ static struct {
 	struct sbuf nolayer;	/* a layer selection not taken, and why */
 	struct sbuf nopacked;	/* a packed decode not taken, and why */
 	int unavail_packed;	/* tex_packed was needed */
+	struct sbuf nocube;	/* a cube map's face not taken, and why */
+	int unavail_cube;	/* cube or tex_cube was needed */
 } X;
 
 static double
@@ -2834,6 +2836,263 @@ seed_minmax(nid body, nid n)
 	return 1;
 }
 
+/* ---- cube maps ---- */
+
+/*
+ * A cube map's face selected by hand (#97): a subterm of three f32
+ * parameters that is a selection among constants by comparisons of the
+ * coordinates, their magnitudes (abs, negation, min, max of them) and
+ * zero depends on its inputs only through their signs, which are zero
+ * or NaN, and the order of their magnitudes.  Every such combination is
+ * taken by a point with coordinates in {NaN, -3, -2, -1, -0, 0, 1, 2, 3}
+ * (a rank of the magnitudes for each value), so equality on those 729
+ * points is equality everywhere.  Equal to cubeid there, the subterm is
+ * the face: the instruction where the model prices `cube`; the read of
+ * an identity cube map (tex_cube) where it prices tex_cube and z's, y's
+ * or x's magnitude is the largest alone on the ranges, since the
+ * specification lets the unit break a tie of magnitude its own way.
+ */
+
+/* a magnitude term over the coordinates (slots in sl) */
+static int
+cube_mag(nid e, uint64_t sl, int depth)
+{
+	if (depth > 12)
+		return 0;
+	switch (N.op[e]) {
+	case O_VAR:
+		return N.ki[e] < 64 && (sl >> N.ki[e] & 1);
+	case O_CONST:
+		return cval(e) == 0;
+	case O_ABS: case O_NEG:
+		return cube_mag(N.a[e], sl, depth + 1);
+	case O_MIN: case O_MAX:
+		return cube_mag(N.a[e], sl, depth + 1) && cube_mag(N.b[e], sl,
+		    depth + 1);
+	case O_CAST:
+		return TY_FP(N.ty[N.a[e]]) && TY_FP(N.ty[e]) &&
+		    cube_mag(N.a[e], sl, depth + 1);
+	}
+	return 0;
+}
+
+/* a selection among constants by comparisons of magnitude terms */
+static int
+cube_shape(nid e, uint64_t sl, int depth)
+{
+	if (depth > 24)
+		return 0;
+	switch (N.op[e]) {
+	case O_CONST:
+		return 1;
+	case O_SEL:
+		return cube_shape(N.a[e], sl, depth + 1) && cube_shape(N.b[e], sl,
+		    depth + 1) && cube_shape(N.c[e], sl, depth + 1);
+	case O_LAND: case O_LOR:
+		return cube_shape(N.a[e], sl, depth + 1) && cube_shape(N.b[e], sl,
+		    depth + 1);
+	case O_LNOT: case O_CAST:
+		return cube_shape(N.a[e], sl, depth + 1);
+	case O_LT: case O_LE: case O_GT: case O_GE: case O_EQ: case O_NE:
+		return cube_mag(N.a[e], sl, 0) && cube_mag(N.b[e], sl, 0);
+	}
+	return 0;
+}
+
+/*
+ * e against the face cand on the 729 points (s the slots of x, y, z): 1
+ * when equal at every one (tie 0) or at every one with one largest
+ * magnitude, no NaN and not all zero (tie 1); *at a point where not
+ */
+static int
+cube_same(nid e, nid cand, const int *s, int tie, double *at)
+{
+	static const double v[9] = {NAN, -3, -2, -1, -0.0, 0, 1, 2, 3};
+	struct plan p;
+	nid roots[2] = {e, cand};
+	int64_t *in_i = xcalloc((size_t)MAXP * CH, sizeof *in_i);
+	double *in_r = xcalloc((size_t)MAXP * CH, sizeof *in_r);
+	uint32_t la, lb;
+	int i, k, m = 0, ok = 1, idx[CH];
+
+	plan_build(&p, roots, 2, 0);
+	la = plan_loc(&p, e);
+	lb = plan_loc(&p, cand);
+	for (i = 0; i <= 729 && ok; i++) {
+		if (i < 729) {
+			double x = v[i / 81], y = v[i / 9 % 9], z = v[i % 9];
+			double ax = fabs(x), ay = fabs(y), az = fabs(z), mx;
+			mx = ax > ay ? ax : ay;
+			mx = mx > az ? mx : az;
+			if (tie && (isnan(x) || isnan(y) || isnan(z) || mx == 0 ||
+			    (ax == mx) + (ay == mx) + (az == mx) > 1))
+				continue;
+			in_r[(size_t)s[0] * CH + m] = x;
+			in_r[(size_t)s[1] * CH + m] = y;
+			in_r[(size_t)s[2] * CH + m] = z;
+			idx[m++] = i;
+			if (m < CH)
+				continue;
+		}
+		if (!m)
+			break;
+		plan_run(&p, (uint32_t)m, in_i, in_r);
+		for (k = 0; k < m && ok; k++) {
+			double a = COLR(&p, la)[k], b = COLR(&p, lb)[k];
+			if (TY_ISINT(N.ty[e]))
+				a = (double)COLI(&p, la)[k];
+			if (TY_ISINT(N.ty[cand]))
+				b = (double)COLI(&p, lb)[k];
+			if (((COLF(&p, la)[k] | COLF(&p, lb)[k]) & F_UNDEF) ||
+			    !(a == b)) {
+				ok = 0;
+				at[0] = v[idx[k] / 81];
+				at[1] = v[idx[k] / 9 % 9];
+				at[2] = v[idx[k] % 9];
+			}
+		}
+		m = 0;
+	}
+	plan_free(&p);
+	free(in_i);
+	free(in_r);
+	return ok;
+}
+
+/* the axis whose magnitude is the largest alone on the ranges (0 x, 1
+ * y, 2 z), -1 when none is */
+static int
+cube_major(const nid *v)
+{
+	double lo[3], hi[3], mlo[3], mhi[3];
+	int k, j;
+
+	for (k = 0; k < 3; k++) {
+		if (!frange(v[k], &lo[k], &hi[k]))
+			return -1;
+		mlo[k] = lo[k] > 0 ? lo[k] : hi[k] < 0 ? -hi[k] : 0;
+		mhi[k] = fabs(lo[k]) > fabs(hi[k]) ? fabs(lo[k]) : fabs(hi[k]);
+	}
+	for (k = 0; k < 3; k++) {
+		for (j = 0; j < 3; j++)
+			if (j != k && !(mlo[k] > mhi[j]))
+				break;
+		if (j == 3)
+			return k;
+	}
+	return -1;
+}
+
+static int
+seed_cube(nid body, nid n)
+{
+	static const int perm[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2,
+	    0}, {2, 0, 1}, {2, 1, 0}};
+	uint64_t sl = node_slots(n);
+	int sv[3], s[3], k, j = 0, p, ninst, ntex, major = -1;
+	nid v[3], cand = 0, cid, ctx, nb;
+	double at[3];
+	float cinst = INFINITY, ctex = INFINITY;
+	struct repl *r;
+
+	if (is_const(n) || (sl >> MAXP) || N.op[n] != O_SEL)
+		return 0;
+	for (k = 0; k < 64 && j < 4; k++)
+		if (sl >> k & 1)
+			sv[j++] = k;
+	if (j != 3)
+		return 0;
+	for (k = 0; k < 3; k++)
+		if (sv[k] >= X.f->np || X.f->p[sv[k]].ty != TY_F32)
+			return 0;
+	if (!cube_shape(n, sl, 0))
+		return 0;
+	ninst = cclass_available(X.m, C_CUBE);
+	ntex = cclass_available(X.m, C_TEX_CUBE);
+	for (p = 0; p < 6; p++) {
+		for (k = 0; k < 3; k++) {
+			s[k] = sv[perm[p][k]];
+			v[k] = mk_var((uint32_t)s[k], X.f->p[s[k]].name, TY_F32);
+		}
+		cid = mk_inst(O_CUBEID, v[0], v[1], v[2]);
+		ctx = mk_inst(O_TEX_CUBE, v[0], v[1], v[2]);
+		if (N.ty[n] != TY_F32) {
+			cid = mk_cast(N.ty[n], cid);
+			ctx = mk_cast(N.ty[n], ctx);
+		}
+		if (cube_same(n, cid, s, 0, at)) {
+			if (ninst)
+				cinst = price(swap_nodes(body, &n, &cid, 1));
+			cand = cid;
+		} else if (!cube_same(n, cid, s, 1, at))
+			continue;
+		if (ntex) {
+			major = cube_major(v);
+			if (major >= 0)
+				ctex = price(swap_nodes(body, &n, &ctx, 1));
+		}
+		break;
+	}
+	if (p == 6)
+		return 0;
+	if (!ninst && !ntex) {
+		X.unavail_cube = 1;
+		return 0;
+	}
+	if (!(cinst < INFINITY) && !(ctex < INFINITY)) {
+		if (X.nocube.n)
+			return 0;
+		sb_printf(&X.nocube, "%s is the cube map face of (%s, %s, %s)",
+		    node_str(n), node_str(v[0]), node_str(v[1]), node_str(v[2]));
+		if (!cand)
+			sb_printf(&X.nocube, " where one magnitude is the "
+			    "largest, but not cubeid at (%g, %g, %g)", at[0],
+			    at[1], at[2]);
+		if (ntex)
+			sb_printf(&X.nocube, "%s where two magnitudes tie for "
+			    "the largest the specification lets the unit choose "
+			    "its own face: the ranges must keep one axis the "
+			    "largest alone for a cube map's read", cand ? ", but" :
+			    ";");
+		return 0;
+	}
+	if ((r = new_repl(n)) == NULL)
+		return 0;
+	nb = cinst <= ctex ? cand : mk_cast(N.ty[n], mk_inst(O_TEX_CUBE, v[0],
+	    v[1], v[2]));
+	r->to = nb;
+	r->cost = cinst <= ctex ? cinst : ctex;
+	r->exact = 1;
+	r->ok = 1;
+	sb_printf(&r->what, "%s is %s: the cube map face of (%s, %s, %s)",
+	    node_str(n), node_str(nb), node_str(v[0]), node_str(v[1]),
+	    node_str(v[2]));
+	if (cinst <= ctex)
+		sb_printf(&r->holds, "holds for every input");
+	else
+		sb_printf(&r->holds, "holds where %s is in its range, the "
+		    "largest magnitude alone: the unit's face, whatever its rule "
+		    "on ties", node_str(v[major]));
+	sb_printf(&r->proof, "%s depends on its inputs only through their "
+	    "signs, which are zero or NaN, and the order of their magnitudes "
+	    "(a selection among constants by comparisons of the coordinates, "
+	    "their magnitudes and zero); a point with coordinates in {NaN, -3, "
+	    "-2, -1, -0, 0, 1, 2, 3} takes every such combination, and on all "
+	    "729 %s it is cubeid: exhaustive", node_str(n), cinst <= ctex ?
+	    "" : "with one largest magnitude, no NaN and not all zero");
+	if (cinst <= ctex)
+		sb_puts(&r->pipe, "nothing: one instruction of the model's cube "
+		    "class (v_cubeid_f32)");
+	else
+		sb_printf(&r->pipe, "a cube texture, 1 x 1 a face, face k "
+		    "holding k (R8_UINT, or R16_SFLOAT for a float)\na sampler: "
+		    "NEAREST "
+		    "filters, lod 0\none combined image sampler more in the "
+		    "layout; the shader reads textureLod(s, vec3(%s, %s, %s), "
+		    "0.0).r", node_str(v[0]), node_str(v[1]), node_str(v[2]));
+	return 1;
+}
+
 /* ---- weighted sums of neighbouring texels ---- */
 
 struct sum {
@@ -4178,6 +4437,9 @@ visit(nid body, nid n, uint8_t *seen, uint32_t lim)
 	/* a packed format's channel decoded by hand, replaced whole */
 	if (N.ty[n] == TY_F32 && seed_packed(body, n))
 		return;
+	/* a cube map's face selected by hand, replaced whole */
+	if (op == O_SEL && seed_cube(body, n))
+		return;
 	/* a min or max of neighbouring entries, replaced whole */
 	if ((op == O_MIN || op == O_MAX) && seed_minmax(body, n))
 		return;
@@ -4237,6 +4499,7 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	free(X.nosum.p);
 	free(X.nolayer.p);
 	free(X.nopacked.p);
+	free(X.nocube.p);
 	memset(&X, 0, sizeof X);
 	X.f = f;
 	X.m = model_active();
@@ -4331,6 +4594,13 @@ tex_search(const struct func *f, double tol, struct texres *res)
 				    class_says(k));
 				res->status = TEXR_UNAVAILABLE;
 			}
+		if (X.unavail_cube) {
+			sb_printf(&res->why, "%s%s lists neither cube nor "
+			    "tex_cube: the cube map face's instruction and read "
+			    "are not available", res->why.n ? "\n" : "",
+			    sym_str(X.m->name));
+			res->status = TEXR_UNAVAILABLE;
+		}
 		if (X.unavail_packed) {
 			sb_printf(&res->why, "%s%s lists no tex_packed: a "
 			    "texel fetch of a packed format is not available",
@@ -4354,6 +4624,12 @@ tex_search(const struct func *f, double tol, struct texres *res)
 	if (!na && X.nosum.n) {
 		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
 		    sb_str(&X.nosum));
+		if (res->status == TEXR_NONE)
+			res->status = TEXR_OVERTOL;
+	}
+	if (!na && X.nocube.n) {
+		sb_printf(&res->why, "%s%s", res->why.n ? "\n" : "",
+		    sb_str(&X.nocube));
 		if (res->status == TEXR_NONE)
 			res->status = TEXR_OVERTOL;
 	}
