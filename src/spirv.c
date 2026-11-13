@@ -10766,6 +10766,32 @@ spv_cover(struct fuse_tally *t)
 				}
 			}
 	}
+	/* what no result needs (a rewrite took its last use; dead code
+	 * removal drops it later) costs nothing */
+	{
+		uint8_t *live = xcalloc((size_t)(nins ? nins : 1), 1);
+		int *st = xmalloc((size_t)(nins ? nins : 1) * sizeof *st), sp = 0;
+		for (j = 0; j < nins; j++)
+			if (G.pinned[j]) {
+				live[j] = 1;
+				st[sp++] = j;
+			}
+		while (sp) {
+			int x = st[--sp];
+			for (q = 0; q < 3; q++) {
+				int a = G.arg[x][q];
+				if (a >= 0 && a < nins && !live[a]) {
+					live[a] = 1;
+					st[sp++] = a;
+				}
+			}
+		}
+		for (j = 0; j < nins; j++)
+			if (!live[j])
+				G.own[j] = 0;
+		free(live);
+		free(st);
+	}
 	total = fg_cover(model_active(), &G);
 	if (t)
 		fg_tally(&G, NULL, 1, t);
@@ -11027,6 +11053,17 @@ spirv_simplify(const char *src, double budget, int nofile)
 			L->algebra = cs[best].algebra;
 			L->trivial = driver_trivial(k, &cs[best]);
 			L->line = ins_line(k);
+			if (L->trivial) {
+				/* what it saves where the model already prices
+				 * what it makes (x * 8 + y is a shift-add as
+				 * written): the cover's, not the instruction's */
+				double c0 = spv_cover(NULL);
+				apply(k, &cs[best]);
+				L->gain = c0 - spv_cover(NULL);
+				nrw++;
+				SP.proved++;
+				continue;
+			}
 		}
 		apply(k, &cs[best]);
 		nrw++;
