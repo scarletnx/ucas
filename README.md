@@ -822,9 +822,32 @@ through an integer operation or `asfloat` is what a step of 1 in the
 integer moves the value by, the larger of the step up and the step
 down: that is what a conversion that can go the other way adds (a
 power of two made as `asfloat((k + 127) << 23)` moves by itself when k
-does).  Not analysed, and said: the bits of a float that carries
-rounding error (its error moves them by more than first order says),
-an f16's bits, a variable exponent.
+does).
+
+A float plus 1.5 2^(p-1) (12582912 for an f32, 6755399441055744 for an
+f64) is a rounding to an integer written as an add: while the float is
+within 2^(p-2) the sum is that constant plus the float rounded to the
+nearest integer, ties to even, exactly, and less the constant again it
+is the integer.  It is read as that: no error of u, a choice at the
+half integers, and its bits are an integer's.  A step choice (this
+one, floor, ceil, roundeven, a conversion) that can go the other way
+adds what the other side gives: everything after it run again with the
+neighbouring integer, since a step of 1 is no small change (in 2^k
+P(r), r = x - k ln 2, 2^k doubles and r takes it back: the two sides
+differ by the fit's error, not by the value).
+
+The bits of a float that does carry rounding error are linear in it
+inside a binade, one unit an ulp, and are followed to first order
+where they only meet an add or a subtract of an exact integer (a step
+of the exponent field: the float times a power of two) or the sign
+bit alone (and, or, xor with it), and go back to a float.  approx's
+reduced candidates get their line that way: the exp of tests/approx
+(2^k P(r), k and 2^k from the rounding add) 10 operations and 3.19 u,
+where every f32 x in [-10, 10] on a stride, run in f32 against the
+same expression in long double with the same k, differs by 1.22 u at
+most.  Not analysed, and said: those bits under a shift or a mask of
+more than the sign bit, two such values combined, an f16's bits, a
+variable exponent.
 
 Choices are where a small error can make a large one: floor, ceil and a
 conversion to an integer jump by 1 at the integers, copysign by twice

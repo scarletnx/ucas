@@ -56,8 +56,25 @@
  * first guess is a value like an input's).  What flows back through them
  * is the change a step of 1 in the integer makes, the larger of the two
  * sides, which is what a conversion that can go the other way moves it
- * by.  The bits of a float that carries rounding error are not analysed:
- * its error moves them by more than first order says.
+ * by.
+ *
+ * A float plus 1.5 2^(p-1) (p the precision: 12582912 for an f32) is not
+ * an error of u: while the float is within 2^(p-2) the sum is the
+ * constant plus the float rounded to the nearest integer, ties to even,
+ * exactly.  It is read as that: an exact value, and a choice at the half
+ * integers.  A step choice (this one, floor, ceil, roundeven, a
+ * conversion) that can go the other way adds what the other side gives:
+ * the function run again from the choice on with the neighbouring
+ * integer, not the jump times a slope, which a step of 1 is too large
+ * for (2^k doubles while r = x - k ln 2 takes it back).
+ *
+ * The bits of a float that does carry rounding error are linear in it
+ * inside a binade, one unit for each ulp.  They are followed to first
+ * order where they only meet an add or a subtract of an exact integer (a
+ * step of the exponent: the float times a power of two) or the sign bit
+ * alone (and, or, xor with it or with nothing), and go back to a float;
+ * anywhere else (a shift, a mask of other bits) the error moves them by
+ * more than first order says, and the function is not analysed.
  */
 #include "numsearch.h"
 
@@ -72,6 +89,14 @@ struct rnode {
 	int a, b, c;		/* operand indices, -1 */
 	int rounds;		/* a rounded float operation */
 	int inexact;		/* it or something it reads rounds */
+	int magic;		/* x + 1.5 2^(p-1): the operand's index + 1 */
+	int mhold;		/* at this input it is the rounding to an
+				 * integer (the operand within 2^(p-2)) */
+	int unmagic;		/* that sum less the constant again, the
+				 * integer itself: the sum's index + 1 */
+	int frac;		/* the bits of a float with error, as a real:
+				 * between two integers */
+	ld slope;		/* asuint: bits for a unit of the float */
 	int eft;		/* inside error-free transformation eft - 1 */
 	int choice;		/* a choice (CH_*), or 0 */
 	ld u;
@@ -79,7 +104,7 @@ struct rnode {
 };
 
 /* what can go the other way (rounderr.h's struct rounderr counts these) */
-enum { CH_NONE, CH_STEP, CH_CONV, CH_SIGN, CH_MINMAX, CH_SEL };
+enum { CH_NONE, CH_STEP, CH_CONV, CH_SIGN, CH_MINMAX, CH_SEL, CH_MAGIC };
 
 enum { EF_2SUM, EF_FAST2SUM, EF_2PROD };
 
@@ -101,6 +126,10 @@ static struct {
 	struct reft *e;
 	int ne, ecap;
 	ld *adj, *adj2;		/* d result / d node; d node r / d node */
+	const struct func *g;	/* the input the values are at */
+	const int64_t *in_i;
+	const double *in_r;
+	uint32_t k;
 } R;
 
 static ld
@@ -108,6 +137,8 @@ unit(ty_t t)
 {
 	return TYW(t) == 16 ? 0x1p-11L : TYW(t) == 32 ? 0x1p-24L : 0x1p-53L;
 }
+
+static int frac_op(int op, ty_t t, ld a, ld b, ld *r);
 
 static int
 collect(nid e)
@@ -136,11 +167,9 @@ collect(nid e)
 		break;
 	case O_ASUINT: case O_ASINT:
 		a = collect(N.a[e]);
-		if (a >= 0 && !R.why[0] && (R.n[a].inexact ||
-		    TYW(N.ty[N.a[e]]) == 16))
-			snprintf(R.why, sizeof R.why, "%s of %s", opinfo[N.op[e]].name,
-			    R.n[a].inexact ? "a value that carries rounding error, "
-			    "its bits used as an integer" : "an f16");
+		if (a >= 0 && !R.why[0] && TYW(N.ty[N.a[e]]) == 16)
+			snprintf(R.why, sizeof R.why, "%s of an f16",
+			    opinfo[N.op[e]].name);
 		break;
 	case O_NOT:
 		a = collect(N.a[e]);
@@ -215,6 +244,76 @@ collect(nid e)
 	}
 	x->inexact = x->rounds || (a >= 0 && R.n[a].inexact) || (b >= 0 &&
 	    R.n[b].inexact) || (c >= 0 && R.n[c].inexact);
+	/* x + 1.5 2^(p-1): x rounded to an integer, an exact value */
+	if (N.op[e] == O_ADD && TYK(t) == K_FLOAT && TYW(t) != 16) {
+		ld M = TYW(t) == 32 ? 0x1.8p23L : 0x1.8p52L;
+		int k;
+		for (k = 0; k < 2; k++) {
+			nid cst = k ? N.b[e] : N.a[e];
+			if (N.op[cst] == O_CONST && TY_FP(N.ty[cst]) &&
+			    (ld)N.kr[cst] == M) {
+				x->magic = (k ? a : b) + 1;
+				x->choice = CH_MAGIC;
+				x->inexact = 0;
+			}
+		}
+	}
+	/* ... and that sum less the constant: the integer, exactly */
+	if ((N.op[e] == O_SUB || N.op[e] == O_ADD) && TYK(t) == K_FLOAT &&
+	    TYW(t) != 16 && a >= 0 && b >= 0) {
+		ld M = TYW(t) == 32 ? 0x1.8p23L : 0x1.8p52L;
+		int k;
+		for (k = 0; k < 2; k++) {
+			nid cst = k ? N.b[e] : N.a[e];
+			int o = k ? a : b;
+			/* j - M, or j + -M either way round */
+			if (R.n[o].magic && N.op[cst] == O_CONST && TY_FP(N.ty[cst]) &&
+			    (ld)N.kr[cst] == (N.op[e] == O_SUB ? M : -M) &&
+			    (N.op[e] == O_ADD || k == 1)) {
+				x->unmagic = o + 1;
+				x->inexact = 0;
+			}
+		}
+	}
+	/* the bits of a float with error: only through an add or subtract
+	 * of an exact integer or a bitwise operation with one (the sign
+	 * bit's, checked at each input), and back to a float */
+	if ((N.op[e] == O_ASUINT || N.op[e] == O_ASINT) && R.n[a].inexact)
+		x->frac = 1;
+	else if ((a >= 0 && R.n[a].frac) || (b >= 0 && R.n[b].frac) ||
+	    (c >= 0 && R.n[c].frac)) {
+		int both = a >= 0 && b >= 0 && R.n[a].frac && R.n[b].frac;
+		switch (N.op[e]) {
+		case O_AND: case O_OR: case O_XOR: {
+			/* a constant has to leave all but the sign bit alone */
+			nid cst = a >= 0 && R.n[a].frac ? N.b[e] : N.a[e];
+			ld dummy;
+			if (!both && N.op[cst] == O_CONST && !frac_op(N.op[e], t, 0,
+			    (ld)N.ki[cst], &dummy)) {
+				if (!R.why[0])
+					snprintf(R.why, sizeof R.why, "the bits of a value "
+					    "that carries rounding error, under a mask of "
+					    "more than the sign bit");
+				return -1;
+			}
+		}
+			/* FALLTHROUGH */
+		case O_ADD: case O_SUB:
+			if (!both && TY_ISINT(t)) {
+				x->frac = 1;
+				break;
+			}
+			/* FALLTHROUGH */
+		default:
+			if (!R.why[0])
+				snprintf(R.why, sizeof R.why, "the bits of a value that "
+				    "carries rounding error, used as an integer by %s",
+				    both ? "two of them at once" : opinfo[N.op[e]].name);
+			return -1;
+		case O_ASFLOAT:
+			break;
+		}
+	}
 	if (e < R.nix)
 		R.ix[e] = i + 1;
 	return i;
@@ -227,7 +326,7 @@ sum_ops(int i, int o[2], int sg[2])
 {
 	int k, op;
 
-	if (i < 0 || !R.n[i].rounds)
+	if (i < 0 || !R.n[i].rounds || R.n[i].magic)
 		return 0;
 	op = N.op[R.n[i].id];
 	if (op != O_ADD && op != O_SUB)
@@ -678,7 +777,13 @@ backprop(int root, ld *adj)
 		case O_SIN: TO(x->a, cosl(a)); break;
 		case O_COS: TO(x->a, -sinl(a)); break;
 		case O_TAN: TO(x->a, 1 + x->v * x->v); break;
-		case O_ADD: TO(x->a, 1); TO(x->b, 1); break;
+		case O_ADD:
+			/* a rounding to an integer: a step, nothing flows back */
+			if (x->magic && x->mhold)
+				break;
+			TO(x->a, 1);
+			TO(x->b, 1);
+			break;
 		case O_SUB: TO(x->a, 1); TO(x->b, -1); break;
 		case O_MUL: TO(x->a, b); TO(x->b, a); break;
 		case O_DIV: TO(x->a, 1 / b); TO(x->b, -a / (b * b)); break;
@@ -692,20 +797,179 @@ backprop(int root, ld *adj)
 			break;
 		case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
 		case O_SHR:
-			/* integers: what a step of 1 moves the value by */
+			/* the bits of a float with error pass as they are (only
+			 * the sign bit is touched); an integer: what a step of 1
+			 * moves the value by */
+			if (x->frac) {
+				int fa = x->a >= 0 && R.n[x->a].frac;
+				TO(fa ? x->a : x->b, 1);
+				TO(fa ? x->b : x->a, bit_step(N.op[x->id], N.ty[x->id],
+				    floorl(fa ? a : b), fa ? b : a, 1));
+				break;
+			}
 			TO(x->a, bit_step(N.op[x->id], N.ty[x->id], a, b, 0));
 			TO(x->b, bit_step(N.op[x->id], N.ty[x->id], a, b, 1));
 			break;
-		case O_ASFLOAT:
-			TO(x->a, larger(bits_float(N.ty[x->id], a + 1) - x->v,
-			    x->v - bits_float(N.ty[x->id], a - 1)));
+		case O_ASUINT: case O_ASINT:
+			if (x->frac)
+				TO(x->a, x->slope);
 			break;
+		case O_ASFLOAT: {
+			ld fl = floorl(a);
+			if (fl != a)	/* between two floats: their distance */
+				TO(x->a, bits_float(N.ty[x->id], fl + 1) -
+				    bits_float(N.ty[x->id], fl));
+			else
+				TO(x->a, larger(bits_float(N.ty[x->id], a + 1) - x->v,
+				    x->v - bits_float(N.ty[x->id], a - 1)));
+			break;
+		}
 		}
 #undef TO
 		if (!isfinite((double)adj[i]))
 			return 0;
 	}
 	return 1;
+}
+
+/* the bits of the float a of type tf, which carries rounding error, as a
+ * real: those of the nearest float and, beyond it, one unit for each ulp
+ * (down, for a negative float); 0 at 0 and where it is not finite */
+static int
+frac_bits(ty_t tf, ty_t ti, ld a, ld *v, ld *slope)
+{
+	ld f, ulp, base;
+
+	if (TYW(tf) == 32) {
+		float x = (float)a, nb;
+		uint32_t u;
+		if (!isfinite(x) || x == 0)
+			return 0;
+		nb = nextafterf(x, a > x ? INFINITY : -INFINITY);
+		memcpy(&u, &x, sizeof u);
+		base = bits_int(ti, u);
+		f = x;
+		ulp = fabsl((ld)nb - f);
+	} else {
+		double x = (double)a, nb;
+		uint64_t u;
+		if (!isfinite(x) || x == 0)
+			return 0;
+		nb = nextafter(x, a > x ? INFINITY : -INFINITY);
+		memcpy(&u, &x, sizeof u);
+		base = bits_int(ti, u);
+		f = x;
+		ulp = fabsl((ld)nb - f);
+	}
+	if (!(ulp > 0) || !isfinite((double)ulp))
+		return 0;
+	*slope = (f < 0 ? -1 : 1) / ulp;
+	*v = base + (a - f) * *slope;
+	return 1;
+}
+
+/* and, or or xor of such bits (a, between two integers) with the exact
+ * integer b: only when b leaves every bit but the sign as it is */
+static int
+frac_op(int op, ty_t t, ld a, ld b, ld *r)
+{
+	int w = TYK(t) == K_UINT || TYK(t) == K_SINT ? TYW(t) : 64;
+	uint64_t all = w < 64 ? (1ULL << w) - 1 : ~0ULL, sign = 1ULL << (w - 1);
+	uint64_t y = int_bits(b) & all;
+	ld fl = floorl(a);
+
+	if (op == O_AND ? (y != all && y != (all ^ sign)) : (y != 0 && y != sign))
+		return 0;
+	if (!bit_op(op, t, fl, b, r))
+		return 0;
+	*r += a - fl;
+	return 1;
+}
+
+/* the value of node i from its operands' at the input R is at; 0 when it
+ * is not finite */
+static int
+eval_node(int i)
+{
+	struct rnode *x = &R.n[i];
+	ld a = x->a >= 0 ? R.n[x->a].v : 0, b = x->b >= 0 ? R.n[x->b].v : 0;
+	ld c = x->c >= 0 ? R.n[x->c].v : 0;
+	ty_t t = N.ty[x->id];
+
+	switch (N.op[x->id]) {
+	case O_CONST:
+		x->v = TY_FP(t) ? (ld)N.kr[x->id] : (ld)N.ki[x->id];
+		break;
+	case O_VAR: x->v = param_val(R.g, x->id, R.in_i, R.in_r, R.k); break;
+	case O_CAST:
+		x->v = TY_FP(t) ? a : int_wrap(t, TY_FP(N.ty[N.a[x->id]]) ?
+		    truncl(a) : a);
+		break;
+	case O_NEG: x->v = -a; break;
+	case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
+	case O_SHR:
+		if (x->frac) {
+			int fa = x->a >= 0 && R.n[x->a].frac;
+			if (N.op[x->id] == O_NOT || N.op[x->id] == O_SHL ||
+			    N.op[x->id] == O_SHR || !frac_op(N.op[x->id], t, fa ? a :
+			    b, fa ? b : a, &x->v))
+				return 0;
+		} else if (!bit_op(N.op[x->id], t, a, b, &x->v))
+			return 0;
+		break;
+	case O_ASUINT: case O_ASINT:
+		x->slope = 0;
+		if (float_bits(N.ty[N.a[x->id]], t, a, &x->v))
+			break;
+		if (!x->frac || !frac_bits(N.ty[N.a[x->id]], t, a, &x->v,
+		    &x->slope))
+			return 0;
+		break;
+	case O_ASFLOAT: {
+		ld fl = floorl(a);
+		x->v = bits_float(t, fl);
+		if (fl != a)	/* between two floats */
+			x->v += (a - fl) * (bits_float(t, fl + 1) - x->v);
+		break;
+	}
+	case O_ABS: x->v = fabsl(a); break;
+	case O_SQRT: x->v = sqrtl(a); break;
+	case O_EXP: x->v = expl(a); break;
+	case O_LOG: x->v = logl(a); break;
+	case O_SIN: x->v = sinl(a); break;
+	case O_COS: x->v = cosl(a); break;
+	case O_TAN: x->v = tanl(a); break;
+	case O_FLOOR: x->v = floorl(a); break;
+	case O_CEIL: x->v = ceill(a); break;
+	case O_ROUNDEVEN: x->v = nearbyintl(a); break;
+	case O_ADD:
+		x->v = a + b;
+		if (x->magic) {
+			/* the operand within 2^(p-2): the constant plus it
+			 * rounded to the nearest integer, exactly */
+			ld o = R.n[x->magic - 1].v;
+			x->mhold = fabsl(o) <= (TYW(t) == 32 ? 0x1p22L : 0x1p51L);
+			if (x->mhold)
+				x->v = x->v - o + nearbyintl(o);
+		}
+		break;
+	case O_SUB: x->v = a - b; break;
+	case O_MUL: x->v = a * b; break;
+	case O_DIV: x->v = a / b; break;
+	case O_POW: x->v = powl(a, b); break;
+	case O_MIN: x->v = a < b ? a : b; break;
+	case O_MAX: x->v = a > b ? a : b; break;
+	case O_LT: x->v = a < b; break;
+	case O_LE: x->v = a <= b; break;
+	case O_GT: x->v = a > b; break;
+	case O_GE: x->v = a >= b; break;
+	case O_EQ: x->v = a == b; break;
+	case O_NE: x->v = a != b; break;
+	case O_FMA: x->v = a * b + c; break;
+	case O_SEL: x->v = a != 0 ? b : c; break;
+	case O_COPYSIGN: x->v = copysignl(a, b); break;
+	}
+	return isfinite((double)x->v);
 }
 
 /* values forward, adjoints backward; 0 when a value is not finite */
@@ -715,62 +979,42 @@ sweep(const struct func *g, const int64_t *in_i, const double *in_r,
 {
 	int i;
 
-	for (i = 0; i < R.nn; i++) {
-		struct rnode *x = &R.n[i];
-		ld a = x->a >= 0 ? R.n[x->a].v : 0, b = x->b >= 0 ? R.n[x->b].v : 0;
-		ld c = x->c >= 0 ? R.n[x->c].v : 0;
-		ty_t t = N.ty[x->id];
-		switch (N.op[x->id]) {
-		case O_CONST:
-			x->v = TY_FP(t) ? (ld)N.kr[x->id] : (ld)N.ki[x->id];
-			break;
-		case O_VAR: x->v = param_val(g, x->id, in_i, in_r, k); break;
-		case O_CAST:
-			x->v = TY_FP(t) ? a : int_wrap(t, TY_FP(N.ty[N.a[x->id]]) ?
-			    truncl(a) : a);
-			break;
-		case O_NEG: x->v = -a; break;
-		case O_NOT: case O_AND: case O_OR: case O_XOR: case O_SHL:
-		case O_SHR:
-			if (!bit_op(N.op[x->id], t, a, b, &x->v))
-				return 0;
-			break;
-		case O_ASUINT: case O_ASINT:
-			if (!float_bits(N.ty[N.a[x->id]], t, a, &x->v))
-				return 0;
-			break;
-		case O_ASFLOAT: x->v = bits_float(t, a); break;
-		case O_ABS: x->v = fabsl(a); break;
-		case O_SQRT: x->v = sqrtl(a); break;
-		case O_EXP: x->v = expl(a); break;
-		case O_LOG: x->v = logl(a); break;
-		case O_SIN: x->v = sinl(a); break;
-		case O_COS: x->v = cosl(a); break;
-		case O_TAN: x->v = tanl(a); break;
-		case O_FLOOR: x->v = floorl(a); break;
-		case O_CEIL: x->v = ceill(a); break;
-		case O_ROUNDEVEN: x->v = nearbyintl(a); break;
-		case O_ADD: x->v = a + b; break;
-		case O_SUB: x->v = a - b; break;
-		case O_MUL: x->v = a * b; break;
-		case O_DIV: x->v = a / b; break;
-		case O_POW: x->v = powl(a, b); break;
-		case O_MIN: x->v = a < b ? a : b; break;
-		case O_MAX: x->v = a > b ? a : b; break;
-		case O_LT: x->v = a < b; break;
-		case O_LE: x->v = a <= b; break;
-		case O_GT: x->v = a > b; break;
-		case O_GE: x->v = a >= b; break;
-		case O_EQ: x->v = a == b; break;
-		case O_NE: x->v = a != b; break;
-		case O_FMA: x->v = a * b + c; break;
-		case O_SEL: x->v = a != 0 ? b : c; break;
-		case O_COPYSIGN: x->v = copysignl(a, b); break;
-		}
-		if (!isfinite((double)x->v))
+	R.g = g;
+	R.in_i = in_i;
+	R.in_r = in_r;
+	R.k = k;
+	for (i = 0; i < R.nn; i++)
+		if (!eval_node(i))
 			return 0;
-	}
 	return backprop(R.nn - 1, R.adj);
+}
+
+/* the result with node d's value put at v and everything after it run
+ * again; 0 when that is not finite.  The values are put back. */
+static int
+other_side(int d, ld v, ld *res)
+{
+	struct rnode *save = xmalloc((size_t)(R.nn - d) * sizeof *save);
+	int i, ok = 1;
+
+	memcpy(save, R.n + d, (size_t)(R.nn - d) * sizeof *save);
+	R.n[d].v = v;
+	for (i = d + 1; i < R.nn && ok; i++)
+		ok = eval_node(i);
+	if (ok)
+		*res = R.n[R.nn - 1].v;
+	memcpy(R.n + d, save, (size_t)(R.nn - d) * sizeof *save);
+	free(save);
+	return ok;
+}
+
+/* node i rounds at this input */
+static int
+rounds_here(int i)
+{
+	return R.n[i].rounds && !(R.n[i].eft && R.e[R.n[i].eft - 1].holds) &&
+	    !(R.n[i].magic && R.n[i].mhold) && !(R.n[i].unmagic &&
+	    R.n[R.n[i].unmagic - 1].mhold);
 }
 
 /* the first-order bound of node r's absolute error at this input: u sum
@@ -784,14 +1028,14 @@ node_err(int r)
 	if (r < 0 || !backprop(r, R.adj2))
 		return 0;
 	for (i = 0; i <= r; i++)
-		if (R.n[i].rounds && !(R.n[i].eft && R.e[R.n[i].eft - 1].holds))
+		if (rounds_here(i))
 			s += fabsl(R.adj2[i] * R.n[i].v) * R.n[i].u;
 	return s;
 }
 
 static const char *const choice_name[] = {
 	"", "floor, ceil or roundeven", "conversion to an integer", "copysign",
-	"min or max", "select (?:)",
+	"min or max", "select (?:)", "rounding written as an add",
 };
 
 /*
@@ -807,20 +1051,41 @@ choice_extra(int d, char *why, size_t wn)
 	int p, q, cop;
 
 	switch (x->choice) {
-	case CH_STEP: case CH_CONV:
+	case CH_STEP: case CH_CONV: case CH_MAGIC: {
 		/* a jump of 1 at each integer (a conversion: not at 0;
-		 * roundeven: at each half integer) */
-		k = N.op[x->id] == O_ROUNDEVEN ? floorl(va) + 0.5L : nearbyintl(va);
+		 * roundeven and the rounding add: at each half integer) */
+		int o = x->magic ? x->magic - 1 : x->a;
+		int half = x->magic || N.op[x->id] == O_ROUNDEVEN;
+		ld cur = x->v, off = 0, other, res;
+		if (x->magic && !x->mhold)
+			return 0;
+		va = R.n[o].v;
+		if (x->magic) {
+			off = cur - nearbyintl(va);
+			cur -= off;
+		}
+		k = half ? floorl(va) + 0.5L : nearbyintl(va);
 		if (x->choice == CH_CONV && k == 0)
 			return 0;
-		e = node_err(x->a);
+		e = node_err(o);
 		if (e <= 0 || fabsl(va - k) > e)
 			return 0;
 		snprintf(why, wn, "the operand of %s, %.6Lg, is within its error "
-		    "%.3Lg of %.6Lg", x->choice == CH_STEP ?
-		    opinfo[N.op[x->id]].name : "a conversion to an integer", va, e,
-		    k);
+		    "%.3Lg of %.6Lg", x->magic ? "a rounding written as an add" :
+		    x->choice == CH_STEP ? opinfo[N.op[x->id]].name :
+		    "a conversion to an integer", va, e, k);
+		/* what the other side gives: the neighbouring integer, and
+		 * everything after it run again */
+		if (half)
+			other = cur > k ? cur - 1 : cur + 1;
+		else if (N.op[x->id] == O_CEIL || (x->choice == CH_CONV && va < 0))
+			other = cur > k ? k : k + 1;
+		else
+			other = cur >= k ? k - 1 : k;
+		if (other_side(d, other + off, &res))
+			return fabsl(res - R.n[R.nn - 1].v);
 		return w;
+	}
 	case CH_SIGN:
 		e = node_err(x->b);
 		if (e <= 0 || fabsl(vb) > e || va == 0)
@@ -925,7 +1190,8 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 		r->eft[R.e[i].kind]++;
 	for (i = 0; i < R.nn; i++) {
 		int op = N.op[R.n[i].id];
-		r->nops += R.n[i].rounds && !R.n[i].eft;
+		r->nops += R.n[i].rounds && !R.n[i].eft && !R.n[i].magic &&
+		    !R.n[i].unmagic;
 		r->nexact += R.n[i].rounds && R.n[i].eft;
 		r->choices[R.n[i].choice]++;
 		r->nbits += op == O_ASUINT || op == O_ASINT || op == O_ASFLOAT;
@@ -958,8 +1224,7 @@ rounderr_measure(const struct func *g, double lambda, struct rounderr *r)
 			}
 			r->eftfail += bad > 0;
 			for (i = 0; i < R.nn; i++)
-				if (R.n[i].rounds && !(R.n[i].eft &&
-				    R.e[R.n[i].eft - 1].holds)) {
+				if (rounds_here(i)) {
 					ld c = fabsl(R.adj[i] * R.n[i].v) * R.n[i].u;
 					s1 += c;
 					s2 += c * c;
@@ -1048,7 +1313,7 @@ choice_print(const struct rounderr *r, const char *ind)
 {
 	int k, n = 0;
 
-	for (k = 1; k < 6; k++)
+	for (k = 1; k < 7; k++)
 		if (r->choices[k])
 			printf("%s %d %s", n++ ? "," : "", r->choices[k],
 			    choice_name[k]);
@@ -1084,7 +1349,7 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 	    (unsigned long long)r->points);
 	eft_print(r, ind, e);
 	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
-	    r->choices[5]) {
+	    r->choices[5] + r->choices[6]) {
 		printf("%s  choices:", ind);
 		choice_print(r, ind);
 	}
@@ -1130,9 +1395,9 @@ rounderr_print(const struct rounderr *r, const char *ind, int rep)
 		rep_int("precondition_failures", (long long)r->eftfail);
 	}
 	if (r->choices[1] + r->choices[2] + r->choices[3] + r->choices[4] +
-	    r->choices[5]) {
+	    r->choices[5] + r->choices[6]) {
 		rep_int("choices", r->choices[1] + r->choices[2] + r->choices[3] +
-		    r->choices[4] + r->choices[5]);
+		    r->choices[4] + r->choices[5] + r->choices[6]);
 		rep_int("choice_flips", (long long)r->flips);
 	}
 	if (r->nbits)
