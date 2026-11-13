@@ -1,0 +1,47 @@
+# `sink int` (#38, Liz: "do 1 plus a"): what a floor or a conversion to an
+# integer reads may move by one unit, as the user allows: |v' - v| <= 1
+# moves floor and truncation by at most one, so the integer is the
+# reference's or a neighbour.  A floor is read through to its argument,
+# converted or stored; an unsigned conversion takes a little less than
+# one (below -1 it would be undefined); a compare takes nothing.
+#
+# without the word: the conversion is a root with no budget
+simplify float c in [0, 1] nofile
+```glsl
+int Lvl(float c) { return int(floor(exp2(c * 0.5) * 16.0)); }
+```
+# with it: exp2 as a degree-1 polynomial (0.143 of the unit)
+simplify float c in [0, 1] sink int nofile
+```glsl
+int Lvl(float c) { return int(floor(exp2(c * 0.5) * 16.0)); }
+```
+# an unsigned conversion, and a floor stored as a float
+simplify float c in [0, 1] sink int nofile
+```glsl
+uint Lvl(float c) { return uint(exp2(c * 0.5) * 16.0); }
+```
+simplify float c in [0, 1] sink int nofile
+```glsl
+float Lvl(float c) { return floor(exp2(c * 0.5) * 16.0); }
+```
+# a compare takes no budget, whatever the word
+simplify float c in [0, 1] sink int nofile
+```glsl
+int Lvl(float c) { return exp2(c * 0.5) * 16.0 > 20.0 ? 1 : 0; }
+```
+# in English
+simplify c in [0, 1], the integer may be off by one, nofile
+```glsl
+int Lvl(float c) { return int(floor(exp2(c * 0.5) * 16.0)); }
+```
+# with a format too: the conversion takes the unit, the returned value
+# the format's step
+simplify float c in [0, 1] sink unorm8 sink int nofile
+```glsl
+float Lvl(float c, out int k) { k = int(exp2(c * 0.5) * 16.0); return exp2(c * 0.5) * 0.25; }
+```
+# a word that is neither a format nor int
+simplify float sink int2 nofile
+```glsl
+int Lvl(float c) { return int(c * 3.0); }
+```

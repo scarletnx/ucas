@@ -8178,6 +8178,7 @@ spirv_fn_opts(int mode)
 static struct {
 	double abs, rel, min;
 	char name[48];
+	int integer;	/* `sink int`: one unit at a floor or an int() */
 } fsink;
 
 /*
@@ -8266,6 +8267,12 @@ spirv_sink_known(const char *fmt)
 	return sink_lookup(fmt, &a, &r, &m);
 }
 
+void
+spirv_sink_int(void)
+{
+	fsink.integer = 1;
+}
+
 /* 0: not a sink ucas knows */
 int
 spirv_sink_opt(const char *fmt)
@@ -8274,8 +8281,10 @@ spirv_sink_opt(const char *fmt)
 		memset(&fsink, 0, sizeof fsink);
 		return 1;
 	}
-	if (!sink_lookup(fmt, &fsink.abs, &fsink.rel, &fsink.min))
+	if (!sink_lookup(fmt, &fsink.abs, &fsink.rel, &fsink.min)) {
+		fsink.abs = fsink.rel = fsink.min = 0;
 		return 0;
+	}
 	snprintf(fsink.name, sizeof fsink.name, "%s", fmt);
 	return 1;
 }
@@ -8374,6 +8383,22 @@ disc_root(const struct sins *I, int *disc)
 		return -1;	/* two values, or two constants */
 	*disc = 2;
 	return V.id[a].kind == K_CONST ? b : a;
+}
+
+/* x of floor(x) (GLSL.std.450 Floor), or -1 */
+static int
+floor_arg(int v)
+{
+	const struct sins *I;
+
+	if (v < 0 || SP.def[v] < 0)
+		return -1;
+	I = &V.in[SP.def[v]];
+	if (strcmp(I->op, "OpExtInst") || I->nop < 4 || V.glsl < 0 ||
+	    idx(I->opnd[1]) != V.glsl || strcmp(I->opnd[2], "Floor") ||
+	    I->opnd[3][0] != '%')
+		return -1;
+	return idx(I->opnd[3]);
 }
 
 /* a root's sink: the image's or the pack function's format (named by
@@ -9330,7 +9355,7 @@ float_pass(const char *text, int *changed)
 	/* the roots: stored and returned float values */
 	for (k = 0; k < V.nin && ngr < 60; k++) {
 		const struct sins *I = &V.in[k];
-		int v = -1, n, l, r0, disc = 0;
+		int v = -1, n, l, r0, disc = 0, unit = 0;
 		const char *imgfmt = NULL, *sinkby = NULL;
 		if (!strcmp(I->op, "OpStore") && I->nop >= 2)
 			v = idx(I->opnd[1]);
@@ -9347,6 +9372,24 @@ float_pass(const char *text, int *changed)
 			imgfmt = NULL;
 			v = disc_root(I, &disc);
 		}
+		/*
+		 * `sink int`: what a floor or a conversion to an integer reads
+		 * may move by one unit (|v' - v| <= 1 moves floor and
+		 * truncation by at most one); a floor is read through, to its
+		 * argument, whether it is converted or stored
+		 */
+		if (fsink.integer && v >= 0 && (disc == 1 || (!disc && !imgfmt &&
+		    floor_arg(v) >= 0))) {
+			int a = floor_arg(v);
+			if (a >= 0 && SP.def[a] >= 0 && is_float_t(V.id[a].type) &&
+			    float_under(a, 0))
+				v = a;
+			if (disc == 1 || a == v)
+				unit = disc == 1 && !strcmp(I->op, "OpConvertFToU") ?
+				    2 : 1;
+			if (!disc && a == v)
+				disc = 3;	/* a stored floor, read through */
+		}
 		/* a stored value is usually put together from its lanes: the
 		 * arithmetic is under the construct */
 		if (v < 0 || SP.def[v] < 0 || !is_float_t(V.id[v].type) ||
@@ -9362,7 +9405,7 @@ float_pass(const char *text, int *changed)
 			continue;
 		if (disc && ndiscv < 64)
 			discv[ndiscv++] = v;
-		if (disc)
+		if (disc && !unit)
 			sb_printf(&disc_txt, "%s %s (%s)", disc_txt.n ? "," : "",
 			    V.id[v].name, disc == 1 ? "converted to an integer" :
 			    "compared with a constant");
@@ -9378,7 +9421,14 @@ float_pass(const char *text, int *changed)
 			root = fx_build(g, v, l, 0);
 			if (root < 0)
 				continue;
-			if (disc)
+			if (unit) {
+				/* below one for an unsigned conversion: a value
+				 * that was at least 0 stays above -1, which still
+				 * truncates to 0 */
+				g->sink = unit == 2 ? 1 - 0x1p-24 : 1;
+				g->sinkrel = g->sinkmin = 0;
+				snprintf(g->sinkname, sizeof g->sinkname, "int");
+			} else if (disc)
 				g->sink = g->sinkrel = g->sinkmin = 0;
 			else
 				root_sink(g, imgfmt, sinkby);
@@ -10049,7 +10099,17 @@ float_pass(const char *text, int *changed)
 			for (z = 0; z < j; z++)
 				if (grp[z] == z && !strcmp(G[z].sinkname, g->sinkname))
 					first = 0;
-			if (first && g->sink > 0 && !strncmp(g->sinkname, "Pack", 4))
+			if (first && !strcmp(g->sinkname, "int"))
+				sb_printf(&rep, "  sink int: one unit.  A floor or a "
+				    "conversion to an integer of a value within one of the "
+				    "reference's is the reference's integer or a "
+				    "neighbour (|v' - v| <= 1 moves floor and truncation by "
+				    "at most one; below one for an unsigned conversion, "
+				    "which a value under -1 would leave undefined): the "
+				    "rewrites may move what each reads by that much in "
+				    "all, wherever the reference's is a number\n");
+			else if (first && g->sink > 0 && !strncmp(g->sinkname, "Pack",
+			    4))
 				sb_printf(&rep, "  sink %s: one step is %.6g.  The "
 				    "function clamps, scales and rounds to nearest (GLSL's "
 				    "round; the direction of an exact tie is the "

@@ -2972,13 +2972,17 @@ statement(struct P *p)
 					spirv_advice_opt(1);
 				else if (accept_kw(p, "sink")) {
 					char fm[48];
-					if (!cmdp_word(p, fm, sizeof fm) ||
-					    !spirv_sink_opt(fm))
+					int got = cmdp_word(p, fm, sizeof fm);
+					if (got && (!strcmp(fm, "int") || !strcmp(fm,
+					    "integer")))
+						spirv_sink_int();
+					else if (!got || !spirv_sink_opt(fm))
 						fail("simplify: sink FORMAT is unormN or snormN (2 "
 						    "to 23 bits), f16, or a format's name with fewer "
 						    "bits than f32 (rgba8, rgba8_snorm, rgb10a2, "
-						    "rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb): '%s' is "
-						    "none of them", fm);
+						    "rgba16f, r8g8b8a8_unorm, b8g8r8a8_srgb), or int "
+						    "(a floor or an int() may move its integer by "
+						    "one): '%s' is none of them", got ? fm : "");
 				}
 				else
 					adv(p);

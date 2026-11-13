@@ -793,6 +793,9 @@ void spirv_assume_float(const char *name, double lo, double hi, int lo_open,
 void spirv_float_opts(int mode, double ulp, int approx, int percomp,
     int only, int search, uint64_t seed);
 int spirv_sink_opt(const char *fmt);	/* NULL: none; 0: not a known sink */
+/* `sink int`: a floor or a conversion to an integer may move the integer
+ * by one (cleared with the format, by spirv_sink_opt(NULL)) */
+void spirv_sink_int(void);
 int spirv_sink_known(const char *fmt);
 void spirv_advice_opt(int on);	/* report what could leave the shader */
 void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */

@@ -672,7 +672,8 @@ static const struct jcmd cmds[] = {
 	    "the varyings"),
 	    {"sink", P_TEXT, 0, "", "float rewrites: the format the stored "
 	    "and returned floats end in (unorm8, rgba8, r8g8b8a8_unorm, "
-	    "rgb10a2, f16): one step of it is the error budget", NULL},
+	    "rgb10a2, f16): one step of it is the error budget; or int: a "
+	    "floor or an int() conversion may move its integer by one", NULL},
 	    BO("functions", "", "GLSL: the function-level pass alone (true) or "
 	    "not at all (false); both levels run by default"),
 	    {"float_ranges", P_OBJ, 0, "", "{\"c\": [lo, hi]}: a float input's "
