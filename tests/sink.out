@@ -404,7 +404,7 @@ simplify: 80 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 2 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec4 %60: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 34 -> 19 (-44.1%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 38 -> 23 (-39.5%)
   sink Rgba8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number
     budget 0.00392, the rewrites accepted use at most 0.00383 of it
   rewrites, the largest savings first:

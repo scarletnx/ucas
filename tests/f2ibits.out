@@ -10,7 +10,7 @@ simplify: 118 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %43 (converted to an integer), %51 (converted to an integer), %62 (converted to an integer), %75 (converted to an integer)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 12 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 34 -> 34 (+0.0%)
   nothing applied: no cheaper float form could be proved
 conversions between integers and f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %44 = OpConvertFToS %int %43
@@ -39,7 +39,7 @@ simplify: 73 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %33 (converted to an integer)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 7 (+0.0%)
   nothing applied: no cheaper float form could be proved
 conversions between integers and f32 by the bits, under gt1030 (written last: the passes above read the conversions; a conversion is not in the integer cost):
     %34 = OpConvertFToS %int %33
@@ -49,8 +49,8 @@ conversions between integers and f32 by the bits, under gt1030 (written last: th
   spirv-val accepts the written module
   (nofile: simplified.spvasm, 2591 bytes, checksum 069337a3)
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
-  once a draw: 3 instructions that read only constants, uniform blocks and push constants cost 11.875 every run (5 of arithmetic, 1 load at 6.875)
-    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 5 every run
+  once a draw: 3 instructions that read only constants, uniform blocks and push constants cost 13.875 every run (7 of arithmetic, 1 load at 6.875)
+    computed once a draw and passed in as 1 value (push constants or a uniform block: 1 load, 6.875), that saves 7 every run
     the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader
-    %34 = OpConvertFToS %int %33   (11.875)
+    %34 = OpConvertFToS %int %33   (13.875)
         (line 7: o.o[i] = int(floor(p.t * 16.0)) + int(i);)

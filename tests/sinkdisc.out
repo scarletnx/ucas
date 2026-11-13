@@ -8,7 +8,7 @@ simplify: 101 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling); 2 done already by spirv-opt -O, checked the same way
   values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %50 (converted to an integer), %42 (compared with a constant), %72 (converted to an integer)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 14.375 -> 12.375 (-13.9%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 22.375 -> 20.375 (-8.9%)
   rewrites, the largest savings first:
     %42 = OpExtInst %float %2 FMix %33 %38 %41
       -> %ucas_f1 = OpFUnordGreaterThanEqual %bool %29 %float_0_0404499993

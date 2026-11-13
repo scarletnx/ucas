@@ -329,7 +329,7 @@ simplify: 68 SPIR-V instructions, 1 rewrite proved by SAT (bit-precise: equal fo
   proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 10 -> 8 (-20.0%)
   rewrites, the largest savings first:
     %67 = OpExtInst %float %2 FMix %61 %64 %66
       -> %ucas_f1 = OpFUnordGreaterThanEqual %ucas_bool %48 %float_0_5

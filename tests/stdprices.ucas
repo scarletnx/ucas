@@ -1,0 +1,32 @@
+# GLSL.std.450's float calls and the conversions, each priced as model.c
+# prices what it computes (#396), under gt1030: floor, ceil, trunc, round
+# and roundEven 3 (conv), fract and modf 4 (and a subtract), clamp 2,
+# radians and degrees 1, smoothstep 10, ldexp 13 and frexp 17.375 (no
+# instruction here: lowered as a driver lowers them), length and distance
+# by their operand's width, normalize, cross, reflect, refract and
+# faceforward their whole work, and each conversion 3: 168.5 in all, where
+# a min or a max per call and nothing for a conversion made 36.
+simplify nofile nofunctions under gt1030
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer A { vec4 a[]; } a;
+layout(std430, binding = 1) readonly buffer K { ivec4 k[]; } kb;
+layout(std430, binding = 2) buffer O { vec4 o[]; } o;
+layout(std430, binding = 3) buffer U { uvec4 u[]; } u;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    vec4 x = a.a[i], y = a.a[i + 64u], z = a.a[i + 128u];
+    int e;
+    float w;
+    o.o[i] = vec4(floor(x.x), ceil(x.y), trunc(x.z), round(x.w));
+    o.o[i + 64u] = vec4(roundEven(y.x), fract(y.y), clamp(y.z, z.x, z.y), radians(y.w));
+    o.o[i + 128u] = vec4(degrees(z.z), ldexp(z.w, kb.k[i].x), frexp(x.x + y.x, e), modf(x.y + y.y, w));
+    o.o[i + 192u] = vec4(normalize(x.xyz), length(y.xy));
+    o.o[i + 256u] = vec4(cross(x.xyz, y.xyz), distance(x.xyz, z.xyz));
+    o.o[i + 320u] = vec4(reflect(x.xyz, y.xyz), smoothstep(z.x, z.y, x.w));
+    o.o[i + 384u] = vec4(refract(x.xyz, y.xyz, z.w), float(e) + w);
+    o.o[i + 448u] = faceforward(x, y, z) + float(i);
+    u.u[i] = uvec4(uint(x.x), uint(int(x.y)), 0u, 0u);
+}
+```

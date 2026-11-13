@@ -8,7 +8,7 @@ simplify: 90 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 function level: not run (the GLSL parser left main out: main (line 10: no overload of atomicAdd takes (float, float)))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 1 -> 1 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 4 -> 4 (+0.0%)
   nothing applied: no cheaper float form could be proved
 memory under gt1030:
   %48 = OpAtomicFAddEXT %float %41 %uint_1 %uint_0 %45
@@ -54,7 +54,7 @@ simplify: 87 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 function level: not run (the GLSL parser left main out: main (line 10: no overload of atomicAdd takes (float, float)))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 8 -> 8 (+0.0%)
   nothing applied: no cheaper float form could be proved
 memory under gt1030:
   %44 = OpAtomicFAddEXT %float %36 %uint_1 %uint_0 %42
@@ -244,7 +244,7 @@ simplify: 99 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 function level: not run (the GLSL parser left main out: main (line 8: no overload of atomicAdd takes (float, float)))
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 6 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 9 (+0.0%)
   nothing applied: no cheaper float form could be proved
 memory under gt1030:
   %34 = OpAtomicFAddEXT %float %26 %uint_1 %uint_0 %32

@@ -9,7 +9,7 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   values that decide (a compare with a constant, a conversion to an integer) take no budget beyond the original's precision, nor does what is under them: %47 (converted to an integer)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 7 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 12 (+0.0%)
   nothing applied: no cheaper float form could be proved
   note: the ```glsl block was compiled to SPIR-V with glslangValidator
   Lvl: called from a compute shader's main(), its arguments read from a buffer
@@ -22,7 +22,7 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 10 (-16.7%)
   sink int: one unit.  A floor or a conversion to an integer of a value within one of the reference's is the reference's integer or a neighbour (|v' - v| <= 1 moves floor and truncation by at most one; below one for an unsigned conversion, which a value under -1 would leave undefined): the rewrites may move what each reads by that much in all, wherever the reference's is a number
     budget 1, the rewrites accepted use at most 0.143 of it
   rewrites, the largest savings first:
@@ -57,7 +57,7 @@ simplify: 57 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 6 -> 4 (-33.3%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 7 (-22.2%)
   sink int: one unit.  A floor or a conversion to an integer of a value within one of the reference's is the reference's integer or a neighbour (|v' - v| <= 1 moves floor and truncation by at most one; below one for an unsigned conversion, which a value under -1 would leave undefined): the rewrites may move what each reads by that much in all, wherever the reference's is a number
     budget 1, the rewrites accepted use at most 0.143 of it
   rewrites, the largest savings first:
@@ -92,7 +92,7 @@ simplify: 56 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 9 -> 7 (-22.2%)
   sink int: one unit.  A floor or a conversion to an integer of a value within one of the reference's is the reference's integer or a neighbour (|v' - v| <= 1 moves floor and truncation by at most one; below one for an unsigned conversion, which a value under -1 would leave undefined): the rewrites may move what each reads by that much in all, wherever the reference's is a number
     budget 1, the rewrites accepted use at most 0.143 of it
   rewrites, the largest savings first:
@@ -149,7 +149,7 @@ simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 10 (-16.7%)
   sink int: one unit.  A floor or a conversion to an integer of a value within one of the reference's is the reference's integer or a neighbour (|v' - v| <= 1 moves floor and truncation by at most one; below one for an unsigned conversion, which a value under -1 would leave undefined): the rewrites may move what each reads by that much in all, wherever the reference's is a number
     budget 1, the rewrites accepted use at most 0.143 of it
   rewrites, the largest savings first:
@@ -184,7 +184,7 @@ simplify: 64 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 1 rewrite of float instructions applied, each with a derivation (no sampling)
   assuming c in [-0, 1] (each component; no NaN)
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 7 -> 5 (-28.6%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 10 -> 8 (-20.0%)
   sink int: one unit.  A floor or a conversion to an integer of a value within one of the reference's is the reference's integer or a neighbour (|v' - v| <= 1 moves floor and truncation by at most one; below one for an unsigned conversion, which a value under -1 would leave undefined): the rewrites may move what each reads by that much in all, wherever the reference's is a number
     budget 1, the rewrites accepted use at most 0.143 of it
   sink unorm8: one step is 0.00392157.  The conversion clamps, scales and rounds; rounding to nearest (what Vulkan asks of it; it allows either neighbour), a value within one step of the reference's is stored as the same integer or the next.  The rewrites may move a stored value by that much in all, wherever the reference's is a number

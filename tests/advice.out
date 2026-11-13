@@ -8,13 +8,13 @@ simplify: 135 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal 
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec4 %100: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 38 -> 38 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 53 -> 53 (+0.0%)
   nothing applied: no cheaper float form could be proved
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
-  once a draw: 5 instructions that read only constants, uniform blocks and push constants cost 45.5 every run (18 of arithmetic, 4 loads at 6.875)
-    computed once a draw and passed in as 2 values (push constants or a uniform block: 2 loads, 13.75), that saves 31.75 every run
+  once a draw: 5 instructions that read only constants, uniform blocks and push constants cost 52.5 every run (25 of arithmetic, 4 loads at 6.875)
+    computed once a draw and passed in as 2 values (push constants or a uniform block: 2 loads, 13.75), that saves 38.75 every run
     the same instructions on the same values: add, subtract, multiply, conversions and selections are exact or correctly rounded on a host as in the shader; 3 of them (divisions, square roots, transcendentals) are only within Vulkan's precision in the shader and may differ from a host's in the last places
-    %27 = OpVectorTimesScalar %v3float %21 %26   (19.75)
+    %27 = OpVectorTimesScalar %v3float %21 %26   (26.75)
         (line 8: vec3 l = normalize(pc.light.xyz) * pc.light.w;)
     %40 = OpFDiv %float %34 %39   (25.75)
         (line 9: float k = pow(2.0, pc.exposure) / (pc.gamma + 1.0);)
@@ -118,7 +118,7 @@ simplify: 83 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal f
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec4 %59: 2 different scalar functions over its lanes (the constants differ per component): analysed per component; a rewrite applies when every lane's analysis allows it
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 12 -> 12 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 15 -> 15 (+0.0%)
   nothing applied: no cheaper float form could be proved
 recognised in the inputs (nothing is proposed for them): flat %mat, %tint (the provoking vertex's value, one a primitive)
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
@@ -266,7 +266,7 @@ function level: not run (the GLSL parser left main out: layout (line 3: 'pervert
 float simplify: 0 rewrites of float instructions applied, each with a derivation (no sampling)
   the vec4 %52: its lanes x, y, z, w compute one scalar function (splat constants): analysed once, applied to every lane
   reference: IEEE binary32, round to nearest even; pow, exp2, log2 correctly rounded (long double, then f32); NaN payloads ignored, -0 and +0 distinct; GLSL's undefined results (pow of x < 0, log2 of x <= 0 ...) may become anything
-  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 24 -> 24 (+0.0%)
+  float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 27 -> 27 (+0.0%)
   nothing applied: no cheaper float form could be proved
 recognised in the inputs (nothing is proposed for them): flat %mat (the provoking vertex's value, one a primitive); per-vertex %vc (the three vertices' values); the barycentrics %gl_BaryCoordEXT (perspective-correct); the interpolation of %vc by them at line 7 (what a smooth varying is)
 advice (changes outside the module; nothing here is rewritten), priced under gt1030:
