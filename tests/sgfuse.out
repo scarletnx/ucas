@@ -1,4 +1,6 @@
 > model sgf : gt1030 {
+    nofuse shfl_xor
+    nofuse shfl_rot
     fuse ballot_eq(a: int, b: int) = sg_ballot(a == b) : 2
     fuse sumsq(a: int) = sg_add(a * a) : 30
     fuse bfly(v: any, lane: lane, k: const) = sg_shuffle(v, lane xor k) : sg_shuffle
@@ -36,34 +38,34 @@ cost of sq under sgf: 31 (3 operations, shared subterms counted once)
 cost of xr under sgf: 5 (3 operations, shared subterms counted once)
   iadd             1 x 1     = 1
   fused by the model (one instruction for several operations):
-    shfl_xor         1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
+    bfly             1 x 4     = 4  (sg_shuffle(v, lane xor k); saves 1)
 > rt(x: u32 uniform, lane: u32 in 0..31) = sg_rotate(x + lane, 3)
 > cost rt
 cost of rt under sgf: 5 (4 operations, shared subterms counted once)
   iadd             1 x 1     = 1
   fused by the model (one instruction for several operations):
-    shfl_rot         1 x 4     = 4  (sg_shuffle(v, (lane + d) % w); saves 2)
+    rot              1 x 4     = 4  (sg_shuffle(v, (lane + d) % w); saves 2)
 > bs(x: u32 uniform, lane: u32 in 0..31) = sg_add(x >> lane)
 > cost bs
 cost of bs under sgf: 5 (2 operations, shared subterms counted once)
   fused by the model (one instruction for several operations):
     bitsum           1 x 5     = 5  (sg_add(v >> lane); saves 29.625)
 > model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
-sgfuse.ucas:40:41: error: a fusion's lane input is named lane (lane: lane), as a function's lane parameter is: l: lane
+sgfuse.ucas:44:41: error: a fusion's lane input is named lane (lane: lane), as a function's lane parameter is: l: lane
     model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
                                             ^
 > model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
-sgfuse.ucas:41:57: error: lane in the pattern of fusion q is none of its inputs (sg_add(v + int(lane))): a pattern is an expression over its inputs alone; the lane's index is an input lane: lane
+sgfuse.ucas:45:57: error: lane in the pattern of fusion q is none of its inputs (sg_add(v + int(lane))): a pattern is an expression over its inputs alone; the lane's index is an input lane: lane
     model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
                                                             ^
 > model bad3 : gt1030 { fuse q(a: int) = sg_add(a + zz) : 1 }
-sgfuse.ucas:45:51: error: 'zz' is not defined
+sgfuse.ucas:49:51: error: 'zz' is not defined
     model bad3 : gt1030 { fuse q(a: int) = sg_add(a + zz) : 1 }
                                                       ^
 > use skl
 cost model: skl
 > nowarp(x: u32 uniform) = sg_add(x)
-sgfuse.ucas:47:35: error: sg_add needs the subgroup's size: give the function a parameter lane: u32 in 0..N-1, or use a model that states `warp: N` (2 to 64)
+sgfuse.ucas:51:35: error: sg_add needs the subgroup's size: give the function a parameter lane: u32 in 0..N-1, or use a model that states `warp: N` (2 to 64)
     nowarp(x: u32 uniform) = sg_add(x)
                                       ^
 > use gt1030
