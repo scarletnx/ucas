@@ -31,13 +31,14 @@ approx cos(x) on [-1.5, 1.5] as f32, fma
     4    0.000465     0.000461     0.000456     
   candidates ranked by max abs and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 130943 f32 in [-1.5, 1.5]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   4     horner+fma  0.000456 abs             0.00645       0.000456      3    at x=1.29652095  *
       P(x^2): fma(fma(0.0372004807, s, -0.496301383), s, 0.999543905) where s = x*x
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 24.4, probable no better (under 16 operations), expected 9.65; `error ap1 ~ F` says what each means
   2   identity  7     horner+fma  0.0005 abs               0.000501      0.0005        7    at x=0.0298695359  *
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(fma(-0.000144019024, s, 0.0079453513), s, -0.165668935), s, 0.999500155) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
-  3   identity  3     horner+fma  0.000629 abs             0.00889       0.000629      7    at x=-1.5  *
+  3   identity  3     horner+fma  0.000629 abs             0.00889       0.000629      7    at x=1.5  *
       1 - 2 sin(x/2)^2: 1.0 - 2.0*p*p where h = 0.5*x, s = h*h, p = h*fma(-0.161985636, s, 0.999661148)
   4   Bhaskara  2/2   rational    0.00163 abs              0.0143        0.00163       8    at x=1.36944377  *
       (pi^2 - 4x^2)/(pi^2 + x^2): (9.86960411 - 4.0*x*x)/(9.86960411 + x*x)
@@ -89,6 +90,7 @@ approx atan(x) on [-4, 4] as f32, fma
     17   0.00221      -            0.00138      
   candidates ranked by max abs and cost under nofpu (sampled floats); defined as ap1..:
   measured on 130934 f32 in [-4, 4]; absolute error: the target reaches 0 here, where relative error and ulp are unbounded
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   cordic    16    loop        3.06e-05 abs             inf           3.06e-05      586  at x=-3.25413895  *
       16 steps, fixed point 2^-28: { cx: i32 = 268435456; cy: i32 = i32(x*268435456.0); cz: i32 = 0; for i in 0..15 { s: i32 = (0 - cy) >> 31; tx: i32 = cy >> i; cy = cy + ((cx >> i) xor s) - s; cx = cx - (tx xor s) + s; cz = cz - ([210828714, 124459457, ... 13 more ..., 8192][i] xor s) + s }; f32(cz)*3.7252902984619141e-09 }

@@ -1019,6 +1019,8 @@ fma16(double a, double b, double c)
  * subnormal result.
  */
 int float_ftz;
+int float_div_nudge;
+int float_div_gpu;
 
 double
 fflush0(int w, double v)
@@ -1089,6 +1091,17 @@ scalar_float(int op, int w, double a, double b, uint8_t *fl)
 		return 0;
 	}
 	r = fround(w, r);
+	if (op == O_DIV && float_div_nudge && w == 32 && isfinite(r) &&
+	    fabs(r) >= 0x1p-125) {
+		/* a GPU's quotient: Vulkan's 2.5 ulp is the correctly rounded
+		 * one and up to two floats on either side (a normal one: below,
+		 * a GPU may flush it) */
+		float q = (float)r;
+		int k;
+		for (k = 0; k < abs(float_div_nudge); k++)
+			q = nextafterf(q, float_div_nudge > 0 ? INFINITY : -INFINITY);
+		r = q;
+	}
 	if (float_ftz)
 		r = fflush0(w, r);
 	if (isnan(r) && !isnan(a) && !isnan(b))

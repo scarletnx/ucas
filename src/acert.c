@@ -1960,7 +1960,10 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 				 * when every s rounds to the same float */
 				struct iv sr = iv2(add_r(o->v.lo, -em, 0), add_r(o->v.hi,
 				    em, 1));
-				if (rn_fmt(w, sr.lo) == rn_fmt(w, sr.hi)) {
+				/* a GPU's f32 quotient: Vulkan's 2.5 ulp, at most 5u,
+				 * and not one value even where the rounding is */
+				int gd = op == O_DIV && float_div_gpu && w == 32;
+				if (!gd && rn_fmt(w, sr.lo) == rn_fmt(w, sr.hi)) {
 					P->fz[k] = 1;
 					P->fv[k] = rn_fmt(w, sr.lo);
 					P->fi[k] = 0;
@@ -1969,8 +1972,8 @@ prog_round(struct prog *P, struct rctx *c, struct iv X)
 					o->q = quant_of(w, P->fv[k]);
 					continue;
 				}
-				o->rho = rel_comb(o->rho0, u);
-				o->eta = mul_r(o->eta0, 1 + u, 1);
+				o->rho = rel_comb(o->rho0, gd ? 5 * u : u);
+				o->eta = mul_r(o->eta0, 1 + (gd ? 5 * u : u), 1);
 				if (op != O_ADD && op != O_SUB && add_r(vn, -em, 0) <
 				    nmin)
 					o->eta = add_r(o->eta, eta, 1);

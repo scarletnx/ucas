@@ -733,6 +733,11 @@ int64_t scalar_int(int op, const struct ity *t, const struct ity *ta,
     int64_t a, int64_t b, int64_t c, uint8_t *fl);
 double scalar_real(int op, double a, double b, uint8_t *fl);
 double scalar_float(int op, int w, double a, double b, uint8_t *fl);
+/* an f32 x/y moved by this many floats after its rounding (approx: the
+ * ends of Vulkan's 2.5 ulp for OpFDiv) */
+extern int float_div_nudge;
+/* acert: an f32 division's rounding is Vulkan's 2.5 ulp, not 0.5 */
+extern int float_div_gpu;
 extern int float_ftz;               /* float ops flush subnormals (equiv ftz) */
 double fflush0(int w, double v);    /* a subnormal of w bits as its zero */
 double ifloat(ty_t ti, int64_t v, int w);   /* an integer of type ti as a float of w bits */

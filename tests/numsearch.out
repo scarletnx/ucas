@@ -13,13 +13,14 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  25.1 ulp (25.6)          1.91e-06      1.34e-06      4    at x=0.252619326
       x*P(x^2): fma(x*s, fma(0.00816328265, s, -0.166633904), x) where s = x*x
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
-  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+  2   rational  5/2   horner+fma  5.31 ulp                 4.16e-07      2.39e-07      8    at x=0.523598731
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-  3 more: 'approx more [n]'
+  6 more: 'approx more [n]'
 > approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
@@ -35,16 +36,17 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.28e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816330407, s, -0.166634634), x) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
       certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2035 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
-  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+  2   rational  5/2   horner+fma  5.31 ulp                 4.16e-07      2.39e-07      8    at x=0.523598731
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1985 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
-  3 more: 'approx more [n]'
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1985 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 5.309 against the walk's 5.309 ulp: not kept
+  6 more: 'approx more [n]'
 > approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search anneal seed 5 temp 0.5..0.01 budget 300
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
@@ -60,16 +62,17 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  25 ulp (25.6)            1.96e-06      1.3e-06       4    at x=0.252571374
       x*P(x^2): fma(x*s, fma(0.00816328637, s, -0.166633993), x) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 24.94 -> 24.31 ulp there; on the table's measure 25.07 -> 24.95 ulp: kept, certified below
       certified: at most 25.57 ulp for every f32 x in [0, 0.785398126], 2032 pieces: the coefficients' error at most 24.54 (24.37 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
-  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+  2   rational  5/2   horner+fma  5.31 ulp                 4.16e-07      2.39e-07      8    at x=0.523598731
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
-      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 2.491 against the walk's 2.382 ulp: not kept
-  3 more: 'approx more [n]'
+      search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 5, 300 evaluations on 3000 sample points: 1.706 -> 1.623 ulp there; on the table's measure 5.309 against the walk's 5.309 ulp: not kept
+  6 more: 'approx more [n]'
 > approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes budget 1000
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
@@ -85,16 +88,17 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816331618, s, -0.166634634), x) where s = x*x
       search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 991 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
       certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2034 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
-  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+  2   rational  5/2   horner+fma  5.31 ulp                 4.16e-07      2.39e-07      8    at x=0.523598731
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
       search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 997 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
-  3 more: 'approx more [n]'
+  6 more: 'approx more [n]'
 > approx sin(x) in 0..0.7853981 degree 5 as f32 list 2 search cmaes pop 24 sigma 4 budget 800
   note: sin(x) has special points at the interval's ends (at x = 0 it is 0): near a zero, relative error is unbounded unless the zero is exact; keep them exact (costs some error elsewhere)? not by default: say `keep endpoints` to keep them
 approx sin(x) on [0, 0.785398126] as f32, fma
@@ -110,16 +114,17 @@ approx sin(x) on [0, 0.785398126] as f32, fma
   piecewise (2 pieces split at 0.392699063, max rel error): 1: 0.0129 2: 0.0032 3: 1.26e-05 4: 1.54e-06 5: 4.31e-09
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 131065 f32 in [0, 0.785398126]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   5     horner+fma  24.2 ulp (25.6)          2.27e-06      1.43e-06      4    at x=0.252667248
       x*P(x^2): fma(x*s, fma(0.00816330872, s, -0.166634634), x) where s = x*x
       search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 24.94 -> 23.94 ulp there; on the table's measure 25.07 -> 24.16 ulp: kept, certified below
       certified: at most 24.88 ulp for every f32 x in [0, 0.785398126], 2034 pieces: the coefficients' error at most 23.84 (23.68 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 4 operations, relative, in u = 2^-24: worst case 1.33, probable no better (under 16 operations), expected 0.588; `error ap1 ~ F` says what each means
-  2   rational  5/2   horner+fma  2.38 ulp                 1.83e-07      1.2e-07       8    at x=0.509133577
+  2   rational  5/2   horner+fma  5.31 ulp                 4.16e-07      2.39e-07      8    at x=0.523598731
       x*P(x^2)/Q(x^2): x*fma(fma(0.00431663869, s, -0.142560899), s, 1.0)/fma(0.0241058897, s, 1.0) where s = x*x
       search: CMA-ES over the coefficients' ulp offsets from the walk's, seed 1, 793 evaluations on 3000 sample points: 1.706 -> 1.706 ulp there (nothing better found)
-  3 more: 'approx more [n]'
+  6 more: 'approx more [n]'
 > approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
 numsearch.ucas:17:63: error: sigma: a first step from above 0 to 64 ulps, not 100
     approx sin(x) in 0..0.5 degree 3 as f32 search cmaes sigma 100
@@ -255,19 +260,26 @@ approx it on [0, 0.5] as f32, fma
   piecewise (2 pieces split at 0.25, max rel error): 1: 0.00522 2: 0.0013 3: 2.07e-06
   candidates ranked by max ulp and cost under gt1030 (sampled floats); defined as ap1..:
   measured on 130721 f32 in [0, 0.5]; ulp against the exact value (naive rounding in parentheses)
+  an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
   1   minimax   3     horner+fma  1.04e+03 ulp             6.98e-05      2.98e-05      3    at x=0.00195303548
       x*P(x^2): x*fma(-0.164585575, s, 0.999937952) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1877 evaluations on 3000 sample points: 1105 -> 1041 ulp there; on the table's measure 1105 -> 1041 ulp: kept, certified below
       certified: at most 1050 ulp for every f32 x in [0, 0.5], 1245 pieces: the coefficients' error at most 1049 (1041 reached at a piece's middle), rounding the rest (each operation's result (1 + d), |d| <= u, carried through); Taylor of order 3 on intervals, libm's long double functions taken within 2^-58
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 2.04, probable no better (under 16 operations), expected 0.817; `error ap1 ~ F` says what each means
-  2   rational  3/2   horner+fma  3.76 ulp                 2.88e-07      1.1e-07       7    at x=0.0297703519
+  2   rational  3/2   horner+fma  5.76 ulp                 5.19e-07      1.7e-07       7    at x=0.0297703519
       x*P(x^2)/Q(x^2): x*fma(-0.116177753, s, 1.00000012)/fma(0.0504966788, s, 1.0) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 2000 evaluations on 3000 sample points: 3.285 -> 3.285 ulp there (nothing better found)
-  3   rational  3/4   horner+fma  2.4 ulp                  1.83e-07      6.33e-08      8    at x=0.251781493
+  3   rational  3/4   horner+fma  4.4 ulp                  4.13e-07      1.23e-07      8    at x=0.251781493
       x*P(x^2)/Q(x^2): x*fma(-0.105283923, s, 1.0)/fma(fma(0.00189761177, s, 0.0613827147), s, 1.0) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1989 evaluations on 3000 sample points: 2.08 -> 2.08 ulp there (nothing better found)
-  4   rational  3/6   horner+fma  2.4 ulp (2.4)            1.92e-07      7.11e-08      10   at x=0.252307922
+  4   rational  3/6   horner+fma  4.4 ulp (4.4)            4.22e-07      1.31e-07      10   at x=0.252307922
       x*P(x^2)/Q(x^2): x*fma(fma(0.0, s, -0.102367878), s, 1.0)/fma(fma(fma(5.98008955e-05, s, 0.00238312408), s, 0.0642987639), s, 1.0) where s = x*x
       search: simulated annealing over the coefficients' ulp offsets from the walk's, seed 1, 1989 evaluations on 3000 sample points: 1.76 -> 1.76 ulp there (nothing better found)
+  5   rational  3/2   horner+rcp  3.78 ulp                 2.51e-07      1.04e-07      11   at x=0.246700242
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(-0.116177753, s, 1.00000012)), rc, q0) where s = x*x, den = fma(0.0504966788, s, 1.0), rc = 1.0/den, q0 = fma(-0.116177753, s, 1.00000012)*rc
+  6   rational  3/4   horner+rcp  2.27 ulp                 1.58e-07      6.35e-08      12   at x=0.243778139
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(-0.105283923, s, 1.0)), rc, q0) where s = x*x, den = fma(fma(0.00189761177, s, 0.0613827147), s, 1.0), rc = 1.0/den, q0 = fma(-0.105283923, s, 1.0)*rc
+  7   rational  3/6   horner+rcp  2.21 ulp                 1.59e-07      6.59e-08      14   at x=0.484161139
+      x*P(x^2)/Q(x^2): x*fma(fma(-q0, den, fma(fma(0.0, s, -0.102367878), s, 1.0)), rc, q0) where s = x*x, den = fma(fma(fma(5.98008955e-05, s, 0.00238312408), s, 0.0642987639), s, 1.0), rc = 1.0/den, q0 = fma(fma(0.0, s, -0.102367878), s, 1.0)*rc
   1 more: 'approx more [n]' (dominated or worse)

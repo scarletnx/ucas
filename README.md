@@ -1052,7 +1052,17 @@ What it does, in order:
   latency, which the model does not price), so it appears further down.
 - **Rational** fits P/Q compete at equal footing; they win only when
   division is cheap (`model m : gt1030 { fdiv: 2 }` makes tan on
-  [-1.4, 1.4] rational).
+  [-1.4, 1.4] rational).  An f32 x/y is measured as a GPU makes it:
+  Vulkan gives OpFDiv 2.5 ulp, so each candidate with one is run three
+  times, its quotients correctly rounded and moved two floats up and
+  down (a normal quotient; a GPU may flush a subnormal one), and its
+  errors are the worst of the three (a line over the table says so; a
+  certificate takes 5u for such a division).  Each f32 rational with
+  fma also comes as `horner+rcp`: rc = 1/den, q0 = num*rc, then
+  fma(fma(-q0, den, num), rc, q0), the residual exact in the fma, which
+  brings a quotient off by 2.5 ulp back to about half of one: tan on
+  [-1.2, 1.2], 5/4, is 4.56 ulp at the GPU's division and 2.57 with the
+  correction, 9 against 13 under gt1030 (tests/gpudiv.ucas).
 - **Piecewise:** two pieces with coefficients chosen by a select, on
   |x| with `copysign(.., x)` for odd functions.
 - **Range reductions and identities** apply after the target is checked

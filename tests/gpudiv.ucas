@@ -1,0 +1,7 @@
+# an f32 x/y measured as a GPU makes it (#29): Vulkan gives OpFDiv 2.5
+# ulp, so the rationals' errors are the worst of the correctly rounded
+# quotient and two floats to either side; the reciprocal with one fma
+# correction (horner+rcp) brings the quotient back to about half an ulp
+approx tan(x) in -1.2..1.2 ulp 3 nosplit noreduce list 3
+# a looser target: the plain division meets it, cheaper
+approx tan(x) in -1.2..1.2 ulp 6 nosplit noreduce list 2
