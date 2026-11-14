@@ -2024,6 +2024,41 @@ parse_def(struct P *p)
 	p->nb = 0;
 }
 
+/* rule NAME(a: T, ...) = L => R: kept by find.c, proved there */
+static void
+parse_rule(struct P *p)
+{
+	struct func tmp;
+	int typed[MAXP] = {0}, j;
+	nid l, r;
+
+	memset(&tmp, 0, sizeof tmp);
+	tmp.name = tsym(p, p->i);
+	adv(p);
+	if (pk(p) != T_LP)
+		fail("rule %s: name its variables with their type: rule %s(a: u32) "
+		    "= L => R", sym_str(tmp.name), sym_str(tmp.name));
+	parse_params(p, &tmp, typed);
+	for (j = 0; j < tmp.np; j++)
+		if (!typed[j])
+			fail("rule %s: %s has no type (rule %s(a: u32) = L => R)",
+			    sym_str(tmp.name), sym_str(tmp.p[j].name),
+			    sym_str(tmp.name));
+	expect(p, T_ASSIGN);
+	p->fn = &tmp;
+	p->sgmask = 0;
+	p->sgops = 0;
+	p->nb = 0;
+	l = parse_expr(p, 0);
+	expect(p, T_ARROW);
+	r = parse_expr(p, 0);
+	expect_eos(p);
+	p->fn = NULL;
+	notes_flush();
+	tmp.body = l;
+	cmd_rule(&tmp, l, r);
+}
+
 /* a function argument to a command: a name, or an anonymous expression */
 static struct func *
 cmd_func(struct P *p)
@@ -3395,6 +3430,13 @@ statement(struct P *p)
 		if (is_kw(p, "approx") && !func_find(tsym(p, p->i))) {
 			adv(p);
 			cmd_approx(p);
+			return;
+		}
+		if (is_kw(p, "rule") && !func_find(tsym(p, p->i)) &&
+		    p->i + 2 < p->t->n && p->t->kind[p->i + 1] == T_ID &&
+		    p->t->kind[p->i + 2] == T_LP) {
+			adv(p);
+			parse_rule(p);
 			return;
 		}
 		if (is_kw(p, "rules") && !func_find(tsym(p, p->i))) {

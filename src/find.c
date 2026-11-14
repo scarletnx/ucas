@@ -3325,21 +3325,27 @@ snip_lookup(const char *name)
 #define RULE_MAX 256
 #define RULE_FRONT 256
 
+struct rrule {
+	struct rwrule w;
+	int cl, cr;			/* their prices when it was kept */
+	int inferred;			/* by rules infer, else declared */
+	uint32_t name;
+};
+
 static struct {
-	int n, nin, w;
-	uint32_t model;
-	nid l[RULE_MAX], r[RULE_MAX];
-	int cl[RULE_MAX], cr[RULE_MAX];
-	nid pv[3];			/* the pattern variables a, b, c */
+	int n;
+	struct rrule r[RULE_MAX];
 } RS;
+
+static const struct rwrule *RQ;	/* the rule rmatch, rvars and rinst read */
 
 static int
 rmatch(nid p, nid t, nid *bind)
 {
 	int k;
 
-	for (k = 0; k < RS.nin; k++)
-		if (p == RS.pv[k]) {
+	for (k = 0; k < RQ->nin; k++)
+		if (p == RQ->pv[k]) {
 			if (N.ty[t] != N.ty[p])
 				return 0;
 			if (bind[k])
@@ -3371,8 +3377,8 @@ rvars(nid p)
 {
 	int k;
 
-	for (k = 0; k < RS.nin; k++)
-		if (p == RS.pv[k])
+	for (k = 0; k < RQ->nin; k++)
+		if (p == RQ->pv[k])
 			return 1 << k;
 	if (N.op[p] == O_CONST || N.op[p] == O_VAR)
 		return 0;
@@ -3384,7 +3390,7 @@ rbound(const nid *bind)
 {
 	int k, m = 0;
 
-	for (k = 0; k < RS.nin; k++)
+	for (k = 0; k < RQ->nin; k++)
 		if (bind[k])
 			m |= 1 << k;
 	return m;
@@ -3395,8 +3401,8 @@ rinst(nid p, const nid *bind)
 {
 	int k;
 
-	for (k = 0; k < RS.nin; k++)
-		if (p == RS.pv[k])
+	for (k = 0; k < RQ->nin; k++)
+		if (p == RQ->pv[k])
 			return bind[k];
 	if (N.op[p] == O_CONST || N.op[p] == O_VAR)
 		return p;
@@ -3424,11 +3430,12 @@ rstep(nid t, nid *out, int n, int max)
 		for (i = 0; i < RS.n && n < max; i++)
 			for (d = 0; d < 2 && n < max; d++) {
 				nid bind[3] = {0, 0, 0}, to;
-				if (!rmatch(d ? RS.r[i] : RS.l[i], s, bind))
+				RQ = &RS.r[i].w;
+				if (!rmatch(d ? RQ->r : RQ->l, s, bind))
 					continue;
-				if (rvars(d ? RS.l[i] : RS.r[i]) & ~rbound(bind))
+				if (rvars(d ? RQ->l : RQ->r) & ~rbound(bind))
 					continue;	/* a variable only the other side has */
-				to = xreplace(t, s, rinst(d ? RS.l[i] : RS.r[i], bind));
+				to = xreplace(t, s, rinst(d ? RQ->l : RQ->r, bind));
 				for (k = 0; k < n && out[k] != to; k++)
 					;
 				if (k == n && to)
@@ -3465,7 +3472,8 @@ cmd_rules_infer(int nin, int w, int maxcost, double seconds)
 	struct func g;
 	struct sbuf wb = {0};
 	uint32_t i, nder = 0, nunp = 0, nsame = 0, done = 0, ncheap = 0;
-	int c, k, timed = 0;
+	int c, k, timed = 0, first;
+	nid pvs[3] = {0, 0, 0};
 
 	if (nin < 1 || nin > 3)
 		fail("rules: inputs %d: from 1 to 3", nin);
@@ -3484,12 +3492,16 @@ cmd_rules_infer(int nin, int w, int maxcost, double seconds)
 		if (F.full)
 			break;
 	}
-	memset(&RS, 0, sizeof RS);
-	RS.nin = nin;
-	RS.w = w;
-	RS.model = model_active()->name;
+	{
+		/* the rules an earlier infer kept go; the declared ones stay */
+		int j = 0;
+		for (k = 0; k < RS.n; k++)
+			if (!RS.r[k].inferred)
+				RS.r[j++] = RS.r[k];
+		first = RS.n = j;
+	}
 	for (k = 0; k < nin; k++)
-		RS.pv[k] = mk_var((uint32_t)k, sym_cstr(pn[k]), F.W);
+		pvs[k] = mk_var((uint32_t)k, sym_cstr(pn[k]), F.W);
 	memset(&g, 0, sizeof g);
 	g.np = nin;
 	g.anon = 1;
@@ -3530,11 +3542,22 @@ cmd_rules_infer(int nin, int w, int maxcost, double seconds)
 			ncheap++;	/* the cover prices them alike */
 			continue;
 		}
-		RS.l[RS.n] = l;
-		RS.r[RS.n] = r;
-		RS.cl[RS.n] = icost(l);
-		RS.cr[RS.n] = icost(r);
-		RS.n++;
+		{
+			struct rrule *q2 = &RS.r[RS.n];
+			char nm[16];
+			memset(q2, 0, sizeof *q2);
+			q2->w.l = l;
+			q2->w.r = r;
+			memcpy(q2->w.pv, pvs, sizeof pvs);
+			q2->w.nin = nin;
+			q2->w.ty = F.W;
+			q2->cl = icost(l);
+			q2->cr = icost(r);
+			q2->inferred = 1;
+			snprintf(nm, sizeof nm, "r%d", RS.n - first + 1);
+			q2->name = sym_cstr(nm);
+			RS.n++;
+		}
 	}
 	printf("rules from the enumeration: %d input%s of %d bits under %s, "
 	    "programs up to cost %d%s\n", nin, nin == 1 ? "" : "s", w,
@@ -3545,27 +3568,106 @@ cmd_rules_infer(int nin, int w, int maxcost, double seconds)
 	    "on %d points; constants 1 and all ones); %u read: %d kept, %u "
 	    "derived from the kept ones, %u priced alike by the cover, %u made "
 	    "one by the constructors, %u not proved equal%s\n", F.nrc, SNIP_P,
-	    done, RS.n, nder, ncheap, nsame, nunp, timed ? "; out of time" :
+	    done, RS.n - first, nder, ncheap, nsame, nunp, timed ? "; out of time" :
 	    RS.n == RULE_MAX ? "; the most rules kept" : "");
+	if (RS.n > first)
+		printf("  as declarations a .ucas file can keep (each is proved again "
+		    "when read):\n");
 	rep_begin("rules");
 	rep_int("candidates", F.nrc);
-	rep_int("kept", RS.n);
+	rep_int("kept", RS.n - first);
 	rep_list("rules");
-	for (k = 0; k < RS.n; k++) {
-		char ls[200];
-		snprintf(ls, sizeof ls, "%s", shared_str(RS.l[k], 120));
-		printf("  %-34s => %-24s cost %d -> %d\n", ls, shared_str(RS.r[k],
-		    120), RS.cl[k], RS.cr[k]);
+	for (k = first; k < RS.n; k++) {
+		char ls[200], hd[80];
+		const struct rrule *q = &RS.r[k];
+		int j;
+		snprintf(hd, sizeof hd, "rule %s(", sym_str(q->name));
+		for (j = 0; j < q->w.nin; j++)
+			snprintf(hd + strlen(hd), sizeof hd - strlen(hd), "%s%s: %s",
+			    j ? ", " : "", pn[j], ty_str(q->w.ty));
+		snprintf(ls, sizeof ls, "%s) = %s", hd, shared_str(q->w.l, 120));
+		printf("  %-44s => %-24s cost %d -> %d\n", ls, shared_str(q->w.r,
+		    120), q->cl, q->cr);
 		rep_obj(NULL);
-		rep_expr("from", RS.l[k]);
-		rep_expr("to", RS.r[k]);
-		rep_num("cost_from", RS.cl[k]);
-		rep_num("cost_to", RS.cr[k]);
+		rep_str("name", sym_str(q->name));
+		rep_expr("from", q->w.l);
+		rep_expr("to", q->w.r);
+		rep_num("cost_from", q->cl);
+		rep_num("cost_to", q->cr);
 		rep_end();
 	}
 	rep_end();
 	free(wb.p);
 	finder_free();
+}
+
+/*
+ * `rule NAME(a: T [, b: T [, c: T]]) = L => R`: a rule declared, as
+ * `rules infer` prints them; proved on every value of its variables
+ * (enumeration or SAT) or refused with what was found, then kept for
+ * find (a rule of the same name replaces it).
+ */
+void
+cmd_rule(const struct func *f, nid l, nid r)
+{
+	struct eqproof pr;
+	struct sbuf w = {0};
+	struct rrule q;
+	int k, bad;
+
+	if (f->np < 1 || f->np > 3)
+		fail("rule %s: 1 to 3 variables, not %d", sym_str(f->name), f->np);
+	for (k = 0; k < f->np; k++)
+		if (!TY_ISINT(f->p[k].ty) || !TY_SIZED(f->p[k].ty) ||
+		    f->p[k].ty == TY_BOOL || f->p[k].ty != f->p[0].ty)
+			fail("rule %s: its variables are one sized integer type (%s "
+			    "is %s, %s is %s)", sym_str(f->name),
+			    sym_str(f->p[0].name), ty_str(f->p[0].ty),
+			    sym_str(f->p[k].name), ty_str(f->p[k].ty));
+	if (N.ty[l] != f->p[0].ty || N.ty[r] != f->p[0].ty)
+		fail("rule %s: both sides are %s (they are %s and %s)",
+		    sym_str(f->name), ty_str(f->p[0].ty), ty_str(N.ty[l]),
+		    ty_str(N.ty[r]));
+	bad = equiv_decide(f, l, r, &w, &pr);
+	if (bad || pr.how == EQ_SAMPLED || pr.how == EQ_UNDECIDED) {
+		const char *ws = sb_str(&w);
+		char msg[300];
+		snprintf(msg, sizeof msg, "%s", bad ? ws : "");
+		free(w.p);
+		fail("rule %s: not kept: %s%s", sym_str(f->name), bad ? "the sides "
+		    "differ at " : "not proved on every input (sampled only)",
+		    msg);
+	}
+	free(w.p);
+	memset(&q, 0, sizeof q);
+	q.w.l = l;
+	q.w.r = r;
+	q.w.nin = f->np;
+	q.w.ty = f->p[0].ty;
+	for (k = 0; k < f->np; k++)
+		q.w.pv[k] = mk_var((uint32_t)k, f->p[k].name, f->p[k].ty);
+	q.cl = icost(l);
+	q.cr = icost(r);
+	q.name = f->name;
+	for (k = 0; k < RS.n && RS.r[k].name != f->name; k++)
+		;
+	if (k == RS.n && RS.n == RULE_MAX)
+		fail("rule %s: %d rules are kept already", sym_str(f->name),
+		    RULE_MAX);
+	RS.r[k] = q;
+	if (k == RS.n)
+		RS.n++;
+	printf("rule %s: %s => %s, %s (cost %d -> %d under %s)\n",
+	    sym_str(f->name), shared_str(l, 120), shared_str(r, 120),
+	    pr.how == EQ_SAT ? "proved by SAT" : pr.how == EQ_ALGEBRA ?
+	    "proved by algebra" : "every input enumerated", q.cl, q.cr,
+	    sym_str(model_active()->name));
+	rep_begin("rule");
+	rep_str("name", sym_str(f->name));
+	rep_expr("from", l);
+	rep_expr("to", r);
+	rep_str("proof", pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ?
+	    "algebra" : "exhaustive");
 }
 
 /* find's rewrites: each kept rule at each subterm of its width */
@@ -3598,22 +3700,24 @@ rule_cands(nid root, struct irw **out, int *cnt, int *cap)
 			st[sp++] = N.c[s];
 		for (i = 0; i < RS.n; i++) {
 			nid bind[3] = {0, 0, 0}, to;
-			char what[200], cond[200], ls[100];
+			char what[240], cond[200], ls[100];
 			struct irw *rw;
-			if (!rmatch(RS.l[i], s, bind) || (rvars(RS.r[i]) &
-			    ~rbound(bind)))
+			RQ = &RS.r[i].w;
+			if (!rmatch(RQ->l, s, bind) || (rvars(RQ->r) & ~rbound(bind)))
 				continue;
-			to = rinst(RS.r[i], bind);
-			snprintf(ls, sizeof ls, "%s", shared_str(RS.l[i], 90));
-			snprintf(what, sizeof what, "the rule %s => %s, inferred from "
-			    "the enumeration", ls, shared_str(RS.r[i], 90));
-			snprintf(cond, sizeof cond, "every %d-bit value of its "
-			    "variables: proved when it was inferred", RS.w);
+			to = rinst(RQ->r, bind);
+			snprintf(ls, sizeof ls, "%s", shared_str(RQ->l, 90));
+			snprintf(what, sizeof what, "the rule %s, %s => %s%s",
+			    sym_str(RS.r[i].name), ls, shared_str(RQ->r, 90),
+			    RS.r[i].inferred ? ", inferred from the enumeration" :
+			    ", declared");
+			snprintf(cond, sizeof cond, "every value of its variables (%s): "
+			    "proved when it was %s", ty_str(RQ->ty), RS.r[i].inferred ?
+			    "inferred" : "declared");
 			rw = irw_add(out, cnt, cap, root, s, to, what, cond,
-			    "a dearer and a cheaper program with the same values on "
-			    "the enumeration's points, then equal on every input "
-			    "(enumerated or SAT); the rule's variables bound to "
-			    "subterms here", 1);
+			    "both sides equal on every input of the rule's variables "
+			    "(enumerated or SAT); the variables bound to subterms "
+			    "here", 1);
 			if (rw)
 				rw->derived = 1;
 		}
