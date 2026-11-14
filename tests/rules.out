@@ -104,3 +104,7 @@ find f2: 1024 points (sampled; matches verified on the whole domain), computing 
 rules.ucas:21:35: error: rule bad: not kept: the sides differ at a=0: 0 vs 1
     rule bad(a: u32) = a << 1 => a + 1
                                       ^
+> rule narrow(a: u32 in 0..9) = a << 1 => a + a
+rules.ucas:23:29: error: rule narrow: a takes every value of its type: a rule holds for all of them (a range or a list is for a function)
+    rule narrow(a: u32 in 0..9) = a << 1 => a + a
+                                ^
