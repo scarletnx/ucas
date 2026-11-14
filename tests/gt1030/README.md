@@ -129,6 +129,11 @@ cd ~/ucas/tests/gt1030
 ucas ~/ucas/work/gt1030/probe-.../model.ucas    # then `use gt1030_probed`
 ```
 
+For the advice of #50, #53 and #65 there are the cache's size (#166's random walk over footprints from
+128 KiB to 16 MiB; model.ucas takes as `cache:` the last one below twice the smallest one's cost), a pixel written
+by a compute imageStore against a full-screen draw's export (1920x1080 rgba8) and an empty dispatch; blits and
+mip chains (#52) and an indirect dispatch are named as what snx-shaderperf does not time.
+
 The latencies (`lat_*`) are one warp and one dependent chain a class, the SM clock read around the loop
 (clockARB) in builds of 32 and 64 steps: the ALU classes as gen.py's latency builds, the loads (a storage buffer
 of 4 KiB, 256 KiB and 16 MiB, workgroup memory, a uniform buffer) and the texture reads (texelFetch, a bilinear

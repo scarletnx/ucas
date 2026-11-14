@@ -131,7 +131,7 @@ def walk_table(p, rng):
         return np.array(vals, dtype=np.uint64)
     for fn, data in p.get('files', {}).items():
         if fn in ' '.join(p['args']):
-            return np.frombuffer(data, dtype='<u4').astype(np.uint64)
+            return np.frombuffer(data() if callable(data) else data, dtype='<u4').astype(np.uint64)
     # inb.data, or a texture made by pattern=noise: the buffer's noise
     return noise_words(rng, 1 << 16)
 
@@ -149,8 +149,8 @@ def table_walks_keep_lanes_apart():
         text = p['step'] or ''
         m = re.search(r'\{a\}( \+ \{u\}u)?\)*\s*&\s*(\d+)u\]?\)*', text.split(' + ', 1)[1]) \
             if text.startswith('{a} + ') else None
-        if not m or 'ib' in text:
-            continue
+        if not m or 'ib' in text or int(m.group(2)) >= 1 << 16:
+            continue    # past 256 KiB: perm_table as below, and the walk takes minutes in numpy
         seen += 1
         tab = walk_table(p, rng)
         mask = len(tab) - 1 if 'tab[' in text else int(m.group(2))
@@ -352,6 +352,42 @@ def only_takes_patterns():
     """--only lat_* picks every latency probe and nothing else"""
     got = {p['name'] for p in PR.choose('lat_*', None)}
     assert got == {p['name'] for p in lats()}, 'lat_* picked %s' % sorted(got)
+
+
+@check
+def every_unit_shader_compiles():
+    """the unit and value probes' own shaders (CS_*, VS_*, FS_*) compile and pass spirv-val"""
+    stage = {'CS': 'comp', 'VS': 'vert', 'FS': 'frag'}
+    bad = []
+    for name in dir(PR):
+        if name[:3] in ('CS_', 'VS_', 'FS_') and isinstance(getattr(PR, name), str):
+            err = compiles(getattr(PR, name), stage[name[:2]])
+            if err:
+                bad.append('%s: %s' % (name, ' / '.join(err)))
+    assert not bad, '; '.join(bad)
+
+
+@check
+def cache_sweep_crosses_l2():
+    """#65's cache size: random walks over footprints on both sides of GP108's 512 KiB L2, and the model line
+    takes the last footprint below twice the smallest one's cost"""
+    kib = sorted(p['kib'] for p in steps() if p['name'].startswith('cache_'))
+    assert len([k for k in kib if k < 512]) >= 2 and len([k for k in kib if k > 512]) >= 2, 'footprints %s' % kib
+    costs = dict(zip(kib, [8.0, 8.1, 9.0, 15.9, 30.0, 60.0, 80.0, 90.0][:len(kib)]))
+    res = {p['name']: dict(cost=costs[p['kib']], err=0.01) for p in steps() if p['name'].startswith('cache_')}
+    lines = [ln for ln, cm in PR.model_lines(res)[0] if ln.startswith('cache:')]
+    want = 'cache: %d' % (max(k for k in kib if costs[k] < 2 * costs[kib[0]]) * 1024)
+    assert lines == [want], 'cache lines %s, expected %s' % (lines, want)
+
+
+@check
+def what_the_tool_cannot_do_is_named():
+    """#52's blits and #53's indirect dispatch: snx-shaderperf times neither, so the report names them"""
+    have = {p['name']: p for p in PR.P}
+    for n, i in (('blit_mip', 52), ('dispatch_indirect', 53)):
+        assert n in have and have[n]['kind'] == 'absent' and i in have[n]['issues'], '%s: not named for #%d' % (n, i)
+    for n, i in (('dispatch_empty', 53), ('export', 50)):
+        assert n in have and i in have[n]['issues'], '%s: no probe for #%d' % (n, i)
 
 def main():
     failed = 0
