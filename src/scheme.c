@@ -1056,6 +1056,107 @@ poly_scheme(const struct model *m, struct func *f, int more)
 	return 1;
 }
 
+/*
+ * ---- inner products: Winograd ----
+ *
+ * sum a_i b_i over n = 2k pairs is
+ *   sum_j (a_2j + b_2j+1)(a_2j+1 + b_2j) - A - B,
+ *   A = sum_j a_2j a_2j+1,  B = sum_j b_2j b_2j+1:
+ * an identity of the ring (each product's cross terms are a_2j b_2j +
+ * a_2j+1 b_2j+1, the rest is A and B), so it holds for every x of an
+ * integer type, through wrapping too.  k multiplications of two values
+ * once A and B are known: in a matrix product A is a row's, B a column's,
+ * each computed once and shared by every dot product that row or column
+ * takes part in.  Alone it costs 3k for the plain form's 2k.
+ */
+#define WINO_MAX 16
+
+/* the signed terms of e, each a product of two parameters */
+static int
+wino_terms(nid e, int neg, nid *a, nid *b, int *n)
+{
+	switch (N.op[e]) {
+	case O_ADD:
+		return wino_terms(N.a[e], neg, a, b, n) &&
+		    wino_terms(N.b[e], neg, a, b, n);
+	case O_SUB:
+		return wino_terms(N.a[e], neg, a, b, n) &&
+		    wino_terms(N.b[e], !neg, a, b, n);
+	case O_NEG:
+		return wino_terms(N.a[e], !neg, a, b, n);
+	case O_MUL:
+		if (*n == WINO_MAX || N.op[N.a[e]] != O_VAR ||
+		    N.op[N.b[e]] != O_VAR)
+			return 0;
+		a[*n] = N.a[e];
+		b[*n] = neg ? mk_un(O_NEG, N.b[e]) : N.b[e];
+		(*n)++;
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int
+prod_scheme(const struct model *m, struct func *f, int more)
+{
+	nid a[WINO_MAX], b[WINO_MAX], w = 0, A = 0, B = 0, wg, va, vb, last = 0;
+	int n = 0, j, k;
+	float p0, p1, p2;
+	ty_t t = N.ty[f->body];
+
+	if (!more || !wino_terms(f->body, 0, a, b, &n) || n < 2)
+		return 0;
+	k = n / 2;
+	for (j = 0; j < k; j++) {
+		nid pr = MUL(ADD(a[2 * j], b[2 * j + 1]), ADD(a[2 * j + 1],
+		    b[2 * j]));
+		w = w ? ADD(w, pr) : pr;
+		A = A ? ADD(A, MUL(a[2 * j], a[2 * j + 1])) :
+		    MUL(a[2 * j], a[2 * j + 1]);
+		B = B ? ADD(B, MUL(b[2 * j], b[2 * j + 1])) :
+		    MUL(b[2 * j], b[2 * j + 1]);
+	}
+	if (n & 1)
+		last = MUL(a[n - 1], b[n - 1]);
+	va = mk_var(0, sym_cstr("A"), t);
+	vb = mk_var(0, sym_cstr("B"), t);
+	wg = SUB(SUB(w, va), vb);
+	w = SUB(SUB(w, A), B);
+	if (last) {
+		w = ADD(w, last);
+		wg = ADD(wg, last);
+	}
+	printf("inner product of %d pairs (Winograd's form from 2):\n", n);
+	line(m, "as written", f->body, f, 0);
+	line(m, "Winograd", w, f, f->body);
+	if (!TY_FP(t))
+		printf("  %-10s an identity of the ring: equal for every x, "
+		    "through wrapping\n", "");
+	printf("  %-10s A = %s, B = %s\n", "", node_str(A), node_str(B));
+	fuse_domain(f);
+	p0 = fuse_expr_cost(m, f->body);
+	p1 = fuse_expr_cost(m, w);
+	p2 = fuse_expr_cost(m, wg);
+	fuse_domain(NULL);
+	printf("  %-10s with A and B given: %s (cost %g with %s's fusions: "
+	    "%d multiplication%s of two values for %d)\n", "", node_str(wg),
+	    (double)p2, sym_str(m->name), k + (n & 1), k + (n & 1) == 1 ? "" :
+	    "s", n);
+	printf("  (Winograd: A is a row's and B a column's, each computed "
+	    "once in a matrix product and shared by its dot products; alone "
+	    "it is dearer%s)\n", TY_FP(t) ? "; in floats its sums cancel, "
+	    "and the line above says by how much" : "");
+	printf("  cheapest with %s's fusions counted: ", sym_str(m->name));
+	if (p2 < p0)
+		printf("Winograd with A and B given %g; as written %g, Winograd "
+		    "%g\n", (double)p2, (double)p0, (double)p1);
+	else
+		printf("as written %g; Winograd %g, with A and B given %g\n",
+		    (double)p0, (double)p1, (double)p2);
+	return 1;
+}
+
 /* ---- powers by squaring ---- */
 
 static nid
@@ -1632,6 +1733,8 @@ cmd_scheme(struct func *f, struct model *mm, int more)
 	printf("evaluation schemes for %s under %s\n", f->anon ?
 	    node_str(f->body) : sym_str(f->name), sym_str(m->name));
 	any = poly_scheme(m, f, more);
+	if (!any)
+		any = prod_scheme(m, f, more);
 	if (!any)
 		pow_scheme(m, f);
 	seen = xcalloc(N.n, 1);

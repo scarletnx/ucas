@@ -6191,6 +6191,20 @@ inside an IMAD: `x^4 + 7x^3 + 5x^2 + 3x + 9` in u32 is
 emulated f64 polynomials, where a multiply is dearest, because no class
 prices a 64-bit multiply.
 
+For an inner product, a sum of n products of two parameters, `scheme F
+more` lists **Winograd's form**: sum_j (a_2j + b_2j+1)(a_2j+1 + b_2j) -
+A - B, with A = sum_j a_2j a_2j+1 and B = sum_j b_2j b_2j+1 (an odd
+last product stays as it is).  It is an identity of the ring, so in an
+integer type it holds for every x, through wrapping.  Alone it is
+dearer, 3n/2 multiplications for n; its use is a matrix product, where
+A is a row's and B a column's, each computed once and shared by the
+dot products it takes part in, so a dot product pays n/2.  The line
+prices both, with the model's fusions: four pairs of u32 are 12 as
+written under gt1030 and 12 with A and B given (an IMAD folds the add),
+and under a model whose multiply costs 12 and does not fuse, 51 against
+31 (tests/winograd.ucas).  In floats its sums cancel, and the check
+line says by how much.
+
 For an f32 polynomial `scheme F more` also lists **compensated Horner**
 (`comp.`): Horner's rule with the rounding error of every product (2Prod:
 an fma) and every sum (2Sum) kept, run through a second Horner and added
