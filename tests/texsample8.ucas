@@ -1,0 +1,15 @@
+# A filtered read of bytes (texalu's R8_UNORM textures) is priced by
+# tex_sample_8 where the model lists it; tex_sample prices any sampled
+# read, and the bytes' read where tex_sample_8 is not listed.
+B = [3, 9, 27, 81, 243, 1, 200, 100, 50, 25, 12, 6, 0, 255, 128, 64]
+s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
+model r8 : gt1030 { tex_within: 2, tex_sample: 40, tex_sample_8: 15 }
+model rx : r8 { tex_sample_8: none }
+texalu s4 under r8
+texalu s4 under rx
+# the read's own price and class
+g(x: f32) = tex_linear8([0.0, 0.2, 0.4, 1.0], x)
+use r8
+cost g
+use rx
+cost g

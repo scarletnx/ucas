@@ -1,0 +1,34 @@
+> B = [3, 9, 27, 81, 243, 1, 200, 100, 50, 25, 12, 6, 0, 255, 128, 64]
+> s4(x: u8 in 0..2, y: u8 in 0..2) = B[y*4 + x] + B[y*4 + x + 1] + B[y*4 + x + 4] + B[y*4 + x + 5]
+> model r8 : gt1030 { tex_within: 2, tex_sample: 40, tex_sample_8: 15 }
+> model rx : r8 { tex_sample_8: none }
+> texalu s4 under r8
+texalu s4: reads through the texture unit under r8 (cost 35.5 as written):
+  cost 27  int(1020tex_bilinear8([0.0117647061, 0.0352941193, 0.105882354, 0.31764707, 0.952941179, 0.00392156886, 0.784313738, 0.392156869, 0.196078435, 0.0980392173, 0.0470588244, 0.0235294122, 0, 1, 0.501960814, 0.250980407], 4, f32(x) + 1, f32(y) + 1) + 0.5)
+      4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+      holds where x in [0, 2], y in [0, 2] (proved ranges): every texel read is inside the table
+      a linear read at fractions (u, v) of texels a b / c d is (1-u)(1-v) a + u(1-v) b + (1-u)v c + uv d: times 1020 with u = 0.5, v = 0.5 those are the entries' weights (the texels are the entries / 255)
+        the fractions are on the 2^-8 grid and the coordinates exact in f32: the weights do not move
+        the filter is within 2 ulp of that sum (the model's tex_within): 0.000243; the texels as f32: 3.03e-05; in all 0.000395
+      the entries' sum is a whole number and the reads are within 0.000456 of it (with the f32 products and adds): below 1/2, so floor(v + 1/2) is the sum (never negative: the conversion to an integer truncates, which is that floor)
+      checked again by evaluation with ucas's own filter (exact weights' sums, one rounding) on all 9 points: equal
+      the pipeline needs (a proposal: nothing is applied):
+        a texture R8_UNORM, 4 x 4, one level: the table's entries as bytes (the shader sees k/255)
+        a sampler: LINEAR mag and min filters, NEAREST mipmap mode, CLAMP_TO_EDGE, unnormalizedCoordinates, lod 0
+        one combined image sampler more in the layout; the shader reads textureLod(s, vec2(x, y), 0.0).r
+        setup (the descriptor, the upload) is not in the model: not measured
+> texalu s4 under rx
+texalu s4: the texture unit under rx (cost 35.5 as written): nothing taken
+  derived, but not cheaper under rx (cost 52, as written 35.5):
+  4 entries of the 4 x 4 table from offset (0, 0), weights' sum 4: one read at fraction 0.5 along x, 0.5 along y
+> g(x: f32) = tex_linear8([0.0, 0.2, 0.4, 1.0], x)
+> use r8
+cost model: r8
+> cost g
+cost of g under r8: 15 (1 operations, shared subterms counted once)
+  tex_sample_8     1 x 15    = 15
+> use rx
+cost model: rx
+> cost g
+cost of g under rx: 40 (1 operations, shared subterms counted once)
+  tex_sample       1 x 40    = 40

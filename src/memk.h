@@ -26,6 +26,7 @@ const char *memk_nlp_raw(const char *sent);	/* nlp.c */
 float model_cost(const struct model *m, int cls);
 int model_class(const struct model *m, int cls);
 int model_lists(const struct model *m, int cls);
+int tex8_class(const struct model *m);	/* an R8 read's class under m */
 
 /* the conflict degree of index e over a warp of f's lane parameter (the
  * first integer parameter that is not uniform): the largest number of
