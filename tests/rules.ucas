@@ -13,3 +13,9 @@ rules infer inputs 1 width 32 cost 2
 use gt1030
 # two inputs
 rules infer inputs 2 width 32 cost 2
+# a rule declared as rules infer prints them: proved, then kept for find
+rule dbl(a: u32) = a << 1 => a + a
+f2(x: u32, y: u32) = (x * y << 1) xor y
+find f2 1
+# a rule whose sides differ is refused with where they differ
+rule bad(a: u32) = a << 1 => a + 1

@@ -839,6 +839,16 @@ int find_cands(struct func *f, int maxcost, double seconds, nid *out,
 extern uint64_t gates_budget;
 void cmd_find(struct func *f, int want, const uint8_t *ops, int maxcost,
     int snip, const char *snipname);
+/* a rewrite rule: l = r for every value of the pattern variables pv
+ * (O_VAR nodes of type ty), proved when it was kept */
+struct rwrule {
+	nid l, r;
+	nid pv[3];
+	int nin;
+	ty_t ty;
+};
+/* find.c: `rule NAME(a: T, ...) = L => R`, proved, kept for find */
+void cmd_rule(const struct func *f, nid l, nid r);
 /* find.c: snippets grow [NAME] ...: the enumeration with no target */
 void cmd_snippets_grow(const char *name, int nin, int w, int maxcost,
     double seconds, int fresh);

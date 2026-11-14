@@ -7786,7 +7786,7 @@ static const char *const ucas_cmds[] = {"show", "table", "range", "domain",
 	/* stoch.c */
 	"stoke", "pit", "phash",
 	/* find.c: the snippet database, rules from the enumeration */
-	"snippets", "rules", NULL};
+	"snippets", "rules", "rule", NULL};
 static const char *const cmd_followers[] = {"of", "the", "a", "an", "me",
 	"us", "all", "for", "out", "whether", "if", "how", "when", "where",
 	"what", "some", "any", "its", "it", "my", "this", "that", "every",

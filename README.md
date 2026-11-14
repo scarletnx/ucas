@@ -173,7 +173,7 @@ inline annotations: `range isqrt(x: u4)`.
 | `rop F [model m]` | the graphics fixed-function states (blending, logic ops, stencil ops, the depth test) that compute the per-cell update F(s, d) of a scatter, or the draw whose coverage is a predicate P(x, y) of a pixel, each proved and priced: see [Fixed function as compute](#fixed-function-as-compute) |
 | `stoke F [steps N] [restarts R] [len L] [seed K] [model m]` | MCMC (Metropolis-Hastings) over straight-line integer programs priced by the model; what reaches distance 0 on the tests is verified on the whole domain (see "Stochastic search") |
 | `pit F G [trials N] [seed K]` | polynomial identity testing (Schwartz-Zippel): a probabilistic answer with its error bound (see "Stochastic search") |
-| `rules infer [inputs N] [width W] [cost C] [seconds S]` | rules from the enumeration's dearer twins, proved, directed by the model's prices; find tries them (see "Stochastic search") |
+| `rules infer [inputs N] [width W] [cost C] [seconds S]`, `rule NAME(a: T, ...) = L => R` | rules from the enumeration's dearer twins, or declared, proved, directed by the model's prices; find tries them (see "Stochastic search") |
 | `snippets grow [NAME] [fresh] [inputs N] [width W] [cost C] [seconds S]`, `find F snippets [NAME]` | a database of the cheapest program for each column of values on 32 fixed points, grown by find's enumeration with no target and consulted by find (see "Stochastic search") |
 | `phash F [seed K] [model m]` | a switch's keys hashed injectively into a table, or its values from the key by a multiply-add and a shift with no value table, when the model prices that below the compare chain (see "Stochastic search") |
 | `dword F [tol R \| atol T \| ulp X] [model m]` | F's f64 arithmetic over f32, alone or as double-word pairs, when the model prices that below its f64 operations and the derived error bound meets what the result needs (see "fp64 without fp64") |
@@ -5388,8 +5388,13 @@ gt1030 a shift costs 2 and an add 1, so `a << 1 => a + a` is one; under
 a model whose shift costs 1 it is not.  `find` then tries every kept
 rule on every subterm of its width (`((x*y + z) << 1) xor 3z`: 9 -> 8,
 the rule's variables bound to subterms), checked like every rewrite;
-the rules last for the session, the latest `rules infer` replacing them
-(tests/rules.ucas).
+`rules infer` prints each kept rule as a declaration a .ucas file can
+keep, `rule r11(a: u32) = a << 1 => a + a`: `rule NAME(a: T [, b: T [,
+c: T]]) = L => R`, the variables of one sized integer type, is proved on
+every value of them when it is read (enumeration or SAT) and refused
+otherwise, with where the sides differ; a rule of the same name replaces
+it.  The rules last for the session, declared and inferred, a later
+`rules infer` replacing only the inferred ones (tests/rules.ucas).
 
 ## Float simplify
 
