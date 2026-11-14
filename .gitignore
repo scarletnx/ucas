@@ -21,3 +21,5 @@ libsnxglslc.a
 snx_*.o
 ai_usage.inc
 ai_usage_short.inc
+# the snippet databases tests/snippets.ucas writes
+tests/*.snip

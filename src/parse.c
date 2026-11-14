@@ -3397,6 +3397,43 @@ statement(struct P *p)
 			cmd_approx(p);
 			return;
 		}
+		if (is_kw(p, "snippets") && !func_find(tsym(p, p->i))) {
+			char sname[96] = "";
+			int nin = 2, w = 32, cost = 4, fresh = 0;
+			double secs = 10;
+			adv(p);
+			if (!accept_kw(p, "grow"))
+				fail("snippets grow [NAME] [fresh] [inputs N] [width W] "
+				    "[cost C] [seconds S]");
+			if (pk(p) == T_ID && !is_kw(p, "inputs") && !is_kw(p, "width") &&
+			    !is_kw(p, "cost") && !is_kw(p, "seconds") &&
+			    !is_kw(p, "fresh")) {
+				size_t sn;
+				const char *ss = ttext(p, p->i, &sn);
+				snprintf(sname, sizeof sname, "%.*s", (int)sn, ss);
+				adv(p);
+			}
+			for (;;) {
+				if (is_kw(p, "inputs"))
+					nin = opt_int(p, "inputs", nin);
+				else if (is_kw(p, "width"))
+					w = opt_int(p, "width", w);
+				else if (is_kw(p, "cost"))
+					cost = opt_int(p, "cost", cost);
+				else if (accept_kw(p, "seconds")) {
+					nid v = number(p);
+					secs = TY_FP(N.ty[v]) ? N.kr[v] : (double)N.ki[v];
+				} else if (accept_kw(p, "fresh"))
+					fresh = 1;
+				else
+					break;
+			}
+			expect_eos(p);
+			notes_flush();
+			cmd_snippets_grow(sname[0] ? sname : NULL, nin, w, cost, secs,
+			    fresh);
+			return;
+		}
 		if (CMD("help")) {
 			help();
 			return;
@@ -3575,15 +3612,24 @@ statement(struct P *p)
 				notes_flush();
 				cmd_gates(f, b, maxc, emit);
 			} else if (!strcmp(cmd, "find")) {
-				int want = 5, maxc = 0, stoke;
+				int want = 5, maxc = 0, stoke, snip;
 				uint32_t fnm2 = f->name;
+				char sname[96] = "";
 				if (pk(p) == T_NUM)
 					want = (int)N.ki[number(p)];
 				maxc = opt_int(p, "max", 0);
 				stoke = accept_kw(p, "stoke");	/* then the MCMC search */
+				snip = accept_kw(p, "snippets");
+				if (snip && pk(p) == T_ID) {
+					size_t sn;
+					const char *ss = ttext(p, p->i, &sn);
+					snprintf(sname, sizeof sname, "%.*s", (int)sn, ss);
+					adv(p);
+				}
 				expect_eos(p);
 				notes_flush();
-				cmd_find(f, want, NULL, maxc);
+				cmd_find(f, want, NULL, maxc, snip, sname[0] ? sname :
+				    NULL);
 				if (stoke)
 					stoke_find(func_find(fnm2));
 			} else if (!strcmp(cmd, "cost")) {
