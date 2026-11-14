@@ -12959,6 +12959,262 @@ lsum_of(int id, struct lsum *L)
 	return 1;
 }
 
+/* ---- float controls (#178): what an execution mode does for free ---- */
+
+/* id is a scalar 32-bit constant whose bits are b */
+static int
+k_bits(int id, uint32_t b)
+{
+	id = res_of(id);
+	return V.id[id].kind == K_CONST && !V.id[id].spec && V.id[id].nc <= 1 &&
+	    (uint32_t)V.id[id].c[0] == b;
+}
+
+/* the instruction defining id when its op is op, else NULL */
+static const struct sins *
+def_op(int id, const char *op)
+{
+	int d = id >= 0 ? SP.def[res_of(id)] : -1;
+
+	return d >= 0 && !strcmp(V.in[d].op, op) ? &V.in[d] : NULL;
+}
+
+/* a binary instruction with operands a and b in either order */
+static int
+either(const struct sins *I, int a, int b)
+{
+	int x = res_of(idx(I->opnd[1])), y = res_of(idx(I->opnd[2]));
+
+	return I->nop >= 3 && ((x == a && y == b) || (x == b && y == a));
+}
+
+/* an operand of I that is not a constant with bits k: the other one */
+static int
+other_than_k(const struct sins *I, uint32_t k)
+{
+	if (I->nop < 3)
+		return -1;
+	if (k_bits(idx(I->opnd[2]), k))
+		return res_of(idx(I->opnd[1]));
+	if (k_bits(idx(I->opnd[1]), k))
+		return res_of(idx(I->opnd[2]));
+	return -1;
+}
+
+/*
+ * A flush of an f32's subnormals written as instructions, the two forms
+ * a translator writes for a device that cannot declare it: on the bits,
+ * asfloat((asuint(x) & 0x7f800000) == 0 ? asuint(x) & 0x80000000 :
+ * asuint(x)), and on the value, abs(x) < 2^-126 ? x * 0.0 : x.  k is the
+ * result's instruction (the last bitcast, or the select): x, else -1;
+ * ins[] the pattern's instructions (*n of them, k first)
+ */
+static int
+fc_flush(int k, int *ins, int *n)
+{
+	const struct sins *I = &V.in[k], *S, *C, *E, *G, *M, *A, *B;
+	int x, b, sel = -1;
+
+	*n = 0;
+	if (!strcmp(I->op, "OpBitcast") && I->nop == 2 && I->res >= 0 &&
+	    scalar_float_w(idx(I->opnd[0])) == 32 && (S = def_op(idx(I->opnd[1]),
+	    "OpSelect")) != NULL && S->nop == 4) {
+		/* on the bits: sel = e == 0 ? sign : bits */
+		C = def_op(idx(S->opnd[1]), "OpIEqual");
+		b = res_of(idx(S->opnd[3]));
+		G = def_op(idx(S->opnd[2]), "OpBitwiseAnd");
+		B = def_op(b, "OpBitcast");
+		if (C == NULL || G == NULL || B == NULL || B->nop != 2 ||
+		    other_than_k(G, 0x80000000u) != b)
+			return -1;
+		x = res_of(idx(B->opnd[1]));
+		if (scalar_float_w(V.id[x].type) != 32)
+			return -1;
+		E = def_op(other_than_k(C, 0), "OpBitwiseAnd");
+		if (E == NULL || other_than_k(E, 0x7f800000u) != b)
+			return -1;
+		ins[(*n)++] = k;
+		ins[(*n)++] = SP.def[res_of(idx(I->opnd[1]))];
+		ins[(*n)++] = (int)(C - V.in);
+		ins[(*n)++] = (int)(E - V.in);
+		ins[(*n)++] = (int)(G - V.in);
+		ins[(*n)++] = SP.def[b];
+		return x;
+	}
+	if (!strcmp(I->op, "OpSelect") && I->nop == 4 && I->res >= 0 &&
+	    scalar_float_w(idx(I->opnd[0])) == 32) {
+		/* on the value: abs(x) < 2^-126 ? x * 0.0 : x */
+		x = res_of(idx(I->opnd[3]));
+		C = def_op(idx(I->opnd[1]), "OpFOrdLessThan");
+		M = def_op(idx(I->opnd[2]), "OpFMul");
+		if (C == NULL || C->nop != 3 || !k_bits(idx(C->opnd[2]),
+		    0x00800000u) || M == NULL || other_than_k(M, 0) != x)
+			return -1;
+		A = def_op(idx(C->opnd[1]), "OpExtInst");
+		if (A == NULL || A->nop != 4 || idx(A->opnd[1]) != V.glsl ||
+		    strcmp(A->opnd[2], "FAbs") || res_of(idx(A->opnd[3])) != x)
+			return -1;
+		ins[(*n)++] = k;
+		ins[(*n)++] = (int)(C - V.in);
+		ins[(*n)++] = (int)(M - V.in);
+		ins[(*n)++] = (int)(A - V.in);
+		(void)sel;
+		return x;
+	}
+	return -1;
+}
+
+/* x's instruction must flush a subnormal result under DenormFlushToZero
+ * (Vulkan's list: the arithmetic, the conversions, the GLSL functions);
+ * its name, else NULL */
+static const char *
+fc_flushes(int x)
+{
+	static const char *const core[] = {"OpFConvert", "OpFNegate", "OpFAdd",
+	    "OpFSub", "OpFMul", "OpFDiv", "OpFRem", "OpFMod", "OpDot",
+	    "OpVectorTimesScalar", NULL};
+	static const char *const ext[] = {"Round", "RoundEven", "Trunc", "FAbs",
+	    "Floor", "Ceil", "Fract", "Radians", "Degrees", "Sin", "Cos", "Tan",
+	    "Asin", "Acos", "Atan", "Sinh", "Cosh", "Tanh", "Asinh", "Acosh",
+	    "Atanh", "Atan2", "Pow", "Exp", "Log", "Exp2", "Log2", "Sqrt",
+	    "InverseSqrt", "FMin", "FMax", "FClamp", "FMix", "Step",
+	    "SmoothStep", "Fma", "Length", "Distance", "NMin", "NMax",
+	    "NClamp", NULL};
+	int d = SP.def[res_of(x)];
+	const struct sins *I;
+
+	if (d < 0)
+		return NULL;
+	I = &V.in[d];
+	if (in_list(I->op, core))
+		return I->op;
+	if (!strcmp(I->op, "OpExtInst") && I->nop >= 3 && V.glsl >= 0 &&
+	    idx(I->opnd[1]) == V.glsl && in_list(I->opnd[2], ext))
+		return I->opnd[2];
+	return NULL;
+}
+
+/*
+ * DenormFlushToZero for f32 (#178), where the model says the device can
+ * declare it (`float_controls: ftz32`): under it every arithmetic result
+ * of the entry point is flushed, so a flush written as instructions on
+ * such a result does nothing and goes.  A proposal (the entry point's
+ * execution modes change), stated with its differences: Vulkan says
+ * "flushed to zero" and gives no sign where the written flush keeps x's,
+ * and a result whose exact value is below 2^-126 may be flushed even
+ * where it rounds to 2^-126.  Not where the module keeps denormals
+ * (DenormPreserve) or has more than one entry point.
+ */
+static struct fcjson {
+	char flush[160], of[24];
+	double cost;
+	int line;
+} fcj[64];
+static int nfcj;
+
+static void
+fc_pass(struct sbuf *rep)
+{
+	const struct model *m = model_active();
+	int k, j, nent = 0, keep = -1, already = 0, nflush = 0, nstay = 0;
+	int ins[8], n;
+	double saved = 0;
+	struct sbuf lines = {0};
+
+	nfcj = 0;
+	if (!((int)m->par[MP_FLOAT_CONTROLS] & FC_FTZ32))
+		return;
+	for (k = 0; k < V.nin; k++) {
+		const struct sins *I = &V.in[k];
+		if (!strcmp(I->op, "OpEntryPoint"))
+			nent++;
+		if (!strcmp(I->op, "OpExecutionMode") && I->nop >= 2 &&
+		    !strcmp(I->opnd[1], "DenormPreserve") && keep < 0)
+			keep = k;
+		if (!strcmp(I->op, "OpExecutionMode") && I->nop >= 3 &&
+		    !strcmp(I->opnd[1], "DenormFlushToZero") &&
+		    !strcmp(I->opnd[2], "32"))
+			already = 1;
+	}
+	for (k = 0; k < SP.orig_nin; k++) {
+		const char *by;
+		double c = 0;
+		char sl[160];
+		int x;
+		if (SP.dead[k] || (x = fc_flush(k, ins, &n)) < 0)
+			continue;
+		if ((by = fc_flushes(x)) == NULL) {
+			nstay++;
+			continue;
+		}
+		/* what goes: the pattern's instructions nothing else reads */
+		for (j = 1; j < n; j++) {
+			int r = V.in[ins[j]].res, inside = 0, z, o;
+			for (z = 0; z < n; z++)
+				for (o = 0; o < V.in[ins[z]].nop; o++)
+					inside += V.in[ins[z]].opnd[o][0] == '%' &&
+					    res_of(idx(V.in[ins[z]].opnd[o])) == r;
+			if (inside == SP.uses[r])
+				c += adv_price(&V.in[ins[j]]);
+		}
+		c += adv_price(&V.in[ins[0]]);
+		saved += c;
+		if (nflush++ < 8) {
+			sb_printf(&lines, "    %s\n      a flush of %s = %s (%g)\n",
+			    V.in[k].text, V.id[x].tok, by, c);
+			src_line(ins_line(k), sl, sizeof sl);
+			if (sl[0])
+				sb_printf(&lines, "  %s", sl);
+		}
+		if (nfcj < 64) {
+			struct fcjson *f = &fcj[nfcj++];
+			snprintf(f->flush, sizeof f->flush, "%s", V.in[k].text);
+			snprintf(f->of, sizeof f->of, "%s", by);
+			f->cost = c;
+			f->line = ins_line(k);
+		}
+	}
+	if (!nflush)
+		goto out;
+	if (nflush > 8)
+		sb_printf(&lines, "    ... and %d more\n", nflush - 8);
+	if (already)
+		sb_printf(rep, "    %d flush%s of subnormals written as instructions "
+		    "on results the entry point's DenormFlushToZero 32 already "
+		    "flushes (%g a run): %s nothing and could go\n", nflush,
+		    nflush == 1 ? "" : "es", saved, nflush == 1 ? "it does" :
+		    "they do");
+	else if (keep >= 0 || nent != 1)
+		sb_printf(rep, "    not proposed: %d flush%s of subnormals written as "
+		    "instructions (%g a run) would go under DenormFlushToZero 32, "
+		    "but %s\n", nflush, nflush == 1 ? "" : "es", saved, keep >= 0 ?
+		    "the module keeps denormals (DenormPreserve), which the mode "
+		    "would end for every result of the entry point" : "the module "
+		    "has more than one entry point, and the modes are each one's");
+	else
+		sb_printf(rep, "    DenormFlushToZero 32 (OpExecutionMode %%main "
+		    "DenormFlushToZero 32, the DenormFlushToZero capability, "
+		    "SPV_KHR_float_controls below SPIR-V 1.4): every arithmetic "
+		    "result of the entry point is flushed then, so %d flush%s of "
+		    "subnormals written as instructions on such results %s nothing "
+		    "and %s, %g a run; it differs only where a result's exact "
+		    "value is below 2^-126: Vulkan says \"flushed to zero\" and "
+		    "gives no sign (the written flush keeps x's), and such a value "
+		    "may be flushed even where it rounds to 2^-126 (which the "
+		    "written flush keeps).  Without a mode a driver may already "
+		    "flush any result; the mode makes it the rule\n", nflush,
+		    nflush == 1 ? "" : "es", nflush == 1 ? "does" : "do",
+		    nflush == 1 ? "goes" : "go", saved);
+	if (!already && keep < 0 && nent == 1 && nstay)
+		sb_printf(rep, "    %d other flush%s stay%s: of %s no instruction "
+		    "flushes (a load, a phi, a select, a bitcast), which the mode "
+		    "may leave as it is\n", nstay, nstay == 1 ? "" : "es", nstay == 1 ?
+		    "s" : "", nstay == 1 ? "a value" : "values");
+	sb_puts(rep, lines.p ? lines.p : "");
+out:
+	free(lines.p);
+}
+
 /* every f32 phi that is a loop's sum, for the float pass */
 static void
 lsum_pass(void)
@@ -14405,7 +14661,7 @@ spirv_simplify(const char *src, double budget, int nofile)
 	double before = 0, after = 0;
 	struct fuse_tally ftally;
 	struct sbuf out = {0}, list = {0}, dotrep = {0}, idrep = {0};
-	struct sbuf sgrep = {0}, sgprop = {0}, sgadv = {0};
+	struct sbuf sgrep = {0}, sgprop = {0}, sgadv = {0}, fcrep = {0};
 	struct sbuf idrep2 = {0}, idrep3 = {0}, idrep4 = {0};
 	int nidk[5] = {0, 0, 0, 0, 0};	/* idrw's rewrites by kind */
 	clock_t t0 = clock();
@@ -14714,6 +14970,8 @@ spirv_simplify(const char *src, double budget, int nofile)
 	i2f_pass();
 	/* the loops' f32 sums, for the float pass's sink */
 	lsum_pass();
+	/* what an execution mode the device has would do for free */
+	fc_pass(&fcrep);
 	/* subgroup forms that need the pipeline's subgroup size: said */
 	sg_proposals(&sgprop);
 	/* a branch in a loop the lanes could be packed for: advice */
@@ -15196,6 +15454,24 @@ spirv_simplify(const char *src, double budget, int nofile)
 		fputs(idrep4.p, stdout);
 	}
 	free(idrep4.p);
+	if (fcrep.n) {
+		printf("  float controls, under %s (its float_controls: the modes "
+		    "its device lets a module declare; adding one is a proposal, as "
+		    "the entry point's execution modes change):\n",
+		    sym_str(model_active()->name));
+		fputs(fcrep.p, stdout);
+		rep_list("float_controls");
+		for (i = 0; i < nfcj; i++) {
+			rep_obj(NULL);
+			rep_str("flush", fcj[i].flush);
+			rep_str("of", fcj[i].of);
+			rep_num("cost", fcj[i].cost);
+			rep_int("line", fcj[i].line);
+			rep_end();
+		}
+		rep_end();
+	}
+	free(fcrep.p);
 	if (sgprop.n) {
 		printf("  subgroup forms that need the subgroup's size fixed, "
 		    "proposed (pipeline state: the module is not changed), under "

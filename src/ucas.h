@@ -524,9 +524,17 @@ int div_class(nid n);		/* model.c: an integer / or %'s class */
  * spirv.c (memory):
  *   cache       bytes a storage buffer's accesses may reach and stay
  *               resident; past it they stream (load_stream ...)
+ * spirv.c (float controls):
+ *   float_controls  the execution modes the device lets a module declare
+ *               (VkPhysicalDeviceFloatControlsProperties), FC_* bits
+ *               over fc_word
  */
 enum { MP_BANKS, MP_BANK_BYTES, MP_WARP, MP_SUBTEXEL, MP_TEX_WITHIN,
-	MP_NAN_PAYLOAD, MP_CACHE, MP_NPAR };
+	MP_NAN_PAYLOAD, MP_CACHE, MP_FLOAT_CONTROLS, MP_NPAR };
+/* float_controls' words, a bit each: rte16 .. szinp64 (model.c) */
+#define FC_NWORD 15
+extern const char *const fc_word[FC_NWORD];
+enum { FC_FTZ32 = 1 << 7 };	/* (the order of fc_word) */
 struct model {
 	uint32_t name;
 	float c[C_NCLASS];

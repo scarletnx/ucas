@@ -60,7 +60,18 @@ static const char *const dot_group[6] = {
 };
 
 const char *const mparam_name[MP_NPAR] = {"banks", "bank_bytes", "warp",
-	"subtexel", "tex_within", "nan_payload", "cache"};
+	"subtexel", "tex_within", "nan_payload", "cache", "float_controls"};
+
+/*
+ * float_controls: the device's VkPhysicalDeviceFloatControlsProperties,
+ * one word a mode and width it may declare: shaderRoundingModeRTEFloatN
+ * (rteN), RTZ (rtzN), shaderDenormFlushToZeroFloatN (ftzN),
+ * shaderDenormPreserveFloatN (preserveN) and
+ * shaderSignedZeroInfNanPreserveFloatN (szinpN)
+ */
+const char *const fc_word[FC_NWORD] = {"rte16", "rte32", "rte64", "rtz16",
+	"rtz32", "rtz64", "ftz16", "ftz32", "ftz64", "preserve16",
+	"preserve32", "preserve64", "szinp16", "szinp32", "szinp64"};
 
 #define MAXMODEL 32
 static struct model models[MAXMODEL];
@@ -187,7 +198,13 @@ model_classes_text(struct sbuf *b, const struct model *m)
 		if (model_lists(m, k))
 			sb_printf(b, ", %s: %g", cclass_name[k], (double)m->c[k]);
 	for (k = 0; k < MP_NPAR; k++)
-		if (m->par[k] != 0)
+		if (m->par[k] != 0 && k == MP_FLOAT_CONTROLS) {
+			int w;
+			sb_printf(b, ", %s:", mparam_name[k]);
+			for (w = 0; w < FC_NWORD; w++)
+				if ((int)m->par[k] >> w & 1)
+					sb_printf(b, " %s", fc_word[w]);
+		} else if (m->par[k] != 0)
 			sb_printf(b, ", %s: %g", mparam_name[k], (double)m->par[k]);
 	for (k = C_SG_FIRST; k < C_NCLASS; k++)
 		if (cclass_available(m, k))

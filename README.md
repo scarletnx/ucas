@@ -2427,6 +2427,39 @@ change, for workgroup memory its layout, never applied
 each read of the value and of the payload would have to be proved to sit
 under the flag's test, across blocks.
 
+
+**Float controls.**  A model's `float_controls` lists the execution
+modes its device lets a module declare, Vulkan's
+VkPhysicalDeviceFloatControlsProperties a word each: `rteN`, `rtzN`
+(shaderRoundingModeRTE/RTZFloatN), `ftzN`
+(shaderDenormFlushToZeroFloatN), `preserveN`
+(shaderDenormPreserveFloatN) and `szinpN`
+(shaderSignedZeroInfNanPreserveFloatN), N 16, 32 or 64
+(`float_controls: ftz32 rte32`; `none`: not stated; another word is
+refused, named).  gt1030 says none: its run read no
+VkPhysicalDeviceFloatControlsProperties.  Where a model lists `ftz32`,
+simplify looks for flushes of subnormals written as instructions, the
+two forms a translator writes for a device that cannot declare the
+mode, `asfloat((asuint(x) & 0x7f800000) == 0 ? asuint(x) & 0x80000000 :
+asuint(x))` and `abs(x) < 2^-126 ? x * 0.0 : x`, of an x that an
+instruction on Vulkan's list for DenormFlushToZero makes (the
+arithmetic, the conversions, the GLSL functions).  Under that mode such
+a result is flushed already, so the flush does nothing and goes: a
+proposal (DenormFlushToZero 32 changes the entry point's execution
+modes), priced (6 a flush under the two prices of gt1030's classes) and
+said with how the two differ, only where x's exact value is below
+2^-126: Vulkan says "flushed to zero" and gives no sign, where the
+written flush keeps x's, and lets such a value be flushed even where
+it rounds to 2^-126.  Without a mode a driver may flush any result
+already; the mode makes it the rule.  A flush of a load, a phi, a
+select or a bitcast stays (no instruction flushes those).  Not proposed
+where the module keeps denormals (DenormPreserve, which the mode would
+end for every result) or has more than one entry point; where the
+module declares DenormFlushToZero 32 already, the flushes are said to
+do nothing (tests/floatcontrols.ucas).  Not yet: the rounding modes
+(a truncation or a round to even written as instructions before a
+conversion, which RoundingModeRTZ or RTE would do).
+
 ### Dot products
 
 Packed integer dot products are operations of the language, with the

@@ -1,0 +1,148 @@
+# float controls (#178, Liz: "a"): `float_controls` says which execution
+# modes the model's device lets a module declare (Vulkan's
+# VkPhysicalDeviceFloatControlsProperties).  Where it lists ftz32, a
+# flush of subnormals written as instructions (on the bits or on the
+# value, as a translator writes them for a device that cannot declare
+# the mode) on a result DenormFlushToZero flushes is proposed to go,
+# with the mode, and with how the two differ; one on a load stays
+model ftz : gt1030 { float_controls: ftz32 rte32 }
+simplify nofile under ftz
+```spv
+%tiny = OpConstant %float 1.17549435e-38
+%a = OpLoad %float %pa
+%b = OpLoad %float %pb
+%s = OpFAdd %float %a %b
+%sb = OpBitcast %uint %s
+%se = OpBitwiseAnd %uint %sb %uint_2139095040
+%ss = OpBitwiseAnd %uint %sb %uint_2147483648
+%sz = OpIEqual %bool %se %uint_0
+%sf = OpSelect %uint %sz %ss %sb
+%s1 = OpBitcast %float %sf
+%p = OpFMul %float %s1 %a
+%pa2 = OpExtInst %float %glsl FAbs %p
+%pt = OpFOrdLessThan %bool %pa2 %tiny
+%pz = OpFMul %float %p %float_0
+%p1 = OpSelect %float %pt %pz %p
+%la = OpExtInst %float %glsl FAbs %a
+%lt = OpFOrdLessThan %bool %la %tiny
+%lz = OpFMul %float %a %float_0
+%l1 = OpSelect %float %lt %lz %a
+%r = OpFAdd %float %p1 %l1
+OpStore %out %r
+```
+# under gt1030, which does not say what its device can declare: nothing
+simplify nofile under gt1030
+```spv
+%a = OpLoad %float %pa
+%b = OpLoad %float %pb
+%s = OpFAdd %float %a %b
+%sb = OpBitcast %uint %s
+%se = OpBitwiseAnd %uint %sb %uint_2139095040
+%ss = OpBitwiseAnd %uint %sb %uint_2147483648
+%sz = OpIEqual %bool %se %uint_0
+%sf = OpSelect %uint %sz %ss %sb
+%s1 = OpBitcast %float %sf
+OpStore %out %s1
+```
+# a module that keeps denormals (DenormPreserve 32): the mode would end
+# that for every result, so it is not proposed
+simplify nofile nofunctions under ftz
+```spv
+OpCapability Shader
+OpCapability DenormPreserve
+OpExtension "SPV_KHR_float_controls"
+%glsl = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main"
+OpExecutionMode %main LocalSize 1 1 1
+OpExecutionMode %main DenormPreserve 32
+OpDecorate %_rt ArrayStride 4
+OpDecorate %S Block
+OpMemberDecorate %S 0 Offset 0
+OpDecorate %buf Binding 0
+OpDecorate %buf DescriptorSet 0
+%void = OpTypeVoid
+%fn = OpTypeFunction %void
+%float = OpTypeFloat 32
+%uint = OpTypeInt 32 0
+%int = OpTypeInt 32 1
+%bool = OpTypeBool
+%_rt = OpTypeRuntimeArray %float
+%S = OpTypeStruct %_rt
+%pS = OpTypePointer StorageBuffer %S
+%pf = OpTypePointer StorageBuffer %float
+%buf = OpVariable %pS StorageBuffer
+%int_0 = OpConstant %int 0
+%int_1 = OpConstant %int 1
+%uint_0 = OpConstant %uint 0
+%uint_exp = OpConstant %uint 2139095040
+%uint_sign = OpConstant %uint 2147483648
+%main = OpFunction %void None %fn
+%l = OpLabel
+%p0 = OpAccessChain %pf %buf %int_0 %int_0
+%p1 = OpAccessChain %pf %buf %int_0 %int_1
+%a = OpLoad %float %p0
+%b = OpLoad %float %p1
+%s = OpFAdd %float %a %b
+%sb = OpBitcast %uint %s
+%se = OpBitwiseAnd %uint %sb %uint_exp
+%ss = OpBitwiseAnd %uint %sb %uint_sign
+%sz = OpIEqual %bool %se %uint_0
+%sf = OpSelect %uint %sz %ss %sb
+%s1 = OpBitcast %float %sf
+OpStore %p0 %s1
+OpReturn
+OpFunctionEnd
+```
+# a module that already declares DenormFlushToZero 32: the flush does
+# nothing
+simplify nofile nofunctions under ftz
+```spv
+OpCapability Shader
+OpCapability DenormFlushToZero
+OpExtension "SPV_KHR_float_controls"
+%glsl = OpExtInstImport "GLSL.std.450"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main"
+OpExecutionMode %main LocalSize 1 1 1
+OpExecutionMode %main DenormFlushToZero 32
+OpDecorate %_rt ArrayStride 4
+OpDecorate %S Block
+OpMemberDecorate %S 0 Offset 0
+OpDecorate %buf Binding 0
+OpDecorate %buf DescriptorSet 0
+%void = OpTypeVoid
+%fn = OpTypeFunction %void
+%float = OpTypeFloat 32
+%uint = OpTypeInt 32 0
+%int = OpTypeInt 32 1
+%bool = OpTypeBool
+%_rt = OpTypeRuntimeArray %float
+%S = OpTypeStruct %_rt
+%pS = OpTypePointer StorageBuffer %S
+%pf = OpTypePointer StorageBuffer %float
+%buf = OpVariable %pS StorageBuffer
+%int_0 = OpConstant %int 0
+%int_1 = OpConstant %int 1
+%uint_0 = OpConstant %uint 0
+%uint_exp = OpConstant %uint 2139095040
+%uint_sign = OpConstant %uint 2147483648
+%main = OpFunction %void None %fn
+%l = OpLabel
+%p0 = OpAccessChain %pf %buf %int_0 %int_0
+%p1 = OpAccessChain %pf %buf %int_0 %int_1
+%a = OpLoad %float %p0
+%b = OpLoad %float %p1
+%s = OpFAdd %float %a %b
+%sb = OpBitcast %uint %s
+%se = OpBitwiseAnd %uint %sb %uint_exp
+%ss = OpBitwiseAnd %uint %sb %uint_sign
+%sz = OpIEqual %bool %se %uint_0
+%sf = OpSelect %uint %sz %ss %sb
+%s1 = OpBitcast %float %sf
+OpStore %p0 %s1
+OpReturn
+OpFunctionEnd
+```
+# a word that is not a mode is refused, with it named
+model badfc : gt1030 { float_controls: ftz33 }
