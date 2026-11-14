@@ -1,0 +1,21 @@
+# scheme F more on a product of two complex or quaternion parameters
+# (#28): the parts as products, Gauss's three for four, the quaternion's
+# eight for sixteen; each part checked, the parts priced together
+f(z: c64, w: c64) = z*w
+scheme f
+scheme f more
+# a model whose multiply is dear and fuses nothing: Gauss pays
+model dearf : gt1030 {
+  fmul: 8
+  nofuse ffma
+  nofuse ffms
+  nofuse ffmr
+}
+scheme f more model dearf
+g(z: complex, w: complex) = z*w
+scheme g more
+q(p: quat, r: quat) = p*r
+scheme q more model dearf
+# not a product of two parameters
+h(z: c64, w: c64) = z*w + z
+scheme h more

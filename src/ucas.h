@@ -384,6 +384,9 @@ struct func {
 	uint8_t halg, hf32, hk[MAXP];
 };
 struct func *func_find(uint32_t name);
+/* scheme.c: a product of two complex or quaternion parameters' forms */
+struct model;
+void cmd_hscheme(struct func *f, struct model *mm, int more);
 struct func *func_new(uint32_t name);
 extern struct func *funcs;
 extern int nfuncs;

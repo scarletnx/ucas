@@ -1616,6 +1616,153 @@ prod_scheme(const struct model *m, struct func *f, int more)
 	return 1;
 }
 
+/*
+ * ---- complex and quaternion products ----
+ *
+ * (a + bi)(c + di) in Gauss's three products: k1 = c (a + b), k2 = a (d -
+ * c), k3 = b (c + d), re = k1 - k3, im = k1 + k2; with d - c and c + d
+ * computed once for a w that many z meet, three multiplications and three
+ * additions.  A quaternion product in 8 multiplications for 16 (and one
+ * halving), from the identity
+ *   A1 = (d1 + b1)(b2 + c2), A3 = (a1 - c1)(a2 + d2), A4 = (a1 + c1)(a2 - d2),
+ *   A5 = (A1 + A3 + A4 + (d1 - b1)(b2 - c2))/2,
+ *   1: A5 - A1 + (d1 - c1)(c2 - d2), i: A5 - A1 - A3 - A4 + (b1 + a1)(b2 +
+ *   a2), j: A5 - A3 + (a1 - b1)(c2 + d2), k: A5 - A4 + (d1 + c1)(a2 - b2).
+ * Both are identities of the reals: the parts are checked against the
+ * componentwise product on [-2, 2], and each set of parts is priced as one
+ * evaluation (what the parts share counted once).
+ */
+static void
+hparts(struct func *t, const struct func *f, int pi, int dim, ty_t ty,
+    nid *v)
+{
+	static const char *const sx[2][4] = {{"_re", "_im"}, {"_1", "_i",
+	    "_j", "_k"}};
+	char nm[48];
+	int k;
+
+	for (k = 0; k < dim; k++) {
+		int s = t->np;
+		snprintf(nm, sizeof nm, "%s%s", sym_str(f->p[pi].name),
+		    sx[dim == 4][k]);
+		t->p[s].name = sym_cstr(nm);
+		t->p[s].ty = ty;
+		t->p[s].ranged = 1;
+		t->p[s].rlo = -2;
+		t->p[s].rhi = 2;
+		v[k] = mk_var((uint32_t)s, t->p[s].name, ty);
+		t->np++;
+	}
+}
+
+static void
+hline(const struct model *m, const char *name, const nid *r, const nid *ref,
+    int dim, const struct func *t)
+{
+	static const char *const pn[2][4] = {{"re", "im"}, {"1", "i", "j",
+	    "k"}};
+	struct cmpres cr;
+	int k;
+
+	printf("  %-10s cost %g with %s's fusions (the parts together)\n", name,
+	    (double)fuse_roots_cost(m, r, dim), sym_str(m->name));
+	for (k = 0; k < dim; k++) {
+		printf("    %-3s %s\n", pn[dim == 4][k], node_str(r[k]));
+		if (ref && ref[k] != r[k]) {
+			compare(t, ref[k], r[k], &cr);
+			printf("        ");
+			print_cmp(&cr);
+			printf("\n");
+		}
+	}
+}
+
+void
+cmd_hscheme(struct func *f, struct model *mm, int more)
+{
+	const struct model *m = mm ? mm : model_active();
+	nid z, w, p[4], q[4], cw[4], g[4];
+	struct func t;
+	int dim = 1 << f->halg, zi = -1, wi = -1, j;
+	ty_t ty = f->hf32 ? TY_F32 : TY_REAL;
+
+	printf("evaluation schemes for %s under %s\n", f->anon ?
+	    node_str(f->body) : sym_str(f->name), sym_str(m->name));
+	z = N.a[f->body];
+	w = N.b[f->body];
+	if (N.op[f->body] == O_MUL && N.op[z] == O_VAR && N.op[w] == O_VAR)
+		for (j = 0; j < f->np; j++) {
+			if (f->p[j].name == N.a[z] && f->hk[j] == f->halg)
+				zi = j;
+			if (f->p[j].name == N.a[w] && f->hk[j] == f->halg)
+				wi = j;
+		}
+	if ((dim != 2 && dim != 4) || zi < 0 || wi < 0 || zi == wi) {
+		printf("  no product of two different %s parameters to rewrite "
+		    "(scheme takes F = z*w)\n", dim == 2 ? "complex" :
+		    dim == 4 ? "quaternion" : "complex or quaternion");
+		return;
+	}
+	memset(&t, 0, sizeof t);
+	hparts(&t, f, zi, dim, ty, p);
+	hparts(&t, f, wi, dim, ty, q);
+	t.name = f->name;
+	t.anon = f->anon;
+	if (dim == 2) {
+		nid k1, k2, k3, e1, e2;
+		cw[0] = SUB(MUL(p[0], q[0]), MUL(p[1], q[1]));
+		cw[1] = ADD(MUL(p[0], q[1]), MUL(p[1], q[0]));
+		printf("complex product, as its parts:\n");
+		hline(m, "4 products", cw, NULL, 2, &t);
+		if (!more)
+			return;
+		k1 = MUL(q[0], ADD(p[0], p[1]));
+		k2 = MUL(p[0], SUB(q[1], q[0]));
+		k3 = MUL(p[1], ADD(q[0], q[1]));
+		g[0] = SUB(k1, k3);
+		g[1] = ADD(k1, k2);
+		hline(m, "Gauss", g, cw, 2, &t);
+		e1 = mk_var(0, sym_cstr("e1"), ty);
+		e2 = mk_var(0, sym_cstr("e2"), ty);
+		k2 = MUL(p[0], e1);
+		k3 = MUL(p[1], e2);
+		g[0] = SUB(k1, k3);
+		g[1] = ADD(k1, k2);
+		printf("  %-10s with e1 = %s and e2 = %s given (a w that many z "
+		    "meet): cost %g\n", "", node_str(SUB(q[1], q[0])),
+		    node_str(ADD(q[0], q[1])), (double)fuse_roots_cost(m, g, 2));
+	} else {
+		nid A1, A3, A4, A5;
+		cw[0] = SUB(SUB(SUB(MUL(p[0], q[0]), MUL(p[1], q[1])), MUL(p[2],
+		    q[2])), MUL(p[3], q[3]));
+		cw[1] = SUB(ADD(ADD(MUL(p[0], q[1]), MUL(p[1], q[0])), MUL(p[2],
+		    q[3])), MUL(p[3], q[2]));
+		cw[2] = ADD(ADD(SUB(MUL(p[0], q[2]), MUL(p[1], q[3])), MUL(p[2],
+		    q[0])), MUL(p[3], q[1]));
+		cw[3] = ADD(SUB(ADD(MUL(p[0], q[3]), MUL(p[1], q[2])), MUL(p[2],
+		    q[1])), MUL(p[3], q[0]));
+		printf("quaternion product, as its parts:\n");
+		hline(m, "16 products", cw, NULL, 4, &t);
+		if (!more)
+			return;
+		A1 = MUL(ADD(p[3], p[1]), ADD(q[1], q[2]));
+		A3 = MUL(SUB(p[0], p[2]), ADD(q[0], q[3]));
+		A4 = MUL(ADD(p[0], p[2]), SUB(q[0], q[3]));
+		A5 = MUL(mkc(ty, 0.5), ADD(ADD(ADD(A1, A3), A4),
+		    MUL(SUB(p[3], p[1]), SUB(q[1], q[2]))));
+		g[0] = ADD(SUB(A5, A1), MUL(SUB(p[3], p[2]), SUB(q[2], q[3])));
+		g[1] = ADD(SUB(A5, ADD(ADD(A1, A3), A4)), MUL(ADD(p[1], p[0]),
+		    ADD(q[1], q[0])));
+		g[2] = ADD(SUB(A5, A3), MUL(SUB(p[0], p[1]), ADD(q[2], q[3])));
+		g[3] = ADD(SUB(A5, A4), MUL(ADD(p[3], p[2]), SUB(q[0], q[1])));
+		hline(m, "8 products", g, cw, 4, &t);
+	}
+	printf("  (%s; its sums of products cancel, and each part's line "
+	    "says by how much)\n", dim == 2 ? "Gauss: three multiplications "
+	    "for four, three more additions" : "eight multiplications for "
+	    "sixteen, more additions and a halving");
+}
+
 /* ---- powers by squaring ---- */
 
 static nid
