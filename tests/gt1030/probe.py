@@ -327,7 +327,9 @@ probe('value', 'unorm_rounding', [211], how='unorm', queue='FILA 107 (#10)',
 probe('value', 'filter_weights', [116, 117], how='filter',
       note='a 4x1 R8 ramp (0, 255, 37, 200) read bilinear at 4096 points across two texel pairs, and every '
            '2^-20 of a texel over the first 1/16 of one')
-probe('info', 'subtexel_bits', [117], note='vulkaninfo: VkPhysicalDeviceLimits.subTexelPrecisionBits')
+probe('info', 'subtexel_bits', [117], how='subtexel', note='vulkaninfo: VkPhysicalDeviceLimits.subTexelPrecisionBits')
+probe('info', 'float_controls', [178], how='float_controls',
+      note='vulkaninfo: VkPhysicalDeviceFloatControlsProperties, the execution modes a module may declare')
 probe('value', 'repeat_large', [119], how='repeat',
       note='NEAREST REPEAT on a 256x1 R32UI table at (i + 0.5) / 256 for i near 0 and near +-2^22')
 probe('value', 'bc4_palette', [122], how='bc4',
@@ -1159,22 +1161,60 @@ def value_bc4(p):
                 off_entries=len(entries), examples=entries[:10])
 
 
-def info_subtexel(p):
-    out = run_tool(['vulkaninfo'], log_path('vulkaninfo.log'), 120)
-    gpus = []
-    cur = None
-    for line in out.splitlines():
+# VkPhysicalDeviceFloatControlsProperties' fields and the word the model's `float_controls:` takes for each
+FC_WORDS = (('shaderRoundingModeRTEFloat', 'rte'), ('shaderRoundingModeRTZFloat', 'rtz'),
+            ('shaderDenormFlushToZeroFloat', 'ftz'), ('shaderDenormPreserveFloat', 'preserve'),
+            ('shaderSignedZeroInfNanPreserveFloat', 'szinp'))
+
+
+def vulkaninfo_devices(text):
+    """each device vulkaninfo prints: its name, subTexelPrecisionBits and the float controls it reports true"""
+    gpus, cur = [], None
+    for line in text.splitlines():
         s = line.strip()
-        if s.startswith('deviceName') and '=' in s:
-            cur = dict(name=s.split('=', 1)[1].strip())
+        if '=' not in s:
+            continue
+        key, val = (t.strip() for t in s.split('=', 1))
+        if key == 'deviceName':
+            cur = dict(name=val, fc={})
             gpus.append(cur)
-        elif s.startswith('subTexelPrecisionBits') and '=' in s and cur is not None and 'subtexel' not in cur:
-            cur['subtexel'] = int(s.split('=', 1)[1].strip())
-    if not gpus or not any('subtexel' in g for g in gpus):
+        elif cur is None:
+            continue
+        elif key == 'subTexelPrecisionBits' and 'subtexel' not in cur:
+            cur['subtexel'] = int(val)
+        else:
+            for field, word in FC_WORDS:
+                m = re.fullmatch(field + r'(16|32|64)', key)
+                if m and word + m.group(1) not in cur['fc']:
+                    cur['fc'][word + m.group(1)] = val == 'true'
+    return gpus
+
+
+def the_card(gpus, need):
+    """the GT 1030 among the devices that report need, else the first that does"""
+    have = [g for g in gpus if need(g)]
+    if not have:
+        return None
+    return next((g for g in have if '1030' in g['name']), have[0])
+
+
+def info_subtexel(p):
+    gpus = vulkaninfo_devices(run_tool(['vulkaninfo'], log_path('vulkaninfo.log'), 120))
+    pick = the_card(gpus, lambda g: 'subtexel' in g)
+    if not pick:
         raise ProbeError('vulkaninfo printed no subTexelPrecisionBits (raw/vulkaninfo.log)')
-    pick = next((g for g in gpus if '1030' in g['name'] and 'subtexel' in g), None) or \
-        next(g for g in gpus if 'subtexel' in g)
-    return dict(device=pick['name'], subtexel=pick['subtexel'], devices=gpus)
+    return dict(device=pick['name'], subtexel=pick['subtexel'], devices=[g['name'] for g in gpus])
+
+
+def info_float_controls(p):
+    gpus = vulkaninfo_devices(run_tool(['vulkaninfo'], log_path('vulkaninfo_fc.log'), 120))
+    pick = the_card(gpus, lambda g: g['fc'])
+    if not pick:
+        raise ProbeError('vulkaninfo printed no VkPhysicalDeviceFloatControlsProperties (raw/vulkaninfo_fc.log)')
+    return dict(device=pick['name'], words=sorted(w for w, on in pick['fc'].items() if on), fields=pick['fc'])
+
+
+INFOS = dict(subtexel=info_subtexel, float_controls=info_float_controls)
 
 
 UNITS = dict(dispatch=unit_setup_binding, draw=unit_draw_empty, points=unit_points, rop=unit_rop,
@@ -1256,6 +1296,10 @@ def model_lines(res):
             L.append(('', '#65 no knee: every footprint below twice the %d KiB one (%s)' % (
                 cs[0][0], ', '.join('%d KiB %.2f' % kc for kc in cs))))
         used.update(p['name'] for p in P if p['name'].startswith('cache_'))
+    fc = res.get('float_controls', {})
+    if 'words' in fc:
+        L.append(('float_controls: %s' % (' '.join(fc['words']) or 'none'),
+                  '#178 vulkaninfo on %s: VkPhysicalDeviceFloatControlsProperties' % fc['device']))
     rb = res.get('rop_blend', {})
     br = res.get('blend_rounding', {})
     if br.get('add_moved') and br.get('add_unblended') == br['add_moved']:
@@ -1353,6 +1397,8 @@ def summary(p, r):
             grid, r['distinct'], r['samples'], 'is the f32 nearest' if r['blend_exact'] else
             'is at most %.3g (%.3g of an 8-bit step) from' % (r['max_error_abs'], r['max_error_255']),
             r['error_against'])
+    if n == 'float_controls':
+        return 'on %s: %s' % (r['device'], ' '.join(r['words']) or 'none')
     if n == 'subtexel_bits':
         return 'subTexelPrecisionBits %d on %s' % (r['subtexel'], r['device'])
     if n == 'repeat_large':
@@ -1508,7 +1554,7 @@ def main():
             elif p['kind'] == 'lat':
                 r.update(LATS[p['how']](p))
             elif p['kind'] == 'info':
-                r.update(info_subtexel(p))
+                r.update(INFOS[p['how']](p))
             elif p['kind'] == 'absent':
                 r['tool_has_it'] = bool(p.get('key') and re.search(p['key'], helptext))
         except ProbeError as e:
@@ -1529,6 +1575,12 @@ def main():
     with open(path, 'w') as fh:
         fh.write(model)
     check = ucas_reads(path)
+    if 'REFUSED' in check and '\n  float_controls:' in model:
+        # a ucas from before float_controls (#558) takes the rest of the model
+        model = model.replace('\n  float_controls:', '\n  # (this ucas refuses float_controls) float_controls:')
+        with open(path, 'w') as fh:
+            fh.write(model)
+        check = '%s (float_controls commented out; the first read: %s)' % (ucas_reads(path), check)
     report(res, dev, model, check)
     failed = [n for n, r in res.items() if 'error' in r]
     print('\n' + model)

@@ -389,6 +389,47 @@ def what_the_tool_cannot_do_is_named():
     for n, i in (('dispatch_empty', 53), ('export', 50)):
         assert n in have and i in have[n]['issues'], '%s: no probe for #%d' % (n, i)
 
+
+VULKANINFO = """
+GPU0:
+VkPhysicalDeviceProperties:
+	deviceName        = llvmpipe (LLVM 22.1.8, 256 bits)
+	VkPhysicalDeviceLimits:
+		subTexelPrecisionBits = 8
+VkPhysicalDeviceFloatControlsProperties:
+	shaderRoundingModeRTEFloat32 = true
+	shaderDenormPreserveFloat32 = true
+GPU1:
+VkPhysicalDeviceProperties:
+	deviceName        = NVIDIA GeForce GT 1030
+	VkPhysicalDeviceLimits:
+		subTexelPrecisionBits = 8
+VkPhysicalDeviceFloatControlsProperties:
+	denormBehaviorIndependence = SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY
+	shaderSignedZeroInfNanPreserveFloat16 = true
+	shaderSignedZeroInfNanPreserveFloat32 = true
+	shaderDenormPreserveFloat32 = false
+	shaderDenormFlushToZeroFloat32 = true
+	shaderRoundingModeRTEFloat32 = true
+	shaderRoundingModeRTZFloat32 = true
+	shaderRoundingModeRTEFloat64 = true
+VkPhysicalDeviceVulkan12Properties:
+	shaderDenormFlushToZeroFloat32 = false
+"""
+
+
+@check
+def float_controls_from_vulkaninfo():
+    """#178's float_controls: the GT 1030's true fields in vulkaninfo, each as the model's word (the first
+    report of a field counts), and the model line written from them"""
+    gpus = PR.vulkaninfo_devices(VULKANINFO)
+    card = PR.the_card(gpus, lambda g: g['fc'])
+    words = sorted(w for w, on in card['fc'].items() if on)
+    assert card['name'] == 'NVIDIA GeForce GT 1030' and card['subtexel'] == 8, card
+    assert words == ['ftz32', 'rte32', 'rte64', 'rtz32', 'szinp16', 'szinp32'], words
+    lines = [ln for ln, cm in PR.model_lines({'float_controls': dict(device=card['name'], words=words)})[0] if ln]
+    assert lines == ['float_controls: ftz32 rte32 rte64 rtz32 szinp16 szinp32'], lines
+
 def main():
     failed = 0
     for fn in CHECKS:
