@@ -2624,6 +2624,37 @@ parse_model(struct P *p)
 			}
 			continue;
 		}
+		if (n == 14 && !memcmp(s, "float_controls", 14)) {
+			/* float_controls: rte32 ftz32 ...: the modes the device
+			 * lets a module declare; none: not stated */
+			int bits = 0, w;
+			adv(p);
+			if (!accept(p, T_COLON))
+				expect(p, T_ASSIGN);
+			if (accept_kw(p, "none")) {
+				m->par[MP_FLOAT_CONTROLS] = 0;
+				continue;
+			}
+			while (pk(p) == T_ID) {
+				size_t wn;
+				const char *ws = ttext(p, p->i, &wn);
+				for (w = 0; w < FC_NWORD; w++)
+					if (strlen(fc_word[w]) == wn && !memcmp(ws,
+					    fc_word[w], wn))
+						break;
+				if (w == FC_NWORD)
+					fail("float_controls: '%.*s' is not a mode: rteN, "
+					    "rtzN, ftzN, preserveN or szinpN, N 16, 32 or "
+					    "64 (none: not stated)", (int)wn, ws);
+				bits |= 1 << w;
+				adv(p);
+			}
+			if (!bits)
+				fail("float_controls: expected the modes (rte32 ftz32 "
+				    "...) or none");
+			m->par[MP_FLOAT_CONTROLS] = (float)bits;
+			continue;
+		}
 		k = (n == 3 && !memcmp(s, "all", 3)) ? -1 : cclass_find(s, n);
 		if (k == -2) {
 			/* parameters, not prices: banks, bank_bytes, warp (memk.h);
