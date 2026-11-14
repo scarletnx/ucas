@@ -70,3 +70,42 @@ float simplify: 0 rewrites of float instructions applied, each with a derivation
   float cost under gt1030 (each component counted; step = compare + select, mix = subtract + fma): 2 -> 2 (+0.0%)
   nothing applied: no cheaper float form could be proved
 advice: nothing in this module depends only on its uniforms or its flat inputs, is affine in its varyings or in gl_FragCoord, is what a vertex format or an instance divisor computes, is a discard the clipper could do, is a point sprite's coordinate, or keeps the depth test after a fragment shader with effects
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile overdraw 4
+simplify: 58 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  early fragment tests (EarlyFragmentTests, `layout(early_fragment_tests) in;`: the depth and stencil tests run before the shader, so a fragment they reject does not run; not priced: gt1030 has no price for a fragment's whole run):
+    offered: the shader has 1 effect others see and writes no depth, stencil or sample mask and never discards; without the mode its hidden fragments must run for those effects, so the tests wait for it; with it a hidden fragment skips the whole shader, and stores nothing (a proposal: what hidden fragments stored is no longer stored)
+    with overdraw 4 (fragments a pixel): late tests run the shader 4 times a pixel; early tests once front to back (3 runs saved), H_4 = 2.08 times in a random order (1.92 saved), 4 times back to front (none saved); a depth-only prepass makes it once in any order, for the vertices again and 4 depth-only fragments a pixel
+    %17 = OpAtomicIAdd %uint %14 %uint_1 %uint_0 %uint_1
+        (line 6: atomicAdd(c.drawn, 1u);)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile overdraw 3
+simplify: 71 SPIR-V instructions, 0 rewrites proved by SAT (bit-precise: equal for every input), 0 dead instructions removed
+  integer arithmetic cost under gt1030 (each instruction once): 0 -> 0
+  nothing to rewrite: no cheaper form of an integer instruction could be proved
+  proved; the operands' definitions were expanded up to 16 levels, the rest (loads, loop phis, spec constants) are free inputs
+advice (changes outside the module; nothing here is rewritten), priced under gt1030:
+  discards the clipper could do (each a proposal: the vertex shader writes gl_ClipDistance and no fragment runs where it is below 0; not priced: gt1030 has no price for a fragment's whole run):
+    %18 = OpFOrdLessThan %bool %15 %float_0_25
+        (line 6: if (uv.x < 0.25))
+      not offered: the shader does more than write its outputs (a store others see, an atomic or an image write), which a clipped fragment would not do
+  early fragment tests (EarlyFragmentTests, `layout(early_fragment_tests) in;`: the depth and stencil tests run before the shader, so a fragment they reject does not run; not priced: gt1030 has no price for a fragment's whole run):
+    not offered: the shader discards: with early tests the depth and stencil are written before it runs, so a discarded fragment would still write them; it holds for a pipeline that writes neither (a depth test with writes off)
+    with overdraw 3 (fragments a pixel): it runs 3 times a pixel; a depth-only prepass (the discard's test and the depth in a pass of its own, then this shader on an EQUAL test) runs it once, 2 runs saved, for the vertices again and 3 fragments of the prepass a pixel
+    %30 = OpAtomicIAdd %uint %28 %uint_1 %uint_0 %uint_1
+        (line 8: atomicAdd(c.drawn, 1u);)
+    OpKill
+        (line 7: discard;)
+  note: the ```glsl block was compiled to SPIR-V with glslangValidator
+  optimized with spirv-opt -O (what follows is beyond that)
+> spvsimplify nofile overdraw 0.5
+adviceearly.ucas:103:32: error: simplify: overdraw K is the fragments a pixel gets, from 1 to 1e6, not 0.5
+    spvsimplify nofile overdraw 0.5
+                                   ^
+  note: the ```spv code block was not used (animate exec and simplify take SPIR-V, c optimize takes C)

@@ -5463,7 +5463,9 @@ offset, error_nearest, error_period, and `probabilistic` with its
 
 `simplify` adds a report of what the module computes that changes less
 often than it runs, whenever it finds some; `advice` ("and advise",
-"what could be hoisted") also has it say when it finds none.  Nothing
+"what could be hoisted") also has it say when it finds none, and
+`overdraw K` gives the fragments a pixel gets (below, early fragment
+tests).  Nothing
 is rewritten: the change is to the pipeline's interface
 (a push constant, a uniform, a varying), which is the host's.  Each
 instruction gets the lowest frequency its operands allow (src/spirv.c,
@@ -5612,8 +5614,16 @@ which the module does not show) or discards or writes gl_SampleMask
 so a fragment it drops would still write them: it holds for a pipeline
 that writes neither).  A shader without such effects is left alone: a
 driver may already test it early.  Not priced: no model prices a
-fragment's whole run, and what it saves is the overdraw, which a module
-does not carry (tests/adviceearly.ucas).
+fragment's whole run.  What it saves is the overdraw, which a module
+does not carry: `overdraw K` (in English "an overdraw of 4"; it asks for
+the advice too) says how many fragments a pixel gets, and the advice
+counts the shader's runs a pixel: K with late tests; with early ones 1
+front to back, H_K = 1 + 1/2 + ... + 1/K in a random order of depths (a
+fragment runs where it is nearer than all before it), K back to front;
+a depth-only prepass makes it 1 in any order, for the vertices again
+and K depth-only fragments a pixel, and is the form said for a shader
+that discards (the discard's test in the prepass, then this shader on
+an EQUAL test) (tests/adviceearly.ucas).
 
 JSON: the result gains `advice_draw`, `advice_primitive`,
 `advice_vertex`, `advice_screen`, `advice_vertex_inputs`,

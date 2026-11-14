@@ -3047,6 +3047,22 @@ statement(struct P *p)
 				}
 				else if (accept_kw(p, "advice"))
 					spirv_advice_opt(1);
+				else if (accept_kw(p, "overdraw")) {
+					/* the fragments a pixel gets, for the advice's
+					 * early fragment tests */
+					nid nn;
+					double v;
+					if (pk(p) != T_NUM)
+						fail("simplify: overdraw K needs the fragments a "
+						    "pixel gets, a number from 1");
+					nn = number(p);
+					v = TY_FP(N.ty[nn]) ? N.kr[nn] : (double)N.ki[nn];
+					if (!(v >= 1) || v > 1e6)
+						fail("simplify: overdraw K is the fragments a "
+						    "pixel gets, from 1 to 1e6, not %g", v);
+					spirv_overdraw_opt(v);
+					spirv_advice_opt(1);
+				}
 				else if (accept_kw(p, "texture")) {
 					/* the descriptor the host binds a table's texture
 					 * at: the read is written into the module */

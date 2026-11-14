@@ -8818,6 +8818,8 @@ simplify_piece(struct sbuf *piece, int c)
 	char ulp[32] = "", num[32] = "", fl[320] = "", sink[48] = "";
 	char tol[40] = "";	/* "tol 1e-12", "atol 0.001": f64 results */
 	int f_foldproof = 0, tolabs = 0, want_tol = 0, f_sinkint = 0;
+	int want_od = 0;	/* "overdraw 4", "an overdraw of 4" */
+	char odraw[16] = "";
 	char texbind[32] = "";
 	int hit = 0, anim = 0, nofile = 0, k, first = 1;
 	int f_float = 0, f_exact = 0, f_approx = 0, f_percomp = 0, per = 0;
@@ -8861,6 +8863,15 @@ simplify_piece(struct sbuf *piece, int c)
 					while (isdigit((unsigned char)*q) && b + 1 < sizeof seed)
 						seed[b++] = *q++;
 					seed[b] = 0;
+					continue;
+				}
+				if (isdigit((unsigned char)*q) && !cmt && !odraw[0] &&
+				    want_od) {
+					size_t b = 0;
+					while ((isdigit((unsigned char)*q) || *q == '.') &&
+					    b + 1 < sizeof odraw)
+						odraw[b++] = *q++;
+					odraw[b] = 0;
 					continue;
 				}
 				if (isdigit((unsigned char)*q) && !cmt && !tol[0] &&
@@ -8967,6 +8978,10 @@ simplify_piece(struct sbuf *piece, int c)
 				    "absolute");
 			} else if (strcmp(lw, "of") && strcmp(lw, "is"))
 				want_tol = 0;
+			if (!strcmp(lw, "overdraw"))
+				want_od = 1;
+			else if (strcmp(lw, "of") && strcmp(lw, "is"))
+				want_od = 0;
 
 			if ((!strcmp(lw, "ulp") || !strcmp(lw, "ulps")) && num[0] &&
 			    !ulp[0])
@@ -9082,6 +9097,9 @@ simplify_piece(struct sbuf *piece, int c)
 	}
 	if (f_advice && !c)
 		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " advice");
+	if (odraw[0] && !c)
+		snprintf(fl + strlen(fl), sizeof fl - strlen(fl), " overdraw %s",
+		    odraw);
 	/* rebuild: directives kept, the text on one line, blank lines after */
 	{
 		const char *q0 = p;

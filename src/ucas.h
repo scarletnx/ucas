@@ -883,7 +883,8 @@ void spirv_sink_int(void);
  * through the texture unit at that descriptor (-1, -1: proposed only) */
 void spirv_tex_binding(int set, int binding);
 int spirv_sink_known(const char *fmt);
-void spirv_advice_opt(int on);	/* report what could leave the shader */
+void spirv_advice_opt(int on);
+void spirv_overdraw_opt(double k);	/* advice: fragments a pixel gets */	/* report what could leave the shader */
 void spirv_fn_opts(int mode);	/* function level: 0 too, 1 alone, 2 not */
 /* glslc.c: GLSL (a snippet is completed) to SPIR-V assembly */
 int glsl_to_spvasm(const char *src, struct sbuf *out, struct sbuf *notes);
