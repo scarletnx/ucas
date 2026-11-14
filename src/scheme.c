@@ -227,12 +227,17 @@ static struct {
 	ty_t t;
 	nid x;
 	int fp, fail;
+	int wrap;	/* Eve's whole-number form: arithmetic modulo 2^64 */
 	int64_t ci0[13];	/* an integer polynomial's coefficients, exact */
 } A;
 
 static int
 iadd_ok(int64_t a, int64_t b, int64_t *r)
 {
+	if (A.wrap) {
+		*r = (int64_t)((uint64_t)a + (uint64_t)b);
+		return 1;
+	}
 	if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
 		return 0;
 	*r = a + b;
@@ -242,6 +247,10 @@ iadd_ok(int64_t a, int64_t b, int64_t *r)
 static int
 imul_ok(int64_t a, int64_t b, int64_t *r)
 {
+	if (A.wrap) {
+		*r = (int64_t)((uint64_t)a * (uint64_t)b);
+		return 1;
+	}
 	if (a == 0 || b == 0) {
 		*r = 0;
 		return 1;
@@ -619,6 +628,385 @@ ps_split(const double *c, int d)
 }
 
 /*
+ * ---- Eve's form ----
+ *
+ * Knuth, TAOCP 4.6.4 (theorem E and its proof): a monic v of odd degree
+ * 2m + 1 is (x^2 - t) q + b, q monic of degree 2m - 1, when t is a root of
+ * v's odd part O (v = E(x^2) + x O(x^2)), since the remainder of v by
+ * x^2 - t is E(t) + x O(t).  Down to a cubic, (x^2 + a1)(x + a2) + a0 -
+ * a1 a2; an even degree is x w + v0, and the leading coefficient a last
+ * multiplication: about n/2 + 2 multiplications, x^2 computed once.  Where
+ * an odd part has no root the polynomial is taken in x + c.  Floats take
+ * real roots (of the ones a level has, the one that keeps the next
+ * level's coefficients smallest); `int` takes the integer ones; a type
+ * that wraps takes roots modulo 2^w, lifted a bit at a time, and an odd
+ * leading coefficient's inverse, so the form is an identity modulo 2^w.
+ */
+#define EVE_MAXL 6
+
+struct eve {
+	int even, nl;
+	long double c, t[EVE_MAXL], b[EVE_MAXL], a0, a1, a2, v0, lead;
+	int64_t ci, ti[EVE_MAXL], bi[EVE_MAXL], a0i, a1i, a2i, v0i, leadi;
+};
+
+/* the real roots of c[0..m] (c[m] != 0), ascending, by its critical points */
+static int
+eve_real_roots(const long double *c, int m, long double *out)
+{
+	long double d[EVE_MAXL + 1], cr[EVE_MAXL + 2], B = 0;
+	int nc, i, n = 0;
+
+	if (m == 1) {
+		out[0] = -c[0] / c[1];
+		return 1;
+	}
+	for (i = 1; i <= m; i++)
+		d[i - 1] = i * c[i];
+	for (i = 0; i < m; i++)
+		B = fmaxl(B, fabsl(c[i] / c[m]));
+	nc = eve_real_roots(d, m - 1, cr + 1);
+	cr[0] = -(B + 1);
+	cr[nc + 1] = B + 1;
+	for (i = 0; i <= nc; i++) {
+		long double lo = cr[i], hi = cr[i + 1], plo = 0, phi = 0;
+		int j, k;
+		for (j = m; j >= 0; j--) {
+			plo = plo * lo + c[j];
+			phi = phi * hi + c[j];
+		}
+		if (plo == 0 && (n == 0 || out[n - 1] != lo)) {
+			out[n++] = lo;
+			continue;
+		}
+		if ((plo < 0) == (phi < 0) || phi == 0)
+			continue;
+		for (k = 0; k < 200; k++) {
+			long double mid = (lo + hi) / 2, pm = 0;
+			for (j = m; j >= 0; j--)
+				pm = pm * mid + c[j];
+			if ((pm < 0) == (plo < 0))
+				lo = mid;
+			else
+				hi = mid;
+		}
+		out[n++] = (lo + hi) / 2;
+	}
+	return n;
+}
+
+/* p[0..n] (p[n] = 1, n odd) by x^2 - t: q[0..n-2] and the constant left */
+static long double
+eve_div(const long double *p, int n, long double t, long double *q)
+{
+	int i;
+
+	q[n - 2] = p[n];
+	q[n - 3] = p[n - 1];
+	for (i = n - 4; i >= 0; i--)
+		q[i] = p[i + 2] + t * q[i + 2];
+	return p[0] + t * q[0];
+}
+
+/* down from degree n (odd, monic) to the cubic, level lv; 0 where stuck */
+static int
+eve_down(const long double *p, int n, struct eve *e, int lv, int whole)
+{
+	long double O[EVE_MAXL + 1], r[EVE_MAXL], q[13], qb[13], size[EVE_MAXL];
+	int m = (n - 1) / 2, nr, i, j, ord[EVE_MAXL];
+
+	if (n == 3) {
+		e->a2 = p[2];
+		e->a1 = p[1];
+		e->a0 = p[0] - p[1] * p[2];
+		e->nl = lv;
+		return 1;
+	}
+	for (i = 0; i <= m; i++)
+		O[i] = p[2 * i + 1];
+	nr = eve_real_roots(O, m, r);
+	for (i = j = 0; i < nr; i++) {
+		long double o = 0;
+		int k;
+		if (whole) {
+			r[i] = rintl(r[i]);
+			for (k = m; k >= 0; k--)
+				o = o * r[i] + O[k];
+			if (o != 0 || fabsl(r[i]) > 1e6L)
+				continue;
+		}
+		size[j] = fabsl(eve_div(p, n, r[i], q));
+		for (k = 0; k <= n - 2; k++)
+			size[j] = fmaxl(size[j], fabsl(q[k]));
+		r[j++] = r[i];
+	}
+	nr = j;
+	for (i = 0; i < nr; i++)
+		ord[i] = i;
+	for (i = 1; i < nr; i++)
+		for (j = i; j > 0 && size[ord[j]] < size[ord[j - 1]]; j--) {
+			int s = ord[j];
+			ord[j] = ord[j - 1];
+			ord[j - 1] = s;
+		}
+	for (i = 0; i < nr; i++) {
+		e->t[lv] = r[ord[i]];
+		e->b[lv] = eve_div(p, n, e->t[lv], qb);
+		if (eve_down(qb, n - 2, e, lv + 1, whole))
+			return 1;
+	}
+	return 0;
+}
+
+/* modulo 2^64 */
+static uint64_t
+eve_pev(const uint64_t *c, int m, uint64_t x)
+{
+	uint64_t v = 0;
+	int j;
+
+	for (j = m; j >= 0; j--)
+		v = v * x + c[j];
+	return v;
+}
+
+static int64_t
+eve_cen(uint64_t u, int w)
+{
+	if (w < 64) {
+		u &= ((uint64_t)1 << w) - 1;
+		if (u >> (w - 1))
+			return (int64_t)u - ((int64_t)1 << (w - 1)) -
+			    ((int64_t)1 << (w - 1));
+	}
+	return (int64_t)u;
+}
+
+/* the roots of o[0..m] modulo 2^w, lifted a bit at a time, smallest first */
+static int
+eve_roots_mod(const uint64_t *o, int m, int w, int64_t *out, int max)
+{
+	uint64_t S[64], T[64];
+	int ns = 0, nt, k, i, b, j;
+
+	for (b = 0; b < 2; b++)
+		if ((eve_pev(o, m, (uint64_t)b) & 1) == 0)
+			S[ns++] = (uint64_t)b;
+	for (k = 1; k < w && ns; k++) {
+		uint64_t mask = k + 1 >= 64 ? ~(uint64_t)0 :
+		    ((uint64_t)1 << (k + 1)) - 1;
+		nt = 0;
+		for (i = 0; i < ns; i++)
+			for (b = 0; b < 2; b++) {
+				uint64_t t = S[i] | ((uint64_t)b << k);
+				if ((eve_pev(o, m, t) & mask) == 0 && nt < 64)
+					T[nt++] = t;
+			}
+		memcpy(S, T, (size_t)nt * sizeof *S);
+		ns = nt;
+	}
+	for (i = 0; i < ns; i++) {
+		int64_t v = eve_cen(S[i], w);
+		uint64_t av = v < 0 ? -(uint64_t)v : (uint64_t)v;
+		for (j = i; j > 0; j--) {
+			int64_t u = (int64_t)T[j - 1];
+			if ((u < 0 ? -(uint64_t)u : (uint64_t)u) <= av)
+				break;
+			T[j] = T[j - 1];
+		}
+		T[j] = (uint64_t)v;
+	}
+	for (i = 0; i < ns && i < max; i++)
+		out[i] = (int64_t)T[i];
+	return ns < max ? ns : max;
+}
+
+/* eve_down modulo 2^w */
+static int
+eve_down_mod(const uint64_t *p, int n, int w, struct eve *e, int lv)
+{
+	uint64_t O[EVE_MAXL + 1], q[13];
+	int64_t r[4];
+	int m = (n - 1) / 2, nr, i, k;
+
+	if (n == 3) {
+		e->a2i = eve_cen(p[2], w);
+		e->a1i = eve_cen(p[1], w);
+		e->a0i = eve_cen(p[0] - p[1] * p[2], w);
+		e->nl = lv;
+		return 1;
+	}
+	for (i = 0; i <= m; i++)
+		O[i] = p[2 * i + 1];
+	nr = eve_roots_mod(O, m, w, r, 4);
+	for (i = 0; i < nr; i++) {
+		uint64_t t = (uint64_t)r[i];
+		q[n - 2] = p[n];
+		q[n - 3] = p[n - 1];
+		for (k = n - 4; k >= 0; k--)
+			q[k] = p[k + 2] + t * q[k + 2];
+		e->ti[lv] = r[i];
+		e->bi[lv] = eve_cen(p[0] + t * q[0], w);
+		if (eve_down_mod(q, n - 2, w, e, lv + 1))
+			return 1;
+	}
+	return 0;
+}
+
+/* a + v, v a whole number of the type (A.wrap: modulo 2^64) */
+static struct pe
+pe_addi(struct pe a, int64_t v)
+{
+	if (v == 0)
+		return a;
+	if (v < 0 && v != INT64_MIN)
+		a.e = SUB(a.e, mk_const_i(A.t, -v));
+	else
+		a.e = ADD(a.e, mk_const_i(A.t, v));
+	a.c[0] += (double)v;
+	if (!iadd_ok(a.ci[0], v, &a.ci[0]))
+		A.fail = 1;
+	return a;
+}
+
+/* v a, nothing for 1, the constant first */
+static struct pe
+pe_muli(int64_t v, struct pe a)
+{
+	int i;
+
+	if (v == 1)
+		return a;
+	a.e = MUL(mk_const_i(A.t, v), a.e);
+	for (i = 0; i <= a.deg; i++) {
+		a.c[i] *= (double)v;
+		if (!imul_ok(a.ci[i], v, &a.ci[i]))
+			A.fail = 1;
+	}
+	return a;
+}
+
+/* a whole number of int's arithmetic, or the form fails */
+static int64_t
+eve_whole(long double v)
+{
+	if (v != rintl(v) || fabsl(v) > 9e15L) {
+		A.fail = 1;
+		return 0;
+	}
+	return (int64_t)v;
+}
+
+/*
+ * Eve's form of c[0..d] (d >= 5), the shift tried 0, 1, -1, 2, -2, 3, -3;
+ * *why: what stopped it, when it fails.
+ */
+static struct pe
+eve(const double *c, int d, const char **why)
+{
+	static const int shifts[] = {0, 1, -1, 2, -2, 3, -3};
+	int w = TY_SIZED(A.t) && TYW(A.t) < 64 ? TYW(A.t) : 64, s, i, j;
+	struct eve e;
+	struct pe x = pe_var(), z, y, B;
+
+	A.wrap = !A.fp && TY_SIZED(A.t);
+	*why = "an odd part has no root at any of the shifts tried";
+	memset(&e, 0, sizeof e);
+	if (A.wrap) {
+		uint64_t u[13], inv, v[13];
+		for (i = 0; i <= d; i++)
+			u[i] = (uint64_t)A.ci0[i];
+		if (!(u[d] & 1)) {
+			*why = "its leading coefficient is even: no inverse modulo 2^w";
+			A.fail = 1;
+			goto out;
+		}
+		for (inv = u[d], i = 0; i < 6; i++)
+			inv *= 2 - u[d] * inv;	/* Newton: odd u's inverse */
+		e.leadi = eve_cen(u[d], w);
+		for (s = 0; s < 7; s++) {
+			uint64_t sh = (uint64_t)(int64_t)-shifts[s];
+			for (i = 0; i <= d; i++)
+				v[i] = u[i] * inv;
+			/* v(z + sh), so that it is the polynomial at z = x + c */
+			for (i = 0; i < d; i++)
+				for (j = d - 1; j >= i; j--)
+					v[j] += sh * v[j + 1];
+			e.ci = shifts[s];
+			e.even = !(d & 1);
+			e.v0i = eve_cen(v[0], w);
+			if (eve_down_mod(e.even ? v + 1 : v, e.even ? d - 1 : d, w,
+			    &e, 0))
+				break;
+		}
+	} else {
+		long double v[13];
+		for (s = 0; s < 7; s++) {
+			long double sh = -shifts[s];
+			for (i = 0; i <= d; i++)
+				v[i] = (long double)c[i] / c[d];
+			for (i = 0; i < d; i++)
+				for (j = d - 1; j >= i; j--)
+					v[j] += sh * v[j + 1];
+			e.c = shifts[s];
+			e.even = !(d & 1);
+			e.v0 = v[0];
+			e.lead = c[d];
+			if (eve_down(e.even ? v + 1 : v, e.even ? d - 1 : d, &e, 0,
+			    !A.fp))
+				break;
+		}
+		if (s < 7 && !A.fp) {
+			/* int: every constant whole, or no form */
+			e.ci = (int64_t)e.c;
+			e.leadi = eve_whole(e.lead);
+			e.v0i = eve_whole(e.v0);
+			e.a0i = eve_whole(e.a0);
+			e.a1i = eve_whole(e.a1);
+			e.a2i = eve_whole(e.a2);
+			for (i = 0; i < e.nl; i++) {
+				e.ti[i] = eve_whole(e.t[i]);
+				e.bi[i] = eve_whole(e.b[i]);
+			}
+			if (A.fail)
+				*why = "its constants are not whole numbers here";
+		}
+	}
+	if (s == 7) {
+		A.fail = 1;
+		goto out;
+	}
+	if (A.fail)
+		goto out;
+	if (A.fp) {
+		z = e.c == 0 ? x : pe_addc(x, (double)e.c);
+		y = pe_mul(z, z);
+		B = pe_addc(pe_mul(pe_addc(y, (double)e.a1), pe_addc(z,
+		    (double)e.a2)), (double)e.a0);
+		for (i = e.nl - 1; i >= 0; i--)
+			B = pe_addc(pe_mul(pe_addc(y, (double)-e.t[i]), B),
+			    (double)e.b[i]);
+		if (e.even)
+			B = pe_addc(pe_mul(z, B), (double)e.v0);
+		B = pe_mulc((double)e.lead, B);
+	} else {
+		z = e.ci == 0 ? x : pe_addi(x, e.ci);
+		y = pe_mul(z, z);
+		B = pe_addi(pe_mul(pe_addi(y, e.a1i), pe_addi(z, e.a2i)), e.a0i);
+		for (i = e.nl - 1; i >= 0; i--)
+			B = pe_addi(pe_mul(pe_addi(y, -e.ti[i]), B), e.bi[i]);
+		if (e.even)
+			B = pe_addi(pe_mul(z, B), e.v0i);
+		B = pe_muli(e.leadi, B);
+	}
+	A.wrap = 0;
+	return B;
+out:
+	A.wrap = 0;
+	return x;
+}
+
+/*
  * ---- compensated Horner ----
  *
  * Horner's rule with the rounding error of every product (2Prod: an fma)
@@ -982,6 +1370,24 @@ poly_scheme(const struct model *m, struct func *f, int more)
 			printf("  %-10s not listed: its adapted coefficients are "
 			    "not %s here\n", "Knuth", A.fp ? "finite" :
 			    "whole numbers");
+		if (d >= 7) {
+			const char *why;
+			A.fail = 0;
+			a = eve(cr, d, &why);
+			r = A.fail ? -1 : pe_resid(&a, cr, d);
+			if (r >= 0 && r <= tol) {
+				line_pe(m, "Eve", &a, r, f);
+				names[nf] = "Eve";
+				forms[nf++] = a.e;
+				shown |= 8;
+			} else if (A.fp && r >= 0)
+				printf("  %-10s not listed: its coefficients cancel (the "
+				    "expansion is off by %.2g of the largest "
+				    "coefficient)\n", "Eve", r);
+			else
+				printf("  %-10s not listed: %s\n", "Eve", A.fail ? why :
+				    "its expansion is not the polynomial");
+		}
 		fuse_domain(f);		/* the block size that prices lowest */
 		for (k = 2; k <= (d + 1) / 2; k++) {
 			A.fail = 0;
@@ -1029,6 +1435,11 @@ poly_scheme(const struct model *m, struct func *f, int more)
 		    "multiplications and more additions than Horner%s)\n",
 		    A.fp ? "; its sums cancel, so it is less exact near a zero "
 		    "of the polynomial" : "");
+	if (shown & 8)
+		printf("  (Eve: at each level (x^2 - t)*q + b, t a root of the odd "
+		    "part%s, down to a cubic: about n/2 + 2 multiplications)\n",
+		    A.fp ? "" : TY_SIZED(t) ? " modulo the type's width" :
+		    ", a whole number");
 	if (shown & 6)
 		printf("  (P-S: Paterson and Stockmeyer;%s%s%s)\n", shown & 2 ?
 		    " blocks of coefficients over the first powers, Horner in "

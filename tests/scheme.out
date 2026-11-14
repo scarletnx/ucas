@@ -139,6 +139,7 @@ polynomial of degree 8 in x:
   Knuth      cost 24     depth 23    14 ops  ((((x - 1)*((x + 1)*x + 1) + 2 + ((x + 1)*x + 1) - 2)*((x - 1)*((x + 1)*x + 1) + 2) + 1)*x + 1)*x + 1
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
+  Eve        not listed: an odd part has no root at any of the shifts tried
   P-S blocks cost 17     depth 16     9 ops  (((x*x + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
@@ -167,6 +168,7 @@ polynomial of degree 7 in x:
   Knuth      cost 23     depth 23    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
+  Eve        not listed: an odd part has no root at any of the shifts tried
   P-S blocks cost 28     depth 15    14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
@@ -194,6 +196,7 @@ polynomial of degree 7 in x:
   Knuth      cost 28     depth 28    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
+  Eve        not listed: an odd part has no root at any of the shifts tried
   P-S blocks cost 35     depth 19    14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
@@ -221,6 +224,7 @@ polynomial of degree 7 in x:
   Knuth      cost 13     depth 13    13 ops  (((((x + 1)*x + 4 + x - 5)*((x + 1)*x + 4) + 13)*x + 11)*x + 13)*x + 15
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
+  Eve        not listed: an odd part has no root at any of the shifts tried
   P-S blocks cost 14     depth 7     14 ops  (((x + 3)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
@@ -247,6 +251,7 @@ polynomial of degree 7 in x:
   Estrin     cost 34     depth 12    16 ops  13x + 15 + (9x + 11)*(x*x) + (5x + 7 + (3x + 1)*(x*x))*(x*x*(x*x))
              equal at all 4096 points checked
   Knuth      not listed: its adapted coefficients are not whole numbers here
+  Eve        not listed: an odd part has no root at any of the shifts tried
   P-S blocks cost 31     depth 16    15 ops  (((3x + 1)*(x*x) + (5x + 7))*(x*x) + (9x + 11))*(x*x) + (13x + 15)
              equal at all 4096 points checked
              expands to the polynomial itself: equal for every x
@@ -298,6 +303,7 @@ polynomial of degree 7 in x:
   Knuth      cost 420.875 depth 388.5 13 ops  2(((x - 2.3298266444481808)*((x + 2.0798266444481808)*x + 4.399472209844534) + 11.289647811800281 + ((x + 2.0798266444481808)*x + 4.399472209844534) - 7.2357143592107782)*((x - 2.3298266444481808)*((x + 2.0798266444481808)*x + 4.399472209844534) + 11.289647811800281) + 1.3678196370550832)*x + 1
              max relative difference 7.2e-16 (rounding) at 4096 points; 2e-15 where the value is 0
              expands to the polynomial within 3.6e-16 of its largest coefficient (the adapted ones are rounded)
+  Eve        not listed: its coefficients cancel (the expansion is off by 1.1e-14 of the largest coefficient)
   P-S blocks cost 420.875 depth 259   13 ops  (((2x + 1)*(x*x) + (2x - 3))*(x*x) + (x + 5))*(x*x) + (-x + 1)
              max relative difference 3.6e-16 (rounding) at 4096 points
              expands to the polynomial itself
@@ -323,6 +329,7 @@ polynomial of degree 12 in x:
   Knuth      cost 22     depth 21    22 ops  ((((((((x - 3.652010358)*((x + 1.652010358)*x + 5.207153761) + 22.35087438 + ((x + 1.652010358)*x + 5.207153761) - 10.04973841)*((x - 3.652010358)*((x + 1.652010358)*x + 5.207153761) + 22.35087438) + 6.029082792)*x - 2)*x + 1)*x + 3)*x - 1)*x + 1)*x - 5
              max relative difference 2.3e-14 (rounding) at 201 points
              expands to the polynomial within 5.3e-16 of its largest coefficient (the adapted ones are rounded)
+  Eve        not listed: its coefficients cancel (the expansion is off by 3.2e-12 of the largest coefficient)
   P-S blocks cost 21     depth 13    21 ops  (((((x*x + (2 - 3x))*(x*x) + (x - 1))*(x*x) + (4x + 1))*(x*x) + (1 - 2x))*(x*x) + (3x - 1))*(x*x) + (x - 5)
              max relative difference 3.9e-15 (rounding) at 201 points
              expands to the polynomial itself

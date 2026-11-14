@@ -6308,13 +6308,13 @@ small one, xfrat.c), the n-th derivative of products.
 
 ### Polynomials in fewer multiplications
 
-`scheme F more` lists, beyond Horner and Estrin, three forms from
+`scheme F more` lists, beyond Horner and Estrin, four forms from
 degree 4 that trade multiplications for additions, compensated Horner
 for an f32 polynomial, and the cheapest of them all with the model's
 fusions counted (src/scheme.c).  Without the word the output is
 Horner's and Estrin's alone.  An integer type's coefficients are read
 exactly: a 64-bit constant keeps every bit (tests/schemeu64.ucas).
-The three forms:
+The four forms:
 
 - **Knuth**: coefficients adapted beforehand (TAOCP 4.6.4).  A quartic
   is `u4*((y + x + a2)*y + a3)` with `y = (x + a0)*x + a1`, three
@@ -6329,6 +6329,24 @@ The three forms:
   to multiply by (0, 1, a power of two) or repeat: x^8 + x^7 + ... + 1
   is `(((x*x + (x + 1))*(x*x) + (x + 1))*(x*x) + (x + 1))*(x*x) +
   (x + 1)`, 14 under gt1030 against Horner's 22.
+- **Eve** (from degree 7; Knuth's theorem E): at each level the
+  polynomial is (x^2 - t)*q + b, t a root of its odd part O (p =
+  E(x^2) + x O(x^2), so the remainder by x^2 - t is E(t) + x O(t)), q
+  monic of degree two less, down to a cubic (x^2 + a1)*(x + a2) + a0; an
+  even degree is x*w + v0: about n/2 + 2 multiplications, x^2 once.  An
+  odd part with no root is retried with the polynomial in x + c, c from
+  -3 to 3.  Floats take real roots (the one that keeps the next level's
+  coefficients smallest), `int` integer ones; a type that wraps takes
+  roots modulo 2^w, lifted a bit at a time from the roots modulo 2, and
+  an odd leading coefficient's inverse, so the form is an identity of
+  the type where Knuth's whole adapted coefficients do not exist:
+  `42 - 47x + ... + x^8` in u32 is 21 under gt1030 at x - 1, against
+  Horner's 22.  Such roots are rare past degree 8: of 60 random
+  polynomials of each degree (coefficients from -50 to 50) a chain of
+  roots modulo 2^32 exists for 13 of degree 7, 14 of degree 8, 2 of
+  degree 9 and none of degree 10 to 12, where it would save the most.
+  In floats the adapted coefficients cancel as Knuth's do
+  (tests/eve.ucas).
 - **P-S split** (from degree 7): their monic splitting
   `p = (x^m + c)*q + r`, q and r monic of degree m - 1 and split again,
   over x^2, x^4, ...: n/2 + log2 n multiplications, and no division
