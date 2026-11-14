@@ -252,10 +252,10 @@ approx tanh(x) on [-3, 3] as f32, fma
   measured on 131061 f32 in [-3, 3]; ulp against the exact value (naive rounding in parentheses)
   an f32 x/y is measured at both ends of Vulkan's 2.5 ulp for it (a GPU's division)
   #   kind      deg   form        error (naive)            max rel       max abs       cost
-  1   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-5.54567294e-17
+  1   minimax   7     horner+fma  4.18e+05 ulp             0.025         0.0248        5    at x=-1.86081905e-09
       x*P(x^2): x*fma(fma(fma(-0.00152674236, s, 0.0306036901), s, -0.224170253), s, 0.975032032) where s = x*x
       rounding of ap1, first order, 5 operations, relative, in u = 2^-24: worst case 9.47, probable no better (under 16 operations), expected 2.91; `error ap1 ~ F` says what each means
-  2   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-5.54567294e-17
+  2   minimax   9     horner+fma  1.53e+05 ulp             0.00915       0.0091        6    at x=-9.30409527e-10
       x*P(x^2): x*fma(fma(fma(fma(0.000248046214, s, -0.0060768961), s, 0.056944713), s, -0.274004072), s, 0.990858138) where s = x*x
   3   rational  3/2   horner+fma  4.38e+04 ulp             0.00262       0.0026        7    at x=0.000487802521
       x*P(x^2)/Q(x^2): x*fma(0.0495898575, s, 0.997384727)/fma(0.371250153, s, 1.0) where s = x*x
