@@ -802,8 +802,9 @@ coef_k(ty_t t, const double *c, const int64_t *ki, int k, int mag)
 {
 	if (TY_FP(t))
 		return mkc(t, mag ? fabs(c[k]) : c[k]);
-	return mk_const_i(t, mag && ki[k] < 0 ? (int64_t)(0 - (uint64_t)ki[k]) :
-	    ki[k]);
+	/* an unsigned one is never negative: added as it is (an IMAD) */
+	return mk_const_i(t, mag && ki[k] < 0 && TYK(t) != K_UINT ?
+	    (int64_t)(0 - (uint64_t)ki[k]) : ki[k]);
 }
 
 /* -v of a constant node k whose value is hv */
@@ -837,9 +838,8 @@ poly_scheme(const struct model *m, struct func *f, int more)
 		if (!num_of(P.c[k], &c[k]))
 			return 0;
 	/*
-	 * an integer type's coefficients exactly, centred modulo its width
-	 * (u64's 2^64 - 1 is -1, u32's 4294967295 too): a double holds them
-	 * only to 2^53, and int64 only below 2^63
+	 * an integer type's coefficients exactly, as its constants hold them
+	 * (a double holds them only to 2^53); c keeps their sign and size
 	 */
 	for (k = 0; k <= P.deg && !TY_FP(t); k++) {
 		nid q = P.c[k];
@@ -855,11 +855,11 @@ poly_scheme(const struct model *m, struct func *f, int more)
 			    "type)", k, c[k]);
 		if (w < 64) {
 			u &= ((uint64_t)1 << w) - 1;
-			if (u >> (w - 1))
+			if (TYK(t) == K_SINT && u >> (w - 1))
 				u -= (uint64_t)1 << w;
 		}
 		ki[k] = (int64_t)u;
-		c[k] = (double)ki[k];
+		c[k] = TYK(t) == K_UINT ? (double)u : (double)ki[k];
 	}
 	d = P.deg;
 	x = var_of(s, f->p[s].name, f->p[s].ty);
