@@ -2542,10 +2542,11 @@ float_rewrites(struct func *f)
 }
 
 static void snip_lookup(const char *name);
+static void saturate_find(void);
 
 void
 cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost,
-    int snip, const char *snipname)
+    int snip, const char *snipname, int saturate)
 {
 	int j, fpar = 0;
 
@@ -2624,6 +2625,8 @@ cmd_find(struct func *f, int want, const uint8_t *opsel, int maxcost,
 	tex_find(&F.f);
 	if (snip)
 		snip_lookup(snipname);
+	if (saturate)
+		saturate_find();
 	rep_list("implementations");
 	run_levels(want, maxcost > 0 ? maxcost : 12);
 	rep_end();
@@ -3668,6 +3671,40 @@ cmd_rule(const struct func *f, nid l, nid r)
 	rep_expr("to", r);
 	rep_str("proof", pr.how == EQ_SAT ? "sat" : pr.how == EQ_ALGEBRA ?
 	    "algebra" : "exhaustive");
+}
+
+/* find F saturate: the cheapest member of the body's class (egraph.c) */
+static void
+saturate_find(void)
+{
+	char stat[200];
+	static char why[300];
+	struct rwrule rr[RULE_MAX];
+	int k, base = icost(F.f.body), c;
+	nid e;
+
+	for (k = 0; k < RS.n; k++)
+		rr[k] = RS.r[k].w;
+	e = egraph_best(F.f.body, rr, RS.n, stat, sizeof stat);
+
+	if (!e) {
+		printf("  equality saturation: %s\n", stat);
+		return;
+	}
+	e = mk_cast(F.W, e);
+	c = icost(e);
+	printf("  equality saturation: %s; the cheapest member of the body's "
+	    "class costs %d, as written %d\n", stat, c, base);
+	rep_obj("saturation");
+	rep_str("graph", stat);
+	rep_num("cost", c);
+	rep_num("as_written", base);
+	rep_end();
+	if (c < base) {
+		snprintf(why, sizeof why, "by equality saturation (%s; every rule "
+		    "an identity of integers mod 2^w)", stat);
+		add_match(M_FORM, c, e, why);
+	}
 }
 
 /* find's rewrites: each kept rule at each subterm of its width */

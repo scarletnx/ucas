@@ -1,0 +1,19 @@
+# find F saturate: the body's integer arithmetic in an e-graph, every
+# rule applied to every match both ways until nothing new comes, then the
+# cheapest member of the body's class under the model
+f(a: u32, b: u32, c: u32) = a * b + a * c
+find f 1 saturate
+# 6x + 6y as one product: the rewrites by a common factor stop at 6x + 6y
+g(x: u32, y: u32) = (x << 2) + (x << 1) + y * 6
+find g 3 saturate
+# xy only through the dearer distributed form x*y + x*z - x*z; the graph
+# stops at its node limit and says so
+h(x: u32, y: u32, z: u32) = x * (y + z) - x * z
+find h 1 saturate
+# nothing cheaper: the line says what was searched
+k(x: u32, y: u32) = x + y
+find k 1 saturate
+# with the inferred rules (a << 1 => a + a under gt1030) among them
+rules infer inputs 1 width 32 cost 2
+m(x: u32, y: u32) = (x << 1) + (y << 1)
+find m 1 saturate

@@ -3682,13 +3682,14 @@ statement(struct P *p)
 				notes_flush();
 				cmd_gates(f, b, maxc, emit);
 			} else if (!strcmp(cmd, "find")) {
-				int want = 5, maxc = 0, stoke, snip;
+				int want = 5, maxc = 0, stoke, snip, saturate;
 				uint32_t fnm2 = f->name;
 				char sname[96] = "";
 				if (pk(p) == T_NUM)
 					want = (int)N.ki[number(p)];
 				maxc = opt_int(p, "max", 0);
 				stoke = accept_kw(p, "stoke");	/* then the MCMC search */
+				saturate = accept_kw(p, "saturate");
 				snip = accept_kw(p, "snippets");
 				if (snip && pk(p) == T_ID) {
 					size_t sn;
@@ -3699,7 +3700,7 @@ statement(struct P *p)
 				expect_eos(p);
 				notes_flush();
 				cmd_find(f, want, NULL, maxc, snip, sname[0] ? sname :
-				    NULL);
+				    NULL, saturate);
 				if (stoke)
 					stoke_find(func_find(fnm2));
 			} else if (!strcmp(cmd, "cost")) {
