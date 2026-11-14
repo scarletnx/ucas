@@ -136,5 +136,15 @@ float fuse_expr_cost(const struct model *m, nid root);
 void fuse_domain(const struct func *f);
 /* several expressions: what they share is covered once */
 float fuse_roots_cost(const struct model *m, const nid *roots, int nroots);
+/*
+ * What a choice between forms goes by: the cover's throughput, or under a
+ * model that lists latencies max(throughput, critical path / occupancy);
+ * path (may be NULL) gets the critical path, 0 under a model without.
+ */
+float fuse_expr_price(const struct model *m, nid root, float *path);
+float fuse_roots_price(const struct model *m, const nid *roots, int nroots,
+    float *path);
+/* a cover's critical path: its longest chain of latencies */
+float fuse_cover_path(const struct model *m, const struct fgraph *g);
 
 #endif
