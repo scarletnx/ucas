@@ -3661,6 +3661,7 @@ run_source1(const char *src, const char *file, int echo)
 			p->abs_depth = 0;
 			p->fnarg = 0;
 			p->nb = 0;
+			p->fusepat = 0;
 			fflush(stdout);
 			rep_failed();
 			if (nlp_asked)

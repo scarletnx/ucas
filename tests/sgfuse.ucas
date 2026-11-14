@@ -39,3 +39,10 @@ cost bs
 # refused: a lane input named otherwise, the lane with no lane input
 model bad1 : gt1030 { fuse q(a: int, l: lane) = a + l : 1 }
 model bad2 : gt1030 { fuse q(v: any) = sg_add(v + lane) : 1 }
+
+# a pattern that fails leaves nothing behind: a subgroup operation after
+# it under a model with no warp is still refused (it took 32 lanes)
+model bad3 : gt1030 { fuse q(a: int) = sg_add(a + zz) : 1 }
+use skl
+nowarp(x: u32 uniform) = sg_add(x)
+use gt1030
