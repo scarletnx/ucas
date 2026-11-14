@@ -37,7 +37,7 @@ approx cos(x) on [-1.5, 1.5] as f32, fma
       rounding of ap1, first order, 3 operations, relative, in u = 2^-24: worst case 24.4, probable no better (under 16 operations), expected 9.65; `error ap1 ~ F` says what each means
   2   identity  7     horner+fma  0.0005 abs               0.000501      0.0005        7    at x=0.0298695359  *
       sin(pi/2 - x), pi/2 in 2 parts: r*fma(fma(fma(-0.000144019024, s, 0.0079453513), s, -0.165668935), s, 0.999500155) where r = 1.57079637 - x - 4.37113883e-08, s = r*r
-  3   identity  3     horner+fma  0.000629 abs             0.00889       0.000629      7    at x=1.5  *
+  3   identity  3     horner+fma  0.000629 abs             0.00889       0.000629      7    at x=-1.5  *
       1 - 2 sin(x/2)^2: 1.0 - 2.0*p*p where h = 0.5*x, s = h*h, p = h*fma(-0.161985636, s, 0.999661148)
   4   Bhaskara  2/2   rational    0.00163 abs              0.0143        0.00163       8    at x=1.36944377  *
       (pi^2 - 4x^2)/(pi^2 + x^2): (9.86960411 - 4.0*x*x)/(9.86960411 + x*x)
