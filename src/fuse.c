@@ -889,6 +889,118 @@ mul_fits(int64_t a, int64_t b, int64_t *r)
 }
 
 /*
+ * An integer node's range from its operands' (sound on ideal integers
+ * below 2^62; the caller cuts it to the node's type): 1 with *lo, *hi,
+ * else 0
+ */
+static int
+node_range(const struct fgraph *G, int op, int a, int b, int c, int64_t *plo,
+    int64_t *phi)
+{
+	const int64_t big = 1LL << 61;
+	int ra = a >= 0 && G->ranged[a], rb = b >= 0 && G->ranged[b], ok = 0, j;
+	int64_t lo = 0, hi = 0, x[4];
+
+	switch (op) {
+	case O_ADD:
+		ok = ra && rb;
+		lo = ok ? G->lo[a] + G->lo[b] : 0;
+		hi = ok ? G->hi[a] + G->hi[b] : 0;
+		break;
+	case O_SUB:
+		ok = ra && rb;
+		lo = ok ? G->lo[a] - G->hi[b] : 0;
+		hi = ok ? G->hi[a] - G->lo[b] : 0;
+		break;
+	case O_MUL:
+		ok = ra && rb && mul_fits(G->lo[a], G->lo[b], &x[0]) &&
+		    mul_fits(G->lo[a], G->hi[b], &x[1]) &&
+		    mul_fits(G->hi[a], G->lo[b], &x[2]) &&
+		    mul_fits(G->hi[a], G->hi[b], &x[3]);
+		if (ok) {
+			lo = hi = x[0];
+			for (j = 1; j < 4; j++) {
+				lo = x[j] < lo ? x[j] : lo;
+				hi = x[j] > hi ? x[j] : hi;
+			}
+		}
+		break;
+	case O_AND:
+		/* with a non-negative operand: at most that operand */
+		if (ra && G->lo[a] >= 0 && rb && G->lo[b] >= 0) {
+			ok = 1;
+			hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+		} else if (ra && G->lo[a] >= 0) {
+			ok = 1;
+			hi = G->hi[a];
+		} else if (rb && G->lo[b] >= 0) {
+			ok = 1;
+			hi = G->hi[b];
+		}
+		break;
+	case O_OR: case O_XOR:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0) {
+			int64_t m = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+			int bb = bits_for((uint64_t)m);
+			ok = bb < 62;
+			hi = ok ? (1LL << bb) - 1 : 0;
+		}
+		break;
+	case O_SHR:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+		    G->hi[b] < 63) {
+			ok = 1;
+			lo = G->lo[a] >> G->hi[b];
+			hi = G->hi[a] >> G->lo[b];
+		}
+		break;
+	case O_SHL:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
+		    G->hi[b] < 61 && G->hi[a] < (big >> G->hi[b])) {
+			ok = 1;
+			lo = G->lo[a] << G->lo[b];
+			hi = G->hi[a] << G->hi[b];
+		}
+		break;
+	case O_DIV:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+			ok = 1;
+			lo = G->lo[a] / G->hi[b];
+			hi = G->hi[a] / G->lo[b];
+		}
+		break;
+	case O_MOD:
+		if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
+			ok = 1;
+			hi = G->hi[a] < G->hi[b] - 1 ? G->hi[a] : G->hi[b] - 1;
+		}
+		break;
+	case O_MIN: case O_MAX:
+		if (ra && rb) {
+			ok = 1;
+			if (op == O_MIN) {
+				lo = G->lo[a] < G->lo[b] ? G->lo[a] : G->lo[b];
+				hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
+			} else {
+				lo = G->lo[a] > G->lo[b] ? G->lo[a] : G->lo[b];
+				hi = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
+			}
+		}
+		break;
+	case O_SEL:
+		if (rb && c >= 0 && G->ranged[c]) {
+			ok = 1;
+			lo = G->lo[b] < G->lo[c] ? G->lo[b] : G->lo[c];
+			hi = G->hi[b] > G->hi[c] ? G->hi[b] : G->hi[c];
+		}
+		break;
+	}
+	*plo = lo;
+	*phi = hi;
+	return ok;
+}
+
+/*
  * Each integer node's range: its operands' intervals (sound, on ideal
  * integers below 2^62), cut to the node's type when they leave it (the
  * machine value wraps: only the type bounds it then).
@@ -897,7 +1009,7 @@ static void
 cover_ranges(struct fgraph *G, const nid *v, int cnt)
 {
 	const int64_t big = 1LL << 61;
-	int i, j;
+	int i;
 
 	G->lo = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->lo);
 	G->hi = xcalloc((size_t)(cnt ? cnt : 1), sizeof *G->hi);
@@ -907,8 +1019,8 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 		ty_t t = N.ty[g];
 		int op = N.op[g], a = G->arg[i][0], b = G->arg[i][1];
 		int c = G->arg[i][2], ok = 0;
-		int64_t lo = 0, hi = 0, x[4], tlo, thi;
-		int ra = a >= 0 && G->ranged[a], rb = b >= 0 && G->ranged[b];
+		int64_t lo = 0, hi = 0, tlo, thi;
+		int ra = a >= 0 && G->ranged[a];
 
 		if (TY_FP(t))
 			continue;
@@ -936,104 +1048,15 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 			}
 			break;
 		}
-		case O_ADD:
-			ok = ra && rb;
-			lo = ok ? G->lo[a] + G->lo[b] : 0;
-			hi = ok ? G->hi[a] + G->hi[b] : 0;
-			break;
-		case O_SUB:
-			ok = ra && rb;
-			lo = ok ? G->lo[a] - G->hi[b] : 0;
-			hi = ok ? G->hi[a] - G->lo[b] : 0;
-			break;
-		case O_MUL:
-			ok = ra && rb && mul_fits(G->lo[a], G->lo[b], &x[0]) &&
-			    mul_fits(G->lo[a], G->hi[b], &x[1]) &&
-			    mul_fits(G->hi[a], G->lo[b], &x[2]) &&
-			    mul_fits(G->hi[a], G->hi[b], &x[3]);
-			if (ok) {
-				lo = hi = x[0];
-				for (j = 1; j < 4; j++) {
-					lo = x[j] < lo ? x[j] : lo;
-					hi = x[j] > hi ? x[j] : hi;
-				}
-			}
-			break;
-		case O_AND:
-			/* with a non-negative operand: at most that operand */
-			if (ra && G->lo[a] >= 0 && rb && G->lo[b] >= 0) {
-				ok = 1;
-				hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
-			} else if (ra && G->lo[a] >= 0) {
-				ok = 1;
-				hi = G->hi[a];
-			} else if (rb && G->lo[b] >= 0) {
-				ok = 1;
-				hi = G->hi[b];
-			}
-			break;
-		case O_OR: case O_XOR:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0) {
-				int64_t m = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
-				int bb = bits_for((uint64_t)m);
-				ok = bb < 62;
-				hi = ok ? (1LL << bb) - 1 : 0;
-			}
-			break;
-		case O_SHR:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
-			    G->hi[b] < 63) {
-				ok = 1;
-				lo = G->lo[a] >> G->hi[b];
-				hi = G->hi[a] >> G->lo[b];
-			}
-			break;
-		case O_SHL:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] >= 0 &&
-			    G->hi[b] < 61 && G->hi[a] < (big >> G->hi[b])) {
-				ok = 1;
-				lo = G->lo[a] << G->lo[b];
-				hi = G->hi[a] << G->hi[b];
-			}
-			break;
-		case O_DIV:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
-				ok = 1;
-				lo = G->lo[a] / G->hi[b];
-				hi = G->hi[a] / G->lo[b];
-			}
-			break;
-		case O_MOD:
-			if (ra && rb && G->lo[a] >= 0 && G->lo[b] > 0) {
-				ok = 1;
-				hi = G->hi[a] < G->hi[b] - 1 ? G->hi[a] : G->hi[b] - 1;
-			}
-			break;
-		case O_MIN: case O_MAX:
-			if (ra && rb) {
-				ok = 1;
-				if (op == O_MIN) {
-					lo = G->lo[a] < G->lo[b] ? G->lo[a] : G->lo[b];
-					hi = G->hi[a] < G->hi[b] ? G->hi[a] : G->hi[b];
-				} else {
-					lo = G->lo[a] > G->lo[b] ? G->lo[a] : G->lo[b];
-					hi = G->hi[a] > G->hi[b] ? G->hi[a] : G->hi[b];
-				}
-			}
-			break;
-		case O_SEL:
-			if (rb && c >= 0 && G->ranged[c]) {
-				ok = 1;
-				lo = G->lo[b] < G->lo[c] ? G->lo[b] : G->lo[c];
-				hi = G->hi[b] > G->hi[c] ? G->hi[b] : G->hi[c];
-			}
-			break;
 		case O_CAST:
 			if (ra && !G->fp[a]) {
 				ok = 1;
 				lo = G->lo[a];
 				hi = G->hi[a];
 			}
+			break;
+		default:
+			ok = node_range(G, op, a, b, c, &lo, &hi);
 			break;
 		}
 		if (ok && (lo <= -big || hi >= big || (lo < 0 &&
@@ -1053,6 +1076,53 @@ cover_ranges(struct fgraph *G, const nid *v, int cnt)
 		G->hi[i] = hi;
 		G->ranged[i] = 1;
 	}
+}
+
+/*
+ * The ranges of a graph of machine integers whose types the caller gives
+ * (spirv.c's cover: tlo[i] > thi[i] for a node that is not an integer
+ * of a known width), from its constants and its operations, cut to each
+ * node's type where they leave it
+ */
+void
+fg_ranges(struct fgraph *G, const int64_t *tlo, const int64_t *thi)
+{
+	int pass, i, n = G->n ? G->n : 1;
+
+	G->lo = xcalloc((size_t)n, sizeof *G->lo);
+	G->hi = xcalloc((size_t)n, sizeof *G->hi);
+	G->ranged = xcalloc((size_t)n, 1);
+	/* the constants and the nodes priced as they are first (a caller's
+	 * leaves may come after their users), then the operations in order */
+	for (pass = 0; pass < 2; pass++)
+		for (i = 0; i < G->n; i++) {
+			int64_t lo = 0, hi = 0;
+			int ok, leaf = G->isk[i] || G->op[i] == O_NONE;
+			if (leaf != (pass == 0) || tlo[i] > thi[i] || G->fp[i])
+				continue;
+			if (G->isbool[i]) {
+				G->hi[i] = 1;
+				G->ranged[i] = 1;
+				continue;
+			}
+			if (G->isk[i]) {
+				/* a signed constant's bits: its value in the type */
+				lo = G->kv[i];
+				if (lo > thi[i] && thi[i] < (1LL << 61))
+					lo -= thi[i] - tlo[i] + 1;
+				ok = lo >= tlo[i] && lo <= thi[i];
+				hi = lo;
+			} else
+				ok = node_range(G, G->op[i], G->arg[i][0], G->arg[i][1],
+				    G->arg[i][2], &lo, &hi);
+			if (!ok || lo < tlo[i] || hi > thi[i]) {
+				lo = tlo[i];	/* the machine value wraps: its type */
+				hi = thi[i];
+			}
+			G->lo[i] = lo;
+			G->hi[i] = hi;
+			G->ranged[i] = 1;
+		}
 }
 
 /* the cover of the nodes v[0..cnt) (ascending nids: operands first) */

@@ -59,3 +59,56 @@ cost s4
 use gt1030
 cost s1
 model bad2 : gt1030 { fuse q(a: float) = -a : 0 in fadd on fmul }
+# in a shader too (#45): the cover of simplify's SPIR-V reads each
+# integer's range from its type, its constants and its operations, so a
+# product of two values masked to 16 bits or shifted down by 16 is one
+# XMAD under xmad; the mask and the shift stay (the input's width is
+# what is proved, not that the instruction reads a half).  A product of
+# full words whose low half alone is kept is not narrowed: no width is
+# proved for its operands
+use xmad
+simplify nofile nofunctions
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint x = b.d[i], y = b.d[i + 64u], z = b.d[i + 128u];
+    b.d[i + 192u] = (x & 0xffffu) * (y & 0xffffu) + z;
+    b.d[i + 256u] = ((x * y) & 0xffffu) + z;
+    b.d[i + 320u] = (x >> 16) * (y >> 16) + z;
+}
+```
+# a model whose XMAD reads the halves itself says so with patterns: the
+# masks and the shifts fold into it
+model xmadh : xmad {
+  fuse xmadlo(a: int, b: int, c: int) = (a & 65535) * (b & 65535) + c : mul16
+  fuse xmadhi(a: int, b: int, c: int) = (a >> 16) * (b >> 16) + c : mul16 }
+use xmadh
+simplify nofile nofunctions
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint x = b.d[i], y = b.d[i + 64u], z = b.d[i + 128u];
+    b.d[i + 192u] = (x & 0xffffu) * (y & 0xffffu) + z;
+    b.d[i + 320u] = (x >> 16) * (y >> 16) + z;
+}
+```
+# under gt1030, which lists no mul16, the same stays two IMADs
+use gt1030
+simplify nofile nofunctions
+```glsl
+#version 450
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer B { uint d[]; } b;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint x = b.d[i], y = b.d[i + 64u], z = b.d[i + 128u];
+    b.d[i + 192u] = (x & 0xffffu) * (y & 0xffffu) + z;
+    b.d[i + 320u] = (x >> 16) * (y >> 16) + z;
+}
+```
